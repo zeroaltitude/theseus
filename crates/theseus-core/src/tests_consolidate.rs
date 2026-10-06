@@ -158,6 +158,39 @@ async fn kestrel(core: &Arc<Core>) -> Vec<String> {
     facts
 }
 
+/// The store's last position once it has held still for a second (at most
+/// 20): an asking turn's shadow judgments (`judge.call` rows) land after the
+/// turn ends, and under load they landed during the dry run that follows.
+async fn still(core: &Core) -> u64 {
+    let mut last = core.store.last_position();
+    for _ in 0..20 {
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        let now = core.store.last_position();
+        if now == last {
+            break;
+        }
+        last = now;
+    }
+    last
+}
+
+/// The ledger rows written after `position`: each one's kind.
+fn ledger_after(core: &Core, position: u64) -> Vec<String> {
+    use theseus_store::Store as _;
+    let page = theseus_store::Page {
+        kind: theseus_store::kinds::LEDGER,
+        after: Some(position),
+        limit: 100,
+        ..Default::default()
+    };
+    let out = core.store.inner().page(&page).unwrap().unwrap_or_default();
+    out.records
+        .iter()
+        .filter_map(|r| r.decode::<LedgerRow>().ok())
+        .map(|r| r.kind)
+        .collect()
+}
+
 async fn consolidate(core: &Arc<Core>, dry_run: bool) -> MemoryConsolidateResult {
     core.memory_consolidate(
         MemoryConsolidateParams {
@@ -210,13 +243,18 @@ async fn a_cluster_becomes_one_checked_synthesis_and_a_dry_run_writes_nothing() 
     let r = rig(MemoryMode::Shadow, Some(&jev), |_| {});
     let c = &r.core;
     let facts = kestrel(c).await;
-    let before = c.store.last_position();
+    let before = still(c).await;
     let calls = r.model.requests().len();
     let dry = consolidate(c, true).await;
     assert_eq!(dry.clusters.len(), 1, "{dry:?}");
     assert_eq!(dry.clusters[0].outcome, "would_propose");
     assert_eq!(dry.clusters[0].turns, 3);
-    assert_eq!(c.store.last_position(), before, "a dry run writes nothing");
+    assert_eq!(
+        c.store.last_position(),
+        before,
+        "a dry run writes nothing: {:?}",
+        ledger_after(c, before)
+    );
     assert_eq!(r.model.requests().len(), calls, "and asks nothing");
     r.model
         .script
@@ -305,6 +343,10 @@ async fn jev_rejects_an_unsupported_sentence() {
     let checked = rows(c, LedgerKind::SynthesisChecked);
     assert_eq!(checked[0].data["verdict"], "rejected");
     assert_eq!(checked[0].data["unsupported"], serde_json::json!(["s2:2"]));
+    // Jev's rejection is not one of form: the cluster is done.
+    let again = consolidate(c, true).await;
+    assert!(again.clusters.is_empty(), "{again:?}");
+    assert_eq!(again.skipped.get("synthesized"), Some(&1));
 }
 
 /// The deterministic checks: a sentence without a citation rejects it
@@ -358,6 +400,9 @@ async fn without_jev_a_synthesis_stays_unchecked() {
             ..
         }
     ));
+    // Kept unchecked, the cluster is done.
+    let again = consolidate(c, true).await;
+    assert!(again.clusters.is_empty(), "{again:?}");
 }
 
 /// A cluster with a source that is external text (DD5) is never
@@ -688,4 +733,146 @@ async fn a_failed_call_leaves_its_cluster_for_the_next_run() {
         again.spent_today_usd > 0.0,
         "the day's spend read back from its row"
     );
+}
+
+/// The live form: the entry headed by its title, with a stop, on the
+/// entry's line. The heading is set aside: the synthesis is kept, its
+/// node's text is the entry, and Jev is asked about the entry's three
+/// sentences alone, numbered from 1; the proposed row keeps the answer
+/// whole, and the checked row names the heading.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_synthesis_headed_by_its_title_is_kept_without_it() {
+    headed_is_kept(&format!("Kestrel relay. {SYNTHESIS}"), "Kestrel relay.").await;
+}
+
+/// The same with a Markdown heading on a line of its own.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_synthesis_under_a_markdown_heading_is_kept_without_it() {
+    headed_is_kept(
+        &format!("# Kestrel relay\n\n{SYNTHESIS}"),
+        "# Kestrel relay",
+    )
+    .await;
+}
+
+async fn headed_is_kept(answer: &str, heading: &str) {
+    let jev = FakeJev::start().unwrap();
+    supports(&jev, 0.95);
+    let r = rig(MemoryMode::Shadow, Some(&jev), |_| {});
+    let c = &r.core;
+    kestrel(c).await;
+    r.model
+        .script
+        .lock()
+        .unwrap()
+        .push_back(Scripted::text(answer));
+    let out = consolidate(c, false).await;
+    let rep = &out.clusters[0];
+    assert_eq!(rep.outcome, "supported", "{out:?}");
+    assert_eq!(
+        rep.text.as_deref(),
+        Some(SYNTHESIS),
+        "the report shows the entry"
+    );
+    let kept = syntheses(c);
+    assert_eq!(kept.len(), 1);
+    let Body::Synthesis { text, .. } = &kept[0].body else {
+        unreachable!()
+    };
+    assert_eq!(text, SYNTHESIS, "the node keeps the entry");
+    let proposed = rows(c, LedgerKind::SynthesisProposed);
+    assert_eq!(
+        proposed[0].data["text"], answer,
+        "the row keeps what was said"
+    );
+    let checked = rows(c, LedgerKind::SynthesisChecked);
+    assert_eq!(checked[0].data["verdict"], "supported");
+    assert_eq!(checked[0].data["heading"], heading);
+    let asked: Vec<String> = jev.seen().iter().map(|s| s.body.to_string()).collect();
+    let citation = asked
+        .iter()
+        .find(|b| b.contains("citation.v1/supports"))
+        .unwrap();
+    assert!(citation.contains("supports.3"), "three pairs: {citation}");
+    assert!(!citation.contains("supports.4"), "three pairs: {citation}");
+    assert!(
+        citation.contains("listens on port 7714"),
+        "the entry's sentences"
+    );
+    assert!(
+        !citation.contains("Kestrel relay.") && !citation.contains("# Kestrel"),
+        "not the heading: {citation}"
+    );
+    // A second run proposes it again never.
+    let again = consolidate(c, true).await;
+    assert!(again.clusters.is_empty(), "{again:?}");
+}
+
+/// A cluster rejected for its form comes back once: an uncited answer is
+/// rejected, and a dry run lists the cluster again, saying why (never the
+/// same run: it made one call); a second uncited answer is rejected too,
+/// and a third run lists none (`synthesized`). The retry's cost is in the
+/// day's spend, from its row.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_cluster_rejected_for_its_form_comes_back_once() {
+    let jev = FakeJev::start().unwrap();
+    supports(&jev, 0.95);
+    let r = rig(MemoryMode::Shadow, Some(&jev), |_| {});
+    let c = &r.core;
+    kestrel(c).await;
+    let uncited = "The relay listens on 7714 [1]. It is fine.";
+    let calls = r.model.requests().len();
+    r.model
+        .script
+        .lock()
+        .unwrap()
+        .push_back(Scripted::text(uncited));
+    let first = consolidate(c, false).await;
+    assert_eq!(first.clusters.len(), 1, "{first:?}");
+    assert_eq!(first.clusters[0].outcome, "rejected");
+    assert_eq!(r.model.requests().len(), calls + 1, "one call this run");
+    let dry = consolidate(c, true).await;
+    assert_eq!(dry.clusters.len(), 1, "{dry:?}");
+    assert_eq!(dry.clusters[0].outcome, "would_propose");
+    let why = dry.clusters[0].why.as_deref().unwrap();
+    assert!(why.contains("sentence 2 cites no source"), "{why}");
+    r.model
+        .script
+        .lock()
+        .unwrap()
+        .push_back(Scripted::text(uncited));
+    let second = consolidate(c, false).await;
+    assert_eq!(second.clusters.len(), 1, "{second:?}");
+    assert_eq!(second.clusters[0].outcome, "rejected");
+    assert!(
+        second.spent_today_usd > first.spent_today_usd,
+        "the retry's cost is in the day's spend"
+    );
+    assert_eq!(rows(c, LedgerKind::SynthesisProposed).len(), 2);
+    let third = consolidate(c, true).await;
+    assert!(third.clusters.is_empty(), "{third:?}");
+    assert_eq!(third.skipped.get("synthesized"), Some(&1));
+    let fourth = consolidate(c, false).await;
+    assert!(fourth.clusters.is_empty(), "{fourth:?}");
+    assert_eq!(r.model.requests().len(), calls + 2, "two calls in all");
+    assert!(syntheses(c).is_empty());
+}
+
+/// A form rejection's retry that passes is kept, and the cluster is done.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_form_rejections_retry_that_passes_is_kept() {
+    let r = rig(MemoryMode::Shadow, None, |_| {});
+    let c = &r.core;
+    kestrel(c).await;
+    {
+        let mut script = r.model.script.lock().unwrap();
+        script.push_back(Scripted::text("The relay listens on 7714. It is fine [1]."));
+        script.push_back(Scripted::text(SYNTHESIS));
+    }
+    assert_eq!(consolidate(c, false).await.clusters[0].outcome, "rejected");
+    let out = consolidate(c, false).await;
+    assert_eq!(out.clusters[0].outcome, "unchecked", "{out:?}");
+    assert_eq!(syntheses(c).len(), 1);
+    let again = consolidate(c, true).await;
+    assert!(again.clusters.is_empty(), "{again:?}");
 }

@@ -4,7 +4,9 @@
 //! - **Clusters** from the newest `recall.shadow` and `recall.ran` rows, read
 //!   by kind through the store's pages (`theseus_memory::consolidate`): a
 //!   cluster synthesized before (its digest in a `synthesis.proposed` row)
-//!   is not proposed again.
+//!   is not proposed again, unless its one answer was rejected for its form
+//!   (the deterministic checks, not Jev): it is proposed once more, on a
+//!   later run ([`FORM_TRIES`]).
 //! - **The profile.** `[memory] synth_profile = "session"` (the default) is
 //!   the profile every source's session last used (`SessionRecord.last_target`,
 //!   which routing may move turn by turn): no second provider reads a
@@ -17,7 +19,10 @@
 //!   `synth_limit_usd_per_day`, the local day's spend read from its own
 //!   `synthesis.proposed` rows, so a restart keeps it.
 //! - **The checks**: the deterministic ones, then `citation.v1`
-//!   (`judge::citation`); without Jev a synthesis stays `unchecked`.
+//!   (`judge::citation`); without Jev a synthesis stays `unchecked`. Both
+//!   read the answer's entry (`theseus_memory::consolidate::entry`), a
+//!   leading heading set aside, and the node keeps the entry; the
+//!   `synthesis.proposed` row keeps the answer whole, as it was said.
 //! - **Frames.** Each cluster's records (its node and edges, its rows) are
 //!   one frame, written only between turns, through the memory pass's
 //!   writer handshake (`memory_pass::turns`, which counts its writers).
@@ -61,6 +66,9 @@ pub const ROWS: usize = 5000;
 pub const SOURCE_CHARS: usize = 1500;
 /// A synthesis's answer, at most: 120 words and their citations.
 pub const MAX_TOKENS: u32 = 600;
+/// A cluster whose every answer was rejected for its form is proposed until
+/// it has this many: one more run, at one more call.
+pub const FORM_TRIES: usize = 2;
 
 /// What the profile is told, before the sources.
 pub const INSTRUCTIONS: &str = "You write one short encyclopedia entry from numbered notes. \
@@ -280,13 +288,8 @@ impl Core {
             .filter(|r| r.at_unix_ms >= midnight)
             .map(|r| usd_to_micros(r.data["cost_usd"].as_f64().unwrap_or(0.0)))
             .sum();
-        // A cluster is done once a synthesis of it was written: a call that
-        // failed (its row has no text) leaves it for the next run.
-        let done: BTreeSet<String> = proposed
-            .iter()
-            .filter(|r| r.data["text"].as_str().is_some_and(|t| !t.is_empty()))
-            .filter_map(|r| r.data["cluster"].as_str().map(str::to_string))
-            .collect();
+        let checked = self.synthesis_rows(LedgerKind::SynthesisChecked, None)?;
+        let (done, again) = done_clusters(&proposed, &checked);
         // Where each admitted node is, and the nodes that are never sources.
         let mut at: BTreeMap<String, (String, u64)> = BTreeMap::new();
         let mut excluded = BTreeSet::new();
@@ -334,6 +337,9 @@ impl Core {
                 cluster: c.digest.clone(),
                 sources: c.nodes.clone(),
                 turns: c.turns as u64,
+                why: again.get(&c.digest).map(|w| {
+                    format!("proposed again, once: its last answer was rejected for its form ({w})")
+                }),
                 ..SynthesisReport::default()
             };
             let profile = match self.synth_profile(&sources) {
@@ -469,19 +475,25 @@ impl Core {
         *spent += cost;
         let id = crate::new_id("syn");
         report.synthesis_id = Some(id.clone());
-        report.text = Some(text.clone());
         report.cost_usd = micros_to_usd(cost);
-        let verdict = self.verdict(&id, &text, sources).await;
+        let entry = pure::entry(&text);
+        let verdict = self.verdict(&id, entry.text, sources).await;
         let session = match &verdict {
             Verdict::Checked(_) => Some(self.open_memory_session_between().await?),
             Verdict::Rejected(..) => None,
         };
         report.outcome = verdict.word().into();
         report.why = verdict.why();
+        // What was kept, or the answer refused, as it was said.
+        report.text = Some(match &verdict {
+            Verdict::Checked(_) => entry.text.to_string(),
+            Verdict::Rejected(..) => text.clone(),
+        });
         let records = self.records(
             &id,
             c,
             &text,
+            &entry,
             profile,
             &model,
             cost,
@@ -529,7 +541,8 @@ impl Core {
             .collect()
     }
 
-    /// The deterministic checks, then Jev's.
+    /// The deterministic checks, then Jev's, on an entry's text: its
+    /// sentences are numbered from 1 after its heading.
     async fn verdict(&self, id: &str, text: &str, sources: &[Source]) -> Verdict {
         let sentences = match pure::check(text, sources.len()) {
             Ok(s) => s,
@@ -574,13 +587,16 @@ impl Core {
     }
 
     /// One synthesis's frame: its node and edges (unless rejected), its
-    /// `synthesis.proposed`, `.checked`, and `.scored` rows.
+    /// `synthesis.proposed` (the answer whole), `.checked` (the heading set
+    /// aside, if any), and `.scored` rows; the node and the score are the
+    /// entry's.
     #[allow(clippy::too_many_arguments)]
     fn records(
         &self,
         id: &str,
         c: &pure::Cluster,
-        text: &str,
+        answer: &str,
+        entry: &pure::Entry<'_>,
         profile: &str,
         model: &str,
         cost: Micros,
@@ -599,7 +615,7 @@ impl Core {
             cluster: &c.digest,
             sources: &c.nodes,
             turns: c.turns as u64,
-            text,
+            text: answer,
             profile,
             model,
             cost_usd: micros_to_usd(cost),
@@ -640,13 +656,14 @@ impl Core {
             mode,
             why,
             unsupported: bad,
+            heading: entry.heading,
         };
         out.push(key(crate::fact::row(&checked, None, None)?));
         let (Verdict::Checked(check), Some(session)) = (verdict, session) else {
             return Ok(out);
         };
         let body = Body::Synthesis {
-            text: text.to_string(),
+            text: entry.text.to_string(),
             sources: c.nodes.clone(),
             check: check.clone(),
             stage: Stage::of(check),
@@ -661,7 +678,7 @@ impl Core {
         for s in &c.nodes {
             out.push(Edge::new(EdgeKind::DerivedFrom, id, s, VIA_SYNTHESIS).record()?);
         }
-        let scored = score(&c.nodes, text, rows, self.runner.memory.cfg());
+        let scored = score(&c.nodes, entry.text, rows, self.runner.memory.cfg());
         if !scored.is_empty() {
             let f = SynthesisScored {
                 synthesis_id: id,
@@ -774,6 +791,59 @@ impl Verdict {
             Verdict::Checked(CitationCheck::Supported { .. }) => None,
         }
     }
+}
+
+/// The clusters synthesized before, and those proposed again with the fault
+/// of their last answer. A cluster is done once a call of it answered (a
+/// failed call's row has no text, and counts as nothing), unless every
+/// answer was rejected for its form (its `synthesis.checked` row `rejected`
+/// with no `judgment`: the deterministic checks, never Jev) and there are
+/// fewer than [`FORM_TRIES`]. Jev's rejection, a kept synthesis, or an
+/// answer with no checked row leaves it done.
+fn done_clusters(
+    proposed: &[LedgerRow],
+    checked: &[LedgerRow],
+) -> (BTreeSet<String>, BTreeMap<String, String>) {
+    let form: BTreeMap<&str, &str> = checked
+        .iter()
+        .filter(|r| r.data["verdict"] == "rejected" && r.data["judgment"].is_null())
+        .filter_map(|r| {
+            let id = r.data["synthesis_id"].as_str()?;
+            Some((id, r.data["why"].as_str().unwrap_or("its form")))
+        })
+        .collect();
+    // Each cluster's answers, and the fault of its last one if every one
+    // was rejected for its form (oldest first, so the last is the newest).
+    let mut answers: BTreeMap<&str, (usize, Option<&str>)> = BTreeMap::new();
+    for r in proposed
+        .iter()
+        .filter(|r| r.data["text"].as_str().is_some_and(|t| !t.is_empty()))
+    {
+        let Some(cluster) = r.data["cluster"].as_str() else {
+            continue;
+        };
+        let fault = r.data["synthesis_id"].as_str().and_then(|id| form.get(id));
+        let (n, last) = answers.entry(cluster).or_insert((0, None));
+        *last = if *n == 0 || last.is_some() {
+            fault.copied()
+        } else {
+            None
+        };
+        *n += 1;
+    }
+    let mut done = BTreeSet::new();
+    let mut again = BTreeMap::new();
+    for (cluster, (n, last)) in answers {
+        match last {
+            Some(why) if n < FORM_TRIES => {
+                again.insert(cluster.to_string(), why.to_string());
+            }
+            _ => {
+                done.insert(cluster.to_string());
+            }
+        }
+    }
+    (done, again)
 }
 
 /// Whether a node is external text (DD5).
