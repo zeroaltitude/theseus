@@ -36,6 +36,7 @@ use tokio::net::UnixListener;
 
 mod install;
 mod mcp;
+mod stdio;
 mod web;
 
 const AFTER_HELP: &str = "\
@@ -261,17 +262,16 @@ fn main() -> Result<()> {
         Exit::Done => {
             // The runtime's tasks go, and with them the store, which closes
             // (redb's close, logged by the index): each timed (theseus-26r).
-            if stdio {
-                // A `--stdio` daemon reads stdin on a blocking thread, which
-                // only the client's end of the pipe ends: a stop by a signal
-                // while the client holds it open would wait on it for ever
-                // (theseus-p7q). The tasks go, and the store closes, within
-                // this bound; the read is left behind, and the process ends.
-                rt.shutdown_timeout(Duration::from_millis(500));
-            } else {
-                drop(rt);
-            }
+            // A `--stdio` daemon's pipes are relayed by threads outside the
+            // runtime (theseus-xbtr), so its drop waits for no read of
+            // stdin, and the store closes before the process ends.
+            drop(rt);
             stop_phase("runtime dropped");
+            if stdio {
+                // What the core wrote last, the stop's answer included,
+                // reaches stdout.
+                stdio::flush(Duration::from_millis(500));
+            }
             Ok(())
         }
         Exit::Exec(var, value) => {
@@ -557,8 +557,8 @@ async fn daemon(cli: Cli, lookup: Lookup, origin: Instant) -> Result<Exit> {
         let mut sigint = signal(SignalKind::interrupt())?;
         let mut sigterm = signal(SignalKind::terminate())?;
         tokio::spawn(after_serving(core.clone(), keep, None, state_dir, mode));
-        let stdin = tokio::io::stdin();
-        let stdout = tokio::io::stdout();
+        stdio::planted_hold(&core);
+        let (stdin, stdout) = stdio::pipes()?.into_split();
         // The one client is whoever holds the pipes: the parent that spawned
         // this daemon.
         let conn = core

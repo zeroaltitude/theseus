@@ -471,9 +471,15 @@ impl Rig {
     /// A `--stdio` daemon on this rig's state dir (its store is
     /// `state/store-stdio`), and its client, once it answers.
     fn spawn_stdio(&self) -> (Daemon, StdioClient) {
+        self.spawn_stdio_with(&[])
+    }
+
+    /// `spawn_stdio`, with `env` set for the daemon.
+    fn spawn_stdio_with(&self, env: &[(&str, &str)]) -> (Daemon, StdioClient) {
         let mut d = Daemon::spawn(
             self.command()
                 .arg("--stdio")
+                .envs(env.iter().copied())
                 .stdin(Stdio::piped())
                 .stdout(Stdio::piped()),
         );
@@ -489,18 +495,11 @@ impl Rig {
     }
 }
 
-/// A `--stdio` daemon takes SIGTERM and SIGINT the way the socket daemon does
-/// (theseus-p7q): it exits 0 on the clean path, with its `server.stopping` row
-/// naming the signal, and the next open of its store replays nothing and
-/// repairs nothing. A signal used to end it outright: no row, no checkpoint.
-#[test]
-fn a_stdio_daemon_stops_cleanly_on_a_sigterm_or_a_sigint() {
-    let rig = Rig::new();
-    let (mut d, mut c) = rig.spawn_stdio();
-    for signal in ["SIGTERM", "SIGINT"] {
-        // Everything a start writes is written: the history check's end, and
-        // this start's driver.
-        rig.wait("the history check and the driver", || {
+impl Rig {
+    /// Everything a `--stdio` start writes is written: the history check's
+    /// end, and this start's driver.
+    fn stdio_settled(&self, c: &mut StdioClient) {
+        self.wait("the history check and the driver", || {
             let h = c.call("health", Value::Null).ok()?;
             h["startup"]
                 .as_array()?
@@ -514,6 +513,38 @@ fn a_stdio_daemon_stops_cleanly_on_a_sigterm_or_a_sigint() {
                 .any(|r| r["kind"] == "driver.started")
                 .then_some(())
         });
+    }
+
+    /// This `--stdio` start's open of its store replayed nothing and
+    /// repaired nothing: the last stop closed it.
+    fn stdio_replayed_nothing(&self, c: &mut StdioClient, after: &str) {
+        let h = c.call("health", Value::Null).unwrap();
+        let s = h["startup"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|p| p["name"] == "store")
+            .map(|p| p["detail"].clone())
+            .unwrap();
+        assert_eq!(
+            (&s["replayed_into_index"], &s["index_repaired"]),
+            (&json!(0), &json!(false)),
+            "{after}: {s}; the log ends:\n{}",
+            tail(&self.log(), 40)
+        );
+    }
+}
+
+/// A `--stdio` daemon takes SIGTERM and SIGINT the way the socket daemon does
+/// (theseus-p7q): it exits 0 on the clean path, with its `server.stopping` row
+/// naming the signal, and the next open of its store replays nothing and
+/// repairs nothing. A signal used to end it outright: no row, no checkpoint.
+#[test]
+fn a_stdio_daemon_stops_cleanly_on_a_sigterm_or_a_sigint() {
+    let rig = Rig::new();
+    let (mut d, mut c) = rig.spawn_stdio();
+    for signal in ["SIGTERM", "SIGINT"] {
+        rig.stdio_settled(&mut c);
         let sent = std::process::Command::new("kill")
             .args([format!("-{}", &signal[3..]), d.id().to_string()])
             .status()
@@ -526,16 +557,7 @@ fn a_stdio_daemon_stops_cleanly_on_a_sigterm_or_a_sigint() {
             tail(&rig.log(), 20)
         );
         (d, c) = rig.spawn_stdio();
-        let h = c.call("health", Value::Null).unwrap();
-        let s = h["startup"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .find(|p| p["name"] == "store")
-            .map(|p| p["detail"].clone())
-            .unwrap();
-        assert_eq!(s["replayed_into_index"], 0, "{signal}: {s}");
-        assert_eq!(s["index_repaired"], false, "{signal}: {s}");
+        rig.stdio_replayed_nothing(&mut c, signal);
         let rows = c.call("ledger.tail", json!({"n": 200})).unwrap();
         let stopping: Vec<&Value> = rows["rows"]
             .as_array()
@@ -549,6 +571,35 @@ fn a_stdio_daemon_stops_cleanly_on_a_sigterm_or_a_sigint() {
             "{stopping:?}"
         );
     }
+}
+
+/// A `--stdio` daemon's stop while a task on the runtime's blocking pool
+/// still holds the core (theseus-xbtr): the plant holds it 1.5 s past the
+/// stop's start, as a warm build can on a loaded machine. The runtime's end
+/// used to give such a task 500 ms, then end the process with the store
+/// open: redb never closed, the stop's last checkpoint was lost with it, and
+/// the next start replayed the whole run. Now the end waits for it, and the
+/// next start replays nothing.
+#[test]
+fn a_stdio_daemons_stop_waits_for_a_task_that_holds_the_core() {
+    let rig = Rig::new();
+    let (mut d, mut c) = rig.spawn_stdio_with(&[("THESEUS_TEST_HOLD_CORE_MS", "1500")]);
+    rig.stdio_settled(&mut c);
+    let sent = std::process::Command::new("kill")
+        .args(["-INT", &d.id().to_string()])
+        .status()
+        .unwrap();
+    assert!(sent.success());
+    let t0 = Instant::now();
+    let status = rig.wait("the stop", || d.try_wait());
+    let took = t0.elapsed();
+    assert!(status.success(), "{status}: {}", tail(&rig.log(), 20));
+    let (_d, mut c) = rig.spawn_stdio();
+    rig.stdio_replayed_nothing(&mut c, "a stop with the core held");
+    assert!(
+        took >= Duration::from_millis(1500),
+        "the stop waited for the held core: {took:?}"
+    );
 }
 
 /// A start at once after a stop (theseus-qa0 F4b). `shutdown` answers before

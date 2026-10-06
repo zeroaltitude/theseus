@@ -102,5 +102,11 @@ Key modules: `main.rs`, `web.rs`, `install/`. Read by: (a binary).
   file.
 - A daemon test's live peer is traced through `/proc`: run inside a job, an approval it sends is refused. Such tests
   skip that part inside a job, and say so on stderr.
+- A `--stdio` daemon's pipes are copied by two plain threads to and from a socket pair (`src/stdio.rs`,
+  theseus-xbtr), never read by tokio's stdin: that read sits on the runtime's blocking pool until the client closes
+  its end, so the runtime could only be shut down with a bound, and a task still holding the core past it left the
+  store open as the process ended (redb unclosed, the stop's last checkpoint lost, the whole run replayed). The
+  runtime's drop now waits for its tasks in both modes. `THESEUS_TEST_HOLD_CORE_MS` (a debug build's plant) holds
+  the core past a stop's start, for `tests/versions.rs`.
 - A start right after a stop waits up to 3 s for the store's lock. A check that reads the store's files waits for
   the old process to exit first.
