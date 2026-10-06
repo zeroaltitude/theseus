@@ -32,7 +32,7 @@ planted revert to `StringLike` used to "fail" four tests.
 - The two tests that asserted `StringLikeIfExists` (`the_tender_session_is_narrowed_to_its_prefix_and_its_rows`,
   `the_restore_session_only_reads_and_nothing_is_fetched_while_a_daemon_serves`) now assert `StringLike`. I rewrote
   the doc comment of `a_missing_blob_and_a_gap_are_said`.
-- New file `aws/tests_list_prefix.rs`. I kept the test files separate because `tests_durable.rs` is already 1,277
+- New file `aws/tests_list_prefix.rs`. I kept the test files separate because `tests_durable.rs` is already 1,276
   lines.
   - `the_tender_session_lists_only_its_own_prefix` and `the_restore_session_lists_only_its_own_prefix`: a list under
     the session's prefix (the prefix itself, `…/wal/`, a key) is allowed. A list with no prefix is refused, and so are
@@ -125,8 +125,8 @@ so nothing changed in the daemon.
 
 `TZ=America/Phoenix THESEUS_GATE_NO_BENCH=1 scripts/gate.sh` ran once on the whole tree of all three steps, before the
 commits. The fmt, shape, features, clippy, cockpit, test build and reader rule phases passed. The suite ran 2,828
-tests: 2,795 passed and **33 failed**. All 33 are the known L1-as-root cases (theseus-pv6i): 21 of theseus-sandbox's
-contract tests, its bench `spawn_100`, and 11 of theseusd's `sandbox` tests. Nothing else failed, and no test was
+tests: 2,795 passed and **33 failed**. All 33 are the known L1-as-root cases (theseus-pv6i): 19 of theseus-sandbox's
+contract tests, its bench `spawn_100`, and 13 of theseusd's `sandbox` tests. Nothing else failed, and no test was
 retried; the core's golden passed under the TZ.
 
 I ran the phases after the suite by hand, and all passed: protocol types (no change under `cockpit/src/protocol.gen`),
