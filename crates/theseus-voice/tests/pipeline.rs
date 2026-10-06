@@ -242,7 +242,9 @@ async fn a_barge_in_stops_playback_within_300_ms() {
             &fixture(dir.path(), "wait", &[(true, 600)]),
         )
         .unwrap();
-    let speech = Arc::new(StandInSpeech::new());
+    // Robin's "hm" is a backchannel: it would resume a stop, and its 200 ms
+    // makes none. Eddie's words (the stand-in's `[utterance 0.6 s]`) cut.
+    let speech = Arc::new(StandInSpeech::new().transcript(ROBIN, "hm"));
     let reply = "This first sentence of a long reply runs on for a good few seconds. \
                  This second sentence is never heard.";
     let answer: Answer = Box::new(move |turn, _| match turn {
@@ -252,7 +254,7 @@ async fn a_barge_in_stops_playback_within_300_ms() {
     let (seen, played) = call(io, Config::new([EDDIE, ROBIN]), speech, answer, vec![]).await;
 
     // The first sentence started at 1.2 s, and stopped 300 ms into Eddie's
-    // speech; the second never played.
+    // speech; held, it never played again, and the second never played.
     assert_eq!(played.len(), 1, "{played:?}");
     assert_eq!(played[0].started, ms(1200));
     assert!(played[0].stopped);
@@ -263,10 +265,12 @@ async fn a_barge_in_stops_playback_within_300_ms() {
         .iter()
         .filter(|(_, e)| matches!(e, Event::BargeIn { .. }))
         .collect();
+    // The barge-in is the commit: when Eddie's words are known, at his
+    // utterance's close and transcript (2.6 s of speech end, plus 700 ms).
     assert_eq!(
         barge_ins,
         [&(
-            ms(2300),
+            ms(3300),
             Event::BargeIn {
                 speaker: EDDIE,
                 what: Spoken::Reply(TurnId(0)),
