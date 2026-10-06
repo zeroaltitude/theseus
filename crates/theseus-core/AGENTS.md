@@ -371,7 +371,9 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     `learning.report` are `rpc/learning.rs`; the run writes its labels, `judge.report` rows and the run's META mark
     in one frame, then `<state>/learning/<date>.json`. The mark keeps the last position the run read (`through`),
     and the next run's rules read no judgment whose windows closed before it (`system::Cut`, `open_ms`: its
-    session's nodes, its call's action, the task briefs; theseus-cf5c), and log how many sessions they read.
+    session's nodes, its call's action, the task briefs; theseus-cf5c), and log how many sessions they read. The
+    mark's `cut_ms` is where the next run cuts: the run's clock, never past the newest judgment it read, so a clock
+    that read ahead closes no open window (theseus-gf8j); a mark without it walks everything once.
     Tests: `tests_learning.rs`, `learning::*::tests`.
   - **Routing** (step 25e, theseus-0j2.11): `route.v1` rides the inbound point's request, live while `[judge]`
     is on (`[routing]`, `config/routing.rs`, lowers it). Its verdict comes back over a oneshot (`RouteWait`), and
