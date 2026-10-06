@@ -220,8 +220,9 @@ function ShipView({ data, onFail }: { data: ShipData; onFail: OnFail }) {
       onFrame: (moved) => {
         labels.current?.update(engine, selRef.current, hoverRef.current)
         if (moved) minimap.current?.draw()
-        // The depth gauge: how big the biggest vessel near the middle of the view is. A vessel is near it when the
-        // nearest point of its keel is (close in on a long ship's bow, its centre is off the screen).
+        // The depth gauge: how big the biggest vessel on the screen is. A vessel is on it when any point along its keel
+        // is (close in on a long ship's bow, its centre is off the screen; close on an oar, both its ends are), and its
+        // size is measured at the keel's point nearest the middle.
         const m = engine.model
         if (!m || !host.current) return
         const W = host.current.clientWidth
@@ -231,15 +232,17 @@ function ShipView({ data, onFail }: { data: ShipData; onFail: OnFail }) {
           const now = engine.vesselNow(i)
           const hx = Math.cos(now.heading) * v.length * 0.5
           const hz = Math.sin(now.heading) * v.length * 0.5
-          const a = engine.project(now.x - hx, 0, now.z - hz)
-          const b = engine.project(now.x + hx, 0, now.z + hz)
-          if (!a.on && !b.on) return
-          const dx = b.x - a.x
-          const dy = b.y - a.y
-          const t = Math.max(0, Math.min(1, ((W / 2 - a.x) * dx + (H / 2 - a.y) * dy) / Math.max(1e-6, dx * dx + dy * dy)))
-          const near = { x: a.x + dx * t, y: a.y + dy * t }
-          if (Math.abs(near.x - W / 2) > W * 0.35 || Math.abs(near.y - H / 2) > H * 0.4) return
-          px = Math.max(px, v.length * engine.pixelsPerUnit(now.x - hx + 2 * hx * t, now.z - hz + 2 * hz * t))
+          let best = Infinity
+          let at = 0
+          for (let k = 0; k <= 16; k++) {
+            const t = k / 16
+            const p = engine.project(now.x - hx + 2 * hx * t, 0, now.z - hz + 2 * hz * t)
+            if (!p.on || p.x < 0 || p.x > W || p.y < 0 || p.y > H) continue
+            const d = Math.hypot(p.x - W / 2, p.y - H / 2)
+            if (d < best) { best = d; at = t }
+          }
+          if (best === Infinity) return
+          px = Math.max(px, v.length * engine.pixelsPerUnit(now.x - hx + 2 * hx * at, now.z - hz + 2 * hz * at))
         })
         const d = depthOf(px, inspectorRef.current)
         setDepth((x) => (x === d ? x : d))
