@@ -54,3 +54,62 @@ async fn an_edit_that_starts_its_server_waits_in_a_turn_as_proc_run_would() {
     let (text, _) = crate::tests_lsp_edits::result_of(&r.core, &shared, "e1");
     assert!(text.starts_with("Replaced 1 occurrence"), "it ran: {text}");
 }
+
+/// `policy.explain` names L3 (theseus-t2xr): an `fs.edit` explained in a
+/// private place with a `start_on_edit` server and `[lsp] edit_diagnostics`
+/// on shows the `lsp` row where the start raised its posture, and the
+/// `lsp_start` condition; without `start_on_edit` it shows neither.
+#[tokio::test]
+async fn explain_names_an_edits_server_start_and_what_it_raised() {
+    let explained = |start: bool| {
+        let r = rig(vec![], FakeConfig::default(), |cfg, _| {
+            cfg.policy.tools.insert("fs.edit".into(), Posture::Open);
+            cfg.policy.tools.insert("proc.run".into(), Posture::Approve);
+            cfg.lsp.servers.get_mut("fake").unwrap().start_on_edit = Some(start);
+            // The presets that start on an edit by default stay out of it.
+            for preset in crate::lsp::START_ON_EDIT {
+                cfg.lsp
+                    .servers
+                    .entry(preset.into())
+                    .or_default()
+                    .start_on_edit = Some(false);
+            }
+        });
+        let res = r
+            .core
+            .policy_explain(theseus_protocol::PolicyExplainParams {
+                session_id: None,
+                tool: Some("fs.edit".into()),
+            })
+            .unwrap();
+        let cli = res.places.into_iter().find(|p| p.place == "cli").unwrap();
+        (r, cli.tools.into_iter().next().unwrap())
+    };
+    let (_r, on) = explained(true);
+    assert_eq!(on.result, "approve", "{}", on.reason);
+    assert!(on.reason.contains("starts fake on"), "{}", on.reason);
+    let row = on.layers.iter().find(|l| l.layer == "lsp");
+    assert!(
+        row.is_some_and(|l| l.raised && l.result == "approve"),
+        "{:?}",
+        on.layers
+    );
+    let cond = on.conditions.iter().find(|c| c.layer == "lsp_start");
+    assert!(
+        cond.is_some_and(|c| c.entries == ["fake"]),
+        "{:?}",
+        on.conditions
+    );
+    let (_r, off) = explained(false);
+    assert_eq!(off.result, "open", "{}", off.reason);
+    assert!(
+        off.layers.iter().all(|l| l.layer != "lsp"),
+        "{:?}",
+        off.layers
+    );
+    assert!(
+        off.conditions.iter().all(|c| c.layer != "lsp_start"),
+        "{:?}",
+        off.conditions
+    );
+}

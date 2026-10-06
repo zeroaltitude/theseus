@@ -180,7 +180,7 @@ impl Core {
     fn explain_tool(&self, s: &Scene, tool: &dyn Tool) -> ToolExplain {
         let rt = &self.tools;
         let name = tool.name();
-        let plan = probe(rt, s.view, tool);
+        let plan = edit_probe(self, s.view.class, tool, probe(rt, s.view, tool));
         let mut layers = Vec::new();
         let rule_offers = crate::places::offered(s.view.class, name, &rt.public_roots);
         layers.push(ExplainLayer {
@@ -251,6 +251,10 @@ impl Core {
         if tool.family() == "lsp" {
             conditions.push(lsp_condition(self));
         }
+        let starting = starts_on_edit(self, s.view.class, tool);
+        if !starting.is_empty() {
+            conditions.push(edit_start_condition(self, &starting));
+        }
         ToolExplain {
             tool: name.into(),
             class: tool.class().as_str().into(),
@@ -302,6 +306,18 @@ impl Core {
                 "a call on a root whose language server has started takes its own posture".into(),
                 None,
             )],
+            // L3: an edit that starts its file's server, judged as proc.run
+            // (theseus-t2xr); a row only where it raised the posture.
+            Layer::Lsp
+                if !starts_on_edit(self, s.view.class, tool).is_empty()
+                    && before.is_some_and(|b| after.posture > b) =>
+            {
+                vec![row(
+                    "lsp",
+                    "an edit that starts its file's language server is judged as proc.run for the server's argv, and takes the stricter posture (L3)".into(),
+                    Some("[lsp.servers.<name>] start_on_edit, and proc.run's posture".into()),
+                )]
+            }
             Layer::Lsp | Layer::SharedFetch | Layer::Glide => return None,
             Layer::Floor => vec![row(
                 "floor",
@@ -634,6 +650,64 @@ fn lsp_condition(core: &Core) -> ExplainCondition {
             "the call starts its language server on a root for the first time in this daemon's life"
                 .into(),
         entries: Vec::new(),
+        then: format!(
+            "at least proc.run's posture for the server's argv ({}, {})",
+            now.posture.as_str(),
+            now.setting
+        ),
+    }
+}
+
+/// The configured language servers an edit by `tool` in a place of `class`
+/// can start (L3): an edit tool (`lsp::edits::EDITS`, not `lsp.rename`,
+/// which is L2's) in a private place, with `[lsp] edit_diagnostics` on and a
+/// server whose `start_on_edit` is.
+fn starts_on_edit(core: &Core, class: PlaceClass, tool: &dyn Tool) -> Vec<crate::lsp::Spec> {
+    let edit = crate::lsp::edits::EDITS.contains(&tool.name()) && tool.family() != "lsp";
+    if !edit
+        || class != PlaceClass::Private
+        || core.tools.lsp.is_none()
+        || !core.cfg.lsp.edit_diagnostics
+    {
+        return Vec::new();
+    }
+    crate::lsp::Spec::all(&core.cfg.lsp)
+        .into_iter()
+        .filter(|s| s.start_on_edit && !s.extensions.is_empty())
+        .collect()
+}
+
+/// `plan` for an edit, its file one of a type the first such server serves
+/// (a directory has no server), so the order's L3 step judges a start as it
+/// does an edit's real file.
+fn edit_probe(core: &Core, class: PlaceClass, tool: &dyn Tool, mut plan: Plan) -> Plan {
+    let Some(ext) = starts_on_edit(core, class, tool)
+        .first()
+        .and_then(|s| s.extensions.first().cloned())
+    else {
+        return plan;
+    };
+    for r in plan
+        .resources
+        .iter_mut()
+        .filter(|r| r.access == Access::Write)
+    {
+        r.path = r
+            .path
+            .join(format!("explain-probe.{}", ext.trim_start_matches('.')));
+    }
+    plan
+}
+
+/// An edit that starts its file's language server (L3).
+fn edit_start_condition(core: &Core, servers: &[crate::lsp::Spec]) -> ExplainCondition {
+    let now = core.tools.posture_now("proc.run");
+    ExplainCondition {
+        layer: "lsp_start".into(),
+        when: "the edit is of a file whose language server has not started on its root in this \
+               daemon's life, and its server starts on an edit"
+            .into(),
+        entries: servers.iter().map(|s| s.name.clone()).collect(),
         then: format!(
             "at least proc.run's posture for the server's argv ({}, {})",
             now.posture.as_str(),
