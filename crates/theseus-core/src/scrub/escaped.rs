@@ -26,11 +26,16 @@ struct Escape {
 const LEVELS: usize = 2;
 
 /// Where each value appears in `text` once its escapes are decoded, once or
-/// twice, as byte ranges of the text, each with the value's name. The
+/// twice, and where a needle of its base64 appears in a decoded run that an
+/// escape broke, as byte ranges of the text, each with the value's name. The
 /// verbatim pass has already taken every match with no escape in it. An
 /// output with no backslash costs one scan for it, and a second decode runs
 /// only when the first leaves a backslash.
-pub(super) fn spans<'a>(text: &str, values: &[(&str, &'a str)]) -> Vec<(usize, usize, &'a str)> {
+pub(super) fn spans<'a>(
+    text: &str,
+    values: &[(&str, &'a str)],
+    needles: &[(String, &'a str)],
+) -> Vec<(usize, usize, &'a str)> {
     if values.is_empty() || !text.contains('\\') {
         return Vec::new();
     }
@@ -48,7 +53,7 @@ pub(super) fn spans<'a>(text: &str, values: &[(&str, &'a str)]) -> Vec<(usize, u
             break;
         }
         levels.push((decoded, escapes));
-        let decoded = &levels[levels.len() - 1].0;
+        let (decoded, escapes) = &levels[levels.len() - 1];
         // A range of this level's text, as a range of the output.
         let back = |a: usize, b: usize| {
             levels
@@ -64,8 +69,29 @@ pub(super) fn spans<'a>(text: &str, values: &[(&str, &'a str)]) -> Vec<(usize, u
                 out.push((a, b, *name));
             }
         }
+        // Base64 wrapped by escaped line breaks, or holding PHP's `\/`
+        // (theseus-cjyt): only a run with one of this level's escapes inside
+        // it, since the level before read every other run as it is.
+        let inside = |run: std::ops::Range<usize>| {
+            let k = escapes.partition_point(|e| e.dec < run.start);
+            escapes.get(k).is_some_and(|e| e.dec < run.end)
+        };
+        for (a, b, name) in super::base64_spans(decoded, needles, inside) {
+            let (a, b) = back(a, b);
+            out.push((a, b, name));
+        }
     }
     out
+}
+
+/// Whether the byte at `i` is the letter of an escape: after an odd count of
+/// backslashes, the last of which starts one.
+pub(super) fn is_escape_letter(b: &[u8], i: usize) -> bool {
+    if i == 0 || b[i - 1] != b'\\' {
+        return false;
+    }
+    let slashes = b[..i].iter().rev().take_while(|c| **c == b'\\').count();
+    slashes % 2 == 1 && escape_at(b, i - 1).is_some()
 }
 
 /// The text with each escape decoded, and the escapes, in order. A backslash

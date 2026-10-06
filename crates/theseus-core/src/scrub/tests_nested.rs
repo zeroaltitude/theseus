@@ -234,3 +234,92 @@ fn a_value_in_pythons_repr_is_withheld() {
         )
     );
 }
+
+/// GitHub's contents API returns a file as base64 with a line break every 60
+/// characters, and JSON writes each as `\n` (theseus-cjyt): a value's base64
+/// inside it, at each of the three offsets, in one line and across a wrap,
+/// withheld with the lines it touches. So with `\r\n`, and with PHP's `\/`.
+#[test]
+fn a_values_base64_wrapped_by_escaped_line_breaks_is_withheld() {
+    use base64::Engine as _;
+    const PLAIN: &str = "Inv3nted/Value+For~Tests?x=1";
+    let s = Scrubber::with_values(vec![
+        (PLAIN.into(), "plain".into()),
+        (VALUES[0].0.into(), VALUES[0].1.into()),
+    ]);
+    let file = |content: &str| serde_json::json!({ "name": "notes.txt", "content": content, "encoding": "base64" });
+    for (v, name) in [(PLAIN, "plain"), VALUES[0]] {
+        // Before it: 3 to 5 bytes, so it sits in the first line; 30 to 32, so
+        // it crosses the first wrap; 95 to 97, so it sits in the third line,
+        // after an escape. Each set of three is every offset.
+        for before in [3, 4, 5, 30, 31, 32, 95, 96, 97] {
+            let bytes = format!("{}{v}{}", "x".repeat(before), "y".repeat(70));
+            let enc = base64::engine::general_purpose::STANDARD.encode(&bytes);
+            let lines: Vec<&str> = enc
+                .as_bytes()
+                .chunks(60)
+                .map(|c| std::str::from_utf8(c).unwrap())
+                .collect();
+            // The characters that hold the value's own bits, and their lines.
+            let first = (8 * before).div_ceil(6) / 60;
+            let last = (8 * (before + v.len()) / 6 - 1) / 60;
+            let mut kept: Vec<String> = lines[..first].iter().map(|l| l.to_string()).collect();
+            kept.push(marker(name));
+            kept.extend(lines[last + 1..].iter().map(|l| l.to_string()));
+            for (lf, php) in [("\n", false), ("\r\n", false), ("\n", true)] {
+                let show = |lines: &[String]| {
+                    let t = serde_json::to_string(&file(&format!("{}\n", lines.join(lf)))).unwrap();
+                    if php {
+                        t.replace('/', "\\/")
+                    } else {
+                        t
+                    }
+                };
+                let all: Vec<String> = lines.iter().map(|l| l.to_string()).collect();
+                let text = show(&all);
+                let (out, n) = s.scrub(&text);
+                assert_eq!(
+                    (out.as_str(), n),
+                    (show(&kept).as_str(), 1),
+                    "{name}, {before} before, {lf:?}, php {php}: {text}"
+                );
+            }
+        }
+    }
+}
+
+/// `json.dumps` of `base64.encodebytes`, a line break every 76 characters,
+/// and a PEM held in a JSON string, a line break every 64.
+#[test]
+fn a_values_base64_in_encodebytes_or_a_pem_in_json_is_withheld() {
+    use base64::Engine as _;
+    let s = Scrubber::with_values(vec![("Inv3nted/Value+For~Tests?x=1".into(), "demo".into())]);
+    for width in [76, 64] {
+        let enc = base64::engine::general_purpose::STANDARD.encode(format!(
+            "{}Inv3nted/Value+For~Tests?x=1{}",
+            "x".repeat(120),
+            "y".repeat(60)
+        ));
+        let body: Vec<&str> = enc
+            .as_bytes()
+            .chunks(width)
+            .map(|c| std::str::from_utf8(c).unwrap())
+            .collect();
+        let text = serde_json::json!({ "cert": format!("-----BEGIN CERTIFICATE-----\n{}\n-----END CERTIFICATE-----\n", body.join("\n")) }).to_string();
+        let (out, n) = s.scrub(&text);
+        assert_eq!(n, 1, "{out}");
+        assert!(
+            out.contains("[redacted:demo]") && out.contains(body[0]),
+            "{out}"
+        );
+        assert!(out.contains(body[body.len() - 1]), "{out}");
+        let back: serde_json::Value = serde_json::from_str(&out).unwrap();
+        assert!(
+            back["cert"]
+                .as_str()
+                .unwrap()
+                .contains("\n[redacted:demo]\n"),
+            "{out}"
+        );
+    }
+}
