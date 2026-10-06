@@ -169,7 +169,10 @@ async fn before_the_warm_read_a_judged_turn_reads_and_writes_nothing_of_the_ladd
 }
 
 /// On a fresh store the warm read writes the three adoptions, between
-/// turns: none while a turn runs, all once it has ended.
+/// turns: none while a turn runs, all once it has ended and a quiet stretch
+/// has passed. The turn is held well past the warm read's own quiet stretch
+/// after serving (its 500 ms sleep), so a read that only slept, and never
+/// waited for the turn, writes inside it and fails here (theseus-3bl9).
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_warm_reads_adoptions_wait_for_a_moment_between_turns() {
     let dir = tempfile::tempdir().unwrap();
@@ -185,8 +188,18 @@ async fn the_warm_reads_adoptions_wait_for_a_moment_between_turns() {
     let running = c.runner.pass.turns().begin().await;
     c.warm_ladder();
     until("the warm read", || c.runner.judge.ladder_read()).await;
-    tokio::time::sleep(Duration::from_millis(300)).await;
-    assert_eq!(pack_modes(&c), 0, "no adoption while a turn runs");
+    let held = crate::memory_pass::QUIET * 4;
+    tokio::time::sleep(held).await;
+    assert_eq!(
+        pack_modes(&c),
+        0,
+        "no adoption while a turn runs, {held:?} past the warm read's sleep"
+    );
+    let ended = Instant::now();
     drop(running);
     until("the adoptions", || pack_modes(&c) == 3).await;
+    assert!(
+        ended.elapsed() >= crate::memory_pass::QUIET,
+        "written a quiet stretch after the turn ended, not before"
+    );
 }
