@@ -149,6 +149,27 @@ fn every_occurrence_is_counted_and_nothing_else_changes() {
     }
 }
 
+/// Rust's `{:?}` of a string shares JSON's escapes for a quote, a backslash,
+/// a tab, a newline, and a carriage return, and prints a printable non-ASCII
+/// character as it is, so it is caught with no rule of its own. Its `\0` and
+/// `\u{…}` (other control characters) are not JSON's, and not caught.
+#[test]
+fn rusts_debug_form_is_caught_where_it_shares_jsons_escapes() {
+    let s = knowing();
+    for (v, name) in VALUES {
+        let printed = format!("Config {{ token: {v:?}, port: 8080 }}");
+        let (out, n) = s.scrub(&printed);
+        assert_eq!(
+            (out, n),
+            (
+                format!("Config {{ token: \"{}\", port: 8080 }}", marker(name)),
+                1
+            ),
+            "{printed}"
+        );
+    }
+}
+
 /// What `scrub` costs on 64 KB outputs with ten board values, three of which
 /// change when escaped (theseus-ubp7). Run in a release build:
 /// `cargo test --profile release-thin -p theseus-core --lib scrub_cost -- --ignored --nocapture`.
