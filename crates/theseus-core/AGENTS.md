@@ -312,7 +312,11 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   judgment, once the sink's frame is written; nothing of a judgment rides in a turn's frames but its mark. The
   sink's frames are written only between turns (theseus-0j2.8), through the memory pass's writer handshake
   (`memory_pass::turns`, `JudgeService::write_between`), as consolidation's are: a row, its sentences and its
-  metric wait while turns run (the pass's bounds end the wait), and a press finds it in `pending` meanwhile.
+  metric wait while turns run (the pass's bounds end the wait), and a press finds it in `pending` meanwhile. A
+  backlog keeps one clock from its pass's start until the queue is empty (`sink::Queue`, theseus-s1am), so past the
+  quiet bound it drains in the next gaps; a clean stop writes the queue before its last checkpoint (`finish_stop`,
+  `JudgeService::flush_sink`, theseus-ych4), and a SIGKILL loses it. Tests: `tests_sink_backlog.rs`,
+  `tests_sink_flush.rs`.
   `theseus-sim bench turn --judge` measures where the judge's frames land.
   `judge.list` and `judge.get` are `rpc/judge.rs`. Tests: `tests_judge.rs`, `tests_judge_surfaces.rs`,
   `telemetry/tests_judge.rs`.

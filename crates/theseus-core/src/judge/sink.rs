@@ -12,14 +12,16 @@
 //! Each frame also carries the
 //! breaker's moves (`judge.circuit`), the shed count (`judge.shed`, a
 //! minute apart at most), and the shadow budget's record with what was
-//! settled. A crash loses the queue: on a quiet daemon a window of rows,
-//! on a busy one the backlog waiting for a moment between turns. Their
-//! spend is not lost, since the budget's blocks were written before the calls, or, for
+//! settled. A clean stop writes every judgment still queued before its
+//! last checkpoint (`JudgeService::flush_sink`, theseus-ych4). A crash or a
+//! SIGKILL loses the queue: on a quiet daemon a window of rows, on a busy
+//! one the backlog waiting for a moment between turns. Their spend is not
+//! lost, since the budget's blocks were written before the calls, or, for
 //! the judgments a turn waits on, beside them (theseus-otny: a crash inside
 //! that one sync can leave one block's calls unbooked, a cent at most).
 
 use std::collections::VecDeque;
-use std::sync::atomic::{AtomicUsize, Ordering::SeqCst};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering::SeqCst};
 use std::sync::{Arc, Mutex, PoisonError, Weak};
 use std::time::{Duration, Instant};
 
@@ -39,7 +41,8 @@ use crate::memory_pass::Timing;
 pub const MAX_ROWS: usize = 32;
 
 /// The judgments settled and not yet written: the recording's sink pushes
-/// here, and the writer takes its frames from the front.
+/// here, the writer takes its frames from the front, and a clean stop takes
+/// what is left (theseus-ych4).
 #[derive(Default)]
 pub struct Queue {
     judgments: Mutex<VecDeque<Judgment>>,
@@ -49,6 +52,12 @@ pub struct Queue {
     /// queue is empty (a sink built and dropped in a race to build the
     /// judge never ends it).
     senders: AtomicUsize,
+    /// Held while a frame's judgments are taken and written, so the
+    /// writer's frames and the stop's never interleave.
+    writer: Mutex<()>,
+    /// The stop has flushed: nothing more is written, since a row after
+    /// the stop's last checkpoint would be replayed by the next start.
+    closed: AtomicBool,
 }
 
 impl Queue {
@@ -103,13 +112,38 @@ impl Queue {
         q.drain(..n).collect()
     }
 
-    /// One frame from the front. Returns the judgments still queued.
+    /// One frame from the front, unless the stop has flushed. Returns the
+    /// judgments still queued.
     fn write_one(&self, svc: &JudgeService) -> usize {
+        let _w = self.writer.lock().unwrap_or_else(PoisonError::into_inner);
         let batch = self.take(MAX_ROWS);
         if !batch.is_empty() {
-            svc.write(&batch);
+            if self.closed.load(SeqCst) {
+                tracing::debug!(
+                    rows = batch.len(),
+                    "judge: the stop's last checkpoint is written: judgments after it are dropped"
+                );
+            } else {
+                svc.write(&batch);
+            }
         }
         self.len()
+    }
+
+    /// The stop's flush: every judgment queued, in frames of [`MAX_ROWS`],
+    /// and nothing written after. Returns the judgments written.
+    fn flush(&self, svc: &JudgeService) -> usize {
+        let _w = self.writer.lock().unwrap_or_else(PoisonError::into_inner);
+        self.closed.store(true, SeqCst);
+        let mut written = 0;
+        loop {
+            let batch = self.take(MAX_ROWS);
+            if batch.is_empty() {
+                return written;
+            }
+            svc.write(&batch);
+            written += batch.len();
+        }
     }
 }
 
@@ -201,6 +235,13 @@ impl JudgeService {
     #[cfg(test)]
     fn sink_timing(&self) -> Timing {
         self.sink_timing.get().copied().unwrap_or_default()
+    }
+
+    /// A clean stop's flush (theseus-ych4): every judgment settled and not
+    /// yet written goes in as few frames as it takes, before the stop's last
+    /// checkpoint, and nothing is written after. Returns how many.
+    pub fn flush_sink(&self) -> usize {
+        self.queue.flush(self)
     }
 
     /// The judgments settled and not yet written.
