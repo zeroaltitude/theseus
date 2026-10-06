@@ -674,6 +674,10 @@ impl SecretBoard {
     }
 
     /// One round's results; a secret the round did not fetch keeps its state.
+    /// The round's progress (its count, its method, the settle's time) is
+    /// recorded inside the send, before any waiter wakes, so no reader sees
+    /// a settled board without its method and time (theseus-5ihy): `status`
+    /// reads the states, then the progress.
     pub fn publish(&self, results: BTreeMap<String, Result<Secret, String>>, method: &str) {
         self.tx.send_modify(|m| {
             for (name, r) in results {
@@ -685,18 +689,15 @@ impl SecretBoard {
                     },
                 );
             }
+            let mut p = self.progress.lock().unwrap();
+            p.rounds += 1;
+            p.method = Some(method.to_string());
+            if !m.values().any(|s| matches!(s, SecretState::Resolving)) {
+                p.settled.get_or_insert_with(Instant::now);
+            }
         });
-        let mut p = self.progress.lock().unwrap();
-        p.rounds += 1;
-        p.method = Some(method.to_string());
-        let unsettled = self
-            .tx
-            .borrow()
-            .values()
-            .any(|s| matches!(s, SecretState::Resolving));
-        if !unsettled {
-            p.settled.get_or_insert_with(Instant::now);
-        }
+        #[cfg(test)]
+        tests::published(self);
     }
 
     /// A runtime secret (AWS design §3.5): a value a call returned, such as
@@ -1265,5 +1266,67 @@ mod tests {
             .unwrap();
         assert_eq!(board.status().state, "ready");
         assert_eq!(board.status().rounds, 2);
+    }
+
+    /// A test's reader between a publish's send and its return.
+    type Hook = Box<dyn Fn(&SecretBoard)>;
+
+    thread_local! {
+        /// The hook, on the publishing thread (theseus-5ihy's forced
+        /// interleaving).
+        static AFTER_SEND: std::cell::RefCell<Option<Hook>> =
+            const { std::cell::RefCell::new(None) };
+    }
+
+    /// Called by `publish` once its states are sent.
+    pub(super) fn published(board: &SecretBoard) {
+        AFTER_SEND.with(|h| {
+            if let Some(f) = h.borrow().as_ref() {
+                f(board);
+            }
+        });
+    }
+
+    /// A waiter on another thread, woken by the round's send, reads the board
+    /// before the publish returns: it sees the round's method, count, and
+    /// settle time with the settled states, never a settled board without
+    /// them (theseus-5ihy: `check` once said "8 secret(s) resolved in 0 ms
+    /// (nothing to fetch)"). The publish holds until the waiter has read.
+    #[test]
+    fn a_waiter_woken_by_a_publish_reads_its_method_and_time() {
+        let board = SecretBoard::new(["a".to_string(), "b".to_string()], Instant::now());
+        let (tx, rx) = std::sync::mpsc::channel();
+        let w = board.clone();
+        let waiter = std::thread::spawn(move || {
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap();
+            rt.block_on(w.settle_all());
+            tx.send(w.status()).unwrap();
+        });
+        let seen = Arc::new(Mutex::new(None));
+        let into = seen.clone();
+        AFTER_SEND.with(|h| {
+            *h.borrow_mut() = Some(Box::new(move |_| {
+                let st = rx
+                    .recv_timeout(Duration::from_secs(30))
+                    .expect("the waiter read");
+                *into.lock().unwrap() = Some(st);
+            }));
+        });
+        let results = ["a", "b"]
+            .into_iter()
+            .map(|n| (n.to_string(), Ok(Secret::new(format!("v-{n}-5ihy")))))
+            .collect();
+        board.publish(results, "inject");
+        AFTER_SEND.with(|h| h.borrow_mut().take());
+        waiter.join().unwrap();
+        let st = seen.lock().unwrap().take().expect("the hook ran");
+        assert_eq!(st.state, "ready", "{st:?}");
+        assert_eq!(st.ready, ["a", "b"]);
+        assert_eq!(st.method.as_deref(), Some("inject"), "{st:?}");
+        assert_eq!(st.rounds, 1, "{st:?}");
+        assert!(st.settled_ms.is_some(), "{st:?}");
     }
 }

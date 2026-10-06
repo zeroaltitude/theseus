@@ -1188,15 +1188,29 @@ impl Fact for BudgetAsked<'_> {
     }
 }
 
-/// The loop that asked about the budget ended on the question: its clients
-/// hear it end (it writes no `loop.ended` row).
+/// The loop that asked about the budget ended on the question, before its
+/// call: its clients hear it end, and its `loop.ended` row (theseus-nhg4) has
+/// `LoopEnded`'s shape, so the ledger's readers read it. It made no call, so
+/// its outcome has no stop reason, no calls, and no output, and its usage is
+/// zero; its advancer and its decision are `budget`. `LoopCut` closes its span.
 pub struct LoopEndedOnBudget<'a> {
     pub turn_id: &'a str,
     pub index: u32,
 }
 
 impl Fact for LoopEndedOnBudget<'_> {
+    const KIND: Option<LedgerKind> = Some(LedgerKind::LoopEnded);
     const METHOD: Option<&'static str> = Some(notify::LOOP_ENDED);
+
+    fn row(&self) -> Value {
+        let outcome = LoopOutcome {
+            loop_index: self.index,
+            provider_stop_reason: None,
+            tool_calls: 0,
+            output_chars: 0,
+        };
+        json!({"loop": self.index, "outcome": outcome, "advancer": "budget", "decision": {"decision": "budget"}, "usage": Usage::default()})
+    }
 
     fn event(&self) -> Option<Event> {
         Some(Event::LoopEnded(theseus_protocol::LoopEnded {

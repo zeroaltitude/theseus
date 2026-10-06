@@ -1809,6 +1809,10 @@ impl TurnRunner {
                         return Ok(Next::Fail(Self::over_limit(t, needed, limit)));
                     }
                     self.ask_budget(t, session, needed, available, spent, limit)?;
+                    t.record(&fact::turn::LoopEndedOnBudget {
+                        turn_id: t.tc.turn_id,
+                        index: i,
+                    });
                     t.record(&fact::turn::LoopCut { decision: "budget" });
                     break;
                 }
@@ -2392,10 +2396,6 @@ impl TurnRunner {
             spent,
             needed,
             available,
-        });
-        t.record(&fact::turn::LoopEndedOnBudget {
-            turn_id: t.tc.turn_id,
-            index: t.loops.saturating_sub(1),
         });
         t.budget_question = Some(q.correlation_id);
         t.stop_reason = "budget".into();

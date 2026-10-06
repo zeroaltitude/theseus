@@ -158,7 +158,10 @@ pub fn words(state: &Path) -> String {
 /// and that starts no thread anything else uses: a thread inherits its
 /// creator's policy.
 pub fn idle_this_thread() -> std::io::Result<()> {
-    let param = libc::sched_param { sched_priority: 0 };
+    // Zeroed, not a literal: musl's `sched_param` has fields glibc's lacks
+    // (theseus-u8ig), and `sched_priority` 0 is what `SCHED_IDLE` takes.
+    // SAFETY: `sched_param` is plain integers, for which zero is valid.
+    let param: libc::sched_param = unsafe { std::mem::zeroed() };
     // SAFETY: `param` outlives the call; pid 0 is the calling thread.
     if unsafe { libc::sched_setscheduler(0, libc::SCHED_IDLE, &param) } == 0 {
         Ok(())

@@ -39,6 +39,8 @@ Key modules: `run.rs` (the loop), `app.rs` (no I/O), `board.rs`, `ui.rs`. Read b
 - `src/tests.rs`: the TUI over a scripted daemon (a JSON-RPC stream on a duplex, through `Conn::over`), drawn on
   ratatui's `TestBackend`, whose buffer each test reads as text. Run them as
   `cargo nextest run --workspace -E 'package(theseus-tui)'`.
+- `src/tests_order.rs`: the app alone, its order forced by hand: another surface's message lands in the place its
+  `node.written` marked, above a reply that streamed while it was read (theseus-v6yc).
 - The CLI's `tests/tui.rs` holds `theseus tui`: the exec, the socket and the arguments passed through, and exit 2
   when `theseus-tui` is found nowhere.
 
