@@ -27,6 +27,7 @@ use theseus_protocol::LedgerKind;
 use theseus_store::{kinds, NewRecord, Record, Store};
 
 use crate::clock::Clock;
+use crate::earlier::book_reservation_in;
 use crate::gate::{digest_proposal, Proposal};
 use crate::locks::{ExecLock, ExecLocks};
 use crate::reopen::reopens;
@@ -2291,8 +2292,14 @@ impl Kernel {
     /// Accept a completion from any transport (§3.16). Idempotent; atomic
     /// with the owning execution's continuation. A task's action locks the
     /// parent too (`locked_action`).
-    #[expect(clippy::too_many_lines, reason = "shape budget: split it")]
     pub fn accept_completion(&self, c: &Completion) -> Result<Accepted> {
+        self.accept_completion_as(c, false)
+    }
+
+    /// `accept_completion`; `book` books an unknown outcome's reservation as
+    /// spent instead of holding it (an earlier process's call, `earlier.rs`).
+    #[expect(clippy::too_many_lines, reason = "shape budget: split it")]
+    pub(crate) fn accept_completion_as(&self, c: &Completion, book: bool) -> Result<Accepted> {
         let Some((_w, mut a)) = self.locked_action(&c.correlation_id)? else {
             // No action, so no execution to lock.
             let key = format!("{QUARANTINE_PREFIX}{}", c.correlation_id);
@@ -2347,14 +2354,7 @@ impl Kernel {
                 {
                     if let Some(mut e) = self.execution(&a.execution_id)? {
                         let spent_before = e.budget.spent_micros;
-                        e.budget.held_unknown_micros = e
-                            .budget
-                            .held_unknown_micros
-                            .saturating_sub(a.reserved_micros);
-                        e.budget.spent_micros = e
-                            .budget
-                            .spent_micros
-                            .saturating_add(c.cost_micros.unwrap_or(a.reserved_micros));
+                        crate::earlier::resolve_in(&mut e.budget, &a, c.cost_micros);
                         e.updated_at_ms = now;
                         frame.push(exec_record(&e)?);
                         self.carry_to_parent(&e, spent_before, &mut frame)?;
@@ -2379,6 +2379,7 @@ impl Kernel {
             | ActionState::OutcomeUnknown => {}
         }
         let was_unknown = a.state == ActionState::OutcomeUnknown;
+        let book = book && !was_unknown && c.outcome == Outcome::Unknown;
         let mut e = self
             .execution(&a.execution_id)?
             .ok_or_else(|| KernelError::UnknownExecution(a.execution_id.clone()))?;
@@ -2398,6 +2399,9 @@ impl Kernel {
         if was_unknown {
             a.resolution = Some(format!("resolved by {} as {:?}", c.producer, c.outcome));
         }
+        if book {
+            crate::earlier::mark_booked(&mut a);
+        }
 
         // Continue the execution, in the same frame. A terminal execution
         // still drops the action from `outstanding` and settles its budget;
@@ -2414,17 +2418,11 @@ impl Kernel {
         if let Some(r) = &a.reservation_id {
             if was_unknown {
                 if c.outcome != Outcome::Unknown {
-                    e.budget.held_unknown_micros = e
-                        .budget
-                        .held_unknown_micros
-                        .saturating_sub(a.reserved_micros);
-                    e.budget.spent_micros = e
-                        .budget
-                        .spent_micros
-                        .saturating_add(c.cost_micros.unwrap_or(a.reserved_micros));
+                    crate::earlier::resolve_in(&mut e.budget, &a, c.cost_micros);
                 }
             } else {
                 match c.outcome {
+                    Outcome::Unknown if book => book_reservation_in(&mut e.budget, r),
                     Outcome::Unknown => hold_reservation_in(&mut e.budget, r),
                     _ => settle_reservation_in(&mut e.budget, r, c.cost_micros),
                 }
@@ -2469,11 +2467,11 @@ impl Kernel {
             (false, Outcome::Succeeded) => LedgerKind::ActionSucceeded,
             (false, Outcome::Failed) => LedgerKind::ActionFailed,
         };
-        frame.push(self.ledger(
-            kind,
-            Some(&a.session_id),
-            json!({"correlation_id": a.correlation_id, "execution_id": e.id, "outcome": c.outcome, "producer": c.producer, "duration_ms": c.finished_at_ms.saturating_sub(c.started_at_ms), "execution_state": exec_state, "cost_usd": c.cost_micros.map(micros_to_usd)}),
-        )?);
+        let mut data = json!({"correlation_id": a.correlation_id, "execution_id": e.id, "outcome": c.outcome, "producer": c.producer, "duration_ms": c.finished_at_ms.saturating_sub(c.started_at_ms), "execution_state": exec_state, "cost_usd": c.cost_micros.map(micros_to_usd)});
+        if book {
+            crate::earlier::booked_row(&mut data, &a);
+        }
+        frame.push(self.ledger(kind, Some(&a.session_id), data)?);
         // Every queue writes its row, in its frame (theseus-2xep).
         if queued {
             let row = json!({"execution_id": e.id, "why": "result"});
@@ -2498,6 +2496,16 @@ impl Kernel {
     /// `OutcomeUnknown` is knowledge: the execution gets it as a result and the
     /// reservation is held, never released (§3.16).
     pub fn mark_unknown(&self, correlation_id: &str, reason: &str) -> Result<Action> {
+        self.mark_unknown_as(correlation_id, reason, false)
+    }
+
+    /// `mark_unknown`; `book` books the reservation as spent (`earlier.rs`).
+    pub(crate) fn mark_unknown_as(
+        &self,
+        correlation_id: &str,
+        reason: &str,
+        book: bool,
+    ) -> Result<Action> {
         // The check and the settlement are one transaction, under one lock:
         // nothing can settle the action between them.
         let execution_id = self
@@ -2516,7 +2524,7 @@ impl Kernel {
                 }
                 .into());
             }
-            k.accept_completion(&Completion {
+            let unknown = Completion {
                 correlation_id: correlation_id.into(),
                 outcome: Outcome::Unknown,
                 result_ref: None,
@@ -2527,7 +2535,8 @@ impl Kernel {
                 signature: None,
                 cost_micros: None,
                 detail: None,
-            })?;
+            };
+            k.accept_completion_as(&unknown, book)?;
             Ok(k.action(correlation_id)?
                 .ok_or_else(|| KernelError::UnknownAction(correlation_id.into()))?)
         })

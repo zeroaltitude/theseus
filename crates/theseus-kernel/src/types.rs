@@ -625,7 +625,9 @@ pub struct Action {
     /// Number of completions seen (>1 means duplicates were ignored).
     pub completions_seen: u32,
     /// What the completion said, kept on the action: an outbox post's
-    /// messages (theseus-q4v). Other actions keep none.
+    /// messages (theseus-q4v); an earlier process's call, its money booked
+    /// at its mark, `{"cost_basis": "reservation"}` (theseus-f3wr). Other
+    /// actions keep none.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub detail: Option<serde_json::Value>,
     /// The action this one belongs to (ACTION schema 4): 18d's credential

@@ -41,7 +41,8 @@ enum Script {
 
 /// One rule of a scripted stand-in (`fake-model --rules`, a JSON array of
 /// them): when the turn's last user text holds `when`, ask for `calls`, or,
-/// with none, answer `text`.
+/// with none, answer `text`, after `hold_ms` (0 by default), so a live check
+/// can find the call in flight (theseus-f3wr).
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Rule {
@@ -50,6 +51,8 @@ pub struct Rule {
     pub calls: Vec<Call>,
     #[serde(default)]
     pub text: Option<String>,
+    #[serde(default)]
+    pub hold_ms: u64,
 }
 
 /// A tool call a rule asks for: the tool's wire name (`task_create`) and its
@@ -86,7 +89,16 @@ impl FakeModel {
         let addr = listener.local_addr()?;
         std::thread::spawn(move || {
             for stream in listener.incoming().flatten() {
-                if let Err(e) = answer(stream, &script) {
+                // A rule may hold its answer: each connection its own thread,
+                // so one held call holds no other.
+                if matches!(script, Script::Rules(_)) {
+                    let script = script.clone();
+                    std::thread::spawn(move || {
+                        if let Err(e) = answer(stream, &script) {
+                            eprintln!("fake model: {e:#}");
+                        }
+                    });
+                } else if let Err(e) = answer(stream, &script) {
                     eprintln!("fake model: {e:#}");
                 }
             }
@@ -133,7 +145,14 @@ fn answer(mut stream: TcpStream, script: &Script) -> Result<()> {
         (Script::Mixed(argv), false) if asks_for_tool(&req) => tool_turn(argv),
         (Script::Mixed(_), false) => text_turn("A plain answer from the stand-in model."),
         (Script::Rules(_), true) => text_turn("Done."),
-        (Script::Rules(rules), false) => ruled_turn(rules, &last_user_text(&req)),
+        (Script::Rules(rules), false) => {
+            let text = last_user_text(&req);
+            let hold = rules.iter().find(|r| text.contains(&r.when));
+            if let Some(ms) = hold.map(|r| r.hold_ms).filter(|&ms| ms > 0) {
+                std::thread::sleep(Duration::from_millis(ms));
+            }
+            ruled_turn(rules, &text)
+        }
     };
     let mut out = String::from(
         "HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\ncache-control: no-cache\r\nconnection: close\r\n\r\n",
@@ -319,5 +338,41 @@ mod tests {
             "A plain answer from the stand-in model."
         );
         assert!(serde_json::from_value::<Vec<Rule>>(json!([{"when": "x", "cals": []}])).is_err());
+    }
+
+    /// A rule's `hold_ms` holds its answer that long, and holds no other
+    /// connection: a call asked after it is answered first (theseus-f3wr).
+    #[test]
+    fn a_held_rule_answers_late_and_holds_no_other_call() {
+        let rules: Vec<Rule> = serde_json::from_value(json!([
+            {"when": "slow", "text": "late", "hold_ms": 1500},
+            {"when": "quick", "text": "early"}
+        ]))
+        .unwrap();
+        let fake = FakeModel::start_rules_on("127.0.0.1:0", rules).unwrap();
+        let ask = |text: &str| {
+            let body = json!({"messages": [{"role": "user", "content": text}]}).to_string();
+            let mut s = TcpStream::connect(fake.addr).unwrap();
+            write!(
+                s,
+                "POST /v1/messages HTTP/1.1\r\ncontent-length: {}\r\n\r\n{body}",
+                body.len()
+            )
+            .unwrap();
+            s
+        };
+        let read = |mut s: TcpStream| {
+            let mut out = String::new();
+            s.read_to_string(&mut out).unwrap();
+            out
+        };
+        let t0 = std::time::Instant::now();
+        let slow = ask("slow, please");
+        let quick = read(ask("quick, please"));
+        assert!(quick.contains("early"), "{quick}");
+        assert!(t0.elapsed() < Duration::from_millis(1500), "not held");
+        let slow = read(slow);
+        assert!(slow.contains("late"), "{slow}");
+        assert!(t0.elapsed() >= Duration::from_millis(1500), "held");
     }
 }
