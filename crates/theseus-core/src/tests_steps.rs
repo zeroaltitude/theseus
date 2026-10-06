@@ -281,6 +281,38 @@ async fn a_step_on_the_floor_makes_the_batch_wait_as_the_floor() {
     );
 }
 
+/// The floor outranks an `approve_argv` entry at the same posture
+/// (theseus-grms): a batch whose first step is on the approve list and whose
+/// second is on the floor waits as the floor does, naming step 2, though
+/// both ask at `approve`; a tie keeps the earlier step, so posture alone
+/// would have named step 1.
+#[tokio::test]
+async fn a_floor_step_outranks_an_earlier_step_on_the_approve_list() {
+    let r = rig(
+        vec![
+            run(json!({"steps": [{"argv": ["touch", "first"]}, {"argv": ["op", "whoami"]}]})),
+            Scripted::text("Done."),
+        ],
+        |c| {
+            c.policy.enforcement = Posture::Open;
+            c.policy.approve_argv = vec![vec!["touch".into()]];
+        },
+    );
+    let res = r.turn("run").await;
+    assert_eq!(res.stop_reason, "awaiting_confirm", "{res:?}");
+    let (posture, floor, reason) = r.gate(&res.session_id);
+    assert_eq!(posture, "approve");
+    assert!(floor, "the floor step sets the batch's gate: {reason}");
+    assert!(
+        reason.starts_with("step 2 of 2 (`op whoami`): "),
+        "{reason}"
+    );
+    assert!(
+        !r.root.join("first").exists(),
+        "a step ran before the answer"
+    );
+}
+
 /// One approval runs every step; a batch that differs in one step is a new
 /// proposal, and asks again.
 #[tokio::test]
