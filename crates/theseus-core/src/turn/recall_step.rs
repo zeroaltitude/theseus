@@ -537,7 +537,13 @@ impl TurnRunner {
             return;
         };
         compiled.compilation.includes.retain(|id| *id != n.id);
-        let drops = std::mem::take(&mut t.recall.drops);
+        // While routing decides, this compile may be discarded for a switch's:
+        // the drops stay for the compile the call uses (theseus-3urn), and
+        // `keep_first` lets them go once it is this one.
+        let drops = match t.route.defer_persist {
+            true => t.recall.drops.clone(),
+            false => std::mem::take(&mut t.recall.drops),
+        };
         compiled.budget.dropped.extend(drops);
         if compiled.new_compilation {
             compiled.compilation.budget = Some(compiled.budget.clone());

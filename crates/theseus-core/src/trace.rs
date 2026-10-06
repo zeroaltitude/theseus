@@ -52,6 +52,14 @@ impl Trace {
         t
     }
 
+    /// Merge `attrs` into the root span's: a routed turn's target, which
+    /// moves after the trace began (theseus-490i).
+    pub fn set_root(&mut self, attrs: Value) {
+        if let Some(root) = self.stack.first_mut() {
+            merge(&mut root.attrs, attrs);
+        }
+    }
+
     pub fn now_us(&self) -> u64 {
         self.origin.elapsed().as_micros() as u64
     }
@@ -189,6 +197,19 @@ mod tests {
         assert_eq!(pc.children[0].start_us, 5);
         assert_eq!(pc.children[0].end_us, Some(5));
         assert!(pc.end_us.unwrap() >= pc.start_us);
+    }
+
+    #[test]
+    fn set_root_moves_the_roots_attrs_under_open_spans() {
+        let mut t = Trace::start("turn", "turn", json!({"model": "a", "turn_id": "t"}));
+        t.enter("loop 0", "loop", Value::Null);
+        t.set_root(json!({"model": "b"}));
+        let root = t.finish(Value::Null);
+        assert_eq!(
+            (root.attrs["model"].as_str(), root.attrs["turn_id"].as_str()),
+            (Some("b"), Some("t"))
+        );
+        assert!(root.children[0].attrs.is_null());
     }
 
     #[test]

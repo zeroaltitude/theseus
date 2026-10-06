@@ -53,7 +53,23 @@ pub(crate) fn rig(jev: Option<&FakeJev>, n: usize, tweak: impl FnOnce(&mut Confi
     rig_on(dir, jev, n, tweak, board())
 }
 
-/// The rig on `dir`'s store, with `secrets` as the board.
+/// The rig, with `parts` edited before the core is built (telemetry's
+/// pipeline, theseus-490i).
+pub(crate) fn rig_parts(
+    jev: Option<&FakeJev>,
+    n: usize,
+    tweak: impl FnOnce(&mut Config),
+    parts: impl FnOnce(&mut Parts),
+) -> Rig {
+    let dir = Arc::new(tempfile::tempdir().unwrap());
+    rig_built(dir, jev, n, tweak, board(), parts)
+}
+
+/// The rig on `dir`'s store, with `secrets` as the board. A verdict's wait
+/// is 5 s, which no load reaches (theseus-biy3: under starvation, a verdict
+/// came after the build's 200 ms and the turn read `late`); it ends as the
+/// verdict lands, so a quick one costs nothing. A test about lateness takes
+/// it from the fake's `Held` answer, never from the wait.
 pub(crate) fn rig_on(
     dir: Arc<tempfile::TempDir>,
     jev: Option<&FakeJev>,
@@ -61,8 +77,20 @@ pub(crate) fn rig_on(
     tweak: impl FnOnce(&mut Config),
     secrets: Arc<crate::secrets::SecretBoard>,
 ) -> Rig {
+    rig_built(dir, jev, n, tweak, secrets, |_| {})
+}
+
+fn rig_built(
+    dir: Arc<tempfile::TempDir>,
+    jev: Option<&FakeJev>,
+    n: usize,
+    tweak: impl FnOnce(&mut Config),
+    secrets: Arc<crate::secrets::SecretBoard>,
+    parts: impl FnOnce(&mut Parts),
+) -> Rig {
     let mut cfg = crate::tests_judge::judge_config(dir.path(), jev);
     routing_only(&mut cfg);
+    cfg.routing.max_wait_ms = 5_000;
     tweak(&mut cfg);
     cfg.validate().unwrap();
     let store = Store::open(&dir.path().join("store")).unwrap();
@@ -71,6 +99,7 @@ pub(crate) fn rig_on(
     let mut p = Parts::for_tests(cfg, claude.clone(), store);
     p.providers.insert("zai".into(), zai.clone());
     p.secrets = secrets;
+    parts(&mut p);
     Rig {
         core: Core::build(p).unwrap(),
         claude,
@@ -166,6 +195,25 @@ pub(crate) async fn until_route_rows(store: &Store, n: usize) -> Vec<LedgerRow> 
             rows.len()
         );
         tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+}
+
+/// Late, by order (theseus-biy3): the fake holds every verdict (`Held`), and
+/// the client's own limit is far past any turn's work, so a held verdict
+/// comes only once the test releases it. The wait is the build's 200 ms, to
+/// keep the test short: a held verdict is late at any wait.
+fn held(c: &mut Config) {
+    c.routing.max_wait_ms = 200;
+    c.judge.total_secs = 30;
+}
+
+/// Wait (on the runtime's timer) until the session holds a late verdict:
+/// the released one has landed, so the next message reads it.
+pub(crate) async fn until_late(core: &Core, sid: &str) {
+    let t0 = Instant::now();
+    while !core.runner.judge.has_late(sid) {
+        assert!(t0.elapsed() < Duration::from_secs(20), "no late verdict");
+        tokio::time::sleep(Duration::from_millis(10)).await;
     }
 }
 
@@ -396,8 +444,10 @@ fn the_panes_carried_profile_is_no_pin() {
     );
 }
 
-/// Each failing Jev, and the judge off, leave the request as it is unrouted;
-/// none waits past the bound.
+/// Each failing Jev, and the judge off, leave the request as it is unrouted.
+/// A failed call ends the wait: under the rig's 5 s wait, `no_verdict` (not
+/// `late`) says the failure, not the wait's end, released the turn. A held
+/// verdict is `late`.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_failing_jev_or_the_judge_off_leaves_the_request_unrouted() {
     let off_rig = rig(None, 1, |_| {});
@@ -406,7 +456,7 @@ async fn a_failing_jev_or_the_judge_off_leaves_the_request_unrouted() {
     let base_req = serde_json::to_value(&off_rig.claude.requests()[0]).unwrap();
     for (m, reason) in [
         (FakeMode::Down, "no_verdict"),
-        (FakeMode::Slow(Duration::from_secs(3)), "late"),
+        (FakeMode::Held, "late"),
         (
             FakeMode::RateLimited {
                 retry_after_secs: 7,
@@ -418,14 +468,12 @@ async fn a_failing_jev_or_the_judge_off_leaves_the_request_unrouted() {
         let jev = FakeJev::start().unwrap();
         mode(&jev, "sophisticated", 0.95);
         jev.set_mode(m.clone());
-        let r = rig(Some(&jev), 1, |_| {});
-        let t0 = Instant::now();
+        let r = match m {
+            FakeMode::Held => rig(Some(&jev), 1, held),
+            _ => rig(Some(&jev), 1, |_| {}),
+        };
         let res = turn(&r.core, None, "Say done.", None).await;
-        assert!(
-            t0.elapsed() < Duration::from_secs(2),
-            "{m:?}: {:?}",
-            t0.elapsed()
-        );
+        jev.release();
         assert_eq!(res.profile, "sonnet", "{m:?}");
         assert_eq!(res.route.as_ref().unwrap().reason, reason, "{m:?}");
         let req = serde_json::to_value(&r.claude.requests()[0]).unwrap();
@@ -440,8 +488,8 @@ async fn a_failing_jev_or_the_judge_off_leaves_the_request_unrouted() {
 async fn a_late_verdict_applies_from_the_next_message() {
     let jev = FakeJev::start().unwrap();
     mode(&jev, "sophisticated", 0.95);
-    jev.set_mode(FakeMode::Slow(Duration::from_millis(500)));
-    let r = rig(Some(&jev), 2, |_| {});
+    jev.set_mode(FakeMode::Held);
+    let r = rig(Some(&jev), 2, held);
     let one = turn(&r.core, None, "Weigh two designs for the log.", None).await;
     assert_eq!(
         (
@@ -450,8 +498,10 @@ async fn a_late_verdict_applies_from_the_next_message() {
         ),
         ("sonnet", "late")
     );
-    tokio::time::sleep(Duration::from_millis(800)).await;
+    jev.release();
+    until_late(&r.core, &one.session_id).await;
     let two = turn(&r.core, Some(&one.session_id), "And the other one?", None).await;
+    jev.release();
     assert_eq!(two.profile, "opus", "{:?}", two.route);
     let d = decided(&r.core.store);
     assert_eq!(
@@ -499,8 +549,8 @@ async fn a_greeting_judged_trivial_at_045_detours() {
 async fn a_late_trivial_verdict_never_applies_to_the_next_message() {
     let jev = FakeJev::start().unwrap();
     mode(&jev, "trivial", 0.95);
-    jev.set_mode(FakeMode::Slow(Duration::from_millis(500)));
-    let r = rig(Some(&jev), 2, |_| {});
+    jev.set_mode(FakeMode::Held);
+    let r = rig(Some(&jev), 2, held);
     let one = turn(&r.core, None, "thanks!", None).await;
     assert_eq!(
         (
@@ -510,7 +560,8 @@ async fn a_late_trivial_verdict_never_applies_to_the_next_message() {
         ("sonnet", "late")
     );
     // Its verdict lands while no message waits for it.
-    tokio::time::sleep(Duration::from_millis(800)).await;
+    jev.release();
+    until_late(&r.core, &one.session_id).await;
     mode(&jev, "sophisticated", 0.95);
     let two = turn(
         &r.core,
@@ -519,6 +570,7 @@ async fn a_late_trivial_verdict_never_applies_to_the_next_message() {
         None,
     )
     .await;
+    jev.release();
     assert_eq!(
         (
             two.profile.as_str(),
@@ -655,12 +707,15 @@ async fn a_choice_after_a_routed_turn_labels_its_mode() {
 async fn a_late_verdict_applies_to_the_next_message_alone() {
     let jev = FakeJev::start().unwrap();
     mode(&jev, "sophisticated", 0.95);
-    jev.set_mode(FakeMode::Slow(Duration::from_millis(500)));
-    let r = rig(Some(&jev), 3, |_| {});
+    jev.set_mode(FakeMode::Held);
+    // The second message's verdict must come in time: the rig's 5 s wait,
+    // which a held verdict waits out.
+    let r = rig(Some(&jev), 3, |c| c.judge.total_secs = 30);
     let one = turn(&r.core, None, "Weigh two designs for the log.", None).await;
     assert_eq!(one.route.as_ref().unwrap().reason, "late");
     // Its verdict lands while no message waits for it.
-    tokio::time::sleep(Duration::from_millis(800)).await;
+    jev.release();
+    until_late(&r.core, &one.session_id).await;
     // The next message's own verdict comes in time: chat's.
     mode(&jev, "chat", 0.95);
     jev.set_mode(FakeMode::Up);
@@ -673,8 +728,9 @@ async fn a_late_verdict_applies_to_the_next_message_alone() {
         ("sonnet", "verdict")
     );
     // The third's own verdict is late, and the first's is two messages old.
-    jev.set_mode(FakeMode::Slow(Duration::from_millis(500)));
+    jev.set_mode(FakeMode::Held);
     let three = turn(&r.core, Some(&one.session_id), "And the other one?", None).await;
+    jev.release();
     assert_eq!(
         (
             three.profile.as_str(),
@@ -1153,6 +1209,65 @@ async fn a_routed_turn_still_writes_and_sends_its_recall() {
         2,
         "each turn's node, into the note"
     );
+}
+
+/// A switched turn's recall drops reach the compilation it stores
+/// (theseus-3urn). Recall's pack has room for one of the two heron notes, so
+/// it drops the other for its budget. On a switch, the first compile (on the
+/// session's profile, then discarded) took the drops, and the stored one, on
+/// Opus, named none; a verdict that keeps the first compile stored them, and
+/// still does.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_switched_turns_compilation_names_its_recall_drops() {
+    let jev = FakeJev::start().unwrap();
+    let r = rig(Some(&jev), 2, |c| {
+        c.memory.mode = crate::config::MemoryMode::Live;
+        c.memory.recall_budget_tokens = 30;
+    });
+    // Each note about 25 tokens: one fits the pack, two do not.
+    let notes = crate::tests_recall::session(
+        &r.core,
+        None,
+        &[
+            "the heron nests by the weir in spring, and the reeds there are cut back each autumn",
+            "the heron fishes at dawn by the mill, where the race runs shallow over the stones",
+        ],
+    );
+    let ask = crate::tests_recall::index_of(&r.core, vec![notes.clone()]);
+    r.core.runner.memory.set_ask(ask);
+    let ids: Vec<String> = r
+        .core
+        .store
+        .session_nodes(&notes)
+        .unwrap()
+        .into_iter()
+        .map(|(_, n)| n.id)
+        .collect();
+    for (verdict, profile) in [("sophisticated", "opus"), ("chat", "sonnet")] {
+        mode(&jev, verdict, 0.95);
+        let res = turn(&r.core, None, "Where does the heron nest and fish?", None).await;
+        assert_eq!(
+            (res.profile.as_str(), res.recalled),
+            (profile, 1),
+            "{verdict}"
+        );
+        let s = session(&r.core, &res.session_id);
+        let c = r
+            .core
+            .store
+            .get_compilation(s.compilation_id.as_deref().unwrap())
+            .unwrap()
+            .unwrap();
+        let budget = c.budget.expect("a budget report");
+        let dropped: Vec<&str> = budget
+            .dropped
+            .iter()
+            .filter(|d| d.tier == "recall")
+            .filter_map(|d| d.node_id.as_deref())
+            .collect();
+        assert_eq!(dropped.len(), 1, "{verdict}: {budget:?}");
+        assert!(ids.iter().any(|id| id == dropped[0]), "{verdict}");
+    }
 }
 
 /// A trivial message in a task session detours, and the detour's window
