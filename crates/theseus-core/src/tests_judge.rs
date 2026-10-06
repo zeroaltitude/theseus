@@ -295,16 +295,26 @@ async fn a_judged_turn_keeps_its_frame_budget() {
 }
 
 /// What each fake mode leaves: its error class on the judgment, and the
-/// turn's request and result as they are with the judge off.
+/// turn's request and result as they are with the judge off. The turn waits
+/// for no judgment, proved by order (theseus-vbju): Jev slow past a call's
+/// `total_secs` of 30 s, the turn returns before its judgment has ended,
+/// where one that waited would return with its `timeout` booked. The other modes
+/// fail at once, so a turn that waited and one that did not take the same
+/// time: a wall bound never told them apart, and they keep only their class
+/// and the unchanged turn. About 31 s, the slow call's timeout.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_failing_jev_is_recorded_by_its_class_and_changes_no_turn() {
+    const TOTAL_SECS: u64 = 30;
     let off = rig_with(texts(1), None, |_| {});
     let base = turn(&off.core, None, "Say done.").await;
     let base_req = serde_json::to_value(&off.fake.requests()[0]).unwrap();
     assert!(off.core.health().judge.is_some_and(|h| !h.enabled));
     for (mode, class) in [
         (FakeMode::Down, "network"),
-        (FakeMode::Slow(Duration::from_secs(10)), "timeout"),
+        (
+            FakeMode::Slow(Duration::from_secs(10 * TOTAL_SECS)),
+            "timeout",
+        ),
         (
             FakeMode::RateLimited {
                 retry_after_secs: 7,
@@ -315,17 +325,20 @@ async fn a_failing_jev_is_recorded_by_its_class_and_changes_no_turn() {
     ] {
         let jev = FakeJev::start().unwrap();
         jev.set_mode(mode.clone());
-        // A turn that waited on a slow Jev would wait out the whole call, 5 s;
-        // one that does not takes its own time, which load can stretch past a
-        // second, never to 3 s.
-        let r = rig_with(texts(1), Some(&jev), |c| c.judge.total_secs = 5);
+        let r = rig_with(texts(1), Some(&jev), |c| c.judge.total_secs = TOTAL_SECS);
         let t0 = Instant::now();
         let res = turn(&r.core, None, "Say done.").await;
-        let took = t0.elapsed();
-        assert!(
-            took < Duration::from_secs(3),
-            "{mode:?}: the turn took {took:?}"
-        );
+        if matches!(mode, FakeMode::Slow(_)) {
+            // A judgment books its call as it ends (`judge_loop`'s settle);
+            // its row rides a frame of the sink's own, later.
+            let h = r.core.health().judge.unwrap();
+            assert_eq!(
+                (h.calls_today, h.failed_today),
+                (0, 0),
+                "{mode:?}: the turn returned after {:?} with its judgment ended",
+                t0.elapsed()
+            );
+        }
         assert_eq!(
             (
                 &res.output,
@@ -345,7 +358,19 @@ async fn a_failing_jev_is_recorded_by_its_class_and_changes_no_turn() {
         );
         let req = serde_json::to_value(&r.fake.requests()[0]).unwrap();
         assert_eq!(req, base_req, "{mode:?}: the turn's request");
-        let rows = until_judged(&r.core.store, 1).await;
+        // `until_judged`'s wait, its guard past the slow call's `total`.
+        let rows = loop {
+            let rows = judged(&r.core.store);
+            if !rows.is_empty() {
+                break rows;
+            }
+            let waited = t0.elapsed();
+            assert!(
+                waited < Duration::from_secs(TOTAL_SECS + 30),
+                "{mode:?}: no judgment recorded in {waited:?}"
+            );
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        };
         let d = &rows[0].1.data;
         assert_eq!(d["outcome"]["outcome"], "failed", "{mode:?}: {d}");
         assert_eq!(d["outcome"]["class"], class, "{mode:?}: {d}");
