@@ -166,8 +166,6 @@ mod tests_continuations;
 #[cfg(test)]
 mod tests_continue;
 #[cfg(test)]
-mod tests_continue_slow;
-#[cfg(test)]
 mod tests_disk_watch;
 #[cfg(test)]
 mod tests_egress;
@@ -243,6 +241,8 @@ mod tests_replay;
 mod tests_rerank;
 #[cfg(test)]
 mod tests_rerank_labels;
+#[cfg(test)]
+mod tests_rerank_links;
 #[cfg(test)]
 mod tests_rerank_live;
 #[cfg(test)]
