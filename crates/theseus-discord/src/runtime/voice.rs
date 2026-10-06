@@ -40,9 +40,9 @@ use theseus_protocol::{DiscordOrigin, LedgerKind, PlaceClass, TurnSubmitParams, 
 use theseus_voice::songbird::shards::TwilightMap;
 use theseus_voice::songbird::Songbird;
 use theseus_voice::{
-    Command, Config as EngineConfig, DeepgramSettings, DeepgramSpeech, Engine, Event, Failure,
-    SongbirdIo, Speaker, Speech, SpeechError, SpeechFuture, Spoken, Synthesis, Transcript, TurnId,
-    Utterance,
+    Command, Config as EngineConfig, CutWhy, DeepgramSettings, DeepgramSpeech, Engine, Event,
+    Failure, HeardAs, Over, SongbirdIo, Speaker, Speech, SpeechError, SpeechFuture, Spoken,
+    Synthesis, Transcript, TurnId, Utterance,
 };
 use tokio::sync::mpsc;
 use twilight_gateway::{Event as Gateway, Intents, Shard};
@@ -57,6 +57,23 @@ use twilight_util::builder::command::{ChannelBuilder, CommandBuilder};
 
 use super::{Place, PlaceMsg, Shared};
 use crate::bindings::Bindings;
+
+mod notes;
+#[cfg(test)]
+mod tests_heard;
+
+use notes::Notes;
+
+/// Before every voice turn's input (theseus-rkvl): its reply is heard, not
+/// read.
+pub(crate) const FRAMING: &str = "[Voice call: they hear your reply, they don't read it. Answer \
+     in one to three short sentences of plain speech: no lists, tables, code, markdown or long \
+     numbers. If you were cut off, don't assume they heard the rest.]";
+
+/// Spoken when a voice turn fails (theseus-9zft): the place says why in
+/// text, so the call isn't left in silence.
+pub(crate) const FAILED_TURN: &str =
+    "Sorry, that didn't work. The details are in the text channel.";
 
 /// How long a join may take: songbird's own connect, then DAVE's handshake.
 const JOIN_WAIT: Duration = Duration::from_secs(20);
@@ -107,6 +124,8 @@ struct Call {
     waiting: VecDeque<VoiceTurn>,
     /// Why it ended, when it did not end on a `/leave`.
     dropped: Option<String>,
+    /// What the next voice turn is told about the last (theseus-qb8o).
+    notes: Notes,
 }
 
 /// A turn of utterances from the call, for the voice place.
@@ -456,6 +475,7 @@ impl Place {
             own: HashSet::new(),
             waiting: VecDeque::new(),
             dropped: None,
+            notes: Notes::default(),
         });
         update(shared, |s| {
             s.state = "joined".into();
@@ -552,7 +572,7 @@ impl Place {
             self.say(&format!("🎙️ **{name}**: {}", u.text), None);
         }
         let one = names.iter().all(|n| *n == names[0]);
-        let input = t
+        let said = t
             .utterances
             .iter()
             .zip(&names)
@@ -562,6 +582,18 @@ impl Place {
             })
             .collect::<Vec<_>>()
             .join("\n\n");
+        // What the last turn left unheard, before what was said now.
+        let line = voice
+            .call
+            .lock()
+            .unwrap()
+            .as_mut()
+            .filter(|c| c.serial == t.serial)
+            .and_then(|c| c.notes.line(&t.utterances));
+        let input = match line {
+            Some(line) => format!("{FRAMING}\n{line}\n{said}"),
+            None => format!("{FRAMING}\n{said}"),
+        };
         let author = match one {
             true => format!("discord:{}", names[0]),
             false => "discord".into(),
@@ -596,9 +628,12 @@ impl Place {
                     },
                 )
                 .await;
-            // Spoken: the turn's reply, or silence when it failed, which the
-            // place says in text.
-            let text = r.as_ref().map(|r| r.output.clone()).unwrap_or_default();
+            // Spoken: the turn's reply, or, when it failed, that it did; the
+            // place says why in text.
+            let text = match &r {
+                Ok(r) => r.output.clone(),
+                Err(_) => FAILED_TURN.to_string(),
+            };
             shared.voice.reply(t.serial, t.turn, text);
             let _ = tx.send(PlaceMsg::SubmitDone(r.map(|_| ())));
         });
@@ -698,6 +733,7 @@ async fn pump(
     while let Some(e) = events.recv().await {
         match e {
             Event::Turn { id, utterances } => {
+                with_call(&shared, serial, |c| c.notes.turn(id, &utterances));
                 let tx = shared
                     .routes
                     .lock()
@@ -714,12 +750,14 @@ async fn pump(
                 }
             }
             Event::Utterance(u) => {
+                with_call(&shared, serial, |c| c.notes.heard(&u));
                 update(&shared, |s| {
                     s.utterances += 1;
                     s.heard_ms += u.length.as_millis() as u64;
                 });
                 let detail = json!({"speaker": u.speaker.0.to_string(),
-                    "empty": u.text.trim().is_empty()});
+                    "empty": u.text.trim().is_empty(), "heard_as": heard_as(u.heard_as),
+                    "over": over(u.over.as_ref())});
                 book(
                     &shared,
                     &place,
@@ -766,8 +804,7 @@ async fn pump(
                 json!({"speaker": speaker.0.to_string(), "place": place.label}),
             ),
             Event::Failed { what, error } => failed(&shared, serial, &place, &what, &error),
-            // voice-heard writes their rows.
-            Event::Resumed { .. } | Event::Cut { .. } => {}
+            Event::Cut { .. } | Event::Resumed { .. } => held(&shared, serial, &place, &e),
             Event::Acknowledged { .. } | Event::Speaking { .. } | Event::Spoke { .. } => {}
         }
     }
@@ -790,6 +827,58 @@ async fn pump(
     }
 }
 
+/// A cut or a resumed stop (theseus-qb8o): a cut's note for the next voice
+/// turn, and each one's row on the place's session, its metric, and a
+/// resume's count in health.
+fn held(shared: &Shared, serial: u64, place: &VoicePlace, e: &Event) {
+    let sid = session(shared, place);
+    match *e {
+        Event::Cut {
+            what,
+            why,
+            sentences,
+            heard,
+            into,
+            ..
+        } => {
+            with_call(shared, serial, |c| c.notes.cut(e));
+            let why = cut_why(why);
+            shared.core.binding_ledger(
+                LedgerKind::VoiceCut,
+                sid.as_deref(),
+                json!({"what": spoken(what), "why": why, "sentences": sentences,
+                    "heard": heard, "into_ms": into.as_millis() as u64}),
+            );
+            shared.core.telemetry().record_voice_cut(why);
+        }
+        Event::Resumed { what, why, held } => {
+            update(shared, |s| s.resumes += 1);
+            let why = heard_as(why);
+            shared.core.binding_ledger(
+                LedgerKind::VoiceResumed,
+                sid.as_deref(),
+                json!({"what": spoken(what), "why": why, "held_ms": held.as_millis() as u64}),
+            );
+            shared.core.telemetry().record_voice_resumed(why);
+        }
+        _ => {}
+    }
+}
+
+/// `f` on call `serial`, while it is the one joined.
+fn with_call(shared: &Shared, serial: u64, f: impl FnOnce(&mut Call)) {
+    if let Some(c) = shared
+        .voice
+        .call
+        .lock()
+        .unwrap()
+        .as_mut()
+        .filter(|c| c.serial == serial)
+    {
+        f(c);
+    }
+}
+
 fn channel_of(place: &VoicePlace) -> u64 {
     place
         .key
@@ -803,6 +892,36 @@ fn spoken(what: Spoken) -> String {
         Spoken::Reply(t) => format!("reply {}", t.0),
         Spoken::Report => "report".into(),
         Spoken::Acknowledgment => "acknowledgment".into(),
+    }
+}
+
+fn cut_why(why: CutWhy) -> &'static str {
+    match why {
+        CutWhy::Words => "words",
+        CutWhy::Superseded => "superseded",
+        CutWhy::CallEnded => "call_ended",
+    }
+}
+
+fn heard_as(h: HeardAs) -> &'static str {
+    match h {
+        HeardAs::Words => "words",
+        HeardAs::Wordless => "wordless",
+        HeardAs::Echo => "echo",
+        HeardAs::Backchannel => "backchannel",
+        HeardAs::Resume => "resume",
+    }
+}
+
+/// What an utterance was said over: a sentence's index in what was being
+/// said, or the turn whose reply was being prepared; null when neither.
+fn over(o: Option<&Over>) -> serde_json::Value {
+    match o {
+        Some(Over::Saying { what, sentence, .. }) => {
+            json!({"saying": spoken(*what), "sentence": sentence})
+        }
+        Some(Over::Preparing { turn }) => json!({"preparing": format!("reply {}", turn.0)}),
+        None => serde_json::Value::Null,
     }
 }
 
@@ -979,8 +1098,8 @@ mod tests {
     use super::*;
     use crate::bindings::Bindings;
 
-    const EDDIE: u64 = 100_000_000_000_000_042;
-    const LOUNGE: u64 = 123_456_789_012_345_678;
+    pub(super) const EDDIE: u64 = 100_000_000_000_000_042;
+    pub(super) const LOUNGE: u64 = 123_456_789_012_345_678;
 
     /// The bindings: a private voice channel with Eddie, and a shared one.
     fn bindings() -> Bindings {
@@ -1001,7 +1120,7 @@ mod tests {
     }
 
     /// The test place of `core`, its shared state's voice from `bindings`.
-    fn place(core: &Arc<Core>, sid: &str) -> (Place, mpsc::UnboundedReceiver<PlaceMsg>) {
+    pub(super) fn place(core: &Arc<Core>, sid: &str) -> (Place, mpsc::UnboundedReceiver<PlaceMsg>) {
         let (mut place, rx) = place_for_tests(core, sid);
         let mut shared = Arc::try_unwrap(place.shared).ok().expect("the test's own");
         shared.voice = Voice::new(&core.cfg.voice, &bindings());
@@ -1086,7 +1205,7 @@ mod tests {
     }
 
     /// A call, as a join leaves it, for a place whose engine is `commands`.
-    fn joined(p: &Place, commands: mpsc::UnboundedSender<Command>) {
+    pub(super) fn joined(p: &Place, commands: mpsc::UnboundedSender<Command>) {
         *p.shared.voice.call.lock().unwrap() = Some(Call {
             serial: 1,
             channel: LOUNGE,
@@ -1099,10 +1218,11 @@ mod tests {
             own: HashSet::new(),
             waiting: VecDeque::new(),
             dropped: None,
+            notes: Notes::default(),
         });
     }
 
-    fn heard(text: &str) -> Utterance {
+    pub(super) fn heard(text: &str) -> Utterance {
         Utterance {
             speaker: Speaker(EDDIE),
             started: Duration::ZERO,
@@ -1232,7 +1352,7 @@ mod tests {
             .iter()
             .find(|n| n.kind == "user_message" || n.text.contains("What changed"))
             .expect("the input node");
-        assert_eq!(input.text, "🎙️ What changed today?");
+        assert_eq!(input.text, format!("{FRAMING}\n🎙️ What changed today?"));
         assert_eq!(input.author.as_deref(), Some("discord:eddie"));
         // The place's text has the transcript.
         let posts = posts(&core, &p.target);

@@ -36,6 +36,8 @@ mod tests_judge;
 mod tests_recall;
 #[cfg(test)]
 pub(crate) mod tests_resumed;
+#[cfg(test)]
+mod tests_voice;
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -252,6 +254,26 @@ impl Telemetry {
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .cancel(backend, state);
+    }
+
+    /// A voice call's reply or report cut short (`voice.cut`), by why:
+    /// words, superseded, call_ended (theseus-qb8o).
+    pub fn record_voice_cut(&self, why: &str) {
+        let Some(s) = self.shared() else { return };
+        s.metrics
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .voice("cut", why);
+    }
+
+    /// A voice call's stop that resumed (`voice.resumed`), by what was
+    /// heard over it: wordless, echo, backchannel, resume (theseus-qb8o).
+    pub fn record_voice_resumed(&self, why: &str) {
+        let Some(s) = self.shared() else { return };
+        s.metrics
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .voice("resumed", why);
     }
 
     /// A sample of the index tender (theseus-gfi4): health's `index` block,

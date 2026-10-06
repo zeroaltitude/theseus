@@ -285,8 +285,23 @@ const INDEX_RESTARTS: Instrument = Instrument {
     kind: Kind::IntSum,
 };
 
+const VOICE_CUTS: Instrument = Instrument {
+    name: "theseus.voice.cuts",
+    description:
+        "Replies and reports cut short in a voice call (`voice.cut`, theseus-qb8o), by why",
+    unit: "",
+    kind: Kind::IntSum,
+};
+const VOICE_RESUMED: Instrument = Instrument {
+    name: "theseus.voice.resumed",
+    description:
+        "Stops in a voice call that resumed (`voice.resumed`, theseus-qb8o), by what was heard over them",
+    unit: "",
+    kind: Kind::IntSum,
+};
+
 /// Every instrument, in the order a request lists them.
-const INSTRUMENTS: [&Instrument; 40] = [
+const INSTRUMENTS: [&Instrument; 42] = [
     &TURNS,
     &TOKENS,
     &PROVIDER_ERRORS,
@@ -327,6 +342,8 @@ const INSTRUMENTS: [&Instrument; 40] = [
     &INDEX_DOCUMENTS,
     &INDEX_RSS,
     &INDEX_RESTARTS,
+    &VOICE_CUTS,
+    &VOICE_RESUMED,
 ];
 
 /// A judgment's attributes (M5 23b).
@@ -696,6 +713,16 @@ impl Metrics {
             ("theseus.cancel.state", Attr::S(state.to_string())),
         ];
         self.add(&CANCELS, attrs, 1);
+    }
+
+    /// A voice call's cut (`cut`) or resumed stop (`resumed`), by why
+    /// (theseus-qb8o), counted where its ledger row is written.
+    pub(super) fn voice(&mut self, event: &str, why: &str) {
+        let i = match event {
+            "cut" => &VOICE_CUTS,
+            _ => &VOICE_RESUMED,
+        };
+        self.add(i, vec![("theseus.voice.why", Attr::S(why.to_string()))], 1);
     }
 
     /// The push (theseus-in3): `n` notifications dropped at a backlog cap.

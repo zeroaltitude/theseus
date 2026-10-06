@@ -8,7 +8,7 @@ use std::time::Duration;
 
 use theseus_voice::{
     write_wav, Audio, Command, Config, Engine, Event, Played, Speaker, Spoken, StandInSpeech,
-    TurnId, Utterance, WavIo,
+    TurnId, Utterance, WavIo, TABLE,
 };
 use tokio::time::{sleep, sleep_until, Instant};
 
@@ -431,6 +431,42 @@ async fn a_reply_is_synthesized_and_played_a_sentence_at_a_time() {
             == Event::Spoke {
                 what: Spoken::Reply(TurnId(0))
             }));
+}
+
+/// A reply written for a screen is spoken as speech (theseus-rkvl): its
+/// prose, and one sentence for its 9-row table, which stays in the text;
+/// its emphasis markers unsaid.
+#[tokio::test(start_paused = true)]
+async fn a_reply_with_a_table_speaks_its_prose_and_one_table_sentence() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut io = WavIo::new(ms(8000));
+    io.say_wav(EDDIE, ms(0), &fixture(dir.path(), "ask", &[(true, 500)]))
+        .unwrap();
+    let speech = Arc::new(StandInSpeech::new());
+    let answer: Answer = Box::new(|_, _| {
+        let reply = "Here's last week's spend.\n\n| Day | Spend |\n|---|---:|\n| Mon | $4.10 |\n\
+             | Tue | $3.90 |\n| Wed | $2.00 |\n| Thu | $5.25 |\n| Fri | $1.10 |\n| Sat | $0.00 |\n\
+             | Sun | $0.40 |\n\n**Thursday** was the most.";
+        (Duration::ZERO, reply.into())
+    });
+    let (seen, played) = call(io, Config::new([EDDIE]), speech.clone(), answer, vec![]).await;
+    assert_eq!(speech.syntheses(), 3);
+    assert!(seen.iter().any(|(_, e)| *e
+        == Event::Speaking {
+            what: Spoken::Reply(TurnId(0)),
+            sentences: 3,
+            first_audio: Duration::ZERO
+        }));
+    let lengths: Vec<Duration> = played.iter().map(|p| p.length).collect();
+    let tone = |t: &str| StandInSpeech::tone_for(t).duration();
+    assert_eq!(
+        lengths,
+        [
+            tone("Here's last week's spend."),
+            tone(TABLE),
+            tone("Thursday was the most.")
+        ]
+    );
 }
 
 #[tokio::test]
