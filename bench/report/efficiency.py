@@ -13,8 +13,8 @@ Each `--arm NAME=JOB_DIR` is one arm: every trial directory under the job
   harness RSS, and wall per trial; then the Pareto tables of score (mean
   reward) against dollars, tokens, and harness RAM, one point per arm, the
   front marked;
-- `pareto-dollars.svg`, `pareto-tokens.svg`, `pareto-ram.svg`: the same as
-  scatter plots, hand-written SVG;
+- `pareto-dollars.svg`, `pareto-tokens.svg`, `pareto-ram.svg` (and each one's
+  `-dark.svg`): the same as scatter plots, drawn by `charts.py`;
 - `trials.csv`: one row per trial.
 
 A job from before the record reports what Harbor kept: its dollars and
@@ -30,12 +30,10 @@ from __future__ import annotations
 import argparse
 import csv
 import importlib.util
-import math
 import sys
 from datetime import datetime
 from pathlib import Path
 from typing import Any
-from xml.sax.saxutils import escape
 
 
 def _record_module():
@@ -241,78 +239,50 @@ def front(points: list[tuple[str, float, float]]) -> set[str]:
     return out
 
 
-def _nice(hi: float) -> tuple[float, float]:
-    """An axis's top and step: 1, 2, or 5 times a power of ten, about five
-    ticks."""
-    if hi <= 0:
-        return 1.0, 0.2
-    raw = hi / 5
-    mag = 10 ** math.floor(math.log10(raw))
-    step = next(m * mag for m in (1, 2, 5, 10) if m * mag >= raw)
-    return step * math.ceil(hi / step), step
+def _charts_module():
+    """`charts.py` beside this file, the house renderer, by its path."""
+    path = Path(__file__).resolve().parent / "charts.py"
+    if "bench_report_charts" in sys.modules:
+        return sys.modules["bench_report_charts"]
+    spec = importlib.util.spec_from_file_location("bench_report_charts", path)
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = mod
+    spec.loader.exec_module(mod)
+    return mod
 
 
-def _fmt(v: float, step: float) -> str:
-    if step >= 1:
-        return f"{v:,.0f}"
-    places = max(0, -math.floor(math.log10(step)))
-    return f"{v:.{places}f}"
+charts = _charts_module()
+
+# Each plot's x axis format, by its measure.
+_X_FORMAT = {"cost_per_trial": "usd", "tokens_per_trial": "int", "mean_peak_harness_rss_mb": "num"}
 
 
-def svg(title: str, xlabel: str, points: list[tuple[str, float, float]], on_front: set[str]) -> str:
-    """A scatter of score against a cost, one labeled point per arm, the
-    front joined by a line. Hand-written, no plotting package."""
-    w, h, left, right, top, bottom = 640, 420, 70, 30, 50, 60
-    pw, ph = w - left - right, h - top - bottom
-    xmax, xstep = _nice(max((p[1] for p in points), default=1) * 1.1)
-    ymax, ystep = _nice(max((p[2] for p in points), default=1) * 1.1)
-    ymax = min(ymax, 1.0) if all(p[2] <= 1 for p in points) else ymax
-    if ymax <= 0:
-        ymax, ystep = 1.0, 0.2
+def pareto_spec(name: str, title: str, xlabel: str, points: list[tuple[str, float, float]],
+                x_format: str = "num") -> dict[str, Any]:
+    """The scatter's spec for `charts.py`: one labelled point per arm, the front ringed and joined. An arm whose
+    name is a registry key (`theseus`, `claude-code`, ...) wears its house colour; any other arm (`pi`, say) the
+    neutral one, its name in the legend."""
+    others = [n for n, _, _ in points if n not in charts.ARMS]
+    return {
+        "name": name, "form": "scatter", "title": title, "front": "min-x-max-y",
+        "question": f"Which arms score the most for the least {xlabel}?",
+        "x": {"label": xlabel, "format": x_format, "min": 0},
+        "y": {"label": "score (mean reward)", "format": "num", "min": 0,
+              "max": 1.0 if all(p[2] <= 1 for p in points) else None},
+        "points": [{"arm": n if n in charts.ARMS else "other", "label": n, "x": x, "y": y} for n, x, y in points],
+        **({"legend_labels": {"other": ", ".join(others)}} if others else {}),
+    }
 
-    def px(x: float) -> float:
-        return left + pw * x / xmax
 
-    def py(y: float) -> float:
-        return top + ph * (1 - y / ymax)
-
-    out = [
-        f'<svg xmlns="http://www.w3.org/2000/svg" width="{w}" height="{h}" '
-        f'viewBox="0 0 {w} {h}" font-family="sans-serif" font-size="12">',
-        f'<rect width="{w}" height="{h}" fill="#ffffff"/>',
-        f'<text x="{w / 2}" y="24" text-anchor="middle" font-size="15" fill="#222">{escape(title)}</text>',
-    ]
-    i = 0
-    while i * xstep <= xmax + 1e-12:
-        v = i * xstep
-        out.append(f'<line x1="{px(v):.1f}" y1="{top}" x2="{px(v):.1f}" y2="{top + ph}" stroke="#eee"/>')
-        out.append(f'<text x="{px(v):.1f}" y="{top + ph + 16}" text-anchor="middle" fill="#555">'
-                   f'{_fmt(v, xstep)}</text>')
-        i += 1
-    i = 0
-    while i * ystep <= ymax + 1e-12:
-        v = i * ystep
-        out.append(f'<line x1="{left}" y1="{py(v):.1f}" x2="{left + pw}" y2="{py(v):.1f}" stroke="#eee"/>')
-        out.append(f'<text x="{left - 8}" y="{py(v) + 4:.1f}" text-anchor="end" fill="#555">'
-                   f'{_fmt(v, ystep)}</text>')
-        i += 1
-    out.append(f'<rect x="{left}" y="{top}" width="{pw}" height="{ph}" fill="none" stroke="#999"/>')
-    out.append(f'<text x="{left + pw / 2}" y="{h - 16}" text-anchor="middle" fill="#222">{escape(xlabel)}</text>')
-    out.append(f'<text x="18" y="{top + ph / 2}" text-anchor="middle" fill="#222" '
-               f'transform="rotate(-90 18 {top + ph / 2})">score (mean reward)</text>')
-    on = sorted((p for p in points if p[0] in on_front), key=lambda p: p[1])
-    if len(on) > 1:
-        path = " ".join(f"{px(x):.1f},{py(y):.1f}" for _, x, y in on)
-        out.append(f'<polyline points="{path}" fill="none" stroke="#3b6fb6" stroke-width="1.5" '
-                   f'stroke-dasharray="4 3"/>')
-    for name, x, y in points:
-        fill = "#3b6fb6" if name in on_front else "#9aa4b1"
-        out.append(f'<circle cx="{px(x):.1f}" cy="{py(y):.1f}" r="6" fill="{fill}"/>')
-        out.append(f'<text x="{px(x) + 9:.1f}" y="{py(y) - 8:.1f}" fill="#222">{escape(name)}</text>')
-    out.append(f'<text x="{left + pw}" y="{top - 8}" text-anchor="end" fill="#3b6fb6" font-size="11">'
-               'filled blue: on the front (no arm scores more for less)</text>')
-    out.append("</svg>")
-    return "\n".join(out) + "\n"
+def svg(title: str, xlabel: str, points: list[tuple[str, float, float]], on_front: set[str],
+        x_format: str = "num", mode: str = "light") -> str:
+    """A scatter of score against a cost, one labelled point per arm, the front ringed and joined (the house
+    renderer; `on_front` is the front this module computed, the same rule as the renderer's)."""
+    spec = pareto_spec("pareto", title, xlabel, points, x_format)
+    drawn = {points[i][0] for i in charts.pareto_front([(x, y) for _, x, y in points])}
+    if drawn != set(on_front):
+        raise ValueError(f"front mismatch: {sorted(drawn)} against {sorted(on_front)}")
+    return charts.render(spec, mode)
 
 
 # ------------------------------------------------------------------ report
@@ -431,7 +401,9 @@ def report(arms: list[tuple[str, Path]], out: Path) -> dict[str, Any]:
     for key, measure, label, file in PARETO:
         pts = [(a["arm"], a[measure], a["mean_reward"]) for a in summaries
                if a[measure] is not None and a["mean_reward"] is not None]
-        (out / file).write_text(svg(f"Score against {label}", label, pts, front(pts)))
+        for mode in charts.MODES:
+            target = out / (file if mode == "light" else file.replace(".svg", "-dark.svg"))
+            target.write_text(svg(f"Score against {label}", label, pts, front(pts), _X_FORMAT[measure], mode))
     write_csv(out / "trials.csv", trials)
     return {"arms": summaries}
 

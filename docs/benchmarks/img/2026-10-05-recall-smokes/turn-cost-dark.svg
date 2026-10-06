@@ -1,0 +1,389 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="811" viewBox="0 0 720 811" role="img" aria-labelledby="t-turn-cost t-turn-cost-d" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
+<title id="t-turn-cost">Dollars per turn in each smoke, and where it compacted</title>
+<desc id="t-turn-cost-d">Where did each smoke compact, and where did its money go?</desc>
+<rect width="720" height="811" rx="8" fill="#1a1a19" stroke="#2c2c2a"/>
+<text x="18.0" y="32.0" font-size="15" fill="#ffffff" font-weight="600">Dollars per turn in each smoke, and where it compacted</text>
+<circle cx="25.0" cy="50.0" r="5" fill="#0ca30c"/>
+<path d="M22.0,50.0h6" stroke="#1a1a19" stroke-width="1.6"/>
+<text x="40.0" y="54.0" font-size="12" fill="#c3c2b7">compaction (a summary written)</text>
+<circle cx="262.7" cy="50.0" r="5" fill="#fab219"/>
+<path d="M259.7,50.0h6" stroke="#1a1a19" stroke-width="1.6"/>
+<text x="277.7" y="54.0" font-size="12" fill="#c3c2b7">ring (cut, no summary)</text>
+<circle cx="438.6" cy="50.0" r="5" fill="#d03b3b"/>
+<path d="M435.6,50.0h6" stroke="#1a1a19" stroke-width="1.6"/>
+<text x="453.6" y="54.0" font-size="12" fill="#c3c2b7">turn refused (context overage)</text>
+<text x="18.0" y="88.0" font-size="12" fill="#ffffff" font-weight="600">R11: $0.36, window 35,000</text>
+<line x1="56.4" y1="254.0" x2="698.0" y2="254.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="50.4" y="258.0" font-size="10" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">$0.00</text>
+<line x1="56.4" y1="204.0" x2="698.0" y2="204.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="50.4" y="208.0" font-size="10" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">$0.05</text>
+<line x1="56.4" y1="154.0" x2="698.0" y2="154.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="50.4" y="158.0" font-size="10" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">$0.10</text>
+<line x1="56.4" y1="104.0" x2="698.0" y2="104.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="50.4" y="108.0" font-size="10" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">$0.15</text>
+<line x1="56.4" y1="254.0" x2="56.4" y2="258.0" stroke="#383835" stroke-width="1"/>
+<text x="56.4" y="270.0" font-size="10" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">0</text>
+<line x1="277.6" y1="254.0" x2="277.6" y2="258.0" stroke="#383835" stroke-width="1"/>
+<text x="277.6" y="270.0" font-size="10" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">10</text>
+<line x1="498.9" y1="254.0" x2="498.9" y2="258.0" stroke="#383835" stroke-width="1"/>
+<text x="498.9" y="270.0" font-size="10" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">20</text>
+<line x1="56.4" y1="254.0" x2="698.0" y2="254.0" stroke="#383835" stroke-width="1"/>
+<clipPath id="clip-turn-cost-1"><rect x="51.4" y="99.0" width="651.6" height="160.0"/></clipPath>
+<g clip-path="url(#clip-turn-cost-1)">
+<g><title>dollars per turn: 30 points, lowest $0.00, median $0.011, highest $0.044</title>
+<polyline points="56.4,223.0 78.5,246.6 100.6,238.3 122.7,241.7 144.9,244.1 167.0,240.1 189.1,244.8 211.2,239.7 233.4,241.1 255.5,240.8 277.6,254.0 299.7,209.7 321.9,249.9 344.0,246.5 366.1,246.0 388.2,246.3 410.4,239.1 432.5,241.6 454.6,241.1 476.7,242.2 498.9,242.8 521.0,241.7 543.1,242.5 565.2,244.4 587.4,248.3 609.5,237.9 631.6,245.7 653.7,249.5 675.9,246.1 698.0,244.9" fill="none" stroke="#3987e5" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+</g>
+<g><title>dollars per turn: $0.031</title>
+<circle cx="56.4" cy="223.0" r="8" fill="transparent"/>
+</g>
+<g><title>dollars per turn: $0.0074</title>
+<circle cx="78.5" cy="246.6" r="8" fill="transparent"/>
+</g>
+<g><title>dollars per turn: $0.016</title>
+<circle cx="100.6" cy="238.3" r="8" fill="transparent"/>
+</g>
+<g><title>dollars per turn: $0.012</title>
+<circle cx="122.7" cy="241.7" r="8" fill="transparent"/>
+</g>
+<g><title>dollars per turn: $0.0099</title>
+<circle cx="144.9" cy="244.1" r="8" fill="transparent"/>
+</g>
+<g><title>dollars per turn: $0.014</title>
+<circle cx="167.0" cy="240.1" r="8" fill="transparent"/>
+</g>
+<g><title>dollars per turn: $0.0092</title>
+<circle cx="189.1" cy="244.8" r="8" fill="transparent"/>
+</g>
+<g><title>dollars per turn: $0.014</title>
+<circle cx="211.2" cy="239.7" r="8" fill="transparent"/>
+</g>
+<g><title>dollars per turn: $0.013</title>
+<circle cx="233.4" cy="241.1" r="8" fill="transparent"/>
+</g>
+<g><title>dollars per turn: $0.013</title>
+<circle cx="255.5" cy="240.8" r="8" fill="transparent"/>
+</g>
+<g><title>dollars per turn: $0.00</title>
+<circle cx="277.6" cy="254.0" r="8" fill="transparent"/>
+</g>
+<g><title>dollars per turn: $0.044</title>
+<circle cx="299.7" cy="209.7" r="8" fill="transparent"/>
+</g>
+<g><title>dollars per turn: $0.0041</title>
+<circle cx="321.9" cy="249.9" r="8" fill="transparent"/>
+</g>
+<g><title>dollars per turn: $0.0075</title>
+<circle cx="344.0" cy="246.5" r="8" fill="transparent"/>
+</g>
+<g><title>dollars per turn: $0.0080</title>
+<circle cx="366.1" cy="246.0" r="8" fill="transparent"/>
+</g>
+<g><title>dollars per turn: $0.0077</title>
+<circle cx="388.2" cy="246.3" r="8" fill="transparent"/>
+</g>
+<g><title>dollars per turn: $0.015</title>
+<circle cx="410.4" cy="239.1" r="8" fill="transparent"/>
+</g>
+<g><title>dollars per turn: $0.012</title>
+<circle cx="432.5" cy="241.6" r="8" fill="transparent"/>
+</g>
+<g><title>dollars per turn: $0.013</title>
+<circle cx="454.6" cy="241.1" r="8" fill="transparent"/>
+</g>
+<g><title>dollars per turn: $0.012</title>
+<circle cx="476.7" cy="242.2" r="8" fill="transparent"/>
+</g>
+<g><title>dollars per turn: $0.011</title>
+<circle cx="498.9" cy="242.8" r="8" fill="transparent"/>
+</g>
+<g><title>dollars per turn: $0.012</title>
+<circle cx="521.0" cy="241.7" r="8" fill="transparent"/>
+</g>
+<g><title>dollars per turn: $0.011</title>
+<circle cx="543.1" cy="242.5" r="8" fill="transparent"/>
+</g>
+<g><title>dollars per turn: $0.0096</title>
+<circle cx="565.2" cy="244.4" r="8" fill="transparent"/>
+</g>
+<g><title>dollars per turn: $0.0057</title>
+<circle cx="587.4" cy="248.3" r="8" fill="transparent"/>
+</g>
+<g><title>dollars per turn: $0.016</title>
+<circle cx="609.5" cy="237.9" r="8" fill="transparent"/>
+</g>
+<g><title>dollars per turn: $0.0083</title>
+<circle cx="631.6" cy="245.7" r="8" fill="transparent"/>
+</g>
+<g><title>dollars per turn: $0.0045</title>
+<circle cx="653.7" cy="249.5" r="8" fill="transparent"/>
+</g>
+<g><title>dollars per turn: $0.0079</title>
+<circle cx="675.9" cy="246.1" r="8" fill="transparent"/>
+</g>
+<g><title>dollars per turn: $0.0091</title>
+<circle cx="698.0" cy="244.9" r="8" fill="transparent"/>
+</g>
+</g>
+<g><title>compaction: $0.044 (turn 11: compaction (a summary written))</title>
+<circle cx="299.7" cy="209.7" r="10" fill="transparent"/>
+<circle cx="299.7" cy="209.7" r="4.5" fill="#0ca30c" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<g><title>ring: $0.016 (turn 25: ring (the cut kept, no room for a summary))</title>
+<circle cx="609.5" cy="237.9" r="10" fill="transparent"/>
+<circle cx="609.5" cy="237.9" r="4.5" fill="#fab219" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<g><title>refused: $0.00 (turn 10: refused before any call (context overage))</title>
+<circle cx="277.6" cy="254.0" r="10" fill="transparent"/>
+<circle cx="277.6" cy="254.0" r="4.5" fill="#d03b3b" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="18.0" y="322.0" font-size="12" fill="#ffffff" font-weight="600">R16: $0.72, window 45,000</text>
+<line x1="56.4" y1="488.0" x2="698.0" y2="488.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="50.4" y="492.0" font-size="10" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">$0.00</text>
+<line x1="56.4" y1="438.0" x2="698.0" y2="438.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="50.4" y="442.0" font-size="10" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">$0.05</text>
+<line x1="56.4" y1="388.0" x2="698.0" y2="388.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="50.4" y="392.0" font-size="10" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">$0.10</text>
+<line x1="56.4" y1="338.0" x2="698.0" y2="338.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="50.4" y="342.0" font-size="10" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">$0.15</text>
+<line x1="56.4" y1="488.0" x2="56.4" y2="492.0" stroke="#383835" stroke-width="1"/>
+<text x="56.4" y="504.0" font-size="10" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">0</text>
+<line x1="277.6" y1="488.0" x2="277.6" y2="492.0" stroke="#383835" stroke-width="1"/>
+<text x="277.6" y="504.0" font-size="10" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">10</text>
+<line x1="498.9" y1="488.0" x2="498.9" y2="492.0" stroke="#383835" stroke-width="1"/>
+<text x="498.9" y="504.0" font-size="10" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">20</text>
+<line x1="56.4" y1="488.0" x2="698.0" y2="488.0" stroke="#383835" stroke-width="1"/>
+<clipPath id="clip-turn-cost-2"><rect x="51.4" y="333.0" width="651.6" height="160.0"/></clipPath>
+<g clip-path="url(#clip-turn-cost-2)">
+<g><title>dollars per turn: 30 points, lowest $0.0056, median $0.016, highest $0.083</title>
+<polyline points="56.4,412.2 78.5,481.7 100.6,468.1 122.7,478.6 144.9,482.4 167.0,468.7 189.1,475.7 211.2,469.1 233.4,479.0 255.5,475.0 277.6,460.9 299.7,405.3 321.9,457.1 344.0,474.6 366.1,476.0 388.2,442.8 410.4,461.7 432.5,471.8 454.6,469.4 476.7,424.1 498.9,474.6 521.0,467.6 543.1,473.3 565.2,474.0 587.4,481.5 609.5,473.8 631.6,443.2 653.7,481.2 675.9,434.8 698.0,477.2" fill="none" stroke="#3987e5" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+</g>
+<g><title>dollars per turn: $0.076</title>
+<circle cx="56.4" cy="412.2" r="8" fill="transparent"/>
+</g>
+<g><title>dollars per turn: $0.0063</title>
+<circle cx="78.5" cy="481.7" r="8" fill="transparent"/>
+</g>
+<g><title>dollars per turn: $0.020</title>
+<circle cx="100.6" cy="468.1" r="8" fill="transparent"/>
+</g>
+<g><title>dollars per turn: $0.0094</title>
+<circle cx="122.7" cy="478.6" r="8" fill="transparent"/>
+</g>
+<g><title>dollars per turn: $0.0056</title>
+<circle cx="144.9" cy="482.4" r="8" fill="transparent"/>
+</g>
+<g><title>dollars per turn: $0.019</title>
+<circle cx="167.0" cy="468.7" r="8" fill="transparent"/>
+</g>
+<g><title>dollars per turn: $0.012</title>
+<circle cx="189.1" cy="475.7" r="8" fill="transparent"/>
+</g>
+<g><title>dollars per turn: $0.019</title>
+<circle cx="211.2" cy="469.1" r="8" fill="transparent"/>
+</g>
+<g><title>dollars per turn: $0.0090</title>
+<circle cx="233.4" cy="479.0" r="8" fill="transparent"/>
+</g>
+<g><title>dollars per turn: $0.013</title>
+<circle cx="255.5" cy="475.0" r="8" fill="transparent"/>
+</g>
+<g><title>dollars per turn: $0.027</title>
+<circle cx="277.6" cy="460.9" r="8" fill="transparent"/>
+</g>
+<g><title>dollars per turn: $0.083</title>
+<circle cx="299.7" cy="405.3" r="8" fill="transparent"/>
+</g>
+<g><title>dollars per turn: $0.031</title>
+<circle cx="321.9" cy="457.1" r="8" fill="transparent"/>
+</g>
+<g><title>dollars per turn: $0.013</title>
+<circle cx="344.0" cy="474.6" r="8" fill="transparent"/>
+</g>
+<g><title>dollars per turn: $0.012</title>
+<circle cx="366.1" cy="476.0" r="8" fill="transparent"/>
+</g>
+<g><title>dollars per turn: $0.045</title>
+<circle cx="388.2" cy="442.8" r="8" fill="transparent"/>
+</g>
+<g><title>dollars per turn: $0.026</title>
+<circle cx="410.4" cy="461.7" r="8" fill="transparent"/>
+</g>
+<g><title>dollars per turn: $0.016</title>
+<circle cx="432.5" cy="471.8" r="8" fill="transparent"/>
+</g>
+<g><title>dollars per turn: $0.019</title>
+<circle cx="454.6" cy="469.4" r="8" fill="transparent"/>
+</g>
+<g><title>dollars per turn: $0.064</title>
+<circle cx="476.7" cy="424.1" r="8" fill="transparent"/>
+</g>
+<g><title>dollars per turn: $0.013</title>
+<circle cx="498.9" cy="474.6" r="8" fill="transparent"/>
+</g>
+<g><title>dollars per turn: $0.020</title>
+<circle cx="521.0" cy="467.6" r="8" fill="transparent"/>
+</g>
+<g><title>dollars per turn: $0.015</title>
+<circle cx="543.1" cy="473.3" r="8" fill="transparent"/>
+</g>
+<g><title>dollars per turn: $0.014</title>
+<circle cx="565.2" cy="474.0" r="8" fill="transparent"/>
+</g>
+<g><title>dollars per turn: $0.0065</title>
+<circle cx="587.4" cy="481.5" r="8" fill="transparent"/>
+</g>
+<g><title>dollars per turn: $0.014</title>
+<circle cx="609.5" cy="473.8" r="8" fill="transparent"/>
+</g>
+<g><title>dollars per turn: $0.045</title>
+<circle cx="631.6" cy="443.2" r="8" fill="transparent"/>
+</g>
+<g><title>dollars per turn: $0.0068</title>
+<circle cx="653.7" cy="481.2" r="8" fill="transparent"/>
+</g>
+<g><title>dollars per turn: $0.053</title>
+<circle cx="675.9" cy="434.8" r="8" fill="transparent"/>
+</g>
+<g><title>dollars per turn: $0.011</title>
+<circle cx="698.0" cy="477.2" r="8" fill="transparent"/>
+</g>
+</g>
+<g><title>compaction: $0.083 (turn 11: compaction (a summary written))</title>
+<circle cx="299.7" cy="405.3" r="10" fill="transparent"/>
+<circle cx="299.7" cy="405.3" r="4.5" fill="#0ca30c" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<g><title>ring: $0.064 (turn 19: ring (the cut kept, no room for a summary))</title>
+<circle cx="476.7" cy="424.1" r="10" fill="transparent"/>
+<circle cx="476.7" cy="424.1" r="4.5" fill="#fab219" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<g><title>compaction: $0.053 (turn 28: compaction (a summary written))</title>
+<circle cx="675.9" cy="434.8" r="10" fill="transparent"/>
+<circle cx="675.9" cy="434.8" r="4.5" fill="#0ca30c" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="18.0" y="556.0" font-size="12" fill="#ffffff" font-weight="600">R25: $0.76, window 45,000</text>
+<line x1="56.4" y1="722.0" x2="698.0" y2="722.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="50.4" y="726.0" font-size="10" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">$0.00</text>
+<line x1="56.4" y1="672.0" x2="698.0" y2="672.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="50.4" y="676.0" font-size="10" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">$0.05</text>
+<line x1="56.4" y1="622.0" x2="698.0" y2="622.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="50.4" y="626.0" font-size="10" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">$0.10</text>
+<line x1="56.4" y1="572.0" x2="698.0" y2="572.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="50.4" y="576.0" font-size="10" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">$0.15</text>
+<line x1="56.4" y1="722.0" x2="56.4" y2="726.0" stroke="#383835" stroke-width="1"/>
+<text x="56.4" y="738.0" font-size="10" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">0</text>
+<line x1="277.6" y1="722.0" x2="277.6" y2="726.0" stroke="#383835" stroke-width="1"/>
+<text x="277.6" y="738.0" font-size="10" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">10</text>
+<line x1="498.9" y1="722.0" x2="498.9" y2="726.0" stroke="#383835" stroke-width="1"/>
+<text x="498.9" y="738.0" font-size="10" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">20</text>
+<line x1="56.4" y1="722.0" x2="698.0" y2="722.0" stroke="#383835" stroke-width="1"/>
+<clipPath id="clip-turn-cost-3"><rect x="51.4" y="567.0" width="651.6" height="160.0"/></clipPath>
+<g clip-path="url(#clip-turn-cost-3)">
+<g><title>dollars per turn: 30 points, lowest $0.0057, median $0.017, highest $0.10</title>
+<polyline points="56.4,651.9 78.5,716.2 100.6,701.9 122.7,706.2 144.9,716.3 167.0,702.8 189.1,709.6 211.2,702.9 233.4,712.9 255.5,704.3 277.6,695.4 299.7,628.9 321.9,689.4 344.0,708.1 366.1,709.3 388.2,668.9 410.4,703.7 432.5,705.5 454.6,704.3 476.7,669.8 498.9,707.8 521.0,706.6 543.1,709.0 565.2,708.9 587.4,715.4 609.5,708.5 631.6,619.0 653.7,698.7 675.9,713.0 698.0,708.2" fill="none" stroke="#3987e5" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+</g>
+<g><title>dollars per turn: $0.070</title>
+<circle cx="56.4" cy="651.9" r="8" fill="transparent"/>
+</g>
+<g><title>dollars per turn: $0.0058</title>
+<circle cx="78.5" cy="716.2" r="8" fill="transparent"/>
+</g>
+<g><title>dollars per turn: $0.020</title>
+<circle cx="100.6" cy="701.9" r="8" fill="transparent"/>
+</g>
+<g><title>dollars per turn: $0.016</title>
+<circle cx="122.7" cy="706.2" r="8" fill="transparent"/>
+</g>
+<g><title>dollars per turn: $0.0057</title>
+<circle cx="144.9" cy="716.3" r="8" fill="transparent"/>
+</g>
+<g><title>dollars per turn: $0.019</title>
+<circle cx="167.0" cy="702.8" r="8" fill="transparent"/>
+</g>
+<g><title>dollars per turn: $0.012</title>
+<circle cx="189.1" cy="709.6" r="8" fill="transparent"/>
+</g>
+<g><title>dollars per turn: $0.019</title>
+<circle cx="211.2" cy="702.9" r="8" fill="transparent"/>
+</g>
+<g><title>dollars per turn: $0.0091</title>
+<circle cx="233.4" cy="712.9" r="8" fill="transparent"/>
+</g>
+<g><title>dollars per turn: $0.018</title>
+<circle cx="255.5" cy="704.3" r="8" fill="transparent"/>
+</g>
+<g><title>dollars per turn: $0.027</title>
+<circle cx="277.6" cy="695.4" r="8" fill="transparent"/>
+</g>
+<g><title>dollars per turn: $0.093</title>
+<circle cx="299.7" cy="628.9" r="8" fill="transparent"/>
+</g>
+<g><title>dollars per turn: $0.033</title>
+<circle cx="321.9" cy="689.4" r="8" fill="transparent"/>
+</g>
+<g><title>dollars per turn: $0.014</title>
+<circle cx="344.0" cy="708.1" r="8" fill="transparent"/>
+</g>
+<g><title>dollars per turn: $0.013</title>
+<circle cx="366.1" cy="709.3" r="8" fill="transparent"/>
+</g>
+<g><title>dollars per turn: $0.053</title>
+<circle cx="388.2" cy="668.9" r="8" fill="transparent"/>
+</g>
+<g><title>dollars per turn: $0.018</title>
+<circle cx="410.4" cy="703.7" r="8" fill="transparent"/>
+</g>
+<g><title>dollars per turn: $0.017</title>
+<circle cx="432.5" cy="705.5" r="8" fill="transparent"/>
+</g>
+<g><title>dollars per turn: $0.018</title>
+<circle cx="454.6" cy="704.3" r="8" fill="transparent"/>
+</g>
+<g><title>dollars per turn: $0.052</title>
+<circle cx="476.7" cy="669.8" r="8" fill="transparent"/>
+</g>
+<g><title>dollars per turn: $0.014</title>
+<circle cx="498.9" cy="707.8" r="8" fill="transparent"/>
+</g>
+<g><title>dollars per turn: $0.015</title>
+<circle cx="521.0" cy="706.6" r="8" fill="transparent"/>
+</g>
+<g><title>dollars per turn: $0.013</title>
+<circle cx="543.1" cy="709.0" r="8" fill="transparent"/>
+</g>
+<g><title>dollars per turn: $0.013</title>
+<circle cx="565.2" cy="708.9" r="8" fill="transparent"/>
+</g>
+<g><title>dollars per turn: $0.0066</title>
+<circle cx="587.4" cy="715.4" r="8" fill="transparent"/>
+</g>
+<g><title>dollars per turn: $0.013</title>
+<circle cx="609.5" cy="708.5" r="8" fill="transparent"/>
+</g>
+<g><title>dollars per turn: $0.10</title>
+<circle cx="631.6" cy="619.0" r="8" fill="transparent"/>
+</g>
+<g><title>dollars per turn: $0.023</title>
+<circle cx="653.7" cy="698.7" r="8" fill="transparent"/>
+</g>
+<g><title>dollars per turn: $0.0090</title>
+<circle cx="675.9" cy="713.0" r="8" fill="transparent"/>
+</g>
+<g><title>dollars per turn: $0.014</title>
+<circle cx="698.0" cy="708.2" r="8" fill="transparent"/>
+</g>
+</g>
+<g><title>compaction: $0.093 (turn 11: compaction (a summary written))</title>
+<circle cx="299.7" cy="628.9" r="10" fill="transparent"/>
+<circle cx="299.7" cy="628.9" r="4.5" fill="#0ca30c" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<g><title>ring: $0.052 (turn 19: ring (the cut kept, no room for a summary))</title>
+<circle cx="476.7" cy="669.8" r="10" fill="transparent"/>
+<circle cx="476.7" cy="669.8" r="4.5" fill="#fab219" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<g><title>compaction: $0.10 (turn 26: compaction (a summary written))</title>
+<circle cx="631.6" cy="619.0" r="10" fill="transparent"/>
+<circle cx="631.6" cy="619.0" r="4.5" fill="#0ca30c" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="360.0" y="760.0" font-size="12" fill="#c3c2b7" text-anchor="middle">turn</text>
+<text x="18.0" y="788.0" font-size="11" fill="#c3c2b7">30 turns a smoke, Claude Sonnet 5.5, memory arm baseline. The plan's mark is turn 10, a long log read.</text>
+</svg>

@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="327" viewBox="0 0 720 327" role="img" aria-labelledby="t-bytes-per-token t-bytes-per-token-d" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
+<title id="t-bytes-per-token">Bytes a token, by what the bytes are, on two tokenizers</title>
+<desc id="t-bytes-per-token-d">Why was chars/4 a third low on Claude and nearly right on GLM?</desc>
+<rect width="720" height="327" rx="8" fill="#1a1a19" stroke="#2c2c2a"/>
+<text x="18.0" y="32.0" font-size="15" fill="#ffffff" font-weight="600">Bytes a token, by what the bytes are, on two tokenizers</text>
+<rect x="18.0" y="44.0" width="14" height="12" rx="3" fill="#3987e5"/>
+<text x="40.0" y="54.0" font-size="12" fill="#c3c2b7">Claude Sonnet 5.5</text>
+<rect x="169.6" y="44.0" width="14" height="12" rx="3" fill="#898781"/>
+<text x="191.6" y="54.0" font-size="12" fill="#c3c2b7">GLM-5.3 Flash</text>
+<line x1="185.1" y1="74.0" x2="185.1" y2="218.0" stroke="#2c2c2a" stroke-width="1"/>
+<line x1="281.7" y1="74.0" x2="281.7" y2="218.0" stroke="#2c2c2a" stroke-width="1"/>
+<line x1="378.4" y1="74.0" x2="378.4" y2="218.0" stroke="#2c2c2a" stroke-width="1"/>
+<line x1="475.1" y1="74.0" x2="475.1" y2="218.0" stroke="#2c2c2a" stroke-width="1"/>
+<line x1="571.8" y1="74.0" x2="571.8" y2="218.0" stroke="#2c2c2a" stroke-width="1"/>
+<line x1="668.5" y1="74.0" x2="668.5" y2="218.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="175.1" y="102.0" font-size="12" fill="#ffffff" text-anchor="end">the 15 tool schemas</text>
+<g><title>the 15 tool schemas · Claude Sonnet 5.5: 2.52</title>
+<path d="M185.1,81.0H424.4A4,4 0 0 1 428.4,85.0V93.0A4,4 0 0 1 424.4,97.0H185.1Z" fill="#3987e5"/>
+</g>
+<text x="433.4" y="93.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">2.52</text>
+<g><title>the 15 tool schemas · GLM-5.3 Flash: 3.78</title>
+<path d="M185.1,99.0H546.1A4,4 0 0 1 550.1,103.0V111.0A4,4 0 0 1 546.1,115.0H185.1Z" fill="#898781"/>
+</g>
+<text x="555.1" y="111.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">3.78</text>
+<text x="175.1" y="150.0" font-size="12" fill="#ffffff" text-anchor="end">prose</text>
+<g><title>prose · Claude Sonnet 5.5: 3.35</title>
+<path d="M185.1,129.0H504.7A4,4 0 0 1 508.7,133.0V141.0A4,4 0 0 1 504.7,145.0H185.1Z" fill="#3987e5"/>
+</g>
+<text x="513.7" y="141.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">3.35</text>
+<g><title>prose · GLM-5.3 Flash: 4.54</title>
+<path d="M185.1,147.0H619.7A4,4 0 0 1 623.7,151.0V159.0A4,4 0 0 1 619.7,163.0H185.1Z" fill="#898781"/>
+</g>
+<text x="628.7" y="159.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">4.54</text>
+<text x="175.1" y="198.0" font-size="12" fill="#ffffff" text-anchor="end">a tool's result (a Rust file)</text>
+<g><title>a tool's result (a Rust file) · Claude Sonnet 5.5: 2.35</title>
+<path d="M185.1,177.0H408.3A4,4 0 0 1 412.3,181.0V189.0A4,4 0 0 1 408.3,193.0H185.1Z" fill="#3987e5"/>
+</g>
+<text x="417.3" y="189.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">2.35</text>
+<g><title>a tool's result (a Rust file) · GLM-5.3 Flash: 3.36</title>
+<path d="M185.1,195.0H505.5A4,4 0 0 1 509.5,199.0V207.0A4,4 0 0 1 505.5,211.0H185.1Z" fill="#898781"/>
+</g>
+<text x="514.5" y="207.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">3.36</text>
+<text x="185.1" y="234.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">0</text>
+<text x="281.7" y="234.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">1</text>
+<text x="378.4" y="234.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">2</text>
+<text x="475.1" y="234.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">3</text>
+<text x="571.8" y="234.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">4</text>
+<text x="668.5" y="234.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">5</text>
+<line x1="185.1" y1="218.0" x2="668.5" y2="218.0" stroke="#383835" stroke-width="1"/>
+<text x="426.8" y="252.0" font-size="12" fill="#c3c2b7" text-anchor="middle">bytes a token</text>
+<text x="18.0" y="274.0" font-size="11" fill="#c3c2b7">From the differences between the lane check's requests: the schemas (s1 − s4), 6.5 KB of prose (s2 − s1), a tool's result: a</text>
+<text x="18.0" y="289.0" font-size="11" fill="#c3c2b7">1.9 KB file read by a tool (s3's second request − its first, less the model's call at its own output count). chars/4 assumes 4</text>
+<text x="18.0" y="304.0" font-size="11" fill="#c3c2b7">bytes a token for everything.</text>
+</svg>

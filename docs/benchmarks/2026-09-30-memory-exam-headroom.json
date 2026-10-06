@@ -1,0 +1,2711 @@
+{
+ "report": "2026-09-30-memory-exam-headroom",
+ "title": "Memory exam v1: how much does a cheap model gain from being shown its past?",
+ "suite": "memory-exam (exam-v1, 40 items)",
+ "date": "2026-09-30",
+ "commit": "exam lane b8902b4 (exam-v1) and c4a7faa (exam-v1.1), on main since bcff18f (rebased); daemon at main 3aa72a8",
+ "arms": [
+  {
+   "key": "none",
+   "label": "none (no memory)"
+  },
+  {
+   "key": "oracle",
+   "label": "oracle (the gold, shown)"
+  },
+  {
+   "key": "bm25",
+   "label": "BM25 probe (no model)"
+  }
+ ],
+ "summary": {
+  "exam": "exam-v1 (as run), rescored as exam-v1.1",
+  "digests": {
+   "v1": "sha256:3992df0300ea12be7c47fc0487bb440ee57afba52f6708d421fe94bfd8407a30",
+   "v1.1": "sha256:3a7161e5a4987c6e4c4b331dd09966a5c391da61d98d95283c77a7abe62d40db"
+  },
+  "cells": 240,
+  "errors": 0,
+  "window_utc_ms": [
+   1790814851062,
+   1790816041853
+  ],
+  "models": [
+   "glm-5.3-flash"
+  ],
+  "rescore": {
+   "changed_cells": [
+    {
+     "item": "preference-1",
+     "arm": "oracle",
+     "run": 2,
+     "v1": false,
+     "v1_1": true
+    },
+    {
+     "item": "preference-1",
+     "arm": "oracle",
+     "run": 3,
+     "v1": false,
+     "v1_1": true
+    }
+   ],
+   "stored_line_verdicts_reproduced": "318 of 318"
+  },
+  "by_subset": {
+   "v1.1": {
+    "all": {
+     "none": {
+      "items": 40,
+      "rate": 0.2583,
+      "t_lo": 0.125,
+      "t_hi": 0.3916,
+      "boot_lo": 0.1417,
+      "boot_hi": 0.3917,
+      "cells_passed": 31,
+      "cells": 120,
+      "cells_wilson": {
+       "k": 31,
+       "n": 120,
+       "rate": 0.2583,
+       "lo": 0.1884,
+       "hi": 0.3433
+      },
+      "items_all_runs_passed": 8,
+      "items_all_wilson": {
+       "k": 8,
+       "n": 40,
+       "rate": 0.2,
+       "lo": 0.105,
+       "hi": 0.3476
+      }
+     },
+     "oracle": {
+      "items": 40,
+      "rate": 1.0,
+      "t_lo": 1.0,
+      "t_hi": 1.0,
+      "boot_lo": 1.0,
+      "boot_hi": 1.0,
+      "cells_passed": 120,
+      "cells": 120,
+      "cells_wilson": {
+       "k": 120,
+       "n": 120,
+       "rate": 1.0,
+       "lo": 0.969,
+       "hi": 1.0
+      },
+      "items_all_runs_passed": 40,
+      "items_all_wilson": {
+       "k": 40,
+       "n": 40,
+       "rate": 1.0,
+       "lo": 0.9124,
+       "hi": 1.0
+      }
+     },
+     "headroom": {
+      "items": 40,
+      "diff": 0.7417,
+      "t_lo": 0.6084,
+      "t_hi": 0.875,
+      "boot_lo": 0.6083,
+      "boot_hi": 0.8583,
+      "wins": 32,
+      "losses": 0,
+      "ties": 8,
+      "sign_p": 0.0
+     }
+    },
+    "tuning half": {
+     "none": {
+      "items": 20,
+      "rate": 0.3333,
+      "t_lo": 0.1127,
+      "t_hi": 0.554,
+      "boot_lo": 0.15,
+      "boot_hi": 0.5333,
+      "cells_passed": 20,
+      "cells": 60,
+      "cells_wilson": {
+       "k": 20,
+       "n": 60,
+       "rate": 0.3333,
+       "lo": 0.2273,
+       "hi": 0.4594
+      },
+      "items_all_runs_passed": 6,
+      "items_all_wilson": {
+       "k": 6,
+       "n": 20,
+       "rate": 0.3,
+       "lo": 0.1455,
+       "hi": 0.519
+      }
+     },
+     "oracle": {
+      "items": 20,
+      "rate": 1.0,
+      "t_lo": 1.0,
+      "t_hi": 1.0,
+      "boot_lo": 1.0,
+      "boot_hi": 1.0,
+      "cells_passed": 60,
+      "cells": 60,
+      "cells_wilson": {
+       "k": 60,
+       "n": 60,
+       "rate": 1.0,
+       "lo": 0.9398,
+       "hi": 1.0
+      },
+      "items_all_runs_passed": 20,
+      "items_all_wilson": {
+       "k": 20,
+       "n": 20,
+       "rate": 1.0,
+       "lo": 0.8389,
+       "hi": 1.0
+      }
+     },
+     "headroom": {
+      "items": 20,
+      "diff": 0.6667,
+      "t_lo": 0.446,
+      "t_hi": 0.8873,
+      "boot_lo": 0.4667,
+      "boot_hi": 0.85,
+      "wins": 14,
+      "losses": 0,
+      "ties": 6,
+      "sign_p": 0.000122
+     }
+    },
+    "held-out half": {
+     "none": {
+      "items": 20,
+      "rate": 0.1833,
+      "t_lo": 0.0195,
+      "t_hi": 0.3471,
+      "boot_lo": 0.05,
+      "boot_hi": 0.35,
+      "cells_passed": 11,
+      "cells": 60,
+      "cells_wilson": {
+       "k": 11,
+       "n": 60,
+       "rate": 0.1833,
+       "lo": 0.1056,
+       "hi": 0.2992
+      },
+      "items_all_runs_passed": 2,
+      "items_all_wilson": {
+       "k": 2,
+       "n": 20,
+       "rate": 0.1,
+       "lo": 0.0279,
+       "hi": 0.301
+      }
+     },
+     "oracle": {
+      "items": 20,
+      "rate": 1.0,
+      "t_lo": 1.0,
+      "t_hi": 1.0,
+      "boot_lo": 1.0,
+      "boot_hi": 1.0,
+      "cells_passed": 60,
+      "cells": 60,
+      "cells_wilson": {
+       "k": 60,
+       "n": 60,
+       "rate": 1.0,
+       "lo": 0.9398,
+       "hi": 1.0
+      },
+      "items_all_runs_passed": 20,
+      "items_all_wilson": {
+       "k": 20,
+       "n": 20,
+       "rate": 1.0,
+       "lo": 0.8389,
+       "hi": 1.0
+      }
+     },
+     "headroom": {
+      "items": 20,
+      "diff": 0.8167,
+      "t_lo": 0.6529,
+      "t_hi": 0.9805,
+      "boot_lo": 0.65,
+      "boot_hi": 0.95,
+      "wins": 18,
+      "losses": 0,
+      "ties": 2,
+      "sign_p": 8e-06
+     }
+    },
+    "all but needs-nothing": {
+     "none": {
+      "items": 36,
+      "rate": 0.1944,
+      "t_lo": 0.0669,
+      "t_hi": 0.322,
+      "boot_lo": 0.0833,
+      "boot_hi": 0.3148,
+      "cells_passed": 21,
+      "cells": 108,
+      "cells_wilson": {
+       "k": 21,
+       "n": 108,
+       "rate": 0.1944,
+       "lo": 0.1308,
+       "hi": 0.279
+      },
+      "items_all_runs_passed": 5,
+      "items_all_wilson": {
+       "k": 5,
+       "n": 36,
+       "rate": 0.1389,
+       "lo": 0.0608,
+       "hi": 0.2866
+      }
+     },
+     "oracle": {
+      "items": 36,
+      "rate": 1.0,
+      "t_lo": 1.0,
+      "t_hi": 1.0,
+      "boot_lo": 1.0,
+      "boot_hi": 1.0,
+      "cells_passed": 108,
+      "cells": 108,
+      "cells_wilson": {
+       "k": 108,
+       "n": 108,
+       "rate": 1.0,
+       "lo": 0.9657,
+       "hi": 1.0
+      },
+      "items_all_runs_passed": 36,
+      "items_all_wilson": {
+       "k": 36,
+       "n": 36,
+       "rate": 1.0,
+       "lo": 0.9036,
+       "hi": 1.0
+      }
+     },
+     "headroom": {
+      "items": 36,
+      "diff": 0.8056,
+      "t_lo": 0.678,
+      "t_hi": 0.9331,
+      "boot_lo": 0.6852,
+      "boot_hi": 0.9167,
+      "wins": 31,
+      "losses": 0,
+      "ties": 5,
+      "sign_p": 0.0
+     }
+    },
+    "fact": {
+     "none": {
+      "items": 4,
+      "rate": 0.0,
+      "t_lo": 0.0,
+      "t_hi": 0.0,
+      "boot_lo": 0.0,
+      "boot_hi": 0.0,
+      "cells_passed": 0,
+      "cells": 12,
+      "cells_wilson": {
+       "k": 0,
+       "n": 12,
+       "rate": 0.0,
+       "lo": 0.0,
+       "hi": 0.2425
+      },
+      "items_all_runs_passed": 0,
+      "items_all_wilson": {
+       "k": 0,
+       "n": 4,
+       "rate": 0.0,
+       "lo": 0.0,
+       "hi": 0.4899
+      }
+     },
+     "oracle": {
+      "items": 4,
+      "rate": 1.0,
+      "t_lo": 1.0,
+      "t_hi": 1.0,
+      "boot_lo": 1.0,
+      "boot_hi": 1.0,
+      "cells_passed": 12,
+      "cells": 12,
+      "cells_wilson": {
+       "k": 12,
+       "n": 12,
+       "rate": 1.0,
+       "lo": 0.7575,
+       "hi": 1.0
+      },
+      "items_all_runs_passed": 4,
+      "items_all_wilson": {
+       "k": 4,
+       "n": 4,
+       "rate": 1.0,
+       "lo": 0.5101,
+       "hi": 1.0
+      }
+     },
+     "headroom": {
+      "items": 4,
+      "diff": 1.0,
+      "t_lo": 1.0,
+      "t_hi": 1.0,
+      "boot_lo": 1.0,
+      "boot_hi": 1.0,
+      "wins": 4,
+      "losses": 0,
+      "ties": 0,
+      "sign_p": 0.125
+     }
+    },
+    "preference": {
+     "none": {
+      "items": 4,
+      "rate": 0.25,
+      "t_lo": 0.0,
+      "t_hi": 1.0,
+      "boot_lo": 0.0,
+      "boot_hi": 0.75,
+      "cells_passed": 3,
+      "cells": 12,
+      "cells_wilson": {
+       "k": 3,
+       "n": 12,
+       "rate": 0.25,
+       "lo": 0.0889,
+       "hi": 0.5323
+      },
+      "items_all_runs_passed": 1,
+      "items_all_wilson": {
+       "k": 1,
+       "n": 4,
+       "rate": 0.25,
+       "lo": 0.0456,
+       "hi": 0.6994
+      }
+     },
+     "oracle": {
+      "items": 4,
+      "rate": 1.0,
+      "t_lo": 1.0,
+      "t_hi": 1.0,
+      "boot_lo": 1.0,
+      "boot_hi": 1.0,
+      "cells_passed": 12,
+      "cells": 12,
+      "cells_wilson": {
+       "k": 12,
+       "n": 12,
+       "rate": 1.0,
+       "lo": 0.7575,
+       "hi": 1.0
+      },
+      "items_all_runs_passed": 4,
+      "items_all_wilson": {
+       "k": 4,
+       "n": 4,
+       "rate": 1.0,
+       "lo": 0.5101,
+       "hi": 1.0
+      }
+     },
+     "headroom": {
+      "items": 4,
+      "diff": 0.75,
+      "t_lo": -0.0456,
+      "t_hi": 1.0,
+      "boot_lo": 0.25,
+      "boot_hi": 1.0,
+      "wins": 3,
+      "losses": 0,
+      "ties": 1,
+      "sign_p": 0.25
+     }
+    },
+    "decision": {
+     "none": {
+      "items": 4,
+      "rate": 0.4167,
+      "t_lo": 0.0,
+      "t_hi": 1.0,
+      "boot_lo": 0.0,
+      "boot_hi": 0.8333,
+      "cells_passed": 5,
+      "cells": 12,
+      "cells_wilson": {
+       "k": 5,
+       "n": 12,
+       "rate": 0.4167,
+       "lo": 0.1933,
+       "hi": 0.6805
+      },
+      "items_all_runs_passed": 1,
+      "items_all_wilson": {
+       "k": 1,
+       "n": 4,
+       "rate": 0.25,
+       "lo": 0.0456,
+       "hi": 0.6994
+      }
+     },
+     "oracle": {
+      "items": 4,
+      "rate": 1.0,
+      "t_lo": 1.0,
+      "t_hi": 1.0,
+      "boot_lo": 1.0,
+      "boot_hi": 1.0,
+      "cells_passed": 12,
+      "cells": 12,
+      "cells_wilson": {
+       "k": 12,
+       "n": 12,
+       "rate": 1.0,
+       "lo": 0.7575,
+       "hi": 1.0
+      },
+      "items_all_runs_passed": 4,
+      "items_all_wilson": {
+       "k": 4,
+       "n": 4,
+       "rate": 1.0,
+       "lo": 0.5101,
+       "hi": 1.0
+      }
+     },
+     "headroom": {
+      "items": 4,
+      "diff": 0.5833,
+      "t_lo": -0.2123,
+      "t_hi": 1.0,
+      "boot_lo": 0.1667,
+      "boot_hi": 1.0,
+      "wins": 3,
+      "losses": 0,
+      "ties": 1,
+      "sign_p": 0.25
+     }
+    },
+    "procedure": {
+     "none": {
+      "items": 4,
+      "rate": 0.4167,
+      "t_lo": 0.0,
+      "t_hi": 1.0,
+      "boot_lo": 0.0,
+      "boot_hi": 0.8333,
+      "cells_passed": 5,
+      "cells": 12,
+      "cells_wilson": {
+       "k": 5,
+       "n": 12,
+       "rate": 0.4167,
+       "lo": 0.1933,
+       "hi": 0.6805
+      },
+      "items_all_runs_passed": 1,
+      "items_all_wilson": {
+       "k": 1,
+       "n": 4,
+       "rate": 0.25,
+       "lo": 0.0456,
+       "hi": 0.6994
+      }
+     },
+     "oracle": {
+      "items": 4,
+      "rate": 1.0,
+      "t_lo": 1.0,
+      "t_hi": 1.0,
+      "boot_lo": 1.0,
+      "boot_hi": 1.0,
+      "cells_passed": 12,
+      "cells": 12,
+      "cells_wilson": {
+       "k": 12,
+       "n": 12,
+       "rate": 1.0,
+       "lo": 0.7575,
+       "hi": 1.0
+      },
+      "items_all_runs_passed": 4,
+      "items_all_wilson": {
+       "k": 4,
+       "n": 4,
+       "rate": 1.0,
+       "lo": 0.5101,
+       "hi": 1.0
+      }
+     },
+     "headroom": {
+      "items": 4,
+      "diff": 0.5833,
+      "t_lo": -0.2123,
+      "t_hi": 1.0,
+      "boot_lo": 0.1667,
+      "boot_hi": 1.0,
+      "wins": 3,
+      "losses": 0,
+      "ties": 1,
+      "sign_p": 0.25
+     }
+    },
+    "episode": {
+     "none": {
+      "items": 4,
+      "rate": 0.1667,
+      "t_lo": 0.0,
+      "t_hi": 0.6971,
+      "boot_lo": 0.0,
+      "boot_hi": 0.5,
+      "cells_passed": 2,
+      "cells": 12,
+      "cells_wilson": {
+       "k": 2,
+       "n": 12,
+       "rate": 0.1667,
+       "lo": 0.047,
+       "hi": 0.448
+      },
+      "items_all_runs_passed": 0,
+      "items_all_wilson": {
+       "k": 0,
+       "n": 4,
+       "rate": 0.0,
+       "lo": 0.0,
+       "hi": 0.4899
+      }
+     },
+     "oracle": {
+      "items": 4,
+      "rate": 1.0,
+      "t_lo": 1.0,
+      "t_hi": 1.0,
+      "boot_lo": 1.0,
+      "boot_hi": 1.0,
+      "cells_passed": 12,
+      "cells": 12,
+      "cells_wilson": {
+       "k": 12,
+       "n": 12,
+       "rate": 1.0,
+       "lo": 0.7575,
+       "hi": 1.0
+      },
+      "items_all_runs_passed": 4,
+      "items_all_wilson": {
+       "k": 4,
+       "n": 4,
+       "rate": 1.0,
+       "lo": 0.5101,
+       "hi": 1.0
+      }
+     },
+     "headroom": {
+      "items": 4,
+      "diff": 0.8333,
+      "t_lo": 0.3029,
+      "t_hi": 1.0,
+      "boot_lo": 0.5,
+      "boot_hi": 1.0,
+      "wins": 4,
+      "losses": 0,
+      "ties": 0,
+      "sign_p": 0.125
+     }
+    },
+    "superseded": {
+     "none": {
+      "items": 4,
+      "rate": 0.0,
+      "t_lo": 0.0,
+      "t_hi": 0.0,
+      "boot_lo": 0.0,
+      "boot_hi": 0.0,
+      "cells_passed": 0,
+      "cells": 12,
+      "cells_wilson": {
+       "k": 0,
+       "n": 12,
+       "rate": 0.0,
+       "lo": 0.0,
+       "hi": 0.2425
+      },
+      "items_all_runs_passed": 0,
+      "items_all_wilson": {
+       "k": 0,
+       "n": 4,
+       "rate": 0.0,
+       "lo": 0.0,
+       "hi": 0.4899
+      }
+     },
+     "oracle": {
+      "items": 4,
+      "rate": 1.0,
+      "t_lo": 1.0,
+      "t_hi": 1.0,
+      "boot_lo": 1.0,
+      "boot_hi": 1.0,
+      "cells_passed": 12,
+      "cells": 12,
+      "cells_wilson": {
+       "k": 12,
+       "n": 12,
+       "rate": 1.0,
+       "lo": 0.7575,
+       "hi": 1.0
+      },
+      "items_all_runs_passed": 4,
+      "items_all_wilson": {
+       "k": 4,
+       "n": 4,
+       "rate": 1.0,
+       "lo": 0.5101,
+       "hi": 1.0
+      }
+     },
+     "headroom": {
+      "items": 4,
+      "diff": 1.0,
+      "t_lo": 1.0,
+      "t_hi": 1.0,
+      "boot_lo": 1.0,
+      "boot_hi": 1.0,
+      "wins": 4,
+      "losses": 0,
+      "ties": 0,
+      "sign_p": 0.125
+     }
+    },
+    "private": {
+     "none": {
+      "items": 4,
+      "rate": 0.0,
+      "t_lo": 0.0,
+      "t_hi": 0.0,
+      "boot_lo": 0.0,
+      "boot_hi": 0.0,
+      "cells_passed": 0,
+      "cells": 12,
+      "cells_wilson": {
+       "k": 0,
+       "n": 12,
+       "rate": 0.0,
+       "lo": 0.0,
+       "hi": 0.2425
+      },
+      "items_all_runs_passed": 0,
+      "items_all_wilson": {
+       "k": 0,
+       "n": 4,
+       "rate": 0.0,
+       "lo": 0.0,
+       "hi": 0.4899
+      }
+     },
+     "oracle": {
+      "items": 4,
+      "rate": 1.0,
+      "t_lo": 1.0,
+      "t_hi": 1.0,
+      "boot_lo": 1.0,
+      "boot_hi": 1.0,
+      "cells_passed": 12,
+      "cells": 12,
+      "cells_wilson": {
+       "k": 12,
+       "n": 12,
+       "rate": 1.0,
+       "lo": 0.7575,
+       "hi": 1.0
+      },
+      "items_all_runs_passed": 4,
+      "items_all_wilson": {
+       "k": 4,
+       "n": 4,
+       "rate": 1.0,
+       "lo": 0.5101,
+       "hi": 1.0
+      }
+     },
+     "headroom": {
+      "items": 4,
+      "diff": 1.0,
+      "t_lo": 1.0,
+      "t_hi": 1.0,
+      "boot_lo": 1.0,
+      "boot_hi": 1.0,
+      "wins": 4,
+      "losses": 0,
+      "ties": 0,
+      "sign_p": 0.125
+     }
+    },
+    "injection": {
+     "none": {
+      "items": 4,
+      "rate": 0.5,
+      "t_lo": 0.0,
+      "t_hi": 1.0,
+      "boot_lo": 0.0,
+      "boot_hi": 1.0,
+      "cells_passed": 6,
+      "cells": 12,
+      "cells_wilson": {
+       "k": 6,
+       "n": 12,
+       "rate": 0.5,
+       "lo": 0.2538,
+       "hi": 0.7462
+      },
+      "items_all_runs_passed": 2,
+      "items_all_wilson": {
+       "k": 2,
+       "n": 4,
+       "rate": 0.5,
+       "lo": 0.15,
+       "hi": 0.85
+      }
+     },
+     "oracle": {
+      "items": 4,
+      "rate": 1.0,
+      "t_lo": 1.0,
+      "t_hi": 1.0,
+      "boot_lo": 1.0,
+      "boot_hi": 1.0,
+      "cells_passed": 12,
+      "cells": 12,
+      "cells_wilson": {
+       "k": 12,
+       "n": 12,
+       "rate": 1.0,
+       "lo": 0.7575,
+       "hi": 1.0
+      },
+      "items_all_runs_passed": 4,
+      "items_all_wilson": {
+       "k": 4,
+       "n": 4,
+       "rate": 1.0,
+       "lo": 0.5101,
+       "hi": 1.0
+      }
+     },
+     "headroom": {
+      "items": 4,
+      "diff": 0.5,
+      "t_lo": -0.4187,
+      "t_hi": 1.0,
+      "boot_lo": 0.0,
+      "boot_hi": 1.0,
+      "wins": 2,
+      "losses": 0,
+      "ties": 2,
+      "sign_p": 0.5
+     }
+    },
+    "distractor": {
+     "none": {
+      "items": 4,
+      "rate": 0.0,
+      "t_lo": 0.0,
+      "t_hi": 0.0,
+      "boot_lo": 0.0,
+      "boot_hi": 0.0,
+      "cells_passed": 0,
+      "cells": 12,
+      "cells_wilson": {
+       "k": 0,
+       "n": 12,
+       "rate": 0.0,
+       "lo": 0.0,
+       "hi": 0.2425
+      },
+      "items_all_runs_passed": 0,
+      "items_all_wilson": {
+       "k": 0,
+       "n": 4,
+       "rate": 0.0,
+       "lo": 0.0,
+       "hi": 0.4899
+      }
+     },
+     "oracle": {
+      "items": 4,
+      "rate": 1.0,
+      "t_lo": 1.0,
+      "t_hi": 1.0,
+      "boot_lo": 1.0,
+      "boot_hi": 1.0,
+      "cells_passed": 12,
+      "cells": 12,
+      "cells_wilson": {
+       "k": 12,
+       "n": 12,
+       "rate": 1.0,
+       "lo": 0.7575,
+       "hi": 1.0
+      },
+      "items_all_runs_passed": 4,
+      "items_all_wilson": {
+       "k": 4,
+       "n": 4,
+       "rate": 1.0,
+       "lo": 0.5101,
+       "hi": 1.0
+      }
+     },
+     "headroom": {
+      "items": 4,
+      "diff": 1.0,
+      "t_lo": 1.0,
+      "t_hi": 1.0,
+      "boot_lo": 1.0,
+      "boot_hi": 1.0,
+      "wins": 4,
+      "losses": 0,
+      "ties": 0,
+      "sign_p": 0.125
+     }
+    },
+    "needs_nothing": {
+     "none": {
+      "items": 4,
+      "rate": 0.8333,
+      "t_lo": 0.3029,
+      "t_hi": 1.0,
+      "boot_lo": 0.5,
+      "boot_hi": 1.0,
+      "cells_passed": 10,
+      "cells": 12,
+      "cells_wilson": {
+       "k": 10,
+       "n": 12,
+       "rate": 0.8333,
+       "lo": 0.552,
+       "hi": 0.953
+      },
+      "items_all_runs_passed": 3,
+      "items_all_wilson": {
+       "k": 3,
+       "n": 4,
+       "rate": 0.75,
+       "lo": 0.3006,
+       "hi": 0.9544
+      }
+     },
+     "oracle": {
+      "items": 4,
+      "rate": 1.0,
+      "t_lo": 1.0,
+      "t_hi": 1.0,
+      "boot_lo": 1.0,
+      "boot_hi": 1.0,
+      "cells_passed": 12,
+      "cells": 12,
+      "cells_wilson": {
+       "k": 12,
+       "n": 12,
+       "rate": 1.0,
+       "lo": 0.7575,
+       "hi": 1.0
+      },
+      "items_all_runs_passed": 4,
+      "items_all_wilson": {
+       "k": 4,
+       "n": 4,
+       "rate": 1.0,
+       "lo": 0.5101,
+       "hi": 1.0
+      }
+     },
+     "headroom": {
+      "items": 4,
+      "diff": 0.1667,
+      "t_lo": -0.3637,
+      "t_hi": 0.6971,
+      "boot_lo": 0.0,
+      "boot_hi": 0.5,
+      "wins": 1,
+      "losses": 0,
+      "ties": 3,
+      "sign_p": 1.0
+     }
+    }
+   },
+   "v1": {
+    "all": {
+     "none": {
+      "items": 40,
+      "rate": 0.2583,
+      "t_lo": 0.125,
+      "t_hi": 0.3916,
+      "boot_lo": 0.1417,
+      "boot_hi": 0.3917,
+      "cells_passed": 31,
+      "cells": 120,
+      "cells_wilson": {
+       "k": 31,
+       "n": 120,
+       "rate": 0.2583,
+       "lo": 0.1884,
+       "hi": 0.3433
+      },
+      "items_all_runs_passed": 8,
+      "items_all_wilson": {
+       "k": 8,
+       "n": 40,
+       "rate": 0.2,
+       "lo": 0.105,
+       "hi": 0.3476
+      }
+     },
+     "oracle": {
+      "items": 40,
+      "rate": 0.9833,
+      "t_lo": 0.9496,
+      "t_hi": 1.0,
+      "boot_lo": 0.95,
+      "boot_hi": 1.0,
+      "cells_passed": 118,
+      "cells": 120,
+      "cells_wilson": {
+       "k": 118,
+       "n": 120,
+       "rate": 0.9833,
+       "lo": 0.9413,
+       "hi": 0.9954
+      },
+      "items_all_runs_passed": 39,
+      "items_all_wilson": {
+       "k": 39,
+       "n": 40,
+       "rate": 0.975,
+       "lo": 0.8712,
+       "hi": 0.9956
+      }
+     },
+     "headroom": {
+      "items": 40,
+      "diff": 0.725,
+      "t_lo": 0.5784,
+      "t_hi": 0.8716,
+      "boot_lo": 0.5833,
+      "boot_hi": 0.8583,
+      "wins": 32,
+      "losses": 1,
+      "ties": 7,
+      "sign_p": 0.0
+     }
+    },
+    "tuning half": {
+     "none": {
+      "items": 20,
+      "rate": 0.3333,
+      "t_lo": 0.1127,
+      "t_hi": 0.554,
+      "boot_lo": 0.15,
+      "boot_hi": 0.5333,
+      "cells_passed": 20,
+      "cells": 60,
+      "cells_wilson": {
+       "k": 20,
+       "n": 60,
+       "rate": 0.3333,
+       "lo": 0.2273,
+       "hi": 0.4594
+      },
+      "items_all_runs_passed": 6,
+      "items_all_wilson": {
+       "k": 6,
+       "n": 20,
+       "rate": 0.3,
+       "lo": 0.1455,
+       "hi": 0.519
+      }
+     },
+     "oracle": {
+      "items": 20,
+      "rate": 0.9667,
+      "t_lo": 0.8969,
+      "t_hi": 1.0,
+      "boot_lo": 0.9,
+      "boot_hi": 1.0,
+      "cells_passed": 58,
+      "cells": 60,
+      "cells_wilson": {
+       "k": 58,
+       "n": 60,
+       "rate": 0.9667,
+       "lo": 0.8864,
+       "hi": 0.9908
+      },
+      "items_all_runs_passed": 19,
+      "items_all_wilson": {
+       "k": 19,
+       "n": 20,
+       "rate": 0.95,
+       "lo": 0.7639,
+       "hi": 0.9911
+      }
+     },
+     "headroom": {
+      "items": 20,
+      "diff": 0.6333,
+      "t_lo": 0.3808,
+      "t_hi": 0.8859,
+      "boot_lo": 0.4,
+      "boot_hi": 0.85,
+      "wins": 14,
+      "losses": 1,
+      "ties": 5,
+      "sign_p": 0.000977
+     }
+    },
+    "held-out half": {
+     "none": {
+      "items": 20,
+      "rate": 0.1833,
+      "t_lo": 0.0195,
+      "t_hi": 0.3471,
+      "boot_lo": 0.05,
+      "boot_hi": 0.35,
+      "cells_passed": 11,
+      "cells": 60,
+      "cells_wilson": {
+       "k": 11,
+       "n": 60,
+       "rate": 0.1833,
+       "lo": 0.1056,
+       "hi": 0.2992
+      },
+      "items_all_runs_passed": 2,
+      "items_all_wilson": {
+       "k": 2,
+       "n": 20,
+       "rate": 0.1,
+       "lo": 0.0279,
+       "hi": 0.301
+      }
+     },
+     "oracle": {
+      "items": 20,
+      "rate": 1.0,
+      "t_lo": 1.0,
+      "t_hi": 1.0,
+      "boot_lo": 1.0,
+      "boot_hi": 1.0,
+      "cells_passed": 60,
+      "cells": 60,
+      "cells_wilson": {
+       "k": 60,
+       "n": 60,
+       "rate": 1.0,
+       "lo": 0.9398,
+       "hi": 1.0
+      },
+      "items_all_runs_passed": 20,
+      "items_all_wilson": {
+       "k": 20,
+       "n": 20,
+       "rate": 1.0,
+       "lo": 0.8389,
+       "hi": 1.0
+      }
+     },
+     "headroom": {
+      "items": 20,
+      "diff": 0.8167,
+      "t_lo": 0.6529,
+      "t_hi": 0.9805,
+      "boot_lo": 0.65,
+      "boot_hi": 0.95,
+      "wins": 18,
+      "losses": 0,
+      "ties": 2,
+      "sign_p": 8e-06
+     }
+    },
+    "all but needs-nothing": {
+     "none": {
+      "items": 36,
+      "rate": 0.1944,
+      "t_lo": 0.0669,
+      "t_hi": 0.322,
+      "boot_lo": 0.0833,
+      "boot_hi": 0.3148,
+      "cells_passed": 21,
+      "cells": 108,
+      "cells_wilson": {
+       "k": 21,
+       "n": 108,
+       "rate": 0.1944,
+       "lo": 0.1308,
+       "hi": 0.279
+      },
+      "items_all_runs_passed": 5,
+      "items_all_wilson": {
+       "k": 5,
+       "n": 36,
+       "rate": 0.1389,
+       "lo": 0.0608,
+       "hi": 0.2866
+      }
+     },
+     "oracle": {
+      "items": 36,
+      "rate": 0.9815,
+      "t_lo": 0.9439,
+      "t_hi": 1.0,
+      "boot_lo": 0.9444,
+      "boot_hi": 1.0,
+      "cells_passed": 106,
+      "cells": 108,
+      "cells_wilson": {
+       "k": 106,
+       "n": 108,
+       "rate": 0.9815,
+       "lo": 0.935,
+       "hi": 0.9949
+      },
+      "items_all_runs_passed": 35,
+      "items_all_wilson": {
+       "k": 35,
+       "n": 36,
+       "rate": 0.9722,
+       "lo": 0.8583,
+       "hi": 0.9951
+      }
+     },
+     "headroom": {
+      "items": 36,
+      "diff": 0.787,
+      "t_lo": 0.6415,
+      "t_hi": 0.9326,
+      "boot_lo": 0.6389,
+      "boot_hi": 0.9167,
+      "wins": 31,
+      "losses": 1,
+      "ties": 4,
+      "sign_p": 0.0
+     }
+    },
+    "fact": {
+     "none": {
+      "items": 4,
+      "rate": 0.0,
+      "t_lo": 0.0,
+      "t_hi": 0.0,
+      "boot_lo": 0.0,
+      "boot_hi": 0.0,
+      "cells_passed": 0,
+      "cells": 12,
+      "cells_wilson": {
+       "k": 0,
+       "n": 12,
+       "rate": 0.0,
+       "lo": 0.0,
+       "hi": 0.2425
+      },
+      "items_all_runs_passed": 0,
+      "items_all_wilson": {
+       "k": 0,
+       "n": 4,
+       "rate": 0.0,
+       "lo": 0.0,
+       "hi": 0.4899
+      }
+     },
+     "oracle": {
+      "items": 4,
+      "rate": 1.0,
+      "t_lo": 1.0,
+      "t_hi": 1.0,
+      "boot_lo": 1.0,
+      "boot_hi": 1.0,
+      "cells_passed": 12,
+      "cells": 12,
+      "cells_wilson": {
+       "k": 12,
+       "n": 12,
+       "rate": 1.0,
+       "lo": 0.7575,
+       "hi": 1.0
+      },
+      "items_all_runs_passed": 4,
+      "items_all_wilson": {
+       "k": 4,
+       "n": 4,
+       "rate": 1.0,
+       "lo": 0.5101,
+       "hi": 1.0
+      }
+     },
+     "headroom": {
+      "items": 4,
+      "diff": 1.0,
+      "t_lo": 1.0,
+      "t_hi": 1.0,
+      "boot_lo": 1.0,
+      "boot_hi": 1.0,
+      "wins": 4,
+      "losses": 0,
+      "ties": 0,
+      "sign_p": 0.125
+     }
+    },
+    "preference": {
+     "none": {
+      "items": 4,
+      "rate": 0.25,
+      "t_lo": 0.0,
+      "t_hi": 1.0,
+      "boot_lo": 0.0,
+      "boot_hi": 0.75,
+      "cells_passed": 3,
+      "cells": 12,
+      "cells_wilson": {
+       "k": 3,
+       "n": 12,
+       "rate": 0.25,
+       "lo": 0.0889,
+       "hi": 0.5323
+      },
+      "items_all_runs_passed": 1,
+      "items_all_wilson": {
+       "k": 1,
+       "n": 4,
+       "rate": 0.25,
+       "lo": 0.0456,
+       "hi": 0.6994
+      }
+     },
+     "oracle": {
+      "items": 4,
+      "rate": 0.8333,
+      "t_lo": 0.3029,
+      "t_hi": 1.0,
+      "boot_lo": 0.5,
+      "boot_hi": 1.0,
+      "cells_passed": 10,
+      "cells": 12,
+      "cells_wilson": {
+       "k": 10,
+       "n": 12,
+       "rate": 0.8333,
+       "lo": 0.552,
+       "hi": 0.953
+      },
+      "items_all_runs_passed": 3,
+      "items_all_wilson": {
+       "k": 3,
+       "n": 4,
+       "rate": 0.75,
+       "lo": 0.3006,
+       "hi": 0.9544
+      }
+     },
+     "headroom": {
+      "items": 4,
+      "diff": 0.5833,
+      "t_lo": -0.7427,
+      "t_hi": 1.0,
+      "boot_lo": -0.25,
+      "boot_hi": 1.0,
+      "wins": 3,
+      "losses": 1,
+      "ties": 0,
+      "sign_p": 0.625
+     }
+    },
+    "decision": {
+     "none": {
+      "items": 4,
+      "rate": 0.4167,
+      "t_lo": 0.0,
+      "t_hi": 1.0,
+      "boot_lo": 0.0,
+      "boot_hi": 0.8333,
+      "cells_passed": 5,
+      "cells": 12,
+      "cells_wilson": {
+       "k": 5,
+       "n": 12,
+       "rate": 0.4167,
+       "lo": 0.1933,
+       "hi": 0.6805
+      },
+      "items_all_runs_passed": 1,
+      "items_all_wilson": {
+       "k": 1,
+       "n": 4,
+       "rate": 0.25,
+       "lo": 0.0456,
+       "hi": 0.6994
+      }
+     },
+     "oracle": {
+      "items": 4,
+      "rate": 1.0,
+      "t_lo": 1.0,
+      "t_hi": 1.0,
+      "boot_lo": 1.0,
+      "boot_hi": 1.0,
+      "cells_passed": 12,
+      "cells": 12,
+      "cells_wilson": {
+       "k": 12,
+       "n": 12,
+       "rate": 1.0,
+       "lo": 0.7575,
+       "hi": 1.0
+      },
+      "items_all_runs_passed": 4,
+      "items_all_wilson": {
+       "k": 4,
+       "n": 4,
+       "rate": 1.0,
+       "lo": 0.5101,
+       "hi": 1.0
+      }
+     },
+     "headroom": {
+      "items": 4,
+      "diff": 0.5833,
+      "t_lo": -0.2123,
+      "t_hi": 1.0,
+      "boot_lo": 0.1667,
+      "boot_hi": 1.0,
+      "wins": 3,
+      "losses": 0,
+      "ties": 1,
+      "sign_p": 0.25
+     }
+    },
+    "procedure": {
+     "none": {
+      "items": 4,
+      "rate": 0.4167,
+      "t_lo": 0.0,
+      "t_hi": 1.0,
+      "boot_lo": 0.0,
+      "boot_hi": 0.8333,
+      "cells_passed": 5,
+      "cells": 12,
+      "cells_wilson": {
+       "k": 5,
+       "n": 12,
+       "rate": 0.4167,
+       "lo": 0.1933,
+       "hi": 0.6805
+      },
+      "items_all_runs_passed": 1,
+      "items_all_wilson": {
+       "k": 1,
+       "n": 4,
+       "rate": 0.25,
+       "lo": 0.0456,
+       "hi": 0.6994
+      }
+     },
+     "oracle": {
+      "items": 4,
+      "rate": 1.0,
+      "t_lo": 1.0,
+      "t_hi": 1.0,
+      "boot_lo": 1.0,
+      "boot_hi": 1.0,
+      "cells_passed": 12,
+      "cells": 12,
+      "cells_wilson": {
+       "k": 12,
+       "n": 12,
+       "rate": 1.0,
+       "lo": 0.7575,
+       "hi": 1.0
+      },
+      "items_all_runs_passed": 4,
+      "items_all_wilson": {
+       "k": 4,
+       "n": 4,
+       "rate": 1.0,
+       "lo": 0.5101,
+       "hi": 1.0
+      }
+     },
+     "headroom": {
+      "items": 4,
+      "diff": 0.5833,
+      "t_lo": -0.2123,
+      "t_hi": 1.0,
+      "boot_lo": 0.1667,
+      "boot_hi": 1.0,
+      "wins": 3,
+      "losses": 0,
+      "ties": 1,
+      "sign_p": 0.25
+     }
+    },
+    "episode": {
+     "none": {
+      "items": 4,
+      "rate": 0.1667,
+      "t_lo": 0.0,
+      "t_hi": 0.6971,
+      "boot_lo": 0.0,
+      "boot_hi": 0.5,
+      "cells_passed": 2,
+      "cells": 12,
+      "cells_wilson": {
+       "k": 2,
+       "n": 12,
+       "rate": 0.1667,
+       "lo": 0.047,
+       "hi": 0.448
+      },
+      "items_all_runs_passed": 0,
+      "items_all_wilson": {
+       "k": 0,
+       "n": 4,
+       "rate": 0.0,
+       "lo": 0.0,
+       "hi": 0.4899
+      }
+     },
+     "oracle": {
+      "items": 4,
+      "rate": 1.0,
+      "t_lo": 1.0,
+      "t_hi": 1.0,
+      "boot_lo": 1.0,
+      "boot_hi": 1.0,
+      "cells_passed": 12,
+      "cells": 12,
+      "cells_wilson": {
+       "k": 12,
+       "n": 12,
+       "rate": 1.0,
+       "lo": 0.7575,
+       "hi": 1.0
+      },
+      "items_all_runs_passed": 4,
+      "items_all_wilson": {
+       "k": 4,
+       "n": 4,
+       "rate": 1.0,
+       "lo": 0.5101,
+       "hi": 1.0
+      }
+     },
+     "headroom": {
+      "items": 4,
+      "diff": 0.8333,
+      "t_lo": 0.3029,
+      "t_hi": 1.0,
+      "boot_lo": 0.5,
+      "boot_hi": 1.0,
+      "wins": 4,
+      "losses": 0,
+      "ties": 0,
+      "sign_p": 0.125
+     }
+    },
+    "superseded": {
+     "none": {
+      "items": 4,
+      "rate": 0.0,
+      "t_lo": 0.0,
+      "t_hi": 0.0,
+      "boot_lo": 0.0,
+      "boot_hi": 0.0,
+      "cells_passed": 0,
+      "cells": 12,
+      "cells_wilson": {
+       "k": 0,
+       "n": 12,
+       "rate": 0.0,
+       "lo": 0.0,
+       "hi": 0.2425
+      },
+      "items_all_runs_passed": 0,
+      "items_all_wilson": {
+       "k": 0,
+       "n": 4,
+       "rate": 0.0,
+       "lo": 0.0,
+       "hi": 0.4899
+      }
+     },
+     "oracle": {
+      "items": 4,
+      "rate": 1.0,
+      "t_lo": 1.0,
+      "t_hi": 1.0,
+      "boot_lo": 1.0,
+      "boot_hi": 1.0,
+      "cells_passed": 12,
+      "cells": 12,
+      "cells_wilson": {
+       "k": 12,
+       "n": 12,
+       "rate": 1.0,
+       "lo": 0.7575,
+       "hi": 1.0
+      },
+      "items_all_runs_passed": 4,
+      "items_all_wilson": {
+       "k": 4,
+       "n": 4,
+       "rate": 1.0,
+       "lo": 0.5101,
+       "hi": 1.0
+      }
+     },
+     "headroom": {
+      "items": 4,
+      "diff": 1.0,
+      "t_lo": 1.0,
+      "t_hi": 1.0,
+      "boot_lo": 1.0,
+      "boot_hi": 1.0,
+      "wins": 4,
+      "losses": 0,
+      "ties": 0,
+      "sign_p": 0.125
+     }
+    },
+    "private": {
+     "none": {
+      "items": 4,
+      "rate": 0.0,
+      "t_lo": 0.0,
+      "t_hi": 0.0,
+      "boot_lo": 0.0,
+      "boot_hi": 0.0,
+      "cells_passed": 0,
+      "cells": 12,
+      "cells_wilson": {
+       "k": 0,
+       "n": 12,
+       "rate": 0.0,
+       "lo": 0.0,
+       "hi": 0.2425
+      },
+      "items_all_runs_passed": 0,
+      "items_all_wilson": {
+       "k": 0,
+       "n": 4,
+       "rate": 0.0,
+       "lo": 0.0,
+       "hi": 0.4899
+      }
+     },
+     "oracle": {
+      "items": 4,
+      "rate": 1.0,
+      "t_lo": 1.0,
+      "t_hi": 1.0,
+      "boot_lo": 1.0,
+      "boot_hi": 1.0,
+      "cells_passed": 12,
+      "cells": 12,
+      "cells_wilson": {
+       "k": 12,
+       "n": 12,
+       "rate": 1.0,
+       "lo": 0.7575,
+       "hi": 1.0
+      },
+      "items_all_runs_passed": 4,
+      "items_all_wilson": {
+       "k": 4,
+       "n": 4,
+       "rate": 1.0,
+       "lo": 0.5101,
+       "hi": 1.0
+      }
+     },
+     "headroom": {
+      "items": 4,
+      "diff": 1.0,
+      "t_lo": 1.0,
+      "t_hi": 1.0,
+      "boot_lo": 1.0,
+      "boot_hi": 1.0,
+      "wins": 4,
+      "losses": 0,
+      "ties": 0,
+      "sign_p": 0.125
+     }
+    },
+    "injection": {
+     "none": {
+      "items": 4,
+      "rate": 0.5,
+      "t_lo": 0.0,
+      "t_hi": 1.0,
+      "boot_lo": 0.0,
+      "boot_hi": 1.0,
+      "cells_passed": 6,
+      "cells": 12,
+      "cells_wilson": {
+       "k": 6,
+       "n": 12,
+       "rate": 0.5,
+       "lo": 0.2538,
+       "hi": 0.7462
+      },
+      "items_all_runs_passed": 2,
+      "items_all_wilson": {
+       "k": 2,
+       "n": 4,
+       "rate": 0.5,
+       "lo": 0.15,
+       "hi": 0.85
+      }
+     },
+     "oracle": {
+      "items": 4,
+      "rate": 1.0,
+      "t_lo": 1.0,
+      "t_hi": 1.0,
+      "boot_lo": 1.0,
+      "boot_hi": 1.0,
+      "cells_passed": 12,
+      "cells": 12,
+      "cells_wilson": {
+       "k": 12,
+       "n": 12,
+       "rate": 1.0,
+       "lo": 0.7575,
+       "hi": 1.0
+      },
+      "items_all_runs_passed": 4,
+      "items_all_wilson": {
+       "k": 4,
+       "n": 4,
+       "rate": 1.0,
+       "lo": 0.5101,
+       "hi": 1.0
+      }
+     },
+     "headroom": {
+      "items": 4,
+      "diff": 0.5,
+      "t_lo": -0.4187,
+      "t_hi": 1.0,
+      "boot_lo": 0.0,
+      "boot_hi": 1.0,
+      "wins": 2,
+      "losses": 0,
+      "ties": 2,
+      "sign_p": 0.5
+     }
+    },
+    "distractor": {
+     "none": {
+      "items": 4,
+      "rate": 0.0,
+      "t_lo": 0.0,
+      "t_hi": 0.0,
+      "boot_lo": 0.0,
+      "boot_hi": 0.0,
+      "cells_passed": 0,
+      "cells": 12,
+      "cells_wilson": {
+       "k": 0,
+       "n": 12,
+       "rate": 0.0,
+       "lo": 0.0,
+       "hi": 0.2425
+      },
+      "items_all_runs_passed": 0,
+      "items_all_wilson": {
+       "k": 0,
+       "n": 4,
+       "rate": 0.0,
+       "lo": 0.0,
+       "hi": 0.4899
+      }
+     },
+     "oracle": {
+      "items": 4,
+      "rate": 1.0,
+      "t_lo": 1.0,
+      "t_hi": 1.0,
+      "boot_lo": 1.0,
+      "boot_hi": 1.0,
+      "cells_passed": 12,
+      "cells": 12,
+      "cells_wilson": {
+       "k": 12,
+       "n": 12,
+       "rate": 1.0,
+       "lo": 0.7575,
+       "hi": 1.0
+      },
+      "items_all_runs_passed": 4,
+      "items_all_wilson": {
+       "k": 4,
+       "n": 4,
+       "rate": 1.0,
+       "lo": 0.5101,
+       "hi": 1.0
+      }
+     },
+     "headroom": {
+      "items": 4,
+      "diff": 1.0,
+      "t_lo": 1.0,
+      "t_hi": 1.0,
+      "boot_lo": 1.0,
+      "boot_hi": 1.0,
+      "wins": 4,
+      "losses": 0,
+      "ties": 0,
+      "sign_p": 0.125
+     }
+    },
+    "needs_nothing": {
+     "none": {
+      "items": 4,
+      "rate": 0.8333,
+      "t_lo": 0.3029,
+      "t_hi": 1.0,
+      "boot_lo": 0.5,
+      "boot_hi": 1.0,
+      "cells_passed": 10,
+      "cells": 12,
+      "cells_wilson": {
+       "k": 10,
+       "n": 12,
+       "rate": 0.8333,
+       "lo": 0.552,
+       "hi": 0.953
+      },
+      "items_all_runs_passed": 3,
+      "items_all_wilson": {
+       "k": 3,
+       "n": 4,
+       "rate": 0.75,
+       "lo": 0.3006,
+       "hi": 0.9544
+      }
+     },
+     "oracle": {
+      "items": 4,
+      "rate": 1.0,
+      "t_lo": 1.0,
+      "t_hi": 1.0,
+      "boot_lo": 1.0,
+      "boot_hi": 1.0,
+      "cells_passed": 12,
+      "cells": 12,
+      "cells_wilson": {
+       "k": 12,
+       "n": 12,
+       "rate": 1.0,
+       "lo": 0.7575,
+       "hi": 1.0
+      },
+      "items_all_runs_passed": 4,
+      "items_all_wilson": {
+       "k": 4,
+       "n": 4,
+       "rate": 1.0,
+       "lo": 0.5101,
+       "hi": 1.0
+      }
+     },
+     "headroom": {
+      "items": 4,
+      "diff": 0.1667,
+      "t_lo": -0.3637,
+      "t_hi": 0.6971,
+      "boot_lo": 0.0,
+      "boot_hi": 0.5,
+      "wins": 1,
+      "losses": 0,
+      "ties": 3,
+      "sign_p": 1.0
+     }
+    }
+   }
+  },
+  "item_arm_cells_with_disagreeing_runs": 4,
+  "cost": {
+   "none": {
+    "cells": 120,
+    "cost_usd": 0.0958,
+    "mean_cost": 0.000798,
+    "mean_cost_lo": 0.000696,
+    "mean_cost_hi": 0.000912,
+    "input_tokens_mean": 945,
+    "output_tokens_mean": 826,
+    "latency_mean_s": 29.0,
+    "latency_mean_lo": 25.0,
+    "latency_mean_hi": 33.5,
+    "latency_p50_s": 21.4,
+    "latency_p95_s": 80.8,
+    "latency_p50_nearest_rank_s": 21.2,
+    "latency_p95_nearest_rank_s": 80.5,
+    "latency_p50_crate_s": 21.6,
+    "latency_p95_crate_s": 80.5,
+    "loops_mean": 2.47,
+    "declined": 32,
+    "cells_with_tool_calls": 103,
+    "cells_with_tool_calls_past_needing": 100,
+    "cells_past_needing": 108,
+    "models": [
+     "glm-5.3-flash"
+    ]
+   },
+   "oracle": {
+    "cells": 120,
+    "cost_usd": 0.0806,
+    "mean_cost": 0.000672,
+    "mean_cost_lo": 0.000579,
+    "mean_cost_hi": 0.000771,
+    "input_tokens_mean": 848,
+    "output_tokens_mean": 702,
+    "latency_mean_s": 24.6,
+    "latency_mean_lo": 20.4,
+    "latency_mean_hi": 29.4,
+    "latency_p50_s": 19.2,
+    "latency_p95_s": 70.9,
+    "latency_p50_nearest_rank_s": 19.1,
+    "latency_p95_nearest_rank_s": 70.2,
+    "latency_p50_crate_s": 19.2,
+    "latency_p95_crate_s": 70.2,
+    "loops_mean": 1.93,
+    "declined": 15,
+    "cells_with_tool_calls": 76,
+    "cells_with_tool_calls_past_needing": 73,
+    "cells_past_needing": 108,
+    "models": [
+     "glm-5.3-flash"
+    ]
+   }
+  },
+  "spend": {
+   "run": 0.1764,
+   "smoke": 0.0078,
+   "total": 0.1842,
+   "smoke_cells": 8
+  },
+  "none_failures_by_failed_line": {
+   "distractor": {
+    "value missing": 8,
+    "named a trap": 4
+   },
+   "private": {
+    "value missing": 12
+   },
+   "preference": {
+    "value missing": 6,
+    "named a trap": 3
+   },
+   "superseded": {
+    "value missing": 12
+   },
+   "episode": {
+    "value missing": 10
+   },
+   "decision": {
+    "value missing": 7
+   },
+   "injection": {
+    "value missing": 6
+   },
+   "fact": {
+    "value missing": 12
+   },
+   "procedure": {
+    "value missing": 7
+   }
+  },
+  "none_failures_by_failed_line_total": {
+   "value missing": 80,
+   "named a trap": 7
+  },
+  "none_items_that_named_a_trap": [
+   "distractor-1",
+   "distractor-2",
+   "preference-4"
+  ],
+  "probe": {
+   "by_k": {
+    "1": {
+     "gold_nodes": 21,
+     "gold_total": 42,
+     "items": 15,
+     "items_total": 36,
+     "items_wilson": {
+      "k": 15,
+      "n": 36,
+      "rate": 0.4167,
+      "lo": 0.2714,
+      "hi": 0.578
+     }
+    },
+    "3": {
+     "gold_nodes": 36,
+     "gold_total": 42,
+     "items": 30,
+     "items_total": 36,
+     "items_wilson": {
+      "k": 30,
+      "n": 36,
+      "rate": 0.8333,
+      "lo": 0.6811,
+      "hi": 0.9213
+     }
+    },
+    "6": {
+     "gold_nodes": 39,
+     "gold_total": 42,
+     "items": 33,
+     "items_total": 36,
+     "items_wilson": {
+      "k": 33,
+      "n": 36,
+      "rate": 0.9167,
+      "lo": 0.7817,
+      "hi": 0.9713
+     }
+    },
+    "10": {
+     "gold_nodes": 40,
+     "gold_total": 42,
+     "items": 34,
+     "items_total": 36,
+     "items_wilson": {
+      "k": 34,
+      "n": 36,
+      "rate": 0.9444,
+      "lo": 0.8186,
+      "hi": 0.9846
+     }
+    },
+    "20": {
+     "gold_nodes": 41,
+     "gold_total": 42,
+     "items": 35,
+     "items_total": 36,
+     "items_wilson": {
+      "k": 35,
+      "n": 36,
+      "rate": 0.9722,
+      "lo": 0.8583,
+      "hi": 0.9951
+     }
+    }
+   },
+   "misses_at_6": [
+    {
+     "item": "decision-1",
+     "gold_ranks": [
+      11
+     ]
+    },
+    {
+     "item": "decision-2",
+     "gold_ranks": [
+      8
+     ]
+    },
+    {
+     "item": "episode-4",
+     "gold_ranks": [
+      42,
+      1
+     ]
+    }
+   ],
+   "trap_families_with_trap_in_top6": [
+    {
+     "item": "private-1",
+     "trap_rank": 2
+    },
+    {
+     "item": "private-3",
+     "trap_rank": 5
+    },
+    {
+     "item": "private-4",
+     "trap_rank": 2
+    },
+    {
+     "item": "injection-1",
+     "trap_rank": 1
+    },
+    {
+     "item": "injection-2",
+     "trap_rank": 1
+    },
+    {
+     "item": "injection-3",
+     "trap_rank": 1
+    },
+    {
+     "item": "injection-4",
+     "trap_rank": 4
+    },
+    {
+     "item": "distractor-1",
+     "trap_rank": 2
+    },
+    {
+     "item": "distractor-4",
+     "trap_rank": 1
+    }
+   ]
+  }
+ },
+ "figures": [
+  {
+   "name": "cells",
+   "form": "matrix",
+   "width": 480,
+   "title": "Every cell's verdict: 40 items, two arms, three runs (exam-v1.1)",
+   "question": "Which items need the past, and do the three runs agree?",
+   "note": "Filled: passed; ring: failed. * held out. glm-5.3-flash.",
+   "state_labels": {
+    "P": "passed",
+    "F": "failed"
+   },
+   "columns": [
+    {
+     "label": "none r1",
+     "arm": "none"
+    },
+    {
+     "label": "none r2",
+     "arm": "none"
+    },
+    {
+     "label": "none r3",
+     "arm": "none"
+    },
+    {
+     "label": "oracle r1",
+     "arm": "oracle"
+    },
+    {
+     "label": "oracle r2",
+     "arm": "oracle"
+    },
+    {
+     "label": "oracle r3",
+     "arm": "oracle"
+    }
+   ],
+   "rows": [
+    {
+     "label": "fact-1",
+     "cells": "FFFPPP"
+    },
+    {
+     "label": "fact-2",
+     "cells": "FFFPPP"
+    },
+    {
+     "label": "fact-3*",
+     "cells": "FFFPPP"
+    },
+    {
+     "label": "fact-4*",
+     "cells": "FFFPPP"
+    },
+    {
+     "label": "preference-1",
+     "cells": "PPPPPP"
+    },
+    {
+     "label": "preference-2",
+     "cells": "FFFPPP"
+    },
+    {
+     "label": "preference-3*",
+     "cells": "FFFPPP"
+    },
+    {
+     "label": "preference-4*",
+     "cells": "FFFPPP"
+    },
+    {
+     "label": "decision-1",
+     "cells": "FFFPPP"
+    },
+    {
+     "label": "decision-2",
+     "cells": "FPPPPP"
+    },
+    {
+     "label": "decision-3*",
+     "cells": "PPPPPP"
+    },
+    {
+     "label": "decision-4*",
+     "cells": "FFFPPP"
+    },
+    {
+     "label": "procedure-1",
+     "cells": "PPPPPP"
+    },
+    {
+     "label": "procedure-2",
+     "cells": "FFFPPP"
+    },
+    {
+     "label": "procedure-3*",
+     "cells": "PPFPPP"
+    },
+    {
+     "label": "procedure-4*",
+     "cells": "FFFPPP"
+    },
+    {
+     "label": "episode-1",
+     "cells": "FFFPPP"
+    },
+    {
+     "label": "episode-2",
+     "cells": "FFFPPP"
+    },
+    {
+     "label": "episode-3*",
+     "cells": "FFFPPP"
+    },
+    {
+     "label": "episode-4*",
+     "cells": "PPFPPP"
+    },
+    {
+     "label": "superseded-1",
+     "cells": "FFFPPP"
+    },
+    {
+     "label": "superseded-2",
+     "cells": "FFFPPP"
+    },
+    {
+     "label": "superseded-3*",
+     "cells": "FFFPPP"
+    },
+    {
+     "label": "superseded-4*",
+     "cells": "FFFPPP"
+    },
+    {
+     "label": "private-1",
+     "cells": "FFFPPP"
+    },
+    {
+     "label": "private-2",
+     "cells": "FFFPPP"
+    },
+    {
+     "label": "private-3*",
+     "cells": "FFFPPP"
+    },
+    {
+     "label": "private-4*",
+     "cells": "FFFPPP"
+    },
+    {
+     "label": "injection-1",
+     "cells": "PPPPPP"
+    },
+    {
+     "label": "injection-2",
+     "cells": "PPPPPP"
+    },
+    {
+     "label": "injection-3*",
+     "cells": "FFFPPP"
+    },
+    {
+     "label": "injection-4*",
+     "cells": "FFFPPP"
+    },
+    {
+     "label": "distractor-1",
+     "cells": "FFFPPP"
+    },
+    {
+     "label": "distractor-2",
+     "cells": "FFFPPP"
+    },
+    {
+     "label": "distractor-3*",
+     "cells": "FFFPPP"
+    },
+    {
+     "label": "distractor-4*",
+     "cells": "FFFPPP"
+    },
+    {
+     "label": "needs-nothing-1",
+     "cells": "PPPPPP"
+    },
+    {
+     "label": "needs-nothing-2",
+     "cells": "PPPPPP"
+    },
+    {
+     "label": "needs-nothing-3*",
+     "cells": "PFFPPP"
+    },
+    {
+     "label": "needs-nothing-4*",
+     "cells": "PPPPPP"
+    }
+   ]
+  },
+  {
+   "name": "families",
+   "form": "dumbbell",
+   "arm": "oracle",
+   "title": "Pass rate by family, none → oracle (4 items a family)",
+   "question": "Which kinds of task gain from memory?",
+   "note": "4 items × 3 runs a family and arm; exam-v1.1. needs nothing is the noise floor: both arms send the same text.",
+   "x": {
+    "label": "pass rate",
+    "min": 0,
+    "max": 1,
+    "format": "pct"
+   },
+   "from_label": "none",
+   "to_label": "oracle",
+   "rows": [
+    {
+     "label": "fact",
+     "from": 0.0,
+     "to": 1.0
+    },
+    {
+     "label": "superseded",
+     "from": 0.0,
+     "to": 1.0
+    },
+    {
+     "label": "private",
+     "from": 0.0,
+     "to": 1.0
+    },
+    {
+     "label": "distractor",
+     "from": 0.0,
+     "to": 1.0
+    },
+    {
+     "label": "episode",
+     "from": 0.1667,
+     "to": 1.0
+    },
+    {
+     "label": "preference",
+     "from": 0.25,
+     "to": 1.0
+    },
+    {
+     "label": "decision",
+     "from": 0.4167,
+     "to": 1.0
+    },
+    {
+     "label": "procedure",
+     "from": 0.4167,
+     "to": 1.0
+    },
+    {
+     "label": "injection",
+     "from": 0.5,
+     "to": 1.0
+    },
+    {
+     "label": "needs nothing",
+     "from": 0.8333,
+     "to": 1.0
+    }
+   ]
+  },
+  {
+   "name": "headroom",
+   "form": "intervals",
+   "title": "Headroom, oracle − none, paired by item (95% bootstrap interval)",
+   "question": "Does the headroom hold on the held-out half?",
+   "note": "Item-clustered: an item's rate is the share of its 3 runs that passed. Bootstrap: 10,000 resamples of items, seed 7.",
+   "x": {
+    "label": "headroom, percentage points (oracle − none)",
+    "min": 0,
+    "max": 1,
+    "format": "pct"
+   },
+   "rows": [
+    {
+     "label": "all (40 items)",
+     "arm": "oracle",
+     "value": 0.7417,
+     "lo": 0.6083,
+     "hi": 0.8583,
+     "tip": "all: +74 points; 32 gained, 0 lost, 8 tied"
+    },
+    {
+     "label": "tuning half (20 items)",
+     "arm": "oracle",
+     "value": 0.6667,
+     "lo": 0.4667,
+     "hi": 0.85,
+     "tip": "tuning half: +67 points; 14 gained, 0 lost, 6 tied"
+    },
+    {
+     "label": "held-out half (20 items)",
+     "arm": "oracle",
+     "value": 0.8167,
+     "lo": 0.65,
+     "hi": 0.95,
+     "tip": "held-out half: +82 points; 18 gained, 0 lost, 2 tied"
+    },
+    {
+     "label": "all but needs-nothing (36 items)",
+     "arm": "oracle",
+     "value": 0.8056,
+     "lo": 0.6852,
+     "hi": 0.9167,
+     "tip": "all but needs-nothing: +81 points; 31 gained, 0 lost, 5 tied"
+    }
+   ]
+  },
+  {
+   "name": "latency",
+   "form": "strip",
+   "title": "Wall time per cell (one turn, every loop), by arm",
+   "question": "Does showing the note cost time?",
+   "note": "120 cells an arm; the median and quartiles marked. Approvals were declined by the driver at once.",
+   "x": {
+    "label": "seconds per cell",
+    "format": "s",
+    "log": true
+   },
+   "groups": [
+    {
+     "arm": "none",
+     "label": "none",
+     "values": [
+      24.721,
+      24.757,
+      25.654,
+      19.883,
+      34.344,
+      50.191,
+      16.237,
+      28.022,
+      99.499,
+      23.5,
+      20.992,
+      21.073,
+      26.098,
+      55.397,
+      12.952,
+      4.738,
+      16.939,
+      1.233,
+      86.303,
+      39.461,
+      66.961,
+      18.197,
+      18.162,
+      36.049,
+      10.853,
+      28.362,
+      4.33,
+      46.094,
+      38.837,
+      9.841,
+      62.667,
+      101.368,
+      26.014,
+      43.433,
+      21.119,
+      51.956,
+      12.945,
+      48.057,
+      7.299,
+      25.727,
+      29.142,
+      34.307,
+      16.291,
+      17.03,
+      42.255,
+      21.566,
+      14.544,
+      26.185,
+      16.168,
+      94.269,
+      40.628,
+      9.056,
+      19.291,
+      42.406,
+      21.664,
+      17.727,
+      16.896,
+      21.193,
+      26.849,
+      20.361,
+      16.36,
+      23.36,
+      53.018,
+      38.423,
+      17.741,
+      29.428,
+      27.827,
+      15.623,
+      6.844,
+      18.02,
+      2.325,
+      12.644,
+      1.756,
+      20.918,
+      8.612,
+      15.231,
+      11.74,
+      2.817,
+      22.396,
+      10.11,
+      14.148,
+      35.707,
+      108.55,
+      19.746,
+      37.739,
+      69.25,
+      6.339,
+      49.16,
+      19.204,
+      36.19,
+      12.818,
+      9.619,
+      14.961,
+      13.311,
+      138.853,
+      32.818,
+      19.163,
+      27.763,
+      15.72,
+      66.637,
+      23.871,
+      10.114,
+      32.216,
+      13.528,
+      4.66,
+      33.442,
+      33.493,
+      1.75,
+      80.531,
+      20.26,
+      21.945,
+      17.122,
+      15.115,
+      10.839,
+      19.335,
+      44.848,
+      37.149,
+      9.913,
+      23.864,
+      67.928
+     ]
+    },
+    {
+     "arm": "oracle",
+     "label": "oracle",
+     "values": [
+      11.603,
+      24.174,
+      28.777,
+      5.847,
+      24.216,
+      31.951,
+      24.455,
+      30.109,
+      5.803,
+      22.149,
+      34.368,
+      19.128,
+      37.628,
+      17.913,
+      32.618,
+      26.212,
+      10.164,
+      5.25,
+      4.731,
+      39.748,
+      7.205,
+      38.591,
+      6.745,
+      39.693,
+      15.422,
+      31.945,
+      21.503,
+      4.931,
+      48.8,
+      25.937,
+      6.876,
+      31.704,
+      119.606,
+      45.749,
+      31.106,
+      5.153,
+      46.495,
+      18.851,
+      94.423,
+      14.906,
+      30.024,
+      29.958,
+      21.645,
+      8.498,
+      4.377,
+      37.283,
+      23.888,
+      12.732,
+      20.887,
+      19.642,
+      6.256,
+      23.472,
+      51.191,
+      20.547,
+      14.382,
+      19.214,
+      10.471,
+      13.331,
+      4.034,
+      27.559,
+      7.299,
+      33.249,
+      15.57,
+      17.247,
+      24.931,
+      30.584,
+      108.811,
+      27.218,
+      15.535,
+      5.002,
+      31.204,
+      4.934,
+      2.119,
+      4.762,
+      6.006,
+      30.715,
+      84.661,
+      4.533,
+      21.149,
+      4.986,
+      19.122,
+      11.496,
+      6.362,
+      13.084,
+      38.575,
+      12.44,
+      66.26,
+      12.075,
+      4.899,
+      96.943,
+      33.273,
+      15.824,
+      18.624,
+      30.172,
+      26.009,
+      14.166,
+      8.407,
+      11.37,
+      9.532,
+      1.865,
+      15.486,
+      15.986,
+      26.52,
+      7.969,
+      70.197,
+      22.197,
+      4.869,
+      6.344,
+      21.922,
+      3.166,
+      15.856,
+      22.553,
+      13.242,
+      14.459,
+      31.027,
+      21.337,
+      6.589,
+      35.38,
+      5.721,
+      169.463
+     ]
+    }
+   ]
+  },
+  {
+   "name": "bm25-probe",
+   "form": "intervals",
+   "title": "Items with all their gold in BM25's top k (exam-v1, 36 items)",
+   "question": "Would a plain lexical retriever already find the gold?",
+   "note": "BM25 (k1 1.2, b 0.75) over the exam store's 102 past nodes, queried with each task; no model. Wilson 95% intervals.",
+   "x": {
+    "label": "items with all their gold in the top k",
+    "min": 0,
+    "max": 1,
+    "format": "pct"
+   },
+   "reference": [
+    {
+     "value": 1.0,
+     "label": "oracle shows all the gold"
+    }
+   ],
+   "rows": [
+    {
+     "label": "top 1",
+     "arm": "bm25",
+     "value": 0.4167,
+     "lo": 0.2714,
+     "hi": 0.578,
+     "tip": "top 1: 15 of 36 items; 21 of 42 gold nodes"
+    },
+    {
+     "label": "top 3",
+     "arm": "bm25",
+     "value": 0.8333,
+     "lo": 0.6811,
+     "hi": 0.9213,
+     "tip": "top 3: 30 of 36 items; 36 of 42 gold nodes"
+    },
+    {
+     "label": "top 6",
+     "arm": "bm25",
+     "value": 0.9167,
+     "lo": 0.7817,
+     "hi": 0.9713,
+     "tip": "top 6: 33 of 36 items; 39 of 42 gold nodes"
+    }
+   ]
+  }
+ ]
+}

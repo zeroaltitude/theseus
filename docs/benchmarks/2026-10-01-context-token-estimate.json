@@ -1,0 +1,984 @@
+{
+ "report": "2026-10-01-context-token-estimate",
+ "title": "Context: how far off was the token estimate, and how close is it now?",
+ "suite": "context (the compiler's token estimate against the provider's count)",
+ "date": "2026-10-01",
+ "commit": "042ff07",
+ "arms": [
+  {
+   "key": "context",
+   "label": "chars/4, the estimate before"
+  },
+  {
+   "key": "theseus",
+   "label": "the class estimate, counting on the provider's last count"
+  }
+ ],
+ "summary": {
+  "first_requests": {
+   "n": 8,
+   "chars4_share_sonnet_tools": [
+    0.6562,
+    0.7062
+   ],
+   "chars4_share_glm_tools": [
+    0.9737,
+    1.0215
+   ],
+   "chars4_share_all_lane_and_release_sonnet_tools": [
+    0.6562,
+    0.7062
+   ],
+   "chars4_share_no_tools": {
+    "Sonnet 5.5": 0.8968,
+    "GLM-5.3 Flash": 1.4018
+   },
+   "shipped_err_sonnet_tools": [
+    0.0351,
+    0.04287
+   ],
+   "shipped_err_glm_tools": [
+    0.01888,
+    0.02268
+   ],
+   "shipped_err_no_tools": {
+    "Sonnet 5.5": -0.06452,
+    "GLM-5.3 Flash": -0.00893
+   },
+   "max_abs_err": 0.06452,
+   "every_bound_covers_its_count": true,
+   "json_share_of_bytes_tools": [
+    0.58432,
+    0.86355
+   ]
+  },
+  "counted_requests": {
+   "n": 5,
+   "err": [
+    -0.01719,
+    0.00137
+   ],
+   "estimated_part_share": [
+    0.00266,
+    0.1608
+   ],
+   "lane_build_err": [
+    -0.01312,
+    0.00161
+   ]
+  },
+  "lane_build_first_requests": [
+   {
+    "model": "Sonnet 5.5",
+    "request": "the tools and a small context file",
+    "logged": 5422,
+    "shipped": 5463,
+    "count": 5236,
+    "logged_err": 0.03552,
+    "shipped_err": 0.04335
+   },
+   {
+    "model": "Sonnet 5.5",
+    "request": "the tools and 6.5 KB of prose",
+    "logged": 7244,
+    "shipped": 7451,
+    "count": 7196,
+    "logged_err": 0.00667,
+    "shipped_err": 0.03544
+   },
+   {
+    "model": "Sonnet 5.5",
+    "request": "the tools, a tool loop's first request",
+    "logged": 5435,
+    "shipped": 5477,
+    "count": 5253,
+    "logged_err": 0.03465,
+    "shipped_err": 0.04264
+   },
+   {
+    "model": "GLM-5.3 Flash",
+    "request": "the tools and a small context file",
+    "logged": 3723,
+    "shipped": 3597,
+    "count": 3525,
+    "logged_err": 0.05617,
+    "shipped_err": 0.02043
+   },
+   {
+    "model": "GLM-5.3 Flash",
+    "request": "the tools and 6.5 KB of prose",
+    "logged": 5363,
+    "shipped": 5088,
+    "count": 4971,
+    "logged_err": 0.07886,
+    "shipped_err": 0.02354
+   },
+   {
+    "model": "GLM-5.3 Flash",
+    "request": "the tools, a tool loop's first request",
+    "logged": 3735,
+    "shipped": 3608,
+    "count": 3536,
+    "logged_err": 0.05628,
+    "shipped_err": 0.02036
+   },
+   {
+    "model": "Sonnet 5.5",
+    "request": "no tools, a small context file",
+    "logged": 134,
+    "shipped": 145,
+    "count": 155,
+    "logged_err": -0.13548,
+    "shipped_err": -0.06452
+   },
+   {
+    "model": "GLM-5.3 Flash",
+    "request": "no tools, a small context file",
+    "logged": 121,
+    "shipped": 111,
+    "count": 112,
+    "logged_err": 0.08036,
+    "shipped_err": -0.00893
+   }
+  ],
+  "bytes_per_token": {
+   "Sonnet 5.5": {
+    "lane": {
+     "prose": 3.347,
+     "prose_bytes": 6560,
+     "prose_tokens": 1960,
+     "schemas": 2.517,
+     "schemas_bytes": 11898,
+     "schemas_tokens": 4726.3,
+     "tools_note_text_bytes": 1187,
+     "tool_loop": 2.35,
+     "tool_loop_json_bytes": 2383,
+     "tool_loop_tokens": 1014,
+     "tool_loop_answer_out": 53,
+     "tool_loop_count_delta": 1105,
+     "tool_loop_census_delta": {
+      "json": 2383,
+      "text": 0,
+      "messages": 2,
+      "blocks": 2,
+      "ids": 2,
+      "opaque": 0
+     }
+    },
+    "release": {
+     "prose": 3.347,
+     "prose_bytes": 6560,
+     "prose_tokens": 1960,
+     "tool_loop": 2.35,
+     "tool_loop_json_bytes": 2383,
+     "tool_loop_tokens": 1014,
+     "tool_loop_answer_out": 53,
+     "tool_loop_count_delta": 1105,
+     "tool_loop_census_delta": {
+      "json": 2383,
+      "text": 0,
+      "messages": 2,
+      "blocks": 2,
+      "ids": 2,
+      "opaque": 0
+     }
+    }
+   },
+   "GLM-5.3 Flash": {
+    "lane": {
+     "prose": 4.537,
+     "prose_bytes": 6560,
+     "prose_tokens": 1446,
+     "schemas": 3.776,
+     "schemas_bytes": 11898,
+     "schemas_tokens": 3151.4,
+     "tools_note_text_bytes": 1187,
+     "tool_loop": 3.356,
+     "tool_loop_json_bytes": 2383,
+     "tool_loop_tokens": 710,
+     "tool_loop_answer_out": 58,
+     "tool_loop_count_delta": 807,
+     "tool_loop_census_delta": {
+      "json": 2383,
+      "text": 206,
+      "messages": 2,
+      "blocks": 3,
+      "ids": 2,
+      "opaque": 24
+     }
+    },
+    "release": {
+     "prose": 4.537,
+     "prose_bytes": 6560,
+     "prose_tokens": 1446,
+     "tool_loop": 3.356,
+     "tool_loop_json_bytes": 2383,
+     "tool_loop_tokens": 710,
+     "tool_loop_answer_out": 66,
+     "tool_loop_count_delta": 815,
+     "tool_loop_census_delta": {
+      "json": 2383,
+      "text": 235,
+      "messages": 2,
+      "blocks": 3,
+      "ids": 2,
+      "opaque": 24
+     }
+    }
+   }
+  },
+  "catalog_figures": {
+   "Sonnet 5.5": {
+    "json": 2.4,
+    "text": 3.3
+   },
+   "GLM-5.3 Flash": {
+    "json": 3.7,
+    "text": 4.4
+   }
+  },
+  "margin_covers_down_to": {
+   "Sonnet 5.5": 1.714,
+   "GLM-5.3 Flash": 2.643
+  },
+  "finding": {
+   "chars4": 3422,
+   "sonnet_count": 5204,
+   "sonnet_ratio": 1.5207,
+   "chars4_share_sonnet": 0.6576,
+   "haiku_chars4": 3415,
+   "haiku_count": 4274,
+   "haiku_ratio": 1.2515,
+   "chars4_share_haiku": 0.799,
+   "glm_count_as_reported": 3514,
+   "glm_ratio_as_reported": 1.02,
+   "issue_title_said": "25-52% low",
+   "what_the_ratios_mean": [
+    0.2,
+    0.342
+   ]
+  },
+  "cost": {
+   "lane_check": 0.028856,
+   "release_check": 0.028222,
+   "both": 0.057078,
+   "per_turn_sum_lane": 0.028856,
+   "per_turn_sum_release": 0.028222
+  }
+ },
+ "rows": [
+  {
+   "run": "release",
+   "model": "claude-sonnet-5-5",
+   "session": "s1",
+   "turn": 1,
+   "loop": 0,
+   "request": "the tools and a small context file",
+   "method": "bytes",
+   "bytes": 13778,
+   "count": 5248,
+   "chars4": 3444,
+   "est": 5473,
+   "err": 0.04287,
+   "upper_shipped": 7663,
+   "census": {
+    "blocks": 1,
+    "ids": 0,
+    "json": 11898,
+    "messages": 3,
+    "opaque": 0,
+    "text": 1664
+   }
+  },
+  {
+   "run": "release",
+   "model": "claude-sonnet-5-5",
+   "session": "s2",
+   "turn": 1,
+   "loop": 0,
+   "request": "the tools and 6.5 KB of prose",
+   "method": "bytes",
+   "bytes": 20362,
+   "count": 7208,
+   "chars4": 5090,
+   "est": 7461,
+   "err": 0.0351,
+   "upper_shipped": 10446,
+   "census": {
+    "blocks": 1,
+    "ids": 0,
+    "json": 11898,
+    "messages": 3,
+    "opaque": 0,
+    "text": 8224
+   }
+  },
+  {
+   "run": "release",
+   "model": "claude-sonnet-5-5",
+   "session": "s3",
+   "turn": 1,
+   "loop": 0,
+   "request": "the tools, a tool loop's first request",
+   "method": "bytes",
+   "bytes": 13825,
+   "count": 5265,
+   "chars4": 3456,
+   "est": 5487,
+   "err": 0.04217,
+   "upper_shipped": 7682,
+   "census": {
+    "blocks": 1,
+    "ids": 0,
+    "json": 11898,
+    "messages": 3,
+    "opaque": 0,
+    "text": 1711
+   }
+  },
+  {
+   "run": "release",
+   "model": "glm-5.3-flash",
+   "session": "g1",
+   "turn": 1,
+   "loop": 0,
+   "request": "the tools and a small context file",
+   "method": "bytes",
+   "bytes": 13778,
+   "count": 3537,
+   "chars4": 3444,
+   "est": 3605,
+   "err": 0.01923,
+   "upper_shipped": 5047,
+   "census": {
+    "blocks": 1,
+    "ids": 0,
+    "json": 11898,
+    "messages": 3,
+    "opaque": 0,
+    "text": 1664
+   }
+  },
+  {
+   "run": "release",
+   "model": "glm-5.3-flash",
+   "session": "g2",
+   "turn": 1,
+   "loop": 0,
+   "request": "the tools and 6.5 KB of prose",
+   "method": "bytes",
+   "bytes": 20362,
+   "count": 4983,
+   "chars4": 5090,
+   "est": 5096,
+   "err": 0.02268,
+   "upper_shipped": 7135,
+   "census": {
+    "blocks": 1,
+    "ids": 0,
+    "json": 11898,
+    "messages": 3,
+    "opaque": 0,
+    "text": 8224
+   }
+  },
+  {
+   "run": "release",
+   "model": "glm-5.3-flash",
+   "session": "g3",
+   "turn": 1,
+   "loop": 0,
+   "request": "the tools, a tool loop's first request",
+   "method": "bytes",
+   "bytes": 13825,
+   "count": 3548,
+   "chars4": 3456,
+   "est": 3615,
+   "err": 0.01888,
+   "upper_shipped": 5061,
+   "census": {
+    "blocks": 1,
+    "ids": 0,
+    "json": 11898,
+    "messages": 3,
+    "opaque": 0,
+    "text": 1711
+   }
+  },
+  {
+   "run": "lane",
+   "model": "claude-sonnet-5-5",
+   "session": "s4",
+   "turn": 1,
+   "loop": 0,
+   "request": "no tools, a small context file",
+   "method": "bytes",
+   "bytes": 557,
+   "count": 155,
+   "chars4": 139,
+   "est": 145,
+   "err": -0.06452,
+   "upper_shipped": 203,
+   "census": {
+    "blocks": 1,
+    "ids": 0,
+    "json": 0,
+    "messages": 3,
+    "opaque": 0,
+    "text": 444
+   }
+  },
+  {
+   "run": "lane",
+   "model": "glm-5.3-flash",
+   "session": "g4",
+   "turn": 1,
+   "loop": 0,
+   "request": "no tools, a small context file",
+   "method": "bytes",
+   "bytes": 631,
+   "count": 112,
+   "chars4": 157,
+   "est": 111,
+   "err": -0.00893,
+   "upper_shipped": 156,
+   "census": {
+    "blocks": 1,
+    "ids": 0,
+    "json": 0,
+    "messages": 3,
+    "opaque": 0,
+    "text": 444
+   }
+  },
+  {
+   "run": "release",
+   "model": "claude-sonnet-5-5",
+   "session": "s3",
+   "turn": 1,
+   "loop": 1,
+   "request": "the same loop's second request (the tool call and its result added)",
+   "method": "counted",
+   "bytes": 16604,
+   "count": 6370,
+   "chars4": 4151,
+   "est": 6337,
+   "err": -0.00518,
+   "upper_shipped": 6745,
+   "census": {
+    "blocks": 3,
+    "ids": 2,
+    "json": 14281,
+    "messages": 5,
+    "opaque": 0,
+    "text": 1711
+   }
+  },
+  {
+   "run": "release",
+   "model": "claude-sonnet-5-5",
+   "session": "s3",
+   "turn": 2,
+   "loop": 0,
+   "request": "the next turn's first request",
+   "method": "counted",
+   "bytes": 16754,
+   "count": 6386,
+   "chars4": 4188,
+   "est": 6390,
+   "err": 0.00063,
+   "upper_shipped": 6397,
+   "census": {
+    "blocks": 5,
+    "ids": 2,
+    "json": 14281,
+    "messages": 7,
+    "opaque": 0,
+    "text": 1748
+   }
+  },
+  {
+   "run": "release",
+   "model": "glm-5.3-flash",
+   "session": "g3",
+   "turn": 1,
+   "loop": 1,
+   "request": "the same loop's second request (the tool call and its result added)",
+   "method": "counted",
+   "bytes": 16885,
+   "count": 4363,
+   "chars4": 4221,
+   "est": 4288,
+   "err": -0.01719,
+   "upper_shipped": 4558,
+   "census": {
+    "blocks": 4,
+    "ids": 2,
+    "json": 14281,
+    "messages": 5,
+    "opaque": 24,
+    "text": 1946
+   }
+  },
+  {
+   "run": "release",
+   "model": "glm-5.3-flash",
+   "session": "g3",
+   "turn": 2,
+   "loop": 0,
+   "request": "the next turn's first request",
+   "method": "counted",
+   "bytes": 17035,
+   "count": 4375,
+   "chars4": 4258,
+   "est": 4381,
+   "err": 0.00137,
+   "upper_shipped": 4387,
+   "census": {
+    "blocks": 6,
+    "ids": 2,
+    "json": 14281,
+    "messages": 7,
+    "opaque": 24,
+    "text": 1983
+   }
+  },
+  {
+   "run": "release",
+   "model": "glm-5.3-flash",
+   "session": "g3",
+   "turn": 2,
+   "loop": 1,
+   "request": "the next turn's second request",
+   "method": "counted",
+   "bytes": 20201,
+   "count": 5211,
+   "chars4": 5050,
+   "est": 5136,
+   "err": -0.01439,
+   "upper_shipped": 5406,
+   "census": {
+    "blocks": 9,
+    "ids": 4,
+    "json": 16664,
+    "messages": 9,
+    "opaque": 48,
+    "text": 2316
+   }
+  }
+ ],
+ "lane_rows": [
+  {
+   "model": "claude-sonnet-5-5",
+   "session": "s1",
+   "turn": 1,
+   "loop": 0,
+   "method": "bytes",
+   "bytes": 13745,
+   "count": 5236,
+   "chars4": 3436,
+   "logged_estimate": 5422,
+   "logged_upper": 7591,
+   "census": {
+    "blocks": 1,
+    "ids": 0,
+    "json": 11898,
+    "messages": 3,
+    "opaque": 0,
+    "text": 1631
+   }
+  },
+  {
+   "model": "claude-sonnet-5-5",
+   "session": "s2",
+   "turn": 1,
+   "loop": 0,
+   "method": "bytes",
+   "bytes": 20329,
+   "count": 7196,
+   "chars4": 5082,
+   "logged_estimate": 7244,
+   "logged_upper": 10142,
+   "census": {
+    "blocks": 1,
+    "ids": 0,
+    "json": 11898,
+    "messages": 3,
+    "opaque": 0,
+    "text": 8191
+   }
+  },
+  {
+   "model": "claude-sonnet-5-5",
+   "session": "s3",
+   "turn": 1,
+   "loop": 0,
+   "method": "bytes",
+   "bytes": 13792,
+   "count": 5253,
+   "chars4": 3448,
+   "logged_estimate": 5435,
+   "logged_upper": 7609,
+   "census": {
+    "blocks": 1,
+    "ids": 0,
+    "json": 11898,
+    "messages": 3,
+    "opaque": 0,
+    "text": 1678
+   }
+  },
+  {
+   "model": "claude-sonnet-5-5",
+   "session": "s3",
+   "turn": 1,
+   "loop": 1,
+   "method": "counted",
+   "bytes": 16571,
+   "count": 6358,
+   "chars4": 4142,
+   "logged_estimate": 6325,
+   "logged_upper": 6733,
+   "census": {
+    "blocks": 3,
+    "ids": 2,
+    "json": 14281,
+    "messages": 5,
+    "opaque": 0,
+    "text": 1678
+   }
+  },
+  {
+   "model": "claude-sonnet-5-5",
+   "session": "s3",
+   "turn": 2,
+   "loop": 0,
+   "method": "counted",
+   "bytes": 16721,
+   "count": 6374,
+   "chars4": 4180,
+   "logged_estimate": 6378,
+   "logged_upper": 6385,
+   "census": {
+    "blocks": 5,
+    "ids": 2,
+    "json": 14281,
+    "messages": 7,
+    "opaque": 0,
+    "text": 1715
+   }
+  },
+  {
+   "model": "glm-5.3-flash",
+   "session": "g1",
+   "turn": 1,
+   "loop": 0,
+   "method": "bytes",
+   "bytes": 13745,
+   "count": 3525,
+   "chars4": 3436,
+   "logged_estimate": 3723,
+   "logged_upper": 5213,
+   "census": {
+    "blocks": 1,
+    "ids": 0,
+    "json": 11898,
+    "messages": 3,
+    "opaque": 0,
+    "text": 1631
+   }
+  },
+  {
+   "model": "glm-5.3-flash",
+   "session": "g2",
+   "turn": 1,
+   "loop": 0,
+   "method": "bytes",
+   "bytes": 20329,
+   "count": 4971,
+   "chars4": 5082,
+   "logged_estimate": 5363,
+   "logged_upper": 7509,
+   "census": {
+    "blocks": 1,
+    "ids": 0,
+    "json": 11898,
+    "messages": 3,
+    "opaque": 0,
+    "text": 8191
+   }
+  },
+  {
+   "model": "glm-5.3-flash",
+   "session": "g3",
+   "turn": 1,
+   "loop": 0,
+   "method": "bytes",
+   "bytes": 13792,
+   "count": 3536,
+   "chars4": 3448,
+   "logged_estimate": 3735,
+   "logged_upper": 5229,
+   "census": {
+    "blocks": 1,
+    "ids": 0,
+    "json": 11898,
+    "messages": 3,
+    "opaque": 0,
+    "text": 1678
+   }
+  },
+  {
+   "model": "glm-5.3-flash",
+   "session": "g3",
+   "turn": 1,
+   "loop": 1,
+   "method": "counted",
+   "bytes": 16823,
+   "count": 4343,
+   "chars4": 4205,
+   "logged_estimate": 4286,
+   "logged_upper": 4563,
+   "census": {
+    "blocks": 4,
+    "ids": 2,
+    "json": 14281,
+    "messages": 5,
+    "opaque": 24,
+    "text": 1884
+   }
+  },
+  {
+   "model": "glm-5.3-flash",
+   "session": "g3",
+   "turn": 2,
+   "loop": 0,
+   "method": "counted",
+   "bytes": 16973,
+   "count": 4355,
+   "chars4": 4243,
+   "logged_estimate": 4362,
+   "logged_upper": 4369,
+   "census": {
+    "blocks": 6,
+    "ids": 2,
+    "json": 14281,
+    "messages": 7,
+    "opaque": 24,
+    "text": 1921
+   }
+  },
+  {
+   "model": "claude-sonnet-5-5",
+   "session": "s4",
+   "turn": 1,
+   "loop": 0,
+   "method": "bytes",
+   "bytes": 557,
+   "count": 155,
+   "chars4": 139,
+   "logged_estimate": 134,
+   "logged_upper": 188,
+   "census": {
+    "blocks": 1,
+    "ids": 0,
+    "json": 0,
+    "messages": 3,
+    "opaque": 0,
+    "text": 444
+   }
+  },
+  {
+   "model": "glm-5.3-flash",
+   "session": "g4",
+   "turn": 1,
+   "loop": 0,
+   "method": "bytes",
+   "bytes": 631,
+   "count": 112,
+   "chars4": 157,
+   "logged_estimate": 121,
+   "logged_upper": 170,
+   "census": {
+    "blocks": 1,
+    "ids": 0,
+    "json": 0,
+    "messages": 3,
+    "opaque": 0,
+    "text": 444
+   }
+  }
+ ],
+ "figures": [
+  {
+   "name": "first-requests",
+   "form": "dumbbell",
+   "title": "Each first request's estimate, as a share of the provider's count",
+   "question": "How far below the provider's count did chars/4 read Theseus's first requests, and where does the shipped estimate land?",
+   "note": "8 first requests: the release check of 042ff07 (6) and the lane check's no-tools pair (recomputed with the shipped figures). 100% is the provider's own count.",
+   "arm": "theseus",
+   "x": {
+    "label": "estimate ÷ the provider's count",
+    "format": "pct",
+    "min": 0.6,
+    "max": 1.45
+   },
+   "from_label": "chars/4 (before)",
+   "to_label": "the shipped estimate",
+   "rows": [
+    {
+     "label": "Sonnet 5.5 · tools + small context",
+     "from": 0.6562,
+     "to": 1.0429,
+     "tip": "Sonnet 5.5, tools + small context: the provider counted 5,248; chars/4 said 3,444 (65.6%), the shipped estimate 5,473 (+4.3%)"
+    },
+    {
+     "label": "Sonnet 5.5 · tools + 6.5 KB of prose",
+     "from": 0.7062,
+     "to": 1.0351,
+     "tip": "Sonnet 5.5, tools + 6.5 KB of prose: the provider counted 7,208; chars/4 said 5,090 (70.6%), the shipped estimate 7,461 (+3.5%)"
+    },
+    {
+     "label": "Sonnet 5.5 · tools, a tool loop's first call",
+     "from": 0.6564,
+     "to": 1.0422,
+     "tip": "Sonnet 5.5, tools, a tool loop's first call: the provider counted 5,265; chars/4 said 3,456 (65.6%), the shipped estimate 5,487 (+4.2%)"
+    },
+    {
+     "label": "Sonnet 5.5 · no tools",
+     "from": 0.8968,
+     "to": 0.9355,
+     "tip": "Sonnet 5.5, no tools: the provider counted 155; chars/4 said 139 (89.7%), the shipped estimate 145 (-6.5%)"
+    },
+    {
+     "label": "GLM-5.3 Flash · tools + small context",
+     "from": 0.9737,
+     "to": 1.0192,
+     "tip": "GLM-5.3 Flash, tools + small context: the provider counted 3,537; chars/4 said 3,444 (97.4%), the shipped estimate 3,605 (+1.9%)"
+    },
+    {
+     "label": "GLM-5.3 Flash · tools + 6.5 KB of prose",
+     "from": 1.0215,
+     "to": 1.0227,
+     "tip": "GLM-5.3 Flash, tools + 6.5 KB of prose: the provider counted 4,983; chars/4 said 5,090 (102.2%), the shipped estimate 5,096 (+2.3%)"
+    },
+    {
+     "label": "GLM-5.3 Flash · tools, a tool loop's first call",
+     "from": 0.9741,
+     "to": 1.0189,
+     "tip": "GLM-5.3 Flash, tools, a tool loop's first call: the provider counted 3,548; chars/4 said 3,456 (97.4%), the shipped estimate 3,615 (+1.9%)"
+    },
+    {
+     "label": "GLM-5.3 Flash · no tools",
+     "from": 1.4018,
+     "to": 0.9911,
+     "tip": "GLM-5.3 Flash, no tools: the provider counted 112; chars/4 said 157 (140.2%), the shipped estimate 111 (-0.9%)"
+    }
+   ]
+  },
+  {
+   "name": "bytes-per-token",
+   "form": "bars",
+   "orientation": "h",
+   "title": "Bytes a token, by what the bytes are, on two tokenizers",
+   "question": "Why was chars/4 a third low on Claude and nearly right on GLM?",
+   "note": "From the differences between the lane check's requests: the schemas (s1 − s4), 6.5 KB of prose (s2 − s1), a tool's result: a 1.9 KB file read by a tool (s3's second request − its first, less the model's call at its own output count). chars/4 assumes 4 bytes a token for everything.",
+   "categories": [
+    "the 15 tool schemas",
+    "prose",
+    "a tool's result (a Rust file)"
+   ],
+   "series": [
+    {
+     "arm": "theseus",
+     "label": "Claude Sonnet 5.5",
+     "values": [
+      2.517,
+      3.347,
+      2.35
+     ]
+    },
+    {
+     "arm": "context",
+     "label": "GLM-5.3 Flash",
+     "values": [
+      3.776,
+      4.537,
+      3.356
+     ]
+    }
+   ],
+   "value": {
+    "label": "bytes a token",
+    "format": "num",
+    "min": 0,
+    "max": 5
+   },
+   "legend_labels": {
+    "theseus": "Claude Sonnet 5.5",
+    "context": "GLM-5.3 Flash"
+   }
+  },
+  {
+   "name": "error-by-method",
+   "form": "strip",
+   "title": "The shipped estimate's error against the provider's count, by method",
+   "question": "Does counting on the provider's last count tighten the estimate?",
+   "note": "Release check of 042ff07: 6 first requests and 5 with a counted part; plus the lane check's no-tools pair, recomputed. Signed: above zero is over the count.",
+   "x": {
+    "label": "estimate − count, as a share of the count",
+    "format": "pct",
+    "min": -0.08,
+    "max": 0.08
+   },
+   "groups": [
+    {
+     "arm": "context",
+     "label": "bytes only (first requests), n = 8",
+     "values": [
+      0.04287,
+      0.0351,
+      0.04217,
+      0.01923,
+      0.02268,
+      0.01888,
+      -0.06452,
+      -0.00893
+     ],
+     "tips": [
+      "Sonnet 5.5, tools + small context: 5,473 against 5,248",
+      "Sonnet 5.5, tools + 6.5 KB of prose: 7,461 against 7,208",
+      "Sonnet 5.5, tools, a tool loop's first call: 5,487 against 5,265",
+      "GLM-5.3 Flash, tools + small context: 3,605 against 3,537",
+      "GLM-5.3 Flash, tools + 6.5 KB of prose: 5,096 against 4,983",
+      "GLM-5.3 Flash, tools, a tool loop's first call: 3,615 against 3,548",
+      "Sonnet 5.5, no tools: 145 against 155",
+      "GLM-5.3 Flash, no tools: 111 against 112"
+     ]
+    },
+    {
+     "arm": "theseus",
+     "label": "counted (later requests), n = 5",
+     "values": [
+      -0.00518,
+      0.00063,
+      -0.01719,
+      0.00137,
+      -0.01439
+     ],
+     "tips": [
+      "Sonnet 5.5, the same loop's second request (the tool call and its result added): 6,337 against 6,370 (5,318 counted)",
+      "Sonnet 5.5, the next turn's first request: 6,390 against 6,386 (6,373 counted)",
+      "GLM-5.3 Flash, the same loop's second request (the tool call and its result added): 4,288 against 4,363 (3,614 counted)",
+      "GLM-5.3 Flash, the next turn's first request: 4,381 against 4,375 (4,366 counted)",
+      "GLM-5.3 Flash, the next turn's second request: 5,136 against 5,211 (4,462 counted)"
+     ]
+    }
+   ],
+   "legend_labels": {
+    "context": "bytes only",
+    "theseus": "counted"
+   }
+  }
+ ]
+}

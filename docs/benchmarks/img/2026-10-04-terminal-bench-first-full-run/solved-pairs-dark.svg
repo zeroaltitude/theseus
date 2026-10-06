@@ -1,0 +1,140 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="600" viewBox="0 0 720 600" role="img" aria-labelledby="t-solved-pairs t-solved-pairs-d" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
+<title id="t-solved-pairs">On the task-attempts both arms solved: one arm's total over the other's</title>
+<desc id="t-solved-pairs-d">Where both arms solved the same task-attempt, did one spend less to do it?</desc>
+<rect width="720" height="600" rx="8" fill="#1a1a19" stroke="#2c2c2a"/>
+<text x="18.0" y="32.0" font-size="15" fill="#ffffff" font-weight="600">On the task-attempts both arms solved: one arm's total over the other's</text>
+<circle cx="25.0" cy="50.0" r="5" fill="#d95926"/>
+<text x="40.0" y="54.0" font-size="12" fill="#c3c2b7">C. Claude Code</text>
+<circle cx="159.1" cy="50.0" r="5" fill="#199e70"/>
+<text x="174.1" y="54.0" font-size="12" fill="#c3c2b7">B. Theseus + paragraph</text>
+<line x1="342.5" y1="43.0" x2="342.5" y2="57.0" stroke="#c3c2b7" stroke-width="1.5"/>
+<text x="357.5" y="54.0" font-size="12" fill="#c3c2b7">equal</text>
+<line x1="168.0" y1="84.0" x2="168.0" y2="506.0" stroke="#2c2c2a" stroke-width="1"/>
+<line x1="275.0" y1="84.0" x2="275.0" y2="506.0" stroke="#2c2c2a" stroke-width="1"/>
+<line x1="382.1" y1="84.0" x2="382.1" y2="506.0" stroke="#2c2c2a" stroke-width="1"/>
+<line x1="489.1" y1="84.0" x2="489.1" y2="506.0" stroke="#2c2c2a" stroke-width="1"/>
+<line x1="596.1" y1="84.0" x2="596.1" y2="506.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="18.0" y="101.0" font-size="12" fill="#ffffff" stroke="#1a1a19" stroke-width="3" stroke-linejoin="round" paint-order="stroke" font-weight="600">C over A (122 pairs)</text>
+<text x="18.0" y="241.0" font-size="12" fill="#ffffff" stroke="#1a1a19" stroke-width="3" stroke-linejoin="round" paint-order="stroke" font-weight="600">B over A (118 pairs)</text>
+<text x="18.0" y="381.0" font-size="12" fill="#ffffff" stroke="#1a1a19" stroke-width="3" stroke-linejoin="round" paint-order="stroke" font-weight="600">C over B (123 pairs)</text>
+<g><title>equal: 1</title>
+<line x1="382.1" y1="78.0" x2="382.1" y2="506.0" stroke="#c3c2b7" stroke-width="1.5"/>
+</g>
+<text x="100.5" y="128.0" font-size="12" fill="#ffffff" text-anchor="end">model calls</text>
+<g><title>model calls: 0.85  [0.76, 0.96] (0.85 times)</title>
+<line x1="253.4" y1="124.0" x2="361.8" y2="124.0" stroke="#d95926" stroke-width="2" stroke-linecap="round"/>
+<line x1="253.4" y1="119.0" x2="253.4" y2="129.0" stroke="#d95926" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="361.8" y1="119.0" x2="361.8" y2="129.0" stroke="#d95926" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="301.8" cy="124.0" r="12" fill="transparent"/>
+<circle cx="301.8" cy="124.0" r="5" fill="#d95926" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="610.1" y="128.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">0.85  [0.76, 0.96]</text>
+<text x="100.5" y="156.0" font-size="12" fill="#ffffff" text-anchor="end">output tokens</text>
+<g><title>output tokens: 0.78  [0.65, 0.97] (0.78 times)</title>
+<line x1="195.0" y1="152.0" x2="364.1" y2="152.0" stroke="#d95926" stroke-width="2" stroke-linecap="round"/>
+<line x1="195.0" y1="147.0" x2="195.0" y2="157.0" stroke="#d95926" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="364.1" y1="147.0" x2="364.1" y2="157.0" stroke="#d95926" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="264.5" cy="152.0" r="12" fill="transparent"/>
+<circle cx="264.5" cy="152.0" r="5" fill="#d95926" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="610.1" y="156.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">0.78  [0.65, 0.97]</text>
+<text x="100.5" y="184.0" font-size="12" fill="#ffffff" text-anchor="end">dollars</text>
+<g><title>dollars: 0.87  [0.75, 1.05] (0.87 times)</title>
+<line x1="247.9" y1="180.0" x2="407.4" y2="180.0" stroke="#d95926" stroke-width="2" stroke-linecap="round"/>
+<line x1="247.9" y1="175.0" x2="247.9" y2="185.0" stroke="#d95926" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="407.4" y1="175.0" x2="407.4" y2="185.0" stroke="#d95926" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="315.0" cy="180.0" r="12" fill="transparent"/>
+<circle cx="315.0" cy="180.0" r="5" fill="#d95926" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="610.1" y="184.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">0.87  [0.75, 1.05]</text>
+<text x="100.5" y="212.0" font-size="12" fill="#ffffff" text-anchor="end">agent time</text>
+<g><title>agent time: 0.97  [0.75, 1.20] (0.97 times)</title>
+<line x1="246.3" y1="208.0" x2="486.8" y2="208.0" stroke="#d95926" stroke-width="2" stroke-linecap="round"/>
+<line x1="246.3" y1="203.0" x2="246.3" y2="213.0" stroke="#d95926" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="486.8" y1="203.0" x2="486.8" y2="213.0" stroke="#d95926" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="368.6" cy="208.0" r="12" fill="transparent"/>
+<circle cx="368.6" cy="208.0" r="5" fill="#d95926" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="610.1" y="212.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">0.97  [0.75, 1.20]</text>
+<text x="100.5" y="268.0" font-size="12" fill="#ffffff" text-anchor="end">model calls</text>
+<g><title>model calls: 0.89  [0.83, 0.97] (0.89 times)</title>
+<line x1="291.7" y1="264.0" x2="363.3" y2="264.0" stroke="#199e70" stroke-width="2" stroke-linecap="round"/>
+<line x1="291.7" y1="259.0" x2="291.7" y2="269.0" stroke="#199e70" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="363.3" y1="259.0" x2="363.3" y2="269.0" stroke="#199e70" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="325.7" cy="264.0" r="12" fill="transparent"/>
+<circle cx="325.7" cy="264.0" r="5" fill="#199e70" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="610.1" y="268.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">0.89  [0.83, 0.97]</text>
+<text x="100.5" y="296.0" font-size="12" fill="#ffffff" text-anchor="end">output tokens</text>
+<g><title>output tokens: 0.91  [0.82, 1.01] (0.91 times)</title>
+<line x1="288.0" y1="292.0" x2="389.6" y2="292.0" stroke="#199e70" stroke-width="2" stroke-linecap="round"/>
+<line x1="288.0" y1="287.0" x2="288.0" y2="297.0" stroke="#199e70" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="389.6" y1="287.0" x2="389.6" y2="297.0" stroke="#199e70" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="335.0" cy="292.0" r="12" fill="transparent"/>
+<circle cx="335.0" cy="292.0" r="5" fill="#199e70" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="610.1" y="296.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">0.91  [0.82, 1.01]</text>
+<text x="100.5" y="324.0" font-size="12" fill="#ffffff" text-anchor="end">dollars</text>
+<g><title>dollars: 0.92  [0.84, 1.01] (0.92 times)</title>
+<line x1="296.4" y1="320.0" x2="389.1" y2="320.0" stroke="#199e70" stroke-width="2" stroke-linecap="round"/>
+<line x1="296.4" y1="315.0" x2="296.4" y2="325.0" stroke="#199e70" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="389.1" y1="315.0" x2="389.1" y2="325.0" stroke="#199e70" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="340.0" cy="320.0" r="12" fill="transparent"/>
+<circle cx="340.0" cy="320.0" r="5" fill="#199e70" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="610.1" y="324.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">0.92  [0.84, 1.01]</text>
+<text x="100.5" y="352.0" font-size="12" fill="#ffffff" text-anchor="end">agent time</text>
+<g><title>agent time: 1.02  [0.80, 1.27] (1.02 times)</title>
+<line x1="275.4" y1="348.0" x2="528.2" y2="348.0" stroke="#199e70" stroke-width="2" stroke-linecap="round"/>
+<line x1="275.4" y1="343.0" x2="275.4" y2="353.0" stroke="#199e70" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="528.2" y1="343.0" x2="528.2" y2="353.0" stroke="#199e70" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="390.9" cy="348.0" r="12" fill="transparent"/>
+<circle cx="390.9" cy="348.0" r="5" fill="#199e70" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="610.1" y="352.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">1.02  [0.80, 1.27]</text>
+<text x="100.5" y="408.0" font-size="12" fill="#ffffff" text-anchor="end">model calls</text>
+<g><title>model calls: 0.92  [0.83, 1.02] (0.92 times)</title>
+<line x1="293.1" y1="404.0" x2="391.5" y2="404.0" stroke="#d95926" stroke-width="2" stroke-linecap="round"/>
+<line x1="293.1" y1="399.0" x2="293.1" y2="409.0" stroke="#d95926" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="391.5" y1="399.0" x2="391.5" y2="409.0" stroke="#d95926" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="340.3" cy="404.0" r="12" fill="transparent"/>
+<circle cx="340.3" cy="404.0" r="5" fill="#d95926" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="610.1" y="408.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">0.92  [0.83, 1.02]</text>
+<text x="100.5" y="436.0" font-size="12" fill="#ffffff" text-anchor="end">output tokens</text>
+<g><title>output tokens: 0.81  [0.70, 0.94] (0.81 times)</title>
+<line x1="219.1" y1="432.0" x2="348.9" y2="432.0" stroke="#d95926" stroke-width="2" stroke-linecap="round"/>
+<line x1="219.1" y1="427.0" x2="219.1" y2="437.0" stroke="#d95926" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="348.9" y1="427.0" x2="348.9" y2="437.0" stroke="#d95926" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="279.4" cy="432.0" r="12" fill="transparent"/>
+<circle cx="279.4" cy="432.0" r="5" fill="#d95926" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="610.1" y="436.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">0.81  [0.70, 0.94]</text>
+<text x="100.5" y="464.0" font-size="12" fill="#ffffff" text-anchor="end">dollars</text>
+<g><title>dollars: 0.89  [0.78, 1.03] (0.89 times)</title>
+<line x1="265.4" y1="460.0" x2="396.6" y2="460.0" stroke="#d95926" stroke-width="2" stroke-linecap="round"/>
+<line x1="265.4" y1="455.0" x2="265.4" y2="465.0" stroke="#d95926" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="396.6" y1="455.0" x2="396.6" y2="465.0" stroke="#d95926" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="325.3" cy="460.0" r="12" fill="transparent"/>
+<circle cx="325.3" cy="460.0" r="5" fill="#d95926" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="610.1" y="464.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">0.89  [0.78, 1.03]</text>
+<text x="100.5" y="492.0" font-size="12" fill="#ffffff" text-anchor="end">agent time</text>
+<g><title>agent time: 0.80  [0.65, 0.93] (0.80 times)</title>
+<line x1="193.8" y1="488.0" x2="346.3" y2="488.0" stroke="#d95926" stroke-width="2" stroke-linecap="round"/>
+<line x1="193.8" y1="483.0" x2="193.8" y2="493.0" stroke="#d95926" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="346.3" y1="483.0" x2="346.3" y2="493.0" stroke="#d95926" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="273.4" cy="488.0" r="12" fill="transparent"/>
+<circle cx="273.4" cy="488.0" r="5" fill="#d95926" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="610.1" y="492.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">0.80  [0.65, 0.93]</text>
+<line x1="114.5" y1="506.0" x2="596.1" y2="506.0" stroke="#383835" stroke-width="1"/>
+<text x="168.0" y="522.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">0.6</text>
+<text x="275.0" y="522.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">0.8</text>
+<text x="382.1" y="522.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">1.0</text>
+<text x="489.1" y="522.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">1.2</text>
+<text x="596.1" y="522.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">1.4</text>
+<text x="355.3" y="540.0" font-size="12" fill="#c3c2b7" text-anchor="middle">ratio of totals, 1.00 = equal (bootstrap 95% over the pairs)</text>
+<text x="18.0" y="562.0" font-size="11" fill="#c3c2b7">A: Theseus plain, B: Theseus + the paragraph, C: Claude Code. A pair is one task's attempt i in both arms, both solved.</text>
+<text x="18.0" y="577.0" font-size="11" fill="#c3c2b7">Under 1.00: the first-named arm used less.</text>
+</svg>

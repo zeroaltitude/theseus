@@ -1,0 +1,65 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="416" viewBox="0 0 720 416" role="img" aria-labelledby="t-embed-time t-embed-time-d" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
+<title id="t-embed-time">The query's embedding time against its length, one thread (p50 of 10 runs)</title>
+<desc id="t-embed-time-d">Can the vector arm meet recall's deadline with the design's query?</desc>
+<rect width="720" height="416" rx="8" fill="#fcfcfb" stroke="#e6e5df"/>
+<text x="18.0" y="32.0" font-size="15" fill="#0b0b0b" font-weight="600">The query's embedding time against its length, one thread (p50 of 10 runs)</text>
+<line x1="48.5" y1="322.0" x2="696.0" y2="322.0" stroke="#e1e0d9" stroke-width="1"/>
+<text x="42.5" y="326.0" font-size="11" fill="#52514e" text-anchor="end" style="font-variant-numeric: tabular-nums">0</text>
+<line x1="48.5" y1="257.0" x2="696.0" y2="257.0" stroke="#e1e0d9" stroke-width="1"/>
+<text x="42.5" y="261.0" font-size="11" fill="#52514e" text-anchor="end" style="font-variant-numeric: tabular-nums">100</text>
+<line x1="48.5" y1="192.0" x2="696.0" y2="192.0" stroke="#e1e0d9" stroke-width="1"/>
+<text x="42.5" y="196.0" font-size="11" fill="#52514e" text-anchor="end" style="font-variant-numeric: tabular-nums">200</text>
+<line x1="48.5" y1="127.0" x2="696.0" y2="127.0" stroke="#e1e0d9" stroke-width="1"/>
+<text x="42.5" y="131.0" font-size="11" fill="#52514e" text-anchor="end" style="font-variant-numeric: tabular-nums">300</text>
+<line x1="48.5" y1="62.0" x2="696.0" y2="62.0" stroke="#e1e0d9" stroke-width="1"/>
+<text x="42.5" y="66.0" font-size="11" fill="#52514e" text-anchor="end" style="font-variant-numeric: tabular-nums">400</text>
+<line x1="48.5" y1="322.0" x2="48.5" y2="326.0" stroke="#c3c2b7" stroke-width="1"/>
+<text x="48.5" y="338.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">0</text>
+<line x1="178.0" y1="322.0" x2="178.0" y2="326.0" stroke="#c3c2b7" stroke-width="1"/>
+<text x="178.0" y="338.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">25</text>
+<line x1="307.5" y1="322.0" x2="307.5" y2="326.0" stroke="#c3c2b7" stroke-width="1"/>
+<text x="307.5" y="338.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">50</text>
+<line x1="437.0" y1="322.0" x2="437.0" y2="326.0" stroke="#c3c2b7" stroke-width="1"/>
+<text x="437.0" y="338.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">75</text>
+<line x1="566.5" y1="322.0" x2="566.5" y2="326.0" stroke="#c3c2b7" stroke-width="1"/>
+<text x="566.5" y="338.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">100</text>
+<line x1="696.0" y1="322.0" x2="696.0" y2="326.0" stroke="#c3c2b7" stroke-width="1"/>
+<text x="696.0" y="338.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">125</text>
+<line x1="48.5" y1="322.0" x2="696.0" y2="322.0" stroke="#c3c2b7" stroke-width="1"/>
+<text x="18.0" y="54.0" font-size="11" fill="#52514e">embedding time, ms</text>
+<g><title>recall's deadline, 250 ms: 250 ms</title>
+<line x1="48.5" y1="159.5" x2="696.0" y2="159.5" stroke="#52514e" stroke-width="1.25"/>
+</g>
+<g><title>recall's p95 target, 60 ms: 60 ms</title>
+<line x1="48.5" y1="283.0" x2="696.0" y2="283.0" stroke="#52514e" stroke-width="1.25"/>
+</g>
+<clipPath id="clip-embed-time-1"><rect x="43.5" y="57.0" width="657.5" height="270.0"/></clipPath>
+<g clip-path="url(#clip-embed-time-1)">
+<g><title>one thread: 6 points, lowest 94.6 ms, median 227 ms, highest 350 ms</title>
+<polyline points="126.2,260.5 172.9,252.4 286.8,213.9 390.4,174.2 509.5,146.1 644.2,94.4" fill="none" stroke="#008300" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+</g>
+<g><title>one thread: 94.6 ms</title>
+<circle cx="126.2" cy="260.5" r="4" fill="#008300" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<g><title>one thread: 107 ms</title>
+<circle cx="172.9" cy="252.4" r="4" fill="#008300" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<g><title>one thread: 166 ms</title>
+<circle cx="286.8" cy="213.9" r="4" fill="#008300" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<g><title>one thread: 227 ms</title>
+<circle cx="390.4" cy="174.2" r="4" fill="#008300" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<g><title>one thread: 271 ms</title>
+<circle cx="509.5" cy="146.1" r="4" fill="#008300" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<g><title>one thread: 350 ms</title>
+<circle cx="644.2" cy="94.4" r="4" fill="#008300" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+</g>
+<text x="694.0" y="155.5" font-size="11" fill="#52514e" stroke="#fcfcfb" stroke-width="3" stroke-linejoin="round" paint-order="stroke" text-anchor="end">recall's deadline, 250 ms</text>
+<text x="694.0" y="279.0" font-size="11" fill="#52514e" stroke="#fcfcfb" stroke-width="3" stroke-linejoin="round" paint-order="stroke" text-anchor="end">recall's p95 target, 60 ms</text>
+<text x="372.3" y="356.0" font-size="12" fill="#52514e" text-anchor="middle">query length, word pieces</text>
+<text x="18.0" y="378.0" font-size="11" fill="#52514e">Release tender, Nomic Embed v1.5 on candle f32. The design's query (the turn plus 500 characters of the last reply) is</text>
+<text x="18.0" y="393.0" font-size="11" fill="#52514e">about 115 word pieces.</text>
+</svg>

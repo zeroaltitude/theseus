@@ -249,6 +249,8 @@ daemon's log.
 
 `score.py` writes `report.md`, `curve.svg` (drawn by hand: incidental solid, central dashed) and `scores.json`.
 
+Every run of it gets its report in [`docs/benchmarks/`](../../docs/benchmarks/README.md): `python3 bench/report/draft.py recall --scores <out>/scores.json --date <day>` drafts it from the scorer's output ([`bench/README.md`](../README.md), "Every run gets its report").
+
 ## Tests
 
 ```bash

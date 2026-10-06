@@ -1,0 +1,90 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="382" viewBox="0 0 720 382" role="img" aria-labelledby="t-bm25-top6 t-bm25-top6-d" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
+<title id="t-bm25-top6">Items with all their gold in BM25's top 6 (the recall budget's item count)</title>
+<desc id="t-bm25-top6-d">Does exam-v2 make retrieval hard where exam-v1 did not?</desc>
+<rect width="720" height="382" rx="8" fill="#fcfcfb" stroke="#e6e5df"/>
+<text x="18.0" y="32.0" font-size="15" fill="#0b0b0b" font-weight="600">Items with all their gold in BM25's top 6 (the recall budget's item count)</text>
+<line x1="25.0" y1="43.0" x2="25.0" y2="57.0" stroke="#52514e" stroke-width="1.5"/>
+<text x="40.0" y="54.0" font-size="12" fill="#52514e">oracle (shows the gold by construction)</text>
+<line x1="320.6" y1="84.0" x2="320.6" y2="288.0" stroke="#e1e0d9" stroke-width="1"/>
+<line x1="369.3" y1="84.0" x2="369.3" y2="288.0" stroke="#e1e0d9" stroke-width="1"/>
+<line x1="418.1" y1="84.0" x2="418.1" y2="288.0" stroke="#e1e0d9" stroke-width="1"/>
+<line x1="466.8" y1="84.0" x2="466.8" y2="288.0" stroke="#e1e0d9" stroke-width="1"/>
+<line x1="515.6" y1="84.0" x2="515.6" y2="288.0" stroke="#e1e0d9" stroke-width="1"/>
+<line x1="564.3" y1="84.0" x2="564.3" y2="288.0" stroke="#e1e0d9" stroke-width="1"/>
+<g><title>oracle (shows the gold by construction): 100.0%</title>
+<line x1="564.3" y1="78.0" x2="564.3" y2="288.0" stroke="#52514e" stroke-width="1.5"/>
+</g>
+<text x="306.6" y="106.0" font-size="12" fill="#0b0b0b" text-anchor="end">exam-v1's 36 items, in v1's store (102 nodes)</text>
+<g><title>exam-v1's 36 items, in v1's store (102 nodes): 91.7%  [78.2%, 97.1%] (33 of 36 items: all their gold in BM25's top 6)</title>
+<line x1="511.1" y1="102.0" x2="557.3" y2="102.0" stroke="#e87ba4" stroke-width="2" stroke-linecap="round"/>
+<line x1="511.1" y1="97.0" x2="511.1" y2="107.0" stroke="#e87ba4" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="557.3" y1="97.0" x2="557.3" y2="107.0" stroke="#e87ba4" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="544.0" cy="102.0" r="12" fill="transparent"/>
+<circle cx="544.0" cy="102.0" r="5" fill="#e87ba4" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<text x="578.3" y="106.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">91.7%  [78.2%, 97.1%]</text>
+<text x="306.6" y="134.0" font-size="12" fill="#0b0b0b" text-anchor="end">the same 36 families, in v2's store (1,550 nodes)</text>
+<g><title>the same 36 families, in v2's store (1,550 nodes): 72.2%  [56.0%, 84.2%] (26 of 36: the bigger store alone, no word of them changed)</title>
+<line x1="457.1" y1="130.0" x2="525.7" y2="130.0" stroke="#e87ba4" stroke-width="2" stroke-linecap="round"/>
+<line x1="457.1" y1="125.0" x2="457.1" y2="135.0" stroke="#e87ba4" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="525.7" y1="125.0" x2="525.7" y2="135.0" stroke="#e87ba4" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="496.6" cy="130.0" r="12" fill="transparent"/>
+<circle cx="496.6" cy="130.0" r="5" fill="#e87ba4" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<text x="578.3" y="134.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">72.2%  [56.0%, 84.2%]</text>
+<text x="306.6" y="162.0" font-size="12" fill="#0b0b0b" text-anchor="end">paraphrase (8 items)</text>
+<g><title>paraphrase (8 items): 0.0%  [0.0%, 32.4%] (paraphrase: 0 of 8 items in the top 6; 0 of 8 in the top 20)</title>
+<line x1="320.6" y1="158.0" x2="399.6" y2="158.0" stroke="#e87ba4" stroke-width="2" stroke-linecap="round"/>
+<line x1="320.6" y1="153.0" x2="320.6" y2="163.0" stroke="#e87ba4" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="399.6" y1="153.0" x2="399.6" y2="163.0" stroke="#e87ba4" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="320.6" cy="158.0" r="12" fill="transparent"/>
+<circle cx="320.6" cy="158.0" r="5" fill="#e87ba4" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<text x="578.3" y="162.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">0.0%  [0.0%, 32.4%]</text>
+<text x="306.6" y="190.0" font-size="12" fill="#0b0b0b" text-anchor="end">scale (8 items)</text>
+<g><title>scale (8 items): 12.5%  [2.2%, 47.1%] (scale: 1 of 8 items in the top 6; 4 of 8 in the top 20)</title>
+<line x1="326.0" y1="186.0" x2="435.4" y2="186.0" stroke="#e87ba4" stroke-width="2" stroke-linecap="round"/>
+<line x1="326.0" y1="181.0" x2="326.0" y2="191.0" stroke="#e87ba4" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="435.4" y1="181.0" x2="435.4" y2="191.0" stroke="#e87ba4" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="351.0" cy="186.0" r="12" fill="transparent"/>
+<circle cx="351.0" cy="186.0" r="5" fill="#e87ba4" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<text x="578.3" y="190.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">12.5%  [2.2%, 47.1%]</text>
+<text x="306.6" y="218.0" font-size="12" fill="#0b0b0b" text-anchor="end">time (8 items)</text>
+<g><title>time (8 items): 0.0%  [0.0%, 32.4%] (time: 0 of 8 items in the top 6; 1 of 8 in the top 20)</title>
+<line x1="320.6" y1="214.0" x2="399.6" y2="214.0" stroke="#e87ba4" stroke-width="2" stroke-linecap="round"/>
+<line x1="320.6" y1="209.0" x2="320.6" y2="219.0" stroke="#e87ba4" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="399.6" y1="209.0" x2="399.6" y2="219.0" stroke="#e87ba4" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="320.6" cy="214.0" r="12" fill="transparent"/>
+<circle cx="320.6" cy="214.0" r="5" fill="#e87ba4" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<text x="578.3" y="218.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">0.0%  [0.0%, 32.4%]</text>
+<text x="306.6" y="246.0" font-size="12" fill="#0b0b0b" text-anchor="end">tool output (8 items)</text>
+<g><title>tool output (8 items): 0.0%  [0.0%, 32.4%] (tool output: 0 of 8 items in the top 6; 0 of 8 in the top 20)</title>
+<line x1="320.6" y1="242.0" x2="399.6" y2="242.0" stroke="#e87ba4" stroke-width="2" stroke-linecap="round"/>
+<line x1="320.6" y1="237.0" x2="320.6" y2="247.0" stroke="#e87ba4" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="399.6" y1="237.0" x2="399.6" y2="247.0" stroke="#e87ba4" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="320.6" cy="242.0" r="12" fill="transparent"/>
+<circle cx="320.6" cy="242.0" r="5" fill="#e87ba4" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<text x="578.3" y="246.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">0.0%  [0.0%, 32.4%]</text>
+<text x="306.6" y="274.0" font-size="12" fill="#0b0b0b" text-anchor="end">the four hard families (32 items)</text>
+<g><title>the four hard families (32 items): 3.1%  [0.5%, 15.7%] (1 of 32 in the top 6; 5 of 32 in the top 20)</title>
+<line x1="321.9" y1="270.0" x2="358.9" y2="270.0" stroke="#e87ba4" stroke-width="2" stroke-linecap="round"/>
+<line x1="321.9" y1="265.0" x2="321.9" y2="275.0" stroke="#e87ba4" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="358.9" y1="265.0" x2="358.9" y2="275.0" stroke="#e87ba4" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="328.2" cy="270.0" r="12" fill="transparent"/>
+<circle cx="328.2" cy="270.0" r="5" fill="#e87ba4" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<text x="578.3" y="274.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">3.1%  [0.5%, 15.7%]</text>
+<line x1="320.6" y1="288.0" x2="564.3" y2="288.0" stroke="#c3c2b7" stroke-width="1"/>
+<text x="320.6" y="304.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">0%</text>
+<text x="369.3" y="304.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">20%</text>
+<text x="418.1" y="304.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">40%</text>
+<text x="466.8" y="304.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">60%</text>
+<text x="515.6" y="304.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">80%</text>
+<text x="564.3" y="304.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">100%</text>
+<text x="442.4" y="322.0" font-size="12" fill="#52514e" text-anchor="middle">items with all their gold in the top 6</text>
+<text x="18.0" y="344.0" font-size="11" fill="#52514e">BM25 (k1 1.2, b 0.75, the 34a tokenizer) over every node of each exam's store, queried with each task; no model. Wilson</text>
+<text x="18.0" y="359.0" font-size="11" fill="#52514e">95% intervals over items.</text>
+</svg>

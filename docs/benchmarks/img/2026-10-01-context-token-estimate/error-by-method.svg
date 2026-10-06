@@ -1,0 +1,77 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="264" viewBox="0 0 720 264" role="img" aria-labelledby="t-error-by-method t-error-by-method-d" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
+<title id="t-error-by-method">The shipped estimate's error against the provider's count, by method</title>
+<desc id="t-error-by-method-d">Does counting on the provider's last count tighten the estimate?</desc>
+<rect width="720" height="264" rx="8" fill="#fcfcfb" stroke="#e6e5df"/>
+<text x="18.0" y="32.0" font-size="15" fill="#0b0b0b" font-weight="600">The shipped estimate's error against the provider's count, by method</text>
+<circle cx="25.0" cy="50.0" r="5" fill="#898781"/>
+<text x="40.0" y="54.0" font-size="12" fill="#52514e">bytes only</text>
+<circle cx="126.9" cy="50.0" r="5" fill="#2a78d6"/>
+<text x="141.9" y="54.0" font-size="12" fill="#52514e">counted</text>
+<line x1="216.1" y1="43.0" x2="216.1" y2="57.0" stroke="#0b0b0b" stroke-width="1.5"/>
+<text x="231.1" y="54.0" font-size="12" fill="#52514e">median</text>
+<line x1="288.7" y1="78.0" x2="288.7" y2="170.0" stroke="#e1e0d9" stroke-width="1"/>
+<line x1="401.3" y1="78.0" x2="401.3" y2="170.0" stroke="#e1e0d9" stroke-width="1"/>
+<line x1="514.0" y1="78.0" x2="514.0" y2="170.0" stroke="#e1e0d9" stroke-width="1"/>
+<text x="207.1" y="105.0" font-size="12" fill="#0b0b0b" text-anchor="end">bytes only (first requests), n = 8</text>
+<g><title>bytes only (first requests), n = 8: quartiles 1.2%, 2.1%, 3.7%</title>
+<rect x="428.2" y="99.0" width="56.2" height="4" rx="2" fill="#52514e" fill-opacity="0.35"/>
+</g>
+<g><title>bytes only (first requests), n = 8: 4.3% (Sonnet 5.5, tools + small context: 5,473 against 5,248)</title>
+<circle cx="497.9" cy="101.0" r="3.2" fill="#898781" fill-opacity="0.75"/>
+</g>
+<g><title>bytes only (first requests), n = 8: 3.5% (Sonnet 5.5, tools + 6.5 KB of prose: 7,461 against 7,208)</title>
+<circle cx="480.4" cy="106.4" r="3.2" fill="#898781" fill-opacity="0.75"/>
+</g>
+<g><title>bytes only (first requests), n = 8: 4.2% (Sonnet 5.5, tools, a tool loop's first call: 5,487 against 5,265)</title>
+<circle cx="496.3" cy="112.2" r="3.2" fill="#898781" fill-opacity="0.75"/>
+</g>
+<g><title>bytes only (first requests), n = 8: 1.9% (GLM-5.3 Flash, tools + small context: 3,605 against 3,537)</title>
+<circle cx="444.7" cy="109.4" r="3.2" fill="#898781" fill-opacity="0.75"/>
+</g>
+<g><title>bytes only (first requests), n = 8: 2.3% (GLM-5.3 Flash, tools + 6.5 KB of prose: 5,096 against 4,983)</title>
+<circle cx="452.4" cy="104.2" r="3.2" fill="#898781" fill-opacity="0.75"/>
+</g>
+<g><title>bytes only (first requests), n = 8: 1.9% (GLM-5.3 Flash, tools, a tool loop's first call: 3,615 against 3,548)</title>
+<circle cx="443.9" cy="110.2" r="3.2" fill="#898781" fill-opacity="0.75"/>
+</g>
+<g><title>bytes only (first requests), n = 8: −6.5% (Sonnet 5.5, no tools: 145 against 155)</title>
+<circle cx="256.0" cy="95.6" r="3.2" fill="#898781" fill-opacity="0.75"/>
+</g>
+<g><title>bytes only (first requests), n = 8: −0.9% (GLM-5.3 Flash, no tools: 111 against 112)</title>
+<circle cx="381.2" cy="92.4" r="3.2" fill="#898781" fill-opacity="0.75"/>
+</g>
+<g><title>bytes only (first requests), n = 8: median 2.1%</title>
+<line x1="448.5" y1="87.0" x2="448.5" y2="115.0" stroke="#0b0b0b" stroke-width="2" stroke-linecap="round"/>
+</g>
+<text x="595.6" y="105.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">median 2.1% · n 8</text>
+<text x="207.1" y="151.0" font-size="12" fill="#0b0b0b" text-anchor="end">counted (later requests), n = 5</text>
+<g><title>counted (later requests), n = 5: quartiles −1.4%, −0.5%, 0.1%</title>
+<rect x="368.9" y="145.0" width="33.8" height="4" rx="2" fill="#52514e" fill-opacity="0.35"/>
+</g>
+<g><title>counted (later requests), n = 5: −0.5% (Sonnet 5.5, the same loop's second request (the tool call and its result added): 6,337 against 6,370 (5,318 counted))</title>
+<circle cx="389.7" cy="140.4" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>counted (later requests), n = 5: 0.1% (Sonnet 5.5, the next turn's first request: 6,390 against 6,386 (6,373 counted))</title>
+<circle cx="402.7" cy="151.8" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>counted (later requests), n = 5: −1.7% (GLM-5.3 Flash, the same loop's second request (the tool call and its result added): 4,288 against 4,363 (3,614 counted))</title>
+<circle cx="362.6" cy="149.9" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>counted (later requests), n = 5: 0.1% (GLM-5.3 Flash, the next turn's first request: 4,381 against 4,375 (4,366 counted))</title>
+<circle cx="404.4" cy="137.3" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>counted (later requests), n = 5: −1.4% (GLM-5.3 Flash, the next turn's second request: 5,136 against 5,211 (4,462 counted))</title>
+<circle cx="368.9" cy="144.2" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>counted (later requests), n = 5: median −0.5%</title>
+<line x1="389.7" y1="133.0" x2="389.7" y2="161.0" stroke="#0b0b0b" stroke-width="2" stroke-linecap="round"/>
+</g>
+<text x="595.6" y="151.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">median −0.5% · n 5</text>
+<text x="288.7" y="186.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">−5%</text>
+<text x="401.3" y="186.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">0%</text>
+<text x="514.0" y="186.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">5%</text>
+<line x1="221.1" y1="170.0" x2="581.6" y2="170.0" stroke="#c3c2b7" stroke-width="1"/>
+<text x="401.3" y="204.0" font-size="12" fill="#52514e" text-anchor="middle">estimate − count, as a share of the count</text>
+<text x="18.0" y="226.0" font-size="11" fill="#52514e">Release check of 042ff07: 6 first requests and 5 with a counted part; plus the lane check's no-tools pair, recomputed.</text>
+<text x="18.0" y="241.0" font-size="11" fill="#52514e">Signed: above zero is over the count.</text>
+</svg>

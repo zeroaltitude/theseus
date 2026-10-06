@@ -1,0 +1,73 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="362" viewBox="0 0 720 362" role="img" aria-labelledby="t-one-sync-per-job t-one-sync-per-job-d" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
+<title id="t-one-sync-per-job">Main (A) against the lane (B), medians of 8 runs an arm, one hold of the gate lock</title>
+<desc id="t-one-sync-per-job-d">What did taking the directory sync out of a job's completion change?</desc>
+<rect width="720" height="362" rx="8" fill="#1a1a19" stroke="#2c2c2a"/>
+<text x="18.0" y="32.0" font-size="15" fill="#ffffff" font-weight="600">Main (A) against the lane (B), medians of 8 runs an arm, one hold of the gate</text>
+<text x="18.0" y="52.0" font-size="15" fill="#ffffff" font-weight="600">lock</text>
+<circle cx="25.0" cy="70.0" r="5" fill="#2a507f"/>
+<text x="40.0" y="74.0" font-size="12" fill="#c3c2b7">A: main 3c85ecee</text>
+<circle cx="174.5" cy="70.0" r="5" fill="#3987e5"/>
+<text x="189.5" y="74.0" font-size="12" fill="#c3c2b7">B: the lane 6e46cd05</text>
+<line x1="321.2" y1="96.0" x2="321.2" y2="268.0" stroke="#2c2c2a" stroke-width="1"/>
+<line x1="387.1" y1="96.0" x2="387.1" y2="268.0" stroke="#2c2c2a" stroke-width="1"/>
+<line x1="452.9" y1="96.0" x2="452.9" y2="268.0" stroke="#2c2c2a" stroke-width="1"/>
+<line x1="518.8" y1="96.0" x2="518.8" y2="268.0" stroke="#2c2c2a" stroke-width="1"/>
+<line x1="584.7" y1="96.0" x2="584.7" y2="268.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="307.2" y="114.0" font-size="12" fill="#ffffff" text-anchor="end">L0 job: dispatch to the daemon's poke (notified)</text>
+<g><title>L0 job: dispatch to the daemon's poke (notified): 16.9 ms → 10.3 ms (exact Mann-Whitney U 0, p 0.0002)</title>
+<line x1="343.5" y1="110.0" x2="334.8" y2="110.0" stroke="#2a507f" stroke-width="3" stroke-linecap="round"/>
+<circle cx="343.5" cy="110.0" r="5" fill="#2a507f" stroke="#1a1a19" stroke-width="2"/>
+<circle cx="334.8" cy="110.0" r="12" fill="transparent"/>
+<circle cx="334.8" cy="110.0" r="5" fill="#3987e5" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="598.7" y="114.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">16.9 ms → 10.3 ms</text>
+<text x="307.2" y="142.0" font-size="12" fill="#ffffff" text-anchor="end">L1 job: dispatch to the poke (notified)</text>
+<g><title>L1 job: dispatch to the poke (notified): 23.2 ms → 16.5 ms (exact Mann-Whitney U 0, p 0.0002)</title>
+<line x1="351.8" y1="138.0" x2="343.0" y2="138.0" stroke="#2a507f" stroke-width="3" stroke-linecap="round"/>
+<circle cx="351.8" cy="138.0" r="5" fill="#2a507f" stroke="#1a1a19" stroke-width="2"/>
+<circle cx="343.0" cy="138.0" r="12" fill="transparent"/>
+<circle cx="343.0" cy="138.0" r="5" fill="#3987e5" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="598.7" y="142.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">23.2 ms → 16.5 ms</text>
+<text x="307.2" y="170.0" font-size="12" fill="#ffffff" text-anchor="end">L0 job: dispatch to the result file (total)</text>
+<g><title>L0 job: dispatch to the result file (total): 10.6 ms → 10.3 ms (exact Mann-Whitney U 18, p 0.1521)</title>
+<line x1="335.2" y1="166.0" x2="334.8" y2="166.0" stroke="#2a507f" stroke-width="3" stroke-linecap="round"/>
+<circle cx="335.2" cy="166.0" r="5" fill="#2a507f" stroke="#1a1a19" stroke-width="2"/>
+<circle cx="334.8" cy="166.0" r="12" fill="transparent"/>
+<circle cx="334.8" cy="166.0" r="5" fill="#3987e5" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="598.7" y="170.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">10.6 ms → 10.3 ms</text>
+<text x="307.2" y="198.0" font-size="12" fill="#ffffff" text-anchor="end">L1 job: the wrapper's start (spawn to exec)</text>
+<g><title>L1 job: the wrapper's start (spawn to exec): 5.66 ms → 5.54 ms (exact Mann-Whitney U 18.5, p 0.1683)</title>
+<line x1="328.7" y1="194.0" x2="328.5" y2="194.0" stroke="#2a507f" stroke-width="3" stroke-linecap="round"/>
+<circle cx="328.7" cy="194.0" r="5" fill="#2a507f" stroke="#1a1a19" stroke-width="2"/>
+<circle cx="328.5" cy="194.0" r="12" fill="transparent"/>
+<circle cx="328.5" cy="194.0" r="5" fill="#3987e5" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="598.7" y="198.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">5.66 ms → 5.54 ms</text>
+<text x="307.2" y="226.0" font-size="12" fill="#ffffff" text-anchor="end">a tool-call turn (runs a job)</text>
+<g><title>a tool-call turn (runs a job): 180 ms → 161 ms (exact Mann-Whitney U 0, p 0.0002)</title>
+<line x1="557.7" y1="222.0" x2="532.7" y2="222.0" stroke="#2a507f" stroke-width="3" stroke-linecap="round"/>
+<circle cx="557.7" cy="222.0" r="5" fill="#2a507f" stroke="#1a1a19" stroke-width="2"/>
+<circle cx="532.7" cy="222.0" r="12" fill="transparent"/>
+<circle cx="532.7" cy="222.0" r="5" fill="#3987e5" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="598.7" y="226.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">180 ms → 161 ms</text>
+<text x="307.2" y="254.0" font-size="12" fill="#ffffff" text-anchor="end">a plain turn</text>
+<g><title>a plain turn: 78.0 ms → 76.9 ms (exact Mann-Whitney U 27, p 0.6263)</title>
+<line x1="424.0" y1="250.0" x2="422.5" y2="250.0" stroke="#2a507f" stroke-width="3" stroke-linecap="round"/>
+<circle cx="424.0" cy="250.0" r="5" fill="#2a507f" stroke="#1a1a19" stroke-width="2"/>
+<circle cx="422.5" cy="250.0" r="12" fill="transparent"/>
+<circle cx="422.5" cy="250.0" r="5" fill="#3987e5" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="598.7" y="254.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">78.0 ms → 76.9 ms</text>
+<text x="321.2" y="284.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">0</text>
+<text x="387.1" y="284.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">50</text>
+<text x="452.9" y="284.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">100</text>
+<text x="518.8" y="284.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">150</text>
+<text x="584.7" y="284.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">200</text>
+<line x1="321.2" y1="268.0" x2="584.7" y2="268.0" stroke="#383835" stroke-width="1"/>
+<text x="452.9" y="302.0" font-size="12" fill="#c3c2b7" text-anchor="middle">ms (the median of 8 runs' p50s)</text>
+<text x="18.0" y="324.0" font-size="11" fill="#c3c2b7">Two rounds (21:15 and 21:17, Oct 4), order A B B A A B B A each, 40 jobs a class a run, 10 turns of each kind a run; debug</text>
+<text x="18.0" y="339.0" font-size="11" fill="#c3c2b7">builds frozen out of their targets. This disk's fdatasync of 4 KiB: p50 6.4 to 6.5 ms.</text>
+</svg>

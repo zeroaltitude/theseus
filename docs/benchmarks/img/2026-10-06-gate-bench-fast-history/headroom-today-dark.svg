@@ -1,0 +1,102 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="460" viewBox="0 0 720 460" role="img" aria-labelledby="t-headroom-today t-headroom-today-d" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
+<title id="t-headroom-today">Each budget's use on Oct 6: the p95 as a share of its limit</title>
+<desc id="t-headroom-today-d">How much headroom does each budgeted number have today?</desc>
+<rect width="720" height="460" rx="8" fill="#1a1a19" stroke="#2c2c2a"/>
+<text x="18.0" y="32.0" font-size="15" fill="#ffffff" font-weight="600">Each budget's use on Oct 6: the p95 as a share of its limit</text>
+<line x1="25.0" y1="43.0" x2="25.0" y2="57.0" stroke="#c3c2b7" stroke-width="1.5"/>
+<text x="40.0" y="54.0" font-size="12" fill="#c3c2b7">the limit</text>
+<line x1="113.8" y1="43.0" x2="113.8" y2="57.0" stroke="#c3c2b7" stroke-width="1.5"/>
+<text x="128.8" y="54.0" font-size="12" fill="#c3c2b7">busy allowance</text>
+<line x1="228.0" y1="84.0" x2="228.0" y2="366.0" stroke="#2c2c2a" stroke-width="1"/>
+<line x1="320.8" y1="84.0" x2="320.8" y2="366.0" stroke="#2c2c2a" stroke-width="1"/>
+<line x1="413.7" y1="84.0" x2="413.7" y2="366.0" stroke="#2c2c2a" stroke-width="1"/>
+<line x1="506.6" y1="84.0" x2="506.6" y2="366.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="18.0" y="101.0" font-size="12" fill="#ffffff" stroke="#1a1a19" stroke-width="3" stroke-linejoin="round" paint-order="stroke" font-weight="600">timings (limit = budget + margin)</text>
+<text x="18.0" y="297.0" font-size="12" fill="#ffffff" stroke="#1a1a19" stroke-width="3" stroke-linejoin="round" paint-order="stroke" font-weight="600">counts (exact; no allowance)</text>
+<g><title>the limit: 100.0%</title>
+<line x1="320.8" y1="78.0" x2="320.8" y2="366.0" stroke="#c3c2b7" stroke-width="1.5"/>
+</g>
+<g><title>busy allowance: 165.0%</title>
+<line x1="381.2" y1="78.0" x2="381.2" y2="366.0" stroke="#c3c2b7" stroke-width="1.5"/>
+</g>
+<text x="214.0" y="128.0" font-size="12" fill="#ffffff" text-anchor="end">cold start (n = 18)</text>
+<g><title>cold start (n = 18): 52.5%  [39.3%, 77.1%] (median p95 30 of 57.1; range 22.4 to 44)</title>
+<line x1="264.5" y1="124.0" x2="299.6" y2="124.0" stroke="#3987e5" stroke-width="2" stroke-linecap="round"/>
+<line x1="264.5" y1="119.0" x2="264.5" y2="129.0" stroke="#3987e5" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="299.6" y1="119.0" x2="299.6" y2="129.0" stroke="#3987e5" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="276.7" cy="124.0" r="12" fill="transparent"/>
+<circle cx="276.7" cy="124.0" r="5" fill="#3987e5" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="557.8" y="128.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">52.5%  [39.3%, 77.1%]</text>
+<text x="214.0" y="156.0" font-size="12" fill="#ffffff" text-anchor="end">cold start from the copy (n = 18)</text>
+<g><title>cold start from the copy (n = 18): 51.5%  [40.0%, 67.1%] (median p95 29.4 of 57.1; range 22.8 to 38.3)</title>
+<line x1="265.1" y1="152.0" x2="290.3" y2="152.0" stroke="#3987e5" stroke-width="2" stroke-linecap="round"/>
+<line x1="265.1" y1="147.0" x2="265.1" y2="157.0" stroke="#3987e5" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="290.3" y1="147.0" x2="290.3" y2="157.0" stroke="#3987e5" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="275.8" cy="152.0" r="12" fill="transparent"/>
+<circle cx="275.8" cy="152.0" r="5" fill="#3987e5" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="557.8" y="156.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">51.5%  [40.0%, 67.1%]</text>
+<text x="214.0" y="184.0" font-size="12" fill="#ffffff" text-anchor="end">clean shutdown (n = 18)</text>
+<g><title>clean shutdown (n = 18): 49.1%  [45.8%, 330.3%] (median p95 51.1 of 104; range 47.7 to 343.5)</title>
+<line x1="270.5" y1="180.0" x2="534.8" y2="180.0" stroke="#3987e5" stroke-width="2" stroke-linecap="round"/>
+<line x1="270.5" y1="175.0" x2="270.5" y2="185.0" stroke="#3987e5" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="534.8" y1="175.0" x2="534.8" y2="185.0" stroke="#3987e5" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="273.6" cy="180.0" r="12" fill="transparent"/>
+<circle cx="273.6" cy="180.0" r="5" fill="#3987e5" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="557.8" y="184.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">49.1%  [45.8%, 330.3%]</text>
+<text x="214.0" y="212.0" font-size="12" fill="#ffffff" text-anchor="end">SIGKILL then restart (n = 18)</text>
+<g><title>SIGKILL then restart (n = 18): 19.0%  [15.4%, 265.0%] (median p95 33.2 of 175.1; range 27.1 to 464.1)</title>
+<line x1="242.3" y1="208.0" x2="474.1" y2="208.0" stroke="#3987e5" stroke-width="2" stroke-linecap="round"/>
+<line x1="242.3" y1="203.0" x2="242.3" y2="213.0" stroke="#3987e5" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="474.1" y1="203.0" x2="474.1" y2="213.0" stroke="#3987e5" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="245.6" cy="208.0" r="12" fill="transparent"/>
+<circle cx="245.6" cy="208.0" r="5" fill="#3987e5" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="557.8" y="212.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">19.0%  [15.4%, 265.0%]</text>
+<text x="214.0" y="240.0" font-size="12" fill="#ffffff" text-anchor="end">binary swap (n = 18)</text>
+<g><title>binary swap (n = 18): 26.8%  [24.7%, 73.9%] (median p95 54.2 of 202; range 49.8 to 149.3)</title>
+<line x1="250.9" y1="236.0" x2="296.6" y2="236.0" stroke="#3987e5" stroke-width="2" stroke-linecap="round"/>
+<line x1="250.9" y1="231.0" x2="250.9" y2="241.0" stroke="#3987e5" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="296.6" y1="231.0" x2="296.6" y2="241.0" stroke="#3987e5" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="252.8" cy="236.0" r="12" fill="transparent"/>
+<circle cx="252.8" cy="236.0" r="5" fill="#3987e5" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="557.8" y="240.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">26.8%  [24.7%, 73.9%]</text>
+<text x="214.0" y="268.0" font-size="12" fill="#ffffff" text-anchor="end">a cancel's round trip (n = 4)</text>
+<g><title>a cancel's round trip (n = 4): 43.5%  [42.1%, 48.9%] (median p95 108.8 of 250; range 105.2 to 122.3)</title>
+<line x1="267.1" y1="264.0" x2="273.4" y2="264.0" stroke="#3987e5" stroke-width="2" stroke-linecap="round"/>
+<line x1="267.1" y1="259.0" x2="267.1" y2="269.0" stroke="#3987e5" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="273.4" y1="259.0" x2="273.4" y2="269.0" stroke="#3987e5" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="268.4" cy="264.0" r="12" fill="transparent"/>
+<circle cx="268.4" cy="264.0" r="5" fill="#3987e5" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="557.8" y="268.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">43.5%  [42.1%, 48.9%]</text>
+<text x="214.0" y="324.0" font-size="12" fill="#ffffff" text-anchor="end">frames, plain turn (n = 17)</text>
+<g><title>frames, plain turn (n = 17): 100.0%  [100.0%, 100.0%] (median p95 5 of 5; range 5 to 5)</title>
+<line x1="320.8" y1="320.0" x2="320.8" y2="320.0" stroke="#3987e5" stroke-width="2" stroke-linecap="round"/>
+<line x1="320.8" y1="315.0" x2="320.8" y2="325.0" stroke="#3987e5" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="320.8" y1="315.0" x2="320.8" y2="325.0" stroke="#3987e5" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="320.8" cy="320.0" r="12" fill="transparent"/>
+<circle cx="320.8" cy="320.0" r="5" fill="#3987e5" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="557.8" y="324.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">100.0%  [100.0%, 100.0%]</text>
+<text x="214.0" y="352.0" font-size="12" fill="#ffffff" text-anchor="end">frames, tool-call turn (n = 17)</text>
+<g><title>frames, tool-call turn (n = 17): 100.0%  [100.0%, 100.0%] (median p95 9 of 9; range 9 to 9)</title>
+<line x1="320.8" y1="348.0" x2="320.8" y2="348.0" stroke="#3987e5" stroke-width="2" stroke-linecap="round"/>
+<line x1="320.8" y1="343.0" x2="320.8" y2="353.0" stroke="#3987e5" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="320.8" y1="343.0" x2="320.8" y2="353.0" stroke="#3987e5" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="320.8" cy="348.0" r="12" fill="transparent"/>
+<circle cx="320.8" cy="348.0" r="5" fill="#3987e5" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="557.8" y="352.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">100.0%  [100.0%, 100.0%]</text>
+<line x1="228.0" y1="366.0" x2="543.8" y2="366.0" stroke="#383835" stroke-width="1"/>
+<text x="228.0" y="382.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">0%</text>
+<text x="320.8" y="382.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">100%</text>
+<text x="413.7" y="382.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">200%</text>
+<text x="506.6" y="382.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">300%</text>
+<text x="385.9" y="400.0" font-size="12" fill="#c3c2b7" text-anchor="middle">p95 / limit (first runs of Oct 6's main gates)</text>
+<text x="18.0" y="422.0" font-size="11" fill="#c3c2b7">18 main gates on Oct 6 (4 for the cancel phase, new that day). The dot is the median, the whisker the day's best and worst</text>
+<text x="18.0" y="437.0" font-size="11" fill="#c3c2b7">gate; the lines are the limit (100%) and the busy allowance's ceiling (165%).</text>
+</svg>

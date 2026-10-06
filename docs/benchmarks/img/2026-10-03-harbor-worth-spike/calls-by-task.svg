@@ -1,0 +1,73 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="393" viewBox="0 0 720 393" role="img" aria-labelledby="t-calls-by-task t-calls-by-task-d" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
+<title id="t-calls-by-task">Model calls per task, one trial each</title>
+<desc id="t-calls-by-task-d">How many model calls did each arm make on each task?</desc>
+<rect width="720" height="393" rx="8" fill="#fcfcfb" stroke="#e6e5df"/>
+<text x="18.0" y="32.0" font-size="15" fill="#0b0b0b" font-weight="600">Model calls per task, one trial each</text>
+<rect x="18.0" y="44.0" width="14" height="12" rx="3" fill="#2a78d6"/>
+<text x="40.0" y="54.0" font-size="12" fill="#52514e">Theseus</text>
+<rect x="108.5" y="44.0" width="14" height="12" rx="3" fill="#1baf7a"/>
+<text x="130.5" y="54.0" font-size="12" fill="#52514e">Theseus + paragraph</text>
+<rect x="275.6" y="44.0" width="14" height="12" rx="3" fill="#eb6834"/>
+<text x="297.6" y="54.0" font-size="12" fill="#52514e">Claude Code 2.1.288</text>
+<line x1="234.6" y1="74.0" x2="234.6" y2="314.0" stroke="#e1e0d9" stroke-width="1"/>
+<line x1="347.2" y1="74.0" x2="347.2" y2="314.0" stroke="#e1e0d9" stroke-width="1"/>
+<line x1="459.9" y1="74.0" x2="459.9" y2="314.0" stroke="#e1e0d9" stroke-width="1"/>
+<line x1="572.5" y1="74.0" x2="572.5" y2="314.0" stroke="#e1e0d9" stroke-width="1"/>
+<line x1="685.2" y1="74.0" x2="685.2" y2="314.0" stroke="#e1e0d9" stroke-width="1"/>
+<text x="224.6" y="108.0" font-size="12" fill="#0b0b0b" text-anchor="end">fix-git</text>
+<g><title>fix-git · Theseus: 8</title>
+<path d="M234.6,81.0H681.2A4,4 0 0 1 685.2,85.0V91.0A4,4 0 0 1 681.2,95.0H234.6Z" fill="#2a78d6"/>
+</g>
+<text x="690.2" y="92.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">8</text>
+<g><title>fix-git · Theseus + paragraph: 6</title>
+<path d="M234.6,97.0H568.5A4,4 0 0 1 572.5,101.0V107.0A4,4 0 0 1 568.5,111.0H234.6Z" fill="#1baf7a"/>
+</g>
+<text x="577.5" y="108.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">6</text>
+<g><title>fix-git · Claude Code 2.1.288: 6</title>
+<path d="M234.6,113.0H568.5A4,4 0 0 1 572.5,117.0V123.0A4,4 0 0 1 568.5,127.0H234.6Z" fill="#eb6834"/>
+</g>
+<text x="577.5" y="124.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">6</text>
+<text x="224.6" y="168.0" font-size="12" fill="#0b0b0b" text-anchor="end">prove-plus-comm</text>
+<g><title>prove-plus-comm · Theseus: 5</title>
+<path d="M234.6,141.0H512.2A4,4 0 0 1 516.2,145.0V151.0A4,4 0 0 1 512.2,155.0H234.6Z" fill="#2a78d6"/>
+</g>
+<text x="521.2" y="152.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">5</text>
+<g><title>prove-plus-comm · Theseus + paragraph: 3</title>
+<path d="M234.6,157.0H399.6A4,4 0 0 1 403.6,161.0V167.0A4,4 0 0 1 399.6,171.0H234.6Z" fill="#1baf7a"/>
+</g>
+<text x="408.6" y="168.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">3</text>
+<g><title>prove-plus-comm · Claude Code 2.1.288: 3</title>
+<path d="M234.6,173.0H399.6A4,4 0 0 1 403.6,177.0V183.0A4,4 0 0 1 399.6,187.0H234.6Z" fill="#eb6834"/>
+</g>
+<text x="408.6" y="184.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">3</text>
+<text x="224.6" y="228.0" font-size="12" fill="#0b0b0b" text-anchor="end">nginx-request-logging</text>
+<g><title>nginx-request-logging · Theseus: 4</title>
+<path d="M234.6,201.0H455.9A4,4 0 0 1 459.9,205.0V211.0A4,4 0 0 1 455.9,215.0H234.6Z" fill="#2a78d6"/>
+</g>
+<text x="464.9" y="212.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">4</text>
+<g><title>nginx-request-logging · Theseus + paragraph: 4</title>
+<path d="M234.6,217.0H455.9A4,4 0 0 1 459.9,221.0V227.0A4,4 0 0 1 455.9,231.0H234.6Z" fill="#1baf7a"/>
+</g>
+<text x="464.9" y="228.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">4</text>
+<g><title>nginx-request-logging · Claude Code 2.1.288: 2</title>
+<path d="M234.6,233.0H343.2A4,4 0 0 1 347.2,237.0V243.0A4,4 0 0 1 343.2,247.0H234.6Z" fill="#eb6834"/>
+</g>
+<text x="352.2" y="244.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">2</text>
+<text x="224.6" y="288.0" font-size="12" fill="#0b0b0b" text-anchor="end">psf__requests-1921 (SWE-bench)</text>
+<g><title>psf__requests-1921 (SWE-bench) · Theseus: 7</title>
+<path d="M234.6,261.0H624.8A4,4 0 0 1 628.8,265.0V271.0A4,4 0 0 1 624.8,275.0H234.6Z" fill="#2a78d6"/>
+</g>
+<text x="633.8" y="272.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">7</text>
+<g><title>psf__requests-1921 (SWE-bench) · Claude Code 2.1.288: 4</title>
+<path d="M234.6,293.0H455.9A4,4 0 0 1 459.9,297.0V303.0A4,4 0 0 1 455.9,307.0H234.6Z" fill="#eb6834"/>
+</g>
+<text x="464.9" y="304.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">4</text>
+<text x="234.6" y="330.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">0</text>
+<text x="347.2" y="330.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">2</text>
+<text x="459.9" y="330.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">4</text>
+<text x="572.5" y="330.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">6</text>
+<text x="685.2" y="330.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">8</text>
+<line x1="234.6" y1="314.0" x2="685.2" y2="314.0" stroke="#c3c2b7" stroke-width="1"/>
+<text x="459.9" y="348.0" font-size="12" fill="#52514e" text-anchor="middle">model calls</text>
+<text x="18.0" y="370.0" font-size="11" fill="#52514e">Every trial solved its task. The paragraph's arm ran the three Terminal-Bench tasks only.</text>
+</svg>
