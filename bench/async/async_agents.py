@@ -15,7 +15,8 @@ with bench/harbor and bench/async on PYTHONPATH (bench/async/README.md).
   (`driver.Theseus.settle`), or at the task's timeout; then every session
   is stopped, the daemon's records read, and the daemon stopped cleanly.
   Its spend is every `provider.call` row in the daemon's ledger, tasks'
-  sessions included. The harness sampler runs from before the daemon to
+  sessions included, and every `provider.cut` row (a call a stop cut, at
+  its estimate). The harness sampler runs from before the daemon to
   after its clean stop, and the efficiency record is the ledger's
   (`efficiency.theseus_ledger_record`), not the first ask's turn alone.
 - **ClaudeCodeAsync**: Claude Code measured as bench/harbor measures it
@@ -164,8 +165,8 @@ class TheseusAsync(ta.Theseus):
     @override
     def populate_context_post_run(self, context: AgentContext) -> None:
         super().populate_context_post_run(context)
-        calls = ta._json(self.logs_dir / "theseus-calls.json") or {}
-        rows = calls.get("rows", [])
+        rows = [r for f in ("theseus-calls.json", "theseus-cuts.json")
+                for r in (ta._json(self.logs_dir / f) or {}).get("rows", [])]
         if rows:
             s = driver.spend(rows)
             context.n_input_tokens = s["input_tokens"]
@@ -173,7 +174,7 @@ class TheseusAsync(ta.Theseus):
             context.n_output_tokens = s["output_tokens"]
             context.cost_usd = s["cost_usd"]
             context.metadata = {**(context.metadata or {}), "spend_from": "ledger",
-                                "provider_calls": s["calls"]}
+                                "provider_calls": s["calls"], "cut_calls": s["cut_calls"]}
         # The efficiency record from the ledger and the sampler, in place of
         # the inherited one (the first ask's turn alone). Never the trial's
         # failure.
