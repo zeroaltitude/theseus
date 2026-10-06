@@ -26,8 +26,8 @@ Key modules: `kernel.rs`, `tx.rs`, `locks.rs`, `job.rs`, `cgroup.rs`, `children.
   the drain and the turn waiting on the job both read it, and the second finds it settled and writes nothing; a
   cancelled job's late completion too, once one taker has written its arrival (theseus-jnnj).
 - `tree.rs` (18a): a job's process tree, found through each task's `children` file, and stopped in three phases:
-  SIGTERM to every process, the grace, the freeze (SIGSTOP, rescanning until nothing new appears and all read
-  stopped), then SIGKILL and the reap, until each killed process's pidfd says it exited (up to `KILL_WAIT`, 2 s).
+  SIGTERM to every process, the grace (asleep on their pidfds, woken by each exit; theseus-dwoj), the freeze
+  (SIGSTOP, rescanning until nothing new appears and all read stopped), then SIGKILL and the reap, until each killed process's pidfd says it exited (up to `KILL_WAIT`, 2 s).
   Each process is signalled through a pidfd checked against its start time. A `children` file can miss a live
   child, so an empty scan ends a phase only when the caller's reap agrees (`tree::Left`: in a wrapper, a
   subreaper, `waitpid`'s ECHILD means none is left; theseus-g11i). The stop wherever a job has no cgroup.

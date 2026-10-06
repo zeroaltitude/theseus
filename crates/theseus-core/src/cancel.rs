@@ -330,7 +330,7 @@ impl ToolRuntime {
                 (Some(w), false) => w.min(Duration::from_millis(5)),
                 (None, _) => Duration::from_millis(5),
             };
-            tokio::time::sleep(wait).await;
+            wait_for_jobs(stopping.as_ref(), wait, tasks.is_empty()).await;
         }
         for (corr, v) in stopping
             .iter()
@@ -473,6 +473,47 @@ impl ToolRuntime {
         }
         ended.push(e);
     }
+}
+
+/// The wait between two looks at a stop's jobs: until the first asked
+/// wrapper exits, its verdict written (theseus-dwoj), or the next deadline;
+/// `step` (`poll`'s answer, or the tasks' look) while a job's end no exit
+/// tells, or while a task is still to look at.
+async fn wait_for_jobs(
+    stopping: Option<&theseus_kernel::job::Stopping>,
+    step: Duration,
+    no_tasks: bool,
+) {
+    match stopping.and_then(theseus_kernel::job::Stopping::exits) {
+        Some((fds, until)) => {
+            wait_exits(&fds, if no_tasks { until } else { until.min(step) }).await
+        }
+        None => tokio::time::sleep(step).await,
+    }
+}
+
+/// Up to `limit` for the first of these pidfds' processes to exit, on the
+/// runtime's reactor; a sleep of `limit` where a pidfd cannot be watched.
+async fn wait_exits(pidfds: &[&std::os::fd::OwnedFd], limit: Duration) {
+    use std::os::fd::{AsRawFd, RawFd};
+    use tokio::io::{unix::AsyncFd, Interest};
+    /// A pidfd the stop owns, watched here and never closed here.
+    struct Pidfd(RawFd);
+    impl AsRawFd for Pidfd {
+        fn as_raw_fd(&self) -> RawFd {
+            self.0
+        }
+    }
+    let watched: Option<Vec<AsyncFd<Pidfd>>> = pidfds
+        .iter()
+        .map(|fd| AsyncFd::with_interest(Pidfd(fd.as_raw_fd()), Interest::READABLE).ok())
+        .collect();
+    let Some(watched) = watched.filter(|w| !w.is_empty()) else {
+        tokio::time::sleep(limit).await;
+        return;
+    };
+    let exited = futures_util::future::select_all(watched.iter().map(|w| Box::pin(w.readable())));
+    let _ = tokio::time::timeout(limit, exited).await;
 }
 
 /// A call a `/stop` ended (W1) says who stopped it, in its result's `meta`
