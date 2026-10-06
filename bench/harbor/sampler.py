@@ -25,7 +25,12 @@ process's class. A child that lived and was reaped between two samples is
 never seen, but its time lands in its parent's `cutime` and `cstime`: what
 those grow by, less the last-seen time of the children that vanished (and of
 theirs, which they reaped), goes to work, or to the harness when every
-process that vanished under it was harness (the CLI reaping its daemon). theseus-sim's procfs.rs sums `schedstat` per thread to
+process that vanished under it was harness (the CLI reaping its daemon).
+A sample is not one instant: a parent whose `stat` was read just before it
+reaped a child that is gone by the child's own read has a `cutime` that
+holds the child only in the next sample, so the vanished wait for it once
+(theseus-99by; matched at once, a loaded run's last interval of work went to
+the reaper's class). theseus-sim's procfs.rs sums `schedstat` per thread to
 the nanosecond instead; that misses a thread that has exited and has no
 count of reaped children, which is what this needs.
 
@@ -47,7 +52,9 @@ counted as work; a reaped child's last partial interval goes to its
 reaper's class; a child that a process outside the tree reaps (an orphan the
 container's init collects) loses its last interval; a zombie's time counts
 once it is reaped; a peak of summed RSS between two samples is not seen
-(each process's own `VmHWM` is).
+(each process's own `VmHWM` is); a child read alive whose parent is read
+after reaping it (a child with a lower pid than its parent's, once pids wrap)
+is counted twice for its last interval.
 
 **Output** in `--out`: `sampler.jsonl`, one line a sample (cumulative CPU,
 summed RSS, and processes by class); `sampler.json`, the summary, rewritten
@@ -71,6 +78,7 @@ SUMMARY = "sampler.json"
 SAMPLES = "sampler.jsonl"
 READY = "sampler.ready"
 DONE = "sampler.done"
+NONE = frozenset()
 # The comm of a process started through /proc/self/exe, as theseusd starts
 # its job wrappers (`theseusd job-wrapper …` in its command line).
 EXE = "exe"
@@ -295,19 +303,22 @@ class Tracker:
         for k in gone:
             gone_by_parent.setdefault(self.known[k]["ppid"], []).append(k)
 
-        def reaped(keys, depth=0):
+        def reaped(keys, walked, depth=0):
             """What the vanished `keys` were last seen to have used, with
             the vanished children each of them reaped in turn, and their
-            classes: a parent's `cutime` holds all of it."""
+            classes: a parent's `cutime` holds all of it. Each key is added
+            to `walked`."""
             used, classes = 0, set()
             for k in keys:
                 v = self.known[k]
+                walked.add(k)
                 used += v["own"] + v["child"]
                 classes.add(v["cls"])
                 below = gone_by_parent.get(k[0], []) if depth < 64 else []
-                u, c = reaped([b for b in below if b != k], depth + 1)
+                u, c = reaped([b for b in below if b != k and b not in walked], walked, depth + 1)
                 used, classes = used + u, classes | c
             return used, classes
+        carried = set()
         rss = dict((c, 0) for c in CLASSES)
         count = dict((c, 0) for c in CLASSES)
         for key, p in now.items():
@@ -324,8 +335,20 @@ class Tracker:
             self.cpu[c] += max(d_own, 0)
             # What its reaped children used that no sample saw: their time
             # since their last sample, and children never seen at all.
-            seen_used, vanished = reaped(gone_by_parent.get(p["pid"], []) if was is not None else [])
-            unseen = d_child - seen_used
+            below = gone_by_parent.get(p["pid"]) if was is not None else None
+            walked = set() if below else NONE
+            seen_used, vanished = reaped(below, walked) if below else (0, NONE)
+            avail = d_child + was["bank"] if was is not None else d_child
+            bank = 0
+            if seen_used > avail and any(not self.known[k].get("carried") for k in walked):
+                # A sample is not one instant: this parent's `stat` was read
+                # before it reaped them, and they were gone by their own
+                # read. Its `cutime` holds them next sample: they wait for
+                # it once, with what it grew by now.
+                carried |= walked
+                bank, unseen = avail, 0
+            else:
+                unseen = avail - seen_used
             if unseen > 0:
                 if vanished == set(["harness"]):
                     to = "harness"
@@ -334,7 +357,7 @@ class Tracker:
                 else:
                     to = "outside"
                 self.cpu[to] += unseen
-            self.known[key] = {"cls": c, "ppid": p["ppid"], "own": own, "child": child}
+            self.known[key] = {"cls": c, "ppid": p["ppid"], "own": own, "child": child, "bank": bank}
             if c in TREE:
                 # The container's own are never read: memory is the tree's.
                 r, h = read_memory(self.proc_root, p["pid"])
@@ -343,7 +366,10 @@ class Tracker:
             count[c] += 1
             self.seen[c].add(key)
         for k in gone:
-            del self.known[k]
+            if k in carried:
+                self.known[k]["carried"] = True
+            else:
+                del self.known[k]
         for c in CLASSES:
             self.peak_rss[c] = max(self.peak_rss[c], rss[c])
             self.max_procs[c] = max(self.max_procs[c], count[c])
