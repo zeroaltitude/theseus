@@ -844,12 +844,16 @@ impl Shared {
     /// the rest are refused. A post written later for such a place is
     /// refused at the courier's next wake.
     pub(crate) fn refuse_unbound(&self) {
-        let bound: std::collections::HashSet<String> =
-            self.lanes.lock().unwrap().keys().cloned().collect();
+        // Under the lanes' lock throughout (theseus-yduk): a lane inserted
+        // meanwhile (a place re-added live) waits for the refusal, so it never
+        // begins a post the refusal then settles. Nothing under the outbox's
+        // refusal takes the binding's locks (`lanes` is before `retired`).
+        let lanes = self.lanes.lock().unwrap();
         let n = self
             .core
             .outbox
-            .refuse_unbound("discord", |t| bound.contains(t));
+            .refuse_unbound("discord", |t| lanes.contains_key(t));
+        drop(lanes);
         if n > 0 {
             tracing::info!(
                 posts = n,
