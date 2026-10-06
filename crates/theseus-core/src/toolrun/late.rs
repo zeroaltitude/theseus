@@ -235,12 +235,12 @@ impl ToolRuntime {
         };
         // The last assistant message's calls that nothing answers: planned and
         // ended by the cancel, dispatched and stopped by it, or never planned.
+        // Each found by its own response, whatever an earlier one's ids
+        // (theseus-w6uh).
         if let Some((assistant, pending)) = unanswered(&nodes) {
+            let calls = super::resume::calls_of(&nodes, &assistant.id);
             for u in pending {
-                let call = nodes.iter().find_map(|(_, n)| match &n.body {
-                    Body::ToolCall { tool_use_id, .. } if *tool_use_id == u.id => Some(&**n),
-                    _ => None,
-                });
+                let call = calls.get(u.id.as_str()).copied();
                 let corr = call.and_then(|n| match &n.body {
                     Body::ToolCall {
                         correlation_id: Some(c),

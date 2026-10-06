@@ -704,6 +704,25 @@ impl Fact for CallNeverAsked<'_> {
     }
 }
 
+/// A call that would wait, in a batch an earlier call of which was declined
+/// (theseus-6i0): it is not asked, so no card is posted, and its result says
+/// it did not run. The model hears the decline at once and may change its plan.
+pub struct CallNotAsked<'a> {
+    pub tool: &'a str,
+}
+
+impl Fact for CallNotAsked<'_> {
+    fn narrate(&self, say: &mut Say<'_>) {
+        say.line(
+            Approval,
+            format!(
+                "{}: not asked, since an earlier call in its batch was declined; it did not run.",
+                self.tool
+            ),
+        );
+    }
+}
+
 /// An approved call runs (`action.confirm` announced the answer).
 pub struct ApprovedRunning<'a> {
     pub tool: &'a str,

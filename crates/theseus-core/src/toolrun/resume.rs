@@ -34,16 +34,11 @@ impl ToolRuntime {
         let Some((assistant, pending)) = unanswered(&nodes) else {
             return Ok(out);
         };
-        let calls: HashMap<&str, &Node> = nodes
-            .iter()
-            .filter(|(_, n)| n.kind == crate::stub::Kind::ToolCall)
-            .filter_map(|(_, n)| match &n.body {
-                Body::ToolCall { tool_use_id, .. } => Some((tool_use_id.as_str(), &**n)),
-                _ => None,
-            })
-            .collect();
-        // Calls no turn has gated run as a response's calls do (theseus-a60).
-        let mut fresh = Vec::new();
+        let calls = calls_of(&nodes, &assistant.id);
+        // Calls no turn has gated run as a response's calls do (theseus-a60),
+        // but once one of the batch is declined, none of them asks
+        // (theseus-6i0): the model hears the decline before the next card.
+        let (mut fresh, mut declined) = (Vec::new(), false);
         for u in pending {
             let node = calls.get(u.id.as_str()).copied();
             let place = Self::where_is(tc, node)?;
@@ -52,7 +47,7 @@ impl ToolRuntime {
                 continue;
             }
             if self
-                .run_fresh(tc, &assistant.id, &mut fresh, &mut out)
+                .run_fresh(tc, &assistant.id, &mut fresh, declined, &mut out)
                 .await?
             {
                 return Ok(out);
@@ -94,22 +89,28 @@ impl ToolRuntime {
             if let CallOutcome::Background { correlation_id } = &outcome {
                 out.background.push(correlation_id.clone());
             }
+            declined |= outcome
+                == CallOutcome::Done {
+                    status: ResultStatus::Declined,
+                };
             // Its span is the turn's, under the continuation's (theseus-8pei).
             out.answered(&u, outcome, started);
             out.wrote += 1;
         }
-        self.run_fresh(tc, &assistant.id, &mut fresh, &mut out)
+        self.run_fresh(tc, &assistant.id, &mut fresh, declined, &mut out)
             .await?;
         Ok(out)
     }
 
-    /// Calls no turn has gated, through `run_calls`. True when one of them
-    /// now waits for the operator, where the continuation stops.
+    /// Calls no turn has gated, through `run_calls`: after a `declined` one,
+    /// none of them asks (`run_batch`). True when one of them now waits for
+    /// the operator, where the continuation stops.
     async fn run_fresh(
         &self,
         tc: &TurnCtx<'_>,
         assistant_node: &str,
         fresh: &mut Vec<ToolUse>,
+        declined: bool,
         out: &mut ResumeOutcome,
     ) -> Result<bool> {
         if fresh.is_empty() {
@@ -122,7 +123,7 @@ impl ToolRuntime {
                 invalid: None,
             })
             .collect();
-        let batch = self.run_calls(tc, assistant_node, &calls).await?;
+        let batch = self.run_batch(tc, assistant_node, &calls, declined).await?;
         drop(calls);
         for r in &batch.ran {
             match &r.outcome {
@@ -421,6 +422,35 @@ impl ToolRuntime {
             },
         )
     }
+}
+
+/// The `ToolCall` nodes of the response `assistant` (its node's id), by
+/// `tool_use_id` (theseus-w6uh). Keyed by the response that holds them, never
+/// by the bare id across the session: a provider that numbers its calls per
+/// response (theseus-sim's stand-in, some proxies) repeats an earlier
+/// response's ids, and a call never planned would be handed that earlier
+/// call's node, its settled action, and its result. Its calls are written
+/// after it, so only what follows it is read.
+pub(super) fn calls_of<'a>(
+    nodes: &'a [(u64, crate::stub::Stub)],
+    assistant: &str,
+) -> HashMap<&'a str, &'a Node> {
+    let from = nodes
+        .iter()
+        .rposition(|(_, n)| n.id == assistant)
+        .map_or(0, |at| at + 1);
+    nodes[from..]
+        .iter()
+        .filter(|(_, n)| n.kind == crate::stub::Kind::ToolCall)
+        .filter_map(|(_, n)| match &n.body {
+            Body::ToolCall {
+                tool_use_id,
+                assistant_node,
+                ..
+            } if assistant_node == assistant => Some((tool_use_id.as_str(), &**n)),
+            _ => None,
+        })
+        .collect()
 }
 
 /// A call answered with a result node of `status`.
