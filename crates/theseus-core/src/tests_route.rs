@@ -53,6 +53,18 @@ pub(crate) fn rig(jev: Option<&FakeJev>, n: usize, tweak: impl FnOnce(&mut Confi
     rig_on(dir, jev, n, tweak, board())
 }
 
+/// The rig, with `parts` edited before the core is built (telemetry's
+/// pipeline, theseus-490i).
+pub(crate) fn rig_parts(
+    jev: Option<&FakeJev>,
+    n: usize,
+    tweak: impl FnOnce(&mut Config),
+    parts: impl FnOnce(&mut Parts),
+) -> Rig {
+    let dir = Arc::new(tempfile::tempdir().unwrap());
+    rig_built(dir, jev, n, tweak, board(), parts)
+}
+
 /// The rig on `dir`'s store, with `secrets` as the board. A verdict's wait
 /// is 5 s, which no load reaches (theseus-biy3: under starvation, a verdict
 /// came after the build's 200 ms and the turn read `late`); it ends as the
@@ -65,6 +77,17 @@ pub(crate) fn rig_on(
     tweak: impl FnOnce(&mut Config),
     secrets: Arc<crate::secrets::SecretBoard>,
 ) -> Rig {
+    rig_built(dir, jev, n, tweak, secrets, |_| {})
+}
+
+fn rig_built(
+    dir: Arc<tempfile::TempDir>,
+    jev: Option<&FakeJev>,
+    n: usize,
+    tweak: impl FnOnce(&mut Config),
+    secrets: Arc<crate::secrets::SecretBoard>,
+    parts: impl FnOnce(&mut Parts),
+) -> Rig {
     let mut cfg = crate::tests_judge::judge_config(dir.path(), jev);
     routing_only(&mut cfg);
     cfg.routing.max_wait_ms = 5_000;
@@ -76,6 +99,7 @@ pub(crate) fn rig_on(
     let mut p = Parts::for_tests(cfg, claude.clone(), store);
     p.providers.insert("zai".into(), zai.clone());
     p.secrets = secrets;
+    parts(&mut p);
     Rig {
         core: Core::build(p).unwrap(),
         claude,

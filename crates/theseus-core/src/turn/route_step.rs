@@ -23,6 +23,9 @@
 //!   `Recall` node rides nothing, the reply's footer counts none, and the
 //!   recall's row, held until the route is known, says `detoured`
 //!   (`TurnRunner::recall_routed`).
+//! - **The trace's root follows the move** (theseus-490i): `route_to` sets
+//!   its `profile`, `provider` and `model` to the routed target's, so the
+//!   exported root and the turn's metrics name the model the call went to.
 //! - **Only while it acts** (theseus-9yyr): a session routing moved runs
 //!   there while `route.v1` acts live for it, and goes back to its own
 //!   profile, its `routed` cleared, once it does not, or once the owner
@@ -544,6 +547,13 @@ impl TurnRunner {
         let target = slot.get().expect("set");
         t.target = target;
         t.tc.target = Some(target);
+        // The root names where the call goes, as the call's own span does:
+        // the turn's metrics read its model (theseus-490i).
+        t.trace.set_root(json!({
+            "profile": target.profile,
+            "provider": target.provider,
+            "model": target.model,
+        }));
         let (mut s, _) = self.request_spec(target, session.kind, t.tc.place());
         s.walk = self.walk(t.tc.session_id, t.tc.class);
         *spec = s;
