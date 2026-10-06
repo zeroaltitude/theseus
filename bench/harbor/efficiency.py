@@ -33,6 +33,7 @@ by the same method. Standard library only.
 from __future__ import annotations
 
 import json
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -47,6 +48,7 @@ CLASSES = ("input", "cache_read", "cache_write", "output")
 ARMS: dict[str, dict[str, tuple[str, ...]]] = {
     "theseus": {"names": ("theseus", "theseusd"), "wrapper_args": ("job-wrapper", "job-sandbox")},
     "claude-code": {"names": ("claude",), "wrapper_args": ()},
+    "pi": {"names": ("pi",), "wrapper_args": ()},
 }
 
 # Anthropic's usage keys, by class.
@@ -312,6 +314,159 @@ def trajectory_spend(trajectory: dict[str, Any] | None) -> dict[str, Any]:
     return claude_code_spend(None, [], trajectory)
 
 
+# ----------------------------------------------------------------------- Pi
+
+# Pi's `Usage` keys (its message types), by class. Its `cost.total` is the
+# dollars, priced from its own model catalog.
+PI_USAGE = {"input": "input", "cache_read": "cacheRead", "cache_write": "cacheWrite", "output": "output"}
+
+
+def pi_session_files(logs: Path) -> list[Path]:
+    """Pi's session logs in a trial's agent directory: Harbor runs it with
+    `--session-dir /logs/agent/pi/sessions`."""
+    root = logs / "pi" / "sessions"
+    return sorted(root.rglob("*.jsonl")) if root.is_dir() else []
+
+
+def _pi_cost(usage: dict[str, Any] | None) -> float | None:
+    total = ((usage or {}).get("cost") or {}).get("total")
+    return None if total is None else float(total)
+
+
+def pi_calls(entries: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Every model call Pi's session log records, in order, each entry once
+    (by its id): `kind`, `model`, `usage`, `tools` (its tool-call ids),
+    `stop` and `error`.
+
+    - `answer`: an assistant message, one request, its retries' failures
+      included (a failed one is persisted with `stopReason: "error"`);
+    - `compaction`, `branch_summary`, `usage`: a summary's call, or usage
+      Pi bills outside the conversation (a cache warm), each one call, on
+      the session's model at that point when the entry names none;
+    - `nested`: a tool result's own `usage` (a tool's model work): its
+      tokens and dollars, with no count of the calls behind them.
+
+    Every entry carries its own usage and cost, written when the call
+    settled, so a run cut short (a timeout) has the spend of every call
+    that finished."""
+    out: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    current = None
+    for e in entries:
+        eid = e.get("id")
+        if eid is not None:
+            if eid in seen:
+                continue
+            seen.add(eid)
+        t = e.get("type")
+        if t == "model_change":
+            current = e.get("modelId") or current
+        elif t == "message":
+            msg = e.get("message")
+            if not isinstance(msg, dict):
+                continue
+            if msg.get("role") == "assistant":
+                model = msg.get("responseModel") or msg.get("model")
+                current = msg.get("model") or current
+                tools = [b.get("id") for b in msg.get("content") or []
+                         if isinstance(b, dict) and b.get("type") == "toolCall"]
+                out.append({"kind": "answer", "model": model, "usage": msg.get("usage"),
+                            "tools": tools, "stop": msg.get("stopReason"),
+                            "error": msg.get("errorMessage")})
+            elif msg.get("role") == "toolResult" and isinstance(msg.get("usage"), dict):
+                out.append({"kind": "nested", "model": current, "usage": msg["usage"], "tools": [],
+                            "stop": None, "error": None})
+        elif t in ("compaction", "branch_summary", "usage") and isinstance(e.get("usage"), dict):
+            out.append({"kind": t, "model": e.get("model") or current, "usage": e["usage"], "tools": [],
+                        "stop": None, "error": None})
+    return out
+
+
+def pi_stream_entries(stream: str | None) -> list[dict[str, Any]]:
+    """Pi's `--mode json` stream (Harbor tees it to `agent/pi.txt`, its
+    `message_update` lines left out) as session entries: each `message_end`
+    a message, and each finished `compaction_end` a compaction. The
+    fallback when no session log was kept."""
+    out: list[dict[str, Any]] = []
+    for e in read_jsonl_text(stream):
+        if e.get("type") == "message_end" and isinstance(e.get("message"), dict):
+            out.append({"type": "message", "message": e["message"]})
+        elif e.get("type") == "compaction_end" and isinstance(e.get("result"), dict):
+            usage = e["result"].get("usage")
+            if isinstance(usage, dict):
+                out.append({"type": "compaction", "usage": usage})
+    return out
+
+
+def read_jsonl_text(text: str | None) -> list[dict[str, Any]]:
+    events = []
+    for line in (text or "").splitlines():
+        line = line.strip()
+        if not line.startswith("{"):
+            continue
+        try:
+            e = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(e, dict):
+            events.append(e)
+    return events
+
+
+def pi_spend(entries: list[dict[str, Any]], stream: str | None = None,
+             trajectory: dict[str, Any] | None = None) -> dict[str, Any]:
+    """A Pi trial's spend: its session log's calls (`pi_calls`), each with
+    its own usage and dollars; without a log, the stream's finished
+    messages; without either, Harbor's trajectory. Model calls are the
+    answers and the out-of-conversation calls; a tool's nested model work
+    adds tokens and dollars but no call."""
+    calls, source = pi_calls(entries), "session_log"
+    if not calls:
+        calls, source = pi_calls(pi_stream_entries(stream)), "stream"
+    if not calls:
+        if trajectory and trajectory.get("steps"):
+            return trajectory_spend(trajectory)
+        return _spend({}, None, None, None, None)
+    by_model: dict[str, dict[str, Any]] = {}
+    for c in calls:
+        m = _model(by_model, c["model"])
+        m.update(_add(m, tokens(c["usage"], PI_USAGE)))
+        if c["kind"] != "nested":
+            m["calls"] += 1
+        cost = _pi_cost(c["usage"])
+        m["cost_usd"] = None if cost is None or m["cost_usd"] is None else round(m["cost_usd"] + cost, 6)
+    n = sum(1 for c in calls if c["kind"] != "nested")
+    tools = sum(len(c["tools"]) for c in calls)
+    return _spend(by_model, _priced(_pi_cost(c["usage"]) for c in calls), source, n, tools)
+
+
+def pi_end(entries: list[dict[str, Any]]) -> dict[str, Any]:
+    """How Pi's run ended, from its last answer: its `stopReason` (`stop`,
+    `length`, `error`, `aborted`, …) and error. Pi's print mode exits 0 on a
+    provider's error, so this is where a failed run says so."""
+    answers = [c for c in pi_calls(entries) if c["kind"] == "answer"]
+    last = answers[-1] if answers else {}
+    return {"stop_reason": last.get("stop"), "error": last.get("error"), "answers": len(answers)}
+
+
+def pi_limits(spend: dict[str, Any], answers: int | None, max_budget_usd: float | None,
+              max_turns: int | None) -> dict[str, Any]:
+    """The other arms' caps, held against a Pi trial that had none: Pi has
+    no spend cap and no turn cap, so the trial ran unbounded, and the record
+    says whether it passed the caps the others ran under (`max_budget_usd`,
+    against its dollars; `max_turns`, against its answers, as Claude Code's
+    `--max-turns` counts them). None where a side is unknown."""
+    cost = spend.get("cost_usd")
+    return {
+        "enforced": False,
+        "max_budget_usd": max_budget_usd,
+        "max_turns": max_turns,
+        "answers": answers,
+        "over_budget": None if max_budget_usd is None or cost is None else cost > max_budget_usd,
+        "over_turns": None if max_turns is None or answers is None else answers > max_turns,
+    }
+
+
 # ------------------------------------------------------------------ machine
 
 
@@ -426,6 +581,43 @@ def claude_code_record(logs: Path) -> dict[str, Any]:
                   claude_code_spend(stream, read_jsonl(files),
                                     trajectory if isinstance(trajectory, dict) else None),
                   read_json(logs / SAMPLER_SUMMARY), wall_s=wall)
+
+
+def _iso(s: Any) -> datetime | None:
+    if not isinstance(s, str):
+        return None
+    try:
+        return datetime.fromisoformat(s.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def pi_wall(entries: list[dict[str, Any]]) -> float | None:
+    """The span of Pi's session log, from its header to its last entry: the
+    run's own time, when the sampler has none."""
+    times = [t for t in (_iso(e.get("timestamp")) for e in entries) if t is not None]
+    return round((max(times) - min(times)).total_seconds(), 3) if len(times) > 1 else None
+
+
+def pi_record(logs: Path, max_budget_usd: float | None = None,
+              max_turns: int | None = None) -> dict[str, Any]:
+    """A Pi trial's record, from its agent directory: the session log
+    (`pi/sessions/*.jsonl`), the stream (`pi.txt`), and the trajectory. It
+    adds `end` (`pi_end`) and `limits` (`pi_limits`), the caps the other
+    arms ran under, which Pi does not enforce."""
+    entries = read_jsonl(pi_session_files(logs))
+    try:
+        stream = (logs / "pi.txt").read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        stream = None
+    trajectory = read_json(logs / "trajectory.json")
+    spend = pi_spend(entries, stream, trajectory if isinstance(trajectory, dict) else None)
+    end = pi_end(entries or pi_stream_entries(stream))
+    rec = record("pi", spend, read_json(logs / SAMPLER_SUMMARY), wall_s=pi_wall(entries))
+    rec["end"] = end
+    rec["limits"] = pi_limits(spend, end["answers"] if spend["spend_from"] in ("session_log", "stream") else None,
+                              max_budget_usd, max_turns)
+    return rec
 
 
 def write(logs: Path, rec: dict[str, Any]) -> Path:

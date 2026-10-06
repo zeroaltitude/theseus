@@ -91,6 +91,8 @@ def _rebuilt(agent: Path, harbor: dict[str, Any]) -> tuple[dict[str, Any], str]:
         return ef.theseus_record(agent), "theseus files"
     if (agent / "claude-code.txt").exists() or (agent / "sessions").is_dir():
         return ef.claude_code_record(agent), "claude code files"
+    if (agent / "pi.txt").exists() or (agent / "pi" / "sessions").is_dir():
+        return ef.pi_record(agent), "pi files"
     traj = ef.read_json(agent / "trajectory.json")
     if isinstance(traj, dict) and traj.get("steps"):
         return ef.record("unknown", ef.trajectory_spend(traj), None), "trajectory"
@@ -183,6 +185,10 @@ def summarize(name: str, trials: list[dict[str, Any]]) -> dict[str, Any]:
     calls = [r["model_calls"] for r in recs if r.get("model_calls") is not None]
     tools = [r["tool_calls"] for r in recs if r.get("tool_calls") is not None]
     walls = [t["wall_s"] for t in trials if t["wall_s"] is not None]
+    # An arm whose harness enforces no caps (Pi) records the others' and
+    # whether each trial passed them; the rest have no `limits`.
+    limits = [r["limits"] for r in recs if isinstance(r.get("limits"), dict)]
+    past = sum(1 for x in limits if x.get("over_budget") or x.get("over_turns")) if limits else None
     return {
         "arm": name,
         "trials": n,
@@ -207,6 +213,7 @@ def summarize(name: str, trials: list[dict[str, Any]]) -> dict[str, Any]:
         "peak_harness_rss_mb": max(peaks) / 1024 if peaks else None,
         "mean_peak_harness_rss_mb": _mean(peaks) / 1024 if peaks else None,
         "wall_s_per_trial": _mean(walls),
+        "past_caps": past,
     }
 
 
@@ -345,6 +352,9 @@ def markdown(arms: list[dict[str, Any]], sources: list[tuple[str, str]]) -> str:
     row("Input read from the cache", lambda a: _n(a["cache_hit_share"] and a["cache_hit_share"] * 100, "{:.1f}%"))
     row("Model calls per trial", lambda a: _n(a["model_calls_per_trial"], "{:.1f}"))
     row("Tool calls per trial", lambda a: _n(a["tool_calls_per_trial"], "{:.1f}"))
+    if any(a.get("past_caps") is not None for a in arms):
+        row("Trials past the others' caps (not enforced)",
+            lambda a: "–" if a.get("past_caps") is None else f"{a['past_caps']}/{a['trials']}")
     row("Agent time per trial", lambda a: _n(a["wall_s_per_trial"] and a["wall_s_per_trial"] / 60, "{:.1f} min"))
     row("Trials sampled", lambda a: f"{a['sampled']}/{a['trials']}")
     row("Harness CPU per tool call", sampled(lambda a: _n(a["harness_cpu_ms_per_tool_call"], "{:.1f} ms")))
@@ -388,6 +398,10 @@ def markdown(arms: list[dict[str, Any]], sources: list[tuple[str, str]]) -> str:
               "- **On the front**: no other arm has at least its score at no more cost, and better in one.",
               "- **Agent time** is Harbor's agent execution, from each trial's `result.json`.",
               ""]
+    if any(a.get("past_caps") is not None for a in arms):
+        lines.insert(-1, "- **Past the others' caps**: an arm with no spend or turn cap of its own (Pi) runs "
+                         "unbounded; its trials whose dollars passed `max_budget_usd`, or whose answers passed "
+                         "`max_turns`, as the capped arms ran, are counted here and kept in its score.")
     return "\n".join(lines)
 
 

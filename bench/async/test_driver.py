@@ -851,3 +851,236 @@ class Agents(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# Harbor 0.23's Pi command (pi.py's run), as its exec_as_agent gets it.
+HARBOR_PI_RUN = (
+    ". ~/.nvm/nvm.sh; pi --print --mode json --session-dir {sessions} --provider anthropic "
+    "--model claude-sonnet-5-5 {instruction} 2>&1 </dev/null | grep -v '\"type\":\"message_update\"' | "
+    "stdbuf -oL tee {log}"
+)
+
+# A stand-in `pi --mode rpc`: each JSONL command on stdin is a prompt,
+# accepted at once and answered STANDIN_ANSWER_S after it is read (an answer
+# with its usage, in its session log too), then `agent_settled`; EOF ends it,
+# and a prompt still being answered then is cut, never answered. It keeps
+# what it read, when it settled each, and when its input closed, and its pid.
+STANDIN_PI = r"""#!/usr/bin/env python3
+import json, os, queue, sys, threading, time
+from pathlib import Path
+args = sys.argv[1:]
+assert args[:2] == ["--mode", "rpc"] and "--print" not in args, args
+sessions = Path(args[args.index("--session-dir") + 1])
+sessions.mkdir(parents=True, exist_ok=True)
+log = sessions / "2026-10-06T12-00-00-000Z_standin.jsonl"
+open(sys.argv[0] + ".pid", "w").write(str(os.getpid()))
+lines, eof = queue.Queue(), []
+def read():
+    for line in sys.stdin:
+        lines.put(line)
+    eof.append(time.monotonic())
+    lines.put(None)
+threading.Thread(target=read, daemon=True).start()
+delay = float(os.environ.get("STANDIN_ANSWER_S", "0"))
+seen, kinds, answered = [], [], []
+out = lambda x: print(json.dumps(x, separators=(",", ":")), flush=True)
+with log.open("a") as f:
+    f.write(json.dumps({"type": "session", "version": 3, "id": "standin"}) + "\n")
+while (line := lines.get()) is not None:
+    cmd = json.loads(line)
+    seen.append(cmd["message"])
+    kinds.append(cmd.get("streamingBehavior"))
+    out({"type": "response", "command": "prompt", "success": True, "data": {"disposition": "started"}})
+    out({"type": "agent_start"})
+    time.sleep(delay)
+    if eof and delay:
+        break  # the input closed while this prompt was being answered
+    msg = {"role": "assistant", "content": [{"type": "text", "text": "ok"}], "model": "claude-sonnet-5-5",
+           "stopReason": "stop", "usage": {"input": 10, "output": 5, "cacheRead": 0, "cacheWrite": 0,
+                                           "cost": {"total": 0.01}}}
+    with log.open("a") as f:
+        f.write(json.dumps({"type": "message", "id": f"a{len(seen)}", "message": msg}) + "\n")
+    out({"type": "message_end", "message": msg})
+    out({"type": "agent_settled"})
+    answered.append(time.monotonic())
+while not eof:
+    time.sleep(0.01)
+open(sys.argv[0] + ".seen", "w").write(json.dumps({"seen": seen, "kinds": kinds}))
+open(sys.argv[0] + ".answers", "w").write(json.dumps({"answered": answered, "eof": eof[0]}))
+"""
+
+
+def pi_pids(d: Path, fifo: str) -> set[int]:
+    """The Pi FIFO run's processes: the stand-in (its pid file), the holder,
+    and its tee, as `fifo_pids` finds Claude Code's."""
+    pids = fifo_pids(d, fifo)
+    try:
+        pids.add(int((d / "bin/pi.pid").read_text().strip()))
+    except (OSError, ValueError):
+        pass
+    return pids
+
+
+class PiStdin(unittest.TestCase):
+    def test_only_harbors_run_command_is_rewritten(self):
+        quoted = "'Train the model, don'\"'\"'t wait.'"
+        cmd, new = driver.pi_stdin(HARBOR_PI_RUN.format(sessions="/logs/agent/pi/sessions", instruction=quoted,
+                                                        log="/logs/agent/pi.txt"),
+                                   {"ANTHROPIC_API_KEY": "sk-invented"}, "/tmp/f")
+        self.assertIn("pi --mode rpc --session-dir /logs/agent/pi/sessions --provider anthropic "
+                      "--model claude-sonnet-5-5 < /tmp/f 2>&1 | stdbuf -oL grep -v", cmd)
+        self.assertIn("| stdbuf -oL tee /logs/agent/pi.txt &", cmd)
+        self.assertNotIn("don", cmd, "the instruction goes through the FIFO, never the command line")
+        self.assertEqual(json.loads(new[driver.PI_FIRST]),
+                         {"type": "prompt", "message": "Train the model, don't wait."})
+        self.assertEqual(new["ANTHROPIC_API_KEY"], "sk-invented")
+        self.assertEqual(json.loads(driver.rpc_prompt("Also.", steer=True)),
+                         {"type": "prompt", "message": "Also.", "streamingBehavior": "steer"})
+        self.assertIsNone(driver.pi_stdin("mkdir -p /tmp/harbor-pi-agent", {}, "/tmp/f"))
+
+    @unittest.skipIf(not os.environ.get("ASYNC_HARBOR"), "set ASYNC_HARBOR=1 under Harbor's python")
+    def test_it_matches_the_command_harbor_builds(self):
+        os.environ.setdefault("ANTHROPIC_API_KEY", "sk-invented")
+        os.environ.pop("ANTHROPIC_BASE_URL", None)
+        from harbor.agents.installed.pi import Pi
+        from harbor.models.agent.context import AgentContext
+
+        class Env(FakeEnv):
+            async def exec(self, command, cwd=None, env=None, timeout_sec=None, user=None):
+                self.commands.append((command, env))
+                return SimpleNamespace(stdout="", stderr="", return_code=0)
+
+        for text in ("Train the model.", "Train it, don't wait: $HOME `x`"):
+            with tempfile.TemporaryDirectory() as d:
+                e = Env(Path(d))
+                agent = Pi(logs_dir=Path(d), model_name="anthropic/claude-sonnet-5-5", thinking="low")
+                asyncio.run(agent.run(text, e, AgentContext()))
+            rewritten = [driver.pi_stdin(c.removeprefix("set -o pipefail; "), env, "/tmp/f")
+                         for c, env in e.commands]
+            self.assertEqual(sum(r is not None for r in rewritten), 1)
+            new = next(r for r in rewritten if r is not None)
+            self.assertEqual(json.loads(new[1][driver.PI_FIRST])["message"], text)
+            self.assertIn("--thinking low < /tmp/f", new[0])
+
+    def test_pi_reads_each_message_from_its_fifo_and_ends_when_closed(self):
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            (d / "bin").mkdir()
+            pi = d / "bin/pi"
+            pi.write_text(standin(STANDIN_PI))
+            pi.chmod(stat.S_IRWXU)
+            log, fifo = d / "pi.txt", str(d / "stdin")
+            env = {"HOME": str(d), "PATH": f"{d / 'bin'}:{os.environ['PATH']}"}
+            cmd, env = driver.pi_stdin(HARBOR_PI_RUN.format(sessions=d / "sessions", instruction="'Train the model.'",
+                                                            log=log).replace(". ~/.nvm/nvm.sh; ", ""), env, fifo)
+            fake = FakeEnv(d)
+            pids: set[int] = set()
+
+            async def go():
+                async def state():
+                    return driver.log_state((await fake.exec(driver.pi_log_command(str(log)))).stdout)
+
+                run = asyncio.create_task(fake.exec(cmd, env=env, timeout_sec=60))
+                while (await state())[0] == 0:
+                    await asyncio.sleep(0.05)
+                pids.update(pi_pids(d, fifo))
+                first = (await state())[0]
+                sent = await fake.exec(driver.pi_send_command(fifo, "Also count the tickets."))
+                while (await state())[0] <= first:
+                    await asyncio.sleep(0.05)
+                self.assertEqual(await state(), (8, 8))
+                await fake.exec(driver.close_command(fifo))
+                done = await run
+                late = await fake.exec(driver.pi_send_command(fifo, "Too late."))
+                return sent, done, late
+
+            try:
+                sent, done, late = asyncio.run(asyncio.wait_for(go(), 60))
+            finally:
+                stop_pids(pids | pi_pids(d, fifo))
+            self.assertEqual(sent.return_code, 0)
+            self.assertEqual(done.return_code, 0, done.stdout + done.stderr)
+            self.assertEqual(json.loads(Path(str(pi) + ".seen").read_text()),
+                             {"seen": ["Train the model.", "Also count the tickets."], "kinds": [None, "steer"]})
+            # Once Pi is gone, a message is refused: the cell is "not measurable".
+            self.assertEqual(late.return_code, 3)
+            self.assertFalse(os.path.exists(fifo))
+
+
+@unittest.skipIf(not os.environ.get("ASYNC_HARBOR"), "set ASYNC_HARBOR=1 under Harbor's python")
+class PiAsyncRun(unittest.TestCase):
+    """`PiAsync.run` itself, on a fake environment: Harbor's own run issues
+    its command (`HARBOR_PI_RUN`), the arm rewrites it onto the FIFO, the
+    sampler runs around it, and the stand-in `pi` answers each prompt
+    STANDIN_ANSWER_S after reading it."""
+
+    def test_both_messages_are_answered_before_the_input_closes(self):
+        from unittest import mock
+
+        import async_agents
+        import pi_agent as pa
+        from harbor.agents.installed.pi import Pi
+        from harbor.models.agent.context import AgentContext
+
+        self.assertTrue(issubclass(async_agents.PiAsync, pa.MeasuredPi))
+        self.assertEqual((async_agents.PiAsync.name(), async_agents.PiAsync.fifo_path(None)),
+                         ("pi-async", "/tmp/async-pi-stdin"))
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            for sub in ("bin", "logs", "task/environment", "root", "measure"):
+                (d / sub).mkdir(parents=True)
+            (d / "task/task.toml").write_text(TASK_TOML)
+            pi = d / "bin/pi"
+            pi.write_text(standin(STANDIN_PI))
+            pi.chmod(stat.S_IRWXU)
+            fifo = str(d / "stdin")
+
+            class Env(FakeEnv):
+                environment_dir = d / "task/environment"
+                default_user = None
+
+                async def exec(self, command, cwd=None, env=None, timeout_sec=None, user=None):
+                    # The tools' library where this checkout keeps it.
+                    return await super().exec(command.replace(driver.LIB, LIB), cwd, env, timeout_sec)
+
+            class Arm(async_agents.PiAsync):
+                def fifo_path(self):
+                    return fifo
+
+            async def harbor_run(self, instruction, environment, context):
+                await self.exec_as_agent(environment, command=HARBOR_PI_RUN.format(
+                    sessions=f"{self.environment_logs_dir}/pi/sessions", instruction=f"'{instruction}'",
+                    log=f"{self.environment_logs_dir}/pi.txt").replace(". ~/.nvm/nvm.sh; ", ""))
+
+            env = Env(d / "root", {"PATH": f"{d / 'bin'}:{os.environ['PATH']}", "HOME": str(d),
+                                   "STANDIN_ANSWER_S": "0.5"})
+            agent = Arm(logs_dir=d / "logs", model_name="anthropic/claude-sonnet-5-5",
+                        environment_logs_dir=d / "logs")
+            try:
+                with mock.patch.object(Pi, "run", harbor_run), \
+                        mock.patch.object(pa, "SAMPLER", str(SAMPLER)), \
+                        mock.patch.object(pa, "STATE", str(d / "measure")):
+                    asyncio.run(asyncio.wait_for(agent.run("Train the model.", env, AgentContext()), 60))
+                ctx = AgentContext()
+                agent.populate_context_post_run(ctx)
+            finally:
+                stop_pids(pi_pids(d, fifo))
+                subprocess.run(["sh", "-c", smp.stop_script(str(d / "logs"), str(d / "measure"))], timeout=30)
+            self.assertEqual(json.loads(Path(str(pi) + ".seen").read_text())["seen"],
+                             ["Train the model.", "Also count the tickets."])
+            answers = json.loads(Path(str(pi) + ".answers").read_text())
+            # Each prompt settled before the driver closed the input.
+            self.assertEqual(len(answers["answered"]), 2, answers)
+            self.assertTrue(all(a < answers["eof"] for a in answers["answered"]), answers)
+            report = json.loads((d / "logs" / driver.REPORT).read_text())
+            self.assertEqual(report["ended"], "settled")
+            self.assertEqual(report["injection"]["delivered"]["sent"], True)
+            # Measured: the sampler ran around Pi, which it saw as the harness.
+            summary = json.loads((d / "logs" / smp.SUMMARY).read_text())
+            self.assertEqual(summary["status"], "ok")
+            self.assertGreaterEqual(summary["classes"]["harness"]["processes"], 1)
+            rec = json.loads((d / "logs" / ef.RECORD).read_text())
+            self.assertEqual((rec["arm"], rec["settled_runs"], rec["model_calls"], rec["cost_usd"]),
+                             ("pi", 2, 2, 0.02))
+            self.assertEqual(ctx.metadata["efficiency"], rec)
+            self.assertEqual(left_running(d), [])

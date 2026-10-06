@@ -3,6 +3,7 @@ async means, the driver's second message delivered as its CLI allows.
 
     harbor run -p bench/async/tasks -a async_agents:TheseusAsync -m anthropic/claude-sonnet-5-5
     harbor run -p bench/async/tasks -a async_agents:ClaudeCodeAsync -m anthropic/claude-sonnet-5-5
+    harbor run -p bench/async/tasks -a async_agents:PiAsync -m anthropic/claude-sonnet-5-5
 
 with bench/harbor and bench/async on PYTHONPATH (bench/async/README.md).
 
@@ -26,6 +27,11 @@ with bench/harbor and bench/async on PYTHONPATH (bench/async/README.md).
   (`driver.claude_stdin`), where the driver writes the injection; its input
   is closed once every message is sent and the CLI has answered each. Its
   record counts the stream's results (`efficiency.claude_code_async_record`).
+- **PiAsync**: Pi measured as bench/harbor measures it
+  (`pi_agent.MeasuredPi`), in its RPC mode with its commands on a FIFO
+  (`driver.pi_stdin`); the injection is a steering prompt, and its input is
+  closed once Pi has settled after every message. Its record is Pi's,
+  from its session log, with the runs the stream settled.
 
 Each leaves `agent/async-driver.json`: the family, the trigger that fired,
 when the message went, and how the trial ended.
@@ -48,6 +54,7 @@ from harbor.models.agent.context import AgentContext
 import claude_code_agent as cca
 import driver
 import efficiency as ef
+import pi_agent as pa
 import sampler as smp
 import theseus_agent as ta
 import theseus_bench as tb
@@ -268,3 +275,92 @@ class ClaudeCodeAsync(cca.MeasuredClaudeCode):
         except Exception as e:  # noqa: BLE001
             rec = {"schema": ef.SCHEMA, "arm": "claude-code", "error": f"{type(e).__name__}: {e}"}
         context.metadata = ef.metadata(context.metadata, rec)
+
+
+class PiAsync(pa.MeasuredPi):
+    """Pi, measured as bench/harbor measures it (`pi_agent.MeasuredPi`), in
+    its RPC mode with its commands on a FIFO (`driver.pi_stdin`): the
+    instruction is the first `prompt`, the driver's message a steering
+    `prompt` (taken before Pi's next model call while it runs, a run of its
+    own while it is idle), and its input is closed once Pi has settled
+    after the last message. The sampler starts through `environment.exec`,
+    not `exec_as_agent`, so only Harbor's run command is rewritten."""
+
+    @staticmethod
+    @override
+    def name() -> str:
+        return "pi-async"
+
+    def fifo_path(self) -> str:
+        """Where Pi's stdin is: one FIFO in the container."""
+        return "/tmp/async-pi-stdin"
+
+    @override
+    async def exec_as_agent(self, environment: BaseEnvironment, command: str,
+                            env: dict[str, str] | None = None, cwd: str | None = None,
+                            timeout_sec: int | None = None) -> Any:
+        rewritten = driver.pi_stdin(command, env, self.fifo_path())
+        if rewritten is not None:
+            command, env = rewritten
+        return await super().exec_as_agent(environment, command, env=env, cwd=cwd,
+                                           timeout_sec=timeout_sec)
+
+    @override
+    async def run(self, instruction: str, environment: BaseEnvironment, context: AgentContext) -> None:
+        started = time.monotonic()
+        fifo = self.fifo_path()
+        log = (self.environment_logs_dir / "pi.txt").as_posix()
+        inj = driver.injection_of(_task_dir(environment))
+        report: dict[str, Any] = {"arm": self.name(),
+                                  "family": driver.task_of(_task_dir(environment)).get("family")}
+        run = asyncio.create_task(super().run(instruction, environment, context))
+        # The stream's line count when the last message was sent: the
+        # instruction's is 0.
+        mark = 0
+
+        async def deliver(message: str) -> Any:
+            nonlocal mark
+            r = await environment.exec(command=driver.pi_send_command(fifo, message))
+            if r.return_code != 0:
+                raise RuntimeError("Pi's input is closed: not measurable")
+            mark = driver.log_state((await environment.exec(command=driver.pi_log_command(log))).stdout)[1]
+            return {"sent": True, "after_line": mark}
+
+        async def close_when_answered() -> None:
+            if inj:
+                report["injection"] = await driver.fire(inj, environment, deliver, started=started)
+            # The stream is read every 2 s: Pi says nothing to the driver.
+            while not run.done():
+                last, _ = driver.log_state((await environment.exec(command=driver.pi_log_command(log))).stdout)
+                if last > mark:
+                    break
+                await asyncio.sleep(2)
+            await environment.exec(command=driver.close_command(fifo))
+
+        closer = asyncio.create_task(close_when_answered())
+        try:
+            await run
+            report["ended"] = "settled"
+        except asyncio.CancelledError:
+            report["ended"] = "timeout"
+            raise
+        finally:
+            closer.cancel()
+            await asyncio.shield(environment.exec(command=driver.close_command(fifo)))
+            report["wall_s"] = round(time.monotonic() - started, 3)
+            _write(self.logs_dir, report)
+
+    @override
+    def populate_context_post_run(self, context: AgentContext) -> None:
+        super().populate_context_post_run(context)
+        # The measured record (its spend from Pi's session log, every run's),
+        # with the runs its stream settled. Never the trial's failure.
+        rec = context.metadata.get("efficiency") if context.metadata else None
+        if isinstance(rec, dict) and "error" not in rec:
+            try:
+                stream = (self.logs_dir / "pi.txt").read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                stream = ""
+            rec["settled_runs"] = sum(1 for e in ef.read_jsonl_text(stream) if e.get("type") == "agent_settled")
+            ef.write(self.logs_dir, rec)
+            context.metadata = ef.metadata(context.metadata, rec)
