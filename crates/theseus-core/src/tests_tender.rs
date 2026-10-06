@@ -575,6 +575,29 @@ async fn no_binary_is_absent_and_never_tried_again() {
 /// `bad`. While `hang` is set, it reads a request and never answers. What
 /// it returns counts the requests it read.
 pub(crate) fn stand_in(state: &Path, hang: Arc<AtomicBool>) -> Arc<AtomicUsize> {
+    let status = IndexStatus {
+        state: "ready".into(),
+        mode: "bm25_only".into(),
+        pid: 7,
+        documents: 3,
+        nodes: 2,
+        lag: IndexLag {
+            bytes: 4096,
+            ms: 250,
+        },
+        rss_bytes: 48 << 20,
+        ..IndexStatus::default()
+    };
+    stand_in_with(state, hang, Arc::new(std::sync::Mutex::new(status)))
+}
+
+/// `stand_in`, its `index.status` answering what `status` holds when the
+/// request is read: a test changes the answer between samples.
+pub(crate) fn stand_in_with(
+    state: &Path,
+    hang: Arc<AtomicBool>,
+    status: Arc<std::sync::Mutex<IndexStatus>>,
+) -> Arc<AtomicUsize> {
     let asked = Arc::new(AtomicUsize::new(0));
     let counted = asked.clone();
     let dir = state.join("index");
@@ -585,7 +608,7 @@ pub(crate) fn stand_in(state: &Path, hang: Arc<AtomicBool>) -> Arc<AtomicUsize> 
             let Ok((s, _)) = listener.accept().await else {
                 return;
             };
-            let (hang, counted) = (hang.clone(), counted.clone());
+            let (hang, counted, status) = (hang.clone(), counted.clone(), status.clone());
             tokio::spawn(async move {
                 let (r, mut w) = s.into_split();
                 let mut lines = BufReader::new(r).lines();
@@ -596,22 +619,10 @@ pub(crate) fn stand_in(state: &Path, hang: Arc<AtomicBool>) -> Arc<AtomicUsize> 
                     }
                     let req: Request = serde_json::from_str(&line).unwrap();
                     let resp = match req.method.as_str() {
-                        "index.status" => Response::ok(
-                            req.id,
-                            IndexStatus {
-                                state: "ready".into(),
-                                mode: "bm25_only".into(),
-                                pid: 7,
-                                documents: 3,
-                                nodes: 2,
-                                lag: IndexLag {
-                                    bytes: 4096,
-                                    ms: 250,
-                                },
-                                rss_bytes: 48 << 20,
-                                ..IndexStatus::default()
-                            },
-                        ),
+                        "index.status" => {
+                            let now = status.lock().unwrap().clone();
+                            Response::ok(req.id, now)
+                        }
                         "index.query" if req.params["text"] == "bad" => {
                             Response::err(req.id, error_code::INVALID_PARAMS, "k is past 100")
                         }

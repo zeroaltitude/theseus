@@ -12,7 +12,8 @@ use super::tests::{flushed, last_metrics, pipeline, points_of, tuning, Receiver}
 use super::Telemetry;
 use crate::config::IndexConfig;
 use crate::tender::{HEALTH_DEADLINE, STATUS_DEADLINE};
-use crate::tests_tender::{settle, signal, stand_in, supervisor, FakeOs};
+use crate::tests_tender::{settle, signal, stand_in, stand_in_with, supervisor, FakeOs};
+use theseus_protocol::index::{IndexLag, IndexStatus};
 
 /// The one point of `name`, as an integer; `None` with no point.
 fn int_of(metrics: &[Value], name: &str) -> Option<u64> {
@@ -60,6 +61,58 @@ async fn a_sample_records_the_tenders_numbers() {
     assert_eq!(
         got,
         [Some(4096), Some(250), Some(3), Some(48 << 20), Some(0)]
+    );
+    task.abort();
+}
+
+/// The gauges are the tender's latest answer, not its first (theseus-fk0g):
+/// a second sample, after the tender's numbers changed, posts the new ones,
+/// and the restarts stay where they were.
+#[tokio::test]
+async fn the_gauges_move_with_the_tenders_answer_between_samples() {
+    let rx = Receiver::start(vec![]).await;
+    let tel = pipeline(&rx.endpoint(), None, tuning());
+    let dir = tempfile::tempdir().unwrap();
+    let answer = Arc::new(std::sync::Mutex::new(IndexStatus {
+        state: "ready".into(),
+        mode: "bm25_only".into(),
+        pid: 7,
+        documents: 3,
+        nodes: 2,
+        lag: IndexLag {
+            bytes: 4096,
+            ms: 250,
+        },
+        rss_bytes: 48 << 20,
+        ..IndexStatus::default()
+    }));
+    stand_in_with(dir.path(), Arc::default(), answer.clone());
+    let os = Arc::new(FakeOs::default());
+    let (t, _) = supervisor(IndexConfig::default(), dir.path(), os);
+    let task = tokio::spawn(t.clone().run());
+    settle().await;
+    assert_eq!(t.health(STATUS_DEADLINE).await.state, "ready");
+    t.sample(&tel).await;
+    assert_eq!(
+        sampled(&rx, &tel).await,
+        [Some(4096), Some(250), Some(3), Some(48 << 20), Some(0)]
+    );
+
+    {
+        let mut a = answer.lock().unwrap();
+        a.documents = 7;
+        a.lag.bytes = 0;
+        a.lag.ms = 0;
+        a.rss_bytes = 64 << 20;
+    }
+    // Asked once more under the status deadline, so a late sample does not
+    // read the old answer.
+    let h = t.health(STATUS_DEADLINE).await;
+    assert_eq!(h.status.map(|s| s.documents), Some(7));
+    t.sample(&tel).await;
+    assert_eq!(
+        sampled(&rx, &tel).await,
+        [Some(0), Some(0), Some(7), Some(64 << 20), Some(0)]
     );
     task.abort();
 }
