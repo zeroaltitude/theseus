@@ -1957,6 +1957,7 @@ impl Place {
                                 if !batch.is_empty() {
                                     self.submit(batch);
                                 }
+                                self.voice_next();
                                 return;
                             }
                             Err(err) => self.shared.board.error("rebind", None, err),

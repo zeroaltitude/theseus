@@ -61,6 +61,8 @@ use crate::bindings::Bindings;
 mod notes;
 #[cfg(test)]
 mod tests_heard;
+#[cfg(test)]
+mod tests_reply;
 
 use notes::Notes;
 
