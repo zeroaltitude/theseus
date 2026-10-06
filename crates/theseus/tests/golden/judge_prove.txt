@@ -1,0 +1,15 @@
+$ theseus judge prove
+--- requests
+judge.prove
+--- stdout
+# loop.v1 prove
+
+verdict: insufficient
+- canary: 2 tasks
+--- stderr
+loop.v1: every task that ended since 2026-10-01
+5 finished tasks read; records by arm: canary 2, control 1
+left out: never_judged 2
+note: nudges are 0
+built in 9 ms
+--- exit 0

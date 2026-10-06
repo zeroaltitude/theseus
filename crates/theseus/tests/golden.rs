@@ -1096,6 +1096,66 @@ fn confirm_without_waiting_says_what_was_recorded() {
     );
 }
 
+/// A canned `judge.prove` answer (invented data): its Markdown ends in a
+/// newline, and its records are two JSON lines.
+fn prove_result() -> Value {
+    json!({
+        "pack": "loop.v1", "since_ms": 1_759_276_800_000u64, "until_ms": null,
+        "window": "every task that ended since 2026-10-01", "verdict": "insufficient",
+        "report": {}, "markdown": "# loop.v1 prove\n\nverdict: insufficient\n- canary: 2 tasks\n",
+        "tasks": 5, "arms": {"canary": 2, "control": 1}, "left_out": {"never_judged": 2},
+        "notes": ["nudges are 0"], "classification": [], "elapsed_ms": 9,
+        "records": "{\"arm\":\"canary\",\"task\":\"tsk_a1\"}\n{\"arm\":\"control\",\"task\":\"tsk_b2\"}\n",
+    })
+}
+
+/// What the golden's `run` text holds between its `--- stdout` and `--- stderr` marks.
+fn stdout_of(out: &str) -> &str {
+    let from = out.find("--- stdout\n").unwrap() + "--- stdout\n".len();
+    &out[from..out.rfind("--- stderr\n").unwrap()]
+}
+
+/// `theseus judge prove` writes the report's Markdown to stdout, byte for byte
+/// (one newline neither more nor less), and what it read to stderr
+/// (theseus-w38g).
+#[test]
+fn judge_prove_prints_the_markdown_as_it_is() {
+    let r = prove_result();
+    let out = run(&["judge", "prove"], vec![step("judge.prove", r.clone())]);
+    golden("judge_prove", &out);
+    assert_eq!(stdout_of(&out), r["markdown"].as_str().unwrap());
+}
+
+/// `--records -` prints the records instead of the report, byte for byte; the
+/// read lines still go to stderr.
+#[test]
+fn judge_prove_records_to_stdout_are_the_records() {
+    let r = prove_result();
+    let out = run(
+        &["judge", "prove", "--records", "-"],
+        vec![step("judge.prove", r.clone())],
+    );
+    golden("judge_prove_records", &out);
+    assert_eq!(stdout_of(&out), r["records"].as_str().unwrap());
+}
+
+/// `--records FILE` saves exactly the records and still prints the Markdown.
+#[test]
+fn judge_prove_records_to_a_file_are_the_records() {
+    let r = prove_result();
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("r.jsonl");
+    let out = run(
+        &["judge", "prove", "--records", file.to_str().unwrap()],
+        vec![step("judge.prove", r.clone())],
+    );
+    assert_eq!(
+        std::fs::read_to_string(&file).unwrap(),
+        r["records"].as_str().unwrap()
+    );
+    assert_eq!(stdout_of(&out), r["markdown"].as_str().unwrap());
+}
+
 #[test]
 fn health_prints_every_line() {
     golden("health", &run(&["health"], vec![step("health", health())]));
@@ -1113,6 +1173,8 @@ fn health_says_where_the_push_stands() {
     h["push"] = json!({"seeded": true, "seed_us": 38_400, "board": 212, "questions": 1,
                        "watchers": 2, "events": 340, "waiting": 1, "lost": 865,
                        "position": 48213});
+    // One-hour cache writes are named after the total (theseus-xiaz).
+    h["usage_total"]["cache_creation_1h_input_tokens"] = json!(300);
     golden(
         "health_push",
         &run(&["health"], vec![step("health", h.clone())]),
