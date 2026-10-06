@@ -160,7 +160,7 @@ error class, <code>r</code> a rate-limit retry)</summary>
   task's container (`bench/harbor/sampler.py`). `bench/report/efficiency.py` turns a run's jobs into solved per dollar,
   tokens per solved task, the cache-read share, harness CPU per tool call and peak harness RSS, with Pareto charts of
   score against dollars, tokens and RAM. A job from before it, such as the first full run's, reads "not sampled" for
-  CPU and RAM.
+  CPU and RAM. _(Since 2026-10-06, Part III Items 199 and 200: the async harness's Theseus record counts a call a stop cut at its estimate, apart (`cut_calls`, `cut_cost_usd` and `billed_usd`, with `cost_usd` their sum, what the kernel books as spent), its tool calls include its tasks' (`tool_calls_from`), and a trial whose ledger read hit its 1,000-row cap is marked `truncated`; a published async table shows `billed_usd` beside the dollars, notes that Claude Code's record carries no estimate for a request its interrupt cut, and footnotes a truncated trial. A recall progression records the overhead it was planned at, and the driver refuses a daemon more than 50 tokens over it (`--allow-overhead` runs on); a published run is generated at the measured overhead. `--stale retracted` binds a retracting phrase to the nearest value within four words in its clause; strict stays the published rule.)_
 - Theseus's build (`theseus --version`) and the profile's settings (`THESEUS_BENCH_*`), so a run can be repeated.
 - Trials that ended with an error, by Harbor's class for it: a timeout (`AgentTimeoutError`), a spend limit
   (`TheseusSpendLimitError`), a cut turn (`TheseusTurnCutError`), and so on (`bench/README.md`). Their rewards still

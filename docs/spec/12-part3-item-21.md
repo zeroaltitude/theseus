@@ -932,7 +932,7 @@ reported with its path (`theseusd → theseus-store`). The third extra, an edge 
   `theseus-follow`.
 - AWS's crates name `AWS` as their milestone. Block D has none.
 - Config keys (the brief's optional fourth check) aren't checked: theseus-obmo.
-- Four spellings fail open: theseus-g7qp.
+- Four spellings fail open: theseus-g7qp. _(Two since 2026-10-05, Part III Item 182: holes 2 and 4 closed; holes 1 and 3 stay open.)_
 - Rule 1 (routes) stays the reviewer's.
 
 **The review** (`~/reports/theseus-wjy/review/review.md`). Both calls are kept: tools are roots, and the AWS crates

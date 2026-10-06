@@ -11,7 +11,7 @@ It runs on one large node. That node may be an EC2 instance or Eddie's desktop. 
 
 | Topic | Decision |
 |---|---|
-| Language, artifact | Rust. One statically linked binary per target. No dynamic linking, no sidecars; helper processes are the same binary launched with a role flag. _As built (2026-10-02; §3.18): CI builds static musl binaries, and the install builds for the host's glibc, so the installed binaries are dynamically linked. ~~Lane bench2's reproducible builds (theseus-goa8) may settle which the install uses.~~ Settled by measuring both (theseus-goa8, Part III Item 48): musl uses 16 to 25 % less memory and stops and starts 20 to 40 % quicker, but its allocator costs allocation-heavy work 36 % more user CPU, so the install stays glibc, built as `release-thin` by `scripts/build.sh`. Two builds of one commit are byte-identical._ |
+| Language, artifact | Rust. One statically linked binary per target. No dynamic linking, no sidecars; helper processes are the same binary launched with a role flag. _As built (2026-10-02; §3.18): CI builds static musl binaries, and the install builds for the host's glibc, so the installed binaries are dynamically linked. ~~Lane bench2's reproducible builds (theseus-goa8) may settle which the install uses.~~ Settled by measuring both (theseus-goa8, Part III Item 48): musl uses 16 to 25 % less memory and stops and starts 20 to 40 % quicker, but its allocator costs allocation-heavy work 36 % more user CPU, so the install stays glibc, built as `release-thin` by `scripts/build.sh`. Two builds of one commit are byte-identical._ _(2026-10-06, theseus-u8ig; Part III Item 195: CI no longer builds the musl target (since theseus-o8nk its workflow runs only what passes on a stock runner: formatting, clippy for the host, the cockpit and cargo-deny), and main's static build had stopped compiling, unseen, until smalls fixed a `libc::sched_param` literal (musl's struct has four more fields) and a deprecated `time_t`. The static pair then built: `theseus` 5.9 MB and `theseusd` 59.4 MB, both static-pie. A musl `cargo check --target x86_64-unknown-linux-musl -p theseus-core` catches such libc differences.)_ |
 | Licence | Open source, **dual-licensed MIT OR Apache-2.0** in the Rust convention (decided 2026-09-25): Apache's patent grant and contribution clause for those who want them, MIT's brevity for those who do not. Permissive-only dependencies enforced by `cargo deny` from the first commit. No AGPL (rules out linking Vestige). _As built (Review 2's consideration 5, 2026-10-01; Part III Item 44): MPL-2.0 is off `deny.toml`'s general list, and `shellexpand`, which brought it in through `option-ext`, is replaced by a few lines that expand `~` and `$NAME`. The seven MPL-2.0 crates that the voice engine's songbird brings (symphonia's four, hpke-rs's three) are allowed by name, ~~pending Eddie's decision (theseus-yl5w)~~ by Eddie's decision of 2026-10-03 at 15:26 (theseus-yl5w), so voice rejoined the build (Part III Item 83)._ |
 | Comms | Discord only, text and voice. One Discord application invited to many guilds. |
 | Model path | Direct Anthropic Messages API. Bedrock is a possible later provider, not the default. _Since 2026-10-04: route.v1 picks the model for each message by its interaction mode, live (Eddie, 09:51 and 18:02; Part III Item 139), from the operator's routing table (23:12); and a request the model refuses is retried once on its fallback, Sonnet 5 for Sonnet 5.5, and says so (22:32; Item 154)._ |
@@ -26,7 +26,7 @@ It runs on one large node. That node may be an EC2 instance or Eddie's desktop. 
 _As built (2026-10-03, C2; Part III Item 78): Eddie gave the go-ahead for the first writes at 11:24, with a cap under $1 a month on what the stacks themselves cost, and the stacks are lean, about ten cents a month: SSE-S3 rather than customer keys, and the CIS checks as EventBridge rules rather than alarms (§3.25). The month is built: a $50 AWS Budget whose stop at 100 % attaches `theseus-deny-spend`, reconciled from the config and read every six hours. The day's and the hour's tripwires are not built yet; they come with the hands' reservations (row 40). Eddie cleared the bootstrap that makes the stacks at 14:20, lean, ~~and it runs after this record~~ and it ran that afternoon: the three stacks were up at 14:54 and their guards set at 16:34, and the account signs with role sessions since 17:15 (Item 79). Where the limits are enforced (theseus-mgw) he answered then too: no SCPs yet, "for now, budgets and notify are fine -- visibility first"._ _At 17:22 he chose that the $50 budget counts the whole account, its other services included (theseus-mhvb)._ _Since 2026-10-04 the hour's and the day's lines are built, with the hands' reservations (Part III Item 116), as alerts that are the authority: "let the budget notify be the authority unless 'runaway train' mode is triggered, which is, observationally spend is 10x over the limit" (Eddie, 11:26). At ten times a line, new AWS actions are refused, with words, until the hour or the day turns or the owner raises the line; running hands finish (Item 147). At 18:07 he chose both triggers, a call's reserved worst case and the spend observed: "defense in depth -- both methods". The rule is AWS's alone; Jev's day budget is separate ("AWS <> model budget", 12:45)._ |
 | Execution model | **Event-driven.** No in-flight state lives only in harness memory; every dispatched thing is a WAL record with a harness-minted correlation id; completion arrives as an event (in-process, Unix socket spool, SQS pull, loopback HTTP as the off-by-default exception); the harness is quiescent between events; the one-minute heartbeat is the level-triggered reconciler. Adopted 2026-09-24 from Eddie's all-webhook proposal, with "webhook" generalized to "completion event" and "unkillable" replaced by "detached, durable, cancellable" (§3.3, §3.16). |
 | Deployment | One large node: Theseus, source trees, and sandboxes together. Must also run on a home desktop with every AWS dependency optional at runtime. _Linux only, by design (Eddie, 2026-10-04 13:10): Theseus uses what the kernel offers, file watching, light processes and cheap spawning, rather than the least common denominator (Part III Items 149, 151 and 152)._ |
-| Durability | Local fsync to a persistent SSD is the floor, before any action is dispatched. Off-node durability is **eventual, 5–60 s** (measured, not asserted), produced by asynchronous durability work the core performs in the time a turn has surrendered to a remote (model call, shell, judge, human). Single node; no replication. |
+| Durability | Local fsync to a persistent SSD is the floor, before any action is dispatched. Off-node durability is **eventual, 5–60 s** (measured, not asserted), produced by asynchronous durability work the core performs in the time a turn has surrendered to a remote (model call, shell, judge, human). Single node; no replication. _On Eddie's daemon since 2026-10-06 (his "Yes" of 2026-10-05 at 17:35; install #6; Part III Item 198): the tender ships the WAL's tails and the blobs to his own bucket. Its first pass shipped the whole store, 5.3 MB (the WAL's 5.0 MB and 207 blobs), within 44 s of the restart, and health read it caught up at position 5,732; a restore drill from the bucket gave back the same 6 sessions and 332 nodes, with the same ids._ |
 | Storage kernel | **Decided by measurement (M1, 2026-09-26): the WAL is the truth; a pure-Rust embedded store is a rebuildable index over it, and that store is `redb`.** On identical fsync-bound workloads the two candidates append at the same rate (the disk decides); with fsync removed `fjall` appends 1.7× faster but `redb` reopens 2× faster and answers "latest of every key" 10–17× faster, is one file, and has no background compaction. _(Amended 2026-09-29, theseus-0g4: `fjall` and the `Index` trait were removed in batch C. The index is `redb`, and a store manifest or a config naming any other engine is refused.)_ |
 | Unit of concurrency | **One turn per session.** A session is a task or a conversation; each has exactly one execution and one turn lock. Thousands of sessions exist durably; those with runnable work run concurrently, bounded by an admission scheduler; the rest are parked at zero cost. Channels order deliveries, not work. (Eddie, 2026-09-25.) |
 | Graph shape | The context graph is a **DAG with multiple parents**, not a tree. A node belongs to a channel, to a session, to any number of compilations, and to derived nodes at once, each by its own typed edge. Order within any lineage comes from the node's WAL position, never from a single `next` chain. |
@@ -42,7 +42,7 @@ _As built (2026-10-03, C2; Part III Item 78): Eddie gave the go-ahead for the fi
 | Agents | One agent, many roles. No multi-agent, no inter-agent conversations. |
 | Conversations | A conversation is the subset of the node graph that happened on a particular channel, in temporal order. Nothing more: it is a derived view, not a stored object, and it never ends because a channel never stops accumulating nodes. Many participants. Each **execution** (§3.15) acts in exactly one channel at a time; many executions run concurrently across channels. |
 | Tasks | Fluid and conversational. The agent sees the whole task graph and reshapes it with the operator or alone. |
-| Memory | Not a separate store. The graph is **append-only, always**: compaction *adds* summary nodes and later views may not include what was trimmed, but no node is ever lost. "Memory" is any node that retains enough strength to be selected into a prompt; decay lowers selection weight and moves payload to cold storage, it never removes anything. Implemented natively behind a `MemoryScience` trait; Vestige not used. |
+| Memory | Not a separate store. The graph is **append-only, always**: compaction *adds* summary nodes and later views may not include what was trimmed, but no node is ever lost. "Memory" is any node that retains enough strength to be selected into a prompt; decay lowers selection weight and moves payload to cold storage, it never removes anything. Implemented natively behind a `MemoryScience` trait; Vestige not used. _Reaffirmed 2026-10-06 (Eddie, 09:16; §2): Theseus's own memory is strictly preferred to a live link to Vestige, which the move of his earlier agent's memories had prepared as an MCP server, and which was dropped. What M6 lifted from it as prior art stands: FSRS-6 from the published algorithm, activation's decay of 0.7 per hop, a near-duplicate's cosine of 0.92, and store gating done natively (M6's design, §1)._ |
 | MCP | Full mode: Theseus is both client and server. Prompts and elicitation in; sampling in, budgeted and Jev-judged. |
 | Proactivity | The agent may open a conversation with a human unprompted. Safety rests on the Jev security classifier plus a default-safe operator environment. |
 | Destructive confirm | Goes to the person who issued the request, as an **approval dialogue in a trusted channel**. A trusted channel is any surface the static config lists as trusted (a Discord channel or DM, the web UI, the CLI), provided every member is a trusted user, also listed in static config (Eddie, 2026-09-27; §3.9). When there is no requester (proactive or scheduled work), it goes to the **owner**. Timeout means no action. _As built (2026-09-29, theseus-sgh; §3.9 "Approval"): without an `[approval]` section any surface answers, as before. With one, the CLI and the web UI are trusted channels when listed, since their member is this machine's operator. A Discord card for a place that is not a trusted channel goes to the requester's DM when that DM is trusted, else to another trusted user's DM, and the place gets a note. When nothing qualifies, the place gets the note alone._ _Built 2026-10-01 in lane hardening2 (Review 2's consideration 2; Part III Item 44): without an `[approval]` section only the owner answers, through the CLI or a Discord DM the bindings file binds. The web UI and a guild channel answer once the section names them, and health says `approval: open` while anything beyond the CLI and the owner's DM may answer. A section that lists no channels means the CLI and a trusted user's DM._ _Since 2026-10-03 (Tier 7.6; Part III Item 85): `[approval]` is retired. An answer counts only from a private place (the CLI, the web UI, a DM with the owner, or a channel bound private), and only by the owner (`[places] owner`, else the person of each DM the bindings file binds); a shared place's cards go to the owner's DM._ |
@@ -236,11 +236,60 @@ _As built (2026-10-03, C2; Part III Item 78): Eddie gave the go-ahead for the fi
   - **12:03**: "Take your recommendation. Taking your two asserted steps forward. Please aggressively use all remote
     and local lanes as safe." Install #4 at the first gap between joins; with it, consolidation's nightly writer off
     until theseus-8edz is fixed (`[memory] synth_limit_usd_per_day = 0` in his config), and the learning loop's
-    nightly writer left on, up to $2.00 a day (Items 160 and 164).
+    nightly writer left on, up to $2.00 a day (Items 160 and 164). _(theseus-8edz was fixed in Item 188, and the writer went back on, at $0.50 a day, at install #6: October 6, 09:16, below.)_
   - **12:17, situations' first day (35a)**, tactic A, enforced from the first day: "either way, we're responding to
     possible failures. At least with A, the failures come straight to the user. Also, I trust your fixes." A turn
     whose compiled set does not close fails outright, before anything is sent, and says why; theseus-783a's two false
-    positives are fixed first; no shadow mode and no config key. A lane builds it (to build).
+    positives are fixed first; no shadow mode and no config key. ~~A lane builds it (to build).~~ The `situations`
+    lane built it, joined that afternoon at 14:33 (Item 183).
+  - **13:12**, "1. A please; 2. follow your recommendation": the eighth cloud batch launched at once, past the week's
+    usage limit, rather than after its reset; and theseus-f3wr's tactic A: an earlier process's in-flight provider call
+    is booked as spent at its reservation when a restart marks it unknown, so a budget's reset frees it (Item
+    197).
+  - **16:43**, "1. Go! 2. Go for it! 3. In token cost? If so, go for it": install #5 (16:48), which put the v1 build
+    on his daemon, so v1's 7-day count began there (P9's proof; theseus-u8aa); the AWS live checks of the seventh
+    batch's joins, which passed and found the two faults that held durability back (theseus-bfk9 and 9ai1, fixed in
+    Item 198); and the benchmark program's full runs, whose dollars are model tokens, once the
+    bench fixes had joined (Items 184 to 186): recall on Theseus
+    first, then the async families, then efficiency at full size, with B5's held-out rerun beside them. They wait for
+    a quiet machine, and had not run when this was written.
+  - **17:11**, "this goes for all branches actually!": the repository's branches are `main` and the work in flight.
+    Each join deletes its branch; a branch left unmerged is archived locally first, then deleted.
+  - **17:35, the S3 backup**: "Yes" to durability on his daemon at install #6, after the fix to the tender's and the
+    restore's list permission (theseus-bfk9), with health's durability line (theseus-9ai1) added as a second condition
+    at 17:41. Both landed in Item 198; a live probe of the joined policies passed 12 of 12 on real
+    S3; install #6 turned it on (theseus-2fnx; §1's durability row).
+  - **18:47 to 21:40**, while he gamed: "Can we reduce but not completely stop the processes running on our
+    machine?" One compiling tree at a time, the builds' page cache held under 3 GB, nothing stopped; at 18:51,
+    "continue to do a lane or so, and keep the cloud lanes going"; at 21:40, "you are free to go nuts on lanes", and
+    three trees again.
+  - **21:45 and 21:53, voice's turns**: a lane mined a private voice codebase for its interruption and resumption
+    logic, "that's where the voice interaction is weakest", taking behaviours and designs only: "Never its code is
+    fair." At 22:29, "yes" to the cloud task built from them (Item 202).
+  - **22:55**: "please remember to review, merge and close branches aggressively". A freed build tree goes at once to
+    the next reviewer or joiner (a fourth tree while memory allows), and an accepted branch joins at once.
+- **Decided on October 6:**
+  - **08:26**: "We still have over 10 branches unmerged on github, please manage those." Fifteen were in flight. The
+    stacks whose joiners were still to be briefed took one lock and one gate each, every branch still its own merge,
+    and by 12:02 fourteen had joined (Items 201 to 214); judge-turn-cost went back
+    for a fix.
+  - **09:16**: "50 cents a day is perfect. Installing and restarting whenever you want to is great. Also, let's skip
+    vestige -- i realize now that we implemented our own memory system that i think we want to strictly prefer over
+    going to vestige". So consolidation's nightly writer is back on, at $0.50 a day from install #6 (`[memory]
+    synth_limit_usd_per_day = 0.50`; theseus-8edz was fixed in Item 188); installs and restarts are
+    made when the work is ready, without asking first, while a config value he has not approved still asks; and
+    Theseus's own memory is strictly preferred to a live link to his earlier agent's memory server: the MCP link
+    prepared for it on October 5 is dropped, and what M6 lifted from it as prior art stands (§1's memory row).
+  - **09:42, the move of his earlier agent's history** (15:52 above): imported whole, labelled with provenance,
+    sensitivity and topic, its every use inside his own instance approved, and with no staging, no scratch copy and
+    no sample: "I'm interested in the impact of the generalized improvement, not to evaluate the correctness of the
+    nodes themselves." The one condition kept is timing: the import follows the fix that keeps a session list fast
+    past imported sessions (theseus-7087, in review when this was written). The importer is Item
+    201.
+  - **11:28**: everything goes in as it is, and his earlier agent's memory store is exported once into the import.
+  - **11:47**: "yes!" to Pi, a minimal coding agent, as the benchmarks' fourth arm beside Theseus, Claude Code and
+    OpenClaw, on the same model, budget, attempts and clock (theseus-jp9p; its harness was in the cloud when this was
+    written).
 - **Made for him overnight, and standing** (each listed in the morning notes for him to overrule):
   - a security notice's line stays at 0.90 until a week of his labels says otherwise; a glide from a shared channel
     into his DM, as built; replay and audit spend counts in the judge's day budget (not built: each run keeps a cap
@@ -254,11 +303,30 @@ _As built (2026-10-03, C2; Part III Item 78): Eddie gave the go-ahead for the fi
   - a `proc.run` batch whose steps differ in sandbox class is refused, and the model is told to split it
     (theseus-nrvq; Item 175);
   - the WAL's directory sync before serving stays (about 0.2 ms on a quiet disk), with its skip when a checkpoint
-    vouches for the segment to build (theseus-3q29; Item 176);
+    vouches for the segment ~~to build~~, built (theseus-3q29; Items 176 and 196);
   - a job's stop waits up to 2 s to verify that its whole process tree died (Item 173).
-- **Still open, so nothing changes for them:** what a crash does to an in-flight call's held money (theseus-f3wr); whether a trusted guild answers in every channel, unbound
+- **Made for him since October 5's afternoon, and standing** (each a review's call, taken as recommended unless he
+  overrules it; each Item says more):
+  - a routed session keeps the base it was moved from (`Routed.from`), and after `profile.use` a routed `-P` pane runs
+    on its `-P` profile, as an unrouted one does (Item 181);
+  - a cancel by a delegated cgroup counts as `l0`, theseus-7ydh's first option, as a join fix (Item
+    190);
+  - the recall benchmark plans for 13,700 tokens of overhead, and the async benchmark's dollars are published only
+    after theseus-eq1a's fix (Items 186 and 199);
+  - no shadow `+retention` warm at startup, and `[memory] arm` stays `baseline` (Item 187);
+  - a judgment log's count past its limit reads as a floor, `M+`, in the CLI as in the cockpit (Item
+    209);
+  - a turn's own call is to be reserved on the estimate's upper bound, as a summary's is (theseus-ps9i, to build; Item
+    210);
+  - a cancel's round trip has a 250 ms budget in the lifecycle bench, and a `--stdio` daemon's shutdown is fixed
+    before an MCP host drives one (theseus-yg1y, to build; Item 214);
+  - a Discord place added again posts no second notice, and a new guild's invite check and voice wait for a restart,
+    the board saying so (Item 207);
+  - in a voice call, an echo is a near-whole, in-order copy of the reply's words, at least 3 words, or 2 at a
+    sentence's head (Item 215).
+- **Still open, so nothing changes for them:** ~~what a crash does to an in-flight call's held money (theseus-f3wr);~~ (decided on October 5 at 13:12, above) whether a trusted guild answers in every channel, unbound
   (theseus-yzhv); a routed session's chat and fallback keeping the routed profile (theseus-17jn, as built until he
   says); the rolling sea on a software renderer (theseus-yx5i); Jev over HTTP/2 (theseus-s55d) and a binding's rows
   riding the turn's next frame (theseus-ht8b); only a claim's holder closing a claimed task (task-board's review);
-  the runaway brake's live check (theseus-ongv) and stack A's; and the benchmark program's full runs.
+  the runaway brake's live check (theseus-ongv)~~ and stack A's; and the benchmark program's full runs~~ (stack A's live checks passed on October 5, and the full runs were decided at 16:43, above).
 

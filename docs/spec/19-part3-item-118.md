@@ -685,7 +685,7 @@ its tails might tile it.
 then restores into a fresh state dir; R1 adds one step, to delete one blob object under the probe's own prefix first,
 since the session's `s3:ListBucket` carries an `s3:prefix` condition and S3 may answer a missing key with 403, not 404,
 so a missing blob or tail would fail the whole restore instead of being said (the fix would be `StringLikeIfExists`;
-the fake answers 404 either way). theseus-b9x6 (P2: the two blind guards, and R1's narrow case: after a restore whose
+the fake answers 404 either way). _(It was not needed: theseus-bfk9's live probes showed plain `StringLike` gives 404, and both sessions use it since 2026-10-06; Part III Item 198.)_ theseus-b9x6 (P2: the two blind guards, and R1's narrow case: after a restore whose
 last segment came from its sealed object and took `store.restored`, a second restore before that segment seals again
 reads the old object and says nothing). The residual stale-tail case: a rewritten frame ending exactly where an old
 timeline's tail begins stitches in; an epoch in the tail rows would close it. A local `theseusd restore --from <dir>`
