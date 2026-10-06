@@ -31,7 +31,9 @@ Key modules: `main.rs`, `web.rs`, `install/`. Read by: (a binary).
   the Lambda event, or `THESEUS_HAND`) is its whole input. Its code is `theseus_core::aws::hands::hand`.
 - The MCP server's L1 role (M7 43a): `mcp-sandbox`, dispatched second in `main`, after `job-sandbox` and before
   anything else, so it spawns the server's init from its main thread (`theseus_kernel::mcp_l1`). The board spawns it
-  as an ordinary stdio child. `tests/mcp_l1.rs` runs a real server in L1 (as root, only L1's refusal).
+  as an ordinary stdio child. `tests/mcp_l1.rs` runs a real server in L1 (as root, only L1's refusal; run it as an
+  ordinary user, uid 65534 under `setpriv` on a root-only machine). `theseus-sim fake-mcp` ends when its stdin does,
+  so a kill test needs `--outlive-stdin` to see the role's watch of the daemon (theseus-grxh).
 - `job-wrapper` catches SIGTERM from its first moments (M4 18a): a cancel asks it alone, and it stops its job's
   whole tree (`theseus_kernel::tree`), an L1 job through its init, then answers in the spool.
   `tests/job_wrapper.rs` stops real trees, a `setsid` sleeper included; `tests/sandbox.rs` an L1 job's.

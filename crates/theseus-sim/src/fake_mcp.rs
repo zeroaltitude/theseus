@@ -1,8 +1,9 @@
 //! `theseus-sim fake-mcp` (M7 36b): the fake MCP server
 //! (`theseus_mcp::fake`) for a scratch daemon's `[mcp.servers]` and the
 //! live checks. Over stdio by default, as a daemon starts a server (a crash
-//! exits with status 3, and it ends when its stdin closes); with `--http`,
-//! streamable HTTP on 127.0.0.1 at `/mcp`, its address on stderr.
+//! exits with status 3, and it ends when its stdin closes, unless
+//! `--outlive-stdin`); with `--http`, streamable HTTP on 127.0.0.1 at `/mcp`,
+//! its address on stderr.
 
 use anyhow::{bail, Context, Result};
 use clap::Args;
@@ -28,6 +29,11 @@ pub struct FakeMcpArgs {
     /// The name it gives in `initialize`.
     #[arg(long, default_value = "fake")]
     name: String,
+    /// Over stdio, keep running after its stdin ends, until a signal kills
+    /// it: a server that never reads its pipe's end, so only whoever watches
+    /// the daemon can stop it (theseus-grxh).
+    #[arg(long, conflicts_with = "http")]
+    outlive_stdin: bool,
 }
 
 pub fn run(a: FakeMcpArgs) -> Result<()> {
@@ -61,6 +67,9 @@ pub fn run(a: FakeMcpArgs) -> Result<()> {
         Fake::new(cfg)
             .serve_pipes(tokio::io::stdin(), tokio::io::stdout())
             .await;
+        if a.outlive_stdin {
+            std::future::pending::<()>().await;
+        }
         Ok(())
     })
 }

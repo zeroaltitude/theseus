@@ -35,12 +35,16 @@ fn root() -> bool {
 /// `[mcp.servers.fake]` in L1, and the fake's directory bound read-only, as
 /// a helper binary must be when the view would not show it.
 fn l1_fake(t: &mut toml::Table) {
+    l1_fake_with(t, &[]);
+}
+
+/// `l1_fake`, the fake given `args`.
+fn l1_fake_with(t: &mut toml::Table, args: &[&str]) {
     let sim = sim_bin();
     let mut fake = toml::Table::new();
-    fake.insert(
-        "command".into(),
-        vec![sim.display().to_string(), "fake-mcp".into()].into(),
-    );
+    let mut command = vec![sim.display().to_string(), "fake-mcp".into()];
+    command.extend(args.iter().map(|a| a.to_string()));
+    fake.insert("command".into(), command.into());
     fake.insert("sandbox".into(), "l1".into());
     fake.insert("start_timeout_secs".into(), 10.into());
     let mut servers = toml::Table::new();
@@ -215,6 +219,30 @@ fn a_server_in_l1_ends_with_the_daemons_kill_9() {
     let s = Served::start(|_| {}, l1_fake);
     let pids = started(&s);
     let _seen = Reap(pids.clone());
+    kill(s.daemon.id(), libc::SIGKILL);
+    wait_gone(&pids, "the daemon's kill -9");
+}
+
+/// The daemon's `kill -9` with a server that never reads its input's end
+/// (theseus-grxh): the fake above ends of itself when the daemon's end of its
+/// stdin closes, so the test before this one passes with no watch at all.
+/// This one (`fake-mcp --outlive-stdin`) runs until it is killed, so only the
+/// role's watch of the daemon's pidfd ends it: the role, the init, and the
+/// server all go.
+#[test]
+fn a_server_that_outlives_its_input_ends_with_the_daemons_kill_9() {
+    if root() {
+        return;
+    }
+    let s = Served::start(|_| {}, |t| l1_fake_with(t, &["--outlive-stdin"]));
+    let pids = started(&s);
+    let _seen = Reap(pids.clone());
+    let server = *pids.last().unwrap();
+    assert!(
+        cmdline(server).contains("--outlive-stdin"),
+        "{}",
+        cmdline(server)
+    );
     kill(s.daemon.id(), libc::SIGKILL);
     wait_gone(&pids, "the daemon's kill -9");
 }
