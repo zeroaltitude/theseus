@@ -135,6 +135,8 @@ mod tests_activation_arm;
 #[cfg(test)]
 mod tests_activation_pace;
 #[cfg(test)]
+mod tests_activation_search;
+#[cfg(test)]
 mod tests_actor;
 #[cfg(test)]
 mod tests_approvals;

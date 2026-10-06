@@ -36,7 +36,7 @@ fn only(c: &Core, sid: &str) -> crate::node::Node {
 /// session of its own and labeled with the commit as the memory pass labels
 /// them; the index finds A alone. The projection is built when `built`.
 /// Recall's deadline is its longest, so a loaded machine changes nothing.
-fn kestrel(arm: MemoryArm, built: bool) -> (Rig, String, String) {
+pub(crate) fn kestrel(arm: MemoryArm, built: bool) -> (Rig, String, String) {
     let r = rig_with(MemoryMode::Live, |c| {
         c.memory.arm = arm;
         c.memory.recall_deadline_ms = crate::config::memory::MAX_RECALL_DEADLINE_MS;
@@ -53,7 +53,7 @@ fn kestrel(arm: MemoryArm, built: bool) -> (Rig, String, String) {
     (r, a, b)
 }
 
-fn by_session<'a>(
+pub(crate) fn by_session<'a>(
     m: &'a RecallManifest,
     sid: &str,
 ) -> Option<&'a theseus_protocol::memory::RecallItem> {

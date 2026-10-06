@@ -528,7 +528,9 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     join the candidates read from the store, before every filter (the place rule reads them as any candidate). The
     spread runs on the blocking pool for what is left of the index's deadline (`deadline`); the projection is built
     after serving (`Core::warm_activation`), and a turn that finds it unbuilt starts the build and goes on
-    (`building`); a search builds it itself. The seam other arms share: `MemoryArm`, `Memory::science_for(arm)`, the
+    (`building`); a search builds it itself, unpaced (`Adjacent::paces` counts every build's paces), unless the warm
+    build is running: then it answers `building` at once, never queued on the projection's lock behind the warm
+    build's paces (theseus-e21m, theseus-6fn.14; `tests_activation_search.rs`). The seam other arms share: `MemoryArm`, `Memory::science_for(arm)`, the
     `Scene`'s `science` (read by `manifest_ranked`, `refill` and the rerank's `Recalled`), and `memory.search`'s
     `arm` (`theseus memory search --arm`). The manifest's `activation` says what it did and its share of what was
     admitted (each item's rank and score are its `sources.activation`); the `recall` span holds a `recall.activate`

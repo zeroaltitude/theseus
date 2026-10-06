@@ -281,7 +281,11 @@ impl TurnRunner {
             )));
         }
         Ok(Planned {
-            reserve: price.reserve_micros(max_tokens, est.tokens),
+            // On the estimate's upper bound (theseus-6fn.8): a summary's
+            // request is all estimated, from its bytes, and a provider that
+            // counts more than the estimate, writing the most it may, would
+            // settle past a reservation on `tokens`, which has no margin.
+            reserve: price.reserve_micros(max_tokens, est.upper),
             range,
             messages,
             target,
