@@ -859,3 +859,91 @@ async fn security_and_classify_labels_come_from_the_record() {
         ]
     );
 }
+
+/// A person's message in `session`, after the judged turn, at `at_ms`.
+fn message_at(c: &Core, session: &str, text: &str, at_ms: u64) {
+    let mut n = crate::node::Node::user(session, Some("trn_next"), "cli", text);
+    n.created_at_ms = at_ms;
+    c.store.append(&[n.record().unwrap()]).unwrap();
+}
+
+/// When the turn's last node was written.
+fn turn_end(c: &Core, res: &theseus_protocol::TurnSubmitResult) -> u64 {
+    c.store
+        .session_nodes(&res.session_id)
+        .unwrap()
+        .iter()
+        .filter(|(_, n)| n.turn_id.as_deref() == Some(res.turn_id.as_str()))
+        .map(|(_, n)| n.created_at_ms)
+        .max()
+        .unwrap()
+}
+
+/// The continuation's window (theseus-e1ei): "go on" more than 10 minutes
+/// after a turn's last node is a new ask, and takes no label; inside the
+/// window, and at its edge, it is "stopped too early".
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_continuation_counts_only_inside_its_window() {
+    use crate::learning::system::CONTINUATION_MS;
+    let r = rig(texts(3), |_| {});
+    let c = &r.core;
+    let late = turn(c, None, "Draft the release notes.").await;
+    let inside = turn(c, None, "Draft the changelog.").await;
+    let edge = turn(c, None, "Draft the roadmap.").await;
+    message_at(
+        c,
+        &late.session_id,
+        "go on",
+        turn_end(c, &late) + CONTINUATION_MS + 1,
+    );
+    message_at(
+        c,
+        &inside.session_id,
+        "go on",
+        turn_end(c, &inside) + CONTINUATION_MS - 60_000,
+    );
+    message_at(
+        c,
+        &edge.session_id,
+        "go on",
+        turn_end(c, &edge) + CONTINUATION_MS,
+    );
+    let now = theseus_protocol::now_unix_ms();
+    let recs: Vec<NewRecord> = [
+        ("jdg_late", &late),
+        ("jdg_inside", &inside),
+        ("jdg_edge", &edge),
+    ]
+    .iter()
+    .map(|(id, res)| {
+        let j = judgment(
+            id,
+            "loop.v1",
+            loop_answers("complete", 0.9, 0.1),
+            loop_context(res, "no_tool_calls", "reply"),
+            300,
+        );
+        call_row(&j, now)
+    })
+    .collect();
+    c.store.append(&recs).unwrap();
+    c.run_learning(now + 2 * CONTINUATION_MS, "on_demand", |_| {})
+        .unwrap();
+    let got: Vec<(String, String)> = rows(c, "judge:loop", LedgerKind::JudgeLabel)
+        .iter()
+        .map(|(_, r)| {
+            (
+                r.data["judgment"].as_str().unwrap().into(),
+                r.data["rule"].as_str().unwrap().into(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        got,
+        [
+            ("jdg_inside".to_string(), "continuation".to_string()),
+            ("jdg_edge".to_string(), "continuation".to_string()),
+        ],
+        "a millisecond past the window is a new ask"
+    );
+}
