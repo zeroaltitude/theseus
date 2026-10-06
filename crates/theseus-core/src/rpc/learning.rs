@@ -93,6 +93,12 @@ impl Core {
         self.store
             .append(&[rec.scoped(&super::judge::scope_of(&pack_name))])?;
         self.rec(row.session_id.as_deref()).announce(&f);
+        // The ladder read first, as an RPC reads it (theseus-289c): the
+        // notices' brake and the ladder's rules ask what acts, which an
+        // unread ladder answers in shadow.
+        if self.runner.judge.config().enabled {
+            self.runner.judge.read_ladder();
+        }
         // v3's notices: a noise label counts toward their brake, and a
         // noticed judgment's post shows the label.
         self.runner.judge.after_label(

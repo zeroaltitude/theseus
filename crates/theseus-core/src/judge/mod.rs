@@ -266,6 +266,22 @@ impl JudgeService {
         &self.ladder
     }
 
+    /// The warm read (theseus-289c): the ladder and the learned versions,
+    /// read now on the caller's thread, and nothing written (the adoptions
+    /// are `Ladder::adopt`'s). `Core::warm_ladder` runs it after serving on
+    /// the blocking pool; an RPC or a test that needs the read ladder at
+    /// once may call it.
+    pub fn read_ladder(&self) {
+        self.ladder.read();
+        self.lineage.read(&self.store);
+    }
+
+    /// Whether the warm read has happened: until it has, every point
+    /// answers from the wired lines and the roots, reading nothing.
+    pub fn ladder_read(&self) -> bool {
+        self.ladder.is_loaded() && self.lineage.is_loaded()
+    }
+
     /// What `pack` does in `session` (26a): off, shadow, or live, and the
     /// arm its judgment records. Every point asks this one function. The
     /// ladder's mode under the config's ceiling (`mode_of`: it lowers, never
@@ -786,8 +802,10 @@ impl JudgeService {
 impl JudgeService {
     /// Health's line per wired pack (26a): its mode, share and why
     /// (`route.v1: live (owner: decision of 2026-10-04)`), or what the
-    /// config caps it at. Before the ladder's first read, each pack's wired
-    /// line under the config: health never reads the ladder itself.
+    /// config caps it at. Before the ladder's first read, what each pack
+    /// does then (`Ladder::unread`): its wired line under the config, one
+    /// that would act in shadow until the read (theseus-289c). Health never
+    /// reads the ladder itself.
     pub fn pack_lines(&self) -> Vec<String> {
         let loaded = self.cfg.enabled && self.ladder.is_loaded();
         self.ladder
@@ -795,7 +813,19 @@ impl JudgeService {
             .iter()
             .map(|(p, wired)| {
                 if !loaded {
-                    return format!("{p}: {}", self.cfg.mode_of(p, *wired).as_str());
+                    let line = self.cfg.mode_of(p, *wired);
+                    let now = match self.cfg.enabled {
+                        true => self.ladder.unread(&self.cfg, p),
+                        false => line,
+                    };
+                    return match now == line {
+                        true => format!("{p}: {}", line.as_str()),
+                        false => format!(
+                            "{p}: {} (until the ladder is read; wired {})",
+                            now.as_str(),
+                            line.as_str()
+                        ),
+                    };
                 }
                 let s = self.ladder.standing(p);
                 let acts = self.cfg.mode_of(p, s.rung.acts_as());

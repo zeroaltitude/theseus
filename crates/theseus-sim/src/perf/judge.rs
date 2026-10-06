@@ -14,6 +14,9 @@
 //!   checked against its trace as `bench turn` checks them. A judge frame
 //!   lands before a turn's answer, after it (inside the 50 ms the turn's
 //!   frames are counted to), or between turns.
+//! - **The first turn** of each judged arm is submitted the moment its fresh
+//!   daemon answers, and the ladder's `pack.mode` frames around it counted:
+//!   the warm read writes its adoptions between turns (theseus-289c).
 //! - **The disk's share**: the judge's frames and the blobs the store gained
 //!   (each judged state's file and its directory, two syncs the WAL never
 //!   sees), at the disk probe's `fdatasync`.
@@ -112,6 +115,46 @@ impl Placed {
     }
 }
 
+/// The first turn on a fresh store, submitted at once after serving, and the
+/// ladder's `pack.mode` frames (the warm read's adoptions) around it.
+#[derive(Debug, Default, Clone, Copy, Serialize)]
+pub struct FirstTurn {
+    /// Written before the turn was submitted.
+    pub before_submit: u64,
+    /// Written from its submit to its answer.
+    pub before_answer: u64,
+    /// Written after its answer, inside the 50 ms its frames are counted to.
+    pub after_answer: u64,
+    /// The turn's frames by its trace's count: a first judgment that read
+    /// the ladder on the turn's path wrote its adoptions there.
+    pub trace_frames: u64,
+}
+
+fn pack_modes(frames: &[Frame]) -> u64 {
+    frames
+        .iter()
+        .filter(|f| f.records.iter().any(|r| r == "ledger:pack.mode"))
+        .count() as u64
+}
+
+/// The first turn, submitted the moment the daemon answers: where the
+/// ladder's `pack.mode` frames land around it.
+fn first_turn(rig: &Rig, tail: &mut Tail) -> Result<FirstTurn> {
+    let before = tail.read()?;
+    let r = rig.call(
+        "turn.submit",
+        json!({"input": "a first turn, at once", "author": "bench", "attachments": []}),
+    )?;
+    let answered = tail.read()?;
+    let after = until_quiet(tail)?;
+    Ok(FirstTurn {
+        before_submit: pack_modes(&before),
+        before_answer: pack_modes(&answered),
+        after_answer: pack_modes(&after),
+        trace_frames: r["trace"]["attrs"]["frames"].as_u64().unwrap_or(0),
+    })
+}
+
 /// One kind of turn in one arm.
 #[derive(Debug, Serialize)]
 pub struct JudgedKind {
@@ -131,6 +174,10 @@ pub struct JudgedKind {
 #[derive(Debug, Serialize)]
 pub struct ArmReport {
     pub arm: Arm,
+    /// The first turn, submitted as soon as the daemon answers, on a fresh
+    /// store: the ladder's rows around it (theseus-289c). None with the
+    /// judge off.
+    pub first: Option<FirstTurn>,
     pub plain: JudgedKind,
     pub tool: JudgedKind,
     /// The judge's frames after the last measured turn, once the sink's
@@ -432,6 +479,10 @@ fn run_arm(o: &JudgeOpts, arm: Arm) -> Result<ArmReport> {
     };
     let (mut daemon, _) = s.rig.start()?;
     let mut tail = Tail::at_start(&s.wal());
+    let first = match arm {
+        Arm::Off => None,
+        _ => Some(first_turn(&s.rig, &mut tail)?),
+    };
     after_serving(&mut tail)?;
     let mut d = Driver { rig: &s.rig, tail };
     let session = d.open_session(&format!("bench judge {}", arm.name()))?;
@@ -471,6 +522,7 @@ fn run_arm(o: &JudgeOpts, arm: Arm) -> Result<ArmReport> {
     }
     let report = ArmReport {
         arm,
+        first,
         plain,
         tool,
         trailing: trailing.len() as u64,
@@ -573,6 +625,13 @@ pub fn print_judge(r: &JudgeReport) {
             a.jev_calls,
             a.jev_warmups
         );
+        if let Some(f) = a.first {
+            println!(
+                "    the first turn, submitted at once after serving: the ladder's pack.mode frames {} before \
+                 its submit, {} before its answer, {} after it; its trace counts {} frames",
+                f.before_submit, f.before_answer, f.after_answer, f.trace_frames
+            );
+        }
         for (shape, n) in &a.judge_shapes {
             println!("    {n} × {shape}");
         }
@@ -649,6 +708,7 @@ mod tests {
         };
         let arm = |arm: Arm| ArmReport {
             arm,
+            first: None,
             plain: kind("plain"),
             tool: kind("tool-call"),
             trailing: 1,

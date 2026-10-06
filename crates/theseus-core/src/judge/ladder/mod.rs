@@ -7,9 +7,12 @@
 //!   `rolled_back`), the mode before, who (`owner` or `system`) and through
 //!   what, why, the report it cites with its holdout's bounds, `forced` with
 //!   the numbers, and a rollback's rule and words. A version's latest row is
-//!   its mode; with none, the line this build wires it at (`WIRED`). Read at
-//!   the first read after serving (`Core::warm_ladder`, or the first
-//!   judgment), then kept in memory and changed as rows are written.
+//!   its mode; with none, the line this build wires it at (`WIRED`). Read
+//!   once after serving (`Core::warm_ladder`), or by an RPC or the nightly
+//!   check, then kept in memory and changed as rows are written. A point
+//!   never reads it (theseus-289c): before the warm read, [`Ladder::given`]
+//!   answers from the wired line under the config, a pack that would act in
+//!   shadow, since a row the ladder has not read may have rolled it back.
 //! - **One answer** ([`Ladder::given`], `JudgeService::mode_for`): off,
 //!   shadow, or live for one session, under the config's ceiling
 //!   (`JudgeConfig::mode_of`, unchanged: it lowers, never raises). A canary
@@ -21,7 +24,9 @@
 //!   day's events back before it counts; the rules are checked as each
 //!   lands, and again by the nightly run.
 //! - **Adoption** (`adopt`): the packs live before the ladder stand as the
-//!   owner's promotions, written once at the first read.
+//!   owner's promotions, written once after the first read: the warm read
+//!   writes them between turns (`Core::warm_ladder`), an RPC's first read at
+//!   once.
 //! - **Promotion** (`promote`): the bar an automatic promotion must clear,
 //!   and the numbers an owner's forced one carries.
 
@@ -30,6 +35,8 @@ pub mod promote;
 pub mod rules;
 
 use std::collections::{BTreeMap, BTreeSet};
+#[cfg(test)]
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use anyhow::Result;
@@ -277,6 +284,9 @@ pub struct Ladder {
     clock: Mutex<Clock>,
     loaded: Mutex<Option<Loaded>>,
     said: Mutex<Option<Said>>,
+    /// Tests: the day's reads the ladder made (each load's, and any other).
+    #[cfg(test)]
+    reads: AtomicUsize,
 }
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -296,7 +306,15 @@ impl Ladder {
             clock: Mutex::new(Arc::new(theseus_protocol::now_unix_ms)),
             loaded: Mutex::new(None),
             said: Mutex::new(None),
+            #[cfg(test)]
+            reads: AtomicUsize::new(0),
         }
+    }
+
+    /// Tests: the day's reads the ladder has made (each load reads one).
+    #[cfg(test)]
+    pub fn reads(&self) -> usize {
+        self.reads.load(Ordering::SeqCst)
     }
 
     /// Where each row it writes is said.
@@ -371,14 +389,48 @@ impl Ladder {
         let l = g.as_mut().expect("loaded");
         let today = crate::judge::spend::local_day(self.now());
         if l.day != today {
-            // A new local day: its events and brakes start empty, and are
-            // read (a restart's are on the store already).
+            // A new local day: its events and brakes start empty, and nothing
+            // is read (theseus-289c). Every event since midnight in this
+            // process landed through `land`, and a brake the notices write
+            // reloads the ladder (`notice::pause_notices`); a restart's are
+            // read by its first read.
             l.day = today;
             l.events.clear();
             l.brakes.clear();
-            self.read_day(l);
         }
         f(l, self)
+    }
+
+    /// The warm read (`Core::warm_ladder`): the rows, today's events and
+    /// brakes, read now, and nothing written. The adoptions it finds missing
+    /// are [`Ladder::adopt`]'s, written between turns. A store that cannot
+    /// be read leaves it unloaded, and every point keeps the pre-read rule.
+    pub fn read(&self) {
+        let mut g = lock(&self.loaded);
+        if g.is_some() {
+            return;
+        }
+        match self.load() {
+            Ok(l) => *g = Some(l),
+            Err(e) => {
+                tracing::warn!(error = %format!("{e:#}"), "judge: the ladder cannot be read; every pack stands at its pre-read line");
+            }
+        }
+    }
+
+    /// Whether an adoption the store lacks would be written (read, so
+    /// nothing when it is not).
+    pub fn adoption_missing(&self) -> bool {
+        match lock(&self.loaded).as_ref() {
+            Some(l) => adopt::missing(self, l),
+            None => false,
+        }
+    }
+
+    /// Write the adoptions the store lacks, reading the ladder first if it
+    /// is not.
+    pub fn adopt(&self) {
+        self.with(|l, me| adopt::adopt_missing(me, l));
     }
 
     /// Drop what is loaded: the next read is from the store (the nightly
@@ -426,6 +478,8 @@ impl Ladder {
 
     /// Today's events and brakes, from their scopes.
     fn read_day(&self, l: &mut Loaded) {
+        #[cfg(test)]
+        self.reads.fetch_add(1, Ordering::SeqCst);
         let ids: BTreeSet<String> = l
             .rows
             .keys()
@@ -476,6 +530,9 @@ impl Ladder {
 
     /// The ladder's answer for `pack` in `session`, under `cfg`'s ceiling.
     /// A ceiling at shadow or below needs no read: rows never give `off`.
+    /// Nor does any point (theseus-289c): before the warm read, the answer
+    /// is [`Ladder::unread`]'s, and nothing is read or written on the
+    /// asking thread.
     pub fn given(&self, cfg: &JudgeConfig, pack: &str, session: &str) -> Given {
         let ceiling = cfg.mode_of(pack, PackMode::Live);
         if ceiling <= PackMode::Shadow {
@@ -487,8 +544,20 @@ impl Ladder {
                 },
             };
         }
+        if !self.is_loaded() {
+            return given_of(self.unread(cfg, pack), None, pack, session);
+        }
         let s = self.standing(pack);
         given_of(cfg.mode_of(pack, s.rung.acts_as()), s.share, pack, session)
+    }
+
+    /// What `pack` does before the warm read: its wired line under the
+    /// config, a pack that would act in shadow. A stored row may have put it
+    /// below its line (a rollback, the owner's or a rule's), and an unread
+    /// ladder never acts on a pack the owner rolled back: it judges, and
+    /// nothing acts, until the read a moment after serving.
+    pub fn unread(&self, cfg: &JudgeConfig, pack: &str) -> PackMode {
+        cfg.mode_of(pack, self.wired(pack)).min(PackMode::Shadow)
     }
 
     /// Every version's rows, oldest first (`pack.list`), from what is
@@ -506,6 +575,27 @@ impl Ladder {
     pub(crate) fn write_in(&self, l: &mut Loaded, row: PackModeRow) -> Result<PackModeRow> {
         let rec = self.row_record(&row)?;
         self.commit_row(l, row, &[rec])
+    }
+
+    /// Several rows in one frame (the adoptions), each kept with its
+    /// position and said.
+    pub(crate) fn write_all_in(&self, l: &mut Loaded, rows: Vec<PackModeRow>) -> Result<()> {
+        let records = rows
+            .iter()
+            .map(|r| self.row_record(r))
+            .collect::<Result<Vec<_>>>()?;
+        let at = self.now();
+        let positions = self.store.append(&records)?;
+        for (mut row, position) in rows.into_iter().zip(positions) {
+            row.position = position;
+            row.at_unix_ms = at;
+            l.rows
+                .entry(row.pack.clone())
+                .or_default()
+                .push(row.clone());
+            self.say(&row);
+        }
+        Ok(())
     }
 
     /// The row's record, for a frame its caller builds (an answer's).

@@ -154,7 +154,12 @@ impl TurnRunner {
         }
         let mode = self.route_mode(&target, &session.session_id);
         if mode < PackMode::Canary || !self.judge.reachable() {
-            session.routed = None;
+            // Before the ladder's warm read route.v1 judges in shadow
+            // (theseus-289c): this turn runs at its base, and the move is
+            // kept for the read ladder to answer.
+            if self.judge.ladder().is_loaded() || !self.judge.config().enabled {
+                session.routed = None;
+            }
             return (target, Some(mode));
         }
         let routed = session.routed.as_ref().and_then(|r| r.profile.as_deref());

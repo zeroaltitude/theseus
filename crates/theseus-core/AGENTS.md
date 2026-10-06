@@ -406,30 +406,38 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     `pack.mode` rows from their scope, since the ladder's first load writes) runs the generator over them; `theseus
     judge prove` prints its Markdown byte for byte as `theseus-judge prove` does. Tests: `tests_prove.rs`.
   - **The ladder** (step 26a, `judge/ladder/`): each pack version's mode as `pack.mode` rows scoped per pack id
-    (`pack:<id>`, a few rows), read once after serving (`Core::warm_ladder`) or by the first judgment, then kept
-    (`Ladder`; with no row, `WIRED`'s line). Every point asks `JudgeService::mode_for(pack, session)` (or
-    `ask_mode`, which records `pack_arm` in the judgment's context): the ladder's rung under `JudgeConfig::mode_of`'s
-    ceiling, a canary acting in its `learn::arm` and the control in shadow, `rolled_back` as shadow. A ceiling at
-    shadow needs no read. Rollback (`rules.rs`): each event a rule counts is a `pack.event` row scoped
-    `pack.event:<id>:<day>`, so a restart reads the day back; `learn::check_all` runs as each lands
-    (`JudgeService::land`; `judge.label` lands a label's) and again after the nightly report; a rule from the
-    adoption table (`adopt.rs`: `route.v1`, `rerank.v1`, `security.v3`, live before the ladder, adopted once as the
-    owner's) is a day's brake (`until` the next local midnight, folded away after it), any other stands until a
-    promotion. `rpc/packs.rs` is `pack.list`, `pack.promote` and `pack.rollback` (`judge_act(Act::Ladder)`; short
-    of `promote::bar` the owner's row is `forced`, the system's refused); a `security.*` promotion is a card, its
-    question planned on the ladder's own session (META `ladder.session`) and answered by `action.confirm` like an
-    extension's ack (`answer_promotion`: the bind or decline and the row in one frame, nothing wakes). Tests:
-    `tests_ladder.rs`, `judge::ladder::tests`.
+    (`pack:<id>`, a few rows), read once after serving (`Core::warm_ladder`, `JudgeService::read_ladder`), or by an
+    RPC (`pack.*`, `judge.label`) or the nightly check, then kept (`Ladder`; with no row, `WIRED`'s line). No point
+    reads it (theseus-289c): before the warm read, `Ladder::given` answers `Ladder::unread`, the wired line under
+    the config with a pack that would act in shadow (a row may have rolled it back; never act on an unread ladder),
+    `placed` the root, health's lines say so (`… shadow (until the ladder is read; wired live)`), and route_base
+    keeps a session's move for the read ladder. The warm read writes the adoptions in one frame, a quiet stretch
+    after serving and between turns (`memory_pass::turns`). A new local day starts empty, reading nothing: every
+    event since midnight landed through `land`, and the notices' brake reloads the ladder. Core rigs whose turns are
+    judged do the warm read at build (`tests_judge::warm`: `tests_judge`'s rigs, `tests_route`, `tests_rerank`,
+    `tests_notices`, `tests_security`); `tests_ladder_unread.rs` holds the rule. Every point asks
+    `JudgeService::mode_for(pack, session)` (or `ask_mode`, which records `pack_arm` in the judgment's context): the
+    ladder's rung under `JudgeConfig::mode_of`'s ceiling, a canary acting in its `learn::arm` and the control in
+    shadow, `rolled_back` as shadow. A ceiling at shadow needs no read. Rollback (`rules.rs`): each event a rule
+    counts is a `pack.event` row scoped `pack.event:<id>:<day>`, so a restart reads the day back; `learn::check_all`
+    runs as each lands (`JudgeService::land`; `judge.label` lands a label's) and again after the nightly report; a
+    rule from the adoption table (`adopt.rs`: `route.v1`, `rerank.v1`, `security.v3`, live before the ladder,
+    adopted once as the owner's) is a day's brake (`until` the next local midnight, folded away after it), any other
+    stands until a promotion. `rpc/packs.rs` is `pack.list`, `pack.promote` and `pack.rollback`
+    (`judge_act(Act::Ladder)`; short of `promote::bar` the owner's row is `forced`, the system's refused); a
+    `security.*` promotion is a card, its question planned on the ladder's own session (META `ladder.session`) and
+    answered by `action.confirm` like an extension's ack (`answer_promotion`: the bind or decline and the row in one
+    frame, nothing wakes). Tests: `tests_ladder.rs`, `judge::ladder::tests`.
   - **The learning loop** (step 25f, theseus-0j2.12; design §2.17): `learning/propose.rs` (the run: nightly after
     the report, and `judge.learn`, the owner's act), with its pure parts in `theseus_judge::propose` (names from
     v101, the interleaved split below 200 labeled in the window, the text-only check, the threshold re-fit, the
     decision, the writer's prompt). Learned versions are `pack.version` rows scoped `judge.learn:<id>` beside the
-    `judge.proposal` rows, read by `judge/lineage.rs` (`JudgeService::pack`, `root_of`, `placed`) after serving
-    or at the first judgment, their files `<state>/packs/` derived. Every point asks `placed(root, session)` for
-    the version standing in its root's place, then `mode_for` that version (capped by the root's config line).
-    A move is `Core::promote_learned` (26a's act, citing the proposal). The writer's output is capped
-    (`WRITER_MAX_TOKENS`): the profile's own cap reserves past the day's limit. Tests: `tests_learn_loop.rs`,
-    `theseus_judge::propose::tests`.
+    `judge.proposal` rows, read by `judge/lineage.rs` (`JudgeService::pack`, `root_of`, `placed`) by the warm read
+    after serving, or by `placed_read` (the learning loop, `pack.list`), never by a point, their files
+    `<state>/packs/` derived. Every point asks `placed(root, session)` for the version standing in its root's place,
+    then `mode_for` that version (capped by the root's config line). A move is `Core::promote_learned` (26a's act,
+    citing the proposal). The writer's output is capped (`WRITER_MAX_TOKENS`): the profile's own cap reserves past
+    the day's limit. Tests: `tests_learn_loop.rs`, `theseus_judge::propose::tests`.
 - **Recall** (M6 step 30a, in shadow): `recall.rs` (`Memory`: `[memory]`, the science, and who answers the index's
   query, the tender or a test's stand-in, `Memory::set_ask`; the manifest; `TurnRunner::place_of`, the place rule
   read as `class_of` reads it), `turn/recall_step.rs` (begun as the first loop's model call goes out, read once it

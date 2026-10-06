@@ -71,8 +71,10 @@ pub(crate) fn rig_on(
     let mut p = Parts::for_tests(cfg, claude.clone(), store);
     p.providers.insert("zai".into(), zai.clone());
     p.secrets = secrets;
+    let core = Core::build(p).unwrap();
+    crate::tests_judge::warm(&core);
     Rig {
-        core: Core::build(p).unwrap(),
+        core,
         claude,
         zai,
         dir,

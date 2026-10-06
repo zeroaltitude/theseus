@@ -448,7 +448,9 @@ fn on_store(
         ..Parts::for_tests(cfg, echoes(), store)
     };
     p.secrets = board();
-    Core::build(p).unwrap()
+    let core = Core::build(p).unwrap();
+    crate::tests_judge::warm(&core);
+    core
 }
 
 /// The config's switches each keep v3 in shadow: `notices = false`, the

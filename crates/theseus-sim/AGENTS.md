@@ -37,7 +37,9 @@ Key modules: `lifecycle.rs`, `kernel_sim.rs`, `fake_discord.rs`, `discord_proof.
     every pack as wired, route.v1 waiting on the fake's verdict), each frame told the judge's (every record a `judge.*`
     or `pack.*` row or a `judge.*` META record; `walcount` labels a META record by its key) or the turn's (checked
     against its trace), each judge frame placed before a turn's answer, after it, or between turns, and the blobs the
-    store gained (two syncs each, which the WAL never sees). Nothing new is gated: `--check` judges the judge-off
+    store gained (two syncs each, which the WAL never sees). Each judged arm first submits a turn the moment its
+    fresh daemon answers and counts the ladder's `pack.mode` frames around it (theseus-289c: none since the warm
+    read's adoptions wait between turns). Nothing new is gated: `--check` judges the judge-off
     arm, and the judged arms' wall times and frames go to `--record` under columns of their own (`*_jloop`,
     `*_jpacks`).
     `--session-nodes N` (step 33, `src/perf/long.rs`) measures turns in one session of N nodes instead, written before

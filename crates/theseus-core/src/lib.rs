@@ -194,6 +194,8 @@ mod tests_judge_surfaces;
 #[cfg(test)]
 mod tests_ladder;
 #[cfg(test)]
+mod tests_ladder_unread;
+#[cfg(test)]
 mod tests_layouts;
 #[cfg(test)]
 mod tests_learn_loop;
