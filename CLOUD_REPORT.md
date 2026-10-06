@@ -1,7 +1,8 @@
 # CLOUD REPORT: core-waits (theseus-23wh, theseus-ig6n, theseus-t2yb, theseus-vbju)
 
-Branch `cloud/20261005-core-waits`, from `main` at 4a449460 (store format 22; batch 8's timing-flakes and
-queue-frames were not in it: `git log --grep theseus-6qwr` and `--grep theseus-cs71` find nothing). Four commits,
+Branch `cloud/20261005-core-waits`, from `main` at 4a449460 (store format 22; batch 8's queue-frames was not in it:
+`git log --grep theseus-6qwr` finds nothing, so its move of a late result's wake did not bear on this wait; nor were
+timing-flakes' fixes: theseus-cs71 is named only in an earlier merge's message). Four commits,
 one per issue, all in theseus-core's tests. No kernel, wake.rs, judge or fake.rs change; no store format,
 protocol, config or dependency change. No file nears its ceiling: tests_m3.rs is 7,832 of 8,050.
 
