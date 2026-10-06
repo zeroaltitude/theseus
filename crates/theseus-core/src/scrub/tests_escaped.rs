@@ -148,3 +148,75 @@ fn every_occurrence_is_counted_and_nothing_else_changes() {
         assert_eq!(s.scrub(kept), (kept.to_string(), 0), "{kept}");
     }
 }
+
+/// What `scrub` costs on 64 KB outputs with ten board values, three of which
+/// change when escaped (theseus-ubp7). Run in a release build:
+/// `cargo test --profile release-thin -p theseus-core --lib scrub_cost -- --ignored --nocapture`.
+#[test]
+#[ignore = "a timing, run by hand in a release build"]
+fn scrub_cost() {
+    const SIZE: usize = 64 * 1024;
+    const CALLS: u32 = 2_000;
+    let mut values: Vec<(String, String)> = (0..7)
+        .map(|i| {
+            (
+                format!("inventedToken{i}ABCDEFGHJKLMNPQRSTUVWX{i}"),
+                format!("plain{i}"),
+            )
+        })
+        .collect();
+    values.push(("Inv\"ented-Quote1".into(), "quote".into()));
+    values.push(("Inv\\ented\\Back2".into(), "backslash".into()));
+    values.push(("Inv\u{e9}nt\u{e9}d-Accent5".into(), "accent".into()));
+    let s = Scrubber::with_values(values);
+    let fill = |piece: &dyn Fn(usize) -> String| {
+        let mut t = String::with_capacity(SIZE + 256);
+        let mut i = 0;
+        while t.len() < SIZE {
+            t.push_str(&piece(i));
+            i += 1;
+        }
+        t
+    };
+    let plain =
+        fill(&|i| format!("line {i}: the quick brown fox jumps over the lazy dog, again\n"));
+    let pretty = {
+        let rows: Vec<serde_json::Value> = (0..700)
+            .map(|i| {
+                serde_json::json!({
+                    "id": i, "name": format!("item-{i}"), "path": format!("/srv/data/{i}/file.txt"),
+                    "tags": ["alpha", "bravo"], "ok": true,
+                })
+            })
+            .collect();
+        let mut t = serde_json::to_string_pretty(&rows).unwrap();
+        t.truncate(t[..SIZE.min(t.len())].rfind('\n').unwrap());
+        t
+    };
+    let slashed = fill(&|i| {
+        format!(
+            "{{\"path\": \"C:\\\\Users\\\\inventor\\\\{i}\", \"msg\": \"caf\\u00e9\\n\\t\\\"ok\\\"\"}}\n"
+        )
+    });
+    assert!(!pretty.contains('\\') && slashed.matches('\\').count() > 5_000);
+    for (what, text) in [
+        ("plain text", &plain),
+        ("pretty JSON", &pretty),
+        ("backslashes", &slashed),
+    ] {
+        let started = std::time::Instant::now();
+        for _ in 0..CALLS {
+            std::hint::black_box(s.scrub(std::hint::black_box(text)));
+        }
+        let per = started.elapsed() / CALLS;
+        let scan = std::time::Instant::now();
+        for _ in 0..CALLS {
+            std::hint::black_box(std::hint::black_box(text).contains('\\'));
+        }
+        let scan = scan.elapsed() / CALLS;
+        println!(
+            "scrub_cost {what}: {} bytes, {per:?} a call (a scan for '\\\\': {scan:?})",
+            text.len()
+        );
+    }
+}
