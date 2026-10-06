@@ -29,7 +29,15 @@
 //! returns, and a new log's first sync also syncs the directory holding it.
 //! An open that appends to a segment it found syncs the log's directory with
 //! its first frame too (theseus-c67g): the segment's creator may have died
-//! before it did.
+//! before it did. It skips that sync when it knows a position in the found
+//! segment was synced (theseus-3q29): the index's checkpoint, or a frame's
+//! mark, at or past the segment's first position. A sync covering the
+//! segment's first frame then returned Ok, and such a sync syncs the pending
+//! directories before it returns. A clean restart pays nothing; a segment
+//! nothing vouches for (empty, or its creator died before its first sync)
+//! pays once. `Recovery::vouched` says which. A mark written by a build
+//! before c67g vouches for a name no sync covered; the store's open closes
+//! that by its manifest (a store an older format wrote pays the sync).
 //!
 //! **A sync that fails** (theseus-ljgm) answers every frame it covered with
 //! its error, so it cuts them back off before it returns: the segment is cut
@@ -227,6 +235,22 @@ pub struct Recovery {
     pub history_bytes: u64,
     /// The torn tail open cut, when it cut one (theseus-gt12).
     pub cut: Option<Cut>,
+    /// What vouched for the name of the last segment found, so the first
+    /// frame's sync left the log's directory out (theseus-3q29). `None`:
+    /// nothing did, or the open created the segment, and the first frame's
+    /// sync syncs the directory.
+    pub vouched: Option<Vouch>,
+}
+
+/// What told an open that a sync covering the found segment's first frame
+/// returned Ok, and so synced the segment's name (theseus-3q29).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Vouch {
+    /// The index's checkpoint lies in the segment.
+    Checkpoint,
+    /// A frame's mark does: the frame was written once a sync of the
+    /// segment's first frame had returned.
+    Mark,
 }
 
 /// A torn tail an open cut from the last segment (theseus-gt12): the frame
@@ -368,7 +392,8 @@ pub struct Wal {
     synced: std::sync::atomic::AtomicU64,
     /// Directories that hold a name no sync has made durable yet: the log's
     /// own, once a segment is created in it or an open finds the segment it
-    /// appends to (theseus-c67g), and the one that holds the log, once open
+    /// appends to (theseus-c67g) and nothing vouches for its name
+    /// (theseus-3q29), and the one that holds the log, once open
     /// created the log's directory. The next `sync` syncs each
     /// after its fdatasync and before it returns, so no frame is reported
     /// durable while a power loss could still lose its segment's name
@@ -499,11 +524,13 @@ pub fn segment_path(dir: &Path, n: u32) -> PathBuf {
 /// when the open created that too. A last segment found is synced into the
 /// log's directory too (theseus-c67g): the process that created it may have
 /// died before the sync of its first frame synced its name, and this one
-/// never creates it, so nothing else would sync that name until a roll.
+/// never creates it, so nothing else would sync that name until a roll;
+/// unless the open found its name `vouched` for (theseus-3q29).
 fn append_segment(
     dir: &Path,
     last: Option<u32>,
     new_dir: bool,
+    vouched: bool,
 ) -> io::Result<(u32, File, u64, Vec<PathBuf>)> {
     if let Some(seg) = last {
         let f = OpenOptions::new()
@@ -511,7 +538,12 @@ fn append_segment(
             .read(true)
             .open(segment_path(dir, seg))?;
         let len = f.metadata()?.len();
-        return Ok((seg, f, len, vec![dir.to_path_buf()]));
+        let unsynced = if vouched {
+            Vec::new()
+        } else {
+            vec![dir.to_path_buf()]
+        };
+        return Ok((seg, f, len, unsynced));
     }
     let f = OpenOptions::new()
         .create(true)
@@ -674,45 +706,7 @@ impl Wal {
         };
         let (walk, total_len, mut recovery, history_end) = match tail {
             Some(t) => t,
-            None => {
-                let mut walk = Walk::new(1, after);
-                let mut recovery = Recovery::default();
-                let mut total_len: u64 = 0;
-                for &seg in &segments {
-                    let path = segment_path(dir, seg);
-                    let bytes = fs::read(&path)?;
-                    let (good_len, bad) = walk.segment(&bytes, seg, 0);
-                    match bad {
-                        None => {}
-                        Some(Bad::Torn { reason, .. }) if Some(seg) == last_seg => {
-                            // A torn tail in the last segment, unless it
-                            // was synced: cut it, or refuse.
-                            let cut = torn_or_rot(
-                                &bytes,
-                                (good_len, reason),
-                                (seg, 0),
-                                walk.expected,
-                                cfg.synced_to,
-                            )?;
-                            cut_tail(&path, good_len, cut)?;
-                            recovery.truncated_bytes += cut.bytes;
-                            recovery.cut = Some(cut);
-                        }
-                        Some(Bad::Torn { offset, reason }) => {
-                            return Err(WalError::Corrupt {
-                                segment: seg,
-                                offset,
-                                reason: format!(
-                                    "{reason} (not the last segment; refusing to truncate)"
-                                ),
-                            })
-                        }
-                        Some(Bad::Wrong(e)) => return Err(e),
-                    }
-                    total_len += good_len;
-                }
-                (walk, total_len, recovery, None)
-            }
+            None => walk_every(dir, &segments, after, cfg.synced_to)?,
         };
         recovery.frames = walk.frames;
         recovery.records = walk.records;
@@ -725,8 +719,18 @@ impl Wal {
         // known synced only once this log's own first sync returns, which
         // covers them too: an fdatasync takes every dirty page of the file.
         let synced = cfg.synced_to.max(walk.mark).min(recovery.last_position);
+        recovery.vouched = vouch(
+            last_seg,
+            history_end.map(|(_, seg, _)| seg),
+            walk.first,
+            (cfg.synced_to, synced, recovery.last_position),
+        );
+        if let Some(by) = recovery.vouched {
+            tracing::debug!(segment = ?last_seg, ?by, "wal: the found segment's name is vouched for");
+        }
 
-        let (segment, file, segment_len, unsynced_dirs) = append_segment(dir, last_seg, new_dir)?;
+        let (segment, file, segment_len, unsynced_dirs) =
+            append_segment(dir, last_seg, new_dir, recovery.vouched.is_some())?;
         let writer = Writer {
             dir: dir.to_path_buf(),
             cfg,
@@ -1396,6 +1400,10 @@ struct Walk {
     /// The newest mark of the frames checked (theseus-7nfj): 0 when none
     /// was marked.
     mark: u64,
+    /// The first position of the segment walked last, when it was walked
+    /// from its start (theseus-3q29): the found segment's, after a walk.
+    /// Past the last position found when that segment holds no frame.
+    first: Option<u64>,
     out: Vec<(Record, RecordLocation)>,
 }
 
@@ -1407,6 +1415,7 @@ impl Walk {
             frames: 0,
             records: 0,
             mark: 0,
+            first: None,
             out: Vec::new(),
         }
     }
@@ -1415,6 +1424,7 @@ impl Walk {
     /// `seg`: how many bytes are whole frames, and the first frame that is
     /// not, if any.
     fn segment(&mut self, bytes: &[u8], seg: u32, base: u64) -> (u64, Option<Bad>) {
+        self.first = (base == 0).then_some(self.expected);
         let mut off = 0usize;
         while off < bytes.len() {
             let before = self.expected;
@@ -1526,6 +1536,35 @@ fn check_frame(
     walk.mark = walk.mark.max(mark.unwrap_or(0));
     walk.out.extend(kept);
     Ok(body_end)
+}
+
+/// What vouches for the name of the segment `found` last (theseus-3q29),
+/// given the segment the tail-only open began in (`tail_in`), the found
+/// segment's first position, and the checkpoint, what the open knows synced
+/// (the larger of the checkpoint and the newest mark), and the last position
+/// found. A mark is below its own frame's position, so one from an earlier
+/// segment never reaches the found one's first: `synced` at or past it is
+/// exactly "the checkpoint or a mark vouches". A segment with no frame has
+/// no position to vouch for.
+fn vouch(
+    found: Option<u32>,
+    tail_in: Option<u32>,
+    first: Option<u64>,
+    (checkpoint, synced, last): (u64, u64, u64),
+) -> Option<Vouch> {
+    let found = found?;
+    if tail_in == Some(found) {
+        // The checkpoint's record, synced before the index claimed it.
+        return Some(Vouch::Checkpoint);
+    }
+    let first = first.filter(|&f| f <= last)?;
+    if checkpoint.min(last) >= first {
+        Some(Vouch::Checkpoint)
+    } else if synced >= first {
+        Some(Vouch::Mark)
+    } else {
+        None
+    }
 }
 
 /// One frame read on its own, by a reader outside the store (the WAL
@@ -1766,8 +1805,45 @@ fn cut_tail(path: &Path, at: u64, cut: Cut) -> io::Result<()> {
     Ok(())
 }
 
-/// What a tail-only open found: the walk, the log's length, the recovery,
-/// and where the unchecked history ends.
+/// The log, every segment checked (theseus-8ni's fallback): a torn tail in
+/// the last segment is cut, unless a position at or past it is known synced
+/// (`synced`, or a later frame's mark), which is refused, as is a bad frame
+/// anywhere else. Keeps the records after `after`.
+fn walk_every(dir: &Path, segments: &[u32], after: u64, synced: u64) -> Result<Tail, WalError> {
+    let last_seg = segments.last().copied();
+    let mut walk = Walk::new(1, after);
+    let mut recovery = Recovery::default();
+    let mut total_len: u64 = 0;
+    for &seg in segments {
+        let path = segment_path(dir, seg);
+        let bytes = fs::read(&path)?;
+        let (good_len, bad) = walk.segment(&bytes, seg, 0);
+        match bad {
+            None => {}
+            Some(Bad::Torn { reason, .. }) if Some(seg) == last_seg => {
+                // A torn tail in the last segment, unless it was synced: cut
+                // it, or refuse.
+                let cut = torn_or_rot(&bytes, (good_len, reason), (seg, 0), walk.expected, synced)?;
+                cut_tail(&path, good_len, cut)?;
+                recovery.truncated_bytes += cut.bytes;
+                recovery.cut = Some(cut);
+            }
+            Some(Bad::Torn { offset, reason }) => {
+                return Err(WalError::Corrupt {
+                    segment: seg,
+                    offset,
+                    reason: format!("{reason} (not the last segment; refusing to truncate)"),
+                })
+            }
+            Some(Bad::Wrong(e)) => return Err(e),
+        }
+        total_len += good_len;
+    }
+    Ok((walk, total_len, recovery, None))
+}
+
+/// What an open's walk found: the walk, the log's length, the recovery, and
+/// where the unchecked history ends (`None` when every segment was checked).
 type Tail = (Walk, u64, Recovery, Option<(u64, u32, u64)>);
 
 /// The log after record `after`, which the index says lies at `loc`:
@@ -1853,6 +1929,8 @@ mod tests {
     mod mark;
     /// A failed sync (theseus-ljgm).
     mod sync;
+    /// A found segment's name, vouched for (theseus-3q29).
+    mod vouch;
 
     fn rec(kind: u16, key: Option<&str>, payload: &[u8]) -> NewRecord {
         NewRecord::bytes(kind, key, payload.to_vec())
