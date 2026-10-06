@@ -1686,3 +1686,106 @@ async fn a_report_never_begun_is_cut_at_the_calls_end() {
         )]
     );
 }
+
+#[tokio::test(start_paused = true)]
+async fn an_echo_prone_speakers_echo_of_a_whole_reply_is_an_echo() {
+    // E1 (theseus-j2ut): two echoes make Robin echo-prone (resumed at 2.8 s
+    // and 4.5 s). His microphone then carries the first two sentences back
+    // in one utterance, from 4.7 s to 12.4 s, with no stop: the run over the
+    // sentences joined in the order they played is the whole of it.
+    let again = ms(4500);
+    let s2_end = again + len(S1) + len(S2);
+    let io_len = s2_end.as_millis() as u64 + 4000;
+    let dir = tempfile::tempdir().unwrap();
+    let echo_len = s2_end.as_millis() as u64 - 4700;
+    let io = asked(dir.path(), io_len)
+        .say(ROBIN, 1500, 600)
+        .say(ROBIN, 3200, 600)
+        .say(ROBIN, 4700, echo_len)
+        .io;
+    let both = format!("{S1} {S2}");
+    let speech = Arc::new(
+        StandInSpeech::new()
+            .transcript(ROBIN, "this first sentence runs on for quite a while")
+            .transcript(ROBIN, "a while long enough to talk over")
+            .transcript(ROBIN, &both),
+    );
+    let (seen, played) = call(io, speech, first(three()), vec![]).await;
+    let heard: Vec<_> = utterances(&seen)
+        .into_iter()
+        .filter(|(_, u)| u.speaker == ROBIN)
+        .map(|(_, u)| u.heard_as)
+        .collect();
+    assert_eq!(heard, [HeardAs::Echo, HeardAs::Echo, HeardAs::Echo]);
+    assert!(only(&seen, cuts).is_empty(), "{seen:?}");
+    assert_eq!(turns(&seen).len(), 1, "no turn");
+    assert_eq!(
+        starts(&played)[2..],
+        [
+            (again, len(S1), false),
+            (again + len(S1), len(S2), false),
+            (s2_end, len(S3), false),
+        ]
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn the_first_echo_cut_short_by_its_own_stop_is_an_echo() {
+    // E2 (theseus-j2ut): the first sentence starts at 1.2 s, and Robin's
+    // microphone plays its head back from 1.3 s; the stop at 1.6 s cuts the
+    // echo to two words. A run from the playing sentence's head, by an
+    // utterance begun within 0.5 s of its start, is an echo from 2 words.
+    let dir = tempfile::tempdir().unwrap();
+    let io = asked(dir.path(), 14_000).say(ROBIN, 1300, 400).io;
+    let speech = Arc::new(StandInSpeech::new().transcript(ROBIN, "This first"));
+    let (seen, played) = call(io, speech, first(three()), vec![]).await;
+    assert_eq!(utterances(&seen)[1].1.heard_as, HeardAs::Echo);
+    assert_eq!(
+        only(&seen, resumed),
+        [(
+            ms(2400),
+            Event::Resumed {
+                what: Spoken::Reply(TurnId(0)),
+                why: HeardAs::Echo,
+                held: ms(800),
+            }
+        )]
+    );
+    assert!(only(&seen, cuts).is_empty());
+    assert_eq!(turns(&seen).len(), 1);
+    assert_eq!(played.len(), 4);
+}
+
+#[tokio::test(start_paused = true)]
+async fn an_echo_across_a_sentence_boundary_is_an_echo() {
+    // E3 (theseus-j2ut): the first sentence ends as the second begins, and
+    // Robin's microphone carries back the first's tail and the second's head,
+    // from 0.1 s into the second: no one sentence holds 80% of it, the two
+    // joined as they played do.
+    let s2_at = ms(1200) + len(S1);
+    let at = s2_at.as_millis() as u64 + 100;
+    let dir = tempfile::tempdir().unwrap();
+    let io = asked(dir.path(), 16_000).say(ROBIN, at, 600).io;
+    let speech =
+        Arc::new(StandInSpeech::new().transcript(ROBIN, "to talk over the second sentence"));
+    let (seen, played) = call(io, speech, first(three()), vec![]).await;
+    assert_eq!(utterances(&seen)[1].1.heard_as, HeardAs::Echo);
+    assert_eq!(only(&seen, resumed).len(), 1);
+    assert!(only(&seen, cuts).is_empty());
+    assert_eq!(turns(&seen).len(), 1);
+    assert_eq!(played.len(), 4);
+}
+
+#[tokio::test(start_paused = true)]
+async fn two_words_not_at_the_playing_sentences_head_are_a_turn() {
+    // An answer of two of the question's words, begun within 0.5 s of its
+    // start, is no head-run: words, and a turn (theseus-j2ut).
+    let dir = tempfile::tempdir().unwrap();
+    let question = "Do you want the daily or the monthly view?";
+    let io = asked(dir.path(), 8000).say(ROBIN, 1500, 600).io;
+    let speech = Arc::new(StandInSpeech::new().transcript(ROBIN, "Monthly view."));
+    let (seen, played) = call(io, speech, first(question), vec![]).await;
+    assert_eq!(utterances(&seen)[1].1.heard_as, HeardAs::Words);
+    assert_eq!(turns(&seen)[1], (ms(2800), vec![(ROBIN, "Monthly view.")]));
+    assert_eq!(starts(&played), [(ms(1200), len(question), true)]);
+}

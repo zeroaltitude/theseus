@@ -355,6 +355,10 @@ pub struct Engine {
 /// How long after a sentence ends an utterance may still be its echo.
 const ECHO_TAIL: Duration = Duration::from_millis(1200);
 
+/// An utterance begun this soon after the sentence playing began may echo
+/// its head from 2 words (theseus-j2ut).
+const ECHO_HEAD: Duration = Duration::from_millis(500);
+
 /// A speaker heard echoing this many times in a call is echo-prone: one
 /// verdict that was wrong doesn't take their stop away (theseus-3ug0).
 const ECHO_PRONE: u32 = 2;
@@ -373,6 +377,9 @@ struct Opening {
     /// It began over the last sentence queued, which had begun: if the queue
     /// is empty when it closes, it answers what was said (theseus-1cz8).
     last: bool,
+    /// The sentence playing, begun at most `ECHO_HEAD` before it: a run
+    /// from its head is an echo from 2 words (theseus-j2ut).
+    head: Option<String>,
     /// Its number, so a probe of its audio so far finds it.
     id: u64,
     /// What the floor's bound heard of it so far.
@@ -685,6 +692,7 @@ impl Engine {
                         overlap: Overlap::None,
                         sentences: Vec::new(),
                         last: false,
+                        head: None,
                         id: 0,
                         sound: Sound::Unheard,
                     });
@@ -725,10 +733,15 @@ impl Engine {
             false => Overlap::Tail,
         };
         let mut last = false;
+        let mut head = None;
         let (over, overlap) = match self.queue.front() {
             Some(item) => {
                 if item.clip.is_some() || self.hold.is_some() {
                     sentences.push(item.text.clone());
+                }
+                let begun = item.started.filter(|_| item.clip.is_some());
+                if begun.is_some_and(|s| now.saturating_duration_since(s) <= ECHO_HEAD) {
+                    head = Some(item.text.clone());
                 }
                 let over = Over::Saying {
                     what: item.what,
@@ -756,6 +769,7 @@ impl Engine {
             overlap,
             sentences,
             last,
+            head,
             id,
             sound: Sound::Unheard,
         }
@@ -963,7 +977,9 @@ impl Engine {
             return;
         };
         opening.sound = match &result {
-            Ok(t) if classify(&t.text, Overlap::None, &[]) == HeardAs::Wordless => Sound::Wordless,
+            Ok(t) if classify(&t.text, Overlap::None, &[], None) == HeardAs::Wordless => {
+                Sound::Wordless
+            }
             _ => Sound::Words,
         };
         if let Err(error) = result {
@@ -1234,7 +1250,12 @@ impl Engine {
                 return;
             }
         };
-        let heard_as = classify(&t.text, overlap, &p.opening.sentences);
+        let heard_as = classify(
+            &t.text,
+            overlap,
+            &p.opening.sentences,
+            p.opening.head.as_deref(),
+        );
         let utterance = Utterance {
             speaker,
             started: p.started,

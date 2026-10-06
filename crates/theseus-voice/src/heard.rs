@@ -85,6 +85,12 @@ const BACKCHANNEL_WORDS: usize = 3;
 /// An echo's run of a sentence's words is at least this long.
 const ECHO_RUN: usize = 3;
 
+/// An echo's run from the head of the sentence that was playing when the
+/// utterance began, by an utterance begun just after it started, is at least
+/// this long: the first echo, cut to a word or two by its own stop
+/// (theseus-j2ut).
+const HEAD_RUN: usize = 2;
+
 /// `text`'s words: its lower-cased runs of letters, digits and apostrophes,
 /// a typographic apostrophe read as a plain one.
 pub fn words(text: &str) -> Vec<String> {
@@ -97,23 +103,40 @@ pub fn words(text: &str) -> Vec<String> {
 }
 
 /// Theseus's own words heard back (theseus-3ug0): a near-whole, in-order
-/// copy of one of `sentences` (the one that was playing, and those that ended
-/// in the echo tail). The longest run of its words found contiguously, in
-/// order, in one sentence is at least 3 words and at least 80% of its words.
-/// An answer that reuses its question's words ("Yes, deploy it now.", "The
-/// daily view.") is not one; a speaker's microphone playing a sentence back
-/// is.
-pub fn is_echo(text: &str, sentences: &[String]) -> bool {
+/// copy of `sentences` (those that ended in the echo tail, and the one that
+/// was playing, in the order they played). The longest run of its words
+/// found contiguously, in order, in the sentences joined so (which an echo
+/// across a sentence's end needs, theseus-j2ut) is at least 3 words and at
+/// least 80% of its words. From the head of `head`, the sentence playing
+/// when an utterance began just after it started, 2 words are enough: the
+/// first echo, cut short by its own stop. An answer that reuses its
+/// question's words ("Yes, deploy it now.", "The daily view.") is not one; a
+/// speaker's microphone playing a sentence back is.
+pub fn is_echo(text: &str, sentences: &[String], head: Option<&str>) -> bool {
     let heard = words(text);
+    let most = |run: usize| run * 5 >= heard.len() * 4;
+    if let Some(head) = head {
+        let run = head_run(&heard, &words(head));
+        if run >= HEAD_RUN && most(run) {
+            return true;
+        }
+    }
     if heard.len() < ECHO_RUN {
         return false;
     }
-    let run = sentences
-        .iter()
-        .map(|s| longest_run(&heard, &words(s)))
+    // Each sentence's run is one of the joined sentences' too.
+    let joined: Vec<String> = sentences.iter().flat_map(|s| words(s)).collect();
+    let run = longest_run(&heard, &joined);
+    run >= ECHO_RUN && most(run)
+}
+
+/// The longest run of `a`'s words found contiguously, in order, at the start
+/// of `b`.
+fn head_run(a: &[String], b: &[String]) -> usize {
+    (0..a.len())
+        .map(|i| a[i..].iter().zip(b).take_while(|(x, y)| x == y).count())
         .max()
-        .unwrap_or(0);
-    run >= ECHO_RUN && run * 5 >= heard.len() * 4
+        .unwrap_or(0)
 }
 
 /// The longest run of `a`'s words found contiguously, in order, in `b`.
@@ -165,16 +188,17 @@ pub fn is_resume(text: &str) -> bool {
 }
 
 /// What an utterance whose transcript is `text` was heard as, by where it
-/// came (`overlap`) and the sentences it may echo.
-pub fn classify(text: &str, overlap: Overlap, sentences: &[String]) -> HeardAs {
+/// came (`overlap`) and the sentences it may echo (`head` as [`is_echo`]
+/// takes it).
+pub fn classify(text: &str, overlap: Overlap, sentences: &[String], head: Option<&str>) -> HeardAs {
     if words(text).is_empty() {
         return HeardAs::Wordless;
     }
     match overlap {
         Overlap::None => HeardAs::Words,
-        Overlap::Tail if is_echo(text, sentences) => HeardAs::Echo,
+        Overlap::Tail if is_echo(text, sentences, head) => HeardAs::Echo,
         Overlap::Tail => HeardAs::Words,
-        Overlap::Speech if is_echo(text, sentences) => HeardAs::Echo,
+        Overlap::Speech if is_echo(text, sentences, head) => HeardAs::Echo,
         Overlap::Speech if is_backchannel(text) => HeardAs::Backchannel,
         Overlap::Speech if is_resume(text) => HeardAs::Resume,
         Overlap::Speech => HeardAs::Words,
@@ -202,47 +226,65 @@ mod tests {
     #[test]
     fn an_empty_transcript_is_wordless_wherever_it_came() {
         for overlap in [Overlap::Speech, Overlap::Tail, Overlap::None] {
-            assert_eq!(classify("", overlap, &[]), HeardAs::Wordless);
-            assert_eq!(classify("  . ", overlap, &[]), HeardAs::Wordless);
+            assert_eq!(classify("", overlap, &[], None), HeardAs::Wordless);
+            assert_eq!(classify("  . ", overlap, &[], None), HeardAs::Wordless);
         }
     }
 
     #[test]
     fn an_echo_is_a_near_whole_in_order_copy_of_one_sentence() {
         let playing = said(&["The deploy finished at noon, and the tests passed."]);
-        assert!(is_echo("the deploy finished at noon", &playing));
+        assert!(is_echo("the deploy finished at noon", &playing, None));
         // A run of 4 of its 5 words: 80%.
-        assert!(is_echo("the deploy finished at what", &playing));
+        assert!(is_echo("the deploy finished at what", &playing, None));
         // 3 of 5 in a row, or the sentence's words out of order: not one.
-        assert!(!is_echo("deploy finished at what now", &playing));
-        assert!(!is_echo("noon finished the deploy at", &playing));
-        assert!(!is_echo("deploy tests passed what now", &playing));
+        assert!(!is_echo("deploy finished at what now", &playing, None));
+        assert!(!is_echo("noon finished the deploy at", &playing, None));
+        assert!(!is_echo("deploy tests passed what now", &playing, None));
         // One word is never an echo, even one of its own, nor two.
-        assert!(!is_echo("deploy", &playing));
-        assert!(!is_echo("stop", &said(&["Stop the build."])));
-        assert!(!is_echo("tests passed", &playing));
+        assert!(!is_echo("deploy", &playing, None));
+        assert!(!is_echo("stop", &said(&["Stop the build."]), None));
+        assert!(!is_echo("tests passed", &playing, None));
         // Words of a sentence that ended in the tail count too, each
         // sentence on its own.
         let tail = said(&["Here it is.", "Want the log?"]);
-        assert!(is_echo("want the log", &tail));
-        assert!(!is_echo("it is want the", &tail));
+        assert!(is_echo("want the log", &tail, None));
+        // ... and the sentences joined as they played: a boundary heard back
+        // (theseus-j2ut).
+        assert!(is_echo("it is want the", &tail, None));
         // A speaker's microphone playing a sentence back, whole.
         let back = said(&["Creates those. I'll check what's running."]);
-        assert!(is_echo("Creates those. I'll check what's running.", &back));
+        assert!(is_echo(
+            "Creates those. I'll check what's running.",
+            &back,
+            None
+        ));
+    }
+
+    #[test]
+    fn a_run_from_the_playing_sentences_head_is_an_echo_from_2_words() {
+        let playing = "Here is the first of three long sentences.";
+        let none: Vec<String> = Vec::new();
+        assert!(is_echo("here is", &none, Some(playing)));
+        assert!(!is_echo("um here is", &none, Some(playing)));
+        // Not from its head, or without one: 3 words, as anywhere.
+        assert!(!is_echo("the first", &none, Some(playing)));
+        assert!(!is_echo("here is", &said(&[playing]), None));
+        assert!(!is_echo("here", &none, Some(playing)));
     }
 
     #[test]
     fn an_answer_that_repeats_its_questions_words_is_no_echo() {
         let asked = said(&["Should I deploy it now?"]);
-        assert!(!is_echo("Yes, deploy it now.", &asked));
+        assert!(!is_echo("Yes, deploy it now.", &asked, None));
         assert_eq!(
-            classify("Yes, deploy it now.", Overlap::Tail, &asked),
+            classify("Yes, deploy it now.", Overlap::Tail, &asked, None),
             HeardAs::Words
         );
         let either = said(&["Do you want the daily or the monthly view?"]);
-        assert!(!is_echo("The daily view.", &either));
+        assert!(!is_echo("The daily view.", &either, None));
         assert_eq!(
-            classify("The daily view.", Overlap::Speech, &either),
+            classify("The daily view.", Overlap::Speech, &either, None),
             HeardAs::Words
         );
     }
@@ -305,7 +347,7 @@ mod tests {
     #[test]
     fn over_speech_every_rule_applies_and_words_are_the_rest() {
         let playing = said(&["Here is the first of three long sentences."]);
-        let at = |t| classify(t, Overlap::Speech, &playing);
+        let at = |t| classify(t, Overlap::Speech, &playing, None);
         assert_eq!(at("the first of three long sentences"), HeardAs::Echo);
         assert_eq!(at("yeah"), HeardAs::Backchannel);
         assert_eq!(at("go on"), HeardAs::Resume);
@@ -316,16 +358,25 @@ mod tests {
     #[test]
     fn in_the_tail_only_echo_is_checked_and_elsewhere_none() {
         let ended = said(&["Should I deploy it now?"]);
-        assert_eq!(classify("yeah", Overlap::Tail, &ended), HeardAs::Words);
-        assert_eq!(classify("go on", Overlap::Tail, &ended), HeardAs::Words);
         assert_eq!(
-            classify("should I deploy it now", Overlap::Tail, &ended),
+            classify("yeah", Overlap::Tail, &ended, None),
+            HeardAs::Words
+        );
+        assert_eq!(
+            classify("go on", Overlap::Tail, &ended, None),
+            HeardAs::Words
+        );
+        assert_eq!(
+            classify("should I deploy it now", Overlap::Tail, &ended, None),
             HeardAs::Echo
         );
         assert_eq!(
-            classify("should I deploy it now", Overlap::None, &ended),
+            classify("should I deploy it now", Overlap::None, &ended, None),
             HeardAs::Words
         );
-        assert_eq!(classify("yeah", Overlap::None, &ended), HeardAs::Words);
+        assert_eq!(
+            classify("yeah", Overlap::None, &ended, None),
+            HeardAs::Words
+        );
     }
 }
