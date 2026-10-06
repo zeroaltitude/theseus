@@ -28,7 +28,7 @@ use crate::Core;
 const DAY: u64 = 86_400_000;
 
 /// Ten days ago, so the rows' times stand well apart from a label's now.
-fn t0() -> u64 {
+pub(crate) fn t0() -> u64 {
     theseus_protocol::now_unix_ms() - 10 * DAY
 }
 
@@ -43,7 +43,7 @@ fn row(kind: LedgerKind, node: &str, at: u64, data: Value) -> NewRecord {
     NewRecord::json(kinds::LEDGER, None, &row).unwrap()
 }
 
-fn labeled(node: &str, at: u64, durability: &str) -> NewRecord {
+pub(crate) fn labeled(node: &str, at: u64, durability: &str) -> NewRecord {
     row(
         LedgerKind::MemoryLabeled,
         node,
@@ -65,14 +65,14 @@ fn used(node: &str, at: u64, outcome: Option<&str>) -> NewRecord {
 
 /// A frame the memory pass would write: appended, and handed to the
 /// projection as the pass hands it.
-fn frame(c: &Core, records: &[NewRecord]) -> Vec<u64> {
+pub(crate) fn frame(c: &Core, records: &[NewRecord]) -> Vec<u64> {
     let at = c.store.append(records).unwrap();
     c.runner.memory.retention_written(records, &at);
     at
 }
 
 /// Build the projection and wait, on the runtime's timer, until it is.
-async fn built(c: &Arc<Core>) {
+pub(crate) async fn built(c: &Arc<Core>) {
     retention::warm(&c.runner.memory, &c.store);
     let t = Instant::now();
     while c.runner.memory.retention().phase() != Phase::Ready {

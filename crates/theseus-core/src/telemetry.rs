@@ -25,6 +25,8 @@ mod tests_calls;
 #[cfg(test)]
 mod tests_cancel;
 #[cfg(test)]
+mod tests_daemon_path;
+#[cfg(test)]
 mod tests_files;
 #[cfg(test)]
 mod tests_index;
