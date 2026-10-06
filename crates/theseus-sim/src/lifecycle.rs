@@ -22,6 +22,9 @@
 //!   state dir, with the source's pages dropped from the cache first, beside
 //!   a cold sequential read of the same bytes. Measured, with no budget yet;
 //!   the last restored store must serve.
+//! - `cancel`: a cancel's round trip (theseus-nh1k): with a job running (the
+//!   same real `proc.run`), `execution.cancel` from its request to its answer,
+//!   whose verdict must say the job's tree was killed and nothing is left.
 //!
 //! The daemon's secrets come from a fake `op` that answers only after
 //! `resolver_ms`, so a start that waited for them would show: at each first
@@ -40,8 +43,8 @@ use serde_json::{json, Value};
 
 use crate::fake_model::FakeModel;
 
-pub const PHASES: [&str; 8] = [
-    "cold", "vault", "shutdown", "inflight", "kill", "swap", "restore", "seed",
+pub const PHASES: [&str; 9] = [
+    "cold", "vault", "shutdown", "inflight", "kill", "swap", "restore", "seed", "cancel",
 ];
 
 /// The bench's vault note: the fake `op` answers it with the bench config.
@@ -129,6 +132,12 @@ pub fn budget_ms(phase: &str, sessions: u64) -> Option<f64> {
         "shutdown" => Some(100.0),
         "kill" => Some(cold + 100.0),
         "swap" => Some(200.0),
+        // Not §9's: a cancel answers once its job's whole tree is verified
+        // gone (theseus-nh1k). Proposed, to be set on the owner's machine:
+        // on a 4-core VM's debug build, 20 runs, p95 43 ms quiet, 58 ms
+        // beside four busy loops and 95 ms beside sixteen; a cancel that
+        // waits 2.5 s after its kills misses it.
+        "cancel" => Some(250.0),
         _ => None,
     }
 }
@@ -620,6 +629,12 @@ impl Rig {
                 json!({"label": format!("bench waiting {i}")}),
             )?;
         }
+        self.start_job()
+    }
+
+    /// A turn whose model runs `JOB` through `proc.run`, left running once
+    /// `proc_sync_secs` passes. Returns the job's execution.
+    fn start_job(&self) -> Result<String> {
         let r = self.call(
             "turn.submit",
             json!({"input": "Start the background job.", "author": "bench", "attachments": []}),
@@ -1279,6 +1294,9 @@ pub fn run(o: &Opts) -> Result<Report> {
     if want("inflight") {
         inflight_phase(o, &work, &mut samples)?;
     }
+    if want("cancel") {
+        cancel_phase(&rig, o.runs, &mut samples)?;
+    }
     let restore = if want("restore") {
         Some(restore_phase(&rig, &work, o.runs, &mut samples)?)
     } else {
@@ -1396,6 +1414,41 @@ pub fn run(o: &Opts) -> Result<Report> {
         starts,
         wall_ms: wall.elapsed().as_secs_f64() * 1000.0,
     })
+}
+
+/// The `cancel` phase (theseus-nh1k): a cancel's round trip, which no test
+/// can bound on a loaded machine. On one daemon, each run starts a job (a
+/// real `proc.run` through a turn against the stand-in model) and times
+/// `execution.cancel` from its request to its answer. The answer must cancel
+/// the one call, with a verdict that its tree was killed and verified gone,
+/// and leave no job dispatched.
+fn cancel_phase(rig: &Rig, runs: usize, samples: &mut BTreeMap<String, Vec<f64>>) -> Result<()> {
+    let (mut child, _) = rig.start()?;
+    let measured = (|| -> Result<()> {
+        for _ in 0..runs {
+            let exec = rig.start_job()?;
+            let t = Instant::now();
+            let c = rig.call("execution.cancel", json!({"execution_id": exec}))?;
+            let ms = t.elapsed().as_secs_f64() * 1000.0;
+            let cancelled = c["cancelled_actions"].as_array().map_or(0, Vec::len);
+            let v = &c["verdicts"][0];
+            if cancelled != 1
+                || c["verdicts"].as_array().map_or(0, Vec::len) != 1
+                || v["state"] != "termination_verified"
+                || v["killed"].as_u64().unwrap_or(0) == 0
+                || v["survivors"] != 0
+            {
+                bail!("cancel: the job's tree was not verified killed: {c}");
+            }
+            if rig.running_jobs()? != 0 {
+                bail!("cancel: a job is still dispatched after the answer: {c}");
+            }
+            samples.entry("cancel".into()).or_default().push(ms);
+        }
+        Ok(())
+    })();
+    rig.stop_anyhow(&mut child);
+    measured
 }
 
 /// The reply post the `inflight` phase holds at the fake Discord: its footer,
@@ -1584,7 +1637,7 @@ fn restore_phase(
     })
 }
 
-const TITLES: [(&str, &str); 8] = [
+const TITLES: [(&str, &str); 9] = [
     ("cold", "cold start to the first health answer"),
     (
         "vault",
@@ -1605,6 +1658,10 @@ const TITLES: [(&str, &str); 8] = [
     ),
     ("restore", "theseusd restore from a local WAL, cold"),
     ("seed", "the push's seed: the first executions.watch"),
+    (
+        "cancel",
+        "execution.cancel of a running job, request to answer",
+    ),
 ];
 
 #[expect(clippy::too_many_lines, reason = "shape budget: split it")]
@@ -1824,6 +1881,8 @@ mod tests {
         assert_eq!(budget_ms("swap", 10_000), Some(200.0));
         // Restore is measured: §9 names no number yet.
         assert_eq!(budget_ms("restore", 0), None);
+        assert_eq!(budget_ms("cancel", 0), Some(250.0));
+        assert_eq!(budget_ms("cancel", 10_000), Some(250.0));
     }
 
     #[test]

@@ -9,9 +9,22 @@ use crate::record::kinds;
 use crate::wal::test_clock;
 
 fn open(dir: &Path) -> WalStore {
-    WalStore::open(dir, WalConfig::default())
+    WalStore::open(dir, unsynced())
         .unwrap()
         .with_checkpoint_every(0)
+}
+
+/// The WAL unsynced (theseus-hohs). What these tests prove is what a read
+/// answers, and a sync changes nothing of that: the index is written after
+/// each frame either way, and redb's own commits keep their durability. A
+/// sync per frame was nearly all of their time: 1,511 in the page test,
+/// about 21 s on a disk whose sync takes 14 ms, and past nextest's kill on a
+/// loaded machine.
+fn unsynced() -> WalConfig {
+    WalConfig {
+        fsync: false,
+        ..WalConfig::default()
+    }
 }
 
 /// A ledger row of `kind`, in `session` when there is one.
@@ -171,13 +184,16 @@ fn tags(kind: Option<&str>, session: Option<&str>) -> Vec<String> {
 /// A randomized check on one store: each page through the tags and the
 /// cursors (theseus-vm3n.5) is exactly the page a scan of every row, then a
 /// filter, gives: the same positions, the same `more`, and the kind's count.
+/// The rows of 1,500 batches go in frames of 25 batches (theseus-hohs): a
+/// frame per batch was 1,500 handoffs to the store's writer, 30 s of a
+/// starved run, and what a page answers is the rows, not their frames.
 #[test]
 fn a_filtered_page_equals_the_scans_answer() {
     let dir = tempfile::tempdir().unwrap();
     let mut rng = rand::rngs::StdRng::seed_from_u64(11);
     let s = open(dir.path());
+    let mut batch = Vec::new();
     for i in 0..1500u64 {
-        let mut batch = Vec::new();
         for _ in 0..rng.random_range(1..4) {
             let k = KINDS[rng.random_range(0..4)];
             let sid = (rng.random_range(0..4) > 0).then(|| SESSIONS[rng.random_range(0..3)]);
@@ -186,11 +202,15 @@ fn a_filtered_page_equals_the_scans_answer() {
         if i % 7 == 0 {
             batch.push(NewRecord::json(kinds::SESSION, Some("ses_a"), &i).unwrap());
         }
-        s.append(&batch).unwrap();
+        // The checkpoint after batch 700, at the same position as ever.
+        if (i + 1) % 25 == 0 || i == 700 {
+            s.append(&std::mem::take(&mut batch)).unwrap();
+        }
         if i == 700 {
             s.checkpoint().unwrap();
         }
     }
+    assert!(batch.is_empty(), "every row appended");
     let all = walked(&s);
     let last = s.last_position();
     for q in 0..400 {
@@ -367,13 +387,13 @@ fn a_window_keeps_its_bounds_and_a_clock_that_steps_back_does_not_split_it() {
 fn cursor_pages_under_concurrent_writes_have_no_duplicate_or_gap() {
     let dir = tempfile::tempdir().unwrap();
     let s = Arc::new(open(dir.path()));
-    for i in 0..400u64 {
-        s.append(&[row(
-            KINDS[(i % 3) as usize],
-            Some(SESSIONS[(i % 2) as usize]),
-            i,
-        )])
-        .unwrap();
+    // The first 400 rows in frames of 25 (theseus-hohs); the writer below
+    // appends a frame per row.
+    for first in (0..400u64).step_by(25) {
+        let rows: Vec<NewRecord> = (first..first + 25)
+            .map(|i| row(KINDS[(i % 3) as usize], Some(SESSIONS[(i % 2) as usize]), i))
+            .collect();
+        s.append(&rows).unwrap();
     }
     let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
     let writer = {
@@ -635,7 +655,7 @@ static STATES: Projection = Projection {
 fn each_terms_count_follows_its_keys_and_equals_a_walk() {
     let dir = tempfile::tempdir().unwrap();
     let opened = || {
-        WalStore::open_projected(dir.path(), WalConfig::default(), &STATES)
+        WalStore::open_projected(dir.path(), unsynced(), &STATES)
             .unwrap()
             .with_checkpoint_every(0)
     };
