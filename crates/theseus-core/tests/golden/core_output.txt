@@ -60,7 +60,7 @@ narrate session session=ses_#1 turn=- Woken by new input from test.
 narrate turn session=ses_#1 turn=turn_#4 Turn …#4 started by test on sonnet (claude-sonnet-#-#): # characters of input; up to # loops.
 narrate loop session=ses_#1 turn=turn_#4 Loop # of up to #.
 narrate context session=ses_#1 turn=turn_#4 Context: new compilation …#5 (transcript) because the session is new: prefix # node + tail #, # message, about #,# tokens.
-narrate model session=ses_#1 turn=turn_#4 Calling claude-sonnet-#-# on anthropic: reserving $#.# ($#.# for #,# output tokens, $#.# for about #,# input tokens).
+narrate model session=ses_#1 turn=turn_#4 Calling claude-sonnet-#-# on anthropic: reserving $#.# ($#.# for #,# output tokens, $#.# for about #,# input tokens and the estimate's margin).
 narrate model session=ses_#1 turn=turn_#4 claude-sonnet-#-# answered in <n> (first token <n>): #,# tokens in, # out, $#.#; it ended its turn.
 narrate loop session=ses_#1 turn=turn_#4 Stopping: the model ended its turn.
 narrate turn session=ses_#1 turn=turn_#4 Turn …#4 ended after # loop in <n>: # tool calls, # token out, $#.#; the model ended its turn.
@@ -194,21 +194,21 @@ narrate session session=ses_#1 turn=- Woken by new input from test.
 narrate turn session=ses_#1 turn=turn_#10 Turn …#10 started by test on sonnet (claude-sonnet-#-#): # characters of input; up to # loops.
 narrate loop session=ses_#1 turn=turn_#10 Loop # of up to #.
 narrate context session=ses_#1 turn=turn_#10 Context: appending to compilation …#5: prefix # node + tail #, # messages, about #,# tokens.
-narrate model session=ses_#1 turn=turn_#10 Calling claude-sonnet-#-# on anthropic: reserving $#.# ($#.# for #,# output tokens, $#.# for about #,# input tokens).
+narrate model session=ses_#1 turn=turn_#10 Calling claude-sonnet-#-# on anthropic: reserving $#.# ($#.# for #,# output tokens, $#.# for about #,# input tokens and the estimate's margin).
 narrate model session=ses_#1 turn=turn_#10 claude-sonnet-#-# answered in <n> (first token <n>): #,# tokens in, # out, $#.#; it stopped to call # tool.
 narrate tool session=ses_#1 turn=turn_#10 fs.read notes.txt: posture open ([policy.tools] "fs.read" = open), running.
 narrate tool session=ses_#1 turn=turn_#10 fs.read done in <n>: # lines (# bytes).
 narrate loop session=ses_#1 turn=turn_#10 Loop #: continuing, because the model asked for # tool and it has an answer.
 narrate loop session=ses_#1 turn=turn_#10 Loop # of up to #.
 narrate context session=ses_#1 turn=turn_#10 Context: appending to compilation …#5: prefix # node + tail #, # messages, about #,# tokens.
-narrate model session=ses_#1 turn=turn_#10 Calling claude-sonnet-#-# on anthropic: reserving $#.# ($#.# for #,# output tokens, $#.# for about #,# input tokens).
+narrate model session=ses_#1 turn=turn_#10 Calling claude-sonnet-#-# on anthropic: reserving $#.# ($#.# for #,# output tokens, $#.# for about #,# input tokens and the estimate's margin).
 narrate model session=ses_#1 turn=turn_#10 claude-sonnet-#-# answered in <n> (first token <n>): #,# tokens in, # out, $#.#; it stopped to call # tool.
 narrate tool session=ses_#1 turn=turn_#10 text.diff: posture open ([policy.tools] "text.diff" = open), running.
 narrate tool session=ses_#1 turn=turn_#10 text.diff done in <n>: # lines (# bytes).
 narrate loop session=ses_#1 turn=turn_#10 Loop #: continuing, because the model asked for # tool and it has an answer.
 narrate loop session=ses_#1 turn=turn_#10 Loop # of up to #.
 narrate context session=ses_#1 turn=turn_#10 Context: appending to compilation …#5: prefix # node + tail #, # messages, about #,# tokens.
-narrate model session=ses_#1 turn=turn_#10 Calling claude-sonnet-#-# on anthropic: reserving $#.# ($#.# for #,# output tokens, $#.# for about #,# input tokens).
+narrate model session=ses_#1 turn=turn_#10 Calling claude-sonnet-#-# on anthropic: reserving $#.# ($#.# for #,# output tokens, $#.# for about #,# input tokens and the estimate's margin).
 narrate model session=ses_#1 turn=turn_#10 claude-sonnet-#-# answered in <n> (first token <n>): #,# tokens in, # out, $#.#; it ended its turn.
 narrate loop session=ses_#1 turn=turn_#10 Stopping: the model ended its turn.
 narrate turn session=ses_#1 turn=turn_#10 Turn …#10 ended after # loops in <n>: # tool calls, # tokens out, $#.#; the model ended its turn.
@@ -305,7 +305,7 @@ narrate session session=ses_#1 turn=- Woken by new input from test.
 narrate turn session=ses_#1 turn=turn_#25 Turn …#25 started by test on sonnet (claude-sonnet-#-#): # characters of input; up to # loops.
 narrate loop session=ses_#1 turn=turn_#25 Loop # of up to #.
 narrate context session=ses_#1 turn=turn_#25 Context: appending to compilation …#5: prefix # node + tail #, # messages, about #,# tokens.
-narrate model session=ses_#1 turn=turn_#25 Calling claude-sonnet-#-# on anthropic: reserving $#.# ($#.# for #,# output tokens, $#.# for about #,# input tokens).
+narrate model session=ses_#1 turn=turn_#25 Calling claude-sonnet-#-# on anthropic: reserving $#.# ($#.# for #,# output tokens, $#.# for about #,# input tokens and the estimate's margin).
 narrate model session=ses_#1 turn=turn_#25 claude-sonnet-#-# answered in <n> (first token <n>): #,# tokens in, # out, $#.#; it stopped to call # tool.
 narrate tool session=ses_#1 turn=turn_#25 proc.run bash: posture notify (enforcement = notify), running and telling the operator.
 narrate tool session=ses_#1 turn=turn_#25 proc.run bash started as job …#29 (pid #); the turn waits up to <n> for it.
@@ -313,7 +313,7 @@ narrate job session=ses_#1 turn=turn_#25 proc.run continues in the background as
 narrate loop session=ses_#1 turn=turn_#25 Loop #: continuing, because the model asked for # tool and it has an answer.
 narrate loop session=ses_#1 turn=turn_#25 Loop # of up to #.
 narrate context session=ses_#1 turn=turn_#25 Context: appending to compilation …#5: prefix # node + tail #, # messages, about #,# tokens.
-narrate model session=ses_#1 turn=turn_#25 Calling claude-sonnet-#-# on anthropic: reserving $#.# ($#.# for #,# output tokens, $#.# for about #,# input tokens).
+narrate model session=ses_#1 turn=turn_#25 Calling claude-sonnet-#-# on anthropic: reserving $#.# ($#.# for #,# output tokens, $#.# for about #,# input tokens and the estimate's margin).
 narrate model session=ses_#1 turn=turn_#25 claude-sonnet-#-# answered in <n> (first token <n>): #,# tokens in, # out, $#.#; it ended its turn.
 narrate loop session=ses_#1 turn=turn_#25 Stopping: the model ended its turn.
 narrate turn session=ses_#1 turn=turn_#25 Turn …#25 ended after # loops in <n>: # tool call, # tokens out, $#.#; the model ended its turn.
@@ -384,7 +384,7 @@ narrate job session=ses_#1 turn=turn_#35 A late result for proc.run (job …#29)
 narrate turn session=ses_#1 turn=turn_#35 Caught up on the time between turns: # action settled, # late result written.
 narrate loop session=ses_#1 turn=turn_#35 Loop # of up to #.
 narrate context session=ses_#1 turn=turn_#35 Context: appending to compilation …#5: prefix # node + tail #, # messages, about #,# tokens.
-narrate model session=ses_#1 turn=turn_#35 Calling claude-sonnet-#-# on anthropic: reserving $#.# ($#.# for #,# output tokens, $#.# for about #,# input tokens).
+narrate model session=ses_#1 turn=turn_#35 Calling claude-sonnet-#-# on anthropic: reserving $#.# ($#.# for #,# output tokens, $#.# for about #,# input tokens and the estimate's margin).
 narrate model session=ses_#1 turn=turn_#35 claude-sonnet-#-# answered in <n> (first token <n>): #,# tokens in, # out, $#.#; it ended its turn.
 narrate loop session=ses_#1 turn=turn_#35 Stopping: the model ended its turn.
 narrate turn session=ses_#1 turn=turn_#35 Turn …#35 ended after # loop in <n>: # tool calls, # tokens out, $#.#; the model ended its turn.
@@ -446,7 +446,7 @@ narrate session session=ses_#1 turn=- Woken by new input from test.
 narrate turn session=ses_#1 turn=turn_#41 Turn …#41 started by test on sonnet (claude-sonnet-#-#): # characters of input; up to # loops.
 narrate loop session=ses_#1 turn=turn_#41 Loop # of up to #.
 narrate context session=ses_#1 turn=turn_#41 Context: appending to compilation …#5: prefix # node + tail #, # messages, about #,# tokens.
-narrate model session=ses_#1 turn=turn_#41 Calling claude-sonnet-#-# on anthropic: reserving $#.# ($#.# for #,# output tokens, $#.# for about #,# input tokens).
+narrate model session=ses_#1 turn=turn_#41 Calling claude-sonnet-#-# on anthropic: reserving $#.# ($#.# for #,# output tokens, $#.# for about #,# input tokens and the estimate's margin).
 narrate model session=ses_#1 turn=turn_#41 claude-sonnet-#-# answered in <n> (first token <n>): #,# tokens in, # out, $#.#; it stopped to call # tool.
 narrate tool session=ses_#1 turn=turn_#41 fs.write out.txt: posture approve ([policy.tools] "fs.write" = approve), waiting for approval.
 narrate loop session=ses_#1 turn=turn_#41 Stopping: a call waits for approval.
@@ -525,7 +525,7 @@ narrate tool session=ses_#1 turn=turn_#49 fs.write done in <n>: # line (# bytes)
 narrate turn session=ses_#1 turn=turn_#49 Caught up on the time between turns: # pending call answered.
 narrate loop session=ses_#1 turn=turn_#49 Loop # of up to #.
 narrate context session=ses_#1 turn=turn_#49 Context: appending to compilation …#5: prefix # node + tail #, # messages, about #,# tokens.
-narrate model session=ses_#1 turn=turn_#49 Calling claude-sonnet-#-# on anthropic: reserving $#.# ($#.# for #,# output tokens, $#.# for about #,# input tokens).
+narrate model session=ses_#1 turn=turn_#49 Calling claude-sonnet-#-# on anthropic: reserving $#.# ($#.# for #,# output tokens, $#.# for about #,# input tokens and the estimate's margin).
 narrate model session=ses_#1 turn=turn_#49 claude-sonnet-#-# answered in <n> (first token <n>): #,# tokens in, # out, $#.#; it ended its turn.
 narrate loop session=ses_#1 turn=turn_#49 Stopping: the model ended its turn.
 narrate turn session=ses_#1 turn=turn_#49 Turn …#49 ended after # loop in <n>: # tool calls, # token out, $#.#; the model ended its turn.
@@ -587,7 +587,7 @@ narrate session session=ses_#1 turn=- Woken by new input from test.
 narrate turn session=ses_#1 turn=turn_#56 Turn …#56 started by test on sonnet (claude-sonnet-#-#): # characters of input; up to # loops.
 narrate loop session=ses_#1 turn=turn_#56 Loop # of up to #.
 narrate context session=ses_#1 turn=turn_#56 Context: appending to compilation …#5: prefix # node + tail #, # messages, about #,# tokens.
-narrate model session=ses_#1 turn=turn_#56 Calling claude-sonnet-#-# on anthropic: reserving $#.# ($#.# for #,# output tokens, $#.# for about #,# input tokens).
+narrate model session=ses_#1 turn=turn_#56 Calling claude-sonnet-#-# on anthropic: reserving $#.# ($#.# for #,# output tokens, $#.# for about #,# input tokens and the estimate's margin).
 narrate model session=ses_#1 turn=turn_#56 claude-sonnet-#-# answered in <n> (first token <n>): #,# tokens in, # out, $#.#; it stopped to call # tool.
 narrate tool session=ses_#1 turn=turn_#56 fs.write no.txt: posture approve ([policy.tools] "fs.write" = approve), waiting for approval.
 narrate loop session=ses_#1 turn=turn_#56 Stopping: a call waits for approval.
@@ -664,7 +664,7 @@ narrate approval session=ses_#1 turn=turn_#64 fs.write not run: it was declined.
 narrate turn session=ses_#1 turn=turn_#64 Caught up on the time between turns: # pending call answered.
 narrate loop session=ses_#1 turn=turn_#64 Loop # of up to #.
 narrate context session=ses_#1 turn=turn_#64 Context: appending to compilation …#5: prefix # node + tail #, # messages, about #,# tokens.
-narrate model session=ses_#1 turn=turn_#64 Calling claude-sonnet-#-# on anthropic: reserving $#.# ($#.# for #,# output tokens, $#.# for about #,# input tokens).
+narrate model session=ses_#1 turn=turn_#64 Calling claude-sonnet-#-# on anthropic: reserving $#.# ($#.# for #,# output tokens, $#.# for about #,# input tokens and the estimate's margin).
 narrate model session=ses_#1 turn=turn_#64 claude-sonnet-#-# answered in <n> (first token <n>): #,# tokens in, # out, $#.#; it ended its turn.
 narrate loop session=ses_#1 turn=turn_#64 Stopping: the model ended its turn.
 narrate turn session=ses_#1 turn=turn_#64 Turn …#64 ended after # loop in <n>: # tool calls, # tokens out, $#.#; the model ended its turn.
@@ -726,7 +726,7 @@ narrate session session=ses_#1 turn=- Woken by new input from test.
 narrate turn session=ses_#1 turn=turn_#70 Turn …#70 started by test on sonnet (claude-sonnet-#-#): # characters of input; up to # loops.
 narrate loop session=ses_#1 turn=turn_#70 Loop # of up to #.
 narrate context session=ses_#1 turn=turn_#70 Context: appending to compilation …#5: prefix # node + tail #, # messages, about #,# tokens.
-narrate model session=ses_#1 turn=turn_#70 Calling claude-sonnet-#-# on anthropic: reserving $#.# ($#.# for #,# output tokens, $#.# for about #,# input tokens).
+narrate model session=ses_#1 turn=turn_#70 Calling claude-sonnet-#-# on anthropic: reserving $#.# ($#.# for #,# output tokens, $#.# for about #,# input tokens and the estimate's margin).
 narrate model session=ses_#1 turn=turn_#70 claude-sonnet-#-# answered in <n> (first token <n>): #,# tokens in, # out, $#.#; it stopped to call # tool.
 narrate tool session=ses_#1 turn=turn_#70 fs.write stop.txt: posture approve ([policy.tools] "fs.write" = approve), waiting for approval.
 narrate loop session=ses_#1 turn=turn_#70 Stopping: a call waits for approval.
@@ -802,7 +802,7 @@ narrate tool session=ses_#1 turn=turn_#78 fs.write stopped by discord:operator.
 narrate turn session=ses_#1 turn=turn_#78 Caught up on the time between turns: # pending call answered.
 narrate loop session=ses_#1 turn=turn_#78 Loop # of up to #.
 narrate context session=ses_#1 turn=turn_#78 Context: appending to compilation …#5: prefix # node + tail #, # messages, about #,# tokens.
-narrate model session=ses_#1 turn=turn_#78 Calling claude-sonnet-#-# on anthropic: reserving $#.# ($#.# for #,# output tokens, $#.# for about #,# input tokens).
+narrate model session=ses_#1 turn=turn_#78 Calling claude-sonnet-#-# on anthropic: reserving $#.# ($#.# for #,# output tokens, $#.# for about #,# input tokens and the estimate's margin).
 narrate model session=ses_#1 turn=turn_#78 claude-sonnet-#-# answered in <n> (first token <n>): #,# tokens in, # out, $#.#; it ended its turn.
 narrate loop session=ses_#1 turn=turn_#78 Stopping: the model ended its turn.
 narrate turn session=ses_#1 turn=turn_#78 Turn …#78 ended after # loop in <n>: # tool calls, # tokens out, $#.#; the model ended its turn.
@@ -841,7 +841,7 @@ narrate session session=ses_#1 turn=- Woken by new input from test.
 narrate turn session=ses_#1 turn=turn_#83 Turn …#83 started by test on sonnet (claude-sonnet-#-#): # characters of input; up to # loops.
 narrate loop session=ses_#1 turn=turn_#83 Loop # of up to #.
 narrate context session=ses_#1 turn=turn_#83 Context: appending to compilation …#5: prefix # node + tail #, # messages, about #,# tokens.
-narrate model session=ses_#1 turn=turn_#83 Calling claude-sonnet-#-# on anthropic: reserving $#.# ($#.# for #,# output tokens, $#.# for about #,# input tokens).
+narrate model session=ses_#1 turn=turn_#83 Calling claude-sonnet-#-# on anthropic: reserving $#.# ($#.# for #,# output tokens, $#.# for about #,# input tokens and the estimate's margin).
 narrate model session=ses_#1 turn=turn_#83 claude-sonnet-#-# failed after <n>: invalid_request; the call is settled as failed.
 narrate turn session=ses_#1 turn=turn_#83 Turn …#83 failed (invalid_request) in loop #, before any loop finished; it spent $#.
 narrate session session=ses_#1 turn=turn_#83 Parked until the next input.
@@ -878,7 +878,7 @@ narrate session session=ses_#1 turn=- The driver resumes execution …#2: it was
 narrate turn session=ses_#1 turn=turn_#86 Continuation turn …#86 started by the harness on sonnet (claude-sonnet-#-#): no new input; up to # loops.
 narrate loop session=ses_#1 turn=turn_#86 Loop # of up to #.
 narrate context session=ses_#1 turn=turn_#86 Context: appending to compilation …#5: prefix # node + tail #, # messages, about #,# tokens.
-narrate model session=ses_#1 turn=turn_#86 Calling claude-sonnet-#-# on anthropic: reserving $#.# ($#.# for #,# output tokens, $#.# for about #,# input tokens).
+narrate model session=ses_#1 turn=turn_#86 Calling claude-sonnet-#-# on anthropic: reserving $#.# ($#.# for #,# output tokens, $#.# for about #,# input tokens and the estimate's margin).
 narrate model session=ses_#1 turn=turn_#86 claude-sonnet-#-# failed after <n>: invalid_request; the call is settled as failed.
 narrate turn session=ses_#1 turn=turn_#86 Turn …#86 failed (invalid_request) in loop #, before any loop finished; it spent $#.
 narrate session session=ses_#1 turn=turn_#86 Parked until the next input.
@@ -980,7 +980,7 @@ narrate session session=ses_#1 turn=- Woken by new input from test.
 narrate turn session=ses_#1 turn=turn_#90 Turn …#90 started by test on sonnet (claude-sonnet-#-#): # characters of input; up to # loops.
 narrate loop session=ses_#1 turn=turn_#90 Loop # of up to #.
 narrate context session=ses_#1 turn=turn_#90 Context: appending to compilation …#5: prefix # node + tail #, # messages, about #,# tokens.
-narrate model session=ses_#1 turn=turn_#90 Calling claude-sonnet-#-# on anthropic: reserving $#.# ($#.# for #,# output tokens, $#.# for about #,# input tokens).
+narrate model session=ses_#1 turn=turn_#90 Calling claude-sonnet-#-# on anthropic: reserving $#.# ($#.# for #,# output tokens, $#.# for about #,# input tokens and the estimate's margin).
 narrate model session=ses_#1 turn=turn_#90 claude-sonnet-#-# answered in <n> (first token <n>): #,# tokens in, # out, $#.#; it stopped to call # tool.
 narrate tool session=ses_#1 turn=turn_#90 task.create: posture notify (enforcement = notify), running and telling the operator.
 narrate session session=ses_#1 turn=turn_#90 Task #94 started ("Count to three.", 📎 # piece): its session …#94 runs on its own with $# carved from the $#.# this session had left, and reports to discord:dm:#.
@@ -990,7 +990,7 @@ narrate tool session=ses_#1 turn=turn_#90 task.create done in <n>: # lines (# by
 narrate loop session=ses_#1 turn=turn_#90 Loop #: continuing, because the model asked for # tool and it has an answer.
 narrate loop session=ses_#1 turn=turn_#90 Loop # of up to #.
 narrate context session=ses_#1 turn=turn_#90 Context: appending to compilation …#5: prefix # node + tail #, # messages, about #,# tokens.
-narrate model session=ses_#1 turn=turn_#90 Calling claude-sonnet-#-# on anthropic: reserving $#.# ($#.# for #,# output tokens, $#.# for about #,# input tokens).
+narrate model session=ses_#1 turn=turn_#90 Calling claude-sonnet-#-# on anthropic: reserving $#.# ($#.# for #,# output tokens, $#.# for about #,# input tokens and the estimate's margin).
 narrate model session=ses_#1 turn=turn_#90 claude-sonnet-#-# answered in <n> (first token <n>): #,# tokens in, # out, $#.#; it ended its turn.
 narrate loop session=ses_#1 turn=turn_#90 Stopping: the model ended its turn.
 narrate turn session=ses_#1 turn=turn_#90 Turn …#90 ended after # loops in <n>: # tool call, # tokens out, $#.#; the model ended its turn.
@@ -1050,7 +1050,7 @@ narrate session session=ses_#94 turn=- The driver resumes execution …#94: it w
 narrate turn session=ses_#94 turn=turn_#102 Continuation turn …#102 started by the harness on sonnet (claude-sonnet-#-#): no new input; up to # loops.
 narrate loop session=ses_#94 turn=turn_#102 Loop # of up to #.
 narrate context session=ses_#94 turn=turn_#102 Context: new compilation …#101 (transcript) because the session is new: prefix # nodes + tail #, # message, about #,# tokens.
-narrate model session=ses_#94 turn=turn_#102 Calling claude-sonnet-#-# on anthropic: reserving $#.# ($#.# for #,# output tokens, $#.# for about #,# input tokens).
+narrate model session=ses_#94 turn=turn_#102 Calling claude-sonnet-#-# on anthropic: reserving $#.# ($#.# for #,# output tokens, $#.# for about #,# input tokens and the estimate's margin).
 narrate model session=ses_#94 turn=turn_#102 claude-sonnet-#-# answered in <n> (first token <n>): #,# tokens in, # out, $#.#; it ended its turn.
 narrate loop session=ses_#94 turn=turn_#102 Stopping: the model ended its turn.
 narrate turn session=ses_#94 turn=turn_#102 Turn …#102 ended after # loop in <n>: # tool calls, # tokens out, $#.#; the model ended its turn.
@@ -1114,7 +1114,7 @@ narrate turn session=ses_#1 turn=turn_#107 Turn …#107 started by test on sonne
 narrate turn session=ses_#1 turn=turn_#107 Caught up on the time between turns: # task report read.
 narrate loop session=ses_#1 turn=turn_#107 Loop # of up to #.
 narrate context session=ses_#1 turn=turn_#107 Context: appending to compilation …#5: prefix # node + tail #, # messages, about #,# tokens.
-narrate model session=ses_#1 turn=turn_#107 Calling claude-sonnet-#-# on anthropic: reserving $#.# ($#.# for #,# output tokens, $#.# for about #,# input tokens).
+narrate model session=ses_#1 turn=turn_#107 Calling claude-sonnet-#-# on anthropic: reserving $#.# ($#.# for #,# output tokens, $#.# for about #,# input tokens and the estimate's margin).
 narrate model session=ses_#1 turn=turn_#107 claude-sonnet-#-# answered in <n> (first token <n>): #,# tokens in, # out, $#.#; it ended its turn.
 narrate loop session=ses_#1 turn=turn_#107 Stopping: the model ended its turn.
 narrate turn session=ses_#1 turn=turn_#107 Turn …#107 ended after # loop in <n>: # tool calls, # tokens out, $#.#; the model ended its turn.
@@ -1220,7 +1220,7 @@ narrate session session=ses_#112 turn=- Woken by new input from test.
 narrate turn session=ses_#112 turn=turn_#115 Turn …#115 started by test on sonnet (claude-sonnet-#-#): # characters of input; up to # loops.
 narrate loop session=ses_#112 turn=turn_#115 Loop # of up to #.
 narrate context session=ses_#112 turn=turn_#115 Context: new compilation …#116 (transcript) because the session is new: prefix # node + tail #, # message, about #,# tokens.
-narrate model session=ses_#112 turn=turn_#115 Calling claude-sonnet-#-# on anthropic: reserving $#.# ($#.# for #,# output tokens, $#.# for about #,# input tokens).
+narrate model session=ses_#112 turn=turn_#115 Calling claude-sonnet-#-# on anthropic: reserving $#.# ($#.# for #,# output tokens, $#.# for about #,# input tokens and the estimate's margin).
 narrate model session=ses_#112 turn=turn_#115 claude-sonnet-#-# answered in <n> (first token <n>): #,# tokens in, # out, $#.#; it stopped to call # tool.
 narrate tool session=ses_#112 turn=turn_#115 wake.at: posture notify (enforcement = notify), running and telling the operator.
 narrate session session=ses_#112 turn=turn_#115 Wake #120 set for #-#-# #:#:# ±#:# (in <n>): "check the build"; # of # pending.
@@ -1228,7 +1228,7 @@ narrate tool session=ses_#112 turn=turn_#115 wake.at done in <n>: # lines (# byt
 narrate loop session=ses_#112 turn=turn_#115 Loop #: continuing, because the model asked for # tool and it has an answer.
 narrate loop session=ses_#112 turn=turn_#115 Loop # of up to #.
 narrate context session=ses_#112 turn=turn_#115 Context: appending to compilation …#116: prefix # node + tail #, # messages, about #,# tokens.
-narrate model session=ses_#112 turn=turn_#115 Calling claude-sonnet-#-# on anthropic: reserving $#.# ($#.# for #,# output tokens, $#.# for about #,# input tokens).
+narrate model session=ses_#112 turn=turn_#115 Calling claude-sonnet-#-# on anthropic: reserving $#.# ($#.# for #,# output tokens, $#.# for about #,# input tokens and the estimate's margin).
 narrate model session=ses_#112 turn=turn_#115 claude-sonnet-#-# answered in <n> (first token <n>): #,# tokens in, # out, $#.#; it ended its turn.
 narrate loop session=ses_#112 turn=turn_#115 Stopping: the model ended its turn.
 narrate turn session=ses_#112 turn=turn_#115 Turn …#115 ended after # loops in <n>: # tool call, # tokens out, $#.#; the model ended its turn.
@@ -1293,7 +1293,7 @@ narrate session session=ses_#112 turn=turn_#126 Wake #120 came due: "check the b
 narrate turn session=ses_#112 turn=turn_#126 Caught up on the time between turns: # wake came due.
 narrate loop session=ses_#112 turn=turn_#126 Loop # of up to #.
 narrate context session=ses_#112 turn=turn_#126 Context: appending to compilation …#116: prefix # node + tail #, # messages, about #,# tokens.
-narrate model session=ses_#112 turn=turn_#126 Calling claude-sonnet-#-# on anthropic: reserving $#.# ($#.# for #,# output tokens, $#.# for about #,# input tokens).
+narrate model session=ses_#112 turn=turn_#126 Calling claude-sonnet-#-# on anthropic: reserving $#.# ($#.# for #,# output tokens, $#.# for about #,# input tokens and the estimate's margin).
 narrate model session=ses_#112 turn=turn_#126 claude-sonnet-#-# answered in <n> (first token <n>): #,# tokens in, # out, $#.#; it ended its turn.
 narrate loop session=ses_#112 turn=turn_#126 Stopping: the model ended its turn.
 narrate turn session=ses_#112 turn=turn_#126 Turn …#126 ended after # loop in <n>: # tool calls, # tokens out, $#.#; the model ended its turn.
@@ -1386,7 +1386,7 @@ narrate session session=ses_#130 turn=- Woken by new input from test.
 narrate turn session=ses_#130 turn=turn_#134 Turn …#134 started by test on sonnet (claude-sonnet-#-#): # characters of input; up to # loops.
 narrate loop session=ses_#130 turn=turn_#134 Loop # of up to #.
 narrate context session=ses_#130 turn=turn_#134 Context: new compilation …#135 (transcript) because the session is new: prefix # node + tail #, # message, about #,# tokens.
-narrate model session=ses_#130 turn=turn_#134 Calling claude-sonnet-#-# on anthropic: reserving $#.# ($#.# for #,# output tokens, $#.# for about #,# input tokens).
+narrate model session=ses_#130 turn=turn_#134 Calling claude-sonnet-#-# on anthropic: reserving $#.# ($#.# for #,# output tokens, $#.# for about #,# input tokens and the estimate's margin).
 narrate model session=ses_#130 turn=turn_#134 claude-sonnet-#-# answered in <n> (first token <n>): #,# tokens in, #,# out, $#.#; it stopped to call # tool.
 narrate tool session=ses_#130 turn=turn_#134 text.diff: posture open ([policy.tools] "text.diff" = open), running.
 narrate tool session=ses_#130 turn=turn_#134 text.diff done in <n>: # lines (# bytes).
@@ -1463,7 +1463,7 @@ narrate turn session=ses_#130 turn=turn_#144 Continuation turn …#144 started b
 narrate turn session=ses_#130 turn=turn_#144 Caught up on the time between turns: the spend was reset, so the waiting call proceeds, # action settled.
 narrate loop session=ses_#130 turn=turn_#144 Loop # of up to #.
 narrate context session=ses_#130 turn=turn_#144 Context: appending to compilation …#135: prefix # node + tail #, # messages, about #,# tokens.
-narrate model session=ses_#130 turn=turn_#144 Calling claude-sonnet-#-# on anthropic: reserving $#.# ($#.# for #,# output tokens, $#.# for about #,# input tokens).
+narrate model session=ses_#130 turn=turn_#144 Calling claude-sonnet-#-# on anthropic: reserving $#.# ($#.# for #,# output tokens, $#.# for about #,# input tokens and the estimate's margin).
 narrate model session=ses_#130 turn=turn_#144 claude-sonnet-#-# answered in <n> (first token <n>): #,# tokens in, # out, $#.#; it ended its turn.
 narrate loop session=ses_#130 turn=turn_#144 Stopping: the model ended its turn.
 narrate turn session=ses_#130 turn=turn_#144 Turn …#144 ended after # loop in <n>: # tool calls, # tokens out, $#.#; the model ended its turn.

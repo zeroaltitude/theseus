@@ -2179,8 +2179,8 @@ impl TurnRunner {
                 ),
             }));
         };
-        // The output cap at the output price, the input estimate at the input price.
-        let reserve = price.reserve_micros(target.max_tokens, compiled.est_tokens);
+        // The output cap at the output price, the input estimate's upper bound at the input price.
+        let reserve = price.reserve_micros(target.max_tokens, compiled.estimate.upper);
         let o0 = t.trace.now_us();
         // It never needs a confirm, so its plan, authorization, and dispatch
         // are one frame, with the loop's rows in front (theseus-qa0), and
@@ -2259,7 +2259,7 @@ impl TurnRunner {
             action: &action,
             reserve,
             output_micros: price.reserve_micros(target.max_tokens, 0),
-            input_micros: price.reserve_micros(0, compiled.est_tokens),
+            input_micros: price.reserve_micros(0, compiled.estimate.upper),
             est_tokens: compiled.est_tokens,
             digest: &compiled.digest,
             o0,

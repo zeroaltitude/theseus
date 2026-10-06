@@ -3660,7 +3660,7 @@ async fn an_ordinary_over_budget_call_still_asks_resets_and_goes_ahead() {
 /// One call's reservation and settlement in dollars, by hand from the
 /// catalog (Sonnet 5.5: $2 in, $10 out, $0.20 cache read, $2.50 cache write
 /// per million tokens). The call reserves 128,000 output tokens at $10 plus
-/// the compiler's input estimate at $2, and settles at 1,200 in, 900 out,
+/// the estimate's upper bound at $2, and settles at 1,200 in, 900 out,
 /// 40,000 cache reads, and 3,000 cache writes: $0.0024 + $0.009 + $0.008 +
 /// $0.0075 = $0.0269, in the budget, the session, and the ledger alike.
 #[tokio::test]
@@ -3691,7 +3691,9 @@ async fn one_calls_reservation_and_settlement_match_the_catalog_by_hand() {
         .iter()
         .find(|p| p["tool"] == "provider.messages")
         .unwrap();
-    let reserved = 128_000 * 10 + est * 2;
+    // On the estimate's upper bound, as a summary's call is (theseus-ps9i).
+    let upper = estimate["upper"].as_u64().unwrap();
+    let reserved = 128_000 * 10 + upper * 2;
     assert_eq!(
         call["reserved_usd"],
         json!(theseus_kernel::micros_to_usd(reserved)),

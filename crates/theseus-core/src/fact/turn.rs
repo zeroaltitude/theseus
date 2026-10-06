@@ -874,7 +874,8 @@ pub struct ModelCalling<'a> {
     pub target: &'a Target,
     pub action: &'a Action,
     /// The reservation: the whole, and the output cap's and the input
-    /// estimate's parts.
+    /// estimate's parts. The input's is priced on the estimate's upper bound
+    /// (theseus-ps9i), and `est_tokens` is the estimate itself, margin left out.
     pub reserve: Micros,
     pub output_micros: Micros,
     pub input_micros: Micros,
@@ -907,7 +908,7 @@ impl Fact for ModelCalling<'_> {
             Model,
             format!(
                 "Calling {} on {}: reserving {} ({} for {} output tokens, {} for about {} input \
-                 tokens).",
+                 tokens and the estimate's margin).",
                 t.model,
                 t.provider,
                 narrative::dollars(self.reserve),
