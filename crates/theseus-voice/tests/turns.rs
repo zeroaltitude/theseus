@@ -343,6 +343,45 @@ async fn a_yeah_over_a_reply_goes_on_and_a_short_mm_hm_stops_nothing() {
 }
 
 #[tokio::test(start_paused = true)]
+async fn a_mhmm_and_an_oh_okay_over_a_long_reply_resume_it() {
+    let dir = tempfile::tempdir().unwrap();
+    // "Mhmm" from 1.5 s stops it at 1.8 s; it closes at 2.8 s, and the
+    // first sentence plays again. "Oh, okay." from 3.5 s stops the replay
+    // at 3.8 s; it closes at 4.8 s, and it plays again, then on.
+    let io = asked(dir.path(), 16_000)
+        .say(ROBIN, 1500, 600)
+        .say(ROBIN, 3500, 600)
+        .io;
+    let speech = Arc::new(
+        StandInSpeech::new()
+            .transcript(ROBIN, "Mhmm.")
+            .transcript(ROBIN, "Oh, okay."),
+    );
+    let (seen, played) = call(io, speech, first(three()), vec![]).await;
+    let back = |at: u64| Event::Resumed {
+        what: Spoken::Reply(TurnId(0)),
+        why: HeardAs::Backchannel,
+        held: ms(at),
+    };
+    assert_eq!(
+        only(&seen, resumed),
+        [(ms(2800), back(1000)), (ms(4800), back(1000))]
+    );
+    assert_eq!(
+        starts(&played),
+        [
+            (ms(1200), len(S1), true),
+            (ms(2800), len(S1), true),
+            (ms(4800), len(S1), false),
+            (ms(4800) + len(S1), len(S2), false),
+            (ms(4800) + len(S1) + len(S2), len(S3), false),
+        ]
+    );
+    assert_eq!(turns(&seen).len(), 1, "neither is a turn");
+    assert!(only(&seen, cuts).is_empty());
+}
+
+#[tokio::test(start_paused = true)]
 async fn a_yeah_after_a_closing_question_is_a_turn() {
     let dir = tempfile::tempdir().unwrap();
     let reply = "Here is the plan. Should I deploy it now?";

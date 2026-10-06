@@ -34,7 +34,9 @@ pub enum Overlap {
     None,
 }
 
-/// A listener's short sounds of assent, each as its words.
+/// A listener's short sounds of assent, each as its words: only what never
+/// carries an answer alone said over a reply, since a backchannel over one
+/// never cuts it. A speech-to-text provider writes "mm-hmm" many ways.
 const BACKCHANNELS: &[&[&str]] = &[
     &["yeah"],
     &["yes"],
@@ -46,10 +48,18 @@ const BACKCHANNELS: &[&[&str]] = &[
     &["sure"],
     &["uh", "huh"],
     &["mm", "hm"],
+    &["mm", "hmm"],
     &["mhm"],
+    &["mhmm"],
+    &["mmhm"],
+    &["mmhmm"],
     &["mm"],
+    &["mmm"],
     &["hm"],
     &["hmm"],
+    &["uhhuh"],
+    &["uh", "hum"],
+    &["gotcha"],
     &["cool"],
     &["nice"],
     &["alright"],
@@ -123,7 +133,8 @@ fn longest_run(a: &[String], b: &[String]) -> usize {
     best
 }
 
-/// At most 3 words, all from the backchannels' list.
+/// At most 3 words, all from the backchannels' list, each maybe after an
+/// "oh" ("oh okay", "oh yeah").
 pub fn is_backchannel(text: &str) -> bool {
     let heard = words(text);
     if heard.is_empty() || heard.len() > BACKCHANNEL_WORDS {
@@ -131,6 +142,10 @@ pub fn is_backchannel(text: &str) -> bool {
     }
     let mut rest = heard.as_slice();
     while !rest.is_empty() {
+        if rest.len() > 1 && rest[0] == "oh" {
+            rest = &rest[1..];
+            continue;
+        }
         let Some(phrase) = BACKCHANNELS
             .iter()
             .filter(|p| rest.len() >= p.len() && rest.iter().zip(p.iter()).all(|(a, b)| a == b))
@@ -243,6 +258,15 @@ mod tests {
             "yeah yeah yeah",
             "Right, sure",
             "Mhm.",
+            "Mhmm.",
+            "Mmhmm",
+            "Mm-hmm.",
+            "mmhm",
+            "Uh huh",
+            "Gotcha.",
+            "Oh, okay.",
+            "Oh yeah.",
+            "oh, I see",
         ] {
             assert!(is_backchannel(yes), "{yes}");
         }
@@ -252,6 +276,10 @@ mod tests {
             "got",
             "stop",
             "okay wait",
+            "oh",
+            "oh no",
+            "okay oh",
+            "oh okay got it",
             "",
         ] {
             assert!(!is_backchannel(no), "{no}");
