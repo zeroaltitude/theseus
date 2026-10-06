@@ -48,6 +48,7 @@ impl TurnRunner {
                 kernel: self.kernel.clone(),
                 route,
                 chosen: t.target.chosen.clone(),
+                task: t.tc.task.is_some(),
             },
         );
         Self::route_asked(t, wait, route, images);

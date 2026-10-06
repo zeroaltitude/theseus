@@ -110,6 +110,7 @@ impl TurnRunner {
             execution_id: t.tc.execution_id,
             turn_id: t.tc.turn_id,
             loop_index: i,
+            task: t.tc.task.is_some(),
             kernel: &self.kernel,
         };
         if let Some(mark) = self.judge.at_compile(compiled, at) {

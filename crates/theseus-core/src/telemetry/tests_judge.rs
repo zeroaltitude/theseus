@@ -123,3 +123,114 @@ async fn the_judges_metrics_carry_their_names_and_attributes() {
         ])
     );
 }
+
+/// A judged turn's inbound and compile judgments carry a workload class in
+/// their context, and the judge's metrics count them under it (theseus-fi5n):
+/// the inbound point's packs judge before the turn has run, so their class
+/// is `unknown` on purpose (a task's message is `task`); the compile
+/// point's, at a conversation's first loop, is `reply`.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_inbound_and_compile_judgments_carry_their_class_and_the_metrics_count_it() {
+    use crate::config::{JudgePackConfig, PackMode, SignalsConfig};
+    use crate::tests_judge::{judge_config, off};
+
+    let rx = Receiver::start(vec![]).await;
+    let jev = FakeJev::start().unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let mut cfg = judge_config(dir.path(), Some(&jev));
+    cfg.judge.signals = SignalsConfig {
+        dormancy_minutes: 0,
+        ..SignalsConfig::default()
+    };
+    let on = ["classify.v1", "role.v1", "continue.v1"];
+    for (pack, _) in crate::judge::WIRED {
+        let mode = if on.contains(pack) {
+            PackMode::Shadow
+        } else {
+            PackMode::Off
+        };
+        cfg.judge.packs.insert(
+            (*pack).into(),
+            JudgePackConfig {
+                mode: Some(mode),
+                ..off()
+            },
+        );
+    }
+    cfg.validate().unwrap();
+    let store = Store::open(&dir.path().join("store")).unwrap();
+    let fake = std::sync::Arc::new(crate::provider::FakeProvider::scripted(texts(2)));
+    let mut p = Parts::for_tests(cfg, fake, store);
+    p.secrets = board();
+    p.telemetry = Some(pipeline(
+        &rx.endpoint(),
+        None,
+        Tuning {
+            interval: Duration::from_millis(200),
+            ..tuning()
+        },
+    ));
+    let core = Core::build(p).unwrap();
+    let first = turn(&core, None, "Say done.").await;
+    tokio::time::sleep(Duration::from_millis(30)).await;
+    turn(&core, Some(&first.session_id), "And again.").await;
+    // Two messages' classify and role, and the second turn's continue.
+    let t0 = std::time::Instant::now();
+    let rows: Vec<crate::ledger::LedgerRow> = loop {
+        let rows: Vec<crate::ledger::LedgerRow> =
+            ["judge:classify", "judge:role", "judge:continue"]
+                .iter()
+                .flat_map(|scope| core.store.scope_after(scope, 0).unwrap())
+                .map(|r| r.decode().unwrap())
+                .collect();
+        if rows.len() >= 5 {
+            break rows;
+        }
+        assert!(
+            t0.elapsed() < Duration::from_secs(20),
+            "{} of 5 rows",
+            rows.len()
+        );
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    };
+    let class_of = |pack: &str| -> Vec<Value> {
+        rows.iter()
+            .filter(|r| r.data["pack"] == pack)
+            .map(|r| r.data["context"]["class"].clone())
+            .collect()
+    };
+    assert_eq!(class_of("classify.v1"), ["unknown", "unknown"]);
+    assert_eq!(class_of("role.v1"), ["unknown", "unknown"]);
+    assert_eq!(class_of("continue.v1"), ["reply"]);
+
+    let got = rx
+        .until("the judge's metrics by class", |g| {
+            points_of(&last_metrics(g), "theseus.judge.calls")
+                .iter()
+                .map(|p| {
+                    p["asInt"]
+                        .as_str()
+                        .unwrap_or("0")
+                        .parse::<u64>()
+                        .unwrap_or(0)
+                })
+                .sum::<u64>()
+                >= 5
+        })
+        .await;
+    let m = last_metrics(&got);
+    let count = |pack: &str, class: &str| -> u64 {
+        points_of(&m, "theseus.judge.calls")
+            .into_iter()
+            .filter(|p| {
+                let a = attrs_of(p);
+                a.get("theseus.judge.pack").map(String::as_str) == Some(pack)
+                    && a.get("theseus.judge.class").map(String::as_str) == Some(class)
+            })
+            .map(|p| p["asInt"].as_str().unwrap().parse::<u64>().unwrap())
+            .sum()
+    };
+    assert_eq!(count("classify.v1", "unknown"), 2);
+    assert_eq!(count("role.v1", "unknown"), 2);
+    assert_eq!(count("continue.v1", "reply"), 1);
+}
