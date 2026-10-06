@@ -700,6 +700,7 @@ mod tests {
             ("swap", summary(58.2, 71.0)),
             ("restore", summary(115.9, 125.2)),
             ("seed", summary(1.2, 1.9)),
+            ("cancel", summary(41.1, 43.2)),
         ]
         .into_iter()
         .map(|(n, s)| (n.to_string(), s))
@@ -728,7 +729,8 @@ mod tests {
                 Some(175.0),
                 Some(202.0),
                 None,
-                None
+                None,
+                Some(250.0)
             ],
             "each limit is the budget plus the margin; restore and the seed have none"
         );
@@ -737,8 +739,8 @@ mod tests {
             line,
             format!(
                 "2026-10-01T10:20:11-07:00,lane/fastgate ecfc574-dirty,3.25,\
-             23.8,33.5,57,23.8,35.3,57,41.6,51.9,104,,,,42.4,49.9,175,58.2,71,202,115.9,125.2,,1.2,1.9,\
-             {},true,",
+             23.8,33.5,57,23.8,35.3,57,41.6,51.9,104,,,,42.4,49.9,175,58.2,71,202,115.9,125.2,,1.2,1.9,,\
+             41.1,43.2,250{},true,",
                 // The other benches' columns, empty: three cells for each.
                 // The last cell, the allowance, is empty: the run passed strictly.
                 ",".repeat(3 * OTHER.len())
