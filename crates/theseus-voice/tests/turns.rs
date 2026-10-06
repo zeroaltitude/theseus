@@ -86,13 +86,44 @@ async fn call_with(
     config: Config,
     io: WavIo,
     speech: Arc<dyn Speech>,
+    answer: Answer,
+    reports: Vec<(Duration, &'static str)>,
+) -> (Vec<(Duration, Event)>, Vec<Played>) {
+    run(config, io, speech, answer, reports, None).await
+}
+
+/// As [`call`], and the session leaves at `leave`.
+async fn call_leaving(
+    io: WavIo,
+    speech: Arc<dyn Speech>,
+    answer: Answer,
+    reports: Vec<(Duration, &'static str)>,
+    leave: Duration,
+) -> (Vec<(Duration, Event)>, Vec<Played>) {
+    let mut config = Config::new([OWNER, ROBIN]);
+    config.acknowledge_after = Duration::from_secs(60);
+    run(config, io, speech, answer, reports, Some(leave)).await
+}
+
+async fn run(
+    config: Config,
+    io: WavIo,
+    speech: Arc<dyn Speech>,
     mut answer: Answer,
     reports: Vec<(Duration, &'static str)>,
+    leave: Option<Duration>,
 ) -> (Vec<(Duration, Event)>, Vec<Played>) {
     let origin = Instant::now();
     let played = io.played();
     let (engine, handle) = Engine::new(config, Box::new(io), speech);
     let engine = tokio::spawn(engine.run());
+    if let Some(at) = leave {
+        let commands = handle.commands.clone();
+        tokio::spawn(async move {
+            sleep_until(origin + at).await;
+            let _ = commands.send(Command::Leave);
+        });
+    }
     for (at, text) in reports {
         let commands = handle.commands.clone();
         tokio::spawn(async move {
@@ -1512,4 +1543,70 @@ async fn a_speaker_talking_10_s_in_one_breath_is_still_waited_for() {
             )]
         )
     );
+}
+
+#[tokio::test(start_paused = true)]
+async fn another_speakers_words_supersede_a_waiting_reply() {
+    // The owner's turn is at 1.2 s, and its reply comes at 3.0 s, while Robin,
+    // who has no part in that turn, talks from 2.5 s to 3.5 s. The reply waits
+    // for his utterance, closed at 4.2 s, and its transcript: his words
+    // supersede it, and are the next turn (theseus-e6mj).
+    let script: &'static [(u64, &'static str)] = &[(1800, "Here are the logs.")];
+    let dir = tempfile::tempdir().unwrap();
+    let io = asked(dir.path(), 8000).say(ROBIN, 2500, 1000).io;
+    let speech = Arc::new(
+        StandInSpeech::new()
+            .transcript(OWNER, "show me the logs")
+            .transcript(ROBIN, "the ones from last night too"),
+    );
+    let (seen, played) = call(io, speech, answers(script), vec![]).await;
+    assert!(played.is_empty(), "{played:?}");
+    let closed = ms(4200);
+    assert_eq!(
+        only(&seen, cuts),
+        [(
+            closed,
+            Event::Cut {
+                what: Spoken::Reply(TurnId(0)),
+                why: CutWhy::Superseded,
+                sentences: 1,
+                heard: 0,
+                into: Duration::ZERO,
+                last_heard: None,
+                cut: "Here are the logs.".into(),
+            }
+        )]
+    );
+    assert_eq!(
+        turns(&seen)[1],
+        (closed, vec![(ROBIN, "the ones from last night too")])
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn leaving_while_held_cuts_once_and_resumes_nothing() {
+    // A laugh from 1.5 s stops the reply at 1.8 s; `Leave` at 2.1 s, while it
+    // is held: one cut, the call's end, 600 ms into its first sentence
+    // (theseus-e6mj).
+    let dir = tempfile::tempdir().unwrap();
+    let io = asked(dir.path(), 8000).say(ROBIN, 1500, 400).io;
+    let speech = Arc::new(StandInSpeech::new().transcript(ROBIN, ""));
+    let (seen, played) = call_leaving(io, speech, first(three()), vec![], ms(2100)).await;
+    assert_eq!(
+        only(&seen, cuts),
+        [(
+            ms(2100),
+            Event::Cut {
+                what: Spoken::Reply(TurnId(0)),
+                why: CutWhy::CallEnded,
+                sentences: 3,
+                heard: 0,
+                into: ms(600),
+                last_heard: None,
+                cut: S1.into(),
+            }
+        )]
+    );
+    assert!(only(&seen, resumed).is_empty());
+    assert_eq!(starts(&played), [(ms(1200), len(S1), true)]);
 }
