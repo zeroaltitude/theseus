@@ -4,11 +4,14 @@
 //! (theseus-judge's batching), and the call's cost is split between their
 //! two judgments by question count. Nothing acts on either in M5: routing a
 //! message to a task is M7's, and the roles table and role switches are
-//! 26c's. `route.v1` (25e) rides the same request, live: its verdict goes
-//! back to the turn over a channel ([`RouteWait`]), and the call then waits
-//! for an in-flight permit (`Urgency::Live`, under the client's whole-call
-//! limit) instead of being shed. The turn waits for it beside its first
-//! compile, never before (`turn::route_step`).
+//! 26c's. `route.v1` (25e) reads the same state, live, in a request of its
+//! own beside the batch (theseus-ddbi): one question answers sooner than
+//! the batch's seven, and its verdict goes back to the turn over a channel
+//! ([`RouteWait`]) the moment it lands, whatever the batch still does. Its
+//! call waits for an in-flight permit (`Urgency::Live`, under the client's
+//! whole-call limit) instead of being shed. The turn waits for it beside its
+//! first compile, never before (`turn::route_step`). The state's input is
+//! billed twice, once a request.
 //!
 //! - **Which turns.** A turn whose input is a person's message (the CLI, the
 //!   web UI, a Discord message, a spoken one), once its input node is
@@ -351,7 +354,14 @@ impl JudgeService {
             ask.id = Some(id);
             asks.push(ask);
         }
-        let need = built.judge.inner().reserve_micros(&asks).unwrap_or(0);
+        // Two requests, each reserved as it goes out (theseus-ddbi).
+        let (route, rest): (Vec<&Ask>, Vec<&Ask>) =
+            asks.iter().partition(|a| a.pack.name() == ROUTE_PACK);
+        let reserve = |a: Vec<&Ask>| {
+            let a: Vec<Ask> = a.into_iter().cloned().collect();
+            built.judge.inner().reserve_micros(&a).unwrap_or(0)
+        };
+        let need = reserve(route) + reserve(rest);
         let beside = self.reserve_beside(today, need)?;
         Some(Ready {
             built,
@@ -494,10 +504,22 @@ pub fn verdict(j: &theseus_judge::Judgment, turn: &str) -> Option<crate::routing
     }
 }
 
-/// One inbound decision point, in its own task: every pack's ask in one
-/// `judge` call, which batches them into one request. The service is held
-/// only around the blocking half, never across the call. A live `route.v1`
-/// waits for a permit rather than being shed, under the whole-call limit.
+/// The urgency of a request whose asks run in `modes`: live when one acts
+/// (canary or live), so it waits for a permit rather than being shed.
+fn urgency_of(modes: impl Iterator<Item = PackMode>, total_secs: u64) -> Urgency {
+    let mut modes = modes;
+    match modes.any(|m| m >= PackMode::Canary) {
+        true => Urgency::live(Duration::from_secs(total_secs)),
+        false => Urgency::Shadow,
+    }
+}
+
+/// One inbound decision point, in its own task: `route.v1`'s ask in a
+/// request of its own, and the other packs' asks batched into one, the two
+/// at once (theseus-ddbi). The verdict goes to the turn as its request
+/// answers, never after the batch's. The service is held only around the
+/// blocking half, never across the calls. A live `route.v1` waits for a
+/// permit rather than being shed, under the whole-call limit.
 async fn judge_inbound(
     me: Weak<JudgeService>,
     packs: Vec<(Arc<Pack>, String, PackMode)>,
@@ -506,10 +528,21 @@ async fn judge_inbound(
 ) {
     let today = spend::local_day(theseus_protocol::now_unix_ms());
     let Some(svc) = me.upgrade() else { return };
-    let urgency = match packs.iter().any(|(_, _, m)| *m >= PackMode::Canary) {
-        true => Urgency::live(Duration::from_secs(svc.cfg.total_secs)),
-        false => Urgency::Shadow,
-    };
+    let total = svc.cfg.total_secs;
+    let route_urgency = urgency_of(
+        packs
+            .iter()
+            .filter(|(p, _, _)| p.name() == ROUTE_PACK)
+            .map(|(_, _, m)| *m),
+        total,
+    );
+    let rest_urgency = urgency_of(
+        packs
+            .iter()
+            .filter(|(p, _, _)| p.name() != ROUTE_PACK)
+            .map(|(_, _, m)| *m),
+        total,
+    );
     let turn = msg.turn_id.clone();
     let day = today.clone();
     let ready = tokio::task::spawn_blocking(move || svc.prepare_inbound(packs, &msg, &day))
@@ -529,18 +562,42 @@ async fn judge_inbound(
     // (theseus-otny).
     let wrote = beside.spawn(&me);
     let t0 = Instant::now();
-    let judgments = built.judge.judge(DecisionPoint { asks, urgency }).await;
+    let (route_asks, rest_asks): (Vec<Ask>, Vec<Ask>) =
+        asks.into_iter().partition(|a| a.pack.name() == ROUTE_PACK);
+    let routed = async {
+        if route_asks.is_empty() {
+            return Vec::new();
+        }
+        let point = DecisionPoint {
+            asks: route_asks,
+            urgency: route_urgency,
+        };
+        let judgments = built.judge.judge(point).await;
+        tracing::debug!(
+            ms = t0.elapsed().as_millis() as u64,
+            "judge: route.v1 judged"
+        );
+        if let Some(tx) = route {
+            let _ = tx.send(judgments.first().and_then(|j| verdict(j, &turn)));
+        }
+        judgments
+    };
+    let rest = async {
+        if rest_asks.is_empty() {
+            return Vec::new();
+        }
+        let point = DecisionPoint {
+            asks: rest_asks,
+            urgency: rest_urgency,
+        };
+        built.judge.judge(point).await
+    };
+    let (mut judgments, rest) = futures_util::future::join(routed, rest).await;
+    judgments.extend(rest);
     tracing::debug!(
         ms = t0.elapsed().as_millis() as u64,
         "judge: the inbound packs judged"
     );
-    if let Some(tx) = route {
-        let v = judgments
-            .iter()
-            .find(|j| j.pack == ROUTE_PACK)
-            .and_then(|j| verdict(j, &turn));
-        let _ = tx.send(v);
-    }
     if let Some(w) = wrote {
         let _ = w.await;
     }

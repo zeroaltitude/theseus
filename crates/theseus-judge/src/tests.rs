@@ -534,6 +534,25 @@ async fn a_warm_up_opens_connections_and_a_warm_client_sends_none() {
     assert!(cold.warm(), "a call's answer warms the client");
 }
 
+/// The fake's latencies (theseus-ddbi): a request of one pack's questions
+/// waits `single`, a batch of several packs' `batch`.
+#[tokio::test]
+async fn the_fakes_latency_is_by_the_packs_a_request_asks() {
+    let fake = FakeJev::start().unwrap();
+    fake.set_latency(Duration::ZERO, Duration::from_millis(400));
+    let client = client_for(&fake, 4000, 8);
+    let one = discovery_request();
+    let mut two = one.clone();
+    let (id, q) = two.questions[0].clone();
+    two.questions.push((id.replacen("/", "-other/", 1), q));
+    let t0 = std::time::Instant::now();
+    assert!(client.call(&one, Urgency::Shadow).await.result.is_ok());
+    assert!(t0.elapsed() < Duration::from_millis(400));
+    let t0 = std::time::Instant::now();
+    let _ = client.call(&two, Urgency::Shadow).await;
+    assert!(t0.elapsed() >= Duration::from_millis(400));
+}
+
 /// Unreachable: a try that fails to connect, with no answer since. A
 /// closed loopback port refuses on most machines and drops on this one;
 /// either way the connect fails within its timeout.
