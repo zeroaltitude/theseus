@@ -586,7 +586,7 @@ cutting stays the right call. With `fsync: false` (the benches) the marks, like 
 synced, so a torn frame there is refused, not cut.
 
 **Known gaps.** theseus-c67g (P3, post-v1): a reopened log never syncs the directory of the last segment it recovered (a
-crash before a new segment's first sync), a gap in theseus-xprd's rule found while reading the sync path. A reader of
+crash before a new segment's first sync), a gap in theseus-xprd's rule found while reading the sync path. _(Closed 2026-10-05 by wal-sync, theseus-c67g, Part III Item 176: an open that finds its last segment syncs the log's directory with its first frame. Since 2026-10-06 that sync is skipped when the index's checkpoint or a mark vouches for the segment's name; Part III Item 196.)_ A reader of
 the WAL outside the store must now tell the two frame layouts apart by their magic.
 
 ### Item 93. Benchmark plumbing: secrets from outside the vault for everyone, a headless run that says how it ended, and the Harbor adapter in the repo (theseus-n88g.1 to .3, after the worth spike, theseus-2sg0; Eddie's D1 to D7 of 2026-10-03 17:14; the `bench-plumbing` lane, 17:23 to 19:46, stopped from outside at 17:59 and at about 19:25, and relaunched each time; the spike's 60dfb45 merged as 9263c0f, then edaa196, f6e383b and 258d441, with `main` merged in at 413e149 and 4b80d5f; reviewed 20:05; joined 22:24 at ac65a38, a signed merge onto f3564f2, by a join wake; installed 23:31 at 96d01de)

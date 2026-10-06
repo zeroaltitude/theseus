@@ -27,7 +27,7 @@ files, +917 −58, without the cloud files; no new package, no store format chan
   HEAD carries no `s3:prefix`, so only `IfExists` lets it through; with it a missing key heads 404, and an object in
   flight at a crash is sent once. The policy is now three statements, still with no delete and no action ending in
   `*`. The test fake's HEAD arm answered 404 to anyone; it now answers by the session's policy through one helper,
-  `may_know_missing`, which the GET arm shares, and a 403 with no body, as S3 does.
+  `may_know_missing`, which the GET arm shares, and a 403 with no body, as S3 does. _(theseus-bfk9, Part III Item 198: "a HEAD carries no `s3:prefix`" is false on real S3: a HEAD's implied list carries the key as `s3:prefix`, so the statement is now `StringLike`, which refuses a list with no prefix and still lets a missing key head 404.)_
 - **Only synced frames ship** (203fc632). The bound is the writer's own `Wal::synced()`: exact, live, and in the
   process that writes the log. `WalStore::synced_to()` (theseus-store) is wrapped by the core's `Store::synced_to()`
   and handed to the shipper as `Hooks::synced_to`, a closure that holds the core by `Weak` and reads 0 once the core
@@ -84,7 +84,7 @@ files, +917 −58, without the cloud files; no new package, no store format chan
 `a_refusal_is_said_in_health_and_the_next_pass_ships` failed on main's policy too, and had passed only because of the
 fake. A frame's synced mark is a batch behind, so a bound read from the marks would never ship a quiet store's last
 write; hence the writer's `synced()`. The hands' policy needs no list statement: a hand only puts its outputs, and
-needs `StringLikeIfExists` too if it ever reads back.
+needs `StringLikeIfExists` too if it ever reads back. _(Since theseus-bfk9, Part III Item 198: `ListBucket` under `StringLike` on its prefix.)_
 
 **The join** (stack A's first; R9's dry runs clean on b07150d6, 1a08a40e and, by the joiner at 07:25, 3dba509d).
 Lock `cloud-durability-fixes-join` 07:27:49; the merge at 07:29:09 on sim2's 3dba509d was clean (git placed the
@@ -103,7 +103,7 @@ the live check still owed. The store stays at format 19.
 
 **The install** (2026-10-05 13:07 at 60b43fb6, install #4). Nothing changes while durability is off, as it is on Eddie's daemon. Once it is on:
 only synced frames ship; a missing key heads 404 and an in-flight object is sent once; health's durability line may
-read `waiting` "for the WAL's sync" for a moment; a restore stitches the tails after a sealed object. Turning it on
+read `waiting` "for the WAL's sync" for a moment; a restore stitches the tails after a sealed object. _(Health's text printed no durability line until theseus-9ai1, Part III Item 198: the status was in `--json health` alone. Durability went on for Eddie's daemon at install #6, 2026-10-06.)_ Turning it on
 waits for the live checks. Health after the restart (13:07:43): `theseusd check` exit 0, 9 secrets ready 1.05 s after the start, startup serving at 29.1 ms with builds beside it, `cgroup: delegated`, `route.v1`, `rerank.v1` and `security.v3` live, memory live on the `baseline` arm, Discord ready, and no error or warning in the journal; the store from format 16 to 20 at its first write, after the install's backup.
 
 **Divergences.** The bound is an argument to a new `read_upto`, not a field of `Batch`. The fsync-off case ships what
@@ -757,7 +757,7 @@ brief. The follower's check wraps `read` and touched no line of durability-fixes
 **Known gaps.** **theseus-3q29** (P2, FAST): skip c67g's directory sync when the open already knows a position in the
 found segment was synced (the index's checkpoint, or a mark, at or past its first position), which makes a clean
 restart free and leaves only a start after a crash to pay; its one hole is a start after an upgrade from a build that
-synced frames without the name, which ext4's ordered journal covers anyway. R9 recommended building it. **theseus-lu5n**
+synced frames without the name, which ext4's ordered journal covers anyway. R9 recommended building it. _(Built 2026-10-06, Part III Item 196, with the close for an upgraded store; its one hole, a manifest moved before the first frame's sync, is theseus-xva3.)_ **theseus-lu5n**
 (P3), above. R9's other recommendations, keeping the code as built: the log taking frames after a cut, plus a health
 count of cut batches ("the WAL cut N failed batches since start", not filed; Eddie's call); and the strict
 `found_unsynced` rule. fsync off (tests and benches only) still syncs at a roll, so a failed roll's sync there cuts
@@ -1208,3 +1208,4 @@ task edit approved in a continuation, accepted; `TurnSubmitResult.tool_calls` ke
 comment to say the metrics are the full count. theseus-kxyc and theseus-6xwq (P2), the two test gaps, soon after the
 join. The live AWS check waits for Eddie. turn.rs's long-files ceiling can drop to about 3,460; toolrun.rs and
 telemetry/tests.rs sit just under 2,500, so their next additions need a split or an entry.
+

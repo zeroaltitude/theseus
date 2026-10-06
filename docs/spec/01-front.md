@@ -1,5 +1,5 @@
 # The Ship of Theseus, chapter 1: the front matter, with the version ([index](README.md))
-# The Ship of Theseus — v0.82
+# The Ship of Theseus — v0.83
 
 _One document, three parts. Part I is the specification: what Theseus is meant to be. Part II is the build plan: the order it is built in, with the test that gates each step. Part III is the record of what was actually built, milestone by milestone, and where it diverged from Parts I and II. The document is therefore both spec and documentation; when the code and Part I disagree, Part III says so and one of them gets fixed._
 

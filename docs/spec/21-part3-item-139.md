@@ -1071,7 +1071,7 @@ health type).
 - **The restore's policy** (ac433e56, theseus-mgw.10). `ListItsPrefix` uses `StringLikeIfExists` on `s3:prefix`, so S3
   answers a missing object's `GetObject` 404 rather than 403; a list with no prefix now passes, which shows key names,
   never an object's contents outside the prefix. The tests' fake now gives each assumed role its own key, keeps its
-  session policy, and answers 404 or 403 by that policy.
+  session policy, and answers 404 or 403 by that policy. _(Superseded 2026-10-06 by theseus-bfk9, Part III Item 198: real S3 judges a missing key's HEAD or GET on the implied `s3:ListBucket` with `s3:prefix` set to the key itself, so `StringLike` already answers 404 / `NoSuchKey`, and `IfExists` only widened the list to every key name in the bucket; both sessions now use `StringLike`.)_
 - **Runaway-train mode** (5a569972, `aws/hands/runaway.rs`, 345 lines). `[aws.accounts.<id>] runaway_factor`, 10.0 by
   default and at least 2, checked at load. The figure is the hour's meter (reserved by running hands, cost of settled
   ones), per clock hour and per local day. At an `aws.hands.run` group's admission, after the session's budget check,

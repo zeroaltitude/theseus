@@ -677,6 +677,7 @@ methods.
   _As built (42a, 2026-10-04; Part III Item 130):_
   - _`budget.list`'s totals add the top rows only, since a task's spend is its parent's too and its carve is the parent's reservation; the lifetime total adds every session. Each row says where its limit comes from (`config`, `place`, `pinned`, `carve`), and the last reset is read from one ledger page of 8 rows by kind and session tag (`last_reset_unread` while the index's shape is built after a start)._
   - _`policy.explain { session_id?, tool? }`: the gate's order is written once, in `toolrun/order.rs`, which the gate and explain both run, so explain cannot drift. Its rows are the order's layers as built: `place`, `ceiling`, `class` (L0 or L1), `posture` (with the setting that says it), `tightening`, `grant`, `lsp`, `floor`, `hold` and `mcp_client`. Its probe is a call inside the roots that no condition matches, and the call-dependent layers are listed as conditions with their entries, not decided. `--session` needs the full session id._
+  - _(Since 2026-10-06, theseus-t2xr; Part III Item 205: for an edit tool in a private place, with an `lsp` board, `[lsp] edit_diagnostics` on and servers that start on an edit, the probe is `<root>/explain-probe.<ext>`, the first such server's extension, since a directory has no server and L3 could never fire on the root; an `lsp` row appears where L3 raised the posture, and an `lsp_start` condition names the servers and `proc.run`'s posture. The condition names configured servers whether installed or not, and the probe can take one that is not installed; filtering both through the gate's own installed check is a follow-up.)_
 
 **42b: three tabs (LANE, in ~~`web/`~~ `cockpit/`, which replaced `web/`; built 2026-10-05, Part III Item 165).**
 - **Budgets:**
@@ -773,7 +774,7 @@ _As built (43a, 2026-10-04; Part III Item 118): the manifest is a META record (`
 ### 2.8 Voice (steps 44 and 45)
 
 **Today:** nothing. The binding is text only (twilight's gateway and REST, with no voice intents). There is
-no songbird in the tree, and an existing voice agent (Python, LiveKit) holds the working knowledge: its barge-in, and its
+no songbird in the tree, and an existing voice agent holds the working knowledge: its barge-in, and its
 Deepgram setup.
 
 **The shape:** `theseus-voice`, a new crate behind a cargo feature, `voice`, one of §3.12's compiled-in
@@ -810,9 +811,10 @@ feature crates (LANE). It holds:
 - The reply is split at sentence ends and synthesized one sentence at a time, so the first audio starts after
   the first sentence.
 - **Barge-in** (from that voice agent): a listed user who speaks for 300 ms while Theseus talks stops the track and
-  drops the rest. The text channel still gets the whole reply.
+  drops the rest. The text channel still gets the whole reply. _(Since 2026-10-06, theseus-9ln5; Part III Item 202: the stop no longer drops the rest. It holds the reply on the same tick, keeping the queue and the held sentence's audio, and the words over it decide at their transcript: a wordless sound, an echo of its own sentences, a backchannel ("yeah", "mm-hm") or "go on" resumes the cut sentence from its held audio (`Resumed`); words cut it, with a `Cut` per reply or report and then `BargeIn`, and are the next turn; short words cut late at their transcript; a speaker heard echoing becomes echo-prone for the call, their 300 ms stop off and their words cutting at the transcript; a report cut by words comes back from its cut sentence; the call's end cuts what is unsaid (`Cut { CallEnded }`). Only words make a turn. `Resumed` and `Cut` are facts beside `voice.barge_in`, for voice-heard's rows.)_
 - A turn that takes over 2 s gets a short acknowledgment: a canned clip, with no speech-synthesis cost.
-- A task's report waits for the next pause.
+- A task's report waits for the next pause. _(Since 2026-10-06, theseus-kpa7; Part III Item 202: a reply waits for the floor. Its first clip starts only when no listed speaker's VAD is open and no contending transcript is due; words that closed after it was queued, or its own speaker's words begun within 1.5 s of their last speech, supersede it with no `BargeIn`, so a thought split by a pause gets one answer. Between the sentences of a reply already playing, the hold decides.)_
+- _(Since 2026-10-06, theseus-3ug0 and theseus-1cz8; Part III Item 215, amending voice-turns' rules (Item 202). **An echo**, Theseus's own sentence heard back through a speaker's microphone, is a near-whole, in-order copy of one candidate sentence (the one playing, or one that ended in the last 1.2 s): the longest run of the utterance's words found contiguously and in order in that sentence is at least 3 words and at least 80 % of the utterance's words. One or two words are never an echo, nor is an answer that reuses its question's words ("Yes, deploy it now.", "The daily view."). An echo is no turn. A speaker heard echoing twice in a call is echo-prone: their 300 ms stop is off, and their words cut at their transcript; one wrong verdict does not take the stop away. **Where an utterance came:** over speech (a clip playing, a hold, or a gap between sentences of something that has begun), or in the tail: within 1.2 s after the last queued sentence ended, while a queued reply or report has not yet begun (it is synthesizing, or waiting for the floor), or when the utterance began over the last queued sentence and closed after it ended (a "yes" on a question's last word). In the tail only echo is checked, so a "yes" there answers; a row's `over.saying` may then name a queued reply that had not begun. **A backchannel** is at most 3 words, all from a short list: yeah, yes, yep, yup, okay, ok, right, sure, alright, cool, nice, got it, gotcha, I see, and the hums as the provider spells them (uh-huh, uhhuh, uh hum, mm-hm, mm-hmm, mhm, mhmm, mmhm, mmhmm, mm, mmm, hm, hmm), each perhaps after an "oh" ("oh okay"); over speech a backchannel resumes the reply and is no turn. Open: an echo that spans sentences, or is cut short by its own 300 ms stop, is heard as words (theseus-j2ut, to fix before any loudspeaker call, by measuring the run also over the sentences joined in the order they played and taking a 2-word run from a sentence's head), and a "yes" on a closing question's last word is no turn when another speaker's reply is queued behind the question (theseus-q4pc).)_
 
 **Stand-ins (44).** Part 1 is fully testable with no keys:
 - speech to text returns a fixed transcript per test fixture, or `[utterance 3.2 s]` live;
@@ -842,7 +844,7 @@ feature crates (LANE). It holds:
   latency, time to first audio, and barge-ins.
 - **CLI:** `theseus voice`.
 - **Narrative:** "🎙️ eddie spoke 3.2 s; transcript 41 chars in 280 ms", and "🔊 reply of 2 sentences, first
-  audio in 410 ms; barge-in at 1.1 s".
+  audio in 410 ms; barge-in at 1.1 s". _(Since 2026-10-06, Part III Item 202: a `voice.barge_in` row is written at the commit, the cutting words' transcript, not at the stop, and only for a real cut, so health's barge-in count is real cuts; a stop that resumes writes none.)_
 - **Ledger:** `voice.joined`, `voice.left`, `voice.utterance`, `speech.stt`, `speech.tts`, and
   `voice.barge_in`.
 - **Telemetry:** histograms `theseus.voice.stt.latency`, `theseus.voice.tts.first_audio`, and
@@ -1082,10 +1084,11 @@ fake-mcp`. Every wait is event-driven, and every tool call stays under two minut
 - *Tests,* through the seam with WAV fixtures:
   - an utterance ends after 700 ms of silence;
   - two speakers are kept apart;
-  - a barge-in stops playback within 300 ms of speech;
+  - a barge-in stops playback within 300 ms of speech; _(since Part III Item 202, its `BargeIn` comes at the commit, the speaker's transcript: in the pipeline test 3.3 s, where the stop is still at 2.3 s; `tests/turns.rs` holds the hold's and the floor's cases)_
   - the acknowledgment comes after 2 s;
   - a report waits for the pause;
   - an unlisted speaker is dropped.
+  - _(Since 2026-10-06, `tests/turns.rs`; Part III Item 215:)_ an either/or answer over its question is a turn, and the question does not replay; an answer with its question's words 0.5 s after it is a turn; the played sentence heard back whole is still an echo; one echo verdict leaves the 300 ms stop on, and two make the speaker echo-prone; a "Yes." begun 200 ms before a closing question ends is a turn; a "Yeah." after a closing question, while another speaker's reply is queued but not begun, is a turn, and that reply is superseded; "mhmm" and "oh okay" over a long reply resume it and are no turn.
 - *Live:* the crate's example joins the test voice channel while Eddie's daemon doesn't bind it (T1b's
   disjoint rule). It plays the stand-in clip, and logs frames received per SSRC.
 
