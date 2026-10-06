@@ -1486,3 +1486,76 @@ fn the_gateway_loop_ends_at_the_daemons_stop_and_leaves_no_core_behind() {
     );
 }
 
+/// theseus-yduk: a place taken out of the bindings file and put back, each
+/// waited for in health. Its new post is sent and settled as sent, never
+/// refused as "not bound here any more": the refusal and a lane's start are
+/// ordered by the lanes' lock.
+#[tokio::test]
+async fn a_place_removed_live_and_put_back_has_its_new_post_sent_not_refused() {
+    let d = tempfile::tempdir().unwrap();
+    let fake = FakeDiscord::start();
+    let place = format!("channel:{CHANNEL}");
+    let with_channel = format!(
+        "{}[[channel]]\nid = \"{CHANNEL}\"\nname = \"harbor\"\nusers = [\"{USER}\"]\nmention_only = false\n",
+        dm_only()
+    );
+    let core = core_at(d.path(), &fake, vec![], |_| {});
+    let _rpc = bind(&core, d.path(), &with_channel).await;
+    let labels = |c: &Core| -> Vec<String> {
+        c.bindings
+            .all()
+            .iter()
+            .flat_map(|b| b.places.iter().map(|p| p.label.clone()))
+            .collect()
+    };
+    let c = core.clone();
+    until("the channel is bound", 10, move || {
+        c.outbox.place_session(&place).unwrap().is_some()
+    })
+    .await;
+    let path = d.path().join("bindings.toml");
+    std::fs::write(&path, dm_only()).unwrap();
+    let c = core.clone();
+    until("the channel leaves health", 20, move || {
+        !labels(&c).contains(&"#harbor".to_string())
+    })
+    .await;
+    std::fs::write(&path, &with_channel).unwrap();
+    let c = core.clone();
+    until("the channel is back in health", 20, move || {
+        labels(&c).contains(&"#harbor".to_string())
+    })
+    .await;
+    let sid = core
+        .outbox
+        .place_session(&format!("channel:{CHANNEL}"))
+        .unwrap()
+        .unwrap();
+    let target = format!("discord:channel:{CHANNEL}");
+    let body = serde_json::json!({"kind": "notice", "text": "back at the harbor"});
+    let post = core.outbox.post(&sid, "", &target, body).unwrap();
+    let c = core.clone();
+    let id = post.correlation_id.clone();
+    until("the post settles", 20, move || {
+        c.kernel
+            .outbox_action(&id)
+            .unwrap()
+            .is_some_and(|a| a.state.is_settled())
+    })
+    .await;
+    let state = core
+        .kernel
+        .outbox_action(&post.correlation_id)
+        .unwrap()
+        .unwrap()
+        .state;
+    assert_eq!(state, theseus_kernel::ActionState::Succeeded);
+    assert!(refused_rows(&core).is_empty(), "{:?}", refused_rows(&core));
+    assert!(
+        fake.messages(CHANNEL)
+            .iter()
+            .any(|m| m.content.contains("back at the harbor")),
+        "{:?}",
+        fake.messages(CHANNEL)
+    );
+}
