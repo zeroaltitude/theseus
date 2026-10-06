@@ -204,8 +204,6 @@ fn a_sweep_reaps_wrappers_and_orphans_and_never_an_owned_child() {
     // its stdin and starts nothing. And a plain `sleep`. None is registered,
     // as nothing is in a new image.
     let dir = tempfile::tempdir().unwrap();
-    let old_tender_child = stand_in_tender(dir.path());
-    let old_tender = old_tender_child.id();
     let old_wrapper = Command::new("flock")
         .current_dir(dir.path())
         .args([
@@ -223,6 +221,13 @@ fn a_sweep_reaps_wrappers_and_orphans_and_never_an_owned_child() {
     let held = wait_for("flock to start its command", || {
         children_of(old_wrapper).first().copied()
     });
+    // The tender last, so `relearn` may meet it in its exec, as one the old
+    // image's supervisor had just started (theseus-r4hn): its command line
+    // reads empty until the exec is done, and is read again until it is not
+    // (`children::tests::a_child_in_its_exec_is_read_again` holds the re-read
+    // by order).
+    let old_tender_child = stand_in_tender(dir.path());
+    let old_tender = old_tender_child.id();
     assert_eq!(
         children::relearn(),
         Relearned {
