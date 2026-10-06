@@ -132,6 +132,8 @@ mod tests_activation;
 #[cfg(test)]
 mod tests_activation_arm;
 #[cfg(test)]
+mod tests_activation_pace;
+#[cfg(test)]
 mod tests_actor;
 #[cfg(test)]
 mod tests_arrangement;
@@ -259,6 +261,8 @@ mod tests_security;
 mod tests_situation;
 #[cfg(test)]
 mod tests_steps;
+#[cfg(test)]
+mod tests_stub_kinds;
 #[cfg(test)]
 mod tests_task_claims;
 #[cfg(test)]

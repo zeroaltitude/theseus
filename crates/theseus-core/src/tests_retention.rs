@@ -504,3 +504,31 @@ async fn a_shadow_turn_under_the_arm_changes_no_request_byte() {
     }
     assert_eq!(requests[0], requests[1], "shadow changed the request");
 }
+
+/// A turn whose arm does not read retention leaves it unasked: a shadow
+/// daemon's turn runs `baseline` whatever `[memory] arm` says, and a live
+/// daemon's `baseline` arm reads none. Nothing in a core's rig warms it
+/// (`theseusd`'s startup does), so a turn that asked would move the phase.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_shadow_turn_and_a_live_baseline_turn_leave_retention_unasked() {
+    for (mode, arm) in [
+        (MemoryMode::Shadow, MemoryArm::Retention),
+        (MemoryMode::Live, MemoryArm::Baseline),
+    ] {
+        let r = rig(None, |c| {
+            c.memory.mode = mode;
+            c.memory.arm = arm;
+        });
+        let c = &r.core;
+        let notes = session(c, None, &["the osprey build caches to the blue bucket"]);
+        let here = session(c, None, &[]);
+        c.runner.memory.set_ask(tied_index(c, vec![notes]));
+        assert_eq!(c.runner.memory.retention().phase(), Phase::Unasked);
+        turn(c, &here, "where does the osprey build cache?").await;
+        assert_eq!(
+            c.runner.memory.retention().phase(),
+            Phase::Unasked,
+            "a turn in {mode:?} mode under {arm:?} asked for retention"
+        );
+    }
+}

@@ -77,15 +77,25 @@ impl Adjacent {
             .clone()
     }
 
-    /// Build it now, unless it is built: for the blocking pool.
-    pub fn build(&self, store: &Store) -> anyhow::Result<()> {
+    /// Build it now, unless it is built: for the blocking pool. A `paced`
+    /// build (the warm one, after serving) waits between its pages while the
+    /// machine is busy; a search's own build, which a person waits on inside
+    /// recall's deadline, never does.
+    pub fn build(&self, store: &Store, paced: bool) -> anyhow::Result<()> {
         let mut p = self
             .projection
             .lock()
             .unwrap_or_else(PoisonError::into_inner);
         if p.is_none() {
             let t0 = Instant::now();
-            let built = theseus_store::blocking(|| Projection::build(store));
+            let mut waited = Duration::ZERO;
+            let built = theseus_store::blocking(|| {
+                Projection::build_paced(store, &mut || {
+                    if paced {
+                        waited += super::adjacency::pace();
+                    }
+                })
+            });
             let built = match built {
                 Ok(b) => b,
                 Err(e) => {
@@ -101,6 +111,7 @@ impl Adjacent {
                 entities = st.entities,
                 bytes = st.bytes,
                 took_ms = t0.elapsed().as_millis() as u64,
+                waited_ms = waited.as_millis() as u64,
                 "memory: the adjacency projection is built"
             );
             *self.stats.lock().unwrap_or_else(PoisonError::into_inner) = Some(st);
@@ -118,7 +129,7 @@ impl Adjacent {
         }
         let (me, store) = (self.clone(), store.clone());
         tokio::task::spawn_blocking(move || {
-            if let Err(e) = me.build(&store) {
+            if let Err(e) = me.build(&store, true) {
                 tracing::warn!(error = %format!("{e:#}"),
                     "memory: the adjacency projection cannot be built; +activation spreads nothing");
             }
@@ -156,7 +167,7 @@ impl Ask {
                 return Err("building".into());
             }
             self.adjacent
-                .build(&self.store)
+                .build(&self.store, false)
                 .map_err(|e| format!("{e:#}"))?;
         }
         let mut guard = self

@@ -22,6 +22,14 @@ pub fn stop_began() {
     stop_phase("began");
 }
 
+/// Whether this process's clean stop has begun. A pass on the runtime's
+/// blocking pool that waits out a busy machine (the adjacency projection's
+/// warm build) stops waiting then: the runtime's end, the stop's last phase,
+/// waits for every task on that pool.
+pub fn stop_has_begun() -> bool {
+    STOP_BEGAN.get().is_some()
+}
+
 /// A phase of the stop has ended: logged at debug (`THESEUS_LOG` with
 /// `theseus_core::startup=debug`) with the milliseconds since the stop
 /// began. Nothing before a stop began.
