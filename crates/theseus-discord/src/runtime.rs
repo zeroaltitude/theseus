@@ -2093,6 +2093,7 @@ impl Place {
                 // messages queued for the next turn go too; the next message
                 // continues this session. Its tasks and wakes are untouched.
                 self.queued.clear();
+                self.voice_stop();
                 self.stopping = self.inflight;
                 // The stopped turn's stream stops here, where Discord last
                 // saw it; it posts no reply.
