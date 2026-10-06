@@ -133,9 +133,16 @@ impl Tail {
     }
 }
 
-/// A record's label: its kind, and a ledger row's own kind.
+/// A record's label: its kind, a ledger row's own kind, and a META record's
+/// key (`meta:judge.budget`), so the judge's own frames can be told apart
+/// (theseus-0j2.8).
 fn label(r: &Record) -> String {
     let name = kinds::name(r.kind);
+    if r.kind == kinds::META {
+        if let Some(k) = &r.key {
+            return format!("{name}:{k}");
+        }
+    }
     if r.kind == kinds::LEDGER {
         if let Some(k) = serde_json::from_slice::<serde_json::Value>(&r.payload)
             .ok()

@@ -47,7 +47,7 @@ const NEAR_PERCENT: i64 = 10;
 /// unit (theseus-goa8). Each is read as a phase is: a p50, a p95, and a limit
 /// when the bench has a budget for it. A single reading (a size, a memory) is
 /// its own p50 and p95.
-pub const OTHER: [(&str, &str); 18] = [
+pub const OTHER: [(&str, &str); 24] = [
     // `bench turn`
     ("turn_plain", "ms"),
     ("frames_plain", "frames"),
@@ -55,6 +55,15 @@ pub const OTHER: [(&str, &str); 18] = [
     ("frames_tool", "frames"),
     ("rss_start", "MB"),
     ("rss_burst", "MB"),
+    // `bench turn --judge` (theseus-0j2.8): the judge on, the inbound
+    // point's packs off (`jloop`) and every pack as wired (`jpacks`); and the
+    // judge's frames a turn's answer came after.
+    ("turn_plain_jloop", "ms"),
+    ("turn_tool_jloop", "ms"),
+    ("jframes_jloop", "frames"),
+    ("turn_plain_jpacks", "ms"),
+    ("turn_tool_jpacks", "ms"),
+    ("jframes_jpacks", "frames"),
     // `bench turn --session-nodes` (step 33)
     ("turn_long", "ms"),
     ("decodes_long", "nodes"),
@@ -477,6 +486,12 @@ fn name(phase: &str) -> &str {
         "frames_plain" => "a plain turn's frames",
         "turn_tool" => "a tool-call turn's wall time",
         "frames_tool" => "a tool-call turn's frames",
+        "turn_plain_jloop" => "a plain turn's wall time with loop.v1 judging",
+        "turn_tool_jloop" => "a tool-call turn's wall time with loop.v1 judging",
+        "jframes_jloop" => "the judge's frames before a turn's answer, loop.v1 judging",
+        "turn_plain_jpacks" => "a plain turn's wall time with every pack as wired",
+        "turn_tool_jpacks" => "a tool-call turn's wall time with every pack as wired",
+        "jframes_jpacks" => "the judge's frames before a turn's answer, every pack as wired",
         "rss_start" => "resident memory after the start",
         "rss_burst" => "resident memory after a burst of turns",
         "idle_cpu" => "an idle daemon's CPU time over the window",
