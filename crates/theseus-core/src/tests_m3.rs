@@ -6064,7 +6064,14 @@ mod parallel {
         from: Mutex<usize>,
         arrivals: Mutex<usize>,
         arrived: std::sync::Condvar,
+        /// A hold (theseus-t2yb): while on, a run that has started waits for `release`.
+        held: Mutex<bool>,
+        released: std::sync::Condvar,
     }
+
+    /// How long a held run waits for its `release` before it goes on: a guard for a test
+    /// that never releases, past its own hang guard.
+    const HOLD_WAIT: Duration = Duration::from_secs(90);
 
     /// How long a run waits for the rest of its batch before it goes on alone.
     const RENDEZVOUS_WAIT: Duration = Duration::from_secs(4);
@@ -6095,6 +6102,19 @@ mod parallel {
             let _ = self
                 .arrived
                 .wait_timeout_while(at, RENDEZVOUS_WAIT, |a| *a < target)
+                .unwrap();
+        }
+
+        fn hold(&self, on: bool) {
+            *self.held.lock().unwrap() = on;
+            self.released.notify_all();
+        }
+
+        fn wait_held(&self) {
+            let held = self.held.lock().unwrap();
+            let _ = self
+                .released
+                .wait_timeout_while(held, HOLD_WAIT, |h| *h)
                 .unwrap();
         }
 
@@ -6156,6 +6176,7 @@ mod parallel {
             let ms = self.timing.delay_ms.lock().unwrap().get(&key).copied();
             let t0 = Instant::now();
             self.timing.arrive();
+            self.timing.wait_held();
             std::thread::sleep(Duration::from_millis(ms.unwrap_or(0)));
             let out = self.inner.run(input, ctx);
             self.timing
@@ -6748,6 +6769,9 @@ mod parallel {
     /// A cancel while a batch runs leaves no call dispatched: each running
     /// call is cancelled at once, its late completion is recorded when it
     /// comes, and the turn ends because its next provider call is refused.
+    /// The four reads run on four cores and hold until the cancel has
+    /// returned, so all four are running when it lands and each completes
+    /// after it, whatever the machine's load (theseus-t2yb).
     #[tokio::test]
     async fn a_cancel_during_a_batch_leaves_no_call_dispatched() {
         let timing = Arc::<Timing>::default();
@@ -6755,20 +6779,24 @@ mod parallel {
             .iter()
             .map(|f| read(&format!("c_{f}"), &format!("{f}.txt")))
             .collect();
-        let r = rig_full(
+        let read_tool = slowed(
+            "fs.read",
+            ToolClass::Read,
+            Arc::new(theseus_tools::fs::Read),
+            &timing,
+        );
+        let r = rig_parts(
             vec![calls(&four)],
             |_| {},
-            vec![slowed(
-                "fs.read",
-                ToolClass::Read,
-                Arc::new(theseus_tools::fs::Read),
-                &timing,
-            )],
+            |p| {
+                p.cpu_cores = Some(4);
+                p.toollets = vec![read_tool];
+            },
         );
         for f in ["a", "b", "c", "d"] {
             std::fs::write(r.root.join(format!("{f}.txt")), "x\n").unwrap();
-            timing.set(&[(&format!("fs.read:{f}.txt"), 600)]);
         }
+        timing.hold(true);
         let rec = SessionRecord::new(SessionKind::Conversation, None);
         r.core.store.put_session(&rec.session_id, &rec).unwrap();
         let sid = rec.session_id.clone();
@@ -6787,11 +6815,16 @@ mod parallel {
         };
         let t0 = Instant::now();
         while dispatched().len() < 4 {
-            assert!(t0.elapsed() < Duration::from_secs(5), "never dispatched");
+            let n = dispatched().len();
+            assert!(
+                t0.elapsed() < Duration::from_secs(60),
+                "{n} of 4 dispatched in 60 s"
+            );
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
         let exec = dispatched()[0].execution_id.clone();
         let (_, stopped) = r.core.cancel_execution(&exec, "test").await.unwrap();
+        timing.hold(false);
         assert_eq!(stopped.len(), 4, "the four running calls");
         let err = running
             .await

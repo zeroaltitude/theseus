@@ -261,6 +261,70 @@ async fn until(out: &str, what: &str, mut f: impl FnMut() -> bool) {
     }
 }
 
+/// How far out the scenario's wake is set: past the end of the turn that sets
+/// it, however the machine's load stretches that turn. Its tail after the
+/// `wake.at` call took 1.9 s with the test at nice 19 beside a nice-0 busy
+/// loop on every core; a turn that ends after its own wake's due time
+/// queues its execution itself (the kernel's `end_turn`), a transcript of
+/// another shape (theseus-23wh).
+const WAKE_SECS: u64 = 20;
+
+/// Wait, by the scenario's progress, for the wake that `sid`'s turn set to
+/// come due: the turn has parked the execution, free with the wake pending,
+/// and then the kernel's clock passes its due time. A turn that outran the
+/// wake fails here at once, naming what it saw; the guard, past anything the
+/// load does to a timer and under nextest's two-minute kill, is for a wake
+/// that never comes due.
+async fn wake_due(w: &World, sid: &str, out: &str) {
+    let e = w.exec(sid);
+    let now = w.core.kernel.now_ms();
+    assert!(
+        theseus_kernel::wakes::free(&e) && e.state == ExecState::Waiting && !e.wakes.is_empty(),
+        "the wake's turn did not park its execution with the wake pending: {}; the transcript so \
+         far:\n{out}",
+        wake_seen(&e, now)
+    );
+    let t0 = Instant::now();
+    loop {
+        let e = w.exec(sid);
+        let now = w.core.kernel.now_ms();
+        if theseus_kernel::wakes::due_now(&e, now) {
+            return;
+        }
+        assert!(
+            t0.elapsed() < Duration::from_secs(60),
+            "no wake due in 60 s: {}; the transcript so far:\n{out}",
+            wake_seen(&e, now)
+        );
+        let due = e.wakes.first().map_or(now, |p| p.due_at_ms);
+        let ms = due.saturating_sub(now).clamp(1, 1_000);
+        tokio::time::sleep(Duration::from_millis(ms)).await;
+    }
+}
+
+/// What a wait for a wake saw: the execution's state and wake, its pending
+/// wakes with their due times, and the kernel's clock.
+fn wake_seen(e: &theseus_kernel::Execution, now_ms: u64) -> String {
+    let pending: Vec<String> = e
+        .wakes
+        .iter()
+        .map(|p| {
+            format!(
+                "{} due {} ({:+} ms)",
+                p.id,
+                p.due_at_ms,
+                p.due_at_ms as i64 - now_ms as i64
+            )
+        })
+        .collect();
+    format!(
+        "state {:?}, wake {:?}, pending [{}], now_ms {now_ms}",
+        e.state,
+        e.wake,
+        pending.join(", ")
+    )
+}
+
 fn bad_request() -> Scripted {
     Scripted::Fail(ProviderError::InvalidRequest {
         status: 400,
@@ -350,7 +414,7 @@ pub(super) async fn conversation(out: &mut String) {
                 &[(
                     "k1",
                     "wake_at",
-                    json!({"after": "1s", "note": "check the build"}),
+                    json!({"after": format!("{WAKE_SECS}s"), "note": "check the build"}),
                 )],
             ),
             Scripted::text("Wake set."),
@@ -426,13 +490,9 @@ pub(super) async fn conversation(out: &mut String) {
     w.take(out, "the parent's turn reads the report", &told(&r));
 
     let b = w.session(Some("dm:43"));
-    let r = turn(&core, &b, "Wake me in a second.").await;
+    let r = turn(&core, &b, "Wake me in twenty seconds.").await;
     w.take(out, "a turn that sets a wake", &told(&r));
-    until(out, "wake due", || {
-        let e = w.exec(&b);
-        theseus_kernel::wakes::due_now(&e, core.kernel.now_ms())
-    })
-    .await;
+    wake_due(&w, &b, out).await;
     let d = drive(&core).await;
     w.take(out, "the driver: the wake fires and its turn runs", &d);
 }
@@ -703,7 +763,7 @@ impl Mask {
         for d in &self.dirs {
             s = s.replace(d.as_str(), "<dir>");
         }
-        durations(&digests(&s))
+        offsets(&durations(&digests(&s)))
     }
 }
 
@@ -829,6 +889,63 @@ fn a_durations_unit_is_masked_with_it() {
         assert_eq!(durations(a), durations(b), "{a} / {b}");
     }
     assert_eq!(durations("in 950 ms, 12 rows"), "in <n>, 12 rows");
+}
+
+/// A local time's UTC offset (`13:05:07 -07:00`, `wake::Local::full`): its
+/// sign is the machine's time zone's, as its digits are, so it is `±`, and the
+/// golden reads alike east of UTC, west of it, and on it (theseus-ig6n).
+fn offsets(s: &str) -> String {
+    let cs: Vec<char> = s.chars().collect();
+    let digit = |i: usize| cs.get(i).is_some_and(char::is_ascii_digit);
+    let is = |i: usize, c: char| cs.get(i) == Some(&c);
+    cs.iter()
+        .enumerate()
+        .map(|(i, &c)| {
+            let offset = matches!(c, '+' | '-')
+                && i >= 7
+                && is(i - 7, ':')
+                && is(i - 4, ':')
+                && digit(i - 3)
+                && digit(i - 2)
+                && is(i - 1, ' ')
+                && digit(i + 1)
+                && digit(i + 2)
+                && is(i + 3, ':')
+                && digit(i + 4)
+                && digit(i + 5);
+            if offset {
+                '±'
+            } else {
+                c
+            }
+        })
+        .collect()
+}
+
+/// West of UTC, on it, and east of it read alike (theseus-ig6n), and a sign
+/// that is no offset's stays.
+#[test]
+fn a_local_times_offset_is_masked_with_its_sign() {
+    let at = |off: &str| {
+        offsets(&format!(
+            "Set wake for 2026-10-06 13:05:07 {off} (in 20 s)."
+        ))
+    };
+    assert_eq!(
+        at("-07:00"),
+        "Set wake for 2026-10-06 13:05:07 ±07:00 (in 20 s)."
+    );
+    assert_eq!(at("+00:00"), at("-07:00").replace("07:00 (", "00:00 ("));
+    assert_eq!(at("+09:00"), at("-07:00").replace("07:00 (", "09:00 ("));
+    for kept in [
+        "2026-10-06",
+        "a - b",
+        "x +1",
+        "12:30 -07:00",
+        "12:30:15 -7:00",
+    ] {
+        assert_eq!(offsets(kept), kept);
+    }
 }
 
 /// Every id's uuid tail (32 hex digits after `_`) becomes `#n`, numbered by
