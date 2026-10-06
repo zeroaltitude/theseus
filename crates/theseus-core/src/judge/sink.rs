@@ -2,7 +2,14 @@
 //! `judge.call` ledger row keyed by its id and scoped `judge:<pack id>`, in
 //! the sink's own frames: up to [`MAX_ROWS`] judgments a frame, or whatever
 //! has landed within the window after the first. A turn never waits on it
-//! and writes no frame for a shadow judgment. Each frame also carries the
+//! and writes no frame for a shadow judgment. Its frames are written only
+//! between turns (theseus-0j2.8), through the memory pass's writer handshake
+//! (`memory_pass::turns`, as consolidation writes): the store has one
+//! writer, so a sink frame mid-sync held a turn's next frame, and with turns
+//! back to back a frame due 2 s after a judgment landed inside a later turn.
+//! A judgment's row and its facts stay in one frame, said once it is
+//! written, and a press finds a judgment not yet written in `pending`.
+//! Each frame also carries the
 //! breaker's moves (`judge.circuit`), the shed count (`judge.shed`, a
 //! minute apart at most), and the shadow budget's record with what was
 //! settled. A crash loses at most a window of rows; their spend is not
@@ -10,7 +17,7 @@
 //! the judgments a turn waits on, beside them (theseus-otny: a crash inside
 //! that one sync can leave one block's calls unbooked, a cent at most).
 
-use std::sync::Weak;
+use std::sync::{Arc, Weak};
 use std::time::{Duration, Instant};
 
 use theseus_judge::{Judgment, JudgmentSink};
@@ -19,6 +26,8 @@ use tokio::sync::mpsc;
 
 use super::JudgeService;
 use crate::fact::judge::{JudgeCall, JudgeCircuit, JudgeShed};
+use crate::memory_pass::turns::Turns;
+use crate::memory_pass::Timing;
 
 /// Judgments a frame holds at most.
 pub const MAX_ROWS: usize = 32;
@@ -39,8 +48,8 @@ impl JudgmentSink for Channel {
     }
 }
 
-/// The writer: a frame per batch, off the runtime's workers. It ends when
-/// the service is gone, or every sender is.
+/// The writer: a frame per batch, off the runtime's workers, and between
+/// turns. It ends when the service is gone, or every sender is.
 pub async fn run(
     mut rx: mpsc::UnboundedReceiver<Judgment>,
     svc: Weak<JudgeService>,
@@ -55,8 +64,37 @@ pub async fn run(
                 Ok(None) | Err(_) => break,
             }
         }
+        // A moment between turns: no turn running, and none for the pass's
+        // quiet stretch (its bounds end the wait on a busy daemon). The
+        // turns are held, never the service, so a stop never waits on this.
+        let turns = match svc.upgrade() {
+            Some(s) => s.between.get().cloned(),
+            None => return,
+        };
+        let _writing = match turns {
+            Some(t) => Some(
+                t.between(tokio::time::Instant::now(), &Timing::default())
+                    .await,
+            ),
+            None => None,
+        };
+        // What landed meanwhile goes in the same frame.
+        while batch.len() < MAX_ROWS {
+            match rx.try_recv() {
+                Ok(j) => batch.push(j),
+                Err(_) => break,
+            }
+        }
         let Some(s) = svc.upgrade() else { return };
         let _ = tokio::task::spawn_blocking(move || s.write(&batch)).await;
+    }
+}
+
+impl JudgeService {
+    /// The daemon's running turns, which the sink's frames wait out (the
+    /// core's, as it builds). A service never given them writes at once.
+    pub fn write_between(&self, turns: Arc<Turns>) {
+        let _ = self.between.set(turns);
     }
 }
 

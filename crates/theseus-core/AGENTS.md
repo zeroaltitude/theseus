@@ -309,7 +309,11 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   and marked in the trace there (a zero-length `judge` span of kind `mark`: pack, point, mode, judgment); the call is
   spawned after the frame with that id (`theseus_judge::Ask::id`). Every point that dispatches inside a turn marks
   the same way. The facts (`fact/judge.rs`) say their sentences, and `Telemetry::record_judgment` counts each
-  judgment, once the sink's frame is written; nothing of a judgment rides in a turn's frames but its mark.
+  judgment, once the sink's frame is written; nothing of a judgment rides in a turn's frames but its mark. The
+  sink's frames are written only between turns (theseus-0j2.8), through the memory pass's writer handshake
+  (`memory_pass::turns`, `JudgeService::write_between`), as consolidation's are: a row, its sentences and its
+  metric wait while turns run (the pass's bounds end the wait), and a press finds it in `pending` meanwhile.
+  `theseus-sim bench turn --judge` measures where the judge's frames land.
   `judge.list` and `judge.get` are `rpc/judge.rs`. Tests: `tests_judge.rs`, `tests_judge_surfaces.rs`,
   `telemetry/tests_judge.rs`.
   - **The judgments a turn waits on write nothing before their call** (theseus-otny): route.v1's inbound batch and

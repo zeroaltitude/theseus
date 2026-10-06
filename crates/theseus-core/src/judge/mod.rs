@@ -182,6 +182,9 @@ pub struct JudgeService {
     ladder: ladder::Ladder,
     /// Learned versions (25f), read with the ladder, then kept.
     lineage: lineage::Lineage,
+    /// The daemon's running turns: the sink writes between them
+    /// (theseus-0j2.8; `sink::run`).
+    between: OnceLock<Arc<crate::memory_pass::turns::Turns>>,
 }
 
 impl JudgeService {
@@ -237,6 +240,7 @@ impl JudgeService {
             me: me.clone(),
             narrator: OnceLock::new(),
             telemetry: OnceLock::new(),
+            between: OnceLock::new(),
         })
     }
 

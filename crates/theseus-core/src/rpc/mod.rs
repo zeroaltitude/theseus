@@ -735,6 +735,10 @@ impl Core {
         }
         core.tools.extend.attach(&core.mcp);
         core.runner.judge.attach(&core);
+        // The judge's sink writes between turns, as the pass does.
+        core.runner
+            .judge
+            .write_between(core.runner.pass.turns().clone());
         // The loaded extensions (M7 43b): one META key, and each one's
         // stored list, offered at once; each starts after serving.
         if let Err(e) = core.seed_extensions() {
