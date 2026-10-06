@@ -223,3 +223,39 @@ async fn a_held_turns_tool_line_is_edited_after_later_turns_pass_the_bound() {
     assert!(lane.msgs.contains_key(&format!("{}:L18:tools", turns[7])));
     assert_bounded(&lane);
 }
+
+/// theseus-8u7m: the task board, written through the lane as the daemon
+/// writes it (a live upsert under `BOARD_KEY`), is kept past the bound: after
+/// more keys than the bound holds and past Discord's nonce window, its next
+/// state edits the one board, pinned once.
+#[tokio::test]
+async fn the_board_written_through_the_lane_is_edited_past_the_bound() {
+    let d = tempfile::tempdir().unwrap();
+    let fake = FakeDiscord::start();
+    let mut lane = lane(d.path(), &fake);
+    let board = |line: &str| format!("{}\n- `…a1b2c3` {line}", render::BOARD_HEAD);
+    lane.take(upsert(render::BOARD_KEY, &board("Tidy the slipway — open")));
+    lane.apply_live().await;
+    for i in 0..KEYS_KEPT {
+        lane.take(upsert(&format!("glide:call_{i}"), &format!("Glide {i}.")));
+    }
+    lane.apply_live().await;
+    assert_bounded(&lane);
+    fake.set_nonce_window_ms(0);
+    lane.take(upsert(render::BOARD_KEY, &board("Tidy the slipway — done")));
+    lane.apply_live().await;
+    let boards: Vec<_> = fake
+        .messages(CHANNEL)
+        .into_iter()
+        .filter(|m| m.versions[0].starts_with(render::BOARD_HEAD))
+        .collect();
+    assert_eq!(boards.len(), 1, "one board: {boards:#?}");
+    assert_eq!(boards[0].content, board("Tidy the slipway — done"));
+    assert!(boards[0].pinned);
+    let pins = fake
+        .seen()
+        .into_iter()
+        .filter(|s| s.method == "PUT" && s.path.contains("/pins/"))
+        .count();
+    assert_eq!(pins, 1, "pinned once");
+}
