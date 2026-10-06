@@ -23,10 +23,10 @@
 //!   resume the cut sentence from its start, from the audio it held
 //!   (`Resumed`); words commit the cut (a `Cut` for each reply or report,
 //!   then `BargeIn`) and are the next turn. Words too short to stop it, or
-//!   from a speaker heard echoing (whose stop is off for the call), cut at
-//!   their transcript; so does a failed transcription. A report cut by words
-//!   comes back at the next pause from its cut sentence. The session still
-//!   has the whole text.
+//!   from a speaker heard echoing twice (whose stop is off for the call),
+//!   cut at their transcript; so does a failed transcription. A report cut
+//!   by words comes back at the next pause from its cut sentence. The
+//!   session still has the whole text.
 //! - A turn that runs past 2 s gets the canned acknowledgment, once, when the
 //!   line is quiet. A task's report waits for the next pause.
 //!
@@ -315,8 +315,9 @@ pub struct Engine {
     recent: VecDeque<(Instant, String)>,
     /// The last sentence heard whole of each reply or report still queued.
     said: HashMap<Spoken, String>,
-    /// Speakers an echo was heard from: their stop waits for words.
-    echo_prone: BTreeSet<Speaker>,
+    /// How many echoes each speaker was heard giving. From the second, they
+    /// are echo-prone: their stop waits for words.
+    echoes: BTreeMap<Speaker, u32>,
     /// Each queued reply that hasn't begun: when its turn's speakers last
     /// spoke in it.
     split: HashMap<TurnId, BTreeMap<Speaker, Duration>>,
@@ -326,6 +327,10 @@ pub struct Engine {
 
 /// How long after a sentence ends an utterance may still be its echo.
 const ECHO_TAIL: Duration = Duration::from_millis(1200);
+
+/// A speaker heard echoing this many times in a call is echo-prone: one
+/// verdict that was wrong doesn't take their stop away (theseus-3ug0).
+const ECHO_PRONE: u32 = 2;
 
 /// An utterance by one of a turn's speakers that began this soon after
 /// their last speech in it goes on the same thought: the turn's reply waits
@@ -338,6 +343,9 @@ struct Opening {
     over: Option<Over>,
     overlap: Overlap,
     sentences: Vec<String>,
+    /// It began over the last sentence queued, which had begun: if the queue
+    /// is empty when it closes, it answers what was said (theseus-1cz8).
+    last: bool,
 }
 
 /// A closed utterance, until its turn starts.
@@ -481,7 +489,7 @@ impl Engine {
             hold: None,
             recent: VecDeque::new(),
             said: HashMap::new(),
-            echo_prone: BTreeSet::new(),
+            echoes: BTreeMap::new(),
             split: HashMap::new(),
             work: FuturesUnordered::new(),
             outbox: Vec::new(),
@@ -598,7 +606,8 @@ impl Engine {
                 self.opening.insert(speaker, opening);
             }
             // An echo-prone speaker's stop waits for their words.
-            if step.speech && talking && !self.echo_prone.contains(&speaker) {
+            let prone = self.echoes.get(&speaker).is_some_and(|n| *n >= ECHO_PRONE);
+            if step.speech && talking && !prone {
                 let n = self.talk_frames.entry(speaker).or_default();
                 *n += 1;
                 barge |= *n >= self.barge_frames;
@@ -606,11 +615,17 @@ impl Engine {
             match step.closed {
                 Some(Closed::Utterance { first_tick, audio }) => {
                     self.talk_frames.remove(&speaker);
-                    let opening = self.opening.remove(&speaker).unwrap_or(Opening {
+                    let mut opening = self.opening.remove(&speaker).unwrap_or(Opening {
                         over: None,
                         overlap: Overlap::None,
                         sentences: Vec::new(),
+                        last: false,
                     });
+                    // A "yes" begun on a question's last word, closed after
+                    // it ended: the tail's rules, as if begun after it.
+                    if opening.last && self.queue.is_empty() {
+                        opening.overlap = Overlap::Tail;
+                    }
                     self.transcribe(speaker, first_tick, tick, audio, opening);
                 }
                 Some(Closed::Noise) => {
@@ -635,6 +650,11 @@ impl Engine {
             self.recent.pop_front();
         }
         let mut sentences: Vec<String> = self.recent.iter().map(|(_, t)| t.clone()).collect();
+        let tail = match self.recent.is_empty() {
+            true => Overlap::None,
+            false => Overlap::Tail,
+        };
+        let mut last = false;
         let (over, overlap) = match self.queue.front() {
             Some(item) => {
                 if item.clip.is_some() || self.hold.is_some() {
@@ -645,14 +665,17 @@ impl Engine {
                     sentence: item.index,
                     text: item.text.clone(),
                 };
-                (Some(over), Overlap::Speech)
+                // A reply that hasn't begun is no speech to talk over: a
+                // "yeah" now answers what was said (theseus-1cz8).
+                if item.opens && self.hold.is_none() {
+                    (Some(over), tail)
+                } else {
+                    last = self.queue.len() == 1;
+                    (Some(over), Overlap::Speech)
+                }
             }
             None => {
                 let over = self.turn.as_ref().map(|t| Over::Preparing { turn: t.id });
-                let tail = match self.recent.is_empty() {
-                    true => Overlap::None,
-                    false => Overlap::Tail,
-                };
                 (over, tail)
             }
         };
@@ -660,6 +683,7 @@ impl Engine {
             over,
             overlap,
             sentences,
+            last,
         }
     }
 
@@ -994,7 +1018,7 @@ impl Engine {
         };
         self.emit(Event::Utterance(utterance));
         if heard_as == HeardAs::Echo {
-            self.echo_prone.insert(speaker);
+            *self.echoes.entry(speaker).or_default() += 1;
         }
         if heard_as == HeardAs::Words {
             self.words(seq, speaker, overlap, now);

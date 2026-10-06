@@ -6,6 +6,10 @@ MPL-2.0 for exactly seven of its crates, by name, and ignores six advisories for
 
 A barge-in holds, then decides (theseus-9ln5): the stop at 300 ms holds the queue, and the overlapping utterance's
 transcript decides by the pure rules in `src/heard.rs` (wordless, echo, backchannel, resume, words), unit-tested
-there. A reply begins only on the floor (theseus-kpa7). `tests/turns.rs` holds both through the seam, in virtual time
-and at exact times; a test there that needs words or none gives the stand-in a transcript, since its default
-(`[utterance 0.6 s]`) is words.
+there. An echo is a near-whole, in-order copy of one sentence (a run of at least 3 words and 80% of the utterance),
+never an answer that reuses its question's words, and a speaker is echo-prone only after two echoes (theseus-3ug0). A
+reply queued but not begun, and a question that ended under an utterance begun on its last word, are the tail, where a
+"yes" is a turn (theseus-1cz8). The backchannels are a short list ("mhmm" in its spellings, "gotcha", "oh okay"):
+add only what never answers alone over a reply. A reply begins only on the floor (theseus-kpa7). `tests/turns.rs`
+holds all of it through the seam, in virtual time and at exact times; a test there that needs words or none gives the
+stand-in a transcript, since its default (`[utterance 0.6 s]`) is words.
