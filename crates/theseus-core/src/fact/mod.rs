@@ -319,6 +319,7 @@ facts![
     tool::ToolEnded<'static>,
     tool::CallSuperseded<'static>,
     tool::CallNeverAsked<'static>,
+    tool::CallNotAsked<'static>,
     tool::ApprovedRunning<'static>,
     tool::ApprovalVoid<'static>,
     tool::AuthorizedResumed<'static>,

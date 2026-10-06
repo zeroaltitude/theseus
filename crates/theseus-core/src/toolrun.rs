@@ -24,7 +24,7 @@ use theseus_kernel::{
     Accepted, Action, Completion, Kernel, Outcome, Proposal, RetryClass, Spool, TurnGuard,
 };
 use theseus_protocol::{ConfirmRequest, GateRecord, GateResult, LedgerKind, PolicyNotified};
-use theseus_tools::{Access, Backend, Plan, Registry, Retry, Tool, ToolClass, ToolCtx};
+use theseus_tools::{Access, Backend, Plan, Registry, Retry, Tool, ToolCtx};
 
 use crate::broker::Broker;
 use crate::bus::EventSink;
@@ -39,6 +39,7 @@ use crate::scrub::Scrubber;
 use crate::store::Store;
 
 mod batch;
+mod calls;
 mod glide;
 mod hands;
 mod job;
@@ -884,83 +885,6 @@ impl ToolRuntime {
                 gate: Some(Box::new(gate)),
             },
         )
-    }
-
-    /// A response's `tool_use`s (theseus-a60): gated in order, then run, the
-    /// `Read` calls of a group together.
-    /// - An unknown tool, invalid JSON, or invalid input is answered at once,
-    ///   wherever it is.
-    /// - The first call whose posture is approve ends the gating: it asks
-    ///   after every call before it has finished, and the calls after it wait,
-    ///   ungated, for the continuation.
-    /// - The rest run in groups: consecutive `Read` calls at once, as futures
-    ///   in the caller's task, and each `Write` or `Run` call alone. So a
-    ///   write or a program starts after every call before it has finished,
-    ///   and the calls after it start after it finishes.
-    ///
-    /// Every kernel call stays in the caller's task, one at a time: the
-    /// kernel rewrites an execution's record from what it read.
-    pub async fn run_calls(
-        &self,
-        tc: &TurnCtx<'_>,
-        assistant_node: &str,
-        calls: &[Call<'_>],
-    ) -> Result<Batch> {
-        let mut ran = Vec::new();
-        let mut runnable = Vec::new();
-        let mut ask = None;
-        for (i, c) in calls.iter().enumerate() {
-            let started = Instant::now();
-            match self.admit(tc, assistant_node, c)? {
-                Admitted::Answered(outcome) => ran.push(Ran {
-                    index: i,
-                    outcome,
-                    started,
-                    ended: Instant::now(),
-                    group: ran.len(),
-                    judged: Vec::new(),
-                }),
-                Admitted::Asks(tool, g) => {
-                    ask = Some((i, tool, g));
-                    break;
-                }
-                Admitted::Runs(tool, g) => runnable.push((i, tool, g)),
-            }
-        }
-        let mut group = Vec::new();
-        let mut next = ran.len();
-        for (i, tool, g) in runnable {
-            if g.plan.class.unwrap_or(tool.class()) == ToolClass::Read {
-                group.push((i, tool, g));
-                continue;
-            }
-            for run in [std::mem::take(&mut group), vec![(i, tool, g)]] {
-                self.run_group(tc, assistant_node, calls, run, &mut next, &mut ran)
-                    .await?;
-            }
-        }
-        self.run_group(tc, assistant_node, calls, group, &mut next, &mut ran)
-            .await?;
-        let mut awaiting = None;
-        if let Some((i, tool, g)) = ask {
-            let started = Instant::now();
-            let (outcome, judged) = self
-                .start(tc, assistant_node, calls[i].call, tool, g)
-                .await?;
-            if let CallOutcome::AwaitingConfirm { correlation_id } = &outcome {
-                awaiting = Some(correlation_id.clone());
-            }
-            ran.push(Ran {
-                index: i,
-                outcome,
-                started,
-                ended: Instant::now(),
-                group: next,
-                judged,
-            });
-        }
-        ran.sort_by_key(|r| r.index);
-        Ok(Batch { ran, awaiting })
     }
 
     /// One call through the gate: counted, and answered now if it cannot run.

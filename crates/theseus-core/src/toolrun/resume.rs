@@ -42,8 +42,10 @@ impl ToolRuntime {
                 _ => None,
             })
             .collect();
-        // Calls no turn has gated run as a response's calls do (theseus-a60).
-        let mut fresh = Vec::new();
+        // Calls no turn has gated run as a response's calls do (theseus-a60),
+        // but once one of the batch is declined, none of them asks
+        // (theseus-6i0): the model hears the decline before the next card.
+        let (mut fresh, mut declined) = (Vec::new(), false);
         for u in pending {
             let node = calls.get(u.id.as_str()).copied();
             let place = Self::where_is(tc, node)?;
@@ -52,7 +54,7 @@ impl ToolRuntime {
                 continue;
             }
             if self
-                .run_fresh(tc, &assistant.id, &mut fresh, &mut out)
+                .run_fresh(tc, &assistant.id, &mut fresh, declined, &mut out)
                 .await?
             {
                 return Ok(out);
@@ -94,22 +96,28 @@ impl ToolRuntime {
             if let CallOutcome::Background { correlation_id } = &outcome {
                 out.background.push(correlation_id.clone());
             }
+            declined |= outcome
+                == CallOutcome::Done {
+                    status: ResultStatus::Declined,
+                };
             // Its span is the turn's, under the continuation's (theseus-8pei).
             out.answered(&u, outcome, started);
             out.wrote += 1;
         }
-        self.run_fresh(tc, &assistant.id, &mut fresh, &mut out)
+        self.run_fresh(tc, &assistant.id, &mut fresh, declined, &mut out)
             .await?;
         Ok(out)
     }
 
-    /// Calls no turn has gated, through `run_calls`. True when one of them
-    /// now waits for the operator, where the continuation stops.
+    /// Calls no turn has gated, through `run_calls`: after a `declined` one,
+    /// none of them asks (`run_batch`). True when one of them now waits for
+    /// the operator, where the continuation stops.
     async fn run_fresh(
         &self,
         tc: &TurnCtx<'_>,
         assistant_node: &str,
         fresh: &mut Vec<ToolUse>,
+        declined: bool,
         out: &mut ResumeOutcome,
     ) -> Result<bool> {
         if fresh.is_empty() {
@@ -122,7 +130,7 @@ impl ToolRuntime {
                 invalid: None,
             })
             .collect();
-        let batch = self.run_calls(tc, assistant_node, &calls).await?;
+        let batch = self.run_batch(tc, assistant_node, &calls, declined).await?;
         drop(calls);
         for r in &batch.ran {
             match &r.outcome {
