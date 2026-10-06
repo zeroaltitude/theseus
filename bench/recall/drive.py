@@ -46,7 +46,10 @@ The run directory, the same for both arms (what `score.py` reads):
 - `run.json`: the arm, its memory arm, the model, the progression's digest,
   the compactions (the turns whose request was compacted), Theseus's
   `compaction_rows` (each row's outcome, `compaction` or `ring`, and the
-  cut's span), what the stop had to kill, and the totals;
+  cut's span), Theseus's `overhead` (its system prompt and tools, planned
+  and measured after the first turn: past the plan by more than
+  `generate.OVERHEAD_CUSHION`, the run stops unless `--allow-overhead`),
+  what the stop had to kill, and the totals;
 - `turns.jsonl`: each turn's reply, exit, tokens, dollars and latency;
 - `delivered.json`: each fact's delivery;
 - `progression.json`, a copy, and `workspace/`, the arm's workspace as the
@@ -74,7 +77,9 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 
 import checks  # noqa: E402
+import generate  # noqa: E402
 import progression as pg  # noqa: E402
+import tokens as tk  # noqa: E402
 
 PROFILE = HERE.parent / "theseus-bench.toml"
 CC_TOOLS = "Bash,Read,Write,Edit,Glob,Grep"
@@ -258,6 +263,38 @@ def delivery(prog: pg.Progression, transcript: str) -> dict[str, dict]:
     }
 
 
+class OverheadPastPlan(RuntimeError):
+    """The daemon's system prompt and tools passed the progression's planned
+    overhead by more than `generate.OVERHEAD_CUSHION`."""
+
+
+def overhead_of(rows: list[dict], first_text: str, model: str) -> int | None:
+    """The daemon's system prompt and tools, as `OVERHEAD_TOKENS` defines
+    them: the earliest `context.compiled` row's estimate (a new session's
+    first call), less its user message at the model's rates."""
+    rows = [x for x in rows if isinstance((x.get("data") or {}).get("est_tokens"), int)]
+    if not rows:
+        return None
+    first = min(rows, key=lambda x: x.get("position", 0))
+    return first["data"]["est_tokens"] - tk.user_text(first_text).tokens(tk.rates_of(model))
+
+
+def overhead_record(prog: pg.Progression, measured: int, allow: bool) -> dict:
+    """run.json's `overhead`: the planned and the measured, the cushion, and
+    whether the measured passes the plan by more than it."""
+    planned = generate.planned_overhead(prog)
+    return {"planned": planned, "planned_recorded": prog.overhead_tokens is not None, "measured": measured,
+            "cushion": generate.OVERHEAD_CUSHION, "past_cushion": measured - planned > generate.OVERHEAD_CUSHION,
+            "allowed": allow}
+
+
+def overhead_refusal(rec: dict) -> str:
+    m, p = rec["measured"], rec["planned"]
+    return (f"the daemon's system prompt and tools are {m:,} tokens, past the {p:,} the progression was planned at "
+            f"by {m - p:,} (more than the cushion of {rec['cushion']}): its marks may ring or fail. Generate it "
+            f"again with --overhead {m}, or run it as it is with --allow-overhead")
+
+
 class Run:
     """The run directory and its records."""
 
@@ -407,7 +444,10 @@ class Theseus:
     def compactions(self) -> list[dict]:
         """The newest `context.compacted` rows (a page holds 1000 at most:
         far more than a run compacts)."""
-        r = self.cli("--json", "ledger", "-k", "context.compacted", "-n", "1000")
+        return self.ledger("context.compacted")
+
+    def ledger(self, kind: str) -> list[dict]:
+        r = self.cli("--json", "ledger", "-k", kind, "-n", "1000")
         if r.returncode != 0:
             raise RuntimeError(f"ledger failed: {r.stderr.strip()}")
         v = json.loads(r.stdout)
@@ -456,6 +496,15 @@ class Theseus:
                     "tool_calls": v.get("tool_calls"),
                 })
                 run.save()
+                if "overhead" not in run.meta:
+                    # The first turn's first compile, before any probe can move.
+                    measured = overhead_of(self.ledger("context.compiled"), t.text, a.model)
+                    if measured is None:
+                        raise RuntimeError("no context.compiled row after the first turn: see raw/theseusd.log")
+                    run.meta["overhead"] = rec = overhead_record(prog, measured, a.allow_overhead)
+                    run.save()
+                    if rec["past_cushion"] and not a.allow_overhead:
+                        raise OverheadPastPlan(overhead_refusal(rec))
             for i, s in enumerate(sids):
                 r = self.cli("--json", "history", "--full", s, timeout=120)
                 (run.raw / f"history-{i + 1}.json").write_text(r.stdout)
@@ -602,6 +651,9 @@ def main(argv: list[str] | None = None) -> int:
     th.add_argument("--spend-limit", type=float, default=50.0, help="the run's spend limit, in dollars")
     th.add_argument("--max-loops", type=int, default=40, help="the model calls one turn may make")
     th.add_argument("--api-base", default=None, help="a stand-in model's address (offline checks)")
+    th.add_argument("--allow-overhead", action="store_true",
+                    help="run on when the daemon's system prompt and tools pass the progression's planned overhead "
+                         "by more than the cushion (both are in run.json either way)")
     cc = ap.add_argument_group("claude-code")
     cc.add_argument("--claude", default="claude", help="the claude binary")
     cc.add_argument("--cc-compact", choices=("auto", "window", "marks"), default="auto",
@@ -616,7 +668,11 @@ def main(argv: list[str] | None = None) -> int:
         meta["memory_arm"] = a.memory_arm
     run = Run(a.out, prog, a.arm, meta)
     driver = Theseus(a, run) if a.arm == "theseus" else ClaudeCode(a, run)
-    transcript = driver.drive()
+    try:
+        transcript = driver.drive()
+    except OverheadPastPlan as e:
+        print(f"drive: {e}", file=sys.stderr)
+        return 3
     run.finish(transcript)
     m = run.meta
     print(f"drive: {a.arm} ran {m['turns']} turns; {m['delivered']} of {m['facts']} facts delivered; "

@@ -27,7 +27,7 @@ import tokens as tk  # noqa: E402
 # The smoke's digest for seed 7: a change to the generator, its lists, or
 # SplitMix64 moves it. Pin the new one only for a change meant to make a new
 # progression, and say so in its commit.
-SMOKE_7 = "25df5ff56f522723"  # theseus-523y: the bulks sized by the compiler's rule, at 13,700
+SMOKE_7 = "a6a203b842f48d21"  # theseus-dp3y: theseus-523y's, with its planned overhead recorded
 
 
 class Rng(unittest.TestCase):
@@ -152,44 +152,77 @@ class Window(unittest.TestCase):
         bound (past it, the turn fails as an overage, as the first live
         smoke's mark did); and at MARGIN under, the reads cross the budget at
         the mark or the turn after it, which holds nothing else."""
-        rates = generate.PLAN_RATES
         for size in ("smoke", "full"):
             for seed in self.SEEDS:
-                p = generate.build(seed, size)
-                budget = pg.request_budget(p.context_window)
-                bounds = generate.bounds_of(p)
-                self.assertEqual([b["mark"] for b in bounds], p.marks())
-                for b in bounds:
-                    at = (size, seed, b["mark"])
-                    m = b["mark"]
-                    self.assertEqual(b["budget"], budget)
-                    self.assertLessEqual(b["fit"], budget, at)
-                    self.assertGreater(b["cross"], budget, at)
-                    self.assertIn(b["cross_at"], (m, m + 1), at)
-                    self.assertLessEqual(b["alone_limit"] * (1 + generate.ALONE_MARGIN), budget + 1, at)
-                    for x in b["alone"]:
-                        self.assertLessEqual(x, b["alone_limit"], at)
-                    for path, nbytes, _ in b["logs"]:
-                        self.assertLessEqual(nbytes, tk.RESULT_MAX_CHARS, (at, path))
-                    # The mark's turn alone, worked from its bytes here.
-                    log = p.workspace[generate.bulk_path(p.marks().index(m))]["content"]
-                    whole = (tk.user_text(p.turns[m].text) + tk.call("fs_read", {"path": generate.bulk_path(
-                        p.marks().index(m))}) + tk.result(tk.fs_read_bytes(log))).tokens(rates)
-                    self.assertEqual(tk.bound(generate.OVERHEAD_TOKENS + whole), b["alone"][0], at)
-                    self.assertLessEqual(tk.bound(generate.OVERHEAD_TOKENS + whole) * (1 + generate.ALONE_MARGIN),
-                                         budget + 1, at)
-                    # The turn after the mark holds nothing but its reads.
-                    self.assertIn(p.turns[m + 1].role, ("filler", "bulk"), at)
-                    self.assertFalse(any(f.turn in (m, m + 1) for f in p.facts), at)
-                    self.assertFalse(any(q.turn in (m, m + 1) for q in p.probes), at)
-                # A session without a mark fits whole.
-                for s in range(len(p.sessions)):
-                    own = p.session_turns(s)
-                    if not any(t.mark for t in own):
-                        total = sum(t.est_tokens for t in own)
-                        self.assertLessEqual(generate.fit_bound(int(total * (1 + generate.MARGIN)),
-                                                                int(own[-1].est_tokens * (1 + generate.MARGIN))),
-                                             budget, (size, seed, s))
+                self.holds(generate.build(seed, size))
+
+    def holds(self, p: pg.Progression) -> None:
+        """Every mark's bounds, worked from `p`'s written bytes at the
+        overhead it was planned at."""
+        rates = generate.PLAN_RATES
+        size, seed, overhead = p.size, p.seed, generate.planned_overhead(p)
+        budget = pg.request_budget(p.context_window)
+        bounds = generate.bounds_of(p)
+        self.assertEqual([b["mark"] for b in bounds], p.marks())
+        for b in bounds:
+            at = (size, seed, overhead, b["mark"])
+            m = b["mark"]
+            self.assertEqual(b["budget"], budget)
+            self.assertLessEqual(b["fit"], budget, at)
+            self.assertGreater(b["cross"], budget, at)
+            self.assertIn(b["cross_at"], (m, m + 1), at)
+            self.assertLessEqual(b["alone_limit"] * (1 + generate.ALONE_MARGIN), budget + 1, at)
+            for x in b["alone"]:
+                self.assertLessEqual(x, b["alone_limit"], at)
+            for path, nbytes, _ in b["logs"]:
+                self.assertLessEqual(nbytes, tk.RESULT_MAX_CHARS, (at, path))
+            # The mark's turn alone, worked from its bytes here.
+            log = p.workspace[generate.bulk_path(p.marks().index(m))]["content"]
+            whole = (tk.user_text(p.turns[m].text) + tk.call("fs_read", {"path": generate.bulk_path(
+                p.marks().index(m))}) + tk.result(tk.fs_read_bytes(log))).tokens(rates)
+            self.assertEqual(tk.bound(overhead + whole), b["alone"][0], at)
+            self.assertLessEqual(tk.bound(overhead + whole) * (1 + generate.ALONE_MARGIN),
+                                 budget + 1, at)
+            # The turn after the mark holds nothing but its reads.
+            self.assertIn(p.turns[m + 1].role, ("filler", "bulk"), at)
+            self.assertFalse(any(f.turn in (m, m + 1) for f in p.facts), at)
+            self.assertFalse(any(q.turn in (m, m + 1) for q in p.probes), at)
+        # A session without a mark fits whole.
+        for s in range(len(p.sessions)):
+            own = p.session_turns(s)
+            if not any(t.mark for t in own):
+                total = sum(t.est_tokens for t in own)
+                self.assertLessEqual(generate.fit_bound(int(total * (1 + generate.MARGIN)),
+                                                        int(own[-1].est_tokens * (1 + generate.MARGIN)), overhead),
+                                     budget, (size, seed, overhead, s))
+
+    def test_a_thin_plan_is_planned_again_until_its_written_bounds_hold(self):
+        """theseus-dp3y: at an overhead of 13,599 the smoke of seed 7 planned
+        a 44000 window whose written reads crossed at 28,895, under its
+        budget of 28,904: the plan is in tokens and the logs in bytes. Each
+        plan is now worked again from its written bytes, at its overhead and
+        at OVERHEAD_CUSHION more, and the first that holds is kept."""
+        p = generate.build(7, "smoke", 13599)
+        self.assertEqual(generate.plan_misses(p), [])
+        self.holds(p)
+        # The first plan, written, is the one that missed.
+        turns, marks = p.turns, p.marks()
+        first = next(generate.plan_bulks(turns, marks, 13599))
+        self.assertEqual(first[0], 44000)
+        self.assertNotEqual((p.context_window, [len(b["logs"]) for b in generate.bounds_of(p)]), (44000, [1]))
+
+    def test_every_overhead_from_13528_to_14000_holds(self):
+        """The sweep: the smoke at every overhead from 13,528 (60b43fb6's) to
+        14,000, and the full at every 59th, each at seeds 7, 8, 11 and 12:
+        every plan's written bounds hold, there and at OVERHEAD_CUSHION
+        more."""
+        for size, step in (("smoke", 1), ("full", 59)):
+            for overhead in range(13528, 14001, step):
+                for seed in (7, 8, 11, 12):
+                    p = generate.build(seed, size, overhead)
+                    self.assertEqual(generate.plan_misses(p), [], (size, seed, overhead))
+                    if size == "full" or overhead % 47 == 0:
+                        self.holds(p)
 
     def test_a_turns_estimate_is_its_messages_at_the_rates(self):
         """A filler that reads a file: its text, the call, the numbered
@@ -332,6 +365,23 @@ class Budget(unittest.TestCase):
             # A second run refuses the full directory.
             with redirect_stdout(io.StringIO()):
                 self.assertEqual(generate.main(["--seed", "7", "--size", "smoke", "--out", str(out)]), 2)
+
+    def test_the_planned_overhead_is_recorded_and_can_be_set(self):
+        """The progression records the overhead its plan took (theseus-dp3y):
+        the driver holds its daemon's to it. `--overhead` plans at another."""
+        self.assertEqual(generate.build(7, "smoke").overhead_tokens, generate.OVERHEAD_TOKENS)
+        p = generate.build(7, "smoke", 14000)
+        self.assertEqual((p.overhead_tokens, generate.planned_overhead(p)), (14000, 14000))
+        p.overhead_tokens = None
+        self.assertEqual(generate.planned_overhead(p), generate.OVERHEAD_TOKENS)
+        with tempfile.TemporaryDirectory() as d:
+            out = Path(d) / "rc"
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                self.assertEqual(generate.main(["--seed", "7", "--size", "smoke", "--out", str(out),
+                                                "--overhead", "14000"]), 0)
+            self.assertIn("the system prompt and tools estimated at 14,000", buf.getvalue())
+            self.assertEqual(pg.load(out).overhead_tokens, 14000)
 
     def test_an_unpriced_model_is_refused(self):
         with self.assertRaises(SystemExit):

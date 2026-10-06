@@ -24,7 +24,7 @@ import tempfile
 import time
 import tomllib
 import unittest
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -261,6 +261,35 @@ class TheseusConfig(unittest.TestCase):
         self.assertEqual(t["model"]["api_base"], "http://127.0.0.1:1")
 
 
+class Overhead(unittest.TestCase):
+    def test_the_overhead_is_the_first_compile_less_its_user_message(self):
+        """`OVERHEAD_TOKENS`' own definition: the earliest `context.compiled`
+        estimate, less its user message at the model's rates."""
+        text = "It's Monday, 2026-11-09. Hi."
+        user = drive.tk.user_text(text).tokens(drive.tk.rates_of("anthropic/claude-sonnet-5-5"))
+        rows = [{"position": 9, "data": {"est_tokens": 20000}}, {"position": 4, "data": {"est_tokens": 13650 + user}},
+                {"position": 2, "kind": "other"}]
+        self.assertEqual(drive.overhead_of(rows, text, "anthropic/claude-sonnet-5-5"), 13650)
+        self.assertIsNone(drive.overhead_of([], text, "m"))
+
+    def test_past_the_cushion_is_refused_and_both_numbers_are_named(self):
+        prog = generate.build(7, "smoke")
+        planned = prog.overhead_tokens
+        at = drive.overhead_record(prog, planned + generate.OVERHEAD_CUSHION, False)
+        self.assertEqual((at["planned"], at["past_cushion"]), (planned, False))
+        past = drive.overhead_record(prog, planned + generate.OVERHEAD_CUSHION + 1, False)
+        self.assertTrue(past["past_cushion"])
+        said = drive.overhead_refusal(past)
+        self.assertIn(f"{planned + generate.OVERHEAD_CUSHION + 1:,}", said)
+        self.assertIn(f"{planned:,}", said)
+        self.assertIn("--allow-overhead", said)
+        # An older file, with no record, is held to today's constant.
+        prog.overhead_tokens = None
+        old = drive.overhead_record(prog, 20000, True)
+        self.assertEqual((old["planned"], old["planned_recorded"], old["allowed"]),
+                         (generate.OVERHEAD_TOKENS, False, True))
+
+
 def bin_dir() -> Path | None:
     d = Path(os.environ.get("THESEUS_RECALL_BIN_DIR") or REPO / "target" / "debug")
     need = ("theseus", "theseusd", "theseus-index", "theseus-sim")
@@ -316,10 +345,11 @@ def rules_for(prog: pg.Progression) -> list[dict]:
 @unittest.skipIf(bin_dir() is None, "no theseus binaries (cargo build --workspace, or THESEUS_RECALL_BIN_DIR)")
 class TheseusDriver(unittest.TestCase):
     def drive(self, d: Path, prog: pg.Progression, rules: list[dict], timeout: str = "120",
-              counting: bool = False) -> tuple[int, str, Path]:
+              counting: bool = False, extra: tuple[str, ...] = ()) -> tuple[int, str, Path]:
         """`prog` driven through a scratch daemon on a stand-in model:
         theseus-sim's, which reports 40 input tokens a call, or with
-        `counting`, `standin.py`'s, which reports the request's estimate."""
+        `counting`, `standin.py`'s, which reports the request's estimate.
+        What it said is its stdout and its stderr."""
         bins = bin_dir()
         gen = d / "gen"
         prog.save(gen)
@@ -346,10 +376,10 @@ class TheseusDriver(unittest.TestCase):
                     time.sleep(0.05)
             out = d / "run"
             buf = io.StringIO()
-            with redirect_stdout(buf):
+            with redirect_stdout(buf), redirect_stderr(buf):
                 rc = drive.main(["--arm", "theseus", "--memory-arm", "baseline", "--bin-dir", str(bins),
                                  "--progression", str(gen), "--out", str(out), "--turn-timeout", timeout,
-                                 "--api-base", base])
+                                 "--api-base", base, *extra])
         finally:
             if fake is not None:
                 fake.kill()
@@ -369,9 +399,15 @@ class TheseusDriver(unittest.TestCase):
                                   text="Last one: are we done for the day?", role="filler", est_tokens=300))
         rules = [{"when": prog.turns[-1].text, "text": "We are."},
                  {"when": slow.text, "calls": [{"name": "proc_run", "input": {"argv": ["sleep", "30"]}}]}]
+        # Planned far under the daemon's overhead, it runs on with
+        # --allow-overhead, and run.json says so.
+        prog.overhead_tokens = 1000
         with tempfile.TemporaryDirectory() as d:
-            rc, said, out = self.drive(Path(d), prog, rules + rules_for(prog), timeout="8")
+            rc, said, out = self.drive(Path(d), prog, rules + rules_for(prog), timeout="8",
+                                       extra=("--allow-overhead",))
             self.assertEqual(rc, 0, said)
+            o = json.loads((out / "run.json").read_text())["overhead"]
+            self.assertEqual((o["planned"], o["past_cushion"], o["allowed"]), (1000, True, True), o)
             rows = {r["index"]: r for r in map(json.loads, (out / "turns.jsonl").read_text().splitlines())}
             self.assertIsNone(rows[slow.index]["exit"])
             self.assertIn("timed out", rows[slow.index]["error"])
@@ -411,16 +447,57 @@ class TheseusDriver(unittest.TestCase):
             self.assertIn("class=context_overage", mark["error"])
             self.assertIn("against the 22,154 the window leaves", mark["error"])
 
+    _measured: int | None = None
+
+    def measured(self) -> int:
+        """The scratch daemon's system prompt and tools, from a run refused
+        at its first turn (planned at 1,000), once for the class."""
+        if TheseusDriver._measured is None:
+            prog = generate.build(7, "smoke")
+            prog.overhead_tokens = 1000
+            with tempfile.TemporaryDirectory() as d:
+                rc, said, out = self.drive(Path(d), prog, rules_for(prog), counting=True)
+                self.assertEqual(rc, 3, said)
+                TheseusDriver._measured = json.loads((out / "run.json").read_text())["overhead"]["measured"]
+        return TheseusDriver._measured
+
+    def test_a_progression_planned_under_the_daemons_overhead_is_refused(self):
+        """theseus-dp3y: planned 500 tokens under the daemon's real overhead,
+        the run stops after its first turn, before any probe can move,
+        naming both numbers; run.json records both."""
+        real = self.measured()
+        prog = generate.build(7, "smoke")
+        prog.overhead_tokens = real - 500
+        with tempfile.TemporaryDirectory() as d:
+            rc, said, out = self.drive(Path(d), prog, rules_for(prog), counting=True)
+            self.assertEqual(rc, 3, said)
+            self.assertIn(f"tools are {real:,} tokens, past the {real - 500:,}", said)
+            run = json.loads((out / "run.json").read_text())
+            self.assertEqual({k: run["overhead"][k] for k in ("planned", "measured", "past_cushion", "allowed")},
+                             {"planned": real - 500, "measured": real, "past_cushion": True, "allowed": False})
+            self.assertEqual(run["turns"], 1)
+            # Only the first turn ran: no probe's.
+            self.assertGreater(min(p.turn for p in prog.probes), 0)
+            self.assertEqual(run["left_running"], [])
+            self.assertEqual(drive.processes_naming(out), [])
+
     def test_the_smoke_runs_end_to_end_on_a_scratch_daemon_and_leaves_nothing(self):
         """On the counting stand-in, each turn's history costs what it would
         live: the mark (or the turn after it) compacts, and no turn fails
-        (theseus-523y: the live smoke's mark was an overage)."""
-        prog = generate.build(7, "smoke")
+        (theseus-523y: the live smoke's mark was an overage). Planned at the
+        daemon's own overhead, it runs (theseus-dp3y), and its written bounds
+        hold there however thin the plan's margin."""
+        real = self.measured()
+        self.assertLessEqual(real, generate.OVERHEAD_TOKENS + generate.OVERHEAD_CUSHION,
+                             "the daemon's system prompt grew past the plan: raise OVERHEAD_TOKENS")
+        prog = generate.build(7, "smoke", real)
         with tempfile.TemporaryDirectory() as d:
             d = Path(d)
             rc, said, out = self.drive(d, prog, rules_for(prog), counting=True)
             self.assertEqual(rc, 0, said)
             run = json.loads((out / "run.json").read_text())
+            self.assertEqual({k: run["overhead"][k] for k in ("planned", "measured", "past_cushion")},
+                             {"planned": real, "measured": real, "past_cushion": False})
             self.assertEqual(run["left_running"], [])
             self.assertEqual(run["killed"], [])
             self.assertEqual(drive.processes_naming(out), [])
