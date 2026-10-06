@@ -2,7 +2,8 @@
 //! model, the store, or a client. Every secret the vault has given is
 //! replaced by `[redacted:<name>]` wherever it appears: verbatim, in base64
 //! (standard or URL-safe, at any offset inside a longer encoding, wrapped
-//! across lines or not), and percent-encoded (review 2's H9). Well-known
+//! across lines or not), percent-encoded (review 2's H9), and with any of its
+//! characters JSON-escaped (theseus-ubp7, `escaped.rs`). Well-known
 //! shapes of secrets never resolved here are replaced by `[redacted:<shape>]`:
 //! token prefixes, AWS access key ids and the secret keys and session tokens
 //! beside them, private-key blocks, and JWTs.
@@ -17,6 +18,10 @@ use std::sync::Arc;
 use base64::Engine as _;
 
 use crate::secrets::{SecretBoard, SecretState};
+
+mod escaped;
+#[cfg(test)]
+mod tests_escaped;
 
 #[derive(Default)]
 pub struct Scrubber {
@@ -117,7 +122,7 @@ fn splice(out: &mut String, mut spans: Vec<Span>) -> u32 {
 
 // ---------------------------------------------------------------- encoded values
 
-/// Each value's base64 and percent-encoded forms.
+/// Each value's base64, percent-encoded, and JSON-escaped forms.
 fn encoded(out: &mut String, values: &[(&str, &str)]) -> u32 {
     let mut spans = Vec::new();
     let needles: Vec<(String, &str)> = values
@@ -153,6 +158,9 @@ fn encoded(out: &mut String, values: &[(&str, &str)]) -> u32 {
                 spans.push((a, b, format!("[redacted:{name}]")));
             }
         }
+    }
+    for (a, b, name) in escaped::spans(out, values) {
+        spans.push((a, b, format!("[redacted:{name}]")));
     }
     splice(out, spans)
 }

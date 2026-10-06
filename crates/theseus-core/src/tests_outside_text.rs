@@ -315,6 +315,10 @@ const SCRUB_PIECES: &[&str] = &[
     "中文",
     "😀",
     "é",
+    "\\",
+    "\\\"",
+    "\\u00",
+    "\\ud83d",
 ];
 
 /// An invented board value.
@@ -341,7 +345,7 @@ proptest! {
     /// A board value never comes through, verbatim or encoded, whatever is
     /// around it.
     #[test]
-    fn a_value_never_comes_through(before in scrub_text(), after in scrub_text(), how in 0..4usize) {
+    fn a_value_never_comes_through(before in scrub_text(), after in scrub_text(), how in 0..5usize) {
         use base64::Engine as _;
         let scrub = crate::scrub::Scrubber::with_values(vec![(SCRUB_VALUE.into(), "demo".into())]);
         let b64 = base64::engine::general_purpose::STANDARD;
@@ -355,8 +359,14 @@ proptest! {
                 let e = b64.encode(format!("u:{SCRUB_VALUE}"));
                 (e.clone(), e)
             }
-            _ => {
+            3 => {
                 let e = SCRUB_VALUE.replace('/', "%2F").replace('+', "%2B");
+                (e.clone(), e)
+            }
+            _ => {
+                // JSON-escaped: `/` as PHP writes it, `+` as a `\u` escape
+                // (theseus-ubp7).
+                let e = SCRUB_VALUE.replace('/', "\\/").replace('+', "\\u002B");
                 (e.clone(), e)
             }
         };
