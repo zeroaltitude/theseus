@@ -6375,17 +6375,49 @@ mod parallel {
         assert_eq!(results, in_order.iter().collect::<Vec<_>>());
     }
 
-    /// A call's time is its run's own (theseus-a60): seven reads that take
-    /// no time say so, though each result waits in the turn's task behind the
-    /// frames of the calls beside it (about 7 ms each on this disk).
+    /// A call's time is its run's own, not its wait for the turn (theseus-a60,
+    /// theseus-b38m). The wait is made long and known: a task beside the turn,
+    /// on the test's one thread, blocks it for `STALL` once the first read has
+    /// run, so every result that is ready waits that long in the turn's task.
+    /// The reads' own times are then far under it (a bound of a half, not a
+    /// wall bound on a read), and the turn's tools span holds the stall, so
+    /// the wait was there to be counted. A time taken from the turn's
+    /// receipt would read the stall, and fail.
     #[tokio::test]
     async fn a_calls_time_is_its_own_run_not_its_wait_for_the_turn() {
+        const STALL: Duration = Duration::from_millis(1200);
+        let timing = Arc::<Timing>::default();
         let seven: Vec<_> = (1..=7)
             .map(|i| read(&format!("q{i}"), "hello.txt"))
             .collect();
-        let r = rig(vec![calls(&seven), Scripted::text("Read seven times.")]);
+        let r = rig_full(
+            vec![calls(&seven), Scripted::text("Read seven times.")],
+            |_| {},
+            vec![slowed(
+                "fs.read",
+                ToolClass::Read,
+                Arc::new(theseus_tools::fs::Read),
+                &timing,
+            )],
+        );
         std::fs::write(r.root.join("hello.txt"), "hi\n").unwrap();
-        let res = turn(&r.core, None, "read hello.txt seven times").await;
+        let core = r.core.clone();
+        let running =
+            tokio::spawn(async move { turn(&core, None, "read hello.txt seven times").await });
+        let t = timing.clone();
+        let stall = tokio::spawn(async move {
+            let t0 = Instant::now();
+            while t.runs.lock().unwrap().is_empty() {
+                assert!(
+                    t0.elapsed() < Duration::from_secs(60),
+                    "no read ran in 60 s"
+                );
+                tokio::task::yield_now().await;
+            }
+            std::thread::sleep(STALL);
+        });
+        let res = running.await.unwrap();
+        stall.await.unwrap();
         assert_eq!(res.tool_calls, 7);
         let times: Vec<u64> = r
             .core
@@ -6399,7 +6431,8 @@ mod parallel {
             })
             .collect();
         assert_eq!(times.len(), 7);
-        assert!(times.iter().all(|ms| *ms < 20), "{times:?}");
+        let half = STALL.as_millis() as u64 / 2;
+        assert!(times.iter().all(|ms| *ms < half), "{times:?}");
         let trace = res.trace.as_ref().unwrap();
         let spans = &span(trace, 0, "tools").children;
         let waited: Vec<u64> = spans
@@ -6407,6 +6440,10 @@ mod parallel {
             .map(|s| (s.end_us.unwrap() - s.start_us) / 1000)
             .collect();
         eprintln!("results' own times {times:?} ms; their spans in the turn {waited:?} ms");
+        assert!(
+            waited.iter().any(|ms| *ms >= STALL.as_millis() as u64),
+            "the stall reached no call's wait: {waited:?}"
+        );
     }
 
     /// A write is a barrier: a read of the same path after it reads what it
