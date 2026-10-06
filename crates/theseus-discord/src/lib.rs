@@ -31,6 +31,8 @@ mod runtime;
 #[cfg(test)]
 mod tests_gateway;
 #[cfg(test)]
+mod tests_live;
+#[cfg(test)]
 mod tests_outbox;
 pub mod viewers;
 

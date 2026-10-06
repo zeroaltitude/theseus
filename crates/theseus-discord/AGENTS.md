@@ -33,6 +33,12 @@ Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
   each a `judge.label` with the presser's `DiscordOrigin`, which the core judges (the owner, from a private place).
   A refused press tells the presser alone; a counted one comes back as the core's `jev_labeled` post, which edits
   the notice and clears its buttons. `judge.noticed` draws nothing in a place.
+- **The bindings file, read live** (`runtime/live.rs`, theseus-ocwt): stat'ed every 2 s, parsed only when its
+  mtime, size or inode moved, acted on only when its revision did. Places diff by key: a removed one loses its
+  routes and actor at once, and its lane is retired (`Shared::retired`), ending between posts and then refusing the
+  rest (`refuse_unbound`); an added one starts as at a start; a changed one is updated in place (routes, actor,
+  lane label), keeping its turn and its lane's messages. A file that does not load changes nothing, and health's
+  detail says why. A guild's invite check and voice channels wait for the next start, and the detail says so.
 - **The task board and `/tasks`** (39b, theseus-ext.14): `runtime/board.rs` routes a `task.changed` to its home's
   place (`theseus_core::task_graph::home`) and sends the tree to the lane as one live upsert under
   `render::BOARD_KEY` (`render/board.rs`); `courier/board.rs` pins it once (a refusal logged once a lane) and, after
@@ -62,6 +68,9 @@ Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
   lane's next write never waits on that row's sync.
 - **One lane per place is the only writer of its messages**: posts first, in order, then live progress. A create
   carries a nonce from its message's key, with `enforce_nonce`, so a retry after a crash returns the first message.
+- **A lane's maps are bounded** (theseus-celu.37): `msgs`, `sent` and `sealed` keep the `KEYS_KEPT` keys named most
+  recently (`Lane::touch`; a late live state names its key too), the task board's always. Every insert goes through
+  `touch` (or `seal`), or the bound leaks.
 - **A place answers only where its bindings file binds it.** An interaction in an unbound place gets no answer, so
   daemons on one bot token with disjoint bindings each answer their own places (Item 11). A card in a guild channel
   mentions exactly its answerers, and nothing else mentions anyone (Item 15).

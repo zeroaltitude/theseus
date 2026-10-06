@@ -43,8 +43,8 @@ use twilight_model::id::marker::{ApplicationMarker, ChannelMarker, GuildMarker, 
 use twilight_model::id::Id;
 use twilight_util::builder::command::CommandBuilder;
 
-use crate::bindings::{snowflake, Bindings};
-use crate::courier::{self, Lane, LaneMsg, SendErr};
+use crate::bindings::Bindings;
+use crate::courier::{self, LaneMsg, SendErr};
 use crate::files;
 use crate::render::{Asked, Renderer};
 use crate::rpc_client::{CallError, RpcClient};
@@ -56,9 +56,12 @@ pub(crate) use board::accept_buttons;
 mod extensions;
 mod guilds;
 mod jev;
+mod live;
 pub(crate) use jev::{
     buttons as jev_buttons, labeled_text as jev_labeled_text, notice_text as jev_notice_text,
 };
+#[cfg(test)]
+pub(crate) use live::PERIOD as LIVE_PERIOD;
 mod prompt;
 mod publish;
 mod voice;
@@ -172,7 +175,7 @@ pub async fn run(core: Arc<Core>, cfg: DiscordConfig, path: PathBuf) {
     let Some(token) = bot_token(&core, &cfg.token_secret, &board).await else {
         return;
     };
-    if let Err(e) = serve(core, cfg, token, bindings, board.clone()).await {
+    if let Err(e) = serve(core, cfg, token, bindings, path, board.clone()).await {
         board.state("failed", Some(format!("{e:#}")));
     }
 }
@@ -246,10 +249,13 @@ async fn serve(
     cfg: DiscordConfig,
     token: String,
     bindings: Bindings,
+    path: PathBuf,
     board: Board,
 ) -> anyhow::Result<()> {
     let (shared, notes, guilds, me) = connect(&core, &cfg, &token, &bindings, &board).await?;
-    start_places(&shared, &bindings, &board, notes).await?;
+    start_places(&shared, &bindings, notes).await?;
+    // The file read again while the binding runs (theseus-ocwt).
+    tokio::spawn(live::watch(shared.clone(), path, bindings.clone()));
     event_loop(&shared, &cfg, token, &guilds, &me, &bindings, &board).await;
     Ok(())
 }
@@ -290,6 +296,7 @@ async fn connect(
         },
         members_intent: OnceLock::new(),
         lanes: Mutex::new(HashMap::new()),
+        retired: Mutex::default(),
         voice: voice::Voice::new(&core.cfg.voice, bindings),
         place_bits: guilds::PlaceBits::new(bindings),
     });
@@ -314,49 +321,14 @@ async fn connect(
 async fn start_places(
     shared: &Arc<Shared>,
     bindings: &Bindings,
-    board: &Board,
     notes: mpsc::UnboundedReceiver<Notification>,
 ) -> anyhow::Result<()> {
     // Places: every [[channel]] and every [[dm]], each with its session.
     for c in &bindings.channel {
-        let channel = Id::new(snowflake("channel id", &c.id)?);
-        let users = c
-            .users
-            .iter()
-            .map(|u| snowflake("user id", u))
-            .collect::<anyhow::Result<Vec<_>>>()?;
-        shared
-            .clone()
-            .start_place(
-                format!("channel:{}", c.id),
-                "channel",
-                c.label(),
-                Some(channel),
-                users,
-                c.mention_only,
-            )
-            .await?;
+        shared.start_channel(c).await?;
     }
     for d in &bindings.dm {
-        let user = snowflake("dm user", &d.user)?;
-        let channel = match shared.dm_channel(user).await {
-            Ok(c) => Some(Id::new(c)),
-            Err(e) => {
-                board.error("open DM channel", None, &e.message);
-                None
-            }
-        };
-        shared
-            .clone()
-            .start_place(
-                format!("dm:{}", d.user),
-                "dm",
-                d.label(),
-                channel,
-                vec![user],
-                false,
-            )
-            .await?;
+        shared.start_dm(d).await?;
     }
     tokio::spawn(route(shared.clone(), notes));
     board::hear_every_change(shared);
@@ -582,6 +554,9 @@ pub(crate) struct Shared {
     members_intent: OnceLock<bool>,
     /// Each place's lane, and the operator's, by target (theseus-q4v).
     lanes: Mutex<HashMap<String, mpsc::UnboundedSender<LaneMsg>>>,
+    /// Lanes whose place the bindings file dropped, until each ends between
+    /// posts (`live`, theseus-ocwt). Locked after `lanes`.
+    retired: Mutex<std::collections::HashSet<String>>,
     voice: voice::Voice,
     /// Each place's guild and ceiling (step 38a).
     place_bits: guilds::PlaceBits,
@@ -699,6 +674,10 @@ enum PlaceMsg {
     Voice(voice::VoiceTurn),
     /// A task of this place's changed: its board's latest state (39b).
     Board,
+    /// The bindings file changed this place's settings (theseus-ocwt).
+    Rebound(Box<live::Rebound>),
+    /// The bindings file no longer names this place: its actor ends.
+    Unbind,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -815,41 +794,19 @@ impl Shared {
     /// A lane for every place in the bindings file, and one for the
     /// operator's notices: the one writer of each's messages (theseus-q4v).
     fn start_lanes(self: Arc<Self>, bindings: &Bindings) -> anyhow::Result<()> {
-        let mut lanes = Vec::new();
         for c in &bindings.channel {
-            let id = snowflake("channel id", &c.id)?;
-            lanes.push((
-                format!("discord:channel:{}", c.id),
-                "channel",
-                c.label(),
-                Some(id),
-                None,
-            ));
+            self.start_channel_lane(c)?;
         }
         for d in &bindings.dm {
-            let user = snowflake("dm user", &d.user)?;
-            self.routes.lock().unwrap().dms.push((user, d.label()));
-            lanes.push((
-                format!("discord:dm:{}", d.user),
-                "dm",
-                d.label(),
-                None,
-                Some(user),
-            ));
+            self.start_dm_lane(d)?;
         }
-        lanes.push((
-            OPERATOR_TARGET.to_string(),
+        self.start_lane(
+            OPERATOR_TARGET.into(),
             "operator",
             "the operator".into(),
             None,
             None,
-        ));
-        for (target, kind, label, channel, dm_user) in lanes {
-            let (tx, rx) = mpsc::unbounded_channel();
-            self.lanes.lock().unwrap().insert(target.clone(), tx);
-            let lane = Lane::new(self.clone(), target, kind, label, channel, dm_user);
-            tokio::spawn(lane.run(rx));
-        }
+        );
         Ok(())
     }
 
@@ -861,9 +818,11 @@ impl Shared {
     }
 
     /// Refuse the posts for places the bindings file no longer names
-    /// (theseus-l3m): a place is bound when it has a lane. The file is read
-    /// when the binding starts, so a change to it takes effect, and is
-    /// checked, at the next start; a post written later for such a place is
+    /// (theseus-l3m): a place is bound when it has a lane. At the start, for
+    /// a place dropped while the daemon was down; while it runs, the file is
+    /// read live (`live`, theseus-ocwt), and a dropped place's lane ends
+    /// between posts and calls this, so a post it sent settles as sent and
+    /// the rest are refused. A post written later for such a place is
     /// refused at the courier's next wake.
     pub(crate) fn refuse_unbound(&self) {
         let bound: std::collections::HashSet<String> =
@@ -887,7 +846,8 @@ impl Shared {
     /// Whether this daemon binds `target`: the bindings file names it, so it
     /// has a lane (theseus-l3m, theseus-c3e).
     pub(crate) fn binds(&self, target: &str) -> bool {
-        self.lanes.lock().unwrap().contains_key(target)
+        let lanes = self.lanes.lock().unwrap();
+        lanes.contains_key(target) && !self.retired.lock().unwrap().contains(target)
     }
 
     /// Who the bot is, what its application allows, the slash commands, and
@@ -1888,8 +1848,8 @@ impl Place {
         loop {
             tokio::select! {
                 m = rx.recv() => match m {
+                    Some(PlaceMsg::Unbind) | None => break,
                     Some(m) => self.handle(m).await,
-                    None => break,
                 },
                 _ = tick.tick() => {
                     let ops = self.renderer.tick();
@@ -1902,6 +1862,8 @@ impl Place {
                 }
             }
         }
+        // Unbound (theseus-ocwt): whatever it reported meanwhile leaves health.
+        self.shared.board.unplace(&self.label, &self.session_id);
     }
 
     #[expect(clippy::too_many_lines, reason = "shape budget: split it")]
@@ -2012,6 +1974,8 @@ impl Place {
             }
             PlaceMsg::Voice(t) => self.voice_turn(t),
             PlaceMsg::Board => self.board(),
+            PlaceMsg::Rebound(r) => self.rebound(*r),
+            PlaceMsg::Unbind => {}
             PlaceMsg::Control { cmd, by, reply } => {
                 let text = self.control(cmd, &by).await;
                 let _ = reply.send(text);
@@ -2363,13 +2327,14 @@ pub(crate) fn shared_for_tests(core: &Arc<Core>) -> Arc<Shared> {
         caps: files::Caps::default(),
         members_intent: OnceLock::new(),
         lanes: Mutex::new(HashMap::new()),
+        retired: Mutex::default(),
         voice: voice::Voice::none(),
         place_bits: Default::default(),
     })
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
     #[test]
@@ -2691,7 +2656,7 @@ mod tests {
     }
 
     /// `core_with_secrets`, with `tweak` applied to the config first.
-    pub(super) fn core_with(
+    pub(crate) fn core_with(
         dir: &std::path::Path,
         secrets: Arc<theseus_core::secrets::SecretBoard>,
         tweak: impl FnOnce(&mut theseus_core::Config),

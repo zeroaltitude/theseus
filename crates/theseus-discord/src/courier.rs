@@ -55,6 +55,10 @@ const BACKOFF_MAX: Duration = Duration::from_secs(60);
 const CARD_WAIT: Duration = Duration::from_secs(5);
 /// How many questions a lane remembers its place has shown.
 const ASKED_KEPT: usize = 64;
+/// How many message keys a lane remembers (`msgs`, `sent`, `sealed`), the
+/// task board's aside: past it, the quarter named longest ago is forgotten
+/// (theseus-celu.37).
+const KEYS_KEPT: usize = 256;
 
 /// What a lane is told.
 pub(crate) enum LaneMsg {
@@ -71,6 +75,8 @@ pub(crate) enum LaneMsg {
     /// The place has shown a question's call, its tool line sent on before
     /// this: the question's card may follow (theseus-50p).
     Asked(String),
+    /// The place's label, changed by the bindings file (theseus-ocwt).
+    Label(String),
 }
 
 /// Why a call to Discord did not go through.
@@ -243,12 +249,18 @@ pub(crate) struct Lane {
     pub channel: Option<u64>,
     pub dm_user: Option<u64>,
     pub last_author: Option<u64>,
-    /// key → (channel, message) of every message this lane wrote.
+    /// key → (channel, message) of the messages this lane wrote, the newest
+    /// `KEYS_KEPT` by when their key was last named (`touched`).
     pub msgs: HashMap<String, (u64, u64)>,
     /// key → what Discord last got for it.
     pub sent: HashMap<String, String>,
     /// Keys a post made final: the stream's later states of them are dropped.
     pub sealed: HashSet<String>,
+    /// key → when it was last named, by `clock`: written, sealed, or a live
+    /// state of it taken, dropped or not. Every key of `msgs`, `sent`, and
+    /// `sealed` but the board's is here, so they hold `KEYS_KEPT` at most.
+    pub touched: HashMap<String, u64>,
+    pub clock: u64,
     /// Live ops waiting: the latest per message, in the order they first came.
     pub live: Vec<Op>,
     pub anchor: Option<u64>,
@@ -293,6 +305,8 @@ impl Lane {
             msgs: HashMap::new(),
             sent: HashMap::new(),
             sealed: HashSet::new(),
+            touched: HashMap::new(),
+            clock: 0,
             live: Vec::new(),
             anchor: None,
             retry_at: None,
@@ -332,6 +346,9 @@ impl Lane {
             while let Ok(m) = rx.try_recv() {
                 self.take(m);
             }
+            if self.retires() {
+                break;
+            }
             if self
                 .retry_at
                 .is_some_and(|at| tokio::time::Instant::now() < at)
@@ -348,7 +365,22 @@ impl Lane {
             if self.deliver_posts().await {
                 self.apply_live().await;
             }
+            if self.retires() {
+                break;
+            }
         }
+    }
+
+    /// The bindings file no longer names this lane's place (theseus-ocwt):
+    /// it ends here, between posts, so a post it sent settled as sent, and
+    /// what it had not sent is refused, as a start refuses it.
+    fn retires(&self) -> bool {
+        if !self.shared.lane_retires(&self.target) {
+            return false;
+        }
+        tracing::info!(target = %self.target, "discord: a lane whose place is no longer bound ends");
+        self.shared.refuse_unbound();
+        true
     }
 
     fn take(&mut self, m: LaneMsg) {
@@ -362,6 +394,7 @@ impl Lane {
             LaneMsg::Channel(c) => self.channel = Some(c),
             LaneMsg::Author(a) => self.last_author = Some(a),
             LaneMsg::Anchor(a) => self.anchor = Some(a),
+            LaneMsg::Label(l) => self.label = l,
             LaneMsg::Asked(q) => {
                 self.stream_first |= !self.live.is_empty();
                 self.asked.push_back(q);
@@ -380,6 +413,7 @@ impl Lane {
             }
             return;
         };
+        self.touch(&key);
         if self.sealed.contains(&key) {
             return;
         }
@@ -387,6 +421,42 @@ impl Lane {
             Some(slot) => *slot = op,
             None => self.live.push(op),
         }
+    }
+
+    /// `key` was named now. Past `KEYS_KEPT`, the quarter of the keys named
+    /// longest ago is forgotten from every map, the board's never
+    /// (theseus-celu.37). A key is forgotten only after `KEYS_KEPT * 3 / 4`
+    /// others were named since it, and every late state of a key names it
+    /// again: so a sealed reply part is forgotten only once its place's
+    /// actor, which sends a turn's states in its events' order, has shown
+    /// hundreds of messages of later turns, long after the turn's last state.
+    fn touch(&mut self, key: &str) {
+        self.clock += 1;
+        if key == render::BOARD_KEY {
+            return;
+        }
+        self.touched.insert(key.to_string(), self.clock);
+        if self.touched.len() <= KEYS_KEPT {
+            return;
+        }
+        let mut by_age: Vec<(u64, String)> = self.touched.drain().map(|(k, at)| (at, k)).collect();
+        by_age.sort_unstable();
+        let forget = by_age.len() - KEYS_KEPT * 3 / 4;
+        for (i, (at, k)) in by_age.into_iter().enumerate() {
+            if i < forget {
+                self.msgs.remove(&k);
+                self.sent.remove(&k);
+                self.sealed.remove(&k);
+            } else {
+                self.touched.insert(k, at);
+            }
+        }
+    }
+
+    /// A post made `key` final: the stream's later states of it are dropped.
+    fn seal(&mut self, key: &str) {
+        self.touch(key);
+        self.sealed.insert(key.to_string());
     }
 
     /// Discord is away: wait, and drop the stream meanwhile.
@@ -413,6 +483,10 @@ impl Lane {
     /// the next start (theseus-pfv).
     async fn deliver_posts(&mut self) -> bool {
         while !self.shared.core.outbox.stopping() {
+            // Its place is no longer bound: no post is begun (theseus-ocwt).
+            if self.shared.is_retired(&self.target) {
+                return false;
+            }
             let Some(a) = self.shared.core.outbox.next_for(&self.target) else {
                 return true;
             };
@@ -730,7 +804,7 @@ impl Lane {
         let writes = parts
             .into_iter()
             .map(|(key, content)| {
-                self.sealed.insert(key.clone());
+                self.seal(&key);
                 Write {
                     key,
                     channel,
@@ -1081,6 +1155,7 @@ impl Lane {
             }
             match self.edit(c, m, &w.content, &w.buttons).await {
                 Ok(()) => {
+                    self.touch(&w.key);
                     self.sent.insert(w.key.clone(), w.content.clone());
                     self.msgs.insert(w.key.clone(), (c, m));
                     return Ok(Some((c, m)));
@@ -1102,6 +1177,7 @@ impl Lane {
                 &w.mentions,
             )
             .await?;
+        self.touch(&w.key);
         self.msgs.insert(w.key.clone(), (w.channel, m));
         if landed != w.content {
             // The nonce returned an earlier send of this message (the stream's,
@@ -1327,6 +1403,7 @@ impl Lane {
                         gone: false,
                         message: e.to_string(),
                     })?;
+                self.touch(key);
                 self.msgs.insert(key.to_string(), (channel, m.id.get()));
                 self.shared.board.update(|s| s.messages_out += 1);
                 self.shared.core.binding_ledger_soon(
@@ -1400,6 +1477,9 @@ fn mcp_note(body: &Value) -> String {
         ),
     }
 }
+
+#[cfg(test)]
+mod tests_bound;
 
 #[cfg(test)]
 mod tests {

@@ -27,9 +27,10 @@ use super::Shared;
 use crate::bindings::{snowflake, Bindings};
 
 /// Each place's guild and ceiling, by its key (`channel:<id>`, `dm:<user>`):
-/// what its health, its `discord.bound` row, and its spend limit read.
+/// what its health, its `discord.bound` row, and its spend limit read. The
+/// bindings file read live replaces them (`replace`, theseus-ocwt).
 #[derive(Default)]
-pub(crate) struct PlaceBits(HashMap<String, Bits>);
+pub(crate) struct PlaceBits(std::sync::Mutex<HashMap<String, Bits>>);
 
 #[derive(Clone, Default)]
 pub(crate) struct Bits {
@@ -39,6 +40,15 @@ pub(crate) struct Bits {
 
 impl PlaceBits {
     pub(crate) fn new(b: &Bindings) -> Self {
+        Self(std::sync::Mutex::new(Self::of(b)))
+    }
+
+    /// The file `b`'s, in place of what was read before.
+    pub(crate) fn replace(&self, b: &Bindings) {
+        *self.0.lock().unwrap() = Self::of(b);
+    }
+
+    fn of(b: &Bindings) -> HashMap<String, Bits> {
         let channels = b.channel.iter().map(|c| {
             let bits = Bits {
                 guild: Some(c.guild.clone()),
@@ -53,11 +63,11 @@ impl PlaceBits {
             };
             (format!("dm:{}", d.user), bits)
         });
-        Self(channels.chain(dms).collect())
+        channels.chain(dms).collect()
     }
 
     pub(crate) fn get(&self, key: &str) -> Bits {
-        self.0.get(key).cloned().unwrap_or_default()
+        self.0.lock().unwrap().get(key).cloned().unwrap_or_default()
     }
 }
 
@@ -258,9 +268,7 @@ mod tests {
         Arc::get_mut(&mut shared).unwrap().place_bits = PlaceBits::new(&b);
         shared.clone().start_lanes(&b).unwrap();
         let (_notes_tx, notes) = tokio::sync::mpsc::unbounded_channel();
-        start_places(&shared, &b, &shared.board, notes)
-            .await
-            .unwrap();
+        start_places(&shared, &b, notes).await.unwrap();
 
         // Each place, with its guild and ceiling, as health and the ledger say.
         let st = core.bindings.all().pop().unwrap();
@@ -378,9 +386,7 @@ mod tests {
         Arc::get_mut(&mut shared).unwrap().place_bits = PlaceBits::new(&b);
         shared.clone().start_lanes(&b).unwrap();
         let (_notes_tx, notes) = tokio::sync::mpsc::unbounded_channel();
-        start_places(&shared, &b, &shared.board, notes)
-            .await
-            .unwrap();
+        start_places(&shared, &b, notes).await.unwrap();
 
         // Health: the binding's places are #pier and the DM; #lab is a
         // warning with its reason, beside #pier's two.
