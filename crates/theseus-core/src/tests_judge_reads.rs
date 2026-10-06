@@ -1,6 +1,7 @@
 //! The judge's reads that once grew with all of history, each held to the
 //! read it replaced over the same store, with the records each decodes
-//! (theseus-wse2): `judge.list` paged back from the newest `judge.call` row.
+//! (theseus-wse2, theseus-b8e2): `judge.list` paged back from the newest
+//! `judge.call` row, and the notices' brake read from today's rows.
 
 use serde_json::{json, Value};
 use theseus_protocol::judge::JudgeListParams;
@@ -191,4 +192,209 @@ async fn judge_list_pages_from_the_newest_and_answers_as_the_scan_did() {
     assert!(decoded("none").1 > n, "the scan read every scope whole");
     assert_eq!(decoded("limit").2, 8, "{table:?}");
     assert_eq!(decoded("session").2, 51, "the session's own tag: {table:?}");
+}
+
+/// A brake's row in `judge:security` (or `scope`), at `at_ms`.
+fn security(kind: LedgerKind, data: Value, at_ms: u64, key: &str) -> NewRecord {
+    row(
+        kind,
+        crate::judge::notice::SCOPE,
+        Some("ses_heron"),
+        data,
+        at_ms,
+        key,
+    )
+}
+
+/// Thirty days of security judgments, notices and noise labels before
+/// today, a pause on an earlier day, and today's own rows with their near
+/// misses: a notice and a noise label a millisecond before midnight, a
+/// policy's notice, a system's noise, a noise on v1, and a judge's notice
+/// in another scope.
+fn brake_history(core: &Core, now: u64) {
+    use crate::judge::notice::paused_key;
+    use crate::judge::spend::local_day;
+    let midnight = crate::learning::local_midnight(now);
+    let notice = |by: &str| json!({"by": by, "tool": "proc.run"});
+    let noise = |pack: &str, source: &str| json!({"pack": pack, "label": "noise", "source": source, "judgment": "jdg_x"});
+    let mut frame = Vec::new();
+    for i in 0..5_000u64 {
+        let at = midnight - 30 * DAY + i * (30 * DAY / 5_000);
+        let id = format!("jdg_s{i}");
+        frame.push(security(
+            LedgerKind::JudgeCall,
+            json!({"id": id, "pack": "security.v3"}),
+            at,
+            &id,
+        ));
+        if i % 20 == 0 {
+            frame.push(security(
+                LedgerKind::ToolNotified,
+                notice("judge"),
+                at,
+                &format!("n{i}"),
+            ));
+        }
+        if i % 50 == 0 {
+            frame.push(security(
+                LedgerKind::JudgeLabel,
+                noise("security.v3", "operator"),
+                at,
+                &format!("l{i}"),
+            ));
+        }
+        if frame.len() >= 400 {
+            core.store.append(&frame).unwrap();
+            frame.clear();
+        }
+    }
+    let earlier = local_day(midnight - 3 * DAY);
+    let paused = |day: &str| {
+        json!({"what": "notices", "pack": "security.v3", "day": day, "until": "tomorrow",
+            "rule": "labels_per_day", "why": "3 noise", "short": "3 labeled noise today"})
+    };
+    frame.push(security(
+        LedgerKind::JudgePaused,
+        paused(&earlier),
+        midnight - 3 * DAY,
+        &paused_key(&earlier),
+    ));
+    frame.extend(brake_today(now));
+    core.store.append(&frame).unwrap();
+}
+
+/// Today's rows of `brake_history`: a pause, 4 notices and 2 noise labels
+/// that count, and the near misses that don't.
+fn brake_today(now: u64) -> Vec<NewRecord> {
+    use crate::judge::notice::paused_key;
+    use crate::judge::spend::local_day;
+    let midnight = crate::learning::local_midnight(now);
+    let notice = |by: &str| json!({"by": by, "tool": "proc.run"});
+    let noise = |pack: &str, source: &str| json!({"pack": pack, "label": "noise", "source": source, "judgment": "jdg_x"});
+    let paused = |day: &str| {
+        json!({"what": "notices", "pack": "security.v3", "day": day, "until": "tomorrow",
+            "rule": "labels_per_day", "why": "3 noise", "short": "3 labeled noise today"})
+    };
+    let mut frame = Vec::new();
+    let today = local_day(now);
+    frame.push(security(
+        LedgerKind::JudgePaused,
+        paused(&today),
+        now,
+        &paused_key(&today),
+    ));
+    for i in 0..4 {
+        frame.push(security(
+            LedgerKind::ToolNotified,
+            notice("judge"),
+            now,
+            &format!("t{i}"),
+        ));
+    }
+    for i in 0..2 {
+        frame.push(security(
+            LedgerKind::JudgeLabel,
+            noise("security.v3", "operator"),
+            now,
+            &format!("tl{i}"),
+        ));
+    }
+    frame.push(security(
+        LedgerKind::ToolNotified,
+        notice("judge"),
+        midnight - 1,
+        "just_before",
+    ));
+    frame.push(security(
+        LedgerKind::JudgeLabel,
+        noise("security.v3", "operator"),
+        midnight - 1,
+        "just_before_label",
+    ));
+    frame.push(security(
+        LedgerKind::ToolNotified,
+        notice("policy"),
+        now,
+        "by_policy",
+    ));
+    frame.push(security(
+        LedgerKind::JudgeLabel,
+        noise("security.v3", "system"),
+        now,
+        "by_system",
+    ));
+    frame.push(security(
+        LedgerKind::JudgeLabel,
+        noise("security.v1", "operator"),
+        now,
+        "on_v1",
+    ));
+    frame.push(row(
+        LedgerKind::ToolNotified,
+        "judge:loop",
+        None,
+        notice("judge"),
+        now,
+        "elsewhere",
+    ));
+    frame
+}
+
+/// The notices' brake reads its day from today's rows (theseus-b8e2): the
+/// pause by its key, and today's notices and noise labels by a page from
+/// the local midnight, the same day as the scan of `judge:security` gave,
+/// with nothing before midnight counted; and it decodes the day's rows,
+/// not the scope's judgments.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_brakes_day_is_todays_rows_as_the_scan_counted_them() {
+    use crate::judge::notice::read_day;
+    let r = rig();
+    let c = &r.core;
+    let now = theseus_protocol::now_unix_ms();
+    brake_history(c, now);
+    let today = crate::judge::spend::local_day(now);
+    let (paged, cost) = read_day(&c.store, &today, now, true).unwrap();
+    let (scanned, before) = read_day(&c.store, &today, now, false).unwrap();
+    assert!(cost.paged);
+    assert_eq!(paged, scanned, "the same day");
+    assert_eq!((paged.notices, paged.noise), (4, 2), "{paged:?}");
+    assert_eq!(
+        paged.paused.as_ref().map(|p| p.day.as_str()),
+        Some(today.as_str())
+    );
+    assert_eq!(cost.since_ms, Some(crate::learning::local_midnight(now)));
+    eprintln!(
+        "the brake's day at 5,000 security judgments over 30 days: decoded {} by the scan, {} by the page",
+        before.decoded, cost.decoded
+    );
+    assert!(before.decoded > 5_000, "{before:?}");
+    // Every notice and label row in the store has today's frame time (a
+    // test can't set the store's clock), so the page reads them all; it
+    // never decodes a judgment.
+    assert!(cost.decoded < 500, "{cost:?}");
+}
+
+/// The page begins at the brake's local midnight: on the next day, nothing
+/// written today (by the store's clock) is decoded at all, and the day is
+/// the scan's, empty.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_brakes_page_begins_at_its_midnight() {
+    use crate::judge::notice::read_day;
+    let r = rig();
+    let c = &r.core;
+    let now = theseus_protocol::now_unix_ms();
+    brake_history(c, now);
+    let tomorrow = now + DAY;
+    let day = crate::judge::spend::local_day(tomorrow);
+    let (paged, cost) = read_day(&c.store, &day, tomorrow, true).unwrap();
+    let (scanned, _) = read_day(&c.store, &day, tomorrow, false).unwrap();
+    assert_eq!(paged, scanned);
+    assert_eq!(
+        (paged.notices, paged.noise, paged.paused.is_none()),
+        (0, 0, true)
+    );
+    assert_eq!(
+        cost.decoded, 0,
+        "no row before the day's midnight is read: {cost:?}"
+    );
 }

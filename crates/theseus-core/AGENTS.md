@@ -341,7 +341,8 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     labels on v3's judgments, at each notice and each such label, `JudgeService::after_label`): a fired rule
     writes one `judge.paused` row (`what: "notices"`), a `jev_paused` post and a META mark (`judge.notices`,
     health's read), and holds notices to the next local day. The first use in a run reads today's rows in
-    `judge:security`. A label on a noticed judgment edits its post (`jev_labeled`), and `judge.label` takes a
+    `judge:security`: the pause by its key, and the day's `tool.notified` and `judge.label` rows by a page from the
+    local midnight (`read_day`, theseus-b8e2), never the scope whole but while the index's shape is built. A label on a noticed judgment edits its post (`jev_labeled`), and `judge.label` takes a
     judgment whose `judge.call` row the sink has not written yet from its notice's row. Health's `notices`.
     Tests: `tests_notices.rs`.
   - **At an exchange's end** (step 28b, `categorize.rs`): at a private conversation's exchange end (never a shared
