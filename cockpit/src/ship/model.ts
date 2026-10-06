@@ -502,9 +502,11 @@ export function buildModel(input: ShipInput): ShipModel {
         if (waiting) b.waiting = true
       }
     })
-    // The turn running now: the one the pushes named, or, for a vessel that works, its newest.
+    // The turn running now: the one the pushes named; else, for a vessel that works, the newest turn with a job running
+    // (its oar's gear turns), else its newest turn.
     const act = input.active?.get(v.id)
-    const ab = act !== undefined ? benchOf.get(act) : v.rig === 'sail' && vb.length ? vb[vb.length - 1] : undefined
+    const jobBench = [...vb].reverse().find((b) => benches[b].running)
+    const ab = act !== undefined ? benchOf.get(act) : v.rig === 'sail' && vb.length ? jobBench ?? vb[vb.length - 1] : undefined
     v.activeBench = ab ?? -1
     if (ab !== undefined) benches[ab].running = true
   }

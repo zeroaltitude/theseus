@@ -299,7 +299,11 @@ void main() {
   // Far out, a hull is a few dozen pixels: its glow would swallow its shape, so the glow comes up as the hull grows on
   // screen (theseus-hnof), and the rail's colour carries the state.
   float hullPx = vL / max(aa, 1e-4);
-  hot *= mix(0.28, 1.0, smoothstep(70.0, 260.0, hullPx));
+  float near = smoothstep(70.0, 260.0, hullPx);
+  hot *= mix(0.28, 1.0, near);
+  // A small hull's bright rail (cyan, amber, rose) would bloom into a blob: it is dimmed until the hull is big enough to
+  // keep its outline, and the nameplate says the state in words.
+  ec *= mix(vRig > 0.5 ? 0.42 : 1.0, 1.0, near);
   col += ec * edge * 1.15 + ec * glow * 0.42 * hot;
   alpha = max(alpha, edge * 0.95 + glow * 0.55 * hot);
 
@@ -337,14 +341,15 @@ void main() {
   vUv = position.xy + 0.5;
   vBorn = b.w;
   if (b.y < 0.5 || b.y > 1.5) { gl_Position = vec4(2.0, 2.0, 2.0, 1.0); vFade = 0.0; return; }
-  vec3 foot = toWorld(a, vec3(a.w * 0.04, 0.25, 0.0));
+  // The sail stands forward of midships and smaller than the hull is long, so the benches aft stay in view.
+  vec3 foot = toWorld(a, vec3(a.w * 0.2, 0.25, 0.0));
   // A sail shows once its hull is big enough on screen to carry one (far out, the cyan rail says it).
   float px = a.w * uScale / max(1.0, -(viewMatrix * vec4(foot, 1.0)).z);
   vFade = smoothstep(90.0, 170.0, px);
   vec3 right = vec3(viewMatrix[0][0], viewMatrix[1][0], viewMatrix[2][0]);
   vec3 up = vec3(viewMatrix[0][1], viewMatrix[1][1], viewMatrix[2][1]);
-  float w = a.w * 0.3 + 0.4;
-  float h = a.w * 0.36 + 0.5;
+  float w = a.w * 0.17 + 0.4;
+  float h = a.w * 0.2 + 0.5;
   vec3 p = foot + right * (position.x * w) + up * ((position.y + 0.5) * h);
   gl_Position = projectionMatrix * viewMatrix * vec4(p, 1.0);
 }

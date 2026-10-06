@@ -1,0 +1,105 @@
+/* The watch (theseus-hnof): five brass plates down the Ship's right, each a question and its answer. The plates are
+   `.brass-card`s and their titles `.ship-engraved` (index.css); this file adds only the watch's own parts. Colour
+   carries state, always with a word or an icon beside it: live cyan, wait amber, fault rose, ok emerald, money gold. */
+
+.watch { display: flex; flex-direction: column; gap: 5px; width: 280px; }
+
+.watch .watch-plate { padding: 6px 10px 7px 11px; }
+.watch-plate-on { box-shadow: 0 0 0 1px rgb(34 211 238 / 0.55), 0 0 16px rgb(34 211 238 / 0.22), 0 16px 40px -16px rgb(0 0 0 / 0.9) !important; }
+
+.watch-head { display: flex; align-items: center; gap: 6px; }
+.watch-question { flex: 1; min-width: 0; font-size: 10.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* "show": a small brass toggle that puts the plate's overlay on the chart. */
+.watch-show {
+  display: inline-flex; align-items: center; gap: 4px; flex: none;
+  padding: 1px 6px 1px 5px; border-radius: 5px;
+  font-family: var(--font-display); font-size: 9px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase;
+  color: var(--color-ink-dim);
+  background: linear-gradient(180deg, #182b42, #0b1626) padding-box, linear-gradient(140deg, #f3d9a4, #8c6a3c 45%, #4a3519 75%, #b08d57) border-box;
+  border: 1px solid transparent;
+  cursor: pointer;
+}
+.watch-show:hover:not(:disabled) { color: #fffaf0; box-shadow: 0 0 0 1px rgb(34 211 238 / 0.5), 0 0 10px rgb(34 211 238 / 0.25); }
+.watch-show-on { color: var(--color-neon); box-shadow: 0 0 0 1px rgb(34 211 238 / 0.45), 0 0 10px rgb(34 211 238 / 0.25); }
+.watch-show:disabled { opacity: 0.38; cursor: default; }
+.watch-link { flex: none; display: inline-grid; place-items: center; width: 18px; height: 18px; border-radius: 4px; color: var(--color-ink-faint); }
+.watch-link:hover { color: var(--color-neon); background: rgb(34 211 238 / 0.08); }
+
+.watch-head + * { margin-top: 2px; }
+
+/* The number, the sans, semibold, with proportional figures (a big standalone value never takes tabular ones), and
+   beside it what it counts, in two lines at most, after the plate's state as an icon. */
+.watch-figure { display: flex; align-items: center; gap: 9px; min-height: 26px; }
+.watch-value {
+  flex: none; font-family: var(--font-sans); font-weight: 600; font-size: 24px; line-height: 1; letter-spacing: -0.01em;
+  font-variant-numeric: proportional-nums; color: var(--color-ivory);
+}
+.watch-caption {
+  min-width: 0; font-size: 10.5px; line-height: 13px; color: var(--color-ink-dim);
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden;
+}
+.watch-icon { display: inline-block; vertical-align: -2px; margin-right: 4px; }
+
+/* A number that changes glows once (never in calm mode, nor under reduced motion: see below). */
+@keyframes watch-glow {
+  0% { text-shadow: 0 0 16px rgb(34 211 238 / 0.95), 0 0 3px rgb(34 211 238 / 0.9); color: #ffffff; }
+  100% { text-shadow: 0 0 0 transparent; }
+}
+.watch-glow { animation: watch-glow 1.6s ease-out 1; }
+html.calm .watch-glow { animation: none; }
+@media (prefers-reduced-motion: reduce) { .watch-glow { animation: none; } }
+
+/* Lines: each a button that flies the camera there. A thin mark at its left edge carries its state. */
+.watch-lines { margin-top: 3px; display: flex; flex-direction: column; gap: 1px; }
+.watch-spark + .watch-lines { margin-top: 3px; }
+.watch-line {
+  display: block; width: 100%; padding: 1px 4px 1px 6px; text-align: left; border-radius: 3px;
+  border-left: 2px solid rgb(176 141 87 / 0.45); font-size: 11px; line-height: 14px; color: var(--color-ink);
+}
+button.watch-line { cursor: pointer; }
+button.watch-line:hover, button.watch-line:focus-visible { background: rgb(34 211 238 / 0.08); outline: none; box-shadow: inset 0 0 0 1px rgb(34 211 238 / 0.25); }
+.watch-line[data-tone="live"] { border-left-color: var(--color-live); }
+.watch-line[data-tone="wait"] { border-left-color: var(--color-wait); }
+.watch-line[data-tone="fault"] { border-left-color: var(--color-fault); }
+.watch-line[data-tone="ok"] { border-left-color: var(--color-ok); }
+.watch-line-main { display: flex; align-items: baseline; gap: 5px; min-width: 0; }
+.watch-tag { flex: none; max-width: 76px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-mono); font-size: 9.5px; color: var(--color-ink-faint); }
+.watch-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.watch-fig { flex: none; font-family: var(--font-mono); font-size: 10.5px; font-variant-numeric: tabular-nums; color: var(--color-ink-dim); }
+.watch-detail { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10px; line-height: 12px; color: var(--color-ink-faint); }
+
+/* Flags: a word, and an icon for the sandbox. */
+.watch-flag { flex: none; display: inline-flex; align-items: center; gap: 2px; font-family: var(--font-mono); font-size: 9.5px; color: var(--color-ink-faint); }
+.watch-flag[data-flag="L1"] { color: #5eead4; }
+.watch-flag[data-flag="expired"] { color: var(--color-fault); }
+
+/* State colours, for icons and flags (always beside a word). */
+.watch-tone-live { color: var(--color-live); }
+.watch-tone-wait { color: var(--color-wait); }
+.watch-tone-fault { color: var(--color-fault); }
+.watch-tone-ok { color: var(--color-ok); }
+.watch-tone-money { color: var(--color-gold); }
+.watch-tone-idle { color: var(--color-ink-faint); }
+
+/* The day's spend by hour: thin bars from one baseline, the hours past in worn brass, the hour now in gold. */
+.watch-spark { display: block; margin-top: 3px; overflow: visible; }
+.watch-spark-bar { fill: rgb(176 141 87 / 0.6); }
+.watch-spark-now { fill: var(--color-money); }
+.watch-spark-base { stroke: rgb(176 141 87 / 0.35); stroke-width: 1; }
+.watch-spark-tick { stroke: rgb(176 141 87 / 0.5); stroke-width: 1; }
+.watch-spark-hit { fill: transparent; }
+.watch-spark-hit:hover + .watch-spark-bar, .watch-spark-hit:hover + .watch-spark-now { filter: brightness(1.35); }
+
+/* The time machine's moment, above the plates. */
+.watch-asof { display: flex; align-items: center; gap: 5px; padding: 2px 8px; font-size: 10.5px; color: var(--color-wait); }
+
+/* Compact: a strip of one line a plate, for a short or narrow window; a plate's lines open under its line. */
+.watch-compact { width: 100%; padding: 4px 6px; }
+.watch-row { display: flex; align-items: center; gap: 6px; min-height: 25px; }
+.watch-row + .watch-row, .watch-row + .watch-open, .watch-open + .watch-row { border-top: 1px solid rgb(176 141 87 / 0.18); }
+.watch-row-name { display: flex; flex: 1; min-width: 0; align-items: center; gap: 5px; text-align: left; cursor: pointer; }
+.watch-row-name .ship-engraved { font-size: 9.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.watch-row-value { flex: none; font-family: var(--font-sans); font-weight: 600; font-size: 13.5px; font-variant-numeric: proportional-nums; color: var(--color-ivory); }
+.watch-open { padding: 2px 0 6px; }
+.watch-open > .watch-caption { margin-bottom: 2px; }
