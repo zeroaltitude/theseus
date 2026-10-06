@@ -42,6 +42,8 @@ pub mod notice;
 pub mod rerank;
 pub mod sink;
 pub mod spend;
+#[cfg(test)]
+mod tests_reserve;
 
 use std::collections::{BTreeMap, HashSet};
 use std::sync::{Arc, Mutex, OnceLock, Weak};

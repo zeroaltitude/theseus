@@ -91,6 +91,20 @@ pub struct Inbound {
     pub route: PackMode,
     /// The profile the owner chose for this turn (a pin), for the record.
     pub chosen: Option<String>,
+    /// The turn is a task's.
+    pub task: bool,
+}
+
+/// The workload class (§2.2) an inbound judgment records. The turn has not
+/// run, so its tools and its reply are not known: a task's message is
+/// `task`, and any other is `unknown`, written on purpose, so the metrics
+/// read a decision and not a gap (theseus-fi5n).
+pub fn class(task: bool) -> &'static str {
+    if task {
+        "task"
+    } else {
+        "unknown"
+    }
 }
 
 /// The state's `place_kind`: the surface (the session's place, or, with
@@ -308,7 +322,7 @@ impl JudgeService {
             let mut context = json!({
                 "session": msg.session_id, "execution": msg.execution_id, "turn": msg.turn_id,
                 "node": msg.node_id, "baseline": baseline, "place_kind": msg.place_kind,
-                "blob": blob, "on_path_ms": 0,
+                "blob": blob, "on_path_ms": 0, "class": class(msg.task),
             });
             if pack.name() == ROUTE_PACK {
                 context["pinned"] = json!(msg.chosen.is_some());
@@ -565,6 +579,12 @@ mod tests {
         ] {
             assert!(!slash_command(s), "{s}");
         }
+    }
+
+    #[test]
+    fn a_message_is_a_tasks_or_its_class_is_unknown_on_purpose() {
+        assert_eq!(class(true), "task");
+        assert_eq!(class(false), "unknown");
     }
 
     #[test]

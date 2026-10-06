@@ -32,6 +32,8 @@ pub struct AtCompile<'a> {
     pub execution_id: &'a str,
     pub turn_id: &'a str,
     pub loop_index: u32,
+    /// The turn is a task's.
+    pub task: bool,
     pub kernel: &'a Arc<Kernel>,
 }
 
@@ -41,6 +43,7 @@ struct Asked {
     execution_id: String,
     turn_id: String,
     loop_index: u32,
+    class: &'static str,
     kernel: Weak<Kernel>,
     input: ContinueInput,
     id: String,
@@ -96,6 +99,8 @@ impl JudgeService {
             execution_id: at.execution_id.into(),
             turn_id: at.turn_id.into(),
             loop_index: at.loop_index,
+            // A loop after the first follows tool calls (`loop_end::class`).
+            class: super::loop_end::class(at.task, at.loop_index),
             kernel: Arc::downgrade(at.kernel),
             input,
             id: id.clone(),
@@ -132,7 +137,7 @@ impl JudgeService {
             .ok()?;
         let mut context = json!({
             "session": a.session_id, "execution": a.execution_id, "turn": a.turn_id,
-            "loop": a.loop_index, "baseline": "append", "decision": "append",
+            "loop": a.loop_index, "class": a.class, "baseline": "append", "decision": "append",
             "blob": blob, "on_path_ms": 0,
         });
         let mode = self.ask_mode(&pack.name(), &mut context);
