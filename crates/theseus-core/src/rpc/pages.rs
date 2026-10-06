@@ -140,34 +140,28 @@ impl Core {
     /// newest first, and the cursor to the next page back; `None` while the
     /// index's shape is built. Imported sessions (theseus-0lrr.6) are not
     /// listed: an import writes thousands at once, the newest births, and
-    /// none takes a turn. They are skipped by key, undecoded.
+    /// none takes a turn. They are skipped by key in the page's one walk of
+    /// the births, unread, however long their run (theseus-7087).
     pub(super) fn sessions_paged(
         &self,
         n: usize,
         before: Option<u64>,
     ) -> anyhow::Result<Option<(Vec<SessionRecord>, Option<u64>)>> {
-        let mut recs = Vec::new();
-        let mut cursor = before;
-        loop {
-            let Some((born, more)) = self.store.inner().newest_keys(kinds::SESSION, cursor, n)?
-            else {
-                return Ok(None);
-            };
-            for (b, r) in &born {
-                if r.key.as_deref().is_some_and(crate::import::is_imported) {
-                    continue;
-                }
-                recs.push(r.decode()?);
-                if recs.len() == n {
-                    let last = born.last().map(|(l, _)| *l) == Some(*b);
-                    return Ok(Some((recs, (more || !last).then_some(*b))));
-                }
-            }
-            match born.last() {
-                Some((b, _)) if more => cursor = Some(*b),
-                _ => return Ok(Some((recs, None))),
-            }
-        }
+        let Some((born, more)) =
+            self.store
+                .inner()
+                .newest_keys_where(kinds::SESSION, before, n, &|k| {
+                    !crate::import::is_imported(k)
+                })?
+        else {
+            return Ok(None);
+        };
+        let older = born.last().map(|(b, _)| *b).filter(|_| more);
+        let recs = born
+            .iter()
+            .map(|(_, r)| r.decode())
+            .collect::<Result<Vec<SessionRecord>, _>>()?;
+        Ok(Some((recs, older)))
     }
 
     /// `session.history`'s nodes (theseus-xo0m, theseus-kym3): with `after`,

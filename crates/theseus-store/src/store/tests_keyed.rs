@@ -72,3 +72,62 @@ fn latest_of_kind_where_reads_only_the_kept_keys_records() {
     assert_eq!(want.len(), 19);
     assert_eq!(read, 19, "only the kept keys' records are read");
 }
+
+/// Every page of the filtered walk equals the page an unfiltered walk, `n`
+/// at a time, gives once it drops the skipped keys: the same keys, births,
+/// and cursors. And each page reads its own records alone, however long
+/// the skipped run it steps over.
+#[test]
+fn newest_keys_where_steps_over_a_skipped_run_in_one_walk() {
+    let dir = tempfile::tempdir().unwrap();
+    let s = store_with_runs(dir.path());
+    // The walk the filter replaces: `n` keys at a time, skipping by key.
+    let walked = |n: usize, before: Option<u64>| {
+        let mut out = Vec::new();
+        let mut cursor = before;
+        loop {
+            let (born, more) = s.newest_keys(kinds::SESSION, cursor, n).unwrap().unwrap();
+            for (b, r) in &born {
+                if skipped(r.key.as_deref().unwrap()) {
+                    continue;
+                }
+                out.push((*b, r.key.clone().unwrap(), r.position));
+                if out.len() == n {
+                    let last = born.last().map(|(l, _)| *l) == Some(*b);
+                    return (out, (more || !last).then_some(*b));
+                }
+            }
+            match born.last() {
+                Some((b, _)) if more => cursor = Some(*b),
+                _ => return (out, None),
+            }
+        }
+    };
+    for n in [1, 2, 3, 5, 7, 20, 1000] {
+        let mut cursor = None;
+        let mut pages = 0;
+        loop {
+            let (want, want_older) = walked(n, cursor);
+            let before = records_read_here();
+            let (got, more) = s
+                .newest_keys_where(kinds::SESSION, cursor, n, &|k| !skipped(k))
+                .unwrap()
+                .unwrap();
+            let read = records_read_here() - before;
+            assert_eq!(read, got.len() as u64, "a page reads its own records alone");
+            let older = more.then(|| got.last().map(|(b, _)| *b)).flatten();
+            let got: Vec<(u64, String, u64)> = got
+                .into_iter()
+                .map(|(b, r)| (b, r.key.unwrap(), r.position))
+                .collect();
+            assert_eq!(got, want, "page {pages} of {n}");
+            assert_eq!(older, want_older, "page {pages} of {n}'s cursor");
+            pages += 1;
+            match older {
+                Some(b) => cursor = Some(b),
+                None => break,
+            }
+        }
+        assert!(pages >= 19usize.div_ceil(n), "{n}: {pages} pages");
+    }
+}

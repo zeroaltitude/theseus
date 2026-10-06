@@ -206,6 +206,19 @@ pub trait Store: Send + Sync {
     ) -> Result<Option<Newest>> {
         Ok(None)
     }
+    /// `newest_keys` of the keys `keep` passes (theseus-7087), in one walk
+    /// of the births: a key it fails is stepped over unread, however many
+    /// there are in a row. Whether older keys remain counts every key, as
+    /// `newest_keys` does. `None` when the store keeps no births whole.
+    fn newest_keys_where(
+        &self,
+        _kind: RecordKind,
+        _before: Option<u64>,
+        _limit: usize,
+        _keep: &dyn Fn(&str) -> bool,
+    ) -> Result<Option<Newest>> {
+        Ok(None)
+    }
     /// One page of a kind's records through the index's tags, time, and
     /// cursors (`pages.rs`, theseus-vm3n.5), with the kind's count from the
     /// same snapshot; `None` when the store keeps no such index, and the
@@ -1630,11 +1643,21 @@ impl Store for WalStore {
         before: Option<u64>,
         limit: usize,
     ) -> Result<Option<Newest>> {
+        self.newest_keys_where(kind, before, limit, &|_| true)
+    }
+
+    fn newest_keys_where(
+        &self,
+        kind: RecordKind,
+        before: Option<u64>,
+        limit: usize,
+        keep: &dyn Fn(&str) -> bool,
+    ) -> Result<Option<Newest>> {
         let s = &self.inner;
         if !s.index.shaped() {
             return Ok(None);
         }
-        let (keys, more) = s.index.keys_by_birth(kind, before, limit)?;
+        let (keys, more) = s.index.keys_by_birth_where(kind, before, limit, keep)?;
         let positions: Vec<u64> = keys.iter().map(|(_, _, p)| *p).collect();
         let born: std::collections::HashMap<u64, u64> =
             keys.iter().map(|(b, _, p)| (*p, *b)).collect();

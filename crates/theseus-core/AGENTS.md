@@ -553,7 +553,10 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   episode, hash, source, agent, place and labels as recorded facts, triage, as-of; store format 23), its id the
   episode's (`ses_ep<64 hex>`, `session_id_of`), its record scoped `import:<tag>`. It has no execution, and
   `turn.submit` refuses it (`import::refusal`), so it never takes a turn or reaches a compile but as recall's
-  testimony; `session.list` leaves it out (`rpc/pages.rs` skips it by key). Its place is private whatever place
+  testimony; `session.list` leaves it out unread: the whole list, `confirm.list`, `compilation.list` and the learning
+  tender's task briefs read `Store::live_sessions` (theseus-store's `latest_of_kind_where`, which skips a key before
+  its record is read), and a page skips the import's births in its one walk (`newest_keys_where`, theseus-7087);
+  health's fallback totals alone read every session, since the projection's count holds imported ones. Its place is private whatever place
   the episode names (`TurnRunner::place_of` reads the id), so a shared place never recalls it. Each message is a
   node of origin `import` (`Body::Imported`: source, unit, sha256, integrity; `created_at_ms` the message's own
   time), the summary a `Body::ImportedSummary` citing its messages' ids; outside integrity is external to the index,
