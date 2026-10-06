@@ -730,8 +730,9 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   frame that writes it (`external::from_job`; every job's `THESEUS_SESSION`). Both are light guards under default
   trust, not boundaries: a job can strip its own environment (theseus-b5cl).
 - **Secrets**: no value in a log, a row, a node, a result, or an error. `scrub.rs` scrubs tool output: each board
-  value verbatim, in base64, and percent-encoded, and the shapes of secrets never resolved here (token prefixes,
-  AWS keys, private-key blocks, JWTs). The broker hands a value only to the program it is granted to, run by its
+  value verbatim, in base64, percent-encoded, and with any of its characters JSON-escaped (`scrub/escaped.rs`:
+  the text decoded once where it holds a backslash, a match mapped back to the escaped span; theseus-ubp7), and
+  the shapes of secrets never resolved here (token prefixes, AWS keys, private-key blocks, JWTs). The broker hands a value only to the program it is granted to, run by its
   own argv, and never to one the call could make it run (`broker::launches`: the call's own environment, gh's
   aliases and extensions, git's aliases, `-c`, and the programs its options and URLs name), in L1 as at L0.
 - **The AWS keys and the providers' keys are harness-only** (theseus-gh7): Theseus's own tools read them from the
