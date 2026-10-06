@@ -220,7 +220,8 @@ function ShipView({ data, onFail }: { data: ShipData; onFail: OnFail }) {
       onFrame: (moved) => {
         labels.current?.update(engine, selRef.current, hoverRef.current)
         if (moved) minimap.current?.draw()
-        // The depth gauge: how big the biggest vessel near the middle of the view is.
+        // The depth gauge: how big the biggest vessel near the middle of the view is. A vessel is near it when the
+        // nearest point of its keel is (close in on a long ship's bow, its centre is off the screen).
         const m = engine.model
         if (!m || !host.current) return
         const W = host.current.clientWidth
@@ -228,9 +229,17 @@ function ShipView({ data, onFail }: { data: ShipData; onFail: OnFail }) {
         let px = 0
         m.vessels.forEach((v, i) => {
           const now = engine.vesselNow(i)
-          const p = engine.project(now.x, 0, now.z)
-          if (!p.on || Math.abs(p.x - W / 2) > W * 0.35 || Math.abs(p.y - H / 2) > H * 0.4) return
-          px = Math.max(px, v.length * engine.pixelsPerUnit(now.x, now.z))
+          const hx = Math.cos(now.heading) * v.length * 0.5
+          const hz = Math.sin(now.heading) * v.length * 0.5
+          const a = engine.project(now.x - hx, 0, now.z - hz)
+          const b = engine.project(now.x + hx, 0, now.z + hz)
+          if (!a.on && !b.on) return
+          const dx = b.x - a.x
+          const dy = b.y - a.y
+          const t = Math.max(0, Math.min(1, ((W / 2 - a.x) * dx + (H / 2 - a.y) * dy) / Math.max(1e-6, dx * dx + dy * dy)))
+          const near = { x: a.x + dx * t, y: a.y + dy * t }
+          if (Math.abs(near.x - W / 2) > W * 0.35 || Math.abs(near.y - H / 2) > H * 0.4) return
+          px = Math.max(px, v.length * engine.pixelsPerUnit(now.x - hx + 2 * hx * t, now.z - hz + 2 * hz * t))
         })
         const d = depthOf(px, inspectorRef.current)
         setDepth((x) => (x === d ? x : d))
@@ -355,9 +364,10 @@ function ShipView({ data, onFail }: { data: ShipData; onFail: OnFail }) {
         <Watch model={model} data={data} focus={overlay} onFocus={(f) => { setKeyPinned(null); setOverlay(f) }} onFly={flyTo} />
       </div>
 
-      {/* The porthole and the depth gauge stand left of the watch's column, in the foot's row. */}
-      <div className="ship-depth-slot absolute bottom-[200px] right-[306px]"><DepthGauge depth={depth} onGo={goDepth} /></div>
-      <div data-ship-ui className="ship-porthole-slot absolute bottom-3 right-[306px]"><Minimap ref={minimap} engine={engine} model={model} selected={sel} /></div>
+      {/* The porthole and the depth gauge stand left of the watch's column, in the foot's row; when the watch folds to
+          its strip at the top (under 1400 px wide or 900 px tall), they move to the right edge, clear of the console. */}
+      <div className="ship-depth-slot absolute bottom-[200px] right-3 [@media(min-width:1400px)_and_(min-height:900px)]:right-[306px]"><DepthGauge depth={depth} onGo={goDepth} /></div>
+      <div data-ship-ui className="ship-porthole-slot absolute bottom-3 right-3 [@media(min-width:1400px)_and_(min-height:900px)]:right-[306px]"><Minimap ref={minimap} engine={engine} model={model} selected={sel} /></div>
 
       <Coins engine={engine} host={root} />
       {touring && engine && model && root && <Tour engine={engine} model={model} host={root} onClose={closeTour} />}

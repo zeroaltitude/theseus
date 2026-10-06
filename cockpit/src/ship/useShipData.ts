@@ -122,6 +122,8 @@ export function useShipLive(selected: string | undefined, world: World | null): 
   const open = useConn((s) => s.status === 'open')
   const [store] = useState(() => createStore<Live>(fresh))
   const st = useStore(store)
+  // Where each harbour was last placed, so it stays there as its ships grow (model.ts, `placesSeen`).
+  const [placesSeen] = useState(() => new Map<string, { x: number; z: number }>())
 
   const { data: sl } = useRpc<{ sessions: SessionInfo[] }>('session.list', undefined, 3000)
   const { data: el } = useRpc<{ executions: ExecutionInfo[] }>('execution.list', undefined, 3000)
@@ -368,6 +370,7 @@ export function useShipLive(selected: string | undefined, world: World | null): 
         reach: st.reach,
         now: world.t,
         asOf: world.t,
+        placesSeen,
       })
     }
     if (!sl || !el) return null
@@ -402,8 +405,9 @@ export function useShipLive(selected: string | undefined, world: World | null): 
       reach: st.reach,
       active: st.active,
       now: st.now,
+      placesSeen,
     })
-  }, [world, sl, el, tl, cl, jobs, al, cancelled, st.nodes, st.l1, st.running, st.streaming, st.failedAt, st.reports, st.born, st.bornSessions, st.reach, st.active, st.now])
+  }, [world, sl, el, tl, cl, jobs, al, cancelled, st.nodes, st.l1, st.running, st.streaming, st.failedAt, st.reports, st.born, st.bornSessions, st.reach, st.active, st.now, placesSeen])
 
   const tpm = useMemo(() => {
     if (!calls) return null

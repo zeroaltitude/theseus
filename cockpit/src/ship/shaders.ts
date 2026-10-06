@@ -343,9 +343,13 @@ void main() {
   if (b.y < 0.5 || b.y > 1.5) { gl_Position = vec4(2.0, 2.0, 2.0, 1.0); vFade = 0.0; return; }
   // The sail stands forward of midships and smaller than the hull is long, so the benches aft stay in view.
   vec3 foot = toWorld(a, vec3(a.w * 0.2, 0.25, 0.0));
-  // A sail shows once its hull is big enough on screen to carry one (far out, the cyan rail says it).
-  float px = a.w * uScale / max(1.0, -(viewMatrix * vec4(foot, 1.0)).z);
-  vFade = smoothstep(90.0, 170.0, px);
+  // A sail shows once its hull is big enough on screen to carry one (far out, the cyan rail says it), and folds away
+  // again close in, at a turn's depth, where the benches and oars are the subject and the rail still says the state.
+  float depth = max(1.0, -(viewMatrix * vec4(foot, 1.0)).z);
+  float px = a.w * uScale / depth;
+  // The hull's length against the height the camera sees there: under 1 at a ship's depth, about 2 at a turn's.
+  float rel = a.w * projectionMatrix[1][1] / (2.0 * depth);
+  vFade = smoothstep(90.0, 170.0, px) * (1.0 - smoothstep(1.3, 1.9, rel));
   vec3 right = vec3(viewMatrix[0][0], viewMatrix[1][0], viewMatrix[2][0]);
   vec3 up = vec3(viewMatrix[0][1], viewMatrix[1][1], viewMatrix[2][1]);
   float w = a.w * 0.17 + 0.4;
@@ -647,8 +651,9 @@ void main() {
   float pulse = 1.0;
   if (aKind < 0.5) {
     if (b.y > 1.5 && b.y < 2.5) {
-      // The lantern: it waits for the operator.
-      l = vec3(-L * 0.5 - B * 0.35, B * 0.9 + 0.6, -B * 0.75);
+      // The lantern: it waits for the operator. It hangs on the stern post, low, so it reads as the ship's own lamp and
+      // not a light in the sky (theseus-hnof).
+      l = vec3(-L * 0.47, B * 0.45 + 0.35, 0.0);
       vColor = vec3(1.0, 0.77, 0.15);
       pulse = 0.78 + 0.22 * sin(uTime * 2.4) * (1.0 - uCalm);
       size = 1.6 + B * 0.45;

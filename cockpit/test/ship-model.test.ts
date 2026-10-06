@@ -84,3 +84,46 @@ test('every key line names the shapes it lights', () => {
   assert.deepEqual(by.get('needs')!.vessels, ['s1'])
   assert.equal(by.get('place')!.lights.length + by.get('place')!.vessels.length, 0)
 })
+
+test('a harbour keeps its place as its ships grow, and moves only when a growing neighbour would overlap it', () => {
+  const ss = [
+    session('a', { label: 'DM @owner', created_at_unix_ms: NOW - 60_000 }),
+    session('b', { label: 'discord #ops', created_at_unix_ms: NOW - 50_000 }),
+    session('c', { label: 'web', created_at_unix_ms: NOW - 40_000 }),
+    session('d', { label: 'tui', created_at_unix_ms: NOW - 30_000 }),
+  ]
+  const turn = (sid: string, t: string) => [
+    node(sid, t, 'user_message', {}, 'Check the tides.'),
+    node(sid, t, 'assistant_message', { model: 'claude-sonnet-5-5', cost_usd: 0.001 }),
+    node(sid, t, 'tool_call', { tool: 'fs.read', tool_use_id: `u_${sid}${t}`, correlation_id: `act_${sid}${t}` }),
+    node(sid, t, 'tool_result', { tool: 'fs.read', tool_use_id: `u_${sid}${t}`, status: 'ok' }),
+  ]
+  // The first harbour grows a turn at a time. A harbour whose old place is still clear of those placed before it must
+  // stay there; none may overlap another. Returns how often a harbour moved though its place was clear, and how often
+  // one was pushed.
+  const grow = (seen?: Map<string, { x: number; z: number }>) => {
+    pos = 0
+    let nodes = [...turn('a', 'a1'), ...turn('b', 'b1'), ...turn('c', 'c1'), ...turn('d', 'd1')]
+    let prev = buildModel(input({ sessions: ss, nodes, placesSeen: seen })).formations
+    let strayed = 0
+    let pushed = 0
+    for (let k = 2; k < 40; k++) {
+      nodes = [...nodes, ...turn('a', `a${k}`)]
+      const fs = buildModel(input({ sessions: ss, nodes, placesSeen: seen })).formations
+      fs.forEach((f, i) => {
+        const was = prev.find((p) => p.key === f.key)!
+        const blocked = fs.slice(0, i).some((p) => Math.hypot(p.x - was.x, p.z - was.z) <= p.radius + f.radius + 3.5 * 1.6)
+        if (f.x !== was.x || f.z !== was.z) { if (blocked) pushed++; else strayed++ }
+        for (const g of fs.slice(0, i)) assert.ok(Math.hypot(f.x - g.x, f.z - g.z) > f.radius + g.radius, `${f.key} overlaps ${g.key}`)
+      })
+      assert.deepEqual([fs[0].x, fs[0].z], [0, 0], 'the first harbour stays at the centre')
+      prev = fs
+    }
+    return { strayed, pushed }
+  }
+  const kept = grow(new Map())
+  assert.equal(kept.strayed, 0)
+  assert.ok(kept.pushed > 0, 'the growing harbour pushed a neighbour at least once')
+  // Without the memory, the spiral re-places harbours whose places were still clear: the jump this fixes.
+  assert.ok(grow().strayed > 0)
+})

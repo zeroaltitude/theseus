@@ -55,7 +55,7 @@ function BenchBody({ b, model }: { b: Bench; model: ShipModel }) {
       <div className="num mt-0.5 text-[10.5px] text-ink-faint">asked by {authorWord(b.author)} in “{v.title.slice(0, 36)}”</div>
       <div className={`num mt-1 text-[11.5px] ${TONE[state.tone]}`}>{state.word}{b.end > b.at ? ` · took ${span(b.end - b.at)}` : ''}</div>
       <div className="num text-[11px] text-ink-dim">{benchLine(b, usdShort)}{b.model ? ` · ${b.model.replace(/^claude-/, '')}` : ''}</div>
-      <div className="mt-1 text-[10.5px] text-ink-faint">click to open this turn in its session · double-click to fly to it</div>
+      <div className="mt-1 text-[10.5px] text-ink-faint">click to bring this turn close and onto the card; the card opens it in the session</div>
     </>
   )
 }
@@ -93,7 +93,7 @@ function LightBody({ l, model }: { l: Light; model: ShipModel }) {
       <div className="num mt-0.5 text-[12.5px] text-ivory">{head}{l.cost !== undefined ? <span className="text-money"> · {usdShort(l.cost)}</span> : null}</div>
       {l.preview && <div className="mt-0.5 line-clamp-3 text-[11.5px] leading-snug text-ink-dim">{l.preview}</div>}
       {b && <div className="num mt-1 text-[10.5px] text-ink-faint">turn {b.n} of “{v.title.slice(0, 32)}”</div>}
-      <div className="mt-1 text-[10.5px] text-ink-faint">{l.kind === 'model' ? 'click for the model-call inspector' : 'click to open its turn'}</div>
+      <div className="mt-1 text-[10.5px] text-ink-faint">{l.kind === 'model' ? 'click for the model-call inspector' : 'click to put its turn on the card'}</div>
     </>
   )
 }
