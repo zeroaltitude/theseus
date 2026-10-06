@@ -83,6 +83,15 @@ on as a background job, and its late result comes back as a continuation.
   task's timeout. Then every session is stopped (its turn and its jobs), and the daemon's records are read before it
   stops cleanly: `theseus-history.json` (the conversation), `theseus-calls.json` (every `provider.call` row, tasks'
   sessions included: the trial's spend), `theseus-tasks.json`, `theseus-executions.json`, and `theseus-health.json`.
+- **Measured** as bench/README.md's arms are: the harness sampler (`bench/harbor/sampler.py`) starts before the
+  daemon, in a session of its own, and stops after the finish's clean stop (on Harbor's timeout too), with
+  theseusd's job wrappers apart. The driver's own calls (settle's polls, the finish's reads and stops) go through
+  `<state>/async-driver`, a link to `theseus`, so the sampler counts them outside the harness; the two asks are the
+  arm's own client and count as harness. The record (`agent/efficiency.json`, `efficiency.theseus_ledger_record`)
+  takes its spend from `theseus-calls.json` (`spend_from: "ledger"`: the calls its rows, the dollars their sum, by
+  model), its tool calls from the conversation's history (a task's session's tool calls are not counted), and the
+  sampler's numbers. The rows leave out a call a stop cut (its estimate is a `provider.cut` row) and a failed call
+  (a `provider.error` row, with no usage or cost), which a turn's totals count.
 - **Jobs and cgroups.** A container has no systemd, so the daemon's cgroup is not delegated: health's `cgroup` phase
   says `none` ("the daemon runs in /sys/fs/cgroup/, not in a unit of its own", as it did on the build VM), and a job
   stops by its process group and tree, not by a cgroup of its own.
@@ -94,7 +103,12 @@ into `claude --print`. This arm runs the same command with stdin from a FIFO (`f
 `/tmp/async-claude-stdin`) in the CLI's stream-json input mode (`--input-format stream-json`, "realtime streaming
 input", in `claude --help` of Claude Code 2.1.289): the instruction is the first line, the driver writes the
 injection as another, and the input is closed once a `result` event follows the last message (a turn of its own, or the turn it joined mid-run), so the CLI exits. A message
-to a CLI already gone is refused, and its cell reads "not measurable". The live check says whether the CLI reads a
+to a CLI already gone is refused, and its cell reads "not measurable". It is bench/harbor's
+`MeasuredClaudeCode` underneath: the sampler around the CLI (started through `environment.exec`, so only Harbor's
+run command is rewritten) and the efficiency record, which counts the stream's `result` events (`result_events`)
+and reads the last one's `modelUsage` and `total_cost_usd` as the session's so far (`result_reading: "session"`;
+`efficiency.claude_code_async_record(per_turn=True)` sums them instead, should a live two-message run show them per
+turn). The live check says whether the CLI reads a
 message mid-turn or queues it for the turn's end; either way the responsiveness column measures it.
 
 ### A third arm
@@ -116,7 +130,10 @@ OpenClaw (not built yet) fits the same shape: a subclass of its Harbor agent who
   stop).
 - **Orphans and duplicated effects**: steps that started and never ended, the migration's processes alive at the
   check, and effects done twice.
-- **CPU and RAM**: from `agent/efficiency.json`, bench-efficiency's record, when a trial has one.
+- **Harness CPU, its peak RSS, and work CPU**: from bench-efficiency's record (`agent/efficiency.json`, else
+  `metadata["efficiency"]` in the trial's `result.json`): its `harness.cpu_s`, `harness.peak_rss_kb` in MB, and
+  `work.cpu_s`, from trials whose sampler ran (`ok`, or `running` when it never wrote its last summary), as
+  bench/report reads them; a trial whose sampler did not run has no numbers, never zeros.
 - **Cost**: Harbor's, which for Theseus is the sum of its ledger's model calls.
 
 Results go in [`docs/benchmarks.md`](../../docs/benchmarks.md).
@@ -136,10 +153,11 @@ python3 -m unittest discover -s bench/async && python3 -m unittest discover -s b
 The standard library runs them without Harbor or Docker: each family's oracle on this host under a scratch
 `ASYNC_ROOT` at a time scale of 0.01, and a planted wrong effect per family; the ledger's check against an edited
 one; the driver against a fake environment, a stand-in `claude` on the FIFO, and the daemon-mode script under a
-stand-in `theseus`; and the scorer over fixture trials worked by hand. Three more run on request:
+stand-in `theseus` (a daemon that answers health only once it is up, a wake pending after its job, the sampler
+around it all, and nothing left running after a test); and the scorer over fixture trials worked by hand. Three more run on request:
 
 ```bash
-ASYNC_HARBOR=1 .venv/bin/python -m unittest discover -s bench/async     # Harbor reads each task; the agents load
+ASYNC_HARBOR=1 .venv/bin/python -m unittest discover -s bench/async     # Harbor reads each task; the agents load and run
 ASYNC_E2E_BIN=$PWD/target/debug python3 -m unittest test_driver.EndToEnd # (from bench/async) a real daemon
 ```
 

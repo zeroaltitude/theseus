@@ -437,3 +437,106 @@ def write(logs: Path, rec: dict[str, Any]) -> Path:
 def metadata(existing: dict[str, Any] | None, rec: dict[str, Any]) -> dict[str, Any]:
     """A context's metadata with the record in it, as `efficiency`."""
     return {**(existing or {}), "efficiency": rec}
+
+
+# ------------------------------------------------------- the async bench's
+
+
+def ledger_spend(rows: Iterable[dict[str, Any]], history: dict[str, Any] | None = None) -> dict[str, Any]:
+    """A Theseus trial's spend from its daemon's ledger (theseus-z5ty): each
+    `provider.call` row (`theseus ledger -k provider.call`, every session's,
+    a task's included) is one model call, with its `model`, its `usage` in
+    Anthropic's four keys, and its `cost_usd`, the catalog's price of it.
+    The calls are the rows; the dollars their sum, None when a row has no
+    price. Tool calls are no ledger kind: they are `history`'s `tool_call`
+    nodes, the conversation's alone.
+
+    What the rows leave out, that a turn's totals count: a call a `/stop` cut
+    (its estimate is a `provider.cut` row) and a failed call (a
+    `provider.error` row, with neither usage nor cost)."""
+    by_model: dict[str, dict[str, Any]] = {}
+    costs: list[float | None] = []
+    for r in rows:
+        if r.get("kind") != "provider.call":
+            continue
+        d = r.get("data") or {}
+        m = _model(by_model, d.get("model"))
+        m.update(_add(m, tokens(d.get("usage"))))
+        m["calls"] += 1
+        c = d.get("cost_usd")
+        costs.append(c)
+        m["cost_usd"] = None if c is None or m["cost_usd"] is None else round(m["cost_usd"] + c, 6)
+    nodes = (history or {}).get("nodes") or []
+    tools = sum(1 for n in nodes if n.get("kind") == "tool_call")
+    return _spend(by_model, _priced(costs) if costs else None, "ledger", len(costs), tools)
+
+
+def theseus_ledger_record(logs: Path, calls_file: str = "theseus-calls.json",
+                          history_file: str = "theseus-history.json",
+                          wall_s: float | None = None) -> dict[str, Any]:
+    """The async bench's Theseus trial (bench/async/): its spend from the
+    daemon's ledger (`ledger_spend` over `calls_file`'s rows), the sampler's
+    summary, and `wall_s`, the trial's own wall, when the sampler has none.
+    It replaces the record `theseus_record` makes of the first ask's turn
+    alone."""
+    calls = read_json(logs / calls_file)
+    history = read_json(logs / history_file)
+    rows = calls.get("rows") if isinstance(calls, dict) else None
+    return record("theseus", ledger_spend(rows or [], history if isinstance(history, dict) else None),
+                  read_json(logs / SAMPLER_SUMMARY), wall_s=wall_s)
+
+
+def result_events(stream: str | None) -> list[dict[str, Any]]:
+    """Every `{"type": "result", …}` line of Claude Code's stream, in order.
+    In stream-json input the CLI writes one per turn; a message taken
+    mid-turn joins the running turn and adds none."""
+    out = []
+    for line in (stream or "").splitlines():
+        one = result_event(line)
+        if one is not None:
+            out.append(one)
+    return out
+
+
+def _summed_results(results: list[dict[str, Any]]) -> dict[str, Any]:
+    """One result whose `modelUsage` and `total_cost_usd` are the sums of
+    `results`': the bill when each result is its own turn's."""
+    usage: dict[str, dict[str, Any]] = {}
+    for r in results:
+        for name, u in (r.get("modelUsage") or {}).items():
+            m = usage.setdefault(name, {})
+            for k in (*CLAUDE_MODEL_USAGE.values(), "costUSD"):
+                if u.get(k) is not None:
+                    m[k] = round((m.get(k) or 0) + u[k], 6)
+    costs = [r.get("total_cost_usd") for r in results]
+    return {"type": "result", "modelUsage": usage,
+            "total_cost_usd": None if any(c is None for c in costs) else round(sum(costs), 6)}
+
+
+def claude_code_async_record(logs: Path, per_turn: bool = False) -> dict[str, Any]:
+    """The async bench's Claude Code trial (bench/async/): the measured
+    arm's record (`claude_code_record`), with `result_events`, the results
+    its stream holds (one per turn; the driver's second message adds one
+    when the CLI answers it as a turn of its own).
+
+    Each result's `modelUsage` and `total_cost_usd` are read as the
+    session's so far, so the last result is the trial's bill: Claude Code
+    keeps its cost and model usage for the process, not for a turn. If a
+    live two-message trial shows them per turn, `per_turn=True` sums every
+    result's instead (`_summed_results`)."""
+    rec = claude_code_record(logs)
+    try:
+        stream = (logs / "claude-code.txt").read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        stream = None
+    results = result_events(stream)
+    if per_turn and len(results) > 1:
+        root = logs / "sessions" / "projects"
+        files = sorted(root.rglob("*.jsonl")) if root.is_dir() else []
+        trajectory = read_json(logs / "trajectory.json")
+        spend = claude_code_spend(json.dumps(_summed_results(results)), read_jsonl(files),
+                                  trajectory if isinstance(trajectory, dict) else None)
+        rec.update(spend)
+    rec["result_events"] = len(results)
+    rec["result_reading"] = "per_turn" if per_turn else "session"
+    return rec

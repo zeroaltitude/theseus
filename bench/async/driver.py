@@ -13,7 +13,9 @@
   as stream-json from a FIFO the driver writes to.
 
 `async_agents.py` holds the Harbor agents that use them. Standard library only,
-so the tests (`test_driver.py`) run without Harbor.
+so the tests (`test_driver.py`) run without Harbor; it reads bench/harbor's
+`theseus_bench` and `sampler`, so that directory is on the path, as it is
+for the agents.
 """
 
 from __future__ import annotations
@@ -27,6 +29,9 @@ import tomllib
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Protocol
+
+import sampler as smp
+import theseus_bench as tb
 
 # The tool library inside a task's image.
 LIB = "/opt/async/lib/asyncbench.py"
@@ -145,10 +150,21 @@ class Theseus:
     state: str
     logs: str
 
+    def _cli(self, exe: str) -> str:
+        return f"THESEUS_SOCKET={shlex.quote(self.state)}/theseus.sock {shlex.quote(exe)} --json"
+
     @property
     def cli(self) -> str:
-        return (f"THESEUS_SOCKET={shlex.quote(self.state)}/theseus.sock "
-                f"{shlex.quote(self.bin_dir)}/theseus --json")
+        """The driver's own calls (settle's polls, the finish's reads and
+        stops): through `<state>/async-driver`, the daemon script's link to
+        `theseus` (`theseus_bench.POLL`), so the sampler counts them outside
+        the harness."""
+        return self._cli(f"{self.state}/{tb.POLL}")
+
+    @property
+    def ask_cli(self) -> str:
+        """The arm's own client, the asks: `theseus`, harness by name."""
+        return self._cli(f"{self.bin_dir}/theseus")
 
     def session_command(self, wait_s: int = 30) -> str:
         """Prints the trial's session once the daemon-mode script opened it."""
@@ -161,14 +177,16 @@ class Theseus:
         behind a turn that runs, never refused (main's `turn.submit` waits
         for admission)."""
         out = shlex.quote(f"{self.logs}/theseus-turn-{n}.json")
-        return (f'printf "%s" "$ASYNC_MESSAGE" | {self.cli} ask -s {shlex.quote(session)} - '
+        return (f'printf "%s" "$ASYNC_MESSAGE" | {self.ask_cli} ask -s {shlex.quote(session)} - '
                 f"> {out} 2>> {shlex.quote(self.logs)}/theseus.log; echo $?")
 
-    def finish_script(self, session: str) -> str:
+    def finish_script(self, session: str, sampler: str | None = None) -> str:
         """After the trial: every session stopped (its turn and its jobs),
         the conversation's history, every model call in the ledger (tasks
         have sessions of their own), the tasks, health (its cgroup phase
-        says whether jobs got a cgroup), then a clean stop of the daemon."""
+        says whether jobs got a cgroup), then a clean stop of the daemon.
+        With `sampler` (`daemon_script` started it), the harness sampler is
+        stopped last, after the daemon's stop, so its whole life is sampled."""
         lg, s = shlex.quote(self.logs), shlex.quote(session)
         sock = shlex.quote(f"{self.state}/theseus.sock")
         pid = shlex.quote(f"{self.state}/theseusd.pid")
@@ -185,8 +203,15 @@ class Theseus:
             f"p=$(cat {pid} 2>/dev/null); i=0; "
             f'while [ -n "$p" ] && kill -0 "$p" 2>/dev/null && [ $i -lt 100 ]; do sleep 0.1; i=$((i+1)); done; '
             f'if [ -n "$p" ] && kill -0 "$p" 2>/dev/null; then echo "theseusd did not stop" >&2; kill -TERM "$p"; fi; '
-            f"rm -f {sock}; exit 0"
+            f"rm -f {sock}; "
+            + (f"{self.stop_sampler_script()}; " if sampler else "")
+            + "exit 0"
         )
+
+    def stop_sampler_script(self) -> str:
+        """The harness sampler stopped, its last summary written: the
+        finish's last step, or the trial's end when no session opened."""
+        return smp.stop_script(self.logs, self.state)
 
     async def settle(self, env: Env, deadline: float, clock: Callable[[], float] = time.monotonic) -> str:
         """Wait until nothing is busy and no wake is pending: `settled`, or

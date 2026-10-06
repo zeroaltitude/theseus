@@ -15,11 +15,16 @@ with bench/harbor and bench/async on PYTHONPATH (bench/async/README.md).
   (`driver.Theseus.settle`), or at the task's timeout; then every session
   is stopped, the daemon's records read, and the daemon stopped cleanly.
   Its spend is every `provider.call` row in the daemon's ledger, tasks'
-  sessions included.
-- **ClaudeCodeAsync**: Harbor's Claude Code, its command reading stdin from a
-  FIFO in the CLI's stream-json input mode (`driver.claude_stdin`), where the
-  driver writes the injection; its input is closed once every message is
-  sent and the CLI has answered each.
+  sessions included. The harness sampler runs from before the daemon to
+  after its clean stop, and the efficiency record is the ledger's
+  (`efficiency.theseus_ledger_record`), not the first ask's turn alone.
+- **ClaudeCodeAsync**: Claude Code measured as bench/harbor measures it
+  (`claude_code_agent.MeasuredClaudeCode`: Harbor's own, with the harness
+  sampler around its run and the efficiency record), its command reading
+  stdin from a FIFO in the CLI's stream-json input mode
+  (`driver.claude_stdin`), where the driver writes the injection; its input
+  is closed once every message is sent and the CLI has answered each. Its
+  record counts the stream's results (`efficiency.claude_code_async_record`).
 
 Each leaves `agent/async-driver.json`: the family, the trigger that fired,
 when the message went, and how the trial ended.
@@ -36,11 +41,13 @@ from pathlib import Path
 from typing import Any, override
 
 from harbor.agents.installed.base import NonZeroAgentExitCodeError, with_prompt_template
-from harbor.agents.installed.claude_code import ClaudeCode
 from harbor.environments.base import BaseEnvironment
 from harbor.models.agent.context import AgentContext
 
+import claude_code_agent as cca
 import driver
+import efficiency as ef
+import sampler as smp
 import theseus_agent as ta
 import theseus_bench as tb
 
@@ -98,8 +105,9 @@ class TheseusAsync(ta.Theseus):
         timeout = float(self._task_timeout(environment))
         report: dict[str, Any] = {"arm": self.name(), "family": meta.get("family"),
                                   "proc_sync_secs": values[("tools", "proc_sync_secs")]}
+        sample_ms = int(os.environ.get("BENCH_SAMPLE_MS", str(smp.INTERVAL_MS)))
         first = asyncio.create_task(self.exec_as_agent(
-            environment, command=tb.daemon_script(ta.BIN, ta.STATE, logs),
+            environment, command=tb.daemon_script(ta.BIN, ta.STATE, logs, ta.SAMPLER, sample_ms),
             env={**env, "THESEUS_BENCH_INSTRUCTION": instruction},
         ))
         session = injected = None
@@ -138,8 +146,10 @@ class TheseusAsync(ta.Theseus):
             first.cancel()
             if injected:
                 injected.cancel()
-            if session:
-                await asyncio.shield(environment.exec(command=trial.finish_script(session), timeout_sec=60))
+            # The finish stops the sampler after the daemon; with no
+            # session there is no finish, and the sampler stops alone.
+            end = trial.finish_script(session, ta.SAMPLER) if session else trial.stop_sampler_script()
+            await asyncio.shield(environment.exec(command=end, timeout_sec=60))
             report["wall_s"] = round(time.monotonic() - started, 3)
             _write(self.logs_dir, report)
 
@@ -164,10 +174,23 @@ class TheseusAsync(ta.Theseus):
             context.cost_usd = s["cost_usd"]
             context.metadata = {**(context.metadata or {}), "spend_from": "ledger",
                                 "provider_calls": s["calls"]}
+        # The efficiency record from the ledger and the sampler, in place of
+        # the inherited one (the first ask's turn alone). Never the trial's
+        # failure.
+        if (self.logs_dir / "theseus-calls.json").exists():
+            report = ta._json(self.logs_dir / driver.REPORT) or {}
+            try:
+                rec = ef.theseus_ledger_record(self.logs_dir, wall_s=report.get("wall_s"))
+                ef.write(self.logs_dir, rec)
+            except Exception as e:  # noqa: BLE001
+                rec = {"schema": ef.SCHEMA, "arm": "theseus", "error": f"{type(e).__name__}: {e}"}
+            context.metadata = ef.metadata(context.metadata, rec)
 
 
-class ClaudeCodeAsync(ClaudeCode):
-    """Claude Code with its input on a FIFO, in stream-json."""
+class ClaudeCodeAsync(cca.MeasuredClaudeCode):
+    """Claude Code, measured, with its input on a FIFO, in stream-json. The
+    sampler starts through `environment.exec`, not `exec_as_agent`, so only
+    Harbor's run command is rewritten."""
 
     @staticmethod
     @override
@@ -232,3 +255,15 @@ class ClaudeCodeAsync(ClaudeCode):
             await asyncio.shield(environment.exec(command=driver.close_command(fifo)))
             report["wall_s"] = round(time.monotonic() - started, 3)
             _write(self.logs_dir, report)
+
+    @override
+    def populate_context_post_run(self, context: AgentContext) -> None:
+        super().populate_context_post_run(context)
+        # The measured record, with the results the stream held. Never the
+        # trial's failure.
+        try:
+            rec = ef.claude_code_async_record(self.logs_dir)
+            ef.write(self.logs_dir, rec)
+        except Exception as e:  # noqa: BLE001
+            rec = {"schema": ef.SCHEMA, "arm": "claude-code", "error": f"{type(e).__name__}: {e}"}
+        context.metadata = ef.metadata(context.metadata, rec)
