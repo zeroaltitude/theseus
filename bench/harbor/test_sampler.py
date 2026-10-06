@@ -270,6 +270,21 @@ class Classes(unittest.TestCase):
         self.sample()
         self.assertEqual(self.cpu()["work"], 95)
 
+    def test_a_child_read_alive_before_its_parent_reaps_it_is_counted_twice_a_known_miss(self):
+        """sampler.py's "What it misses": a child with a lower pid than its
+        parent's is read alive in a sample in which its parent, read after,
+        has already reaped it. Its whole time is counted twice, not only its
+        last interval: 160 ticks of work for a true 80."""
+        p = self.proc
+        p.put(30, "theseus", 1, utime=1)
+        p.put(21, "bash", 30, utime=50)
+        self.sample()
+        p.put(21, "bash", 30, utime=80)  # read alive, 80 ticks in all
+        p.put(30, "theseus", 1, utime=1, cutime=80)  # and reaped, by the parent read after it
+        self.sample()
+        self.sample()
+        self.assertEqual(self.cpu(), {"harness": 1, "wrapper": 0, "work": 160, "outside": 0})
+
     def test_an_orphan_stays_work_and_a_reused_pid_starts_over(self):
         p = self.proc
         p.put(1, "init", 0)
@@ -449,14 +464,19 @@ COST_ROUNDS = 15
 # is twice the worst this 4-core VM measured over 15 runs of each count with
 # `nice -n 19` beside four busy loops at nice 0 (11.7 us, at 4N).
 FIXTURE_US_PER_PROC = 24.0
-# The sampler's cost per process over a bare `stat` read's, both timed in one
-# loop, alternately, each its least (theseus-99by: timed apart, a busy host
-# moved them separately, 1.02 to 2.53). Timed so on the 4-core VM over 15 runs,
-# 10 of them at nice 19 beside four busy loops at nice 0: the sampler 1.62 to
-# 1.73 times the bare read; F5, every process's `cmdline` read too, 2.29 to
-# 2.47; F4, its `status` too, 3.27 to 3.62 (the review's host: F5 3.7, F4
-# 4.3). The bound sits between the sampler and F5.
-SAMPLER_OVER_BARE = 2.1
+# The sampler's cost per process under F5's, both timed in one loop,
+# alternately, each its least. F5 is the sampler plus a `cmdline` read of
+# every process: the cost this bound exists to refuse, and one that moves
+# with the host as the sampler does (theseus-ufe5: held to a bare `stat`
+# read, 2.1 times it, the sampler sat at 1.89 to 1.98 on a quiet 16-core
+# host and ran 1.38 to 2.59 loaded, F5 2.07 to 4.59: no constant against the
+# bare read served both hosts; theseus-99by: timed apart, 1.02 to 2.53).
+# On the 4-core VM, 10 runs quiet and 10 at nice 19 beside four busy loops at
+# nice 0: the sampler 1.97 to 2.05 times the bare read, F5 2.74 to 2.92, F4
+# (`status` too) 3.94 to 4.27; the sampler 0.703 to 0.725 of F5 (0.481 to
+# 0.504 of F4). The bound sits at 0.85 of F5: 17% over the sampler's worst,
+# and a sampler that reads every `cmdline` is F5 itself, at 1.0.
+SAMPLER_UNDER_F5 = 0.85
 
 
 def sampler_pass(root: Path, read=None, want=None):
@@ -519,11 +539,12 @@ class SamplerCost(unittest.TestCase):
         fixture_trial(self.large, 4 * COST_N)
 
     def test_the_cost_per_process_read_is_bounded_and_does_not_grow_with_the_count(self):
-        got = interleaved_us({"bare": (self.small, bare_pass(self.small)),
+        got = interleaved_us({"f5": (self.small, sampler_pass(self.small, want=lambda stat: True)),
                               "n": (self.small, sampler_pass(self.small)),
                               "4n": (self.large, sampler_pass(self.large))})
-        # The sampler reads each `stat` once and tracks it.
-        self.assertLess(got["n"], got["bare"] * SAMPLER_OVER_BARE, got)
+        # The sampler reads each `stat` once and tracks it: it costs less than
+        # the same with every `cmdline` read, timed beside it.
+        self.assertLess(got["n"], got["f5"] * SAMPLER_UNDER_F5, got)
         self.assertLess(got["n"], FIXTURE_US_PER_PROC, "us per process, N processes")
         self.assertLess(got["4n"], FIXTURE_US_PER_PROC, "us per process, 4N processes")
         # 4N costs no more than about 4x N plus a fixed part: its per-process
@@ -531,14 +552,15 @@ class SamplerCost(unittest.TestCase):
         self.assertLess(got["4n"], got["n"] * 1.5 + 5.0, got)
 
     def test_reading_every_status_and_cmdline_each_sample_would_cost_more(self):
-        """The bound has teeth: F4, a read that opens each process's
-        `status` and `cmdline` too, and F5, every `cmdline` alone, each cost
-        past it, timed the same way."""
-        got = interleaved_us({"bare": (self.small, bare_pass(self.small)),
-                              "f4": (self.small, sampler_pass(self.small, greedy_read)),
-                              "f5": (self.small, sampler_pass(self.small, want=lambda stat: True))})
-        self.assertGreater(got["f4"], got["bare"] * SAMPLER_OVER_BARE, got)
-        self.assertGreater(got["f5"], got["bare"] * SAMPLER_OVER_BARE, got)
+        """The bound has teeth: a sampler that reads every process's
+        `cmdline` each sample (`plant`, F5's read as the sampler's own), and
+        F4, which opens its `status` too, each cost past it, timed the same
+        way beside F5 as the reference."""
+        got = interleaved_us({"f5": (self.small, sampler_pass(self.small, want=lambda stat: True)),
+                              "plant": (self.small, sampler_pass(self.small, want=lambda stat: True)),
+                              "f4": (self.small, sampler_pass(self.small, greedy_read))})
+        self.assertGreater(got["plant"], got["f5"] * SAMPLER_UNDER_F5, got)
+        self.assertGreater(got["f4"], got["f5"] * SAMPLER_UNDER_F5, got)
 
 
 # The sampler's share of a core at 250 ms in a PID namespace of this many
@@ -547,13 +569,16 @@ NAMESPACE_PROCS = 60
 NAMESPACE_INTERVAL_MS = 250
 # The bound scales with this host's procfs (theseus-99by): the sampler's share
 # over what reading and parsing the namespace's `stat`s alone would take at
-# its interval, that read timed in the test while the sampler runs. Measured
-# on the 4-core VM in a user namespace, 10 runs at nice 19 beside four busy
-# loops at nice 0 and 3 beside a build: 2.87 to 3.16 (a share of 0.45 to
-# 0.52%). The bound is about twice the worst. (A fixed 1.1%, twice 0.53%
-# measured there as root, flaked as a user's namespace on a loaded 16-core
-# host: 0.88 to 0.99%.)
-NAMESPACE_RATIO = 6.5
+# its interval. That read is timed in the test as the mean of passes taken
+# while the sampler runs, as the share is a mean over its run (theseus-ufe5:
+# against the least of 40 early passes, cache-heavy neighbours moved the share
+# and not the floor, 3.6 to 7.2 and once 8.8 on a loaded 16-core host). Measured
+# on the 4-core VM in a user namespace: 8 runs at nice 19 beside four busy
+# loops at nice 0, 2.71 to 3.23; 6 quiet, 2.48 to 3.06 (a share of 0.48 to
+# 0.62%, a 6.2 to 7.1 us read, 0.15%); the sampler reading every `cmdline`
+# (F5's read, planted), 3.85 to 4.16. The bound sits between them. The owner's
+# host must confirm the margin.
+NAMESPACE_RATIO = 3.5
 # The ways to make the namespace, the first that works: as any user (a user
 # namespace maps them to root inside), then as root.
 NAMESPACE_WAYS = (["--user", "--map-root-user"], [])
@@ -582,18 +607,21 @@ def namespace_way() -> tuple[list[str] | None, str | None]:
 NAMESPACE, REFUSAL = namespace_way() if LINUX else (None, "not Linux")
 
 
-def procfs_stat_us(passes: int = 40, reads: int = 200) -> float:
+def procfs_stat_us(running=lambda: False, passes: int = 40, reads: int = 200) -> tuple[float, float]:
     """Reading and parsing one procfs `stat` (this process's) on this host
-    now, in microseconds: the least of `passes`, each a few milliseconds."""
+    now, in microseconds, as the (mean, least) of the passes, each a few
+    milliseconds apart: at least `passes`, and as long as `running()`. The
+    sampler's share is an average over its run, so its floor is too (a
+    neighbour's cache misses move both); the least is for the report."""
     path = "/proc/%d/stat" % os.getpid()
-    best = float("inf")
-    for _ in range(passes):
+    got = []
+    while len(got) < passes or running():
         start = time.process_time()
         for _ in range(reads):
             sm.parse_stat(sm._read(path) or "")
-        best = min(best, (time.process_time() - start) / reads * 1e6)
+        got.append((time.process_time() - start) / reads * 1e6)
         time.sleep(0.05)
-    return best
+    return sum(got) / len(got), min(got)
 
 
 @unittest.skipIf(REFUSAL, "a PID namespace can't be made: %s" % REFUSAL)
@@ -610,8 +638,9 @@ class InANamespace(unittest.TestCase):
                               script])
         self.addCleanup(p.wait, 30)
         self.addCleanup(p.kill)
-        # The floor, timed while the sampler runs, so a loaded host moves both.
-        read_us = procfs_stat_us()
+        # The floor, its mean over the passes timed while the sampler runs, as
+        # the share is its mean over the run: a loaded host moves both.
+        read_us, least_us = procfs_stat_us(running=lambda: p.poll() is None)
         self.assertEqual(p.wait(timeout=60), 0)
         summary = json.loads((out / sm.SUMMARY).read_text())
         self.assertEqual(summary["status"], "ok")
@@ -620,7 +649,7 @@ class InANamespace(unittest.TestCase):
         # The namespace's processes: the sleeps, and the sampler its shell became.
         floor = read_us * (NAMESPACE_PROCS + 1) * (1000.0 / NAMESPACE_INTERVAL_MS) / 1e6
         self.assertLess(summary["sampler"]["core_share"], floor * NAMESPACE_RATIO,
-                        (summary["sampler"], NAMESPACE, read_us, floor))
+                        (summary["sampler"], NAMESPACE, read_us, least_us, floor))
 
 
 if __name__ == "__main__":
