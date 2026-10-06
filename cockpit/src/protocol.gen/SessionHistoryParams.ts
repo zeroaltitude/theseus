@@ -2,6 +2,19 @@
 
 export type SessionHistoryParams = { session_id: string, 
 /**
- * Newest `n` nodes (default all).
+ * Newest `n` nodes (default all). With `after` or `before`, a page's
+ * size, 200 by default.
  */
-n: number | null, };
+n: number | null, 
+/**
+ * Only nodes after this WAL position, the first `n` of them, oldest
+ * first: a walk forward passes 0, then each answer's `next`; a poll
+ * passes the last position it has.
+ */
+after?: number, 
+/**
+ * Only nodes before this WAL position, the newest `n` of them: a page
+ * back, and a walk back passes each answer's `older`. Positions never
+ * move, so nodes written meanwhile neither repeat a node nor skip one.
+ */
+before?: number, };

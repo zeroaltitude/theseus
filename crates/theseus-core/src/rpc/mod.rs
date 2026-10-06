@@ -39,9 +39,13 @@ pub(crate) use server::write_item;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
+mod tests_history;
+#[cfg(test)]
 mod tests_ledger;
 #[cfg(test)]
 mod tests_lists;
+#[cfg(test)]
+mod tests_node_names;
 mod trust;
 
 pub use bindings::BindingBoard;

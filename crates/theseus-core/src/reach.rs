@@ -275,3 +275,77 @@ fn exposures(store: &Store, session: &str, nodes: &[(u64, &Node)]) -> Result<Vec
     }
     Ok(out)
 }
+
+/// The fewest characters of an id's end that name a node (theseus-glyw): an
+/// id's last six are a UUIDv7's random bits.
+pub const MIN_ENDING: usize = 6;
+
+/// How many nodes a refusal of an ending that names several lists.
+const NAMED: usize = 8;
+
+/// What a name that is no node's whole id names.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Named {
+    /// The one node whose id ends so: its whole id.
+    One(String),
+    /// No node's id ends so, or the name is too short to be an id's end:
+    /// why, in words.
+    Unknown(String),
+    /// The end of more than one node's id: each, in words.
+    Refused(String),
+}
+
+/// The node `name` means when it is no node's whole id (theseus-glyw): its
+/// id's last 6 or more characters (`a1b2c3`, `…a1b2c3`), or the cockpit's
+/// `msg·a1b2c3`, its prefix too, when exactly one node ends so. The store
+/// walks its index's keys for the ending and reads no node but those that
+/// match, to name each one's session when there are several.
+pub fn resolve(store: &Store, name: &str) -> Result<Named> {
+    use theseus_store::Store as _;
+    let n = name.trim().trim_start_matches('…');
+    let (prefix, ending) = match n.split_once('·') {
+        Some((p, e)) => (Some(format!("{p}_")), e),
+        None => (None, n),
+    };
+    if ending.chars().count() < MIN_ENDING {
+        return Ok(Named::Unknown(format!(
+            "no node is named `{name}`: give a node's whole id, or at least its id's last \
+             {MIN_ENDING} characters"
+        )));
+    }
+    let mut ids = store.inner().keys_ending(kinds::NODE, ending, 64)?;
+    if let Some(p) = &prefix {
+        ids.retain(|id| id.starts_with(p.as_str()));
+    }
+    match ids.as_slice() {
+        [] => Ok(Named::Unknown(match &prefix {
+            Some(p) => format!("no node's id starts `{p}` and ends with `{ending}`"),
+            None => format!("no node's id ends with `{ending}`"),
+        })),
+        [one] => Ok(Named::One(one.clone())),
+        many => {
+            let mut named = Vec::new();
+            for id in many.iter().take(NAMED) {
+                let session = store.get_node(id)?.map(|(_, n)| n.session_id);
+                named.push(match session {
+                    Some(s) => format!("{id} in {}", theseus_protocol::short_id(&s)),
+                    None => id.clone(),
+                });
+            }
+            let more = many.len().saturating_sub(NAMED);
+            let more = if more > 0 {
+                format!(", and {more} more")
+            } else {
+                String::new()
+            };
+            let count = match many.len() {
+                64 => "at least 64".to_string(),
+                n => n.to_string(),
+            };
+            Ok(Named::Refused(format!(
+                "`{name}` names {count} nodes ({}{more}): give more of its id",
+                named.join(", ")
+            )))
+        }
+    }
+}

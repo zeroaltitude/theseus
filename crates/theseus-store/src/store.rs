@@ -154,6 +154,19 @@ pub trait Store: Send + Sync {
             .filter(|r| r.key.as_deref().is_some_and(|k| k.starts_with(prefix)))
             .collect())
     }
+    /// Up to `limit` keys of `kind` that end with `ending`, in key order
+    /// (theseus-glyw: a node named by its id's last characters). The WAL
+    /// store walks its index's keys and reads no record; this default reads
+    /// every record of the kind.
+    fn keys_ending(&self, kind: RecordKind, ending: &str, limit: usize) -> Result<Vec<String>> {
+        Ok(self
+            .latest_of_kind(kind)?
+            .into_iter()
+            .filter_map(|r| r.key)
+            .filter(|k| k.ends_with(ending))
+            .take(limit)
+            .collect())
+    }
     /// How many keys `kind` has (its entities), where `count_of_kind` counts
     /// every record.
     fn count_keys(&self, kind: RecordKind) -> Result<u64> {
@@ -1537,6 +1550,10 @@ impl Store for WalStore {
 
     fn count_keys(&self, kind: RecordKind) -> Result<u64> {
         self.inner.index.count_keys(kind)
+    }
+
+    fn keys_ending(&self, kind: RecordKind, ending: &str, limit: usize) -> Result<Vec<String>> {
+        self.inner.index.keys_ending(kind, ending, limit)
     }
 
     fn totals(&self, kind: RecordKind) -> Result<Option<Sums>> {

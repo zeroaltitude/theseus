@@ -948,6 +948,38 @@ fn history_json_is_the_raw_result() {
     );
 }
 
+/// `theseus history --before` and `--after` (theseus-xo0m, theseus-kym3):
+/// a page, and the command that reads past it either way.
+#[test]
+fn history_pages_say_how_to_read_past_them() {
+    let page = |cursor: Value| {
+        let mut h = history();
+        h["nodes"] = json!([
+            node("user_message", 1, "And list them.", Value::Null),
+            node(
+                "assistant_message",
+                3,
+                "Two files.",
+                json!({"model": "glm-x"})
+            ),
+        ]);
+        h["pending_confirms"] = json!([]);
+        for (k, v) in cursor.as_object().unwrap() {
+            h[k] = v.clone();
+        }
+        h
+    };
+    let back = run(
+        &["history", S, "-n", "2", "--before", "5"],
+        vec![step("session.history", page(json!({"older": 1})))],
+    );
+    let forward = run(
+        &["history", S, "-n", "2", "--after", "0"],
+        vec![step("session.history", page(json!({"next": 3})))],
+    );
+    golden("history_pages", &format!("{back}{forward}"));
+}
+
 #[test]
 fn history_with_no_sessions_says_so() {
     golden(
@@ -1997,6 +2029,31 @@ fn an_error_answer_exits_1_with_its_class() {
         after: vec![],
     };
     golden("error_class", &run(&["sessions"], vec![s]));
+}
+
+/// `theseus reach` by a node's short id (theseus-glyw): the daemon resolves
+/// it, and the answer prints as the whole id's; an end that names two nodes
+/// is refused in the daemon's words.
+#[test]
+fn reach_takes_a_short_id_and_says_when_it_names_two() {
+    let result = json!({
+        "node_id": "msg_0198d3a0b1c2d3e4f5a6b7c8d9e0f1a2", "session_id": S, "position": 120,
+        "direct": {"compilations": [], "loops": 1, "first_ms": 1_759_300_000_001u64,
+                   "last_ms": 1_759_300_000_001u64},
+        "descendants": [], "totals": {"contexts": 1, "sessions": 1}, "partial": false});
+    golden(
+        "reach_short",
+        &run(&["reach", "msg·e0f1a2"], vec![step("node.reach", result)]),
+    );
+    let two = Step {
+        method: "node.reach",
+        before: vec![],
+        answer: Err(json!({"code": -32602, "message":
+            "`7c41ab` names 2 nodes (msg_0198d3a0b1c2d3e4f5a6b7c8d97c41ab in ses·q7f3k2, \
+             tcl_0198d3a0ffffffffffffffffff7c41ab in ses·b2c9w1): give more of its id"})),
+        after: vec![],
+    };
+    golden("reach_ambiguous", &run(&["reach", "7c41ab"], vec![two]));
 }
 
 /// `theseus reach` (theseus-n4m, step 12a): a task's last message, which no

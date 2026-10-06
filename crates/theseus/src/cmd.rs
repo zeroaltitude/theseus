@@ -223,30 +223,37 @@ fn failure_trace(err: &anyhow::Error) {
     }
 }
 
-/// `theseus history`: a session's transcript, and what waits in it.
+/// `theseus history`: a session's transcript, and what waits in it; with
+/// `--after` or `--before`, one page of it either way (theseus-xo0m).
 pub async fn history(
     conn: &mut Conn,
     json: bool,
     session: Option<String>,
-    n: Option<usize>,
+    (n, after, before): (Option<usize>, Option<u64>, Option<u64>),
     full: bool,
 ) -> Result<()> {
     let session_id = resolve_session(conn, session).await?;
     let v = conn
         .request(
             method::SESSION_HISTORY,
-            SessionHistoryParams { session_id, n },
+            SessionHistoryParams {
+                session_id,
+                n,
+                after,
+                before,
+            },
         )
         .await?;
     output(json, v, |h: SessionHistoryResult| {
         let mut out = io::stdout().lock();
         writeln!(out, "{}", render::session_header(&h.session))?;
         for node in &h.nodes {
-            print::lines(&mut out, &render::node_lines(node, full))?;
+            print::lines(&mut out, &render::history::node_lines(node, full))?;
         }
         for c in &h.pending_confirms {
             print::lines(&mut out, &render::confirm_lines(c))?;
         }
+        print::lines(&mut out, &render::history::page_lines(&h))?;
         Ok(())
     })
 }

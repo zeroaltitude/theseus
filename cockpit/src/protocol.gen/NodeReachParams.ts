@@ -3,7 +3,12 @@
 /**
  * `node.reach` (theseus-n4m, step 12a; design stage2 §2.11).
  */
-export type NodeReachParams = { node_id: string, 
+export type NodeReachParams = { 
+/**
+ * A node's whole id, or its last 6 or more characters, or the cockpit's
+ * `msg·a1b2c3`, when one node ends so (theseus-glyw).
+ */
+node_id: string, 
 /**
  * How many generations of copies to follow: 3 by default, at most 16.
  * 0 answers the node's own session only.

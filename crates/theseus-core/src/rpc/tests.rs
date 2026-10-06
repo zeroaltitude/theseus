@@ -1154,6 +1154,7 @@ async fn a_store_with_unit_budgets_serves_and_its_sessions_list_and_read() {
             theseus_protocol::SessionHistoryParams {
                 session_id: session.into(),
                 n: None,
+                ..Default::default()
             },
         )
     };
@@ -1365,6 +1366,7 @@ async fn rows_stored_with_the_old_denied_names_still_decode() {
                 theseus_protocol::SessionHistoryParams {
                     session_id: sid.clone(),
                     n: None,
+                    ..Default::default()
                 },
             ),
             tail(2, "action.declined"),

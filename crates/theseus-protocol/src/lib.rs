@@ -21,6 +21,7 @@ pub mod extend;
 mod gate;
 mod hands;
 mod health;
+mod history;
 pub mod index;
 pub mod judge;
 pub mod judge_runs;
@@ -53,6 +54,7 @@ pub use explain::*;
 pub use gate::*;
 pub use hands::*;
 pub use health::*;
+pub use history::*;
 pub use index::TenderStatus;
 pub use ledger::*;
 pub use ontology::*;
@@ -2169,15 +2171,6 @@ pub struct SessionRef {
     pub session_id: String,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[cfg_attr(test, derive(ts_rs::TS))]
-pub struct SessionHistoryParams {
-    pub session_id: String,
-    /// Newest `n` nodes (default all).
-    #[serde(default)]
-    pub n: Option<usize>,
-}
-
 /// One node as clients render it (a message, a tool call, a tool result).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
@@ -2212,16 +2205,6 @@ pub struct NodeInfo {
     pub bytes: u64,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[cfg_attr(test, derive(ts_rs::TS))]
-pub struct SessionHistoryResult {
-    pub session: SessionInfo,
-    pub nodes: Vec<NodeInfo>,
-    /// Actions waiting for the operator's confirmation in this session.
-    #[serde(default)]
-    pub pending_confirms: Vec<ConfirmRequest>,
-}
-
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
 pub struct SessionRecompileParams {
@@ -2252,6 +2235,8 @@ pub struct NodeListResult {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
 pub struct NodeReachParams {
+    /// A node's whole id, or its last 6 or more characters, or the cockpit's
+    /// `msg·a1b2c3`, when one node ends so (theseus-glyw).
     pub node_id: String,
     /// How many generations of copies to follow: 3 by default, at most 16.
     /// 0 answers the node's own session only.

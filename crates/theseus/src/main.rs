@@ -139,9 +139,16 @@ enum Cmd {
     /// anything waiting for your confirmation. SESSION defaults to the most recently active.
     History {
         session: Option<String>,
-        /// Only the newest N nodes.
+        /// Only the newest N nodes; with --after or --before, a page's size (default 200).
         #[arg(short, long)]
         n: Option<usize>,
+        /// Only nodes after this position, oldest first: 0 for the first page, then the
+        /// position the page ends with.
+        #[arg(long, value_name = "POSITION")]
+        after: Option<u64>,
+        /// Only nodes before this position, the newest N of them: a page back.
+        #[arg(long, value_name = "POSITION")]
+        before: Option<u64>,
         /// Print tool results and long messages in full (default: clipped).
         #[arg(long)]
         full: bool,
@@ -149,7 +156,8 @@ enum Cmd {
     /// Where a node went (node.reach): the compilations and loops of its own session whose
     /// context held it, then its copies in other sessions over derived_from (a task's report in
     /// its parent, a task's brief from the reply that started it), each with theirs. NODE is a
-    /// node's id, as `theseus history --json` and the cockpit's Nodes list (Ledger) show it.
+    /// node's id, or its last 6 or more characters, as `theseus history` prints it (msg·a1b2c3)
+    /// and the cockpit's Nodes list (Ledger) shows it.
     Reach {
         #[arg(value_name = "NODE")]
         node: String,
@@ -787,7 +795,13 @@ async fn run(cli: Cli) -> Result<()> {
     let result = match cli.cmd {
         Cmd::Ask(a) => cmd::ask(c, json, cli.no_stream, a, spawned).await,
         Cmd::Prompt(a) => prompt::run(c, json, cli.no_stream, a, spawned).await,
-        Cmd::History { session, n, full } => cmd::history(c, json, session, n, full).await,
+        Cmd::History {
+            session,
+            n,
+            after,
+            before,
+            full,
+        } => cmd::history(c, json, session, (n, after, before), full).await,
         Cmd::Reach { node, generations } => cmd::reach(c, json, node, generations).await,
         Cmd::Places => cmd::places(c, json).await,
         Cmd::Publish {

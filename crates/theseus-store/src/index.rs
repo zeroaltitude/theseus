@@ -730,6 +730,28 @@ impl RedbIndex {
         Ok(out)
     }
 
+    /// Up to `limit` keys of a kind that end with `ending`, in key order: a
+    /// walk of the kind's key table alone, which reads no record (a short
+    /// id's resolve, theseus-glyw).
+    pub fn keys_ending(&self, kind: RecordKind, ending: &str, limit: usize) -> Result<Vec<String>> {
+        let txn = self.db.begin_read()?;
+        let t = txn.open_table(BYKEY)?;
+        let lo = kind.to_be_bytes().to_vec();
+        let hi = (kind + 1).to_be_bytes().to_vec();
+        let mut out = Vec::new();
+        for row in t.range(lo.as_slice()..hi.as_slice())? {
+            if out.len() >= limit {
+                break;
+            }
+            let (k, _) = row?;
+            let kb = k.value();
+            if kb[2..].ends_with(ending.as_bytes()) {
+                out.push(String::from_utf8_lossy(&kb[2..]).into_owned());
+            }
+        }
+        Ok(out)
+    }
+
     /// Positions of a kind, newest first, at most `limit`.
     pub fn positions_of_kind_rev(&self, kind: RecordKind, limit: usize) -> Result<Vec<u64>> {
         let txn = self.db.begin_read()?;
@@ -1504,6 +1526,37 @@ pub fn move_aside(path: &Path, why: &str) -> Result<Aside> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The keys of a kind that end so, from the key table alone
+    /// (theseus-glyw), in key order, at most `limit`.
+    #[test]
+    fn keys_ending_walks_a_kinds_keys() {
+        let dir = tempfile::tempdir().unwrap();
+        let idx = RedbIndex::open(&dir.path().join("index.redb")).unwrap();
+        let e = |p: u64, kind: u16, key: &str| IndexEntry {
+            position: p,
+            kind,
+            key: Some(key.to_string()),
+            scope: None,
+            loc: Location {
+                segment: 1,
+                offset: p * 100,
+                len: 10,
+            },
+            terms: None,
+            sums: None,
+            at_unix_ms: 0,
+            tags: Vec::new(),
+        };
+        let entries = [e(1, 1, "s1"), e(2, 2, "t1"), e(3, 1, "s2"), e(4, 1, "s1")];
+        idx.apply(&entries, false).unwrap();
+        assert_eq!(idx.keys_ending(1, "1", 10).unwrap(), vec!["s1"]);
+        assert_eq!(idx.keys_ending(1, "s1", 10).unwrap(), vec!["s1"]);
+        assert_eq!(idx.keys_ending(1, "", 10).unwrap(), vec!["s1", "s2"]);
+        assert_eq!(idx.keys_ending(1, "", 1).unwrap(), vec!["s1"]);
+        assert!(idx.keys_ending(1, "x1", 10).unwrap().is_empty());
+        assert_eq!(idx.keys_ending(2, "1", 10).unwrap(), vec!["t1"]);
+    }
 
     #[test]
     fn redb_index() {
