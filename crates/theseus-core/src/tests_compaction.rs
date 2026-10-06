@@ -11,7 +11,8 @@
 //! - a second compaction folds the first summary in;
 //! - the ring runs when the summary call fails, and when the profile is off;
 //! - `session`, the default, summarizes on the session's own model: glm is
-//!   never asked;
+//!   never asked; a turn submitted on glm's model for one message summarizes
+//!   on glm, and the next turn is the session's own again;
 //! - the newest exchange alone past the window fails the turn before any
 //!   call (`context_overage`), and nothing retries it.
 //! - the assembled strategy (recall live, a stand-in index): a task's first
@@ -98,9 +99,21 @@ fn session(core: &Core) -> String {
 }
 
 async fn turn(core: &Arc<Core>, sid: &str, input: &str) -> anyhow::Result<TurnSubmitResult> {
+    turn_on(core, sid, input, None).await
+}
+
+/// A turn, on `on`'s provider and model for this message alone when given,
+/// as `turn.submit`'s `provider` and `model` ask.
+async fn turn_on(
+    core: &Arc<Core>,
+    sid: &str,
+    input: &str,
+    on: Option<(&str, &str)>,
+) -> anyhow::Result<TurnSubmitResult> {
     let rec: SessionRecord = core.store.get_session(sid).unwrap().unwrap();
     let (live, _) = core.live_profile();
-    let target = core.runner.resolve_target(&live, None, None, None)?;
+    let (provider, model) = on.unzip();
+    let target = core.runner.resolve_target(&live, None, provider, model)?;
     let sink = EventSink::new(core.bus.clone(), sid, None);
     core.runner
         .run(TurnRequest {
@@ -714,4 +727,121 @@ async fn a_compaction_is_assembled_with_recall_before_the_summary() {
         &next.messages[..q.messages.len() - 1],
         &q.messages[..q.messages.len() - 1]
     );
+}
+
+/// glm's model, on `zai`.
+const GLM: &str = "glm-5.3-flash";
+
+/// A session whose summary profile is `session`, glm given the session
+/// model's window and output cap, so a turn on either rings at the same
+/// point.
+fn session_rig(model: Vec<Scripted>, glm: Vec<Scripted>) -> Rig {
+    let dir = tempfile::tempdir().unwrap();
+    let model = Arc::new(FakeProvider::scripted(model));
+    let glm = Arc::new(FakeProvider::scripted(glm));
+    let root = dir.path().join("work");
+    std::fs::create_dir_all(&root).unwrap();
+    let mut cfg = config(&root.canonicalize().unwrap(), dir.path(), SUMMARY_SESSION);
+    cfg.catalog.insert(
+        GLM.into(),
+        crate::catalog::CatalogRow {
+            context_window: Some(WINDOW),
+            max_output_tokens: Some(OUTPUT),
+            ..Default::default()
+        },
+    );
+    let store = Store::open(&dir.path().join("store")).unwrap();
+    let mut parts = crate::rpc::Parts::for_tests(cfg, model.clone(), store);
+    parts.providers.insert("zai".into(), glm.clone());
+    Rig {
+        core: Core::build(parts).unwrap(),
+        model,
+        glm,
+        dir,
+    }
+}
+
+/// Whether `q` is a summary call.
+fn is_summary(q: &ProviderRequest) -> bool {
+    q.system
+        .first()
+        .and_then(|s| s["text"].as_str())
+        .is_some_and(|s| s.starts_with("You summarize the earlier part"))
+}
+
+/// `summary_profile = "session"` follows a one-message override
+/// (theseus-6fn.9): the session's own profile is the session's target, but a
+/// compacting turn submitted on glm's model summarizes on glm, and the
+/// `Summary` node, its header and the `context.compacted` row name glm's
+/// model. The session's next turn, with no override, runs on its own model.
+#[tokio::test]
+async fn summary_profile_session_follows_a_one_message_override() {
+    // How many turns the session takes to ring, on its own model.
+    let probe = session_rig(vec![], vec![]);
+    let sid = session(&probe.core);
+    let turns = until_recompiled(&probe, &sid, 6_000).await;
+    assert!(turns >= 2, "rang after {turns} turns");
+
+    let r = session_rig(
+        vec![],
+        vec![summary("GLM: the keeper logged the tides.", 9_000, 60)],
+    );
+    let sid = session(&r.core);
+    for k in 0..turns - 1 {
+        turn(&r.core, &sid, &words(&format!("turn{k}"), 6_000))
+            .await
+            .unwrap();
+    }
+    assert!(rows(&r.core, "context.compacted").is_empty());
+    let last = format!("turn{}", turns - 1);
+    turn_on(&r.core, &sid, &words(&last, 6_000), Some(("zai", GLM)))
+        .await
+        .unwrap();
+    let compiled = rows(&r.core, "context.compiled");
+    assert_eq!(compiled.last().unwrap()["strategy"], "compaction");
+
+    // The summary call went to glm, with the dropped turns; the session's
+    // provider wrote none.
+    let asked: Vec<ProviderRequest> = r.glm.requests().into_iter().filter(is_summary).collect();
+    assert_eq!(asked.len(), 1, "one summary call, to glm");
+    assert_eq!(asked[0].model, GLM);
+    assert!(text_of(&asked[0]).contains("turn0 "));
+    assert!(!r.model.requests().iter().any(is_summary));
+
+    // The node, its header, and the row name the override's model.
+    let (live, _) = r.core.live_profile();
+    let nodes = r.core.store.transcript(&sid).unwrap();
+    let Some(Body::Summary {
+        profile,
+        model,
+        header,
+        text,
+        ..
+    }) = nodes
+        .iter()
+        .map(|(_, n)| &n.body)
+        .find(|b| matches!(b, Body::Summary { .. }))
+    else {
+        panic!("no summary node");
+    };
+    assert_eq!((profile.as_str(), model.as_str()), (live.as_str(), GLM));
+    assert_eq!(text, "GLM: the keeper logged the tides.");
+    assert!(
+        header.ends_with(&format!(", written by {live} on {GLM}]")),
+        "{header}"
+    );
+    let row = &rows(&r.core, "context.compacted")[0];
+    assert_eq!(
+        (&row["outcome"], &row["model"]),
+        (&json!("compaction"), &json!(GLM)),
+        "{row}"
+    );
+
+    // The next turn, with no override, is the session's own model's.
+    let before = r.glm.requests().len();
+    turn(&r.core, &sid, "and the lamp?").await.unwrap();
+    assert_eq!(r.glm.requests().len(), before, "glm is asked nothing more");
+    let q = r.model.requests().pop().unwrap();
+    assert_eq!(q.model, "claude-sonnet-5-5");
+    assert!(!is_summary(&q));
 }
