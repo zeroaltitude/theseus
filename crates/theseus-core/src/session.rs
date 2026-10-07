@@ -157,6 +157,10 @@ impl Failing {
     ///   retry could not fit (`context_window`, theseus-9p88) parks at once
     ///   too: the driver's retry would send the same request. The next
     ///   message gives the ring a place to cut.
+    /// - A call not sent for the daemon's stop (`stopping`, theseus-36re)
+    ///   keeps the backoff, for the next start's driver, and posts no notice:
+    ///   nothing failed that the place should hear of. A later failure of the
+    ///   run posts the notice it would have.
     ///
     /// `prev` is the run so far: none after a model's answer or new input.
     pub fn after(
@@ -192,11 +196,12 @@ impl Failing {
                 Then::Park
             }
         };
-        let notice = match then {
-            Then::Backoff => !run.noticed,
-            Then::Retry => false,
-            Then::Park => !run.parked,
-        };
+        let notice = class != crate::provider::STOPPING_CLASS
+            && match then {
+                Then::Backoff => !run.noticed,
+                Then::Retry => false,
+                Then::Park => !run.parked,
+            };
         run.noticed |= notice;
         run.parked |= then == Then::Park;
         (run, then, notice)
@@ -481,6 +486,16 @@ mod tests {
             ]
         );
         assert_eq!(run.class, "auth");
+    }
+
+    /// A call the daemon's stop kept from being sent (theseus-36re) keeps
+    /// the backoff for the next start and posts nothing; the retry's own
+    /// failure there is the run's first to be told.
+    #[test]
+    fn a_failure_for_the_stop_posts_no_notice_and_leaves_the_runs_to_the_next() {
+        let (run, out) = run_of(&[("stopping", true, true), ("overloaded", true, true)]);
+        assert_eq!(out, [(Then::Backoff, false), (Then::Backoff, true)]);
+        assert_eq!((run.turns, run.class.as_str()), (2, "overloaded"));
     }
 
     /// kks's `over_limit` fails before any provider call: nothing a retry

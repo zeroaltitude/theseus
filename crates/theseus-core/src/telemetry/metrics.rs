@@ -581,19 +581,23 @@ impl Metrics {
             self.files_read(t);
             self.aws_requests(t);
         }
-        self.add(
-            &PROVIDER_ERRORS,
-            sorted(vec![
-                (
-                    semconv::GEN_AI_PROVIDER_NAME,
-                    Attr::S(f.provider.to_string()),
-                ),
-                (semconv::GEN_AI_REQUEST_MODEL, Attr::S(f.model.to_string())),
-                ("theseus.error.class", Attr::S(f.class.to_string())),
-                ("theseus.error.transient", Attr::B(f.transient)),
-            ]),
-            1,
-        );
+        // A call the daemon's stop kept from being sent is no provider's
+        // error (theseus-36re).
+        if f.class != crate::provider::STOPPING_CLASS {
+            self.add(
+                &PROVIDER_ERRORS,
+                sorted(vec![
+                    (
+                        semconv::GEN_AI_PROVIDER_NAME,
+                        Attr::S(f.provider.to_string()),
+                    ),
+                    (semconv::GEN_AI_REQUEST_MODEL, Attr::S(f.model.to_string())),
+                    ("theseus.error.class", Attr::S(f.class.to_string())),
+                    ("theseus.error.transient", Attr::B(f.transient)),
+                ]),
+                1,
+            );
+        }
         if let Some(t) = f.trace {
             self.provider_calls(t);
             self.wakes(t);

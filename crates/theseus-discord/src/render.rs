@@ -981,6 +981,10 @@ pub fn settled_note(content: &str, dm: Option<&str>) -> String {
 pub fn failed(class: &str, error: &str, then: Option<&str>, turns: u64) -> String {
     let head = format!("⚠️ **Turn failed** ({class}): {}", clip(error, 600));
     match then {
+        // Posted by no notice since theseus-36re, but a post written before.
+        Some("backoff") if class == "stopping" => {
+            format!("{head}\n-# Not sent as the daemon stopped: its next start retries it.")
+        }
         Some("backoff") => format!(
             "{head}\n-# Retrying with backoff while it lasts. No more notices for it: the reply \
              comes when the provider answers."
@@ -2564,6 +2568,8 @@ mod tests {
         ));
         assert!(failed("over_limit", "too big", Some("park"), 1)
             .ends_with("\n-# Nothing retries it now: your next message does."));
+        assert!(failed("stopping", "not sent", Some("backoff"), 1)
+            .ends_with("\n-# Not sent as the daemon stopped: its next start retries it."));
     }
 
     #[test]

@@ -21,6 +21,7 @@ use theseus_protocol::{
 mod aws;
 mod cancel;
 mod catalog;
+mod failed;
 pub mod history;
 mod imported;
 mod index;
@@ -337,13 +338,7 @@ pub fn event(e: &Event, show: Show) -> Vec<Line> {
             push(&mut out, Tag::Dim, &status_line(r))
         }
         Event::TurnFailed(f) => {
-            // What follows it (theseus-ljr).
-            let then = match f.then.as_deref() {
-                Some("backoff") => " [retrying with backoff]",
-                Some("retry") => " [retrying once]",
-                Some("park") => " [not retried: the next message retries]",
-                _ => "",
-            };
+            let then = failed::then_words(f.class.as_deref(), f.then.as_deref());
             push(
                 &mut out,
                 Tag::Bad,

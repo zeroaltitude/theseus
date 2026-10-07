@@ -33,7 +33,7 @@ export function Composer({ sessionId, busy }: { sessionId: string; busy: boolean
         // A turn the provider failed says its class, and whether it may be tried again; the transcript shows the
         // turn's failure from its row.
         dropDraft(draft)
-        setError(`${data.class ? `turn failed · class ${data.class}${data.transient ? ' · transient' : ' · permanent'}${data.usage_unknown ? ' · usage unknown (reservation held)' : ''}: ` : ''}${e?.message ?? String(e)}`)
+        setError(`${data.class ? `turn failed · class ${data.class}${data.class === 'stopping' ? ' · not sent as the daemon stopped: its next start retries it' : data.transient ? ' · transient' : ' · permanent'}${data.usage_unknown ? ' · usage unknown (reservation held)' : ''}: ` : ''}${e?.message ?? String(e)}`)
       })
       .finally(() => setPending((n) => n - 1))
     setText('')

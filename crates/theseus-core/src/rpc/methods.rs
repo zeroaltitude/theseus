@@ -945,7 +945,11 @@ impl Core {
         model: &str,
         te: &TurnError,
     ) {
-        self.provider_errors.fetch_add(1, Ordering::Relaxed);
+        // A call the daemon's stop kept from being sent is no provider's
+        // error (theseus-36re): the turn counts as failed, and no more.
+        if te.class != crate::provider::STOPPING_CLASS {
+            self.provider_errors.fetch_add(1, Ordering::Relaxed);
+        }
         // The target the turn ran on is the trace root's: routing moves it
         // there (theseus-490i), and the given one is the request's, before
         // routing. A turn that failed before its trace began has only that

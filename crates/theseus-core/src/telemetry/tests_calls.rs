@@ -252,3 +252,33 @@ async fn a_failed_calls_span_carries_error_type() {
     assert_eq!(a["error"], "timeout", "the flattened attribute stays");
     assert_eq!(spans[0]["status"]["code"], 2);
 }
+
+/// A turn whose call the daemon's stop kept from being sent (`stopping`,
+/// theseus-36re) is a failed turn, and no provider's error: the provider
+/// errors hold the refused connection beside it, and only that.
+#[tokio::test]
+async fn a_call_the_stop_kept_back_is_no_provider_error() {
+    let rx = Receiver::start(vec![]).await;
+    let tel = pipeline(&rx.endpoint(), None, tuning());
+    let usage = Usage::default();
+    for class in ["stopping", "network"] {
+        tel.record_failure(&FailedTurn {
+            profile: "glm",
+            provider: "zai",
+            model: "glm-5.1",
+            class,
+            transient: true,
+            elapsed_ms: 3,
+            trace: None,
+            usage: &usage,
+            cost_usd: None,
+        });
+    }
+    flushed(&tel).await;
+    let metrics = last_metrics(&rx.got());
+    let errors = points_of(&metrics, "theseus.provider.errors");
+    assert_eq!(errors.len(), 1, "{errors:#?}");
+    assert_eq!(attrs_of(errors[0])["theseus.error.class"], "network");
+    let failed = point_with(&metrics, "theseus.turns", &[("theseus.outcome", "failed")]);
+    assert_eq!(failed["asInt"], "2", "both turns failed");
+}
