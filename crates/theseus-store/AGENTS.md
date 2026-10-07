@@ -15,7 +15,7 @@ Key modules: `wal.rs`, `index.rs`, `record.rs`, `store.rs` (`MANIFEST_FORMAT`). 
   with its writer thread. `MANIFEST.json` names the store's one format number (`MANIFEST_FORMAT`).
   `Store::keys_ending` lists a kind's keys that end with a given suffix, up to a limit, from the index's key table
   alone, reading no record (a node named by its short id, theseus-glyw).
-  `blocking` runs a wait for the disk without holding a runtime worker.
+  `blocking` runs a wait for the disk without holding a runtime worker, and the task gives way after it.
 - `pressure.rs` (theseus-tood): a background pass waits between two chunks while the machine is busy (PSI's
   `some avg10` at or over the gate's 20 % CPU or 10 % IO, up to `BOUND`; nothing waits without PSI), and
   `idle_this_thread` puts a thread in `SCHED_IDLE`, one-way, so only one that answers no one and starts no thread
@@ -137,6 +137,15 @@ Key modules: `wal.rs`, `index.rs`, `record.rs`, `store.rs` (`MANIFEST_FORMAT`). 
   the whole index after an import or a rebuild; a daemon idle beside builds had that memory in swap, and the store's
   close read it back page by page to free it: install #9's stop took 11.87 s. The kernel's page cache keeps the hot
   pages instead. `tests/index_memory.rs` holds the bound with a counting allocator.
+- **A task gives way after a `blocking` section** (theseus-fy0i). On a worker, `block_in_place` hands the worker's
+  role to another thread, and the task's poll then runs on without a worker until it yields. The runtime's drop
+  waits for no such poll before it shuts the time driver down, and a timer polled after that panics ("A Tokio 1.x
+  context was found, but it is being shutdown", tokio's `time/entry.rs`), which aborts a release daemon: a stop
+  soon after serving did, as the learning tender's read ended and its `sleep_until` was polled. So `blocking` spends
+  the task's coop budget after `f`: its next await on a tokio resource yields before touching it, and the task is
+  polled again only by a worker, or dropped with the runtime. Every append, checkpoint, and contended lock wait goes
+  through `blocking`; never call `block_in_place` itself. `store/tests_blocking.rs` holds a section open until the
+  time driver has shut down (a canary timer fires early then), and theseus-core's tender test does it to `tend`.
 
 ## Tests
 
