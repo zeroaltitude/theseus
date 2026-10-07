@@ -154,6 +154,12 @@ class Records(unittest.TestCase):
             self.assertEqual(rec["wall_s"], 4.0)
             # 400 x 2 + 600 x 0.1 + 50 x 10, a million.
             self.assertAlmostEqual(rec["list_cost_usd"], 0.00136, places=6)
+            # Codex's cache writes, as Harbor's converter names them, are writes, not input.
+            traj["steps"][1]["metrics"]["prompt_tokens"] = 1300
+            traj["steps"][1]["metrics"]["extra"] = {"cache_write_input_tokens": 300}
+            (logs / "trajectory.json").write_text(json.dumps(traj))
+            self.assertEqual(ef.codex_record(logs)["tokens"],
+                             {"input": 400, "cache_read": 600, "cache_write": 300, "output": 50})
 
 
 class FakeEnvironment:

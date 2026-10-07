@@ -323,9 +323,10 @@ def trajectory_tokens(metrics: dict[str, Any]) -> dict[str, int]:
     """An ATIF step's four classes: `prompt_tokens` is input, cache read and
     cache write together (Harbor's and Theseus's converters both write it
     so), `cached_tokens` the read, and `extra.cache_creation_input_tokens`
-    the write."""
+    the write (Harbor's Codex converter names it `cache_write_input_tokens`)."""
     read = int(metrics.get("cached_tokens") or 0)
-    write = int((metrics.get("extra") or {}).get("cache_creation_input_tokens") or 0)
+    extra = metrics.get("extra") or {}
+    write = int(extra.get("cache_creation_input_tokens") or extra.get("cache_write_input_tokens") or 0)
     prompt = int(metrics.get("prompt_tokens") or 0)
     return {"input": max(prompt - read - write, 0), "cache_read": read, "cache_write": write,
             "output": int(metrics.get("completion_tokens") or 0)}
