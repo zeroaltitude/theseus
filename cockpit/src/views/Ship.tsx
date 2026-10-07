@@ -9,7 +9,7 @@ import { Anchor, Crosshair, ExternalLink, HelpCircle, Maximize, Search, Waves } 
 import { ShipEngine, type Hit } from '@/ship/engine'
 import { LabelLayer, usdShort } from '@/ship/labels'
 import { Minimap, type MinimapHandle } from '@/ship/Minimap'
-import { Compass, EngineTelegraph, Nixie, ShipsClock } from '@/ship/instruments'
+import { EngineTelegraph, Nixie } from '@/ship/instruments'
 import { useShipLive, useShipSynthetic, type ShipData } from '@/ship/useShipData'
 import { placeOf, type ShipModel, type Vessel } from '@/ship/model'
 import { HoverCard } from '@/ship/HoverCard'
@@ -28,7 +28,7 @@ import { PlankStrip } from '@/components/brass'
 import { useCalm } from '@/lib/calm'
 import { useConn } from '@/lib/rpc'
 import { useWorld } from '@/lib/world'
-import { ago, cn, short, stamp } from '@/lib/format'
+import { ago, cn, short, stamp, uptime } from '@/lib/format'
 
 // The synthetic fleet is for measuring, in dev and bench builds only (never in a production build).
 const SYNTH = (import.meta.env.DEV || import.meta.env.MODE === 'bench') && new URLSearchParams(window.location.search).has('synthetic')
@@ -332,7 +332,8 @@ function ShipView({ data, onFail }: { data: ShipData; onFail: OnFail }) {
       <div ref={labelsRoot} className="ship-labels pointer-events-none absolute inset-0 overflow-hidden" />
       {data.progress < 1 && <div className="pointer-events-none absolute inset-x-0 top-0" title="Reading the graph"><PlankStrip progress={data.progress} height={6} /></div>}
 
-      <Cartouche model={model} synthetic={data.synthetic} live={status === 'open'} error={data.error} asOf={data.past?.t} />
+      <Cartouche model={model} synthetic={data.synthetic} live={status === 'open'} error={data.error} asOf={data.past?.t}
+        then={g ? thenOf(g, data.profiles) : undefined} />
 
       <div data-ship-ui className="absolute right-3 top-4 flex items-center gap-1.5">
         <BrassButton title="Fly to a session or a call (Ctrl+K)" onClick={() => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', ctrlKey: true }))}>
@@ -350,16 +351,12 @@ function ShipView({ data, onFail }: { data: ShipData; onFail: OnFail }) {
       {hover && model && !touring && <HoverCard hover={hover} model={model} />}
       <Key model={model} pinned={keyPinned?.id ?? null} onPreview={setKeyPreview} onPin={setKeyPinned} onTour={() => setTour(true)} />
 
-      <div data-ship-ui className="ship-console pointer-events-auto absolute bottom-3 left-1/2 flex -translate-x-1/2 items-end gap-2.5 px-4 pb-2 pt-2.5">
-        {g ? (
-          <Compass live={g.profile ?? data.profiles?.live} profiles={data.profiles?.profiles.map((p) => p.name) ?? []}
-            model={data.profiles?.profiles.find((p) => p.name === g.profile)?.model} />
-        ) : (
-          <Compass live={data.profiles?.live ?? h?.profile} profiles={data.profiles?.profiles.map((p) => p.name) ?? []} model={h?.model} />
-        )}
+      {/* The console: the engine (admission) and tokens a minute, the two gauges no other place shows (the owner's C3).
+          The compass's live profile and the chronometer's uptime are the top bar's profile chip and UP; as of a moment in
+          the past, the cartouche says them. */}
+      <div data-ship-ui className="ship-console pointer-events-auto absolute bottom-3 left-1/2 flex -translate-x-1/2 items-end gap-3.5 px-5 pb-2 pt-2.5">
         <EngineTelegraph accepting={g ? g.accepting : h?.kernel.accepting} running={g ? g.running : h?.kernel.executions_by_state.running ?? model?.stats.running ?? 0}
           ceiling={h?.kernel.admission_ceiling ?? 8} held={g ? 0 : h?.kernel.turns_held ?? 0} />
-        <ShipsClock uptime={g ? g.uptimeSecs ?? undefined : h?.uptime_secs} version={h?.version} down={!!g && g.uptimeSecs === null} />
         <Nixie value={data.tpm} label="Tokens / min" title="Tokens a minute: input, cache, and output of every model call in the last sixty seconds (provider.call rows)." />
       </div>
 
@@ -389,7 +386,18 @@ function BrassButton({ children, onClick, title, on }: { children: React.ReactNo
   )
 }
 
-function Cartouche({ model, synthetic, live, error, asOf }: { model: ShipModel | null; synthetic: boolean; live: boolean; error?: string; asOf?: number }) {
+/** What the top bar's live readouts said at the time machine's moment: the profile then (and its model), and the uptime
+ *  then (null: the daemon was down). The bar itself always reads now. */
+interface Then { profile?: string; model?: string; uptimeSecs: number | null }
+
+/** The moment's profile is the fold's, from the profile changes before it; with none in the ledger, the live one (as the
+ *  retired compass read it). */
+function thenOf(g: NonNullable<ShipData['past']>['gauges'], profiles: ShipData['profiles']): Then {
+  const profile = g.profile ?? profiles?.live
+  return { profile, model: profiles?.profiles.find((p) => p.name === profile)?.model, uptimeSecs: g.uptimeSecs }
+}
+
+function Cartouche({ model, synthetic, live, error, asOf, then }: { model: ShipModel | null; synthetic: boolean; live: boolean; error?: string; asOf?: number; then?: Then }) {
   const s = model?.stats
   const failed = model?.vessels.filter((v) => v.rig === 'flare').length ?? 0
   return (
@@ -407,6 +415,12 @@ function Cartouche({ model, synthetic, live, error, asOf }: { model: ShipModel |
         {!!s?.waiting && <span className="text-wait"><b className="num">{s.waiting}</b> waiting for you</span>}
         {!!failed && <span className="text-fault"><b className="num">{failed}</b> failed</span>}
       </div>
+      {asOf !== undefined && then && (
+        <div className="num mt-1 text-[11.5px] text-ink-dim" title="The top bar reads now; this is what its live profile and uptime said at the moment you scrubbed to">
+          then: live profile <b className="font-medium text-ink">{then.profile ?? '—'}</b>{then.model ? ` (${then.model})` : ''} ·{' '}
+          {then.uptimeSecs === null ? <span className="text-fault">the daemon was down</span> : <>up <b className="font-medium text-ink">{uptime(then.uptimeSecs)}</b></>}
+        </div>
+      )}
       {!synthetic && !live && <div className="mt-1 text-[11.5px] text-wait">the link to the daemon is down: reconnecting…</div>}
       {error && <div className="mt-1 text-[11.5px] text-fault">{error}</div>}
     </div>
