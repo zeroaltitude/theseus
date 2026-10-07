@@ -38,3 +38,43 @@ fn each_mint_is_a_secret_bearing_write_safe_to_repeat() {
         assert_eq!(c.note, known.note, "{what}");
     }
 }
+
+/// The AWS session mints, which `aws.call` puts to the operator at every
+/// posture (theseus-a3s3): STS's and no other operation in the catalog, and
+/// not `GetWebIdentityToken`, which mints no AWS session. Each is a
+/// secret-bearing write, and `aws.describe` says it always asks.
+#[test]
+fn the_aws_session_mints_are_stss_and_always_ask() {
+    let want = [
+        "sts:AssumeRole",
+        "sts:AssumeRoleWithSAML",
+        "sts:AssumeRoleWithWebIdentity",
+        "sts:AssumeRoot",
+        "sts:GetDelegatedAccessToken",
+        "sts:GetFederationToken",
+        "sts:GetSessionToken",
+    ];
+    let mut got = Vec::new();
+    for e in cat().services() {
+        let svc = cat().service(&e.name).unwrap();
+        for op in svc.operations() {
+            let c = op.classify();
+            if !c.session_mint {
+                continue;
+            }
+            let what = format!("{}:{}", e.name, op.name());
+            assert_eq!(c.label(), "W 🔑", "{what}");
+            let d = theseus_aws_catalog::describe_operation(op);
+            assert_eq!(d["approval"], "always", "{what}: {d}");
+            got.push(what);
+        }
+    }
+    got.sort();
+    assert_eq!(got, want);
+    let sts = cat().service("sts").unwrap();
+    let web = sts.operation("GetWebIdentityToken").unwrap();
+    assert!(!web.classify().session_mint);
+    assert!(theseus_aws_catalog::describe_operation(web)
+        .get("approval")
+        .is_none());
+}

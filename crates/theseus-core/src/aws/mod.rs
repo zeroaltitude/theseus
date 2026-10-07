@@ -92,6 +92,8 @@ mod tests_resumed;
 #[cfg(test)]
 mod tests_secret_shapes;
 #[cfg(test)]
+mod tests_session_mints;
+#[cfg(test)]
 mod tests_synced;
 #[cfg(test)]
 mod tests_when_present;

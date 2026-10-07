@@ -82,6 +82,11 @@ pub struct AwsPlan {
     /// gate asks. Held in memory, as `guardrail`.
     #[serde(skip)]
     pub destructive: bool,
+    /// An AWS session mint, in the words the approval names it with (its role
+    /// or target, and that the keys stay held): the gate asks at every
+    /// posture (theseus-a3s3). Held in memory, as `guardrail`.
+    #[serde(skip)]
+    pub session_mint: Option<String>,
 }
 
 /// What a call will do, before it does it: the gate reads this.

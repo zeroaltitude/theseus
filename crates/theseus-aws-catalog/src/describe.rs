@@ -93,6 +93,11 @@ pub fn describe_operation(op: OperationRef<'_>) -> Value {
     if c.inert {
         o.insert("inert".into(), json!(true));
     }
+    // An AWS session mint waits for the operator at every posture
+    // (theseus-a3s3).
+    if c.session_mint {
+        o.insert("approval".into(), json!("always"));
+    }
     if let Some(n) = c.note {
         o.insert("note".into(), json!(n));
     }

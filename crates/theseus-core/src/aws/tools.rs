@@ -168,6 +168,8 @@ struct Planned {
     floor_session: bool,
     /// It deletes something that holds state (§3.9's approve list).
     destructive: bool,
+    /// An AWS session mint, in the approval's words (theseus-a3s3).
+    session_mint: Option<String>,
 }
 
 impl Planned {
@@ -189,6 +191,7 @@ impl Planned {
             resources: resources(&self.input),
             guardrail: self.guardrail.clone(),
             destructive: self.destructive,
+            session_mint: self.session_mint.clone(),
         }
     }
 
@@ -305,6 +308,9 @@ impl CallTool {
         };
         let secret = c.secret != SecretBearing::No && c.secret.for_input(&body);
         let (guardrail, floor_session, destructive) = guard(&account.id, &region, &name, &body)?;
+        let session_mint = c
+            .session_mint
+            .then(|| session_mint(&checked.operation, &body));
         Ok(Planned {
             account,
             region,
@@ -319,8 +325,38 @@ impl CallTool {
             guardrail,
             floor_session,
             destructive,
+            session_mint,
         })
     }
+}
+
+/// An AWS session mint as the operator's approval names it (theseus-a3s3):
+/// the role or the target it mints for, from the input (never a token the
+/// input carries), and that its keys stay held.
+fn session_mint(operation: &str, input: &Value) -> String {
+    let given = |k: &str| input.get(k).and_then(Value::as_str);
+    let what = match operation {
+        "AssumeRoot" => format!(
+            "root of account {}{}",
+            given("TargetPrincipal").unwrap_or("(none given)"),
+            input
+                .pointer("/TaskPolicyArn/arn")
+                .and_then(Value::as_str)
+                .map(|p| format!(", for task policy {p}"))
+                .unwrap_or_default()
+        ),
+        "GetSessionToken" => "a session of the signing identity itself".to_string(),
+        "GetFederationToken" => format!(
+            "a session for federated user {}",
+            given("Name").unwrap_or("(none given)")
+        ),
+        "GetDelegatedAccessToken" => "a session delegated by its trade-in token".to_string(),
+        _ => format!("role {}", given("RoleArn").unwrap_or("(none given)")),
+    };
+    format!(
+        "an AWS session mint, {what}: the operator approves every one, and the credentials it \
+         mints stay held as secret handles, never shown"
+    )
 }
 
 impl Tool for CallTool {

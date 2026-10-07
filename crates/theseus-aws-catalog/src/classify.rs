@@ -13,7 +13,8 @@
 //!
 //! Then the flags, each from its own tested table: cost-bearing (every Run,
 //! unless the table says the run is free), secret-bearing, IaC-only (writes
-//! only, never tagging), and inert. The retry class comes from the traits:
+//! only, never tagging), inert, and an AWS session mint (which waits for the
+//! operator at every posture). The retry class comes from the traits:
 //! `readonly`, `idempotent`, or a read is safe to repeat; an
 //! `idempotencyToken` member makes the call idempotent with its key; anything
 //! else is non-repeatable. A row of [`tables::RETRY`] settles the rest.
@@ -140,6 +141,9 @@ pub struct Classification {
     /// A write that changes nothing until a later call (CloudFormation
     /// `CreateChangeSet`).
     pub inert: bool,
+    /// An AWS session mint (STS `AssumeRole*` and its kin): `aws.call`
+    /// waits for the operator's approval at every posture (theseus-a3s3).
+    pub session_mint: bool,
     /// Why an override row says what it says.
     pub note: Option<&'static str>,
 }
@@ -264,6 +268,7 @@ pub fn classify(op: OperationRef<'_>) -> Classification {
         secret,
         iac_only,
         inert,
+        session_mint: in_table(tables::SESSION_MINT, svc, name),
         note: over.map(|o| o.note),
     }
 }
@@ -337,6 +342,7 @@ mod tests {
             ("COST", tables::COST, false),
             ("NOT_IAC", tables::NOT_IAC, false),
             ("IAC", tables::IAC, true),
+            ("SESSION_MINT", tables::SESSION_MINT, false),
         ] {
             for row in table {
                 for p in row.ops {

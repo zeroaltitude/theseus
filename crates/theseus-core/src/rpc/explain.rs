@@ -613,6 +613,13 @@ fn argv_conditions(rt: &crate::toolrun::ToolRuntime) -> Vec<ExplainCondition> {
 fn aws_conditions(p: &crate::policy::ToolPolicy) -> Vec<ExplainCondition> {
     let mut out = Vec::new();
     out.push(cond(
+        "session_mint",
+        "an AWS session mint (STS AssumeRole*, AssumeRoot, GetSessionToken, GetFederationToken, \
+         GetDelegatedAccessToken): at every posture, its keys held as handles",
+        Vec::new(),
+        "approve",
+    ));
+    out.push(cond(
         "destructive",
         "an AWS call that deletes, replaces, or removes something that holds state",
         Vec::new(),

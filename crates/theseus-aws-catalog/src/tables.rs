@@ -265,6 +265,23 @@ pub(crate) static CLASS: &[ClassRow] = &[
     paid("polly", "SynthesizeSpeech", Class::Read, ANALYSIS),
 ];
 
+/// AWS session mints (theseus-a3s3; the owner, 2026-10-07: the model may ask,
+/// and the operator approves each): `aws.call` waits for the operator's
+/// approval at every posture, whatever `[policy.aws]` says, and the keys
+/// each mints stay held as handles (`SECRET`). A session minted here does
+/// not carry the work session's guards (§3.6). STS's `GetWebIdentityToken`
+/// is not one: it signs an assertion for an outside service, no AWS session.
+pub(crate) static SESSION_MINT: &[Ops] = &[ops(
+    "sts",
+    &[
+        "AssumeRole*",
+        "AssumeRoot",
+        "GetSessionToken",
+        "GetFederationToken",
+        "GetDelegatedAccessToken",
+    ],
+)];
+
 /// Operations that start code of the caller's choosing (§3.1's short list).
 pub(crate) static RUN: &[Ops] = &[
     ops(
