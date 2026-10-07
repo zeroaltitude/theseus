@@ -66,6 +66,15 @@ Key modules: `kernel.rs`, `tx.rs`, `locks.rs`, `job.rs`, `cgroup.rs`, `children.
   reservation booked as spent, never held (theseus-f3wr): `mark_unknown_as(.., book: true)`, the action's
   `detail` and row `"cost_basis": "reservation"`. Every other `mark_unknown` holds. A resolution of either goes
   through `earlier::resolve_in`, so a booked call is never counted twice.
+- `gone.rs` (theseus-vej5): the jobs whose wrappers went while no daemon ran (a unit stop that killed the cgroup,
+  an OOM kill). Startup's scan notes every other dispatched action not overdue and not being cancelled
+  (`Earlier::jobs`) and reads nothing more; the harness's first beat after serving, after its drain, runs
+  `Kernel::settle_gone_jobs` once: per job the spooled completion first, then `Spool::wrapper_lives` (the pid
+  file's or the lingering marker's pid, by `wrapper_alive`, so a reused pid is not alive), then the completion
+  again. A finished job's completion is taken, one with a pid file or marker and no live wrapper is marked unknown
+  as `wrapper_gone_at_start`, all in one frame; one with neither (an in-process tool, a hand, a job whose daemon
+  died before writing its pid) is left to its deadline. The core records `job.wrapper_gone` for each, and the
+  probe's cost as the `jobs_at_start` startup phase.
 - `spool.rs` (completions on disk, one sync each: a start finishes a rename a crash cut short, and takes a
   completion its action settled already as a no-op, theseus-yxiv), `redact.rs` (granted secrets withheld from a
   job's output), `stops.rs` (the soft stop), `tasks.rs` (task executions and their carve), `wakes.rs`, `repeat.rs` (a repeating wake's series:
@@ -130,7 +139,8 @@ Key modules: `kernel.rs`, `tx.rs`, `locks.rs`, `job.rs`, `cgroup.rs`, `children.
 
 ## Tests
 
-- In `src/`: `tests.rs` (whose fixtures run on a `VirtualClock`), `tests_stops.rs`, `tests_tasks.rs`,
+- In `src/`: `tests.rs` (whose fixtures run on a `VirtualClock`), `tests_gone.rs` (fake wrappers: `sh` running a
+  script named `job-wrapper`, so its command line names the job), `tests_stops.rs`, `tests_tasks.rs`,
   `tests_tx.rs` (the transaction), `tests_wakes.rs`, and `tests_repeat.rs` (a series: the re-arm, missed
   occurrences, a cancel, `until`, the cap, and both changes of offset of a year, in zones from POSIX TZ strings, so no
   tz database is read).

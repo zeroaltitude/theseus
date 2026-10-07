@@ -39,7 +39,13 @@ pub async fn run(core: Arc<Core>) {
     // refused. Taken here, it waits for no heartbeat (theseus-74lt).
     tick.tick().await;
     let c = core.clone();
-    let _ = tokio::task::spawn_blocking(move || c.heartbeat("bind")).await;
+    // Then the jobs an earlier process left: each wrapper probed once, and a
+    // job whose wrapper went while no daemon ran settled (theseus-vej5).
+    let _ = tokio::task::spawn_blocking(move || {
+        c.heartbeat("bind");
+        c.settle_gone_jobs();
+    })
+    .await;
     tracing::info!(heartbeat_secs = period.as_secs(), notify = %path.display(), "harness loop parked");
     loop {
         tokio::select! {

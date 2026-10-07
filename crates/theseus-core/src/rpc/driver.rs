@@ -495,6 +495,68 @@ impl Core {
         true
     }
 
+    /// The jobs an earlier process left dispatched, each wrapper probed once
+    /// after serving (theseus-vej5): a job whose wrapper went while no daemon
+    /// ran is unknown now, instead of at its deadline, and one that reported
+    /// first is settled from its completion. A live wrapper is left as it is.
+    /// The harness's first beat runs it, after its drain; the probe's cost is
+    /// a startup phase of its own (`jobs_at_start`), which health shows.
+    pub fn settle_gone_jobs(&self) {
+        let t0 = Instant::now();
+        // Each gone job's row rides in the probe's one frame, and its
+        // other channels follow once that frame is written.
+        let row = |a: &theseus_kernel::Action, pid: u32| {
+            self.session_rec(&a.session_id)
+                .row(&fact::driver::WrapperGone { action: a, pid })
+                .map(|r| vec![r])
+        };
+        let out = match self.kernel.settle_gone_jobs_with(&self.spool, row) {
+            Ok(out) => out,
+            Err(e) => {
+                tracing::warn!(error = %format!("{e:#}"), "probing the jobs an earlier process left");
+                return;
+            }
+        };
+        for (a, pid) in &out.gone {
+            tracing::warn!(pid, job = %a.correlation_id, tool = %a.tool, "a job's wrapper went while no daemon ran; its outcome is unknown");
+            self.session_rec(&a.session_id)
+                .announce(&fact::driver::WrapperGone {
+                    action: a,
+                    pid: *pid,
+                });
+        }
+        if !(out.gone.is_empty() && out.finished.is_empty()) {
+            // A turn waiting on one hears at once (7.1).
+            self.tools.job_waits.wake_all();
+            self.admission.notify_waiters();
+        }
+        self.said_jobs_at_start(&out, t0);
+    }
+
+    /// What the start's probe found, in the log and as its startup phase:
+    /// last, so health shows the phase once its facts are recorded.
+    fn said_jobs_at_start(&self, out: &theseus_kernel::gone::GoneJobs, t0: Instant) {
+        if out.probed > 0 {
+            tracing::info!(
+                probed = out.probed,
+                finished = out.finished.len(),
+                alive = out.alive.len(),
+                gone = out.gone.len(),
+                unwitnessed = out.unwitnessed,
+                us = out.elapsed_us,
+                "the jobs an earlier process left"
+            );
+        }
+        self.startup_log.record(
+            "jobs_at_start",
+            true,
+            t0,
+            serde_json::json!({"probed": out.probed, "finished": out.finished.len(),
+                "alive": out.alive.len(), "gone": out.gone.len(),
+                "unwitnessed": out.unwitnessed, "us": out.elapsed_us}),
+        );
+    }
+
     /// The harness driver: take a continuation turn for an execution that is
     /// runnable without human input. Returns quickly if it is not ready.
     pub async fn continue_execution(

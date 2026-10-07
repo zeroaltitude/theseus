@@ -137,6 +137,7 @@ ledger_kinds! {
     JobRefused = "job.refused",
     JobStoppedAtLaunch = "job.stopped_at_launch",
     JobStoppedBelowFloor = "job.stopped_below_floor",
+    JobWrapperGone = "job.wrapper_gone",
     JobWrapperLost = "job.wrapper_lost",
     JudgeAudit = "judge.audit",
     JudgeBackfill = "judge.backfill",

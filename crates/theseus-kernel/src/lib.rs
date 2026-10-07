@@ -14,6 +14,7 @@ pub mod children;
 pub mod clock;
 mod earlier;
 pub mod gate;
+pub mod gone;
 pub mod job;
 mod job_egress;
 mod job_l1;
@@ -46,6 +47,8 @@ mod tests_budgets;
 mod tests_earlier;
 #[cfg(test)]
 mod tests_frames;
+#[cfg(test)]
+mod tests_gone;
 #[cfg(test)]
 mod tests_place_limit;
 #[cfg(test)]

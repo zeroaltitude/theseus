@@ -88,18 +88,35 @@ pub(crate) fn resolve_in(b: &mut Budget, a: &Action, cost: Option<Micros>) {
         .saturating_add(cost.unwrap_or(a.reserved_micros));
 }
 
+/// What startup's scan noted of the dispatched actions an earlier process
+/// left, and wrote nothing for.
+#[derive(Debug, Default)]
+pub(crate) struct Earlier {
+    /// Its in-process calls, marked unknown at the first tick.
+    pub(crate) calls: Vec<CorrelationId>,
+    /// Everything else not yet overdue and not being cancelled: its jobs
+    /// among them, whose wrappers are probed once after serving
+    /// (`Kernel::settle_gone_jobs`, theseus-vej5).
+    pub(crate) jobs: Vec<CorrelationId>,
+}
+
 impl Kernel {
-    fn earlier_calls(&self) -> std::sync::MutexGuard<'_, Vec<CorrelationId>> {
+    pub(crate) fn earlier_noted(&self) -> std::sync::MutexGuard<'_, Earlier> {
         self.earlier
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
-    /// Startup's scan: note `a`, a dispatched action not yet overdue, when it
-    /// ran in this kernel's process, which at startup was an earlier one.
+    /// Startup's scan: note `a`, a dispatched action not yet overdue: a call
+    /// that ran in this kernel's process, which at startup was an earlier
+    /// one, or anything else, which may be a job whose wrapper went while no
+    /// daemon ran. It reads nothing more, so a start pays nothing for it.
     pub(crate) fn note_earlier(&self, a: &Action, evidence: &dyn Evidence) {
+        let mut noted = self.earlier_noted();
         if evidence.in_process(a) {
-            self.earlier_calls().push(a.correlation_id.clone());
+            noted.calls.push(a.correlation_id.clone());
+        } else {
+            noted.jobs.push(a.correlation_id.clone());
         }
     }
 
@@ -108,7 +125,7 @@ impl Kernel {
     /// Each one's reservation is booked as spent. A call settled since is
     /// left as it is. The calls it marked.
     pub fn mark_earlier_calls_unknown(&self) -> Result<Vec<CorrelationId>> {
-        let calls = std::mem::take(&mut *self.earlier_calls());
+        let calls = std::mem::take(&mut self.earlier_noted().calls);
         if calls.is_empty() {
             return Ok(calls);
         }
