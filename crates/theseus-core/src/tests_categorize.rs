@@ -38,6 +38,33 @@ const ALICE: u64 = 222_222_222_222_222_222;
 /// A guild channel the bindings file binds, shared.
 const LAB: u64 = 314_159_265_358_979_323;
 
+// ---------------------------------------------------------------- the mark
+
+/// Two judgments of one session settled in one sink frame, the newer
+/// first: the frame carries the newer mark alone, so the store's mark never
+/// moves back (theseus-xkbs).
+#[test]
+fn a_frame_carries_each_sessions_newest_mark() {
+    let mark = |judgment: &str, through: u64| Mark {
+        judgment: judgment.into(),
+        through,
+        through_ms: 0,
+        at_ms: 0,
+    };
+    let kept = categorize::newest_each(vec![
+        ("ses_a".into(), mark("jdg_new", 20)),
+        ("ses_b".into(), mark("jdg_b", 5)),
+        ("ses_a".into(), mark("jdg_old", 10)),
+    ]);
+    assert_eq!(
+        kept,
+        vec![
+            ("ses_a".to_string(), mark("jdg_new", 20)),
+            ("ses_b".to_string(), mark("jdg_b", 5)),
+        ]
+    );
+}
+
 // ---------------------------------------------------------------- the trigger
 
 /// A node of `origin` at minute `min`.

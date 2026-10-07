@@ -412,7 +412,7 @@ impl JudgeService {
             }
             batch.iter().filter_map(|j| u.get(&j.id).cloned()).collect()
         };
-        found
+        newest_each(found)
             .into_iter()
             .filter_map(|(sid, m)| {
                 let key = format!("{MARK_PREFIX}{sid}");
@@ -436,6 +436,22 @@ impl JudgeService {
             u.remove(&j.id);
         }
     }
+}
+
+/// Each session's newest mark of `marks` (by `through`), in the order the
+/// sessions first appear: two judgments of one session can settle in one
+/// frame, newer first, and the frame's later record of a key is the one the
+/// store keeps, so a frame carries one mark a session.
+pub(crate) fn newest_each(marks: Vec<(String, Mark)>) -> Vec<(String, Mark)> {
+    let mut out: Vec<(String, Mark)> = Vec::new();
+    for (sid, m) in marks {
+        match out.iter_mut().find(|(s, _)| *s == sid) {
+            Some((_, kept)) if kept.through < m.through => *kept = m,
+            Some(_) => {}
+            None => out.push((sid, m)),
+        }
+    }
+    out
 }
 
 /// The session's nodes after `position`, oldest first, and how many
