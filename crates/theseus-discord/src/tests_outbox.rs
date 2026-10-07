@@ -137,6 +137,33 @@ fn pending(core: &Core) -> u64 {
     core.outbox.status("discord").pending
 }
 
+/// The kind and target of each unsettled post, for a count's message.
+fn pending_kinds(core: &Core) -> Vec<(String, String)> {
+    use theseus_core::outbox::{kind_of, target_of};
+    core.kernel
+        .outbox_actions()
+        .unwrap()
+        .iter()
+        .filter(|a| !a.state.is_settled())
+        .map(|a| (kind_of(a).to_string(), target_of(a).to_string()))
+        .collect()
+}
+
+/// The id of the message the only settled `card` post made.
+fn card_message_id(core: &Core) -> String {
+    use theseus_core::outbox::kind_of;
+    let cards: Vec<_> = core
+        .kernel
+        .outbox_actions()
+        .unwrap()
+        .into_iter()
+        .filter(|a| kind_of(a) == "card")
+        .collect();
+    assert_eq!(cards.len(), 1, "one card post: {cards:?}");
+    let d = cards[0].detail.as_ref().expect("the card's settle detail");
+    d["messages"][0]["id"].as_str().expect("its message").into()
+}
+
 /// The DM's messages that are not the bind notice.
 fn replies(fake: &FakeDiscord) -> Vec<Msg> {
     fake.messages(DM)
@@ -419,6 +446,11 @@ async fn a_cards_settle_waits_for_its_create_and_edits_it_by_id() {
     let rpc = bind(&core, d.path(), &dm_only()).await;
     let f = fake.clone();
     until("the bind notice", 10, move || f.messages(DM).len() == 1).await;
+    // The notice is on Discord before its settle is in the store (theseus-0bq1:
+    // the fourth pending post the count once saw, by this reading): wait for
+    // the settle, so the count below is the scenario's posts alone.
+    let c = core.clone();
+    until("the bind notice settles", 10, move || pending(&c) == 0).await;
     fake.set_mode(Mode::Down);
     let r = ask(&rpc, &session(&core), "write a").await;
     let q = r.awaiting_confirm.clone().expect("the write waits");
@@ -431,14 +463,17 @@ async fn a_cards_settle_waits_for_its_create_and_edits_it_by_id() {
     core.confirm_action(&q, false, Some("not now"), cli)
         .unwrap();
     // The reply (its footer), the card, and the card's settle wait.
-    assert_eq!(pending(&core), 3);
+    assert_eq!(pending(&core), 3, "{:?}", pending_kinds(&core));
     fake.set_mode(Mode::Up);
     let c = core.clone();
     until("all three delivered", 20, move || pending(&c) == 0).await;
+    // The card is found by its post's message id: the call's tool line names
+    // `fs.write` too, and which of the two lands first is timing.
+    let card_id = card_message_id(&core);
     let card = fake
         .messages(DM)
         .into_iter()
-        .find(|m| m.content.contains("fs.write"))
+        .find(|m| m.id == card_id)
         .expect("the card");
     assert!(
         card.content
@@ -1231,14 +1266,16 @@ async fn a_refused_pin_leaves_the_board_unpinned_and_edited() {
     ask(&rpc, &sid, "plan the reef").await;
     let f = fake.clone();
     until("the board", 10, move || boards(&f, DM).len() == 1).await;
-    tokio::time::sleep(Duration::from_millis(300)).await;
-    assert!(!boards(&fake, DM)[0].pinned);
-    assert!(
-        fake.seen()
+    // The pin is the lane's next call after the board's create, and under
+    // load it comes late: wait for the refused PUT, not a fixed time.
+    let f = fake.clone();
+    until("the pin was asked for and refused", 10, move || {
+        f.seen()
             .iter()
-            .any(|s| s.method == "PUT" && s.outcome == "refused"),
-        "the pin was asked for"
-    );
+            .any(|s| s.method == "PUT" && s.outcome == "refused")
+    })
+    .await;
+    assert!(!boards(&fake, DM)[0].pinned);
 }
 
 /// After a restart the lane's map is empty: its first board write finds the
@@ -1405,4 +1442,120 @@ async fn each_disk_crossing_posts_one_note_in_the_dm_approvals_go_to() {
         assert_eq!(got[i].nonce.as_deref(), Some(crate::nonce(&key).as_str()));
     }
     assert_eq!(pending(&core), 0);
+}
+/// theseus-9ggu: the gateway loop ends when the daemon's stop begins, as a
+/// signal raises it (`stopping_on`), not when its stream does (a stand-in
+/// gateway nobody listens on never ends one). The binding's `run` returns,
+/// and when the runtime is shut down the core, and with it the store, is
+/// gone at once: nothing of the binding is still mid-poll to hold it.
+#[test]
+fn the_gateway_loop_ends_at_the_daemons_stop_and_leaves_no_core_behind() {
+    let d = tempfile::tempdir().unwrap();
+    let fake = FakeDiscord::start();
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let life = rt.block_on(async {
+        let core = core_at(d.path(), &fake, vec![], |_| {});
+        let path = d.path().join("bindings.toml");
+        std::fs::write(&path, dm_only()).unwrap();
+        let run = tokio::spawn(crate::run(core.clone(), core.cfg.discord.clone(), path));
+        let c = core.clone();
+        until("the DM place is bound", 10, move || {
+            c.outbox
+                .place_session(&format!("dm:{USER}"))
+                .unwrap()
+                .is_some()
+        })
+        .await;
+        // Past a few of the gateway's failed connects.
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        assert!(!run.is_finished(), "the loop runs until the stop");
+        core.stopping_on("SIGTERM");
+        tokio::time::timeout(Duration::from_secs(10), run)
+            .await
+            .expect("the binding's run ends at the stop")
+            .unwrap();
+        Arc::downgrade(&core)
+    });
+    // It returns when the workers are done, so the bound is generous: a
+    // starved machine takes seconds to wind a runtime down.
+    rt.shutdown_timeout(Duration::from_secs(30));
+    assert_eq!(
+        life.strong_count(),
+        0,
+        "the core outlived its runtime: a task of the binding still holds it"
+    );
+}
+
+/// theseus-yduk: a place taken out of the bindings file and put back, each
+/// waited for in health. Its new post is sent and settled as sent, never
+/// refused as "not bound here any more": the refusal and a lane's start are
+/// ordered by the lanes' lock.
+#[tokio::test]
+async fn a_place_removed_live_and_put_back_has_its_new_post_sent_not_refused() {
+    let d = tempfile::tempdir().unwrap();
+    let fake = FakeDiscord::start();
+    let place = format!("channel:{CHANNEL}");
+    let with_channel = format!(
+        "{}[[channel]]\nid = \"{CHANNEL}\"\nname = \"harbor\"\nusers = [\"{USER}\"]\nmention_only = false\n",
+        dm_only()
+    );
+    let core = core_at(d.path(), &fake, vec![], |_| {});
+    let _rpc = bind(&core, d.path(), &with_channel).await;
+    let labels = |c: &Core| -> Vec<String> {
+        c.bindings
+            .all()
+            .iter()
+            .flat_map(|b| b.places.iter().map(|p| p.label.clone()))
+            .collect()
+    };
+    let c = core.clone();
+    until("the channel is bound", 10, move || {
+        c.outbox.place_session(&place).unwrap().is_some()
+    })
+    .await;
+    let path = d.path().join("bindings.toml");
+    std::fs::write(&path, dm_only()).unwrap();
+    let c = core.clone();
+    until("the channel leaves health", 20, move || {
+        !labels(&c).contains(&"#harbor".to_string())
+    })
+    .await;
+    std::fs::write(&path, &with_channel).unwrap();
+    let c = core.clone();
+    until("the channel is back in health", 20, move || {
+        labels(&c).contains(&"#harbor".to_string())
+    })
+    .await;
+    let sid = core
+        .outbox
+        .place_session(&format!("channel:{CHANNEL}"))
+        .unwrap()
+        .unwrap();
+    let target = format!("discord:channel:{CHANNEL}");
+    let body = serde_json::json!({"kind": "notice", "text": "back at the harbor"});
+    let post = core.outbox.post(&sid, "", &target, body).unwrap();
+    let c = core.clone();
+    let id = post.correlation_id.clone();
+    until("the post settles", 20, move || {
+        c.kernel
+            .outbox_action(&id)
+            .unwrap()
+            .is_some_and(|a| a.state.is_settled())
+    })
+    .await;
+    let state = core
+        .kernel
+        .outbox_action(&post.correlation_id)
+        .unwrap()
+        .unwrap()
+        .state;
+    assert_eq!(state, theseus_kernel::ActionState::Succeeded);
+    assert!(refused_rows(&core).is_empty(), "{:?}", refused_rows(&core));
+    assert!(
+        fake.messages(CHANNEL)
+            .iter()
+            .any(|m| m.content.contains("back at the harbor")),
+        "{:?}",
+        fake.messages(CHANNEL)
+    );
 }

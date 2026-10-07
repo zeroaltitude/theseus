@@ -275,6 +275,15 @@ impl Outbox {
         self.flight.borrow().stopping.is_some()
     }
 
+    /// Ready once the daemon is stopping (immediately, if it already is):
+    /// what a long-lived loop selects against so it ends with the stop, with
+    /// no polling (theseus-9ggu). A client's `shutdown` and a signal both
+    /// raise it, through `stop_sending`.
+    pub async fn stopped(&self) {
+        let mut rx = self.flight.subscribe();
+        let _ = rx.wait_for(|f| f.stopping.is_some()).await;
+    }
+
     /// A clean stop's wait (theseus-pfv): no post is dispatched any more, and
     /// the posts already sent settle, until `grace` after the stop began. The
     /// rest stay dispatched, as after a crash, and the next start sends them
