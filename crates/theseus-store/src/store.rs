@@ -839,6 +839,61 @@ impl WalStore {
         Ok(None)
     }
 
+    /// The projection's terms of `kind` in `lo..hi` as `RedbIndex::terms_range`
+    /// reads them (term, key, latest position): `None` until the terms are
+    /// whole, or when the projection keeps none for `kind`, and the reader
+    /// reads the records instead (theseus-civ0).
+    pub fn terms_range(
+        &self,
+        kind: RecordKind,
+        lo: &str,
+        hi: &str,
+        past: Option<(&str, &str)>,
+        newest_first: bool,
+        limit: usize,
+    ) -> Result<Option<Vec<(String, String, u64)>>> {
+        if !self.projects(kind) {
+            return Ok(None);
+        }
+        let s = &self.inner;
+        Ok(Some(s.index.terms_range(
+            kind,
+            lo,
+            hi,
+            past,
+            newest_first,
+            limit,
+        )?))
+    }
+
+    /// Each term of `kind` in `lo..hi` with how many keys have it: `None`
+    /// as `terms_range`'s.
+    pub fn term_counts(
+        &self,
+        kind: RecordKind,
+        lo: &str,
+        hi: &str,
+    ) -> Result<Option<Vec<(String, u64)>>> {
+        if !self.projects(kind) {
+            return Ok(None);
+        }
+        Ok(Some(self.inner.index.term_counts(kind, lo, hi)?))
+    }
+
+    /// The terms a key's latest record has: `None` as `terms_range`'s.
+    pub fn terms_of(&self, kind: RecordKind, key: &str) -> Result<Option<Vec<String>>> {
+        if !self.projects(kind) {
+            return Ok(None);
+        }
+        Ok(Some(self.inner.index.terms_of(kind, key)?))
+    }
+
+    /// Whether the index's terms of `kind` are whole and may be read.
+    fn projects(&self, kind: RecordKind) -> bool {
+        let s = &self.inner;
+        s.projection.is_some_and(|p| p.kinds.contains(&kind)) && s.terms_whole()
+    }
+
     /// Whether the index's shape is whole: its counts, clocks, and tags
     /// (theseus-vm3n.5).
     pub fn shaped(&self) -> bool {

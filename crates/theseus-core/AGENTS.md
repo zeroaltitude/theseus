@@ -622,6 +622,20 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   (`import::shown`), so an erased one is its tombstone. The WAL's earlier frames still hold the payloads: §5.6's
   erasure in place is not built. `import.list` reads the tags' META records. The owner's acts (`judge_act(Act::Import)`; the CLI's
   `OPERATORS`). `theseus import openclaw|erase|list`. Tests: `import/tests.rs`, theseus-index's `tests_import.rs`.
+- **The books, first cut** (theseus-civ0): `books/`, `rpc/books.rs`. `books.list` (each of the seven books and
+  `unsorted` with its count and its episodes' first and last start) and `books.page` (a book's episodes newest first,
+  by cursor, filtered by topic, source and place, its facets on a first page), read only, from the import's labels
+  (`labels.book_hint`; none, or one not of the seven, is `unsorted`). The index keeps an imported session's book
+  terms in the store's projection (`books::session_terms`, in `store::PROJECTION`, renamed `projection.core.2` for
+  them): `bk:<book>` (the count), `bt:<book>␁<start hex>` (the order), `ft:`/`fs:`/`fp:` the same per topic, source
+  and place, and `ct:`/`cs:`/`cp:` the facets; an erased session has none. So the list reads no record, and a page
+  a range of terms (theseus-store's `terms_range`, `term_counts`, `terms_of`) and a session and a summary per
+  episode shown; a filtered page checks its other filters by the key's own terms and stops past `SCAN_MAX` (5,000)
+  looked at, with a cursor. Until the terms are whole (`build_terms`, after serving) both read every imported record
+  (`books::Walked`) and say `indexed: false`. Asked for a shared place (`session_id`), an episode's text (summary,
+  topics, place, partner) is withheld and no filter or facet reads it, as recall keeps the import from a shared
+  place. An episode's messages are `session.history`. Tests: `books/tests.rs` (the measure over 20,000 is ignored:
+  `--ignored --nocapture`).
 - **The arrangement** (M5 step 27, theseus-vug.2): `arrangement.rs`. `task.create` needs an `arrangement` of quoted
   pieces (`{quote | node, role}`, `trust`, `supersedes`), resolved in the calling session's own transcript (exact,
   whitespace runs as one space, at least 20 characters, exactly one node; the reply holding the call and earlier

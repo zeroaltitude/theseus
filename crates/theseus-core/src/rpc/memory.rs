@@ -297,7 +297,7 @@ impl Core {
         }
     }
 
-    fn session_exists(&self, sid: &str) -> Result<(), RpcFailure> {
+    pub(super) fn session_exists(&self, sid: &str) -> Result<(), RpcFailure> {
         match self.store.get_session::<SessionRecord>(sid)? {
             Some(_) => Ok(()),
             None => Err(RpcFailure::new(

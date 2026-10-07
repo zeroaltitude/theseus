@@ -113,7 +113,9 @@ Key modules: `wal.rs`, `index.rs`, `record.rs`, `store.rs` (`MANIFEST_FORMAT`). 
   turns, tokens, and cost, added up per kind) with every append and replay. A checkpoint marks them whole under
   the projection's name; a writer with no projection (an older build, a tool) moves the checkpoint alone, and the
   next projected open leaves them to `build_terms`, after serving, never at open. Until they are whole, the store
-  answers `latest_by_terms`, `count_by_terms`, and `totals` with `None`, and the reader reads every record.
+  answers `latest_by_terms`, `count_by_terms`, and `totals` with `None`, and the reader reads every record; so do
+  `terms_range` (a range of terms in term and key order, either way, from past a (term, key): a page by a term that
+  sorts by time), `term_counts`, and `terms_of` (theseus-civ0, the books).
 - **The shape is a projection too, whole only when marked** (theseus-vm3n.5). With every append and replay, in the
   transaction that indexes the frame, the index keeps counts (`counts`, `keycounts`, `scopecounts`, `termcounts`), a
   clock per kind (`clock`) with `bytime` (a window of time's first position), the records' tags (`tagged`,

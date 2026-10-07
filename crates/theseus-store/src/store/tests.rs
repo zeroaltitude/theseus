@@ -372,6 +372,81 @@ fn by_term(s: &WalStore, t: &str) -> Vec<String> {
         .collect()
 }
 
+/// A range of terms is read in term order and then key order, either way,
+/// from past a (term, key), up to a limit, reading no record; each term's
+/// count is its keys'; and both are `None` until the terms are whole
+/// (theseus-civ0).
+#[test]
+fn a_range_of_terms_pages_either_way_and_counts_each_term() {
+    let dir = tempfile::tempdir().unwrap();
+    let ex = |key: &str, state: &str| NewRecord::json(kinds::EXECUTION, Some(key), &state).unwrap();
+    let s = WalStore::open_projected(dir.path(), WalConfig::default(), &TOY)
+        .unwrap()
+        .with_checkpoint_every(0);
+    s.append(&[
+        ex("e1", "t\u{1}02"),
+        ex("e2", "t\u{1}01"),
+        ex("e3", "t\u{1}02"),
+    ])
+    .unwrap();
+    s.append(&[
+        ex("e4", "t\u{1}03"),
+        ex("e5", "u\u{1}01"),
+        ex("e2", "t\u{1}04"),
+    ])
+    .unwrap();
+    let keys = |past: Option<(&str, &str)>, newest: bool, limit: usize| -> Vec<String> {
+        s.terms_range(kinds::EXECUTION, "t\u{1}", "t\u{2}", past, newest, limit)
+            .unwrap()
+            .expect("whole")
+            .into_iter()
+            .map(|(_, k, _)| k)
+            .collect()
+    };
+    assert_eq!(
+        keys(None, true, 10),
+        ["e2", "e4", "e3", "e1"],
+        "e2 moved to 04"
+    );
+    assert_eq!(keys(None, false, 10), ["e1", "e3", "e4", "e2"]);
+    assert_eq!(keys(None, true, 2), ["e2", "e4"]);
+    assert_eq!(keys(Some(("t\u{1}03", "e4")), true, 10), ["e3", "e1"]);
+    assert_eq!(keys(Some(("t\u{1}02", "e1")), false, 1), ["e3"]);
+    assert!(keys(None, true, 0).is_empty());
+    let before = crate::records_read_here();
+    keys(None, true, 10);
+    assert_eq!(crate::records_read_here(), before, "no record read");
+    assert_eq!(
+        s.term_counts(kinds::EXECUTION, "t", "u").unwrap(),
+        Some(vec![
+            ("t\u{1}02".into(), 2),
+            ("t\u{1}03".into(), 1),
+            ("t\u{1}04".into(), 1)
+        ]),
+        "a moved key's old term counts none, and is not listed"
+    );
+    assert_eq!(
+        s.terms_of(kinds::EXECUTION, "e2").unwrap(),
+        Some(vec!["t\u{1}04".to_string()])
+    );
+    assert!(s
+        .terms_range(kinds::META, "a", "z", None, true, 5)
+        .unwrap()
+        .is_none());
+    drop(s);
+    let plain = open(dir.path());
+    plain.append(&[ex("e6", "t\u{1}05")]).unwrap();
+    plain.checkpoint().unwrap();
+    drop(plain);
+    let s = WalStore::open_projected(dir.path(), WalConfig::default(), &TOY).unwrap();
+    assert!(s
+        .terms_range(kinds::EXECUTION, "t", "u", None, true, 5)
+        .unwrap()
+        .is_none());
+    assert!(s.term_counts(kinds::EXECUTION, "t", "u").unwrap().is_none());
+    assert!(s.terms_of(kinds::EXECUTION, "e1").unwrap().is_none());
+}
+
 /// The terms follow every append and every replay, and survive a reopen
 /// (theseus-lv2). A writer that kept none (an open with no projection, as
 /// an older build is) leaves them stale at a newer checkpoint: the next

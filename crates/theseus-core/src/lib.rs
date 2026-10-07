@@ -14,6 +14,7 @@ pub mod aws;
 pub mod bench;
 pub mod binary;
 pub mod blobs;
+pub mod books;
 pub mod broker;
 pub mod bus;
 pub mod cancel;

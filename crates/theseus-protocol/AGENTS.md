@@ -37,6 +37,7 @@ Key modules: `lib.rs` (the `method`, `notify`, `error_code` tables), `events.rs`
   wording every surface shows (`cockpit/src/lib/check.ts` mirrors it).
 - `route.rs`: how routing placed a turn (`TurnRoute`), and a refusal's fallback (`TurnFallback`, theseus-7gir.18) with
   `TurnFallback::line`, the one wording every surface shows (`cockpit/src/lib/fallback.ts` mirrors it).
+- `books.rs` (theseus-civ0): `books.list` and `books.page`'s params and results, `BOOKS` and `UNSORTED`.
 - `ts.rs`: the TypeScript export.
 
 ## Invariants
