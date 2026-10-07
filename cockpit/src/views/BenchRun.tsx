@@ -136,7 +136,7 @@ function Figure({ run, src, alt, figures }: { run: string; src: string; alt: str
             columns={table.columns.map((c, j) => ({ key: String(j), label: c.label, num: c.num, cell: (x: { r: string[] }) => x.r[j], title: (x: { r: string[] }) => x.r[j] }))} />
         </div>
       ) : url ? (
-        <img src={url} alt={alt} loading="lazy" className={cn('block h-auto w-full max-w-[760px] rounded-md', night ? 'ring-1 ring-line' : '')} />
+        <img src={url} alt={alt} loading="lazy" decoding="async" className={cn('block h-auto w-full max-w-[760px] rounded-md', night ? 'ring-1 ring-line' : '')} />
       ) : <div className="text-[12px] text-ink-faint">This build has no file for {src} ({run}).</div>}
     </figure>
   )

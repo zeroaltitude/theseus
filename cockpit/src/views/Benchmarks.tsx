@@ -7,7 +7,7 @@
 // Only measured data: the runs are `docs/benchmarks/` as this build embeds it (`lib/benchfiles.ts`), the points their
 // per-trial tables folded by `lib/bench.ts`. The view reads nothing from the daemon and writes nothing: it is the
 // record of finished runs, so it has no live state and no time machine's past.
-import { useMemo } from 'react'
+import { useEffect, useMemo } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router'
 import { ArrowLeftRight, FlaskConical, ListOrdered, Trophy } from 'lucide-react'
 import {
@@ -73,6 +73,18 @@ export default function Benchmarks() {
   const pickAxis = (k: 'x' | 'y', d: string) => usable.find((p) => p.id === params.get(k)) ?? property(d)!
   const px = pickAxis('x', DEFAULT_AXES[set.id][0]), py = pickAxis('y', DEFAULT_AXES[set.id][1])
   const placed = useMemo(() => frontier(ps, px, py), [ps, px, py])
+  // Every property's intervals for this task set, worked out while the page is idle, so a pick of any axis draws at
+  // once (a bootstrap of 178 trials is tens of milliseconds; each value's is kept once worked out).
+  useEffect(() => {
+    const work = usable.flatMap((pr) => ps.filter((p) => p.values[pr.id]).map((p) => () => interval(pr, p.values[pr.id])))
+    let id = 0
+    const step = (d: IdleDeadline) => {
+      while (work.length && d.timeRemaining() > 4) work.shift()!()
+      if (work.length) id = requestIdleCallback(step)
+    }
+    id = requestIdleCallback(step)
+    return () => cancelIdleCallback(id)
+  }, [ps, usable])
 
   return (
     <div className="flex flex-col gap-3">

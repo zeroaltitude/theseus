@@ -747,5 +747,7 @@ html.light .ship-root .panel-title, html.light .ship-root .ship-engraved { text-
 .bench-prose pre code { background: none; padding: 0; font-size: 12px; }
 .bench-prose blockquote { margin: 0.6em 0; padding: 0.1em 0.9em; border-left: 2px solid rgb(176 141 87 / 0.45); color: var(--color-ink-faint); }
 .bench-prose table td { white-space: normal; max-width: 60ch; vertical-align: top; }
+/* A figure off screen is not laid out or painted (a report holds up to nine, some of a thousand marks each). */
+.bench-prose figure { content-visibility: auto; contain-intrinsic-size: auto 520px; }
 .bench-prose hr { border: 0; border-top: 1px solid rgb(176 141 87 / 0.2); margin: 1.2em 0; }
 html.light .bench-prose pre { background: rgb(120 92 48 / 0.06); }

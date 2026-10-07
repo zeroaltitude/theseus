@@ -5,7 +5,7 @@ import assert from 'node:assert/strict'
 import { readFileSync, readdirSync } from 'node:fs'
 import {
   answerFirst, atAGlance, axes, sections, figureTable, frontier, linkTo, modelOf, parseCsv, points, property, readIndex,
-  readerMarkdown, reportName, runs, staircase, TASK_SETS, unequal, wilson, interval, EFFORT, type Point, type Property,
+  readerMarkdown, reportName, runs, selectMedian, staircase, TASK_SETS, unequal, wilson, interval, median, EFFORT, type Point, type Property,
 } from '../src/lib/bench.ts'
 
 const DIR = new URL('../../docs/benchmarks/', import.meta.url)
@@ -213,6 +213,25 @@ test('the frontier: a point is dominated when another is as good on both axes an
   // A point missing either property is not placed.
   const missing = pt('m', 1, 1); delete (missing.values as Record<string, unknown>).b
   assert.equal(frontier([missing, pt('p', 1, 1)], ax('a', 'lower'), ax('b', 'lower')).length, 1)
+})
+
+test("the median by selection is the sorted median, odd and even, with ties", () => {
+  let seed = 7
+  const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647)
+  for (let n = 1; n < 60; n++) {
+    for (let r = 0; r < 20; r++) {
+      const xs = Array.from({ length: n }, () => Math.round(rnd() * 12) / 2)
+      assert.equal(selectMedian(Float64Array.from(xs)), median(xs), `${n}: ${xs}`)
+    }
+  }
+})
+
+test('an axis is offered only where two points measured it; one measured by one harness is named with it', () => {
+  const lone = pt('lone', 1, 2); delete (lone.values as Record<string, unknown>).b
+  const ps = [pt('p', 1, 1), lone].map((p) => ({ ...p, values: Object.fromEntries(Object.entries(p.values).map(([k, v]) => [k === 'a' ? 'usd' : 'rss', v])) }))
+  const { usable, one } = axes(ps)
+  assert.deepEqual(usable.map((p) => p.id), ['usd'])
+  assert.deepEqual(one.map((o) => [o.p.id, o.who]), [['rss', ['Theseus']]])
 })
 
 test('the Wilson interval', () => {
