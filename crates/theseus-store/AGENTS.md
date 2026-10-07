@@ -34,9 +34,11 @@ Key modules: `wal.rs`, `index.rs`, `record.rs`, `store.rs` (`MANIFEST_FORMAT`). 
   open knows a position in the found segment was synced (theseus-3q29): the index's checkpoint, or a frame's mark,
   at or past the segment's first position, says a sync covering its first frame returned Ok, and such a sync syncs
   the pending directories before it returns. `Recovery::vouched` says which; an empty found segment is never
-  vouched for. A store whose manifest names an older format (`behind`) syncs the log's directory with its first
-  frame anyway, once, as the manifest moves: its marks may be a build's from before c67g, which synced no found
-  segment's name. A file made durable needs its directory synced too. The
+  vouched for. A store whose manifest names an older format (`behind`) syncs the log's directory anyway, once,
+  before the manifest moves (`upgrade_manifest`, theseus-xva3): its marks may be a build's from before c67g, which
+  synced no found segment's name, and once the manifest is current the next open lets them vouch. A sync left to
+  the first frame could fail, or never return, after the move; one that fails here fails the upgrade, and nothing
+  moves. A file made durable needs its directory synced too. The
   store's open adds the holder of every directory it created, the store's own included (theseus-gf00), to those the
   first frame's sync makes durable.
 - **A sync that fails takes its frames with it** (theseus-ljgm). Its batch is answered failed, so `Wal::sync` cuts
@@ -58,7 +60,8 @@ Key modules: `wal.rs`, `index.rs`, `record.rs`, `store.rs` (`MANIFEST_FORMAT`). 
 - **A record's header schema is frozen**: `NewRecord` has none, the WAL writes `FROZEN_SCHEMA` (0), and nothing reads
   the field. Records from before one store format keep their kind's old number there.
 - **Old layouts are read in place.** An open writes no manifest. The writer's first frame into a store an older
-  build wrote moves its manifest to this build's format first, durably, once: two syncs, and on a daemon that
+  build wrote moves its manifest to this build's format first, durably, once: the log's directory, then two syncs
+  for the manifest (the frame's own then syncs no directory for it), and on a daemon that
   frame is its kernel's startup frame, so the first start after an upgrade that bumps the format pays them before
   serving. A store only read keeps its format. A build older than the store refuses it, before anything is written
   ("install the newer theseusd"). There is no rolling back: keep the newer binary, or restore a copy taken before

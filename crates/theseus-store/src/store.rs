@@ -990,12 +990,8 @@ impl Inner {
             Wal::open_from(&dir.join("wal"), wal_cfg, cp, at).context("opening WAL")?;
         // A store an older format wrote may hold marks from a build before
         // theseus-c67g, which synced no found segment's name: they vouch for
-        // nothing, so its first frame syncs the log's directory, once, as
-        // its manifest moves (theseus-3q29).
-        let mut name_dirs = name_dirs;
-        if behind {
-            name_dirs.push(wal.dir().to_path_buf());
-        }
+        // nothing, so the log's directory is synced, once, before its
+        // manifest moves (`upgrade_manifest`, theseus-3q29, theseus-xva3).
         wal.sync_with_first_frame(name_dirs);
 
         // Whether the index's terms were whole at its checkpoint: then the
@@ -1110,9 +1106,21 @@ impl Inner {
     /// upgrade), so an older build refuses the store before it can read a
     /// record this one wrote (F4a, theseus-ptx1). The writer alone writes
     /// frames, so none is written while the manifest moves.
+    ///
+    /// The log's directory is synced first (theseus-xva3): an older build's
+    /// marks may vouch for a found segment whose name was never synced, and
+    /// once the manifest is current the next open lets them vouch. A sync
+    /// left to the first frame could fail, or never return, after the move.
+    /// A sync that fails here fails the upgrade: nothing moves, and the
+    /// batch is answered with the error.
     fn upgrade_manifest(&self) -> Result<()> {
         if !self.behind.load(Ordering::Relaxed) {
             return Ok(());
+        }
+        if self.fsync {
+            self.wal
+                .sync_own_dir()
+                .context("syncing the log's directory before the store's manifest moves")?;
         }
         write_manifest(&self.dir, &Manifest::current(), self.fsync)
             .context("moving the store's manifest to this build's format")?;
