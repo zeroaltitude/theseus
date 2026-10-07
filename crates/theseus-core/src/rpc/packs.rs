@@ -344,15 +344,20 @@ impl Core {
         })
     }
 
-    /// Write the row, or for a security pack ask its card.
+    /// Write the row, or for a security pack ask its card. Either answer
+    /// names a learned version standing ahead of the one moved, where the
+    /// move judges in no session or only in a canary's control arm
+    /// (theseus-nwa5): said, never refused.
     fn promote_with(&self, row: PackModeRow) -> Result<PackPromoteResult> {
-        if needs_card(&row.pack) {
+        let card = needs_card(&row.pack);
+        let ahead = self.ahead_words(&row.pack, &row.mode, row.share, card);
+        if card {
             let q = self.ask_promotion(&row)?;
             return Ok(PackPromoteResult {
                 row: None,
                 said: format!(
                     "{}'s promotion to {} is the owner's card: `theseus confirm {q} --approve` \
-                     writes it. Nothing is written until then.",
+                     writes it. Nothing is written until then.{ahead}",
                     row.pack,
                     crate::fact::ladder::mode_words(&row.mode, row.share)
                 ),
@@ -362,7 +367,7 @@ impl Core {
         let row = self.runner.judge.ladder().write(row)?;
         Ok(PackPromoteResult {
             said: format!(
-                "{} is {}{}.",
+                "{} is {}{}.{ahead}",
                 row.pack,
                 crate::fact::ladder::mode_words(&row.mode, row.share),
                 if row.forced {

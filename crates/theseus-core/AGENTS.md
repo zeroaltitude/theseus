@@ -379,7 +379,9 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     `learning.report` are `rpc/learning.rs`; the run writes its labels, `judge.report` rows and the run's META mark
     in one frame, then `<state>/learning/<date>.json`. The mark keeps the last position the run read (`through`),
     and the next run's rules read no judgment whose windows closed before it (`system::Cut`, `open_ms`: its
-    session's nodes, its call's action, the task briefs; theseus-cf5c), and log how many sessions they read.
+    session's nodes, its call's action, the task briefs; theseus-cf5c), and log how many sessions they read. The
+    mark's `cut_ms` is where the next run cuts: the run's clock, never past the newest judgment it read, so a clock
+    that read ahead closes no open window (theseus-gf8j); a mark without it walks everything once.
     Tests: `tests_learning.rs`, `learning::*::tests`.
   - **Routing** (step 25e, theseus-0j2.11): `route.v1` rides the inbound point's request, live while `[judge]`
     is on (`[routing]`, `config/routing.rs`, lowers it). Its verdict comes back over a oneshot (`RouteWait`), and
@@ -443,7 +445,9 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     (`judge_act(Act::Ladder)`; short of `promote::bar` the owner's row is `forced`, the system's refused); a
     `security.*` promotion is a card, its question planned on the ladder's own session (META `ladder.session`) and
     answered by `action.confirm` like an extension's ack (`answer_promotion`: the bind or decline and the row in one
-    frame, nothing wakes). Tests: `tests_ladder.rs`, `judge::ladder::tests`.
+    frame, nothing wakes). A promotion's `said` names a learned version standing ahead of the one moved, where the
+    move judges nowhere or only in a canary's control arm, and its rollback (`rpc/packs_ahead.rs`, theseus-nwa5):
+    said, never refused. Tests: `tests_ladder.rs`, `judge::ladder::tests`.
   - **The learning loop** (step 25f, theseus-0j2.12; design §2.17): `learning/propose.rs` (the run: nightly after
     the report, and `judge.learn`, the owner's act), with its pure parts in `theseus_judge::propose` (names from
     v101, the interleaved split below 200 labeled in the window, the text-only check, the threshold re-fit, the
