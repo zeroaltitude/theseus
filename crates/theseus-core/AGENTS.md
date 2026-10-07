@@ -344,7 +344,10 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     syncs (1.4 s each under a neighbour's IO, 2026-10-04: the 3.2 s late verdict) never delay a verdict. A person's
     message warms Jev's client as it arrives (`warm_on_message`, from `TurnRunner::run`: built, and two `HEAD`s of
     the judge's path, nothing billed, unless it answered within `theseus_judge::client::POOL_IDLE`, 180 s, under the
-    edge's 200 to 400 s); a try that fails to connect, with nothing answered since, is `jev_unreachable`, and then
+    edge's 200 to 400 s). From serving on (`Core::warm_judge`, theseusd's `after_serving`, never on the start
+    path), `judge/warm.rs` opens two and keeps them: a keeper on tokio's timer sends the `HEAD`s again after each
+    `theseus_judge::client::KEEP_WARM` (150 s) of Jev's silence, so a fresh daemon's first message pays no
+    connection setup (theseus-ddbi; `tests_route_wait.rs`). A try that fails to connect, with nothing answered since, is `jev_unreachable`, and then
     no turn waits on route or rerank. The fake Jev answers a `HEAD` 405 and counts it as `warmups()`, apart from
     `connections()`, which stays the calls'.
   - **At the gate** (step 24, `gate.rs`): `security.v1` and `security.v3` in shadow at every call that acts, and at
@@ -393,9 +396,11 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     mark's `cut_ms` is where the next run cuts: the run's clock, never past the newest judgment it read, so a clock
     that read ahead closes no open window (theseus-gf8j); a mark without it walks everything once.
     Tests: `tests_learning.rs`, `learning::*::tests`.
-  - **Routing** (step 25e, theseus-0j2.11): `route.v1` rides the inbound point's request, live while `[judge]`
-    is on (`[routing]`, `config/routing.rs`, lowers it). Its verdict comes back over a oneshot (`RouteWait`), and
-    the call waits for a permit rather than being shed. The turn waits for it beside its first compile, at most
+  - **Routing** (step 25e, theseus-0j2.11): `route.v1` asks at the inbound point in a request of its own, beside
+    the batch of `classify.v1` and `role.v1` (theseus-ddbi: one question answers sooner than the batch), live while
+    `[judge]` is on (`[routing]`, `config/routing.rs`, lowers it). Its verdict comes back over a oneshot
+    (`RouteWait`, an `Answered` with the time it came) the moment its request answers, and the call waits for a
+    permit rather than being shed. The turn waits for it beside its first compile, at most
     `max_wait_ms` after it (`turn/route_step.rs`, `beside`; a late verdict applies to the next message alone, and a
     late `trivial` one to none: `routing::carries`, theseus-6n5j), and not at all while Jev is known unreachable
     (`JudgeService::jev_unreachable`, reason `unreachable`, theseus-otny); `routing.rs` decides, purely, at the
@@ -407,7 +412,9 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     compilation the call uses is persisted (`RouteState.defer_persist`), and only its `context.compiled` and
     `loop.started` recorded (`RouteState.deferred`, theseus-d13v); a detour's loop records `loop.started` alone,
     since its compilation is never stored (`tests_route_rows.rs`). The row is `route.decided`
-    (`fact/route.rs`); thinking goes back only to the model that wrote it (`tests_thinking_writer.rs`), and a place's
+    (`fact/route.rs`: `wait_ms`, `late` when the verdict missed the wait, `answered_ms` when the request came back
+    after the turn's start, if it had; each live turn's wait is `theseus.route.wait` by `theseus.route.late`,
+    `tests_route_late.rs`); thinking goes back only to the model that wrote it (`tests_thinking_writer.rs`), and a place's
     profile caps it (`tests_route_cap.rs`). `routed` holds only while route.v1
     acts live for the session (theseus-9yyr, `route_base`): routing off or in shadow, the ladder's rollback, the
     judge off, or Jev unreachable (`JudgeService::reachable`) clear it at the next turn, in the turn's own session

@@ -246,6 +246,13 @@ const AWS_DURATION: Instrument = Instrument {
     kind: Kind::Histogram,
 };
 
+const ROUTE_WAIT: Instrument = Instrument {
+    name: "theseus.route.wait",
+    description: "What each turn route.v1 acts on waited for its verdict after the first compile (M5 25e), by whether the verdict missed the bound",
+    unit: "ms",
+    kind: Kind::Histogram,
+};
+
 const CANCELS: Instrument = Instrument {
     name: "theseus.cancel",
     description: "Calls a cancel or a stop ended (M4 §2.11), by backend and how they ended, as health counts them",
@@ -307,7 +314,7 @@ const VOICE_RESUMED: Instrument = Instrument {
 };
 
 /// Every instrument, in the order a request lists them.
-const INSTRUMENTS: [&Instrument; 43] = [
+const INSTRUMENTS: [&Instrument; 44] = [
     &TURNS,
     &TOKENS,
     &PROVIDER_ERRORS,
@@ -333,6 +340,7 @@ const INSTRUMENTS: [&Instrument; 43] = [
     &JUDGE_ON_PATH,
     &JUDGE_ERRORS,
     &JUDGE_DISAGREEMENTS,
+    &ROUTE_WAIT,
     &TASK_CHANGES,
     &TASKS_OPEN,
     &RETENTION_NODES,
@@ -732,6 +740,12 @@ impl Metrics {
             _ => &VOICE_RESUMED,
         };
         self.add(i, vec![("theseus.voice.why", Attr::S(why.to_string()))], 1);
+    }
+
+    /// A routed turn's wait (theseus-ddbi), with `theseus.route.late`.
+    pub(super) fn route_wait(&mut self, wait: std::time::Duration, late: bool) {
+        let attrs = vec![("theseus.route.late", Attr::B(late))];
+        self.record(&ROUTE_WAIT, attrs, wait.as_secs_f64() * 1000.0);
     }
 
     /// The push (theseus-in3): `n` notifications dropped at a backlog cap.

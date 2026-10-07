@@ -189,23 +189,26 @@ fn call(sock: &Path, method: &str, params: Value) -> Result<Value, Value> {
     Err(json!("the connection closed"))
 }
 
-/// Enabled, with Jev out of reach: the daemon answers health with the judge
-/// idle, since nothing of it is built before a judgment. The ladder's first
-/// read, after serving, adopts the three packs the owner put live, once
-/// (26a), and health then says so.
+/// Enabled, with Jev out of reach: nothing of the judge is built on the
+/// start path. After serving, its client is built to warm Jev's connections
+/// (theseus-ddbi; `judge/warm.rs`), and a warm-up that reaches nothing
+/// moves no breaker and makes no call. The ladder's first read, after
+/// serving, adopts the three packs the owner put live, once (26a), and
+/// health then says so.
 #[test]
 fn a_start_with_the_judge_on_builds_nothing_of_it() {
     let rig = Rig::new(Some("http://127.0.0.1:9"));
     let d = rig.spawn();
-    let j = rig.wait("the ladder's first read", || {
+    let j = rig.wait("the ladder's first read and the warm-up's client", || {
         let j = rig.judge();
-        j["packs"]
+        (j["packs"]
             .to_string()
             .contains("(owner: decision of 2026-10-04)")
+            && j["breaker"] != "idle")
             .then_some(j)
     });
     assert_eq!(j["enabled"], true, "{j}");
-    assert_eq!(j["breaker"], "idle", "{j}");
+    assert_eq!(j["breaker"], "closed", "{j}");
     assert_eq!(
         j["packs"],
         json!([

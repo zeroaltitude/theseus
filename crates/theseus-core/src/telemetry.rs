@@ -246,6 +246,16 @@ impl Telemetry {
             .push_lost(n);
     }
 
+    /// A turn route.v1 acts on (theseus-ddbi): its wait for the verdict
+    /// after the first compile, and whether the verdict missed it.
+    pub fn record_route_wait(&self, wait: Duration, late: bool) {
+        let Some(s) = self.shared() else { return };
+        s.metrics
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .route_wait(wait, late);
+    }
+
     /// A call a cancel or a stop ended (theseus-qdk5), counted where health
     /// counts it (`cancel::Stops`), by its backend and how it ended.
     pub fn record_cancel(&self, backend: &str, state: &str) {

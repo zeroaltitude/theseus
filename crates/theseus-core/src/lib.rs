@@ -271,9 +271,15 @@ mod tests_route_cap;
 #[cfg(test)]
 mod tests_route_keep;
 #[cfg(test)]
+mod tests_route_late;
+#[cfg(test)]
+mod tests_route_measure;
+#[cfg(test)]
 mod tests_route_model;
 #[cfg(test)]
 mod tests_route_rows;
+#[cfg(test)]
+mod tests_route_wait;
 #[cfg(test)]
 mod tests_sandbox;
 #[cfg(test)]

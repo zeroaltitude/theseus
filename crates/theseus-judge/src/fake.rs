@@ -15,6 +15,13 @@
 //! | `EchoAuth` | 401 whose body repeats the bearer key, as a careless server might |
 //! | `Held` | the answer once the test calls [`FakeJev::release`]: lateness by order, not by a delay |
 //!
+//! Two knobs model Jev's time (theseus-ddbi): [`FakeJev::set_latency`]
+//! delays a request that asks one pack's questions by one figure and a
+//! batch of several packs' by another, and [`FakeJev::keep_alive`] keeps
+//! each connection open, as Jev's edge does, with a first answer on a new
+//! connection paying its set-up (TCP and TLS, which the fake does not
+//! speak) once.
+//!
 //! It never keeps the key: only whether a bearer token came, and its length.
 //! A `HEAD`, the client's warm-up (theseus-otny), is answered 405 as Jev's
 //! edge answers it, in every mode but `Down`, and counted apart from calls
@@ -89,6 +96,13 @@ struct Shared {
     warmups: usize,
     /// [`FakeJev::release`]'s calls so far.
     releases: u64,
+    /// One pack's request, and a batch of several packs', wait this long.
+    single: Duration,
+    batch: Duration,
+    /// Connections stay open, and a new one's first answer waits this long.
+    keep_alive: Option<Duration>,
+    /// Connections accepted, each counted once.
+    opened: usize,
 }
 
 #[derive(Clone)]
@@ -111,6 +125,10 @@ impl FakeJev {
             connections: 0,
             warmups: 0,
             releases: 0,
+            single: Duration::ZERO,
+            batch: Duration::ZERO,
+            keep_alive: None,
+            opened: 0,
         }));
         let s = shared.clone();
         std::thread::spawn(move || {
@@ -184,6 +202,26 @@ impl FakeJev {
         self.lock().seen.clone()
     }
 
+    /// Every answer waits `single` when its request asks one pack's
+    /// questions, `batch` when it asks several packs' (theseus-ddbi).
+    pub fn set_latency(&self, single: Duration, batch: Duration) {
+        let mut s = self.lock();
+        (s.single, s.batch) = (single, batch);
+    }
+
+    /// Keep connections open, as Jev's edge does, and make a new
+    /// connection's first answer wait `handshake` more: its set-up
+    /// (theseus-ddbi). Set before the first request.
+    pub fn keep_alive(&self, handshake: Duration) {
+        self.lock().keep_alive = Some(handshake);
+    }
+
+    /// TCP connections accepted, calls' and warm-ups' alike: under
+    /// [`FakeJev::keep_alive`], fewer than the requests.
+    pub fn opened(&self) -> usize {
+        self.lock().opened
+    }
+
     /// Lets every call `Held` holds now answer.
     pub fn release(&self) {
         self.lock().releases += 1;
@@ -192,50 +230,77 @@ impl FakeJev {
 
 /// The request line, read and counted: a warm-up's `HEAD` apart from calls.
 /// Returns whether it is a warm-up, and the mode the request finds.
-fn counted(r: &mut BufReader<TcpStream>, shared: &Mutex<Shared>) -> Result<(bool, FakeMode)> {
+fn counted(
+    r: &mut BufReader<TcpStream>,
+    shared: &Mutex<Shared>,
+) -> Result<Option<(bool, FakeMode)>> {
     let mut first = String::new();
-    r.read_line(&mut first)?;
+    if r.read_line(&mut first)? == 0 {
+        return Ok(None);
+    }
     let warmup = first.starts_with("HEAD ");
     let mut s = shared.lock().unwrap_or_else(|e| e.into_inner());
     match warmup {
         true => s.warmups += 1,
         false => s.connections += 1,
     }
-    Ok((warmup, s.mode.clone()))
+    Ok(Some((warmup, s.mode.clone())))
 }
 
 /// A warm-up's answer, as Jev's edge gives it: 405, its headers read first
 /// so the close sends no reset over the answer.
-fn answer_warmup(r: &mut BufReader<TcpStream>, stream: &mut TcpStream) -> Result<()> {
+fn answer_warmup(
+    r: &mut BufReader<TcpStream>,
+    stream: &mut TcpStream,
+    connection: &str,
+) -> Result<()> {
     let mut line = String::new();
     while r.read_line(&mut line)? > 0 && !line.trim_end().is_empty() {
         line.clear();
     }
-    let _ = stream.write_all(
-        b"HTTP/1.1 405 Method Not Allowed\r\ncontent-length: 0\r\nconnection: close\r\n\r\n",
+    let head = format!(
+        "HTTP/1.1 405 Method Not Allowed\r\ncontent-length: 0\r\nconnection: {connection}\r\n\r\n"
     );
+    let _ = stream.write_all(head.as_bytes());
     Ok(())
 }
 
-fn serve(mut stream: TcpStream, shared: &Mutex<Shared>) -> Result<()> {
-    stream.set_read_timeout(Some(Duration::from_secs(10)))?;
+/// One connection: one request, or, under [`FakeJev::keep_alive`], each
+/// request it carries until the client closes it.
+fn serve(stream: TcpStream, shared: &Mutex<Shared>) -> Result<()> {
+    let keep = {
+        let mut s = shared.lock().unwrap_or_else(|e| e.into_inner());
+        s.opened += 1;
+        s.keep_alive
+    };
+    let idle = keep.map_or(Duration::from_secs(10), |_| Duration::from_secs(600));
+    stream.set_read_timeout(Some(idle))?;
     let mut r = BufReader::new(stream.try_clone()?);
-    let (warmup, mode) = counted(&mut r, shared)?;
-    if mode == FakeMode::Down {
-        // Close without a word.
-        let _ = stream.shutdown(std::net::Shutdown::Both);
-        return Ok(());
+    let mut setup = keep;
+    loop {
+        let open = serve_one(
+            &mut r,
+            stream.try_clone()?,
+            shared,
+            setup.take(),
+            keep.is_some(),
+        )?;
+        if !open {
+            return Ok(());
+        }
     }
-    if warmup {
-        return answer_warmup(&mut r, &mut stream);
-    }
+}
+
+/// A call's headers and body: the body as JSON, and the bearer token if one
+/// came; `None` when the connection closed first.
+fn read_request(r: &mut BufReader<TcpStream>) -> Result<Option<(Value, Option<String>)>> {
     let mut len = 0usize;
     let mut bearer: Option<String> = None;
     let mut line = String::new();
     loop {
         line.clear();
         if r.read_line(&mut line)? == 0 {
-            return Ok(());
+            return Ok(None);
         }
         let l = line.trim_end();
         if l.is_empty() {
@@ -255,7 +320,38 @@ fn serve(mut stream: TcpStream, shared: &Mutex<Shared>) -> Result<()> {
     let mut body = vec![0; len];
     r.read_exact(&mut body)?;
     let req: Value = serde_json::from_slice(&body).context("request body")?;
-    let (script, answer_as, held) = {
+    Ok(Some((req, bearer)))
+}
+
+/// One request on a connection, its answer after `setup` (a new
+/// connection's) and the latency; whether the connection stays open.
+fn serve_one(
+    r: &mut BufReader<TcpStream>,
+    mut stream: TcpStream,
+    shared: &Mutex<Shared>,
+    setup: Option<Duration>,
+    keep: bool,
+) -> Result<bool> {
+    let Some((warmup, mode)) = counted(r, shared)? else {
+        return Ok(false);
+    };
+    let connection = if keep { "keep-alive" } else { "close" };
+    if mode == FakeMode::Down {
+        // Close without a word.
+        let _ = stream.shutdown(std::net::Shutdown::Both);
+        return Ok(false);
+    }
+    if let Some(d) = setup {
+        std::thread::sleep(d);
+    }
+    if warmup {
+        answer_warmup(r, &mut stream, connection)?;
+        return Ok(keep);
+    }
+    let Some((req, bearer)) = read_request(r)? else {
+        return Ok(false);
+    };
+    let (script, answer_as, held, latency) = {
         let mut s = shared.lock().unwrap_or_else(|e| e.into_inner());
         s.seen.push(Seen {
             body: req.clone(),
@@ -268,8 +364,15 @@ fn serve(mut stream: TcpStream, shared: &Mutex<Shared>) -> Result<()> {
             },
             s.answer_as.clone(),
             s.releases,
+            match packs_asked(&req) {
+                0 | 1 => s.single,
+                _ => s.batch,
+            },
         )
     };
+    if !latency.is_zero() {
+        std::thread::sleep(latency);
+    }
     if mode == FakeMode::Held {
         while shared.lock().unwrap_or_else(|e| e.into_inner()).releases == held {
             std::thread::sleep(Duration::from_millis(5));
@@ -311,7 +414,7 @@ fn serve(mut stream: TcpStream, shared: &Mutex<Shared>) -> Result<()> {
     };
     let text = out.to_string();
     let head = format!(
-        "HTTP/1.1 {status} {}\r\ncontent-type: application/json\r\ncontent-length: {}\r\nx-ratelimit-limit: 600\r\n{extra}connection: close\r\n\r\n",
+        "HTTP/1.1 {status} {}\r\ncontent-type: application/json\r\ncontent-length: {}\r\nx-ratelimit-limit: 600\r\n{extra}connection: {connection}\r\n\r\n",
         if status == 200 { "OK" } else { "Error" },
         text.len()
     );
@@ -319,7 +422,18 @@ fn serve(mut stream: TcpStream, shared: &Mutex<Shared>) -> Result<()> {
     let _ = stream.write_all(head.as_bytes());
     let _ = stream.write_all(text.as_bytes());
     let _ = stream.flush();
-    Ok(())
+    Ok(keep)
+}
+
+/// The packs a request asks: its question ids' distinct `<pack>/` prefixes
+/// (a lone pack's ids may carry none).
+fn packs_asked(req: &Value) -> usize {
+    let ids = req["questions"].as_object().cloned().unwrap_or_default();
+    let packs: std::collections::BTreeSet<&str> = ids
+        .keys()
+        .map(|id| id.rsplit_once('/').map_or("", |(p, _)| p))
+        .collect();
+    packs.len()
 }
 
 /// Everything scripted, read once a request.

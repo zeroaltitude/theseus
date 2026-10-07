@@ -1,5 +1,6 @@
 //! Routing (M5 25e; `crate::routing`, `turn::route_step`): `route.v1` at
-//! `inbound`, live, in the same request as `classify.v1` and `role.v1`, and
+//! `inbound`, live, in a request of its own beside `classify.v1` and
+//! `role.v1`'s (theseus-ddbi; `tests_route_wait`), and
 //! the turn it moves, against the fake Jev, with the profiles on two fake
 //! providers (`anthropic` and `zai`), so each request shows where it went.
 //! A detour's request passes 35a's check: its window's arrangement is
@@ -200,6 +201,21 @@ pub(crate) async fn until_route_rows(store: &Store, n: usize) -> Vec<LedgerRow> 
     }
 }
 
+/// Wait (on the runtime's timer) until the fake Jev has read `n` calls: the
+/// turn reads `route.v1`'s answer, never the batch's beside it, so the
+/// batch may still be on its way (theseus-ddbi).
+pub(crate) async fn until_calls(jev: &FakeJev, n: usize) {
+    let t0 = Instant::now();
+    while jev.connections() < n {
+        assert!(
+            t0.elapsed() < Duration::from_secs(20),
+            "{} of {n} calls",
+            jev.connections()
+        );
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+}
+
 /// Late, by order (theseus-biy3): the fake holds every verdict (`Held`), and
 /// the client's own limit is far past any turn's work, so a held verdict
 /// comes only once the test releases it. The wait is the build's 200 ms, to
@@ -219,10 +235,11 @@ pub(crate) async fn until_late(core: &Core, sid: &str) {
     }
 }
 
-/// One request carries all three inbound packs; `route.v1`'s row is live,
-/// and its verdict moves the turn: a hard design question goes to Opus.
+/// Two requests ask the three inbound packs: `route.v1` alone, and the
+/// other two batched (theseus-ddbi); `route.v1`'s row is live, and its
+/// verdict moves the turn: a hard design question goes to Opus.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn one_call_asks_three_packs_and_a_hard_question_goes_to_opus() {
+async fn two_calls_ask_three_packs_and_a_hard_question_goes_to_opus() {
     let jev = FakeJev::start().unwrap();
     mode(&jev, "sophisticated", 0.95);
     let r = rig(Some(&jev), 1, |_| {});
@@ -233,14 +250,20 @@ async fn one_call_asks_three_packs_and_a_hard_question_goes_to_opus() {
         None,
     )
     .await;
-    assert_eq!(jev.connections(), 1, "one request for the message");
-    let q = &jev.seen()[0].body["questions"];
+    until_calls(&jev, 2).await;
+    assert_eq!(jev.connections(), 2, "two requests for the message");
+    let asked: Vec<Value> = jev
+        .seen()
+        .iter()
+        .map(|s| s.body["questions"].clone())
+        .collect();
     for id in ["classify.v1/kind", "role.v1/role", "route.v1/mode"] {
-        assert!(q.get(id).is_some(), "{id}: {q}");
+        let n = asked.iter().filter(|q| q.get(id).is_some()).count();
+        assert_eq!(n, 1, "{id}: {asked:?}");
     }
     let rows = until_route_rows(&r.core.store, 1).await;
     assert_eq!(rows[0].data["mode"], "live");
-    assert_eq!(rows[0].data["call"]["packs"], 3);
+    assert_eq!(rows[0].data["call"]["packs"], 1);
     assert_eq!(r.claude.requests()[0].model, "claude-opus-5-5");
     assert!(r.zai.requests().is_empty());
     assert_eq!(
@@ -596,10 +619,16 @@ async fn a_message_warms_jevs_connections_once_while_they_stay_warm() {
     let one = turn(&r.core, None, "What does the manifest hold?", None).await;
     assert_eq!(one.route.as_ref().unwrap().reason, "verdict");
     assert_eq!(jev.warmups(), 2, "two connections opened at the message");
-    assert_eq!(jev.connections(), 1, "and one call");
+    until_calls(&jev, 2).await;
+    assert_eq!(
+        jev.connections(),
+        2,
+        "and two calls: route.v1's and the batch"
+    );
     turn(&r.core, Some(&one.session_id), "And where is it?", None).await;
     assert_eq!(jev.warmups(), 2, "warm: no second warm-up");
-    assert_eq!(jev.connections(), 2);
+    until_calls(&jev, 4).await;
+    assert_eq!(jev.connections(), 4);
 }
 
 /// route.v1's verdict never waits on its state's blob (theseus-otny): the
