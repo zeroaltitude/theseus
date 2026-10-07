@@ -9,6 +9,8 @@
 //   tool.started pushes; and tool.ended and the actions in flight: action.list's newest 500, and every action not
 //   settled however old (its `unsettled` read, theseus-hnof.3), so a job that has run for hours keeps its gear.
 // - Reach: node.reach for the selected vessel's nodes, read only while it is selected.
+// - Flares: a failure's push (turn.failed, or execution.changed into failed), or its turn.failed row in the page's one
+//   copy of the ledger, for a session the Ship does not watch; once a failure, whichever comes first (`flares.ts`).
 //
 // What the pushes say lives in a small store per mounted Ship, replaced (never mutated) on each change, so a render
 // reads only state.
@@ -19,8 +21,10 @@ import type {
   ActionInfo, ConfirmRequest, ExecutionInfo, ExecutionView, Health, LedgerEntry, NodeInfo, NodeReachResult, ProfileListResult,
   SessionInfo, TaskInfo,
 } from '@protocol'
+import { onNewRows } from '@/lib/history'
 import { call, client, useConn, useRpc } from '@/lib/rpc'
 import type { World } from '@/lib/timemachine'
+import { flareOf, flaresOfRows, newFlares } from './flares.ts'
 import { buildModel, type ReachLink, type ShipModel } from './model'
 import { mergeActions } from './watch.ts'
 
@@ -194,6 +198,8 @@ export function useShipLive(selected: string | undefined, world: World | null): 
 
   // What the pushes say.
   const turnSession = useRef(new Map<string, string>())
+  // The failures flared (`flares.ts`): the pushes and the ledger's rows say some of them twice.
+  const [flares] = useState(newFlares)
   useEffect(() => {
     const arrive = (s: Live) => [...s.arrivals, Date.now()]
     return client.onNotify((method, params) => {
@@ -238,14 +244,18 @@ export function useShipLive(selected: string | undefined, world: World | null): 
           }))
           break
         case 'turn.failed':
-          if (sid) store.setState((s) => ({
-            failedAt: withMap(s.failedAt, sid, Date.now()), streaming: withMap(s.streaming, sid, undefined), arrivals: arrive(s),
-            active: s.active.has(sid) ? withMap(s.active, sid, undefined) : s.active,
-          }))
+          if (sid) {
+            const flare = flareOf(flares, { session: sid, turn: typeof p.turn_id === 'string' ? p.turn_id : null, heard: Date.now() })
+            store.setState((s) => ({
+              failedAt: flare ? withMap(s.failedAt, sid, Date.now()) : s.failedAt, streaming: withMap(s.streaming, sid, undefined), arrivals: arrive(s),
+              active: s.active.has(sid) ? withMap(s.active, sid, undefined) : s.active,
+            }))
+          }
           break
         case 'execution.changed': {
           const v = p as unknown as ExecutionView
           const failed = v.state === 'failed' && !!v.previous && v.previous !== 'failed'
+            && flareOf(flares, { session: v.session_id, heard: Date.now(), at: typeof v.at_ms === 'number' ? v.at_ms : undefined })
           const reported = v.kind === 'task' && (v.state === 'complete' || v.state === 'succeeded') && !!v.previous && v.previous !== v.state
           if (failed || reported) {
             store.setState((s) => ({
@@ -261,7 +271,19 @@ export function useShipLive(selected: string | undefined, world: World | null): 
           break
       }
     })
-  }, [store, queries, readSession])
+  }, [store, queries, readSession, flares])
+
+  // A turn that fails in a session the Ship does not watch (a model the daemon cannot price fails before it runs) says
+  // so only in the ledger: its row in the page's one copy (it reads nothing more for this) flares the ship a few
+  // seconds later, once with the push that may have said it first. Only rows from when the Ship opened.
+  useEffect(() => {
+    const since = Date.now()
+    return onNewRows((rows) => {
+      const now = Date.now()
+      const sids = flaresOfRows(flares, rows, since, now)
+      if (sids.length) store.setState((s) => ({ failedAt: sids.reduce((m, sid) => withMap(m, sid, now), s.failedAt) }))
+    })
+  }, [store, flares])
 
   // Watch every session that works or waits for you (and the selected one); let go a little after it stops.
   const working = useMemo(() => {

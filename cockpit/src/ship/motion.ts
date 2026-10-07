@@ -39,7 +39,7 @@ export const MOTIONS = [
   { id: 'tether', event: 'a task runs (execution.changed to running)', moves: 'the current along its tether flows to it', pace: 'steady', on: 'canvas' },
   { id: 'current', event: 'node.reach: a node copied to a session that works now', moves: 'the current between the two flows', pace: 'steady', on: 'canvas' },
   { id: 'report', event: 'execution.changed: a task completes', moves: 'gold runs back along its tether to the ship that started it', secs: 3.2, pace: 'display', on: 'canvas' },
-  { id: 'failed', event: 'turn.failed, or execution.changed to failed', moves: 'the flare bursts and rises; the pennant goes up and stands', secs: 3, pace: 'display', on: 'canvas' },
+  { id: 'failed', event: 'turn.failed (its push, or its ledger row for a session the Ship does not watch), or execution.changed to failed: once a failure', moves: 'the flare bursts and rises; the pennant goes up and stands', secs: 3, pace: 'display', on: 'canvas' },
   { id: 'waiting', event: 'a question for the operator (confirm.list, a budget question)', moves: 'the lantern lights at the stern, swelling once; then it stands lit', secs: 1.5, pace: 'display', on: 'canvas' },
   { id: 'recall', event: 'turn.ended that recalled memory', moves: 'a violet spark rings out on its bench', secs: 6.5, pace: 'display', on: 'canvas' },
   { id: 'collapse', event: 'a cancel verified (an action’s verdict: termination_verified)', moves: 'the job’s hex shield collapses to an ember', secs: 1.4, pace: 'display', on: 'canvas' },
