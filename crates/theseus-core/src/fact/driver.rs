@@ -1,5 +1,6 @@
 //! The driver's facts: the heartbeat, a job's spooled completion, a cancel,
-//! a stop, a lost wrapper, and a continuation (`rpc/driver.rs`).
+//! a stop, a lost wrapper, one gone while no daemon ran, and a continuation
+//! (`rpc/driver.rs`).
 
 use serde_json::{json, Value};
 use theseus_kernel::{Action, Completion, Execution, Outcome};
@@ -197,6 +198,39 @@ impl Fact for WrapperLost<'_> {
                 self.action.tool,
                 self.pid,
                 self.signal
+            ),
+        );
+    }
+}
+
+/// A job's wrapper went while no daemon ran (theseus-vej5): the start's
+/// probe found its pid file or lingering marker naming no live wrapper of
+/// the job, and no completion. Its outcome is unknown (`job.wrapper_gone`).
+/// Not a security event: a unit stop that killed the daemon's cgroup, an OOM
+/// kill, or the machine's restart ends one so.
+pub struct WrapperGone<'a> {
+    pub action: &'a Action,
+    pub pid: u32,
+}
+
+impl Fact for WrapperGone<'_> {
+    const KIND: Option<LedgerKind> = Some(LedgerKind::JobWrapperGone);
+
+    fn row(&self) -> Value {
+        let a = self.action;
+        json!({"correlation_id": a.correlation_id, "pid": self.pid, "tool": a.tool,
+            "execution_id": a.execution_id, "dispatched_at_ms": a.dispatched_at_ms})
+    }
+
+    fn narrate(&self, say: &mut Say<'_>) {
+        say.line(
+            Job,
+            format!(
+                "Job {} ({}) lost its wrapper (pid {}) while no daemon ran, before it \
+                 reported. Its outcome is unknown.",
+                narrative::short(&self.action.correlation_id),
+                self.action.tool,
+                self.pid,
             ),
         );
     }

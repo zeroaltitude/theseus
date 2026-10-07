@@ -421,8 +421,9 @@ pub struct Kernel {
     /// The transaction this view stages for (`Kernel::frame`), if it is one:
     /// its transitions take no locks, and its commits are staged.
     tx: Option<Arc<Tx>>,
-    /// The in-process calls startup found, an earlier process's (theseus-m9iy).
-    pub(crate) earlier: Arc<Mutex<Vec<CorrelationId>>>,
+    /// What startup found an earlier process left dispatched: its in-process
+    /// calls (theseus-m9iy) and its jobs, probed after serving (theseus-vej5).
+    pub(crate) earlier: Arc<Mutex<crate::earlier::Earlier>>,
 }
 
 /// A turn's own results (theseus-l6y): what a turn's view settles for the
