@@ -70,8 +70,19 @@ export default function Benchmarks() {
   const set = TASK_SETS.find((s) => s.id === params.get('set')) ?? TASK_SETS[0]
   const ps = useMemo(() => all?.get(set.id) ?? [], [all, set.id])
   const { usable, one } = useMemo(() => axes(ps), [ps])
+  // The axes in the address when this task set measured them, else its own; never one property on both.
   const pickAxis = (k: 'x' | 'y', d: string) => usable.find((p) => p.id === params.get(k)) ?? property(d)!
-  const px = pickAxis('x', DEFAULT_AXES[set.id][0]), py = pickAxis('y', DEFAULT_AXES[set.id][1])
+  const px = pickAxis('x', DEFAULT_AXES[set.id][0])
+  const asked = pickAxis('y', DEFAULT_AXES[set.id][1])
+  const py = asked !== px ? asked : property(DEFAULT_AXES[set.id][1]) !== px ? property(DEFAULT_AXES[set.id][1])! : usable.find((p) => p !== px) ?? asked
+  // A task set keeps the axes picked when it measured both of them, else it opens on its own.
+  const pickSet = (id: string) => setParams((p) => {
+    const next = all?.get(id) ?? []
+    const ok = (k: 'x' | 'y') => { const v = p.get(k); return !v || axes(next).usable.some((u) => u.id === v) }
+    p.set('set', id)
+    if (!ok('x') || !ok('y')) { p.delete('x'); p.delete('y') }
+    return p
+  }, { replace: true })
   const placed = useMemo(() => frontier(ps, px, py), [ps, px, py])
   // Every property's intervals for this task set, worked out while the page is idle, so a pick of any axis draws at
   // once (a bootstrap of 178 trials is tens of milliseconds; each value's is kept once worked out).
@@ -105,7 +116,7 @@ export default function Benchmarks() {
         icon={<Trophy size={14} />}
         empty={!all ? 'Reading the runs…' : ps.length < 2 ? 'This task set has fewer than two points.' : undefined}
         table={frontierTable(ps, placed, px, py, usable, set)}
-        actions={<SetPicker value={set.id} onChange={(id) => put('set', id)} />}>
+        actions={<SetPicker value={set.id} onChange={pickSet} />}>
         <div className="flex h-full flex-col">
           <AxisRow px={px} py={py} usable={usable} one={one}
             onX={(id) => put('x', id)} onY={(id) => put('y', id)} onSwap={() => setParams((p) => { p.set('x', py.id); p.set('y', px.id); return p }, { replace: true })} />
@@ -172,12 +183,12 @@ function AxisRow({ px, py, usable, one, onX, onY, onSwap }: {
   px: Property; py: Property; usable: Property[]; one: { p: Property; who: string[] }[]
   onX: (id: string) => void; onY: (id: string) => void; onSwap: () => void
 }) {
-  const pick = (id: string, value: Property, on: (id: string) => void, label: string) => (
+  const pick = (id: string, value: Property, on: (id: string) => void, label: string, other: Property) => (
     <label className="flex min-w-0 items-center gap-1.5 text-[11px] text-ink-faint">
       <span className="font-display text-[10px] font-bold uppercase tracking-[0.12em] text-gold/90">{label}</span>
       <select id={id} value={value.id} onChange={(e) => on(e.target.value)}
         className="num rounded-md bg-white/5 px-2 py-1 text-[12px] text-ink outline-none ring-1 ring-line focus:ring-live/40">
-        {usable.map((p) => <option key={p.id} value={p.id}>{p.label} · {p.better} is better</option>)}
+        {usable.map((p) => <option key={p.id} value={p.id} disabled={p === other}>{p.label} · {p.better} is better</option>)}
         {one.length > 0 && (
           <optgroup label="measured for one harness only">
             {one.map(({ p, who }) => <option key={p.id} value={p.id} disabled>{p.label} · {who.join(', ')} only</option>)}
@@ -188,8 +199,8 @@ function AxisRow({ px, py, usable, one, onX, onY, onSwap }: {
   )
   return (
     <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 px-2 pb-1.5 pt-0.5">
-      {pick('bench-y', py, onY, 'up')}
-      {pick('bench-x', px, onX, 'across')}
+      {pick('bench-y', py, onY, 'up', px)}
+      {pick('bench-x', px, onX, 'across', py)}
       <button type="button" onClick={onSwap} title="swap the axes" aria-label="swap the axes"
         className="rounded-md p-1 text-ink-faint ring-1 ring-line hover:text-ink"><ArrowLeftRight size={13} /></button>
     </div>
@@ -208,7 +219,11 @@ function Verdict({ placed, ps, px, py, many }: { placed: Placed[]; ps: Point[]; 
     const on = theseus.filter((p) => p.frontier)
     const off = theseus.find((p) => !p.frontier)
     const who = (p: Point) => <b className="font-semibold text-ink">{pointName(p, many)}</b>
-    const whos = (ds: Point[]) => ds.map((d, i) => <span key={d.id}>{i ? (i === ds.length - 1 ? ' and ' : ', ') : ''}{who(d)}</span>)
+    // The nearest three by name; the rest counted (the tip and the table name them all).
+    const whos = (all: Point[]) => {
+      const ds = all.slice(0, 3), more = all.length - ds.length
+      return <>{ds.map((d, i) => <span key={d.id}>{i ? (i === ds.length - 1 && !more ? ' and ' : ', ') : ''}{who(d)}</span>)}{more > 0 && ` and ${more} more`}</>
+    }
     words = on.length === theseus.length
       ? <>Theseus is <b className="font-semibold text-ink">on the frontier</b>{theseus.length === 2 ? ' in both of its points' : theseus.length > 2 ? ` in all ${theseus.length} of its points` : ''}: no harness measured here beats it on both {py.short} and {px.short}.</>
       : on.length
