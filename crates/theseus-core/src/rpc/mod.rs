@@ -41,6 +41,8 @@ pub(crate) use server::write_item;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
+mod tests_health_imported;
+#[cfg(test)]
 mod tests_history;
 #[cfg(test)]
 mod tests_imported;

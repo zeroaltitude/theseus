@@ -99,6 +99,7 @@ export type * from './HandsGroupInfo';
 export type * from './HandsListParams';
 export type * from './HandsListResult';
 export type * from './HarnessOnly';
+export type * from './HealthImported';
 export type * from './HealthResult';
 export type * from './Holdout';
 export type * from './HoldoutBounds';
