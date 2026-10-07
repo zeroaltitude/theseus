@@ -8,7 +8,10 @@
 //! writer, so a sink frame mid-sync held a turn's next frame, and with turns
 //! back to back a frame due 2 s after a judgment landed inside a later turn.
 //! A judgment's row and its facts stay in one frame, said once it is
-//! written, and a press finds a judgment not yet written in `pending`.
+//! written, and a press finds a judgment not yet written in `pending`. The
+//! states a frame's rows name are written before the writer waits for its
+//! moment (theseus-ehkp), so the guard a beginning turn waits on covers the
+//! frame's append alone, never a blob's syncs.
 //! Each frame also carries the
 //! breaker's moves (`judge.circuit`), the shed count (`judge.shed`, a
 //! minute apart at most), and the shadow budget's record with what was
@@ -105,6 +108,16 @@ impl Queue {
         }
     }
 
+    /// The blobs the front `n` judgments name, left queued: a stop that
+    /// comes meanwhile still finds every one (theseus-ehkp).
+    fn front_blobs(&self, n: usize) -> Vec<String> {
+        self.lock()
+            .iter()
+            .take(n)
+            .filter_map(|j| Some(j.context.get("blob")?.as_str()?.to_string()))
+            .collect()
+    }
+
     /// Take up to `n` judgments from the front.
     fn take(&self, n: usize) -> Vec<Judgment> {
         let mut q = self.lock();
@@ -191,6 +204,17 @@ pub async fn run(q: Arc<Queue>, svc: Weak<JudgeService>, every: Duration) {
             q.wait_for(MAX_ROWS, Some(until)).await;
         }
         let start = *pass.get_or_insert_with(tokio::time::Instant::now);
+        // The frame's staged blobs first, before the wait (theseus-ehkp):
+        // they touch no WAL, so a turn that begins meanwhile runs at once,
+        // and the guard below covers the frame's append alone.
+        let blobs = q.front_blobs(MAX_ROWS);
+        if !blobs.is_empty() {
+            let Some(s) = svc.upgrade() else { return };
+            let _ = tokio::task::spawn_blocking(move || {
+                s.write_staged_blobs(blobs.iter().map(String::as_str));
+            })
+            .await;
+        }
         // A moment between turns: no turn running, and none for the pass's
         // quiet stretch (its bounds end the wait on a busy daemon). The
         // turns are held, never the service, so a stop never waits on this.
@@ -269,9 +293,11 @@ impl JudgeService {
     /// the budget's record. Once it is written, each fact's sentences are
     /// said and each judgment's metrics recorded (23b). The states a turn's
     /// judgments left staged are written first, so no row names a blob the
-    /// disk may yet lose (theseus-otny).
+    /// disk may yet lose (theseus-otny): the writer wrote the frame's before
+    /// its wait (theseus-ehkp), so here only those that landed since, and a
+    /// stop's.
     fn write(&self, batch: &[Judgment]) {
-        self.write_staged_blobs(batch);
+        self.write_staged_blobs(batch.iter().filter_map(|j| j.context.get("blob")?.as_str()));
         let mut records: Vec<NewRecord> = Vec::new();
         for j in batch {
             let (session, turn) = where_of(j);

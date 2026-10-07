@@ -158,6 +158,8 @@ pub struct JudgeService {
     /// the sink writes each blob just before the first row naming it
     /// (theseus-otny): its two syncs stay off the call's path.
     staged_blobs: Mutex<std::collections::HashMap<String, Arc<[u8]>>>,
+    /// Held while staged blobs are written (`write_staged_blobs`).
+    blob_puts: Mutex<()>,
     /// `categorize.v1`'s point (28b): the core it reads, and its decisions.
     categorize: categorize::Point,
     rerank_deadline: rerank::RerankDeadline,
@@ -238,6 +240,7 @@ impl JudgeService {
             prices,
             pending: Mutex::new(HashSet::new()),
             staged_blobs: Mutex::default(),
+            blob_puts: Mutex::default(),
             categorize: Default::default(),
             rerank_deadline: rerank::RerankDeadline::default(),
             late: Mutex::default(),
@@ -666,7 +669,7 @@ impl JudgeService {
     /// before the first row that names it (`write_staged_blobs`), so its
     /// two syncs (the file's and its directory's) stay off the call's path.
     /// A blob already stored is not kept.
-    fn stage_blob(&self, bytes: &[u8]) -> String {
+    pub(crate) fn stage_blob(&self, bytes: &[u8]) -> String {
         let d = crate::blobs::digest(bytes);
         if !self.store.blobs().path(&d).exists() {
             self.staged_blobs
@@ -678,23 +681,31 @@ impl JudgeService {
         d
     }
 
-    /// Before the sink's frame: every staged blob a row of `batch` names,
-    /// written. One that fails is logged, and its row still names it, as a
-    /// judgment's whose blob was lost.
-    fn write_staged_blobs(&self, batch: &[theseus_judge::Judgment]) {
-        for j in batch {
-            let Some(d) = j.context["blob"].as_str() else {
-                continue;
-            };
+    /// Every staged blob of `digests`, written (theseus-ehkp: the sink's
+    /// writer calls it before it waits for a moment between turns, and its
+    /// frame again just before the rows, for any that landed since). A blob
+    /// stays staged until its put returns, and the puts go one caller at a
+    /// time, so a caller that finds a blob gone finds it written: no row
+    /// names a blob another thread is still writing. One that fails is
+    /// logged, and its row still names it, as a judgment's whose blob was
+    /// lost.
+    fn write_staged_blobs<'a>(&self, digests: impl IntoIterator<Item = &'a str>) {
+        let _puts = self.blob_puts.lock().unwrap_or_else(|e| e.into_inner());
+        for d in digests {
             let staged = self
                 .staged_blobs
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
-                .remove(d);
+                .get(d)
+                .cloned();
             if let Some(bytes) = staged {
                 if let Err(e) = self.store.blobs().put(&bytes) {
                     tracing::warn!(error = %e, blob = %d, "judge: a judged state's blob was not written");
                 }
+                self.staged_blobs
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .remove(d);
             }
         }
     }

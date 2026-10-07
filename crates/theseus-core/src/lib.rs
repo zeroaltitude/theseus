@@ -281,6 +281,8 @@ mod tests_sink_backlog;
 #[cfg(test)]
 mod tests_sink_between;
 #[cfg(test)]
+mod tests_sink_blobs;
+#[cfg(test)]
 mod tests_sink_flush;
 #[cfg(test)]
 mod tests_situation;
