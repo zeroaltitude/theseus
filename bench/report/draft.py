@@ -255,6 +255,10 @@ ENDINGS = [
     ("waits for approval", {"TheseusApprovalWaitError"}),
     ("rate limited", {"ApiRateLimitError"}),
     ("stopped", {"TheseusStoppedError"}),
+    # Pi exits 0 when its provider fails, so Harbor records no exception; its
+    # record's `end` says (efficiency.PI_END_ERRORS, theseus-bpeg).
+    ("provider failure (Pi)", {"PiProviderError"}),
+    ("aborted (Pi)", {"PiAbortedError"}),
 ]
 
 
