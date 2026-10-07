@@ -64,6 +64,8 @@ pub(crate) use jev::{
 pub(crate) use live::PERIOD as LIVE_PERIOD;
 mod prompt;
 mod publish;
+#[cfg(test)]
+mod tests_held;
 mod voice;
 use publish::PublishAsk;
 
@@ -1921,6 +1923,12 @@ impl Place {
                 }
                 let ops = self.renderer.on_event(&e);
                 self.apply(ops);
+                // A turn's start may drop the oldest: the lane keeps the held
+                // turns' messages whole, and forgets a dropped one's
+                // (theseus-6809).
+                if matches!(e, CoreEvent::TurnStarted(_)) {
+                    let _ = self.lane.send(LaneMsg::Held(self.renderer.held()));
+                }
                 // The renderer has shown the call that asks, and its tool line
                 // went to the lane first: the question's card may follow
                 // (theseus-50p).
@@ -2264,7 +2272,10 @@ impl Place {
             )
             .await;
         self.session_id = sid;
+        // The old session's turns are dropped with its renderer: the lane
+        // forgets their messages (theseus-6809).
         self.renderer = self.shared.renderer();
+        let _ = self.lane.send(LaneMsg::Held(self.renderer.held()));
         self.report();
         Ok(())
     }
@@ -2864,16 +2875,17 @@ pub(crate) mod tests {
             ["execution.changed", "turn.started"],
             "events.lost names no session, and the route drops it"
         );
-        // Only the turn's start reached the lane: typing.
+        // Only the turn's start reached the lane: typing, and the held turn.
         let mut sent = vec![];
         while let Ok(m) = lane.try_recv() {
             sent.push(match m {
                 LaneMsg::Live(crate::render::Op::Typing) => "typing".to_string(),
                 LaneMsg::Live(op) => format!("live {:?}", op.key()),
+                LaneMsg::Held(turns) => format!("held {turns:?}"),
                 _ => "other".to_string(),
             });
         }
-        assert_eq!(sent, ["typing"]);
+        assert_eq!(sent, ["typing", r#"held ["turn_j7xi"]"#]);
         assert!(!place.saw_failure);
         assert!(
             loud.0.lock().unwrap().is_empty(),

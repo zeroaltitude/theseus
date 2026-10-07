@@ -68,9 +68,15 @@ Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
   lane's next write never waits on that row's sync.
 - **One lane per place is the only writer of its messages**: posts first, in order, then live progress. A create
   carries a nonce from its message's key, with `enforce_nonce`, so a retry after a crash returns the first message.
-- **A lane's maps are bounded** (theseus-celu.37): `msgs`, `sent` and `sealed` keep the `KEYS_KEPT` keys named most
-  recently (`Lane::touch`; a late live state names its key too), the task board's always. Every insert goes through
-  `touch` (or `seal`), or the bound leaks.
+- **A lane's maps are bounded** (theseus-celu.37, theseus-6809): `msgs`, `sent` and `sealed` keep the task board's
+  key always, every key of a turn the place's renderer holds (its last `RECENT_TURNS`, 8; each key begins
+  `<turn_id>:`, a call's notice card `<turn>:notice:<tool_use_id>` included), and the `KEYS_KEPT` (256) other keys
+  named most recently (`Lane::touch`; a late live state names its key too). The place's actor sends the held turns
+  (`LaneMsg::Held`, `courier/held.rs`) at each turn's start and at `/new`'s rebind; a turn that leaves the list is
+  forgotten. So a lane holds at most 8 x (`max_loops`, 40 by default, x (a loop's text parts + its tool line + its
+  notice cards) + a footer) + 256 + 1 keys: 905 when each loop's text is one part and no card posts. The renderer's
+  `emitted` and `menus` hold only its held turns' keys, and `notices` only their calls' (`render/held.rs`). Every
+  insert goes through `touch` (or `seal`), or the bound leaks.
 - **A place answers only where its bindings file binds it.** An interaction in an unbound place gets no answer, so
   daemons on one bot token with disjoint bindings each answer their own places (Item 11). A card in a guild channel
   mentions exactly its answerers, and nothing else mentions anyone (Item 15).

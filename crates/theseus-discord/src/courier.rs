@@ -22,6 +22,7 @@
 //! `CARD_WAIT`; what the place showed before that goes first.
 
 mod board;
+mod held;
 
 use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 use std::sync::Arc;
@@ -56,8 +57,8 @@ const CARD_WAIT: Duration = Duration::from_secs(5);
 /// How many questions a lane remembers its place has shown.
 const ASKED_KEPT: usize = 64;
 /// How many message keys a lane remembers (`msgs`, `sent`, `sealed`), the
-/// task board's aside: past it, the quarter named longest ago is forgotten
-/// (theseus-celu.37).
+/// task board's and its place's held turns' aside: past it, the quarter named
+/// longest ago is forgotten (theseus-celu.37, theseus-6809).
 const KEYS_KEPT: usize = 256;
 
 /// What a lane is told.
@@ -77,6 +78,10 @@ pub(crate) enum LaneMsg {
     Asked(String),
     /// The place's label, changed by the bindings file (theseus-ocwt).
     Label(String),
+    /// The turns the place's renderer holds now, oldest first, sent whenever
+    /// they change (theseus-6809): their keys are kept whole, and a turn
+    /// that leaves the list is forgotten.
+    Held(Vec<String>),
 }
 
 /// Why a call to Discord did not go through.
@@ -249,8 +254,9 @@ pub(crate) struct Lane {
     pub channel: Option<u64>,
     pub dm_user: Option<u64>,
     pub last_author: Option<u64>,
-    /// key → (channel, message) of the messages this lane wrote, the newest
-    /// `KEYS_KEPT` by when their key was last named (`touched`).
+    /// key → (channel, message) of the messages this lane wrote: the held
+    /// turns' and the board's, and the newest `KEYS_KEPT` others by when
+    /// their key was last named (`touched`).
     pub msgs: HashMap<String, (u64, u64)>,
     /// key → what Discord last got for it.
     pub sent: HashMap<String, String>,
@@ -258,8 +264,15 @@ pub(crate) struct Lane {
     pub sealed: HashSet<String>,
     /// key → when it was last named, by `clock`: written, sealed, or a live
     /// state of it taken, dropped or not. Every key of `msgs`, `sent`, and
-    /// `sealed` but the board's is here, so they hold `KEYS_KEPT` at most.
+    /// `sealed` but the board's and the held turns' is here, so those others
+    /// number `KEYS_KEPT` at most.
     pub touched: HashMap<String, u64>,
+    /// The turns its place's renderer holds (`LaneMsg::Held`): their keys
+    /// stay out of the recency bound (theseus-6809).
+    pub held_turns: Vec<String>,
+    /// Turns the renderer dropped whose keys a waiting live op still names:
+    /// forgotten once that op is written (`held.rs`).
+    pub released: Vec<String>,
     pub clock: u64,
     /// Live ops waiting: the latest per message, in the order they first came.
     pub live: Vec<Op>,
@@ -306,6 +319,8 @@ impl Lane {
             sent: HashMap::new(),
             sealed: HashSet::new(),
             touched: HashMap::new(),
+            held_turns: Vec::new(),
+            released: Vec::new(),
             clock: 0,
             live: Vec::new(),
             anchor: None,
@@ -395,6 +410,7 @@ impl Lane {
             LaneMsg::Author(a) => self.last_author = Some(a),
             LaneMsg::Anchor(a) => self.anchor = Some(a),
             LaneMsg::Label(l) => self.label = l,
+            LaneMsg::Held(turns) => self.hold(turns),
             LaneMsg::Asked(q) => {
                 self.stream_first |= !self.live.is_empty();
                 self.asked.push_back(q);
@@ -424,15 +440,15 @@ impl Lane {
     }
 
     /// `key` was named now. Past `KEYS_KEPT`, the quarter of the keys named
-    /// longest ago is forgotten from every map, the board's never
-    /// (theseus-celu.37). A key is forgotten only after `KEYS_KEPT * 3 / 4`
+    /// longest ago is forgotten from every map, the board's and the held
+    /// turns' never (theseus-celu.37, theseus-6809). A key is forgotten only after `KEYS_KEPT * 3 / 4`
     /// others were named since it, and every late state of a key names it
     /// again: so a sealed reply part is forgotten only once its place's
     /// actor, which sends a turn's states in its events' order, has shown
     /// hundreds of messages of later turns, long after the turn's last state.
     fn touch(&mut self, key: &str) {
         self.clock += 1;
-        if key == render::BOARD_KEY {
+        if key == render::BOARD_KEY || self.held_key(key) {
             return;
         }
         self.touched.insert(key.to_string(), self.clock);
@@ -465,6 +481,7 @@ impl Lane {
         let delay = Duration::from_secs(1 << self.attempt.min(6)).min(BACKOFF_MAX);
         self.retry_at = Some(tokio::time::Instant::now() + delay);
         self.live.clear();
+        self.release();
         self.shared.core.outbox.error("discord", e.message.clone());
         if self.attempt == 1 {
             // Once per outage in the ledger; health keeps the latest.
@@ -1339,6 +1356,7 @@ impl Lane {
                 Err(e) => self.shared.board.error("live message", None, e.message),
             }
         }
+        self.release();
     }
 
     async fn typing(&mut self) -> Result<(), SendErr> {
