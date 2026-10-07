@@ -5,7 +5,10 @@
 //!
 //! - **The watch.** Every `PERIOD` the file is stat'ed; only when its mtime,
 //!   size, or inode moved is it read and parsed, and only when its revision
-//!   (`Bindings::revision`) moved is anything done. An editor's save by
+//!   (`Bindings::revision`) moved is anything done. A stamp is acted on only
+//!   once it has held still a tick and its mtime is a period old, so a save
+//!   seen half written is not taken for the file (a change binds within two
+//!   periods; a writer paused longer than one mid-save still tears). An editor's save by
 //!   rename swaps the inode, so a stat follows it where a watch on the file
 //!   would not. A file that does not load changes nothing: the places bound
 //!   stay, and the board's detail, the log, and a `discord.error` row say
@@ -26,13 +29,16 @@
 //!     (who may drive it, `mention_only`), its actor's label, users and spend
 //!     limit, and its lane's label. Its lane keeps its messages and its actor
 //!     its turn, so a reply streaming there keeps editing its own messages.
-//! - **What waits for the next start**, said on the board's detail and in
-//!   the log: the check that the bot is in a guild added (the bot's roles in
+//! - **A place whose bind failed** is said once and tried again every tick
+//!   until it binds or the file drops it; the board's detail says so meanwhile.
+//!   The DMs are kept in the file's order after every change.
+//! - **What waits for the next start**, measured from the file the start
+//!   bound and said on the board's detail and in the log: the check that the bot is in a guild added (the bot's roles in
 //!   every guild are read again now), and voice channels added, removed, or
 //!   changed. The file's format may change live: both formats read to the
 //!   same places.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
@@ -58,6 +64,46 @@ async fn stamp(path: &Path) -> Stamp {
     Some((m.modified().ok(), m.len(), m.ino()))
 }
 
+/// Whether a file stamped `s` has stood unchanged for a period or more: its
+/// mtime is that old. A file whose mtime is ahead of the clock counts as
+/// settled, or it would never be read.
+fn settled(s: Stamp) -> bool {
+    let Some((Some(mtime), _, _)) = s else {
+        return true;
+    };
+    mtime.elapsed().map_or(true, |age| age >= PERIOD)
+}
+
+/// What each watch has done, by file: ticks run to their end, and of them
+/// those that saw a stamp the tick before had not. What a test waits on to
+/// know the watch has stat'ed a save, with no sleep that hopes a tick passed.
+#[cfg(test)]
+static TICKS: std::sync::Mutex<BTreeMap<PathBuf, (u64, u64)>> =
+    std::sync::Mutex::new(BTreeMap::new());
+
+/// The ticks of the watch of `path` that ended, and the sights among them
+/// (a tick whose stamp was new).
+#[cfg(test)]
+pub(crate) fn ticks(path: &Path) -> (u64, u64) {
+    TICKS.lock().unwrap().get(path).copied().unwrap_or_default()
+}
+
+/// A tick's end, counted for tests (`ticks`); `.1` is set when it saw a new
+/// stamp.
+struct Ticked<'a>(#[cfg_attr(not(test), allow(dead_code))] &'a Path, bool);
+
+impl Drop for Ticked<'_> {
+    fn drop(&mut self) {
+        #[cfg(test)]
+        {
+            let mut t = TICKS.lock().unwrap();
+            let n = t.entry(self.0.to_path_buf()).or_default();
+            n.0 += 1;
+            n.1 += u64::from(self.1);
+        }
+    }
+}
+
 async fn read(path: &Path) -> anyhow::Result<Bindings> {
     use anyhow::Context as _;
     let text = tokio::fs::read_to_string(path)
@@ -71,25 +117,43 @@ async fn read(path: &Path) -> anyhow::Result<Bindings> {
 pub(super) async fn watch(shared: Arc<Shared>, path: PathBuf, mut bound: Bindings) {
     let mut tick = tokio::time::interval(PERIOD);
     tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-    // The first tick reads the file: a change between the start's read and
-    // this one is not missed.
-    let mut seen: Stamp = None;
-    let mut first = true;
+    // The stamp acted on, and the one the last tick saw: a stamp is acted on
+    // only once it has held still a period and is no younger than one, so a
+    // save seen half written is not taken for the file (theseus-sn2z). The
+    // first tick acts on nothing, so a change between the start's read and
+    // the watch's is not missed.
+    let mut acted: Option<Stamp> = None;
+    let mut last: Option<Stamp> = None;
     // What the board says while the file does not load, or what waits for
     // the next start.
     let mut note: Option<String> = None;
     // The last failure said: a save seen mid-write fails twice alike, and is
     // said once.
     let mut said: Option<String> = None;
+    // The places whose bind failed, by key, with why: `bound` names them, but
+    // they are tried again each tick until they bind (theseus-u6v6).
+    let mut failed: BTreeMap<String, String> = BTreeMap::new();
+    // What the start bound: what waits for the next start is measured from
+    // it, however many files came since (theseus-btt4).
+    let started = bound.clone();
     loop {
         tick.tick().await;
+        let mut tick_end = Ticked(&path, false);
+        if !failed.is_empty() && retry(&shared, &bound, &mut failed).await {
+            set(
+                &shared.board,
+                &mut note,
+                join(waits(&started, &bound), unbound(&failed)),
+            );
+        }
         let now = stamp(&path).await;
-        if !first && now == seen {
+        let held = last.replace(now) == Some(now);
+        tick_end.1 = !held;
+        if acted == Some(now) || !(held && settled(now)) {
             keep(&shared.board, note.as_deref());
             continue;
         }
-        first = false;
-        seen = now;
+        acted = Some(now);
         match read(&path).await {
             Err(e) => {
                 let why = one_line(&format!("{e:#}"));
@@ -106,16 +170,74 @@ pub(super) async fn watch(shared: Arc<Shared>, path: PathBuf, mut bound: Binding
             }
             Ok(new) if new.revision == bound.revision => {
                 said = None;
-                set(&shared.board, &mut note, None);
+                set(
+                    &shared.board,
+                    &mut note,
+                    join(waits(&started, &bound), unbound(&failed)),
+                );
             }
             Ok(mut new) => {
                 said = None;
-                let waits = shared.apply(&bound, &mut new).await;
-                set(&shared.board, &mut note, waits);
+                shared.apply(&bound, &mut new, &mut failed).await;
                 bound = new;
+                let waits = waits(&started, &bound);
+                if let Some(w) = &waits {
+                    tracing::info!("discord: {w}");
+                }
+                set(&shared.board, &mut note, join(waits, unbound(&failed)));
             }
         }
     }
+}
+
+/// The places still not bound, said on the board.
+fn unbound(failed: &BTreeMap<String, String>) -> Option<String> {
+    if failed.is_empty() {
+        return None;
+    }
+    let each: Vec<String> = failed
+        .iter()
+        .map(|(k, why)| format!("{k}: {why}"))
+        .collect();
+    Some(format!(
+        "a place did not bind, and is tried again every {} s: {}",
+        PERIOD.as_secs(),
+        each.join("; ")
+    ))
+}
+
+/// Two notes for the board's one line.
+fn join(a: Option<String>, b: Option<String>) -> Option<String> {
+    match (a, b) {
+        (Some(a), Some(b)) => Some(format!("{a}; {b}")),
+        (a, b) => a.or(b),
+    }
+}
+
+/// Try the places that failed to bind again, each against the file bound now:
+/// one the file dropped leaves the set, and one that binds does too. Whether
+/// the set changed.
+async fn retry(
+    shared: &Arc<Shared>,
+    bound: &Bindings,
+    failed: &mut BTreeMap<String, String>,
+) -> bool {
+    let before = failed.len();
+    let list = places(bound);
+    let mut bound_now = Vec::new();
+    for k in failed.keys().cloned().collect::<Vec<_>>() {
+        let Some((_, p)) = list.iter().find(|(o, _)| *o == k) else {
+            failed.remove(&k);
+            continue;
+        };
+        if shared.bind(p).await.is_ok() {
+            failed.remove(&k);
+            bound_now.push(k);
+        }
+    }
+    shared.check_privates(bound, &bound_now);
+    shared.order_dms(bound, failed);
+    failed.len() != before
 }
 
 /// A parse error on one line, for health's one line: TOML's names the
@@ -227,7 +349,8 @@ fn places(b: &Bindings) -> Vec<(String, Spot<'_>)> {
     c.chain(d).collect()
 }
 
-/// What of the change waits for the next start, said on the board.
+/// What of the bindings `new` waits for the next start, because the start that
+/// bound `old` is what runs: said on the board while it holds.
 fn waits(old: &Bindings, new: &Bindings) -> Option<String> {
     let ids =
         |b: &Bindings| -> BTreeSet<String> { b.guilds.iter().map(|g| g.id.clone()).collect() };
@@ -241,13 +364,11 @@ fn waits(old: &Bindings, new: &Bindings) -> Option<String> {
     if waits.is_empty() {
         return None;
     }
-    let w = format!(
+    Some(format!(
         "bindings revision {} is bound; {} wait for the next start",
         new.revision,
         waits.join(" and ")
-    );
-    tracing::info!("discord: {w}");
-    Some(w)
+    ))
 }
 
 /// A voice channel's settings, as `voice::Voice` reads them at the start.
@@ -273,6 +394,33 @@ impl Shared {
         tokio::spawn(lane.run(rx));
     }
 
+    /// The bound DMs in the file's order, as a start fills them: the first
+    /// owner's DM is where approvals and operator notices go (theseus-nz3q).
+    /// A DM whose bind failed is not among them until it binds.
+    fn order_dms(&self, b: &Bindings, failed: &BTreeMap<String, String>) {
+        let mut r = self.routes.lock().unwrap();
+        let have = std::mem::take(&mut r.dms);
+        let bound = |u: u64| have.iter().any(|(h, _)| *h == u);
+        r.dms =
+            b.dm.iter()
+                .filter(|d| !failed.contains_key(&format!("dm:{}", d.user)))
+                .filter_map(|d| {
+                    let user = d.user.parse().ok()?;
+                    bound(user).then(|| (user, d.label()))
+                })
+                .collect();
+    }
+
+    /// The DM `user`, labelled `label`, among the bound ones: once, however
+    /// often its bind is tried.
+    fn add_dm(&self, user: u64, label: String) {
+        let mut r = self.routes.lock().unwrap();
+        match r.dms.iter_mut().find(|(u, _)| *u == user) {
+            Some(d) => d.1 = label,
+            None => r.dms.push((user, label)),
+        }
+    }
+
     pub(super) fn start_channel_lane(self: &Arc<Self>, c: &ChannelBinding) -> anyhow::Result<()> {
         let id = snowflake("channel id", &c.id)?;
         let target = format!("discord:channel:{}", c.id);
@@ -282,7 +430,7 @@ impl Shared {
 
     pub(super) fn start_dm_lane(self: &Arc<Self>, d: &DmBinding) -> anyhow::Result<()> {
         let user = snowflake("dm user", &d.user)?;
-        self.routes.lock().unwrap().dms.push((user, d.label()));
+        self.add_dm(user, d.label());
         let target = format!("discord:dm:{}", d.user);
         self.start_lane(target, "dm", d.label(), None, Some(user));
         Ok(())
@@ -336,9 +484,13 @@ impl Shared {
         gone
     }
 
-    /// Move the binding from the file `old` to the file `new`. Returns what
-    /// waits for the next start, if anything.
-    async fn apply(self: &Arc<Self>, old: &Bindings, new: &mut Bindings) -> Option<String> {
+    /// Move the binding from the file `old` to the file `new`.
+    async fn apply(
+        self: &Arc<Self>,
+        old: &Bindings,
+        new: &mut Bindings,
+        failed: &mut BTreeMap<String, String>,
+    ) {
         // The core first, as at a start: a place's class before a message
         // from it is read; a place whose ceiling the config cannot serve is
         // taken out of `new` and stays unbound.
@@ -352,15 +504,18 @@ impl Shared {
         for (k, p) in &was {
             if find(&now, k).is_none() {
                 self.unbind(k, &p.label()).await;
+                failed.remove(k);
                 removed.push(k.clone());
             }
         }
         for (k, p) in &now {
             match find(&was, k) {
-                None => match self.bind(p).await {
-                    Ok(()) => added.push(k.clone()),
-                    Err(e) => self.board.error("bind place", None, format!("{k}: {e:#}")),
-                },
+                // Added, or a place whose bind failed: bound as the file
+                // has it now.
+                None => self.bound_or_failed(k, p, failed, &mut added).await,
+                Some(_) if failed.contains_key(k) => {
+                    self.bound_or_failed(k, p, failed, &mut added).await;
+                }
                 Some(w) if w.differs(old, p, new) => {
                     self.rebind(k, p);
                     changed.push(k.clone());
@@ -369,6 +524,7 @@ impl Shared {
             }
         }
         self.read_new_privates(old, new);
+        self.order_dms(new, failed);
         let guilds = guilds::guild_ids(new).unwrap_or_default();
         self.refresh_bot_roles(&guilds).await;
         self.board.update(|s| {
@@ -382,7 +538,29 @@ impl Shared {
             revision = %new.revision, ?added, ?removed, ?changed,
             "discord: the bindings file changed"
         );
-        waits(old, new)
+    }
+
+    /// Bind the place `k`: it joins `added`, or its failure is said once, on
+    /// the board and in the record, and kept in `failed` to be tried again.
+    async fn bound_or_failed(
+        self: &Arc<Self>,
+        k: &str,
+        p: &Spot<'_>,
+        failed: &mut BTreeMap<String, String>,
+        added: &mut Vec<String>,
+    ) {
+        match self.bind(p).await {
+            Ok(()) => {
+                failed.remove(k);
+                added.push(k.to_string());
+            }
+            Err(e) => {
+                let why = one_line(&format!("{e:#}"));
+                if failed.insert(k.to_string(), why).is_none() {
+                    self.board.error("bind place", None, format!("{k}: {e:#}"));
+                }
+            }
+        }
     }
 
     /// Each channel newly bound private, outside a trusted guild: its
@@ -394,6 +572,23 @@ impl Shared {
             .filter(|c| !read_before.contains(&c.id.as_str()))
             .filter_map(|c| Some((c.id.parse().ok()?, c.label())))
             .collect();
+        self.spawn_checks(to_read);
+    }
+
+    /// The viewers of each of `keys`' channels read, when `b` binds them
+    /// private outside a trusted guild: a place that bound late.
+    fn check_privates(self: &Arc<Self>, b: &Bindings, keys: &[String]) {
+        let to_read: Vec<(u64, String)> = b
+            .read_at_start()
+            .filter(|c| keys.contains(&format!("channel:{}", c.id)))
+            .filter_map(|c| Some((c.id.parse().ok()?, c.label())))
+            .collect();
+        if !to_read.is_empty() {
+            self.spawn_checks(to_read);
+        }
+    }
+
+    fn spawn_checks(self: &Arc<Self>, to_read: Vec<(u64, String)>) {
         let checks = self.clone();
         tokio::spawn(async move {
             for (c, name) in &to_read {
@@ -525,7 +720,7 @@ impl Shared {
         let target = format!("discord:dm:{}", d.user);
         if self.keep_lane(&target) {
             let user = snowflake("dm user", &d.user)?;
-            self.routes.lock().unwrap().dms.push((user, d.label()));
+            self.add_dm(user, d.label());
             if let Some(l) = self.lane(&target) {
                 let _ = l.send(LaneMsg::Label(d.label()));
             }

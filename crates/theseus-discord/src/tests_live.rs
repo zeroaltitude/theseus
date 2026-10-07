@@ -10,14 +10,16 @@ use theseus_core::approval::{Client, Surface};
 use theseus_core::provider::{FakeProvider, Scripted};
 use theseus_kernel::ActionState;
 use theseus_protocol::{TurnSubmitParams, TurnSubmitResult};
-use theseus_sim::fake_discord::{Guild, DEFAULT_GUILD};
+use theseus_sim::fake_discord::{Guild, Pressed, DEFAULT_GUILD};
 
+use crate::bindings::Bindings;
 use crate::rpc_client::RpcClient;
 use crate::tests_gateway::{Rig, ANA, BEN, LAB};
 
 /// Invented channels beside `#lab`.
 const DOCK: u64 = 900_000_000_000_000_020;
 const PIER: u64 = 900_000_000_000_000_030;
+const REEF: u64 = 900_000_000_000_000_040;
 
 const BOUND: &str = "🔗 Theseus is bound here";
 
@@ -45,6 +47,7 @@ fn guild() -> Guild {
         .channel(LAB, "lab")
         .channel(DOCK, "dock")
         .channel(PIER, "pier")
+        .channel(REEF, "reef")
 }
 
 async fn rig(script: Vec<Scripted>, bindings: &str, more: &[u64]) -> Rig {
@@ -298,4 +301,337 @@ async fn a_post_in_flight_when_its_place_leaves_settles_as_sent_and_the_rest_are
     let dock: Vec<String> = r.posted(DOCK).iter().map(|m| m.content.clone()).collect();
     assert_eq!(dock.len(), 2, "the bind notice and the first: {dock:?}");
     assert!(!dock.iter().any(|m| m.contains("never sent")));
+}
+
+/// theseus-u6v6: a place added live whose bind fails (its session cannot be
+/// opened, once) is said on the board, and bound by the watch's next ticks
+/// with no further save: one bind notice, one error said, and the board's
+/// note gone once it binds.
+#[tokio::test]
+async fn a_place_whose_bind_failed_is_tried_again_until_it_binds() {
+    let r = rig(vec![], &file(&[]), &[]).await;
+    crate::rpc_client::refuse_once(theseus_protocol::method::SESSION_OPEN, "discord #reef");
+    r.rewrite(&file(&[channel(REEF, "reef", &[ANA])]));
+    r.until("the board says why #reef did not bind", || {
+        r.detail()
+            .is_some_and(|d| d.contains(&format!("channel:{REEF}")) && d.contains("refused"))
+    })
+    .await;
+    let d = r.detail().unwrap();
+    assert!(d.contains("tried again"), "{d}");
+    assert!(!d.contains('\n'), "health's one line: {d}");
+    // No second save: the watch tries the place again by itself.
+    r.until("#reef binds", || r.answered(REEF, BOUND)).await;
+    r.until("the note clears", || r.detail().is_none()).await;
+    assert!(
+        r.labels().contains(&"#reef".to_string()),
+        "{:?}",
+        r.labels()
+    );
+    let notices = r
+        .posted(REEF)
+        .iter()
+        .filter(|m| m.content.starts_with(BOUND))
+        .count();
+    assert_eq!(notices, 1, "one bind notice");
+    let errors = r.ledger("discord.error");
+    let said = errors.iter().filter(|e| e["op"] == "bind place").count();
+    assert_eq!(said, 1, "the failure is said once: {errors:?}");
+}
+
+/// A voice channel in the file, driven by `users`.
+fn voice(id: u64, name: &str, users: &[u64]) -> String {
+    format!("{}voice = true\n", channel(id, name, users))
+}
+
+/// theseus-btt4: what waits for the next start is measured from what the
+/// start bound: a voice channel added is named on the board, #lab's users
+/// changed after it still leaves the note, and the voice channel removed
+/// again clears it, since nothing waits any more.
+#[tokio::test]
+async fn the_note_of_what_waits_holds_until_a_start_makes_it_true() {
+    let r = rig(vec![], &file(&[]), &[]).await;
+    let names_voice = || r.detail().is_some_and(|d| d.contains("the voice channels"));
+    r.rewrite(&file(&[voice(DOCK, "dock", &[ANA])]));
+    r.until("the board names the voice channels", names_voice)
+        .await;
+    // An unrelated change: #lab's users.
+    let lab = channel(LAB, "lab", &[ANA, BEN]);
+    let lab_changed =
+        file(&[voice(DOCK, "dock", &[ANA])]).replace(&channel(LAB, "lab", &[ANA]), &lab);
+    r.rewrite(&lab_changed);
+    r.until("#lab's change is bound", || {
+        r.core.bindings.all().first().is_some_and(|b| {
+            b.revision.is_some()
+                && b.revision
+                    != Some(
+                        Bindings::parse(&file(&[voice(DOCK, "dock", &[ANA])]))
+                            .unwrap()
+                            .revision,
+                    )
+        })
+    })
+    .await;
+    // Two periods on: the note is still there.
+    tokio::time::sleep(crate::runtime::LIVE_PERIOD * 2).await;
+    assert!(names_voice(), "{:?}", r.detail());
+    // The voice channel removed: nothing waits.
+    r.rewrite(&file(&[]).replace(&channel(LAB, "lab", &[ANA]), &lab));
+    r.until("the note clears", || r.detail().is_none()).await;
+}
+
+/// theseus-sn2z: a save seen half written (a valid prefix, cut after a table)
+/// is not acted on: with the rest written within the period, no place leaves
+/// health, no post is refused, and the full file is what stays bound.
+#[tokio::test]
+async fn a_save_seen_half_written_is_not_acted_on() {
+    let full = file(&[channel(DOCK, "dock", &[ANA]), channel(PIER, "pier", &[ANA])]);
+    let torn = file(&[channel(DOCK, "dock", &[ANA])]);
+    assert!(full.starts_with(&torn), "the torn file is a prefix");
+    let r = rig(vec![], &full, &[DOCK, PIER]).await;
+    let path = r.dir.path().join("bindings.toml");
+    // The sights: ticks that saw a stamp the tick before had not.
+    let sights = || crate::runtime::live_ticks(&path).1;
+    let target = format!("discord:channel:{PIER}");
+    // The prefix is saved, and the watch sees it (a sight counts once its
+    // tick has ended, its action, if any, included).
+    let s0 = sights();
+    r.rewrite(&torn);
+    r.until("the watch has stat'ed the prefix", || sights() > s0)
+        .await;
+    assert!(
+        r.labels().contains(&"#pier".to_string()),
+        "{:?}",
+        r.labels()
+    );
+    let sid = r.session(PIER);
+    let body = serde_json::json!({"kind": "notice", "text": "after the tear"});
+    r.core.outbox.post(&sid, "", &target, body).unwrap();
+    r.until("#pier's post goes out", || {
+        r.answered(PIER, "after the tear")
+    })
+    .await;
+    assert!(r.refused().is_empty(), "{:?}", r.refused());
+    // The rest is written inside the period: the full file is bound.
+    r.rewrite(&full);
+    let s1 = sights();
+    r.until("the watch has stat'ed the full file", || sights() > s1)
+        .await;
+    let ticked = crate::runtime::live_ticks(&path).0;
+    r.until("and acted on it", || {
+        crate::runtime::live_ticks(&path).0 >= ticked + 2
+    })
+    .await;
+    let labels = r.labels();
+    for l in ["#lab", "#dock", "#pier"] {
+        assert!(labels.contains(&l.to_string()), "{labels:?}");
+    }
+    assert!(r.refused().is_empty(), "{:?}", r.refused());
+}
+
+/// A bindings file of `#lab` and the DMs of `users`, in order.
+fn with_dms(users: &[(u64, &str)]) -> String {
+    let dms: String = users
+        .iter()
+        .map(|(u, n)| format!("[[dm]]\nuser = \"{u}\"\nname = \"{n}\"\n"))
+        .collect();
+    format!(
+        "guild_id = \"{DEFAULT_GUILD}\"\n{}{dms}",
+        channel(LAB, "lab", &[ANA])
+    )
+}
+
+/// theseus-nz3q: the DMs stay in the file's order across live changes, so an
+/// operator's notice, which goes to the first owner's DM, goes to ana's after
+/// her DM was removed and put back, as at a restart, not to ben's.
+#[tokio::test]
+async fn a_dm_put_back_live_keeps_its_place_in_the_files_order() {
+    let both = with_dms(&[(ANA, "ana"), (BEN, "ben")]);
+    let r = Rig::start_on(
+        |_, _| Arc::new(FakeProvider::scripted(vec![])),
+        guild(),
+        &both,
+        &[format!("dm:{BEN}")],
+    )
+    .await;
+    let dm = |who: u64| who + 1;
+    let posts = |who: u64| r.posted(dm(who)).len();
+    r.rewrite(&with_dms(&[(BEN, "ben")]));
+    r.until("ana's DM leaves health", || {
+        !r.labels().contains(&"DM @ana".to_string())
+    })
+    .await;
+    r.rewrite(&both);
+    r.until("ana's DM is back", || {
+        r.labels().contains(&"DM @ana".to_string())
+    })
+    .await;
+    let (ana, ben) = (posts(ANA), posts(BEN));
+    let body = serde_json::json!({"kind": "restarted", "at_unix_ms": 1, "tables": ["model"]});
+    r.core.outbox.to_operator(None, body).unwrap();
+    r.until("the notice is posted", || {
+        posts(ANA) > ana || posts(BEN) > ben
+    })
+    .await;
+    assert_eq!(posts(ANA), ana + 1, "ana's DM is first in the file");
+    assert_eq!(posts(BEN), ben, "ben's DM takes none");
+}
+
+/// theseus-02bq: a place whose settings change keeps its turn and its
+/// messages. A turn is part way in `#lab` (its text and its tool line posted,
+/// its call waiting for approval in ana's DM), the file is rewritten with
+/// `#lab`'s users changed, and the turn is carried to its end: every message
+/// is still the one first posted (a stop and start would create them again,
+/// and the stand-in's nonce window is closed so a created-again message
+/// shows), and the reply and the tool line are edited, not repeated.
+#[tokio::test]
+async fn a_changed_place_keeps_its_turn_and_its_messages() {
+    let script = vec![
+        Scripted::tools(
+            "Setting it.",
+            &[(
+                "t1",
+                "wake_at",
+                serde_json::json!({"after": "10m", "note": "check the build"}),
+            )],
+        ),
+        Scripted::text("Set: I will check the build in ten minutes."),
+    ];
+    let r = rig(script, &file(&[]), &[]).await;
+    r.fake.set_nonce_window_ms(0);
+    r.until("the bind notice", || r.answered(LAB, BOUND)).await;
+    r.say((ANA, "ana"), Some(LAB), "Remind me to check the build.");
+    let card = || {
+        r.posted(ANA + 1)
+            .into_iter()
+            .find(|m| m.versions[0].contains("**Approve?**"))
+    };
+    r.until("the card in ana's DM", || card().is_some()).await;
+    r.until("the text and the tool line in #lab", || {
+        r.posted(LAB).len() >= 3
+    })
+    .await;
+    let before = r.posted(LAB);
+    // Rewritten meanwhile, with #lab's users changed.
+    let changed = with_dms(&[(ANA, "ana")]).replace(
+        &channel(LAB, "lab", &[ANA]),
+        &channel(LAB, "lab", &[ANA, BEN]),
+    );
+    let revision = Bindings::parse(&changed).unwrap().revision;
+    r.rewrite(&changed);
+    r.until("the change is bound", || {
+        r.core
+            .bindings
+            .all()
+            .first()
+            .and_then(|b| b.revision.clone())
+            == Some(revision.clone())
+    })
+    .await;
+    // The turn is carried to its end.
+    r.fake
+        .press(&Pressed {
+            message: &card().unwrap().id,
+            button: "Approve",
+            user: ANA,
+            name: "ana",
+        })
+        .unwrap();
+    r.until("the reply", || {
+        r.answered(LAB, "Set: I will check the build")
+    })
+    .await;
+    r.until("every post settled", || {
+        r.core.outbox.status("discord").pending == 0
+    })
+    .await;
+    // The tool line is edited to its end, where it was (live progress lands
+    // after the posts settle).
+    let ended = || {
+        r.posted(LAB)
+            .iter()
+            .any(|m| m.versions[0].starts_with('⏸') && m.content.starts_with('✅'))
+    };
+    r.until("the tool line is edited to its end", ended).await;
+    let after = r.posted(LAB);
+    for m in &before {
+        assert!(
+            after.iter().any(|a| a.id == m.id),
+            "{} was posted again: {before:#?} then {after:#?}",
+            m.id
+        );
+    }
+    let mut seen = Vec::new();
+    for m in &after {
+        let last = m.versions.last().unwrap();
+        assert!(!seen.contains(last), "{last:?} twice: {after:#?}");
+        seen.push(last.clone());
+    }
+    let reply = after
+        .iter()
+        .filter(|m| m.content.contains("Set: I will"))
+        .count();
+    assert_eq!(reply, 1, "{after:#?}");
+}
+
+/// theseus-88cp: a place the file dropped is not one this daemon binds, even
+/// while its lane drains a post: an operator notice falling back to it is
+/// refused, saying so, and nothing but the post being sent reaches the place.
+#[tokio::test]
+async fn a_notice_falling_back_to_a_retired_lane_is_refused() {
+    let dock = channel(DOCK, "dock", &[ANA]);
+    let r = rig(vec![], &file(std::slice::from_ref(&dock)), &[DOCK]).await;
+    r.until("#dock's bind notice", || r.answered(DOCK, BOUND))
+        .await;
+    let sid = r.session(DOCK);
+    let target = format!("discord:channel:{DOCK}");
+    // No DM takes approvals: ana's is taken out, and ben has none.
+    r.rewrite(&format!("{}{dock}", with_dms(&[])));
+    r.until("ana's DM leaves health", || {
+        !r.labels().contains(&"DM @ana".to_string())
+    })
+    .await;
+    // A post to #dock is held mid-write, and #dock leaves the file.
+    r.fake.hold_writes_containing(Some("held at the dock"));
+    let body = serde_json::json!({"kind": "notice", "text": "held at the dock"});
+    let held = r.core.outbox.post(&sid, "", &target, body).unwrap();
+    r.until("the write is held", || {
+        r.fake.seen().iter().any(|s| s.outcome == "held")
+    })
+    .await;
+    r.rewrite(&with_dms(&[]));
+    r.until("#dock leaves health", || {
+        !r.labels().contains(&"#dock".to_string())
+    })
+    .await;
+    // An operator notice that falls back to #dock: refused, with the reason.
+    let body = serde_json::json!({"kind": "restarted", "at_unix_ms": 1, "tables": ["model"]});
+    let notice = r.core.outbox.to_operator(Some(&sid), body).unwrap();
+    let state = |id: &str| r.core.kernel.outbox_action(id).unwrap().map(|a| a.state);
+    r.until("the notice is refused", || {
+        state(&notice.correlation_id) == Some(ActionState::Failed)
+    })
+    .await;
+    let why: Vec<String> = r
+        .ledger("action.failed")
+        .iter()
+        .filter_map(|row| row["detail"]["error"].as_str().map(str::to_string))
+        .collect();
+    assert!(
+        why.iter()
+            .any(|w| w.contains("is not one this daemon's bindings file names")),
+        "{why:?}"
+    );
+    assert_eq!(
+        state(&held.correlation_id),
+        Some(ActionState::Dispatched),
+        "the held post is still being sent"
+    );
+    r.fake.hold_writes_containing(None);
+    r.until("the held post settles as sent", || {
+        state(&held.correlation_id) == Some(ActionState::Succeeded)
+    })
+    .await;
+    let dock: Vec<String> = r.posted(DOCK).iter().map(|m| m.content.clone()).collect();
+    assert_eq!(dock.len(), 2, "the bind notice and the held post: {dock:?}");
 }
