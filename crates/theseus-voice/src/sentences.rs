@@ -10,16 +10,20 @@ pub const CODE: &str = "There's code in the text channel.";
 
 /// `text` as it is spoken, a sentence at a time: emphasis markers (`**`,
 /// `__`, and `*` or `_` at a word's edge, so snake_case stays), backticks,
-/// heading marks, quote marks, and bullets and list numbers at a line's
-/// start stripped; a link read as its label, a bare web address dropped; a
-/// run of table rows one sentence, [`TABLE`], and a fenced code block one,
-/// [`CODE`]; then split as [`sentences`] splits. The text channel keeps the
+/// heading marks, quote marks, and bullets, task checkboxes and list
+/// numbers (of up to 3 digits) at a line's start stripped; a rule dropped;
+/// a link read as its label, a bare web address dropped; a run of table rows
+/// one sentence, [`TABLE`], and a fenced code block one, [`CODE`]; then
+/// split as [`sentences`] splits. The text channel keeps the
 /// reply as it was written.
 pub fn speakable(text: &str) -> Vec<String> {
     let lines: Vec<&str> = text.lines().collect();
     let mut spoken: Vec<String> = Vec::new();
     let mut fenced = false;
     let mut table = false;
+    // The table's shape, from its separator row: its rows go on while they
+    // keep it, so prose with a pipe after a table is prose (theseus-zcxx).
+    let mut shape: Option<Shape> = None;
     for (i, line) in lines.iter().enumerate() {
         let trimmed = line.trim();
         if trimmed.starts_with("```") || trimmed.starts_with("~~~") {
@@ -28,15 +32,23 @@ pub fn speakable(text: &str) -> Vec<String> {
             }
             fenced = !fenced;
             table = false;
+            shape = None;
             continue;
         }
         if fenced {
             continue;
         }
-        let row = is_separator(trimmed)
-            || (trimmed.starts_with('|') && trimmed.len() > 1)
-            || (trimmed.contains('|')
-                && (table || lines.get(i + 1).is_some_and(|l| is_separator(l.trim()))));
+        let row = if is_separator(trimmed) {
+            shape = Some(Shape::of(trimmed));
+            true
+        } else if let Some(shape) = shape {
+            shape.keeps(trimmed)
+        } else {
+            // A header over its separator, or a row with its outer pipes; a
+            // prose line that opens with a pipe is no row (theseus-zcxx).
+            (trimmed.contains('|') && lines.get(i + 1).is_some_and(|l| is_separator(l.trim())))
+                || (trimmed.len() > 1 && trimmed.starts_with('|') && trimmed.ends_with('|'))
+        };
         if row {
             if !table {
                 spoken.push(TABLE.to_string());
@@ -45,9 +57,40 @@ pub fn speakable(text: &str) -> Vec<String> {
             continue;
         }
         table = false;
+        shape = None;
+        // A rule (`---`, `***`, `___`) is not said (theseus-zcxx).
+        if is_rule(trimmed) {
+            continue;
+        }
         spoken.push(plain(trimmed));
     }
     sentences(&spoken.join("\n"))
+}
+
+/// A table's shape, from its separator row.
+#[derive(Clone, Copy)]
+struct Shape {
+    /// Its rows open with a pipe.
+    outer: bool,
+    /// Its separator's pipes, for a table without outer pipes.
+    pipes: usize,
+}
+
+impl Shape {
+    fn of(separator: &str) -> Self {
+        Self {
+            outer: separator.starts_with('|'),
+            pipes: separator.matches('|').count(),
+        }
+    }
+
+    /// `line` is one of the table's rows.
+    fn keeps(self, line: &str) -> bool {
+        match self.outer {
+            true => line.starts_with('|'),
+            false => line.matches('|').count() == self.pipes,
+        }
+    }
 }
 
 /// A table's separator row: `|---|:--:|`, its pipes optional but one.
@@ -59,13 +102,27 @@ fn is_separator(line: &str) -> bool {
             .all(|c| matches!(c, '|' | '-' | ':' | ' ' | '\t'))
 }
 
+/// A thematic break: three or more of one of `-`, `*` or `_`, spaces
+/// between them allowed.
+fn is_rule(line: &str) -> bool {
+    let marks: Vec<char> = line.chars().filter(|c| !c.is_whitespace()).collect();
+    marks.len() >= 3 && matches!(marks[0], '-' | '*' | '_') && marks.iter().all(|&c| c == marks[0])
+}
+
 /// One line, its marks stripped.
 fn plain(line: &str) -> String {
     let mut rest = line;
-    // Quote marks, then a heading's, then a bullet or a list number.
+    // Quote marks, then a heading's, then a bullet or a list number. A `>`
+    // just before a digit is "more than", no quote mark (theseus-zcxx).
+    let mut more = false;
     loop {
         let r = rest.trim_start();
         match r.strip_prefix('>') {
+            Some(after) if after.starts_with(|c: char| c.is_ascii_digit()) => {
+                rest = after;
+                more = true;
+                break;
+            }
             Some(after) => rest = after,
             None => {
                 rest = r;
@@ -80,18 +137,30 @@ fn plain(line: &str) -> String {
     for bullet in ["- ", "* ", "+ ", "• "] {
         if let Some(after) = rest.strip_prefix(bullet) {
             rest = after.trim_start();
+            // A task's checkbox (theseus-zcxx).
+            for checkbox in ["[ ] ", "[x] ", "[X] "] {
+                if let Some(task) = rest.strip_prefix(checkbox) {
+                    rest = task.trim_start();
+                }
+            }
             break;
         }
     }
+    // A list number has at most 3 digits: a year that opens a line stays
+    // (theseus-zcxx).
     let digits = rest.chars().take_while(char::is_ascii_digit).count();
-    if digits > 0 && rest[digits..].starts_with(['.', ')']) {
+    if !more && (1..=3).contains(&digits) && rest[digits..].starts_with(['.', ')']) {
         let after = &rest[digits + 1..];
         if after.starts_with([' ', '\t']) {
             rest = after.trim_start();
         }
     }
     let unlinked = links(rest);
-    emphasis(&unlinked)
+    let said = emphasis(&unlinked);
+    match more {
+        true => format!("more than {said}"),
+        false => said,
+    }
 }
 
 /// Links as their labels, bare web addresses dropped.
@@ -315,6 +384,63 @@ mod tests {
         // Without its outer pipes.
         let bare = "Day | Spend\n--- | ---\nMon | 4\nDone.";
         assert_eq!(speakable(bare), [TABLE, "Done."]);
+    }
+
+    #[test]
+    fn plus_and_dot_bullets_go() {
+        assert_eq!(
+            speakable("+ first item\n• second item"),
+            ["first item", "second item"]
+        );
+    }
+
+    #[test]
+    fn a_prose_line_that_opens_with_a_pipe_is_said() {
+        assert_eq!(
+            speakable("|x| is the size of x."),
+            ["|x| is the size of x."]
+        );
+    }
+
+    #[test]
+    fn a_rule_is_not_said() {
+        assert_eq!(
+            speakable("Done.\n---\nNext.\n* * *\nLast."),
+            ["Done.", "Next.", "Last."]
+        );
+    }
+
+    #[test]
+    fn a_tasks_checkbox_is_not_said() {
+        assert_eq!(
+            speakable("- [ ] Rotate the key.\n- [x] Ship it.\n* [X] Tell the team."),
+            ["Rotate the key.", "Ship it.", "Tell the team."]
+        );
+    }
+
+    #[test]
+    fn a_year_that_opens_a_line_is_said() {
+        assert_eq!(
+            speakable("2024. That was the year it moved."),
+            ["2024.", "That was the year it moved."]
+        );
+    }
+
+    #[test]
+    fn a_greater_than_before_a_number_is_no_quote_mark() {
+        assert_eq!(
+            speakable(">500 ms on three calls.\n> Quoted."),
+            ["more than 500 ms on three calls.", "Quoted."]
+        );
+    }
+
+    #[test]
+    fn prose_with_a_pipe_after_a_table_is_said() {
+        let text = "| Day | Spend |\n|---|---:|\n| Mon | 4 |\nPipe it through a | b first.";
+        assert_eq!(speakable(text), [TABLE, "Pipe it through a | b first."]);
+        // Without outer pipes, a row keeps the separator's pipes.
+        let bare = "Day | Spend\n--- | ---\nMon | 4\nUse a | b | c here.";
+        assert_eq!(speakable(bare), [TABLE, "Use a | b | c here."]);
     }
 
     #[test]

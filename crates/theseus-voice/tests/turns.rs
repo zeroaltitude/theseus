@@ -3,13 +3,14 @@
 //! in virtual time, each at its exact times.
 
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
 use theseus_voice::{
     write_wav, Audio, Command, Config, CutWhy, Engine, Event, Failure, HeardAs, Over, Played,
     Speaker, Speech, SpeechError, SpeechFuture, Spoken, StandInSpeech, Synthesis, Transcript,
-    TurnId, Utterance, WavIo,
+    TurnId, Utterance, WavIo, TABLE,
 };
 use tokio::time::{sleep, sleep_until, Instant};
 
@@ -85,13 +86,44 @@ async fn call_with(
     config: Config,
     io: WavIo,
     speech: Arc<dyn Speech>,
+    answer: Answer,
+    reports: Vec<(Duration, &'static str)>,
+) -> (Vec<(Duration, Event)>, Vec<Played>) {
+    run(config, io, speech, answer, reports, None).await
+}
+
+/// As [`call`], and the session leaves at `leave`.
+async fn call_leaving(
+    io: WavIo,
+    speech: Arc<dyn Speech>,
+    answer: Answer,
+    reports: Vec<(Duration, &'static str)>,
+    leave: Duration,
+) -> (Vec<(Duration, Event)>, Vec<Played>) {
+    let mut config = Config::new([OWNER, ROBIN]);
+    config.acknowledge_after = Duration::from_secs(60);
+    run(config, io, speech, answer, reports, Some(leave)).await
+}
+
+async fn run(
+    config: Config,
+    io: WavIo,
+    speech: Arc<dyn Speech>,
     mut answer: Answer,
     reports: Vec<(Duration, &'static str)>,
+    leave: Option<Duration>,
 ) -> (Vec<(Duration, Event)>, Vec<Played>) {
     let origin = Instant::now();
     let played = io.played();
     let (engine, handle) = Engine::new(config, Box::new(io), speech);
     let engine = tokio::spawn(engine.run());
+    if let Some(at) = leave {
+        let commands = handle.commands.clone();
+        tokio::spawn(async move {
+            sleep_until(origin + at).await;
+            let _ = commands.send(Command::Leave);
+        });
+    }
     for (at, text) in reports {
         let commands = handle.commands.clone();
         tokio::spawn(async move {
@@ -1246,5 +1278,705 @@ async fn leaving_with_a_reply_unsaid_cuts_it() {
                 cut: S1.into(),
             }
         )]
+    );
+}
+
+/// The stand-in, but `speaker`'s first `stalls` transcriptions never come,
+/// or fail after `fails_after` (a provider's own request bound).
+struct Stalled {
+    inner: StandInSpeech,
+    speaker: Speaker,
+    stalls: AtomicUsize,
+    fails_after: Option<Duration>,
+}
+
+impl Stalled {
+    fn new(inner: StandInSpeech, speaker: Speaker, stalls: usize) -> Self {
+        Self {
+            inner,
+            speaker,
+            stalls: AtomicUsize::new(stalls),
+            fails_after: None,
+        }
+    }
+}
+
+impl Speech for Stalled {
+    fn transcribe<'a>(
+        &'a self,
+        speaker: Speaker,
+        audio: &'a Audio,
+    ) -> SpeechFuture<'a, Transcript> {
+        let stalls = speaker == self.speaker
+            && self
+                .stalls
+                .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1))
+                .is_ok();
+        if !stalls {
+            return self.inner.transcribe(speaker, audio);
+        }
+        match self.fails_after {
+            None => Box::pin(std::future::pending()),
+            Some(after) => Box::pin(async move {
+                sleep(after).await;
+                Err(SpeechError("the provider timed out".into()))
+            }),
+        }
+    }
+
+    fn synthesize<'a>(&'a self, text: &'a str) -> SpeechFuture<'a, Synthesis> {
+        self.inner.synthesize(text)
+    }
+}
+
+fn failed(e: &Event) -> bool {
+    matches!(e, Event::Failed { .. })
+}
+
+/// The hold's bound's `Failed`, for `speaker`.
+fn unheard(speaker: Speaker) -> Event {
+    Event::Failed {
+        what: Failure::Transcribe(speaker),
+        error: SpeechError("no transcript 3000 ms after the utterance closed".into()),
+    }
+}
+
+/// The reply to turn 0, three sentences, cut by Robin with none of it heard,
+/// `into` its first.
+fn cut_first(at: Duration, into: u64) -> [(Duration, Event); 2] {
+    [
+        (
+            at,
+            Event::Cut {
+                what: Spoken::Reply(TurnId(0)),
+                why: CutWhy::Words,
+                sentences: 3,
+                heard: 0,
+                into: ms(into),
+                last_heard: None,
+                cut: S1.into(),
+            },
+        ),
+        (
+            at,
+            Event::BargeIn {
+                speaker: ROBIN,
+                what: Spoken::Reply(TurnId(0)),
+                dropped: 3,
+            },
+        ),
+    ]
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_held_reply_whose_transcript_never_comes_is_cut_at_the_bound() {
+    // A laugh from 1.5 s stops the reply at 1.8 s and closes at 2.6 s; its
+    // transcript never comes. 3 s later, at 5.6 s, the hold decides as a
+    // failure does: the cut is committed (theseus-aq4t). The call goes on:
+    // Robin's words from 7.0 s are the next turn, and its reply plays.
+    let script: &'static [(u64, &'static str)] = &[
+        (
+            0,
+            "This first sentence runs on for quite a while, long enough to talk over. \
+             The second sentence is long enough to be cut late, if it comes to that. Third.",
+        ),
+        (0, "Here are the logs."),
+    ];
+    let dir = tempfile::tempdir().unwrap();
+    let io = asked(dir.path(), 12_000)
+        .say(ROBIN, 1500, 400)
+        .say(ROBIN, 7000, 500)
+        .io;
+    let inner = StandInSpeech::new().transcript(ROBIN, "and the logs?");
+    let speech = Arc::new(Stalled::new(inner, ROBIN, 1));
+    let (seen, played) = call(io, speech, answers(script), vec![]).await;
+    let at = ms(5600);
+    assert_eq!(only(&seen, failed), [(at, unheard(ROBIN))]);
+    assert_eq!(only(&seen, cuts), cut_first(at, 600));
+    assert!(only(&seen, resumed).is_empty());
+    let next = ms(7000 + 500 + 700);
+    assert_eq!(turns(&seen)[1..], [(next, vec![(ROBIN, "and the logs?")])]);
+    assert_eq!(
+        starts(&played),
+        [
+            (ms(1200), len(S1), true),
+            (next, len("Here are the logs."), false)
+        ]
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn the_providers_own_bound_no_longer_sets_the_holds_wait() {
+    // The transcription fails 20 s after it was asked, at 22.6 s: the hold
+    // decided at 5.6 s, and the provider's failure says nothing again.
+    let dir = tempfile::tempdir().unwrap();
+    let io = asked(dir.path(), 25_000).say(ROBIN, 1500, 400).io;
+    let mut speech = Stalled::new(StandInSpeech::new(), ROBIN, 1);
+    speech.fails_after = Some(Duration::from_secs(20));
+    let (seen, played) = call(io, Arc::new(speech), first(three()), vec![]).await;
+    let at = ms(5600);
+    assert_eq!(only(&seen, failed), [(at, unheard(ROBIN))]);
+    assert_eq!(only(&seen, cuts), cut_first(at, 600));
+    assert_eq!(starts(&played), [(ms(1200), len(S1), true)]);
+    assert_eq!(turns(&seen).len(), 1, "unheard, so no turn");
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_reply_waits_8_s_for_a_floor_held_by_a_steady_sound_then_plays_whole() {
+    // Robin's fan, from 0.6 s for 40 s, holds his VAD open: it closes at the
+    // 30 s maximum and opens on the next frame. The owner's answer, ready at
+    // 1.5 s (in the tick from 1.48 s), waits 8 s for the floor; at 9.48 s the
+    // fan's audio so far is transcribed, heard as no words, and the answer
+    // plays, whole: the fan's next 300 ms don't stop it (theseus-aq4t).
+    let reply = "Here are the logs from this morning.";
+    let script: &'static [(u64, &'static str)] = &[(300, "Here are the logs from this morning.")];
+    let dir = tempfile::tempdir().unwrap();
+    let io = asked(dir.path(), 42_000).say(ROBIN, 600, 40_000).io;
+    let speech = Arc::new(
+        StandInSpeech::new()
+            .transcript(OWNER, "show me the logs")
+            .transcript(ROBIN, "")
+            .transcript(ROBIN, "")
+            .transcript(ROBIN, ""),
+    );
+    let (seen, played) = call(io, speech.clone(), answers(script), vec![]).await;
+    assert_eq!(starts(&played), [(ms(9480), len(reply), false)]);
+    assert!(only(&seen, cuts).is_empty() && only(&seen, resumed).is_empty());
+    assert_eq!(turns(&seen).len(), 1, "the fan is no turn");
+    // One probe, and the fan's two utterances.
+    assert_eq!(speech.transcriptions(), 4);
+    let fan: Vec<_> = utterances(&seen)
+        .into_iter()
+        .filter(|(_, u)| u.speaker == ROBIN)
+        .map(|(at, u)| (at, u.heard_as))
+        .collect();
+    assert_eq!(
+        fan,
+        [
+            (ms(30_600), HeardAs::Wordless),
+            (ms(40_600 + 700), HeardAs::Wordless)
+        ]
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_hold_under_a_steady_sound_resumes_at_the_floors_bound() {
+    // Robin's fan starts at 1.5 s over the reply, and stops it at 1.8 s. 8 s
+    // into the hold, at 9.8 s, its audio so far is heard as no words: the
+    // reply resumes from its cut sentence and plays to its end.
+    let dir = tempfile::tempdir().unwrap();
+    let io = asked(dir.path(), 43_000).say(ROBIN, 1500, 40_000).io;
+    let speech = Arc::new(
+        StandInSpeech::new()
+            .transcript(ROBIN, "")
+            .transcript(ROBIN, "")
+            .transcript(ROBIN, ""),
+    );
+    let (seen, played) = call(io, speech, first(three()), vec![]).await;
+    let again = ms(9800);
+    assert_eq!(
+        only(&seen, resumed),
+        [(
+            again,
+            Event::Resumed {
+                what: Spoken::Reply(TurnId(0)),
+                why: HeardAs::Wordless,
+                held: ms(8000),
+            }
+        )]
+    );
+    assert_eq!(
+        starts(&played),
+        [
+            (ms(1200), len(S1), true),
+            (again, len(S1), false),
+            (again + len(S1), len(S2), false),
+            (again + len(S1) + len(S2), len(S3), false),
+        ]
+    );
+    assert!(only(&seen, cuts).is_empty());
+    assert_eq!(turns(&seen).len(), 1);
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_speaker_talking_10_s_in_one_breath_is_still_waited_for() {
+    // Robin talks from 1.0 s to 11.0 s without a pause. The answer, ready at
+    // 1.5 s, waits; at 9.5 s his audio so far is words, so it waits on, and
+    // his words, closed at 11.7 s, supersede it.
+    let script: &'static [(u64, &'static str)] = &[(300, "Here are the logs.")];
+    let dir = tempfile::tempdir().unwrap();
+    let io = asked(dir.path(), 14_000).say(ROBIN, 1000, 10_000).io;
+    let speech = Arc::new(
+        StandInSpeech::new()
+            .transcript(OWNER, "show me the logs")
+            .transcript(ROBIN, "and while you are at it")
+            .transcript(
+                ROBIN,
+                "and while you are at it show me the errors from last night",
+            ),
+    );
+    let (seen, played) = call(io, speech, answers(script), vec![]).await;
+    assert!(played.is_empty(), "{played:?}");
+    let closed = ms(11_700);
+    assert_eq!(
+        only(&seen, cuts),
+        [(
+            closed,
+            Event::Cut {
+                what: Spoken::Reply(TurnId(0)),
+                why: CutWhy::Superseded,
+                sentences: 1,
+                heard: 0,
+                into: Duration::ZERO,
+                last_heard: None,
+                cut: "Here are the logs.".into(),
+            }
+        )]
+    );
+    assert_eq!(
+        turns(&seen)[1],
+        (
+            closed,
+            vec![(
+                ROBIN,
+                "and while you are at it show me the errors from last night"
+            )]
+        )
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn another_speakers_words_supersede_a_waiting_reply() {
+    // The owner's turn is at 1.2 s, and its reply comes at 3.0 s, while Robin,
+    // who has no part in that turn, talks from 2.5 s to 3.5 s. The reply waits
+    // for his utterance, closed at 4.2 s, and its transcript: his words
+    // supersede it, and are the next turn (theseus-e6mj).
+    let script: &'static [(u64, &'static str)] = &[(1800, "Here are the logs.")];
+    let dir = tempfile::tempdir().unwrap();
+    let io = asked(dir.path(), 8000).say(ROBIN, 2500, 1000).io;
+    let speech = Arc::new(
+        StandInSpeech::new()
+            .transcript(OWNER, "show me the logs")
+            .transcript(ROBIN, "the ones from last night too"),
+    );
+    let (seen, played) = call(io, speech, answers(script), vec![]).await;
+    assert!(played.is_empty(), "{played:?}");
+    let closed = ms(4200);
+    assert_eq!(
+        only(&seen, cuts),
+        [(
+            closed,
+            Event::Cut {
+                what: Spoken::Reply(TurnId(0)),
+                why: CutWhy::Superseded,
+                sentences: 1,
+                heard: 0,
+                into: Duration::ZERO,
+                last_heard: None,
+                cut: "Here are the logs.".into(),
+            }
+        )]
+    );
+    assert_eq!(
+        turns(&seen)[1],
+        (closed, vec![(ROBIN, "the ones from last night too")])
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn leaving_while_held_cuts_once_and_resumes_nothing() {
+    // A laugh from 1.5 s stops the reply at 1.8 s; `Leave` at 2.1 s, while it
+    // is held: one cut, the call's end, 600 ms into its first sentence
+    // (theseus-e6mj).
+    let dir = tempfile::tempdir().unwrap();
+    let io = asked(dir.path(), 8000).say(ROBIN, 1500, 400).io;
+    let speech = Arc::new(StandInSpeech::new().transcript(ROBIN, ""));
+    let (seen, played) = call_leaving(io, speech, first(three()), vec![], ms(2100)).await;
+    assert_eq!(
+        only(&seen, cuts),
+        [(
+            ms(2100),
+            Event::Cut {
+                what: Spoken::Reply(TurnId(0)),
+                why: CutWhy::CallEnded,
+                sentences: 3,
+                heard: 0,
+                into: ms(600),
+                last_heard: None,
+                cut: S1.into(),
+            }
+        )]
+    );
+    assert!(only(&seen, resumed).is_empty());
+    assert_eq!(starts(&played), [(ms(1200), len(S1), true)]);
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_report_cut_by_words_and_waiting_at_the_calls_end_is_cut() {
+    // The report plays from 0.1 s; the owner's words from 1.2 s cut it in its
+    // second sentence, at 2.5 s, and it waits for the next pause. His turn is
+    // still in flight at 4 s, when the call ends: the report is cut there,
+    // heard to its first sentence (theseus-qrwx).
+    let r1 = "The deploy finished.";
+    let r2 = "All forty checks passed on the first try.";
+    let report = "The deploy finished. All forty checks passed on the first try. Nothing else.";
+    let dir = tempfile::tempdir().unwrap();
+    let io = Lines::new(dir.path(), 9000).say(OWNER, 1200, 600).io;
+    let speech = Arc::new(StandInSpeech::new().transcript(OWNER, "hold on, what's that"));
+    let answer: Answer = Box::new(|_, _| (ms(10_000), "Sure.".into()));
+    let (seen, _) = call_leaving(io, speech, answer, vec![(ms(100), report)], ms(4000)).await;
+    let ended: Vec<_> = only(&seen, cuts)
+        .into_iter()
+        .filter(|(_, e)| {
+            matches!(
+                e,
+                Event::Cut {
+                    why: CutWhy::CallEnded,
+                    ..
+                }
+            )
+        })
+        .collect();
+    assert_eq!(
+        ended,
+        [(
+            ms(4000),
+            Event::Cut {
+                what: Spoken::Report,
+                why: CutWhy::CallEnded,
+                sentences: 3,
+                heard: 1,
+                into: Duration::ZERO,
+                last_heard: Some(r1.into()),
+                cut: r2.into(),
+            }
+        )]
+    );
+    assert_eq!(
+        only(&seen, cuts).len(),
+        3,
+        "the words' cut and barge-in first"
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_report_never_begun_is_cut_at_the_calls_end() {
+    // The report comes at 2 s, while the owner's turn is in flight; the call
+    // ends at 4 s, before any pause (theseus-qrwx).
+    let dir = tempfile::tempdir().unwrap();
+    let io = asked(dir.path(), 9000).io;
+    let speech = Arc::new(StandInSpeech::new());
+    let answer: Answer = Box::new(|_, _| (ms(10_000), "Sure.".into()));
+    let report = "The backup finished. It took an hour.";
+    let (seen, played) = call_leaving(io, speech, answer, vec![(ms(2000), report)], ms(4000)).await;
+    assert!(played.is_empty());
+    assert_eq!(
+        only(&seen, cuts),
+        [(
+            ms(4000),
+            Event::Cut {
+                what: Spoken::Report,
+                why: CutWhy::CallEnded,
+                sentences: 2,
+                heard: 0,
+                into: Duration::ZERO,
+                last_heard: None,
+                cut: "The backup finished.".into(),
+            }
+        )]
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn an_echo_prone_speakers_echo_of_a_whole_reply_is_an_echo() {
+    // E1 (theseus-j2ut): two echoes make Robin echo-prone (resumed at 2.8 s
+    // and 4.5 s). His microphone then carries the first two sentences back
+    // in one utterance, from 4.7 s to 12.4 s, with no stop: the run over the
+    // sentences joined in the order they played is the whole of it.
+    let again = ms(4500);
+    let s2_end = again + len(S1) + len(S2);
+    let io_len = s2_end.as_millis() as u64 + 4000;
+    let dir = tempfile::tempdir().unwrap();
+    let echo_len = s2_end.as_millis() as u64 - 4700;
+    let io = asked(dir.path(), io_len)
+        .say(ROBIN, 1500, 600)
+        .say(ROBIN, 3200, 600)
+        .say(ROBIN, 4700, echo_len)
+        .io;
+    let both = format!("{S1} {S2}");
+    let speech = Arc::new(
+        StandInSpeech::new()
+            .transcript(ROBIN, "this first sentence runs on for quite a while")
+            .transcript(ROBIN, "a while long enough to talk over")
+            .transcript(ROBIN, &both),
+    );
+    let (seen, played) = call(io, speech, first(three()), vec![]).await;
+    let heard: Vec<_> = utterances(&seen)
+        .into_iter()
+        .filter(|(_, u)| u.speaker == ROBIN)
+        .map(|(_, u)| u.heard_as)
+        .collect();
+    assert_eq!(heard, [HeardAs::Echo, HeardAs::Echo, HeardAs::Echo]);
+    assert!(only(&seen, cuts).is_empty(), "{seen:?}");
+    assert_eq!(turns(&seen).len(), 1, "no turn");
+    assert_eq!(
+        starts(&played)[2..],
+        [
+            (again, len(S1), false),
+            (again + len(S1), len(S2), false),
+            (s2_end, len(S3), false),
+        ]
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn the_first_echo_cut_short_by_its_own_stop_is_an_echo() {
+    // E2 (theseus-j2ut): the first sentence starts at 1.2 s, and Robin's
+    // microphone plays its head back from 1.3 s; the stop at 1.6 s cuts the
+    // echo to two words. A run from the playing sentence's head, by an
+    // utterance begun within 0.5 s of its start, is an echo from 2 words.
+    let dir = tempfile::tempdir().unwrap();
+    let io = asked(dir.path(), 14_000).say(ROBIN, 1300, 400).io;
+    let speech = Arc::new(StandInSpeech::new().transcript(ROBIN, "This first"));
+    let (seen, played) = call(io, speech, first(three()), vec![]).await;
+    assert_eq!(utterances(&seen)[1].1.heard_as, HeardAs::Echo);
+    assert_eq!(
+        only(&seen, resumed),
+        [(
+            ms(2400),
+            Event::Resumed {
+                what: Spoken::Reply(TurnId(0)),
+                why: HeardAs::Echo,
+                held: ms(800),
+            }
+        )]
+    );
+    assert!(only(&seen, cuts).is_empty());
+    assert_eq!(turns(&seen).len(), 1);
+    assert_eq!(played.len(), 4);
+}
+
+#[tokio::test(start_paused = true)]
+async fn an_echo_across_a_sentence_boundary_is_an_echo() {
+    // E3 (theseus-j2ut): the first sentence ends as the second begins, and
+    // Robin's microphone carries back the first's tail and the second's head,
+    // from 0.1 s into the second: no one sentence holds 80% of it, the two
+    // joined as they played do.
+    let s2_at = ms(1200) + len(S1);
+    let at = s2_at.as_millis() as u64 + 100;
+    let dir = tempfile::tempdir().unwrap();
+    let io = asked(dir.path(), 16_000).say(ROBIN, at, 600).io;
+    let speech =
+        Arc::new(StandInSpeech::new().transcript(ROBIN, "to talk over the second sentence"));
+    let (seen, played) = call(io, speech, first(three()), vec![]).await;
+    assert_eq!(utterances(&seen)[1].1.heard_as, HeardAs::Echo);
+    assert_eq!(only(&seen, resumed).len(), 1);
+    assert!(only(&seen, cuts).is_empty());
+    assert_eq!(turns(&seen).len(), 1);
+    assert_eq!(played.len(), 4);
+}
+
+#[tokio::test(start_paused = true)]
+async fn two_words_not_at_the_playing_sentences_head_are_a_turn() {
+    // An answer of two of the question's words, begun within 0.5 s of its
+    // start, is no head-run: words, and a turn (theseus-j2ut).
+    let dir = tempfile::tempdir().unwrap();
+    let question = "Do you want the daily or the monthly view?";
+    let io = asked(dir.path(), 8000).say(ROBIN, 1500, 600).io;
+    let speech = Arc::new(StandInSpeech::new().transcript(ROBIN, "Monthly view."));
+    let (seen, played) = call(io, speech, first(question), vec![]).await;
+    assert_eq!(utterances(&seen)[1].1.heard_as, HeardAs::Words);
+    assert_eq!(turns(&seen)[1], (ms(2800), vec![(ROBIN, "Monthly view.")]));
+    assert_eq!(starts(&played), [(ms(1200), len(question), true)]);
+}
+
+/// The owner's turn 0 is at 1.2 s, and Robin's turn 1 at 1.4 s, when turn 0's
+/// reply comes: "Here is the plan." from 1.4 s, then the question, from
+/// 2.335 s to 3.6 s. The owner's "Yes." from 3.4 s for 300 ms begins on its
+/// last word, too short to stop it, and closes at 4.4 s. Robin's reply comes
+/// `robin` after his turn began.
+async fn yes_with_a_reply_queued(robin: u64) -> Vec<(Duration, Event)> {
+    let script: &'static [(u64, &'static str)] = &[
+        (200, "Here is the plan. Should I deploy it now?"),
+        (0, "The logs are clean."),
+    ];
+    let mut by_turn = script.to_vec();
+    by_turn[1].0 = robin;
+    let by_turn: &'static [(u64, &'static str)] = by_turn.leak();
+    let dir = tempfile::tempdir().unwrap();
+    let io = Lines::new(dir.path(), 9000)
+        .say(OWNER, 0, 500)
+        .say(ROBIN, 0, 600)
+        .say(OWNER, 3400, 300)
+        .io;
+    let speech = Arc::new(
+        StandInSpeech::new()
+            .transcript(OWNER, "what's the plan?")
+            .transcript(ROBIN, "are the logs clean?")
+            .transcript(OWNER, "Yes."),
+    );
+    let (seen, played) = call(io, speech, answers(by_turn), vec![]).await;
+    let question = "Should I deploy it now?";
+    assert_eq!(
+        starts(&played),
+        [
+            (ms(1400), len("Here is the plan."), false),
+            (ms(1400) + len("Here is the plan."), len(question), false),
+        ]
+    );
+    seen
+}
+
+/// The "Yes." is turn 2, at its close, and Robin's reply, which waited for
+/// it, is superseded.
+fn yes_is_a_turn(seen: &[(Duration, Event)]) {
+    let closed = ms(3400 + 300 + 700);
+    assert_eq!(turns(seen)[2], (closed, vec![(OWNER, "Yes.")]));
+    assert_eq!(utterances(seen)[2].1.heard_as, HeardAs::Words);
+    assert_eq!(
+        only(seen, cuts),
+        [(
+            closed,
+            Event::Cut {
+                what: Spoken::Reply(TurnId(1)),
+                why: CutWhy::Superseded,
+                sentences: 1,
+                heard: 0,
+                into: Duration::ZERO,
+                last_heard: None,
+                cut: "The logs are clean.".into(),
+            }
+        )]
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_yes_on_a_closing_questions_last_word_with_a_reply_queued_before_it_is_a_turn() {
+    // T1 (theseus-q4pc): Robin's reply is queued at 2.4 s, before the "Yes."
+    // began, behind the question.
+    yes_is_a_turn(&yes_with_a_reply_queued(1000).await);
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_yes_on_a_closing_questions_last_word_with_a_reply_queued_under_it_is_a_turn() {
+    // T2 (theseus-q4pc): Robin's reply is queued at 3.5 s, after the "Yes."
+    // began and before it closed.
+    yes_is_a_turn(&yes_with_a_reply_queued(2100).await);
+}
+
+#[tokio::test(start_paused = true)]
+async fn one_echo_each_from_two_speakers_leaves_both_stops_on() {
+    // The count is each speaker's (theseus-3ug0): Robin's echo from 1.5 s
+    // stops the reply at 1.8 s, it resumes at 2.8 s; the owner's from 3.2 s
+    // stops it at 3.5 s, it resumes at 4.5 s. Robin's words from 5.0 s still
+    // stop it at 5.3 s.
+    let dir = tempfile::tempdir().unwrap();
+    let io = asked(dir.path(), 9000)
+        .say(ROBIN, 1500, 600)
+        .say(OWNER, 3200, 600)
+        .say(ROBIN, 5000, 600)
+        .io;
+    let speech = Arc::new(
+        StandInSpeech::new()
+            .transcript(OWNER, "tell me about it")
+            .transcript(ROBIN, "this first sentence runs on for quite a while")
+            .transcript(OWNER, "a while long enough to talk over")
+            .transcript(ROBIN, "Hang on, wait a second."),
+    );
+    let (seen, played) = call(io, speech, first(three()), vec![]).await;
+    let heard: Vec<_> = utterances(&seen)[1..]
+        .iter()
+        .map(|(_, u)| (u.speaker, u.heard_as))
+        .collect();
+    assert_eq!(
+        heard,
+        [
+            (ROBIN, HeardAs::Echo),
+            (OWNER, HeardAs::Echo),
+            (ROBIN, HeardAs::Words)
+        ]
+    );
+    assert_eq!(
+        starts(&played),
+        [
+            (ms(1200), len(S1), true),
+            (ms(2800), len(S1), true),
+            (ms(4500), len(S1), true),
+        ]
+    );
+    assert_eq!(played[2].ended, Some(ms(5300)), "Robin's stop is on");
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_tables_sentence_heard_back_is_an_echo() {
+    // The reply's table is said as one sentence, from 1.805 s; Robin's
+    // microphone carries it back whole from 2.0 s. Against the raw rows it
+    // would be words (theseus-zcxx).
+    let reply = "Here it is.\n| Day | Spend |\n|---|---:|\n| Mon | $4.10 |\nThat's all.";
+    let dir = tempfile::tempdir().unwrap();
+    let io = asked(dir.path(), 14_000).say(ROBIN, 2000, 600).io;
+    let speech = Arc::new(StandInSpeech::new().transcript(ROBIN, TABLE));
+    let (seen, played) = call(io, speech, first(reply), vec![]).await;
+    let (_, echo) = utterances(&seen)[1];
+    assert_eq!(echo.heard_as, HeardAs::Echo);
+    assert_eq!(
+        echo.over,
+        Some(Over::Saying {
+            what: Spoken::Reply(TurnId(0)),
+            sentence: 1,
+            text: TABLE.into()
+        })
+    );
+    assert_eq!(only(&seen, resumed).len(), 1);
+    assert!(only(&seen, cuts).is_empty());
+    assert_eq!(turns(&seen).len(), 1);
+    assert_eq!(played.len(), 4);
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_sentence_heard_back_as_played_is_an_echo_without_its_link_or_emphasis() {
+    // The raw sentence has a link and emphasis; it is played as "See the build
+    // log for the failure today.", and heard back so (theseus-zcxx).
+    let reply = "See [the build log](https://ci.example.test/run/7) for **the failure** today.";
+    let dir = tempfile::tempdir().unwrap();
+    let io = asked(dir.path(), 10_000).say(ROBIN, 1900, 600).io;
+    let speech =
+        Arc::new(StandInSpeech::new().transcript(ROBIN, "see the build log for the failure today"));
+    let (seen, played) = call(io, speech, first(reply), vec![]).await;
+    assert_eq!(utterances(&seen)[1].1.heard_as, HeardAs::Echo);
+    assert_eq!(turns(&seen).len(), 1);
+    assert!(only(&seen, cuts).is_empty());
+    let said = "See the build log for the failure today.";
+    assert_eq!(starts(&played)[0], (ms(1200), len(said), true));
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_cut_quotes_the_sentences_as_they_were_played() {
+    // "Here it is." from 1.2 s, the table's sentence from 1.805 s to 3.785 s,
+    // then "Monday was the most." (raw: "**Monday** was the most."), cut by
+    // Robin's words from 4.0 s (theseus-zcxx).
+    let reply =
+        "Here it is.\n| Day | Spend |\n|---|---:|\n| Mon | $4.10 |\n**Monday** was the most. Done.";
+    let dir = tempfile::tempdir().unwrap();
+    let io = asked(dir.path(), 9000).say(ROBIN, 4000, 600).io;
+    let speech = Arc::new(StandInSpeech::new().transcript(ROBIN, "and Tuesday?"));
+    let (seen, _) = call(io, speech, first(reply), vec![]).await;
+    let cut = only(&seen, cuts);
+    let (
+        _,
+        Event::Cut {
+            heard,
+            last_heard,
+            cut,
+            why,
+            ..
+        },
+    ) = &cut[0]
+    else {
+        panic!("a cut: {cut:?}")
+    };
+    assert_eq!(
+        (*why, *heard, last_heard.as_deref(), cut.as_str()),
+        (CutWhy::Words, 2, Some(TABLE), "Monday was the most.")
     );
 }

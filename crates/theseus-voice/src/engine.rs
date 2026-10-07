@@ -25,9 +25,18 @@
 //!   (`Resumed`); words commit the cut (a `Cut` for each reply or report,
 //!   then `BargeIn`) and are the next turn. Words too short to stop it, or
 //!   from a speaker heard echoing twice (whose stop is off for the call),
-//!   cut at their transcript; so does a failed transcription. A report cut
-//!   by words comes back at the next pause from its cut sentence. The
-//!   session still has the whole text.
+//!   cut at their transcript; so does a failed transcription, and a hold's
+//!   transcript still due 3 s after its utterance closed (`transcript_bound`,
+//!   theseus-aq4t), which is then dropped. A report cut
+//!   by words comes back at the next pause from its cut sentence; one still
+//!   waiting when the call ends is cut there (theseus-qrwx). The session
+//!   still has the whole text.
+//! - **The floor's bound.** A reply that has waited 8 s for the floor, or a
+//!   hold for its utterances to close, held only by open utterances, has each
+//!   one's audio so far transcribed once (`floor_bound`, theseus-aq4t): a
+//!   person's long sentence is words and still waited for; a fan's, music's or
+//!   a TV's sound heard as none no longer holds the floor, and its stop waits
+//!   for its words, as an echo-prone speaker's does.
 //! - A turn that runs past 2 s gets the canned acknowledgment, once, when the
 //!   line is quiet. A task's report waits for the next pause.
 //!
@@ -74,6 +83,15 @@ pub struct Config {
     /// What was received under the threshold just before an utterance opens
     /// begins it, a word's soft start: 200 ms.
     pub pre_roll: Duration,
+    /// How long a hold waits for the transcripts of the utterances over it
+    /// after the last of them closed, before it decides as if they failed:
+    /// 3 s (theseus-aq4t).
+    pub transcript_bound: Duration,
+    /// How long a reply waits for a floor held by an open utterance, or a
+    /// hold for one to close, before the utterance's audio so far is
+    /// transcribed once: heard as no words, it no longer holds the floor,
+    /// and its stop waits for its words: 8 s (theseus-aq4t).
+    pub floor_bound: Duration,
 }
 
 impl Config {
@@ -88,6 +106,8 @@ impl Config {
             min_speech: Duration::from_millis(100),
             max_utterance: Duration::from_secs(30),
             pre_roll: Duration::from_millis(200),
+            transcript_bound: Duration::from_secs(3),
+            floor_bound: Duration::from_secs(8),
         }
     }
 
@@ -322,12 +342,22 @@ pub struct Engine {
     /// Each queued reply that hasn't begun: when its turn's speakers last
     /// spoke in it.
     split: HashMap<TurnId, BTreeMap<Speaker, Duration>>,
+    /// Each open utterance's number, from 0 in each call.
+    next_opening: u64,
+    /// A speaker whose sound, heard as no words, closed at the VAD's
+    /// maximum, and the tick it closed on: the sound that opens again on the
+    /// next tick is the same one.
+    steady: BTreeMap<Speaker, u64>,
     work: FuturesUnordered<BoxFuture<'static, Done>>,
     outbox: Vec<Out>,
 }
 
 /// How long after a sentence ends an utterance may still be its echo.
 const ECHO_TAIL: Duration = Duration::from_millis(1200);
+
+/// An utterance begun this soon after the sentence playing began may echo
+/// its head from 2 words (theseus-j2ut).
+const ECHO_HEAD: Duration = Duration::from_millis(500);
 
 /// A speaker heard echoing this many times in a call is echo-prone: one
 /// verdict that was wrong doesn't take their stop away (theseus-3ug0).
@@ -344,9 +374,31 @@ struct Opening {
     over: Option<Over>,
     overlap: Overlap,
     sentences: Vec<String>,
-    /// It began over the last sentence queued, which had begun: if the queue
-    /// is empty when it closes, it answers what was said (theseus-1cz8).
+    /// It began over its reply's or report's last sentence, which had
+    /// begun: if nothing queued has begun when it closes, it answers what
+    /// was said (theseus-1cz8, theseus-q4pc).
     last: bool,
+    /// The sentence playing, begun at most `ECHO_HEAD` before it: a run
+    /// from its head is an echo from 2 words (theseus-j2ut).
+    head: Option<String>,
+    /// Its number, so a probe of its audio so far finds it.
+    id: u64,
+    /// What the floor's bound heard of it so far.
+    sound: Sound,
+}
+
+/// What the floor's bound heard of an open utterance (theseus-aq4t).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Sound {
+    /// Not asked.
+    Unheard,
+    /// Its audio so far is being transcribed.
+    Asked,
+    /// Words, or a probe that failed: it holds the floor, as any utterance.
+    Words,
+    /// No words: a fan, music, a TV. It doesn't hold the floor, and its
+    /// stop waits for its words, as an echo-prone speaker's does.
+    Wordless,
 }
 
 /// A closed utterance, until its turn starts.
@@ -393,6 +445,8 @@ struct QueuedReport {
 /// decide: resume, or commit the cut.
 struct Hold {
     since: Instant,
+    /// When it began, from the call's start.
+    at: Duration,
     /// The item that was playing, and how long it had played.
     seq: u64,
     what: Spoken,
@@ -425,6 +479,12 @@ struct Item {
 }
 
 enum Done {
+    /// The floor's bound: an open utterance's audio so far, transcribed.
+    Probed {
+        speaker: Speaker,
+        id: u64,
+        result: Result<Transcript, SpeechError>,
+    },
     Transcribed {
         seq: u64,
         result: Result<Transcript, SpeechError>,
@@ -492,6 +552,8 @@ impl Engine {
             said: HashMap::new(),
             echoes: BTreeMap::new(),
             split: HashMap::new(),
+            next_opening: 0,
+            steady: BTreeMap::new(),
             work: FuturesUnordered::new(),
             outbox: Vec::new(),
         };
@@ -603,11 +665,21 @@ impl Engine {
             let was_open = vad.is_open();
             let step = vad.push(tick, frame, &self.vad);
             if !was_open && self.vads.get(&speaker).is_some_and(Vad::is_open) {
-                let opening = self.what_is_over(now);
+                let mut opening = self.what_is_over(now);
+                // A sound heard as no words, open again on the tick after
+                // the VAD's maximum closed it, is the same sound.
+                if self.steady.remove(&speaker).is_some_and(|t| t + 1 == tick) {
+                    opening.sound = Sound::Wordless;
+                }
                 self.opening.insert(speaker, opening);
             }
-            // An echo-prone speaker's stop waits for their words.
-            let prone = self.echoes.get(&speaker).is_some_and(|n| *n >= ECHO_PRONE);
+            // An echo-prone speaker's stop waits for their words, and so
+            // does a sound heard as none (theseus-aq4t).
+            let prone = self.echoes.get(&speaker).is_some_and(|n| *n >= ECHO_PRONE)
+                || self
+                    .opening
+                    .get(&speaker)
+                    .is_some_and(|o| o.sound == Sound::Wordless);
             if step.speech && talking && !prone {
                 let n = self.talk_frames.entry(speaker).or_default();
                 *n += 1;
@@ -621,10 +693,17 @@ impl Engine {
                         overlap: Overlap::None,
                         sentences: Vec::new(),
                         last: false,
+                        head: None,
+                        id: 0,
+                        sound: Sound::Unheard,
                     });
+                    if step.speech && opening.sound == Sound::Wordless {
+                        self.steady.insert(speaker, tick);
+                    }
                     // A "yes" begun on a question's last word, closed after
-                    // it ended: the tail's rules, as if begun after it.
-                    if opening.last && self.queue.is_empty() {
+                    // it ended: the tail's rules, as if begun after it. What
+                    // is queued now hasn't begun (theseus-q4pc).
+                    if opening.last && self.queue.front().is_none_or(|f| f.opens) {
                         opening.overlap = Overlap::Tail;
                     }
                     self.transcribe(speaker, first_tick, tick, audio, opening);
@@ -656,10 +735,15 @@ impl Engine {
             false => Overlap::Tail,
         };
         let mut last = false;
+        let mut head = None;
         let (over, overlap) = match self.queue.front() {
             Some(item) => {
                 if item.clip.is_some() || self.hold.is_some() {
                     sentences.push(item.text.clone());
+                }
+                let begun = item.started.filter(|_| item.clip.is_some());
+                if begun.is_some_and(|s| now.saturating_duration_since(s) <= ECHO_HEAD) {
+                    head = Some(item.text.clone());
                 }
                 let over = Over::Saying {
                     what: item.what,
@@ -671,7 +755,9 @@ impl Engine {
                 if item.opens && self.hold.is_none() {
                     (Some(over), tail)
                 } else {
-                    last = self.queue.len() == 1;
+                    // Its own reply's last sentence, whatever is queued
+                    // behind it (theseus-q4pc).
+                    last = item.index + 1 == item.count;
                     (Some(over), Overlap::Speech)
                 }
             }
@@ -680,11 +766,16 @@ impl Engine {
                 (over, tail)
             }
         };
+        let id = self.next_opening;
+        self.next_opening += 1;
         Opening {
             over,
             overlap,
             sentences,
             last,
+            head,
+            id,
+            sound: Sound::Unheard,
         }
     }
 
@@ -732,6 +823,7 @@ impl Engine {
         item.clip = None;
         self.hold = Some(Hold {
             since: now,
+            at: at_tick(self.ticks),
             seq: item.seq,
             what: item.what,
             into,
@@ -750,7 +842,7 @@ impl Engine {
     /// heard, none of them words, and nobody is speaking.
     fn resume(&mut self, now: Instant) {
         if self.hold.is_none()
-            || self.vads.values().any(Vad::is_open)
+            || self.floor_held()
             || self.pending.iter().any(|p| {
                 p.opening.overlap == Overlap::Speech && matches!(p.state, Transcribed::Waiting)
             })
@@ -770,6 +862,136 @@ impl Engine {
             why: hold.why.unwrap_or(HeardAs::Wordless),
             held: now.saturating_duration_since(hold.since),
         });
+    }
+
+    /// The hold's bound (theseus-aq4t): when the transcripts of the
+    /// utterances over a hold are still due `transcript_bound` after the last
+    /// of them closed, they decide as if they failed. Each is dropped with
+    /// its `Failed`, and the cut is committed, as a failure's is: a stop that
+    /// wasn't heard must not be talked over. A transcript that comes later is
+    /// dropped (`heard`).
+    fn overdue(&mut self, now: Instant) {
+        if self.hold.is_none() {
+            return;
+        }
+        let due = |p: &Pending| {
+            p.opening.overlap == Overlap::Speech && matches!(p.state, Transcribed::Waiting)
+        };
+        let Some(last) = self
+            .pending
+            .iter()
+            .filter(|p| due(p))
+            .map(|p| p.closed)
+            .max()
+        else {
+            return;
+        };
+        let bound = self.config.transcript_bound;
+        if at_tick(self.ticks) < last + bound {
+            return;
+        }
+        let mut late = Vec::new();
+        for p in self.pending.iter_mut().filter(|p| due(p)) {
+            p.state = Transcribed::Dropped;
+            late.push(p.speaker);
+        }
+        for speaker in &late {
+            self.emit(Event::Failed {
+                what: Failure::Transcribe(*speaker),
+                error: SpeechError(format!(
+                    "no transcript {} ms after the utterance closed",
+                    bound.as_millis()
+                )),
+            });
+        }
+        if let Some(speaker) = late.first() {
+            self.commit(*speaker, now);
+        }
+    }
+
+    /// Someone holds the floor: an open utterance not heard as a sound with
+    /// no words.
+    fn floor_held(&self) -> bool {
+        self.vads.iter().any(|(speaker, vad)| {
+            vad.is_open()
+                && !self
+                    .opening
+                    .get(speaker)
+                    .is_some_and(|o| o.sound == Sound::Wordless)
+        })
+    }
+
+    /// The floor's bound (theseus-aq4t): a reply that has waited
+    /// `floor_bound` for the floor, or a hold that has, held only by open
+    /// utterances, has each one's audio so far transcribed once. A person's
+    /// long sentence is words, and still waited for; a fan's or music's
+    /// sound is none, and no longer holds the floor (`probed`).
+    fn probe(&mut self) {
+        let since = match (&self.hold, self.queue.front()) {
+            (Some(hold), _) => hold.at,
+            (None, Some(front)) if front.opens && self.playing.is_none() => front.asked,
+            _ => return,
+        };
+        if at_tick(self.ticks) < since + self.config.floor_bound {
+            return;
+        }
+        // Words still due decide first.
+        let due = self.pending.iter().any(|p| {
+            matches!(p.state, Transcribed::Waiting)
+                && match (&self.hold, self.queue.front()) {
+                    (Some(_), _) => p.opening.overlap == Overlap::Speech,
+                    (None, Some(front)) => self.contends(p, front),
+                    (None, None) => false,
+                }
+        });
+        if due {
+            return;
+        }
+        for (speaker, vad) in &self.vads {
+            // Once each: the copy of its audio so far is the probe's one cost
+            // here.
+            let Some(opening) = self
+                .opening
+                .get_mut(speaker)
+                .filter(|o| o.sound == Sound::Unheard)
+            else {
+                continue;
+            };
+            let Some(audio) = vad.so_far() else {
+                continue;
+            };
+            opening.sound = Sound::Asked;
+            let (speaker, id) = (*speaker, opening.id);
+            let speech = Arc::clone(&self.speech);
+            self.work.push(Box::pin(async move {
+                let result = speech.transcribe(speaker, &audio).await;
+                Done::Probed {
+                    speaker,
+                    id,
+                    result,
+                }
+            }));
+        }
+    }
+
+    /// A probe's transcript: no words, and the open utterance it heard no
+    /// longer holds the floor. A failed one holds it, as words do.
+    fn probed(&mut self, speaker: Speaker, id: u64, result: Result<Transcript, SpeechError>) {
+        let Some(opening) = self.opening.get_mut(&speaker).filter(|o| o.id == id) else {
+            return;
+        };
+        opening.sound = match &result {
+            Ok(t) if classify(&t.text, Overlap::None, &[], None) == HeardAs::Wordless => {
+                Sound::Wordless
+            }
+            _ => Sound::Words,
+        };
+        if let Err(error) = result {
+            self.emit(Event::Failed {
+                what: Failure::Transcribe(speaker),
+                error,
+            });
+        }
     }
 
     /// Utterance `seq`'s words, the next turn: over speech or a hold, they
@@ -889,10 +1111,30 @@ impl Engine {
         }
     }
 
-    /// The call is over: whatever is still queued goes unsaid.
+    /// The call is over: whatever is still queued goes unsaid, and so does
+    /// each report still waiting for a pause, sent back by a cut or never
+    /// begun (theseus-qrwx).
     fn call_ended(&mut self, now: Instant) {
         if !self.queue.is_empty() {
             self.cut(CutWhy::CallEnded, now);
+        }
+        for report in std::mem::take(&mut self.reports) {
+            let Some(cut) = report.sentences.first() else {
+                continue;
+            };
+            let last_heard = match report.first {
+                0 => None,
+                _ => self.said.get(&Spoken::Report).cloned(),
+            };
+            self.emit(Event::Cut {
+                what: Spoken::Report,
+                why: CutWhy::CallEnded,
+                sentences: report.count,
+                heard: report.first,
+                into: Duration::ZERO,
+                last_heard,
+                cut: cut.clone(),
+            });
         }
     }
 
@@ -925,6 +1167,11 @@ impl Engine {
                 result,
                 latency,
             } => self.heard(seq, result, latency, now),
+            Done::Probed {
+                speaker,
+                id,
+                result,
+            } => self.probed(speaker, id, result),
             Done::Synthesized {
                 generation,
                 seq,
@@ -982,7 +1229,13 @@ impl Engine {
         latency: Duration,
         now: Instant,
     ) {
-        let Some(p) = self.pending.iter_mut().find(|p| p.seq == seq) else {
+        // One that the hold's bound already decided is dropped, as a
+        // failure's is: nothing is said of it twice.
+        let Some(p) = self
+            .pending
+            .iter_mut()
+            .find(|p| p.seq == seq && matches!(p.state, Transcribed::Waiting))
+        else {
             return;
         };
         let (speaker, overlap) = (p.speaker, p.opening.overlap);
@@ -1001,7 +1254,12 @@ impl Engine {
                 return;
             }
         };
-        let heard_as = classify(&t.text, overlap, &p.opening.sentences);
+        let heard_as = classify(
+            &t.text,
+            overlap,
+            &p.opening.sentences,
+            p.opening.head.as_deref(),
+        );
         let utterance = Utterance {
             speaker,
             started: p.started,
@@ -1118,11 +1376,11 @@ impl Engine {
     /// After every event: resume a hold, start a turn, the acknowledgment,
     /// or a report; synthesize the next sentence; play the next clip.
     fn advance(&mut self, now: Instant) {
+        self.overdue(now);
+        self.probe();
         self.resume(now);
         self.start_turn(now);
-        let quiet = self.playing.is_none()
-            && self.queue.is_empty()
-            && !self.vads.values().any(Vad::is_open);
+        let quiet = self.playing.is_none() && self.queue.is_empty() && !self.floor_held();
         if quiet {
             let due = self.turn.as_mut().filter(|t| t.ack == Ack::Due);
             if let Some(turn) = due {
@@ -1232,7 +1490,7 @@ impl Engine {
         // no words it waits for.
         if self.queue.front().is_some_and(|front| {
             front.opens
-                && (self.vads.values().any(Vad::is_open)
+                && (self.floor_held()
                     || self.pending.iter().any(|p| {
                         matches!(p.state, Transcribed::Waiting) && self.contends(p, front)
                     }))
