@@ -76,8 +76,9 @@ fn spawn_bare(dir: &Path) -> Command {
         .env("THESEUS_CONFIG", dir.join("config.toml"))
         .env("THESEUS_STATE_DIR", dir.join("state"))
         .env(KEY_VAR, "tv-headless-7f3a9c")
-        // The stop's phases are logged at debug; the spawned daemon inherits it.
-        .env("THESEUS_LOG", "info,theseus_core::startup=debug")
+        // The stop's phases are logged at info (theseus-vjn7), the level a
+        // daemon logs at with nothing set: the spawned daemon inherits it.
+        .env("THESEUS_LOG", "info")
         .env_remove("OP_SERVICE_ACCOUNT_TOKEN")
         .env_remove("THESEUS_OP_TOKEN_FILE")
         .env_remove("THESEUS_SOCKET");
@@ -127,7 +128,9 @@ fn set(t: &mut toml::Table, path: &[&str], value: toml::Value) {
 
 /// The model ended its turn: 0. The daemon `--spawn` started stopped
 /// cleanly: its store, opened again, replays nothing and repairs nothing,
-/// where a killed daemon's next open replayed the run's tail.
+/// where a killed daemon's next open replayed the run's tail. Its log names
+/// the stop's phases and the index's close at the default level, so a slow
+/// stop says where it went (theseus-vjn7).
 #[test]
 fn a_turn_the_model_ends_exits_0_and_its_daemon_stops_cleanly() {
     let model = FakeModel::start(reads_notes);
@@ -144,6 +147,11 @@ fn a_turn_the_model_ends_exits_0_and_its_daemon_stops_cleanly() {
     assert!(
         run.stderr.contains("\"row and checkpoint\""),
         "no clean stop in the daemon's log:\n{}",
+        run.stderr
+    );
+    assert!(
+        run.stderr.contains("store: index closed"),
+        "no index close in the daemon's log:\n{}",
         run.stderr
     );
     assert!(

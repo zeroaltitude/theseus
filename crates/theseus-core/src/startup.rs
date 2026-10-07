@@ -11,8 +11,9 @@ use serde_json::Value;
 use theseus_protocol::StartupPhase;
 
 /// When this process's clean stop began (theseus-26r). Each of the stop's
-/// phases after it, to the process's exit, is logged at debug with the time
-/// since (`stop_phase`), so a slow stop names the phase that held it.
+/// phases after it, to the process's exit, is logged at info with the time
+/// since (`stop_phase`), so a slow stop names the phase that held it in the
+/// journal the first time it happens (theseus-vjn7).
 static STOP_BEGAN: OnceLock<Instant> = OnceLock::new();
 
 /// The clean stop begins now: its row is the first thing it writes. A second
@@ -30,12 +31,13 @@ pub fn stop_has_begun() -> bool {
     STOP_BEGAN.get().is_some()
 }
 
-/// A phase of the stop has ended: logged at debug (`THESEUS_LOG` with
-/// `theseus_core::startup=debug`) with the milliseconds since the stop
-/// began. Nothing before a stop began.
+/// A phase of the stop has ended: one line at info with the milliseconds
+/// since the stop began. Install #9's stop took 11.87 s with these at debug,
+/// so the journal could not say where (theseus-vjn7). Nothing before a stop
+/// began.
 pub fn stop_phase(phase: &str) {
     if let Some(t) = STOP_BEGAN.get() {
-        tracing::debug!(
+        tracing::info!(
             phase,
             ms = (t.elapsed().as_secs_f64() * 1000.0 * 100.0).round() / 100.0,
             "stop"

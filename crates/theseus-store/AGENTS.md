@@ -128,6 +128,10 @@ Key modules: `wal.rs`, `index.rs`, `record.rs`, `store.rs` (`MANIFEST_FORMAT`). 
   `index.redb.bad-<unix ms>`, under the file's lock, and rebuilt from the WAL (Item 17). A real database that fails
   another way is refused: its recovery is `theseusd restore` from the WAL directory.
 - **A second opener waits** for the store's lock up to `LOCK_WAIT` (3 s), then fails.
+- **redb's own cache is bounded** (`index::CACHE_BYTES`, 16 MiB; theseus-vjn7). Its default, 1 GiB, filled with
+  the whole index after an import or a rebuild; a daemon idle beside builds had that memory in swap, and the store's
+  close read it back page by page to free it: install #9's stop took 11.87 s. The kernel's page cache keeps the hot
+  pages instead. `tests/index_memory.rs` holds the bound with a counting allocator.
 
 ## Tests
 
