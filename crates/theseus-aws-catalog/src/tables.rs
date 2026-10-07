@@ -81,6 +81,10 @@ pub(crate) static CLASS: &[ClassRow] = &[
     class("sts", "AssumeRoot", Class::Write, MINT),
     class("sts", "GetSessionToken", Class::Write, MINT),
     class("sts", "GetFederationToken", Class::Write, MINT),
+    // Read by their `Get`, but each makes a credential: temporary keys, and a
+    // signed JWT that outside OIDC services take as this account's identity.
+    class("sts", "GetDelegatedAccessToken", Class::Write, MINT),
+    class("sts", "GetWebIdentityToken", Class::Write, MINT),
     class(
         "sts",
         "DecodeAuthorizationMessage",
@@ -88,6 +92,8 @@ pub(crate) static CLASS: &[ClassRow] = &[
         "decodes a denial's message; it changes nothing",
     ),
     class("sso", "GetRoleCredentials", Class::Write, MINT),
+    // A write by its name already; the row says why, as `AssumeRole*`'s does.
+    class("eks-auth", "AssumeRoleForPodIdentity", Class::Write, MINT),
     class(
         "cognito-identity",
         "GetId",
@@ -522,6 +528,9 @@ pub(crate) static SECRET: &[SecretRow] = &[
     secret("sts", "AssumeRoot"),
     secret("sts", "GetSessionToken"),
     secret("sts", "GetFederationToken"),
+    secret("sts", "GetDelegatedAccessToken"),
+    secret("sts", "GetWebIdentityToken"),
+    secret("eks-auth", "AssumeRoleForPodIdentity"),
     secret("ecr", "GetAuthorizationToken"),
     secret("ecr-public", "GetAuthorizationToken"),
     secret("codeartifact", "GetAuthorizationToken"),
@@ -1524,6 +1533,13 @@ pub(crate) static RETRY: &[RetryRow] = &[
     retry("sts", "AssumeRoot", RetryClass::SafeToRepeat),
     retry("sts", "GetSessionToken", RetryClass::SafeToRepeat),
     retry("sts", "GetFederationToken", RetryClass::SafeToRepeat),
+    retry("sts", "GetDelegatedAccessToken", RetryClass::SafeToRepeat),
+    retry("sts", "GetWebIdentityToken", RetryClass::SafeToRepeat),
+    retry(
+        "eks-auth",
+        "AssumeRoleForPodIdentity",
+        RetryClass::SafeToRepeat,
+    ),
     retry("sso", "GetRoleCredentials", RetryClass::SafeToRepeat),
     retry("ecr", "GetAuthorizationToken", RetryClass::SafeToRepeat),
     // A repeat would receive, and hide, other messages.

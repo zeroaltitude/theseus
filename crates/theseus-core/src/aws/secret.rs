@@ -252,7 +252,9 @@ mod tests {
     }
 
     /// Every secret of the catalog's own outputs is found: Secrets Manager's
-    /// string, an SSM parameter's value, KMS's plaintext, and STS's keys.
+    /// string, an SSM parameter's value, KMS's plaintext, STS's keys, and the
+    /// mints the tables learned late (theseus-ye7o): STS's delegated keys and
+    /// web identity token, and EKS's pod identity keys.
     #[test]
     fn the_catalogs_secret_members_are_found_and_masked() {
         let board = SecretBoard::empty();
@@ -285,6 +287,33 @@ mod tests {
                 json!({"Credentials": {"AccessKeyId": "ASIAEXAMPLE", "SecretAccessKey": "sts-secret-0001", "SessionToken": "sts-token-0001", "Expiration": "2026-10-04T00:00:00Z"}}),
                 vec!["Credentials"],
             ),
+            (
+                "sts",
+                "GetDelegatedAccessToken",
+                json!({"TradeInToken": "trade-in"}),
+                json!({"Credentials": {"AccessKeyId": "ASIAEXAMPLE", "SecretAccessKey": "sts-secret-0002", "SessionToken": "sts-token-0002", "Expiration": "2026-10-04T00:00:00Z"}, "PackedPolicySize": 6, "AssumedPrincipal": "arn:aws:sts::1:assumed-role/r/s"}),
+                vec!["Credentials"],
+            ),
+            (
+                "sts",
+                "GetWebIdentityToken",
+                json!({"Audience": ["https://example.invalid"], "SigningAlgorithm": "RS256"}),
+                json!({"WebIdentityToken": "eyJhbGciOi.jwt-secret-0003.sig", "Expiration": "2026-10-04T00:00:00Z"}),
+                vec!["WebIdentityToken"],
+            ),
+            (
+                "eks-auth",
+                "AssumeRoleForPodIdentity",
+                json!({"clusterName": "example", "token": "projected"}),
+                json!({
+                    "subject": {"namespace": "default", "serviceAccount": "app"},
+                    "audience": "pods.eks.amazonaws.com",
+                    "podIdentityAssociation": {"associationArn": "arn:aws:eks:us-west-2:1:podidentityassociation/example/a-1", "associationId": "a-1"},
+                    "assumedRoleUser": {"arn": "arn:aws:sts::1:assumed-role/r/eks-pod", "assumeRoleId": "AROAEXAMPLE:eks-pod"},
+                    "credentials": {"sessionToken": "pod-token-0004", "secretAccessKey": "pod-secret-0004", "accessKeyId": "ASIAPODEXAMPLE", "expiration": "2026-10-04T00:00:00Z"}
+                }),
+                vec!["credentials"],
+            ),
         ] {
             let before = body.to_string();
             let held = hold(&board, service, op, &input, &mut body).unwrap();
@@ -298,6 +327,9 @@ mod tests {
                 "c2VjcmV0",
                 "sts-secret",
                 "sts-token",
+                "jwt-secret",
+                "pod-token",
+                "pod-secret",
             ] {
                 if before.contains(secret) {
                     assert!(!after.contains(secret), "{secret} in {after}");
