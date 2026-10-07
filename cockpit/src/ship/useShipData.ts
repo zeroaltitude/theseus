@@ -26,6 +26,7 @@ import { call, client, useConn, useRpc } from '@/lib/rpc'
 import type { World } from '@/lib/timemachine'
 import { flareOf, flaresOfRows, newFlares } from './flares.ts'
 import { buildModel, type ReachLink, type ShipModel } from './model'
+import { tpmOf } from './sea.ts'
 import { mergeActions } from './watch.ts'
 
 type D = Record<string, unknown>
@@ -438,18 +439,7 @@ export function useShipLive(selected: string | undefined, world: World | null): 
     })
   }, [world, sl, el, tl, cl, jobs, actions, cancelled, st.nodes, st.l1, st.running, st.streaming, st.failedAt, st.reports, st.born, st.bornSessions, st.reach, st.active, st.now, placesSeen])
 
-  const tpm = useMemo(() => {
-    if (!calls) return null
-    const cut = st.now - 60_000
-    let sum = 0
-    for (const r of calls.rows) {
-      if (r.at_unix_ms < cut) continue
-      const u = ((r.data ?? {}) as D).usage as D | undefined
-      if (!u) continue
-      sum += Number(u.input_tokens ?? 0) + Number(u.output_tokens ?? 0) + Number(u.cache_read_input_tokens ?? 0) + Number(u.cache_creation_input_tokens ?? 0)
-    }
-    return sum
-  }, [calls, st.now])
+  const tpm = useMemo(() => (calls ? tpmOf(calls.rows, st.now) : null), [calls, st.now])
 
   return {
     model, progress: st.progress, reachCap: !world && st.reachOf && st.reachOf.total > st.reachOf.read ? st.reachOf : undefined, health, profiles, tpm: world ? world.gauges.tpm : tpm, arrivals: world ? 0 : st.arrivals.length,

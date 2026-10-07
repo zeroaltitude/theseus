@@ -2,12 +2,19 @@
 // and, while it is on, the daemon's pushes heard through the cue table (`sound.ts`) and played (`audio.ts`). The cues
 // play on every page (the owner's F9, theseus-7zph): the Shell mounts `useSoundCues` once, and the Ship's Sound button
 // reads and sets the one toggle through `useShipSound`. The oar splashes only while the Ship is shown (`cueHere`).
-import { useEffect, useRef } from 'react'
+// While sound is on, the sea is heard too, on every page (theseus-pl0x, `surf.ts`): its height from the work now, read
+// from what the page already reads (health, and its one copy of the ledger), silent where the sea is still.
+import { useEffect, useRef, useState } from 'react'
+import { useLocation } from 'react-router'
 import { create } from 'zustand'
-import { onNewRows } from '@/lib/history'
-import { client } from '@/lib/rpc'
+import type { Health } from '@protocol'
+import { useCalm } from '@/lib/calm'
+import { onNewRows, useLedgerHistory } from '@/lib/history'
+import { client, useRpc } from '@/lib/rpc'
 import { ShipAudio } from './audio'
+import { tpmOf } from './sea.ts'
 import { cueHere, cueOf, cueOfRow, newEar, SOUND_KEY, soundOn, type Cue } from './sound'
+import { surfHeight } from './surf.ts'
 
 export interface ShipSound {
   on: boolean
@@ -36,6 +43,7 @@ export function useShipSound(): ShipSound {
     useSound.setState({ on: next })
     if (next) {
       // This click is the gesture the browser asks for: start, and ring once, softly, so the operator hears it work.
+      // The sea comes in under the bell (`useSurf`, at once: its effect runs as this click's render lands).
       const a = theAudio()
       a.start()
       setTimeout(() => { if (a.running) a.play('bell') }, 60)
@@ -47,6 +55,7 @@ export function useShipSound(): ShipSound {
 /** The cues, heard on every page while sound is on: mounted once, in the Shell. `onShip`: the Ship is the page shown. */
 export function useSoundCues(onShip: boolean) {
   const on = useSound((s) => s.on)
+  useSurf(on)
   const here = useRef(onShip)
   useEffect(() => { here.current = onShip }, [onShip])
   useEffect(() => {
@@ -80,4 +89,37 @@ export function useSoundCues(onShip: boolean) {
       document.removeEventListener('keydown', wake, true)
     }
   }, [on])
+}
+
+/** How often the sea's minute of tokens is read again with no new row: the minute slides on, and the swell settles. */
+const SURF_TICK_MS = 10_000
+
+declare global {
+  interface Window { __shipSurf?: () => { height: number; voice: { gain: number; wash: number; rate: number } } | null }
+}
+
+/** The ambient sea while sound is on: its height (`surfHeight`) from the turns running (health, the query the heartbeat
+ *  bar reads every 2 s) and tokens a minute (the page's one copy of the ledger: nothing more is read for it), the
+ *  present's on every page; silent in Calm (which reduced motion turns on) and under `?swell=0`, as the sea is still.
+ *  The page sets a height only when one of those changes; the waves themselves are the audio thread's. */
+function useSurf(on: boolean) {
+  const calm = useCalm((s) => s.calm)
+  const swell = new URLSearchParams(useLocation().search).get('swell') !== '0'
+  const hearing = on && !calm && swell
+  const { data: h } = useRpc<Health>('health', undefined, 2000, { enabled: hearing })
+  const [tpm, setTpm] = useState(0)
+  useEffect(() => {
+    if (!hearing) return
+    const read = () => setTpm(tpmOf(useLedgerHistory.getState().rows, Date.now()))
+    read()
+    const off = onNewRows(read)
+    const tick = setInterval(read, SURF_TICK_MS)
+    return () => { off(); clearInterval(tick) }
+  }, [hearing])
+  const height = surfHeight({ on, calm, swell, tpm, turns: h?.kernel.executions_by_state.running ?? 0 })
+  useEffect(() => { theAudio().surf(height) }, [height])
+  // Dev and bench builds: what the sea plays now, for a live check.
+  useEffect(() => {
+    if (import.meta.env.DEV || import.meta.env.MODE === 'bench') window.__shipSurf = () => theAudio().surfing
+  }, [])
 }
