@@ -138,8 +138,9 @@ function NavRail({ onPalette }: { onPalette: () => void }) {
           to={to}
           end={'end' in rest}
           className={({ isActive }) => cn(
-            // On a short screen (1366×768) the fourteen items and the rail's foot fit only with less air between them.
-            'group relative flex w-[62px] flex-col items-center gap-0.5 rounded-lg py-2 font-display text-[8.5px] font-bold uppercase tracking-[0.03em] transition-colors [@media(max-height:860px)]:py-1',
+            // The items and the rail's foot fit a short screen only with less air between them, measured with fifteen items
+            // down to 1366×768 (the rail held thirteen at py-1 below 860 px).
+            'group relative flex w-[62px] flex-col items-center gap-0.5 rounded-lg py-2 font-display text-[8.5px] font-bold uppercase tracking-[0.03em] transition-colors [@media(max-height:1000px)]:py-1 [@media(max-height:880px)]:py-0.5 [@media(max-height:820px)]:py-0',
             isActive ? 'text-live' : 'text-ink-faint hover:bg-gold/10 hover:text-ink',
           )}
         >
