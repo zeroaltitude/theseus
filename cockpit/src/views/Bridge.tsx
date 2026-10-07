@@ -40,13 +40,7 @@ type Range = (typeof RANGES)[number]
 const RANGE_MS: Record<Exclude<Range, 'all'>, number> = { '30m': 30 * 60_000, '6h': 6 * 3600_000, '24h': 24 * 3600_000, '7d': 7 * 86400_000 }
 const RANGE_WORDS: Record<Range, string> = { '30m': 'the last 30 minutes', '6h': 'the last 6 hours', '24h': 'the last 24 hours', '7d': 'the last 7 days', all: 'all of the record' }
 
-/** The record read so far with the newest rows after it, each once: what the Bridge draws while the whole is still read. */
-function withNewest(rows: LedgerEntry[], newest: LedgerEntry[] | undefined): LedgerEntry[] {
-  if (!newest?.length) return rows
-  const last = rows.length ? rows[rows.length - 1].position : -1
-  const after = newest.filter((r) => r.position > last)
-  return after.length ? rows.concat(after) : rows
-}
+const EMPTY: LedgerEntry[] = []
 
 /** The smallest window with enough to see: a busy daemon opens on its last half hour, an idle one on its history. */
 function autoRange(rows: LedgerEntry[], now: number): Range {
@@ -64,12 +58,14 @@ export function Bridge() {
   const { data: sl } = useRpc<{ sessions: SessionInfo[] }>('session.list', undefined, 2000)
   const { data: el } = useRpc<{ executions: ExecutionInfo[] }>('execution.list', undefined, 2000)
   const { data: cl } = useRpc<{ confirms: ConfirmRequest[] }>('confirm.list', undefined, 2000)
-  // The whole ledger, shared and followed; deferred, so a burst of rows never holds up a click. The record is read oldest
-  // first, so until it is whole one tail read brings the newest rows, and the Bridge opens on now; then that read stops.
+  // The whole ledger, shared and followed. The record is read oldest first, a page at a time: until it is whole, the
+  // Bridge draws the newest 1,000 rows from one tail read (it opens on now, as it did when it read only those), and then
+  // the whole record, once; the tail read stops. Re-deriving every chart for each page of a long read starved the
+  // deferred render, which drew nothing until the read ended. Deferred, so the switch never holds up a click.
   const history = useHistoryRows()
   const { data: tail } = useLedger(1000, 2000, undefined, undefined, !history.ready)
-  const merged = useMemo(() => withNewest(history.rows, history.ready ? undefined : tail?.rows), [history.rows, history.ready, tail])
-  const rows = useDeferredValue(merged)
+  const shown = history.ready ? history.rows : tail?.rows ?? EMPTY
+  const rows = useDeferredValue(shown)
   const calls = useMemo(() => providerCalls(rows), [rows])
   const sessions = useMemo(() => sl?.sessions ?? [], [sl])
   const title = useMemo(() => titleOf(sessions), [sessions])
@@ -142,7 +138,7 @@ export function Bridge() {
         <Segmented value={range} options={RANGES} onChange={setRange} />
         <span className="num text-[11px] text-ink-faint">
           {RANGE_WORDS[range]}{picked ? '' : ' (chosen for you: the smallest window with 25 rows)'} · {inRange.length.toLocaleString()} of {rows.length.toLocaleString()} ledger rows read
-          {!history.ready && ` · still reading the record (${history.rows.length.toLocaleString()} of ${history.total ? history.total.toLocaleString() : '…'}), the newest rows first`}
+          {!history.ready && ` · the newest rows while the record is read (${history.rows.length.toLocaleString()} of ${history.total ? history.total.toLocaleString() : '…'})`}
         </span>
       </div>
 
