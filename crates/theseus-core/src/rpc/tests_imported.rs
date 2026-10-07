@@ -262,13 +262,20 @@ fn list_rows(core: &Core) -> [u64; 3] {
 }
 
 /// The reads of the whole list, a page of 20, the page past the import's
-/// run, and `confirm.list`.
-fn list_reads(core: &Core, past: Option<u64>) -> [u64; 4] {
+/// run, `confirm.list`, and `compilation.list`, whole and of the session
+/// `mine` (theseus-ve34).
+fn list_reads(core: &Core, past: Option<u64>, mine: &str) -> [u64; 6] {
+    let of = |session_id: Option<&str>| CompilationListParams {
+        session_id: session_id.map(str::to_string),
+        n: None,
+    };
     [
         reads(|| core.session_list().unwrap()),
         reads(|| page(core, 20, None)),
         reads(|| page(core, 20, past)),
         reads(|| core.confirm_list().unwrap()),
+        reads(|| core.compilation_list(of(None)).unwrap()),
+        reads(|| core.compilation_list(of(Some(mine))).unwrap()),
     ]
 }
 
@@ -312,7 +319,7 @@ async fn the_session_lists_read_no_imported_session_and_answer_as_before() {
     assert_eq!(asked.len(), 1);
     assert_eq!(asked[0].session_id, waiting);
 
-    let read_before = list_reads(c, past);
+    let read_before = list_reads(c, past, &waiting);
     // Its own sessions' records and their executions', not one per imported
     // key or per `n` of them.
     assert!(read_before.iter().all(|r| *r < 60), "{read_before:?}");
@@ -322,9 +329,9 @@ async fn the_session_lists_read_no_imported_session_and_answer_as_before() {
     assert!(rows_before.iter().all(|r| *r < 60), "{rows_before:?}");
     import(c, LATER, 1_000, 1_000);
     assert_eq!(
-        list_reads(c, past),
+        list_reads(c, past, &waiting),
         read_before,
-        "the second import adds no read to the whole list, a page, the page past the runs, or confirm.list"
+        "the second import adds no read to the whole list, a page, the page past the runs, confirm.list, or compilation.list"
     );
     assert_eq!(
         list_rows(c),
@@ -344,10 +351,14 @@ async fn the_session_lists_read_no_imported_session_and_answer_as_before() {
     assert_eq!(last, None);
 
     // An erase still hides: its tombstones are imported sessions too.
-    let read_before = list_reads(c, past);
+    let read_before = list_reads(c, past, &waiting);
     let rows_before = list_rows(c);
     write::erase(&c.store, TAG, Some("a test's erase"), "test").unwrap();
-    assert_eq!(list_reads(c, past), read_before, "an erase adds no read");
+    assert_eq!(
+        list_reads(c, past, &waiting),
+        read_before,
+        "an erase adds no read"
+    );
     assert_eq!(list_rows(c), rows_before, "an erase adds no index row");
     assert_eq!(answers_agree(c, "after an erase"), 7);
     assert_eq!(c.store.session_count().unwrap(), 2_007);
