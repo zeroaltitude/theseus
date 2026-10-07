@@ -12,7 +12,10 @@ import type { CatalogList, CompilationInfo, LedgerEntry, SessionHistory } from '
 import { useRpc } from '@/lib/rpc'
 import { useLedger } from '@/lib/derive'
 import { cn, ms, stamp, tokens, usd } from '@/lib/format'
-import { toneHex } from '@/lib/taxonomy'
+import type { Tone } from '@/lib/taxonomy'
+
+/** A tone as its CSS token: the Ship's night island and the day's paper each read their own (theseus-hnof.5). */
+const toneVar = (t: Tone) => `var(--color-${t})`
 import { Pill } from './ui'
 import { Drawer, Ident, Life, Raw, Section } from './CallInspector'
 
@@ -132,9 +135,9 @@ function Timing({ t }: { t: D }) {
   const fb = Math.min(total, Number(t.first_byte_ms ?? 0))
   const ft = Math.min(total, Math.max(fb, Number(t.first_token_ms ?? fb)))
   const parts = [
-    { name: 'to the first byte', v: fb, tone: toneHex.idle },
-    { name: 'first byte → first token', v: ft - fb, tone: toneHex.think },
-    { name: 'streaming', v: total - ft, tone: toneHex.model },
+    { name: 'to the first byte', v: fb, tone: toneVar('idle') },
+    { name: 'first byte → first token', v: ft - fb, tone: toneVar('think') },
+    { name: 'streaming', v: total - ft, tone: toneVar('model') },
   ]
   return (
     <div>
@@ -156,10 +159,10 @@ function Timing({ t }: { t: D }) {
 /** Input as it was billed: new, read from the cache, written to it; then output. And what the cache saved. */
 function TokenBar({ u, price }: { u: D; price?: D }) {
   const parts = [
-    { name: 'input, new', v: Number(u.input_tokens ?? 0), tone: toneHex.live },
-    { name: 'cache read', v: Number(u.cache_read_input_tokens ?? 0), tone: toneHex.think },
-    { name: 'cache write', v: Number(u.cache_creation_input_tokens ?? 0), tone: toneHex.wait },
-    { name: 'output', v: Number(u.output_tokens ?? 0), tone: toneHex.model },
+    { name: 'input, new', v: Number(u.input_tokens ?? 0), tone: toneVar('live') },
+    { name: 'cache read', v: Number(u.cache_read_input_tokens ?? 0), tone: toneVar('think') },
+    { name: 'cache write', v: Number(u.cache_creation_input_tokens ?? 0), tone: toneVar('wait') },
+    { name: 'output', v: Number(u.output_tokens ?? 0), tone: toneVar('model') },
   ]
   const all = Math.max(1, parts.reduce((a, x) => a + x.v, 0))
   const input = parts[0].v + parts[1].v + parts[2].v
@@ -230,7 +233,7 @@ function Headroom({ rl }: { rl: D }) {
       <div key={name} className="grid grid-cols-[9rem_1fr_auto] items-center gap-2 text-[12px]">
         <span className="text-ink-faint">{name}</span>
         <div className="h-1.5 overflow-hidden rounded-full bg-white/[0.05]">
-          {frac !== undefined && <div style={{ width: `${frac * 100}%`, background: frac > 0.2 ? toneHex.ok : toneHex.fault }} className="h-full" />}
+          {frac !== undefined && <div style={{ width: `${frac * 100}%`, background: frac > 0.2 ? toneVar('ok') : toneVar('fault') }} className="h-full" />}
         </div>
         <span className="num text-ink-dim">{tokens(l)}{Number.isFinite(m) ? ` / ${tokens(m)}` : ''}{reset ? ` · resets ${new Date(String(reset)).toLocaleTimeString([], { hour12: false })}` : ''}</span>
       </div>

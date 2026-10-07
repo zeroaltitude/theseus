@@ -18,7 +18,7 @@
   text-transform: uppercase;
   white-space: nowrap;
   color: var(--color-ink-faint);
-  background: #0a1828;
+  background: var(--color-hull);
   box-shadow: inset 0 -1px 0 var(--color-line);
 }
 .viz-table td {

@@ -6,6 +6,8 @@ import { createContext, useContext, useEffect, useRef, useState, type CSSPropert
 import { animate } from 'motion/react'
 import { useCalm } from '@/lib/calm'
 import { useTableView } from '@/lib/chartview'
+import { useMode } from '@/lib/mode'
+import { daylightColor } from '@/lib/daylight'
 import { cn } from '@/lib/format'
 import { toneHex, type Tone } from '@/lib/taxonomy'
 import { CATEGORICAL, CHROME, OTHER } from '@/lib/viz'
@@ -76,7 +78,9 @@ export function Legend({ items, className }: { items: LegendItem[]; className?: 
   )
 }
 
-export function Swatch({ color, mark = 'rect' }: { color: string; mark?: Mark }) {
+export function Swatch({ color: night, mark = 'rect' }: { color: string; mark?: Mark }) {
+  // By day a key's colour is its series' daylight step, as the chart's own marks are (lib/daylight.ts).
+  const color = useMode((s) => s.mode) === 'light' ? daylightColor(night) : night
   const style: CSSProperties = mark === 'line' ? { width: 14, height: 2, borderRadius: 1, background: color }
     : mark === 'dot' ? { width: 8, height: 8, borderRadius: 4, background: color }
     : mark === 'ring' ? { width: 8, height: 8, borderRadius: 4, boxShadow: `inset 0 0 0 2px ${color}` }
@@ -131,6 +135,8 @@ export function StatTile({ label, icon, value, format, hint, spark, tone, onClic
 /** A tile's history (the method's sparkline): a line in the de-emphasis gray from zero, the newest value a dot in the
  *  accent. Drawn in SVG: a tile is cheap. */
 export function MiniSpark({ values, height = 22 }: { values: number[]; height?: number }) {
+  // By day, the newest value's dot takes the daylight accent, and its ring the panel's face.
+  const day = useMode((s) => s.mode) === 'light'
   if (values.length < 2) return <div className="border-b border-line" style={{ height: height / 2 }} aria-hidden />
   const lo = Math.min(0, ...values), hi = Math.max(...values)
   const span = hi - lo || 1
@@ -142,7 +148,7 @@ export function MiniSpark({ values, height = 22 }: { values: number[]; height?: 
         <polyline points={pts} fill="none" stroke={OTHER} strokeWidth={1.5} vectorEffect="non-scaling-stroke" strokeLinejoin="round" strokeLinecap="round" />
       </svg>
       <span className="absolute right-0 h-2 w-2 -translate-y-1/2 translate-x-1/2 rounded-full"
-        style={{ top: y(values[values.length - 1]), background: CATEGORICAL.dark[0], boxShadow: `0 0 0 2px ${CHROME.dark.surface}` }} />
+        style={{ top: y(values[values.length - 1]), background: day ? daylightColor(CATEGORICAL.dark[0]) : CATEGORICAL.dark[0], boxShadow: `0 0 0 2px ${day ? daylightColor(CHROME.dark.surface) : CHROME.dark.surface}` }} />
     </div>
   )
 }

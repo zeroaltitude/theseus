@@ -11,7 +11,10 @@ import { useRpc } from '@/lib/rpc'
 import { useLedger } from '@/lib/derive'
 import { summarize } from '@/lib/summary'
 import { cn, ms, stamp } from '@/lib/format'
-import { ledgerKind, toneHex, type Tone } from '@/lib/taxonomy'
+import { ledgerKind, type Tone } from '@/lib/taxonomy'
+
+/** A tone as its CSS token: the Ship's night island and the day's paper each read their own (theseus-hnof.5). */
+const toneVar = (t: Tone) => `var(--color-${t})`
 import { JsonView } from './JsonView'
 import { Pill } from './ui'
 
@@ -227,13 +230,13 @@ export function Life({ rows }: { rows: LedgerEntry[] }) {
           <div className="flex h-3 w-full overflow-hidden rounded-full bg-white/[0.04] ring-1 ring-line">
             {ps.map((p, i) => (
               <div key={i} title={`${p.name}: ${ms(p.to - p.from)}${p.note ? ` · ${p.note}` : ''}`}
-                style={{ width: `${Math.max(1.5, ((p.to - p.from) / span) * 100)}%`, background: toneHex[p.tone], opacity: 0.85 }} />
+                style={{ width: `${Math.max(1.5, ((p.to - p.from) / span) * 100)}%`, background: toneVar(p.tone), opacity: 0.85 }} />
             ))}
           </div>
           <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-[11px]">
             {ps.map((p, i) => (
               <span key={i} className="flex items-center gap-1">
-                <span className="inline-block h-2 w-2 rounded-sm" style={{ background: toneHex[p.tone] }} />
+                <span className="inline-block h-2 w-2 rounded-sm" style={{ background: toneVar(p.tone) }} />
                 <span className="text-ink-dim">{p.name}</span>
                 <span className="num text-ink">{ms(p.to - p.from)}</span>
                 {p.note && <span className="text-ink-faint">· {p.note}</span>}
@@ -250,7 +253,7 @@ export function Life({ rows }: { rows: LedgerEntry[] }) {
               <button onClick={() => setOpen(open === i ? null : i)} className="flex w-full items-baseline gap-2 py-1 text-left hover:bg-white/[0.02]">
                 <ChevronRight size={11} className={cn('shrink-0 self-center text-ink-faint transition-transform', open === i && 'rotate-90')} />
                 <span className="num w-16 shrink-0 text-right text-[11px] text-ink-faint">+{ms(r.at_unix_ms - t0)}</span>
-                <span className="num w-44 shrink-0 truncate text-[11.5px]" style={{ color: toneHex[k.tone] }}>{r.kind}</span>
+                <span className="num w-44 shrink-0 truncate text-[11.5px]" style={{ color: toneVar(k.tone) }}>{r.kind}</span>
                 <span className="min-w-0 flex-1 truncate text-[11.5px] text-ink-dim">{summarize(r)}</span>
               </button>
               {open === i && <div className="pb-2 pl-6"><JsonView value={r.data} maxHeight="200px" /></div>}

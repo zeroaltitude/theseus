@@ -8,6 +8,7 @@ import '@fontsource-variable/cinzel'
 import './index.css'
 import { bindPush } from './lib/rpc'
 import './lib/calm'
+import { useMode } from './lib/mode'
 import { Shell } from './components/Shell'
 import { Crash, NotFound } from './components/Crash'
 
@@ -73,10 +74,17 @@ const router = createBrowserRouter(
   ],
 )
 
+/** Night or daylight (lib/mode.ts): a change of mode draws every view again from the start, so each inline tone and
+ *  chart takes the mode's colours (the reads stay in the query cache, the place in the address). */
+function Cockpit() {
+  const mode = useMode((s) => s.mode)
+  return <RouterProvider key={mode} router={router} />
+}
+
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <QueryClientProvider client={queries}>
-      <RouterProvider router={router} />
+      <Cockpit />
     </QueryClientProvider>
   </StrictMode>,
 )

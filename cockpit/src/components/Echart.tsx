@@ -12,6 +12,8 @@ import {
 import { CanvasRenderer } from 'echarts/renderers'
 import { base, type EChartsOption } from '@/lib/chart'
 import { useCalm } from '@/lib/calm'
+import { useMode } from '@/lib/mode'
+import { daylight } from '@/lib/daylight'
 
 echarts.use([
   BarChart, CustomChart, GaugeChart, HeatmapChart, LineChart, PieChart, SankeyChart, ScatterChart,
@@ -58,11 +60,14 @@ export function Echart({ option, className, style, onClick, onDataZoom }: Props)
   // Calm (the operator's or the system's reduced motion): every chart draws at once, with no transition. A chart's own
   // tooltip goes over the base's, so each keeps the night-glass frame and sets only what is its own.
   const calm = useCalm((s) => s.calm)
+  // Daylight (lib/mode.ts): every night colour in the option goes to its daylight step (lib/daylight.ts).
+  const mode = useMode((s) => s.mode)
   useEffect(() => {
     const own = option.tooltip
     const tooltip = own && !Array.isArray(own) ? { ...(base.tooltip as object), ...own } : own ?? base.tooltip
-    chart.current?.setOption({ ...base, ...option, tooltip, ...(calm ? { animation: false } : {}) } as EChartsOption, { notMerge: false, lazyUpdate: true })
-  }, [option, calm])
+    const o = { ...base, ...option, tooltip, ...(calm ? { animation: false } : {}) } as EChartsOption
+    chart.current?.setOption(mode === 'light' ? daylight(o) : o, { notMerge: false, lazyUpdate: true })
+  }, [option, calm, mode])
 
   return <div ref={el} className={className} style={{ width: '100%', height: '100%', ...style }} />
 }

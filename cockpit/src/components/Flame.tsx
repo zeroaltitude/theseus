@@ -9,6 +9,8 @@ import { us } from '@/lib/format'
 import type { EChartsOption } from '@/lib/chart'
 import { CHROME, FONTS, TIP_FRAME, TONE_MARK, baseAxis, inkOn } from '@/lib/viz'
 import { tip } from '@/lib/viztip'
+import { useMode } from '@/lib/mode'
+import { daylightColor } from '@/lib/daylight'
 import { flatten, spanColor, type Flat } from '@/lib/spans'
 import { Echart } from './Echart'
 import { Empty } from './ui'
@@ -18,7 +20,10 @@ const C = CHROME.dark
 /** `cursor` (µs on the turn's clock) draws the replay's line and dims what has not started yet. */
 export function Flame({ trace, onPick, cursor }: { trace: Span | null | undefined; onPick?: (f: Flat) => void; cursor?: number | null }) {
   const flat = useMemo(() => (trace ? flatten(trace) : []), [trace])
+  // By day (lib/mode.ts): renderItem draws its own shapes, where daylight() cannot reach, so it paints them itself.
+  const day = useMode((s) => s.mode) === 'light'
   const option = useMemo<EChartsOption>(() => {
+    const paint = (c: string) => (day ? daylightColor(c) : c)
     const maxDepth = Math.max(0, ...flat.map((f) => f.depth))
     const end = Math.max(1, ...flat.map((f) => f.end))
     const axis = baseAxis()
@@ -53,7 +58,7 @@ export function Flame({ trace, onPick, cursor }: { trace: Span | null | undefine
             // surface. A judgment's dispatch (M5 23b, `judge`) is a larger one, in the thinking tone's step.
             const cx = s[0]; const cy = s[1] + 6
             const r = f.name === 'judge' ? 7 : 5
-            return { type: 'polygon' as const, shape: { points: [[cx, cy - r], [cx + r - 1, cy], [cx, cy + r], [cx - r + 1, cy]] }, style: { fill: f.name === 'judge' ? TONE_MARK.think : spanColor('mark'), stroke: C.surface, lineWidth: 1.5 } }
+            return { type: 'polygon' as const, shape: { points: [[cx, cy - r], [cx + r - 1, cy], [cx, cy + r], [cx - r + 1, cy]] }, style: { fill: f.name === 'judge' ? TONE_MARK.think : spanColor('mark'), stroke: paint(C.surface), lineWidth: 1.5 } }
           }
           // A 2 px gap of the surface between neighbours, and the data end rounded.
           const w = Math.max(1.5, e[0] - s[0] - 1)
@@ -65,7 +70,7 @@ export function Flame({ trace, onPick, cursor }: { trace: Span | null | undefine
           if (w < 46) return rect
           return {
             type: 'group',
-            children: [rect, { type: 'text' as const, style: { text: f.name, x: s[0] + 5, y: s[1] + 1 + h / 2, verticalAlign: 'middle', fill: wash ? C.text : inkOn(fill), opacity: future ? 0.4 : 1, font: `11px ${FONTS.sans}`, width: w - 8, overflow: 'truncate', ellipsis: '…' } }],
+            children: [rect, { type: 'text' as const, style: { text: f.name, x: s[0] + 5, y: s[1] + 1 + h / 2, verticalAlign: 'middle', fill: wash ? paint(C.text) : inkOn(fill, day ? 'light' : 'dark'), opacity: future ? 0.4 : 1, font: `11px ${FONTS.sans}`, width: w - 8, overflow: 'truncate', ellipsis: '…' } }],
           }
         },
         encode: { x: [1, 2], y: 0 },
@@ -81,7 +86,7 @@ export function Flame({ trace, onPick, cursor }: { trace: Span | null | undefine
         },
       }] : [])],
     }
-  }, [flat, cursor])
+  }, [flat, cursor, day])
   if (!trace) return <Empty>pick a turn with a trace</Empty>
   return <Echart option={option} onClick={(p: any) => onPick?.(flat[p.dataIndex])} />
 }

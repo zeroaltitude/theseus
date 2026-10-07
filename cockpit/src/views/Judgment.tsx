@@ -75,9 +75,13 @@ export default function Judgment() {
   const h = health?.judge
 
   return (
-    <div className="grid h-full min-h-0 grid-cols-1 gap-3 overflow-auto p-3 xl:grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)]">
+    // From 1280 px wide, two columns, each scrolling on its own: the packs and the log on the left, the log taking the
+    // height the packs leave; on the right the judgment picked, then the notices, the ladder, the versions and learning.
+    // Every other panel keeps its own height: squeezed into one column, a panel's rows ran under the next one's title
+    // at 1080 px tall (theseus-hnof). Narrower, one column, and the page scrolls.
+    <div className="grid h-full min-h-0 grid-cols-1 content-start gap-3 overflow-auto p-3 xl:grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)] xl:content-stretch">
       <div className="flex min-h-0 flex-col gap-3">
-        <Panel title="Judgment" icon={<Scale size={14} />} actions={
+        <Panel className="shrink-0" title="Judgment" icon={<Scale size={14} />} actions={
           world
             ? <Pill tone="wait">as of {stamp(world.t)}: {world.judge.calls} calls · {money(world.judge.costMicros)}{world.judge.paused ? ' · paused' : ''}</Pill>
             : h && <Pill tone={h.enabled ? (h.paused ? 'wait' : 'ok') : 'idle'}>{h.enabled ? `breaker ${h.breaker}${(h.breakers ?? []).map((b) => ` · ${b.replace(': ', ' breaker ')}`).join('')} · key ${h.key || '?'}` : 'off'}</Pill>
@@ -85,9 +89,11 @@ export default function Judgment() {
           {!h?.enabled && !all.length ? (
             <Empty>the judge is off ([judge] enabled = false)</Empty>
           ) : (
+            // The packs scroll under their own header past a third of the screen, so the log keeps its height.
+            <div className="max-h-[34vh] overflow-auto">
             <table className="w-full text-[12px]">
-              <thead className="text-left text-ink-faint">
-                <tr><th className="px-3 py-1.5">pack</th><th>mode</th><th>version</th><th className="text-right">calls</th><th className="text-right">cost</th><th className="px-3">Jev's time by class (p50 / p95)</th></tr>
+              <thead className="sticky top-0 z-[1] bg-hull text-left text-ink-faint shadow-[inset_0_-1px_0_var(--color-line)]">
+                <tr><th className="px-3 py-1.5">pack</th><th className="px-2">mode</th><th className="px-2">version</th><th className="px-2 text-right">calls</th><th className="px-2 text-right">cost</th><th className="px-3">Jev's time by class (p50 / p95)</th></tr>
               </thead>
               <tbody>
                 {packs.map((p) => {
@@ -95,10 +101,10 @@ export default function Judgment() {
                   return (
                     <tr key={p} className={cn('cursor-pointer border-t border-line hover:bg-gold/5', pack === p && 'bg-live/5')} onClick={() => set('pack', pack === p ? null : p)}>
                       <td className="num px-3 py-1.5 text-ink">{p}</td>
-                      <td><Pill tone={modes.get(p) === 'off' ? 'idle' : modes.get(p) === 'shadow' ? 'think' : modes.get(p) === 'rolled back' ? 'fault' : 'live'}>{modes.get(p) ?? 'not wired'}</Pill></td>
-                      <td className="num">{s ? `v${s.version}` : '—'}</td>
-                      <td className="num text-right" title={s ? `${s.answered} answered · ${s.failed} failed · ${s.skipped} skipped · ${s.disagrees} disagree` : ''}>{s?.calls ?? 0}</td>
-                      <td className="num text-right">{money(s?.costMicros ?? 0)}</td>
+                      <td className="px-2"><Pill tone={modes.get(p) === 'off' ? 'idle' : modes.get(p) === 'shadow' ? 'think' : modes.get(p) === 'rolled back' ? 'fault' : 'live'}>{modes.get(p) ?? 'not wired'}</Pill></td>
+                      <td className="num px-2">{s ? `v${s.version}` : '—'}</td>
+                      <td className="num px-2 text-right" title={s ? `${s.answered} answered · ${s.failed} failed · ${s.skipped} skipped · ${s.disagrees} disagree` : ''}>{s?.calls ?? 0}</td>
+                      <td className="num px-2 text-right">{money(s?.costMicros ?? 0)}</td>
                       <td className="num px-3 text-ink-faint">
                         {s?.classes.length ? s.classes.map((c) => `${c.cls} ${ms(c.p50)} / ${ms(c.p95)} (${c.calls})`).join(' · ') : '—'}
                       </td>
@@ -107,6 +113,7 @@ export default function Judgment() {
                 })}
               </tbody>
             </table>
+            </div>
           )}
           {h?.enabled && !world && (
             <div className="num border-t border-line px-3 py-1.5 text-[11px] text-ink-faint">
@@ -115,27 +122,10 @@ export default function Judgment() {
           )}
         </Panel>
 
-        {h?.enabled && !world && <Notices state={h.notices} onSession={(s) => nav(`/session/${s}?tab=timeline`)} />}
-        <Panel title="Ladder" icon={<TrendingUp size={14} />}>
-          <PackLadder readOnly={!!world} />
-        </Panel>
-
-        <Panel title="Versions" icon={<GitCompare size={14} />} bodyClassName="max-h-[360px] overflow-auto">
-          <PackVersions readOnly={!!world} />
-        </Panel>
-
-        <Panel title="Learning" icon={<GraduationCap size={14} />} actions={
-          <button className="text-[11px] text-ink-faint hover:text-live" onClick={() => set('report', params.get('report') ? null : localDay(new Date()))}>
-            {params.get('report') ? 'hide' : 'show the report'}
-          </button>
-        }>
-          {params.get('report') && <LearningReport date={params.get('report')!} pack={pack} onDate={(d) => set('report', d)} />}
-        </Panel>
-
-        <Panel className="min-h-[320px] flex-1" title="Judgment log" icon={<ListFilter size={14} />} actions={
+        <Panel className="h-[560px] shrink-0 xl:h-auto xl:min-h-[300px] xl:flex-1" bodyClassName="flex flex-col" title="Judgment log" icon={<ListFilter size={14} />} actions={
           <Segmented value={since} options={SINCE} onChange={(v) => set('since', v === 'all' ? null : v)} />
         }>
-          <div className="flex flex-wrap items-center gap-2 border-b border-line px-3 py-1.5 text-[11px] text-ink-faint">
+          <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-line px-3 py-1.5 text-[11px] text-ink-faint">
             <span>pack</span>
             <select value={pack} onChange={(e) => set('pack', e.target.value || null)} className="rounded bg-transparent ring-1 ring-line">
               <option value="">every pack</option>
@@ -148,7 +138,7 @@ export default function Judgment() {
             </span>
           </div>
           {error ? <Empty>{String((error as { message?: string }).message ?? error)}</Empty> : !shown.length ? <Empty>no judgments match</Empty> : (
-            <div className="min-h-0 overflow-auto">
+            <div className="min-h-0 flex-1 overflow-auto">
               {[...shown].reverse().map((j) => (
                 <LogRow key={j.id} j={j} open={j.id === id} onOpen={() => set('id', j.id === id ? null : j.id)} onSession={(s) => nav(`/session/${s}?tab=timeline`)} />
               ))}
@@ -156,9 +146,31 @@ export default function Judgment() {
           )}
         </Panel>
       </div>
-      <Panel className="min-h-[420px]" title={id ? `Judgment ${short(id)}` : 'Judgment'} icon={<Gavel size={14} />}>
-        {id ? <Detail id={id} /> : <Empty>pick a judgment for its state and answers</Empty>}
-      </Panel>
+
+      <div className="flex min-h-0 flex-col gap-3 xl:overflow-auto xl:pr-0.5">
+        <Panel className="shrink-0" title={id ? `Judgment ${short(id)}` : 'One judgment'} icon={<Gavel size={14} />} actions={
+          id && <button className="text-[11px] text-ink-faint hover:text-live" onClick={() => set('id', null)}>close</button>
+        }>
+          {id ? <Detail id={id} /> : <Empty>pick a judgment in the log for its state and answers</Empty>}
+        </Panel>
+
+        {h?.enabled && !world && <Notices state={h.notices} onSession={(s) => nav(`/session/${s}?tab=timeline`)} />}
+        <Panel className="shrink-0" title="Ladder" icon={<TrendingUp size={14} />}>
+          <PackLadder readOnly={!!world} />
+        </Panel>
+
+        <Panel className="shrink-0" title="Versions" icon={<GitCompare size={14} />} bodyClassName="max-h-[360px] overflow-auto">
+          <PackVersions readOnly={!!world} />
+        </Panel>
+
+        <Panel className="shrink-0" title="Learning" icon={<GraduationCap size={14} />} actions={
+          <button className="text-[11px] text-ink-faint hover:text-live" onClick={() => set('report', params.get('report') ? null : localDay(new Date()))}>
+            {params.get('report') ? 'hide' : 'show the report'}
+          </button>
+        }>
+          {params.get('report') && <LearningReport date={params.get('report')!} pack={pack} onDate={(d) => set('report', d)} />}
+        </Panel>
+      </div>
     </div>
   )
 }
@@ -168,7 +180,7 @@ function Notices({ state, onSession }: { state: string; onSession: (s: string) =
   const { data } = useRpc<{ rows: LedgerEntry[] }>('ledger.tail', { n: 200, kind: 'tool.notified', session_id: null }, 6000)
   const rows = useMemo(() => (data?.rows ?? []).filter((r) => (r.data as D)?.by === 'judge').reverse().slice(0, 20), [data])
   return (
-    <Panel title="Notices" icon={<BellRing size={14} />} actions={
+    <Panel className="shrink-0" title="Notices" icon={<BellRing size={14} />} actions={
       <Pill tone={state === 'on' ? 'live' : state.startsWith('paused') ? 'wait' : 'idle'} title="security.v3's notices after an open call it is sure was risky">{state || 'not reported'}</Pill>
     }>
       {!rows.length ? <Empty>no notice yet</Empty> : rows.map((r) => {

@@ -22,7 +22,7 @@ export interface NewsItem {
 export const NEWS: NewsItem[] = [
   {
     id: 'console', since: '2026-10-07', title: 'The console: the engine and tokens a minute',
-    body: 'The console keeps the two gauges no other place shows: the engine (is the kernel taking new turns, and how many run) and tokens a minute. The live profile and the uptime are in the top bar; scrub back with the ship’s log and the title says what they were then.',
+    body: 'The console keeps the two gauges no other place shows: the engine (is the kernel taking new turns, and how many run) and tokens a minute. The live profile and the uptime are in the top bar; scrub back with the ship’s log and the top bar says what they were then.',
     anchor: { kind: 'dom', selector: '.ship-console' },
   },
   {
