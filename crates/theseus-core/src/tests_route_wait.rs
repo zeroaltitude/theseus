@@ -5,6 +5,9 @@
 //!   `classify.v1` and `role.v1`, so its verdict comes when its one question
 //!   is answered, never after the batch's; each judgment is recorded once,
 //!   with its own request's cost.
+//! - Jev's connections open once the socket serves (`Core::warm_judge`),
+//!   never on the start path, and are kept warm, so a fresh daemon's first
+//!   message pays no connection setup.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::time::{Duration, Instant};
@@ -165,4 +168,68 @@ async fn the_verdict_reaches_the_turn_before_the_batch_answers() {
             .all(|j| j.data["pack"] == "route.v1"),
         "the batch had not answered"
     );
+}
+
+/// Wait (on the runtime's timer) until `cond`, at most 20 s.
+async fn until(what: &str, cond: impl Fn() -> bool) {
+    let t0 = Instant::now();
+    while !cond() {
+        assert!(t0.elapsed() < Duration::from_secs(20), "{what}");
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+}
+
+/// Step 2: the start path (`Core::build`, all of it before the socket
+/// serves) opens no connection to Jev; the after-serving warm-up opens two,
+/// paying the set-up then; and a first message's two requests ride them,
+/// so its verdict pays none: under a 1.5 s set-up, it waits far less.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn jevs_connections_open_after_serving_and_a_first_message_pays_no_setup() {
+    let jev = FakeJev::start().unwrap();
+    jev.keep_alive(Duration::from_millis(1500));
+    mode(&jev, "sophisticated", 0.95);
+    let r = rig(Some(&jev), 1, |_| {});
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert_eq!(
+        (jev.opened(), jev.warmups(), jev.connections()),
+        (0, 0, 0),
+        "nothing reaches Jev before serving"
+    );
+    r.core.warm_judge();
+    until("the warm-up's answers", || r.core.runner.judge.jev_warm()).await;
+    let opened = jev.opened();
+    assert_eq!(opened, crate::judge::warm::CONNECTIONS);
+    let t0 = Instant::now();
+    let res = turn(&r.core, None, "Weigh two designs for the log.", None).await;
+    let took = t0.elapsed();
+    assert_eq!(res.route.as_ref().unwrap().reason, "verdict");
+    let d = &decided(&r.core.store)[0];
+    assert!(d["wait_ms"].as_u64().unwrap() < 1000, "no set-up paid: {d}");
+    assert!(took < Duration::from_millis(1500), "{took:?}: {d}");
+    until_calls(&jev, 2).await;
+    assert_eq!(
+        jev.opened(),
+        opened,
+        "both requests rode the kept connections"
+    );
+}
+
+/// The keeper uses the connections again after each `every` of Jev's
+/// silence, on the ones it opened: warm-ups come, connections do not.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_keeper_uses_its_connections_again_while_jev_is_silent() {
+    let jev = FakeJev::start().unwrap();
+    jev.keep_alive(Duration::ZERO);
+    let r = rig(Some(&jev), 1, |_| {});
+    r.core.runner.judge.keep_warm(Duration::from_millis(300));
+    until("three refreshes", || {
+        jev.warmups() >= 3 * crate::judge::warm::CONNECTIONS
+    })
+    .await;
+    assert_eq!(
+        jev.opened(),
+        crate::judge::warm::CONNECTIONS,
+        "the same two"
+    );
+    assert_eq!(jev.connections(), 0, "nothing billed");
 }

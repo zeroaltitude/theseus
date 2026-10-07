@@ -35,6 +35,10 @@ pub const MAX_RESPONSE_BYTES: usize = 1 << 20;
 /// 2026-10-05), and reqwest's own default, 90 s, dropped every connection
 /// in a conversation's pauses, so the next message paid DNS, TCP and TLS.
 pub const POOL_IDLE: Duration = Duration::from_secs(180);
+/// How long the connections may sit idle before the core's keeper uses
+/// them again (theseus-ddbi): half a minute inside [`POOL_IDLE`], so a
+/// refresh's answer lands before the pool closes them.
+pub const KEEP_WARM: Duration = Duration::from_secs(150);
 
 /// Rough tokens for a text of `bytes` bytes: a quarter, rounded up, as the
 /// rest of Theseus estimates (`ProviderRequest::estimate_tokens`).
@@ -917,7 +921,25 @@ impl JevClient {
     /// for the judgments that follow. Returns how long it took, and whether
     /// the client is warm after it; `None`: nothing was sent.
     pub async fn warm_up(&self, n: usize) -> Option<(Duration, bool)> {
-        if self.warm() || self.reach.warming.swap(true, Ordering::AcqRel) {
+        if self.warm() {
+            return None;
+        }
+        self.refresh(n).await
+    }
+
+    /// How long since Jev last answered (a call or a warm-up); `None`:
+    /// never.
+    pub fn heard_ago(&self) -> Option<Duration> {
+        let a = self.reach.answered.load(Ordering::Relaxed);
+        (a > 0).then(|| Duration::from_millis(self.reach.now().saturating_sub(a)))
+    }
+
+    /// [`JevClient::warm_up`] whether or not the client is warm, so the
+    /// connections it holds are used again before the pool's idle time
+    /// closes them (theseus-ddbi: the keeper, every [`KEEP_WARM`] of
+    /// silence). `None`: a warm-up was in flight, nothing was sent.
+    pub async fn refresh(&self, n: usize) -> Option<(Duration, bool)> {
+        if self.reach.warming.swap(true, Ordering::AcqRel) {
             return None;
         }
         let bound = self.config.connect + Duration::from_secs(1);

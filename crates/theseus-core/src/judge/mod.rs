@@ -44,6 +44,7 @@ pub mod sink;
 pub mod spend;
 #[cfg(test)]
 mod tests_reserve;
+pub mod warm;
 
 use std::collections::{BTreeMap, HashSet};
 use std::sync::{Arc, Mutex, OnceLock, Weak};

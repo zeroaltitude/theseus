@@ -1014,6 +1014,10 @@ async fn after_serving(
     // The ladder (M5 26a): each pack's mode, read once the socket answers,
     // and the adoptions it lacks written then, never on the start path.
     core.warm_ladder();
+    // Jev's connections (theseus-ddbi): opened now and kept warm, so a
+    // fresh daemon's first message pays no connection setup on route.v1's
+    // request, and nothing on the start path touches the network.
+    core.warm_judge();
     // The task claims that hold (39b), by one read of the task records, so
     // the driver's due pass frees a lapsed lease from memory.
     core.warm_leases();

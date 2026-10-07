@@ -326,7 +326,10 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     syncs (1.4 s each under a neighbour's IO, 2026-10-04: the 3.2 s late verdict) never delay a verdict. A person's
     message warms Jev's client as it arrives (`warm_on_message`, from `TurnRunner::run`: built, and two `HEAD`s of
     the judge's path, nothing billed, unless it answered within `theseus_judge::client::POOL_IDLE`, 180 s, under the
-    edge's 200 to 400 s); a try that fails to connect, with nothing answered since, is `jev_unreachable`, and then
+    edge's 200 to 400 s). From serving on (`Core::warm_judge`, theseusd's `after_serving`, never on the start
+    path), `judge/warm.rs` opens two and keeps them: a keeper on tokio's timer sends the `HEAD`s again after each
+    `theseus_judge::client::KEEP_WARM` (150 s) of Jev's silence, so a fresh daemon's first message pays no
+    connection setup (theseus-ddbi; `tests_route_wait.rs`). A try that fails to connect, with nothing answered since, is `jev_unreachable`, and then
     no turn waits on route or rerank. The fake Jev answers a `HEAD` 405 and counts it as `warmups()`, apart from
     `connections()`, which stays the calls'.
   - **At the gate** (step 24, `gate.rs`): `security.v1` and `security.v3` in shadow at every call that acts, and at
