@@ -32,7 +32,7 @@ export const NEWS: NewsItem[] = [
   },
   {
     id: 'sound', since: '2026-10-07', title: 'Sound, if you want it',
-    body: 'Off until you turn it on, here. Then three quiet cues, made in the browser: an oar going out splashes, something waiting for you rings the ship’s bell (you hear it from another window), and a failure sounds a low horn; the bell and the horn on every page.',
+    body: 'Off until you turn it on, here, and off again whenever the page opens. Then the sea, soft waves on a shore that rise a little with the work and go quiet in Calm, and three quiet cues, all made in the browser: an oar going out splashes, something waiting for you rings the ship’s bell (you hear it from another window), and a failure sounds a low horn. The sea, the bell and the horn on every page.',
     anchor: { kind: 'dom', selector: '.ship-sound' },
   },
   {

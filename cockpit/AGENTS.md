@@ -25,7 +25,8 @@ build.
   session deck read them; pure), `keyset.ts` and `Key.tsx` (the key), `HoverCard.tsx` and `placement.ts` (cards beside
   their point, off the instruments; pure), `Tour.tsx`, `tourText.ts` and `news.ts` (the tour, and what's new after an
   update; pure), `sound.ts`, `audio.ts` and `useShipSound.ts` (the three cues: which push sounds which, pure; the
-  sounds, made with Web Audio; the toggle, and the cues the Shell hears on every page), `instruments.tsx` (the brass gauges), `Minimap.tsx`, `useShipData.ts` (the reads and
+  sounds, made with Web Audio; the toggle, and the cues the Shell hears on every page), `surf.ts` (the ambient sea's
+  voice, fades, ducks, wave shape and noise; pure, theseus-pl0x), `instruments.tsx` (the brass gauges), `Minimap.tsx`, `useShipData.ts` (the reads and
   pushes it composes), `flares.ts` (a failure flares its ship once, whichever of its push, its execution's change and
   its ledger row tells the page first; pure, theseus-1skt), and `synth.ts` (a seeded 10,000-node fleet for measuring).
 - The watch, the Ship's column of six plates (theseus-hnof): `src/ship/Watch.tsx` draws them, `src/ship/watch.ts` works
@@ -123,10 +124,20 @@ build.
   pings and the soft pulses run while the daemon says something (a push, a new ledger row, the link changing) and
   `STIR_MS` after (`src/lib/stir.ts`, `html.stirred`), then stand lit. A new endless CSS animation takes the same
   rule in `index.css`, beside Calm's.
-- **Sound is off until the operator turns it on** (the Ship's Sound button, kept in the browser): three cues on the
-  daemon's own pushes and ledger rows (`src/ship/sound.ts`), made in the browser with Web Audio (`audio.ts`), no
-  recorded or third-party sound. A cue is a row of `CUES`, with its events, its source and its pages. They play on
-  every page (theseus-7zph): the Shell mounts `useSoundCues` once, and the oar splashes only on the Ship.
+- **Sound is off until the operator turns it on**, and off again on every page load (the owner's call, 2026-10-07;
+  nothing is kept in the browser): three cues on the daemon's own pushes and ledger rows (`src/ship/sound.ts`), made in
+  the browser with Web Audio (`audio.ts`), no recorded or third-party sound. A cue is a row of `CUES`, with its events,
+  its source and its pages. They play on every page (theseus-7zph): the Shell mounts `useSoundCues` once, and the oar
+  splashes only on the Ship. **An audio context is made or resumed only in the Sound button's click**
+  (`ShipAudio.turnOn`): nothing at load and nothing on another click, so the browser never logs its autoplay notice.
+  The click's bell and the sea wait for `resume()`'s answer, never a timer; should the browser refuse, the button goes
+  back to off. **While sound is on, the sea is heard** (theseus-pl0x, `surf.ts`): soft waves at the sea's height (the
+  present's work: health's running turns and tokens a minute from the page's one copy of the ledger, read for nothing
+  else), on every page, silent where the sea is still (Calm, so reduced motion, and `?swell=0`), and ducked under
+  every cue. It starts only once the context runs (`ShipAudio.surf` remembers a height), fades in and out, and costs
+  the page no work while it plays: the waves are a looping control signal on the audio thread, and the page sets a new
+  height only when the work, the toggle or Calm changes. `ShipAudio.renderSea` renders it offline to listen to;
+  `window.__shipSurf()` (dev and bench builds) says what it plays.
 - **What's new is one item an addition** (`src/ship/news.ts`): an update that adds something to the Ship adds a stop
   there with its date, which moves `COCKPIT_VERSION`; a browser that has seen the tour flies to only the new stops,
   once.

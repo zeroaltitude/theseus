@@ -18,6 +18,28 @@ export function seaTarget(tpm: number | null | undefined, turns: number): number
   return v < 0.02 ? 0 : Math.min(1, v)
 }
 
+/** How far before the minute a scan of rows oldest first goes on: a model call's row may carry a time a little older
+ *  than the rows before it, and a few such rows are passed over, not taken for the minute's start. */
+const TPM_SLACK_MS = 10 * 60_000
+
+/** Tokens a minute: input, cache and output of every model call (`provider.call` rows) since `now` (ms) less sixty
+ *  seconds. The rows oldest first, as the ledger gives them: the scan starts from the newest and stops well before the
+ *  minute, so the page's whole copy of the ledger costs no more than its last few minutes (the ambient sea's, on every
+ *  page; the Ship's, on its own tail of model calls). */
+export function tpmOf(rows: readonly { kind: string; at_unix_ms: number; data?: unknown }[], now: number): number {
+  const cut = now - 60_000
+  let sum = 0
+  for (let i = rows.length - 1; i >= 0; i--) {
+    const r = rows[i]
+    if (r.at_unix_ms < cut - TPM_SLACK_MS) break
+    if (r.kind !== 'provider.call' || r.at_unix_ms < cut) continue
+    const u = ((r.data ?? {}) as Record<string, unknown>).usage as Record<string, unknown> | undefined
+    if (!u) continue
+    sum += Number(u.input_tokens ?? 0) + Number(u.output_tokens ?? 0) + Number(u.cache_read_input_tokens ?? 0) + Number(u.cache_creation_input_tokens ?? 0)
+  }
+  return sum
+}
+
 /** Seconds the sea takes to come up to its height (a time constant), and to settle back. */
 export const SEA_RISE_S = 2.5
 export const SEA_SETTLE_S = 8
