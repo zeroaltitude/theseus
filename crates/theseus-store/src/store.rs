@@ -167,19 +167,15 @@ pub trait Store: Send + Sync {
             .take(limit)
             .collect())
     }
-    /// The latest record of every key of `kind` that `keep` passes, in key
-    /// order (theseus-7087): a key it fails costs its index row alone, and
-    /// its record is never read. This default reads every record of the
-    /// kind.
-    fn latest_of_kind_where(
-        &self,
-        kind: RecordKind,
-        keep: &dyn Fn(&str) -> bool,
-    ) -> Result<Vec<Record>> {
+    /// The latest record of every key of `kind` but those that start with
+    /// `skip`, in key order (theseus-26jo): a skipped key's record is never
+    /// read, and an index that keeps its keys in order steps past their run
+    /// without visiting it. This default reads every record of the kind.
+    fn latest_of_kind_except(&self, kind: RecordKind, skip: &str) -> Result<Vec<Record>> {
         Ok(self
             .latest_of_kind(kind)?
             .into_iter()
-            .filter(|r| r.key.as_deref().is_some_and(keep))
+            .filter(|r| r.key.as_deref().is_some_and(|k| !k.starts_with(skip)))
             .collect())
     }
     /// How many keys `kind` has (its entities), where `count_of_kind` counts
@@ -1647,12 +1643,8 @@ impl Store for WalStore {
         self.inner.page(q)
     }
 
-    fn latest_of_kind_where(
-        &self,
-        kind: RecordKind,
-        keep: &dyn Fn(&str) -> bool,
-    ) -> Result<Vec<Record>> {
-        let positions = self.inner.index.positions_of_keys_where(kind, keep)?;
+    fn latest_of_kind_except(&self, kind: RecordKind, skip: &str) -> Result<Vec<Record>> {
+        let positions = self.inner.index.positions_of_keys_except(kind, skip)?;
         self.inner.read_many(&positions)
     }
 

@@ -99,6 +99,15 @@ fn bykey(kind: RecordKind, key: &str) -> Vec<u8> {
     v.extend_from_slice(key.as_bytes());
     v
 }
+/// The first key past every key that starts with `prefix`: `prefix` with
+/// its last byte below 0xff raised by one and the bytes after it dropped;
+/// `None` when every byte is 0xff, and no key is past them.
+fn past_prefix(prefix: &[u8]) -> Option<Vec<u8>> {
+    let last = prefix.iter().rposition(|b| *b < 0xff)?;
+    let mut v = prefix[..=last].to_vec();
+    v[last] += 1;
+    Some(v)
+}
 fn bykind(kind: RecordKind, pos: u64) -> [u8; 10] {
     let mut v = [0u8; 10];
     v[..2].copy_from_slice(&kind.to_be_bytes());
@@ -734,24 +743,31 @@ impl RedbIndex {
         Ok(out)
     }
 
-    /// The latest position of every key of a kind that `keep` passes, in
-    /// key order: a walk of the kind's key table alone (theseus-7087).
-    pub fn positions_of_keys_where(
-        &self,
-        kind: RecordKind,
-        keep: &dyn Fn(&str) -> bool,
-    ) -> Result<Vec<u64>> {
+    /// The latest position of every key of a kind but those that start with
+    /// `skip`, in key order (theseus-26jo): two reads of the key table, from
+    /// the kind's first key up to the run `skip` starts, and from the first
+    /// key past that run to the kind's end, so no row of the run is visited,
+    /// however long it grows. The run's end is `skip` with its last byte
+    /// raised by one (`ses_ep` ends before `ses_eq`).
+    pub fn positions_of_keys_except(&self, kind: RecordKind, skip: &str) -> Result<Vec<u64>> {
         let txn = self.db.begin_read()?;
         let t = txn.open_table(BYKEY)?;
         let lo = kind.to_be_bytes().to_vec();
         let hi = (kind + 1).to_be_bytes().to_vec();
+        let run = bykey(kind, skip);
+        let past = past_prefix(&run).filter(|p| *p < hi);
         let mut out = Vec::new();
-        for row in t.range(lo.as_slice()..hi.as_slice())? {
-            let (k, v) = row?;
-            count_rows(1);
-            if keep(&String::from_utf8_lossy(&k.value()[2..])) {
+        let mut walk = |from: &[u8], to: &[u8]| -> Result<()> {
+            for row in t.range(from..to)? {
+                let (_, v) = row?;
+                count_rows(1);
                 out.push(v.value());
             }
+            Ok(())
+        };
+        walk(&lo, &run)?;
+        if let Some(past) = past {
+            walk(&past, &hi)?;
         }
         Ok(out)
     }

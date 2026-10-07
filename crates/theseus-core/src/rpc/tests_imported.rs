@@ -9,8 +9,8 @@ use std::sync::Arc;
 
 use serde_json::json;
 use theseus_protocol::import::{ImportEpisodesParams, ImportLine};
-use theseus_protocol::{SessionKind, SessionListParams};
-use theseus_store::{kinds, records_read_here, Store as _};
+use theseus_protocol::{CompilationListParams, SessionKind, SessionListParams};
+use theseus_store::{index_rows_here, kinds, records_read_here, Store as _};
 
 use super::Core;
 use crate::bus::EventSink;
@@ -240,6 +240,27 @@ fn reads<R>(f: impl Fn() -> R) -> u64 {
     records_read_here() - before
 }
 
+/// Index rows `f` visits (theseus-26jo), once it has run once.
+fn rows<R>(f: impl Fn() -> R) -> u64 {
+    f();
+    let before = index_rows_here();
+    f();
+    index_rows_here() - before
+}
+
+/// The index rows the whole list, `confirm.list`, and `compilation.list`
+/// visit: each walks the live sessions' keys alone (theseus-26jo).
+fn list_rows(core: &Core) -> [u64; 3] {
+    [
+        rows(|| core.session_list().unwrap()),
+        rows(|| core.confirm_list().unwrap()),
+        rows(|| {
+            core.compilation_list(CompilationListParams::default())
+                .unwrap()
+        }),
+    ]
+}
+
 /// The reads of the whole list, a page of 20, the page past the import's
 /// run, and `confirm.list`.
 fn list_reads(core: &Core, past: Option<u64>) -> [u64; 4] {
@@ -278,11 +299,20 @@ async fn the_session_lists_read_no_imported_session_and_answer_as_before() {
     // Its own sessions' records and their executions', not one per imported
     // key or per `n` of them.
     assert!(read_before.iter().all(|r| *r < 60), "{read_before:?}");
+    // The live sessions' key rows and their executions' lookups, not one row
+    // per imported key: the walks step past the import's run unvisited.
+    let rows_before = list_rows(c);
+    assert!(rows_before.iter().all(|r| *r < 60), "{rows_before:?}");
     import(c, LATER, 1_000, 1_000);
     assert_eq!(
         list_reads(c, past),
         read_before,
         "the second import adds no read to the whole list, a page, the page past the runs, or confirm.list"
+    );
+    assert_eq!(
+        list_rows(c),
+        rows_before,
+        "the second import adds no index row to the whole list, confirm.list, or compilation.list"
     );
     let late: Vec<String> = (0..2).map(|_| open(c)).collect();
     assert_eq!(answers_agree(c, "after the second import"), 7);
@@ -298,8 +328,10 @@ async fn the_session_lists_read_no_imported_session_and_answer_as_before() {
 
     // An erase still hides: its tombstones are imported sessions too.
     let read_before = list_reads(c, past);
+    let rows_before = list_rows(c);
     write::erase(&c.store, TAG, Some("a test's erase"), "test").unwrap();
     assert_eq!(list_reads(c, past), read_before, "an erase adds no read");
+    assert_eq!(list_rows(c), rows_before, "an erase adds no index row");
     assert_eq!(answers_agree(c, "after an erase"), 7);
     assert_eq!(c.store.session_count().unwrap(), 2_007);
 }
