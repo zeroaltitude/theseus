@@ -291,6 +291,10 @@ struct Inner {
     /// durable checkpoint has written since: until one has, no checkpoint is
     /// free (theseus-celu.16.1).
     built: std::sync::atomic::AtomicBool,
+    /// A stop has taken its checkpoint (`checkpoint_for_close`), so the
+    /// store's close takes the stop's last one: a frame a late writer
+    /// appended after it is not replayed (theseus-fts6).
+    stopping: std::sync::atomic::AtomicBool,
     /// The manifest names a format older than this build's: the writer
     /// moves it before its first frame (theseus-ptx1). Only the writer
     /// reads it after the open.
@@ -988,7 +992,13 @@ impl WalStore {
     /// commit, and makes this one durable with it: a stop then pays one
     /// commit's syncs, not two. A kill between the two only makes the next
     /// open replay from the checkpoint before.
+    ///
+    /// The store's close then takes the stop's last checkpoint (theseus-fts6):
+    /// a writer the stop never waited for, such as a task a stop right after
+    /// serving meets, may append after this one, and every handle on the
+    /// store, so every writer, is gone by the close.
     pub fn checkpoint_for_close(&self) -> Result<u64> {
+        self.inner.stopping.store(true, Ordering::Relaxed);
         blocking(|| self.inner.checkpoint_as(false))
     }
 
@@ -1002,11 +1012,17 @@ impl WalStore {
 impl Drop for WalStore {
     /// Closing the queue ends the writer once it has answered what it holds.
     /// Nothing else is queued: an appender holds the store until its answer.
-    /// The index closes after, as the last handle on it drops.
+    /// A stopped store then takes the stop's last checkpoint
+    /// (theseus-fts6), and the index closes after, as the last handle on it
+    /// drops, which makes that checkpoint durable.
     fn drop(&mut self) {
         drop(self.queue.take());
         if let Some(w) = self.writer.take() {
             let _ = w.join();
+        }
+        // Never in a panic's unwinding, where a second would abort.
+        if self.inner.stopping.load(Ordering::Relaxed) && !std::thread::panicking() {
+            self.inner.checkpoint_at_close();
         }
     }
 }
@@ -1109,6 +1125,7 @@ impl Inner {
             checkpointed: AtomicU64::new(cp),
             durable_to: AtomicU64::new(cp),
             built: std::sync::atomic::AtomicBool::new(false),
+            stopping: std::sync::atomic::AtomicBool::new(false),
             behind: std::sync::atomic::AtomicBool::new(behind),
             fsync,
             appending: RwLock::new(()),
@@ -1244,6 +1261,26 @@ impl Inner {
         }
         self.since_checkpoint.store(0, Ordering::Relaxed);
         Ok(last)
+    }
+
+    /// The stop's last checkpoint, as the store closes (theseus-fts6): the
+    /// writer has answered every frame, and no handle is left to append
+    /// another. It is free when nothing came after the stop's own; records
+    /// that did are said, since their writer outlived the stop's checkpoint.
+    fn checkpoint_at_close(&self) {
+        let before = self.checkpointed.load(Ordering::Relaxed);
+        match self.checkpoint_as(false) {
+            Ok(last) if last > before => tracing::info!(
+                records = last - before,
+                checkpoint = last,
+                "store: records written after the stop's checkpoint, checkpointed as the store closes"
+            ),
+            Ok(_) => {}
+            Err(e) => tracing::warn!(
+                error = %format!("{e:#}"),
+                "store: the close's checkpoint failed; the next start replays the tail"
+            ),
+        }
     }
 
     /// The writer (theseus-vni9): it takes every append queued, writes their

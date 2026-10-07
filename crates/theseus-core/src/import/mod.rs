@@ -244,8 +244,10 @@ pub struct ImportedFrom {
     pub erased: Option<Erased>,
 }
 
-/// A tag's counts, a META record (`tag_key`), written in each batch's and
-/// each erase's frame: what `import.list` shows.
+/// A tag's counts, a META record (`tag_key`), written in every frame of a
+/// batch or an erase, as they stand after it: what `import.list` and health
+/// show. `erased` is the tag's sessions erased, counted whole by each erase
+/// (theseus-mce3).
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct TagCounts {
     pub tag: String,
