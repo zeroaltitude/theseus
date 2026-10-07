@@ -39,7 +39,7 @@ use theseus_protocol::route::TurnRoute;
 
 use super::*;
 use crate::config::PackMode;
-use crate::judge::inbound::{RouteWait, ROUTE_PACK};
+use crate::judge::inbound::{Answered, RouteWait, ROUTE_PACK};
 use crate::routing::{self, Decision, HoldNext, Reason, Verdict};
 
 /// What a turn holds of routing, from its inbound point to its end.
@@ -83,31 +83,58 @@ pub enum Got {
     Late,
 }
 
+/// What came of the wait, how long it took after the compile, and when
+/// `route.v1`'s request came back, if it had (theseus-ddbi).
+pub struct Waited {
+    pub got: Got,
+    pub waited: Duration,
+    pub answered: Option<tokio::time::Instant>,
+}
+
+/// The row's times (theseus-ddbi).
+struct Timed {
+    waited: Duration,
+    late: bool,
+    answered_ms: Option<u64>,
+}
+
 /// Run `compile`, then wait for the verdict at most `max_wait` after it
 /// ends (not waiting at all when `wait` is false): the verdict's call
-/// started before the compile, so its time runs beside it. Also returns how
-/// long it waited after the compile.
+/// started before the compile, so its time runs beside it.
 pub async fn beside<F: Future>(
     compile: F,
     rx: &mut RouteWait,
     max_wait: Duration,
     wait: bool,
-) -> (F::Output, Got, Duration) {
+) -> (F::Output, Waited) {
     let out = compile.await;
     let t0 = tokio::time::Instant::now();
-    let got = match wait {
+    let came = match wait {
         true => match tokio::time::timeout(max_wait, &mut *rx).await {
-            Ok(Ok(v)) => Got::Verdict(v),
-            Ok(Err(_)) => Got::Verdict(None),
-            Err(_) => Got::Late,
+            Ok(Ok(a)) => Some(Some(a)),
+            Ok(Err(_)) => Some(None),
+            Err(_) => None,
         },
         false => match rx.try_recv() {
-            Ok(v) => Got::Verdict(v),
-            Err(tokio::sync::oneshot::error::TryRecvError::Closed) => Got::Verdict(None),
-            Err(tokio::sync::oneshot::error::TryRecvError::Empty) => Got::Late,
+            Ok(a) => Some(Some(a)),
+            Err(tokio::sync::oneshot::error::TryRecvError::Closed) => Some(None),
+            Err(tokio::sync::oneshot::error::TryRecvError::Empty) => None,
         },
     };
-    (out, got, t0.elapsed())
+    let waited = t0.elapsed();
+    let (got, answered) = match came {
+        Some(Some(a)) => (Got::Verdict(a.verdict), Some(a.at)),
+        Some(None) => (Got::Verdict(None), None),
+        None => (Got::Late, None),
+    };
+    (
+        out,
+        Waited {
+            got,
+            waited,
+            answered,
+        },
+    )
 }
 
 impl TurnRunner {
@@ -313,8 +340,18 @@ impl TurnRunner {
         t.route.defer_persist = live;
         let max_wait = Duration::from_millis(self.cfg.routing.max_wait_ms);
         let compile = Box::pin(self.compile_step(t, session, spec, force, strip, overflow, i));
-        let (compiled, got, waited) =
-            beside(compile, &mut rx, max_wait, live && !unreachable).await;
+        let (compiled, w) = beside(compile, &mut rx, max_wait, live && !unreachable).await;
+        // Missed: the turn decides without its own verdict (theseus-ddbi).
+        let late = live && w.got == Got::Late;
+        let answered_ms = w.answered.map(|at| {
+            at.into_std()
+                .saturating_duration_since(t.started)
+                .as_millis() as u64
+        });
+        if live {
+            self.judge.record_route_wait(w.waited, late);
+        }
+        let (got, waited) = (w.got, w.waited);
         t.route.defer_persist = false;
         let compiled = match compiled? {
             Ok(c) => c,
@@ -339,7 +376,11 @@ impl TurnRunner {
             decision.as_ref(),
             reason,
             &compiled,
-            waited,
+            Timed {
+                waited,
+                late,
+                answered_ms,
+            },
         );
         if live {
             // A routed turn: the owner's pin of another profile within 10
@@ -423,7 +464,10 @@ impl TurnRunner {
                 let judge = self.judge.clone();
                 let s = sid.to_string();
                 tokio::spawn(async move {
-                    if let Ok(Some(v)) = rx.await {
+                    if let Ok(Answered {
+                        verdict: Some(v), ..
+                    }) = rx.await
+                    {
                         judge.set_late(&s, v);
                     }
                 });
@@ -472,7 +516,7 @@ impl TurnRunner {
         decision: Option<&Decision>,
         reason: Option<Reason>,
         compiled: &Compiled,
-        waited: Duration,
+        timed: Timed,
     ) {
         let base = t.target.profile.clone();
         let reason = decision.map_or(reason.unwrap_or(Reason::NoVerdict), |d| d.reason);
@@ -487,7 +531,9 @@ impl TurnRunner {
             detour: decision.is_some_and(|d| d.detour),
             switch: decision.is_some_and(|d| d.switch),
             est_tokens: compiled.est_tokens,
-            wait_ms: waited.as_millis() as u64,
+            wait_ms: timed.waited.as_millis() as u64,
+            late: timed.late,
+            answered_ms: timed.answered_ms,
         });
         t.route.result = Some(TurnRoute {
             mode: verdict.map(|v| v.mode.clone()),
@@ -707,7 +753,10 @@ mod tests {
             match at {
                 Some(ms) => {
                     tokio::time::sleep(Duration::from_millis(ms)).await;
-                    let _ = tx.send(Some(v("chat")));
+                    let _ = tx.send(Answered {
+                        verdict: Some(v("chat")),
+                        at: tokio::time::Instant::now(),
+                    });
                 }
                 None => {
                     tokio::time::sleep(Duration::from_secs(3600)).await;
@@ -716,8 +765,12 @@ mod tests {
             }
         });
         let compile = tokio::time::sleep(Duration::from_millis(100));
-        let (_, got, _) = beside(compile, &mut rx, Duration::from_millis(200), true).await;
-        (t0.elapsed().as_millis() as u64, got)
+        let (_, w) = beside(compile, &mut rx, Duration::from_millis(200), true).await;
+        if let Some(ms) = at.filter(|_| w.got != Got::Late) {
+            let came = w.answered.map(|a| (a - t0).as_millis() as u64);
+            assert_eq!(came, Some(ms), "when the verdict came");
+        }
+        (t0.elapsed().as_millis() as u64, w.got)
     }
 
     /// On tokio's paused clock: a verdict that never comes releases the call
@@ -743,13 +796,14 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn nothing_sent_waits_for_nothing() {
         let t0 = tokio::time::Instant::now();
-        let (tx, mut rx) = tokio::sync::oneshot::channel::<Option<Verdict>>();
+        let (tx, mut rx) = tokio::sync::oneshot::channel::<Answered>();
         drop(tx);
-        let (_, got, _) = beside(async {}, &mut rx, Duration::from_millis(200), true).await;
-        assert_eq!((t0.elapsed().as_millis(), got), (0, Got::Verdict(None)));
-        let (_tx, mut rx) = tokio::sync::oneshot::channel::<Option<Verdict>>();
-        let (_, got, _) = beside(async {}, &mut rx, Duration::from_millis(200), false).await;
-        assert_eq!((t0.elapsed().as_millis(), got), (0, Got::Late));
+        let (_, w) = beside(async {}, &mut rx, Duration::from_millis(200), true).await;
+        assert_eq!((t0.elapsed().as_millis(), w.got), (0, Got::Verdict(None)));
+        assert!(w.answered.is_none());
+        let (_tx, mut rx) = tokio::sync::oneshot::channel::<Answered>();
+        let (_, w) = beside(async {}, &mut rx, Duration::from_millis(200), false).await;
+        assert_eq!((t0.elapsed().as_millis(), w.got), (0, Got::Late));
     }
 
     /// An id's time is when `new_id` minted it, which `switched_since` reads

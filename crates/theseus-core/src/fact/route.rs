@@ -11,7 +11,10 @@ use crate::trace::Trace;
 
 /// `route.decided`: the mode `route.v1` answered (if a verdict was read),
 /// the profile the turn runs on and the one it came from, the wait after
-/// the first compile, and the reason.
+/// the first compile, and the reason; whether the verdict missed the wait
+/// (`late`: the turn ran on the session's last verdict or its base), and
+/// when `route.v1`'s request came back, in ms after the turn's start, if it
+/// had by then (theseus-ddbi).
 pub struct RouteDecided<'a> {
     pub mode: Option<&'a str>,
     pub confidence: Option<f64>,
@@ -23,6 +26,8 @@ pub struct RouteDecided<'a> {
     pub switch: bool,
     pub est_tokens: u64,
     pub wait_ms: u64,
+    pub late: bool,
+    pub answered_ms: Option<u64>,
 }
 
 impl Fact for RouteDecided<'_> {
@@ -33,7 +38,7 @@ impl Fact for RouteDecided<'_> {
             "mode": self.mode, "confidence": self.confidence, "judgment": self.judgment,
             "from": self.from, "profile": self.profile, "reason": self.reason,
             "detour": self.detour, "switch": self.switch, "est_tokens": self.est_tokens,
-            "wait_ms": self.wait_ms,
+            "wait_ms": self.wait_ms, "late": self.late, "answered_ms": self.answered_ms,
         })
     }
 

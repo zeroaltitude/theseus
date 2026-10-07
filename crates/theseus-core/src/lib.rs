@@ -267,6 +267,8 @@ mod tests_route_base;
 #[cfg(test)]
 mod tests_route_cap;
 #[cfg(test)]
+mod tests_route_late;
+#[cfg(test)]
 mod tests_route_model;
 #[cfg(test)]
 mod tests_route_rows;

@@ -45,7 +45,8 @@ use crate::trace::Trace;
 pub const CLASSIFY_PACK: &str = "classify.v1";
 /// ROLE_GUESS (§2.4), at `inbound`, batched with `classify.v1`.
 pub const ROLE_PACK: &str = "role.v1";
-/// ROUTE (25e), at `inbound`, batched with `classify.v1`: live.
+/// ROUTE (25e), at `inbound`, in a request of its own beside the batch:
+/// live.
 pub const ROUTE_PACK: &str = "route.v1";
 /// The packs asked at `inbound`, in the order they are asked.
 pub const PACKS: [&str; 3] = [CLASSIFY_PACK, ROLE_PACK, ROUTE_PACK];
@@ -53,7 +54,15 @@ pub const PACKS: [&str; 3] = [CLASSIFY_PACK, ROLE_PACK, ROUTE_PACK];
 /// What a turn waits on for `route.v1`'s verdict: `None` when Jev gave none
 /// (a failure, a skip, model drift); a dropped sender (nothing sent, the
 /// day's limit among it) reads the same, at once.
-pub type RouteWait = tokio::sync::oneshot::Receiver<Option<crate::routing::Verdict>>;
+pub type RouteWait = tokio::sync::oneshot::Receiver<Answered>;
+
+/// `route.v1`'s request, come back: its verdict, if any, and when it came
+/// (theseus-ddbi: `route.decided`'s `answered_ms`).
+#[derive(Debug)]
+pub struct Answered {
+    pub verdict: Option<crate::routing::Verdict>,
+    pub at: tokio::time::Instant,
+}
 
 /// The spec's twelve seed roles (§3.4), each with its stance and hints in
 /// a sentence, as `role.v1`'s options: compiled-in data until step 26c's
@@ -222,6 +231,15 @@ impl JudgeService {
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .remove(session)
+    }
+
+    /// A turn route.v1 acts on (theseus-ddbi): its wait after the first
+    /// compile, and whether the verdict missed it, as
+    /// `theseus.route.wait`.
+    pub fn record_route_wait(&self, wait: Duration, late: bool) {
+        if let Some(t) = self.telemetry.get() {
+            t.record_route_wait(wait, late);
+        }
     }
 
     /// The session holds a late verdict (a test's wait for one to land).
@@ -524,7 +542,7 @@ async fn judge_inbound(
     me: Weak<JudgeService>,
     packs: Vec<(Arc<Pack>, String, PackMode)>,
     msg: Inbound,
-    route: Option<tokio::sync::oneshot::Sender<Option<crate::routing::Verdict>>>,
+    route: Option<tokio::sync::oneshot::Sender<Answered>>,
 ) {
     let today = spend::local_day(theseus_protocol::now_unix_ms());
     let Some(svc) = me.upgrade() else { return };
@@ -578,7 +596,10 @@ async fn judge_inbound(
             "judge: route.v1 judged"
         );
         if let Some(tx) = route {
-            let _ = tx.send(judgments.first().and_then(|j| verdict(j, &turn)));
+            let _ = tx.send(Answered {
+                verdict: judgments.first().and_then(|j| verdict(j, &turn)),
+                at: tokio::time::Instant::now(),
+            });
         }
         judgments
     };

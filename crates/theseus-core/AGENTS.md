@@ -376,9 +376,11 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     and the next run's rules read no judgment whose windows closed before it (`system::Cut`, `open_ms`: its
     session's nodes, its call's action, the task briefs; theseus-cf5c), and log how many sessions they read.
     Tests: `tests_learning.rs`, `learning::*::tests`.
-  - **Routing** (step 25e, theseus-0j2.11): `route.v1` rides the inbound point's request, live while `[judge]`
-    is on (`[routing]`, `config/routing.rs`, lowers it). Its verdict comes back over a oneshot (`RouteWait`), and
-    the call waits for a permit rather than being shed. The turn waits for it beside its first compile, at most
+  - **Routing** (step 25e, theseus-0j2.11): `route.v1` asks at the inbound point in a request of its own, beside
+    the batch of `classify.v1` and `role.v1` (theseus-ddbi: one question answers sooner than the batch), live while
+    `[judge]` is on (`[routing]`, `config/routing.rs`, lowers it). Its verdict comes back over a oneshot
+    (`RouteWait`, an `Answered` with the time it came) the moment its request answers, and the call waits for a
+    permit rather than being shed. The turn waits for it beside its first compile, at most
     `max_wait_ms` after it (`turn/route_step.rs`, `beside`; a late verdict applies to the next message alone, and a
     late `trivial` one to none: `routing::carries`, theseus-6n5j), and not at all while Jev is known unreachable
     (`JudgeService::jev_unreachable`, reason `unreachable`, theseus-otny); `routing.rs` decides, purely, at the
@@ -390,7 +392,9 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     compilation the call uses is persisted (`RouteState.defer_persist`), and only its `context.compiled` and
     `loop.started` recorded (`RouteState.deferred`, theseus-d13v); a detour's loop records `loop.started` alone,
     since its compilation is never stored (`tests_route_rows.rs`). The row is `route.decided`
-    (`fact/route.rs`); thinking goes back only to the model that wrote it (`tests_thinking_writer.rs`), and a place's
+    (`fact/route.rs`: `wait_ms`, `late` when the verdict missed the wait, `answered_ms` when the request came back
+    after the turn's start, if it had; each live turn's wait is `theseus.route.wait` by `theseus.route.late`,
+    `tests_route_late.rs`); thinking goes back only to the model that wrote it (`tests_thinking_writer.rs`), and a place's
     profile caps it (`tests_route_cap.rs`). `routed` holds only while route.v1
     acts live for the session (theseus-9yyr, `route_base`): routing off or in shadow, the ladder's rollback, the
     judge off, or Jev unreachable (`JudgeService::reachable`) clear it at the next turn, in the turn's own session
