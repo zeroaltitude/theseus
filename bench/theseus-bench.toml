@@ -19,6 +19,7 @@
 #     timeout, overloaded, a server error) is made again inside its turn, up
 #     to 4 times, after 2, 4, 8 and 16 s: a headless run ends with its turn,
 #     so no later retry comes (theseus-7gir.21);
+#   - the reasoning effort is medium, as it is on the other arms (theseus-n6p5);
 #   - Discord, the web UI, and the index tender are off.
 #
 # The Harbor adapter (bench/harbor/theseus_agent.py) writes this file into each
@@ -41,6 +42,9 @@ transient = 4
 provider = "anthropic"
 model = "claude-sonnet-5-5"             # set by the adapter
 max_loops = 200                         # set by the adapter
+# Reasoning effort medium, as Claude Code's and Pi's own defaults send it:
+# omitted, Sonnet 5.5 would run at its default, high (theseus-n6p5).
+effort = "medium"
 
 [secrets]
 anthropic_api_key = "env:ANTHROPIC_API_KEY"
