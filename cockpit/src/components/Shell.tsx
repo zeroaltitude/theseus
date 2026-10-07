@@ -3,24 +3,20 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { NavLink, Outlet, useLocation, useMatch, useNavigate } from 'react-router'
 import { motion } from 'motion/react'
 import { Command } from 'cmdk'
-import { useQueryClient } from '@tanstack/react-query'
 import {
-  Activity, BellOff, BellRing, ChevronDown, ChevronUp, CircleCheck, Coins, Command as CommandIcon, Cpu, Crosshair, Gauge, Gavel, Landmark, Layers, Navigation, OctagonX, Pause, Play, Radio,
-  RefreshCw, Sailboat, Scale, ScrollText, ShieldCheck, ShieldHalf, Shapes, Zap,
+  Activity, BellOff, BellRing, ChevronDown, ChevronUp, CircleCheck, Coins, Command as CommandIcon, Cpu, Crosshair, Gauge, Gavel, Landmark, Layers, Navigation, OctagonX, Pause, Radio,
+  Sailboat, Scale, ScrollText, ShieldCheck, ShieldHalf, Shapes, Zap,
 } from 'lucide-react'
-import type { ConfirmRequest, ExecutionInfo, Health, NodeInfo, ProfileList, SessionInfo } from '@protocol'
-import { call, client, useConn, usePaused, useRpc, usePush } from '@/lib/rpc'
-import { readNow } from '@/lib/history'
+import type { ConfirmRequest, ExecutionInfo, NodeInfo, SessionInfo } from '@protocol'
+import { call, useConn, useRpc, usePush } from '@/lib/rpc'
 import { useLedger } from '@/lib/derive'
 import { summarize } from '@/lib/summary'
-import { cn, ms, short, tokens, uptime, usd, clock, stamp } from '@/lib/format'
+import { cn, short, usd, clock, stamp } from '@/lib/format'
 import { ledgerKind, partTone, stateTone, toneHex } from '@/lib/taxonomy'
 import { LiveDot, Spark } from './ui'
-import { DiskAttention } from './DiskSpool'
-import { Coin, PlankStrip } from './brass'
-import { binaryLine, binaryTone } from '@/lib/binary'
-import { diskSummary, diskTone } from '@/lib/disk'
-import { useHistory, useTick } from '@/lib/hooks'
+import { Coin } from './brass'
+import { HeartbeatBar } from './Heartbeat'
+import { useFlow } from '@/lib/flow'
 import { useAsOf } from '@/lib/timemachine'
 import { FOLDS } from '@/lib/world'
 import { useCalm } from '@/lib/calm'
@@ -127,8 +123,8 @@ function NavRail({ onPalette }: { onPalette: () => void }) {
   const waiting = cl?.confirms.length ?? 0
   const notify = useApprovalNotices(cl?.confirms)
   return (
-    <nav className="brass-rail relative z-10 flex w-[68px] shrink-0 flex-col items-center gap-1 py-3">
-      <div className="mb-3 flex flex-col items-center">
+    <nav className="brass-rail relative z-10 flex w-[68px] shrink-0 flex-col items-center gap-1 py-3 [@media(max-height:860px)]:gap-0.5 [@media(max-height:860px)]:py-2">
+      <div className="mb-3 flex flex-col items-center [@media(max-height:860px)]:mb-1.5">
         <div className="relative" title="Theseus">
           <Coin size={42} className="drop-shadow-[0_0_10px_rgba(214,165,72,0.35)]" />
           <span className="absolute -right-0.5 top-0"><LiveDot tone={status === 'open' ? 'ok' : status === 'connecting' ? 'wait' : 'fault'} size={7} /></span>
@@ -140,7 +136,8 @@ function NavRail({ onPalette }: { onPalette: () => void }) {
           to={to}
           end={'end' in rest}
           className={({ isActive }) => cn(
-            'group relative flex w-[62px] flex-col items-center gap-0.5 rounded-lg py-2 font-display text-[8.5px] font-bold uppercase tracking-[0.03em] transition-colors',
+            // On a short screen (1366×768) the thirteen items and the rail's foot fit only with less air between them.
+            'group relative flex w-[62px] flex-col items-center gap-0.5 rounded-lg py-2 font-display text-[8.5px] font-bold uppercase tracking-[0.03em] transition-colors [@media(max-height:860px)]:py-1',
             isActive ? 'text-live' : 'text-ink-faint hover:bg-gold/10 hover:text-ink',
           )}
         >
@@ -171,182 +168,6 @@ function NavRail({ onPalette }: { onPalette: () => void }) {
   )
 }
 
-function HeartbeatBar() {
-  const { data: h, dataUpdatedAt } = useRpc<Health>('health', undefined, 2000)
-  const conn = useConn()
-  const nav = useNavigate()
-  // What needs you (theseus-in3): each session's attention, from the push-kept list, the longest waiting first; one press
-  // opens that session, as the Observatory's 'N need you' did.
-  const { data: sl } = useRpc<{ sessions: SessionInfo[] }>('session.list', undefined, 2000)
-  const needsYou = useMemo(() => (sl?.sessions ?? [])
-    .filter((s) => (s.attention ? s.attention.level === 'needs_you' : (s.pending_confirms ?? 0) > 0))
-    .sort((x, y) => (x.attention?.since_ms ?? 0) - (y.attention?.since_ms ?? 0)), [sl])
-  const firstWaiting = needsYou[0]
-  const now = useTick()
-  const rtt = useMemo(() => {
-    const r = conn.rtts.slice(-12).sort((a, b) => a - b)
-    return r.length ? r[Math.floor(r.length / 2)] : null
-  }, [conn.rtts])
-  const up = h ? h.uptime_secs + Math.max(0, (now - dataUpdatedAt) / 1000) : 0
-  // Flow: ledger rows per second, from the total's growth between polls; the header's own heartbeat line.
-  const { flow } = useFlow()
-  // Ledger rows of the last minute: one gold plank each (up to nine), in the strip under the bar.
-  const lit = Math.round(flow.slice(-30).reduce((a, b) => a + b * 2, 0))
-  const running = h?.kernel.executions_by_state.running ?? 0
-  const discord = h?.bindings?.find((b) => b.kind === 'discord')
-  const usage = h?.usage_total
-  const cacheHit = usage ? usage.cache_read_input_tokens / Math.max(1, usage.cache_read_input_tokens + usage.input_tokens + usage.cache_creation_input_tokens) : 0
-
-  return (
-    <header className="brass-bar relative flex h-12 shrink-0 items-center gap-4 overflow-hidden whitespace-nowrap px-4">
-      <div className="absolute inset-x-0 top-0 h-px live-sweep" />
-      <div className="absolute inset-x-0 bottom-0" title="Each new plank is a ledger row of the last minute"><PlankStrip lit={lit} height={4} /></div>
-      <div className="flex shrink-0 items-baseline gap-2" title={h ? `theseus ${h.version} · protocol ${h.protocol}` : undefined}>
-        <span className="wordmark text-[15px]">THESEUS</span>
-        <span className="num text-[11px] text-ink-faint">{h ? `v${h.version}` : '…'}</span>
-      </div>
-      <Indicator label="link" tone={conn.status === 'open' ? 'ok' : conn.status === 'connecting' ? 'wait' : 'fault'} value={conn.status === 'open' ? (rtt !== null ? ms(rtt) : 'open') : conn.status} />
-      <Indicator label="up" tone="live" value={h ? uptime(up) : '—'} />
-      <Indicator label="running" tone={running ? 'live' : 'idle'} value={String(running)} />
-      <div className="flex shrink-0 items-center gap-1.5" title="ledger rows per second, last two minutes">
-        <span className="text-[10px] font-semibold uppercase tracking-wider text-ink-faint">flow</span>
-        <div className="w-20"><Spark data={flow.length > 1 ? flow : [0, 0]} tone="live" height={22} /></div>
-        <span className="num w-11 text-[12px] text-ink">{(flow[flow.length - 1] ?? 0).toFixed(1)}/s</span>
-      </div>
-      <LiveProfile />
-      <div className="ml-auto flex shrink-0 items-center gap-3">
-        {firstWaiting && (
-          <button type="button" onClick={() => nav(`/session/${firstWaiting.session_id}`)}
-            title={`sessions that need you: a question, a failure, or a block; this opens the longest waiting${firstWaiting.attention ? ` (${firstWaiting.attention.label})` : ''}`}
-            className="flex shrink-0 items-center gap-1.5 rounded-md bg-wait/10 px-2 py-1 text-[11px] text-wait ring-1 ring-wait/40 hover:bg-wait/20">
-            <LiveDot tone="wait" size={6} />
-            <span className="font-semibold uppercase tracking-wider">{needsYou.length} need{needsYou.length === 1 ? 's' : ''} you</span>
-          </button>
-        )}
-        {!!h?.provider_errors && <Indicator label="provider errors" tone="fault" value={String(h.provider_errors)} title="model calls the provider failed since the daemon started; the ledger's provider.error rows say each" />}
-        <DiskAttention disk={h?.disk} />
-        <div className="flex items-center gap-2.5 rounded-md bg-white/[0.03] px-2 py-1 ring-1 ring-line">
-          <Dot label="kernel" tone={h?.kernel.accepting ? 'ok' : 'wait'} title={h ? (h.kernel.accepting ? 'kernel accepting' : 'kernel holding new turns') : ''} />
-          <Dot label="discord" tone={stateTone(discord?.state)} title={discord ? `Discord ${discord.state}${discord.latency_ms ? ` · ${discord.latency_ms} ms` : ''}${discord.detail ? ` · ${discord.detail}` : ''}` : 'Discord'} />
-          <Dot label="config" tone={stateTone(h?.config?.state)} title={`config ${h?.config?.state ?? '—'} (${h?.config?.source ?? '—'})`} />
-          <Dot label="secrets" tone={stateTone(h?.secrets?.state)} title={`secrets ${h?.secrets?.state ?? '—'}`} />
-          <Dot label="web" tone={webTone(h?.web)} title={webTitle(h?.web)} />
-          <Dot label="binary" tone={binaryTone(h?.binary)} title={binaryLine(h?.binary)} />
-          <Dot label="disk" tone={diskTone(h?.disk)} title={diskSummary(h?.disk)} />
-        </div>
-        <Indicator label="cache" tone="think" value={usage ? `${(cacheHit * 100).toFixed(0)}%` : '—'} title={usage ? `${tokens(usage.cache_read_input_tokens)} input tokens read from cache` : undefined} />
-        <Indicator label="spent" tone="money" value={h?.cost_usd_total !== undefined ? usd(h.cost_usd_total) : '—'} />
-        <PauseRefresh />
-        <span className="num text-[12px] text-ink-dim">{clock(now)}</span>
-      </div>
-    </header>
-  )
-}
-
-/** The live profile, picked in the bar (the Observatory's header picker, theseus-vm3n.6): what new turns run on
- *  unless they name their own. Confirmed first, as Systems' "make live" is; off while the time machine shows the past. */
-function LiveProfile() {
-  const qc = useQueryClient()
-  const past = useAsOf((s) => s.t !== null)
-  const { data: pl } = useRpc<ProfileList>('profile.list', undefined, 10_000)
-  const [busy, setBusy] = useState(false)
-  // Another surface's change shows at once.
-  useEffect(() => {
-    const off = client.onNotify((m) => { if (m === 'profile.changed') void qc.invalidateQueries({ queryKey: ['profile.list'] }) })
-    return () => { off() }
-  }, [qc])
-  if (!pl) return <Indicator label="live" tone="model" value="—" />
-  const use = async (name: string) => {
-    const p = pl.profiles.find((x) => x.name === name)
-    if (!p || p.live) return
-    if (!window.confirm(`Make "${name}" (${p.provider} · ${p.model}) the live profile? New turns run on it unless they name their own.`)) return
-    setBusy(true)
-    try { await call('profile.use', { name }); await qc.invalidateQueries() } catch (e: any) { window.alert(e?.message ?? String(e)) } finally { setBusy(false) }
-  }
-  return (
-    // The one item in the bar that gives way when it is narrow, so the clock stays in view.
-    <label className="flex min-w-0 shrink items-center gap-1.5"
-      title={`the live profile, from ${pl.live_source}: new turns run on it unless they name their own, and it persists across restarts${past ? ' · return to LIVE in the ship’s log to change it' : ''}`}>
-      <LiveDot tone="model" pulse={false} size={5} />
-      <span className="shrink-0 text-[10px] font-semibold uppercase tracking-wider text-ink-faint">live</span>
-      <select value={pl.live} disabled={busy || past} onChange={(e) => void use(e.target.value)}
-        className="num min-w-0 max-w-48 shrink cursor-pointer truncate rounded bg-transparent px-0.5 py-0.5 text-[12px] text-ink outline-none ring-1 ring-transparent hover:ring-line focus:ring-live/40 disabled:cursor-default disabled:opacity-60">
-        {pl.profiles.map((p) => <option key={p.name} value={p.name} className="bg-deck text-ink">{p.name} · {p.provider}/{p.model}</option>)}
-      </select>
-    </label>
-  )
-}
-
-/** Pause and refresh (the Observatory's live checkbox and its refresh, theseus-vm3n.6). Paused, no read runs on a
- *  timer and the ledger's follow waits, so the views hold still to be read; the push still comes, as it did there.
- *  Refresh reads everything on screen once, paused or not. */
-function PauseRefresh() {
-  const qc = useQueryClient()
-  const paused = usePaused((s) => s.paused)
-  const [reading, setReading] = useState(false)
-  const refresh = () => {
-    setReading(true)
-    readNow()
-    void qc.invalidateQueries().finally(() => setReading(false))
-  }
-  const toggle = () => {
-    usePaused.setState({ paused: !paused })
-    if (paused) refresh()
-  }
-  return (
-    <div className="flex shrink-0 items-center gap-1">
-      <button onClick={toggle}
-        title={paused ? 'Paused: no read runs on a timer and the ledger’s follow waits; the push still comes. Press to go on.' : 'Pause: the views hold still to be read. No read runs on a timer and the ledger’s follow waits; the push still comes.'}
-        className={cn('flex items-center gap-1 rounded-md px-1.5 py-1 text-[10px] font-semibold uppercase tracking-wider ring-1 transition-colors',
-          paused ? 'bg-wait/15 text-wait ring-wait/50 shadow-[0_0_10px_-2px_#fbbf24]' : 'text-ink-faint ring-line hover:text-ink')}>
-        {paused ? <><Play size={12} /> paused</> : <Pause size={12} />}
-      </button>
-      <button onClick={refresh} title="Refresh: read everything on screen again now" className="rounded-md p-1 text-ink-faint ring-1 ring-line hover:text-ink">
-        <RefreshCw size={12} className={cn(reading && 'animate-spin')} />
-      </button>
-    </div>
-  )
-}
-
-function Indicator({ label, value, tone, title }: { label: string; value: string; tone: keyof typeof toneHex; title?: string }) {
-  return (
-    <div className="flex shrink-0 items-center gap-1.5" title={title}>
-      <LiveDot tone={tone} pulse={tone === 'live' || tone === 'ok'} size={5} />
-      <span className="text-[10px] font-semibold uppercase tracking-wider text-ink-faint">{label}</span>
-      <span className="num text-[12px] text-ink">{value}</span>
-    </div>
-  )
-}
-
-/** The web UI's door: a fault when any local user is served (no owner check), a wait while a dev page is let in,
- *  after a refusal, or on a build with no owner check; otherwise ok. A build with the check (theseus-3qf) always
- *  reports `refused_peer`. */
-function webTone(web: Health['web'] | undefined): keyof typeof toneHex {
-  if (!web) return 'idle'
-  if (web.peer_unchecked) return 'fault'
-  if (web.refused_peer === undefined || web.dev_origin || web.refused_host + web.refused_origin + web.refused_peer > 0) return 'wait'
-  return 'ok'
-}
-
-function webTitle(web: Health['web'] | undefined): string {
-  if (!web) return 'web UI: not reported'
-  const parts = [`web UI refused ${web.refused_host} by address, ${web.refused_origin} by page, ${web.refused_peer ?? 0} by user`]
-  if (web.refused_peer === undefined) parts.push('no owner check in this build: any local user is served')
-  if (web.peer_unchecked) parts.push(`owner check off: ${web.peer_unchecked}`)
-  if (web.dev_origin) parts.push(`dev origin open: ${web.dev_origin} (${web.dev_origin_served ?? 0} served)`)
-  return parts.join(' · ')
-}
-
-/** A system state as a labeled dot; the details are in its tooltip. */
-function Dot({ label, tone, title }: { label: string; tone: keyof typeof toneHex; title: string }) {
-  return (
-    <span className="flex items-center gap-1" title={title}>
-      <LiveDot tone={tone} pulse={false} size={6} />
-      <span className="text-[10px] font-medium text-ink-faint">{label}</span>
-    </span>
-  )
-}
-
 /** This browser's kept value for `key`, or null (no storage, or none kept). */
 function kept(key: string): string | null {
   try { return localStorage.getItem(key) } catch { return null }
@@ -355,15 +176,6 @@ function kept(key: string): string | null {
 /** Keep `value` under `key` in this browser; with no storage, it lasts as long as the page. */
 function keep(key: string, value: string) {
   try { localStorage.setItem(key, value) } catch { /* the page's state stands */ }
-}
-
-/** Ledger rows a second over the last two minutes, from the total's growth between polls: the one-row read the
- *  header's planks and the activity strip's flow share. */
-function useFlow() {
-  const { data: tail } = useLedger(1, 2000)
-  const totals = useHistory(tail?.total, 60, 2000)
-  const flow = useMemo(() => totals.slice(1).map((t, i) => Math.max(0, (t - totals[i]) / 2)), [totals])
-  return { flow, total: tail?.total }
 }
 
 function ActivityRiver({ open, onToggle }: { open: boolean; onToggle: () => void }) {
