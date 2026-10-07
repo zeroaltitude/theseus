@@ -332,7 +332,10 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   backlog keeps one clock from its pass's start until the queue is empty (`sink::Queue`, theseus-s1am), so past the
   quiet bound it drains in the next gaps; a clean stop writes the queue before its last checkpoint (`finish_stop`,
   `JudgeService::flush_sink`, theseus-ych4), and a SIGKILL loses it. Tests: `tests_sink_backlog.rs`,
-  `tests_sink_flush.rs`.
+  `tests_sink_flush.rs`. A frame's staged blobs are written before its wait, as one batch (`Blobs::put_many`), a
+  stop's frames hold 512, categorize's mark rides in its row's frame, and a shadow judgment no turn waits on writes
+  its budget block between turns (`reserve_between`; theseus-ehkp, theseus-xkbs; `tests_sink_blobs.rs`,
+  `tests_sink_off_turn.rs`, `tests_sink_busy.rs`).
   `theseus-sim bench turn --judge` measures where the judge's frames land.
   `judge.list` and `judge.get` are `rpc/judge.rs`; `judge.list` pages back from the newest `judge.call` row (its
   kind's tag, or its kind-and-session tag) and stops one match past its limit, so `matched` is a floor when `more`

@@ -512,7 +512,9 @@ async fn a_tiny_day_limit_pauses_shadow_with_one_row() {
         tokio::time::sleep(Duration::from_millis(100)).await;
         turn(&r.core, Some(&sid), &format!("turn {i}")).await;
     }
-    tokio::time::sleep(Duration::from_millis(300)).await;
+    // The day's first block, and its pause, are written between turns
+    // (theseus-xkbs): a quiet stretch after the last.
+    tokio::time::sleep(crate::memory_pass::QUIET + Duration::from_millis(800)).await;
     let made = jev.connections();
     assert!(
         (1..6).contains(&made),

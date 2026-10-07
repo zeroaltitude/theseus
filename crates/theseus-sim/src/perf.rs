@@ -41,6 +41,8 @@ use crate::lifecycle::{self, Rig, Summary, Vault, Verdict};
 use crate::procfs::{self, Sample};
 use crate::walcount::{Frame, Tail};
 
+#[cfg(test)]
+mod burst;
 mod judge;
 mod long;
 mod runs;

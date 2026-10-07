@@ -79,7 +79,7 @@ impl JudgeService {
     }
 
     /// The blocking half: the state, its blob, and the reservation.
-    fn prepare_memory(&self, pack: Arc<Pack>, ask: &MemoryAsk, today: &str) -> Option<Prepared> {
+    fn prepare_memory(&self, pack: Arc<Pack>, ask: &MemoryAsk) -> Option<Prepared> {
         let (input, context) = match ask {
             MemoryAsk::Node {
                 session_id,
@@ -124,8 +124,7 @@ impl JudgeService {
             .inner()
             .reserve_micros(std::slice::from_ref(&ask))
             .unwrap_or(0);
-        self.reserve(today, need)
-            .then_some(Prepared { built, ask, need })
+        Some(Prepared { built, ask, need })
     }
 }
 
@@ -134,14 +133,16 @@ impl JudgeService {
 async fn judge_memory(me: Weak<JudgeService>, pack: Arc<Pack>, ask: MemoryAsk) {
     let today = spend::local_day(theseus_protocol::now_unix_ms());
     let Some(svc) = me.upgrade() else { return };
-    let day = today.clone();
-    let prepared = tokio::task::spawn_blocking(move || svc.prepare_memory(pack, &ask, &day))
+    let prepared = tokio::task::spawn_blocking(move || svc.prepare_memory(pack, &ask))
         .await
         .ok()
         .flatten();
     let Some(Prepared { built, ask, need }) = prepared else {
         return;
     };
+    if !super::reserve_between(&me, &today, need).await {
+        return;
+    }
     let judgments = built
         .judge
         .judge(DecisionPoint {

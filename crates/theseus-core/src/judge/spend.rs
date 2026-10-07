@@ -3,12 +3,16 @@
 //! budget, `[judge] shadow_limit_usd_per_day`, by the local day.
 //!
 //! The budget is held in blocks: a judgment's reservation draws from the
-//! block in memory, and a new block ($0.01) is written to the store, in a
-//! frame of its own, before any judgment spends past the last one. What the
-//! judgments settle rides in the sink's frames, beside their rows (the same
-//! META record, `judge.budget`). So after a crash, today's reserved blocks
-//! past what was settled are booked as spent at the next judgment, never
-//! before serving: conservative, and never more than a block's rest.
+//! block in memory, and a new block ($0.01) is written to the store before
+//! any judgment spends past the last one. What the judgments settle rides
+//! in the sink's frames, beside their rows (the same META record,
+//! `judge.budget`), and so does the next block once the current one is
+//! half spent ([`ShadowBudget::ahead`], theseus-xkbs), so a judgment seldom
+//! needs a frame of its own; when one does, a judgment no turn waits on
+//! writes it between turns (`judge::reserve_between`). So after a crash,
+//! today's reserved blocks past what was settled are booked as spent at the
+//! next judgment, never before serving: conservative, and never more than
+//! two blocks' rest (a block's, before blocks were written ahead).
 //!
 //! A judgment that would pass the limit is skipped and counted, never
 //! queued, and the first such skip of a day writes one `judge.paused` row.
@@ -143,6 +147,39 @@ impl ShadowBudget {
 
     pub fn limit_micros(&self) -> Micros {
         self.limit
+    }
+
+    /// Whether a reservation of `need` now would ask for a frame: the
+    /// first of this process (it may book a crash's rest), a new day's, a
+    /// new block's, or the day's first pause (theseus-xkbs). A read of
+    /// memory, never the store's.
+    pub fn needs_frame(&self, today: &str, need: Micros) -> bool {
+        let d = self.lock();
+        if !d.loaded || d.stored.day != today {
+            return true;
+        }
+        let held = d.stored.spent_micros + d.in_flight;
+        if held + need > self.limit {
+            return !d.paused_said;
+        }
+        held + need > d.stored.reserved_micros
+    }
+
+    /// The next block, raised in memory for the sink's frame to write with
+    /// the record (theseus-xkbs): once less than half of the current block
+    /// is left, and while the day's limit allows. The caller writes the
+    /// record before any reservation can read the raise (the service's
+    /// `blocks` lock). A crash then books up to two blocks' rest.
+    pub fn ahead(&self, today: &str) {
+        let mut d = self.lock();
+        if !d.loaded || d.stored.day != today || d.paused_said {
+            return;
+        }
+        let held = d.stored.spent_micros + d.in_flight;
+        let left = d.stored.reserved_micros.saturating_sub(held);
+        if left * 2 < BLOCK_MICROS && d.stored.reserved_micros < self.limit {
+            d.stored.reserved_micros = (d.stored.reserved_micros + BLOCK_MICROS).min(self.limit);
+        }
     }
 
     /// Reserve `need` for a judgment of `today`. Reads the store once per

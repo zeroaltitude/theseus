@@ -114,7 +114,7 @@ impl JudgeService {
     /// The blocking half before the call: the budget left and the last
     /// human message read, the state built and its blob written, and the
     /// reservation. `None`: nothing to send.
-    fn prepare_continue(&self, pack: Arc<Pack>, mut a: Asked, today: &str) -> Option<Prepared> {
+    fn prepare_continue(&self, pack: Arc<Pack>, mut a: Asked) -> Option<Prepared> {
         a.input.budget_left_usd = a
             .kernel
             .upgrade()
@@ -148,8 +148,7 @@ impl JudgeService {
             .inner()
             .reserve_micros(std::slice::from_ref(&ask))
             .unwrap_or(0);
-        self.reserve(today, need)
-            .then_some(Prepared { built, ask, need })
+        Some(Prepared { built, ask, need })
     }
 
     /// The newest message the operator wrote in the session.
@@ -171,14 +170,18 @@ impl JudgeService {
 async fn judge_continue(me: Weak<JudgeService>, pack: Arc<Pack>, asked: Asked) {
     let today = spend::local_day(theseus_protocol::now_unix_ms());
     let Some(svc) = me.upgrade() else { return };
-    let day = today.clone();
-    let prepared = tokio::task::spawn_blocking(move || svc.prepare_continue(pack, asked, &day))
+    let prepared = tokio::task::spawn_blocking(move || svc.prepare_continue(pack, asked))
         .await
         .ok()
         .flatten();
     let Some(Prepared { built, ask, need }) = prepared else {
         return;
     };
+    // A loop's dispatch runs beside its turn: its block, when it needs one,
+    // waits for the turn's end (theseus-xkbs).
+    if !super::reserve_between(&me, &today, need).await {
+        return;
+    }
     let judgments = built
         .judge
         .judge(DecisionPoint {

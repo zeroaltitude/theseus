@@ -14,8 +14,12 @@
 //!   session's last `categorize.v1` judgment, or this exchange began after
 //!   30 minutes' quiet and a human message arrived since that judgment. The
 //!   last judgment is the session's mark (a META record under
-//!   [`MARK_PREFIX`], written as the judgment is dispatched), so the
-//!   decision reads only the session's records after it.
+//!   [`MARK_PREFIX`]), so the decision reads only the session's records
+//!   after it. The mark moves in memory as the judgment is dispatched, so
+//!   the next exchange end reads it at once, and is written in the sink's
+//!   frame beside the judgment's row (theseus-xkbs): never in a frame of its
+//!   own, which landed inside the next turn, and a crash loses the two
+//!   together, where a mark used to outlive its lost row.
 //! - **What** ([`input`]): the session's title and its last ten human
 //!   messages; up to 50 candidate topics with their descriptions, from the
 //!   ontology's snapshot; and up to 5 of the session's interpreted
@@ -109,6 +113,9 @@ pub struct Point {
     /// The session records the decisions have read, all told: what the
     /// tests count to hold a decision to the records after its mark.
     read: AtomicU64,
+    /// The marks moved and not yet written, by judgment: the sink writes
+    /// each beside its judgment's row (theseus-xkbs).
+    unwritten: Mutex<std::collections::HashMap<String, (String, Mark)>>,
 }
 
 /// A human message: one an operator wrote. A task's brief and report, a
@@ -291,21 +298,15 @@ impl JudgeService {
     }
 
     /// The blocking half: the place's class, the mark, the records after
-    /// it, the trigger; then the state, its blob, the reservation, and the
-    /// mark moved. `None`: nothing to send.
-    fn prepare_categorize(
-        &self,
-        pack: Arc<Pack>,
-        end: &ExchangeEnd,
-        today: &str,
-    ) -> Option<Prepared> {
+    /// it, the trigger; then the state and its blob, and the mark to move
+    /// once the reservation is made. `None`: nothing to send.
+    fn prepare_categorize(&self, pack: Arc<Pack>, end: &ExchangeEnd) -> Option<(Prepared, Mark)> {
         let core = self.categorize.core.get()?.upgrade()?;
         let sid = end.session_id.as_str();
         if core.runner.class_of(sid) != PlaceClass::Private {
             return None;
         }
-        let key = format!("{MARK_PREFIX}{sid}");
-        let mark: Option<Mark> = self.store.get_meta(&key).ok().flatten();
+        let mark = self.mark(sid);
         let (after, read) = nodes_after(&self.store, sid, mark.as_ref().map_or(0, |m| m.through))?;
         self.categorize.read.fetch_add(read, Ordering::Relaxed);
         let trigger = due(&after, mark.as_ref())?;
@@ -366,21 +367,91 @@ impl JudgeService {
             .inner()
             .reserve_micros(std::slice::from_ref(&ask))
             .unwrap_or(0);
-        if !self.reserve(today, need) {
-            return None;
-        }
         let moved = Mark {
             judgment: id,
             through: newest,
             through_ms: newest_ms,
             at_ms: theseus_protocol::now_unix_ms(),
         };
-        if let Err(e) = self.store.put_meta(&key, &moved) {
-            // Judged all the same: the next exchange end may judge again.
-            tracing::warn!(error = %format!("{e:#}"), "judge: categorize's mark was not written");
-        }
-        Some(Prepared { built, ask, need })
+        Some((Prepared { built, ask, need }, moved))
     }
+
+    /// A session's mark: the newest moved and not yet written, else the
+    /// store's. A mark only moves forward, so the newer is the one further
+    /// through the session.
+    fn mark(&self, sid: &str) -> Option<Mark> {
+        let stored: Option<Mark> = self
+            .store
+            .get_meta(&format!("{MARK_PREFIX}{sid}"))
+            .ok()
+            .flatten();
+        let moved = self
+            .categorize
+            .unwritten
+            .lock()
+            .unwrap()
+            .values()
+            .filter(|(s, _)| s == sid)
+            .map(|(_, m)| m.clone())
+            .max_by_key(|m| m.through);
+        match (stored, moved) {
+            (Some(s), Some(m)) if s.through >= m.through => Some(s),
+            (s, m) => m.or(s),
+        }
+    }
+
+    /// The marks the judgments of `batch` moved, keyed for their META
+    /// records, for the sink's frame (theseus-xkbs); one the store already
+    /// holds a newer mark than (a later judgment's row written first) is
+    /// left out, so the mark never moves back.
+    pub(crate) fn unwritten_marks(&self, batch: &[theseus_judge::Judgment]) -> Vec<(String, Mark)> {
+        let found: Vec<(String, Mark)> = {
+            let u = self.categorize.unwritten.lock().unwrap();
+            if u.is_empty() {
+                return Vec::new();
+            }
+            batch.iter().filter_map(|j| u.get(&j.id).cloned()).collect()
+        };
+        newest_each(found)
+            .into_iter()
+            .filter_map(|(sid, m)| {
+                let key = format!("{MARK_PREFIX}{sid}");
+                let stored: Option<Mark> = self.store.get_meta(&key).ok().flatten();
+                match stored {
+                    Some(s) if s.through >= m.through => None,
+                    _ => Some((key, m)),
+                }
+            })
+            .collect()
+    }
+
+    /// The sink's frame with `batch`'s rows was written (or lost with
+    /// them): their marks are the store's from now on.
+    pub(crate) fn marks_written(&self, batch: &[theseus_judge::Judgment]) {
+        let mut u = self.categorize.unwritten.lock().unwrap();
+        if u.is_empty() {
+            return;
+        }
+        for j in batch {
+            u.remove(&j.id);
+        }
+    }
+}
+
+/// Each session's newest mark of `marks` (by `through`), in the order the
+/// sessions first appear: two judgments of one session can settle in one
+/// frame, newer first, and the frame's later record of a key is the one the
+/// store keeps, so a frame carries one mark a session.
+pub(crate) fn newest_each(marks: Vec<(String, Mark)>) -> Vec<(String, Mark)> {
+    let mut out: Vec<(String, Mark)> = Vec::new();
+    for (sid, m) in marks {
+        match out.iter_mut().find(|(s, _)| *s == sid) {
+            Some((_, kept)) if kept.through < m.through => *kept = m,
+            Some(_) => {}
+            None => out.push((sid, m)),
+        }
+    }
+    out
 }
 
 /// The session's nodes after `position`, oldest first, and how many
@@ -407,21 +478,29 @@ fn nodes_after(
 async fn judge_categorize(me: Weak<JudgeService>, pack: Arc<Pack>, end: ExchangeEnd) {
     let today = spend::local_day(theseus_protocol::now_unix_ms());
     let Some(svc) = me.upgrade() else { return };
-    let day = today.clone();
     let sid = end.session_id.clone();
-    let prepared = tokio::task::spawn_blocking(move || {
-        let p = svc.prepare_categorize(pack, &end, &day);
+    let prepared = tokio::task::spawn_blocking(move || svc.prepare_categorize(pack, &end))
+        .await
+        .ok()
+        .flatten();
+    // The reservation, between turns when it writes a frame; then the mark
+    // moved, in memory, before the decision ends, so the next exchange end
+    // reads it (the sink writes it beside the row).
+    let granted = match &prepared {
+        Some((p, _)) => super::reserve_between(&me, &today, p.need).await,
+        None => false,
+    };
+    let Some(svc) = me.upgrade() else { return };
+    if let (true, Some((_, moved))) = (granted, &prepared) {
         svc.categorize
-            .deciding
+            .unwritten
             .lock()
             .unwrap()
-            .remove(&end.session_id);
-        p
-    })
-    .await
-    .ok()
-    .flatten();
-    let Some(Prepared { built, ask, need }) = prepared else {
+            .insert(moved.judgment.clone(), (sid.clone(), moved.clone()));
+    }
+    svc.categorize.deciding.lock().unwrap().remove(&sid);
+    drop(svc);
+    let Some((Prepared { built, ask, need }, _)) = prepared.filter(|_| granted) else {
         return;
     };
     let judgments = built

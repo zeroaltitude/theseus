@@ -38,6 +38,33 @@ const ALICE: u64 = 222_222_222_222_222_222;
 /// A guild channel the bindings file binds, shared.
 const LAB: u64 = 314_159_265_358_979_323;
 
+// ---------------------------------------------------------------- the mark
+
+/// Two judgments of one session settled in one sink frame, the newer
+/// first: the frame carries the newer mark alone, so the store's mark never
+/// moves back (theseus-xkbs).
+#[test]
+fn a_frame_carries_each_sessions_newest_mark() {
+    let mark = |judgment: &str, through: u64| Mark {
+        judgment: judgment.into(),
+        through,
+        through_ms: 0,
+        at_ms: 0,
+    };
+    let kept = categorize::newest_each(vec![
+        ("ses_a".into(), mark("jdg_new", 20)),
+        ("ses_b".into(), mark("jdg_b", 5)),
+        ("ses_a".into(), mark("jdg_old", 10)),
+    ]);
+    assert_eq!(
+        kept,
+        vec![
+            ("ses_a".to_string(), mark("jdg_new", 20)),
+            ("ses_b".to_string(), mark("jdg_b", 5)),
+        ]
+    );
+}
+
 // ---------------------------------------------------------------- the trigger
 
 /// A node of `origin` at minute `min`.
@@ -229,8 +256,8 @@ fn candidates_come_from_the_kinds_table() {
 
 // ------------------------------------------------------- through the core
 
-struct Rig {
-    core: Arc<Core>,
+pub(crate) struct Rig {
+    pub(crate) core: Arc<Core>,
     fake: Arc<FakeProvider>,
     _dir: tempfile::TempDir,
 }
@@ -257,7 +284,7 @@ fn texts(n: usize) -> Vec<Scripted> {
 /// (`loop.v1`, and the gate's, inbound's and compile's points) so each
 /// judgment Jev sees is categorize's, the owner named, the owner's DM and a
 /// shared channel bound, and the topics `harbor` and `garden` declared.
-fn rig(jev: Option<&FakeJev>, turns: usize, tweak: impl FnOnce(&mut Config)) -> Rig {
+pub(crate) fn rig(jev: Option<&FakeJev>, turns: usize, tweak: impl FnOnce(&mut Config)) -> Rig {
     rig_topics(
         jev,
         turns,
@@ -339,7 +366,7 @@ fn rig_topics(
 }
 
 /// A conversation, posting to `place` when given (none: the CLI's).
-fn session(core: &Core, place: Option<&str>) -> String {
+pub(crate) fn session(core: &Core, place: Option<&str>) -> String {
     let r = SessionRecord::new(SessionKind::Conversation, None);
     core.store.put_session(&r.session_id, &r).unwrap();
     if let Some(p) = place {
@@ -375,7 +402,7 @@ async fn turn(core: &Arc<Core>, sid: &str, input: &str) -> TurnSubmitResult {
 }
 
 /// `n` messages about moorings, one turn each; the last turn's result.
-async fn moorings(core: &Arc<Core>, sid: &str, n: usize) -> TurnSubmitResult {
+pub(crate) async fn moorings(core: &Arc<Core>, sid: &str, n: usize) -> TurnSubmitResult {
     let mut last = None;
     for i in 0..n {
         last = Some(
@@ -405,7 +432,10 @@ fn rows(store: &Store, kind: &str) -> Vec<(theseus_store::Record, LedgerRow)> {
 }
 
 /// Wait (on the runtime's timer) until `n` categorize judgments are recorded.
-async fn until_judged(store: &Store, n: usize) -> Vec<(theseus_store::Record, LedgerRow)> {
+pub(crate) async fn until_judged(
+    store: &Store,
+    n: usize,
+) -> Vec<(theseus_store::Record, LedgerRow)> {
     let t0 = Instant::now();
     loop {
         let r = rows(store, "judge.call");
@@ -421,7 +451,7 @@ async fn until_judged(store: &Store, n: usize) -> Vec<(theseus_store::Record, Le
     }
 }
 
-fn harbor_at(jev: &FakeJev, option: &str, confidence: f64) {
+pub(crate) fn harbor_at(jev: &FakeJev, option: &str, confidence: f64) {
     jev.script(
         "topic",
         Jev::Choice {
