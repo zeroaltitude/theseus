@@ -134,6 +134,88 @@ fn kill(pid: u32) {
         .status();
 }
 
+/// A change in a watched directory: its label, the file's name, the mask.
+type Change = (&'static str, String, u32);
+
+/// Changes in a few directories, in the order they were made: one inotify
+/// queue for all of them keeps the order of the calls that made its events.
+struct Changes {
+    fd: std::os::fd::OwnedFd,
+    watched: Vec<(i32, &'static str)>,
+}
+
+impl Changes {
+    /// Watch each directory, under its label, for a file closed after
+    /// writing, one renamed in, and one removed.
+    fn watch(dirs: &[(PathBuf, &'static str)]) -> Self {
+        use std::os::fd::{AsRawFd, FromRawFd};
+        use std::os::unix::ffi::OsStrExt;
+        // SAFETY: no pointer is passed; a new descriptor or -1 comes back.
+        let raw = unsafe { libc::inotify_init1(libc::IN_NONBLOCK | libc::IN_CLOEXEC) };
+        assert!(raw >= 0, "inotify: {}", std::io::Error::last_os_error());
+        // SAFETY: just opened, and owned by nothing else.
+        let fd = unsafe { std::os::fd::OwnedFd::from_raw_fd(raw) };
+        let mask = libc::IN_CLOSE_WRITE | libc::IN_MOVED_TO | libc::IN_DELETE;
+        let watched = dirs
+            .iter()
+            .map(|(dir, label)| {
+                let path = std::ffi::CString::new(dir.as_os_str().as_bytes()).unwrap();
+                // SAFETY: a NUL-terminated path that outlives the call.
+                let wd = unsafe { libc::inotify_add_watch(fd.as_raw_fd(), path.as_ptr(), mask) };
+                assert!(wd >= 0, "watching {}", dir.display());
+                (wd, *label)
+            })
+            .collect();
+        Self { fd, watched }
+    }
+
+    /// Every change, in order, up to the first that `last` names; bounded.
+    fn until(&self, last: impl Fn(&Change) -> bool) -> Vec<Change> {
+        use std::os::fd::AsRawFd;
+        let mut seen: Vec<Change> = Vec::new();
+        let mut buf = [0u8; 4096];
+        let t0 = Instant::now();
+        while !seen.iter().any(&last) {
+            assert!(
+                t0.elapsed() < Duration::from_secs(20),
+                "timed out waiting for the changes; seen: {seen:?}"
+            );
+            let mut pfd = libc::pollfd {
+                fd: self.fd.as_raw_fd(),
+                events: libc::POLLIN,
+                revents: 0,
+            };
+            // SAFETY: one pollfd, and the count says one.
+            unsafe { libc::poll(&mut pfd, 1, 100) };
+            // SAFETY: the buffer and its length.
+            let n = unsafe { libc::read(self.fd.as_raw_fd(), buf.as_mut_ptr().cast(), buf.len()) };
+            let Ok(n) = usize::try_from(n) else {
+                continue;
+            };
+            // Each event: wd, mask, cookie, the name's length, then the name,
+            // padded with NULs.
+            let mut at = 0;
+            while at + 16 <= n {
+                let word =
+                    |i: usize| u32::from_ne_bytes(buf[at + i..at + i + 4].try_into().unwrap());
+                let (wd, mask, len) = (word(0) as i32, word(4), word(12) as usize);
+                let name = buf[at + 16..at + 16 + len]
+                    .split(|&b| b == 0)
+                    .next()
+                    .unwrap();
+                let label = self
+                    .watched
+                    .iter()
+                    .find(|(w, _)| *w == wd)
+                    .map_or("?", |(_, l)| l);
+                seen.push((label, String::from_utf8_lossy(name).into_owned(), mask));
+                at += 16 + len;
+            }
+        }
+        seen
+    }
+}
+
 /// Review 2's H3 (theseus-wz2): a job's raw output, which the scrubber has
 /// not seen, is the operator's alone (0600) whatever the umask, and the
 /// job's command runs under the umask the daemon passed it, the operator's,
@@ -197,13 +279,15 @@ fn a_double_fork_stays_under_its_wrapper_which_lingers_until_it_ends() {
     });
     assert_eq!(c.outcome, theseus_kernel::Outcome::Succeeded);
     assert_eq!(c.producer, format!("wrapper:{wrapper}"));
-    // The wrapper lingers for the grandchild, and says so, once its report
-    // is done.
+    // The wrapper lingers for the grandchild, and says so. It marks itself
+    // before its report, then removes its pid file (theseus-v18k).
     let lingering = wait_for("the lingering mark", || {
         Some(rig.spool.lingering()).filter(|l| !l.is_empty())
     });
     assert_eq!(lingering, vec![("act_linger".to_string(), wrapper)]);
-    assert!(rig.spool.read_pid("act_linger").is_none());
+    wait_for("the pid file's removal", || {
+        rig.spool.read_pid("act_linger").is_none().then_some(())
+    });
     assert!(alive(wrapper) && alive(grandchild));
     assert_eq!(stat(grandchild).unwrap().1, wrapper);
     assert_eq!(job::wrapper_job(wrapper).as_deref(), Some("act_linger"));
@@ -214,6 +298,68 @@ fn a_double_fork_stays_under_its_wrapper_which_lingers_until_it_ends() {
     assert!(rig.spool.lingering().is_empty());
     assert!(!rig.path("spool/lingering/act_linger").exists());
     assert_eq!(job::wrapper_job(wrapper), None, "an exited wrapper is none");
+}
+
+/// theseus-v18k: a wrapper that will linger marks itself before it reports.
+/// A reader that takes the report removes the job's pid file (a turn's look
+/// does so at once) and asks `wrapper_lives` before it removes the job's raw
+/// output, which a lingering wrapper still writes: so from the report on,
+/// the marker must name the wrapper. The order is read from inotify, whose
+/// one queue for three of the spool's directories keeps the order of the
+/// wrapper's calls: the marker written whole, the completion renamed into
+/// place, then the pid file removed. The marker came after both before, and
+/// a look between read the wrapper as gone.
+#[test]
+fn a_wrapper_that_will_linger_marks_itself_before_it_reports() {
+    let rig = Rig::new();
+    let id = "act_order";
+    let wrapper = rig.start(
+        id,
+        "( setsid sh -c 'echo $$ > grandchild.pid; \
+             while [ ! -e release ] && [ -d \"$1\" ]; do sleep 0.02; done' sh \"$1\" \
+           > /dev/null 2>&1 < /dev/null & ); \
+         while [ ! -e main.exit ] && [ -d \"$1\" ]; do sleep 0.02; done",
+    );
+    let grandchild = rig.pid("grandchild.pid");
+    wait_for("the grandchild's reparenting", || {
+        (stat(grandchild)?.1 == wrapper).then_some(())
+    });
+    let spool = rig.spool.dir();
+    let changes = Changes::watch(&[
+        (spool.to_path_buf(), "spool"),
+        (spool.join("pids"), "pids"),
+        (spool.join("lingering"), "lingering"),
+    ]);
+    std::fs::write(rig.path("main.exit"), "").unwrap();
+    let removed =
+        |(dir, name, mask): &Change| *dir == "pids" && name == id && mask & libc::IN_DELETE != 0;
+    let seen = changes.until(removed);
+    let report = format!("{id}.json");
+    let order: Vec<&str> = seen
+        .iter()
+        .filter_map(|c| match c {
+            ("lingering", name, mask) if name == id && mask & libc::IN_CLOSE_WRITE != 0 => {
+                Some("the marker written")
+            }
+            ("spool", name, mask) if *name == report && mask & libc::IN_MOVED_TO != 0 => {
+                Some("the report")
+            }
+            c if removed(c) => Some("the pid file removed"),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        order,
+        ["the marker written", "the report", "the pid file removed"],
+        "the spool's changes: {seen:?}"
+    );
+    assert_eq!(rig.spool.lingering(), vec![(id.to_string(), wrapper)]);
+    assert!(rig.spool.wrapper_lives(id));
+    // The grandchild ends; the wrapper exits, and its marker goes.
+    std::fs::write(rig.path("release"), "").unwrap();
+    wait_for("the wrapper to exit", || (!alive(wrapper)).then_some(()));
+    assert!(!rig.spool.wrapper_lives(id));
+    assert!(!rig.path("spool/lingering/act_order").exists());
 }
 
 /// Orphans that exit while the command runs are reaped at once: none waits

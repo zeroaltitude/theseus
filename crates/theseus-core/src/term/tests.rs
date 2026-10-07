@@ -254,18 +254,24 @@ fn id_of(o: &ToolOutput) -> String {
 }
 
 /// A command that would run for minutes, and Ctrl-C: the command ends, the
-/// rest of its line does not run, and the shell takes the next.
+/// rest of its line does not run, and the shell takes the next. The sleep's
+/// seconds carry this run's pid, so another run's sleep (this test in
+/// another tree at once) is never taken for this one's: with a bare `sleep
+/// 4242`, a neighbour's outlived this run's Ctrl-C and failed it
+/// (theseus-fps6), as in `a_close_leaves_no_child_behind` (theseus-d006).
 async fn ctrl_c_interrupts_a_command(terms: &Arc<Terms>, id: &str, dir: &Path) {
+    // Seven digits, so no pid's marker holds another's.
+    let sleep = format!("4242.{:07}", std::process::id());
     call(
         terms,
         "s1",
         SEND,
-        json!({"terminal": id, "text": "sleep 4242; echo after\n"}),
+        json!({"terminal": id, "text": format!("sleep {sleep}; echo after\n")}),
         dir,
     )
     .await;
     let t0 = Instant::now();
-    while marked("4242").is_empty() {
+    while marked(&sleep).is_empty() {
         assert!(
             t0.elapsed() < Duration::from_secs(10),
             "sleep never started"
@@ -281,7 +287,7 @@ async fn ctrl_c_interrupts_a_command(terms: &Arc<Terms>, id: &str, dir: &Path) {
     )
     .await;
     let t0 = Instant::now();
-    while !marked("4242").is_empty() {
+    while !marked(&sleep).is_empty() {
         assert!(
             t0.elapsed() < Duration::from_secs(10),
             "Ctrl-C did not interrupt the sleep"

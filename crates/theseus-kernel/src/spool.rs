@@ -332,8 +332,10 @@ impl Spool {
     }
 
     /// A wrapper whose command has exited waits for its descendants
-    /// (theseus-6qy). The marker is made, then its pid written in it, so a
-    /// reader between the two finds it empty (`lingering`, theseus-sdgl).
+    /// (theseus-6qy). It writes this before its report, while its pid file
+    /// still names it (theseus-v18k). The marker is made, then its pid
+    /// written in it, so a reader between the two finds it empty, or inside
+    /// the write a part of the pid (`lingering`, theseus-sdgl).
     pub fn write_lingering(&self, id: &str, pid: u32) -> Result<()> {
         fs::create_dir_all(self.dir.join("lingering"))?;
         fs::write(self.lingering_path(id), pid.to_string())?;
@@ -356,6 +358,8 @@ impl Spool {
     /// exited and a process it started holds the output open. The wrapper
     /// removes its pid file at its report, so a reader that stops there reads
     /// a lingering wrapper as gone, and takes the file it is still writing.
+    /// A wrapper that will linger writes its marker before its report, so
+    /// from the report on the marker names it (theseus-v18k).
     /// Nothing is removed: a marker a killed wrapper left is `lingering()`'s.
     pub fn wrapper_lives(&self, id: &str) -> bool {
         [self.read_pid(id), self.read_lingering(id)]
@@ -366,11 +370,14 @@ impl Spool {
 
     /// The wrappers lingering now, as (job, wrapper pid): each marker whose
     /// pid is still that job's wrapper. A marker a killed wrapper left
-    /// behind, whose pid is no longer that job's wrapper, is removed. One
-    /// that names no pid is left alone: its wrapper is writing it, and a
-    /// read between the file and its pid finds it empty. Taken for a dead
-    /// wrapper's, it was gone for good, and the wrapper lingered on unmarked
-    /// (theseus-sdgl).
+    /// behind, whose pid is no longer that job's wrapper, is removed once it
+    /// is `MARKER_SETTLE` old. One that names no pid is left alone: its
+    /// wrapper is writing it, and a read between the file and its pid finds
+    /// it empty. Taken for a dead wrapper's, it was gone for good, and the
+    /// wrapper lingered on unmarked (theseus-sdgl). A read inside the pid's
+    /// write can find a part of it, a prefix of its digits, which names no
+    /// wrapper: so a marker younger than `MARKER_SETTLE` is never taken for a
+    /// dead one's, whoever wrote it (theseus-v18k).
     pub fn lingering(&self) -> Vec<(String, u32)> {
         let Ok(dir) = fs::read_dir(self.dir.join("lingering")) else {
             return vec![];
@@ -385,6 +392,7 @@ impl Spool {
                 Some(pid) if crate::job::wrapper_job(pid).as_deref() == Some(id.as_str()) => {
                     out.push((id, pid));
                 }
+                Some(_) if young(&e) => {}
                 Some(_) => {
                     let _ = fs::remove_file(e.path());
                 }
@@ -394,6 +402,22 @@ impl Spool {
         out.sort();
         out
     }
+}
+
+/// How old a lingering marker whose pid names no wrapper must be before
+/// `lingering` takes it for a dead wrapper's (theseus-v18k): its wrapper
+/// writes the pid within microseconds of making the file (28.8 ms at most
+/// under load, theseus-sdgl's probe), so a second is far past any write.
+const MARKER_SETTLE: std::time::Duration = std::time::Duration::from_secs(1);
+
+/// Whether a marker is younger than `MARKER_SETTLE`, by its mtime. One whose
+/// age cannot be read, or whose mtime is ahead of the clock, is young.
+fn young(e: &fs::DirEntry) -> bool {
+    e.metadata()
+        .and_then(|m| m.modified())
+        .ok()
+        .and_then(|t| t.elapsed().ok())
+        .is_none_or(|age| age < MARKER_SETTLE)
 }
 
 #[cfg(test)]
@@ -614,6 +638,48 @@ mod tests {
         unsafe { libc::kill(-(pid as libc::pid_t), libc::SIGKILL) };
         let _ = wrapper.wait();
         assert_eq!(sp.lingering(), vec![]);
+        // Once it is past the second a marker is left for its writer
+        // (theseus-v18k).
+        settled(&marker);
+        assert_eq!(sp.lingering(), vec![]);
         assert!(!marker.exists(), "a dead wrapper's marker stays");
+    }
+
+    /// A marker's mtime set past `MARKER_SETTLE`, as if written long ago.
+    fn settled(marker: &Path) {
+        let then = std::time::SystemTime::now() - 2 * MARKER_SETTLE;
+        File::options()
+            .write(true)
+            .open(marker)
+            .unwrap()
+            .set_modified(then)
+            .unwrap();
+    }
+
+    /// theseus-v18k (its notes): a wrapper writes its pid into its marker in
+    /// one small write, so a read inside the write can find a part of it, a
+    /// prefix of its digits. That parses, and names no wrapper. It was taken
+    /// for a dead wrapper's leftover and removed, and the wrapper lingered on
+    /// unmarked. A marker younger than a second is left, whoever wrote it;
+    /// one older whose pid names no wrapper still goes. The prefix of this
+    /// process's pid, which is no wrapper, stands in for the part read.
+    #[test]
+    fn a_marker_younger_than_a_second_is_left_though_its_pid_names_no_wrapper() {
+        let d = tempfile::tempdir().unwrap();
+        let sp = Spool::open(&d.path().join("spool")).unwrap();
+        let marker = sp.lingering_path("act_young");
+        let pid = std::process::id().to_string();
+        fs::write(&marker, &pid[..1]).unwrap();
+        assert_eq!(sp.lingering(), vec![]);
+        assert!(
+            marker.exists(),
+            "a marker read inside its write was removed"
+        );
+        settled(&marker);
+        assert_eq!(sp.lingering(), vec![]);
+        assert!(
+            !marker.exists(),
+            "an old marker that names no wrapper stays"
+        );
     }
 }

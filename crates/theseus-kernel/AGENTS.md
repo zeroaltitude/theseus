@@ -155,5 +155,9 @@ Key modules: `kernel.rs`, `tx.rs`, `locks.rs`, `job.rs`, `cgroup.rs`, `children.
 - To show a held runtime worker in a daemon test, run the daemon with `TOKIO_WORKER_THREADS=1`.
 - A core test with `InlineLauncher` must not kill a job: its "wrapper pid" is the test process.
 - A spool marker written with `fs::write` (`pids/<id>`, `lingering/<id>`) is made empty, then filled, so a reader
-  between the two finds no pid. That is a marker being written, never a dead wrapper's: `Spool::lingering` removes
-  only one whose pid is no longer its job's wrapper (theseus-sdgl).
+  between the two finds no pid, and one inside the write a part of it. That is a marker being written, never a dead
+  wrapper's: `Spool::lingering` removes only one whose pid is no longer its job's wrapper, and a second old
+  (theseus-sdgl, theseus-v18k).
+- A wrapper that will linger writes its marker before its report, while its pid file still names it: a reader that
+  takes the report removes the pid file and then asks `wrapper_lives` (theseus-v18k). So a marker says nothing of
+  the pid file: a wait for the wrapper's own removal of it reads the pid file (`toolrun/steps.rs`).

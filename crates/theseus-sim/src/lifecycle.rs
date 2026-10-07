@@ -140,11 +140,13 @@ pub fn budget_ms(phase: &str, sessions: u64) -> Option<f64> {
         "kill" => Some(cold + 100.0),
         "swap" => Some(200.0),
         // Not §9's: a cancel answers once its job's whole tree is verified
-        // gone (theseus-nh1k). Proposed, to be set on the owner's machine:
-        // on a 4-core VM's debug build, 20 runs, p95 43 ms quiet, 58 ms
-        // beside four busy loops and 95 ms beside sixteen; a cancel that
-        // waits 2.5 s after its kills misses it.
-        "cancel" => Some(250.0),
+        // gone (theseus-nh1k). 100 ms since cancel-fast (theseus-dwoj,
+        // theseus-kq4n), on this machine's debug build: its p95 34 to 62 ms
+        // settled and 60 to 84 beside a build, where every block before it
+        // read 113 to 391. A single cancel past 100 ms, about one gate in
+        // fifteen, is the gate's rerun's; a cancel that waits 2.5 s after
+        // its kills misses it. It was 250 before.
+        "cancel" => Some(100.0),
         _ => None,
     }
 }
@@ -191,6 +193,37 @@ pub fn verdicts(phases: &[(String, Summary)], sessions: u64, margin: Option<f64>
             })
         })
         .collect()
+}
+
+/// The most frames the cancel that wrote the fewest of a run may write
+/// (theseus-kq4n): the cancel's own, before the job is asked, then the job's
+/// acknowledgement, its verdict and the call's answer in one more
+/// (theseus-dwoj; theseusd's `cancel_frames` test holds the two). Each run's
+/// fewest is judged, never its most, which picks up frames of other work
+/// under load (memory's labelling ones). A count: the busy allowance never
+/// carries it.
+pub const CANCEL_FRAMES: usize = 2;
+
+/// The frames each cancel of the `cancel` phase wrote, read from the WAL.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct CancelFrames {
+    pub least: usize,
+    pub most: usize,
+}
+
+impl CancelFrames {
+    /// The fewest and the most of each cancel's frames; `None` for no cancel.
+    pub fn of(counts: &[usize]) -> Option<Self> {
+        Some(Self {
+            least: *counts.iter().min()?,
+            most: *counts.iter().max()?,
+        })
+    }
+
+    /// The fewest is within `CANCEL_FRAMES`.
+    pub fn ok(&self) -> bool {
+        self.least <= CANCEL_FRAMES
+    }
 }
 
 // ------------------------------------------------------------------ one start
@@ -954,6 +987,8 @@ pub struct Report {
     pub swap_lock_wait: Option<Summary>,
     /// The restore phase (F4b), measured with no budget.
     pub restore: Option<RestoreRow>,
+    /// The `cancel` phase's frames a cancel (theseus-kq4n).
+    pub cancel_frames: Option<CancelFrames>,
     pub samples: BTreeMap<String, Vec<f64>>,
     /// The first starts, unmeasured: the first creates an empty store, or
     /// reads a copied one into the page cache.
@@ -972,7 +1007,7 @@ impl Report {
 
     /// The verdict with the busy allowance `pct` on the timing budgets
     /// (theseus-lew7; `history::allowed`). The run's other checks are never
-    /// excused.
+    /// excused, the cancel's frames among them (theseus-kq4n).
     pub fn ok_with(&self, pct: u32) -> bool {
         self.verdicts
             .iter()
@@ -982,6 +1017,7 @@ impl Report {
             && self.driver_before_token
             && self.swap_job.as_ref().is_none_or(|j| j.kept && j.adopted)
             && self.restore.as_ref().is_none_or(|r| r.serves)
+            && self.cancel_frames.as_ref().is_none_or(CancelFrames::ok)
     }
 }
 
@@ -1317,9 +1353,11 @@ pub fn run(o: &Opts) -> Result<Report> {
     } else {
         None
     };
-    if want("cancel") {
-        cancel_phase(&rig, o.runs, &mut samples)?;
-    }
+    let cancel_frames = if want("cancel") {
+        cancel_phase(&rig, o.runs, &mut samples)?
+    } else {
+        None
+    };
 
     let phases: Vec<(String, Summary)> = PHASES
         .iter()
@@ -1427,6 +1465,7 @@ pub fn run(o: &Opts) -> Result<Report> {
         swap_job,
         swap_lock_wait: Summary::of(&lock_waits),
         restore,
+        cancel_frames,
         samples,
         warm_up_ms,
         starts,
@@ -1439,8 +1478,13 @@ pub fn run(o: &Opts) -> Result<Report> {
 /// real `proc.run` through a turn against the stand-in model) and times
 /// `execution.cancel` from its request to its answer. The answer must cancel
 /// the one call, with a verdict that its tree was killed and verified gone,
-/// and leave no job dispatched.
-fn cancel_phase(rig: &Rig, runs: usize, samples: &mut BTreeMap<String, Vec<f64>>) -> Result<()> {
+/// and leave no job dispatched. The frames each cancel wrote, for the run's
+/// check (`CANCEL_FRAMES`).
+fn cancel_phase(
+    rig: &Rig,
+    runs: usize,
+    samples: &mut BTreeMap<String, Vec<f64>>,
+) -> Result<Option<CancelFrames>> {
     let (mut child, _) = rig.start()?;
     // The frames each cancel wrote, read from the WAL as `bench turn` reads
     // a turn's (theseus-dwoj): a frame is a sync, the cost a busy disk adds.
@@ -1482,7 +1526,10 @@ fn cancel_phase(rig: &Rig, runs: usize, samples: &mut BTreeMap<String, Vec<f64>>
                 .join("\n  ")
         );
     }
-    measured
+    measured?;
+    Ok(CancelFrames::of(
+        &frames.iter().map(Vec::len).collect::<Vec<_>>(),
+    ))
 }
 
 /// The reply post the `inflight` phase holds at the fake Discord: its footer,
@@ -1798,6 +1845,14 @@ pub fn print(r: &Report) {
             println!("  restore's own phases, p50 ms: {}", phases.join(" · "));
         }
     }
+    if let Some(f) = &r.cancel_frames {
+        println!(
+            "  cancel: {} to {} frames a cancel; the fewest {} its limit of {CANCEL_FRAMES}",
+            f.least,
+            f.most,
+            if f.ok() { "within" } else { "is OVER" }
+        );
+    }
     let answers: Vec<String> = r
         .secrets_at_first_answer
         .iter()
@@ -1913,8 +1968,63 @@ mod tests {
         assert_eq!(budget_ms("swap", 10_000), Some(200.0));
         // Restore is measured: §9 names no number yet.
         assert_eq!(budget_ms("restore", 0), None);
-        assert_eq!(budget_ms("cancel", 0), Some(250.0));
-        assert_eq!(budget_ms("cancel", 10_000), Some(250.0));
+        // Since cancel-fast (theseus-kq4n), at any size.
+        assert_eq!(budget_ms("cancel", 0), Some(100.0));
+        assert_eq!(budget_ms("cancel", 10_000), Some(100.0));
+    }
+
+    /// A run with nothing out of place: no phase judged, every check held.
+    fn quiet_report() -> Report {
+        Report {
+            theseusd: "theseusd".into(),
+            store: "empty".into(),
+            sessions: 0,
+            generated: None,
+            runs: 10,
+            resolver_ms: 0,
+            phases: vec![],
+            daemon: vec![],
+            kernel_steps: vec![],
+            secrets_at_first_answer: BTreeMap::new(),
+            verdicts: vec![],
+            served_before_secrets: true,
+            config_at_first_answer: BTreeMap::new(),
+            served_from_copy: true,
+            driver: None,
+            driver_before_token: true,
+            vault_confirmed: None,
+            vault_first_ms: None,
+            swap_job: None,
+            swap_lock_wait: None,
+            restore: None,
+            cancel_frames: None,
+            samples: BTreeMap::new(),
+            warm_up_ms: vec![],
+            starts: vec![],
+            wall_ms: 1.0,
+        }
+    }
+
+    /// theseus-kq4n: a run fails when the cancel that wrote the fewest frames
+    /// wrote more than two, as every cancel before cancel-fast did (five),
+    /// and the busy allowance never carries it, a count. Its most is not
+    /// judged: under load it picks up other work's frames.
+    #[test]
+    fn a_run_whose_fewest_frames_a_cancel_are_over_two_fails() {
+        assert_eq!(
+            CancelFrames::of(&[2, 7, 2, 3]),
+            Some(CancelFrames { least: 2, most: 7 })
+        );
+        assert_eq!(CancelFrames::of(&[]), None);
+        let mut r = quiet_report();
+        assert!(r.ok(), "no cancel phase: nothing to judge");
+        r.cancel_frames = CancelFrames::of(&[2, 2, 7]);
+        assert!(r.ok(), "the fewest is 2; the 7 is other work's");
+        r.cancel_frames = CancelFrames::of(&[3, 5, 5]);
+        assert!(!r.ok(), "the fewest is 3, over 2");
+        assert!(!r.ok_with(65), "a count gets no busy allowance");
+        r.cancel_frames = CancelFrames::of(&[5, 5, 7]);
+        assert!(!r.ok(), "main's before cancel-fast: 5 to 7");
     }
 
     #[test]
