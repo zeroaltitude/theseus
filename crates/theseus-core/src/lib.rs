@@ -311,4 +311,6 @@ mod tests_thinking_writer;
 #[cfg(test)]
 mod tests_tiering;
 #[cfg(test)]
+mod tests_turn_reserve;
+#[cfg(test)]
 mod tests_wakes;
