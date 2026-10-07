@@ -225,7 +225,8 @@ async fn an_audit_from_a_shared_place_is_refused() {
 /// value of each thread that polls its request.
 struct Niced {
     inner: crate::provider::FakeProvider,
-    nices: std::sync::Mutex<Vec<i32>>,
+    /// Each polling thread's nice value and name.
+    nices: std::sync::Mutex<Vec<(i32, String)>>,
 }
 
 /// This thread's own nice value (Linux's nice is per thread).
@@ -248,7 +249,11 @@ impl crate::provider::Provider for Niced {
         on_delta: crate::provider::DeltaSink<'a>,
     ) -> crate::provider::ProviderFuture<'a> {
         Box::pin(async move {
-            self.nices.lock().unwrap().push(this_threads_nice());
+            let name = std::thread::current()
+                .name()
+                .unwrap_or_default()
+                .to_string();
+            self.nices.lock().unwrap().push((this_threads_nice(), name));
             self.inner.stream_message(req, on_delta).await
         })
     }
@@ -283,6 +288,15 @@ async fn an_audits_requests_are_polled_off_its_low_thread() {
     five(c);
     let out = c.judge_audit(audit(c, 3), "cli").await.unwrap();
     assert_eq!((out.asked, out.failed, out.labels), (3, 0, 6), "{out:?}");
-    let nices = niced.nices.lock().unwrap().clone();
-    assert_eq!(nices, [base; 3], "each request polled on a worker");
+    let polled = niced.nices.lock().unwrap().clone();
+    assert_eq!(polled.len(), 3, "{polled:?}");
+    // The thread's name holds at any nice value: a test process itself run
+    // at nice 19 (a gate under `nice -n 19`) reads 19 on the low thread too
+    // (theseus-fner).
+    for (nice, name) in &polled {
+        assert_ne!(name, "learning", "a request polled on the low thread");
+        if base < 19 {
+            assert_eq!(*nice, base, "each request polled on a worker");
+        }
+    }
 }

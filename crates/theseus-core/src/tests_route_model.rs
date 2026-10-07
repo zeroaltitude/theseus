@@ -118,3 +118,83 @@ async fn a_routed_turns_metrics_name_the_model_it_ran_on() {
     assert_eq!(named("glm"), ("zai".into(), "glm-5.3-flash".into()));
     assert_eq!(points.len(), 2, "{points:#?}");
 }
+
+/// One `turn.submit` through the protocol server: its error, which `call`
+/// refuses to see.
+async fn failed_call(
+    core: &std::sync::Arc<crate::Core>,
+    params: Value,
+) -> theseus_protocol::RpcError {
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
+    let (client, server) = tokio::io::duplex(64 * 1024);
+    let (sr, sw) = tokio::io::split(server);
+    let srv = tokio::spawn(core.clone().serve_connection(sr, sw, "test".into()));
+    let (cr, mut cw) = tokio::io::split(client);
+    let req = theseus_protocol::Request::new(theseus_protocol::Id::Num(1), "turn.submit", params);
+    let mut line = serde_json::to_string(&req).unwrap();
+    line.push('\n');
+    cw.write_all(line.as_bytes()).await.unwrap();
+    let mut lines = tokio::io::BufReader::new(cr).lines();
+    let r = loop {
+        let l = lines.next_line().await.unwrap().unwrap();
+        if let theseus_protocol::Message::Response(r) = serde_json::from_str(&l).unwrap() {
+            break r;
+        }
+    };
+    cw.shutdown().await.unwrap();
+    drop(lines);
+    let _ = srv.await;
+    r.error.expect("the turn fails")
+}
+
+/// A switch to Opus whose provider call fails (theseus-udzb): the failure's
+/// `theseus.turns` point and its provider-error count name the model the
+/// call went to, as a finished turn's do, not the base's.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_failed_routed_turn_is_counted_under_the_model_it_ran_on() {
+    let rx = Receiver::start(vec![]).await;
+    let jev = FakeJev::start().unwrap();
+    let tel = TelemetryConfig {
+        otlp_endpoint: Some(rx.endpoint()),
+        ..Default::default()
+    };
+    let r = rig_parts(
+        Some(&jev),
+        0,
+        |_| {},
+        |p| p.telemetry = Some(Telemetry::from_config(&tel, None).unwrap()),
+    );
+    {
+        let mut script = r.claude.script.lock().unwrap();
+        for _ in 0..8 {
+            script.push_back(crate::provider::Scripted::Fail(
+                crate::provider::ProviderError::Server {
+                    status: 500,
+                    message: "refused".into(),
+                },
+            ));
+        }
+    }
+    mode(&jev, "sophisticated", 0.95);
+    let e = failed_call(
+        &r.core,
+        json!({"input": "Weigh two designs for a crash-safe write-ahead log."}),
+    )
+    .await;
+    assert_eq!(e.code, theseus_protocol::error_code::PROVIDER, "{e:?}");
+    assert_eq!(r.claude.requests()[0].model, "claude-opus-5-5");
+    assert!(r.core.telemetry().flush(Duration::from_secs(10)).await);
+    let failed: Vec<_> = turns(&rx)
+        .into_iter()
+        .filter(|a| a.get("theseus.outcome").map(String::as_str) == Some("failed"))
+        .collect();
+    assert_eq!(failed.len(), 1, "{failed:#?}");
+    assert_eq!(failed[0]["theseus.profile"], "opus", "{failed:#?}");
+    assert_eq!(failed[0]["gen_ai.request.model"], "claude-opus-5-5");
+    let errors = rx.at("/v1/metrics");
+    let body = errors.last().unwrap().body.to_string();
+    assert!(
+        body.contains("theseus.provider.errors") && !body.contains("claude-sonnet"),
+        "{body}"
+    );
+}
