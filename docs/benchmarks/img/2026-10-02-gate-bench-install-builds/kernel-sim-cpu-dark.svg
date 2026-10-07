@@ -1,0 +1,164 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="391" viewBox="0 0 720 391" role="img" aria-labelledby="t-kernel-sim-cpu t-kernel-sim-cpu-d" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
+<title id="t-kernel-sim-cpu">CPU-bound work (theseus-sim kernel-sim, ten seeds): user CPU seconds per run, two interleaved A/Bs</title>
+<desc id="t-kernel-sim-cpu-d">What does each build choice cost CPU-bound work?</desc>
+<rect width="720" height="391" rx="8" fill="#1a1a19" stroke="#2c2c2a"/>
+<text x="18.0" y="32.0" font-size="15" fill="#ffffff" font-weight="600">CPU-bound work (theseus-sim kernel-sim, ten seeds): user CPU seconds per run,</text>
+<text x="18.0" y="52.0" font-size="15" fill="#ffffff" font-weight="600">two interleaved A/Bs</text>
+<circle cx="25.0" cy="70.0" r="5" fill="#3987e5"/>
+<text x="40.0" y="74.0" font-size="12" fill="#c3c2b7">the build the install ships</text>
+<circle cx="211.7" cy="70.0" r="5" fill="#898781"/>
+<text x="226.7" y="74.0" font-size="12" fill="#c3c2b7">the alternative measured</text>
+<line x1="402.2" y1="63.0" x2="402.2" y2="77.0" stroke="#ffffff" stroke-width="1.5"/>
+<text x="417.2" y="74.0" font-size="12" fill="#c3c2b7">median</text>
+<line x1="179.2" y1="98.0" x2="179.2" y2="282.0" stroke="#2c2c2a" stroke-width="1"/>
+<line x1="321.3" y1="98.0" x2="321.3" y2="282.0" stroke="#2c2c2a" stroke-width="1"/>
+<line x1="463.5" y1="98.0" x2="463.5" y2="282.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="165.2" y="125.0" font-size="12" fill="#ffffff" text-anchor="end">release-thin</text>
+<g><title>release-thin: quartiles 3.21 s, 3.30 s, 3.42 s</title>
+<rect x="270.4" y="119.0" width="5.8" height="4" rx="2" fill="#c3c2b7" fill-opacity="0.35"/>
+</g>
+<g><title>release-thin: 4.21 s (run 1: 4.21 s user, 1.32 s system, 44.1 s wall)</title>
+<circle cx="298.9" cy="114.9" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>release-thin: 3.28 s (run 2: 3.28 s user, 0.85 s system, 23.7 s wall)</title>
+<circle cx="272.4" cy="126.2" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>release-thin: 3.37 s (run 3: 3.37 s user, 0.61 s system, 22.6 s wall)</title>
+<circle cx="275.0" cy="129.5" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>release-thin: 3.19 s (run 4: 3.19 s user, 0.78 s system, 22.7 s wall)</title>
+<circle cx="269.9" cy="116.1" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>release-thin: 3.13 s (run 5: 3.13 s user, 0.77 s system, 22.2 s wall)</title>
+<circle cx="268.2" cy="128.1" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>release-thin: 3.27 s (run 6: 3.27 s user, 0.61 s system, 22.5 s wall)</title>
+<circle cx="272.1" cy="120.3" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>release-thin: 3.14 s (run 7: 3.14 s user, 0.77 s system, 22.1 s wall)</title>
+<circle cx="268.5" cy="116.5" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>release-thin: 3.33 s (run 8: 3.33 s user, 0.84 s system, 24.1 s wall)</title>
+<circle cx="273.9" cy="119.6" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>release-thin: 3.43 s (run 9: 3.43 s user, 1.03 s system, 24.6 s wall)</title>
+<circle cx="276.7" cy="131.4" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>release-thin: 5.12 s (run 10: 5.12 s user, 1.61 s system, 36.3 s wall)</title>
+<circle cx="324.7" cy="128.0" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>release-thin: median 3.30 s</title>
+<line x1="273.1" y1="107.0" x2="273.1" y2="135.0" stroke="#ffffff" stroke-width="2" stroke-linecap="round"/>
+</g>
+<text x="591.2" y="125.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">median 3.30 s · n 10</text>
+<text x="165.2" y="171.0" font-size="12" fill="#ffffff" text-anchor="end">release, fat LTO</text>
+<g><title>release, fat LTO: quartiles 2.99 s, 3.05 s, 3.29 s</title>
+<rect x="264.2" y="165.0" width="8.7" height="4" rx="2" fill="#c3c2b7" fill-opacity="0.35"/>
+</g>
+<g><title>release, fat LTO: 5.73 s (run 1: 5.73 s user, 2.03 s system, 61.0 s wall)</title>
+<circle cx="342.1" cy="177.8" r="3.2" fill="#898781" fill-opacity="0.75"/>
+</g>
+<g><title>release, fat LTO: 3.34 s (run 2: 3.34 s user, 0.83 s system, 54.7 s wall)</title>
+<circle cx="274.1" cy="173.0" r="3.2" fill="#898781" fill-opacity="0.75"/>
+</g>
+<g><title>release, fat LTO: 2.84 s (run 3: 2.84 s user, 0.89 s system, 22.1 s wall)</title>
+<circle cx="259.9" cy="165.1" r="3.2" fill="#898781" fill-opacity="0.75"/>
+</g>
+<g><title>release, fat LTO: 2.99 s (run 4: 2.99 s user, 0.74 s system, 22.7 s wall)</title>
+<circle cx="264.2" cy="159.8" r="3.2" fill="#898781" fill-opacity="0.75"/>
+</g>
+<g><title>release, fat LTO: 2.95 s (run 5: 2.95 s user, 0.74 s system, 22.5 s wall)</title>
+<circle cx="263.0" cy="173.4" r="3.2" fill="#898781" fill-opacity="0.75"/>
+</g>
+<g><title>release, fat LTO: 2.99 s (run 6: 2.99 s user, 0.74 s system, 21.9 s wall)</title>
+<circle cx="264.2" cy="166.8" r="3.2" fill="#898781" fill-opacity="0.75"/>
+</g>
+<g><title>release, fat LTO: 3.02 s (run 7: 3.02 s user, 0.79 s system, 23.5 s wall)</title>
+<circle cx="265.0" cy="156.9" r="3.2" fill="#898781" fill-opacity="0.75"/>
+</g>
+<g><title>release, fat LTO: 3.08 s (run 8: 3.08 s user, 0.78 s system, 23.9 s wall)</title>
+<circle cx="266.7" cy="171.1" r="3.2" fill="#898781" fill-opacity="0.75"/>
+</g>
+<g><title>release, fat LTO: 3.16 s (run 9: 3.16 s user, 0.84 s system, 25.9 s wall)</title>
+<circle cx="269.0" cy="157.2" r="3.2" fill="#898781" fill-opacity="0.75"/>
+</g>
+<g><title>release, fat LTO: 3.87 s (run 10: 3.87 s user, 1.35 s system, 37.0 s wall)</title>
+<circle cx="289.2" cy="157.4" r="3.2" fill="#898781" fill-opacity="0.75"/>
+</g>
+<g><title>release, fat LTO: median 3.05 s</title>
+<line x1="265.9" y1="153.0" x2="265.9" y2="181.0" stroke="#ffffff" stroke-width="2" stroke-linecap="round"/>
+</g>
+<text x="591.2" y="171.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">median 3.05 s · n 10</text>
+<text x="165.2" y="217.0" font-size="12" fill="#ffffff" text-anchor="end">glibc (release-thin)</text>
+<g><title>glibc (release-thin): quartiles 7.13 s, 8.04 s, 8.42 s</title>
+<rect x="382.0" y="211.0" width="36.7" height="4" rx="2" fill="#c3c2b7" fill-opacity="0.35"/>
+</g>
+<g><title>glibc (release-thin): 3.60 s (run 1: 3.60 s user, 1.22 s system, 48.6 s wall)</title>
+<circle cx="281.5" cy="218.1" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>glibc (release-thin): 5.67 s (run 2: 5.67 s user, 1.86 s system, 36.3 s wall)</title>
+<circle cx="340.4" cy="224.1" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>glibc (release-thin): 7.78 s (run 3: 7.78 s user, 3.01 s system, 47.5 s wall)</title>
+<circle cx="400.4" cy="223.2" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>glibc (release-thin): 7.62 s (run 4: 7.62 s user, 2.78 s system, 55.6 s wall)</title>
+<circle cx="395.8" cy="207.1" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>glibc (release-thin): 8.30 s (run 5: 8.30 s user, 3.20 s system, 45.2 s wall)</title>
+<circle cx="415.2" cy="204.6" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>glibc (release-thin): 8.38 s (run 6: 8.38 s user, 3.38 s system, 46.8 s wall)</title>
+<circle cx="417.4" cy="224.6" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>glibc (release-thin): 8.70 s (run 7: 8.70 s user, 3.59 s system, 65.1 s wall)</title>
+<circle cx="426.5" cy="213.1" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>glibc (release-thin): 8.55 s (run 8: 8.55 s user, 3.62 s system, 59.2 s wall)</title>
+<circle cx="422.3" cy="216.5" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>glibc (release-thin): median 8.04 s</title>
+<line x1="407.8" y1="199.0" x2="407.8" y2="227.0" stroke="#ffffff" stroke-width="2" stroke-linecap="round"/>
+</g>
+<text x="591.2" y="217.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">median 8.04 s · n 8</text>
+<text x="165.2" y="263.0" font-size="12" fill="#ffffff" text-anchor="end">static musl (release-thin)</text>
+<g><title>static musl (release-thin): quartiles 9.87 s, 11.1 s, 11.7 s</title>
+<rect x="459.7" y="257.0" width="51.4" height="4" rx="2" fill="#c3c2b7" fill-opacity="0.35"/>
+</g>
+<g><title>static musl (release-thin): 4.90 s (run 1: 4.90 s user, 3.68 s system, 31.5 s wall)</title>
+<circle cx="318.5" cy="266.0" r="3.2" fill="#898781" fill-opacity="0.75"/>
+</g>
+<g><title>static musl (release-thin): 9.49 s (run 2: 9.49 s user, 8.82 s system, 61.1 s wall)</title>
+<circle cx="449.0" cy="253.0" r="3.2" fill="#898781" fill-opacity="0.75"/>
+</g>
+<g><title>static musl (release-thin): 9.99 s (run 3: 9.99 s user, 9.88 s system, 67.6 s wall)</title>
+<circle cx="463.2" cy="258.5" r="3.2" fill="#898781" fill-opacity="0.75"/>
+</g>
+<g><title>static musl (release-thin): 10.7 s (run 4: 10.67 s user, 10.99 s system, 70.7 s wall)</title>
+<circle cx="482.6" cy="267.0" r="3.2" fill="#898781" fill-opacity="0.75"/>
+</g>
+<g><title>static musl (release-thin): 11.6 s (run 5: 11.59 s user, 12.13 s system, 64.0 s wall)</title>
+<circle cx="508.7" cy="265.7" r="3.2" fill="#898781" fill-opacity="0.75"/>
+</g>
+<g><title>static musl (release-thin): 11.8 s (run 6: 11.84 s user, 11.98 s system, 69.0 s wall)</title>
+<circle cx="515.8" cy="248.6" r="3.2" fill="#898781" fill-opacity="0.75"/>
+</g>
+<g><title>static musl (release-thin): 11.8 s (run 7: 11.77 s user, 11.65 s system, 76.4 s wall)</title>
+<circle cx="513.8" cy="248.7" r="3.2" fill="#898781" fill-opacity="0.75"/>
+</g>
+<g><title>static musl (release-thin): 11.6 s (run 8: 11.64 s user, 11.74 s system, 75.6 s wall)</title>
+<circle cx="510.1" cy="267.5" r="3.2" fill="#898781" fill-opacity="0.75"/>
+</g>
+<g><title>static musl (release-thin): median 11.1 s</title>
+<line x1="495.6" y1="245.0" x2="495.6" y2="273.0" stroke="#ffffff" stroke-width="2" stroke-linecap="round"/>
+</g>
+<text x="591.2" y="263.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">median 11.1 s · n 8</text>
+<text x="179.2" y="298.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">0</text>
+<text x="321.3" y="298.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">5</text>
+<text x="463.5" y="298.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">10</text>
+<line x1="179.2" y1="282.0" x2="577.2" y2="282.0" stroke="#383835" stroke-width="1"/>
+<text x="378.2" y="316.0" font-size="12" fill="#c3c2b7" text-anchor="middle">user CPU seconds per run</text>
+<text x="18.0" y="338.0" font-size="11" fill="#c3c2b7">Each A/B interleaved its two builds run by run, each build's own binary: release against release-thin (10 pairs, Oct 2 01:13,</text>
+<text x="18.0" y="353.0" font-size="11" fill="#c3c2b7">load 15 to 20), then glibc against static musl (8 pairs, 08:31, load 8 to 16 and the machine filling, so both builds' times rise</text>
+<text x="18.0" y="368.0" font-size="11" fill="#c3c2b7">run by run). Compare within an A/B, not across.</text>
+</svg>

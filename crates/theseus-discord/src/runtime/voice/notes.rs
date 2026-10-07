@@ -20,6 +20,10 @@ const MAX_NOTES: usize = 3;
 const MAX_LINE: usize = 400;
 /// The voice turns whose first words are kept: a call's recent ones.
 const KEPT_TURNS: usize = 32;
+/// The notes kept for the next voice turn: the line reads only the newest
+/// `MAX_NOTES`, so a call that never takes a turn keeps no more than this
+/// (theseus-nthu).
+const KEPT_NOTES: usize = 8;
 
 /// The call's notes: each voice turn's first words, and what waits for the
 /// next voice turn.
@@ -104,15 +108,23 @@ impl Notes {
                 format!("they cut in on {named}: {heard_part}; {cut_part}")
             }
         };
+        self.wait(note);
+    }
+
+    /// A note for the next voice turn, the oldest dropped past `KEPT_NOTES`.
+    fn wait(&mut self, note: String) {
         self.waiting.push(note);
+        if self.waiting.len() > KEPT_NOTES {
+            let over = self.waiting.len() - KEPT_NOTES;
+            self.waiting.drain(..over);
+        }
     }
 
     /// An utterance heard: a backchannel or a request to go on, said while
     /// Theseus spoke, is no turn of its own, so the next one is told.
     pub(crate) fn heard(&mut self, u: &Utterance) {
         if matches!(u.heard_as, HeardAs::Backchannel | HeardAs::Resume) {
-            self.waiting
-                .push(format!("while you spoke they said \"{}\"", quote(&u.text)));
+            self.wait(format!("while you spoke they said \"{}\"", quote(&u.text)));
         }
     }
 
@@ -202,5 +214,58 @@ mod tests {
         assert_eq!(c, "the quick brown fox…");
         assert!(c.chars().count() <= 20);
         assert_eq!(clip("abcdefghijklmnop", 6), "abcde…");
+    }
+
+    fn said(text: &str) -> Utterance {
+        Utterance {
+            speaker: theseus_voice::Speaker(7),
+            started: std::time::Duration::ZERO,
+            length: std::time::Duration::from_secs(1),
+            closed: std::time::Duration::from_secs(2),
+            text: text.into(),
+            usage: theseus_voice::Usage {
+                provider: "deepgram".into(),
+                model: "nova-3".into(),
+                audio: std::time::Duration::from_secs(1),
+                chars: text.len(),
+            },
+            latency: std::time::Duration::ZERO,
+            over: None,
+            heard_as: HeardAs::Words,
+        }
+    }
+
+    /// The first words of only the newest 32 voice turns are kept: an older
+    /// turn's reply is named plainly (theseus-nthu).
+    #[test]
+    fn the_first_words_keep_only_the_newest_32_turns() {
+        let mut notes = Notes::default();
+        for i in 0..40 {
+            notes.turn(TurnId(i), &[said(&format!("question {i}"))]);
+        }
+        assert_eq!(notes.firsts.len(), KEPT_TURNS);
+        assert_eq!(notes.firsts.keys().next(), Some(&TurnId(8)));
+        assert_eq!(notes.named(Spoken::Reply(TurnId(7))), "your reply");
+        assert_eq!(
+            notes.named(Spoken::Reply(TurnId(8))),
+            "your reply to \"question 8\""
+        );
+    }
+
+    /// Notes waiting for a turn that never comes are capped at 8, the oldest
+    /// dropped, and the line still carries the newest (theseus-nthu).
+    #[test]
+    fn the_waiting_notes_are_capped_at_eight() {
+        let mut notes = Notes::default();
+        for i in 0..20 {
+            let mut u = said(&format!("yeah {i}"));
+            u.heard_as = HeardAs::Backchannel;
+            notes.heard(&u);
+        }
+        assert_eq!(notes.waiting.len(), KEPT_NOTES);
+        assert!(notes.waiting[0].contains("yeah 12"), "{:?}", notes.waiting);
+        let line = notes.line(&[]).expect("a line");
+        assert!(line.contains("yeah 19"), "{line}");
+        assert!(notes.waiting.is_empty(), "drained");
     }
 }

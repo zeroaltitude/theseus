@@ -64,6 +64,8 @@ pub(crate) use jev::{
 pub(crate) use live::PERIOD as LIVE_PERIOD;
 mod prompt;
 mod publish;
+#[cfg(test)]
+mod tests_held;
 mod voice;
 use publish::PublishAsk;
 
@@ -255,7 +257,12 @@ async fn serve(
     let (shared, notes, guilds, me) = connect(&core, &cfg, &token, &bindings, &board).await?;
     start_places(&shared, &bindings, notes).await?;
     // The file read again while the binding runs (theseus-ocwt).
-    tokio::spawn(live::watch(shared.clone(), path, bindings.clone()));
+    // It ends with the stop, like the gateway loop below (theseus-9ggu).
+    let watching = live::watch(shared.clone(), path, bindings.clone());
+    let stop = core.clone();
+    tokio::spawn(async move {
+        tokio::select! { _ = watching => {}, _ = stop.outbox.stopped() => {} }
+    });
     event_loop(&shared, &cfg, token, &guilds, &me, &bindings, &board).await;
     Ok(())
 }
@@ -385,7 +392,21 @@ async fn event_loop(
     let mut shard = Shard::with_config(ShardId::ONE, gateway.build());
     voice::attach(shared, &shard, me.id);
     let mut last_latency = std::time::Instant::now();
-    while let Some(item) = shard.next_event(EventTypeFlags::all()).await {
+    // The loop ends when the daemon's stop begins, not when the stream does:
+    // a task still mid-poll when the runtime ends would hold the core, and
+    // its store, past a `shutdown_timeout` (theseus-9ggu).
+    let stopped = shared.core.outbox.stopped();
+    tokio::pin!(stopped);
+    loop {
+        let item = tokio::select! {
+            item = shard.next_event(EventTypeFlags::all()) => item,
+            () = &mut stopped => {
+                board.state("disconnected", Some("the daemon is stopping".into()));
+                tracing::info!("discord gateway loop ended at the daemon's stop");
+                return;
+            }
+        };
+        let Some(item) = item else { break };
         if last_latency.elapsed() > Duration::from_secs(15) {
             last_latency = std::time::Instant::now();
             let ms = shard.latency().average().map(|d| d.as_millis() as u64);
@@ -825,12 +846,16 @@ impl Shared {
     /// the rest are refused. A post written later for such a place is
     /// refused at the courier's next wake.
     pub(crate) fn refuse_unbound(&self) {
-        let bound: std::collections::HashSet<String> =
-            self.lanes.lock().unwrap().keys().cloned().collect();
+        // Under the lanes' lock throughout (theseus-yduk): a lane inserted
+        // meanwhile (a place re-added live) waits for the refusal, so it never
+        // begins a post the refusal then settles. Nothing under the outbox's
+        // refusal takes the binding's locks (`lanes` is before `retired`).
+        let lanes = self.lanes.lock().unwrap();
         let n = self
             .core
             .outbox
-            .refuse_unbound("discord", |t| bound.contains(t));
+            .refuse_unbound("discord", |t| lanes.contains_key(t));
+        drop(lanes);
         if n > 0 {
             tracing::info!(
                 posts = n,
@@ -1921,6 +1946,12 @@ impl Place {
                 }
                 let ops = self.renderer.on_event(&e);
                 self.apply(ops);
+                // A turn's start may drop the oldest: the lane keeps the held
+                // turns' messages whole, and forgets a dropped one's
+                // (theseus-6809).
+                if matches!(e, CoreEvent::TurnStarted(_)) {
+                    let _ = self.lane.send(LaneMsg::Held(self.renderer.held()));
+                }
                 // The renderer has shown the call that asks, and its tool line
                 // went to the lane first: the question's card may follow
                 // (theseus-50p).
@@ -1957,6 +1988,7 @@ impl Place {
                                 if !batch.is_empty() {
                                     self.submit(batch);
                                 }
+                                self.voice_next();
                                 return;
                             }
                             Err(err) => self.shared.board.error("rebind", None, err),
@@ -2092,6 +2124,7 @@ impl Place {
                 // messages queued for the next turn go too; the next message
                 // continues this session. Its tasks and wakes are untouched.
                 self.queued.clear();
+                self.voice_stop();
                 self.stopping = self.inflight;
                 // The stopped turn's stream stops here, where Discord last
                 // saw it; it posts no reply.
@@ -2264,7 +2297,10 @@ impl Place {
             )
             .await;
         self.session_id = sid;
+        // The old session's turns are dropped with its renderer: the lane
+        // forgets their messages (theseus-6809).
         self.renderer = self.shared.renderer();
+        let _ = self.lane.send(LaneMsg::Held(self.renderer.held()));
         self.report();
         Ok(())
     }
@@ -2864,16 +2900,17 @@ pub(crate) mod tests {
             ["execution.changed", "turn.started"],
             "events.lost names no session, and the route drops it"
         );
-        // Only the turn's start reached the lane: typing.
+        // Only the turn's start reached the lane: typing, and the held turn.
         let mut sent = vec![];
         while let Ok(m) = lane.try_recv() {
             sent.push(match m {
                 LaneMsg::Live(crate::render::Op::Typing) => "typing".to_string(),
                 LaneMsg::Live(op) => format!("live {:?}", op.key()),
+                LaneMsg::Held(turns) => format!("held {turns:?}"),
                 _ => "other".to_string(),
             });
         }
-        assert_eq!(sent, ["typing"]);
+        assert_eq!(sent, ["typing", r#"held ["turn_j7xi"]"#]);
         assert!(!place.saw_failure);
         assert!(
             loud.0.lock().unwrap().is_empty(),

@@ -97,6 +97,7 @@ pub(crate) fn rig(jev: Option<&FakeJev>, tweak: impl FnOnce(&mut Config)) -> Rig
     let mut p = crate::rpc::Parts::for_tests(cfg, model.clone(), store);
     p.secrets = board();
     let core = Core::build(p).unwrap();
+    crate::tests_judge::warm(&core);
     core.bind_places(vec![BoundPlace {
         target: format!("discord:channel:{DEN}"),
         name: "#den".into(),

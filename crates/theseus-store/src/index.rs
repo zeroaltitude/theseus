@@ -730,6 +730,27 @@ impl RedbIndex {
         Ok(out)
     }
 
+    /// The latest position of every key of a kind that `keep` passes, in
+    /// key order: a walk of the kind's key table alone (theseus-7087).
+    pub fn positions_of_keys_where(
+        &self,
+        kind: RecordKind,
+        keep: &dyn Fn(&str) -> bool,
+    ) -> Result<Vec<u64>> {
+        let txn = self.db.begin_read()?;
+        let t = txn.open_table(BYKEY)?;
+        let lo = kind.to_be_bytes().to_vec();
+        let hi = (kind + 1).to_be_bytes().to_vec();
+        let mut out = Vec::new();
+        for row in t.range(lo.as_slice()..hi.as_slice())? {
+            let (k, v) = row?;
+            if keep(&String::from_utf8_lossy(&k.value()[2..])) {
+                out.push(v.value());
+            }
+        }
+        Ok(out)
+    }
+
     /// Up to `limit` keys of a kind that end with `ending`, in key order: a
     /// walk of the kind's key table alone, which reads no record (a short
     /// id's resolve, theseus-glyw).
@@ -1043,6 +1064,21 @@ impl RedbIndex {
         before: Option<u64>,
         limit: usize,
     ) -> Result<Births> {
+        self.keys_by_birth_where(kind, before, limit, &|_| true)
+    }
+
+    /// `keys_by_birth` of the keys `keep` passes (theseus-7087): a key it
+    /// fails is stepped over in the same walk of the births, and its latest
+    /// position is not looked up, so a run of them costs index rows alone.
+    /// Whether older ones remain counts every key, kept or not, so a page's
+    /// cursor is the one an unfiltered walk that skipped them would give.
+    pub fn keys_by_birth_where(
+        &self,
+        kind: RecordKind,
+        before: Option<u64>,
+        limit: usize,
+        keep: &dyn Fn(&str) -> bool,
+    ) -> Result<Births> {
         let txn = self.db.begin_read()?;
         let bb = txn.open_table(BYBIRTH)?;
         let byk = txn.open_table(BYKEY)?;
@@ -1056,6 +1092,9 @@ impl RedbIndex {
             }
             let (k, v) = row?;
             let key = String::from_utf8_lossy(v.value()).into_owned();
+            if !keep(&key) {
+                continue;
+            }
             let Some(born) = u64_from(&k.value()[2..]) else {
                 continue;
             };

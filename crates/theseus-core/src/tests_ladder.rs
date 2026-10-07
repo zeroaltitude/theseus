@@ -827,3 +827,97 @@ async fn the_notices_brake_is_read_by_its_key_and_lapses_at_midnight() {
     assert_eq!(j.mode_for("security.v3", "ses_a").mode, PackMode::Live);
     assert_eq!(rows(&c, "security.v3").len(), written, "nothing written");
 }
+
+/// A promotion of loop.v1 while a learned version stands in its place
+/// (theseus-nwa5): every point asks `placed` first, so loop.v1's canary
+/// judges in no session while loop.v101 stands in shadow or live, and only
+/// in loop.v101's control arm while it is a canary. The answer says so, with
+/// the way out; the move is written all the same. With loop.v101 not placed
+/// (no row, only a declined one, or rolled back), no such sentence.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_promotion_names_the_learned_version_standing_in_its_place() {
+    let dir = tempfile::tempdir().unwrap();
+    let c = core_at(dir.path(), None, |_| {});
+    crate::tests_prove::learned_loop(&c);
+    let l = c.runner.judge.ladder();
+    let said = |c: &Core| {
+        let r = c
+            .pack_promote(&promote("loop.v1", "canary", Some(0.5)), "cli")
+            .unwrap();
+        assert_eq!(
+            r.row.as_ref().unwrap().mode,
+            "canary",
+            "written all the same"
+        );
+        r.said
+    };
+    let placed = |mode: &str, share: Option<f64>, declined: bool| PackModeRow {
+        pack: "loop.v101".into(),
+        mode: mode.into(),
+        from: "off".into(),
+        share,
+        who: "system".into(),
+        why: "learned (prp_heron): the ladder's test".into(),
+        declined,
+        ..PackModeRow::default()
+    };
+    let plain = "loop.v1 is canary 0.5, forced short of the bar (";
+    // No row: loop.v101 stands nowhere.
+    let s = said(&c);
+    assert!(s.starts_with(plain) && !s.contains("stands in"), "{s}");
+    // Only a declined row places nothing.
+    l.write(placed("shadow", None, true)).unwrap();
+    let s = said(&c);
+    assert!(!s.contains("stands in"), "{s}");
+    // In shadow: nowhere.
+    l.write(placed("shadow", None, false)).unwrap();
+    let s = said(&c);
+    assert!(
+        s.ends_with(
+            ". loop.v101 stands in loop.v1's place in shadow, so loop.v1's canary 0.5 judges in \
+             no session until loop.v101 moves (`theseus packs rollback loop.v101`)."
+        ),
+        "{s}"
+    );
+    // A canary: only its control arm.
+    l.write(placed("canary", Some(0.3), false)).unwrap();
+    let s = said(&c);
+    assert!(
+        s.ends_with(
+            ". loop.v101 stands in loop.v1's place as canary 0.3, so loop.v1's canary 0.5 judges \
+             only in loop.v101's control arm until loop.v101 moves (`theseus packs rollback \
+             loop.v101`)."
+        ),
+        "{s}"
+    );
+    // Live: nowhere, and a move to live says the same.
+    l.write(placed("live", None, false)).unwrap();
+    let s = c
+        .pack_promote(&promote("loop.v1", "live", None), "cli")
+        .unwrap()
+        .said;
+    assert!(
+        s.ends_with(
+            ". loop.v101 stands in loop.v1's place live, so loop.v1 live judges in no session \
+             until loop.v101 moves (`theseus packs rollback loop.v101`)."
+        ),
+        "{s}"
+    );
+    // Rolled back: the place is loop.v1's again.
+    c.pack_rollback(
+        &PackRollbackParams {
+            pack: "loop.v101".into(),
+            ..PackRollbackParams::default()
+        },
+        "cli",
+    )
+    .unwrap();
+    let s = said(&c);
+    assert!(s.starts_with(plain) && !s.contains("stands in"), "{s}");
+    // The learned version's own move names nothing ahead of it.
+    let s = c
+        .pack_promote(&promote("loop.v101", "shadow", None), "cli")
+        .unwrap()
+        .said;
+    assert!(!s.contains("stands in"), "{s}");
+}

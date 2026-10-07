@@ -69,6 +69,13 @@ impl Vad {
         self.open.is_some()
     }
 
+    /// The open utterance's audio so far, to its last speech frame.
+    pub fn so_far(&self) -> Option<Audio> {
+        self.open
+            .as_ref()
+            .map(|o| Audio::new(o.samples[..o.speech_end].to_vec()))
+    }
+
     /// Feed tick `tick`: this speaker's frame, or `None` if they sent none.
     pub fn push(&mut self, tick: u64, frame: Option<&[i16]>, s: &VadSettings) -> VadStep {
         let speech = frame.is_some_and(|f| rms(f) >= s.speech_rms);

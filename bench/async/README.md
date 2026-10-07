@@ -11,7 +11,7 @@ reads one text. A driver sends two families a second message mid-trial, and a sc
 | `tasks/<family>/` | A Harbor task each: `task.toml`, `instruction.md`, `environment/` (a `python:3.12-slim` image with the family's tools in `/opt/async/bin`), `solution/solve.sh` (the oracle), and `tests/test.sh` (the verifier). |
 | `tools/asyncbench.py` | The tools, the ledger, and the checks, standard library only. Each task holds two copies of it, its image's and its verifier's; `sync.py` writes them. |
 | `driver.py` | The injection and its trigger, and each arm's commands. Standard library only. |
-| `async_agents.py` | The Harbor agents: `async_agents:TheseusAsync` and `async_agents:ClaudeCodeAsync`. |
+| `async_agents.py` | The Harbor agents: `async_agents:TheseusAsync`, `async_agents:ClaudeCodeAsync` and `async_agents:PiAsync`. |
 | `score.py` | The scorer: `report.md` and `scores.json` from job directories. Standard library only. |
 | `test_tasks.py`, `test_driver.py`, `test_score.py` | Their tests. |
 
@@ -60,8 +60,13 @@ export PYTHONPATH=$PWD/bench/harbor:$PWD/bench/async HARBOR_TELEMETRY=0
   -m anthropic/claude-sonnet-5-5 --ak max_budget_usd=2.0 --ak max_turns=200 \
   -o jobs --job-name async-claude -k 2
 
+# Pi.
+.venv/bin/harbor run -p bench/async/tasks -a async_agents:PiAsync \
+  -m anthropic/claude-sonnet-5-5 --ak max_budget_usd=2.0 --ak max_turns=200 \
+  -o jobs --job-name async-pi -k 2
+
 # The scores.
-python3 bench/async/score.py jobs/async-theseus jobs/async-claude --out /tmp/async
+python3 bench/async/score.py jobs/async-theseus jobs/async-claude jobs/async-pi --out /tmp/async
 ```
 
 `-i <family>` runs one family. A trial takes up to its task's agent timeout (10 to 15 minutes); a family's slow steps
@@ -122,7 +127,23 @@ and reads the last one's `modelUsage` and `total_cost_usd` as the session's so f
 turn). The live check says whether the CLI reads a
 message mid-turn or queues it for the turn's end; either way the responsiveness column measures it.
 
-### A third arm
+### Pi (`PiAsync`, theseus-jp9p)
+
+Harbor's `Pi` runs `pi --print --mode json` with the instruction as its last argument. This arm runs the same
+command in Pi's RPC mode instead (`--mode rpc`, "JSONL commands on stdin, session events on stdout", Pi 1.0.4's
+rpc.md), its flags kept and its stdin a FIFO (`fifo_path()`, `/tmp/async-pi-stdin`; `driver.pi_stdin`): the
+instruction is the first `prompt` command, and the driver's message a `prompt` with `streamingBehavior: "steer"`.
+While Pi runs, a steering prompt is queued (`disposition: queued`) and delivered after the current answer's tool
+calls, before its next model call; while Pi is idle it starts a run of its own (`disposition: started`). Each run
+ends with `agent_settled` (Pi will do no more on its own), and once one follows the last message the input is
+closed, which is RPC mode's orderly shutdown. Pi's stream filter is line-buffered here (`stdbuf -oL grep`), since
+the driver reads the stream as it runs. A message to a Pi already gone is refused, and its cell reads "not
+measurable". It is bench/harbor's `MeasuredPi` underneath: the pinned version, the sampler around Pi, the
+trajectory, and the record, from Pi's session log (every run's answers, the injection's included), with
+`settled_runs`, the runs the stream settled. By hand, the real Pi 1.0.4 on a stand-in model took a steering
+prompt mid-run as above, exited 0 when its input closed, and refused a message after.
+
+### A fourth arm
 
 OpenClaw (not built yet) fits the same shape: a subclass of its Harbor agent whose `run` starts the agent, runs
 `driver.fire` with a `deliver` that hands it a message by its own means, and ends the trial by its own rule.
@@ -147,7 +168,7 @@ OpenClaw (not built yet) fits the same shape: a subclass of its Harbor agent who
   bench/report reads them; a trial whose sampler did not run has no numbers, never zeros.
 - **Cost**: Harbor's, which for Theseus is the sum of its ledger's model calls and its cut calls' estimates.
 
-Results go in [`docs/benchmarks.md`](../../docs/benchmarks.md).
+Every run of it gets its report in [`docs/benchmarks/`](../../docs/benchmarks/README.md) ([`bench/README.md`](../README.md), "Every run gets its report").
 
 ## Public neighbours
 
@@ -164,7 +185,8 @@ python3 -m unittest discover -s bench/async && python3 -m unittest discover -s b
 The standard library runs them without Harbor or Docker: each family's oracle on this host under a scratch
 `ASYNC_ROOT` at a time scale of 0.01, with a `TMPDIR` of its own that it must leave empty (an oracle removes what it
 makes), and a planted wrong effect per family; the ledger's check against an edited
-one; the driver against a fake environment, a stand-in `claude` on the FIFO, and the daemon-mode script under a
+one; the driver against a fake environment, a stand-in `claude` and a stand-in `pi` (RPC mode) on the FIFO, and the
+daemon-mode script under a
 stand-in `theseus` (a daemon that answers health only once it is up, a wake pending after its job, the sampler
 around it all, and nothing left running after a test); and the scorer over fixture trials worked by hand. Three more run on request:
 

@@ -11,6 +11,8 @@
   task, and no wake pending;
 - `claude_stdin`: Harbor's Claude Code command, rewritten to read its input
   as stream-json from a FIFO the driver writes to.
+- `pi_stdin`: Harbor's Pi command, rewritten to run Pi in its RPC mode,
+  reading its commands from a FIFO the driver writes to.
 
 `async_agents.py` holds the Harbor agents that use them. Standard library only,
 so the tests (`test_driver.py`) run without Harbor; it reads bench/harbor's
@@ -348,3 +350,67 @@ def log_state(stdout: str | None) -> tuple[int, int]:
         return int(last), int(total)
     except ValueError:
         return 0, 0
+
+
+# ---------------------------------------------------------------------- Pi
+
+# Harbor 0.23's Pi run (pi.py's run): the instruction, shell-quoted, as
+# `pi --print --mode json`'s last argument, its stream filtered and teed.
+PI_RUN = re.compile(
+    r"pi --print --mode json (?P<flags>.*?)(?P<instruction>(?:'(?:[^']|'\"'\"')*')+|[^\s']+) "
+    r"2>&1 </dev/null \| (?P<filter>grep -v '\"type\":\"message_update\"' \| stdbuf -oL )?tee (?P<log>\S+)$"
+)
+PI_FIRST = "ASYNC_PI_FIRST"
+
+
+def rpc_prompt(text: str, steer: bool = False) -> str:
+    """One `prompt` command of Pi's RPC mode (its rpc-commands.md). With
+    `steer`, a prompt that comes while Pi runs is delivered after the
+    current answer's tool calls, before its next model call; while Pi is
+    idle it starts a run (Pi 1.0.4: `disposition: started`)."""
+    cmd: dict[str, Any] = {"type": "prompt", "message": text}
+    if steer:
+        cmd["streamingBehavior"] = "steer"
+    return json.dumps(cmd, ensure_ascii=False)
+
+
+def pi_stdin(command: str, env: dict[str, str] | None, fifo: str) -> tuple[str, dict[str, str]] | None:
+    """Harbor's Pi run with Pi in RPC mode (`--mode rpc`, JSONL commands on
+    stdin, its session events on stdout, as JSON mode's) reading from
+    `fifo`, and the instruction as its first `prompt`; None for any other
+    command. A holder keeps the FIFO open for writing, so Pi reads on until
+    `close_command` kills it: closing its stdin is RPC mode's orderly
+    shutdown."""
+    m = PI_RUN.search(command)
+    if not m:
+        return None
+    instruction = shlex.split(m["instruction"])[0]
+    f = shlex.quote(fifo)
+    run = (
+        f'rm -f {f} {f}.holder; mkfifo {f}; '
+        # Pi's stream is read as it runs, so its filter writes each line as
+        # it comes (Harbor's own buffers it, read only at the end).
+        f"pi --mode rpc {m['flags']}< {f} 2>&1 | {'stdbuf -oL ' + m['filter'] if m['filter'] else ''}"
+        f"tee {m['log']} & cpid=$!; "
+        f"sleep 2147483647 > {f} & echo $! > {f}.holder; "
+        f'printf "%s\\n" "${PI_FIRST}" > {f}; unset {PI_FIRST}; '
+        f'wait $cpid; rc=$?; kill "$(cat {f}.holder)" 2>/dev/null; rm -f {f} {f}.holder; exit $rc'
+    )
+    return command[: m.start()] + run, {**(env or {}), PI_FIRST: rpc_prompt(instruction)}
+
+
+def pi_send_command(fifo: str, text: str) -> str:
+    """A message to the running Pi: one steering `prompt` into its FIFO,
+    refused (exit 3) when Pi is gone."""
+    f = shlex.quote(fifo)
+    return (f"[ -p {f} ] && [ -e {f}.holder ] || exit 3; "
+            f"printf '%s\\n' {shlex.quote(rpc_prompt(text, steer=True))} > {f}")
+
+
+def pi_log_command(log: str) -> str:
+    """Where Pi's stream is: `LAST TOTAL`, the line of its last
+    `agent_settled` (Pi will do no more on its own) and its lines, as
+    `log_command` reads Claude Code's results."""
+    f = shlex.quote(log)
+    return (f"r=$(grep -n '\"type\":\"agent_settled\"' {f} 2>/dev/null | tail -n 1 | cut -d: -f1); "
+            f'n=$(wc -l < {f} 2>/dev/null); echo "${{r:-0}} ${{n:-0}}"')

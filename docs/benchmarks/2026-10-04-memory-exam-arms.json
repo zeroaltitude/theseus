@@ -1,0 +1,1607 @@
+{
+ "report": "2026-10-04-memory-exam-arms",
+ "title": "Memory exam: the recall pipeline's arms against none and the oracle",
+ "suite": "memory-exam (exam-v2, 72 items, four arms)",
+ "date": "2026-10-04",
+ "commit": "802f9135 (main, with the memory-arm join 7d0c9534)",
+ "arms": [
+  {
+   "key": "none",
+   "label": "none"
+  },
+  {
+   "key": "bm25",
+   "label": "bm25: BM25 and entities"
+  },
+  {
+   "key": "fused",
+   "label": "baseline: BM25, entities and vectors, fused"
+  },
+  {
+   "key": "oracle",
+   "label": "oracle: the gold, rendered as recall renders it"
+  }
+ ],
+ "summary": {
+  "exam_digest": "sha256:68302a539eddadf41e9cca33e704d70ce21af70cfad99c72fbba8995fbe44c32",
+  "models": [
+   "glm-5.3-flash"
+  ],
+  "science": [
+   "baseline@46038939f14a4f49"
+  ],
+  "window_utc_ms": [
+   1791139622623,
+   1791144292189
+  ],
+  "rates": {
+   "all": {
+    "none": {
+     "items": 72,
+     "cells": 142,
+     "rate": 0.1458,
+     "t_lo": 0.0635,
+     "t_hi": 0.2282,
+     "boot_lo": 0.0694,
+     "boot_hi": 0.2292,
+     "cells_wilson": {
+      "k": 21,
+      "n": 142,
+      "rate": 0.1479,
+      "lo": 0.0988,
+      "hi": 0.2155
+     }
+    },
+    "bm25": {
+     "items": 72,
+     "cells": 143,
+     "rate": 0.4583,
+     "t_lo": 0.3426,
+     "t_hi": 0.574,
+     "boot_lo": 0.3472,
+     "boot_hi": 0.5694,
+     "cells_wilson": {
+      "k": 63,
+      "n": 143,
+      "rate": 0.4406,
+      "lo": 0.3618,
+      "hi": 0.5224
+     }
+    },
+    "baseline": {
+     "items": 72,
+     "cells": 144,
+     "rate": 0.6713,
+     "t_lo": 0.5625,
+     "t_hi": 0.7801,
+     "boot_lo": 0.5602,
+     "boot_hi": 0.7778,
+     "cells_wilson": {
+      "k": 99,
+      "n": 144,
+      "rate": 0.6875,
+      "lo": 0.6078,
+      "hi": 0.7575
+     }
+    },
+    "oracle": {
+     "items": 72,
+     "cells": 142,
+     "rate": 0.9954,
+     "t_lo": 0.9861,
+     "t_hi": 1.0,
+     "boot_lo": 0.9861,
+     "boot_hi": 1.0,
+     "cells_wilson": {
+      "k": 141,
+      "n": 142,
+      "rate": 0.993,
+      "lo": 0.9612,
+      "hi": 0.9988
+     }
+    }
+   },
+   "held in": {
+    "none": {
+     "items": 36,
+     "cells": 106,
+     "rate": 0.1528,
+     "t_lo": 0.0327,
+     "t_hi": 0.2729,
+     "boot_lo": 0.0556,
+     "boot_hi": 0.2778,
+     "cells_wilson": {
+      "k": 16,
+      "n": 106,
+      "rate": 0.1509,
+      "lo": 0.0951,
+      "hi": 0.2312
+     }
+    },
+    "bm25": {
+     "items": 36,
+     "cells": 107,
+     "rate": 0.4167,
+     "t_lo": 0.2541,
+     "t_hi": 0.5793,
+     "boot_lo": 0.2685,
+     "boot_hi": 0.5741,
+     "cells_wilson": {
+      "k": 45,
+      "n": 107,
+      "rate": 0.4206,
+      "lo": 0.3314,
+      "hi": 0.5153
+     }
+    },
+    "baseline": {
+     "items": 36,
+     "cells": 108,
+     "rate": 0.7037,
+     "t_lo": 0.5541,
+     "t_hi": 0.8533,
+     "boot_lo": 0.5648,
+     "boot_hi": 0.8426,
+     "cells_wilson": {
+      "k": 76,
+      "n": 108,
+      "rate": 0.7037,
+      "lo": 0.6118,
+      "hi": 0.7816
+     }
+    },
+    "oracle": {
+     "items": 36,
+     "cells": 106,
+     "rate": 0.9907,
+     "t_lo": 0.9719,
+     "t_hi": 1.0,
+     "boot_lo": 0.9722,
+     "boot_hi": 1.0,
+     "cells_wilson": {
+      "k": 105,
+      "n": 106,
+      "rate": 0.9906,
+      "lo": 0.9485,
+      "hi": 0.9983
+     }
+    }
+   },
+   "held out": {
+    "none": {
+     "items": 36,
+     "cells": 36,
+     "rate": 0.1389,
+     "t_lo": 0.0202,
+     "t_hi": 0.2576,
+     "boot_lo": 0.0278,
+     "boot_hi": 0.25,
+     "cells_wilson": {
+      "k": 5,
+      "n": 36,
+      "rate": 0.1389,
+      "lo": 0.0608,
+      "hi": 0.2866
+     }
+    },
+    "bm25": {
+     "items": 36,
+     "cells": 36,
+     "rate": 0.5,
+     "t_lo": 0.3284,
+     "t_hi": 0.6716,
+     "boot_lo": 0.3333,
+     "boot_hi": 0.6667,
+     "cells_wilson": {
+      "k": 18,
+      "n": 36,
+      "rate": 0.5,
+      "lo": 0.3447,
+      "hi": 0.6553
+     }
+    },
+    "baseline": {
+     "items": 36,
+     "cells": 36,
+     "rate": 0.6389,
+     "t_lo": 0.4741,
+     "t_hi": 0.8037,
+     "boot_lo": 0.4722,
+     "boot_hi": 0.7778,
+     "cells_wilson": {
+      "k": 23,
+      "n": 36,
+      "rate": 0.6389,
+      "lo": 0.4758,
+      "hi": 0.7752
+     }
+    },
+    "oracle": {
+     "items": 36,
+     "cells": 36,
+     "rate": 1.0,
+     "t_lo": 1.0,
+     "t_hi": 1.0,
+     "boot_lo": 1.0,
+     "boot_hi": 1.0,
+     "cells_wilson": {
+      "k": 36,
+      "n": 36,
+      "rate": 1.0,
+      "lo": 0.9036,
+      "hi": 1.0
+     }
+    }
+   }
+  },
+  "differences": {
+   "all": {
+    "baseline − none": {
+     "items": 72,
+     "diff": 0.5255,
+     "t_lo": 0.4104,
+     "t_hi": 0.6406,
+     "boot_lo": 0.4097,
+     "boot_hi": 0.6389,
+     "wins": 40,
+     "losses": 0,
+     "ties": 32,
+     "sign_p": 0.0,
+     "says": "gain",
+     "won": [
+      "decision-1",
+      "decision-2",
+      "decision-4",
+      "distractor-1",
+      "distractor-2",
+      "distractor-3",
+      "distractor-4",
+      "episode-1",
+      "episode-2",
+      "episode-3",
+      "fact-1",
+      "fact-2",
+      "fact-3",
+      "fact-4",
+      "injection-4",
+      "injection-5",
+      "paraphrase-1",
+      "paraphrase-2",
+      "paraphrase-3",
+      "paraphrase-5",
+      "paraphrase-6",
+      "paraphrase-8",
+      "preference-2",
+      "private-2",
+      "private-3",
+      "procedure-2",
+      "procedure-4",
+      "scale-1",
+      "scale-2",
+      "scale-5",
+      "scale-6",
+      "superseded-1",
+      "superseded-2",
+      "superseded-3",
+      "superseded-4",
+      "tool-output-1",
+      "tool-output-3",
+      "tool-output-4",
+      "tool-output-6",
+      "tool-output-7"
+     ],
+     "lost": []
+    },
+    "bm25 − none": {
+     "items": 72,
+     "diff": 0.3125,
+     "t_lo": 0.2061,
+     "t_hi": 0.4189,
+     "boot_lo": 0.213,
+     "boot_hi": 0.4167,
+     "wins": 25,
+     "losses": 0,
+     "ties": 47,
+     "sign_p": 0.0,
+     "says": "gain",
+     "won": [
+      "decision-1",
+      "decision-4",
+      "distractor-1",
+      "distractor-2",
+      "distractor-3",
+      "distractor-4",
+      "episode-2",
+      "episode-3",
+      "fact-2",
+      "fact-3",
+      "fact-4",
+      "injection-4",
+      "injection-5",
+      "preference-3",
+      "private-2",
+      "private-3",
+      "procedure-2",
+      "procedure-4",
+      "scale-1",
+      "superseded-1",
+      "superseded-2",
+      "superseded-3",
+      "superseded-4",
+      "tool-output-3",
+      "tool-output-7"
+     ],
+     "lost": []
+    },
+    "oracle − none": {
+     "items": 72,
+     "diff": 0.8495,
+     "t_lo": 0.7671,
+     "t_hi": 0.9319,
+     "boot_lo": 0.7662,
+     "boot_hi": 0.9237,
+     "wins": 62,
+     "losses": 0,
+     "ties": 10,
+     "sign_p": 0.0,
+     "says": "gain",
+     "won": [
+      "decision-1",
+      "decision-2",
+      "decision-4",
+      "distractor-1",
+      "distractor-2",
+      "distractor-3",
+      "distractor-4",
+      "episode-1",
+      "episode-2",
+      "episode-3",
+      "fact-1",
+      "fact-2",
+      "fact-3",
+      "fact-4",
+      "injection-3",
+      "injection-4",
+      "injection-5",
+      "paraphrase-1",
+      "paraphrase-2",
+      "paraphrase-3",
+      "paraphrase-4",
+      "paraphrase-5",
+      "paraphrase-6",
+      "paraphrase-7",
+      "paraphrase-8",
+      "preference-2",
+      "preference-3",
+      "preference-4",
+      "private-1",
+      "private-2",
+      "private-3",
+      "private-4",
+      "procedure-2",
+      "procedure-4",
+      "scale-1",
+      "scale-2",
+      "scale-3",
+      "scale-4",
+      "scale-5",
+      "scale-6",
+      "scale-7",
+      "scale-8",
+      "superseded-1",
+      "superseded-2",
+      "superseded-3",
+      "superseded-4",
+      "time-1",
+      "time-2",
+      "time-3",
+      "time-4",
+      "time-5",
+      "time-6",
+      "time-7",
+      "time-8",
+      "tool-output-1",
+      "tool-output-2",
+      "tool-output-3",
+      "tool-output-4",
+      "tool-output-5",
+      "tool-output-6",
+      "tool-output-7",
+      "tool-output-8"
+     ],
+     "lost": []
+    },
+    "baseline − bm25": {
+     "items": 72,
+     "diff": 0.213,
+     "t_lo": 0.1084,
+     "t_hi": 0.3176,
+     "boot_lo": 0.1111,
+     "boot_hi": 0.3194,
+     "wins": 19,
+     "losses": 2,
+     "ties": 51,
+     "sign_p": 0.000221,
+     "says": "gain",
+     "won": [
+      "decision-2",
+      "distractor-1",
+      "episode-1",
+      "fact-1",
+      "paraphrase-1",
+      "paraphrase-2",
+      "paraphrase-3",
+      "paraphrase-5",
+      "paraphrase-6",
+      "paraphrase-8",
+      "preference-2",
+      "private-2",
+      "scale-2",
+      "scale-5",
+      "scale-6",
+      "superseded-1",
+      "tool-output-1",
+      "tool-output-4",
+      "tool-output-6"
+     ],
+     "lost": [
+      "preference-3",
+      "scale-1"
+     ]
+    },
+    "oracle − baseline": {
+     "items": 72,
+     "diff": 0.3241,
+     "t_lo": 0.2141,
+     "t_hi": 0.434,
+     "boot_lo": 0.2176,
+     "boot_hi": 0.4352,
+     "wins": 25,
+     "losses": 1,
+     "ties": 46,
+     "sign_p": 1e-06,
+     "says": "gain",
+     "won": [
+      "injection-3",
+      "paraphrase-4",
+      "paraphrase-7",
+      "preference-3",
+      "preference-4",
+      "private-1",
+      "private-4",
+      "scale-1",
+      "scale-3",
+      "scale-4",
+      "scale-7",
+      "scale-8",
+      "time-1",
+      "time-2",
+      "time-3",
+      "time-4",
+      "time-5",
+      "time-6",
+      "time-7",
+      "time-8",
+      "tool-output-1",
+      "tool-output-2",
+      "tool-output-4",
+      "tool-output-5",
+      "tool-output-8"
+     ],
+     "lost": [
+      "paraphrase-1"
+     ]
+    }
+   },
+   "held in": {
+    "baseline − none": {
+     "items": 36,
+     "diff": 0.5509,
+     "t_lo": 0.3893,
+     "t_hi": 0.7126,
+     "boot_lo": 0.3981,
+     "boot_hi": 0.7037,
+     "wins": 22,
+     "losses": 0,
+     "ties": 14,
+     "sign_p": 0.0,
+     "says": "gain",
+     "won": [
+      "decision-1",
+      "decision-2",
+      "distractor-1",
+      "distractor-2",
+      "episode-1",
+      "episode-2",
+      "fact-1",
+      "fact-2",
+      "injection-5",
+      "paraphrase-1",
+      "paraphrase-2",
+      "paraphrase-3",
+      "preference-2",
+      "private-2",
+      "procedure-2",
+      "scale-1",
+      "scale-2",
+      "superseded-1",
+      "superseded-2",
+      "tool-output-1",
+      "tool-output-3",
+      "tool-output-4"
+     ],
+     "lost": []
+    },
+    "bm25 − none": {
+     "items": 36,
+     "diff": 0.2639,
+     "t_lo": 0.1229,
+     "t_hi": 0.4049,
+     "boot_lo": 0.1389,
+     "boot_hi": 0.4028,
+     "wins": 12,
+     "losses": 0,
+     "ties": 24,
+     "sign_p": 0.000488,
+     "says": "gain",
+     "won": [
+      "decision-1",
+      "distractor-1",
+      "distractor-2",
+      "episode-2",
+      "fact-2",
+      "injection-5",
+      "private-2",
+      "procedure-2",
+      "scale-1",
+      "superseded-1",
+      "superseded-2",
+      "tool-output-3"
+     ],
+     "lost": []
+    },
+    "oracle − none": {
+     "items": 36,
+     "diff": 0.838,
+     "t_lo": 0.7178,
+     "t_hi": 0.9581,
+     "boot_lo": 0.713,
+     "boot_hi": 0.9444,
+     "wins": 31,
+     "losses": 0,
+     "ties": 5,
+     "sign_p": 0.0,
+     "says": "gain",
+     "won": [
+      "decision-1",
+      "decision-2",
+      "distractor-1",
+      "distractor-2",
+      "episode-1",
+      "episode-2",
+      "fact-1",
+      "fact-2",
+      "injection-5",
+      "paraphrase-1",
+      "paraphrase-2",
+      "paraphrase-3",
+      "paraphrase-4",
+      "preference-2",
+      "private-1",
+      "private-2",
+      "procedure-2",
+      "scale-1",
+      "scale-2",
+      "scale-3",
+      "scale-4",
+      "superseded-1",
+      "superseded-2",
+      "time-1",
+      "time-2",
+      "time-3",
+      "time-4",
+      "tool-output-1",
+      "tool-output-2",
+      "tool-output-3",
+      "tool-output-4"
+     ],
+     "lost": []
+    },
+    "baseline − bm25": {
+     "items": 36,
+     "diff": 0.287,
+     "t_lo": 0.1318,
+     "t_hi": 0.4423,
+     "boot_lo": 0.1389,
+     "boot_hi": 0.4352,
+     "wins": 13,
+     "losses": 1,
+     "ties": 22,
+     "sign_p": 0.001831,
+     "says": "gain",
+     "won": [
+      "decision-2",
+      "distractor-1",
+      "episode-1",
+      "fact-1",
+      "paraphrase-1",
+      "paraphrase-2",
+      "paraphrase-3",
+      "preference-2",
+      "private-2",
+      "scale-2",
+      "superseded-1",
+      "tool-output-1",
+      "tool-output-4"
+     ],
+     "lost": [
+      "scale-1"
+     ]
+    },
+    "oracle − baseline": {
+     "items": 36,
+     "diff": 0.287,
+     "t_lo": 0.1342,
+     "t_hi": 0.4399,
+     "boot_lo": 0.1481,
+     "boot_hi": 0.4352,
+     "wins": 12,
+     "losses": 1,
+     "ties": 23,
+     "sign_p": 0.003418,
+     "says": "gain",
+     "won": [
+      "paraphrase-4",
+      "private-1",
+      "scale-1",
+      "scale-3",
+      "scale-4",
+      "time-1",
+      "time-2",
+      "time-3",
+      "time-4",
+      "tool-output-1",
+      "tool-output-2",
+      "tool-output-4"
+     ],
+     "lost": [
+      "paraphrase-1"
+     ]
+    }
+   },
+   "held out": {
+    "baseline − none": {
+     "items": 36,
+     "diff": 0.5,
+     "t_lo": 0.3284,
+     "t_hi": 0.6716,
+     "boot_lo": 0.3333,
+     "boot_hi": 0.6667,
+     "wins": 18,
+     "losses": 0,
+     "ties": 18,
+     "sign_p": 8e-06,
+     "says": "gain",
+     "won": [
+      "decision-4",
+      "distractor-3",
+      "distractor-4",
+      "episode-3",
+      "fact-3",
+      "fact-4",
+      "injection-4",
+      "paraphrase-5",
+      "paraphrase-6",
+      "paraphrase-8",
+      "private-3",
+      "procedure-4",
+      "scale-5",
+      "scale-6",
+      "superseded-3",
+      "superseded-4",
+      "tool-output-6",
+      "tool-output-7"
+     ],
+     "lost": []
+    },
+    "bm25 − none": {
+     "items": 36,
+     "diff": 0.3611,
+     "t_lo": 0.1963,
+     "t_hi": 0.5259,
+     "boot_lo": 0.2222,
+     "boot_hi": 0.5278,
+     "wins": 13,
+     "losses": 0,
+     "ties": 23,
+     "sign_p": 0.000244,
+     "says": "gain",
+     "won": [
+      "decision-4",
+      "distractor-3",
+      "distractor-4",
+      "episode-3",
+      "fact-3",
+      "fact-4",
+      "injection-4",
+      "preference-3",
+      "private-3",
+      "procedure-4",
+      "superseded-3",
+      "superseded-4",
+      "tool-output-7"
+     ],
+     "lost": []
+    },
+    "oracle − none": {
+     "items": 36,
+     "diff": 0.8611,
+     "t_lo": 0.7424,
+     "t_hi": 0.9798,
+     "boot_lo": 0.75,
+     "boot_hi": 0.9722,
+     "wins": 31,
+     "losses": 0,
+     "ties": 5,
+     "sign_p": 0.0,
+     "says": "gain",
+     "won": [
+      "decision-4",
+      "distractor-3",
+      "distractor-4",
+      "episode-3",
+      "fact-3",
+      "fact-4",
+      "injection-3",
+      "injection-4",
+      "paraphrase-5",
+      "paraphrase-6",
+      "paraphrase-7",
+      "paraphrase-8",
+      "preference-3",
+      "preference-4",
+      "private-3",
+      "private-4",
+      "procedure-4",
+      "scale-5",
+      "scale-6",
+      "scale-7",
+      "scale-8",
+      "superseded-3",
+      "superseded-4",
+      "time-5",
+      "time-6",
+      "time-7",
+      "time-8",
+      "tool-output-5",
+      "tool-output-6",
+      "tool-output-7",
+      "tool-output-8"
+     ],
+     "lost": []
+    },
+    "baseline − bm25": {
+     "items": 36,
+     "diff": 0.1389,
+     "t_lo": -0.0047,
+     "t_hi": 0.2825,
+     "boot_lo": 0.0,
+     "boot_hi": 0.2778,
+     "wins": 6,
+     "losses": 1,
+     "ties": 29,
+     "sign_p": 0.125,
+     "says": "insufficient",
+     "won": [
+      "paraphrase-5",
+      "paraphrase-6",
+      "paraphrase-8",
+      "scale-5",
+      "scale-6",
+      "tool-output-6"
+     ],
+     "lost": [
+      "preference-3"
+     ]
+    },
+    "oracle − baseline": {
+     "items": 36,
+     "diff": 0.3611,
+     "t_lo": 0.1963,
+     "t_hi": 0.5259,
+     "boot_lo": 0.2222,
+     "boot_hi": 0.5278,
+     "wins": 13,
+     "losses": 0,
+     "ties": 23,
+     "sign_p": 0.000244,
+     "says": "gain",
+     "won": [
+      "injection-3",
+      "paraphrase-7",
+      "preference-3",
+      "preference-4",
+      "private-4",
+      "scale-7",
+      "scale-8",
+      "time-5",
+      "time-6",
+      "time-7",
+      "time-8",
+      "tool-output-5",
+      "tool-output-8"
+     ],
+     "lost": []
+    }
+   }
+  },
+  "by_family": {
+   "decision": {
+    "none": 0.25,
+    "bm25": 0.75,
+    "baseline": 1.0,
+    "oracle": 1.0,
+    "items": 4
+   },
+   "distractor": {
+    "none": 0.0,
+    "bm25": 0.8333,
+    "baseline": 1.0,
+    "oracle": 1.0,
+    "items": 4
+   },
+   "episode": {
+    "none": 0.375,
+    "bm25": 0.75,
+    "baseline": 1.0,
+    "oracle": 1.0,
+    "items": 4
+   },
+   "fact": {
+    "none": 0.0,
+    "bm25": 0.75,
+    "baseline": 1.0,
+    "oracle": 1.0,
+    "items": 4
+   },
+   "injection": {
+    "none": 0.25,
+    "bm25": 0.75,
+    "baseline": 0.75,
+    "oracle": 1.0,
+    "items": 4
+   },
+   "needs_nothing": {
+    "none": 1.0,
+    "bm25": 1.0,
+    "baseline": 1.0,
+    "oracle": 1.0,
+    "items": 4
+   },
+   "paraphrase": {
+    "none": 0.0,
+    "bm25": 0.0,
+    "baseline": 0.75,
+    "oracle": 0.9583,
+    "items": 8
+   },
+   "preference": {
+    "none": 0.25,
+    "bm25": 0.5,
+    "baseline": 0.5,
+    "oracle": 1.0,
+    "items": 4
+   },
+   "private": {
+    "none": 0.0,
+    "bm25": 0.3333,
+    "baseline": 0.5,
+    "oracle": 1.0,
+    "items": 4
+   },
+   "procedure": {
+    "none": 0.5,
+    "bm25": 1.0,
+    "baseline": 1.0,
+    "oracle": 1.0,
+    "items": 4
+   },
+   "scale": {
+    "none": 0.0,
+    "bm25": 0.125,
+    "baseline": 0.4167,
+    "oracle": 1.0,
+    "items": 8
+   },
+   "superseded": {
+    "none": 0.0,
+    "bm25": 0.8333,
+    "baseline": 1.0,
+    "oracle": 1.0,
+    "items": 4
+   },
+   "time": {
+    "none": 0.0,
+    "bm25": 0.0,
+    "baseline": 0.0,
+    "oracle": 1.0,
+    "items": 8
+   },
+   "tool_output": {
+    "none": 0.0,
+    "bm25": 0.25,
+    "baseline": 0.5,
+    "oracle": 1.0,
+    "items": 8
+   }
+  },
+  "by_group": {
+   "exam-v1's families": {
+    "none": {
+     "items": 40,
+     "cells": 78,
+     "rate": 0.2625,
+     "t_lo": 0.1223,
+     "t_hi": 0.4027,
+     "boot_lo": 0.1375,
+     "boot_hi": 0.4,
+     "cells_wilson": {
+      "k": 21,
+      "n": 78,
+      "rate": 0.2692,
+      "lo": 0.1834,
+      "hi": 0.3768
+     }
+    },
+    "bm25": {
+     "items": 40,
+     "cells": 79,
+     "rate": 0.75,
+     "t_lo": 0.6161,
+     "t_hi": 0.8839,
+     "boot_lo": 0.6167,
+     "boot_hi": 0.875,
+     "cells_wilson": {
+      "k": 56,
+      "n": 79,
+      "rate": 0.7089,
+      "lo": 0.6009,
+      "hi": 0.7975
+     }
+    },
+    "baseline": {
+     "items": 40,
+     "cells": 80,
+     "rate": 0.875,
+     "t_lo": 0.7679,
+     "t_hi": 0.9821,
+     "boot_lo": 0.775,
+     "boot_hi": 0.975,
+     "cells_wilson": {
+      "k": 73,
+      "n": 80,
+      "rate": 0.9125,
+      "lo": 0.8302,
+      "hi": 0.957
+     }
+    },
+    "oracle": {
+     "items": 40,
+     "cells": 79,
+     "rate": 1.0,
+     "t_lo": 1.0,
+     "t_hi": 1.0,
+     "boot_lo": 1.0,
+     "boot_hi": 1.0,
+     "cells_wilson": {
+      "k": 79,
+      "n": 79,
+      "rate": 1.0,
+      "lo": 0.9536,
+      "hi": 1.0
+     }
+    }
+   },
+   "the hard families": {
+    "none": {
+     "items": 32,
+     "cells": 64,
+     "rate": 0.0,
+     "t_lo": 0.0,
+     "t_hi": 0.0,
+     "boot_lo": 0.0,
+     "boot_hi": 0.0,
+     "cells_wilson": {
+      "k": 0,
+      "n": 64,
+      "rate": 0.0,
+      "lo": 0.0,
+      "hi": 0.0566
+     }
+    },
+    "bm25": {
+     "items": 32,
+     "cells": 64,
+     "rate": 0.0938,
+     "t_lo": 0.0,
+     "t_hi": 0.2005,
+     "boot_lo": 0.0,
+     "boot_hi": 0.2188,
+     "cells_wilson": {
+      "k": 7,
+      "n": 64,
+      "rate": 0.1094,
+      "lo": 0.054,
+      "hi": 0.209
+     }
+    },
+    "baseline": {
+     "items": 32,
+     "cells": 64,
+     "rate": 0.4167,
+     "t_lo": 0.244,
+     "t_hi": 0.5893,
+     "boot_lo": 0.2604,
+     "boot_hi": 0.5833,
+     "cells_wilson": {
+      "k": 26,
+      "n": 64,
+      "rate": 0.4062,
+      "lo": 0.2946,
+      "hi": 0.5285
+     }
+    },
+    "oracle": {
+     "items": 32,
+     "cells": 63,
+     "rate": 0.9896,
+     "t_lo": 0.9683,
+     "t_hi": 1.0,
+     "boot_lo": 0.9688,
+     "boot_hi": 1.0,
+     "cells_wilson": {
+      "k": 62,
+      "n": 63,
+      "rate": 0.9841,
+      "lo": 0.9154,
+      "hi": 0.9972
+     }
+    }
+   }
+  },
+  "gold_admitted": {
+   "bm25": {
+    "held in": {
+     "admitted": 52,
+     "gold": 114,
+     "per_run": {
+      "1": "18 of 38",
+      "2": "18 of 38",
+      "3": "16 of 38"
+     }
+    },
+    "held out": {
+     "admitted": 18,
+     "gold": 37,
+     "per_run": {
+      "1": "18 of 37"
+     }
+    }
+   },
+   "baseline": {
+    "held in": {
+     "admitted": 78,
+     "gold": 114,
+     "per_run": {
+      "1": "26 of 38",
+      "2": "25 of 38",
+      "3": "27 of 38"
+     }
+    },
+    "held out": {
+     "admitted": 24,
+     "gold": 37,
+     "per_run": {
+      "1": "24 of 37"
+     }
+    }
+   }
+  },
+  "pass_by_gold_admitted": {
+   "bm25": {
+    "none of it": {
+     "k": 5,
+     "n": 71,
+     "rate": 0.0704,
+     "lo": 0.0305,
+     "hi": 0.1545
+    },
+    "all of its gold": {
+     "k": 49,
+     "n": 55,
+     "rate": 0.8909,
+     "lo": 0.7817,
+     "hi": 0.949
+    },
+    "some of it": {
+     "k": 1,
+     "n": 9,
+     "rate": 0.1111,
+     "lo": 0.0199,
+     "hi": 0.435
+    }
+   },
+   "baseline": {
+    "all of its gold": {
+     "k": 83,
+     "n": 87,
+     "rate": 0.954,
+     "lo": 0.8877,
+     "hi": 0.982
+    },
+    "none of it": {
+     "k": 4,
+     "n": 42,
+     "rate": 0.0952,
+     "lo": 0.0377,
+     "hi": 0.2207
+    },
+    "some of it": {
+     "k": 4,
+     "n": 7,
+     "rate": 0.5714,
+     "lo": 0.2505,
+     "hi": 0.8418
+    }
+   }
+  },
+  "recall_rows": 288,
+  "recall_rows_without_vectors": {
+   "baseline": 4
+  },
+  "admitted_per_pack": {
+   "bm25": {
+    "6": 144
+   },
+   "baseline": {
+    "6": 144
+   }
+  },
+  "cost": {
+   "none": {
+    "cells": 144,
+    "passes": 21,
+    "errors": 2,
+    "cost_usd": 0.219,
+    "cost_per_pass": 0.01043,
+    "mean_cost": 0.001521,
+    "mean_cost_lo": 0.001043,
+    "mean_cost_hi": 0.002309,
+    "input_tokens_mean": 2310,
+    "output_tokens_mean": 801,
+    "latency_p50_s": 18.2,
+    "latency_p95_s": 74.5,
+    "latency_p50_crate_s": 18.3,
+    "latency_p95_crate_s": 75.0,
+    "recall_p95_ms": null,
+    "recall_p50_ms": null
+   },
+   "bm25": {
+    "cells": 144,
+    "passes": 63,
+    "errors": 1,
+    "cost_usd": 0.2233,
+    "cost_per_pass": 0.00355,
+    "mean_cost": 0.001551,
+    "mean_cost_lo": 0.001211,
+    "mean_cost_hi": 0.001991,
+    "input_tokens_mean": 2520,
+    "output_tokens_mean": 1075,
+    "latency_p50_s": 22.0,
+    "latency_p95_s": 82.3,
+    "latency_p50_crate_s": 22.1,
+    "latency_p95_crate_s": 82.8,
+    "recall_p95_ms": 8.0,
+    "recall_p50_ms": 3.0
+   },
+   "baseline": {
+    "cells": 144,
+    "passes": 99,
+    "errors": 0,
+    "cost_usd": 0.216,
+    "cost_per_pass": 0.00218,
+    "mean_cost": 0.0015,
+    "mean_cost_lo": 0.001202,
+    "mean_cost_hi": 0.001892,
+    "input_tokens_mean": 2872,
+    "output_tokens_mean": 1044,
+    "latency_p50_s": 23.6,
+    "latency_p95_s": 62.5,
+    "latency_p50_crate_s": 23.7,
+    "latency_p95_crate_s": 64.0,
+    "recall_p95_ms": 515.0,
+    "recall_p50_ms": 335.0
+   },
+   "oracle": {
+    "cells": 144,
+    "passes": 141,
+    "errors": 2,
+    "cost_usd": 0.2117,
+    "cost_per_pass": 0.0015,
+    "mean_cost": 0.00147,
+    "mean_cost_lo": 0.001164,
+    "mean_cost_hi": 0.001878,
+    "input_tokens_mean": 2338,
+    "output_tokens_mean": 1065,
+    "latency_p50_s": 20.7,
+    "latency_p95_s": 109.2,
+    "latency_p50_crate_s": 20.8,
+    "latency_p95_crate_s": 109.3,
+    "recall_p95_ms": null,
+    "recall_p50_ms": null
+   }
+  },
+  "errors": [
+   {
+    "arm": "none",
+    "item": "decision-2",
+    "run": 1,
+    "kind": "provider first-byte timeout (60 s)"
+   },
+   {
+    "arm": "bm25",
+    "item": "fact-1",
+    "run": 2,
+    "kind": "no end to the turn in 300 s"
+   },
+   {
+    "arm": "oracle",
+    "item": "scale-3",
+    "run": 3,
+    "kind": "provider first-byte timeout (60 s)"
+   },
+   {
+    "arm": "oracle",
+    "item": "episode-2",
+    "run": 3,
+    "kind": "no end to the turn in 300 s"
+   },
+   {
+    "arm": "none",
+    "item": "episode-2",
+    "run": 3,
+    "kind": "no end to the turn in 300 s"
+   }
+  ],
+  "spend": {
+   "held in": 0.5675,
+   "held out": 0.3025,
+   "total": 0.87
+  },
+  "spend_by_run": {
+   "held in, run 1": 0.1784,
+   "held in, run 2": 0.2137,
+   "held in, run 3": 0.1755
+  },
+  "frozen_report_check": [
+   {
+    "arm": "none",
+    "reported": [
+     15,
+     6,
+     23
+    ],
+    "recomputed": [
+     15,
+     6,
+     23
+    ]
+   },
+   {
+    "arm": "bm25",
+    "reported": [
+     46,
+     34,
+     57
+    ],
+    "recomputed": [
+     46,
+     34,
+     57
+    ]
+   },
+   {
+    "arm": "baseline",
+    "reported": [
+     67,
+     56,
+     78
+    ],
+    "recomputed": [
+     67,
+     56,
+     78
+    ]
+   },
+   {
+    "arm": "oracle",
+    "reported": [
+     100,
+     99,
+     100
+    ],
+    "recomputed": [
+     100,
+     99,
+     100
+    ]
+   }
+  ]
+ },
+ "figures": [
+  {
+   "name": "pass-rates",
+   "form": "intervals",
+   "title": "Pass rate by memory arm, exam-v2, GLM-5.3 Flash",
+   "question": "How much of the oracle's lead does real retrieval recover?",
+   "note": "Item-clustered rates (an item's rate is the share of its runs that passed); 95% bootstrap intervals over items, 10,000 resamples, seed 7.",
+   "x": {
+    "label": "pass rate (mean over items)",
+    "min": 0,
+    "max": 1,
+    "format": "pct"
+   },
+   "rows": [
+    {
+     "label": "none",
+     "arm": "none",
+     "group": "held in (36 items, 3 runs)",
+     "value": 0.1528,
+     "lo": 0.0556,
+     "hi": 0.2778,
+     "tip": "none, held in: 15% of items (t interval 3 to 27); 16 of 106 cells"
+    },
+    {
+     "label": "bm25 (BM25 and entities)",
+     "arm": "bm25",
+     "group": "held in (36 items, 3 runs)",
+     "value": 0.4167,
+     "lo": 0.2685,
+     "hi": 0.5741,
+     "tip": "bm25, held in: 42% of items (t interval 25 to 58); 45 of 107 cells"
+    },
+    {
+     "label": "baseline (BM25, entities, vectors)",
+     "arm": "fused",
+     "group": "held in (36 items, 3 runs)",
+     "value": 0.7037,
+     "lo": 0.5648,
+     "hi": 0.8426,
+     "tip": "baseline, held in: 70% of items (t interval 55 to 85); 76 of 108 cells"
+    },
+    {
+     "label": "oracle",
+     "arm": "oracle",
+     "group": "held in (36 items, 3 runs)",
+     "value": 0.9907,
+     "lo": 0.9722,
+     "hi": 1.0,
+     "tip": "oracle, held in: 99% of items (t interval 97 to 100); 105 of 106 cells"
+    },
+    {
+     "label": "none",
+     "arm": "none",
+     "group": "held out (36 items, 1 run)",
+     "value": 0.1389,
+     "lo": 0.0278,
+     "hi": 0.25,
+     "tip": "none, held out: 14% of items (t interval 2 to 26); 5 of 36 cells"
+    },
+    {
+     "label": "bm25 (BM25 and entities)",
+     "arm": "bm25",
+     "group": "held out (36 items, 1 run)",
+     "value": 0.5,
+     "lo": 0.3333,
+     "hi": 0.6667,
+     "tip": "bm25, held out: 50% of items (t interval 33 to 67); 18 of 36 cells"
+    },
+    {
+     "label": "baseline (BM25, entities, vectors)",
+     "arm": "fused",
+     "group": "held out (36 items, 1 run)",
+     "value": 0.6389,
+     "lo": 0.4722,
+     "hi": 0.7778,
+     "tip": "baseline, held out: 64% of items (t interval 47 to 80); 23 of 36 cells"
+    },
+    {
+     "label": "oracle",
+     "arm": "oracle",
+     "group": "held out (36 items, 1 run)",
+     "value": 1.0,
+     "lo": 1.0,
+     "hi": 1.0,
+     "tip": "oracle, held out: 100% of items (t interval 100 to 100); 36 of 36 cells"
+    }
+   ],
+   "legend_labels": {
+    "none": "none",
+    "bm25": "bm25",
+    "fused": "baseline",
+    "oracle": "oracle"
+   }
+  },
+  {
+   "name": "differences",
+   "form": "intervals",
+   "title": "Paired differences by item, in points, with 95% bootstrap intervals",
+   "question": "Which gains are sure, and does the held-out half agree?",
+   "note": "Each row pairs the two arms item by item. An interval that holds zero cannot decide (the vectors' held-out row).",
+   "x": {
+    "label": "difference in pass rate, points",
+    "min": -0.25,
+    "max": 1,
+    "format": "pct"
+   },
+   "reference": [
+    {
+     "value": 0,
+     "label": "no difference"
+    }
+   ],
+   "rows": [
+    {
+     "label": "held in",
+     "arm": "fused",
+     "group": "baseline − none",
+     "value": 0.5509,
+     "lo": 0.3981,
+     "hi": 0.7037,
+     "tip": "baseline − none, held in: +55 points; 22 items gained, 0 lost, 14 tied; sign test p = 0"
+    },
+    {
+     "label": "held out",
+     "arm": "fused",
+     "group": "baseline − none",
+     "value": 0.5,
+     "lo": 0.3333,
+     "hi": 0.6667,
+     "tip": "baseline − none, held out: +50 points; 18 items gained, 0 lost, 18 tied; sign test p = 8e-06"
+    },
+    {
+     "label": "held in",
+     "arm": "bm25",
+     "group": "bm25 − none",
+     "value": 0.2639,
+     "lo": 0.1389,
+     "hi": 0.4028,
+     "tip": "bm25 − none, held in: +26 points; 12 items gained, 0 lost, 24 tied; sign test p = 0.000488"
+    },
+    {
+     "label": "held out",
+     "arm": "bm25",
+     "group": "bm25 − none",
+     "value": 0.3611,
+     "lo": 0.2222,
+     "hi": 0.5278,
+     "tip": "bm25 − none, held out: +36 points; 13 items gained, 0 lost, 23 tied; sign test p = 0.000244"
+    },
+    {
+     "label": "held in",
+     "arm": "fused",
+     "group": "baseline − bm25",
+     "value": 0.287,
+     "lo": 0.1389,
+     "hi": 0.4352,
+     "tip": "baseline − bm25, held in: +29 points; 13 items gained, 1 lost, 22 tied; sign test p = 0.00183"
+    },
+    {
+     "label": "held out",
+     "arm": "fused",
+     "group": "baseline − bm25",
+     "value": 0.1389,
+     "lo": 0.0,
+     "hi": 0.2778,
+     "tip": "baseline − bm25, held out: +14 points; 6 items gained, 1 lost, 29 tied; sign test p = 0.125"
+    },
+    {
+     "label": "held in",
+     "arm": "oracle",
+     "group": "oracle − baseline",
+     "value": 0.287,
+     "lo": 0.1481,
+     "hi": 0.4352,
+     "tip": "oracle − baseline, held in: +29 points; 12 items gained, 1 lost, 23 tied; sign test p = 0.00342"
+    },
+    {
+     "label": "held out",
+     "arm": "oracle",
+     "group": "oracle − baseline",
+     "value": 0.3611,
+     "lo": 0.2222,
+     "hi": 0.5278,
+     "tip": "oracle − baseline, held out: +36 points; 13 items gained, 0 lost, 23 tied; sign test p = 0.000244"
+    }
+   ],
+   "legend_labels": {
+    "fused": "baseline",
+    "bm25": "bm25",
+    "oracle": "oracle"
+   }
+  },
+  {
+   "name": "gold-and-pass",
+   "form": "intervals",
+   "title": "Pass rate by how much of the item's gold the pack admitted",
+   "question": "Is the gap between the arms the retrieval, or the model's use of what it got?",
+   "note": "Cells of the 68 items that need the past, each by its first recall; Wilson 95% intervals over cells. The pack admitted 6 notes every time.",
+   "x": {
+    "label": "pass rate of the cells",
+    "min": 0,
+    "max": 1,
+    "format": "pct"
+   },
+   "rows": [
+    {
+     "label": "bm25",
+     "arm": "bm25",
+     "group": "the pack held all of its gold",
+     "value": 0.8909,
+     "lo": 0.7817,
+     "hi": 0.949,
+     "tip": "bm25, gold admitted all of its gold: 49 of 55 cells passed"
+    },
+    {
+     "label": "baseline",
+     "arm": "fused",
+     "group": "the pack held all of its gold",
+     "value": 0.954,
+     "lo": 0.8877,
+     "hi": 0.982,
+     "tip": "baseline, gold admitted all of its gold: 83 of 87 cells passed"
+    },
+    {
+     "label": "bm25",
+     "arm": "bm25",
+     "group": "the pack held some of it",
+     "value": 0.1111,
+     "lo": 0.0199,
+     "hi": 0.435,
+     "tip": "bm25, gold admitted some of it: 1 of 9 cells passed"
+    },
+    {
+     "label": "baseline",
+     "arm": "fused",
+     "group": "the pack held some of it",
+     "value": 0.5714,
+     "lo": 0.2505,
+     "hi": 0.8418,
+     "tip": "baseline, gold admitted some of it: 4 of 7 cells passed"
+    },
+    {
+     "label": "bm25",
+     "arm": "bm25",
+     "group": "the pack held none of it",
+     "value": 0.0704,
+     "lo": 0.0305,
+     "hi": 0.1545,
+     "tip": "bm25, gold admitted none of it: 5 of 71 cells passed"
+    },
+    {
+     "label": "baseline",
+     "arm": "fused",
+     "group": "the pack held none of it",
+     "value": 0.0952,
+     "lo": 0.0377,
+     "hi": 0.2207,
+     "tip": "baseline, gold admitted none of it: 4 of 42 cells passed"
+    }
+   ],
+   "legend_labels": {
+    "bm25": "bm25",
+    "fused": "baseline"
+   }
+  }
+ ]
+}

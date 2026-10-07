@@ -681,26 +681,32 @@ async fn a_session_holds_four_terminals() {
 }
 
 /// A close reaches what the program started, its own process group or not:
-/// a background child, and one that left with a session of its own.
+/// a background child, and one that left with a session of its own. The
+/// sleeps' seconds carry this run's pid, so no other run's sleep (another
+/// tree's, or one an earlier run left, which lives 72 minutes) is taken for
+/// this one's, and a survivor is named with where it came from (theseus-d006).
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_close_leaves_no_child_behind() {
     let d = tempfile::tempdir().unwrap();
     let terms = terms(&[]);
     let (o, _) = call(&terms, "s1", OPEN, json!({"argv": ["sh"]}), d.path()).await;
     let id = id_of(&o);
+    // Seven digits, so no pid's marker holds another's.
+    let run = format!("{:07}", std::process::id());
+    let (ignores, own) = (format!("4343.{run}"), format!("4344.{run}"));
     // One ignores the hang-up and SIGTERM; one runs in a session of its own.
     call(
         &terms,
         "s1",
         SEND,
         json!({"terminal": id,
-        "text": "trap '' HUP TERM; sleep 4343 & setsid sleep 4344 & echo started\n"}),
+        "text": format!("trap '' HUP TERM; sleep {ignores} & setsid sleep {own} & echo started\n")}),
         d.path(),
     )
     .await;
     read_until(&terms, "s1", &id, "started\n", d.path()).await;
     let t0 = Instant::now();
-    while marked("4343").is_empty() || marked("4344").is_empty() {
+    while marked(&ignores).is_empty() || marked(&own).is_empty() {
         assert!(
             t0.elapsed() < Duration::from_secs(10),
             "the sleeps never started"
@@ -716,11 +722,42 @@ async fn a_close_leaves_no_child_behind() {
     assert_eq!(closed.len(), 1);
     assert_eq!(closed[0].by, BY_CANCEL);
     let t0 = Instant::now();
-    while !(marked("4343").is_empty() && marked("4344").is_empty()) {
+    loop {
+        let left: Vec<u32> = marked(&ignores).into_iter().chain(marked(&own)).collect();
+        if left.is_empty() {
+            break;
+        }
         assert!(
             t0.elapsed() < Duration::from_secs(5),
-            "a child outlived its terminal"
+            "a child outlived its terminal:\n{}",
+            left.iter()
+                .map(|&p| described(p))
+                .collect::<Vec<_>>()
+                .join("\n")
         );
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
+}
+
+/// A process as a failure names it: its pid, parent, session, process group,
+/// state, start (clock ticks after boot), cgroup, and command line.
+fn described(pid: u32) -> String {
+    let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).unwrap_or_default();
+    let f: Vec<&str> = stat
+        .rfind(')')
+        .map(|i| stat[i + 1..].split_whitespace().collect())
+        .unwrap_or_default();
+    let field = |i: usize| f.get(i).copied().unwrap_or("?");
+    let cgroup = std::fs::read_to_string(format!("/proc/{pid}/cgroup")).unwrap_or_default();
+    let cmdline = std::fs::read(format!("/proc/{pid}/cmdline")).unwrap_or_default();
+    format!(
+        "pid {pid} ppid {} session {} pgrp {} state {} start {} cgroup {} cmdline {:?}",
+        field(1),
+        field(3),
+        field(2),
+        field(0),
+        field(19),
+        cgroup.trim(),
+        String::from_utf8_lossy(&cmdline).replace('\0', " ")
+    )
 }

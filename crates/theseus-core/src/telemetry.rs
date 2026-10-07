@@ -276,6 +276,16 @@ impl Telemetry {
             .voice("resumed", why);
     }
 
+    /// A voice call found deaf (`voice.deaf`), by why: dave_not_ready,
+    /// undecrypted (theseus-d93y).
+    pub fn record_voice_deaf(&self, why: &str) {
+        let Some(s) = self.shared() else { return };
+        s.metrics
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .voice("deaf", why);
+    }
+
     /// A sample of the index tender (theseus-gfi4): health's `index` block,
     /// its supervisor's restarts and the tender's last answer.
     pub fn record_index(&self, h: &theseus_protocol::index::IndexHealth) {

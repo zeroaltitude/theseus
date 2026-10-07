@@ -179,6 +179,162 @@ class ClaudeCodeDriver(unittest.TestCase):
             run.turns_f.close()
 
 
+PI_STANDIN = r'''#!/usr/bin/env python3
+# A stand-in `pi --print --mode json`: its sessions under --session-dir, one
+# JSONL log each, named as Pi names them; a scripted answer per prompt, and a
+# compaction before each prompt listed in STANDIN_COMPACT_BEFORE.
+import json, os, re, subprocess, sys, time
+from pathlib import Path
+args = sys.argv[1:]
+prompt = sys.stdin.read()
+def arg(flag):
+    return args[args.index(flag) + 1] if flag in args else None
+sid, sessions = arg("--session-id"), Path(arg("--session-dir"))
+cfg = Path(os.environ["PI_CODING_AGENT_DIR"])
+settings = json.loads((cfg / "settings.json").read_text())
+with open(os.environ["STANDIN_LOG"], "a") as f:
+    f.write(json.dumps({"argv": args, "cwd": str(Path.cwd()), "prompt": prompt, "settings": settings,
+                        "parent": [k for k in ("PI_SESSION_ID", "AI_AGENT", "CLAUDECODE") if k in os.environ]})
+            + "\n")
+sessions.mkdir(parents=True, exist_ok=True)
+found = sorted(sessions.glob(f"*_{sid}.jsonl"))
+log = found[0] if found else sessions / f"2026-10-06T12-00-00-000Z_{sid}.jsonl"
+dump = lambda x: json.dumps(x, separators=(",", ":"))
+entries, out = [], []
+if not found:
+    entries.append({"type": "session", "version": 3, "id": sid, "timestamp": "2026-10-06T12:00:00.000Z"})
+if prompt in json.loads(os.environ["STANDIN_COMPACT_BEFORE"]):
+    entries.append({"type": "compaction", "id": f"c{time.monotonic_ns()}", "summary": "Earlier work.",
+                    "firstKeptEntryId": "x", "tokensBefore": 40000})
+user = {"role": "user", "content": [{"type": "text", "text": prompt}]}
+entries.append({"type": "message", "id": f"u{time.monotonic_ns()}", "message": user})
+answers = json.loads(Path(os.environ["STANDIN_ANSWERS"]).read_text())
+calls = []
+m = re.search(r"Run (\./scripts/[\w.-]+\.sh)", prompt)
+if m:
+    r = subprocess.run([m.group(1)], capture_output=True, text=True)
+    calls = [{"type": "toolCall", "id": "toolu_1", "name": "bash", "arguments": {"command": m.group(1)}}]
+    first = {"role": "assistant", "content": calls, "model": "claude-sonnet-5-5", "stopReason": "toolUse",
+             "usage": {"input": 10, "output": 5, "cacheRead": 100, "cacheWrite": 20, "cost": {"total": 0.0005}}}
+    result = {"role": "toolResult", "toolCallId": "toolu_1", "toolName": "bash",
+              "content": [{"type": "text", "text": r.stdout}], "isError": False}
+    entries += [{"type": "message", "id": f"a{time.monotonic_ns()}", "message": first},
+                {"type": "message", "id": f"r{time.monotonic_ns()}", "message": result}]
+    out += [first, result]
+a = answers.get(prompt, {})
+if a.get("file"):
+    p = Path.cwd() / a["file"]
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(a["content"])
+reply = {"role": "assistant", "content": [{"type": "text", "text": a.get("reply", "ok")}],
+         "model": "claude-sonnet-5-5", "stopReason": "stop",
+         "usage": {"input": 10, "output": 5, "cacheRead": 100, "cacheWrite": 20, "cost": {"total": 0.0005}}}
+entries.append({"type": "message", "id": f"a{time.monotonic_ns()}", "message": reply})
+out.append(reply)
+with log.open("a") as f:
+    for x in entries:
+        f.write(dump(x) + "\n")
+print(dump({"type": "session", "version": 3, "id": sid}))
+for msg in [user] + out:
+    print(dump({"type": "message_end", "message": msg}))
+print(dump({"type": "agent_settled"}))
+'''
+
+
+class PiDriver(unittest.TestCase):
+    def test_a_session_id_per_session_its_reserve_at_the_window_and_compactions_from_its_logs(self):
+        prog = generate.build(7, "smoke")
+        mark = prog.marks()[0]
+        after = prog.turns[mark + 1].text
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            bin_ = d / "bin"
+            bin_.mkdir()
+            (bin_ / "pi").write_text(PI_STANDIN)
+            (bin_ / "pi").chmod(0o755)
+            gen = d / "gen"
+            prog.save(gen)
+            (d / "answers.json").write_text(json.dumps(answers_for(prog)))
+            env = {"PATH": f"{bin_}:{os.environ['PATH']}", "STANDIN_LOG": str(d / "calls.jsonl"),
+                   "STANDIN_ANSWERS": str(d / "answers.json"), "STANDIN_COMPACT_BEFORE": json.dumps([after]),
+                   "PI_SESSION_ID": "a-parent", "AI_AGENT": "pi"}
+            old = {k: os.environ.get(k) for k in env}
+            os.environ.update(env)
+            try:
+                with redirect_stdout(io.StringIO()):
+                    rc = drive.main(["--arm", "pi", "--progression", str(gen), "--out", str(d / "run")])
+            finally:
+                for k, v in old.items():
+                    if v is None:
+                        os.environ.pop(k, None)
+                    else:
+                        os.environ[k] = v
+            self.assertEqual(rc, 0)
+            calls = [json.loads(x) for x in (d / "calls.jsonl").read_text().splitlines()]
+            self.assertEqual(len(calls), len(prog.turns), "one call a turn, and no /compact")
+            ids = []
+            for t, c in zip(prog.turns, calls):
+                a = c["argv"]
+                self.assertEqual(c["cwd"], str((d / "run" / "workspace").resolve()))
+                self.assertEqual(c["parent"], [], "a parent's variables are taken out")
+                self.assertEqual(a[:3], ["--print", "--mode", "json"])
+                self.assertEqual((a[a.index("--provider") + 1], a[a.index("--model") + 1]),
+                                 ("anthropic", "claude-sonnet-5-5"))
+                self.assertEqual(a[a.index("--tools") + 1], drive.PI_TOOLS)
+                self.assertEqual(c["prompt"], t.text)
+                sid = a[a.index("--session-id") + 1]
+                if t.index == prog.session_turns(t.session)[0].index:
+                    ids.append(sid)
+                self.assertEqual(sid, ids[-1])
+                # Pi compacts past its model's window less the reserve: at
+                # the progression's window.
+                self.assertEqual(c["settings"], {"compaction": {"modelOverrides": {
+                    "anthropic/claude-sonnet-5-5": {"reserveTokens": drive.PI_MODEL_WINDOW - prog.context_window,
+                                                    "keepRecentTokens": prog.context_window // 4}}}})
+            self.assertEqual(len(set(ids)), 2)
+            run = json.loads((d / "run" / "run.json").read_text())
+            self.assertEqual((run["arm"], run["sessions"]), ("pi", ids))
+            self.assertEqual(run["compactions"], [mark + 1])
+            self.assertEqual(run["pi_compact"]["reserve_tokens"], drive.PI_MODEL_WINDOW - 45000)
+            self.assertEqual(run["delivered"], len(prog.facts))
+            rows = [json.loads(x) for x in (d / "run" / "turns.jsonl").read_text().splitlines()]
+            self.assertEqual(len(rows), len(prog.turns))
+            self.assertTrue(all(r["exit"] == 0 and r["error"] is None for r in rows))
+            scripted = [r for r, t in zip(rows, prog.turns) if "Run ./scripts/" in t.text]
+            self.assertTrue(scripted)
+            # A scripted turn's two answers, summed.
+            self.assertTrue(all(r["cost_usd"] == 0.001 and r["tool_calls"] == 1 for r in scripted))
+            self.assertEqual(scripted[0]["tokens"], {"input": 20, "output": 10, "cache_read": 200, "cache_write": 40})
+            # The perfect arm scores perfectly.
+            s = score.summarize(score.score_run(score.load_run(d / "run")))
+            self.assertEqual((s["recall_accuracy"], s["abstention_accuracy"]), (1.0, 1.0))
+            self.assertEqual(s["undelivered"] + s["failed"] + s["confident_wrong"], 0)
+
+    def test_a_turn_ends_failed_when_its_last_answer_is_a_providers_error(self):
+        events = drive.pi_events("\n".join(json.dumps(x) for x in [
+            {"type": "session", "id": "s"},
+            {"type": "message_end", "message": {"role": "assistant", "content": [], "stopReason": "error",
+                                                "errorMessage": "529 overloaded",
+                                                "usage": {"input": 0, "output": 0, "cost": {"total": 0}}}}]))
+        v = drive.pi_turn(events)
+        self.assertEqual((v["stop"], v["error"], v["answers"], v["cost_usd"]), ("error", "529 overloaded", 1, 0.0))
+        self.assertEqual(drive.pi_turn([])["cost_usd"], None)
+        self.assertTrue(drive.pi_failed(0, v), "print mode exits 0 on a provider's error")
+        # A compaction's own summary call is the turn's spend too.
+        answer = {"role": "assistant", "content": [{"type": "toolCall", "id": "t1"}], "stopReason": "stop",
+                  "usage": {"input": 100, "output": 10, "cacheRead": 50, "cost": {"total": 0.002}}}
+        summary = {"summary": "s", "usage": {"input": 3000, "output": 400, "cacheWrite": 5, "cost": {"total": 0.01}}}
+        v = drive.pi_turn([{"type": "compaction_end", "reason": "threshold", "result": summary},
+                           {"type": "message_end", "message": answer}])
+        self.assertEqual((v["tokens"], v["cost_usd"], v["tool_calls"], v["answers"]),
+                         ({"input": 3100, "output": 410, "cache_read": 50, "cache_write": 5}, 0.012, 1, 1))
+        self.assertEqual(drive.pi_keep_recent(45_000), 11_250)
+        self.assertEqual(drive.pi_keep_recent(200_000), drive.PI_KEEP_RECENT)
+        self.assertTrue(drive.pi_failed(0, drive.pi_turn([])))
+        self.assertTrue(drive.pi_failed(None, dict(v, stop="stop")))
+        self.assertFalse(drive.pi_failed(0, dict(v, stop="stop")))
+
+
 def exec_done(p: subprocess.Popen, argv0: str, timeout: float = 10.0) -> None:
     """Wait until `p` runs `argv0`: between its fork and its exec, its
     command line is still this process's, and names nothing of the run."""
@@ -274,15 +430,36 @@ class Overhead(unittest.TestCase):
 
     def test_past_the_cushion_is_refused_and_both_numbers_are_named(self):
         prog = generate.build(7, "smoke")
-        planned = prog.overhead_tokens
-        at = drive.overhead_record(prog, planned + generate.OVERHEAD_CUSHION, False)
-        self.assertEqual((at["planned"], at["past_cushion"]), (planned, False))
-        past = drive.overhead_record(prog, planned + generate.OVERHEAD_CUSHION + 1, False)
+        planned, cushion = prog.overhead_tokens, generate.OVERHEAD_CUSHION
+        for measured in (planned + cushion, planned - cushion, planned):
+            at = drive.overhead_record(prog, measured, False)
+            self.assertEqual((at["planned"], at["past_cushion"]), (planned, False), measured)
+        past = drive.overhead_record(prog, planned + cushion + 1, False)
         self.assertTrue(past["past_cushion"])
         said = drive.overhead_refusal(past)
-        self.assertIn(f"{planned + generate.OVERHEAD_CUSHION + 1:,}", said)
+        self.assertIn(f"{planned + cushion + 1:,}", said)
         self.assertIn(f"{planned:,}", said)
         self.assertIn("--allow-overhead", said)
+
+    def test_a_daemon_under_the_plan_is_refused_like_one_over_it(self):
+        """theseus-tqa3: a lower overhead thins the reads' crossing (smoke
+        seed 12 crosses by 31 tokens 101 under the default plan, and not at
+        150 under it), so 51 under is refused as 51 over is, and 50 under is
+        not. The refusal names both numbers and how to plan at the measured."""
+        prog = generate.build(7, "smoke")
+        planned, cushion = prog.overhead_tokens, generate.OVERHEAD_CUSHION
+        self.assertFalse(drive.overhead_record(prog, planned - cushion, False)["past_cushion"])
+        under = drive.overhead_record(prog, planned - cushion - 1, False)
+        self.assertTrue(under["past_cushion"])
+        said = drive.overhead_refusal(under)
+        self.assertIn(f"{planned - cushion - 1:,}", said)
+        self.assertIn(f"under the {planned:,}", said)
+        self.assertIn(f"by {cushion + 1}", said)
+        self.assertIn(f"--overhead {planned - cushion - 1}", said)
+        self.assertIn("--allow-overhead", said)
+        over = drive.overhead_refusal(drive.overhead_record(prog, planned + cushion + 1, False))
+        self.assertIn(f"past the {planned:,}", over)
+        self.assertIn(f"--overhead {planned + cushion + 1}", over)
         # An older file, with no record, is held to today's constant.
         prog.overhead_tokens = None
         old = drive.overhead_record(prog, 20000, True)
@@ -490,6 +667,8 @@ class TheseusDriver(unittest.TestCase):
         real = self.measured()
         self.assertLessEqual(real, generate.OVERHEAD_TOKENS + generate.OVERHEAD_CUSHION,
                              "the daemon's system prompt grew past the plan: raise OVERHEAD_TOKENS")
+        self.assertGreaterEqual(real, generate.OVERHEAD_TOKENS - generate.OVERHEAD_CUSHION,
+                                "the daemon's system prompt shrank under the plan: lower OVERHEAD_TOKENS")
         prog = generate.build(7, "smoke", real)
         with tempfile.TemporaryDirectory() as d:
             d = Path(d)

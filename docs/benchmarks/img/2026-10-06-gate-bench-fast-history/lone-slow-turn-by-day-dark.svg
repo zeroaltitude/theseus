@@ -1,0 +1,635 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="376" viewBox="0 0 720 376" role="img" aria-labelledby="t-lone-slow-turn-by-day t-lone-slow-turn-by-day-d" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
+<title id="t-lone-slow-turn-by-day">The turn bench's slowest run against its median, every gate, by day</title>
+<desc id="t-lone-slow-turn-by-day-d">How often, and how far, does one turn run far slower than the rest, and does it cluster by day?</desc>
+<rect width="720" height="376" rx="8" fill="#1a1a19" stroke="#2c2c2a"/>
+<text x="18.0" y="32.0" font-size="15" fill="#ffffff" font-weight="600">The turn bench's slowest run against its median, every gate, by day</text>
+<line x1="25.0" y1="43.0" x2="25.0" y2="57.0" stroke="#ffffff" stroke-width="1.5"/>
+<text x="40.0" y="54.0" font-size="12" fill="#c3c2b7">median</text>
+<line x1="120.0" y1="52.0" x2="120.0" y2="282.0" stroke="#2c2c2a" stroke-width="1"/>
+<line x1="226.1" y1="52.0" x2="226.1" y2="282.0" stroke="#2c2c2a" stroke-width="1"/>
+<line x1="366.4" y1="52.0" x2="366.4" y2="282.0" stroke="#2c2c2a" stroke-width="1"/>
+<line x1="472.6" y1="52.0" x2="472.6" y2="282.0" stroke="#2c2c2a" stroke-width="1"/>
+<line x1="578.7" y1="52.0" x2="578.7" y2="282.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="106.0" y="79.0" font-size="12" fill="#ffffff" text-anchor="end">Oct 2 (1 of 25)</text>
+<g><title>Oct 2 (1 of 25): quartiles 1.13×, 1.22×, 1.51×</title>
+<rect x="138.7" y="73.0" width="44.4" height="4" rx="2" fill="#c3c2b7" fill-opacity="0.35"/>
+</g>
+<g><title>Oct 2 (1 of 25): 1.58× (main 34be7e2, load 5.36)</title>
+<circle cx="190.0" cy="64.5" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 2 (1 of 25): 1.22× (main 32fd483, load 7.33)</title>
+<circle cx="150.5" cy="65.2" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 2 (1 of 25): 1.44× (main 371725d, load 6.52)</title>
+<circle cx="175.8" cy="63.2" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 2 (1 of 25): 1.51× (main 51a456f, load 5.17)</title>
+<circle cx="183.1" cy="84.0" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 2 (1 of 25): 1.73× (main 51a456f, load 4.69)</title>
+<circle cx="203.9" cy="72.7" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 2 (1 of 25): 1.53× (main 3a4beff, load 5.62)</title>
+<circle cx="185.1" cy="75.4" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 2 (1 of 25): 1.18× (main 85e5294, load 6.02)</title>
+<circle cx="145.3" cy="70.4" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 2 (1 of 25): 1.11× (main 520b1bc, load 4.68)</title>
+<circle cx="136.0" cy="68.4" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 2 (1 of 25): 1.26× (main 22b0877, load 6.63)</title>
+<circle cx="155.4" cy="72.4" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 2 (1 of 25): 1.13× (main 5892683, load 4.25)</title>
+<circle cx="138.7" cy="82.1" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 2 (1 of 25): 1.08× (main 517c900, load 5.13)</title>
+<circle cx="131.8" cy="85.2" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 2 (1 of 25): 1.13× (main 517c900-dirty, load 4.1)</title>
+<circle cx="138.7" cy="84.3" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 2 (1 of 25): 1.18× (main 93fbb6d-dirty, load 4.27)</title>
+<circle cx="145.3" cy="78.2" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 2 (1 of 25): 1.08× (main 4fc7ddc, load 6.62)</title>
+<circle cx="131.8" cy="63.9" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 2 (1 of 25): 2.20× (main 04a9fb3, load 7.64)</title>
+<circle cx="240.7" cy="67.5" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 2 (1 of 25): 1.21× (main 1d33622, load 7.67)</title>
+<circle cx="149.2" cy="65.8" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 2 (1 of 25): 1.09× (main 8b82da6, load 8.35)</title>
+<circle cx="133.2" cy="83.3" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 2 (1 of 25): 1.14× (main 79f2d1d, load 5.79)</title>
+<circle cx="140.1" cy="72.8" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 2 (1 of 25): 1.31× (main f79d52e, load 6.26)</title>
+<circle cx="161.4" cy="81.0" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 2 (1 of 25): 1.17× (main 2224c5d, load 7.55)</title>
+<circle cx="144.0" cy="65.7" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 2 (1 of 25): 1.29× (main 2224c5d, load 10.17)</title>
+<circle cx="159.0" cy="77.9" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 2 (1 of 25): 1.95× (main bfbe47b, load 5.34)</title>
+<circle cx="222.3" cy="66.4" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 2 (1 of 25): 1.24× (main b63b483, load 4.69)</title>
+<circle cx="152.9" cy="68.4" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 2 (1 of 25): 1.12× (main 74a009b, load 5.56)</title>
+<circle cx="137.4" cy="74.7" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 2 (1 of 25): 1.68× (main 54e4083, load 7.25)</title>
+<circle cx="199.4" cy="65.3" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 2 (1 of 25): median 1.22×</title>
+<line x1="150.5" y1="61.0" x2="150.5" y2="89.0" stroke="#ffffff" stroke-width="2" stroke-linecap="round"/>
+</g>
+<text x="592.7" y="79.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">median 1.22× · n 25</text>
+<text x="106.0" y="125.0" font-size="12" fill="#ffffff" text-anchor="end">Oct 3 (4 of 57)</text>
+<g><title>Oct 3 (4 of 57): quartiles 1.14×, 1.19×, 1.33×</title>
+<rect x="140.1" y="119.0" width="23.6" height="4" rx="2" fill="#c3c2b7" fill-opacity="0.35"/>
+</g>
+<g><title>Oct 3 (4 of 57): 1.08× (main 81f3dee, load 6.62)</title>
+<circle cx="131.8" cy="110.4" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 3 (4 of 57): 1.19× (main 5526591, load 5.96)</title>
+<circle cx="146.6" cy="130.4" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 3 (4 of 57): 1.14× (main c641ae4, load 5.05)</title>
+<circle cx="140.1" cy="120.3" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 3 (4 of 57): 1.15× (main b642d96, load 5.33)</title>
+<circle cx="141.4" cy="122.0" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 3 (4 of 57): 1.18× (main 883df95, load 5.33)</title>
+<circle cx="145.3" cy="130.6" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 3 (4 of 57): 1.14× (main d337276, load 7.32)</title>
+<circle cx="140.1" cy="120.8" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 3 (4 of 57): 1.22× (main 8067161, load 5.17)</title>
+<circle cx="150.5" cy="121.0" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 3 (4 of 57): 1.10× (main aa2e199, load 5.72)</title>
+<circle cx="134.6" cy="124.7" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 3 (4 of 57): 1.12× (join/cloud-core-flakes 9, load 5.12)</title>
+<circle cx="137.4" cy="131.2" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 3 (4 of 57): 1.23× (main d85660e, load 5.61)</title>
+<circle cx="151.7" cy="122.6" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 3 (4 of 57): 1.13× (join/cloud-flakes-2 a59b, load 6.17)</title>
+<circle cx="138.7" cy="114.4" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 3 (4 of 57): 1.28× (lane/gate-mode a59b7c1-d, load 9.8)</title>
+<circle cx="157.8" cy="130.4" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 3 (4 of 57): 1.14× (main 53d32e0, load 6.54)</title>
+<circle cx="140.1" cy="128.9" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 3 (4 of 57): 3.42× (main 4c74f75, load 6.58)</title>
+<circle cx="308.3" cy="111.2" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 3 (4 of 57): 1.17× (main d2fd4d9, load 6.41)</title>
+<circle cx="144.0" cy="131.2" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 3 (4 of 57): 1.11× (main 1378382, load 6.46)</title>
+<circle cx="136.0" cy="133.0" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 3 (4 of 57): 1.11× (main 57a3759, load 6.0)</title>
+<circle cx="136.0" cy="115.0" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 3 (4 of 57): 1.80× (main ad1e02f, load 6.66)</title>
+<circle cx="210.0" cy="121.5" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 3 (4 of 57): 1.32× (main 7a31fba, load 15.24)</title>
+<circle cx="162.5" cy="113.0" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 3 (4 of 57): 4.38× (main dc3387f, load 16.47)</title>
+<circle cx="346.2" cy="127.4" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 3 (4 of 57): 1.12× (main 662e27c, load 10.48)</title>
+<circle cx="137.4" cy="114.0" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 3 (4 of 57): 1.18× (lane/t7-store ad1e02f-di, load 5.91)</title>
+<circle cx="145.3" cy="125.4" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 3 (4 of 57): 1.16× (main 2633d3b, load 8.99)</title>
+<circle cx="142.7" cy="116.2" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 3 (4 of 57): 1.24× (main 2285fea, load 8.25)</title>
+<circle cx="152.9" cy="129.6" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 3 (4 of 57): 1.16× (lane/t7-store 5471e38, load 8.54)</title>
+<circle cx="142.7" cy="109.2" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 3 (4 of 57): 1.12× (main f060021, load 12.05)</title>
+<circle cx="137.4" cy="111.3" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 3 (4 of 57): 1.82× (main 777f1e2, load 9.02)</title>
+<circle cx="211.7" cy="124.0" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 3 (4 of 57): 1.47× (lane/t7-defences cded85c, load 8.05)</title>
+<circle cx="179.0" cy="115.9" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 3 (4 of 57): 1.33× (main fb612d9, load 6.58)</title>
+<circle cx="163.7" cy="126.0" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 3 (4 of 57): 1.37× (lane/t7-defences 382dbc4, load 10.61)</title>
+<circle cx="168.2" cy="126.8" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 3 (4 of 57): 1.96× (main 1d11949, load 8.84)</title>
+<circle cx="223.0" cy="126.6" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 3 (4 of 57): 1.33× (lane/t7-defences 5738590, load 15.38)</title>
+<circle cx="163.7" cy="114.8" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 3 (4 of 57): 1.15× (lane/t7-kernel fb612d9-d, load 7.21)</title>
+<circle cx="141.4" cy="113.1" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 3 (4 of 57): 1.13× (main 1abf099, load 5.56)</title>
+<circle cx="138.7" cy="109.4" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 3 (4 of 57): 1.23× (lane/t7-defences d9b0931, load 9.23)</title>
+<circle cx="151.7" cy="109.3" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 3 (4 of 57): 1.35× (lane/t7-kernel 15a4adc-d, load 2.94)</title>
+<circle cx="166.0" cy="114.0" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 3 (4 of 57): 1.34× (main d9b0931, load 5.18)</title>
+<circle cx="164.8" cy="114.6" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 3 (4 of 57): 5.26× (lane/wal-synced 1abf099c, load 8.72)</title>
+<circle cx="374.2" cy="119.2" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 3 (4 of 57): 1.16× (lane/t7-kernel b492e5d4-, load 10.42)</title>
+<circle cx="142.7" cy="118.9" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 3 (4 of 57): 1.18× (lane/ledger-perf 4c2508c, load 7.43)</title>
+<circle cx="145.3" cy="111.3" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 3 (4 of 57): 1.14× (lane/t7-kernel c112d47-d, load 3.5)</title>
+<circle cx="140.1" cy="132.6" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 3 (4 of 57): 1.30× (lane/t7-kernel 228a706-d, load 3.76)</title>
+<circle cx="160.2" cy="115.7" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 3 (4 of 57): 1.44× (main ea5dc9f, load 8.47)</title>
+<circle cx="175.8" cy="124.2" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 3 (4 of 57): 1.20× (lane/ledger-perf 4c2508c, load 2.99)</title>
+<circle cx="147.9" cy="123.1" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 3 (4 of 57): 1.17× (main ea5dc9f, load 2.66)</title>
+<circle cx="144.0" cy="110.5" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 3 (4 of 57): 1.20× (lane/ledger-perf c2a56ef, load 5.13)</title>
+<circle cx="147.9" cy="122.6" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 3 (4 of 57): 1.30× (main 9fee6df, load 4.46)</title>
+<circle cx="160.2" cy="115.0" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 3 (4 of 57): 1.31× (main ae1b9ef, load 4.78)</title>
+<circle cx="161.4" cy="113.4" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 3 (4 of 57): 1.16× (main d54fd82, load 3.33)</title>
+<circle cx="142.7" cy="130.1" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 3 (4 of 57): 1.41× (main e4b6647, load 5.18)</title>
+<circle cx="172.6" cy="127.4" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 3 (4 of 57): 2.13× (main fe371af, load 3.84)</title>
+<circle cx="235.8" cy="110.0" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 3 (4 of 57): 1.28× (main f3564f2a, load 6.01)</title>
+<circle cx="157.8" cy="131.2" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 3 (4 of 57): 1.13× (main ac65a381, load 3.31)</title>
+<circle cx="138.7" cy="129.0" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 3 (4 of 57): 1.15× (main 93fbda9e, load 3.14)</title>
+<circle cx="141.4" cy="132.6" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 3 (4 of 57): 1.13× (main 079f1dbf, load 2.81)</title>
+<circle cx="138.7" cy="109.7" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 3 (4 of 57): 1.20× (main 96d01dec, load 3.96)</title>
+<circle cx="147.9" cy="110.4" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 3 (4 of 57): 1.12× (main e55e63ba, load 10.65)</title>
+<circle cx="137.4" cy="120.3" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 3 (4 of 57): median 1.19×</title>
+<line x1="146.6" y1="107.0" x2="146.6" y2="135.0" stroke="#ffffff" stroke-width="2" stroke-linecap="round"/>
+</g>
+<text x="592.7" y="125.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">median 1.19× · n 57</text>
+<text x="106.0" y="171.0" font-size="12" fill="#ffffff" text-anchor="end">Oct 4 (8 of 57)</text>
+<g><title>Oct 4 (8 of 57): quartiles 1.12×, 1.20×, 1.45×</title>
+<rect x="137.4" y="165.0" width="39.5" height="4" rx="2" fill="#c3c2b7" fill-opacity="0.35"/>
+</g>
+<g><title>Oct 4 (8 of 57): 1.10× (main e369db7b, load 3.68)</title>
+<circle cx="134.6" cy="166.9" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 4 (8 of 57): 1.13× (main 8e38ff74, load 7.24)</title>
+<circle cx="138.7" cy="171.8" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 4 (8 of 57): 1.13× (main 1431fa7b, load 7.32)</title>
+<circle cx="138.7" cy="178.3" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 4 (8 of 57): 1.93× (main d953dd4c, load 8.42)</title>
+<circle cx="220.7" cy="166.2" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 4 (8 of 57): 1.13× (main f1fccecf, load 10.0)</title>
+<circle cx="138.7" cy="167.0" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 4 (8 of 57): 1.87× (lane/jev-join-fix baee74, load 6.78)</title>
+<circle cx="215.8" cy="169.5" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 4 (8 of 57): 1.25× (main dd94bc6b, load 8.39)</title>
+<circle cx="154.2" cy="162.4" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 4 (8 of 57): 2.69× (main 3add3f53, load 5.17)</title>
+<circle cx="271.5" cy="162.2" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 4 (8 of 57): 1.06× (main e457555d, load 6.14)</title>
+<circle cx="128.9" cy="175.7" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 4 (8 of 57): 1.16× (main ab54f037, load 4.58)</title>
+<circle cx="142.7" cy="173.0" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 4 (8 of 57): 1.24× (main 4bb5aac9, load 3.59)</title>
+<circle cx="152.9" cy="174.4" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 4 (8 of 57): 1.11× (main 60ab73ca, load 5.14)</title>
+<circle cx="136.0" cy="161.2" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 4 (8 of 57): 1.28× (main 24a9fef6, load 7.36)</title>
+<circle cx="157.8" cy="160.1" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 4 (8 of 57): 1.41× (main 9d1ab36a, load 6.9)</title>
+<circle cx="172.6" cy="174.7" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 4 (8 of 57): 1.79× (main 760553f7, load 6.52)</title>
+<circle cx="209.2" cy="175.9" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 4 (8 of 57): 1.13× (main af6790da, load 6.24)</title>
+<circle cx="138.7" cy="164.4" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 4 (8 of 57): 1.29× (main 94e01826, load 4.57)</title>
+<circle cx="159.0" cy="155.5" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 4 (8 of 57): 1.39× (main 8e17eea7, load 5.57)</title>
+<circle cx="170.4" cy="158.8" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 4 (8 of 57): 6.92× (main a4da5e1c, load 9.48)</title>
+<circle cx="416.2" cy="172.0" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 4 (8 of 57): 1.11× (main 35784d7c, load 8.99)</title>
+<circle cx="136.0" cy="167.3" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 4 (8 of 57): 1.08× (main d3cad454, load 4.37)</title>
+<circle cx="131.8" cy="169.2" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 4 (8 of 57): 1.19× (main 8b804784, load 4.57)</title>
+<circle cx="146.6" cy="158.3" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 4 (8 of 57): 1.15× (main 701f0ea6, load 6.25)</title>
+<circle cx="141.4" cy="174.8" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 4 (8 of 57): 1.12× (main 2cba6c51, load 11.99)</title>
+<circle cx="137.4" cy="173.1" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 4 (8 of 57): 1.21× (main 4bae0f74, load 7.06)</title>
+<circle cx="149.2" cy="158.3" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 4 (8 of 57): 1.07× (main cc81333d, load 3.19)</title>
+<circle cx="130.4" cy="178.1" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 4 (8 of 57): 1.44× (main 7d0c9534, load 5.07)</title>
+<circle cx="175.8" cy="163.9" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 4 (8 of 57): 1.09× (main 78d749cb, load 8.16)</title>
+<circle cx="133.2" cy="161.2" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 4 (8 of 57): 1.15× (main b332bfd7, load 3.39)</title>
+<circle cx="141.4" cy="165.5" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 4 (8 of 57): 1.08× (main 94304c3b, load 5.31)</title>
+<circle cx="131.8" cy="176.2" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 4 (8 of 57): 2.25× (main 8f79c753, load 8.32)</title>
+<circle cx="244.2" cy="164.3" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 4 (8 of 57): 1.25× (main 084ccbbb, load 5.39)</title>
+<circle cx="154.2" cy="163.0" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 4 (8 of 57): 1.16× (main 4c3a7008, load 4.62)</title>
+<circle cx="142.7" cy="159.3" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 4 (8 of 57): 1.45× (main 802f9135, load 12.86)</title>
+<circle cx="176.9" cy="176.7" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 4 (8 of 57): 1.28× (main e27405a2, load 8.45)</title>
+<circle cx="157.8" cy="162.3" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 4 (8 of 57): 1.21× (main bb210c2d, load 6.55)</title>
+<circle cx="149.2" cy="166.0" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 4 (8 of 57): 1.15× (main 452b0b9d, load 7.32)</title>
+<circle cx="141.4" cy="161.2" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 4 (8 of 57): 4.79× (main 3193f660, load 6.89)</title>
+<circle cx="359.9" cy="168.6" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 4 (8 of 57): 1.09× (main bddfd407, load 2.37)</title>
+<circle cx="133.2" cy="171.4" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 4 (8 of 57): 1.12× (main 9bf8ac35, load 7.8)</title>
+<circle cx="137.4" cy="176.6" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 4 (8 of 57): 1.30× (main d5ff8489, load 8.45)</title>
+<circle cx="160.2" cy="163.1" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 4 (8 of 57): 1.20× (main bf36375f, load 8.85)</title>
+<circle cx="147.9" cy="156.6" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 4 (8 of 57): 19× (main 21683c9c, load 6.24)</title>
+<circle cx="569.5" cy="167.6" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 4 (8 of 57): 1.77× (main 3829c7ea, load 4.01)</title>
+<circle cx="207.4" cy="169.2" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 4 (8 of 57): 3.95× (main 250ccd23, load 4.41)</title>
+<circle cx="330.3" cy="167.6" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 4 (8 of 57): 3.34× (main 14bcce94, load 4.25)</title>
+<circle cx="304.7" cy="177.5" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 4 (8 of 57): 1.25× (main d5a4b808, load 4.95)</title>
+<circle cx="154.2" cy="176.4" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 4 (8 of 57): 2.29× (main d56f3bc0, load 4.18)</title>
+<circle cx="246.9" cy="165.6" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 4 (8 of 57): 1.08× (main 0c9edcc2, load 2.3)</title>
+<circle cx="131.8" cy="163.5" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 4 (8 of 57): 1.09× (main 3085f71a, load 2.15)</title>
+<circle cx="133.2" cy="174.7" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 4 (8 of 57): 1.55× (main 3c85ecee, load 2.68)</title>
+<circle cx="187.1" cy="157.0" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 4 (8 of 57): 1.12× (main 645769d2, load 2.03)</title>
+<circle cx="137.4" cy="159.1" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 4 (8 of 57): 1.12× (main e6378de8, load 2.16)</title>
+<circle cx="137.4" cy="173.9" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 4 (8 of 57): 1.12× (main 42a8222f, load 2.3)</title>
+<circle cx="137.4" cy="171.2" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 4 (8 of 57): 1.10× (main 23fb7f37, load 3.31)</title>
+<circle cx="134.6" cy="165.9" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 4 (8 of 57): 1.10× (main 7ad8a8bd, load 2.73)</title>
+<circle cx="134.6" cy="173.6" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 4 (8 of 57): 1.48× (main e6f90af3, load 1.77)</title>
+<circle cx="180.0" cy="175.7" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 4 (8 of 57): median 1.20×</title>
+<line x1="147.9" y1="153.0" x2="147.9" y2="181.0" stroke="#ffffff" stroke-width="2" stroke-linecap="round"/>
+</g>
+<text x="592.7" y="171.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">median 1.20× · n 57</text>
+<text x="106.0" y="217.0" font-size="12" fill="#ffffff" text-anchor="end">Oct 5 (1 of 35)</text>
+<g><title>Oct 5 (1 of 35): quartiles 1.10×, 1.13×, 1.26×</title>
+<rect x="135.3" y="211.0" width="20.1" height="4" rx="2" fill="#c3c2b7" fill-opacity="0.35"/>
+</g>
+<g><title>Oct 5 (1 of 35): 1.14× (main 80ef1dea, load 1.97)</title>
+<circle cx="140.1" cy="219.4" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 5 (1 of 35): 1.12× (main 0ade7d68, load 2.38)</title>
+<circle cx="137.4" cy="209.9" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 5 (1 of 35): 1.10× (main faaa9df6, load 2.21)</title>
+<circle cx="134.6" cy="215.0" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 5 (1 of 35): 1.13× (main 198e2229, load 2.21)</title>
+<circle cx="138.7" cy="207.9" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 5 (1 of 35): 1.26× (main a9442c81, load 3.4)</title>
+<circle cx="155.4" cy="211.1" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 5 (1 of 35): 1.18× (main dca30347, load 2.67)</title>
+<circle cx="145.3" cy="223.5" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 5 (1 of 35): 1.08× (main fd9235d0, load 2.48)</title>
+<circle cx="131.8" cy="213.9" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 5 (1 of 35): 1.32× (main 62de744f, load 2.3)</title>
+<circle cx="162.5" cy="201.8" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 5 (1 of 35): 1.39× (main 23f132f7, load 2.04)</title>
+<circle cx="170.4" cy="204.2" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 5 (1 of 35): 1.18× (main ef37f325, load 2.31)</title>
+<circle cx="145.3" cy="203.4" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 5 (1 of 35): 1.13× (main b07150d6, load 2.77)</title>
+<circle cx="138.7" cy="216.4" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 5 (1 of 35): 1.07× (main 1a08a40e, load 2.83)</title>
+<circle cx="130.4" cy="201.0" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 5 (1 of 35): 1.11× (main 62ec4199, load 2.11)</title>
+<circle cx="136.0" cy="213.3" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 5 (1 of 35): 1.67× (main 3dba509d, load 1.97)</title>
+<circle cx="198.5" cy="209.8" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 5 (1 of 35): 1.18× (main 38bb2924, load 10.51)</title>
+<circle cx="145.3" cy="215.8" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 5 (1 of 35): 2.31× (main 0a94e361, load 3.83)</title>
+<circle cx="248.2" cy="205.6" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 5 (1 of 35): 1.10× (main fb90df75, load 3.17)</title>
+<circle cx="134.6" cy="222.6" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 5 (1 of 35): 1.08× (main 60d2d6c3, load 2.92)</title>
+<circle cx="131.8" cy="222.0" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 5 (1 of 35): 1.14× (main d8ac9b54, load 3.14)</title>
+<circle cx="140.1" cy="201.8" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 5 (1 of 35): 1.12× (main d50e6f2f, load 3.61)</title>
+<circle cx="137.4" cy="206.6" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 5 (1 of 35): 1.09× (main 319b95b0, load 2.51)</title>
+<circle cx="133.2" cy="218.7" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 5 (1 of 35): 1.13× (main 4d7cd561, load 2.21)</title>
+<circle cx="138.7" cy="215.7" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 5 (1 of 35): 1.11× (main 19a768a3, load 3.21)</title>
+<circle cx="136.0" cy="212.7" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 5 (1 of 35): 1.21× (main 60b43fb6, load 3.23)</title>
+<circle cx="149.2" cy="214.7" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 5 (1 of 35): 1.10× (main 60dd55e0, load 3.3)</title>
+<circle cx="134.6" cy="224.3" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 5 (1 of 35): 1.11× (main c9d000d7, load 3.55)</title>
+<circle cx="136.0" cy="224.5" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 5 (1 of 35): 1.08× (main ae1202af, load 3.33)</title>
+<circle cx="131.8" cy="212.0" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 5 (1 of 35): 1.19× (main c4f79e9f, load 2.71)</title>
+<circle cx="146.6" cy="218.9" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 5 (1 of 35): 1.57× (main 85862603, load 3.9)</title>
+<circle cx="189.1" cy="219.4" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 5 (1 of 35): 1.67× (main 4a449460, load 3.77)</title>
+<circle cx="198.5" cy="210.5" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 5 (1 of 35): 1.27× (main 118b8291, load 3.61)</title>
+<circle cx="156.6" cy="209.1" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 5 (1 of 35): 1.28× (main acf26214, load 3.22)</title>
+<circle cx="157.8" cy="205.8" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 5 (1 of 35): 1.12× (main 57fdfd96, load 3.2)</title>
+<circle cx="137.4" cy="223.4" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 5 (1 of 35): 1.26× (main 591259fe, load 3.64)</title>
+<circle cx="155.4" cy="201.4" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 5 (1 of 35): 1.07× (main 8ea6669e, load 4.08)</title>
+<circle cx="130.4" cy="218.0" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 5 (1 of 35): median 1.13×</title>
+<line x1="138.7" y1="199.0" x2="138.7" y2="227.0" stroke="#ffffff" stroke-width="2" stroke-linecap="round"/>
+</g>
+<text x="592.7" y="217.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">median 1.13× · n 35</text>
+<text x="106.0" y="263.0" font-size="12" fill="#ffffff" text-anchor="end">Oct 6 (2 of 17)</text>
+<g><title>Oct 6 (2 of 17): quartiles 1.14×, 1.18×, 1.28×</title>
+<rect x="140.1" y="257.0" width="17.7" height="4" rx="2" fill="#c3c2b7" fill-opacity="0.35"/>
+</g>
+<g><title>Oct 6 (2 of 17): 1.16× (main c44dce47, load 3.91)</title>
+<circle cx="142.7" cy="255.3" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 6 (2 of 17): 1.28× (main c07bbe6a, load 7.45)</title>
+<circle cx="157.8" cy="268.9" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 6 (2 of 17): 1.25× (main 9a7faa87, load 3.55)</title>
+<circle cx="154.2" cy="271.0" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 6 (2 of 17): 1.10× (main fc96e2da, load 3.55)</title>
+<circle cx="134.6" cy="268.8" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 6 (2 of 17): 1.34× (main fdb592b1, load 3.96)</title>
+<circle cx="164.8" cy="249.5" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 6 (2 of 17): 1.14× (main 79be3213, load 3.25)</title>
+<circle cx="140.1" cy="252.6" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 6 (2 of 17): 1.10× (main f33f0eca, load 3.77)</title>
+<circle cx="134.6" cy="249.0" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 6 (2 of 17): 1.35× (main 21bf5454, load 3.85)</title>
+<circle cx="166.0" cy="247.1" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 6 (2 of 17): 1.20× (main 2b342594, load 4.66)</title>
+<circle cx="147.9" cy="254.1" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 6 (2 of 17): 1.18× (main bd3eb769, load 3.35)</title>
+<circle cx="145.3" cy="265.1" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 6 (2 of 17): 1.16× (main 25b0578f, load 3.46)</title>
+<circle cx="142.7" cy="247.5" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 6 (2 of 17): 1.14× (main 6496ce34, load 4.25)</title>
+<circle cx="140.1" cy="260.7" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 6 (2 of 17): 1.08× (main d28bfc4b, load 3.95)</title>
+<circle cx="131.8" cy="254.9" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 6 (2 of 17): 1.20× (main 2bf9e7d3, load 3.62)</title>
+<circle cx="147.9" cy="255.2" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 6 (2 of 17): 3.10× (main d279767f, load 3.87)</title>
+<circle cx="293.2" cy="268.2" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 6 (2 of 17): 3.35× (main f589d9cb, load 2.99)</title>
+<circle cx="305.1" cy="269.5" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 6 (2 of 17): 1.16× (main ceba1520, load 4.45)</title>
+<circle cx="142.7" cy="259.0" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Oct 6 (2 of 17): median 1.18×</title>
+<line x1="145.3" y1="245.0" x2="145.3" y2="273.0" stroke="#ffffff" stroke-width="2" stroke-linecap="round"/>
+</g>
+<text x="592.7" y="263.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">median 1.18× · n 17</text>
+<text x="120.0" y="298.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">1×</text>
+<text x="226.1" y="298.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">2×</text>
+<text x="366.4" y="298.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">5×</text>
+<text x="472.6" y="298.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">10×</text>
+<text x="578.7" y="298.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">20×</text>
+<line x1="120.0" y1="282.0" x2="578.7" y2="282.0" stroke="#383835" stroke-width="1"/>
+<text x="349.4" y="316.0" font-size="12" fill="#c3c2b7" text-anchor="middle">p95 / p50 of the slower turn kind (log scale; over 2x is a lone slow run)</text>
+<text x="18.0" y="338.0" font-size="11" fill="#c3c2b7">191 turn benches (main and lane gates; 10 runs of each kind, so the p95 is the slowest run). In brackets: gates over 2x of</text>
+<text x="18.0" y="353.0" font-size="11" fill="#c3c2b7">the day's total.</text>
+</svg>

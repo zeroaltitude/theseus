@@ -125,24 +125,30 @@ STALE_RULES = ("strict", "retracted")
 # rack in hall two to 38013" governs no port).
 REACH = 4
 RETRACT_PREFIX = (
-    r"\b(?:(?:moved|migrated|changed|switched) (?:away )?from|ignore|disregard|forget|previously|formerly|"
+    r"\b(?:(?:moved|migrated|changed|switched) (?:away )?from|(?:then|later|next|after that),? (?:\w+ )?from|ignore|disregard|forget|previously|formerly|"
     r"used to be|instead of|rather than|(?:replaced|replaces|supersedes|superseded)(?! by\b)|no longer|"
-    r"not any ?more|not|wrong about|the old|the former)\b"
+    r"not any ?more|not|wrong about)\b"
 )
+# "the old X" and "the former X" only describe: they govern the value they
+# stand before when the clause retracts something else too ("the old port
+# X was replaced", "ignore the old X" through the prefix above).
+DESCRIBES = r"\b(?:the old|the former)\b"
+RETRACTS_ELSEWHERE = (r"\b(?:replaced|replaces|supersedes|superseded|retired|deprecated|dropped|outdated|obsolete|"
+                      r"no longer|not any ?more|(?:\w+ )?any ?more|instead|rather than|ignore|disregard|forget)\b")
 # A prefix that cites rather than retracts ("as I said previously, X"), or
 # is itself negated ("don't forget X"), governs nothing.
-CANCEL = r"\b(?:said|mentioned|noted|wrote|told you|don't|do not|never|didn't|did not)\s+$"
+CANCEL = r"\b(?:said|mentioned|noted|wrote|told you|don't|do not|never|didn't|did not)\s+[\"'\u201c\u2018]?$"
 # "not" reaches the value at once or past one word ("not port X"): farther,
 # it negates something else ("not sure, but X").
 NOT_REACH = 1
 RETRACT_SUFFIX = (
     r"^[\s\"')]*(?:(?:is|was|are|were|'s|has been|had been|got|isn't|wasn't|is not|was not)\s+"
-    r"(?:now\s+|since\s+|\w+ly\s+)?(?:no longer|not (?:\w+ )?(?:any ?more|current|in use|used|valid|right)|"
+    r"(?:both\s+|all\s+)?(?:now\s+|since\s+|\w+ly\s+)?(?:no longer(?! (?:wrong|stale|outdated|obsolete|old|retired|deprecated|dropped|gone)\b)|not (?:\w+ )?(?:any ?more|current|in use|used|valid|right)|"
     r"(?:\w+ )?any ?more|replaced|superseded|retired|deprecated|dropped|outdated|obsolete|stale|wrong|gone|"
     r"the old\b|old\b)|used to be\b)"
 )
 WAS_BEFORE = (r"\b(?:was|were)\s+(?:\S+\s+){0,%d}$" % (REACH - 1),
-              r"^(?:\s*\S+){0,%d}?\s*\b(?:before|originally|at first|until)\b" % REACH)
+              r"^(?:\s*\S+){0,%d}?\s*\b(?:before|earlier|originally|at first|until)\b" % REACH)
 
 
 def _forms(kind: str, value: str) -> list[str]:
@@ -176,29 +182,73 @@ def _words(s: str) -> int:
     return len(re.findall(r"[\w'./-]+", s))
 
 
-def governed(clause: str, kind: str, spans: list[tuple[int, int]], at: tuple[int, int]) -> bool:
-    """Whether a retracting phrase in `clause` governs the value at `at`;
-    `spans` are every value of the kind there, so a phrase governs only the
-    nearest on its side."""
+# What joins the members of one list ("X or Y", "X and Y", "X, then Y"): a
+# phrase before the list governs each member, and one after it, each.
+JOIN = r"^\s*(?:,\s*)?(?:(?:and|or|then|and then|and later|and before that|and earlier)\s+)?$"
+# "before the move it was X", "earlier it was X": a lead word ahead of "was",
+# at most REACH words before it, as every phrase reaches ("before you change
+# anything, the port was X" is about something else).
+WAS_EARLIER = (r"\b(?:before|earlier|originally|at first|until)\b(?:[\s,]+[\w'./-]+){0,%d}?[\s,]+(?:was|were)\s+"
+               r"(?:\S+\s+){0,%d}$" % (REACH, REACH - 1))
+# A move's destination ("to X", "to port X"): a naming the same clause may
+# retract later ("from 11111 to X, then from X to Y").
+DESTINATION = r"\bto\s+(?:\S+\s+)?$"
+
+
+def _directly(clause: str, spans: list[tuple[int, int]], at: tuple[int, int]) -> tuple[bool, bool]:
+    """Whether a retracting phrase governs the value at `at` by what stands
+    before it, and whether one does by what stands after it (a list's
+    members share the first, and the second the other way)."""
     low = clause.lower()
     start, end = at
     before = [s for s in spans if s[1] <= start]
     after = [s for s in spans if s[0] >= end]
     # A prefix: the last one before the value, with no other value between.
     lo = max((s[1] for s in before), default=0)
+    pre = False
     for m in re.finditer(RETRACT_PREFIX, low[lo:start], re.I):
         if re.search(CANCEL, low[:lo + m.start()], re.I):
             continue
         gap = _words(low[lo + m.end():start])
         if gap <= (NOT_REACH if m.group(0) == "not" else REACH):
-            return True
+            pre = True
+    # "the old X" describes, and retracts only beside a retraction elsewhere.
+    for m in re.finditer(DESCRIBES, low[lo:start], re.I):
+        if _words(low[lo + m.end():start]) <= REACH and re.search(RETRACTS_ELSEWHERE, low):
+            pre = True
+    # "was X before", "earlier it was X".
+    pre = pre or bool(re.search(WAS_EARLIER, low[lo:start], re.I))
     # A suffix, the value its subject: right after it, before any other value.
     hi = min((s[0] for s in after), default=len(low))
     tail = low[end:hi]
-    if re.search(RETRACT_SUFFIX, tail, re.I):
+    post = bool(re.search(RETRACT_SUFFIX, tail, re.I))
+    post = post or bool(re.search(WAS_BEFORE[0], low[lo:start], re.I) and re.search(WAS_BEFORE[1], tail, re.I))
+    return pre, post
+
+
+def governed(clause: str, kind: str, spans: list[tuple[int, int]], at: tuple[int, int]) -> bool:
+    """Whether a retracting phrase in `clause` governs the value at `at`;
+    `spans` are every value of the kind there, so a phrase governs only the
+    nearest on its side, and each member of a list (`JOIN`) the phrase before
+    or after the list governs."""
+    low = clause.lower()
+    pre, post = _directly(clause, spans, at)
+    if pre or post:
         return True
-    # "was X before".
-    return bool(re.search(WAS_BEFORE[0], low[lo:start], re.I) and re.search(WAS_BEFORE[1], tail, re.I))
+    ordered = sorted(spans)
+    i = ordered.index(at)
+    # A list's later members take the phrase before it, its earlier members the one after.
+    j = i
+    while j > 0 and re.search(JOIN, low[ordered[j - 1][1]:ordered[j][0]]):
+        j -= 1
+        if _directly(clause, spans, ordered[j])[0]:
+            return True
+    j = i
+    while j < len(ordered) - 1 and re.search(JOIN, low[ordered[j][1]:ordered[j + 1][0]]):
+        j += 1
+        if _directly(clause, spans, ordered[j])[1]:
+            return True
+    return False
 
 
 def retracts_only(text: str, kind: str, old: str, new: str) -> bool:
@@ -210,10 +260,20 @@ def retracts_only(text: str, kind: str, old: str, new: str) -> bool:
         found = [m.span() for m in re.finditer(pg.KIND_REGEX[kind], c, re.I if kind in pg.KIND_FLAGS else 0)]
         olds, news = _spans(kind, old, c), _spans(kind, new, c)
         spans = sorted(set(found + olds + news))
-        for at in olds:
+        # The old value named twice in a clause ("from 11111 to 27340, then
+        # from 27340 to 38013") is retracted where its last naming is, and an
+        # earlier naming needs a phrase too unless it is a move's destination.
+        # A naming after its retraction gives it back ("from 27340 to 38013,
+        # then back to 27340"; "it was 27340 before and is still 27340").
+        if olds:
             old_seen = True
-            if not governed(c, kind, spans, at):
+            last = max(olds)
+            if not governed(c, kind, spans, last):
                 return False
+            for at in olds:
+                if at != last and not governed(c, kind, spans, at) and \
+                        not re.search(DESTINATION, c.lower()[:at[0]]):
+                    return False
         new_free = new_free or any(not governed(c, kind, spans, at) for at in news)
     return old_seen and new_free
 

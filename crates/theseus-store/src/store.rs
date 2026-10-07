@@ -167,6 +167,21 @@ pub trait Store: Send + Sync {
             .take(limit)
             .collect())
     }
+    /// The latest record of every key of `kind` that `keep` passes, in key
+    /// order (theseus-7087): a key it fails costs its index row alone, and
+    /// its record is never read. This default reads every record of the
+    /// kind.
+    fn latest_of_kind_where(
+        &self,
+        kind: RecordKind,
+        keep: &dyn Fn(&str) -> bool,
+    ) -> Result<Vec<Record>> {
+        Ok(self
+            .latest_of_kind(kind)?
+            .into_iter()
+            .filter(|r| r.key.as_deref().is_some_and(keep))
+            .collect())
+    }
     /// How many keys `kind` has (its entities), where `count_of_kind` counts
     /// every record.
     fn count_keys(&self, kind: RecordKind) -> Result<u64> {
@@ -188,6 +203,19 @@ pub trait Store: Send + Sync {
         _kind: RecordKind,
         _before: Option<u64>,
         _limit: usize,
+    ) -> Result<Option<Newest>> {
+        Ok(None)
+    }
+    /// `newest_keys` of the keys `keep` passes (theseus-7087), in one walk
+    /// of the births: a key it fails is stepped over unread, however many
+    /// there are in a row. Whether older keys remain counts every key, as
+    /// `newest_keys` does. `None` when the store keeps no births whole.
+    fn newest_keys_where(
+        &self,
+        _kind: RecordKind,
+        _before: Option<u64>,
+        _limit: usize,
+        _keep: &dyn Fn(&str) -> bool,
     ) -> Result<Option<Newest>> {
         Ok(None)
     }
@@ -347,6 +375,23 @@ thread_local! {
 /// admission's frames this way.
 pub fn frames_written_here() -> u64 {
     WRITTEN_HERE.with(std::cell::Cell::get)
+}
+
+thread_local! {
+    /// The records this thread has read from the log (theseus-7087).
+    static READ_HERE: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
+/// The records this thread has read from the log since it started, from any
+/// store (theseus-7087): each `pread` of a record, counted on the thread
+/// that read it. A test reads it before and after a call that makes no
+/// `.await` to know how many records the call read.
+pub fn records_read_here() -> u64 {
+    READ_HERE.with(std::cell::Cell::get)
+}
+
+fn count_read() {
+    READ_HERE.with(|n| n.set(n.get() + 1));
 }
 
 /// Run `f`, which waits (for the disk, or for a lock held across it),
@@ -1312,7 +1357,10 @@ impl Inner {
 
     fn read(&self, position: u64) -> Result<Option<Record>> {
         match self.index.location(position)? {
-            Some(loc) => Ok(Some(checked(position, self.wal.read_at(loc)?)?)),
+            Some(loc) => {
+                count_read();
+                Ok(Some(checked(position, self.wal.read_at(loc)?)?))
+            }
             None => Ok(None),
         }
     }
@@ -1339,6 +1387,7 @@ impl Inner {
     /// itself (`get`, `latest_by_key`) is still refused. Any other failure
     /// fails the read.
     fn listed(&self, position: u64, loc: RecordLocation) -> Result<Option<Record>> {
+        count_read();
         match self.wal.read_at(loc) {
             Ok(r) => checked(position, r).map(Some),
             Err(e @ WalError::Corrupt { .. }) => {
@@ -1579,17 +1628,36 @@ impl Store for WalStore {
         self.inner.page(q)
     }
 
+    fn latest_of_kind_where(
+        &self,
+        kind: RecordKind,
+        keep: &dyn Fn(&str) -> bool,
+    ) -> Result<Vec<Record>> {
+        let positions = self.inner.index.positions_of_keys_where(kind, keep)?;
+        self.inner.read_many(&positions)
+    }
+
     fn newest_keys(
         &self,
         kind: RecordKind,
         before: Option<u64>,
         limit: usize,
     ) -> Result<Option<Newest>> {
+        self.newest_keys_where(kind, before, limit, &|_| true)
+    }
+
+    fn newest_keys_where(
+        &self,
+        kind: RecordKind,
+        before: Option<u64>,
+        limit: usize,
+        keep: &dyn Fn(&str) -> bool,
+    ) -> Result<Option<Newest>> {
         let s = &self.inner;
         if !s.index.shaped() {
             return Ok(None);
         }
-        let (keys, more) = s.index.keys_by_birth(kind, before, limit)?;
+        let (keys, more) = s.index.keys_by_birth_where(kind, before, limit, keep)?;
         let positions: Vec<u64> = keys.iter().map(|(_, _, p)| *p).collect();
         let born: std::collections::HashMap<u64, u64> =
             keys.iter().map(|(b, _, p)| (*p, *b)).collect();
@@ -1605,5 +1673,7 @@ impl Store for WalStore {
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_keyed;
 #[cfg(test)]
 mod tests_pages;

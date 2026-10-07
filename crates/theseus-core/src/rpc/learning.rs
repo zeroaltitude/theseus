@@ -93,6 +93,12 @@ impl Core {
         self.store
             .append(&[rec.scoped(&super::judge::scope_of(&pack_name))])?;
         self.rec(row.session_id.as_deref()).announce(&f);
+        // The ladder read first, as an RPC reads it (theseus-289c): the
+        // notices' brake and the ladder's rules ask what acts, which an
+        // unread ladder answers in shadow.
+        if self.runner.judge.config().enabled {
+            self.runner.judge.read_ladder();
+        }
         // v3's notices: a noise label counts toward their brake, and a
         // noticed judgment's post shows the label.
         self.runner.judge.after_label(
@@ -218,7 +224,8 @@ impl Core {
     /// `run_learning`, and what its rules read beyond the scopes: past the
     /// last run's mark, a judgment whose windows closed before it is not
     /// read again (`learning::system::Cut`, theseus-cf5c). The mark keeps
-    /// the last position this run read (`through`) for the next.
+    /// the last position this run read (`through`) for the next, and where
+    /// it cuts (`cut_ms`, theseus-gf8j).
     pub fn run_learning_read(
         &self,
         now_ms: u64,
@@ -242,13 +249,22 @@ impl Core {
             .store
             .get_meta::<Value>(LAST_RUN)?
             .as_ref()
-            .and_then(learning::system::Cut::of);
+            .and_then(|m| learning::system::Cut::of(m, now_ms));
         // Every row at or before this is in the scopes read below.
         let through = self.store.last_position();
+        // The newest judgment's time: where the next run cuts, so a clock
+        // that read ahead never closes a window still open (theseus-gf8j).
+        let mut newest = 0;
         let mut read = learning::system::RulesRead::default();
         for pack_id in learning::pack_ids() {
             let t0 = Instant::now();
             let mut scope = learning::read_scope(&self.store, &pack_id)?;
+            newest = scope
+                .judgments
+                .values()
+                .flatten()
+                .map(|s| s.at_ms)
+                .fold(newest, u64::max);
             let (derived, rules) = self.system_labels_after(&pack_id, &scope, now_ms, cut);
             read += rules;
             for (i, l) in derived.iter().enumerate() {
@@ -304,18 +320,21 @@ impl Core {
         if r.packs.is_empty() && records.is_empty() {
             return Ok((r, read));
         }
-        self.write_run(&r, records, through)?;
+        self.write_run(&r, records, through, now_ms.min(newest))?;
         Ok((r, read))
     }
 
     /// A run's frame: its labels, its `judge.report` rows and its mark,
-    /// which keeps the last position the run read (`through`); then the
-    /// day's file.
+    /// which keeps the last position the run read (`through`) and the time
+    /// the next run cuts at (`cut_ms`: the run's clock, never past the
+    /// newest judgment it read; `learning::system::Cut`); then the day's
+    /// file.
     fn write_run(
         &self,
         r: &LearningReport,
         mut records: Vec<NewRecord>,
         through: u64,
+        cut_ms: u64,
     ) -> anyhow::Result<()> {
         let facts: Vec<fact::judge::JudgeReport<'_>> = r
             .packs
@@ -337,7 +356,7 @@ impl Core {
             kinds::META,
             Some(LAST_RUN),
             &json!({"at_unix_ms": r.at_unix_ms, "date": r.date, "trigger": r.trigger,
-                "through": through}),
+                "through": through, learning::system::CUT_KEY: cut_ms}),
         )?);
         self.store.append(&records)?;
         let rec = self.rec(None);

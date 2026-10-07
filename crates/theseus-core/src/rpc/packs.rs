@@ -120,23 +120,40 @@ fn refused(e: anyhow::Error, what: &str) -> RpcFailure {
 }
 
 impl Core {
-    /// The ladder's first read, after serving (never on the start path), on
-    /// the blocking pool: the adoptions it lacks are written then. Nothing
-    /// with the judge off.
+    /// The ladder's first read, after serving (never on the start path, nor
+    /// on a turn's: theseus-289c), on the blocking pool: the ladder and the
+    /// learned versions, and the learned versions' files from their rows.
+    /// Until it has read, every point answers from the wired lines and the
+    /// roots. The adoptions it finds missing are written between turns, as
+    /// the memory pass writes (`memory_pass::turns`), so none lands inside
+    /// a turn begun at once. Nothing with the judge off.
     pub fn warm_ladder(self: &std::sync::Arc<Self>) {
         if !self.runner.judge.config().enabled {
             return;
         }
-        let core = std::sync::Arc::downgrade(self);
-        tokio::task::spawn_blocking(move || {
-            if let Some(core) = core.upgrade() {
-                core.runner.judge.ladder().standing(crate::judge::LOOP_PACK);
-                // The learned versions (25f), and their files from their
-                // rows.
-                core.runner
-                    .judge
-                    .write_pack_files(&crate::judge::lineage::state_of(&core.store));
+        let judge = self.runner.judge.clone();
+        let turns = self.runner.pass.turns().clone();
+        let state = crate::judge::lineage::state_of(&self.store);
+        tokio::spawn(async move {
+            let j = judge.clone();
+            let missing = tokio::task::spawn_blocking(move || {
+                j.read_ladder();
+                j.write_pack_files(&state);
+                j.ladder().adoption_missing()
+            })
+            .await
+            .unwrap_or(false);
+            if !missing {
+                return;
             }
+            // The read ladder answers an adopted pack at its wired line
+            // until its row is written, so the row can wait: a quiet
+            // stretch after serving first, so a turn submitted as the
+            // daemon begins to answer goes before it.
+            tokio::time::sleep(crate::memory_pass::QUIET).await;
+            let timing = crate::memory_pass::Timing::default();
+            let _between = turns.between(tokio::time::Instant::now(), &timing).await;
+            let _ = tokio::task::spawn_blocking(move || judge.ladder().adopt()).await;
         });
     }
 
@@ -164,7 +181,7 @@ impl Core {
                 source: "compiled".into(),
                 parent: None,
                 root: None,
-                standing: j.placed(&j.root_of(&pack), "") == pack,
+                standing: j.placed_read(&j.root_of(&pack), "") == pack,
                 text: theseus_judge::pack::EMBEDDED
                     .iter()
                     .find(|(n, _)| *n == pack)
@@ -327,15 +344,20 @@ impl Core {
         })
     }
 
-    /// Write the row, or for a security pack ask its card.
+    /// Write the row, or for a security pack ask its card. Either answer
+    /// names a learned version standing ahead of the one moved, where the
+    /// move judges in no session or only in a canary's control arm
+    /// (theseus-nwa5): said, never refused.
     fn promote_with(&self, row: PackModeRow) -> Result<PackPromoteResult> {
-        if needs_card(&row.pack) {
+        let card = needs_card(&row.pack);
+        let ahead = self.ahead_words(&row.pack, &row.mode, row.share, card);
+        if card {
             let q = self.ask_promotion(&row)?;
             return Ok(PackPromoteResult {
                 row: None,
                 said: format!(
                     "{}'s promotion to {} is the owner's card: `theseus confirm {q} --approve` \
-                     writes it. Nothing is written until then.",
+                     writes it. Nothing is written until then.{ahead}",
                     row.pack,
                     crate::fact::ladder::mode_words(&row.mode, row.share)
                 ),
@@ -345,7 +367,7 @@ impl Core {
         let row = self.runner.judge.ladder().write(row)?;
         Ok(PackPromoteResult {
             said: format!(
-                "{} is {}{}.",
+                "{} is {}{}.{ahead}",
                 row.pack,
                 crate::fact::ladder::mode_words(&row.mode, row.share),
                 if row.forced {

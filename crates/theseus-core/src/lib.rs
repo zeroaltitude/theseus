@@ -207,6 +207,8 @@ mod tests_judge_surfaces;
 #[cfg(test)]
 mod tests_ladder;
 #[cfg(test)]
+mod tests_ladder_unread;
+#[cfg(test)]
 mod tests_layouts;
 #[cfg(test)]
 mod tests_learn_loop;
@@ -267,6 +269,8 @@ mod tests_route_base;
 #[cfg(test)]
 mod tests_route_cap;
 #[cfg(test)]
+mod tests_route_keep;
+#[cfg(test)]
 mod tests_route_model;
 #[cfg(test)]
 mod tests_route_rows;
@@ -274,6 +278,12 @@ mod tests_route_rows;
 mod tests_sandbox;
 #[cfg(test)]
 mod tests_security;
+#[cfg(test)]
+mod tests_sink_backlog;
+#[cfg(test)]
+mod tests_sink_between;
+#[cfg(test)]
+mod tests_sink_flush;
 #[cfg(test)]
 mod tests_situation;
 #[cfg(test)]
@@ -300,5 +310,7 @@ mod tests_term;
 mod tests_thinking_writer;
 #[cfg(test)]
 mod tests_tiering;
+#[cfg(test)]
+mod tests_turn_reserve;
 #[cfg(test)]
 mod tests_wakes;

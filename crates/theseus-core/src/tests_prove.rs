@@ -567,7 +567,7 @@ async fn the_default_window_is_the_canarys() {
 
 /// A learned version of loop.v1, `loop.v101`, in its lineage: its
 /// `pack.version` row, read back by the next read of the lineage.
-fn learned_loop(c: &Core) {
+pub(crate) fn learned_loop(c: &Core) {
     let text = include_str!("../../theseus-judge/packs/loop.v1.toml").replacen(
         "version = 1",
         "version = 101",
@@ -647,8 +647,9 @@ async fn a_task_a_learned_version_judged_is_left_out_as_learned() {
 }
 
 /// The window's line names a learned loop version placed inside the
-/// window, by name and day; with none, or one placed before it, or a
-/// declined move, the line is as before (theseus-ag0t).
+/// window, by name and day (theseus-ag0t), and one placed before it that
+/// still stands as it opens (theseus-clbx); with none, a declined move, or
+/// one rolled back before the window, the line is as before.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_window_names_a_learned_version_placed_inside_it() {
     let (r, _) = seeded().await;
@@ -691,13 +692,39 @@ async fn the_window_names_a_learned_version_placed_inside_it() {
         v.window
     );
     // loop.v1's own canary, after both: the window opens there, and they
-    // are before it.
+    // are before it, but loop.v101 still stands as it opens (theseus-clbx).
     tokio::time::sleep(std::time::Duration::from_millis(5)).await;
     ladder.write(row("loop.v1", "canary", false)).unwrap();
     let v = c.judge_prove(Value::Null).await.unwrap();
+    let opened = format!("tasks that ended since loop.v1's move to canary 0.5 on {today}");
     assert_eq!(
         v.window,
-        format!("tasks that ended since loop.v1's move to canary 0.5 on {today}")
+        format!(
+            "{opened}; loop.v101 stood in loop.v1's place from before it (canary 0.5 since \
+             {today})"
+        )
+    );
+    // Rolled back before the window opens: it stood nowhere in it.
+    tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+    ladder
+        .write(row("loop.v101", "rolled_back", false))
+        .unwrap();
+    tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+    ladder.write(row("loop.v1", "canary", false)).unwrap();
+    assert_eq!(c.judge_prove(Value::Null).await.unwrap().window, opened);
+    // Placed again inside the window: both clauses.
+    tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+    ladder.write(row("loop.v101", "shadow", false)).unwrap();
+    tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+    ladder.write(row("loop.v1", "canary", false)).unwrap();
+    tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+    ladder.write(row("loop.v101", "live", false)).unwrap();
+    assert_eq!(
+        c.judge_prove(Value::Null).await.unwrap().window,
+        format!(
+            "{opened}; loop.v101 stood in loop.v1's place from before it (shadow since {today}); \
+             a learned version stood in loop.v1's place: loop.v101 moved to live on {today}"
+        )
     );
 }
 

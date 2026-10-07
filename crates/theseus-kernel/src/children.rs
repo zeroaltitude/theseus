@@ -253,11 +253,13 @@ pub struct Relearned {
 /// command line is a tender's (`TENDERS`), so its supervisor takes it over
 /// instead of starting a second. Every other child is an orphan, reaped by a
 /// sweep once it exits. The old image's `op`, which its runtime killed as it
-/// stopped, is among them, since the new image's tokio never knew it.
+/// stopped, is among them, since the new image's tokio never knew it. A child
+/// still in its exec is read again, up to `EXEC_WAIT` in all (`learn`).
 pub fn relearn() -> Relearned {
     let mut reg = registry();
     let me = std::process::id();
     let mut r = Relearned::default();
+    let mut until = None;
     for pid in children() {
         let Some(s) = stat(pid) else { continue };
         if s.ppid != me
@@ -269,17 +271,81 @@ pub fn relearn() -> Relearned {
         }
         if matches!(s.state, 'Z' | 'X') {
             r.zombies += 1;
-        } else if let Some(job) = crate::job::wrapper_job(pid) {
-            reg.wrappers.insert(pid, job);
-            r.wrappers += 1;
-        } else if let Some(name) = tender_of(pid) {
-            reg.tenders.insert(pid, name.to_string());
-            r.tenders += 1;
-        } else {
-            r.orphans += 1;
+            continue;
+        }
+        let read = &mut || std::fs::read(format!("/proc/{pid}/cmdline")).ok();
+        match learn(read, &mut || in_exec(pid, &mut until)) {
+            Some(Learned::Wrapper(job)) => {
+                reg.wrappers.insert(pid, job);
+                r.wrappers += 1;
+            }
+            Some(Learned::Tender(name)) => {
+                reg.tenders.insert(pid, name.to_string());
+                r.tenders += 1;
+            }
+            _ if stat(pid).is_some_and(|s| matches!(s.state, 'Z' | 'X')) => r.zombies += 1,
+            _ => r.orphans += 1,
         }
     }
     r
+}
+
+/// How long `relearn` waits, in all, for children still in their exec
+/// (theseus-r4hn): a spawn returns inside the exec, whose command line reads
+/// empty until the new image has its arguments (theseus-mi6a, measured up to
+/// 84 ms for a child starved at nice 19). Only an empty command line waits,
+/// so a start with none mid-exec waits for nothing.
+const EXEC_WAIT: std::time::Duration = std::time::Duration::from_millis(500);
+
+/// What a child's command line says it is.
+#[derive(Debug, PartialEq, Eq)]
+enum Learned {
+    Wrapper(String),
+    Tender(&'static str),
+    Other,
+}
+
+/// A child's class, from its command line as `read` gives it (`None`: no
+/// such process). An empty one is a process in its exec (theseus-mi6a), or
+/// one ending: read again while `wait` says to look again. A tender or a
+/// wrapper read in its exec was an orphan for its image's whole life, and
+/// the supervisor started a second tender, which exited on the first's lock.
+/// `None` when the line was still empty as the wait ended.
+fn learn(
+    read: &mut dyn FnMut() -> Option<Vec<u8>>,
+    wait: &mut dyn FnMut() -> bool,
+) -> Option<Learned> {
+    loop {
+        let Some(cmdline) = read() else {
+            return Some(Learned::Other);
+        };
+        if !cmdline.is_empty() {
+            return Some(if let Some(job) = crate::job::job_in_cmdline(&cmdline) {
+                Learned::Wrapper(job)
+            } else if let Some(name) = tender_in(&cmdline) {
+                Learned::Tender(name)
+            } else {
+                Learned::Other
+            });
+        }
+        if !wait() {
+            return None;
+        }
+    }
+}
+
+/// `learn`'s wait for `pid`, in its exec: a millisecond, while `EXEC_WAIT`,
+/// counted from the first wait of the relearn (`until`), lasts and the
+/// process lives. `relearn` runs before the runtime is built, so the sleep
+/// holds no worker.
+fn in_exec(pid: u32, until: &mut Option<std::time::Instant>) -> bool {
+    let now = std::time::Instant::now();
+    let until = *until.get_or_insert(now + EXEC_WAIT);
+    if now >= until || stat(pid).is_none_or(|s| matches!(s.state, 'Z' | 'X')) {
+        return false;
+    }
+    std::thread::sleep(std::time::Duration::from_millis(1));
+    true
 }
 
 /// The live tender of `name` among this process's children: the one it
@@ -499,6 +565,50 @@ mod tests {
         assert!(!reg.owns(10, 501), "a pid reused later is another process");
         assert!(reg.owns(11, 1) && reg.owns(11, 2));
         assert!(!reg.owns(12, 500));
+    }
+
+    /// A child read in its exec (an empty command line) is read again until
+    /// its line is there, by order (theseus-r4hn): the stand-in tender of
+    /// tests/children.rs read so was an orphan. A line still empty when the
+    /// wait ends is none of the daemon's; a full one waits for nothing.
+    #[test]
+    fn a_child_in_its_exec_is_read_again() {
+        let tender = b"/x/theseus-index\0serve\0".to_vec();
+        let wrapper = [
+            b"/x/theseusd\0".as_slice(),
+            crate::job::WRAPPER_MODE.as_bytes(),
+            b"\0--correlation-id\0act_1\0--\0sh\0",
+        ]
+        .concat();
+        let reads = |lines: Vec<Vec<u8>>| {
+            let mut lines = lines.into_iter();
+            move || lines.next().or_else(|| Some(Vec::new()))
+        };
+        let (mut waits, mut read) = (0, reads(vec![vec![], tender.clone()]));
+        let got = learn(&mut read, &mut || {
+            waits += 1;
+            true
+        });
+        assert_eq!((got, waits), (Some(Learned::Tender("index")), 1));
+        let mut read = reads(vec![vec![], vec![], wrapper]);
+        assert_eq!(
+            learn(&mut read, &mut || true),
+            Some(Learned::Wrapper("act_1".into()))
+        );
+        let mut waits = 0;
+        let got = learn(&mut reads(vec![]), &mut || {
+            waits += 1;
+            waits < 4
+        });
+        assert_eq!((got, waits), (None, 4), "an empty line past the wait");
+        let mut read = reads(vec![tender, vec![]]);
+        assert_eq!(
+            learn(&mut read, &mut || panic!("a full line waits for nothing")),
+            Some(Learned::Tender("index"))
+        );
+        assert_eq!(learn(&mut || None, &mut || true), Some(Learned::Other));
+        let mut read = reads(vec![b"sleep\x0030\0".to_vec()]);
+        assert_eq!(learn(&mut read, &mut || true), Some(Learned::Other));
     }
 
     /// A tender is known by its binary's file name and its first argument

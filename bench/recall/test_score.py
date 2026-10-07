@@ -241,6 +241,71 @@ class Scoring(unittest.TestCase):
                 x = r["p001"]
                 self.assertEqual((x.correct, x.stale, x.old_named), (False, True, False), (stale, reply))
 
+    def test_a_careful_reader_and_the_rule_agree_on_these_replies(self):
+        """theseus-qryz: shapes the rule once misread, scored as a careful
+        reader scores them (p001: new 38013, old 27340). Under strict none
+        changes: each names the old value, so each is stale."""
+        wrong = (
+            # `the old` and `the former` describe; they retract nothing alone.
+            "The old port 27340 is back; 38013 was rolled back.",
+            "Don't use 38013; the old port 27340 still works.",
+            "The former port 27340 is the one in use; 38013 is gone.",
+            # A quoted move is cited, and commits to nothing.
+            'You wrote "moved from 27340 to 38013"; I can\'t confirm which one is current.',
+            "You said \u201cmoved from 27340 to 38013\u201d, but I can't tell.",
+            # A negated retraction.
+            "27340 is no longer wrong; 38013 was a typo.",
+            # `new_free`: the new value stated only where a phrase governs it.
+            "It's no longer 27340, and not 38013 either.",
+            # The old value named again after its retraction is the current
+            # one again: its last naming is what the reply leaves standing.
+            "It moved from 27340 to 38013, then back to 27340.",
+            "It was 27340 before, then 38013, and now it's 27340 again.",
+            "38013 replaced 27340, but that was reverted, so it's 27340.",
+            "I previously said 27340 was replaced by 38013, but that was wrong: it's 27340.",
+            "It was 27340 before and it is still 27340; 38013 never went live.",
+            # A lead word reaches "was" four words off, as every phrase does.
+            "Before you change anything, the port was 27340 this morning and still is; 38013 is the target.",
+        )
+        right = (
+            # A list under one phrase: each member is governed.
+            "It's no longer 11111 or 27340; it's 38013.",
+            "It used to be 11111 and later 27340; now it's 38013.",
+            "It moved from 11111 to 27340, then from 27340 to 38013.",
+            "It's 38013 now; 27340 and 11111 are both retired.",
+            "It's 38013 now; 27340, 11111 and 99999 are all retired.",
+            # A lead word ahead of "was".
+            "It's 38013 now; earlier it was 27340.",
+            "Before the move it was 27340; now it's 38013.",
+            "It's 38013; it was 27340 earlier.",
+            # `the old` beside a retraction elsewhere in its clause.
+            "The old port 27340 was replaced; it's 38013 now.",
+            # A move's destination, retracted later in the clause.
+            "It moved to 27340 in May, then from 27340 to 38013 in June.",
+            "It's 38013; originally it was 27340.",
+        )
+        for reply in wrong:
+            for stale in ("strict", "retracted"):
+                r, _ = self.scored([], replies={"p001": reply}, stale=stale)
+                x = r["p001"]
+                self.assertEqual((x.correct, x.stale, x.old_named), (False, True, False), (stale, reply))
+        for reply in right:
+            r, _ = self.scored([], replies={"p001": reply}, stale="retracted")
+            x = r["p001"]
+            self.assertTrue(x.correct and x.old_named, reply)
+            self.assertFalse(x.stale or x.confident_wrong, reply)
+            r, _ = self.scored([], replies={"p001": reply})
+            self.assertEqual((r["p001"].correct, r["p001"].stale), (False, True), reply)
+
+    def test_the_new_value_must_stand_free_for_a_retraction_to_be_right(self):
+        """`retracts_only`'s `new_free`: with every old value retracted but
+        the new one stated only where a phrase governs it, nothing says the
+        new one is current."""
+        r = score.retracts_only
+        self.assertFalse(r("It's no longer 27340, and not 38013 either.", "port", "27340", "38013"))
+        self.assertFalse(r("Ignore 27340 and 38013.", "port", "27340", "38013"))
+        self.assertTrue(r("Ignore 27340; it's 38013.", "port", "27340", "38013"))
+
     def test_a_retracting_phrase_reaches_one_value_four_words_off(self):
         """`retracts_only` on its own: a phrase governs the nearest value on
         its side, within REACH words of the same clause, of any kind."""

@@ -316,25 +316,46 @@ mod tests {
         assert!(!theseus_store::pressure::this_thread_is_idle());
     }
 
+    /// The thread a probe ran on, and its policy.
+    fn probe() -> (i64, i32) {
+        // SAFETY: gettid has no arguments.
+        (unsafe { libc::syscall(libc::SYS_gettid) }, proc_policy())
+    }
+
+    /// A runtime of one worker whose worker has started: a task spawned on
+    /// it and awaited ran on the worker, so the worker's thread has taken its
+    /// place in the blocking pool before anything else is queued there
+    /// (theseus-1g8j). A worker not yet started when the idle thread queued
+    /// its blocking task left two tasks in the pool's queue, the worker's
+    /// first, and two new threads to take them: the idle thread's child, in
+    /// SCHED_IDLE, could take the worker, and the worker's thread the probe.
+    /// Returns the runtime and its worker's thread.
+    fn started() -> (tokio::runtime::Runtime, i64) {
+        let rt = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(1)
+            .build()
+            .unwrap();
+        let worker = rt.block_on(rt.spawn(async { probe().0 })).unwrap();
+        (rt, worker)
+    }
+
     /// A blocking task reached through `block_on` from the nightly run's
     /// thread starts the pool's thread on that thread, which inherits its
     /// SCHED_IDLE (theseus-bgg5); spawned on the runtime first, the same call
     /// starts it on a worker, in SCHED_OTHER.
     #[test]
     fn a_pool_thread_started_from_the_idle_thread_keeps_its_policy() {
-        let fresh = || {
-            tokio::runtime::Builder::new_multi_thread()
-                .worker_threads(1)
-                .build()
-                .unwrap()
-        };
         // The fault, as the loop's `rt.block_on(request)` meets it.
-        let rt = fresh();
+        let (rt, worker) = started();
         let h = rt.handle().clone();
-        let direct = rt.block_on(async move {
+        let (idle, direct) = rt.block_on(async move {
             on_idle_thread(move || {
                 let _g = h.enter();
-                h.block_on(async { tokio::task::spawn_blocking(proc_policy).await.unwrap() })
+                let idle = probe().0;
+                (
+                    idle,
+                    h.block_on(async { tokio::task::spawn_blocking(probe).await.unwrap() }),
+                )
             })
             .unwrap()
             .await
@@ -342,26 +363,38 @@ mod tests {
             .1
         });
         assert_eq!(
-            direct,
+            direct.1,
             libc::SCHED_IDLE,
-            "the pool thread took the idle thread's policy"
+            "the pool thread took the idle thread's policy: the probe ran on thread {}, the \
+             worker is {worker}, the idle thread {idle}",
+            direct.0
         );
         // The fix's shape: the request on the runtime, waited for on the
         // idle thread.
-        let rt = fresh();
+        let (rt, worker) = started();
         let h = rt.handle().clone();
-        let spawned = rt.block_on(async move {
+        let (idle, spawned) = rt.block_on(async move {
             on_idle_thread(move || {
-                h.block_on(
-                    h.spawn(async { tokio::task::spawn_blocking(proc_policy).await.unwrap() }),
+                let idle = probe().0;
+                (
+                    idle,
+                    h.block_on(
+                        h.spawn(async { tokio::task::spawn_blocking(probe).await.unwrap() }),
+                    )
+                    .unwrap(),
                 )
-                .unwrap()
             })
             .unwrap()
             .await
             .unwrap()
             .1
         });
-        assert_eq!(spawned, libc::SCHED_OTHER, "a worker's child");
+        assert_eq!(
+            spawned.1,
+            libc::SCHED_OTHER,
+            "a worker's child: the probe ran on thread {}, the worker is {worker}, the idle \
+             thread {idle}",
+            spawned.0
+        );
     }
 }

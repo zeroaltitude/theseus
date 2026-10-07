@@ -2,8 +2,8 @@
 
 Theseus runs public coding benchmarks through [Harbor](https://github.com/laude-institute/harbor), the harness
 Terminal-Bench 2.0 ships with: Harbor starts each task's container, installs the agent, runs it on the task's
-instruction, and runs the task's tests for a reward. Results are published in
-[`docs/benchmarks.md`](../docs/benchmarks.md) first.
+instruction, and runs the task's tests for a reward. **Every benchmark run ends in a report** in
+[`docs/benchmarks/`](../docs/benchmarks/README.md), published there first ("Every run gets its report", below).
 
 | File | What it is |
 |---|---|
@@ -15,8 +15,13 @@ instruction, and runs the task's tests for a reward. Results are published in
 | `harbor/efficiency.py` | A trial's efficiency record, one shape for every arm: tokens by class and model, dollars, calls, and the harness's CPU and memory apart from its work. |
 | `harbor/sampler.py` | The harness sampler: run in the task's container around the agent, it reads `/proc` and sorts each process into harness, work, or neither. |
 | `harbor/claude_code_agent.py` | Claude Code, measured: `-a claude_code_agent:MeasuredClaudeCode`, Harbor's own adapter with the sampler and the record added. |
+| `harbor/pi_agent.py` | Pi, the minimal coding agent, measured: `-a pi_agent:MeasuredPi`, Harbor's own adapter with its version pinned, the sampler, the trajectory, and the record added. |
+| `harbor/pi_atif.py` | A Pi session log as an ATIF trajectory (Harbor's own Pi adapter writes none). |
 | `harbor/test_*.py` | Their tests. |
 | `report/efficiency.py` | The efficiency report over jobs, one arm each: per-arm numbers, Pareto tables, and three SVG charts. |
+| `report/draft.py` | The report's drafting tool: a run's outputs (Harbor jobs, the bench history, the recall and async scorers' outputs) in; its data file, CSV, figures and skeleton out ("Every run gets its report"). |
+| `report/charts.py` | The house charts: SVG from declarative specs, in the house palette, each in a light and a dark file, every mark with its hover text. The standard library only. |
+| `report/stats.py` | The statistics every report uses: Wilson intervals, a seeded bootstrap, the exact McNemar test, quantiles. |
 
 ## What you need
 
@@ -62,7 +67,7 @@ The adapter's settings come from the environment of `harbor run`:
 | `THESEUS_BENCH_MAX_LOOPS` | `200` | The model calls one turn may make. |
 | `THESEUS_BENCH_PROC_SYNC` | `900` | How long a command may keep the turn waiting, in seconds. A headless run ends with its turn, so a command left running in the background is never read. |
 | `THESEUS_BENCH_SYSTEM_FILE` | (none) | Extra system text, for an A/B arm. |
-| `BENCH_SAMPLE_MS` | `250` | How often the harness sampler reads `/proc`, in milliseconds (both arms). |
+| `BENCH_SAMPLE_MS` | `250` | How often the harness sampler reads `/proc`, in milliseconds (every arm). |
 
 ## How a trial runs, and how it ends
 
@@ -108,7 +113,7 @@ Score alone hides what an arm spends to get it, so every trial of every arm leav
 | `tokens` | The four classes, `input` (uncached), `cache_read`, `cache_write`, and `output`, over every model. Harbor's own counters fold the write into `n_input_tokens`; this keeps it apart. |
 | `by_model` | The same per model, with its `cost_usd` and `calls`: a retry is a call, and a refusal's fallback (Sonnet 5.5's is Sonnet 5) bills a second model. |
 | `cost_usd`, `spend_from` | The trial's dollars, and the file they came from. |
-| `model_calls`, `tool_calls` | Theseus: its turn's `provider` spans (each retry and fallback one) and tool calls. Claude Code: its session log's messages, each message id once, and their tool uses. |
+| `model_calls`, `tool_calls` | Theseus: its turn's `provider` spans (each retry and fallback one) and tool calls. Claude Code: its session log's messages, each message id once, and their tool uses. Pi: its session log's answers (a failed request it retried is one) and summaries' calls, and their `toolCall` blocks. |
 | `wall_s` | The sampler's window. The report takes Harbor's agent execution from `result.json`. |
 | `harness`, `work`, `wrappers` | Each `cpu_s`, `peak_rss_kb` (the largest summed RSS of the class in one sample), and `peak_hwm_kb` (the largest single process's peak). `wrappers` is Theseus's job wrappers, kept apart from both. Null when the sampler did not run. |
 | `container` | The container's cgroup CPU over the window and its `memory.peak`, where they read. |
@@ -119,12 +124,18 @@ them by model, and a turn cut short (a timeout) is its history's answers, as `sp
 stream-json `result` event's `modelUsage` (Claude Code's own bill, per model, in all four classes, with calls
 the session log does not hold); a timed-out run never prints one, so then the session log, each message once
 with its last usage (the log repeats a message's usage on each content block's line; Harbor's converter also
-counts it once), and then Harbor's trajectory, whose steps keep the write in `metrics.extra`.
+counts it once), and then Harbor's trajectory, whose steps keep the write in `metrics.extra`. Pi: its session
+log (`pi/sessions/*.jsonl`), each entry once by its id: every answer's `usage` holds all four classes and
+`cost.total`, Pi's own price from its model catalog, and a compaction's, a branch summary's, and a usage entry's
+own call are counted beside them (a tool's nested model work adds its tokens and dollars, not a call); the
+log is written as each call settles, so a timed-out run keeps what it spent. Without a log, the stream
+(`pi.txt`), each `message_end` once; then Harbor's trajectory.
 
 **The sampler** (`harbor/sampler.py`, the standard library, Python 3.6 or later, one file) is uploaded at
 install, started at nice 19 before the agent's command, and stopped after it, on Harbor's timeout path too.
 Every `BENCH_SAMPLE_MS` it reads `/proc`: a process whose executable name (`/proc/<pid>/comm`) is the arm's
-is **harness** (Theseus: `theseus` and `theseusd`; Claude Code: `claude`); a Theseus job wrapper (`theseusd
+is **harness** (Theseus: `theseus` and `theseusd`; Claude Code: `claude`; Pi: `pi`, the process title its
+Node CLI sets); a Theseus job wrapper (`theseusd
 job-wrapper …`) is apart; whatever descends from them is **work**; the container's own are left out. CPU is
 `utime` and `stime` per process, and a child reaped between two samples is counted from its parent's
 `cutime`. Where the container's cgroup v2 `cpu.stat` reads, its CPU over the window is the total, and the
@@ -145,18 +156,67 @@ with 90; `sampler.py`'s head says what the method misses.
 It is Harbor's own `ClaudeCode` with the sampler and the record added: its install, command line, options,
 trajectory, and name are Harbor's, so its results read as Claude Code's.
 
+**Pi, measured the same way** (theseus-jp9p). [Pi](https://github.com/earendil-works/pi) is the "almost
+nothing" baseline: a short system prompt and four tools (`read`, `bash`, `edit`, `write`), so on the same
+model its score is what a harness's machinery adds to:
+
+```bash
+.venv/bin/harbor run -d terminal-bench@2.0 \
+  -a pi_agent:MeasuredPi -m anthropic/claude-sonnet-5-5 \
+  --ak max_budget_usd=2.0 --ak max_turns=200 -o jobs --job-name pi-tb2 -n 4 -k 2
+```
+
+It is Harbor's own `Pi` (`-a pi`): its install (Node 22 through nvm, then `npm install -g --ignore-scripts
+@earendil-works/pi-coding-agent@<version>`), its command line (`pi --print --mode json --session-dir
+/logs/agent/pi/sessions --provider anthropic --model <id> <instruction>`, its stream teed to `agent/pi.txt`),
+its key (Harbor's model connection passes `ANTHROPIC_API_KEY`), its `thinking` option, and its name are
+Harbor's, so its results read as Pi's. It adds:
+
+- **a pinned version**, `PINNED_VERSION` in `pi_agent.py` (1.0.4), where Harbor's installs `@latest`; `--ak
+  version=…` names another. Pi needs Node 22.19 or later, and the install downloads nvm, Node and the package in
+  the task's container: it needs the network there and a glibc image (Node's builds do not run on Alpine).
+- **the sampler** around Harbor's run, stopped in a `finally`, as Claude Code's is;
+- **a trajectory**, `agent/trajectory.json` from Pi's session log (`pi_atif.py`), which Harbor's own Pi
+  adapter does not write;
+- **Harbor's three counters** from the same log, the cache write inside the input as the other arms count it
+  (Harbor's Pi adapter leaves the write out);
+- **the record**, with two parts only Pi's has: `end`, the last answer's `stopReason` and error (Pi's print
+  mode exits 0 when the provider fails, so this is where a failed run says so), and `limits` (below).
+
+**Fair limits.** Every arm gets the same model, attempts, and wall clock (the task's agent timeout), and the
+same spend and turn caps where its harness has them. Pi has neither, and the arm adds none inside it: it takes
+`max_budget_usd` and `max_turns` as Claude Code does, passes neither to Pi, and records them in the trial's
+`limits`, with `over_budget` (its dollars passed the cap) and `over_turns` (its answers passed it, as Claude
+Code's `--max-turns` counts turns). Such a trial ran on past where the others would have stopped; its reward
+counts, and the report says how many there were.
+
+| | Theseus | Claude Code | Pi |
+|---|---|---|---|
+| Model | `-m` | `-m` | `-m` (`--provider anthropic --model <id>`) |
+| Attempts, wall clock | `-k`, the task's agent timeout | the same | the same |
+| Spend cap | `THESEUS_BENCH_SPEND_LIMIT` (2.0), enforced: the turn stops (exit 5) | `--ak max_budget_usd=2.0`, enforced by Claude Code | none in Pi: `--ak max_budget_usd=2.0` is recorded, and a trial past it flagged, not stopped |
+| Turn cap | `THESEUS_BENCH_MAX_LOOPS` (200 model calls in the turn), enforced (exit 8) | `--ak max_turns=200`, enforced | none in Pi: `--ak max_turns=200` is recorded and held against its answers, not enforced |
+| Thinking | Theseus's default | Claude Code's default | Pi's default, `medium` (Pi 1.0.4 sends Sonnet 5.5 adaptive thinking); `--ak thinking=off\|low\|…` sets it |
+| Tools | Theseus's toollets, every one open | Claude Code's | `read`, `bash`, `edit`, `write` |
+| Version | the binaries built from the checkout | Harbor's install | 1.0.4, pinned |
+| A provider's failure | an error class per exit code | Harbor's | exit 0; the record's `end` says `error` |
+| A timeout | SIGTERM: the turn stops, the daemon stops | Harbor cancels the run | Harbor cancels the run, as Claude Code's |
+
 **The report** reads jobs, one arm each:
 
 ```bash
-python3 bench/report/efficiency.py --arm theseus=jobs/theseus-tb2 --arm claude-code=jobs/claude-tb2 --out /tmp/eff
+python3 bench/report/efficiency.py --arm theseus=jobs/theseus-tb2 --arm claude-code=jobs/claude-tb2 \
+  --arm pi=jobs/pi-tb2 --out /tmp/eff
 ```
 
 It writes `report.md` (per arm: trials, solved, mean reward, dollars, solved per dollar, tokens per solved
 task by class, the share of input read from the cache, model and tool calls, harness CPU per tool call,
 peak harness RSS, and agent time; then score against dollars, tokens, and harness RAM, one point per arm,
-the Pareto front marked), `pareto-dollars.svg`, `pareto-tokens.svg`, `pareto-ram.svg`, and `trials.csv`. A
+the Pareto front marked), `pareto-dollars.svg`, `pareto-tokens.svg`, `pareto-ram.svg` (each with its
+`-dark.svg`, drawn by `report/charts.py`), and `trials.csv`. A
 job from before the record reports what it kept: its dollars, the cache write from the arm's own files or
-its trajectory, and CPU and RAM "not sampled".
+its trajectory, and CPU and RAM "not sampled". When an arm's records carry `limits` (Pi's), the table adds a
+row of its trials past the others' caps.
 
 ## What it costs
 
@@ -164,23 +224,52 @@ Each trial is capped by `THESEUS_BENCH_SPEND_LIMIT`. With Sonnet 5.5, the easy T
 $0.05 a trial. The harder ones take far more turns: a fair guess is $0.30 to $1.00 a task, so **$30 to $90 for the
 full 89 tasks, per configuration and attempt**.
 
-## Where results go
+## Every run gets its report
 
-Harbor writes each job under `-o` (`jobs/<job name>/`): its `result.json`, and each trial's directory with the
-agent's files above and the verifier's output. Published results, with the configuration, the model, the attempts,
-and the cost, go in [`docs/benchmarks.md`](../docs/benchmarks.md). The first full run fills it.
+Every benchmark run, whatever its size (a full run, a held-out rerun, a sample, a live check that paid for model
+calls, an A/B of two builds), ends in a report, and the run is not done until its report is joined:
+
+- **Where:** the run's lane writes `docs/benchmarks/<YYYY-MM-DD>-<suite>[-<slug>].md`, named for the day the run
+  happened, with its figures under `docs/benchmarks/img/<same name>/`, its data file `<same name>.json` beside it
+  (the numbers its tables use and its figures' specs), and a `<same name>.csv` with one row per trial when it has
+  trials. Never raw outputs or transcripts: the trials' own files stay off the public repository.
+- **What:** the sections, the statistics, the figures' rules and the house palette are in
+  [`docs/benchmarks/README.md`](../docs/benchmarks/README.md), "How a report is written". The answer comes first, with
+  its numbers and their intervals; a report says what the run teaches that its tables don't, and says plainly where
+  the run was flawed.
+- **How:** `report/draft.py` drafts it from the run's outputs: the numbers with their intervals, the data file, the
+  CSV, both modes of every figure, and a skeleton with every section in order, its tables filled and its figures
+  placed. The lane writes the narrative, looks at every figure rendered in both modes, and adds the run's row at the
+  top of the index's table. `python3 bench/report/draft.py plot docs/benchmarks/<report>.json` draws a report's
+  figures again from its data file.
+
+```bash
+python3 bench/report/draft.py harbor --suite terminal-bench@2.0 --date <day> --slug <slug> \
+    --arm theseus=jobs/theseus-tb2 --arm claude-code=jobs/claude-tb2 --model anthropic/claude-sonnet-5-5
+python3 bench/report/draft.py history --since <day> --branch main --date <day>     # the gate's speed benches
+python3 bench/report/draft.py recall --scores <scores>/scores.json --date <day>    # bench/recall
+python3 bench/report/draft.py async --date <day> <jobs...>                         # bench/async
+```
+
+`--arm` takes a registry key from `report/charts.py` (`theseus`, `claude-code`, `theseus-batching`, `openclaw`, ...):
+the same arm is the same colour in every report. Harbor writes each job under `-o` (`jobs/<job name>/`): its
+`result.json`, and each trial's directory with the agent's files above and the verifier's output; `--arm` takes a job
+directory, a directory of jobs, or a quoted glob.
 
 ## Tests
 
 ```bash
 python3 -m unittest discover -s bench/harbor                 # the standard library: Harbor's checks skip
 .venv/bin/python -m unittest discover -s bench/harbor         # with Harbor: the ATIF checks and the agents' load
-python3 -m unittest discover -s bench/report                 # the report, over fixture jobs
+python3 -m unittest discover -s bench/report                 # the reports: efficiency, the drafting tool, the charts, the statistics
 ```
 
 They check the profile a trial writes, the exit codes against `crates/theseus/src/outcome.rs`, the container's
 script against a stand-in `theseus` (a turn that ends, a failure, a stop after a timeout, and the sampler around
-each, with and without python3), and the trajectory against Harbor's own ATIF model; the sampler's parsers and
+each, with and without python3), and the trajectory against Harbor's own ATIF model; Pi's record, limits and
+trajectory from a fixture of its session log and stream, and with Harbor its install's pinned version, its
+command line, and the sampler around its run; the sampler's parsers and
 classes on fixture `/proc` trees, and on this host's `/proc` a copy of `sh` under a harness name whose busy child
-must land in work; the record from fixture turns, histories, and session logs; and the report over fixture jobs,
-against numbers worked by hand.
+must land in work; the record from fixture turns, histories, and session logs; the efficiency report over fixture
+jobs, against numbers worked by hand; the drafting tool over fixture Harbor jobs, a bench history whose header
+changes shape, a recall scorer's output and async trials; and every chart form in both modes, parsed back.

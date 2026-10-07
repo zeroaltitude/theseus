@@ -85,8 +85,16 @@ impl Core {
         // One ordered outbound queue: notifications and responses share it, so a
         // turn's events always precede its response on the wire. Past the
         // backlog cap its notifications are dropped until it drains, and the
-        // writer then says what was lost (theseus-in3).
-        let (tx, mut rx) = crate::outbound::channel(self.push.lost.clone());
+        // writer then says what was lost (theseus-in3). The cap is
+        // `BACKLOG_CAP`; only a test may lower it (theseus-0u6g).
+        #[cfg(test)]
+        let cap = self
+            .push
+            .backlog_cap
+            .load(std::sync::atomic::Ordering::Relaxed);
+        #[cfg(not(test))]
+        let cap = crate::outbound::BACKLOG_CAP;
+        let (tx, mut rx) = crate::outbound::channel_capped(self.push.lost.clone(), cap);
         let resp_tx = tx.clone();
         // Asks to be told once everything queued before the ask is written
         // (theseus-ur0): a stop's answer, before the serving loops wake.

@@ -1,0 +1,206 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="340" viewBox="0 0 720 340" role="img" aria-labelledby="t-held-out-items t-held-out-items-d" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
+<title id="t-held-out-items">Held-out items where the four arms disagree at the top 6</title>
+<desc id="t-held-out-items-d">Where does each source win and lose, item by item?</desc>
+<rect width="720" height="340" rx="8" fill="#fcfcfb" stroke="#e6e5df"/>
+<text x="18.0" y="32.0" font-size="15" fill="#0b0b0b" font-weight="600">Held-out items where the four arms disagree at the top 6</text>
+<circle cx="25.0" cy="50.0" r="5" fill="#e87ba4"/>
+<text x="40.0" y="54.0" font-size="12" fill="#52514e">BM25 and entities</text>
+<circle cx="174.1" cy="50.0" r="5" fill="#008300"/>
+<text x="189.1" y="54.0" font-size="12" fill="#52514e">vectors alone</text>
+<circle cx="295.3" cy="50.0" r="5" fill="#4a3aa7"/>
+<text x="310.3" y="54.0" font-size="12" fill="#52514e">weighted fusion</text>
+<circle cx="432.6" cy="50.0" r="5" fill="#52514e"/>
+<text x="447.6" y="54.0" font-size="12" fill="#52514e">all gold in the top 6</text>
+<circle cx="587.7" cy="50.0" r="4.5" fill="#fcfcfb" stroke="#52514e" stroke-width="1.6"/>
+<text x="602.7" y="54.0" font-size="12" fill="#52514e">not</text>
+<text x="116.8" y="141.0" font-size="10" fill="#52514e" transform="rotate(-45 116.8 141.0)">BM25 + entities</text>
+<text x="139.8" y="141.0" font-size="10" fill="#52514e" transform="rotate(-45 139.8 141.0)">vectors</text>
+<text x="162.8" y="141.0" font-size="10" fill="#52514e" transform="rotate(-45 162.8 141.0)">fused, w = 1</text>
+<text x="177.8" y="141.0" font-size="10" fill="#52514e" transform="rotate(-45 177.8 141.0)">fused, w = 6</text>
+<text x="103.3" y="157.5" font-size="11" fill="#0b0b0b" text-anchor="end">preference-3</text>
+<g><title>preference-3 · BM25 + entities: all gold in the top 6</title>
+<rect x="111.3" y="146.0" width="15" height="15" fill="transparent"/>
+<circle cx="118.8" cy="153.5" r="4.6" fill="#e87ba4"/>
+</g>
+<g><title>preference-3 · vectors: not</title>
+<rect x="134.3" y="146.0" width="15" height="15" fill="transparent"/>
+<circle cx="141.8" cy="153.5" r="4" fill="#fcfcfb" stroke="#008300" stroke-width="1.5"/>
+</g>
+<g><title>preference-3 · fused, w = 1: not</title>
+<rect x="157.3" y="146.0" width="15" height="15" fill="transparent"/>
+<circle cx="164.8" cy="153.5" r="4" fill="#fcfcfb" stroke="#4a3aa7" stroke-width="1.5"/>
+</g>
+<g><title>preference-3 · fused, w = 6: not</title>
+<rect x="172.3" y="146.0" width="15" height="15" fill="transparent"/>
+<circle cx="179.8" cy="153.5" r="4" fill="#fcfcfb" stroke="#4a3aa7" stroke-width="1.5"/>
+</g>
+<text x="197.3" y="157.5" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">a lexical-only find; fused at w = 6 it sinks</text>
+<rect x="18.0" y="161.0" width="411.0" height="15" fill="#e1e0d9" fill-opacity="0.45"/>
+<text x="103.3" y="172.5" font-size="11" fill="#0b0b0b" text-anchor="end">decision-4</text>
+<g><title>decision-4 · BM25 + entities: not</title>
+<rect x="111.3" y="161.0" width="15" height="15" fill="transparent"/>
+<circle cx="118.8" cy="168.5" r="4" fill="#fcfcfb" stroke="#e87ba4" stroke-width="1.5"/>
+</g>
+<g><title>decision-4 · vectors: all gold in the top 6</title>
+<rect x="134.3" y="161.0" width="15" height="15" fill="transparent"/>
+<circle cx="141.8" cy="168.5" r="4.6" fill="#008300"/>
+</g>
+<g><title>decision-4 · fused, w = 1: not</title>
+<rect x="157.3" y="161.0" width="15" height="15" fill="transparent"/>
+<circle cx="164.8" cy="168.5" r="4" fill="#fcfcfb" stroke="#4a3aa7" stroke-width="1.5"/>
+</g>
+<g><title>decision-4 · fused, w = 6: all gold in the top 6</title>
+<rect x="172.3" y="161.0" width="15" height="15" fill="transparent"/>
+<circle cx="179.8" cy="168.5" r="4.6" fill="#4a3aa7"/>
+</g>
+<text x="197.3" y="172.5" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">a vector-only find that equal weights lose</text>
+<text x="103.3" y="187.5" font-size="11" fill="#0b0b0b" text-anchor="end">superseded-3</text>
+<g><title>superseded-3 · BM25 + entities: not</title>
+<rect x="111.3" y="176.0" width="15" height="15" fill="transparent"/>
+<circle cx="118.8" cy="183.5" r="4" fill="#fcfcfb" stroke="#e87ba4" stroke-width="1.5"/>
+</g>
+<g><title>superseded-3 · vectors: all gold in the top 6</title>
+<rect x="134.3" y="176.0" width="15" height="15" fill="transparent"/>
+<circle cx="141.8" cy="183.5" r="4.6" fill="#008300"/>
+</g>
+<g><title>superseded-3 · fused, w = 1: all gold in the top 6</title>
+<rect x="157.3" y="176.0" width="15" height="15" fill="transparent"/>
+<circle cx="164.8" cy="183.5" r="4.6" fill="#4a3aa7"/>
+</g>
+<g><title>superseded-3 · fused, w = 6: all gold in the top 6</title>
+<rect x="172.3" y="176.0" width="15" height="15" fill="transparent"/>
+<circle cx="179.8" cy="183.5" r="4.6" fill="#4a3aa7"/>
+</g>
+<text x="197.3" y="187.5" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">a vector-only find that both fusions keep</text>
+<rect x="18.0" y="191.0" width="411.0" height="15" fill="#e1e0d9" fill-opacity="0.45"/>
+<text x="103.3" y="202.5" font-size="11" fill="#0b0b0b" text-anchor="end">injection-3</text>
+<g><title>injection-3 · BM25 + entities: not</title>
+<rect x="111.3" y="191.0" width="15" height="15" fill="transparent"/>
+<circle cx="118.8" cy="198.5" r="4" fill="#fcfcfb" stroke="#e87ba4" stroke-width="1.5"/>
+</g>
+<g><title>injection-3 · vectors: all gold in the top 6</title>
+<rect x="134.3" y="191.0" width="15" height="15" fill="transparent"/>
+<circle cx="141.8" cy="198.5" r="4.6" fill="#008300"/>
+</g>
+<g><title>injection-3 · fused, w = 1: all gold in the top 6</title>
+<rect x="157.3" y="191.0" width="15" height="15" fill="transparent"/>
+<circle cx="164.8" cy="198.5" r="4.6" fill="#4a3aa7"/>
+</g>
+<g><title>injection-3 · fused, w = 6: all gold in the top 6</title>
+<rect x="172.3" y="191.0" width="15" height="15" fill="transparent"/>
+<circle cx="179.8" cy="198.5" r="4.6" fill="#4a3aa7"/>
+</g>
+<text x="197.3" y="202.5" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">a vector-only find that both fusions keep</text>
+<text x="103.3" y="217.5" font-size="11" fill="#0b0b0b" text-anchor="end">paraphrase-5</text>
+<g><title>paraphrase-5 · BM25 + entities: not</title>
+<rect x="111.3" y="206.0" width="15" height="15" fill="transparent"/>
+<circle cx="118.8" cy="213.5" r="4" fill="#fcfcfb" stroke="#e87ba4" stroke-width="1.5"/>
+</g>
+<g><title>paraphrase-5 · vectors: all gold in the top 6</title>
+<rect x="134.3" y="206.0" width="15" height="15" fill="transparent"/>
+<circle cx="141.8" cy="213.5" r="4.6" fill="#008300"/>
+</g>
+<g><title>paraphrase-5 · fused, w = 1: all gold in the top 6</title>
+<rect x="157.3" y="206.0" width="15" height="15" fill="transparent"/>
+<circle cx="164.8" cy="213.5" r="4.6" fill="#4a3aa7"/>
+</g>
+<g><title>paraphrase-5 · fused, w = 6: all gold in the top 6</title>
+<rect x="172.3" y="206.0" width="15" height="15" fill="transparent"/>
+<circle cx="179.8" cy="213.5" r="4.6" fill="#4a3aa7"/>
+</g>
+<text x="197.3" y="217.5" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">a vector-only find that both fusions keep</text>
+<rect x="18.0" y="221.0" width="411.0" height="15" fill="#e1e0d9" fill-opacity="0.45"/>
+<text x="103.3" y="232.5" font-size="11" fill="#0b0b0b" text-anchor="end">paraphrase-6</text>
+<g><title>paraphrase-6 · BM25 + entities: not</title>
+<rect x="111.3" y="221.0" width="15" height="15" fill="transparent"/>
+<circle cx="118.8" cy="228.5" r="4" fill="#fcfcfb" stroke="#e87ba4" stroke-width="1.5"/>
+</g>
+<g><title>paraphrase-6 · vectors: all gold in the top 6</title>
+<rect x="134.3" y="221.0" width="15" height="15" fill="transparent"/>
+<circle cx="141.8" cy="228.5" r="4.6" fill="#008300"/>
+</g>
+<g><title>paraphrase-6 · fused, w = 1: not</title>
+<rect x="157.3" y="221.0" width="15" height="15" fill="transparent"/>
+<circle cx="164.8" cy="228.5" r="4" fill="#fcfcfb" stroke="#4a3aa7" stroke-width="1.5"/>
+</g>
+<g><title>paraphrase-6 · fused, w = 6: all gold in the top 6</title>
+<rect x="172.3" y="221.0" width="15" height="15" fill="transparent"/>
+<circle cx="179.8" cy="228.5" r="4.6" fill="#4a3aa7"/>
+</g>
+<text x="197.3" y="232.5" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">a vector-only find that equal weights lose</text>
+<text x="103.3" y="247.5" font-size="11" fill="#0b0b0b" text-anchor="end">paraphrase-8</text>
+<g><title>paraphrase-8 · BM25 + entities: not</title>
+<rect x="111.3" y="236.0" width="15" height="15" fill="transparent"/>
+<circle cx="118.8" cy="243.5" r="4" fill="#fcfcfb" stroke="#e87ba4" stroke-width="1.5"/>
+</g>
+<g><title>paraphrase-8 · vectors: all gold in the top 6</title>
+<rect x="134.3" y="236.0" width="15" height="15" fill="transparent"/>
+<circle cx="141.8" cy="243.5" r="4.6" fill="#008300"/>
+</g>
+<g><title>paraphrase-8 · fused, w = 1: not</title>
+<rect x="157.3" y="236.0" width="15" height="15" fill="transparent"/>
+<circle cx="164.8" cy="243.5" r="4" fill="#fcfcfb" stroke="#4a3aa7" stroke-width="1.5"/>
+</g>
+<g><title>paraphrase-8 · fused, w = 6: all gold in the top 6</title>
+<rect x="172.3" y="236.0" width="15" height="15" fill="transparent"/>
+<circle cx="179.8" cy="243.5" r="4.6" fill="#4a3aa7"/>
+</g>
+<text x="197.3" y="247.5" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">a vector-only find that equal weights lose</text>
+<rect x="18.0" y="251.0" width="411.0" height="15" fill="#e1e0d9" fill-opacity="0.45"/>
+<text x="103.3" y="262.5" font-size="11" fill="#0b0b0b" text-anchor="end">scale-5</text>
+<g><title>scale-5 · BM25 + entities: not</title>
+<rect x="111.3" y="251.0" width="15" height="15" fill="transparent"/>
+<circle cx="118.8" cy="258.5" r="4" fill="#fcfcfb" stroke="#e87ba4" stroke-width="1.5"/>
+</g>
+<g><title>scale-5 · vectors: all gold in the top 6</title>
+<rect x="134.3" y="251.0" width="15" height="15" fill="transparent"/>
+<circle cx="141.8" cy="258.5" r="4.6" fill="#008300"/>
+</g>
+<g><title>scale-5 · fused, w = 1: not</title>
+<rect x="157.3" y="251.0" width="15" height="15" fill="transparent"/>
+<circle cx="164.8" cy="258.5" r="4" fill="#fcfcfb" stroke="#4a3aa7" stroke-width="1.5"/>
+</g>
+<g><title>scale-5 · fused, w = 6: all gold in the top 6</title>
+<rect x="172.3" y="251.0" width="15" height="15" fill="transparent"/>
+<circle cx="179.8" cy="258.5" r="4.6" fill="#4a3aa7"/>
+</g>
+<text x="197.3" y="262.5" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">a vector-only find that equal weights lose</text>
+<text x="103.3" y="277.5" font-size="11" fill="#0b0b0b" text-anchor="end">scale-6</text>
+<g><title>scale-6 · BM25 + entities: not</title>
+<rect x="111.3" y="266.0" width="15" height="15" fill="transparent"/>
+<circle cx="118.8" cy="273.5" r="4" fill="#fcfcfb" stroke="#e87ba4" stroke-width="1.5"/>
+</g>
+<g><title>scale-6 · vectors: all gold in the top 6</title>
+<rect x="134.3" y="266.0" width="15" height="15" fill="transparent"/>
+<circle cx="141.8" cy="273.5" r="4.6" fill="#008300"/>
+</g>
+<g><title>scale-6 · fused, w = 1: not</title>
+<rect x="157.3" y="266.0" width="15" height="15" fill="transparent"/>
+<circle cx="164.8" cy="273.5" r="4" fill="#fcfcfb" stroke="#4a3aa7" stroke-width="1.5"/>
+</g>
+<g><title>scale-6 · fused, w = 6: all gold in the top 6</title>
+<rect x="172.3" y="266.0" width="15" height="15" fill="transparent"/>
+<circle cx="179.8" cy="273.5" r="4.6" fill="#4a3aa7"/>
+</g>
+<text x="197.3" y="277.5" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">a vector-only find that equal weights lose</text>
+<rect x="18.0" y="281.0" width="411.0" height="15" fill="#e1e0d9" fill-opacity="0.45"/>
+<text x="103.3" y="292.5" font-size="11" fill="#0b0b0b" text-anchor="end">tool-output-6</text>
+<g><title>tool-output-6 · BM25 + entities: not</title>
+<rect x="111.3" y="281.0" width="15" height="15" fill="transparent"/>
+<circle cx="118.8" cy="288.5" r="4" fill="#fcfcfb" stroke="#e87ba4" stroke-width="1.5"/>
+</g>
+<g><title>tool-output-6 · vectors: all gold in the top 6</title>
+<rect x="134.3" y="281.0" width="15" height="15" fill="transparent"/>
+<circle cx="141.8" cy="288.5" r="4.6" fill="#008300"/>
+</g>
+<g><title>tool-output-6 · fused, w = 1: not</title>
+<rect x="157.3" y="281.0" width="15" height="15" fill="transparent"/>
+<circle cx="164.8" cy="288.5" r="4" fill="#fcfcfb" stroke="#4a3aa7" stroke-width="1.5"/>
+</g>
+<g><title>tool-output-6 · fused, w = 6: all gold in the top 6</title>
+<rect x="172.3" y="281.0" width="15" height="15" fill="transparent"/>
+<circle cx="179.8" cy="288.5" r="4.6" fill="#4a3aa7"/>
+</g>
+<text x="197.3" y="292.5" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">a vector-only find that equal weights lose</text>
+<text x="18.0" y="316.0" font-size="11" fill="#52514e">Filled: all the item's gold in the top 6. The other 24 of 34 items agree in all four arms.</text>
+</svg>

@@ -1,0 +1,1232 @@
+{
+ "report": "2026-10-01-retrieval-embedding-engines",
+ "title": "Retrieval: which engine embeds for the index, candle or tract?",
+ "suite": "retrieval (an embedding-engine micro-benchmark, 20 sentences)",
+ "date": "2026-10-01",
+ "commit": "lane/embedspike 61ef202 (throwaway probes; never joined)",
+ "arms": [
+  {
+   "key": "vector",
+   "label": "candle 0.11 (the engine the vector source ships)"
+  },
+  {
+   "key": "other",
+   "label": "tract 0.23.8 (outside the registry)"
+  }
+ ],
+ "summary": {
+  "latency": [
+   {
+    "engine": "candle",
+    "threads": 1,
+    "pass": "first",
+    "tokens": 16,
+    "median_ms": 91.2,
+    "fastest_ms": 87.1,
+    "p95_ms": 98.1,
+    "n": 10,
+    "cpu_ms": 91.0,
+    "load_avg": 4.25
+   },
+   {
+    "engine": "candle",
+    "threads": 1,
+    "pass": "first",
+    "tokens": 128,
+    "median_ms": 364.2,
+    "fastest_ms": 352.4,
+    "p95_ms": 382.3,
+    "n": 10,
+    "cpu_ms": 363.0,
+    "load_avg": 3.99
+   },
+   {
+    "engine": "candle",
+    "threads": 1,
+    "pass": "first",
+    "tokens": 512,
+    "median_ms": 1642.3,
+    "fastest_ms": 1606.8,
+    "p95_ms": 1812.8,
+    "n": 10,
+    "cpu_ms": 1664.0,
+    "load_avg": 3.61
+   },
+   {
+    "engine": "candle",
+    "threads": 1,
+    "pass": "repeat",
+    "tokens": 16,
+    "median_ms": 87.0,
+    "fastest_ms": 81.5,
+    "p95_ms": 97.2,
+    "n": 10,
+    "cpu_ms": 88.0,
+    "load_avg": 3.92
+   },
+   {
+    "engine": "candle",
+    "threads": 1,
+    "pass": "repeat",
+    "tokens": 128,
+    "median_ms": 351.2,
+    "fastest_ms": 348.1,
+    "p95_ms": 355.7,
+    "n": 10,
+    "cpu_ms": 351.0,
+    "load_avg": 3.77
+   },
+   {
+    "engine": "candle",
+    "threads": 1,
+    "pass": "repeat",
+    "tokens": 512,
+    "median_ms": 1605.7,
+    "fastest_ms": 1581.7,
+    "p95_ms": 1744.2,
+    "n": 10,
+    "cpu_ms": 1619.0,
+    "load_avg": 3.06
+   },
+   {
+    "engine": "candle",
+    "threads": 2,
+    "pass": "first",
+    "tokens": 16,
+    "median_ms": 72.2,
+    "fastest_ms": 66.5,
+    "p95_ms": 93.8,
+    "n": 10,
+    "cpu_ms": 123.0,
+    "load_avg": 4.18
+   },
+   {
+    "engine": "candle",
+    "threads": 2,
+    "pass": "first",
+    "tokens": 128,
+    "median_ms": 320.2,
+    "fastest_ms": 271.1,
+    "p95_ms": 523.5,
+    "n": 10,
+    "cpu_ms": 551.0,
+    "load_avg": 4.18
+   },
+   {
+    "engine": "candle",
+    "threads": 2,
+    "pass": "first",
+    "tokens": 512,
+    "median_ms": 1594.2,
+    "fastest_ms": 1104.5,
+    "p95_ms": 2906.1,
+    "n": 10,
+    "cpu_ms": 2524.0,
+    "load_avg": 5.38
+   },
+   {
+    "engine": "candle",
+    "threads": 4,
+    "pass": "first",
+    "tokens": 16,
+    "median_ms": 82.2,
+    "fastest_ms": 76.4,
+    "p95_ms": 91.4,
+    "n": 10,
+    "cpu_ms": 200.0,
+    "load_avg": 2.05
+   },
+   {
+    "engine": "candle",
+    "threads": 4,
+    "pass": "first",
+    "tokens": 128,
+    "median_ms": 224.4,
+    "fastest_ms": 217.4,
+    "p95_ms": 236.3,
+    "n": 10,
+    "cpu_ms": 546.0,
+    "load_avg": 2.29
+   },
+   {
+    "engine": "candle",
+    "threads": 4,
+    "pass": "first",
+    "tokens": 512,
+    "median_ms": 1013.4,
+    "fastest_ms": 850.1,
+    "p95_ms": 1098.4,
+    "n": 10,
+    "cpu_ms": 2448.0,
+    "load_avg": 2.94
+   },
+   {
+    "engine": "candle",
+    "threads": 4,
+    "pass": "repeat",
+    "tokens": 16,
+    "median_ms": 69.5,
+    "fastest_ms": 68.1,
+    "p95_ms": 74.2,
+    "n": 10,
+    "cpu_ms": 182.0,
+    "load_avg": 2.99
+   },
+   {
+    "engine": "candle",
+    "threads": 4,
+    "pass": "repeat",
+    "tokens": 128,
+    "median_ms": 214.7,
+    "fastest_ms": 197.9,
+    "p95_ms": 296.7,
+    "n": 10,
+    "cpu_ms": 554.0,
+    "load_avg": 3.39
+   },
+   {
+    "engine": "candle",
+    "threads": 4,
+    "pass": "repeat",
+    "tokens": 512,
+    "median_ms": 755.3,
+    "fastest_ms": 739.9,
+    "p95_ms": 780.2,
+    "n": 10,
+    "cpu_ms": 1943.0,
+    "load_avg": 3.52
+   },
+   {
+    "engine": "candle",
+    "threads": 8,
+    "pass": "first",
+    "tokens": 16,
+    "median_ms": 139.8,
+    "fastest_ms": 133.5,
+    "p95_ms": 151.8,
+    "n": 10,
+    "cpu_ms": 432.0,
+    "load_avg": 7.47
+   },
+   {
+    "engine": "candle",
+    "threads": 8,
+    "pass": "first",
+    "tokens": 128,
+    "median_ms": 354.9,
+    "fastest_ms": 332.4,
+    "p95_ms": 401.5,
+    "n": 10,
+    "cpu_ms": 1094.0,
+    "load_avg": 7.47
+   },
+   {
+    "engine": "candle",
+    "threads": 8,
+    "pass": "first",
+    "tokens": 512,
+    "median_ms": 882.4,
+    "fastest_ms": 828.9,
+    "p95_ms": 967.5,
+    "n": 10,
+    "cpu_ms": 3060.0,
+    "load_avg": 8.03
+   },
+   {
+    "engine": "tract",
+    "threads": 1,
+    "pass": "first",
+    "tokens": 16,
+    "median_ms": 86.0,
+    "fastest_ms": 82.4,
+    "p95_ms": 89.4,
+    "n": 10,
+    "cpu_ms": 85.0,
+    "load_avg": 3.61
+   },
+   {
+    "engine": "tract",
+    "threads": 1,
+    "pass": "first",
+    "tokens": 128,
+    "median_ms": 461.0,
+    "fastest_ms": 448.5,
+    "p95_ms": 487.9,
+    "n": 10,
+    "cpu_ms": 465.0,
+    "load_avg": 3.4
+   },
+   {
+    "engine": "tract",
+    "threads": 1,
+    "pass": "first",
+    "tokens": 512,
+    "median_ms": 2343.3,
+    "fastest_ms": 2269.6,
+    "p95_ms": 2433.1,
+    "n": 10,
+    "cpu_ms": 2345.0,
+    "load_avg": 2.59
+   },
+   {
+    "engine": "tract",
+    "threads": 1,
+    "pass": "repeat",
+    "tokens": 16,
+    "median_ms": 84.1,
+    "fastest_ms": 82.4,
+    "p95_ms": 87.7,
+    "n": 10,
+    "cpu_ms": 85.0,
+    "load_avg": 5.27
+   },
+   {
+    "engine": "tract",
+    "threads": 1,
+    "pass": "repeat",
+    "tokens": 128,
+    "median_ms": 490.5,
+    "fastest_ms": 458.4,
+    "p95_ms": 516.1,
+    "n": 10,
+    "cpu_ms": 488.0,
+    "load_avg": 4.93
+   },
+   {
+    "engine": "tract",
+    "threads": 1,
+    "pass": "repeat",
+    "tokens": 512,
+    "median_ms": 2285.1,
+    "fastest_ms": 2154.2,
+    "p95_ms": 2516.1,
+    "n": 10,
+    "cpu_ms": 2286.0,
+    "load_avg": 3.92
+   },
+   {
+    "engine": "tract",
+    "threads": 2,
+    "pass": "first",
+    "tokens": 16,
+    "median_ms": 115.9,
+    "fastest_ms": 70.9,
+    "p95_ms": 467.8,
+    "n": 10,
+    "cpu_ms": 159.0,
+    "load_avg": 5.51
+   },
+   {
+    "engine": "tract",
+    "threads": 2,
+    "pass": "first",
+    "tokens": 128,
+    "median_ms": 315.2,
+    "fastest_ms": 284.3,
+    "p95_ms": 436.4,
+    "n": 10,
+    "cpu_ms": 511.0,
+    "load_avg": 6.59
+   },
+   {
+    "engine": "tract",
+    "threads": 2,
+    "pass": "first",
+    "tokens": 512,
+    "median_ms": 1357.4,
+    "fastest_ms": 1273.2,
+    "p95_ms": 1461.7,
+    "n": 10,
+    "cpu_ms": 2231.0,
+    "load_avg": 6.98
+   },
+   {
+    "engine": "tract",
+    "threads": 4,
+    "pass": "first",
+    "tokens": 16,
+    "median_ms": 70.7,
+    "fastest_ms": 66.5,
+    "p95_ms": 74.7,
+    "n": 10,
+    "cpu_ms": 166.0,
+    "load_avg": 3.1
+   },
+   {
+    "engine": "tract",
+    "threads": 4,
+    "pass": "first",
+    "tokens": 128,
+    "median_ms": 268.2,
+    "fastest_ms": 234.8,
+    "p95_ms": 410.3,
+    "n": 10,
+    "cpu_ms": 626.0,
+    "load_avg": 3.1
+   },
+   {
+    "engine": "tract",
+    "threads": 4,
+    "pass": "first",
+    "tokens": 512,
+    "median_ms": 1152.1,
+    "fastest_ms": 877.0,
+    "p95_ms": 1311.0,
+    "n": 10,
+    "cpu_ms": 2681.0,
+    "load_avg": 3.09
+   },
+   {
+    "engine": "tract",
+    "threads": 4,
+    "pass": "repeat",
+    "tokens": 16,
+    "median_ms": 50.7,
+    "fastest_ms": 49.2,
+    "p95_ms": 53.5,
+    "n": 10,
+    "cpu_ms": 126.0,
+    "load_avg": 3.06
+   },
+   {
+    "engine": "tract",
+    "threads": 4,
+    "pass": "repeat",
+    "tokens": 128,
+    "median_ms": 217.0,
+    "fastest_ms": 212.2,
+    "p95_ms": 269.2,
+    "n": 10,
+    "cpu_ms": 547.0,
+    "load_avg": 2.89
+   },
+   {
+    "engine": "tract",
+    "threads": 4,
+    "pass": "repeat",
+    "tokens": 512,
+    "median_ms": 867.4,
+    "fastest_ms": 845.5,
+    "p95_ms": 913.5,
+    "n": 10,
+    "cpu_ms": 2172.0,
+    "load_avg": 2.99
+   },
+   {
+    "engine": "tract",
+    "threads": 8,
+    "pass": "first",
+    "tokens": 16,
+    "median_ms": 92.4,
+    "fastest_ms": 82.2,
+    "p95_ms": 96.9,
+    "n": 10,
+    "cpu_ms": 297.0,
+    "load_avg": 8.03
+   },
+   {
+    "engine": "tract",
+    "threads": 8,
+    "pass": "first",
+    "tokens": 128,
+    "median_ms": 407.6,
+    "fastest_ms": 380.5,
+    "p95_ms": 466.1,
+    "n": 10,
+    "cpu_ms": 1255.0,
+    "load_avg": 8.11
+   },
+   {
+    "engine": "tract",
+    "threads": 8,
+    "pass": "first",
+    "tokens": 512,
+    "median_ms": 841.1,
+    "fastest_ms": 815.4,
+    "p95_ms": 884.7,
+    "n": 10,
+    "cpu_ms": 2904.0,
+    "load_avg": 7.89
+   }
+  ],
+  "tract_over_candle_1_thread": {
+   "16": [
+    0.94,
+    0.97
+   ],
+   "128": [
+    1.27,
+    1.4
+   ],
+   "512": [
+    1.43,
+    1.42
+   ]
+  },
+  "variants": [
+   {
+    "tag": "candle-f32-t1-lat",
+    "label": "candle f32",
+    "engine": "candle",
+    "variant": "f32",
+    "threads": 1,
+    "rss_loaded_mib": 532.0,
+    "peak_mib": 1054.0,
+    "load_ms": 416.0,
+    "ms_16": 91.0,
+    "ms_128": 364.0,
+    "ms_512": 1642.0
+   },
+   {
+    "tag": "candle-f32-t1-v3-lat",
+    "label": "candle f32, x86-64-v3",
+    "engine": "candle",
+    "variant": "f32",
+    "threads": 1,
+    "rss_loaded_mib": 533.0,
+    "peak_mib": 1055.0,
+    "load_ms": 273.0,
+    "ms_16": 85.0,
+    "ms_128": 367.0,
+    "ms_512": 1616.0
+   },
+   {
+    "tag": "candle-f16-t1-lat",
+    "label": "candle f16",
+    "engine": "candle",
+    "variant": "f16",
+    "threads": 1,
+    "rss_loaded_mib": 271.0,
+    "peak_mib": 800.0,
+    "load_ms": 532.0,
+    "ms_16": 267.0,
+    "ms_128": 878.0,
+    "ms_512": 3466.0
+   },
+   {
+    "tag": "candle-f16-t1-v3-lat",
+    "label": "candle f16, x86-64-v3",
+    "engine": "candle",
+    "variant": "f16",
+    "threads": 1,
+    "rss_loaded_mib": 271.0,
+    "peak_mib": 800.0,
+    "load_ms": 537.0,
+    "ms_16": 345.0,
+    "ms_128": 791.0,
+    "ms_512": 3057.0
+   },
+   {
+    "tag": "candle-q8-t1-v3-lat",
+    "label": "candle Q8_0, x86-64-v3",
+    "engine": "candle",
+    "variant": "q8",
+    "threads": 1,
+    "rss_loaded_mib": 171.0,
+    "peak_mib": 699.0,
+    "load_ms": 770.0,
+    "ms_16": 105.0,
+    "ms_128": 704.0,
+    "ms_512": 3383.0
+   },
+   {
+    "tag": "candle-q8-t1-lat",
+    "label": "candle Q8_0",
+    "engine": "candle",
+    "variant": "q8",
+    "threads": 1,
+    "rss_loaded_mib": 171.0,
+    "peak_mib": 699.0,
+    "load_ms": 1585.0,
+    "ms_16": 1230.0,
+    "ms_128": 8034.0,
+    "ms_512": 23185.0
+   },
+   {
+    "tag": "tract-f32-t1-lat",
+    "label": "tract f32",
+    "engine": "tract",
+    "variant": "f32",
+    "threads": 1,
+    "rss_loaded_mib": 547.0,
+    "peak_mib": 1063.0,
+    "load_ms": 1324.0,
+    "ms_16": 86.0,
+    "ms_128": 461.0,
+    "ms_512": 2343.0
+   },
+   {
+    "tag": "tract-detect-t1-lat",
+    "label": "tract f32, fused (detect)",
+    "engine": "tract",
+    "variant": "detect",
+    "threads": 1,
+    "rss_loaded_mib": 546.0,
+    "peak_mib": 1065.0,
+    "load_ms": 1407.0,
+    "ms_16": 83.0,
+    "ms_128": 449.0,
+    "ms_512": 2196.0
+   },
+   {
+    "tag": "candle-f32-t4-lat",
+    "label": "candle f32, 4 threads",
+    "engine": "candle",
+    "variant": "f32",
+    "threads": 4,
+    "rss_loaded_mib": 532.0,
+    "peak_mib": 1055.0,
+    "load_ms": 242.0,
+    "ms_16": 82.0,
+    "ms_128": 224.0,
+    "ms_512": 1013.0
+   },
+   {
+    "tag": "candle-q8-t4-v3-lat",
+    "label": "candle Q8_0, x86-64-v3, 4 threads",
+    "engine": "candle",
+    "variant": "q8",
+    "threads": 4,
+    "rss_loaded_mib": 171.0,
+    "peak_mib": 699.0,
+    "load_ms": 693.0,
+    "ms_16": 48.0,
+    "ms_128": 305.0,
+    "ms_512": 1325.0
+   },
+   {
+    "tag": "tract-f32-t4-lat",
+    "label": "tract f32, 4 threads",
+    "engine": "tract",
+    "variant": "f32",
+    "threads": 4,
+    "rss_loaded_mib": 547.0,
+    "peak_mib": 1065.0,
+    "load_ms": 1365.0,
+    "ms_16": 71.0,
+    "ms_128": 268.0,
+    "ms_512": 1152.0
+   },
+   {
+    "tag": "tract-detect-t4-lat",
+    "label": "tract f32, fused, 4 threads",
+    "engine": "tract",
+    "variant": "detect",
+    "threads": 4,
+    "rss_loaded_mib": 546.0,
+    "peak_mib": 1065.0,
+    "load_ms": 1179.0,
+    "ms_16": 62.0,
+    "ms_128": 287.0,
+    "ms_512": 905.0
+   },
+   {
+    "tag": "candle-f16-t4-lat",
+    "label": "candle f16, 4 threads",
+    "engine": "candle",
+    "variant": "f16",
+    "threads": 4,
+    "rss_loaded_mib": 271.0,
+    "peak_mib": 800.0,
+    "load_ms": 757.0,
+    "ms_16": 137.0,
+    "ms_128": 406.0,
+    "ms_512": 1560.0
+   },
+   {
+    "tag": "candle-f16-t4-v3-lat",
+    "label": "candle f16, x86-64-v3, 4 threads",
+    "engine": "candle",
+    "variant": "f16",
+    "threads": 4,
+    "rss_loaded_mib": 271.0,
+    "peak_mib": 800.0,
+    "load_ms": 469.0,
+    "ms_16": 149.0,
+    "ms_128": 381.0,
+    "ms_512": 1245.0
+   },
+   {
+    "tag": "candle-q8-t4-lat",
+    "label": "candle Q8_0, 4 threads",
+    "engine": "candle",
+    "variant": "q8",
+    "threads": 4,
+    "rss_loaded_mib": 171.0,
+    "peak_mib": 699.0,
+    "load_ms": 1348.0,
+    "ms_16": 207.0,
+    "ms_128": 1643.0,
+    "ms_512": 6844.0
+   }
+  ],
+  "loads": {
+   "candle f32": {
+    "cold_ms": [
+     407.0,
+     365.0
+    ],
+    "warm_ms": [
+     250.0,
+     257.0
+    ],
+    "first_query_ms": [
+     86.0,
+     91.0,
+     92.0,
+     89.0
+    ]
+   },
+   "candle f16": {
+    "cold_ms": [
+     597.0,
+     535.0
+    ],
+    "warm_ms": [
+     455.0,
+     412.0
+    ],
+    "first_query_ms": [
+     270.0,
+     258.0,
+     261.0,
+     254.0
+    ]
+   },
+   "tract f32": {
+    "cold_ms": [
+     1393.0,
+     1315.0
+    ],
+    "warm_ms": [
+     1157.0,
+     1069.0
+    ],
+    "first_query_ms": [
+     86.0,
+     81.0,
+     91.0,
+     80.0
+    ]
+   }
+  },
+  "batching": [
+   {
+    "tag": "candle-f32-t1-batch128",
+    "tokens": 128,
+    "batch": 1,
+    "ms_per_chunk": 379.0,
+    "load_avg": 6.53
+   },
+   {
+    "tag": "candle-f32-t1-batch128",
+    "tokens": 128,
+    "batch": 4,
+    "ms_per_chunk": 348.0,
+    "load_avg": 6.16
+   },
+   {
+    "tag": "candle-f32-t1-batch128",
+    "tokens": 128,
+    "batch": 8,
+    "ms_per_chunk": 336.0,
+    "load_avg": 5.31
+   },
+   {
+    "tag": "candle-f32-t1-batch128",
+    "tokens": 128,
+    "batch": 16,
+    "ms_per_chunk": 334.0,
+    "load_avg": 3.91
+   },
+   {
+    "tag": "candle-f32-t1-batch128-r2",
+    "tokens": 128,
+    "batch": 1,
+    "ms_per_chunk": 417.0,
+    "load_avg": 2.78
+   },
+   {
+    "tag": "candle-f32-t1-batch128-r2",
+    "tokens": 128,
+    "batch": 4,
+    "ms_per_chunk": 321.0,
+    "load_avg": 2.8
+   },
+   {
+    "tag": "candle-f32-t1-batch128-r2",
+    "tokens": 128,
+    "batch": 8,
+    "ms_per_chunk": 324.0,
+    "load_avg": 2.4
+   },
+   {
+    "tag": "tract-f32-t1-batch128",
+    "tokens": 128,
+    "batch": 1,
+    "ms_per_chunk": 539.0,
+    "load_avg": 7.37
+   },
+   {
+    "tag": "tract-f32-t1-batch128",
+    "tokens": 128,
+    "batch": 4,
+    "ms_per_chunk": 1301.0,
+    "load_avg": 6.97
+   },
+   {
+    "tag": "tract-f32-t1-batch128",
+    "tokens": 128,
+    "batch": 8,
+    "ms_per_chunk": 1072.0,
+    "load_avg": 7.32
+   },
+   {
+    "tag": "tract-f32-t1-batch128",
+    "tokens": 128,
+    "batch": 16,
+    "ms_per_chunk": 1297.0,
+    "load_avg": 10.04
+   },
+   {
+    "tag": "tract-f32-t1-batch128-r2",
+    "tokens": 128,
+    "batch": 1,
+    "ms_per_chunk": 464.0,
+    "load_avg": 3.43
+   },
+   {
+    "tag": "tract-f32-t1-batch128-r2",
+    "tokens": 128,
+    "batch": 4,
+    "ms_per_chunk": 474.0,
+    "load_avg": 3.09
+   },
+   {
+    "tag": "tract-f32-t1-batch128-r2",
+    "tokens": 128,
+    "batch": 8,
+    "ms_per_chunk": 485.0,
+    "load_avg": 2.5
+   },
+   {
+    "tag": "candle-f32-t4-batch128",
+    "tokens": 128,
+    "batch": 1,
+    "ms_per_chunk": 206.0,
+    "load_avg": 2.69
+   },
+   {
+    "tag": "candle-f32-t4-batch128",
+    "tokens": 128,
+    "batch": 4,
+    "ms_per_chunk": 170.0,
+    "load_avg": 2.55
+   },
+   {
+    "tag": "candle-f32-t4-batch128",
+    "tokens": 128,
+    "batch": 8,
+    "ms_per_chunk": 164.0,
+    "load_avg": 2.67
+   },
+   {
+    "tag": "candle-f32-t4-batch128",
+    "tokens": 128,
+    "batch": 16,
+    "ms_per_chunk": 168.0,
+    "load_avg": 2.5
+   },
+   {
+    "tag": "tract-f32-t4-batch128",
+    "tokens": 128,
+    "batch": 1,
+    "ms_per_chunk": 218.0,
+    "load_avg": 3.07
+   },
+   {
+    "tag": "tract-f32-t4-batch128",
+    "tokens": 128,
+    "batch": 4,
+    "ms_per_chunk": 198.0,
+    "load_avg": 2.99
+   },
+   {
+    "tag": "tract-f32-t4-batch128",
+    "tokens": 128,
+    "batch": 8,
+    "ms_per_chunk": 207.0,
+    "load_avg": 2.83
+   },
+   {
+    "tag": "tract-f32-t4-batch128",
+    "tokens": 128,
+    "batch": 16,
+    "ms_per_chunk": 204.0,
+    "load_avg": 2.76
+   },
+   {
+    "tag": "candle-f32-t1-batch512",
+    "tokens": 512,
+    "batch": 1,
+    "ms_per_chunk": 1680.0,
+    "load_avg": 3.57
+   },
+   {
+    "tag": "candle-f32-t1-batch512",
+    "tokens": 512,
+    "batch": 4,
+    "ms_per_chunk": 1697.0,
+    "load_avg": 2.99
+   },
+   {
+    "tag": "tract-f32-t1-batch512",
+    "tokens": 512,
+    "batch": 1,
+    "ms_per_chunk": 2693.0,
+    "load_avg": 8.98
+   },
+   {
+    "tag": "tract-f32-t1-batch512",
+    "tokens": 512,
+    "batch": 4,
+    "ms_per_chunk": 2751.0,
+    "load_avg": 6.81
+   },
+   {
+    "tag": "candle-f32-t4-batch512",
+    "tokens": 512,
+    "batch": 1,
+    "ms_per_chunk": 763.0,
+    "load_avg": 2.73
+   },
+   {
+    "tag": "candle-f32-t4-batch512",
+    "tokens": 512,
+    "batch": 4,
+    "ms_per_chunk": 746.0,
+    "load_avg": 2.55
+   },
+   {
+    "tag": "tract-f32-t4-batch512",
+    "tokens": 512,
+    "batch": 1,
+    "ms_per_chunk": 877.0,
+    "load_avg": 2.71
+   },
+   {
+    "tag": "tract-f32-t4-batch512",
+    "tokens": 512,
+    "batch": 4,
+    "ms_per_chunk": 907.0,
+    "load_avg": 2.57
+   }
+  ],
+  "agreement": {
+   "candle f32 vs tract f32 (musl builds)": {
+    "full": {
+     "min_cos": 0.999999999996123,
+     "one_minus_min_cos": 3.877e-12,
+     "max_abs_diff": 3.31570505e-07,
+     "n": 20
+    },
+    "cut": {
+     "min_cos": 0.999999999996716,
+     "one_minus_min_cos": 3.284e-12,
+     "max_abs_diff": 4.98739309e-07,
+     "n": 20
+    }
+   },
+   "candle f16 vs candle f32": {
+    "full": {
+     "min_cos": 0.999998717880672,
+     "one_minus_min_cos": 1.282119328e-06,
+     "max_abs_diff": 0.000264406284497,
+     "n": 20
+    },
+    "cut": {
+     "min_cos": 0.999998876330612,
+     "one_minus_min_cos": 1.123669388e-06,
+     "max_abs_diff": 0.000420807543618,
+     "n": 20
+    }
+   },
+   "candle Q8_0 vs candle f32 (quick builds)": {
+    "full": {
+     "min_cos": 0.99828836394045,
+     "one_minus_min_cos": 0.00171163605955,
+     "max_abs_diff": 0.007551146753693,
+     "n": 20
+    },
+    "cut": {
+     "min_cos": 0.998220211390183,
+     "one_minus_min_cos": 0.001779788609817,
+     "max_abs_diff": 0.012703400212947,
+     "n": 20
+    }
+   },
+   "candle-transformers' model vs the port": {
+    "full": {
+     "min_cos": 1.0,
+     "one_minus_min_cos": 0.0,
+     "max_abs_diff": 0.0,
+     "n": 20
+    },
+    "cut": {
+     "min_cos": 1.0,
+     "one_minus_min_cos": 0.0,
+     "max_abs_diff": 0.0,
+     "n": 20
+    }
+   },
+   "tract fused (detect) vs tract f32": {
+    "full": {
+     "min_cos": 1.0,
+     "one_minus_min_cos": 0.0,
+     "max_abs_diff": 0.0,
+     "n": 20
+    },
+    "cut": {
+     "min_cos": 1.0,
+     "one_minus_min_cos": 0.0,
+     "max_abs_diff": 0.0,
+     "n": 20
+    }
+   }
+  },
+  "ranking_top1": {
+   "agree-candle-f32-t4.json": {
+    "full": 5,
+    "cut": 6,
+    "queries": 6,
+    "padded_vs_single_min_cos": 0.9999999999995741
+   },
+   "agree-tract-f32-t4.json": {
+    "full": 5,
+    "cut": 6,
+    "queries": 6,
+    "padded_vs_single_min_cos": 0.9999999999991793
+   },
+   "agree-candle-f16-t4.json": {
+    "full": 5,
+    "cut": 6,
+    "queries": 6,
+    "padded_vs_single_min_cos": 1.0
+   },
+   "agree-candle-q8-t4-quick.json": {
+    "full": 5,
+    "cut": 5,
+    "queries": 6,
+    "padded_vs_single_min_cos": 0.9997617679452692
+   }
+  },
+  "tract_f16_vectors_nan": true,
+  "sizes_as_reported": [
+   {
+    "binary": "probe-empty (std, serde_json)",
+    "bytes": 432568
+   },
+   {
+    "binary": "probe-base (+ tokenizers 0.23, the driver)",
+    "bytes": 3537800
+   },
+   {
+    "binary": "probe-candle (+ candle-core, candle-nn, the port)",
+    "bytes": 5226248
+   },
+   {
+    "binary": "probe-tract (+ tract-onnx, the Range op)",
+    "bytes": 27000456
+   }
+  ]
+ },
+ "figures": [
+  {
+   "name": "latency",
+   "form": "intervals",
+   "title": "Time to embed one chunk, f32, batch 1: candle 0.11 and tract 0.23.8",
+   "question": "Which engine embeds a chunk faster, on the one thread the design budgets?",
+   "note": "Static musl release builds; the median of 10 timed runs after 2 warm-ups, whiskers fastest to p95. A shared i5-12600K under WSL2 (load 2 to 4).",
+   "x": {
+    "label": "ms per chunk (log scale)",
+    "format": "ms",
+    "log": true,
+    "min": 50,
+    "max": 3000
+   },
+   "rows": [
+    {
+     "label": "16 tokens · candle",
+     "arm": "vector",
+     "group": "1 thread",
+     "value": 91.2,
+     "lo": 87.1,
+     "hi": 98.1,
+     "tip": "candle, 1 thread, 16 tokens: median 91 ms (fastest 87, p95 98; 10 runs); repeat pass 87 ms"
+    },
+    {
+     "label": "16 tokens · tract",
+     "arm": "other",
+     "group": "1 thread",
+     "value": 86.0,
+     "lo": 82.4,
+     "hi": 89.4,
+     "tip": "tract, 1 thread, 16 tokens: median 86 ms (fastest 82, p95 89; 10 runs); repeat pass 84 ms"
+    },
+    {
+     "label": "128 tokens · candle",
+     "arm": "vector",
+     "group": "1 thread",
+     "value": 364.2,
+     "lo": 352.4,
+     "hi": 382.3,
+     "tip": "candle, 1 thread, 128 tokens: median 364 ms (fastest 352, p95 382; 10 runs); repeat pass 351 ms"
+    },
+    {
+     "label": "128 tokens · tract",
+     "arm": "other",
+     "group": "1 thread",
+     "value": 461.0,
+     "lo": 448.5,
+     "hi": 487.9,
+     "tip": "tract, 1 thread, 128 tokens: median 461 ms (fastest 448, p95 488; 10 runs); repeat pass 491 ms"
+    },
+    {
+     "label": "512 tokens · candle",
+     "arm": "vector",
+     "group": "1 thread",
+     "value": 1642.3,
+     "lo": 1606.8,
+     "hi": 1812.8,
+     "tip": "candle, 1 thread, 512 tokens: median 1642 ms (fastest 1607, p95 1813; 10 runs); repeat pass 1606 ms"
+    },
+    {
+     "label": "512 tokens · tract",
+     "arm": "other",
+     "group": "1 thread",
+     "value": 2343.3,
+     "lo": 2269.6,
+     "hi": 2433.1,
+     "tip": "tract, 1 thread, 512 tokens: median 2343 ms (fastest 2270, p95 2433; 10 runs); repeat pass 2285 ms"
+    },
+    {
+     "label": "16 tokens · candle",
+     "arm": "vector",
+     "group": "4 threads",
+     "value": 82.2,
+     "lo": 76.4,
+     "hi": 91.4,
+     "tip": "candle, 4 threads, 16 tokens: median 82 ms (fastest 76, p95 91; 10 runs); repeat pass 69 ms"
+    },
+    {
+     "label": "16 tokens · tract",
+     "arm": "other",
+     "group": "4 threads",
+     "value": 70.7,
+     "lo": 66.5,
+     "hi": 74.7,
+     "tip": "tract, 4 threads, 16 tokens: median 71 ms (fastest 67, p95 75; 10 runs); repeat pass 51 ms"
+    },
+    {
+     "label": "128 tokens · candle",
+     "arm": "vector",
+     "group": "4 threads",
+     "value": 224.4,
+     "lo": 217.4,
+     "hi": 236.3,
+     "tip": "candle, 4 threads, 128 tokens: median 224 ms (fastest 217, p95 236; 10 runs); repeat pass 215 ms"
+    },
+    {
+     "label": "128 tokens · tract",
+     "arm": "other",
+     "group": "4 threads",
+     "value": 268.2,
+     "lo": 234.8,
+     "hi": 410.3,
+     "tip": "tract, 4 threads, 128 tokens: median 268 ms (fastest 235, p95 410; 10 runs); repeat pass 217 ms"
+    },
+    {
+     "label": "512 tokens · candle",
+     "arm": "vector",
+     "group": "4 threads",
+     "value": 1013.4,
+     "lo": 850.1,
+     "hi": 1098.4,
+     "tip": "candle, 4 threads, 512 tokens: median 1013 ms (fastest 850, p95 1098; 10 runs); repeat pass 755 ms"
+    },
+    {
+     "label": "512 tokens · tract",
+     "arm": "other",
+     "group": "4 threads",
+     "value": 1152.1,
+     "lo": 877.0,
+     "hi": 1311.0,
+     "tip": "tract, 4 threads, 512 tokens: median 1152 ms (fastest 877, p95 1311; 10 runs); repeat pass 867 ms"
+    }
+   ],
+   "legend_labels": {
+    "vector": "candle 0.11",
+    "other": "tract 0.23.8"
+   }
+  },
+  {
+   "name": "precision",
+   "form": "scatter",
+   "title": "Memory once loaded against speed, by engine and precision",
+   "question": "What does each precision buy, in memory and in speed?",
+   "note": "128-token chunks, one thread, static musl builds. Up and to the left is better. Only f32 and f16 keep the 0.999 agreement bar; Q8_0 misses it (0.998).",
+   "x": {
+    "label": "RSS once loaded, MiB",
+    "format": "int",
+    "min": 0
+   },
+   "y": {
+    "label": "128-token chunks per second, one thread",
+    "format": "num",
+    "min": 0
+   },
+   "front": "min-x-max-y",
+   "points": [
+    {
+     "arm": "vector",
+     "label": "candle f32",
+     "x": 532.0,
+     "y": 2.747,
+     "tip": "candle f32: 532 MiB loaded (peak 1054 during the load), 364 ms a 128-token chunk"
+    },
+    {
+     "arm": "vector",
+     "label": "candle f16",
+     "x": 271.0,
+     "y": 1.139,
+     "tip": "candle f16: 271 MiB loaded (peak 800 during the load), 878 ms a 128-token chunk"
+    },
+    {
+     "arm": "vector",
+     "label": "candle Q8_0, x86-64-v3",
+     "x": 171.0,
+     "y": 1.42,
+     "tip": "candle Q8_0, x86-64-v3: 171 MiB loaded (peak 699 during the load), 704 ms a 128-token chunk"
+    },
+    {
+     "arm": "vector",
+     "label": "candle Q8_0, portable",
+     "x": 171.0,
+     "y": 0.124,
+     "tip": "candle Q8_0: 171 MiB loaded (peak 699 during the load), 8034 ms a 128-token chunk"
+    },
+    {
+     "arm": "other",
+     "label": "tract f32",
+     "x": 547.0,
+     "y": 2.169,
+     "tip": "tract f32: 547 MiB loaded (peak 1063 during the load), 461 ms a 128-token chunk"
+    }
+   ],
+   "legend_labels": {
+    "vector": "candle 0.11",
+    "other": "tract 0.23.8"
+   }
+  }
+ ]
+}

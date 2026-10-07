@@ -22,6 +22,7 @@ use serde_json::Value;
 use theseus_core::outbox::Closed;
 use theseus_protocol::{ConfirmRequest, Event, TurnSubmitResult};
 mod board;
+mod held;
 pub use board::{board, tasks_here, BOARD_HEAD, BOARD_KEY};
 
 /// Discord's limit is 2000 characters; parts stay under it with room for a fence repair.
@@ -279,9 +280,7 @@ impl Renderer {
                     ended: false,
                     dirty: false,
                 });
-                while self.turns.len() > RECENT_TURNS {
-                    self.turns.pop_front();
-                }
+                self.drop_past_recent();
                 vec![Op::Typing]
             }
             // A loop's first text shows at once, not at the next tick
@@ -379,7 +378,7 @@ impl Renderer {
                 // A `/stop` ended it (theseus-4uw): the stopper, not a failure.
                 let stopped = t.stopped_by.clone().filter(|_| status == "cancelled");
                 let verified = theseus_protocol::cancel::note(t.verified.as_deref());
-                let mut ops = vec![];
+                let (mut ops, key) = (vec![], self.notice_key(use_id));
                 if let Some((card, _)) = self.notices.get_mut(use_id) {
                     let outcome = match (status, &stopped) {
                         (_, Some(by)) => format!("⏹️ stopped by {by}{verified} · {ms} ms"),
@@ -391,7 +390,7 @@ impl Renderer {
                         f.1 = outcome;
                     }
                     ops.push(Op::Notice {
-                        key: format!("notice:{use_id}"),
+                        key,
                         card: card.clone(),
                     });
                 }
@@ -430,6 +429,7 @@ impl Renderer {
             Event::JudgeScored(j) => {
                 let line = j.line();
                 self.update_tool(turn_id, &j.tool_use_id, |l| l.risk = Some(line.clone()));
+                let key = self.notice_key(&j.tool_use_id);
                 let Some((card, _)) = self.notices.get_mut(&j.tool_use_id) else {
                     return vec![];
                 };
@@ -438,7 +438,7 @@ impl Renderer {
                     None => card.fields.push(("Risk".into(), line)),
                 }
                 vec![Op::Notice {
-                    key: format!("notice:{}", j.tool_use_id),
+                    key,
                     card: card.clone(),
                 }]
             }
@@ -471,7 +471,7 @@ impl Renderer {
                 self.asked_on(&mut card, &call);
                 self.notices.insert(use_id.clone(), (card.clone(), call));
                 vec![Op::Notice {
-                    key: format!("notice:{use_id}"),
+                    key: self.notice_key(&use_id),
                     card,
                 }]
             }
@@ -506,7 +506,7 @@ impl Renderer {
                     self.asked_on(&mut card, &call);
                     self.notices.insert(use_id.clone(), (card.clone(), call));
                     ops.push(Op::Notice {
-                        key: format!("notice:{use_id}"),
+                        key: self.notice_key(&use_id),
                         card,
                     });
                 }
@@ -595,17 +595,6 @@ impl Renderer {
             }
             _ => vec![],
         }
-    }
-
-    /// The keys of a turn's streamed text that Discord has seen: a reply's
-    /// post edits these instead of posting its parts again.
-    pub fn streamed(&self, turn_id: &str) -> Vec<String> {
-        let prefix = format!("{turn_id}:L");
-        self.emitted
-            .keys()
-            .filter(|k| k.starts_with(&prefix) && k.contains(":p"))
-            .cloned()
-            .collect()
     }
 
     /// Emit the messages whose rendered text or "should have asked" menu
@@ -1768,7 +1757,7 @@ mod tests {
         let Op::Notice { key, card } = &ops[0] else {
             panic!("{ops:?}")
         };
-        assert_eq!(key, "notice:u1");
+        assert_eq!(key, "t1:notice:u1");
         assert_eq!(card.title, "🔔 Ran with a notice");
         assert_eq!(card.color, AMBER);
         assert_eq!(card.description, "`proc.run` cargo test");
@@ -2031,7 +2020,7 @@ mod tests {
         let Some(Op::Notice { key, card }) = ops.first() else {
             panic!("{ops:?}")
         };
-        assert_eq!((key.as_str(), card.ask.as_ref()), ("notice:u1", None));
+        assert_eq!((key.as_str(), card.ask.as_ref()), ("t1:notice:u1", None));
         assert_eq!(
             card.fields.last(),
             Some(&(

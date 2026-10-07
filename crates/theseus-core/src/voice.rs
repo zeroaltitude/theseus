@@ -50,6 +50,10 @@ pub struct VoiceConfig {
     /// Deepgram's API, or a local stand-in's (tests and scratch daemons).
     #[serde(default = "default_api_base")]
     pub api_base: String,
+    /// A joined call that hears nothing a listed speaker sends this long
+    /// after its join is deaf, and rejoins once (theseus-d93y).
+    #[serde(default = "default_deaf_after_secs")]
+    pub deaf_after_secs: u64,
 }
 
 fn default_key_secret() -> String {
@@ -67,6 +71,9 @@ fn default_tts_voice() -> String {
 fn default_api_base() -> String {
     DEEPGRAM_API.into()
 }
+fn default_deaf_after_secs() -> u64 {
+    10
+}
 
 impl Default for VoiceConfig {
     fn default() -> Self {
@@ -77,6 +84,7 @@ impl Default for VoiceConfig {
             language: default_language(),
             tts_voice: default_tts_voice(),
             api_base: default_api_base(),
+            deaf_after_secs: default_deaf_after_secs(),
         }
     }
 }
@@ -101,6 +109,9 @@ impl crate::config::Config {
             if value.trim().is_empty() {
                 bail!("voice.{key} is empty");
             }
+        }
+        if v.deaf_after_secs == 0 {
+            bail!("voice.deaf_after_secs = 0: a call needs time to hear (10 is the default)");
         }
         if !(v.api_base.starts_with("https://") || v.api_base.starts_with("http://")) {
             bail!(

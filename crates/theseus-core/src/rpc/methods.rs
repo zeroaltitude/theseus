@@ -146,6 +146,7 @@ impl Core {
                 holding: holding.iter().filter_map(|r| r.decode().ok()).collect(),
             };
         }
+        // Imported sessions included: the projection's count holds them.
         let sessions = self
             .store
             .list_sessions::<SessionRecord>()
@@ -331,9 +332,11 @@ impl Core {
         Ok(())
     }
 
-    /// Every session record, the most recently active first.
+    /// Every live session record, the most recently active first: imported
+    /// sessions are the import's to list, and are never read here
+    /// (theseus-0lrr.6, theseus-7087).
     pub(super) fn sessions_by_activity(&self) -> Result<Vec<SessionRecord>> {
-        let mut recs: Vec<SessionRecord> = self.store.list_sessions()?;
+        let mut recs: Vec<SessionRecord> = self.store.live_sessions()?;
         recs.sort_by(|a, b| {
             b.last_active_ms
                 .max(b.created_at_unix_ms)
@@ -395,8 +398,7 @@ impl Core {
         let (recs, older) = match self.sessions_paged(n, before)? {
             Some(page) => page,
             None => {
-                let mut all: Vec<SessionRecord> = self.store.list_sessions()?;
-                all.retain(|r| r.imported.is_none());
+                let mut all: Vec<SessionRecord> = self.store.live_sessions()?;
                 all.sort_by_key(|r| std::cmp::Reverse(r.created_at_unix_ms));
                 all.truncate(n);
                 (all, None)
@@ -531,8 +533,6 @@ impl Core {
         Ok(self
             .sessions_by_activity()?
             .iter()
-            // Imported sessions are the import's to list (theseus-0lrr.6).
-            .filter(|r| r.imported.is_none())
             .map(|r| self.session_info(r, &pending))
             .collect())
     }
@@ -916,11 +916,22 @@ impl Core {
         te: &TurnError,
     ) {
         self.provider_errors.fetch_add(1, Ordering::Relaxed);
+        // The target the turn ran on is the trace root's: routing moves it
+        // there (theseus-490i), and the given one is the request's, before
+        // routing. A turn that failed before its trace began has only that
+        // one (theseus-udzb).
+        let root = |k: &'static str, given| {
+            te.trace
+                .as_ref()
+                .and_then(|t| t.attrs.get(k))
+                .and_then(Value::as_str)
+                .unwrap_or(given)
+        };
         self.telemetry()
             .record_failure(&crate::telemetry::FailedTurn {
-                profile,
-                provider,
-                model,
+                profile: root("profile", profile),
+                provider: root("provider", provider),
+                model: root("model", model),
                 class: &te.class,
                 transient: te.transient,
                 elapsed_ms: te.elapsed_ms,
@@ -1156,9 +1167,10 @@ impl Core {
             Some(sid) => self.store.session_compilations(sid)?,
             None => self.store.recent_compilations(n)?,
         };
+        // An imported session has no compilation (theseus-7087).
         let current: std::collections::HashSet<String> = self
             .store
-            .list_sessions::<SessionRecord>()?
+            .live_sessions::<SessionRecord>()?
             .into_iter()
             .filter_map(|s| s.compilation_id)
             .collect();

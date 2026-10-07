@@ -14,7 +14,7 @@ no distance and no indirect probe. This bench drives each arm live, through its 
 | `progression.py` | The format: sessions, turns, facts, probes, the workspace; the buckets and the validator. |
 | `checks.py` | The check language, as theseus-exam's `check.rs` has it (`reply has word "…"`, `file "…" has …`). |
 | `generate.py` | The generator: a progression from a seed, and the budget. |
-| `drive.py` | The drivers: a progression replayed to Theseus or to Claude Code, each turn kept. |
+| `drive.py` | The drivers: a progression replayed to Theseus, to Claude Code, or to Pi, each turn kept. |
 | `score.py` | The scorer: every probe checked, each arm's curve, half-life, and the report. |
 | `tokens.py` | Theseus's request estimate, mirrored: the census, the rates, the margin, the budget, the ring. |
 | `standin.py` | A stand-in model that counts each request as the compiler estimates it, for the offline smoke. |
@@ -86,9 +86,11 @@ python3 bench/recall/drive.py --arm theseus --memory-arm baseline --bin-dir targ
   --model anthropic/claude-sonnet-5-5 --progression /tmp/rc-smoke --out /tmp/rc-th
 python3 bench/recall/drive.py --arm claude-code \
   --model anthropic/claude-sonnet-5-5 --progression /tmp/rc-smoke --out /tmp/rc-cc
+python3 bench/recall/drive.py --arm pi \
+  --model anthropic/claude-sonnet-5-5 --progression /tmp/rc-smoke --out /tmp/rc-pi
 
 # 3. The scores (and with `--stale retracted`, an old value named only to take it back is no longer stale).
-python3 bench/recall/score.py /tmp/rc-th /tmp/rc-cc --out /tmp/rc-report
+python3 bench/recall/score.py /tmp/rc-th /tmp/rc-cc /tmp/rc-pi --out /tmp/rc-report
 ```
 
 **Sizes.** `smoke` is two sessions of 15 turns, three days apart, with one compaction mark and eight probes, at
@@ -121,20 +123,21 @@ Theseus runs the bench profile (every tool open, roots at `/`), and Claude Code 
     tool id; from a turn's second call on, the provider's count of the last request stands and only what was
     written since is estimated; the ring runs when that passes the budget at its upper bound (the estimate × 1.4),
     and a turn whose newest exchange alone, estimated whole beside the system prompt and tools (13,599 tokens on a
-    scratch daemon of c4f79e9f; the plan takes 13,700, room for growth), still passes it fails before any call. So the window is the smallest where the
+    scratch daemon of c4f79e9f; the plan takes 13,640, within the cushion of it either way), still passes it fails before any call. So the window is the smallest where the
     turns before each mark fit at 15% over their estimate, a session with no mark fits whole, each read turn alone
     stays 10% under the budget with room for a 4,096-token summary beside it, and at 15% under their estimate the
     reads cross the budget: the mark's own, or, where one read can't do both (the smoke's short first session),
     up to three more at the turn after the mark. One tool result shows at most 30,000 characters, and `fs_read`
     numbers each line, so each log fits under that. A plan is in tokens and its logs are written in bytes, so each
     plan, once written, is worked again from its bytes (`plan_misses`), at its overhead and at `OVERHEAD_CUSHION`
-    more, and one that misses by rounding gives way to the next: more reads in the same window, then the next
+    more and less, and one that misses by rounding gives way to the next: more reads in the same window, then the next
     window. For seed 7 that is 45000 for the smoke (a budget of 29,654;
     two logs of about 4,400 tokens, the second at turn 11) and 94000 for the full (73,904).
   - **The overhead is checked.** After the first turn, before any probe, the driver reads its daemon's first
     `context.compiled` estimate less that turn's user message: the system prompt and tools, as `OVERHEAD_TOKENS`
-    defines them. Past the progression's planned overhead by more than `OVERHEAD_CUSHION` (50 tokens), a mark may
-    ring or fail, so the run stops (exit 3) with both numbers, unless `--allow-overhead`. `run.json`'s `overhead`
+    defines them. More than `OVERHEAD_CUSHION` (50 tokens) off the progression's planned overhead, over or under, a mark
+    may ring (over) or the reads may not cross the budget (under), so the run stops (exit 3) with both numbers,
+    unless `--allow-overhead`. `run.json`'s `overhead`
     keeps the planned, the measured and the cushion either way. Generate again with `--overhead <measured>` to plan
     at the daemon's own.
   - Where it compacted is read from the ledger (`context.compacted`) after every turn, with each row's outcome:
@@ -160,16 +163,40 @@ Theseus runs the bench profile (every tool open, roots at `/`), and Claude Code 
     counts only where the log shows a `compact_boundary`, and the run keeps each `/compact`'s result.
   - Variables a parent Claude Code session sets (`CLAUDECODE`, …) are taken out of its environment. A turn past
     `--turn-timeout` has its process group killed (claude and what its shell started).
-- **OpenClaw**, a third arm, is not built yet. Its memory would be its memory search and its wiki. A driver is a
+- **Pi** (theseus-jp9p): `pi --print --mode json` (`@earendil-works/pi-coding-agent`, 1.0.4 as the Harbor arm
+  pins it; `--pi` names the binary) with a scratch `PI_CODING_AGENT_DIR` and session directory, and the workspace
+  as its working directory.
+  - Each session boundary starts a new session id, and every turn of the session passes it (`--session-id`
+    opens the session, or creates it). The turn's text goes on stdin.
+  - Its tools are its four, `read`, `bash`, `edit` and `write` (`--tools`). It has no permission prompts.
+  - Its memory is its compaction and the context files it reads (`AGENTS.md`, `CLAUDE.md`); the run keeps both,
+    and its session logs.
+  - Compaction: its own threshold, at the progression's window. Pi compacts when the context passes its model's
+    window less `reserveTokens`, so the scratch `settings.json` sets the run model's `reserveTokens`
+    (`compaction.modelOverrides`) to the model's window in Pi's catalog (`--pi-model-window`, 1,000,000 for
+    Sonnet 5.5) less the progression's. It sets `keepRecentTokens`, what a compaction keeps unsummarized, to
+    Pi's own 20,000 or a quarter of a smaller window (`pi_keep_recent`): when the whole context is within it,
+    Pi 1.0.4 has nothing to summarize and skips the compaction. `run.json`'s `pi_compact` keeps the four. Pi's
+    print mode sends `/compact` to the model as text, so there are no marks to compact at; the threshold works
+    at any window. A compaction counts where a session log gains a `compaction` entry, and its summary call's
+    tokens and dollars are its turn's.
+  - The progression is planned at Theseus's overhead (`overhead_tokens`, 13,640 for the smoke), and Pi's own
+    system prompt and tools are about 2,300 tokens, so on the smoke Pi's context peaks near 20k and it does not
+    compact at the 45k window: its probes are scored where it compacted, which is nowhere.
+  - Pi's print mode exits 0 when the provider fails: a turn whose last answer ended on `error` or `aborted`, or
+    that answered nothing, is recorded as failed (`pi_failed`). Pi's process markers and its session's variables
+    (`AI_AGENT`, `PI_SESSION_ID`, …) are taken out of its environment, and a turn past `--turn-timeout` has its
+    process group killed. With `--api-base`, its scratch `models.json` points the provider at a stand-in.
+- **OpenClaw**, a fourth arm, is not built yet. Its memory would be its memory search and its wiki. A driver is a
   class with `drive()`, writing the same run directory, and the scorer reads any arm's.
 
-**Days are dated text.** Neither CLI takes a clock, so each session opens with its date. What this measures is
+**Days are dated text.** No arm's CLI takes a clock, so each session opens with its date. What this measures is
 recall of what was said on a dated day, across the arm's session boundaries and compactions. It can't measure the
-effect of time itself. Both arms see the real date in their system prompts too, and a memory that weighs elapsed
-time (retention) sees the minutes the run took, not the script's days.
+effect of time itself. Theseus and Claude Code see the real date in their system prompts too (Pi 1.0.4's has
+none), and a memory that weighs elapsed time (retention) sees the minutes the run took, not the script's days.
 
-**Delivery.** Every fact's marker is looked for in the arm's transcript (Theseus's history, Claude Code's session
-logs). A probe whose fact never reached the arm (it didn't run the script, say) is excluded and counted, never
+**Delivery.** Every fact's marker is looked for in the arm's transcript (Theseus's history, Claude Code's and Pi's
+session logs). A probe whose fact never reached the arm (it didn't run the script, say) is excluded and counted, never
 scored as a miss.
 
 ## The run directory
@@ -205,12 +232,27 @@ daemon's log.
   four words off, in the same clause (a semicolon, a dash or a sentence stop ends it): before the value ("moved
   from X", "ignore the X", "previously X", "formerly X", "used to be X", "instead of X", "replaced X", "no longer
   X", "not X", the last at most one word off), after it with the value its subject ("X is no longer used", "X was
-  replaced", "X isn't used anymore"), or around it ("it was X before"). A phrase that cites ("as I said
-  previously") or is negated ("don't forget") governs nothing. So "It moved from 27340 to 38013." is right, and
+  replaced", "X isn't used anymore"), or around it ("it was X before", "earlier it was X", "before the move it was
+  X"). A phrase governs each member of a list under it ("no longer X or Y", "used to be X and later Y", "X and Y are
+  both retired"), and an old value named twice in a clause ("moved from X to Y, then from Y to Z") is retracted
+  where its last naming is, an earlier one only a move's destination ("to Y") or governed too: named again after
+  its retraction ("moved from X to Y, then back to X", "it was X before and is still X"), it is current again. A
+  lead word reaches "was" four words off ("before the move it was X"). "The old X" and "the former X" only
+  describe: they govern beside a retraction elsewhere
+  in the clause ("the old X was replaced"), never alone ("the old X is back"). A phrase that cites ("as I said
+  previously", `you wrote "moved from X to Y"`) or is negated ("don't forget", "X is no longer wrong") governs
+  nothing. So "It moved from 27340 to 38013." is right, and
   "It's 27340, previously 38013.", "It was 38013 before, now it's 27340.", "Port 27340 replaced 38013." and
   "38013 is no longer used; it's 27340." are wrong under both rules: each gives the old value as the current one.
   "The archiver is on port 27340." is stale under both, and "It's 27340, or maybe 38013." wrong under both. The report
-  says which rule it scored by.
+  says which rule it scored by. **The rule's reach**: it reads phrases, not meaning, so it can score a reply as a
+  careful reader would not. A move cited with no citing verb ("the note says moved from X to Y, which I can't confirm") reads as a
+  retraction, so it is right; a retraction in words it doesn't list ("X was rolled back") is not one; a list joined by
+  words `JOIN` doesn't hold ("X as well as Y") governs only its nearest member; and a phrase in another clause or
+  sentence governs nothing here. Three false rights remain: a retraction anywhere in the clause lets "the old X"
+  govern, even one that retracts another value ("use the old port X instead; Y isn't up yet"); a negation ahead of a
+  prefix doesn't cancel it ("it's no longer wrong to use X"); and a comma between two clauses reads as a list
+  ("ignore Z, X is the live port, and Y is only planned").
 - **Cites**: of the right direct answers, those that say where (the script, or that the user said it) and when
   (its date or weekday, or a relative time).
 - **Cost and latency** per probe: its turn's dollars and wall time.
@@ -222,6 +264,8 @@ daemon's log.
   `compact_boundary` and a run kept from before the outcomes count as `compaction`.
 
 `score.py` writes `report.md`, `curve.svg` (drawn by hand: incidental solid, central dashed) and `scores.json`.
+
+Every run of it gets its report in [`docs/benchmarks/`](../../docs/benchmarks/README.md): `python3 bench/report/draft.py recall --scores <out>/scores.json --date <day>` drafts it from the scorer's output ([`bench/README.md`](../README.md), "Every run gets its report").
 
 ## Tests
 
@@ -238,6 +282,9 @@ They cover:
   abstention, and distance measured where the arm compacted.
 - **The Claude Code driver**, against a stand-in `claude` on PATH: session ids carried, a boundary opening a new
   one, `/compact` after the mark.
+- **The Pi driver**, against a stand-in `pi` on PATH: a session id per session, the reserve and the kept
+  tokens at the window, a compaction read from its log, a parent's variables taken out, each turn's answers and
+  summaries summed, and a provider's error a failed turn.
 - **The Theseus driver**, end to end on this workspace's binaries (`target/debug`, or `THESEUS_RECALL_BIN_DIR`):
   the smoke on `standin.py`, and a turn past its timeout stopped while the next one runs, on `theseus-sim
   fake-model --rules`. It is skipped when they are missing, and nothing is left running. Theseus trusts the
@@ -252,5 +299,10 @@ ANTHROPIC_API_KEY=stand-in` with `drive.py --arm claude-code`, and rules that na
 flags, its sessions, its logs and a `/compact` in print mode. But the stand-in asks again for a tool call that some
 of its requests have already answered, so a few turns run to their timeout. That makes it a check by hand, not a
 test.
+
+The real `pi` (1.0.4) runs against `standin.py` too: `drive.py --arm pi --pi <its path> --api-base <the
+stand-in's address>`, with rules that name its tools (`bash` with a `command`, `read` with a `path`). On the
+smoke, every turn exits 0 and every fact is delivered; with `--context-window 10000` it compacts at turn 11
+(10,323 tokens before), and the driver records it. It is a check by hand, not a test.
 
 The gate doesn't run them. Run them before each commit that touches this directory.

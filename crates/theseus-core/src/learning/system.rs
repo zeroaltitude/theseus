@@ -39,7 +39,8 @@
 //!
 //! **What a run reads** (theseus-cf5c). A judgment all of whose windows
 //! closed before the last run ([`Cut`]: the last run read every row up to
-//! its `through`, and its time less the judgment's longest window and
+//! its `through`, and its cut, its clock but never past the newest
+//! judgment it read (theseus-gf8j), less the judgment's longest window and
 //! [`MARGIN_MS`] is past the judgment's) can take no new label: that run
 //! already wrote what it could. So its session's nodes, its call's action
 //! and its task's briefs are never read again, and a run reads about what
@@ -50,7 +51,7 @@
 //! long a call can wait before it expires; `route`'s 10 minutes, cut too
 //! though it reads only the scope, since each routed judgment walks the
 //! scope for its next one. The first run (no mark, or one without
-//! `through`) walks everything.
+//! `through` or `cut_ms`) walks everything.
 
 use std::collections::HashMap;
 
@@ -130,8 +131,23 @@ pub const MARGIN_MS: u64 = 60 * 60 * 1000;
 /// How long a classified turn may run before its label is settled.
 const CLASSIFY_OPEN_MS: u64 = 24 * 60 * 60 * 1000;
 
+/// The mark's key for the time the next run cuts at (theseus-gf8j).
+pub const CUT_KEY: &str = "cut_ms";
+
 /// Where the last run left off: every judgment row it read (positions up
-/// to `through`), and when it ran.
+/// to `through`), and the time it cuts at.
+///
+/// That time is the mark's `cut_ms`: the run's clock, but never past the
+/// newest judgment row the run read (theseus-gf8j). A judgment row's time
+/// is when the daemon wrote it, so the run happened after it in real time;
+/// the run's own clock may have read ahead (a probe's, a clock stepped
+/// back since), and a cut at it would close windows still open. The cost:
+/// a judgment within its window and the margin of the newest stays open
+/// until a newer one is written. `at_unix_ms` stays the run's own clock
+/// (the tender's last run, the prove's `settled_ms`). A mark from before
+/// `cut_ms` reads as no cut, once: that run walks everything, as a first
+/// run does, and writes the key. A cut later than the next run's own clock
+/// is that clock.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Cut {
     pub through: u64,
@@ -139,11 +155,12 @@ pub struct Cut {
 }
 
 impl Cut {
-    /// The last run's mark (`LAST_RUN`), when it says how far it read.
-    pub fn of(mark: &Value) -> Option<Cut> {
+    /// The last run's mark (`LAST_RUN`), when it says how far it read and
+    /// where it cuts, read by a run at `now_ms`.
+    pub fn of(mark: &Value, now_ms: u64) -> Option<Cut> {
         Some(Cut {
             through: mark.get("through")?.as_u64()?,
-            at_ms: mark.get("at_unix_ms")?.as_u64()?,
+            at_ms: mark.get(CUT_KEY)?.as_u64()?.min(now_ms),
         })
     }
 }
@@ -390,28 +407,27 @@ impl Core {
         })
     }
 
-    /// The sessions created at `from` or after, newest first, by the
-    /// index's births; all of them while it keeps none.
+    /// The live sessions created at `from` or after, newest first, by the
+    /// index's births; every live one while it keeps none. An imported
+    /// session is born at its import with its episode's old time
+    /// (theseus-0lrr.6): never a task's, and never the walk's end, so the
+    /// walk steps over it by key, its record unread (theseus-7087).
     fn sessions_from(&self, from: u64) -> anyhow::Result<Vec<SessionRecord>> {
         use theseus_store::Store as _;
         let mut out = Vec::new();
         let mut before = None;
         loop {
-            let newest =
-                self.store
-                    .inner()
-                    .newest_keys(theseus_store::kinds::SESSION, before, 64)?;
+            let newest = self.store.inner().newest_keys_where(
+                theseus_store::kinds::SESSION,
+                before,
+                64,
+                &|k| !crate::import::is_imported(k),
+            )?;
             let Some((born, more)) = newest else {
-                return self.store.list_sessions();
+                return self.store.live_sessions();
             };
             for (_, r) in &born {
                 let rec: SessionRecord = r.decode()?;
-                // An imported session is born at its import with its
-                // episode's old time (theseus-0lrr.6): never a task's, and
-                // never the walk's end.
-                if rec.imported.is_some() {
-                    continue;
-                }
                 if rec.created_at_unix_ms < from {
                     return Ok(out);
                 }

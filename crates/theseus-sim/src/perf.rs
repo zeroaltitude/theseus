@@ -20,8 +20,10 @@
 //! - **`size`**: the shipped binaries' sizes, against §9's 60 MB.
 //!
 //! Each appends a row to the bench history (`--record`), the file the
-//! lifecycle bench keeps (`history`). The scratch daemon has Discord and the
-//! web UI off, so what runs is the core and nothing else.
+//! lifecycle bench keeps (`history`). The scratch daemon has Discord, the web
+//! UI, and the judge off, so what runs is the core and nothing else; `bench
+//! turn --judge` measures the judge's cost beside it, at the fake Jev
+//! (`judge`, theseus-0j2.8).
 
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
@@ -39,6 +41,7 @@ use crate::lifecycle::{self, Rig, Summary, Vault, Verdict};
 use crate::procfs::{self, Sample};
 use crate::walcount::{Frame, Tail};
 
+mod judge;
 mod long;
 
 /// §9's per-turn overhead, restated as frames (review 2, consideration 8): a
@@ -119,6 +122,16 @@ fn quiet_config(model: &str, state: &Path, sock: &Path, projects: &Path) -> Resu
 }
 
 fn scratch(theseusd: &Path, dir: Option<&Path>) -> Result<Scratch> {
+    scratch_with(theseusd, dir, |_| Ok(()))
+}
+
+/// [`scratch`], its quiet config changed by `edit` before it is written (the
+/// judge-on bench's `[judge]`, `judge`).
+fn scratch_with(
+    theseusd: &Path,
+    dir: Option<&Path>,
+    edit: impl FnOnce(&mut toml::Table) -> Result<()>,
+) -> Result<Scratch> {
     let (tmp, work) = match dir {
         Some(d) => {
             std::fs::create_dir_all(d)?;
@@ -139,10 +152,9 @@ fn scratch(theseusd: &Path, dir: Option<&Path>) -> Result<Scratch> {
     // own path for a job.
     let model = FakeModel::start_mixed(vec!["true".to_string()])?;
     let config = work.join("config.toml");
-    std::fs::write(
-        &config,
-        quiet_config(&model.base(), &state, &sock, &projects)?,
-    )?;
+    let mut t: toml::Table = quiet_config(&model.base(), &state, &sock, &projects)?.parse()?;
+    edit(&mut t)?;
+    std::fs::write(&config, toml::to_string(&t)?)?;
     let op = bin.join("op");
     // The fake `op` answers at once: a bench of turns waits for no secret.
     std::fs::write(&op, lifecycle::fake_op(0, &config))?;
@@ -533,7 +545,7 @@ fn burst(d: &mut Driver<'_>, turns: usize) -> Result<Burst> {
 
 pub fn print_turn(r: &TurnReport) {
     println!(
-        "bench turn · {} · {} runs of each kind, on the stand-in model, Discord and the web UI off",
+        "bench turn · {} · {} runs of each kind, on the stand-in model, Discord, the web UI, and the judge off",
         r.theseusd, r.runs
     );
     println!(
@@ -1031,6 +1043,13 @@ pub struct TurnArgs {
     /// The long session's tool results, in bytes each.
     #[arg(long, default_value_t = 8192)]
     result_bytes: usize,
+    /// Measure the judge's cost beside the judge-off turns (theseus-0j2.8):
+    /// the judge on at the fake Jev, with the inbound point's packs off and
+    /// with every pack as wired, each frame told the judge's or the turn's.
+    /// `--check` judges the judge-off turns alone; the judged ones go to
+    /// `--record` under columns of their own.
+    #[arg(long, conflicts_with = "session_nodes")]
+    judge: bool,
 }
 
 pub fn turn_cmd(a: TurnArgs) -> Result<()> {
@@ -1049,6 +1068,31 @@ pub fn turn_cmd(a: TurnArgs) -> Result<()> {
             label: a.label.as_deref(),
         };
         return emit("turn", &out, &report, &report.columns(), &[], true);
+    }
+    if a.judge {
+        let report = judge::run_judge(&judge::JudgeOpts {
+            theseusd: theseusd_or_beside(a.theseusd)?,
+            runs: a.runs.max(1),
+            dir: a.dir,
+        })?;
+        judge::print_judge(&report);
+        let out = Output {
+            json: a.json.as_deref(),
+            record: a.record.as_deref(),
+            label: a.label.as_deref(),
+        };
+        emit(
+            "turn",
+            &out,
+            &report,
+            &report.columns(),
+            &report.verdicts,
+            report.ok(),
+        )?;
+        if a.check && !report.ok() {
+            std::process::exit(1);
+        }
+        return Ok(());
     }
     let report = run_turn(&TurnOpts {
         theseusd: theseusd_or_beside(a.theseusd)?,

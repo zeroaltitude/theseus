@@ -275,6 +275,15 @@ impl Outbox {
         self.flight.borrow().stopping.is_some()
     }
 
+    /// Ready once the daemon is stopping (immediately, if it already is):
+    /// what a long-lived loop selects against so it ends with the stop, with
+    /// no polling (theseus-9ggu). A client's `shutdown` and a signal both
+    /// raise it, through `stop_sending`.
+    pub async fn stopped(&self) {
+        let mut rx = self.flight.subscribe();
+        let _ = rx.wait_for(|f| f.stopping.is_some()).await;
+    }
+
     /// A clean stop's wait (theseus-pfv): no post is dispatched any more, and
     /// the posts already sent settle, until `grace` after the stop began. The
     /// rest stay dispatched, as after a crash, and the next start sends them
@@ -924,6 +933,7 @@ impl crate::Core {
             }
         }
         crate::startup::stop_phase("posts settled");
+        self.flush_judgments();
         // Nothing written on its own time after serving lands after this
         // checkpoint, where the next start would replay it (theseus-81kk).
         self.close_late_rows();
@@ -936,6 +946,23 @@ impl crate::Core {
         // runtime's drop waits for it (theseus-hanu).
         self.push.stop();
         posts
+    }
+
+    /// The judge's settled judgments, written before the stop's last
+    /// checkpoint (theseus-ych4): the sink writes only between turns, so a
+    /// busy daemon can hold a backlog, and a restart must read every one.
+    fn flush_judgments(&self) {
+        let t0 = std::time::Instant::now();
+        let judge = &self.runner.judge;
+        let written = theseus_store::blocking(|| judge.flush_sink());
+        if written > 0 {
+            tracing::info!(
+                judgments = written,
+                ms = t0.elapsed().as_secs_f64() * 1000.0,
+                "stopping: the judge's settled judgments are written"
+            );
+        }
+        crate::startup::stop_phase("judgments written");
     }
 
     /// After a restart onto the vault's changed config note (theseus-2fo), one

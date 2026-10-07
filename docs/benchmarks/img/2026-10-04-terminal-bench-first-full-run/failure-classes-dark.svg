@@ -1,0 +1,129 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="633" viewBox="0 0 720 633" role="img" aria-labelledby="t-failure-classes t-failure-classes-d" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
+<title id="t-failure-classes">Trials that did not end on the agent's own terms, by how they ended</title>
+<desc id="t-failure-classes-d">How did the trials that did not end on their own end, arm by arm?</desc>
+<rect width="720" height="633" rx="8" fill="#1a1a19" stroke="#2c2c2a"/>
+<text x="18.0" y="32.0" font-size="15" fill="#ffffff" font-weight="600">Trials that did not end on the agent's own terms, by how they ended</text>
+<rect x="18.0" y="44.0" width="14" height="12" rx="3" fill="#3987e5"/>
+<text x="40.0" y="54.0" font-size="12" fill="#c3c2b7">A. Theseus plain</text>
+<rect x="157.3" y="44.0" width="14" height="12" rx="3" fill="#199e70"/>
+<text x="179.3" y="54.0" font-size="12" fill="#c3c2b7">B. Theseus + paragraph</text>
+<rect x="340.7" y="44.0" width="14" height="12" rx="3" fill="#d95926"/>
+<text x="362.7" y="54.0" font-size="12" fill="#c3c2b7">C. Claude Code</text>
+<line x1="307.8" y1="74.0" x2="307.8" y2="554.0" stroke="#2c2c2a" stroke-width="1"/>
+<line x1="402.2" y1="74.0" x2="402.2" y2="554.0" stroke="#2c2c2a" stroke-width="1"/>
+<line x1="496.5" y1="74.0" x2="496.5" y2="554.0" stroke="#2c2c2a" stroke-width="1"/>
+<line x1="590.8" y1="74.0" x2="590.8" y2="554.0" stroke="#2c2c2a" stroke-width="1"/>
+<line x1="685.2" y1="74.0" x2="685.2" y2="554.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="297.8" y="108.0" font-size="12" fill="#ffffff" text-anchor="end">refused by the model</text>
+<g><title>refused by the model · A. Theseus plain: 6</title>
+<path d="M307.8,81.0H586.8A4,4 0 0 1 590.8,85.0V91.0A4,4 0 0 1 586.8,95.0H307.8Z" fill="#3987e5"/>
+</g>
+<text x="595.8" y="92.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">6</text>
+<g><title>refused by the model · B. Theseus + paragraph: 6</title>
+<path d="M307.8,97.0H586.8A4,4 0 0 1 590.8,101.0V107.0A4,4 0 0 1 586.8,111.0H307.8Z" fill="#199e70"/>
+</g>
+<text x="595.8" y="108.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">6</text>
+<g><title>refused by the model · C. Claude Code: 0</title>
+<path d="M307.8,113.0H307.8A0.0,0.0 0 0 1 307.8,113.0V127.0A0.0,0.0 0 0 1 307.8,127.0H307.8Z" fill="#d95926"/>
+</g>
+<text x="312.8" y="124.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">0</text>
+<text x="297.8" y="168.0" font-size="12" fill="#ffffff" text-anchor="end">cut at the 32,000-token output cap</text>
+<g><title>cut at the 32,000-token output cap · A. Theseus plain: 4</title>
+<path d="M307.8,141.0H492.5A4,4 0 0 1 496.5,145.0V151.0A4,4 0 0 1 492.5,155.0H307.8Z" fill="#3987e5"/>
+</g>
+<text x="501.5" y="152.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">4</text>
+<g><title>cut at the 32,000-token output cap · B. Theseus + paragraph: 2</title>
+<path d="M307.8,157.0H398.2A4,4 0 0 1 402.2,161.0V167.0A4,4 0 0 1 398.2,171.0H307.8Z" fill="#199e70"/>
+</g>
+<text x="407.2" y="168.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">2</text>
+<g><title>cut at the 32,000-token output cap · C. Claude Code: 0</title>
+<path d="M307.8,173.0H307.8A0.0,0.0 0 0 1 307.8,173.0V187.0A0.0,0.0 0 0 1 307.8,187.0H307.8Z" fill="#d95926"/>
+</g>
+<text x="312.8" y="184.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">0</text>
+<text x="297.8" y="228.0" font-size="12" fill="#ffffff" text-anchor="end">waited for an approval no one gives</text>
+<g><title>waited for an approval no one gives · A. Theseus plain: 1</title>
+<path d="M307.8,201.0H351.0A4,4 0 0 1 355.0,205.0V211.0A4,4 0 0 1 351.0,215.0H307.8Z" fill="#3987e5"/>
+</g>
+<text x="360.0" y="212.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">1</text>
+<g><title>waited for an approval no one gives · B. Theseus + paragraph: 0</title>
+<path d="M307.8,217.0H307.8A0.0,0.0 0 0 1 307.8,217.0V231.0A0.0,0.0 0 0 1 307.8,231.0H307.8Z" fill="#199e70"/>
+</g>
+<text x="312.8" y="228.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">0</text>
+<g><title>waited for an approval no one gives · C. Claude Code: 0</title>
+<path d="M307.8,233.0H307.8A0.0,0.0 0 0 1 307.8,233.0V247.0A0.0,0.0 0 0 1 307.8,247.0H307.8Z" fill="#d95926"/>
+</g>
+<text x="312.8" y="244.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">0</text>
+<text x="297.8" y="288.0" font-size="12" fill="#ffffff" text-anchor="end">transient provider timeout, not retried</text>
+<g><title>transient provider timeout, not retried · A. Theseus plain: 1</title>
+<path d="M307.8,261.0H351.0A4,4 0 0 1 355.0,265.0V271.0A4,4 0 0 1 351.0,275.0H307.8Z" fill="#3987e5"/>
+</g>
+<text x="360.0" y="272.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">1</text>
+<g><title>transient provider timeout, not retried · B. Theseus + paragraph: 0</title>
+<path d="M307.8,277.0H307.8A0.0,0.0 0 0 1 307.8,277.0V291.0A0.0,0.0 0 0 1 307.8,291.0H307.8Z" fill="#199e70"/>
+</g>
+<text x="312.8" y="288.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">0</text>
+<g><title>transient provider timeout, not retried · C. Claude Code: 0</title>
+<path d="M307.8,293.0H307.8A0.0,0.0 0 0 1 307.8,293.0V307.0A0.0,0.0 0 0 1 307.8,307.0H307.8Z" fill="#d95926"/>
+</g>
+<text x="312.8" y="304.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">0</text>
+<text x="297.8" y="348.0" font-size="12" fill="#ffffff" text-anchor="end">the adapter's stop overran; the tests never ran</text>
+<g><title>the adapter's stop overran; the tests never ran · A. Theseus plain: 1</title>
+<path d="M307.8,321.0H351.0A4,4 0 0 1 355.0,325.0V331.0A4,4 0 0 1 351.0,335.0H307.8Z" fill="#3987e5"/>
+</g>
+<text x="360.0" y="332.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">1</text>
+<g><title>the adapter's stop overran; the tests never ran · B. Theseus + paragraph: 2</title>
+<path d="M307.8,337.0H398.2A4,4 0 0 1 402.2,341.0V347.0A4,4 0 0 1 398.2,351.0H307.8Z" fill="#199e70"/>
+</g>
+<text x="407.2" y="348.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">2</text>
+<g><title>the adapter's stop overran; the tests never ran · C. Claude Code: 0</title>
+<path d="M307.8,353.0H307.8A0.0,0.0 0 0 1 307.8,353.0V367.0A0.0,0.0 0 0 1 307.8,367.0H307.8Z" fill="#d95926"/>
+</g>
+<text x="312.8" y="364.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">0</text>
+<text x="297.8" y="408.0" font-size="12" fill="#ffffff" text-anchor="end">Claude Code's install failed; it never ran</text>
+<g><title>Claude Code's install failed; it never ran · A. Theseus plain: 0</title>
+<path d="M307.8,381.0H307.8A0.0,0.0 0 0 1 307.8,381.0V395.0A0.0,0.0 0 0 1 307.8,395.0H307.8Z" fill="#3987e5"/>
+</g>
+<text x="312.8" y="392.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">0</text>
+<g><title>Claude Code's install failed; it never ran · B. Theseus + paragraph: 0</title>
+<path d="M307.8,397.0H307.8A0.0,0.0 0 0 1 307.8,397.0V411.0A0.0,0.0 0 0 1 307.8,411.0H307.8Z" fill="#199e70"/>
+</g>
+<text x="312.8" y="408.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">0</text>
+<g><title>Claude Code's install failed; it never ran · C. Claude Code: 4</title>
+<path d="M307.8,413.0H492.5A4,4 0 0 1 496.5,417.0V423.0A4,4 0 0 1 492.5,427.0H307.8Z" fill="#d95926"/>
+</g>
+<text x="501.5" y="424.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">4</text>
+<text x="297.8" y="468.0" font-size="12" fill="#ffffff" text-anchor="end">stopped at the $2.00 spend limit</text>
+<g><title>stopped at the $2.00 spend limit · A. Theseus plain: 2</title>
+<path d="M307.8,441.0H398.2A4,4 0 0 1 402.2,445.0V451.0A4,4 0 0 1 398.2,455.0H307.8Z" fill="#3987e5"/>
+</g>
+<text x="407.2" y="452.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">2</text>
+<g><title>stopped at the $2.00 spend limit · B. Theseus + paragraph: 1</title>
+<path d="M307.8,457.0H351.0A4,4 0 0 1 355.0,461.0V467.0A4,4 0 0 1 351.0,471.0H307.8Z" fill="#199e70"/>
+</g>
+<text x="360.0" y="468.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">1</text>
+<g><title>stopped at the $2.00 spend limit · C. Claude Code: 0</title>
+<path d="M307.8,473.0H307.8A0.0,0.0 0 0 1 307.8,473.0V487.0A0.0,0.0 0 0 1 307.8,487.0H307.8Z" fill="#d95926"/>
+</g>
+<text x="312.8" y="484.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">0</text>
+<text x="297.8" y="528.0" font-size="12" fill="#ffffff" text-anchor="end">the task's agent timeout</text>
+<g><title>the task's agent timeout · A. Theseus plain: 6</title>
+<path d="M307.8,501.0H586.8A4,4 0 0 1 590.8,505.0V511.0A4,4 0 0 1 586.8,515.0H307.8Z" fill="#3987e5"/>
+</g>
+<text x="595.8" y="512.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">6</text>
+<g><title>the task's agent timeout · B. Theseus + paragraph: 5</title>
+<path d="M307.8,517.0H539.7A4,4 0 0 1 543.7,521.0V527.0A4,4 0 0 1 539.7,531.0H307.8Z" fill="#199e70"/>
+</g>
+<text x="548.7" y="528.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">5</text>
+<g><title>the task's agent timeout · C. Claude Code: 8</title>
+<path d="M307.8,533.0H681.2A4,4 0 0 1 685.2,537.0V543.0A4,4 0 0 1 681.2,547.0H307.8Z" fill="#d95926"/>
+</g>
+<text x="690.2" y="544.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">8</text>
+<text x="307.8" y="570.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">0</text>
+<text x="402.2" y="570.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">2</text>
+<text x="496.5" y="570.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">4</text>
+<text x="590.8" y="570.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">6</text>
+<text x="685.2" y="570.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">8</text>
+<line x1="307.8" y1="554.0" x2="685.2" y2="554.0" stroke="#383835" stroke-width="1"/>
+<text x="496.5" y="588.0" font-size="12" fill="#c3c2b7" text-anchor="middle">trials (of 178 an arm)</text>
+<text x="18.0" y="610.0" font-size="11" fill="#c3c2b7">Harbor's exception class per trial, read with each trial's own stop reason and log. A 21, B 16, C 12 trials.</text>
+</svg>

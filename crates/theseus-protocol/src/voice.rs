@@ -46,16 +46,28 @@ pub struct VoiceStatus {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub last_error: Option<String>,
+    /// The call joined but hears nothing (theseus-d93y): since when, until
+    /// it hears a listed speaker.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub deaf_since_ms: Option<u64>,
+    /// This call's rejoins for deafness: at most one.
+    #[serde(default)]
+    pub rejoins: u64,
+    /// The rejoin heard nothing either: the call stays, deaf.
+    #[serde(default)]
+    pub deaf_failed: bool,
 }
 
 impl VoiceStatus {
     /// `theseus health`'s line: `voice: joined #lounge (zeroaltitude) · 4 utterances
     /// (12.3 s) · 9 sentences (512 chars) · 1 barge-in · 2 resumed · $0.0164`.
     pub fn line(&self) -> String {
-        let at = match (&self.channel, self.state.as_str()) {
+        let mut at = match (&self.channel, self.state.as_str()) {
             (Some(c), _) => format!("{} {c} ({})", self.state, self.hears.join(", ")),
             (None, s) => s.to_string(),
         };
+        at.push_str(&self.deafness());
         let mut out = format!(
             "voice: {at} · {} utterance(s) ({:.1} s) · {} sentence(s) ({} chars) · {} barge-in(s) · \
              {} resumed · ${:.4}",
@@ -74,6 +86,29 @@ impl VoiceStatus {
             }
         }
         out
+    }
+
+    /// The call's deafness, as the line says it after the call (theseus-d93y):
+    /// ` · deaf since 22:41:07 UTC, rejoined once`, ` · deaf (rejoin failed)`,
+    /// or ` · rejoined once` once it hears; empty for a call that heard.
+    fn deafness(&self) -> String {
+        let rejoined = match self.rejoins {
+            0 => "",
+            _ => "rejoined once",
+        };
+        match (self.deaf_failed, self.deaf_since_ms) {
+            (true, _) => " · deaf (rejoin failed)".into(),
+            (false, Some(ms)) => {
+                let s = (ms / 1000) % 86_400;
+                let since = format!("{:02}:{:02}:{:02} UTC", s / 3600, s / 60 % 60, s % 60);
+                match rejoined {
+                    "" => format!(" · deaf since {since}"),
+                    r => format!(" · deaf since {since}, {r}"),
+                }
+            }
+            (false, None) if !rejoined.is_empty() => format!(" · {rejoined}"),
+            (false, None) => String::new(),
+        }
     }
 }
 
@@ -115,5 +150,50 @@ mod tests {
         assert!(off
             .line()
             .ends_with("· 2 failed (last: Deepgram synthesis: 503)"));
+    }
+
+    /// A deaf call says so after its channel (theseus-d93y): since when, and
+    /// its one rejoin; or that the rejoin failed; or, once it hears, only
+    /// that it rejoined.
+    #[test]
+    fn the_health_line_says_a_deaf_call() {
+        let mut v = VoiceStatus {
+            state: "joined".into(),
+            channel: Some("#lounge".into()),
+            hears: vec!["robin".into()],
+            // 2026-10-06 22:41:07.250 UTC.
+            deaf_since_ms: Some(1_791_326_467_250),
+            ..VoiceStatus::default()
+        };
+        assert!(
+            v.line().starts_with(
+                "voice: joined #lounge (robin) · deaf since 22:41:07 UTC · 0 utterance(s)"
+            ),
+            "{}",
+            v.line()
+        );
+        v.rejoins = 1;
+        assert!(
+            v.line().starts_with(
+                "voice: joined #lounge (robin) · deaf since 22:41:07 UTC, rejoined once · "
+            ),
+            "{}",
+            v.line()
+        );
+        v.deaf_failed = true;
+        assert!(
+            v.line()
+                .starts_with("voice: joined #lounge (robin) · deaf (rejoin failed) · "),
+            "{}",
+            v.line()
+        );
+        v.deaf_failed = false;
+        v.deaf_since_ms = None;
+        assert!(
+            v.line()
+                .starts_with("voice: joined #lounge (robin) · rejoined once · 0 utterance(s)"),
+            "{}",
+            v.line()
+        );
     }
 }

@@ -1,0 +1,99 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="446" viewBox="0 0 720 446" role="img" aria-labelledby="t-start-path-at-10k t-start-path-at-10k-d" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
+<title id="t-start-path-at-10k">Each lifecycle phase at 10,000 parked sessions, before and after lane perf1 (p50, release)</title>
+<desc id="t-start-path-at-10k-d">What did lane perf1 change on a store of 10,000 parked sessions?</desc>
+<rect width="720" height="446" rx="8" fill="#fcfcfb" stroke="#e6e5df"/>
+<text x="18.0" y="32.0" font-size="15" fill="#0b0b0b" font-weight="600">Each lifecycle phase at 10,000 parked sessions, before and after lane perf1</text>
+<text x="18.0" y="52.0" font-size="15" fill="#0b0b0b" font-weight="600">(p50, release)</text>
+<circle cx="25.0" cy="70.0" r="5" fill="#88b3e7"/>
+<text x="40.0" y="74.0" font-size="12" fill="#52514e">before (9ac009d)</text>
+<circle cx="169.9" cy="70.0" r="5" fill="#2a78d6"/>
+<text x="184.9" y="74.0" font-size="12" fill="#52514e">after (the lane)</text>
+<line x1="236.2" y1="96.0" x2="236.2" y2="352.0" stroke="#e1e0d9" stroke-width="1"/>
+<line x1="295.2" y1="96.0" x2="295.2" y2="352.0" stroke="#e1e0d9" stroke-width="1"/>
+<line x1="373.1" y1="96.0" x2="373.1" y2="352.0" stroke="#e1e0d9" stroke-width="1"/>
+<line x1="432.1" y1="96.0" x2="432.1" y2="352.0" stroke="#e1e0d9" stroke-width="1"/>
+<line x1="491.1" y1="96.0" x2="491.1" y2="352.0" stroke="#e1e0d9" stroke-width="1"/>
+<line x1="569.1" y1="96.0" x2="569.1" y2="352.0" stroke="#e1e0d9" stroke-width="1"/>
+<text x="222.2" y="114.0" font-size="12" fill="#0b0b0b" text-anchor="end">cold start</text>
+<g><title>cold start: 119 ms → 21.5 ms (p95 124.7 then 32.8 ms; budget 250 ms at 10,000 sessions)</title>
+<line x1="447.0" y1="110.0" x2="301.3" y2="110.0" stroke="#88b3e7" stroke-width="3" stroke-linecap="round"/>
+<circle cx="447.0" cy="110.0" r="5" fill="#88b3e7" stroke="#fcfcfb" stroke-width="2"/>
+<circle cx="301.3" cy="110.0" r="12" fill="transparent"/>
+<circle cx="301.3" cy="110.0" r="5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<text x="598.7" y="114.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">119 ms → 21.5 ms</text>
+<text x="222.2" y="142.0" font-size="12" fill="#0b0b0b" text-anchor="end">cold start from the config copy</text>
+<g><title>cold start from the config copy: 117 ms → 20.8 ms (p95 123.0 then 23.1 ms; budget 250 ms at 10,000 sessions)</title>
+<line x1="445.8" y1="138.0" x2="298.5" y2="138.0" stroke="#88b3e7" stroke-width="3" stroke-linecap="round"/>
+<circle cx="445.8" cy="138.0" r="5" fill="#88b3e7" stroke="#fcfcfb" stroke-width="2"/>
+<circle cx="298.5" cy="138.0" r="12" fill="transparent"/>
+<circle cx="298.5" cy="138.0" r="5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<text x="598.7" y="142.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">117 ms → 20.8 ms</text>
+<text x="222.2" y="170.0" font-size="12" fill="#0b0b0b" text-anchor="end">clean shutdown, a job running</text>
+<g><title>clean shutdown, a job running: 30.1 ms → 27.8 ms (p95 48.3 then 33.6 ms; budget 100 ms at 10,000 sessions)</title>
+<line x1="329.9" y1="166.0" x2="323.2" y2="166.0" stroke="#88b3e7" stroke-width="3" stroke-linecap="round"/>
+<circle cx="329.9" cy="166.0" r="5" fill="#88b3e7" stroke="#fcfcfb" stroke-width="2"/>
+<circle cx="323.2" cy="166.0" r="12" fill="transparent"/>
+<circle cx="323.2" cy="166.0" r="5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<text x="598.7" y="170.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">30.1 ms → 27.8 ms</text>
+<text x="222.2" y="198.0" font-size="12" fill="#0b0b0b" text-anchor="end">SIGKILL, then restart</text>
+<g><title>SIGKILL, then restart: 150 ms → 48 ms (p95 153.2 then 89.2 ms; budget 350 ms at 10,000 sessions)</title>
+<line x1="466.6" y1="194.0" x2="369.7" y2="194.0" stroke="#88b3e7" stroke-width="3" stroke-linecap="round"/>
+<circle cx="466.6" cy="194.0" r="5" fill="#88b3e7" stroke="#fcfcfb" stroke-width="2"/>
+<circle cx="369.7" cy="194.0" r="12" fill="transparent"/>
+<circle cx="369.7" cy="194.0" r="5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<text x="598.7" y="198.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">150 ms → 48 ms</text>
+<text x="222.2" y="226.0" font-size="12" fill="#0b0b0b" text-anchor="end">binary swap</text>
+<g><title>binary swap: 149 ms → 45.6 ms (p95 171.0 then 47.5 ms; budget 200 ms at 10,000 sessions)</title>
+<line x1="466.2" y1="222.0" x2="365.3" y2="222.0" stroke="#88b3e7" stroke-width="3" stroke-linecap="round"/>
+<circle cx="466.2" cy="222.0" r="5" fill="#88b3e7" stroke="#fcfcfb" stroke-width="2"/>
+<circle cx="365.3" cy="222.0" r="12" fill="transparent"/>
+<circle cx="365.3" cy="222.0" r="5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<text x="598.7" y="226.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">149 ms → 45.6 ms</text>
+<text x="222.2" y="254.0" font-size="12" fill="#0b0b0b" text-anchor="end">restore (no budget)</text>
+<g><title>restore (no budget): 398 ms → 410 ms (p95 608.4 then 962.7 ms)</title>
+<line x1="549.6" y1="250.0" x2="552.4" y2="250.0" stroke="#88b3e7" stroke-width="3" stroke-linecap="round"/>
+<circle cx="549.6" cy="250.0" r="5" fill="#88b3e7" stroke="#fcfcfb" stroke-width="2"/>
+<circle cx="552.4" cy="250.0" r="12" fill="transparent"/>
+<circle cx="552.4" cy="250.0" r="5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<text x="598.7" y="254.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">398 ms → 410 ms</text>
+<text x="222.2" y="282.0" font-size="12" fill="#0b0b0b" text-anchor="end">the push's seed (no budget)</text>
+<g><title>the push's seed (no budget): 40.3 ms → 45.5 ms (p95 45.6 then 49.2 ms)</title>
+<line x1="354.8" y1="278.0" x2="365.1" y2="278.0" stroke="#88b3e7" stroke-width="3" stroke-linecap="round"/>
+<circle cx="354.8" cy="278.0" r="5" fill="#88b3e7" stroke="#fcfcfb" stroke-width="2"/>
+<circle cx="365.1" cy="278.0" r="12" fill="transparent"/>
+<circle cx="365.1" cy="278.0" r="5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<text x="598.7" y="282.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">40.3 ms → 45.5 ms</text>
+<text x="222.2" y="310.0" font-size="12" fill="#0b0b0b" text-anchor="end">the daemon's own time to serving</text>
+<g><title>the daemon's own time to serving: 49.4 ms → 19.3 ms (p50 over 51 starts)</title>
+<line x1="372.1" y1="306.0" x2="292.3" y2="306.0" stroke="#88b3e7" stroke-width="3" stroke-linecap="round"/>
+<circle cx="372.1" cy="306.0" r="5" fill="#88b3e7" stroke="#fcfcfb" stroke-width="2"/>
+<circle cx="292.3" cy="306.0" r="12" fill="transparent"/>
+<circle cx="292.3" cy="306.0" r="5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<text x="598.7" y="310.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">49.4 ms → 19.3 ms</text>
+<text x="222.2" y="338.0" font-size="12" fill="#0b0b0b" text-anchor="end">the continuation driver started</text>
+<g><title>the continuation driver started: 82.6 ms → 25.7 ms (ms after the process began)</title>
+<line x1="415.9" y1="334.0" x2="316.6" y2="334.0" stroke="#88b3e7" stroke-width="3" stroke-linecap="round"/>
+<circle cx="415.9" cy="334.0" r="5" fill="#88b3e7" stroke="#fcfcfb" stroke-width="2"/>
+<circle cx="316.6" cy="334.0" r="12" fill="transparent"/>
+<circle cx="316.6" cy="334.0" r="5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<text x="598.7" y="338.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">82.6 ms → 25.7 ms</text>
+<text x="236.2" y="368.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">10</text>
+<text x="295.2" y="368.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">20</text>
+<text x="373.1" y="368.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">50</text>
+<text x="432.1" y="368.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">100</text>
+<text x="491.1" y="368.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">200</text>
+<text x="569.1" y="368.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">500</text>
+<line x1="236.2" y1="352.0" x2="584.7" y2="352.0" stroke="#c3c2b7" stroke-width="1"/>
+<text x="410.4" y="386.0" font-size="12" fill="#52514e" text-anchor="middle">ms, p50 of 10 runs (log scale)</text>
+<text x="18.0" y="408.0" font-size="11" fill="#52514e">Release builds, a synthetic store of 10,000 parked sessions, 10 runs a phase, in one session under the gate lock on a quiet</text>
+<text x="18.0" y="423.0" font-size="11" fill="#52514e">machine (Oct 2, 01:35 to 01:37; IO pressure 1 to 9%, load 7.4 falling to 2.0).</text>
+</svg>

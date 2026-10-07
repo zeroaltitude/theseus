@@ -6529,6 +6529,7 @@ version = "0.0.1"
 dependencies = [
  "brotli",
  "brotli-decompressor 6.0.1",
+ "libc",
  "serde",
  "serde_json",
  "thiserror 2.0.21",
@@ -6815,6 +6816,7 @@ dependencies = [
  "serde_json",
  "tempfile",
  "theseus-core",
+ "theseus-judge",
  "theseus-kernel",
  "theseus-mcp",
  "theseus-protocol",

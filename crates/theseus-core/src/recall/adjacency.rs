@@ -130,6 +130,9 @@ pub(crate) const PAGE: usize = 4096;
 thread_local! {
     /// How many times this thread paced a walk (the tests' count).
     pub(crate) static PACES: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+    /// How long this thread's paces waited in all (the tests' sum).
+    pub(crate) static WAITED: std::cell::Cell<std::time::Duration> =
+        const { std::cell::Cell::new(std::time::Duration::ZERO) };
 }
 
 /// One pace of the warm build's walk: wait while the machine is busy, never
@@ -139,10 +142,13 @@ thread_local! {
 pub(crate) fn pace() -> std::time::Duration {
     #[cfg(test)]
     PACES.with(|c| c.set(c.get() + 1));
-    theseus_store::pressure::quiet_blocking_unless(
+    let waited = theseus_store::pressure::quiet_blocking_unless(
         theseus_store::pressure::BOUND,
         crate::startup::stop_has_begun,
-    )
+    );
+    #[cfg(test)]
+    WAITED.with(|c| c.set(c.get() + waited));
+    waited
 }
 
 impl Projection {

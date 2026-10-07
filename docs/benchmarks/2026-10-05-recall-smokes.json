@@ -1,0 +1,2099 @@
+{
+ "report": "2026-10-05-recall-smokes",
+ "title": "Recall bench: the first three smokes on the Theseus arm",
+ "suite": "recall (incidental recall, smoke size: 30 turns, 9 facts, 8 probes)",
+ "date": "2026-10-05",
+ "commit": "bench/recall as joined to main: e4d09068 (R11's branch), ca58d80f (R16's), a1bcbee2 (R25's); Theseus builds of 10-04 and c4f79e9f",
+ "arms": [
+  {
+   "key": "theseus",
+   "label": "Theseus, memory arm baseline"
+  }
+ ],
+ "summary": {
+  "smokes": {
+   "R11": {
+    "slug": "bench-recall",
+    "digest": "d30943acf7bfd1ac",
+    "progression_used": "bench-recall",
+    "context_window": 35000,
+    "turns": 30,
+    "facts": 9,
+    "delivered": 9,
+    "probes": 8,
+    "probe_kinds": {
+     "direct": 4,
+     "indirect": 2,
+     "abstention": 2
+    },
+    "compactions": [
+     {
+      "outcomes": [
+       "compaction"
+      ],
+      "turn": 11
+     },
+     {
+      "outcomes": [
+       "ring"
+      ],
+      "turn": 25
+     }
+    ],
+    "killed": [],
+    "left_running": [],
+    "overhead": null,
+    "exits": {
+     "0": 29,
+     "1": 1
+    },
+    "failed_turns": [
+     {
+      "turn": 10,
+      "role": "bulk",
+      "exit": 1
+     }
+    ],
+    "cost_usd": 0.3594,
+    "wall_s": 145,
+    "turn_latency_s": {
+     "min": 1.6,
+     "median": 4.0,
+     "max": 14.3
+    },
+    "stored": {
+     "recall": 0.8333333333333334,
+     "abstention": 0.5,
+     "confident_wrong": 1,
+     "stale": 1,
+     "moved": 0,
+     "digest": "d30943acf7bfd1ac7c0c3d86ba66b6aa029ae8aba4f45a56bb01af37de8b1081"
+    },
+    "today": {
+     "strict": {
+      "recall": {
+       "k": 5,
+       "n": 6,
+       "rate": 0.8333,
+       "lo": 0.4365,
+       "hi": 0.9699
+      },
+      "abstention": {
+       "k": 2,
+       "n": 2,
+       "rate": 1.0,
+       "lo": 0.3424,
+       "hi": 1.0
+      },
+      "confident_wrong": 1,
+      "stale": 1,
+      "moved": 0
+     },
+     "retracted": {
+      "recall": {
+       "k": 6,
+       "n": 6,
+       "rate": 1.0,
+       "lo": 0.6097,
+       "hi": 1.0
+      },
+      "abstention": {
+       "k": 2,
+       "n": 2,
+       "rate": 1.0,
+       "lo": 0.3424,
+       "hi": 1.0
+      },
+      "confident_wrong": 0,
+      "stale": 0,
+      "moved": 0
+     }
+    },
+    "by_probe": [
+     {
+      "probe": "p001",
+      "kind": "direct",
+      "salience": "incidental",
+      "value_kind": "port",
+      "carrier": "aside",
+      "planned": "supersession",
+      "bucket": "supersession",
+      "turn": 27,
+      "turns_since": 4,
+      "tokens_since": 4242,
+      "stored_strict": false,
+      "today_strict": false,
+      "today_retracted": true,
+      "stale_today_strict": true,
+      "confident_wrong_today_strict": true,
+      "indirect_verdict": "rescored",
+      "cost_usd": 0.0045,
+      "latency_s": 3.8
+     },
+     {
+      "probe": "p002",
+      "kind": "indirect",
+      "salience": "incidental",
+      "value_kind": "ticket",
+      "carrier": "error",
+      "planned": "days",
+      "bucket": "days",
+      "turn": 21,
+      "turns_since": 14,
+      "tokens_since": 15270,
+      "stored_strict": true,
+      "today_strict": true,
+      "today_retracted": true,
+      "stale_today_strict": null,
+      "confident_wrong_today_strict": false,
+      "indirect_verdict": "rescored",
+      "cost_usd": 0.0123,
+      "latency_s": 5.2
+     },
+     {
+      "probe": "p003",
+      "kind": "abstention",
+      "salience": "central",
+      "value_kind": "version",
+      "carrier": "topic",
+      "planned": "days",
+      "bucket": "days",
+      "turn": 29,
+      "turns_since": 21,
+      "tokens_since": 22857,
+      "stored_strict": false,
+      "today_strict": true,
+      "today_retracted": true,
+      "stale_today_strict": null,
+      "confident_wrong_today_strict": false,
+      "indirect_verdict": "rescored",
+      "cost_usd": 0.0091,
+      "latency_s": 5.6
+     },
+     {
+      "probe": "p004",
+      "kind": "direct",
+      "salience": "central",
+      "value_kind": "host",
+      "carrier": "topic",
+      "planned": "days",
+      "bucket": "days",
+      "turn": 18,
+      "turns_since": 15,
+      "tokens_since": 15103,
+      "stored_strict": true,
+      "today_strict": true,
+      "today_retracted": true,
+      "stale_today_strict": null,
+      "confident_wrong_today_strict": false,
+      "indirect_verdict": "rescored",
+      "cost_usd": 0.0129,
+      "latency_s": 5.8
+     },
+     {
+      "probe": "p005",
+      "kind": "direct",
+      "salience": "incidental",
+      "value_kind": "ticket",
+      "carrier": "error",
+      "planned": "compaction",
+      "bucket": "compaction",
+      "turn": 12,
+      "turns_since": 7,
+      "tokens_since": 6515,
+      "stored_strict": true,
+      "today_strict": true,
+      "today_retracted": true,
+      "stale_today_strict": null,
+      "confident_wrong_today_strict": false,
+      "indirect_verdict": "rescored",
+      "cost_usd": 0.0041,
+      "latency_s": 2.0
+     },
+     {
+      "probe": "p006",
+      "kind": "abstention",
+      "salience": "incidental",
+      "value_kind": "ticket",
+      "carrier": "remark",
+      "planned": "near",
+      "bucket": "near",
+      "turn": 19,
+      "turns_since": 2,
+      "tokens_since": 1513,
+      "stored_strict": true,
+      "today_strict": true,
+      "today_retracted": true,
+      "stale_today_strict": null,
+      "confident_wrong_today_strict": false,
+      "indirect_verdict": "rescored",
+      "cost_usd": 0.0118,
+      "latency_s": 4.3
+     },
+     {
+      "probe": "p007",
+      "kind": "direct",
+      "salience": "incidental",
+      "value_kind": "path",
+      "carrier": "remark",
+      "planned": "near",
+      "bucket": "near",
+      "turn": 24,
+      "turns_since": 4,
+      "tokens_since": 3629,
+      "stored_strict": true,
+      "today_strict": true,
+      "today_retracted": true,
+      "stale_today_strict": null,
+      "confident_wrong_today_strict": false,
+      "indirect_verdict": "rescored",
+      "cost_usd": 0.0057,
+      "latency_s": 1.6
+     },
+     {
+      "probe": "p008",
+      "kind": "indirect",
+      "salience": "central",
+      "value_kind": "ticket",
+      "carrier": "topic",
+      "planned": "topic_shift",
+      "bucket": "topic_shift",
+      "turn": 6,
+      "turns_since": 4,
+      "tokens_since": 3283,
+      "stored_strict": true,
+      "today_strict": true,
+      "today_retracted": true,
+      "stale_today_strict": null,
+      "confident_wrong_today_strict": false,
+      "indirect_verdict": "rescored",
+      "cost_usd": 0.0092,
+      "latency_s": 3.8
+     }
+    ],
+    "has_workspace": true
+   },
+   "R16": {
+    "slug": "bench-recall-fixes",
+    "digest": "25df5ff56f522723",
+    "progression_used": "bench-recall-plan",
+    "context_window": 45000,
+    "turns": 30,
+    "facts": 9,
+    "delivered": 9,
+    "probes": 8,
+    "probe_kinds": {
+     "direct": 4,
+     "indirect": 2,
+     "abstention": 2
+    },
+    "compactions": [
+     {
+      "cuts": [
+       {
+        "first": 18,
+        "last": 691,
+        "messages": 54,
+        "outcome": "compaction",
+        "why": null
+       }
+      ],
+      "outcomes": [
+       "compaction"
+      ],
+      "turn": 11
+     },
+     {
+      "cuts": [
+       {
+        "first": null,
+        "last": null,
+        "messages": 30,
+        "outcome": "ring",
+        "why": "a summary of up to 4,096 tokens would not fit beside the 29,386 the kept turns take, within the 29,654 the window leaves"
+       }
+      ],
+      "outcomes": [
+       "ring"
+      ],
+      "turn": 19
+     },
+     {
+      "cuts": [
+       {
+        "first": 990,
+        "last": 1609,
+        "messages": 46,
+        "outcome": "compaction",
+        "why": null
+       }
+      ],
+      "outcomes": [
+       "compaction"
+      ],
+      "turn": 28
+     }
+    ],
+    "killed": [],
+    "left_running": [],
+    "overhead": null,
+    "exits": {
+     "0": 30
+    },
+    "failed_turns": [],
+    "cost_usd": 0.7248,
+    "wall_s": 218,
+    "turn_latency_s": {
+     "min": 1.5,
+     "median": 4.4,
+     "max": 21.7
+    },
+    "stored": {
+     "recall": 0.8333333333333334,
+     "abstention": 0.5,
+     "confident_wrong": 0,
+     "stale": 0,
+     "moved": 1,
+     "digest": "25df5ff56f52272324447e54934fe29acb2f9604c6c80a3d5c168fab169faf2b"
+    },
+    "today": {
+     "strict": {
+      "recall": {
+       "k": 5,
+       "n": 6,
+       "rate": 0.8333,
+       "lo": 0.4365,
+       "hi": 0.9699
+      },
+      "abstention": {
+       "k": 1,
+       "n": 2,
+       "rate": 0.5,
+       "lo": 0.0945,
+       "hi": 0.9055
+      },
+      "confident_wrong": 0,
+      "stale": 0,
+      "moved": 1
+     },
+     "retracted": {
+      "recall": {
+       "k": 5,
+       "n": 6,
+       "rate": 0.8333,
+       "lo": 0.4365,
+       "hi": 0.9699
+      },
+      "abstention": {
+       "k": 1,
+       "n": 2,
+       "rate": 0.5,
+       "lo": 0.0945,
+       "hi": 0.9055
+      },
+      "confident_wrong": 0,
+      "stale": 0,
+      "moved": 1
+     }
+    },
+    "by_probe": [
+     {
+      "probe": "p001",
+      "kind": "direct",
+      "salience": "incidental",
+      "value_kind": "port",
+      "carrier": "aside",
+      "planned": "supersession",
+      "bucket": "supersession",
+      "turn": 27,
+      "turns_since": 4,
+      "tokens_since": 2901,
+      "stored_strict": true,
+      "today_strict": true,
+      "today_retracted": true,
+      "stale_today_strict": false,
+      "confident_wrong_today_strict": false,
+      "indirect_verdict": "rescored",
+      "cost_usd": 0.0068,
+      "latency_s": 1.5
+     },
+     {
+      "probe": "p002",
+      "kind": "indirect",
+      "salience": "incidental",
+      "value_kind": "ticket",
+      "carrier": "error",
+      "planned": "days",
+      "bucket": "days",
+      "turn": 21,
+      "turns_since": 14,
+      "tokens_since": 51196,
+      "stored_strict": false,
+      "today_strict": false,
+      "today_retracted": false,
+      "stale_today_strict": null,
+      "confident_wrong_today_strict": false,
+      "indirect_verdict": "stored (no workspace kept)",
+      "cost_usd": 0.0204,
+      "latency_s": 8.9
+     },
+     {
+      "probe": "p003",
+      "kind": "abstention",
+      "salience": "central",
+      "value_kind": "version",
+      "carrier": "topic",
+      "planned": "days",
+      "bucket": "days",
+      "turn": 29,
+      "turns_since": 21,
+      "tokens_since": 64689,
+      "stored_strict": true,
+      "today_strict": true,
+      "today_retracted": true,
+      "stale_today_strict": null,
+      "confident_wrong_today_strict": false,
+      "indirect_verdict": "rescored",
+      "cost_usd": 0.0108,
+      "latency_s": 4.5
+     },
+     {
+      "probe": "p004",
+      "kind": "direct",
+      "salience": "central",
+      "value_kind": "host",
+      "carrier": "topic",
+      "planned": "days",
+      "bucket": "days",
+      "turn": 18,
+      "turns_since": 15,
+      "tokens_since": 37909,
+      "stored_strict": true,
+      "today_strict": true,
+      "today_retracted": true,
+      "stale_today_strict": null,
+      "confident_wrong_today_strict": false,
+      "indirect_verdict": "rescored",
+      "cost_usd": 0.0186,
+      "latency_s": 6.5
+     },
+     {
+      "probe": "p005",
+      "kind": "direct",
+      "salience": "incidental",
+      "value_kind": "ticket",
+      "carrier": "error",
+      "planned": "compaction",
+      "bucket": "compaction",
+      "turn": 12,
+      "turns_since": 7,
+      "tokens_since": 20796,
+      "stored_strict": true,
+      "today_strict": true,
+      "today_retracted": true,
+      "stale_today_strict": null,
+      "confident_wrong_today_strict": false,
+      "indirect_verdict": "rescored",
+      "cost_usd": 0.0309,
+      "latency_s": 10.9
+     },
+     {
+      "probe": "p006",
+      "kind": "abstention",
+      "salience": "incidental",
+      "value_kind": "ticket",
+      "carrier": "remark",
+      "planned": "near",
+      "bucket": "compaction",
+      "turn": 19,
+      "turns_since": 2,
+      "tokens_since": 2556,
+      "stored_strict": false,
+      "today_strict": false,
+      "today_retracted": false,
+      "stale_today_strict": null,
+      "confident_wrong_today_strict": false,
+      "indirect_verdict": "rescored",
+      "cost_usd": 0.0639,
+      "latency_s": 12.7
+     },
+     {
+      "probe": "p007",
+      "kind": "direct",
+      "salience": "incidental",
+      "value_kind": "path",
+      "carrier": "remark",
+      "planned": "near",
+      "bucket": "near",
+      "turn": 24,
+      "turns_since": 4,
+      "tokens_since": 4230,
+      "stored_strict": true,
+      "today_strict": true,
+      "today_retracted": true,
+      "stale_today_strict": null,
+      "confident_wrong_today_strict": false,
+      "indirect_verdict": "rescored",
+      "cost_usd": 0.0065,
+      "latency_s": 1.8
+     },
+     {
+      "probe": "p008",
+      "kind": "indirect",
+      "salience": "central",
+      "value_kind": "ticket",
+      "carrier": "topic",
+      "planned": "topic_shift",
+      "bucket": "topic_shift",
+      "turn": 6,
+      "turns_since": 4,
+      "tokens_since": 2419,
+      "stored_strict": true,
+      "today_strict": true,
+      "today_retracted": true,
+      "stale_today_strict": null,
+      "confident_wrong_today_strict": false,
+      "indirect_verdict": "stored (no workspace kept)",
+      "cost_usd": 0.0123,
+      "latency_s": 4.0
+     }
+    ],
+    "has_workspace": false
+   },
+   "R25": {
+    "slug": "bench-recall-plan",
+    "digest": "a6a203b842f48d21",
+    "progression_used": "bench-recall-plan",
+    "context_window": 45000,
+    "turns": 30,
+    "facts": 9,
+    "delivered": 9,
+    "probes": 8,
+    "probe_kinds": {
+     "direct": 4,
+     "indirect": 2,
+     "abstention": 2
+    },
+    "compactions": [
+     {
+      "cuts": [
+       {
+        "first": 18,
+        "last": 704,
+        "messages": 55,
+        "outcome": "compaction",
+        "why": null
+       }
+      ],
+      "outcomes": [
+       "compaction"
+      ],
+      "turn": 11
+     },
+     {
+      "cuts": [
+       {
+        "first": null,
+        "last": null,
+        "messages": 29,
+        "outcome": "ring",
+        "why": "a summary of up to 4,096 tokens would not fit beside the 29,258 the kept turns take, within the 29,654 the window leaves"
+       }
+      ],
+      "outcomes": [
+       "ring"
+      ],
+      "turn": 19
+     },
+     {
+      "cuts": [
+       {
+        "first": 1039,
+        "last": 1835,
+        "messages": 59,
+        "outcome": "compaction",
+        "why": null
+       }
+      ],
+      "outcomes": [
+       "compaction"
+      ],
+      "turn": 26
+     }
+    ],
+    "killed": [],
+    "left_running": [],
+    "overhead": {
+     "allowed": false,
+     "cushion": 50,
+     "measured": 13593,
+     "past_cushion": false,
+     "planned": 13700,
+     "planned_recorded": true
+    },
+    "exits": {
+     "0": 30
+    },
+    "failed_turns": [],
+    "cost_usd": 0.7569,
+    "wall_s": 253,
+    "turn_latency_s": {
+     "min": 1.5,
+     "median": 5.2,
+     "max": 28.2
+    },
+    "stored": {
+     "recall": 0.6666666666666666,
+     "abstention": 0.5,
+     "confident_wrong": 1,
+     "stale": 1,
+     "moved": 1,
+     "digest": "a6a203b842f48d2147374472a6bce6efe6c917c63fb7533054d2dbe167e6c96b"
+    },
+    "today": {
+     "strict": {
+      "recall": {
+       "k": 4,
+       "n": 6,
+       "rate": 0.6667,
+       "lo": 0.3,
+       "hi": 0.9032
+      },
+      "abstention": {
+       "k": 1,
+       "n": 2,
+       "rate": 0.5,
+       "lo": 0.0945,
+       "hi": 0.9055
+      },
+      "confident_wrong": 1,
+      "stale": 1,
+      "moved": 1
+     },
+     "retracted": {
+      "recall": {
+       "k": 4,
+       "n": 6,
+       "rate": 0.6667,
+       "lo": 0.3,
+       "hi": 0.9032
+      },
+      "abstention": {
+       "k": 1,
+       "n": 2,
+       "rate": 0.5,
+       "lo": 0.0945,
+       "hi": 0.9055
+      },
+      "confident_wrong": 1,
+      "stale": 1,
+      "moved": 1
+     }
+    },
+    "by_probe": [
+     {
+      "probe": "p001",
+      "kind": "direct",
+      "salience": "incidental",
+      "value_kind": "port",
+      "carrier": "aside",
+      "planned": "supersession",
+      "bucket": "supersession",
+      "turn": 27,
+      "turns_since": 4,
+      "tokens_since": 12391,
+      "stored_strict": false,
+      "today_strict": false,
+      "today_retracted": false,
+      "stale_today_strict": true,
+      "confident_wrong_today_strict": true,
+      "indirect_verdict": "rescored",
+      "cost_usd": 0.0233,
+      "latency_s": 9.8
+     },
+     {
+      "probe": "p002",
+      "kind": "indirect",
+      "salience": "incidental",
+      "value_kind": "ticket",
+      "carrier": "error",
+      "planned": "days",
+      "bucket": "days",
+      "turn": 21,
+      "turns_since": 14,
+      "tokens_since": 53000,
+      "stored_strict": false,
+      "today_strict": false,
+      "today_retracted": false,
+      "stale_today_strict": null,
+      "confident_wrong_today_strict": false,
+      "indirect_verdict": "stored (no workspace kept)",
+      "cost_usd": 0.0154,
+      "latency_s": 4.3
+     },
+     {
+      "probe": "p003",
+      "kind": "abstention",
+      "salience": "central",
+      "value_kind": "version",
+      "carrier": "topic",
+      "planned": "days",
+      "bucket": "days",
+      "turn": 29,
+      "turns_since": 21,
+      "tokens_since": 70046,
+      "stored_strict": true,
+      "today_strict": true,
+      "today_retracted": true,
+      "stale_today_strict": null,
+      "confident_wrong_today_strict": false,
+      "indirect_verdict": "rescored",
+      "cost_usd": 0.0138,
+      "latency_s": 4.4
+     },
+     {
+      "probe": "p004",
+      "kind": "direct",
+      "salience": "central",
+      "value_kind": "host",
+      "carrier": "topic",
+      "planned": "days",
+      "bucket": "days",
+      "turn": 18,
+      "turns_since": 15,
+      "tokens_since": 40375,
+      "stored_strict": true,
+      "today_strict": true,
+      "today_retracted": true,
+      "stale_today_strict": null,
+      "confident_wrong_today_strict": false,
+      "indirect_verdict": "rescored",
+      "cost_usd": 0.0177,
+      "latency_s": 5.9
+     },
+     {
+      "probe": "p005",
+      "kind": "direct",
+      "salience": "incidental",
+      "value_kind": "ticket",
+      "carrier": "error",
+      "planned": "compaction",
+      "bucket": "compaction",
+      "turn": 12,
+      "turns_since": 7,
+      "tokens_since": 21901,
+      "stored_strict": true,
+      "today_strict": true,
+      "today_retracted": true,
+      "stale_today_strict": null,
+      "confident_wrong_today_strict": false,
+      "indirect_verdict": "rescored",
+      "cost_usd": 0.0326,
+      "latency_s": 21.7
+     },
+     {
+      "probe": "p006",
+      "kind": "abstention",
+      "salience": "incidental",
+      "value_kind": "ticket",
+      "carrier": "remark",
+      "planned": "near",
+      "bucket": "compaction",
+      "turn": 19,
+      "turns_since": 2,
+      "tokens_since": 2312,
+      "stored_strict": false,
+      "today_strict": false,
+      "today_retracted": false,
+      "stale_today_strict": null,
+      "confident_wrong_today_strict": false,
+      "indirect_verdict": "rescored",
+      "cost_usd": 0.0522,
+      "latency_s": 8.6
+     },
+     {
+      "probe": "p007",
+      "kind": "direct",
+      "salience": "incidental",
+      "value_kind": "path",
+      "carrier": "remark",
+      "planned": "near",
+      "bucket": "near",
+      "turn": 24,
+      "turns_since": 4,
+      "tokens_since": 2457,
+      "stored_strict": true,
+      "today_strict": true,
+      "today_retracted": true,
+      "stale_today_strict": null,
+      "confident_wrong_today_strict": false,
+      "indirect_verdict": "rescored",
+      "cost_usd": 0.0066,
+      "latency_s": 1.5
+     },
+     {
+      "probe": "p008",
+      "kind": "indirect",
+      "salience": "central",
+      "value_kind": "ticket",
+      "carrier": "topic",
+      "planned": "topic_shift",
+      "bucket": "topic_shift",
+      "turn": 6,
+      "turns_since": 4,
+      "tokens_since": 2895,
+      "stored_strict": true,
+      "today_strict": true,
+      "today_retracted": true,
+      "stale_today_strict": null,
+      "confident_wrong_today_strict": false,
+      "indirect_verdict": "stored (no workspace kept)",
+      "cost_usd": 0.0124,
+      "latency_s": 4.3
+     }
+    ],
+    "has_workspace": false
+   }
+  },
+  "per_turn": {
+   "R11": [
+    {
+     "turn": 0,
+     "role": "opener",
+     "cost_usd": 0.031,
+     "exit": 0,
+     "compacted": false
+    },
+    {
+     "turn": 1,
+     "role": "filler",
+     "cost_usd": 0.0074,
+     "exit": 0,
+     "compacted": false
+    },
+    {
+     "turn": 2,
+     "role": "fact",
+     "cost_usd": 0.0157,
+     "exit": 0,
+     "compacted": false
+    },
+    {
+     "turn": 3,
+     "role": "fact",
+     "cost_usd": 0.0123,
+     "exit": 0,
+     "compacted": false
+    },
+    {
+     "turn": 4,
+     "role": "filler",
+     "cost_usd": 0.0099,
+     "exit": 0,
+     "compacted": false
+    },
+    {
+     "turn": 5,
+     "role": "fact",
+     "cost_usd": 0.0139,
+     "exit": 0,
+     "compacted": false
+    },
+    {
+     "turn": 6,
+     "role": "probe",
+     "cost_usd": 0.0092,
+     "exit": 0,
+     "compacted": false
+    },
+    {
+     "turn": 7,
+     "role": "fact",
+     "cost_usd": 0.0143,
+     "exit": 0,
+     "compacted": false
+    },
+    {
+     "turn": 8,
+     "role": "fact",
+     "cost_usd": 0.0129,
+     "exit": 0,
+     "compacted": false
+    },
+    {
+     "turn": 9,
+     "role": "filler",
+     "cost_usd": 0.0132,
+     "exit": 0,
+     "compacted": false
+    },
+    {
+     "turn": 10,
+     "role": "bulk",
+     "cost_usd": 0,
+     "exit": 1,
+     "compacted": false
+    },
+    {
+     "turn": 11,
+     "role": "filler",
+     "cost_usd": 0.0443,
+     "exit": 0,
+     "compacted": true
+    },
+    {
+     "turn": 12,
+     "role": "probe",
+     "cost_usd": 0.0041,
+     "exit": 0,
+     "compacted": false
+    },
+    {
+     "turn": 13,
+     "role": "filler",
+     "cost_usd": 0.0075,
+     "exit": 0,
+     "compacted": false
+    },
+    {
+     "turn": 14,
+     "role": "filler",
+     "cost_usd": 0.008,
+     "exit": 0,
+     "compacted": false
+    },
+    {
+     "turn": 15,
+     "role": "opener",
+     "cost_usd": 0.0077,
+     "exit": 0,
+     "compacted": false
+    },
+    {
+     "turn": 16,
+     "role": "fact",
+     "cost_usd": 0.0149,
+     "exit": 0,
+     "compacted": false
+    },
+    {
+     "turn": 17,
+     "role": "fact",
+     "cost_usd": 0.0124,
+     "exit": 0,
+     "compacted": false
+    },
+    {
+     "turn": 18,
+     "role": "probe",
+     "cost_usd": 0.0129,
+     "exit": 0,
+     "compacted": false
+    },
+    {
+     "turn": 19,
+     "role": "probe",
+     "cost_usd": 0.0118,
+     "exit": 0,
+     "compacted": false
+    },
+    {
+     "turn": 20,
+     "role": "fact",
+     "cost_usd": 0.0112,
+     "exit": 0,
+     "compacted": false
+    },
+    {
+     "turn": 21,
+     "role": "probe",
+     "cost_usd": 0.0123,
+     "exit": 0,
+     "compacted": false
+    },
+    {
+     "turn": 22,
+     "role": "filler",
+     "cost_usd": 0.0115,
+     "exit": 0,
+     "compacted": false
+    },
+    {
+     "turn": 23,
+     "role": "fact",
+     "cost_usd": 0.0096,
+     "exit": 0,
+     "compacted": false
+    },
+    {
+     "turn": 24,
+     "role": "probe",
+     "cost_usd": 0.0057,
+     "exit": 0,
+     "compacted": false
+    },
+    {
+     "turn": 25,
+     "role": "filler",
+     "cost_usd": 0.0161,
+     "exit": 0,
+     "compacted": true
+    },
+    {
+     "turn": 26,
+     "role": "filler",
+     "cost_usd": 0.0083,
+     "exit": 0,
+     "compacted": false
+    },
+    {
+     "turn": 27,
+     "role": "probe",
+     "cost_usd": 0.0045,
+     "exit": 0,
+     "compacted": false
+    },
+    {
+     "turn": 28,
+     "role": "filler",
+     "cost_usd": 0.0079,
+     "exit": 0,
+     "compacted": false
+    },
+    {
+     "turn": 29,
+     "role": "probe",
+     "cost_usd": 0.0091,
+     "exit": 0,
+     "compacted": false
+    }
+   ],
+   "R16": [
+    {
+     "turn": 0,
+     "role": "opener",
+     "cost_usd": 0.0758,
+     "exit": 0,
+     "compacted": false
+    },
+    {
+     "turn": 1,
+     "role": "filler",
+     "cost_usd": 0.0063,
+     "exit": 0,
+     "compacted": false
+    },
+    {
+     "turn": 2,
+     "role": "fact",
+     "cost_usd": 0.0199,
+     "exit": 0,
+     "compacted": false
+    },
+    {
+     "turn": 3,
+     "role": "fact",
+     "cost_usd": 0.0094,
+     "exit": 0,
+     "compacted": false
+    },
+    {
+     "turn": 4,
+     "role": "filler",
+     "cost_usd": 0.0056,
+     "exit": 0,
+     "compacted": false
+    },
+    {
+     "turn": 5,
+     "role": "fact",
+     "cost_usd": 0.0193,
+     "exit": 0,
+     "compacted": false
+    },
+    {
+     "turn": 6,
+     "role": "probe",
+     "cost_usd": 0.0123,
+     "exit": 0,
+     "compacted": false
+    },
+    {
+     "turn": 7,
+     "role": "fact",
+     "cost_usd": 0.0189,
+     "exit": 0,
+     "compacted": false
+    },
+    {
+     "turn": 8,
+     "role": "fact",
+     "cost_usd": 0.009,
+     "exit": 0,
+     "compacted": false
+    },
+    {
+     "turn": 9,
+     "role": "filler",
+     "cost_usd": 0.013,
+     "exit": 0,
+     "compacted": false
+    },
+    {
+     "turn": 10,
+     "role": "bulk",
+     "cost_usd": 0.0271,
+     "exit": 0,
+     "compacted": false
+    },
+    {
+     "turn": 11,
+     "role": "bulk",
+     "cost_usd": 0.0827,
+     "exit": 0,
+     "compacted": true
+    },
+    {
+     "turn": 12,
+     "role": "probe",
+     "cost_usd": 0.0309,
+     "exit": 0,
+     "compacted": false
+    },
+    {
+     "turn": 13,
+     "role": "filler",
+     "cost_usd": 0.0134,
+     "exit": 0,
+     "compacted": false
+    },
+    {
+     "turn": 14,
+     "role": "filler",
+     "cost_usd": 0.012,
+     "exit": 0,
+     "compacted": false
+    },
+    {
+     "turn": 15,
+     "role": "opener",
+     "cost_usd": 0.0452,
+     "exit": 0,
+     "compacted": false
+    },
+    {
+     "turn": 16,
+     "role": "fact",
+     "cost_usd": 0.0263,
+     "exit": 0,
+     "compacted": false
+    },
+    {
+     "turn": 17,
+     "role": "fact",
+     "cost_usd": 0.0162,
+     "exit": 0,
+     "compacted": false
+    },
+    {
+     "turn": 18,
+     "role": "probe",
+     "cost_usd": 0.0186,
+     "exit": 0,
+     "compacted": false
+    },
+    {
+     "turn": 19,
+     "role": "probe",
+     "cost_usd": 0.0639,
+     "exit": 0,
+     "compacted": true
+    },
+    {
+     "turn": 20,
+     "role": "fact",
+     "cost_usd": 0.0134,
+     "exit": 0,
+     "compacted": false
+    },
+    {
+     "turn": 21,
+     "role": "probe",
+     "cost_usd": 0.0204,
+     "exit": 0,
+     "compacted": false
+    },
+    {
+     "turn": 22,
+     "role": "filler",
+     "cost_usd": 0.0147,
+     "exit": 0,
+     "compacted": false
+    },
+    {
+     "turn": 23,
+     "role": "fact",
+     "cost_usd": 0.014,
+     "exit": 0,
+     "compacted": false
+    },
+    {
+     "turn": 24,
+     "role": "probe",
+     "cost_usd": 0.0065,
+     "exit": 0,
+     "compacted": false
+    },
+    {
+     "turn": 25,
+     "role": "filler",
+     "cost_usd": 0.0142,
+     "exit": 0,
+     "compacted": false
+    },
+    {
+     "turn": 26,
+     "role": "filler",
+     "cost_usd": 0.0448,
+     "exit": 0,
+     "compacted": false
+    },
+    {
+     "turn": 27,
+     "role": "probe",
+     "cost_usd": 0.0068,
+     "exit": 0,
+     "compacted": false
+    },
+    {
+     "turn": 28,
+     "role": "filler",
+     "cost_usd": 0.0532,
+     "exit": 0,
+     "compacted": true
+    },
+    {
+     "turn": 29,
+     "role": "probe",
+     "cost_usd": 0.0108,
+     "exit": 0,
+     "compacted": false
+    }
+   ],
+   "R25": [
+    {
+     "turn": 0,
+     "role": "opener",
+     "cost_usd": 0.0701,
+     "exit": 0,
+     "compacted": false
+    },
+    {
+     "turn": 1,
+     "role": "filler",
+     "cost_usd": 0.0058,
+     "exit": 0,
+     "compacted": false
+    },
+    {
+     "turn": 2,
+     "role": "fact",
+     "cost_usd": 0.0201,
+     "exit": 0,
+     "compacted": false
+    },
+    {
+     "turn": 3,
+     "role": "fact",
+     "cost_usd": 0.0158,
+     "exit": 0,
+     "compacted": false
+    },
+    {
+     "turn": 4,
+     "role": "filler",
+     "cost_usd": 0.0057,
+     "exit": 0,
+     "compacted": false
+    },
+    {
+     "turn": 5,
+     "role": "fact",
+     "cost_usd": 0.0192,
+     "exit": 0,
+     "compacted": false
+    },
+    {
+     "turn": 6,
+     "role": "probe",
+     "cost_usd": 0.0124,
+     "exit": 0,
+     "compacted": false
+    },
+    {
+     "turn": 7,
+     "role": "fact",
+     "cost_usd": 0.0191,
+     "exit": 0,
+     "compacted": false
+    },
+    {
+     "turn": 8,
+     "role": "fact",
+     "cost_usd": 0.0091,
+     "exit": 0,
+     "compacted": false
+    },
+    {
+     "turn": 9,
+     "role": "filler",
+     "cost_usd": 0.0177,
+     "exit": 0,
+     "compacted": false
+    },
+    {
+     "turn": 10,
+     "role": "bulk",
+     "cost_usd": 0.0266,
+     "exit": 0,
+     "compacted": false
+    },
+    {
+     "turn": 11,
+     "role": "bulk",
+     "cost_usd": 0.0931,
+     "exit": 0,
+     "compacted": true
+    },
+    {
+     "turn": 12,
+     "role": "probe",
+     "cost_usd": 0.0326,
+     "exit": 0,
+     "compacted": false
+    },
+    {
+     "turn": 13,
+     "role": "filler",
+     "cost_usd": 0.0139,
+     "exit": 0,
+     "compacted": false
+    },
+    {
+     "turn": 14,
+     "role": "filler",
+     "cost_usd": 0.0127,
+     "exit": 0,
+     "compacted": false
+    },
+    {
+     "turn": 15,
+     "role": "opener",
+     "cost_usd": 0.0531,
+     "exit": 0,
+     "compacted": false
+    },
+    {
+     "turn": 16,
+     "role": "fact",
+     "cost_usd": 0.0183,
+     "exit": 0,
+     "compacted": false
+    },
+    {
+     "turn": 17,
+     "role": "fact",
+     "cost_usd": 0.0165,
+     "exit": 0,
+     "compacted": false
+    },
+    {
+     "turn": 18,
+     "role": "probe",
+     "cost_usd": 0.0177,
+     "exit": 0,
+     "compacted": false
+    },
+    {
+     "turn": 19,
+     "role": "probe",
+     "cost_usd": 0.0522,
+     "exit": 0,
+     "compacted": true
+    },
+    {
+     "turn": 20,
+     "role": "fact",
+     "cost_usd": 0.0142,
+     "exit": 0,
+     "compacted": false
+    },
+    {
+     "turn": 21,
+     "role": "probe",
+     "cost_usd": 0.0154,
+     "exit": 0,
+     "compacted": false
+    },
+    {
+     "turn": 22,
+     "role": "filler",
+     "cost_usd": 0.013,
+     "exit": 0,
+     "compacted": false
+    },
+    {
+     "turn": 23,
+     "role": "fact",
+     "cost_usd": 0.0131,
+     "exit": 0,
+     "compacted": false
+    },
+    {
+     "turn": 24,
+     "role": "probe",
+     "cost_usd": 0.0066,
+     "exit": 0,
+     "compacted": false
+    },
+    {
+     "turn": 25,
+     "role": "filler",
+     "cost_usd": 0.0135,
+     "exit": 0,
+     "compacted": false
+    },
+    {
+     "turn": 26,
+     "role": "filler",
+     "cost_usd": 0.103,
+     "exit": 0,
+     "compacted": true
+    },
+    {
+     "turn": 27,
+     "role": "probe",
+     "cost_usd": 0.0233,
+     "exit": 0,
+     "compacted": false
+    },
+    {
+     "turn": 28,
+     "role": "filler",
+     "cost_usd": 0.009,
+     "exit": 0,
+     "compacted": false
+    },
+    {
+     "turn": 29,
+     "role": "probe",
+     "cost_usd": 0.0138,
+     "exit": 0,
+     "compacted": false
+    }
+   ]
+  },
+  "plan": {
+   "R11": {
+    "window": 35000,
+    "estimate_budget_usd": 0.48,
+    "overhead_planned": null
+   },
+   "R16": {
+    "window": 45000,
+    "estimate_budget_usd": 0.53,
+    "overhead_planned": 13700
+   },
+   "R25": {
+    "window": 45000,
+    "estimate_budget_usd": 0.53,
+    "overhead_planned": 13700,
+    "overhead_measured": 13593
+   }
+  },
+  "total_spend": 1.8411
+ },
+ "figures": [
+  {
+   "name": "probes",
+   "form": "matrix",
+   "title": "Each smoke's eight probes, scored by today's scorer (strict)",
+   "question": "Which misses were the arm's, and which were the scorer's?",
+   "note": "Columns: the smokes R11, R16, R25. 4 direct, 2 indirect, 2 abstention probes each; the row notes say what each miss was.",
+   "state_labels": {
+    "P": "right",
+    "F": "wrong"
+   },
+   "columns": [
+    {
+     "label": "R11",
+     "arm": "theseus"
+    },
+    {
+     "label": "R16",
+     "arm": "theseus"
+    },
+    {
+     "label": "R25",
+     "arm": "theseus"
+    }
+   ],
+   "rows": [
+    {
+     "label": "p001 direct",
+     "cells": "FPF",
+     "note": "R11 retracts the old value (right under retracted); R25 cites it"
+    },
+    {
+     "label": "p002 indirect",
+     "cells": "PFF",
+     "note": "R16, R25 declined to write the file without a confirmation"
+    },
+    {
+     "label": "p003 abstention",
+     "cells": "PPP",
+     "note": "R11's 'I can't tell' failed the old admission rule"
+    },
+    {
+     "label": "p004 direct",
+     "cells": "PPP",
+     "note": ""
+    },
+    {
+     "label": "p005 direct",
+     "cells": "PPP",
+     "note": ""
+    },
+    {
+     "label": "p006 abstention",
+     "cells": "PFF",
+     "note": "R16, R25 named another ticket only to reject it"
+    },
+    {
+     "label": "p007 direct",
+     "cells": "PPP",
+     "note": ""
+    },
+    {
+     "label": "p008 indirect",
+     "cells": "PPP",
+     "note": ""
+    }
+   ]
+  },
+  {
+   "name": "turn-cost",
+   "form": "multiples",
+   "columns": 1,
+   "title": "Dollars per turn in each smoke, and where it compacted",
+   "question": "Where did each smoke compact, and where did its money go?",
+   "note": "30 turns a smoke, Claude Sonnet 5.5, memory arm baseline. The plan's mark is turn 10, a long log read.",
+   "x": {
+    "label": "turn",
+    "type": "number",
+    "format": "int",
+    "min": 0,
+    "max": 29
+   },
+   "mark_labels": {
+    "good": "compaction (a summary written)",
+    "warning": "ring (cut, no summary)",
+    "critical": "turn refused (context overage)"
+   },
+   "panels": [
+    {
+     "title": "R11: $0.36, window 35,000",
+     "y": {
+      "label": "dollars",
+      "format": "usd",
+      "min": 0,
+      "max": 0.15
+     },
+     "series": [
+      {
+       "arm": "theseus",
+       "label": "dollars per turn",
+       "style": "line",
+       "points": [
+        [
+         0,
+         0.031
+        ],
+        [
+         1,
+         0.0074
+        ],
+        [
+         2,
+         0.0157
+        ],
+        [
+         3,
+         0.0123
+        ],
+        [
+         4,
+         0.0099
+        ],
+        [
+         5,
+         0.0139
+        ],
+        [
+         6,
+         0.0092
+        ],
+        [
+         7,
+         0.0143
+        ],
+        [
+         8,
+         0.0129
+        ],
+        [
+         9,
+         0.0132
+        ],
+        [
+         10,
+         0
+        ],
+        [
+         11,
+         0.0443
+        ],
+        [
+         12,
+         0.0041
+        ],
+        [
+         13,
+         0.0075
+        ],
+        [
+         14,
+         0.008
+        ],
+        [
+         15,
+         0.0077
+        ],
+        [
+         16,
+         0.0149
+        ],
+        [
+         17,
+         0.0124
+        ],
+        [
+         18,
+         0.0129
+        ],
+        [
+         19,
+         0.0118
+        ],
+        [
+         20,
+         0.0112
+        ],
+        [
+         21,
+         0.0123
+        ],
+        [
+         22,
+         0.0115
+        ],
+        [
+         23,
+         0.0096
+        ],
+        [
+         24,
+         0.0057
+        ],
+        [
+         25,
+         0.0161
+        ],
+        [
+         26,
+         0.0083
+        ],
+        [
+         27,
+         0.0045
+        ],
+        [
+         28,
+         0.0079
+        ],
+        [
+         29,
+         0.0091
+        ]
+       ]
+      }
+     ],
+     "marks": [
+      {
+       "x": 11,
+       "y": 0.0443,
+       "status": "good",
+       "label": "compaction",
+       "show_label": false,
+       "tip": "turn 11: compaction (a summary written)"
+      },
+      {
+       "x": 25,
+       "y": 0.0161,
+       "status": "warning",
+       "label": "ring",
+       "show_label": false,
+       "tip": "turn 25: ring (the cut kept, no room for a summary)"
+      },
+      {
+       "x": 10,
+       "y": 0,
+       "status": "critical",
+       "label": "refused",
+       "show_label": false,
+       "tip": "turn 10: refused before any call (context overage)"
+      }
+     ]
+    },
+    {
+     "title": "R16: $0.72, window 45,000",
+     "y": {
+      "label": "dollars",
+      "format": "usd",
+      "min": 0,
+      "max": 0.15
+     },
+     "series": [
+      {
+       "arm": "theseus",
+       "label": "dollars per turn",
+       "style": "line",
+       "points": [
+        [
+         0,
+         0.0758
+        ],
+        [
+         1,
+         0.0063
+        ],
+        [
+         2,
+         0.0199
+        ],
+        [
+         3,
+         0.0094
+        ],
+        [
+         4,
+         0.0056
+        ],
+        [
+         5,
+         0.0193
+        ],
+        [
+         6,
+         0.0123
+        ],
+        [
+         7,
+         0.0189
+        ],
+        [
+         8,
+         0.009
+        ],
+        [
+         9,
+         0.013
+        ],
+        [
+         10,
+         0.0271
+        ],
+        [
+         11,
+         0.0827
+        ],
+        [
+         12,
+         0.0309
+        ],
+        [
+         13,
+         0.0134
+        ],
+        [
+         14,
+         0.012
+        ],
+        [
+         15,
+         0.0452
+        ],
+        [
+         16,
+         0.0263
+        ],
+        [
+         17,
+         0.0162
+        ],
+        [
+         18,
+         0.0186
+        ],
+        [
+         19,
+         0.0639
+        ],
+        [
+         20,
+         0.0134
+        ],
+        [
+         21,
+         0.0204
+        ],
+        [
+         22,
+         0.0147
+        ],
+        [
+         23,
+         0.014
+        ],
+        [
+         24,
+         0.0065
+        ],
+        [
+         25,
+         0.0142
+        ],
+        [
+         26,
+         0.0448
+        ],
+        [
+         27,
+         0.0068
+        ],
+        [
+         28,
+         0.0532
+        ],
+        [
+         29,
+         0.0108
+        ]
+       ]
+      }
+     ],
+     "marks": [
+      {
+       "x": 11,
+       "y": 0.0827,
+       "status": "good",
+       "label": "compaction",
+       "show_label": false,
+       "tip": "turn 11: compaction (a summary written)"
+      },
+      {
+       "x": 19,
+       "y": 0.0639,
+       "status": "warning",
+       "label": "ring",
+       "show_label": false,
+       "tip": "turn 19: ring (the cut kept, no room for a summary)"
+      },
+      {
+       "x": 28,
+       "y": 0.0532,
+       "status": "good",
+       "label": "compaction",
+       "show_label": false,
+       "tip": "turn 28: compaction (a summary written)"
+      }
+     ]
+    },
+    {
+     "title": "R25: $0.76, window 45,000",
+     "y": {
+      "label": "dollars",
+      "format": "usd",
+      "min": 0,
+      "max": 0.15
+     },
+     "series": [
+      {
+       "arm": "theseus",
+       "label": "dollars per turn",
+       "style": "line",
+       "points": [
+        [
+         0,
+         0.0701
+        ],
+        [
+         1,
+         0.0058
+        ],
+        [
+         2,
+         0.0201
+        ],
+        [
+         3,
+         0.0158
+        ],
+        [
+         4,
+         0.0057
+        ],
+        [
+         5,
+         0.0192
+        ],
+        [
+         6,
+         0.0124
+        ],
+        [
+         7,
+         0.0191
+        ],
+        [
+         8,
+         0.0091
+        ],
+        [
+         9,
+         0.0177
+        ],
+        [
+         10,
+         0.0266
+        ],
+        [
+         11,
+         0.0931
+        ],
+        [
+         12,
+         0.0326
+        ],
+        [
+         13,
+         0.0139
+        ],
+        [
+         14,
+         0.0127
+        ],
+        [
+         15,
+         0.0531
+        ],
+        [
+         16,
+         0.0183
+        ],
+        [
+         17,
+         0.0165
+        ],
+        [
+         18,
+         0.0177
+        ],
+        [
+         19,
+         0.0522
+        ],
+        [
+         20,
+         0.0142
+        ],
+        [
+         21,
+         0.0154
+        ],
+        [
+         22,
+         0.013
+        ],
+        [
+         23,
+         0.0131
+        ],
+        [
+         24,
+         0.0066
+        ],
+        [
+         25,
+         0.0135
+        ],
+        [
+         26,
+         0.103
+        ],
+        [
+         27,
+         0.0233
+        ],
+        [
+         28,
+         0.009
+        ],
+        [
+         29,
+         0.0138
+        ]
+       ]
+      }
+     ],
+     "marks": [
+      {
+       "x": 11,
+       "y": 0.0931,
+       "status": "good",
+       "label": "compaction",
+       "show_label": false,
+       "tip": "turn 11: compaction (a summary written)"
+      },
+      {
+       "x": 19,
+       "y": 0.0522,
+       "status": "warning",
+       "label": "ring",
+       "show_label": false,
+       "tip": "turn 19: ring (the cut kept, no room for a summary)"
+      },
+      {
+       "x": 26,
+       "y": 0.103,
+       "status": "good",
+       "label": "compaction",
+       "show_label": false,
+       "tip": "turn 26: compaction (a summary written)"
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

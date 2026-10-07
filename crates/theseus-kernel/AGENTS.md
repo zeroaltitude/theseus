@@ -55,7 +55,9 @@ Key modules: `kernel.rs`, `tx.rs`, `locks.rs`, `job.rs`, `cgroup.rs`, `children.
   daemon's pidfd (its `kill -9`: SIGKILL to the init at once).
 - `children.rs`: the daemon's children: what it spawned, what it adopted, and who reaps each. Job wrappers and
   tenders (the index tender, row 51) are reaped by their pids, a tender's exit reported to its supervisor; an
-  `op` is left to tokio; anything else is an orphan.
+  `op` is left to tokio; anything else is an orphan. After an exec, `relearn` reads a child whose command line is
+  empty (still in its exec, theseus-mi6a) again, up to `EXEC_WAIT` (500 ms) in all, so a tender just started is
+  not taken for an orphan (theseus-r4hn); `learn` is the rule, tested by order.
 - `outbox.rs`: posts that must reach a channel, as actions of their own record kind, `OUTBOX`.
 - `earlier.rs` (theseus-m9iy): an earlier process's in-process calls. Startup's reconcile notes each dispatched
   provider call (`Evidence::in_process`, by its tool) in memory and writes nothing; the driver's first tick after

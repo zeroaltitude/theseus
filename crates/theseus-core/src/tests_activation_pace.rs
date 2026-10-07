@@ -70,8 +70,12 @@ pub(crate) const INNER: &str = "THESEUS_TEST_FAKE_PSI";
 /// (`unshare -rm`) with a directory of fake pressure files bound over
 /// `/proc/pressure`, saying IO is busy, as theseus-store's pressure test does:
 /// a warm build of three pages waits at its first pace, and goes within a
-/// look once the stop begins. Where namespaces can't be made (no `unshare`,
-/// or unprivileged user namespaces off), it says so and passes.
+/// look once the stop begins. What it holds is the build's waits, summed on its
+/// own thread (`adjacency::WAITED`), from the stop's beginning at its first
+/// wait: they end within a few looks of the stop, whatever the machine's speed, where a wait the stop did not end is a whole
+/// `BOUND` a pace. It does not time the build, whose work a loaded debug build
+/// makes slow. Where namespaces can't be made (no `unshare`, or unprivileged
+/// user namespaces off), it says so and passes.
 #[test]
 fn a_clean_stop_ends_the_warm_builds_waits() {
     if let Some(dir) = std::env::var_os(INNER) {
@@ -148,19 +152,43 @@ fn stopped_inside(dir: &Path) {
     let warm = Arc::new(Adjacent::default());
     let w = warm.clone();
     let t0 = Instant::now();
-    let build = std::thread::spawn(move || w.build(&store, true));
+    // The build's own thread reports how long its paces waited in all.
+    let build = std::thread::spawn(move || {
+        w.build(&store, true)?;
+        Ok::<_, anyhow::Error>(crate::recall::adjacency::WAITED.with(|c| c.get()))
+    });
+    // Its first pace counts before it waits: the stop begins only once the
+    // build is at a wait, however long a loaded debug build takes to fold its
+    // first page.
+    while warm.paces() == 0 {
+        assert!(t0.elapsed() < Duration::from_secs(120), "no first pace");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    let paced_at = Instant::now();
     std::thread::sleep(Duration::from_millis(1500));
     assert!(
         !build.is_finished(),
         "the warm build waits while the machine is busy"
     );
+    let held = paced_at.elapsed();
     crate::startup::stop_began();
-    build.join().unwrap().unwrap();
-    let took = t0.elapsed();
-    println!("STOP-INNER the build ended {took:?} after it began; the stop began at 1.5 s");
+    let waited = build.join().unwrap().unwrap();
+    println!(
+        "STOP-INNER the build ended {:?} after it began and waited {waited:?} in all; the stop \
+         began {held:?} into its first wait",
+        t0.elapsed()
+    );
+    // It waited until the stop, and at most a look past it. A wait the stop
+    // did not end is a whole `BOUND` (10 s) a pace. The build's own work is no
+    // part of this: a debug build's fold is slow under load, and a stop does
+    // not shorten it.
     assert!(
-        took < Duration::from_millis(1500) + LOOK_EVERY * 3,
-        "a clean stop still waited for the warm build: {took:?}"
+        waited >= held * 9 / 10,
+        "the build did not wait while busy: {waited:?}, held {held:?}"
+    );
+    assert!(
+        waited < held + LOOK_EVERY * 3,
+        "a clean stop still waited for the warm build: {waited:?} of waits, held {held:?}"
     );
     assert!(warm.built());
     assert_eq!(warm.stats().unwrap().nodes, 2 * PAGE as u64 + 1);

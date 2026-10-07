@@ -285,8 +285,8 @@ mod voice {
                 _ = log.tick() => {
                     for (ssrc, n) in io.ssrcs() {
                         eprintln!(
-                            "ssrc {ssrc} (user {:?}): {} frames, {} decoded",
-                            n.user.map(|u| u.0), n.frames, n.decoded
+                            "ssrc {ssrc} (user {:?}): {} frames, {} decoded, {} sender reports",
+                            n.user.map(|u| u.0), n.frames, n.decoded, n.reports
                         );
                     }
                     eprintln!("frames per user: {heard:?}");

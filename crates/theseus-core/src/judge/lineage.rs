@@ -15,8 +15,10 @@
 //!   row of `shadow`, `canary`, or `live`; a canary's control arm skips it),
 //!   else the root. A learned version with no row, or one rolled back or
 //!   turned `off`, stands nowhere, so a rollback gives the place back.
-//! - **Read after serving** (`Core::warm_ladder`) or by the first judgment,
-//!   then kept, as the ladder is.
+//! - **Read after serving** (`Core::warm_ladder`), or by an RPC or the
+//!   learning loop, then kept, as the ladder is. A point never reads it
+//!   (theseus-289c): until the warm read, [`JudgeService::placed`] answers
+//!   the root.
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -135,6 +137,16 @@ impl Lineage {
         f(g.as_ref().expect("loaded"))
     }
 
+    /// Whether the learned versions have been read.
+    pub fn is_loaded(&self) -> bool {
+        lock(&self.loaded).is_some()
+    }
+
+    /// Read them now, unless they are (the warm read's).
+    pub fn read(&self, store: &Store) {
+        self.with(store, |_| ());
+    }
+
     pub fn get(&self, store: &Store, name: &str) -> Option<Learned> {
         self.with(store, |m| m.get(name).cloned())
     }
@@ -233,8 +245,10 @@ impl super::JudgeService {
     /// The version standing in `root`'s place for `session`: the newest
     /// learned one the ladder placed (a canary's only in its canary arm),
     /// else the root. A root with no learned version reads nothing more.
+    /// Before the warm read it is the root, read from nothing
+    /// (theseus-289c): a point never reads the lineage or the ladder.
     pub fn placed(&self, root: &str, session: &str) -> String {
-        if !self.cfg.enabled {
+        if !self.cfg.enabled || !self.ladder_read() {
             return root.to_string();
         }
         for name in self.lineage.names_of_root(&self.store, root) {
@@ -252,6 +266,16 @@ impl super::JudgeService {
             return name;
         }
         root.to_string()
+    }
+
+    /// [`JudgeService::placed`] for a reader off every point's path (the
+    /// learning loop, `pack.list`): the ladder and the lineage read first,
+    /// when they are not.
+    pub fn placed_read(&self, root: &str, session: &str) -> String {
+        if self.cfg.enabled {
+            self.read_ladder();
+        }
+        self.placed(root, session)
     }
 
     /// The root's config line caps a learned version: `[judge.packs."<root>"]`

@@ -1,0 +1,1350 @@
+{
+ "report": "2026-09-30-memory-exam-v2",
+ "title": "Memory exam v2: items built so that retrieval is hard",
+ "suite": "memory-exam (exam-v2, 72 items)",
+ "date": "2026-09-30",
+ "commit": "exam lane 0c77ea4 and 0407230, on main since bcff18f (rebased); daemon at main 3aa72a8",
+ "arms": [
+  {
+   "key": "bm25",
+   "label": "BM25 probe (no model)"
+  },
+  {
+   "key": "none",
+   "label": "none (no memory)"
+  },
+  {
+   "key": "oracle",
+   "label": "oracle (the gold, shown)"
+  }
+ ],
+ "summary": {
+  "exam": "exam-v2 (72 items: exam-v1.2's 38 items and 2 replacements, plus 4 hard families of 8)",
+  "digest": "sha256:68302a539eddadf41e9cca33e704d70ce21af70cfad99c72fbba8995fbe44c32",
+  "probe": {
+   "v1": {
+    "table": {
+     "all": {
+      "items": 36,
+      "@1": 15,
+      "@3": 30,
+      "@6": 33,
+      "@10": 34,
+      "@20": 35
+     },
+     "decision": {
+      "items": 4,
+      "@1": 1,
+      "@3": 1,
+      "@6": 2,
+      "@10": 3,
+      "@20": 4
+     },
+     "distractor": {
+      "items": 4,
+      "@1": 3,
+      "@3": 4,
+      "@6": 4,
+      "@10": 4,
+      "@20": 4
+     },
+     "episode": {
+      "items": 4,
+      "@1": 0,
+      "@3": 2,
+      "@6": 3,
+      "@10": 3,
+      "@20": 3
+     },
+     "fact": {
+      "items": 4,
+      "@1": 2,
+      "@3": 4,
+      "@6": 4,
+      "@10": 4,
+      "@20": 4
+     },
+     "injection": {
+      "items": 4,
+      "@1": 0,
+      "@3": 3,
+      "@6": 4,
+      "@10": 4,
+      "@20": 4
+     },
+     "preference": {
+      "items": 4,
+      "@1": 1,
+      "@3": 4,
+      "@6": 4,
+      "@10": 4,
+      "@20": 4
+     },
+     "private": {
+      "items": 4,
+      "@1": 4,
+      "@3": 4,
+      "@6": 4,
+      "@10": 4,
+      "@20": 4
+     },
+     "procedure": {
+      "items": 4,
+      "@1": 4,
+      "@3": 4,
+      "@6": 4,
+      "@10": 4,
+      "@20": 4
+     },
+     "superseded": {
+      "items": 4,
+      "@1": 0,
+      "@3": 4,
+      "@6": 4,
+      "@10": 4,
+      "@20": 4
+     },
+     "exam-v1's families": {
+      "items": 36,
+      "@1": 15,
+      "@3": 30,
+      "@6": 33,
+      "@10": 34,
+      "@20": 35
+     }
+    },
+    "own_rows_checked": 10,
+    "mismatches": []
+   },
+   "v2": {
+    "table": {
+     "all": {
+      "items": 68,
+      "@1": 16,
+      "@3": 27,
+      "@6": 27,
+      "@10": 28,
+      "@20": 34
+     },
+     "decision": {
+      "items": 4,
+      "@1": 1,
+      "@3": 1,
+      "@6": 1,
+      "@10": 1,
+      "@20": 1
+     },
+     "distractor": {
+      "items": 4,
+      "@1": 3,
+      "@3": 4,
+      "@6": 4,
+      "@10": 4,
+      "@20": 4
+     },
+     "episode": {
+      "items": 4,
+      "@1": 0,
+      "@3": 2,
+      "@6": 2,
+      "@10": 2,
+      "@20": 2
+     },
+     "fact": {
+      "items": 4,
+      "@1": 1,
+      "@3": 2,
+      "@6": 2,
+      "@10": 2,
+      "@20": 3
+     },
+     "injection": {
+      "items": 4,
+      "@1": 2,
+      "@3": 4,
+      "@6": 4,
+      "@10": 4,
+      "@20": 4
+     },
+     "paraphrase": {
+      "items": 8,
+      "@1": 0,
+      "@3": 0,
+      "@6": 0,
+      "@10": 0,
+      "@20": 0
+     },
+     "preference": {
+      "items": 4,
+      "@1": 1,
+      "@3": 1,
+      "@6": 1,
+      "@10": 2,
+      "@20": 3
+     },
+     "private": {
+      "items": 4,
+      "@1": 4,
+      "@3": 4,
+      "@6": 4,
+      "@10": 4,
+      "@20": 4
+     },
+     "procedure": {
+      "items": 4,
+      "@1": 3,
+      "@3": 4,
+      "@6": 4,
+      "@10": 4,
+      "@20": 4
+     },
+     "scale": {
+      "items": 8,
+      "@1": 1,
+      "@3": 1,
+      "@6": 1,
+      "@10": 1,
+      "@20": 4
+     },
+     "superseded": {
+      "items": 4,
+      "@1": 0,
+      "@3": 4,
+      "@6": 4,
+      "@10": 4,
+      "@20": 4
+     },
+     "time": {
+      "items": 8,
+      "@1": 0,
+      "@3": 0,
+      "@6": 0,
+      "@10": 0,
+      "@20": 1
+     },
+     "tool_output": {
+      "items": 8,
+      "@1": 0,
+      "@3": 0,
+      "@6": 0,
+      "@10": 0,
+      "@20": 0
+     },
+     "exam-v1's families": {
+      "items": 36,
+      "@1": 15,
+      "@3": 26,
+      "@6": 26,
+      "@10": 27,
+      "@20": 29
+     },
+     "the hard families": {
+      "items": 32,
+      "@1": 1,
+      "@3": 1,
+      "@6": 1,
+      "@10": 1,
+      "@20": 5
+     }
+    },
+    "own_rows_checked": 15,
+    "mismatches": []
+   },
+   "v2-simple": {
+    "table": {
+     "all": {
+      "items": 68,
+      "@1": 14,
+      "@3": 30,
+      "@6": 32,
+      "@10": 33,
+      "@20": 39
+     },
+     "decision": {
+      "items": 4,
+      "@1": 1,
+      "@3": 1,
+      "@6": 2,
+      "@10": 2,
+      "@20": 2
+     },
+     "distractor": {
+      "items": 4,
+      "@1": 3,
+      "@3": 4,
+      "@6": 4,
+      "@10": 4,
+      "@20": 4
+     },
+     "episode": {
+      "items": 4,
+      "@1": 0,
+      "@3": 2,
+      "@6": 2,
+      "@10": 2,
+      "@20": 2
+     },
+     "fact": {
+      "items": 4,
+      "@1": 1,
+      "@3": 3,
+      "@6": 3,
+      "@10": 3,
+      "@20": 4
+     },
+     "injection": {
+      "items": 4,
+      "@1": 1,
+      "@3": 4,
+      "@6": 4,
+      "@10": 4,
+      "@20": 4
+     },
+     "paraphrase": {
+      "items": 8,
+      "@1": 0,
+      "@3": 0,
+      "@6": 0,
+      "@10": 0,
+      "@20": 0
+     },
+     "preference": {
+      "items": 4,
+      "@1": 1,
+      "@3": 2,
+      "@6": 2,
+      "@10": 3,
+      "@20": 4
+     },
+     "private": {
+      "items": 4,
+      "@1": 4,
+      "@3": 4,
+      "@6": 4,
+      "@10": 4,
+      "@20": 4
+     },
+     "procedure": {
+      "items": 4,
+      "@1": 3,
+      "@3": 4,
+      "@6": 4,
+      "@10": 4,
+      "@20": 4
+     },
+     "scale": {
+      "items": 8,
+      "@1": 0,
+      "@3": 1,
+      "@6": 1,
+      "@10": 1,
+      "@20": 4
+     },
+     "superseded": {
+      "items": 4,
+      "@1": 0,
+      "@3": 3,
+      "@6": 4,
+      "@10": 4,
+      "@20": 4
+     },
+     "time": {
+      "items": 8,
+      "@1": 0,
+      "@3": 0,
+      "@6": 0,
+      "@10": 0,
+      "@20": 1
+     },
+     "tool_output": {
+      "items": 8,
+      "@1": 0,
+      "@3": 2,
+      "@6": 2,
+      "@10": 2,
+      "@20": 2
+     },
+     "exam-v1's families": {
+      "items": 36,
+      "@1": 14,
+      "@3": 27,
+      "@6": 29,
+      "@10": 30,
+      "@20": 32
+     },
+     "the hard families": {
+      "items": 32,
+      "@1": 0,
+      "@3": 3,
+      "@6": 3,
+      "@10": 3,
+      "@20": 7
+     }
+    },
+    "own_rows_checked": 15,
+    "mismatches": []
+   },
+   "v2-recency30": {
+    "table": {
+     "all": {
+      "items": 68,
+      "@1": 18,
+      "@3": 30,
+      "@6": 33,
+      "@10": 35,
+      "@20": 42
+     },
+     "decision": {
+      "items": 4,
+      "@1": 1,
+      "@3": 1,
+      "@6": 1,
+      "@10": 1,
+      "@20": 2
+     },
+     "distractor": {
+      "items": 4,
+      "@1": 3,
+      "@3": 4,
+      "@6": 4,
+      "@10": 4,
+      "@20": 4
+     },
+     "episode": {
+      "items": 4,
+      "@1": 0,
+      "@3": 2,
+      "@6": 3,
+      "@10": 3,
+      "@20": 3
+     },
+     "fact": {
+      "items": 4,
+      "@1": 1,
+      "@3": 4,
+      "@6": 4,
+      "@10": 4,
+      "@20": 4
+     },
+     "injection": {
+      "items": 4,
+      "@1": 2,
+      "@3": 4,
+      "@6": 4,
+      "@10": 4,
+      "@20": 4
+     },
+     "paraphrase": {
+      "items": 8,
+      "@1": 0,
+      "@3": 0,
+      "@6": 0,
+      "@10": 0,
+      "@20": 0
+     },
+     "preference": {
+      "items": 4,
+      "@1": 2,
+      "@3": 2,
+      "@6": 3,
+      "@10": 3,
+      "@20": 4
+     },
+     "private": {
+      "items": 4,
+      "@1": 4,
+      "@3": 4,
+      "@6": 4,
+      "@10": 4,
+      "@20": 4
+     },
+     "procedure": {
+      "items": 4,
+      "@1": 4,
+      "@3": 4,
+      "@6": 4,
+      "@10": 4,
+      "@20": 4
+     },
+     "scale": {
+      "items": 8,
+      "@1": 0,
+      "@3": 0,
+      "@6": 0,
+      "@10": 0,
+      "@20": 2
+     },
+     "superseded": {
+      "items": 4,
+      "@1": 0,
+      "@3": 4,
+      "@6": 4,
+      "@10": 4,
+      "@20": 4
+     },
+     "time": {
+      "items": 8,
+      "@1": 1,
+      "@3": 1,
+      "@6": 2,
+      "@10": 4,
+      "@20": 7
+     },
+     "tool_output": {
+      "items": 8,
+      "@1": 0,
+      "@3": 0,
+      "@6": 0,
+      "@10": 0,
+      "@20": 0
+     },
+     "exam-v1's families": {
+      "items": 36,
+      "@1": 17,
+      "@3": 29,
+      "@6": 31,
+      "@10": 31,
+      "@20": 33
+     },
+     "the hard families": {
+      "items": 32,
+      "@1": 1,
+      "@3": 1,
+      "@6": 2,
+      "@10": 4,
+      "@20": 9
+     }
+    },
+    "own_rows_checked": 15,
+    "mismatches": []
+   },
+   "v2-recency7": {
+    "table": {
+     "all": {
+      "items": 68,
+      "@1": 12,
+      "@3": 22,
+      "@6": 32,
+      "@10": 36,
+      "@20": 39
+     },
+     "decision": {
+      "items": 4,
+      "@1": 1,
+      "@3": 1,
+      "@6": 1,
+      "@10": 1,
+      "@20": 1
+     },
+     "distractor": {
+      "items": 4,
+      "@1": 2,
+      "@3": 4,
+      "@6": 4,
+      "@10": 4,
+      "@20": 4
+     },
+     "episode": {
+      "items": 4,
+      "@1": 0,
+      "@3": 2,
+      "@6": 2,
+      "@10": 3,
+      "@20": 3
+     },
+     "fact": {
+      "items": 4,
+      "@1": 1,
+      "@3": 2,
+      "@6": 4,
+      "@10": 4,
+      "@20": 4
+     },
+     "injection": {
+      "items": 4,
+      "@1": 2,
+      "@3": 4,
+      "@6": 4,
+      "@10": 4,
+      "@20": 4
+     },
+     "paraphrase": {
+      "items": 8,
+      "@1": 0,
+      "@3": 0,
+      "@6": 0,
+      "@10": 0,
+      "@20": 0
+     },
+     "preference": {
+      "items": 4,
+      "@1": 1,
+      "@3": 1,
+      "@6": 2,
+      "@10": 2,
+      "@20": 3
+     },
+     "private": {
+      "items": 4,
+      "@1": 4,
+      "@3": 4,
+      "@6": 4,
+      "@10": 4,
+      "@20": 4
+     },
+     "procedure": {
+      "items": 4,
+      "@1": 1,
+      "@3": 3,
+      "@6": 4,
+      "@10": 4,
+      "@20": 4
+     },
+     "scale": {
+      "items": 8,
+      "@1": 0,
+      "@3": 0,
+      "@6": 0,
+      "@10": 0,
+      "@20": 1
+     },
+     "superseded": {
+      "items": 4,
+      "@1": 0,
+      "@3": 0,
+      "@6": 3,
+      "@10": 4,
+      "@20": 4
+     },
+     "time": {
+      "items": 8,
+      "@1": 0,
+      "@3": 1,
+      "@6": 4,
+      "@10": 6,
+      "@20": 7
+     },
+     "tool_output": {
+      "items": 8,
+      "@1": 0,
+      "@3": 0,
+      "@6": 0,
+      "@10": 0,
+      "@20": 0
+     },
+     "exam-v1's families": {
+      "items": 36,
+      "@1": 12,
+      "@3": 21,
+      "@6": 28,
+      "@10": 30,
+      "@20": 31
+     },
+     "the hard families": {
+      "items": 32,
+      "@1": 0,
+      "@3": 1,
+      "@6": 4,
+      "@10": 6,
+      "@20": 8
+     }
+    },
+    "own_rows_checked": 15,
+    "mismatches": []
+   }
+  },
+  "scale_dose": [
+   {
+    "item": "scale-1",
+    "near_duplicates": 8,
+    "gold_rank": 1,
+    "held_out": false
+   },
+   {
+    "item": "scale-5",
+    "near_duplicates": 8,
+    "gold_rank": 17,
+    "held_out": true
+   },
+   {
+    "item": "scale-2",
+    "near_duplicates": 16,
+    "gold_rank": 18,
+    "held_out": false
+   },
+   {
+    "item": "scale-6",
+    "near_duplicates": 16,
+    "gold_rank": 17,
+    "held_out": true
+   },
+   {
+    "item": "scale-3",
+    "near_duplicates": 32,
+    "gold_rank": 76,
+    "held_out": false
+   },
+   {
+    "item": "scale-7",
+    "near_duplicates": 32,
+    "gold_rank": 73,
+    "held_out": true
+   },
+   {
+    "item": "scale-4",
+    "near_duplicates": 64,
+    "gold_rank": 178,
+    "held_out": false
+   },
+   {
+    "item": "scale-8",
+    "near_duplicates": 64,
+    "gold_rank": 114,
+    "held_out": true
+   }
+  ],
+  "trap_ranked_first": {
+   "paraphrase": 0,
+   "scale": 7,
+   "time": 8,
+   "tool_output": 8
+  },
+  "gold_unreachable_by_bm25_rank_over_400": {
+   "paraphrase": 8,
+   "scale": 0,
+   "time": 0,
+   "tool_output": 6
+  },
+  "glm": {
+   "all": {
+    "items": 34,
+    "none": {
+     "rate": 0.0294,
+     "t_lo": 0.0,
+     "t_hi": 0.0893,
+     "boot_lo": 0.0,
+     "boot_hi": 0.0882,
+     "cells": {
+      "k": 3,
+      "n": 102,
+      "rate": 0.0294,
+      "lo": 0.0101,
+      "hi": 0.0829
+     }
+    },
+    "oracle": {
+     "rate": 1.0,
+     "t_lo": 1.0,
+     "t_hi": 1.0,
+     "boot_lo": 1.0,
+     "boot_hi": 1.0,
+     "cells": {
+      "k": 102,
+      "n": 102,
+      "rate": 1.0,
+      "lo": 0.9637,
+      "hi": 1.0
+     }
+    },
+    "headroom": {
+     "diff": 0.9706,
+     "t_lo": 0.9107,
+     "t_hi": 1.0,
+     "wins": 33,
+     "losses": 0,
+     "ties": 1,
+     "sign_p": 0.0
+    }
+   },
+   "tuning half": {
+    "items": 17,
+    "none": {
+     "rate": 0.0,
+     "t_lo": 0.0,
+     "t_hi": 0.0,
+     "boot_lo": 0.0,
+     "boot_hi": 0.0,
+     "cells": {
+      "k": 0,
+      "n": 51,
+      "rate": 0.0,
+      "lo": 0.0,
+      "hi": 0.07
+     }
+    },
+    "oracle": {
+     "rate": 1.0,
+     "t_lo": 1.0,
+     "t_hi": 1.0,
+     "boot_lo": 1.0,
+     "boot_hi": 1.0,
+     "cells": {
+      "k": 51,
+      "n": 51,
+      "rate": 1.0,
+      "lo": 0.93,
+      "hi": 1.0
+     }
+    },
+    "headroom": {
+     "diff": 1.0,
+     "t_lo": 1.0,
+     "t_hi": 1.0,
+     "wins": 17,
+     "losses": 0,
+     "ties": 0,
+     "sign_p": 1.5e-05
+    }
+   },
+   "held-out half": {
+    "items": 17,
+    "none": {
+     "rate": 0.0588,
+     "t_lo": 0.0,
+     "t_hi": 0.1835,
+     "boot_lo": 0.0,
+     "boot_hi": 0.1765,
+     "cells": {
+      "k": 3,
+      "n": 51,
+      "rate": 0.0588,
+      "lo": 0.0202,
+      "hi": 0.1592
+     }
+    },
+    "oracle": {
+     "rate": 1.0,
+     "t_lo": 1.0,
+     "t_hi": 1.0,
+     "boot_lo": 1.0,
+     "boot_hi": 1.0,
+     "cells": {
+      "k": 51,
+      "n": 51,
+      "rate": 1.0,
+      "lo": 0.93,
+      "hi": 1.0
+     }
+    },
+    "headroom": {
+     "diff": 0.9412,
+     "t_lo": 0.8165,
+     "t_hi": 1.0,
+     "wins": 16,
+     "losses": 0,
+     "ties": 1,
+     "sign_p": 3.1e-05
+    }
+   },
+   "paraphrase": {
+    "items": 8,
+    "none": {
+     "rate": 0.0,
+     "t_lo": 0.0,
+     "t_hi": 0.0,
+     "boot_lo": 0.0,
+     "boot_hi": 0.0,
+     "cells": {
+      "k": 0,
+      "n": 24,
+      "rate": 0.0,
+      "lo": 0.0,
+      "hi": 0.138
+     }
+    },
+    "oracle": {
+     "rate": 1.0,
+     "t_lo": 1.0,
+     "t_hi": 1.0,
+     "boot_lo": 1.0,
+     "boot_hi": 1.0,
+     "cells": {
+      "k": 24,
+      "n": 24,
+      "rate": 1.0,
+      "lo": 0.862,
+      "hi": 1.0
+     }
+    },
+    "headroom": {
+     "diff": 1.0,
+     "t_lo": 1.0,
+     "t_hi": 1.0,
+     "wins": 8,
+     "losses": 0,
+     "ties": 0,
+     "sign_p": 0.007812
+    }
+   },
+   "scale": {
+    "items": 8,
+    "none": {
+     "rate": 0.0,
+     "t_lo": 0.0,
+     "t_hi": 0.0,
+     "boot_lo": 0.0,
+     "boot_hi": 0.0,
+     "cells": {
+      "k": 0,
+      "n": 24,
+      "rate": 0.0,
+      "lo": 0.0,
+      "hi": 0.138
+     }
+    },
+    "oracle": {
+     "rate": 1.0,
+     "t_lo": 1.0,
+     "t_hi": 1.0,
+     "boot_lo": 1.0,
+     "boot_hi": 1.0,
+     "cells": {
+      "k": 24,
+      "n": 24,
+      "rate": 1.0,
+      "lo": 0.862,
+      "hi": 1.0
+     }
+    },
+    "headroom": {
+     "diff": 1.0,
+     "t_lo": 1.0,
+     "t_hi": 1.0,
+     "wins": 8,
+     "losses": 0,
+     "ties": 0,
+     "sign_p": 0.007812
+    }
+   },
+   "time": {
+    "items": 8,
+    "none": {
+     "rate": 0.0,
+     "t_lo": 0.0,
+     "t_hi": 0.0,
+     "boot_lo": 0.0,
+     "boot_hi": 0.0,
+     "cells": {
+      "k": 0,
+      "n": 24,
+      "rate": 0.0,
+      "lo": 0.0,
+      "hi": 0.138
+     }
+    },
+    "oracle": {
+     "rate": 1.0,
+     "t_lo": 1.0,
+     "t_hi": 1.0,
+     "boot_lo": 1.0,
+     "boot_hi": 1.0,
+     "cells": {
+      "k": 24,
+      "n": 24,
+      "rate": 1.0,
+      "lo": 0.862,
+      "hi": 1.0
+     }
+    },
+    "headroom": {
+     "diff": 1.0,
+     "t_lo": 1.0,
+     "t_hi": 1.0,
+     "wins": 8,
+     "losses": 0,
+     "ties": 0,
+     "sign_p": 0.007812
+    }
+   },
+   "tool_output": {
+    "items": 8,
+    "none": {
+     "rate": 0.0,
+     "t_lo": 0.0,
+     "t_hi": 0.0,
+     "boot_lo": 0.0,
+     "boot_hi": 0.0,
+     "cells": {
+      "k": 0,
+      "n": 24,
+      "rate": 0.0,
+      "lo": 0.0,
+      "hi": 0.138
+     }
+    },
+    "oracle": {
+     "rate": 1.0,
+     "t_lo": 1.0,
+     "t_hi": 1.0,
+     "boot_lo": 1.0,
+     "boot_hi": 1.0,
+     "cells": {
+      "k": 24,
+      "n": 24,
+      "rate": 1.0,
+      "lo": 0.862,
+      "hi": 1.0
+     }
+    },
+    "headroom": {
+     "diff": 1.0,
+     "t_lo": 1.0,
+     "t_hi": 1.0,
+     "wins": 8,
+     "losses": 0,
+     "ties": 0,
+     "sign_p": 0.007812
+    }
+   },
+   "injection": {
+    "items": 1,
+    "none": {
+     "rate": 0.0,
+     "t_lo": 0.0,
+     "t_hi": 0.0,
+     "boot_lo": 0.0,
+     "boot_hi": 0.0,
+     "cells": {
+      "k": 0,
+      "n": 3,
+      "rate": 0.0,
+      "lo": 0.0,
+      "hi": 0.5615
+     }
+    },
+    "oracle": {
+     "rate": 1.0,
+     "t_lo": 1.0,
+     "t_hi": 1.0,
+     "boot_lo": 1.0,
+     "boot_hi": 1.0,
+     "cells": {
+      "k": 3,
+      "n": 3,
+      "rate": 1.0,
+      "lo": 0.4385,
+      "hi": 1.0
+     }
+    },
+    "headroom": {
+     "diff": 1.0,
+     "t_lo": 1.0,
+     "t_hi": 1.0,
+     "wins": 1,
+     "losses": 0,
+     "ties": 0,
+     "sign_p": 1.0
+    }
+   },
+   "needs_nothing": {
+    "items": 1,
+    "none": {
+     "rate": 1.0,
+     "t_lo": 1.0,
+     "t_hi": 1.0,
+     "boot_lo": 1.0,
+     "boot_hi": 1.0,
+     "cells": {
+      "k": 3,
+      "n": 3,
+      "rate": 1.0,
+      "lo": 0.4385,
+      "hi": 1.0
+     }
+    },
+    "oracle": {
+     "rate": 1.0,
+     "t_lo": 1.0,
+     "t_hi": 1.0,
+     "boot_lo": 1.0,
+     "boot_hi": 1.0,
+     "cells": {
+      "k": 3,
+      "n": 3,
+      "rate": 1.0,
+      "lo": 0.4385,
+      "hi": 1.0
+     }
+    },
+    "headroom": {
+     "diff": 0.0,
+     "t_lo": 0.0,
+     "t_hi": 0.0,
+     "wins": 0,
+     "losses": 0,
+     "ties": 1,
+     "sign_p": 1.0
+    }
+   }
+  },
+  "glm_item_arm_cells_disagreeing": 0,
+  "glm_cost": {
+   "none": {
+    "cells": 102,
+    "cost_usd": 0.0571,
+    "mean_cost": 0.00056,
+    "mean_cost_lo": 0.000516,
+    "mean_cost_hi": 0.000605,
+    "latency_p50_s": 17.1,
+    "latency_p95_s": 33.7,
+    "latency_p50_crate_s": 17.1,
+    "latency_p95_crate_s": 33.8,
+    "loops_mean": 2.56,
+    "declined": 21,
+    "input_tokens_mean": 484,
+    "output_tokens_mean": 449,
+    "tools": {
+     "fs.grep": 99,
+     "fs.list": 118,
+     "fs.read": 5,
+     "fs.glob": 21,
+     "proc.run": 15,
+     "git.log": 3,
+     "web.search": 1
+    }
+   },
+   "oracle": {
+    "cells": 102,
+    "cost_usd": 0.0552,
+    "mean_cost": 0.000541,
+    "mean_cost_lo": 0.000493,
+    "mean_cost_hi": 0.000589,
+    "latency_p50_s": 16.0,
+    "latency_p95_s": 30.1,
+    "latency_p50_crate_s": 16.2,
+    "latency_p95_crate_s": 30.2,
+    "loops_mean": 1.99,
+    "declined": 5,
+    "input_tokens_mean": 525,
+    "output_tokens_mean": 512,
+    "tools": {
+     "fs.grep": 91,
+     "fs.list": 58,
+     "fs.glob": 25,
+     "proc.run": 3,
+     "git.log": 2
+    }
+   }
+  },
+  "spend": {
+   "run": 0.1122,
+   "smoke": 0.006,
+   "total": 0.1182
+  },
+  "smoke_passes": {
+   "none": "0 of 4",
+   "oracle": "4 of 4"
+  },
+  "glm_window_utc_ms": [
+   1790831085815,
+   1790831697629
+  ],
+  "models": [
+   "glm-5.3-flash"
+  ]
+ },
+ "figures": [
+  {
+   "name": "bm25-top6",
+   "form": "intervals",
+   "title": "Items with all their gold in BM25's top 6 (the recall budget's item count)",
+   "question": "Does exam-v2 make retrieval hard where exam-v1 did not?",
+   "note": "BM25 (k1 1.2, b 0.75, the 34a tokenizer) over every node of each exam's store, queried with each task; no model. Wilson 95% intervals over items.",
+   "x": {
+    "label": "items with all their gold in the top 6",
+    "min": 0,
+    "max": 1,
+    "format": "pct"
+   },
+   "reference": [
+    {
+     "value": 1.0,
+     "label": "oracle (shows the gold by construction)"
+    }
+   ],
+   "rows": [
+    {
+     "label": "exam-v1's 36 items, in v1's store (102 nodes)",
+     "arm": "bm25",
+     "value": 0.9167,
+     "lo": 0.7817,
+     "hi": 0.9713,
+     "tip": "33 of 36 items: all their gold in BM25's top 6"
+    },
+    {
+     "label": "the same 36 families, in v2's store (1,550 nodes)",
+     "arm": "bm25",
+     "value": 0.7222,
+     "lo": 0.5601,
+     "hi": 0.8415,
+     "tip": "26 of 36: the bigger store alone, no word of them changed"
+    },
+    {
+     "label": "paraphrase (8 items)",
+     "arm": "bm25",
+     "value": 0.0,
+     "lo": 0.0,
+     "hi": 0.3244,
+     "tip": "paraphrase: 0 of 8 items in the top 6; 0 of 8 in the top 20"
+    },
+    {
+     "label": "scale (8 items)",
+     "arm": "bm25",
+     "value": 0.125,
+     "lo": 0.0224,
+     "hi": 0.4709,
+     "tip": "scale: 1 of 8 items in the top 6; 4 of 8 in the top 20"
+    },
+    {
+     "label": "time (8 items)",
+     "arm": "bm25",
+     "value": 0.0,
+     "lo": 0.0,
+     "hi": 0.3244,
+     "tip": "time: 0 of 8 items in the top 6; 1 of 8 in the top 20"
+    },
+    {
+     "label": "tool output (8 items)",
+     "arm": "bm25",
+     "value": 0.0,
+     "lo": 0.0,
+     "hi": 0.3244,
+     "tip": "tool output: 0 of 8 items in the top 6; 0 of 8 in the top 20"
+    },
+    {
+     "label": "the four hard families (32 items)",
+     "arm": "bm25",
+     "value": 0.0312,
+     "lo": 0.0055,
+     "hi": 0.1574,
+     "tip": "1 of 32 in the top 6; 5 of 32 in the top 20"
+    }
+   ]
+  },
+  {
+   "name": "scale-dose",
+   "form": "lines",
+   "title": "Scale: the gold's BM25 rank against the near-duplicates around it",
+   "question": "How fast does a lexical rank lose the gold as near-duplicates pile up?",
+   "note": "8 items, one tuning and one held-out item at each dose of 8, 16, 32 and 64, drawn just left and just right of it; rank 1 is first. Both axes log.",
+   "x": {
+    "label": "near-duplicate sessions about the same thing",
+    "type": "number",
+    "log": true,
+    "format": "int",
+    "min": 6,
+    "max": 80
+   },
+   "y": {
+    "label": "the gold's rank in BM25's list (1 = first)",
+    "log": true,
+    "format": "int",
+    "min": 1
+   },
+   "series": [
+    {
+     "arm": "bm25",
+     "label": "BM25",
+     "style": "dots",
+     "points": [
+      [
+       7.52,
+       1
+      ],
+      [
+       8.48,
+       17
+      ],
+      [
+       15.04,
+       18
+      ],
+      [
+       16.96,
+       17
+      ],
+      [
+       30.08,
+       76
+      ],
+      [
+       33.92,
+       73
+      ],
+      [
+       60.16,
+       178
+      ],
+      [
+       67.84,
+       114
+      ]
+     ],
+     "tips": [
+      "scale-1 (tuning): 8 near-duplicates, gold at rank 1",
+      "scale-5 (held out): 8 near-duplicates, gold at rank 17",
+      "scale-2 (tuning): 16 near-duplicates, gold at rank 18",
+      "scale-6 (held out): 16 near-duplicates, gold at rank 17",
+      "scale-3 (tuning): 32 near-duplicates, gold at rank 76",
+      "scale-7 (held out): 32 near-duplicates, gold at rank 73",
+      "scale-4 (tuning): 64 near-duplicates, gold at rank 178",
+      "scale-8 (held out): 64 near-duplicates, gold at rank 114"
+     ]
+    }
+   ],
+   "limits": [
+    {
+     "y": 6,
+     "label": "recall's budget: top 6"
+    },
+    {
+     "y": 20,
+     "label": "a reranker's window: top 20"
+    }
+   ]
+  },
+  {
+   "name": "recency",
+   "form": "dumbbell",
+   "arm": "bm25",
+   "title": "Items with all their gold in the top 20: BM25 → BM25 × a 30-day recency weight",
+   "question": "Does a crude sense of time fix the time family, and what does it cost elsewhere?",
+   "note": "Recency is score × 2^(−age/30 days), ages from the store's last node: a stand-in for a time-aware rank, not FSRS.",
+   "x": {
+    "label": "items with all their gold in the top 20",
+    "min": 0,
+    "max": 1,
+    "format": "pct"
+   },
+   "from_label": "BM25",
+   "to_label": "× recency (30 days)",
+   "rows": [
+    {
+     "label": "time (8)",
+     "from": 0.125,
+     "to": 0.875
+    },
+    {
+     "label": "scale (8)",
+     "from": 0.5,
+     "to": 0.25
+    },
+    {
+     "label": "paraphrase (8)",
+     "from": 0.0,
+     "to": 0.0
+    },
+    {
+     "label": "tool output (8)",
+     "from": 0.0,
+     "to": 0.0
+    },
+    {
+     "label": "exam-v1's families (36)",
+     "from": 0.8056,
+     "to": 0.9167
+    }
+   ]
+  }
+ ]
+}
