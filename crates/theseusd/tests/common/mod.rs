@@ -192,3 +192,4 @@ impl Served {
 }
 
 pub mod model;
+pub mod stdio;

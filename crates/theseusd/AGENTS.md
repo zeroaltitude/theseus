@@ -108,7 +108,11 @@ Key modules: `main.rs`, `web.rs`, `install/`. Read by: (a binary).
   theseus-xbtr), never read by tokio's stdin: that read sits on the runtime's blocking pool until the client closes
   its end, so the runtime could only be shut down with a bound, and a task still holding the core past it left the
   store open as the process ended (redb unclosed, the stop's last checkpoint lost, the whole run replayed). The
-  runtime's drop now waits for its tasks in both modes. `THESEUS_TEST_HOLD_CORE_MS` (a debug build's plant) holds
-  the core past a stop's start, for `tests/versions.rs`.
+  runtime's drop now waits for its tasks in both modes, and before a restart in place's exec too, which then waits
+  up to 500 ms for the stdout thread as a stop does, so no line is cut at the exec (theseus-jo7f). The stdio arm
+  registers the `shutdown` method's wake before serving, as `serve_socket` does: `notify_waiters` wakes only the
+  waiters registered when it is called (theseus-yg1y). `THESEUS_TEST_HOLD_CORE_MS` (a debug build's plant, in both
+  modes) holds the core past a stop's start, for `tests/versions.rs` and `tests/config_copy.rs`. The tests' `--stdio`
+  client is `tests/common/stdio.rs`, each answer awaited with a bound.
 - A start right after a stop waits up to 3 s for the store's lock. A check that reads the store's files waits for
   the old process to exit first.

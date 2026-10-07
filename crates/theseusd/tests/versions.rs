@@ -18,6 +18,7 @@ use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::time::{Duration, Instant};
 
+use common::stdio::StdioClient;
 use common::Daemon;
 use serde_json::{json, Value};
 
@@ -441,32 +442,6 @@ fn a_sigterm_or_a_sigint_stops_cleanly_and_the_next_start_replays_nothing() {
     }
 }
 
-/// A client of a `--stdio` daemon: its pipes, one request at a time.
-struct StdioClient {
-    stdin: std::process::ChildStdin,
-    lines: std::io::Lines<BufReader<std::process::ChildStdout>>,
-    next: u64,
-}
-
-impl StdioClient {
-    fn call(&mut self, method: &str, params: Value) -> Result<Value, Value> {
-        self.next += 1;
-        let req = json!({"jsonrpc": "2.0", "id": self.next, "method": method, "params": params});
-        writeln!(self.stdin, "{req}").map_err(|e| json!(e.to_string()))?;
-        for line in self.lines.by_ref() {
-            let v: Value = serde_json::from_str(&line.map_err(|e| json!(e.to_string()))?)
-                .map_err(|e| json!(e.to_string()))?;
-            if v["id"] == self.next {
-                return match v.get("error") {
-                    Some(e) if !e.is_null() => Err(e.clone()),
-                    _ => Ok(v["result"].clone()),
-                };
-            }
-        }
-        Err(json!("the daemon's stdout closed"))
-    }
-}
-
 impl Rig {
     /// A `--stdio` daemon on this rig's state dir (its store is
     /// `state/store-stdio`), and its client, once it answers.
@@ -483,12 +458,7 @@ impl Rig {
                 .stdin(Stdio::piped())
                 .stdout(Stdio::piped()),
         );
-        let (stdin, stdout) = d.stdio();
-        let mut c = StdioClient {
-            stdin,
-            lines: BufReader::new(stdout).lines(),
-            next: 0,
-        };
+        let mut c = StdioClient::new(&mut d);
         c.call("health", Value::Null)
             .unwrap_or_else(|e| panic!("no answer on stdio: {e}\n{}", tail(&self.log(), 20)));
         (d, c)

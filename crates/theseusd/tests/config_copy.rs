@@ -18,6 +18,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
+use common::stdio::StdioClient;
 use common::Daemon;
 use serde_json::{json, Value};
 use theseus_core::config_copy;
@@ -169,7 +170,13 @@ impl Rig {
     /// The copy as the daemon keeps one, its digest in the store
     /// (theseus-zmgb), so the next start serves from it.
     fn keep_copy(&self, text: &str) {
-        let store = theseus_core::store::Store::open(&self.path("state").join("store")).unwrap();
+        self.keep_copy_in("store", text);
+    }
+
+    /// `keep_copy`, its digest in the store named `store` (a `--stdio`
+    /// daemon's is `store-stdio`).
+    fn keep_copy_in(&self, store: &str, text: &str) {
+        let store = theseus_core::store::Store::open(&self.path("state").join(store)).unwrap();
         config_copy::keep(
             &store,
             &config_copy::path(Some(&self.path("state"))),
@@ -459,4 +466,217 @@ fn after_a_restart_in_place_the_daemon_adopts_and_reaps_what_the_old_image_left(
     assert_eq!(h["secrets"]["method"], "inject", "{}", h["secrets"]);
     assert_eq!(h["children"]["zombies"], 0);
     r.stop(daemon);
+}
+
+impl Rig {
+    /// A daemon on a copy of the note at a $100 limit, the vault's note at
+    /// $42.5: once the vault answers, it restarts in place. `stdio` keeps
+    /// the copy's digest in the `--stdio` daemon's store.
+    fn restart_ahead(&self, stdio: bool) {
+        std::fs::write(self.path("note.toml"), test_note(self, 42.5)).unwrap();
+        let store = if stdio { "store-stdio" } else { "store" };
+        self.keep_copy_in(store, &test_note(self, 100.0));
+    }
+
+    /// A `--stdio` daemon, `env` set, and its client; not yet asked
+    /// anything.
+    fn spawn_stdio(&self, env: &[(&str, &str)]) -> (Daemon, StdioClient) {
+        let log = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(self.path("theseusd.log"))
+            .unwrap();
+        let mut d = Daemon::spawn(
+            self.command()
+                .arg("--stdio")
+                .envs(env.iter().copied())
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .stderr(log),
+        );
+        let c = StdioClient::new(&mut d);
+        (d, c)
+    }
+
+    /// Until the daemon's whole log holds `what` `n` times, at most 40 s.
+    fn logged(&self, what: &str, n: usize) {
+        let t0 = Instant::now();
+        loop {
+            let s = std::fs::read_to_string(self.path("theseusd.log")).unwrap_or_default();
+            if s.matches(what).count() >= n {
+                return;
+            }
+            assert!(
+                t0.elapsed() < Duration::from_secs(40),
+                "no {what:?} ×{n} in 40 s:\n{}",
+                self.log()
+            );
+            std::thread::sleep(Duration::from_millis(1));
+        }
+    }
+}
+
+/// A start's `store` phase: what its open replayed and repaired.
+fn store_phase(h: &Value) -> Value {
+    h["startup"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|p| p["name"] == "store")
+        .map(|p| p["detail"].clone())
+        .unwrap()
+}
+
+/// Whether the daemon's stdout relay (its thread `stdio-out`) is blocked in a
+/// write to stdout, holding what it has not written: its syscall, as
+/// `/proc` says.
+fn relay_blocked_on_stdout(pid: u32) -> bool {
+    let Ok(tasks) = std::fs::read_dir(format!("/proc/{pid}/task")) else {
+        return false;
+    };
+    tasks.flatten().any(|t| {
+        let read = |f: &str| std::fs::read_to_string(t.path().join(f)).unwrap_or_default();
+        let call = read("syscall");
+        let mut words = call.split_whitespace();
+        read("comm").trim_end() == "stdio-out"
+            && words.next() == Some(&libc::SYS_write.to_string())
+            && words.next() == Some("0x1")
+    })
+}
+
+/// A restart in place ends as a stop does (theseus-jo7f): the old image's
+/// runtime is dropped, which waits for its tasks, so the store closes before
+/// the exec. A task on the blocking pool that holds the core 1.5 s past the
+/// stop's start (the debug build's plant, as a slow warm build can on a
+/// loaded machine) kept the store open into the exec under the runtime's
+/// 500 ms shutdown bound: redb never closed, the stop's last checkpoint was
+/// lost, and the next image replayed the run. Now the next image's open
+/// replays nothing and repairs nothing, on the socket and on `--stdio`.
+#[test]
+fn a_restart_in_place_closes_the_store_before_the_exec() {
+    const HOLD: (&str, &str) = ("THESEUS_TEST_HOLD_CORE_MS", "1500");
+    let r = Rig::new();
+    r.restart_ahead(false);
+    let mut d = Daemon::spawn(
+        r.command()
+            .env(HOLD.0, HOLD.1)
+            .stdout(Stdio::null())
+            .stderr(
+                std::fs::OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open(r.path("theseusd.log"))
+                    .unwrap(),
+            ),
+    );
+    let h = r.until(&mut d, "the restart", |h| {
+        !h["config"]["restarted"].is_null()
+    });
+    let s = store_phase(&h);
+    assert_eq!(
+        (&s["replayed_into_index"], &s["index_repaired"]),
+        (&json!(0), &json!(false)),
+        "the socket daemon's exec left its store open: {s}\n{}",
+        r.log()
+    );
+    r.stop(d);
+
+    let r = Rig::new();
+    r.restart_ahead(true);
+    let (mut d, mut c) = r.spawn_stdio(&[HOLD]);
+    r.logged("serving protocol on stdio", 2);
+    let h = c.call("health", Value::Null).unwrap();
+    assert!(!h["config"]["restarted"].is_null(), "{}", h["config"]);
+    let s = store_phase(&h);
+    assert_eq!(
+        (&s["replayed_into_index"], &s["index_repaired"]),
+        (&json!(0), &json!(false)),
+        "the stdio daemon's exec left its store open: {s}\n{}",
+        r.log()
+    );
+    assert_eq!(c.call("shutdown", Value::Null), Ok(json!({"ok": true})));
+    let t0 = Instant::now();
+    while d.try_wait().is_none() {
+        assert!(t0.elapsed() < Duration::from_secs(20), "{}", r.log());
+        std::thread::sleep(Duration::from_millis(5));
+    }
+}
+
+/// A `--stdio` daemon's restart in place leaves every line whole
+/// (theseus-jo7f): what the core wrote before the exec reaches stdout
+/// before it, as at a stop (`stdio::flush`). The client holds its reads, so
+/// over 64 KB of answers back up in the pipe and the relay is blocked
+/// mid-copy as the old image ends; it reads again 100 ms after the old
+/// image's runtime is dropped, well inside the flush's 500 ms, and long
+/// after an exec with no flush would have come. An exec with no
+/// flush ended the relay mid-copy: the pipe's last line was cut, and glued
+/// to the new image's first. A request sent once the new image serves is
+/// answered; one sent during the restart may be read by the old image's
+/// stdin thread, and dies with it, unanswered, as a socket client's
+/// request in flight at a restart does.
+#[test]
+fn a_stdio_restart_in_place_keeps_every_line_whole() {
+    let r = Rig::new();
+    r.restart_ahead(true);
+    // The vault is held until the backlog is in place.
+    std::fs::write(r.path("hold"), "").unwrap();
+    let (mut d, mut c) = r.spawn_stdio(&[("THESEUS_LOG", "info,theseus_core::startup=debug")]);
+    let one = c.call("health", Value::Null).unwrap().to_string().len();
+    c.hold();
+    // About 150 KB of answers: past the pipe's 64 KB, so the relay blocks
+    // holding the rest, and short of what the pipe, the relay's buffer and
+    // the socket pair hold together, so the core never blocks mid-line.
+    let n = 150_000 / (one + 64);
+    let ids: Vec<u64> = (0..n).map(|_| c.send("health", Value::Null)).collect();
+    let t0 = Instant::now();
+    while !relay_blocked_on_stdout(d.id()) {
+        assert!(
+            t0.elapsed() < Duration::from_secs(40),
+            "the relay never blocked: {} bytes in the pipe\n{}",
+            c.pending(),
+            r.log()
+        );
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    std::fs::remove_file(r.path("hold")).unwrap();
+    r.logged("runtime dropped", 1);
+    // Long after an exec with no flush would have come, and well inside the
+    // flush's bound.
+    std::thread::sleep(Duration::from_millis(100));
+    c.release();
+    r.logged("serving protocol on stdio", 2);
+    let after = c.send("health", Value::Null);
+    let mut answered = Vec::new();
+    let h = loop {
+        let l = match c.line(Duration::from_secs(60)) {
+            Some(Ok(l)) => l,
+            other => panic!("no answer to {after}: {other:?}\n{}", r.log()),
+        };
+        let v: Value = serde_json::from_str(&l)
+            .unwrap_or_else(|e| panic!("a line cut at the restart ({e}): {l:?}\n{}", r.log()));
+        assert!(l.ends_with('\n'), "{l:?}");
+        let id = v["id"].as_u64().unwrap_or(0);
+        if id == after {
+            break v["result"].clone();
+        }
+        if id != 0 {
+            answered.push(id);
+        }
+    };
+    assert!(!h["config"]["restarted"].is_null(), "{}", h["config"]);
+    assert!(
+        answered.len() * (one + 64) > 65_536,
+        "the backlog came through: {} of {n} answers",
+        answered.len()
+    );
+    let mut sorted = answered.clone();
+    sorted.dedup();
+    assert_eq!(sorted.len(), answered.len(), "each once: {answered:?}");
+    assert!(answered.iter().all(|i| ids.contains(i)), "{answered:?}");
+    assert_eq!(c.call("shutdown", Value::Null), Ok(json!({"ok": true})));
+    let t0 = Instant::now();
+    while d.try_wait().is_none() {
+        assert!(t0.elapsed() < Duration::from_secs(20), "{}", r.log());
+        std::thread::sleep(Duration::from_millis(5));
+    }
 }

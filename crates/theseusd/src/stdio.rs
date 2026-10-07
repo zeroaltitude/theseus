@@ -74,8 +74,9 @@ pub fn flush(bound: Duration) {
 /// A test's plant (a debug build's `THESEUS_TEST_HOLD_CORE_MS`): a task on
 /// the runtime's blocking pool that holds `core` until the stop has begun,
 /// then that many ms more, as a slow warm build can on a loaded machine. The
-/// stop must wait for it, and the store close, before the process ends. A
-/// release build has no such plant.
+/// stop must wait for it, and the store close, before the process ends or a
+/// restart in place execs (theseus-jo7f). Planted by the socket daemon too.
+/// A release build has no such plant.
 pub fn planted_hold<T: Send + Sync + 'static>(core: &std::sync::Arc<T>) {
     #[cfg(debug_assertions)]
     if let Some(ms) = std::env::var("THESEUS_TEST_HOLD_CORE_MS")
