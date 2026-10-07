@@ -22,6 +22,8 @@ use crate::secrets::{SecretBoard, SecretState};
 mod escaped;
 #[cfg(test)]
 mod tests_escaped;
+#[cfg(test)]
+mod tests_nested;
 
 #[derive(Default)]
 pub struct Scrubber {
@@ -133,24 +135,8 @@ fn encoded(out: &mut String, values: &[(&str, &str)]) -> u32 {
                 .map(move |s| (s, *name))
         })
         .collect();
-    if !needles.is_empty() {
-        for lines in base64_runs(out) {
-            // The run without its line breaks, and where each line starts
-            // in it.
-            let mut joined = String::new();
-            let mut starts = Vec::with_capacity(lines.len());
-            for l in &lines {
-                starts.push(joined.len());
-                joined.push_str(&out[l.clone()]);
-            }
-            let line_of = |at: usize| &lines[starts.partition_point(|s| *s <= at) - 1];
-            for (needle, name) in &needles {
-                for (at, _) in joined.match_indices(needle.as_str()) {
-                    let (first, last) = (line_of(at), line_of(at + needle.len() - 1));
-                    spans.push((first.start, last.end, format!("[redacted:{name}]")));
-                }
-            }
-        }
+    for (a, b, name) in base64_spans(out, &needles, |_| true) {
+        spans.push((a, b, format!("[redacted:{name}]")));
     }
     if out.contains('%') {
         for (v, name) in values {
@@ -159,10 +145,44 @@ fn encoded(out: &mut String, values: &[(&str, &str)]) -> u32 {
             }
         }
     }
-    for (a, b, name) in escaped::spans(out, values) {
+    for (a, b, name) in escaped::spans(out, values, &needles) {
         spans.push((a, b, format!("[redacted:{name}]")));
     }
     splice(out, spans)
+}
+
+/// Where a needle matches in the text's base64 runs that `keep` takes (given
+/// the bytes a run's lines span), as the byte range of the lines the match
+/// touches, with its name.
+fn base64_spans<'a>(
+    text: &str,
+    needles: &[(String, &'a str)],
+    keep: impl Fn(Range<usize>) -> bool,
+) -> Vec<(usize, usize, &'a str)> {
+    let mut spans = Vec::new();
+    if needles.is_empty() {
+        return spans;
+    }
+    for lines in base64_runs(text) {
+        if !keep(lines[0].start..lines[lines.len() - 1].end) {
+            continue;
+        }
+        // The run without its line breaks, and where each line starts in it.
+        let mut joined = String::new();
+        let mut starts = Vec::with_capacity(lines.len());
+        for l in &lines {
+            starts.push(joined.len());
+            joined.push_str(&text[l.clone()]);
+        }
+        let line_of = |at: usize| &lines[starts.partition_point(|s| *s <= at) - 1];
+        for (needle, name) in needles {
+            for (at, _) in joined.match_indices(needle.as_str()) {
+                let (first, last) = (line_of(at), line_of(at + needle.len() - 1));
+                spans.push((first.start, last.end, *name));
+            }
+        }
+    }
+    spans
 }
 
 /// What every base64 encoding that holds `v` contains, whatever comes before
@@ -203,13 +223,21 @@ fn is_base64(c: u8) -> bool {
 /// line break when its line is 40 characters or more, as an encoding wrapped
 /// at a fixed width is; a short line, a word or a name, ends it. A match
 /// withholds the lines it touches, so a word on the line after a long one is
-/// kept.
+/// kept. The letter of a `\n`, `\r`, `\/` or `\u` escape starts no run: the
+/// decoded text's pass reads what it stands for (theseus-cjyt). No value's
+/// base64 starts with one of those four (its first character is the top six
+/// bits of a UTF-8 lead byte: `A`-`Z`, `a`-`f`, `w`-`z`, `0`-`9`), so the
+/// skip hides no needle. Any other escape's letter starts a run as any letter
+/// does, so a value's base64 right after a lone backslash (a Windows path's
+/// `C:\`) is read whole (theseus-g88t).
 fn base64_runs(text: &str) -> Vec<Vec<Range<usize>>> {
     let b = text.as_bytes();
     let mut runs = Vec::new();
     let mut i = 0;
     while i < b.len() {
-        if !is_base64(b[i]) {
+        if !is_base64(b[i])
+            || (matches!(b[i], b'n' | b'r' | b'/' | b'u') && escaped::is_escape_letter(b, i))
+        {
             i += 1;
             continue;
         }

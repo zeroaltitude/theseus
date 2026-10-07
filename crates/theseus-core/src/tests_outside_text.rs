@@ -319,6 +319,15 @@ const SCRUB_PIECES: &[&str] = &[
     "\\\"",
     "\\u00",
     "\\ud83d",
+    "\\\\\\\"",
+    "\\x",
+    "\\xc3",
+    "\\xf0\\x9f",
+    "\\U",
+    "\\U0001F6",
+    "\\e",
+    "\\'",
+    "\\N",
 ];
 
 /// An invented board value.
@@ -345,7 +354,7 @@ proptest! {
     /// A board value never comes through, verbatim or encoded, whatever is
     /// around it.
     #[test]
-    fn a_value_never_comes_through(before in scrub_text(), after in scrub_text(), how in 0..5usize) {
+    fn a_value_never_comes_through(before in scrub_text(), after in scrub_text(), how in 0..8usize) {
         use base64::Engine as _;
         let scrub = crate::scrub::Scrubber::with_values(vec![(SCRUB_VALUE.into(), "demo".into())]);
         let b64 = base64::engine::general_purpose::STANDARD;
@@ -363,15 +372,38 @@ proptest! {
                 let e = SCRUB_VALUE.replace('/', "%2F").replace('+', "%2B");
                 (e.clone(), e)
             }
-            _ => {
+            4 => {
                 // JSON-escaped: `/` as PHP writes it, `+` as a `\u` escape
                 // (theseus-ubp7).
                 let e = SCRUB_VALUE.replace('/', "\\/").replace('+', "\\u002B");
                 (e.clone(), e)
             }
+            5 => {
+                // The same, inside a JSON string: escaped twice (theseus-nlvx).
+                let e = SCRUB_VALUE.replace('/', "\\\\\\/").replace('+', "\\\\u002B");
+                (e.clone(), e)
+            }
+            6 => {
+                // In YAML's or a repr's hex escapes (theseus-nlvx).
+                let e = SCRUB_VALUE.replace('/', "\\x2f").replace('+', "\\x2B");
+                (e.clone(), e)
+            }
+            _ => {
+                // Its base64 in a JSON string, a `\n` every 60 characters, the
+                // value across the second and third (theseus-cjyt): neither
+                // of those lines comes through.
+                let e = b64.encode(format!("{}{SCRUB_VALUE}{}", "x".repeat(80), "y".repeat(60)));
+                let lines: Vec<&str> = e.as_bytes().chunks(60).map(|c| std::str::from_utf8(c).unwrap()).collect();
+                (format!("\"{}\"", lines.join("\\n")), format!("{}\\n{}", lines[1], lines[2]))
+            }
         };
         let (out, n) = scrub.scrub(&format!("{before} {planted} {after}"));
         prop_assert!(n >= 1);
         prop_assert!(!out.contains(&look_for), "{out}");
+        if how == 7 {
+            for line in look_for.split("\\n") {
+                prop_assert!(!out.contains(line), "{out}");
+            }
+        }
     }
 }
