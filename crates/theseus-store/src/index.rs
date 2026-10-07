@@ -1089,8 +1089,9 @@ impl RedbIndex {
     }
 
     /// `keys_by_birth` of the keys `keep` passes (theseus-7087): a key it
-    /// fails is stepped over in the same walk of the births, and its latest
-    /// position is not looked up, so a run of them costs index rows alone.
+    /// fails is stepped over in the same walk of the births, tested before
+    /// it is allocated, and its latest position is not looked up, so a run
+    /// of them costs its birth rows alone (theseus-26jo).
     /// Whether older ones remain counts every key, kept or not, so a page's
     /// cursor is the one an unfiltered walk that skipped them would give.
     pub fn keys_by_birth_where(
@@ -1113,7 +1114,9 @@ impl RedbIndex {
                 break;
             }
             let (k, v) = row?;
-            let key = String::from_utf8_lossy(v.value()).into_owned();
+            // Tested borrowed: a skipped key costs its birth row alone, with
+            // no allocation and no lookup (theseus-26jo).
+            let key = String::from_utf8_lossy(v.value());
             if !keep(&key) {
                 continue;
             }
@@ -1122,7 +1125,7 @@ impl RedbIndex {
             };
             count_rows(1);
             if let Some(latest) = byk.get(bykey(kind, &key).as_slice())? {
-                out.push((born, key, latest.value()));
+                out.push((born, key.into_owned(), latest.value()));
             }
         }
         Ok((out, more))

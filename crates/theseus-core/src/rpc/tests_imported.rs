@@ -291,6 +291,10 @@ async fn the_session_lists_read_no_imported_session_and_answer_as_before() {
     // The page that reaches back past the first import's run.
     let past = page(c, 2, None).1;
     assert!(past.is_some());
+    // Past the run, a page visits its 1,000 birth rows and looks up only
+    // its live keys: no key-table row per imported key (theseus-26jo).
+    let past_rows = rows(|| page(c, 20, past));
+    assert!(past_rows < 1_000 + 60, "{past_rows}");
     let asked = c.confirm_list().unwrap();
     assert_eq!(asked.len(), 1);
     assert_eq!(asked[0].session_id, waiting);

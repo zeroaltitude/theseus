@@ -193,3 +193,24 @@ fn the_index_rows_a_walk_visits_are_counted_on_its_thread() {
         7
     );
 }
+
+/// A page that steps over a skipped run visits each of its birth rows once
+/// and looks up only the kept keys (theseus-26jo): no key-table row per
+/// skipped key.
+#[test]
+fn a_page_past_a_skipped_run_looks_up_only_its_kept_keys() {
+    let dir = tempfile::tempdir().unwrap();
+    let s = store_with_runs(dir.path());
+    let before = index_rows_here();
+    let (got, more) = s
+        .newest_keys_where(kinds::SESSION, None, 8, &|k| !skipped(k))
+        .unwrap()
+        .unwrap();
+    let rows = index_rows_here() - before;
+    assert_eq!(got.len(), 8);
+    assert!(more);
+    // Births newest first: 7 live, the second run's 300, then the eighth
+    // live key, and the row after it that says more remain: 309 birth rows,
+    // and 8 lookups.
+    assert_eq!(rows, 309 + 8, "birth rows and the kept keys' lookups alone");
+}
