@@ -111,8 +111,10 @@ void main() {
 //   slower harmonic runs the other way (31 s) and the rows rise and fall out of step (19 s), so the swell never looks
 //   mechanical; and a row's light grows a little as the swell lifts it.
 // - A faint sparkle on the water, stars reflected from the logo's night, glinting each at its own pace (4 to 9 s).
-// - uSwell is the swell's clock in seconds. It runs only in Live mode, and the swell comes up over its first seconds,
-//   so at 0 the sea is the still one (Calm from the start, and ?swell=0).
+// - uSwell is the swell's clock in seconds, and uSea its height (theseus-hnof.2, the living sea, `sea.ts`): 0 is dead
+//   calm, the still rows of Calm and ?swell=0, drawn when nothing happens; it rises with the work (tokens a minute, the
+//   turns running) and settles as the work ends. Its harmonics, its rows' rise and fall, and the light on its crests
+//   grow with it; the clock runs faster in a heavy sea.
 // - It runs on every pixel of every frame of the swell, so what the whole screen shares is worked out once, in the
 //   engine: the rows' scale (uWaveScale) and the fade's (uNearScale). Three sines a pixel, and a fourth in a glint's
 //   cell: each costs on a CPU rasteriser.
@@ -121,6 +123,7 @@ uniform vec2 uTarget;
 uniform float uNearScale;
 uniform float uWaveScale;
 uniform float uSwell;
+uniform float uSea;
 uniform float uWaves;
 uniform vec3 uCamPos;
 uniform vec3 uRayC;
@@ -135,12 +138,15 @@ vec3 seaSwell(vec2 uv) {
   vec2 p = uCamPos.xz + dir.xz * (uCamPos.y / max(-dir.y, 1e-5));
   float near = smoothstep(2.6, 0.15, length(p - uTarget) * uNearScale);
   vec2 sp = p * uWaveScale;
-  float rise = smoothstep(0.0, 6.0, uSwell); // motion: sea
+  float rise = uSea; // motion: sea
   float lift = sin(sp.y * 0.6 - uSwell * 0.3307); // motion: sea
+  float amp = rise * (1.0 + 2.2 * rise);
   float wy = sp.y + sin(sp.x * 4.2 + sp.y * 3.1415927 - uSwell * 0.4488) * 0.11 // motion: sea
-    + rise * (sin(sp.x * 1.7 + sp.y * 0.9 + uSwell * 0.2027) * 0.04 + lift * 0.05); // motion: sea
+    + amp * (sin(sp.x * 1.7 + sp.y * 0.9 + uSwell * 0.2027) * 0.04 + lift * 0.05); // motion: sea
   float wave = lineAt(wy, fwidth(wy), 0.6);
-  vec3 col = vec3(0.24, 0.49, 0.58) * wave * 0.16 * (1.0 + rise * 0.14 * lift) * near;
+  // A row's light grows as the swell lifts it, and a heavy sea's crests catch the light.
+  float crest = smoothstep(0.55, 1.0, lift);
+  vec3 col = vec3(0.24, 0.49, 0.58) * wave * 0.16 * (1.0 + rise * 0.8 + rise * 0.35 * lift + rise * rise * 1.4 * crest) * near;
   // The sparkle shows only once a cell is a few pixels across (smaller, a dot would spill past its cell and be cut
   // into a dash).
   vec2 cell = floor(p / 9.0);
@@ -150,7 +156,7 @@ vec3 seaSwell(vec2 uv) {
     vec2 c = (cell + 0.2 + 0.6 * vec2(seaHash(cell + 7.1), seaHash(cell + 3.3))) * 9.0;
     float sd = length(p - c);
     float rad = min(0.18 + fwp * 1.2, 1.6);
-    float glint = 1.0 + rise * 0.3 * sin(uSwell * (0.7 + seaHash(cell + 5.9) * 0.86) + seaHash(cell + 1.7) * 6.2831853); // motion: sea
+    float glint = 1.0 + rise * 0.45 * sin(uSwell * (0.7 + seaHash(cell + 5.9) * 0.86) + seaHash(cell + 1.7) * 6.2831853); // motion: sea
     col += vec3(0.91, 0.79, 0.50) * (1.0 - smoothstep(rad * 0.5, rad, sd)) * 0.5 * near * smoothstep(8.0, 18.0, cellPx) * glint;
   }
   return col * uWaves;

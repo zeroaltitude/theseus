@@ -5,6 +5,7 @@ import { useMemo, useState } from 'react'
 import { HelpCircle } from 'lucide-react'
 import type { ShipModel } from './model'
 import { keyLines, lights, type Glyph, type KeyGroup, type KeyLine } from './keyset'
+import { SHAPES } from './words'
 import './ship.css'
 
 const GROUPS: KeyGroup[] = ['The fleet', 'A ship', 'Its oars', 'Its state']
@@ -42,6 +43,7 @@ export function KeyGlyph({ g }: { g: Glyph }) {
       {g === 'flare' && <g>{hull('#fb7185', true)}<circle cx="10" cy="2.6" r="2.2" fill="#fb7185" style={{ filter: 'drop-shadow(0 0 3px #fb7185)' }} /></g>}
       {g === 'anchor' && hull('#9a7745')}
       {g === 'planks' && <g>{hull('#b08d57')}<path d="M5 7.6 H15 M4 9 H16.6 M5 10.4 H15" stroke="#e3ad4f" strokeWidth="0.9" strokeDasharray="3 0.8" /></g>}
+      {g === 'sea' && <g fill="none" stroke="#22d3ee" strokeWidth="1.1" strokeLinecap="round"><path d="M1 6 Q4 3.6 7 6 T13 6 T19 6" strokeOpacity="0.55" /><path d="M1 10.5 Q4 8.1 7 10.5 T13 10.5 T19 10.5" /><path d="M1 15 Q4 12.6 7 15 T13 15 T19 15" strokeOpacity="0.55" /></g>}
       {g === 'chain' && <g>{hull('#b08d57')}<path d="M3.4 8.2 Q9 5.2 16.8 8.2" fill="none" stroke="#ffa26a" strokeWidth="1.1" strokeDasharray="1.4 0.9" /></g>}
     </svg>
   )
@@ -58,9 +60,11 @@ export interface KeyProps {
   /** The height the key may take (CSS pixels), when the selected vessel's card stands above it: its lines scroll
    *  rather than run under the card. */
   maxHeight?: number
+  /** The sea's state in words ("dead calm", "a moderate swell"): the key's last line says it. */
+  sea?: string
 }
 
-export function Key({ model, pinned, onPreview, onPin, onTour, maxHeight }: KeyProps) {
+export function Key({ model, pinned, onPreview, onPin, onTour, maxHeight, sea }: KeyProps) {
   const [open, setOpen] = useState(() => {
     const kept = localStorage.getItem('cockpit.ship.legend')
     return kept ? kept === 'open' : window.innerWidth >= 1280 && window.innerHeight >= 860
@@ -96,6 +100,14 @@ export function Key({ model, pinned, onPreview, onPin, onTour, maxHeight }: KeyP
               })}
             </div>
           ))}
+          <div className="ship-key-group">
+            <div className="px-1 text-[9.5px] uppercase tracking-[0.14em] text-ink-faint">The sea</div>
+            <div className="ship-key-row text-[11px] text-ink-dim" title="The swell rises with tokens a minute and the turns running, and settles as they end; nothing moves when nothing happens">
+              <KeyGlyph g="sea" />
+              <span className="min-w-0 truncate leading-tight"><b>{SHAPES.sea.word}</b> <span className="text-[10px] text-ink-faint">· {SHAPES.sea.sea}</span></span>
+              <small className="whitespace-nowrap">{sea ?? '—'}</small>
+            </div>
+          </div>
           <p className="mt-1 px-1 text-[10px] leading-snug text-ink-faint">Rest on a line to light it; click to keep it lit; ? the tour.</p>
         </div>
       )}

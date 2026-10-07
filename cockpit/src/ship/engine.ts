@@ -12,6 +12,7 @@
 import * as THREE from 'three'
 import { IDLE_FPS, Loop, type Tick } from './loop'
 import { motionsNow, paceOf, type MotionId } from './motion'
+import { seaPace, seaStep } from './sea'
 import { oarReach, type Light, type ShipModel } from './model'
 import { Post } from './post'
 import {
@@ -88,7 +89,7 @@ export class ShipEngine {
   /** The swell's uniforms (`SEA_SWELL`), shared by the post's composite and Calm's copy of the sea: its clock, and the
    *  camera's rays, by which each pixel finds its point of the sea. */
   private swellU = {
-    uTarget: { value: new THREE.Vector2() }, uNearScale: { value: 1 / 200 }, uWaveScale: { value: 1 }, uSwell: { value: 0 },
+    uTarget: { value: new THREE.Vector2() }, uNearScale: { value: 1 / 200 }, uWaveScale: { value: 1 }, uSwell: { value: 0 }, uSea: { value: 0 },
     uWaves: { value: 1 }, uCamPos: { value: new THREE.Vector3() }, uRayC: { value: new THREE.Vector3() },
     uRayX: { value: new THREE.Vector3() }, uRayY: { value: new THREE.Vector3() },
   }
@@ -112,6 +113,10 @@ export class ShipEngine {
   swell: boolean
   /** The swell's own clock, in seconds: it runs only while the sea rolls, so Calm stills the sea where it is. */
   private swellT = 0
+  /** The living sea (`sea.ts`): the height the work asks for, and the height the swell has now, easing toward it. At 0
+   *  the sea is dead calm and nothing is drawn for it. */
+  private seaWant = 0
+  seaLevel = 0
   private hooks: EngineHooks = {}
 
   // The camera rig: a point on the sea, a distance, and a pitch that follows the zoom (top-down far out, tilted close).
@@ -326,6 +331,14 @@ export class ShipEngine {
   setCalm(calm: boolean) {
     this.calm = calm
     this.u.uCalm.value = calm ? 1 : 0
+    this.requestRender()
+  }
+
+  /** The sea's height for the work now (`seaTarget`): the swell eases toward it, and settles to dead calm at 0. */
+  setSea(height: number) {
+    const h = Math.max(0, Math.min(1, height))
+    if (h === this.seaWant) return
+    this.seaWant = h
     this.requestRender()
   }
 
@@ -1233,9 +1246,9 @@ export class ShipEngine {
 
   private onVisibility = () => this.loop.visibility()
 
-  /** Whether the sea rolls now: Live mode, unless `?swell=0`. */
+  /** Whether the sea rolls now: Live mode (unless `?swell=0`), with work going on or its swell still settling. */
   private rolling(): boolean {
-    return this.swell && !this.calm && !this.disposed
+    return this.swell && !this.calm && !this.disposed && this.seaLevel > 0
   }
 
   private lastFrame = performance.now()
@@ -1271,6 +1284,9 @@ export class ShipEngine {
     // counts as 250: skipped, as it was, a CPU rasteriser whose first frames ran slow kept full resolution for good.
     if (tick.paced) this.adapt(Math.min(interval, 250))
     const t = this.now()
+    // The sea first: it eases toward the work's height, and on reaching dead calm this frame stills it.
+    this.seaLevel = this.swell && !this.calm ? seaStep(this.seaLevel, this.seaWant, Math.min(0.25, interval / 1000)) : 0
+    this.swellU.uSea.value = this.seaLevel
     const camMoved = this.stepCamera(performance.now())
     const vesselsMoved = this.stepVessels(dt)
     const motions = this.motionsAt(t, camMoved || this.tween !== null)
@@ -1281,7 +1297,7 @@ export class ShipEngine {
     const full = tick.changed || camMoved || vesselsMoved || pace.full
     // The swell's clock runs on wall time, so slow frames (a CPU rasteriser) don't slow the sea, and a long gap (a
     // hidden tab, Calm) resumes it where it stood.
-    if (this.rolling()) this.swellU.uSwell.value = this.swellT += Math.min(0.25, interval / 1000)
+    if (this.rolling()) this.swellU.uSwell.value = this.swellT += Math.min(0.25, interval / 1000) * seaPace(this.seaLevel)
     this.u.uTime.value = t
     const c0 = performance.now()
     this.post.render(this.renderer, this.seaScene, this.scene, this.camera, this.calm, full, this.rolling())

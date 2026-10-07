@@ -6,3 +6,5 @@
 .ship-key-slot .ship-key-group { margin-top: 2px; }
 /* A key that must scroll (the selected vessel's card above it) scrolls thin, in brass. */
 .ship-key-body { scrollbar-width: thin; scrollbar-color: #5b4325 transparent; }
+/* The console's sea gauge: as tall as the nixie bank, a little wider. */
+.ship-sea-gauge { width: calc(var(--dial, 112px) * 0.95); height: calc(var(--dial, 112px) * 0.5); }

@@ -56,7 +56,7 @@ test('nothing moves that the table does not name: every time-driven term of the 
   const named = new Set<string>()
   src.forEach((line, i) => {
     const code = line.trim()
-    if (!/\b(uTime|uSwell)\b/.test(code) || code.startsWith('//') || /^uniform float (uTime|uSwell);$/.test(code)) return
+    if (!/\b(uTime|uSwell|uSea)\b/.test(code) || code.startsWith('//') || /^uniform float (uTime|uSwell|uSea);$/.test(code)) return
     const m = /\/\/ motion: ([a-z -]+)$/.exec(code)
     assert.ok(m, `shaders.ts:${i + 1} moves with time but names no motion: ${code}`)
     for (const id of m![1].trim().split(/\s+/)) {

@@ -7,7 +7,7 @@ import { SHAPES, type Shape } from './words.ts'
 export type KeyGroup = 'The fleet' | 'A ship' | 'Its oars' | 'Its state'
 export type Glyph =
   | 'harbour' | 'ship' | 'boat' | 'bench' | 'message' | 'model' | 'oar' | 'oar-failed' | 'oar-waiting' | 'gear' | 'shield'
-  | 'web' | 'sail' | 'lantern' | 'flare' | 'anchor' | 'planks' | 'chain'
+  | 'web' | 'sail' | 'lantern' | 'flare' | 'anchor' | 'planks' | 'chain' | 'sea'
 
 export interface KeyLine {
   /** The shape it names (its words are `SHAPES[id]`). */

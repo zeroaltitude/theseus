@@ -9,7 +9,9 @@ import { Anchor, Crosshair, ExternalLink, HelpCircle, Maximize, Search, Waves } 
 import { ShipEngine, type Hit } from '@/ship/engine'
 import { LabelLayer, usdShort } from '@/ship/labels'
 import { Minimap, type MinimapHandle } from '@/ship/Minimap'
-import { EngineTelegraph, Nixie } from '@/ship/instruments'
+import { EngineTelegraph, Nixie, SeaGauge } from '@/ship/instruments'
+import { seaTarget, seaWord } from '@/ship/sea'
+import '@/ship/ship.css'
 import { useShipLive, useShipSynthetic, type ShipData } from '@/ship/useShipData'
 import { placeOf, type ShipModel, type Vessel } from '@/ship/model'
 import { HoverCard } from '@/ship/HoverCard'
@@ -352,6 +354,11 @@ function ShipView({ data, onFail }: { data: ShipData; onFail: OnFail }) {
   const status = useConn((s) => s.status)
   // The time machine: the gauges read the fold at its moment, not today's health.
   const g = data.past?.gauges
+  // The living sea (the owner's C5): its height is the work now, tokens a minute and the turns running (the moment's,
+  // under the time machine); dead calm when nothing happens.
+  const turnsRunning = g ? g.running : h?.kernel.executions_by_state.running ?? 0
+  const sea = seaTarget(data.tpm, turnsRunning)
+  useEffect(() => { engine?.setSea(sea) }, [engine, sea])
 
   return (
     <div ref={setRoot} className="ship-root relative h-full w-full overflow-hidden" data-calm={calm ? '1' : ''}>
@@ -376,7 +383,7 @@ function ShipView({ data, onFail }: { data: ShipData; onFail: OnFail }) {
 
       {vessel && model && <VesselCard ref={card} v={vessel} model={model} bench={bench_} now={data.past?.t} reachCap={data.reachCap} onClose={() => setParams((p) => { p.delete('s'); p.delete('n'); p.delete('b'); return p }, { replace: true })} />}
       {hover && model && !touring && <HoverCard hover={hover} model={model} />}
-      <Key model={model} pinned={keyPinned?.id ?? null} onPreview={setKeyPreview} onPin={setKeyPinned} onTour={() => setTour(true)} maxHeight={keyRoom} />
+      <Key model={model} pinned={keyPinned?.id ?? null} onPreview={setKeyPreview} onPin={setKeyPinned} onTour={() => setTour(true)} maxHeight={keyRoom} sea={seaWord(sea)} />
 
       {/* The console: the engine (admission) and tokens a minute, the two gauges no other place shows (the owner's C3).
           The compass's live profile and the chronometer's uptime are the top bar's profile chip and UP; as of a moment in
@@ -385,6 +392,8 @@ function ShipView({ data, onFail }: { data: ShipData; onFail: OnFail }) {
         <EngineTelegraph accepting={g ? g.accepting : h?.kernel.accepting} running={g ? g.running : h?.kernel.executions_by_state.running ?? model?.stats.running ?? 0}
           ceiling={h?.kernel.admission_ceiling ?? 8} held={g ? 0 : h?.kernel.turns_held ?? 0} />
         <Nixie value={data.tpm} label="Tokens / min" title="Tokens a minute: input, cache, and output of every model call in the last sixty seconds (provider.call rows)." />
+        <SeaGauge height={sea} word={seaWord(sea)}
+          title={`The sea is the work now: ${seaWord(sea)}. Dead calm when nothing runs; the swell on the chart rises with tokens a minute (${(data.tpm ?? 0).toLocaleString('en-US')}) and the turns running (${turnsRunning}), and settles as they end. Calm mode stills it.`} />
       </div>
 
       <div data-ship-ui className="ship-watch-slot pointer-events-auto absolute right-3 top-[64px]">

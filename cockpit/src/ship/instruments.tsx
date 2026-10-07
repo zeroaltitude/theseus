@@ -175,6 +175,57 @@ export function Nixie({ value, digits = 6, label, title, className }: { value: n
   )
 }
 
+// ---------------------------------------------------------------- the sea gauge: the work now (the living sea)
+
+/** The sea's state (theseus-hnof.2, the owner's C5): three rows of the logo's waves behind night glass, swinging as high
+ *  as the sea runs, and the sea's state in words. It moves only when the sea's height changes: the chart's swell is the
+ *  one that rolls. */
+export function SeaGauge({ height, word, title }: { height: number; word: string; title: string }) {
+  const id = useId().replace(/:/g, '')
+  const amp = 0.4 + height * 4.6
+  const row = (y: number, k: number) => {
+    let d = ''
+    for (let x = 0; x <= 96; x += 3) {
+      const yy = y + Math.sin(x / 7.5 + k * 1.9) * amp * (0.75 + 0.25 * Math.sin(x / 23 + k))
+      d += `${x === 0 ? 'M' : 'L'} ${x + 2} ${yy.toFixed(2)} `
+    }
+    return d
+  }
+  const tone = height > 0 ? CYAN : '#5b6b78'
+  return (
+    <figure className="ship-instrument ship-sea flex flex-col items-center" title={title}>
+      <svg className="ship-sea-gauge" viewBox="0 0 100 52" role="img" aria-label={title}>
+        <defs>
+          <linearGradient id={`sb${id}`} x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0" stopColor="#f3d9a4" />
+            <stop offset="0.35" stopColor="#b08d57" />
+            <stop offset="0.7" stopColor="#5b4325" />
+            <stop offset="1" stopColor="#c9a467" />
+          </linearGradient>
+          <linearGradient id={`sg${id}`} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stopColor="#0d2238" />
+            <stop offset="1" stopColor="#040b15" />
+          </linearGradient>
+          <clipPath id={`sc${id}`}><rect x="4" y="4" width="92" height="44" rx="6" /></clipPath>
+        </defs>
+        <rect x="1" y="1" width="98" height="50" rx="8" fill={`url(#sb${id})`} />
+        <rect x="4" y="4" width="92" height="44" rx="6" fill={`url(#sg${id})`} />
+        <g clipPath={`url(#sc${id})`} fill="none" strokeLinecap="round">
+          {[15, 26, 37].map((y, k) => (
+            <path key={k} d={row(y, k)} stroke={tone} strokeOpacity={0.35 + 0.5 * height * (k === 1 ? 1 : 0.8)} strokeWidth={k === 1 ? 1.5 : 1.1}
+              style={height > 0 ? { filter: `drop-shadow(0 0 ${1 + height * 2}px ${CYAN})` } : undefined} />
+          ))}
+        </g>
+        <path d="M 8 9 Q 50 2 92 9" fill="none" stroke="#ffffff" strokeOpacity="0.12" strokeWidth="3" />
+      </svg>
+      <figcaption className="mt-1 flex flex-col items-center leading-tight">
+        <span className="ship-engraved text-[10px]">The sea</span>
+        <span className="num text-[10.5px] text-ink-dim">{word}</span>
+      </figcaption>
+    </figure>
+  )
+}
+
 // ---------------------------------------------------------------- geometry
 
 export function arc(a0: number, a1: number, r: number): string {

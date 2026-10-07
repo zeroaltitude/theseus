@@ -47,7 +47,8 @@ function buildSteps(m: ShipModel): Step[] {
     { ...t[3], anchor: oar >= 0 ? { kind: 'oar', light: oar } : { kind: 'none' }, fly: (e) => { const b = oar >= 0 ? m.lights[oar].bench : -1; if (b >= 0) e.flyToBench(b) } },
     { ...t[4], anchor: lantern >= 0 ? { kind: 'vessel', i: lantern } : vi >= 0 ? { kind: 'vessel', i: vi } : { kind: 'none' }, fly: (e) => e.fit() },
     { ...t[5], anchor: { kind: 'dom', selector: '.ship-watch-slot' } },
-    { ...t[6], anchor: { kind: 'dom', selector: '.ship-depth' } },
+    { ...t[6], anchor: { kind: 'dom', selector: '.ship-sea' }, fly: (e) => e.fit() },
+    { ...t[7], anchor: { kind: 'dom', selector: '.ship-depth' } },
   ]
 }
 

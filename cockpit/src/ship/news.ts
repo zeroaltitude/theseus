@@ -25,6 +25,11 @@ export const NEWS: NewsItem[] = [
     body: 'The console keeps the two gauges no other place shows: the engine (is the kernel taking new turns, and how many run) and tokens a minute. The live profile and the uptime are in the top bar; scrub back with the ship’s log and the title says what they were then.',
     anchor: { kind: 'dom', selector: '.ship-console' },
   },
+  {
+    id: 'sea', since: '2026-10-07', title: 'The sea carries the work',
+    body: 'Dead calm when nothing runs, and then the Ship draws nothing at all. The swell rises with tokens a minute and the turns running, and settles as they end; the sea on the console says how high, in words. Calm mode stills it.',
+    anchor: { kind: 'dom', selector: '.ship-sea' },
+  },
 ]
 
 /** The cockpit's version: the newest stop's. */

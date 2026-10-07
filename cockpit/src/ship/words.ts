@@ -38,7 +38,7 @@ export const SHAPES = {
   held: { word: 'holds web text', noun: 'holds web text', sea: 'a chain along its rail' },
   coin: { word: 'a turn’s cost', noun: 'cost', sea: 'gold coin, flying to Spent today' },
   recall: { word: 'recalled memory', noun: 'recall', sea: 'violet spark on its bench' },
-  sea: { word: 'the work now', noun: 'the sea', sea: 'the swell; dead calm when idle' },
+  sea: { word: 'the work now', noun: 'the sea', sea: 'the swell' },
 } as const satisfies Record<string, { word: string; noun: string; sea: string }>
 
 export type Shape = keyof typeof SHAPES
