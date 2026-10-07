@@ -9,6 +9,9 @@
 //                           budget (execution.changed); the ledger's turn.failed
 //                           and execution.budget_exhausted
 //
+// The cues play on every page (theseus-7zph: the bell matters most when you look at something else); the oar, which
+// rows with the chart, only while the Ship is shown (`cueHere`).
+//
 // A failed tool call is not a cue: it shows as a rose blade and a pennant, and the turn often goes on to recover. The
 // cockpit hears confirm.requested and execution.changed for every session (it watches them all), and tool.started and
 // turn.failed for the sessions the Ship watches (those that work or wait for you). A turn that fails in a session the
@@ -18,11 +21,11 @@
 
 export type Cue = 'oar' | 'bell' | 'horn'
 
-/** The table: each cue, what sounds it, and what it is. */
-export const CUES: readonly { cue: Cue; events: string; sound: string; source: string }[] = [
-  { cue: 'oar', events: 'tool.started', sound: 'a soft oar splash: a blade’s low knock, water rushing, two drops', source: 'synthesized in the browser (Web Audio: filtered noise and two sines), src/ship/audio.ts' },
-  { cue: 'bell', events: 'confirm.requested; execution.changed into needs_you for a question, a budget or a block; the ledger’s tool.confirm_requested and budget.asked', sound: 'a ship’s bell, struck twice', source: 'synthesized in the browser (Web Audio: a bell’s inharmonic partials, each ringing down), src/ship/audio.ts' },
-  { cue: 'horn', events: 'turn.failed; execution.changed into failed or budget_exhausted; the ledger’s turn.failed and execution.budget_exhausted', sound: 'a low horn, short', source: 'synthesized in the browser (Web Audio: three detuned low saws through a low-pass), src/ship/audio.ts' },
+/** The table: each cue, what sounds it, what it is, and where it plays. */
+export const CUES: readonly { cue: Cue; events: string; sound: string; source: string; pages: 'the Ship' | 'every page' }[] = [
+  { cue: 'oar', pages: 'the Ship', events: 'tool.started', sound: 'a soft oar splash: a blade’s low knock, water rushing, two drops', source: 'synthesized in the browser (Web Audio: filtered noise and two sines), src/ship/audio.ts' },
+  { cue: 'bell', pages: 'every page', events: 'confirm.requested; execution.changed into needs_you for a question, a budget or a block; the ledger’s tool.confirm_requested and budget.asked', sound: 'a ship’s bell, struck twice', source: 'synthesized in the browser (Web Audio: a bell’s inharmonic partials, each ringing down), src/ship/audio.ts' },
+  { cue: 'horn', pages: 'every page', events: 'turn.failed; execution.changed into failed or budget_exhausted; the ledger’s turn.failed and execution.budget_exhausted', sound: 'a low horn, short', source: 'synthesized in the browser (Web Audio: three detuned low saws through a low-pass), src/ship/audio.ts' },
 ]
 
 /** How often each cue may sound at most (ms): a burst of tool calls rows a few strokes, not a splash each; a question
@@ -94,6 +97,12 @@ export function cueOfRow(ear: Ear, row: { kind: string; session_id?: string | nu
   const cue = ROW_CUE[row.kind]
   if (!cue || row.at_unix_ms < since) return null
   return gate(ear, cue, row.session_id ?? '', now)
+}
+
+/** The cue to play where the operator is: the bell and the horn on every page, the oar only on the Ship. */
+export function cueHere(cue: Cue | null, onShip: boolean): Cue | null {
+  if (!cue) return null
+  return onShip || CUES.find((c) => c.cue === cue)?.pages === 'every page' ? cue : null
 }
 
 /** Where the browser keeps the toggle: off unless the operator turned it on. */

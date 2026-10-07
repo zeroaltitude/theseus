@@ -2,7 +2,8 @@
 // own events, each once a change, a burst of oars rowing a few strokes, and off until the operator turns it on.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { CUES, cueOf, cueOfRow, newEar, SPACING, soundOn } from '../src/ship/sound.ts'
+import { readFileSync } from 'node:fs'
+import { CUES, cueHere, cueOf, cueOfRow, newEar, SPACING, soundOn } from '../src/ship/sound.ts'
 
 const view = (sid: string, state: string, level: string, previous?: string) =>
   ({ session_id: sid, state, attention: { level, label: '', since_ms: 0 }, ...(previous ? { previous } : {}) })
@@ -93,4 +94,24 @@ test('a failed tool call sounds no horn: its rose blade and pennant show it (the
   }
   // The horn is for a turn: still there for one.
   assert.equal(cueOf(ear, 'turn.failed', { session_id: 's1' }, 3000), 'horn')
+})
+
+test('the bell and the horn play on every page, the oar on the Ship; the Shell hears them once (theseus-7zph)', () => {
+  assert.deepEqual(CUES.map((c) => [c.cue, c.pages]), [['oar', 'the Ship'], ['bell', 'every page'], ['horn', 'every page']])
+  assert.equal(cueHere('bell', false), 'bell')
+  assert.equal(cueHere('horn', false), 'horn')
+  assert.equal(cueHere('oar', false), null)
+  assert.equal(cueHere('oar', true), 'oar')
+  assert.equal(cueHere(null, true), null)
+  // Mounted once, in the Shell, on every page; the Ship keeps only its button, so no cue sounds twice.
+  const shell = readFileSync(new URL('../src/components/Shell.tsx', import.meta.url), 'utf8')
+  assert.match(shell, /const onShip = !!shipRoute \|\| !!indexRoute\s+\/\/[^\n]*\n\s+useSoundCues\(onShip\)/)
+  const ship = readFileSync(new URL('../src/views/Ship.tsx', import.meta.url), 'utf8')
+  assert.ok(!ship.includes('useSoundCues'), 'the Ship does not hear the cues itself')
+  assert.match(ship, /const sound = useShipSound\(\)/)
+  const hook = readFileSync(new URL('../src/ship/useShipSound.ts', import.meta.url), 'utf8')
+  // Still off until the operator turns it on: the one toggle is the browser's kept choice, and nothing listens while off.
+  assert.match(hook, /on: typeof localStorage !== 'undefined' && soundOn\(localStorage\.getItem\(SOUND_KEY\)\)/)
+  assert.match(hook, /useEffect\(\(\) => \{\s+if \(!on\) return/)
+  assert.match(hook, /const cue = cueHere\(heard, here\.current\)/)
 })

@@ -25,7 +25,7 @@ build.
   session deck read them; pure), `keyset.ts` and `Key.tsx` (the key), `HoverCard.tsx` and `placement.ts` (cards beside
   their point, off the instruments; pure), `Tour.tsx`, `tourText.ts` and `news.ts` (the tour, and what's new after an
   update; pure), `sound.ts`, `audio.ts` and `useShipSound.ts` (the three cues: which push sounds which, pure; the
-  sounds, made with Web Audio), `instruments.tsx` (the brass gauges), `Minimap.tsx`, `useShipData.ts` (the reads and
+  sounds, made with Web Audio; the toggle, and the cues the Shell hears on every page), `instruments.tsx` (the brass gauges), `Minimap.tsx`, `useShipData.ts` (the reads and
   pushes it composes), `flares.ts` (a failure flares its ship once, whichever of its push, its execution's change and
   its ledger row tells the page first; pure, theseus-1skt), and `synth.ts` (a seeded 10,000-node fleet for measuring).
 - The watch, the Ship's column of six plates (theseus-hnof): `src/ship/Watch.tsx` draws them, `src/ship/watch.ts` works
@@ -102,7 +102,8 @@ build.
   rule in `index.css`, beside Calm's.
 - **Sound is off until the operator turns it on** (the Ship's Sound button, kept in the browser): three cues on the
   daemon's own pushes and ledger rows (`src/ship/sound.ts`), made in the browser with Web Audio (`audio.ts`), no
-  recorded or third-party sound. A cue is a row of `CUES`, with its events and its source.
+  recorded or third-party sound. A cue is a row of `CUES`, with its events, its source and its pages. They play on
+  every page (theseus-7zph): the Shell mounts `useSoundCues` once, and the oar splashes only on the Ship.
 - **What's new is one item an addition** (`src/ship/news.ts`): an update that adds something to the Ship adds a stop
   there with its date, which moves `COCKPIT_VERSION`; a browser that has seen the tour flies to only the new stops,
   once.
