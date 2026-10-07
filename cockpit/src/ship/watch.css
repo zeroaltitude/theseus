@@ -163,7 +163,7 @@ button.watch-line:hover, button.watch-line:focus-visible { background: rgb(34 21
 .watch-open > .watch-since > .watch-head { display: none; }
 
 /* Compact: a strip of one line a plate, for a short or narrow window; a plate's lines open under its line. */
-.watch-compact { width: 100%; padding: 4px 6px; }
+.watch-compact { width: 100%; padding: 4px 6px; max-height: calc(100vh - 510px); overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
 .watch-row { display: flex; align-items: center; gap: 6px; min-height: 25px; }
 .watch-row + .watch-row, .watch-row + .watch-open, .watch-open + .watch-row { border-top: 1px solid rgb(176 141 87 / 0.18); }
 .watch-row-name { display: flex; flex: 1; min-width: 0; align-items: center; gap: 5px; text-align: left; cursor: pointer; }

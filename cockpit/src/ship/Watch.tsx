@@ -435,7 +435,7 @@ interface SinceProps {
 
 /** The sixth plate: how long you were away, a tally of what happened (each part lights its own on the chart), the
  *  lines that matter most, the replay of the stretch, and "seen". */
-function SincePlate({ plate: p, focus, onShow, onFly, glows, replay, onReplay, onSeen }: SinceProps) {
+function SincePlate({ plate: p, focus, onShow, onFly, glows, replay, onReplay, onSeen, compact }: SinceProps & { compact?: boolean }) {
   const glow = useGlow(p.value === '…' ? null : p.pulse, glows)
   const on = focus?.key === 'since'
   const id = 'watch-since'
@@ -471,8 +471,9 @@ function SincePlate({ plate: p, focus, onShow, onFly, glows, replay, onReplay, o
           })}
         </div>
       )}
-      {/* In a replay the tally counts up as the moment moves; the lines and the acts wait for its end. */}
-      {!quiet && !replay.playing && <Lines plate={p} onFly={onFly} />}
+      {/* In a replay the tally counts up as the moment moves; the lines and the acts wait for its end. In the compact
+          strip the tally says it, and the plate's lines would run under the depth gauge. */}
+      {!quiet && !replay.playing && !compact && <Lines plate={p} onFly={onFly} />}
       {p.away > 0 && !replay.playing && (
         <footer className="watch-since-foot">
           <ShowToggle plate={p} on={on && !focus?.part} onShow={() => onShow(p)} />
@@ -578,7 +579,7 @@ function StripRow({ plate: p, open, on, onOpen, onShow, onFly, glows, dayStart, 
       {open && (
         <div className="watch-open">
           {p.key === 'since' ? (
-            <SincePlate {...since} />
+            <SincePlate {...since} compact />
           ) : (
             <>
               <p className="watch-caption" title={p.caption}><Icon size={11} className={cn('watch-icon', tone(p.tone))} aria-label={p.unit} />{p.caption}</p>
