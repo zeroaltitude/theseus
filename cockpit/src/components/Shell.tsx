@@ -4,7 +4,7 @@ import { NavLink, Outlet, useLocation, useMatch, useNavigate } from 'react-route
 import { motion } from 'motion/react'
 import { Command } from 'cmdk'
 import {
-  Activity, BellOff, BellRing, ChevronDown, ChevronUp, CircleCheck, Coins, Command as CommandIcon, Cpu, Crosshair, Gauge, Gavel, Landmark, Layers, Navigation, OctagonX, Pause, Radio,
+  Activity, BellOff, BellRing, ChevronDown, ChevronUp, CircleCheck, Moon, Sun, Coins, Command as CommandIcon, Cpu, Crosshair, Gauge, Gavel, Landmark, Layers, Navigation, OctagonX, Pause, Radio,
   Sailboat, Scale, ScrollText, ShieldCheck, ShieldHalf, Shapes, Zap,
 } from 'lucide-react'
 import type { ConfirmRequest, ExecutionInfo, NodeInfo, SessionInfo } from '@protocol'
@@ -20,6 +20,7 @@ import { useFlow } from '@/lib/flow'
 import { useAsOf } from '@/lib/timemachine'
 import { FOLDS } from '@/lib/world'
 import { useCalm } from '@/lib/calm'
+import { useMode } from '@/lib/mode'
 import { foldKey, foldRepeats, STRIP_KEY, stripOpen, type Fold, type StripLine } from '@/lib/activity'
 import { TimeMachine } from './TimeMachine'
 
@@ -156,6 +157,7 @@ function NavRail({ onPalette }: { onPalette: () => void }) {
         </NavLink>
       ))}
       <div className="mt-auto flex flex-col items-center gap-2">
+        <ModeToggle />
         <button onClick={notify.toggle} title={notify.on ? 'Desktop notices for approvals: on' : 'Desktop notices for approvals: off'}
           className={cn('rounded-lg p-2 hover:bg-white/5', notify.on ? 'text-wait' : 'text-ink-faint hover:text-ink')}>
           {notify.on ? <BellRing size={17} /> : <BellOff size={17} />}
@@ -293,8 +295,25 @@ function FoldText({ f, wide, onSession }: { f: Fold; wide?: boolean; onSession?:
   )
 }
 
+/** Night or daylight (lib/mode.ts, theseus-hnof.5): the bridge on navy glass, or ivory and brass for a bright room.
+ *  The button shows where a press goes; the choice is kept in this browser. */
+function ModeToggle() {
+  const mode = useMode((s) => s.mode)
+  const setMode = useMode((s) => s.setMode)
+  const day = mode === 'light'
+  return (
+    <button onClick={() => setMode(day ? 'dark' : 'light')} aria-pressed={day}
+      title={day ? 'Daylight: ivory and brass, for a bright room. Press for the night.' : 'Night: the bridge on navy glass. Press for daylight (the Ship and the ship’s log track stay at night).'}
+      className="rounded-lg p-2 text-ink-faint hover:bg-white/5 hover:text-ink">
+      {day ? <Moon size={17} /> : <Sun size={17} />}
+    </button>
+  )
+}
+
 function Palette({ open, onOpenChange }: { open: boolean; onOpenChange: (v: boolean) => void }) {
   const nav = useNavigate()
+  const day = useMode((s) => s.mode) === 'light'
+  const setMode = useMode((s) => s.setMode)
   const { data } = useRpc<{ sessions: SessionInfo[] }>('session.list', undefined, 5000)
   const { data: cl } = useRpc<{ confirms: ConfirmRequest[] }>('confirm.list', undefined, 3000)
   const { data: el } = useRpc<{ executions: ExecutionInfo[] }>('execution.list', undefined, 3000)
@@ -325,6 +344,12 @@ function Palette({ open, onOpenChange }: { open: boolean; onOpenChange: (v: bool
       />
       <Command.List className="max-h-[420px] overflow-auto p-2">
         <Command.Empty className="px-3 py-6 text-center text-sm text-ink-faint">Nothing matches.</Command.Empty>
+        <Command.Group heading="Look" className={group}>
+          <Command.Item value={day ? 'night mode dark' : 'daylight mode light day'} onSelect={() => { onOpenChange(false); setMode(day ? 'dark' : 'light') }} className={item}>
+            {day ? <Moon size={14} className="text-gold" /> : <Sun size={14} className="text-gold" />} {day ? 'Night' : 'Daylight'}
+            <span className="ml-auto text-[11px] text-ink-faint">{day ? 'the bridge on navy glass' : 'ivory and brass, for a bright room'}</span>
+          </Command.Item>
+        </Command.Group>
         <Command.Group heading="Views" className="text-[11px] text-ink-faint [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5">
           {NAV.map((n) => (
             <Command.Item key={n.to} onSelect={() => go(n.to)} className="flex cursor-pointer items-center gap-2.5 rounded-lg px-2.5 py-2 text-[13px] text-ink data-[selected=true]:bg-live/10 data-[selected=true]:text-live">

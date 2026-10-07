@@ -6,6 +6,8 @@ import { createContext, useContext, useEffect, useRef, useState, type CSSPropert
 import { useSearchParams } from 'react-router'
 import { animate } from 'motion/react'
 import { useCalm } from '@/lib/calm'
+import { useMode } from '@/lib/mode'
+import { daylightColor } from '@/lib/daylight'
 import { cn } from '@/lib/format'
 import { Panel, Segmented } from './ui'
 import '@/viz.css'
@@ -76,7 +78,9 @@ export function Legend({ items, className }: { items: LegendItem[]; className?: 
   )
 }
 
-export function Swatch({ color, mark = 'rect' }: { color: string; mark?: Mark }) {
+export function Swatch({ color: night, mark = 'rect' }: { color: string; mark?: Mark }) {
+  // By day a key's colour is its series' daylight step, as the chart's own marks are (lib/daylight.ts).
+  const color = useMode((s) => s.mode) === 'light' ? daylightColor(night) : night
   const style: CSSProperties = mark === 'line' ? { width: 14, height: 2, borderRadius: 1, background: color }
     : mark === 'dot' ? { width: 8, height: 8, borderRadius: 4, background: color }
     : mark === 'ring' ? { width: 8, height: 8, borderRadius: 4, boxShadow: `inset 0 0 0 2px ${color}` }

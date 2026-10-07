@@ -72,7 +72,8 @@ export function AttentionPill({ a, state, className }: { a: Attention | null | u
 }
 
 export function LiveDot({ tone = 'live', pulse = true, size = 6 }: { tone?: Tone; pulse?: boolean; size?: number }) {
-  const c = toneHex[tone]
+  // The tone's token, not its hex: a dot follows the mode (night or daylight) and the Ship's night by the cascade.
+  const c = `var(--color-${tone})`
   return (
     <span className="relative inline-flex" style={{ width: size, height: size }}>
       {pulse && (

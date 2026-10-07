@@ -8,26 +8,30 @@ import { Bot, User, Wrench, FileText } from 'lucide-react'
 import { reachWords, type NodeInfo, type NodeReachResult } from '@protocol'
 import { call } from '@/lib/rpc'
 import { clock, ms, short, tokens, usd } from '@/lib/format'
-import { toneHex } from '@/lib/taxonomy'
+import { toneHex, type Tone } from '@/lib/taxonomy'
+import { currentMode } from '@/lib/mode'
+import { THEME } from '@/lib/daylight'
 import { JsonView } from './JsonView'
 import { Empty } from './ui'
 
 type D = Record<string, any>
 interface GData extends Record<string, unknown> { n: NodeInfo; turn: number }
 
-const KIND: Record<string, { color: string; icon: React.ReactNode; label: string }> = {
-  user_message: { color: '#ddd0b0', icon: <User size={12} />, label: 'user' },
-  assistant_message: { color: toneHex.model, icon: <Bot size={12} />, label: 'reply' },
-  tool_call: { color: toneHex.tool, icon: <Wrench size={12} />, label: 'call' },
-  tool_result: { color: toneHex.ok, icon: <FileText size={12} />, label: 'result' },
+// Each kind's tone, read as a node draws, so the colours follow the mode (night or daylight); a user's message is in the
+// ink (an ivory by night, a slate by day).
+const KIND: Record<string, { tone: Tone | null; icon: React.ReactNode; label: string }> = {
+  user_message: { tone: null, icon: <User size={12} />, label: 'user' },
+  assistant_message: { tone: 'model', icon: <Bot size={12} />, label: 'reply' },
+  tool_call: { tone: 'tool', icon: <Wrench size={12} />, label: 'call' },
+  tool_result: { tone: 'ok', icon: <FileText size={12} />, label: 'result' },
 }
 
 function GNode({ data, selected }: NodeProps<Node<GData>>) {
   const { n } = data
-  const k = KIND[n.kind] ?? { color: toneHex.idle, icon: null, label: n.kind }
+  const k = KIND[n.kind] ?? { tone: 'idle' as Tone, icon: null, label: n.kind }
   const d = (n.detail ?? {}) as D
   const err = n.kind === 'tool_result' && (d.is_error || d.status === 'declined')
-  const color = err ? toneHex.fault : k.color
+  const color = err ? toneHex.fault : k.tone ? toneHex[k.tone] : currentMode() === 'light' ? THEME.light.inkDim : '#ddd0b0'
   const stat = n.kind === 'assistant_message' ? `${usd(d.cost_usd)} · ${tokens(d.usage?.output_tokens)} out`
     : n.kind === 'tool_call' ? (d.tool ?? '')
     : n.kind === 'tool_result' ? `${d.status ?? ''}${d.duration_ms != null ? ` · ${ms(d.duration_ms)}` : ''}`

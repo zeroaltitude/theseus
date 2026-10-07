@@ -127,7 +127,7 @@ function PlaceCard({ p, open, onToggle, q, result, openTool, onTool, onSession, 
         <div className="num flex flex-wrap items-center gap-x-3 px-3.5 pb-2 text-[11.5px] text-ink-dim">
           <button type="button" onClick={() => onSession(p.session_id!)} className="hover:text-live">session {title(p.session_id)}</button>
           {p.hold
-            ? <span className="flex items-center gap-1 text-[#f472b6]"><Link2 size={12} /> holds outside text: read {p.hold.tool} {p.hold.query ? `“${p.hold.query}”` : p.hold.url} {ago(p.hold.since_ms, now)}, so its calls that act wait · <Link to="/boundaries" className="underline decoration-dotted hover:text-live">trust it on the boundaries board</Link></span>
+            ? <span className="flex items-center gap-1 text-magenta"><Link2 size={12} /> holds outside text: read {p.hold.tool} {p.hold.query ? `“${p.hold.query}”` : p.hold.url} {ago(p.hold.since_ms, now)}, so its calls that act wait · <Link to="/boundaries" className="underline decoration-dotted hover:text-live">trust it on the boundaries board</Link></span>
             : <span className="text-ok">trusted: no outside text held</span>}
         </div>
       )}

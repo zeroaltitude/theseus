@@ -22,6 +22,8 @@ import { ago, bytes, clock, cn, ms, short, stamp } from '@/lib/format'
 import { Btn, Empty, Panel, Pill } from '@/components/ui'
 import { Tightenings } from '@/components/Tightenings'
 import { ceilingWords } from '@/lib/ceiling'
+import { currentMode } from '@/lib/mode'
+import { daylightColor } from '@/lib/daylight'
 
 type D = Record<string, any>
 
@@ -133,7 +135,8 @@ function Seal({ icon, n, word, tone, hint }: { icon: ReactNode; n: number; word:
           color: lit ? tone : '#6e6656',
         }}>{icon}</span>
       <div className="leading-tight">
-        <div className="num text-[19px] font-semibold" style={{ color: lit ? tone : '#9c907a', textShadow: lit ? `0 0 10px ${tone}88` : undefined }}>{n}</div>
+        {/* The lamp is glass and keeps its night colour; the count beside it is ink, deepened by day (lib/daylight.ts). */}
+        <div className="num text-[19px] font-semibold" style={{ color: lit ? (currentMode() === 'light' ? daylightColor(tone) : tone) : 'var(--color-ink-faint)', textShadow: lit && currentMode() !== 'light' ? `0 0 10px ${tone}88` : undefined }}>{n}</div>
         <div className="ship-engraved text-[9.5px]">{word}</div>
       </div>
     </div>
@@ -158,8 +161,8 @@ function Latch({ holds, rows, title, now, onOpen }: { holds: Health['external_te
     <div className="flex flex-col gap-2">
       {!holds.length && <Empty><span className="flex items-center gap-2"><ShieldCheck size={15} className="text-ok" /> every session is trusted: nothing holds outside text</span></Empty>}
       {holds.map((x) => (
-        <div key={x.session_id} className="flex items-start gap-3 rounded-lg bg-[#f472b6]/[0.05] px-3 py-2.5 ring-1 ring-[#f472b6]/25">
-          <Link2 size={16} className="mt-0.5 shrink-0 text-[#f472b6]" />
+        <div key={x.session_id} className="flex items-start gap-3 rounded-lg bg-magenta/[0.05] px-3 py-2.5 ring-1 ring-magenta/25">
+          <Link2 size={16} className="mt-0.5 shrink-0 text-magenta" />
           <div className="min-w-0 flex-1">
             <button type="button" onClick={() => onOpen(x.session_id)} className="truncate text-left text-[13px] font-medium text-ink hover:text-live">{x.title || title(x.session_id)}{x.task ? ` · task ${x.task}` : ''}</button>
             <div className="num mt-0.5 truncate text-[11.5px] text-ink-dim" title={x.held.url}>
@@ -182,7 +185,7 @@ function Latch({ holds, rows, title, now, onOpen }: { holds: Health['external_te
             return (
               <div key={r.position} className="num flex items-baseline gap-2 py-[1px] text-[11px]">
                 <span className="w-28 shrink-0 text-ink-faint">{stamp(r.at_unix_ms)}</span>
-                <span className={held ? 'text-[#f472b6]' : 'text-ok'}>{held ? 'held' : 'trusted'}</span>
+                <span className={held ? 'text-magenta' : 'text-ok'}>{held ? 'held' : 'trusted'}</span>
                 <span className="min-w-0 truncate text-ink-dim">{title(r.session_id)}{held ? ` · ${d.tool ?? ''} ${d.query ? `“${d.query}”` : d.url ?? ''}` : d.by ? ` · by ${d.by}` : ''}</span>
               </div>
             )

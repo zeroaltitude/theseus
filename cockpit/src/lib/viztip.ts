@@ -2,6 +2,8 @@
 // session's title, a model's name, and a profile are data, and ECharts would put a string in as markup. Values lead and
 // labels follow; a row keys its series with a short stroke of its colour (a ring or a dot for a marker).
 import { CHROME, FONTS } from './viz.ts'
+import { THEME } from './daylight.ts'
+import { currentMode } from './mode'
 
 export interface TipRow { value: string; label: string; color?: string; mark?: 'line' | 'rect' | 'dot' | 'ring' | 'triangle'; strong?: boolean }
 
@@ -24,7 +26,8 @@ function key(color: string | undefined, mark: TipRow['mark']): HTMLElement {
 
 /** A tooltip: an optional head (what the reader pointed at), then a row per value, then an optional foot. */
 export function tip(head: string | null, rows: TipRow[], foot?: string): HTMLElement {
-  const c = CHROME.dark
+  // The mode's inks: the night's on the night glass, the daylight's on the ivory tooltip (theseus-hnof.5).
+  const c = currentMode() === 'light' ? { text: THEME.light.ink, secondary: THEME.light.inkDim, muted: THEME.light.inkFaint } : CHROME.dark
   const root = el('div', { fontFamily: FONTS.sans, fontSize: '12px', lineHeight: '1.45', color: c.text, minWidth: '120px' })
   if (head) root.append(el('div', { color: c.muted, fontSize: '11px', marginBottom: '3px' }, head))
   const grid = el('div', { display: 'grid', gridTemplateColumns: 'auto auto 1fr', alignItems: 'center', columnGap: '7px' })
