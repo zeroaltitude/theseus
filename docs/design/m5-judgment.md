@@ -211,6 +211,7 @@ versions of a pack may run in shadow together (the incumbent and a candidate), a
 | `continue.v1` (CONTINUE) | `compile`: only when no deterministic trigger fired **and** a candidate signal did (§4.4a step 2) | The signals and their values, tail tokens and nodes, the provider's last cache read vs the prefix, the compilation's age, strategy, and trigger, budget left, the last human message | `decision` Choice: append · recompile_transcript · recompile_ring · recompile_compaction · recompile_fresh · other. Noul: `stronger_model_for_compaction` | Append | None (compaction and assembled are M6) |
 | `categorize.v1` | `exchange_end`: once 10 human messages have arrived since the session's last one, or at the first exchange end after 30 minutes' quiet | Session title, the last 10 human messages (trimmed), current memberships, up to 50 candidate topics with descriptions | `topic` Choice over topic ids + new_topic + none. Nouls: `still_member` per current membership (at most 5) | No membership | None (live memberships are M6) |
 | `route.v1` (since 2026-10-04, 25e; Part III Item 139) | `inbound`, ~~batched with `classify.v1` and `role.v1` (their state, held byte-identical)~~ in a request of its own beside the batch of `classify.v1` and `role.v1`, the two sent at once, the state sent once a request _(since 2026-10-07, batch 10's route-wait; Part III Item 237)_ | As `classify.v1`'s | `mode` Choice: trivial · chat · sophisticated · deep_coding · routine_coding · other | The session's own profile | **Live**: the turn waits at most `[routing] max_wait_ms` for it after its first compile _(since 2026-10-07, Item 237: `route.decided` says `late`, when the verdict had not come by the decision, and `answered_ms`, when route.v1's request came back; the histogram `theseus.route.wait` counts the wait by `theseus.route.late` on live and canary turns; `max_wait_ms` stays 200 until a week of those rows sets it)_; a mode's first usable profile from `[routing.modes]`; a trivial detour that leaves the session as it was; a switch, held for a second agreeing turn above `cold_switch_tokens`; a pin judged in shadow _(since 2026-10-05, Part III Item 181: a switch keeps the session's base, `routed.from`, which a later switch keeps and a switch back to it clears, and a change of the base clears the move; while the turn waits for the verdict its first compile's `context.compiled`, continue.v1's mark and `loop.started` are held, recorded once if the turn keeps that compile and dropped if it switches or detours, so each loop records one of each, and a detour's loop records `loop.started` alone, its compilation never stored)_ |
+| `route.v2` (since 2026-10-07, theseus-3okf; the acting route pack, live at once in place of `route.v1`, which stays embedded for its history) | As `route.v1`'s: a request of its own beside the batch | As `classify.v1`'s | `mode` Choice: trivial · quick · chat · sophisticated · deep_coding · routine_coding · other. `quick`: a quick question or small request a short, direct answer settles (a fact, a definition, a yes or no, a summary of something just said, or where to find something); `chat`: conversation that builds on the work in progress; `routine_coding` adds small fixes whose cause is known | The session's own profile | **Live** as `route.v1` was, under its rollback rules ("wrong model" 3 times in a day; an on-path p95 over 250 ms over 20) and the adopted pin rule, its adoption row `live (owner: decision of 2026-10-07)`. `trivial` and `quick` are detours (`config::routing::DETOURS`): that turn alone runs on the mode's profile with the last `trivial_context_turns` exchanges, and a late verdict of either applies to no message; every other mode switches. Defaults: trivial `["haiku", "glm", "cheapest"]`, quick `["haiku"]` (Haiku 5.5 at effort low), routine_coding `["haikuhi", "sonnet"]` (Haiku 5.5 at effort high); a profile a config lacks is passed over |
 
 - **CONTINUE's candidate signals** are built in step 25, deterministic and cheap, in `compile()`: a dormancy
   gap (over 6 h since the last node), the tail crossing a soft band (half the window, then every further
@@ -315,7 +316,7 @@ cite a report written after the rollback.
 |---|---|
 | `loop.v1` nudging tasks | A nudged turn ends with no new tool call and a near-identical final text (a nudge loop). The canary's spend per task exceeds twice the control's median, over 10 tasks or more. The operator stops or cancels a task within its nudge. The judgment's on-path p95 exceeds 1 s. |
 | ~~`security.v1` notices~~ `security.v1`'s rules, braking `security.v3`'s notices (since 2026-10-04: Part III Items 142 and 145) | More than 30 Jev notices in a day (the quiet-notices lesson, theseus-w4f), or the operator labels 3 of them "noise" in a day: a day's brake, until the next local midnight |
-| `route.v1` (adopted, 26a) | The owner pins another profile for a message within 10 minutes after a routed turn, 3 times in a day: a day's brake. Its file's own rules beside it: "wrong model" 3 times in a day, and an on-path p95 over 250 ms over 20 |
+| `route.v1` (adopted, 26a), and `route.v2` (adopted 2026-10-07, theseus-3okf; the rules are the pack id's, so each version keeps them) | The owner pins another profile for a message within 10 minutes after a routed turn, 3 times in a day: a day's brake. Its file's own rules beside it: "wrong model" 3 times in a day, and an on-path p95 over 250 ms over 20 |
 | `rerank.v1` (adopted, 26a) | Its own breaker opens twice in a day: a day's brake |
 | `role.v1` | More than 2 role switches in one exchange, or the operator labels a switch "wrong role" twice in a day |
 
@@ -581,15 +582,19 @@ provider = "typesafe"
 input_per_mtok = 0.042
 output_per_mtok = 0.042
 
-[routing]                         # route.v1, 25e (Part III Item 139)
+[routing]                         # route.v1, 25e (Part III Item 139); route.v2 since 2026-10-07 (theseus-3okf)
 enabled = true
 mode = "live"                     # or "shadow": judged, never acted on
 max_wait_ms = 200                 # the turn's wait for the verdict, after its first compile
-trivial_context_turns = 2         # a detour's exchanges of context
+trivial_context_turns = 2         # a detour's exchanges of context (trivial and, since route.v2, quick)
 cold_switch_tokens = 30000        # above it, a switch waits for a second agreeing turn
 switch_confidence = 0.6           # under it, nothing routes
 # [routing.modes.trivial]
-# profiles = ["cheapest"]         # each mode's profiles, the first usable wins; [] keeps the session's own
+# profiles = ["haiku", "glm", "cheapest"]   # each mode's profiles, the first usable wins; [] keeps the session's own
+# [routing.modes.quick]                     # route.v2's (theseus-3okf)
+# profiles = ["haiku"]
+# [routing.modes.routine_coding]
+# profiles = ["haikuhi", "sonnet"]
 ```
 
 The endpoint's base is compiled in and overridable (`api_base`) for the fake. Every line is in the template,
