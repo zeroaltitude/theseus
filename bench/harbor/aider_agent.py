@@ -34,8 +34,11 @@ Aider's own output (`efficiency.aider_record`). It adds:
 `--ak reasoning_effort=…` still names the effort (an ablation): it goes into
 `output_config`. Aider has no spend cap and no turn cap: the caps are recorded,
 not enforced. Aider does not drive a loop of tool calls as the other arms do:
-it answers one message, with up to three reflections, and runs the shell
-commands it suggests (`--yes-always`).
+it answers one message, with up to three reflections, editing files. It
+suggests shell commands but never runs them here: Aider asks an explicit yes
+for each (`explicit_yes_required`), which `--yes-always` does not give, so a
+task that needs a command run (a service started, a package installed) fails
+in Aider as shipped. The arm leaves that as it is.
 """
 
 from __future__ import annotations

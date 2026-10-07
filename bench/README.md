@@ -244,8 +244,10 @@ its calls, tokens and dollars, and `list_cost_usd`, the same tokens at the provi
 | The harness, to the sampler | `codex` (the native binary; its npm launcher, `node`, is outside) | `aider` | `opencode.exe` | `openhands-py`: the arm runs the SDK's runner through a link of that name to its venv's Python, since `python` is also the work's | `openclaw` |
 | Its own log, for the record | the rollout, through Harbor's trajectory | `agent/aider.txt` (a token line a call) and `--analytics-log` (the exact counts) | `agent/opencode.txt` (a `step_finish` a call) | `openhands-metrics.json` (`openhands_measure_run.py`): each call's tokens and dollars | Harbor's trajectory of its session |
 
-Aider answers one message (with up to three reflections) and runs the shell commands it suggests; it does not drive
-a loop of tool calls, so its tool calls are the commands it ran. OpenClaw's own CLI timeout is lifted to 14400 s so
+Aider answers one message (with up to three reflections) by editing files; it does not drive a loop of tool calls.
+It suggests shell commands but does not run them under Harbor: it asks an explicit yes for each, which `--yes-always`
+does not give, so a task that needs a command run fails in Aider as shipped (its record's `tool_calls` counts the
+commands it ran, none). OpenClaw's own CLI timeout is lifted to 14400 s so
 the task's agent timeout bounds it as it bounds every arm.
 
 **The report** reads jobs, one arm each:

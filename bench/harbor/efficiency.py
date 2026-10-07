@@ -897,7 +897,8 @@ def aider_spend(text: str | None, analytics: list[dict[str, Any]],
     """Aider's spend: its printed line a call (the cache's split, rounded),
     with the analytics log's exact prompt and completion counts and dollars
     where it has the same calls. Aider has no tool calls; the shell commands
-    it runs (`--yes-always`) are counted as its `Running` lines."""
+    it runs, if any (it asks an explicit yes for each, which `--yes-always`
+    does not give), are counted as its `Running` lines."""
     calls = aider_calls(text)
     sends = aider_analytics(analytics)
     source = "stream"
