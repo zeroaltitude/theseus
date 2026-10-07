@@ -10,7 +10,7 @@ use theseus_core::approval::{Client, Surface};
 use theseus_core::provider::{FakeProvider, Scripted};
 use theseus_kernel::ActionState;
 use theseus_protocol::{TurnSubmitParams, TurnSubmitResult};
-use theseus_sim::fake_discord::{Guild, DEFAULT_GUILD};
+use theseus_sim::fake_discord::{Guild, Pressed, DEFAULT_GUILD};
 
 use crate::bindings::Bindings;
 use crate::rpc_client::RpcClient;
@@ -475,4 +475,100 @@ async fn a_dm_put_back_live_keeps_its_place_in_the_files_order() {
     .await;
     assert_eq!(posts(ANA), ana + 1, "ana's DM is first in the file");
     assert_eq!(posts(BEN), ben, "ben's DM takes none");
+}
+
+/// theseus-02bq: a place whose settings change keeps its turn and its
+/// messages. A turn is part way in `#lab` (its text and its tool line posted,
+/// its call waiting for approval in ana's DM), the file is rewritten with
+/// `#lab`'s users changed, and the turn is carried to its end: every message
+/// is still the one first posted (a stop and start would create them again,
+/// and the stand-in's nonce window is closed so a created-again message
+/// shows), and the reply and the tool line are edited, not repeated.
+#[tokio::test]
+async fn a_changed_place_keeps_its_turn_and_its_messages() {
+    let script = vec![
+        Scripted::tools(
+            "Setting it.",
+            &[(
+                "t1",
+                "wake_at",
+                serde_json::json!({"after": "10m", "note": "check the build"}),
+            )],
+        ),
+        Scripted::text("Set: I will check the build in ten minutes."),
+    ];
+    let r = rig(script, &file(&[]), &[]).await;
+    r.fake.set_nonce_window_ms(0);
+    r.until("the bind notice", || r.answered(LAB, BOUND)).await;
+    r.say((ANA, "ana"), Some(LAB), "Remind me to check the build.");
+    let card = || {
+        r.posted(ANA + 1)
+            .into_iter()
+            .find(|m| m.versions[0].contains("**Approve?**"))
+    };
+    r.until("the card in ana's DM", || card().is_some()).await;
+    r.until("the text and the tool line in #lab", || {
+        r.posted(LAB).len() >= 3
+    })
+    .await;
+    let before = r.posted(LAB);
+    // Rewritten meanwhile, with #lab's users changed.
+    let changed = with_dms(&[(ANA, "ana")]).replace(
+        &channel(LAB, "lab", &[ANA]),
+        &channel(LAB, "lab", &[ANA, BEN]),
+    );
+    let revision = Bindings::parse(&changed).unwrap().revision;
+    r.rewrite(&changed);
+    r.until("the change is bound", || {
+        r.core
+            .bindings
+            .all()
+            .first()
+            .and_then(|b| b.revision.clone())
+            == Some(revision.clone())
+    })
+    .await;
+    // The turn is carried to its end.
+    r.fake
+        .press(&Pressed {
+            message: &card().unwrap().id,
+            button: "Approve",
+            user: ANA,
+            name: "ana",
+        })
+        .unwrap();
+    r.until("the reply", || {
+        r.answered(LAB, "Set: I will check the build")
+    })
+    .await;
+    r.until("every post settled", || {
+        r.core.outbox.status("discord").pending == 0
+    })
+    .await;
+    let after = r.posted(LAB);
+    // The tool line was edited to its end, where it was.
+    let line = after.iter().find(|m| m.versions[0].starts_with('⏸'));
+    let line = line.unwrap_or_else(|| panic!("no tool line: {after:#?}"));
+    assert!(
+        line.content.starts_with('✅') && line.edits >= 1,
+        "the tool line was not edited to its end: {after:#?}"
+    );
+    for m in &before {
+        assert!(
+            after.iter().any(|a| a.id == m.id),
+            "{} was posted again: {before:#?} then {after:#?}",
+            m.id
+        );
+    }
+    let mut seen = Vec::new();
+    for m in &after {
+        let last = m.versions.last().unwrap();
+        assert!(!seen.contains(last), "{last:?} twice: {after:#?}");
+        seen.push(last.clone());
+    }
+    let reply = after
+        .iter()
+        .filter(|m| m.content.contains("Set: I will"))
+        .count();
+    assert_eq!(reply, 1, "{after:#?}");
 }
