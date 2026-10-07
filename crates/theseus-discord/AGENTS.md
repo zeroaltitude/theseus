@@ -33,14 +33,19 @@ Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
   each a `judge.label` with the presser's `DiscordOrigin`, which the core judges (the owner, from a private place).
   A refused press tells the presser alone; a counted one comes back as the core's `jev_labeled` post, which edits
   the notice and clears its buttons. `judge.noticed` draws nothing in a place.
-- **The bindings file, read live** (`runtime/live.rs`, theseus-ocwt): stat'ed every 2 s, parsed only when its
-  mtime, size or inode moved, acted on only when its revision did. Places diff by key: a removed one loses its
-  routes and actor at once, and its lane is retired (`Shared::retired`), ending between posts and then refusing the
-  rest (`refuse_unbound`); an added one starts as at a start; a changed one is updated in place (routes, actor,
-  lane label), keeping its turn and its lane's messages. A file that does not load changes nothing, and health's
-  detail says why. A stamp is acted on only once it held a tick and is a period old (a torn save is not acted on),
-  a place whose bind failed is tried again each tick, and the DMs keep the file's order. A guild's invite check and
-  voice channels wait for the next start, and the detail says so, measured from the file the start bound.
+- **The bindings file, read live** (`runtime/live.rs`, theseus-ocwt): stat'ed every 2 s, parsed only when its mtime,
+  size or inode moved, acted on only when its revision did. Places diff by key: a removed one loses its routes and actor
+  at once, and its lane is retired (`Shared::retired`), ending between posts and then refusing the rest
+  (`refuse_unbound`); an added one starts as at a start; a changed one is updated in place (routes, actor, lane label),
+  keeping its turn and its lane's messages. A file that does not load changes nothing, and health's detail says why. A
+  stamp is acted on only once it held a tick and is a period old (a torn save is not acted on), a place whose bind
+  failed is tried again each tick, and the DMs keep the file's order. A guild's invite check and voice channels wait for
+  the next start, and the detail says so, measured from the file the start bound. The watch ends at the daemon's stop,
+  as the gateway loop does: each selects against `Outbox::stopped` (core `outbox.rs`, a wait on the stop's `flight`
+  watch, no polling), and `event_loop` logs "discord gateway loop ended at the daemon's stop" (theseus-9ggu).
+  `Shared::refuse_unbound` holds the lanes' lock across `Outbox::refuse_unbound`, so a place re-added live cannot have
+  its new lane's post refused (theseus-yduk); the lock order stays `lanes`, then `retired`, with the outbox's and the
+  kernel's locks only inside `lanes`.
 - **The task board and `/tasks`** (39b, theseus-ext.14): `runtime/board.rs` routes a `task.changed` to its home's
   place (`theseus_core::task_graph::home`) and sends the tree to the lane as one live upsert under
   `render::BOARD_KEY` (`render/board.rs`); `courier/board.rs` pins it once (a refusal logged once a lane) and, after

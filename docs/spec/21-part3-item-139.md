@@ -537,6 +537,8 @@ review: m5 §2.7's table row ("`security.v1`'s rules, braking `security.v3`'s no
 
 ### Item 143. The Ship's sea rolls gently, always, in Live mode, at 15 frames a second when idle; Calm stays still (theseus-wp2d; the owner's "A gentle roll always is awesome" of 2026-10-04 14:37; the `cockpit-swell` lane, 14:41 to 17:25, in a worktree; 57927336 on bddfd407; joined 17:23 at 14bcce94, a signed merge onto 250ccd23, by the lane itself; reviewed 17:53 by the DM thread; installed 20:00 at 3085f71a, install #2)
 
+_(Superseded 2026-10-07 by cockpit phase 2's lane A, Part III Item 239, on the owner's C5 of 2026-10-06 22:44, "the sea carries information": the sea is dead calm when nothing happens, so an idle Ship draws no frame, and its swell rises with tokens a minute and the turns running and settles as the work ends.)_
+
 **Why.** Item 64's Ship drew only while something moved, so an idle fleet sat on a still sea. At 14:37 the owner answered
 "A gentle roll always is awesome": in Live mode the sea rolls, idle included, and Calm stays still. The lane's brief
 asked for the waves to drift and the stars to twinkle, at about 20 frames a second when nothing else moves, with the

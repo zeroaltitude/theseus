@@ -1,6 +1,6 @@
 # Theseus: status and roadmap
 
-_Updated 2026-10-06 13:31 MST. Version 0.0.1; the design document is at v0.83._
+_Updated 2026-10-07 03:52 MST. Version 0.0.1; the design document is at v0.84._
 
 This page changes with every step that lands. The [README](../README.md) stays the same and links here. For the
 full record of each step (what it built, how it was proven, and where it diverged from the plan), see Part III
@@ -9,9 +9,10 @@ for the week after v1, [the v1.1 roadmap](design/roadmap-v1.1.md).
 
 ## Working today
 
-As installed on the operator's daemon on October 6 at 13:03 (install #7; the store at format 23). Install #5
-(October 5, 16:48) put the v1 build there, and install #6 (October 6, 10:12) turned the S3 backup on; what install
-#7 added is listed after this list.
+As installed on the operator's daemon on October 6 at 22:13 (install #9; the store at format 23). Install #5
+(October 5, 16:48) put the v1 build there, install #6 (October 6, 10:12) turned the S3 backup on, and the import of
+his earlier history followed install #8 (17:22). What installs #7 to #9 added is listed after this list, and what has
+joined since, for install #10, after that. Theseus has been feature complete (v1-beta) since October 6 at 22:04.
 
 - Conversations in Discord (DMs and channels), the terminal, and the browser, with Claude and GLM models.
 - **The model for each message, picked by Jev.** `route.v1` reads each message's interaction mode as it arrives and
@@ -61,10 +62,12 @@ As installed on the operator's daemon on October 6 at 13:03 (install #7; the sto
   request is checked against its situation: a turn whose compiled set does not close fails before anything is
   sent, with a `context.unadmitted` row and words that name the piece. A recalled item's header names its place
   and the reply's model, and a volatile value says it is unverified (Item 183).
-- **The operator's earlier history, importable.** `theseus import openclaw|list|erase` brings the episodes of
+- **The operator's earlier history, imported.** `theseus import openclaw|list|erase` brings the episodes of
   his earlier agent's history in as imported sessions: closed, private, left out of the session list, each
   message at its own time with an `import` origin, idempotent, and erasable by tag (Item
-  201). The real import waits for the fix that keeps a session list fast past them.
+  201). His went in right after install #8 (October 6, 17:26 to 17:28): 21,779 episodes, none rejected. The
+  session lists step over them by key, so a list stays in a few milliseconds (Item 219), and
+  their vectors are embedded in the background over days.
 - **Tasks as records.** A task has a record of three layers and a place in a graph, edited by compare-and-swap through
   the task tools, its first layer asked of the owner only for tasks the owner created (Items 125 and
   146). A task is created with its arrangement (references, a refusal, a fidelity check; Item
@@ -242,8 +245,9 @@ As installed on the operator's daemon on October 6 at 13:03 (install #7; the sto
   install builds only the five binaries it ships. The tests that failed under load wait on what they test, not on
   the clock (Item 189).
 
-## New at install #7 (October 6, 13:03)
+## New at installs #7 to #9 (October 6, 13:03, 17:22 and 22:13)
 
+At install #7:
 - **A secret printed JSON-escaped** (any of its characters escaped: serde's and Python's forms, `\/`, `\u`
   escapes, Rust's `{:?}`) is withheld before the model and the WAL (Item 204).
 - **The gate's layers held by turns**, and `theseus policy explain` names L3 where an edit's language server raised
@@ -264,6 +268,60 @@ As installed on the operator's daemon on October 6 at 13:03 (install #7; the sto
 - **In a voice call, an answer that repeats its question's words and a "yes" on a question's last word are turns
   again:** an echo must be a near-whole, in-order copy (Item 215).
 
+At install #8 (17:22), with the import of the operator's earlier history after it:
+
+- **In a voice call the next turn is told what was heard, cut and never said**, replies are shaped for speech (no
+  Markdown, table or code block is read aloud), and a failed voice turn says so aloud (Item 216).
+- **No person's name in the tree:** the owner is "the owner", or `zeroaltitude` where an account is meant, and the
+  assistant is Tabitha/Claude (Item 217).
+- **Pi, the benchmarks' fourth arm,** measured as the others are, and a report for every benchmark run under
+  [docs/benchmarks/](benchmarks/README.md), eighteen from the retrospective (Items 218 and
+  220).
+- **The session lists read live sessions by key** and never decode an imported record (Item 219).
+- **The judge's frames are written between turns,** and a clean stop writes every settled judgment before the store
+  closes; `bench turn --judge` measures the judge's cost on a turn's path (Item 221).
+
+At install #9 (22:13):
+
+- **A learned version's promotion says what stands in the moved one's place** and how to roll it back, and the learning
+  cut never runs ahead of the judgments it cuts (Item 222).
+- **In Discord, a background job's late result edits its one tool line** and its one notice card instead of posting
+  again, and the gateway and the bindings watch end at the daemon's stop (Items 223 and
+  224).
+- **More of a secret's encodings are withheld:** escaped twice as JSON, in YAML's and Python `repr`'s escapes, and as
+  base64 broken by escaped line breaks (Item 226). Five tests that failed under load are fixed at
+  their causes (Item 225).
+- **The recall benchmark refuses a daemon more than 50 tokens off its plan** (Item 227).
+- **A failed routed turn counts under the model it ran on** (Item 228), and a turn's own provider call is
+  reserved on the estimate's upper bound (Item 229).
+- **A voice call that joins but never hears** is noticed, rejoined once and told, and a voice turn that waits on you
+  says so (Item 230). A held reply decides at most 3 s after the last words over it, and a floor held by
+  a wordless sound frees at 8 s (Item 231).
+
+## Joined since, on install #10's list
+
+Install #10 waits for a verdict on a job-wrapper test that failed once in a gate (theseus-sdgl). It carries:
+- **Every credential mint and stored secret in AWS's catalog is held to a reviewed decision,** and 27 operations that
+  read as reads before now run as writes, with a notice (Item 232).
+- **Health counts the operator's own sessions apart** from the imported and erased ones ("sessions N · imported M ·
+  erased K"), in the CLI and the cockpit too (Item 233), and the benchmarks' Harbor arms are
+  comparable: medium effort on every arm, Claude Code pinned, a timed-out agent stopped before it is scored (Item
+  234).
+- **A running job's cancel settles in two synced frames instead of five**, its round trip in the gate about 30 ms at
+  the median where it was about 110 (Item 235), and a stopping daemon begins no retry or model call
+  (Item 236).
+- **route.v1 asks Jev in a request of its own**, on a connection kept warm, and says when its verdict came late (Item
+  237).
+- **The cockpit's phase 2, all four lanes:** the watch's sixth plate, "Since you last looked", over the daemon's
+  unsettled actions (Item 238); the Ship's words from one place, a console of the engine and
+  tokens a minute, the tour with what's new, a sea that is still when nothing happens, and sound, off by default (Item
+  239); every chart drawn by the chart method, each with a table view (Item
+  242); and the critique's repairs, among them Judgment without overlaps, and a daylight mode
+  (Item 243).
+- **Discord's bindings watch** acts on no half-written save, so a change binds within two periods (about 2 to 4 s),
+  and tries a failed bind again each tick (Item 240); the turn bench names each run's slowest frame
+  (Item 241).
+
 ## Built, and waiting to be turned on
 
 These are built, tested and installed, and off on the operator's daemon until he says, or until a live check:
@@ -273,27 +331,22 @@ These are built, tested and installed, and off on the operator's daemon until he
   no hand yet: its stack and image wait for the operator's go (theseus-ongv).
 - **The MCP server** on loopback (`[mcp_server]`, off by default).
 - **Memory's measured arms:** `+retention`, `+activation` and `+synthesis`, each off unless `[memory] arm` names it.
-- **The import of the operator's earlier history** (Item 201): built and installed; the
-  real import follows the session list's fix for imported sessions (theseus-7087, in review).
 
 ## Under way now
 
-- **In review or joining:** the session list's fix for imported sessions (theseus-7087), voice's heard-whole and
-  resumed replies, and the judgment sink's cost fix with its fix round; the real import of the operator's earlier
-  history follows the first.
-- **In the cloud:** the bench program's fourth arm, Pi, a minimal coding agent (the operator's yes of October 6,
-  11:47), and the tenth batch's eleven tasks: Discord's bound lanes, watch and tests, the daemon's stops, a faster
-  cancel, the flakes' causes, a learned version in shadow, the scrub's other encodings, a turn's reservation on
-  the upper bound, the core's gaps, and the bench's bounds.
-- **The v1 count.** v1 comes after at least seven days of the operator's daily use with no serious bug (a serious
-  one restarts the count), with every speed target met and each of B5's losses explained or fixed (his rule of
-  October 4, 22:09). The count began on October 5 at 16:48, when install #5 put the v1 build on his daemon: about
-  October 12, in the evening, at the earliest.
-- **The benchmark program's full runs** (the operator's go of October 5, 16:43): recall on Theseus first, then the
-  async families, then efficiency at full size, with B5's held-out rerun, on a quiet machine.
-- **With the operator:** the AWS live checks of the hands' stack and the runaway brake (theseus-ongv); whether a
-  trusted guild answers in every channel, unbound (theseus-yzhv); and the other items §2 of the spec lists as
-  still open.
+- **Install #10**, the list above, after the verdict on a job-wrapper test that failed once in a gate on October 7
+  (theseus-sdgl), which is being looked at.
+- **In the cloud or in review:** four more tasks of the tenth and eleventh batches: the daemon's stops, the judge sink's
+  speed, a walk over imported sessions, and the recall benchmark's fairness.
+- **The v1 week.** Feature complete (v1-beta) since October 6 at 22:04 (install #8 with the import, and voice's fix for
+  a deaf call); v1 comes after a week of the operator's daily use with no serious bug, every speed target met
+  (route.v1's wait, the last, joined on October 7), and each of B5's losses explained or fixed: B5's held-out rerun
+  waits for a quiet machine (theseus-7gir.22).
+- **The AWS tools as a tree**, decided on October 6 (the operator's answers T1 to T9): typed tools for the services that
+  cover 90% of the use, leaves declared and deferred, BM25 search and Jev's branches, to build (theseus-0nnk).
+- **With the operator:** a live voice call, to see a deaf call noticed for real (theseus-d93y); the AWS live checks of
+  the hands' stack and the runaway brake (theseus-ongv); whether a trusted guild answers in every channel, unbound
+  (theseus-yzhv); the question walk's open rows; and the other items §2 of the spec lists as still open.
 
 ## The roadmap
 
@@ -306,22 +359,46 @@ before it joins.
 | **A. Stage 1's remainder** | Fix batches from two reviews, the dogfood pilot, the complexity cuts, the reader rule | Done. Review 2 was accepted whole on October 1. Its spine items (C6, C2, and S2) are all in, with its security items (installed on October 2) and the lanes for robustness, security, performance, proof points, and the bench. What it deferred is in the v1.1 roadmap. |
 | **B. The operator's surfaces** | Live updates pushed instead of polled, `session.wait`, the CLI's client library, the first graph edge, a terminal UI, herdr | Done on October 1: the push, the client library, reach, the terminal UI, and herdr. |
 | **C. M4, boundaries** | The sandbox wired into `proc.run`, egress, credentials at launch, private and shared places, integrity, the ontology, the job host | Done for v1. L1, cancellation verified per backend, egress, credentials at launch, the place rule, integrity's light pieces and the sandbox's trims landed on October 2 and 3; the trusted guild and 18e on October 3's evening; the ontology wired in (21b) and its cockpit view (21c) on October 4. The job host (22b) moves after v1. |
-| **D. AWS** | The bound account, its stacks and budget, curated tools, the durability tender, restore from S3, hands on Lambda and Fargate | Built. The bound account (C1) and its stacks and writes (C2) by October 3; on October 4 the curated tools (C3), the durability tender (15), restore from S3 (16), and the hands (step 40, both parts, and their network), installed at 14:09; runaway mode at 20:00; fixes to the tender, restore and runaway mode on October 5, and the S3 backup on the operator's daemon from October 6 (install #6). The hands' stack and their live checks on the account wait for the operator. |
-| **E. M5, judgment** | Jev wired in: the loop's stopping point, the gate's safety call, roles, continuation, all in shadow and then under canary | Built, from October 4: the wire-in (23a), its surfaces (23b), the security check and its live notices (24), inbound class and role (25a), continuation (25b), the learning ledger (25c), replay (25d), routing (25e, live), the ladder (26a), the task arrangement (27), independent checks (28a), topics (28b), L3's proof (row 50) and the learning loop; on October 5 and 6, fixes to replay, the judgment log and the learning rules. Left: JUDGE_STOP for tasks under canary (26b) and the roles table under canary (26c). |
-| **F. M6, memory** | Recall in turns, the memory pass, retention and activation as measured arms, tiering, and books | Built, from October 4: recall in shadow (30a), then live in front of the model (30b), compaction (30c), the exam's arms (34b), the memory pass (31a), consolidation (31b), retention (32a), activation (32b), Jev's rerank, in shadow and then live (32c, 32d), tiering (33), and situations (35a), enforced from October 5; the importer for the operator's earlier history on October 6. Left: lessons (35b). |
-| **G. M7, surface** | MCP in turns, repeating schedules, many-server bindings, the task board, budget and policy views, self-proposed extensions, voice | Built, from October 3: repeating wakes (37a) and voice (rows 77 and 78); on October 4 and 5, MCP tools and prompts (36b, 36c), tasks that set wakes (37b), bindings' second format (38a), gliding (38b), the task record and board (39a, 39b), the MCP server (41b), budgets and policy (42a) and their tabs (42b), and self-proposed extensions (43a, 43b); on October 5 and 6, history pages, Discord's bindings read live, and voice's held barge-in and echoes. |
+| **D. AWS** | The bound account, its stacks and budget, curated tools, the durability tender, restore from S3, hands on Lambda and Fargate | Built. The bound account (C1) and its stacks and writes (C2) by October 3; on October 4 the curated tools (C3), the durability tender (15), restore from S3 (16), and the hands (step 40, both parts, and their network), installed at 14:09; runaway mode at 20:00; fixes to the tender, restore and runaway mode on October 5, and the S3 backup on the operator's daemon from October 6 (install #6); every credential mint held to a reviewed decision that night. The hands' stack and their live checks on the account wait for the operator, and the AWS tools' tree is decided, to build. |
+| **E. M5, judgment** | Jev wired in: the loop's stopping point, the gate's safety call, roles, continuation, all in shadow and then under canary | Built, from October 4: the wire-in (23a), its surfaces (23b), the security check and its live notices (24), inbound class and role (25a), continuation (25b), the learning ledger (25c), replay (25d), routing (25e, live), the ladder (26a), the task arrangement (27), independent checks (28a), topics (28b), L3's proof (row 50) and the learning loop; on October 5 and 6, fixes to replay, the judgment log and the learning rules, the judge's sink between turns and a learned version's promotion, and route.v1's own request to Jev. Left: JUDGE_STOP for tasks under canary (26b) and the roles table under canary (26c). |
+| **F. M6, memory** | Recall in turns, the memory pass, retention and activation as measured arms, tiering, and books | Built, from October 4: recall in shadow (30a), then live in front of the model (30b), compaction (30c), the exam's arms (34b), the memory pass (31a), consolidation (31b), retention (32a), activation (32b), Jev's rerank, in shadow and then live (32c, 32d), tiering (33), and situations (35a), enforced from October 5; the importer for the operator's earlier history on October 6, and the import itself that evening, with the lists and health that step over it. Left: lessons (35b). |
+| **G. M7, surface** | MCP in turns, repeating schedules, many-server bindings, the task board, budget and policy views, self-proposed extensions, voice | Built, from October 3: repeating wakes (37a) and voice (rows 77 and 78); on October 4 and 5, MCP tools and prompts (36b, 36c), tasks that set wakes (37b), bindings' second format (38a), gliding (38b), the task record and board (39a, 39b), the MCP server (41b), budgets and policy (42a) and their tabs (42b), and self-proposed extensions (43a, 43b); on October 5 and 6, history pages, Discord's bindings read live, and voice's held barge-in and echoes; on October 6 and 7, voice that is told what was heard and notices a deaf call, and the cockpit's rethink (its phase 2's four lanes). |
 
 **After v1:** [the v1.1 roadmap](design/roadmap-v1.1.md) plans the week that follows, about 60 agent-hours: the
 kernel's last frames, visibility, the operator's surfaces, cost accuracy, the codebase's shape, proof and the
 turn's edges, and Discord.
 
-**When.** v1 follows the operator's rule of October 4 (22:09): at least seven days of his daily use with no serious
-bug, every speed target met, and each of B5's losses explained or fixed. The count began on October 5 at 16:48
-(install #5), so about **October 12** at the earliest. The spine's last rows (26b, 26c and 35b) run beside it. This
+**When.** Theseus has been feature complete, v1-beta in the operator's terms of October 6 (13:35), since October 6
+at 22:04. v1 comes one week after it, under his rule of October 4 (22:09): seven days of his daily use with no
+serious bug, every speed target met, and each of B5's losses explained or fixed; so about **October 13** at the
+earliest. The spine's last rows (26b, 26c and 35b) run beside it. This
 pass did not re-estimate v1.1's date.
 
 ## Recently landed
 
+- **2026-10-06 to 07, night:** the eleventh cloud batch's stack for AWS, health and the bench: every credential mint and
+  stored secret in the AWS catalog held to a reviewed decision (Item 232), health's own sessions counted
+  apart from the imported (Item 233), and the Harbor arms made comparable (Item
+  234). A running job's cancel settles in two synced frames (Item 235); a stopping
+  daemon begins no retry (Item 236); route.v1 asks Jev in a request of its own, on a warm connection
+  (Item 237). The cockpit's phase 2, its four lanes: the watch with a sixth plate, "Since you last
+  looked" (Item 238), the Ship's words, console, tour, motion and sound (Item
+  239), the chart method on every page (Item 242), and the critique's
+  repairs with a daylight mode (Item 243). Discord's bindings watch (Item
+  240) and the turn bench's rows (Item 241). All on install #10's list.
+- **2026-10-06, evening:** a learned version's promotion and rollback named (Item 222). Discord's
+  bound lanes and their tests (Items 223 and 224). Five tests that failed under
+  load fixed at their causes (Item 225), and the scrub's other encodings (Item
+  226). The recall driver's bounds (Item 227). The core's gaps and a turn's
+  reservation on the upper bound (Items 228 and 229). Voice's deaf calls and held
+  replies (Items 230 and 231). All installed at 22:13 (install #9); v1-beta declared at
+  22:04.
+- **2026-10-06, afternoon:** voice told what was heard (Item 216). No person's name in the tree (Item
+  217). Pi as the benchmarks' fourth arm (Item 218). The session lists past imported sessions
+  (Item 219). A report for every benchmark run, eighteen from the retrospective, in
+  [docs/benchmarks/](benchmarks/README.md) (Item 220). The judge's sink between turns, with
+  `bench turn --judge` (Item 221). All installed at 17:22 (install #8), and the operator's earlier
+  history imported at 17:26.
 - **2026-10-06, late morning:** the tools stack: a JSON-escaped secret scrubbed (Item
   204), the gate's layers held by tests and L3 in `policy explain` (Item
   205), a decline that ends its batch's waits (Item 206).
@@ -489,8 +566,8 @@ pass did not re-estimate v1.1's date.
 - Linux only, by design (the operator, October 4): Theseus uses what the kernel offers. One daily user so far.
 - The terminal UI loads a session's newest 200 messages.
 - With no params, `session.list` and `execution.list` still read every record: about 140 to 180 ms at 10,000
-  sessions. The other polled reads page through the index. Imported sessions are read past one by one, so with
-  about 21,000 of them a whole list takes about half a second until theseus-7087 joins.
+  sessions. The other polled reads page through the index, and step over imported sessions by key (Item
+  219).
 - The AWS hands are built and installed, but wait for their stack and their live checks on the account; until a hand
   runs, the runaway brake has not been seen live (theseus-ongv).
 - A sandboxed command holds a granted secret for its whole run, and can't ask for one it didn't get at its start.
@@ -506,19 +583,23 @@ pass did not re-estimate v1.1's date.
 - Under WSL, health's free-space lines watch the virtual disk under the state directory, not the Windows drive that
   holds it, which fills first (theseus-83y0).
 - A `--stdio` daemon answers `shutdown` and keeps serving (theseus-yg1y); the socket daemon stops.
-- In a voice call, an echo that spans sentences, or is cut short by its own stop, is heard as words, so a call on
-  loudspeakers without echo cancellation can hear Theseus's own words as a turn (theseus-j2ut).
-- A learned loop version in shadow keeps a `loop.v1` canary from acting anywhere (theseus-nwa5).
 - An erase of imported history hides it: its text stays in the WAL, in backups and in the S3 copy until the spec's
   in-place redaction (§5.6) is built, and an erased episode cannot be imported again under any tag (Item
   201).
-- A secret escaped twice as JSON, in YAML's or `repr`'s escapes, or as base64 broken by escaped newlines inside a
-  JSON string is not yet withheld (theseus-nlvx and theseus-cjyt; Item 204).
-- In Discord, once a lane has passed its bound, a background job's late tool line can post twice (theseus-6809),
-  and a place added while the daemon runs whose session cannot open is not tried again (theseus-u6v6).
-- In a voice call, a transcript that never comes holds the reply up to the provider's 20 s bound, and a listed
-  speaker's steady sound holds the floor while it lasts (theseus-aq4t).
+- In Discord, on the installed build, a place added while the daemon runs whose session cannot open is not tried
+  again (theseus-u6v6; fixed by Item 240, on install #10's list).
 - Voice's speech prices are Deepgram's published rates, assumed until confirmed.
+- On the installed build, `aws.call` answers three newer credential mints (two of STS's, one of EKS's) with their values
+  instead of a handle (theseus-ye7o), and health's session count includes the imported sessions (theseus-revl); both are
+  fixed by joins on install #10's list (Items 232 and 233).
+- A deaf voice call is noticed and rejoined once, but the rule's live input, the clients' reports arriving, has not been
+  seen in a real call yet (theseus-d93y), and a listed speaker who arrives after the join is held to the call's clock,
+  not their own, until theseus-kcng.
+- The imported history's vectors embed in the background over days, so until then a search finds an imported episode by
+  its words, not its meaning.
+- At install #9 the old daemon took 11.87 s to stop, with nothing logged between (install #8's took 298 ms;
+  theseus-vjn7), and the old index tender had stopped answering its status socket for hours, which the restart cleared
+  (theseus-uazd).
 - Replay and audit runs each keep a spend cap of their own and do not draw on the judge's day budget, which the
   October 4 default asked for (Item 144).
 - On this machine a turn's harness overhead reads well over the README's 5 ms, mostly the disk's fsyncs under WSL,

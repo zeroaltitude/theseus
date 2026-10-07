@@ -255,7 +255,13 @@ to get whole-of-AWS reach:
   - Secrets Manager `GetSecretValue`;
   - SSM `GetParameter(s)` with decryption;
   - KMS `Decrypt` and `GenerateDataKey`;
-  - every STS credential mint;
+  - every STS credential mint; _(since 2026-10-06, batch 11's aws-mints; Part III Item 232: every credential mint the catalog's models
+    hold, 38 in all, the newer STS `GetDelegatedAccessToken` and `GetWebIdentityToken` and EKS Auth
+    `AssumeRoleForPodIdentity` among them (each a write, safe to repeat), and 36 stored or made secrets read back, each a
+    reviewed decision that an output-shape rule holds: a test over every operation's output shape fails until a
+    credential-shaped member is secret-bearing or on an allowed row with its reason. Twenty-four secrets AWS echoes in
+    descriptions stay readable as before, pending the owner's `WhenPresent` (theseus-qan5). The walk finds a member's
+    name in any case, and `PrivateKey` is one of its names, so ECR's token and Lightsail's SSH key come back as handles)_
   - ECR and CodeArtifact `GetAuthorizationToken`;
   - IAM `CreateAccessKey`;
   - SSO `GetRoleCredentials`.
@@ -878,6 +884,7 @@ invalid input and points to a stack. **★ marks the first slice (C1).** Slices 
 | the catalog | `aws.describe` | R | open | **★ C1** | local; no network |
 | STS | `aws.whoami` (`GetCallerIdentity`) | R | open | **★ C1** | the account, the session, the budget line |
 | STS | `AssumeRole` | W 🔑 | core only | C2 | minted by `AwsCreds`, never by the model |
+| STS, EKS Auth | `GetDelegatedAccessToken`, `GetWebIdentityToken`, `AssumeRoleForPodIdentity` | W 🔑 | by class | — | mints, whatever their names say, safe to repeat: the value is a handle _(since 2026-10-06, Part III Item 232; refusing the AWS session mints to the model is the owner's open question, theseus-a3s3)_ |
 | S3 | `aws.s3.list` (`ListBuckets`, `ListObjectsV2`, `HeadBucket`) | R | open | **★ C1** | the audit's #1 |
 | S3 | `aws.s3.get` (`GetObject`) | R | open | C3 | streamed to a file; external text when read as text |
 | S3 | `aws.s3.put` (`PutObject`, multipart) | W | notify | C3 | |

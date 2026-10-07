@@ -25,12 +25,13 @@ Key modules: `kernel.rs`, `tx.rs`, `locks.rs`, `job.rs`, `cgroup.rs`, `children.
   before the deadline. It looked every 20 ms before. A spooled completion is taken (`Kernel::take_completion_with`):
   the drain and the turn waiting on the job both read it, and the second finds it settled and writes nothing; a
   cancelled job's late completion too, once one taker has written its arrival (theseus-jnnj).
-- `tree.rs` (18a): a job's process tree, found through each task's `children` file, and stopped in three phases:
-  SIGTERM to every process, the grace (asleep on their pidfds, woken by each exit; theseus-dwoj), the freeze
-  (SIGSTOP, rescanning until nothing new appears and all read stopped), then SIGKILL and the reap, until each killed process's pidfd says it exited (up to `KILL_WAIT`, 2 s).
-  Each process is signalled through a pidfd checked against its start time. A `children` file can miss a live
-  child, so an empty scan ends a phase only when the caller's reap agrees (`tree::Left`: in a wrapper, a
-  subreaper, `waitpid`'s ECHILD means none is left; theseus-g11i). The stop wherever a job has no cgroup.
+- `tree.rs` (18a): a job's process tree, found through each task's `children` file, and stopped in three phases: SIGTERM
+  to every process, the grace (asleep on up to 64 of their pidfds, `WATCHED`, woken by each exit and closed before the
+  freeze; theseus-dwoj), the freeze (SIGSTOP, rescanning until nothing new appears and all read stopped), then SIGKILL
+  and the reap, until each killed process's pidfd says it exited (up to `KILL_WAIT`, 2 s). Each process is signalled
+  through a pidfd checked against its start time. A `children` file can miss a live child, so an empty scan ends a phase
+  only when the caller's reap agrees (`tree::Left`: in a wrapper, a subreaper, `waitpid`'s ECHILD means none is left;
+  theseus-g11i). The stop wherever a job has no cgroup.
 - `spawn.rs` (theseus-ypqg): an L0 command started by its wrapper with `clone3(CLONE_VM | CLONE_VFORK)`, as
   posix_spawn clones, so nothing is copied; the child sets the operator's umask, which std's `Command` could set only
   by `pre_exec`, a fork. With a cgroup, `CLONE_INTO_CGROUP`: born inside, since a move by `cgroup.procs` waits for an
@@ -61,7 +62,10 @@ Key modules: `kernel.rs`, `tx.rs`, `locks.rs`, `job.rs`, `cgroup.rs`, `children.
 - `outbox.rs`: posts that must reach a channel, as actions of their own record kind, `OUTBOX`.
 - `earlier.rs` (theseus-m9iy): an earlier process's in-process calls. Startup's reconcile notes each dispatched
   provider call (`Evidence::in_process`, by its tool) in memory and writes nothing; the driver's first tick after
-  serving (or the heartbeat) marks them all `outcome_unknown` in one frame, as `in_process_before_restart`.
+  serving (or the heartbeat) marks them all `outcome_unknown` in one frame, as `in_process_before_restart`, each
+  reservation booked as spent, never held (theseus-f3wr): `mark_unknown_as(.., book: true)`, the action's
+  `detail` and row `"cost_basis": "reservation"`. Every other `mark_unknown` holds. A resolution of either goes
+  through `earlier::resolve_in`, so a booked call is never counted twice.
 - `spool.rs` (completions on disk, one sync each: a start finishes a rename a crash cut short, and takes a
   completion its action settled already as a no-op, theseus-yxiv), `redact.rs` (granted secrets withheld from a
   job's output), `stops.rs` (the soft stop), `tasks.rs` (task executions and their carve), `wakes.rs`, `repeat.rs` (a repeating wake's series:
@@ -115,7 +119,8 @@ Key modules: `kernel.rs`, `tx.rs`, `locks.rs`, `job.rs`, `cgroup.rs`, `children.
   waiting with none queues it instead (`wakes::task_unparked`, in `cancel_wake` and `end_turn`), so its next turn
   finds nothing new, ends it, and it reports. A `/stop` still leaves a task waiting on input, as it leaves a
   conversation.
-- **An attempt that may have run is `OutcomeUnknown`**, never "not sent".
+- **An attempt that may have run is `OutcomeUnknown`**, never "not sent". Its money is held, unless its process is
+  gone (an earlier process's in-process call), when it is booked at its reservation (theseus-f3wr).
 - **Read by state, never every record** (theseus-lv2). The store's index keeps `terms.rs`'s terms for each
   execution and action (`s:<state>`, `due`, `x:<execution>`, …). A reader on a path that runs often (the start,
   the driver's tick, the reconcile, health, a stop) asks `executions_by` / `actions_by` for its terms; only the

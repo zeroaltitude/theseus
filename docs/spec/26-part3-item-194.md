@@ -893,7 +893,7 @@ more than one step.
   never drives it, and `turn.submit` refuses it before anything is touched (−32005, "… is an imported session: closed
   and read-only, it takes no turn"). **Private:** `TurnRunner::place_of` says `Private` for an imported id whatever
   place the episode names. `session.list` leaves imported sessions out, so an import does not push every real session
-  off the sidebar; `import.list` lists them by tag. Integrity `outside` makes the index mark the node external, so
+  off the sidebar; `import.list` lists them by tag. _(Since theseus-7087, Part III Item 219: the lists never read them: the whole list, `confirm.list`, `compilation.list` and the learning tender read the live sessions by key, and a page walks the births once, stepping over imported keys unread.)_ Integrity `outside` makes the index mark the node external, so
   recall drops it `untrusted` unless `[memory] include_external`; a recalled item's frozen header names the import, its
   author and integrity, its source, the place and tag, and the message's date. No owner's name is in the code.
 - **The import** (`import.episodes`; `theseus import openclaw <file>...`). Each line is checked: `format` 1, every field
@@ -948,7 +948,7 @@ more than one step.
   item's header. The A/Bs (the session's, and R24's two holds under load) found nothing. **At full scale:** a turn with
   recall 206.6 → 236.4 ms p50; **`session.list` slowed, the whole list p50 23.3 → 501.0 ms and a page of 20 19.7 →
   210.0 ms**, since both read past every imported session (**theseus-7087**, P2); a stop during the whole tag's erase
-  waited 13.78 s for it (**theseus-autz**, P3).
+  waited 13.78 s for it (**theseus-autz**, P3). _(theseus-7087 joined on 2026-10-06 at 5ac5c23c, Part III Item 219: at 21,151 imported, R32's debug A/B took the whole list from 600.9 to 16.0 ms p50 and a page of 20 from 160.8 to 23.2 ms, and the cloud's release build from 146.4 to 2.2 and 46.4 to 2.5 ms. After the real import, 21,779 episodes at install #8, the owner's lists read 4.0 ms (the whole list) and 4.8 ms (a page of 20) on the socket.)_
 
 **The join fix** (R24's `joinfix.py`, required): a place's name may be null, `place_name` naming such a place by its
 kind (two tests); a test that holds the explicit private-place rule
@@ -985,7 +985,7 @@ Health after the restart: `theseusd check` exit 0, 9 secrets ready 1.05 s after 
 origin with those fields in the body (`Origin` is `Copy`, stored in every node). An erased episode is not imported
 again. The index's `EXTRACTOR_VERSION` is not bumped (no store held such a node; a bump rebuilds every index).
 
-**Known gaps.** theseus-7087 (P2), before the real import or right after (the cockpit polls the whole list every 3 s);
+**Known gaps.** theseus-7087 (P2), before the real import or right after (the cockpit polls the whole list every 3 s); _(joined 2026-10-06 at 5ac5c23c, before the import: Part III Item 219)_
 theseus-autz (P3), stop-aware frames as theseus-1o8i made for other paced work. R24's "For the owner", each recommended:
 **an erase hides, it does not delete**: the payloads stay in the WAL, in backups and in what the durability tender
 shipped, until §5.6's in-place redaction is built, which must come before any erase must be final; **a `Recall` node

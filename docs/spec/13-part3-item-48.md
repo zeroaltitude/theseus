@@ -44,7 +44,7 @@ nothing held the code's shape (C1); and that the gate's own cost and its flaky t
   `kernel-sim` work is about 10 % slower. The daemon's own benches can't tell the two apart.
 - **glibc or static musl**, measured on one commit: musl uses 16 to 25 % less resident memory and stops, restarts,
   and swaps 20 to 40 % quicker, but its allocator costs allocation-heavy work 36 % more user CPU and 3 to 5 times
-  the system time. So the install stays glibc, which the gate and the live checks run (§3.18).
+  the system time. So the install stays glibc, which the gate and the live checks run (§3.18). _(The retrospective's report of these runs, 2026-10-06, Part III Item 220, reads them by pairs: release-thin's CPU cost is about 7 %, not 10 % from the least run; its rebuilds are 1.69 and 5.70 times faster; musl costs 28 to 67 % more CPU for 16 to 25 % less memory, and its lifecycle gain holds only for the swap.)_
 - **Gates**: nine green before the rebase, one per commit, and gate 12 on the rebased tip, 1,471 tests. **The join's
   gate** at 09:42:12: 1,471 of 1,471.
 
@@ -1032,7 +1032,7 @@ are one lane's, so they are one Item.
   call, and the hold's chain when it holds outside text. A task is a boat on a tether, under sail while it runs, and
   a gold run marks its report landing; a lantern waits on the operator, and a flare is a failure.
 - **The bridge** around it: brass gauges on real health (the compass, gate pressure, fuel, the engine telegraph, the
-  chronometer, and nixie tubes for tokens a minute).
+  chronometer, and nixie tubes for tokens a minute). _(Since 2026-10-07, Part III Item 239: the console keeps the engine and tokens a minute, with a sea gauge in words; the compass and the chronometer retired on the owner's C3 (the top bar's profile chip and UP hold their data, and the header's "then" their moment's), and the gate and fuel had gone into the watch.)_
 - **The restyle**: every view takes the brass-and-neon look through the shared tokens and components.
 - **Real data only**: every element maps to an existing read or push. three.js is drawn directly, with no React
   reconciler between the data and the GPU, and with a post-processing chain of the lane's own: the `postprocessing`
