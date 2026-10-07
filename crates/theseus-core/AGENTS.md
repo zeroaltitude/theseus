@@ -14,7 +14,9 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   stop read under the frame's lock, the wake nested so its failure takes back only itself. A failed turn's retry is
   the driver's (theseus-ljr); `[model.retries]` can make a transient
   failure's call again inside its turn instead (`turn/retry_step.rs`, none by default; the bench profile's, since a
-  headless run ends with its turn: theseus-7gir.21). A refused request goes once to its model's fallback, the catalog's
+  headless run ends with its turn: theseus-7gir.21). Once the stop has begun (`Outbox::stopping`), the driver begins
+  no continuation and a call about to be sent is settled failed unsent, as a refused connection, with no in-turn
+  retry, so the next start's driver retries it (`turn/stopping_step.rs`, theseus-jtrc). A refused request goes once to its model's fallback, the catalog's
   `refusal_fallback_model` (Sonnet 5.5's: Sonnet 5), and the rest of the turn runs there (`turn/fallback_step.rs`,
   theseus-7gir.18; `[model.retries] refusal`, on by default; the provider's own `refusal_fallbacks` wins where it rides
   the request, `compiler::server_fallbacks`). The compilation stays the profile model's: the requests name the fallback

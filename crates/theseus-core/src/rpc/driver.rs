@@ -501,6 +501,11 @@ impl Core {
         self: &Arc<Self>,
         execution_id: &str,
     ) -> Result<Option<theseus_protocol::TurnSubmitResult>> {
+        // A stopping daemon begins none (theseus-jtrc): the execution stays
+        // queued, and the next start's driver takes it.
+        if self.outbox.stopping() {
+            return Ok(None);
+        }
         let Some(e) = self.kernel.execution(execution_id)? else {
             return Ok(None);
         };

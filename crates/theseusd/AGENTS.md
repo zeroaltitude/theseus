@@ -110,5 +110,9 @@ Key modules: `main.rs`, `web.rs`, `install/`. Read by: (a binary).
   store open as the process ended (redb unclosed, the stop's last checkpoint lost, the whole run replayed). The
   runtime's drop now waits for its tasks in both modes. `THESEUS_TEST_HOLD_CORE_MS` (a debug build's plant) holds
   the core past a stop's start, for `tests/versions.rs`.
+- A wrapper's stop SIGTERMs every process it meets in its job's tree through the grace, one born after the first
+  signal too, so a test job's SIGTERM trap must not fork for what it records: `stops.rs`'s took its time with
+  `date`, which the wrapper's next look SIGTERMed, and left the file empty (theseus-y0lm). Take it in the shell
+  (bash's `$EPOCHREALTIME`), and ignore SIGTERM before anything the trap forks.
 - A start right after a stop waits up to 3 s for the store's lock. A check that reads the store's files waits for
   the old process to exit first.

@@ -153,7 +153,37 @@ fn a_first_byte_timeout_is_retried_inside_the_headless_turn() {
     let run = ask(dir.path(), "say hello");
     assert_eq!(run.code, 1, "{}\n{}", run.turn, run.stderr);
     assert!(run.stderr.contains("FirstByte"), "{}", run.stderr);
-    assert_eq!(model.requests().len(), 1, "no retry inside the turn");
+    assert_eq!(
+        model.requests().len(),
+        1,
+        "no retry inside the turn\n{}\n{}",
+        seen(&model),
+        run.stderr
+    );
+}
+
+/// Each request the stand-in saw (theseus-jtrc): its arrival after the
+/// first's, its connection (the client's port), and its body, for a count
+/// that came out wrong.
+fn seen(model: &FakeModel) -> String {
+    let arrivals = model.arrivals();
+    let first = arrivals.first().copied();
+    // The wall clock's time of each, to set beside the daemon's log.
+    let (now, wall) = (std::time::Instant::now(), std::time::SystemTime::now());
+    let lines = arrivals
+        .iter()
+        .zip(model.peers())
+        .zip(model.requests())
+        .enumerate()
+        .map(|(i, ((at, port), body))| {
+            let after = first.map_or(0, |f| at.duration_since(f).as_millis());
+            let unix = (wall - now.duration_since(*at))
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs_f64();
+            format!("request {i}: +{after} ms (unix {unix:.6}), port {port}: {body}")
+        });
+    lines.collect::<Vec<_>>().join("\n")
 }
 
 /// A request the model refuses is made once more on its fallback inside the

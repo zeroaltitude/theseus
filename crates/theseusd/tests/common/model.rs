@@ -28,6 +28,9 @@ pub type Calls = dyn Fn(&str) -> Vec<(&'static str, Value)> + Send + Sync;
 #[derive(Default)]
 struct Seen {
     requests: Mutex<Vec<(Instant, Value, Vec<u8>)>>,
+    /// Each request's connection, the client's port, in the same order
+    /// (theseus-jtrc): two requests on one port came on one connection.
+    peers: Mutex<Vec<u16>>,
     /// The statuses the next requests get, one each, in order; `u16::MAX`
     /// for every request from then on.
     fails: Mutex<VecDeque<u16>>,
@@ -82,6 +85,11 @@ impl FakeModel {
     pub fn arrivals(&self) -> Vec<Instant> {
         let r = self.seen.requests.lock().unwrap();
         r.iter().map(|(t, _, _)| *t).collect()
+    }
+
+    /// The client's port each request came from, in arrival order.
+    pub fn peers(&self) -> Vec<u16> {
+        self.seen.peers.lock().unwrap().clone()
     }
 
     /// Refuse the next requests, one per status, with the API's error body
@@ -158,10 +166,12 @@ fn answer(mut stream: TcpStream, calls: &Calls, seen: &Seen) -> std::io::Result<
     let mut body = vec![0; len];
     r.read_exact(&mut body)?;
     let req: Value = serde_json::from_slice(&body).unwrap_or(Value::Null);
-    seen.requests
-        .lock()
-        .unwrap()
-        .push((Instant::now(), req.clone(), body));
+    let port = stream.peer_addr().map_or(0, |a| a.port());
+    {
+        let mut kept = seen.requests.lock().unwrap();
+        kept.push((Instant::now(), req.clone(), body));
+        seen.peers.lock().unwrap().push(port);
+    }
     let refused = {
         let mut f = seen.fails.lock().unwrap();
         match f.front().copied() {
