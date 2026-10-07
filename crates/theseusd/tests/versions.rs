@@ -578,11 +578,16 @@ fn a_stdio_daemon_stops_on_the_shutdown_method() {
 /// used to give such a task 500 ms, then end the process with the store
 /// open: redb never closed, the stop's last checkpoint was lost with it, and
 /// the next start replayed the whole run. Now the end waits for it, and the
-/// next start replays nothing.
+/// next start replays nothing: a record written after the stop's last
+/// checkpoint (the second plant, as a writer the stop never waited for
+/// writes one) included, which the store's close checkpoints (theseus-fts6).
 #[test]
 fn a_stdio_daemons_stop_waits_for_a_task_that_holds_the_core() {
     let rig = Rig::new();
-    let (mut d, mut c) = rig.spawn_stdio_with(&[("THESEUS_TEST_HOLD_CORE_MS", "1500")]);
+    let (mut d, mut c) = rig.spawn_stdio_with(&[
+        ("THESEUS_TEST_HOLD_CORE_MS", "1500"),
+        ("THESEUS_TEST_LATE_WRITE", "1"),
+    ]);
     rig.stdio_settled(&mut c);
     let sent = std::process::Command::new("kill")
         .args(["-INT", &d.id().to_string()])

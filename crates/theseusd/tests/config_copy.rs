@@ -44,7 +44,12 @@ impl Rig {
         std::fs::create_dir_all(op.parent().unwrap()).unwrap();
         std::fs::write(
             &op,
-            fake_op(&r.path("note.toml"), &r.path("down"), &r.path("hold")),
+            fake_op(
+                &r.path("note.toml"),
+                &r.path("down"),
+                &r.path("hold"),
+                &r.path("hold-read"),
+            ),
         )
         .unwrap();
         use std::os::unix::fs::PermissionsExt;
@@ -200,12 +205,15 @@ impl Rig {
 
 /// The fake vault: `read` answers the note from its file, and `inject`
 /// gives every secret one value, each after `OP_MS`, and not while `hold`
-/// exists. While `down` exists it answers nothing.
-fn fake_op(note: &Path, down: &Path, hold: &Path) -> String {
+/// exists; `read` not while `hold_read` exists either, so the secrets
+/// resolve and the daemon settles while the note waits. While `down`
+/// exists it answers nothing.
+fn fake_op(note: &Path, down: &Path, hold: &Path, hold_read: &Path) -> String {
     format!(
         "#!/bin/sh\n\
          sleep {}\n\
          while [ -e '{}' ]; do sleep 0.01; done\n\
+         if [ \"$1\" = read ]; then while [ -e '{}' ]; do sleep 0.01; done; fi\n\
          if [ -e '{}' ]; then echo '[ERROR] 2026/09/29 12:00:00 network down' >&2; exit 1; fi\n\
          case \"$1\" in\n\
          \x20 read) cat '{}' ;;\n\
@@ -214,9 +222,32 @@ fn fake_op(note: &Path, down: &Path, hold: &Path) -> String {
          esac\n",
         OP_MS as f64 / 1000.0,
         hold.display(),
+        hold_read.display(),
         down.display(),
         note.display()
     )
+}
+
+/// Whether a daemon, asked through `ask`, has settled after serving: its
+/// history check has ended, and since its start the driver has started and
+/// the secrets have settled, so none of its start's work is left to write.
+fn settled(ask: &mut dyn FnMut(&str, Value) -> Option<Value>) -> bool {
+    let verified = ask("health", Value::Null).is_some_and(|h| {
+        h["startup"].as_array().is_some_and(|ps| {
+            ps.iter()
+                .any(|p| p["name"] == "store.verify" && !p["end_us"].is_null())
+        })
+    });
+    let Some(t) = ask("ledger.tail", json!({"n": 200})) else {
+        return false;
+    };
+    let rows = t["rows"].as_array().cloned().unwrap_or_default();
+    let started = rows
+        .iter()
+        .rposition(|r| r["kind"] == "server.started")
+        .unwrap_or(0);
+    let has = |k: &str| rows[started..].iter().any(|r| r["kind"] == k);
+    verified && has("driver.started") && (has("secrets.resolved") || has("secrets.failed"))
 }
 
 /// The template, made safe to serve here, with every secret on the fake vault.
@@ -498,6 +529,30 @@ impl Rig {
         (d, c)
     }
 
+    /// Until `settled` says so of `daemon`, asked through `ask`, at most
+    /// 40 s.
+    fn until_settled(
+        &self,
+        daemon: &mut Daemon,
+        ask: &mut dyn FnMut(&str, Value) -> Option<Value>,
+    ) {
+        let t0 = Instant::now();
+        while !settled(ask) {
+            if let Some(status) = daemon.try_wait() {
+                panic!(
+                    "theseusd exited ({status}) before it settled:\n{}",
+                    self.log()
+                );
+            }
+            assert!(
+                t0.elapsed() < Duration::from_secs(40),
+                "not settled in 40 s:\n{}",
+                self.log()
+            );
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    }
+
     /// Until the daemon's whole log holds `what` `n` times, at most 40 s.
     fn logged(&self, what: &str, n: usize) {
         let t0 = Instant::now();
@@ -550,25 +605,32 @@ fn relay_blocked_on_stdout(pid: u32) -> bool {
 /// stop's start (the debug build's plant, as a slow warm build can on a
 /// loaded machine) kept the store open into the exec under the runtime's
 /// 500 ms shutdown bound: redb never closed, the stop's last checkpoint was
-/// lost, and the next image replayed the run. Now the next image's open
-/// replays nothing and repairs nothing, on the socket and on `--stdio`.
+/// lost, and the next image replayed the run. A record written after the
+/// stop's last checkpoint (the second plant, as a writer the stop never
+/// waited for writes one) was replayed by the next image too; the store's
+/// close now checkpoints it (theseus-fts6). Now the next image's open
+/// replays nothing and repairs nothing, on the socket and on `--stdio`. The
+/// vault's note is held until the daemon has settled, so the restart never
+/// meets the start's own work, as it did on a loaded machine, 48 ms after
+/// serving.
 #[test]
 fn a_restart_in_place_closes_the_store_before_the_exec() {
     const HOLD: (&str, &str) = ("THESEUS_TEST_HOLD_CORE_MS", "1500");
+    const LATE: (&str, &str) = ("THESEUS_TEST_LATE_WRITE", "1");
     let r = Rig::new();
     r.restart_ahead(false);
+    std::fs::write(r.path("hold-read"), "").unwrap();
     let mut d = Daemon::spawn(
-        r.command()
-            .env(HOLD.0, HOLD.1)
-            .stdout(Stdio::null())
-            .stderr(
-                std::fs::OpenOptions::new()
-                    .create(true)
-                    .append(true)
-                    .open(r.path("theseusd.log"))
-                    .unwrap(),
-            ),
+        r.command().envs([HOLD, LATE]).stdout(Stdio::null()).stderr(
+            std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(r.path("theseusd.log"))
+                .unwrap(),
+        ),
     );
+    r.until_settled(&mut d, &mut |m, p| r.call(m, p).ok());
+    std::fs::remove_file(r.path("hold-read")).unwrap();
     let h = r.until(&mut d, "the restart", |h| {
         !h["config"]["restarted"].is_null()
     });
@@ -583,7 +645,10 @@ fn a_restart_in_place_closes_the_store_before_the_exec() {
 
     let r = Rig::new();
     r.restart_ahead(true);
-    let (mut d, mut c) = r.spawn_stdio(&[HOLD]);
+    std::fs::write(r.path("hold-read"), "").unwrap();
+    let (mut d, mut c) = r.spawn_stdio(&[HOLD, LATE]);
+    r.until_settled(&mut d, &mut |m, p| c.call(m, p).ok());
+    std::fs::remove_file(r.path("hold-read")).unwrap();
     r.logged("serving protocol on stdio", 2);
     let h = c.call("health", Value::Null).unwrap();
     assert!(!h["config"]["restarted"].is_null(), "{}", h["config"]);

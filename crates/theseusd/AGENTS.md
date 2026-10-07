@@ -68,8 +68,10 @@ Key modules: `main.rs`, `web.rs`, `install/`. Read by: (a binary).
   the vault first. After serving, the vault is read once, and a changed note restarts the daemon in place: an exec
   of `/proc/self/exe`, with the same pid.
 - **Every clean stop is one path**: the `shutdown` method, SIGINT, SIGTERM, and a restart onto a changed note. Each
-  writes `server.stopping` and checkpoints, so the next start replays nothing. The stop's answer is written before
-  the daemon stops.
+  writes `server.stopping` and checkpoints, so the next start replays nothing. The store's close takes the stop's
+  last checkpoint again, so a record a task the stop never waited for writes after it is not replayed either: the
+  driver's `driver.started` row did, when a stop came as the daemon began to serve (theseus-fts6). The stop's
+  answer is written before the daemon stops.
 - **A serving daemon is a child subreaper** (`children::adopt`): a job's orphans are its to adopt and reap.
   `job::DAEMON_VALUE_FLAGS` must match clap's options; a test here holds them together.
 - **One index tender per state dir**, and none outlives its daemon: it holds `<state>/index/LOCK`, exits when the
@@ -112,8 +114,12 @@ Key modules: `main.rs`, `web.rs`, `install/`. Read by: (a binary).
   up to 500 ms for the stdout thread as a stop does, so no line is cut at the exec (theseus-jo7f). The stdio arm
   registers the `shutdown` method's wake before serving, as `serve_socket` does: `notify_waiters` wakes only the
   waiters registered when it is called (theseus-yg1y). `THESEUS_TEST_HOLD_CORE_MS` (a debug build's plant, in both
-  modes) holds the core past a stop's start, for `tests/versions.rs` and `tests/config_copy.rs`. The tests' `--stdio`
-  client is `tests/common/stdio.rs`, each answer awaited with a bound.
+  modes) holds the core past a stop's start, for `tests/versions.rs` and `tests/config_copy.rs`, and
+  `THESEUS_TEST_LATE_WRITE` (another) writes one record after the stop's last checkpoint (theseus-fts6). The tests'
+  `--stdio` client is `tests/common/stdio.rs`, each answer awaited with a bound.
+- A stop or a restart that comes as the daemon begins to serve meets after_serving's startup work. A test that
+  checks what the next start replays holds the stop until the daemon has settled: `config_copy.rs` holds the fake
+  vault's read (`hold-read`) until `settled` (theseus-fts6).
 - A wrapper's stop SIGTERMs every process it meets in its job's tree through the grace, one born after the first
   signal too, so a test job's SIGTERM trap must not fork for what it records: `stops.rs`'s took its time with
   `date`, which the wrapper's next look SIGTERMed, and left the file empty (theseus-y0lm). Take it in the shell

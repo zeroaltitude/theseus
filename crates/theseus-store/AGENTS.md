@@ -107,7 +107,10 @@ Key modules: `wal.rs`, `index.rs`, `record.rs`, `store.rs` (`MANIFEST_FORMAT`). 
   mark, so no append's call pays it (theseus-avvb); an append that queues meanwhile waits for it, as it would
   wherever it ran. A stop's checkpoint (`checkpoint_for_close`) syncs nothing of
   its own: redb's close, a durable commit, makes it durable (theseus-02k). Only a durable checkpoint advances
-  `durable_to`, so a durable one after it is never skipped as free.
+  `durable_to`, so a durable one after it is never skipped as free. A store a stop checkpointed takes the stop's
+  last checkpoint again as it closes (`WalStore`'s drop, once the writer has answered every frame), free when
+  nothing came since: a frame a writer the stop never waited for appended after it is checkpointed, not replayed,
+  and no writer is left by then (theseus-fts6). A store no stop checkpointed takes none at its close.
 - **The terms and sums are a projection, whole only when marked** (theseus-lv2). An open with a `Projection`
   keeps each keyed record's terms (the kernel's: an execution's state, …) and numbers (the core's: a session's
   turns, tokens, and cost, added up per kind) with every append and replay. A checkpoint marks them whole under

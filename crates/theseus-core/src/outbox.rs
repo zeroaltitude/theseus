@@ -938,14 +938,36 @@ impl crate::Core {
         // checkpoint, where the next start would replay it (theseus-81kk).
         self.close_late_rows();
         // Made durable by redb's close, as the stop's own is (theseus-02k).
+        // A frame a writer the stop never waited for appends after it is
+        // checkpointed as the store closes (theseus-fts6).
         if let Err(e) = self.store.inner().checkpoint_for_close() {
             tracing::warn!(error = %format!("{e:#}"), "stopping: the last checkpoint failed; the next start replays the tail");
         }
         crate::startup::stop_phase("last checkpoint");
+        self.planted_late_write();
         // The board's thread ends now, not when the core drops: the
         // runtime's drop waits for it (theseus-hanu).
         self.push.stop();
         posts
+    }
+
+    /// A debug build's plant (theseus-fts6): with `THESEUS_TEST_LATE_WRITE`
+    /// set, one record written after the stop's last checkpoint, as a writer
+    /// the stop never waited for writes one (the driver's `driver.started`
+    /// row, when a stop comes as the daemon begins to serve). The store's
+    /// close checkpoints it, so the next start replays nothing: theseusd's
+    /// `tests/config_copy.rs` and `tests/versions.rs`.
+    fn planted_late_write(&self) {
+        #[cfg(debug_assertions)]
+        if std::env::var_os("THESEUS_TEST_LATE_WRITE").is_some() {
+            let at = theseus_protocol::now_unix_ms();
+            match self.store.put_meta("test.late_write", &at) {
+                Ok(()) => tracing::info!("stopping: the plant's record, after the last checkpoint"),
+                Err(e) => {
+                    tracing::warn!(error = %format!("{e:#}"), "stopping: the plant's record failed")
+                }
+            }
+        }
     }
 
     /// The judge's settled judgments, written before the stop's last

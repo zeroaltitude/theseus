@@ -1035,6 +1035,41 @@ fn a_checkpoint_for_close_is_made_durable_by_the_close() {
     assert_eq!(s.verified(), Some(mark));
 }
 
+/// theseus-fts6: a frame appended after a stop's checkpoint, as a writer
+/// the stop never waited for appends one (a task a stop right after serving
+/// meets), is checkpointed as the store closes, so the next open replays
+/// nothing. A store no stop checkpointed takes none at its close: its drop
+/// leaves the tail to the next open's replay, as a crash would.
+#[test]
+fn a_frame_after_a_stops_checkpoint_is_checkpointed_as_the_store_closes() {
+    let dir = tempfile::tempdir().unwrap();
+    let s = open(dir.path());
+    for i in 0..5u32 {
+        s.append(&[NewRecord::json(kinds::LEDGER, None, &i).unwrap()])
+            .unwrap();
+    }
+    assert_eq!(s.checkpoint_for_close().unwrap(), 5);
+    s.append(&[NewRecord::json(kinds::LEDGER, None, &"late").unwrap()])
+        .unwrap();
+    drop(s);
+    let s = open(dir.path());
+    let st = s.stats().unwrap();
+    assert_eq!(
+        (st.checkpoint, st.replayed_into_index, st.index_repaired),
+        (Some(6), 0, false),
+        "the late frame was checkpointed at the close"
+    );
+    s.append(&[NewRecord::json(kinds::LEDGER, None, &"unstopped").unwrap()])
+        .unwrap();
+    drop(s);
+    let st = open(dir.path()).stats().unwrap();
+    assert_eq!(
+        (st.checkpoint, st.replayed_into_index),
+        (Some(6), 1),
+        "no stop, no checkpoint at the close"
+    );
+}
+
 /// R4 (theseus-15g): one record in a corrupt frame no longer fails every
 /// list read that reaches it. Three executions, one in each of the first
 /// three frames, then the history check finds the first frame corrupt.
