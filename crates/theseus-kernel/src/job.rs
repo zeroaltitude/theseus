@@ -988,7 +988,10 @@ const STOP_POLL_MAX: Duration = Duration::from_millis(50);
 /// SIGTERM cost one grace, not N. It never sleeps: its owner waits between
 /// polls, a task on the runtime's timer (the daemon's cancel and stop) or a
 /// thread (`terminate`), so no runtime worker is held while a job takes its
-/// time.
+/// time. The owner sleeps on the asked wrappers' pidfds (`exits`), woken by
+/// the first to exit, its verdict written, or at the next deadline; `poll`'s
+/// own answer, a backoff, only while a job's end no exit tells
+/// (theseus-dwoj).
 ///
 /// **How a job is stopped (M4 18a).** A wrapper from 18a on catches SIGTERM
 /// (`catches_sigterm`): it gets SIGTERM alone, by `ask_to_stop`, stops its
@@ -1032,6 +1035,11 @@ struct Stopped {
     members: u32,
     /// Its verdict, once it is settled.
     verdict: Option<Verdict>,
+    /// Its wrapper's pidfd, once it was asked to stop its tree: opened while
+    /// its pid read as the job's wrapper, so it names that process and never
+    /// a later one given its pid (theseus-dwoj). Readable once it exits,
+    /// just after writing its verdict.
+    exit: Option<std::os::fd::OwnedFd>,
 }
 
 /// How a job was asked to stop.
@@ -1064,6 +1072,7 @@ impl Stopping {
                     killed: None,
                     members: 0,
                     verdict: None,
+                    exit: None,
                 })
                 .collect(),
             grace,
@@ -1098,8 +1107,13 @@ impl Stopping {
                     self.jobs[i].verdict = Some(v);
                 }
                 Holder::Wrapper if catches_sigterm(pid) => {
+                    // Opened before the check, the pidfd names the process
+                    // the check reads, or one that has since exited.
+                    let exit = crate::tree::open_pidfd(pid)
+                        .filter(|_| holder(pid, &self.jobs[i].job) == Holder::Wrapper);
                     ask_to_stop(pid, grace.saturating_sub(self.started.elapsed()));
                     self.jobs[i].asked = Some(Asked::Tree);
+                    self.jobs[i].exit = exit;
                 }
                 Holder::Wrapper | Holder::Gone => {
                     let j = &mut self.jobs[i];
@@ -1239,8 +1253,17 @@ impl Stopping {
         if self.all_gone() {
             return None;
         }
-        // The next deadline: the grace's end, the answer's, or a kill's wait.
-        let next = [
+        let next = self.next_deadline(now);
+        // Soon at first, since most jobs end at once; then less often.
+        self.polls += 1;
+        let step = Duration::from_millis(5 << self.polls.min(4)).min(STOP_POLL_MAX);
+        Some(step.min(next).max(Duration::from_millis(1)))
+    }
+
+    /// How long from `now` to the next deadline: the grace's end, the
+    /// answer's, or a kill's wait.
+    fn next_deadline(&self, now: Instant) -> Duration {
+        [
             Some(self.started + self.grace),
             Some(self.started + self.grace + ANSWER_WAIT),
             Some(self.started + self.grace + ANSWER_WAIT + KILL_WAIT),
@@ -1250,11 +1273,31 @@ impl Stopping {
         .flatten()
         .filter(|t| *t > now)
         .min()
-        .map_or(STOP_POLL_MAX, |t| t - now);
-        // Soon at first, since most jobs end at once; then less often.
-        self.polls += 1;
-        let step = Duration::from_millis(5 << self.polls.min(4)).min(STOP_POLL_MAX);
-        Some(step.min(next).max(Duration::from_millis(1)))
+        .map_or(STOP_POLL_MAX, |t| t - now)
+    }
+
+    /// What the owner may sleep on after a `poll` that left a job unsettled,
+    /// instead of `poll`'s step (theseus-dwoj): the pidfds of the wrappers
+    /// asked to stop their trees, each of which writes its verdict and then
+    /// exits, and the time to the next deadline, past which `poll` must
+    /// look whatever happened. `None` when an unsettled job has no such
+    /// pidfd (one still in its exec, or stopped by its group, whose end no
+    /// exit tells): then the owner waits `poll`'s step.
+    pub fn exits(&self) -> Option<(Vec<&std::os::fd::OwnedFd>, Duration)> {
+        let mut fds = Vec::new();
+        for j in self.jobs.iter().filter(|j| j.verdict.is_none()) {
+            match (&j.exit, j.asked) {
+                (Some(fd), Some(Asked::Tree)) => fds.push(fd),
+                _ => return None,
+            }
+        }
+        (!fds.is_empty()).then(|| {
+            (
+                fds,
+                self.next_deadline(Instant::now())
+                    .max(Duration::from_millis(1)),
+            )
+        })
     }
 
     /// Each job, and its verdict (uncertain while it has none).
@@ -1280,7 +1323,10 @@ impl Stopping {
 pub fn terminate(spool: &Spool, pid: u32, job: &str, grace: Duration) -> Verdict {
     let mut s = Stopping::start(spool, [(pid, job.to_string())], grace);
     while let Some(wait) = s.poll() {
-        std::thread::sleep(wait);
+        match s.exits() {
+            Some((fds, until)) => crate::tree::wait_any(fds.into_iter(), until),
+            None => std::thread::sleep(wait),
+        }
     }
     let v = s.verdicts().next().map(|(_, v)| v);
     v.expect("one job")
