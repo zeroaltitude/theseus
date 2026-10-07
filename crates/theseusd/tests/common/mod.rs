@@ -29,6 +29,11 @@ impl Daemon {
         )
     }
 
+    /// Its stderr, for a daemon spawned with it piped.
+    pub fn stderr(&mut self) -> std::process::ChildStderr {
+        self.0.stderr.take().expect("a piped stderr")
+    }
+
     /// The exit status, once it has exited (and is reaped).
     pub fn try_wait(&mut self) -> Option<ExitStatus> {
         self.0.try_wait().expect("waiting on theseusd")
