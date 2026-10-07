@@ -31,7 +31,9 @@ const WAIT_MAX_MS: u64 = 24 * 60 * 60 * 1000;
 
 /// Health's session totals (`Core::session_totals`).
 struct SessionTotals {
+    /// The owner's own sessions; an import's are `imported`'s (theseus-revl).
     sessions: u64,
+    imported: theseus_protocol::import::HealthImported,
     turns: u64,
     usage: Usage,
     cost_usd: f64,
@@ -51,6 +53,7 @@ impl Core {
             build: crate::build(),
             uptime_secs: self.started.elapsed().as_secs(),
             sessions: totals.sessions,
+            imported: totals.imported,
             turns: totals.turns,
             model: prof.as_ref().map(|p| p.model.clone()).unwrap_or_default(),
             profile,
@@ -132,8 +135,15 @@ impl Core {
             .flatten();
         if let (Some(t), Some(holding)) = (projected, holding) {
             let n = |i: usize| u64::try_from(t[i]).unwrap_or(u64::MAX);
+            // The keys hold every import's sessions, erased ones too; the
+            // tags' records (a few, never a session) say how many.
+            let (held, erased) = self.imported_counts();
             return SessionTotals {
-                sessions: n(0),
+                sessions: n(0).saturating_sub(held + erased),
+                imported: theseus_protocol::import::HealthImported {
+                    sessions: held,
+                    erased,
+                },
                 turns: n(1),
                 usage: Usage {
                     input_tokens: n(2),
@@ -146,7 +156,6 @@ impl Core {
                 holding: holding.iter().filter_map(|r| r.decode().ok()).collect(),
             };
         }
-        // Imported sessions included: the projection's count holds them.
         let sessions = self
             .store
             .list_sessions::<SessionRecord>()
@@ -155,8 +164,17 @@ impl Core {
         for s in &sessions {
             crate::turn::add_usage(&mut usage, &s.usage);
         }
+        let erased = sessions
+            .iter()
+            .filter(|s| s.imported.as_ref().is_some_and(|i| i.erased.is_some()))
+            .count() as u64;
+        let imported = sessions.iter().filter(|s| s.imported.is_some()).count() as u64;
         SessionTotals {
-            sessions: sessions.len() as u64,
+            sessions: sessions.len() as u64 - imported,
+            imported: theseus_protocol::import::HealthImported {
+                sessions: imported - erased,
+                erased,
+            },
             turns: sessions.iter().map(|s| s.turns).sum(),
             usage,
             cost_usd: sessions.iter().map(|s| s.cost_usd).sum(),
@@ -165,6 +183,18 @@ impl Core {
                 .filter(|s| s.external.is_some())
                 .collect(),
         }
+    }
+
+    /// The imported sessions the tags' counts say are held, and those erased
+    /// (theseus-revl): one META record a tag, so a health answer reads the
+    /// import's few records and never a session of it.
+    fn imported_counts(&self) -> (u64, u64) {
+        let tags = crate::import::write::list(&self.store)
+            .map(|l| l.tags)
+            .unwrap_or_default();
+        let total: u64 = tags.iter().map(|t| t.sessions).sum();
+        let erased: u64 = tags.iter().map(|t| t.erased).sum();
+        (total.saturating_sub(erased), erased)
     }
 
     /// `health`, with the index tender's block (roadmap row 51): a tender
