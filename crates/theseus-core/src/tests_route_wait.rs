@@ -182,7 +182,8 @@ async fn until(what: &str, cond: impl Fn() -> bool) {
 /// Step 2: the start path (`Core::build`, all of it before the socket
 /// serves) opens no connection to Jev; the after-serving warm-up opens two,
 /// paying the set-up then; and a first message's two requests ride them,
-/// so its verdict pays none: under a 1.5 s set-up, it waits far less.
+/// so its verdict pays none: under a 1.5 s set-up, it waits far less past
+/// its compile.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn jevs_connections_open_after_serving_and_a_first_message_pays_no_setup() {
     let jev = FakeJev::start().unwrap();
@@ -199,13 +200,12 @@ async fn jevs_connections_open_after_serving_and_a_first_message_pays_no_setup()
     until("the warm-up's answers", || r.core.runner.judge.jev_warm()).await;
     let opened = jev.opened();
     assert_eq!(opened, crate::judge::warm::CONNECTIONS);
-    let t0 = Instant::now();
+    // The wait past the compile, not the turn's wall time, which a starved
+    // debug build stretches whatever Jev does.
     let res = turn(&r.core, None, "Weigh two designs for the log.", None).await;
-    let took = t0.elapsed();
     assert_eq!(res.route.as_ref().unwrap().reason, "verdict");
     let d = &decided(&r.core.store)[0];
     assert!(d["wait_ms"].as_u64().unwrap() < 1000, "no set-up paid: {d}");
-    assert!(took < Duration::from_millis(1500), "{took:?}: {d}");
     until_calls(&jev, 2).await;
     assert_eq!(
         jev.opened(),
