@@ -36,6 +36,7 @@ export function tip(head: string | null, rows: TipRow[], foot?: string): HTMLEle
     )
   }
   root.append(grid)
-  if (foot) root.append(el('div', { color: c.muted, fontSize: '11px', marginTop: '3px' }, foot))
+  // A foot can be data with no spaces (a span's attributes as JSON): it wraps anywhere, so it never runs out of the box.
+  if (foot) root.append(el('div', { color: c.muted, fontSize: '11px', marginTop: '3px', maxWidth: '440px', overflowWrap: 'anywhere', whiteSpace: 'normal' }, foot))
   return root
 }

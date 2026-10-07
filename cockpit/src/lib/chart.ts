@@ -8,11 +8,13 @@ export type { EChartsOption }
 
 const C = CHROME.dark
 
-/** Transparent canvas, the sans in the ink, and the night-glass tooltip in its brass rim. Merged under every option. */
+/** Transparent canvas, the sans in the ink, and the night-glass tooltip in its brass rim, kept inside its chart: a panel
+ *  clips what overflows it, and a tip pushed past a narrow chart's edge was cut (the flame chart's, in the deck). Merged
+ *  under every option. */
 export const base: EChartsOption = {
   backgroundColor: 'transparent',
   textStyle: { fontFamily: FONTS.sans, color: C.secondary },
   animationDuration: 450,
   animationDurationUpdate: 350,
-  tooltip: { ...TIP_FRAME },
+  tooltip: { ...TIP_FRAME, confine: true },
 }
