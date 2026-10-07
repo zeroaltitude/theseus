@@ -28,7 +28,9 @@ Key modules: `lifecycle.rs`, `kernel_sim.rs`, `fake_discord.rs`, `discord_proof.
     `theseusd restore`'s own phases), and the push's seed. A cancel's round trip too (a real `proc.run` job cancelled
     through `execution.cancel`, its frames a cancel printed; theseus-nh1k, theseus-dwoj), and the restore phase runs
     before it, since a phase that writes into the rig runs after the rows that read it (theseus-ma8r). `--check` fails a
-    p95 over its budget plus the phase's margin (`lifecycle::margin_ms`, measured on the build machine).
+    p95 over its budget plus the phase's margin (`lifecycle::margin_ms`, measured on the build machine), and a run
+    whose fewest frames a cancel are over `lifecycle::CANCEL_FRAMES` (2; its most is printed, not judged, since under
+    load it picks up other work's frames; theseus-kq4n). The cancel's budget is 100 ms since cancel-fast.
   - `bench turn` (`src/perf.rs`, theseus-goa8): a plain turn and a tool-call turn on the stand-in model, each run N
     times on one warm session: wall time by the bench's clock and the daemon's, and **frames per turn**, counted from
     the daemon's WAL by `src/walcount.rs` (a read-only tail; the daemon reports no frame count, and the core is not
