@@ -345,6 +345,11 @@ These are built, tested and installed, and off on the operator's daemon until he
   a deaf call); v1 comes after a week of the operator's daily use with no serious bug, every speed target met
   (route.v1's wait, the last, joined on October 7), and each of B5's losses explained or fixed: B5's held-out rerun
   waits for a quiet machine (theseus-7gir.22).
+- **Claude Haiku 5.5 in the stable**, released October 7 (theseus-3okf), in review: its catalog row with the first
+  long-prompt price tier (every price 5x past a 100,000-token prompt, reserved and settled at the tier), route.v2 as
+  the acting route pack with a `quick` mode run as a one-turn detour, and the placements: acknowledgements and quick
+  questions on Haiku 5.5 at effort low for their turn alone, routine programming on Haiku 5.5 at effort high with
+  Sonnet 5.5 behind it, and Haiku 5.5 the template's recommended compaction and synthesis profile.
 - **The AWS tools as a tree**, decided on October 6 (the operator's answers T1 to T9): typed tools for the services that
   cover 90% of the use, leaves declared and deferred, BM25 search and Jev's branches, to build (theseus-0nnk).
 - **With the operator:** a live voice call, to see a deaf call noticed for real (theseus-d93y); the AWS live checks of

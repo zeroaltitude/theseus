@@ -791,6 +791,9 @@ pub async fn catalog(conn: &mut Conn, json: bool) -> Result<()> {
             "[catalog {} · prices are USD per million tokens]",
             l.version
         );
+        for line in render::catalog_tier_lines(&l) {
+            eprintln!("[{line}]");
+        }
         for line in render::catalog_config_lines(&l) {
             eprintln!("[{line}]");
         }

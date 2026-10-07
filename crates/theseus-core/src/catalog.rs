@@ -28,6 +28,13 @@
 //! `bytes_per_token` is how densely the model's tokenizer reads a request's
 //! JSON and its prose, for the compiler's estimate (theseus-f5hf): see
 //! [`TokenRates`].
+//!
+//! Haiku 5.5 (released 2026-10-07) comes from the pricing page and its model
+//! page, read on release day, and the Haiku lane's live probe (theseus-3okf):
+//! the Models API's entry (1M window, 128K out, adaptive thinking, effort),
+//! its token counts (the same as Sonnet 5.5's on prose, Rust and JSON), and its
+//! caching minimum (a 498-token prefix was not cached, a 542-token one was).
+//! It is the first model priced in tiers: see [`LongPrompt`].
 
 use std::collections::BTreeMap;
 
@@ -35,7 +42,7 @@ use serde::{Deserialize, Serialize};
 use theseus_kernel::{usd_to_micros, Micros, MICROS_PER_USD};
 use theseus_protocol::Usage;
 
-pub const BUILTIN_VERSION: &str = "2026-10-04.1";
+pub const BUILTIN_VERSION: &str = "2026-10-07.1";
 
 /// How a model takes (or refuses) the `thinking` request parameter.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -69,6 +76,10 @@ pub struct CatalogEntry {
     pub cache_write_per_mtok: f64,
     /// 1-hour cache writes (theseus-ev1): 2 × input on Anthropic's models.
     pub cache_write_1h_per_mtok: f64,
+    /// The prices above a prompt length, where the model has a second tier
+    /// (Haiku 5.5): see [`LongPrompt`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub long_prompt: Option<LongPrompt>,
     /// The provider reads repeated prefixes from its cache and reports it
     /// (the module's notes); without it a request carries no breakpoints.
     #[serde(default = "yes")]
@@ -105,6 +116,37 @@ pub struct CatalogEntry {
 
 fn yes() -> bool {
     true
+}
+
+/// A model's second price tier (theseus-3okf): a call whose prompt is longer
+/// than `above_tokens` pays these prices for every class of its tokens, its
+/// output included. Haiku 5.5's is 5 × its base above 100,000 tokens (the
+/// pricing page, 2026-10-07).
+///
+/// Which tokens count toward the threshold is not published. Theseus counts
+/// the whole prompt, the uncached input, the cache reads, and the cache
+/// writes, which is the reading that never under-charges; the owner's bill is
+/// what settles it.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct LongPrompt {
+    /// The tier applies to a prompt of more than this many tokens.
+    pub above_tokens: u64,
+    pub input_per_mtok: f64,
+    pub output_per_mtok: f64,
+    pub cache_read_per_mtok: f64,
+    pub cache_write_per_mtok: f64,
+    pub cache_write_1h_per_mtok: f64,
+}
+
+/// The five prices a call pays: the base row's, or its long tier's.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct Tier {
+    input: f64,
+    output: f64,
+    cache_read: f64,
+    cache_write: f64,
+    cache_write_1h: f64,
 }
 
 /// Bytes a model's tokenizer reads as one token, by what the bytes are
@@ -188,32 +230,66 @@ impl CatalogEntry {
         micros_of(&self.terms(u))
     }
 
-    /// Each token class of a usage with its price. The writes are split by
-    /// TTL: those of `cache_creation_1h_input_tokens` at the 1-hour price, the
-    /// rest at the 5-minute one (theseus-ev1).
+    /// The prices a call with a prompt of `prompt_tokens` pays: the long
+    /// tier's past its threshold, the row's own otherwise.
+    fn tier(&self, prompt_tokens: u64) -> Tier {
+        match self.long_prompt {
+            Some(l) if prompt_tokens > l.above_tokens => Tier {
+                input: l.input_per_mtok,
+                output: l.output_per_mtok,
+                cache_read: l.cache_read_per_mtok,
+                cache_write: l.cache_write_per_mtok,
+                cache_write_1h: l.cache_write_1h_per_mtok,
+            },
+            _ => Tier {
+                input: self.input_per_mtok,
+                output: self.output_per_mtok,
+                cache_read: self.cache_read_per_mtok,
+                cache_write: self.cache_write_per_mtok,
+                cache_write_1h: self.cache_write_1h_per_mtok,
+            },
+        }
+    }
+
+    /// Each token class of a usage with its price, at the tier its prompt
+    /// (input, cache reads and cache writes: [`LongPrompt`]) picks. The
+    /// writes are split by TTL: those of `cache_creation_1h_input_tokens` at
+    /// the 1-hour price, the rest at the 5-minute one (theseus-ev1).
     fn terms(&self, u: &Usage) -> [(u64, f64); 5] {
         let w1h = u
             .cache_creation_1h_input_tokens
             .min(u.cache_creation_input_tokens);
+        let prompt = u.input_tokens + u.cache_read_input_tokens + u.cache_creation_input_tokens;
+        let t = self.tier(prompt);
         [
-            (u.input_tokens, self.input_per_mtok),
-            (u.output_tokens, self.output_per_mtok),
-            (u.cache_read_input_tokens, self.cache_read_per_mtok),
-            (
-                u.cache_creation_input_tokens - w1h,
-                self.cache_write_per_mtok,
-            ),
-            (w1h, self.cache_write_1h_per_mtok),
+            (u.input_tokens, t.input),
+            (u.output_tokens, t.output),
+            (u.cache_read_input_tokens, t.cache_read),
+            (u.cache_creation_input_tokens - w1h, t.cache_write),
+            (w1h, t.cache_write_1h),
         ]
     }
 
     /// What a call reserves before it runs: its output cap at the output
-    /// price plus its input estimate at the input price.
+    /// price plus its input estimate at the input price, both at the tier
+    /// the estimate picks (an estimate past a long tier's threshold reserves
+    /// at the long prices).
     pub fn reserve_micros(&self, max_output_tokens: u32, input_estimate: u64) -> Micros {
+        let t = self.tier(input_estimate);
         micros_of(&[
-            (max_output_tokens as u64, self.output_per_mtok),
-            (input_estimate, self.input_per_mtok),
+            (max_output_tokens as u64, t.output),
+            (input_estimate, t.input),
         ])
+    }
+
+    /// The reservation's two parts, its output and its input, each at the
+    /// tier the input estimate picks (the turn's `model.calling` row).
+    pub fn reserve_parts(&self, max_output_tokens: u32, input_estimate: u64) -> (Micros, Micros) {
+        let t = self.tier(input_estimate);
+        (
+            micros_of(&[(max_output_tokens as u64, t.output)]),
+            micros_of(&[(input_estimate, t.input)]),
+        )
     }
 }
 
@@ -285,6 +361,10 @@ pub struct CatalogRow {
     /// Omitted on a new model: 2 × its input price, Anthropic's rule.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cache_write_1h_per_mtok: Option<f64>,
+    /// A second price tier, whole (`[catalog."<id>".long_prompt]`): it
+    /// replaces the built-in row's. Omitted: the built-in row's, or none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub long_prompt: Option<LongPrompt>,
     /// Omitted on a new model: true, so its requests carry breakpoints as
     /// every request did before the catalog said (theseus-ev1).
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -363,6 +443,7 @@ impl CatalogRow {
                     cache_read_per_mtok: 0.0,
                     cache_write_per_mtok: 0.0,
                     cache_write_1h_per_mtok: 2.0 * self.input_per_mtok.unwrap_or(0.0),
+                    long_prompt: None,
                     caches: true,
                     thinking: ThinkingMode::None,
                     effort: false,
@@ -388,6 +469,7 @@ impl CatalogRow {
             cache_write_1h_per_mtok: r
                 .cache_write_1h_per_mtok
                 .unwrap_or(entry.cache_write_1h_per_mtok),
+            long_prompt: r.long_prompt.or(entry.long_prompt),
             caches: r.caches.unwrap_or(entry.caches),
             thinking: r.thinking.unwrap_or(entry.thinking),
             effort: r.effort.unwrap_or(entry.effort),
@@ -429,6 +511,7 @@ fn claude(
         cache_read_per_mtok: cache_read,
         cache_write_per_mtok: cache_write,
         cache_write_1h_per_mtok: 2.0 * input,
+        long_prompt: None,
         caches: true,
         thinking,
         effort: thinking != ThinkingMode::Budget,
@@ -460,6 +543,7 @@ fn glm(
         cache_write_per_mtok: cache_write,
         // Z.ai reports no writes split by TTL, so any write is priced as one.
         cache_write_1h_per_mtok: cache_write,
+        long_prompt: None,
         caches: true,
         thinking: ThinkingMode::None,
         effort: false,
@@ -514,6 +598,28 @@ impl Catalog {
         e.insert(
             "claude-sonnet-5".into(),
             claude(m, 128_000, 2.0, 10.0, 0.20, 2.50, Adaptive, false, 1024),
+        );
+        // Haiku 5.5 (theseus-3okf): 5 × every price above a 100,000-token
+        // prompt. No server-side refusal fallback; a refusal goes to Sonnet 5,
+        // whose 1M window holds any request Haiku 5.5's does (Haiku 4.5's
+        // 200k would not). Its tokenizer is Sonnet 5.5's (the lane's probe:
+        // the same counts on 2 KB of prose, Rust and JSON).
+        e.insert(
+            "claude-haiku-5-5".into(),
+            CatalogEntry {
+                source: "Anthropic pricing page, Haiku 5.5 model page, and Models API, 2026-10-07"
+                    .into(),
+                refusal_fallback_model: Some("claude-sonnet-5".into()),
+                long_prompt: Some(LongPrompt {
+                    above_tokens: 100_000,
+                    input_per_mtok: 0.50,
+                    output_per_mtok: 2.50,
+                    cache_read_per_mtok: 0.05,
+                    cache_write_per_mtok: 0.625,
+                    cache_write_1h_per_mtok: 1.00,
+                }),
+                ..claude(m, 128_000, 0.10, 0.50, 0.01, 0.125, Adaptive, false, 512)
+            },
         );
         e.insert(
             "claude-haiku-4-5".into(),
@@ -751,6 +857,7 @@ mod tests {
             "claude-opus-5-5",
             "claude-opus-5",
             "claude-sonnet-5-5",
+            "claude-haiku-5-5",
         ] {
             assert_eq!(min(id), 512, "{id}");
         }
@@ -785,18 +892,25 @@ mod tests {
     }
 
     /// The client-side refusal fallback (theseus-7gir.18): the owner approved
-    /// Sonnet 5.5's alone, Sonnet 5, kept apart from the provider's own
-    /// (`refusal_fallbacks`), which Fable 5.1 and Opus 5 take; a config table
-    /// can name one for another model.
+    /// Sonnet 5.5's, Sonnet 5, kept apart from the provider's own
+    /// (`refusal_fallbacks`), which Fable 5.1 and Opus 5 take; Haiku 5.5's,
+    /// Sonnet 5 too (theseus-3okf); a config table can name one for another
+    /// model.
     #[test]
-    fn only_sonnet_5_5_names_a_client_side_fallback_and_a_table_can_name_one() {
+    fn sonnet_and_haiku_5_5_name_a_client_side_fallback_and_a_table_can_name_one() {
         let c = Catalog::builtin();
         let named: Vec<(&str, &str)> = c
             .entries
             .iter()
             .filter_map(|(id, e)| Some((id.as_str(), e.refusal_fallback_model.as_deref()?)))
             .collect();
-        assert_eq!(named, [("claude-sonnet-5-5", "claude-sonnet-5")]);
+        assert_eq!(
+            named,
+            [
+                ("claude-haiku-5-5", "claude-sonnet-5"),
+                ("claude-sonnet-5-5", "claude-sonnet-5")
+            ]
+        );
         assert!(!c.get("claude-sonnet-5-5").unwrap().refusal_fallbacks);
         let server: Vec<&str> = c
             .entries
@@ -1116,6 +1230,171 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// A fallback takes the refused request whole (`turn::fallback_step`), so
+    /// its window holds any request its model's does: Haiku 5.5's 1M would
+    /// not fit Haiku 4.5's 200k, so its fallback is Sonnet 5 (theseus-3okf).
+    #[test]
+    fn every_refusal_fallbacks_window_holds_its_models_requests() {
+        let c = Catalog::builtin();
+        for (id, e) in &c.entries {
+            let Some(to) = e.refusal_fallback_model.as_deref() else {
+                continue;
+            };
+            let f = c.get(to).unwrap();
+            assert!(
+                f.context_window >= e.context_window,
+                "{id}'s fallback {to} has a {} window against its {}",
+                f.context_window,
+                e.context_window
+            );
+            assert_eq!(f.provider, e.provider, "{id}");
+        }
+        assert!(c.get("claude-haiku-4-5").unwrap().context_window < 1_000_000);
+    }
+
+    /// Haiku 5.5's row (theseus-3okf): the pricing page's figures, the Models
+    /// API's window and cap, adaptive thinking with effort, and the probe's
+    /// tokenizer, which is Sonnet 5.5's.
+    #[test]
+    fn haiku_5_5_is_priced_as_published_and_reads_as_sonnet_5_5_does() {
+        let c = Catalog::builtin();
+        let h = c.get("claude-haiku-5-5").unwrap();
+        assert_eq!(
+            (h.context_window, h.max_output_tokens),
+            (1_000_000, 128_000)
+        );
+        assert_eq!(
+            (
+                h.input_per_mtok,
+                h.output_per_mtok,
+                h.cache_read_per_mtok,
+                h.cache_write_per_mtok,
+                h.cache_write_1h_per_mtok
+            ),
+            (0.10, 0.50, 0.01, 0.125, 0.20)
+        );
+        assert_eq!(h.thinking, ThinkingMode::Adaptive);
+        assert!(h.effort && h.vision && h.pdf && !h.refusal_fallbacks);
+        assert_eq!(h.bytes_per_token, TokenRates::CLAUDE);
+        assert_eq!(TokenRates::of("claude-haiku-5-5"), TokenRates::CLAUDE);
+        assert_eq!(image_tokens("claude-haiku-5-5", 1920, 1080), 2_691);
+        assert_eq!(c.version, "2026-10-07.1");
+        // Sonnet 5.5's cache read stays at the pricing table's 0.20 until a
+        // bill says otherwise (its docs disagree).
+        assert_eq!(
+            c.get("claude-sonnet-5-5").unwrap().cache_read_per_mtok,
+            0.20
+        );
+    }
+
+    /// The long tier (theseus-3okf): at 100,000 prompt tokens every class
+    /// costs the base price, and at 100,001 every class costs 5 ×, the
+    /// prompt counting the uncached input, the cache reads, and the cache
+    /// writes alike. A model without a tier never changes price.
+    #[test]
+    fn a_prompt_past_the_threshold_pays_the_long_tier_for_every_class() {
+        let h = Catalog::builtin().get("claude-haiku-5-5").unwrap().clone();
+        let at = |input, read, write| Usage {
+            input_tokens: input,
+            output_tokens: 1_000,
+            cache_read_input_tokens: read,
+            cache_creation_input_tokens: write,
+            ..Default::default()
+        };
+        // 100,000: 10,000 × 0.10 + 1,000 × 0.50 + 80,000 × 0.01 + 10,000 × 0.125
+        let base = at(10_000, 80_000, 10_000);
+        assert_eq!(h.cost_micros(&base), 1_000 + 500 + 800 + 1_250);
+        // One more token, of any class, and each is at the long price.
+        for over in [
+            at(10_001, 80_000, 10_000),
+            at(10_000, 80_001, 10_000),
+            at(10_000, 80_000, 10_001),
+        ] {
+            let long = 5_000 + 2_500 + 4_000 + 6_250;
+            let one_more = h.cost_micros(&over) - long;
+            assert!(one_more <= 1, "{over:?}: {}", h.cost_micros(&over));
+        }
+        // 1-hour writes take the long tier's 1-hour price.
+        let w1h = Usage {
+            cache_creation_input_tokens: 200_000,
+            cache_creation_1h_input_tokens: 200_000,
+            ..Default::default()
+        };
+        assert_eq!(h.cost_micros(&w1h), 200_000);
+        // A model with no tier: the same price per token at any length.
+        let s55 = Catalog::builtin().get("claude-sonnet-5-5").unwrap().clone();
+        let big = Usage {
+            input_tokens: 400_000,
+            ..Default::default()
+        };
+        assert_eq!(s55.cost_micros(&big), 800_000);
+    }
+
+    /// The reservation (theseus-3okf): an input estimate past the threshold
+    /// reserves its input and its output cap at the long prices, so a long
+    /// call is never under-reserved; at the threshold, the base prices. Its
+    /// two parts, as the turn's row shows them, add up to it.
+    #[test]
+    fn an_estimate_past_the_threshold_reserves_at_the_long_tier() {
+        let h = Catalog::builtin().get("claude-haiku-5-5").unwrap().clone();
+        // 8,000 out at $0.50 and 100,000 in at $0.10: 4,000 + 10,000.
+        assert_eq!(h.reserve_micros(8_000, 100_000), 14_000);
+        // 8,000 out at $2.50 and 100,001 in at $0.50: 20,000 + 50,000.5.
+        assert_eq!(h.reserve_micros(8_000, 100_001), 70_001);
+        assert_eq!(h.reserve_parts(8_000, 100_001), (20_000, 50_001));
+        assert_eq!(h.reserve_parts(8_000, 100_000), (4_000, 10_000));
+        assert_eq!(h.reserve_micros(8_000, 0), 4_000);
+    }
+
+    /// A config's `[catalog."<id>".long_prompt]` replaces the row's tier
+    /// whole, or gives a tier to a model that has none; a table naming no
+    /// tier keeps the row's.
+    #[test]
+    fn a_config_table_sets_or_keeps_the_long_tier() {
+        let tier = LongPrompt {
+            above_tokens: 200_000,
+            input_per_mtok: 4.0,
+            output_per_mtok: 15.0,
+            cache_read_per_mtok: 0.4,
+            cache_write_per_mtok: 5.0,
+            cache_write_1h_per_mtok: 8.0,
+        };
+        let o: BTreeMap<String, CatalogRow> = [
+            (
+                "claude-sonnet-5-5".to_string(),
+                CatalogRow {
+                    long_prompt: Some(tier),
+                    ..Default::default()
+                },
+            ),
+            (
+                "claude-haiku-5-5".to_string(),
+                CatalogRow {
+                    output_per_mtok: Some(0.6),
+                    ..Default::default()
+                },
+            ),
+        ]
+        .into();
+        let c = Catalog::with_overrides(&o);
+        assert_eq!(c.get("claude-sonnet-5-5").unwrap().long_prompt, Some(tier));
+        let h = c.get("claude-haiku-5-5").unwrap();
+        assert_eq!(h.long_prompt.unwrap().above_tokens, 100_000);
+        assert_eq!(h.output_per_mtok, 0.6);
+        let row: CatalogRow = toml::from_str(
+            "[long_prompt]\nabove_tokens = 200000\ninput_per_mtok = 4.0\noutput_per_mtok = 15.0\n\
+             cache_read_per_mtok = 0.4\ncache_write_per_mtok = 5.0\ncache_write_1h_per_mtok = 8.0\n",
+        )
+        .unwrap();
+        assert_eq!(row.long_prompt, Some(tier));
+        assert!(toml::from_str::<CatalogRow>("[long_prompt]\nabove_tokens = 1\n").is_err());
+        // The catalog's listing carries it; a row without one names none.
+        let listed = serde_json::to_value(Catalog::builtin().get("claude-haiku-5-5")).unwrap();
+        assert_eq!(listed["long_prompt"]["above_tokens"], 100_000);
+        let s5 = serde_json::to_value(Catalog::builtin().get("claude-sonnet-5")).unwrap();
+        assert!(s5.get("long_prompt").is_none());
     }
 
     /// Speech's prices are the code's (45b): nova-3 by the millisecond at

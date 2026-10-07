@@ -1,0 +1,51 @@
+# route.v2 (ROUTE): which interaction mode a person's new message needs, so
+# the core can run its turn on a model to match (theseus-3okf, 2026-10-07).
+# route.v1's question with a `quick` mode, for a quick question or small
+# request a short direct answer settles, which the core runs as a one-turn
+# detour as it does `trivial`, and sharper `chat` and `routine_coding`
+# wording: `chat` is conversation that builds on the work in progress, and
+# `routine_coding` includes small fixes whose cause is known. `quick` says
+# "where to find something", not "a lookup": the loader refuses a phrase that
+# asks Jev to look something up. The acting route pack since Claude Haiku
+# 5.5, live with route.v1's rollback rules; route.v1 stays embedded for its
+# history. At `inbound`, beside classify.v1 and role.v1: the same `inbound`
+# state. The core maps each mode to its ordered profiles
+# (`[routing.modes.<mode>]`); `other` is routed as `chat`.
+id = "route"
+version = 2
+jev_model = "jev-1.13.0"
+point = "inbound"
+state = "inbound"
+state_cap_tokens = 3000
+sample = 1.0
+baseline = "session_profile"
+action = "route"
+description = "ROUTE: the interaction mode a message needs (nothing, a quick answer, conversation, hard reasoning, hard programming, routine programming), which picks the model its turn runs on."
+
+[questions.mode]
+type = "choice"
+decides = true
+instructions = "What kind of work does the reply to the person's new message need?"
+act = 0.90
+confirm = 0.60
+no_match = "other"
+options = [
+  { id = "trivial", means = "It needs almost nothing: a thank-you, an acknowledgement such as ok or got it, a greeting, or a farewell." },
+  { id = "quick", means = "A quick question or small request that a short, direct answer settles: a fact, a definition, a yes or no, a summary of something just said, or where to find something, with no deep thought and no programming." },
+  { id = "chat", means = "Ongoing conversation that builds on the work in progress here: discussing it, explaining it, planning next steps, or giving an opinion, with no hard reasoning and no programming." },
+  { id = "sophisticated", means = "Hard reasoning that is not mainly programming: system design, weighing several approaches, research, analysis, or careful writing." },
+  { id = "deep_coding", means = "Hard or novel programming: designing or writing tricky code, or debugging a problem whose cause is unknown." },
+  { id = "routine_coding", means = "Programming that is long but well understood: repeated mechanical edits, renames across many places, small fixes whose cause is already known, or following a clear plan already agreed." },
+  { id = "other", means = "None of the kinds above fits." },
+]
+
+# A routed model that the operator overrides often, or a wait past its bar.
+[[rollback]]
+rule = "labels_per_day"
+label = "wrong model"
+count = 3
+
+[[rollback]]
+rule = "on_path_p95"
+max_ms = 250
+min_samples = 20

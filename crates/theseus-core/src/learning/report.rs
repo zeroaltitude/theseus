@@ -27,12 +27,19 @@ pub const BINS: usize = 10;
 /// minimum counts its deciding question alone.
 pub const ACTING: &[(&str, &str, &[&str])] = &[
     ("loop", "work_state", &["progressing"]),
-    // route.v1 (25e) acts on every mode whose profiles move the turn; `chat`
-    // and `other` run on the session's own, the baseline.
+    // The route pack (25e; route.v2's `quick`, theseus-3okf) acts on every
+    // mode whose profiles move the turn; `chat` and `other` run on the
+    // session's own, the baseline.
     (
         "route",
         "mode",
-        &["trivial", "sophisticated", "deep_coding", "routine_coding"],
+        &[
+            "trivial",
+            "quick",
+            "sophisticated",
+            "deep_coding",
+            "routine_coding",
+        ],
     ),
 ];
 

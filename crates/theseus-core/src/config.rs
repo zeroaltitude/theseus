@@ -1505,6 +1505,21 @@ impl Config {
                     );
                 }
             }
+            if let Some(l) = &row.long_prompt {
+                let prices = [
+                    l.input_per_mtok,
+                    l.output_per_mtok,
+                    l.cache_read_per_mtok,
+                    l.cache_write_per_mtok,
+                    l.cache_write_1h_per_mtok,
+                ];
+                if l.above_tokens == 0 || prices.iter().any(|p| !p.is_finite() || *p < 0.0) {
+                    anyhow::bail!(
+                        "catalog.\"{id}\".long_prompt needs above_tokens above zero and its five \
+                         prices in US dollars per million tokens, zero or more"
+                    );
+                }
+            }
             if let Err(missing) = row.over(builtin.get(id)) {
                 anyhow::bail!(
                     "catalog.\"{id}\" is not a built-in model, so its table needs {}",

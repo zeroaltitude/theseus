@@ -1,9 +1,10 @@
-//! `[routing]` (M5 step 25e): Jev's model per interaction mode. `route.v1`
-//! asks, at `inbound`, which mode a person's message needs, and the turn runs
-//! on that mode's first usable profile. It acts only while `[judge]` is on,
-//! and `mode = "shadow"` (or `[judge.packs."route.v1"] mode = "shadow"`)
-//! records the verdict and routes nothing. Every key has a default, so a
-//! sparse note holds only what differs.
+//! `[routing]` (M5 step 25e): Jev's model per interaction mode. The route
+//! pack (`route.v2` since theseus-3okf; `route.v1` before it) asks, at
+//! `inbound`, which mode a person's message needs, and the turn runs on that
+//! mode's first usable profile. It acts only while `[judge]` is on, and
+//! `mode = "shadow"` (or `[judge.packs."route.v2"] mode = "shadow"`) records
+//! the verdict and routes nothing. Every key has a default, so a sparse note
+//! holds only what differs.
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
@@ -27,7 +28,8 @@ pub struct RoutingConfig {
     /// How long the turn waits for the verdict after its first compile ends.
     #[serde(default = "max_wait_ms")]
     pub max_wait_ms: u64,
-    /// The exchanges a trivial detour's request carries before the message.
+    /// The exchanges a detour's request (`trivial`, `quick`) carries before
+    /// the message.
     #[serde(default = "trivial_context_turns")]
     pub trivial_context_turns: u32,
     /// A switch of the session's profile at a compile of this many estimated
@@ -52,13 +54,15 @@ pub enum RoutingMode {
     Shadow,
 }
 
-/// `[routing.modes.<mode>]`, one per mode `route.v1` answers (`other` is
-/// routed as `chat`).
+/// `[routing.modes.<mode>]`, one per mode the route pack answers (`other`
+/// is routed as `chat`; `quick` is route.v2's, theseus-3okf).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RoutingModes {
     #[serde(default = "trivial")]
     pub trivial: ModeProfiles,
+    #[serde(default = "quick")]
+    pub quick: ModeProfiles,
     #[serde(default)]
     pub chat: ModeProfiles,
     #[serde(default = "sophisticated")]
@@ -89,13 +93,26 @@ pub struct ModeProfiles {
 pub const TRIVIAL_CONFIDENCE: f64 = 0.4;
 
 /// The modes, in the pack's order.
-pub const MODES: [&str; 5] = [
+pub const MODES: [&str; 6] = [
     "trivial",
+    "quick",
     "chat",
     "sophisticated",
     "deep_coding",
     "routine_coding",
 ];
+
+/// The modes whose turn is a detour (theseus-3okf; `trivial` alone before
+/// it): that turn alone runs on the mode's profile, with the last
+/// `trivial_context_turns` exchanges, and the session stays where it was, its
+/// cache warm. A late verdict of one of them applies to no message
+/// (`routing::carries`). Every other mode switches the session.
+pub const DETOURS: [&str; 2] = ["trivial", "quick"];
+
+/// Whether `mode`'s turn is a detour ([`DETOURS`]).
+pub fn is_detour(mode: &str) -> bool {
+    DETOURS.contains(&mode)
+}
 
 fn yes() -> bool {
     true
@@ -121,8 +138,15 @@ fn list(names: &[&str]) -> ModeProfiles {
         switch_confidence: None,
     }
 }
+/// Haiku 5.5 first, then GLM-5.3 Flash, then the cheapest usable profile, so
+/// a config without either still detours as it did before (theseus-3okf).
 fn trivial() -> ModeProfiles {
-    list(&[CHEAPEST])
+    list(&["haiku", "glm", CHEAPEST])
+}
+/// Haiku 5.5 alone: a config without it runs a quick message on the
+/// session's own profile, as it did while `chat` held them.
+fn quick() -> ModeProfiles {
+    list(&["haiku"])
 }
 fn sophisticated() -> ModeProfiles {
     list(&["opus", "fable"])
@@ -130,14 +154,18 @@ fn sophisticated() -> ModeProfiles {
 fn deep_coding() -> ModeProfiles {
     list(&["opus", "sonnet"])
 }
+/// Haiku 5.5 at high effort, then Sonnet 5.5 (theseus-3okf): a config
+/// without `haikuhi` runs routine programming on `sonnet`, or the session's
+/// own.
 fn routine_coding() -> ModeProfiles {
-    list(&["glm53", "glm"])
+    list(&["haikuhi", "sonnet"])
 }
 
 impl Default for RoutingModes {
     fn default() -> Self {
         Self {
             trivial: trivial(),
+            quick: quick(),
             chat: ModeProfiles::default(),
             sophisticated: sophisticated(),
             deep_coding: deep_coding(),
@@ -151,6 +179,7 @@ impl RoutingModes {
     pub fn table(&self, mode: &str) -> &ModeProfiles {
         match mode {
             "trivial" => &self.trivial,
+            "quick" => &self.quick,
             "sophisticated" => &self.sophisticated,
             "deep_coding" => &self.deep_coding,
             "routine_coding" => &self.routine_coding,
@@ -184,8 +213,8 @@ impl RoutingConfig {
     }
 
     /// The checks as the config loads. A profile a mode names need not be
-    /// configured (the defaults name `opus`, `fable` and `glm53`, which a
-    /// sparse note may lack): one that is not is skipped as unusable.
+    /// configured (the defaults name `haiku`, `haikuhi`, `opus` and `fable`,
+    /// which a sparse note may lack): one that is not is skipped as unusable.
     pub fn validate(&self, profiles: impl Fn(&str) -> bool) -> Result<()> {
         let c = self.switch_confidence;
         if !(c > 0.0 && c <= 1.0) {
@@ -229,7 +258,7 @@ impl RoutingConfig {
         })
     }
 
-    /// What `route.v1` may do: the judge's mode for it, lowered by this
+    /// What the route pack may do: the judge's mode for it, lowered by this
     /// section (off when disabled, shadow when `mode = "shadow"`).
     pub fn pack_mode(&self, judge: PackMode) -> PackMode {
         if !self.enabled {
@@ -242,8 +271,8 @@ impl RoutingConfig {
     }
 }
 
-/// The template's `[routing]`, un-commented: its defaults, and its three
-/// profiles configured.
+/// The template's `[routing]`, un-commented: its defaults, and the
+/// profiles its modes name configured.
 #[cfg(test)]
 pub(crate) fn the_templates_routing_section(cfg: &crate::Config) {
     let r = &cfg.routing;
@@ -265,8 +294,16 @@ pub(crate) fn the_templates_routing_section(cfg: &crate::Config) {
         ("opus", "claude-opus-5-5"),
         ("fable", "claude-fable-5-1"),
         ("glm53", "glm-5.3"),
+        ("haiku", "claude-haiku-5-5"),
+        ("haikuhi", "claude-haiku-5-5"),
     ] {
         assert_eq!(cfg.all_profiles()[p].model, model, "[profiles.{p}]");
+    }
+    // Every profile a mode names is the template's, but `cheapest`.
+    for m in MODES {
+        for p in r.modes.of(m).iter().filter(|p| *p != CHEAPEST) {
+            assert!(cfg.all_profiles().contains_key(p), "{m}: {p}");
+        }
     }
 }
 
@@ -282,12 +319,13 @@ mod tests {
     fn the_defaults_are_the_steps_table() {
         let d = cfg("").unwrap();
         assert_eq!(d, RoutingConfig::default());
-        assert_eq!(d.modes.of("trivial"), ["cheapest"]);
+        assert_eq!(d.modes.of("trivial"), ["haiku", "glm", "cheapest"]);
+        assert_eq!(d.modes.of("quick"), ["haiku"]);
         assert!(d.modes.of("chat").is_empty());
         assert_eq!(d.modes.of("other"), d.modes.of("chat"));
         assert_eq!(d.modes.of("sophisticated"), ["opus", "fable"]);
         assert_eq!(d.modes.of("deep_coding"), ["opus", "sonnet"]);
-        assert_eq!(d.modes.of("routine_coding"), ["glm53", "glm"]);
+        assert_eq!(d.modes.of("routine_coding"), ["haikuhi", "sonnet"]);
         d.validate(|_| false).unwrap();
     }
 
@@ -335,6 +373,7 @@ mod tests {
         let d = cfg("").unwrap();
         assert_eq!(d.confidence_for("trivial"), 0.4);
         for m in [
+            "quick",
             "chat",
             "sophisticated",
             "deep_coding",
@@ -362,6 +401,25 @@ mod tests {
             !text.contains("modes.trivial.switch") && !text.contains("0.4"),
             "{text}"
         );
+    }
+
+    /// The detours (theseus-3okf): `trivial` and `quick`, each its own
+    /// message's; every other mode, `other` and an unknown one included,
+    /// switches. `quick` takes its own table.
+    #[test]
+    fn trivial_and_quick_are_the_detours() {
+        assert_eq!(
+            MODES.iter().filter(|m| is_detour(m)).collect::<Vec<_>>(),
+            [&"trivial", &"quick"]
+        );
+        for m in ["chat", "other", "sophisticated", "routine_coding", "poetry"] {
+            assert!(!is_detour(m), "{m}");
+        }
+        let c = cfg("[modes.quick]\nprofiles = [\"glm\"]\nswitch_confidence = 0.7").unwrap();
+        assert_eq!(c.modes.of("quick"), ["glm"]);
+        assert_eq!(c.confidence_for("quick"), 0.7);
+        assert_eq!(c.modes.of("trivial"), ["haiku", "glm", "cheapest"]);
+        c.validate(|_| false).unwrap();
     }
 
     #[test]

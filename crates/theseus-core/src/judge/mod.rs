@@ -74,7 +74,8 @@ use spend::{Reserve, ShadowBudget};
 /// The packs this build wires in, and the line each stands at on the
 /// ladder before a `pack.mode` row of its own (26a): every pack in shadow
 /// but the three the owner put live on 2026-10-04, which the ladder adopts
-/// as his promotions (`ladder::adopt`): `route.v1`, `rerank.v1`, and
+/// as his promotions (`ladder::adopt`): the route pack (`route.v1` then,
+/// `route.v2` since 2026-10-07, theseus-3okf), `rerank.v1`, and
 /// `security.v3` as notices while `[judge.packs."security.v3"] notices` is
 /// on ([`crate::config::JudgeConfig::mode_of`]).
 pub const WIRED: &[(&str, PackMode)] = &[

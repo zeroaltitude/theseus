@@ -77,7 +77,8 @@ const PENDING: u64 = u64::MAX;
 
 /// Why a detoured recall reached no request (theseus-n7nc).
 const DETOURED: &str =
-    "route.v1 judged the message trivial, and the detour's request carries no recall";
+    "the route pack judged the message a detour's (trivial or quick), and the detour's request \
+     carries no recall";
 
 impl TurnRunner {
     /// The first loop's recall. In front of the model, it is read now and

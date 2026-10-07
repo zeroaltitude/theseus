@@ -24,7 +24,11 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   cut one); the session's target stays. A `provider.fallback` row, and the result's `fallback`, whose `line` every
   surface shows. Tests: `tests_fallback.rs`.
 - **Context**: `compiler.rs` (manifests, recompiles, the cache layout, the token estimate), `context_files.rs`, and
-  `catalog.rs` (each model's window, prices, and caching).
+  `catalog.rs` (each model's window, prices, and caching). A model may have a second price tier, `LongPrompt`
+  (Haiku 5.5's: 5x past a 100,000-token prompt, theseus-3okf): `terms` prices a usage at the tier its prompt
+  (input, cache reads and writes) picks, `reserve_micros` and `reserve_parts` at the tier the input estimate picks;
+  price a usage only through them, never by reading a row's base prices. A refusal fallback's window holds its
+  model's (`every_refusal_fallbacks_window_holds_its_models_requests`).
   - **Files given to the model** (theseus-9g2, theseus-c9l6): `attach.rs` and `blobs.rs`. A message's files: text as
     text (`[tools] max_read_bytes`), an image as an image, and any other file kept whole in the store's blobs up to
     `[tools] max_attachment_bytes` (32 MiB), a `File`. A PDF is read once, when it arrives, in theseus-files' capped
@@ -401,17 +405,19 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     mark's `cut_ms` is where the next run cuts: the run's clock, never past the newest judgment it read, so a clock
     that read ahead closes no open window (theseus-gf8j); a mark without it walks everything once.
     Tests: `tests_learning.rs`, `learning::*::tests`.
-  - **Routing** (step 25e, theseus-0j2.11): `route.v1` asks at the inbound point in a request of its own, beside
+  - **Routing** (step 25e, theseus-0j2.11): the route pack (`judge::inbound::ROUTE_PACK`: `route.v2` since
+    theseus-3okf, live at once in place of `route.v1`, which stays embedded) asks at the inbound point in a request of its own, beside
     the batch of `classify.v1` and `role.v1` (theseus-ddbi: one question answers sooner than the batch), live while
     `[judge]` is on (`[routing]`, `config/routing.rs`, lowers it). Its verdict comes back over a oneshot
     (`RouteWait`, an `Answered` with the time it came) the moment its request answers, and the call waits for a
     permit rather than being shed. The turn waits for it beside its first compile, at most
     `max_wait_ms` after it (`turn/route_step.rs`, `beside`; a late verdict applies to the next message alone, and a
-    late `trivial` one to none: `routing::carries`, theseus-6n5j), and not at all while Jev is known unreachable
+    late detour's (`trivial`, `quick`) to none: `routing::carries`, theseus-6n5j), and not at all while Jev is known unreachable
     (`JudgeService::jev_unreachable`, reason `unreachable`, theseus-otny); `routing.rs` decides, purely, at the
     mode's own bar (`[routing.modes.<mode>] switch_confidence`, else trivial's 0.4, else the section's 0.6:
-    `RoutingConfig::confidence_for`): the mode's first usable profile under a place's cap, a `trivial` detour (that
-    turn alone, compiled outside the session's compilation, which it never writes), or a switch of the session's
+    `RoutingConfig::confidence_for`): the mode's first usable profile under a place's cap, a detour (the modes of
+    `config::routing::DETOURS`, `trivial` and `quick`: that turn alone, compiled outside the session's compilation,
+    which it never writes; never test a mode by name, ask `is_detour`), or a switch of the session's
     `routed` profile (stored: format 15), held above `cold_switch_tokens` until a second turn agrees. A turn whose
     profile the owner chose (`Target.chosen`; the pane's `carried` profile is none) is recorded in shadow. Only the
     compilation the call uses is persisted (`RouteState.defer_persist`), and only its `context.compiled` and
@@ -462,7 +468,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     counts is a `pack.event` row scoped `pack.event:<id>:<day>`, so a restart reads the day back; `learn::check_all`
     runs as each lands (`JudgeService::land`; `judge.label` lands a label's) and again after the nightly report; a
     rule from the adoption table (`adopt.rs`: `route.v1`, `rerank.v1`, `security.v3`, live before the ladder,
-    adopted once as the owner's) is a day's brake (`until` the next local midnight, folded away after it), any other
+    adopted once as the owner's, and `route.v2`, adopted with its own reason, theseus-3okf) is a day's brake (`until` the next local midnight, folded away after it), any other
     stands until a promotion. `rpc/packs.rs` is `pack.list`, `pack.promote` and `pack.rollback`
     (`judge_act(Act::Ladder)`; short of `promote::bar` the owner's row is `forced`, the system's refused); a
     `security.*` promotion is a card, its question planned on the ladder's own session (META `ladder.session`) and

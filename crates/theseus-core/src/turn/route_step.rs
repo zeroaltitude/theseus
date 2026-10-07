@@ -1,18 +1,18 @@
-//! The turn's routing step (M5 25e; `crate::routing`): `route.v1`'s verdict,
-//! asked at `inbound` beside `classify.v1` and `role.v1`, decides which
-//! profile the turn runs on.
+//! The turn's routing step (M5 25e; `crate::routing`): the route pack's
+//! verdict (`route.v2` since theseus-3okf), asked at `inbound` beside
+//! `classify.v1` and `role.v1`, decides which profile the turn runs on.
 //!
 //! - **Beside the first compile, never before it** ([`beside`]): the call
 //!   started at `inbound`, so the turn compiles on the session's profile,
 //!   then waits at most `[routing] max_wait_ms` more. A verdict later than
-//!   that applies to the next message alone, a trivial one to none
+//!   that applies to the next message alone, a detour's (trivial, quick) to none
 //!   (`routing::carries`, theseus-6n5j), and this turn says `late`. The
 //!   judge off, Jev's breaker open, a slash command, a continuation, a pinned
 //!   turn, or `route.v1` in shadow: no wait.
 //! - **A switch** rebuilds the spec and compiles again on the routed profile;
 //!   the first compile's compilation is persisted, and its `context.compiled`
 //!   and `loop.started` recorded, only when the call uses it (theseus-d13v).
-//! - **A detour** (`trivial`) compiles the persona and the last
+//! - **A detour** (`trivial`, `quick`) compiles the persona and the last
 //!   `trivial_context_turns` exchanges outside the session's compilation,
 //!   which it never writes; the session's profile, `last_target`, and
 //!   compilation stay as they were. Its loops record `loop.started` and no
@@ -439,8 +439,8 @@ impl TurnRunner {
     /// Every message takes the session's late verdict, and keeps it only when
     /// it was asked for `last_turn`, the session's turn just before this one:
     /// a late verdict applies to the next message alone, never to a later one.
-    /// A late trivial verdict applies to none: it was its own message's
-    /// (`routing::carries`, theseus-6n5j).
+    /// A late detour's verdict (trivial, quick) applies to none: it was its
+    /// own message's (`routing::carries`, theseus-6n5j).
     fn read_verdict(
         &self,
         t: &Turn<'_>,

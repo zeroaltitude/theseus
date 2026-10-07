@@ -47,7 +47,10 @@ pub const CLASSIFY_PACK: &str = "classify.v1";
 pub const ROLE_PACK: &str = "role.v1";
 /// ROUTE (25e), at `inbound`, in a request of its own beside the batch:
 /// live.
-pub const ROUTE_PACK: &str = "route.v1";
+/// The acting route pack: `route.v2` since theseus-3okf (2026-10-07), live
+/// at once with route.v1's rollback rules; `route.v1` stays embedded for its
+/// history, and the ladder never runs it again.
+pub const ROUTE_PACK: &str = "route.v2";
 /// The packs asked at `inbound`, in the order they are asked.
 pub const PACKS: [&str; 3] = [CLASSIFY_PACK, ROLE_PACK, ROUTE_PACK];
 

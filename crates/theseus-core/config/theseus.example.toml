@@ -110,7 +110,8 @@ max_loops = 40
 refusal_fallbacks = true
 
 # The profiles [routing] names by default (M5 25e): hard reasoning on Opus 5.5 or
-# Fable 5.1, routine programming on GLM-5.3 (text only: a turn with an image skips it).
+# Fable 5.1; acknowledgements and quick questions on Haiku 5.5 for their turn alone,
+# and routine programming on Haiku 5.5 at high effort (theseus-3okf).
 [profiles.opus]
 provider = "anthropic"
 model = "claude-opus-5-5"
@@ -126,6 +127,25 @@ max_loops = 40
 [profiles.glm53]
 provider = "zai"
 model = "glm-5.3"
+max_loops = 40
+
+# Claude Haiku 5.5: $0.10 in and $0.50 out per million tokens up to a 100,000-token
+# prompt, 5x above it (`theseus catalog` lists both). At its default effort it thinks
+# before a short answer (text began 3 to 4.5 s in, the lane's probe of 2026-10-07); at
+# "low" it began in 0.4 s and streamed about 165 tokens a second, faster than Sonnet 5.5.
+[profiles.haiku]
+provider = "anthropic"
+model = "claude-haiku-5-5"
+effort = "low"
+cache_ttl = "1h"
+max_loops = 40
+
+[profiles.haikuhi]
+provider = "anthropic"
+model = "claude-haiku-5-5"
+effort = "high"
+thinking_display = "summarized"
+cache_ttl = "1h"
 max_loops = 40
 
 # ---------------------------------------------------------------- context files
@@ -662,7 +682,9 @@ idle_unload_mins = 10.0                   # the model unloads after this long un
 # don't. A key of [profiles] sends it to that profile's provider, which may not be
 # the session's. "off" keeps the ring. A call that fails, or a summary that would
 # not fit, rings as before, and the row says why.
-# summary_profile = "session"             # "session", a key of [profiles], or "off"
+# summary_profile = "session"             # "session", a key of [profiles], or "off"; "haikuhi" (Haiku 5.5
+#                                         # at high effort, 1M window) is the recommended choice, which
+#                                         # sends the range to Anthropic whatever the session's provider
 # assembled_budget_tokens = 4000          # the recall section a task's first compile and a compaction carry (canary and live)
 # Consolidation (step 31b): off every turn, nodes recall admits together in
 # three or more turns become one short synthesis per cluster, every sentence
@@ -671,7 +693,9 @@ idle_unload_mins = 10.0                   # the model unloads after this long un
 # "session" (the default) writes it with the profile every source's session
 # last used, so no second provider reads a session's text; sources whose
 # sessions disagree wait. A key of [profiles] is the operator's choice.
-# synth_profile = "session"               # "session", or a key of [profiles]
+# synth_profile = "session"               # "session", or a key of [profiles]; "haikuhi" (Haiku 5.5 at
+#                                         # high effort) is the recommended choice: about 18x the clusters
+#                                         # of Sonnet 5.5 for the day's limit, each still checked by citation.v1
 # synth_limit_usd_per_day = 0.50          # what consolidation may spend in a local day, read from its rows
 # consolidate_hour = 4                    # the local hour of the nightly run (0 to 23); never within 10 minutes of a start
 # Tiering (step 33): decoded nodes stay in a cache shared across turns, so a
@@ -845,12 +869,12 @@ margin = 0.02                           # at the minimum sample, precision and r
 # tail_band = 0.5                       # the tail passing this share of the window, then each further quarter
 
 # ---------------------------------------------------------------- routing
-# Jev's model per interaction mode (M5 25e). While [judge] is on, route.v1 asks at each
-# message you send which mode it needs (in the same call as classify.v1 and role.v1), and
+# Jev's model per interaction mode (M5 25e). While [judge] is on, route.v2 asks at each
+# message you send which mode it needs (beside classify.v1 and role.v1), and
 # the turn runs on that mode's first usable profile: configured, its key settled, its
 # model priced, and able to read the turn's images; else the next; else the session's
 # own. "cheapest" is the usable profile cheapest for a short turn at catalog prices. A
-# trivial message is a detour: that turn alone runs on its profile, with the last
+# trivial or quick message is a detour: that turn alone runs on its profile, with the last
 # trivial_context_turns exchanges, and the session stays where it was. Any other mode
 # moves the session: at once under cold_switch_tokens of context, above it only when two
 # messages in a row agree (a switch leaves the cache cold). A turn whose profile, provider
@@ -860,25 +884,27 @@ margin = 0.02                           # at the minimum sample, precision and r
 enabled = true                          # acts only while [judge] is on
 mode = "live"                           # "shadow" records each verdict and routes nothing
 max_wait_ms = 200                       # the most the first call waits for the verdict after its compile
-trivial_context_turns = 2               # the exchanges a trivial detour carries
+trivial_context_turns = 2               # the exchanges a detour (trivial, quick) carries
 cold_switch_tokens = 30000              # at this much context, a switch waits for a second agreeing message
 switch_confidence = 0.6                 # a verdict routes only at this confidence or more
 # Each mode's profiles, in order: the first usable wins. Empty: the session's own. A
 # mode's switch_confidence is its own bar; unset, it is the one above, except trivial's,
 # 0.4: a wrong trivial call is cheap, since its detour carries a few exchanges for one turn.
 # A verdict that comes after the wait applies to the next message alone, and a trivial
-# one to none.
+# or quick one to none. A profile a mode names that this config lacks is passed over.
 # [routing.modes.trivial]
-# profiles = ["cheapest"]
+# profiles = ["haiku", "glm", "cheapest"]
 # switch_confidence = 0.4
-# [routing.modes.chat]
+# [routing.modes.quick]                 # a quick question a short, direct answer settles
+# profiles = ["haiku"]
+# [routing.modes.chat]                  # conversation building on the work: the session's own
 # profiles = []
 # [routing.modes.sophisticated]
 # profiles = ["opus", "fable"]
 # [routing.modes.deep_coding]
 # profiles = ["opus", "sonnet"]
 # [routing.modes.routine_coding]
-# profiles = ["glm53", "glm"]
+# profiles = ["haikuhi", "sonnet"]
 
 # ---------------------------------------------------------------- mcp
 # MCP servers (M7 36b): only a server named here is started or reached, and

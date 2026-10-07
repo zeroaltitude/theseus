@@ -27,16 +27,35 @@ pub const VIA: &str = "adoption";
 pub struct Adopted {
     /// The version adopted live.
     pub pack: &'static str,
+    /// The adoption row's reason.
+    pub why: &'static str,
 }
 
-/// The packs live before the ladder.
+/// The packs live before the ladder, and `route.v2`, which goes live at once
+/// in place of `route.v1` (theseus-3okf; the owner's standing rule of
+/// 2026-10-06, "we test it live, no more shadows"), its rollback rules
+/// guarding it.
 pub const ADOPTED: &[Adopted] = &[
-    Adopted { pack: "route.v1" },
-    Adopted { pack: "rerank.v1" },
+    Adopted {
+        pack: "route.v1",
+        why: WHY,
+    },
+    Adopted {
+        pack: "route.v2",
+        why: WHY_ROUTE_V2,
+    },
+    Adopted {
+        pack: "rerank.v1",
+        why: WHY,
+    },
     Adopted {
         pack: "security.v3",
+        why: WHY,
     },
 ];
+
+/// `route.v2`'s adoption row's reason.
+pub const WHY_ROUTE_V2: &str = "decision of 2026-10-07";
 
 /// The rules adoption gives a pack id (every version of it):
 /// - `route`: the owner pins another profile on 3 routed turns in a local
@@ -90,7 +109,7 @@ pub(crate) fn adopt_missing(ladder: &Ladder, l: &mut Loaded) {
             who: "owner".into(),
             by: "owner".into(),
             via: VIA.into(),
-            why: WHY.into(),
+            why: a.why.into(),
             ..PackModeRow::default()
         })
         .collect();

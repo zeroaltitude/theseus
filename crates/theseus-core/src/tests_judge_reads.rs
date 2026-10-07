@@ -44,7 +44,7 @@ fn judgments(core: &Core, n: usize, days: u64, now: u64) {
         "security.v1",
         "security.v3",
         "classify.v1",
-        "route.v1",
+        "route.v2",
     ];
     const SESSIONS: [&str; 3] = ["ses_heron", "ses_otter", "ses_wren"];
     let step = days * DAY / n as u64;
