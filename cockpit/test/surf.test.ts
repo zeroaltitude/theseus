@@ -136,13 +136,13 @@ function seaGains(ctx: FakeContext) {
   return { master, fade, duck, level }
 }
 
-test('it starts on the gesture: asked for before, nothing is made; the toggle’s click starts it, fading in', () => {
+test('it starts on the gesture: asked for before, nothing is made; the toggle’s click starts it, fading in', async () => {
   const a = new ShipAudio()
   const before = made.length
   a.surf(SEA_ROLL)
   assert.equal(made.length, before, 'no audio context before the gesture')
   assert.equal(a.surfing, null)
-  assert.equal(a.start(), true, 'the click starts the context')
+  assert.equal(await a.start(), true, 'the click starts the context')
   const ctx = made[made.length - 1]
   assert.equal(made.length, before + 1)
   assert.deepEqual(a.surfing?.height, SEA_ROLL, 'the sea asked for comes in with it')
@@ -156,20 +156,20 @@ test('it starts on the gesture: asked for before, nothing is made; the toggle’
   a.dispose()
 })
 
-test('after a reload the browser holds the context: nothing of the sea is made until the first click resumes it', () => {
+test('a context the browser holds: nothing of the sea is made on it, until a later click resumes it', async () => {
   FakeContext.held = true
   try {
     const a = new ShipAudio()
     a.surf(SEA_ROLL)
-    assert.equal(a.start(), false, 'made on the page’s load, held')
+    assert.equal(await a.start(), false, 'the browser refused')
     const ctx = made[made.length - 1]
     assert.equal(a.surfing, null, 'no sea on a held context')
-    // The page's height may come after the context is made (the cues' effect wakes it first): still nothing.
     a.surf(SEA_ROLL + 0.1)
     assert.equal(a.surfing, null, 'a height on a held context is only remembered')
     assert.equal(ctx.nodes.filter((n) => n.kind === 'buffer-source').length, 0, 'no source scheduled on it')
     FakeContext.held = false
-    assert.equal(a.start(), true, 'the first click resumes it')
+    assert.equal(await a.start(), true, 'the next click resumes it')
+    assert.equal(made[made.length - 1], ctx, 'the same context')
     assert.equal(a.surfing?.height, SEA_ROLL + 0.1, 'and the resume brings the sea in, at the last height asked')
     const { fade } = seaGains(ctx)
     assert.equal(fade.gain.valueAt(0), 0)
@@ -180,9 +180,9 @@ test('after a reload the browser holds the context: nothing of the sea is made u
   }
 })
 
-test('it follows the height on the audio thread: up with the sea’s rise, down with its settling', () => {
+test('it follows the height on the audio thread: up with the sea’s rise, down with its settling', async () => {
   const a = new ShipAudio()
-  a.start()
+  await a.start()
   const ctx = made[made.length - 1]
   a.surf(SEA_ROLL)
   const { level } = seaGains(ctx)
@@ -201,9 +201,9 @@ test('it follows the height on the audio thread: up with the sea’s rise, down 
   a.dispose()
 })
 
-test('sound off (or Calm) fades it out and stops it; on again, it comes back in', () => {
+test('sound off (or Calm) fades it out and stops it; on again, it comes back in', async () => {
   const a = new ShipAudio()
-  a.start()
+  await a.start()
   const ctx = made[made.length - 1]
   a.surf(SEA_ROLL)
   const { fade } = seaGains(ctx)
@@ -221,9 +221,9 @@ test('sound off (or Calm) fades it out and stops it; on again, it comes back in'
   a.dispose()
 })
 
-test('a cue ducks the sea: the bell and the horn stand clear over it, then it comes back', () => {
+test('a cue ducks the sea: the bell and the horn stand clear over it, then it comes back', async () => {
   const a = new ShipAudio()
-  a.start()
+  await a.start()
   const ctx = made[made.length - 1]
   a.surf(surfHeight({ ...idle, tpm: 15_000, turns: 1 }))
   const { duck } = seaGains(ctx)
@@ -239,7 +239,7 @@ test('a cue ducks the sea: the bell and the horn stand clear over it, then it co
   }
   // No sea, no duck: a cue alone still plays.
   const b = new ShipAudio()
-  b.start()
+  await b.start()
   b.play('bell')
   assert.equal(b.surfing, null)
   a.dispose()

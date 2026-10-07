@@ -380,8 +380,8 @@ function ShipView({ data, onFail }: { data: ShipData; onFail: OnFail }) {
         {vessel && <BrassButton title="Back to the selected session" onClick={() => engine?.flyToVessel(sel)}><Crosshair size={13} /> Ship</BrassButton>}
         <BrassButton className="ship-sound" on={sound.on} onClick={sound.toggle}
           title={sound.on
-            ? `Sound on${sound.playing ? '' : ' (it starts with your next click on the page)'}: the sea, softly, rising a little with the work (silent in Calm); an oar going out splashes (on the Ship), something waiting for you rings the ship’s bell and a failure sounds a low horn, on every page. Click to turn it off.`
-            : 'Sound is off. Turn it on for the sea, soft waves that follow the work (silent in Calm), and three quiet cues: an oar going out (a splash, on the Ship), and on every page something waiting for you (the ship’s bell, heard from another window) and a failure (a low horn).'}>
+            ? 'Sound on: the sea, softly, rising a little with the work (silent in Calm); an oar going out splashes (on the Ship), something waiting for you rings the ship’s bell and a failure sounds a low horn, on every page. Click to turn it off (it is off again whenever the page opens).'
+            : 'Sound is off (as it is whenever the page opens). Turn it on for the sea, soft waves that follow the work (silent in Calm), and three quiet cues: an oar going out (a splash, on the Ship), and on every page something waiting for you (the ship’s bell, heard from another window) and a failure (a low horn).'}>
           {sound.on ? <Volume2 size={13} /> : <VolumeX size={13} />} Sound
         </BrassButton>
         <BrassButton title={calm ? 'Calm: no motion or glow. Click for the full hologram.' : 'Calm mode stills the sea and drops the motion, the glow, and the particles'} on={calm} onClick={() => setCalm(!calm)}>

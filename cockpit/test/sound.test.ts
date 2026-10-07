@@ -3,15 +3,16 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
-import { CUES, cueHere, cueOf, cueOfRow, newEar, SPACING, soundOn } from '../src/ship/sound.ts'
+import { CUES, cueHere, cueOf, cueOfRow, newEar, SPACING } from '../src/ship/sound.ts'
 
 const view = (sid: string, state: string, level: string, previous?: string) =>
   ({ session_id: sid, state, attention: { level, label: '', since_ms: 0 }, ...(previous ? { previous } : {}) })
 
-test('off by default: only the operator turns it on', () => {
-  assert.equal(soundOn(null), false)
-  assert.equal(soundOn('off'), false)
-  assert.equal(soundOn('on'), true)
+test('off on every page load, whatever an earlier page did: only the Sound button turns it on (the owner, 2026-10-07)', () => {
+  const hook = readFileSync(new URL('../src/ship/useShipSound.ts', import.meta.url), 'utf8')
+  assert.match(hook, /const useSound = create<\{ on: boolean \}>\(\(\) => \(\{ on: false \}\)\)/, 'the toggle starts off')
+  assert.ok(!/localStorage|sessionStorage/.test(hook), 'nothing is kept in the browser, or read back from it')
+  assert.ok(!readFileSync(new URL('../src/ship/sound.ts', import.meta.url), 'utf8').includes('cockpit.ship.sound'), 'the old key is gone')
 })
 
 test('an oar going out splashes, and a burst of them rows a few strokes, not one each', () => {
@@ -110,8 +111,7 @@ test('the bell and the horn play on every page, the oar on the Ship; the Shell h
   assert.ok(!ship.includes('useSoundCues'), 'the Ship does not hear the cues itself')
   assert.match(ship, /const sound = useShipSound\(\)/)
   const hook = readFileSync(new URL('../src/ship/useShipSound.ts', import.meta.url), 'utf8')
-  // Still off until the operator turns it on: the one toggle is the browser's kept choice, and nothing listens while off.
-  assert.match(hook, /on: typeof localStorage !== 'undefined' && soundOn\(localStorage\.getItem\(SOUND_KEY\)\)/)
+  // Off until the operator turns it on, and nothing listens while off.
   assert.match(hook, /useEffect\(\(\) => \{\s+if \(!on\) return/)
   assert.match(hook, /const cue = cueHere\(heard, here\.current\)/)
 })

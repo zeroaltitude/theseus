@@ -104,7 +104,3 @@ export function cueHere(cue: Cue | null, onShip: boolean): Cue | null {
   if (!cue) return null
   return onShip || CUES.find((c) => c.cue === cue)?.pages === 'every page' ? cue : null
 }
-
-/** Where the browser keeps the toggle: off unless the operator turned it on. */
-export const SOUND_KEY = 'cockpit.ship.sound'
-export const soundOn = (kept: string | null) => kept === 'on'

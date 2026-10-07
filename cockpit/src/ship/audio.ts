@@ -10,9 +10,10 @@
 //
 //   the sea (theseus-pl0x): the ambient waves while sound is on, at the sea's height (`surf.ts`), ducked under a cue
 //
-// Browsers start audio only from a gesture: `start` is called from the click that turns sound on (and, after a reload,
-// from the first click on the page). The sea waits for it: `surf` asks for a height, and nothing of the sea is made
-// until the context runs.
+// Browsers start audio only from a gesture: the one place a context is made or resumed is the Sound button's click
+// (`turnOn`), and sound is off on every page load (the owner's call, 2026-10-07), so the page never asks for audio
+// before a click. The click's bell and the sea wait for the browser's answer: `surf` asks for a height, and nothing of
+// the sea is made until the context runs.
 import type { Cue } from './sound'
 import {
   DUCK, DUCK_ATTACK_S, DUCK_RELEASE_S, fadeTo, NOISE_S, pinkNoise, SURF_BACKWASH_S, SURF_BODY_HZ, SURF_FADE_IN_S,
@@ -71,24 +72,34 @@ export class ShipAudio {
     for (let i = 0; i < n; i++) { seed = (seed * 1664525 + 1013904223) >>> 0; d[i] = seed / 2147483648 - 1 }
   }
 
-  /** Make (or resume) the audio context: from a gesture, as browsers ask. Whether it runs. */
-  start(): boolean {
+  /** Make (or resume) the audio context: only from a gesture, as browsers ask. Whether it runs, once the browser has
+   *  answered: the sea comes in then, never on a context the browser holds. */
+  start(): Promise<boolean> {
     try {
       if (!this.live) {
         const C = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
-        if (!C) return false
-        const live = (this.live = new C())
-        this.attach(live)
-        // The sea comes in once the context runs: now, from the gesture, or (made on a page's load, before any click)
-        // from the first click's resume. Nothing of it is made or scheduled on a context the browser holds.
-        live.onstatechange = () => { if (this.live === live && live.state === 'running' && !this.surfNow) this.surfAt(this.surfWant, live.currentTime) }
-        if (live.state === 'running') this.surfAt(this.surfWant, live.currentTime)
+        if (!C) return Promise.resolve(false)
+        this.attach((this.live = new C()))
       }
-      if (this.live.state === 'suspended') void this.live.resume()
-      return this.live.state === 'running'
+      const live = this.live
+      const runs = () => {
+        if (this.live !== live || live.state !== 'running') return false
+        if (!this.surfNow) this.surfAt(this.surfWant, live.currentTime)
+        return true
+      }
+      return live.state === 'running' ? Promise.resolve(runs()) : live.resume().then(runs, () => false)
     } catch {
-      return false
+      return Promise.resolve(false)
     }
+  }
+
+  /** The Sound button's click turning sound on: start (this click is the gesture), and once the browser lets it run,
+   *  ring the bell once, softly, so the operator hears it work, as the sea fades in under it. `still`: sound is still
+   *  on when the browser answers (a second click may have turned it off). Whether it runs. */
+  async turnOn(still: () => boolean): Promise<boolean> {
+    const runs = await this.start()
+    if (runs && still()) this.play('bell')
+    return runs
   }
 
   play(cue: Cue) {

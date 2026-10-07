@@ -89,7 +89,10 @@ export const made: FakeContext[] = []
 export class FakeContext {
   /** Whether the browser holds audio (no gesture yet): a context starts suspended, and `resume` does nothing. */
   static held = false
-  state: 'suspended' | 'running' | 'closed' = FakeContext.held ? 'suspended' : 'running'
+  /** Whether the browser answers `resume` late: a context starts suspended, and each `resume`'s answer waits here
+   *  until a test lets it go (a browser's resume can take longer than any fixed wait). */
+  static slow: (() => void)[] | null = null
+  state: 'suspended' | 'running' | 'closed' = FakeContext.held || FakeContext.slow ? 'suspended' : 'running'
   onstatechange: (() => void) | null = null
   currentTime = 0
   sampleRate = 48_000
@@ -97,7 +100,10 @@ export class FakeContext {
   destination: FakeNode
   constructor() { made.push(this); this.destination = new FakeNode(this, 'destination') }
   resume() {
-    if (!FakeContext.held && this.state === 'suspended') { this.state = 'running'; this.onstatechange?.() }
+    const answer = () => { if (!FakeContext.held && this.state === 'suspended') { this.state = 'running'; this.onstatechange?.() } }
+    const slow = FakeContext.slow
+    if (slow) return new Promise<void>((done) => slow.push(() => { answer(); done() }))
+    answer()
     return Promise.resolve()
   }
   close() { this.state = 'closed'; return Promise.resolve() }

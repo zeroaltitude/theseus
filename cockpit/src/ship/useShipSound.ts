@@ -1,5 +1,6 @@
-// The Ship's sound, on the page (theseus-hnof.2, the owner's C4): the toggle, kept in the browser and off by default,
-// and, while it is on, the daemon's pushes heard through the cue table (`sound.ts`) and played (`audio.ts`). The cues
+// The Ship's sound, on the page (theseus-hnof.2, the owner's C4): the toggle, off on every page load (the owner's call,
+// 2026-10-07: the browser lets audio start only from a click, so a remembered "on" could only wait for one; nothing is
+// kept in the browser), and, while it is on, the daemon's pushes heard through the cue table (`sound.ts`) and played (`audio.ts`). The cues
 // play on every page (the owner's F9, theseus-7zph): the Shell mounts `useSoundCues` once, and the Ship's Sound button
 // reads and sets the one toggle through `useShipSound`. The oar splashes only while the Ship is shown (`cueHere`).
 // While sound is on, the sea is heard too, on every page (theseus-pl0x, `surf.ts`): its height from the work now, read
@@ -13,43 +14,34 @@ import { onNewRows, useLedgerHistory } from '@/lib/history'
 import { client, useRpc } from '@/lib/rpc'
 import { ShipAudio } from './audio'
 import { tpmOf } from './sea.ts'
-import { cueHere, cueOf, cueOfRow, newEar, SOUND_KEY, soundOn, type Cue } from './sound'
+import { cueHere, cueOf, cueOfRow, newEar, type Cue } from './sound'
 import { surfHeight } from './surf.ts'
 
 export interface ShipSound {
   on: boolean
-  /** On, and the browser lets it play (after a reload it waits for the first click on the page). */
-  playing: boolean
   toggle: () => void
 }
 
-/** The page's one audio context, made on the first cue or the first toggle. */
+/** The page's one audio, its context made only by the Sound button's click. */
 let audio: ShipAudio | null = null
 const theAudio = () => (audio ??= new ShipAudio())
 
-/** The one toggle, kept in the browser, and whether the browser lets it play. */
-const useSound = create<{ on: boolean; playing: boolean }>(() => ({
-  on: typeof localStorage !== 'undefined' && soundOn(localStorage.getItem(SOUND_KEY)),
-  playing: false,
-}))
+/** The one toggle: off on every page load, whatever an earlier page did. */
+const useSound = create<{ on: boolean }>(() => ({ on: false }))
 
 /** The Sound button's state and its toggle. */
 export function useShipSound(): ShipSound {
   const on = useSound((s) => s.on)
-  const playing = useSound((s) => s.playing)
   const toggle = () => {
     const next = !useSound.getState().on
-    localStorage.setItem(SOUND_KEY, next ? 'on' : 'off')
     useSound.setState({ on: next })
-    if (next) {
-      // This click is the gesture the browser asks for: start, and ring once, softly, so the operator hears it work.
-      // The sea comes in under the bell (`useSurf`, at once: its effect runs as this click's render lands).
-      const a = theAudio()
-      a.start()
-      setTimeout(() => { if (a.running) a.play('bell') }, 60)
-    }
+    if (!next) return
+    // This click is the gesture the browser asks for, and the only place sound starts: the context is made or resumed
+    // here, and when the browser lets it run the bell rings once and the sea fades in (`turnOn`). Should it refuse, the
+    // button goes back to off rather than show a sound that isn't playing.
+    void theAudio().turnOn(() => useSound.getState().on).then((runs) => { if (!runs) useSound.setState({ on: false }) })
   }
-  return { on, playing: on && playing, toggle }
+  return { on, toggle }
 }
 
 /** The cues, heard on every page while sound is on: mounted once, in the Shell. `onShip`: the Ship is the page shown. */
@@ -60,16 +52,9 @@ export function useSoundCues(onShip: boolean) {
   useEffect(() => { here.current = onShip }, [onShip])
   useEffect(() => {
     if (!on) return
+    // The context is the Sound button's to start (`useShipSound`): a cue plays only once it runs.
     const a = theAudio()
     const ear = newEar()
-    const wake = () => {
-      a.start()
-      // The context resumes a moment after the gesture.
-      setTimeout(() => useSound.setState({ playing: a.running }), 50)
-    }
-    wake()
-    document.addEventListener('pointerdown', wake, true)
-    document.addEventListener('keydown', wake, true)
     const sound = (heard: Cue | null) => {
       const cue = cueHere(heard, here.current)
       if (!cue) return
@@ -85,8 +70,6 @@ export function useSoundCues(onShip: boolean) {
     return () => {
       off()
       offRows()
-      document.removeEventListener('pointerdown', wake, true)
-      document.removeEventListener('keydown', wake, true)
     }
   }, [on])
 }
