@@ -394,6 +394,25 @@ fn count_read() {
     READ_HERE.with(|n| n.set(n.get() + 1));
 }
 
+thread_local! {
+    /// The index rows this thread has visited in the key walks (theseus-26jo).
+    static ROWS_HERE: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
+/// The index rows this thread has visited since it started, in any store's
+/// key walks (theseus-26jo): each row a walk of the key table or the births
+/// yields, and each lookup of one key, counted on the thread that visited
+/// it. A test reads it before and after a call that makes no `.await`, as
+/// it reads `records_read_here`, to know what a list costs in the index
+/// beside the records it reads.
+pub fn index_rows_here() -> u64 {
+    ROWS_HERE.with(std::cell::Cell::get)
+}
+
+pub(crate) fn count_rows(rows: u64) {
+    ROWS_HERE.with(|n| n.set(n.get() + rows));
+}
+
 /// Run `f`, which waits (for the disk, or for a lock held across it),
 /// without holding a runtime worker (theseus-vni9). On a worker of a
 /// multi-thread tokio runtime, `block_in_place` first hands the worker's

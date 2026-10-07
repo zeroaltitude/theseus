@@ -131,3 +131,31 @@ fn newest_keys_where_steps_over_a_skipped_run_in_one_walk() {
         assert!(pages >= 19usize.div_ceil(n), "{n}: {pages} pages");
     }
 }
+
+/// What `index_rows_here` counts (theseus-26jo): each row a key walk or the
+/// births walk yields, and each lookup of one key.
+#[test]
+fn the_index_rows_a_walk_visits_are_counted_on_its_thread() {
+    let dir = tempfile::tempdir().unwrap();
+    let s = store_with_runs(dir.path());
+    let rows = |f: &dyn Fn()| {
+        let before = index_rows_here();
+        f();
+        index_rows_here() - before
+    };
+    // 19 live keys and 600 skipped ones.
+    assert_eq!(
+        rows(&|| drop(s.latest_of_kind(kinds::SESSION).unwrap())),
+        619
+    );
+    assert_eq!(
+        rows(&|| drop(s.latest_by_key(kinds::SESSION, "ses_0001").unwrap())),
+        1
+    );
+    // The newest page of 3: the 7 newest births are live, so it visits 3
+    // birth rows, looks up 3 keys, and meets the fourth row to say more.
+    assert_eq!(
+        rows(&|| drop(s.newest_keys(kinds::SESSION, None, 3).unwrap())),
+        7
+    );
+}

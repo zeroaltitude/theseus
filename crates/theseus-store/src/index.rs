@@ -39,6 +39,7 @@ use redb::{Database, Durability, ReadableDatabase, ReadableTable, TableDefinitio
 use serde::{Deserialize, Serialize};
 
 use crate::record::RecordKind;
+use crate::store::count_rows;
 pub use crate::wal::RecordLocation as Location;
 
 /// The engine a store's manifest and the config's `store_engine` name. redb is
@@ -664,6 +665,7 @@ impl RedbIndex {
         for row in t.range(lo.as_slice()..)? {
             let (k, v) = row?;
             let kb = k.value();
+            count_rows(1);
             if !kb.starts_with(&lo) {
                 break;
             }
@@ -712,6 +714,7 @@ impl RedbIndex {
     pub fn latest_position(&self, kind: RecordKind, key: &str) -> Result<Option<u64>> {
         let txn = self.db.begin_read()?;
         let t = txn.open_table(BYKEY)?;
+        count_rows(1);
         Ok(t.get(bykey(kind, key).as_slice())?.map(|v| v.value()))
     }
 
@@ -724,6 +727,7 @@ impl RedbIndex {
         let mut out = Vec::new();
         for row in t.range(lo.as_slice()..hi.as_slice())? {
             let (k, v) = row?;
+            count_rows(1);
             let kb = k.value();
             out.push((String::from_utf8_lossy(&kb[2..]).into_owned(), v.value()));
         }
@@ -744,6 +748,7 @@ impl RedbIndex {
         let mut out = Vec::new();
         for row in t.range(lo.as_slice()..hi.as_slice())? {
             let (k, v) = row?;
+            count_rows(1);
             if keep(&String::from_utf8_lossy(&k.value()[2..])) {
                 out.push(v.value());
             }
@@ -1086,6 +1091,7 @@ impl RedbIndex {
         let mut out = Vec::new();
         let mut more = false;
         for row in bb.range(lo.as_slice()..hi.as_slice())?.rev() {
+            count_rows(1);
             if out.len() == limit {
                 more = true;
                 break;
@@ -1098,6 +1104,7 @@ impl RedbIndex {
             let Some(born) = u64_from(&k.value()[2..]) else {
                 continue;
             };
+            count_rows(1);
             if let Some(latest) = byk.get(bykey(kind, &key).as_slice())? {
                 out.push((born, key, latest.value()));
             }
