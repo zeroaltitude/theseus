@@ -101,7 +101,7 @@ export default function Ontology() {
                       {folded ? <span title={`${c.members ?? 0} in it, ${within.get(c.id) ?? 0} with those below it`}>{(within.get(c.id) ?? 0).toLocaleString()}<span className="text-ink-faint"> in all</span></span>
                         : (c.members ?? 0) > 0 ? (c.members ?? 0).toLocaleString() : <span className="text-ink-faint">—</span>}
                     </td>
-                    <td className="px-1 text-ink-faint">{c.added_by}</td>
+                    <td className="whitespace-nowrap px-1 text-ink-faint">{c.added_by}</td>
                     <td className="px-1 text-ink-faint">{c.description}</td>
                     <td className="num pl-1 text-ink-dim">{c.guidance && c.guidance.text !== '' ? <span title={`digest ${c.guidance.digest}`}>v{c.guidance.version} · {c.guidance.digest}</span> : <span className="text-ink-faint">—</span>}</td>
                   </tr>
