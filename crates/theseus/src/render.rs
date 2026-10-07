@@ -41,7 +41,7 @@ mod tasks;
 mod web;
 pub use aws::{aws_call_line, aws_lines, bootstrap_lines};
 pub use cancel::{cancels_line, verdict_lines};
-pub use catalog::{cache_write_words, catalog_config_lines, catalog_table_lines};
+pub use catalog::*;
 pub use index::{index_hits_lines, index_line, index_status_lines, tender_words};
 pub use judge::{judge_line, judge_log_footer, judge_log_lines, judge_show_lines};
 pub use judge_runs::{judge_audit_lines, judge_backfill_lines, judge_replay_lines};

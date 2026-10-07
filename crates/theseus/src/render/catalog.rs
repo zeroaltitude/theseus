@@ -45,6 +45,31 @@ pub fn catalog_table_lines(l: &CatalogListResult) -> Vec<String> {
     out
 }
 
+/// One line per model priced in tiers (theseus-3okf): past how many prompt
+/// tokens its long tier applies, and that tier's five prices, in the table's
+/// order. The prompt counts the uncached input, the cache reads, and the
+/// cache writes.
+pub fn catalog_tier_lines(l: &CatalogListResult) -> Vec<String> {
+    l.models
+        .iter()
+        .filter_map(|m| {
+            let t = m.entry.get("long_prompt")?;
+            let num = |k: &str| t.get(k).and_then(Value::as_f64).unwrap_or(0.0);
+            Some(format!(
+                "{}: above {} prompt tokens (input, cache reads and writes), every price is the long \
+                 tier's: $in {} $out {} $c.rd {} $c.wr {} $c.1h {}",
+                m.model,
+                fmt_tokens(num("above_tokens") as u64),
+                fmt_price(num("input_per_mtok")),
+                fmt_price(num("output_per_mtok")),
+                fmt_price(num("cache_read_per_mtok")),
+                fmt_price(num("cache_write_per_mtok")),
+                fmt_price(num("cache_write_1h_per_mtok")),
+            ))
+        })
+        .collect()
+}
+
 /// Health's cache writes, with the 1-hour ones within them when there are
 /// any, as plain numbers like the tokens line's others: `1200 (1h 300)`.
 pub fn cache_write_words(u: &Usage) -> String {

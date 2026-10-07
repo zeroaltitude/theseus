@@ -1,0 +1,10 @@
+$ theseus catalog
+--- requests
+catalog.list
+--- stdout
+model                    provider      window  max out     $in    $out   $c.rd   $c.wr   $c.1h  thinking  profiles
+orbit-5-lite             orbit             1M     128K     0.1     0.5    0.01   0.125     0.2  adaptive  lite
+--- stderr
+[catalog 2026-10-07.1 · prices are USD per million tokens]
+[orbit-5-lite: above 100K prompt tokens (input, cache reads and writes), every price is the long tier's: $in 0.5 $out 2.5 $c.rd 0.05 $c.wr 0.625 $c.1h 1]
+--- exit 0

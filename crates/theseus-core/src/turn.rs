@@ -2266,8 +2266,12 @@ impl TurnRunner {
             target,
             action: &action,
             reserve,
-            output_micros: price.reserve_micros(target.max_tokens, 0),
-            input_micros: price.reserve_micros(0, compiled.estimate.upper),
+            output_micros: price
+                .reserve_parts(target.max_tokens, compiled.estimate.upper)
+                .0,
+            input_micros: price
+                .reserve_parts(target.max_tokens, compiled.estimate.upper)
+                .1,
             est_tokens: compiled.est_tokens,
             digest: &compiled.digest,
             o0,

@@ -1634,6 +1634,25 @@ fn catalog_prints_windows_and_prices() {
     );
 }
 
+/// A model priced in tiers (theseus-3okf): its long tier's threshold and
+/// prices, under the table.
+#[test]
+fn catalog_lists_a_long_prompt_tier() {
+    let cat = json!({"version": "2026-10-07.1", "models": [
+        {"model": "orbit-5-lite", "entry": {"provider": "orbit", "context_window": 1000000,
+            "max_output_tokens": 128000, "input_per_mtok": 0.1, "output_per_mtok": 0.5,
+            "cache_read_per_mtok": 0.01, "cache_write_per_mtok": 0.125,
+            "cache_write_1h_per_mtok": 0.2, "thinking": "adaptive",
+            "long_prompt": {"above_tokens": 100000, "input_per_mtok": 0.5, "output_per_mtok": 2.5,
+                "cache_read_per_mtok": 0.05, "cache_write_per_mtok": 0.625,
+                "cache_write_1h_per_mtok": 1.0}},
+         "profiles": ["lite"]}]});
+    golden(
+        "catalog_tier",
+        &run(&["catalog"], vec![step("catalog.list", cat)]),
+    );
+}
+
 /// The config's `[catalog]` tables, each beside the code's row
 /// (theseus-vwar): one that changes a price names it and the code's value,
 /// one that adds a model says so, and one that copies the code's figures
