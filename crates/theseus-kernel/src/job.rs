@@ -222,12 +222,12 @@ pub fn run_wrapper_process(args: &WrapperArgs) -> Result<()> {
         .into_iter()
         .flatten()
         .collect();
-    let (spool, mut copier) = run(
+    let (spool, mut copier, marked) = run(
         args,
         Reap::Descendants,
         (!errors.is_empty()).then(|| errors.join("; ")),
     )?;
-    linger(&spool, &args.correlation_id);
+    linger(&spool, &args.correlation_id, marked);
     // What a descendant printed after the report goes through the copy too,
     // to the pipe's end, which comes once the last descendant has gone.
     copier.wait(crate::redact::DRAIN);
@@ -393,12 +393,13 @@ pub(crate) enum Reap {
 /// The command, its deadline, and the report. `subreaper_error` is why the
 /// wrapper could not become a subreaper, recorded in the completion. Also
 /// the copy of the command's output, which may outlive the report while a
-/// descendant holds the output open.
+/// descendant holds the output open, and whether the wrapper marked itself
+/// lingering before it reported (`mark_if_lingering`).
 fn run(
     args: &WrapperArgs,
     reap: Reap,
     subreaper_error: Option<String>,
-) -> Result<(Spool, crate::redact::Copier)> {
+) -> Result<(Spool, crate::redact::Copier, bool)> {
     let spool = Spool::open(&args.spool_dir)?;
     let started = now_ms();
     let t0 = Instant::now();
@@ -441,6 +442,7 @@ fn run(
     // before; once the copy has ended, since the stop left no writer.
     if detail.get("stopped").is_some() {
         let _ = copier.wait(crate::redact::DRAIN);
+        let marked = mark_if_lingering(&spool, &args.correlation_id, reap);
         if let (Some(StopAsked::Cancel { .. }), Ok(v)) = (
             stop_asked(),
             serde_json::from_value::<Verdict>(detail["stop"].clone()),
@@ -448,7 +450,7 @@ fn run(
             spool.write_stop(&args.correlation_id, &v)?;
         }
         spool.remove_pid(&args.correlation_id);
-        return Ok((spool, copier));
+        return Ok((spool, copier, marked));
     }
     // The copy ends once the command and every descendant sharing its output
     // have closed it (theseus-l0d). One that keeps it open does not hold the
@@ -513,12 +515,52 @@ fn run(
         cost_micros: None,
         detail: Some(detail),
     };
+    let marked = mark_if_lingering(&spool, &args.correlation_id, reap);
     spool.write(&c)?; // durable before any delivery attempt
     spool.remove_pid(&args.correlation_id);
     if let Some(sock) = &args.notify_socket {
         notify(sock, &args.correlation_id);
     }
-    Ok((spool, copier))
+    Ok((spool, copier, marked))
+}
+
+/// A wrapper process that will linger (`linger`) marks itself before its
+/// report, while its pid file still names it, so from its start to its exit
+/// one of the two does. A reader that takes the report removes the pid file
+/// (a turn's look does so at once), then asks `Spool::wrapper_lives` before
+/// it removes the job's raw output, which a lingering wrapper still writes.
+/// With the marker written after the report, that read could come first,
+/// and take the file (theseus-v18k). This is `linger`'s first look, made
+/// before the report. Whether it marked. A wrapper on a thread
+/// (`Reap::Command`) never looks: a wait for any child would take other
+/// threads' children.
+fn mark_if_lingering(spool: &Spool, correlation_id: &str, reap: Reap) -> bool {
+    matches!(reap, Reap::Descendants)
+        && descendants_left()
+        && spool
+            .write_lingering(correlation_id, std::process::id())
+            .is_ok()
+}
+
+/// Whether a descendant is left, once every one that has exited is reaped.
+fn descendants_left() -> bool {
+    #[cfg(unix)]
+    {
+        loop {
+            let mut status = 0;
+            match unsafe { libc::waitpid(-1, &mut status, libc::WNOHANG) } {
+                0 => return true,
+                -1 if std::io::Error::last_os_error().raw_os_error() == Some(libc::EINTR) => {}
+                // ECHILD: none is left.
+                -1 => return false,
+                _ => {}
+            }
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        false
+    }
 }
 
 /// An L0 job: the command as the wrapper's own child, its output into the
@@ -758,12 +800,13 @@ fn reap_children(command: u32) -> std::io::Result<Option<std::process::ExitStatu
 /// After the report: wait for every descendant that outlived the command,
 /// each reparented here as its parent exited (theseus-6qy). While any
 /// remains, the spool's `lingering/<id>` names this wrapper, which health
-/// counts. The wrapper signals nothing unless it is asked to stop (18a):
-/// then it stops what is left of its tree, and a cancel gets its verdict.
-fn linger(spool: &Spool, correlation_id: &str) {
+/// counts; `marked`, it was written before the report (theseus-v18k). The
+/// wrapper signals nothing unless it is asked to stop (18a): then it stops
+/// what is left of its tree, and a cancel gets its verdict.
+fn linger(spool: &Spool, correlation_id: &str, marked: bool) {
     #[cfg(unix)]
     {
-        let mut marked = false;
+        let mut marked = marked;
         let mut stopped = false;
         loop {
             if let Some(asked) = stop_asked().filter(|_| !stopped) {
@@ -797,7 +840,7 @@ fn linger(spool: &Spool, correlation_id: &str) {
     }
     #[cfg(not(unix))]
     {
-        let _ = (spool, correlation_id);
+        let _ = (spool, correlation_id, marked);
     }
 }
 

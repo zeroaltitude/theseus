@@ -26,7 +26,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, Result};
 use serde_json::{json, Value};
-use theseus_kernel::{ActionState, Completion, Outcome};
+use theseus_kernel::{ActionState, Completion, Outcome, Spool};
 use theseus_tools::JobSpec;
 
 use super::job::{read_result_file, Job, Launched, Look};
@@ -92,6 +92,15 @@ fn tail_of(out: &str, room: usize) -> String {
         n - room,
         &out[cut..]
     )
+}
+
+/// Whether a step's wrapper `pid` is done with job `id`'s pid file, so the
+/// next step's launch may write its own: it removed the file just after its
+/// report, or it is gone. The file itself says so: a wrapper that will
+/// linger writes its marker before its report, with its pid file still
+/// there (theseus-v18k), so the marker says nothing of the file.
+fn unlisted(spool: &Spool, id: &str, pid: u32) -> bool {
+    !theseus_kernel::job::wrapper_alive(pid, id) || spool.read_pid(id) != Some(pid)
 }
 
 /// It exited 0, and was not killed by its timeout.
@@ -179,12 +188,10 @@ impl ToolRuntime {
             before = format!("{head}[exit code 0, {ms} ms]\n{}\n", out.trim_end());
             passed.push(json!({"step": i + 1, "argv": spec.argv, "cwd": spec.cwd, "ran": true, "exit_code": 0, "duration_ms": ms}));
             // The step's wrapper removes the pid file just after its report:
-            // the next step's launch waits for that, or it would lose its own.
+            // the next step's launch waits for that, or it would lose its own
+            // (`unlisted`; the look leaves the file to the wrapper).
             let pid = launched.pid;
-            let gone = || {
-                !theseus_kernel::job::wrapper_alive(pid, id)
-                    || job.spool.read_lingering(id) == Some(pid)
-            };
+            let gone = || unlisted(job.spool, id, pid);
             let t = Instant::now();
             while !gone() && t.elapsed() < WRAPPER_EXIT {
                 tokio::time::sleep(Duration::from_millis(5)).await;
@@ -212,9 +219,10 @@ impl ToolRuntime {
                 .ok_or_else(|| anyhow!("action {id} vanished"))?;
             let going = a.state == ActionState::Dispatched && a.cancel.is_none();
             match look.spool.read_completion(id)? {
+                // Its pid file is its wrapper's to remove: the next step's
+                // launch waits for that (`run_steps`).
                 Some(c) if going && passes(&c) => {
                     look.spool.remove(&look.spool.completion_path(id))?;
-                    look.spool.remove_pid(&id.to_string());
                     return Ok(Some(Step::Passed(c)));
                 }
                 // It failed: the look below settles the call with it.
@@ -261,5 +269,46 @@ impl ToolRuntime {
         Ok(CallOutcome::Background {
             correlation_id: id.into(),
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// theseus-v18k: a step's wrapper that will linger writes its marker
+    /// before its report, then removes its pid file. The next step's launch
+    /// waits for that removal, or the old wrapper's would take the new pid
+    /// file: so a marker that names the wrapper is no sign the pid file has
+    /// gone. It was, while the marker came after the removal. A wrapper
+    /// killed before its removal is done with the file too. The wrapper is
+    /// a stand-in whose command line names the job.
+    #[test]
+    fn a_steps_wrapper_is_done_with_its_pid_file_once_it_removes_it_or_is_gone() {
+        let d = tempfile::tempdir().unwrap();
+        let spool = Spool::open(d.path()).unwrap();
+        let id = "act_steps";
+        let wrapper = crate::peer::Standin::start(id);
+        let pid = wrapper.wrapper;
+        spool.write_pid(id, pid).unwrap();
+        assert!(!unlisted(&spool, id, pid), "its command runs");
+        spool.write_lingering(id, pid).unwrap();
+        assert!(
+            !unlisted(&spool, id, pid),
+            "marked before its report, its pid file still there"
+        );
+        spool.remove_pid(&id.to_string());
+        assert!(unlisted(&spool, id, pid), "it removed its pid file");
+        spool.write_pid(id, pid).unwrap();
+        drop(wrapper);
+        let t0 = Instant::now();
+        while theseus_kernel::job::wrapper_alive(pid, id) {
+            assert!(
+                t0.elapsed() < Duration::from_secs(10),
+                "the stand-in lives on"
+            );
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        assert!(unlisted(&spool, id, pid), "killed before its removal");
     }
 }
