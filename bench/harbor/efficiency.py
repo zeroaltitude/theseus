@@ -52,8 +52,9 @@ ARMS: dict[str, dict[str, tuple[str, ...]]] = {
     # Harbor's own agents (theseus-qags; `measured.py`). Codex's npm launcher
     # is `node`, which execs the native `codex`; OpenCode's postinstall puts
     # its native binary at `bin/opencode.exe`; Aider is a Python script, so
-    # its comm is the script's name; OpenHands runs `python -m`, so its arm
-    # runs it through a link named `openhands-py`; OpenClaw sets its title.
+    # its comm is the script's name; OpenHands' SDK runner is a `python`
+    # script, so its arm runs it through a link named `openhands-py`;
+    # OpenClaw sets its title.
     "codex": {"names": ("codex",), "wrapper_args": ()},
     "aider": {"names": ("aider",), "wrapper_args": ()},
     "opencode": {"names": ("opencode.exe", "opencode"), "wrapper_args": ()},
@@ -744,8 +745,52 @@ def codex_record(logs: Path) -> dict[str, Any]:
     return atif_record("codex", logs)
 
 
+def openhands_spend(metrics: dict[str, Any] | None, trajectory: dict[str, Any] | None) -> dict[str, Any]:
+    """OpenHands' spend from `openhands-metrics.json` (`openhands_measure_run.py`):
+    each LLM's `token_usages`, one a call, and `costs`, the dollars its SDK's
+    LiteLLM priced. LiteLLM's `prompt_tokens` for an Anthropic call holds the
+    cache's reads and writes too (a probe of 2026-10-07: 6019 = 11 + 6008), so
+    the uncached input is what is left. Tool calls are the trajectory's."""
+    by_model: dict[str, dict[str, Any]] = {}
+    calls = 0
+    costs: list[float | None] = []
+    for llm in (metrics or {}).get("llms") or []:
+        mt = llm.get("metrics") or {}
+        usages = mt.get("token_usages") or []
+        if not usages:
+            continue
+        m = _model(by_model, (llm.get("model") or "").split("/")[-1] or None)
+        for u in usages:
+            read, write = int(u.get("cache_read_tokens") or 0), int(u.get("cache_write_tokens") or 0)
+            m.update(_add(m, {"input": max(int(u.get("prompt_tokens") or 0) - read - write, 0),
+                              "cache_read": read, "cache_write": write,
+                              "output": int(u.get("completion_tokens") or 0)}))
+            m["calls"] += 1
+            calls += 1
+        cost = mt.get("accumulated_cost")
+        costs.append(None if cost is None else float(cost))
+        m["cost_usd"] = None if cost is None or m["cost_usd"] is None else round(m["cost_usd"] + float(cost), 6)
+    steps = [s for s in (trajectory or {}).get("steps") or [] if s.get("source") == "agent"]
+    tools = sum(len(s.get("tool_calls") or []) for s in steps)
+    if calls:
+        return _spend(by_model, _priced(costs), "metrics", calls, tools)
+    final = (trajectory or {}).get("final_metrics") or {}
+    if final.get("total_prompt_tokens"):
+        # Harbor's totals alone: the cache write is lost in them.
+        read = int(final.get("total_cached_tokens") or 0)
+        m = _model(by_model, "claude-sonnet-5-5")
+        m.update({"input": max(int(final["total_prompt_tokens"]) - read, 0), "cache_read": read, "cache_write": 0,
+                  "output": int(final.get("total_completion_tokens") or 0), "cost_usd": final.get("total_cost_usd"),
+                  "calls": len(steps)})
+        return _spend(by_model, final.get("total_cost_usd"), "trajectory_totals", len(steps), tools)
+    return _spend({}, None, None, None, None)
+
+
 def openhands_record(logs: Path) -> dict[str, Any]:
-    return atif_record("openhands", logs)
+    traj = _trajectory(logs)
+    metrics = read_json(logs / "openhands-metrics.json")
+    return _priced_record("openhands", openhands_spend(metrics if isinstance(metrics, dict) else None, traj), logs,
+                          wall_s=trajectory_wall(traj))
 
 
 def openclaw_record(logs: Path) -> dict[str, Any]:

@@ -25,7 +25,7 @@ try:
     from harbor.agents.installed.codex import Codex
     from harbor.agents.installed.opencode import OpenCode
     from harbor.agents.installed.openclaw import OpenClaw
-    from harbor.agents.installed.openhands import OpenHands
+    from harbor.agents.installed.openhands_sdk import OpenHandsSDK as OpenHands
     from harbor.environments.base import ExecResult
     from harbor.models.agent.context import AgentContext
 
@@ -128,6 +128,24 @@ class Records(unittest.TestCase):
         self.assertEqual(ef.aider_spend(AIDER, [])["spend_from"], "stream")
         self.assertEqual(ef.aider_spend("", [])["spend_from"], None)
 
+    def test_openhands_reads_each_call_from_the_wrappers_metrics(self):
+        metrics = {"llms": [{"usage_id": "agent", "model": "anthropic/claude-sonnet-5-5", "metrics": {
+            "accumulated_cost": 0.0157,
+            "token_usages": [{"prompt_tokens": 6019, "completion_tokens": 4, "cache_read_tokens": 0,
+                              "cache_write_tokens": 6008},
+                             {"prompt_tokens": 6019, "completion_tokens": 4, "cache_read_tokens": 6008,
+                              "cache_write_tokens": 0}]}}]}
+        traj = {"steps": [{"source": "agent", "tool_calls": [{"tool_call_id": "a"}]},
+                          {"source": "agent"}], "final_metrics": {"total_prompt_tokens": 12038}}
+        sp = ef.openhands_spend(metrics, traj)
+        self.assertEqual((sp["spend_from"], sp["model_calls"], sp["tool_calls"], sp["cost_usd"]),
+                         ("metrics", 2, 1, 0.0157))
+        self.assertEqual(sp["tokens"], {"input": 22, "cache_read": 6008, "cache_write": 6008, "output": 8})
+        self.assertIn("claude-sonnet-5-5", sp["by_model"])
+        # Without the wrapper's file, Harbor's totals (the write lost in them).
+        sp = ef.openhands_spend(None, traj)
+        self.assertEqual((sp["spend_from"], sp["model_calls"]), ("trajectory_totals", 2))
+
     def test_records_from_a_trials_files(self):
         with tempfile.TemporaryDirectory() as d:
             logs = Path(d)
@@ -186,7 +204,7 @@ def arms():
         (codex_agent.MeasuredCodex, Codex, codex_agent.NATIVE_MODEL, "codex", "0.161.0", "reasoning_effort"),
         (aider_agent.MeasuredAider, Aider, SONNET, "aider", "0.86.2", None),
         (opencode_agent.MeasuredOpenCode, OpenCode, SONNET, "opencode", "1.18.35", "variant"),
-        (openhands_agent.MeasuredOpenHands, OpenHands, SONNET, "openhands", "1.11.0", "reasoning_effort"),
+        (openhands_agent.MeasuredOpenHands, OpenHands, SONNET, "openhands", "1.53.0", "reasoning_effort"),
         (openclaw_agent.MeasuredOpenClaw, OpenClaw, SONNET, "openclaw", "2026.9.8", "thinking"),
     ]
 
@@ -217,14 +235,13 @@ class Arms(unittest.TestCase):
                 b = self.make(cls, model, version="9.9.9", **{effort or "reasoning_effort": "high"})
                 self.assertEqual((b.version(), b.effort_asked()), ("9.9.9", "high"))
 
-    def test_only_openhands_enforces_the_caps(self):
+    def test_no_new_arm_enforces_the_spend_cap_and_openhands_enforces_the_turns(self):
         for cls, _, model, arm, _, _ in arms():
             with self.subTest(arm):
-                self.assertEqual(self.make(cls, model).caps_enforced(), arm == "openhands")
+                self.assertFalse(self.make(cls, model).caps_enforced())
         oh = self.make(openhands_agent.MeasuredOpenHands, SONNET)
-        self.assertEqual(oh._resolved_env_vars["MAX_BUDGET_PER_TASK"], "2.0")
-        self.assertEqual(oh._resolved_env_vars["MAX_ITERATIONS"], "200")
-        self.assertEqual(oh._resolved_env_vars["LLM_REASONING_EFFORT"], "medium")
+        self.assertEqual(oh.options.max_iterations, 200)
+        self.assertEqual(oh.options.reasoning_effort, "medium")
         # Caps given as the CLI's strings are read as numbers.
         s = openhands_agent.MeasuredOpenHands(logs_dir=self.logs, model_name=SONNET, max_budget_usd="2.0",
                                               max_turns="200")
@@ -274,8 +291,10 @@ class Arms(unittest.TestCase):
                 self.assertIn((str(Path(measured.smp.__file__)), measured.SAMPLER), env.uploads)
                 self.assertTrue(any(c.endswith("version.txt; true") for c in env.commands))
                 if arm == "openhands":
-                    self.assertTrue(any(c.endswith("ln -sf /opt/openhands-venv/bin/python "
-                                                   "/opt/openhands-venv/bin/openhands-py") for c in env.commands))
+                    self.assertTrue(any("ln -sf /opt/openhands-sdk-venv/bin/python "
+                                        "/opt/openhands-sdk-venv/bin/openhands-py" in c for c in env.commands))
+                    self.assertIn((str(Path(openhands_agent.__file__).with_name("openhands_measure_run.py")),
+                                   openhands_agent.WRAPPER), env.uploads)
 
     def test_aiders_install_is_pinned_and_never_runs_harbors(self):
         a = self.make(aider_agent.MeasuredAider, SONNET)
@@ -322,12 +341,12 @@ class Arms(unittest.TestCase):
         self.assertEqual(env["ANTHROPIC_API_KEY"], "k")
         self.assertEqual(a.rewrite("mkdir -p ~/.config/opencode", None), ("mkdir -p ~/.config/opencode", None))
 
-    def test_openhands_runs_under_its_own_name(self):
+    def test_openhands_runs_under_its_own_name_through_the_wrapper(self):
         a = self.make(openhands_agent.MeasuredOpenHands, SONNET)
-        cmd, _ = a.rewrite("SANDBOX_VOLUMES=${PWD}:/workspace:rw USER=`id -un` "
-                           "/opt/openhands-venv/bin/python -m openhands.core.main --task='x'", {})
-        self.assertIn("/opt/openhands-venv/bin/openhands-py -m openhands.core.main", cmd)
-        self.assertNotIn("bin/python -m", cmd)
+        cmd, _ = a.rewrite('/opt/openhands-sdk-venv/bin/python /installed-agent/run_agent.py     --instruction=x '
+                           '--logs-dir="$AGENT_LOGS_DIR" 2>&1 | stdbuf -oL tee /logs/agent/openhands_sdk.txt', {})
+        self.assertIn(f"/opt/openhands-sdk-venv/bin/openhands-py {openhands_agent.WRAPPER}     --instruction=x", cmd)
+        self.assertNotIn("bin/python /installed-agent", cmd)
 
     def test_openclaws_own_timeout_never_comes_before_the_tasks(self):
         a = self.make(openclaw_agent.MeasuredOpenClaw, SONNET)
