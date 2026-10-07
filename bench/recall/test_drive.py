@@ -311,6 +311,9 @@ class PiDriver(unittest.TestCase):
                                  ("anthropic", "claude-sonnet-5-5"))
                 self.assertEqual(a[a.index("--tools") + 1], drive.PI_TOOLS)
                 self.assertEqual(c["prompt"], t.text)
+                # No version check, no telemetry, and no overlay of newer catalog
+                # data (its prices, its thinking map): the pinned Pi's own.
+                self.assertEqual(c["env"], {"PI_SKIP_VERSION_CHECK": "1", "PI_TELEMETRY": "0", "PI_OFFLINE": "1"})
                 sid = a[a.index("--session-id") + 1]
                 if t.index == prog.session_turns(t.session)[0].index:
                     ids.append(sid)

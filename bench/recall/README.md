@@ -194,6 +194,11 @@ Theseus runs the bench profile (every tool open, roots at `/`), and Claude Code 
     the provider's, where Theseus's is the compiler's estimate; `standin.py` counts by the generator's own rule, so
     offline the two agree, and on the real model the record shows how far the rule's rates are from the provider's.
     That is the live check: if it is past the cushion, the constant moves.
+  - Offline: `PI_OFFLINE=1`, beside `PI_SKIP_VERSION_CHECK` and `PI_TELEMETRY`. Without it Pi 1.0.4 overlays newer
+    model-catalog data from its project's server (prices, its thinking map, compat flags), so the pinned version
+    would not pin them. Its docs: "`PI_OFFLINE`: Disable automatic network activity, including model catalog
+    refreshes" (docs/environment-variables.md); the code reads it in one place, the model runtime's catalog
+    refresh, and a model call is not automatic network activity.
   - Pi's print mode exits 0 when the provider fails: a turn whose last answer ended on `error` or `aborted`, or
     that answered nothing, is recorded as failed (`pi_failed`). Pi's process markers and its session's variables
     (`AI_AGENT`, `PI_SESSION_ID`, …) are taken out of its environment, and a turn past `--turn-timeout` has its
@@ -294,7 +299,7 @@ They cover:
 - **The Claude Code driver**, against a stand-in `claude` on PATH: session ids carried, a boundary opening a new
   one, `/compact` after the mark.
 - **The Pi driver**, against a stand-in `pi` on PATH: a session id per session, the reserve and the kept
-  tokens at the planned threshold, its overhead recorded and a Pi 51 off its plan refused (50 off not, and
+  tokens at the planned threshold, the offline variables, its overhead recorded and a Pi 51 off its plan refused (50 off not, and
   `--allow-overhead` runs on), a compaction read from its log, a parent's variables taken out, each turn's answers and
   summaries summed, and a provider's error a failed turn.
 - **The Theseus driver**, end to end on this workspace's binaries (`target/debug`, or `THESEUS_RECALL_BIN_DIR`):

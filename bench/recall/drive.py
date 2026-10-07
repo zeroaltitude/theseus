@@ -790,7 +790,7 @@ class Pi:
             (self.config / "models.json").write_text(json.dumps(models, indent=1) + "\n")
         self.env = _env_without(PI_PARENT_ENV + CC_PARENT_ENV)
         self.env.update({"PI_CODING_AGENT_DIR": str(self.config), "PI_SKIP_VERSION_CHECK": "1",
-                         "PI_TELEMETRY": "0"})
+                         "PI_TELEMETRY": "0", "PI_OFFLINE": "1"})
         run.meta["pi_compact"] = {"window": self.window, "model_window": a.pi_model_window,
                                   "threshold": self.threshold, "reserve_tokens": reserve,
                                   "keep_recent_tokens": keep}
