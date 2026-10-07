@@ -942,14 +942,22 @@ impl crate::Core {
     /// The judge's settled judgments, written before the stop's last
     /// checkpoint (theseus-ych4): the sink writes only between turns, so a
     /// busy daemon can hold a backlog, and a restart must read every one.
+    /// The stop waits for no running turn (one held at its model runs on
+    /// while the daemon stops), so the line counts those running beside the
+    /// flush, with its frames and its blobs' syncs (theseus-ehkp).
     fn flush_judgments(&self) {
         let t0 = std::time::Instant::now();
         let judge = &self.runner.judge;
+        let stats = |s: &crate::store::Store| s.stats().map(|s| s.frames_appended).unwrap_or(0);
+        let (frames, syncs) = (stats(&self.store), self.store.blobs().syncs());
         let written = theseus_store::blocking(|| judge.flush_sink());
         if written > 0 {
             tracing::info!(
                 judgments = written,
                 ms = t0.elapsed().as_secs_f64() * 1000.0,
+                frames = stats(&self.store).saturating_sub(frames),
+                blob_syncs = self.store.blobs().syncs().saturating_sub(syncs),
+                turns_running = self.runner.pass.turns().running(),
                 "stopping: the judge's settled judgments are written"
             );
         }

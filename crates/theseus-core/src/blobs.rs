@@ -22,6 +22,8 @@ use base64::Engine as _;
 /// dozens of screenshots.
 const CACHE_MAX_BYTES: usize = 32 * 1024 * 1024;
 const CACHE_MAX_ENTRIES: usize = 16;
+/// The threads a batch's files are synced from at most (`put_many`).
+const SYNC_THREADS: usize = 4;
 
 /// Standard base64, padded: what an image block's `data` and an
 /// attachment's `data` carry.
@@ -275,17 +277,45 @@ impl Blobs {
             .collect()
     }
 
-    /// Sync each file, in order; each one's outcome.
+    /// Sync each file; each one's outcome, in order. More than a few go out
+    /// together from up to [`SYNC_THREADS`] threads, so the journal commits
+    /// them together (theseus-ehkp: a stop's batch). Never `syncfs`, which
+    /// flushes every dirty page of the filesystem, a neighbour build's too:
+    /// beside a writer of 256 MiB at a time, its first sync of 700 small
+    /// files took 273 ms where four threads took 72 to 458 ms, alone 19 ms
+    /// against 78 (2026-10-07, a 4-core VM).
     fn sync_files<'a>(
         &self,
         files: impl Iterator<Item = &'a std::fs::File>,
     ) -> Vec<std::io::Result<()>> {
-        files
-            .map(|f| {
-                self.syncs.fetch_add(1, Ordering::Relaxed);
-                f.sync_all()
-            })
-            .collect()
+        let files: Vec<&std::fs::File> = files.collect();
+        self.syncs.fetch_add(files.len() as u64, Ordering::Relaxed);
+        if files.len() <= SYNC_THREADS {
+            return files.iter().map(|f| f.sync_all()).collect();
+        }
+        let per = files.len().div_ceil(SYNC_THREADS);
+        std::thread::scope(|s| {
+            let parts: Vec<_> = files
+                .chunks(per)
+                .map(|part| {
+                    let n = part.len();
+                    (
+                        n,
+                        s.spawn(move || part.iter().map(|f| f.sync_all()).collect::<Vec<_>>()),
+                    )
+                })
+                .collect();
+            parts
+                .into_iter()
+                .flat_map(|(n, p)| {
+                    p.join().unwrap_or_else(|_| {
+                        (0..n)
+                            .map(|_| Err(std::io::Error::other("a sync's thread panicked")))
+                            .collect()
+                    })
+                })
+                .collect()
+        })
     }
 
     /// The directory's sync, which makes its renames durable.

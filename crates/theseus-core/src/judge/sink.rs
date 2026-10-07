@@ -43,6 +43,14 @@ use crate::memory_pass::Timing;
 /// so the frame's size bounds that wait (theseus-s1am).
 pub const MAX_ROWS: usize = 32;
 
+/// Judgments a clean stop's frame holds at most (theseus-ehkp): no turn
+/// waits on the stop's flush, so its backlog goes in a few big frames, each
+/// one append and one sync, where frames of [`MAX_ROWS`] made one a 32. A
+/// row with its facts is about a kilobyte or two, so a frame is a megabyte
+/// or less: the WAL bounds a frame only by its 4 GiB length field and the
+/// log's cap, and a frame never splits across its 64 MiB segments.
+pub const STOP_ROWS: usize = 512;
+
 /// The judgments settled and not yet written: the recording's sink pushes
 /// here, the writer takes its frames from the front, and a clean stop takes
 /// what is left (theseus-ych4).
@@ -143,14 +151,17 @@ impl Queue {
         self.len()
     }
 
-    /// The stop's flush: every judgment queued, in frames of [`MAX_ROWS`],
-    /// and nothing written after. Returns the judgments written.
+    /// The stop's flush: every judgment queued, their staged blobs first as
+    /// one batch, then the rows in frames of [`STOP_ROWS`], and nothing
+    /// written after. Returns the judgments written.
     fn flush(&self, svc: &JudgeService) -> usize {
         let _w = self.writer.lock().unwrap_or_else(PoisonError::into_inner);
         self.closed.store(true, SeqCst);
+        let blobs = self.front_blobs(usize::MAX);
+        svc.write_staged_blobs(blobs.iter().map(String::as_str));
         let mut written = 0;
         loop {
-            let batch = self.take(MAX_ROWS);
+            let batch = self.take(STOP_ROWS);
             if batch.is_empty() {
                 return written;
             }
