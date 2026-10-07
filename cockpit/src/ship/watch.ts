@@ -561,7 +561,7 @@ class Bag {
 
 /** A call that settled, kept: the usuals' keys it is counted under now (none while it is out of the day before the
  *  moment, or its tool is a model's or unknown), and whether its tool came from a row or from the calls and the chart. */
-type Settled = Kept<{ cid: string; ms: number }> & { keys: string[] | null; fromRow: boolean; expires?: number }
+type Settled = Kept<{ cid: string; ms: number }> & { keys: string[] | null; fromRow: boolean; expires?: number; elsewhere?: string }
 
 /** The usuals' keys of a call whose tool is `tool` and whose job ran `argv`: its tool's, and a job's command's and
  *  program's. */
@@ -603,6 +603,10 @@ export class DayScan {
   private started = new Map<string, Kept<{ turn: string }>>()
   private done = new Map<string, number>()
   private failing: Kept<{ r: LedgerEntry }>[] = []
+  /** The day's failures as last built, and what they were built from: the failing rows read (`failingV` counts them)
+   *  and how many the day had passed. */
+  private failures: { v: number; passed: number; f: Failures } | null = null
+  private failingV = 0
   private settled: Settled[] = []
   private tools = new Map<string, Kept<{ tool: string }>>()
   private argvs = new Map<string, Kept<{ argv: string[] }>>()
@@ -673,6 +677,7 @@ export class DayScan {
     this.started = new Map()
     this.done = new Map()
     this.failing = []
+    this.failures = null
     this.settled = []
     this.tools = new Map()
     this.argvs = new Map()
@@ -706,7 +711,10 @@ export class DayScan {
     if (at < this.from) return
     const d = (r.data ?? {}) as D
     const sid = r.session_id
-    if (r.kind === 'action.resolved' || FAILURE_KINDS.has(r.kind)) this.keep(this.failing, { r, at, i })
+    if (r.kind === 'action.resolved' || FAILURE_KINDS.has(r.kind)) {
+      this.keep(this.failing, { r, at, i })
+      this.failingV++
+    }
     switch (r.kind) {
       case 'provider.call': {
         if (at < this.dayStart) break
@@ -822,6 +830,7 @@ export class DayScan {
     const tool = row ?? toolOf(c.cid)
     if (row === undefined) {
       c.fromRow = false
+      c.elsewhere = tool
       this.fallbacks.add(c)
     }
     // The rows it is counted by: when the window lets one go before the day lets the call go, it is counted again.
@@ -868,7 +877,8 @@ export class DayScan {
     this.touched.clear()
     for (const c of this.unbagged) if (!c.keys) this.bag(c, from, day, toolOf)
     this.unbagged = []
-    if (asked) for (const c of [...this.fallbacks]) this.bag(c, from, day, toolOf)
+    // A call whose tool only the calls or the chart say is counted again only if what they say has changed.
+    if (asked) for (const c of [...this.fallbacks]) if (toolOf(c.cid) !== c.elsewhere) this.bag(c, from, day, toolOf)
   }
 
   /** What the rows say at the moment: the window's part of what was read, newest first. */
@@ -880,6 +890,7 @@ export class DayScan {
       const byPlace = (a: { i: number }, b: { i: number }) => a.i - b.i
       this.ended.sort(byPlace)
       this.failing.sort(byPlace)
+      this.failingV++
       this.settled.sort(byPlace)
       this.settledPast = this.endedPast = 0
       this.late = false
@@ -891,6 +902,7 @@ export class DayScan {
       const keep = <T extends { at: number }>(xs: T[]) => xs.filter((x) => x.at >= from)
       this.ended = keep(this.ended)
       this.failing = keep(this.failing)
+      this.failingV++
       this.settled = keep(this.settled)
       for (const [cid, cs] of this.waiting) if (cs.every((c) => c.at <= day)) this.waiting.delete(cid)
       this.settledPast = this.endedPast = 0
@@ -912,8 +924,15 @@ export class DayScan {
       return out
     }
     const { ended, settled } = this
-    const failures = new Failures()
-    for (let k = this.failing.length - 1; k >= 0; k--) if (this.failing[k].at > day) failures.add(this.failing[k].r)
+    // The day's failures, built again only when a failing row came or the day passed one.
+    let passed = 0
+    for (let k = 0; k < this.failing.length && this.failing[k].at <= day + SKEW_MS; k++) if (this.failing[k].at <= day) passed++
+    if (!this.failures || this.failures.v !== this.failingV || this.failures.passed !== passed) {
+      const f = new Failures()
+      for (let k = this.failing.length - 1; k >= 0; k--) if (this.failing[k].at > day) f.add(this.failing[k].r)
+      this.failures = { v: this.failingV, passed, f }
+    }
+    const failures = this.failures.f
     const newest: Scan['newest'] = new Map()
     for (const [sid, s] of [...this.started].filter(([, s]) => s.at >= from).sort((a, b) => b[1].i - a[1].i)) {
       newest.set(sid, { turn: s.turn, at: s.at, open: !this.done.has(s.turn) })
