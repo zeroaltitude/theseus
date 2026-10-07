@@ -38,7 +38,8 @@ use crate::learn::RollbackRule;
 /// Every pack version this build knows, by file name: the test pack,
 /// §2.4's six, `security.v2` and `security.v3`, candidates beside `security.v1`,
 /// `rerank.v1`, recall's `+rerank` arm (M6 step 32c), and `route.v1`, the
-/// model per interaction mode (M5 step 25e).
+/// model per interaction mode (M5 step 25e), with `route.v2`, its successor
+/// with a `quick` mode (theseus-3okf).
 pub const EMBEDDED: &[(&str, &str)] = &[
     ("probe.v1", include_str!("../packs/probe.v1.toml")),
     ("loop.v1", include_str!("../packs/loop.v1.toml")),
@@ -56,6 +57,7 @@ pub const EMBEDDED: &[(&str, &str)] = &[
         include_str!("../packs/attribution.v1.toml"),
     ),
     ("route.v1", include_str!("../packs/route.v1.toml")),
+    ("route.v2", include_str!("../packs/route.v2.toml")),
     ("citation.v1", include_str!("../packs/citation.v1.toml")),
 ];
 
@@ -1196,6 +1198,14 @@ mod tests {
                     "rollback [labels_per_day on_path_p95]",
                 ],
             ),
+            (
+                "route.v2",
+                &[
+                    "Inbound Inbound SessionProfile Route",
+                    "mode Choice decides [trivial quick chat sophisticated deep_coding routine_coding other]",
+                    "rollback [labels_per_day on_path_p95]",
+                ],
+            ),
         ];
         for (name, lines) in want {
             let p = by_name(name).unwrap_or_else(|| panic!("{name} is embedded"));
@@ -1251,6 +1261,11 @@ mod tests {
             ]
         );
         assert_eq!(
+            rules("route.v2"),
+            rules("route.v1"),
+            "route.v2 keeps v1's rules"
+        );
+        assert_eq!(
             rules("role.v1"),
             vec![
                 RollbackRule::SwitchesPerExchange { max: 2 },
@@ -1268,9 +1283,9 @@ mod tests {
         let six: Vec<&(&str, &str)> = EMBEDDED.iter().filter(|(f, _)| *f != "probe.v1").collect();
         assert_eq!(
             six.len(),
-            13,
+            14,
             "§2.4's six, security.v2 and v3, rerank.v1, memory.v1, attribution.v1, route.v1 and \
-             citation.v1"
+             v2, and citation.v1"
         );
         for (file, text) in six {
             let p = Pack::parse(text).unwrap_or_else(|e| panic!("{file}: {e}"));

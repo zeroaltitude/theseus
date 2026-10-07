@@ -1,4 +1,4 @@
-//! Routing (M5 25e): which interaction mode `route.v1` judged a person's
+//! Routing (M5 25e): which interaction mode the route pack judged a person's
 //! message to need, and why the turn ran where it ran. A turn's result
 //! carries it (`TurnSubmitResult.route`), so a client's status line can say
 //! the mode beside the model. A refusal's fallback moves a turn too
@@ -10,8 +10,9 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
 pub struct TurnRoute {
-    /// The mode `route.v1` answered (`trivial`, `chat`, `sophisticated`,
-    /// `deep_coding`, `routine_coding`, `other`), when a verdict was read.
+    /// The mode the route pack answered (`trivial`, `quick` since route.v2,
+    /// `chat`, `sophisticated`, `deep_coding`, `routine_coding`, `other`),
+    /// when a verdict was read.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub mode: Option<String>,

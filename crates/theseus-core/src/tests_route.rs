@@ -265,7 +265,7 @@ async fn two_calls_ask_three_packs_and_a_hard_question_goes_to_opus() {
         .iter()
         .map(|s| s.body["questions"].clone())
         .collect();
-    for id in ["classify.v1/kind", "role.v1/role", "route.v1/mode"] {
+    for id in ["classify.v1/kind", "role.v1/role", "route.v2/mode"] {
         let n = asked.iter().filter(|q| q.get(id).is_some()).count();
         assert_eq!(n, 1, "{id}: {asked:?}");
     }
@@ -342,6 +342,59 @@ async fn routine_coding_goes_to_haiku_5_5_at_high_effort() {
         session(&r.core, &res.session_id).routed.is_some(),
         "a switch"
     );
+}
+
+/// A quick question detours to Haiku 5.5 at effort low for that turn alone
+/// (theseus-3okf): its request carries the last exchange and the message, the
+/// session's profile, `last_target` and compilation stay, and the next
+/// request on the session's own begins with the bytes of the one before the
+/// detour, though the detour ran on the session's own provider.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_quick_question_detours_to_haiku_and_the_next_prefix_is_byte_identical() {
+    let jev = FakeJev::start().unwrap();
+    mode(&jev, "chat", 0.95);
+    let r = rig(Some(&jev), 3, |_| {});
+    let first = turn(&r.core, None, "What does the store's manifest hold?", None).await;
+    let sid = first.session_id.clone();
+    let before = session(&r.core, &sid);
+    mode(&jev, "quick", 0.95);
+    let quick = turn(&r.core, Some(&sid), "which port is the cockpit on?", None).await;
+    assert_eq!(
+        (quick.profile.as_str(), quick.model.as_str()),
+        ("haiku", "claude-haiku-5-5")
+    );
+    let route = quick.route.as_ref().unwrap();
+    assert_eq!(
+        (route.reason.as_str(), route.mode.as_deref()),
+        ("detour", Some("quick"))
+    );
+    let reqs = r.claude.requests();
+    assert_eq!(reqs[1].model, "claude-haiku-5-5");
+    assert_eq!(reqs[1].output_config.as_ref().unwrap()["effort"], "low");
+    assert_eq!(
+        reqs[1].messages.len(),
+        3,
+        "the last exchange and the message"
+    );
+    let after = session(&r.core, &sid);
+    assert_eq!(after.compilation_id, before.compilation_id);
+    assert_eq!(after.last_target, before.last_target);
+    assert!(after.routed.is_none());
+    mode(&jev, "chat", 0.95);
+    let next = turn(&r.core, Some(&sid), "And where is it written?", None).await;
+    assert_eq!(next.profile, "sonnet");
+    let reqs = r.claude.requests();
+    let (a, c) = (&reqs[0], &reqs[2]);
+    assert_eq!(
+        (a.model.as_str(), c.model.as_str()),
+        ("claude-sonnet-5-5", "claude-sonnet-5-5")
+    );
+    assert_eq!(
+        c.messages[..a.messages.len()],
+        a.messages[..],
+        "the prefix, byte for byte"
+    );
+    assert!(r.zai.requests().is_empty());
 }
 
 /// "thank you!" detours to the cheapest usable profile (GLM 5.3 Flash) for
@@ -642,7 +695,7 @@ async fn a_message_warms_jevs_connections_once_while_they_stay_warm() {
     assert_eq!(
         jev.connections(),
         2,
-        "and two calls: route.v1's and the batch"
+        "and two calls: route.v2's and the batch"
     );
     turn(&r.core, Some(&one.session_id), "And where is it?", None).await;
     assert_eq!(jev.warmups(), 2, "warm: no second warm-up");
@@ -803,7 +856,7 @@ async fn a_ladder_rollback_of_route_stops_it_routing() {
     r.core
         .pack_rollback(
             &theseus_protocol::packs::PackRollbackParams {
-                pack: "route.v1".into(),
+                pack: "route.v2".into(),
                 why: None,
                 off: false,
             },
@@ -825,7 +878,7 @@ async fn a_ladder_rollback_of_route_stops_it_routing() {
     let h = r.core.health().judge.unwrap();
     assert!(
         h.packs
-            .contains(&"route.v1: rolled back (owner: the owner rolled it back)".to_string()),
+            .contains(&"route.v2: rolled back (owner: the owner rolled it back)".to_string()),
         "{:?}",
         h.packs
     );
@@ -964,7 +1017,7 @@ async fn a_ladder_rollback_returns_a_routed_session_to_its_own_profile() {
     r.core
         .pack_rollback(
             &theseus_protocol::packs::PackRollbackParams {
-                pack: "route.v1".into(),
+                pack: "route.v2".into(),
                 why: None,
                 off: false,
             },
@@ -983,7 +1036,7 @@ async fn a_ladder_rollback_returns_a_routed_session_to_its_own_profile() {
     r.core
         .pack_promote(
             &theseus_protocol::packs::PackPromoteParams {
-                pack: "route.v1".into(),
+                pack: "route.v2".into(),
                 to: "live".into(),
                 share: None,
                 report: None,
@@ -1096,7 +1149,7 @@ async fn the_panes_carried_routed_profile_runs_only_while_routing_acts() {
     r.core
         .pack_rollback(
             &theseus_protocol::packs::PackRollbackParams {
-                pack: "route.v1".into(),
+                pack: "route.v2".into(),
                 why: None,
                 off: false,
             },

@@ -1000,14 +1000,18 @@ mod tests {
         let (_, r) = prepared("role.v1");
         assert_eq!(c.state.json, r.state.json);
         assert_eq!(c.state.sha256, r.state.sha256);
-        // route.v1 (25e) rides the same request: the same state, byte for byte.
-        let (rp, ro) = prepared("route.v1");
-        assert_eq!(c.state.json, ro.state.json);
+        // route.v1 (25e) and route.v2 (theseus-3okf) ride the same request:
+        // the same state, byte for byte.
         let cp = crate::pack::by_name("classify.v1").unwrap();
-        assert_eq!(
-            (rp.jev_model.as_str(), rp.state_cap_tokens),
-            (cp.jev_model.as_str(), cp.state_cap_tokens)
-        );
+        for route in ["route.v1", "route.v2"] {
+            let (rp, ro) = prepared(route);
+            assert_eq!(c.state.json, ro.state.json, "{route}");
+            assert_eq!(
+                (rp.jev_model.as_str(), rp.state_cap_tokens),
+                (cp.jev_model.as_str(), cp.state_cap_tokens),
+                "{route}"
+            );
+        }
     }
 
     #[test]

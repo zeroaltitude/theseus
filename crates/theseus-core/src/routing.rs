@@ -1,5 +1,6 @@
-//! Routing (M5 step 25e): the model per interaction mode. `route.v1` judges,
-//! at `inbound`, which mode a person's message needs (`judge::inbound`), and
+//! Routing (M5 step 25e): the model per interaction mode. The route pack
+//! (`route.v2` since theseus-3okf) judges, at `inbound`, which mode a
+//! person's message needs (`judge::inbound`), and
 //! this module decides, purely, which profile the turn runs on: the mode's
 //! first usable profile, under the place's cap, by the switch rule. The turn
 //! applies it (`turn::route_step`).
@@ -10,8 +11,9 @@
 //! - **`cheapest`**: the usable profile cheapest for a short turn
 //!   ([`SHORT_INPUT`] uncached input tokens and [`SHORT_OUTPUT`] output, at
 //!   catalog prices).
-//! - **A detour** (`trivial`): that turn alone runs on the trivial profile;
-//!   the session's profile, `last_target` and compilation stay as they were.
+//! - **A detour** (`trivial` and `quick`, [`is_detour`]): that turn alone
+//!   runs on the mode's profile; the session's profile, `last_target` and
+//!   compilation stay as they were.
 //! - **A switch** (any other mode): the session's routed profile moves, at
 //!   once while the first compile's estimate is under `cold_switch_tokens`,
 //!   above it only when the turn before agreed (a [`Hold`]): the switch
@@ -21,7 +23,7 @@
 //!   `switch_confidence`, else trivial's 0.4, else the section's 0.6
 //!   (`RoutingConfig::confidence_for`, theseus-6n5j).
 //! - **A late verdict** (one that came after its message's wait) applies to
-//!   the session's next message alone, and a trivial one to none ([`carries`]).
+//!   the session's next message alone, and a detour's to none ([`carries`]).
 //! - **The cap.** A place's profile is its default and its cap: a profile
 //!   dearer than it at catalog prices is passed over, and the turn says
 //!   `capped`.
@@ -31,7 +33,7 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 
 use crate::catalog::CatalogEntry;
-use crate::config::routing::CHEAPEST;
+use crate::config::routing::{is_detour, CHEAPEST};
 use crate::config::RoutingConfig;
 
 /// A short turn's uncached input, in tokens, for `cheapest` and the cap.
@@ -78,7 +80,7 @@ pub enum Reason {
     /// The verdict's mode picked the profile (or the session's own, for a
     /// mode with no list, or the one it is on).
     Verdict,
-    /// A trivial message's detour.
+    /// A detour's message (`trivial`, `quick`).
     Detour,
     /// The mode's pick was dearer than the place's profile.
     Capped,
@@ -278,7 +280,7 @@ pub struct Decision {
     /// The profile the turn runs on.
     pub profile: String,
     pub reason: Reason,
-    /// This turn alone (trivial): the session stays where it was.
+    /// This turn alone (a detour's mode): the session stays where it was.
     pub detour: bool,
     /// The session's routed profile moves to `profile`.
     pub switch: bool,
@@ -287,7 +289,7 @@ pub struct Decision {
 
 /// The switch rule.
 pub fn decide(cfg: &RoutingConfig, profiles: &Profiles, a: &Ask<'_>) -> Decision {
-    let trivial = a.verdict.mode == "trivial";
+    let detour = is_detour(&a.verdict.mode);
     let stay = |reason, hold| Decision {
         profile: a.base.to_string(),
         reason,
@@ -295,7 +297,7 @@ pub fn decide(cfg: &RoutingConfig, profiles: &Profiles, a: &Ask<'_>) -> Decision
         switch: false,
         hold,
     };
-    let keep_or_clear = if trivial {
+    let keep_or_clear = if detour {
         HoldNext::Keep
     } else {
         HoldNext::Clear
@@ -314,7 +316,7 @@ pub fn decide(cfg: &RoutingConfig, profiles: &Profiles, a: &Ask<'_>) -> Decision
     if target == a.base {
         return stay(reason, keep_or_clear);
     }
-    if trivial {
+    if detour {
         return Decision {
             profile: target,
             reason: match reason {
@@ -349,11 +351,11 @@ pub fn decide(cfg: &RoutingConfig, profiles: &Profiles, a: &Ask<'_>) -> Decision
 /// Whether a verdict that came after its own message's wait may apply to the
 /// session's next message (theseus-6n5j). A switch's mode is the
 /// conversation's, and the switch it makes outlasts its message anyway, so it
-/// carries; `trivial` is its message's alone ("hi", "thanks"), and its detour
-/// is that turn's alone, so a late trivial verdict never applies to another
-/// message.
+/// carries; a detour's mode is its message's alone ("thanks", "what port is
+/// it on?"), and its detour is that turn's alone, so a late verdict of
+/// `trivial` or `quick` never applies to another message (theseus-3okf).
 pub fn carries(v: &Verdict) -> bool {
-    v.mode != "trivial"
+    !is_detour(&v.mode)
 }
 
 /// How many turns a switch at `context` tokens takes to pay back its cold
@@ -569,16 +571,16 @@ mod tests {
         out
     }
 
-    /// The Haiku 5.5 placements (theseus-3okf): a trivial message detours to
-    /// `haiku` for its turn alone, holding nothing, at any estimate; routine
-    /// programming switches the session to `haikuhi`; a config without the
-    /// Haiku profiles keeps the old way: trivial to GLM-5.3 Flash or the
-    /// cheapest, routine programming on Sonnet.
+    /// route.v2's placements (theseus-3okf): a trivial and a quick message
+    /// each detour to `haiku` for their turn alone, holding nothing, at any
+    /// estimate; routine programming switches the session to `haikuhi`; a
+    /// config without the Haiku profiles keeps the old way: trivial to the
+    /// cheapest, quick on the session's own, routine programming on Sonnet.
     #[test]
-    fn trivial_detours_to_haiku_and_routine_coding_switches_to_haikuhi() {
+    fn trivial_and_quick_detour_to_haiku_and_routine_coding_switches_to_haikuhi() {
         let cfg = RoutingConfig::default();
         let ps = seven();
-        for m in ["trivial"] {
+        for m in ["trivial", "quick"] {
             let d = decide(&cfg, &ps, &ask(&verdict(m, 0.9), "sonnet", 200_000));
             assert_eq!(
                 d,
@@ -592,6 +594,9 @@ mod tests {
                 "{m}"
             );
         }
+        // quick's bar is the section's 0.6, not trivial's 0.4.
+        let d = decide(&cfg, &ps, &ask(&verdict("quick", 0.5), "sonnet", 10));
+        assert_eq!((d.reason, d.detour), (Reason::Unsure, false));
         let d = decide(
             &cfg,
             &ps,
@@ -609,15 +614,22 @@ mod tests {
         no_glm.remove("glm");
         let d = decide(&cfg, &no_glm, &ask(&verdict("trivial", 0.9), "sonnet", 10));
         assert_eq!((d.profile.as_str(), d.detour), ("glm53", true), "cheapest");
+        let d = decide(&cfg, &ps, &ask(&verdict("quick", 0.9), "sonnet", 10));
+        assert_eq!(
+            (d.profile.as_str(), d.reason, d.detour, d.switch),
+            ("sonnet", Reason::Fallback, false, false)
+        );
         let d = decide(&cfg, &ps, &ask(&verdict("routine_coding", 0.9), "opus", 10));
         assert_eq!((d.profile.as_str(), d.switch), ("sonnet", true));
     }
 
-    /// A late verdict carries to the next message, but a trivial one never
-    /// does: its detour is its own message's alone (theseus-6n5j).
+    /// A late verdict carries to the next message, but a detour's never
+    /// does: its detour is its own message's alone (theseus-6n5j; `quick`
+    /// since theseus-3okf).
     #[test]
-    fn a_late_trivial_verdict_never_carries() {
+    fn a_late_detour_verdict_never_carries() {
         assert!(!carries(&verdict("trivial", 0.99)));
+        assert!(!carries(&verdict("quick", 0.99)));
         for m in [
             "chat",
             "sophisticated",

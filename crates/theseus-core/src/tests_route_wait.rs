@@ -86,7 +86,7 @@ async fn route_asks_alone_beside_the_batch_and_each_judgment_is_recorded_once() 
         BTreeMap::from([
             ("classify.v1".to_string(), 1),
             ("role.v1".to_string(), 1),
-            ("route.v1".to_string(), 1)
+            ("route.v2".to_string(), 1)
         ]),
         "each judgment once"
     );
@@ -94,20 +94,20 @@ async fn route_asks_alone_beside_the_batch_and_each_judgment_is_recorded_once() 
     assert_eq!(seen.len(), 2);
     let route_req = seen
         .iter()
-        .find(|s| asked(&s.body).contains("route.v1/mode"))
+        .find(|s| asked(&s.body).contains("route.v2/mode"))
         .unwrap();
     let batch_req = seen
         .iter()
-        .find(|s| !asked(&s.body).contains("route.v1/mode"))
+        .find(|s| !asked(&s.body).contains("route.v2/mode"))
         .unwrap();
-    assert_eq!(asked(&route_req.body).len(), 1, "route.v1's one question");
+    assert_eq!(asked(&route_req.body).len(), 1, "route.v2's one question");
     assert_eq!(
         route_req.body["state"], batch_req.body["state"],
         "one state"
     );
     let price = JevPrice::jev_1_13_0();
-    let route = rows.iter().find(|j| j["pack"] == "route.v1").unwrap();
-    let batch: Vec<&Value> = rows.iter().filter(|j| j["pack"] != "route.v1").collect();
+    let route = rows.iter().find(|j| j["pack"] == "route.v2").unwrap();
+    let batch: Vec<&Value> = rows.iter().filter(|j| j["pack"] != "route.v2").collect();
     assert_eq!(
         (
             route["call"]["packs"].as_u64(),
@@ -128,7 +128,7 @@ async fn route_asks_alone_beside_the_batch_and_each_judgment_is_recorded_once() 
         ),
         (u.input_tokens, u.output_tokens)
     );
-    assert_eq!(cost(route), price.cost_micros(&u), "route.v1's whole call");
+    assert_eq!(cost(route), price.cost_micros(&u), "route.v2's whole call");
     let u = billed(&batch_req.body);
     let sum = |k: &str| batch.iter().map(|j| tokens(j, k)).sum::<u64>();
     assert_eq!(
@@ -165,7 +165,7 @@ async fn the_verdict_reaches_the_turn_before_the_batch_answers() {
     assert!(
         kinds(&r.core.store, "judge.call")
             .iter()
-            .all(|j| j.data["pack"] == "route.v1"),
+            .all(|j| j.data["pack"] == "route.v2"),
         "the batch had not answered"
     );
 }

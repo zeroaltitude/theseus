@@ -61,7 +61,7 @@ impl Arm {
         match self {
             Arm::Off => "the judge off",
             Arm::Loop => "the judge on, classify, role and route off",
-            Arm::Packs => "the judge on, every pack as wired (route.v1 live)",
+            Arm::Packs => "the judge on, every pack as wired (route.v2 live)",
         }
     }
 
@@ -288,7 +288,7 @@ pub(super) fn judged(t: &mut toml::Table, base: &str, arm: Arm) -> Result<()> {
     j.insert("total_secs".into(), 5.into());
     if arm == Arm::Loop {
         let packs = table(j, "packs")?;
-        for p in ["classify.v1", "role.v1", "route.v1"] {
+        for p in ["classify.v1", "role.v1", "route.v2"] {
             let mut off = toml::Table::new();
             off.insert("mode".into(), "off".into());
             packs.insert(p.into(), off.into());
@@ -302,7 +302,7 @@ pub(super) fn judged(t: &mut toml::Table, base: &str, arm: Arm) -> Result<()> {
 /// bench's `true` sure to be harmless, so no notice is posted.
 pub(super) fn scripted(jev: &FakeJev) {
     jev.script(
-        "route.v1/mode",
+        "route.v2/mode",
         Scripted::Choice {
             option: "chat".into(),
             confidence: 0.95,
