@@ -121,8 +121,10 @@ fn list(names: &[&str]) -> ModeProfiles {
         switch_confidence: None,
     }
 }
+/// Haiku 5.5 first, then GLM-5.3 Flash, then the cheapest usable profile, so
+/// a config without either still detours as it did before (theseus-3okf).
 fn trivial() -> ModeProfiles {
-    list(&[CHEAPEST])
+    list(&["haiku", "glm", CHEAPEST])
 }
 fn sophisticated() -> ModeProfiles {
     list(&["opus", "fable"])
@@ -130,8 +132,11 @@ fn sophisticated() -> ModeProfiles {
 fn deep_coding() -> ModeProfiles {
     list(&["opus", "sonnet"])
 }
+/// Haiku 5.5 at high effort, then Sonnet 5.5 (theseus-3okf): a config
+/// without `haikuhi` runs routine programming on `sonnet`, or the session's
+/// own.
 fn routine_coding() -> ModeProfiles {
-    list(&["glm53", "glm"])
+    list(&["haikuhi", "sonnet"])
 }
 
 impl Default for RoutingModes {
@@ -184,8 +189,8 @@ impl RoutingConfig {
     }
 
     /// The checks as the config loads. A profile a mode names need not be
-    /// configured (the defaults name `opus`, `fable` and `glm53`, which a
-    /// sparse note may lack): one that is not is skipped as unusable.
+    /// configured (the defaults name `haiku`, `haikuhi`, `opus` and `fable`,
+    /// which a sparse note may lack): one that is not is skipped as unusable.
     pub fn validate(&self, profiles: impl Fn(&str) -> bool) -> Result<()> {
         let c = self.switch_confidence;
         if !(c > 0.0 && c <= 1.0) {
@@ -242,8 +247,8 @@ impl RoutingConfig {
     }
 }
 
-/// The template's `[routing]`, un-commented: its defaults, and its three
-/// profiles configured.
+/// The template's `[routing]`, un-commented: its defaults, and the
+/// profiles its modes name configured.
 #[cfg(test)]
 pub(crate) fn the_templates_routing_section(cfg: &crate::Config) {
     let r = &cfg.routing;
@@ -265,8 +270,16 @@ pub(crate) fn the_templates_routing_section(cfg: &crate::Config) {
         ("opus", "claude-opus-5-5"),
         ("fable", "claude-fable-5-1"),
         ("glm53", "glm-5.3"),
+        ("haiku", "claude-haiku-5-5"),
+        ("haikuhi", "claude-haiku-5-5"),
     ] {
         assert_eq!(cfg.all_profiles()[p].model, model, "[profiles.{p}]");
+    }
+    // Every profile a mode names is the template's, but `cheapest`.
+    for m in MODES {
+        for p in r.modes.of(m).iter().filter(|p| *p != CHEAPEST) {
+            assert!(cfg.all_profiles().contains_key(p), "{m}: {p}");
+        }
     }
 }
 
@@ -282,12 +295,12 @@ mod tests {
     fn the_defaults_are_the_steps_table() {
         let d = cfg("").unwrap();
         assert_eq!(d, RoutingConfig::default());
-        assert_eq!(d.modes.of("trivial"), ["cheapest"]);
+        assert_eq!(d.modes.of("trivial"), ["haiku", "glm", "cheapest"]);
         assert!(d.modes.of("chat").is_empty());
         assert_eq!(d.modes.of("other"), d.modes.of("chat"));
         assert_eq!(d.modes.of("sophisticated"), ["opus", "fable"]);
         assert_eq!(d.modes.of("deep_coding"), ["opus", "sonnet"]);
-        assert_eq!(d.modes.of("routine_coding"), ["glm53", "glm"]);
+        assert_eq!(d.modes.of("routine_coding"), ["haikuhi", "sonnet"]);
         d.validate(|_| false).unwrap();
     }
 

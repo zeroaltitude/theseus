@@ -49,6 +49,14 @@ fn routing_only(c: &mut Config) {
     }
 }
 
+/// The placements before Haiku 5.5 (theseus-3okf): a trivial detour to GLM
+/// 5.3 Flash and routine programming on GLM 5.3, both on the `zai` fake, for
+/// the tests whose detour or switch is meant to leave the session's provider.
+pub(crate) fn glm_placements(c: &mut Config) {
+    c.routing.modes.trivial.profiles = vec!["glm".into()];
+    c.routing.modes.routine_coding.profiles = vec!["glm53".into(), "glm".into()];
+}
+
 pub(crate) fn rig(jev: Option<&FakeJev>, n: usize, tweak: impl FnOnce(&mut Config)) -> Rig {
     let dir = Arc::new(tempfile::tempdir().unwrap());
     rig_on(dir, jev, n, tweak, board())
@@ -307,9 +315,10 @@ async fn two_calls_ask_three_packs_and_a_hard_question_goes_to_opus() {
     );
 }
 
-/// Routine coding goes to GLM 5.3, on the other provider.
+/// Routine coding goes to Haiku 5.5 at high effort, its thinking summarized
+/// (theseus-3okf; GLM 5.3 before it).
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn routine_coding_goes_to_glm53() {
+async fn routine_coding_goes_to_haiku_5_5_at_high_effort() {
     let jev = FakeJev::start().unwrap();
     mode(&jev, "routine_coding", 0.95);
     let r = rig(Some(&jev), 1, |_| {});
@@ -320,9 +329,19 @@ async fn routine_coding_goes_to_glm53() {
         None,
     )
     .await;
-    assert_eq!(r.zai.requests()[0].model, "glm-5.3");
-    assert!(r.claude.requests().is_empty());
-    assert_eq!(res.profile, "glm53");
+    let req = &r.claude.requests()[0];
+    assert_eq!(req.model, "claude-haiku-5-5");
+    assert_eq!(req.output_config.as_ref().unwrap()["effort"], "high");
+    assert_eq!(
+        req.thinking.as_ref().unwrap(),
+        &serde_json::json!({"type": "adaptive", "display": "summarized"})
+    );
+    assert!(r.zai.requests().is_empty());
+    assert_eq!(res.profile, "haikuhi");
+    assert!(
+        session(&r.core, &res.session_id).routed.is_some(),
+        "a switch"
+    );
 }
 
 /// "thank you!" detours to the cheapest usable profile (GLM 5.3 Flash) for
@@ -333,7 +352,7 @@ async fn routine_coding_goes_to_glm53() {
 async fn a_trivial_message_detours_and_the_next_prefix_is_byte_identical() {
     let jev = FakeJev::start().unwrap();
     mode(&jev, "chat", 0.95);
-    let r = rig(Some(&jev), 3, |_| {});
+    let r = rig(Some(&jev), 3, glm_placements);
     let first = turn(&r.core, None, "What does the store's manifest hold?", None).await;
     let sid = first.session_id.clone();
     let before = session(&r.core, &sid);
@@ -543,7 +562,7 @@ async fn a_late_verdict_applies_from_the_next_message() {
 async fn a_greeting_judged_trivial_at_045_detours() {
     let jev = FakeJev::start().unwrap();
     mode(&jev, "trivial", 0.45);
-    let r = rig(Some(&jev), 2, |_| {});
+    let r = rig(Some(&jev), 2, glm_placements);
     let hi = turn(&r.core, None, "hey, good evening", None).await;
     assert_eq!(
         (
@@ -701,12 +720,12 @@ async fn a_choice_after_a_routed_turn_labels_its_mode() {
     )
     .await;
     until_route_rows(&r.core.store, 1).await;
-    // The owner picks GLM 5.3 (routine coding's alone) for the next one.
+    // The owner picks haikuhi (routine coding's alone) for the next one.
     turn(
         &r.core,
         Some(&one.session_id),
         "Just rename them.",
-        Some("glm53"),
+        Some("haikuhi"),
     )
     .await;
     until_route_rows(&r.core.store, 2).await;
@@ -910,7 +929,10 @@ pub(crate) fn keyless() -> Arc<crate::secrets::SecretBoard> {
 /// it ends as the verdict lands.
 pub(crate) async fn moved_to_opus(jev: &FakeJev, n: usize) -> (Rig, String) {
     mode(jev, "sophisticated", 0.95);
-    let r = rig(Some(jev), n, |c| c.routing.max_wait_ms = 5_000);
+    let r = rig(Some(jev), n, |c| {
+        c.routing.max_wait_ms = 5_000;
+        glm_placements(c);
+    });
     let one = turn(
         &r.core,
         None,
@@ -1102,6 +1124,7 @@ fn recalling(jev: &FakeJev, n: usize) -> (Rig, String) {
     let r = rig(Some(jev), n, |c| {
         c.memory.mode = crate::config::MemoryMode::Live;
         c.routing.max_wait_ms = 5_000;
+        glm_placements(c);
     });
     let notes = crate::tests_recall::session(&r.core, None, &[KEY_NOTE]);
     let ask = crate::tests_recall::index_of(&r.core, vec![notes.clone()]);
@@ -1309,7 +1332,7 @@ async fn a_switched_turns_compilation_names_its_recall_drops() {
 async fn a_trivial_message_in_a_task_session_detours_with_its_arrangement() {
     let jev = FakeJev::start().unwrap();
     mode(&jev, "chat", 0.95);
-    let r = rig(Some(&jev), 3, |_| {});
+    let r = rig(Some(&jev), 3, glm_placements);
     let parent = turn(
         &r.core,
         None,
@@ -1340,6 +1363,7 @@ async fn a_detours_window_leaves_its_recall_note_out() {
     let r = rig(Some(&jev), 3, |c| {
         c.memory.mode = crate::config::MemoryMode::Canary;
         c.memory.canary_fraction = 1.0;
+        glm_placements(c);
     });
     let heron = crate::tests_recall::session(
         &r.core,

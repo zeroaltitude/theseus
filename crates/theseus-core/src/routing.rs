@@ -437,9 +437,10 @@ mod tests {
             pick(&list("deep_coding"), &ps, false, None),
             Picked::Profile("opus".into())
         );
+        // routine_coding's `haikuhi` is not one of the five: `sonnet`.
         assert_eq!(
             pick(&list("routine_coding"), &ps, false, None),
-            Picked::Profile("glm53".into())
+            Picked::Profile("sonnet".into())
         );
         assert_eq!(pick(&list("chat"), &ps, false, None), Picked::Own);
         assert_eq!(pick(&list("other"), &ps, false, None), Picked::Own);
@@ -455,7 +456,7 @@ mod tests {
         );
         // An image: glm-5.3 reads none, so glm (5.3 Flash) takes it.
         assert_eq!(
-            pick(&list("routine_coding"), &ps, true, None),
+            pick(&["glm53".into(), "glm".into()], &ps, true, None),
             Picked::Profile("glm".into())
         );
         // None usable: the session's own.
@@ -556,6 +557,62 @@ mod tests {
         );
     }
 
+    /// The five with the template's Haiku 5.5 profiles (theseus-3okf).
+    fn seven() -> Profiles {
+        let c = crate::catalog::Catalog::builtin();
+        let e = c.get("claude-haiku-5-5").unwrap();
+        let mut out = five();
+        for name in ["haiku", "haikuhi"] {
+            let h = p("anthropic", "claude-haiku-5-5", short_cost(e), e.vision);
+            out.insert(name.into(), h);
+        }
+        out
+    }
+
+    /// The Haiku 5.5 placements (theseus-3okf): a trivial message detours to
+    /// `haiku` for its turn alone, holding nothing, at any estimate; routine
+    /// programming switches the session to `haikuhi`; a config without the
+    /// Haiku profiles keeps the old way: trivial to GLM-5.3 Flash or the
+    /// cheapest, routine programming on Sonnet.
+    #[test]
+    fn trivial_detours_to_haiku_and_routine_coding_switches_to_haikuhi() {
+        let cfg = RoutingConfig::default();
+        let ps = seven();
+        for m in ["trivial"] {
+            let d = decide(&cfg, &ps, &ask(&verdict(m, 0.9), "sonnet", 200_000));
+            assert_eq!(
+                d,
+                Decision {
+                    profile: "haiku".into(),
+                    reason: Reason::Detour,
+                    detour: true,
+                    switch: false,
+                    hold: HoldNext::Keep
+                },
+                "{m}"
+            );
+        }
+        let d = decide(
+            &cfg,
+            &ps,
+            &ask(&verdict("routine_coding", 0.9), "sonnet", 10),
+        );
+        assert_eq!(
+            (d.profile.as_str(), d.reason, d.detour, d.switch),
+            ("haikuhi", Reason::Verdict, false, true)
+        );
+        // Without them.
+        let ps = five();
+        let d = decide(&cfg, &ps, &ask(&verdict("trivial", 0.9), "sonnet", 10));
+        assert_eq!((d.profile.as_str(), d.detour), ("glm", true));
+        let mut no_glm = five();
+        no_glm.remove("glm");
+        let d = decide(&cfg, &no_glm, &ask(&verdict("trivial", 0.9), "sonnet", 10));
+        assert_eq!((d.profile.as_str(), d.detour), ("glm53", true), "cheapest");
+        let d = decide(&cfg, &ps, &ask(&verdict("routine_coding", 0.9), "opus", 10));
+        assert_eq!((d.profile.as_str(), d.switch), ("sonnet", true));
+    }
+
     /// A late verdict carries to the next message, but a trivial one never
     /// does: its detour is its own message's alone (theseus-6n5j).
     #[test]
@@ -575,7 +632,7 @@ mod tests {
     #[test]
     fn under_cold_switch_tokens_a_switch_is_at_once_and_above_it_waits_for_agreement() {
         let cfg = RoutingConfig::default();
-        let ps = five();
+        let ps = seven();
         let v = verdict("sophisticated", 0.8);
         let d = decide(&cfg, &ps, &ask(&v, "sonnet", 29_999));
         assert_eq!(
@@ -616,7 +673,7 @@ mod tests {
             },
         );
         assert_eq!(d.reason, Reason::CacheHold);
-        assert!(matches!(d.hold, HoldNext::Set(Hold { ref profile, .. }) if profile == "glm53"));
+        assert!(matches!(d.hold, HoldNext::Set(Hold { ref profile, .. }) if profile == "haikuhi"));
     }
 
     #[test]
@@ -683,20 +740,31 @@ mod tests {
             },
         );
         assert_eq!((d.profile.as_str(), d.reason), ("sonnet", Reason::Capped));
-        // Under a glm cap, routine coding's glm53 is dearer, glm is not.
+        // Under a glm cap, routine coding's haikuhi is cheaper and goes;
+        // without it, its sonnet is dearer: capped, the session's own.
+        let mut ps = seven();
         let cap = Some(ps["glm"].short_cost.unwrap());
         let v = verdict("routine_coding", 0.95);
-        let d = decide(
-            &cfg,
-            &ps,
-            &Ask {
-                cap,
-                ..ask(&v, "sonnet", 10)
-            },
-        );
+        let at = |ps: &Profiles| {
+            decide(
+                &cfg,
+                ps,
+                &Ask {
+                    cap,
+                    ..ask(&v, "opus", 10)
+                },
+            )
+        };
+        let d = at(&ps);
         assert_eq!(
             (d.profile.as_str(), d.reason, d.switch),
-            ("glm", Reason::Capped, true)
+            ("haikuhi", Reason::Verdict, true)
+        );
+        ps.get_mut("haikuhi").unwrap().unusable = Some("key");
+        let d = at(&ps);
+        assert_eq!(
+            (d.profile.as_str(), d.reason, d.switch),
+            ("opus", Reason::Capped, false)
         );
     }
 

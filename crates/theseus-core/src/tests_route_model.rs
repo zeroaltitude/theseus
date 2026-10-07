@@ -67,12 +67,9 @@ async fn a_routed_turns_metrics_name_the_model_it_ran_on() {
         otlp_endpoint: Some(rx.endpoint()),
         ..Default::default()
     };
-    let r = rig_parts(
-        Some(&jev),
-        2,
-        |_| {},
-        |p| p.telemetry = Some(Telemetry::from_config(&tel, None).unwrap()),
-    );
+    let r = rig_parts(Some(&jev), 2, crate::tests_route::glm_placements, |p| {
+        p.telemetry = Some(Telemetry::from_config(&tel, None).unwrap())
+    });
     let submit = |input: &str| {
         let core = r.core.clone();
         let params = json!({"input": input});

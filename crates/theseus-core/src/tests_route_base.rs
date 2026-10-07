@@ -46,7 +46,10 @@ fn moved(profile: &str, from: &str) -> Option<Routed> {
 /// routing acts, the pane's carried `opus` keeps it moved.
 async fn pane_moved_to_opus(jev: &FakeJev) -> (Rig, String) {
     mode(jev, "chat", 0.95);
-    let r = rig(Some(jev), 3, |c| c.routing.max_wait_ms = 5_000);
+    let r = rig(Some(jev), 3, |c| {
+        c.routing.max_wait_ms = 5_000;
+        crate::tests_route::glm_placements(c);
+    });
     let one = submit(
         &r,
         json!({"input": "Name the tide tables.", "profile": "glm"}),
@@ -194,7 +197,10 @@ async fn a_changed_place_profile_clears_the_move() {
     const QUAY: u64 = 271_828_182_845_904_523;
     let jev = FakeJev::start().unwrap();
     mode(&jev, "sophisticated", 0.95);
-    let r = rig(Some(&jev), 3, |c| c.routing.max_wait_ms = 5_000);
+    let r = rig(Some(&jev), 3, |c| {
+        c.routing.max_wait_ms = 5_000;
+        crate::tests_route::glm_placements(c);
+    });
     let bind = |ceiling: Option<PlaceCeiling>| {
         r.core.bind_places(vec![BoundPlace {
             target: format!("discord:channel:{QUAY}"),
@@ -241,7 +247,10 @@ async fn a_changed_place_profile_clears_the_move() {
 async fn a_routed_record_without_its_base_reads_as_before() {
     let jev = FakeJev::start().unwrap();
     mode(&jev, "chat", 0.95);
-    let r = rig(Some(&jev), 3, |c| c.routing.max_wait_ms = 5_000);
+    let r = rig(Some(&jev), 3, |c| {
+        c.routing.max_wait_ms = 5_000;
+        crate::tests_route::glm_placements(c);
+    });
     let mut rec = SessionRecord::new(SessionKind::Conversation, None);
     rec.routed = Some(Box::new(Routed {
         profile: Some("opus".into()),
@@ -337,7 +346,7 @@ async fn after_two_switches_routing_off_runs_on_the_first_base() {
 async fn a_switch_back_to_the_base_ends_the_move() {
     let jev = FakeJev::start().unwrap();
     mode(&jev, "chat", 0.95);
-    let r = rig(Some(&jev), 3, |_| {});
+    let r = rig(Some(&jev), 3, crate::tests_route::glm_placements);
     let one = submit(
         &r,
         json!({"input": "Name the tide tables.", "profile": "glm53"}),
