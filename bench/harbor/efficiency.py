@@ -64,11 +64,14 @@ ARMS: dict[str, dict[str, tuple[str, ...]]] = {
 # The providers' list prices, dollars a million tokens, by class: what a
 # trial's tokens cost whatever a harness's own table says (theseus-qags).
 # Claude Sonnet 5.5's are the ones Theseus's and Claude Code's own bills
-# work out to in b5 (a cache read at a tenth of an input); GPT-6.1-Sol's are
-# LiteLLM's, the table Harbor prices Codex's tokens from.
+# work out to in b5 (a cache read at a tenth of an input); the OpenAI models'
+# are LiteLLM's, the table Harbor prices Codex's tokens from (OpenAI bills no
+# cache write, and reports none).
 LIST_PRICES: dict[str, dict[str, float]] = {
     "claude-sonnet-5-5": {"input": 2.0, "cache_read": 0.2, "cache_write": 2.5, "output": 10.0},
     "gpt-6.1-sol": {"input": 2.0, "cache_read": 0.1, "cache_write": 2.5, "output": 10.0},
+    "gpt-5.6-sol": {"input": 4.0, "cache_read": 0.4, "cache_write": 4.0, "output": 20.0},
+    "gpt-6-astra": {"input": 10.0, "cache_read": 1.0, "cache_write": 12.5, "output": 50.0},
 }
 
 # Anthropic's usage keys, by class.
@@ -815,14 +818,18 @@ def aider_calls(text: str | None) -> list[dict[str, Any]]:
     import re
 
     out = []
-    for line in (text or "").splitlines():
+    lines = (text or "").splitlines()
+    for i, line in enumerate(lines):
         if not line.lstrip().startswith("Tokens:"):
             continue
         sent = re.search(_AIDER_NUM + r" sent", line)
         recv = re.search(_AIDER_NUM + r" received", line)
         write = re.search(_AIDER_NUM + r" cache write", line)
         hit = re.search(_AIDER_NUM + r" cache hit", line)
+        # A call with both cache reads and writes prints its cost on the next line.
         cost = re.search(r"Cost: \$([\d.,]+) message", line)
+        if not cost and i + 1 < len(lines) and lines[i + 1].lstrip().startswith("Cost:"):
+            cost = re.search(r"Cost: \$([\d.,]+) message", lines[i + 1])
         if not sent or not recv:
             continue
         w = _aider_count(*write.groups()) if write else 0

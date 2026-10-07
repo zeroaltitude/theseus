@@ -5,9 +5,8 @@
 
 with this directory on PYTHONPATH. Harbor's own `Aider` (`-a aider`: `aider
 --yes --message=<the task>`, one message in scripting mode) with
-`measured.MeasuredArm`: `--reasoning-effort medium`, the sampler around its
-run, and the record from Aider's own output (`efficiency.aider_record`). It
-adds:
+`measured.MeasuredArm`: the sampler around its run, and the record from
+Aider's own output (`efficiency.aider_record`). It adds:
 
 - **the install, pinned**: Harbor's runs Aider's installer, which takes the
   latest release; this one installs uv and then `aider-chat==<PINNED_VERSION>`
@@ -15,19 +14,28 @@ adds:
 - **the model, by provider**: Harbor passes `--model=claude-sonnet-5-5`;
   Aider's LiteLLM needs the provider to route a model its table may not know,
   so the arm passes `--model=anthropic/claude-sonnet-5-5`;
-- **its prices**: Aider 0.86.2's table predates Claude Sonnet 5.5, so the arm
-  uploads a model-metadata file (`--model-metadata-file`) with its context
-  window and its list prices (`efficiency.LIST_PRICES`): the dollars Aider
-  prints are then the list price's;
+- **its model settings** (`--model-settings-file`): Aider 0.86.2 predates
+  Claude Sonnet 5.5, so the arm gives it the settings Aider ships for its
+  newest Sonnet (Sonnet 4.5's: `diff` edits, the repo map, prompt caching),
+  with three changes Sonnet 5.5 needs or the bench's rules ask for. No
+  `temperature` (`use_temperature: false`): Sonnet 5.5 refuses every request
+  that sends one ("`temperature` is deprecated for this model", a 400), and
+  Aider sends 0 by default. The effort as `output_config: {effort: medium}`,
+  the field Theseus sends: Aider's own `--reasoning-effort` goes out as a
+  literal `extra_body` key through its LiteLLM, which the API does not take
+  (a recorder standing in for the API showed both, 2026-10-07). And Sonnet
+  5.5 as the weak and editor model too, where Aider's Sonnet settings name
+  Haiku, so every call is the arm's one model;
+- **its prices** (`--model-metadata-file`): the context window and the list
+  prices (`efficiency.LIST_PRICES`), which Aider's own table lacks;
 - **its logs**: `--analytics-log` (local only; `--no-analytics` sends
-  nothing) for each call's exact token counts, no update check, and
-  `--no-check-model-accepts-settings`, so the effort is sent to the model
-  rather than dropped for a model Aider does not know.
+  nothing) for each call's exact token counts, and no update check.
 
-Aider has no spend cap and no turn cap: the caps are recorded, not enforced.
-Aider does not drive a loop of tool calls as the other arms do: it answers
-one message, with up to three reflections, and runs the shell commands it
-suggests (`--yes-always`).
+`--ak reasoning_effort=…` still names the effort (an ablation): it goes into
+`output_config`. Aider has no spend cap and no turn cap: the caps are recorded,
+not enforced. Aider does not drive a loop of tool calls as the other arms do:
+it answers one message, with up to three reflections, and runs the shell
+commands it suggests (`--yes-always`).
 """
 
 from __future__ import annotations
@@ -40,11 +48,13 @@ from pathlib import Path
 from harbor.agents.installed.aider import Aider
 
 import efficiency as ef
+import measure
 from measured import DIR, MeasuredArm
 
 # aider-chat's latest release on PyPI when this arm was built (2026-10-07).
 PINNED_VERSION = "0.86.2"
 METADATA = f"{DIR}/aider-models.json"
+SETTINGS = f"{DIR}/aider-model-settings.yml"
 ANALYTICS = "/logs/agent/aider-analytics.jsonl"
 RUN = re.compile(r"(?:^|[\s;])aider --yes ")
 UV_INSTALL = "https://astral.sh/uv/install.sh"
@@ -64,6 +74,17 @@ def metadata(model: str) -> dict:
     }}
 
 
+def settings(model: str, effort: str) -> list[dict]:
+    """The model settings Aider reads (a YAML list; JSON is YAML): Aider 0.86.2's
+    own for claude-sonnet-4-5, with no temperature, the effort, and the one model."""
+    return [{
+        "name": model, "edit_format": "diff", "weak_model_name": model, "use_repo_map": True,
+        "examples_as_sys_msg": False, "cache_control": True, "use_temperature": False,
+        "editor_model_name": model, "editor_edit_format": "editor-diff",
+        "extra_params": {"max_tokens": 128000, "output_config": {"effort": effort}},
+    }]
+
+
 def install_script(version: str | None) -> str:
     spec = f"aider-chat=={version}" if version else "aider-chat"
     return (
@@ -78,7 +99,14 @@ def install_script(version: str | None) -> str:
 class MeasuredAider(MeasuredArm, Aider):
     ARM = "aider"
     PINNED_VERSION = PINNED_VERSION
-    EFFORT_OPTION = "reasoning_effort"
+
+    def __init__(self, *args, reasoning_effort: str | None = None, **kwargs):
+        # Not Harbor's --reasoning-effort (above): the settings file carries it.
+        self._effort = reasoning_effort or measure.EFFORT
+        super().__init__(*args, **kwargs)
+
+    def effort_asked(self):
+        return self._effort
 
     async def install(self, environment):
         # Harbor's install with the version pinned, then the arm's own.
@@ -87,12 +115,15 @@ class MeasuredAider(MeasuredArm, Aider):
         await self.measure_install(environment)
 
     async def after_install(self, environment):
+        model = self.model_name or "anthropic/claude-sonnet-5-5"
+        await self.exec_as_root(environment, command=f"mkdir -p {DIR}")
         with tempfile.TemporaryDirectory() as d:
-            path = Path(d) / "aider-models.json"
-            path.write_text(json.dumps(metadata(self.model_name or "anthropic/claude-sonnet-5-5"), indent=2))
-            await self.exec_as_root(environment, command=f"mkdir -p {DIR}")
-            await environment.upload_file(path, METADATA)
-        await self.exec_as_root(environment, command=f"chmod 755 {DIR} && chmod 644 {METADATA}")
+            for name, body, remote in (("aider-models.json", metadata(model), METADATA),
+                                       ("aider-model-settings.yml", settings(model, self._effort), SETTINGS)):
+                path = Path(d) / name
+                path.write_text(json.dumps(body, indent=2))
+                await environment.upload_file(path, remote)
+        await self.exec_as_root(environment, command=f"chmod 755 {DIR} && chmod 644 {METADATA} {SETTINGS}")
 
     def rewrite(self, command, env):
         if not RUN.search(command):
@@ -100,8 +131,8 @@ class MeasuredAider(MeasuredArm, Aider):
         if self.model_name and "/" in self.model_name:
             bare = self.model_name.split("/", 1)[1]
             command = command.replace(f"--model={bare} ", f"--model={self.model_name} ")
-        extra = (f"--model-metadata-file {METADATA} --analytics-log {ANALYTICS} --no-analytics "
-                 "--no-check-update --no-show-release-notes --no-check-model-accepts-settings ")
+        extra = (f"--model-settings-file {SETTINGS} --model-metadata-file {METADATA} "
+                 f"--analytics-log {ANALYTICS} --no-analytics --no-check-update --no-show-release-notes ")
         return command.replace("aider --yes ", "aider --yes " + extra, 1), env
 
     def record(self):

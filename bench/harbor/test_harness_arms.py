@@ -59,7 +59,8 @@ AIDER = """Aider v0.86.2
 Main model: anthropic/claude-sonnet-5-5 with diff edit format
 Tokens: 4.2k sent, 4.0k cache write, 310 received. Cost: $0.0132 message, $0.0132 session.
 Running nginx -t
-Tokens: 5.1k sent, 4.0k cache hit, 1.0k cache write, 1.2k received. Cost: $0.0170 message, $0.0302 session.
+Tokens: 5.1k sent, 1.0k cache write, 4.0k cache hit, 1.2k received.
+Cost: $0.0170 message, $0.0302 session.
 """
 AIDER_ANALYTICS = [
     {"event": "launched", "properties": {}},
@@ -176,8 +177,8 @@ class FakeEnvironment:
 
 def arms():
     return [
-        (codex_agent.MeasuredCodex, Codex, "openai/gpt-6.1-sol", "codex", "0.161.0", "reasoning_effort"),
-        (aider_agent.MeasuredAider, Aider, SONNET, "aider", "0.86.2", "reasoning_effort"),
+        (codex_agent.MeasuredCodex, Codex, codex_agent.NATIVE_MODEL, "codex", "0.161.0", "reasoning_effort"),
+        (aider_agent.MeasuredAider, Aider, SONNET, "aider", "0.86.2", None),
         (opencode_agent.MeasuredOpenCode, OpenCode, SONNET, "opencode", "1.18.35", "variant"),
         (openhands_agent.MeasuredOpenHands, OpenHands, SONNET, "openhands", "1.11.0", "reasoning_effort"),
         (openclaw_agent.MeasuredOpenClaw, OpenClaw, SONNET, "openclaw", "2026.9.8", "thinking"),
@@ -203,10 +204,11 @@ class Arms(unittest.TestCase):
                 self.assertTrue(issubclass(cls, base))
                 self.assertEqual(cls.name(), base.name())
                 self.assertEqual((cls.ARM, a.version(), a.effort_asked()), (arm, pin, "medium"))
-                self.assertEqual(getattr(a.options, effort), "medium")
+                if effort:
+                    self.assertEqual(getattr(a.options, effort), "medium")
                 self.assertEqual(a.caps, {"max_budget_usd": 2.0, "max_turns": 200})
                 # An --ak wins over the pin and over medium: an ablation.
-                b = self.make(cls, model, version="9.9.9", **{effort: "high"})
+                b = self.make(cls, model, version="9.9.9", **{effort or "reasoning_effort": "high"})
                 self.assertEqual((b.version(), b.effort_asked()), ("9.9.9", "high"))
 
     def test_only_openhands_enforces_the_caps(self):
@@ -282,8 +284,14 @@ class Arms(unittest.TestCase):
         installs = [c for c in env.commands if "uv tool install" in c]
         self.assertEqual(len(installs), 1)
         self.assertIn("aider-chat==0.86.2 ", installs[0])
-        meta = [u for u in env.uploads if u[1] == aider_agent.METADATA]
-        self.assertEqual(len(meta), 1)
+        self.assertEqual(sorted(u[1] for u in env.uploads if u[1] in (aider_agent.METADATA, aider_agent.SETTINGS)),
+                         sorted([aider_agent.METADATA, aider_agent.SETTINGS]))
+        # No temperature (Sonnet 5.5 refuses one), the effort as output_config, one model throughout.
+        s = aider_agent.settings(SONNET, "medium")[0]
+        self.assertEqual((s["use_temperature"], s["extra_params"]["output_config"], s["weak_model_name"],
+                          s["editor_model_name"]), (False, {"effort": "medium"}, SONNET, SONNET))
+        self.assertNotIn("--reasoning-effort", a.build_cli_flags())
+        self.assertEqual(aider_agent.settings(SONNET, "high")[0]["extra_params"]["output_config"], {"effort": "high"})
         entry = aider_agent.metadata(SONNET)[SONNET]
         self.assertAlmostEqual(entry["input_cost_per_token"], 2e-6, places=12)
         self.assertAlmostEqual(entry["cache_read_input_token_cost"], 2e-7, places=12)
@@ -291,11 +299,11 @@ class Arms(unittest.TestCase):
     def test_aiders_command_names_the_provider_and_keeps_its_logs(self):
         a = self.make(aider_agent.MeasuredAider, SONNET)
         harbors = (". $HOME/.local/bin/env; aider --yes --chat-history-file=/logs/agent/aider.chat.history.md "
-                   "--reasoning-effort medium --model=claude-sonnet-5-5 --message='Fix it.' 2>&1 | tee x")
+                   "--model=claude-sonnet-5-5 --message='Fix it.' 2>&1 | tee x")
         cmd, _ = a.rewrite(harbors, {})
         self.assertIn("--model=anthropic/claude-sonnet-5-5 ", cmd)
-        for flag in ("--model-metadata-file " + aider_agent.METADATA, "--analytics-log " + aider_agent.ANALYTICS,
-                     "--no-analytics", "--no-check-model-accepts-settings", "--reasoning-effort medium"):
+        for flag in ("--model-settings-file " + aider_agent.SETTINGS, "--model-metadata-file " + aider_agent.METADATA,
+                     "--analytics-log " + aider_agent.ANALYTICS, "--no-analytics"):
             self.assertIn(flag, cmd)
         self.assertEqual(a.rewrite("mkdir -p /x", None), ("mkdir -p /x", None))
 
@@ -335,7 +343,7 @@ class Arms(unittest.TestCase):
         self.assertEqual(ctx.n_input_tokens, 15 + 2000 + 2300)
 
     def test_a_broken_record_never_fails_the_trial(self):
-        a = self.make(codex_agent.MeasuredCodex, "openai/gpt-6.1-sol")
+        a = self.make(codex_agent.MeasuredCodex, codex_agent.NATIVE_MODEL)
         ctx = AgentContext()
         with mock.patch.object(codex_agent.ef, "codex_record", side_effect=ValueError("bad")):
             a.populate_context_post_run(ctx)
