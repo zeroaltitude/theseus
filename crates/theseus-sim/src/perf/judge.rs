@@ -274,7 +274,7 @@ pub struct JudgeOpts {
 }
 
 /// `[judge]` on at the fake Jev, for `arm`.
-fn judged(t: &mut toml::Table, base: &str, arm: Arm) -> Result<()> {
+pub(super) fn judged(t: &mut toml::Table, base: &str, arm: Arm) -> Result<()> {
     fn table<'a>(t: &'a mut toml::Table, key: &str) -> Result<&'a mut toml::Table> {
         t.entry(key)
             .or_insert_with(|| toml::Value::Table(Default::default()))
@@ -300,7 +300,7 @@ fn judged(t: &mut toml::Table, base: &str, arm: Arm) -> Result<()> {
 /// The fake Jev's answers: a confident `chat` for `route.v1` (a switch to
 /// chat's profile, which the bench points at the stand-in too), and the
 /// bench's `true` sure to be harmless, so no notice is posted.
-fn scripted(jev: &FakeJev) {
+pub(super) fn scripted(jev: &FakeJev) {
     jev.script(
         "route.v1/mode",
         Scripted::Choice {
