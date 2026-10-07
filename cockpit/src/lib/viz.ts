@@ -8,12 +8,15 @@
 // with an icon or a label); one axis a chart; thin marks; a legend for two series or more and none for one; text in the
 // ink, never in a series colour; every chart with a hover tooltip and a table view.
 //
-// Every palette here was run through the method's validator, dark against the panel faces (#0a1828 and #06101d) and light
-// against #fcfcfb (print, export, a light mode to come). Pure, with no import but types, so `node --test` runs it as it
-// is (test/viz.test.ts).
-import type { ProviderCall } from './derive.ts'
+// Every palette here passes the method's checks, dark against the panel faces (#0a1828 and #06101d) and light against
+// #fcfcfb (print, export, a light mode to come): `palette.ts` runs them, and test/palette.test.ts holds each palette to
+// them in CI. Pure, importing only the protocol's types and other pure modules, so `node --test` runs it as it is
+// (test/viz.test.ts).
+import type { ProviderCall } from './calls.ts'
+import type { Tone } from './taxonomy.ts'
+import { contrast, type Mode } from './palette.ts'
 
-export type Mode = 'dark' | 'light'
+export type { Mode }
 
 // ---------------------------------------------------------------- colour
 
@@ -51,12 +54,28 @@ export const TONE_SERIES: Record<Mode, readonly (readonly [tone: string, color: 
   light: [['live', '#00a1b7'], ['model', '#5a39a0'], ['wait', '#b98a00'], ['fault', '#990c36'], ['tool', '#009cd3'], ['money', '#b08e00'], ['think', '#d163e2'], ['ok', '#006c4a']],
 }
 
+/** A tone drawn as a mark: a budget's line, a failed run's triangle, a state's share of a bar, a span of its kind. The
+ *  tone itself stays for text, pills, and glows, where its brightness is its job; a mark takes the same hue's step in the
+ *  dark band (`TONE_SERIES`), so it reads as a mark on the night glass and passes the method's checks. Idle is the
+ *  de-emphasis gray. A tone as a mark still says its state in words beside it (the legend, the tip), never by colour
+ *  alone. */
+export const TONE_MARK: Record<Tone, string> = { ...Object.fromEntries(TONE_SERIES.dark), idle: OTHER } as Record<Tone, string>
+
 /** A chart's chrome and ink. Dark is the cockpit's own ink on the night glass, with brass hairlines; light is the
  *  method's set, for print and export. */
 export const CHROME = {
   dark: { surface: '#0a1828', text: '#efe3c8', secondary: '#c8bb9b', muted: '#9c907a', grid: 'rgba(176,141,87,0.13)', axis: 'rgba(176,141,87,0.36)' },
   light: { surface: '#fcfcfb', text: '#0b0b0b', secondary: '#52514e', muted: '#898781', grid: '#e1e0d9', axis: '#c3c2b7' },
 } as const
+
+/** The deepest face of the night glass (`.panel`'s dark end): the dark ink set inside a light fill. */
+export const DEEP = '#06101d'
+
+/** Words set inside a coloured fill (a tile, a span): the ink or the deep face, whichever stands out more from it. */
+export function inkOn(fill: string, mode: Mode = 'dark'): string {
+  const light = mode === 'dark' ? CHROME.dark.text : '#ffffff', dark = mode === 'dark' ? DEEP : CHROME.light.text
+  return contrast(light, fill) >= contrast(dark, fill) ? light : dark
+}
 
 /** The slots of a chart's series, in the order the record first names them: a series keeps its colour as the record
  *  grows and when a filter drops others. Past `cap`, the last slot and every key after it fold into "other". */
@@ -158,6 +177,22 @@ export const countTick = (v: number): string => grouped(Math.round(v), 0)
 export function numTick(step: number): (v: number) => string {
   const d = stepDecimals(step)
   return (v) => grouped(v, d)
+}
+
+/** Tokens on an axis of step `step`: whole tokens, then thousands (k) and millions (M) from a step of a thousand, at the
+ *  decimals the step needs in that unit (2.5k, 5k, 7.5k), so no two ticks read alike. */
+export function tokenTick(step: number): (v: number) => string {
+  const [div, unit] = step >= 1e6 ? [1e6, 'M'] : step >= 1e3 ? [1e3, 'k'] : [1, '']
+  const d = stepDecimals(step / div)
+  return (v) => (v === 0 ? '0' : `${grouped(v / div, d)}${unit}`)
+}
+
+/** Microseconds on a linear axis of step `step` µs (a turn's own clock): µs, ms from a step of 1,000 µs, s from a step
+ *  of a second, at the decimals the step needs. */
+export function usTick(step: number): (v: number) => string {
+  const [div, unit] = step >= 1e6 ? [1e6, 's'] : step >= 1e3 ? [1e3, 'ms'] : [1, 'µs']
+  const d = stepDecimals(step / div)
+  return (v) => `${grouped(v / div, d)} ${unit}`
 }
 
 /** A time axis's labels: the day where the day turns ("Oct 6"), the hour elsewhere. */

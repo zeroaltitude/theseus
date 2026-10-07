@@ -2,7 +2,7 @@
 // Economics and the money river, so "saved by caching" means one thing everywhere: what the cache reads would have
 // cost as plain input, less what they cost.
 import type { CatalogList } from '@protocol'
-import type { ProviderCall } from './derive'
+import type { ProviderCall } from './calls.ts'
 
 export interface Price { input: number; output: number; cacheRead: number; cacheWrite: number; cacheWrite1h: number }
 

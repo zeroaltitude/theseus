@@ -5,7 +5,7 @@ import assert from 'node:assert/strict'
 import {
   CATEGORICAL, OTHER, TOKEN_KINDS, TONE_SERIES, barRadius, bucketEnd, bucketFor, bucketStart, jitter, kindTokens, latencyByModel,
   msLogTick, msTick, niceScale, niceStep, numTick, quantile, shares, slotColor, slots, spendByBucket, spendBySession, spendTree,
-  stackTop, stepDecimals, usdTick,
+  stackTop, stepDecimals, tokenTick, usTick, usdTick,
 } from '../src/lib/viz.ts'
 
 const HEX = /^#[0-9a-f]{6}$/
@@ -62,6 +62,26 @@ test('an axis never prints the same tick twice, from a hundredth of a cent to mi
   assert.deepEqual([0, 2.5, 5].map(numTick(2.5)), ['0.0', '2.5', '5.0'])
   assert.equal(niceStep(0), 1)
   assert.deepEqual(niceScale(0), { max: 1, interval: 1 })
+})
+
+test('tokens and a turn\'s microseconds on an axis: each tick in its unit, never two alike', () => {
+  for (let e = 0; e <= 8; e++) {
+    for (const m of [1, 1.3, 2.2, 3.7, 7.9]) {
+      const s = niceScale(m * 10 ** e)
+      const ticks = Array.from({ length: Math.round(s.max / s.interval) + 1 }, (_, k) => k * s.interval)
+      for (const fmt of [tokenTick(s.interval), usTick(s.interval)]) {
+        const labels = ticks.map(fmt)
+        assert.equal(new Set(labels).size, labels.length, `${m * 10 ** e}: ${labels.join(', ')}`)
+      }
+    }
+  }
+  assert.deepEqual([0, 2500, 5000, 7500].map(tokenTick(2500)), ['0', '2.5k', '5.0k', '7.5k'])
+  assert.deepEqual([0, 20, 40].map(tokenTick(20)), ['0', '20', '40'])
+  assert.deepEqual([0, 500_000, 1_000_000].map(tokenTick(500_000)), ['0', '500k', '1,000k'])
+  assert.deepEqual([0, 2_000_000, 4_000_000].map(tokenTick(2_000_000)), ['0', '2M', '4M'])
+  assert.deepEqual([0, 20_000, 40_000].map(usTick(20_000)), ['0 ms', '20 ms', '40 ms'])
+  assert.deepEqual([0, 250, 500].map(usTick(250)), ['0 µs', '250 µs', '500 µs'])
+  assert.deepEqual([0, 1_500_000, 3_000_000].map(usTick(1_500_000)), ['0.0 s', '1.5 s', '3.0 s'])
 })
 
 test('a log axis of milliseconds reads each power of ten in its own unit', () => {

@@ -4,6 +4,10 @@ import { useMemo } from 'react'
 import type { LedgerEntry, TurnFallback, Usage } from '@protocol'
 import { useRpc } from './rpc'
 import { ledgerKind, type Tone } from './taxonomy'
+import { providerCalls, type ProviderCall } from './calls'
+
+// A billed call's shape and its reading are pure (calls.ts), so the tested modules can name them.
+export { providerCalls, totalIn, type ProviderCall, type RateLimit } from './calls'
 
 export interface LedgerTail { rows: LedgerEntry[]; total: number }
 
@@ -14,38 +18,6 @@ export function useLedger(n = 2000, interval = 3000, kind?: string, sessionId?: 
   if (sessionId) params.session_id = sessionId
   return useRpc<LedgerTail>('ledger.tail', params, interval, { enabled })
 }
-
-export interface RateLimit {
-  input_tokens_remaining?: number; output_tokens_remaining?: number
-  requests_limit?: number; requests_remaining?: number; requests_reset?: string
-  tokens_limit?: number; tokens_remaining?: number; tokens_reset?: string; retry_after_secs?: number | null
-}
-
-export interface ProviderCall {
-  at: number; position: number; session_id: string | null; turn_id: string | null
-  provider: string; model: string; cost: number; loop: number; stop: string
-  usage: Usage; first_byte_ms?: number; first_token_ms?: number; total_ms?: number
-  rate?: RateLimit; request_id?: string
-}
-
-export function providerCalls(rows: LedgerEntry[] | undefined): ProviderCall[] {
-  if (!rows) return []
-  const out: ProviderCall[] = []
-  for (const r of rows) {
-    if (r.kind !== 'provider.call') continue
-    const d = (r.data ?? {}) as Record<string, any>
-    out.push({
-      at: r.at_unix_ms, position: r.position, session_id: r.session_id, turn_id: r.turn_id,
-      provider: d.provider ?? '?', model: d.model ?? '?', cost: Number(d.cost_usd ?? 0), loop: Number(d.loop ?? 0),
-      stop: d.stop_reason ?? '', usage: d.usage ?? { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 },
-      first_byte_ms: d.timing?.first_byte_ms, first_token_ms: d.timing?.first_token_ms, total_ms: d.timing?.total_ms,
-      rate: d.rate_limit ?? undefined, request_id: d.request_id,
-    })
-  }
-  return out
-}
-
-export const totalIn = (u: Usage) => u.input_tokens + u.cache_read_input_tokens + u.cache_creation_input_tokens
 
 /** Events per bucket, split by tone, for the last `spanMs`. */
 export function pulse(rows: LedgerEntry[] | undefined, spanMs: number, buckets: number, now = Date.now()) {

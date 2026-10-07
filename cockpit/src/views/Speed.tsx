@@ -19,9 +19,8 @@ import { useHistoryRows } from '@/lib/history'
 import { quantile } from '@/lib/derive'
 import type { EChartsOption } from '@/lib/chart'
 import { cn, ms, pct, short, stamp } from '@/lib/format'
-import { toneHex } from '@/lib/taxonomy'
 import {
-  CATEGORICAL, CHROME, FONTS, MARK, OTHER, TIME_LABELS, TIP_FRAME, barRadius, baseAxis, countTick, msLogTick, msTick,
+  CATEGORICAL, CHROME, FONTS, MARK, OTHER, TIME_LABELS, TIP_FRAME, TONE_MARK, barRadius, baseAxis, countTick, msLogTick, msTick,
   niceScale, numTick, stackTop, valueAxis,
 } from '@/lib/viz'
 import { tip } from '@/lib/viztip'
@@ -167,7 +166,7 @@ export default function Speed() {
           {h && <Waterfall phases={h.startup} />}
         </ChartPanel>
         <ChartPanel id="starts" title={`Every start · serving time, ${starts.length} in the record`} icon={<History size={13} />} height={300}
-          legend={[{ key: 'in', label: 'within the 50 ms budget', color: toneHex.ok, mark: 'dot' }, { key: 'over', label: 'over the budget', color: toneHex.fault, mark: 'triangle' }]}
+          legend={[{ key: 'in', label: 'within the 50 ms budget', color: TONE_MARK.ok, mark: 'dot' }, { key: 'over', label: 'over the budget', color: TONE_MARK.fault, mark: 'triangle' }]}
           empty={starts.length ? undefined : 'no start rows in the record'} table={startsTable(starts)}>
           <Starts starts={starts} />
         </ChartPanel>
@@ -267,9 +266,10 @@ const PARTS = ['commits', 'compile', 'admission', 'rest'] as const
 const PART_WORDS = { commits: 'the disk’s commits', compile: 'compiles', admission: 'admission', rest: 'the rest' } as const
 const PART_COLORS = { commits: CATEGORICAL.dark[0], compile: CATEGORICAL.dark[1], admission: CATEGORICAL.dark[2], rest: CATEGORICAL.dark[3] } as const
 
-/** A budget's line: solid, in the fault tone, its words in the ink beside it, so the colour never carries it alone. */
+/** A budget's line: solid, in the fault tone's step for marks, its words in the ink beside it, so the colour never carries
+ *  it alone. */
 function budgetLine(at: { xAxis: number } | { yAxis: number }, words: string, position: 'start' | 'end' | 'insideEndTop') {
-  return { ...at, lineStyle: { color: toneHex.fault, width: 1, type: 'solid' as const }, label: { formatter: words, color: C.secondary, fontSize: 10, fontFamily: FONTS.mono, position } }
+  return { ...at, lineStyle: { color: TONE_MARK.fault, width: 1, type: 'solid' as const }, label: { formatter: words, color: C.secondary, fontSize: 10, fontFamily: FONTS.mono, position } }
 }
 
 // ---------------------------------------------------------------- the start
@@ -345,7 +345,7 @@ function Starts({ starts }: { starts: { at: number; ms: number }[] }) {
           const s = starts[x.dataIndex]
           if (!s) return ''
           const over = s.ms > 50
-          return tip(stamp(s.at), [{ value: ms(s.ms), label: over ? 'serving, over the 50 ms budget' : 'serving, within the 50 ms budget', color: over ? toneHex.fault : toneHex.ok, mark: over ? 'triangle' : 'dot' }])
+          return tip(stamp(s.at), [{ value: ms(s.ms), label: over ? 'serving, over the 50 ms budget' : 'serving, within the 50 ms budget', color: over ? TONE_MARK.fault : TONE_MARK.ok, mark: over ? 'triangle' : 'dot' }])
         },
       },
       xAxis: { type: 'time', ...axis, axisLabel: { ...axis.axisLabel, formatter: TIME_LABELS } },
@@ -354,7 +354,7 @@ function Starts({ starts }: { starts: { at: number; ms: number }[] }) {
         type: 'scatter', symbolSize: MARK.marker + MARK.ring,
         data: starts.map((s) => {
           const over = s.ms > 50
-          return { value: [s.at, Math.max(1, s.ms)], symbol: over ? 'triangle' : 'circle', itemStyle: { color: over ? toneHex.fault : toneHex.ok, borderColor: C.surface, borderWidth: MARK.ring } }
+          return { value: [s.at, Math.max(1, s.ms)], symbol: over ? 'triangle' : 'circle', itemStyle: { color: over ? TONE_MARK.fault : TONE_MARK.ok, borderColor: C.surface, borderWidth: MARK.ring } }
         }),
         markLine: { silent: true, symbol: 'none', data: [budgetLine({ yAxis: 50 }, 'budget 50 ms', 'insideEndTop')] },
       }],
@@ -493,12 +493,12 @@ const BENCH_PANELS = [
 ] as const
 
 /** The small multiples' one key: the run's p95 is the series; the gate's limit and the README's budget are lines in their
- *  status tones; a failed run is a triangle. */
+ *  status tones' steps for marks (the bright tones sit above the band a mark keeps to); a failed run is a triangle. */
 const BENCH_LEGEND: LegendItem[] = [
   { key: 'p95', label: 'the run’s p95', color: ACCENT, mark: 'line' },
-  { key: 'limit', label: 'the gate’s limit', color: toneHex.wait, mark: 'line' },
-  { key: 'budget', label: 'the README’s budget', color: toneHex.fault, mark: 'line' },
-  { key: 'missed', label: 'a run that failed', color: toneHex.fault, mark: 'triangle' },
+  { key: 'limit', label: 'the gate’s limit', color: TONE_MARK.wait, mark: 'line' },
+  { key: 'budget', label: 'the README’s budget', color: TONE_MARK.fault, mark: 'line' },
+  { key: 'missed', label: 'a run that failed', color: TONE_MARK.fault, mark: 'triangle' },
 ]
 
 function BenchGrid({ runs }: { runs: BenchRun[] }) {
@@ -527,8 +527,8 @@ function BenchChart({ runs, phase, word, budget }: { runs: BenchRun[]; phase: st
           return tip(x.r.label, [
             { value: fmt(x.p.p95), label: 'p95', color: ACCENT, mark: 'line' },
             { value: fmt(x.p.p50), label: 'p50', strong: false },
-            ...(x.p.limit ? [{ value: fmt(x.p.limit), label: 'the gate’s limit', color: toneHex.wait, mark: 'line' as const, strong: false }] : []),
-            ...(x.r.passed ? [] : [{ value: 'failed', label: 'this run', color: toneHex.fault, mark: 'triangle' as const }]),
+            ...(x.p.limit ? [{ value: fmt(x.p.limit), label: 'the gate’s limit', color: TONE_MARK.wait, mark: 'line' as const, strong: false }] : []),
+            ...(x.r.passed ? [] : [{ value: 'failed', label: 'this run', color: TONE_MARK.fault, mark: 'triangle' as const }]),
           ], x.r.time)
         },
       },
@@ -536,9 +536,9 @@ function BenchChart({ runs, phase, word, budget }: { runs: BenchRun[]; phase: st
       yAxis: { ...vaxis, min: 0, max: sc.max, interval: sc.interval, axisLabel: { ...vaxis.axisLabel, fontSize: 9.5, formatter: fmt } },
       series: [
         { type: 'line', name: 'p95', data: pts.map((x) => x.p.p95), symbol: 'none', lineStyle: { color: ACCENT, width: MARK.line, cap: 'round', join: 'round' } },
-        { type: 'line', name: 'limit', data: pts.map((x) => x.p.limit ?? null), symbol: 'none', step: 'end', lineStyle: { color: toneHex.wait, width: 1 } },
-        ...(budget ? [{ type: 'line' as const, name: 'budget', data: pts.map(() => budget), symbol: 'none', lineStyle: { color: toneHex.fault, width: 1 } }] : []),
-        { type: 'scatter', name: 'missed', data: pts.map((x) => (x.r.passed ? null : x.p.p95)), symbol: 'triangle', symbolSize: MARK.marker + MARK.ring, itemStyle: { color: toneHex.fault, borderColor: C.surface, borderWidth: MARK.ring } },
+        { type: 'line', name: 'limit', data: pts.map((x) => x.p.limit ?? null), symbol: 'none', step: 'end', lineStyle: { color: TONE_MARK.wait, width: 1 } },
+        ...(budget ? [{ type: 'line' as const, name: 'budget', data: pts.map(() => budget), symbol: 'none', lineStyle: { color: TONE_MARK.fault, width: 1 } }] : []),
+        { type: 'scatter', name: 'missed', data: pts.map((x) => (x.r.passed ? null : x.p.p95)), symbol: 'triangle', symbolSize: MARK.marker + MARK.ring, itemStyle: { color: TONE_MARK.fault, borderColor: C.surface, borderWidth: MARK.ring } },
       ],
     }
   }, [pts, phase, word, budget])
