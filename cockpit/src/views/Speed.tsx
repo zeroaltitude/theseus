@@ -20,12 +20,14 @@ import { quantile } from '@/lib/derive'
 import type { EChartsOption } from '@/lib/chart'
 import { cn, ms, pct, short, stamp } from '@/lib/format'
 import {
-  CATEGORICAL, CHROME, FONTS, MARK, OTHER, TIME_LABELS, TIP_FRAME, TONE_MARK, barRadius, baseAxis, countTick, msLogTick, msTick,
+  CATEGORICAL, CHROME, FONTS, MARK, TIME_LABELS, TIP_FRAME, TONE_MARK, barRadius, baseAxis, budgetLine, countTick, msLogTick, msTick,
   niceScale, numTick, stackTop, valueAxis,
 } from '@/lib/viz'
 import { tip } from '@/lib/viztip'
 import { Echart } from '@/components/Echart'
 import { ChartPanel, type LegendItem } from '@/components/ChartPanel'
+import { Startup } from '@/components/instruments'
+import { STARTUP_LEGEND, startupTable } from '@/components/instrumentTables'
 import { Segmented } from '@/components/ui'
 import { Dial, Engraved, Needle, Ticks, arc, polar } from '@/ship/instruments'
 
@@ -161,9 +163,8 @@ export default function Speed() {
       <div className="grid grid-cols-1 gap-3 2xl:grid-cols-[1fr_1fr]">
         <ChartPanel id="start" title="The last start · phases from process start" icon={<Rocket size={13} />} height={300}
           actions={<span className="num text-[11px] text-ink-faint">serving at {serving ? ms(serving / 1000) : '—'} · budget 50 ms</span>}
-          legend={[{ key: 'fg', label: 'on the way to serving', color: ACCENT, mark: 'rect' }, { key: 'bg', label: 'after serving, in the background', color: OTHER, mark: 'rect' }]}
-          empty={h ? undefined : 'reading health…'} table={phasesTable(h?.startup ?? [])}>
-          {h && <Waterfall phases={h.startup} />}
+          legend={STARTUP_LEGEND} empty={h ? undefined : 'reading health…'} table={startupTable(h?.startup ?? [])}>
+          {h && <Startup phases={h.startup} />}
         </ChartPanel>
         <ChartPanel id="starts" title={`Every start · serving time, ${starts.length} in the record`} icon={<History size={13} />} height={300}
           legend={[{ key: 'in', label: 'within the 50 ms budget', color: TONE_MARK.ok, mark: 'dot' }, { key: 'over', label: 'over the budget', color: TONE_MARK.fault, mark: 'triangle' }]}
@@ -266,71 +267,7 @@ const PARTS = ['commits', 'compile', 'admission', 'rest'] as const
 const PART_WORDS = { commits: 'the disk’s commits', compile: 'compiles', admission: 'admission', rest: 'the rest' } as const
 const PART_COLORS = { commits: CATEGORICAL.dark[0], compile: CATEGORICAL.dark[1], admission: CATEGORICAL.dark[2], rest: CATEGORICAL.dark[3] } as const
 
-/** A budget's line: solid, in the fault tone's step for marks, its words in the ink beside it, so the colour never carries
- *  it alone. */
-function budgetLine(at: { xAxis: number } | { yAxis: number }, words: string, position: 'start' | 'end' | 'insideEndTop') {
-  return { ...at, lineStyle: { color: TONE_MARK.fault, width: 1, type: 'solid' as const }, label: { formatter: words, color: C.secondary, fontSize: 10, fontFamily: FONTS.mono, position } }
-}
-
-// ---------------------------------------------------------------- the start
-
-/** The last start's phases as bars from process start on a log axis: the phases on the way to serving in the accent, the
- *  ones after it in the de-emphasis gray, the budget and the moment of serving as lines. */
-function Waterfall({ phases }: { phases: StartupPhase[] }) {
-  const option = useMemo<EChartsOption>(() => {
-    const ps = [...phases].sort((a, b) => Number(a.background) - Number(b.background) || a.start_us - b.start_us)
-    const names = ps.map((p) => `${p.background ? '↳ ' : ''}${p.name}`)
-    const serving = phases.find((p) => p.name === 'socket')?.end_us
-    const end = (p: StartupPhase) => (p.end_us ?? p.start_us) / 1000
-    const vaxis = valueAxis(), axis = baseAxis()
-    return {
-      grid: { left: 12, right: 28, top: 22, bottom: 22, containLabel: true },
-      tooltip: {
-        ...TIP_FRAME, trigger: 'item',
-        formatter: (x: any) => {
-          const p = ps[x.dataIndex]
-          if (!p) return ''
-          return tip(p.name, [
-            { value: ms(end(p) - p.start_us / 1000), label: p.background ? 'after serving, in the background' : 'on the way to serving', color: p.background ? OTHER : ACCENT, mark: 'rect' },
-            { value: `${ms(p.start_us / 1000)} → ${p.end_us === null ? 'running' : ms(end(p))}`, label: 'from process start', strong: false },
-          ], p.detail ? JSON.stringify(p.detail).slice(0, 160) : undefined)
-        },
-      },
-      xAxis: { ...vaxis, type: 'log', logBase: 10, min: 1, axisLabel: { ...vaxis.axisLabel, formatter: msLogTick } },
-      yAxis: { type: 'category', data: names, inverse: true, ...axis, axisLine: { show: false }, axisLabel: { ...axis.axisLabel, color: C.secondary, fontSize: 10.5 } },
-      series: [
-        { type: 'bar', stack: 'w', silent: true, itemStyle: { color: 'transparent' }, data: ps.map((p) => Math.max(1, p.start_us / 1000)) },
-        {
-          type: 'bar', stack: 'w', barWidth: 10,
-          data: ps.map((p) => ({ value: Math.max(0.05, end(p) - Math.max(1, p.start_us / 1000)), itemStyle: { color: p.background ? OTHER : ACCENT, borderRadius: barRadius(true, 3) } })),
-          markLine: {
-            silent: true, symbol: 'none',
-            data: [
-              budgetLine({ xAxis: 50 }, 'budget 50 ms', 'start'),
-              ...(serving ? [{ xAxis: serving / 1000, lineStyle: { color: C.text, width: 1, type: 'solid' as const }, label: { formatter: `serving ${ms(serving / 1000)}`, color: C.secondary, fontSize: 10, fontFamily: FONTS.mono, position: 'start' as const } }] : []),
-            ],
-          },
-        },
-      ],
-    }
-  }, [phases])
-  return <Echart option={option} />
-}
-
-function phasesTable(phases: StartupPhase[]) {
-  type R = StartupPhase
-  const rows = [...phases].sort((a, b) => Number(a.background) - Number(b.background) || a.start_us - b.start_us)
-  return {
-    caption: 'the last start, phase by phase, from process start', rows, rowKey: (r: R) => `${r.background}:${r.name}`,
-    columns: [
-      { key: 'phase', label: 'phase', cell: (r: R) => r.name },
-      { key: 'when', label: 'when', cell: (r: R) => (r.background ? 'after serving' : 'to serving') },
-      { key: 'from', label: 'from', num: true, cell: (r: R) => ms(r.start_us / 1000) },
-      { key: 'to', label: 'to', num: true, cell: (r: R) => (r.end_us === null ? 'running' : ms(r.end_us / 1000)) },
-      { key: 'took', label: 'took', num: true, cell: (r: R) => (r.end_us === null ? '—' : ms((r.end_us - r.start_us) / 1000)) },
-    ],
-  }
-}
+// ---------------------------------------------------------------- the starts
 
 /** Every start's serving time over time, on a log axis: within the budget a dot in the ok tone, over it a triangle in the
  *  fault tone (shape and colour, and the legend's words). */

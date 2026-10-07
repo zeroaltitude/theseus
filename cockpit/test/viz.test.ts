@@ -3,7 +3,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  CATEGORICAL, OTHER, TOKEN_KINDS, TONE_SERIES, barRadius, bucketEnd, bucketFor, bucketStart, jitter, kindTokens, latencyByModel,
+  CATEGORICAL, OTHER, TOKEN_KINDS, TONE_SERIES, barRadius, binByKey, bucketEnd, bucketFor, bucketStart, growthBySession, jitter, kindTokens, latencyByModel,
   msLogTick, msTick, niceScale, niceStep, numTick, quantile, shares, slotColor, slots, spendByBucket, spendBySession, spendTree,
   stackTop, stepDecimals, tokenTick, usTick, usdTick,
 } from '../src/lib/viz.ts'
@@ -131,6 +131,30 @@ test('spend by bucket: local hours, each key in the order first named, and the r
   assert.equal(bucketEnd(m, '5 min'), t0 + 10 * 60_000)
   // The bucket follows the record's span: never one column for an hour of record.
   assert.deepEqual([40 * 60_000, 20 * h, 9 * 24 * h].map(bucketFor), ['5 min', 'hour', 'day'])
+})
+
+test('bins count each key\'s things in equal spans; the end belongs to the last bin; strangers are left out', () => {
+  const rows = [
+    { at: 0, k: 'model' }, { at: 9, k: 'model' }, { at: 10, k: 'tool' }, { at: 39, k: 'model' }, { at: 40, k: 'tool' },
+    { at: 41, k: 'tool' }, { at: 20, k: 'nobody' },
+  ]
+  const b = binByKey(rows, (r) => r.at, (r) => r.k, ['model', 'tool'], 0, 40, 4)
+  assert.deepEqual(b.starts, [0, 10, 20, 30])
+  assert.deepEqual(b.ends, [10, 20, 30, 40])
+  assert.deepEqual(b.counts.model, [2, 0, 0, 1])
+  assert.deepEqual(b.counts.tool, [0, 1, 0, 1])
+  assert.deepEqual(b.totals, [2, 1, 0, 2])
+  // An empty span is one millisecond wide, never a division by zero.
+  assert.deepEqual(binByKey([{ at: 5, k: 'x' }], (r) => r.at, (r) => r.k, ['x'], 5, 5, 3).totals, [1, 0, 0])
+})
+
+test('growth by session: each session\'s compiles, its latest and largest prompt, the largest latest first', () => {
+  const g = growthBySession(new Map([
+    ['a', [[1, 100], [5, 900], [9, 300]] as [number, number][]],
+    ['b', [[2, 500]] as [number, number][]],
+    ['c', [] as [number, number][]],
+  ]))
+  assert.deepEqual(g.map((x) => [x.session, x.latest, x.max, x.first, x.last]), [['b', 500, 500, 2, 2], ['a', 300, 900, 1, 9]])
 })
 
 test('the spend tree is provider, model, session, most first; sessions stay apart by id', () => {

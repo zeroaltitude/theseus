@@ -213,6 +213,41 @@ export function quantile(xs: readonly number[], q: number): number | undefined {
 
 // ---------------------------------------------------------------- the record, for the charts
 
+export interface Bins { starts: number[]; ends: number[]; counts: Record<string, number[]>; totals: number[] }
+
+/** Things into `n` equal bins from `start` to `end`, counted by key (a ledger row's family, say), each key's counts in
+ *  the order given. A thing outside the span, or with a key not given, is left out; the end belongs to the last bin. */
+export function binByKey<T>(items: readonly T[], at: (x: T) => number, key: (x: T) => string, keys: readonly string[], start: number, end: number, n: number): Bins {
+  const bins = Math.max(1, Math.floor(n))
+  // An empty span is a millisecond wide, never a division by zero.
+  const stop = Math.max(end, start + 1)
+  const size = (stop - start) / bins
+  const counts: Record<string, number[]> = Object.fromEntries(keys.map((k) => [k, new Array<number>(bins).fill(0)]))
+  const totals = new Array<number>(bins).fill(0)
+  for (const x of items) {
+    const t = at(x)
+    if (t < start || t > stop) continue
+    const row = counts[key(x)]
+    if (!row) continue
+    const i = Math.min(bins - 1, Math.floor((t - start) / size))
+    row[i]++
+    totals[i]++
+  }
+  const starts = Array.from({ length: bins }, (_, i) => start + i * size)
+  return { starts, ends: starts.map((s, i) => (i === bins - 1 ? stop : s + size)), counts, totals }
+}
+
+export interface Growth { session: string; points: [number, number][]; latest: number; max: number; first: number; last: number }
+
+/** Each session's estimated prompt size, compile by compile: its points, its latest and largest, its first and last
+ *  compile's time; the largest latest prompt first. */
+export function growthBySession(series: ReadonlyMap<string, readonly [number, number][]>): Growth[] {
+  return [...series].filter(([, pts]) => pts.length).map(([session, pts]) => ({
+    session, points: [...pts] as [number, number][], latest: pts[pts.length - 1][1], max: Math.max(...pts.map((p) => p[1])),
+    first: pts[0][0], last: pts[pts.length - 1][0],
+  })).sort((a, b) => b.latest - a.latest || b.last - a.last || a.session.localeCompare(b.session))
+}
+
 export const BUCKETS = ['5 min', 'hour', 'day'] as const
 export type Bucket = (typeof BUCKETS)[number]
 
@@ -371,6 +406,12 @@ export function baseAxis(mode: Mode = 'dark') {
     axisTick: { show: false }, splitLine: { show: false },
     axisLabel: { color: c.muted, fontSize: 10, fontFamily: MONO, hideOverlap: true },
   }
+}
+
+/** A budget's line (an ECharts markLine datum): solid, in the fault tone's step for marks, its words in the ink beside it,
+ *  so the colour never carries it alone. */
+export function budgetLine(at: { xAxis: number } | { yAxis: number }, words: string, position: 'start' | 'end' | 'insideEndTop') {
+  return { ...at, lineStyle: { color: TONE_MARK.fault, width: 1, type: 'solid' as const }, label: { formatter: words, color: CHROME.dark.secondary, fontSize: 10, fontFamily: MONO, position } }
 }
 
 /** The tooltip's frame, the cockpit's (chart.ts's): night glass in a brass rim. The content is the caller's element. */
