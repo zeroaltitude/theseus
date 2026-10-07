@@ -28,6 +28,7 @@ import { diskSummary } from '@/lib/disk'
 import { useTick } from '@/lib/hooks'
 import { useFlow } from '@/lib/flow'
 import { useWorld } from '@/lib/world'
+import { useAsOf, type World } from '@/lib/timemachine'
 import {
   binaryLamp, configLamp, discordLamp, diskLamp, healthSummary, kernelLamp, linkLamp, providerLamp, secretsLamp, webLamp,
   type Lamp,
@@ -40,12 +41,21 @@ import { PlankStrip } from './brass'
 /** A word in its lamp's tone: a state that is well reads in the ink, the rest in their tone. */
 const WORD: Record<string, string> = { ok: 'text-ink-dim', live: 'text-ink-dim', wait: 'text-wait', fault: 'text-fault', idle: 'text-ink-faint' }
 
+/** The bar. Live, it reads no history: only while the time machine is set does it fold the moment (useWorld follows
+ *  the whole ledger, and would draw the bar again at every row). */
 export function HeartbeatBar() {
+  const past = useAsOf((s) => s.t !== null)
+  return past ? <HeartbeatThen /> : <Heartbeat world={null} />
+}
+
+function HeartbeatThen() {
+  return <Heartbeat world={useWorld()} />
+}
+
+function Heartbeat({ world }: { world: World | null }) {
   const { data: h, dataUpdatedAt } = useRpc<Health>('health', undefined, 2000)
   const conn = useConn()
   const nav = useNavigate()
-  // The time machine's moment: the readouts the fold knows read it (null while live).
-  const world = useWorld()
   // What needs you (theseus-in3): each session's attention, from the push-kept list, the longest waiting first; one press
   // opens that session, as the Observatory's 'N need you' did.
   const { data: sl } = useRpc<{ sessions: SessionInfo[] }>('session.list', undefined, 2000)
@@ -247,7 +257,20 @@ function ProfileChip({ then }: { then: { profile: string | null; t: number } | n
 
 /** The health lamps: on a wide bar each system's lamp with its name and its state in a word; on a narrow one the
  *  lamps alone and the worst of them in words. A press opens the card with every lamp's sentence. */
+/** Whether the window is wide enough for every lamp's word: one row of lamps is drawn, never two with one hidden. */
+function useWide(query = '(min-width: 1800px)'): boolean {
+  const [wide, setWide] = useState(() => window.matchMedia(query).matches)
+  useEffect(() => {
+    const m = window.matchMedia(query)
+    const on = () => setWide(m.matches)
+    m.addEventListener('change', on)
+    return () => m.removeEventListener('change', on)
+  }, [query])
+  return wide
+}
+
 function HealthLamps({ lamps }: { lamps: Lamp[] }) {
+  const wide = useWide()
   const [open, setOpen] = useState(false)
   const [anchorRef, rect] = useAnchor<HTMLButtonElement>(open)
   const sum = healthSummary(lamps)
@@ -255,23 +278,26 @@ function HealthLamps({ lamps }: { lamps: Lamp[] }) {
     <>
       <button ref={anchorRef} type="button" onClick={() => setOpen((v) => !v)} aria-haspopup="dialog" aria-expanded={open}
         title={`health: ${sum.words}; press for each system's card`} className="hdr-well flex shrink-0 items-center gap-3 px-2.5 py-1">
-        {/* Wide: each lamp, its name and its word. */}
-        <span className="hidden items-center gap-3 min-[1800px]:flex">
-          {lamps.map((l) => (
-            <span key={l.id} className="flex flex-col items-start leading-none" title={l.detail}>
-              <span className="flex items-center gap-1"><LiveDot tone={l.tone} pulse={false} size={5} /><span className="hdr-label">{l.name}</span></span>
-              <span className={cn('mt-1 text-[11px] font-medium', WORD[l.tone])}>{l.word}</span>
-            </span>
-          ))}
-        </span>
-        {/* Narrow: the lamps in a row, and the worst in words. */}
-        <span className="flex items-center gap-2 min-[1800px]:hidden">
-          <span className="flex flex-col items-start leading-none">
-            <span className="hdr-label">health</span>
-            <span className="mt-1.5 flex items-center gap-[5px]">{lamps.map((l) => <LiveDot key={l.id} tone={l.tone} pulse={false} size={5} />)}</span>
+        {wide ? (
+          // Wide: each lamp, its name and its word.
+          <span className="flex items-center gap-3">
+            {lamps.map((l) => (
+              <span key={l.id} className="flex flex-col items-start leading-none" title={l.detail}>
+                <span className="flex items-center gap-1"><LiveDot tone={l.tone} pulse={false} size={5} /><span className="hdr-label">{l.name}</span></span>
+                <span className={cn('mt-1 text-[11px] font-medium', WORD[l.tone])}>{l.word}</span>
+              </span>
+            ))}
           </span>
-          <span className={cn('max-w-[24ch] truncate text-[11px] font-medium', WORD[sum.tone])}>{sum.words}</span>
-        </span>
+        ) : (
+          // Narrow: the lamps in a row, and the worst in words.
+          <span className="flex items-center gap-2">
+            <span className="flex flex-col items-start leading-none">
+              <span className="hdr-label">health</span>
+              <span className="mt-1.5 flex items-center gap-[5px]">{lamps.map((l) => <LiveDot key={l.id} tone={l.tone} pulse={false} size={5} />)}</span>
+            </span>
+            <span className={cn('max-w-[24ch] truncate text-[11px] font-medium', WORD[sum.tone])}>{sum.words}</span>
+          </span>
+        )}
       </button>
       <Popover open={open} onClose={() => setOpen(false)} anchorRef={anchorRef} rect={rect} align="right" label="Health" className="w-[460px]">
         <div className="flex items-baseline gap-2 border-b border-line px-3.5 py-2">
