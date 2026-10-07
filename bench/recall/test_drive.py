@@ -182,7 +182,10 @@ class ClaudeCodeDriver(unittest.TestCase):
 PI_STANDIN = r'''#!/usr/bin/env python3
 # A stand-in `pi --print --mode json`: its sessions under --session-dir, one
 # JSONL log each, named as Pi names them; a scripted answer per prompt, and a
-# compaction before each prompt listed in STANDIN_COMPACT_BEFORE.
+# compaction before each prompt listed in STANDIN_COMPACT_BEFORE. The first
+# prompt's first answer reports STANDIN_FIRST_INPUT input tokens in all
+# (input, cache read and cache write), as a provider counts a new session's
+# first call.
 import json, os, re, subprocess, sys, time
 from pathlib import Path
 args = sys.argv[1:]
@@ -194,6 +197,7 @@ cfg = Path(os.environ["PI_CODING_AGENT_DIR"])
 settings = json.loads((cfg / "settings.json").read_text())
 with open(os.environ["STANDIN_LOG"], "a") as f:
     f.write(json.dumps({"argv": args, "cwd": str(Path.cwd()), "prompt": prompt, "settings": settings,
+                        "env": {k: os.environ.get(k) for k in ("PI_SKIP_VERSION_CHECK", "PI_TELEMETRY", "PI_OFFLINE")},
                         "parent": [k for k in ("PI_SESSION_ID", "AI_AGENT", "CLAUDECODE") if k in os.environ]})
             + "\n")
 sessions.mkdir(parents=True, exist_ok=True)
@@ -216,6 +220,8 @@ if m:
     calls = [{"type": "toolCall", "id": "toolu_1", "name": "bash", "arguments": {"command": m.group(1)}}]
     first = {"role": "assistant", "content": calls, "model": "claude-sonnet-5-5", "stopReason": "toolUse",
              "usage": {"input": 10, "output": 5, "cacheRead": 100, "cacheWrite": 20, "cost": {"total": 0.0005}}}
+    if prompt == os.environ.get("STANDIN_FIRST_PROMPT"):
+        first["usage"]["input"] = int(os.environ["STANDIN_FIRST_INPUT"]) - 120
     result = {"role": "toolResult", "toolCallId": "toolu_1", "toolName": "bash",
               "content": [{"type": "text", "text": r.stdout}], "isError": False}
     entries += [{"type": "message", "id": f"a{time.monotonic_ns()}", "message": first},
@@ -229,6 +235,8 @@ if a.get("file"):
 reply = {"role": "assistant", "content": [{"type": "text", "text": a.get("reply", "ok")}],
          "model": "claude-sonnet-5-5", "stopReason": "stop",
          "usage": {"input": 10, "output": 5, "cacheRead": 100, "cacheWrite": 20, "cost": {"total": 0.0005}}}
+if prompt == os.environ.get("STANDIN_FIRST_PROMPT") and not calls:
+    reply["usage"]["input"] = int(os.environ["STANDIN_FIRST_INPUT"]) - 120
 entries.append({"type": "message", "id": f"a{time.monotonic_ns()}", "message": reply})
 out.append(reply)
 with log.open("a") as f:
@@ -241,34 +249,55 @@ print(dump({"type": "agent_settled"}))
 '''
 
 
+def pi_input(prog: pg.Progression, overhead: int, model: str = "anthropic/claude-sonnet-5-5") -> int:
+    """What a provider reports for Pi's first call at a system prompt and
+    tools of `overhead` tokens: those, and the first turn's words."""
+    return overhead + drive.tk.user_text(prog.turns[0].text).tokens(drive.tk.rates_of(model))
+
+
+def run_pi(prog: pg.Progression, d: Path, argv: list[str] = (), overhead: int = drive.PI_OVERHEAD_TOKENS,
+           compact_before: list[str] = ()) -> tuple[int, str]:
+    """`drive.main` for Pi on the stand-in `pi`, whose first answer counts
+    `overhead` tokens beyond the first turn's words: the exit code and what
+    it said to stderr."""
+    bin_ = d / "bin"
+    bin_.mkdir()
+    (bin_ / "pi").write_text(PI_STANDIN)
+    (bin_ / "pi").chmod(0o755)
+    gen = d / "gen"
+    prog.save(gen)
+    (d / "answers.json").write_text(json.dumps(answers_for(prog)))
+    env = {"PATH": f"{bin_}:{os.environ['PATH']}", "STANDIN_LOG": str(d / "calls.jsonl"),
+           "STANDIN_ANSWERS": str(d / "answers.json"), "STANDIN_COMPACT_BEFORE": json.dumps(list(compact_before)),
+           "STANDIN_FIRST_PROMPT": prog.turns[0].text, "STANDIN_FIRST_INPUT": str(pi_input(prog, overhead)),
+           "PI_SESSION_ID": "a-parent", "AI_AGENT": "pi"}
+    old = {k: os.environ.get(k) for k in env}
+    os.environ.update(env)
+    err = io.StringIO()
+    try:
+        with redirect_stdout(io.StringIO()), redirect_stderr(err):
+            rc = drive.main(["--arm", "pi", "--progression", str(gen), "--out", str(d / "run"), *argv])
+    finally:
+        for k, v in old.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+    return rc, err.getvalue()
+
+
 class PiDriver(unittest.TestCase):
-    def test_a_session_id_per_session_its_reserve_at_the_window_and_compactions_from_its_logs(self):
+    def test_a_session_id_per_session_its_reserve_at_the_planned_threshold_and_compactions_from_its_logs(self):
         prog = generate.build(7, "smoke")
         mark = prog.marks()[0]
         after = prog.turns[mark + 1].text
+        # Pi's own overhead is smaller than the plan's: it compacts where its
+        # context holds what the plan's holds at the window.
+        threshold = prog.context_window - (generate.planned_overhead(prog) - drive.PI_OVERHEAD_TOKENS)
+        self.assertLess(threshold, prog.context_window)
         with tempfile.TemporaryDirectory() as d:
             d = Path(d)
-            bin_ = d / "bin"
-            bin_.mkdir()
-            (bin_ / "pi").write_text(PI_STANDIN)
-            (bin_ / "pi").chmod(0o755)
-            gen = d / "gen"
-            prog.save(gen)
-            (d / "answers.json").write_text(json.dumps(answers_for(prog)))
-            env = {"PATH": f"{bin_}:{os.environ['PATH']}", "STANDIN_LOG": str(d / "calls.jsonl"),
-                   "STANDIN_ANSWERS": str(d / "answers.json"), "STANDIN_COMPACT_BEFORE": json.dumps([after]),
-                   "PI_SESSION_ID": "a-parent", "AI_AGENT": "pi"}
-            old = {k: os.environ.get(k) for k in env}
-            os.environ.update(env)
-            try:
-                with redirect_stdout(io.StringIO()):
-                    rc = drive.main(["--arm", "pi", "--progression", str(gen), "--out", str(d / "run")])
-            finally:
-                for k, v in old.items():
-                    if v is None:
-                        os.environ.pop(k, None)
-                    else:
-                        os.environ[k] = v
+            rc, _ = run_pi(prog, d, compact_before=[after])
             self.assertEqual(rc, 0)
             calls = [json.loads(x) for x in (d / "calls.jsonl").read_text().splitlines()]
             self.assertEqual(len(calls), len(prog.turns), "one call a turn, and no /compact")
@@ -289,13 +318,23 @@ class PiDriver(unittest.TestCase):
                 # Pi compacts past its model's window less the reserve: at
                 # the progression's window.
                 self.assertEqual(c["settings"], {"compaction": {"modelOverrides": {
-                    "anthropic/claude-sonnet-5-5": {"reserveTokens": drive.PI_MODEL_WINDOW - prog.context_window,
-                                                    "keepRecentTokens": prog.context_window // 4}}}})
+                    "anthropic/claude-sonnet-5-5": {"reserveTokens": drive.PI_MODEL_WINDOW - threshold,
+                                                    "keepRecentTokens": threshold // 4}}}})
             self.assertEqual(len(set(ids)), 2)
             run = json.loads((d / "run" / "run.json").read_text())
             self.assertEqual((run["arm"], run["sessions"]), ("pi", ids))
             self.assertEqual(run["compactions"], [mark + 1])
-            self.assertEqual(run["pi_compact"]["reserve_tokens"], drive.PI_MODEL_WINDOW - 45000)
+            self.assertEqual(run["pi_compact"], {"window": prog.context_window, "model_window": drive.PI_MODEL_WINDOW,
+                                                 "threshold": threshold,
+                                                 "reserve_tokens": drive.PI_MODEL_WINDOW - threshold,
+                                                 "keep_recent_tokens": threshold // 4})
+            self.assertGreater(drive.PI_MODEL_WINDOW - threshold, drive.PI_MODEL_WINDOW - prog.context_window,
+                               "a smaller overhead than the plan's is a smaller threshold: a larger reserve")
+            # Pi's overhead, in Theseus's record's shape and the threshold it was set at.
+            oh = run["overhead"]
+            self.assertEqual((oh["planned"], oh["measured"], oh["past_cushion"], oh["threshold"]),
+                             (drive.PI_OVERHEAD_TOKENS, drive.PI_OVERHEAD_TOKENS, False, threshold))
+            self.assertEqual(set(oh) - {"threshold"}, set(drive.overhead_record(prog, 0, False)))
             self.assertEqual(run["delivered"], len(prog.facts))
             rows = [json.loads(x) for x in (d / "run" / "turns.jsonl").read_text().splitlines()]
             self.assertEqual(len(rows), len(prog.turns))
@@ -309,6 +348,53 @@ class PiDriver(unittest.TestCase):
             s = score.summarize(score.score_run(score.load_run(d / "run")))
             self.assertEqual((s["recall_accuracy"], s["abstention_accuracy"]), (1.0, 1.0))
             self.assertEqual(s["undelivered"] + s["failed"] + s["confident_wrong"], 0)
+
+    def test_the_threshold_is_the_windows_less_what_theseuss_overhead_holds_beyond_pis(self):
+        prog = generate.build(7, "smoke")
+        plan = generate.planned_overhead(prog)
+        self.assertEqual(drive.pi_threshold(prog, 45000, plan), 45000, "at the plan's own overhead: the window")
+        self.assertEqual(drive.pi_threshold(prog, 45000, plan - 11340), 45000 - 11340)
+        self.assertEqual(drive.pi_keep_recent(33660), 8415)
+        self.assertEqual(drive.pi_keep_recent(200_000), drive.PI_KEEP_RECENT)
+
+    def test_a_pi_more_than_the_cushion_off_its_plan_is_refused_and_one_at_it_is_not(self):
+        """Pi's overhead is held to its own plan as Theseus's is held to the
+        progression's: 50 off, either way, runs; 51 off exits 3 naming both
+        numbers and how to move the plan; `--allow-overhead` runs on."""
+        prog = generate.build(7, "smoke")
+        plan, cushion = drive.PI_OVERHEAD_TOKENS, generate.OVERHEAD_CUSHION
+        for measured in (plan + cushion, plan - cushion):
+            with tempfile.TemporaryDirectory() as d:
+                rc, _ = run_pi(prog, Path(d), overhead=measured)
+                self.assertEqual(rc, 0, measured)
+                oh = json.loads((Path(d) / "run" / "run.json").read_text())["overhead"]
+                self.assertEqual((oh["measured"], oh["past_cushion"]), (measured, False))
+        for measured in (plan + cushion + 1, plan - cushion - 1):
+            with tempfile.TemporaryDirectory() as d:
+                d = Path(d)
+                rc, err = run_pi(prog, d, overhead=measured)
+                self.assertEqual(rc, 3, measured)
+                self.assertIn(f"{measured:,}", err)
+                self.assertIn(f"{plan:,}", err)
+                self.assertIn(f"--pi-overhead {measured}", err)
+                self.assertIn("--allow-overhead", err)
+                rows = (d / "run" / "turns.jsonl").read_text().splitlines()
+                self.assertEqual(len(rows), 1, "stopped after the first turn")
+                oh = json.loads((d / "run" / "run.json").read_text())["overhead"]
+                self.assertEqual((oh["measured"], oh["past_cushion"], oh["allowed"]), (measured, True, False))
+            with tempfile.TemporaryDirectory() as d:
+                rc, _ = run_pi(prog, Path(d), argv=["--allow-overhead"], overhead=measured)
+                self.assertEqual(rc, 0, measured)
+                run = json.loads((Path(d) / "run" / "run.json").read_text())
+                self.assertEqual((run["turns"], run["overhead"]["past_cushion"], run["overhead"]["allowed"]),
+                                 (len(prog.turns), True, True))
+        # Moving the plan moves the threshold and the verdict.
+        with tempfile.TemporaryDirectory() as d:
+            rc, _ = run_pi(prog, Path(d), argv=["--pi-overhead", "2500"], overhead=2500)
+            self.assertEqual(rc, 0)
+            run = json.loads((Path(d) / "run" / "run.json").read_text())
+            self.assertEqual(run["overhead"]["planned"], 2500)
+            self.assertEqual(run["pi_compact"]["threshold"], prog.context_window - (prog.overhead_tokens - 2500))
 
     def test_a_turn_ends_failed_when_its_last_answer_is_a_providers_error(self):
         events = drive.pi_events("\n".join(json.dumps(x) for x in [

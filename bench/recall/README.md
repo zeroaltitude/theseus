@@ -171,18 +171,29 @@ Theseus runs the bench profile (every tool open, roots at `/`), and Claude Code 
   - Its tools are its four, `read`, `bash`, `edit` and `write` (`--tools`). It has no permission prompts.
   - Its memory is its compaction and the context files it reads (`AGENTS.md`, `CLAUDE.md`); the run keeps both,
     and its session logs.
-  - Compaction: its own threshold, at the progression's window. Pi compacts when the context passes its model's
-    window less `reserveTokens`, so the scratch `settings.json` sets the run model's `reserveTokens`
-    (`compaction.modelOverrides`) to the model's window in Pi's catalog (`--pi-model-window`, 1,000,000 for
-    Sonnet 5.5) less the progression's. It sets `keepRecentTokens`, what a compaction keeps unsummarized, to
-    Pi's own 20,000 or a quarter of a smaller window (`pi_keep_recent`): when the whole context is within it,
-    Pi 1.0.4 has nothing to summarize and skips the compaction. `run.json`'s `pi_compact` keeps the four. Pi's
-    print mode sends `/compact` to the model as text, so there are no marks to compact at; the threshold works
-    at any window. A compaction counts where a session log gains a `compaction` entry, and its summary call's
-    tokens and dollars are its turn's.
-  - The progression is planned at Theseus's overhead (`overhead_tokens`, 13,640 for the smoke), and Pi's own
-    system prompt and tools are about 2,300 tokens, so on the smoke Pi's context peaks near 20k and it does not
-    compact at the 45k window: its probes are scored where it compacted, which is nowhere.
+  - Compaction: its own threshold, where the progression's context crosses its window. Pi compacts when the context
+    passes its model's window less `reserveTokens`. The progression is planned at Theseus's overhead
+    (`overhead_tokens`, 13,640 for the smoke), Pi's own system prompt and tools are about 2,200 tokens
+    (`PI_OVERHEAD_TOKENS`, 2,233: measured with Pi 1.0.4 against `standin.py`), and one progression is read by every
+    arm, so a Pi at the plain window would run about 11,400 tokens short at every turn and never compact on the
+    smoke. The scratch `settings.json` sets the run model's `reserveTokens` (`compaction.modelOverrides`) to the
+    model's window in Pi's catalog (`--pi-model-window`, 1,000,000 for Sonnet 5.5) less the threshold, and the
+    threshold is the progression's window less what the plan's overhead holds beyond Pi's (`pi_threshold`: 36,660 of
+    the smoke's 48,000 at seed 12). Pi then reads the same bytes as the other arms and crosses where the plan does.
+    `keepRecentTokens`, what a compaction keeps unsummarized, is Pi's own 20,000 or a quarter of the threshold
+    (`pi_keep_recent`), the context Pi holds when it compacts: when the whole context is within it, Pi 1.0.4 has
+    nothing to summarize and skips the compaction. `run.json`'s `pi_compact` keeps the window, the model's window,
+    the threshold and the two. Pi's print mode sends `/compact` to the model as text, so there are no marks to
+    compact at; the threshold works at any window. A compaction counts where a session log gains a `compaction`
+    entry, and its summary call's tokens and dollars are its turn's.
+  - Pi's overhead is measured as Theseus's is: the first turn's first answer's input (input, cache read and cache
+    write) less the turn's words at the model's rates, and `run.json`'s `overhead` has the Theseus record's shape
+    (planned, measured, cushion, `past_cushion`, `allowed`) and the `threshold` it was set at. A Pi more than
+    `generate.OVERHEAD_CUSHION` off its plan, over or under, stops after that turn, exits 3 and names both numbers;
+    `--pi-overhead <measured>` moves the plan, and `--allow-overhead` (both drivers read it) runs on. The count is
+    the provider's, where Theseus's is the compiler's estimate; `standin.py` counts by the generator's own rule, so
+    offline the two agree, and on the real model the record shows how far the rule's rates are from the provider's.
+    That is the live check: if it is past the cushion, the constant moves.
   - Pi's print mode exits 0 when the provider fails: a turn whose last answer ended on `error` or `aborted`, or
     that answered nothing, is recorded as failed (`pi_failed`). Pi's process markers and its session's variables
     (`AI_AGENT`, `PI_SESSION_ID`, …) are taken out of its environment, and a turn past `--turn-timeout` has its
@@ -283,7 +294,8 @@ They cover:
 - **The Claude Code driver**, against a stand-in `claude` on PATH: session ids carried, a boundary opening a new
   one, `/compact` after the mark.
 - **The Pi driver**, against a stand-in `pi` on PATH: a session id per session, the reserve and the kept
-  tokens at the window, a compaction read from its log, a parent's variables taken out, each turn's answers and
+  tokens at the planned threshold, its overhead recorded and a Pi 51 off its plan refused (50 off not, and
+  `--allow-overhead` runs on), a compaction read from its log, a parent's variables taken out, each turn's answers and
   summaries summed, and a provider's error a failed turn.
 - **The Theseus driver**, end to end on this workspace's binaries (`target/debug`, or `THESEUS_RECALL_BIN_DIR`):
   the smoke on `standin.py`, and a turn past its timeout stopped while the next one runs, on `theseus-sim
