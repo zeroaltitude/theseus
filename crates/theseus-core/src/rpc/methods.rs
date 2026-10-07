@@ -1403,11 +1403,18 @@ impl Core {
         &self,
         p: theseus_protocol::ActionListParams,
     ) -> Result<theseus_protocol::ActionListResult, RpcFailure> {
-        let n = p.n.unwrap_or(200).min(2000);
-        // The newest `n` through the index's births, or an execution's
-        // through its tag (theseus-96w2); while the index's shape is built,
-        // every action, as before.
-        let (actions, total) = match self.actions_paged(p.execution_id.as_deref(), n)? {
+        let by_default = if p.unsettled { 2000 } else { 200 };
+        let n = p.n.unwrap_or(by_default).min(2000);
+        // Every action not settled, however old (theseus-hnof.3); else the
+        // newest `n` through the index's births, or an execution's through its
+        // tag (theseus-96w2); while the index's shape is built, every action,
+        // as before.
+        let page = if p.unsettled {
+            Some(self.actions_unsettled(p.execution_id.as_deref(), n)?)
+        } else {
+            self.actions_paged(p.execution_id.as_deref(), n)?
+        };
+        let (actions, total) = match page {
             Some(page) => page,
             None => {
                 let mut actions = self.kernel.actions()?;

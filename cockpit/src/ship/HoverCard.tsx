@@ -1,0 +1,111 @@
+// The Ship's hover cards (theseus-hnof): whatever the pointer rests on says what it is first, in plain words ("SESSION",
+// "TURN 12 OF 17", "TOOL CALL"), then its real data, then where a click takes you. The sea's word for it rides along,
+// faint, so the metaphor is learned while it is read.
+import type { Hit } from './engine'
+import type { Bench, Light, ShipModel, Vessel } from './model'
+import { usdShort } from './labels'
+import { authorWord, benchLine, count, LIGHT_NOUN, outcome, span, stateWord, type Tone, vesselNoun } from './words'
+import { ago, clock } from '@/lib/format'
+
+const TONE: Record<Tone, string> = { live: 'text-live', wait: 'text-wait', fault: 'text-fault', ok: 'text-ok', idle: 'text-ink-dim' }
+
+function Head({ noun, sea, right }: { noun: string; sea: string; right?: string }) {
+  return (
+    <div className="flex items-baseline gap-2">
+      <span className="ship-engraved text-[10px]">{noun}</span>
+      <span className="text-[10px] italic text-ink-faint">the {sea}</span>
+      {right && <span className="num ml-auto shrink-0 text-[10.5px] text-ink-faint">{right}</span>}
+    </div>
+  )
+}
+
+function VesselBody({ v, model }: { v: Vessel; model: ShipModel }) {
+  const st = stateWord(v)
+  const tasks = model.vessels.filter((x) => x.parentId === v.id)
+  const parent = v.parentId ? model.vessels[model.byId.get(v.parentId) ?? -1] : undefined
+  const calls = v.benches.reduce((a, b) => a + model.benches[b].calls, 0)
+  const failed = v.benches.reduce((a, b) => a + model.benches[b].failed, 0)
+  return (
+    <>
+      <Head noun={vesselNoun(v)} sea={v.kind === 'task' ? 'boat in tow' : 'ship'} right={v.kind === 'task' ? v.taskShort : undefined} />
+      <div className="mt-0.5 font-display text-[13.5px] font-semibold leading-snug text-ivory">{v.title}</div>
+      <div className={`num text-[11.5px] ${TONE[st.tone]}`}>{st.word} <span className="text-ink-faint">· {st.sea}</span></div>
+      <div className="num mt-1 text-[11px] text-ink-dim">
+        {count(v.turns, 'turn')} · {count(calls, 'tool call')}{failed ? `, ${failed} failed` : ''} · {usdShort(v.cost)}{v.limit ? ` of ${usdShort(v.limit)}` : ''}
+      </div>
+      <div className="num text-[11px] text-ink-faint">
+        {v.place && !v.parentId ? `from ${v.label || 'the CLI'} · ` : ''}last active {ago(v.lastActive)}
+      </div>
+      {parent && <div className="num text-[11px] text-ink-dim">started by the session “{parent.title.slice(0, 40)}”</div>}
+      {!!tasks.length && <div className="num text-[11px] text-ink-dim">towing {count(tasks.length, 'task')}</div>}
+      {v.hold && <div className="num text-[11px] text-wait">read text from the web: {v.hold.tool} {v.hold.query ?? v.hold.url}</div>}
+      <div className="mt-1 text-[10.5px] text-ink-faint">click to bring it alongside · double-click to fly in</div>
+    </>
+  )
+}
+
+function BenchBody({ b, model }: { b: Bench; model: ShipModel }) {
+  const v = model.vessels[b.vessel]
+  const total = v.benches.length
+  const state = b.waiting ? { word: 'waits for you', tone: 'wait' as Tone } : b.running ? { word: 'working now', tone: 'live' as Tone } : b.failed ? { word: `${b.failed} failed`, tone: 'fault' as Tone } : { word: 'done', tone: 'idle' as Tone }
+  return (
+    <>
+      <Head noun={`turn ${b.n} of ${total}`} sea="bench" right={Number.isFinite(b.at) ? clock(b.at) : undefined} />
+      {b.preview && <div className="mt-0.5 line-clamp-2 text-[12px] leading-snug text-ink">“{b.preview}”</div>}
+      <div className="num mt-0.5 text-[10.5px] text-ink-faint">asked by {authorWord(b.author)} in “{v.title.slice(0, 36)}”</div>
+      <div className={`num mt-1 text-[11.5px] ${TONE[state.tone]}`}>{state.word}{b.end > b.at ? ` · took ${span(b.end - b.at)}` : ''}</div>
+      <div className="num text-[11px] text-ink-dim">{benchLine(b, usdShort)}{b.model ? ` · ${b.model.replace(/^claude-/, '')}` : ''}</div>
+      <div className="mt-1 text-[10.5px] text-ink-faint">click to bring this turn close and onto the card; the card opens it in the session</div>
+    </>
+  )
+}
+
+function LightBody({ l, model }: { l: Light; model: ShipModel }) {
+  const v = model.vessels[l.vessel]
+  const b = l.bench >= 0 ? model.benches[l.bench] : undefined
+  // An oar is one thing to the reader: the call and its result, together.
+  const call = l.kind === 'result' ? model.lights.find((c) => c.kind === 'call' && c.toolUseId && c.toolUseId === l.toolUseId) ?? l : l
+  const result = call.kind === 'call' ? model.lights.find((r) => r.kind === 'result' && r.toolUseId && r.toolUseId === call.toolUseId) : undefined
+  if (call.kind === 'call') {
+    const o = outcome({ ...call, failed: result?.failed ?? call.failed, external: result?.external, collapsedAt: result?.collapsedAt ?? call.collapsedAt }, !!result)
+    return (
+      <>
+        <Head noun="tool call" sea="oar" right={clock(call.at)} />
+        <div className="num mt-0.5 text-[13px] text-ivory">{call.tool ?? 'tool'} <span className={TONE[o.tone]}>· {o.word}</span></div>
+        {call.preview && <div className="mt-0.5 line-clamp-2 text-[11.5px] leading-snug text-ink-dim">{call.preview}</div>}
+        {result?.preview && <div className="num mt-1 line-clamp-2 text-[11px] leading-snug text-ink-faint">→ {result.preview}</div>}
+        <div className="num mt-1 flex flex-wrap gap-x-2 text-[10.5px]">
+          {result && <span className="text-ink-dim">took {span(result.at - call.at)}</span>}
+          {call.running && <span className="text-money">⚙ a job, running since {clock(call.at)}</span>}
+          {call.l1 && <span className="text-[#5eead4]">⬡ sandboxed (L1)</span>}
+          {result?.external && <span className="text-think">◎ text from the web</span>}
+          {b && <span className="text-ink-faint">turn {b.n} of “{v.title.slice(0, 28)}”</span>}
+        </div>
+        <div className="mt-1 text-[10.5px] text-ink-faint">click for the call inspector: its input, its output, its gate</div>
+      </>
+    )
+  }
+  const noun = LIGHT_NOUN[l.kind]
+  const head = l.kind === 'model' ? (l.model ?? 'model').replace(/^claude-/, '') : `from ${authorWord(l.author)}`
+  return (
+    <>
+      <Head noun={noun} sea={l.kind === 'model' ? 'violet lamp' : 'ivory lamp'} right={clock(l.at)} />
+      <div className="num mt-0.5 text-[12.5px] text-ivory">{head}{l.cost !== undefined ? <span className="text-money"> · {usdShort(l.cost)}</span> : null}</div>
+      {l.preview && <div className="mt-0.5 line-clamp-3 text-[11.5px] leading-snug text-ink-dim">{l.preview}</div>}
+      {b && <div className="num mt-1 text-[10.5px] text-ink-faint">turn {b.n} of “{v.title.slice(0, 32)}”</div>}
+      <div className="mt-1 text-[10.5px] text-ink-faint">{l.kind === 'model' ? 'click for the model-call inspector' : 'click to put its turn on the card'}</div>
+    </>
+  )
+}
+
+export function HoverCard({ hover, model }: { hover: { hit: Hit; x: number; y: number }; model: ShipModel }) {
+  const style = { left: Math.min(hover.x + 16, window.innerWidth - 430), top: Math.min(hover.y + 14, window.innerHeight - 220) }
+  const h = hover.hit
+  return (
+    <div className="brass-tip pointer-events-none absolute w-max max-w-[410px]" style={style}>
+      {h.kind === 'vessel' && <VesselBody v={model.vessels[h.vessel]} model={model} />}
+      {h.kind === 'bench' && <BenchBody b={model.benches[h.bench]} model={model} />}
+      {h.kind === 'light' && <LightBody l={model.lights[h.light]} model={model} />}
+    </div>
+  )
+}

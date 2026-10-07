@@ -6,7 +6,8 @@
 // - The lights: node.list, all sessions at once (the newest 2,000); past that, each session by itself. A session
 //   that works is watched (session.watch) while it works, and each node.written reads its nodes again.
 // - L1 and jobs: a call node's gate decision (`class: "l1"`); for a node from before, tool.job_started rows and
-//   tool.started pushes; and tool.ended and the actions in flight.
+//   tool.started pushes; and tool.ended and the actions in flight: action.list's newest 500, and every action not
+//   settled however old (its `unsettled` read, theseus-hnof.3), so a job that has run for hours keeps its gear.
 // - Reach: node.reach for the selected vessel's nodes, read only while it is selected.
 //
 // What the pushes say lives in a small store per mounted Ship, replaced (never mutated) on each change, so a render
@@ -21,6 +22,7 @@ import type {
 import { call, client, useConn, useRpc } from '@/lib/rpc'
 import type { World } from '@/lib/timemachine'
 import { buildModel, type ReachLink, type ShipModel } from './model'
+import { mergeActions } from './watch.ts'
 
 type D = Record<string, unknown>
 
@@ -40,6 +42,11 @@ export interface ShipData {
   past?: World
   /** The selected vessel's currents come from its newest `read` nodes of `total`, when it has more than that. */
   reachCap?: { read: number; total: number }
+  /** The calls: action.list's newest and every one not settled however old, or the fold's at the time machine's
+   *  moment. The watch reads them. */
+  actions?: ActionInfo[]
+  /** The questions waiting for the operator (confirm.list), or the fold's. */
+  confirms?: ConfirmRequest[]
 }
 
 const NONE = new Map<string, number>()
@@ -59,6 +66,8 @@ interface Live {
   streaming: Map<string, number>
   failedAt: Map<string, number>
   reports: Map<string, number>
+  /** Session id → the turn it runs now (turn.started, until turn.ended or turn.failed): its bench rows. */
+  active: Map<string, string>
   knownSessions: Set<string> | null
   bornSessions: Map<string, number>
   arrivals: number[]
@@ -73,7 +82,7 @@ interface Live {
 
 const fresh = (): Live => ({
   nodes: new Map(), known: null, born: new Map(), l1: new Set(), running: new Set(), streaming: new Map(), failedAt: new Map(),
-  reports: new Map(), knownSessions: null, bornSessions: new Map(), arrivals: [], reach: [], reachOf: null, progress: 0, now: Date.now(),
+  reports: new Map(), active: new Map(), knownSessions: null, bornSessions: new Map(), arrivals: [], reach: [], reachOf: null, progress: 0, now: Date.now(),
 })
 
 /** Merge nodes into the store; ids the first read did not have arrived live (their flare). */
@@ -116,6 +125,8 @@ export function useShipLive(selected: string | undefined, world: World | null): 
   const open = useConn((s) => s.status === 'open')
   const [store] = useState(() => createStore<Live>(fresh))
   const st = useStore(store)
+  // Where each harbour was last placed, so it stays there as its ships grow (model.ts, `placesSeen`).
+  const [placesSeen] = useState(() => new Map<string, { x: number; z: number }>())
 
   const { data: sl } = useRpc<{ sessions: SessionInfo[] }>('session.list', undefined, 3000)
   const { data: el } = useRpc<{ executions: ExecutionInfo[] }>('execution.list', undefined, 3000)
@@ -127,6 +138,10 @@ export function useShipLive(selected: string | undefined, world: World | null): 
   const { data: calls } = useRpc<{ rows: LedgerEntry[] }>('ledger.tail', { n: 400, kind: 'provider.call', session_id: null }, 5000)
   const anyWork = (sl?.sessions ?? []).some((s) => s.attention?.level === 'working' || s.execution_state === 'running')
   const { data: al } = useRpc<{ actions: ActionInfo[] }>('action.list', { execution_id: null, n: 500 }, anyWork ? 1000 : 5000)
+  // The newest 500 count model calls too: after 500 later calls a job running for hours drops out of them. Every
+  // action not settled, however old, read beside them, keeps it (and every question waiting) on the Ship.
+  const { data: ul } = useRpc<{ actions: ActionInfo[] }>('action.list', { unsettled: true }, anyWork ? 1000 : 5000)
+  const actions = useMemo(() => mergeActions(al?.actions, ul?.actions), [al, ul])
 
   // A session's nodes, read again shortly after it says it wrote one (debounced per session).
   const pending = useRef(new Map<string, ReturnType<typeof setTimeout>>())
@@ -191,7 +206,7 @@ export function useShipLive(selected: string | undefined, world: World | null): 
           break
         case 'turn.started':
           if (sid && typeof p.turn_id === 'string') turnSession.current.set(p.turn_id, sid)
-          store.setState((s) => ({ arrivals: arrive(s) }))
+          store.setState((s) => ({ arrivals: arrive(s), active: sid && typeof p.turn_id === 'string' ? withMap(s.active, sid, p.turn_id) : s.active }))
           break
         case 'model.delta': {
           const s0 = typeof p.turn_id === 'string' ? turnSession.current.get(p.turn_id) : undefined
@@ -217,10 +232,16 @@ export function useShipLive(selected: string | undefined, world: World | null): 
           }))
           break
         case 'turn.ended':
-          if (sid) store.setState((s) => ({ streaming: s.streaming.has(sid) ? withMap(s.streaming, sid, undefined) : s.streaming, arrivals: arrive(s) }))
+          if (sid) store.setState((s) => ({
+            streaming: s.streaming.has(sid) ? withMap(s.streaming, sid, undefined) : s.streaming, arrivals: arrive(s),
+            active: s.active.get(sid) === p.turn_id ? withMap(s.active, sid, undefined) : s.active,
+          }))
           break
         case 'turn.failed':
-          if (sid) store.setState((s) => ({ failedAt: withMap(s.failedAt, sid, Date.now()), streaming: withMap(s.streaming, sid, undefined), arrivals: arrive(s) }))
+          if (sid) store.setState((s) => ({
+            failedAt: withMap(s.failedAt, sid, Date.now()), streaming: withMap(s.streaming, sid, undefined), arrivals: arrive(s),
+            active: s.active.has(sid) ? withMap(s.active, sid, undefined) : s.active,
+          }))
           break
         case 'execution.changed': {
           const v = p as unknown as ExecutionView
@@ -329,11 +350,11 @@ export function useShipLive(selected: string | undefined, world: World | null): 
   // engine animates a collapse that settles while the page is open, and draws an older one collapsed.
   const cancelled = useMemo(() => {
     const m = new Map<string, number>()
-    for (const a of al?.actions ?? []) {
+    for (const a of actions ?? []) {
       if (a.verdict?.state === 'termination_verified') m.set(a.correlation_id, a.settled_at_ms ?? 0)
     }
     return m
-  }, [al])
+  }, [actions])
 
   const model = useMemo(() => {
     if (world) {
@@ -356,6 +377,7 @@ export function useShipLive(selected: string | undefined, world: World | null): 
         reach: st.reach,
         now: world.t,
         asOf: world.t,
+        placesSeen,
       })
     }
     if (!sl || !el) return null
@@ -367,7 +389,7 @@ export function useShipLive(selected: string | undefined, world: World | null): 
     // Jobs running: dispatched and not settled (the action list), and those tool.started said began.
     const run = new Set(st.running)
     const reserved = new Map<string, number>()
-    for (const a of al?.actions ?? []) {
+    for (const a of actions ?? []) {
       if (!a.settled_at_ms && a.dispatched_at_ms && a.tool === 'proc.run') run.add(a.correlation_id)
       if (a.settled_at_ms) run.delete(a.correlation_id)
       if (!a.settled_at_ms && a.reserved_usd > 0) reserved.set(a.execution_id, (reserved.get(a.execution_id) ?? 0) + a.reserved_usd)
@@ -388,9 +410,11 @@ export function useShipLive(selected: string | undefined, world: World | null): 
       reserved,
       cancelled,
       reach: st.reach,
+      active: st.active,
       now: st.now,
+      placesSeen,
     })
-  }, [world, sl, el, tl, cl, jobs, al, cancelled, st.nodes, st.l1, st.running, st.streaming, st.failedAt, st.reports, st.born, st.bornSessions, st.reach, st.now])
+  }, [world, sl, el, tl, cl, jobs, actions, cancelled, st.nodes, st.l1, st.running, st.streaming, st.failedAt, st.reports, st.born, st.bornSessions, st.reach, st.active, st.now, placesSeen])
 
   const tpm = useMemo(() => {
     if (!calls) return null
@@ -408,6 +432,7 @@ export function useShipLive(selected: string | undefined, world: World | null): 
   return {
     model, progress: st.progress, reachCap: !world && st.reachOf && st.reachOf.total > st.reachOf.read ? st.reachOf : undefined, health, profiles, tpm: world ? world.gauges.tpm : tpm, arrivals: world ? 0 : st.arrivals.length,
     synthetic: false, error: st.error, ...(world ? { past: world } : {}),
+    actions: world ? world.actions : actions, confirms: world ? world.confirms : cl?.confirms,
   }
 }
 

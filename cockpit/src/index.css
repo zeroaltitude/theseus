@@ -286,6 +286,54 @@
 .ship-tag[data-flag="external"] { color: #f9a8d4; }
 .ship-tag[data-flag="failed"] { color: #fda4af; }
 .ship-tag[data-flag="l1"] { color: #5eead4; }
+/* The Ship's plain words (theseus-hnof): what each shape is, said beside it, in the tone of its state. */
+.ship-plate-kind { font-family: var(--font-mono); font-size: 9px; line-height: 11px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--color-ink-faint); }
+.ship-plate[data-task="1"] .ship-plate-kind { color: #9fd8e6; }
+.ship-plate[data-tone="live"] .ship-plate-sub { color: #a5f3fc; }
+.ship-plate[data-tone="wait"] .ship-plate-sub { color: #f3d58c; }
+.ship-plate[data-tone="fault"] .ship-plate-sub { color: #fda4af; }
+.ship-plate[data-tone="ok"] .ship-plate-sub i { background: var(--color-ok); }
+.ship-formation-sub { font-family: var(--font-mono); font-size: 10.5px; font-weight: 500; letter-spacing: 0.02em; text-transform: none; color: rgb(226 190 112 / 0.78); }
+.ship-bench {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 14px;
+  padding: 0 5px;
+  border-radius: 3px;
+  color: rgb(239 227 200 / 0.86);
+  background: rgb(3 9 18 / 0.74);
+  border: 1px solid rgb(176 141 87 / 0.38);
+  white-space: nowrap;
+  pointer-events: none;
+}
+.ship-bench[data-state="running"] { color: #a5f3fc; border-color: rgb(34 211 238 / 0.6); box-shadow: 0 0 10px -2px rgb(34 211 238 / 0.5); }
+.ship-bench[data-state="waiting"] { color: #fde68a; border-color: rgb(251 191 36 / 0.65); }
+.ship-bench[data-state="failed"] { color: #fecdd3; border-color: rgb(251 113 133 / 0.6); }
+.ship-tag[data-flag="waiting"] { color: #fde68a; }
+.ship-tag[data-flag="running"] { color: #fcd34d; }
+/* The key, the tour, the depth gauge, and the coins (theseus-hnof). */
+.ship-key-row { display: flex; align-items: center; gap: 8px; width: 100%; padding: 2px 4px; border-radius: 5px; text-align: left; }
+.ship-key-row:hover, .ship-key-row[data-on="1"] { background: rgb(34 211 238 / 0.09); box-shadow: inset 0 0 0 1px rgb(34 211 238 / 0.32); }
+.ship-key-row b { font-weight: 600; color: var(--color-ivory); }
+.ship-key-row small { margin-left: auto; font-family: var(--font-mono); font-size: 10px; color: var(--color-ink-faint); }
+.ship-tour-ring { position: absolute; width: 46px; height: 46px; margin: -23px 0 0 -23px; border-radius: 50%; border: 2px solid var(--color-neon); box-shadow: 0 0 18px rgb(34 211 238 / 0.7), inset 0 0 12px rgb(34 211 238 / 0.4); pointer-events: none; }
+.ship-root:not([data-calm="1"]) .ship-tour-ring { animation: tour-ring 1.6s ease-in-out infinite; }
+@keyframes tour-ring { 0%, 100% { transform: scale(1); opacity: 1; } 50% { transform: scale(1.25); opacity: 0.6; } }
+.ship-depth-stop { display: flex; align-items: center; gap: 7px; font-family: var(--font-display); font-size: 10px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--color-ink-faint); padding: 3px 8px 3px 4px; border-radius: 4px; }
+.ship-depth-stop i { width: 9px; height: 9px; border-radius: 50%; border: 1.5px solid #b08d57; background: #0a1828; flex: none; }
+.ship-depth-stop:hover { color: var(--color-ink); }
+.ship-depth-stop[data-on="1"] { color: var(--color-neon); text-shadow: 0 0 8px rgb(34 211 238 / 0.6); }
+.ship-depth-stop[data-on="1"] i { background: var(--color-neon); border-color: #a5f3fc; box-shadow: 0 0 8px var(--color-neon); }
+/* A turn linked from the Ship's bench, outlined in the session deck's transcript. */
+section[data-linked="1"] { box-shadow: inset 3px 0 0 var(--color-neon); }
+.ship-coin {
+  position: absolute; left: 0; top: 0; z-index: 40; pointer-events: none;
+  font-family: var(--font-mono); font-size: 11px; font-weight: 700; color: #1a1205;
+  padding: 1px 6px; border-radius: 999px;
+  background: radial-gradient(circle at 35% 30%, #fff1c2, #e2ae4f 55%, #8c6a3c);
+  box-shadow: 0 0 14px rgb(250 204 21 / 0.7), 0 2px 6px rgb(0 0 0 / 0.6);
+  transition: transform 1.15s cubic-bezier(0.3, 0, 0.2, 1), opacity 1.15s ease-in;
+}
 .ship-console {
   --rivet: radial-gradient(circle, #f6e2b4 0 1px, #9a7745 1.5px 2.1px, rgb(0 0 0 / 0.55) 2.4px 2.9px, transparent 3.1px);
   border-radius: 16px 16px 12px 12px;

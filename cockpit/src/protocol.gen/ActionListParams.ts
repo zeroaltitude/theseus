@@ -6,6 +6,14 @@ export type ActionListParams = {
  */
 execution_id: string | null, 
 /**
- * Newest `n` (default 200).
+ * Newest `n` (default 200; with `unsettled`, every one). At most 2,000.
  */
-n: number | null, };
+n: number | null, 
+/**
+ * Only the actions not settled, however old (theseus-hnof.3): planned,
+ * authorized or dispatched (a question waiting, a job running), or of
+ * an unknown outcome, which a late result can still settle. Read from
+ * the kernel's open actions, never from every action, so a job that has
+ * run for hours stays in the list however many calls came after it.
+ */
+unsettled?: boolean, };

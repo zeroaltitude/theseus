@@ -78,6 +78,7 @@ async fn action_list_through_the_index_answers_as_every_action_read_did() {
             .action_list(ActionListParams {
                 execution_id: execution.clone(),
                 n: Some(n),
+                ..Default::default()
             })
             .unwrap();
         let mut all = core.kernel.actions().unwrap();
@@ -98,6 +99,153 @@ async fn action_list_through_the_index_answers_as_every_action_read_did() {
             .map(|a| (a.correlation_id.clone(), a.state.clone()))
             .collect();
         assert_eq!(ids(&have), want, "query {q}: n {n}, {execution:?}");
+        assert_eq!(got.total, total, "query {q}");
+    }
+}
+
+/// The ids and states `action.list` answered, in its order.
+fn listed(r: &theseus_protocol::ActionListResult) -> Vec<(String, String)> {
+    r.actions
+        .iter()
+        .map(|a| (a.correlation_id.clone(), a.state.clone()))
+        .collect()
+}
+
+/// `action.list { unsettled }` (theseus-hnof.3): a job dispatched before 600
+/// later calls, a question waiting, and a call of unknown outcome are out of
+/// the newest 500 and in the unsettled list, newest first, with nothing
+/// settled; an execution's and a cut list say the same; a job that settles
+/// leaves it; and `total` counts every action either way.
+#[tokio::test]
+async fn unsettled_actions_stay_listed_however_many_calls_came_after() {
+    let core = test_core("ok");
+    core.store
+        .append(&[
+            action("cor_job", "exe_job", "dispatched", 1_000),
+            action("cor_ask", "exe_ask", "planned", 1_001),
+            action("cor_unknown", "exe_job", "outcome_unknown", 1_002),
+            action("cor_cancelled", "exe_ask", "cancelled", 1_003),
+            action("cor_failed", "exe_job", "failed", 1_004),
+        ])
+        .unwrap();
+    for i in 0..600u64 {
+        // Every hundredth later call still runs.
+        let state = if i % 100 == 50 {
+            "authorized"
+        } else {
+            "succeeded"
+        };
+        let id = format!("cor_later_{i:03}");
+        core.store
+            .append(&[action(&id, "exe_later", state, 2_000 + i)])
+            .unwrap();
+    }
+    let ask = |execution: Option<&str>, n: Option<usize>, unsettled: bool| {
+        core.action_list(ActionListParams {
+            execution_id: execution.map(str::to_string),
+            n,
+            unsettled,
+        })
+        .unwrap()
+    };
+    let newest = ask(None, Some(500), false);
+    assert_eq!(newest.total, 605);
+    assert!(!listed(&newest).iter().any(|(id, _)| id == "cor_job"));
+    let pair = |id: &str, state: &str| (id.to_string(), state.to_string());
+    let open = vec![
+        pair("cor_later_550", "authorized"),
+        pair("cor_later_450", "authorized"),
+        pair("cor_later_350", "authorized"),
+        pair("cor_later_250", "authorized"),
+        pair("cor_later_150", "authorized"),
+        pair("cor_later_050", "authorized"),
+        pair("cor_unknown", "outcome_unknown"),
+        pair("cor_ask", "planned"),
+        pair("cor_job", "dispatched"),
+    ];
+    let all = ask(None, None, true);
+    assert_eq!(listed(&all), open);
+    assert_eq!(
+        all.total, 605,
+        "total counts every action, not the filter's"
+    );
+    assert_eq!(listed(&ask(None, Some(2), true)), open[..2].to_vec());
+    assert_eq!(
+        listed(&ask(Some("exe_job"), None, true)),
+        vec![
+            pair("cor_unknown", "outcome_unknown"),
+            pair("cor_job", "dispatched")
+        ]
+    );
+    assert_eq!(listed(&ask(Some("exe_none"), None, true)), Vec::new());
+    // The job ends: it leaves the list, the rest stay.
+    core.store
+        .append(&[action("cor_job", "exe_job", "succeeded", 1_000)])
+        .unwrap();
+    assert_eq!(listed(&ask(None, None, true)), open[..8].to_vec());
+}
+
+/// `action.list { unsettled }` answers what every action read, filtered to
+/// those not settled, sorted and cut gave: for every `n` and execution, over
+/// actions that move through every state, many to a frame.
+#[tokio::test]
+async fn unsettled_actions_answer_as_every_action_read_and_filtered() {
+    let core = test_core("ok");
+    let mut g = Lcg(23);
+    let states = [
+        "authorized",
+        "dispatched",
+        "succeeded",
+        "failed",
+        "cancelled",
+        "outcome_unknown",
+    ];
+    let mut planned = 0u64;
+    let mut execution_of: Vec<String> = Vec::new();
+    for _ in 0..200u64 {
+        let mut frame = Vec::new();
+        for _ in 0..1 + g.below(3) {
+            planned += 1;
+            let x = format!("exe_{}", g.below(5));
+            frame.push(action(
+                &format!("cor_{planned:05}"),
+                &x,
+                "planned",
+                1_000 + planned,
+            ));
+            execution_of.push(x);
+        }
+        if planned > 3 {
+            let old = 1 + g.below(planned - 1);
+            let x = &execution_of[(old - 1) as usize];
+            let state = states[g.below(states.len() as u64) as usize];
+            frame.push(action(&format!("cor_{old:05}"), x, state, 1_000 + old));
+        }
+        core.store.append(&frame).unwrap();
+    }
+    for q in 0..40 {
+        let n = (q % 4 != 0).then(|| (1 + g.below(60)) as usize);
+        let execution = (q % 3 == 0).then(|| format!("exe_{}", g.below(6)));
+        let got = core
+            .action_list(ActionListParams {
+                execution_id: execution.clone(),
+                n,
+                unsettled: true,
+            })
+            .unwrap();
+        let mut all = core.kernel.actions().unwrap();
+        let total = all.len() as u64;
+        all.retain(|a| !a.state.is_settled());
+        if let Some(x) = &execution {
+            all.retain(|a| &a.execution_id == x);
+        }
+        all.sort_by_key(|a| std::cmp::Reverse(a.planned_at_ms));
+        all.truncate(n.unwrap_or(2000));
+        let want: Vec<(String, String)> = all
+            .iter()
+            .map(|a| (a.correlation_id.clone(), a.state.as_str().to_string()))
+            .collect();
+        assert_eq!(listed(&got), want, "query {q}: n {n:?}, {execution:?}");
         assert_eq!(got.total, total, "query {q}");
     }
 }

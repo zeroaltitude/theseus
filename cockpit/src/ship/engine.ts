@@ -17,10 +17,13 @@ import { oarReach, type Light, type ShipModel } from './model'
 import { Post } from './post'
 import {
   BEACON_FRAG, BEACON_VERT, FLOW_FRAG, FLOW_VERT, HULL_FRAG, HULL_VERT, LIGHT_FRAG, LIGHT_VERT, LINE_FRAG,
-  LINE_VERT, SAIL_FRAG, SAIL_VERT, SEA_FRAG, SEA_VERT, STAR_FRAG, STAR_VERT, WAKE_FRAG, WAKE_VERT,
+  LINE_VERT, MARK_FRAG, MARK_VERT, OAR_FRAG, OAR_VERT, SAIL_FRAG, SAIL_VERT, SEA_FRAG, SEA_VERT, STAR_FRAG, STAR_VERT,
+  WAKE_FRAG, WAKE_VERT,
 } from './shaders'
 
-export type Hit = { kind: 'vessel'; vessel: number } | { kind: 'light'; light: number }
+/** What is under the pointer: a vessel (a session or a task), a bench (a turn), or a light (a node: a message, a model
+ *  call, a tool call, its result). */
+export type Hit = { kind: 'vessel'; vessel: number } | { kind: 'bench'; bench: number } | { kind: 'light'; light: number }
 
 export interface EngineHooks {
   onHover?: (hit: Hit | null, x: number, y: number) => void
@@ -48,6 +51,24 @@ const LIGHT_LOOK: Record<string, { c: [number, number, number]; s: number }> = {
   ok: { c: [0.18, 0.98, 0.48], s: 0.5 },
   failed: { c: [1.0, 0.45, 0.53], s: 0.54 },
   external: { c: [1.0, 0.47, 0.74], s: 0.56 },
+}
+
+/** An oar's blade by its result (theseus-hnof): the cockpit's state tones. */
+const OAR_LOOK = {
+  ok: [0.2, 0.86, 0.6],
+  failed: [1.0, 0.45, 0.53],
+  external: [1.0, 0.47, 0.74],
+  pending: [0.55, 0.78, 0.9],
+  waiting: [1.0, 0.75, 0.2],
+} as const satisfies Record<string, readonly [number, number, number]>
+
+/** The hull's half-width at a local x (the hull shader's `halfWidth`, the galley's plan), less a little for the rail. */
+function halfWidthAt(v: { length: number; beam: number }, x: number): number {
+  const t = Math.max(-1, Math.min(1, x / (v.length * 0.5)))
+  let k = 1
+  if (t > 0.05) { const q = (t - 0.05) / 0.95; k = Math.max(0, Math.pow(1 - Math.pow(q, 1.35), 0.85)) }
+  else if (t < -0.42) { const q = (-0.42 - t) / 0.58; k = Math.max(0, Math.sqrt(Math.max(0, 1 - q * q)) * (1 - 0.55 * q * q)) }
+  return Math.max(0.15, k * v.beam * 0.5 * 0.86)
 }
 
 function lightLook(l: Light) {
@@ -103,7 +124,7 @@ export class ShipEngine {
   private tween: Tween | null = null
   /** What the camera keeps in view as the model changes (nodes arrive after the first frame, and vessels grow and
    *  move), until the operator moves it: the fleet, a vessel, or a light. */
-  follow: { kind: 'fleet' } | { kind: 'vessel'; id: string } | { kind: 'light'; id: string } | null = { kind: 'fleet' }
+  follow: { kind: 'fleet' } | { kind: 'vessel'; id: string } | { kind: 'light'; id: string } | { kind: 'bench'; id: string } | null = { kind: 'fleet' }
   /** The canvas's margins covered by the instruments and the title, in CSS pixels: a fit keeps the fleet clear. */
   insets = { top: 0, right: 0, bottom: 0, left: 0 }
 
@@ -122,6 +143,8 @@ export class ShipEngine {
     uCalm: { value: 0 },
     uScale: { value: 500 },
     uPixel: { value: 1 },
+    /** 1 while an overlay is on: what is not in focus dims (`setFocus`). */
+    uFocus: { value: 0 },
   }
   private seaU = { uTarget: this.swellU.uTarget, uDist: { value: 200 }, uCenter: { value: new THREE.Vector2() }, uRose: { value: 0 } }
   private starU = { uTarget: this.seaU.uTarget, uScale: this.u.uScale }
@@ -135,6 +158,14 @@ export class ShipEngine {
   private flows: THREE.Points
   private wakes: THREE.Points
   private beacons: THREE.Points
+  /** Every tool call's oar (theseus-hnof): shaft and blade, one instanced quad each. */
+  private oars: THREE.Mesh
+  /** The benches' signs: failure pennants, waiting lamps, memory's sparks. */
+  private marks: THREE.Points
+  /** Turns whose recall sparked while we watched: turn id → engine seconds. */
+  private recalls = new Map<string, number>()
+  /** The oar of each call light, for highlighting: light index → oar instance. */
+  private oarOf = new Map<number, number>()
 
   model: ShipModel | null = null
   private selected = -1
@@ -198,12 +229,18 @@ export class ShipEngine {
     this.sails.renderOrder = 6
     this.beacons = new THREE.Points(new THREE.BufferGeometry(), mat(BEACON_VERT, BEACON_FRAG))
     this.beacons.renderOrder = 7
+    this.oars = new THREE.Mesh(instanced(new THREE.PlaneGeometry(1, 1)), mat(OAR_VERT, OAR_FRAG, {}, true))
+    // An oar's quad lies on the sea along its oar, so its winding faces down on one side of the hull: draw both faces.
+    ;(this.oars.material as THREE.ShaderMaterial).side = THREE.DoubleSide
+    this.oars.renderOrder = 3
+    this.marks = new THREE.Points(new THREE.BufferGeometry(), mat(MARK_VERT, MARK_FRAG, {}, true))
+    this.marks.renderOrder = 6
 
     for (const o of [this.sea, this.stars]) {
       o.frustumCulled = false
       this.seaScene.add(o)
     }
-    for (const o of [this.hulls, this.lines, this.flows, this.wakes, this.lights, this.sails, this.beacons]) {
+    for (const o of [this.hulls, this.lines, this.oars, this.flows, this.wakes, this.lights, this.marks, this.sails, this.beacons]) {
       o.frustumCulled = false
       this.scene.add(o)
     }
@@ -432,8 +469,39 @@ export class ShipEngine {
     const v = m.vessels[l.vessel]
     const c = Math.cos(v.heading)
     const s = Math.sin(v.heading)
-    this.flyTo(v.x + l.lx * c - l.lz * s, v.z + l.lx * s + l.lz * c, Math.max(this.minDist * 2.4, 9), animate, true)
+    // A tool call or its result: frame the whole oar, from its oarlock to its blade (theseus-hnof).
+    let x = l.lx
+    let z = l.lz
+    let d = Math.max(this.minDist * 2.4, 9)
+    if ((l.kind === 'call' || l.kind === 'result') && l.toolUseId) {
+      const call = l.kind === 'call' ? l : m.lights.find((q) => q.kind === 'call' && q.toolUseId === l.toolUseId)
+      const res = l.kind === 'result' ? l : m.lights.find((q) => q.kind === 'result' && q.toolUseId === l.toolUseId)
+      if (call) {
+        const side = Math.sign(call.lz) || 1
+        const tx = res?.ox !== undefined ? res.lx : call.lx - oarReach(v.beam) * 0.42
+        const tz = res?.ox !== undefined ? res.lz : side * (v.beam * 0.5 + oarReach(v.beam))
+        x = (call.lx + tx) / 2
+        z = (call.lz + tz) / 2
+        d = Math.max(d, Math.hypot(tx - call.lx, tz - call.lz) * 3.2)
+      }
+    }
+    this.flyTo(v.x + x * c - z * s, v.z + x * s + z * c, d, animate, true)
     this.follow = { kind: 'light', id: l.id }
+  }
+
+  /** Fly close to a bench (a turn), so its oars and their blades fill the view, and keep it in view. */
+  flyToBench(i: number, animate = true) {
+    const m = this.model
+    const b = m?.benches[i]
+    if (!m || !b) return
+    const v = m.vessels[b.vessel]
+    const c = Math.cos(v.heading)
+    const s = Math.sin(v.heading)
+    const tanH = Math.tan(THREE.MathUtils.degToRad(FOV / 2))
+    const reach = v.beam + 2 * oarReach(v.beam)
+    const d = Math.max(this.minDist * 2.2, Math.max((b.half * 2 + 6) / (2 * tanH * this.camera.aspect), (reach * 1.6) / (2 * tanH)))
+    this.flyTo(v.x + b.x * c, v.z + b.x * s, d, animate, true)
+    this.follow = { kind: 'bench', id: `${v.id} ${b.turnId}` }
   }
 
   /** Keep what the camera follows in view after the model changed. */
@@ -443,7 +511,11 @@ export class ShipEngine {
     if (!f || !m) return
     if (f.kind === 'fleet') this.fit(true)
     else if (f.kind === 'vessel') { const i = m.byId.get(f.id); if (i !== undefined) this.flyToVessel(i) }
-    else { const i = m.lightById.get(f.id); if (i !== undefined) this.flyToLight(i) }
+    else if (f.kind === 'bench') {
+      const [sid, tid] = f.id.split(' ')
+      const i = m.benches.findIndex((b) => b.turnId === tid && m.vessels[b.vessel].id === sid)
+      if (i >= 0) this.flyToBench(i)
+    } else { const i = m.lightById.get(f.id); if (i !== undefined) this.flyToLight(i) }
   }
 
   panTo(x: number, z: number) {
@@ -504,7 +576,9 @@ export class ShipEngine {
     const m = this.model
     if (!m) return
     m.vessels.forEach((v, i) => {
-      const flags = (v.hold ? 1 : 0) + (i === this.selected ? 2 : 0) + (i === this.hovered ? 4 : 0) + (v.kind === 'task' ? 8 : 0)
+      // An overlay dims the vessels it does not name (16, as the shaders read it).
+      const dim = !!this.focus && !this.focus.vessels.has(v.id)
+      const flags = (v.hold ? 1 : 0) + (i === this.selected ? 2 : 0) + (i === this.hovered ? 4 : 0) + (v.kind === 'task' ? 8 : 0) + (dim ? 16 : 0)
       this.vdata[this.texel(i, 1) + 2] = flags
     })
     if (this.vtex) this.vtex.needsUpdate = true
@@ -590,6 +664,8 @@ export class ShipEngine {
 
     this.rebuildHulls(n)
     flare = Math.max(flare, this.rebuildLights(m))
+    flare = Math.max(flare, this.rebuildOars(m))
+    this.rebuildMarks(m)
     this.rebuildLines(m)
     this.rebuildFlows(m)
     this.rebuildWakes(n)
@@ -613,6 +689,7 @@ export class ShipEngine {
       const idx = new Float32Array(n)
       for (let i = 0; i < n; i++) idx[i] = i
       g.setAttribute('aIdx', new THREE.InstancedBufferAttribute(idx, 1))
+      resetInstances(g)
       g.instanceCount = n
     }
   }
@@ -641,8 +718,10 @@ export class ShipEngine {
       idx[i] = l.vessel
       const look = lightLook(l)
       col.set(look.c, i * 3)
-      size[i] = look.s
-      flags[i] = (l.l1 ? 1 : 0) + (l.external ? 2 : 0) + (l.running ? 4 : 0) + (l.failed ? 8 : 0) + (i === this.highlight ? 16 : 0)
+      // A result that rides its call's oar is the oar's blade (rebuildOars): its light is not drawn.
+      size[i] = l.kind === 'result' && l.ox !== undefined ? 0 : look.s
+      flags[i] = (l.l1 ? 1 : 0) + (l.external ? 2 : 0) + (l.running && l.kind !== 'call' ? 4 : 0) + (l.failed ? 8 : 0) + (i === this.highlight ? 16 : 0)
+        + (this.dimmed(l) ? 32 : 0)
       const born = this.secs(l.born)
       times[i * 2] = born
       if (born) until = Math.max(until, born + 2.2)
@@ -665,6 +744,85 @@ export class ShipEngine {
     return until
   }
 
+  /** Every tool call's oar: from its oarlock to its blade (its result's place, or where the result will land). */
+  private rebuildOars(m: ShipModel): number {
+    const ends: number[] = []
+    const idx: number[] = []
+    const col: number[] = []
+    const state: number[] = []
+    const resultOf = new Map<string, number>()
+    m.lights.forEach((l, i) => { if (l.kind === 'result' && l.toolUseId && l.ox !== undefined) resultOf.set(l.toolUseId, i) })
+    this.oarOf.clear()
+    let until = 0
+    m.lights.forEach((l, i) => {
+      if (l.kind !== 'call') return
+      const v = m.vessels[l.vessel]
+      const ri = l.toolUseId ? resultOf.get(l.toolUseId) : undefined
+      const r = ri !== undefined ? m.lights[ri] : undefined
+      const side = Math.sign(l.lz) || 1
+      const tipX = r ? r.lx : l.lx - oarReach(v.beam) * 0.42
+      const tipZ = r ? r.lz : side * (v.beam * 0.5 + oarReach(v.beam))
+      const pending = !r
+      const failed = !!r?.failed || (!r && !!l.failed)
+      const c = l.waiting ? OAR_LOOK.waiting : r?.external ? OAR_LOOK.external : failed ? OAR_LOOK.failed : pending ? OAR_LOOK.pending : OAR_LOOK.ok
+      const bench = l.bench >= 0 ? m.benches[l.bench] : undefined
+      const rowing = !!bench && l.bench === v.activeBench
+      const flags = (rowing ? 1 : 0) + (failed ? 2 : 0) + (pending ? 4 : 0) + (l.waiting ? 8 : 0) + (r?.external ? 16 : 0)
+        + (l.running ? 32 : 0) + (this.dimmed(l) ? 64 : 0) + (i === this.highlight || (ri !== undefined && ri === this.highlight) ? 128 : 0) + (l.l1 ? 256 : 0)
+      const bornCall = this.secs(l.born)
+      const bornResult = r ? this.secs(r.born) : 0
+      if (bornCall) until = Math.max(until, bornCall + 0.8)
+      if (bornResult) until = Math.max(until, bornResult + 1.7)
+      this.oarOf.set(i, idx.length)
+      if (ri !== undefined) this.oarOf.set(ri, idx.length)
+      ends.push(l.lx, l.lz, tipX, tipZ)
+      idx.push(l.vessel)
+      col.push(...c)
+      // Each oar of a bench strokes a little after the one aft of it.
+      state.push(bornCall, bornResult, (l.lx * 0.9 + (side > 0 ? 0 : 0.35)) % 6.283, flags)
+    })
+    const g = this.oars.geometry as THREE.InstancedBufferGeometry
+    g.setAttribute('aIdx', new THREE.InstancedBufferAttribute(new Float32Array(idx), 1))
+    g.setAttribute('aEnds', new THREE.InstancedBufferAttribute(new Float32Array(ends), 4))
+    g.setAttribute('aColor', new THREE.InstancedBufferAttribute(new Float32Array(col), 3))
+    g.setAttribute('aState', new THREE.InstancedBufferAttribute(new Float32Array(state), 4))
+    resetInstances(g)
+    g.instanceCount = idx.length
+    return until
+  }
+
+  /** The benches' signs: a pennant where a turn had a failure, a lamp where a call waits for the operator, and a spark
+   *  where a turn recalled memory while we watched. */
+  private rebuildMarks(m: ShipModel) {
+    const pos: number[] = []
+    const idx: number[] = []
+    const mark: number[] = []
+    const now = this.now()
+    m.benches.forEach((b) => {
+      const v = m.vessels[b.vessel]
+      const hw = halfWidthAt(v, b.x)
+      const dim = this.focus && !this.focus.vessels.has(v.id) ? 1 : 0
+      if (b.failed > 0) { pos.push(b.x, 0.9, hw + 0.15); idx.push(b.vessel); mark.push(0, 0, dim) }
+      if (b.waiting) { pos.push(b.x, 0.9, -hw - 0.15); idx.push(b.vessel); mark.push(1, 0, dim) }
+      const r = this.recalls.get(b.turnId)
+      if (r !== undefined && now - r < 6.5) { pos.push(b.x, 0.6, 0); idx.push(b.vessel); mark.push(2, r, dim) }
+    })
+    const g = new THREE.BufferGeometry()
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3))
+    g.setAttribute('aIdx', new THREE.Float32BufferAttribute(idx, 1))
+    g.setAttribute('aMark', new THREE.Float32BufferAttribute(mark, 3))
+    this.marks.geometry.dispose()
+    this.marks.geometry = g
+  }
+
+  /** A turn recalled memory (its turn.ended said so): a violet spark at its bench, for a few seconds. */
+  markRecall(turnId: string) {
+    this.recalls.set(turnId, this.now())
+    this.flareUntil = Math.max(this.flareUntil, this.now() + 6.5)
+    if (this.model) this.rebuildMarks(this.model)
+    this.requestRender()
+  }
+
   private rebuildLines(m: ShipModel) {
     const pos: number[] = []
     const idx: number[] = []
@@ -678,15 +836,25 @@ export class ShipEngine {
       // The keel, in old gold, stern to bow.
       seg(i, [-half * 0.9, 0.12, 0], [half * 0.92, 0.12, 0], [0.84 * 0.55, 0.65 * 0.55, 0.28 * 0.55, 0.9])
     })
-    for (const l of m.lights) {
-      if (l.kind === 'call') {
-        const c = l.failed ? [0.98, 0.44, 0.52] : [0.13, 0.83, 0.93]
-        seg(l.vessel, [l.lx, 0.12, 0], [l.lx, l.ly, l.lz], [c[0] * 0.32, c[1] * 0.32, c[2] * 0.32, 0.9])
-      } else if (l.kind === 'result' && l.ox !== undefined && l.oz !== undefined) {
-        const c = l.external ? [0.96, 0.45, 0.71] : l.failed ? [0.98, 0.44, 0.52] : [0.16, 0.86, 0.42]
-        seg(l.vessel, [l.ox, l.ly, l.oz], [l.lx, l.ly, l.lz], [c[0] * 0.5, c[1] * 0.5, c[2] * 0.5, 0.9])
+    // The benches: a thwart across the deck between one turn and the next, brass; the running turn's in neon cyan, with
+    // its stretch of keel lit.
+    m.vessels.forEach((v, i) => {
+      const bs = v.benches
+      for (let k = 0; k < bs.length; k++) {
+        const b = m.benches[bs[k]]
+        const live = bs[k] === v.activeBench
+        const x0 = b.x - b.half
+        const x1 = b.x + b.half
+        const hw = halfWidthAt(v, x0)
+        const c: [number, number, number, number] = live ? [0.13 * 0.9, 0.83 * 0.9, 0.93 * 0.9, 0.95] : [0.84 * 0.38, 0.65 * 0.38, 0.28 * 0.38, 0.9]
+        if (k > 0 || live) seg(i, [x0, 0.13, -hw], [x0, 0.13, hw], c)
+        if (live) {
+          const hw1 = halfWidthAt(v, x1)
+          seg(i, [x1, 0.13, -hw1], [x1, 0.13, hw1], c)
+          seg(i, [x0, 0.14, 0], [x1, 0.14, 0], [0.13 * 1.2, 0.83 * 1.2, 0.93 * 1.2, 1])
+        }
       }
-    }
+    })
     // Each formation's mooring ring, faint brass, in world coordinates.
     for (const f of m.formations) {
       const r = f.radius
@@ -806,6 +974,61 @@ export class ShipEngine {
     this.requestRender()
   }
 
+  /** An overlay (a watch plate, a key line): these vessels and lights stay lit, and the rest of the fleet dims. Null
+   *  lights everything again. */
+  focus: { vessels: Set<string>; lights: Set<string> } | null = null
+  setFocus(f: { vessels: string[]; lights: string[] } | null) {
+    // The vessels of the lights it names stay lit too (their other lights dim).
+    const m = this.model
+    const vessels = new Set(f?.vessels ?? [])
+    if (f && m) for (const id of f.lights) { const i = m.lightById.get(id); if (i !== undefined) vessels.add(m.lights[i].sessionId) }
+    this.focus = f ? { vessels, lights: new Set(f.lights) } : null
+    this.u.uFocus.value = f ? 1 : 0
+    this.writeVesselFlags()
+    this.writeLightFocus()
+    this.requestRender()
+  }
+
+  /** Whether an overlay dims a light: one is on, and names neither it nor (when it names no lights there) its vessel. */
+  private dimmed(l: Light): boolean {
+    const f = this.focus
+    if (!f) return false
+    if (f.lights.has(l.id)) return false
+    const lit = this.focusLit ?? new Set<string>()
+    return !(f.vessels.has(l.sessionId) && !lit.has(l.sessionId))
+  }
+  /** The vessels where the overlay names lights: there only those lights stay lit. */
+  private focusLit: Set<string> | null = null
+
+  /** The overlay's dim bits: 32 on each light, 64 on each oar. */
+  private writeLightFocus() {
+    const m = this.model
+    if (!m) return
+    this.focusLit = this.focus ? new Set(m.lights.filter((l) => this.focus!.lights.has(l.id)).map((l) => l.sessionId)) : null
+    const attr = this.lights.geometry.getAttribute('aFlags') as THREE.BufferAttribute | undefined
+    if (attr) {
+      for (let i = 0; i < Math.min(attr.count, m.lights.length); i++) {
+        const was = attr.getX(i)
+        const on = (Math.floor(was / 32) % 2) === 1
+        const want = this.dimmed(m.lights[i])
+        if (want !== on) attr.setX(i, was + (want ? 32 : -32))
+      }
+      attr.needsUpdate = true
+    }
+    const st = (this.oars.geometry as THREE.InstancedBufferGeometry).getAttribute('aState') as THREE.InstancedBufferAttribute | undefined
+    if (st) {
+      for (const [li, k] of this.oarOf) {
+        // An oar is its call's: its result shares the instance, and must not overrule it.
+        if (k >= st.count || m.lights[li].kind !== 'call') continue
+        const was = st.getW(k)
+        const on = (Math.floor(was / 64) % 2) === 1
+        const want = this.dimmed(m.lights[li])
+        if (want !== on) st.setW(k, was + (want ? 64 : -64))
+      }
+      st.needsUpdate = true
+    }
+  }
+
   setHighlight(i: number) {
     if (i === this.highlight || !this.model) return
     const attr = this.lights.geometry.getAttribute('aFlags') as THREE.BufferAttribute | undefined
@@ -814,11 +1037,20 @@ export class ShipEngine {
       if (i >= 0 && i < attr.count) attr.setX(i, attr.getX(i) + 16)
       attr.needsUpdate = true
     }
+    const st = (this.oars.geometry as THREE.InstancedBufferGeometry).getAttribute('aState') as THREE.InstancedBufferAttribute | undefined
+    if (st) {
+      const was = this.oarOf.get(this.highlight)
+      const now = this.oarOf.get(i)
+      if (was !== undefined && was < st.count && (Math.floor(st.getW(was) / 128) % 2) === 1) st.setW(was, st.getW(was) - 128)
+      if (now !== undefined && now < st.count && (Math.floor(st.getW(now) / 128) % 2) === 0) st.setW(now, st.getW(now) + 128)
+      st.needsUpdate = true
+    }
     this.highlight = i
     this.requestRender()
   }
 
-  /** What is under a pixel: a light when its vessel is drawn big enough to tell them apart, else a vessel. */
+  /** What is under a pixel: a light when its vessel is drawn big enough to tell them apart, else the bench (the turn) of
+   *  such a vessel's deck, else a vessel. */
   pick(px: number, py: number): Hit | null {
     const m = this.model
     if (!m) return null
@@ -845,8 +1077,46 @@ export class ShipEngine {
         if (d < bestD) { bestD = d; best = i }
       }
     }
+    // An oar is picked along its length (its shaft and blade), as its call (theseus-hnof).
+    if (best < 0 && big.size && this.model) {
+      const st = (this.oars.geometry as THREE.InstancedBufferGeometry).getAttribute('aEnds') as THREE.InstancedBufferAttribute | undefined
+      if (st) {
+        let bestO = 9
+        for (const [li, k] of this.oarOf) {
+          const l = m.lights[li]
+          if (l.kind !== 'call' || !big.has(l.vessel) || k >= st.count) continue
+          const i = l.vessel
+          const c = Math.cos(this.cur[i * 3 + 1])
+          const s2 = Math.sin(this.cur[i * 3 + 1])
+          const w = (x: number, z: number) => this.project(this.cur[i * 3] + x * c - z * s2, 0.18, this.cur[i * 3 + 2] + x * s2 + z * c)
+          const a = w(st.getX(k), st.getY(k))
+          const b = w(st.getZ(k), st.getW(k))
+          const dx = b.x - a.x
+          const dy = b.y - a.y
+          const t = Math.max(0, Math.min(1.1, ((px - a.x) * dx + (py - a.y) * dy) / Math.max(1e-6, dx * dx + dy * dy)))
+          const d = Math.hypot(px - (a.x + dx * t), py - (a.y + dy * t)) - (t > 0.6 ? 10 : 0)
+          if (d < bestO) { bestO = d; best = li }
+        }
+      }
+    }
     if (best >= 0) return { kind: 'light', light: best }
     if (!sea) return null
+    // A bench (a turn): on the deck of a vessel drawn big, between its thwarts.
+    for (const i of big) {
+      const v = m.vessels[i]
+      const dx = sea.x - this.cur[i * 3]
+      const dz = sea.z - this.cur[i * 3 + 2]
+      const hd = this.cur[i * 3 + 1]
+      const c = Math.cos(-hd)
+      const s2 = Math.sin(-hd)
+      const lx = dx * c - dz * s2
+      const lz = dx * s2 + dz * c
+      if (Math.abs(lx) > v.length / 2 || Math.abs(lz) > halfWidthAt(v, lx) * 1.15) continue
+      for (const bi of v.benches) {
+        const b = m.benches[bi]
+        if (Math.abs(lx - b.x) <= b.half) return { kind: 'bench', bench: bi }
+      }
+    }
     let hit = -1
     let area = Infinity
     m.vessels.forEach((v, i) => {
@@ -967,7 +1237,9 @@ export class ShipEngine {
     if (this.calm) return false
     const m = this.model
     if (!m) return false
-    if (m.vessels.some((v) => v.rig === 'sail' || v.rig === 'lantern' || v.streaming)) return true
+    if (m.vessels.some((v) => v.rig === 'sail' || v.rig === 'lantern' || v.streaming || v.activeBench >= 0)) return true
+    // A call waiting for the operator swings its lamp; a failure's pennant stays still.
+    if (m.benches.some((b) => b.waiting)) return true
     if (m.tethers.some((x) => x.live)) return true
     return m.lights.some((l) => l.running)
   }
@@ -1008,7 +1280,7 @@ export class ShipEngine {
 
   /** Dev and bench only: hide layers by name, to see what draws what. */
   debugHide(names: string[]) {
-    const all = { sea: this.sea, stars: this.stars, hulls: this.hulls, lines: this.lines, flows: this.flows, wakes: this.wakes, lights: this.lights, sails: this.sails, beacons: this.beacons }
+    const all = { sea: this.sea, stars: this.stars, hulls: this.hulls, lines: this.lines, flows: this.flows, wakes: this.wakes, lights: this.lights, sails: this.sails, beacons: this.beacons, oars: this.oars, marks: this.marks }
     for (const [k, o] of Object.entries(all)) o.visible = !names.includes(k)
     this.swellU.uWaves.value = names.includes('sea') ? 0 : 1
     this.post.seaDirty = true
@@ -1050,6 +1322,14 @@ function layered(m: THREE.ShaderMaterial, over: boolean): THREE.ShaderMaterial {
   m.blendSrcAlpha = THREE.ZeroFactor
   m.blendDstAlpha = over ? THREE.OneMinusSrcAlphaFactor : THREE.OneFactor
   return m
+}
+
+/** three.js fixes an instanced geometry's most instances the first time it is bound (`_maxInstanceCount`, from its
+ *  instanced attributes' counts then) and never again: a geometry first drawn with none (the first model, before the
+ *  nodes are read) or with fewer (a session that opens later) stays capped there. Forget it whenever the instanced
+ *  attributes are replaced (theseus-hnof). */
+function resetInstances(g: THREE.InstancedBufferGeometry) {
+  delete (g as unknown as { _maxInstanceCount?: number })._maxInstanceCount
 }
 
 function instanced(base: THREE.BufferGeometry): THREE.InstancedBufferGeometry {
