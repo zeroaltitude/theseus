@@ -218,6 +218,16 @@ fn tagged(kind: RecordKind, tag: &str, pos: u64) -> Vec<u8> {
     v
 }
 
+/// The most the index's own page cache holds, its read cache and its write
+/// buffer together (theseus-vjn7). redb's default is 1 GiB, which an import,
+/// a rebuild, or a long day of reads fills with the whole index: memory a
+/// daemon idle beside a busy machine has in swap, and which the store's close
+/// then reads back, page by page, only to free it. Install #9's stop waited
+/// 11.87 s on that, and a copy of its store 8.5 s with the daemon's memory in
+/// swap. The kernel's page cache keeps the index's hot pages instead:
+/// file-backed, never swapped, and dropped for nothing.
+pub const CACHE_BYTES: usize = 16 * 1024 * 1024;
+
 pub struct RedbIndex {
     db: Db,
     repaired: bool,
@@ -246,7 +256,9 @@ impl Drop for RedbIndex {
         if let Some(db) = self.db.0.take() {
             let t0 = std::time::Instant::now();
             drop(db);
-            tracing::debug!(
+            // At info, beside the stop's phases: the close is a stop's
+            // longest phase when what it frees is in swap (theseus-vjn7).
+            tracing::info!(
                 ms = (t0.elapsed().as_secs_f64() * 1000.0 * 100.0).round() / 100.0,
                 "store: index closed"
             );
@@ -275,6 +287,7 @@ impl RedbIndex {
         let repair = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
         let seen = repair.clone();
         let db = Database::builder()
+            .set_cache_size(CACHE_BYTES)
             .set_repair_callback(move |_| seen.store(true, std::sync::atomic::Ordering::Relaxed))
             .create(path)
             .with_context(|| format!("opening {}", path.display()))?;
