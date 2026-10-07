@@ -258,29 +258,28 @@ fn main() -> Result<()> {
     let rt = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()?;
-    match rt.block_on(daemon(cli, lookup, origin))? {
-        Exit::Done => {
-            // The runtime's tasks go, and with them the store, which closes
-            // (redb's close, logged by the index): each timed (theseus-26r).
-            // A `--stdio` daemon's pipes are relayed by threads outside the
-            // runtime (theseus-xbtr), so its drop waits for no read of
-            // stdin, and the store closes before the process ends.
-            drop(rt);
-            stop_phase("runtime dropped");
-            if stdio {
-                // What the core wrote last, the stop's answer included,
-                // reaches stdout.
-                stdio::flush(Duration::from_millis(500));
-            }
-            Ok(())
-        }
-        Exit::Exec(var, value) => {
-            // The clean shutdown path has run. The runtime's tasks go, and
-            // with them the store, which closes; then the same image.
-            rt.shutdown_timeout(Duration::from_millis(500));
-            stop_phase("runtime shut down");
-            exec_self(var, &value)
-        }
+    let exit = rt.block_on(daemon(cli, lookup, origin))?;
+    // The clean shutdown path has run, for a stop and a restart in place
+    // alike (theseus-jo7f). The runtime's tasks go, and with them the store,
+    // which closes (redb's close, logged by the index): each timed
+    // (theseus-26r). A `--stdio` daemon's pipes are relayed by threads
+    // outside the runtime (theseus-xbtr), so its drop waits for no read of
+    // stdin, and the store closes before the process ends or the exec. A
+    // restart used to shut the runtime down with a 500 ms bound instead: a
+    // task that held the core past it kept the store open into the exec,
+    // the stop's last checkpoint was lost, and the next image replayed the
+    // run.
+    drop(rt);
+    stop_phase("runtime dropped");
+    if stdio {
+        // What the core wrote last, the stop's answer included, reaches
+        // stdout, before the process ends or the exec cuts a line short.
+        stdio::flush(Duration::from_millis(500));
+    }
+    match exit {
+        Exit::Done => Ok(()),
+        // The same image, which serves the same pipes or socket.
+        Exit::Exec(var, value) => exec_self(var, &value),
     }
 }
 
@@ -556,6 +555,14 @@ async fn daemon(cli: Cli, lookup: Lookup, origin: Instant) -> Result<Exit> {
         use tokio::signal::unix::{signal, SignalKind};
         let mut sigint = signal(SignalKind::interrupt())?;
         let mut sigterm = signal(SignalKind::terminate())?;
+        // The `shutdown` method's wake, registered before anything is served,
+        // as `serve_socket`'s is: `notify_waiters` wakes only the waiters
+        // registered when it is called, and with no branch for it the daemon
+        // answered `shutdown` and went on serving (theseus-yg1y). A restart
+        // notifies it too, after asking: `exit` execs whichever branch wins.
+        let stop = core.shutdown.notified();
+        tokio::pin!(stop);
+        stop.as_mut().enable();
         tokio::spawn(after_serving(core.clone(), keep, None, state_dir, mode));
         stdio::planted_hold(&core);
         let (stdin, stdout) = stdio::pipes()?.into_split();
@@ -566,6 +573,10 @@ async fn daemon(cli: Cli, lookup: Lookup, origin: Instant) -> Result<Exit> {
             .serve_connection(stdin, stdout, Client::new("stdio", Surface::Cli));
         let served = tokio::select! {
             r = conn => r,
+            () = &mut stop => {
+                tracing::info!("shutdown requested over protocol");
+                Ok(())
+            }
             _ = core.restart_asked() => Ok(()),
             _ = sigint.recv() => {
                 tracing::info!(signal = "SIGINT", "stopping on a signal");
@@ -591,6 +602,7 @@ async fn daemon(cli: Cli, lookup: Lookup, origin: Instant) -> Result<Exit> {
     // Only the socket daemon binds Discord, never `--stdio`: one gateway
     // connection per state dir, whose bindings file names its places.
     let after_bind = after_serving(core.clone(), keep, Some(bindings_path), state_dir, mode);
+    stdio::planted_hold(&core);
     let served = serve_socket(core.clone(), socket_path, after_bind).await;
     stop_phase("serving loop ended");
     // The index tender gets SIGTERM and is never waited for (§9), unless this

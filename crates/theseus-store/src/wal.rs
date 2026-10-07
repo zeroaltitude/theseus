@@ -783,6 +783,19 @@ impl Wal {
         }
     }
 
+    /// Sync the log's own directory now, and take it off the next frame's
+    /// list: a store an older format wrote, before its manifest moves
+    /// (theseus-xva3), so the marks the moved manifest lets vouch never vouch
+    /// for a name that was not synced.
+    pub(crate) fn sync_own_dir(&self) -> Result<(), WalError> {
+        let mut unsynced = self.unsynced_dirs.lock().unwrap();
+        File::open(&self.dir)?.sync_all()?;
+        unsynced.retain(|d| d != &self.dir);
+        self.dir_syncs
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        Ok(())
+    }
+
     /// Directory syncs since open.
     #[cfg(test)]
     pub(crate) fn dir_syncs(&self) -> u64 {

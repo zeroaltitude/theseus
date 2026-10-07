@@ -1467,7 +1467,7 @@ fn a_store_an_older_format_wrote_syncs_its_logs_name_with_the_first_frame() {
     assert_eq!(
         dir_syncs(&s),
         1,
-        "the log's directory, with the first frame"
+        "the log's directory, before the manifest moved, and not again with the first frame"
     );
     assert_eq!(manifest(dir.path())["format"], MANIFEST_FORMAT);
     s.append(&frame("five")).unwrap();
@@ -1477,6 +1477,54 @@ fn a_store_an_older_format_wrote_syncs_its_logs_name_with_the_first_frame() {
     let s = open(dir.path());
     s.append(&frame("six")).unwrap();
     assert_eq!(dir_syncs(&s), 0, "the manifest moved: vouched for again");
+}
+
+/// An upgrade syncs the log's directory before its manifest moves
+/// (theseus-xva3). The sync rode the first frame's, after the move: a first
+/// frame whose sync failed (or a kill before it) left the manifest current
+/// and the name unsynced, and the next open let the older build's marks
+/// vouch for it, skipping its sync until a roll. Here the first frame's
+/// fdatasync fails after the manifest moved: the directory was synced
+/// before it, so the next open's vouching is right.
+#[test]
+fn an_upgrade_syncs_the_logs_directory_before_its_manifest_moves() {
+    let dir = tempfile::tempdir().unwrap();
+    let frame = |v: &str| [NewRecord::json(kinds::LEDGER, None, &v).unwrap()];
+    let dir_syncs = |s: &WalStore| s.inner.wal.dir_syncs();
+    let s = open(dir.path());
+    s.append(&frame("one")).unwrap();
+    s.append(&frame("two")).unwrap();
+    drop(s);
+    let path = dir.path().join("MANIFEST.json");
+    let older = format!(r#"{{"format": {}, "engine": "redb"}}"#, MANIFEST_FORMAT - 1);
+    std::fs::write(&path, &older).unwrap();
+
+    let s = open(dir.path());
+    assert_eq!(dir_syncs(&s), 0, "the open syncs nothing");
+    s.inner.wal.fail_next_sync();
+    s.append(&frame("three")).unwrap_err();
+    assert_eq!(
+        manifest(dir.path())["format"],
+        MANIFEST_FORMAT,
+        "the manifest moved before the frame's sync failed"
+    );
+    assert_eq!(
+        dir_syncs(&s),
+        1,
+        "the log's directory was synced before the manifest moved"
+    );
+    assert_eq!(s.last_position(), 2, "the failed frame was cut");
+    drop(s);
+
+    let s = open(dir.path());
+    assert_eq!(
+        s.recovery().vouched,
+        Some(crate::wal::Vouch::Mark),
+        "the marks vouch, now rightly"
+    );
+    s.append(&frame("four")).unwrap();
+    assert_eq!(dir_syncs(&s), 0, "vouched for");
+    assert_eq!(s.last_position(), 3);
 }
 
 /// theseus-gt12: the frame that holds the index's checkpoint goes bad on

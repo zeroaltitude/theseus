@@ -18,6 +18,7 @@ use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::time::{Duration, Instant};
 
+use common::stdio::StdioClient;
 use common::Daemon;
 use serde_json::{json, Value};
 
@@ -441,32 +442,6 @@ fn a_sigterm_or_a_sigint_stops_cleanly_and_the_next_start_replays_nothing() {
     }
 }
 
-/// A client of a `--stdio` daemon: its pipes, one request at a time.
-struct StdioClient {
-    stdin: std::process::ChildStdin,
-    lines: std::io::Lines<BufReader<std::process::ChildStdout>>,
-    next: u64,
-}
-
-impl StdioClient {
-    fn call(&mut self, method: &str, params: Value) -> Result<Value, Value> {
-        self.next += 1;
-        let req = json!({"jsonrpc": "2.0", "id": self.next, "method": method, "params": params});
-        writeln!(self.stdin, "{req}").map_err(|e| json!(e.to_string()))?;
-        for line in self.lines.by_ref() {
-            let v: Value = serde_json::from_str(&line.map_err(|e| json!(e.to_string()))?)
-                .map_err(|e| json!(e.to_string()))?;
-            if v["id"] == self.next {
-                return match v.get("error") {
-                    Some(e) if !e.is_null() => Err(e.clone()),
-                    _ => Ok(v["result"].clone()),
-                };
-            }
-        }
-        Err(json!("the daemon's stdout closed"))
-    }
-}
-
 impl Rig {
     /// A `--stdio` daemon on this rig's state dir (its store is
     /// `state/store-stdio`), and its client, once it answers.
@@ -483,12 +458,7 @@ impl Rig {
                 .stdin(Stdio::piped())
                 .stdout(Stdio::piped()),
         );
-        let (stdin, stdout) = d.stdio();
-        let mut c = StdioClient {
-            stdin,
-            lines: BufReader::new(stdout).lines(),
-            next: 0,
-        };
+        let mut c = StdioClient::new(&mut d);
         c.call("health", Value::Null)
             .unwrap_or_else(|e| panic!("no answer on stdio: {e}\n{}", tail(&self.log(), 20)));
         (d, c)
@@ -571,6 +541,35 @@ fn a_stdio_daemon_stops_cleanly_on_a_sigterm_or_a_sigint() {
             "{stopping:?}"
         );
     }
+}
+
+/// A `--stdio` daemon stops on the protocol's `shutdown` (theseus-yg1y), as
+/// the socket daemon does: the answer, then exit 0, the last
+/// `server.stopping` row the method's (a signal's names it), and the next
+/// open of its store replays nothing and repairs nothing. Its serving loop
+/// had no branch for the stop's wake, so it answered and went on serving.
+#[test]
+fn a_stdio_daemon_stops_on_the_shutdown_method() {
+    let rig = Rig::new();
+    let (mut d, mut c) = rig.spawn_stdio();
+    rig.stdio_settled(&mut c);
+    assert_eq!(c.call("shutdown", Value::Null), Ok(json!({"ok": true})));
+    let status = rig.wait("the stop", || d.try_wait());
+    assert!(status.success(), "{status}: {}", tail(&rig.log(), 20));
+    let (_d, mut c) = rig.spawn_stdio();
+    rig.stdio_replayed_nothing(&mut c, "shutdown");
+    let rows = c.call("ledger.tail", json!({"n": 200})).unwrap();
+    let stopping: Vec<&Value> = rows["rows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|r| r["kind"] == "server.stopping")
+        .collect();
+    assert_eq!(
+        stopping.last().map(|r| r["data"].clone()),
+        Some(Value::Null),
+        "the method's row names no signal: {stopping:?}"
+    );
 }
 
 /// A `--stdio` daemon's stop while a task on the runtime's blocking pool
