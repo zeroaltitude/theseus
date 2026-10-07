@@ -92,6 +92,8 @@ export default function Economics() {
   }, [calls, now])
 
   const spend = useMemo(() => spendByBucket(calls, bucket, palette.keyOf), [calls, bucket, palette])
+  // Every model on its own, unfolded: the colours stop at eight, but the tip and the table name each model past them.
+  const spendAll = useMemo(() => spendByBucket(calls, bucket), [calls, bucket])
   const tree = useMemo(() => spendTree(calls), [calls])
   const sessions = useMemo(() => spendBySession(calls, palette.keys), [calls, palette])
   const latency = useMemo(() => latencyByModel(calls, [...new Set(calls.map((c) => c.model))]), [calls])
@@ -118,8 +120,8 @@ export default function Economics() {
         <ChartPanel id="spend" title="Spend over time, by model" icon={<TrendingUp size={13} />} className="xl:col-span-2" height={300}
           actions={<Segmented value={bucket} options={BUCKETS} onChange={setBucket} />}
           legend={modelLegend} empty={calls.length ? undefined : 'no model calls yet'}
-          table={spendTable(spend, bucket)}>
-          <SpendOverTime s={spend} bucket={bucket} colorOf={palette.colorOf} />
+          table={spendTable(spendAll, bucket, palette.colorOf, palette.keyOf)}>
+          <SpendOverTime s={spend} all={spendAll} bucket={bucket} colorOf={palette.colorOf} keyOf={palette.keyOf} />
         </ChartPanel>
         <ChartPanel id="kinds" title="Where the money goes · by token kind" icon={<Coins size={13} />} height={300}
           empty={partsTotal > 0 ? undefined : 'no priced calls (the catalog has no rates for these models)'}
@@ -155,8 +157,9 @@ export default function Economics() {
 // ---------------------------------------------------------------- spend over time
 
 /** Two small multiples on one time axis, each with its own single scale (never a second y axis on one plot): the
- *  running total, a line, and each bucket's spend, columns stacked by model. */
-function SpendOverTime({ s, bucket, colorOf }: { s: SpendSeries; bucket: Bucket; colorOf: (k: string) => string }) {
+ *  running total, a line, and each bucket's spend, columns stacked by model. Past eight models the tail is one column of
+ *  "other models", and the tip names each of them under it, from the unfolded series `all`. */
+function SpendOverTime({ s, all, bucket, colorOf, keyOf }: { s: SpendSeries; all: SpendSeries; bucket: Bucket; colorOf: (k: string) => string; keyOf: (m: string) => string }) {
   const option = useMemo<EChartsOption>(() => {
     const mids = s.starts.map((t, i) => (t + s.ends[i]) / 2)
     const per = niceScale(Math.max(0, ...s.totals))
@@ -179,7 +182,11 @@ function SpendOverTime({ s, bucket, colorOf }: { s: SpendSeries; bucket: Bucket;
         formatter: (ps: any) => {
           const i = (Array.isArray(ps) ? ps[0] : ps)?.dataIndex
           if (i === undefined || s.starts[i] === undefined) return ''
-          const rows: TipRow[] = s.series.filter((x) => x.values[i] > 0).map((x) => ({ value: usd(x.values[i]), label: x.key, color: colorOf(x.key), mark: 'rect' }))
+          const rows: TipRow[] = s.series.filter((x) => x.values[i] > 0).flatMap((x): TipRow[] => [
+            { value: usd(x.values[i]), label: x.key, color: colorOf(x.key), mark: 'rect' },
+            // The models folded into "other models", each with its own dollars in this bucket.
+            ...(x.key === OTHER_KEY ? all.series.filter((m) => keyOf(m.key) === OTHER_KEY && m.values[i] > 0).map((m): TipRow => ({ value: usd(m.values[i]), label: `  ${m.key}`, strong: false })) : []),
+          ])
           rows.push({ value: usd(s.totals[i]), label: inBucket(bucket) }, { value: usd(s.cumulative[i]), label: 'running total', color: C.secondary, mark: 'line', strong: false })
           return tip(bucketWords(s.starts[i], s.ends[i], bucket), rows)
         },
@@ -204,7 +211,7 @@ function SpendOverTime({ s, bucket, colorOf }: { s: SpendSeries; bucket: Bucket;
         })),
       ],
     }
-  }, [s, bucket, colorOf])
+  }, [s, all, bucket, colorOf, keyOf])
   // A new set of models is a new chart: ECharts merges an option into the last one, and would keep a dropped series.
   return <Echart key={s.series.map((x) => x.key).join('|')} option={option} />
 }
@@ -218,14 +225,19 @@ function bucketWords(start: number, end: number, bucket: Bucket): string {
   return `${day} · ${t(start)}–${t(end)}`
 }
 
-function spendTable(s: SpendSeries, bucket: Bucket) {
+/** The spend over time as rows: every model its own column, unfolded (the chart's colours stop at eight; this does not),
+ *  each bucket's total, and the running total. A model past the eighth says so in its column's head. */
+function spendTable(s: SpendSeries, bucket: Bucket, colorOf: (k: string) => string, keyOf: (m: string) => string) {
   const rows = s.starts.map((start, i) => ({ i, start }))
   return {
-    caption: `spend per ${bucket}, by model, with the running total`,
+    caption: `spend per ${bucket}, by model (every model), with the running total`,
     rows, rowKey: (r: { start: number }) => String(r.start),
     columns: [
       { key: 'when', label: bucket, cell: (r: { i: number; start: number }) => bucketWords(r.start, s.ends[r.i], bucket) },
-      ...s.series.map((x) => ({ key: `m:${x.key}`, label: x.key, num: true, cell: (r: { i: number }) => usd(x.values[r.i]) })),
+      ...s.series.map((x) => ({
+        key: `m:${x.key}`, label: keyOf(x.key) === OTHER_KEY ? `${x.key} (in other models)` : x.key, num: true,
+        cell: (r: { i: number }) => usd(x.values[r.i]), title: () => (colorOf(keyOf(x.key)) === OTHER ? 'drawn in the chart as other models' : undefined),
+      })),
       { key: 'total', label: inBucket(bucket), num: true, cell: (r: { i: number }) => usd(s.totals[r.i]) },
       { key: 'run', label: 'running total', num: true, cell: (r: { i: number }) => usd(s.cumulative[r.i]) },
     ],

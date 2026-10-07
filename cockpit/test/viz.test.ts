@@ -122,6 +122,12 @@ test('spend by bucket: local hours, each key in the order first named, and the r
   // Folding: every model past the slots counts under one key.
   const f = spendByBucket(calls, 'hour', (m) => (m === 'glm' ? 'other' : m))
   assert.deepEqual(f.series.map((x) => x.key), ['sonnet', 'other'])
+  // ...and nothing is lost: the unfolded series still has each folded model's own spend, bucket by bucket, and the
+  // folded column is exactly their sum (the table and the tip read the unfolded one; the inventory's N6).
+  const other = f.series.find((x) => x.key === 'other')!.values
+  const glm = s.series.find((x) => x.key === 'glm')!.values
+  assert.deepEqual(other, glm)
+  assert.deepEqual(f.starts, s.starts)
   // A day bucket is the local calendar day; five minutes start on a multiple of five.
   const d = bucketStart(t0, 'day')
   assert.equal(new Date(d).getHours(), 0)
