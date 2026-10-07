@@ -149,3 +149,6 @@ Key modules: `kernel.rs`, `tx.rs`, `locks.rs`, `job.rs`, `cgroup.rs`, `children.
   waits on the store's lock and fails.
 - To show a held runtime worker in a daemon test, run the daemon with `TOKIO_WORKER_THREADS=1`.
 - A core test with `InlineLauncher` must not kill a job: its "wrapper pid" is the test process.
+- A spool marker written with `fs::write` (`pids/<id>`, `lingering/<id>`) is made empty, then filled, so a reader
+  between the two finds no pid. That is a marker being written, never a dead wrapper's: `Spool::lingering` removes
+  only one whose pid is no longer its job's wrapper (theseus-sdgl).

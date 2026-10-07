@@ -332,7 +332,8 @@ impl Spool {
     }
 
     /// A wrapper whose command has exited waits for its descendants
-    /// (theseus-6qy).
+    /// (theseus-6qy). The marker is made, then its pid written in it, so a
+    /// reader between the two finds it empty (`lingering`, theseus-sdgl).
     pub fn write_lingering(&self, id: &str, pid: u32) -> Result<()> {
         fs::create_dir_all(self.dir.join("lingering"))?;
         fs::write(self.lingering_path(id), pid.to_string())?;
@@ -365,7 +366,11 @@ impl Spool {
 
     /// The wrappers lingering now, as (job, wrapper pid): each marker whose
     /// pid is still that job's wrapper. A marker a killed wrapper left
-    /// behind is removed.
+    /// behind, whose pid is no longer that job's wrapper, is removed. One
+    /// that names no pid is left alone: its wrapper is writing it, and a
+    /// read between the file and its pid finds it empty. Taken for a dead
+    /// wrapper's, it was gone for good, and the wrapper lingered on unmarked
+    /// (theseus-sdgl).
     pub fn lingering(&self) -> Vec<(String, u32)> {
         let Ok(dir) = fs::read_dir(self.dir.join("lingering")) else {
             return vec![];
@@ -380,9 +385,10 @@ impl Spool {
                 Some(pid) if crate::job::wrapper_job(pid).as_deref() == Some(id.as_str()) => {
                     out.push((id, pid));
                 }
-                _ => {
+                Some(_) => {
                     let _ = fs::remove_file(e.path());
                 }
+                None => {}
             }
         }
         out.sort();
@@ -562,5 +568,52 @@ mod tests {
         let dr = sp.drain_recovering().unwrap();
         assert_eq!(ids(&dr), ["act_live"]);
         assert_eq!(dr.recovered, 0);
+    }
+
+    /// theseus-sdgl: a wrapper makes its lingering marker, then writes its pid
+    /// in it, so a reader between the two finds the marker empty. That is a
+    /// wrapper about to linger, not a dead one's leftover: `lingering` leaves
+    /// the marker, and lists it once its pid is in it. It removed it before,
+    /// for good, and the job_wrapper test, whose poll took it so under load,
+    /// waited 20 s for a mark that never came. A marker whose pid is no
+    /// longer its job's wrapper is a dead one's, and goes. The wrapper is a
+    /// stand-in whose command line names the job: `flock`, its lock file
+    /// named `job-wrapper`.
+    #[test]
+    fn a_lingering_marker_with_no_pid_yet_is_left_for_its_wrapper() {
+        use std::os::unix::process::CommandExt;
+        let d = tempfile::tempdir().unwrap();
+        let sp = Spool::open(&d.path().join("spool")).unwrap();
+        let mut wrapper = std::process::Command::new("flock")
+            .current_dir(d.path())
+            .args([
+                crate::job::WRAPPER_MODE,
+                "sh",
+                "-c",
+                "sleep 60",
+                "--correlation-id",
+                "act_1",
+            ])
+            .process_group(0)
+            .spawn()
+            .expect("flock, from util-linux, runs the stand-in wrapper");
+        let pid = wrapper.id();
+        let t0 = std::time::Instant::now();
+        while crate::job::wrapper_job(pid).as_deref() != Some("act_1") {
+            assert!(t0.elapsed().as_secs() < 10, "the stand-in never started");
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        let marker = sp.lingering_path("act_1");
+        // `write_lingering` between its two steps: the file, with no pid yet.
+        File::create(&marker).unwrap();
+        assert_eq!(sp.lingering(), vec![]);
+        assert!(marker.exists(), "the marker its wrapper writes was removed");
+        sp.write_lingering("act_1", pid).unwrap();
+        assert_eq!(sp.lingering(), vec![("act_1".to_string(), pid)]);
+        // SAFETY: a signal to the stand-in's own process group.
+        unsafe { libc::kill(-(pid as libc::pid_t), libc::SIGKILL) };
+        let _ = wrapper.wait();
+        assert_eq!(sp.lingering(), vec![]);
+        assert!(!marker.exists(), "a dead wrapper's marker stays");
     }
 }
