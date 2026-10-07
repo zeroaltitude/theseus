@@ -189,10 +189,13 @@ export function argvWords(argv: readonly string[]): string {
 const WRAPPERS = new Set(['env', 'exec', 'time', 'nohup', 'nice', 'timeout', 'command', 'stdbuf', 'ionice'])
 /** A shell's own words, which run no program of their own: `cd harbour && make` runs make. */
 const BUILTINS = new Set(['cd', 'export', 'set', 'unset', 'source', '.', 'true', ':', 'pushd', 'popd', 'umask', 'ulimit', 'trap'])
+/** A shell's words that only say something, which do none of the job's work: `echo "building"; cargo build` runs cargo
+ *  (theseus-cov9). */
+const SAYS = new Set(['echo', 'printf'])
 
-/** The program a job runs: its command's first program (a shell's `-c` looked through, its builtins, wrappers,
- *  assignments and options passed over): `cargo`, `sleep`, `make`. A job is held against its program's runs when its
- *  own command has too few. */
+/** The program a job runs: its command's first program (a shell's `-c` looked through, its builtins, its `echo` and
+ *  `printf`, wrappers, assignments and options passed over): `cargo`, `sleep`, `make`. A job is held against its
+ *  program's runs when its own command has too few. */
 export function programOf(argv: readonly string[]): string | undefined {
   const shell = argv.length >= 3 && SHELL.test(argv[0]) && /^-\w*c$/.test(argv[1])
   const commands = shell ? argv[2].replace(/[(){}]/g, ' ').split(/;|&&|\|\||\||\n/) : [argv.join(' ')]
@@ -201,7 +204,7 @@ export function programOf(argv: readonly string[]): string | undefined {
     let i = 0
     while (i < words.length && (words[i].includes('=') || words[i].startsWith('-') || /^\d+[smhd]?$/.test(words[i]) || WRAPPERS.has(words[i].split('/').pop()!))) i++
     const name = (words[i] ?? '').split('/').pop() ?? ''
-    if (!name || BUILTINS.has(name)) continue
+    if (!name || BUILTINS.has(name) || SAYS.has(name)) continue
     return /^[\w.+-]+$/.test(name) ? name : undefined
   }
   return undefined

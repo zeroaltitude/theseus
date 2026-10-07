@@ -457,6 +457,12 @@ test("the words: a job's program, and each plate's key", () => {
   assert.equal(commandKey(['sh', '-c', 'sleep 8; echo 41 departures']), 'sleep N; echo N departures')
   assert.equal(commandKey(['cargo', 'build', '--release']), 'cargo build --release')
   assert.equal(programOf(['sh', '-c', '"$x" go']), undefined)
+  // What only says something is passed over: the program is the one doing the work (theseus-cov9).
+  assert.equal(programOf(['sh', '-c', 'echo building; cargo build']), 'cargo')
+  assert.equal(programOf(['sh', '-c', 'echo night build started; sleep 21000; echo night build done']), 'sleep')
+  assert.equal(programOf(['sh', '-c', 'printf "step 1\\n" && make']), 'make')
+  assert.equal(programOf(['bash', '-c', 'cd harbour; echo go | tee log.txt']), 'tee')
+  assert.equal(programOf(['sh', '-c', 'echo done']), undefined)
   assert.deepEqual(WATCH_KEYS.map(keyOf), ['1', '2', '3', '4', '5', '6'])
   assert.deepEqual([keyOf('working'), keyOf('wrong'), keyOf('since')], ['1', '5', '6'])
 })
@@ -543,6 +549,23 @@ test('a kept scan says what a fresh read says, as the ledger grows and the momen
       assert.deepEqual(scanSays(scan.of(seen, now, midnight(now), 24), now, seen), scanSays(new DayScan().of(seen, now, midnight(now), 24), now, seen), where)
     }
   }
+})
+
+test("slow holds a job that echoes first against its working program's runs, never against every echo-first job", () => {
+  // Three echo-first builds and three night sleeps settled today; an echo-first sleep running now is a run of `sleep`.
+  const job = (k: number, argv: string[], ms: number) => [
+    row(NOW - HOUR_MS + k * MIN, 'action.planned', 'ses_a', { correlation_id: `act_${k}`, tool: 'proc.run' }),
+    row(NOW - HOUR_MS + k * MIN, 'tool.job_started', 'ses_a', { correlation_id: `act_${k}`, argv }),
+    row(NOW - HOUR_MS + k * MIN + 1, 'action.succeeded', 'ses_a', { correlation_id: `act_${k}`, duration_ms: ms }),
+  ]
+  const rows = [
+    ...[1, 2, 3].flatMap((k) => job(k, ['sh', '-c', `echo building ${k}; make -j${k}`], 3000)),
+    ...[4, 5, 6].flatMap((k) => job(k, ['sh', '-c', `sleep ${k}0000`], 9_000_000)),
+  ]
+  const sc = new DayScan().of(rows, NOW, DAY, 24)
+  const usual = sc.usuals.of('proc.run', ['sh', '-c', 'echo night build started; sleep 21000; echo night build done'])
+  assert.deepEqual(usual, { ms: 9_000_000, n: 3, of: '`sleep` jobs' })
+  assert.deepEqual(sc.usuals.of('proc.run', ['sh', '-c', 'echo go; make -j9']), { ms: 3000, n: 3, of: '`make` jobs' })
 })
 
 test("a kept scan counts a call again when its plan row's time comes after it settled", () => {
