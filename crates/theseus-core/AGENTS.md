@@ -583,8 +583,8 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   `turn.submit` refuses it (`import::refusal`), so it never takes a turn or reaches a compile but as recall's
   testimony; `session.list` leaves it out unread: the whole list, `confirm.list` and `compilation.list` read
   `Store::live_sessions` (theseus-store's `latest_of_kind_except`: two reads of the key table either side of the
-  `ses_ep` run, so no imported row is visited, theseus-26jo),
-  and a page and the learning tender's task-brief walk (`sessions_from`) step over the import's births by key in
+  `ses_ep` run, so no imported row is visited, theseus-26jo; one session's `compilation.list` reads its record
+  alone), and a page and the learning tender's task-brief walk (`sessions_from`) step over the import's births by key in
   their walk (`newest_keys_where`, theseus-7087); health's fallback totals alone read every session, since the
   projection's count holds imported ones. Its place is private whatever place
   the episode names (`TurnRunner::place_of` reads the id), so a shared place never recalls it. Each message is a

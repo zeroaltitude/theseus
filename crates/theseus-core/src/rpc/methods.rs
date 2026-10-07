@@ -1156,10 +1156,15 @@ impl Core {
             Some(sid) => self.store.session_compilations(sid)?,
             None => self.store.recent_compilations(n)?,
         };
-        // An imported session has no compilation (theseus-7087).
-        let current: std::collections::HashSet<String> = self
-            .store
-            .live_sessions::<SessionRecord>()?
+        // A session's current compilation is one its own turn made, so one
+        // session's list reads that session's record alone (theseus-26jo);
+        // the whole list reads every live one's, and an imported session
+        // has none (theseus-7087).
+        let sessions: Vec<SessionRecord> = match &p.session_id {
+            Some(sid) => self.store.get_session(sid)?.into_iter().collect(),
+            None => self.store.live_sessions()?,
+        };
+        let current: std::collections::HashSet<String> = sessions
             .into_iter()
             .filter_map(|s| s.compilation_id)
             .collect();

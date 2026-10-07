@@ -295,6 +295,19 @@ async fn the_session_lists_read_no_imported_session_and_answer_as_before() {
     // its live keys: no key-table row per imported key (theseus-26jo).
     let past_rows = rows(|| page(c, 20, past));
     assert!(past_rows < 1_000 + 60, "{past_rows}");
+    // One session's compilations are marked from its own record alone
+    // (theseus-26jo): the scan of its scope, and one record more.
+    let mine = CompilationListParams {
+        session_id: Some(waiting.clone()),
+        n: None,
+    };
+    let listed = c.compilation_list(mine.clone()).unwrap().compilations;
+    assert_eq!(listed.iter().filter(|x| x.current).count(), 1, "{listed:?}");
+    assert_eq!(
+        reads(|| c.compilation_list(mine.clone()).unwrap()),
+        reads(|| c.store.session_compilations(&waiting).unwrap()) + 1,
+        "compilation.list {{session_id}} reads its own session's record alone"
+    );
     let asked = c.confirm_list().unwrap();
     assert_eq!(asked.len(), 1);
     assert_eq!(asked[0].session_id, waiting);
