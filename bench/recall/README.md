@@ -123,20 +123,21 @@ Theseus runs the bench profile (every tool open, roots at `/`), and Claude Code 
     tool id; from a turn's second call on, the provider's count of the last request stands and only what was
     written since is estimated; the ring runs when that passes the budget at its upper bound (the estimate × 1.4),
     and a turn whose newest exchange alone, estimated whole beside the system prompt and tools (13,599 tokens on a
-    scratch daemon of c4f79e9f; the plan takes 13,700, room for growth), still passes it fails before any call. So the window is the smallest where the
+    scratch daemon of c4f79e9f; the plan takes 13,640, within the cushion of it either way), still passes it fails before any call. So the window is the smallest where the
     turns before each mark fit at 15% over their estimate, a session with no mark fits whole, each read turn alone
     stays 10% under the budget with room for a 4,096-token summary beside it, and at 15% under their estimate the
     reads cross the budget: the mark's own, or, where one read can't do both (the smoke's short first session),
     up to three more at the turn after the mark. One tool result shows at most 30,000 characters, and `fs_read`
     numbers each line, so each log fits under that. A plan is in tokens and its logs are written in bytes, so each
     plan, once written, is worked again from its bytes (`plan_misses`), at its overhead and at `OVERHEAD_CUSHION`
-    more, and one that misses by rounding gives way to the next: more reads in the same window, then the next
+    more and less, and one that misses by rounding gives way to the next: more reads in the same window, then the next
     window. For seed 7 that is 45000 for the smoke (a budget of 29,654;
     two logs of about 4,400 tokens, the second at turn 11) and 94000 for the full (73,904).
   - **The overhead is checked.** After the first turn, before any probe, the driver reads its daemon's first
     `context.compiled` estimate less that turn's user message: the system prompt and tools, as `OVERHEAD_TOKENS`
-    defines them. Past the progression's planned overhead by more than `OVERHEAD_CUSHION` (50 tokens), a mark may
-    ring or fail, so the run stops (exit 3) with both numbers, unless `--allow-overhead`. `run.json`'s `overhead`
+    defines them. More than `OVERHEAD_CUSHION` (50 tokens) off the progression's planned overhead, over or under, a mark
+    may ring (over) or the reads may not cross the budget (under), so the run stops (exit 3) with both numbers,
+    unless `--allow-overhead`. `run.json`'s `overhead`
     keeps the planned, the measured and the cushion either way. Generate again with `--overhead <measured>` to plan
     at the daemon's own.
   - Where it compacted is read from the ledger (`context.compacted`) after every turn, with each row's outcome:
@@ -179,7 +180,7 @@ Theseus runs the bench profile (every tool open, roots at `/`), and Claude Code 
     print mode sends `/compact` to the model as text, so there are no marks to compact at; the threshold works
     at any window. A compaction counts where a session log gains a `compaction` entry, and its summary call's
     tokens and dollars are its turn's.
-  - The progression is planned at Theseus's overhead (`overhead_tokens`, 13,700 for the smoke), and Pi's own
+  - The progression is planned at Theseus's overhead (`overhead_tokens`, 13,640 for the smoke), and Pi's own
     system prompt and tools are about 2,300 tokens, so on the smoke Pi's context peaks near 20k and it does not
     compact at the 45k window: its probes are scored where it compacted, which is nowhere.
   - Pi's print mode exits 0 when the provider fails: a turn whose last answer ended on `error` or `aborted`, or
@@ -231,12 +232,27 @@ daemon's log.
   four words off, in the same clause (a semicolon, a dash or a sentence stop ends it): before the value ("moved
   from X", "ignore the X", "previously X", "formerly X", "used to be X", "instead of X", "replaced X", "no longer
   X", "not X", the last at most one word off), after it with the value its subject ("X is no longer used", "X was
-  replaced", "X isn't used anymore"), or around it ("it was X before"). A phrase that cites ("as I said
-  previously") or is negated ("don't forget") governs nothing. So "It moved from 27340 to 38013." is right, and
+  replaced", "X isn't used anymore"), or around it ("it was X before", "earlier it was X", "before the move it was
+  X"). A phrase governs each member of a list under it ("no longer X or Y", "used to be X and later Y", "X and Y are
+  both retired"), and an old value named twice in a clause ("moved from X to Y, then from Y to Z") is retracted
+  where its last naming is, an earlier one only a move's destination ("to Y") or governed too: named again after
+  its retraction ("moved from X to Y, then back to X", "it was X before and is still X"), it is current again. A
+  lead word reaches "was" four words off ("before the move it was X"). "The old X" and "the former X" only
+  describe: they govern beside a retraction elsewhere
+  in the clause ("the old X was replaced"), never alone ("the old X is back"). A phrase that cites ("as I said
+  previously", `you wrote "moved from X to Y"`) or is negated ("don't forget", "X is no longer wrong") governs
+  nothing. So "It moved from 27340 to 38013." is right, and
   "It's 27340, previously 38013.", "It was 38013 before, now it's 27340.", "Port 27340 replaced 38013." and
   "38013 is no longer used; it's 27340." are wrong under both rules: each gives the old value as the current one.
   "The archiver is on port 27340." is stale under both, and "It's 27340, or maybe 38013." wrong under both. The report
-  says which rule it scored by.
+  says which rule it scored by. **The rule's reach**: it reads phrases, not meaning, so it can score a reply as a
+  careful reader would not. A move cited with no citing verb ("the note says moved from X to Y, which I can't confirm") reads as a
+  retraction, so it is right; a retraction in words it doesn't list ("X was rolled back") is not one; a list joined by
+  words `JOIN` doesn't hold ("X as well as Y") governs only its nearest member; and a phrase in another clause or
+  sentence governs nothing here. Three false rights remain: a retraction anywhere in the clause lets "the old X"
+  govern, even one that retracts another value ("use the old port X instead; Y isn't up yet"); a negation ahead of a
+  prefix doesn't cancel it ("it's no longer wrong to use X"); and a comma between two clauses reads as a list
+  ("ignore Z, X is the live port, and Y is only planned").
 - **Cites**: of the right direct answers, those that say where (the script, or that the user said it) and when
   (its date or weekday, or a relative time).
 - **Cost and latency** per probe: its turn's dollars and wall time.

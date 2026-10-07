@@ -48,7 +48,8 @@ The run directory, the same for both arms (what `score.py` reads):
   `compaction_rows` (each row's outcome, `compaction` or `ring`, and the
   cut's span), Theseus's `overhead` (its system prompt and tools, planned
   and measured after the first turn: past the plan by more than
-  `generate.OVERHEAD_CUSHION`, the run stops unless `--allow-overhead`),
+  `generate.OVERHEAD_CUSHION` either way, the run stops unless
+  `--allow-overhead`),
   what the stop had to kill, and the totals;
 - `turns.jsonl`: each turn's reply, exit, tokens, dollars and latency;
 - `delivered.json`: each fact's delivery;
@@ -264,8 +265,8 @@ def delivery(prog: pg.Progression, transcript: str) -> dict[str, dict]:
 
 
 class OverheadPastPlan(RuntimeError):
-    """The daemon's system prompt and tools passed the progression's planned
-    overhead by more than `generate.OVERHEAD_CUSHION`."""
+    """The daemon's system prompt and tools differ from the progression's
+    planned overhead by more than `generate.OVERHEAD_CUSHION`, over or under."""
 
 
 def overhead_of(rows: list[dict], first_text: str, model: str) -> int | None:
@@ -281,17 +282,19 @@ def overhead_of(rows: list[dict], first_text: str, model: str) -> int | None:
 
 def overhead_record(prog: pg.Progression, measured: int, allow: bool) -> dict:
     """run.json's `overhead`: the planned and the measured, the cushion, and
-    whether the measured passes the plan by more than it."""
+    whether the measured is off the plan by more than it, over or under."""
     planned = generate.planned_overhead(prog)
     return {"planned": planned, "planned_recorded": prog.overhead_tokens is not None, "measured": measured,
-            "cushion": generate.OVERHEAD_CUSHION, "past_cushion": measured - planned > generate.OVERHEAD_CUSHION,
+            "cushion": generate.OVERHEAD_CUSHION, "past_cushion": abs(measured - planned) > generate.OVERHEAD_CUSHION,
             "allowed": allow}
 
 
 def overhead_refusal(rec: dict) -> str:
     m, p = rec["measured"], rec["planned"]
-    return (f"the daemon's system prompt and tools are {m:,} tokens, past the {p:,} the progression was planned at "
-            f"by {m - p:,} (more than the cushion of {rec['cushion']}): its marks may ring or fail. Generate it "
+    way = f"past the {p:,} the progression was planned at by {m - p:,}" if m > p else \
+        f"under the {p:,} the progression was planned at by {p - m:,}"
+    return (f"the daemon's system prompt and tools are {m:,} tokens, {way} (more than the cushion of "
+            f"{rec['cushion']}): its marks may ring or fail to cross. Plan it at the measured overhead: generate it "
             f"again with --overhead {m}, or run it as it is with --allow-overhead")
 
 

@@ -430,15 +430,36 @@ class Overhead(unittest.TestCase):
 
     def test_past_the_cushion_is_refused_and_both_numbers_are_named(self):
         prog = generate.build(7, "smoke")
-        planned = prog.overhead_tokens
-        at = drive.overhead_record(prog, planned + generate.OVERHEAD_CUSHION, False)
-        self.assertEqual((at["planned"], at["past_cushion"]), (planned, False))
-        past = drive.overhead_record(prog, planned + generate.OVERHEAD_CUSHION + 1, False)
+        planned, cushion = prog.overhead_tokens, generate.OVERHEAD_CUSHION
+        for measured in (planned + cushion, planned - cushion, planned):
+            at = drive.overhead_record(prog, measured, False)
+            self.assertEqual((at["planned"], at["past_cushion"]), (planned, False), measured)
+        past = drive.overhead_record(prog, planned + cushion + 1, False)
         self.assertTrue(past["past_cushion"])
         said = drive.overhead_refusal(past)
-        self.assertIn(f"{planned + generate.OVERHEAD_CUSHION + 1:,}", said)
+        self.assertIn(f"{planned + cushion + 1:,}", said)
         self.assertIn(f"{planned:,}", said)
         self.assertIn("--allow-overhead", said)
+
+    def test_a_daemon_under_the_plan_is_refused_like_one_over_it(self):
+        """theseus-tqa3: a lower overhead thins the reads' crossing (smoke
+        seed 12 crosses by 31 tokens 101 under the default plan, and not at
+        150 under it), so 51 under is refused as 51 over is, and 50 under is
+        not. The refusal names both numbers and how to plan at the measured."""
+        prog = generate.build(7, "smoke")
+        planned, cushion = prog.overhead_tokens, generate.OVERHEAD_CUSHION
+        self.assertFalse(drive.overhead_record(prog, planned - cushion, False)["past_cushion"])
+        under = drive.overhead_record(prog, planned - cushion - 1, False)
+        self.assertTrue(under["past_cushion"])
+        said = drive.overhead_refusal(under)
+        self.assertIn(f"{planned - cushion - 1:,}", said)
+        self.assertIn(f"under the {planned:,}", said)
+        self.assertIn(f"by {cushion + 1}", said)
+        self.assertIn(f"--overhead {planned - cushion - 1}", said)
+        self.assertIn("--allow-overhead", said)
+        over = drive.overhead_refusal(drive.overhead_record(prog, planned + cushion + 1, False))
+        self.assertIn(f"past the {planned:,}", over)
+        self.assertIn(f"--overhead {planned + cushion + 1}", over)
         # An older file, with no record, is held to today's constant.
         prog.overhead_tokens = None
         old = drive.overhead_record(prog, 20000, True)
@@ -646,6 +667,8 @@ class TheseusDriver(unittest.TestCase):
         real = self.measured()
         self.assertLessEqual(real, generate.OVERHEAD_TOKENS + generate.OVERHEAD_CUSHION,
                              "the daemon's system prompt grew past the plan: raise OVERHEAD_TOKENS")
+        self.assertGreaterEqual(real, generate.OVERHEAD_TOKENS - generate.OVERHEAD_CUSHION,
+                                "the daemon's system prompt shrank under the plan: lower OVERHEAD_TOKENS")
         prog = generate.build(7, "smoke", real)
         with tempfile.TemporaryDirectory() as d:
             d = Path(d)

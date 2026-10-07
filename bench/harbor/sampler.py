@@ -54,7 +54,8 @@ container's init collects) loses its last interval; a zombie's time counts
 once it is reaped; a peak of summed RSS between two samples is not seen
 (each process's own `VmHWM` is); a child read alive whose parent is read
 after reaping it (a child with a lower pid than its parent's, once pids wrap)
-is counted twice for its last interval.
+has its whole time counted twice: its own, and the parent's `cutime`
+(test_sampler's fixture: 160 ticks of work for a true 80).
 
 **Output** in `--out`: `sampler.jsonl`, one line a sample (cumulative CPU,
 summed RSS, and processes by class); `sampler.json`, the summary, rewritten

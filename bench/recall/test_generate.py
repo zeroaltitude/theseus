@@ -13,6 +13,7 @@ import re
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from contextlib import redirect_stdout
 from pathlib import Path
 
@@ -27,7 +28,7 @@ import tokens as tk  # noqa: E402
 # The smoke's digest for seed 7: a change to the generator, its lists, or
 # SplitMix64 moves it. Pin the new one only for a change meant to make a new
 # progression, and say so in its commit.
-SMOKE_7 = "a6a203b842f48d21"  # theseus-dp3y: theseus-523y's, with its planned overhead recorded
+SMOKE_7 = "5b54c6e94b52c3ba"  # theseus-tqa3: planned at 13,640, within the cushion of the daemon's 13,599 (a6a203b842f48d21 at 13,700)
 
 
 class Rng(unittest.TestCase):
@@ -201,7 +202,7 @@ class Window(unittest.TestCase):
         a 44000 window whose written reads crossed at 28,895, under its
         budget of 28,904: the plan is in tokens and the logs in bytes. Each
         plan is now worked again from its written bytes, at its overhead and
-        at OVERHEAD_CUSHION more, and the first that holds is kept."""
+        at OVERHEAD_CUSHION more and less, and the first that holds is kept."""
         p = generate.build(7, "smoke", 13599)
         self.assertEqual(generate.plan_misses(p), [])
         self.holds(p)
@@ -215,7 +216,7 @@ class Window(unittest.TestCase):
         """The sweep: the smoke at every overhead from 13,528 (60b43fb6's) to
         14,000, and the full at every 59th, each at seeds 7, 8, 11 and 12:
         every plan's written bounds hold, there and at OVERHEAD_CUSHION
-        more."""
+        more and less."""
         for size, step in (("smoke", 1), ("full", 59)):
             for overhead in range(13528, 14001, step):
                 for seed in (7, 8, 11, 12):
@@ -223,6 +224,24 @@ class Window(unittest.TestCase):
                     self.assertEqual(generate.plan_misses(p), [], (size, seed, overhead))
                     if size == "full" or overhead % 47 == 0:
                         self.holds(p)
+
+    def test_a_plan_holds_at_the_cushion_over_and_under_its_overhead(self):
+        """theseus-tqa3: each check in `plan_misses` moves a plan. With no
+        cushion, the smoke of seed 11 at 13,679 keeps a 50000 window whose
+        reads fail to cross at an overhead 50 under (13,629): the plan is
+        now 51000. The smoke of seed 8 at 13,600 keeps 41000, which misses
+        50 over (13,650): it is now 42000. Each rejected plan misses at that
+        one overhead and holds at the other two."""
+        for seed, overhead, kept, rejected, at in ((11, 13679, 51000, 50000, 13629),
+                                                   (8, 13600, 42000, 41000, 13650)):
+            p = generate.build(seed, "smoke", overhead)
+            self.assertEqual((p.context_window, generate.plan_misses(p)), (kept, []), (seed, overhead))
+            with mock.patch.object(generate, "OVERHEAD_CUSHION", 0):
+                p0 = generate.build(seed, "smoke", overhead)
+            self.assertEqual(p0.context_window, rejected, (seed, overhead))
+            misses = generate.plan_misses(p0)
+            self.assertTrue(misses and all(m.startswith(f"overhead {at:,}, ") for m in misses), (seed, misses))
+            self.assertEqual(generate.OVERHEAD_CUSHION, 50)
 
     def test_a_turns_estimate_is_its_messages_at_the_rates(self):
         """A filler that reads a file: its text, the call, the numbered
