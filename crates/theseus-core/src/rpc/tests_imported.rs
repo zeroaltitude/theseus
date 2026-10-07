@@ -352,3 +352,41 @@ async fn the_session_lists_read_no_imported_session_and_answer_as_before() {
     assert_eq!(answers_agree(c, "after an erase"), 7);
     assert_eq!(c.store.session_count().unwrap(), 2_007);
 }
+
+/// An import first, then three live sessions (theseus-ve34): the live ones
+/// are the newest births, and nothing older is live, so a full page whose
+/// older keys are all imported still names its cursor, as the walk `n` at a
+/// time did, and the page after it is empty. Every page of every size,
+/// cursor by cursor, equals the old walk's.
+#[test]
+fn the_pages_of_a_store_whose_import_came_first_answer_as_before() {
+    let r = rig();
+    let c = &r.core;
+    import(c, TAG, 0, 300);
+    let live: Vec<String> = (0..3).map(|_| open(c)).collect();
+    let births = births(c);
+    for n in [1, 2, 3, 4, 5, 20, 1000] {
+        let mut cursor = None;
+        let mut seen = Vec::new();
+        loop {
+            let got = page(c, n, cursor);
+            assert_eq!(
+                got,
+                page_as_before(&births, n, cursor),
+                "n {n} from {cursor:?}"
+            );
+            seen.extend(got.0);
+            match got.1 {
+                Some(b) => cursor = Some(b),
+                None => break,
+            }
+        }
+        assert_eq!(seen, [live[2].as_str(), &live[1], &live[0]], "n {n}");
+    }
+    // The case the old tests never met: a full page with only imported
+    // keys older keeps its cursor.
+    let (three, older) = page(c, 3, None);
+    assert_eq!(three.len(), 3);
+    assert!(older.is_some());
+    assert_eq!(page(c, 3, older), (vec![], None));
+}
