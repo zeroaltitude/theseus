@@ -12,10 +12,17 @@
 //! The bench finds that frame among the ones it read from the WAL and names
 //! it by its records. The turn's last frame, which carries the trace, is
 //! written after it and so is not among them.
+//!
+//! `bench turn --judge` gives each run of its arms the same line
+//! (theseus-v2ru), with the turn's own frames as its trace counts them,
+//! where the judge's frames fell (before its answer · after · between it and
+//! the run before), and its slowest frame looked for among both, named the
+//! judge's or the turn's.
 
 use serde::Serialize;
 use serde_json::Value;
 
+use super::judge::Placed;
 use crate::walcount::Frame;
 
 /// A run is flagged when its wall time is over this many times the kind's p50.
@@ -42,8 +49,13 @@ pub struct Run {
     pub wall_ms: f64,
     /// The daemon's own time (`elapsed_ms`), in ms.
     pub daemon_ms: f64,
-    /// Frames from before the turn to a quiet stretch after it.
+    /// Frames from before the turn to a quiet stretch after it; in a judged
+    /// arm, the turn's own, as its trace counts them.
     pub frames: u64,
+    /// In a judged arm (`bench turn --judge`, theseus-v2ru), where the
+    /// judge's frames fell; none in `bench turn`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub judge: Option<Placed>,
     /// The slowest frame the daemon timed; none from a daemon that does not
     /// say (a build before theseus-w7dk).
     pub slowest: Option<Slowest>,
@@ -53,19 +65,32 @@ impl Run {
     /// A run from its answer: the turn's trace names its slowest frame, which
     /// is found among the frames the WAL held.
     pub fn of(n: usize, answer: &Value, wall_ms: f64, frames: &[Frame]) -> Self {
+        Self::naming(n, answer, wall_ms, frames, Frame::label)
+    }
+
+    /// [`Run::of`], its slowest frame named by `name`: a judged arm names
+    /// each frame the judge's or the turn's (theseus-v2ru).
+    pub fn naming(
+        n: usize,
+        answer: &Value,
+        wall_ms: f64,
+        frames: &[Frame],
+        name: impl Fn(&Frame) -> String,
+    ) -> Self {
         let slow = &answer["trace"]["attrs"]["slowest_frame"];
         let slowest = slow["first"].as_u64().map(|first| Slowest {
             ms: slow["us"].as_u64().unwrap_or(0) as f64 / 1000.0,
-            frame: frames.iter().find(|f| f.first == first).map_or_else(
-                || "(not found among this turn's frames)".into(),
-                Frame::label,
-            ),
+            frame: frames
+                .iter()
+                .find(|f| f.first == first)
+                .map_or_else(|| "(not found among this turn's frames)".into(), &name),
         });
         Self {
             n,
             wall_ms,
             daemon_ms: answer["elapsed_ms"].as_f64().unwrap_or(0.0),
             frames: frames.len() as u64,
+            judge: None,
             slowest,
         }
     }
@@ -81,8 +106,14 @@ impl Run {
         } else {
             String::new()
         };
+        let judge = self.judge.map_or_else(String::new, |p| {
+            format!(
+                ", the judge's {} · {} · {}",
+                p.before_answer, p.after_answer, p.between
+            )
+        });
         format!(
-            "    {:>3}  wall {:>7.1} ms  daemon {:>7.1} ms  {} frames  {slowest}{flag}",
+            "    {:>3}  wall {:>7.1} ms  daemon {:>7.1} ms  {} frames{judge}  {slowest}{flag}",
             self.n, self.wall_ms, self.daemon_ms, self.frames
         )
     }

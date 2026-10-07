@@ -20,6 +20,11 @@
 //! - **The disk's share**: the judge's frames and the blobs the store gained
 //!   (each judged state's file and its directory, two syncs the WAL never
 //!   sees), at the disk probe's `fdatasync`.
+//! - **Each run's line** (theseus-v2ru), as `bench turn` prints the
+//!   judge-off turn's (`runs::Run`): its wall and the daemon's time, the
+//!   turn's own frames, where the judge's fell, and its slowest frame among
+//!   them all, named the judge's or the turn's, so a slow judged run says
+//!   whether a judge's frame stood in its way.
 //!
 //! Nothing here is gated: `--check` judges the `off` arm's frames against
 //! today's budgets, and the judge-on arms go to the history under columns
@@ -92,7 +97,7 @@ pub fn is_judges(f: &Frame) -> bool {
 }
 
 /// Where the judge's frames landed, against the turns measured.
-#[derive(Debug, Default, Clone, Copy, Serialize)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Serialize)]
 pub struct Placed {
     /// Inside a turn, before its answer: the turn's answer waited behind
     /// it whenever the store's one writer was syncing it.
@@ -167,6 +172,10 @@ pub struct JudgedKind {
     /// The judge's frames before each run's answer.
     pub judge_before_each: Vec<u64>,
     pub placed: Placed,
+    /// Each measured turn, in order: its wall time and the daemon's, its
+    /// own frames, where the judge's fell, and its slowest frame
+    /// (theseus-v2ru).
+    pub runs: Vec<Run>,
     /// The last run's frames, each `turn [...]` or `judge [...]`.
     pub last_frames: Vec<String>,
 }
@@ -382,6 +391,19 @@ fn tagged(f: &Frame) -> String {
     }
 }
 
+/// One judged run (theseus-v2ru): `all` is every frame the WAL held from
+/// its submit to a quiet stretch after it, the judge's among them. The
+/// turn's own are counted, as its trace counts them, `placed` says where
+/// the judge's fell, and its slowest frame is looked for among them all, so
+/// a judge's frame inside the turn reads as the judge's.
+fn judged_run(n: usize, answer: &Value, wall_ms: f64, all: &[Frame], placed: Placed) -> Run {
+    Run {
+        frames: all.iter().filter(|f| !is_judges(f)).count() as u64,
+        judge: Some(placed),
+        ..Run::naming(n, answer, wall_ms, all, tagged)
+    }
+}
+
 /// `runs` measured turns of one kind, each frame told the judge's or the
 /// turn's.
 fn kind(
@@ -396,7 +418,7 @@ fn kind(
     let (mut wall, mut daemon, mut frames_each, mut before_each) =
         (Vec::new(), Vec::new(), Vec::new(), Vec::new());
     let mut placed = Placed::default();
-    let mut last = Vec::new();
+    let (mut each, mut last) = (Vec::new(), Vec::new());
     let seen = |frames: &[Frame], shapes: &mut BTreeMap<String, u64>| -> u64 {
         let judge: Vec<&Frame> = frames.iter().filter(|f| is_judges(f)).collect();
         for f in &judge {
@@ -409,15 +431,17 @@ fn kind(
         // between turns, and a straggler of the turn's, as `bench turn`
         // leaves it, not this turn's.
         let between = until_quiet(&mut d.tail)?;
-        placed.between += seen(&between, shapes);
         let t = Instant::now();
         let r = d.submit(session, &format!("{input} {i}"))?;
         let w = ms_since(t);
         let answered = d.tail.read()?;
         let after = until_quiet(&mut d.tail)?;
-        let before = seen(&answered, shapes);
-        placed.before_answer += before;
-        placed.after_answer += seen(&after, shapes);
+        let this = Placed {
+            before_answer: seen(&answered, shapes),
+            after_answer: seen(&after, shapes),
+            between: seen(&between, shapes),
+        };
+        placed.add(this);
         let got = (
             r["loops"].as_u64().unwrap_or(0),
             r["tool_calls"].as_u64().unwrap_or(0),
@@ -445,7 +469,8 @@ fn kind(
         wall.push(w);
         daemon.push(r["elapsed_ms"].as_f64().unwrap_or(0.0));
         frames_each.push(turns.len() as u64);
-        before_each.push(before);
+        before_each.push(this.before_answer);
+        each.push(judged_run(i + 1, &r, w, &all, this));
         last = all.iter().map(tagged).collect();
     }
     let frames: Vec<f64> = frames_each.iter().map(|n| *n as f64).collect();
@@ -457,6 +482,7 @@ fn kind(
         frames_each,
         judge_before_each: before_each,
         placed,
+        runs: each,
         last_frames: last,
     })
 }
@@ -577,6 +603,27 @@ pub fn run_judge(o: &JudgeOpts) -> Result<JudgeReport> {
     })
 }
 
+/// Each run's line, arm by arm and kind by kind (theseus-v2ru), under a
+/// line that says how to read them, as `bench turn` prints the judge-off
+/// turn's.
+fn run_lines(r: &JudgeReport) -> Vec<String> {
+    let mut out = Vec::new();
+    for a in &r.arms {
+        for k in [&a.plain, &a.tool] {
+            out.push(format!(
+                "  each {} {} run, by the bench's clock and the daemon's (a run over {}x the p50 is flagged; the \
+                 judge's frames before its answer · after · between it and the run before; its slowest frame, the \
+                 judge's or the turn's):",
+                a.arm.name(),
+                k.name,
+                runs::OUTLIER_TIMES
+            ));
+            out.extend(k.runs.iter().map(|run| run.line(k.wall_ms.p50)));
+        }
+    }
+    out
+}
+
 pub fn print_judge(r: &JudgeReport) {
     println!(
         "bench turn --judge · {} · {} runs of each kind in each arm, on the stand-in model, \
@@ -602,6 +649,9 @@ pub fn print_judge(r: &JudgeReport) {
                 k.placed.between
             );
         }
+    }
+    for line in run_lines(r) {
+        println!("{line}");
     }
     let fsync = r.fsync_ms.p50;
     println!(
@@ -691,19 +741,17 @@ mod tests {
         );
     }
 
-    /// The judge's columns are the history's, and the `off` arm's are
-    /// `bench turn`'s own.
-    #[test]
-    fn every_column_the_judge_bench_records_has_a_history_column() {
-        let columns: Vec<&str> = crate::history::columns().collect();
+    /// A report of every arm, each kind's runs `runs`.
+    fn report(runs: &[Run]) -> JudgeReport {
         let kind = |name: &str| JudgedKind {
             name: name.to_string(),
-            wall_ms: single(1.0),
+            wall_ms: single(40.0),
             daemon_ms: single(1.0),
             frames: single(5.0),
             frames_each: vec![5],
             judge_before_each: vec![0],
             placed: Placed::default(),
+            runs: runs.to_vec(),
             last_frames: Vec::new(),
         };
         let arm = |arm: Arm| ArmReport {
@@ -718,7 +766,7 @@ mod tests {
             jev_warmups: 0,
             turns: 2,
         };
-        let r = JudgeReport {
+        JudgeReport {
             theseusd: String::new(),
             runs: 1,
             arms: ARMS.iter().map(|a| arm(*a)).collect(),
@@ -726,7 +774,83 @@ mod tests {
             fsync_probes_ms: [1.0, 1.0],
             verdicts: turn_verdicts(&single(5.0), &single(9.0)),
             wall_ms: 0.0,
+        }
+    }
+
+    /// Three frames of a judged turn, the judge's budget block between the
+    /// turn's two, and the turn's answer, its trace naming `slowest`.
+    fn judged_turn(slowest: u64) -> ([Frame; 3], Value) {
+        let at = |first: u64, records: &[&str]| Frame {
+            first,
+            ..frame(records)
         };
+        (
+            [
+                at(10, &["ledger:turn.started", "node"]),
+                at(12, &["meta:judge.budget"]),
+                at(13, &["ledger:call.completed"]),
+            ],
+            json!({"elapsed_ms": 41.5, "trace": {"attrs": {"frames": 2,
+                "slowest_frame": {"first": slowest, "us": 9_300}}}}),
+        )
+    }
+
+    /// A judged run (theseus-v2ru) counts the turn's own frames, as its
+    /// trace does, says where the judge's fell, and names its slowest frame
+    /// among them all: the judge's budget block inside the turn reads as the
+    /// judge's, and the turn's frame as the turn's.
+    #[test]
+    fn a_judged_runs_line_names_its_slowest_frame_the_judges_or_the_turns() {
+        let placed = Placed {
+            before_answer: 1,
+            after_answer: 0,
+            between: 2,
+        };
+        let (frames, answer) = judged_turn(12);
+        let run = judged_run(4, &answer, 90.0, &frames, placed);
+        assert_eq!((run.frames, run.judge), (2, Some(placed)), "the turn's own");
+        assert_eq!(
+            run.line(40.0),
+            "      4  wall    90.0 ms  daemon    41.5 ms  2 frames, the judge's 1 · 0 · 2  slowest frame 9.3 ms \
+             judge [meta:judge.budget]  <- over 2x the p50"
+        );
+        let (frames, answer) = judged_turn(13);
+        let run = judged_run(5, &answer, 30.0, &frames, Placed::default());
+        assert_eq!(run.slowest.unwrap().frame, "turn [ledger:call.completed]");
+    }
+
+    /// `--judge` prints each run's line under each arm's kinds, after a line
+    /// that says how to read them (theseus-v2ru).
+    #[test]
+    fn the_judge_bench_prints_each_runs_line() {
+        let (frames, answer) = judged_turn(12);
+        let runs: Vec<Run> = (1..=2)
+            .map(|n| judged_run(n, &answer, 30.0 * n as f64, &frames, Placed::default()))
+            .collect();
+        let r = report(&runs);
+        let lines = run_lines(&r);
+        assert_eq!(lines.len(), ARMS.len() * 2 * (1 + runs.len()), "{lines:#?}");
+        assert!(
+            lines[0].starts_with("  each off plain run, "),
+            "{}",
+            lines[0]
+        );
+        assert_eq!(lines[1], runs[0].line(40.0));
+        assert_eq!(lines[2], runs[1].line(40.0));
+        assert!(
+            lines[3].starts_with("  each off tool-call run, "),
+            "{}",
+            lines[3]
+        );
+        assert!(lines.last().unwrap().contains("judge [meta:judge.budget]"));
+    }
+
+    /// The judge's columns are the history's, and the `off` arm's are
+    /// `bench turn`'s own.
+    #[test]
+    fn every_column_the_judge_bench_records_has_a_history_column() {
+        let columns: Vec<&str> = crate::history::columns().collect();
+        let r = report(&[]);
         let cols = r.columns();
         assert_eq!(cols.len(), 4 + 3 * 2);
         for (name, _) in cols {

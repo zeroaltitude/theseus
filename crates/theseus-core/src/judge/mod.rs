@@ -43,6 +43,8 @@ pub mod rerank;
 pub mod sink;
 pub mod spend;
 #[cfg(test)]
+mod tests_ahead;
+#[cfg(test)]
 mod tests_reserve;
 pub mod warm;
 

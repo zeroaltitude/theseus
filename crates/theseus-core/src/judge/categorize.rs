@@ -522,3 +522,79 @@ async fn judge_categorize(me: Weak<JudgeService>, pack: Arc<Pack>, end: Exchange
         svc.budget.settle(&today, need, spent, called, failed);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::time::{Duration, Instant};
+
+    use theseus_judge::fake::FakeJev;
+
+    use super::{Mark, MARK_PREFIX};
+    use crate::store::Store;
+    use crate::tests_judge::{rig_with, texts};
+    use crate::tests_sink_backlog::{settled, written};
+
+    fn mark(judgment: &str, through: u64) -> Mark {
+        Mark {
+            judgment: judgment.into(),
+            through,
+            through_ms: 0,
+            at_ms: 0,
+        }
+    }
+
+    /// Wait (on the runtime's timer) until the sink has written `n` rows.
+    async fn rows(store: &Store, n: usize) {
+        let t0 = Instant::now();
+        while written(store) < n {
+            assert!(t0.elapsed() < Duration::from_secs(20), "{n} row(s) written");
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    }
+
+    /// Two judgments of one session settle in reverse order, each in a sink
+    /// frame of its own: the newer's row lands with its mark, and the older's
+    /// frame leaves its mark out, since the store holds a newer one, so the
+    /// mark never moves back across frames (theseus-xkbs, theseus-5o3d).
+    /// `newest_each` holds the same rule inside one frame.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_mark_never_moves_back_across_frames() {
+        let jev = FakeJev::start().unwrap();
+        let r = rig_with(texts(1), Some(&jev), |_| {});
+        let (store, judge) = (&r.core.store, r.core.runner.judge.clone());
+        judge.jev().unwrap();
+        let sid = "ses_reversed";
+        let key = format!("{MARK_PREFIX}{sid}");
+        // Each judgment moved the session's mark as its reservation was made
+        // (`judge_categorize`); the older's call comes back last.
+        let (older, newer) = (settled(0), settled(1));
+        for (j, through) in [(&older, 10), (&newer, 20)] {
+            judge
+                .categorize
+                .unwritten
+                .lock()
+                .unwrap()
+                .insert(j.id.clone(), (sid.into(), mark(&j.id, through)));
+        }
+        judge.settle(&newer);
+        rows(store, 1).await;
+        let newest = Some(mark(&newer.id, 20));
+        assert_eq!(store.get_meta::<Mark>(&key).unwrap(), newest);
+        judge.settle(&older);
+        rows(store, 2).await;
+        assert_eq!(
+            store.get_meta::<Mark>(&key).unwrap(),
+            newest,
+            "the older judgment's frame never moves the mark back"
+        );
+        // A frame's marks leave memory just after its append.
+        let t0 = Instant::now();
+        while !judge.categorize.unwritten.lock().unwrap().is_empty() {
+            assert!(
+                t0.elapsed() < Duration::from_secs(5),
+                "both marks are the store's now"
+            );
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    }
+}

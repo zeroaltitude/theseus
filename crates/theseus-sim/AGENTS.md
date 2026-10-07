@@ -50,7 +50,9 @@ Key modules: `lifecycle.rs`, `kernel_sim.rs`, `fake_discord.rs`, `discord_proof.
     its trace), each judge frame placed before a turn's answer, after it, or between turns, and the blobs the store
     gained (two syncs each, which the WAL never sees). Each judged arm first submits a turn the moment its fresh daemon
     answers and counts the ladder's `pack.mode` frames around it (theseus-289c: none since the warm read's adoptions
-    wait between turns). Nothing new is gated: `--check` judges the judge-off arm, and the judged arms' wall times and
+    wait between turns). Each run of every arm gets the per-run line too (theseus-v2ru): the turn's own frames, where
+    the judge's fell (before its answer · after · between it and the run before), and its slowest frame, named the
+    judge's or the turn's. Nothing new is gated: `--check` judges the judge-off arm, and the judged arms' wall times and
     frames go to `--record` under columns of their own (`*_jloop`, `*_jpacks`). `--session-nodes N` (step 33,
     `src/perf/long.rs`) measures turns in one session of N nodes instead, written before the daemon starts
     (`synth::long_session`: five-node exchanges whose tool results are `--result-bytes`, 8192 by default): each turn's
