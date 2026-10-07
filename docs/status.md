@@ -67,7 +67,10 @@ joined since, for install #10, after that. Theseus has been feature complete (v1
   message at its own time with an `import` origin, idempotent, and erasable by tag (Item
   201). His went in right after install #8 (October 6, 17:26 to 17:28): 21,779 episodes, none rejected. The
   session lists step over them by key, so a list stays in a few milliseconds (Item 219), and
-  their vectors are embedded in the background over days.
+  their vectors are embedded in the background over days. `theseus import topics --tag T` makes the
+  episodes' topic labels the ontology's topics, a tree from their slash paths, and each imported session's
+  memberships (origin `import`, at most three), from the stored labels; the tag's erase takes them back
+  (theseus-anh3).
 - **Tasks as records.** A task has a record of three layers and a place in a graph, edited by compare-and-swap through
   the task tools, its first layer asked of the owner only for tasks the owner created (Items 125 and
   146). A task is created with its arrangement (references, a refusal, a fidelity check; Item

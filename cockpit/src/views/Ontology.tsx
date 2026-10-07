@@ -2,11 +2,13 @@
 // guidance editor, and "add a topic". A view only: every write is a protocol method, confirmed first with the text it
 // sends, and judged by the core. It reads the present (`ontology.list`); the time machine keeps no past of it, so while
 // it shows a moment the view says so and its controls are off. The selected category is in the address (`?category=`).
+// At an import's size (theseus-anh3: well over a hundred topics, tens of thousands of memberships) it reads the tree
+// alone, each category with its count of sessions, and past `FOLD_AT` categories the tree starts folded at its roots.
 import { useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router'
-import { Compass, ListTree, Pencil, Plus, Shapes } from 'lucide-react'
+import { ChevronDown, ChevronRight, Compass, ListTree, Pencil, Plus, Shapes } from 'lucide-react'
 import type { OntologyCategory, OntologyCategoryAddParams, OntologyGuidance, OntologyGuidanceSetParams } from '@protocol'
-import { treeOrder } from '@/lib/ontology'
+import { ancestorsOf, FOLD_AT, parents, shown, treeOrder, withinCounts } from '@/lib/ontology'
 import { cn, clock } from '@/lib/format'
 import { useAsOf } from '@/lib/timemachine'
 import { Empty, Panel, Pill } from '@/components/ui'
@@ -15,12 +17,23 @@ import { Act, Refused, useInPast, useOntology, useOntologyWrite } from '@/compon
 const field = 'rounded-md bg-white/5 px-2.5 py-1.5 text-[12px] text-ink outline-none ring-1 ring-line placeholder:text-ink-faint focus:ring-live/40 disabled:opacity-50'
 
 export default function Ontology() {
-  const { data, isLoading, error } = useOntology()
+  const { data, isLoading, error } = useOntology(undefined, true)
   const past = useInPast()
   const asOf = useAsOf((s) => s.t)
   const [params, setParams] = useSearchParams()
   const selected = params.get('category')
   const rows = useMemo(() => treeOrder(data?.categories ?? []), [data])
+  const within = useMemo(() => withinCounts(rows), [rows])
+  const branches = useMemo(() => parents(rows), [rows])
+  // The open rows: null until the reader folds or opens one, and then by default every branch open, or none past FOLD_AT.
+  const [opened, setOpened] = useState<Set<string> | null>(null)
+  const open = useMemo(() => {
+    const s = new Set(opened ?? (rows.length > FOLD_AT ? [] : branches))
+    for (const a of ancestorsOf(rows, selected)) s.add(a)
+    return s
+  }, [opened, rows, branches, selected])
+  const visible = useMemo(() => shown(rows, open), [rows, open])
+  const toggle = (id: string) => setOpened(() => { const s = new Set(open); if (s.has(id)) s.delete(id); else s.add(id); return s })
   const picked = rows.find((r) => r.category.id === selected)?.category ?? null
   const select = (id: string | null) => setParams((p) => { if (id) p.set('category', id); else p.delete('category'); return p }, { replace: true })
 
@@ -52,26 +65,48 @@ export default function Ontology() {
         </table></div>
       </Panel>
       <div className="grid grid-cols-1 gap-3 xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
-        <Panel title={<>categories · {rows.length}</>} icon={<ListTree size={13} />}>
+        <Panel title={<>categories · {rows.length}{branches.size > 0 && (
+          <span className="ml-2 normal-case tracking-normal">
+            <button type="button" className="text-ink-faint hover:text-live" onClick={() => setOpened(new Set(branches))}>open all</button>
+            <span className="text-ink-faint"> · </span>
+            <button type="button" className="text-ink-faint hover:text-live" onClick={() => setOpened(new Set())}>fold all</button>
+          </span>
+        )}</>} icon={<ListTree size={13} />}>
           {rows.length === 0 ? <Empty>no categories yet: a place’s are made when it binds, and a topic is added here</Empty> : (
             <div className="overflow-x-auto p-2"><table className="w-full text-[11.5px]">
               <thead className="text-[10px] uppercase tracking-wider text-ink-faint">
-                <tr><th className="py-1 text-left">category</th><th className="px-1 text-left">kind</th><th className="px-1 text-left">added by</th><th className="px-1 text-left">description</th><th className="pl-1 text-left">guidance</th></tr>
+                <tr><th className="py-1 text-left">category</th><th className="px-1 text-left">kind</th><th className="px-1 text-right" title="sessions whose memberships hold it; folded, with those below it">sessions</th><th className="px-1 text-left">added by</th><th className="px-1 text-left">description</th><th className="pl-1 text-left">guidance</th></tr>
               </thead>
               <tbody>
-                {rows.map(({ category: c, depth }) => (
+                {visible.map(({ category: c, depth }) => {
+                  const branch = branches.has(c.id)
+                  const folded = branch && !open.has(c.id)
+                  return (
                   <tr key={c.id} onClick={() => select(c.id)} aria-selected={c.id === selected}
                     className={cn('cursor-pointer border-t border-line/50 hover:bg-white/[0.03]', c.id === selected && 'bg-live/10')}>
                     <td className="py-1" style={{ paddingLeft: (depth - 1) * 16 }}>
-                      <span className="text-ink">{c.name}</span>
-                      <div className="num text-[10px] text-ink-faint">{c.id}</div>
+                      <span className="inline-flex items-center gap-1">
+                        {branch
+                          ? <button type="button" aria-label={folded ? `open ${c.id}` : `fold ${c.id}`} aria-expanded={!folded}
+                              onClick={(e) => { e.stopPropagation(); toggle(c.id) }} className="rounded text-ink-faint hover:text-live">
+                              {folded ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
+                            </button>
+                          : <span className="inline-block w-3" />}
+                        <span className="text-ink">{c.name}</span>
+                      </span>
+                      <div className="num pl-4 text-[10px] text-ink-faint">{c.id}</div>
                     </td>
                     <td className="num px-1 text-ink-dim">{c.kind}</td>
+                    <td className="num px-1 text-right text-ink-dim">
+                      {folded ? <span title={`${c.members ?? 0} in it, ${within.get(c.id) ?? 0} with those below it`}>{(within.get(c.id) ?? 0).toLocaleString()}<span className="text-ink-faint"> in all</span></span>
+                        : (c.members ?? 0) > 0 ? (c.members ?? 0).toLocaleString() : <span className="text-ink-faint">—</span>}
+                    </td>
                     <td className="px-1 text-ink-faint">{c.added_by}</td>
                     <td className="px-1 text-ink-faint">{c.description}</td>
                     <td className="num pl-1 text-ink-dim">{c.guidance && c.guidance.text !== '' ? <span title={`digest ${c.guidance.digest}`}>v{c.guidance.version} · {c.guidance.digest}</span> : <span className="text-ink-faint">—</span>}</td>
                   </tr>
-                ))}
+                  )
+                })}
               </tbody>
             </table></div>
           )}

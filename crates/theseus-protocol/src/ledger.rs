@@ -132,6 +132,7 @@ ledger_kinds! {
     ImageNotShown = "image.not_shown",
     ImportBatch = "import.batch",
     ImportErased = "import.erased",
+    ImportTopics = "import.topics",
     IndexTender = "index.tender",
     JobNotStarted = "job.not_started",
     JobRefused = "job.refused",

@@ -184,6 +184,7 @@ pub fn bound_category(target: &str, name: &str) -> Option<Category> {
         parent: None,
         description: String::new(),
         added_by: Origin::Transport.name().to_string(),
+        retired_ms: None,
     })
 }
 

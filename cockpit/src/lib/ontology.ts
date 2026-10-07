@@ -32,6 +32,59 @@ export function treeOrder(categories: readonly OntologyCategory[]): TreeRow[] {
   return out
 }
 
+/** Past this many categories the tree starts folded at its roots: an import's topics (theseus-anh3) are well over a
+ *  hundred, and a reader opens the roots they want. */
+export const FOLD_AT = 40
+
+/** Each category's sessions with its descendants': its own `members` and every descendant's, summed (a session in a
+ *  topic and in its child counts twice, as the two memberships it holds). */
+export function withinCounts(rows: readonly TreeRow[]): Map<string, number> {
+  const out = new Map<string, number>()
+  // Depth first, so each row's descendants follow it: add each row to itself and to every open ancestor on the path.
+  const path: TreeRow[] = []
+  for (const r of rows) {
+    while (path.length && path[path.length - 1].depth >= r.depth) path.pop()
+    const n = r.category.members ?? 0
+    out.set(r.category.id, n)
+    for (const a of path) out.set(a.category.id, (out.get(a.category.id) ?? 0) + n)
+    path.push(r)
+  }
+  return out
+}
+
+/** The ids of the rows that have children. */
+export function parents(rows: readonly TreeRow[]): Set<string> {
+  const out = new Set<string>()
+  rows.forEach((r, i) => { if (rows[i + 1] && rows[i + 1].depth > r.depth) out.add(r.category.id) })
+  return out
+}
+
+/** The rows a reader sees: a row shows when every ancestor of it is open. `open` holds the open rows' ids. */
+export function shown(rows: readonly TreeRow[], open: ReadonlySet<string>): TreeRow[] {
+  const out: TreeRow[] = []
+  let hideBelow = Infinity
+  for (const r of rows) {
+    if (r.depth > hideBelow) continue
+    hideBelow = Infinity
+    out.push(r)
+    if (!open.has(r.category.id)) hideBelow = r.depth
+  }
+  return out
+}
+
+/** The ids a category's ancestors have, the root first: opened so a selected category shows. */
+export function ancestorsOf(rows: readonly TreeRow[], id: string | null): string[] {
+  if (!id) return []
+  const by = new Map(rows.map((r) => [r.category.id, r.category]))
+  const out: string[] = []
+  let c = by.get(id)
+  for (let hops = 0; c?.parent && by.has(c.parent) && hops < 64; hops++) {
+    out.unshift(c.parent)
+    c = by.get(c.parent)
+  }
+  return out
+}
+
 /** What a compilation's manifest recorded of one membership (`MembershipUsed`). Read defensively: the manifest is
  *  untyped on the wire, and an older compilation has neither field. */
 export interface UsedMembership { category: string; origin: string }

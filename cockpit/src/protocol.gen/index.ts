@@ -112,6 +112,8 @@ export type * from './ImportLine';
 export type * from './ImportListResult';
 export type * from './ImportRejected';
 export type * from './ImportTagInfo';
+export type * from './ImportTopicsParams';
+export type * from './ImportTopicsResult';
 export type * from './IndexBackfill';
 export type * from './IndexChunkRef';
 export type * from './IndexCompactions';

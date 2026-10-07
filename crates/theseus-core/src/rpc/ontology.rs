@@ -44,15 +44,18 @@ impl Core {
         });
     }
 
-    /// `ontology.list`: the kinds, the category tree with its guidance, and
-    /// memberships: a session's (given, from its place; and interpreted), or
-    /// every interpreted one stored.
+    /// `ontology.list`: the kinds, the category tree with its guidance and
+    /// each one's count of sessions, and memberships: a session's (given,
+    /// from its place; and interpreted), or every interpreted one stored,
+    /// or none when `memberships` is false.
     pub fn ontology_list(&self, p: &OntologyListParams) -> Result<OntologyListResult> {
         let o = self.runner.ontology.snapshot(&self.store)?;
         let kinds = o.kinds().into_iter().map(kind_info).collect();
+        let counts = o.member_counts();
         let mut categories = Vec::new();
-        tree(&o, None, 1, &mut categories);
+        tree(&o, &counts, None, 1, &mut categories);
         let memberships = match &p.session_id {
+            _ if p.memberships == Some(false) => Vec::new(),
             Some(s) => {
                 let place = self.runner.target_of(s);
                 let mut ms = crate::ontology::given(place.as_deref(), now());
@@ -112,6 +115,7 @@ impl Core {
             parent,
             description: p.description.clone().unwrap_or_default().trim().to_string(),
             added_by: added_by(&who),
+            retired_ms: None,
         };
         let (who_s, via) = (who.who(), who.via());
         let set = fact::ontology::CategorySet {
@@ -127,7 +131,7 @@ impl Core {
             |_| Ok(vec![fact::row(&set, None, None)?]),
         )?;
         self.rec(None).announce(&set);
-        Ok(category_info(&o, &c, depth(&o, &c.id)))
+        Ok(category_info(&o, &c, depth(&o, &c.id), 0))
     }
 
     /// `ontology.guidance.set`: a category's guidance, replaced whole; the
@@ -432,12 +436,19 @@ pub(super) fn resolve(o: &Ontology, kind: &str, s: &str) -> Result<CategoryId> {
     }
 }
 
-/// The category tree below `parent`, depth first.
-fn tree(o: &Ontology, parent: Option<&CategoryId>, depth: u32, out: &mut Vec<OntologyCategory>) {
+/// The category tree below `parent`, depth first, each with its count.
+fn tree(
+    o: &Ontology,
+    counts: &BTreeMap<CategoryId, u64>,
+    parent: Option<&CategoryId>,
+    depth: u32,
+    out: &mut Vec<OntologyCategory>,
+) {
     for c in o.children(parent) {
-        out.push(category_info(o, c, depth));
+        let n = counts.get(&c.id).copied().unwrap_or(0);
+        out.push(category_info(o, c, depth, n));
         if depth < theseus_ontology::MAX_DEPTH as u32 {
-            tree(o, Some(&c.id), depth + 1, out);
+            tree(o, counts, Some(&c.id), depth + 1, out);
         }
     }
 }
@@ -464,7 +475,7 @@ fn kind_info(k: &theseus_ontology::Kind) -> OntologyKind {
     }
 }
 
-fn category_info(o: &Ontology, c: &Category, depth: u32) -> OntologyCategory {
+fn category_info(o: &Ontology, c: &Category, depth: u32, members: u64) -> OntologyCategory {
     OntologyCategory {
         id: c.id.to_string(),
         kind: c.kind().to_string(),
@@ -477,6 +488,7 @@ fn category_info(o: &Ontology, c: &Category, depth: u32) -> OntologyCategory {
             .guidance(&c.id)
             .filter(|g| !g.is_empty())
             .map(guidance_info),
+        members,
     }
 }
 

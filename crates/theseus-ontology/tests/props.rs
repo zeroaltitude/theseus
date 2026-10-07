@@ -458,8 +458,9 @@ fn the_table_accepts_only_rows_with_a_reader() {
         let mut o = Ontology::seeded();
         if o.put(Record::Kind(row.clone()), Origin::Operator).is_ok() {
             accepted.set(accepted.get() + 1);
-            // M4's built rules and origins, named here rather than asked of
-            // the code, so one counted as built by mistake fails this test.
+            // M4's built rules and origins (and the import's, theseus-anh3),
+            // named here rather than asked of the code, so one counted as
+            // built by mistake fails this test.
             prop_assert!(
                 matches!(row.rule, Rule::Chain | Rule::IntentLine),
                 "{:?}",
@@ -468,7 +469,7 @@ fn the_table_accepts_only_rows_with_a_reader() {
             prop_assert!(row
                 .assigned_by
                 .iter()
-                .all(|a| matches!(a, Origin::Transport | Origin::Operator)));
+                .all(|a| matches!(a, Origin::Transport | Origin::Operator | Origin::Import)));
             prop_assert!(!row.assigned_by.is_empty());
             prop_assert_eq!(
                 row.is_given(),

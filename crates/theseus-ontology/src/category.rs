@@ -97,11 +97,25 @@ pub struct Category {
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub description: String,
     pub added_by: String,
+    /// Taken away (ms since the epoch): a record that says so is no
+    /// category, and the snapshot holds none for it. Only one nothing uses
+    /// is taken away (no child, membership, or guidance): an import's erase
+    /// takes the topics it made that way. Declaring it again supersedes it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub retired_ms: Option<u64>,
 }
 
 impl Category {
     pub fn kind(&self) -> &str {
         self.id.kind()
+    }
+
+    /// The record that takes `self` away at `at_ms`.
+    pub fn retired(&self, at_ms: u64) -> Category {
+        Category {
+            retired_ms: Some(at_ms),
+            ..self.clone()
+        }
     }
 
     /// The record's own rules, apart from the rest of the ontology.
@@ -223,6 +237,16 @@ impl Membership {
         Membership {
             category,
             origin: Origin::Operator,
+            confidence: None,
+            as_of_ms,
+        }
+    }
+
+    /// A membership the import assigned, from an imported session's labels.
+    pub fn import(category: CategoryId, as_of_ms: u64) -> Self {
+        Membership {
+            category,
+            origin: Origin::Import,
             confidence: None,
             as_of_ms,
         }

@@ -18,6 +18,7 @@ fn cat(i: &str, name: &str, parent: Option<&str>) -> Category {
         parent: parent.map(id),
         description: String::new(),
         added_by: "ada".into(),
+        retired_ms: None,
     }
 }
 
@@ -899,6 +900,143 @@ fn a_sessions_memberships_are_its_own_lists_and_an_empty_list_takes_them_away() 
 }
 
 // Records, keys, and the load.
+
+// The import's origin, and a category taken away (theseus-anh3).
+
+#[test]
+fn the_import_writes_topics_and_lists_while_the_kind_names_it() {
+    let o = kestrel();
+    assert_eq!(o.kind("topic").unwrap().assigned_by, [OP, Origin::Import]);
+    let mut o2 = o.clone();
+    o2.put(
+        Record::Category(cat("topic:tide", "tide", Some("topic:theseus"))),
+        Origin::Import,
+    )
+    .unwrap();
+    let mut l = list("s1", "topic", &["topic:tide", "topic:web"]);
+    l.members[0].origin = Origin::Import;
+    o2.put(Record::Members(l.clone()), Origin::Import).unwrap();
+    // The operator keeps a list the import wrote, and adds to it.
+    l.members.push(Membership::operator(id("topic:cooking"), 2));
+    o2.put(Record::Members(l), OP).unwrap();
+    // Given kinds and the kinds table stay closed to it.
+    let e = refused(
+        &o,
+        Record::Category(cat("person:300000000000000009", "Kit", None)),
+        Origin::Import,
+    );
+    assert!(matches!(e, Refusal::Given { .. }), "{e:?}");
+    let e = refused(
+        &o,
+        Record::Kind(changed(row("topic"), |_| {})),
+        Origin::Import,
+    );
+    assert!(matches!(e, Refusal::Writer { .. }), "{e:?}");
+    // A row that drops the import closes topics to it, and a kind it never
+    // named never opened.
+    let mut shut = o;
+    shut.put(
+        Record::Kind(changed(row("topic"), |k| k.assigned_by = vec![OP])),
+        OP,
+    )
+    .unwrap();
+    let e = refused(
+        &shut,
+        Record::Category(cat("topic:tide", "tide", None)),
+        Origin::Import,
+    );
+    assert!(matches!(e, Refusal::Writer { .. }), "{e:?}");
+    let mut l = list("s1", "topic", &["topic:web"]);
+    l.members[0].origin = Origin::Import;
+    let e = refused(&shut, Record::Members(l.clone()), Origin::Import);
+    assert!(matches!(e, Refusal::Writer { .. }), "{e:?}");
+    let e = refused(&shut, Record::Members(l), OP);
+    assert!(
+        matches!(e, Refusal::Writer { .. }),
+        "an import membership the kind no longer allows: {e:?}"
+    );
+}
+
+#[test]
+fn a_category_nothing_uses_is_taken_away_and_one_in_use_is_not() {
+    let mut o = kestrel();
+    topic(&mut o, "topic:tide", "tide", Some("topic:web"));
+    guide(&mut o, "topic:cooking", "Metric only.");
+    o.put(
+        Record::Members(list("s1", "topic", &["topic:rust-harness"])),
+        OP,
+    )
+    .unwrap();
+    let gone = |o: &Ontology, i: &str| {
+        refused(
+            o,
+            Record::Category(o.category(&id(i)).unwrap().retired(9)),
+            OP,
+        )
+    };
+    for (i, by) in [
+        ("topic:web", "1 below it"),
+        ("topic:cooking", "its guidance"),
+        ("topic:rust-harness", "1 sessions' memberships"),
+    ] {
+        let e = gone(&o, i);
+        assert!(
+            matches!(&e, Refusal::InUse { by: got, .. } if got == by),
+            "{i}: {e:?}"
+        );
+    }
+    let e = refused(
+        &o,
+        Record::Category(cat("topic:nope", "nope", None).retired(9)),
+        OP,
+    );
+    assert!(matches!(e, Refusal::Missing { .. }), "{e:?}");
+    // The leaf first, then its parent: each is no category after.
+    let tide = o.category(&id("topic:tide")).unwrap().retired(9);
+    o.put(Record::Category(tide.clone()), OP).unwrap();
+    assert!(o.category(&id("topic:tide")).is_none());
+    let web = o.category(&id("topic:web")).unwrap().retired(9);
+    o.put(Record::Category(web.clone()), OP).unwrap();
+    assert_eq!(
+        o.children(Some(&id("topic:theseus")))
+            .iter()
+            .map(|c| c.id.as_str())
+            .collect::<Vec<_>>(),
+        ["topic:rust-harness"]
+    );
+    assert_eq!(o.check_all(), Ok(()));
+    // A load of the records with the two taken-away ones holds neither and
+    // drops nothing; declaring one again brings it back.
+    let mut records = o.records();
+    records.push(Record::Category(tide));
+    records.push(Record::Category(web));
+    let (loaded, dropped) = Ontology::load(records);
+    assert!(dropped.is_empty(), "{dropped:?}");
+    assert_eq!(loaded, o);
+    topic(&mut o, "topic:web", "web", Some("topic:theseus"));
+    assert!(o.category(&id("topic:web")).is_some());
+}
+
+#[test]
+fn a_categorys_count_is_its_sessions_lists() {
+    let mut o = kestrel();
+    o.put(
+        Record::Members(list("s1", "topic", &["topic:web", "topic:cooking"])),
+        OP,
+    )
+    .unwrap();
+    o.put(Record::Members(list("s2", "topic", &["topic:web"])), OP)
+        .unwrap();
+    let n = o.member_counts();
+    assert_eq!(
+        (
+            n.get(&id("topic:web")),
+            n.get(&id("topic:cooking")),
+            n.get(&id("topic:theseus"))
+        ),
+        (Some(&2), Some(&1), None)
+    );
+}
 
 #[test]
 fn every_record_round_trips_through_its_key_and_value() {

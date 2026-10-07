@@ -258,9 +258,10 @@ pub fn job_session() -> Option<String> {
 /// owner's runs over the learning ledger (M5 25d: a replay, an audit and a
 /// backfill spend money, and a backfill sends his history to Jev), and a
 /// move on the ladder (M5 26a: a promotion can make Jev act, and a rollback can
-/// silence security's notices), and the import and its erase (theseus-0lrr.6:
-/// an import can plant memories, an erase take the owner's away).
-pub const OPERATORS: [(&str, &str); 23] = [
+/// silence security's notices), and the import, its erase and its topics
+/// (theseus-0lrr.6, theseus-anh3: an import can plant memories, an erase take
+/// the owner's away, and the topics write tens of thousands of memberships).
+pub const OPERATORS: [(&str, &str); 24] = [
     (method::ACTION_CONFIRM, "theseus confirm"),
     (method::POLICY_UNTIGHTEN, "theseus policy untighten"),
     (method::POLICY_TRUST, "theseus policy trust"),
@@ -284,6 +285,7 @@ pub const OPERATORS: [(&str, &str); 23] = [
     (method::PACK_ROLLBACK, "theseus packs rollback"),
     (method::IMPORT_EPISODES, "theseus import openclaw"),
     (method::IMPORT_ERASE, "theseus import erase"),
+    (method::IMPORT_TOPICS, "theseus import topics"),
 ];
 
 /// Refuse an operator's method from inside a Theseus job (theseus-zmgb):

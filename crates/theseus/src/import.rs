@@ -7,10 +7,14 @@
 //!   batches, so a file of hundreds of megabytes is never read whole and the
 //!   daemon answers others meanwhile. Each file's counts go to stdout, and
 //!   each rejected line with its number.
-//! - `import erase --tag <tag>` tombstones a tag's every session and node.
+//! - `import erase --tag <tag>` tombstones a tag's every session and node,
+//!   and takes back the topics' memberships and the topics nothing uses.
+//! - `import topics --tag <tag>` makes a tag's sessions' topic labels the
+//!   ontology's topics and memberships (theseus-anh3): run once after an
+//!   import; a second run changes nothing.
 //! - `import list` shows each tag with its counts.
 //!
-//! The import and the erase are the owner's acts, refused inside a job
+//! The import, the erase and the topics are the owner's acts, refused inside a job
 //! (`client::OPERATORS`).
 
 use std::path::PathBuf;
@@ -22,7 +26,7 @@ use serde_json::Value;
 use theseus_client::Conn;
 use theseus_protocol::import::{
     ImportEpisodesParams, ImportEpisodesResult, ImportEraseParams, ImportEraseResult, ImportLine,
-    ImportListResult, ImportRejected,
+    ImportListResult, ImportRejected, ImportTopicsParams, ImportTopicsResult,
 };
 use theseus_protocol::method;
 use tokio::io::{AsyncBufReadExt, BufReader};
@@ -55,6 +59,13 @@ pub enum ImportCmd {
     },
     /// Each tag with its sessions, nodes, erased sessions, and sources (default).
     List,
+    /// Make a tag's sessions' topic labels the ontology's topics (a tree from their slash paths)
+    /// and memberships (at most the topic kind's per session; the rest stay labels). From the
+    /// stored labels; a second run changes nothing; the tag's erase takes them back.
+    Topics {
+        #[arg(long)]
+        tag: String,
+    },
 }
 
 pub async fn run(conn: &mut Conn, json: bool, cmd: ImportCmd) -> Result<()> {
@@ -80,14 +91,29 @@ pub async fn run(conn: &mut Conn, json: bool, cmd: ImportCmd) -> Result<()> {
                 .await?;
             output(json, v, |r: ImportEraseResult| {
                 println!(
-                    "erased {}: {} and {} tombstoned in {} ({:.0} ms); index: {}",
+                    "erased {}: {} and {} tombstoned in {} ({:.0} ms); index: {}; topics: the \
+                     memberships of {} emptied, {} taken away",
                     r.tag,
                     count(r.sessions, "session"),
                     count(r.nodes, "node"),
                     count(r.frames, "frame"),
                     r.ms,
-                    r.index
+                    r.index,
+                    count(r.memberships, "session"),
+                    count(r.topics, "topic"),
                 );
+                Ok(())
+            })
+        }
+        ImportCmd::Topics { tag } => {
+            let v = conn
+                .request(
+                    method::IMPORT_TOPICS,
+                    serde_json::to_value(ImportTopicsParams { tag })?,
+                )
+                .await?;
+            output(json, v, |r: ImportTopicsResult| {
+                print!("{}", topics(&r));
                 Ok(())
             })
         }
@@ -202,6 +228,25 @@ pub fn lines(name: &str, r: &ImportEpisodesResult) -> String {
         }
     }
     out
+}
+
+/// What `import topics` did, in a line.
+pub fn topics(r: &ImportTopicsResult) -> String {
+    format!(
+        "topics of {}: {} read, {} labels as {} ({} declared now); {} joined now, {} held \
+         from the import; {} capped, {} unplaced; {} ({:.0} ms)\n",
+        r.tag,
+        count(r.sessions, "session"),
+        r.labels,
+        count(r.topics, "topic"),
+        r.made,
+        count(r.joined, "session"),
+        count(r.memberships, "membership"),
+        r.capped,
+        r.unplaced,
+        count(r.frames, "frame"),
+        r.ms
+    )
 }
 
 /// The tags, one a line.

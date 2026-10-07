@@ -1,8 +1,9 @@
-//! `import.episodes`, `import.erase` and `import.list` (theseus-0lrr.6;
-//! `crate::import`): the operator's past history, brought in a batch at a
-//! time, erased by tag, and listed.
+//! `import.episodes`, `import.erase`, `import.list` and `import.topics`
+//! (theseus-0lrr.6, theseus-anh3; `crate::import`): the operator's past
+//! history, brought in a batch at a time, erased by tag, listed, and its
+//! topic labels made the ontology's topics and memberships.
 //!
-//! - **The import and the erase are the owner's**, from a private place
+//! - **The import, the erase and the topics are the owner's**, from a private place
 //!   (`judge_act(Act::Import)`), and the CLI refuses them inside a job
 //!   (`OPERATORS`): a job that could import could plant memories, and one
 //!   that could erase could take the owner's away.
@@ -21,14 +22,14 @@ use std::time::Duration;
 
 use serde_json::Value;
 use theseus_protocol::error_code;
-use theseus_protocol::import::{ImportEpisodesParams, ImportEraseParams};
+use theseus_protocol::import::{ImportEpisodesParams, ImportEraseParams, ImportTopicsParams};
 use theseus_protocol::index::{self, IndexForgetParams, IndexForgetResult};
 use theseus_protocol::method;
 
 use super::server::{parse, Conn, RpcFailure};
 use super::{Act, Core};
 use crate::approval::Refusal;
-use crate::import::write;
+use crate::import::{topics, write};
 
 /// How long an erase waits for the tender's forget: it rewrites vector
 /// files, so longer than a query.
@@ -98,7 +99,23 @@ impl Core {
                 let (tag, why) = (p.tag.clone(), p.why.clone());
                 let e = blocking(move || {
                     let stopping = || core.outbox.stopping();
-                    write::erase_unless(&core.store, &tag, why.as_deref(), &by, stopping)
+                    let mut e =
+                        write::erase_unless(&core.store, &tag, why.as_deref(), &by, stopping)?;
+                    // Then the topics' half: the erased sessions' memberships,
+                    // and the topics nothing else uses.
+                    if !e.stopped {
+                        let u = topics::unassign(
+                            &core.store,
+                            &core.runner.ontology,
+                            &tag,
+                            &by,
+                            stopping,
+                        )?;
+                        e.result.memberships = u.memberships;
+                        e.result.topics = u.topics;
+                        e.stopped = u.stopped;
+                    }
+                    Ok(e)
                 })
                 .await?;
                 let mut r = e.result;
@@ -116,6 +133,7 @@ impl Core {
                 }
                 serde_json::to_value(r)
             }
+            method::IMPORT_TOPICS => return self.import_topics(params, conn).await,
             other => {
                 return Err(RpcFailure::new(
                     error_code::METHOD_NOT_FOUND,
@@ -124,6 +142,36 @@ impl Core {
             }
         };
         out.map_err(|e| RpcFailure::invalid(e.into()))
+    }
+
+    /// `import.topics` (theseus-anh3): a tag's labels as topics and
+    /// memberships, on the blocking pool; a stop between two frames is an
+    /// error naming what was written, and a rerun finishes it.
+    async fn import_topics(
+        self: Arc<Self>,
+        params: Value,
+        conn: Conn<'_>,
+    ) -> Result<Value, RpcFailure> {
+        let p: ImportTopicsParams = parse(params)?;
+        let what = format!("the topics of {}", p.tag);
+        let by = self.import_judged(conn, method::IMPORT_TOPICS, &what)?;
+        let core = self.clone();
+        let (r, stopped_early) = blocking(move || {
+            let stopping = || core.outbox.stopping();
+            topics::assign_unless(&core.store, &core.runner.ontology, &p.tag, &by, stopping)
+        })
+        .await?;
+        if stopped_early {
+            return Err(stopped(
+                format!(
+                    "the daemon stopped the topics of {} between two frames ({} frames written); \
+                     run it again to finish (what was written is kept)",
+                    r.tag, r.frames
+                ),
+                &r,
+            ));
+        }
+        serde_json::to_value(r).map_err(|e| RpcFailure::invalid(e.into()))
     }
 
     /// The owner's act, from a private place, or its refusal: who it is.

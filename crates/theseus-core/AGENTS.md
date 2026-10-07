@@ -621,7 +621,19 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   reads it, at a rebuild too; `session.history` and `node.list` show an imported node by its newest record
   (`import::shown`), so an erased one is its tombstone. The WAL's earlier frames still hold the payloads: §5.6's
   erasure in place is not built. `import.list` reads the tags' META records. The owner's acts (`judge_act(Act::Import)`; the CLI's
-  `OPERATORS`). `theseus import openclaw|erase|list`. Tests: `import/tests.rs`, theseus-index's `tests_import.rs`.
+  `OPERATORS`). `theseus import openclaw|erase|list|topics`. Tests: `import/tests.rs`, theseus-index's `tests_import.rs`.
+  **Its topics** (theseus-anh3): `import.topics` (`import/topics.rs`, the owner's act, never at a start) reads a tag's
+  sessions' stored `labels.topic` (slash paths) and writes, through the ontology's `Board::write` a frame at a time
+  (cut past 4,000 records, quiet waited for between, the stop looked for there): a topic for each label and each
+  prefix (a part found by its name under its parent, so the operator's own topic is used; a new one's id the path's
+  slug, `added_by` `import <tag>`), and each live imported session's topic list, origin `import` (the topic kind's
+  seed row names it), at most the kind's 3: an ancestor of another label dropped first, then the pipeline's first
+  three; the operator's own memberships kept and counted first; a list that holds the same topics from the same
+  origins is not written again (idempotent), and an `import.topics` row per frame. `import.erase`'s second half
+  (`topics::unassign`) empties the erased sessions' lists, then retires each topic an import made that nothing uses
+  (`Category.retired_ms`: no child, membership, or guidance; the snapshot holds none for it, a load skips it), the
+  deepest first. `ontology.list` counts each category's sessions (`members`) and leaves the memberships out on
+  `memberships: false` (the cockpit's page and the CLI's tree). Tests: `import/tests_topics.rs`.
 - **The arrangement** (M5 step 27, theseus-vug.2): `arrangement.rs`. `task.create` needs an `arrangement` of quoted
   pieces (`{quote | node, role}`, `trust`, `supersedes`), resolved in the calling session's own transcript (exact,
   whitespace runs as one space, at least 20 characters, exactly one node; the reply holding the call and earlier

@@ -48,7 +48,12 @@ pub fn ontology_categories_lines(categories: &[OntologyCategory]) -> Vec<String>
             }
             None => String::new(),
         };
-        out.push(format!("{pad}{} ({}){guide}", c.name, c.id));
+        let held = match c.members {
+            0 => String::new(),
+            1 => "  1 session".into(),
+            n => format!("  {n} sessions"),
+        };
+        out.push(format!("{pad}{} ({}){held}{guide}", c.name, c.id));
     }
     out
 }
@@ -139,6 +144,7 @@ mod tests {
                 digest: "0123456789abcdef".into(),
                 added_by: "the CLI".into(),
             }),
+            members: 0,
         };
         let lines = ontology_categories_lines(&[
             c(

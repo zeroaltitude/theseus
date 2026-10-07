@@ -146,12 +146,13 @@ impl Ontology {
     ///   row it supersedes, and every category, guidance, and membership
     ///   list must still check under it.
     /// - A given kind's categories come from the transport; an interpreted
-    ///   kind's, from the operator. Either may supersede one (a new name, or
-    ///   a new parent), never into a loop.
+    ///   kind's, from the operator (or the import, when the kind's
+    ///   assigned_by names it). Either may supersede one (a new name, or a
+    ///   new parent), never into a loop, or take one away that nothing uses.
     /// - Guidance is the operator's, for any category, one more version than
     ///   the last.
-    /// - Membership lists are the operator's, of interpreted kinds only:
-    ///   given memberships are never stored.
+    /// - Membership lists are the operator's (or the import's, as above), of
+    ///   interpreted kinds only: given memberships are never stored.
     pub fn check(&self, record: &Record, by: Origin) -> Result<(), Refusal> {
         by.built()?;
         match record {
@@ -177,7 +178,8 @@ impl Ontology {
             Record::Category(c) => {
                 let kind = self.kind_of(c.kind())?;
                 match (kind.basis, by) {
-                    (Basis::Given, Origin::Transport) | (Basis::Interpreted, Origin::Operator) => {}
+                    (Basis::Given, Origin::Transport) => {}
+                    (Basis::Interpreted, _) if interprets(kind, by) => {}
                     (Basis::Given, _) => {
                         return Err(Refusal::Given {
                             kind: kind.name.clone(),
@@ -191,14 +193,17 @@ impl Ontology {
                     (Basis::Interpreted, _) => {
                         return Err(Refusal::Writer {
                             why: format!(
-                                "`{}` categories are the operator's to declare: the transport \
-                                 writes only given kinds' categories",
+                                "`{}` categories are the operator's to declare, or the import's \
+                                 when the kind's assigned_by names it: `{by}` does not write them",
                                 kind.name
                             ),
                         })
                     }
                 }
-                self.check_category(c)
+                match c.retired_ms {
+                    Some(_) => self.check_retire(c),
+                    None => self.check_category(c),
+                }
             }
             Record::Guidance(g) => {
                 if by != Origin::Operator {
@@ -225,10 +230,11 @@ impl Ontology {
                 if kind.is_given() {
                     return Err(given_memberships(kind));
                 }
-                if by != Origin::Operator {
+                if !interprets(kind, by) {
                     return Err(Refusal::Writer {
                         why: format!(
-                            "`{}` memberships are the operator's to set, not `{by}`'s",
+                            "`{}` memberships are the operator's to set, or the import's when the \
+                             kind's assigned_by names it, not `{by}`'s",
                             kind.name
                         ),
                     });
@@ -280,6 +286,8 @@ impl Ontology {
             }
         }
 
+        // A category taken away is none: it is neither held nor dropped.
+        cats.retain(|c| c.retired_ms.is_none());
         cats.sort_by(|a, b| a.id.cmp(&b.id));
         let mut pending = cats;
         passes(&mut pending, |c| {
@@ -375,6 +383,12 @@ impl Ontology {
         match record {
             Record::Kind(k) => {
                 self.kinds.insert(k.name.clone(), k);
+            }
+            Record::Category(c) if c.retired_ms.is_some() => {
+                if let Some(old) = self.categories.remove(&c.id) {
+                    unindex(&mut self.children, &old.parent, &old.id);
+                    unindex(&mut self.names, &name_key(&old), &old.id);
+                }
             }
             Record::Category(c) => self.insert_category(c),
             Record::Guidance(g) => {
@@ -510,6 +524,50 @@ impl Ontology {
             }
         }
         Ok(())
+    }
+
+    /// A category taken away: it is held, and nothing uses it (no child, no
+    /// session's membership, no guidance record, even an empty one).
+    fn check_retire(&self, c: &Category) -> Result<(), Refusal> {
+        if !self.categories.contains_key(&c.id) {
+            return Err(Refusal::Missing {
+                what: "category",
+                id: c.id.to_string(),
+            });
+        }
+        let in_use = |by: String| {
+            Err(Refusal::InUse {
+                id: c.id.to_string(),
+                by,
+            })
+        };
+        if let Some(kids) = self.children.get(&Some(c.id.clone())) {
+            return in_use(format!("{} below it", kids.len()));
+        }
+        if self.guidance.contains_key(&c.id) {
+            return in_use("its guidance".into());
+        }
+        let held = self
+            .members
+            .values()
+            .filter(|l| l.members.iter().any(|m| m.category == c.id))
+            .count();
+        if held > 0 {
+            return in_use(format!("{held} sessions' memberships"));
+        }
+        Ok(())
+    }
+
+    /// How many sessions hold each category, by its stored memberships (a
+    /// given one is read from a place, never stored, so it counts none).
+    pub fn member_counts(&self) -> BTreeMap<CategoryId, u64> {
+        let mut out: BTreeMap<CategoryId, u64> = BTreeMap::new();
+        for l in self.members.values() {
+            for m in &l.members {
+                *out.entry(m.category.clone()).or_default() += 1;
+            }
+        }
+        out
     }
 
     /// How many levels of categories hang below `id` (0 for a leaf).
@@ -723,6 +781,12 @@ fn name_key(c: &Category) -> NameKey {
         c.kind().to_string(),
         c.name.to_lowercase(),
     )
+}
+
+/// Whether `by` may write an interpreted kind's categories and lists: the
+/// operator always; the import when the kind's assigned_by names it.
+fn interprets(kind: &Kind, by: Origin) -> bool {
+    by == Origin::Operator || (by == Origin::Import && kind.assigned_by.contains(&by))
 }
 
 fn given_memberships(kind: &Kind) -> Refusal {

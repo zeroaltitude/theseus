@@ -16,4 +16,9 @@ depth: number, description: string, added_by: string,
 /**
  * Absent when it has none, or its guidance was taken away (empty text).
  */
-guidance?: OntologyGuidance, };
+guidance?: OntologyGuidance, 
+/**
+ * The sessions whose stored memberships hold it (an interpreted kind's;
+ * a given one is read from a place, and counts none).
+ */
+members: number, };
