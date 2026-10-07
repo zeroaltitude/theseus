@@ -48,6 +48,15 @@ impl Surface {
         }
     }
 
+    /// Whether a read from this surface is a private place's (theseus-7n3e):
+    /// the CLI on this machine and the loopback web UI. The owner's own
+    /// history (an imported session) and a request's parts give their text
+    /// only to these; Discord's in-process binding, the MCP server, and a
+    /// connection no listener named read sizes and labels alone.
+    pub(crate) fn reads_private(self) -> bool {
+        matches!(self, Self::Cli | Self::Web)
+    }
+
     /// The surface in a sentence.
     pub(crate) fn name(self) -> &'static str {
         match self {

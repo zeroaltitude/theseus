@@ -955,3 +955,244 @@ async fn a_stopped_batch_or_erase_answers_what_it_wrote_and_that_a_rerun_finishe
         "{why}"
     );
 }
+
+// ---------------------------------------------------------------- import.sessions (theseus-7n3e)
+
+fn listed(v: Value) -> theseus_protocol::import::ImportSessionsResult {
+    serde_json::from_value(v).unwrap()
+}
+
+/// `import.sessions` lists the imported episodes a page at a time with their
+/// labels and summaries, counted by facet; it keeps its projection until a
+/// batch or an erase moves the import's counts; and a place that is not
+/// private reads the labels and counts alone.
+#[tokio::test]
+async fn the_episodes_list_with_their_labels_and_their_text_goes_to_a_private_place_alone() {
+    let r = live();
+    let c = &r.core;
+    let eps = fixture();
+    import(c, lines(&eps)).await;
+    let first = listed(
+        call(c, method::IMPORT_SESSIONS, json!({"summaries": true}))
+            .await
+            .unwrap(),
+    );
+    assert_eq!((first.total, first.all), (12, 12));
+    assert!(
+        first.built_ms.is_some(),
+        "the first read builds the projection"
+    );
+    assert!(first.withheld.is_none());
+    let id0 = eps[0]["episode_id"].as_str().unwrap();
+    let e0 = first.episodes.iter().find(|e| e.episode_id == id0).unwrap();
+    assert_eq!(e0.topics, ["reef/survey"]);
+    assert_eq!((e0.tag.as_str(), e0.source.as_str()), (TAG, SOURCES[0]));
+    assert_eq!(e0.place_name.as_deref(), Some("place-0"));
+    assert_eq!(e0.sensitivity, episode::SENSITIVITIES[0]);
+    assert_eq!(e0.messages, 2);
+    assert!(
+        e0.summary_text
+            .as_deref()
+            .unwrap()
+            .starts_with("Episode 0 settled"),
+        "{e0:?}"
+    );
+    assert_eq!(e0.cites, Some(2));
+    // A curated source has no summary: its title is its first message's.
+    let curated = first.episodes.iter().find(|e| !e.summary).unwrap();
+    assert!(
+        curated.summary_text.is_none() && curated.title.as_deref().unwrap().starts_with("Decision")
+    );
+    assert_eq!(
+        first
+            .facets
+            .topics
+            .iter()
+            .map(|f| (f.value.as_str(), f.count))
+            .collect::<Vec<_>>(),
+        [("reef", 12), ("reef/survey", 12)]
+    );
+
+    // Read again: the same projection, unbuilt.
+    let again = listed(call(c, method::IMPORT_SESSIONS, json!({})).await.unwrap());
+    assert!(
+        again.built_ms.is_none() && again.version == first.version,
+        "{again:?}"
+    );
+    // A filter, and its own facet still showing the other values.
+    let personal = listed(
+        call(
+            c,
+            method::IMPORT_SESSIONS,
+            json!({"sensitivity": "personal"}),
+        )
+        .await
+        .unwrap(),
+    );
+    assert_eq!(personal.total, 3);
+    assert_eq!(
+        personal.facets.sensitivities.len(),
+        4,
+        "{:?}",
+        personal.facets.sensitivities
+    );
+    let page = listed(
+        call(
+            c,
+            method::IMPORT_SESSIONS,
+            json!({"offset": 10, "limit": 5}),
+        )
+        .await
+        .unwrap(),
+    );
+    assert_eq!((page.total, page.episodes.len(), page.offset), (12, 2, 10));
+    let words = listed(
+        call(c, method::IMPORT_SESSIONS, json!({"q": "decision"}))
+            .await
+            .unwrap(),
+    );
+    assert!(
+        words.total > 0 && words.total < 12,
+        "the curated ones' titles: {}",
+        words.total
+    );
+
+    // On a connection no listener named (never a private place), no text: the labels and the counts alone, and no
+    // search of words. (The MCP server's connection may not call it at all.)
+    let away = listed(
+        call_as(
+            c,
+            Client::from("conn#9"),
+            method::IMPORT_SESSIONS,
+            json!({"summaries": true, "q": "decision"}),
+        )
+        .await
+        .unwrap(),
+    );
+    assert!(
+        away.withheld.as_deref().unwrap().contains("private place"),
+        "{away:?}"
+    );
+    assert_eq!(away.total, 12, "its words are not searched");
+    assert!(away
+        .episodes
+        .iter()
+        .all(|e| e.title.is_none() && e.summary_text.is_none() && e.place_name.is_none()));
+    assert!(away
+        .episodes
+        .iter()
+        .all(|e| !e.topics.is_empty() && !e.sensitivity.is_empty()));
+
+    // A batch of another tag moves the import's counts: built again.
+    let mut other = episode(0);
+    other["import_tag"] = json!("tern-2026-04");
+    other["episode_id"] = json!(format!("ep_{:064x}", 0xbeef));
+    other["hash"] = json!(episode::hash_of(&other));
+    import(c, lines(std::slice::from_ref(&other))).await;
+    let more = listed(call(c, method::IMPORT_SESSIONS, json!({})).await.unwrap());
+    assert_eq!((more.total, more.all), (13, 13));
+    assert!(more.built_ms.is_some() && more.version != first.version);
+    assert_eq!(more.facets.tags.len(), 2);
+
+    // An erase: its sessions leave the list, and come back only when asked, with no text.
+    call(c, method::IMPORT_ERASE, json!({"tag": TAG}))
+        .await
+        .unwrap();
+    let after = listed(call(c, method::IMPORT_SESSIONS, json!({})).await.unwrap());
+    assert_eq!((after.total, after.all), (1, 13));
+    let with = listed(
+        call(
+            c,
+            method::IMPORT_SESSIONS,
+            json!({"erased": true, "summaries": true, "limit": 20}),
+        )
+        .await
+        .unwrap(),
+    );
+    assert_eq!(with.total, 13);
+    let gone: Vec<_> = with.episodes.iter().filter(|e| e.erased).collect();
+    assert_eq!(gone.len(), 12);
+    assert!(
+        gone.iter()
+            .all(|e| e.title.is_none() && e.summary_text.is_none()),
+        "{gone:?}"
+    );
+}
+
+/// `context.explain` of a turn that recalled the import: the recall in front
+/// of the model as its parts, each recalled node's episode with its labels,
+/// and of an imported session, its episode and no parts.
+#[tokio::test]
+async fn a_turn_s_context_says_what_it_recalled_and_from_which_episode() {
+    use theseus_protocol::context::ContextExplainParams;
+    let r = live();
+    let c = &r.core;
+    let eps = fixture();
+    import(c, lines(&eps)).await;
+    let imported = sessions_of(&eps);
+    c.runner.memory.set_ask(index_of(c, imported.clone()));
+    let here = session(c, None, &[]);
+    turn(c, &here, "where is the reef survey's tide log kept?").await;
+    let ask = |sid: &str, private: bool| {
+        c.context_explain(
+            &ContextExplainParams {
+                session_id: sid.into(),
+                turn_id: None,
+            },
+            private,
+        )
+        .unwrap()
+    };
+    let x = ask(&here, true);
+    let recall: Vec<_> = x.parts.iter().filter(|p| p.block == "recall").collect();
+    assert!(!recall.is_empty(), "{:?}", x.parts);
+    let first = recall
+        .iter()
+        .find(|p| {
+            p.name.starts_with("an imported message from wren")
+                && p.text
+                    .as_deref()
+                    .is_some_and(|t| t.contains("boathouse ledger"))
+        })
+        .expect("the first episode's decision, its header and its text");
+    assert!(
+        first.tokens > 0
+            && first
+                .note
+                .as_deref()
+                .unwrap()
+                .contains("this turn's recall")
+    );
+    assert_eq!(x.recalls.len(), 1);
+    let m = &x.recalls[0];
+    assert!(!m.admitted.is_empty() && m.admitted.iter().all(|a| a.text.is_some()));
+    for a in &m.admitted {
+        let src = &x.sources[&a.session_id];
+        let ep = src
+            .imported
+            .as_ref()
+            .expect("an imported session's episode");
+        assert_eq!(ep.topics, ["reef/survey"]);
+        assert!(src.place.starts_with("the imported "), "{}", src.place);
+    }
+    // Away from a private place: no excerpt, no header, no title.
+    let away = ask(&here, false);
+    assert!(away.recalls[0].admitted.iter().all(|a| a.text.is_none()));
+    assert!(away
+        .parts
+        .iter()
+        .filter(|p| p.block == "recall")
+        .all(|p| p.text.is_none() && !p.name.contains("wren")));
+    assert!(away.sources.values().all(|s| s.title.is_none()
+        && s.place.is_empty()
+        && s.imported.as_ref().is_some_and(|e| e.title.is_none())));
+    // An imported session takes no turn: its episode, no parts.
+    let ep = ask(&imported[0], true);
+    let e = ep.imported.expect("its episode");
+    assert_eq!(
+        (e.place_kind.as_str(), e.place_name.as_deref()),
+        (PLACE_KINDS[0], Some("place-0"))
+    );
+    assert!(ep.parts.is_empty() && ep.turns.is_empty());
+    assert_eq!(ep.class, "private");
+}

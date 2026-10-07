@@ -157,6 +157,21 @@ impl ContextFiles {
     /// The sections for `paths`, in order, and the files this daemon run
     /// finds unreadable for the first time.
     pub fn load(&self, paths: &[ContextPath]) -> (Vec<ContextFile>, Vec<Unreadable>) {
+        self.load_warning(paths, true)
+    }
+
+    /// The sections for `paths`, as `load` gives them, warning of nothing:
+    /// a read that shows them (`context.explain`, theseus-7n3e) leaves the
+    /// first warning of an unreadable file to the turn that meets it.
+    pub fn peek(&self, paths: &[ContextPath]) -> Vec<ContextFile> {
+        self.load_warning(paths, false).0
+    }
+
+    fn load_warning(
+        &self,
+        paths: &[ContextPath],
+        warn: bool,
+    ) -> (Vec<ContextFile>, Vec<Unreadable>) {
         let mut files = Vec::with_capacity(paths.len());
         let mut unreadable = Vec::new();
         for p in paths {
@@ -170,7 +185,7 @@ impl ContextFiles {
             let held = match read {
                 Ok(h) => h,
                 Err(error) => {
-                    if self.warned.lock().unwrap().insert(path) {
+                    if warn && self.warned.lock().unwrap().insert(path) {
                         unreadable.push(Unreadable {
                             path: shown.clone(),
                             error: error.clone(),

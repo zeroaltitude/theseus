@@ -15,6 +15,7 @@ pub mod bench;
 mod budgets;
 pub mod cancel;
 pub mod check;
+pub mod context;
 pub mod cred;
 mod events;
 mod explain;
@@ -230,6 +231,13 @@ pub mod method {
         PACK_LIST = "pack.list", PACK_PROMOTE = "pack.promote", PACK_ROLLBACK = "pack.rollback",
         /// The import (theseus-0lrr.6; `import`): a batch of episodes; a tag's erase, the owner's; the tags, a read.
         IMPORT_EPISODES = "import.episodes", IMPORT_ERASE = "import.erase", IMPORT_LIST = "import.list",
+        /// The imported episodes, filtered and counted by facet, a page at a time (theseus-7n3e;
+        /// `import::ImportSessionsParams`): the context explorer's list. A read.
+        IMPORT_SESSIONS = "import.sessions",
+        /// What a turn sees, part by part with token counts (theseus-7n3e;
+        /// `context::ContextExplainParams`): the system block's parts, the guidance, the tools, the
+        /// recall, and the conversation. A read; it compiles nothing.
+        CONTEXT_EXPLAIN = "context.explain",
         /// The gates' bench history on this machine (theseus-1hk), for the
         /// cockpit's speed wall: every recorded run's p50s, p95s, and limits
         /// (`bench::BenchHistoryResult`). A read of the gate's CSV.
