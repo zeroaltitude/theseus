@@ -168,19 +168,15 @@ pub trait Store: Send + Sync {
             .take(limit)
             .collect())
     }
-    /// The latest record of every key of `kind` that `keep` passes, in key
-    /// order (theseus-7087): a key it fails costs its index row alone, and
-    /// its record is never read. This default reads every record of the
-    /// kind.
-    fn latest_of_kind_where(
-        &self,
-        kind: RecordKind,
-        keep: &dyn Fn(&str) -> bool,
-    ) -> Result<Vec<Record>> {
+    /// The latest record of every key of `kind` but those that start with
+    /// `skip`, in key order (theseus-26jo): a skipped key's record is never
+    /// read, and an index that keeps its keys in order steps past their run
+    /// without visiting it. This default reads every record of the kind.
+    fn latest_of_kind_except(&self, kind: RecordKind, skip: &str) -> Result<Vec<Record>> {
         Ok(self
             .latest_of_kind(kind)?
             .into_iter()
-            .filter(|r| r.key.as_deref().is_some_and(keep))
+            .filter(|r| r.key.as_deref().is_some_and(|k| !k.starts_with(skip)))
             .collect())
     }
     /// How many keys `kind` has (its entities), where `count_of_kind` counts
@@ -409,6 +405,25 @@ pub fn records_read_here() -> u64 {
 
 fn count_read() {
     READ_HERE.with(|n| n.set(n.get() + 1));
+}
+
+thread_local! {
+    /// The index rows this thread has visited in the key walks (theseus-26jo).
+    static ROWS_HERE: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
+/// The index rows this thread has visited since it started, in any store's
+/// key walks (theseus-26jo): each row a walk of the key table or the births
+/// yields, and each lookup of one key, counted on the thread that visited
+/// it. A test reads it before and after a call that makes no `.await`, as
+/// it reads `records_read_here`, to know what a list costs in the index
+/// beside the records it reads.
+pub fn index_rows_here() -> u64 {
+    ROWS_HERE.with(std::cell::Cell::get)
+}
+
+pub(crate) fn count_rows(rows: u64) {
+    ROWS_HERE.with(|n| n.set(n.get() + rows));
 }
 
 /// Run `f`, which waits (for the disk, or for a lock held across it),
@@ -1672,12 +1687,8 @@ impl Store for WalStore {
         self.inner.page(q)
     }
 
-    fn latest_of_kind_where(
-        &self,
-        kind: RecordKind,
-        keep: &dyn Fn(&str) -> bool,
-    ) -> Result<Vec<Record>> {
-        let positions = self.inner.index.positions_of_keys_where(kind, keep)?;
+    fn latest_of_kind_except(&self, kind: RecordKind, skip: &str) -> Result<Vec<Record>> {
+        let positions = self.inner.index.positions_of_keys_except(kind, skip)?;
         self.inner.read_many(&positions)
     }
 

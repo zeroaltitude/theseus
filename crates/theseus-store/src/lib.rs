@@ -40,7 +40,7 @@ pub use index::{Engine, Location, MovedAside, Sums};
 pub use pages::{Page, PageOut};
 pub use record::{kinds, NewRecord, Record, RecordKind, FROZEN_SCHEMA};
 pub use store::{
-    blocking, frames_written_here, records_read_here, Projection, ShapeCursor, Store, StoreStats,
-    VerifiedSlot, WalStore,
+    blocking, frames_written_here, index_rows_here, records_read_here, Projection, ShapeCursor,
+    Store, StoreStats, VerifiedSlot, WalStore,
 };
 pub use wal::{History, HistoryCheck, Verified, Wal, WalConfig, WalError};

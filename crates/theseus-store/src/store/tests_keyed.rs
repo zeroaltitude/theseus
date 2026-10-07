@@ -49,7 +49,7 @@ fn store_with_runs(dir: &Path) -> WalStore {
 }
 
 #[test]
-fn latest_of_kind_where_reads_only_the_kept_keys_records() {
+fn latest_of_kind_except_reads_and_visits_only_the_kept_keys() {
     let dir = tempfile::tempdir().unwrap();
     let s = store_with_runs(dir.path());
     let want: Vec<(String, u64)> = s
@@ -59,11 +59,12 @@ fn latest_of_kind_where_reads_only_the_kept_keys_records() {
         .filter(|r| !skipped(r.key.as_deref().unwrap()))
         .map(|r| (r.key.unwrap(), r.position))
         .collect();
-    let before = records_read_here();
-    let got = s
-        .latest_of_kind_where(kinds::SESSION, &|k| !skipped(k))
-        .unwrap();
-    let read = records_read_here() - before;
+    let (before, rows_before) = (records_read_here(), index_rows_here());
+    let got = s.latest_of_kind_except(kinds::SESSION, "ses_ep").unwrap();
+    let (read, rows) = (
+        records_read_here() - before,
+        index_rows_here() - rows_before,
+    );
     let got: Vec<(String, u64)> = got
         .into_iter()
         .map(|r| (r.key.unwrap(), r.position))
@@ -71,6 +72,39 @@ fn latest_of_kind_where_reads_only_the_kept_keys_records() {
     assert_eq!(got, want);
     assert_eq!(want.len(), 19);
     assert_eq!(read, 19, "only the kept keys' records are read");
+    assert_eq!(rows, 19, "only the kept keys' index rows are visited");
+}
+
+/// The run's edges: a key one byte short of the prefix, a key just past it,
+/// and prefixes that skip nothing, everything, or end in 0xff.
+#[test]
+fn latest_of_kind_except_keeps_every_key_outside_the_run() {
+    let dir = tempfile::tempdir().unwrap();
+    let s = open(dir.path());
+    let keys = [
+        "ses_e", "ses_eo", "ses_ep", "ses_ep0", "ses_epz", "ses_eq", "ses_f", "z\u{ff}",
+    ];
+    let batch: Vec<NewRecord> = keys.iter().map(|k| session(k, 1)).collect();
+    s.append(&batch).unwrap();
+    let except = |skip: &str| -> Vec<String> {
+        s.latest_of_kind_except(kinds::SESSION, skip)
+            .unwrap()
+            .into_iter()
+            .map(|r| r.key.unwrap())
+            .collect()
+    };
+    let filtered = |skip: &str| -> Vec<String> {
+        let mut v: Vec<String> = keys
+            .iter()
+            .filter(|k| !k.starts_with(skip))
+            .map(|k| k.to_string())
+            .collect();
+        v.sort();
+        v
+    };
+    for skip in ["ses_ep", "ses_e", "ses_eq", "", "x", "z\u{ff}", "\u{ff}"] {
+        assert_eq!(except(skip), filtered(skip), "skip {skip:?}");
+    }
 }
 
 /// Every page of the filtered walk equals the page an unfiltered walk, `n`
@@ -130,4 +164,53 @@ fn newest_keys_where_steps_over_a_skipped_run_in_one_walk() {
         }
         assert!(pages >= 19usize.div_ceil(n), "{n}: {pages} pages");
     }
+}
+
+/// What `index_rows_here` counts (theseus-26jo): each row a key walk or the
+/// births walk yields, and each lookup of one key.
+#[test]
+fn the_index_rows_a_walk_visits_are_counted_on_its_thread() {
+    let dir = tempfile::tempdir().unwrap();
+    let s = store_with_runs(dir.path());
+    let rows = |f: &dyn Fn()| {
+        let before = index_rows_here();
+        f();
+        index_rows_here() - before
+    };
+    // 19 live keys and 600 skipped ones.
+    assert_eq!(
+        rows(&|| drop(s.latest_of_kind(kinds::SESSION).unwrap())),
+        619
+    );
+    assert_eq!(
+        rows(&|| drop(s.latest_by_key(kinds::SESSION, "ses_0001").unwrap())),
+        1
+    );
+    // The newest page of 3: the 7 newest births are live, so it visits 3
+    // birth rows, looks up 3 keys, and meets the fourth row to say more.
+    assert_eq!(
+        rows(&|| drop(s.newest_keys(kinds::SESSION, None, 3).unwrap())),
+        7
+    );
+}
+
+/// A page that steps over a skipped run visits each of its birth rows once
+/// and looks up only the kept keys (theseus-26jo): no key-table row per
+/// skipped key.
+#[test]
+fn a_page_past_a_skipped_run_looks_up_only_its_kept_keys() {
+    let dir = tempfile::tempdir().unwrap();
+    let s = store_with_runs(dir.path());
+    let before = index_rows_here();
+    let (got, more) = s
+        .newest_keys_where(kinds::SESSION, None, 8, &|k| !skipped(k))
+        .unwrap()
+        .unwrap();
+    let rows = index_rows_here() - before;
+    assert_eq!(got.len(), 8);
+    assert!(more);
+    // Births newest first: 7 live, the second run's 300, then the eighth
+    // live key, and the row after it that says more remain: 309 birth rows,
+    // and 8 lookups.
+    assert_eq!(rows, 309 + 8, "birth rows and the kept keys' lookups alone");
 }

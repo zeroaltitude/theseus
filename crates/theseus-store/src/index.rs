@@ -39,6 +39,7 @@ use redb::{Database, Durability, ReadableDatabase, ReadableTable, TableDefinitio
 use serde::{Deserialize, Serialize};
 
 use crate::record::RecordKind;
+use crate::store::count_rows;
 pub use crate::wal::RecordLocation as Location;
 
 /// The engine a store's manifest and the config's `store_engine` name. redb is
@@ -97,6 +98,15 @@ fn bykey(kind: RecordKind, key: &str) -> Vec<u8> {
     v.extend_from_slice(&kind.to_be_bytes());
     v.extend_from_slice(key.as_bytes());
     v
+}
+/// The first key past every key that starts with `prefix`: `prefix` with
+/// its last byte below 0xff raised by one and the bytes after it dropped;
+/// `None` when every byte is 0xff, and no key is past them.
+fn past_prefix(prefix: &[u8]) -> Option<Vec<u8>> {
+    let last = prefix.iter().rposition(|b| *b < 0xff)?;
+    let mut v = prefix[..=last].to_vec();
+    v[last] += 1;
+    Some(v)
 }
 fn bykind(kind: RecordKind, pos: u64) -> [u8; 10] {
     let mut v = [0u8; 10];
@@ -677,6 +687,7 @@ impl RedbIndex {
         for row in t.range(lo.as_slice()..)? {
             let (k, v) = row?;
             let kb = k.value();
+            count_rows(1);
             if !kb.starts_with(&lo) {
                 break;
             }
@@ -725,6 +736,7 @@ impl RedbIndex {
     pub fn latest_position(&self, kind: RecordKind, key: &str) -> Result<Option<u64>> {
         let txn = self.db.begin_read()?;
         let t = txn.open_table(BYKEY)?;
+        count_rows(1);
         Ok(t.get(bykey(kind, key).as_slice())?.map(|v| v.value()))
     }
 
@@ -737,29 +749,38 @@ impl RedbIndex {
         let mut out = Vec::new();
         for row in t.range(lo.as_slice()..hi.as_slice())? {
             let (k, v) = row?;
+            count_rows(1);
             let kb = k.value();
             out.push((String::from_utf8_lossy(&kb[2..]).into_owned(), v.value()));
         }
         Ok(out)
     }
 
-    /// The latest position of every key of a kind that `keep` passes, in
-    /// key order: a walk of the kind's key table alone (theseus-7087).
-    pub fn positions_of_keys_where(
-        &self,
-        kind: RecordKind,
-        keep: &dyn Fn(&str) -> bool,
-    ) -> Result<Vec<u64>> {
+    /// The latest position of every key of a kind but those that start with
+    /// `skip`, in key order (theseus-26jo): two reads of the key table, from
+    /// the kind's first key up to the run `skip` starts, and from the first
+    /// key past that run to the kind's end, so no row of the run is visited,
+    /// however long it grows. The run's end is `skip` with its last byte
+    /// raised by one (`ses_ep` ends before `ses_eq`).
+    pub fn positions_of_keys_except(&self, kind: RecordKind, skip: &str) -> Result<Vec<u64>> {
         let txn = self.db.begin_read()?;
         let t = txn.open_table(BYKEY)?;
         let lo = kind.to_be_bytes().to_vec();
         let hi = (kind + 1).to_be_bytes().to_vec();
+        let run = bykey(kind, skip);
+        let past = past_prefix(&run).filter(|p| *p < hi);
         let mut out = Vec::new();
-        for row in t.range(lo.as_slice()..hi.as_slice())? {
-            let (k, v) = row?;
-            if keep(&String::from_utf8_lossy(&k.value()[2..])) {
+        let mut walk = |from: &[u8], to: &[u8]| -> Result<()> {
+            for row in t.range(from..to)? {
+                let (_, v) = row?;
+                count_rows(1);
                 out.push(v.value());
             }
+            Ok(())
+        };
+        walk(&lo, &run)?;
+        if let Some(past) = past {
+            walk(&past, &hi)?;
         }
         Ok(out)
     }
@@ -1081,8 +1102,9 @@ impl RedbIndex {
     }
 
     /// `keys_by_birth` of the keys `keep` passes (theseus-7087): a key it
-    /// fails is stepped over in the same walk of the births, and its latest
-    /// position is not looked up, so a run of them costs index rows alone.
+    /// fails is stepped over in the same walk of the births, tested before
+    /// it is allocated, and its latest position is not looked up, so a run
+    /// of them costs its birth rows alone (theseus-26jo).
     /// Whether older ones remain counts every key, kept or not, so a page's
     /// cursor is the one an unfiltered walk that skipped them would give.
     pub fn keys_by_birth_where(
@@ -1099,20 +1121,24 @@ impl RedbIndex {
         let mut out = Vec::new();
         let mut more = false;
         for row in bb.range(lo.as_slice()..hi.as_slice())?.rev() {
+            count_rows(1);
             if out.len() == limit {
                 more = true;
                 break;
             }
             let (k, v) = row?;
-            let key = String::from_utf8_lossy(v.value()).into_owned();
+            // Tested borrowed: a skipped key costs its birth row alone, with
+            // no allocation and no lookup (theseus-26jo).
+            let key = String::from_utf8_lossy(v.value());
             if !keep(&key) {
                 continue;
             }
             let Some(born) = u64_from(&k.value()[2..]) else {
                 continue;
             };
+            count_rows(1);
             if let Some(latest) = byk.get(bykey(kind, &key).as_slice())? {
-                out.push((born, key, latest.value()));
+                out.push((born, key.into_owned(), latest.value()));
             }
         }
         Ok((out, more))

@@ -9,8 +9,8 @@ use std::sync::Arc;
 
 use serde_json::json;
 use theseus_protocol::import::{ImportEpisodesParams, ImportLine};
-use theseus_protocol::{SessionKind, SessionListParams};
-use theseus_store::{kinds, records_read_here, Store as _};
+use theseus_protocol::{CompilationListParams, SessionKind, SessionListParams};
+use theseus_store::{index_rows_here, kinds, records_read_here, Store as _};
 
 use super::Core;
 use crate::bus::EventSink;
@@ -240,14 +240,42 @@ fn reads<R>(f: impl Fn() -> R) -> u64 {
     records_read_here() - before
 }
 
+/// Index rows `f` visits (theseus-26jo), once it has run once.
+fn rows<R>(f: impl Fn() -> R) -> u64 {
+    f();
+    let before = index_rows_here();
+    f();
+    index_rows_here() - before
+}
+
+/// The index rows the whole list, `confirm.list`, and `compilation.list`
+/// visit: each walks the live sessions' keys alone (theseus-26jo).
+fn list_rows(core: &Core) -> [u64; 3] {
+    [
+        rows(|| core.session_list().unwrap()),
+        rows(|| core.confirm_list().unwrap()),
+        rows(|| {
+            core.compilation_list(CompilationListParams::default())
+                .unwrap()
+        }),
+    ]
+}
+
 /// The reads of the whole list, a page of 20, the page past the import's
-/// run, and `confirm.list`.
-fn list_reads(core: &Core, past: Option<u64>) -> [u64; 4] {
+/// run, `confirm.list`, and `compilation.list`, whole and of the session
+/// `mine` (theseus-ve34).
+fn list_reads(core: &Core, past: Option<u64>, mine: &str) -> [u64; 6] {
+    let of = |session_id: Option<&str>| CompilationListParams {
+        session_id: session_id.map(str::to_string),
+        n: None,
+    };
     [
         reads(|| core.session_list().unwrap()),
         reads(|| page(core, 20, None)),
         reads(|| page(core, 20, past)),
         reads(|| core.confirm_list().unwrap()),
+        reads(|| core.compilation_list(of(None)).unwrap()),
+        reads(|| core.compilation_list(of(Some(mine))).unwrap()),
     ]
 }
 
@@ -270,19 +298,45 @@ async fn the_session_lists_read_no_imported_session_and_answer_as_before() {
     // The page that reaches back past the first import's run.
     let past = page(c, 2, None).1;
     assert!(past.is_some());
+    // Past the run, a page visits its 1,000 birth rows and looks up only
+    // its live keys: no key-table row per imported key (theseus-26jo).
+    let past_rows = rows(|| page(c, 20, past));
+    assert!(past_rows < 1_000 + 60, "{past_rows}");
+    // One session's compilations are marked from its own record alone
+    // (theseus-26jo): the scan of its scope, and one record more.
+    let mine = CompilationListParams {
+        session_id: Some(waiting.clone()),
+        n: None,
+    };
+    let listed = c.compilation_list(mine.clone()).unwrap().compilations;
+    assert_eq!(listed.iter().filter(|x| x.current).count(), 1, "{listed:?}");
+    assert_eq!(
+        reads(|| c.compilation_list(mine.clone()).unwrap()),
+        reads(|| c.store.session_compilations(&waiting).unwrap()) + 1,
+        "compilation.list {{session_id}} reads its own session's record alone"
+    );
     let asked = c.confirm_list().unwrap();
     assert_eq!(asked.len(), 1);
     assert_eq!(asked[0].session_id, waiting);
 
-    let read_before = list_reads(c, past);
+    let read_before = list_reads(c, past, &waiting);
     // Its own sessions' records and their executions', not one per imported
     // key or per `n` of them.
     assert!(read_before.iter().all(|r| *r < 60), "{read_before:?}");
+    // The live sessions' key rows and their executions' lookups, not one row
+    // per imported key: the walks step past the import's run unvisited.
+    let rows_before = list_rows(c);
+    assert!(rows_before.iter().all(|r| *r < 60), "{rows_before:?}");
     import(c, LATER, 1_000, 1_000);
     assert_eq!(
-        list_reads(c, past),
+        list_reads(c, past, &waiting),
         read_before,
-        "the second import adds no read to the whole list, a page, the page past the runs, or confirm.list"
+        "the second import adds no read to the whole list, a page, the page past the runs, confirm.list, or compilation.list"
+    );
+    assert_eq!(
+        list_rows(c),
+        rows_before,
+        "the second import adds no index row to the whole list, confirm.list, or compilation.list"
     );
     let late: Vec<String> = (0..2).map(|_| open(c)).collect();
     assert_eq!(answers_agree(c, "after the second import"), 7);
@@ -297,9 +351,92 @@ async fn the_session_lists_read_no_imported_session_and_answer_as_before() {
     assert_eq!(last, None);
 
     // An erase still hides: its tombstones are imported sessions too.
-    let read_before = list_reads(c, past);
+    let read_before = list_reads(c, past, &waiting);
+    let rows_before = list_rows(c);
     write::erase(&c.store, TAG, Some("a test's erase"), "test").unwrap();
-    assert_eq!(list_reads(c, past), read_before, "an erase adds no read");
+    assert_eq!(
+        list_reads(c, past, &waiting),
+        read_before,
+        "an erase adds no read"
+    );
+    assert_eq!(list_rows(c), rows_before, "an erase adds no index row");
     assert_eq!(answers_agree(c, "after an erase"), 7);
     assert_eq!(c.store.session_count().unwrap(), 2_007);
+}
+
+/// An import first, then three live sessions (theseus-ve34): the live ones
+/// are the newest births, and nothing older is live, so a full page whose
+/// older keys are all imported still names its cursor, as the walk `n` at a
+/// time did, and the page after it is empty. Every page of every size,
+/// cursor by cursor, equals the old walk's.
+#[test]
+fn the_pages_of_a_store_whose_import_came_first_answer_as_before() {
+    let r = rig();
+    let c = &r.core;
+    import(c, TAG, 0, 300);
+    let live: Vec<String> = (0..3).map(|_| open(c)).collect();
+    let births = births(c);
+    for n in [1, 2, 3, 4, 5, 20, 1000] {
+        let mut cursor = None;
+        let mut seen = Vec::new();
+        loop {
+            let got = page(c, n, cursor);
+            assert_eq!(
+                got,
+                page_as_before(&births, n, cursor),
+                "n {n} from {cursor:?}"
+            );
+            seen.extend(got.0);
+            match got.1 {
+                Some(b) => cursor = Some(b),
+                None => break,
+            }
+        }
+        assert_eq!(seen, [live[2].as_str(), &live[1], &live[0]], "n {n}");
+    }
+    // The case the old tests never met: a full page with only imported
+    // keys older keeps its cursor.
+    let (three, older) = page(c, 3, None);
+    assert_eq!(three.len(), 3);
+    assert!(older.is_some());
+    assert_eq!(page(c, 3, older), (vec![], None));
+}
+
+/// What the lists cost past a full import (theseus-26jo): 21,151 imported
+/// sessions between live ones, the whole list and a page of 20 (which
+/// crosses the import's run of births) each timed 20 times, with the index
+/// rows and records each visits. A measure, not a check: run it with
+/// `--ignored --nocapture`, in a debug and a release build.
+#[test]
+#[ignore = "a measure: 21,151 imported sessions, printed"]
+fn the_session_lists_past_a_full_import_timed() {
+    let r = rig();
+    let c = &r.core;
+    for _ in 0..3 {
+        open(c);
+    }
+    import(c, TAG, 0, 21_151);
+    for _ in 0..2 {
+        open(c);
+    }
+    let time = |what: &str, f: &dyn Fn()| {
+        f();
+        let (rows, read) = (index_rows_here(), records_read_here());
+        f();
+        let (rows, read) = (index_rows_here() - rows, records_read_here() - read);
+        let mut ms: Vec<f64> = (0..20)
+            .map(|_| {
+                let t = std::time::Instant::now();
+                f();
+                t.elapsed().as_secs_f64() * 1e3
+            })
+            .collect();
+        ms.sort_by(f64::total_cmp);
+        println!(
+            "{what}: p50 {:.2} ms, max {:.2} ms, {rows} index rows, {read} records",
+            ms[10], ms[19]
+        );
+    };
+    time("whole list", &|| drop(c.session_list().unwrap()));
+    time("page of 20", &|| drop(page(c, 20, None)));
 }

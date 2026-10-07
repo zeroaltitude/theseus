@@ -754,12 +754,13 @@ impl Store {
     }
 
     /// Every session record but the imported ones (theseus-7087): an
-    /// imported session is told by its key (`import::is_imported`), so its
-    /// record is never read, and a list of the live sessions costs them
-    /// alone however large the import.
+    /// imported session is told by its key (`import::SESSION_PREFIX`), and
+    /// their keys are one run in key order, which the index's walk steps
+    /// past without visiting (theseus-26jo), so a list of the live sessions
+    /// costs them alone however large the import.
     pub fn live_sessions<T: DeserializeOwned>(&self) -> Result<Vec<T>> {
         self.inner
-            .latest_of_kind_where(kinds::SESSION, &|k| !crate::import::is_imported(k))?
+            .latest_of_kind_except(kinds::SESSION, crate::import::SESSION_PREFIX)?
             .iter()
             .map(|r| r.decode())
             .collect()

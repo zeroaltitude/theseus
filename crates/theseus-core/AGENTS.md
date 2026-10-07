@@ -599,8 +599,9 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   episode's (`ses_ep<64 hex>`, `session_id_of`), its record scoped `import:<tag>`. It has no execution, and
   `turn.submit` refuses it (`import::refusal`), so it never takes a turn or reaches a compile but as recall's
   testimony; `session.list` leaves it out unread: the whole list, `confirm.list` and `compilation.list` read
-  `Store::live_sessions` (theseus-store's `latest_of_kind_where`, which skips a key before its record is read),
-  and a page and the learning tender's task-brief walk (`sessions_from`) step over the import's births by key in
+  `Store::live_sessions` (theseus-store's `latest_of_kind_except`: two reads of the key table either side of the
+  `ses_ep` run, so no imported row is visited, theseus-26jo; one session's `compilation.list` reads its record
+  alone), and a page and the learning tender's task-brief walk (`sessions_from`) step over the import's births by key in
   their walk (`newest_keys_where`, theseus-7087); health takes the tags' counts (one META record a
   tag) off the projection's keys, and its fallback reads every session, to count the owner's own, the imported and the
   erased apart (theseus-revl). Its place is private whatever place
