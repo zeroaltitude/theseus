@@ -3,21 +3,26 @@
 //
 //   an oar goes out        tool.started                                          a soft oar splash
 //   something waits for you confirm.requested; an execution that comes to need     a ship's bell, struck twice
-//                           you for a question or a budget (execution.changed)
+//                           you for a question or a budget (execution.changed);
+//                           the ledger's tool.confirm_requested and budget.asked
 //   a failure              turn.failed; an execution that fails or runs over its   a low horn
-//                           budget (execution.changed)
+//                           budget (execution.changed); the ledger's turn.failed
+//                           and execution.budget_exhausted
 //
 // A failed tool call is not a cue: it shows as a rose blade and a pennant, and the turn often goes on to recover. The
 // cockpit hears confirm.requested and execution.changed for every session (it watches them all), and tool.started and
-// turn.failed for the sessions the Ship watches (those that work or wait for you).
+// turn.failed for the sessions the Ship watches (those that work or wait for you). A turn that fails in a session the
+// Ship does not watch (a model the daemon cannot price fails before it runs) says so only in the ledger: its row
+// (turn.failed), and a question's (tool.confirm_requested, budget.asked), sound the same cue from the page's one copy of
+// the ledger, a few seconds later, once with the push that may have said it first (`cueOfRow`).
 
 export type Cue = 'oar' | 'bell' | 'horn'
 
 /** The table: each cue, what sounds it, and what it is. */
 export const CUES: readonly { cue: Cue; events: string; sound: string; source: string }[] = [
   { cue: 'oar', events: 'tool.started', sound: 'a soft oar splash: a blade’s low knock, water rushing, two drops', source: 'synthesized in the browser (Web Audio: filtered noise and two sines), src/ship/audio.ts' },
-  { cue: 'bell', events: 'confirm.requested; execution.changed into needs_you for a question, a budget or a block', sound: 'a ship’s bell, struck twice', source: 'synthesized in the browser (Web Audio: a bell’s inharmonic partials, each ringing down), src/ship/audio.ts' },
-  { cue: 'horn', events: 'turn.failed; execution.changed into failed or budget_exhausted', sound: 'a low horn, short', source: 'synthesized in the browser (Web Audio: three detuned low saws through a low-pass), src/ship/audio.ts' },
+  { cue: 'bell', events: 'confirm.requested; execution.changed into needs_you for a question, a budget or a block; the ledger’s tool.confirm_requested and budget.asked', sound: 'a ship’s bell, struck twice', source: 'synthesized in the browser (Web Audio: a bell’s inharmonic partials, each ringing down), src/ship/audio.ts' },
+  { cue: 'horn', events: 'turn.failed; execution.changed into failed or budget_exhausted; the ledger’s turn.failed and execution.budget_exhausted', sound: 'a low horn, short', source: 'synthesized in the browser (Web Audio: three detuned low saws through a low-pass), src/ship/audio.ts' },
 ]
 
 /** How often each cue may sound at most (ms): a burst of tool calls rows a few strokes, not a splash each; a question
@@ -60,6 +65,11 @@ export function cueOf(ear: Ear, method: string, params: unknown, now: number): C
     else if (wasLevel !== undefined && level === 'needs_you' && wasLevel !== 'needs_you' && !FAILED.has(state)) cue = 'bell'
   }
   if (!cue) return null
+  return gate(ear, cue, sid, now)
+}
+
+/** Once a change, and no more often than its spacing. */
+function gate(ear: Ear, cue: Cue, sid: string, now: number): Cue | null {
   // A session's bell or horn once a change (a question's push and its execution's change are one event).
   if (cue !== 'oar' && sid) {
     const key = `${cue} ${sid}`
@@ -71,6 +81,19 @@ export function cueOf(ear: Ear, method: string, params: unknown, now: number): C
   if (last !== undefined && now - last < SPACING[cue]) return null
   ear.last.set(cue, now)
   return cue
+}
+
+/** The ledger rows that sound a cue, for the sessions whose pushes the page does not hear. */
+const ROW_CUE: Record<string, Cue> = {
+  'turn.failed': 'horn', 'execution.budget_exhausted': 'horn', 'tool.confirm_requested': 'bell', 'budget.asked': 'bell',
+}
+
+/** The cue a new ledger row sounds, if any: a failure or a question, once with its push. `since` (ms): rows from before
+ *  sound was on, or from before the page opened, are not news. */
+export function cueOfRow(ear: Ear, row: { kind: string; session_id?: string | null; at_unix_ms: number }, now: number, since: number): Cue | null {
+  const cue = ROW_CUE[row.kind]
+  if (!cue || row.at_unix_ms < since) return null
+  return gate(ear, cue, row.session_id ?? '', now)
 }
 
 /** Where the browser keeps the toggle: off unless the operator turned it on. */

@@ -1,9 +1,11 @@
 // The Ship's sound, on the page (theseus-hnof.2, the owner's C4): the toggle, kept in the browser and off by default,
 // and, while it is on, the daemon's pushes heard through the cue table (`sound.ts`) and played (`audio.ts`).
 import { useEffect, useRef, useState } from 'react'
+import type { LedgerEntry } from '@protocol'
+import { useLedgerHistory } from '@/lib/history'
 import { client } from '@/lib/rpc'
 import { ShipAudio } from './audio'
-import { cueOf, newEar, SOUND_KEY, soundOn } from './sound'
+import { cueOf, cueOfRow, newEar, SOUND_KEY, soundOn, type Cue } from './sound'
 
 export interface ShipSound {
   on: boolean
@@ -28,12 +30,27 @@ export function useShipSound(): ShipSound {
     wake()
     document.addEventListener('pointerdown', wake, true)
     document.addEventListener('keydown', wake, true)
-    const off = client.onNotify((method, params) => {
-      const cue = cueOf(ear, method, params, Date.now())
-      if (cue) a.play(cue)
+    const sound = (cue: Cue | null) => {
+      if (!cue) return
+      a.play(cue)
+      // Dev and bench builds: the cues played, for a recording's count.
+      if (import.meta.env.DEV || import.meta.env.MODE === 'bench') ((window as unknown as { __shipCues?: string[] }).__shipCues ??= []).push(cue)
+    }
+    const off = client.onNotify((method, params) => sound(cueOf(ear, method, params, Date.now())))
+    // The page's one copy of the ledger (it reads nothing more for this): a failure or a question in a session whose
+    // pushes the page does not hear. Only rows from now on.
+    const since = Date.now()
+    let seen = useLedgerHistory.getState().last
+    const offRows = useLedgerHistory.subscribe((st) => {
+      if (st.last <= seen) return
+      const fresh: LedgerEntry[] = []
+      for (let i = st.rows.length - 1; i >= 0 && st.rows[i].position > seen; i--) fresh.push(st.rows[i])
+      seen = st.last
+      for (const r of fresh.reverse()) sound(cueOfRow(ear, r, Date.now(), since))
     })
     return () => {
       off()
+      offRows()
       document.removeEventListener('pointerdown', wake, true)
       document.removeEventListener('keydown', wake, true)
     }

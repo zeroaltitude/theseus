@@ -2,7 +2,7 @@
 // own events, each once a change, a burst of oars rowing a few strokes, and off until the operator turns it on.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { CUES, cueOf, newEar, SPACING, soundOn } from '../src/ship/sound.ts'
+import { CUES, cueOf, cueOfRow, newEar, SPACING, soundOn } from '../src/ship/sound.ts'
 
 const view = (sid: string, state: string, level: string, previous?: string) =>
   ({ session_id: sid, state, attention: { level, label: '', since_ms: 0 }, ...(previous ? { previous } : {}) })
@@ -49,4 +49,19 @@ test('a failure sounds the low horn once, whether the turn or its execution says
 test('each cue names what sounds it and where its sound comes from', () => {
   assert.deepEqual(CUES.map((c) => c.cue), ['oar', 'bell', 'horn'])
   for (const c of CUES) assert.match(c.source, /synthesized in the browser/)
+})
+
+test("a failure or a question only the ledger tells (a session the Ship does not watch) sounds from its row, once", () => {
+  const ear = newEar()
+  const row = (kind: string, sid: string, at: number) => ({ kind, session_id: sid, at_unix_ms: at })
+  // A model the daemon cannot price fails before the turn runs: no push reaches the page, its row does.
+  assert.equal(cueOfRow(ear, row('turn.failed', 's9', 5000), 6000, 1000), 'horn')
+  // The push said it first: its row, a few seconds later, is the same event.
+  assert.equal(cueOf(ear, 'confirm.requested', { session_id: 's8' }, 7000), 'bell')
+  assert.equal(cueOfRow(ear, row('tool.confirm_requested', 's8', 7000), 9500, 1000), null)
+  assert.equal(cueOfRow(ear, row('budget.asked', 's7', 20_000), 20_100, 1000), 'bell')
+  // Rows from before sound was on are history, not news; other kinds are silent.
+  assert.equal(cueOfRow(newEar(), row('turn.failed', 's9', 500), 6000, 1000), null)
+  assert.equal(cueOfRow(newEar(), row('action.failed', 's9', 5000), 6000, 1000), null)
+  assert.equal(cueOfRow(newEar(), row('turn.ended', 's9', 5000), 6000, 1000), null)
 })
