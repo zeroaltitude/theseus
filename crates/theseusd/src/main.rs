@@ -992,6 +992,9 @@ async fn after_serving(
     // Raw job output no result will absorb goes, now and every hour
     // (theseus-2ij).
     core.sweep_spool_after_serving();
+    // The temporary blob files a dead writer left mid-write, once
+    // (theseus-vipg).
+    core.sweep_blobs_after_serving();
     // The learning ledger's nightly report (M5 25c), never within 10
     // minutes of this start, and nothing with the judge off.
     core.learn_after_serving();

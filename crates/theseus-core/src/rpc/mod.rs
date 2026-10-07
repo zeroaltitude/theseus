@@ -1127,6 +1127,35 @@ impl Core {
         });
     }
 
+    /// The temporary blob files a dead writer left (theseus-vipg;
+    /// `Blobs::sweep`), swept once after serving, on a thread of its own: it
+    /// lists the blobs' directory, so neither the start path nor a stop
+    /// waits on it. Only a writer that died before this start leaves them.
+    pub fn sweep_blobs_after_serving(&self) {
+        let blobs = Arc::downgrade(&self.store.blobs_handle());
+        let spawned = std::thread::Builder::new()
+            .name("blob-sweep".into())
+            .spawn(move || {
+                let Some(blobs) = blobs.upgrade() else {
+                    return;
+                };
+                let t0 = Instant::now();
+                let s = blobs.sweep();
+                if s.removed > 0 {
+                    tracing::info!(
+                        removed = s.removed,
+                        bytes = s.bytes,
+                        kept = s.kept,
+                        ms = t0.elapsed().as_millis() as u64,
+                        "blobs: the temporary files a dead writer left were swept"
+                    );
+                }
+            });
+        if let Err(e) = spawned {
+            tracing::warn!(error = %e, "blobs: the sweep's thread was not started");
+        }
+    }
+
     pub fn live_profile(&self) -> (String, String) {
         self.live.read().unwrap().clone()
     }

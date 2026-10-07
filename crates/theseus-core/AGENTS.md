@@ -336,6 +336,8 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   stop's frames hold 512, categorize's mark rides in its row's frame, and a shadow judgment no turn waits on writes
   its budget block between turns (`reserve_between`; theseus-ehkp, theseus-xkbs; `tests_sink_blobs.rs`,
   `tests_sink_off_turn.rs`, `tests_sink_busy.rs`, `judge/tests_ahead.rs`, and categorize.rs's own, theseus-5o3d).
+  A crash inside a batch leaves its temporary files, and the next start sweeps a dead writer's once it serves, on a
+  thread of its own (`Blobs::sweep`, `Core::sweep_blobs_after_serving`; theseus-vipg; theseusd's `tests/spool_sweep.rs`).
   `theseus-sim bench turn --judge` measures where the judge's frames land.
   `judge.list` and `judge.get` are `rpc/judge.rs`; `judge.list` pages back from the newest `judge.call` row (its
   kind's tag, or its kind-and-session tag) and stops one match past its limit, so `matched` is a floor when `more`

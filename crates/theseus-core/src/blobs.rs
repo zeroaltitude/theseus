@@ -9,12 +9,18 @@
 //! The compiler renders an image block from its blob through a small
 //! bounded cache of base64 strings, so a session's image is read and
 //! encoded once, not on every loop. Nothing is read at startup.
+//!
+//! Each write goes to a temporary file of its own first, renamed once
+//! synced. A crash inside a write leaves its file, and a crash inside a
+//! batch every file of the batch (`put_many`); a later start sweeps a dead
+//! writer's once it serves (`Blobs::sweep`, theseus-vipg).
 
 use std::collections::VecDeque;
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::SystemTime;
 
 use base64::Engine as _;
 
@@ -119,10 +125,43 @@ pub struct Blobs {
     /// The syncs the writes have made, files' and the directory's
     /// (theseus-ehkp: what a batched write saves).
     syncs: AtomicU64,
+    /// When this was built, as the store opened: a temporary file older
+    /// than it, another process's, is a dead writer's (`sweep`).
+    opened: SystemTime,
     /// A test's hold on every write, as a disk under a neighbour's IO holds
     /// a sync (`hold_puts`).
     #[cfg(test)]
     hold: Mutex<Option<std::sync::mpsc::Receiver<()>>>,
+    /// A test's stand-in for a crash between a batch's syncs and its
+    /// renames: called there.
+    #[cfg(test)]
+    at_renames: Mutex<Option<Box<dyn Fn() + Send>>>,
+}
+
+/// What a sweep of the temporary files did (`Blobs::sweep`).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Swept {
+    /// A dead writer's, removed.
+    pub removed: usize,
+    /// Their bytes.
+    pub bytes: u64,
+    /// The temporary files left: this process's own, one newer than its
+    /// open of the store, and one that could not be removed.
+    pub kept: usize,
+}
+
+/// The writer's pid in a temporary file's name (`.<digest>.tmp-<pid>`, or
+/// `.<digest>.tmp-<pid>-<n>` since each write gets its own), or `None` for
+/// any other name: a blob's is its digest.
+fn temporary_pid(name: &str) -> Option<u32> {
+    let (d, rest) = name.strip_prefix('.')?.split_at_checked(64)?;
+    let rest = rest.strip_prefix(".tmp-")?;
+    let (pid, n) = rest.split_once('-').unwrap_or((rest, "0"));
+    let digits = |s: &str| !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit());
+    if !(is_digest(d) && digits(pid) && digits(n)) {
+        return None;
+    }
+    pid.parse().ok()
 }
 
 impl Blobs {
@@ -134,8 +173,11 @@ impl Blobs {
             cache: Mutex::new(VecDeque::new()),
             texts: Mutex::new(VecDeque::new()),
             syncs: AtomicU64::new(0),
+            opened: SystemTime::now(),
             #[cfg(test)]
             hold: Mutex::new(None),
+            #[cfg(test)]
+            at_renames: Mutex::new(None),
         }
     }
 
@@ -255,6 +297,16 @@ impl Blobs {
             }
         }
         let synced = self.sync_files(fresh.iter().map(|(_, _, f)| f));
+        #[cfg(test)]
+        if let Some(at) = self
+            .at_renames
+            .lock()
+            .unwrap()
+            .as_ref()
+            .filter(|_| !fresh.is_empty())
+        {
+            at();
+        }
         let mut renamed = 0;
         for ((d, tmp, _), r) in fresh.iter().zip(synced) {
             match r.and_then(|()| std::fs::rename(tmp, self.path(d))) {
@@ -341,6 +393,51 @@ impl Blobs {
     /// directory's.
     pub fn syncs(&self) -> u64 {
         self.syncs.load(Ordering::Relaxed)
+    }
+
+    /// The temporary files a dead writer left (theseus-vipg): a crash
+    /// inside a batch (`put_many`) leaves every file of it, whole, synced
+    /// and never renamed, and a crash inside a `put` its one. A name of a
+    /// temporary's shape goes when its pid is another process's and its file
+    /// is older than this process's open of the store: the store has one
+    /// writer at a time (its lock), so that writer is dead. A blob (its name
+    /// is its digest) and any other name are never touched, nor this
+    /// process's own temporaries, so its own batch between its syncs and its
+    /// renames still finds its files; a dead writer whose pid this process
+    /// reused (an exec in place keeps it) leaves its files to a later start.
+    /// It lists the directory, so the daemon runs it once it serves
+    /// (`Core::sweep_blobs_after_serving`), never on the start path.
+    pub fn sweep(&self) -> Swept {
+        let mut out = Swept::default();
+        let Ok(entries) = std::fs::read_dir(&self.dir) else {
+            return out;
+        };
+        let me = std::process::id();
+        for e in entries.flatten() {
+            let Some(pid) = e.file_name().to_str().and_then(temporary_pid) else {
+                continue;
+            };
+            let meta = e.metadata().ok();
+            let older = meta
+                .as_ref()
+                .and_then(|m| m.modified().ok())
+                .is_some_and(|t| t < self.opened);
+            if pid == me || !older {
+                out.kept += 1;
+                continue;
+            }
+            match std::fs::remove_file(e.path()) {
+                Ok(()) => {
+                    out.removed += 1;
+                    out.bytes += meta.map_or(0, |m| m.len());
+                }
+                Err(err) => {
+                    tracing::warn!(error = %err, file = %e.path().display(), "blobs: a dead writer's temporary file was not removed");
+                    out.kept += 1;
+                }
+            }
+        }
+        out
     }
 
     /// A blob's bytes as base64, from the cache or its file; `None` when it
@@ -483,6 +580,173 @@ mod tests {
                 }
             });
             assert_eq!(std::fs::read_dir(blobs.dir()).unwrap().count(), 1);
+        }
+    }
+
+    /// Where the sweep test's stand-in writes its batch.
+    const STAND_IN_DIR: &str = "THESEUS_TEST_BLOBS_DIR";
+    /// The blobs of the stand-in's batch.
+    const BATCH: usize = 40;
+
+    /// The temporary files under the blobs of the store at `store_dir`.
+    fn temporaries(store_dir: &Path) -> Vec<String> {
+        let mut names: Vec<String> = std::fs::read_dir(store_dir.join("blobs"))
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .filter(|n| n.starts_with('.'))
+            .collect();
+        names.sort();
+        names
+    }
+
+    /// Where the stand-in stops: between its batch's syncs and its renames,
+    /// until the SIGKILL.
+    fn stop_here() {
+        loop {
+            // SAFETY: a signal to this process itself.
+            unsafe { libc::raise(libc::SIGSTOP) };
+        }
+    }
+
+    /// The writer's stand-in for the sweep's test: run again by it, it puts
+    /// a batch of [`BATCH`] blobs and stops itself with SIGSTOP between the
+    /// batch's syncs and its renames, where it waits for the SIGKILL. Run on
+    /// its own, with no environment, it does nothing.
+    #[test]
+    fn a_writer_stand_in_for_the_sweep_test() {
+        let Some(dir) = std::env::var_os(STAND_IN_DIR) else {
+            return;
+        };
+        let blobs = Blobs::new(Path::new(&dir));
+        *blobs.at_renames.lock().unwrap() = Some(Box::new(stop_here));
+        let all: Vec<Vec<u8>> = (0..BATCH)
+            .map(|i| format!("a batch's state {i}").into_bytes())
+            .collect();
+        blobs.put_many(&all.iter().map(Vec::as_slice).collect::<Vec<_>>());
+        unreachable!("stopped between the batch's syncs and its renames");
+    }
+
+    /// Run the stand-in on `store_dir`, wait until it has stopped between its
+    /// batch's syncs and its renames, and kill it there with SIGKILL.
+    fn kill_a_writer_mid_batch(store_dir: &Path) {
+        let mut child = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "blobs::tests::a_writer_stand_in_for_the_sweep_test",
+                "--exact",
+                "--nocapture",
+            ])
+            .env(STAND_IN_DIR, store_dir)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .unwrap();
+        let pid = child.id() as libc::pid_t;
+        let mut status = 0;
+        // SAFETY: waits for our own child to stop; it is not reaped while stopped.
+        let got = unsafe { libc::waitpid(pid, &mut status, libc::WUNTRACED) };
+        assert_eq!(got, pid, "{}", std::io::Error::last_os_error());
+        assert!(
+            libc::WIFSTOPPED(status),
+            "the stand-in ended before its renames: status {status:#x}"
+        );
+        // SAFETY: our own stopped child.
+        unsafe { libc::kill(pid, libc::SIGKILL) };
+        child.wait().unwrap();
+    }
+
+    /// A crash between a batch's syncs and its renames (theseus-vipg): the
+    /// writer, this test binary run again, is killed there with SIGKILL, and
+    /// leaves its batch's files, whole and synced, under its pid. The next
+    /// open's sweep removes every one, and nothing else: not a blob put before
+    /// the crash; not this process's own temporaries, a batch of an earlier
+    /// open held between its syncs and its renames across the next open,
+    /// whose renames then find their files; nor another process's file newer
+    /// than the open.
+    #[test]
+    fn a_crash_mid_batch_leaves_temporaries_the_next_opens_sweep_removes() {
+        let dir = tempfile::tempdir().unwrap();
+        let earlier = Blobs::new(dir.path());
+        let finished = earlier.put(b"a blob put before the crash").unwrap();
+        kill_a_writer_mid_batch(dir.path());
+        let left = temporaries(dir.path());
+        assert_eq!(left.len(), BATCH, "the batch's files are left: {left:?}");
+        assert!(left.iter().all(|n| temporary_pid(n).is_some()), "{left:?}");
+        // This process's own batch, of the earlier open, held between its
+        // syncs and its renames until after the next open's sweep.
+        let (at, arrived) = std::sync::mpsc::channel();
+        let (release, held) = std::sync::mpsc::channel::<()>();
+        *earlier.at_renames.lock().unwrap() = Some(Box::new(move || {
+            let _ = at.send(());
+            let _ = held.recv();
+        }));
+        let own: [&[u8]; 2] = [b"this process's own, mid-batch", b"and its second"];
+        std::thread::scope(|s| {
+            let batch = s.spawn(|| earlier.put_many(&own));
+            arrived.recv().unwrap();
+            let next = Blobs::new(dir.path());
+            // Another process's, newer than the open: as far as the sweep can
+            // tell, a live writer's.
+            let newer = next.dir().join(format!(
+                ".{}.tmp-{}-0",
+                digest(b"newer"),
+                std::process::id() + 1
+            ));
+            std::fs::File::create(&newer)
+                .unwrap()
+                .set_modified(next.opened + std::time::Duration::from_secs(1))
+                .unwrap();
+            let swept = next.sweep();
+            assert_eq!(
+                (swept.removed, swept.kept),
+                (BATCH, 3),
+                "the dead writer's, every one: {swept:?}"
+            );
+            let left = temporaries(dir.path());
+            assert_eq!(
+                left.len(),
+                3,
+                "this process's own two, and the newer: {left:?}"
+            );
+            drop(release);
+            let got = batch.join().unwrap();
+            assert!(
+                got.iter().all(Result::is_ok),
+                "its renames found their files: {got:?}"
+            );
+            std::fs::remove_file(&newer).unwrap();
+            assert_eq!(temporaries(dir.path()), Vec::<String>::new());
+            assert_eq!(
+                next.read(&finished).as_deref(),
+                Some(&b"a blob put before the crash"[..])
+            );
+            for b in own {
+                assert_eq!(next.read(&digest(b)).as_deref(), Some(b));
+            }
+            assert_eq!(next.sweep(), Swept::default(), "nothing left to sweep");
+        });
+    }
+
+    /// A temporary file's name gives its writer's pid, in either shape; a
+    /// blob's, a derived file's, and any other name give none.
+    #[test]
+    fn a_temporarys_name_gives_its_writers_pid() {
+        let d = digest(b"a state");
+        assert_eq!(temporary_pid(&format!(".{d}.tmp-4242-17")), Some(4242));
+        assert_eq!(temporary_pid(&format!(".{d}.tmp-4242")), Some(4242));
+        for other in [
+            d.clone(),
+            format!(".{d}"),
+            format!(".{d}.tmp-"),
+            format!(".{d}.tmp-42x"),
+            format!(".{d}.tmp-42-"),
+            format!(".{d}.tmp--1"),
+            format!(".{d}.transcript.tmp-4242"),
+            format!(".{}.tmp-4242", d.to_uppercase()),
+            format!(".{}.tmp-4242", &d[..63]),
+            "derived".to_string(),
+        ] {
+            assert_eq!(temporary_pid(&other), None, "{other}");
         }
     }
 
