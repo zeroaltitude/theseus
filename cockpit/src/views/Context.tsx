@@ -7,7 +7,7 @@
 import { useMemo, useState, type ReactNode } from 'react'
 import { useSearchParams } from 'react-router'
 import { BookOpen, ChevronDown, ChevronRight, Database, Eye, EyeOff, FileText, Layers, Library, ListTree, MessagesSquare, Search, Shapes, Telescope, X } from 'lucide-react'
-import type { Health, ImportFacet, ImportListResult, ImportSessionsResult, ImportedEpisode, NodeInfo, OntologyListResult, SessionHistoryResult } from '@protocol'
+import type { ContextExplainResult, Health, ImportFacet, ImportListResult, ImportSessionsResult, ImportedEpisode, NodeInfo, OntologyListResult, SessionHistoryResult } from '@protocol'
 import { useRpc } from '@/lib/rpc'
 import { cn, stamp } from '@/lib/format'
 import { CATEGORICAL } from '@/lib/viz'
@@ -175,7 +175,7 @@ function Episodes({ params, set }: { params: URLSearchParams; set: SetParams }) 
             )}
         </Panel>
       </div>
-      {episode && <EpisodeDetail key={episode} id={episode} listed={picked} veil={picked ? veiled(picked, veilOn, opened) : veilOn} onUnveil={() => open(episode)} close={() => set({ episode: null })} onTopic={(t) => filter('topic', t)} />}
+      {episode && <EpisodeDetail key={episode} id={episode} listed={picked} veil={(e) => veiled(e, veilOn, opened)} onUnveil={() => open(episode)} close={() => set({ episode: null })} onTopic={(t) => filter('topic', t)} />}
     </div>
   )
 }
@@ -331,7 +331,13 @@ function EpisodeRow({ e, picked, veil, onOpen, onTopic }: { e: ImportedEpisode; 
 const MESSAGES = 100
 
 /** An episode opened: its provenance, its labels, its summary with its cites, and its messages. */
-function EpisodeDetail({ id, listed, veil, onUnveil, close, onTopic }: { id: string; listed?: ImportedEpisode; veil: boolean; onUnveil: () => void; close: () => void; onTopic: (t: string) => void }) {
+function EpisodeDetail({ id, listed, veil: veilOf, onUnveil, close, onTopic }: { id: string; listed?: ImportedEpisode; veil: (e: ImportedEpisode) => boolean; onUnveil: () => void; close: () => void; onTopic: (t: string) => void }) {
+  // An episode opened from elsewhere (a recalled note's link) may not be on the list's page: its row comes with its
+  // context's answer, which for an imported session is its episode.
+  const { data: own } = useRpc<ContextExplainResult>('context.explain', { session_id: id }, 0, { enabled: !listed })
+  const e = listed ?? own?.imported
+  // Veiled until its labels are read, so a sensitive episode's text never shows before its label does.
+  const veil = e ? veilOf(e) : true
   // The parent keys this on the episode, so another starts at its first page.
   const [after, setAfter] = useState<number[]>([0])
   const cursor = after[after.length - 1]
@@ -339,7 +345,6 @@ function EpisodeDetail({ id, listed, veil, onUnveil, close, onTopic }: { id: str
   const nodes = data?.nodes ?? []
   const summary = nodes.find((n) => n.kind === 'imported_summary')
   const cites = new Set(((summary?.detail as { cites?: string[] } | null)?.cites) ?? [])
-  const e = listed
   return (
     <Panel title={e?.title ?? 'episode'} icon={<FileText size={13} />} className="min-w-0"
       actions={<button type="button" aria-label="close the episode" onClick={close} className="text-ink-faint hover:text-ink"><X size={13} /></button>}>
@@ -364,7 +369,7 @@ function EpisodeDetail({ id, listed, veil, onUnveil, close, onTopic }: { id: str
               <Field label="session" mono>{e.session_id.slice(0, 14)}…</Field>
             </div>
           </>
-        ) : <div className="text-[11.5px] text-ink-faint">this episode is not on the list’s page: its messages below</div>}
+        ) : <div className="text-[11.5px] text-ink-faint">reading its labels…</div>}
         <div className="text-[11px] text-ink-faint">An imported session is the owner’s own history: closed and read-only, it takes no turn, and reaches a model only as recall’s testimony, from a private place.</div>
         {veil ? (
           <button type="button" onClick={onUnveil} className="flex items-center gap-2 rounded-md bg-white/[0.03] px-3 py-3 text-left text-[12px] text-ink-dim ring-1 ring-inset ring-line hover:text-ink">
