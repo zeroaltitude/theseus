@@ -22,7 +22,7 @@ impl TurnRunner {
         retried: &mut u32,
     ) -> Result<bool> {
         let r = self.cfg.model.retries;
-        if !failure.transient || *retried >= r.transient {
+        if !failure.transient || self.stopping() || *retried >= r.transient {
             return Ok(false);
         }
         let wait = r.wait(*retried);

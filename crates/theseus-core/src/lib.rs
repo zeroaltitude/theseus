@@ -289,6 +289,8 @@ mod tests_stack;
 #[cfg(test)]
 mod tests_steps;
 #[cfg(test)]
+mod tests_stopping;
+#[cfg(test)]
 mod tests_stub_kinds;
 #[cfg(test)]
 mod tests_task_claims;

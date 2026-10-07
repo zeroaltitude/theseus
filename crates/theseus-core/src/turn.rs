@@ -67,6 +67,7 @@ mod rerank_step;
 mod retry_step;
 mod route_step;
 pub(crate) mod situation_step;
+mod stopping_step;
 
 pub use route_step::{LiveSwitched, SWITCHED};
 
@@ -2286,6 +2287,9 @@ impl TurnRunner {
                         out_chars: streamed.load(Ordering::Relaxed),
                         est_input: compiled.est_tokens,
                     });
+                }
+                if let Some(e) = self.not_sent_for_the_stop().filter(|_| !sent) {
+                    break Ok(Err(e));
                 }
                 tokio::select! {
                     r = &mut stream => break Ok(r),

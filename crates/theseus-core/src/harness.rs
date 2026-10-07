@@ -112,7 +112,8 @@ pub async fn drive(core: Arc<Core>) {
     let mut unlisted = Unlisted::default();
     // An earlier process's provider calls, unknown at the first tick (theseus-m9iy).
     core.mark_earlier_calls();
-    loop {
+    // The stop's wake reaches only a parked driver; a busy one reads its mark (theseus-jtrc).
+    while !core.outbox.stopping() {
         tokio::select! {
             _ = tick.tick() => {}
             _ = core.admission.notified() => {}
