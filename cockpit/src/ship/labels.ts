@@ -6,6 +6,7 @@
 import type { ShipEngine } from './engine'
 import type { Bench, Light, ShipModel } from './model'
 import { benchLabel, harbourLine, keelTags, oarTag, outcome, plateLine, stateWord, usdShort, vesselNoun } from './words'
+import { instrumentRects } from './instrumentRects'
 
 export { usdShort }
 
@@ -108,11 +109,7 @@ export class LabelLayer {
     this.reservedAt = now
     const host = this.root.parentElement
     if (!host) return
-    const o = host.getBoundingClientRect()
-    this.reserved = [...host.querySelectorAll<HTMLElement>('[data-ship-ui]')].map((el) => {
-      const r = el.getBoundingClientRect()
-      return { x0: r.left - o.left - 6, y0: r.top - o.top - 6, x1: r.right - o.left + 6, y1: r.bottom - o.top + 6 }
-    })
+    this.reserved = instrumentRects(host, 6)
   }
 
   update(e: ShipEngine, selected: number, hovered: number) {
@@ -143,7 +140,8 @@ export class LabelLayer {
       el.style.display = ''
       const { w, h } = sizeOf(el)
       const r = { x0: c.x - w / 2, y0: c.y, x1: c.x + w / 2, y1: c.y + h }
-      if (c.px < 1e8 && taken.some((t) => overlaps(t, r))) { el.style.display = 'none'; return }
+      // The selected and hovered plates may cover other labels, never an instrument (their card says them too).
+      if ((c.px < 1e8 ? taken : this.reserved).some((t) => overlaps(t, r))) { el.style.display = 'none'; return }
       taken.push(r)
       shown.add(c.i)
       el.style.transform = `translate(${c.x}px, ${c.y}px) translate(-50%, 0)`
@@ -152,15 +150,15 @@ export class LabelLayer {
     const top = cand.slice(0, 60)
     for (const c of top) if (c.px >= 3e6) placePlate(c)
 
-    // Places: on their ring's north side, while the ring is a size worth naming; the biggest first, and none over
-    // another.
+    // Places: on their ring's north side, while the ring is a size worth naming (from about 50 px across, so a small
+    // screen's fleet still names its harbours); the biggest first, and none over another.
     const order = [...m.formations].sort((a, b) => b.members.length - a.members.length || a.key.localeCompare(b.key))
     for (const f of order) {
       const el = this.forms.get(f.key)!
       const ppu = e.pixelsPerUnit(f.x, f.z)
       const rpx = f.radius * ppu
       const p = e.project(f.x, 0, f.z - f.radius)
-      let show = p.on && rpx > 46 && rpx < 2600 && p.y > 4 && p.y < H - 4
+      let show = p.on && rpx > 24 && rpx < 2600 && p.y > 4 && p.y < H - 4
       if (show) {
         el.style.display = ''
         const w = sizeOf(el).w

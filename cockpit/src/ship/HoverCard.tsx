@@ -1,9 +1,12 @@
 // The Ship's hover cards (theseus-hnof): whatever the pointer rests on says what it is first, in plain words ("SESSION",
 // "TURN 12 OF 17", "TOOL CALL"), then its real data, then where a click takes you. The sea's word for it rides along,
 // faint, so the metaphor is learned while it is read. Every word is `words.ts`'s, as the key and the labels say it.
+import { useLayoutEffect, useRef, useState } from 'react'
 import type { Hit } from './engine'
 import type { Bench, Light, ShipModel, Vessel } from './model'
 import { authorWord, benchLine, benchState, count, LIGHT_NOUN, LIGHT_SEA, outcome, SHAPES, span, stateWord, type Tone, usdShort, vesselNoun, vesselSea } from './words'
+import { placeCard } from './placement'
+import { instrumentRects } from './instrumentRects'
 import { ago, clock } from '@/lib/format'
 
 const TONE: Record<Tone, string> = { live: 'text-live', wait: 'text-wait', fault: 'text-fault', ok: 'text-ok', idle: 'text-ink-dim' }
@@ -98,10 +101,21 @@ function LightBody({ l, model }: { l: Light; model: ShipModel }) {
 }
 
 export function HoverCard({ hover, model }: { hover: { hit: Hit; x: number; y: number }; model: ShipModel }) {
-  const style = { left: Math.min(hover.x + 16, window.innerWidth - 430), top: Math.min(hover.y + 14, window.innerHeight - 220) }
+  // Beside the pointer, inside the Ship, and off its instruments (it once slid under the console, theseus-hnof.2):
+  // measured before it is painted, then placed.
+  const ref = useRef<HTMLDivElement>(null)
+  const [at, setAt] = useState<{ x: number; y: number } | null>(null)
+  useLayoutEffect(() => {
+    const el = ref.current
+    const box = el?.parentElement
+    if (!el || !box) return
+    const p = placeCard({ x: hover.x, y: hover.y }, { w: el.offsetWidth, h: el.offsetHeight }, { w: box.clientWidth, h: box.clientHeight }, instrumentRects(box))
+    setAt((q) => (q && q.x === p.x && q.y === p.y ? q : { x: p.x, y: p.y }))
+  }, [hover.x, hover.y, hover.hit])
   const h = hover.hit
   return (
-    <div className="brass-tip pointer-events-none absolute w-max max-w-[410px]" style={style}>
+    <div ref={ref} className="brass-tip pointer-events-none absolute left-0 top-0 z-[34] w-max max-w-[410px]"
+      style={{ transform: at ? `translate(${at.x}px, ${at.y}px)` : undefined, visibility: at ? 'visible' : 'hidden' }}>
       {h.kind === 'vessel' && <VesselBody v={model.vessels[h.vessel]} model={model} />}
       {h.kind === 'bench' && <BenchBody b={model.benches[h.bench]} model={model} />}
       {h.kind === 'light' && <LightBody l={model.lights[h.light]} model={model} />}
