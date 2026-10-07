@@ -32,7 +32,7 @@ const DEFAULT_AXES: Record<string, [string, string]> = {
   tb2: ['usd', 'pass'], fixgit: ['rss', 'usd'], worth: ['usd', 'agent-s'], async: ['respond-s', 'usd'],
 }
 
-/** A harness's colour: its slot in the house palette, or the de-emphasis gray for one with none (Pi). */
+/** A harness's colour: its slot in the house palette, or the de-emphasis gray for one with none (Pi, Codex CLI, Aider, OpenCode, OpenHands). */
 function harnessColor(key: string): string {
   const slot = harness(key).slot
   return slot === null ? OTHER : CATEGORICAL.dark[slot]

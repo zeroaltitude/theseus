@@ -18,6 +18,8 @@ instruction, and runs the task's tests for a reward. **Every benchmark run ends 
 | `harbor/claude_code_agent.py` | Claude Code, measured: `-a claude_code_agent:MeasuredClaudeCode`, Harbor's own adapter with its version pinned, its effort set, the sampler, the stop at a timeout, and the record added. |
 | `harbor/pi_agent.py` | Pi, the minimal coding agent, measured: `-a pi_agent:MeasuredPi`, Harbor's own adapter with its version pinned, its effort set, run offline, the sampler, the stop at a timeout, the trajectory, and the record added. |
 | `harbor/pi_atif.py` | A Pi session log as an ATIF trajectory (Harbor's own Pi adapter writes none). |
+| `harbor/measured.py` | What every arm built on one of Harbor's own agents adds to it: the pin, the effort, the caps (enforced where the harness has them, else recorded), the sampler, the stop at a timeout, and the record. |
+| `harbor/codex_agent.py`, `aider_agent.py`, `opencode_agent.py`, `openhands_agent.py`, `openclaw_agent.py` | Codex CLI, Aider, OpenCode, OpenHands and OpenClaw, measured: `-a codex_agent:MeasuredCodex` and so on, each Harbor's own adapter with `measured.py` (below). |
 | `harbor/test_*.py` | Their tests. |
 | `report/efficiency.py` | The efficiency report over jobs, one arm each: per-arm numbers, Pareto tables, and three SVG charts. |
 | `report/draft.py` | The report's drafting tool: a run's outputs (Harbor jobs, the bench history, the recall and async scorers' outputs) in; its data file, CSV, figures and skeleton out ("Every run gets its report"). |
@@ -222,6 +224,28 @@ past where the others would have stopped; its reward counts, and the report says
 | Version | the binaries built from the checkout | `PINNED_VERSION` in `claude_code_agent.py` (2.1.290; Harbor's install takes the latest release unless told); `--ak version=…` names another | 1.0.4, pinned, and run offline; every arm's version as the container read it is in its record |
 | A provider's failure | an error class per exit code | Harbor's | exit 0; the record's `end` says `error` or `aborted`, and the report counts the trial as an error (`PiProviderError`, `PiAbortedError`) |
 | A timeout | SIGTERM: the turn stops, the daemon stops | `claude` and what it started are stopped (SIGTERM, then SIGKILL after 3 s) before the verifier starts | the same for `pi` |
+
+**Five more harnesses on Harbor's own agents** (theseus-qags). Harbor 0.23 ships an installed agent for Codex
+CLI, Aider, OpenCode, OpenHands and OpenClaw. Each arm is a thin subclass of Harbor's with `measured.py`'s
+`MeasuredArm` first in its bases, so the install, the command line and the name stay Harbor's, and it adds the pin,
+`--ak`'s effort at medium in the harness's own words, the caps (`--ak max_budget_usd=2.0 --ak max_turns=200`, taken
+by every arm), the sampler, the stop at a timeout, and the record (`efficiency.py`: each harness's own log read for
+its calls, tokens and dollars, and `list_cost_usd`, the same tokens at the providers' list prices, `LIST_PRICES`).
+
+| | Codex CLI | Aider | OpenCode | OpenHands | OpenClaw |
+|---|---|---|---|---|---|
+| Arm | `codex_agent:MeasuredCodex` | `aider_agent:MeasuredAider` | `opencode_agent:MeasuredOpenCode` | `openhands_agent:MeasuredOpenHands` | `openclaw_agent:MeasuredOpenClaw` |
+| Version | `@openai/codex` 0.161.0 | `aider-chat` 0.86.2 (installed by uv; Harbor's installer takes the latest) | `opencode-ai` 1.18.35 | `openhands-ai` 1.11.0 | `openclaw` 2026.9.8, a released build installed from npm into the task's container |
+| Model | GPT-6.1-Sol, its own default (`-m openai/gpt-6.1-sol`, `OPENAI_API_KEY`): Codex 0.161 speaks only OpenAI's Responses API ("`wire_api = "chat"` is no longer supported"), which Anthropic's API does not serve, so it cannot run Claude Sonnet 5.5; a native-model arm | `-m`, passed to Aider with its provider | `-m` | `-m` | `-m` |
+| Effort | `-c model_reasoning_effort=medium` | `--reasoning-effort medium`, sent (`--no-check-model-accepts-settings`) | `--variant medium` (adaptive thinking at effort medium in OpenCode's catalog) | `LLM_REASONING_EFFORT=medium` | `--thinking medium` |
+| Spend and turn caps | none in Codex: recorded, not enforced | none in Aider: recorded | none in OpenCode: recorded | enforced: `MAX_BUDGET_PER_TASK`, `MAX_ITERATIONS` | none in OpenClaw: recorded |
+| Dollars, its own | Harbor prices Codex's tokens from LiteLLM's table | Aider's, from a model-metadata file the arm uploads with the list prices (its own table predates Sonnet 5.5) | OpenCode's catalog, pinned: `OPENCODE_DISABLE_MODELS_FETCH=1` | its LiteLLM's | its session's |
+| The harness, to the sampler | `codex` (the native binary; its npm launcher, `node`, is outside) | `aider` | `opencode.exe` | `openhands-py`: the arm runs OpenHands through a link of that name to its venv's Python, since `python` is also the work's | `openclaw` |
+| Its own log, for the record | the rollout, through Harbor's trajectory | `agent/aider.txt` (a token line a call) and `--analytics-log` (the exact counts) | `agent/opencode.txt` (a `step_finish` a call) | Harbor's trajectory of its events | Harbor's trajectory of its session |
+
+Aider answers one message (with up to three reflections) and runs the shell commands it suggests; it does not drive
+a loop of tool calls, so its tool calls are the commands it ran. OpenClaw's own CLI timeout is lifted to 14400 s so
+the task's agent timeout bounds it as it bounds every arm.
 
 **The report** reads jobs, one arm each:
 

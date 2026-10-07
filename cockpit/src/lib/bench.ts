@@ -322,13 +322,19 @@ export function figureTable(spec: Obj): FigureTable {
 // ---------------------------------------------------------------- harnesses, task sets, conditions
 
 /** A harness arm, and its slot in the house palette (`docs/benchmarks/README.md`): Theseus 1, Claude Code 2, the
- *  paragraph 3; Pi has no slot (the eight are taken and slot 4 is held for OpenClaw), so it is drawn as "other". */
+ *  paragraph 3, OpenClaw 4 (the slot held for it). The arms on Harbor's own agents (theseus-qags) and Pi have no slot
+ *  (the eight are taken), so they are drawn as "other", each named on its point. */
 export interface Harness { key: string; name: string; slot: number | null }
 export const HARNESSES: readonly Harness[] = [
   { key: 'theseus', name: 'Theseus', slot: 0 },
   { key: 'claude-code', name: 'Claude Code', slot: 1 },
   { key: 'theseus-batching', name: 'Theseus + paragraph', slot: 2 },
+  { key: 'openclaw', name: 'OpenClaw', slot: 3 },
   { key: 'pi', name: 'Pi', slot: null },
+  { key: 'codex', name: 'Codex CLI', slot: null },
+  { key: 'aider', name: 'Aider', slot: null },
+  { key: 'opencode', name: 'OpenCode', slot: null },
+  { key: 'openhands', name: 'OpenHands', slot: null },
 ]
 export const harness = (key: string): Harness => HARNESSES.find((h) => h.key === key) ?? { key, name: key, slot: null }
 
@@ -365,6 +371,8 @@ export interface TaskSet {
   versions: Record<string, Record<string, Note>>
   /** A point's own conditions from the report's words, by harness and run ('*' for every run). */
   notes: Record<string, Record<string, Note[]>>
+  /** Each harness's effort in this set's runs, where it is not `EFFORT`'s (the first full run's). */
+  effort?: Record<string, Note>
 }
 
 const ABLATION: Note = { text: 'a prompt ablation, never shipped', report: TB2, quote: 'B is reported here once, as an ablation, and was never shipped.' }
@@ -703,7 +711,7 @@ export function points(set: TaskSet, csv: string, json: string | undefined, md: 
     const started = g.trials.map((r) => r.started).filter(Boolean).sort()[0]
     out.push({
       id, set: set.id, harness: g.h, run: g.run.id, runLabel: g.run.label, report: set.runReport?.[g.run.id] ?? set.report,
-      date: started ?? date, model, version, effort: EFFORT[g.h],
+      date: started ?? date, model, version, effort: set.effort?.[g.h] ?? EFFORT[g.h],
       n: g.trials.length, tasks: tasks.size, values, tags,
     })
   }
