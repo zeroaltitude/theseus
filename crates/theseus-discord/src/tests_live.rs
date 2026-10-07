@@ -572,3 +572,65 @@ async fn a_changed_place_keeps_its_turn_and_its_messages() {
         .count();
     assert_eq!(reply, 1, "{after:#?}");
 }
+
+/// theseus-88cp: a place the file dropped is not one this daemon binds, even
+/// while its lane drains a post: an operator notice falling back to it is
+/// refused, saying so, and nothing but the post being sent reaches the place.
+#[tokio::test]
+async fn a_notice_falling_back_to_a_retired_lane_is_refused() {
+    let dock = channel(DOCK, "dock", &[ANA]);
+    let r = rig(vec![], &file(std::slice::from_ref(&dock)), &[DOCK]).await;
+    r.until("#dock's bind notice", || r.answered(DOCK, BOUND))
+        .await;
+    let sid = r.session(DOCK);
+    let target = format!("discord:channel:{DOCK}");
+    // No DM takes approvals: ana's is taken out, and ben has none.
+    r.rewrite(&format!("{}{dock}", with_dms(&[])));
+    r.until("ana's DM leaves health", || {
+        !r.labels().contains(&"DM @ana".to_string())
+    })
+    .await;
+    // A post to #dock is held mid-write, and #dock leaves the file.
+    r.fake.hold_writes_containing(Some("held at the dock"));
+    let body = serde_json::json!({"kind": "notice", "text": "held at the dock"});
+    let held = r.core.outbox.post(&sid, "", &target, body).unwrap();
+    r.until("the write is held", || {
+        r.fake.seen().iter().any(|s| s.outcome == "held")
+    })
+    .await;
+    r.rewrite(&with_dms(&[]));
+    r.until("#dock leaves health", || {
+        !r.labels().contains(&"#dock".to_string())
+    })
+    .await;
+    // An operator notice that falls back to #dock: refused, with the reason.
+    let body = serde_json::json!({"kind": "restarted", "at_unix_ms": 1, "tables": ["model"]});
+    let notice = r.core.outbox.to_operator(Some(&sid), body).unwrap();
+    let state = |id: &str| r.core.kernel.outbox_action(id).unwrap().map(|a| a.state);
+    r.until("the notice is refused", || {
+        state(&notice.correlation_id) == Some(ActionState::Failed)
+    })
+    .await;
+    let why: Vec<String> = r
+        .ledger("action.failed")
+        .iter()
+        .filter_map(|row| row["detail"]["error"].as_str().map(str::to_string))
+        .collect();
+    assert!(
+        why.iter()
+            .any(|w| w.contains("is not one this daemon's bindings file names")),
+        "{why:?}"
+    );
+    assert_eq!(
+        state(&held.correlation_id),
+        Some(ActionState::Dispatched),
+        "the held post is still being sent"
+    );
+    r.fake.hold_writes_containing(None);
+    r.until("the held post settles as sent", || {
+        state(&held.correlation_id) == Some(ActionState::Succeeded)
+    })
+    .await;
+    let dock: Vec<String> = r.posted(DOCK).iter().map(|m| m.content.clone()).collect();
+    assert_eq!(dock.len(), 2, "the bind notice and the held post: {dock:?}");
+}
