@@ -45,4 +45,4 @@ pub use speech::{
 #[cfg(feature = "voice")]
 pub use songbird;
 #[cfg(feature = "voice")]
-pub use songbird_io::{clip_input, manager, songbird_config, SongbirdIo, SsrcCount};
+pub use songbird_io::{clip_input, manager, songbird_config, Link, SongbirdIo, SsrcCount};

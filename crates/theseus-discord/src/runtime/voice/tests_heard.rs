@@ -19,19 +19,19 @@ use super::{pump, VoicePlace, FAILED_TURN, FRAMING};
 /// A call in the lounge on a session of a core whose model answers
 /// `replies` in turn: the place, its mailbox, the engine's events into
 /// `pump` (running), and the engine's commands.
-struct Lounge {
-    sid: String,
-    place: Place,
-    rx: mpsc::UnboundedReceiver<PlaceMsg>,
-    events: mpsc::UnboundedSender<Event>,
-    commands: mpsc::UnboundedReceiver<theseus_voice::Command>,
+pub(super) struct Lounge {
+    pub(super) sid: String,
+    pub(super) place: Place,
+    pub(super) rx: mpsc::UnboundedReceiver<PlaceMsg>,
+    pub(super) events: mpsc::UnboundedSender<Event>,
+    pub(super) commands: mpsc::UnboundedReceiver<theseus_voice::Command>,
 }
 
 fn lounge(dir: &std::path::Path, replies: &[&str]) -> Lounge {
     lounge_scripted(dir, replies.iter().map(|r| Scripted::text(r)).collect())
 }
 
-fn lounge_scripted(dir: &std::path::Path, script: Vec<Scripted>) -> Lounge {
+pub(super) fn lounge_scripted(dir: &std::path::Path, script: Vec<Scripted>) -> Lounge {
     let core = core_scripted(dir, script);
     let rec = theseus_core::session::SessionRecord::new(
         theseus_protocol::SessionKind::Conversation,
@@ -304,7 +304,7 @@ async fn the_line_is_bounded() {
 
 impl Lounge {
     /// The ledger's rows of `kind`, as (session, data), oldest first.
-    async fn rows(&self, kind: &str) -> Vec<(Option<String>, serde_json::Value)> {
+    pub(super) async fn rows(&self, kind: &str) -> Vec<(Option<String>, serde_json::Value)> {
         let tail: theseus_protocol::LedgerTailResult = self
             .place
             .shared

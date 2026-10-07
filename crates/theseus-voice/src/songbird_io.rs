@@ -9,16 +9,28 @@
 //!
 //! Send: each clip is a songbird track, in songbird's raw container, which
 //! its codec registry decodes with symphonia's `pcm` codec.
+//!
+//! Deafness (theseus-d93y): songbird drops a DAVE packet it can't decrypt
+//! before any event sees it, and keeps DAVE's session private, so a call
+//! whose MLS welcome never came hears nothing and says nothing. What it
+//! does show: RTCP sender reports, which DAVE never encrypts, per SSRC. A
+//! sender report from an SSRC is a packet that arrived; a tick with its
+//! decoded audio is one that decrypted. [`Link`] reads both, and rejoins
+//! the call in place.
 
 use std::collections::{BTreeMap, HashMap};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use async_trait::async_trait;
 use futures_util::future::BoxFuture;
 use songbird::driver::{Channels, DecodeConfig, DecodeMode, SampleRate};
+use songbird::events::context_data::DisconnectReason;
 use songbird::events::{CoreEvent, Event, EventContext, EventHandler, TrackEvent};
 use songbird::id::UserId;
 use songbird::input::Input;
+use songbird::packet::rtcp::RtcpPacket;
 use songbird::shards::TwilightMap;
 use songbird::tracks::TrackHandle;
 use songbird::{Call, Songbird};
@@ -69,6 +81,9 @@ pub struct SsrcCount {
     pub frames: u64,
     /// Ticks with decoded audio from it.
     pub decoded: u64,
+    /// RTCP sender reports from it (theseus-d93y): it is sending, whether or
+    /// not its audio decrypts.
+    pub reports: u64,
 }
 
 #[derive(Default)]
@@ -110,9 +125,24 @@ impl Ssrcs {
         frames
     }
 
+    /// An RTCP sender report from `ssrc`.
+    fn report(&mut self, ssrc: u32) {
+        self.counts.entry(ssrc).or_default().reports += 1;
+    }
+
     /// `user` left the channel: their SSRCs map to no one.
     fn left(&mut self, user: Speaker) {
         self.users.retain(|_, s| *s != user);
+    }
+
+    /// A fresh connection: every count from zero, the users kept.
+    fn restart(&mut self) {
+        for c in self.counts.values_mut() {
+            *c = SsrcCount {
+                user: c.user,
+                ..SsrcCount::default()
+            };
+        }
     }
 }
 
@@ -129,8 +159,79 @@ pub struct SongbirdIo {
     tx: mpsc::UnboundedSender<Signal>,
     track: Option<TrackHandle>,
     ssrcs: Arc<Mutex<Ssrcs>>,
+    /// A rejoin is leaving the call: its requested disconnect is no drop.
+    rejoining: Arc<AtomicBool>,
     /// Why the connection dropped, once it did.
     gone: Option<String>,
+}
+
+/// A joined call's counts and its rejoin, apart from the engine that owns
+/// the [`SongbirdIo`] (theseus-d93y).
+#[derive(Clone)]
+pub struct Link {
+    call: Arc<tokio::sync::Mutex<Call>>,
+    ssrcs: Arc<Mutex<Ssrcs>>,
+    rejoining: Arc<AtomicBool>,
+}
+
+impl Link {
+    /// What each SSRC has sent since the connection began.
+    pub fn counts(&self) -> BTreeMap<u32, SsrcCount> {
+        self.ssrcs
+            .lock()
+            .expect("the SSRC map's lock")
+            .counts
+            .clone()
+    }
+
+    /// Leave the call's channel and join it again, `gap` apart, within
+    /// `within`: a fresh voice connection, so a fresh DAVE key package and
+    /// welcome. The engine and its handlers stay; the counts start again.
+    /// `wanted` is asked under the call's lock just before the join: a call
+    /// that ended in the gap (a `/leave`, which keeps songbird's `Call`) is
+    /// not joined again.
+    pub async fn rejoin(
+        &self,
+        gap: Duration,
+        within: Duration,
+        wanted: &(dyn Fn() -> bool + Send + Sync),
+    ) -> Result<(), String> {
+        self.rejoining.store(true, Ordering::SeqCst);
+        let r = self.leave_and_join(gap, within, wanted).await;
+        self.rejoining.store(false, Ordering::SeqCst);
+        r
+    }
+
+    async fn leave_and_join(
+        &self,
+        gap: Duration,
+        within: Duration,
+        wanted: &(dyn Fn() -> bool + Send + Sync),
+    ) -> Result<(), String> {
+        let channel = {
+            let mut c = self.call.lock().await;
+            let channel = c.current_channel().ok_or("the call has no channel")?;
+            c.leave().await.map_err(|e| e.to_string())?;
+            channel
+        };
+        tokio::time::sleep(gap).await;
+        self.ssrcs.lock().expect("the SSRC map's lock").restart();
+        // The join's connect waits for the gateway's voice updates, which
+        // songbird hands to the call under its lock: drop it first.
+        let join = {
+            let mut c = self.call.lock().await;
+            // A `/leave` takes the call's slot before songbird's leave takes
+            // this lock, so asked here a call that ended says so.
+            if !wanted() {
+                return Err("the call ended during the rejoin".into());
+            }
+            c.join(channel).await.map_err(|e| e.to_string())?
+        };
+        match tokio::time::timeout(within, join).await {
+            Ok(r) => r.map_err(|e| e.to_string()),
+            Err(_) => Err(format!("no voice connection in {} s", within.as_secs())),
+        }
+    }
 }
 
 impl SongbirdIo {
@@ -139,6 +240,7 @@ impl SongbirdIo {
     pub async fn attach(call: Arc<tokio::sync::Mutex<Call>>) -> Self {
         let (tx, rx) = mpsc::unbounded_channel();
         let ssrcs = Arc::new(Mutex::new(Ssrcs::default()));
+        let rejoining = Arc::new(AtomicBool::new(false));
         {
             let mut c = call.lock().await;
             if !matches!(c.config().decode_mode, DecodeMode::Decode(_)) {
@@ -151,10 +253,12 @@ impl SongbirdIo {
             let receive = Receive {
                 tx: tx.clone(),
                 ssrcs: Arc::clone(&ssrcs),
+                rejoining: Arc::clone(&rejoining),
             };
             for event in [
                 CoreEvent::SpeakingStateUpdate,
                 CoreEvent::VoiceTick,
+                CoreEvent::RtcpPacket,
                 CoreEvent::ClientDisconnect,
                 CoreEvent::DriverDisconnect,
             ] {
@@ -167,7 +271,17 @@ impl SongbirdIo {
             tx,
             track: None,
             ssrcs,
+            rejoining,
             gone: None,
+        }
+    }
+
+    /// The call's counts and its rejoin, for the binding's deaf check.
+    pub fn link(&self) -> Link {
+        Link {
+            call: Arc::clone(&self.call),
+            ssrcs: Arc::clone(&self.ssrcs),
+            rejoining: Arc::clone(&self.rejoining),
         }
     }
 
@@ -231,6 +345,7 @@ impl VoiceIo for SongbirdIo {
 struct Receive {
     tx: mpsc::UnboundedSender<Signal>,
     ssrcs: Arc<Mutex<Ssrcs>>,
+    rejoining: Arc<AtomicBool>,
 }
 
 #[async_trait]
@@ -255,11 +370,23 @@ impl EventHandler for Receive {
                     .tick(packets);
                 let _ = self.tx.send(Signal::Heard(Heard::Tick(frames)));
             }
+            EventContext::RtcpPacket(r) => {
+                if let RtcpPacket::SenderReport(s) = r.rtcp() {
+                    let mut ssrcs = self.ssrcs.lock().expect("the SSRC map's lock");
+                    ssrcs.report(s.get_ssrc());
+                }
+            }
             EventContext::ClientDisconnect(gone) => {
                 let mut ssrcs = self.ssrcs.lock().expect("the SSRC map's lock");
                 ssrcs.left(Speaker(gone.user_id.0));
             }
             EventContext::DriverDisconnect(d) => {
+                // A rejoin's own leave: the call goes on.
+                if self.rejoining.load(Ordering::SeqCst)
+                    && d.reason == Some(DisconnectReason::Requested)
+                {
+                    return None;
+                }
                 let why = match d.reason {
                     Some(r) => format!("{:?}: {r:?}", d.kind),
                     None => format!("{:?}", d.kind),
@@ -356,10 +483,42 @@ mod tests {
             user,
             frames,
             decoded,
+            reports: 0,
         };
         assert_eq!(ssrcs.counts[&11], count(Some(Speaker(101)), 2, 2));
         assert_eq!(ssrcs.counts[&22], count(Some(Speaker(202)), 4, 2));
         assert_eq!(ssrcs.counts[&33], count(None, 1, 1));
+    }
+
+    /// A sender report counts as a packet from its SSRC, with no audio; a
+    /// rejoin's fresh connection counts from zero and keeps who is who
+    /// (theseus-d93y).
+    #[test]
+    fn a_sender_report_is_counted_and_a_restart_zeroes_the_counts() {
+        let mut ssrcs = Ssrcs::default();
+        ssrcs.speaking(11, Speaker(101));
+        ssrcs.report(11);
+        ssrcs.report(11);
+        ssrcs.report(44);
+        assert_eq!(
+            (ssrcs.counts[&11].reports, ssrcs.counts[&11].decoded),
+            (2, 0)
+        );
+        assert_eq!(ssrcs.counts[&44].user, None);
+        ssrcs.restart();
+        assert_eq!(
+            ssrcs.counts[&11],
+            SsrcCount {
+                user: Some(Speaker(101)),
+                ..SsrcCount::default()
+            }
+        );
+        let pcm = vec![7i16; FRAME_SAMPLES];
+        assert_eq!(
+            ssrcs.tick([(11, Some(pcm.as_slice()))]).len(),
+            1,
+            "still mapped"
+        );
     }
 
     #[test]
@@ -367,5 +526,74 @@ mod tests {
         let stereo: Vec<i16> = (0..FRAME_SAMPLES).flat_map(|_| [100, 300]).collect();
         assert_eq!(mono(&stereo), vec![200; FRAME_SAMPLES]);
         assert_eq!(mono(&[5; FRAME_SAMPLES]), vec![5; FRAME_SAMPLES]);
+    }
+
+    /// The voice state updates a call sends, each as its channel (`None`: a
+    /// leave).
+    #[derive(Default)]
+    struct Sent(Mutex<Vec<Option<u64>>>);
+
+    #[async_trait]
+    impl songbird::shards::VoiceUpdate for Sent {
+        async fn update_voice_state(
+            &self,
+            _guild: songbird::id::GuildId,
+            channel: Option<songbird::id::ChannelId>,
+            _deaf: bool,
+            _mute: bool,
+        ) -> songbird::error::JoinResult<()> {
+            self.0.lock().unwrap().push(channel.map(|c| c.0.get()));
+            Ok(())
+        }
+    }
+
+    /// A rejoin leaves the channel and joins it again, its counts from zero;
+    /// a call that ends in its gap (a `/leave`) is not joined again
+    /// (theseus-d93y).
+    #[tokio::test(start_paused = true)]
+    async fn a_rejoin_joins_again_unless_the_call_ended_in_its_gap() {
+        let id = |n| std::num::NonZeroU64::new(n).unwrap();
+        for leave_in_the_gap in [false, true] {
+            let sent = Arc::new(Sent::default());
+            let shard = songbird::shards::Shard::Generic(sent.clone());
+            let guild = songbird::id::GuildId::from(id(1));
+            let call = Arc::new(tokio::sync::Mutex::new(Call::new(
+                guild,
+                shard,
+                UserId::from(id(2)),
+            )));
+            let channel = songbird::id::ChannelId::from(id(3));
+            drop(call.lock().await.join(channel).await.unwrap());
+            let io = SongbirdIo::attach(Arc::clone(&call)).await;
+            io.ssrcs.lock().unwrap().report(11);
+            let (link, wanted) = (io.link(), Arc::new(AtomicBool::new(true)));
+            let still = Arc::clone(&wanted);
+            let rejoin = tokio::spawn(async move {
+                let wanted = move || still.load(Ordering::SeqCst);
+                let (gap, within) = (Duration::from_millis(300), Duration::from_millis(200));
+                link.rejoin(gap, within, &wanted).await
+            });
+            tokio::time::sleep(Duration::from_millis(100)).await;
+            if leave_in_the_gap {
+                // `/leave`: the call's slot taken, then songbird's leave.
+                wanted.store(false, Ordering::SeqCst);
+                call.lock().await.leave().await.unwrap();
+            }
+            let r = rejoin.await.unwrap();
+            assert_eq!(
+                io.ssrcs()[&11].reports,
+                0,
+                "a fresh connection counts from zero"
+            );
+            let sent = sent.0.lock().unwrap().clone();
+            if leave_in_the_gap {
+                assert_eq!(r, Err("the call ended during the rejoin".to_string()));
+                assert_eq!(sent, [Some(3), None, None], "no join after the leave");
+                assert!(call.lock().await.current_channel().is_none());
+            } else {
+                assert!(r.is_err(), "no voice server answers here: {r:?}");
+                assert_eq!(sent, [Some(3), None, Some(3)]);
+            }
+        }
     }
 }

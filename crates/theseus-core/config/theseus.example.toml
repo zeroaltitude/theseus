@@ -580,6 +580,7 @@ notice_embeds = false                   # an embed per notified call; off, its l
 # language = "en-US"
 # tts_voice = "aura-2-andromeda-en"     # the voice: an Aura model
 # api_base = "https://api.deepgram.com" # tests and scratch daemons: a local stand-in
+# deaf_after_secs = 10                  # a call that hears no listed speaker this long after joining rejoins once
 
 # ---------------------------------------------------------------- web
 # The localhost web UI, the cockpit, at /. Loopback only; a non-loopback

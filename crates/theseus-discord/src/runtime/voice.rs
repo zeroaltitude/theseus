@@ -58,9 +58,14 @@ use twilight_util::builder::command::{ChannelBuilder, CommandBuilder};
 use super::{Place, PlaceMsg, Shared};
 use crate::bindings::Bindings;
 
+mod deaf;
 mod notes;
 #[cfg(test)]
+mod tests_deaf;
+#[cfg(test)]
 mod tests_heard;
+#[cfg(test)]
+mod tests_reply;
 
 use notes::Notes;
 
@@ -74,6 +79,10 @@ pub(crate) const FRAMING: &str = "[Voice call: they hear your reply, they don't 
 /// text, so the call isn't left in silence.
 pub(crate) const FAILED_TURN: &str =
     "Sorry, that didn't work. The details are in the text channel.";
+
+/// Spoken after a voice turn that waits on the operator (a budget question,
+/// an approval), once per such turn (theseus-b6vz): the card is in text.
+pub(crate) const HELD_TURN: &str = "I need your answer in the text channel.";
 
 /// How long a join may take: songbird's own connect, then DAVE's handshake.
 const JOIN_WAIT: Duration = Duration::from_secs(20);
@@ -126,6 +135,9 @@ struct Call {
     dropped: Option<String>,
     /// What the next voice turn is told about the last (theseus-qb8o).
     notes: Notes,
+    /// A `/stop` landed on the voice turn in flight (theseus-b6vz): its end
+    /// is not spoken, a failure's sentence included.
+    stopped: bool,
 }
 
 /// A turn of utterances from the call, for the voice place.
@@ -260,6 +272,15 @@ impl Voice {
             .unwrap()
             .as_ref()
             .map(|c| (c.channel, c.label.clone()))
+    }
+
+    /// A `/stop` landed on the voice turn in flight of call `serial`.
+    fn stopped(&self, serial: u64) -> bool {
+        self.call
+            .lock()
+            .unwrap()
+            .as_ref()
+            .is_some_and(|c| c.serial == serial && c.stopped)
     }
 
     /// The reply to a voice turn, to the call that heard it.
@@ -439,6 +460,7 @@ impl Place {
     ) -> String {
         let shared = &self.shared;
         let voice = &shared.voice;
+        let line: Arc<dyn deaf::Line> = Arc::new(io.link());
         for &u in &place.users {
             let known = voice.names.lock().unwrap().contains_key(&u);
             if known {
@@ -476,6 +498,7 @@ impl Place {
             waiting: VecDeque::new(),
             dropped: None,
             notes: Notes::default(),
+            stopped: false,
         });
         update(shared, |s| {
             s.state = "joined".into();
@@ -483,6 +506,9 @@ impl Place {
             s.hears = hears.clone();
             s.joins += 1;
             s.since_ms = Some(theseus_protocol::now_unix_ms());
+            s.deaf_since_ms = None;
+            s.rejoins = 0;
+            s.deaf_failed = false;
         });
         shared.core.binding_ledger(
             LedgerKind::VoiceJoined,
@@ -496,6 +522,10 @@ impl Place {
             place.clone(),
             handle.events,
         ));
+        // Deafness is checked on a timer, off the audio path (theseus-d93y).
+        let after = Duration::from_secs(voice.cfg.deaf_after_secs);
+        let watched = (Arc::clone(shared), place.clone());
+        tokio::spawn(deaf::watch(watched.0, serial, watched.1, line, after));
         format!(
             "🎙️ Joined {}. I hear {}; anyone else is not heard. Talk over me to stop me; `/leave` \
              ends the call, and the conversation goes on here in text.",
@@ -602,6 +632,7 @@ impl Place {
         self.saw_failure = false;
         if let Some(c) = voice.call.lock().unwrap().as_mut() {
             c.inflight = true;
+            c.stopped = false;
         }
         let (rpc, tx, sid, shared) = (
             self.shared.rpc.clone(),
@@ -628,15 +659,22 @@ impl Place {
                     },
                 )
                 .await;
-            // Spoken: the turn's reply, or, when it failed, that it did; the
-            // place says why in text.
-            let text = match &r {
-                Ok(r) => r.output.clone(),
-                Err(_) => FAILED_TURN.to_string(),
-            };
-            shared.voice.reply(t.serial, t.turn, text);
+            let stopped = shared.voice.stopped(t.serial);
+            shared
+                .voice
+                .reply(t.serial, t.turn, spoken_end(&r, stopped));
             let _ = tx.send(PlaceMsg::SubmitDone(r.map(|_| ())));
         });
+    }
+
+    /// A `/stop` in this place (theseus-b6vz): the voice turn in flight, if
+    /// any, ends in silence. Called before the stop is sent, so its turn's
+    /// end always finds it.
+    pub(super) fn voice_stop(&self) {
+        let mut call = self.shared.voice.call.lock().unwrap();
+        if let Some(c) = call.as_mut().filter(|c| c.key == self.key && c.inflight) {
+            c.stopped = true;
+        }
     }
 
     /// A turn in this place began or ended while its call is up: a voice
@@ -660,12 +698,39 @@ impl Place {
             }
             CoreEvent::TurnFailed(t) => {
                 if let Some(id) = &t.turn_id {
-                    c.own.remove(id);
+                    // A stop from another surface: when this comes before
+                    // the submit's answer, its end is silent too.
+                    if c.own.remove(id) && t.class.as_deref() == Some("stopped") {
+                        c.stopped = true;
+                    }
                 }
             }
             _ => {}
         }
     }
+}
+
+/// What a voice turn's end says aloud: its reply; with `HELD_TURN` after it
+/// when the turn waits on the operator; `FAILED_TURN` when it failed (the
+/// place says why in text); nothing when a `/stop` ended it, which a step
+/// may refuse as a failure (`StoppedAtStep`, theseus-b6vz).
+fn spoken_end(r: &Result<TurnSubmitResult, crate::rpc_client::CallError>, stopped: bool) -> String {
+    match r {
+        _ if stopped => String::new(),
+        Ok(r) if r.stop_reason == "stopped" => String::new(),
+        Ok(r) if waits_on_operator(r) => match r.output.trim() {
+            "" => HELD_TURN.to_string(),
+            said => format!("{said}\n\n{HELD_TURN}"),
+        },
+        Ok(r) => r.output.clone(),
+        Err(_) => FAILED_TURN.to_string(),
+    }
+}
+
+/// A turn that ended waiting on the operator: an approval, or a budget
+/// question.
+fn waits_on_operator(r: &TurnSubmitResult) -> bool {
+    r.awaiting_confirm.is_some() || matches!(r.stop_reason.as_str(), "awaiting_confirm" | "budget")
 }
 
 /// The voice settings as Deepgram takes them.
@@ -714,6 +779,9 @@ fn ended(shared: &Shared, call: &Call, why: &str, by: &str) {
         s.channel = None;
         s.hears.clear();
         s.since_ms = None;
+        s.deaf_since_ms = None;
+        s.rejoins = 0;
+        s.deaf_failed = false;
     });
     shared.core.binding_ledger(
         LedgerKind::VoiceLeft,
@@ -1223,6 +1291,7 @@ mod tests {
             waiting: VecDeque::new(),
             dropped: None,
             notes: Notes::default(),
+            stopped: false,
         });
     }
 
@@ -1267,7 +1336,7 @@ mod tests {
     }
 
     /// The text of each post waiting for `target`.
-    fn posts(core: &Arc<Core>, target: &str) -> Vec<String> {
+    pub(super) fn posts(core: &Arc<Core>, target: &str) -> Vec<String> {
         core.outbox
             .open_for(target)
             .iter()
