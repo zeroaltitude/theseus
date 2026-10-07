@@ -8,7 +8,8 @@
 //!
 //! 1. SIGTERM to every process of the tree, as a cancel's SIGTERM to the
 //!    process group did before 18a, so a program that cleans up at SIGTERM
-//!    (git's lock files) still does; then up to the grace for it to empty.
+//!    (git's lock files) still does; then up to the grace for it to empty,
+//!    woken by each signalled process's exit (its pidfd).
 //! 2. The freeze: SIGSTOP to each process found, and to each new one a rescan
 //!    finds, until a scan finds nothing new and every process found reads as
 //!    stopped. A stopped process cannot fork, and a fork in flight when its
@@ -52,6 +53,17 @@ pub const KILL_WAIT: Duration = Duration::from_secs(2);
 /// forks faster than it can be stopped is still killed, and what escaped
 /// the freeze reads as a survivor.
 const FREEZE_LIMIT: Duration = Duration::from_millis(500);
+
+/// The longest a wait on the tree's pidfds goes before the next scan: the
+/// bound for a child no scan has found yet, whose exit no pidfd can tell.
+const LOOK: Duration = Duration::from_millis(10);
+
+/// The most pidfds the SIGTERM phase keeps to wake its wait at an exit. A
+/// process past them is signalled as before, its pidfd closed at once, and
+/// its end seen at the next look, so a large tree never takes the
+/// descriptors the freeze and the kill need: a wrapper's open-file limit is
+/// the daemon's (1,024 by default).
+const WATCHED: usize = 64;
 
 /// One process: its pid, and its start time (clock ticks after boot), which
 /// tells it from a later process given the same pid.
@@ -185,18 +197,24 @@ pub fn signal(p: Proc, sig: libc::c_int) -> bool {
 /// A pidfd for `p`, checked against its start time: `None` when its pid
 /// holds no process, or another one.
 fn pidfd(p: Proc) -> Option<OwnedFd> {
-    // SAFETY: pidfd_open takes a pid and flags and returns a new descriptor,
-    // which the OwnedFd below closes.
-    let fd = unsafe { libc::syscall(libc::SYS_pidfd_open, p.pid as libc::pid_t, 0) };
-    if fd < 0 {
-        return None;
-    }
-    let fd = unsafe { OwnedFd::from_raw_fd(fd as i32) };
+    let fd = open_pidfd(p.pid)?;
     // Opened before this check, the descriptor names the process the check
     // reads, or one that has since exited, which a signal cannot reach.
     stat(p.pid)
         .is_some_and(|s| s.start == p.start)
         .then_some(fd)
+}
+
+/// A pidfd for whatever process `pid` holds now, unchecked: its caller
+/// checks, once it is open, that the process is the one it means.
+pub(crate) fn open_pidfd(pid: u32) -> Option<OwnedFd> {
+    // SAFETY: pidfd_open takes a pid and flags and returns a new descriptor,
+    // which the OwnedFd below closes.
+    let fd = unsafe { libc::syscall(libc::SYS_pidfd_open, pid as libc::pid_t, 0) };
+    if fd < 0 {
+        return None;
+    }
+    Some(unsafe { OwnedFd::from_raw_fd(fd as i32) })
 }
 
 /// `sig` through a pidfd: whether it was sent.
@@ -213,6 +231,18 @@ fn send(fd: &OwnedFd, sig: libc::c_int) -> bool {
         )
     };
     sent == 0
+}
+
+/// SIGTERM to `p`, through a pidfd checked against its start time, kept in
+/// `termed` to wake the grace's wait at its exit while fewer than `WATCHED`
+/// are; past them, closed at once, and its end seen at the next look.
+fn term(p: Proc, termed: &mut Vec<(Proc, OwnedFd)>) {
+    if let Some(fd) = pidfd(p) {
+        send(&fd, libc::SIGTERM);
+        if termed.len() < WATCHED {
+            termed.push((p, fd));
+        }
+    }
 }
 
 /// A stop's outcome: how many processes it ended, what it left alive, and
@@ -282,14 +312,27 @@ fn stop_with(
 ) -> Stopped {
     let t0 = Instant::now();
     let mut met: BTreeSet<Proc> = BTreeSet::new();
-    // 1. SIGTERM, and the grace.
+    // 1. SIGTERM, and the grace: asleep on the signalled processes' pidfds
+    // (theseus-dwoj), woken by the first of them to exit, as the kill's
+    // wait is, to see the tree empty at once. A process a scan finds new is
+    // signalled only at a look, every `LOOK`, as before: a scan an exit woke
+    // comes just as a process that cleans up at SIGTERM forks its cleanup
+    // (a shell's trap runs once the child it waited on is gone), and a
+    // SIGTERM to that would cut the cleanup short. A child no scan has seen
+    // yet is found at the next look, at most `LOOK` later.
     let until = t0 + grace;
+    let mut termed: Vec<(Proc, OwnedFd)> = Vec::new();
+    let mut look = t0;
     loop {
         let left = reap();
         let live = scan(root);
-        for p in &live {
-            if met.insert(*p) {
-                signal(*p, libc::SIGTERM);
+        let now = Instant::now();
+        if now >= look {
+            look = now + LOOK;
+            for p in &live {
+                if met.insert(*p) {
+                    term(*p, &mut termed);
+                }
             }
         }
         if live.is_empty() && left != Left::Some {
@@ -299,12 +342,15 @@ fn stop_with(
                 ..Stopped::default()
             };
         }
-        if Instant::now() >= until {
+        if now >= until {
             break;
         }
-        std::thread::sleep(Duration::from_millis(10).min(until - Instant::now()));
+        termed.retain(|(_, fd)| !exited(fd));
+        wait_exit(&termed, (look - now).min(until - now));
     }
-    // 2. The freeze.
+    // 2. The freeze. The grace's pidfds are closed first: the freeze and
+    // the kill open their own, one for each process they signal.
+    drop(termed);
     let mut frozen: BTreeSet<Proc> = BTreeSet::new();
     let freeze_until = Instant::now() + FREEZE_LIMIT;
     loop {
@@ -366,7 +412,7 @@ fn stop_with(
         }
         // Woken by the first of them to exit; a reap's zombie or a new
         // child is seen at the next look.
-        wait_exit(&killed, (until - now).min(Duration::from_millis(10)));
+        wait_exit(&killed, (until - now).min(LOOK));
     };
     Stopped {
         killed: met.len() as u32,
@@ -377,7 +423,7 @@ fn stop_with(
 }
 
 /// Whether the process behind a pidfd has exited: its pidfd polls readable.
-fn exited(fd: &OwnedFd) -> bool {
+pub(crate) fn exited(fd: &OwnedFd) -> bool {
     use std::os::fd::AsRawFd;
     let mut p = libc::pollfd {
         fd: fd.as_raw_fd(),
@@ -390,10 +436,15 @@ fn exited(fd: &OwnedFd) -> bool {
 
 /// Up to `limit` for any of `killed` to exit, asleep on their pidfds.
 fn wait_exit(killed: &[(Proc, OwnedFd)], limit: Duration) {
+    wait_any(killed.iter().map(|(_, fd)| fd), limit);
+}
+
+/// Up to `limit` (a millisecond at least, a second at most) for any of
+/// these pidfds' processes to exit; a sleep of `limit` when there is none.
+pub(crate) fn wait_any<'a>(pidfds: impl Iterator<Item = &'a OwnedFd>, limit: Duration) {
     use std::os::fd::AsRawFd;
-    let mut fds: Vec<libc::pollfd> = killed
-        .iter()
-        .map(|(_, fd)| libc::pollfd {
+    let mut fds: Vec<libc::pollfd> = pidfds
+        .map(|fd| libc::pollfd {
             fd: fd.as_raw_fd(),
             events: libc::POLLIN,
             revents: 0,

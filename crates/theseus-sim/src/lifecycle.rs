@@ -1432,12 +1432,17 @@ pub fn run(o: &Opts) -> Result<Report> {
 /// and leave no job dispatched.
 fn cancel_phase(rig: &Rig, runs: usize, samples: &mut BTreeMap<String, Vec<f64>>) -> Result<()> {
     let (mut child, _) = rig.start()?;
+    // The frames each cancel wrote, read from the WAL as `bench turn` reads
+    // a turn's (theseus-dwoj): a frame is a sync, the cost a busy disk adds.
+    let mut frames: Vec<Vec<crate::walcount::Frame>> = Vec::new();
     let measured = (|| -> Result<()> {
         for _ in 0..runs {
             let exec = rig.start_job()?;
+            let mut tail = crate::walcount::Tail::at_end(&rig.state.join("store").join("wal"))?;
             let t = Instant::now();
             let c = rig.call("execution.cancel", json!({"execution_id": exec}))?;
             let ms = t.elapsed().as_secs_f64() * 1000.0;
+            frames.push(tail.read()?);
             let cancelled = c["cancelled_actions"].as_array().map_or(0, Vec::len);
             let v = &c["verdicts"][0];
             if cancelled != 1
@@ -1456,6 +1461,17 @@ fn cancel_phase(rig: &Rig, runs: usize, samples: &mut BTreeMap<String, Vec<f64>>
         Ok(())
     })();
     rig.stop_anyhow(&mut child);
+    if let Some(most) = frames.iter().max_by_key(|f| f.len()) {
+        let least = frames.iter().map(Vec::len).min().unwrap_or(0);
+        eprintln!(
+            "cancel: {least} to {} frames a cancel; the most:\n  {}",
+            most.len(),
+            most.iter()
+                .map(crate::walcount::Frame::label)
+                .collect::<Vec<_>>()
+                .join("\n  ")
+        );
+    }
     measured
 }
 

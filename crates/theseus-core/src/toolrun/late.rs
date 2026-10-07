@@ -184,15 +184,39 @@ impl ToolRuntime {
         session_id: &str,
         execution_id: &str,
     ) -> Result<Vec<Node>> {
+        self.answer_after_cancel_with(kernel, store, session_id, execution_id, &[], |_| Ok(()))
+            .map(|(nodes, ())| nodes)
+    }
+
+    /// `answer_after_cancel`, with `first` staged in the same frame before
+    /// the answers are read: the cancel's last verdicts (theseus-dwoj), so
+    /// the calls they settle are answered in the frame that settles them.
+    /// `also`: the other executions `first` writes, which the frame locks
+    /// too. `first` may run twice, the first time's frame not written, when
+    /// the answers bring outside text (`external::under_hold`).
+    pub(crate) fn answer_after_cancel_with<T>(
+        &self,
+        kernel: &Kernel,
+        store: &Store,
+        session_id: &str,
+        execution_id: &str,
+        also: &[String],
+        mut first: impl FnMut(&Kernel) -> Result<T>,
+    ) -> Result<(Vec<Node>, T)> {
         let (mut written, mut outputs) = (Vec::new(), Vec::new());
+        let mut ids: Vec<&str> = also.iter().map(String::as_str).collect();
+        ids.push(execution_id);
+        ids.sort_unstable();
+        ids.dedup();
         // What a job brought from outside brings its hold in this frame (18c).
-        crate::external::under_hold(store, session_id, |hold| {
-            kernel.frame(&[execution_id], |k| {
+        let t = crate::external::under_hold(store, session_id, |hold| {
+            kernel.frame(&ids, |k| {
+                let t = first(k)?;
                 let Some(e) = k.execution(execution_id)? else {
-                    return Ok(());
+                    return Ok(t);
                 };
                 if e.state != ExecState::Cancelled || k.holds_turn(execution_id) {
-                    return Ok(());
+                    return Ok(t);
                 }
                 let (nodes, raw) = self.cancelled_results(k, store, session_id, &e)?;
                 let mut records = nodes.iter().map(Node::record).collect::<Result<Vec<_>>>()?;
@@ -203,7 +227,7 @@ impl ToolRuntime {
                 );
                 k.stage(&records)?;
                 (written, outputs) = (nodes, raw);
-                Ok(())
+                Ok(t)
             })
         })?;
         // The nodes are written, so the jobs' raw output goes, as for a
@@ -211,7 +235,7 @@ impl ToolRuntime {
         for a in &outputs {
             self.remove_job_output(a);
         }
-        Ok(written)
+        Ok((written, t))
     }
 
     /// The result nodes for `answer_after_cancel`, and the jobs whose raw output
