@@ -44,13 +44,35 @@ import efficiency as ef
 import measure
 import sampler as smp
 
+from pydantic import Field
+
 DIR = "/installed-agent/measure"
 SAMPLER = f"{DIR}/sampler.py"
 STATE = f"{DIR}/state"
 
 
+def with_caps(base: Any) -> Any:
+    """Harbor's options model for an agent, with the other arms' caps as two
+    options more: Harbor checks every `--ak` against the model before it builds
+    the agent, and refuses one it does not declare. Neither is a flag or an
+    environment variable of the harness; `MeasuredArm` takes them (Pi's arm
+    declares them the same way, `MeasuredPiOptions`)."""
+
+    class Caps(base):
+        max_budget_usd: float | None = Field(
+            default=None, description="The other arms' spend cap, in dollars: enforced where the harness has one, "
+                                      "else recorded and flagged.")
+        max_turns: int | None = Field(
+            default=None, description="The other arms' turn cap: enforced where the harness has one, else recorded "
+                                      "and flagged.")
+
+    Caps.__name__ = Caps.__qualname__ = "Measured" + base.__name__
+    return Caps
+
+
 class MeasuredArm:
-    """The mixin: list it before Harbor's agent class in the bases."""
+    """The mixin: list it before Harbor's agent class in the bases, and set the
+    class's `options_model = with_caps(<Harbor's>.options_model)`."""
 
     ARM: str = ""
     PINNED_VERSION: str | None = None

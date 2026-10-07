@@ -49,7 +49,7 @@ from harbor.agents.installed.aider import Aider
 
 import efficiency as ef
 import measure
-from measured import DIR, MeasuredArm
+from measured import DIR, MeasuredArm, with_caps
 
 # aider-chat's latest release on PyPI when this arm was built (2026-10-07).
 PINNED_VERSION = "0.86.2"
@@ -98,6 +98,7 @@ def install_script(version: str | None) -> str:
 
 class MeasuredAider(MeasuredArm, Aider):
     ARM = "aider"
+    options_model = with_caps(Aider.options_model)
     PINNED_VERSION = PINNED_VERSION
 
     def __init__(self, *args, reasoning_effort: str | None = None, **kwargs):

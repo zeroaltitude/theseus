@@ -24,7 +24,7 @@ import re
 from harbor.agents.installed.opencode import OpenCode
 
 import efficiency as ef
-from measured import MeasuredArm
+from measured import MeasuredArm, with_caps
 
 # opencode-ai's latest release when this arm was built (2026-10-07).
 PINNED_VERSION = "1.18.35"
@@ -34,6 +34,7 @@ RUN_ENV = {"OPENCODE_DISABLE_MODELS_FETCH": "1", "OPENCODE_DISABLE_AUTOUPDATE": 
 
 class MeasuredOpenCode(MeasuredArm, OpenCode):
     ARM = "opencode"
+    options_model = with_caps(OpenCode.options_model)
     PINNED_VERSION = PINNED_VERSION
     EFFORT_OPTION = "variant"
 

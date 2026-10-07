@@ -235,6 +235,18 @@ class Arms(unittest.TestCase):
                 b = self.make(cls, model, version="9.9.9", **{effort or "reasoning_effort": "high"})
                 self.assertEqual((b.version(), b.effort_asked()), ("9.9.9", "high"))
 
+    def test_harbor_takes_the_caps_as_options_before_it_builds_the_agent(self):
+        """Harbor checks every --ak against the options model first (its
+        `harbor run` refused `max_budget_usd` for OpenCode's own model)."""
+        for cls, base, model, arm, _, effort in arms():
+            with self.subTest(arm):
+                kw = {"max_budget_usd": "2.0", "max_turns": "200"}
+                opts = cls.options_model.model_validate(kw)
+                self.assertEqual((opts.max_budget_usd, opts.max_turns), (2.0, 200))
+                with self.assertRaises(Exception):
+                    base.options_model.model_validate(kw)
+                self.assertNotIn("max_budget", self.make(cls, model).build_cli_flags())
+
     def test_no_new_arm_enforces_the_spend_cap_and_openhands_enforces_the_turns(self):
         for cls, _, model, arm, _, _ in arms():
             with self.subTest(arm):

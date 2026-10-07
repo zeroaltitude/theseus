@@ -25,7 +25,7 @@ from __future__ import annotations
 from harbor.agents.installed.openclaw import OpenClaw
 
 import efficiency as ef
-from measured import MeasuredArm
+from measured import MeasuredArm, with_caps
 
 # openclaw's latest release on npm when this arm was built (2026-10-07).
 PINNED_VERSION = "2026.9.8"
@@ -40,6 +40,7 @@ def node24(command: str) -> str:
 
 class MeasuredOpenClaw(MeasuredArm, OpenClaw):
     ARM = "openclaw"
+    options_model = with_caps(OpenClaw.options_model)
     PINNED_VERSION = PINNED_VERSION
     EFFORT_OPTION = "thinking"
 

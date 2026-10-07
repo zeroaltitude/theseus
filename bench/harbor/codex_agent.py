@@ -27,7 +27,7 @@ from __future__ import annotations
 from harbor.agents.installed.codex import Codex
 
 import efficiency as ef
-from measured import MeasuredArm
+from measured import MeasuredArm, with_caps
 
 # @openai/codex's latest release when this arm was built (2026-10-07).
 PINNED_VERSION = "0.161.0"
@@ -39,6 +39,7 @@ NATIVE_MODEL = "openai/gpt-5.6-sol"
 
 class MeasuredCodex(MeasuredArm, Codex):
     ARM = "codex"
+    options_model = with_caps(Codex.options_model)
     PINNED_VERSION = PINNED_VERSION
     EFFORT_OPTION = "reasoning_effort"
 

@@ -42,7 +42,7 @@ from pathlib import Path
 from harbor.agents.installed.openhands_sdk import OpenHandsSDK
 
 import efficiency as ef
-from measured import DIR, MeasuredArm
+from measured import DIR, MeasuredArm, with_caps
 
 # openhands-sdk's (and openhands-tools') latest release on PyPI when this arm
 # was built (2026-10-07).
@@ -55,6 +55,7 @@ NAMED = f"{VENV}/openhands-py {WRAPPER}"
 
 class MeasuredOpenHands(MeasuredArm, OpenHandsSDK):
     ARM = "openhands"
+    options_model = with_caps(OpenHandsSDK.options_model)
     PINNED_VERSION = PINNED_VERSION
     EFFORT_OPTION = "reasoning_effort"
 
