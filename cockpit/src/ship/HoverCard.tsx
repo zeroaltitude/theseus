@@ -4,7 +4,7 @@
 import { useLayoutEffect, useRef, useState } from 'react'
 import type { Hit } from './engine'
 import type { Bench, Light, ShipModel, Vessel } from './model'
-import { authorWord, benchLine, benchState, count, LIGHT_NOUN, LIGHT_SEA, outcome, SHAPES, span, stateWord, type Tone, usdShort, vesselNoun, vesselSea } from './words'
+import { authorWord, benchLine, benchState, count, LIGHT_NOUN, LIGHT_SEA, outcome, rawState, recentLine, SHAPES, span, stateWord, type Tone, usdShort, vesselNoun, vesselSea } from './words'
 import { placeCard } from './placement'
 import { instrumentRects } from './instrumentRects'
 import { ago, clock } from '@/lib/format'
@@ -27,14 +27,19 @@ function VesselBody({ v, model }: { v: Vessel; model: ShipModel }) {
   const parent = v.parentId ? model.vessels[model.byId.get(v.parentId) ?? -1] : undefined
   const calls = v.benches.reduce((a, b) => a + model.benches[b].calls, 0)
   const failed = v.benches.reduce((a, b) => a + model.benches[b].failed, 0)
+  const messages = v.benches.reduce((a, b) => a + model.benches[b].lights.filter((k) => model.lights[k].kind === 'user').length, 0)
+  const recent = recentLine(v.goldPlanks, v.turns)
+  const raw = rawState(v)
   return (
     <>
       <Head noun={vesselNoun(v)} sea={vesselSea(v)} right={v.kind === 'task' ? v.taskShort : undefined} />
       <div className="mt-0.5 font-display text-[13.5px] font-semibold leading-snug text-ivory">{v.title}</div>
       <div className={`num text-[11.5px] ${TONE[st.tone]}`}>{st.word} <span className="text-ink-faint">· {st.sea}</span></div>
+      {raw !== 'idle' && raw !== st.word && <div className="num max-w-[380px] truncate text-[10.5px] text-ink-faint">{raw}</div>}
       <div className="num mt-1 text-[11px] text-ink-dim">
-        {count(v.turns, 'turn')} · {count(calls, 'tool call')}{failed ? `, ${failed} failed` : ''} · {usdShort(v.cost)}{v.limit ? ` of ${usdShort(v.limit)}` : ''}
+        {count(v.turns, 'turn')} · {count(messages, 'message')} · {count(calls, 'tool call')}{failed ? `, ${failed} failed` : ''} · {usdShort(v.cost)}{v.limit ? ` of ${usdShort(v.limit)}` : ''}
       </div>
+      {recent && <div className="num text-[11px] text-ink-dim">{recent} <span className="text-ink-faint">· its gold planks</span></div>}
       <div className="num text-[11px] text-ink-faint">
         {v.place && !v.parentId ? `from ${v.label || 'the CLI'} · ` : ''}last active {ago(v.lastActive)}
       </div>

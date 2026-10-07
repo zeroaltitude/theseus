@@ -7,7 +7,7 @@ import { SHAPES, type Shape } from './words.ts'
 export type KeyGroup = 'The fleet' | 'A ship' | 'Its oars' | 'Its state'
 export type Glyph =
   | 'harbour' | 'ship' | 'boat' | 'bench' | 'message' | 'model' | 'oar' | 'oar-failed' | 'oar-waiting' | 'gear' | 'shield'
-  | 'web' | 'sail' | 'lantern' | 'flare' | 'anchor'
+  | 'web' | 'sail' | 'lantern' | 'flare' | 'anchor' | 'planks' | 'chain'
 
 export interface KeyLine {
   /** The shape it names (its words are `SHAPES[id]`). */
@@ -51,6 +51,7 @@ export function keyLines(m: ShipModel): KeyLine[] {
     line('turn', 'A ship', 'bench', m.benches.length, ids((i) => V[i].benches.length > 0), []),
     line('message', 'A ship', 'message', L.filter((l) => l.kind === 'user').length, [], lightIds((i) => L[i].kind === 'user')),
     line('model', 'A ship', 'model', L.filter((l) => l.kind === 'model').length, [], lightIds((i) => L[i].kind === 'model')),
+    line('planks', 'A ship', 'planks', V.reduce((a, v) => a + v.goldPlanks, 0), ids((i) => V[i].goldPlanks > 0), []),
     line('call', 'Its oars', 'oar', L.filter((l) => l.kind === 'call').length, [], lightIds((i) => L[i].kind === 'call')),
     line('failed', 'Its oars', 'oar-failed', failedCalls.size, [], [...failedCalls]),
     line('waiting', 'Its oars', 'oar-waiting', L.filter((l) => l.waiting).length, [], lightIds((i) => !!L[i].waiting)),
@@ -61,6 +62,7 @@ export function keyLines(m: ShipModel): KeyLine[] {
     line('needs', 'Its state', 'lantern', V.filter((v) => v.rig === 'lantern').length, ids((i) => V[i].rig === 'lantern'), []),
     line('down', 'Its state', 'flare', V.filter((v) => v.rig === 'flare').length, ids((i) => V[i].rig === 'flare'), []),
     line('idle', 'Its state', 'anchor', V.filter((v) => v.rig === 'anchor').length, ids((i) => V[i].rig === 'anchor'), []),
+    line('held', 'Its state', 'chain', V.filter((v) => v.hold).length, ids((i) => !!V[i].hold), []),
   ]
   return lines
 }

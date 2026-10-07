@@ -5,6 +5,7 @@ import { useMemo, useState } from 'react'
 import { HelpCircle } from 'lucide-react'
 import type { ShipModel } from './model'
 import { keyLines, lights, type Glyph, type KeyGroup, type KeyLine } from './keyset'
+import './ship.css'
 
 const GROUPS: KeyGroup[] = ['The fleet', 'A ship', 'Its oars', 'Its state']
 
@@ -40,6 +41,8 @@ export function KeyGlyph({ g }: { g: Glyph }) {
       {g === 'lantern' && <g>{hull('#fbbf24', true)}<circle cx="3.2" cy="3.4" r="2.3" fill="#fbbf24" style={{ filter: 'drop-shadow(0 0 3px #fbbf24)' }} /></g>}
       {g === 'flare' && <g>{hull('#fb7185', true)}<circle cx="10" cy="2.6" r="2.2" fill="#fb7185" style={{ filter: 'drop-shadow(0 0 3px #fb7185)' }} /></g>}
       {g === 'anchor' && hull('#9a7745')}
+      {g === 'planks' && <g>{hull('#b08d57')}<path d="M5 7.6 H15 M4 9 H16.6 M5 10.4 H15" stroke="#e3ad4f" strokeWidth="0.9" strokeDasharray="3 0.8" /></g>}
+      {g === 'chain' && <g>{hull('#b08d57')}<path d="M3.4 8.2 Q9 5.2 16.8 8.2" fill="none" stroke="#ffa26a" strokeWidth="1.1" strokeDasharray="1.4 0.9" /></g>}
     </svg>
   )
 }
@@ -52,9 +55,12 @@ export interface KeyProps {
   onPreview: (k: KeyLine | null) => void
   onPin: (k: KeyLine | null) => void
   onTour: () => void
+  /** The height the key may take (CSS pixels), when the selected vessel's card stands above it: its lines scroll
+   *  rather than run under the card. */
+  maxHeight?: number
 }
 
-export function Key({ model, pinned, onPreview, onPin, onTour }: KeyProps) {
+export function Key({ model, pinned, onPreview, onPin, onTour, maxHeight }: KeyProps) {
   const [open, setOpen] = useState(() => {
     const kept = localStorage.getItem('cockpit.ship.legend')
     return kept ? kept === 'open' : window.innerWidth >= 1280 && window.innerHeight >= 860
@@ -62,7 +68,8 @@ export function Key({ model, pinned, onPreview, onPin, onTour }: KeyProps) {
   const toggle = () => { localStorage.setItem('cockpit.ship.legend', open ? 'closed' : 'open'); setOpen(!open) }
   const lines = useMemo(() => (model ? keyLines(model) : []), [model])
   return (
-    <div data-ship-ui className="ship-key-slot brass-card pointer-events-auto absolute bottom-3 left-3 w-[268px] !px-2.5 !py-2" onMouseLeave={() => onPreview(null)}>
+    <div data-ship-ui className="ship-key-slot brass-card pointer-events-auto absolute bottom-3 left-3 flex w-[268px] flex-col !px-2.5 !py-2"
+      style={maxHeight ? { maxHeight } : undefined} onMouseLeave={() => onPreview(null)}>
       <div className="flex items-center gap-2">
         <button onClick={toggle} className="ship-engraved flex flex-1 items-center justify-between text-[10px]" title="What every shape on the chart is">
           <span>The key</span><span className="text-ink-faint">{open ? '−' : '+'}</span>
@@ -70,9 +77,9 @@ export function Key({ model, pinned, onPreview, onPin, onTour }: KeyProps) {
         <button onClick={onTour} title="The tour: what each shape is, on the chart (?)" className="text-ink-faint hover:text-neon"><HelpCircle size={14} /></button>
       </div>
       {open && (
-        <div className="mt-1">
+        <div className="ship-key-body mt-1 min-h-0 overflow-y-auto">
           {GROUPS.map((g) => (
-            <div key={g} className="mt-1">
+            <div key={g} className="ship-key-group">
               <div className="px-1 text-[9.5px] uppercase tracking-[0.14em] text-ink-faint">{g}</div>
               {lines.filter((k) => k.group === g).map((k) => {
                 const can = lights(k) && k.count > 0
@@ -89,7 +96,7 @@ export function Key({ model, pinned, onPreview, onPin, onTour }: KeyProps) {
               })}
             </div>
           ))}
-          <p className="mt-1 px-1 text-[10px] leading-snug text-ink-faint">Rest on a line to light it on the chart; click to keep it. ? for the tour.</p>
+          <p className="mt-1 px-1 text-[10px] leading-snug text-ink-faint">Rest on a line to light it; click to keep it lit; ? the tour.</p>
         </div>
       )}
     </div>

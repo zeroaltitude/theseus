@@ -2,7 +2,8 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  authorWord, benchLabel, benchLine, benchState, count, depthOf, harbourLine, keelTags, oarTag, outcome, plateLine, SHAPES, span, stateWord, usdShort,
+  authorWord, benchLabel, benchLine, benchState, count, depthOf, harbourLine, keelTags, oarTag, outcome, plateLine, rawState, recentLine, SHAPES, span,
+  stateWord, usdShort,
   vesselNoun, vesselSea,
 } from '../src/ship/words.ts'
 
@@ -113,4 +114,15 @@ test("a ship's keel says an author or a model only where it changes", () => {
   assert.deepEqual([...keelTags(L)], [
     [0, 'you, from the CLI'], [1, 'sonnet-5-5'], [5, 'task e19294'], [6, 'opus-5-5'], [7, 'you, from the CLI'], [8, 'opus-5-5'],
   ])
+})
+
+test('a vessel keeps its recorded state and attention, and its turns of the last hour, in words', () => {
+  const v = (o: Record<string, unknown>) => ({ kind: 'conversation', rig: 'anchor', state: 'waiting', ...o }) as any
+  assert.equal(rawState(v({ state: 'budget_exhausted', rig: 'flare' })), 'budget_exhausted')
+  assert.equal(rawState(v({ state: 'running', attention: { level: 'working', label: 'waiting on 1 call' } })), 'running · working: waiting on 1 call')
+  assert.equal(rawState(v({ state: 'waiting', attention: { level: 'needs_you', label: 'confirm fs.write: create /tmp/x' } })), 'waiting · needs_you: confirm fs.write: create /tmp/x')
+  assert.equal(rawState(v({ state: 'waiting', attention: { level: 'ready', label: 'ready' } })), 'waiting · ready')
+  assert.equal(recentLine(9, 17), '9 of its 17 turns in the last hour')
+  assert.equal(recentLine(1, 1), '1 of its 1 turn in the last hour')
+  assert.equal(recentLine(0, 17), null)
 })

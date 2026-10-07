@@ -11,6 +11,7 @@
 //   oar           = a tool call; its blade is the result (green ok, rose failed, amber waits for you, open pending)
 //   brass gear    = a job running; hex shield = sandboxed (L1); magenta = text from the web
 //   rig           = the state: sail up working, lantern waiting for you, flare failed, at anchor idle
+//   gold planks   = its turns of the last hour; a chain along its rail = it holds text from the web until trusted
 //   gold coin     = a turn's cost, flying to "Spent today"; violet spark = a turn that recalled memory
 //   the swell     = the work now: dead calm when nothing runs, rising with tokens a minute and running turns
 
@@ -33,6 +34,8 @@ export const SHAPES = {
   needs: { word: 'waiting for you', noun: 'waiting for you', sea: 'lantern lit' },
   down: { word: 'failed or over budget', noun: 'failed', sea: 'flare up' },
   idle: { word: 'idle', noun: 'idle', sea: 'at anchor' },
+  planks: { word: 'turns in the last hour', noun: 'recent turns', sea: 'gold planks on its deck' },
+  held: { word: 'holds web text', noun: 'holds web text', sea: 'a chain along its rail' },
   coin: { word: 'a turn’s cost', noun: 'cost', sea: 'gold coin, flying to Spent today' },
   recall: { word: 'recalled memory', noun: 'recall', sea: 'violet spark on its bench' },
   sea: { word: 'the work now', noun: 'the sea', sea: 'the swell; dead calm when idle' },
@@ -73,6 +76,20 @@ export function stateWord(v: VesselLike): StateWord {
   if (v.kind === 'task' && (v.state === 'complete' || v.state === 'succeeded')) return { word: 'done', tone: 'ok', sea: 'at anchor' }
   if (v.state === 'cancelled') return { word: 'cancelled', tone: 'idle', sea: 'at anchor' }
   return { word: 'idle', tone: 'idle', sea: 'at anchor' }
+}
+
+/** A vessel's state as the daemon records it (its execution's state, and its attention's level and label), for the card
+ *  under its plain words: "running · working: waiting on 1 call", "budget_exhausted". */
+export function rawState(v: VesselLike): string {
+  const level = v.attention?.level ?? ''
+  const label = v.attention?.label ?? ''
+  const att = label && label !== level ? `${level ? `${level}: ` : ''}${label}` : level
+  return att ? `${v.state} · ${att}` : v.state
+}
+
+/** "9 of its 17 turns in the last hour", or nothing for a ship with none then. */
+export function recentLine(gold: number, turns: number): string | null {
+  return gold > 0 ? `${gold} of its ${count(turns, 'turn')} in the last hour` : null
 }
 
 /** What a vessel is: "session" or "task". */

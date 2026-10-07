@@ -84,6 +84,10 @@ test('every key line names the shapes it lights', () => {
   assert.equal(by.get('job')!.count, 1)
   assert.deepEqual(by.get('needs')!.vessels, ['s1'])
   assert.equal(by.get('place')!.lights.length + by.get('place')!.vessels.length, 0)
+  // The old key's last two lines (data parity S-94, N5): a chain along the rail, and the gold planks of the last hour.
+  assert.equal(by.get('held')!.count, 0)
+  assert.equal(by.get('planks')!.count, 2)
+  assert.deepEqual(by.get('planks')!.vessels, ['s1'])
   // The key says each shape as the labels, the cards and the tour do: words.ts's words, one line a shape.
   for (const k of by.values()) assert.deepEqual([k.word, k.sea], [SHAPES[k.id].word, SHAPES[k.id].sea], k.id)
   assert.equal(by.size, keyLines(m).length)

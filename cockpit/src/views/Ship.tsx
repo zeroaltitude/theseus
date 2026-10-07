@@ -3,7 +3,7 @@
 // (newest at the bow), every tool call an oar of its turn with its result at the blade. Every shape says what it is in
 // plain words (its nameplate, its hover card, the key, the tour); the watch answers the operator's questions; the depth
 // gauge says how deep the camera reads. Everything shown is the daemon's own data, and moves only when it happens.
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router'
 import { Anchor, Crosshair, ExternalLink, HelpCircle, Maximize, Search, Waves } from 'lucide-react'
 import { ShipEngine, type Hit } from '@/ship/engine'
@@ -19,7 +19,7 @@ import { Tour } from '@/ship/Tour'
 import { COCKPIT_VERSION, SEEN_KEY, TOUR_KEY, tourPlan, type TourPlan } from '@/ship/news'
 import { DepthGauge } from '@/ship/Depth'
 import { Coins } from '@/ship/Coins'
-import { benchLine, count, depthOf, stateWord, type Depth } from '@/ship/words'
+import { benchLine, count, depthOf, rawState, stateWord, type Depth } from '@/ship/words'
 import { ShipBoundary, ShipFallback } from '@/ship/NoWebGL'
 import { Watch, type WatchFocus, type WatchTarget } from '@/ship/Watch'
 import { hasWebGL, NO_WEBGL, tryBuild } from '@/ship/webgl'
@@ -330,6 +330,24 @@ function ShipView({ data, onFail }: { data: ShipData; onFail: OnFail }) {
   })
 
   const vessel = model && sel >= 0 ? model.vessels[sel] : undefined
+  // The selected vessel's card and the key share the left side: the key takes the height below the card.
+  const card = useRef<HTMLElement>(null)
+  const [keyRoom, setKeyRoom] = useState<number | undefined>()
+  const hasCard = !!vessel
+  useLayoutEffect(() => {
+    const el = card.current
+    if (!hasCard || !el || !root) { setKeyRoom(undefined); return }
+    const measure = () => {
+      const r = el.getBoundingClientRect()
+      const o = root.getBoundingClientRect()
+      setKeyRoom(Math.max(110, Math.round(o.bottom - 12 - (r.bottom + 10))))
+    }
+    measure()
+    const ro = new ResizeObserver(measure)
+    ro.observe(el)
+    ro.observe(root)
+    return () => ro.disconnect()
+  }, [hasCard, root])
   const h = data.health
   const status = useConn((s) => s.status)
   // The time machine: the gauges read the fold at its moment, not today's health.
@@ -356,9 +374,9 @@ function ShipView({ data, onFail }: { data: ShipData; onFail: OnFail }) {
         <BrassButton title="The tour: what each shape is, on the chart (?)" onClick={() => setTour(true)}><HelpCircle size={13} /> Tour</BrassButton>
       </div>
 
-      {vessel && model && <VesselCard v={vessel} model={model} bench={bench_} now={data.past?.t} reachCap={data.reachCap} onClose={() => setParams((p) => { p.delete('s'); p.delete('n'); p.delete('b'); return p }, { replace: true })} />}
+      {vessel && model && <VesselCard ref={card} v={vessel} model={model} bench={bench_} now={data.past?.t} reachCap={data.reachCap} onClose={() => setParams((p) => { p.delete('s'); p.delete('n'); p.delete('b'); return p }, { replace: true })} />}
       {hover && model && !touring && <HoverCard hover={hover} model={model} />}
-      <Key model={model} pinned={keyPinned?.id ?? null} onPreview={setKeyPreview} onPin={setKeyPinned} onTour={() => setTour(true)} />
+      <Key model={model} pinned={keyPinned?.id ?? null} onPreview={setKeyPreview} onPin={setKeyPinned} onTour={() => setTour(true)} maxHeight={keyRoom} />
 
       {/* The console: the engine (admission) and tokens a minute, the two gauges no other place shows (the owner's C3).
           The compass's live profile and the chronometer's uptime are the top bar's profile chip and UP; as of a moment in
@@ -436,7 +454,7 @@ function Cartouche({ model, synthetic, live, error, asOf, then }: { model: ShipM
   )
 }
 
-function VesselCard({ v, model, bench, onClose, now, reachCap }: { v: Vessel; model: ShipModel; bench?: ShipModel['benches'][number]; onClose: () => void; now?: number; reachCap?: ShipData['reachCap'] }) {
+function VesselCard({ v, model, bench, onClose, now, reachCap, ref }: { v: Vessel; model: ShipModel; bench?: ShipModel['benches'][number]; onClose: () => void; now?: number; reachCap?: ShipData['reachCap']; ref?: React.Ref<HTMLElement> }) {
   const lights = useMemo(() => model.lights.filter((l) => l.sessionId === v.id), [model, v.id])
   const kinds = { user: 0, model: 0, call: 0, result: 0 } as Record<string, number>
   for (const l of lights) kinds[l.kind]++
@@ -448,7 +466,7 @@ function VesselCard({ v, model, bench, onClose, now, reachCap }: { v: Vessel; mo
   const st = stateWord(v)
   const tone = st.tone === 'live' ? 'text-live' : st.tone === 'wait' ? 'text-wait' : st.tone === 'fault' ? 'text-fault' : 'text-ink-dim'
   return (
-    <aside data-ship-ui className="brass-card pointer-events-auto absolute left-4 top-[100px] w-[310px]">
+    <aside ref={ref} data-ship-ui className="brass-card pointer-events-auto absolute left-4 top-[100px] w-[310px]">
       <header className="flex items-start gap-2">
         <div className="min-w-0 flex-1">
           <div className="ship-engraved text-[10px]">{v.kind === 'task' ? `task ${v.taskShort ?? ''}` : `session · ${placeOf({ label: v.label, kind: v.kind }).label}`}</div>
@@ -458,8 +476,9 @@ function VesselCard({ v, model, bench, onClose, now, reachCap }: { v: Vessel; mo
         <button onClick={onClose} title="Let the selection go (Esc)" className="rounded px-1 text-ink-faint hover:text-ink">×</button>
       </header>
       <dl className="num mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-[11.5px]">
-        <dt className="text-ink-faint">turns</dt><dd className="text-ink">{v.turns} · last {ago(v.lastActive, now)}</dd>
-        <dt className="text-ink-faint">calls</dt><dd className="text-ink">{count(kinds.model, 'model call')} · {count(kinds.call, 'tool call')}{failed ? <span className="text-fault">, {failed} failed</span> : null}</dd>
+        <dt className="text-ink-faint">state</dt><dd className="truncate text-ink-dim" title={rawState(v)}>{rawState(v)}</dd>
+        <dt className="text-ink-faint">turns</dt><dd className="text-ink">{v.turns}{v.goldPlanks ? ` · ${v.goldPlanks} in the last hour` : ''} · last {ago(v.lastActive, now)}</dd>
+        <dt className="text-ink-faint">calls</dt><dd className="text-ink">{count(kinds.user, 'message')} · {count(kinds.model, 'model call')} · {count(kinds.call, 'tool call')}{failed ? <span className="text-fault">, {failed} failed</span> : null}</dd>
         <dt className="text-ink-faint">money</dt><dd className="text-ink">{usdShort(v.cost)}{v.limit ? ` of ${usdShort(v.limit)}` : ''}{v.reserved ? ` · ${usdShort(v.reserved)} held for tasks and calls` : ''}</dd>
         {(v.profile || v.model) && <><dt className="text-ink-faint">model</dt><dd className="truncate text-ink">{v.profile ?? '—'} · {v.model ?? '—'}</dd></>}
         {!!l1 && <><dt className="text-ink-faint">sandbox</dt><dd className="text-[#5eead4]">{count(l1, 'call')} sandboxed (L1)</dd></>}
