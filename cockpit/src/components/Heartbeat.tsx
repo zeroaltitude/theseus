@@ -54,7 +54,10 @@ function HeartbeatThen() {
 
 function Heartbeat({ world }: { world: World | null }) {
   const { data: h, dataUpdatedAt } = useRpc<Health>('health', undefined, 2000)
-  const conn = useConn()
+  // The link's state, and the median of its last 12 round trips: the bar draws again when either changes, not at every
+  // ping.
+  const status = useConn((s) => s.status)
+  const rtt = useConn((s) => median(s.rtts.slice(-12)))
   const nav = useNavigate()
   // What needs you (theseus-in3): each session's attention, from the push-kept list, the longest waiting first; one press
   // opens that session, as the Observatory's 'N need you' did.
@@ -63,12 +66,6 @@ function Heartbeat({ world }: { world: World | null }) {
     .filter((s) => (s.attention ? s.attention.level === 'needs_you' : (s.pending_confirms ?? 0) > 0))
     .sort((x, y) => (x.attention?.since_ms ?? 0) - (y.attention?.since_ms ?? 0)), [sl])
   const firstWaiting = needsYou[0]
-  const now = useTick()
-  const rtt = useMemo(() => {
-    const r = conn.rtts.slice(-12).sort((a, b) => a - b)
-    return r.length ? r[Math.floor(r.length / 2)] : null
-  }, [conn.rtts])
-  const up = h ? h.uptime_secs + Math.max(0, (now - dataUpdatedAt) / 1000) : 0
   // Ledger rows of the last minute: one gold plank each (up to nine), in the strip under the bar.
   const { flow } = useFlow()
   const lit = Math.round(flow.slice(-30).reduce((a, b) => a + b * 2, 0))
@@ -78,9 +75,9 @@ function Heartbeat({ world }: { world: World | null }) {
   const spent = g ? g.costTotal : h?.cost_usd_total
   const cacheHit = usage ? usage.cache_read_input_tokens / Math.max(1, usage.cache_read_input_tokens + usage.input_tokens + usage.cache_creation_input_tokens) : 0
   const lamps = useMemo<Lamp[]>(() => [
-    linkLamp({ status: conn.status, rtt }), kernelLamp(h), providerLamp(h), discordLamp(h), configLamp(h), secretsLamp(h), webLamp(h),
+    linkLamp({ status, rtt }), kernelLamp(h), providerLamp(h), discordLamp(h), configLamp(h), secretsLamp(h), webLamp(h),
     binaryLamp(h?.binary, binaryLine(h?.binary)), diskLamp(h?.disk, diskSummary(h?.disk)),
-  ], [h, conn.status, rtt])
+  ], [h, status, rtt])
 
   return (
     <header className="brass-bar relative flex h-12 shrink-0 items-center gap-4 overflow-hidden whitespace-nowrap px-4">
@@ -95,7 +92,7 @@ function Heartbeat({ world }: { world: World | null }) {
         g.uptimeSecs !== null
           ? <Readout label="up" then tone="live" value={uptime(g.uptimeSecs)} title="how long the daemon had been up at the moment the ship's log shows" />
           : <Readout label="up" then tone="fault" value="down then" title="the daemon was down at the moment the ship's log shows: a stop with no start after it" />
-      ) : <Readout label="up" tone="live" value={h ? uptime(up) : '—'} title="how long the daemon has been up" />}
+      ) : <Readout label="up" tone="live" value={h ? <Uptime secs={h.uptime_secs} at={dataUpdatedAt} /> : '—'} title="how long the daemon has been up" />}
       <Readout label="running" then={!!g} tone={running ? 'live' : 'idle'} value={String(running)} title="executions running" />
       <div className="ml-auto flex shrink-0 items-center gap-3">
         {firstWaiting && (
@@ -112,12 +109,33 @@ function Heartbeat({ world }: { world: World | null }) {
           value={<>{spent !== undefined ? usd(spent) : '—'}<span className="ml-1.5 text-[11px] text-ink-faint">{usage ? `${(cacheHit * 100).toFixed(0)}%` : '—'}</span></>}
           title={`every session's spend${g ? ' at the moment' : ''}; the cache: the share of input read from it${usage ? ` (${tokens(usage.cache_read_input_tokens)} input tokens read from cache)` : ''}`} />
         <PauseRefresh />
-        <div className="flex shrink-0 flex-col items-end leading-none" title="this browser's local date and time">
-          <span className="hdr-label">{new Date(now).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}</span>
-          <span className="num mt-1 text-[12.5px] text-ink-dim">{clock(now)}</span>
-        </div>
+        <Clock />
       </div>
     </header>
+  )
+}
+
+/** The middle of a few numbers, or null for none. */
+function median(xs: number[]): number | null {
+  if (!xs.length) return null
+  const r = [...xs].sort((a, b) => a - b)
+  return r[Math.floor(r.length / 2)]
+}
+
+/** The uptime, ticking each second between health's reads: only this draws again at each tick, not the bar. */
+function Uptime({ secs, at }: { secs: number; at: number }) {
+  const now = useTick()
+  return <>{uptime(secs + Math.max(0, (now - at) / 1000))}</>
+}
+
+/** The date over the clock, ticking each second on its own. */
+function Clock() {
+  const now = useTick()
+  return (
+    <div className="flex shrink-0 flex-col items-end leading-none" title="this browser's local date and time">
+      <span className="hdr-label">{new Date(now).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}</span>
+      <span className="num mt-1 text-[12.5px] text-ink-dim">{clock(now)}</span>
+    </div>
   )
 }
 
