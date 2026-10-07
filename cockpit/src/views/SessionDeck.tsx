@@ -1,27 +1,33 @@
 // The session deck: one session, down to its spans. The transcript streams live; the inspector shows each turn's
-// flame chart, the context lineage, the spend, and the session's own ledger rows.
+// flame chart, the context lineage, the spend, and the session's own ledger rows. Its charts follow the chart method
+// (`lib/viz.ts`, theseus-hnof), each with its table view behind a chart and table toggle.
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
 import { useParams, useNavigate, useSearchParams } from 'react-router'
 import { useQueryClient } from '@tanstack/react-query'
 import { AnimatePresence } from 'motion/react'
 import { Group, Panel as RPanel, Separator } from 'react-resizable-panels'
 import { Tabs } from 'radix-ui'
-import { ArrowDown, ArrowLeft, Brain, Coins, Copy, Gavel, GitBranch, Layers, OctagonX, Pause, Play, ScrollText, ShieldCheck, Timer } from 'lucide-react'
+import { ArrowDown, ArrowLeft, Brain, Coins, Copy, Gavel, GitBranch, Layers, OctagonX, Pause, Play, ScrollText, ShieldCheck, Timer, X } from 'lucide-react'
 import type { CatalogList, CompilationInfo, ContextFileRef, ExecutionInfo, Health, LedgerEntry, SessionHistory, Span, Tightening } from '@protocol'
 import { call, useRpc, usePush, useSessionWatch } from '@/lib/rpc'
 import { useLedger, providerCalls, turnRows, type ProviderCall, type TurnRow } from '@/lib/derive'
 import { admitted, dropDraft, useDrafts } from '@/lib/drafts'
 import { summarize } from '@/lib/summary'
 import { noticesOf, scoresOf } from '@/lib/scores'
-import { ago, cn, ms, pct, short, stamp, tokens, usd, clock } from '@/lib/format'
+import { ago, cn, ms, pct, short, stamp, tokens, us, usd, clock } from '@/lib/format'
 import { cacheBy, pricing } from '@/lib/money'
 import { ledgerKind, toneHex } from '@/lib/taxonomy'
-import { axisStyle, type EChartsOption } from '@/lib/chart'
+import type { EChartsOption } from '@/lib/chart'
+import { CATEGORICAL, MARK, TIP_FRAME, TONE_MARK, barRadius, baseAxis, niceScale, usdTick, valueAxis } from '@/lib/viz'
+import { tip } from '@/lib/viztip'
+import { useTableView } from '@/lib/chartview'
+import { flatten, spanColor, timeByKind, type Flat } from '@/lib/spans'
 import { useTick } from '@/lib/hooks'
 import { judged, line, marksOf } from '@/lib/judgment'
 import { useAsOf } from '@/lib/timemachine'
 import { Echart } from '@/components/Echart'
-import { Flame, flatten } from '@/components/Flame'
+import { Flame } from '@/components/Flame'
+import { ChartTable, Legend, Swatch, TableToggle, TipArea, TipBody, TipTarget, type LegendItem } from '@/components/ChartPanel'
 import { JsonView } from '@/components/JsonView'
 import { Transcript, type LiveTurn } from '@/components/Transcript'
 import { ConfirmCard, HELD_POST_TOOL } from '@/components/ConfirmCard'
@@ -30,6 +36,7 @@ import { ModelInspector } from '@/components/ModelInspector'
 import { SessionGraph } from '@/components/SessionGraph'
 import { Composer } from '@/components/Composer'
 import { ContextGrowth, TokenMix } from '@/components/instruments'
+import { TOKEN_LEGEND, contextTable, tokenMixTable } from '@/components/instrumentTables'
 import { MembershipsPanel, PendingNote } from '@/components/Memberships'
 import { AttentionPill, Btn, Empty, Field, LiveDot, Meter, Panel, Pill } from '@/components/ui'
 
@@ -402,37 +409,40 @@ function TimelineTab({ turns, traces, rows }: { turns: TurnRow[]; traces: Map<st
   const turnId = pick ?? withTrace[withTrace.length - 1]?.turn_id ?? null
   const trace = turnId ? traces.get(turnId) : null
   const replay = useReplay(trace)
+  const flat = useMemo(() => (trace ? flatten(trace) : []), [trace])
   // Where the time went, by kind of span: the leaf-ish spans only (a `tools` span holds calls that ran together, so its
   // calls count, not it), as the Observatory's trace summary said.
-  const byKind = useMemo(() => {
-    const m = new Map<string, number>()
-    for (const f of trace ? flatten(trace) : []) {
-      if (f.kind !== 'turn' && f.kind !== 'loop' && f.kind !== 'tools' && f.end > f.start) m.set(f.kind, (m.get(f.kind) ?? 0) + (f.end - f.start))
-    }
-    return [...m.entries()].sort((x, y) => y[1] - x[1])
-  }, [trace])
+  const byKind = useMemo(() => timeByKind(flat), [flat])
+  const [tableOn] = useTableView('flame')
   if (!withTrace.length) return <Empty>no turn traces in this session’s rows</Empty>
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex gap-1 overflow-x-auto border-b border-line px-2 py-1.5">
         {withTrace.map((t, i) => (
-          <button key={t.turn_id} onClick={() => { setPick(t.turn_id); setSpan(null); replay.stop() }}
+          <button key={t.turn_id} onClick={() => { setPick(t.turn_id); setSpan(null); replay.stop() }} title={t.failed ? 'this turn failed' : undefined}
             className={cn('num shrink-0 rounded-md px-2 py-1 text-left text-[10.5px] ring-1 ring-inset transition-colors',
               t.turn_id === turnId ? 'bg-live/10 text-live ring-live/30' : 'text-ink-faint ring-line hover:text-ink')}>
             <div>turn {i + 1} · {clock(t.start)}</div>
-            <div className={t.failed ? 'text-fault' : ''}>{ms(t.elapsed_ms)} · {usd(t.cost)}</div>
+            <div className="flex items-center gap-1">
+              {t.failed && <><X size={10} style={{ color: TONE_MARK.fault }} aria-hidden /><span className="text-ink">failed</span> ·</>}
+              {ms(t.elapsed_ms)} · {usd(t.cost)}
+            </div>
           </button>
         ))}
       </div>
       <ReplayBar replay={replay} />
       <Judgments trace={trace} rows={rows} />
       {trace && (
-        <div className="num flex flex-wrap items-baseline gap-x-3 border-b border-line px-3 py-1 text-[11px] text-ink-faint" title="where the turn's time went, by kind of span">
-          <span className="font-semibold text-ink">{ms(((trace.end_us ?? trace.start_us) - trace.start_us) / 1000)}</span> total
-          {byKind.map(([k, u]) => <span key={k}>{k} {ms(u / 1000)}</span>)}
+        <div className="flex items-start gap-3 border-b border-line px-3 py-1.5">
+          <TimeBar trace={trace} byKind={byKind} />
+          <TableToggle id="flame" />
         </div>
       )}
-      <div className="min-h-0 flex-1 p-2"><Flame trace={trace} onPick={setSpan} cursor={replay.t} /></div>
+      <div className="min-h-0 flex-1 p-2">
+        {tableOn
+          ? <div className="h-full overflow-auto"><ChartTable {...spansTable(flat)} /></div>
+          : <Flame trace={trace} onPick={setSpan} cursor={replay.t} />}
+      </div>
       <div className="h-44 shrink-0 overflow-auto border-t border-line p-2">
         {replay.t != null ? <AtInstant trace={trace} t={replay.t} /> : span ? (
           <>
@@ -446,6 +456,48 @@ function TimelineTab({ turns, traces, rows }: { turns: TurnRow[]; traces: Map<st
       </div>
     </div>
   )
+}
+
+/** Where the turn's time went, as one bar of its kinds' shares (each kind in the flame's colour, a 2 px gap between them)
+ *  over their names and times, which are the key and the direct labels at once; a kind's time on hover and focus. */
+function TimeBar({ trace, byKind }: { trace: Span; byKind: [string, number][] }) {
+  const total = (trace.end_us ?? trace.start_us) - trace.start_us
+  const sum = byKind.reduce((a, [, u]) => a + u, 0)
+  return (
+    <TipArea className="min-w-0 flex-1" >
+      <div className="num flex items-baseline gap-1.5 text-[11px] text-ink-faint" title="where the turn's time went, by kind of span">
+        <span className="font-semibold text-ink">{ms(total / 1000)}</span> the turn · its spans by kind:
+      </div>
+      {sum > 0 && (
+        <div className="mt-1 flex h-2.5 w-full gap-[2px]" role="group" aria-label="where the turn's time went, by kind of span">
+          {byKind.map(([k, u], i) => (
+            <TipTarget key={k} label={`${k}: ${ms(u / 1000)}`} className="viz-mark h-full min-w-[2px]"
+              style={{ flex: `${(u / sum) * 1000} 1 0`, background: spanColor(k), borderRadius: i === byKind.length - 1 ? '0 3px 3px 0' : 0 }}
+              tip={<TipBody rows={[{ value: ms(u / 1000), label: `${k} spans`, color: spanColor(k), mark: 'rect' }]} foot={`${pct(u / sum, 1)} of the spans' time`} />} />
+          ))}
+        </div>
+      )}
+      <div className="num mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-ink-dim">
+        {byKind.map(([k, u]) => <span key={k} className="flex items-center gap-1"><Swatch color={spanColor(k)} />{k} <span className="text-ink">{ms(u / 1000)}</span></span>)}
+      </div>
+    </TipArea>
+  )
+}
+
+/** Every span of the turn, as the flame chart's table view: indented by depth, its kind, where it starts and ends on the
+ *  turn's clock, and how long it took. */
+function spansTable(flat: Flat[]) {
+  type R = Flat & { i: number }
+  return {
+    caption: 'every span of the turn, in order, indented by depth', rows: flat.map((f, i) => ({ ...f, i })), rowKey: (r: R) => String(r.i),
+    columns: [
+      { key: 'name', label: 'span', cell: (r: R) => <span style={{ paddingLeft: r.depth * 12 }}>{r.name}</span>, title: (r: R) => r.name },
+      { key: 'kind', label: 'kind', cell: (r: R) => r.kind },
+      { key: 'from', label: 'from', num: true, cell: (r: R) => us(r.start) },
+      { key: 'to', label: 'to', num: true, cell: (r: R) => us(r.end) },
+      { key: 'took', label: 'took', num: true, cell: (r: R) => (r.kind === 'mark' ? 'an instant' : us(r.end - r.start)) },
+    ],
+  }
 }
 
 /** Each judgment the turn dispatched, beside the loop it judged (M5 23b): its mark in the trace, and what its row says
@@ -478,9 +530,11 @@ function Judgments({ trace, rows }: { trace: Span | null | undefined; rows: Rows
 
 function ContextTab({ comps, rows, session }: { comps: CompilationInfo[]; rows: Rows; session: SessionHistory['session'] }) {
   const [open, setOpen] = useState<string | null>(null)
+  const [contextTableOn] = useTableView('deckcontext')
   return (
     <div className="flex flex-col gap-3 p-3">
-      <div className="h-48"><ContextGrowth rows={rows} sessions={[session]} /></div>
+      <div className="-mb-2 flex items-center"><div className="panel-title">prompt size at each compile</div><span className="ml-auto"><TableToggle id="deckcontext" /></span></div>
+      <div className="h-48">{contextTableOn ? <div className="h-full overflow-auto"><ChartTable {...contextTable(rows, () => 'this session')} /></div> : <ContextGrowth rows={rows} sessions={[session]} />}</div>
       <MembershipsPanel sessionId={session.session_id} />
       <CompileLog rows={rows} />
       <ContextFiles files={((comps.find((c) => c.current)?.manifest as { context_files?: ContextFileRef[] } | undefined)?.context_files) ?? []} />
@@ -569,14 +623,9 @@ function SpendTab({ turns, calls }: { turns: TurnRow[]; calls: ProviderCall[] })
   // What caching did for this session, at the catalog's prices (net of what its writes cost over plain input).
   const { data: cat } = useRpc<CatalogList>('catalog.list', undefined, 60_000)
   const cache = useMemo(() => cacheBy(calls, () => 'session', pricing(cat))[0], [calls, cat])
-  const option = useMemo<EChartsOption>(() => ({
-    grid: { left: 50, right: 12, top: 16, bottom: 24 },
-    tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' }, valueFormatter: (v: any) => usd(Number(v)) },
-    xAxis: { type: 'category', data: turns.map((_, i) => `t${i + 1}`), ...axisStyle, splitLine: { show: false } },
-    yAxis: { type: 'value', ...axisStyle, axisLabel: { ...axisStyle.axisLabel, formatter: (v: number) => usd(v, 3) } },
-    series: [{ type: 'bar', data: turns.map((t) => ({ value: t.cost ?? 0, itemStyle: { color: t.failed ? toneHex.fault : toneHex.money, borderRadius: [3, 3, 0, 0] } })) }],
-  }), [turns])
   const total = calls.reduce((a, c) => a + c.cost, 0)
+  const [costTable] = useTableView('turncost')
+  const [mixTable] = useTableView('deckmix')
   return (
     <div className="flex flex-col gap-3 p-3">
       <div className="grid grid-cols-3 gap-4">
@@ -589,12 +638,73 @@ function SpendTab({ turns, calls }: { turns: TurnRow[]; calls: ProviderCall[] })
           <Field label="saved by caching" mono>{cache.saved < 0 ? `−${usd(-cache.saved)}` : usd(cache.saved)}</Field>
         </>}
       </div>
-      <div className="panel-title">cost per turn</div>
-      <div className="h-48">{turns.length ? <Echart option={option} /> : <Empty>no turns</Empty>}</div>
-      <div className="panel-title">token mix per model call</div>
-      <div className="h-56"><TokenMix calls={calls} /></div>
+      <div className="flex items-center gap-3">
+        <div className="panel-title">cost per turn</div>
+        {turns.some((t) => t.failed) && <Legend items={TURN_COST_LEGEND} />}
+        <span className="ml-auto"><TableToggle id="turncost" /></span>
+      </div>
+      <div className="h-48">
+        {!turns.length ? <Empty>no turns</Empty> : costTable ? <div className="h-full overflow-auto"><ChartTable {...turnCostTable(turns)} /></div> : <TurnCost turns={turns} />}
+      </div>
+      <div className="flex items-center gap-3">
+        <div className="panel-title">token mix per model call</div>
+        <span className="ml-auto"><TableToggle id="deckmix" /></span>
+      </div>
+      {!mixTable && <Legend items={TOKEN_LEGEND} />}
+      <div className="h-56">{mixTable ? <div className="h-full overflow-auto"><ChartTable {...tokenMixTable(calls, () => 'this session')} /></div> : <TokenMix calls={calls} />}</div>
     </div>
   )
+}
+
+const TURN_COST_LEGEND: LegendItem[] = [
+  { key: 'turn', label: 'a turn', color: CATEGORICAL.dark[0], mark: 'rect' },
+  { key: 'failed', label: 'a turn that failed', color: TONE_MARK.fault, mark: 'rect' },
+]
+
+/** Each turn's cost, a column each in the accent; a failed turn's in the fault tone's step, said in the legend and the
+ *  tip. Dollar ticks that never print alike (the old axis read "$0.000" five times). */
+function TurnCost({ turns }: { turns: TurnRow[] }) {
+  const option = useMemo<EChartsOption>(() => {
+    const sc = niceScale(Math.max(0, ...turns.map((t) => t.cost ?? 0)))
+    const vaxis = valueAxis(), axis = baseAxis()
+    return {
+      grid: { left: 12, right: 12, top: 12, bottom: 22, containLabel: true },
+      tooltip: {
+        ...TIP_FRAME, trigger: 'axis', axisPointer: { type: 'shadow', shadowStyle: { color: 'rgba(176,141,87,0.08)' } },
+        formatter: (ps: any) => {
+          const i = (Array.isArray(ps) ? ps[0] : ps)?.dataIndex
+          const t = turns[i]
+          if (!t) return ''
+          return tip(`turn ${i + 1} · ${stamp(t.start)}`, [
+            { value: usd(t.cost), label: t.failed ? 'its cost; the turn failed' : 'its cost', color: t.failed ? TONE_MARK.fault : CATEGORICAL.dark[0], mark: 'rect' },
+            { value: ms(t.elapsed_ms), label: 'it took', strong: false },
+            { value: `${t.loops ?? '?'} · ${t.tool_calls ?? 0}`, label: 'loops · tool calls', strong: false },
+          ], t.model)
+        },
+      },
+      xAxis: { type: 'category', data: turns.map((_, i) => `t${i + 1}`), ...axis },
+      yAxis: { ...vaxis, min: 0, max: sc.max, interval: sc.interval, axisLabel: { ...vaxis.axisLabel, formatter: usdTick(sc.interval) } },
+      series: [{
+        type: 'bar', barMaxWidth: MARK.bar,
+        data: turns.map((t) => ({ value: t.cost ?? 0, itemStyle: { color: t.failed ? TONE_MARK.fault : CATEGORICAL.dark[0], borderRadius: barRadius(false) } })),
+      }],
+    }
+  }, [turns])
+  return <Echart option={option} />
+}
+
+function turnCostTable(turns: TurnRow[]) {
+  type R = TurnRow & { i: number }
+  return {
+    caption: 'each turn of the session, its cost', rows: turns.map((t, i) => ({ ...t, i })), rowKey: (r: R) => r.turn_id,
+    columns: [
+      { key: 'turn', label: 'turn', num: true, cell: (r: R) => r.i + 1 },
+      { key: 'at', label: 'started', cell: (r: R) => stamp(r.start) },
+      { key: 'took', label: 'took', num: true, cell: (r: R) => ms(r.elapsed_ms) },
+      { key: 'cost', label: 'cost', num: true, cell: (r: R) => usd(r.cost) },
+      { key: 'how', label: 'ended', cell: (r: R) => (r.failed ? 'failed' : r.stop ?? 'ended') },
+    ],
+  }
 }
 
 function LedgerTab({ rows }: { rows: Rows }) {
