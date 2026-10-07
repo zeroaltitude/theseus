@@ -353,6 +353,23 @@ class Arms(unittest.TestCase):
         self.assertIn("--timeout 14400", a.build_cli_flags())
         self.assertIn("--thinking medium", a.build_cli_flags())
 
+    def test_openclaw_runs_on_node_24_as_its_release_asks(self):
+        a = self.make(openclaw_agent.MeasuredOpenClaw, SONNET)
+        env = FakeEnvironment()
+
+        async def none(*args, **kwargs):
+            return None
+
+        with mock.patch.object(OpenClaw, "ensure_system_dependencies", none):
+            asyncio.run(OpenClaw.install(a, env))
+        joined = " ".join(env.commands)
+        self.assertIn("nvm install 24", joined)
+        self.assertIn("nvm use 24", joined)
+        self.assertNotIn("nvm use 22", joined)
+        self.assertNotIn("nvm install 22", joined)
+        self.assertIn("openclaw@2026.9.8", joined)
+        self.assertIn("nvm use 24", a.get_version_command())
+
     def test_the_record_lands_in_the_context_and_prices_an_unpriced_trial(self):
         (self.logs / "opencode.txt").write_text(OPENCODE)
         (self.logs / "version.txt").write_text("1.18.35\n")
