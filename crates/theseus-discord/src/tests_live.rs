@@ -379,3 +379,52 @@ async fn the_note_of_what_waits_holds_until_a_start_makes_it_true() {
     r.rewrite(&file(&[]).replace(&channel(LAB, "lab", &[ANA]), &lab));
     r.until("the note clears", || r.detail().is_none()).await;
 }
+
+/// theseus-sn2z: a save seen half written (a valid prefix, cut after a table)
+/// is not acted on: with the rest written within the period, no place leaves
+/// health, no post is refused, and the full file is what stays bound.
+#[tokio::test]
+async fn a_save_seen_half_written_is_not_acted_on() {
+    let full = file(&[channel(DOCK, "dock", &[ANA]), channel(PIER, "pier", &[ANA])]);
+    let torn = file(&[channel(DOCK, "dock", &[ANA])]);
+    assert!(full.starts_with(&torn), "the torn file is a prefix");
+    let r = rig(vec![], &full, &[DOCK, PIER]).await;
+    let path = r.dir.path().join("bindings.toml");
+    // The sights: ticks that saw a stamp the tick before had not.
+    let sights = || crate::runtime::live_ticks(&path).1;
+    let target = format!("discord:channel:{PIER}");
+    // The prefix is saved, and the watch sees it (a sight counts once its
+    // tick has ended, its action, if any, included).
+    let s0 = sights();
+    r.rewrite(&torn);
+    r.until("the watch has stat'ed the prefix", || sights() > s0)
+        .await;
+    assert!(
+        r.labels().contains(&"#pier".to_string()),
+        "{:?}",
+        r.labels()
+    );
+    let sid = r.session(PIER);
+    let body = serde_json::json!({"kind": "notice", "text": "after the tear"});
+    r.core.outbox.post(&sid, "", &target, body).unwrap();
+    r.until("#pier's post goes out", || {
+        r.answered(PIER, "after the tear")
+    })
+    .await;
+    assert!(r.refused().is_empty(), "{:?}", r.refused());
+    // The rest is written inside the period: the full file is bound.
+    r.rewrite(&full);
+    let s1 = sights();
+    r.until("the watch has stat'ed the full file", || sights() > s1)
+        .await;
+    let ticked = crate::runtime::live_ticks(&path).0;
+    r.until("and acted on it", || {
+        crate::runtime::live_ticks(&path).0 >= ticked + 2
+    })
+    .await;
+    let labels = r.labels();
+    for l in ["#lab", "#dock", "#pier"] {
+        assert!(labels.contains(&l.to_string()), "{labels:?}");
+    }
+    assert!(r.refused().is_empty(), "{:?}", r.refused());
+}

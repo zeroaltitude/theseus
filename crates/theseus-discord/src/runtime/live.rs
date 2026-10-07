@@ -58,6 +58,46 @@ async fn stamp(path: &Path) -> Stamp {
     Some((m.modified().ok(), m.len(), m.ino()))
 }
 
+/// Whether a file stamped `s` has stood unchanged for a period or more: its
+/// mtime is that old. A file whose mtime is ahead of the clock counts as
+/// settled, or it would never be read.
+fn settled(s: Stamp) -> bool {
+    let Some((Some(mtime), _, _)) = s else {
+        return true;
+    };
+    mtime.elapsed().map_or(true, |age| age >= PERIOD)
+}
+
+/// What each watch has done, by file: ticks run to their end, and of them
+/// those that saw a stamp the tick before had not. What a test waits on to
+/// know the watch has stat'ed a save, with no sleep that hopes a tick passed.
+#[cfg(test)]
+static TICKS: std::sync::Mutex<BTreeMap<PathBuf, (u64, u64)>> =
+    std::sync::Mutex::new(BTreeMap::new());
+
+/// The ticks of the watch of `path` that ended, and the sights among them
+/// (a tick whose stamp was new).
+#[cfg(test)]
+pub(crate) fn ticks(path: &Path) -> (u64, u64) {
+    TICKS.lock().unwrap().get(path).copied().unwrap_or_default()
+}
+
+/// A tick's end, counted for tests (`ticks`); `.1` is set when it saw a new
+/// stamp.
+struct Ticked<'a>(#[cfg_attr(not(test), allow(dead_code))] &'a Path, bool);
+
+impl Drop for Ticked<'_> {
+    fn drop(&mut self) {
+        #[cfg(test)]
+        {
+            let mut t = TICKS.lock().unwrap();
+            let n = t.entry(self.0.to_path_buf()).or_default();
+            n.0 += 1;
+            n.1 += u64::from(self.1);
+        }
+    }
+}
+
 async fn read(path: &Path) -> anyhow::Result<Bindings> {
     use anyhow::Context as _;
     let text = tokio::fs::read_to_string(path)
@@ -71,10 +111,13 @@ async fn read(path: &Path) -> anyhow::Result<Bindings> {
 pub(super) async fn watch(shared: Arc<Shared>, path: PathBuf, mut bound: Bindings) {
     let mut tick = tokio::time::interval(PERIOD);
     tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-    // The first tick reads the file: a change between the start's read and
-    // this one is not missed.
-    let mut seen: Stamp = None;
-    let mut first = true;
+    // The stamp acted on, and the one the last tick saw: a stamp is acted on
+    // only once it has held still a period and is no younger than one, so a
+    // save seen half written is not taken for the file (theseus-sn2z). The
+    // first tick acts on nothing, so a change between the start's read and
+    // the watch's is not missed.
+    let mut acted: Option<Stamp> = None;
+    let mut last: Option<Stamp> = None;
     // What the board says while the file does not load, or what waits for
     // the next start.
     let mut note: Option<String> = None;
@@ -89,6 +132,7 @@ pub(super) async fn watch(shared: Arc<Shared>, path: PathBuf, mut bound: Binding
     let started = bound.clone();
     loop {
         tick.tick().await;
+        let mut tick_end = Ticked(&path, false);
         if !failed.is_empty() && retry(&shared, &bound, &mut failed).await {
             set(
                 &shared.board,
@@ -97,12 +141,13 @@ pub(super) async fn watch(shared: Arc<Shared>, path: PathBuf, mut bound: Binding
             );
         }
         let now = stamp(&path).await;
-        if !first && now == seen {
+        let held = last.replace(now) == Some(now);
+        tick_end.1 = !held;
+        if acted == Some(now) || !(held && settled(now)) {
             keep(&shared.board, note.as_deref());
             continue;
         }
-        first = false;
-        seen = now;
+        acted = Some(now);
         match read(&path).await {
             Err(e) => {
                 let why = one_line(&format!("{e:#}"));
