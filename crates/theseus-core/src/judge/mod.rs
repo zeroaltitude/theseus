@@ -683,30 +683,34 @@ impl JudgeService {
 
     /// Every staged blob of `digests`, written (theseus-ehkp: the sink's
     /// writer calls it before it waits for a moment between turns, and its
-    /// frame again just before the rows, for any that landed since). A blob
-    /// stays staged until its put returns, and the puts go one caller at a
-    /// time, so a caller that finds a blob gone finds it written: no row
-    /// names a blob another thread is still writing. One that fails is
-    /// logged, and its row still names it, as a judgment's whose blob was
-    /// lost.
+    /// frame again just before the rows, for any that landed since), in one
+    /// batch whose files are synced together and its directory once
+    /// (`Blobs::put_many`). A blob stays staged until the batch returns, and
+    /// the batches go one caller at a time, so a caller that finds a blob
+    /// gone finds it written: no row names a blob another thread is still
+    /// writing. One that fails is logged, and its row still names it, as a
+    /// judgment's whose blob was lost.
     fn write_staged_blobs<'a>(&self, digests: impl IntoIterator<Item = &'a str>) {
         let _puts = self.blob_puts.lock().unwrap_or_else(|e| e.into_inner());
-        for d in digests {
-            let staged = self
-                .staged_blobs
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .get(d)
-                .cloned();
-            if let Some(bytes) = staged {
-                if let Err(e) = self.store.blobs().put(&bytes) {
-                    tracing::warn!(error = %e, blob = %d, "judge: a judged state's blob was not written");
-                }
-                self.staged_blobs
-                    .lock()
-                    .unwrap_or_else(|e| e.into_inner())
-                    .remove(d);
+        let staged: Vec<(String, Arc<[u8]>)> = {
+            let s = self.staged_blobs.lock().unwrap_or_else(|e| e.into_inner());
+            digests
+                .into_iter()
+                .filter_map(|d| Some((d.to_string(), s.get(d)?.clone())))
+                .collect()
+        };
+        if staged.is_empty() {
+            return;
+        }
+        let bytes: Vec<&[u8]> = staged.iter().map(|(_, b)| &b[..]).collect();
+        for (r, (d, _)) in self.store.blobs().put_many(&bytes).into_iter().zip(&staged) {
+            if let Err(e) = r {
+                tracing::warn!(error = %e, blob = %d, "judge: a judged state's blob was not written");
             }
+        }
+        let mut s = self.staged_blobs.lock().unwrap_or_else(|e| e.into_inner());
+        for (d, _) in &staged {
+            s.remove(d);
         }
     }
 

@@ -13,6 +13,7 @@
 use std::collections::VecDeque;
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use base64::Engine as _;
@@ -113,6 +114,9 @@ pub struct Blobs {
     cache: Mutex<VecDeque<(String, Arc<str>)>>,
     /// Most recently used last: (digest, a PDF's texts) (theseus-c9l6).
     texts: Mutex<VecDeque<(String, Texts)>>,
+    /// The syncs the writes have made, files' and the directory's
+    /// (theseus-ehkp: what a batched write saves).
+    syncs: AtomicU64,
     /// A test's hold on every write, as a disk under a neighbour's IO holds
     /// a sync (`hold_puts`).
     #[cfg(test)]
@@ -127,6 +131,7 @@ impl Blobs {
             dir: store_dir.join("blobs"),
             cache: Mutex::new(VecDeque::new()),
             texts: Mutex::new(VecDeque::new()),
+            syncs: AtomicU64::new(0),
             #[cfg(test)]
             hold: Mutex::new(None),
         }
@@ -198,13 +203,103 @@ impl Blobs {
         {
             let mut f = std::fs::File::create(&tmp)?;
             f.write_all(bytes)?;
+            self.syncs.fetch_add(1, Ordering::Relaxed);
             f.sync_all()?;
         }
         std::fs::rename(&tmp, &path)?;
+        self.sync_dir();
+        Ok(d)
+    }
+
+    /// Store many blobs at once (theseus-ehkp: a sink frame's staged
+    /// states, a stop's), each as `put` stores one, with their syncs
+    /// batched: every new one written to its temporary file, then every file
+    /// synced, then each renamed, then the directory synced once, where
+    /// `put` syncs the directory once a blob. Returns each one's digest, or
+    /// why it was not stored, in order. What a crash leaves at each step:
+    /// before the renames, temporary files no name reads (as `put`'s); after
+    /// some renames and before the directory's sync, each blob there whole
+    /// or not at all; after it, every one. The caller writes no row naming
+    /// any of them until this returns, so no row outlives its blob.
+    pub fn put_many(&self, all: &[&[u8]]) -> Vec<std::io::Result<String>> {
+        let digests: Vec<String> = all.iter().map(|b| digest(b)).collect();
+        let mut failed: std::collections::HashMap<String, String> = Default::default();
+        // The new ones, each once, in order: (digest, temporary, file).
+        let mut fresh: Vec<(String, PathBuf, std::fs::File)> = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+        let made = std::fs::create_dir_all(&self.dir);
+        for (bytes, d) in all.iter().zip(&digests) {
+            if !seen.insert(d.as_str()) || self.path(d).exists() {
+                continue;
+            }
+            if let Err(e) = &made {
+                failed.insert(d.clone(), e.to_string());
+                continue;
+            }
+            #[cfg(test)]
+            if let Some(rx) = self.hold.lock().unwrap().as_ref() {
+                let _ = rx.recv();
+            }
+            let tmp = self.dir.join(format!(".{d}.tmp-{}", std::process::id()));
+            let written = std::fs::File::create(&tmp).and_then(|mut f| {
+                f.write_all(bytes)?;
+                Ok(f)
+            });
+            match written {
+                Ok(f) => fresh.push((d.clone(), tmp, f)),
+                Err(e) => {
+                    failed.insert(d.clone(), e.to_string());
+                }
+            }
+        }
+        let synced = self.sync_files(fresh.iter().map(|(_, _, f)| f));
+        let mut renamed = 0;
+        for ((d, tmp, _), r) in fresh.iter().zip(synced) {
+            match r.and_then(|()| std::fs::rename(tmp, self.path(d))) {
+                Ok(()) => renamed += 1,
+                Err(e) => {
+                    let _ = std::fs::remove_file(tmp);
+                    failed.insert(d.clone(), e.to_string());
+                }
+            }
+        }
+        if renamed > 0 {
+            self.sync_dir();
+        }
+        digests
+            .into_iter()
+            .map(|d| match failed.get(&d) {
+                Some(why) => Err(std::io::Error::other(why.clone())),
+                None => Ok(d),
+            })
+            .collect()
+    }
+
+    /// Sync each file, in order; each one's outcome.
+    fn sync_files<'a>(
+        &self,
+        files: impl Iterator<Item = &'a std::fs::File>,
+    ) -> Vec<std::io::Result<()>> {
+        files
+            .map(|f| {
+                self.syncs.fetch_add(1, Ordering::Relaxed);
+                f.sync_all()
+            })
+            .collect()
+    }
+
+    /// The directory's sync, which makes its renames durable.
+    fn sync_dir(&self) {
         if let Ok(dir) = std::fs::File::open(&self.dir) {
+            self.syncs.fetch_add(1, Ordering::Relaxed);
             let _ = dir.sync_all();
         }
-        Ok(d)
+    }
+
+    /// The syncs the writes have made since this was built, files' and the
+    /// directory's.
+    pub fn syncs(&self) -> u64 {
+        self.syncs.load(Ordering::Relaxed)
     }
 
     /// A blob's bytes as base64, from the cache or its file; `None` when it
@@ -296,6 +391,38 @@ mod tests {
         // A name that is not a digest never reaches the file system.
         assert!(blobs.base64("../../etc/passwd").is_none());
         assert!(blobs.base64(&"0".repeat(64)).is_none(), "missing");
+    }
+
+    /// Many blobs at once: each stored as `put` stores one, a blob already
+    /// there and one named twice written once, with one sync a new file and
+    /// one for the directory, where `put` makes two a blob.
+    #[test]
+    fn many_blobs_are_written_with_one_directory_sync() {
+        let dir = tempfile::tempdir().unwrap();
+        let blobs = Blobs::new(dir.path());
+        let there = blobs.put(b"already there").unwrap();
+        assert_eq!(blobs.syncs(), 2, "put: the file's sync and the directory's");
+        let all: Vec<Vec<u8>> = (0..5).map(|i| format!("state {i}").into_bytes()).collect();
+        let mut asked: Vec<&[u8]> = all.iter().map(Vec::as_slice).collect();
+        asked.push(b"already there");
+        asked.push(all[0].as_slice());
+        let before = blobs.syncs();
+        let got = blobs.put_many(&asked);
+        assert_eq!(blobs.syncs() - before, 5 + 1, "five files, one directory");
+        let got: Vec<String> = got.into_iter().map(Result::unwrap).collect();
+        assert_eq!(got[5], there);
+        assert_eq!(got[6], got[0]);
+        for (bytes, d) in asked.iter().zip(&got) {
+            assert_eq!(blobs.read(d).as_deref(), Some(*bytes));
+        }
+        let names: Vec<String> = std::fs::read_dir(blobs.dir())
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(names.len(), 6, "no temporary file is left: {names:?}");
+        let before = blobs.syncs();
+        assert!(blobs.put_many(&asked).iter().all(Result::is_ok));
+        assert_eq!(blobs.syncs(), before, "nothing new, nothing synced");
     }
 
     #[test]

@@ -72,3 +72,36 @@ async fn a_turn_beginning_while_a_frames_blobs_are_written_runs_at_once() {
         Some(&b"{\"a state\": \"a turn waited on it\"}"[..])
     );
 }
+
+/// A frame's staged blobs go to the disk as one batch (`Blobs::put_many`):
+/// one sync a blob and one for the directory, where a put a blob made two
+/// each.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_frames_blobs_are_synced_together_with_one_directory_sync() {
+    const N: usize = 20;
+    let jev = FakeJev::start().unwrap();
+    let r = rig_with(texts(1), Some(&jev), |_| {});
+    let judge = r.core.runner.judge.clone();
+    judge.jev().unwrap();
+    let blobs = r.core.store.blobs();
+    let before = blobs.syncs();
+    for i in 0..N {
+        let digest = judge.stage_blob(format!("{{\"state\": {i}}}").as_bytes());
+        let mut j = settled(i);
+        j.context["blob"] = json!(digest);
+        judge.settle(&j);
+    }
+    let t0 = Instant::now();
+    while written(&r.core.store) < N {
+        assert!(
+            t0.elapsed() < Duration::from_secs(20),
+            "the rows are written"
+        );
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    assert_eq!(
+        blobs.syncs() - before,
+        N as u64 + 1,
+        "a sync a blob, and the directory's once"
+    );
+}
