@@ -233,9 +233,12 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   daemon's stop (`finish_stop`), with a close that hangs up, waits its grace, and kills what lingers, including a
   process that left the tree but holds the pty. In memory only: the rows `term.opened` and `term.closed`
   (`fact/term.rs`) are the record. No broker grant reaches a terminal (`brokered`). Tests: `term/tests.rs` (goldens
-  and real `sh`, `python3`, `cat`), `tests_term.rs` (the gate, the hold, each close).
+  and real `sh`, `python3`, `cat`; a `/proc` scan for a test's own processes looks for a marker holding the run's
+  pid, so another tree's run beside it is never taken for its own, theseus-d006), `tests_term.rs` (the gate, the
+  hold, each close).
 - **The protocol server**: `rpc/` (`server.rs` routes each method by name; `methods.rs`; `confirms.rs`), with
-  `bus.rs` and `outbound.rs` (one ordered, capped queue per connection).
+  `bus.rs` and `outbound.rs` (one ordered, capped queue per connection; a test may lower the cap a new connection
+  takes, `Push::backlog_cap`, so the lag prove overflows it with a few hundred events, theseus-0u6g).
 - **Surfaces of the record**: `push.rs` (the board), `outbox.rs`, `narrative.rs`, `ledger.rs`, `trace.rs`, and
   `telemetry/` (OTLP, metrics, spans).
 - **Facts**: `fact/` (theseus-j6qn, Review 2's C2). One type per thing that happened, which says in one place what

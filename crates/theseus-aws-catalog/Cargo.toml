@@ -17,6 +17,8 @@ thiserror.workspace = true
 
 [dev-dependencies]
 brotli = "9"
+# The decode budget's clock: this thread's CPU time (theseus-rnl3).
+libc = "0.2"
 
 [[example]]
 name = "theseus-aws-catalog-gen"

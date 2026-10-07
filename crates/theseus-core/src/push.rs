@@ -200,6 +200,13 @@ pub struct Push {
     events: AtomicU64,
     /// Notifications every connection's backlog cap dropped (9c).
     pub lost: Arc<AtomicU64>,
+    /// The backlog cap a new connection takes in a test:
+    /// `outbound::BACKLOG_CAP`, which the test may lower, so that a few
+    /// hundred events overflow it and a loaded machine runs the lag prove in
+    /// seconds (theseus-0u6g). A release build has no such knob: every
+    /// connection takes `BACKLOG_CAP` (design `stage2` §3.2).
+    #[cfg(test)]
+    pub(crate) backlog_cap: std::sync::atomic::AtomicUsize,
     /// `session.wait` calls parked now, and each connection's (9c).
     waits: Mutex<HashMap<String, usize>>,
     /// Ends the thread that applies frames: a stop sends `None`
@@ -216,6 +223,8 @@ impl Default for Push {
             seed_us: AtomicU64::new(0),
             events: AtomicU64::new(0),
             lost: Arc::default(),
+            #[cfg(test)]
+            backlog_cap: std::sync::atomic::AtomicUsize::new(crate::outbound::BACKLOG_CAP),
             waits: Mutex::default(),
             applier: Mutex::default(),
         }
