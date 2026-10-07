@@ -12,6 +12,7 @@ use theseus_kernel::ActionState;
 use theseus_protocol::{TurnSubmitParams, TurnSubmitResult};
 use theseus_sim::fake_discord::{Guild, DEFAULT_GUILD};
 
+use crate::bindings::Bindings;
 use crate::rpc_client::RpcClient;
 use crate::tests_gateway::{Rig, ANA, BEN, LAB};
 
@@ -336,4 +337,45 @@ async fn a_place_whose_bind_failed_is_tried_again_until_it_binds() {
     let errors = r.ledger("discord.error");
     let said = errors.iter().filter(|e| e["op"] == "bind place").count();
     assert_eq!(said, 1, "the failure is said once: {errors:?}");
+}
+
+/// A voice channel in the file, driven by `users`.
+fn voice(id: u64, name: &str, users: &[u64]) -> String {
+    format!("{}voice = true\n", channel(id, name, users))
+}
+
+/// theseus-btt4: what waits for the next start is measured from what the
+/// start bound: a voice channel added is named on the board, #lab's users
+/// changed after it still leaves the note, and the voice channel removed
+/// again clears it, since nothing waits any more.
+#[tokio::test]
+async fn the_note_of_what_waits_holds_until_a_start_makes_it_true() {
+    let r = rig(vec![], &file(&[]), &[]).await;
+    let names_voice = || r.detail().is_some_and(|d| d.contains("the voice channels"));
+    r.rewrite(&file(&[voice(DOCK, "dock", &[ANA])]));
+    r.until("the board names the voice channels", names_voice)
+        .await;
+    // An unrelated change: #lab's users.
+    let lab = channel(LAB, "lab", &[ANA, BEN]);
+    let lab_changed =
+        file(&[voice(DOCK, "dock", &[ANA])]).replace(&channel(LAB, "lab", &[ANA]), &lab);
+    r.rewrite(&lab_changed);
+    r.until("#lab's change is bound", || {
+        r.core.bindings.all().first().is_some_and(|b| {
+            b.revision.is_some()
+                && b.revision
+                    != Some(
+                        Bindings::parse(&file(&[voice(DOCK, "dock", &[ANA])]))
+                            .unwrap()
+                            .revision,
+                    )
+        })
+    })
+    .await;
+    // Two periods on: the note is still there.
+    tokio::time::sleep(crate::runtime::LIVE_PERIOD * 2).await;
+    assert!(names_voice(), "{:?}", r.detail());
+    // The voice channel removed: nothing waits.
+    r.rewrite(&file(&[]).replace(&channel(LAB, "lab", &[ANA]), &lab));
+    r.until("the note clears", || r.detail().is_none()).await;
 }

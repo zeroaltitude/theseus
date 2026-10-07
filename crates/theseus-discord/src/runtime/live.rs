@@ -84,10 +84,17 @@ pub(super) async fn watch(shared: Arc<Shared>, path: PathBuf, mut bound: Binding
     // The places whose bind failed, by key, with why: `bound` names them, but
     // they are tried again each tick until they bind (theseus-u6v6).
     let mut failed: BTreeMap<String, String> = BTreeMap::new();
+    // What the start bound: what waits for the next start is measured from
+    // it, however many files came since (theseus-btt4).
+    let started = bound.clone();
     loop {
         tick.tick().await;
         if !failed.is_empty() && retry(&shared, &bound, &mut failed).await {
-            set(&shared.board, &mut note, unbound(&failed));
+            set(
+                &shared.board,
+                &mut note,
+                join(waits(&started, &bound), unbound(&failed)),
+            );
         }
         let now = stamp(&path).await;
         if !first && now == seen {
@@ -112,13 +119,21 @@ pub(super) async fn watch(shared: Arc<Shared>, path: PathBuf, mut bound: Binding
             }
             Ok(new) if new.revision == bound.revision => {
                 said = None;
-                set(&shared.board, &mut note, unbound(&failed));
+                set(
+                    &shared.board,
+                    &mut note,
+                    join(waits(&started, &bound), unbound(&failed)),
+                );
             }
             Ok(mut new) => {
                 said = None;
-                let waits = shared.apply(&bound, &mut new, &mut failed).await;
-                set(&shared.board, &mut note, join(waits, unbound(&failed)));
+                shared.apply(&bound, &mut new, &mut failed).await;
                 bound = new;
+                let waits = waits(&started, &bound);
+                if let Some(w) = &waits {
+                    tracing::info!("discord: {w}");
+                }
+                set(&shared.board, &mut note, join(waits, unbound(&failed)));
             }
         }
     }
@@ -282,7 +297,8 @@ fn places(b: &Bindings) -> Vec<(String, Spot<'_>)> {
     c.chain(d).collect()
 }
 
-/// What of the change waits for the next start, said on the board.
+/// What of the bindings `new` waits for the next start, because the start that
+/// bound `old` is what runs: said on the board while it holds.
 fn waits(old: &Bindings, new: &Bindings) -> Option<String> {
     let ids =
         |b: &Bindings| -> BTreeSet<String> { b.guilds.iter().map(|g| g.id.clone()).collect() };
@@ -296,13 +312,11 @@ fn waits(old: &Bindings, new: &Bindings) -> Option<String> {
     if waits.is_empty() {
         return None;
     }
-    let w = format!(
+    Some(format!(
         "bindings revision {} is bound; {} wait for the next start",
         new.revision,
         waits.join(" and ")
-    );
-    tracing::info!("discord: {w}");
-    Some(w)
+    ))
 }
 
 /// A voice channel's settings, as `voice::Voice` reads them at the start.
@@ -401,14 +415,13 @@ impl Shared {
         gone
     }
 
-    /// Move the binding from the file `old` to the file `new`. Returns what
-    /// waits for the next start, if anything.
+    /// Move the binding from the file `old` to the file `new`.
     async fn apply(
         self: &Arc<Self>,
         old: &Bindings,
         new: &mut Bindings,
         failed: &mut BTreeMap<String, String>,
-    ) -> Option<String> {
+    ) {
         // The core first, as at a start: a place's class before a message
         // from it is read; a place whose ceiling the config cannot serve is
         // taken out of `new` and stays unbound.
@@ -455,7 +468,6 @@ impl Shared {
             revision = %new.revision, ?added, ?removed, ?changed,
             "discord: the bindings file changed"
         );
-        waits(old, new)
     }
 
     /// Bind the place `k`: it joins `added`, or its failure is said once, on
