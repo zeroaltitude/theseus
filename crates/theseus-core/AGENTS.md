@@ -601,8 +601,9 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   testimony; `session.list` leaves it out unread: the whole list, `confirm.list` and `compilation.list` read
   `Store::live_sessions` (theseus-store's `latest_of_kind_where`, which skips a key before its record is read),
   and a page and the learning tender's task-brief walk (`sessions_from`) step over the import's births by key in
-  their walk (`newest_keys_where`, theseus-7087); health's fallback totals alone read every session, since the
-  projection's count holds imported ones. Its place is private whatever place
+  their walk (`newest_keys_where`, theseus-7087); health takes the tags' counts (one META record a
+  tag) off the projection's keys, and its fallback reads every session, to count the owner's own, the imported and the
+  erased apart (theseus-revl). Its place is private whatever place
   the episode names (`TurnRunner::place_of` reads the id), so a shared place never recalls it. Each message is a
   node of origin `import` (`Body::Imported`: source, unit, sha256, integrity; `created_at_ms` the message's own
   time), the summary a `Body::ImportedSummary` citing its messages' ids; outside integrity is external to the index,

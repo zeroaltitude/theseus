@@ -685,7 +685,7 @@ shared header, made a split possible. The stage-2 design's 13c added:
     $0.021564; the old pricing was 36.5 % short;
   - a task's `1h, 1h, 5m` request was accepted, and read its parent's 1-hour header;
   - GLM accepts `ttl: "1h"` and caches as before.
-- **Found live, and acted on.** The compiler's chars/4 estimate runs 25 to 52 % low against Anthropic's tokenizers,
+- **Found live, and acted on.** The compiler's chars/4 estimate runs ~~25 to 52 %~~ 20 to 34 % low (the retrospective's token report, 2026-10-06, Part III Item 220) against Anthropic's tokenizers,
   so the minimum's check doesn't use it. Haiku 4.5 counts today's header just under its 4,096 minimum, so its
   breakpoint is sent and skipped until the header grows. The second commit's message (c970d36, rebased from 1531169) says Haiku counts the header at about 4,150,
   over its minimum. That was an extrapolation, and the second Haiku check measured it under; 86adced corrected the

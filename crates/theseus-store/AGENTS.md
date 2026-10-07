@@ -13,6 +13,8 @@ Key modules: `wal.rs`, `index.rs`, `record.rs`, `store.rs` (`MANIFEST_FORMAT`). 
 - `record.rs`: records and their kinds, and the header's frozen schema field (`FROZEN_SCHEMA`).
 - `store.rs`: the `Store` contract the kernel writes through, and `WalStore`, which composes the WAL and the index,
   with its writer thread. `MANIFEST.json` names the store's one format number (`MANIFEST_FORMAT`).
+  `Store::keys_ending` lists a kind's keys that end with a given suffix, up to a limit, from the index's key table
+  alone, reading no record (a node named by its short id, theseus-glyw).
   `blocking` runs a wait for the disk without holding a runtime worker.
 - `pressure.rs` (theseus-tood): a background pass waits between two chunks while the machine is busy (PSI's
   `some avg10` at or over the gate's 20 % CPU or 10 % IO, up to `BOUND`; nothing waits without PSI), and

@@ -22,33 +22,39 @@ Key modules: `lifecycle.rs`, `kernel_sim.rs`, `fake_discord.rs`, `discord_proof.
     observer (`kernel_sim/queues.rs`, theseus-2xep). Each operation goes in a module of
     its own; `kernel_sim.rs` holds the roll, the race's arm, and the checks' calls. tests/sim.rs reads its coverage
     counts from the `--p-race 0` run only, since a raced run reproduces only up to its first race (theseus-81ig).
-  - `bench lifecycle` (`src/lifecycle.rs`): §9's budgets on a real `theseusd`: cold start, the same from a vault
-    note's copy, clean shutdown with a job running, the same with a reply's post in flight to the in-process fake
-    Discord (`inflight`, its own rig), SIGKILL and restart, a binary swap with the job's wrapper adopted, restore
-    (with `theseusd restore`'s own phases), and the push's seed. `--check` fails a p95 over its budget plus the
-    phase's margin (`lifecycle::margin_ms`, measured on the build machine).
+  - `bench lifecycle` (`src/lifecycle.rs`): §9's budgets on a real `theseusd`: cold start, the same from a vault note's
+    copy, clean shutdown with a job running, the same with a reply's post in flight to the in-process fake Discord
+    (`inflight`, its own rig), SIGKILL and restart, a binary swap with the job's wrapper adopted, restore (with
+    `theseusd restore`'s own phases), and the push's seed. A cancel's round trip too (a real `proc.run` job cancelled
+    through `execution.cancel`, its frames a cancel printed; theseus-nh1k, theseus-dwoj), and the restore phase runs
+    before it, since a phase that writes into the rig runs after the rows that read it (theseus-ma8r). `--check` fails a
+    p95 over its budget plus the phase's margin (`lifecycle::margin_ms`, measured on the build machine).
   - `bench turn` (`src/perf.rs`, theseus-goa8): a plain turn and a tool-call turn on the stand-in model, each run N
-    times on one warm session: wall time by the bench's clock and the daemon's, and **frames per turn**, counted from the
-    daemon's WAL by `src/walcount.rs` (a read-only tail; the daemon reports no frame count, and the core is not changed
-    for a bench). A frame is one `fdatasync`, so frames are §9's per-turn overhead in a unit that does not depend on the
-    disk. `--check` fails a plain turn that writes more than `perf::PLAIN_TURN_FRAMES` (5; the floor is 2). Beside them:
-    this disk's `fdatasync`, probed before the daemon starts and after it stops (the quieter is used, so the harness's own
-    share of a turn reads off as an upper bound), and the daemon's resident memory after the start and after a burst.
-    The scratch daemon has Discord, the web UI, and the judge off. `--judge` (theseus-0j2.8, `src/perf/judge.rs`) measures the judge's cost beside it: three arms, each
-    a scratch daemon (the judge off; on at theseus-judge's fake Jev, in process, with the inbound point's packs off; and
-    every pack as wired, route.v1 waiting on the fake's verdict), each frame told the judge's (every record a `judge.*`
-    or `pack.*` row or a `judge.*` META record; `walcount` labels a META record by its key) or the turn's (checked
-    against its trace), each judge frame placed before a turn's answer, after it, or between turns, and the blobs the
-    store gained (two syncs each, which the WAL never sees). Each judged arm first submits a turn the moment its
-    fresh daemon answers and counts the ladder's `pack.mode` frames around it (theseus-289c: none since the warm
-    read's adoptions wait between turns). Nothing new is gated: `--check` judges the judge-off
-    arm, and the judged arms' wall times and frames go to `--record` under columns of their own (`*_jloop`,
-    `*_jpacks`).
-    `--session-nodes N` (step 33, `src/perf/long.rs`) measures turns in one session of N nodes instead, written before
-    the daemon starts (`synth::long_session`: five-node exchanges whose tool results are `--result-bytes`, 8192 by
-    default): each turn's wall time, frames, and the nodes the daemon decoded for it (health's `store.node_cache`
-    `decodes`, read around the turn; a build before tiering has none, and the row says so), and memory with the index
-    tender's. No budget: its frames include the turn that compacts the session.
+    times on one warm session: wall time by the bench's clock and the daemon's, and **frames per turn**, counted from
+    the daemon's WAL by `src/walcount.rs` (a read-only tail; the daemon reports no frame count, and the core is not
+    changed for a bench). A frame is one `fdatasync`, so frames are §9's per-turn overhead in a unit that does not
+    depend on the disk. `--check` fails a plain turn that writes more than `perf::PLAIN_TURN_FRAMES` (5; the floor is
+    2). Beside them: this disk's `fdatasync`, probed before the daemon starts and after it stops (the quieter is used,
+    so the harness's own share of a turn reads off as an upper bound), and the daemon's resident memory after the start
+    and after a burst. Each run also gets a line (`src/perf/runs.rs`, theseus-w7dk): its wall, the daemon's time, its
+    frames, and the slowest frame the store answered since its input arrived, with that frame's time and records (the
+    turn's trace carries it as `attrs.slowest_frame`); a run over twice its kind's p50 is flagged. The turn's last
+    frame, `end_turn`'s, is written after the trace takes it, so a stall there reads as a long wall with a small slowest
+    frame, not as time outside the frames (theseus-67nz). The scratch daemon has Discord, the web UI, and the judge off.
+    `--judge` (theseus-0j2.8, `src/perf/judge.rs`) measures the judge's cost beside it: three arms, each a scratch
+    daemon (the judge off; on at theseus-judge's fake Jev, in process, with the inbound point's packs off; and every
+    pack as wired, route.v1 waiting on the fake's verdict), each frame told the judge's (every record a `judge.*` or
+    `pack.*` row or a `judge.*` META record; `walcount` labels a META record by its key) or the turn's (checked against
+    its trace), each judge frame placed before a turn's answer, after it, or between turns, and the blobs the store
+    gained (two syncs each, which the WAL never sees). Each judged arm first submits a turn the moment its fresh daemon
+    answers and counts the ladder's `pack.mode` frames around it (theseus-289c: none since the warm read's adoptions
+    wait between turns). Nothing new is gated: `--check` judges the judge-off arm, and the judged arms' wall times and
+    frames go to `--record` under columns of their own (`*_jloop`, `*_jpacks`). `--session-nodes N` (step 33,
+    `src/perf/long.rs`) measures turns in one session of N nodes instead, written before the daemon starts
+    (`synth::long_session`: five-node exchanges whose tool results are `--result-bytes`, 8192 by default): each turn's
+    wall time, frames, and the nodes the daemon decoded for it (health's `store.node_cache` `decodes`, read around the
+    turn; a build before tiering has none, and the row says so), and memory with the index tender's. No budget: its
+    frames include the turn that compacts the session.
   - `bench idle`: an idle daemon over a window (30 s): CPU time, wakeups (its threads' voluntary context switches, from
     `src/procfs.rs`), frames written (a quiet daemon writes none), and memory, on an empty store or `--sessions N`.
     `--settle N` waits up to N s (default 60) for the daemon to go quiet before the window begins, and shows the CPU in

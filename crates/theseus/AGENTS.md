@@ -17,6 +17,9 @@ Key modules: `main.rs`, `cmd.rs`, `render.rs`, `client.rs`. Read by: (a binary).
   beside this binary or else on PATH, with `--socket` first and the arguments after it (step 10f).
 - `src/print.rs`: the `Printer`, which writes the library's lines in one of four modes: `Text` (`ask`), `Quiet`
   (`ask --no-stream`), `Watch` (`watch`), and `Json`.
+- `src/render/history.rs`: `theseus history`'s own lines: each node with its short id, which `theseus reach` takes
+  (theseus-glyw), and `page_lines`, where a page ends and the command for the next one either way (theseus-xo0m).
+  Its `node_lines` is the history's own; `render.rs`'s, which the terminal UI shares, stays apart.
 
 ## Invariants
 

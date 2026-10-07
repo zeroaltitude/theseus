@@ -53,6 +53,18 @@ build.
   `calm.ts` (calm mode), `scores.ts` (a notified call's `risk N% (shadow)`, M5 24), `fallback.ts` (a refusal's
   fallback in theseus-protocol's words, theseus-7gir.18), `sandboxwords.ts` (L1 in the CLI's words), `drafts.ts` (what was sent and not yet written), and `ontology.ts` (the category tree's
   order, and what a session's next compile would change).
+- The chart method (theseus-hnof.4): `src/lib/chart.ts` takes its look from `src/lib/viz.ts`; `src/lib/palette.ts`
+  holds the method's palette checks, which `test/palette.test.ts` runs on every palette the charts draw with;
+  `src/lib/chartview.ts` keeps which charts show their table in the address (`?table=`) and measures the widths a
+  label needs; `src/components/instrumentTables.ts` gives the shared instruments' legends and table views;
+  `src/lib/calls.ts` is a billed call as the cockpit reads it (pure; `derive.ts` re-exports it); `src/lib/spans.ts`
+  flattens a turn's trace for the flame chart and the deck's timeline; `src/lib/sessionrows.ts` gives the session deck
+  its session's rows from the one copy of the ledger (theseus-kuzw).
+- The frame (theseus-hnof.5): `src/components/Heartbeat.tsx`, the heartbeat bar across every view (the profile chip
+  and its menu, UP, the health lamps with `src/lib/healthwords.ts`'s words, and the moment's "then" under the time
+  machine); `src/lib/flow.ts` (rows a second, on the activity strip's bar); `src/lib/activity.ts` (the strip's lines
+  folded, numbers aside, every line kept); `src/lib/mode.ts` and `src/lib/daylight.ts` (night or daylight, and each
+  night colour's daylight step); `public/mode.js` (the mode's class before the first paint).
 - `src/protocol.ts`: the protocol client, imported as `@protocol`. It re-exports the protocol's types,
   `src/protocol.gen/`, which theseus-protocol's test writes from the Rust ones: never edit them by hand.
 - The look is in `index.css`'s tokens and the shared components (`.panel`, `.brass-card`, `.brass-button`,
@@ -64,6 +76,11 @@ build.
   5,000 rows every 3 s with neither open (Item 27).
 - **Every control is confirmed first**, and each is a protocol method, judged by the core as any surface's.
 - **Every view keeps its state in the address**, so any view deep-links.
+- **Every chart has a table view**, the same numbers as rows, its toggle in the address (`?table=`).
+- **A colour set outside an ECharts option follows the mode**: `mode.ts` swaps `toneHex` and `TONE_MARK`, and an
+  option goes through `daylight()` as `Echart` draws it.
+- **Inside the Ship's night island a tone is its CSS token**, never `toneHex`, which the island re-points.
+- **The Ship and the ship's log's track stay at night** in either mode.
 - **The Ship shows only the daemon's data, and moves only when something happens** (theseus-hnof.2). Every motion is
   a row of the motion table (`src/ship/motion.ts`): one event starts it, and every term of the shaders that moves with
   time names its row in a `motion:` comment, which a test reads (a new animation with no row fails it). A one-off (a
