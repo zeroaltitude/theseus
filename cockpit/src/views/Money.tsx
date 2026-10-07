@@ -23,7 +23,7 @@ import { tip } from '@/lib/viztip'
 import { useWidth } from '@/lib/chartview'
 import { Echart } from '@/components/Echart'
 import { ChartPanel, StatTile, TipArea, TipBody, TipTarget, type LegendItem, type TableSpec } from '@/components/ChartPanel'
-import { Panel, Segmented } from '@/components/ui'
+import { Segmented } from '@/components/ui'
 import { Budgets } from '@/components/Budgets'
 import { Dial, Engraved, Needle, Ticks, arc, polar } from '@/ship/instruments'
 
@@ -154,13 +154,15 @@ export default function Money() {
           empty={parts.length ? undefined : rows.length ? 'no model calls in this range' : 'reading the ledger…'}>
           <River parts={parts} title={title} measure={measure} slot={modelSlot} onPick={(sid) => nav(`/session/${sid}`)} />
         </ChartPanel>
-        <Panel title="The pace" icon={<Timer size={13} />} bodyClassName="speed-wall flex flex-col items-center justify-center gap-2 px-3 py-4">
-          <PaceDial perHour={pace.perHour} />
-          <div className="max-w-[34ch] text-center text-[12px] leading-snug text-ink-dim">
-            {usd(pace.perHour)} an hour, from the model calls of the 15 minutes before {world ? stamp(end) : 'now'}; {usd(pace.lastHour)} in the last hour
+        <ChartPanel id="pace" title="The pace" icon={<Timer size={13} />} height={560} table={lastHourTable(calls, end)}>
+          <div className="speed-wall flex h-full flex-col items-center justify-center gap-2 px-3 py-4">
+            <PaceDial perHour={pace.perHour} />
+            <div className="max-w-[34ch] text-center text-[12px] leading-snug text-ink-dim">
+              {usd(pace.perHour)} an hour, from the model calls of the 15 minutes before {world ? stamp(end) : 'now'}; {usd(pace.lastHour)} in the last hour
+            </div>
+            <LastHour calls={calls} end={end} now={!world} />
           </div>
-          <LastHour calls={calls} end={end} now={!world} />
-        </Panel>
+        </ChartPanel>
       </div>
 
       <Budgets rows={rows} past={world ? world.t : null} />
@@ -302,14 +304,30 @@ function riverTable(parts: Part[], title: Map<string, string>, measure: Measure)
   }
 }
 
+/** The last hour's twelve five-minute bins, oldest first. */
+function lastHourBins(calls: ProviderCall[], end: number): number[] {
+  const b = new Array<number>(12).fill(0)
+  for (const c of calls) if (c.at <= end && c.at > end - 3_600_000) b[Math.min(11, Math.floor((c.at - (end - 3_600_000)) / 300_000))] += c.cost
+  return b
+}
+
+function lastHourTable(calls: ProviderCall[], end: number): TableSpec<number> {
+  const bins = lastHourBins(calls, end)
+  const hm = (t: number) => clock(t).slice(0, 5)
+  return {
+    caption: 'the last hour\'s spend, five minutes a row, the newest first', rows: bins.map((_, i) => i).reverse(), rowKey: (i: number) => String(i),
+    columns: [
+      { key: 'from', label: 'from', cell: (i: number) => hm(end - 3_600_000 + i * 300_000) },
+      { key: 'to', label: 'to', cell: (i: number) => hm(end - 3_600_000 + (i + 1) * 300_000) },
+      { key: 'spent', label: 'spent', num: true, cell: (i: number) => usd(bins[i]) },
+    ],
+  }
+}
+
 /** The last hour's spend, five minutes a column, in the sea's gold: the pace's own history, each column's dollars on
  *  hover and focus. */
 function LastHour({ calls, end, now }: { calls: ProviderCall[]; end: number; now: boolean }) {
-  const bins = useMemo(() => {
-    const b = new Array<number>(12).fill(0)
-    for (const c of calls) if (c.at <= end && c.at > end - 3_600_000) b[Math.min(11, Math.floor((c.at - (end - 3_600_000)) / 300_000))] += c.cost
-    return b
-  }, [calls, end])
+  const bins = useMemo(() => lastHourBins(calls, end), [calls, end])
   const max = Math.max(...bins)
   const hm = (t: number) => clock(t).slice(0, 5)
   return (
