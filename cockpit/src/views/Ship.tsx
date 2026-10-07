@@ -5,12 +5,13 @@
 // gauge says how deep the camera reads. Everything shown is the daemon's own data, and moves only when it happens.
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router'
-import { Anchor, Crosshair, ExternalLink, HelpCircle, Maximize, Search, Waves } from 'lucide-react'
+import { Anchor, Crosshair, ExternalLink, HelpCircle, Maximize, Search, Volume2, VolumeX, Waves } from 'lucide-react'
 import { ShipEngine, type Hit } from '@/ship/engine'
 import { LabelLayer, usdShort } from '@/ship/labels'
 import { Minimap, type MinimapHandle } from '@/ship/Minimap'
 import { EngineTelegraph, Nixie, SeaGauge } from '@/ship/instruments'
 import { seaTarget, seaWord } from '@/ship/sea'
+import { useShipSound } from '@/ship/useShipSound'
 import '@/ship/ship.css'
 import { useShipLive, useShipSynthetic, type ShipData } from '@/ship/useShipData'
 import { placeOf, type ShipModel, type Vessel } from '@/ship/model'
@@ -70,6 +71,7 @@ function ShipView({ data, onFail }: { data: ShipData; onFail: OnFail }) {
   const [params, setParams] = useSearchParams()
   const calm = useCalm((s) => s.calm)
   const setCalm = useCalm((s) => s.setCalm)
+  const sound = useShipSound()
   const [root, setRoot] = useState<HTMLDivElement | null>(null)
   const host = useRef<HTMLDivElement>(null)
   const labelsRoot = useRef<HTMLDivElement>(null)
@@ -375,6 +377,12 @@ function ShipView({ data, onFail }: { data: ShipData; onFail: OnFail }) {
         </BrassButton>
         <BrassButton title="See the whole fleet (Home)" onClick={() => engine?.fit()}><Maximize size={13} /> Fleet</BrassButton>
         {vessel && <BrassButton title="Back to the selected session" onClick={() => engine?.flyToVessel(sel)}><Crosshair size={13} /> Ship</BrassButton>}
+        <BrassButton className="ship-sound" on={sound.on} onClick={sound.toggle}
+          title={sound.on
+            ? `Sound on${sound.playing ? '' : ' (it starts with your next click on the page)'}: an oar going out splashes, something waiting for you rings the ship’s bell, a failure sounds a low horn. Click to turn it off.`
+            : 'Sound is off. Turn it on for three quiet cues: an oar going out (a splash), something waiting for you (the ship’s bell, heard from another window), a failure (a low horn).'}>
+          {sound.on ? <Volume2 size={13} /> : <VolumeX size={13} />} Sound
+        </BrassButton>
         <BrassButton title={calm ? 'Calm: no motion or glow. Click for the full hologram.' : 'Calm mode stills the sea and drops the motion, the glow, and the particles'} on={calm} onClick={() => setCalm(!calm)}>
           {calm ? <Anchor size={13} /> : <Waves size={13} />} {calm ? 'Calm' : 'Live'}
         </BrassButton>
@@ -414,9 +422,9 @@ function ShipView({ data, onFail }: { data: ShipData; onFail: OnFail }) {
   )
 }
 
-function BrassButton({ children, onClick, title, on }: { children: React.ReactNode; onClick: () => void; title: string; on?: boolean }) {
+function BrassButton({ children, onClick, title, on, className }: { children: React.ReactNode; onClick: () => void; title: string; on?: boolean; className?: string }) {
   return (
-    <button type="button" onClick={onClick} title={title} className={cn('brass-button pointer-events-auto', on && 'brass-button-on')}>
+    <button type="button" onClick={onClick} title={title} className={cn('brass-button pointer-events-auto', on && 'brass-button-on', className)}>
       {children}
     </button>
   )

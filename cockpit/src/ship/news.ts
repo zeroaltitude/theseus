@@ -30,6 +30,11 @@ export const NEWS: NewsItem[] = [
     body: 'Dead calm when nothing runs, and then the Ship draws nothing at all. The swell rises with tokens a minute and the turns running, and settles as they end; the sea on the console says how high, in words. Calm mode stills it.',
     anchor: { kind: 'dom', selector: '.ship-sea' },
   },
+  {
+    id: 'sound', since: '2026-10-07', title: 'Sound, if you want it',
+    body: 'Off until you turn it on, here. Then three quiet cues, made in the browser: an oar going out splashes, something waiting for you rings the ship’s bell (you hear it from another window), and a failure sounds a low horn.',
+    anchor: { kind: 'dom', selector: '.ship-sound' },
+  },
 ]
 
 /** The cockpit's version: the newest stop's. */
