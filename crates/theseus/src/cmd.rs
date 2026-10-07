@@ -1064,6 +1064,7 @@ async fn explain(conn: &mut Conn, json: bool, id: &str) -> Result<()> {
         let params = theseus_protocol::ActionListParams {
             execution_id: Some(e.execution_id.clone()),
             n: None,
+            ..Default::default()
         };
         let actions = conn.request(method::ACTION_LIST, params).await?;
         println!(

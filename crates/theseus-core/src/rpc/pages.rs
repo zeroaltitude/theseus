@@ -110,6 +110,24 @@ impl Core {
         Ok(Some((actions, store.count_keys(kinds::ACTION)?)))
     }
 
+    /// Every action not settled, however old (theseus-hnof.3), newest first
+    /// and cut to `n`, and how many actions there are: the kernel's open
+    /// actions, or an execution's by its own term, so the read costs what is
+    /// open, never the history.
+    pub(super) fn actions_unsettled(
+        &self,
+        execution: Option<&str>,
+        n: usize,
+    ) -> anyhow::Result<(Vec<Action>, u64)> {
+        let mut actions = match execution {
+            Some(x) => self.kernel.unsettled_actions(x)?,
+            None => self.kernel.open_actions()?,
+        };
+        actions.sort_by_key(|a| std::cmp::Reverse(a.planned_at_ms));
+        actions.truncate(n);
+        Ok((actions, self.store.inner().count_keys(kinds::ACTION)?))
+    }
+
     /// The newest `n` nodes of a kind, a session, or both, newest first,
     /// read through the index's tags; `None` while its shape is built.
     pub(super) fn nodes_paged(

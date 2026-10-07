@@ -10,6 +10,9 @@ Key modules: `lib.rs` (the `method`, `notify`, `error_code` tables), `events.rs`
 - `lib.rs`: the methods' params and results, `VERSION`, and three tables: `method` and `notify`, each one list
   from which its `ALL` is built, and `error_code`.
 - `events.rs`: one struct per notification, and the `events!` table, from which `Event::VARIANTS` is built.
+- `actions.rs`: `action.list`'s params and result, and `ActionInfo`: the newest `n`, an execution's, or with
+  `unsettled` every action not settled however old (theseus-hnof.3), which the cockpit's Ship and watch read beside
+  the newest page so a job that runs for hours keeps its place.
 - `cancel.rs` (M4 18a): a cancel's verdict on the wire (`CancelVerdict`), health's `CancelCount`, and `words`, the
   one wording of a verdict every surface shows.
 - `gate.rs`: the gate's record of a tool call (`GateRecord`), written through `canonical` (sorted keys), so stored
