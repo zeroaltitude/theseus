@@ -79,7 +79,7 @@ export default function Judgment() {
     // height the packs leave; on the right the judgment picked, then the notices, the ladder, the versions and learning.
     // Every other panel keeps its own height: squeezed into one column, a panel's rows ran under the next one's title
     // at 1080 px tall (theseus-hnof). Narrower, one column, and the page scrolls.
-    <div className="grid h-full min-h-0 grid-cols-1 content-start gap-3 overflow-auto p-3 xl:grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)] xl:content-stretch xl:overflow-hidden">
+    <div className="grid h-full min-h-0 grid-cols-1 content-start gap-3 overflow-auto p-3 xl:grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)] xl:content-stretch">
       <div className="flex min-h-0 flex-col gap-3">
         <Panel className="shrink-0" title="Judgment" icon={<Scale size={14} />} actions={
           world
