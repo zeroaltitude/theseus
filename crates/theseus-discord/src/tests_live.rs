@@ -18,6 +18,7 @@ use crate::tests_gateway::{Rig, ANA, BEN, LAB};
 /// Invented channels beside `#lab`.
 const DOCK: u64 = 900_000_000_000_000_020;
 const PIER: u64 = 900_000_000_000_000_030;
+const REEF: u64 = 900_000_000_000_000_040;
 
 const BOUND: &str = "🔗 Theseus is bound here";
 
@@ -45,6 +46,7 @@ fn guild() -> Guild {
         .channel(LAB, "lab")
         .channel(DOCK, "dock")
         .channel(PIER, "pier")
+        .channel(REEF, "reef")
 }
 
 async fn rig(script: Vec<Scripted>, bindings: &str, more: &[u64]) -> Rig {
@@ -298,4 +300,40 @@ async fn a_post_in_flight_when_its_place_leaves_settles_as_sent_and_the_rest_are
     let dock: Vec<String> = r.posted(DOCK).iter().map(|m| m.content.clone()).collect();
     assert_eq!(dock.len(), 2, "the bind notice and the first: {dock:?}");
     assert!(!dock.iter().any(|m| m.contains("never sent")));
+}
+
+/// theseus-u6v6: a place added live whose bind fails (its session cannot be
+/// opened, once) is said on the board, and bound by the watch's next ticks
+/// with no further save: one bind notice, one error said, and the board's
+/// note gone once it binds.
+#[tokio::test]
+async fn a_place_whose_bind_failed_is_tried_again_until_it_binds() {
+    let r = rig(vec![], &file(&[]), &[]).await;
+    crate::rpc_client::refuse_once(theseus_protocol::method::SESSION_OPEN, "discord #reef");
+    r.rewrite(&file(&[channel(REEF, "reef", &[ANA])]));
+    r.until("the board says why #reef did not bind", || {
+        r.detail()
+            .is_some_and(|d| d.contains(&format!("channel:{REEF}")) && d.contains("refused"))
+    })
+    .await;
+    let d = r.detail().unwrap();
+    assert!(d.contains("tried again"), "{d}");
+    assert!(!d.contains('\n'), "health's one line: {d}");
+    // No second save: the watch tries the place again by itself.
+    r.until("#reef binds", || r.answered(REEF, BOUND)).await;
+    r.until("the note clears", || r.detail().is_none()).await;
+    assert!(
+        r.labels().contains(&"#reef".to_string()),
+        "{:?}",
+        r.labels()
+    );
+    let notices = r
+        .posted(REEF)
+        .iter()
+        .filter(|m| m.content.starts_with(BOUND))
+        .count();
+    assert_eq!(notices, 1, "one bind notice");
+    let errors = r.ledger("discord.error");
+    let said = errors.iter().filter(|e| e["op"] == "bind place").count();
+    assert_eq!(said, 1, "the failure is said once: {errors:?}");
 }

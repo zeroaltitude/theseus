@@ -49,6 +49,20 @@ impl std::fmt::Display for CallError {
 
 impl std::error::Error for CallError {}
 
+/// A test seam: calls of a method whose line holds the text, each refused once
+/// (`refuse_once`), so a bind can be made to fail without the core's help.
+#[cfg(test)]
+static REFUSALS: Mutex<Vec<(String, String)>> = Mutex::new(Vec::new());
+
+/// The next call of `method` whose request holds `text` fails, once.
+#[cfg(test)]
+pub(crate) fn refuse_once(method: &str, text: &str) {
+    REFUSALS
+        .lock()
+        .unwrap()
+        .push((method.to_string(), text.to_string()));
+}
+
 impl RpcClient {
     /// Open a connection as `client` (its label and surface) and return the
     /// client plus the stream of notifications (turn events for the sessions
@@ -120,6 +134,18 @@ impl RpcClient {
         let line =
             serde_json::to_string(&Message::Request(Request::new(Id::Num(id), method, params)))
                 .map_err(CallError::local)?;
+        #[cfg(test)]
+        {
+            let mut refusals = REFUSALS.lock().unwrap();
+            if let Some(i) = refusals
+                .iter()
+                .position(|(m, t)| m == method && line.contains(t.as_str()))
+            {
+                refusals.remove(i);
+                self.pending.lock().unwrap().remove(&id);
+                return Err(CallError::local(format!("{method} refused by the test")));
+            }
+        }
         if self.out.send(line).is_err() {
             self.pending.lock().unwrap().remove(&id);
             return Err(CallError::local("the core connection is closed"));

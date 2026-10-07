@@ -32,7 +32,7 @@
 //!   changed. The file's format may change live: both formats read to the
 //!   same places.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
@@ -81,8 +81,14 @@ pub(super) async fn watch(shared: Arc<Shared>, path: PathBuf, mut bound: Binding
     // The last failure said: a save seen mid-write fails twice alike, and is
     // said once.
     let mut said: Option<String> = None;
+    // The places whose bind failed, by key, with why: `bound` names them, but
+    // they are tried again each tick until they bind (theseus-u6v6).
+    let mut failed: BTreeMap<String, String> = BTreeMap::new();
     loop {
         tick.tick().await;
+        if !failed.is_empty() && retry(&shared, &bound, &mut failed).await {
+            set(&shared.board, &mut note, unbound(&failed));
+        }
         let now = stamp(&path).await;
         if !first && now == seen {
             keep(&shared.board, note.as_deref());
@@ -106,16 +112,65 @@ pub(super) async fn watch(shared: Arc<Shared>, path: PathBuf, mut bound: Binding
             }
             Ok(new) if new.revision == bound.revision => {
                 said = None;
-                set(&shared.board, &mut note, None);
+                set(&shared.board, &mut note, unbound(&failed));
             }
             Ok(mut new) => {
                 said = None;
-                let waits = shared.apply(&bound, &mut new).await;
-                set(&shared.board, &mut note, waits);
+                let waits = shared.apply(&bound, &mut new, &mut failed).await;
+                set(&shared.board, &mut note, join(waits, unbound(&failed)));
                 bound = new;
             }
         }
     }
+}
+
+/// The places still not bound, said on the board.
+fn unbound(failed: &BTreeMap<String, String>) -> Option<String> {
+    if failed.is_empty() {
+        return None;
+    }
+    let each: Vec<String> = failed
+        .iter()
+        .map(|(k, why)| format!("{k}: {why}"))
+        .collect();
+    Some(format!(
+        "a place did not bind, and is tried again every {} s: {}",
+        PERIOD.as_secs(),
+        each.join("; ")
+    ))
+}
+
+/// Two notes for the board's one line.
+fn join(a: Option<String>, b: Option<String>) -> Option<String> {
+    match (a, b) {
+        (Some(a), Some(b)) => Some(format!("{a}; {b}")),
+        (a, b) => a.or(b),
+    }
+}
+
+/// Try the places that failed to bind again, each against the file bound now:
+/// one the file dropped leaves the set, and one that binds does too. Whether
+/// the set changed.
+async fn retry(
+    shared: &Arc<Shared>,
+    bound: &Bindings,
+    failed: &mut BTreeMap<String, String>,
+) -> bool {
+    let before = failed.len();
+    let list = places(bound);
+    let mut bound_now = Vec::new();
+    for k in failed.keys().cloned().collect::<Vec<_>>() {
+        let Some((_, p)) = list.iter().find(|(o, _)| *o == k) else {
+            failed.remove(&k);
+            continue;
+        };
+        if shared.bind(p).await.is_ok() {
+            failed.remove(&k);
+            bound_now.push(k);
+        }
+    }
+    shared.check_privates(bound, &bound_now);
+    failed.len() != before
 }
 
 /// A parse error on one line, for health's one line: TOML's names the
@@ -273,6 +328,16 @@ impl Shared {
         tokio::spawn(lane.run(rx));
     }
 
+    /// The DM `user`, labelled `label`, among the bound ones: once, however
+    /// often its bind is tried.
+    fn add_dm(&self, user: u64, label: String) {
+        let mut r = self.routes.lock().unwrap();
+        match r.dms.iter_mut().find(|(u, _)| *u == user) {
+            Some(d) => d.1 = label,
+            None => r.dms.push((user, label)),
+        }
+    }
+
     pub(super) fn start_channel_lane(self: &Arc<Self>, c: &ChannelBinding) -> anyhow::Result<()> {
         let id = snowflake("channel id", &c.id)?;
         let target = format!("discord:channel:{}", c.id);
@@ -282,7 +347,7 @@ impl Shared {
 
     pub(super) fn start_dm_lane(self: &Arc<Self>, d: &DmBinding) -> anyhow::Result<()> {
         let user = snowflake("dm user", &d.user)?;
-        self.routes.lock().unwrap().dms.push((user, d.label()));
+        self.add_dm(user, d.label());
         let target = format!("discord:dm:{}", d.user);
         self.start_lane(target, "dm", d.label(), None, Some(user));
         Ok(())
@@ -338,7 +403,12 @@ impl Shared {
 
     /// Move the binding from the file `old` to the file `new`. Returns what
     /// waits for the next start, if anything.
-    async fn apply(self: &Arc<Self>, old: &Bindings, new: &mut Bindings) -> Option<String> {
+    async fn apply(
+        self: &Arc<Self>,
+        old: &Bindings,
+        new: &mut Bindings,
+        failed: &mut BTreeMap<String, String>,
+    ) -> Option<String> {
         // The core first, as at a start: a place's class before a message
         // from it is read; a place whose ceiling the config cannot serve is
         // taken out of `new` and stays unbound.
@@ -352,15 +422,18 @@ impl Shared {
         for (k, p) in &was {
             if find(&now, k).is_none() {
                 self.unbind(k, &p.label()).await;
+                failed.remove(k);
                 removed.push(k.clone());
             }
         }
         for (k, p) in &now {
             match find(&was, k) {
-                None => match self.bind(p).await {
-                    Ok(()) => added.push(k.clone()),
-                    Err(e) => self.board.error("bind place", None, format!("{k}: {e:#}")),
-                },
+                // Added, or a place whose bind failed: bound as the file
+                // has it now.
+                None => self.bound_or_failed(k, p, failed, &mut added).await,
+                Some(_) if failed.contains_key(k) => {
+                    self.bound_or_failed(k, p, failed, &mut added).await;
+                }
                 Some(w) if w.differs(old, p, new) => {
                     self.rebind(k, p);
                     changed.push(k.clone());
@@ -385,6 +458,29 @@ impl Shared {
         waits(old, new)
     }
 
+    /// Bind the place `k`: it joins `added`, or its failure is said once, on
+    /// the board and in the record, and kept in `failed` to be tried again.
+    async fn bound_or_failed(
+        self: &Arc<Self>,
+        k: &str,
+        p: &Spot<'_>,
+        failed: &mut BTreeMap<String, String>,
+        added: &mut Vec<String>,
+    ) {
+        match self.bind(p).await {
+            Ok(()) => {
+                failed.remove(k);
+                added.push(k.to_string());
+            }
+            Err(e) => {
+                let why = one_line(&format!("{e:#}"));
+                if failed.insert(k.to_string(), why).is_none() {
+                    self.board.error("bind place", None, format!("{k}: {e:#}"));
+                }
+            }
+        }
+    }
+
     /// Each channel newly bound private, outside a trusted guild: its
     /// viewers read once, as at a start (the place rule).
     fn read_new_privates(self: &Arc<Self>, old: &Bindings, new: &Bindings) {
@@ -394,6 +490,23 @@ impl Shared {
             .filter(|c| !read_before.contains(&c.id.as_str()))
             .filter_map(|c| Some((c.id.parse().ok()?, c.label())))
             .collect();
+        self.spawn_checks(to_read);
+    }
+
+    /// The viewers of each of `keys`' channels read, when `b` binds them
+    /// private outside a trusted guild: a place that bound late.
+    fn check_privates(self: &Arc<Self>, b: &Bindings, keys: &[String]) {
+        let to_read: Vec<(u64, String)> = b
+            .read_at_start()
+            .filter(|c| keys.contains(&format!("channel:{}", c.id)))
+            .filter_map(|c| Some((c.id.parse().ok()?, c.label())))
+            .collect();
+        if !to_read.is_empty() {
+            self.spawn_checks(to_read);
+        }
+    }
+
+    fn spawn_checks(self: &Arc<Self>, to_read: Vec<(u64, String)>) {
         let checks = self.clone();
         tokio::spawn(async move {
             for (c, name) in &to_read {
@@ -525,7 +638,7 @@ impl Shared {
         let target = format!("discord:dm:{}", d.user);
         if self.keep_lane(&target) {
             let user = snowflake("dm user", &d.user)?;
-            self.routes.lock().unwrap().dms.push((user, d.label()));
+            self.add_dm(user, d.label());
             if let Some(l) = self.lane(&target) {
                 let _ = l.send(LaneMsg::Label(d.label()));
             }
