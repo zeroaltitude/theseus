@@ -1,7 +1,8 @@
 // Money as the cockpit reads it (`src/lib/budgets.ts`, M7 42b), run by `npm test`.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { burnPerHour, flatten, handsLines, HOUR_MS, limitWords, recentResets, sessionsOf, sums } from '../src/lib/budgets.ts'
+import { readFileSync } from 'node:fs'
+import { burnPerHour, flatten, handsLines, HOUR_MS, limitWords, questionsWaiting, recentResets, sessionsOf, sums } from '../src/lib/budgets.ts'
 
 const row = (id: string, o: Record<string, unknown> = {}) => ({
   execution_id: `exe_${id}`, session_id: `ses_${id}`, kind: 'conversation', state: 'waiting', limit_usd: 10, limit_from: 'config',
@@ -68,4 +69,24 @@ test('the hands say runaway plainly, and only while it holds', () => {
   assert.equal(lines[1].text, '3 hands running (1 Lambda, 2 Fargate), $1.50 reserved')
   assert.equal(lines[2].text, 'this hour $2.00 of its $5.00 line')
   assert.equal(handsLines(h, 2_100_000_000_000)[0].text.startsWith('runaway'), false)
+})
+
+test("a budget question waiting shows above Money's river, only while one waits; the Budgets panel points up to it", () => {
+  // None waits: nothing above the river.
+  assert.deepEqual(questionsWaiting(tree), [])
+  // A task's question and a session's, in reading order.
+  const asked = (id: string) => ({ correlation_id: `act_${id}`, needs_usd: 0.4, asked_at_ms: 1 })
+  const waits = [row('a', { question: asked('a'), tasks: [row('t', { kind: 'task', question: asked('t') })] }), row('b')]
+  assert.deepEqual(questionsWaiting(waits as any).map((f) => [f.row.session_id, f.row.question?.correlation_id]), [['ses_a', 'act_a'], ['ses_t', 'act_t']])
+  // Money: the questions first, then the tiles and the river; the Budgets panel keeps a line that points up to them.
+  const money = readFileSync(new URL('../src/views/Money.tsx', import.meta.url), 'utf8')
+  const above = money.indexOf('<BudgetQuestions past={world ? world.t : null} />')
+  assert.ok(above > 0 && above < money.indexOf('<ChartPanel id="river"') && above < money.indexOf('<StatTile'), 'the questions come before the tiles and the river')
+  const budgets = readFileSync(new URL('../src/components/Budgets.tsx', import.meta.url), 'utf8')
+  const panel = budgets.slice(budgets.indexOf('export function Budgets('), budgets.indexOf('export function BudgetQuestions('))
+  assert.doesNotMatch(panel, /<ConfirmCard/, 'the panel shows no second card')
+  assert.match(panel, /'their cards are'\} above the river/, 'its line says where they are')
+  const questions = budgets.slice(budgets.indexOf('export function BudgetQuestions('))
+  assert.match(questions, /if \(!waiting\.length\) return null/)
+  assert.match(questions, /<ConfirmCard key=\{q\.correlation_id\} c=\{card\} \/>/)
 })

@@ -21,6 +21,12 @@ export function flatten(rows: readonly BudgetRow[]): Flat[] {
   return out
 }
 
+/** The rows whose budget question waits for the operator, in reading order: Money shows them above its river while any
+ *  waits (theseus-v6vc). */
+export function questionsWaiting(rows: readonly BudgetRow[]): Flat[] {
+  return flatten(rows).filter((f) => f.row.question)
+}
+
 export interface Sums { limit: number; spent: number; reserved: number; heldUnknown: number; available: number; lifetime: number }
 
 /** The totals, as the daemon states its rule: the money figures add the top rows only (a task's spend is its parent's

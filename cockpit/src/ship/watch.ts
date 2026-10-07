@@ -74,6 +74,8 @@ export interface Plate {
   key: WatchKey
   /** The question: the plate's engraved title. */
   question: string
+  /** The question in the compact strip, when the whole one does not fit there; the whole is its tooltip. */
+  short?: string
   /** The big number, as words ("3", "$0.42", "12m"); "…" while its data is still being read. */
   value: string
   /** The word beside the number. */
@@ -189,10 +191,13 @@ export function argvWords(argv: readonly string[]): string {
 const WRAPPERS = new Set(['env', 'exec', 'time', 'nohup', 'nice', 'timeout', 'command', 'stdbuf', 'ionice'])
 /** A shell's own words, which run no program of their own: `cd harbour && make` runs make. */
 const BUILTINS = new Set(['cd', 'export', 'set', 'unset', 'source', '.', 'true', ':', 'pushd', 'popd', 'umask', 'ulimit', 'trap'])
+/** A shell's words that only say something, which do none of the job's work: `echo "building"; cargo build` runs cargo
+ *  (theseus-cov9). */
+const SAYS = new Set(['echo', 'printf'])
 
-/** The program a job runs: its command's first program (a shell's `-c` looked through, its builtins, wrappers,
- *  assignments and options passed over): `cargo`, `sleep`, `make`. A job is held against its program's runs when its
- *  own command has too few. */
+/** The program a job runs: its command's first program (a shell's `-c` looked through, its builtins, its `echo` and
+ *  `printf`, wrappers, assignments and options passed over): `cargo`, `sleep`, `make`. A job is held against its
+ *  program's runs when its own command has too few. */
 export function programOf(argv: readonly string[]): string | undefined {
   const shell = argv.length >= 3 && SHELL.test(argv[0]) && /^-\w*c$/.test(argv[1])
   const commands = shell ? argv[2].replace(/[(){}]/g, ' ').split(/;|&&|\|\||\||\n/) : [argv.join(' ')]
@@ -201,7 +206,7 @@ export function programOf(argv: readonly string[]): string | undefined {
     let i = 0
     while (i < words.length && (words[i].includes('=') || words[i].startsWith('-') || /^\d+[smhd]?$/.test(words[i]) || WRAPPERS.has(words[i].split('/').pop()!))) i++
     const name = (words[i] ?? '').split('/').pop() ?? ''
-    if (!name || BUILTINS.has(name)) continue
+    if (!name || BUILTINS.has(name) || SAYS.has(name)) continue
     return /^[\w.+-]+$/.test(name) ? name : undefined
   }
   return undefined
@@ -246,7 +251,18 @@ export interface Look {
   result: Map<string, Light>
 }
 
+/** Each model's lookups, made once: the five plates and the sixth read the same model on every recompute. */
+const looks = new WeakMap<ShipModel, Look>()
+
 export function lookOf(model: ShipModel | null): Look {
+  const kept = model ? looks.get(model) : undefined
+  if (kept) return kept
+  const look = lookOfModel(model)
+  if (model) looks.set(model, look)
+  return look
+}
+
+function lookOfModel(model: ShipModel | null): Look {
   const call = new Map<string, Light>()
   const result = new Map<string, Light>()
   for (const l of model?.lights ?? []) {
@@ -435,7 +451,11 @@ export function failureLights(f: Failure, look: Look, turnLights: Map<string, Li
 
 // ---------------------------------------------------------------- the scan
 
-/** What the rows say, read once backwards from the moment, down to the longest window. */
+/** A turn that ended: how long it ran, and when. */
+interface Ended { ms: number; turn: string; session: string | null; at: number }
+
+/** What the rows say, read from the moment back to the longest window (the local day, or the 24 hours before the
+ *  moment). */
 interface Scan {
   spent: number
   calls: number
@@ -444,19 +464,21 @@ interface Scan {
   /** Today's model calls' nodes (a provider.call row's `node_id`). */
   spentNodes: Set<string>
   last15: number
-  /** The turns that ended in the day before the moment, newest first. */
-  ended: { ms: number; turn: string; session: string | null; at: number }[]
+  /** The turns that ended after `t` (in the day before the moment), newest first. */
+  endedAfter: (t: number) => Ended[]
   /** Each session's newest turn.started by the moment, and whether it is still open then (no end by the moment). */
   newest: Map<string, { turn: string; at: number; open: boolean }>
   /** The last day's failures. */
   failures: Failures
-  /** The calls that settled in the day before the moment, with how long each ran (action.succeeded and
-   *  action.failed's `duration_ms`): the usuals are made of them. */
-  settled: { cid: string; ms: number; at: number }[]
-  /** A call's tool (action.planned), its job's argv (tool.job_started), and the jobs that ran in L1. */
-  tools: Map<string, string>
-  argv: Map<string, string[]>
-  l1: Set<string>
+  /** The calls that settled after `t` (in the day before the moment), with how long each ran (action.succeeded and
+   *  action.failed's `duration_ms`), newest first. */
+  settledAfter: (t: number) => { cid: string; ms: number; at: number }[]
+  /** A call's tool (action.planned), its job's argv (tool.job_started), and whether its job ran in L1. */
+  tool: (cid: string) => string | undefined
+  argv: (cid: string) => string[] | undefined
+  l1: (cid: string) => boolean
+  /** Each kind's usual at the moment. */
+  usuals: Usuals
 }
 
 /** Where a walk back from `t` starts: past the last row at or before it, and the skew after (rows are in the ledger's
@@ -473,79 +495,475 @@ export function endOf(rows: readonly LedgerEntry[], t: number): number {
   return lo
 }
 
-function scan(rows: readonly LedgerEntry[], now: number, dayStart: number, nHours: number): Scan {
-  const s: Scan = {
-    spent: 0, calls: 0, hours: new Array<number>(nHours).fill(0), bySession: new Map(), spentNodes: new Set(), last15: 0,
-    ended: [], newest: new Map(), failures: new Failures(), settled: [], tools: new Map(), argv: new Map(), l1: new Set(),
+/** Where a window from `t` starts: the first row whose time is `t` or later, less the skew (rows in the ledger's order,
+ *  their times within `SKEW_MS` of it). */
+export function startOf(rows: readonly LedgerEntry[], t: number): number {
+  let lo = 0
+  let hi = rows.length
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1
+    if (rows[mid].at_unix_ms < t - SKEW_MS) lo = mid + 1
+    else hi = mid
   }
-  const from = Math.min(dayStart, now - DAY_MS) - SKEW_MS
-  // Going back, a turn's end comes before its start: a start whose end is not seen by then is open at the moment.
-  const done = new Set<string>()
-  for (let i = endOf(rows, now) - 1; i >= 0; i--) {
-    const r = rows[i]
+  return lo
+}
+
+/** Something a row said, with its time and its place in the ledger: kept until the window passes it. */
+type Kept<T> = T & { at: number; i: number }
+
+/** Numbers kept in order, so a median is a look, not a sort: the usuals' times (theseus-qilc). What joins is put in
+ *  its place when next asked, all at once, so a day read afresh sorts once. */
+class Bag {
+  private xs: number[] = []
+  private joining: number[] = []
+  get size(): number { return this.xs.length + this.joining.length }
+  add(x: number) { this.joining.push(x) }
+  remove(x: number) {
+    this.settle()
+    const i = this.place(x)
+    if (this.xs[i] === x) this.xs.splice(i, 1)
+  }
+  /** The median (the mean of the middle two for an even count), as `median` says it. */
+  median(): number | null {
+    this.settle()
+    const a = this.xs
+    if (!a.length) return null
+    const m = a.length >> 1
+    return a.length % 2 ? a[m] : (a[m - 1] + a[m]) / 2
+  }
+  private settle() {
+    if (!this.joining.length) return
+    const add = this.joining.sort((p, q) => p - q)
+    this.joining = []
+    if (add.length > 8) {
+      // Many at once: merge the two runs.
+      const a = this.xs
+      const out = new Array<number>(a.length + add.length)
+      let i = 0
+      let j = 0
+      for (let k = 0; k < out.length; k++) out[k] = j >= add.length || (i < a.length && a[i] <= add[j]) ? a[i++] : add[j++]
+      this.xs = out
+    } else {
+      for (const x of add) this.xs.splice(this.place(x), 0, x)
+    }
+  }
+  private place(x: number): number {
+    let lo = 0
+    let hi = this.xs.length
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1
+      if (this.xs[mid] < x) lo = mid + 1
+      else hi = mid
+    }
+    return lo
+  }
+}
+
+/** A call that settled, kept: the usuals' keys it is counted under now (none while it is out of the day before the
+ *  moment, or its tool is a model's or unknown), and whether its tool came from a row or from the calls and the chart. */
+type Settled = Kept<{ cid: string; ms: number }> & { keys: string[] | null; fromRow: boolean; expires?: number; elsewhere?: string }
+
+/** The usuals' keys of a call whose tool is `tool` and whose job ran `argv`: its tool's, and a job's command's and
+ *  program's. */
+function usualKeys(tool: string, argv: readonly string[] | undefined): string[] {
+  if (tool !== 'proc.run' || !argv) return [tool]
+  const [command, prog] = keysOf(argv)
+  return prog ? [tool, `proc.run $ ${command}`, `proc.run ${prog}`] : [tool, `proc.run $ ${command}`]
+}
+
+/** The day's scan, kept between recomputes (theseus-qilc). The ledger's rows only ever join its end, and the live
+ *  moment only moves on, so a recompute reads just the rows that came since the last (and those the moment has now
+ *  reached), not the day again; what falls out of the window is passed over as it is read, and let go now and then.
+ *  The usuals are kept too: each call that settles joins its kinds' times as it comes, and leaves them as the day
+ *  passes it, so a median is a look. A moment moved back (a scrub), a new local day, or another ledger reads afresh.
+ *  Each watch keeps one; `watchOf` without one reads afresh. Fresh or kept, a moment reads the same. */
+export class DayScan {
+  /** Rows read in all: a test's measure of the work. */
+  read = 0
+  private rows: readonly LedgerEntry[] = []
+  /** The first and last rows of the ledger last read, and its length: a ledger that only grew starts with them. */
+  private first: LedgerEntry | undefined
+  private last: LedgerEntry | undefined
+  private len = 0
+  /** Rows before this are read (or wait in `pending`). */
+  private hi = 0
+  private now = -Infinity
+  private dayStart = NaN
+  private nHours = 0
+  /** Rows read before their time: each is taken once the moment reaches it. */
+  private pending: number[] = []
+  private spent = 0
+  private calls = 0
+  private hours: number[] = []
+  /** Each session's dollars, and the place of its newest model call: the session that spent most, on a tie, is the
+   *  one that spent last. */
+  private bySession = new Map<string, { usd: number; i: number }>()
+  private spentNodes = new Set<string>()
+  private ended: Kept<Ended & { inDay: boolean }>[] = []
+  private started = new Map<string, Kept<{ turn: string }>>()
+  private done = new Map<string, number>()
+  private failing: Kept<{ r: LedgerEntry }>[] = []
+  /** The day's failures as last built, and what they were built from: the failing rows read (`failingV` counts them)
+   *  and how many the day had passed. */
+  private failures: { v: number; passed: number; f: Failures } | null = null
+  private failingV = 0
+  private settled: Settled[] = []
+  private tools = new Map<string, Kept<{ tool: string }>>()
+  private argvs = new Map<string, Kept<{ argv: string[] }>>()
+  private l1s = new Map<string, number>()
+  /** Some row was taken out of the ledger's order: the kept lists are put back in it before they are read. */
+  private late = false
+  private letGo = -Infinity
+  // The usuals, kept: each kind's times, the turns', and what changed since they were last brought up to the moment.
+  private bags = new Map<string, Bag>()
+  private turns = new Bag()
+  /** Settled calls counted with no plan row for their tool, or a job with no argv: a row read late may say it. */
+  private waiting = new Map<string, Settled[]>()
+  /** Calls settled since, not yet counted; calls whose tool came from the calls or the chart (asked again each time);
+   *  calls whose plan or job row came, or left the window. */
+  private unbagged: Settled[] = []
+  private unturned: Kept<Ended & { inDay: boolean }>[] = []
+  private fallbacks = new Set<Settled>()
+  private touched = new Set<Settled>()
+  /** Calls whose plan or job row the window lets go before the day lets the call go (a call that ran longer than the
+   *  skew): each is counted again when it does. */
+  private expiring = new Set<Settled>()
+  /** The window's start at the moment. */
+  private from = -Infinity
+  /** How far the day before the moment has passed the settled calls and the ended turns. */
+  private settledPast = 0
+  private endedPast = 0
+
+  /** What `toolOf` was last read from. */
+  private sources: readonly unknown[] = []
+
+  /** The scan of `rows` at the moment `now`, in the local day from `dayStart` (`nHours` long). `toolOf` says a call's
+   *  tool when no row in the window does, from `sources` (the calls, the chart): while they are the same objects, what
+   *  it said stands. */
+  of(rows: readonly LedgerEntry[], now: number, dayStart: number, nHours: number, toolOf: ToolOf = () => undefined, sources: readonly unknown[] = []): Scan {
+    const grew = rows.length >= this.len && (this.len === 0 || (rows[0] === this.first && rows[this.len - 1] === this.last))
+    if (!grew || now < this.now || dayStart !== this.dayStart || nHours !== this.nHours) this.reset(rows, now, dayStart, nHours)
+    this.rows = rows
+    if (now !== this.now || this.pending.length) {
+      this.now = now
+      this.from = windowFrom(now, dayStart)
+      const waiting = this.pending
+      this.pending = []
+      for (const i of waiting) this.take(rows[i], i)
+    }
+    const to = endOf(rows, now)
+    for (let i = this.hi; i < to; i++) this.take(rows[i], i)
+    this.hi = Math.max(this.hi, to)
+    this.len = rows.length
+    this.first = rows[0]
+    this.last = rows[rows.length - 1]
+    const asked = sources.length !== this.sources.length || sources.some((x, k) => x !== this.sources[k])
+    this.sources = sources
+    return this.result(toolOf, asked)
+  }
+
+  private reset(rows: readonly LedgerEntry[], now: number, dayStart: number, nHours: number) {
+    this.now = now
+    this.dayStart = dayStart
+    this.nHours = nHours
+    this.hi = startOf(rows, windowFrom(now, dayStart))
+    this.pending = []
+    this.spent = 0
+    this.calls = 0
+    this.hours = new Array<number>(nHours).fill(0)
+    this.bySession = new Map()
+    this.spentNodes = new Set()
+    this.ended = []
+    this.started = new Map()
+    this.done = new Map()
+    this.failing = []
+    this.failures = null
+    this.settled = []
+    this.tools = new Map()
+    this.argvs = new Map()
+    this.l1s = new Map()
+    this.late = false
+    this.letGo = windowFrom(now, dayStart)
+    this.bags = new Map()
+    this.turns = new Bag()
+    this.waiting = new Map()
+    this.unbagged = []
+    this.unturned = []
+    this.fallbacks = new Set()
+    this.touched = new Set()
+    this.expiring = new Set()
+    this.from = windowFrom(now, dayStart)
+    this.settledPast = 0
+    this.endedPast = 0
+  }
+
+  /** Keep `x` at the end of `xs`; a row out of the ledger's order (read late: its time had not come) is noted. */
+  private keep<T extends { i: number }>(xs: T[], x: T) {
+    if (xs.length && x.i < xs[xs.length - 1].i) this.late = true
+    xs.push(x)
+  }
+
+  /** Take one row: one whose time is after the moment waits for it; one before the window says nothing. */
+  private take(r: LedgerEntry, i: number) {
+    this.read++
     const at = r.at_unix_ms
-    if (at > now) continue
-    if (at < from) break
+    if (at > this.now) { this.pending.push(i); return }
+    if (at < this.from) return
     const d = (r.data ?? {}) as D
     const sid = r.session_id
-    const lastDay = at > now - DAY_MS
-    if (lastDay) s.failures.add(r)
+    if (r.kind === 'action.resolved' || FAILURE_KINDS.has(r.kind)) {
+      this.keep(this.failing, { r, at, i })
+      this.failingV++
+    }
     switch (r.kind) {
       case 'provider.call': {
-        if (at < dayStart) break
+        if (at < this.dayStart) break
         // Spend means what it means in Money and Economics: each model call's recorded cost.
         const cost = Number(d.cost_usd ?? 0) || 0
-        s.spent += cost
-        s.calls++
-        s.hours[Math.min(nHours - 1, Math.floor((at - dayStart) / HOUR_MS))] += cost
-        if (at > now - PACE_MS) s.last15 += cost
-        if (sid) s.bySession.set(sid, (s.bySession.get(sid) ?? 0) + cost)
+        this.spent += cost
+        this.calls++
+        this.hours[Math.min(this.nHours - 1, Math.floor((at - this.dayStart) / HOUR_MS))] += cost
+        if (sid) {
+          const was = this.bySession.get(sid)
+          if (!was) this.bySession.set(sid, { usd: cost, i })
+          else {
+            was.usd += cost
+            was.i = Math.max(was.i, i)
+          }
+        }
         const node = str(d.node_id)
-        if (node) s.spentNodes.add(node)
+        if (node) this.spentNodes.add(node)
         break
       }
       case 'turn.ended': {
         const t = r.turn_id
-        if (t) done.add(t)
+        if (t) this.done.set(t, at)
         const e = num(d.elapsed_ms)
-        if (t && e !== undefined && lastDay) s.ended.push({ ms: e, turn: t, session: sid, at })
+        if (t && e !== undefined) {
+          const x = { ms: e, turn: t, session: sid, at, i, inDay: false }
+          this.keep(this.ended, x)
+          this.unturned.push(x)
+        }
         break
       }
       case 'turn.failed':
-        if (r.turn_id) done.add(r.turn_id)
+        if (r.turn_id) this.done.set(r.turn_id, at)
         break
-      case 'turn.started':
-        if (sid && r.turn_id && !s.newest.has(sid)) s.newest.set(sid, { turn: r.turn_id, at, open: !done.has(r.turn_id) })
+      case 'turn.started': {
+        // A session's newest start, by its place in the ledger.
+        const was = sid ? this.started.get(sid) : undefined
+        if (sid && r.turn_id && (!was || i > was.i)) this.started.set(sid, { turn: r.turn_id, at, i })
         break
+      }
       case 'action.succeeded':
       case 'action.failed': {
         const cid = str(d.correlation_id)
         const took = num(d.duration_ms)
-        if (cid && took !== undefined && lastDay) s.settled.push({ cid, ms: took, at })
+        if (!cid || took === undefined) break
+        const c: Settled = { cid, ms: took, at, i, keys: null, fromRow: true }
+        this.keep(this.settled, c)
+        this.unbagged.push(c)
         break
       }
       case 'action.planned': {
+        // A call's first plan says its tool.
         const cid = str(d.correlation_id)
         const tool = str(d.tool)
-        if (cid && tool) s.tools.set(cid, tool)
+        const was = cid ? this.tools.get(cid) : undefined
+        if (cid && tool && (!was || i < was.i)) {
+          this.tools.set(cid, { tool, at, i })
+          this.came(cid)
+        }
         break
       }
       case 'tool.job_started': {
         const cid = str(d.correlation_id)
         if (!cid) break
-        if (Array.isArray(d.argv) && d.argv.every((a) => typeof a === 'string')) s.argv.set(cid, d.argv as string[])
-        if (d.class === 'l1') s.l1.add(cid)
+        const was = this.argvs.get(cid)
+        if (Array.isArray(d.argv) && d.argv.every((a) => typeof a === 'string') && (!was || i < was.i)) {
+          this.argvs.set(cid, { argv: d.argv as string[], at, i })
+          this.came(cid)
+        }
+        if (d.class === 'l1') this.l1s.set(cid, at)
         break
       }
       case 'sandbox.started': {
         const cid = str(d.correlation_id)
-        if (cid && d.class === 'l1') s.l1.add(cid)
+        if (cid && d.class === 'l1') this.l1s.set(cid, at)
         break
       }
     }
   }
-  return s
+
+  /** A call's plan or job row came after it settled (read late): it is counted again. One that settles later is
+   *  counted as it does. */
+  private came(cid: string) {
+    const cs = this.waiting.get(cid)
+    if (!cs) return
+    this.waiting.delete(cid)
+    for (const c of cs) this.touched.add(c)
+  }
+
+  private tool(cid: string, from: number): string | undefined {
+    const t = this.tools.get(cid)
+    return t && t.at >= from ? t.tool : undefined
+  }
+
+  private argv(cid: string, from: number): string[] | undefined {
+    const a = this.argvs.get(cid)
+    return a && a.at >= from ? a.argv : undefined
+  }
+
+  /** Count a settled call under its kinds' usuals as the moment sees it: none outside the day before the moment, or
+   *  for a model's call or an unknown tool; else its tool's, and a job's command's and program's. */
+  private bag(c: Settled, from: number, day: number, toolOf: ToolOf) {
+    if (c.keys) for (const k of c.keys) this.bags.get(k)?.remove(c.ms)
+    c.keys = null
+    if (!c.fromRow) this.fallbacks.delete(c)
+    if (c.expires !== undefined) this.expiring.delete(c)
+    c.fromRow = true
+    c.expires = undefined
+    if (c.at <= day) return
+    const t = this.tools.get(c.cid)
+    const a = this.argvs.get(c.cid)
+    const row = t && t.at >= from ? t.tool : undefined
+    const tool = row ?? toolOf(c.cid)
+    if (row === undefined) {
+      c.fromRow = false
+      c.elsewhere = tool
+      this.fallbacks.add(c)
+    }
+    // The rows it is counted by: when the window lets one go before the day lets the call go, it is counted again.
+    const rowAt = Math.min(t && t.at >= from ? t.at : Infinity, a && a.at >= from ? a.at : Infinity)
+    if (rowAt !== Infinity && rowAt + SKEW_MS <= c.at) {
+      c.expires = rowAt
+      this.expiring.add(c)
+    }
+    const argv = a && a.at >= from ? a.argv : undefined
+    if (row === undefined || (tool === 'proc.run' && !argv)) {
+      const cs = this.waiting.get(c.cid)
+      if (!cs) this.waiting.set(c.cid, [c])
+      else if (!cs.includes(c)) cs.push(c)
+    }
+    if (!tool || tool.startsWith('provider.')) return
+    const ks = usualKeys(tool, argv)
+    for (const k of ks) {
+      let b = this.bags.get(k)
+      if (!b) this.bags.set(k, (b = new Bag()))
+      b.add(c.ms)
+    }
+    c.keys = ks
+  }
+
+  /** Bring the usuals up to the moment: what the day passed leaves, what settled since joins, and what a row changed (or
+   *  the calls and the chart might have) is counted again. */
+  private bagsAt(from: number, day: number, toolOf: ToolOf, asked: boolean) {
+    // Passed by the day: the lists are in the ledger's order, their times within the skew of it.
+    for (let k = this.settledPast; k < this.settled.length && this.settled[k].at <= day + SKEW_MS; k++) {
+      const c = this.settled[k]
+      if (c.at <= day && c.keys) this.bag(c, from, day, toolOf)
+      if (k === this.settledPast && c.at <= day) this.settledPast++
+    }
+    for (let k = this.endedPast; k < this.ended.length && this.ended[k].at <= day + SKEW_MS; k++) {
+      const e = this.ended[k]
+      if (e.at <= day && e.inDay) { this.turns.remove(e.ms); e.inDay = false }
+      if (k === this.endedPast && e.at <= day) this.endedPast++
+    }
+    for (const e of this.unturned) if (e.at > day) { this.turns.add(e.ms); e.inDay = true }
+    this.unturned = []
+    // Plan and job rows the window let go.
+    for (const c of this.expiring) if (c.expires! < from) this.touched.add(c)
+    for (const c of this.touched) this.bag(c, from, day, toolOf)
+    this.touched.clear()
+    for (const c of this.unbagged) if (!c.keys) this.bag(c, from, day, toolOf)
+    this.unbagged = []
+    // A call whose tool only the calls or the chart say is counted again only if what they say has changed.
+    if (asked) for (const c of [...this.fallbacks]) if (toolOf(c.cid) !== c.elsewhere) this.bag(c, from, day, toolOf)
+  }
+
+  /** What the rows say at the moment: the window's part of what was read, newest first. */
+  private result(toolOf: ToolOf, asked: boolean): Scan {
+    const { now, rows } = this
+    const from = windowFrom(now, this.dayStart)
+    const day = now - DAY_MS
+    if (this.late) {
+      const byPlace = (a: { i: number }, b: { i: number }) => a.i - b.i
+      this.ended.sort(byPlace)
+      this.failing.sort(byPlace)
+      this.failingV++
+      this.settled.sort(byPlace)
+      this.settledPast = this.endedPast = 0
+      this.late = false
+    }
+    this.bagsAt(from, day, toolOf, asked)
+    // Let go of what the window has passed, now and then: the moment only moves on, so it never comes back.
+    if (from - this.letGo > 10 * 60_000) {
+      this.letGo = from
+      const keep = <T extends { at: number }>(xs: T[]) => xs.filter((x) => x.at >= from)
+      this.ended = keep(this.ended)
+      this.failing = keep(this.failing)
+      this.failingV++
+      this.settled = keep(this.settled)
+      for (const [cid, cs] of this.waiting) if (cs.every((c) => c.at <= day)) this.waiting.delete(cid)
+      this.settledPast = this.endedPast = 0
+      for (const m of [this.started, this.tools, this.argvs]) for (const [k, v] of m) if (v.at < from) m.delete(k)
+      for (const m of [this.done, this.l1s]) for (const [k, at] of m) if (at < from) m.delete(k)
+    }
+    // The pace's 15 minutes, read back from the moment.
+    let last15 = 0
+    for (let i = this.hi - 1; i >= 0; i--) {
+      const r = rows[i]
+      const at = r.at_unix_ms
+      if (at < now - PACE_MS - SKEW_MS || at < from) break
+      if (r.kind === 'provider.call' && at <= now && at > now - PACE_MS && at >= this.dayStart) last15 += Number((r.data as D | null)?.cost_usd ?? 0) || 0
+    }
+    // A list's part after `t`, read back from its end: it is in the ledger's order, its times within the skew of it.
+    const after = <T extends { at: number }>(xs: T[], t: number): T[] => {
+      const out: T[] = []
+      for (let k = xs.length - 1; k >= 0 && xs[k].at >= Math.max(t, day) - SKEW_MS; k--) if (xs[k].at > t && xs[k].at > day) out.push(xs[k])
+      return out
+    }
+    const { ended, settled } = this
+    // The day's failures, built again only when a failing row came or the day passed one.
+    let passed = 0
+    for (let k = 0; k < this.failing.length && this.failing[k].at <= day + SKEW_MS; k++) if (this.failing[k].at <= day) passed++
+    if (!this.failures || this.failures.v !== this.failingV || this.failures.passed !== passed) {
+      const f = new Failures()
+      for (let k = this.failing.length - 1; k >= 0; k--) if (this.failing[k].at > day) f.add(this.failing[k].r)
+      this.failures = { v: this.failingV, passed, f }
+    }
+    const failures = this.failures.f
+    const newest: Scan['newest'] = new Map()
+    for (const [sid, s] of [...this.started].filter(([, s]) => s.at >= from).sort((a, b) => b[1].i - a[1].i)) {
+      newest.set(sid, { turn: s.turn, at: s.at, open: !this.done.has(s.turn) })
+    }
+    const { bags, l1s } = this
+    const usual = (k: string, of: string): Usual | null => {
+      const b = bags.get(k)
+      return b && b.size >= USUAL_MIN ? { ms: b.median()!, n: b.size, of } : null
+    }
+    const turn = this.turns.size >= USUAL_MIN ? { ms: this.turns.median()!, n: this.turns.size, of: 'turns' } : null
+    return {
+      spent: this.spent, calls: this.calls, hours: [...this.hours], spentNodes: this.spentNodes, last15,
+      bySession: new Map([...this.bySession].sort((a, b) => b[1].i - a[1].i).map(([sid, s]) => [sid, s.usd])),
+      endedAfter: (t) => after(ended, t), settledAfter: (t) => after(settled, t), newest, failures,
+      tool: (cid) => this.tool(cid, from),
+      argv: (cid) => this.argv(cid, from),
+      l1: (cid) => (l1s.get(cid) ?? -Infinity) >= from,
+      usuals: {
+        of: (tool, argv) => {
+          const [, command, prog] = usualKeys(tool, argv)
+          return (command !== undefined ? usual(command, 'runs of this command') : null)
+            ?? (prog !== undefined ? usual(prog, `\`${prog.slice('proc.run '.length)}\` jobs`) : null) ?? usual(tool, `${tool} calls`)
+        },
+        turn,
+      },
+    }
+  }
 }
+
+/** The scan's window starts at the local day's start, or 24 hours before the moment if that is earlier, less the skew. */
+const windowFrom = (now: number, dayStart: number) => Math.min(dayStart, now - DAY_MS) - SKEW_MS
 
 /** A set's ids, once each and in order, so two sets compare by their words. */
 const ids = (xs: Iterable<string | undefined>) => [...new Set([...xs].filter((x): x is string => !!x))].sort()
@@ -580,46 +998,17 @@ export interface Usual {
 /** Each kind's times in the day before the moment: a tool's calls, a job's program's runs, and the turns. */
 export interface Usuals { of(tool: string, argv?: readonly string[]): Usual | null; turn: Usual | null }
 
-function usualsOf(sc: Scan, toolOf: ToolOf): Usuals {
-  const samples = new Map<string, number[]>()
-  const push = (k: string, v: number) => { const a = samples.get(k); if (a) a.push(v); else samples.set(k, [v]) }
-  // A command's two keys, worked out once for each command line however many times it ran.
-  const keys = new Map<string, [string, string | undefined]>()
-  const keysOf = (argv: readonly string[]) => {
-    const line = argv.join('\u0000')
-    let k = keys.get(line)
-    if (!k) keys.set(line, (k = [commandKey(argv), programOf(argv)]))
-    return k
+/** A command's two keys (its command, its program), worked out once for each command line however many times it ran,
+ *  and kept between recomputes: a day has a few hundred lines at most, and a full cache starts over. */
+const keys = new Map<string, [string, string | undefined]>()
+function keysOf(argv: readonly string[]): [string, string | undefined] {
+  const line = argv.join('\u0000')
+  let k = keys.get(line)
+  if (!k) {
+    if (keys.size >= 5000) keys.clear()
+    keys.set(line, (k = [commandKey(argv), programOf(argv)]))
   }
-  for (const c of sc.settled) {
-    const tool = toolOf(c.cid)
-    if (!tool || tool.startsWith('provider.')) continue
-    push(tool, c.ms)
-    const argv = sc.argv.get(c.cid)
-    if (tool !== 'proc.run' || !argv) continue
-    const [command, prog] = keysOf(argv)
-    push(`proc.run $ ${command}`, c.ms)
-    if (prog) push(`proc.run ${prog}`, c.ms)
-  }
-  // Each kind's median, worked out once: the hour's calls ask for the same few.
-  const made = new Map<string, Usual | null>()
-  const usual = (k: string, of: string): Usual | null => {
-    if (made.has(k)) return made.get(k)!
-    const a = samples.get(k)
-    const u = a && a.length >= USUAL_MIN ? { ms: median(a)!, n: a.length, of } : null
-    made.set(k, u)
-    return u
-  }
-  const turnTimes = sc.ended.map((e) => e.ms)
-  return {
-    of: (tool, argv) => {
-      const job = tool === 'proc.run' && argv
-      const prog = job ? programOf(argv) : undefined
-      return (job ? usual(`proc.run $ ${commandKey(argv)}`, 'runs of this command') : null)
-        ?? (prog ? usual(`proc.run ${prog}`, `\`${prog}\` jobs`) : null) ?? usual(tool, `${tool} calls`)
-    },
-    turn: turnTimes.length >= USUAL_MIN ? { ms: median(turnTimes)!, n: turnTimes.length, of: 'turns' } : null,
-  }
+  return k
 }
 
 // ---------------------------------------------------------------- what runs
@@ -667,13 +1056,13 @@ function runs(input: WatchInput, look: Look, sc: Scan): { turns: Run[]; jobs: Ru
   const seen = new Set<string>()
   const job = (cid: string, tool: string, session: string | null, since: number) => {
     const call = look.call.get(cid)
-    const argv = sc.argv.get(cid)
+    const argv = sc.argv(cid)
     seen.add(cid)
     jobs.push({
       id: `job:${cid}`, kind: 'job', session, since, cid, tool, call, argv,
       words: argv ? argvWords(argv) : call ? commandOf(call.preview) : tool,
       full: argv ? argv.join(' ') : call?.preview ?? tool,
-      l1: !!call?.l1 || sc.l1.has(cid),
+      l1: !!call?.l1 || sc.l1(cid),
     })
   }
   for (const a of input.actions ?? []) {
@@ -714,20 +1103,24 @@ function runLights(r: Run, look: Look, turnLights: Map<string, Light[]>): string
 
 // ---------------------------------------------------------------- the plates
 
-export function watchOf(input: WatchInput): WatchPlates {
+/** The five plates at the moment. `day`, a watch's own scan kept between recomputes, reads only the rows since its
+ *  last; without one the day is read afresh, to the same plates. */
+export function watchOf(input: WatchInput, day: DayScan = new DayScan()): WatchPlates {
   const { model, now, dayStart } = input
   const look = lookOf(model)
-  const sc = scan(input.rows, now, dayStart, hoursOf(dayStart, input.dayEnd))
   const calls = new Map((input.actions ?? []).map((a) => [a.correlation_id, a]))
-  const toolOf: ToolOf = (cid) => sc.tools.get(cid) ?? calls.get(cid)?.tool ?? look.call.get(cid)?.tool
+  // A call's tool when no row in the window says it: the calls, then the chart.
+  const elsewhere: ToolOf = (cid) => calls.get(cid)?.tool ?? look.call.get(cid)?.tool
+  const sc = day.of(input.rows, now, dayStart, hoursOf(dayStart, input.dayEnd), elsewhere, [input.actions, model])
+  const toolOf: ToolOf = (cid) => sc.tool(cid) ?? elsewhere(cid)
   const failures = sc.failures.list(isModelFailure(toolOf))
-  const usuals = usualsOf(sc, toolOf)
+  const usuals = sc.usuals
   const { turns, jobs, queued } = runs(input, look, sc)
   const running = [...turns, ...jobs]
 
   // The turns whose lights some plate needs: those running, the hour's slowest, and those that failed.
-  const hour = sc.ended.filter((e) => e.at > now - HOUR_MS)
-  const slowest = hour.reduce<Scan['ended'][number] | null>((a, e) => (!a || e.ms > a.ms ? e : a), null)
+  const hour = sc.endedAfter(now - HOUR_MS)
+  const slowest = hour.reduce<Ended | null>((a, e) => (!a || e.ms > a.ms ? e : a), null)
   const turnLights = lightsOfTurns(model, new Set(ids([
     ...running.map((r) => r.turn), slowest?.turn, ...failures.map((f) => (f.kind === 'turn' ? f.turn : undefined)),
   ])))
@@ -834,7 +1227,7 @@ function waiting(input: WatchInput, look: Look): Waiting {
 interface Timed { r: Run; elapsed: number; usual: Usual | null; x: number | null; slow: boolean }
 
 function slow(
-  input: WatchInput, look: Look, running: Run[], hour: Scan['ended'], slowest: Scan['ended'][number] | null,
+  input: WatchInput, look: Look, running: Run[], hour: Ended[], slowest: Ended | null,
   turnLights: Map<string, Light[]>, sc: Scan, usuals: Usuals, toolOf: ToolOf, calls: Map<string, ActionInfo>,
 ): Slow {
   const { now } = input
@@ -854,11 +1247,10 @@ function slow(
   // The hour's worst against its usual: a call that settled, or a turn that ended, in the hour before the moment.
   let hourWorst: { line: WatchLine; session: string | null; lights: (string | undefined)[] } | null = null
   let best = 1
-  for (const c of sc.settled) {
-    if (c.at <= now - HOUR_MS) continue
+  for (const c of sc.settledAfter(now - HOUR_MS)) {
     const tool = toolOf(c.cid)
     if (!tool || tool.startsWith('provider.')) continue
-    const u = usuals.of(tool, sc.argv.get(c.cid))
+    const u = usuals.of(tool, sc.argv(c.cid))
     if (!u || u.ms <= 0 || c.ms / u.ms <= best || c.ms < SLOW_FLOOR_MS) continue
     best = c.ms / u.ms
     const call = look.call.get(c.cid)
@@ -946,7 +1338,8 @@ function spent(input: WatchInput, look: Look, sc: Scan): Spent {
   const ready = input.rowsReady
   const hour = Math.max(0, Math.min(sc.hours.length - 1, Math.floor((input.now - input.dayStart) / HOUR_MS)))
   let top: Spent['top'] = null
-  for (const [session, v] of sc.bySession) if (v > 0 && (!top || v > top.usd)) top = { session, usd: v }
+  // A tie (to a billionth of a cent, whatever order the cents were added in) goes to the session that spent last.
+  for (const [session, v] of sc.bySession) if (v > 0 && (!top || v > top.usd + 1e-11)) top = { session, usd: v }
   const pace = sc.last15 * (HOUR_MS / PACE_MS)
   const lines: WatchLine[] = [{
     id: 'pace', tag: 'pace', text: `${dollars(pace)} an hour`, figure: 'last 15 min', tone: 'idle',

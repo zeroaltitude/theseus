@@ -22,10 +22,10 @@ import { clock, cn, stamp } from '@/lib/format'
 import type { ShipData } from './useShipData'
 import type { ShipModel } from './model'
 import {
-  dollars, HOUR_MS, keyOf, platesOf, span, watchOf, type Plate, type Spent, type Tone, type WatchKey, type WatchLine, type WatchSet,
+  DayScan, dollars, HOUR_MS, keyOf, platesOf, span, watchOf, type Plate, type Spent, type Tone, type WatchKey, type WatchLine, type WatchSet,
   type WatchTarget,
 } from './watch.ts'
-import { LOOKED_KEY, lookAt, looked, replayMoments, SEEN_EVERY_MS, sinceOf, type Looked, type Since, type SincePart } from './since.ts'
+import { LOOKED_KEY, lookAt, looked, replayMoments, SEEN_EVERY_MS, sinceOf, StretchWalk, type Looked, type Since, type SincePart } from './since.ts'
 import './watch.css'
 
 export type { WatchKey, WatchTarget } from './watch.ts'
@@ -100,10 +100,14 @@ export function Watch({ model, data, focus, onFocus, onFly }: WatchProps) {
 
   const actions = useMemo(() => data.actions ?? (data.synthetic ? [] : undefined), [data.actions, data.synthetic])
   const confirms = useMemo(() => data.confirms ?? (data.synthetic ? [] : undefined), [data.confirms, data.synthetic])
-  const watch = useMemo(() => watchOf({ model, actions, confirms, rows, rowsReady: history.ready, now, dayStart, dayEnd }),
-    [model, actions, confirms, rows, history.ready, now, dayStart, dayEnd])
-  const since = useMemo(() => sinceOf({ model, actions, confirms, rows, rowsReady: history.ready, since: look.since, until: look.until, now }),
-    [model, actions, confirms, rows, history.ready, look.since, look.until, now])
+  // The day's scan and the stretch's walk are kept between recomputes, so each reads only the rows since its last (a
+  // busy day's 50,000 rows once, not every second; a replay's step only the rows it moves over: theseus-qilc).
+  const [day] = useState(() => new DayScan())
+  const [walk] = useState(() => new StretchWalk())
+  const watch = useMemo(() => watchOf({ model, actions, confirms, rows, rowsReady: history.ready, now, dayStart, dayEnd }, day),
+    [model, actions, confirms, rows, history.ready, now, dayStart, dayEnd, day])
+  const since = useMemo(() => sinceOf({ model, actions, confirms, rows, rowsReady: history.ready, since: look.since, until: look.until, now }, walk),
+    [model, actions, confirms, rows, history.ready, look.since, look.until, now, walk])
   const plates = useMemo(() => [...platesOf(watch), since], [watch, since])
 
   // The overlay follows its plate: what it lights changes as things start and settle; with nothing left, it goes.
@@ -564,7 +568,7 @@ function StripRow({ plate: p, open, on, onOpen, onShow, onFly, glows, dayStart, 
         <button type="button" className="watch-row-name" aria-expanded={open} onClick={onOpen} title={`${p.question}: ${p.caption}`}>
           <Chevron size={11} className="text-ink-faint" aria-hidden />
           <Icon size={12} className={tone(p.tone)} aria-hidden />
-          <span className="ship-engraved">{p.question}</span>
+          <span className="ship-engraved">{p.short ?? p.question}</span>
         </button>
         <span key={glow} className={cn('watch-row-value', glow > 0 && 'watch-glow')}>{p.value}</span>
         <ShowToggle plate={p} on={on} onShow={onShow} compact />

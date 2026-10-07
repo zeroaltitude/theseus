@@ -24,7 +24,7 @@ import { useWidth } from '@/lib/chartview'
 import { Echart } from '@/components/Echart'
 import { ChartPanel, StatTile, TipArea, TipBody, TipTarget, type LegendItem, type TableSpec } from '@/components/ChartPanel'
 import { Segmented } from '@/components/ui'
-import { Budgets } from '@/components/Budgets'
+import { BudgetQuestions, Budgets } from '@/components/Budgets'
 import { Dial, Engraved, Needle, Ticks, arc, polar } from '@/ship/instruments'
 
 // The token kinds in their fixed order and validated colours (`lib/viz.ts`: they pass the method's checks on both panel
@@ -129,6 +129,8 @@ export default function Money() {
 
   return (
     <div className="flex flex-col gap-3">
+      {/* A budget question waiting at its limit comes first, above the river, while it waits (theseus-v6vc). */}
+      <BudgetQuestions past={world ? world.t : null} />
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
         <StatTile label={`Spent · ${range === 'all' ? 'all time' : `last ${range}`}`} icon={<Coins size={12} />} value={totals.spent} format={(n) => usd(n)} tone="money"
           hint={range === 'all' && !world && h && Math.abs(h.cost_usd_total - totals.spent) > 0.0005

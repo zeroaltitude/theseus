@@ -32,7 +32,11 @@ build.
   out five (working, waiting, slow against each job's usual, spent with a day of 23 to 25 hours, went wrong) and
   `src/ship/since.ts` the sixth, since you last looked, whose stretch this browser keeps (`cockpit.watch.looked`) and
   whose replay runs the time machine. Keys 1 to 6 toggle their overlays. Their tests are `test/watch.test.ts` and
-  `test/since.test.ts`.
+  `test/since.test.ts`. The watch keeps the day's scan (`DayScan`) and the stretch's walk (`StretchWalk`) between
+  recomputes (theseus-qilc): the ledger's rows only join its end and the live moment (and a replay's) only moves on,
+  so a recompute reads only the rows since its last, and a median is a look; a moment moved back reads afresh. A kept
+  read says what a fresh one says: a test holds it on seeded ledgers (`test/busy.ts`), and holds a busy day's recompute
+  and replay step under a frame.
 - Benchmarks (theseus-raf4): `src/views/Benchmarks.tsx` (`/benchmarks`: the frontier, a Pareto chart of measured
   harnesses on two properties the operator picks, and every run, newest first) and `src/views/BenchRun.tsx`
   (`/benchmarks/<report>`: a run's report whole, every figure with its table). The runs are `docs/benchmarks/` as the
@@ -53,8 +57,9 @@ build.
   Flow graph. It shows the present: under the time machine it says so and its acts are off. `task.changed` reads
   `task.list` again (`bindPush`).
 - `src/components/Budgets.tsx` (Money's Budgets panel; its pure parts are `src/lib/budgets.ts`): `budget.list`'s tree,
-  the burn per hour from the history's `provider.call` rows, recent resets, the questions waiting (with `ConfirmCard`),
-  the judge's day and the AWS hands. `src/components/Tightenings.tsx` is the tightenings' list with their undo, shared
+  the burn per hour from the history's `provider.call` rows, recent resets, the judge's day and the AWS hands. The
+  budget questions waiting (with `ConfirmCard`) are its `BudgetQuestions`, first on Money, above the river, only while
+  one waits (theseus-v6vc); the panel points up to them. `src/components/Tightenings.tsx` is the tightenings' list with their undo, shared
   by Boundaries and Policy. The Ledger's filter, saved filters, export and follow count are `src/lib/ledgerview.ts`;
   the Policy view's summaries are `src/lib/policyview.ts`.
 - `src/components/`: the call and model-call inspectors, the transcript, the flame chart, the shell, and `brass.tsx`
@@ -74,8 +79,9 @@ build.
 - The frame (theseus-hnof.5): `src/components/Heartbeat.tsx`, the heartbeat bar across every view (the profile chip
   and its menu, UP, the health lamps with `src/lib/healthwords.ts`'s words, and the moment's "then" under the time
   machine); `src/lib/flow.ts` (rows a second, on the activity strip's bar); `src/lib/activity.ts` (the strip's lines
-  folded, numbers aside, every line kept); `src/lib/mode.ts` and `src/lib/daylight.ts` (night or daylight, and each
-  night colour's daylight step); `public/mode.js` (the mode's class before the first paint).
+  folded, numbers aside, every line kept); `src/lib/mode.ts` and `src/lib/daylight.ts` (night, daylight, or the
+  system's, night by default (theseus-001m), and each night colour's daylight step); `public/mode.js` (the mode's class
+  before the first paint, chosen as `daylight.ts` chooses).
 - `src/protocol.ts`: the protocol client, imported as `@protocol`. It re-exports the protocol's types,
   `src/protocol.gen/`, which theseus-protocol's test writes from the Rust ones: never edit them by hand.
 - The look is in `index.css`'s tokens and the shared components (`.panel`, `.brass-card`, `.brass-button`,

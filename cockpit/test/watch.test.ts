@@ -5,9 +5,10 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import {
-  argvWords, commandKey, DAY_MS, dollars, endOf, HOUR_MS, hoursOf, keyOf, median, mergeActions, platesOf, programOf, resultWords, shortPaths, span, watchOf, WATCH_KEYS,
-  WRONG_KINDS, type WatchInput,
+  argvWords, commandKey, DAY_MS, DayScan, dollars, endOf, HOUR_MS, hoursOf, keyOf, median, mergeActions, platesOf, programOf, resultWords, shortPaths, span, watchOf,
+  WATCH_KEYS, WRONG_KINDS, type WatchInput,
 } from '../src/ship/watch.ts'
+import { busyDay, randomLedger, said, seeded } from './busy.ts'
 
 // 14:00 on a day whose local midnight is 07:00 UTC (a UTC-7 clock): the moment's hour is the day's 14th.
 const DAY = Date.UTC(2026, 9, 6, 7, 0, 0)
@@ -456,6 +457,12 @@ test("the words: a job's program, and each plate's key", () => {
   assert.equal(commandKey(['sh', '-c', 'sleep 8; echo 41 departures']), 'sleep N; echo N departures')
   assert.equal(commandKey(['cargo', 'build', '--release']), 'cargo build --release')
   assert.equal(programOf(['sh', '-c', '"$x" go']), undefined)
+  // What only says something is passed over: the program is the one doing the work (theseus-cov9).
+  assert.equal(programOf(['sh', '-c', 'echo building; cargo build']), 'cargo')
+  assert.equal(programOf(['sh', '-c', 'echo night build started; sleep 21000; echo night build done']), 'sleep')
+  assert.equal(programOf(['sh', '-c', 'printf "step 1\\n" && make']), 'make')
+  assert.equal(programOf(['bash', '-c', 'cd harbour; echo go | tee log.txt']), 'tee')
+  assert.equal(programOf(['sh', '-c', 'echo done']), undefined)
   assert.deepEqual(WATCH_KEYS.map(keyOf), ['1', '2', '3', '4', '5', '6'])
   assert.deepEqual([keyOf('working'), keyOf('wrong'), keyOf('since')], ['1', '5', '6'])
 })
@@ -497,4 +504,131 @@ test("the watch's 'as of' line says the moment alone: what the daemon was then, 
   for (const [read, what] of [[/\.profiles?\b/, 'a profile'], [/\buptimeSecs\b/, 'the uptime']] as const) {
     assert.doesNotMatch(src, read, `the watch reads ${what} at the moment: the Ship says it in one place`)
   }
+})
+
+// ---------------------------------------------------------------- kept between recomputes (theseus-qilc)
+
+/** The local midnight before `t` on the tests' UTC-7 clock. */
+const midnight = (t: number) => DAY + Math.floor((t - DAY) / DAY_MS) * DAY_MS
+
+/** What a scan says at its moment, as the plates read it: its sums, the hour's turns and calls, the sessions' newest
+ *  turns, the day's failures, and every kind's usual. */
+function scanSays(sc: ReturnType<DayScan['of']>, now: number, rows: readonly { data: Record<string, unknown> }[]) {
+  const argvs = [undefined, ['sh', '-c', 'sleep 3'], ['cargo', 'build'], ['sh', '-c', 'echo hi; make']]
+  const cids = [...new Set(rows.map((r) => r.data.correlation_id as string).filter(Boolean))]
+  return said({
+    spent: sc.spent, calls: sc.calls, hours: sc.hours, bySession: sc.bySession, spentNodes: [...sc.spentNodes].sort(), last15: sc.last15,
+    newest: sc.newest, failures: sc.failures.list(() => false),
+    ended: sc.endedAfter(now - 3 * HOUR_MS).map(({ ms, turn, session, at }) => ({ ms, turn, session, at })),
+    settled: sc.settledAfter(now - 3 * HOUR_MS).map(({ cid, ms, at }) => ({ cid, ms, at })),
+    usuals: ['proc.run', 'fs.read', 'fs.write'].flatMap((t) => argvs.map((a) => sc.usuals.of(t, a))), turn: sc.usuals.turn,
+    rows: cids.map((c) => [sc.tool(c), sc.argv(c), sc.l1(c)]),
+  })
+}
+
+test('a kept scan says what a fresh read says, as the ledger grows and the moment moves on, back, and over midnight', () => {
+  const model = fleet(['ses_a', 'ses_b', 'ses_c', 'ses_d', 'ses_e'].map((id) => ({ id, state: id < 'ses_c' ? 'running' : 'waiting' })))
+  for (const seed of [1, 2, 3]) {
+    const rows = randomLedger(seed, 2400, DAY - 20 * HOUR_MS)
+    const r = seeded(seed + 100)
+    const day = new DayScan()
+    const scan = new DayScan()
+    let n = 150
+    let now = rows[n - 1].at_unix_ms
+    for (let step = 0; n < rows.length; step++) {
+      n = Math.min(rows.length, n + 1 + Math.floor(r() * 50))
+      // The moment: on with the rows (and sometimes a few minutes past them), or back (a scrub) now and then.
+      now = step % 13 === 12 ? now - Math.floor(r() * 5 * HOUR_MS) : Math.max(now, rows[n - 1].at_unix_ms + Math.floor((r() - 0.3) * 6 * MIN))
+      const seen = rows.slice(0, n)
+      // The calls read: some of the ledger's, named a tool of their own, changing as they are read again. A call whose
+      // plan row the window has let go takes its tool from them.
+      const actions = seen.filter((x) => x.kind === 'action.planned' && r() < 0.3).map((x) => action(x.data.correlation_id as string, { tool: 'fs.read', settled_at_ms: x.at_unix_ms }))
+      const input = at({ model, actions, rows: seen, now, dayStart: midnight(now), dayEnd: midnight(now) + DAY_MS })
+      const where = `seed ${seed}, step ${step}, ${n} rows, the moment ${new Date(now).toISOString()}`
+      assert.deepEqual(said(watchOf(input, day)), said(watchOf(input)), where)
+      assert.deepEqual(scanSays(scan.of(seen, now, midnight(now), 24), now, seen), scanSays(new DayScan().of(seen, now, midnight(now), 24), now, seen), where)
+    }
+  }
+})
+
+test("slow holds a job that echoes first against its working program's runs, never against every echo-first job", () => {
+  // Three echo-first builds and three night sleeps settled today; an echo-first sleep running now is a run of `sleep`.
+  const job = (k: number, argv: string[], ms: number) => [
+    row(NOW - HOUR_MS + k * MIN, 'action.planned', 'ses_a', { correlation_id: `act_${k}`, tool: 'proc.run' }),
+    row(NOW - HOUR_MS + k * MIN, 'tool.job_started', 'ses_a', { correlation_id: `act_${k}`, argv }),
+    row(NOW - HOUR_MS + k * MIN + 1, 'action.succeeded', 'ses_a', { correlation_id: `act_${k}`, duration_ms: ms }),
+  ]
+  const rows = [
+    ...[1, 2, 3].flatMap((k) => job(k, ['sh', '-c', `echo building ${k}; make -j${k}`], 3000)),
+    ...[4, 5, 6].flatMap((k) => job(k, ['sh', '-c', `sleep ${k}0000`], 9_000_000)),
+  ]
+  const sc = new DayScan().of(rows, NOW, DAY, 24)
+  const usual = sc.usuals.of('proc.run', ['sh', '-c', 'echo night build started; sleep 21000; echo night build done'])
+  assert.deepEqual(usual, { ms: 9_000_000, n: 3, of: '`sleep` jobs' })
+  assert.deepEqual(sc.usuals.of('proc.run', ['sh', '-c', 'echo go; make -j9']), { ms: 3000, n: 3, of: '`make` jobs' })
+})
+
+test('a kept scan lets a failure go when the last 24 hours pass it, with no new row to tell it', () => {
+  // A call failed at 22:00 last night; the moment moves on through today, the same local day, and no row comes.
+  const rows = [
+    row(DAY - 2 * HOUR_MS, 'action.planned', 'ses_a', { correlation_id: 'act_f', tool: 'fs.read' }),
+    row(DAY - 2 * HOUR_MS + 1, 'action.failed', 'ses_a', { correlation_id: 'act_f', producer: 'inproc:fs.read', duration_ms: 5 }),
+  ]
+  const day = new DayScan()
+  const wrong = (now: number) => watchOf(at({ rows, now }), day).wrong.count
+  // A minute before it is a day old, and a minute after: the window has moved two minutes.
+  assert.equal(wrong(DAY + 22 * HOUR_MS - MIN), 1, 'at 21:59, 23 h 59 m on: in the last day')
+  assert.equal(wrong(DAY + 22 * HOUR_MS + MIN), 0, 'at 22:01, a day and a minute on: gone, as a fresh read says')
+  assert.equal(watchOf(at({ rows, now: DAY + 22 * HOUR_MS + MIN })).wrong.count, 0)
+})
+
+test("a kept scan counts a call again when its plan row's time comes after it settled", () => {
+  // Rows in the ledger's order, a skew apart in time: act_x's plan and job rows carry a time after its settle row's.
+  const T = NOW - 2 * HOUR_MS
+  const sleep = ['sh', '-c', 'sleep 9']
+  const rows = [
+    ...[1, 2, 3].flatMap((k) => [
+      row(T - 10 * MIN + k, 'action.planned', 'ses_a', { correlation_id: `act_${k}`, tool: 'proc.run' }),
+      row(T - 10 * MIN + k, 'tool.job_started', 'ses_a', { correlation_id: `act_${k}`, argv: sleep }),
+      row(T - 9 * MIN + k, 'action.succeeded', 'ses_a', { correlation_id: `act_${k}`, duration_ms: 1000 * k }),
+    ]),
+    row(T + 2 * MIN, 'action.planned', 'ses_a', { correlation_id: 'act_x', tool: 'proc.run' }),
+    row(T + 2 * MIN, 'tool.job_started', 'ses_a', { correlation_id: 'act_x', argv: sleep }),
+    row(T, 'action.succeeded', 'ses_a', { correlation_id: 'act_x', duration_ms: 9000 }),
+  ]
+  const usual = (sc: ReturnType<DayScan['of']>) => sc.usuals.of('proc.run', sleep)
+  const day = new DayScan()
+  // At T + 1 minute the plan's time has not come: act_x settled with no tool yet, and is not counted.
+  assert.deepEqual(usual(day.of(rows, T + MIN, DAY, 24)), { ms: 2000, n: 3, of: 'runs of this command' })
+  // Two minutes on, the plan is read: act_x counts as a run of its command, as a fresh read says.
+  assert.deepEqual(usual(day.of(rows, T + 3 * MIN, DAY, 24)), { ms: 2500, n: 4, of: 'runs of this command' })
+  assert.deepEqual(usual(new DayScan().of(rows, T + 3 * MIN, DAY, 24)), { ms: 2500, n: 4, of: 'runs of this command' })
+})
+
+test("a kept scan reads only the rows since its last: a busy day's recompute costs its new rows, not the day", () => {
+  // 50,000 rows a day, the busy day the watch is held to; the moment is the newest row's, as live.
+  const rows = busyDay(50_400, NOW)
+  const model = fleet(Array.from({ length: 40 }, (_, k) => ({ id: `ses_${k}`, state: k % 8 ? 'waiting' : 'running' })))
+  const day = new DayScan()
+  const input = (n: number) => at({ model, rows: rows.slice(0, n), now: rows[n - 1].at_unix_ms })
+  watchOf(input(50_000), day)
+  const first = day.read
+  assert.ok(first > 40_000, `the first recompute reads the day: ${first} rows`)
+  const kept: number[] = []
+  const fresh: number[] = []
+  for (let k = 1; k <= 30; k++) {
+    const i = input(50_000 + k * 10)
+    const read = day.read
+    let t = performance.now()
+    watchOf(i, day)
+    kept.push(performance.now() - t)
+    assert.equal(day.read - read, 10, 'each recompute reads its 10 new rows, not the day again')
+    t = performance.now()
+    watchOf(i)
+    fresh.push(performance.now() - t)
+  }
+  // Timed side by side, so a loaded machine slows both: a kept recompute is a small part of a fresh read of the day
+  // (about a tenth on a quiet machine, where it is 1 to 3 ms: the report's FAST).
+  const [k, f] = [median(kept)!, median(fresh)!]
+  assert.ok(k < f / 4, `a kept recompute takes ${k.toFixed(1)} ms at the median, a fresh read ${f.toFixed(1)} ms`)
 })
