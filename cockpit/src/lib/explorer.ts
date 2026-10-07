@@ -99,8 +99,8 @@ export function topicTree(facets: ImportFacet[], open: ReadonlySet<string>, onto
   const kids = new Map<string, string[]>()
   for (const f of facets) {
     const i = f.value.lastIndexOf('/')
+    // A path whose parent is not in the facet is never reached from the roots: the walk below leaves it out.
     const up = i > 0 ? f.value.slice(0, i) : ''
-    if (up && !count.has(up)) continue
     const list = kids.get(up) ?? []
     list.push(f.value)
     kids.set(up, list)
