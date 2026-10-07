@@ -34,6 +34,9 @@ Each arm uses its own memory:
   after each mark's turn (`--cc-compact`). Compactions are read from its
   session log (`compact_boundary`). Its memory files are kept.
 
+Every arm runs at `--effort` (default `medium`): Theseus's `profiles.bench.effort`,
+Claude Code's `--effort`, Pi's `--thinking`.
+
 Every fact's delivery is checked: its marker's text in the arm's transcript.
 A probe whose fact never reached the arm is excluded by the scorer, and
 counted, never scored as a miss.
@@ -49,7 +52,8 @@ The run directory, the same for both arms (what `score.py` reads):
   cut's span), Theseus's `overhead` (its system prompt and tools, planned
   and measured after the first turn: past the plan by more than
   `generate.OVERHEAD_CUSHION` either way, the run stops unless
-  `--allow-overhead`),
+  `--allow-overhead`, which Pi's own `overhead` also reads: planned at
+  `--pi-overhead`, with the compaction `threshold` set there),
   what the stop had to kill, and the totals;
 - `turns.jsonl`: each turn's reply, exit, tokens, dollars and latency;
 - `delivered.json`: each fact's delivery;
@@ -84,6 +88,9 @@ import tokens as tk  # noqa: E402
 
 PROFILE = HERE.parent / "theseus-bench.toml"
 CC_TOOLS = "Bash,Read,Write,Edit,Glob,Grep"
+# The effort levels Theseus's profile, Claude Code's `--effort` and Pi's
+# `--thinking` all take.
+EFFORTS = ("low", "medium", "high", "xhigh", "max")
 CC_AUTOCOMPACT_MIN = 100_000
 STOP_WAIT = 20.0
 SERVE_WAIT = 60.0
@@ -146,6 +153,7 @@ def theseus_config(
     spend_limit: float,
     max_loops: int,
     api_base: str | None = None,
+    effort: str | None = None,
 ) -> dict:
     """The scratch daemon's config: the bench profile with the run's lines
     set, then daemon.rs's `config_for` (memory live at the arm; Discord, the
@@ -154,6 +162,10 @@ def theseus_config(
     m = model_id(model)
     t.setdefault("model", {}).update({"model": m, "max_loops": max_loops})
     t.setdefault("profiles", {}).setdefault("bench", {}).update({"model": m, "max_loops": max_loops})
+    if effort:
+        # Sonnet 5.5's default, with none set, is high: the arms are held to
+        # the one level the run names.
+        t["profiles"]["bench"]["effort"] = effort
     t.setdefault("kernel", {})["spend_limit_usd"] = float(spend_limit)
     t.setdefault("tools", {})["projects_dir"] = str(workspace)
     t["memory"] = {**t.get("memory", {}), "mode": "live", "arm": memory_arm}
@@ -280,22 +292,33 @@ def overhead_of(rows: list[dict], first_text: str, model: str) -> int | None:
     return first["data"]["est_tokens"] - tk.user_text(first_text).tokens(tk.rates_of(model))
 
 
-def overhead_record(prog: pg.Progression, measured: int, allow: bool) -> dict:
+def overhead_record(prog: pg.Progression, measured: int, allow: bool, planned: int | None = None) -> dict:
     """run.json's `overhead`: the planned and the measured, the cushion, and
-    whether the measured is off the plan by more than it, over or under."""
-    planned = generate.planned_overhead(prog)
+    whether the measured is off the plan by more than it, over or under.
+    `planned` is the arm's own plan where it is not the progression's (Pi's:
+    `PI_OVERHEAD_TOKENS`)."""
+    if planned is None:
+        planned = generate.planned_overhead(prog)
     return {"planned": planned, "planned_recorded": prog.overhead_tokens is not None, "measured": measured,
             "cushion": generate.OVERHEAD_CUSHION, "past_cushion": abs(measured - planned) > generate.OVERHEAD_CUSHION,
             "allowed": allow}
 
 
-def overhead_refusal(rec: dict) -> str:
+def overhead_refusal(rec: dict, arm: str = "theseus") -> str:
+    """The refusal, naming both numbers and how to move the plan: for Theseus
+    the progression is generated again at the measured overhead, and for Pi
+    its own plan moves (`--pi-overhead`: the progression is the one every
+    arm reads)."""
     m, p = rec["measured"], rec["planned"]
-    way = f"past the {p:,} the progression was planned at by {m - p:,}" if m > p else \
-        f"under the {p:,} the progression was planned at by {p - m:,}"
-    return (f"the daemon's system prompt and tools are {m:,} tokens, {way} (more than the cushion of "
-            f"{rec['cushion']}): its marks may ring or fail to cross. Plan it at the measured overhead: generate it "
-            f"again with --overhead {m}, or run it as it is with --allow-overhead")
+    if arm == "pi":
+        what, plan = "Pi's", "Pi's threshold was planned at"
+        fix = f"Plan it at the measured overhead: run it again with --pi-overhead {m}"
+    else:
+        what, plan = "the daemon's", "the progression was planned at"
+        fix = f"Plan it at the measured overhead: generate it again with --overhead {m}"
+    way = f"past the {p:,} {plan} by {m - p:,}" if m > p else f"under the {p:,} {plan} by {p - m:,}"
+    return (f"{what} system prompt and tools are {m:,} tokens, {way} (more than the cushion of "
+            f"{rec['cushion']}): its marks may ring or fail to cross. {fix}, or run it as it is with --allow-overhead")
 
 
 class Run:
@@ -371,6 +394,7 @@ class Theseus:
             spend_limit=a.spend_limit,
             max_loops=a.max_loops,
             api_base=a.api_base,
+            effort=a.effort,
         )
         self.cfg.write_text(toml_dumps(cfg))
         self.env = _env_without(("THESEUS_CONFIG", "THESEUS_STATE_DIR", "THESEUS_SOCKET", "THESEUS_SESSION"))
@@ -563,7 +587,8 @@ class ClaudeCode:
 
     def call(self, text: str, sid: str, first: bool, timeout: float) -> tuple[dict, str, int | None, int]:
         cmd = [self.claude, "-p", "--output-format", "json", "--model", model_id(self.a.model),
-               "--tools", CC_TOOLS, "--allowedTools", CC_TOOLS, "--permission-prompts", "none"]
+               "--effort", self.a.effort, "--tools", CC_TOOLS, "--allowedTools", CC_TOOLS,
+               "--permission-prompts", "none"]
         if self.mode == "window":
             cmd += ["--autocompact", f"{max(CC_AUTOCOMPACT_MIN, self.window) // 1000}k"]
         cmd += ["--session-id", sid] if first else ["--resume", sid]
@@ -652,6 +677,15 @@ PI_TOOLS = "read,bash,edit,write"
 PI_MODEL_WINDOW = 1_000_000
 # Pi's own `keepRecentTokens` (20,000): what a compaction keeps unsummarized.
 PI_KEEP_RECENT = 20_000
+# Pi 1.0.4's system prompt and tools (its four tools), as `OVERHEAD_TOKENS` is
+# Theseus's: the first turn's first answer's input (input, cache read and
+# cache write) less the turn's words at the model's rates. Measured with Pi
+# 1.0.4 itself against `standin.py`, which counts a request by the compiler's
+# rule (the generator's own): 2,233 on the smoke. The provider's count of the
+# same request differs from the rule's by what the rule's rates are off by,
+# and the run's `overhead` shows it; `--pi-overhead` moves the plan, and a Pi
+# more than `generate.OVERHEAD_CUSHION` off it, over or under, is refused.
+PI_OVERHEAD_TOKENS = 2233
 
 
 def pi_events(out: str) -> list[dict]:
@@ -673,7 +707,9 @@ def pi_turn(events: list[dict]) -> dict:
     """A Pi call's turn from its stream: the last answer's text and
     `stopReason`, its error, the tokens and dollars of its answers and of
     its compactions' summary calls summed (Pi's `usage`, with
-    `cost.total`), and its tool calls."""
+    `cost.total`), its tool calls, and the first answer's whole input
+    (`first_input`, None when it counted none): a new session's first call,
+    which is the system prompt, the tools and the person's words."""
     answers = [e["message"] for e in events if e.get("type") == "message_end"
                and isinstance(e.get("message"), dict) and e["message"].get("role") == "assistant"]
     summaries = [e["result"] for e in events if e.get("type") == "compaction_end"
@@ -692,21 +728,37 @@ def pi_turn(events: list[dict]) -> dict:
             cost += c
         tools += sum(1 for b in m.get("content") or [] if isinstance(b, dict) and b.get("type") == "toolCall")
     last = answers[-1] if answers else {}
+    first_input = None
+    if answers:
+        u = answers[0].get("usage") or {}
+        first_input = sum(int(u.get(k) or 0) for k in ("input", "cacheRead", "cacheWrite")) or None
     reply = "".join(b.get("text") or "" for b in last.get("content") or []
                     if isinstance(b, dict) and b.get("type") == "text")
     return {"reply": reply, "stop": last.get("stopReason"), "error": last.get("errorMessage"),
             "tokens": toks, "cost_usd": round(cost, 6) if priced else None, "tool_calls": tools,
-            "answers": len(answers)}
+            "answers": len(answers), "first_input": first_input}
 
 
-def pi_keep_recent(window: int) -> int:
-    """What Pi's compaction keeps unsummarized at `window`: its own 20,000,
-    or a quarter of a smaller window. A compaction summarizes what lies
-    before the newest `keepRecentTokens`, and when that is the whole context
-    it summarizes nothing and does not happen (Pi 1.0.4): at the smoke's
-    45k window, its 20k would keep nearly all of a context that has just
-    passed the threshold."""
-    return min(PI_KEEP_RECENT, window // 4)
+def pi_threshold(prog: pg.Progression, window: int, pi_overhead: int) -> int:
+    """The context at which Pi should compact: the progression's window less
+    what Theseus's system prompt and tools hold that Pi's do not. The
+    progression is planned at an overhead (`planned_overhead`) and its words
+    cross the window at its marks with that overhead beside them; Pi's own
+    is smaller, so its context holds the same words at the plan's less the
+    difference, and that is where it crosses."""
+    return window - (generate.planned_overhead(prog) - pi_overhead)
+
+
+def pi_keep_recent(threshold: int) -> int:
+    """What Pi's compaction keeps unsummarized at a context of `threshold`
+    tokens: its own 20,000, or a quarter of a smaller threshold. A compaction
+    summarizes what lies before the newest `keepRecentTokens`, and when that
+    is the whole context it summarizes nothing and does not happen
+    (Pi 1.0.4): at the smoke's 33k threshold, its 20k would keep nearly all
+    of a context that has just passed it. It is taken from the threshold, the
+    context Pi holds when it compacts, not from the window, which a plan at
+    another overhead moves it from."""
+    return min(PI_KEEP_RECENT, threshold // 4)
 
 
 def pi_failed(code: int | None, turn: dict) -> bool:
@@ -720,11 +772,12 @@ class Pi:
     """Pi (`pi --print --mode json`), with a scratch `PI_CODING_AGENT_DIR` and
     session directory, the workspace as its working directory, one session
     id per progression session (`--session-id` opens it, or creates it), and
-    its four tools. Its compaction is its own threshold, set at the
-    progression's window: Pi compacts when the context passes its model's
-    window less `reserveTokens`, so the scratch settings set that reserve
-    for the run's model to the model's window less the progression's, and
-    `keepRecentTokens` to `pi_keep_recent` of it. Print
+    its four tools. Its compaction is its own threshold, set where the
+    progression's context crosses its window with Pi's own overhead (`pi_threshold`):
+    Pi compacts when the context passes its model's window less
+    `reserveTokens`, so the scratch settings set that reserve for the run's
+    model to the model's window less the threshold, and `keepRecentTokens`
+    to `pi_keep_recent` of the threshold. Print
     mode sends `/compact` to the model as text (Pi 1.0.4), so there are no
     marks to compact at: the threshold is the one way, at any window.
     Compactions are read from its session logs (`compaction` entries)."""
@@ -739,8 +792,9 @@ class Pi:
         if not self.model:
             self.provider, self.model = "anthropic", a.model
         self.window = a.context_window or run.prog.context_window
-        reserve = max(a.pi_model_window - self.window, 0)
-        keep = pi_keep_recent(self.window)
+        self.threshold = pi_threshold(run.prog, self.window, a.pi_overhead)
+        reserve = max(a.pi_model_window - self.threshold, 0)
+        keep = pi_keep_recent(self.threshold)
         settings = {"compaction": {"modelOverrides": {f"{self.provider}/{self.model}": {
             "reserveTokens": reserve, "keepRecentTokens": keep}}}}
         (self.config / "settings.json").write_text(json.dumps(settings, indent=1) + "\n")
@@ -749,9 +803,10 @@ class Pi:
             (self.config / "models.json").write_text(json.dumps(models, indent=1) + "\n")
         self.env = _env_without(PI_PARENT_ENV + CC_PARENT_ENV)
         self.env.update({"PI_CODING_AGENT_DIR": str(self.config), "PI_SKIP_VERSION_CHECK": "1",
-                         "PI_TELEMETRY": "0"})
+                         "PI_TELEMETRY": "0", "PI_OFFLINE": "1"})
         run.meta["pi_compact"] = {"window": self.window, "model_window": a.pi_model_window,
-                                  "reserve_tokens": reserve, "keep_recent_tokens": keep}
+                                  "threshold": self.threshold, "reserve_tokens": reserve,
+                                  "keep_recent_tokens": keep}
 
     def logs(self) -> list[Path]:
         return sorted(self.sessions.glob("*.jsonl")) if self.sessions.is_dir() else []
@@ -770,7 +825,8 @@ class Pi:
 
     def call(self, text: str, sid: str, timeout: float) -> tuple[dict, str, int | None, int]:
         cmd = [self.pi, "--print", "--mode", "json", "--session-dir", str(self.sessions), "--session-id", sid,
-               "--provider", self.provider, "--model", self.model, "--tools", PI_TOOLS]
+               "--provider", self.provider, "--model", self.model, "--thinking", self.a.effort,
+               "--tools", PI_TOOLS]
         cmd += self.a.pi_arg
         t0 = time.monotonic()
         out, _, code = run_group(cmd, text, timeout, cwd=self.run.workspace, env=self.env)
@@ -803,6 +859,16 @@ class Pi:
                 "compacted": compacted, "tool_calls": v["tool_calls"],
             })
             run.save()
+            if "overhead" not in run.meta:
+                # The first turn's first answer, before any probe can move.
+                if not v["first_input"]:
+                    raise RuntimeError("Pi's first answer counted no input tokens: see raw/t0000.jsonl")
+                measured = v["first_input"] - tk.user_text(t.text).tokens(tk.rates_of(a.model))
+                rec = overhead_record(prog, measured, a.allow_overhead, a.pi_overhead)
+                run.meta["overhead"] = {**rec, "threshold": self.threshold}
+                run.save()
+                if rec["past_cushion"] and not a.allow_overhead:
+                    raise OverheadPastPlan(overhead_refusal(rec, "pi"))
         transcript = []
         for p in self.logs():
             shutil.copy(p, run.raw / f"pi-{p.name}")
@@ -831,8 +897,15 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--progression", type=Path, required=True, help="a generator's out, or its progression.json")
     ap.add_argument("--out", type=Path, required=True, help="the run directory (new or empty)")
     ap.add_argument("--model", default="anthropic/claude-sonnet-5-5")
+    ap.add_argument("--effort", choices=EFFORTS, default="medium",
+                    help="reasoning effort on every arm: Theseus's profile `effort`, Claude Code's `--effort`, Pi's "
+                         "`--thinking`; run.json names it")
     ap.add_argument("--context-window", type=int, default=None, help="default: the progression's")
     ap.add_argument("--turn-timeout", type=float, default=900.0, help="seconds a turn may take")
+    ap.add_argument("--allow-overhead", action="store_true",
+                    help="run on when Theseus's or Pi's measured system prompt and tools are off the plan's overhead "
+                         "(the progression's for Theseus, --pi-overhead for Pi) by more than the cushion, over or "
+                         "under (both numbers are in run.json either way)")
     th = ap.add_argument_group("theseus")
     th.add_argument("--memory-arm", default="baseline", help="[memory] arm: none, bm25, baseline, or a newer arm")
     th.add_argument("--bin-dir", default="target/release", help="where theseus, theseusd and theseus-index are")
@@ -840,9 +913,6 @@ def main(argv: list[str] | None = None) -> int:
     th.add_argument("--spend-limit", type=float, default=50.0, help="the run's spend limit, in dollars")
     th.add_argument("--max-loops", type=int, default=40, help="the model calls one turn may make")
     th.add_argument("--api-base", default=None, help="a stand-in model's address (offline checks; pi's too)")
-    th.add_argument("--allow-overhead", action="store_true",
-                    help="run on when the daemon's system prompt and tools pass the progression's planned overhead "
-                         "by more than the cushion (both are in run.json either way)")
     cc = ap.add_argument_group("claude-code")
     cc.add_argument("--claude", default="claude", help="the claude binary")
     cc.add_argument("--cc-compact", choices=("auto", "window", "marks"), default="auto",
@@ -853,11 +923,15 @@ def main(argv: list[str] | None = None) -> int:
     pa.add_argument("--pi", default="pi", help="the pi binary")
     pa.add_argument("--pi-model-window", type=int, default=PI_MODEL_WINDOW,
                     help="the model's window in Pi's catalog, which its reserve is taken from")
+    pa.add_argument("--pi-overhead", type=int, default=PI_OVERHEAD_TOKENS,
+                    help="Pi's own system prompt and tools, in tokens: its compaction is set at the progression's "
+                         "window less what Theseus's overhead holds beyond it, and the run refuses a Pi measured "
+                         "more than the cushion off it")
     pa.add_argument("--pi-arg", action="append", default=[], help="an extra argument for pi (repeatable)")
     a = ap.parse_args(argv)
     prog = pg.load(a.progression)
     pg.validate(prog)
-    meta = {"model": a.model, "context_window": a.context_window or prog.context_window}
+    meta = {"model": a.model, "effort": a.effort, "context_window": a.context_window or prog.context_window}
     if a.arm == "theseus":
         meta["memory_arm"] = a.memory_arm
     run = Run(a.out, prog, a.arm, meta)
