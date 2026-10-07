@@ -160,6 +160,10 @@ pub struct JudgeService {
     staged_blobs: Mutex<std::collections::HashMap<String, Arc<[u8]>>>,
     /// Held while staged blobs are written (`write_staged_blobs`).
     blob_puts: Mutex<()>,
+    /// Held while the budget's record is raised and written (`reserve`,
+    /// the sink's frame): a reservation that fits a block raised by another
+    /// finds it written (theseus-xkbs).
+    blocks: Mutex<()>,
     /// `categorize.v1`'s point (28b): the core it reads, and its decisions.
     categorize: categorize::Point,
     rerank_deadline: rerank::RerankDeadline,
@@ -241,6 +245,7 @@ impl JudgeService {
             pending: Mutex::new(HashSet::new()),
             staged_blobs: Mutex::default(),
             blob_puts: Mutex::default(),
+            blocks: Mutex::default(),
             categorize: Default::default(),
             rerank_deadline: rerank::RerankDeadline::default(),
             late: Mutex::default(),
@@ -553,13 +558,7 @@ impl JudgeService {
 
     /// The blocking half before the call: the transcript's read, the state's
     /// build and blob, and the reservation. `None`: nothing to send.
-    fn prepare_loop(
-        &self,
-        pack: Arc<Pack>,
-        end: &LoopEnd,
-        id: String,
-        today: &str,
-    ) -> Option<Prepared> {
+    fn prepare_loop(&self, pack: Arc<Pack>, end: &LoopEnd, id: String) -> Option<Prepared> {
         let (state, blob) = self.loop_state(&pack, end)?;
         let built = self
             .built()
@@ -578,8 +577,7 @@ impl JudgeService {
             .inner()
             .reserve_micros(std::slice::from_ref(&ask))
             .unwrap_or(0);
-        self.reserve(today, need)
-            .then_some(Prepared { built, ask, need })
+        Some(Prepared { built, ask, need })
     }
 
     /// `loop.v1`'s state from the session's nodes, scrubbed and capped, and
@@ -606,9 +604,13 @@ impl JudgeService {
     }
 
     /// Reserve `need` from the shadow budget, writing what the reservation
-    /// asks for (a new block, a crash's booked rest, the day's pause) first.
+    /// asks for (a new block, a crash's booked rest, the day's pause) first,
+    /// at once: a gate's judgment, whose notice never waits for its turn's
+    /// end, and consolidation's citation check (theseus-xkbs). A judgment
+    /// no turn waits on reserves between turns instead ([`reserve_between`]).
     /// False: paused at the limit, or the frame was not written.
     fn reserve(&self, today: &str, need: theseus_judge::price::Micros) -> bool {
+        let _blocks = self.blocks.lock().unwrap_or_else(|e| e.into_inner());
         let (granted, records, said) = match self.budget.reserve(&self.store, today, need) {
             Reserve::Granted(r, s) => (true, r, s),
             Reserve::Paused(r, s) => (false, r, s),
@@ -902,20 +904,53 @@ impl Beside {
     }
 }
 
+/// `JudgeService::reserve`, for a judgment that no turn waits on, in a task
+/// that is no turn's own (theseus-xkbs): when the reservation would write a
+/// frame (the first after a start, a new block, the day's pause), it waits
+/// for a moment between turns, as the sink's frames do, and writes it
+/// there, before the call. The sink's frames write the next block ahead
+/// (`ShadowBudget::ahead`), so most reservations write nothing. The service
+/// is held only for the write, never across the wait. False: paused at the
+/// limit, the frame was not written, or the service is gone.
+pub(crate) async fn reserve_between(
+    me: &Weak<JudgeService>,
+    today: &str,
+    need: theseus_judge::price::Micros,
+) -> bool {
+    let (turns, timing) = match me.upgrade() {
+        Some(s) if s.budget.needs_frame(today, need) => (s.between.get().cloned(), s.sink_timing()),
+        Some(_) => (None, Default::default()),
+        None => return false,
+    };
+    let _writing = match turns {
+        Some(t) => Some(t.between(tokio::time::Instant::now(), &timing).await),
+        None => None,
+    };
+    let Some(svc) = me.upgrade() else {
+        return false;
+    };
+    let today = today.to_string();
+    tokio::task::spawn_blocking(move || svc.reserve(&today, need))
+        .await
+        .unwrap_or(false)
+}
+
 /// One `loop.v1` judgment, in its own task. The service is held only
 /// around the blocking halves, never across the call: a stop never waits on
 /// Jev to let the store go.
 async fn judge_loop(me: Weak<JudgeService>, pack: Arc<Pack>, end: LoopEnd, id: String) {
     let today = spend::local_day(theseus_protocol::now_unix_ms());
     let Some(svc) = me.upgrade() else { return };
-    let day = today.clone();
-    let prepared = tokio::task::spawn_blocking(move || svc.prepare_loop(pack, &end, id, &day))
+    let prepared = tokio::task::spawn_blocking(move || svc.prepare_loop(pack, &end, id))
         .await
         .ok()
         .flatten();
     let Some(Prepared { built, ask, need }) = prepared else {
         return;
     };
+    if !reserve_between(&me, &today, need).await {
+        return;
+    }
     let t0 = Instant::now();
     let judgments = built
         .judge

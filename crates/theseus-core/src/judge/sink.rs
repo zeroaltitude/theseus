@@ -262,13 +262,13 @@ impl JudgeService {
     /// The sink's bounds: the memory pass's.
     #[cfg(not(test))]
     #[expect(clippy::unused_self, reason = "a test's build reads its own bounds")]
-    fn sink_timing(&self) -> Timing {
+    pub(super) fn sink_timing(&self) -> Timing {
         Timing::default()
     }
 
     /// The sink's bounds: a test's shorter ones, else the memory pass's.
     #[cfg(test)]
-    fn sink_timing(&self) -> Timing {
+    pub(super) fn sink_timing(&self) -> Timing {
         self.sink_timing.get().copied().unwrap_or_default()
     }
 
@@ -338,8 +338,20 @@ impl JudgeService {
         if let Some(shed) = shed {
             records.extend(crate::fact::row(&JudgeShed { shed }, None, None).ok());
         }
+        let marks = self.unwritten_marks(batch);
+        for (key, mark) in &marks {
+            records.extend(NewRecord::json(theseus_store::kinds::META, Some(key), mark).ok());
+        }
+        // The budget's record, with the next block when the current is half
+        // spent (theseus-xkbs), written before any reservation reads it.
+        let blocks = self.blocks.lock().unwrap_or_else(PoisonError::into_inner);
+        self.budget
+            .ahead(&super::spend::local_day(theseus_protocol::now_unix_ms()));
         records.extend(self.budget.record());
         let written = self.store.append(&records);
+        drop(blocks);
+        // Written (or lost with their rows): the store's from now on.
+        self.marks_written(batch);
         // Written (or lost with their frame): a press reads them from the
         // store from now on.
         self.pending_remove(&batch.iter().map(|j| j.id.clone()).collect::<Vec<_>>());

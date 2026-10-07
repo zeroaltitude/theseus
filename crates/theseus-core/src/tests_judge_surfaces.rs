@@ -200,16 +200,26 @@ async fn judge_list_filters_by_pack_session_and_time() {
         })
         .unwrap();
     assert_eq!(one.scopes, ["judge:security"], "the scope it read");
+    // The rows are in the order their judgments settled: the three wait
+    // together for the day's first block, written between turns
+    // (theseus-xkbs), so a session's are found by their rows.
+    let of = |sid: &str| -> Vec<String> {
+        rows.iter()
+            .filter(|(_, row)| row.session_id.as_deref() == Some(sid))
+            .map(|(_, row)| row.data["id"].as_str().unwrap().to_string())
+            .collect()
+    };
     let mine = JudgeListParams {
         session_id: Some(a.session_id.clone()),
         ..all.clone()
     };
-    assert_eq!(by(mine), ids[..2]);
+    assert_eq!(of(&a.session_id).len(), 2);
+    assert_eq!(by(mine), of(&a.session_id));
     let theirs = JudgeListParams {
         session_id: Some(b.session_id.clone()),
         ..all.clone()
     };
-    assert_eq!(by(theirs), ids[2..]);
+    assert_eq!(by(theirs), of(&b.session_id));
     let later = JudgeListParams {
         since: Some(rows[2].1.at_unix_ms + 60_000),
         ..all.clone()
