@@ -26,6 +26,13 @@
 //!   same real `proc.run`), `execution.cancel` from its request to its answer,
 //!   whose verdict must say the job's tree was killed and nothing is left.
 //!
+//! **Order.** A phase that writes into the rig's store runs after the rows
+//! that read it: `restore` copies that store, and `cancel`'s runs each start a
+//! job through a turn, so the store a restore copies would grow with the
+//! cancel row selected (from 0.22 MB of WAL and 5 sessions to 0.85 MB and 15,
+//! theseus-ma8r) and its row would move for a reason that is not its code.
+//! `PHASES`, the printed rows and `run` list them in that order.
+//!
 //! The daemon's secrets come from a fake `op` that answers only after
 //! `resolver_ms`, so a start that waited for them would show: at each first
 //! answer, health must still say `resolving`.
@@ -1294,14 +1301,17 @@ pub fn run(o: &Opts) -> Result<Report> {
     if want("inflight") {
         inflight_phase(o, &work, &mut samples)?;
     }
-    if want("cancel") {
-        cancel_phase(&rig, o.runs, &mut samples)?;
-    }
+    // Restore copies the rig's store and the cancel row's runs each start a
+    // job through a turn, so cancel writes into it: it runs after restore
+    // (theseus-ma8r).
     let restore = if want("restore") {
         Some(restore_phase(&rig, &work, o.runs, &mut samples)?)
     } else {
         None
     };
+    if want("cancel") {
+        cancel_phase(&rig, o.runs, &mut samples)?;
+    }
 
     let phases: Vec<(String, Summary)> = PHASES
         .iter()
