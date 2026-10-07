@@ -161,6 +161,10 @@ impl Failing {
     ///   keeps the backoff, for the next start's driver, and posts no notice:
     ///   nothing failed that the place should hear of. A later failure of the
     ///   run posts the notice it would have.
+    /// - A daemon whose driver retries nothing (`driver_retries` false: a
+    ///   `--stdio` daemon, theseus-zqxv) parks every failed turn on input,
+    ///   with the notice that says so: its one client has the failure, and
+    ///   its next message is the retry, if it wants one.
     ///
     /// `prev` is the run so far: none after a model's answer or new input.
     pub fn after(
@@ -169,6 +173,7 @@ impl Failing {
         transient: bool,
         settled: bool,
         now_ms: u64,
+        driver_retries: bool,
     ) -> (Failing, Then, bool) {
         let mut run = prev.unwrap_or(Failing {
             turns: 0,
@@ -180,7 +185,7 @@ impl Failing {
         });
         run.turns += 1;
         run.class = class.to_string();
-        let then = if !settled {
+        let then = if !settled || !driver_retries {
             Then::Park
         } else if transient {
             Then::Backoff
@@ -440,7 +445,7 @@ mod tests {
         let mut run = None;
         let mut out = Vec::new();
         for (class, transient, settled) in failures {
-            let (r, then, notice) = Failing::after(run, class, *transient, *settled, 7);
+            let (r, then, notice) = Failing::after(run, class, *transient, *settled, 7, true);
             out.push((then, notice));
             run = Some(r);
         }
@@ -453,7 +458,7 @@ mod tests {
         assert_eq!(out, [(Then::Retry, false), (Then::Park, true)]);
         assert_eq!((run.turns, run.lasting, run.parked), (2, 2, true));
         // A wake's turn that fails the same way later says nothing more.
-        let (_, then, notice) = Failing::after(Some(run), "invalid_request", false, true, 9);
+        let (_, then, notice) = Failing::after(Some(run), "invalid_request", false, true, 9, true);
         assert_eq!((then, notice), (Then::Park, false));
     }
 
@@ -496,6 +501,17 @@ mod tests {
         let (run, out) = run_of(&[("stopping", true, true), ("overloaded", true, true)]);
         assert_eq!(out, [(Then::Backoff, false), (Then::Backoff, true)]);
         assert_eq!((run.turns, run.class.as_str()), (2, "overloaded"));
+    }
+
+    /// A `--stdio` daemon's run (theseus-zqxv): a transient failure parks at
+    /// once, with its notice, where the socket daemon's driver backs off.
+    #[test]
+    fn a_daemon_whose_driver_retries_nothing_parks_every_failure() {
+        for class in ["overloaded", "invalid_request"] {
+            let (_, then, notice) =
+                Failing::after(None, class, class == "overloaded", true, 7, false);
+            assert_eq!((then, notice), (Then::Park, true), "{class}");
+        }
     }
 
     /// kks's `over_limit` fails before any provider call: nothing a retry

@@ -12,7 +12,8 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   `rpc/driver.rs` (what that loop drives: the heartbeat's spool drain and reconcile, continuation turns, due wakes,
   and the cancel path). A turn's end and a late result's wake are one frame (`turn/end_step.rs`, theseus-6qwr): the
   stop read under the frame's lock, the wake nested so its failure takes back only itself. A failed turn's retry is
-  the driver's (theseus-ljr); `[model.retries]` can make a transient
+  the driver's (theseus-ljr), but not a `--stdio` daemon's: its run parks the turn on input for its one client
+  (`turn/stdio_step.rs`, set by theseusd before serving, theseus-zqxv); `[model.retries]` can make a transient
   failure's call again inside its turn instead (`turn/retry_step.rs`, none by default; the bench profile's, since a
   headless run ends with its turn: theseus-7gir.21). Once the stop has begun (`Outbox::stopping`), the driver begins
   no continuation and a call about to be sent is settled failed unsent, class `stopping` (`ProviderError::Stopping`),

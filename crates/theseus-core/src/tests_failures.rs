@@ -342,3 +342,53 @@ async fn a_transient_failure_is_retried_inside_its_turn_as_the_config_allows() {
     turn(&r.core, &sid, "say done").await.expect_err("it fails");
     assert_eq!(r.fake.requests.lock().unwrap().len(), 1);
 }
+
+/// Who retries a transient failure (theseus-zqxv). The socket daemon's
+/// driver does: the 529's turn leaves its execution queued for it. A
+/// `--stdio` daemon's leaves it to its one client: the run parks the
+/// execution on input, with its notice, so the driver has nothing to take,
+/// and the client's next message is the retry, which answers.
+#[tokio::test]
+async fn a_stdio_daemon_leaves_a_transient_failure_to_its_client() {
+    for stdio in [false, true] {
+        let r = rig(vec![
+            overloaded(),
+            Scripted::text("The tide turns at four."),
+        ]);
+        if stdio {
+            r.core.runner.failed_turns.leave_to_the_client();
+        }
+        let sid = bound_session(&r.core);
+        assert!(turn(&r.core, &sid, "when does the tide turn?")
+            .await
+            .is_err());
+        let rec: SessionRecord = r.core.store.get_session(&sid).unwrap().unwrap();
+        let e = r
+            .core
+            .kernel
+            .execution(&rec.execution_id.unwrap())
+            .unwrap()
+            .unwrap();
+        if !stdio {
+            assert_eq!(thens(&r.core), ["backoff"]);
+            assert_eq!(
+                (e.state, e.resume_pending),
+                (ExecState::Queued, true),
+                "the driver's retry"
+            );
+            continue;
+        }
+        assert_eq!(thens(&r.core), ["park"]);
+        assert_eq!(
+            (e.state, e.resume_pending),
+            (ExecState::Waiting, false),
+            "a retry the driver would take"
+        );
+        assert_eq!(notices(&r.core)[0]["then"], json!("park"));
+        let answered = turn(&r.core, &sid, "when does the tide turn?")
+            .await
+            .unwrap();
+        assert_eq!(answered.output, "The tide turns at four.");
+        assert_eq!(r.fake.requests().len(), 2);
+    }
+}

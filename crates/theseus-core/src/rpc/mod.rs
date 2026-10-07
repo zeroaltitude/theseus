@@ -681,6 +681,7 @@ impl Core {
             // Built after serving, by one META scan (theseus-8kk.1).
             ontology: Default::default(),
             run_compiles: Default::default(),
+            failed_turns: Default::default(),
             judge,
             // Read at a routed session's first turn, never on the start path.
             live_switched: Default::default(),

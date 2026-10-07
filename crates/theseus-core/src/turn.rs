@@ -67,6 +67,7 @@ mod rerank_step;
 mod retry_step;
 mod route_step;
 pub(crate) mod situation_step;
+pub mod stdio_step;
 mod stopping_step;
 
 pub use route_step::{LiveSwitched, SWITCHED};
@@ -159,6 +160,8 @@ pub struct TurnRunner {
     pub live_switched: LiveSwitched,
     /// The sessions this run has compiled: the first with nothing new resumes (35a).
     pub run_compiles: situation::RunCompiles,
+    /// Who retries a failed turn: the driver, or a `--stdio` daemon's client.
+    pub failed_turns: stdio_step::FailedTurns,
 }
 
 /// What a `/stop` tells the turn that holds its execution while the model's
@@ -1434,6 +1437,7 @@ impl TurnRunner {
                 transient,
                 settled,
                 theseus_protocol::now_unix_ms(),
+                self.failed_turns.driver_retries(),
             );
             let row = self
                 .session_rec(sid, To::Nobody)
@@ -1469,6 +1473,7 @@ impl TurnRunner {
                     transient,
                     settled,
                     theseus_protocol::now_unix_ms(),
+                    self.failed_turns.driver_retries(),
                 )
             }
         }
