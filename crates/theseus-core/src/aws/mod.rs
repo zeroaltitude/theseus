@@ -74,6 +74,8 @@ mod tests_durable;
 #[cfg(test)]
 mod tests_handles;
 #[cfg(test)]
+mod tests_held_members;
+#[cfg(test)]
 mod tests_inventory;
 #[cfg(test)]
 mod tests_l1;
@@ -92,7 +94,11 @@ mod tests_resumed;
 #[cfg(test)]
 mod tests_secret_shapes;
 #[cfg(test)]
+mod tests_session_mints;
+#[cfg(test)]
 mod tests_synced;
+#[cfg(test)]
+mod tests_when_present;
 
 /// The AWS tools' names, for the config's check of `[policy.tools]`.
 pub const NAMES: [&str; 16] = [

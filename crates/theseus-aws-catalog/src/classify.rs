@@ -13,7 +13,8 @@
 //!
 //! Then the flags, each from its own tested table: cost-bearing (every Run,
 //! unless the table says the run is free), secret-bearing, IaC-only (writes
-//! only, never tagging), and inert. The retry class comes from the traits:
+//! only, never tagging), inert, and an AWS session mint (which waits for the
+//! operator at every posture). The retry class comes from the traits:
 //! `readonly`, `idempotent`, or a read is safe to repeat; an
 //! `idempotencyToken` member makes the call idempotent with its key; anything
 //! else is non-repeatable. A row of [`tables::RETRY`] settles the rest.
@@ -81,6 +82,12 @@ pub enum SecretBearing {
     Always,
     /// When the named boolean input member is true (SSM `WithDecryption`).
     WhenInputTrue(&'static str),
+    /// When the result holds one: a secret a resource keeps only sometimes
+    /// (a client's secret, a tunnel's pre-shared key). What is found is
+    /// held, and a result with none is returned whole, where `Always` and
+    /// `WhenInputTrue` fail closed (theseus-qan5). Never a mint's: there a
+    /// walk that finds nothing means the walk is wrong.
+    WhenPresent,
 }
 
 impl SecretBearing {
@@ -88,9 +95,15 @@ impl SecretBearing {
     pub fn for_input(self, input: &serde_json::Value) -> bool {
         match self {
             SecretBearing::No => false,
-            SecretBearing::Always => true,
+            SecretBearing::Always | SecretBearing::WhenPresent => true,
             SecretBearing::WhenInputTrue(m) => input.get(m).and_then(|v| v.as_bool()) == Some(true),
         }
+    }
+
+    /// Whether a secret-bearing result in which nothing is found to hold
+    /// is withheld whole: every kind but `WhenPresent`.
+    pub fn fails_closed(self) -> bool {
+        self != SecretBearing::WhenPresent
     }
 }
 
@@ -128,6 +141,9 @@ pub struct Classification {
     /// A write that changes nothing until a later call (CloudFormation
     /// `CreateChangeSet`).
     pub inert: bool,
+    /// An AWS session mint (STS `AssumeRole*` and its kin): `aws.call`
+    /// waits for the operator's approval at every posture (theseus-a3s3).
+    pub session_mint: bool,
     /// Why an override row says what it says.
     pub note: Option<&'static str>,
 }
@@ -223,10 +239,14 @@ pub fn classify(op: OperationRef<'_>) -> Classification {
         }
     };
 
-    let secret = tables::SECRET
+    let secret = match tables::SECRET
         .iter()
         .find(|s| s.service == svc && glob(s.op, name))
-        .map_or(SecretBearing::No, |s| s.secret);
+    {
+        Some(s) => s.secret,
+        None if in_table(tables::WHEN_PRESENT, svc, name) => SecretBearing::WhenPresent,
+        None => SecretBearing::No,
+    };
 
     let inert = over.is_some_and(|o| o.inert);
     let tagging = tables::TAGGING.iter().any(|p| glob(p, name));
@@ -248,6 +268,7 @@ pub fn classify(op: OperationRef<'_>) -> Classification {
         secret,
         iac_only,
         inert,
+        session_mint: in_table(tables::SESSION_MINT, svc, name),
         note: over.map(|o| o.note),
     }
 }
@@ -321,6 +342,7 @@ mod tests {
             ("COST", tables::COST, false),
             ("NOT_IAC", tables::NOT_IAC, false),
             ("IAC", tables::IAC, true),
+            ("SESSION_MINT", tables::SESSION_MINT, false),
         ] {
             for row in table {
                 for p in row.ops {
@@ -346,6 +368,11 @@ mod tests {
                 }
             }
         }
+        for row in tables::WHEN_PRESENT {
+            for p in row.ops {
+                check(&mut bad, "WHEN_PRESENT", row.service, p, false);
+            }
+        }
         for row in tables::RETRY {
             check(&mut bad, "RETRY", row.service, row.op, false);
         }
@@ -355,6 +382,41 @@ mod tests {
             bad.len(),
             bad.join("\n")
         );
+    }
+
+    /// `WhenPresent` is never a mint's, nor shadowed by a `SECRET` row
+    /// (theseus-qan5): every operation its table names classifies as
+    /// `WhenPresent`, and none carries the MINT note, where `Always`' fail
+    /// closed is the tripwire for a walk that stops finding the member.
+    #[test]
+    fn a_mint_is_never_when_present() {
+        let c = crate::Catalog::embedded().unwrap();
+        let mut bad = Vec::new();
+        for row in tables::WHEN_PRESENT {
+            let svc = c.service(row.service).unwrap();
+            for o in svc
+                .operations()
+                .filter(|o| row.ops.iter().any(|p| glob(p, o.name())))
+            {
+                let k = o.classify();
+                let what = format!("{}:{}", row.service, o.name());
+                if k.secret != SecretBearing::WhenPresent {
+                    bad.push(format!("{what} is {:?}: a SECRET row shadows it", k.secret));
+                }
+                if k.note == Some(tables::MINT) {
+                    bad.push(format!("{what} is a mint"));
+                }
+            }
+        }
+        assert!(bad.is_empty(), "{}", bad.join("\n"));
+        // aws.describe says so, for the model and the operator.
+        let idp = c.service("cognito-idp").unwrap();
+        let d = crate::describe_operation(idp.operation("DescribeUserPoolClient").unwrap());
+        assert_eq!(d["secret"], "when_present", "{d}");
+        assert_eq!(d["label"], "R 🔑", "{d}");
+        assert!(!SecretBearing::WhenPresent.fails_closed());
+        assert!(SecretBearing::Always.fails_closed());
+        assert!(SecretBearing::WhenPresent.for_input(&serde_json::json!({})));
     }
 
     #[test]

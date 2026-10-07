@@ -18,7 +18,8 @@
 //! 1. the floor (Theseus's own binary and state, the 1Password CLI and its
 //!    token, and an AWS guardrail: AWS design §3.6) waits for approval at
 //!    every posture, and is marked as the floor;
-//! 2. the operator's approve lists (`approve_argv`, `approve_paths`), a read
+//! 2. an AWS session mint (STS `AssumeRole*` and its kin, theseus-a3s3), the
+//!    operator's approve lists (`approve_argv`, `approve_paths`), a read
 //!    or a working directory outside the roots, a URL whose host is a
 //!    private address (DD5), and an AWS call that deletes what holds state
 //!    (§3.9) wait for approval. A write outside the roots follows the tool's
@@ -285,6 +286,20 @@ pub(crate) fn prefix_match(argv: &[String], prefix: &[String]) -> bool {
     !prefix.is_empty() && argv.len() >= prefix.len() && argv.iter().zip(prefix).all(|(a, p)| a == p)
 }
 
+/// What of an AWS call waits for the operator at every posture, in the
+/// gate's words: an AWS session mint (theseus-a3s3; the owner, 2026-10-07:
+/// the operator approves each, and no config makes it looser), or deleting
+/// what holds state, a stack, or a change set that replaces or removes it
+/// (§3.9's approve list).
+fn aws_asks(a: &theseus_tools::AwsPlan) -> Option<String> {
+    if let Some(what) = &a.session_mint {
+        return Some(what.clone());
+    }
+    a.destructive.then(|| {
+        "destructive: it deletes, replaces, or removes something that holds state".to_string()
+    })
+}
+
 /// The program name without its directory: `/usr/bin/sudo` matches `sudo`.
 pub(crate) fn normalized_argv(argv: &[String]) -> Vec<String> {
     let mut v = argv.to_vec();
@@ -457,16 +472,12 @@ impl ToolPolicy {
                 format!("{}: {name} — approve ({why})", plan.summary),
             );
         }
-        // The approve list's AWS half (§3.9): deleting what holds state, or a
-        // stack, or a change set that replaces or removes it.
-        if plan.aws.as_ref().is_some_and(|a| a.destructive) {
+        // The approve list's AWS half (§3.9), and an AWS session mint
+        // (theseus-a3s3): whatever `[policy.aws]` or `[policy.tools]` says.
+        if let Some(why) = plan.aws.as_ref().and_then(aws_asks) {
             return Decision::new(
                 Posture::Approve,
-                format!(
-                    "{}: {name} — approve (destructive: it deletes, replaces, or removes something \
-                     that holds state)",
-                    plan.summary
-                ),
+                format!("{}: {name} — approve ({why})", plan.summary),
             );
         }
         // The allow list runs a command outright when its path arguments stay

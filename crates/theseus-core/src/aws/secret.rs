@@ -10,9 +10,13 @@
 //! What is secret is read from the operation's output shape: a member whose
 //! shape the model marks sensitive, or whose name is one of [`NAMED`] in any
 //! case (STS's `SessionToken` is not marked, nor ECR's `authorizationToken`,
-//! which until theseus-ye7o was held by no name, so ECR's call failed closed). A secret-bearing call in which nothing is
-//! found to hold returns nothing of its output, and says so: it fails
-//! closed.
+//! which until theseus-ye7o was held by no name, so ECR's call failed
+//! closed), or a member [`HELD`] names by its shape in one service (API
+//! Gateway's and AppSync's API keys, Lightsail's new private keys, which
+//! until theseus-u4pe failed closed on every call). A secret-bearing call in which nothing is found to hold returns
+//! nothing of its output, and says so: it fails closed. One whose secret a
+//! resource keeps only sometimes (`SecretBearing::WhenPresent`,
+//! theseus-qan5) holds what is found and answers whole when nothing is.
 
 use serde_json::{json, Map, Value};
 use theseus_aws::catalog::{Catalog, Kind, ShapeRef};
@@ -42,6 +46,25 @@ pub(super) const NAMED: &[&str] = &[
     "RefreshToken",
     "Token",
     "Credentials",
+];
+
+/// Members that hold a secret in one service's answers though no model marks
+/// them, and whose names are everywhere, so [`NAMED`] is no place for them
+/// (theseus-u4pe): a service, the shape, and the member. The walk holds them
+/// in that service's secret-bearing answers; the output-shape rule reads
+/// them too, and fails a row that no secret-bearing answer reaches.
+pub(super) const HELD: &[(&str, &str, &str)] = &[
+    // API Gateway's API key is its `value` (its `id` only names it).
+    ("apigateway", "ApiKey", "value"),
+    // AppSync's API key is its `id`: callers send it as `x-api-key`.
+    ("appsync", "ApiKey", "id"),
+    // Lightsail's new key pair's private half.
+    ("lightsail", "CreateKeyPairResult", "privateKeyBase64"),
+    (
+        "lightsail",
+        "DownloadDefaultKeyPairResult",
+        "privateKeyBase64",
+    ),
 ];
 
 /// One secret a result held: its handle, and where it was.
@@ -136,13 +159,15 @@ fn named(name: &str) -> bool {
 }
 
 /// Walk `v` along `shape`, replacing every secret with its mask, and
-/// holding its value on `board`.
+/// holding its value on `board`. `held` is the service's [`HELD`] rows, as
+/// (shape, member).
 fn walk(
     v: &mut Value,
     shape: ShapeRef<'_>,
     name: Option<&str>,
     path: &str,
     sensitive: bool,
+    held: &[(&str, &str)],
     keep: &mut dyn FnMut(&str, &Value) -> String,
 ) {
     let secret = sensitive || shape.is_sensitive() || name.is_some_and(named);
@@ -162,14 +187,25 @@ fn walk(
                     } else {
                         format!("{path}.{}", m.name())
                     };
-                    walk(x, m.shape(), Some(m.name()), &p, false, keep);
+                    let by_shape = held
+                        .iter()
+                        .any(|(s, n)| *s == shape.name() && *n == m.name());
+                    walk(x, m.shape(), Some(m.name()), &p, by_shape, held, keep);
                 }
             }
         }
         (Kind::List, Value::Array(a)) => {
             if let Some(m) = shape.list_member() {
                 for (i, x) in a.iter_mut().enumerate() {
-                    walk(x, m.shape(), name, &format!("{path}[{i}]"), false, keep);
+                    walk(
+                        x,
+                        m.shape(),
+                        name,
+                        &format!("{path}[{i}]"),
+                        false,
+                        held,
+                        keep,
+                    );
                 }
             }
         }
@@ -183,6 +219,7 @@ fn walk(
                         None,
                         &format!("{path}.{k}"),
                         sensitive_key,
+                        held,
                         keep,
                     );
                 }
@@ -223,7 +260,12 @@ pub fn hold(
         });
         h
     };
-    walk(body, shape, None, "", false, &mut keep);
+    let by_shape: Vec<(&str, &str)> = HELD
+        .iter()
+        .filter(|(s, _, _)| *s == service)
+        .map(|(_, shape, member)| (*shape, *member))
+        .collect();
+    walk(body, shape, None, "", false, &by_shape, &mut keep);
     Ok(held)
 }
 

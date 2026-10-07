@@ -60,7 +60,7 @@ const fn paid(
     }
 }
 
-const MINT: &str = "mints a credential, whatever its name says";
+pub(crate) const MINT: &str = "mints a credential, whatever its name says";
 const CRYPTO: &str = "a cryptographic operation with a key; it changes nothing";
 const ANALYSIS: &str = "an analysis of the input; it changes nothing, and is charged per call";
 
@@ -176,6 +176,19 @@ pub(crate) static CLASS: &[ClassRow] = &[
         Class::Write,
         MINT,
     ),
+    // A new ingest password each, always in the answer (theseus-qan5).
+    class(
+        "mediapackage",
+        "RotateChannelCredentials",
+        Class::Write,
+        MINT,
+    ),
+    class(
+        "mediapackage",
+        "RotateIngestEndpointCredentials",
+        Class::Write,
+        MINT,
+    ),
     class(
         "cognito-identity",
         "GetId",
@@ -251,6 +264,23 @@ pub(crate) static CLASS: &[ClassRow] = &[
     paid("translate", "TranslateDocument", Class::Read, ANALYSIS),
     paid("polly", "SynthesizeSpeech", Class::Read, ANALYSIS),
 ];
+
+/// AWS session mints (theseus-a3s3; the owner, 2026-10-07: the model may ask,
+/// and the operator approves each): `aws.call` waits for the operator's
+/// approval at every posture, whatever `[policy.aws]` says, and the keys
+/// each mints stay held as handles (`SECRET`). A session minted here does
+/// not carry the work session's guards (§3.6). STS's `GetWebIdentityToken`
+/// is not one: it signs an assertion for an outside service, no AWS session.
+pub(crate) static SESSION_MINT: &[Ops] = &[ops(
+    "sts",
+    &[
+        "AssumeRole*",
+        "AssumeRoot",
+        "GetSessionToken",
+        "GetFederationToken",
+        "GetDelegatedAccessToken",
+    ],
+)];
 
 /// Operations that start code of the caller's choosing (§3.1's short list).
 pub(crate) static RUN: &[Ops] = &[
@@ -645,13 +675,10 @@ pub(crate) static SECRET: &[SecretRow] = &[
     secret("redshift-serverless", "GetIdentityCenterAuthToken"),
     secret("workmail", "AssumeImpersonationRole"),
     secret("kinesis-video-signaling", "GetIceServerConfig"),
-    // A secret made or kept, read back: a job's artifact keys, a tunnel's
-    // tokens, a stream key, a long-lived token, a client's secret, a key.
-    secret_when("datazone", "GetConnection", "withSecret"),
-    secret("codepipeline", "GetJobDetails"),
-    secret("codepipeline", "GetThirdPartyJobDetails"),
-    secret("codepipeline", "PollForJobs"),
-    secret("gamelift", "CreateBuild"),
+    secret("mediapackage", "RotateChannelCredentials"),
+    secret("mediapackage", "RotateIngestEndpointCredentials"),
+    // A secret made or kept, read back: a tunnel's tokens, a stream key, a
+    // long-lived token, a client's secret, a key.
     secret("iotsecuretunneling", "OpenTunnel"),
     secret("iotsecuretunneling", "RotateTunnelAccessToken"),
     secret("ivs-realtime", "CreateIngestConfiguration"),
@@ -663,9 +690,7 @@ pub(crate) static SECRET: &[SecretRow] = &[
     secret("pca-connector-scep", "GetChallengePassword"),
     secret("pcs", "RegisterComputeNodeGroupInstance"),
     secret("sso-oidc", "RegisterClient"),
-    secret("wickr", "RegisterOidcConfig"),
     secret("wickr", "RegisterOpentdfConfig"),
-    secret("wickr", "GetOidcInfo"),
     secret("wickr", "GetOpentdfConfig"),
     secret("finspace-data", "ResetUserPassword"),
     secret("iot-managed-integrations", "CreateProvisioningProfile"),
@@ -679,7 +704,6 @@ pub(crate) static SECRET: &[SecretRow] = &[
     secret("chime-sdk-meetings", "GetAttendee"),
     secret("chime-sdk-meetings", "CreateMeetingWithAttendees"),
     secret("connect", "StartWebRTCContact"),
-    secret("connectparticipant", "CreateParticipantConnection"),
     secret("chime", "CreateBot"),
     secret("chime", "GetBot"),
     secret("chime", "UpdateBot"),
@@ -713,11 +737,203 @@ pub(crate) static SECRET: &[SecretRow] = &[
     secret("iot", "CreateKeysAndCertificate"),
     secret("iot", "CreateProvisioningClaim"),
     secret("acm", "ExportCertificate"),
+    // An API key: API Gateway's `value`, AppSync's `id`, which the walk
+    // holds by their shapes (theseus-u4pe). A listing is `WHEN_PRESENT`.
     secret("apigateway", "CreateApiKey"),
     secret_when("apigateway", "GetApiKey", "includeValue"),
-    secret_when("apigateway", "GetApiKeys", "includeValues"),
     secret("appsync", "CreateApiKey"),
-    secret("appsync", "ListApiKeys"),
+    secret("appsync", "UpdateApiKey"),
+];
+
+/// Results that hold a secret only sometimes (theseus-qan5): what the walk
+/// finds is held, and a result with none is returned whole. A `SECRET` row
+/// wins over these. Each operation's output has a member the walk
+/// recognizes (the output-shape rule fails one with none), and none is a
+/// mint.
+pub(crate) static WHEN_PRESENT: &[Ops] = &[
+    // A secret configured on a resource, echoed in its description when it
+    // is set (aws-mints' `ECHO` rows until theseus-qan5).
+    ops(
+        "amplify",
+        &[
+            "CreateApp",
+            "DeleteApp",
+            "GetApp",
+            "ListApps",
+            "UpdateApp",
+            "CreateBranch",
+            "DeleteBranch",
+            "GetBranch",
+            "ListBranches",
+            "UpdateBranch",
+        ],
+    ),
+    ops("amplifybackend", &["GetBackendAuth"]),
+    // Its model says only DescribeDirectoryConfigs never returns the
+    // password; it says nothing of these two.
+    ops(
+        "appstream",
+        &["CreateDirectoryConfig", "UpdateDirectoryConfig"],
+    ),
+    ops("chime", &["ListBots"]),
+    ops("chime-sdk-identity", &["DescribeAppInstanceUserEndpoint"]),
+    ops(
+        "chime-sdk-meetings",
+        &["ListAttendees", "UpdateAttendeeCapabilities"],
+    ),
+    // A client's secret, generated (`GenerateSecret`) or given.
+    ops(
+        "cognito-idp",
+        &[
+            "CreateUserPoolClient",
+            "DescribeUserPoolClient",
+            "UpdateUserPoolClient",
+        ],
+    ),
+    ops("connecthealth", &["GetPatientInsightsJob"]),
+    ops(
+        "datazone",
+        &["CreateConnection", "ListConnections", "UpdateConnection"],
+    ),
+    ops(
+        "dms",
+        &[
+            "CreateEndpoint",
+            "DeleteEndpoint",
+            "DescribeEndpoints",
+            "ModifyEndpoint",
+        ],
+    ),
+    ops("ds", &["DescribeDirectories"]),
+    ops(
+        "ec2",
+        &[
+            "AttachVerifiedAccessTrustProvider",
+            "CreateVerifiedAccessTrustProvider",
+            "DeleteVerifiedAccessTrustProvider",
+            "DescribeVerifiedAccessTrustProviders",
+            "DetachVerifiedAccessTrustProvider",
+            "ModifyVerifiedAccessTrustProvider",
+            "ExportVerifiedAccessInstanceClientConfiguration",
+            "CreateVpnConnection",
+            "DescribeVpnConnections",
+            "ModifyVpnConnection",
+            "ModifyVpnConnectionOptions",
+            "ModifyVpnTunnelCertificate",
+            "ModifyVpnTunnelOptions",
+        ],
+    ),
+    ops("iot", &["GetTopicRule"]),
+    ops("iot-managed-integrations", &["GetManagedThing"]),
+    ops("ivs-realtime", &["CreateStage"]),
+    ops(
+        "lexv2-models",
+        &[
+            "DescribeBotRecommendation",
+            "StartBotRecommendation",
+            "UpdateBotRecommendation",
+        ],
+    ),
+    ops(
+        "medialive",
+        &[
+            "CreateChannel",
+            "DeleteChannel",
+            "DescribeChannel",
+            "RestartChannelPipelines",
+            "StartChannel",
+            "StopChannel",
+            "UpdateChannel",
+            "UpdateChannelClass",
+        ],
+    ),
+    ops(
+        "mediapackage",
+        &[
+            "ConfigureLogs",
+            "CreateChannel",
+            "DescribeChannel",
+            "ListChannels",
+            "UpdateChannel",
+        ],
+    ),
+    ops("quicksight", &["DescribeAssetBundleImportJob"]),
+    ops(
+        "rds",
+        &[
+            "CreateDBCluster",
+            "CreateDBInstance",
+            "CreateDBInstanceReadReplica",
+            "CreateTenantDatabase",
+            "DeleteDBCluster",
+            "DeleteDBInstance",
+            "DeleteTenantDatabase",
+            "DescribeDBClusters",
+            "DescribeDBInstances",
+            "DescribeTenantDatabases",
+            "FailoverDBCluster",
+            "ModifyDBCluster",
+            "ModifyDBInstance",
+            "ModifyTenantDatabase",
+            "PromoteReadReplica",
+            "PromoteReadReplicaDBCluster",
+            "RebootDBCluster",
+            "RebootDBInstance",
+            "RestoreDBClusterFromS3",
+            "RestoreDBClusterFromSnapshot",
+            "RestoreDBClusterToPointInTime",
+            "RestoreDBInstanceFromDBSnapshot",
+            "RestoreDBInstanceFromS3",
+            "RestoreDBInstanceToPointInTime",
+            "StartDBCluster",
+            "StartDBInstance",
+            "StopDBCluster",
+            "StopDBInstance",
+            "SwitchoverReadReplica",
+        ],
+    ),
+    ops(
+        "redshift",
+        &[
+            "CreateCluster",
+            "DeleteCluster",
+            "DescribeClusters",
+            "DisableSnapshotCopy",
+            "EnableSnapshotCopy",
+            "FailoverPrimaryCompute",
+            "ModifyCluster",
+            "ModifyClusterDbRevision",
+            "ModifyClusterIamRoles",
+            "ModifyClusterMaintenance",
+            "ModifySnapshotCopyRetentionPeriod",
+            "PauseCluster",
+            "RebootCluster",
+            "ResizeCluster",
+            "RestoreFromClusterSnapshot",
+            "ResumeCluster",
+            "RotateEncryptionKey",
+        ],
+    ),
+    // A secret that comes with some answers and not others: a job's
+    // artifact keys (none when there is no job, or no artifact), a build's
+    // upload keys ("returned only when the operation is called without a
+    // storage location"), WebRTC's join token (a chat has none), an OIDC
+    // client's secret and tokens (each optional), and a connection's
+    // credentials, which only some connections carry, whatever
+    // `withSecret` says.
+    ops(
+        "codepipeline",
+        &["GetJobDetails", "GetThirdPartyJobDetails", "PollForJobs"],
+    ),
+    ops("gamelift", &["CreateBuild"]),
+    ops("connectparticipant", &["CreateParticipantConnection"]),
+    ops("wickr", &["GetOidcInfo", "RegisterOidcConfig"]),
+    ops("datazone", &["GetConnection"]),
+    // API keys in a listing, none when there is no key (or, for API
+    // Gateway's, unless `includeValues`), and API Gateway's key as an
+    // update returns it (theseus-u4pe).
+    ops("apigateway", &["GetApiKeys", "UpdateApiKey"]),
+    ops("appsync", &["ListApiKeys"]),
 ];
 
 /// Tagging is direct (§3.4), so it is never IaC-only.
@@ -1739,12 +1955,6 @@ pub(crate) static RETRY: &[RetryRow] = &[
     retry(
         "datazone",
         "GetEnvironmentCredentials",
-        RetryClass::SafeToRepeat,
-    ),
-    retry("signin", "CreateOAuth2Token", RetryClass::SafeToRepeat),
-    retry(
-        "amplifyuibuilder",
-        "ExchangeCodeForToken",
         RetryClass::SafeToRepeat,
     ),
     retry("amplifyuibuilder", "RefreshToken", RetryClass::SafeToRepeat),
