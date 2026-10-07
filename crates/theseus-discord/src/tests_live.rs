@@ -545,14 +545,15 @@ async fn a_changed_place_keeps_its_turn_and_its_messages() {
         r.core.outbox.status("discord").pending == 0
     })
     .await;
+    // The tool line is edited to its end, where it was (live progress lands
+    // after the posts settle).
+    let ended = || {
+        r.posted(LAB)
+            .iter()
+            .any(|m| m.versions[0].starts_with('⏸') && m.content.starts_with('✅'))
+    };
+    r.until("the tool line is edited to its end", ended).await;
     let after = r.posted(LAB);
-    // The tool line was edited to its end, where it was.
-    let line = after.iter().find(|m| m.versions[0].starts_with('⏸'));
-    let line = line.unwrap_or_else(|| panic!("no tool line: {after:#?}"));
-    assert!(
-        line.content.starts_with('✅') && line.edits >= 1,
-        "the tool line was not edited to its end: {after:#?}"
-    );
     for m in &before {
         assert!(
             after.iter().any(|a| a.id == m.id),
