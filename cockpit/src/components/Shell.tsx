@@ -4,7 +4,7 @@ import { NavLink, Outlet, useLocation, useMatch, useNavigate } from 'react-route
 import { motion } from 'motion/react'
 import { Command } from 'cmdk'
 import {
-  Activity, BellOff, BellRing, ChevronDown, ChevronUp, CircleCheck, Moon, Sun, Coins, Command as CommandIcon, Cpu, Crosshair, Gauge, Gavel, Landmark, Layers, Navigation, OctagonX, Pause, Radio,
+  Activity, BellOff, BellRing, ChevronDown, ChevronUp, CircleCheck, Moon, Sun, Coins, Command as CommandIcon, Cpu, Crosshair, FlaskConical, Gauge, Gavel, Landmark, Layers, Navigation, OctagonX, Pause, Radio,
   Sailboat, Scale, ScrollText, ShieldCheck, ShieldHalf, Shapes, Zap,
 } from 'lucide-react'
 import type { ConfirmRequest, ExecutionInfo, NodeInfo, SessionInfo } from '@protocol'
@@ -35,13 +35,14 @@ const NAV = [
   { to: '/money', label: 'Money', icon: Landmark },
   { to: '/economics', label: 'Economics', icon: Coins },
   { to: '/speed', label: 'Speed', icon: Zap },
+  { to: '/benchmarks', label: 'Bench', icon: FlaskConical },
   { to: '/judgment', label: 'Judgment', icon: Scale },
   { to: '/systems', label: 'Systems', icon: Cpu },
   { to: '/ontology', label: 'Ontology', icon: Shapes },
 ] as const
 
 const GO: Record<string, string> = {
-  h: '/ship', b: '/bridge', f: '/fleet', a: '/actions', o: '/boundaries', p: '/policy', l: '/ledger', m: '/money', e: '/economics', w: '/speed', j: '/judgment', s: '/systems',
+  h: '/ship', b: '/bridge', f: '/fleet', a: '/actions', o: '/boundaries', p: '/policy', l: '/ledger', m: '/money', e: '/economics', w: '/speed', k: '/benchmarks', j: '/judgment', s: '/systems',
 }
 
 export function Shell() {
@@ -137,7 +138,7 @@ function NavRail({ onPalette }: { onPalette: () => void }) {
           to={to}
           end={'end' in rest}
           className={({ isActive }) => cn(
-            // On a short screen (1366×768) the thirteen items and the rail's foot fit only with less air between them.
+            // On a short screen (1366×768) the fourteen items and the rail's foot fit only with less air between them.
             'group relative flex w-[62px] flex-col items-center gap-0.5 rounded-lg py-2 font-display text-[8.5px] font-bold uppercase tracking-[0.03em] transition-colors [@media(max-height:860px)]:py-1',
             isActive ? 'text-live' : 'text-ink-faint hover:bg-gold/10 hover:text-ink',
           )}
