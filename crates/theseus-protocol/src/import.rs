@@ -218,6 +218,10 @@ pub struct ImportSessionsParams {
     /// Each row of the page with its summary's text.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub summaries: bool,
+    /// Only these sessions (a recalled note's, a deep link's): their rows and
+    /// labels in one read. Empty: every session.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub ids: Vec<String>,
 }
 
 /// One imported episode, as `import.sessions` lists it: its provenance and

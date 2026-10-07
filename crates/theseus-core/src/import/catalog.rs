@@ -9,11 +9,17 @@
 //!   it again, from each tag's scope, the walk `import.erase` makes.
 //! - **A query costs the rows in memory**, never the store: its filters,
 //!   its facets (each counted with every other filter, its own aside) and
-//!   its sort. Only its page's summaries are read, a node each.
-//! - **Pure but for `build`**: `query` takes rows and params, so its tests
-//!   need no store.
+//!   its sort, in one pass. Every value a filter or a facet reads (a tag, a
+//!   source, a place kind, a sensitivity, a book, a month, each topic path
+//!   with its ancestors) is interned when the projection is built, so the
+//!   pass compares and counts small numbers. Only its page's summaries are
+//!   read, a node each.
+//! - **Pure but for `build`**: `query` takes a catalog and params, so its
+//!   tests need no store. A topic takes itself and what is under it, cut at
+//!   a slash (`a/b` takes `a/b/c`, never `a/bc`): each row's paths hold its
+//!   topics' ancestors by their slashes.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
@@ -31,19 +37,105 @@ use crate::store::Store;
 pub const PAGE: u64 = 50;
 pub const MAX_PAGE: u64 = 500;
 
-/// One episode, with the folded words `q` searches.
+/// The values a facet counts, by dimension.
+const DIMS: usize = 7;
+const D_TAG: usize = 0;
+const D_SOURCE: usize = 1;
+const D_PLACE: usize = 2;
+const D_SENS: usize = 3;
+const D_BOOK: usize = 4;
+const D_MONTH: usize = 5;
+const D_PATH: usize = 6;
+
+/// One episode: its row, its interned keys, and the folded words `q`
+/// searches.
 #[derive(Debug, Clone)]
 pub struct Row {
     pub ep: ImportedEpisode,
     /// Its title, place name and topics, lower case.
     pub words: String,
+    /// Its tag, source, place kind, sensitivity, book (or none) and month,
+    /// each a value's number in its dimension.
+    keys: [Option<u32>; 6],
+    /// Its topics and their ancestors, each once.
+    paths: Vec<u32>,
 }
 
-/// The projection: its key, and every imported session's row.
+/// Each dimension's values by number, and their numbers by value.
+#[derive(Debug, Default)]
+struct Dict {
+    names: [Vec<String>; DIMS],
+    index: [HashMap<String, u32>; DIMS],
+}
+
+impl Dict {
+    fn intern(&mut self, dim: usize, v: &str) -> u32 {
+        if let Some(n) = self.index[dim].get(v) {
+            return *n;
+        }
+        let n = self.names[dim].len() as u32;
+        self.names[dim].push(v.to_string());
+        self.index[dim].insert(v.to_string(), n);
+        n
+    }
+
+    fn get(&self, dim: usize, v: &str) -> Option<u32> {
+        self.index[dim].get(v).copied()
+    }
+}
+
+/// The projection: its key, every imported session's row, and the values
+/// its rows' keys number.
 #[derive(Debug, Default)]
 pub struct Catalog {
     pub version: String,
     pub rows: Vec<Row>,
+    dict: Dict,
+}
+
+impl Catalog {
+    /// The rows of `episodes`, their values interned.
+    pub fn of(episodes: Vec<ImportedEpisode>, version: String) -> Self {
+        let mut dict = Dict::default();
+        let rows = episodes
+            .into_iter()
+            .map(|ep| {
+                let keys = [
+                    Some(dict.intern(D_TAG, &ep.tag)),
+                    Some(dict.intern(D_SOURCE, &ep.source)),
+                    Some(dict.intern(D_PLACE, &ep.place_kind)),
+                    Some(dict.intern(D_SENS, &ep.sensitivity)),
+                    ep.book.as_deref().map(|b| dict.intern(D_BOOK, b)),
+                    Some(dict.intern(D_MONTH, &month_of(ep.start_ms))),
+                ];
+                let paths = with_ancestors(&ep.topics)
+                    .into_iter()
+                    .map(|t| dict.intern(D_PATH, t))
+                    .collect();
+                let mut words = String::new();
+                for w in ep
+                    .title
+                    .iter()
+                    .chain(ep.place_name.iter())
+                    .chain(ep.topics.iter())
+                {
+                    words.push_str(&w.to_lowercase());
+                    words.push('\n');
+                }
+                Row {
+                    ep,
+                    words,
+                    keys,
+                    paths,
+                }
+            })
+            .collect();
+        Self {
+            version,
+            rows,
+            dict,
+        }
+    }
 }
 
 /// The core's copy, built on a read that finds it stale.
@@ -86,7 +178,7 @@ pub fn version_of(list: &ImportListResult) -> String {
 /// Every imported session of every tag, as rows: each session's newest
 /// record (an erase writes it again).
 pub fn build(store: &Store, list: &ImportListResult, version: String) -> Result<Catalog> {
-    let mut rows = Vec::new();
+    let mut episodes = Vec::new();
     for t in &list.tags {
         let mut latest: BTreeMap<String, SessionRecord> = BTreeMap::new();
         for r in store.scope_after(&tag_scope(&t.tag), 0)? {
@@ -98,16 +190,16 @@ pub fn build(store: &Store, list: &ImportListResult, version: String) -> Result<
         }
         for rec in latest.into_values() {
             if let Some(imp) = rec.imported.as_deref() {
-                rows.push(row_of(&rec.session_id, rec.title.as_deref(), imp));
+                episodes.push(episode_of(&rec.session_id, rec.title.as_deref(), imp));
             }
         }
     }
-    Ok(Catalog { version, rows })
+    Ok(Catalog::of(episodes, version))
 }
 
-/// An imported session's row.
-pub fn row_of(session_id: &str, title: Option<&str>, i: &ImportedFrom) -> Row {
-    let ep = ImportedEpisode {
+/// An imported session's episode, as `import.sessions` lists it.
+pub fn episode_of(session_id: &str, title: Option<&str>, i: &ImportedFrom) -> ImportedEpisode {
+    ImportedEpisode {
         session_id: session_id.to_string(),
         episode_id: i.episode_id.clone(),
         tag: i.tag.clone(),
@@ -133,18 +225,7 @@ pub fn row_of(session_id: &str, title: Option<&str>, i: &ImportedFrom) -> Row {
         imported_at_ms: i.imported_at_ms,
         summary_text: None,
         cites: None,
-    };
-    let mut words = String::new();
-    for w in ep
-        .title
-        .iter()
-        .chain(ep.place_name.iter())
-        .chain(ep.topics.iter())
-    {
-        words.push_str(&w.to_lowercase());
-        words.push('\n');
     }
-    Row { ep, words }
 }
 
 /// The filters a query names, by the facet each is (the bit it sets).
@@ -157,16 +238,6 @@ const TOPIC: u8 = 1 << 5;
 const SPAN: u8 = 1 << 6;
 const WORDS: u8 = 1 << 7;
 const ALL: u8 = u8::MAX;
-
-/// Whether `topics` holds `topic` or a topic under it: a path cut at a
-/// slash, so `a/b` takes `a/b/c` and never `a/bc`.
-pub fn under(topics: &[String], topic: &str) -> bool {
-    let topic = topic.trim_end_matches('/');
-    topics.iter().any(|t| {
-        t == topic
-            || (t.len() > topic.len() && t.starts_with(topic) && t.as_bytes()[topic.len()] == b'/')
-    })
-}
 
 /// A topic path and each of its ancestors: `a/b/c` is `a`, `a/b`, `a/b/c`.
 fn with_ancestors(topics: &[String]) -> BTreeSet<&str> {
@@ -185,37 +256,96 @@ fn with_ancestors(topics: &[String]) -> BTreeSet<&str> {
     out
 }
 
-/// The filters a row passes, as bits: a filter not named passes.
-fn mask(r: &Row, p: &ImportSessionsParams, words: &[String]) -> u8 {
-    let e = &r.ep;
-    let is =
-        |want: &Option<String>, have: Option<&str>| want.as_deref().is_none_or(|w| have == Some(w));
-    let mut m = 0;
-    if is(&p.tag, Some(&e.tag)) {
-        m |= TAG;
+/// A filter, as the values' numbers it wants: none named (every row
+/// passes), or one number, or a value no row has (none passes).
+#[derive(Clone, Copy)]
+enum Want {
+    Any,
+    One(u32),
+    Nothing,
+}
+
+impl Want {
+    fn of(dict: &Dict, dim: usize, v: Option<&str>) -> Self {
+        match v {
+            None => Self::Any,
+            Some(v) => dict.get(dim, v).map_or(Self::Nothing, Self::One),
+        }
     }
-    if is(&p.source, Some(&e.source)) {
-        m |= SOURCE;
+
+    fn passes(self, have: Option<u32>) -> bool {
+        match self {
+            Self::Any => true,
+            Self::One(n) => have == Some(n),
+            Self::Nothing => false,
+        }
     }
-    if is(&p.place, Some(&e.place_kind)) {
-        m |= PLACE;
+}
+
+/// The filters of `p` against a catalog's values.
+struct Wants {
+    keys: [Want; 5],
+    topic: Want,
+    from: Option<u64>,
+    to: Option<u64>,
+    words: Vec<String>,
+}
+
+impl Wants {
+    fn of(dict: &Dict, p: &ImportSessionsParams) -> Self {
+        Self {
+            keys: [
+                Want::of(dict, D_TAG, p.tag.as_deref()),
+                Want::of(dict, D_SOURCE, p.source.as_deref()),
+                Want::of(dict, D_PLACE, p.place.as_deref()),
+                Want::of(dict, D_SENS, p.sensitivity.as_deref()),
+                Want::of(dict, D_BOOK, p.book.as_deref()),
+            ],
+            topic: Want::of(
+                dict,
+                D_PATH,
+                p.topic.as_deref().map(|t| t.trim_end_matches('/')),
+            ),
+            from: p.from_ms,
+            to: p.to_ms,
+            words: p
+                .q
+                .as_deref()
+                .unwrap_or("")
+                .split_whitespace()
+                .map(str::to_lowercase)
+                .collect(),
+        }
     }
-    if is(&p.sensitivity, Some(&e.sensitivity)) {
-        m |= SENSITIVITY;
+
+    /// The filters a row passes, as bits.
+    fn mask(&self, r: &Row) -> u8 {
+        let mut m = 0;
+        for (i, bit) in [TAG, SOURCE, PLACE, SENSITIVITY, BOOK]
+            .into_iter()
+            .enumerate()
+        {
+            if self.keys[i].passes(r.keys[i]) {
+                m |= bit;
+            }
+        }
+        let topic = match self.topic {
+            Want::Any => true,
+            Want::One(n) => r.paths.contains(&n),
+            Want::Nothing => false,
+        };
+        if topic {
+            m |= TOPIC;
+        }
+        if self.from.is_none_or(|f| r.ep.end_ms >= f) && self.to.is_none_or(|t| r.ep.start_ms <= t)
+        {
+            m |= SPAN;
+        }
+        if self.words.iter().all(|w| r.words.contains(w.as_str())) {
+            m |= WORDS;
+        }
+        m
     }
-    if is(&p.book, e.book.as_deref()) {
-        m |= BOOK;
-    }
-    if p.topic.as_deref().is_none_or(|t| under(&e.topics, t)) {
-        m |= TOPIC;
-    }
-    if p.from_ms.is_none_or(|f| e.end_ms >= f) && p.to_ms.is_none_or(|t| e.start_ms <= t) {
-        m |= SPAN;
-    }
-    if words.iter().all(|w| r.words.contains(w.as_str())) {
-        m |= WORDS;
-    }
-    m
 }
 
 /// A month's key, `2026-03`, from unix ms (UTC).
@@ -241,69 +371,56 @@ pub struct Answer {
     pub facets: ImportFacets,
 }
 
-/// `p` over `rows`: filter, facet, sort, page.
-pub fn query(rows: &[Row], p: &ImportSessionsParams) -> Answer {
-    let words: Vec<String> =
-        p.q.as_deref()
-            .unwrap_or("")
-            .split_whitespace()
-            .map(str::to_lowercase)
-            .collect();
-    let mut counts: [BTreeMap<&str, u64>; 5] = Default::default();
-    let mut topics: BTreeMap<&str, u64> = BTreeMap::new();
+/// `p` over `cat`: filter, facet, sort, page, in one pass over its rows.
+pub fn query(cat: &Catalog, p: &ImportSessionsParams) -> Answer {
+    let rows = &cat.rows;
+    let want = Wants::of(&cat.dict, p);
+    let mut counts: [Vec<u64>; DIMS] = std::array::from_fn(|d| vec![0; cat.dict.names[d].len()]);
     let mut kept = Vec::new();
+    let ids: BTreeSet<&str> = p.ids.iter().map(String::as_str).collect();
+    // Each facet's bit, and its dimension: a facet counts a row that passes
+    // every filter but its own.
+    let facets = [
+        (TAG, D_TAG),
+        (SOURCE, D_SOURCE),
+        (PLACE, D_PLACE),
+        (SENSITIVITY, D_SENS),
+        (BOOK, D_BOOK),
+        (SPAN, D_MONTH),
+    ];
     for (i, r) in rows.iter().enumerate() {
-        if r.ep.erased && !p.erased {
+        if (r.ep.erased && !p.erased)
+            || (!ids.is_empty() && !ids.contains(r.ep.session_id.as_str()))
+        {
             continue;
         }
-        let m = mask(r, p, &words);
-        let e = &r.ep;
-        let facet = |bit: u8| m | bit == ALL;
-        if facet(TAG) {
-            *counts[0].entry(&e.tag).or_default() += 1;
-        }
-        if facet(SOURCE) {
-            *counts[1].entry(&e.source).or_default() += 1;
-        }
-        if facet(PLACE) {
-            *counts[2].entry(&e.place_kind).or_default() += 1;
-        }
-        if facet(SENSITIVITY) {
-            *counts[3].entry(&e.sensitivity).or_default() += 1;
-        }
-        if facet(BOOK) {
-            if let Some(b) = e.book.as_deref() {
-                *counts[4].entry(b).or_default() += 1;
+        let m = want.mask(r);
+        for (k, (bit, dim)) in facets.into_iter().enumerate() {
+            if m | bit == ALL {
+                if let Some(n) = r.keys[k] {
+                    counts[dim][n as usize] += 1;
+                }
             }
         }
-        if facet(TOPIC) {
-            for t in with_ancestors(&e.topics) {
-                *topics.entry(t).or_default() += 1;
+        if m | TOPIC == ALL {
+            for n in &r.paths {
+                counts[D_PATH][*n as usize] += 1;
             }
         }
         if m == ALL {
             kept.push(i);
         }
     }
-    // The months take every filter but the span's, as a facet does; their
-    // keys are owned, so they are counted apart.
-    let mut months: BTreeMap<String, u64> = BTreeMap::new();
-    for r in rows {
-        if (r.ep.erased && !p.erased) || mask(r, p, &words) | SPAN != ALL {
-            continue;
-        }
-        *months.entry(month_of(r.ep.start_ms)).or_default() += 1;
-    }
     match p.sort.as_deref() {
-        Some("oldest") => kept.sort_by(|a, b| {
+        Some("oldest") => kept.sort_unstable_by(|a, b| {
             let (a, b) = (&rows[*a].ep, &rows[*b].ep);
             (a.start_ms, &a.session_id).cmp(&(b.start_ms, &b.session_id))
         }),
-        Some("longest") => kept.sort_by(|a, b| {
+        Some("longest") => kept.sort_unstable_by(|a, b| {
             let (a, b) = (&rows[*a].ep, &rows[*b].ep);
             (b.messages, b.end_ms, &a.session_id).cmp(&(a.messages, a.end_ms, &b.session_id))
         }),
-        _ => kept.sort_by(|a, b| {
+        _ => kept.sort_unstable_by(|a, b| {
             let (a, b) = (&rows[*a].ep, &rows[*b].ep);
             (b.end_ms, &a.session_id).cmp(&(a.end_ms, &b.session_id))
         }),
@@ -312,37 +429,36 @@ pub fn query(rows: &[Row], p: &ImportSessionsParams) -> Answer {
     let offset = p.offset.unwrap_or(0).min(total) as usize;
     let limit = p.limit.unwrap_or(PAGE).clamp(1, MAX_PAGE) as usize;
     let page = kept.into_iter().skip(offset).take(limit).collect();
-    let most = |m: &BTreeMap<&str, u64>| {
-        let mut v: Vec<ImportFacet> = m
+    // A dimension's counted values: the most first, or, for the months and
+    // the topic paths, by value.
+    let listed = |dim: usize, most: bool| {
+        let mut v: Vec<ImportFacet> = counts[dim]
             .iter()
-            .map(|(k, c)| ImportFacet {
-                value: (*k).to_string(),
+            .enumerate()
+            .filter(|(_, c)| **c > 0)
+            .map(|(n, c)| ImportFacet {
+                value: cat.dict.names[dim][n].clone(),
                 count: *c,
             })
             .collect();
-        v.sort_by(|a, b| b.count.cmp(&a.count).then_with(|| a.value.cmp(&b.value)));
+        if most {
+            v.sort_by(|a, b| b.count.cmp(&a.count).then_with(|| a.value.cmp(&b.value)));
+        } else {
+            v.sort_by(|a, b| a.value.cmp(&b.value));
+        }
         v
     };
     Answer {
         total,
         page,
         facets: ImportFacets {
-            tags: most(&counts[0]),
-            sources: most(&counts[1]),
-            places: most(&counts[2]),
-            sensitivities: most(&counts[3]),
-            books: most(&counts[4]),
-            topics: topics
-                .into_iter()
-                .map(|(k, c)| ImportFacet {
-                    value: k.to_string(),
-                    count: c,
-                })
-                .collect(),
-            months: months
-                .into_iter()
-                .map(|(value, count)| ImportFacet { value, count })
-                .collect(),
+            tags: listed(D_TAG, true),
+            sources: listed(D_SOURCE, true),
+            places: listed(D_PLACE, true),
+            sensitivities: listed(D_SENS, true),
+            books: listed(D_BOOK, true),
+            topics: listed(D_PATH, false),
+            months: listed(D_MONTH, false),
         },
     }
 }
@@ -351,9 +467,9 @@ pub fn query(rows: &[Row], p: &ImportSessionsParams) -> Answer {
 mod tests {
     use super::*;
 
-    /// A made-up episode's row: `i` picks its source, place, label and span.
-    fn row(i: u64, topics: &[&str], sensitivity: &str, erased: bool) -> Row {
-        let ep = ImportedEpisode {
+    /// A made-up episode: `i` picks its source, place, label and span.
+    fn ep(i: u64, topics: &[&str], sensitivity: &str, erased: bool) -> ImportedEpisode {
+        ImportedEpisode {
             session_id: format!("ses_ep{i:064x}"),
             episode_id: format!("ep_{i:064x}"),
             tag: if i < 6 {
@@ -376,37 +492,29 @@ mod tests {
             title: Some(format!("The tide log of survey {i}")),
             erased,
             ..ImportedEpisode::default()
-        };
-        let mut words = String::new();
-        for w in ep
-            .title
-            .iter()
-            .chain(ep.place_name.iter())
-            .chain(ep.topics.iter())
-        {
-            words.push_str(&w.to_lowercase());
-            words.push('\n');
         }
-        Row { ep, words }
     }
 
-    fn rows() -> Vec<Row> {
-        vec![
-            row(0, &["reef/survey"], "personal", false),
-            row(1, &["reef/survey/tides"], "public", false),
-            row(2, &["reef/surveyor"], "personal", false),
-            row(3, &["harbour", "reef"], "company-confidential", false),
-            row(4, &[], "public", false),
-            row(5, &["reef/survey"], "personal", true),
-            row(6, &["harbour/pier"], "partner-confidential", false),
-        ]
+    fn rows() -> Catalog {
+        Catalog::of(
+            vec![
+                ep(0, &["reef/survey"], "personal", false),
+                ep(1, &["reef/survey/tides"], "public", false),
+                ep(2, &["reef/surveyor"], "personal", false),
+                ep(3, &["harbour", "reef"], "company-confidential", false),
+                ep(4, &[], "public", false),
+                ep(5, &["reef/survey"], "personal", true),
+                ep(6, &["harbour/pier"], "partner-confidential", false),
+            ],
+            String::new(),
+        )
     }
 
-    fn ids(rows: &[Row], a: &Answer) -> Vec<String> {
+    fn ids(c: &Catalog, a: &Answer) -> Vec<String> {
         a.page
             .iter()
             .map(|i| {
-                rows[*i].ep.session_id[6..]
+                c.rows[*i].ep.session_id[6..]
                     .trim_start_matches('0')
                     .to_string()
             })
@@ -430,7 +538,12 @@ mod tests {
         assert_eq!(ids(&rs, &query(&rs, &p("reef/survey/"))), ["", "1"]);
         assert_eq!(ids(&rs, &query(&rs, &p("reef"))), ["", "1", "2", "3"]);
         assert_eq!(query(&rs, &p("ree")).total, 0);
-        assert!(under(&["a/b/c".into()], "a/b") && !under(&["a/bc".into()], "a/b"));
+        let topics: [String; 3] = ["a/b/c".into(), "a/bc".into(), "x/".into()];
+        let paths = with_ancestors(&topics);
+        assert_eq!(
+            paths.into_iter().collect::<Vec<_>>(),
+            ["a", "a/b", "a/b/c", "a/bc", "x"]
+        );
     }
 
     #[test]
@@ -515,6 +628,40 @@ mod tests {
         // The page's size is capped.
         let big = query(&rs, &p("newest", 0, 10_000));
         assert_eq!(big.page.len(), 6);
+    }
+
+    #[test]
+    fn named_sessions_alone_and_their_facets() {
+        let rs = rows();
+        let p = ImportSessionsParams {
+            ids: vec![
+                rs.rows[3].ep.session_id.clone(),
+                rs.rows[6].ep.session_id.clone(),
+                "ses_epnone".into(),
+            ],
+            ..ImportSessionsParams::default()
+        };
+        let a = query(&rs, &p);
+        assert_eq!(ids(&rs, &a), ["6", "3"]);
+        assert_eq!(facet(&a.facets.topics, "harbour"), 2);
+        assert_eq!(a.facets.months.len(), 2);
+        // An erased one is named and still left out unless asked.
+        let gone = ImportSessionsParams {
+            ids: vec![rs.rows[5].ep.session_id.clone()],
+            ..ImportSessionsParams::default()
+        };
+        assert_eq!(query(&rs, &gone).total, 0);
+        assert_eq!(
+            query(
+                &rs,
+                &ImportSessionsParams {
+                    erased: true,
+                    ..gone
+                }
+            )
+            .total,
+            1
+        );
     }
 
     #[test]

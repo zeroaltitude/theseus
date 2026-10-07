@@ -36,4 +36,9 @@ limit?: number,
 /**
  * Each row of the page with its summary's text.
  */
-summaries?: boolean, };
+summaries?: boolean, 
+/**
+ * Only these sessions (a recalled note's, a deep link's): their rows and
+ * labels in one read. Empty: every session.
+ */
+ids?: Array<string>, };

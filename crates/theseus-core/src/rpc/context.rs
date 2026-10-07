@@ -204,7 +204,7 @@ impl Core {
         imp: &crate::import::ImportedFrom,
         private: bool,
     ) -> theseus_protocol::import::ImportedEpisode {
-        let mut ep = crate::import::catalog::row_of(sid, title, imp).ep;
+        let mut ep = crate::import::catalog::episode_of(sid, title, imp);
         if !private {
             ep.title = None;
             ep.place_name = None;

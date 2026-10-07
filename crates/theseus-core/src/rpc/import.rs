@@ -160,7 +160,7 @@ impl Core {
         if !private {
             p.q = None;
         }
-        let a = catalog::query(&cat.rows, &p);
+        let a = catalog::query(&cat, &p);
         let mut episodes = Vec::with_capacity(a.page.len());
         for i in a.page {
             let mut e = cat.rows[i].ep.clone();
