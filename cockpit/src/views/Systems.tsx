@@ -44,7 +44,7 @@ export default function Systems() {
         <Field label="name · version" mono>{h.name} {h.version} · protocol {h.protocol}</Field>
         <Field label="up" mono>{uptime(h.uptime_secs + (now - dataUpdatedAt) / 1000)}</Field>
         <Field label="sessions · turns" mono>{h.sessions} · {h.turns}</Field>
-        {importedWords(h) && <Field label="imported sessions" mono>{importedWords(h)}</Field>}
+        {importedWords(h) && <Field label="imported sessions" mono>{importedWords(h)} · <Link to="/books" className="hover:text-live">the books →</Link></Field>}
         <Field label="model" mono>{h.provider} · {h.model} · profile {h.profile}</Field>
         <Field label="providers" mono>{h.providers.join(', ')}</Field>
         <Field label="ledger rows" mono>{h.ledger_rows.toLocaleString()}</Field>

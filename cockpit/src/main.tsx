@@ -30,6 +30,8 @@ const Boundaries = lazy(() => import('./views/Boundaries'))
 const Policy = lazy(() => import('./views/Policy'))
 const Speed = lazy(() => import('./views/Speed'))
 const Ontology = lazy(() => import('./views/Ontology'))
+// The books, first cut (theseus-civ0): the imported episodes by their book.
+const Books = lazy(() => import('./views/Books'))
 // Jev's judgments (M5 23b).
 const Judgment = lazy(() => import('./views/Judgment'))
 
@@ -65,6 +67,7 @@ const router = createBrowserRouter(
             { path: 'policy', element: wrap(<Policy />) },
             { path: 'speed', element: wrap(<Speed />) },
             { path: 'ontology', element: wrap(<Ontology />) },
+            { path: 'books', element: wrap(<Books />) },
             { path: 'judgment', element: wrap(<Judgment />) },
             { path: '*', element: <NotFound /> },
           ],
