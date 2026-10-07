@@ -16,6 +16,7 @@ import { HoverCard } from '@/ship/HoverCard'
 import { Key } from '@/ship/Key'
 import type { KeyLine } from '@/ship/keyset'
 import { Tour } from '@/ship/Tour'
+import { COCKPIT_VERSION, SEEN_KEY, TOUR_KEY, tourPlan, type TourPlan } from '@/ship/news'
 import { DepthGauge } from '@/ship/Depth'
 import { Coins } from '@/ship/Coins'
 import { benchLine, count, depthOf, stateWord, type Depth } from '@/ship/words'
@@ -151,11 +152,19 @@ function ShipView({ data, onFail }: { data: ShipData; onFail: OnFail }) {
     engine.setHighlight(hlId ? model.lightById.get(hlId) ?? -1 : -1)
   }, [engine, model, hlId])
 
-  // The first visit: the tour, once the fleet is read (until it is done or skipped, or `?notour`).
-  const [toured, setToured] = useState(() => localStorage.getItem('cockpit.ship.tour') === 'done' || new URLSearchParams(window.location.search).has('notour'))
-  const firstVisit = !toured && !!engine && !!model && data.progress >= 1 && !data.synthetic && model.vessels.length > 0
-  const touring = tour || firstVisit
-  const closeTour = () => { localStorage.setItem('cockpit.ship.tour', 'done'); setToured(true); setTour(false) }
+  // Once the fleet is read: on a browser's first visit the tour, after an update what's new since it last looked
+  // (`news.ts`, the owner's C6), each once and skippable; `?notour` opens neither. ? and the Tour button open the tour.
+  const [plan, setPlan] = useState<TourPlan>(() => new URLSearchParams(window.location.search).has('notour') ? { kind: 'none' }
+    : tourPlan(localStorage.getItem(TOUR_KEY), localStorage.getItem(SEEN_KEY)))
+  const ready = !!engine && !!model && data.progress >= 1 && !data.synthetic && model.vessels.length > 0
+  const touring = tour || (ready && plan.kind !== 'none')
+  const news = !tour && plan.kind === 'news' ? plan.items : undefined
+  const closeTour = () => {
+    localStorage.setItem(TOUR_KEY, 'done')
+    localStorage.setItem(SEEN_KEY, COCKPIT_VERSION)
+    setPlan({ kind: 'none' })
+    setTour(false)
+  }
 
   const flyTo = (t: WatchTarget) => {
     const m = engine?.model
@@ -370,7 +379,7 @@ function ShipView({ data, onFail }: { data: ShipData; onFail: OnFail }) {
       <div data-ship-ui className="ship-porthole-slot absolute bottom-3 right-3 [@media(min-width:1400px)_and_(min-height:900px)]:right-[306px]"><Minimap ref={minimap} engine={engine} model={model} selected={sel} /></div>
 
       <Coins engine={engine} host={root} />
-      {touring && engine && model && root && <Tour engine={engine} model={model} host={root} onClose={closeTour} />}
+      {touring && engine && model && root && <Tour key={news ? 'news' : 'tour'} engine={engine} model={model} host={root} news={news} onClose={closeTour} />}
 
       {vessel && <CallInspector sessionId={vessel.id} />}
       {vessel && <ModelInspector sessionId={vessel.id} />}

@@ -3,9 +3,9 @@
 // the Ship's box. Cards (`placement.ts`) and labels stay off them.
 import type { Rect } from './placement'
 
-export function instrumentRects(box: HTMLElement, pad = 0): Rect[] {
+export function instrumentRects(box: HTMLElement, pad = 0, except?: Element | null): Rect[] {
   const o = box.getBoundingClientRect()
-  return [...box.querySelectorAll<HTMLElement>('[data-ship-ui]')].map((u) => {
+  return [...box.querySelectorAll<HTMLElement>('[data-ship-ui]')].filter((u) => u !== except).map((u) => {
     const r = u.getBoundingClientRect()
     return { x0: r.left - o.left - pad, y0: r.top - o.top - pad, x1: r.right - o.left + pad, y1: r.bottom - o.top + pad }
   })
