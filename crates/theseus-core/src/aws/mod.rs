@@ -80,6 +80,8 @@ mod tests_l1;
 #[cfg(test)]
 mod tests_list_prefix;
 #[cfg(test)]
+mod tests_mints;
+#[cfg(test)]
 mod tests_network;
 #[cfg(test)]
 mod tests_outside;
