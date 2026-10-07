@@ -38,7 +38,9 @@ Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
   routes and actor at once, and its lane is retired (`Shared::retired`), ending between posts and then refusing the
   rest (`refuse_unbound`); an added one starts as at a start; a changed one is updated in place (routes, actor,
   lane label), keeping its turn and its lane's messages. A file that does not load changes nothing, and health's
-  detail says why. A guild's invite check and voice channels wait for the next start, and the detail says so.
+  detail says why. A stamp is acted on only once it held a tick and is a period old (a torn save is not acted on),
+  a place whose bind failed is tried again each tick, and the DMs keep the file's order. A guild's invite check and
+  voice channels wait for the next start, and the detail says so, measured from the file the start bound.
 - **The task board and `/tasks`** (39b, theseus-ext.14): `runtime/board.rs` routes a `task.changed` to its home's
   place (`theseus_core::task_graph::home`) and sends the tree to the lane as one live upsert under
   `render::BOARD_KEY` (`render/board.rs`); `courier/board.rs` pins it once (a refusal logged once a lane) and, after

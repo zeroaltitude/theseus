@@ -5,7 +5,10 @@
 //!
 //! - **The watch.** Every `PERIOD` the file is stat'ed; only when its mtime,
 //!   size, or inode moved is it read and parsed, and only when its revision
-//!   (`Bindings::revision`) moved is anything done. An editor's save by
+//!   (`Bindings::revision`) moved is anything done. A stamp is acted on only
+//!   once it has held still a tick and its mtime is a period old, so a save
+//!   seen half written is not taken for the file (a change binds within two
+//!   periods; a writer paused longer than one mid-save still tears). An editor's save by
 //!   rename swaps the inode, so a stat follows it where a watch on the file
 //!   would not. A file that does not load changes nothing: the places bound
 //!   stay, and the board's detail, the log, and a `discord.error` row say
@@ -26,8 +29,11 @@
 //!     (who may drive it, `mention_only`), its actor's label, users and spend
 //!     limit, and its lane's label. Its lane keeps its messages and its actor
 //!     its turn, so a reply streaming there keeps editing its own messages.
-//! - **What waits for the next start**, said on the board's detail and in
-//!   the log: the check that the bot is in a guild added (the bot's roles in
+//! - **A place whose bind failed** is said once and tried again every tick
+//!   until it binds or the file drops it; the board's detail says so meanwhile.
+//!   The DMs are kept in the file's order after every change.
+//! - **What waits for the next start**, measured from the file the start
+//!   bound and said on the board's detail and in the log: the check that the bot is in a guild added (the bot's roles in
 //!   every guild are read again now), and voice channels added, removed, or
 //!   changed. The file's format may change live: both formats read to the
 //!   same places.
