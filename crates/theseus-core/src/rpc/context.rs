@@ -79,35 +79,12 @@ impl Core {
             .store
             .get_session(sid)?
             .ok_or_else(|| anyhow!("no session is named {sid}"))?;
-        let mut out = ContextExplainResult {
-            session_id: sid.to_string(),
-            title: rec.title.clone().filter(|_| private),
-            kind: rec.kind.as_str().to_string(),
-            class: String::new(),
-            place: String::new(),
-            imported: None,
-            turns: Vec::new(),
-            turn_id: None,
-            compiled: None,
-            compilation: None,
-            profile: String::new(),
-            model: String::new(),
-            window: None,
-            parts: Vec::new(),
-            digest_now: String::new(),
-            digest_then: None,
-            unchanged: None,
-            unbuilt: None,
-            recalls: Vec::new(),
-            sources: BTreeMap::new(),
-            withheld: (!private).then(|| WITHHELD.to_string()),
-            ms: 0.0,
-        };
+        let mut out = blank(sid, &rec, private);
         // An imported session takes no turn: its episode, and no parts.
         if let Some(imp) = rec.imported.as_deref() {
             out.class = PlaceClass::Private.as_str().to_string();
             out.place = crate::import::place_name(&self.store, sid);
-            out.imported = Some(self.episode_shown(sid, rec.title.as_deref(), imp, private));
+            out.imported = Some(episode_shown(sid, rec.title.as_deref(), imp, private));
             out.ms = t0.elapsed().as_secs_f64() * 1e3;
             return Ok(out);
         }
@@ -138,33 +115,7 @@ impl Core {
         out.compilation = compilation
             .as_ref()
             .map(|c| info_of(c, rec.compilation_id.as_deref()));
-        let (live, _) = self.live_profile();
-        match self.runner.target_for_session(&rec, &live) {
-            Err(e) => out.unbuilt = Some(format!("{e:#}")),
-            Ok(target) => {
-                out.profile = target.profile.clone();
-                out.model = target.model.clone();
-                out.window = compilation
-                    .as_ref()
-                    .and_then(|c| c.manifest.context_window)
-                    .or_else(|| self.catalog.get(&target.model).map(|e| e.context_window));
-                let built = self.runner.built_parts(
-                    sid,
-                    &target,
-                    rec.kind,
-                    compilation
-                        .as_ref()
-                        .map(|c| c.manifest.memberships.as_slice()),
-                );
-                let now = manifest_for(&built.spec, &self.catalog, None, false);
-                let then = compilation.as_ref().map(|c| &c.manifest);
-                out.digest_now = now.system_digest.clone();
-                out.digest_then = then.map(|m| m.system_digest.clone());
-                out.unchanged = then.map(|m| m.system_digest == now.system_digest);
-                out.parts =
-                    system_parts(&built, &now, then, TokenRates::of(&target.model), private);
-            }
-        }
+        self.system_of(&mut out, &rec, compilation.as_ref(), private);
         let recall =
             self.recall_parts(sid, out.turn_id.as_deref(), compilation.as_ref(), private)?;
         let before: u64 = out.parts.iter().map(|p| p.tokens).sum::<u64>()
@@ -195,21 +146,40 @@ impl Core {
         Ok(out)
     }
 
-    /// An imported session's episode, its text kept from a place that is not
-    /// private.
-    fn episode_shown(
+    /// The turn's target, window and system parts into `out`, said against
+    /// `compilation`'s manifest; or why they could not be built.
+    fn system_of(
         &self,
-        sid: &str,
-        title: Option<&str>,
-        imp: &crate::import::ImportedFrom,
+        out: &mut ContextExplainResult,
+        rec: &SessionRecord,
+        compilation: Option<&Compilation>,
         private: bool,
-    ) -> theseus_protocol::import::ImportedEpisode {
-        let mut ep = crate::import::catalog::episode_of(sid, title, imp);
-        if !private {
-            ep.title = None;
-            ep.place_name = None;
+    ) {
+        let sid = rec.session_id.as_str();
+        let (live, _) = self.live_profile();
+        match self.runner.target_for_session(rec, &live) {
+            Err(e) => out.unbuilt = Some(format!("{e:#}")),
+            Ok(target) => {
+                out.profile = target.profile.clone();
+                out.model = target.model.clone();
+                out.window = compilation
+                    .and_then(|c| c.manifest.context_window)
+                    .or_else(|| self.catalog.get(&target.model).map(|e| e.context_window));
+                let built = self.runner.built_parts(
+                    sid,
+                    &target,
+                    rec.kind,
+                    compilation.map(|c| c.manifest.memberships.as_slice()),
+                );
+                let now = manifest_for(&built.spec, &self.catalog, None, false);
+                let then = compilation.map(|c| &c.manifest);
+                out.digest_now = now.system_digest.clone();
+                out.digest_then = then.map(|m| m.system_digest.clone());
+                out.unchanged = then.map(|m| m.system_digest == now.system_digest);
+                out.parts =
+                    system_parts(&built, &now, then, TokenRates::of(&target.model), private);
+            }
         }
-        ep
     }
 
     /// The session's newest `context.compiled` rows, oldest first, through
@@ -356,7 +326,7 @@ impl Core {
             let imported = rec.as_ref().and_then(|r| {
                 r.imported
                     .as_deref()
-                    .map(|i| self.episode_shown(s, r.title.as_deref(), i, private))
+                    .map(|i| episode_shown(s, r.title.as_deref(), i, private))
             });
             map.insert(
                 s.to_string(),
@@ -404,6 +374,50 @@ fn conversation_tokens(
         ids: e.census.ids,
     }
     .tokens(rates)
+}
+
+/// An answer with nothing found yet: the session's own fields.
+fn blank(sid: &str, rec: &SessionRecord, private: bool) -> ContextExplainResult {
+    ContextExplainResult {
+        session_id: sid.to_string(),
+        title: rec.title.clone().filter(|_| private),
+        kind: rec.kind.as_str().to_string(),
+        class: String::new(),
+        place: String::new(),
+        imported: None,
+        turns: Vec::new(),
+        turn_id: None,
+        compiled: None,
+        compilation: None,
+        profile: String::new(),
+        model: String::new(),
+        window: None,
+        parts: Vec::new(),
+        digest_now: String::new(),
+        digest_then: None,
+        unchanged: None,
+        unbuilt: None,
+        recalls: Vec::new(),
+        sources: BTreeMap::new(),
+        withheld: (!private).then(|| WITHHELD.to_string()),
+        ms: 0.0,
+    }
+}
+
+/// An imported session's episode, its text kept from a place that is not
+/// private.
+fn episode_shown(
+    sid: &str,
+    title: Option<&str>,
+    imp: &crate::import::ImportedFrom,
+    private: bool,
+) -> theseus_protocol::import::ImportedEpisode {
+    let mut ep = crate::import::catalog::episode_of(sid, title, imp);
+    if !private {
+        ep.title = None;
+        ep.place_name = None;
+    }
+    ep
 }
 
 /// The system's parts and the tools, each against the turn's manifest.

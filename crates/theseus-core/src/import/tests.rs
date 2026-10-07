@@ -1056,7 +1056,16 @@ async fn the_episodes_list_with_their_labels_and_their_text_goes_to_a_private_pl
         "the curated ones' titles: {}",
         words.total
     );
+}
 
+/// On a connection no listener named (never a private place), `import.sessions`
+/// gives the labels and the counts alone: no title, no summary, no place name,
+/// and no search of words.
+#[tokio::test]
+async fn a_place_that_is_not_private_reads_the_episodes_labels_alone() {
+    let r = live();
+    let c = &r.core;
+    import(c, lines(&fixture())).await;
     // On a connection no listener named (never a private place), no text: the labels and the counts alone, and no
     // search of words. (The MCP server's connection may not call it at all.)
     let away = listed(
@@ -1082,7 +1091,18 @@ async fn the_episodes_list_with_their_labels_and_their_text_goes_to_a_private_pl
         .episodes
         .iter()
         .all(|e| !e.topics.is_empty() && !e.sensitivity.is_empty()));
+}
 
+/// `import.sessions`' projection is kept until a batch or an erase moves the
+/// import's counts: then built again, and an erased tag's sessions leave the
+/// list, back only when asked, with no text.
+#[tokio::test]
+async fn a_batch_or_an_erase_builds_the_episodes_list_again() {
+    let r = live();
+    let c = &r.core;
+    import(c, lines(&fixture())).await;
+    let first = listed(call(c, method::IMPORT_SESSIONS, json!({})).await.unwrap());
+    assert!(first.built_ms.is_some());
     // A batch of another tag moves the import's counts: built again.
     let mut other = episode(0);
     other["import_tag"] = json!("tern-2026-04");

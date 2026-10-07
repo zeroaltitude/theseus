@@ -494,7 +494,7 @@ mod tests {
             end_ms: 1_767_225_600_000 + i * 31 * 86_400_000 + 86_400_000,
             sensitivity: sensitivity.into(),
             topics: topics.iter().map(|t| (*t).to_string()).collect(),
-            book: (i % 2 == 0).then(|| "diary".to_string()),
+            book: i.is_multiple_of(2).then(|| "diary".to_string()),
             messages: 10 - i as u32,
             summary: true,
             title: Some(format!("The tide log of survey {i}")),
