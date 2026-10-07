@@ -401,3 +401,42 @@ fn the_pages_of_a_store_whose_import_came_first_answer_as_before() {
     assert!(older.is_some());
     assert_eq!(page(c, 3, older), (vec![], None));
 }
+
+/// What the lists cost past a full import (theseus-26jo): 21,151 imported
+/// sessions between live ones, the whole list and a page of 20 (which
+/// crosses the import's run of births) each timed 20 times, with the index
+/// rows and records each visits. A measure, not a check: run it with
+/// `--ignored --nocapture`, in a debug and a release build.
+#[test]
+#[ignore = "a measure: 21,151 imported sessions, printed"]
+fn the_session_lists_past_a_full_import_timed() {
+    let r = rig();
+    let c = &r.core;
+    for _ in 0..3 {
+        open(c);
+    }
+    import(c, TAG, 0, 21_151);
+    for _ in 0..2 {
+        open(c);
+    }
+    let time = |what: &str, f: &dyn Fn()| {
+        f();
+        let (rows, read) = (index_rows_here(), records_read_here());
+        f();
+        let (rows, read) = (index_rows_here() - rows, records_read_here() - read);
+        let mut ms: Vec<f64> = (0..20)
+            .map(|_| {
+                let t = std::time::Instant::now();
+                f();
+                t.elapsed().as_secs_f64() * 1e3
+            })
+            .collect();
+        ms.sort_by(f64::total_cmp);
+        println!(
+            "{what}: p50 {:.2} ms, max {:.2} ms, {rows} index rows, {read} records",
+            ms[10], ms[19]
+        );
+    };
+    time("whole list", &|| drop(c.session_list().unwrap()));
+    time("page of 20", &|| drop(page(c, 20, None)));
+}
