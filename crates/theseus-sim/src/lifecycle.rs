@@ -230,6 +230,16 @@ pub struct Start {
     pub lock_wait_ms: Option<f64>,
 }
 
+/// The store's session keys from a `health` answer: the owner's own
+/// sessions and, since health counts them apart (theseus-revl), the
+/// import's held and erased ones. §9's budgets and the restore's count are
+/// of every key, so the bench adds them back; an older daemon sends no
+/// `imported`, and its `sessions` is every key already.
+pub fn health_keys(h: &Value) -> u64 {
+    let n = |v: &Value| v.as_u64().unwrap_or(0);
+    n(&h["sessions"]) + n(&h["imported"]["sessions"]) + n(&h["imported"]["erased"])
+}
+
 impl Start {
     pub fn from_health(ms: f64, h: &Value) -> Self {
         let (mut phases, mut steps, mut serving_us) = (Vec::new(), Vec::new(), 0u64);
@@ -1250,9 +1260,7 @@ pub fn run(o: &Opts) -> Result<Report> {
                     starts.push(s);
                 }
             }
-            sessions = rig.call("health", Value::Null)?["sessions"]
-                .as_u64()
-                .unwrap_or(0);
+            sessions = health_keys(&rig.call("health", Value::Null)?);
             if want("swap") {
                 // Alternately the other build and this one, each started
                 // at once on the store the last one stopped.
@@ -1424,12 +1432,17 @@ pub fn run(o: &Opts) -> Result<Report> {
 /// and leave no job dispatched.
 fn cancel_phase(rig: &Rig, runs: usize, samples: &mut BTreeMap<String, Vec<f64>>) -> Result<()> {
     let (mut child, _) = rig.start()?;
+    // The frames each cancel wrote, read from the WAL as `bench turn` reads
+    // a turn's (theseus-dwoj): a frame is a sync, the cost a busy disk adds.
+    let mut frames: Vec<Vec<crate::walcount::Frame>> = Vec::new();
     let measured = (|| -> Result<()> {
         for _ in 0..runs {
             let exec = rig.start_job()?;
+            let mut tail = crate::walcount::Tail::at_end(&rig.state.join("store").join("wal"))?;
             let t = Instant::now();
             let c = rig.call("execution.cancel", json!({"execution_id": exec}))?;
             let ms = t.elapsed().as_secs_f64() * 1000.0;
+            frames.push(tail.read()?);
             let cancelled = c["cancelled_actions"].as_array().map_or(0, Vec::len);
             let v = &c["verdicts"][0];
             if cancelled != 1
@@ -1448,6 +1461,17 @@ fn cancel_phase(rig: &Rig, runs: usize, samples: &mut BTreeMap<String, Vec<f64>>
         Ok(())
     })();
     rig.stop_anyhow(&mut child);
+    if let Some(most) = frames.iter().max_by_key(|f| f.len()) {
+        let least = frames.iter().map(Vec::len).min().unwrap_or(0);
+        eprintln!(
+            "cancel: {least} to {} frames a cancel; the most:\n  {}",
+            most.len(),
+            most.iter()
+                .map(crate::walcount::Frame::label)
+                .collect::<Vec<_>>()
+                .join("\n  ")
+        );
+    }
     measured
 }
 
@@ -1615,9 +1639,7 @@ fn restore_phase(
         .with_context(|| format!("no session count in the restore's report: {said}"))?;
     let served = rig.with_state(restored.clone());
     let (mut daemon, start) = served.start()?;
-    let sessions_served = served.call("health", Value::Null)?["sessions"]
-        .as_u64()
-        .unwrap_or(0);
+    let sessions_served = health_keys(&served.call("health", Value::Null)?);
     served.stop(&mut daemon)?;
     let _ = std::fs::remove_dir_all(&restored);
     let _ = std::fs::remove_dir_all(&src);
@@ -1932,6 +1954,16 @@ mod tests {
         assert_eq!(v.len(), 1);
         assert!(!v[0].ok);
         assert_eq!((v[0].budget, v[0].margin), (200.0, 2.0));
+    }
+
+    #[test]
+    fn the_keys_from_health_hold_the_imports_sessions() {
+        // A daemon that counts the owner's own sessions apart (theseus-revl).
+        let h = json!({"sessions": 4, "imported": {"sessions": 4000, "erased": 1000}});
+        assert_eq!(health_keys(&h), 5004);
+        // An older daemon: no `imported`, and `sessions` is every key.
+        assert_eq!(health_keys(&json!({"sessions": 5004})), 5004);
+        assert_eq!(health_keys(&json!({})), 0);
     }
 
     #[test]

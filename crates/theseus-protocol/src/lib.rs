@@ -467,8 +467,12 @@ pub struct HealthResult {
     #[serde(default)]
     pub build: Build,
     pub uptime_secs: u64,
+    /// The owner's own sessions: the imported and erased ones are `imported`'s (theseus-revl).
     pub sessions: u64,
     pub turns: u64,
+    /// The sessions an import wrote, held apart from `sessions`.
+    #[serde(default)]
+    pub imported: import::HealthImported,
     pub model: String,
     /// The live profile name.
     #[serde(default)]

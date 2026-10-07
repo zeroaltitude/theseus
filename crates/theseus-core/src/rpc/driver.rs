@@ -219,37 +219,56 @@ impl Core {
             }
         }
         let to_kill = cancel.to_kill;
-        let verdicts = self.terminate_all(&to_kill).await;
+        let stopped = self
+            .tools
+            .stop_backends(&self.kernel, &self.store, &to_kill)
+            .await;
+        let session_id = self
+            .kernel
+            .execution(id)?
+            .ok_or_else(|| anyhow::anyhow!("execution {id} vanished"))?
+            .session_id;
+        // Its session's terminals end with it (theseus-n88g.4).
+        self.tools
+            .terms
+            .close_session_recorded(
+                &session_id,
+                crate::term::BY_CANCEL,
+                &self.session_rec(&session_id),
+            )
+            .await;
+        // The jobs' last steps and their facts' rows, and what the cancel
+        // left unanswered in the transcript (theseus-0o8), in one frame
+        // (theseus-dwoj): the calls it stopped are answered where they
+        // settle. A turn that holds the execution answers its own at its
+        // end, and this finds it held.
+        let also = stopped.executions(&self.kernel);
+        let (nodes, more) = match self.tools.answer_after_cancel_with(
+            &self.kernel,
+            &self.store,
+            &session_id,
+            id,
+            &also,
+            |k| Ok(stopped.write_verdicts(k, true)),
+        ) {
+            Ok(done) => done,
+            Err(err) => {
+                tracing::warn!(error = %format!("{err:#}"), execution_id = %id, "a cancelled execution's unanswered calls were not answered");
+                let ids: Vec<&str> = also.iter().map(String::as_str).collect();
+                let more = self
+                    .kernel
+                    .frame(&ids, |k| Ok(stopped.write_verdicts(k, true)))
+                    .unwrap_or_default();
+                (Vec::new(), more)
+            }
+        };
+        let verdicts = self.record_ended(self.tools.stopped(stopped, more));
         self.admission.notify_waiters();
         let e = self
             .kernel
             .execution(id)?
             .ok_or_else(|| anyhow::anyhow!("execution {id} vanished"))?;
-        // Its session's terminals end with it (theseus-n88g.4).
-        self.tools
-            .terms
-            .close_session_recorded(
-                &e.session_id,
-                crate::term::BY_CANCEL,
-                &self.session_rec(&e.session_id),
-            )
-            .await;
-        // What the cancel left unanswered in the transcript (theseus-0o8): the
-        // calls it stopped, now that they have settled. A turn that holds the
-        // execution answers its own at its end, and this finds it held.
-        match self
-            .tools
-            .answer_after_cancel(&self.kernel, &self.store, &e.session_id, id)
-        {
-            Ok(nodes) => crate::toolrun::announce_cancelled(
-                &self.session_rec(&e.session_id),
-                &e.session_id,
-                &nodes,
-            ),
-            Err(err) => {
-                tracing::warn!(error = %format!("{err:#}"), execution_id = %id, "a cancelled execution's unanswered calls were not answered");
-            }
-        }
+        crate::toolrun::announce_cancelled(&self.session_rec(&e.session_id), &e.session_id, &nodes);
         self.session_rec(&e.session_id)
             .record(&fact::driver::ExecutionCancelled {
                 execution: &e,
@@ -266,8 +285,18 @@ impl Core {
     async fn terminate_all(&self, to_kill: &[String]) -> Vec<theseus_protocol::CancelVerdict> {
         let ended = self
             .tools
-            .terminate_all(&self.kernel, &self.store, to_kill)
+            .terminate_all(&self.kernel, &self.store, to_kill, true)
             .await;
+        self.record_ended(ended)
+    }
+
+    /// Each call a stop ended, recorded: its fact, in its session (its row
+    /// when its step's frame did not carry it). Each verdict, as the wire
+    /// carries it.
+    fn record_ended(
+        &self,
+        ended: Vec<crate::cancel::Ended>,
+    ) -> Vec<theseus_protocol::CancelVerdict> {
         let written: Vec<_> = ended.iter().filter(|e| e.written).collect();
         for e in &written {
             e.record(&self.session_rec(&e.action.session_id));
