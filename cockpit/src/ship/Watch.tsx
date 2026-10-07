@@ -568,7 +568,7 @@ function StripRow({ plate: p, open, on, onOpen, onShow, onFly, glows, dayStart, 
         <button type="button" className="watch-row-name" aria-expanded={open} onClick={onOpen} title={`${p.question}: ${p.caption}`}>
           <Chevron size={11} className="text-ink-faint" aria-hidden />
           <Icon size={12} className={tone(p.tone)} aria-hidden />
-          <span className="ship-engraved">{p.question}</span>
+          <span className="ship-engraved">{p.short ?? p.question}</span>
         </button>
         <span key={glow} className={cn('watch-row-value', glow > 0 && 'watch-glow')}>{p.value}</span>
         <ShowToggle plate={p} on={on} onShow={onShow} compact />

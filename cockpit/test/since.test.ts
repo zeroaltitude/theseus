@@ -4,7 +4,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
-import { LOOK_GAP_MS, lookAt, looked, replayMoments, sinceOf, StretchWalk, type SinceInput } from '../src/ship/since.ts'
+import { answerWords, cellDollars, LOOK_GAP_MS, lookAt, looked, replayMoments, sinceOf, StretchWalk, type SinceInput } from '../src/ship/since.ts'
 import { DayScan, DAY_MS, endOf, median, startOf, watchOf } from '../src/ship/watch.ts'
 import { busyDay, randomLedger, said, seeded } from './busy.ts'
 
@@ -185,6 +185,34 @@ test('a replay gives the busy minutes its time, from the stretch start to its en
   // With nothing in it, the stretch sweeps evenly.
   const even = replayMoments([], from, from + 4 * MIN, 5)
   assert.deepEqual(even, [from, from + MIN, from + 2 * MIN, from + 3 * MIN, from + 4 * MIN])
+})
+
+test("the plate's words that must fit: its name in the compact strip, the tally's dollars, an answer's surface once", () => {
+  // At 1366 px the strip says "Since last look"; the plate's title, and the strip's tooltip, the whole question.
+  const s = sinceOf(at({}))
+  assert.deepEqual([s.question, s.short], ['Since you last looked', 'Since last look'])
+  const strip = readFileSync(new URL('../src/ship/Watch.tsx', import.meta.url), 'utf8')
+  assert.match(strip, /<span className="ship-engraved">\{p\.short \?\? p\.question\}<\/span>/)
+  assert.match(strip, /title=\{`\$\{p\.question\}: \$\{p\.caption\}`\}/)
+  // The tally's dollars in six characters (the cell is 52 px; "$0.011" and "$1,234" fit, "$0.0066" did not).
+  const cases: [number, string][] = [
+    [0, '$0'], [0.0066, '0.66¢'], [0.00001, '<0.1¢'], [0.0099, '0.99¢'], [0.011, '$0.011'], [0.35, '$0.350'], [1.234, '$1.23'],
+    [12.4, '$12.40'], [123.45, '$123'], [1234, '$1,234'], [12_345, '$12.3k'], [123_456, '$123k'], [2_500_000, '$2.5M'],
+  ]
+  for (const [n, words] of cases) assert.equal(cellDollars(n), words, String(n))
+  for (let n = 1e-7; n < 1e8; n *= 1.37) assert.ok(cellDollars(n).length <= 6, `${n}: ${cellDollars(n)}`)
+  // A quiet stretch's spend in the cell, its full figure in the cell's tooltip.
+  const quiet = sinceOf(at({ rows: [row(SINCE + MIN, 'provider.call', 'ses_dm', { cost_usd: 0.0066 })] })).tally.find((t) => t.part === 'spent')!
+  assert.deepEqual([quiet.value, quiet.title], ['0.66¢', '$0.0066 spent on 1 model call while you were away.'])
+  // An answer says its surface once: "the CLI" already says "cli".
+  assert.equal(answerWords({ how: 'approved', by: 'the CLI', via: 'cli' }), 'approved by the CLI')
+  assert.equal(answerWords({ how: 'approved', by: 'discord:owner', via: 'discord' }), 'approved by discord:owner')
+  assert.equal(answerWords({ how: 'declined', by: 'owner', via: 'discord' }), 'declined by owner (discord)')
+  assert.equal(answerWords({ how: 'approved', via: 'cli' }), 'approved (cli)')
+  assert.equal(answerWords({ how: 'declined' }), 'declined')
+  // On the plate: q1, answered from Discord while you were away.
+  const q1 = sinceOf(at({ since: SINCE + 35 * MIN, until: SINCE + 50 * MIN })).lines.find((l) => l.id === 'missed:act_q1')!
+  assert.equal(q1.detail, 'approved by discord:owner · Good morning')
 })
 
 // ---------------------------------------------------------------- kept between recomputes (theseus-qilc)

@@ -348,7 +348,7 @@ export function sinceOf(input: SinceInput, walk: StretchWalk = new StretchWalk()
   for (const [cid, q] of missed.sort((a, b) => b[1].at - a[1].at).slice(0, LINES)) {
     const g = gone.get(cid)!
     const who = look.title(q.session)
-    const fate = g.how === 'expired' ? `expired after ${span(g.at - q.at)}` : `${g.how}${g.by ? ` by ${g.by}` : ''}${g.via ? ` (${g.via})` : ''}`
+    const fate = g.how === 'expired' ? `expired after ${span(g.at - q.at)}` : answerWords(g)
     missedLines.push({
       id: `missed:${cid}`, tag: q.tool, text: q.what, detail: `${fate} · ${who}`, figure: span(now - q.at), tone: g.how === 'expired' ? 'fault' : 'wait',
       flag: g.how === 'expired' ? 'expired' : g.how === 'declined' ? 'declined' : undefined,
@@ -425,7 +425,7 @@ export function sinceOf(input: SinceInput, walk: StretchWalk = new StretchWalk()
       tone: waiting ? 'wait' : missed.length ? 'wait' : 'idle', focus: focus.questions,
     },
     {
-      part: 'spent', value: dollars(usd), word: 'spent', sub: count(calls, 'call', 'calls'),
+      part: 'spent', value: cellDollars(usd), word: 'spent', sub: count(calls, 'call', 'calls'),
       title: `${dollars(usd)} spent on ${count(calls, 'model call', 'model calls')} while you were away.`, tone: usd > 0 ? 'money' : 'idle', focus: focus.spent,
     },
   ]
@@ -435,7 +435,7 @@ export function sinceOf(input: SinceInput, walk: StretchWalk = new StretchWalk()
   )
   const begun = away > 0 && end > since
   return {
-    key: 'since', question: 'Since you last looked', since, until, away, quiet: quiet || !begun,
+    key: 'since', question: 'Since you last looked', short: 'Since last look', since, until, away, quiet: quiet || !begun,
     sessions: { started: started.length, worked: worked.size, turns },
     tasks: { started: tasksStarted.length, ended: ended.length, failed: tasksFailed.length },
     failures: failed.length,
@@ -454,6 +454,31 @@ export function sinceOf(input: SinceInput, walk: StretchWalk = new StretchWalk()
     focus: all,
     link: { to: `/ledger?from=${since}&to=${until}`, label: 'the ledger from then' },
   }
+}
+
+/** A question's answer in words, its surface said once: "approved by the CLI" (its `by`, "the CLI", already says its
+ *  `via`, "cli"), "declined by owner (discord)" (theseus-ikwz). */
+export function answerWords(g: Pick<Gone, 'how' | 'by' | 'via'>): string {
+  const said = g.via && g.by?.toLowerCase().includes(g.via.toLowerCase())
+  return `${g.how}${g.by ? ` by ${g.by}` : ''}${g.via && !said ? ` (${g.via})` : ''}`
+}
+
+/** Dollars in six characters or fewer, for a tally's cell (52 px): three figures where they fit, cents under a cent
+ *  ("0.66¢"), whole dollars from a hundred ("$123", "$1,234"), then thousands ("$12.3k"). The cell's tooltip says the
+ *  whole figure (theseus-ikwz). */
+export function cellDollars(n: number): string {
+  const a = Math.abs(n)
+  const sign = n < 0 ? '-' : ''
+  if (a === 0) return '$0'
+  if (a < 0.01) {
+    const cents = a * 100
+    return cents >= 0.095 ? `${sign}${Number(cents.toPrecision(2))}¢` : `<0.1¢`
+  }
+  if (a < 1) return `${sign}$${a.toFixed(3)}`
+  if (a < 99.995) return `${sign}$${a.toFixed(2)}`
+  if (a < 9999.5) return `${sign}$${Math.round(a).toLocaleString('en-US')}`
+  if (a < 999_500) return `${sign}$${(a / 1000).toFixed(a < 99_950 ? 1 : 0)}k`
+  return `${sign}$${(a / 1e6).toFixed(1)}M`
 }
 
 /** The moments a replay of the stretch shows: `steps` of them from `from` to `to`, each the next frame. A quiet

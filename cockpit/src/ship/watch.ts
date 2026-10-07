@@ -74,6 +74,8 @@ export interface Plate {
   key: WatchKey
   /** The question: the plate's engraved title. */
   question: string
+  /** The question in the compact strip, when the whole one does not fit there; the whole is its tooltip. */
+  short?: string
   /** The big number, as words ("3", "$0.42", "12m"); "…" while its data is still being read. */
   value: string
   /** The word beside the number. */
