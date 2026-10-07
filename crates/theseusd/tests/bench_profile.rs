@@ -106,6 +106,9 @@ fn a_bench_call_asks_for_the_models_whole_output() {
         (req["model"].as_str(), req["max_tokens"].as_u64()),
         (Some("claude-sonnet-5-5"), Some(128_000)),
     );
+    // Reasoning effort medium on every arm (theseus-n6p5): Claude Code and Pi
+    // send it by their own defaults, so the profile asks for it.
+    assert_eq!(req["output_config"]["effort"], "medium", "{req}");
     assert!(!run.stderr.contains(KEY), "the key's value was printed");
     let text = std::fs::read_to_string(profile_path()).unwrap();
     let (cfg, _) = Config::parse(&text).unwrap();
