@@ -778,3 +778,180 @@ fn a_tombstone_keeps_the_nodes_structure() {
     );
     assert!(!serde_json::to_string(&t).unwrap().contains("tide log"));
 }
+
+/// A frame's records in the stop tests: three frames' worth at 4,000
+/// (`FRAME_RECORDS`) is too much to import, erase and import again within
+/// the suite's two minutes under load, in a debug build.
+const CAP: usize = 400;
+
+/// `n` episodes of the fixture's tag, each one of the fixture's with an id
+/// of its own: about four records each, so 300 take three frames at `CAP`.
+fn many(n: usize) -> Vec<Value> {
+    (0..n)
+        .map(|i| {
+            let mut e = episode(i % SOURCES.len());
+            e["episode_id"] = json!(format!("ep_{:064x}", 0x5ea_0000 + i));
+            e["hash"] = json!(episode::hash_of(&e));
+            e
+        })
+        .collect()
+}
+
+/// The nodes `episodes` import as: each message, and each summary.
+fn nodes_of(episodes: &[Value]) -> u64 {
+    episodes
+        .iter()
+        .map(|e| {
+            e["messages"].as_array().unwrap().len() as u64 + u64::from(!e["summary"].is_null())
+        })
+        .sum()
+}
+
+/// `episodes` imported in batches of 50, each under a frame at `CAP`: a
+/// frame boundary waits while the machine is busy
+/// (`pressure::quiet_blocking`), up to 10 s, which a test under load cannot
+/// spare.
+fn import_quietly(c: &Arc<Core>, episodes: &[Value]) {
+    for chunk in episodes.chunks(50) {
+        let p = ImportEpisodesParams {
+            file: "reef.jsonl".into(),
+            lines: lines(chunk),
+        };
+        let r = super::write::import_batch_in(&c.store, &p, "cli", || false, CAP)
+            .unwrap()
+            .result;
+        assert_eq!(r.frames, 1, "{r:?}");
+    }
+}
+
+/// A stop that turns true once a frame has been written since it was made.
+fn stop_after_a_frame(c: &Arc<Core>) -> impl Fn() -> bool + '_ {
+    let base = c.store.stats().unwrap().frames_appended;
+    move || c.store.stats().unwrap().frames_appended > base
+}
+
+/// The tag's counts, as `import.list` gives them, and the sum of its
+/// `import.erased` rows' sessions and nodes.
+fn tallies(c: &Arc<Core>) -> ((u64, u64, u64), (u64, u64)) {
+    let list = super::write::list(&c.store).unwrap();
+    let t = list.tags.iter().find(|t| t.tag == TAG).unwrap();
+    let (mut sessions, mut nodes) = (0, 0);
+    for r in c
+        .store
+        .scope_after(&crate::fact::import::scope(TAG), 0)
+        .unwrap()
+    {
+        let row: Value = r.decode().unwrap();
+        if row["kind"] == "import.erased" {
+            sessions += row["data"]["sessions"].as_u64().unwrap();
+            nodes += row["data"]["nodes"].as_u64().unwrap();
+        }
+    }
+    ((t.sessions, t.nodes, t.erased), (sessions, nodes))
+}
+
+/// The daemon's stop ends a batch at its next frame boundary
+/// (theseus-autz): a batch of three frames' worth, stopped once its first
+/// is written, returns after that one, its counts for what it wrote; sent
+/// again, it finishes, skipping what was written, and the tag's counts are
+/// one whole batch's. A batch ran whole in one blocking task, and the stop's
+/// drop of the runtime waited for all of it.
+#[tokio::test]
+async fn a_stop_ends_a_batch_between_frames_and_a_rerun_finishes_it() {
+    let eps = many(300);
+    let nodes = nodes_of(&eps);
+    let p = ImportEpisodesParams {
+        file: "reef.jsonl".into(),
+        lines: lines(&eps),
+    };
+    let r = live();
+    let c = &r.core;
+    let b = super::write::import_batch_in(&c.store, &p, "cli", stop_after_a_frame(c), CAP).unwrap();
+    assert_eq!(b.result.frames, 1, "{:?}", b.result);
+    assert!(b.stopped);
+    assert!(
+        b.result.imported > 0 && b.result.imported < 300,
+        "{:?}",
+        b.result
+    );
+    assert_eq!(tallies(c).0, (b.result.imported, b.result.nodes, 0));
+    let again = super::write::import_batch_in(&c.store, &p, "cli", || false, CAP)
+        .unwrap()
+        .result;
+    assert_eq!(again.skipped, b.result.imported, "{again:?}");
+    assert_eq!(b.result.imported + again.imported, 300);
+    assert_eq!(tallies(c), ((300, nodes, 0), (0, 0)));
+}
+
+/// The same for an erase: stopped once its first frame is written, it
+/// writes one more, the tag's counts and its `import.erased` row for what it
+/// erased, and returns those nodes for the index to forget; run again, it
+/// erases the rest, and the counts and the rows add up to one whole
+/// erase's.
+#[tokio::test]
+async fn a_stop_ends_an_erase_between_frames_and_a_rerun_finishes_it() {
+    let eps = many(300);
+    let nodes = nodes_of(&eps);
+    let r = live();
+    let c = &r.core;
+    import_quietly(c, &eps);
+    let e = super::write::erase_in(&c.store, TAG, None, "cli", stop_after_a_frame(c), CAP).unwrap();
+    assert_eq!(e.result.frames, 2, "the closing frame only: {:?}", e.result);
+    assert!(e.stopped);
+    assert!(
+        e.result.sessions > 0 && e.result.sessions < 300,
+        "{:?}",
+        e.result
+    );
+    assert_eq!(e.nodes.len() as u64, e.result.nodes);
+    assert_eq!(
+        tallies(c),
+        (
+            (300, nodes, e.result.sessions),
+            (e.result.sessions, e.result.nodes)
+        )
+    );
+    let again = super::write::erase_in(&c.store, TAG, None, "cli", || false, CAP).unwrap();
+    assert!(!again.stopped);
+    assert_eq!(e.result.sessions + again.result.sessions, 300);
+    assert_eq!(e.result.nodes + again.result.nodes, nodes);
+    assert_eq!(tallies(c), ((300, nodes, 300), (300, nodes)));
+    for sid in sessions_of(&eps) {
+        let rec: SessionRecord = c.store.get_session(&sid).unwrap().unwrap();
+        assert!(rec.imported.unwrap().erased.is_some(), "{sid}");
+    }
+}
+
+/// Over the protocol, a batch or an erase the stop ended answers an error
+/// naming what was written and that a rerun finishes it: here the stop has
+/// begun before either starts.
+#[tokio::test]
+async fn a_stopped_batch_or_erase_answers_what_it_wrote_and_that_a_rerun_finishes_it() {
+    let r = live();
+    let c = &r.core;
+    // Over the protocol a frame takes `FRAME_RECORDS`: past 4,000 records,
+    // 1,100 episodes. The erase then stops in its read of the sessions the
+    // batch's first frame wrote, before writing anything.
+    let eps = many(1_100);
+    c.outbox.stop_sending();
+    let (code, why) = call(c, method::IMPORT_EPISODES, params(lines(&eps)))
+        .await
+        .unwrap_err();
+    assert_eq!(code, theseus_protocol::error_code::INTERNAL);
+    assert!(
+        why.starts_with("the daemon stopped this batch between two frames: ")
+            && why.contains("episodes imported (1 frames written); ")
+            && why.ends_with("send the batch again to finish it (what was written is skipped)"),
+        "{why}"
+    );
+    let (_, why) = call(c, method::IMPORT_ERASE, json!({"tag": TAG}))
+        .await
+        .unwrap_err();
+    assert!(
+        why.starts_with(&format!(
+            "the daemon stopped the erase of {TAG} between two frames: 0 sessions (0 nodes) \
+             were erased and counted (0 frames written); "
+        )) && why.ends_with("run the erase again to finish the tag (what was erased is skipped)"),
+        "{why}"
+    );
+}

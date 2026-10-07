@@ -8,7 +8,9 @@
 //!   that could erase could take the owner's away.
 //! - **Off the serving workers.** Each batch's parse and frame, and the
 //!   erase's walk, run on the blocking pool; the store's lock is the
-//!   writer's alone, a frame at a time.
+//!   writer's alone, a frame at a time. The daemon's stop ends either at its
+//!   next frame boundary (theseus-autz), answered with an error that names
+//!   what was written and says a rerun finishes it.
 //! - **The index catches up.** After an erase's frames, a running tender is
 //!   asked to forget the nodes at once (`index.forget`); either way, its
 //!   follower meets each tombstone, which has nothing to index, and drops
@@ -69,8 +71,24 @@ impl Core {
                 let what = format!("a batch of {} lines of {}", p.lines.len(), p.file);
                 let by = self.import_judged(conn, method::IMPORT_EPISODES, &what)?;
                 let core = self.clone();
-                let r = blocking(move || write::import_batch(&core.store, &p, &by)).await?;
-                serde_json::to_value(r)
+                let b = blocking(move || {
+                    let stopping = || core.outbox.stopping();
+                    write::import_batch_unless(&core.store, &p, &by, stopping)
+                })
+                .await?;
+                if b.stopped {
+                    let r = &b.result;
+                    return Err(stopped(
+                        format!(
+                            "the daemon stopped this batch between two frames: {} of its lines were \
+                             read and {} episodes imported ({} frames written); send the batch again \
+                             to finish it (what was written is skipped)",
+                            r.read, r.imported, r.frames
+                        ),
+                        &b.result,
+                    ));
+                }
+                serde_json::to_value(b.result)
             }
             method::IMPORT_ERASE => {
                 let p: ImportEraseParams = parse(params)?;
@@ -78,10 +96,24 @@ impl Core {
                 let by = self.import_judged(conn, method::IMPORT_ERASE, &what)?;
                 let core = self.clone();
                 let (tag, why) = (p.tag.clone(), p.why.clone());
-                let e =
-                    blocking(move || write::erase(&core.store, &tag, why.as_deref(), &by)).await?;
+                let e = blocking(move || {
+                    let stopping = || core.outbox.stopping();
+                    write::erase_unless(&core.store, &tag, why.as_deref(), &by, stopping)
+                })
+                .await?;
                 let mut r = e.result;
                 r.index = self.forget(e.nodes).await;
+                if e.stopped {
+                    return Err(stopped(
+                        format!(
+                            "the daemon stopped the erase of {} between two frames: {} sessions \
+                             ({} nodes) were erased and counted ({} frames written); run the erase \
+                             again to finish the tag (what was erased is skipped)",
+                            r.tag, r.sessions, r.nodes, r.frames
+                        ),
+                        &r,
+                    ));
+                }
                 serde_json::to_value(r)
             }
             other => {
@@ -156,6 +188,19 @@ impl Core {
             ),
             Err(e) => format!("the tender's forget did not answer ({e}): {later}"),
         }
+    }
+}
+
+/// A batch or an erase the daemon's stop ended early (theseus-autz): an
+/// error, so no client takes it for done, naming what was written and that
+/// a rerun finishes it; `data` is the result for what was written. At a
+/// stop the runtime's end usually cancels the connection's writer first,
+/// and then no client hears it at all: the rerun is the same.
+fn stopped(message: String, result: &impl serde::Serialize) -> RpcFailure {
+    RpcFailure {
+        code: error_code::INTERNAL,
+        message,
+        data: serde_json::to_value(result).unwrap_or_default(),
     }
 }
 
