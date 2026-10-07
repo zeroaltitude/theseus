@@ -55,10 +55,13 @@ export function Echart({ option, className, style, onClick, onDataZoom }: Props)
     }
   }, [])
 
-  // Calm (the operator's or the system's reduced motion): every chart draws at once, with no transition.
+  // Calm (the operator's or the system's reduced motion): every chart draws at once, with no transition. A chart's own
+  // tooltip goes over the base's, so each keeps the night-glass frame and sets only what is its own.
   const calm = useCalm((s) => s.calm)
   useEffect(() => {
-    chart.current?.setOption({ ...base, ...option, ...(calm ? { animation: false } : {}) } as EChartsOption, { notMerge: false, lazyUpdate: true })
+    const own = option.tooltip
+    const tooltip = own && !Array.isArray(own) ? { ...(base.tooltip as object), ...own } : own ?? base.tooltip
+    chart.current?.setOption({ ...base, ...option, tooltip, ...(calm ? { animation: false } : {}) } as EChartsOption, { notMerge: false, lazyUpdate: true })
   }, [option, calm])
 
   return <div ref={el} className={className} style={{ width: '100%', height: '100%', ...style }} />

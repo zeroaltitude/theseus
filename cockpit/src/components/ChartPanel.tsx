@@ -3,10 +3,12 @@
 // and its table view, the same numbers as rows, behind a toggle in the panel's header and kept in the address
 // (`?table=<id>,…`, so a table deep-links). Also the stat tile, and the hover tip of the charts drawn in HTML.
 import { createContext, useContext, useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
-import { useSearchParams } from 'react-router'
 import { animate } from 'motion/react'
 import { useCalm } from '@/lib/calm'
+import { useTableView } from '@/lib/chartview'
 import { cn } from '@/lib/format'
+import { toneHex, type Tone } from '@/lib/taxonomy'
+import { CATEGORICAL, CHROME, OTHER } from '@/lib/viz'
 import { Panel, Segmented } from './ui'
 import '@/viz.css'
 
@@ -20,19 +22,6 @@ export interface Column<R> {
 export interface TableSpec<R> { columns: Column<R>[]; rows: R[]; rowKey: (r: R) => string; caption: string }
 
 const VIEWS = ['chart', 'table'] as const
-
-/** This panel's view, in the address: `?table=` lists the panels showing their table. */
-function useTableView(id: string): [boolean, (on: boolean) => void] {
-  const [params, setParams] = useSearchParams()
-  const on = (params.get('table') ?? '').split(',').includes(id)
-  const set = (v: boolean) => setParams((p) => {
-    const s = new Set((p.get('table') ?? '').split(',').filter(Boolean))
-    if (v) s.add(id); else s.delete(id)
-    if (s.size) p.set('table', [...s].join(',')); else p.delete('table')
-    return p
-  }, { replace: true })
-  return [on, set]
-}
 
 export function ChartPanel<R>({ id, title, icon, actions, className, height, legend, table, empty, children }: {
   id: string; title: ReactNode; icon?: ReactNode; actions?: ReactNode; className?: string
@@ -58,6 +47,17 @@ export function ChartPanel<R>({ id, title, icon, actions, className, height, leg
       </div>
     </Panel>
   )
+}
+
+/** The chart and table toggle for a chart outside a panel (a tab's own chart): the same address key as a panel's. */
+export function TableToggle({ id }: { id: string }) {
+  const [on, set] = useTableView(id)
+  return <Segmented value={on ? 'table' : 'chart'} options={VIEWS} onChange={(v) => set(v === 'table')} />
+}
+
+/** The table of a chart outside a panel, in the table view's look. */
+export function ChartTable<R>(spec: TableSpec<R>) {
+  return <DataTable {...spec} />
 }
 
 /** The key: a swatch that mirrors the mark (a rect for bars, a stroke for lines, a dot or ring for markers), and its name
@@ -106,15 +106,43 @@ function DataTable<R>({ columns, rows, rowKey, caption }: TableSpec<R>) {
 }
 
 /** A single number (the method's stat tile): its label engraved, the value in the ink at proportional figures, and a
- *  line of context. The value glides to a change, except in calm. */
-export function StatTile({ label, icon, value, format, hint }: { label: string; icon?: ReactNode; value: number; format: (n: number) => string; hint?: ReactNode }) {
-  return (
-    <div className="panel px-3.5 pb-3 pt-3">
+ *  line of context. The value glides to a change, except in calm. Optionally: its history as a sparkline; a state, said by
+ *  the label's icon in the state's tone (the label's words say it too); and a click through to the page that explains it. */
+export function StatTile({ label, icon, value, format, hint, spark, tone, onClick, title }: {
+  label: string; icon?: ReactNode; value: number; format: (n: number) => string; hint?: ReactNode
+  spark?: number[]; tone?: Tone; onClick?: () => void; title?: string
+}) {
+  const body = (
+    <>
       <div className="flex items-center gap-1.5 font-display text-[10.5px] font-bold uppercase tracking-[0.12em] text-gold/90">
-        {icon}<span className="truncate">{label}</span>
+        {icon && <span className="shrink-0" style={tone ? { color: toneHex[tone] } : undefined}>{icon}</span>}
+        <span className="truncate">{label}</span>
       </div>
       <div className="viz-figure mt-1.5 text-[26px] font-semibold leading-tight text-ink"><Glide value={value} format={format} /></div>
       <div className="mt-1 truncate text-[11px] text-ink-faint" title={typeof hint === 'string' ? hint : undefined}>{hint}</div>
+      {spark && <div className="mt-1.5 pr-1"><MiniSpark values={spark} /></div>}
+    </>
+  )
+  return onClick
+    ? <button type="button" onClick={onClick} title={title} className="panel viz-tile block w-full px-3.5 pb-3 pt-3 text-left">{body}</button>
+    : <div className="panel px-3.5 pb-3 pt-3" title={title}>{body}</div>
+}
+
+/** A tile's history (the method's sparkline): a line in the de-emphasis gray from zero, the newest value a dot in the
+ *  accent. Drawn in SVG: a tile is cheap. */
+export function MiniSpark({ values, height = 22 }: { values: number[]; height?: number }) {
+  if (values.length < 2) return <div className="border-b border-line" style={{ height: height / 2 }} aria-hidden />
+  const lo = Math.min(0, ...values), hi = Math.max(...values)
+  const span = hi - lo || 1
+  const y = (v: number) => 2 + (1 - (v - lo) / span) * (height - 4)
+  const pts = values.map((v, i) => `${((i / (values.length - 1)) * 100).toFixed(2)},${y(v).toFixed(2)}`).join(' ')
+  return (
+    <div className="relative" style={{ height }} aria-hidden>
+      <svg width="100%" height={height} viewBox={`0 0 100 ${height}`} preserveAspectRatio="none" className="block overflow-visible">
+        <polyline points={pts} fill="none" stroke={OTHER} strokeWidth={1.5} vectorEffect="non-scaling-stroke" strokeLinejoin="round" strokeLinecap="round" />
+      </svg>
+      <span className="absolute right-0 h-2 w-2 -translate-y-1/2 translate-x-1/2 rounded-full"
+        style={{ top: y(values[values.length - 1]), background: CATEGORICAL.dark[0], boxShadow: `0 0 0 2px ${CHROME.dark.surface}` }} />
     </div>
   )
 }

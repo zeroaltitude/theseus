@@ -3,9 +3,9 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  CATEGORICAL, OTHER, TOKEN_KINDS, TONE_SERIES, barRadius, bucketEnd, bucketFor, bucketStart, jitter, kindTokens, latencyByModel,
+  CATEGORICAL, OTHER, TOKEN_KINDS, TONE_SERIES, barRadius, binByKey, bucketEnd, bucketFor, bucketStart, growthBySession, jitter, kindTokens, latencyByModel, squarify,
   msLogTick, msTick, niceScale, niceStep, numTick, quantile, shares, slotColor, slots, spendByBucket, spendBySession, spendTree,
-  stackTop, stepDecimals, usdTick,
+  stackTop, stepDecimals, tokenTick, usTick, usdTick,
 } from '../src/lib/viz.ts'
 
 const HEX = /^#[0-9a-f]{6}$/
@@ -64,6 +64,26 @@ test('an axis never prints the same tick twice, from a hundredth of a cent to mi
   assert.deepEqual(niceScale(0), { max: 1, interval: 1 })
 })
 
+test('tokens and a turn\'s microseconds on an axis: each tick in its unit, never two alike', () => {
+  for (let e = 0; e <= 8; e++) {
+    for (const m of [1, 1.3, 2.2, 3.7, 7.9]) {
+      const s = niceScale(m * 10 ** e)
+      const ticks = Array.from({ length: Math.round(s.max / s.interval) + 1 }, (_, k) => k * s.interval)
+      for (const fmt of [tokenTick(s.interval), usTick(s.interval)]) {
+        const labels = ticks.map(fmt)
+        assert.equal(new Set(labels).size, labels.length, `${m * 10 ** e}: ${labels.join(', ')}`)
+      }
+    }
+  }
+  assert.deepEqual([0, 2500, 5000, 7500].map(tokenTick(2500)), ['0', '2.5k', '5.0k', '7.5k'])
+  assert.deepEqual([0, 20, 40].map(tokenTick(20)), ['0', '20', '40'])
+  assert.deepEqual([0, 500_000, 1_000_000].map(tokenTick(500_000)), ['0', '500k', '1,000k'])
+  assert.deepEqual([0, 2_000_000, 4_000_000].map(tokenTick(2_000_000)), ['0', '2M', '4M'])
+  assert.deepEqual([0, 20_000, 40_000].map(usTick(20_000)), ['0 ms', '20 ms', '40 ms'])
+  assert.deepEqual([0, 250, 500].map(usTick(250)), ['0 µs', '250 µs', '500 µs'])
+  assert.deepEqual([0, 1_500_000, 3_000_000].map(usTick(1_500_000)), ['0.0 s', '1.5 s', '3.0 s'])
+})
+
 test('a log axis of milliseconds reads each power of ten in its own unit', () => {
   const labels = [0.01, 0.1, 1, 10, 100, 1000, 10_000, 100_000].map(msLogTick)
   assert.deepEqual(labels, ['10 µs', '100 µs', '1 ms', '10 ms', '100 ms', '1 s', '10 s', '100 s'])
@@ -102,6 +122,12 @@ test('spend by bucket: local hours, each key in the order first named, and the r
   // Folding: every model past the slots counts under one key.
   const f = spendByBucket(calls, 'hour', (m) => (m === 'glm' ? 'other' : m))
   assert.deepEqual(f.series.map((x) => x.key), ['sonnet', 'other'])
+  // ...and nothing is lost: the unfolded series still has each folded model's own spend, bucket by bucket, and the
+  // folded column is exactly their sum (the table and the tip read the unfolded one; the inventory's N6).
+  const other = f.series.find((x) => x.key === 'other')!.values
+  const glm = s.series.find((x) => x.key === 'glm')!.values
+  assert.deepEqual(other, glm)
+  assert.deepEqual(f.starts, s.starts)
   // A day bucket is the local calendar day; five minutes start on a multiple of five.
   const d = bucketStart(t0, 'day')
   assert.equal(new Date(d).getHours(), 0)
@@ -111,6 +137,56 @@ test('spend by bucket: local hours, each key in the order first named, and the r
   assert.equal(bucketEnd(m, '5 min'), t0 + 10 * 60_000)
   // The bucket follows the record's span: never one column for an hour of record.
   assert.deepEqual([40 * 60_000, 20 * h, 9 * 24 * h].map(bucketFor), ['5 min', 'hour', 'day'])
+})
+
+test('bins count each key\'s things in equal spans; the end belongs to the last bin; strangers are left out', () => {
+  const rows = [
+    { at: 0, k: 'model' }, { at: 9, k: 'model' }, { at: 10, k: 'tool' }, { at: 39, k: 'model' }, { at: 40, k: 'tool' },
+    { at: 41, k: 'tool' }, { at: 20, k: 'nobody' },
+  ]
+  const b = binByKey(rows, (r) => r.at, (r) => r.k, ['model', 'tool'], 0, 40, 4)
+  assert.deepEqual(b.starts, [0, 10, 20, 30])
+  assert.deepEqual(b.ends, [10, 20, 30, 40])
+  assert.deepEqual(b.counts.model, [2, 0, 0, 1])
+  assert.deepEqual(b.counts.tool, [0, 1, 0, 1])
+  assert.deepEqual(b.totals, [2, 1, 0, 2])
+  // An empty span is one millisecond wide, never a division by zero.
+  assert.deepEqual(binByKey([{ at: 5, k: 'x' }], (r) => r.at, (r) => r.k, ['x'], 5, 5, 3).totals, [1, 0, 0])
+})
+
+test('the treemap: each tile its share of the area, inside the box, none over another, near square', () => {
+  const box = { x: 10, y: 20, w: 600, h: 220 }
+  const values = [432, 151, 147, 147, 87, 86, 50, 49, 43, 12, 3, 1, 0]
+  const rects = squarify(values, box)
+  const total = values.reduce((a, b) => a + b, 0)
+  const eps = 1e-6
+  rects.forEach((r, i) => {
+    assert.ok(Math.abs((r.w * r.h) / (box.w * box.h) - values[i] / total) < 1e-9, `tile ${i}'s share`)
+    if (values[i] === 0) { assert.equal(r.w * r.h, 0); return }
+    assert.ok(r.x >= box.x - eps && r.y >= box.y - eps && r.x + r.w <= box.x + box.w + eps && r.y + r.h <= box.y + box.h + eps, `tile ${i} inside`)
+  })
+  for (let i = 0; i < rects.length; i++) {
+    for (let j = i + 1; j < rects.length; j++) {
+      const a = rects[i], b = rects[j]
+      const ox = Math.max(0, Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x)), oy = Math.max(0, Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y))
+      assert.ok(ox * oy < 1e-6, `tiles ${i} and ${j} overlap`)
+    }
+  }
+  // The largest tiles are the squarest: none of the top four is thinner than 1 to 3.
+  for (const r of rects.slice(0, 4)) assert.ok(Math.max(r.w / r.h, r.h / r.w) < 3, `aspect ${r.w}x${r.h}`)
+  // Nothing to lay, or nowhere to lay it: empty tiles, never a division by zero.
+  assert.deepEqual(squarify([0, 0], box).map((r) => r.w * r.h), [0, 0])
+  assert.deepEqual(squarify([5], { x: 0, y: 0, w: 0, h: 10 }).map((r) => r.w * r.h), [0])
+  assert.deepEqual(squarify([5], { x: 1, y: 2, w: 30, h: 10 }), [{ x: 1, y: 2, w: 30, h: 10 }])
+})
+
+test('growth by session: each session\'s compiles, its latest and largest prompt, the largest latest first', () => {
+  const g = growthBySession(new Map([
+    ['a', [[1, 100], [5, 900], [9, 300]] as [number, number][]],
+    ['b', [[2, 500]] as [number, number][]],
+    ['c', [] as [number, number][]],
+  ]))
+  assert.deepEqual(g.map((x) => [x.session, x.latest, x.max, x.first, x.last]), [['b', 500, 500, 2, 2], ['a', 300, 900, 1, 9]])
 })
 
 test('the spend tree is provider, model, session, most first; sessions stay apart by id', () => {

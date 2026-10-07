@@ -19,14 +19,15 @@ import { useHistoryRows } from '@/lib/history'
 import { quantile } from '@/lib/derive'
 import type { EChartsOption } from '@/lib/chart'
 import { cn, ms, pct, short, stamp } from '@/lib/format'
-import { toneHex } from '@/lib/taxonomy'
 import {
-  CATEGORICAL, CHROME, FONTS, MARK, OTHER, TIME_LABELS, TIP_FRAME, barRadius, baseAxis, countTick, msLogTick, msTick,
+  CATEGORICAL, CHROME, FONTS, MARK, TIME_LABELS, TIP_FRAME, TONE_MARK, barRadius, baseAxis, budgetLine, countTick, msLogTick, msTick,
   niceScale, numTick, stackTop, valueAxis,
 } from '@/lib/viz'
 import { tip } from '@/lib/viztip'
 import { Echart } from '@/components/Echart'
 import { ChartPanel, type LegendItem } from '@/components/ChartPanel'
+import { Startup } from '@/components/instruments'
+import { STARTUP_LEGEND, startupTable } from '@/components/instrumentTables'
 import { Segmented } from '@/components/ui'
 import { Dial, Engraved, Needle, Ticks, arc, polar } from '@/ship/instruments'
 
@@ -162,12 +163,11 @@ export default function Speed() {
       <div className="grid grid-cols-1 gap-3 2xl:grid-cols-[1fr_1fr]">
         <ChartPanel id="start" title="The last start · phases from process start" icon={<Rocket size={13} />} height={300}
           actions={<span className="num text-[11px] text-ink-faint">serving at {serving ? ms(serving / 1000) : '—'} · budget 50 ms</span>}
-          legend={[{ key: 'fg', label: 'on the way to serving', color: ACCENT, mark: 'rect' }, { key: 'bg', label: 'after serving, in the background', color: OTHER, mark: 'rect' }]}
-          empty={h ? undefined : 'reading health…'} table={phasesTable(h?.startup ?? [])}>
-          {h && <Waterfall phases={h.startup} />}
+          legend={STARTUP_LEGEND} empty={h ? undefined : 'reading health…'} table={startupTable(h?.startup ?? [])}>
+          {h && <Startup phases={h.startup} />}
         </ChartPanel>
         <ChartPanel id="starts" title={`Every start · serving time, ${starts.length} in the record`} icon={<History size={13} />} height={300}
-          legend={[{ key: 'in', label: 'within the 50 ms budget', color: toneHex.ok, mark: 'dot' }, { key: 'over', label: 'over the budget', color: toneHex.fault, mark: 'triangle' }]}
+          legend={[{ key: 'in', label: 'within the 50 ms budget', color: TONE_MARK.ok, mark: 'dot' }, { key: 'over', label: 'over the budget', color: TONE_MARK.fault, mark: 'triangle' }]}
           empty={starts.length ? undefined : 'no start rows in the record'} table={startsTable(starts)}>
           <Starts starts={starts} />
         </ChartPanel>
@@ -267,70 +267,7 @@ const PARTS = ['commits', 'compile', 'admission', 'rest'] as const
 const PART_WORDS = { commits: 'the disk’s commits', compile: 'compiles', admission: 'admission', rest: 'the rest' } as const
 const PART_COLORS = { commits: CATEGORICAL.dark[0], compile: CATEGORICAL.dark[1], admission: CATEGORICAL.dark[2], rest: CATEGORICAL.dark[3] } as const
 
-/** A budget's line: solid, in the fault tone, its words in the ink beside it, so the colour never carries it alone. */
-function budgetLine(at: { xAxis: number } | { yAxis: number }, words: string, position: 'start' | 'end' | 'insideEndTop') {
-  return { ...at, lineStyle: { color: toneHex.fault, width: 1, type: 'solid' as const }, label: { formatter: words, color: C.secondary, fontSize: 10, fontFamily: FONTS.mono, position } }
-}
-
-// ---------------------------------------------------------------- the start
-
-/** The last start's phases as bars from process start on a log axis: the phases on the way to serving in the accent, the
- *  ones after it in the de-emphasis gray, the budget and the moment of serving as lines. */
-function Waterfall({ phases }: { phases: StartupPhase[] }) {
-  const option = useMemo<EChartsOption>(() => {
-    const ps = [...phases].sort((a, b) => Number(a.background) - Number(b.background) || a.start_us - b.start_us)
-    const names = ps.map((p) => `${p.background ? '↳ ' : ''}${p.name}`)
-    const serving = phases.find((p) => p.name === 'socket')?.end_us
-    const end = (p: StartupPhase) => (p.end_us ?? p.start_us) / 1000
-    const vaxis = valueAxis(), axis = baseAxis()
-    return {
-      grid: { left: 12, right: 28, top: 22, bottom: 22, containLabel: true },
-      tooltip: {
-        ...TIP_FRAME, trigger: 'item',
-        formatter: (x: any) => {
-          const p = ps[x.dataIndex]
-          if (!p) return ''
-          return tip(p.name, [
-            { value: ms(end(p) - p.start_us / 1000), label: p.background ? 'after serving, in the background' : 'on the way to serving', color: p.background ? OTHER : ACCENT, mark: 'rect' },
-            { value: `${ms(p.start_us / 1000)} → ${p.end_us === null ? 'running' : ms(end(p))}`, label: 'from process start', strong: false },
-          ], p.detail ? JSON.stringify(p.detail).slice(0, 160) : undefined)
-        },
-      },
-      xAxis: { ...vaxis, type: 'log', logBase: 10, min: 1, axisLabel: { ...vaxis.axisLabel, formatter: msLogTick } },
-      yAxis: { type: 'category', data: names, inverse: true, ...axis, axisLine: { show: false }, axisLabel: { ...axis.axisLabel, color: C.secondary, fontSize: 10.5 } },
-      series: [
-        { type: 'bar', stack: 'w', silent: true, itemStyle: { color: 'transparent' }, data: ps.map((p) => Math.max(1, p.start_us / 1000)) },
-        {
-          type: 'bar', stack: 'w', barWidth: 10,
-          data: ps.map((p) => ({ value: Math.max(0.05, end(p) - Math.max(1, p.start_us / 1000)), itemStyle: { color: p.background ? OTHER : ACCENT, borderRadius: barRadius(true, 3) } })),
-          markLine: {
-            silent: true, symbol: 'none',
-            data: [
-              budgetLine({ xAxis: 50 }, 'budget 50 ms', 'start'),
-              ...(serving ? [{ xAxis: serving / 1000, lineStyle: { color: C.text, width: 1, type: 'solid' as const }, label: { formatter: `serving ${ms(serving / 1000)}`, color: C.secondary, fontSize: 10, fontFamily: FONTS.mono, position: 'start' as const } }] : []),
-            ],
-          },
-        },
-      ],
-    }
-  }, [phases])
-  return <Echart option={option} />
-}
-
-function phasesTable(phases: StartupPhase[]) {
-  type R = StartupPhase
-  const rows = [...phases].sort((a, b) => Number(a.background) - Number(b.background) || a.start_us - b.start_us)
-  return {
-    caption: 'the last start, phase by phase, from process start', rows, rowKey: (r: R) => `${r.background}:${r.name}`,
-    columns: [
-      { key: 'phase', label: 'phase', cell: (r: R) => r.name },
-      { key: 'when', label: 'when', cell: (r: R) => (r.background ? 'after serving' : 'to serving') },
-      { key: 'from', label: 'from', num: true, cell: (r: R) => ms(r.start_us / 1000) },
-      { key: 'to', label: 'to', num: true, cell: (r: R) => (r.end_us === null ? 'running' : ms(r.end_us / 1000)) },
-      { key: 'took', label: 'took', num: true, cell: (r: R) => (r.end_us === null ? '—' : ms((r.end_us - r.start_us) / 1000)) },
-    ],
-  }
-}
+// ---------------------------------------------------------------- the starts
 
 /** Every start's serving time over time, on a log axis: within the budget a dot in the ok tone, over it a triangle in the
  *  fault tone (shape and colour, and the legend's words). */
@@ -345,7 +282,7 @@ function Starts({ starts }: { starts: { at: number; ms: number }[] }) {
           const s = starts[x.dataIndex]
           if (!s) return ''
           const over = s.ms > 50
-          return tip(stamp(s.at), [{ value: ms(s.ms), label: over ? 'serving, over the 50 ms budget' : 'serving, within the 50 ms budget', color: over ? toneHex.fault : toneHex.ok, mark: over ? 'triangle' : 'dot' }])
+          return tip(stamp(s.at), [{ value: ms(s.ms), label: over ? 'serving, over the 50 ms budget' : 'serving, within the 50 ms budget', color: over ? TONE_MARK.fault : TONE_MARK.ok, mark: over ? 'triangle' : 'dot' }])
         },
       },
       xAxis: { type: 'time', ...axis, axisLabel: { ...axis.axisLabel, formatter: TIME_LABELS } },
@@ -354,7 +291,7 @@ function Starts({ starts }: { starts: { at: number; ms: number }[] }) {
         type: 'scatter', symbolSize: MARK.marker + MARK.ring,
         data: starts.map((s) => {
           const over = s.ms > 50
-          return { value: [s.at, Math.max(1, s.ms)], symbol: over ? 'triangle' : 'circle', itemStyle: { color: over ? toneHex.fault : toneHex.ok, borderColor: C.surface, borderWidth: MARK.ring } }
+          return { value: [s.at, Math.max(1, s.ms)], symbol: over ? 'triangle' : 'circle', itemStyle: { color: over ? TONE_MARK.fault : TONE_MARK.ok, borderColor: C.surface, borderWidth: MARK.ring } }
         }),
         markLine: { silent: true, symbol: 'none', data: [budgetLine({ yAxis: 50 }, 'budget 50 ms', 'insideEndTop')] },
       }],
@@ -493,12 +430,12 @@ const BENCH_PANELS = [
 ] as const
 
 /** The small multiples' one key: the run's p95 is the series; the gate's limit and the README's budget are lines in their
- *  status tones; a failed run is a triangle. */
+ *  status tones' steps for marks (the bright tones sit above the band a mark keeps to); a failed run is a triangle. */
 const BENCH_LEGEND: LegendItem[] = [
   { key: 'p95', label: 'the run’s p95', color: ACCENT, mark: 'line' },
-  { key: 'limit', label: 'the gate’s limit', color: toneHex.wait, mark: 'line' },
-  { key: 'budget', label: 'the README’s budget', color: toneHex.fault, mark: 'line' },
-  { key: 'missed', label: 'a run that failed', color: toneHex.fault, mark: 'triangle' },
+  { key: 'limit', label: 'the gate’s limit', color: TONE_MARK.wait, mark: 'line' },
+  { key: 'budget', label: 'the README’s budget', color: TONE_MARK.fault, mark: 'line' },
+  { key: 'missed', label: 'a run that failed', color: TONE_MARK.fault, mark: 'triangle' },
 ]
 
 function BenchGrid({ runs }: { runs: BenchRun[] }) {
@@ -527,8 +464,8 @@ function BenchChart({ runs, phase, word, budget }: { runs: BenchRun[]; phase: st
           return tip(x.r.label, [
             { value: fmt(x.p.p95), label: 'p95', color: ACCENT, mark: 'line' },
             { value: fmt(x.p.p50), label: 'p50', strong: false },
-            ...(x.p.limit ? [{ value: fmt(x.p.limit), label: 'the gate’s limit', color: toneHex.wait, mark: 'line' as const, strong: false }] : []),
-            ...(x.r.passed ? [] : [{ value: 'failed', label: 'this run', color: toneHex.fault, mark: 'triangle' as const }]),
+            ...(x.p.limit ? [{ value: fmt(x.p.limit), label: 'the gate’s limit', color: TONE_MARK.wait, mark: 'line' as const, strong: false }] : []),
+            ...(x.r.passed ? [] : [{ value: 'failed', label: 'this run', color: TONE_MARK.fault, mark: 'triangle' as const }]),
           ], x.r.time)
         },
       },
@@ -536,9 +473,9 @@ function BenchChart({ runs, phase, word, budget }: { runs: BenchRun[]; phase: st
       yAxis: { ...vaxis, min: 0, max: sc.max, interval: sc.interval, axisLabel: { ...vaxis.axisLabel, fontSize: 9.5, formatter: fmt } },
       series: [
         { type: 'line', name: 'p95', data: pts.map((x) => x.p.p95), symbol: 'none', lineStyle: { color: ACCENT, width: MARK.line, cap: 'round', join: 'round' } },
-        { type: 'line', name: 'limit', data: pts.map((x) => x.p.limit ?? null), symbol: 'none', step: 'end', lineStyle: { color: toneHex.wait, width: 1 } },
-        ...(budget ? [{ type: 'line' as const, name: 'budget', data: pts.map(() => budget), symbol: 'none', lineStyle: { color: toneHex.fault, width: 1 } }] : []),
-        { type: 'scatter', name: 'missed', data: pts.map((x) => (x.r.passed ? null : x.p.p95)), symbol: 'triangle', symbolSize: MARK.marker + MARK.ring, itemStyle: { color: toneHex.fault, borderColor: C.surface, borderWidth: MARK.ring } },
+        { type: 'line', name: 'limit', data: pts.map((x) => x.p.limit ?? null), symbol: 'none', step: 'end', lineStyle: { color: TONE_MARK.wait, width: 1 } },
+        ...(budget ? [{ type: 'line' as const, name: 'budget', data: pts.map(() => budget), symbol: 'none', lineStyle: { color: TONE_MARK.fault, width: 1 } }] : []),
+        { type: 'scatter', name: 'missed', data: pts.map((x) => (x.r.passed ? null : x.p.p95)), symbol: 'triangle', symbolSize: MARK.marker + MARK.ring, itemStyle: { color: TONE_MARK.fault, borderColor: C.surface, borderWidth: MARK.ring } },
       ],
     }
   }, [pts, phase, word, budget])

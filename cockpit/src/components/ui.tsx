@@ -1,6 +1,6 @@
-// Small instruments shared by every view: panels, state pills, live dots, animated numbers, sparklines.
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { animate, motion } from 'motion/react'
+// Small instruments shared by every view: panels, state pills, live dots, sparklines, meters.
+import { useMemo, type ReactNode } from 'react'
+import { motion } from 'motion/react'
 import { cn } from '@/lib/format'
 import { stateTone, toneClass, toneHex, type Tone } from '@/lib/taxonomy'
 import { Echart } from './Echart'
@@ -86,21 +86,6 @@ export function LiveDot({ tone = 'live', pulse = true, size = 6 }: { tone?: Tone
   )
 }
 
-/** A number that glides to its new value, so a change is seen, not just shown. */
-export function AnimatedNumber({ value, format, className }: { value: number; format: (n: number) => string; className?: string }) {
-  const [shown, setShown] = useState(value)
-  const from = useRef(value)
-  useEffect(() => {
-    const ctl = animate(from.current, value, {
-      duration: 0.6, ease: [0.22, 1, 0.36, 1],
-      onUpdate: (v) => setShown(v),
-    })
-    from.current = value
-    return () => ctl.stop()
-  }, [value])
-  return <span className={cn('num', className)}>{format(shown)}</span>
-}
-
 export function Spark({ data, tone = 'live', area = true, height = 34 }: { data: number[]; tone?: Tone; area?: boolean; height?: number }) {
   const c = toneHex[tone]
   const option = useMemo<EChartsOption>(() => ({
@@ -118,36 +103,6 @@ export function Spark({ data, tone = 'live', area = true, height = 34 }: { data:
     }],
   }), [data, c, area])
   return <div style={{ height }}><Echart option={option} /></div>
-}
-
-export function Kpi({
-  label, value, format, tone = 'live', spark, hint, icon, onClick,
-}: {
-  label: string; value: number; format: (n: number) => string; tone?: Tone; spark?: number[]; hint?: ReactNode
-  icon?: ReactNode; onClick?: () => void
-}) {
-  return (
-    <motion.button
-      type="button"
-      onClick={onClick}
-      whileHover={{ y: -2 }}
-      className={cn('panel group relative overflow-hidden px-3.5 pb-2 pt-3 text-left', onClick && 'cursor-pointer')}
-    >
-      <div className="absolute inset-x-0 top-0 h-px" style={{ background: `linear-gradient(90deg, transparent, ${toneHex[tone]}, transparent)`, opacity: 0.6 }} />
-      <div className="flex items-center gap-1.5 font-display text-[10.5px] font-bold uppercase tracking-[0.12em] text-gold/90">
-        {icon}<span className="truncate">{label}</span>
-      </div>
-      <div className="neon mt-1 text-2xl font-semibold" style={{ color: toneHex[tone] }}>
-        <AnimatedNumber value={value} format={format} />
-      </div>
-      <div className="mt-0.5 h-4 truncate text-[11px] text-ink-faint" title={typeof hint === 'string' ? hint : undefined}>{hint}</div>
-      <div className="-mx-3.5 -mb-2 mt-1 h-[34px]">
-        {spark && spark.length > 1
-          ? <Spark data={spark} tone={tone} />
-          : <div className="mx-3.5 mt-6 h-px" style={{ background: `linear-gradient(90deg, transparent, ${toneHex[tone]}44, transparent)` }} />}
-      </div>
-    </motion.button>
-  )
 }
 
 /** A horizontal fill bar: budgets, headroom, shares. */

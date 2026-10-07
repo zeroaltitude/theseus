@@ -32,6 +32,13 @@
 .viz-table tbody tr:first-child td { border-top: 0; }
 .viz-table tbody tr:hover td { background: rgb(176 141 87 / 0.05); }
 
+/* A stat tile that opens its page: it lightens under the pointer (a wash over the panel's own gradient), and takes the
+   keyboard's ring. */
+.viz-tile { cursor: pointer; }
+.viz-tile::after { content: ''; position: absolute; inset: 0; border-radius: 9px; pointer-events: none; transition: background-color 120ms; }
+.viz-tile:hover::after { background-color: rgb(176 141 87 / 0.06); }
+.viz-tile:focus-visible { outline: 1px solid var(--color-live); outline-offset: 1px; }
+
 /* A bar's mark that takes the keyboard: the focus ring is the theme's live cyan, never a recolour of the mark. */
 .viz-mark:focus-visible { outline: 1px solid var(--color-live); outline-offset: 1px; }
 .viz-row:focus-visible { outline: 1px solid var(--color-live); outline-offset: -1px; border-radius: 4px; }

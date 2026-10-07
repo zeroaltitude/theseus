@@ -6,9 +6,9 @@
 // Every figure is the ledger's: each `provider.call` row's usage and recorded cost. A call's dollars are split by
 // kind at the catalog's rates, then scaled to the cost the call recorded, so the river's sea is exactly what was
 // spent. The range ends at the time machine's moment when it is set, so the river shows the money as it stood then.
-import { useDeferredValue, useMemo } from 'react'
+import { useDeferredValue, useEffect, useMemo } from 'react'
 import { useNavigate, useSearchParams } from 'react-router'
-import { Coins, Landmark, PiggyBank, Table2, Timer, Waves } from 'lucide-react'
+import { Coins, Landmark, PiggyBank, Timer, Waves } from 'lucide-react'
 import type { ActionInfo, CatalogList, Health, LedgerEntry, SessionInfo } from '@protocol'
 import { useRpc } from '@/lib/rpc'
 import { useTick } from '@/lib/hooks'
@@ -16,23 +16,24 @@ import { useHistoryRows } from '@/lib/history'
 import { useWorld } from '@/lib/world'
 import { providerCalls, type ProviderCall } from '@/lib/derive'
 import { pricing, split } from '@/lib/money'
-import { ink, type EChartsOption } from '@/lib/chart'
-import { cn, pct, short, stamp, tokens, usd } from '@/lib/format'
+import type { EChartsOption } from '@/lib/chart'
+import { clock, pct, short, stamp, tokens, usd } from '@/lib/format'
+import { CHROME, FONTS, OTHER, TIP_FRAME, TOKEN_KINDS, slots, slotColor } from '@/lib/viz'
+import { tip } from '@/lib/viztip'
+import { useWidth } from '@/lib/chartview'
 import { Echart } from '@/components/Echart'
-import { Empty, Kpi, Panel, Segmented } from '@/components/ui'
+import { ChartPanel, StatTile, TipArea, TipBody, TipTarget, type LegendItem, type TableSpec } from '@/components/ChartPanel'
+import { Segmented } from '@/components/ui'
 import { Budgets } from '@/components/Budgets'
 import { Dial, Engraved, Needle, Ticks, arc, polar } from '@/ship/instruments'
 
-// The token kinds, in a fixed order with their validated colours (dark surface; the dataviz validator passes all
-// six checks): cool and warm alternate, so neighbours stay apart for every reader.
-const KINDS = [
-  { key: 'input', word: 'input', c: '#3b7fdb' },
-  { key: 'cacheRead', word: 'cache reads', c: '#b8862c' },
-  { key: 'cacheWrite', word: 'cache writes, 5 min', c: '#8b6cf0' },
-  { key: 'cacheWrite1h', word: 'cache writes, 1 hour', c: '#c2410c' },
-  { key: 'output', word: 'output', c: '#0ea5c6' },
-] as const
-type Kind = (typeof KINDS)[number]['key']
+// The token kinds in their fixed order and validated colours (`lib/viz.ts`: they pass the method's checks on both panel
+// faces), Economics' and the Bridge's too.
+const KINDS = TOKEN_KINDS.map((k) => ({ key: k.key, word: k.word, c: k.color }))
+const C = CHROME.dark
+/** The sea: the dollars spent, the theme's gold. */
+const SEA = '#d6a548'
+type Kind = (typeof TOKEN_KINDS)[number]['key']
 
 const RANGES = ['1h', '6h', '1d', '7d', 'all'] as const
 type Range = (typeof RANGES)[number]
@@ -43,7 +44,8 @@ type Measure = (typeof MEASURES)[number]
 /** Sessions beyond this many fold into one "others" stream, so the river stays legible. */
 const TOP = 10
 
-interface Part { session: string; model: string; kind: Kind; usd: number; tokens: number }
+/** A call's dollars and tokens of one kind; `model` is the river's stream (its profile and model), `name` the model. */
+interface Part { session: string; model: string; name: string; kind: Kind; usd: number; tokens: number }
 
 /** A call into its five parts: dollars at the catalog's rates, scaled to the cost the call recorded. */
 function partsOf(c: ProviderCall, profile: string | undefined, prices: ReturnType<typeof pricing>): Part[] {
@@ -60,7 +62,7 @@ function partsOf(c: ProviderCall, profile: string | undefined, prices: ReturnTyp
   const scale = sum > 0 ? c.cost / sum : 0
   const model = `${profile ? `${profile} · ` : ''}${c.model}`
   return KINDS.map((k) => ({
-    session: c.session_id ?? '—', model, kind: k.key, tokens: tok[k.key],
+    session: c.session_id ?? '—', model, name: c.model, kind: k.key, tokens: tok[k.key],
     usd: sum > 0 ? at[k.key] * scale : allTok > 0 ? (c.cost * tok[k.key]) / allTok : 0,
   }))
 }
@@ -76,19 +78,21 @@ export default function Money() {
   const { data: sl } = useRpc<{ sessions: SessionInfo[] }>('session.list', undefined, 5000)
   const { data: al } = useRpc<{ actions: ActionInfo[] }>('action.list', { n: 500 }, 3000)
   const { data: h } = useRpc<Health>('health', undefined, 10_000)
-  // The river's range, measure, and table live in the address (?range=1h&measure=tokens&table=1).
+  // The river's range, measure, and table live in the address (?range=1h&measure=tokens&table=river).
   const [params, setParams] = useSearchParams()
   const range: Range = (RANGES as readonly string[]).includes(params.get('range') ?? '') ? (params.get('range') as Range) : 'all'
   const measure: Measure = params.get('measure') === 'tokens' ? 'tokens' : 'dollars'
-  const table = params.get('table') === '1'
   const put = (k: string, v: string | null) => setParams((p) => { if (v) p.set(k, v); else p.delete(k); return p }, { replace: true })
   const setRange = (r: Range) => put('range', r === 'all' ? null : r)
   const setMeasure = (m: Measure) => put('measure', m === 'dollars' ? null : m)
-  const setTable = (f: (v: boolean) => boolean) => put('table', f(table) ? '1' : null)
+  // An address from before the chart method said `table=1` for the river's table: it still opens it.
+  useEffect(() => { if (params.get('table') === '1') put('table', 'river') })
   const prices = useMemo(() => pricing(cat), [cat])
   const title = useMemo(() => new Map((sl?.sessions ?? []).map((s) => [s.session_id, s.title || s.label || short(s.session_id)])), [sl])
 
   const calls = useMemo(() => providerCalls(rows), [rows])
+  // A model's colour is its slot over the whole record, in the order the record first names it: Economics' colours.
+  const modelSlot = useMemo(() => slots(calls.map((c) => c.model)).slot, [calls])
   const profileOf = useMemo(() => profilesByTurn(rows), [rows])
   const start = range === 'all' ? 0 : end - RANGE_MS[range]
   const inRange = useMemo(() => calls.filter((c) => c.at > start && c.at <= end), [calls, start, end])
@@ -126,43 +130,42 @@ export default function Money() {
   return (
     <div className="flex flex-col gap-3">
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
-        <Kpi label={`Spent · ${range === 'all' ? 'all time' : `last ${range}`}`} icon={<Coins size={12} />} value={totals.spent} format={(n) => usd(n)} tone="money"
+        <StatTile label={`Spent · ${range === 'all' ? 'all time' : `last ${range}`}`} icon={<Coins size={12} />} value={totals.spent} format={(n) => usd(n)} tone="money"
           hint={range === 'all' && !world && h && Math.abs(h.cost_usd_total - totals.spent) > 0.0005
             ? `${inRange.length} calls · the sessions' totals say ${usd(h.cost_usd_total)}: the calls are the record (theseus-lluv)`
             : `${inRange.length} model calls${world ? ` · as of ${stamp(end)}` : ''}`} />
-        <Kpi label="Saved by the cache" icon={<PiggyBank size={12} />} value={totals.saved} format={(n) => usd(n)} tone="ok"
+        <StatTile label="Saved by the cache" icon={<PiggyBank size={12} />} value={totals.saved} format={(n) => usd(n)} tone="ok"
           hint={totals.spent + totals.saved > 0 ? `${pct(totals.saved / (totals.spent + totals.saved))} off the uncached price` : 'no cache reads in range'} />
-        <Kpi label="Pace · dollars an hour" icon={<Timer size={12} />} value={pace.perHour} format={(n) => usd(n)} tone="live"
+        <StatTile label="Pace · dollars an hour" icon={<Timer size={12} />} value={pace.perHour} format={(n) => usd(n)} tone="live"
           hint={`over the 15 minutes before ${world ? stamp(end) : 'now'} · ${usd(pace.lastHour)} in the last hour`} />
-        <Kpi label="Held by calls in flight" icon={<Landmark size={12} />} value={held} format={(n) => usd(n)} tone="wait"
+        <StatTile label="Held by calls in flight" icon={<Landmark size={12} />} value={held} format={(n) => usd(n)} tone={held > 0 ? 'wait' : undefined}
           hint={callsHeld ? `${callsHeld} call${callsHeld === 1 ? '' : 's'} reserved and not settled` : 'nothing reserved now'} />
-        <Kpi label="Tokens in range" icon={<Waves size={12} />} value={totals.tok} format={tokens} tone="model"
+        <StatTile label="Tokens in range" icon={<Waves size={12} />} value={totals.tok} format={tokens} tone="model"
           hint={inRange.length ? `${tokens(totals.tok / inRange.length)} a call` : undefined} />
       </div>
 
-      <Budgets rows={rows} past={world ? world.t : null} />
-
-      <div className="grid grid-cols-1 gap-3 2xl:grid-cols-[1fr_400px]">
-        <Panel title={<>The money river · sessions → profiles and models → token kinds → the sea</>} icon={<Waves size={13} />}
-          bodyClassName="h-[560px] p-2"
+      <div className="grid grid-cols-1 gap-3 2xl:grid-cols-[1fr_360px]">
+        <ChartPanel id="river" title={<>The money river · sessions → profiles and models → token kinds → the sea</>} icon={<Waves size={13} />} height={560}
           actions={<>
             <Segmented value={measure} options={MEASURES} onChange={setMeasure} />
             <Segmented value={range} options={RANGES} onChange={setRange} />
-            <button type="button" onClick={() => setTable((v) => !v)} title="The river as a table" className={cn('rounded p-1 hover:bg-gold/10', table ? 'text-live' : 'text-ink-faint')}><Table2 size={14} /></button>
-          </>}>
-          {parts.length
-            ? (table ? <RiverTable parts={parts} title={title} measure={measure} /> : <River parts={parts} title={title} measure={measure} onPick={(sid) => nav(`/session/${sid}`)} />)
-            : <Empty>{rows.length ? 'no model calls in this range' : 'reading the ledger…'}</Empty>}
-        </Panel>
-        <div className="flex min-w-0 flex-col gap-3">
-          <Panel title="The pace" icon={<Timer size={13} />} bodyClassName="speed-wall flex items-center justify-around px-2 py-3">
+          </>}
+          legend={RIVER_LEGEND} table={riverTable(parts, title, measure)}
+          empty={parts.length ? undefined : rows.length ? 'no model calls in this range' : 'reading the ledger…'}>
+          <River parts={parts} title={title} measure={measure} slot={modelSlot} onPick={(sid) => nav(`/session/${sid}`)} />
+        </ChartPanel>
+        <ChartPanel id="pace" title="The pace" icon={<Timer size={13} />} height={560} table={lastHourTable(calls, end)}>
+          <div className="speed-wall flex h-full flex-col items-center justify-center gap-2 px-3 py-4">
             <PaceDial perHour={pace.perHour} />
-            <div className="num flex flex-col gap-1 text-[12px]">
-              <KindKey />
+            <div className="max-w-[34ch] text-center text-[12px] leading-snug text-ink-dim">
+              {usd(pace.perHour)} an hour, from the model calls of the 15 minutes before {world ? stamp(end) : 'now'}; {usd(pace.lastHour)} in the last hour
             </div>
-          </Panel>
-        </div>
+            <LastHour calls={calls} end={end} now={!world} />
+          </div>
+        </ChartPanel>
       </div>
+
+      <Budgets rows={rows} past={world ? world.t : null} />
     </div>
   )
 }
@@ -205,33 +208,50 @@ function fold(parts: Part[], measure: Measure): Folded {
 
 const fmt = (measure: Measure, x: number) => (measure === 'dollars' ? usd(x) : `${tokens(x)} tokens`)
 
-function River({ parts, title, measure, onPick }: { parts: Part[]; title: Map<string, string>; measure: Measure; onPick: (sid: string) => void }) {
+/** The river's key: the five token kinds, and the sea. */
+const RIVER_LEGEND: LegendItem[] = [
+  ...KINDS.map((k) => ({ key: k.key, label: k.word, color: k.c, mark: 'rect' as const })),
+  { key: 'sea', label: 'the sea: the dollars spent', color: SEA, mark: 'rect' },
+]
+
+/** The river after the chart method: the sessions in the de-emphasis gray, each profile and model in its model's slot
+ *  (Economics' colours), the token kinds in theirs, the sea in the theme's gold; every name in the ink, in the sans; a
+ *  stream too thin to hold its name keeps it in the tip and the table, and a session's name ends in an ellipsis where it
+ *  would run into the next column, whole in both. */
+function River({ parts, title, measure, slot, onPick }: { parts: Part[]; title: Map<string, string>; measure: Measure; slot: Map<string, number>; onPick: (sid: string) => void }) {
+  const [ref, width] = useWidth<HTMLDivElement>()
   const option = useMemo<EChartsOption>(() => {
     const f = fold(parts, measure)
     const total = [...f.flows.entries()].filter(([k]) => k.endsWith('\u0000sea')).reduce((a, [, x]) => a + x, 0)
     const kindOf = new Map<string, (typeof KINDS)[number]>(KINDS.map((k) => [`k:${k.key}`, k]))
+    const modelName = new Map(parts.map((p) => [`m:${p.model}`, p.name]))
     const names = new Set<string>()
     for (const k of f.flows.keys()) { const [a, b] = k.split('\u0000'); names.add(a); names.add(b) }
     const label = (n: string) => {
       if (n === 'sea') return `the sea · ${fmt(measure, total)}`
       if (n === 's:others') return `${f.others} other session${f.others === 1 ? '' : 's'}`
-      if (n.startsWith('s:')) return (title.get(n.slice(2)) ?? short(n.slice(2))).slice(0, 34)
+      if (n.startsWith('s:')) return title.get(n.slice(2)) ?? short(n.slice(2))
       if (n.startsWith('m:')) return n.slice(2)
       return kindOf.get(n)?.word ?? n
     }
     const depth = (n: string) => (n.startsWith('s:') ? 0 : n.startsWith('m:') ? 1 : n.startsWith('k:') ? 2 : 3)
-    const color = (n: string) => (n === 'sea' ? '#d6a548' : n.startsWith('k:') ? kindOf.get(n)!.c : n.startsWith('m:') ? '#d9cba8' : '#c9a467')
+    const modelColor = (n: string) => { const m = modelName.get(n); return m === undefined ? OTHER : slotColor(slot, m) }
+    const color = (n: string) => (n === 'sea' ? SEA : n.startsWith('k:') ? kindOf.get(n)!.c : n.startsWith('m:') ? modelColor(n) : OTHER)
     const valueOf = new Map<string, number>()
     for (const [k, x] of f.flows) { const [a, b] = k.split('\u0000'); valueOf.set(b, (valueOf.get(b) ?? 0) + x); if (depth(a) === 0) valueOf.set(a, (valueOf.get(a) ?? 0) + x) }
+    // A session's words stop before the models' column: about a third of the river's width.
+    const room = Math.max(90, ((width || 1200) - 150) / 3 - 24)
+    const share = (v: number) => (total > 0 ? `${pct(v / total, 1)} of the sea` : undefined)
     return {
       tooltip: {
-        trigger: 'item',
+        ...TIP_FRAME, trigger: 'item',
         formatter: (p: any) => {
           if (p.dataType === 'edge') {
-            const share = total > 0 ? ` · ${pct(p.data.value / total, 1)} of the sea` : ''
-            return `${label(p.data.source)} → ${label(p.data.target)}<br/><b>${fmt(measure, p.data.value)}</b>${share}`
+            return tip(`${label(p.data.source)} → ${label(p.data.target)}`, [{ value: fmt(measure, p.data.value), label: 'along this stream', color: p.data.lineStyle?.color, mark: 'line' }], share(p.data.value))
           }
-          return `<b>${label(p.name)}</b><br/>${fmt(measure, valueOf.get(p.name) ?? 0)}`
+          const kind = p.name === 'sea' ? 'the sea' : depth(p.name) === 0 ? 'a session' : depth(p.name) === 1 ? 'a profile and its model' : 'a token kind'
+          return tip(kind, [{ value: fmt(measure, valueOf.get(p.name) ?? 0), label: label(p.name), color: color(p.name), mark: 'rect' }],
+            `${share(valueOf.get(p.name) ?? 0) ?? ''}${p.name.startsWith('s:') && p.name !== 's:others' ? ' · a click opens the session' : ''}`)
         },
       },
       series: [{
@@ -241,70 +261,93 @@ function River({ parts, title, measure, onPick }: { parts: Part[]; title: Map<st
         emphasis: { focus: 'adjacency' },
         data: [...names].map((n) => ({
           name: n, depth: depth(n),
-          itemStyle: { color: color(n), borderColor: 'rgba(3,9,18,0.9)', borderWidth: 1 },
+          itemStyle: { color: color(n), borderColor: C.surface, borderWidth: 1 },
           label: {
             // A stream too thin to hold its name keeps it in the tooltip, so names never pile up.
             show: n === 'sea' || (valueOf.get(n) ?? 0) >= total * 0.012,
-            formatter: () => label(n), color: n === 'sea' ? '#f3d9a4' : depth(n) === 2 ? ink.bright : ink.text,
-            fontFamily: depth(n) === 3 ? "'Cinzel Variable', serif" : "'Inter Variable', sans-serif",
-            fontSize: n === 'sea' ? 13 : 11, fontWeight: n === 'sea' || depth(n) === 2 ? 600 : 400,
+            formatter: () => label(n), color: n === 'sea' ? C.text : depth(n) === 2 ? C.text : C.secondary,
+            fontFamily: FONTS.sans, fontSize: n === 'sea' ? 13 : 11, fontWeight: n === 'sea' || depth(n) === 2 ? 600 : 400,
+            ...(depth(n) === 0 ? { width: room, overflow: 'truncate' as const, ellipsis: '…' } : {}),
           },
         })),
         links: [...f.flows.entries()].map(([k, value]) => {
           const [source, target] = k.split('\u0000')
           const kind = kindOf.get(target) ?? kindOf.get(source)
-          // Into the kinds and out to the sea, each stream wears its kind; from a session to its model, brass turning ivory.
-          return { source, target, value, lineStyle: { color: kind ? kind.c : 'gradient', opacity: kind ? 0.42 : 0.36, curveness: 0.5 } }
+          // Into the kinds and out to the sea, each stream wears its kind; from a session to its model, the model's colour.
+          return { source, target, value, lineStyle: { color: kind ? kind.c : modelColor(target), opacity: kind ? 0.42 : 0.3, curveness: 0.5 } }
         }),
       }],
     }
-  }, [parts, title, measure])
-  return <Echart option={option} onClick={(p: any) => { if (p?.dataType === 'node' && typeof p.name === 'string' && p.name.startsWith('s:') && p.name !== 's:others') onPick(p.name.slice(2)) }} />
+  }, [parts, title, measure, slot, width])
+  return <div ref={ref} className="h-full w-full"><Echart option={option} onClick={(p: any) => { if (p?.dataType === 'node' && typeof p.name === 'string' && p.name.startsWith('s:') && p.name !== 's:others') onPick(p.name.slice(2)) }} /></div>
 }
 
-/** The same streams as a table: each session's spend by kind (the river's accessible twin). */
-function RiverTable({ parts, title, measure }: { parts: Part[]; title: Map<string, string>; measure: Measure }) {
-  const rows = useMemo(() => {
-    const m = new Map<string, Record<string, number>>()
-    for (const p of parts) {
-      const r = m.get(p.session) ?? {}
-      const x = measure === 'dollars' ? p.usd : p.tokens
-      r[p.kind] = (r[p.kind] ?? 0) + x
-      r.total = (r.total ?? 0) + x
-      m.set(p.session, r)
-    }
-    return [...m.entries()].sort((a, b) => (b[1].total ?? 0) - (a[1].total ?? 0))
-  }, [parts, measure])
-  return (
-    <div className="h-full overflow-auto">
-      <table className="w-full whitespace-nowrap text-[12px]">
-        <thead className="sticky top-0 bg-hull/95 text-[10px] uppercase tracking-wider text-ink-faint">
-          <tr><th className="px-2 py-1.5 text-left">session</th>{KINDS.map((k) => <th key={k.key} className="px-2 py-1.5 text-right"><span className="mr-1 inline-block h-2 w-2 rounded-sm" style={{ background: k.c }} />{k.word}</th>)}<th className="px-2 py-1.5 text-right">total</th></tr>
-        </thead>
-        <tbody>
-          {rows.map(([sid, r]) => (
-            <tr key={sid} className="border-t border-line/50">
-              <td className="max-w-[260px] truncate px-2 py-1 text-ink">{title.get(sid) ?? short(sid)}</td>
-              {KINDS.map((k) => <td key={k.key} className="num px-2 py-1 text-right text-ink-dim">{r[k.key] ? fmt(measure, r[k.key]) : '—'}</td>)}
-              <td className="num px-2 py-1 text-right text-ink">{fmt(measure, r.total ?? 0)}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  )
+/** The same streams as a table: each session's spend (or tokens) by kind, and its total, the most first. */
+function riverTable(parts: Part[], title: Map<string, string>, measure: Measure): TableSpec<[string, Record<string, number>]> {
+  const m = new Map<string, Record<string, number>>()
+  for (const p of parts) {
+    const r = m.get(p.session) ?? {}
+    const x = measure === 'dollars' ? p.usd : p.tokens
+    r[p.kind] = (r[p.kind] ?? 0) + x
+    r.total = (r.total ?? 0) + x
+    m.set(p.session, r)
+  }
+  type R = [string, Record<string, number>]
+  const name = (sid: string) => (sid === '—' ? 'no session' : title.get(sid) ?? short(sid))
+  return {
+    caption: `each session's ${measure} by token kind, the most first`, rows: [...m.entries()].sort((a, b) => (b[1].total ?? 0) - (a[1].total ?? 0)), rowKey: (r: R) => r[0],
+    columns: [
+      { key: 'session', label: 'session', cell: (r: R) => name(r[0]), title: (r: R) => name(r[0]) },
+      ...KINDS.map((k) => ({ key: k.key, label: k.word, num: true, cell: (r: R) => (r[1][k.key] ? fmt(measure, r[1][k.key]) : '—') })),
+      { key: 'total', label: 'total', num: true, cell: (r: R) => fmt(measure, r[1].total ?? 0) },
+    ],
+  }
 }
 
-function KindKey() {
+/** The last hour's twelve five-minute bins, oldest first. */
+function lastHourBins(calls: ProviderCall[], end: number): number[] {
+  const b = new Array<number>(12).fill(0)
+  for (const c of calls) if (c.at <= end && c.at > end - 3_600_000) b[Math.min(11, Math.floor((c.at - (end - 3_600_000)) / 300_000))] += c.cost
+  return b
+}
+
+function lastHourTable(calls: ProviderCall[], end: number): TableSpec<number> {
+  const bins = lastHourBins(calls, end)
+  const hm = (t: number) => clock(t).slice(0, 5)
+  return {
+    caption: 'the last hour\'s spend, five minutes a row, the newest first', rows: bins.map((_, i) => i).reverse(), rowKey: (i: number) => String(i),
+    columns: [
+      { key: 'from', label: 'from', cell: (i: number) => hm(end - 3_600_000 + i * 300_000) },
+      { key: 'to', label: 'to', cell: (i: number) => hm(end - 3_600_000 + (i + 1) * 300_000) },
+      { key: 'spent', label: 'spent', num: true, cell: (i: number) => usd(bins[i]) },
+    ],
+  }
+}
+
+/** The last hour's spend, five minutes a column, in the sea's gold: the pace's own history, each column's dollars on
+ *  hover and focus. */
+function LastHour({ calls, end, now }: { calls: ProviderCall[]; end: number; now: boolean }) {
+  const bins = useMemo(() => lastHourBins(calls, end), [calls, end])
+  const max = Math.max(...bins)
+  const hm = (t: number) => clock(t).slice(0, 5)
   return (
-    <ul className="space-y-1">
-      {KINDS.map((k) => (
-        <li key={k.key} className="flex items-center gap-2 text-ink-dim">
-          <span className="inline-block h-2.5 w-5 rounded-sm" style={{ background: k.c }} />{k.word}
-        </li>
-      ))}
-      <li className="flex items-center gap-2 pt-0.5 text-ink-dim"><span className="inline-block h-2.5 w-5 rounded-sm bg-gold" />the sea: dollars spent</li>
-    </ul>
+    <TipArea className="mt-1 w-full px-2">
+      <div className="mb-1.5 text-center text-[11px] text-ink-faint">the last hour, five minutes a column</div>
+      <div className="flex h-16 items-end gap-[2px]" role="group" aria-label="the last hour's spend, five minutes a column">
+        {bins.map((v, i) => {
+          const from = end - 3_600_000 + i * 300_000
+          return (
+            <TipTarget key={i} className="viz-mark flex h-full flex-1 items-end" label={`${hm(from)} to ${hm(from + 300_000)}: ${usd(v)}`}
+              tip={<TipBody head={`${hm(from)} – ${hm(from + 300_000)}`} rows={[{ value: usd(v), label: 'spent', color: SEA, mark: 'rect' }]} />}>
+              <span className="block w-full" style={{ height: `${max > 0 ? (v / max) * 100 : 0}%`, minHeight: v > 0 ? 2 : 0, background: SEA, borderRadius: '3px 3px 0 0' }} />
+            </TipTarget>
+          )
+        })}
+      </div>
+      <div className="num mt-0.5 flex justify-between border-t border-line pt-0.5 text-[10px] text-ink-faint">
+        <span>{hm(end - 3_600_000)}</span><span>{max > 0 ? `the tallest ${usd(max)}` : 'nothing spent'}</span><span>{now ? 'now' : hm(end)}</span>
+      </div>
+    </TipArea>
   )
 }
 

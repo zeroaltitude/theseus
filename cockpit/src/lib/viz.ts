@@ -8,12 +8,15 @@
 // with an icon or a label); one axis a chart; thin marks; a legend for two series or more and none for one; text in the
 // ink, never in a series colour; every chart with a hover tooltip and a table view.
 //
-// Every palette here was run through the method's validator, dark against the panel faces (#0a1828 and #06101d) and light
-// against #fcfcfb (print, export, a light mode to come). Pure, with no import but types, so `node --test` runs it as it
-// is (test/viz.test.ts).
-import type { ProviderCall } from './derive.ts'
+// Every palette here passes the method's checks, dark against the panel faces (#0a1828 and #06101d) and light against
+// #fcfcfb (print, export, a light mode to come): `palette.ts` runs them, and test/palette.test.ts holds each palette to
+// them in CI. Pure, importing only the protocol's types and other pure modules, so `node --test` runs it as it is
+// (test/viz.test.ts).
+import type { ProviderCall } from './calls.ts'
+import type { Tone } from './taxonomy.ts'
+import { contrast, type Mode } from './palette.ts'
 
-export type Mode = 'dark' | 'light'
+export type { Mode }
 
 // ---------------------------------------------------------------- colour
 
@@ -51,12 +54,28 @@ export const TONE_SERIES: Record<Mode, readonly (readonly [tone: string, color: 
   light: [['live', '#00a1b7'], ['model', '#5a39a0'], ['wait', '#b98a00'], ['fault', '#990c36'], ['tool', '#009cd3'], ['money', '#b08e00'], ['think', '#d163e2'], ['ok', '#006c4a']],
 }
 
+/** A tone drawn as a mark: a budget's line, a failed run's triangle, a state's share of a bar, a span of its kind. The
+ *  tone itself stays for text, pills, and glows, where its brightness is its job; a mark takes the same hue's step in the
+ *  dark band (`TONE_SERIES`), so it reads as a mark on the night glass and passes the method's checks. Idle is the
+ *  de-emphasis gray. A tone as a mark still says its state in words beside it (the legend, the tip), never by colour
+ *  alone. */
+export const TONE_MARK: Record<Tone, string> = { ...Object.fromEntries(TONE_SERIES.dark), idle: OTHER } as Record<Tone, string>
+
 /** A chart's chrome and ink. Dark is the cockpit's own ink on the night glass, with brass hairlines; light is the
  *  method's set, for print and export. */
 export const CHROME = {
   dark: { surface: '#0a1828', text: '#efe3c8', secondary: '#c8bb9b', muted: '#9c907a', grid: 'rgba(176,141,87,0.13)', axis: 'rgba(176,141,87,0.36)' },
   light: { surface: '#fcfcfb', text: '#0b0b0b', secondary: '#52514e', muted: '#898781', grid: '#e1e0d9', axis: '#c3c2b7' },
 } as const
+
+/** The deepest face of the night glass (`.panel`'s dark end): the dark ink set inside a light fill. */
+export const DEEP = '#06101d'
+
+/** Words set inside a coloured fill (a tile, a span): the ink or the deep face, whichever stands out more from it. */
+export function inkOn(fill: string, mode: Mode = 'dark'): string {
+  const light = mode === 'dark' ? CHROME.dark.text : '#ffffff', dark = mode === 'dark' ? DEEP : CHROME.light.text
+  return contrast(light, fill) >= contrast(dark, fill) ? light : dark
+}
 
 /** The slots of a chart's series, in the order the record first names them: a series keeps its colour as the record
  *  grows and when a filter drops others. Past `cap`, the last slot and every key after it fold into "other". */
@@ -160,6 +179,22 @@ export function numTick(step: number): (v: number) => string {
   return (v) => grouped(v, d)
 }
 
+/** Tokens on an axis of step `step`: whole tokens, then thousands (k) and millions (M) from a step of a thousand, at the
+ *  decimals the step needs in that unit (2.5k, 5k, 7.5k), so no two ticks read alike. */
+export function tokenTick(step: number): (v: number) => string {
+  const [div, unit] = step >= 1e6 ? [1e6, 'M'] : step >= 1e3 ? [1e3, 'k'] : [1, '']
+  const d = stepDecimals(step / div)
+  return (v) => (v === 0 ? '0' : `${grouped(v / div, d)}${unit}`)
+}
+
+/** Microseconds on a linear axis of step `step` µs (a turn's own clock): µs, ms from a step of 1,000 µs, s from a step
+ *  of a second, at the decimals the step needs. */
+export function usTick(step: number): (v: number) => string {
+  const [div, unit] = step >= 1e6 ? [1e6, 's'] : step >= 1e3 ? [1e3, 'ms'] : [1, 'µs']
+  const d = stepDecimals(step / div)
+  return (v) => `${grouped(v / div, d)} ${unit}`
+}
+
 /** A time axis's labels: the day where the day turns ("Oct 6"), the hour elsewhere. */
 export const TIME_LABELS = { year: '{yyyy}', month: '{MMM}', day: '{MMM} {d}', hour: '{HH}:{mm}', minute: '{HH}:{mm}', second: '{HH}:{mm}:{ss}' } as const
 
@@ -177,6 +212,85 @@ export function quantile(xs: readonly number[], q: number): number | undefined {
 }
 
 // ---------------------------------------------------------------- the record, for the charts
+
+export interface Bins { starts: number[]; ends: number[]; counts: Record<string, number[]>; totals: number[] }
+
+/** Things into `n` equal bins from `start` to `end`, counted by key (a ledger row's family, say), each key's counts in
+ *  the order given. A thing outside the span, or with a key not given, is left out; the end belongs to the last bin. */
+export function binByKey<T>(items: readonly T[], at: (x: T) => number, key: (x: T) => string, keys: readonly string[], start: number, end: number, n: number): Bins {
+  const bins = Math.max(1, Math.floor(n))
+  // An empty span is a millisecond wide, never a division by zero.
+  const stop = Math.max(end, start + 1)
+  const size = (stop - start) / bins
+  const counts: Record<string, number[]> = Object.fromEntries(keys.map((k) => [k, new Array<number>(bins).fill(0)]))
+  const totals = new Array<number>(bins).fill(0)
+  for (const x of items) {
+    const t = at(x)
+    if (t < start || t > stop) continue
+    const row = counts[key(x)]
+    if (!row) continue
+    const i = Math.min(bins - 1, Math.floor((t - start) / size))
+    row[i]++
+    totals[i]++
+  }
+  const starts = Array.from({ length: bins }, (_, i) => start + i * size)
+  return { starts, ends: starts.map((s, i) => (i === bins - 1 ? stop : s + size)), counts, totals }
+}
+
+export interface Rect { x: number; y: number; w: number; h: number }
+
+/** The squarified treemap (Bruls, Huizing, and van Wijk): each value a rectangle of its share of `r`'s area, laid in rows
+ *  that keep the tiles as near square as their order allows, the largest first. The rectangles come back in the values'
+ *  own order; a value of zero or less gets an empty one. */
+export function squarify(values: readonly number[], r: Rect): Rect[] {
+  const out: Rect[] = values.map(() => ({ x: r.x, y: r.y, w: 0, h: 0 }))
+  const order = values.map((v, i) => [v, i] as const).filter(([v]) => v > 0).sort((a, b) => b[0] - a[0] || a[1] - b[1]).map(([, i]) => i)
+  const total = order.reduce((a, i) => a + values[i], 0)
+  if (!(total > 0) || !(r.w > 0) || !(r.h > 0)) return out
+  const scale = (r.w * r.h) / total
+  const area = (i: number) => values[i] * scale
+  let { x, y, w, h } = r
+  // How far a row's worst tile is from square, laid along a side of this length.
+  const worst = (row: number[], side: number) => {
+    const s = row.reduce((a, i) => a + area(i), 0)
+    let max = 0, min = Infinity
+    for (const i of row) { max = Math.max(max, area(i)); min = Math.min(min, area(i)) }
+    return Math.max((side * side * max) / (s * s), (s * s) / (side * side * min))
+  }
+  const lay = (row: number[]) => {
+    const s = row.reduce((a, i) => a + area(i), 0)
+    if (w >= h) {
+      const t = s / h
+      let yy = y
+      for (const i of row) { const hh = area(i) / t; out[i] = { x, y: yy, w: t, h: hh }; yy += hh }
+      x += t; w -= t
+    } else {
+      const t = s / w
+      let xx = x
+      for (const i of row) { const ww = area(i) / t; out[i] = { x: xx, y, w: ww, h: t }; xx += ww }
+      y += t; h -= t
+    }
+  }
+  let row: number[] = []
+  for (let k = 0; k < order.length;) {
+    const side = Math.min(w, h)
+    if (!row.length || worst([...row, order[k]], side) <= worst(row, side)) { row.push(order[k]); k++ }
+    else { lay(row); row = [] }
+  }
+  if (row.length) lay(row)
+  return out
+}
+
+export interface Growth { session: string; points: [number, number][]; latest: number; max: number; first: number; last: number }
+
+/** Each session's estimated prompt size, compile by compile: its points, its latest and largest, its first and last
+ *  compile's time; the largest latest prompt first. */
+export function growthBySession(series: ReadonlyMap<string, readonly [number, number][]>): Growth[] {
+  return [...series].filter(([, pts]) => pts.length).map(([session, pts]) => ({
+    session, points: [...pts] as [number, number][], latest: pts[pts.length - 1][1], max: Math.max(...pts.map((p) => p[1])),
+    first: pts[0][0], last: pts[pts.length - 1][0],
+  })).sort((a, b) => b.latest - a.latest || b.last - a.last || a.session.localeCompare(b.session))
+}
 
 export const BUCKETS = ['5 min', 'hour', 'day'] as const
 export type Bucket = (typeof BUCKETS)[number]
@@ -336,6 +450,12 @@ export function baseAxis(mode: Mode = 'dark') {
     axisTick: { show: false }, splitLine: { show: false },
     axisLabel: { color: c.muted, fontSize: 10, fontFamily: MONO, hideOverlap: true },
   }
+}
+
+/** A budget's line (an ECharts markLine datum): solid, in the fault tone's step for marks, its words in the ink beside it,
+ *  so the colour never carries it alone. */
+export function budgetLine(at: { xAxis: number } | { yAxis: number }, words: string, position: 'start' | 'end' | 'insideEndTop') {
+  return { ...at, lineStyle: { color: TONE_MARK.fault, width: 1, type: 'solid' as const }, label: { formatter: words, color: CHROME.dark.secondary, fontSize: 10, fontFamily: MONO, position } }
 }
 
 /** The tooltip's frame, the cockpit's (chart.ts's): night glass in a brass rim. The content is the caller's element. */
