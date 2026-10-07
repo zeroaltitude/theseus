@@ -18,6 +18,7 @@ arms' caps, one trial past them, and an old trial read from Pi's session log.
 from __future__ import annotations
 
 import contextlib
+import csv
 import importlib.util
 import io
 import json
@@ -255,6 +256,54 @@ class Report(unittest.TestCase):
         md = (self.root / "with-pi" / "report.md").read_text()
         self.assertIn("| Trials past the others' caps (not enforced) | – | – | – | 1/2 |", md)
         self.assertIn("| pi | 1.000 | $1.300 |", md)
+
+    def test_a_pi_trial_over_the_turn_cap_alone_is_counted_past_the_caps(self):
+        """The caps row counts a trial past `max_turns` as well as one past
+        `max_budget_usd`: here one past the budget alone, one past the turns
+        alone, and one past neither (theseus-p6kd)."""
+        job = self.root / "pi-turns"
+        job.mkdir()
+        for n, over_budget, over_turns in (("fix-git__t1", True, False), ("fix-git__t2", False, True),
+                                           ("fix-git__t3", False, False)):
+            r = dict(rec(0.10, toks(100, 800, 100, 50), 5, 4, 0.5, 100000), arm="pi")
+            r["limits"] = {"enforced": False, "max_budget_usd": 2.0, "max_turns": 200, "answers": 5,
+                           "turns": 5, "over_budget": over_budget, "over_turns": over_turns}
+            trial(job, n, 1.0, 60, record=r)
+        result = rp.report(self.arms + [("pi", job)], self.root / "pi-turns-out")
+        p = {a["arm"]: a for a in result["arms"]}["pi"]
+        self.assertEqual(p["past_caps"], 2)
+        md = (self.root / "pi-turns-out" / "report.md").read_text()
+        self.assertIn("| Trials past the others' caps (not enforced) | – | – | – | 2/3 |", md)
+
+    def test_a_pi_trial_that_exited_clean_on_a_provider_failure_counts_as_an_error(self):
+        """Pi's print mode exits 0 when its provider fails, so Harbor records
+        no exception; the record's `end` says (theseus-bpeg). The report's
+        error row, trials.csv and the trial all name it; Harbor's own
+        exception, when it recorded one, wins; a run that stopped is none."""
+        job = self.root / "pi-ends"
+        job.mkdir()
+        cases = (("fix-git__e1", "error", None), ("fix-git__e2", "aborted", None),
+                 ("fix-git__e3", "stop", None), ("fix-git__e4", "error", "AgentTimeoutError"),
+                 ("fix-git__e5", None, None))
+        for n, stop, exc in cases:
+            r = dict(rec(0.10, toks(100, 800, 100, 50), 5, 4, 0.5, 100000), arm="pi")
+            r["end"] = {"stop_reason": stop, "error": "529 overloaded" if stop == "error" else None,
+                        "answers": 5, "turns": 5}
+            trial(job, n, 0.0, 60, record=r, error=exc)
+        trials = {t["trial"]: t for t in rp.load_job(job)}
+        self.assertEqual({k: t["error"] for k, t in trials.items()},
+                         {"fix-git__e1": "PiProviderError", "fix-git__e2": "PiAbortedError",
+                          "fix-git__e3": None, "fix-git__e4": "AgentTimeoutError", "fix-git__e5": None})
+        result = rp.report([("pi", job)], self.root / "pi-ends-out")
+        self.assertEqual(result["arms"][0]["errors"], 3)
+        md = (self.root / "pi-ends-out" / "report.md").read_text()
+        self.assertIn("| Trials with an error | 3 |", md)
+        with (self.root / "pi-ends-out" / "trials.csv").open() as f:
+            rows = {r[1]: r for r in csv.reader(f)}
+        col = rows["trial"].index("error")
+        self.assertEqual({k: rows[k][col] for k in rows if k != "trial"},
+                         {"fix-git__e1": "PiProviderError", "fix-git__e2": "PiAbortedError", "fix-git__e3": "",
+                          "fix-git__e4": "AgentTimeoutError", "fix-git__e5": ""})
 
     def test_an_old_pi_trial_is_read_from_its_session_log(self):
         job = self.root / "pi-old"

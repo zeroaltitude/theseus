@@ -46,6 +46,30 @@ def run(argv: list[str]) -> str:
     return out.getvalue()
 
 
+class Endings(unittest.TestCase):
+    def test_a_pi_provider_failure_and_an_abort_are_endings_of_their_own(self):
+        """Harbor records no exception for them (Pi exits 0): the report's
+        loader names the trial's error from the record's `end` (theseus-bpeg),
+        and the drafting tool sorts it into an ending, not the catch-all."""
+        self.assertEqual(draft.ending("PiProviderError"), "provider failure (Pi)")
+        self.assertEqual(draft.ending("PiAbortedError"), "aborted (Pi)")
+        self.assertEqual(draft.ending("AgentTimeoutError"), "timeout")
+        self.assertEqual(draft.ending("SomethingElse"), "error (exit or harness)")
+        with tempfile.TemporaryDirectory() as d:
+            job = Path(d) / "pi"
+            for i, stop in enumerate(("stop", "error", "aborted")):
+                trial(job, f"fix-git__{i}", "fix-git", 0, 0.05, "2026-10-04T10:00:00-07:00", agent="pi")
+                rec = {"schema": "bench-efficiency/1", "arm": "pi", "tokens": {}, "cost_usd": 0.05,
+                       "end": {"stop_reason": stop, "error": None, "answers": 3, "turns": 3}}
+                (job / f"fix-git__{i}" / "agent" / "efficiency.json").write_text(json.dumps(rec))
+            out = Path(d) / "docs"
+            run(["harbor", "--suite", "terminal-bench@2.0", "--date", "2026-10-04", "--slug", "pi ends",
+                 "--arm", f"theseus={job}", "--model", "anthropic/claude-sonnet-5-5", "--out", str(out)])
+            data = json.loads((out / "2026-10-04-terminal-bench-pi-ends.json").read_text())
+            self.assertEqual(data["summary"]["theseus"]["endings"],
+                             {"ended by the agent": 1, "provider failure (Pi)": 1, "aborted (Pi)": 1})
+
+
 class Draft(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()

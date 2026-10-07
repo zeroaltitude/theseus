@@ -80,6 +80,8 @@ mod tests_l1;
 #[cfg(test)]
 mod tests_list_prefix;
 #[cfg(test)]
+mod tests_mints;
+#[cfg(test)]
 mod tests_network;
 #[cfg(test)]
 mod tests_outside;
@@ -87,6 +89,8 @@ mod tests_outside;
 mod tests_restore;
 #[cfg(test)]
 mod tests_resumed;
+#[cfg(test)]
+mod tests_secret_shapes;
 #[cfg(test)]
 mod tests_synced;
 

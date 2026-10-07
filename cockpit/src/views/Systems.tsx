@@ -21,6 +21,7 @@ import { ExtensionsCard } from '@/components/Extensions'
 import { RpcConsole } from '@/components/RpcConsole'
 import { Empty, Field, Panel, Pill, StatePill } from '@/components/ui'
 import { ceilingWords } from '@/lib/ceiling'
+import { importedWords } from '@/lib/sessionwords'
 
 export default function Systems() {
   const { data: h, dataUpdatedAt } = useRpc<Health>('health', undefined, 2000)
@@ -43,6 +44,7 @@ export default function Systems() {
         <Field label="name · version" mono>{h.name} {h.version} · protocol {h.protocol}</Field>
         <Field label="up" mono>{uptime(h.uptime_secs + (now - dataUpdatedAt) / 1000)}</Field>
         <Field label="sessions · turns" mono>{h.sessions} · {h.turns}</Field>
+        {importedWords(h) && <Field label="imported sessions" mono>{importedWords(h)}</Field>}
         <Field label="model" mono>{h.provider} · {h.model} · profile {h.profile}</Field>
         <Field label="providers" mono>{h.providers.join(', ')}</Field>
         <Field label="ledger rows" mono>{h.ledger_rows.toLocaleString()}</Field>

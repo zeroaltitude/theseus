@@ -1084,3 +1084,107 @@ class PiAsyncRun(unittest.TestCase):
                              ("pi", 2, 2, 0.02))
             self.assertEqual(ctx.metadata["efficiency"], rec)
             self.assertEqual(left_running(d), [])
+
+
+@unittest.skipIf(not os.environ.get("ASYNC_HARBOR"), "set ASYNC_HARBOR=1 under Harbor's python")
+class AsyncTimeoutStopsTheAgent(unittest.TestCase):
+    """Harbor's timeout on the async arms (theseus-sgpx): they run the
+    measured arm through `super().run`, so its stop of the agent, then the
+    sampler's, comes before the driver's own end. A recording environment, so
+    nothing here signals a process on this host."""
+
+    class Env:
+        default_user = None
+
+        def __init__(self, task: Path):
+            self.environment_dir = task / "environment"
+            self.calls: list[tuple[str, str | None]] = []
+            self.envs: list[tuple[str, dict | None]] = []
+
+        async def exec(self, command, cwd=None, env=None, timeout_sec=None, user=None):
+            self.calls.append((command, user))
+            self.envs.append((command, env))
+            return SimpleNamespace(stdout="", stderr="", return_code=0)
+
+        async def upload_file(self, source_path, target_path):
+            pass
+
+    def check(self, arm, harbor_run_of, names, state):
+        import measure
+        from unittest import mock
+
+        from harbor.models.agent.context import AgentContext
+
+        async def harbors(self_, instruction, environment, context):
+            await asyncio.sleep(3600)  # until Harbor's timeout cancels it
+
+        with tempfile.TemporaryDirectory() as d:
+            task = Path(d) / "task"
+            (task / "environment").mkdir(parents=True)
+            (task / "task.toml").write_text('[metadata.async]\nfamily = "interrupt"\n')
+            env = self.Env(task)
+            logs = Path(d) / "logs"
+            logs.mkdir()
+            agent = arm(logs_dir=logs, model_name="anthropic/claude-sonnet-5-5", environment_logs_dir=logs)
+            with mock.patch.object(harbor_run_of, "run", harbors), \
+                    self.assertRaises(asyncio.TimeoutError):
+                asyncio.run(asyncio.wait_for(agent.run("Train the model.", env, AgentContext()), 1.0))
+            commands = [c for c, _ in env.calls]
+            stop = measure.stop_agent_script(names)
+            sampler_stop = smp.stop_script(str(logs), state)
+            self.assertEqual(commands.count(stop), 1, commands)
+            self.assertEqual(commands.count(sampler_stop), 1, commands)
+            self.assertLess(commands.index(stop), commands.index(sampler_stop))
+            self.assertEqual(dict(env.calls)[stop], "root")
+            self.assertIn("sampler.py", commands[0])  # the sampler started first
+
+    def test_pi_async_runs_pi_offline_in_rpc_mode_too(self):
+        """The async arm rewrites Harbor's run command onto a FIFO in RPC
+        mode before the measured arm adds Pi's environment (theseus-a5we): the
+        offline lines must reach that command, and no other."""
+        from unittest import mock
+
+        import async_agents
+        from harbor.agents.installed.pi import Pi
+        from harbor.models.agent.context import AgentContext
+
+        async def harbors(agent_, instruction, environment, context):
+            await agent_.exec_as_agent(environment, command=HARBOR_PI_RUN.format(
+                sessions="/logs/agent/pi/sessions", instruction="'Train the model.'", log="/logs/agent/pi.txt"),
+                env={"ANTHROPIC_API_KEY": "sk-invented"})
+
+        with tempfile.TemporaryDirectory() as d:
+            task = Path(d) / "task"
+            (task / "environment").mkdir(parents=True)
+            (task / "task.toml").write_text('[metadata.async]\nfamily = "interrupt"\n')
+            env = self.Env(task)
+            logs = Path(d) / "logs"
+            logs.mkdir()
+            agent = async_agents.PiAsync(logs_dir=logs, model_name="anthropic/claude-sonnet-5-5",
+                                         environment_logs_dir=logs)
+            with mock.patch.object(Pi, "run", harbors), \
+                    mock.patch.object(async_agents.PiAsync, "fifo_path", lambda self: "/tmp/x-fifo"):
+                try:
+                    asyncio.run(asyncio.wait_for(agent.run("Train the model.", env, AgentContext()), 3.0))
+                except asyncio.TimeoutError:
+                    pass
+        runs = [e for c, e in env.envs if "pi --mode rpc" in c]
+        self.assertEqual(len(runs), 1, [c for c, _ in env.envs])
+        self.assertEqual({k: runs[0][k] for k in ("PI_OFFLINE", "PI_SKIP_VERSION_CHECK", "PI_TELEMETRY")},
+                         {"PI_OFFLINE": "1", "PI_SKIP_VERSION_CHECK": "1", "PI_TELEMETRY": "0"})
+        self.assertEqual(runs[0]["ANTHROPIC_API_KEY"], "sk-invented")
+
+    def test_harbors_timeout_still_stops_the_sampler_of_claude_code_async(self):
+        os.environ.setdefault("ANTHROPIC_API_KEY", "sk-invented")
+        import async_agents
+        import claude_code_agent
+        from harbor.agents.installed.claude_code import ClaudeCode
+
+        self.check(async_agents.ClaudeCodeAsync, ClaudeCode, ("claude",), claude_code_agent.STATE)
+
+    def test_harbors_timeout_still_stops_the_sampler_of_pi_async(self):
+        import async_agents
+        import pi_agent
+        from harbor.agents.installed.pi import Pi
+
+        self.check(async_agents.PiAsync, Pi, ("pi",), pi_agent.STATE)

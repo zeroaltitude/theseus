@@ -18,7 +18,11 @@
 //! the label alone: its snapshot is what `aws.describe` shows the model, and
 //! a path in it would change the catalog from one machine to the next. The
 //! weekly updater is "update the CLI, run this, run the tests and the gate"
-//! (AWS design §2, principle 8).
+//! (AWS design §2, principle 8). Among the tests, the output-shape rule
+//! (theseus-core's `aws::tests_secret_shapes`, theseus-ye7o) fails an
+//! operation whose output holds a credential-shaped member and is not
+//! secret-bearing: decide it there (a mint, a stored secret, or an allowed
+//! row with its reason) before the update lands.
 //!
 //! It is an example, not a binary, so that brotli's encoder stays a
 //! dev-dependency: the library, and so Theseus, carries only the decoder.

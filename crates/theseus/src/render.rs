@@ -22,6 +22,7 @@ mod aws;
 mod cancel;
 mod catalog;
 pub mod history;
+mod imported;
 mod index;
 mod judge;
 mod judge_runs;
@@ -1679,7 +1680,7 @@ pub fn health_lines(h: &theseus_protocol::HealthResult, now_ms: u64) -> Vec<Line
     let o = &mut out;
     push(o, Tag::Plain, &format!(
         "{} {} · protocol {} · up {}s · live profile {} ({}/{}) · providers [{}] · sessions {} · turns {} · provider errors {} · ledger rows {}",
-        h.name, h.version, h.protocol, h.uptime_secs, h.profile, h.provider, h.model, h.providers.join(", "), h.sessions, h.turns, h.provider_errors, h.ledger_rows
+        h.name, h.version, h.protocol, h.uptime_secs, h.profile, h.provider, h.model, h.providers.join(", "), imported::sessions_words(h.sessions, &h.imported), h.turns, h.provider_errors, h.ledger_rows
     ));
     push(
         o,

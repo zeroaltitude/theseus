@@ -443,28 +443,52 @@ def pi_spend(entries: list[dict[str, Any]], stream: str | None = None,
 def pi_end(entries: list[dict[str, Any]]) -> dict[str, Any]:
     """How Pi's run ended, from its last answer: its `stopReason` (`stop`,
     `length`, `error`, `aborted`, …) and error. Pi's print mode exits 0 on a
-    provider's error, so this is where a failed run says so."""
+    provider's error, so this is where a failed run says so. `answers` counts
+    every answer; `turns` those that are not a failed request (`stopReason`
+    `error`: Pi persists each failed request it retries as an answer), which
+    is what Claude Code's `--max-turns` counts."""
     answers = [c for c in pi_calls(entries) if c["kind"] == "answer"]
     last = answers[-1] if answers else {}
-    return {"stop_reason": last.get("stop"), "error": last.get("error"), "answers": len(answers)}
+    return {"stop_reason": last.get("stop"), "error": last.get("error"), "answers": len(answers),
+            "turns": sum(1 for a in answers if a["stop"] != "error")}
 
 
 def pi_limits(spend: dict[str, Any], answers: int | None, max_budget_usd: float | None,
-              max_turns: int | None) -> dict[str, Any]:
+              max_turns: int | None, turns: int | None = None) -> dict[str, Any]:
     """The other arms' caps, held against a Pi trial that had none: Pi has
     no spend cap and no turn cap, so the trial ran unbounded, and the record
     says whether it passed the caps the others ran under (`max_budget_usd`,
-    against its dollars; `max_turns`, against its answers, as Claude Code's
-    `--max-turns` counts them). None where a side is unknown."""
+    against its dollars; `max_turns`, against its `turns`, its answers less
+    the failed requests it retried, as Claude Code's `--max-turns` counts
+    them; `answers` is every answer, a retry's failure included). None where
+    a side is unknown."""
     cost = spend.get("cost_usd")
     return {
         "enforced": False,
         "max_budget_usd": max_budget_usd,
         "max_turns": max_turns,
         "answers": answers,
+        "turns": turns,
         "over_budget": None if max_budget_usd is None or cost is None else cost > max_budget_usd,
-        "over_turns": None if max_turns is None or answers is None else answers > max_turns,
+        "over_turns": None if max_turns is None or turns is None else turns > max_turns,
     }
+
+
+def pi_effort_ran(entries: list[dict[str, Any]]) -> dict[str, Any]:
+    """The thinking level Pi's session log says ran, beside the one the trial
+    asked for (`record["effort"]`): each `thinking_level_change`'s level in
+    order, and the `providerThinkingLevel` its answers went out with."""
+    changes: list[str] = []
+    answers: set[str] = set()
+    for e in entries:
+        if e.get("type") == "thinking_level_change" and e.get("thinkingLevel") is not None:
+            if not changes or changes[-1] != e["thinkingLevel"]:
+                changes.append(e["thinkingLevel"])
+        msg = e.get("message")
+        if e.get("type") == "message" and isinstance(msg, dict) and msg.get("role") == "assistant":
+            if msg.get("providerThinkingLevel") is not None:
+                answers.add(str(msg["providerThinkingLevel"]))
+    return {"changes": changes, "answers": sorted(answers)}
 
 
 # ------------------------------------------------------------------ machine
@@ -615,8 +639,39 @@ def pi_record(logs: Path, max_budget_usd: float | None = None,
     end = pi_end(entries or pi_stream_entries(stream))
     rec = record("pi", spend, read_json(logs / SAMPLER_SUMMARY), wall_s=pi_wall(entries))
     rec["end"] = end
-    rec["limits"] = pi_limits(spend, end["answers"] if spend["spend_from"] in ("session_log", "stream") else None,
-                              max_budget_usd, max_turns)
+    counted = spend["spend_from"] in ("session_log", "stream")
+    rec["limits"] = pi_limits(spend, end["answers"] if counted else None, max_budget_usd, max_turns,
+                              end["turns"] if counted else None)
+    rec["effort_ran"] = pi_effort_ran(entries) if entries else None
+    return rec
+
+
+def version_read(logs: Path, parse: Any = None) -> str | None:
+    """The agent's version as its container read it (`measure.record_version`
+    wrote `version.txt`), run through the adapter's own `parse_version`."""
+    try:
+        text = (logs / "version.txt").read_text(encoding="utf-8", errors="replace").strip()
+    except OSError:
+        return None
+    if not text:
+        return None
+    try:
+        return (parse(text) if parse else text) or None
+    except Exception:  # noqa: BLE001
+        return text
+
+
+def stamp(logs: Path, rec: dict[str, Any], effort: str | None, version_asked: str | None = None,
+          parse: Any = None) -> dict[str, Any]:
+    """A trial's record with what its arm asked for and ran, the same keys on
+    every arm: `effort`, the reasoning effort asked for (`measure.EFFORT`
+    unless an `--ak` says another); `version`, the agent's version as the
+    container read it, None when it could not; `version_asked`, the pin or the
+    `--ak version=` the install was given, None for Harbor's own latest. A pin
+    that did not take is a `version` that differs from `version_asked`."""
+    rec["effort"] = effort
+    rec["version"] = version_read(logs, parse)
+    rec["version_asked"] = version_asked
     return rec
 
 

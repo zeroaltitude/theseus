@@ -13,6 +13,7 @@ import type { ExtendHealth } from "./ExtendHealth";
 import type { ExternalTextInfo } from "./ExternalTextInfo";
 import type { GrantStatus } from "./GrantStatus";
 import type { HarnessOnly } from "./HarnessOnly";
+import type { HealthImported } from "./HealthImported";
 import type { IndexHealth } from "./IndexHealth";
 import type { JudgeHealth } from "./JudgeHealth";
 import type { KernelStatus } from "./KernelStatus";
@@ -39,7 +40,15 @@ export type HealthResult = { name: string, version: string, protocol: string,
 /**
  * The binary's version and commit, as `server.started` names them (theseus-9o5n).
  */
-build: Build, uptime_secs: number, sessions: number, turns: number, model: string, 
+build: Build, uptime_secs: number, 
+/**
+ * The owner's own sessions: the imported and erased ones are `imported`'s (theseus-revl).
+ */
+sessions: number, turns: number, 
+/**
+ * The sessions an import wrote, held apart from `sessions`.
+ */
+imported: HealthImported, model: string, 
 /**
  * The live profile name.
  */

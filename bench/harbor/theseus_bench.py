@@ -82,6 +82,14 @@ def settings(
     return s
 
 
+def profile_effort(text: str | None = None) -> str | None:
+    """The reasoning effort the bench profile asks for, `[profiles.bench]
+    effort` (theseus-n6p5): the same one the other arms ask for
+    (`measure.EFFORT`)."""
+    parsed = tomllib.loads(PROFILE.read_text() if text is None else text)
+    return parsed.get("profiles", {}).get("bench", {}).get("effort")
+
+
 def profile(text: str, values: dict[tuple[str, str], Any]) -> str:
     """`text`, a TOML profile, with each `(table, key)` of `values` set: the
     line that holds the key is replaced, a missing key goes at the top of its

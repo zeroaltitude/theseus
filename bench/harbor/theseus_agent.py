@@ -59,6 +59,7 @@ from harbor.environments.base import BaseEnvironment
 from harbor.models.agent.context import AgentContext
 
 import efficiency as ef
+import measure
 import sampler as smp
 import theseus_atif as atif
 import theseus_bench as tb
@@ -139,6 +140,8 @@ class Theseus(BaseInstalledAgent):
             environment,
             command=f"chmod 755 {BIN}/theseus {BIN}/theseusd {SAMPLER} && chmod 700 {STATE}{owner}",
         )
+        await measure.record_version(environment, self.get_version_command(),
+                                     self.environment_logs_dir.as_posix())
 
     @override
     @with_prompt_template
@@ -247,7 +250,8 @@ class Theseus(BaseInstalledAgent):
         # and model, dollars, calls, and the harness's CPU and memory apart
         # from its work. A record that cannot be made never fails the trial.
         try:
-            rec = ef.theseus_record(self.logs_dir, tb.TURN, tb.HISTORY)
+            rec = ef.stamp(self.logs_dir, ef.theseus_record(self.logs_dir, tb.TURN, tb.HISTORY),
+                           tb.profile_effort(), None, self.parse_version)
             ef.write(self.logs_dir, rec)
         except Exception as e:  # noqa: BLE001
             rec = {"schema": ef.SCHEMA, "arm": "theseus", "error": f"{type(e).__name__}: {e}"}
