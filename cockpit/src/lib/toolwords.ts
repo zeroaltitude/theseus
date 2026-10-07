@@ -69,6 +69,20 @@ export function previewOf(tool: string, input: unknown): Preview | null {
   return null
 }
 
+/** What an approval decides, to lead its card (theseus-hnof.5): the daemon's own plan, the head of the reason
+ *  ("create /w/projects/harbour/log.md (38 bytes): fs.write — approve (…)"), with the path as the call named it and the
+ *  size after a comma: "create harbour/log.md, 38 bytes". The rest of the reason is why the policy asks. A reason with
+ *  no plan in it leads with the call's own summary, and the reason whole is the why. */
+export function decisionWords(tool: string, input: unknown, reason: string): { what: string; why: string } {
+  const at = reason.indexOf(`: ${tool} — `)
+  if (at < 0) return { what: `${tool} ${callSummary(tool, input)}`.trim(), why: reason }
+  let what = reason.slice(0, at)
+  const rel = str(((input ?? {}) as D).path)
+  if (rel && !rel.startsWith('/')) what = what.split(' ').map((w) => (w.startsWith('/') && w.endsWith(`/${rel}`) ? rel : w)).join(' ')
+  what = what.replace(/ \(([\d,]+) bytes\)$/, ', $1 bytes')
+  return { what, why: reason.slice(at + 2) }
+}
+
 /** The L1 pill's words (M4 17b, 18c): what an L1 job may reach. */
 export function l1Words(egress: unknown): string {
   const hosts = Array.isArray(egress) ? egress.map(String) : []

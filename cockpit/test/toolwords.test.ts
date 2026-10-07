@@ -2,7 +2,7 @@
 // pill's title, and a result's status (theseus-vm3n.6). Invented paths.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { byteWords, callSummary, diffLines, l1Words, looksLikeDiff, previewOf, resultWords, wireToName } from '../src/lib/toolwords.ts'
+import { byteWords, callSummary, decisionWords, diffLines, l1Words, looksLikeDiff, previewOf, resultWords, wireToName } from '../src/lib/toolwords.ts'
 
 test('a call reads in the terms of its tool', () => {
   assert.equal(callSummary('proc.run', { argv: ['cargo', 'test'], cwd: '/w/app' }), 'cargo test   (in /w/app)')
@@ -37,4 +37,16 @@ test('a result says it never ran, was stopped, or exited', () => {
   assert.deepEqual(resultWords({ status: 'cancelled', meta: { stopped_by: 'ada' } }), { status: 'cancelled', stoppedBy: 'ada', exit: null, tone: 'muted' })
   assert.deepEqual(resultWords({ status: 'ok', meta: { exit_code: 0 } }), { status: 'ok', stoppedBy: null, exit: 0, tone: 'ok' })
   assert.equal(resultWords({ status: 'cancelled', meta: {} }).stoppedBy, null)
+})
+
+test('an approval leads with what it decides, in the daemon\'s own words, the path as the call named it', () => {
+  const w = decisionWords('fs.write', { path: 'harbour/log.md', content: 'x' },
+    'create /w/projects/harbour/log.md (38 bytes): fs.write — approve ([policy.tools] "fs.write" = approve)')
+  assert.deepEqual(w, { what: 'create harbour/log.md, 38 bytes', why: 'fs.write — approve ([policy.tools] "fs.write" = approve)' })
+  assert.equal(decisionWords('fs.write', { path: 'a.txt', content: 'x' }, 'replace /w/a.txt (1,204 bytes): fs.write — approve (floor: the state dir)').what,
+    'replace a.txt, 1,204 bytes')
+  assert.equal(decisionWords('fs.edit', { path: '/abs/c.rs' }, 'edit /abs/c.rs (all occurrences): fs.edit — approve (x)').what, 'edit /abs/c.rs (all occurrences)')
+  assert.equal(decisionWords('proc.run', { argv: ['cargo', 'test'] }, 'run `cargo test` in /w/app: proc.run — approve (layer 1: a)').what, 'run `cargo test` in /w/app')
+  // A reason with no plan in it: the call's own summary leads, and the reason is the why.
+  assert.deepEqual(decisionWords('proc.run', { argv: ['ls'] }, 'the session read web text'), { what: 'proc.run ls', why: 'the session read web text' })
 })
