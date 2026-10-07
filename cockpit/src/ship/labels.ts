@@ -2,35 +2,19 @@
 // harbour rings, a label on each turn's bench once a vessel is drawn big, and, close in, a tag on each oar and message.
 // HTML over the canvas, so text stays crisp and legible; placed imperatively each frame the camera moves, greedily so
 // no two overlap (the more important wins). Every label says what its shape is in plain words: "session", "task",
-// "turn 12", "fs.read · failed".
+// "turn 12", "fs.read · failed". The words are `words.ts`'s, as the key, the cards and the tour say them.
 import type { ShipEngine } from './engine'
-import type { Bench, Light, ShipModel, Vessel } from './model'
-import { authorWord, count, outcome, stateWord, vesselNoun } from './words'
+import type { Bench, Light, ShipModel } from './model'
+import { benchLabel, harbourLine, keelTags, oarTag, outcome, plateLine, stateWord, usdShort, vesselNoun } from './words'
+import { instrumentRects } from './instrumentRects'
 
-/** A vessel's state for its plates and cards: the plain word, then the sea word. */
-export function rigWords(v: Vessel): string {
-  const s = stateWord(v)
-  return s.word
-}
+export { usdShort }
 
-export function usdShort(n: number): string {
-  return n === 0 ? '$0' : n < 0.01 ? `$${n.toFixed(4)}` : n < 1 ? `$${n.toFixed(3)}` : `$${n.toFixed(2)}`
-}
-
-/** A tag's words: an oar says its tool and how it went; a message says who wrote it; a model call names its model only
- *  when it is the first of its bench (the bench's label says the rest). */
-function tagText(m: ShipModel, l: Light, i: number, results: Map<string, number>): string | null {
-  if (l.kind === 'call') {
-    const o = outcome(l, !!l.toolUseId && results.has(l.toolUseId))
-    return o.word === 'ok' ? (l.tool ?? 'tool') : `${l.tool ?? 'tool'} · ${o.word}`
-  }
-  if (l.kind === 'user') return authorWord(l.author)
-  if (l.kind === 'model') {
-    const b = l.bench >= 0 ? m.benches[l.bench] : undefined
-    const first = b?.lights.find((k) => m.lights[k].kind === 'model')
-    return first === i ? (l.model ?? 'model').replace(/^claude-/, '') : null
-  }
-  return null
+/** A tag's words: an oar says its tool and how it went; a message says who wrote it, and a model call its model, only
+ *  where that changes along its ship (`keelTags`). */
+function tagText(l: Light, i: number, results: Map<string, number>, keel: Map<number, string>): string | null {
+  if (l.kind === 'call') return oarTag(l.tool, outcome(l, !!l.toolUseId && results.has(l.toolUseId)))
+  return keel.get(i) ?? null
 }
 
 interface Rect { x0: number; y0: number; x1: number; y1: number }
@@ -44,15 +28,6 @@ function sizeOf(el: HTMLElement): { w: number; h: number } {
   return s
 }
 
-function benchText(b: Bench, wide: boolean): string {
-  const head = `turn ${b.n}`
-  if (b.waiting) return `${head} · waits for you`
-  if (b.running) return `${head} · working`
-  if (b.failed) return `${head} · ${b.failed} failed`
-  if (!wide) return head
-  return b.calls ? `${head} · ${count(b.calls, 'tool call')}` : head
-}
-
 export class LabelLayer {
   private root: HTMLElement
   private plates = new Map<string, HTMLDivElement>()
@@ -62,6 +37,8 @@ export class LabelLayer {
   private model: ShipModel | null = null
   /** Each oar's result, by its tool_use id: an index into the model's lights. */
   private results = new Map<string, number>()
+  /** The messages' and model calls' tags, where they say something new (`keelTags`). */
+  private keel = new Map<number, string>()
 
   constructor(root: HTMLElement) {
     this.root = root
@@ -71,6 +48,7 @@ export class LabelLayer {
     this.model = m
     this.results = new Map()
     m.lights.forEach((l, i) => { if (l.kind === 'result' && l.toolUseId) this.results.set(l.toolUseId, i) })
+    this.keel = keelTags(m.lights)
     const seen = new Set<string>()
     for (const v of m.vessels) {
       seen.add(v.id)
@@ -93,7 +71,7 @@ export class LabelLayer {
       const title = el.children[1] as HTMLElement
       if (title.textContent !== v.title) { title.textContent = v.title; sizes.delete(el) }
       const sub = el.children[2].lastElementChild as HTMLElement
-      const s = `${st.word} · ${count(v.turns, 'turn')} · ${usdShort(v.cost)}${v.hold ? ' · holds web text' : ''}`
+      const s = plateLine(v)
       if (sub.textContent !== s) { sub.textContent = s; sizes.delete(el) }
     }
     for (const [id, el] of this.plates) if (!seen.has(id)) { el.remove(); this.plates.delete(id) }
@@ -115,7 +93,7 @@ export class LabelLayer {
       const name = el.children[0] as HTMLElement
       const sub = el.children[1] as HTMLElement
       if (name.textContent !== f.label) { name.textContent = f.label; sizes.delete(el) }
-      const t = ` · ${count(f.members.length, 'session')}${tasks ? ` · ${count(tasks, 'task')}` : ''}`
+      const t = harbourLine(f.members.length, tasks)
       if (sub.textContent !== t) { sub.textContent = t; sizes.delete(el) }
     }
     for (const [k, el] of this.forms) if (!fseen.has(k)) { el.remove(); this.forms.delete(k) }
@@ -131,11 +109,7 @@ export class LabelLayer {
     this.reservedAt = now
     const host = this.root.parentElement
     if (!host) return
-    const o = host.getBoundingClientRect()
-    this.reserved = [...host.querySelectorAll<HTMLElement>('[data-ship-ui]')].map((el) => {
-      const r = el.getBoundingClientRect()
-      return { x0: r.left - o.left - 6, y0: r.top - o.top - 6, x1: r.right - o.left + 6, y1: r.bottom - o.top + 6 }
-    })
+    this.reserved = instrumentRects(host, 6)
   }
 
   update(e: ShipEngine, selected: number, hovered: number) {
@@ -166,7 +140,8 @@ export class LabelLayer {
       el.style.display = ''
       const { w, h } = sizeOf(el)
       const r = { x0: c.x - w / 2, y0: c.y, x1: c.x + w / 2, y1: c.y + h }
-      if (c.px < 1e8 && taken.some((t) => overlaps(t, r))) { el.style.display = 'none'; return }
+      // The selected and hovered plates may cover other labels, never an instrument (their card says them too).
+      if ((c.px < 1e8 ? taken : this.reserved).some((t) => overlaps(t, r))) { el.style.display = 'none'; return }
       taken.push(r)
       shown.add(c.i)
       el.style.transform = `translate(${c.x}px, ${c.y}px) translate(-50%, 0)`
@@ -175,15 +150,15 @@ export class LabelLayer {
     const top = cand.slice(0, 60)
     for (const c of top) if (c.px >= 3e6) placePlate(c)
 
-    // Places: on their ring's north side, while the ring is a size worth naming; the biggest first, and none over
-    // another.
+    // Places: on their ring's north side, while the ring is a size worth naming (from about 50 px across, so a small
+    // screen's fleet still names its harbours); the biggest first, and none over another.
     const order = [...m.formations].sort((a, b) => b.members.length - a.members.length || a.key.localeCompare(b.key))
     for (const f of order) {
       const el = this.forms.get(f.key)!
       const ppu = e.pixelsPerUnit(f.x, f.z)
       const rpx = f.radius * ppu
       const p = e.project(f.x, 0, f.z - f.radius)
-      let show = p.on && rpx > 46 && rpx < 2600 && p.y > 4 && p.y < H - 4
+      let show = p.on && rpx > 24 && rpx < 2600 && p.y > 4 && p.y < H - 4
       if (show) {
         el.style.display = ''
         const w = sizeOf(el).w
@@ -220,7 +195,7 @@ export class LabelLayer {
         const p = e.project(now.x + b.x * c - lz * s, 0.2, now.z + b.x * s + lz * c)
         if (!p.on || p.x < 0 || p.x > W || p.y < 0 || p.y > H) continue
         const wide = b.half * 2 * ppu > 120
-        const text = benchText(b, wide)
+        const text = benchLabel(b, wide)
         const width = 10 + text.length * 6.4
         const r = { x0: p.x - width / 2, y0: p.y - 20, x1: p.x + width / 2, y1: p.y - 4 }
         if (taken.some((q) => overlaps(q, r))) continue
@@ -256,7 +231,7 @@ export class LabelLayer {
       for (let k = 0; k < m.lights.length; k++) {
         const l = m.lights[k]
         if (l.vessel !== i || l.kind === 'result') continue
-        const text = tagText(m, l, k, this.results)
+        const text = tagText(l, k, this.results, this.keel)
         if (!text) continue
         let x = l.lx
         let z = l.lz

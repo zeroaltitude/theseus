@@ -3,22 +3,26 @@
 // (newest at the bow), every tool call an oar of its turn with its result at the blade. Every shape says what it is in
 // plain words (its nameplate, its hover card, the key, the tour); the watch answers the operator's questions; the depth
 // gauge says how deep the camera reads. Everything shown is the daemon's own data, and moves only when it happens.
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router'
-import { Anchor, Crosshair, ExternalLink, HelpCircle, Maximize, Search, Waves } from 'lucide-react'
+import { Anchor, Crosshair, ExternalLink, HelpCircle, Maximize, Search, Volume2, VolumeX, Waves } from 'lucide-react'
 import { ShipEngine, type Hit } from '@/ship/engine'
 import { LabelLayer, usdShort } from '@/ship/labels'
 import { Minimap, type MinimapHandle } from '@/ship/Minimap'
-import { Compass, EngineTelegraph, Nixie, ShipsClock } from '@/ship/instruments'
+import { EngineTelegraph, Nixie, SeaGauge } from '@/ship/instruments'
+import { seaTarget, seaWord } from '@/ship/sea'
+import { useShipSound } from '@/ship/useShipSound'
+import '@/ship/ship.css'
 import { useShipLive, useShipSynthetic, type ShipData } from '@/ship/useShipData'
 import { placeOf, type ShipModel, type Vessel } from '@/ship/model'
 import { HoverCard } from '@/ship/HoverCard'
 import { Key } from '@/ship/Key'
 import type { KeyLine } from '@/ship/keyset'
 import { Tour } from '@/ship/Tour'
+import { COCKPIT_VERSION, SEEN_KEY, TOUR_KEY, tourPlan, type TourPlan } from '@/ship/news'
 import { DepthGauge } from '@/ship/Depth'
 import { Coins } from '@/ship/Coins'
-import { benchLine, count, depthOf, stateWord, type Depth } from '@/ship/words'
+import { benchLine, count, depthOf, rawState, stateWord, type Depth } from '@/ship/words'
 import { ShipBoundary, ShipFallback } from '@/ship/NoWebGL'
 import { Watch, type WatchFocus, type WatchTarget } from '@/ship/Watch'
 import { hasWebGL, NO_WEBGL, tryBuild } from '@/ship/webgl'
@@ -28,7 +32,7 @@ import { PlankStrip } from '@/components/brass'
 import { useCalm } from '@/lib/calm'
 import { useConn } from '@/lib/rpc'
 import { useWorld } from '@/lib/world'
-import { ago, cn, short, stamp } from '@/lib/format'
+import { ago, cn, short, stamp, uptime } from '@/lib/format'
 
 // The synthetic fleet is for measuring, in dev and bench builds only (never in a production build).
 const SYNTH = (import.meta.env.DEV || import.meta.env.MODE === 'bench') && new URLSearchParams(window.location.search).has('synthetic')
@@ -67,6 +71,7 @@ function ShipView({ data, onFail }: { data: ShipData; onFail: OnFail }) {
   const [params, setParams] = useSearchParams()
   const calm = useCalm((s) => s.calm)
   const setCalm = useCalm((s) => s.setCalm)
+  const sound = useShipSound()
   const [root, setRoot] = useState<HTMLDivElement | null>(null)
   const host = useRef<HTMLDivElement>(null)
   const labelsRoot = useRef<HTMLDivElement>(null)
@@ -151,11 +156,19 @@ function ShipView({ data, onFail }: { data: ShipData; onFail: OnFail }) {
     engine.setHighlight(hlId ? model.lightById.get(hlId) ?? -1 : -1)
   }, [engine, model, hlId])
 
-  // The first visit: the tour, once the fleet is read (until it is done or skipped, or `?notour`).
-  const [toured, setToured] = useState(() => localStorage.getItem('cockpit.ship.tour') === 'done' || new URLSearchParams(window.location.search).has('notour'))
-  const firstVisit = !toured && !!engine && !!model && data.progress >= 1 && !data.synthetic && model.vessels.length > 0
-  const touring = tour || firstVisit
-  const closeTour = () => { localStorage.setItem('cockpit.ship.tour', 'done'); setToured(true); setTour(false) }
+  // Once the fleet is read: on a browser's first visit the tour, after an update what's new since it last looked
+  // (`news.ts`, the owner's C6), each once and skippable; `?notour` opens neither. ? and the Tour button open the tour.
+  const [plan, setPlan] = useState<TourPlan>(() => new URLSearchParams(window.location.search).has('notour') ? { kind: 'none' }
+    : tourPlan(localStorage.getItem(TOUR_KEY), localStorage.getItem(SEEN_KEY)))
+  const ready = !!engine && !!model && data.progress >= 1 && !data.synthetic && model.vessels.length > 0
+  const touring = tour || (ready && plan.kind !== 'none')
+  const news = !tour && plan.kind === 'news' ? plan.items : undefined
+  const closeTour = () => {
+    localStorage.setItem(TOUR_KEY, 'done')
+    localStorage.setItem(SEEN_KEY, COCKPIT_VERSION)
+    setPlan({ kind: 'none' })
+    setTour(false)
+  }
 
   const flyTo = (t: WatchTarget) => {
     const m = engine?.model
@@ -321,10 +334,33 @@ function ShipView({ data, onFail }: { data: ShipData; onFail: OnFail }) {
   })
 
   const vessel = model && sel >= 0 ? model.vessels[sel] : undefined
+  // The selected vessel's card and the key share the left side: the key takes the height below the card.
+  const card = useRef<HTMLElement>(null)
+  const [keyRoom, setKeyRoom] = useState<number | undefined>()
+  const hasCard = !!vessel
+  useLayoutEffect(() => {
+    const el = card.current
+    if (!hasCard || !el || !root) { setKeyRoom(undefined); return }
+    const measure = () => {
+      const r = el.getBoundingClientRect()
+      const o = root.getBoundingClientRect()
+      setKeyRoom(Math.max(110, Math.round(o.bottom - 12 - (r.bottom + 10))))
+    }
+    measure()
+    const ro = new ResizeObserver(measure)
+    ro.observe(el)
+    ro.observe(root)
+    return () => ro.disconnect()
+  }, [hasCard, root])
   const h = data.health
   const status = useConn((s) => s.status)
   // The time machine: the gauges read the fold at its moment, not today's health.
   const g = data.past?.gauges
+  // The living sea (the owner's C5): its height is the work now, tokens a minute and the turns running (the moment's,
+  // under the time machine); dead calm when nothing happens.
+  const turnsRunning = g ? g.running : h?.kernel.executions_by_state.running ?? 0
+  const sea = seaTarget(data.tpm, turnsRunning)
+  useEffect(() => { engine?.setSea(sea) }, [engine, sea])
 
   return (
     <div ref={setRoot} className="ship-root relative h-full w-full overflow-hidden" data-calm={calm ? '1' : ''}>
@@ -332,7 +368,8 @@ function ShipView({ data, onFail }: { data: ShipData; onFail: OnFail }) {
       <div ref={labelsRoot} className="ship-labels pointer-events-none absolute inset-0 overflow-hidden" />
       {data.progress < 1 && <div className="pointer-events-none absolute inset-x-0 top-0" title="Reading the graph"><PlankStrip progress={data.progress} height={6} /></div>}
 
-      <Cartouche model={model} synthetic={data.synthetic} live={status === 'open'} error={data.error} asOf={data.past?.t} />
+      <Cartouche model={model} synthetic={data.synthetic} live={status === 'open'} error={data.error} asOf={data.past?.t}
+        then={g ? thenOf(g, data.profiles) : undefined} />
 
       <div data-ship-ui className="absolute right-3 top-4 flex items-center gap-1.5">
         <BrassButton title="Fly to a session or a call (Ctrl+K)" onClick={() => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', ctrlKey: true }))}>
@@ -340,27 +377,31 @@ function ShipView({ data, onFail }: { data: ShipData; onFail: OnFail }) {
         </BrassButton>
         <BrassButton title="See the whole fleet (Home)" onClick={() => engine?.fit()}><Maximize size={13} /> Fleet</BrassButton>
         {vessel && <BrassButton title="Back to the selected session" onClick={() => engine?.flyToVessel(sel)}><Crosshair size={13} /> Ship</BrassButton>}
+        <BrassButton className="ship-sound" on={sound.on} onClick={sound.toggle}
+          title={sound.on
+            ? `Sound on${sound.playing ? '' : ' (it starts with your next click on the page)'}: an oar going out splashes, something waiting for you rings the ship’s bell, a failure sounds a low horn. Click to turn it off.`
+            : 'Sound is off. Turn it on for three quiet cues: an oar going out (a splash), something waiting for you (the ship’s bell, heard from another window), a failure (a low horn).'}>
+          {sound.on ? <Volume2 size={13} /> : <VolumeX size={13} />} Sound
+        </BrassButton>
         <BrassButton title={calm ? 'Calm: no motion or glow. Click for the full hologram.' : 'Calm mode stills the sea and drops the motion, the glow, and the particles'} on={calm} onClick={() => setCalm(!calm)}>
           {calm ? <Anchor size={13} /> : <Waves size={13} />} {calm ? 'Calm' : 'Live'}
         </BrassButton>
         <BrassButton title="The tour: what each shape is, on the chart (?)" onClick={() => setTour(true)}><HelpCircle size={13} /> Tour</BrassButton>
       </div>
 
-      {vessel && model && <VesselCard v={vessel} model={model} bench={bench_} now={data.past?.t} reachCap={data.reachCap} onClose={() => setParams((p) => { p.delete('s'); p.delete('n'); p.delete('b'); return p }, { replace: true })} />}
+      {vessel && model && <VesselCard ref={card} v={vessel} model={model} bench={bench_} now={data.past?.t} reachCap={data.reachCap} onClose={() => setParams((p) => { p.delete('s'); p.delete('n'); p.delete('b'); return p }, { replace: true })} />}
       {hover && model && !touring && <HoverCard hover={hover} model={model} />}
-      <Key model={model} pinned={keyPinned?.id ?? null} onPreview={setKeyPreview} onPin={setKeyPinned} onTour={() => setTour(true)} />
+      <Key model={model} pinned={keyPinned?.id ?? null} onPreview={setKeyPreview} onPin={setKeyPinned} onTour={() => setTour(true)} maxHeight={keyRoom} sea={seaWord(sea)} />
 
-      <div data-ship-ui className="ship-console pointer-events-auto absolute bottom-3 left-1/2 flex -translate-x-1/2 items-end gap-2.5 px-4 pb-2 pt-2.5">
-        {g ? (
-          <Compass live={g.profile ?? data.profiles?.live} profiles={data.profiles?.profiles.map((p) => p.name) ?? []}
-            model={data.profiles?.profiles.find((p) => p.name === g.profile)?.model} />
-        ) : (
-          <Compass live={data.profiles?.live ?? h?.profile} profiles={data.profiles?.profiles.map((p) => p.name) ?? []} model={h?.model} />
-        )}
+      {/* The console: the engine (admission) and tokens a minute, the two gauges no other place shows (the owner's C3).
+          The compass's live profile and the chronometer's uptime are the top bar's profile chip and UP; as of a moment in
+          the past, the cartouche says them. */}
+      <div data-ship-ui className="ship-console pointer-events-auto absolute bottom-3 left-1/2 flex -translate-x-1/2 items-end gap-3.5 px-5 pb-2 pt-2.5">
         <EngineTelegraph accepting={g ? g.accepting : h?.kernel.accepting} running={g ? g.running : h?.kernel.executions_by_state.running ?? model?.stats.running ?? 0}
           ceiling={h?.kernel.admission_ceiling ?? 8} held={g ? 0 : h?.kernel.turns_held ?? 0} />
-        <ShipsClock uptime={g ? g.uptimeSecs ?? undefined : h?.uptime_secs} version={h?.version} down={!!g && g.uptimeSecs === null} />
         <Nixie value={data.tpm} label="Tokens / min" title="Tokens a minute: input, cache, and output of every model call in the last sixty seconds (provider.call rows)." />
+        <SeaGauge height={sea} word={seaWord(sea)}
+          title={`The sea is the work now: ${seaWord(sea)}. Dead calm when nothing runs; the swell on the chart rises with tokens a minute (${(data.tpm ?? 0).toLocaleString('en-US')}) and the turns running (${turnsRunning}), and settles as they end. Calm mode stills it.`} />
       </div>
 
       <div data-ship-ui className="ship-watch-slot pointer-events-auto absolute right-3 top-[64px]">
@@ -373,7 +414,7 @@ function ShipView({ data, onFail }: { data: ShipData; onFail: OnFail }) {
       <div data-ship-ui className="ship-porthole-slot absolute bottom-3 right-3 [@media(min-width:1400px)_and_(min-height:900px)]:right-[306px]"><Minimap ref={minimap} engine={engine} model={model} selected={sel} /></div>
 
       <Coins engine={engine} host={root} />
-      {touring && engine && model && root && <Tour engine={engine} model={model} host={root} onClose={closeTour} />}
+      {touring && engine && model && root && <Tour key={news ? 'news' : 'tour'} engine={engine} model={model} host={root} news={news} onClose={closeTour} />}
 
       {vessel && <CallInspector sessionId={vessel.id} />}
       {vessel && <ModelInspector sessionId={vessel.id} />}
@@ -381,15 +422,26 @@ function ShipView({ data, onFail }: { data: ShipData; onFail: OnFail }) {
   )
 }
 
-function BrassButton({ children, onClick, title, on }: { children: React.ReactNode; onClick: () => void; title: string; on?: boolean }) {
+function BrassButton({ children, onClick, title, on, className }: { children: React.ReactNode; onClick: () => void; title: string; on?: boolean; className?: string }) {
   return (
-    <button type="button" onClick={onClick} title={title} className={cn('brass-button pointer-events-auto', on && 'brass-button-on')}>
+    <button type="button" onClick={onClick} title={title} className={cn('brass-button pointer-events-auto', on && 'brass-button-on', className)}>
       {children}
     </button>
   )
 }
 
-function Cartouche({ model, synthetic, live, error, asOf }: { model: ShipModel | null; synthetic: boolean; live: boolean; error?: string; asOf?: number }) {
+/** What the top bar's live readouts said at the time machine's moment: the profile then (and its model), and the uptime
+ *  then (null: the daemon was down). The bar itself always reads now. */
+interface Then { profile?: string; model?: string; uptimeSecs: number | null }
+
+/** The moment's profile is the fold's, from the profile changes before it; with none in the ledger, the live one (as the
+ *  retired compass read it). */
+function thenOf(g: NonNullable<ShipData['past']>['gauges'], profiles: ShipData['profiles']): Then {
+  const profile = g.profile ?? profiles?.live
+  return { profile, model: profiles?.profiles.find((p) => p.name === profile)?.model, uptimeSecs: g.uptimeSecs }
+}
+
+function Cartouche({ model, synthetic, live, error, asOf, then }: { model: ShipModel | null; synthetic: boolean; live: boolean; error?: string; asOf?: number; then?: Then }) {
   const s = model?.stats
   const failed = model?.vessels.filter((v) => v.rig === 'flare').length ?? 0
   return (
@@ -407,13 +459,19 @@ function Cartouche({ model, synthetic, live, error, asOf }: { model: ShipModel |
         {!!s?.waiting && <span className="text-wait"><b className="num">{s.waiting}</b> waiting for you</span>}
         {!!failed && <span className="text-fault"><b className="num">{failed}</b> failed</span>}
       </div>
+      {asOf !== undefined && then && (
+        <div className="num mt-1 text-[11.5px] text-ink-dim" title="The top bar reads now; this is what its live profile and uptime said at the moment you scrubbed to">
+          then: live profile <b className="font-medium text-ink">{then.profile ?? '—'}</b>{then.model ? ` (${then.model})` : ''} ·{' '}
+          {then.uptimeSecs === null ? <span className="text-fault">the daemon was down</span> : <>up <b className="font-medium text-ink">{uptime(then.uptimeSecs)}</b></>}
+        </div>
+      )}
       {!synthetic && !live && <div className="mt-1 text-[11.5px] text-wait">the link to the daemon is down: reconnecting…</div>}
       {error && <div className="mt-1 text-[11.5px] text-fault">{error}</div>}
     </div>
   )
 }
 
-function VesselCard({ v, model, bench, onClose, now, reachCap }: { v: Vessel; model: ShipModel; bench?: ShipModel['benches'][number]; onClose: () => void; now?: number; reachCap?: ShipData['reachCap'] }) {
+function VesselCard({ v, model, bench, onClose, now, reachCap, ref }: { v: Vessel; model: ShipModel; bench?: ShipModel['benches'][number]; onClose: () => void; now?: number; reachCap?: ShipData['reachCap']; ref?: React.Ref<HTMLElement> }) {
   const lights = useMemo(() => model.lights.filter((l) => l.sessionId === v.id), [model, v.id])
   const kinds = { user: 0, model: 0, call: 0, result: 0 } as Record<string, number>
   for (const l of lights) kinds[l.kind]++
@@ -425,7 +483,7 @@ function VesselCard({ v, model, bench, onClose, now, reachCap }: { v: Vessel; mo
   const st = stateWord(v)
   const tone = st.tone === 'live' ? 'text-live' : st.tone === 'wait' ? 'text-wait' : st.tone === 'fault' ? 'text-fault' : 'text-ink-dim'
   return (
-    <aside data-ship-ui className="brass-card pointer-events-auto absolute left-4 top-[100px] w-[310px]">
+    <aside ref={ref} data-ship-ui className="brass-card pointer-events-auto absolute left-4 top-[100px] w-[310px]">
       <header className="flex items-start gap-2">
         <div className="min-w-0 flex-1">
           <div className="ship-engraved text-[10px]">{v.kind === 'task' ? `task ${v.taskShort ?? ''}` : `session · ${placeOf({ label: v.label, kind: v.kind }).label}`}</div>
@@ -435,8 +493,9 @@ function VesselCard({ v, model, bench, onClose, now, reachCap }: { v: Vessel; mo
         <button onClick={onClose} title="Let the selection go (Esc)" className="rounded px-1 text-ink-faint hover:text-ink">×</button>
       </header>
       <dl className="num mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-[11.5px]">
-        <dt className="text-ink-faint">turns</dt><dd className="text-ink">{v.turns} · last {ago(v.lastActive, now)}</dd>
-        <dt className="text-ink-faint">calls</dt><dd className="text-ink">{count(kinds.model, 'model call')} · {count(kinds.call, 'tool call')}{failed ? <span className="text-fault">, {failed} failed</span> : null}</dd>
+        <dt className="text-ink-faint">state</dt><dd className="truncate text-ink-dim" title={rawState(v)}>{rawState(v)}</dd>
+        <dt className="text-ink-faint">turns</dt><dd className="text-ink">{v.turns}{v.goldPlanks ? ` · ${v.goldPlanks} in the last hour` : ''} · last {ago(v.lastActive, now)}</dd>
+        <dt className="text-ink-faint">calls</dt><dd className="text-ink">{count(kinds.user, 'message')} · {count(kinds.model, 'model call')} · {count(kinds.call, 'tool call')}{failed ? <span className="text-fault">, {failed} failed</span> : null}</dd>
         <dt className="text-ink-faint">money</dt><dd className="text-ink">{usdShort(v.cost)}{v.limit ? ` of ${usdShort(v.limit)}` : ''}{v.reserved ? ` · ${usdShort(v.reserved)} held for tasks and calls` : ''}</dd>
         {(v.profile || v.model) && <><dt className="text-ink-faint">model</dt><dd className="truncate text-ink">{v.profile ?? '—'} · {v.model ?? '—'}</dd></>}
         {!!l1 && <><dt className="text-ink-faint">sandbox</dt><dd className="text-[#5eead4]">{count(l1, 'call')} sandboxed (L1)</dd></>}

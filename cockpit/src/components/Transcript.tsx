@@ -19,6 +19,7 @@ import { LiveDot, Pill } from './ui'
 import { ShouldHaveAsked } from './ShouldHaveAsked'
 import { scoreWords, type Noticed, type Score } from '@/lib/scores'
 import { JudgmentLabels } from '@/components/JudgmentLabels'
+import { authorWord } from '@/ship/words'
 
 type D = Record<string, any>
 
@@ -227,7 +228,10 @@ function UserItem({ n }: { n: NodeInfo }) {
     <div className="flex gap-3">
       <Gutter icon={<User size={13} />} at={n.at_unix_ms} tone="bg-white/5 text-ink ring-line-strong" />
       <div className="min-w-0 flex-1 rounded-lg bg-white/[0.04] px-3 py-2 ring-1 ring-line">
-        <div className="mb-0.5 text-[10px] font-semibold uppercase tracking-wider text-ink-faint">{n.author ?? 'user'}</div>
+        {/* Who wrote it in the Ship's words ("you, from the CLI"), with the connection's own label beside it. */}
+        <div className="mb-0.5 text-[10px] font-semibold uppercase tracking-wider text-ink-faint">
+          {authorWord(n.author)}{n.author && authorWord(n.author) !== n.author && <span className="ml-1.5 font-normal normal-case tracking-normal opacity-80">{n.author}</span>}
+        </div>
         <div className="whitespace-pre-wrap text-[13px] text-ink">{n.text}</div>
       </div>
     </div>

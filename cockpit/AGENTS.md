@@ -18,10 +18,15 @@ build.
   checkpoints, and the log's axis), `src/lib/marks.ts` (the marks: a start whose build differs from the one before
   it is an install), and `src/lib/world.ts` (`useWorld()`: the lists as of the moment).
 - `src/ship/`: the Ship's parts. `model.ts` (the graph as a fleet, and its layout: pure, no three.js), `engine.ts`
-  (three.js, drawn directly), `loop.ts` (when a frame is drawn: every display frame, the swell's idle rate, or none;
-  pure), `shaders.ts`, `post.ts` (the glow, and the swell's composite), `labels.ts` (nameplates and tags, HTML over the
-  canvas), `instruments.tsx` (the brass gauges), `Minimap.tsx`, `useShipData.ts` (the reads and pushes it composes),
-  and `synth.ts` (a seeded 10,000-node fleet for measuring).
+  (three.js, drawn directly), `loop.ts` (when a frame is drawn: every display frame, a paced rate, or none; pure),
+  `motion.ts` (the motion table: every motion, the one event that starts it, how long, its pace; pure), `sea.ts` (the
+  living sea's height from the work; pure), `shaders.ts`, `post.ts` (the glow, and the swell's composite), `labels.ts`
+  (nameplates and tags, HTML over the canvas), `words.ts` (every shape's words: the labels, cards, key, tour and the
+  session deck read them; pure), `keyset.ts` and `Key.tsx` (the key), `HoverCard.tsx` and `placement.ts` (cards beside
+  their point, off the instruments; pure), `Tour.tsx`, `tourText.ts` and `news.ts` (the tour, and what's new after an
+  update; pure), `sound.ts`, `audio.ts` and `useShipSound.ts` (the three cues: which push sounds which, pure; the
+  sounds, made with Web Audio), `instruments.tsx` (the brass gauges), `Minimap.tsx`, `useShipData.ts` (the reads and
+  pushes it composes), and `synth.ts` (a seeded 10,000-node fleet for measuring).
 - The watch, the Ship's column of six plates (theseus-hnof): `src/ship/Watch.tsx` draws them, `src/ship/watch.ts` works
   out five (working, waiting, slow against each job's usual, spent with a day of 23 to 25 hours, went wrong) and
   `src/ship/since.ts` the sixth, since you last looked, whose stretch this browser keeps (`cockpit.watch.looked`) and
@@ -59,13 +64,22 @@ build.
   5,000 rows every 3 s with neither open (Item 27).
 - **Every control is confirmed first**, and each is a protocol method, judged by the core as any surface's.
 - **Every view keeps its state in the address**, so any view deep-links.
-- **The Ship shows only the daemon's data. Its sea's swell is ambient; everything else moves only when something
-  happens.** In Live mode the waves roll and the glints on the water twinkle, always, idle included (theseus-wp2d).
-  Everything else moves only while something is happening (the camera, a flare, a sail, a lantern, a gear, a stream, a
-  running task's current), and then the loop draws every display frame. Otherwise it draws the swell alone at
-  `IDLE_FPS` (`src/ship/loop.ts`), one composite pass a frame, and a hidden tab draws nothing. Calm mode (`?calm=1`,
-  the toggle, or `prefers-reduced-motion`) stills the sea and drops the motion and the glow, and every chart's
-  transitions: an idle Ship in Calm draws one frame and stops. `?swell=0` stills the sea for one page.
+- **The Ship shows only the daemon's data, and moves only when something happens** (theseus-hnof.2). Every motion is
+  a row of the motion table (`src/ship/motion.ts`): one event starts it, and every term of the shaders that moves with
+  time names its row in a `motion:` comment, which a test reads (a new animation with no row fails it). A one-off (a
+  flare, an oar growing out, a result flashing back) draws every display frame for its seconds; a state that moves
+  while it lasts (oars rowing, a gear, a wake, a flow) a steady `STEADY_FPS`; the swell alone `IDLE_FPS`, one
+  composite pass a frame. A state that only waits (a question for the operator, a failure's pennant) is lit, not moved.
+  **The sea is the work** (the owner's C5, `src/ship/sea.ts`): its height is tokens a minute and the turns running,
+  dead calm (exactly 0) when nothing happens, so an idle Ship draws no frame at all; a hidden tab draws nothing. Calm
+  mode (`?calm=1`, the toggle, or `prefers-reduced-motion`) stills it all and drops the glow and every chart's
+  transitions: a change draws one frame. `?swell=0` stills the sea for one page.
+- **Sound is off until the operator turns it on** (the Ship's Sound button, kept in the browser): three cues on the
+  daemon's own pushes and ledger rows (`src/ship/sound.ts`), made in the browser with Web Audio (`audio.ts`), no
+  recorded or third-party sound. A cue is a row of `CUES`, with its events and its source.
+- **What's new is one item an addition** (`src/ship/news.ts`): an update that adds something to the Ship adds a stop
+  there with its date, which moves `COCKPIT_VERSION`; a browser that has seen the tour flies to only the new stops,
+  once.
 - **The past is folded, never invented.** A view that shows the time machine's moment reads `useWorld()` (null while
   live), and its acts are off while it does. A new kind of row that changes what a view shows needs its step in
   `timemachine.ts`; `window.__timeMachine.checkNow()` (dev and bench builds) folds to the present and lists every
@@ -101,13 +115,14 @@ build.
   frames, the frames of the swell alone (`swellFrames`), the first frame's time, and the scale.
 - Under a CPU rasteriser, half-float targets and full-resolution texture reads are what cost: keep the post's
   targets 8-bit and its composite at four reads a pixel (the sea, the fleet's layer, and the two blooms).
-- **The swell is the Ship's idle cost**: in Live mode it draws `IDLE_FPS` composites a second, idle included. Under
-  SwiftShader at 1920×1080 that is 2.4 to 3.7 cores, by the resolution scale (theseus-wp2d); a GPU's is unmeasured
-  (theseus-n2hd). While something moves, a rolling swell adds about a fifth to each frame's CPU there; Calm and
-  `?swell=0` cost what they did before it. So:
-  - a headless page left open (a watcher, a long screenshot run) takes `?swell=0` or `?calm=1`;
-  - whatever moves with the swell goes in `SEA_SWELL` (`shaders.ts`), worked out per pixel from the camera's ray in
-    the composite, never in the sea's cached pass, whose redraw was about half again a swell frame's cost.
+- **An idle Ship costs nothing**: the swell rolls only with work (the living sea), so a Ship with nothing running draws
+  no frame, Live mode included (it drew `IDLE_FPS` composites a second, idle included, until theseus-hnof.2: 2.4 to 3.7
+  cores of SwiftShader at 1920×1080, theseus-wp2d). While the sea rolls, each swell frame is the composite alone; a
+  GPU's cost is unmeasured (theseus-n2hd). A headless page left open while work runs takes `?swell=0` or `?calm=1`;
+  whatever moves with the swell goes in `SEA_SWELL` (`shaders.ts`), worked out per pixel from the camera's ray in the
+  composite, never in the sea's cached pass, whose redraw was about half again a swell frame's cost.
+- `window.__shipEngine.motions` (dev and bench builds) lists the motions of the last frame, and `seaLevel` the sea's
+  height; `window.__shipCues` the sound cues played.
 - Headless Chrome never hides a page (a tab behind another, or a minimized window, still runs requestAnimationFrame
   at 60 a second), and it composites Live mode's CSS animations all the time. To check a hidden tab, set
   `document.hidden` and fire `visibilitychange`; to price the swell, compare Live against Live with `?swell=0`, not
