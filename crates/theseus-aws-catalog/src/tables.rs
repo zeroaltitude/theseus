@@ -737,11 +737,12 @@ pub(crate) static SECRET: &[SecretRow] = &[
     secret("iot", "CreateKeysAndCertificate"),
     secret("iot", "CreateProvisioningClaim"),
     secret("acm", "ExportCertificate"),
+    // An API key: API Gateway's `value`, AppSync's `id`, which the walk
+    // holds by their shapes (theseus-u4pe). A listing is `WHEN_PRESENT`.
     secret("apigateway", "CreateApiKey"),
     secret_when("apigateway", "GetApiKey", "includeValue"),
-    secret_when("apigateway", "GetApiKeys", "includeValues"),
     secret("appsync", "CreateApiKey"),
-    secret("appsync", "ListApiKeys"),
+    secret("appsync", "UpdateApiKey"),
 ];
 
 /// Results that hold a secret only sometimes (theseus-qan5): what the walk
@@ -928,6 +929,11 @@ pub(crate) static WHEN_PRESENT: &[Ops] = &[
     ops("connectparticipant", &["CreateParticipantConnection"]),
     ops("wickr", &["GetOidcInfo", "RegisterOidcConfig"]),
     ops("datazone", &["GetConnection"]),
+    // API keys in a listing, none when there is no key (or, for API
+    // Gateway's, unless `includeValues`), and API Gateway's key as an
+    // update returns it (theseus-u4pe).
+    ops("apigateway", &["GetApiKeys", "UpdateApiKey"]),
+    ops("appsync", &["ListApiKeys"]),
 ];
 
 /// Tagging is direct (§3.4), so it is never IaC-only.

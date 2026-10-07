@@ -3,9 +3,11 @@
 //! model. It walks every operation's output shape in the embedded catalog
 //! and finds each credential-shaped member: one whose name, in any case, is
 //! one that [`super::secret`]'s walk holds (`NAMED`: `Credentials`,
-//! `SecretAccessKey`, `SessionToken`, …), or one the model marks sensitive
-//! whose name ends in `Token`, `Password`, `Secret`, `Key` or `Credentials`.
-//! A paginator's output token is none (some models mark `NextToken`
+//! `SecretAccessKey`, `SessionToken`, …), one the model marks sensitive
+//! whose name ends in `Token`, `Password`, `Secret`, `Key` or `Credentials`,
+//! or one the walk's `HELD` names by its shape in its service (API Gateway's
+//! `ApiKey.value`, theseus-u4pe); a `HELD` row that no secret-bearing answer
+//! reaches is stale. A paginator's output token is none (some models mark `NextToken`
 //! sensitive), and nor is any `NextToken` (many operations page without a
 //! paginator) or a tag's key (`Tag.Key`, marked sensitive by a few).
 //!
@@ -22,7 +24,7 @@ use std::collections::HashSet;
 
 use theseus_aws::catalog::{Catalog, OperationRef, SecretBearing, ShapeId, ShapeRef};
 
-use super::secret::NAMED;
+use super::secret::{HELD, NAMED};
 
 /// Endings that make a sensitive member credential-shaped.
 const ENDINGS: &[&str] = &["Token", "Password", "Secret", "Key", "Credentials"];
@@ -227,9 +229,14 @@ fn glob(pattern: &str, name: &str) -> bool {
     }
 }
 
-fn credential_shaped(name: &str, shape: ShapeRef<'_>) -> bool {
-    NAMED.iter().any(|n| n.eq_ignore_ascii_case(name))
-        || (shape.is_sensitive() && ENDINGS.iter().any(|e| name.ends_with(e)))
+/// `member` of `parent` in `service`'s answers is credential-shaped: one of
+/// [`NAMED`], a sensitive name with a credential's ending, or a [`HELD`] row.
+fn credential_shaped(service: &str, parent: &str, member: &str, shape: ShapeRef<'_>) -> bool {
+    NAMED.iter().any(|n| n.eq_ignore_ascii_case(member))
+        || (shape.is_sensitive() && ENDINGS.iter().any(|e| member.ends_with(e)))
+        || HELD
+            .iter()
+            .any(|(s, p, m)| *s == service && *p == parent && *m == member)
 }
 
 /// One credential-shaped member of an output: `Shape.member`, and the path
@@ -240,6 +247,7 @@ struct Hit {
 }
 
 fn walk(
+    service: &str,
     shape: ShapeRef<'_>,
     path: &str,
     tokens: &[&str],
@@ -258,19 +266,26 @@ fn walk(
         let skipped = tokens.contains(&m.name())
             || m.name().eq_ignore_ascii_case("NextToken")
             || (shape.name() == "Tag" && ["Key", "tagKey"].contains(&m.name()));
-        if !skipped && credential_shaped(m.name(), m.shape()) {
+        if !skipped && credential_shaped(service, shape.name(), m.name(), m.shape()) {
             out.push(Hit {
                 member: format!("{}.{}", shape.name(), m.name()),
                 path: p.clone(),
             });
         }
-        walk(m.shape(), &p, tokens, seen, out);
+        walk(service, m.shape(), &p, tokens, seen, out);
     }
     if let Some(m) = shape.list_member() {
-        walk(m.shape(), &format!("{path}[]"), tokens, seen, out);
+        walk(service, m.shape(), &format!("{path}[]"), tokens, seen, out);
     }
     if let Some(m) = shape.map_value() {
-        walk(m.shape(), &format!("{path}{{}}"), tokens, seen, out);
+        walk(
+            service,
+            m.shape(),
+            &format!("{path}{{}}"),
+            tokens,
+            seen,
+            out,
+        );
     }
 }
 
@@ -287,7 +302,14 @@ fn hits(op: OperationRef<'_>) -> Vec<Hit> {
         .map(|t| t.rsplit('.').next().unwrap_or(t))
         .collect();
     let mut out = Vec::new();
-    walk(output, "", &tokens, &mut HashSet::new(), &mut out);
+    walk(
+        op.service().name(),
+        output,
+        "",
+        &tokens,
+        &mut HashSet::new(),
+        &mut out,
+    );
     out
 }
 
@@ -311,6 +333,7 @@ fn globs_match_as_the_catalogs_do() {
 fn every_credential_shaped_output_is_secret_bearing_or_allowed() {
     let c = Catalog::embedded().expect("the embedded catalog decodes");
     let mut used = vec![false; ALLOWED.len()];
+    let mut held_used = vec![false; HELD.len()];
     let mut bad = Vec::new();
     for e in c.services() {
         let svc = c.service(&e.name).expect("the service decodes");
@@ -328,6 +351,11 @@ fn every_credential_shaped_output_is_secret_bearing_or_allowed() {
                 ));
             }
             for hit in hits {
+                for (i, (s, p, m)) in HELD.iter().enumerate() {
+                    if secret && *s == e.name && hit.member == format!("{p}.{m}") {
+                        held_used[i] = true;
+                    }
+                }
                 let rows: Vec<usize> = (0..ALLOWED.len())
                     .filter(|&i| matches(&ALLOWED[i], &e.name, op.name(), &hit.member))
                     .collect();
@@ -363,6 +391,13 @@ fn every_credential_shaped_output_is_secret_bearing_or_allowed() {
             bad.push(format!(
                 "stale: the allowed row {}:{:?} {} matches no credential-shaped member",
                 row.service, row.ops, row.member
+            ));
+        }
+    }
+    for (row, used) in HELD.iter().zip(&held_used) {
+        if !used {
+            bad.push(format!(
+                "stale: the walk's held row {row:?} is in no secret-bearing answer"
             ));
         }
     }

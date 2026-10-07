@@ -74,6 +74,8 @@ mod tests_durable;
 #[cfg(test)]
 mod tests_handles;
 #[cfg(test)]
+mod tests_held_members;
+#[cfg(test)]
 mod tests_inventory;
 #[cfg(test)]
 mod tests_l1;
