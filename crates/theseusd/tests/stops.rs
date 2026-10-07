@@ -25,15 +25,20 @@ const FAKE_OP: &str = "#!/bin/sh\n\
     \x20 *) exit 1 ;;\n\
     esac\n";
 
-/// A job that outlives SIGTERM: its shell traps it, writing when it came
-/// to `job-<i>.term` in the projects dir, and carries on (a `sleep` the
-/// signal ends is followed by the next), so only SIGKILL ends it. It writes
-/// its pid to `job-<i>.pid`, and ends by itself within 30 s should a failing
-/// test leave it.
+/// A job that outlives SIGTERM: its shell traps it and carries on (a
+/// `sleep` the signal ends is followed by the next), so only SIGKILL ends
+/// it. The trap takes the signal's time in the shell itself, with no fork
+/// (bash's `$EPOCHREALTIME`, in microseconds), ignores SIGTERM from then
+/// on, and writes the time to `job-<i>.term.tmp`, renamed `job-<i>.term`
+/// once whole (theseus-y0lm). Its wrapper's stop SIGTERMs every process it
+/// meets in the tree through the grace, one born after the first signal
+/// too: the trap's `date` once was, and its file was left empty. The `mv`
+/// now inherits the ignored signal. It writes its pid to `job-<i>.pid`,
+/// and ends by itself within 30 s should a failing test leave it.
 fn stubborn(i: usize) -> Value {
     json!({
-        "argv": ["sh", "-c", format!(
-            "trap 'date +%s%N >> job-{i}.term' TERM; echo $$ > job-{i}.pid; n=0; while [ $n -lt 600 ]; do sleep 0.05; n=$((n+1)); done"
+        "argv": ["bash", "-c", format!(
+            "trap 't=$EPOCHREALTIME; trap \"\" TERM; printf \"%s\\n\" \"${{t/[.,]/}}\" > job-{i}.term.tmp && mv job-{i}.term.tmp job-{i}.term' TERM; echo $$ > job-{i}.pid; n=0; while [ $n -lt 600 ]; do sleep 0.05; n=$((n+1)); done"
         )],
         "timeout_secs": 60,
     })
@@ -160,6 +165,44 @@ impl Rig {
         Err(json!("the connection closed"))
     }
 
+    /// What a stop left, for a job whose SIGTERM is not on record: each
+    /// job's files, the jobs' rows in `action.list` (`cancel`, the verdict),
+    /// the stop's answer and how long it took, and the daemon's log lines
+    /// for the stop.
+    fn stop_seen(&self, eid: &str, took: Duration, answer: &Value) -> String {
+        let mut out = vec![format!("the stop took {took:?} and answered {answer}")];
+        let mut files: Vec<_> = std::fs::read_dir(self.path("projects"))
+            .unwrap()
+            .flatten()
+            .map(|e| e.path())
+            .filter(|p| {
+                p.file_name()
+                    .is_some_and(|n| n.to_string_lossy().starts_with("job-"))
+            })
+            .collect();
+        files.sort();
+        for p in files {
+            let text = std::fs::read_to_string(&p).unwrap_or_default();
+            out.push(format!("{}: {:?}", p.display(), text));
+        }
+        match self.call("action.list", json!({"execution_id": eid})) {
+            Ok(a) => {
+                for a in a["actions"].as_array().into_iter().flatten() {
+                    out.push(format!("action: {a}"));
+                }
+            }
+            Err(e) => out.push(format!("action.list failed: {e}")),
+        }
+        let log = self.log();
+        let stop = log.lines().filter(|l| {
+            ["stop", "cancel", "job", "wrapper", "verdict"]
+                .iter()
+                .any(|w| l.contains(w))
+        });
+        out.extend(stop.map(|l| format!("log: {l}")));
+        out.join("\n")
+    }
+
     /// A pid the job wrote to `file` in the projects dir.
     fn pid(&self, file: &str) -> Option<u32> {
         std::fs::read_to_string(self.path("projects").join(file))
@@ -241,16 +284,27 @@ fn a_stop_of_three_jobs_that_ignore_sigterm_takes_one_grace_and_holds_no_worker(
     // (theseus-3dsz): every job had its SIGTERM before any job's grace was
     // out. Stopped one after another, each next job would be signalled only
     // after the last one's grace (2 s), however fast the machine; stopped
-    // together, they are signalled at once, however slow it is.
+    // together, they are signalled at once, however slow it is. Each time
+    // is the one its trap took as it began, with no fork, so a trap slow to
+    // write still proves the order; a job with no time on record is the
+    // failure, printed with what tells its cause apart (theseus-y0lm).
     let terms: Vec<u128> = (0..3)
         .map(|i| {
             let t = std::fs::read_to_string(r.path("projects").join(format!("job-{i}.term")))
-                .unwrap_or_else(|e| panic!("job {i} had no SIGTERM: {e}"));
-            t.lines().next().unwrap().trim().parse().unwrap()
+                .unwrap_or_default();
+            t.lines()
+                .next()
+                .and_then(|l| l.trim().parse().ok())
+                .unwrap_or_else(|| {
+                    panic!(
+                        "job {i} had no SIGTERM\n{}",
+                        r.stop_seen(&eid, took, &answer)
+                    )
+                })
         })
         .collect();
     let spread =
-        Duration::from_nanos((terms.iter().max().unwrap() - terms.iter().min().unwrap()) as u64);
+        Duration::from_micros((terms.iter().max().unwrap() - terms.iter().min().unwrap()) as u64);
     assert!(
         spread < Duration::from_secs(2),
         "one grace, not three: the jobs' SIGTERMs came {spread:?} apart"
