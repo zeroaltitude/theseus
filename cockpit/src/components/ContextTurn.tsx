@@ -143,7 +143,7 @@ function Anatomy({ x }: { x: ContextExplainResult }) {
         <div className="num flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-ink-dim">
           {blocks.map((b) => <span key={b.key} className="flex items-center gap-1.5"><Swatch color={BLOCK_COLOR[b.key]} />{b.word} <span className="text-ink">{count(b.tokens)}</span><span className="text-ink-faint">{((b.tokens / total) * 100).toFixed(0)}%</span></span>)}
         </div>
-        {est != null && <div className="text-[11px] text-ink-faint">The turn’s last loop estimated {count(est)} tokens ({x.compiled?.estimate?.method === 'counted' ? 'part of it the provider’s own count' : 'from its bytes'}); the system parts are at the model’s figures, and the conversation is the rest.</div>}
+        {est != null && <div className="text-[11px] text-ink-faint">Every part is counted from its bytes at the model’s figures, the conversation as the turn’s request less the parts above. The turn’s last loop itself estimated {count(est)} tokens{x.compiled?.estimate?.method === 'counted' ? ', part of it the provider’s own count' : ', from its bytes'}.</div>}
       </TipArea>
     </ChartPanel>
   )

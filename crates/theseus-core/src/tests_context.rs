@@ -151,16 +151,18 @@ async fn a_turn_s_parts_are_the_system_blocks_its_request_carried() {
     assert!(x.parts.iter().all(|p| p.tokens > 0), "{:?}", x.parts);
     let tools = x.parts.iter().find(|p| p.block == "tools").unwrap();
     assert_eq!(tools.then.as_deref(), Some("same"));
-    // The conversation is the rest of the turn's estimate.
-    let est = x.compiled.as_ref().unwrap().est_tokens;
+    // The conversation is the request's bytes less the parts above: its user message at least, and less than the
+    // whole request.
+    let est = x.compiled.as_ref().unwrap().estimate.clone().unwrap();
+    let conversation = x.parts.iter().find(|p| p.block == "conversation").unwrap();
+    assert!(conversation.tokens > 0, "{conversation:?}");
     let rest: u64 = x
         .parts
         .iter()
         .filter(|p| p.block != "conversation")
-        .map(|p| p.tokens)
+        .map(|p| p.bytes)
         .sum();
-    let conversation = x.parts.iter().find(|p| p.block == "conversation").unwrap();
-    assert_eq!(conversation.tokens, est.saturating_sub(rest));
+    assert!(rest < est.bytes, "{rest} of {}", est.bytes);
     assert_eq!(
         x.compilation.as_ref().unwrap().compilation_id,
         x.compiled.as_ref().unwrap().compilation_id

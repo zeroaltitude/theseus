@@ -177,10 +177,10 @@ impl Core {
                     "{} nodes in the prefix, {} in the tail",
                     c.prefix_nodes, c.tail_nodes
                 ),
-                tokens: c.est_tokens.saturating_sub(before),
+                tokens: conversation_tokens(c, &out.parts, TokenRates::of(&out.model), before),
                 note: Some(
-                    "the rest of the turn's estimate: its messages, their tool calls and results, and \
-                     their framing"
+                    "its messages, their tool calls and results, and their framing: the turn's request \
+                     less the parts above, at the model's figures"
                         .into(),
                 ),
                 ..ContextPart::default()
@@ -373,6 +373,37 @@ impl Core {
         }
         map
     }
+}
+
+/// The conversation's tokens: the turn's request by its bytes (`context.compiled`'s census) less the system's parts,
+/// the tools and the recall (which renders in a message), at the model's figures, so it holds whatever the provider
+/// counted (a stand-in's count is not one). A row from before the census: the rest of its estimate.
+fn conversation_tokens(
+    c: &ContextCompiled,
+    parts: &[ContextPart],
+    rates: TokenRates,
+    before: u64,
+) -> u64 {
+    let Some(e) = &c.estimate else {
+        return c.est_tokens.saturating_sub(before);
+    };
+    let bytes = |block: &str| -> u64 {
+        parts
+            .iter()
+            .filter(|p| p.block == block)
+            .map(|p| p.bytes)
+            .sum()
+    };
+    let system = bytes("header") + bytes("context") + bytes("guidance") + bytes("recall");
+    crate::provider::Census {
+        json: e.census.json.saturating_sub(bytes("tools")),
+        text: e.census.text.saturating_sub(system),
+        opaque: e.census.opaque,
+        messages: e.census.messages,
+        blocks: e.census.blocks,
+        ids: e.census.ids,
+    }
+    .tokens(rates)
 }
 
 /// The system's parts and the tools, each against the turn's manifest.
