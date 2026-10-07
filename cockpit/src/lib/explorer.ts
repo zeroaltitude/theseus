@@ -57,7 +57,7 @@ export function paramsOf(f: Filters, sort: string | null, page: number): ImportS
     q: f.q?.trim() || undefined,
     from_ms: span?.[0], to_ms: span?.[1],
     sort: sort && sort !== 'newest' ? sort : undefined,
-    offset: Math.max(0, page - 1) * PAGE, limit: PAGE, summaries: true, erased: false,
+    offset: Math.max(0, page - 1) * PAGE, limit: PAGE, summaries: true, erased: false, ids: [],
   }
 }
 
@@ -207,4 +207,19 @@ export function contextHref(session: string, turn?: string | null): string {
 /** The explorer's address for an imported episode. */
 export function episodeHref(session: string): string {
   return `/context?episode=${encodeURIComponent(session)}`
+}
+
+/** A moment with its year, in UTC: an episode's span can be years back (`2025-06-26 22:34 UTC`). */
+export function when(ms: number): string {
+  return Number.isFinite(ms) && ms > 0 ? `${new Date(ms).toISOString().slice(0, 16).replace('T', ' ')} UTC` : '—'
+}
+
+/** Long ids in a line, each as people name it (`imp_…` to `imp·a1b2c3`), so a note reads. */
+export function shortIds(line: string): string {
+  return line.replace(/\b([a-z]{3})_([0-9a-z_]{20,})\b/g, (_, p: string, rest: string) => `${p}·${rest.replace(/_\d+$|_summary$/, '').slice(-6)}`)
+}
+
+/** `import.sessions`' read of named sessions' rows alone: a recalled note's or a deep link's labels. */
+export function namedParams(ids: string[]): ImportSessionsParams {
+  return { ids: [...new Set(ids)].sort(), limit: 500, summaries: false, erased: true }
 }

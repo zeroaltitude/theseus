@@ -7,7 +7,7 @@
 import { useMemo, useState, type ReactNode } from 'react'
 import { useSearchParams } from 'react-router'
 import { BookOpen, ChevronDown, ChevronRight, Database, Eye, EyeOff, FileText, Layers, Library, ListTree, MessagesSquare, Search, Shapes, Telescope, X } from 'lucide-react'
-import type { ContextExplainResult, Health, ImportFacet, ImportListResult, ImportSessionsResult, ImportedEpisode, NodeInfo, OntologyListResult, SessionHistoryResult } from '@protocol'
+import type { Health, ImportFacet, ImportListResult, ImportSessionsResult, ImportedEpisode, NodeInfo, OntologyListResult, SessionHistoryResult } from '@protocol'
 import { useRpc } from '@/lib/rpc'
 import { cn, stamp } from '@/lib/format'
 import { CATEGORICAL } from '@/lib/viz'
@@ -19,7 +19,7 @@ import { ChartPanel, StatTile, TipArea, TipBody, TipTarget } from '@/components/
 import { useInPast } from '@/components/OntologyParts'
 import { AskIndex, TurnContext } from '@/components/ContextTurn'
 import {
-  PAGE, TABS, ancestors, count, filtersOf, monthBins, ontologyPaths, paramsOf, sensitivityWords, tabOf, topicTree, veiled,
+  PAGE, TABS, ancestors, count, filtersOf, monthBins, namedParams, ontologyPaths, paramsOf, sensitivityWords, tabOf, topicTree, veiled, when,
   type FilterKey, type Tab,
 } from '@/lib/explorer'
 
@@ -305,7 +305,7 @@ function EpisodeRow({ e, picked, veil, onOpen, onTopic }: { e: ImportedEpisode; 
   return (
     <li className={cn('px-3 py-2', picked && 'bg-live/[0.06]')}>
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11.5px]">
-        <span className="num text-ink-faint" title={`${stamp(e.start_ms)} to ${stamp(e.end_ms)}`}>{new Date(e.end_ms).toISOString().slice(0, 10)}</span>
+        <span className="num text-ink-faint" title={`${when(e.start_ms)} to ${when(e.end_ms)}`}>{new Date(e.end_ms).toISOString().slice(0, 10)}</span>
         <span className="max-w-[24ch] truncate text-ink-dim" title={placeWords(e)}>{placeWords(e)}</span>
         <span className="text-ink-faint">{e.source}</span>
         <Sensitivity s={e.sensitivity} />
@@ -332,10 +332,9 @@ const MESSAGES = 100
 
 /** An episode opened: its provenance, its labels, its summary with its cites, and its messages. */
 function EpisodeDetail({ id, listed, veil: veilOf, onUnveil, close, onTopic }: { id: string; listed?: ImportedEpisode; veil: (e: ImportedEpisode) => boolean; onUnveil: () => void; close: () => void; onTopic: (t: string) => void }) {
-  // An episode opened from elsewhere (a recalled note's link) may not be on the list's page: its row comes with its
-  // context's answer, which for an imported session is its episode.
-  const { data: own } = useRpc<ContextExplainResult>('context.explain', { session_id: id }, 0, { enabled: !listed })
-  const e = listed ?? own?.imported
+  // An episode opened from elsewhere (a recalled note's link) may not be on the list's page: its row by its id.
+  const { data: own } = useRpc<ImportSessionsResult>('import.sessions', namedParams([id]), 0, { enabled: !listed })
+  const e = listed ?? own?.episodes[0]
   // Veiled until its labels are read, so a sensitive episode's text never shows before its label does.
   const veil = e ? veilOf(e) : true
   // The parent keys this on the episode, so another starts at its first page.
@@ -346,7 +345,7 @@ function EpisodeDetail({ id, listed, veil: veilOf, onUnveil, close, onTopic }: {
   const summary = nodes.find((n) => n.kind === 'imported_summary')
   const cites = new Set(((summary?.detail as { cites?: string[] } | null)?.cites) ?? [])
   return (
-    <Panel title={e?.title ?? 'episode'} icon={<FileText size={13} />} className="min-w-0"
+    <Panel title={veil ? `${e ? sensitivityWords(e.sensitivity).word : 'an'} episode · veiled` : e?.title ?? 'episode'} icon={<FileText size={13} />} className="min-w-0"
       actions={<button type="button" aria-label="close the episode" onClick={close} className="text-ink-faint hover:text-ink"><X size={13} /></button>}>
       <div className="flex max-h-[calc(100vh-220px)] flex-col gap-3 overflow-auto p-3">
         {e ? (
@@ -359,13 +358,13 @@ function EpisodeDetail({ id, listed, veil: veilOf, onUnveil, close, onTopic }: {
               {e.topics.map((t) => <button key={t} type="button" onClick={() => onTopic(t)} className="rounded bg-white/[0.04] px-1.5 py-px text-[10.5px] text-ink-dim ring-1 ring-inset ring-line hover:text-ink">{t}</button>)}
             </div>
             <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-[12px]">
-              <Field label="as of">{stamp(e.start_ms)} to {stamp(e.end_ms)}</Field>
+              <Field label="as of">{when(e.start_ms)} to {when(e.end_ms)}</Field>
               <Field label="where">{placeWords(e)}</Field>
               <Field label="source">{e.source}{e.agent ? ` · ${e.agent}` : ''}</Field>
               <Field label="messages">{count(e.messages)}{e.summary ? ' and a summary' : ''}</Field>
               <Field label="import" mono>{e.tag}</Field>
               <Field label="file and line" mono>{e.file.split('/').pop()}:{e.line}</Field>
-              <Field label="imported" mono>{stamp(e.imported_at_ms)}</Field>
+              <Field label="imported" mono>{when(e.imported_at_ms)}</Field>
               <Field label="session" mono>{e.session_id.slice(0, 14)}…</Field>
             </div>
           </>
@@ -414,7 +413,7 @@ function Message({ n, cited }: { n: NodeInfo; cited: boolean }) {
         <span>#{d.idx ?? '—'}</span><span className="text-ink-dim">{n.author ?? ''}</span>
         {d.integrity && <span title="whose words these were, as the import recorded it">{INTEGRITY[d.integrity] ?? d.integrity}</span>}
         {cited && <span className="text-gold" title="the summary cites this message">cited</span>}
-        <span className="ml-auto">{stamp(n.at_unix_ms)}</span>
+        <span className="ml-auto">{when(n.at_unix_ms)}</span>
       </div>
       <p className="mt-0.5 whitespace-pre-wrap break-words text-[12px] text-ink">{long && !all ? `${n.text.slice(0, 900)}…` : n.text}</p>
       {long && <button type="button" onClick={() => setAll(!all)} className="text-[11px] text-ink-faint hover:text-ink">{all ? 'less' : `all ${count(n.text.length)} characters`}</button>}

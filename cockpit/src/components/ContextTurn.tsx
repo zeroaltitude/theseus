@@ -6,7 +6,7 @@
 import { useState, type ReactNode } from 'react'
 import { Link } from 'react-router'
 import { AlertTriangle, CheckCircle2, ChevronDown, ChevronRight, Layers, MessagesSquare, Search, Sparkles } from 'lucide-react'
-import type { ContextExplainResult, ContextPart, ContextSource, RecallManifest, SessionListResult } from '@protocol'
+import type { ContextExplainResult, ContextPart, ContextSource, ImportSessionsResult, RecallManifest, SessionListResult } from '@protocol'
 import { useRpc } from '@/lib/rpc'
 import { cn, short, stamp } from '@/lib/format'
 import { CATEGORICAL } from '@/lib/viz'
@@ -14,7 +14,8 @@ import { useMode } from '@/lib/mode'
 import { daylightColor } from '@/lib/daylight'
 import { Empty, Field, Panel, Pill } from './ui'
 import { ChartPanel, Swatch, TipArea, TipBody, TipTarget, type LegendItem } from './ChartPanel'
-import { BLOCKS, anatomy, contextHref, count, episodeHref, sensitivityWords, thenWords, type BlockKey } from '@/lib/explorer'
+import { BLOCKS, anatomy, contextHref, count, episodeHref, namedParams, sensitivityWords, shortIds, thenWords, veiled, when, type BlockKey } from '@/lib/explorer'
+import { useSearchParams } from 'react-router'
 
 type SetParams = (patch: Record<string, string | null | undefined>) => void
 
@@ -170,7 +171,7 @@ function Parts({ parts }: { parts: ContextPart[] }) {
                 {p.then && <span className={cn('shrink-0 text-[11px]', p.then === 'same' ? 'text-ink-faint' : 'text-wait')}>{thenWords(p.then)}</span>}
                 <span className="num w-20 shrink-0 text-right text-ink">{count(p.tokens)}</span>
               </button>
-              {(p.note || p.digest) && !isOpen && <div className="num truncate px-3 pb-1.5 pl-[3.25rem] text-[10.5px] text-ink-faint" title={p.note ?? ''}>{p.digest ? `digest ${p.digest}` : ''}{p.digest && p.note ? ' · ' : ''}{p.note ?? ''}</div>}
+              {(p.note || p.digest) && !isOpen && <div className="num truncate px-3 pb-1.5 pl-[3.25rem] text-[10.5px] text-ink-faint" title={p.note ?? ''}>{p.digest ? `digest ${p.digest}` : ''}{p.digest && p.note ? ' · ' : ''}{shortIds(p.note ?? '')}</div>}
               {isOpen && <pre className="mx-3 mb-2 max-h-80 overflow-auto whitespace-pre-wrap break-words rounded-md bg-black/20 p-2.5 text-[11.5px] leading-relaxed text-ink-dim ring-1 ring-inset ring-line">{p.text}</pre>}
             </li>
           )
@@ -189,7 +190,7 @@ function SourceWords({ id, src }: { id: string; src?: ContextSource }) {
       <span className="flex flex-wrap items-center gap-1.5">
         <Link to={episodeHref(id)} className="text-live hover:underline">an imported {imp.place_kind}{imp.place_name ? ` · ${imp.place_name}` : ''}</Link>
         <Pill tone={w.tone}>{w.word}</Pill>
-        <span className="num text-ink-faint">{imp.source} · {new Date(imp.end_ms).toISOString().slice(0, 10)}</span>
+        <span className="num text-ink-faint">{imp.source} · {when(imp.end_ms).slice(0, 10)}</span>
       </span>
     )
   }
@@ -201,6 +202,11 @@ function SourceWords({ id, src }: { id: string; src?: ContextSource }) {
 /** Recall's manifests: each admitted node with why (its rank, its fused score, each source's rank and score), where it
  *  came from, its tokens and excerpt; then the drops by reason. */
 export function Recalls({ recalls, sources, title }: { recalls: RecallManifest[]; sources: Record<string, ContextSource>; title: ReactNode }) {
+  // The episodes' veil (lib/explorer.ts), the same address key: a personal or partner-confidential note's excerpt
+  // waits for a click, its labels shown.
+  const [params] = useSearchParams()
+  const veilOn = params.get('veil') !== 'off'
+  const [opened, setOpened] = useState<ReadonlySet<string>>(() => new Set())
   if (!recalls.length) return <Panel title={title} icon={<Sparkles size={13} />}><Empty>no recall recorded for this turn</Empty></Panel>
   return (
     <>
@@ -226,7 +232,13 @@ export function Recalls({ recalls, sources, title }: { recalls: RecallManifest[]
                   <span className="num ml-auto text-ink-faint">{count(it.tokens)} tokens · {it.kind}</span>
                 </div>
                 <div className="mt-0.5 text-[11.5px]"><SourceWords id={it.session_id} src={sources[it.session_id]} /></div>
-                {it.text && <p className="mt-1 line-clamp-4 whitespace-pre-wrap text-[12px] text-ink-dim">{it.text}</p>}
+                {it.text && (() => {
+                  const imp = sources[it.session_id]?.imported
+                  if (imp && veiled(imp, veilOn, opened)) {
+                    return <button type="button" onClick={() => setOpened(new Set([...opened, imp.session_id]))} className="mt-1 text-[12px] italic text-ink-faint hover:text-ink">{sensitivityWords(imp.sensitivity).word} · veiled on screen: click to read</button>
+                  }
+                  return <p className="mt-1 line-clamp-4 whitespace-pre-wrap text-[12px] text-ink-dim">{it.text}</p>
+                })()}
               </li>
             ))}
             {!m.admitted.length && <li><Empty>nothing admitted</Empty></li>}
@@ -258,7 +270,11 @@ function AskForm({ initial, submit }: { initial: string; submit: (t: string) => 
  *  writes nothing. */
 export function AskIndex({ ask, set }: { ask: string; set: SetParams }) {
   const { data, error, isFetching } = useRpc<RecallManifest>('memory.search', { query: ask }, 0, { enabled: ask.trim() !== '' })
+  // The hits' episodes, for their labels and the veil: one read of the named sessions.
+  const imported = [...new Set((data?.admitted ?? []).map((i) => i.session_id).filter((s) => s.startsWith('ses_ep')))]
+  const { data: rows } = useRpc<ImportSessionsResult>('import.sessions', namedParams(imported), 0, { enabled: imported.length > 0 })
   const ids = [...new Set((data?.admitted ?? []).map((i) => i.session_id))]
+  const sources: Record<string, ContextSource> = Object.fromEntries(ids.map((id) => [id, { place: '', imported: rows?.episodes.find((e) => e.session_id === id) }]))
   return (
     <div className="flex flex-col gap-3">
       <Panel title="ask the index" icon={<Search size={13} />}>
@@ -267,7 +283,7 @@ export function AskIndex({ ask, set }: { ask: string; set: SetParams }) {
       </Panel>
       {!ask ? null : error ? <Panel title="answer"><Empty>the daemon refused the read: {(error as Error).message}</Empty></Panel>
         : !data ? <Panel title="answer"><Empty>{isFetching ? 'asking…' : '—'}</Empty></Panel>
-        : <Recalls recalls={[data]} sources={Object.fromEntries(ids.map((id) => [id, { place: '' }]))} title={<>what recall would admit · “{ask}”</>} />}
+        : <Recalls recalls={[data]} sources={sources} title={<>what recall would admit · “{ask}”</>} />}
     </div>
   )
 }

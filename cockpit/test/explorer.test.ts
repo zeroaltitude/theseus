@@ -5,8 +5,8 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import {
-  BLOCKS, PAGE, anatomy, ancestors, contextHref, filtersOf, monthBins, monthSpan, monthsSpan, ontologyPaths, paramsOf, tabOf, thenWords,
-  topicTree, veiled,
+  BLOCKS, PAGE, anatomy, ancestors, contextHref, filtersOf, monthBins, monthSpan, monthsSpan, namedParams, ontologyPaths, paramsOf, tabOf, thenWords,
+  shortIds, topicTree, veiled, when,
 } from '../src/lib/explorer.ts'
 
 const facet = (value: string, count: number) => ({ value, count })
@@ -31,6 +31,8 @@ test('the address holds the tab and the filters, and the query is what import.se
   assert.equal(paramsOf({ q: '   ' }, 'newest', 1).sort, undefined)
   assert.equal(paramsOf({ q: '   ' }, 'newest', 1).q, undefined)
   assert.equal(paramsOf({}, null, 0).offset, 0)
+  // Named sessions: each once, the erased too (a recalled note's may be), no summaries.
+  assert.deepEqual(namedParams(['b', 'a', 'b']), { ids: ['a', 'b'], limit: 500, summaries: false, erased: true })
 })
 
 test('a month is its calendar month in UTC, and a span runs from the first to the last', () => {
@@ -102,4 +104,13 @@ test('the Ship and the session deck link to a session’s context and a bench to
   assert.match(deck, /contextHref\(session\.session_id\)/)
   const main = readFileSync(new URL('../src/main.tsx', import.meta.url), 'utf8')
   assert.match(main, /path: 'context', lazy: async \(\) => \(\{ Component: \(await import\('\.\/views\/Context'\)\)\.default \}\)/)
+})
+
+test('a moment says its year, and a note’s long ids read as people name them', () => {
+  assert.equal(when(Date.UTC(2025, 5, 26, 22, 34, 44)), '2025-06-26 22:34 UTC')
+  assert.equal(when(0), '—')
+  const id = 'a'.repeat(58) + 'b1c2d3'
+  assert.equal(shortIds(`this turn's recall rcl_${id}: node imp_${id}_6 of session ses_ep${id}`),
+    "this turn's recall rcl·b1c2d3: node imp·b1c2d3 of session ses·b1c2d3")
+  assert.equal(shortIds('turn trn_short stays'), 'turn trn_short stays')
 })
