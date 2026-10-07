@@ -5,7 +5,7 @@ import { motion } from 'motion/react'
 import { Command } from 'cmdk'
 import { useQueryClient } from '@tanstack/react-query'
 import {
-  Activity, BellOff, BellRing, CircleCheck, Coins, Command as CommandIcon, Cpu, Crosshair, Gauge, Gavel, Landmark, Layers, Navigation, OctagonX, Pause, Play, Radio,
+  Activity, BellOff, BellRing, ChevronDown, ChevronUp, CircleCheck, Coins, Command as CommandIcon, Cpu, Crosshair, Gauge, Gavel, Landmark, Layers, Navigation, OctagonX, Pause, Play, Radio,
   RefreshCw, Sailboat, Scale, ScrollText, ShieldCheck, ShieldHalf, Shapes, Zap,
 } from 'lucide-react'
 import type { ConfirmRequest, ExecutionInfo, Health, NodeInfo, ProfileList, SessionInfo } from '@protocol'
@@ -23,6 +23,8 @@ import { diskSummary, diskTone } from '@/lib/disk'
 import { useHistory, useTick } from '@/lib/hooks'
 import { useAsOf } from '@/lib/timemachine'
 import { FOLDS } from '@/lib/world'
+import { useCalm } from '@/lib/calm'
+import { foldKey, foldRepeats, STRIP_KEY, stripOpen, type Fold, type StripLine } from '@/lib/activity'
 import { TimeMachine } from './TimeMachine'
 
 const NAV = [
@@ -48,13 +50,14 @@ const GO: Record<string, string> = {
 export function Shell() {
   const nav = useNavigate()
   const [palette, setPalette] = useState(false)
-  // The Ship is full-bleed: the river starts folded there (and open elsewhere), and the main area has no margin.
-  // The index redirects to the Ship, so it counts as the Ship.
+  // The Ship is full-bleed: the main area has no margin. The index redirects to the Ship, so it counts as the Ship.
   const shipRoute = useMatch('/ship')
   const indexRoute = useMatch({ path: '/', end: true })
   const onShip = !!shipRoute || !!indexRoute
-  // On a short screen the river starts folded too: the views and the ship's log need the height.
-  const [river, setRiver] = useState(!onShip && window.innerHeight >= 900)
+  // The activity strip starts folded, on the Ship and the data pages alike, and stays as this browser left it
+  // (theseus-hnof.5): open by default, it took the foot of every data view at 1080 px, and it forgot a fold.
+  const [river, setRiver] = useState(() => stripOpen(kept(STRIP_KEY)))
+  const toggleRiver = () => { keep(STRIP_KEY, river ? 'closed' : 'open'); setRiver(!river) }
   // A view showing the time machine's moment wears an amber frame. Only whether it is set: a scrub moves the moment
   // every frame, and the frame around the views must not draw again for each.
   const past = useAsOf((s) => s.t !== null)
@@ -84,7 +87,7 @@ export function Shell() {
         <main className={cn(onShip ? 'relative min-h-0 flex-1 overflow-hidden' : 'min-h-0 flex-1 overflow-auto px-4 pb-4 pt-3', pastView && 'asof-frame')}>
           <Outlet />
         </main>
-        <ActivityRiver open={river} onToggle={() => setRiver((v) => !v)} />
+        <ActivityRiver open={river} onToggle={toggleRiver} />
         <TimeMachine />
       </div>
       <Palette open={palette} onOpenChange={setPalette} />
@@ -186,9 +189,7 @@ function HeartbeatBar() {
   }, [conn.rtts])
   const up = h ? h.uptime_secs + Math.max(0, (now - dataUpdatedAt) / 1000) : 0
   // Flow: ledger rows per second, from the total's growth between polls; the header's own heartbeat line.
-  const { data: tail } = useLedger(1, 2000)
-  const totals = useHistory(tail?.total, 60, 2000)
-  const flow = totals.slice(1).map((t, i) => Math.max(0, (t - totals[i]) / 2))
+  const { flow } = useFlow()
   // Ledger rows of the last minute: one gold plank each (up to nine), in the strip under the bar.
   const lit = Math.round(flow.slice(-30).reduce((a, b) => a + b * 2, 0))
   const running = h?.kernel.executions_by_state.running ?? 0
@@ -346,39 +347,69 @@ function Dot({ label, tone, title }: { label: string; tone: keyof typeof toneHex
   )
 }
 
-interface RiverLine { key: string; at: number; part: string; tone: keyof typeof toneHex; session: string | null; text: string }
+/** This browser's kept value for `key`, or null (no storage, or none kept). */
+function kept(key: string): string | null {
+  try { return localStorage.getItem(key) } catch { return null }
+}
+
+/** Keep `value` under `key` in this browser; with no storage, it lasts as long as the page. */
+function keep(key: string, value: string) {
+  try { localStorage.setItem(key, value) } catch { /* the page's state stands */ }
+}
+
+/** Ledger rows a second over the last two minutes, from the total's growth between polls: the one-row read the
+ *  header's planks and the activity strip's flow share. */
+function useFlow() {
+  const { data: tail } = useLedger(1, 2000)
+  const totals = useHistory(tail?.total, 60, 2000)
+  const flow = useMemo(() => totals.slice(1).map((t, i) => Math.max(0, (t - totals[i]) / 2)), [totals])
+  return { flow, total: tail?.total }
+}
 
 function ActivityRiver({ open, onToggle }: { open: boolean; onToggle: () => void }) {
   const nav = useNavigate()
+  const calm = useCalm((s) => s.calm)
   // On a session's deck the river can narrow to that session, as the Observatory's Narrative 'this session' did.
   const here = useMatch('/session/:id')?.params.id ?? null
   const [onlyHere, setOnlyHere] = useState(false)
   const narrative = usePush((s) => s.narrative)
   const on = usePush((s) => s.narrativeOn)
-  const { data: ledger } = useLedger(120, 2500)
+  // Read only what is on screen: open, the newest 120 rows; folded, the few that make its one line.
+  const { data: ledger } = useLedger(open ? 120 : 12, 2500)
+  const { flow, total } = useFlow()
   // The narrative tells this process's story in sentences; the ledger is the durable record. Merge them, newest
-  // first, so the river has history after a restart and prose while turns run.
-  const lines = useMemo<RiverLine[]>(() => {
-    const out: RiverLine[] = narrative.slice(-80).map((l) => ({
+  // first, so the river has history after a restart and prose while turns run; then fold the lines that repeat.
+  const folds = useMemo<Fold[]>(() => {
+    const out: StripLine[] = narrative.slice(open ? -400 : -40).map((l) => ({
       key: `n${l.seq}`, at: l.at_unix_ms, part: l.part, tone: partTone[l.part] ?? 'idle', session: l.session_id ?? null, text: l.text,
     }))
     for (const r of ledger?.rows ?? []) {
       if (r.kind === 'hook.site') continue
       out.push({ key: `l${r.position}`, at: r.at_unix_ms, part: r.kind, tone: ledgerKind(r.kind).tone, session: r.session_id, text: summarize(r) })
     }
-    return out.filter((l) => !(onlyHere && here) || l.session === here).sort((a, b) => b.at - a.at).slice(0, 120)
-  }, [narrative, ledger, onlyHere, here])
+    const shown = out.filter((l) => !(onlyHere && here) || l.session === here).sort((a, b) => b.at - a.at)
+    return foldRepeats(shown).slice(0, 120)
+  }, [narrative, ledger, onlyHere, here, open])
+  // The fold laid out, by its key: a click on a folded line shows every line it holds.
+  const [laid, setLaid] = useState<string | null>(null)
+  const rate = flow[flow.length - 1] ?? 0
   return (
     <section className={cn('shrink-0 border-t border-line bg-deck/80 backdrop-blur transition-[height]', open ? 'h-44' : 'h-8')}>
-      <div className="flex h-8 w-full items-center gap-2 px-4">
-        <button onClick={onToggle} className="flex h-8 min-w-0 flex-1 items-center gap-2 text-left">
-          <Activity size={13} className="text-live" />
-          <span className="panel-title">Activity</span>
-          <span className="text-[11px] text-ink-faint">
-            {on === false ? 'ledger only (the narrative is off in this daemon’s config)' : `narrative ${narrative.length} · ledger ${ledger?.total ?? 0}`}
+      <div className="flex h-8 w-full items-center gap-3 px-4">
+        <button onClick={onToggle} aria-expanded={open} title={open ? 'fold the activity strip' : 'open the activity strip'}
+          className="flex h-8 min-w-0 flex-1 items-center gap-3 text-left">
+          <span className="flex shrink-0 items-center gap-2"><Activity size={13} className="text-live" /><span className="panel-title">Activity</span></span>
+          {/* Folded, the bar still says the newest thing that happened, folded as the list folds it. */}
+          <span className="min-w-0 flex-1 truncate">{!open && folds[0] && <FoldText f={folds[0]} />}</span>
+          <span className="flex shrink-0 items-center gap-1.5" title="flow: ledger rows a second, the last two minutes">
+            <span className="text-[10px] font-semibold uppercase tracking-wider text-ink-faint">flow</span>
+            <span className="block w-16"><Spark data={flow.length > 1 ? flow : [0, 0]} tone="live" height={18} /></span>
+            <span className="num w-10 text-[11px] text-ink">{rate.toFixed(1)}/s</span>
           </span>
-          <span className="ml-1"><LiveDot tone="live" size={5} /></span>
-          <span className="ml-auto text-[11px] text-ink-faint">{open ? 'hide' : 'show'}</span>
+          <span className="num shrink-0 text-[11px] text-ink-faint" title="the narrative's lines in this page, and the ledger's rows">
+            {on === false ? 'ledger only (the narrative is off in this daemon’s config)' : `narrative ${narrative.length}`} · ledger {total ?? ledger?.total ?? 0}
+          </span>
+          <span className="flex shrink-0 items-center gap-0.5 text-[11px] text-ink-faint">{open ? <>hide <ChevronDown size={12} /></> : <>show <ChevronUp size={12} /></>}</span>
         </button>
         {here && (
           <label className="flex shrink-0 cursor-pointer items-center gap-1 text-[11px] text-ink-faint hover:text-ink" title="only the session open here">
@@ -388,26 +419,65 @@ function ActivityRiver({ open, onToggle }: { open: boolean; onToggle: () => void
       </div>
       {open && (
         <div className="h-36 overflow-auto px-4 pb-2">
-          {/* New lines fade in; no layout animation, which overlapped rows when many arrived at once. */}
-          <div>
-            {lines.map((l) => (
-              <motion.div
-                key={l.key}
-                initial={{ opacity: 0, backgroundColor: 'rgba(34,211,238,0.14)' }}
-                animate={{ opacity: 1, backgroundColor: 'rgba(34,211,238,0)' }}
-                transition={{ duration: 0.6 }}
-                className="flex items-baseline gap-2 rounded px-1 py-[1px] text-[12px]"
-              >
-                <span className="num shrink-0 text-[11px] text-ink-faint">{stamp(l.at)}</span>
-                <span className="num w-44 shrink-0 truncate text-[10.5px] font-medium" style={{ color: toneHex[l.tone] }}>{l.part}</span>
-                {l.session && <button onClick={() => nav(`/session/${l.session}`)} title={`open session ${l.session}`} className="num shrink-0 text-[11px] text-ink-faint hover:text-live">{short(l.session)}</button>}
-                <span className="min-w-0 truncate text-ink-dim">{l.text}</span>
-              </motion.div>
-            ))}
-          </div>
+          {/* New lines fade in; no layout animation, which overlapped rows when many arrived at once. A fold that
+              grows fades in again, so a repeat is seen. */}
+          {folds.map((f) => {
+            const fk = foldKey(f.line)
+            const isLaid = laid === fk && f.count > 1
+            return (
+              <div key={fk}>
+                <motion.div
+                  key={f.line.key}
+                  initial={calm ? false : { opacity: 0, backgroundColor: 'rgba(34,211,238,0.14)' }}
+                  animate={{ opacity: 1, backgroundColor: 'rgba(34,211,238,0)' }}
+                  transition={{ duration: 0.6 }}
+                  className={cn('flex items-baseline gap-2 rounded px-1 py-[1px] text-[12px]', f.count > 1 && 'cursor-pointer hover:bg-gold/5')}
+                  onClick={f.count > 1 ? () => setLaid(isLaid ? null : fk) : undefined}
+                  title={f.count > 1 ? (isLaid ? 'fold these lines again' : `${f.count} lines say this; show each`) : undefined}
+                >
+                  <FoldText f={f} wide onSession={(sid) => nav(`/session/${sid}`)} />
+                </motion.div>
+                {isLaid && (
+                  <div className="mb-1 ml-6 border-l border-line pl-2">
+                    {f.members.slice(0, 200).map((m) => (
+                      <div key={m.key} className="flex items-baseline gap-2 py-[1px] text-[11.5px]">
+                        <span className="num shrink-0 text-[11px] text-ink-faint">{stamp(m.at)}</span>
+                        {m.session && <button onClick={() => nav(`/session/${m.session}`)} title={`open session ${m.session}`} className="num shrink-0 text-[11px] text-ink-faint hover:text-live">{short(m.session)}</button>}
+                        <span className="min-w-0 truncate text-ink-dim">{m.text}</span>
+                      </div>
+                    ))}
+                    {f.count > 200 && <button onClick={() => nav('/ledger')} className="text-[11px] text-live hover:underline">and {f.count - 200} more: the ledger has every one →</button>}
+                  </div>
+                )}
+              </div>
+            )
+          })}
         </div>
       )}
     </section>
+  )
+}
+
+/** A fold as one line: its newest line's time, kind, session and words, and, when it folds more than one, how many,
+ *  since when, and from how many sessions. */
+function FoldText({ f, wide, onSession }: { f: Fold; wide?: boolean; onSession?: (sid: string) => void }) {
+  const l = f.line
+  const one = f.sessions.length === 1 ? f.sessions[0] : null
+  return (
+    <span className="flex min-w-0 items-baseline gap-2 text-[12px]">
+      <span className="num shrink-0 text-[11px] text-ink-faint">{stamp(l.at)}</span>
+      <span className={cn('num shrink-0 truncate text-[10.5px] font-medium', wide ? 'w-44' : 'max-w-44')} style={{ color: toneHex[l.tone as keyof typeof toneHex] ?? toneHex.idle }}>{l.part}</span>
+      {one && (onSession
+        ? <button onClick={(e) => { e.stopPropagation(); onSession(one) }} title={`open session ${one}`} className="num shrink-0 text-[11px] text-ink-faint hover:text-live">{short(one)}</button>
+        : <span className="num shrink-0 text-[11px] text-ink-faint">{short(one)}</span>)}
+      {f.sessions.length > 1 && <span className="num shrink-0 text-[11px] text-ink-faint">{f.sessions.length} sessions</span>}
+      <span className="min-w-0 truncate text-ink-dim">{l.text}</span>
+      {f.count > 1 && (
+        <span className="num shrink-0 rounded px-1 text-[10.5px] font-semibold text-gold ring-1 ring-gold/40" title={`${f.count} lines say this, the first at ${stamp(f.first)}`}>
+          ×{f.count}<span className="font-normal text-ink-faint"> since {clock(f.first)}</span>
+        </span>
+      )}
+    </span>
   )
 }
 
