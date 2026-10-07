@@ -6,19 +6,20 @@
 // Everything moves only when the daemon says something happened, as the motion table says (`motion.ts`, theseus-hnof.2):
 // a one-off (a flare, an oar growing out, a result flashing back) at every display frame for its seconds; a state that
 // moves while it lasts (oars rowing, a gear turning, a wake) at a steady pace; the sea's swell alone at the sea's pace,
-// the composite alone, which draws the waves over the sea's cache and under the fleet's layer, both kept (`post.ts`).
-// When nothing moves, nothing is drawn. A hidden tab draws nothing. Calm mode stops all motion, the swell included,
-// and the post-processing: a change draws one frame. `?swell=0` stills the sea for one page.
+// the composite alone, which draws the waves over the sea's cache and under the fleet's layer, both kept (`post.ts`);
+// and with nothing happening in Live mode, the slow roll at its few frames a second, the composite alone (theseus-42ic).
+// When nothing moves (Calm, `?swell=0`), nothing is drawn. A hidden tab draws nothing. Calm mode stops all motion, the
+// swell included, and the post-processing: a change draws one frame. `?swell=0` stills the sea for one page.
 import * as THREE from 'three'
 import { IDLE_FPS, Loop, type Tick } from './loop'
-import { motionsNow, paceOf, type MotionId } from './motion'
-import { seaPace, seaStep } from './sea'
+import { heard, motionsNow, paceOf, type MotionId, type Quiet } from './motion'
+import { SEA_ROLL, seaPace, seaStep } from './sea'
 import { oarReach, type Light, type ShipModel } from './model'
 import { Post } from './post'
 import {
   BEACON_FRAG, BEACON_VERT, FLOW_FRAG, FLOW_VERT, HULL_FRAG, HULL_VERT, LIGHT_FRAG, LIGHT_VERT, LINE_FRAG,
-  LINE_VERT, MARK_FRAG, MARK_VERT, OAR_FRAG, OAR_VERT, SAIL_FRAG, SAIL_VERT, SEA_FRAG, SEA_VERT, STAR_FRAG, STAR_VERT,
-  WAKE_FRAG, WAKE_VERT,
+  LINE_VERT, MARK_FRAG, MARK_VERT, OAR_FRAG, OAR_VERT, RING_FRAG, RING_VERT, SAIL_FRAG, SAIL_VERT, SEA_FRAG, SEA_VERT,
+  STAR_FRAG, STAR_VERT, WAKE_FRAG, WAKE_VERT,
 } from './shaders'
 
 /** What is under the pointer: a vessel (a session or a task), a bench (a turn), or a light (a node: a message, a model
@@ -113,8 +114,8 @@ export class ShipEngine {
   swell: boolean
   /** The swell's own clock, in seconds: it runs only while the sea rolls, so Calm stills the sea where it is. */
   private swellT = 0
-  /** The living sea (`sea.ts`): the height the work asks for, and the height the swell has now, easing toward it. At 0
-   *  the sea is dead calm and nothing is drawn for it. */
+  /** The living sea (`sea.ts`): the height the work asks for, and the height the swell has now, easing toward it. At
+   *  the roll (`SEA_ROLL`) it rolls slowly; at 0 (the sea stilled) it is dead calm and nothing is drawn for it. */
   private seaWant = 0
   seaLevel = 0
   private hooks: EngineHooks = {}
@@ -162,6 +163,8 @@ export class ShipEngine {
   private flows: THREE.Points
   private wakes: THREE.Points
   private beacons: THREE.Points
+  /** A failure's ring on the sea at fleet depth (theseus-exda): one quad a vessel, drawn only while one runs out. */
+  private rings: THREE.Mesh
   /** Every tool call's oar (theseus-hnof): shaft and blade, one instanced quad each. */
   private oars: THREE.Mesh
   /** The benches' signs: failure pennants, waiting lamps, memory's sparks. */
@@ -181,6 +184,9 @@ export class ShipEngine {
   private paceFps = 0
   /** The motions of the last frame (dev and bench: `window.__shipEngine.motions`). */
   motions: MotionId[] = []
+  /** The last event's time, for the lasting states' quiet pace (`heard`); `quiet` whether they keep it now. */
+  private quietQ: Quiet = { eventAt: 0, steady: '' }
+  quiet = false
   /** Each vessel's lantern: when it lit while the page watched (engine seconds), by session id. */
   private lanternAt = new Map<string, number>()
   /** `swellFrames`: frames that drew only the swell (the composite alone), a share of `frames`. */
@@ -225,6 +231,8 @@ export class ShipEngine {
     this.stars.renderOrder = 1
 
     const quadXZ = new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2)
+    this.rings = new THREE.Mesh(instanced(quadXZ), mat(RING_VERT, RING_FRAG))
+    this.rings.renderOrder = 1
     this.hulls = new THREE.Mesh(instanced(quadXZ), mat(HULL_VERT, HULL_FRAG, {}, true))
     this.hulls.renderOrder = 2
     this.lines = new THREE.LineSegments(new THREE.BufferGeometry(), mat(LINE_VERT, LINE_FRAG))
@@ -250,7 +258,7 @@ export class ShipEngine {
       o.frustumCulled = false
       this.seaScene.add(o)
     }
-    for (const o of [this.hulls, this.lines, this.oars, this.flows, this.wakes, this.lights, this.marks, this.sails, this.beacons]) {
+    for (const o of [this.rings, this.hulls, this.lines, this.oars, this.flows, this.wakes, this.lights, this.marks, this.sails, this.beacons]) {
       o.frustumCulled = false
       this.scene.add(o)
     }
@@ -334,7 +342,7 @@ export class ShipEngine {
     this.requestRender()
   }
 
-  /** The sea's height for the work now (`seaTarget`): the swell eases toward it, and settles to dead calm at 0. */
+  /** The sea's height (`seaHeight`): the swell eases toward it, settling to the roll, or to dead calm at 0. */
   setSea(height: number) {
     const h = Math.max(0, Math.min(1, height))
     if (h === this.seaWant) return
@@ -709,7 +717,7 @@ export class ShipEngine {
   }
 
   private rebuildHulls(n: number) {
-    for (const mesh of [this.hulls, this.sails]) {
+    for (const mesh of [this.hulls, this.sails, this.rings]) {
       const g = mesh.geometry as THREE.InstancedBufferGeometry
       const idx = new Float32Array(n)
       for (let i = 0; i < n; i++) idx[i] = i
@@ -1246,9 +1254,14 @@ export class ShipEngine {
 
   private onVisibility = () => this.loop.visibility()
 
-  /** Whether the sea rolls now: Live mode (unless `?swell=0`), with work going on or its swell still settling. */
+  /** Whether the sea rolls now: Live mode (unless `?swell=0`), at its roll or raised by the work. */
   private rolling(): boolean {
     return this.swell && !this.calm && !this.disposed && this.seaLevel > 0
+  }
+
+  /** The sea at its roll, and no work to raise it: the idle roll, at its few frames a second (theseus-42ic). */
+  private atRoll(): boolean {
+    return this.seaLevel <= SEA_ROLL && this.seaWant <= SEA_ROLL
   }
 
   private lastFrame = performance.now()
@@ -1271,7 +1284,8 @@ export class ShipEngine {
       gears: !!m?.lights.some((l) => l.running),
       tethers: !!m?.tethers.some((x) => x.live),
       currents: !!m?.currents.some((c) => v[c.from]?.rig === 'sail' || v[c.to]?.rig === 'sail'),
-      sea: this.rolling(),
+      sea: this.rolling() && !this.atRoll(),
+      roll: this.rolling() && this.atRoll(),
     })
   }
 
@@ -1284,13 +1298,15 @@ export class ShipEngine {
     // counts as 250: skipped, as it was, a CPU rasteriser whose first frames ran slow kept full resolution for good.
     if (tick.paced) this.adapt(Math.min(interval, 250))
     const t = this.now()
-    // The sea first: it eases toward the work's height, and on reaching dead calm this frame stills it.
+    // The sea first: it eases toward its height; at the roll it rolls slowly, and on reaching dead calm it is still.
     this.seaLevel = this.swell && !this.calm ? seaStep(this.seaLevel, this.seaWant, Math.min(0.25, interval / 1000)) : 0
     this.swellU.uSea.value = this.seaLevel
     const camMoved = this.stepCamera(performance.now())
     const vesselsMoved = this.stepVessels(dt)
     const motions = this.motionsAt(t, camMoved || this.tween !== null)
-    const pace = paceOf(motions, IDLE_FPS)
+    // A lasting state with no event for a minute (a long job's gear, a long model call) draws at the quiet pace.
+    this.quiet = heard(this.quietQ, motions, t)
+    const pace = paceOf(motions, IDLE_FPS, this.quiet)
     this.motions = motions
     // The whole scene is drawn when something changed or moves. Otherwise only the swell moved: the composite alone is
     // drawn, over the sea's cache and the fleet's kept layer.
@@ -1318,7 +1334,7 @@ export class ShipEngine {
 
   /** Dev and bench only: hide layers by name, to see what draws what. */
   debugHide(names: string[]) {
-    const all = { sea: this.sea, stars: this.stars, hulls: this.hulls, lines: this.lines, flows: this.flows, wakes: this.wakes, lights: this.lights, sails: this.sails, beacons: this.beacons, oars: this.oars, marks: this.marks }
+    const all = { sea: this.sea, stars: this.stars, rings: this.rings, hulls: this.hulls, lines: this.lines, flows: this.flows, wakes: this.wakes, lights: this.lights, sails: this.sails, beacons: this.beacons, oars: this.oars, marks: this.marks }
     for (const [k, o] of Object.entries(all)) o.visible = !names.includes(k)
     this.swellU.uWaves.value = names.includes('sea') ? 0 : 1
     this.post.seaDirty = true

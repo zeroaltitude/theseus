@@ -10,7 +10,7 @@ import { ShipEngine, type Hit } from '@/ship/engine'
 import { LabelLayer, usdShort } from '@/ship/labels'
 import { Minimap, type MinimapHandle } from '@/ship/Minimap'
 import { EngineTelegraph, Nixie, SeaGauge } from '@/ship/instruments'
-import { seaTarget, seaWord } from '@/ship/sea'
+import { seaHeight, seaTarget, seaWord } from '@/ship/sea'
 import { useShipSound } from '@/ship/useShipSound'
 import '@/ship/ship.css'
 import { useShipLive, useShipSynthetic, type ShipData } from '@/ship/useShipData'
@@ -22,7 +22,7 @@ import { Tour } from '@/ship/Tour'
 import { COCKPIT_VERSION, SEEN_KEY, TOUR_KEY, tourPlan, type TourPlan } from '@/ship/news'
 import { DepthGauge } from '@/ship/Depth'
 import { Coins } from '@/ship/Coins'
-import { benchLine, count, depthOf, rawState, stateWord, type Depth } from '@/ship/words'
+import { benchLine, cardLines, count, depthOf, stateWord, type Depth } from '@/ship/words'
 import { ShipBoundary, ShipFallback } from '@/ship/NoWebGL'
 import { Watch, type WatchFocus, type WatchTarget } from '@/ship/Watch'
 import { hasWebGL, NO_WEBGL, tryBuild } from '@/ship/webgl'
@@ -357,9 +357,10 @@ function ShipView({ data, onFail }: { data: ShipData; onFail: OnFail }) {
   // The time machine: the gauges read the fold at its moment, not today's health.
   const g = data.past?.gauges
   // The living sea (the owner's C5): its height is the work now, tokens a minute and the turns running (the moment's,
-  // under the time machine); dead calm when nothing happens.
+  // under the time machine). In Live mode it rolls slowly when nothing happens, and the work raises it from there
+  // (theseus-42ic); Calm, reduced motion and `?swell=0` still it: dead calm.
   const turnsRunning = g ? g.running : h?.kernel.executions_by_state.running ?? 0
-  const sea = seaTarget(data.tpm, turnsRunning)
+  const sea = seaHeight(seaTarget(data.tpm, turnsRunning), swell && !calm)
   useEffect(() => { engine?.setSea(sea) }, [engine, sea])
 
   return (
@@ -378,8 +379,8 @@ function ShipView({ data, onFail }: { data: ShipData; onFail: OnFail }) {
         {vessel && <BrassButton title="Back to the selected session" onClick={() => engine?.flyToVessel(sel)}><Crosshair size={13} /> Ship</BrassButton>}
         <BrassButton className="ship-sound" on={sound.on} onClick={sound.toggle}
           title={sound.on
-            ? `Sound on${sound.playing ? '' : ' (it starts with your next click on the page)'}: an oar going out splashes, something waiting for you rings the ship’s bell, a failure sounds a low horn. Click to turn it off.`
-            : 'Sound is off. Turn it on for three quiet cues: an oar going out (a splash), something waiting for you (the ship’s bell, heard from another window), a failure (a low horn).'}>
+            ? `Sound on${sound.playing ? '' : ' (it starts with your next click on the page)'}: an oar going out splashes (on the Ship), something waiting for you rings the ship’s bell and a failure sounds a low horn, on every page. Click to turn it off.`
+            : 'Sound is off. Turn it on for three quiet cues: an oar going out (a splash, on the Ship), and on every page something waiting for you (the ship’s bell, heard from another window) and a failure (a low horn).'}>
           {sound.on ? <Volume2 size={13} /> : <VolumeX size={13} />} Sound
         </BrassButton>
         <BrassButton title={calm ? 'Calm: no motion or glow. Click for the full hologram.' : 'Calm mode stills the sea and drops the motion, the glow, and the particles'} on={calm} onClick={() => setCalm(!calm)}>
@@ -400,7 +401,7 @@ function ShipView({ data, onFail }: { data: ShipData; onFail: OnFail }) {
           ceiling={h?.kernel.admission_ceiling ?? 8} held={g ? 0 : h?.kernel.turns_held ?? 0} />
         <Nixie value={data.tpm} label="Tokens / min" title="Tokens a minute: input, cache, and output of every model call in the last sixty seconds (provider.call rows)." />
         <SeaGauge height={sea} word={seaWord(sea)}
-          title={`The sea is the work now: ${seaWord(sea)}. Dead calm when nothing runs; the swell on the chart rises with tokens a minute (${(data.tpm ?? 0).toLocaleString('en-US')}) and the turns running (${turnsRunning}), and settles as they end. Calm mode stills it.`} />
+          title={`The sea is the work now: ${seaWord(sea)}. A slow roll when nothing runs; the swell on the chart rises with tokens a minute (${(data.tpm ?? 0).toLocaleString('en-US')}) and the turns running (${turnsRunning}), and settles as they end. Calm mode stills it.`} />
       </div>
 
       <div data-ship-ui className="ship-watch-slot pointer-events-auto absolute right-3 top-[64px]">
@@ -465,6 +466,7 @@ function VesselCard({ v, model, bench, onClose, now, reachCap, ref }: { v: Vesse
   const ext = lights.filter((l) => l.external).length
   const failed = v.benches.reduce((a, b) => a + model.benches[b].failed, 0)
   const st = stateWord(v)
+  const card = cardLines(v, { user: kinds.user, model: kinds.model, call: kinds.call }, failed, ago(v.lastActive, now))
   const tone = st.tone === 'live' ? 'text-live' : st.tone === 'wait' ? 'text-wait' : st.tone === 'fault' ? 'text-fault' : 'text-ink-dim'
   return (
     <aside ref={ref} data-ship-ui className="brass-card pointer-events-auto absolute left-4 top-[100px] w-[310px]">
@@ -477,9 +479,9 @@ function VesselCard({ v, model, bench, onClose, now, reachCap, ref }: { v: Vesse
         <button onClick={onClose} title="Let the selection go (Esc)" className="rounded px-1 text-ink-faint hover:text-ink">×</button>
       </header>
       <dl className="num mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-[11.5px]">
-        <dt className="text-ink-faint">state</dt><dd className="truncate text-ink-dim" title={rawState(v)}>{rawState(v)}</dd>
-        <dt className="text-ink-faint">turns</dt><dd className="text-ink">{v.turns}{v.goldPlanks ? ` · ${v.goldPlanks} in the last hour` : ''} · last {ago(v.lastActive, now)}</dd>
-        <dt className="text-ink-faint">calls</dt><dd className="text-ink">{count(kinds.user, 'message')} · {count(kinds.model, 'model call')} · {count(kinds.call, 'tool call')}{failed ? <span className="text-fault">, {failed} failed</span> : null}</dd>
+        <dt className="text-ink-faint">state</dt><dd className="truncate text-ink-dim" title={card.state}>{card.state}</dd>
+        <dt className="text-ink-faint">turns</dt><dd className="text-ink">{card.turns}</dd>
+        <dt className="text-ink-faint">calls</dt><dd className="text-ink">{card.calls}{card.failed ? <span className="text-fault">{card.failed}</span> : null}</dd>
         <dt className="text-ink-faint">money</dt><dd className="text-ink">{usdShort(v.cost)}{v.limit ? ` of ${usdShort(v.limit)}` : ''}{v.reserved ? ` · ${usdShort(v.reserved)} held for tasks and calls` : ''}</dd>
         {(v.profile || v.model) && <><dt className="text-ink-faint">model</dt><dd className="truncate text-ink">{v.profile ?? '—'} · {v.model ?? '—'}</dd></>}
         {!!l1 && <><dt className="text-ink-faint">sandbox</dt><dd className="text-[#5eead4]">{count(l1, 'call')} sandboxed (L1)</dd></>}

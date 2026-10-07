@@ -2,7 +2,8 @@
 // own events, each once a change, a burst of oars rowing a few strokes, and off until the operator turns it on.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { CUES, cueOf, cueOfRow, newEar, SPACING, soundOn } from '../src/ship/sound.ts'
+import { readFileSync } from 'node:fs'
+import { CUES, cueHere, cueOf, cueOfRow, newEar, SPACING, soundOn } from '../src/ship/sound.ts'
 
 const view = (sid: string, state: string, level: string, previous?: string) =>
   ({ session_id: sid, state, attention: { level, label: '', since_ms: 0 }, ...(previous ? { previous } : {}) })
@@ -64,4 +65,53 @@ test("a failure or a question only the ledger tells (a session the Ship does not
   assert.equal(cueOfRow(newEar(), row('turn.failed', 's9', 500), 6000, 1000), null)
   assert.equal(cueOfRow(newEar(), row('action.failed', 's9', 5000), 6000, 1000), null)
   assert.equal(cueOfRow(newEar(), row('turn.ended', 's9', 5000), 6000, 1000), null)
+})
+
+test('a question rings once even when its row comes more than the bell’s spacing after its push (theseus-n7ra, A7)', () => {
+  const ear = newEar()
+  assert.equal(cueOf(ear, 'confirm.requested', { session_id: 's1', correlation_id: 'act_1' }, 1000), 'bell')
+  // Its ledger row, read 5 s later (past the bell's 4 s spacing): the same question, no second bell.
+  assert.ok(5000 > SPACING.bell)
+  assert.equal(cueOfRow(ear, { kind: 'tool.confirm_requested', session_id: 's1', at_unix_ms: 1000 }, 6000, 0), null)
+  assert.equal(cueOfRow(ear, { kind: 'budget.asked', session_id: 's1', at_unix_ms: 1000 }, 9000, 0), null)
+  // Another session's question rings.
+  assert.equal(cueOfRow(ear, { kind: 'tool.confirm_requested', session_id: 's2', at_unix_ms: 6500 }, 6500, 0), 'bell')
+  // And so does the same session's next question, once the change's window has passed.
+  assert.equal(cueOf(ear, 'confirm.requested', { session_id: 's1', correlation_id: 'act_2' }, 12_000), 'bell')
+  // A failure is the same: its push, then its row 5 s on, one horn.
+  assert.equal(cueOf(ear, 'turn.failed', { session_id: 's3', turn_id: 't1' }, 20_000), 'horn')
+  assert.equal(cueOfRow(ear, { kind: 'turn.failed', session_id: 's3', at_unix_ms: 20_000 }, 25_000, 0), null)
+})
+
+test('a failed tool call sounds no horn: its rose blade and pennant show it (theseus-n7ra, A11)', () => {
+  const ear = newEar()
+  for (const status of ['error', 'failed', 'denied', 'timeout', 'cancelled', 'ok']) {
+    assert.equal(cueOf(ear, 'tool.ended', { session_id: 's1', correlation_id: 'a1', status }, 1000), null, status)
+  }
+  // Nor its ledger rows.
+  for (const kind of ['tool.ended', 'tool.failed', 'action.failed', 'tool.result']) {
+    assert.equal(cueOfRow(ear, { kind, session_id: 's1', at_unix_ms: 2000 }, 2000, 0), null, kind)
+  }
+  // The horn is for a turn: still there for one.
+  assert.equal(cueOf(ear, 'turn.failed', { session_id: 's1' }, 3000), 'horn')
+})
+
+test('the bell and the horn play on every page, the oar on the Ship; the Shell hears them once (theseus-7zph)', () => {
+  assert.deepEqual(CUES.map((c) => [c.cue, c.pages]), [['oar', 'the Ship'], ['bell', 'every page'], ['horn', 'every page']])
+  assert.equal(cueHere('bell', false), 'bell')
+  assert.equal(cueHere('horn', false), 'horn')
+  assert.equal(cueHere('oar', false), null)
+  assert.equal(cueHere('oar', true), 'oar')
+  assert.equal(cueHere(null, true), null)
+  // Mounted once, in the Shell, on every page; the Ship keeps only its button, so no cue sounds twice.
+  const shell = readFileSync(new URL('../src/components/Shell.tsx', import.meta.url), 'utf8')
+  assert.match(shell, /const onShip = !!shipRoute \|\| !!indexRoute\s+\/\/[^\n]*\n\s+useSoundCues\(onShip\)/)
+  const ship = readFileSync(new URL('../src/views/Ship.tsx', import.meta.url), 'utf8')
+  assert.ok(!ship.includes('useSoundCues'), 'the Ship does not hear the cues itself')
+  assert.match(ship, /const sound = useShipSound\(\)/)
+  const hook = readFileSync(new URL('../src/ship/useShipSound.ts', import.meta.url), 'utf8')
+  // Still off until the operator turns it on: the one toggle is the browser's kept choice, and nothing listens while off.
+  assert.match(hook, /on: typeof localStorage !== 'undefined' && soundOn\(localStorage\.getItem\(SOUND_KEY\)\)/)
+  assert.match(hook, /useEffect\(\(\) => \{\s+if \(!on\) return/)
+  assert.match(hook, /const cue = cueHere\(heard, here\.current\)/)
 })

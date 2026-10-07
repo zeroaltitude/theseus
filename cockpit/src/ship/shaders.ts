@@ -138,11 +138,11 @@ vec3 seaSwell(vec2 uv) {
   vec2 p = uCamPos.xz + dir.xz * (uCamPos.y / max(-dir.y, 1e-5));
   float near = smoothstep(2.6, 0.15, length(p - uTarget) * uNearScale);
   vec2 sp = p * uWaveScale;
-  float rise = uSea; // motion: sea
-  float lift = sin(sp.y * 0.6 - uSwell * 0.3307); // motion: sea
+  float rise = uSea; // motion: sea roll
+  float lift = sin(sp.y * 0.6 - uSwell * 0.3307); // motion: sea roll
   float amp = rise * (1.0 + 2.2 * rise);
-  float wy = sp.y + sin(sp.x * 4.2 + sp.y * 3.1415927 - uSwell * 0.4488) * 0.11 // motion: sea
-    + amp * (sin(sp.x * 1.7 + sp.y * 0.9 + uSwell * 0.2027) * 0.04 + lift * 0.05); // motion: sea
+  float wy = sp.y + sin(sp.x * 4.2 + sp.y * 3.1415927 - uSwell * 0.4488) * 0.11 // motion: sea roll
+    + amp * (sin(sp.x * 1.7 + sp.y * 0.9 + uSwell * 0.2027) * 0.04 + lift * 0.05); // motion: sea roll
   float wave = lineAt(wy, fwidth(wy), 0.6);
   // A row's light grows as the swell lifts it, and a heavy sea's crests catch the light.
   float crest = smoothstep(0.55, 1.0, lift);
@@ -156,7 +156,7 @@ vec3 seaSwell(vec2 uv) {
     vec2 c = (cell + 0.2 + 0.6 * vec2(seaHash(cell + 7.1), seaHash(cell + 3.3))) * 9.0;
     float sd = length(p - c);
     float rad = min(0.18 + fwp * 1.2, 1.6);
-    float glint = 1.0 + rise * 0.45 * sin(uSwell * (0.7 + seaHash(cell + 5.9) * 0.86) + seaHash(cell + 1.7) * 6.2831853); // motion: sea
+    float glint = 1.0 + rise * 0.45 * sin(uSwell * (0.7 + seaHash(cell + 5.9) * 0.86) + seaHash(cell + 1.7) * 6.2831853); // motion: sea roll
     col += vec3(0.91, 0.79, 0.50) * (1.0 - smoothstep(rad * 0.5, rad, sd)) * 0.5 * near * smoothstep(8.0, 18.0, cellPx) * glint;
   }
   return col * uWaves;
@@ -712,6 +712,60 @@ void main() {
   float a = (core + halo * 0.6) * vA;
   if (a < 0.01) discard;
   gl_FragColor = vec4(vColor * min(1.0, core + halo * 0.7) * vA, a);
+}
+`
+
+// ---------------------------------------------------------------- a failure's ring at fleet depth (theseus-exda)
+//
+// From the fleet a ship's flare is a small rose point; beside it, a ring runs out on the sea around the ship and fades
+// within a second (RING_S), so a failure catches the eye there too. One quad a vessel lying on the sea, sized in
+// pixels on screen (it reads the same at any fleet zoom) and drawn only at fleet depth: as the ship grows towards its
+// own depth (380 px, `depthOf`) the ring fades out, where the flare itself is plain. Calm stills it (nothing drawn).
+
+export const RING_S = 1.0
+
+export const RING_VERT = /* glsl */ `
+${VESSEL_COMMON}
+uniform float uScale;
+uniform float uPixel;
+attribute float aIdx;
+varying vec2 vUv;
+varying float vA;
+varying float vPx;
+void main() {
+  vec4 a = vRow(aIdx, 0.0);
+  vec4 c = vRow(aIdx, 2.0);
+  float age = c.x > 0.0 ? uTime - c.x : 1e6; // motion: failed
+  float depth = max(1.0, -(viewMatrix * vec4(a.x, 0.0, a.y, 1.0)).z);
+  float hullPx = a.w * uScale / depth;
+  float fleet = 1.0 - smoothstep(200.0 * uPixel, 380.0 * uPixel, hullPx);
+  vUv = vec2(0.0); vA = 0.0; vPx = 1.0;
+  if (age < 0.0 || age >= ${RING_S.toFixed(2)} || uCalm > 0.5 || fleet <= 0.0) { gl_Position = vec4(2.0, 2.0, 2.0, 1.0); return; }
+  float k = age / ${RING_S.toFixed(2)};
+  float out_ = 1.0 - (1.0 - k) * (1.0 - k);
+  // Its radius on screen: from just outside the hull out by 64 px, easing out as it goes.
+  float px = hullPx * 0.55 + mix(6.0, 64.0, out_) * uPixel;
+  float r = px * depth / uScale;
+  vUv = position.xz * 2.0;
+  vA = (1.0 - k) * (1.0 - k) * fleet;
+  vPx = px;
+  gl_Position = projectionMatrix * viewMatrix * vec4(a.x + position.x * 2.0 * r, 0.0, a.y + position.z * 2.0 * r, 1.0);
+}
+`
+
+export const RING_FRAG = /* glsl */ `
+varying vec2 vUv;
+varying float vA;
+varying float vPx;
+void main() {
+  float r = length(vUv);
+  float w = 1.6 / max(vPx, 1.0);
+  float d = abs(r - 0.9);
+  float line = 1.0 - smoothstep(w * 0.5, w * 1.5, d);
+  float halo = exp(-(d * d) / (w * w * 14.0)) * 0.5;
+  float a = min(1.0, line + halo) * vA;
+  if (a < 0.01) discard;
+  gl_FragColor = vec4(vec3(1.0, 0.42, 0.45) * a, a);
 }
 `
 

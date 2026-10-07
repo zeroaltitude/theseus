@@ -25,7 +25,7 @@ build.
   session deck read them; pure), `keyset.ts` and `Key.tsx` (the key), `HoverCard.tsx` and `placement.ts` (cards beside
   their point, off the instruments; pure), `Tour.tsx`, `tourText.ts` and `news.ts` (the tour, and what's new after an
   update; pure), `sound.ts`, `audio.ts` and `useShipSound.ts` (the three cues: which push sounds which, pure; the
-  sounds, made with Web Audio), `instruments.tsx` (the brass gauges), `Minimap.tsx`, `useShipData.ts` (the reads and
+  sounds, made with Web Audio; the toggle, and the cues the Shell hears on every page), `instruments.tsx` (the brass gauges), `Minimap.tsx`, `useShipData.ts` (the reads and
   pushes it composes), `flares.ts` (a failure flares its ship once, whichever of its push, its execution's change and
   its ledger row tells the page first; pure, theseus-1skt), and `synth.ts` (a seeded 10,000-node fleet for measuring).
 - The watch, the Ship's column of six plates (theseus-hnof): `src/ship/Watch.tsx` draws them, `src/ship/watch.ts` works
@@ -61,7 +61,7 @@ build.
   (the plank strip and the coin).
 - `src/lib/`: `rpc.ts` and `hooks.ts` (the connection and its queries), `derive.ts`, `summary.ts`, `format.ts`,
   `money.ts` (the catalog's rates and a call's split by token kind), `verdict.ts` (18a's verdicts in words), and
-  `calm.ts` (calm mode), `scores.ts` (a notified call's `risk N% (shadow)`, M5 24), `fallback.ts` (a refusal's
+  `calm.ts` (calm mode), `stir.ts` (the page's endless decorations run only while something changes), `scores.ts` (a notified call's `risk N% (shadow)`, M5 24), `fallback.ts` (a refusal's
   fallback in theseus-protocol's words, theseus-7gir.18), `sandboxwords.ts` (L1 in the CLI's words), `drafts.ts` (what was sent and not yet written), and `ontology.ts` (the category tree's
   order, and what a session's next compile would change).
 - The chart method (theseus-hnof.4): `src/lib/chart.ts` takes its look from `src/lib/viz.ts`; `src/lib/palette.ts`
@@ -96,15 +96,24 @@ build.
   a row of the motion table (`src/ship/motion.ts`): one event starts it, and every term of the shaders that moves with
   time names its row in a `motion:` comment, which a test reads (a new animation with no row fails it). A one-off (a
   flare, an oar growing out, a result flashing back) draws every display frame for its seconds; a state that moves
-  while it lasts (oars rowing, a gear, a wake, a flow) a steady `STEADY_FPS`; the swell alone `IDLE_FPS`, one
-  composite pass a frame. A state that only waits (a question for the operator, a failure's pennant) is lit, not moved.
-  **The sea is the work** (the owner's C5, `src/ship/sea.ts`): its height is tokens a minute and the turns running,
-  dead calm (exactly 0) when nothing happens, so an idle Ship draws no frame at all; a hidden tab draws nothing. Calm
-  mode (`?calm=1`, the toggle, or `prefers-reduced-motion`) stills it all and drops the glow and every chart's
-  transitions: a change draws one frame. `?swell=0` stills the sea for one page.
+  while it lasts (oars rowing, a gear, a wake, a flow) a steady `STEADY_FPS`, and `QUIET_FPS` once a minute has passed
+  with no event (`heard`: a long job, a long model call; theseus-n2hd); the swell alone `IDLE_FPS`, one
+  composite pass a frame; the idle roll `ROLL_FPS`. A state that only waits (a question for the operator, a failure's
+  pennant) is lit, not moved.
+  **The sea is the work** (the owner's C5, `src/ship/sea.ts`): its height is tokens a minute and the turns running.
+  **In Live mode it never stops** (the owner, 2026-10-07, theseus-42ic): with nothing happening it rolls slowly at
+  `SEA_ROLL`, a composite of the sea alone `ROLL_FPS` (8) times a second, and any work raises it from there; so an
+  idle Live Ship draws only the roll, and a hidden tab draws nothing. Calm mode (`?calm=1`, the toggle, or
+  `prefers-reduced-motion`) stills it all, the roll included (dead calm, exactly 0: no frame at all), and drops the
+  glow and every chart's transitions: a change draws one frame. `?swell=0` stills the sea for one page.
+- **The page's decorations stand still while nothing changes** (theseus-jgme): the header's sweep, the live dots'
+  pings and the soft pulses run while the daemon says something (a push, a new ledger row, the link changing) and
+  `STIR_MS` after (`src/lib/stir.ts`, `html.stirred`), then stand lit. A new endless CSS animation takes the same
+  rule in `index.css`, beside Calm's.
 - **Sound is off until the operator turns it on** (the Ship's Sound button, kept in the browser): three cues on the
   daemon's own pushes and ledger rows (`src/ship/sound.ts`), made in the browser with Web Audio (`audio.ts`), no
-  recorded or third-party sound. A cue is a row of `CUES`, with its events and its source.
+  recorded or third-party sound. A cue is a row of `CUES`, with its events, its source and its pages. They play on
+  every page (theseus-7zph): the Shell mounts `useSoundCues` once, and the oar splashes only on the Ship.
 - **What's new is one item an addition** (`src/ship/news.ts`): an update that adds something to the Ship adds a stop
   there with its date, which moves `COCKPIT_VERSION`; a browser that has seen the tour flies to only the new stops,
   once.
@@ -145,16 +154,18 @@ build.
   frames, the frames of the swell alone (`swellFrames`), the first frame's time, and the scale.
 - Under a CPU rasteriser, half-float targets and full-resolution texture reads are what cost: keep the post's
   targets 8-bit and its composite at four reads a pixel (the sea, the fleet's layer, and the two blooms).
-- **An idle Ship costs nothing**: the swell rolls only with work (the living sea), so a Ship with nothing running draws
-  no frame, Live mode included (it drew `IDLE_FPS` composites a second, idle included, until theseus-hnof.2: 2.4 to 3.7
-  cores of SwiftShader at 1920×1080, theseus-wp2d). While the sea rolls, each swell frame is the composite alone; a
-  GPU's cost is unmeasured (theseus-n2hd). A headless page left open while work runs takes `?swell=0` or `?calm=1`;
-  whatever moves with the swell goes in `SEA_SWELL` (`shaders.ts`), worked out per pixel from the camera's ray in the
-  composite, never in the sea's cached pass, whose redraw was about half again a swell frame's cost.
+- **An idle Ship stays light**: in Live mode the sea's idle roll draws `ROLL_FPS` composites a second and nothing
+  else; Calm draws no frame. (It drew `IDLE_FPS` composites a second, idle included, until theseus-hnof.2: 2.4 to 3.7
+  cores of SwiftShader at 1920×1080, theseus-wp2d; then none at all, until the owner asked for the roll, theseus-42ic.)
+  Each swell or roll frame is the composite alone; a GPU's cost is unmeasured (theseus-n2hd). A headless page left
+  open takes `?swell=0` or `?calm=1`; whatever moves with the swell goes in `SEA_SWELL` (`shaders.ts`), worked out per
+  pixel from the camera's ray in the composite, never in the sea's cached pass, whose redraw was about half again a
+  swell frame's cost.
 - `window.__shipEngine.motions` (dev and bench builds) lists the motions of the last frame, and `seaLevel` the sea's
   height; `window.__shipCues` the sound cues played.
 - Headless Chrome never hides a page (a tab behind another, or a minimized window, still runs requestAnimationFrame
-  at 60 a second), and it composites Live mode's CSS animations all the time. To check a hidden tab, set
+  at 60 a second), and it composites Live mode's CSS animations while they run (a few seconds after each change,
+  `stir.ts`; until theseus-jgme, all the time). To check a hidden tab, set
   `document.hidden` and fire `visibilitychange`; to price the swell, compare Live against Live with `?swell=0`, not
   against Calm, which also stops those animations.
 

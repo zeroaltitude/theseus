@@ -27,12 +27,12 @@ export const NEWS: NewsItem[] = [
   },
   {
     id: 'sea', since: '2026-10-07', title: 'The sea carries the work',
-    body: 'Dead calm when nothing runs, and then the Ship draws nothing at all. The swell rises with tokens a minute and the turns running, and settles as they end; the sea on the console says how high, in words. Calm mode stills it.',
+    body: 'A slow roll when nothing runs, at a few frames a second, and nothing else moves. The swell rises with tokens a minute and the turns running, and settles back to the roll as they end; the sea on the console says how high, in words. Calm mode stills it.',
     anchor: { kind: 'dom', selector: '.ship-sea' },
   },
   {
     id: 'sound', since: '2026-10-07', title: 'Sound, if you want it',
-    body: 'Off until you turn it on, here. Then three quiet cues, made in the browser: an oar going out splashes, something waiting for you rings the ship’s bell (you hear it from another window), and a failure sounds a low horn.',
+    body: 'Off until you turn it on, here. Then three quiet cues, made in the browser: an oar going out splashes, something waiting for you rings the ship’s bell (you hear it from another window), and a failure sounds a low horn; the bell and the horn on every page.',
     anchor: { kind: 'dom', selector: '.ship-sound' },
   },
   {

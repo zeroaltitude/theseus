@@ -1,8 +1,9 @@
 // The Ship's plain words (`src/ship/words.ts`, theseus-hnof), run by `npm test`: every shape says what it is.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import {
-  authorWord, benchLabel, benchLine, benchState, count, depthOf, harbourLine, keelTags, oarTag, outcome, plateLine, rawState, recentLine, SHAPES, span,
+  authorWord, benchLabel, benchLine, benchState, cardLines, count, depthOf, harbourLine, keelTags, oarTag, outcome, plateLine, rawState, recentLine, SHAPES, span,
   stateWord, usdShort,
   vesselNoun, vesselSea,
 } from '../src/ship/words.ts'
@@ -125,4 +126,22 @@ test('a vessel keeps its recorded state and attention, and its turns of the last
   assert.equal(recentLine(9, 17), '9 of its 17 turns in the last hour')
   assert.equal(recentLine(1, 1), '1 of its 1 turn in the last hour')
   assert.equal(recentLine(0, 17), null)
+})
+
+test('the vessel card keeps every datum: its state, its turns and the last hour’s (N5), its messages (N1) and calls (theseus-n7ra)', () => {
+  const vessel = v({ state: 'waiting', attention: { level: 'ready', label: 'ready' }, turns: 17, goldPlanks: 2 })
+  const c = cardLines(vessel, { user: 19, model: 33, call: 25 }, 3, '4m ago')
+  assert.equal(c.state, 'waiting · ready')
+  assert.equal(c.turns, '17 · 2 in the last hour · last 4m ago')
+  assert.equal(c.calls, '19 messages · 33 model calls · 25 tool calls')
+  assert.equal(c.failed, ', 3 failed')
+  // One of each, none in the last hour, none failed.
+  const one = cardLines(v({ state: 'running', turns: 1, goldPlanks: 0 }), { user: 1, model: 1, call: 1 }, 0, 'now')
+  assert.equal(one.turns, '1 · last now')
+  assert.equal(one.calls, '1 message · 1 model call · 1 tool call')
+  assert.equal(one.failed, null)
+  // The card draws these lines, not its own.
+  const view = readFileSync(new URL('../src/views/Ship.tsx', import.meta.url), 'utf8')
+  assert.match(view, /const card = cardLines\(v, \{ user: kinds\.user, model: kinds\.model, call: kinds\.call \}, failed, ago\(v\.lastActive, now\)\)/)
+  for (const line of ['{card.state}', '{card.turns}', '{card.calls}', '{card.failed}']) assert.ok(view.includes(line), line)
 })
