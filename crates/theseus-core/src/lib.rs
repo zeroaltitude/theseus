@@ -283,6 +283,8 @@ mod tests_sink_between;
 #[cfg(test)]
 mod tests_sink_blobs;
 #[cfg(test)]
+mod tests_sink_busy;
+#[cfg(test)]
 mod tests_sink_flush;
 #[cfg(test)]
 mod tests_sink_off_turn;
