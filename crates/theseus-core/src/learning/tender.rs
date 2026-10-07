@@ -274,6 +274,75 @@ mod tests {
         );
     }
 
+    /// A stop that lands while the tender's read waits polls no timer after
+    /// the runtime's end (theseus-fy0i). The read, in `theseus_store::blocking`
+    /// as `next`'s is, outlives the start of the runtime's drop. The tender
+    /// then polled its first `sleep_until` after the drop had shut the time
+    /// driver down, and tokio's panic aborted the release daemon: a stop 100
+    /// ms after serving did, once in six. The read is held here until the
+    /// driver fires a canary an hour early, as it fires every timer when it
+    /// shuts down, so no sleep decides the order.
+    #[test]
+    fn a_stop_while_the_tenders_read_waits_polls_no_timer_after_it() {
+        use std::future::Future;
+        use std::sync::mpsc;
+        use std::task::{Context, Waker};
+        let rt = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(1)
+            .enable_time()
+            .build()
+            .unwrap();
+        let canary = {
+            let _in = rt.enter();
+            let mut s = Box::pin(tokio::time::sleep(Duration::from_secs(3600)));
+            let polled = s.as_mut().poll(&mut Context::from_waker(Waker::noop()));
+            assert!(
+                polled.is_pending(),
+                "the canary is registered, an hour away"
+            );
+            s
+        };
+        let (entered, held) = mpsc::channel();
+        let (release, released) = mpsc::channel::<()>();
+        let tender = rt.spawn(tend(
+            Instant::now(),
+            move || {
+                theseus_store::blocking(|| {
+                    let _ = entered.send(());
+                    let _ = released.recv();
+                });
+                Some((Duration::from_secs(60), "nightly"))
+            },
+            |_| async {},
+        ));
+        held.recv().unwrap();
+        // The worker's role went to another thread: a task spawned now runs
+        // while the read still holds the worker's first thread.
+        rt.block_on(rt.spawn(async {})).unwrap();
+        let releaser = std::thread::spawn(move || {
+            let t = std::time::Instant::now();
+            while !canary.is_elapsed() && t.elapsed() < Duration::from_secs(60) {
+                std::thread::sleep(Duration::from_millis(1));
+            }
+            let fired = canary.is_elapsed();
+            release.send(()).unwrap();
+            fired
+        });
+        drop(rt);
+        assert!(
+            releaser.join().unwrap(),
+            "the runtime's drop never shut its time driver down"
+        );
+        let ended = tokio::runtime::Builder::new_current_thread()
+            .build()
+            .unwrap()
+            .block_on(tender);
+        assert!(
+            ended.as_ref().is_err_and(|e| e.is_cancelled()),
+            "the tender polled its timer after the runtime's drop shut the driver down: {ended:?}"
+        );
+    }
+
     /// The thread's policy, as `/proc` says: field 41 of its `stat`,
     /// counted after the command's closing paren.
     fn proc_policy() -> i32 {

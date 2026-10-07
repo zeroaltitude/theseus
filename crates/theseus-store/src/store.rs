@@ -434,13 +434,42 @@ pub(crate) fn count_rows(rows: u64) {
 /// that called, so what it holds by thread (an execution's or a session's
 /// lock) stays its own. Anywhere else (a plain thread, the blocking pool, a
 /// current-thread runtime, where `block_in_place` would panic) it simply
-/// runs `f`.
+/// runs `f`. After `f`, the task gives way at its next await on a tokio
+/// resource (`spend_task_budget`, theseus-fy0i).
 pub fn blocking<R>(f: impl FnOnce() -> R) -> R {
     match tokio::runtime::Handle::try_current() {
         Ok(h) if h.runtime_flavor() == tokio::runtime::RuntimeFlavor::MultiThread => {
-            tokio::task::block_in_place(f)
+            let r = tokio::task::block_in_place(f);
+            spend_task_budget();
+            r
         }
         _ => f(),
+    }
+}
+
+/// tokio's budget for one poll of a task (`Budget::initial`, tokio 1.53).
+/// `tests_blocking` fails if a section leaves any of it.
+const TASK_BUDGET: usize = 128;
+
+/// Spend what is left of the running task's budget (tokio's coop), so its
+/// next await on a tokio resource (a timer, a channel, a socket) gives way
+/// before it touches the resource (theseus-fy0i). A task whose worker's role
+/// went to another thread in `block_in_place` runs on without a worker until
+/// it gives way, and the runtime's drop waits for no such task before it
+/// shuts the time driver down: a timer polled after that panics ("A Tokio
+/// 1.x context was found, but it is being shutdown"), which aborts a release
+/// daemon. A stop soon after serving did, as a tender's read ended and its
+/// `sleep_until` was polled; every append waits here too. Having given way,
+/// the task is polled again only by a worker, which the drop does wait for,
+/// or dropped with the runtime. The blocking pool's budget is unconstrained:
+/// nothing to spend.
+fn spend_task_budget() {
+    let mut cx = std::task::Context::from_waker(std::task::Waker::noop());
+    for _ in 0..=TASK_BUDGET {
+        match tokio::task::coop::poll_proceed(&mut cx) {
+            std::task::Poll::Ready(spent) => spent.made_progress(),
+            std::task::Poll::Pending => return,
+        }
     }
 }
 
@@ -1728,6 +1757,8 @@ impl Store for WalStore {
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_blocking;
 #[cfg(test)]
 mod tests_frame_times;
 #[cfg(test)]
