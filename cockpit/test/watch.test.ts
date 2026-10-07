@@ -455,8 +455,8 @@ test("the words: a job's program, and each plate's key", () => {
   assert.equal(commandKey(['sh', '-c', 'sleep 8; echo 41 departures']), 'sleep N; echo N departures')
   assert.equal(commandKey(['cargo', 'build', '--release']), 'cargo build --release')
   assert.equal(programOf(['sh', '-c', '"$x" go']), undefined)
-  assert.deepEqual(WATCH_KEYS.map(keyOf), ['1', '2', '3', '4', '5'])
-  assert.deepEqual([keyOf('working'), keyOf('wrong')], ['1', '5'])
+  assert.deepEqual(WATCH_KEYS.map(keyOf), ['1', '2', '3', '4', '5', '6'])
+  assert.deepEqual([keyOf('working'), keyOf('wrong'), keyOf('since')], ['1', '5', '6'])
 })
 
 test('a session that holds web text waits for your trust: said in the caption and on its line, not in the number', () => {

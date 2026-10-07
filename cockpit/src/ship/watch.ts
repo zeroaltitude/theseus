@@ -1,7 +1,7 @@
-// The watch (theseus-hnof): five questions the owner asks of the fleet, answered at a glance on the Ship's right, each
-// on a brass plate: what is working now, what waits for you, what is slow, what today cost, and what went wrong. For
-// each: the number, what it counts, up to three lines (newest or worst first), and what its overlay lights on the
-// chart. This is the pure half; `Watch.tsx` draws it.
+// The watch (theseus-hnof): the questions the owner asks of the fleet, answered at a glance on the Ship's right, each
+// on a brass plate: what is working now, what waits for you, what is slow, what today cost, what went wrong, and (the
+// sixth, `since.ts`) what happened since you last looked. For each: the number, what it counts, up to three lines
+// (newest or worst first), and what its overlay lights on the chart. This is the pure half; `Watch.tsx` draws it.
 //
 // In: the Ship's model, the calls (action.list's newest and every one not settled, or the fold's at the time machine's
 // moment), the questions (confirm.list, or the fold's), the shared ledger history's rows, the moment, and the local
@@ -35,9 +35,9 @@ export const WRONG_KINDS = [
   'job.not_started', 'turn.failed', 'budget.asked', 'execution.budget_exhausted', 'server.crashed',
 ] as const
 
-/** The plates, in their order down the column; the key that toggles each one's overlay is its place, 1 to 5. */
-export type WatchKey = 'working' | 'waiting' | 'slow' | 'spent' | 'wrong'
-export const WATCH_KEYS: readonly WatchKey[] = ['working', 'waiting', 'slow', 'spent', 'wrong']
+/** The plates, in their order down the column; the key that toggles each one's overlay is its place, 1 to 6. */
+export type WatchKey = 'working' | 'waiting' | 'slow' | 'spent' | 'wrong' | 'since'
+export const WATCH_KEYS: readonly WatchKey[] = ['working', 'waiting', 'slow', 'spent', 'wrong', 'since']
 /** The digit that toggles a plate's overlay. */
 export const keyOf = (k: WatchKey): string => String(WATCH_KEYS.indexOf(k) + 1)
 
@@ -709,8 +709,8 @@ export function watchOf(input: WatchInput): WatchPlates {
   }
 }
 
-/** The plates in their order down the column. */
-export const platesOf = (w: WatchPlates): Plate[] => WATCH_KEYS.map((k) => w[k])
+/** The five plates in their order down the column (the sixth, since you last looked, is `since.ts`'s). */
+export const platesOf = (w: WatchPlates): Plate[] => WATCH_KEYS.filter((k): k is keyof WatchPlates => k !== 'since').map((k) => w[k])
 
 function working(input: WatchInput, look: Look, turns: Run[], jobs: Run[], queued: number, turnLights: Map<string, Light[]>): Working {
   const { now } = input
