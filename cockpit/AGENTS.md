@@ -87,11 +87,14 @@ build.
   time names its row in a `motion:` comment, which a test reads (a new animation with no row fails it). A one-off (a
   flare, an oar growing out, a result flashing back) draws every display frame for its seconds; a state that moves
   while it lasts (oars rowing, a gear, a wake, a flow) a steady `STEADY_FPS`; the swell alone `IDLE_FPS`, one
-  composite pass a frame. A state that only waits (a question for the operator, a failure's pennant) is lit, not moved.
-  **The sea is the work** (the owner's C5, `src/ship/sea.ts`): its height is tokens a minute and the turns running,
-  dead calm (exactly 0) when nothing happens, so an idle Ship draws no frame at all; a hidden tab draws nothing. Calm
-  mode (`?calm=1`, the toggle, or `prefers-reduced-motion`) stills it all and drops the glow and every chart's
-  transitions: a change draws one frame. `?swell=0` stills the sea for one page.
+  composite pass a frame; the idle roll `ROLL_FPS`. A state that only waits (a question for the operator, a failure's
+  pennant) is lit, not moved.
+  **The sea is the work** (the owner's C5, `src/ship/sea.ts`): its height is tokens a minute and the turns running.
+  **In Live mode it never stops** (the owner, 2026-10-07, theseus-42ic): with nothing happening it rolls slowly at
+  `SEA_ROLL`, a composite of the sea alone `ROLL_FPS` (8) times a second, and any work raises it from there; so an
+  idle Live Ship draws only the roll, and a hidden tab draws nothing. Calm mode (`?calm=1`, the toggle, or
+  `prefers-reduced-motion`) stills it all, the roll included (dead calm, exactly 0: no frame at all), and drops the
+  glow and every chart's transitions: a change draws one frame. `?swell=0` stills the sea for one page.
 - **Sound is off until the operator turns it on** (the Ship's Sound button, kept in the browser): three cues on the
   daemon's own pushes and ledger rows (`src/ship/sound.ts`), made in the browser with Web Audio (`audio.ts`), no
   recorded or third-party sound. A cue is a row of `CUES`, with its events and its source.
@@ -135,12 +138,13 @@ build.
   frames, the frames of the swell alone (`swellFrames`), the first frame's time, and the scale.
 - Under a CPU rasteriser, half-float targets and full-resolution texture reads are what cost: keep the post's
   targets 8-bit and its composite at four reads a pixel (the sea, the fleet's layer, and the two blooms).
-- **An idle Ship costs nothing**: the swell rolls only with work (the living sea), so a Ship with nothing running draws
-  no frame, Live mode included (it drew `IDLE_FPS` composites a second, idle included, until theseus-hnof.2: 2.4 to 3.7
-  cores of SwiftShader at 1920×1080, theseus-wp2d). While the sea rolls, each swell frame is the composite alone; a
-  GPU's cost is unmeasured (theseus-n2hd). A headless page left open while work runs takes `?swell=0` or `?calm=1`;
-  whatever moves with the swell goes in `SEA_SWELL` (`shaders.ts`), worked out per pixel from the camera's ray in the
-  composite, never in the sea's cached pass, whose redraw was about half again a swell frame's cost.
+- **An idle Ship stays light**: in Live mode the sea's idle roll draws `ROLL_FPS` composites a second and nothing
+  else; Calm draws no frame. (It drew `IDLE_FPS` composites a second, idle included, until theseus-hnof.2: 2.4 to 3.7
+  cores of SwiftShader at 1920×1080, theseus-wp2d; then none at all, until the owner asked for the roll, theseus-42ic.)
+  Each swell or roll frame is the composite alone; a GPU's cost is unmeasured (theseus-n2hd). A headless page left
+  open takes `?swell=0` or `?calm=1`; whatever moves with the swell goes in `SEA_SWELL` (`shaders.ts`), worked out per
+  pixel from the camera's ray in the composite, never in the sea's cached pass, whose redraw was about half again a
+  swell frame's cost.
 - `window.__shipEngine.motions` (dev and bench builds) lists the motions of the last frame, and `seaLevel` the sea's
   height; `window.__shipCues` the sound cues played.
 - Headless Chrome never hides a page (a tab behind another, or a minimized window, still runs requestAnimationFrame

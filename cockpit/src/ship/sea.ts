@@ -1,7 +1,8 @@
-// The living sea (theseus-hnof.2, the owner's C5): the swell carries the work. Dead calm when nothing happens (the
-// render loop stops: an idle Ship draws nothing), rising with real work, tokens a minute and the turns running, and
-// settling as it ends. Calm mode and reduced motion still it. Pure: the Ship computes the sea's height from its data,
-// the engine eases toward it every frame, and a test holds both.
+// The living sea (theseus-hnof.2, the owner's C5): the swell carries the work, rising with real work, tokens a minute
+// and the turns running, and settling as it ends. In Live mode it never stops: with nothing happening it rolls slowly,
+// low, at a few frames a second (the owner, 2026-10-07, theseus-42ic), and the work raises it from there. Calm mode and
+// reduced motion still it: dead calm, and the loop stops. Pure: the Ship computes the sea's height from its data, the
+// engine eases toward it every frame, and a test holds both.
 
 /** Tokens a minute at which the sea runs highest; below it the height grows with the logarithm, so a single model
  *  call's few hundred tokens show as a light swell and a cached long context's hundred thousand as a heavy sea. */
@@ -21,17 +22,32 @@ export function seaTarget(tpm: number | null | undefined, turns: number): number
 export const SEA_RISE_S = 2.5
 export const SEA_SETTLE_S = 8
 
+/** The idle roll's height (theseus-42ic): Live mode's sea with nothing happening, a slow low swell. */
+export const SEA_ROLL = 0.05
+
+/** The sea's height in Live mode: the roll, raised by the work (any work raises it above the roll); and with the sea
+ *  stilled (Calm, reduced motion, `?swell=0`) the work's height alone, which nothing draws. */
+export function seaHeight(work: number, rolls: boolean): number {
+  const w = Math.max(0, Math.min(1, work))
+  return rolls ? SEA_ROLL + (1 - SEA_ROLL) * w : w
+}
+
 /** The sea's height after `dt` seconds of easing toward its target: up over a few seconds, down slower (it settles as
- *  the work ends); on its way down to nothing it reaches dead calm, exactly 0, and the loop stops. */
+ *  the work ends) to the roll, where it stays exactly; on its way down to nothing (the sea stilled) it reaches dead
+ *  calm, exactly 0, and the loop stops. The roll is already rolling: from dead calm (a page that opens, Calm let go)
+ *  the sea starts at the roll, not easing up to it. */
 export function seaStep(level: number, target: number, dt: number): number {
+  if (target <= SEA_ROLL && level < target) return target
   const tau = target > level ? SEA_RISE_S : SEA_SETTLE_S
   const next = level + (target - level) * (1 - Math.exp(-Math.max(0, dt) / tau))
+  if (target > 0 && Math.abs(next - target) < 0.002) return target
   return target === 0 && next < 0.01 ? 0 : next
 }
 
 /** The sea's state in a sailor's words, for the console and the key. */
 export function seaWord(height: number): string {
   if (height <= 0) return 'dead calm'
+  if (height <= SEA_ROLL) return 'a slow roll'
   if (height < 0.25) return 'a light swell'
   if (height < 0.55) return 'a moderate swell'
   if (height < 0.8) return 'a rough sea'

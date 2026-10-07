@@ -27,7 +27,7 @@ export const NEWS: NewsItem[] = [
   },
   {
     id: 'sea', since: '2026-10-07', title: 'The sea carries the work',
-    body: 'Dead calm when nothing runs, and then the Ship draws nothing at all. The swell rises with tokens a minute and the turns running, and settles as they end; the sea on the console says how high, in words. Calm mode stills it.',
+    body: 'A slow roll when nothing runs, at a few frames a second, and nothing else moves. The swell rises with tokens a minute and the turns running, and settles back to the roll as they end; the sea on the console says how high, in words. Calm mode stills it.',
     anchor: { kind: 'dom', selector: '.ship-sea' },
   },
   {

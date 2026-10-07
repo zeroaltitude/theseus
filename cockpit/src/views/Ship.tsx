@@ -10,7 +10,7 @@ import { ShipEngine, type Hit } from '@/ship/engine'
 import { LabelLayer, usdShort } from '@/ship/labels'
 import { Minimap, type MinimapHandle } from '@/ship/Minimap'
 import { EngineTelegraph, Nixie, SeaGauge } from '@/ship/instruments'
-import { seaTarget, seaWord } from '@/ship/sea'
+import { seaHeight, seaTarget, seaWord } from '@/ship/sea'
 import { useShipSound } from '@/ship/useShipSound'
 import '@/ship/ship.css'
 import { useShipLive, useShipSynthetic, type ShipData } from '@/ship/useShipData'
@@ -357,9 +357,10 @@ function ShipView({ data, onFail }: { data: ShipData; onFail: OnFail }) {
   // The time machine: the gauges read the fold at its moment, not today's health.
   const g = data.past?.gauges
   // The living sea (the owner's C5): its height is the work now, tokens a minute and the turns running (the moment's,
-  // under the time machine); dead calm when nothing happens.
+  // under the time machine). In Live mode it rolls slowly when nothing happens, and the work raises it from there
+  // (theseus-42ic); Calm, reduced motion and `?swell=0` still it: dead calm.
   const turnsRunning = g ? g.running : h?.kernel.executions_by_state.running ?? 0
-  const sea = seaTarget(data.tpm, turnsRunning)
+  const sea = seaHeight(seaTarget(data.tpm, turnsRunning), swell && !calm)
   useEffect(() => { engine?.setSea(sea) }, [engine, sea])
 
   return (
@@ -400,7 +401,7 @@ function ShipView({ data, onFail }: { data: ShipData; onFail: OnFail }) {
           ceiling={h?.kernel.admission_ceiling ?? 8} held={g ? 0 : h?.kernel.turns_held ?? 0} />
         <Nixie value={data.tpm} label="Tokens / min" title="Tokens a minute: input, cache, and output of every model call in the last sixty seconds (provider.call rows)." />
         <SeaGauge height={sea} word={seaWord(sea)}
-          title={`The sea is the work now: ${seaWord(sea)}. Dead calm when nothing runs; the swell on the chart rises with tokens a minute (${(data.tpm ?? 0).toLocaleString('en-US')}) and the turns running (${turnsRunning}), and settles as they end. Calm mode stills it.`} />
+          title={`The sea is the work now: ${seaWord(sea)}. A slow roll when nothing runs; the swell on the chart rises with tokens a minute (${(data.tpm ?? 0).toLocaleString('en-US')}) and the turns running (${turnsRunning}), and settles as they end. Calm mode stills it.`} />
       </div>
 
       <div data-ship-ui className="ship-watch-slot pointer-events-auto absolute right-3 top-[64px]">

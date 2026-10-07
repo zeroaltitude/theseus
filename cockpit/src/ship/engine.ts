@@ -6,13 +6,14 @@
 // Everything moves only when the daemon says something happened, as the motion table says (`motion.ts`, theseus-hnof.2):
 // a one-off (a flare, an oar growing out, a result flashing back) at every display frame for its seconds; a state that
 // moves while it lasts (oars rowing, a gear turning, a wake) at a steady pace; the sea's swell alone at the sea's pace,
-// the composite alone, which draws the waves over the sea's cache and under the fleet's layer, both kept (`post.ts`).
-// When nothing moves, nothing is drawn. A hidden tab draws nothing. Calm mode stops all motion, the swell included,
-// and the post-processing: a change draws one frame. `?swell=0` stills the sea for one page.
+// the composite alone, which draws the waves over the sea's cache and under the fleet's layer, both kept (`post.ts`);
+// and with nothing happening in Live mode, the slow roll at its few frames a second, the composite alone (theseus-42ic).
+// When nothing moves (Calm, `?swell=0`), nothing is drawn. A hidden tab draws nothing. Calm mode stops all motion, the
+// swell included, and the post-processing: a change draws one frame. `?swell=0` stills the sea for one page.
 import * as THREE from 'three'
 import { IDLE_FPS, Loop, type Tick } from './loop'
 import { motionsNow, paceOf, type MotionId } from './motion'
-import { seaPace, seaStep } from './sea'
+import { SEA_ROLL, seaPace, seaStep } from './sea'
 import { oarReach, type Light, type ShipModel } from './model'
 import { Post } from './post'
 import {
@@ -113,8 +114,8 @@ export class ShipEngine {
   swell: boolean
   /** The swell's own clock, in seconds: it runs only while the sea rolls, so Calm stills the sea where it is. */
   private swellT = 0
-  /** The living sea (`sea.ts`): the height the work asks for, and the height the swell has now, easing toward it. At 0
-   *  the sea is dead calm and nothing is drawn for it. */
+  /** The living sea (`sea.ts`): the height the work asks for, and the height the swell has now, easing toward it. At
+   *  the roll (`SEA_ROLL`) it rolls slowly; at 0 (the sea stilled) it is dead calm and nothing is drawn for it. */
   private seaWant = 0
   seaLevel = 0
   private hooks: EngineHooks = {}
@@ -334,7 +335,7 @@ export class ShipEngine {
     this.requestRender()
   }
 
-  /** The sea's height for the work now (`seaTarget`): the swell eases toward it, and settles to dead calm at 0. */
+  /** The sea's height (`seaHeight`): the swell eases toward it, settling to the roll, or to dead calm at 0. */
   setSea(height: number) {
     const h = Math.max(0, Math.min(1, height))
     if (h === this.seaWant) return
@@ -1246,9 +1247,14 @@ export class ShipEngine {
 
   private onVisibility = () => this.loop.visibility()
 
-  /** Whether the sea rolls now: Live mode (unless `?swell=0`), with work going on or its swell still settling. */
+  /** Whether the sea rolls now: Live mode (unless `?swell=0`), at its roll or raised by the work. */
   private rolling(): boolean {
     return this.swell && !this.calm && !this.disposed && this.seaLevel > 0
+  }
+
+  /** The sea at its roll, and no work to raise it: the idle roll, at its few frames a second (theseus-42ic). */
+  private atRoll(): boolean {
+    return this.seaLevel <= SEA_ROLL && this.seaWant <= SEA_ROLL
   }
 
   private lastFrame = performance.now()
@@ -1271,7 +1277,8 @@ export class ShipEngine {
       gears: !!m?.lights.some((l) => l.running),
       tethers: !!m?.tethers.some((x) => x.live),
       currents: !!m?.currents.some((c) => v[c.from]?.rig === 'sail' || v[c.to]?.rig === 'sail'),
-      sea: this.rolling(),
+      sea: this.rolling() && !this.atRoll(),
+      roll: this.rolling() && this.atRoll(),
     })
   }
 
@@ -1284,7 +1291,7 @@ export class ShipEngine {
     // counts as 250: skipped, as it was, a CPU rasteriser whose first frames ran slow kept full resolution for good.
     if (tick.paced) this.adapt(Math.min(interval, 250))
     const t = this.now()
-    // The sea first: it eases toward the work's height, and on reaching dead calm this frame stills it.
+    // The sea first: it eases toward its height; at the roll it rolls slowly, and on reaching dead calm it is still.
     this.seaLevel = this.swell && !this.calm ? seaStep(this.seaLevel, this.seaWant, Math.min(0.25, interval / 1000)) : 0
     this.swellU.uSea.value = this.seaLevel
     const camMoved = this.stepCamera(performance.now())

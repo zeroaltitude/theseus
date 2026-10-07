@@ -13,7 +13,7 @@
 //   rig           = the state: sail up working, lantern waiting for you, flare failed, at anchor idle
 //   gold planks   = its turns of the last hour; a chain along its rail = it holds text from the web until trusted
 //   gold coin     = a turn's cost, flying to "Spent today"; violet spark = a turn that recalled memory
-//   the swell     = the work now: dead calm when nothing runs, rising with tokens a minute and running turns
+//   the swell     = the work now: a slow roll when nothing runs, rising with tokens a minute and running turns
 
 /** Every shape the chart draws: what it is (`word`, as the key says it), its bare noun (as a card's head says it), and how
  *  the chart draws it (`sea`). */

@@ -60,7 +60,7 @@ export interface KeyProps {
   /** The height the key may take (CSS pixels), when the selected vessel's card stands above it: its lines scroll
    *  rather than run under the card. */
   maxHeight?: number
-  /** The sea's state in words ("dead calm", "a moderate swell"): the key's last line says it. */
+  /** The sea's state in words ("a slow roll", "a moderate swell"): the key's last line says it. */
   sea?: string
 }
 
@@ -102,7 +102,7 @@ export function Key({ model, pinned, onPreview, onPin, onTour, maxHeight, sea }:
           ))}
           <div className="ship-key-group">
             <div className="px-1 text-[9.5px] uppercase tracking-[0.14em] text-ink-faint">The sea</div>
-            <div className="ship-key-row text-[11px] text-ink-dim" title="The swell rises with tokens a minute and the turns running, and settles as they end; nothing moves when nothing happens">
+            <div className="ship-key-row text-[11px] text-ink-dim" title="The swell rises with tokens a minute and the turns running, and settles as they end; with nothing happening it rolls slowly">
               <KeyGlyph g="sea" />
               <span className="min-w-0 truncate leading-tight"><b>{SHAPES.sea.word}</b> <span className="text-[10px] text-ink-faint">· {SHAPES.sea.sea}</span></span>
               <small className="whitespace-nowrap">{sea ?? '—'}</small>

@@ -138,11 +138,11 @@ vec3 seaSwell(vec2 uv) {
   vec2 p = uCamPos.xz + dir.xz * (uCamPos.y / max(-dir.y, 1e-5));
   float near = smoothstep(2.6, 0.15, length(p - uTarget) * uNearScale);
   vec2 sp = p * uWaveScale;
-  float rise = uSea; // motion: sea
-  float lift = sin(sp.y * 0.6 - uSwell * 0.3307); // motion: sea
+  float rise = uSea; // motion: sea roll
+  float lift = sin(sp.y * 0.6 - uSwell * 0.3307); // motion: sea roll
   float amp = rise * (1.0 + 2.2 * rise);
-  float wy = sp.y + sin(sp.x * 4.2 + sp.y * 3.1415927 - uSwell * 0.4488) * 0.11 // motion: sea
-    + amp * (sin(sp.x * 1.7 + sp.y * 0.9 + uSwell * 0.2027) * 0.04 + lift * 0.05); // motion: sea
+  float wy = sp.y + sin(sp.x * 4.2 + sp.y * 3.1415927 - uSwell * 0.4488) * 0.11 // motion: sea roll
+    + amp * (sin(sp.x * 1.7 + sp.y * 0.9 + uSwell * 0.2027) * 0.04 + lift * 0.05); // motion: sea roll
   float wave = lineAt(wy, fwidth(wy), 0.6);
   // A row's light grows as the swell lifts it, and a heavy sea's crests catch the light.
   float crest = smoothstep(0.55, 1.0, lift);
@@ -156,7 +156,7 @@ vec3 seaSwell(vec2 uv) {
     vec2 c = (cell + 0.2 + 0.6 * vec2(seaHash(cell + 7.1), seaHash(cell + 3.3))) * 9.0;
     float sd = length(p - c);
     float rad = min(0.18 + fwp * 1.2, 1.6);
-    float glint = 1.0 + rise * 0.45 * sin(uSwell * (0.7 + seaHash(cell + 5.9) * 0.86) + seaHash(cell + 1.7) * 6.2831853); // motion: sea
+    float glint = 1.0 + rise * 0.45 * sin(uSwell * (0.7 + seaHash(cell + 5.9) * 0.86) + seaHash(cell + 1.7) * 6.2831853); // motion: sea roll
     col += vec3(0.91, 0.79, 0.50) * (1.0 - smoothstep(rad * 0.5, rad, sd)) * 0.5 * near * smoothstep(8.0, 18.0, cellPx) * glint;
   }
   return col * uWaves;
