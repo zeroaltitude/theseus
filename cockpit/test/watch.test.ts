@@ -568,6 +568,20 @@ test("slow holds a job that echoes first against its working program's runs, nev
   assert.deepEqual(sc.usuals.of('proc.run', ['sh', '-c', 'echo go; make -j9']), { ms: 3000, n: 3, of: '`make` jobs' })
 })
 
+test('a kept scan lets a failure go when the last 24 hours pass it, with no new row to tell it', () => {
+  // A call failed at 22:00 last night; the moment moves on through today, the same local day, and no row comes.
+  const rows = [
+    row(DAY - 2 * HOUR_MS, 'action.planned', 'ses_a', { correlation_id: 'act_f', tool: 'fs.read' }),
+    row(DAY - 2 * HOUR_MS + 1, 'action.failed', 'ses_a', { correlation_id: 'act_f', producer: 'inproc:fs.read', duration_ms: 5 }),
+  ]
+  const day = new DayScan()
+  const wrong = (now: number) => watchOf(at({ rows, now }), day).wrong.count
+  // A minute before it is a day old, and a minute after: the window has moved two minutes.
+  assert.equal(wrong(DAY + 22 * HOUR_MS - MIN), 1, 'at 21:59, 23 h 59 m on: in the last day')
+  assert.equal(wrong(DAY + 22 * HOUR_MS + MIN), 0, 'at 22:01, a day and a minute on: gone, as a fresh read says')
+  assert.equal(watchOf(at({ rows, now: DAY + 22 * HOUR_MS + MIN })).wrong.count, 0)
+})
+
 test("a kept scan counts a call again when its plan row's time comes after it settled", () => {
   // Rows in the ledger's order, a skew apart in time: act_x's plan and job rows carry a time after its settle row's.
   const T = NOW - 2 * HOUR_MS
