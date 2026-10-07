@@ -583,6 +583,17 @@ impl Store {
         Some(t.frames.load(std::sync::atomic::Ordering::Relaxed))
     }
 
+    /// The slowest frame the store's writer answered since `since`, as a
+    /// turn's trace carries it (theseus-w7dk): `{"first": <position>, "us":
+    /// <writer microseconds>}`, null when none was answered. A free-form
+    /// attribute of the trace, which owes the store's format nothing.
+    pub fn slowest_frame_since(&self, since: std::time::Instant) -> serde_json::Value {
+        self.inner.slowest_frame_since(since).map_or(
+            serde_json::Value::Null,
+            |f| serde_json::json!({ "first": f.first, "us": f.us }),
+        )
+    }
+
     /// Count `n` frames the turn wrote by another way than this handle: its
     /// admission's, written before the handle was made (theseus-wz4y).
     pub fn count_frames(&self, n: u64) {

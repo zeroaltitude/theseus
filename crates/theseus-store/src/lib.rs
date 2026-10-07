@@ -26,6 +26,7 @@
 //! record bumps the format, and lands with the reader for the layout it
 //! replaces.
 
+pub mod frame_times;
 pub mod index;
 pub mod pages;
 pub mod pressure;
@@ -34,6 +35,7 @@ pub mod repair;
 pub mod store;
 pub mod wal;
 
+pub use frame_times::FrameTime;
 pub use index::{Engine, Location, MovedAside, Sums};
 pub use pages::{Page, PageOut};
 pub use record::{kinds, NewRecord, Record, RecordKind, FROZEN_SCHEMA};
