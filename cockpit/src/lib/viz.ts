@@ -237,6 +237,50 @@ export function binByKey<T>(items: readonly T[], at: (x: T) => number, key: (x: 
   return { starts, ends: starts.map((s, i) => (i === bins - 1 ? stop : s + size)), counts, totals }
 }
 
+export interface Rect { x: number; y: number; w: number; h: number }
+
+/** The squarified treemap (Bruls, Huizing, and van Wijk): each value a rectangle of its share of `r`'s area, laid in rows
+ *  that keep the tiles as near square as their order allows, the largest first. The rectangles come back in the values'
+ *  own order; a value of zero or less gets an empty one. */
+export function squarify(values: readonly number[], r: Rect): Rect[] {
+  const out: Rect[] = values.map(() => ({ x: r.x, y: r.y, w: 0, h: 0 }))
+  const order = values.map((v, i) => [v, i] as const).filter(([v]) => v > 0).sort((a, b) => b[0] - a[0] || a[1] - b[1]).map(([, i]) => i)
+  const total = order.reduce((a, i) => a + values[i], 0)
+  if (!(total > 0) || !(r.w > 0) || !(r.h > 0)) return out
+  const scale = (r.w * r.h) / total
+  const area = (i: number) => values[i] * scale
+  let { x, y, w, h } = r
+  // How far a row's worst tile is from square, laid along a side of this length.
+  const worst = (row: number[], side: number) => {
+    const s = row.reduce((a, i) => a + area(i), 0)
+    let max = 0, min = Infinity
+    for (const i of row) { max = Math.max(max, area(i)); min = Math.min(min, area(i)) }
+    return Math.max((side * side * max) / (s * s), (s * s) / (side * side * min))
+  }
+  const lay = (row: number[]) => {
+    const s = row.reduce((a, i) => a + area(i), 0)
+    if (w >= h) {
+      const t = s / h
+      let yy = y
+      for (const i of row) { const hh = area(i) / t; out[i] = { x, y: yy, w: t, h: hh }; yy += hh }
+      x += t; w -= t
+    } else {
+      const t = s / w
+      let xx = x
+      for (const i of row) { const ww = area(i) / t; out[i] = { x: xx, y, w: ww, h: t }; xx += ww }
+      y += t; h -= t
+    }
+  }
+  let row: number[] = []
+  for (let k = 0; k < order.length;) {
+    const side = Math.min(w, h)
+    if (!row.length || worst([...row, order[k]], side) <= worst(row, side)) { row.push(order[k]); k++ }
+    else { lay(row); row = [] }
+  }
+  if (row.length) lay(row)
+  return out
+}
+
 export interface Growth { session: string; points: [number, number][]; latest: number; max: number; first: number; last: number }
 
 /** Each session's estimated prompt size, compile by compile: its points, its latest and largest, its first and last

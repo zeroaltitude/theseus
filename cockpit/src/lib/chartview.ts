@@ -29,3 +29,13 @@ export function useWidth<T extends HTMLElement>(): [RefObject<T | null>, number]
   }, [])
   return [ref, w]
 }
+
+let measurer: CanvasRenderingContext2D | null = null
+
+/** A text's width in CSS pixels in a canvas font (`11px <family>`): a label is placed where it fits, never guessed. */
+export function textWidth(text: string, font: string): number {
+  measurer ??= document.createElement('canvas').getContext('2d')
+  if (!measurer) return text.length * 6.6
+  measurer.font = font
+  return measurer.measureText(text).width
+}

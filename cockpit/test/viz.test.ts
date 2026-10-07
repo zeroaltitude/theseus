@@ -3,7 +3,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  CATEGORICAL, OTHER, TOKEN_KINDS, TONE_SERIES, barRadius, binByKey, bucketEnd, bucketFor, bucketStart, growthBySession, jitter, kindTokens, latencyByModel,
+  CATEGORICAL, OTHER, TOKEN_KINDS, TONE_SERIES, barRadius, binByKey, bucketEnd, bucketFor, bucketStart, growthBySession, jitter, kindTokens, latencyByModel, squarify,
   msLogTick, msTick, niceScale, niceStep, numTick, quantile, shares, slotColor, slots, spendByBucket, spendBySession, spendTree,
   stackTop, stepDecimals, tokenTick, usTick, usdTick,
 } from '../src/lib/viz.ts'
@@ -146,6 +146,32 @@ test('bins count each key\'s things in equal spans; the end belongs to the last 
   assert.deepEqual(b.totals, [2, 1, 0, 2])
   // An empty span is one millisecond wide, never a division by zero.
   assert.deepEqual(binByKey([{ at: 5, k: 'x' }], (r) => r.at, (r) => r.k, ['x'], 5, 5, 3).totals, [1, 0, 0])
+})
+
+test('the treemap: each tile its share of the area, inside the box, none over another, near square', () => {
+  const box = { x: 10, y: 20, w: 600, h: 220 }
+  const values = [432, 151, 147, 147, 87, 86, 50, 49, 43, 12, 3, 1, 0]
+  const rects = squarify(values, box)
+  const total = values.reduce((a, b) => a + b, 0)
+  const eps = 1e-6
+  rects.forEach((r, i) => {
+    assert.ok(Math.abs((r.w * r.h) / (box.w * box.h) - values[i] / total) < 1e-9, `tile ${i}'s share`)
+    if (values[i] === 0) { assert.equal(r.w * r.h, 0); return }
+    assert.ok(r.x >= box.x - eps && r.y >= box.y - eps && r.x + r.w <= box.x + box.w + eps && r.y + r.h <= box.y + box.h + eps, `tile ${i} inside`)
+  })
+  for (let i = 0; i < rects.length; i++) {
+    for (let j = i + 1; j < rects.length; j++) {
+      const a = rects[i], b = rects[j]
+      const ox = Math.max(0, Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x)), oy = Math.max(0, Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y))
+      assert.ok(ox * oy < 1e-6, `tiles ${i} and ${j} overlap`)
+    }
+  }
+  // The largest tiles are the squarest: none of the top four is thinner than 1 to 3.
+  for (const r of rects.slice(0, 4)) assert.ok(Math.max(r.w / r.h, r.h / r.w) < 3, `aspect ${r.w}x${r.h}`)
+  // Nothing to lay, or nowhere to lay it: empty tiles, never a division by zero.
+  assert.deepEqual(squarify([0, 0], box).map((r) => r.w * r.h), [0, 0])
+  assert.deepEqual(squarify([5], { x: 0, y: 0, w: 0, h: 10 }).map((r) => r.w * r.h), [0])
+  assert.deepEqual(squarify([5], { x: 1, y: 2, w: 30, h: 10 }), [{ x: 1, y: 2, w: 30, h: 10 }])
 })
 
 test('growth by session: each session\'s compiles, its latest and largest prompt, the largest latest first', () => {

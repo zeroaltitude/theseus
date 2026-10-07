@@ -28,7 +28,7 @@ import {
 } from '@/lib/viz'
 import { tip, type TipRow } from '@/lib/viztip'
 import { ChartPanel, StatTile, Swatch, TipArea, TipBody, TipTarget, type LegendItem, type TableSpec } from '@/components/ChartPanel'
-import { useWidth } from '@/lib/chartview'
+import { textWidth, useWidth } from '@/lib/chartview'
 import { AttentionPill, Panel, Pill, Segmented } from '@/components/ui'
 import { useHistory, useTick } from '@/lib/hooks'
 
@@ -500,15 +500,6 @@ function latencyTable(calls: ProviderCall[], title: (sid: string | null | undefi
 
 // ---------------------------------------------------------------- spend flow
 
-/** Text width in the chart's sans at 11 px, measured, so a session's name gets the room it needs, never a guess. */
-let measurer: CanvasRenderingContext2D | null = null
-function textWidth(s: string): number {
-  measurer ??= document.createElement('canvas').getContext('2d')
-  if (!measurer) return s.length * 6.2
-  measurer.font = `11px ${FONTS.sans}`
-  return measurer.measureText(s).width
-}
-
 /** The spend as a flow: each provider into its models (in their slots' colours, Economics' too), each model into its
  *  sessions, a link's width its dollars. The sessions' names get the right margin they need, up to two fifths of the
  *  panel, and a name longer than that ends in an ellipsis (never a cut), whole in the tip and the table. */
@@ -534,7 +525,7 @@ function SpendFlow({ calls, slot, title, onPick }: { calls: ProviderCall[]; slot
         }
       }
     }
-    const room = Math.min(Math.max(...[...sessionNames.values()].map(textWidth), 40) + 14, Math.max(80, (width || 400) * 0.44))
+    const room = Math.min(Math.max(...[...sessionNames.values()].map((t) => textWidth(t, `11px ${FONTS.sans}`)), 40) + 14, Math.max(80, (width || 400) * 0.44))
     // A node too thin to hold its name keeps it in the tip and the table, so names never pile up: the sessions' column,
     // the one with the most nodes, sets the scale a dollar is drawn at.
     const gaps = Math.max(0, sessionNames.size - 1) * FLOW_GAP
