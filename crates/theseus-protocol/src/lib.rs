@@ -2546,6 +2546,8 @@ pub struct TurnFailed {
     #[serde(default)]
     pub continuation: bool,
     /// Error class when known (rate_limited, overloaded, auth, ...).
+    /// `stopping`: the call was not sent because the daemon's stop had begun,
+    /// and its next start retries it (theseus-36re); no provider's error.
     #[serde(default)]
     pub class: Option<String>,
     pub error: String,

@@ -7,6 +7,8 @@
 export type TurnFailed = { session_id: string, turn_id: string | null, execution_id: string | null, continuation: boolean, 
 /**
  * Error class when known (rate_limited, overloaded, auth, ...).
+ * `stopping`: the call was not sent because the daemon's stop had begun,
+ * and its next start retries it (theseus-36re); no provider's error.
  */
 class: string | null, error: string, 
 /**

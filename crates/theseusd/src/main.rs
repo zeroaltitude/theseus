@@ -547,6 +547,9 @@ async fn daemon(cli: Cli, lookup: Lookup, origin: Instant) -> Result<Exit> {
 
     if cli.stdio {
         tracing::info!("serving protocol on stdio");
+        // Its one client has a failed turn, and retries it if it wants: the
+        // driver retries none (theseus-zqxv). Said before anything is served.
+        core.runner.failed_turns.leave_to_the_client();
         // SIGINT and SIGTERM stop a `--stdio` daemon as they do the socket
         // one (theseus-p7q): a supervisor's stop, or an MCP client's kill,
         // used to end it outright, with no stopping row and no checkpoint,

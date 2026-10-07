@@ -4,7 +4,9 @@
 //! - a 400 on every call: the input turn, one retry by the driver, and then
 //!   nothing, however long the daemon runs;
 //! - a 529 twice, then an answer: the driver's retries keep their backoff,
-//!   and the turn answers once the stand-in recovers.
+//!   and the turn answers once the stand-in recovers;
+//! - a 529 on a `--stdio` daemon: its driver retries nothing, and the
+//!   client's next message is the retry (theseus-zqxv).
 
 mod common;
 
@@ -15,6 +17,7 @@ use std::process::Stdio;
 use std::time::{Duration, Instant};
 
 use common::model::FakeModel;
+use common::stdio::StdioClient;
 use common::Daemon;
 use serde_json::{json, Value};
 
@@ -66,39 +69,61 @@ impl Rig {
         self.dir.path().join(p)
     }
 
-    fn spawn(&self) -> Daemon {
+    /// `theseusd` on this rig's config and state dir, its log appended to
+    /// `theseusd.log`.
+    fn command(&self) -> std::process::Command {
         let log = std::fs::OpenOptions::new()
             .create(true)
             .append(true)
             .open(self.path("theseusd.log"))
             .unwrap();
+        let mut c = std::process::Command::new(env!("CARGO_BIN_EXE_theseusd"));
+        c.arg("--config")
+            .arg(self.path("config.toml"))
+            .arg("--state-dir")
+            .arg(self.path("state"))
+            .env(
+                "PATH",
+                format!(
+                    "{}:{}",
+                    self.path("bin").display(),
+                    std::env::var("PATH").unwrap_or_default()
+                ),
+            )
+            .env("OP_SERVICE_ACCOUNT_TOKEN", "test-not-a-token")
+            .env_remove("THESEUS_OP_TOKEN_FILE")
+            .env_remove("THESEUS_CONFIG")
+            .env_remove("THESEUS_STATE_DIR")
+            .env_remove("THESEUS_SOCKET")
+            .stderr(log);
+        c
+    }
+
+    fn spawn(&self) -> Daemon {
         let d = Daemon::spawn(
-            std::process::Command::new(env!("CARGO_BIN_EXE_theseusd"))
-                .arg("--config")
-                .arg(self.path("config.toml"))
-                .arg("--state-dir")
-                .arg(self.path("state"))
+            self.command()
                 .arg("--socket")
                 .arg(self.path("sock"))
-                .env(
-                    "PATH",
-                    format!(
-                        "{}:{}",
-                        self.path("bin").display(),
-                        std::env::var("PATH").unwrap_or_default()
-                    ),
-                )
-                .env("OP_SERVICE_ACCOUNT_TOKEN", "test-not-a-token")
-                .env_remove("THESEUS_OP_TOKEN_FILE")
-                .env_remove("THESEUS_CONFIG")
-                .env_remove("THESEUS_STATE_DIR")
-                .env_remove("THESEUS_SOCKET")
                 .stdin(Stdio::null())
-                .stdout(Stdio::null())
-                .stderr(log),
+                .stdout(Stdio::null()),
         );
         self.wait("the socket", || self.call("health", Value::Null).ok());
         d
+    }
+
+    /// A `--stdio` daemon, as `theseus --spawn theseusd` runs one, and its
+    /// client, once it answers.
+    fn spawn_stdio(&self) -> (Daemon, StdioClient) {
+        let mut d = Daemon::spawn(
+            self.command()
+                .arg("--stdio")
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped()),
+        );
+        let mut c = StdioClient::new(&mut d);
+        c.call("health", Value::Null)
+            .unwrap_or_else(|e| panic!("no answer on stdio: {e}\n{}", tail(&self.log(), 20)));
+        (d, c)
     }
 
     fn log(&self) -> String {
@@ -241,4 +266,53 @@ fn a_529_keeps_the_backoff_and_answers_once_the_stand_in_recovers() {
         ]
     );
     assert_eq!(r.execution_state(), "waiting");
+}
+
+/// A `--stdio` daemon leaves a failed turn to its own client (theseus-zqxv).
+/// A 529 fails the input turn; where the socket daemon's driver retries at
+/// once (above), this one's retries nothing: the run parks on input, with its
+/// notice, and three seconds later the stand-in has been asked once. The
+/// client's next message is the retry, and it answers. A headless `theseus
+/// --spawn theseusd ask` that asked the stop as its turn failed once met the
+/// driver's retry going out: a billed call whose answer nobody read.
+#[test]
+fn a_stdio_daemon_leaves_a_failed_turn_to_its_client() {
+    let r = Rig::new();
+    let (mut d, mut c) = r.spawn_stdio();
+    r.model.fail_next(&[529]);
+    let submit = json!({"input": "chart the shoals", "author": "test", "attachments": []});
+    let err = c
+        .call("turn.submit", submit.clone())
+        .expect_err("the first call is refused");
+    assert_eq!(err["data"]["class"], "overloaded", "{err}");
+    let nexts = c
+        .call("ledger.tail", json!({"n": 500, "kind": "turn.next"}))
+        .unwrap();
+    let nexts: Vec<(Value, Value)> = nexts["rows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|r| (r["data"]["then"].clone(), r["data"]["notice"].clone()))
+        .collect();
+    assert_eq!(nexts, [(json!("park"), json!(true))]);
+    std::thread::sleep(Duration::from_secs(3));
+    assert_eq!(
+        r.model.requests().len(),
+        1,
+        "the driver retried it; the log ends:\n{}",
+        tail(&r.log(), 30)
+    );
+    let execs = c.call("execution.list", json!({})).unwrap();
+    assert_eq!(execs["executions"][0]["state"], "waiting", "{execs}");
+    let mut again = submit;
+    again["session_id"] = err["data"]["session_id"].clone();
+    let answered = c.call("turn.submit", again).expect("the client's retry");
+    assert_eq!(answered["stop_reason"], "no_tool_calls", "{answered}");
+    assert_eq!(r.model.requests().len(), 2);
+    c.call("shutdown", Value::Null).unwrap();
+    let t0 = Instant::now();
+    while d.try_wait().is_none() {
+        assert!(t0.elapsed() < Duration::from_secs(20), "it did not stop");
+        std::thread::sleep(Duration::from_millis(20));
+    }
 }

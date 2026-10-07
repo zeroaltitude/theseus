@@ -550,7 +550,15 @@ pub enum ProviderError {
     Stream { kind: String, message: String },
     #[error("stream ended without message_stop after {elapsed_ms} ms")]
     Truncated { elapsed_ms: u64 },
+    /// A call the daemon did not send because its stop had begun
+    /// (`turn/stopping_step.rs`): no provider's failure, so none of its
+    /// counts (theseus-36re). It passes with time: the next start retries.
+    #[error("{message}")]
+    Stopping { message: String },
 }
+
+/// The class of a call not sent for the daemon's stop (theseus-36re).
+pub const STOPPING_CLASS: &str = "stopping";
 
 impl ProviderError {
     pub fn class(&self) -> &'static str {
@@ -565,6 +573,7 @@ impl ProviderError {
             ProviderError::Api { .. } => "api",
             ProviderError::Stream { .. } => "stream",
             ProviderError::Truncated { .. } => "truncated",
+            ProviderError::Stopping { .. } => STOPPING_CLASS,
         }
     }
 
@@ -583,6 +592,7 @@ impl ProviderError {
                 | ProviderError::Server { .. }
                 | ProviderError::Stream { .. }
                 | ProviderError::Truncated { .. }
+                | ProviderError::Stopping { .. }
         )
     }
 
