@@ -11,7 +11,7 @@
 import type { ActionInfo, ConfirmRequest, LedgerEntry } from '@protocol'
 import type { ShipModel } from './model.ts'
 import {
-  andList, count, dollars, failureLights, failureLine, Failures, isModelFailure, LINES, lightsOfTurns, lookOf, oneLine, setOf, shortPaths,
+  andList, count, dollars, endOf, failureLights, failureLine, Failures, isModelFailure, LINES, lightsOfTurns, lookOf, oneLine, setOf, shortPaths,
   SKEW_MS, span, type Plate, type Tone, type ToolOf, type WatchLine, type WatchSet,
 } from './watch.ts'
 
@@ -125,7 +125,7 @@ export function sinceOf(input: SinceInput): Since {
   const spentBy = new Map<string, number>()
   let usd = 0
   let calls = 0
-  for (let i = rows.length - 1; i >= 0; i--) {
+  for (let i = endOf(rows, end) - 1; i >= 0; i--) {
     const r = rows[i]
     const at = r.at_unix_ms
     if (at < since - SKEW_MS) break
@@ -182,7 +182,8 @@ export function sinceOf(input: SinceInput): Since {
     }
   }
 
-  const toolOf: ToolOf = (cid) => tools.get(cid) ?? input.actions?.find((a) => a.correlation_id === cid)?.tool ?? look.call.get(cid)?.tool
+  const byId = new Map((input.actions ?? []).map((a) => [a.correlation_id, a]))
+  const toolOf: ToolOf = (cid) => tools.get(cid) ?? byId.get(cid)?.tool ?? look.call.get(cid)?.tool
   const failed = failures.list(isModelFailure(toolOf))
   const turnLights = lightsOfTurns(model, new Set(failed.map((f) => (f.kind === 'turn' ? f.turn : undefined)).filter((t): t is string => !!t)))
   // A task's session: its execution opened in the stretch, or its vessel.

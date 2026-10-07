@@ -4,7 +4,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  argvWords, commandKey, DAY_MS, dollars, HOUR_MS, hoursOf, keyOf, median, mergeActions, platesOf, programOf, resultWords, shortPaths, span, watchOf, WATCH_KEYS,
+  argvWords, commandKey, DAY_MS, dollars, endOf, HOUR_MS, hoursOf, keyOf, median, mergeActions, platesOf, programOf, resultWords, shortPaths, span, watchOf, WATCH_KEYS,
   WRONG_KINDS, type WatchInput,
 } from '../src/ship/watch.ts'
 
@@ -470,4 +470,19 @@ test('a session that holds web text waits for your trust: said in the caption an
     ['holds', 'read web.search "north channel silt"', 'since 20m · Search the charts', undefined],
   ])
   assert.deepEqual(w.waiting.focus, { vessels: ['ses_h', 'ses_q'], lights: [] })
+})
+
+test("a walk back from a moment starts at the moment, not at the ledger's end, and misses no row a skew put late", () => {
+  const rs = [10, 20, 30, 29, 40, 50, 60].map((m) => row(NOW + m * MIN, 'turn.ended', 'ses_a', { elapsed_ms: m }))
+  // Every row at or before the moment is before the index, and so are those within the skew after it (the walk reads
+  // past them): a row the skew put after a later one is never missed.
+  assert.equal(endOf(rs, NOW + 23 * MIN), 2)
+  assert.equal(endOf(rs, NOW + 35 * MIN), 5)
+  assert.equal(endOf(rs, NOW + 100 * MIN), 7)
+  assert.equal(endOf(rs, NOW), 0)
+  assert.equal(endOf([], NOW), 0)
+  for (const t of [5, 15, 29, 30, 45, 61].map((m) => NOW + m * MIN)) {
+    const i = endOf(rs, t)
+    assert.ok(rs.slice(i).every((r) => r.at_unix_ms > t), `a row at or before ${t} after index ${i}`)
+  }
 })

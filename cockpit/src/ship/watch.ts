@@ -313,8 +313,11 @@ function unknownWords(producer: string | undefined): string {
   return `its outcome is unknown${why ? `: ${why}` : ''}`
 }
 
+const FAILURE_KINDS: ReadonlySet<string> = new Set(WRONG_KINDS)
+
 /** A row that says something went wrong, as a failure; null for any other row. */
 export function failureOf(r: LedgerEntry): Failure | null {
+  if (!FAILURE_KINDS.has(r.kind)) return null
   const d = (r.data ?? {}) as D
   const at = r.at_unix_ms
   const session = r.session_id
@@ -350,6 +353,7 @@ export class Failures {
 
   /** Read a row; rows come newest first. */
   add(r: LedgerEntry): void {
+    if (r.kind !== 'action.resolved' && !FAILURE_KINDS.has(r.kind)) return
     if (r.kind === 'action.resolved') {
       const d = (r.data ?? {}) as D
       const cid = str(d.correlation_id)
@@ -455,6 +459,20 @@ interface Scan {
   l1: Set<string>
 }
 
+/** Where a walk back from `t` starts: past the last row at or before it, and the skew after (rows are in the ledger's
+ *  order, their times within `SKEW_MS` of it). So a scrub, a replay or a stretch that ended hours ago reads back from
+ *  its moment, never from the ledger's end. */
+export function endOf(rows: readonly LedgerEntry[], t: number): number {
+  let lo = 0
+  let hi = rows.length
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1
+    if (rows[mid].at_unix_ms <= t + SKEW_MS) lo = mid + 1
+    else hi = mid
+  }
+  return lo
+}
+
 function scan(rows: readonly LedgerEntry[], now: number, dayStart: number, nHours: number): Scan {
   const s: Scan = {
     spent: 0, calls: 0, hours: new Array<number>(nHours).fill(0), bySession: new Map(), spentNodes: new Set(), last15: 0,
@@ -463,7 +481,7 @@ function scan(rows: readonly LedgerEntry[], now: number, dayStart: number, nHour
   const from = Math.min(dayStart, now - DAY_MS) - SKEW_MS
   // Going back, a turn's end comes before its start: a start whose end is not seen by then is open at the moment.
   const done = new Set<string>()
-  for (let i = rows.length - 1; i >= 0; i--) {
+  for (let i = endOf(rows, now) - 1; i >= 0; i--) {
     const r = rows[i]
     const at = r.at_unix_ms
     if (at > now) continue
@@ -565,19 +583,32 @@ export interface Usuals { of(tool: string, argv?: readonly string[]): Usual | nu
 function usualsOf(sc: Scan, toolOf: ToolOf): Usuals {
   const samples = new Map<string, number[]>()
   const push = (k: string, v: number) => { const a = samples.get(k); if (a) a.push(v); else samples.set(k, [v]) }
+  // A command's two keys, worked out once for each command line however many times it ran.
+  const keys = new Map<string, [string, string | undefined]>()
+  const keysOf = (argv: readonly string[]) => {
+    const line = argv.join('\u0000')
+    let k = keys.get(line)
+    if (!k) keys.set(line, (k = [commandKey(argv), programOf(argv)]))
+    return k
+  }
   for (const c of sc.settled) {
     const tool = toolOf(c.cid)
     if (!tool || tool.startsWith('provider.')) continue
     push(tool, c.ms)
     const argv = sc.argv.get(c.cid)
     if (tool !== 'proc.run' || !argv) continue
-    push(`proc.run $ ${commandKey(argv)}`, c.ms)
-    const prog = programOf(argv)
+    const [command, prog] = keysOf(argv)
+    push(`proc.run $ ${command}`, c.ms)
     if (prog) push(`proc.run ${prog}`, c.ms)
   }
+  // Each kind's median, worked out once: the hour's calls ask for the same few.
+  const made = new Map<string, Usual | null>()
   const usual = (k: string, of: string): Usual | null => {
+    if (made.has(k)) return made.get(k)!
     const a = samples.get(k)
-    return a && a.length >= USUAL_MIN ? { ms: median(a)!, n: a.length, of } : null
+    const u = a && a.length >= USUAL_MIN ? { ms: median(a)!, n: a.length, of } : null
+    made.set(k, u)
+    return u
   }
   const turnTimes = sc.ended.map((e) => e.ms)
   return {
@@ -687,7 +718,8 @@ export function watchOf(input: WatchInput): WatchPlates {
   const { model, now, dayStart } = input
   const look = lookOf(model)
   const sc = scan(input.rows, now, dayStart, hoursOf(dayStart, input.dayEnd))
-  const toolOf: ToolOf = (cid) => sc.tools.get(cid) ?? input.actions?.find((a) => a.correlation_id === cid)?.tool ?? look.call.get(cid)?.tool
+  const calls = new Map((input.actions ?? []).map((a) => [a.correlation_id, a]))
+  const toolOf: ToolOf = (cid) => sc.tools.get(cid) ?? calls.get(cid)?.tool ?? look.call.get(cid)?.tool
   const failures = sc.failures.list(isModelFailure(toolOf))
   const usuals = usualsOf(sc, toolOf)
   const { turns, jobs, queued } = runs(input, look, sc)
@@ -703,7 +735,7 @@ export function watchOf(input: WatchInput): WatchPlates {
   return {
     working: working(input, look, turns, jobs, queued, turnLights),
     waiting: waiting(input, look),
-    slow: slow(input, look, running, hour, slowest, turnLights, sc, usuals, toolOf),
+    slow: slow(input, look, running, hour, slowest, turnLights, sc, usuals, toolOf, calls),
     spent: spent(input, look, sc),
     wrong: wrong(input, look, failures, turnLights, toolOf),
   }
@@ -803,7 +835,7 @@ interface Timed { r: Run; elapsed: number; usual: Usual | null; x: number | null
 
 function slow(
   input: WatchInput, look: Look, running: Run[], hour: Scan['ended'], slowest: Scan['ended'][number] | null,
-  turnLights: Map<string, Light[]>, sc: Scan, usuals: Usuals, toolOf: ToolOf,
+  turnLights: Map<string, Light[]>, sc: Scan, usuals: Usuals, toolOf: ToolOf, calls: Map<string, ActionInfo>,
 ): Slow {
   const { now } = input
   // Each thing running against its own usual: a job against its program's (or its tool's), a turn against the day's.
@@ -830,7 +862,7 @@ function slow(
     if (!u || u.ms <= 0 || c.ms / u.ms <= best || c.ms < SLOW_FLOOR_MS) continue
     best = c.ms / u.ms
     const call = look.call.get(c.cid)
-    const session = call?.sessionId ?? input.actions?.find((a) => a.correlation_id === c.cid)?.session_id ?? null
+    const session = call?.sessionId ?? calls.get(c.cid)?.session_id ?? null
     hourWorst = {
       session, lights: [call?.id, look.result.get(c.cid)?.id],
       line: {
