@@ -2,7 +2,8 @@
 //! between turns (theseus-ehkp): the blobs touch no WAL, so a turn that
 //! begins while they are written runs at once, and the writer's guard
 //! covers the frame's append alone. The frame still lands after its blobs,
-//! and between turns.
+//! and between turns, and a stop that comes while they are written appends
+//! no row naming one before it is on disk (theseus-5o3d).
 
 use std::time::{Duration, Instant};
 
@@ -71,6 +72,49 @@ async fn a_turn_beginning_while_a_frames_blobs_are_written_runs_at_once() {
         blobs.read(&digest).as_deref(),
         Some(&b"{\"a state\": \"a turn waited on it\"}"[..])
     );
+}
+
+/// A clean stop's flush comes while the writer is in the put of a frame's
+/// staged blob, held (a disk under a neighbour's IO): the stop appends no
+/// row naming the blob before the blob is on disk. Two things hold that,
+/// each enough alone (`write_staged_blobs`): a blob stays staged until its
+/// put returns, and the puts go one caller at a time. Once the put is let
+/// go, the stop writes the row, and the blob is there.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_stop_beside_a_frames_blob_write_waits_for_the_blob() {
+    let jev = FakeJev::start().unwrap();
+    let r = rig_with(texts(1), Some(&jev), |_| {});
+    let judge = r.core.runner.judge.clone();
+    judge.jev().unwrap();
+    let blobs = r.core.store.blobs();
+    let bytes: &[u8] = b"{\"a state\": \"the stop came while it was written\"}";
+    let digest = judge.stage_blob(bytes);
+    assert!(!blobs.path(&digest).exists(), "staged, not written");
+    let hold = blobs.hold_puts();
+    let mut j = settled(0);
+    j.context["blob"] = json!(digest);
+    judge.settle(&j);
+    // The window passes, and the writer is in the blob's put.
+    tokio::time::sleep(crate::judge::FLUSH_EVERY + Duration::from_millis(500)).await;
+    assert_eq!(written(&r.core.store), 0, "the blob is held");
+    let stop = judge.clone();
+    let mut flush = tokio::task::spawn_blocking(move || stop.flush_sink());
+    // A stop that does not wait for the blob ends at once.
+    let ended = tokio::time::timeout(Duration::from_millis(1500), &mut flush).await;
+    let (rows, on_disk) = (written(&r.core.store), blobs.path(&digest).exists());
+    eprintln!("while the put was held: {rows} row(s) written, the blob on disk: {on_disk}");
+    assert!(
+        rows == 0 || on_disk,
+        "the stop wrote {rows} row(s) naming a blob still being written"
+    );
+    drop(hold);
+    let n = match ended {
+        Ok(n) => n.unwrap(),
+        Err(_) => flush.await.unwrap(),
+    };
+    assert_eq!(n, 1, "the stop wrote the judgment");
+    assert_eq!(written(&r.core.store), 1);
+    assert_eq!(blobs.read(&digest).as_deref(), Some(bytes));
 }
 
 /// A frame's staged blobs go to the disk as one batch (`Blobs::put_many`):

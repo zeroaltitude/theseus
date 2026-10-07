@@ -335,7 +335,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   `tests_sink_flush.rs`. A frame's staged blobs are written before its wait, as one batch (`Blobs::put_many`), a
   stop's frames hold 512, categorize's mark rides in its row's frame, and a shadow judgment no turn waits on writes
   its budget block between turns (`reserve_between`; theseus-ehkp, theseus-xkbs; `tests_sink_blobs.rs`,
-  `tests_sink_off_turn.rs`, `tests_sink_busy.rs`).
+  `tests_sink_off_turn.rs`, `tests_sink_busy.rs`, `judge/tests_ahead.rs`, and categorize.rs's own, theseus-5o3d).
   `theseus-sim bench turn --judge` measures where the judge's frames land.
   `judge.list` and `judge.get` are `rpc/judge.rs`; `judge.list` pages back from the newest `judge.call` row (its
   kind's tag, or its kind-and-session tag) and stops one match past its limit, so `matched` is a floor when `more`
