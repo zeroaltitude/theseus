@@ -715,6 +715,60 @@ void main() {
 }
 `
 
+// ---------------------------------------------------------------- a failure's ring at fleet depth (theseus-exda)
+//
+// From the fleet a ship's flare is a small rose point; beside it, a ring runs out on the sea around the ship and fades
+// within a second (RING_S), so a failure catches the eye there too. One quad a vessel lying on the sea, sized in
+// pixels on screen (it reads the same at any fleet zoom) and drawn only at fleet depth: as the ship grows towards its
+// own depth (380 px, `depthOf`) the ring fades out, where the flare itself is plain. Calm stills it (nothing drawn).
+
+export const RING_S = 1.0
+
+export const RING_VERT = /* glsl */ `
+${VESSEL_COMMON}
+uniform float uScale;
+uniform float uPixel;
+attribute float aIdx;
+varying vec2 vUv;
+varying float vA;
+varying float vPx;
+void main() {
+  vec4 a = vRow(aIdx, 0.0);
+  vec4 c = vRow(aIdx, 2.0);
+  float age = c.x > 0.0 ? uTime - c.x : 1e6; // motion: failed
+  float depth = max(1.0, -(viewMatrix * vec4(a.x, 0.0, a.y, 1.0)).z);
+  float hullPx = a.w * uScale / depth;
+  float fleet = 1.0 - smoothstep(200.0 * uPixel, 380.0 * uPixel, hullPx);
+  vUv = vec2(0.0); vA = 0.0; vPx = 1.0;
+  if (age < 0.0 || age >= ${RING_S.toFixed(2)} || uCalm > 0.5 || fleet <= 0.0) { gl_Position = vec4(2.0, 2.0, 2.0, 1.0); return; }
+  float k = age / ${RING_S.toFixed(2)};
+  float out_ = 1.0 - (1.0 - k) * (1.0 - k);
+  // Its radius on screen: from just outside the hull out by 64 px, easing out as it goes.
+  float px = hullPx * 0.55 + mix(6.0, 64.0, out_) * uPixel;
+  float r = px * depth / uScale;
+  vUv = position.xz * 2.0;
+  vA = (1.0 - k) * (1.0 - k) * fleet;
+  vPx = px;
+  gl_Position = projectionMatrix * viewMatrix * vec4(a.x + position.x * 2.0 * r, 0.0, a.y + position.z * 2.0 * r, 1.0);
+}
+`
+
+export const RING_FRAG = /* glsl */ `
+varying vec2 vUv;
+varying float vA;
+varying float vPx;
+void main() {
+  float r = length(vUv);
+  float w = 1.6 / max(vPx, 1.0);
+  float d = abs(r - 0.9);
+  float line = 1.0 - smoothstep(w * 0.5, w * 1.5, d);
+  float halo = exp(-(d * d) / (w * w * 14.0)) * 0.5;
+  float a = min(1.0, line + halo) * vA;
+  if (a < 0.01) discard;
+  gl_FragColor = vec4(vec3(1.0, 0.42, 0.45) * a, a);
+}
+`
+
 // ---------------------------------------------------------------- oars (every tool call; theseus-hnof)
 //
 // One instanced quad an oar, from its oarlock (the call, on the hull) to past its blade (the result): a thin shaft and a

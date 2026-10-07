@@ -18,8 +18,8 @@ import { oarReach, type Light, type ShipModel } from './model'
 import { Post } from './post'
 import {
   BEACON_FRAG, BEACON_VERT, FLOW_FRAG, FLOW_VERT, HULL_FRAG, HULL_VERT, LIGHT_FRAG, LIGHT_VERT, LINE_FRAG,
-  LINE_VERT, MARK_FRAG, MARK_VERT, OAR_FRAG, OAR_VERT, SAIL_FRAG, SAIL_VERT, SEA_FRAG, SEA_VERT, STAR_FRAG, STAR_VERT,
-  WAKE_FRAG, WAKE_VERT,
+  LINE_VERT, MARK_FRAG, MARK_VERT, OAR_FRAG, OAR_VERT, RING_FRAG, RING_VERT, SAIL_FRAG, SAIL_VERT, SEA_FRAG, SEA_VERT,
+  STAR_FRAG, STAR_VERT, WAKE_FRAG, WAKE_VERT,
 } from './shaders'
 
 /** What is under the pointer: a vessel (a session or a task), a bench (a turn), or a light (a node: a message, a model
@@ -163,6 +163,8 @@ export class ShipEngine {
   private flows: THREE.Points
   private wakes: THREE.Points
   private beacons: THREE.Points
+  /** A failure's ring on the sea at fleet depth (theseus-exda): one quad a vessel, drawn only while one runs out. */
+  private rings: THREE.Mesh
   /** Every tool call's oar (theseus-hnof): shaft and blade, one instanced quad each. */
   private oars: THREE.Mesh
   /** The benches' signs: failure pennants, waiting lamps, memory's sparks. */
@@ -229,6 +231,8 @@ export class ShipEngine {
     this.stars.renderOrder = 1
 
     const quadXZ = new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2)
+    this.rings = new THREE.Mesh(instanced(quadXZ), mat(RING_VERT, RING_FRAG))
+    this.rings.renderOrder = 1
     this.hulls = new THREE.Mesh(instanced(quadXZ), mat(HULL_VERT, HULL_FRAG, {}, true))
     this.hulls.renderOrder = 2
     this.lines = new THREE.LineSegments(new THREE.BufferGeometry(), mat(LINE_VERT, LINE_FRAG))
@@ -254,7 +258,7 @@ export class ShipEngine {
       o.frustumCulled = false
       this.seaScene.add(o)
     }
-    for (const o of [this.hulls, this.lines, this.oars, this.flows, this.wakes, this.lights, this.marks, this.sails, this.beacons]) {
+    for (const o of [this.rings, this.hulls, this.lines, this.oars, this.flows, this.wakes, this.lights, this.marks, this.sails, this.beacons]) {
       o.frustumCulled = false
       this.scene.add(o)
     }
@@ -713,7 +717,7 @@ export class ShipEngine {
   }
 
   private rebuildHulls(n: number) {
-    for (const mesh of [this.hulls, this.sails]) {
+    for (const mesh of [this.hulls, this.sails, this.rings]) {
       const g = mesh.geometry as THREE.InstancedBufferGeometry
       const idx = new Float32Array(n)
       for (let i = 0; i < n; i++) idx[i] = i
@@ -1330,7 +1334,7 @@ export class ShipEngine {
 
   /** Dev and bench only: hide layers by name, to see what draws what. */
   debugHide(names: string[]) {
-    const all = { sea: this.sea, stars: this.stars, hulls: this.hulls, lines: this.lines, flows: this.flows, wakes: this.wakes, lights: this.lights, sails: this.sails, beacons: this.beacons, oars: this.oars, marks: this.marks }
+    const all = { sea: this.sea, stars: this.stars, rings: this.rings, hulls: this.hulls, lines: this.lines, flows: this.flows, wakes: this.wakes, lights: this.lights, sails: this.sails, beacons: this.beacons, oars: this.oars, marks: this.marks }
     for (const [k, o] of Object.entries(all)) o.visible = !names.includes(k)
     this.swellU.uWaves.value = names.includes('sea') ? 0 : 1
     this.post.seaDirty = true
