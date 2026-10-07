@@ -315,6 +315,9 @@ struct Turn<'a> {
     target: &'a Target,
     continuation: bool,
     started: Instant,
+    /// When the input arrived: the start of the frames the trace names the
+    /// slowest of.
+    arrived: Instant,
     trace: Trace,
     loops: u32,
     output: String,
@@ -456,6 +459,7 @@ impl<'a> Turn<'a> {
             target,
             continuation,
             started,
+            arrived,
             trace,
             loops: 0,
             output: String::new(),
@@ -3038,6 +3042,20 @@ impl TurnRunner {
         )
     }
 
+    /// The turn's root span's closing attributes: its frames, and the slowest
+    /// frame the store's writer answered since its input arrived
+    /// (theseus-w7dk), for `bench turn` to name.
+    fn end_attrs(t: &Turn<'_>, result: &TurnSubmitResult, frames: Option<u64>) -> Value {
+        json!({
+            "outcome": "complete",
+            "loops": result.loops,
+            "stop_reason": result.stop_reason,
+            "usage": result.usage,
+            "frames": frames,
+            "slowest_frame": t.tc.store.slowest_frame_since(t.arrived),
+        })
+    }
+
     /// Absorb results that settled while the turn ran, book the turn, write
     /// its result, and park the execution. The `bool` asks for another turn:
     /// a late result the model has not read. The session write waits for
@@ -3137,13 +3155,8 @@ impl TurnRunner {
         // A judgment of this turn's end is marked before its last frame (23b).
         self.judge
             .mark_turn_end(&mut t.trace, &result, t.tc.task.is_some());
-        result.trace = Some(t.trace.finish(json!({
-            "outcome": "complete",
-            "loops": result.loops,
-            "stop_reason": result.stop_reason,
-            "usage": result.usage,
-            "frames": frames,
-        })));
+        let attrs = Self::end_attrs(&t, &result, frames);
+        result.trace = Some(t.trace.finish(attrs));
         // The trace is finished: the fact draws no span.
         t.tc.record(&fact::turn::TurnEnded { result: &result });
         let is_task = t.tc.task.is_some();

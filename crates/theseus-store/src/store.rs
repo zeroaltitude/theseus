@@ -25,6 +25,7 @@ use std::sync::{mpsc, Arc, Mutex, RwLock};
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
+use crate::frame_times::{FrameTime, FrameTimes};
 use crate::index::{Aside, Engine, IndexEntry, MovedAside, Projected, RedbIndex, Sums};
 use crate::pages::{tags_of, Page, PageOut};
 use crate::record::{NewRecord, Record, RecordKind};
@@ -325,6 +326,13 @@ struct Inner {
     /// see them queued): counted once sent, so it may dip below zero while
     /// the writer answers one before its sender counts it.
     queued: std::sync::atomic::AtomicI64,
+    /// The time the writer took over each recent frame (theseus-w7dk).
+    frame_times: FrameTimes,
+    /// A test's way to slow the next batch, as a disk that stalls does:
+    /// the writer sleeps this many milliseconds once, inside its timed
+    /// stretch.
+    #[cfg(test)]
+    commit_delay_ms: AtomicU64,
     /// A test's way to hold a checkpoint, as a disk under writeback holds
     /// one: the next checkpoint waits until this channel's sender sends or
     /// drops.
@@ -375,6 +383,15 @@ thread_local! {
 /// admission's frames this way.
 pub fn frames_written_here() -> u64 {
     WRITTEN_HERE.with(std::cell::Cell::get)
+}
+
+/// The slowest frame the writer answered since `since`, from any thread
+/// (theseus-w7dk): a turn's own frames and a neighbour's alike, which is what
+/// a stall is. The clock read is the writer's, twice a batch.
+impl WalStore {
+    pub fn slowest_frame_since(&self, since: std::time::Instant) -> Option<FrameTime> {
+        self.inner.frame_times.slowest_since(since)
+    }
 }
 
 thread_local! {
@@ -1062,6 +1079,9 @@ impl Inner {
             verified: None,
             pending_verified: VerifiedSlot::default(),
             queued: std::sync::atomic::AtomicI64::new(0),
+            frame_times: FrameTimes::default(),
+            #[cfg(test)]
+            commit_delay_ms: AtomicU64::new(0),
             #[cfg(test)]
             checkpoint_hold: std::sync::Mutex::default(),
             refused: Mutex::new((BTreeSet::new(), 0)),
@@ -1223,6 +1243,7 @@ impl Inner {
 
     /// Write, sync, index, and answer one batch.
     fn commit(&self, batch: Vec<Job>) {
+        let began = std::time::Instant::now();
         if let Err(e) = self.upgrade_manifest() {
             // Nothing is written under a manifest an older build opens.
             for job in batch {
@@ -1285,7 +1306,22 @@ impl Inner {
         if indexed.is_ok() {
             self.since_checkpoint.fetch_add(records, Ordering::Relaxed);
         }
+        #[cfg(test)]
+        {
+            let ms = self.commit_delay_ms.swap(0, Ordering::Relaxed);
+            if ms > 0 {
+                std::thread::sleep(std::time::Duration::from_millis(ms));
+            }
+        }
+        let answered = std::time::Instant::now();
+        let us = answered.duration_since(began).as_micros() as u64;
         for (job, placed) in batch.into_iter().zip(written) {
+            if let (Ok((p, _)), Ok(())) = (&placed, &indexed) {
+                if let Some((first, _)) = p.first() {
+                    self.frame_times
+                        .note(answered, FrameTime { first: *first, us });
+                }
+            }
             let answer = match (placed, &indexed) {
                 (Err(e), _) => Err(e),
                 (Ok((placed, _)), Ok(())) => Ok(placed.into_iter().map(|(p, _)| p).collect()),
@@ -1673,6 +1709,8 @@ impl Store for WalStore {
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_frame_times;
 #[cfg(test)]
 mod tests_keyed;
 #[cfg(test)]

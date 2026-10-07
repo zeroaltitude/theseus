@@ -43,6 +43,9 @@ use crate::walcount::{Frame, Tail};
 
 mod judge;
 mod long;
+mod runs;
+
+use runs::Run;
 
 /// §9's per-turn overhead, restated as frames (review 2, consideration 8): a
 /// plain one-loop turn writes at most this many. 5 since theseus-l6y; the
@@ -260,6 +263,9 @@ pub struct Kind {
     pub frames: Summary,
     /// Each measured turn's frames, in order.
     pub frames_each: Vec<u64>,
+    /// Each measured turn, in order: its wall time and the daemon's, its
+    /// frames, and its slowest frame (theseus-w7dk).
+    pub runs: Vec<Run>,
     /// The last turn's frames, each by what it holds.
     pub last_frames: Vec<String>,
 }
@@ -402,7 +408,7 @@ impl Driver<'_> {
         shape: (u64, u64),
     ) -> Result<Kind> {
         let (mut wall, mut daemon, mut frames_each) = (Vec::new(), Vec::new(), Vec::new());
-        let mut last = Vec::new();
+        let (mut each, mut last) = (Vec::new(), Vec::new());
         for i in 0..runs {
             let (r, w, frames) = self.measured(session, &format!("{input} {i}"))?;
             let got = (
@@ -430,6 +436,7 @@ impl Driver<'_> {
                     labels(&frames).join(" ")
                 );
             }
+            each.push(Run::of(i + 1, &r, w, &frames));
             wall.push(w);
             daemon.push(r["elapsed_ms"].as_f64().unwrap_or(0.0));
             frames_each.push(frames.len() as u64);
@@ -442,6 +449,7 @@ impl Driver<'_> {
             daemon_ms: Summary::of(&daemon).context("no runs")?,
             frames: Summary::of(&frames).context("no runs")?,
             frames_each,
+            runs: each,
             last_frames: last,
         })
     }
@@ -568,6 +576,17 @@ pub fn print_turn(r: &TurnReport) {
             k.wall_ms.max,
             k.daemon_ms.p50
         );
+    }
+    for k in [&r.plain, &r.tool] {
+        println!(
+            "  each {} run, by the bench's clock and the daemon's (a run over {}x the p50 is flagged; \
+             its slowest frame is the writer's time over a frame it wrote, synced and indexed):",
+            k.name,
+            runs::OUTLIER_TIMES
+        );
+        for run in &k.runs {
+            println!("{}", run.line(k.wall_ms.p50));
+        }
     }
     let fsync = r.fsync_ms.p50;
     let plain_frames = r.plain.frames.p50;
@@ -1340,6 +1359,7 @@ mod tests {
             daemon_ms: single(1.0),
             frames: single(5.0),
             frames_each: vec![5],
+            runs: Vec::new(),
             last_frames: Vec::new(),
         };
         let turn = TurnReport {

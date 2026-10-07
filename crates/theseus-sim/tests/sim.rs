@@ -222,3 +222,62 @@ fn bench_history_reads_the_file_the_environment_names() {
         "{out}"
     );
 }
+
+/// The store the restore row copies, with the cancel row selected or not
+/// (theseus-ma8r): the cancel row's runs each start a job through a turn, so
+/// it writes into the rig, and it runs after the restore row. Run first, as it
+/// did from d279767f to this commit, it grew the restore's store from a few
+/// KB of WAL to over 100 KB, and its row moved for a reason that is not the
+/// restore's code. Each run is a real `theseusd`, the one beside `theseus-sim`.
+#[test]
+fn the_restore_rows_store_is_the_same_with_the_cancel_row_selected() {
+    let sim_bin = std::path::PathBuf::from(env!("CARGO_BIN_EXE_theseus-sim"));
+    let theseusd = sim_bin.with_file_name("theseusd");
+    assert!(
+        theseusd.exists(),
+        "{} is not built: build the workspace first",
+        theseusd.display()
+    );
+    let restore_row = |phases: &str| {
+        let tmp = tempfile::tempdir().unwrap();
+        let json = tmp.path().join("report.json");
+        sim(&[
+            "bench",
+            "lifecycle",
+            "--phases",
+            phases,
+            "--runs",
+            "1",
+            "--json",
+            &json.to_string_lossy(),
+        ]);
+        let report: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&json).unwrap()).unwrap();
+        let row = report["restore"].clone();
+        (
+            row["segments"].as_u64().unwrap(),
+            row["wal_bytes"].as_u64().unwrap(),
+            row["sessions_restored"].as_u64().unwrap(),
+        )
+    };
+    let alone = restore_row("restore");
+    let with_cancel = restore_row("restore,cancel");
+    assert_eq!(alone.0, with_cancel.0, "segments");
+    // The bench's binding binds its DM on the fake Discord once the fake op
+    // answers, so a run's store may hold that DM's session, or an orphan one
+    // a bind left when its start was stopped, by the machine's load: a
+    // session and a few KB either way. The old order put the cancel row's
+    // sessions in, twenty times the WAL (3 sessions and 135,855 B against 0
+    // and 6,243).
+    assert!(
+        alone.2.abs_diff(with_cancel.2) <= 1,
+        "the restore row restores {} sessions alone and {} with the cancel row selected",
+        alone.2,
+        with_cancel.2
+    );
+    let (a, w) = (alone.1, with_cancel.1);
+    assert!(
+        w < 2 * a && a < 2 * w,
+        "the restore row's WAL is {a} bytes alone and {w} with the cancel row selected"
+    );
+}
