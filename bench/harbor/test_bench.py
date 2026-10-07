@@ -367,6 +367,21 @@ class Trajectories(unittest.TestCase):
 
 @unittest.skipIf(Trajectory is None, "Harbor is not installed")
 class Adapter(unittest.TestCase):
+    def test_its_record_names_the_effort_asked_and_the_version_the_container_read(self):
+        import theseus_agent
+        from harbor.models.agent.context import AgentContext
+
+        with tempfile.TemporaryDirectory() as d:
+            logs = Path(d)
+            (logs / "version.txt").write_text("theseus 0.83.0\n")
+            agent = theseus_agent.Theseus(logs_dir=logs, model_name="anthropic/claude-sonnet-5-5")
+            ctx = AgentContext()
+            agent.populate_context_post_run(ctx)
+            rec = json.loads((logs / "efficiency.json").read_text())
+            self.assertEqual((rec["effort"], rec["version"], rec["version_asked"]),
+                             ("medium", "theseus 0.83.0", None))
+            self.assertEqual(ctx.metadata["efficiency"], rec)
+
     def test_it_loads_as_an_atif_agent_with_an_error_for_each_end(self):
         import theseus_agent
 

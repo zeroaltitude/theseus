@@ -14,8 +14,9 @@ instruction, and runs the task's tests for a reward. **Every benchmark run ends 
 | `harbor/theseus_atif.py` | A session's history as an ATIF trajectory, the format Harbor's viewer and usage totals read. |
 | `harbor/efficiency.py` | A trial's efficiency record, one shape for every arm: tokens by class and model, dollars, calls, and the harness's CPU and memory apart from its work. |
 | `harbor/sampler.py` | The harness sampler: run in the task's container around the agent, it reads `/proc` and sorts each process into harness, work, or neither. |
-| `harbor/claude_code_agent.py` | Claude Code, measured: `-a claude_code_agent:MeasuredClaudeCode`, Harbor's own adapter with the sampler and the record added. |
-| `harbor/pi_agent.py` | Pi, the minimal coding agent, measured: `-a pi_agent:MeasuredPi`, Harbor's own adapter with its version pinned, the sampler, the trajectory, and the record added. |
+| `harbor/measure.py` | What the arms share in a container: the effort every arm asks for (`EFFORT`, medium), the stop of a timed-out agent, and the read of the agent's version. |
+| `harbor/claude_code_agent.py` | Claude Code, measured: `-a claude_code_agent:MeasuredClaudeCode`, Harbor's own adapter with its version pinned, its effort set, the sampler, the stop at a timeout, and the record added. |
+| `harbor/pi_agent.py` | Pi, the minimal coding agent, measured: `-a pi_agent:MeasuredPi`, Harbor's own adapter with its version pinned, its effort set, run offline, the sampler, the stop at a timeout, the trajectory, and the record added. |
 | `harbor/pi_atif.py` | A Pi session log as an ATIF trajectory (Harbor's own Pi adapter writes none). |
 | `harbor/test_*.py` | Their tests. |
 | `report/efficiency.py` | The efficiency report over jobs, one arm each: per-arm numbers, Pareto tables, and three SVG charts. |
@@ -94,7 +95,12 @@ model did not end as an error, so Harbor's results say why. The tests still run,
 **A timeout.** At the task's agent timeout Harbor cancels the run, and the adapter sends `theseus` a SIGTERM, which
 stops the turn as `/stop` does: its running commands are stopped, it makes no more model calls, and its daemon stops
 cleanly. So a timed-out agent neither spends nor changes the task's files while the tests run. Harbor records
-`AgentTimeoutError`.
+`AgentTimeoutError`. The other two arms are stopped too (theseus-sgpx): Harbor's Docker environment ends only its
+`docker compose exec` client, so `claude` or `pi` would run on in the container the verifier shares, spending and
+changing files unrecorded. Their adapters catch the cancel and stop the agent first (`measure.stop_agent`): a
+SIGTERM to the processes named `claude` or `pi` and to everything they started, a SIGKILL to what is left after
+3 s, then the sampler's stop, then the cancel is raised again. It is plain sh over `/proc`, run as root, since a
+task's image may lack `pkill`.
 
 **What each trial leaves** in its `agent/` directory: `theseus-turn.json` (the turn's result: stop reason, loops,
 tool calls, tokens, and dollars), `theseus-history.json` (every message, tool call with its gate decision, and
@@ -113,6 +119,7 @@ Score alone hides what an arm spends to get it, so every trial of every arm leav
 | `tokens` | The four classes, `input` (uncached), `cache_read`, `cache_write`, and `output`, over every model. Harbor's own counters fold the write into `n_input_tokens`; this keeps it apart. |
 | `by_model` | The same per model, with its `cost_usd` and `calls`: a retry is a call, and a refusal's fallback (Sonnet 5.5's is Sonnet 5) bills a second model. |
 | `cost_usd`, `spend_from` | The trial's dollars, and the file they came from. |
+| `effort`, `version`, `version_asked` | What the arm asked for and ran, the same keys on every arm (theseus-n6p5, theseus-7gir.23): the reasoning effort asked for (`medium`); the agent's version as the container read it (`version.txt` in `agent/`, written at install from Harbor's `get_version_command`; null when it could not be read); and the version the install was told to take (Claude Code's and Pi's pin, or `--ak version=`; null for Theseus, whose binaries are the checkout's). A pin that did not take is a `version` that differs from `version_asked`. |
 | `model_calls`, `tool_calls` | Theseus: its turn's `provider` spans (each retry and fallback one) and tool calls. Claude Code: its session log's messages, each message id once, and their tool uses. Pi: its session log's answers (a failed request it retried is one) and summaries' calls, and their `toolCall` blocks. |
 | `wall_s` | The sampler's window. The report takes Harbor's agent execution from `result.json`. |
 | `harness`, `work`, `wrappers` | Each `cpu_s`, `peak_rss_kb` (the largest summed RSS of the class in one sample), and `peak_hwm_kb` (the largest single process's peak). `wrappers` is Theseus's job wrappers, kept apart from both. Null when the sampler did not run. |
@@ -154,7 +161,9 @@ with 90; `sampler.py`'s head says what the method misses.
 ```
 
 It is Harbor's own `ClaudeCode` with the sampler and the record added: its install, command line, options,
-trajectory, and name are Harbor's, so its results read as Claude Code's.
+trajectory, and name are Harbor's, so its results read as Claude Code's. It also pins the release
+(`PINNED_VERSION` in `claude_code_agent.py`: Harbor installs the latest unless `version` is set, so each run's Claude
+Code would be whatever npm served that day), defaults the effort to medium, and stops `claude` at a timeout.
 
 **Pi, measured the same way** (theseus-jp9p). [Pi](https://github.com/earendil-works/pi) is the "almost
 nothing" baseline: a short system prompt and four tools (`read`, `bash`, `edit`, `write`), so on the same
@@ -175,20 +184,32 @@ Harbor's, so its results read as Pi's. It adds:
 - **a pinned version**, `PINNED_VERSION` in `pi_agent.py` (1.0.4), where Harbor's installs `@latest`; `--ak
   version=…` names another. Pi needs Node 22.19 or later, and the install downloads nvm, Node and the package in
   the task's container: it needs the network there and a glibc image (Node's builds do not run on Alpine).
+- **an offline run** (theseus-a5we): `PI_OFFLINE=1`, `PI_SKIP_VERSION_CHECK=1` and `PI_TELEMETRY=0` in the
+  environment of Pi's run, beside the model's key. Without them Pi overlays newer model-catalog data from its
+  project's server on top of the catalog its release bundles, so the version pin would not pin its prices (the
+  record's dollars are Pi's own `cost.total`), its thinking map or its compat flags. Pi 1.0.4's own docs
+  (`docs/environment-variables.md`) say of `PI_OFFLINE`: "Disable automatic network activity, including model
+  catalog refreshes"; its code gates only the catalog refresh, the latest-version request, package updates and its
+  tool downloads (`fd`, `rg`) on the flag, and reads it nowhere in the Anthropic provider, so model calls go out as
+  before. The model's endpoint is the only network Pi's run then uses.
+- **the effort**, `--ak thinking=…` defaulting to `medium` (below).
 - **the sampler** around Harbor's run, stopped in a `finally`, as Claude Code's is;
 - **a trajectory**, `agent/trajectory.json` from Pi's session log (`pi_atif.py`), which Harbor's own Pi
   adapter does not write;
 - **Harbor's three counters** from the same log, the cache write inside the input as the other arms count it
   (Harbor's Pi adapter leaves the write out);
-- **the record**, with two parts only Pi's has: `end`, the last answer's `stopReason` and error (Pi's print
-  mode exits 0 when the provider fails, so this is where a failed run says so), and `limits` (below).
+- **the record**, with three parts only Pi's has: `end`, the last answer's `stopReason` and error (Pi's print
+  mode exits 0 when the provider fails, so this is where a failed run says so; the report counts such a trial as
+  an error, below), `limits` (below), and `effort_ran`, the thinking level Pi's session log says ran
+  (`thinking_level_change`, and each answer's `providerThinkingLevel`), beside the `effort` asked for.
 
 **Fair limits.** Every arm gets the same model, attempts, and wall clock (the task's agent timeout), and the
 same spend and turn caps where its harness has them. Pi has neither, and the arm adds none inside it: it takes
 `max_budget_usd` and `max_turns` as Claude Code does, passes neither to Pi, and records them in the trial's
-`limits`, with `over_budget` (its dollars passed the cap) and `over_turns` (its answers passed it, as Claude
-Code's `--max-turns` counts turns). Such a trial ran on past where the others would have stopped; its reward
-counts, and the report says how many there were.
+`limits`, with `over_budget` (its dollars passed the cap) and `over_turns` (its `turns` passed it: its answers
+less the failed requests it retried, since Pi persists each as an answer with `stopReason: "error"` and Claude
+Code's `--max-turns` counts none; `answers` counts every one, and `model_calls` keeps them). Such a trial ran on
+past where the others would have stopped; its reward counts, and the report says how many there were.
 
 | | Theseus | Claude Code | Pi |
 |---|---|---|---|
@@ -196,11 +217,11 @@ counts, and the report says how many there were.
 | Attempts, wall clock | `-k`, the task's agent timeout | the same | the same |
 | Spend cap | `THESEUS_BENCH_SPEND_LIMIT` (2.0), enforced: the turn stops (exit 5) | `--ak max_budget_usd=2.0`, enforced by Claude Code | none in Pi: `--ak max_budget_usd=2.0` is recorded, and a trial past it flagged, not stopped |
 | Turn cap | `THESEUS_BENCH_MAX_LOOPS` (200 model calls in the turn), enforced (exit 8) | `--ak max_turns=200`, enforced | none in Pi: `--ak max_turns=200` is recorded and held against its answers, not enforced |
-| Thinking | Theseus's default | Claude Code's default | Pi's default, `medium` (Pi 1.0.4 sends Sonnet 5.5 adaptive thinking); `--ak thinking=off\|low\|…` sets it |
+| Thinking | `effort = "medium"` in the bench profile, sent as `output_config.effort` (omitted, Sonnet 5.5 runs at its default, high) | `--effort medium`: `MeasuredClaudeCode` defaults `reasoning_effort` to it, so a host's `CLAUDE_CODE_EFFORT_LEVEL` no longer picks it; `--ak reasoning_effort=…` is an ablation | `--thinking medium`: `MeasuredPi` defaults `thinking` to it; `--ak thinking=off\|low\|…` is an ablation |
 | Tools | Theseus's toollets, every one open | Claude Code's | `read`, `bash`, `edit`, `write` |
-| Version | the binaries built from the checkout | Harbor's install | 1.0.4, pinned |
-| A provider's failure | an error class per exit code | Harbor's | exit 0; the record's `end` says `error` |
-| A timeout | SIGTERM: the turn stops, the daemon stops | Harbor cancels the run | Harbor cancels the run, as Claude Code's |
+| Version | the binaries built from the checkout | `PINNED_VERSION` in `claude_code_agent.py` (2.1.290; Harbor's install takes the latest release unless told); `--ak version=…` names another | 1.0.4, pinned, and run offline; every arm's version as the container read it is in its record |
+| A provider's failure | an error class per exit code | Harbor's | exit 0; the record's `end` says `error` or `aborted`, and the report counts the trial as an error (`PiProviderError`, `PiAbortedError`) |
+| A timeout | SIGTERM: the turn stops, the daemon stops | `claude` and what it started are stopped (SIGTERM, then SIGKILL after 3 s) before the verifier starts | the same for `pi` |
 
 **The report** reads jobs, one arm each:
 
@@ -216,7 +237,9 @@ the Pareto front marked), `pareto-dollars.svg`, `pareto-tokens.svg`, `pareto-ram
 `-dark.svg`, drawn by `report/charts.py`), and `trials.csv`. A
 job from before the record reports what it kept: its dollars, the cache write from the arm's own files or
 its trajectory, and CPU and RAM "not sampled". When an arm's records carry `limits` (Pi's), the table adds a
-row of its trials past the others' caps.
+row of its trials past the others' caps. A trial Harbor recorded no exception for, whose record's `end` says
+`error` or `aborted` (Pi exits 0 when its provider fails), is an error all the same: "Trials with an error", the
+`error` column of `trials.csv` (`PiProviderError`, `PiAbortedError`) and the drafting tool's endings count it.
 
 ## What it costs
 
@@ -262,13 +285,16 @@ directory, a directory of jobs, or a quoted glob.
 python3 -m unittest discover -s bench/harbor                 # the standard library: Harbor's checks skip
 .venv/bin/python -m unittest discover -s bench/harbor         # with Harbor: the ATIF checks and the agents' load
 python3 -m unittest discover -s bench/report                 # the reports: efficiency, the drafting tool, the charts, the statistics
+python3 -m unittest discover -s bench/async                  # the async bench's driver and scorer
+ASYNC_HARBOR=1 .venv/bin/python -m unittest discover -s bench/async   # with Harbor: the async arms' runs
 ```
 
 They check the profile a trial writes, the exit codes against `crates/theseus/src/outcome.rs`, the container's
 script against a stand-in `theseus` (a turn that ends, a failure, a stop after a timeout, and the sampler around
 each, with and without python3), and the trajectory against Harbor's own ATIF model; Pi's record, limits and
 trajectory from a fixture of its session log and stream, and with Harbor its install's pinned version, its
-command line, and the sampler around its run; the sampler's parsers and
+command line (offline, at effort medium), and the sampler around its run and its stop at a timeout; the stop
+itself on stand-in processes in this host's `/proc` (`test_measure.py`); the sampler's parsers and
 classes on fixture `/proc` trees, and on this host's `/proc` a copy of `sh` under a harness name whose busy child
 must land in work; the record from fixture turns, histories, and session logs; the efficiency report over fixture
 jobs, against numbers worked by hand; the drafting tool over fixture Harbor jobs, a bench history whose header
