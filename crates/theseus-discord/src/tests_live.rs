@@ -428,3 +428,51 @@ async fn a_save_seen_half_written_is_not_acted_on() {
     }
     assert!(r.refused().is_empty(), "{:?}", r.refused());
 }
+
+/// A bindings file of `#lab` and the DMs of `users`, in order.
+fn with_dms(users: &[(u64, &str)]) -> String {
+    let dms: String = users
+        .iter()
+        .map(|(u, n)| format!("[[dm]]\nuser = \"{u}\"\nname = \"{n}\"\n"))
+        .collect();
+    format!(
+        "guild_id = \"{DEFAULT_GUILD}\"\n{}{dms}",
+        channel(LAB, "lab", &[ANA])
+    )
+}
+
+/// theseus-nz3q: the DMs stay in the file's order across live changes, so an
+/// operator's notice, which goes to the first owner's DM, goes to ana's after
+/// her DM was removed and put back, as at a restart, not to ben's.
+#[tokio::test]
+async fn a_dm_put_back_live_keeps_its_place_in_the_files_order() {
+    let both = with_dms(&[(ANA, "ana"), (BEN, "ben")]);
+    let r = Rig::start_on(
+        |_, _| Arc::new(FakeProvider::scripted(vec![])),
+        guild(),
+        &both,
+        &[format!("dm:{BEN}")],
+    )
+    .await;
+    let dm = |who: u64| who + 1;
+    let posts = |who: u64| r.posted(dm(who)).len();
+    r.rewrite(&with_dms(&[(BEN, "ben")]));
+    r.until("ana's DM leaves health", || {
+        !r.labels().contains(&"DM @ana".to_string())
+    })
+    .await;
+    r.rewrite(&both);
+    r.until("ana's DM is back", || {
+        r.labels().contains(&"DM @ana".to_string())
+    })
+    .await;
+    let (ana, ben) = (posts(ANA), posts(BEN));
+    let body = serde_json::json!({"kind": "restarted", "at_unix_ms": 1, "tables": ["model"]});
+    r.core.outbox.to_operator(None, body).unwrap();
+    r.until("the notice is posted", || {
+        posts(ANA) > ana || posts(BEN) > ben
+    })
+    .await;
+    assert_eq!(posts(ANA), ana + 1, "ana's DM is first in the file");
+    assert_eq!(posts(BEN), ben, "ben's DM takes none");
+}

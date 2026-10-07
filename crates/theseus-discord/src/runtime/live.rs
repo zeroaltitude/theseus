@@ -230,6 +230,7 @@ async fn retry(
         }
     }
     shared.check_privates(bound, &bound_now);
+    shared.order_dms(bound, failed);
     failed.len() != before
 }
 
@@ -387,6 +388,23 @@ impl Shared {
         tokio::spawn(lane.run(rx));
     }
 
+    /// The bound DMs in the file's order, as a start fills them: the first
+    /// owner's DM is where approvals and operator notices go (theseus-nz3q).
+    /// A DM whose bind failed is not among them until it binds.
+    fn order_dms(&self, b: &Bindings, failed: &BTreeMap<String, String>) {
+        let mut r = self.routes.lock().unwrap();
+        let have = std::mem::take(&mut r.dms);
+        let bound = |u: u64| have.iter().any(|(h, _)| *h == u);
+        r.dms =
+            b.dm.iter()
+                .filter(|d| !failed.contains_key(&format!("dm:{}", d.user)))
+                .filter_map(|d| {
+                    let user = d.user.parse().ok()?;
+                    bound(user).then(|| (user, d.label()))
+                })
+                .collect();
+    }
+
     /// The DM `user`, labelled `label`, among the bound ones: once, however
     /// often its bind is tried.
     fn add_dm(&self, user: u64, label: String) {
@@ -500,6 +518,7 @@ impl Shared {
             }
         }
         self.read_new_privates(old, new);
+        self.order_dms(new, failed);
         let guilds = guilds::guild_ids(new).unwrap_or_default();
         self.refresh_bot_roles(&guilds).await;
         self.board.update(|s| {
