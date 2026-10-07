@@ -26,7 +26,8 @@ build.
   their point, off the instruments; pure), `Tour.tsx`, `tourText.ts` and `news.ts` (the tour, and what's new after an
   update; pure), `sound.ts`, `audio.ts` and `useShipSound.ts` (the three cues: which push sounds which, pure; the
   sounds, made with Web Audio), `instruments.tsx` (the brass gauges), `Minimap.tsx`, `useShipData.ts` (the reads and
-  pushes it composes), and `synth.ts` (a seeded 10,000-node fleet for measuring).
+  pushes it composes), `flares.ts` (a failure flares its ship once, whichever of its push, its execution's change and
+  its ledger row tells the page first; pure, theseus-1skt), and `synth.ts` (a seeded 10,000-node fleet for measuring).
 - The watch, the Ship's column of six plates (theseus-hnof): `src/ship/Watch.tsx` draws them, `src/ship/watch.ts` works
   out five (working, waiting, slow against each job's usual, spent with a day of 23 to 25 hours, went wrong) and
   `src/ship/since.ts` the sixth, since you last looked, whose stretch this browser keeps (`cockpit.watch.looked`) and
@@ -102,7 +103,9 @@ build.
   `timemachine.ts`; `window.__timeMachine.checkNow()` (dev and bench builds) folds to the present and lists every
   difference from the daemon's own lists.
 - **One copy of the ledger.** Read it through `useHistoryRows()`, never a second `ledger.tail` loop: a view that
-  shows it at once reads it urgently; the ship's log reads it unhurried, so a page's own first reads come first.
+  shows it at once reads it urgently; the ship's log reads it unhurried, so a page's own first reads come first. A hook
+  that acts only on new rows (the Ship's horn and flare, for a session whose pushes the page does not hear) takes them
+  with `onNewRows`, so it draws nothing for a read that brings none of its kinds.
 - **A scrub redraws in under 100 ms.** The fold keeps an unchanged entry the same object, so rows memoized on it do
   not draw again; a heavy view takes `useDeferredValue(useWorld())`, and a laid-out graph follows the needle only
   once it rests (`useSettled`).

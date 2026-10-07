@@ -120,6 +120,20 @@ export function useHistoryRows(unhurried = false): LedgerHistory {
   return useLedgerHistory()
 }
 
+/** Hear the rows the page's copy gains from now on, each batch oldest first: for a hook that acts on new rows (the
+ *  Ship's horn and flare) without drawing again on every read. It reads nothing itself: the copy is followed while a
+ *  view holds `useHistoryRows`. Returns the unsubscribe. */
+export function onNewRows(fn: (rows: LedgerEntry[]) => void): () => void {
+  let seen = useLedgerHistory.getState().last
+  return useLedgerHistory.subscribe((st) => {
+    if (st.last <= seen) return
+    const fresh: LedgerEntry[] = []
+    for (let i = st.rows.length - 1; i >= 0 && st.rows[i].position > seen; i--) fresh.push(st.rows[i])
+    seen = st.last
+    fn(fresh.reverse())
+  })
+}
+
 /** Rows of some kinds, from the shared history, in order. */
 export function ofKinds(rows: LedgerEntry[], kinds: ReadonlySet<string>): LedgerEntry[] {
   return rows.filter((r) => kinds.has(r.kind))
