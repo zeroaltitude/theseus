@@ -12,6 +12,7 @@
 
 mod aws;
 mod bindings;
+mod books;
 mod budgets;
 mod confirms;
 mod context;

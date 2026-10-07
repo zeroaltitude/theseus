@@ -677,6 +677,80 @@ impl RedbIndex {
             .unwrap_or_default())
     }
 
+    /// Up to `limit` (term, key, latest position) of `kind` with a term in
+    /// `lo..hi`, in term order and then key order, the last first when
+    /// `newest_first`; with `before`, only those before that (term, key)
+    /// in that order (after it, oldest first). A term that sorts by time
+    /// makes this a page of a kind's keys by time, reading no record
+    /// (theseus-civ0).
+    pub fn terms_range(
+        &self,
+        kind: RecordKind,
+        lo: &str,
+        hi: &str,
+        past: Option<(&str, &str)>,
+        newest_first: bool,
+        limit: usize,
+    ) -> Result<Vec<(String, String, u64)>> {
+        let txn = self.db.begin_read()?;
+        let t = txn.open_table(TERMS)?;
+        let (mut from, mut to) = term_bounds(kind, lo, hi);
+        match (past, newest_first) {
+            (Some((term, key)), true) => to = term_key(kind, term, key),
+            (Some((term, key)), false) => {
+                from = term_key(kind, term, key);
+                from.push(0);
+            }
+            (None, _) => {}
+        }
+        if from >= to || limit == 0 {
+            return Ok(Vec::new());
+        }
+        let range = t.range(from.as_slice()..to.as_slice())?;
+        let mut out = Vec::new();
+        let mut push = |kb: &[u8], position: u64| {
+            count_rows(1);
+            if let Some((term, key)) = term_and_key(kb) {
+                out.push((term, key, position));
+            }
+            out.len() < limit
+        };
+        if newest_first {
+            for row in range.rev() {
+                let (k, v) = row?;
+                if !push(k.value(), v.value()) {
+                    break;
+                }
+            }
+        } else {
+            for row in range {
+                let (k, v) = row?;
+                if !push(k.value(), v.value()) {
+                    break;
+                }
+            }
+        }
+        Ok(out)
+    }
+
+    /// Each term of `kind` in `lo..hi` with how many keys have it, from
+    /// `termcounts` (a row per term), in term order: what a facet lists.
+    pub fn term_counts(&self, kind: RecordKind, lo: &str, hi: &str) -> Result<Vec<(String, u64)>> {
+        let txn = self.db.begin_read()?;
+        let t = txn.open_table(TERMCOUNTS)?;
+        let (from, to) = term_bounds(kind, lo, hi);
+        let mut out = Vec::new();
+        for row in t.range(from.as_slice()..to.as_slice())? {
+            let (k, v) = row?;
+            count_rows(1);
+            let term = String::from_utf8_lossy(&k.value()[2..]).into_owned();
+            if v.value() > 0 {
+                out.push((term, v.value()));
+            }
+        }
+        Ok(out)
+    }
+
     /// (key, latest position) of every key of `kind` that starts with
     /// `prefix`, in key order.
     pub fn keys_with_prefix(&self, kind: RecordKind, prefix: &str) -> Result<Vec<(String, u64)>> {

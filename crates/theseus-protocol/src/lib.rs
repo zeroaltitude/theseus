@@ -12,6 +12,7 @@ mod actions;
 pub mod arrangement;
 mod aws;
 pub mod bench;
+pub mod books;
 mod budgets;
 pub mod cancel;
 pub mod check;
@@ -238,6 +239,9 @@ pub mod method {
         /// `context::ContextExplainParams`): the system block's parts, the guidance, the tools, the
         /// recall, and the conversation. A read; it compiles nothing.
         CONTEXT_EXPLAIN = "context.explain",
+        /// The books, first cut (theseus-civ0; `books`): each book's count and span, and a book's
+        /// episodes newest first, filtered and paged. Reads.
+        BOOKS_LIST = "books.list", BOOKS_PAGE = "books.page",
         /// The gates' bench history on this machine (theseus-1hk), for the
         /// cockpit's speed wall: every recorded run's p50s, p95s, and limits
         /// (`bench::BenchHistoryResult`). A read of the gate's CSV.

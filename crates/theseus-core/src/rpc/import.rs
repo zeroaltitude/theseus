@@ -42,14 +42,18 @@ pub(crate) const WITHHELD: &str = "an imported session is the owner's own histor
 const FORGET_DEADLINE: Duration = Duration::from_secs(70);
 
 /// Whether `rpc_prefixed` routes `name`: the ladder's, the import's, and
-/// `context.explain` (theseus-7n3e).
+/// `context.explain` (theseus-7n3e), and the books' (theseus-civ0).
 pub(super) fn prefixed(name: &str) -> bool {
-    name.starts_with("pack.") || name.starts_with("import.") || super::context::prefixed(name)
+    name.starts_with("pack.")
+        || name.starts_with("import.")
+        || name.starts_with("books.")
+        || super::context::prefixed(name)
 }
 
 impl Core {
-    /// The ladder's methods (`pack.*`) and the import's (`import.*`), from
-    /// one arm of `dispatch`, which stays within clippy's length that way.
+    /// The ladder's methods (`pack.*`), the import's (`import.*`) and the
+    /// books' (`books.*`), from one arm of `dispatch`, which stays within
+    /// clippy's length that way.
     pub(super) async fn rpc_prefixed(
         self: Arc<Self>,
         name: &str,
@@ -61,6 +65,9 @@ impl Core {
         }
         if super::context::prefixed(name) {
             return self.rpc_context(params, conn).await;
+        }
+        if name.starts_with("books.") {
+            return self.rpc_books(name, params, conn).await;
         }
         self.rpc_import(name, params, conn).await
     }

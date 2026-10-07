@@ -42,11 +42,12 @@ use crate::node_cache::NodeCache;
 
 /// The index's projection for a daemon's store (theseus-lv2): the kernel's
 /// terms for each execution and action, and for each session the numbers
-/// health adds up (sessions, turns, the five token counts, the cost) and the
-/// term `e` while it holds external text. A change to what these say renames
-/// it, and every store builds them again once, after serving.
+/// health adds up (sessions, turns, the five token counts, the cost), the
+/// term `e` while it holds external text, and an imported session's book
+/// terms (`books::session_terms`, theseus-civ0). A change to what these say
+/// renames it, and every store builds them again once, after serving.
 pub static PROJECTION: Projection = Projection {
-    name: "projection.core.1",
+    name: "projection.core.2",
     kinds: &[kinds::EXECUTION, kinds::ACTION, kinds::SESSION],
     terms: terms_of,
     sums: sums_of,
@@ -62,10 +63,14 @@ fn terms_of(kind: RecordKind, payload: &[u8]) -> Vec<String> {
         external: Option<serde::de::IgnoredAny>,
     }
     match kind {
-        kinds::SESSION => match serde_json::from_slice::<Held>(payload) {
-            Ok(Held { external: Some(_) }) => vec![EXTERNAL.to_string()],
-            _ => Vec::new(),
-        },
+        kinds::SESSION => {
+            let mut terms = match serde_json::from_slice::<Held>(payload) {
+                Ok(Held { external: Some(_) }) => vec![EXTERNAL.to_string()],
+                _ => Vec::new(),
+            };
+            terms.extend(crate::books::session_terms(payload));
+            terms
+        }
         _ => theseus_kernel::terms::of(kind, payload),
     }
 }

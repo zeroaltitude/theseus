@@ -5,7 +5,7 @@
 // and the books. Read only: no control here writes. Every filter, the tab, the page and the episode open are in the
 // address, so any view deep-links. The pure parts are lib/explorer.ts.
 import { useMemo, useState, type ReactNode } from 'react'
-import { useSearchParams } from 'react-router'
+import { Link, useSearchParams } from 'react-router'
 import { BookOpen, ChevronDown, ChevronRight, Database, Eye, EyeOff, FileText, Layers, Library, ListTree, MessagesSquare, Search, Shapes, Telescope, X } from 'lucide-react'
 import type { Health, ImportFacet, ImportListResult, ImportSessionsResult, ImportedEpisode, NodeInfo, OntologyListResult, SessionHistoryResult } from '@protocol'
 import { useRpc } from '@/lib/rpc'
@@ -443,7 +443,7 @@ function Books({ go }: { go: (book: string) => void }) {
       <Panel title="the books" icon={<BookOpen size={13} />}>
         <div className="flex flex-col gap-2 p-3 text-[12.5px] leading-relaxed text-ink-dim">
           <p><span className="text-ink">Not compiled yet.</span> The books are typed organizations of what Theseus knows: a dictionary, an encyclopedia, a cookbook, standing procedures, a diary, a casebook, a register. Their design is theseus-lqo6; the soul migration’s stages that fill them from the imported history are theseus-0lrr.7 (curated sources) and theseus-0lrr.8 (the build, the exam, the cut-over).</p>
-          <p>Until then, recall reads the imported episodes themselves as testimony, and each episode carries the import’s guess at its book: {data ? <span className="num text-ink">{count(hinted)} of {count(data.all)}</span> : '…'} are hinted, on the right.</p>
+          <p>Until then, recall reads the imported episodes themselves as testimony, and each episode carries the import’s guess at its book: {data ? <span className="num text-ink">{count(hinted)} of {count(data.all)}</span> : '…'} are hinted, on the right. <Link to="/books" className="text-live hover:underline">Browse them by book in the Books view →</Link></p>
         </div>
       </Panel>
       <ChartPanel id="books" title="book hints · episodes a book" icon={<Library size={13} />} height={Math.max(120, books.length * 30 + 16)}

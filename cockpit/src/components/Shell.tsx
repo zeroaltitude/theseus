@@ -4,7 +4,7 @@ import { NavLink, Outlet, useLocation, useMatch, useNavigate } from 'react-route
 import { motion } from 'motion/react'
 import { Command } from 'cmdk'
 import {
-  Activity, BellOff, BellRing, ChevronDown, ChevronUp, CircleCheck, Moon, Sun, SunMoon, Check, Coins, Command as CommandIcon, Cpu, Crosshair, FlaskConical, Gauge, Gavel, Landmark, Layers, Navigation, OctagonX, Pause, Radio,
+  Activity, BellOff, BellRing, ChevronDown, ChevronUp, CircleCheck, Moon, Sun, SunMoon, Check, Coins, Command as CommandIcon, Cpu, Crosshair, FlaskConical, Gauge, Gavel, Landmark, Layers, Library, Navigation, OctagonX, Pause, Radio,
   Sailboat, Scale, ScrollText, ShieldCheck, ShieldHalf, Shapes, Telescope, Zap,
 } from 'lucide-react'
 import type { ConfirmRequest, ExecutionInfo, NodeInfo, SessionInfo } from '@protocol'
@@ -44,6 +44,7 @@ const NAV = [
   { to: '/systems', label: 'Systems', icon: Cpu },
   { to: '/ontology', label: 'Ontology', icon: Shapes },
   { to: '/context', label: 'Context', icon: Telescope },
+  { to: '/books', label: 'Books', icon: Library },
 ] as const
 
 const GO: Record<string, string> = {

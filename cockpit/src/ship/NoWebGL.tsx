@@ -11,7 +11,7 @@ import { isWebGLFailure } from './webgl'
 const VIEWS = [
   ['/bridge', 'Bridge'], ['/fleet', 'Fleet'], ['/actions', 'Actions'], ['/boundaries', 'Bounds'], ['/ledger', 'Ledger'],
   ['/money', 'Money'], ['/economics', 'Economics'], ['/speed', 'Speed'], ['/judgment', 'Judgment'],
-  ['/systems', 'Systems'], ['/ontology', 'Ontology'],
+  ['/systems', 'Systems'], ['/ontology', 'Ontology'], ['/books', 'Books'],
 ] as const
 
 export function ShipFallback({ reason }: { reason: string }) {

@@ -70,6 +70,8 @@ const router = createBrowserRouter(
             { path: 'ontology', element: wrap(<Ontology />) },
             // The context explorer (theseus-7n3e): what Theseus knows and what a turn sees. The route loads its chunk.
             { path: 'context', lazy: async () => ({ Component: (await import('./views/Context')).default }) },
+            // The books, first cut (theseus-civ0): the imported episodes by their book. The route loads its chunk.
+            { path: 'books', lazy: async () => ({ Component: (await import('./views/Books')).default }) },
             { path: 'judgment', element: wrap(<Judgment />) },
             { path: 'benchmarks', element: wrap(<Benchmarks />) },
             { path: 'benchmarks/:run', element: wrap(<BenchRun />) },
