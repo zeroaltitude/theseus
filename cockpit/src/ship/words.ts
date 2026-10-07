@@ -92,6 +92,24 @@ export function recentLine(gold: number, turns: number): string | null {
   return gold > 0 ? `${gold} of its ${count(turns, 'turn')} in the last hour` : null
 }
 
+/** The vessel card's first three lines (theseus-n7ra): its state as the daemon records it; its turns, with how many in
+ *  the last hour (its gold planks: the inventory's N5) and when it was last active (`last`, said by the caller: "4m
+ *  ago"); and its calls: its messages (N1), model calls and tool calls, and how many failed (`failed`, its own tone).
+ *  The card draws these words and a test holds every datum, so a later trim of the card cannot drop one unseen. */
+export function cardLines(
+  v: VesselLike & { turns: number; goldPlanks: number },
+  kinds: { user: number; model: number; call: number },
+  failed: number,
+  last: string,
+): { state: string; turns: string; calls: string; failed: string | null } {
+  return {
+    state: rawState(v),
+    turns: `${v.turns}${v.goldPlanks ? ` · ${v.goldPlanks} in the last hour` : ''} · last ${last}`,
+    calls: `${count(kinds.user, 'message')} · ${count(kinds.model, 'model call')} · ${count(kinds.call, 'tool call')}`,
+    failed: failed ? `, ${failed} failed` : null,
+  }
+}
+
 /** What a vessel is: "session" or "task". */
 export const vesselNoun = (v: Pick<VesselLike, 'kind'>) => (v.kind === 'task' ? SHAPES.task.noun : SHAPES.session.noun)
 

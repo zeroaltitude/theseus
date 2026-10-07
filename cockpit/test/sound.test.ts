@@ -65,3 +65,32 @@ test("a failure or a question only the ledger tells (a session the Ship does not
   assert.equal(cueOfRow(newEar(), row('action.failed', 's9', 5000), 6000, 1000), null)
   assert.equal(cueOfRow(newEar(), row('turn.ended', 's9', 5000), 6000, 1000), null)
 })
+
+test('a question rings once even when its row comes more than the bell’s spacing after its push (theseus-n7ra, A7)', () => {
+  const ear = newEar()
+  assert.equal(cueOf(ear, 'confirm.requested', { session_id: 's1', correlation_id: 'act_1' }, 1000), 'bell')
+  // Its ledger row, read 5 s later (past the bell's 4 s spacing): the same question, no second bell.
+  assert.ok(5000 > SPACING.bell)
+  assert.equal(cueOfRow(ear, { kind: 'tool.confirm_requested', session_id: 's1', at_unix_ms: 1000 }, 6000, 0), null)
+  assert.equal(cueOfRow(ear, { kind: 'budget.asked', session_id: 's1', at_unix_ms: 1000 }, 9000, 0), null)
+  // Another session's question rings.
+  assert.equal(cueOfRow(ear, { kind: 'tool.confirm_requested', session_id: 's2', at_unix_ms: 6500 }, 6500, 0), 'bell')
+  // And so does the same session's next question, once the change's window has passed.
+  assert.equal(cueOf(ear, 'confirm.requested', { session_id: 's1', correlation_id: 'act_2' }, 12_000), 'bell')
+  // A failure is the same: its push, then its row 5 s on, one horn.
+  assert.equal(cueOf(ear, 'turn.failed', { session_id: 's3', turn_id: 't1' }, 20_000), 'horn')
+  assert.equal(cueOfRow(ear, { kind: 'turn.failed', session_id: 's3', at_unix_ms: 20_000 }, 25_000, 0), null)
+})
+
+test('a failed tool call sounds no horn: its rose blade and pennant show it (theseus-n7ra, A11)', () => {
+  const ear = newEar()
+  for (const status of ['error', 'failed', 'denied', 'timeout', 'cancelled', 'ok']) {
+    assert.equal(cueOf(ear, 'tool.ended', { session_id: 's1', correlation_id: 'a1', status }, 1000), null, status)
+  }
+  // Nor its ledger rows.
+  for (const kind of ['tool.ended', 'tool.failed', 'action.failed', 'tool.result']) {
+    assert.equal(cueOfRow(ear, { kind, session_id: 's1', at_unix_ms: 2000 }, 2000, 0), null, kind)
+  }
+  // The horn is for a turn: still there for one.
+  assert.equal(cueOf(ear, 'turn.failed', { session_id: 's1' }, 3000), 'horn')
+})

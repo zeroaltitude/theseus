@@ -22,7 +22,7 @@ import { Tour } from '@/ship/Tour'
 import { COCKPIT_VERSION, SEEN_KEY, TOUR_KEY, tourPlan, type TourPlan } from '@/ship/news'
 import { DepthGauge } from '@/ship/Depth'
 import { Coins } from '@/ship/Coins'
-import { benchLine, count, depthOf, rawState, stateWord, type Depth } from '@/ship/words'
+import { benchLine, cardLines, count, depthOf, stateWord, type Depth } from '@/ship/words'
 import { ShipBoundary, ShipFallback } from '@/ship/NoWebGL'
 import { Watch, type WatchFocus, type WatchTarget } from '@/ship/Watch'
 import { hasWebGL, NO_WEBGL, tryBuild } from '@/ship/webgl'
@@ -466,6 +466,7 @@ function VesselCard({ v, model, bench, onClose, now, reachCap, ref }: { v: Vesse
   const ext = lights.filter((l) => l.external).length
   const failed = v.benches.reduce((a, b) => a + model.benches[b].failed, 0)
   const st = stateWord(v)
+  const card = cardLines(v, { user: kinds.user, model: kinds.model, call: kinds.call }, failed, ago(v.lastActive, now))
   const tone = st.tone === 'live' ? 'text-live' : st.tone === 'wait' ? 'text-wait' : st.tone === 'fault' ? 'text-fault' : 'text-ink-dim'
   return (
     <aside ref={ref} data-ship-ui className="brass-card pointer-events-auto absolute left-4 top-[100px] w-[310px]">
@@ -478,9 +479,9 @@ function VesselCard({ v, model, bench, onClose, now, reachCap, ref }: { v: Vesse
         <button onClick={onClose} title="Let the selection go (Esc)" className="rounded px-1 text-ink-faint hover:text-ink">×</button>
       </header>
       <dl className="num mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-[11.5px]">
-        <dt className="text-ink-faint">state</dt><dd className="truncate text-ink-dim" title={rawState(v)}>{rawState(v)}</dd>
-        <dt className="text-ink-faint">turns</dt><dd className="text-ink">{v.turns}{v.goldPlanks ? ` · ${v.goldPlanks} in the last hour` : ''} · last {ago(v.lastActive, now)}</dd>
-        <dt className="text-ink-faint">calls</dt><dd className="text-ink">{count(kinds.user, 'message')} · {count(kinds.model, 'model call')} · {count(kinds.call, 'tool call')}{failed ? <span className="text-fault">, {failed} failed</span> : null}</dd>
+        <dt className="text-ink-faint">state</dt><dd className="truncate text-ink-dim" title={card.state}>{card.state}</dd>
+        <dt className="text-ink-faint">turns</dt><dd className="text-ink">{card.turns}</dd>
+        <dt className="text-ink-faint">calls</dt><dd className="text-ink">{card.calls}{card.failed ? <span className="text-fault">{card.failed}</span> : null}</dd>
         <dt className="text-ink-faint">money</dt><dd className="text-ink">{usdShort(v.cost)}{v.limit ? ` of ${usdShort(v.limit)}` : ''}{v.reserved ? ` · ${usdShort(v.reserved)} held for tasks and calls` : ''}</dd>
         {(v.profile || v.model) && <><dt className="text-ink-faint">model</dt><dd className="truncate text-ink">{v.profile ?? '—'} · {v.model ?? '—'}</dd></>}
         {!!l1 && <><dt className="text-ink-faint">sandbox</dt><dd className="text-[#5eead4]">{count(l1, 'call')} sandboxed (L1)</dd></>}
