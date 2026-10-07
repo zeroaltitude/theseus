@@ -15,20 +15,37 @@ results read as Pi's. It adds only:
 - **the version**: pinned at `PINNED_VERSION` unless `--ak version=…` names
   another, so every trial installs the same Pi (Harbor's own installs
   `@latest`);
+- **the effort**: `--ak thinking=…` defaults to `measure.EFFORT` (medium),
+  as the other arms' effort is, where Harbor's leaves it to Pi's own
+  default (theseus-n6p5);
+- **offline**: `PI_OFFLINE=1`, `PI_SKIP_VERSION_CHECK=1` and `PI_TELEMETRY=0`
+  in Pi's environment. Pi overlays newer model-catalog data from its
+  project's server unless offline, so the pin would not pin its prices (the
+  record's dollars are Pi's own `cost.total`), its thinking map or its
+  compat flags (theseus-a5we). Pi 1.0.4's own docs: "`PI_OFFLINE`: Disable
+  automatic network activity, including model catalog refreshes"
+  (docs/environment-variables.md); its code gates only the catalog refresh,
+  the version check, package updates and tool downloads on it, never a
+  model call;
 - **the caps the other arms run under**, `max_budget_usd` and `max_turns`,
   taken as Claude Code's are and recorded, not enforced: Pi has neither a
   spend cap nor a turn cap, so a trial that passes them is flagged in its
   record (`limits`), never stopped;
-- **install**: the harness sampler (`sampler.py`) uploaded beside it;
+- **install**: the harness sampler (`sampler.py`) uploaded beside it, and
+  the version the container reads written to the logs (`version.txt`);
 - **run**: the sampler started before Harbor's run (Pi's CLI, `pi` as
   `/proc/<pid>/comm` shows it, since it sets its process title, is the
   harness; what it runs is work) and stopped after it, in a `finally`, so
-  Harbor's timeout stops it too;
+  Harbor's timeout stops it too. At that timeout the agent is stopped first
+  (`measure.stop_agent`): Harbor's Docker environment ends only its exec
+  client, and Pi would run on while the verifier does (theseus-sgpx);
 - **populate_context_post_run**: after Harbor's own, the trial's ATIF
   trajectory (`agent/trajectory.json`, `pi_atif.py`, from Pi's session log),
   Harbor's three counters from the same log with the cache write in its
   input as the other arms count it, and the efficiency record
-  (`agent/efficiency.json`, and `metadata["efficiency"]`; `efficiency.py`).
+  (`agent/efficiency.json`, and `metadata["efficiency"]`; `efficiency.py`),
+  with the effort asked for, the thinking level Pi's log says ran, and the
+  version read.
 
 The sampler's interval is BENCH_SAMPLE_MS (250 by default), from the
 environment of `harbor run`.
@@ -36,11 +53,13 @@ environment of `harbor run`.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
+import re
 import shlex
 from pathlib import Path
-from typing import override
+from typing import Any, override
 
 from pydantic import Field
 
@@ -50,6 +69,7 @@ from harbor.environments.base import BaseEnvironment
 from harbor.models.agent.context import AgentContext
 
 import efficiency as ef
+import measure
 import pi_atif
 import sampler as smp
 
@@ -61,6 +81,10 @@ DIR = "/installed-agent/measure"
 SAMPLER = f"{DIR}/sampler.py"
 STATE = f"{DIR}/state"
 ARM = ef.ARMS["pi"]
+# Pi's own environment, beside the model's key: offline (no catalog overlay,
+# no version check), and no telemetry.
+PI_RUN = re.compile(r"(?:^|[\s;])pi --(?:print|mode)\b")
+RUN_ENV = {"PI_OFFLINE": "1", "PI_SKIP_VERSION_CHECK": "1", "PI_TELEMETRY": "0"}
 
 
 class MeasuredPiOptions(PiOptions):
@@ -76,12 +100,27 @@ class MeasuredPi(Pi):
     options_model = MeasuredPiOptions
     options: MeasuredPiOptions
 
-    def __init__(self, *args, version: str | None = None, **kwargs):
-        super().__init__(*args, version=version or PINNED_VERSION, **kwargs)
+    def __init__(self, *args, version: str | None = None, thinking: str | None = None, **kwargs):
+        super().__init__(*args, version=version or PINNED_VERSION,
+                         thinking=thinking or measure.EFFORT, **kwargs)
+
+    @override
+    async def exec_as_agent(self, environment: BaseEnvironment, command: str,
+                            env: dict[str, str] | None = None, cwd: str | None = None,
+                            timeout_sec: int | None = None) -> Any:
+        # Harbor's run passes the model's key alone: Pi runs offline. Its run
+        # command is `pi --print …`, or `pi --mode rpc …` where the async arm
+        # has rewritten it before this call.
+        if PI_RUN.search(command):
+            env = {**RUN_ENV, **(env or {})}
+        return await super().exec_as_agent(environment, command, env=env, cwd=cwd,
+                                           timeout_sec=timeout_sec)
 
     @override
     async def install(self, environment: BaseEnvironment) -> None:
         await super().install(environment)
+        await measure.record_version(environment, self.get_version_command(),
+                                     self.environment_logs_dir.as_posix())
         await self.exec_as_root(environment, command=f"mkdir -p {STATE}")
         await environment.upload_file(Path(smp.__file__), SAMPLER)
         owner = ""
@@ -101,6 +140,11 @@ class MeasuredPi(Pi):
         await environment.exec(command=f"{start}; true", timeout_sec=30)
         try:
             await super().run(instruction, environment, context)
+        except asyncio.CancelledError:
+            # Harbor's timeout: stop Pi and what it started before the
+            # sampler's stop, and before the verifier starts.
+            await measure.stop_agent(environment, ARM["names"])
+            raise
         finally:
             await environment.exec(command=smp.stop_script(logs, STATE), timeout_sec=30)
 
@@ -116,7 +160,9 @@ class MeasuredPi(Pi):
         except Exception:  # noqa: BLE001: a trajectory never fails the trial
             pass
         try:
-            rec = ef.pi_record(self.logs_dir, self.options.max_budget_usd, self.options.max_turns)
+            rec = ef.stamp(self.logs_dir,
+                           ef.pi_record(self.logs_dir, self.options.max_budget_usd, self.options.max_turns),
+                           self.options.thinking, self.version(), self.parse_version)
             ef.write(self.logs_dir, rec)
             t = rec.get("tokens") or {}
             if rec.get("spend_from") in ("session_log", "stream"):

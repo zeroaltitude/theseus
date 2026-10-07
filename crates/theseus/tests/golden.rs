@@ -1197,6 +1197,25 @@ fn health_prints_every_line() {
     );
 }
 
+/// A daemon with an import (theseus-revl): the owner's own sessions, then the
+/// imported ones held and the erased ones; a store with none prints as before.
+#[test]
+fn health_names_an_import_apart_from_the_owners_sessions() {
+    let mut h = health();
+    h["sessions"] = json!(512);
+    h["imported"] = json!({"sessions": 21151, "erased": 3});
+    golden(
+        "health_imported",
+        &run(&["health"], vec![step("health", h.clone())]),
+    );
+    h["imported"] = json!({"sessions": 21151, "erased": 0});
+    let out = run(&["health"], vec![step("health", h)]);
+    assert!(
+        out.contains(" · sessions 512 · imported 21,151 · turns 9 · "),
+        "{out}"
+    );
+}
+
 /// A daemon with the push (theseus-in3): health's `push:` line, seeded and
 /// not.
 #[test]

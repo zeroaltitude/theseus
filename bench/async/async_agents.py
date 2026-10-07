@@ -188,7 +188,9 @@ class TheseusAsync(ta.Theseus):
         if (self.logs_dir / "theseus-calls.json").exists():
             report = ta._json(self.logs_dir / driver.REPORT) or {}
             try:
-                rec = ef.theseus_ledger_record(self.logs_dir, wall_s=report.get("wall_s"))
+                rec = ef.stamp(self.logs_dir,
+                               ef.theseus_ledger_record(self.logs_dir, wall_s=report.get("wall_s")),
+                               tb.profile_effort(), None, self.parse_version)
                 ef.write(self.logs_dir, rec)
             except Exception as e:  # noqa: BLE001
                 rec = {"schema": ef.SCHEMA, "arm": "theseus", "error": f"{type(e).__name__}: {e}"}
@@ -270,7 +272,8 @@ class ClaudeCodeAsync(cca.MeasuredClaudeCode):
         # The measured record, with the results the stream held. Never the
         # trial's failure.
         try:
-            rec = ef.claude_code_async_record(self.logs_dir)
+            rec = ef.stamp(self.logs_dir, ef.claude_code_async_record(self.logs_dir),
+                           self.options.reasoning_effort, self.version(), self.parse_version)
             ef.write(self.logs_dir, rec)
         except Exception as e:  # noqa: BLE001
             rec = {"schema": ef.SCHEMA, "arm": "claude-code", "error": f"{type(e).__name__}: {e}"}

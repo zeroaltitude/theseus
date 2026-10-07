@@ -144,3 +144,17 @@ pub struct ImportTagInfo {
 pub struct ImportListResult {
     pub tags: Vec<ImportTagInfo>,
 }
+
+/// Health's count of what an import wrote (theseus-revl): the sessions an
+/// import holds, apart from the owner's own (`HealthResult.sessions`), and
+/// the erased ones. Both are nothing when there is no import.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct HealthImported {
+    /// Imported sessions still held: the tags' sessions less their erased.
+    #[cfg_attr(test, ts(type = "number"))]
+    pub sessions: u64,
+    /// Imported sessions an `import.erase` tombstoned. Their keys remain.
+    #[cfg_attr(test, ts(type = "number"))]
+    pub erased: u64,
+}

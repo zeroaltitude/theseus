@@ -65,6 +65,18 @@ class Profile(unittest.TestCase):
         self.assertFalse(cfg["web"]["enabled"] or cfg["discord"]["enabled"])
         self.assertNotIn("op://", text)
 
+    def test_the_profile_asks_for_the_effort_every_arm_asks_for(self):
+        """Theseus's bench profile says `effort = "medium"` (theseus-n6p5): on
+        Sonnet 5.5 it would send none, and the model's default is high, where
+        Claude Code and Pi send medium. A trial's lines leave it alone."""
+        import measure
+
+        self.assertEqual(measure.EFFORT, "medium")
+        self.assertEqual(tb.profile_effort(), measure.EFFORT)
+        values = tb.settings("claude-sonnet-5-5", "/app")
+        self.assertEqual(tb.profile_effort(tb.profile(tb.PROFILE.read_text(), values)), "medium")
+        self.assertIsNone(tb.profile_effort('[profiles.bench]\nmodel = "m"\n'))
+
     def test_a_missing_key_goes_into_its_table_and_a_missing_table_is_added(self):
         text = tb.profile(
             "[model]\nprovider = \"anthropic\"\n\n[tools]\nroots = [\"/\"]\n",
@@ -355,6 +367,21 @@ class Trajectories(unittest.TestCase):
 
 @unittest.skipIf(Trajectory is None, "Harbor is not installed")
 class Adapter(unittest.TestCase):
+    def test_its_record_names_the_effort_asked_and_the_version_the_container_read(self):
+        import theseus_agent
+        from harbor.models.agent.context import AgentContext
+
+        with tempfile.TemporaryDirectory() as d:
+            logs = Path(d)
+            (logs / "version.txt").write_text("theseus 0.83.0\n")
+            agent = theseus_agent.Theseus(logs_dir=logs, model_name="anthropic/claude-sonnet-5-5")
+            ctx = AgentContext()
+            agent.populate_context_post_run(ctx)
+            rec = json.loads((logs / "efficiency.json").read_text())
+            self.assertEqual((rec["effort"], rec["version"], rec["version_asked"]),
+                             ("medium", "theseus 0.83.0", None))
+            self.assertEqual(ctx.metadata["efficiency"], rec)
+
     def test_it_loads_as_an_atif_agent_with_an_error_for_each_end(self):
         import theseus_agent
 

@@ -106,6 +106,22 @@ def _rebuilt(agent: Path, harbor: dict[str, Any]) -> tuple[dict[str, Any], str]:
     return ef.record("unknown", spend, None), "harbor counters"
 
 
+# What Pi's own record says of a run Harbor recorded no exception for: its
+# print mode exits 0 when the provider fails, so the last answer's
+# `stopReason` is where the failure is (theseus-bpeg), and the trial is given
+# an error of its own, by that stop.
+PI_END_ERRORS = {"error": "PiProviderError", "aborted": "PiAbortedError"}
+
+
+def _error(exc: dict[str, Any], rec: dict[str, Any]) -> str | None:
+    """The trial's error: Harbor's exception, or, when it recorded none, the
+    record's `end` (Pi's last answer failed or was aborted)."""
+    if exc.get("exception_type"):
+        return exc["exception_type"]
+    end = rec.get("end")
+    return PI_END_ERRORS.get(end.get("stop_reason")) if isinstance(end, dict) else None
+
+
 def load_trial(d: Path) -> dict[str, Any] | None:
     """One trial: its reward, error, wall, and efficiency record."""
     result = ef.read_json(d / "result.json")
@@ -130,7 +146,7 @@ def load_trial(d: Path) -> dict[str, Any] | None:
         "task": result["task_name"],
         "reward": reward,
         "solved": reward is not None and reward >= 1,
-        "error": exc.get("exception_type"),
+        "error": _error(exc, rec),
         "wall_s": _wall(result.get("agent_execution")),
         "record": rec,
         "record_from": source,

@@ -45,7 +45,7 @@ def entry(eid, parent, at, **rest):
     return {"id": eid, "parentId": parent, "timestamp": f"2026-10-06T12:00:{at:02d}.000Z", **rest}
 
 
-def answer(eid, parent, at, model, u, *, text="", calls=(), stop="toolUse", error=None):
+def answer(eid, parent, at, model, u, *, text="", calls=(), stop="toolUse", error=None, level="medium"):
     content = ([{"type": "thinking", "thinking": "Look first."}] if calls else []) + \
         ([{"type": "text", "text": text}] if text else []) + \
         [{"type": "toolCall", "id": c, "name": n, "arguments": a} for c, n, a in calls]
@@ -53,6 +53,8 @@ def answer(eid, parent, at, model, u, *, text="", calls=(), stop="toolUse", erro
            "model": model, "usage": u, "stopReason": stop, "timestamp": 0}
     if error:
         msg["errorMessage"] = error
+    if level and not error:
+        msg["providerThinkingLevel"] = level
     return entry(eid, parent, at, type="message", message=msg)
 
 
@@ -180,9 +182,13 @@ class Record(unittest.TestCase):
         self.assertEqual((rec["schema"], rec["arm"], rec["spend_from"]), (ef.SCHEMA, "pi", "session_log"))
         self.assertEqual((rec["tokens"], rec["cost_usd"], rec["model_calls"]), (TOKENS, COST, 5))
         self.assertEqual((rec["harness"]["cpu_s"], rec["wall_s"], rec["wall_from"]), (0.9, 10.0, "sampler"))
-        self.assertEqual(rec["end"], {"stop_reason": "stop", "error": None, "answers": 4})
+        # Four answers, one of them a failed request: three turns.
+        self.assertEqual(rec["end"], {"stop_reason": "stop", "error": None, "answers": 4, "turns": 3})
         self.assertEqual(rec["limits"], {"enforced": False, "max_budget_usd": 2.0, "max_turns": 200,
-                                         "answers": 4, "over_budget": False, "over_turns": False})
+                                         "answers": 4, "turns": 3, "over_budget": False,
+                                         "over_turns": False})
+        # What ran, beside what was asked for (`stamp`): the log's own words.
+        self.assertEqual(rec["effort_ran"], {"changes": ["medium"], "answers": ["medium"]})
 
     def test_without_the_sampler_the_wall_is_the_logs_span(self):
         write_logs(self.logs, stream=False)
@@ -193,17 +199,51 @@ class Record(unittest.TestCase):
     def test_a_run_that_ended_on_a_provider_error_says_so(self):
         write_logs(self.logs, SESSION[:8])
         rec = ef.pi_record(self.logs)
-        self.assertEqual(rec["end"], {"stop_reason": "error", "error": "529 overloaded", "answers": 2})
+        self.assertEqual(rec["end"], {"stop_reason": "error", "error": "529 overloaded", "answers": 2,
+                                      "turns": 1})
 
     def test_a_trial_past_the_others_caps_is_flagged_not_stopped(self):
         write_logs(self.logs)
-        rec = ef.pi_record(self.logs, max_budget_usd=0.02, max_turns=3)
+        rec = ef.pi_record(self.logs, max_budget_usd=0.02, max_turns=2)
         self.assertEqual((rec["limits"]["over_budget"], rec["limits"]["over_turns"]), (True, True))
-        rec = ef.pi_record(self.logs, max_budget_usd=0.03, max_turns=4)
+        rec = ef.pi_record(self.logs, max_budget_usd=0.03, max_turns=3)
         self.assertEqual((rec["limits"]["over_budget"], rec["limits"]["over_turns"]), (False, False))
         rec = ef.pi_record(self.logs)
         self.assertEqual((rec["limits"]["over_budget"], rec["limits"]["over_turns"]), (None, None))
         self.assertFalse(rec["limits"]["enforced"])
+
+    def test_a_retried_failure_is_not_a_turn(self):
+        """Pi persists each failed request it retries as an answer with
+        `stopReason: "error"`; Claude Code's `--max-turns` counts none of
+        them, so neither does the cap: three failures and two answers are two
+        turns, and still five answers and five calls."""
+        fails = [answer(f"f{i}", "u1", 20 + i, SONNET, usage(0, 0, 0, 0, 0), stop="error",
+                        error="529 overloaded") for i in range(3)]
+        good = [A1, A3]
+        write_logs(self.logs, SESSION[:5] + fails + good)
+        rec = ef.pi_record(self.logs, max_turns=2)
+        self.assertEqual(rec["end"]["answers"], 5)
+        self.assertEqual((rec["end"]["turns"], rec["limits"]["turns"]), (2, 2))
+        self.assertEqual(rec["model_calls"], 5)
+        self.assertFalse(rec["limits"]["over_turns"])
+        self.assertTrue(ef.pi_record(self.logs, max_turns=1)["limits"]["over_turns"])
+
+    def test_a_record_built_from_the_stream_alone_has_its_end_answers_and_cap(self):
+        """No session log kept: the stream's `message_end`s are the answers,
+        and `end` and `over_turns` read them, as they read the log."""
+        write_logs(self.logs, stream=True)
+        for f in (self.logs / "pi" / "sessions").glob("*.jsonl"):
+            f.unlink()
+        rec = ef.pi_record(self.logs, max_turns=2)
+        self.assertEqual(rec["spend_from"], "stream")
+        self.assertEqual(rec["end"], {"stop_reason": "stop", "error": None, "answers": 4, "turns": 3})
+        self.assertEqual((rec["limits"]["answers"], rec["limits"]["turns"], rec["limits"]["over_turns"]),
+                         (4, 3, True))
+        self.assertIsNone(rec["effort_ran"])
+        # An error as the stream's last answer is as visible as the log's.
+        (self.logs / "pi.txt").write_text(stream_of(SESSION[:8]))
+        self.assertEqual(ef.pi_record(self.logs)["end"],
+                         {"stop_reason": "error", "error": "529 overloaded", "answers": 2, "turns": 1})
 
     def test_an_empty_directory_is_a_record_of_nothing(self):
         rec = ef.pi_record(self.logs)
@@ -277,11 +317,13 @@ class FakeEnvironment:
     def __init__(self):
         self.commands: list[str] = []
         self.envs: list[dict | None] = []
+        self.users: list[str | None] = []
         self.uploads: list[tuple[str, str]] = []
 
     async def exec(self, command, cwd=None, env=None, timeout_sec=None, user=None):
         self.commands.append(command)
         self.envs.append(env)
+        self.users.append(user)
         return ExecResult(stdout="", stderr="", return_code=0)
 
     async def upload_file(self, source_path, target_path):
@@ -343,7 +385,31 @@ class Arm(unittest.TestCase):
                       "'Fix the repository.'", command)
         self.assertIn("tee /logs/agent/pi.txt", command)
         self.assertNotIn("max", command.split("'Fix")[0])
-        self.assertEqual(run_env, {"ANTHROPIC_API_KEY": "sk-ant-invented"})
+        # The key, and Pi offline (theseus-a5we): no catalog overlay from
+        # pi.dev, so the pin pins its prices; no version check; no telemetry.
+        self.assertEqual(run_env, {"PI_OFFLINE": "1", "PI_SKIP_VERSION_CHECK": "1", "PI_TELEMETRY": "0",
+                                   "ANTHROPIC_API_KEY": "sk-ant-invented"})
+        # Only Pi's own run command carries it: the sampler's start does not.
+        self.assertEqual([e for c, e in zip(env.commands, env.envs) if " pi --print" not in c],
+                         [None] * (len(env.commands) - 1))
+
+    def test_the_effort_defaults_to_medium_and_an_ak_still_wins(self):
+        self.assertEqual(pa.measure.EFFORT, "medium")
+        self.assertEqual(self.agent().options.thinking, "medium")
+        self.assertEqual(self.agent().build_cli_flags(), "--thinking medium")
+        self.assertEqual(self.agent(thinking="high").build_cli_flags(), "--thinking high")
+        self.assertEqual(self.agent(thinking="off").options.thinking, "off")
+        env = FakeEnvironment()
+        asyncio.run(self.agent().run("Fix it.", env, AgentContext()))
+        self.assertIn("--thinking medium ", [c for c in env.commands if " pi --print" in c][0])
+
+    def test_the_container_reads_the_version_into_the_logs(self):
+        env = FakeEnvironment()
+        asyncio.run(self.agent().install(env))
+        reads = [c for c in env.commands if "pi --version" in c and "npm install" not in c]
+        self.assertEqual(reads, [pa.measure.version_script(". ~/.nvm/nvm.sh; pi --version",
+                                                           "/logs/agent")])
+        self.assertIn("> /logs/agent/version.txt", reads[0])
 
     def test_the_sampler_runs_around_harbors_run(self):
         seen = []
@@ -360,6 +426,9 @@ class Arm(unittest.TestCase):
         self.assertEqual(env.commands[-1], pa.smp.stop_script("/logs/agent", pa.STATE))
 
     def test_harbors_timeout_still_stops_the_sampler(self):
+        """The agent first, as root (`pi`, and what it started), then the
+        sampler, in that order, and the cancel is raised again: Harbor's
+        timeout still ends the trial as a timeout (theseus-sgpx)."""
         async def cancelled(self_, instruction, environment, context):
             environment.commands.append("pi, cancelled")
             raise asyncio.CancelledError
@@ -368,7 +437,19 @@ class Arm(unittest.TestCase):
         with mock.patch.object(Pi, "run", cancelled):
             with self.assertRaises(asyncio.CancelledError):
                 asyncio.run(self.agent().run("Fix it.", env, AgentContext()))
-        self.assertEqual(env.commands[-2:], ["pi, cancelled", pa.smp.stop_script("/logs/agent", pa.STATE)])
+        self.assertEqual(env.commands[-3:], ["pi, cancelled", pa.measure.stop_agent_script(("pi",)),
+                                             pa.smp.stop_script("/logs/agent", pa.STATE)])
+        self.assertEqual(env.users[-2], "root")
+
+    def test_a_run_that_ends_by_itself_stops_no_agent(self):
+        async def harbors(self_, instruction, environment, context):
+            pass
+
+        env = FakeEnvironment()
+        with mock.patch.object(Pi, "run", harbors):
+            asyncio.run(self.agent().run("Fix it.", env, AgentContext()))
+        self.assertEqual(len(env.commands), 2)
+        self.assertNotIn(pa.measure.stop_agent_script(("pi",)), env.commands)
 
     def test_the_trajectory_record_and_counters_follow_harbors_own(self):
         write_logs(self.logs)
@@ -382,10 +463,23 @@ class Arm(unittest.TestCase):
         self.assertEqual(ctx.metadata["efficiency"], rec)
         self.assertEqual((rec["arm"], rec["tokens"], rec["cost_usd"]), ("pi", TOKENS, COST))
         self.assertEqual((rec["limits"]["over_budget"], rec["harness"]["cpu_s"]), (True, 0.9))
+        # What it asked for and what ran, and the container's own version
+        # read (here none was kept): the keys every arm's record has.
+        self.assertEqual((rec["effort"], rec["effort_ran"], rec["version"], rec["version_asked"]),
+                         ("medium", {"changes": ["medium"], "answers": ["medium"]}, None, "1.0.4"))
         # The cache write is input, as the other arms' counters hold it.
         self.assertEqual((ctx.n_input_tokens, ctx.n_cache_tokens, ctx.n_output_tokens),
                          (3210 + 1800 + 4000, 1800, 492))
         self.assertEqual(ctx.cost_usd, COST)
+
+    def test_the_version_the_container_read_is_named_in_the_record(self):
+        write_logs(self.logs)
+        (self.logs / "version.txt").write_text("npm notice an invented line\n1.0.3\n")
+        ctx = AgentContext()
+        self.agent(thinking="high").populate_context_post_run(ctx)
+        rec = json.loads((self.logs / ef.RECORD).read_text())
+        # The pin that did not take shows: asked 1.0.4, read 1.0.3.
+        self.assertEqual((rec["version"], rec["version_asked"], rec["effort"]), ("1.0.3", "1.0.4", "high"))
 
     def test_no_logs_is_a_record_and_no_failure(self):
         ctx = AgentContext()
