@@ -47,8 +47,9 @@ build.
   Flow graph. It shows the present: under the time machine it says so and its acts are off. `task.changed` reads
   `task.list` again (`bindPush`).
 - `src/components/Budgets.tsx` (Money's Budgets panel; its pure parts are `src/lib/budgets.ts`): `budget.list`'s tree,
-  the burn per hour from the history's `provider.call` rows, recent resets, the questions waiting (with `ConfirmCard`),
-  the judge's day and the AWS hands. `src/components/Tightenings.tsx` is the tightenings' list with their undo, shared
+  the burn per hour from the history's `provider.call` rows, recent resets, the judge's day and the AWS hands. The
+  budget questions waiting (with `ConfirmCard`) are its `BudgetQuestions`, first on Money, above the river, only while
+  one waits (theseus-v6vc); the panel points up to them. `src/components/Tightenings.tsx` is the tightenings' list with their undo, shared
   by Boundaries and Policy. The Ledger's filter, saved filters, export and follow count are `src/lib/ledgerview.ts`;
   the Policy view's summaries are `src/lib/policyview.ts`.
 - `src/components/`: the call and model-call inspectors, the transcript, the flame chart, the shell, and `brass.tsx`

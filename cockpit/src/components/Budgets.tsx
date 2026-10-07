@@ -1,16 +1,17 @@
 // The Budgets panel (M7 42b, in Money): `budget.list`'s rows, each session's tasks under it with their carves, where each
 // limit comes from, what is held, left, and spent over its lifetime, the burn per hour from the history's
-// `provider.call` rows, the recent resets, the budget questions waiting (answered with the Actions view's own card),
-// the totals and their rule, the judge's day, and the AWS hands. It shows the present: under the time machine it says
-// so, and the questions' buttons are off.
+// `provider.call` rows, the recent resets, the totals and their rule, the judge's day, and the AWS hands. The budget
+// questions waiting (answered with the Actions view's own card) are `BudgetQuestions`, which Money shows above its river
+// while one waits (theseus-v6vc); the panel points up to them. It shows the present: under the time machine it says so,
+// and the questions' buttons are off.
 import { useMemo } from 'react'
 import { useNavigate, useSearchParams } from 'react-router'
-import { AlertTriangle, Landmark, RotateCcw } from 'lucide-react'
+import { AlertTriangle, ArrowUp, Landmark, RotateCcw } from 'lucide-react'
 import type { AwsHandsStatus, BudgetListResult, BudgetRow, ConfirmRequest, Health, LedgerEntry } from '@protocol'
 import { useRpc } from '@/lib/rpc'
 import { useTick } from '@/lib/hooks'
 import { providerCalls } from '@/lib/derive'
-import { BURN_WINDOW_MS, burnPerHour, flatten, handsLines, limitWords, recentResets, sessionsOf, sums } from '@/lib/budgets'
+import { BURN_WINDOW_MS, burnPerHour, flatten, handsLines, limitWords, questionsWaiting, recentResets, sessionsOf, sums } from '@/lib/budgets'
 import { ago, cn, short, stamp, usd } from '@/lib/format'
 import { Empty, Panel, Pill } from '@/components/ui'
 import { ConfirmCard } from '@/components/ConfirmCard'
@@ -23,7 +24,6 @@ export function Budgets({ rows, past }: { rows: LedgerEntry[]; /** the time mach
   const open = params.get('budget')
   const setOpen = (sid: string | null) => setParams((p) => { if (sid) p.set('budget', sid); else p.delete('budget'); return p }, { replace: true })
   const { data } = useRpc<BudgetListResult>('budget.list', undefined, 0)
-  const { data: cl } = useRpc<{ confirms: ConfirmRequest[] }>('confirm.list', undefined, 0)
   const { data: h } = useRpc<Health>('health', undefined, 10_000)
   const calls = useMemo(() => providerCalls(rows), [rows])
   const resets = useMemo(() => recentResets(rows), [rows])
@@ -33,9 +33,8 @@ export function Budgets({ rows, past }: { rows: LedgerEntry[]; /** the time mach
   const burnOf = useMemo(() => new Map(flat.map((f) => [f.row.session_id, burnPerHour(calls, new Set([f.row.session_id]), tick)])), [flat, calls, tick])
   const treeBurn = (r: BudgetRow) => burnPerHour(calls, sessionsOf(r), tick)
   const allBurn = useMemo(() => burnPerHour(calls, new Set(flat.map((f) => f.row.session_id)), tick), [calls, flat, tick])
-  const asks = useMemo(() => new Map((cl?.confirms ?? []).map((c) => [c.correlation_id, c])), [cl])
   const hands = (h?.aws?.accounts ?? []).flatMap((a) => (a.hands ? [{ account: a.account, hands: a.hands }] : []))
-  const waiting = flat.filter((f) => f.row.question)
+  const waiting = useMemo(() => questionsWaiting(tree), [tree])
 
   return (
     <Panel title={<>Budgets · limits, spend, burn, and the questions waiting</>} icon={<Landmark size={13} />} bodyClassName="p-3"
@@ -43,21 +42,12 @@ export function Budgets({ rows, past }: { rows: LedgerEntry[]; /** the time mach
       {!data ? <Empty>reading the budgets…</Empty> : (
         <div className="flex flex-col gap-3">
           {!!waiting.length && (
-            <div>
-              {waiting.map(({ row }) => {
-                const q = row.question!
-                const card = asks.get(q.correlation_id)
-                return card && past === null
-                  ? <ConfirmCard key={q.correlation_id} c={card} />
-                  : (
-                    <div key={q.correlation_id} className="mb-2 flex items-center gap-2 rounded-lg bg-wait/[0.05] px-3 py-2 text-[12.5px] ring-1 ring-wait/30">
-                      <AlertTriangle size={14} className="text-wait" />
-                      <span className="text-ink">{row.title || short(row.session_id)} waits at its limit: {usd(row.spent_usd)} of {usd(row.limit_usd)}, needs {usd(q.needs_usd)} more</span>
-                      <span className="num ml-auto text-[11px] text-ink-faint">{past !== null ? 'answer it from the present' : 'its card is on its way'}</span>
-                    </div>
-                  )
-              })}
-            </div>
+            <button type="button" onClick={() => document.getElementById(QUESTIONS_ID)?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+              className="flex items-center gap-2 rounded-lg bg-wait/[0.05] px-3 py-2 text-left text-[12.5px] text-ink ring-1 ring-wait/30 hover:bg-wait/[0.09]"
+              title="The budget questions waiting are at the top of Money, above the river, while any waits">
+              <ArrowUp size={14} className="text-wait" />
+              {waiting.length === 1 ? 'A budget question waits at its limit' : `${waiting.length} budget questions wait at their limits`}: {waiting.length === 1 ? 'its card is' : 'their cards are'} above the river
+            </button>
           )}
 
           <div className="grid grid-cols-2 gap-x-6 gap-y-2 rounded-lg bg-white/[0.02] px-3 py-2.5 ring-1 ring-line md:grid-cols-4 xl:grid-cols-8" data-totals>
@@ -180,5 +170,42 @@ function BudgetLine({ r, depth, burn, withTasks, open, onOpen, onSession, now }:
         </div>
       )}
     </div>
+  )
+}
+
+/** Where Money's budget questions are: the panel's pointer scrolls there. */
+const QUESTIONS_ID = 'budget-questions'
+
+/** The budget questions waiting at a limit, each with the Actions view's own card (reset to $0 and continue, or keep
+ *  waiting): Money shows them above its river while any waits, so a decision that waits for the operator is the first
+ *  thing on the page at 1080 px (theseus-v6vc); with none waiting, nothing. Under the time machine they show the
+ *  present, and their buttons are off. */
+export function BudgetQuestions({ past }: { past: number | null }) {
+  const { data } = useRpc<BudgetListResult>('budget.list', undefined, 0)
+  const { data: cl } = useRpc<{ confirms: ConfirmRequest[] }>('confirm.list', undefined, 0)
+  const waiting = useMemo(() => questionsWaiting(data?.executions ?? []), [data])
+  const asks = useMemo(() => new Map((cl?.confirms ?? []).map((c) => [c.correlation_id, c])), [cl])
+  if (!waiting.length) return null
+  return (
+    <Panel title={waiting.length === 1 ? 'A budget question waits for you · its session holds at its limit until you answer'
+      : `${waiting.length} budget questions wait for you · their sessions hold at their limits until you answer`}
+      icon={<AlertTriangle size={13} className="text-wait" />} className="ring-1 ring-wait/40" bodyClassName="p-3"
+      actions={past !== null ? <Pill tone="wait" title="the questions waiting now, not as they stood at the moment">shows the present · its acts are off</Pill> : null}>
+      <div id={QUESTIONS_ID} className="flex scroll-mt-3 flex-col gap-2">
+        {waiting.map(({ row }) => {
+          const q = row.question!
+          const card = asks.get(q.correlation_id)
+          return card && past === null
+            ? <ConfirmCard key={q.correlation_id} c={card} />
+            : (
+              <div key={q.correlation_id} className="flex items-center gap-2 rounded-lg bg-wait/[0.05] px-3 py-2 text-[12.5px] ring-1 ring-wait/30">
+                <AlertTriangle size={14} className="text-wait" />
+                <span className="text-ink">{row.title || short(row.session_id)} waits at its limit: {usd(row.spent_usd)} of {usd(row.limit_usd)}, needs {usd(q.needs_usd)} more</span>
+                <span className="num ml-auto text-[11px] text-ink-faint">{past !== null ? 'answer it from the present' : 'its card is on its way'}</span>
+              </div>
+            )
+        })}
+      </div>
+    </Panel>
   )
 }
