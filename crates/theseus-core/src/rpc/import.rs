@@ -21,22 +21,30 @@ use std::time::Duration;
 
 use serde_json::Value;
 use theseus_protocol::error_code;
-use theseus_protocol::import::{ImportEpisodesParams, ImportEraseParams};
+use theseus_protocol::import::{
+    ImportEpisodesParams, ImportEraseParams, ImportSessionsParams, ImportSessionsResult,
+};
 use theseus_protocol::index::{self, IndexForgetParams, IndexForgetResult};
 use theseus_protocol::method;
 
 use super::server::{parse, Conn, RpcFailure};
 use super::{Act, Core};
 use crate::approval::Refusal;
-use crate::import::write;
+use crate::import::{catalog, summary_id_of, write};
+use crate::node::Body;
+
+/// Why a place that is not private reads no imported text.
+pub(crate) const WITHHELD: &str = "an imported session is the owner's own history, private \
+     whatever place its episode names: its text goes only to a private place (the CLI, the web UI)";
 
 /// How long an erase waits for the tender's forget: it rewrites vector
 /// files, so longer than a query.
 const FORGET_DEADLINE: Duration = Duration::from_secs(70);
 
-/// Whether `rpc_prefixed` routes `name`: the ladder's and the import's.
+/// Whether `rpc_prefixed` routes `name`: the ladder's, the import's, and
+/// `context.explain` (theseus-7n3e).
 pub(super) fn prefixed(name: &str) -> bool {
-    name.starts_with("pack.") || name.starts_with("import.")
+    name.starts_with("pack.") || name.starts_with("import.") || super::context::prefixed(name)
 }
 
 impl Core {
@@ -50,6 +58,9 @@ impl Core {
     ) -> Result<Value, RpcFailure> {
         if name.starts_with("pack.") {
             return self.rpc_packs(name, params, conn);
+        }
+        if super::context::prefixed(name) {
+            return self.rpc_context(params, conn).await;
         }
         self.rpc_import(name, params, conn).await
     }
@@ -116,6 +127,13 @@ impl Core {
                 }
                 serde_json::to_value(r)
             }
+            method::IMPORT_SESSIONS => {
+                let p: ImportSessionsParams = parse(params)?;
+                let private = conn.surface.reads_private();
+                let core = self.clone();
+                let r = blocking(move || core.import_sessions(&p, private)).await?;
+                serde_json::to_value(r)
+            }
             other => {
                 return Err(RpcFailure::new(
                     error_code::METHOD_NOT_FOUND,
@@ -124,6 +142,52 @@ impl Core {
             }
         };
         out.map_err(|e| RpcFailure::invalid(e.into()))
+    }
+
+    /// `import.sessions` (theseus-7n3e): the projection at the import's
+    /// counts now, queried. The page's summaries are read when asked, a node
+    /// each. A place that is not private reads the labels and the counts
+    /// alone: no title, no summary, no place name, and no search of words.
+    pub(crate) fn import_sessions(
+        &self,
+        p: &ImportSessionsParams,
+        private: bool,
+    ) -> anyhow::Result<ImportSessionsResult> {
+        let t0 = std::time::Instant::now();
+        let list = write::list(&self.store)?;
+        let (cat, built_ms) = self.episodes.at(&self.store, &list)?;
+        let mut p = p.clone();
+        if !private {
+            p.q = None;
+        }
+        let a = catalog::query(&cat, &p);
+        let mut episodes = Vec::with_capacity(a.page.len());
+        for i in a.page {
+            let mut e = cat.rows[i].ep.clone();
+            if !private {
+                e.title = None;
+                e.place_name = None;
+            } else if p.summaries && e.summary && !e.erased {
+                if let Some((_, n)) = self.store.get_node(&summary_id_of(&e.session_id))? {
+                    if let Body::ImportedSummary { text, cites, .. } = n.body {
+                        e.summary_text = Some(text);
+                        e.cites = Some(cites.len() as u32);
+                    }
+                }
+            }
+            episodes.push(e);
+        }
+        Ok(ImportSessionsResult {
+            total: a.total,
+            all: cat.rows.len() as u64,
+            offset: p.offset.unwrap_or(0).min(a.total),
+            episodes,
+            facets: a.facets,
+            withheld: (!private).then(|| WITHHELD.to_string()),
+            version: cat.version.clone(),
+            built_ms,
+            ms: t0.elapsed().as_secs_f64() * 1e3,
+        })
     }
 
     /// The owner's act, from a private place, or its refusal: who it is.

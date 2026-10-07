@@ -68,6 +68,8 @@ const router = createBrowserRouter(
             { path: 'policy', element: wrap(<Policy />) },
             { path: 'speed', element: wrap(<Speed />) },
             { path: 'ontology', element: wrap(<Ontology />) },
+            // The context explorer (theseus-7n3e): what Theseus knows and what a turn sees. The route loads its chunk.
+            { path: 'context', lazy: async () => ({ Component: (await import('./views/Context')).default }) },
             { path: 'judgment', element: wrap(<Judgment />) },
             { path: 'benchmarks', element: wrap(<Benchmarks />) },
             { path: 'benchmarks/:run', element: wrap(<BenchRun />) },

@@ -5,7 +5,7 @@ import { motion } from 'motion/react'
 import { Command } from 'cmdk'
 import {
   Activity, BellOff, BellRing, ChevronDown, ChevronUp, CircleCheck, Moon, Sun, SunMoon, Check, Coins, Command as CommandIcon, Cpu, Crosshair, FlaskConical, Gauge, Gavel, Landmark, Layers, Navigation, OctagonX, Pause, Radio,
-  Sailboat, Scale, ScrollText, ShieldCheck, ShieldHalf, Shapes, Zap,
+  Sailboat, Scale, ScrollText, ShieldCheck, ShieldHalf, Shapes, Telescope, Zap,
 } from 'lucide-react'
 import type { ConfirmRequest, ExecutionInfo, NodeInfo, SessionInfo } from '@protocol'
 import { call, client, useConn, useRpc, usePush } from '@/lib/rpc'
@@ -43,6 +43,7 @@ const NAV = [
   { to: '/judgment', label: 'Judgment', icon: Scale },
   { to: '/systems', label: 'Systems', icon: Cpu },
   { to: '/ontology', label: 'Ontology', icon: Shapes },
+  { to: '/context', label: 'Context', icon: Telescope },
 ] as const
 
 const GO: Record<string, string> = {

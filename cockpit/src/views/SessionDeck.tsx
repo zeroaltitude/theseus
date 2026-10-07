@@ -2,7 +2,7 @@
 // flame chart, the context lineage, the spend, and the session's own ledger rows. Its charts follow the chart method
 // (`lib/viz.ts`, theseus-hnof), each with its table view behind a chart and table toggle.
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
-import { useParams, useNavigate, useSearchParams } from 'react-router'
+import { Link, useParams, useNavigate, useSearchParams } from 'react-router'
 import { useQueryClient } from '@tanstack/react-query'
 import { AnimatePresence } from 'motion/react'
 import { Group, Panel as RPanel, Separator } from 'react-resizable-panels'
@@ -17,6 +17,7 @@ import { admitted, dropDraft, useDrafts } from '@/lib/drafts'
 import { summarize } from '@/lib/summary'
 import { noticesOf, scoresOf } from '@/lib/scores'
 import { ago, cn, ms, pct, short, stamp, tokens, us, usd, clock } from '@/lib/format'
+import { contextHref } from '@/lib/explorer'
 import { cacheBy, pricing } from '@/lib/money'
 import { ledgerKind, toneHex } from '@/lib/taxonomy'
 import type { EChartsOption } from '@/lib/chart'
@@ -542,6 +543,7 @@ function ContextTab({ comps, rows, session }: { comps: CompilationInfo[]; rows: 
     <div className="flex flex-col gap-3 p-3">
       <div className="-mb-2 flex items-center"><div className="panel-title">prompt size at each compile</div><span className="ml-auto"><TableToggle id="deckcontext" /></span></div>
       <div className="h-48">{contextTableOn ? <div className="h-full overflow-auto"><ChartTable {...contextTable(rows, () => 'this session')} /></div> : <ContextGrowth rows={rows} sessions={[session]} />}</div>
+      <Link to={contextHref(session.session_id)} className="brass-button self-start" title="the context explorer: the request's parts with token counts, and why each note was recalled">what its turns see, part by part</Link>
       <MembershipsPanel sessionId={session.session_id} />
       <CompileLog rows={rows} />
       <ContextFiles files={((comps.find((c) => c.current)?.manifest as { context_files?: ContextFileRef[] } | undefined)?.context_files) ?? []} />

@@ -14,6 +14,7 @@ mod aws;
 mod bindings;
 mod budgets;
 mod confirms;
+mod context;
 pub(crate) use confirms::{expired_answer, Act, EXPIRY};
 mod disk_watch;
 mod driver;
@@ -147,6 +148,9 @@ pub struct Core {
     closed: std::sync::RwLock<bool>,
     /// The MCP server's health block, as its listener sets it (step 41b).
     pub mcp_server: crate::mcp_server::Board,
+    /// The imported episodes' projection for `import.sessions`
+    /// (theseus-7n3e), built on a read that finds the import changed.
+    pub episodes: crate::import::catalog::Cache,
 }
 
 /// Where the index tender's supervisor writes its facts' rows
@@ -739,6 +743,7 @@ impl Core {
             crash: Default::default(),
             closed: Default::default(),
             mcp_server: Default::default(),
+            episodes: Default::default(),
         });
         core.index.set_ledger(index_ledger(&core));
         core.mcp.attach(Arc::downgrade(&core));

@@ -743,18 +743,11 @@ impl TurnRunner {
         files: &[ContextFile],
         place: crate::ceiling::PlaceView,
     ) -> (String, String) {
-        let mut parts = vec![
-            PERSONA.to_string(),
-            ASSEMBLY.to_string(),
-            situation::PRECEDENCE.to_string(),
-        ];
-        let note = self.tools.system_note_for(place);
-        if !note.is_empty() {
-            parts.push(note);
-        }
-        if let Some(s) = target.system.as_ref().filter(|s| !s.trim().is_empty()) {
-            parts.push(s.clone());
-        }
+        let parts: Vec<String> = self
+            .header_parts(target, place)
+            .into_iter()
+            .map(|p| p.1)
+            .collect();
         let sections: Vec<&str> = files.iter().map(|f| f.section.as_str()).collect();
         (parts.join("\n\n"), sections.join("\n\n"))
     }
@@ -771,16 +764,27 @@ impl TurnRunner {
         kind: SessionKind,
         place: crate::ceiling::PlaceView,
     ) -> (RequestSpec, Vec<Unreadable>) {
-        let class = place.class;
         let paths = self.cfg.context_paths(target.persona.as_deref());
-        let (mut files, unreadable) = self.context_files.load(&paths);
+        let (files, unreadable) = self.context_files.load(&paths);
+        (self.spec_of(target, kind, place, files), unreadable)
+    }
+
+    /// `request_spec` over context files already read (`context.explain`
+    /// reads them without warning of a missing one, theseus-7n3e).
+    pub fn spec_of(
+        &self,
+        target: &Target,
+        kind: SessionKind,
+        place: crate::ceiling::PlaceView,
+        mut files: Vec<ContextFile>,
+    ) -> RequestSpec {
         // A shared place carries only the files marked public (the place
         // rule): the rest are their headers and why.
-        if class == crate::places::PlaceClass::Shared {
+        if place.class == crate::places::PlaceClass::Shared {
             crate::context_files::withhold_shared(&mut files);
         }
         let (system_text, context_text) = self.system_blocks(target, &files, place);
-        let spec = RequestSpec {
+        RequestSpec {
             profile: target.profile.clone(),
             provider: target.provider.clone(),
             model: target.model.clone(),
@@ -803,8 +807,7 @@ impl TurnRunner {
             walk: None,
             memberships: vec![],
             guidance: vec![],
-        };
-        (spec, unreadable)
+        }
     }
 
     /// The class of the place a session's turn speaks in (the place rule,

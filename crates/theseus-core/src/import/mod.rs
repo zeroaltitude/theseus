@@ -29,6 +29,7 @@
 //!   session (§5.6's erasure marker: `Body::Erased`, `ImportedFrom.erased`),
 //!   and the index forgets them.
 
+pub mod catalog;
 pub mod episode;
 pub mod write;
 

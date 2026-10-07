@@ -40,6 +40,11 @@ export const NEWS: NewsItem[] = [
     body: 'The watch’s sixth plate. Back after a while away, it says how long you were gone and what happened meanwhile: the sessions and tasks that started or finished, what went wrong, the questions that came and went, and what it cost. Show lights it on the chart, replay runs the stretch on the time machine, and seen quiets it. Keys 1 to 6 light each plate.',
     anchor: { kind: 'dom', selector: '.ship-watch-slot' },
   },
+  {
+    id: 'context', since: '2026-10-07', title: 'What Theseus knows, and what a turn sees',
+    body: 'The Context page (in the rail): the imported episodes with their sources, places, labels and summaries, the topics, the books’ state, and asking the index. Pick a ship (or a bench) and “Its context” opens what its turn carried: the system block part by part, the guidance, the tools, the recall and why each note came, with token counts.',
+    anchor: { kind: 'fleet' },
+  },
 ]
 
 /** The cockpit's version: the newest stop's. */

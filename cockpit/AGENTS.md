@@ -8,11 +8,11 @@ build.
 
 ## What's here
 
-- `src/views/`: the fifteen views. The Ship (`Ship.tsx`, the landing view at `/ship`), then `Bridge`, `Fleet`,
+- `src/views/`: the sixteen views. The Ship (`Ship.tsx`, the landing view at `/ship`), then `Bridge`, `Fleet`,
   `SessionDeck`, `Actions`, `Boundaries` (the boundaries board), `Ledger`, `Money` (the money river), `Economics`,
   `Speed` (the speed wall), `Benchmarks` (below), `Policy` (`policy.explain`: each place's tools, layer by layer, and the tightenings with their undo; M7 42b), `Judgment` (Jev's judgments, M5 23b, over `judge.list` and `judge.get`, with
   `src/lib/judgment.ts`), `Systems`, `Ontology` (the kinds, the category tree, guidance, and topics; it shows
-  the present only). A session's memberships are in its deck's Context tab (`src/components/Memberships.tsx`).
+  the present only), and `Context` (the context explorer, theseus-7n3e: what Theseus knows and what a turn sees). A session's memberships are in its deck's Context tab (`src/components/Memberships.tsx`).
 - The time machine: `src/components/TimeMachine.tsx` (the ship's log, at every page's foot), `src/lib/history.ts`
   (the whole ledger, read once with `ledger.tail`'s `after` and followed), `src/lib/timemachine.ts` (the fold, its
   checkpoints, and the log's axis), `src/lib/marks.ts` (the marks: a start whose build differs from the one before
@@ -47,6 +47,13 @@ build.
   **Only measured data**: a condition the data holds is computed; one only a report's words hold is a note carrying the
   report's exact phrase, and the test holds each phrase to its report. A new report shows after the next install; a
   new harness table (another task set) is a row of `TASK_SETS`.
+- The context explorer (theseus-7n3e): `src/views/Context.tsx` (the holdings, the imported episodes over
+  `import.sessions` with their facets, topic tree, as-of months and an episode's messages, and the books' state) and
+  `src/components/ContextTurn.tsx` (a turn's context over `context.explain`: the request's parts with their tokens,
+  said against the turn's compilation, and why each note was recalled; and asking the index, `memory.search`). Its
+  pure parts are `src/lib/explorer.ts`, tested by `test/explorer.test.ts`. The Ship's vessel panel and the session
+  deck's Context tab link to it (`contextHref`). Personal and partner-confidential text is veiled on screen until
+  opened (`?veil=off` lifts it); the daemon gives imported text only to a private place.
 - `src/components/PromptPicker.tsx` (beside the composer; its pure parts are `src/lib/prompts.ts`): runs an MCP server's
   prompt as the next turn, a field per argument, through `turn.submit { prompt }`.
 - `src/components/Extensions.tsx` (in Systems; its pure parts are `src/lib/extensions.ts`): the loaded extensions
