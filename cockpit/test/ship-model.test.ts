@@ -4,6 +4,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { buildModel } from '../src/ship/model.ts'
 import { keyLines } from '../src/ship/keyset.ts'
+import { SHAPES } from '../src/ship/words.ts'
 
 const NOW = 1_800_000_000_000
 const session = (id: string, o: Record<string, unknown> = {}) => ({
@@ -83,6 +84,9 @@ test('every key line names the shapes it lights', () => {
   assert.equal(by.get('job')!.count, 1)
   assert.deepEqual(by.get('needs')!.vessels, ['s1'])
   assert.equal(by.get('place')!.lights.length + by.get('place')!.vessels.length, 0)
+  // The key says each shape as the labels, the cards and the tour do: words.ts's words, one line a shape.
+  for (const k of by.values()) assert.deepEqual([k.word, k.sea], [SHAPES[k.id].word, SHAPES[k.id].sea], k.id)
+  assert.equal(by.size, keyLines(m).length)
 })
 
 test('a harbour keeps its place as its ships grow, and moves only when a growing neighbour would overlap it', () => {

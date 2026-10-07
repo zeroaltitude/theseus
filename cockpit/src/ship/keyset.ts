@@ -1,7 +1,8 @@
-// The key's lines (theseus-hnof): one line per shape on the chart, its plain word and its sea word, how many of it the
-// chart holds now, and which vessels and lights are it, so resting on a line lights every one of them and dims the rest.
-// Pure, so the key and a test read the same lines.
+// The key's lines (theseus-hnof): one line per shape on the chart, its plain word and its sea word (both from `words.ts`,
+// as every label, card and tour step says them), how many of it the chart holds now, and which vessels and lights are it,
+// so resting on a line lights every one of them and dims the rest. Pure, so the key and a test read the same lines.
 import type { ShipModel } from './model'
+import { SHAPES, type Shape } from './words.ts'
 
 export type KeyGroup = 'The fleet' | 'A ship' | 'Its oars' | 'Its state'
 export type Glyph =
@@ -9,7 +10,8 @@ export type Glyph =
   | 'web' | 'sail' | 'lantern' | 'flare' | 'anchor'
 
 export interface KeyLine {
-  id: string
+  /** The shape it names (its words are `SHAPES[id]`). */
+  id: Shape
   group: KeyGroup
   glyph: Glyph
   /** What it is, in plain words. */
@@ -40,23 +42,25 @@ export function keyLines(m: ShipModel): KeyLine[] {
   const L = m.lights
   const V = m.vessels
   const failedCalls = new Set([...resultCalls((i) => !!L[i].failed), ...lightIds((i) => L[i].kind === 'call' && !!L[i].failed)])
+  const line = (id: Shape, group: KeyGroup, glyph: Glyph, n: number, vessels: string[], lit: string[]): KeyLine =>
+    ({ id, group, glyph, word: SHAPES[id].word, sea: SHAPES[id].sea, count: n, vessels, lights: lit })
   const lines: KeyLine[] = [
-    { id: 'place', group: 'The fleet', glyph: 'harbour', word: 'a place', sea: 'harbour ring', count: m.formations.length, vessels: [], lights: [] },
-    { id: 'session', group: 'The fleet', glyph: 'ship', word: 'a session', sea: 'ship', count: V.filter((v) => v.kind === 'conversation').length, vessels: ids((i) => V[i].kind === 'conversation'), lights: [] },
-    { id: 'task', group: 'The fleet', glyph: 'boat', word: 'a task', sea: 'boat in tow', count: V.filter((v) => v.kind === 'task').length, vessels: ids((i) => V[i].kind === 'task'), lights: [] },
-    { id: 'turn', group: 'A ship', glyph: 'bench', word: 'a turn', sea: 'bench; newest at the bow', count: m.benches.length, vessels: ids((i) => V[i].benches.length > 0), lights: [] },
-    { id: 'message', group: 'A ship', glyph: 'message', word: 'a message', sea: 'ivory lamp', count: L.filter((l) => l.kind === 'user').length, vessels: [], lights: lightIds((i) => L[i].kind === 'user') },
-    { id: 'model', group: 'A ship', glyph: 'model', word: 'a model call', sea: 'violet lamp', count: L.filter((l) => l.kind === 'model').length, vessels: [], lights: lightIds((i) => L[i].kind === 'model') },
-    { id: 'call', group: 'Its oars', glyph: 'oar', word: 'a tool call', sea: 'oar; the blade is its result', count: L.filter((l) => l.kind === 'call').length, vessels: [], lights: lightIds((i) => L[i].kind === 'call') },
-    { id: 'failed', group: 'Its oars', glyph: 'oar-failed', word: 'failed', sea: 'rose blade ✕, pennant', count: failedCalls.size, vessels: [], lights: [...failedCalls] },
-    { id: 'waiting', group: 'Its oars', glyph: 'oar-waiting', word: 'waits for you', sea: 'amber blade, lamp', count: L.filter((l) => l.waiting).length, vessels: [], lights: lightIds((i) => !!L[i].waiting) },
-    { id: 'job', group: 'Its oars', glyph: 'gear', word: 'a job running', sea: 'brass gear, turning', count: L.filter((l) => l.kind === 'call' && l.running).length, vessels: [], lights: lightIds((i) => L[i].kind === 'call' && !!L[i].running) },
-    { id: 'l1', group: 'Its oars', glyph: 'shield', word: 'sandboxed (L1)', sea: 'hex shield', count: L.filter((l) => l.kind === 'call' && l.l1).length, vessels: [], lights: lightIds((i) => L[i].kind === 'call' && !!L[i].l1) },
-    { id: 'web', group: 'Its oars', glyph: 'web', word: 'text from the web', sea: 'magenta blade', count: L.filter((l) => l.external).length, vessels: [], lights: resultCalls((i) => !!L[i].external) },
-    { id: 'working', group: 'Its state', glyph: 'sail', word: 'working', sea: 'sail up, oars rowing', count: V.filter((v) => v.rig === 'sail').length, vessels: ids((i) => V[i].rig === 'sail'), lights: [] },
-    { id: 'needs', group: 'Its state', glyph: 'lantern', word: 'waiting for you', sea: 'lantern lit', count: V.filter((v) => v.rig === 'lantern').length, vessels: ids((i) => V[i].rig === 'lantern'), lights: [] },
-    { id: 'down', group: 'Its state', glyph: 'flare', word: 'failed or over budget', sea: 'flare up', count: V.filter((v) => v.rig === 'flare').length, vessels: ids((i) => V[i].rig === 'flare'), lights: [] },
-    { id: 'idle', group: 'Its state', glyph: 'anchor', word: 'idle', sea: 'at anchor', count: V.filter((v) => v.rig === 'anchor').length, vessels: ids((i) => V[i].rig === 'anchor'), lights: [] },
+    line('place', 'The fleet', 'harbour', m.formations.length, [], []),
+    line('session', 'The fleet', 'ship', V.filter((v) => v.kind === 'conversation').length, ids((i) => V[i].kind === 'conversation'), []),
+    line('task', 'The fleet', 'boat', V.filter((v) => v.kind === 'task').length, ids((i) => V[i].kind === 'task'), []),
+    line('turn', 'A ship', 'bench', m.benches.length, ids((i) => V[i].benches.length > 0), []),
+    line('message', 'A ship', 'message', L.filter((l) => l.kind === 'user').length, [], lightIds((i) => L[i].kind === 'user')),
+    line('model', 'A ship', 'model', L.filter((l) => l.kind === 'model').length, [], lightIds((i) => L[i].kind === 'model')),
+    line('call', 'Its oars', 'oar', L.filter((l) => l.kind === 'call').length, [], lightIds((i) => L[i].kind === 'call')),
+    line('failed', 'Its oars', 'oar-failed', failedCalls.size, [], [...failedCalls]),
+    line('waiting', 'Its oars', 'oar-waiting', L.filter((l) => l.waiting).length, [], lightIds((i) => !!L[i].waiting)),
+    line('job', 'Its oars', 'gear', L.filter((l) => l.kind === 'call' && l.running).length, [], lightIds((i) => L[i].kind === 'call' && !!L[i].running)),
+    line('l1', 'Its oars', 'shield', L.filter((l) => l.kind === 'call' && l.l1).length, [], lightIds((i) => L[i].kind === 'call' && !!L[i].l1)),
+    line('web', 'Its oars', 'web', L.filter((l) => l.external).length, [], resultCalls((i) => !!L[i].external)),
+    line('working', 'Its state', 'sail', V.filter((v) => v.rig === 'sail').length, ids((i) => V[i].rig === 'sail'), []),
+    line('needs', 'Its state', 'lantern', V.filter((v) => v.rig === 'lantern').length, ids((i) => V[i].rig === 'lantern'), []),
+    line('down', 'Its state', 'flare', V.filter((v) => v.rig === 'flare').length, ids((i) => V[i].rig === 'flare'), []),
+    line('idle', 'Its state', 'anchor', V.filter((v) => v.rig === 'anchor').length, ids((i) => V[i].rig === 'anchor'), []),
   ]
   return lines
 }
