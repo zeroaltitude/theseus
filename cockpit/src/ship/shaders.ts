@@ -6,7 +6,10 @@
 //   row 0: x, z, heading, length
 //   row 1: beam, rig (0 anchor, 1 sail, 2 lantern, 3 flare), flags, born (s)
 //   row 2: flare burst (s), streaming (0/1), gold share of planks, seed
-//   row 3: unused (the time machine's seam)
+//   row 3: the lantern's lighting while the page watched (s; 0 lit before), unused, unused, unused
+//
+// Motion: every term that moves with time (uTime, uSwell) names its row of the motion table (`motion.ts`) in a
+// `motion:` comment on its line, and a test holds it: nothing else moves.
 // Flags: 1 holds external text, 2 selected, 4 hovered, 8 a task, 16 dimmed by a filter.
 
 export const VESSEL_COMMON = /* glsl */ `
@@ -132,10 +135,10 @@ vec3 seaSwell(vec2 uv) {
   vec2 p = uCamPos.xz + dir.xz * (uCamPos.y / max(-dir.y, 1e-5));
   float near = smoothstep(2.6, 0.15, length(p - uTarget) * uNearScale);
   vec2 sp = p * uWaveScale;
-  float rise = smoothstep(0.0, 6.0, uSwell);
-  float lift = sin(sp.y * 0.6 - uSwell * 0.3307);
-  float wy = sp.y + sin(sp.x * 4.2 + sp.y * 3.1415927 - uSwell * 0.4488) * 0.11
-    + rise * (sin(sp.x * 1.7 + sp.y * 0.9 + uSwell * 0.2027) * 0.04 + lift * 0.05);
+  float rise = smoothstep(0.0, 6.0, uSwell); // motion: sea
+  float lift = sin(sp.y * 0.6 - uSwell * 0.3307); // motion: sea
+  float wy = sp.y + sin(sp.x * 4.2 + sp.y * 3.1415927 - uSwell * 0.4488) * 0.11 // motion: sea
+    + rise * (sin(sp.x * 1.7 + sp.y * 0.9 + uSwell * 0.2027) * 0.04 + lift * 0.05); // motion: sea
   float wave = lineAt(wy, fwidth(wy), 0.6);
   vec3 col = vec3(0.24, 0.49, 0.58) * wave * 0.16 * (1.0 + rise * 0.14 * lift) * near;
   // The sparkle shows only once a cell is a few pixels across (smaller, a dot would spill past its cell and be cut
@@ -147,7 +150,7 @@ vec3 seaSwell(vec2 uv) {
     vec2 c = (cell + 0.2 + 0.6 * vec2(seaHash(cell + 7.1), seaHash(cell + 3.3))) * 9.0;
     float sd = length(p - c);
     float rad = min(0.18 + fwp * 1.2, 1.6);
-    float glint = 1.0 + rise * 0.3 * sin(uSwell * (0.7 + seaHash(cell + 5.9) * 0.86) + seaHash(cell + 1.7) * 6.2831853);
+    float glint = 1.0 + rise * 0.3 * sin(uSwell * (0.7 + seaHash(cell + 5.9) * 0.86) + seaHash(cell + 1.7) * 6.2831853); // motion: sea
     col += vec3(0.91, 0.79, 0.50) * (1.0 - smoothstep(rad * 0.5, rad, sd)) * 0.5 * near * smoothstep(8.0, 18.0, cellPx) * glint;
   }
   return col * uWaves;
@@ -244,8 +247,8 @@ void main() {
   float dim = bit(vFlags, 16.0);
   ec *= 1.0 + hovered * 0.5;
   // A new vessel (a session that opened while you watched) flares in.
-  float age = uTime - vBorn;
-  float born = vBorn > 0.0 ? exp(-max(age, 0.0) * 1.4) * (1.0 - uCalm * 0.6) : 0.0;
+  float age = uTime - vBorn; // motion: session-born
+  float born = vBorn > 0.0 ? exp(-max(age, 0.0) * 1.4) * (1.0 - uCalm) : 0.0;
   ec = mix(ec, vec3(1.0, 0.9, 0.6), clamp(born, 0.0, 1.0));
 
   // The deck's planks: five strakes, butts staggered like brickwork; the share of gold ones is the share of its
@@ -411,11 +414,11 @@ void main() {
   vec3 w = toWorld(a, position);
   vec4 mv = viewMatrix * vec4(w, 1.0);
   gl_Position = projectionMatrix * mv;
-  float age = aTimes.x > 0.0 ? uTime - aTimes.x : 1e6;
-  float flare = exp(-max(age, 0.0) * 2.2) * step(0.0, age);
+  float age = aTimes.x > 0.0 ? uTime - aTimes.x : 1e6; // motion: node-born
+  float flare = exp(-max(age, 0.0) * 2.2) * step(0.0, age) * (1.0 - uCalm);
   // Rings (the L1 shield, external text, a running gear) need room around the core.
   float ringed = max(max(bit(aFlags, 1.0), bit(aFlags, 2.0)), bit(aFlags, 4.0));
-  float s = aSize * (1.0 + ringed * 1.3) * (1.0 + flare * 2.6 * (1.0 - uCalm * 0.7)) * (1.0 + bit(aFlags, 16.0) * 1.4);
+  float s = aSize * (1.0 + ringed * 1.3) * (1.0 + flare * 2.6) * (1.0 + bit(aFlags, 16.0) * 1.4);
   float dim = max(bit(b.z, 16.0), bit(aFlags, 32.0));
   float px = s * uScale / -mv.z;
   gl_PointSize = clamp(px, 2.2 * uPixel, 72.0 * uPixel);
@@ -429,7 +432,7 @@ void main() {
   vFlags = aFlags;
   if (aSize <= 0.0) { gl_Position = vec4(2.0, 2.0, 2.0, 1.0); gl_PointSize = 0.0; }
   // y: a verified cancel's time (the shield collapses over it); below zero, collapsed before the page loaded.
-  vAge = vec2(age, aTimes.y > 0.0 ? uTime - aTimes.y : aTimes.y < 0.0 ? 1e6 : -1.0);
+  vAge = vec2(age, aTimes.y > 0.0 ? uTime - aTimes.y : aTimes.y < 0.0 ? 1e6 : -1.0); // motion: collapse
   vRing = ringed;
 }
 `
@@ -455,7 +458,8 @@ void main() {
   float alpha = core + halo * 0.8;
   // L1: a hexagonal shield, verdigris neon. A cancel verified collapses it.
   if (bit(vFlags, 1.0) > 0.5) {
-    float shrink = vAge.y >= 0.0 ? clamp(1.0 - vAge.y / 1.2, 0.0, 1.0) : 1.0;
+    // Calm: a verified cancel is collapsed at once.
+    float shrink = vAge.y >= 0.0 ? clamp(1.0 - vAge.y / 1.2, 0.0, 1.0) * (1.0 - uCalm) : 1.0;
     float hd = hexDist(uv) - 0.78 * shrink;
     float ring = 1.0 - smoothstep(0.03, 0.09, abs(hd));
     float fill = (1.0 - smoothstep(0.0, 0.04, hd)) * 0.10;
@@ -479,7 +483,7 @@ void main() {
   }
   // A job running now: a turning gear.
   if (bit(vFlags, 4.0) > 0.5) {
-    float ang = atan(uv.y, uv.x) + uTime * 1.6 * (1.0 - uCalm);
+    float ang = atan(uv.y, uv.x) + uTime * 1.6 * (1.0 - uCalm); // motion: gear
     float teeth = step(0.5, fract(ang / 6.2831853 * 10.0));
     float rr = 0.80 + teeth * 0.1;
     float gear = 1.0 - smoothstep(0.03, 0.08, abs(r - rr + 0.05));
@@ -494,7 +498,7 @@ void main() {
     alpha = max(alpha, ring);
   }
   // A fact arrived: a flare, then a ring that runs out and fades.
-  if (vAge.x < 2.0) {
+  if (vAge.x < 2.0 && uCalm < 0.5) {
     float ring = 1.0 - smoothstep(0.0, 0.08, abs(r - mix(0.2, 0.98, clamp(vAge.x / 1.1, 0.0, 1.0))));
     float f = exp(-vAge.x * 2.0);
     col += vec3(1.0, 0.93, 0.74) * (ring * f + core * f);
@@ -557,19 +561,19 @@ void main() {
   vec3 d = p2 - p0;
   vec3 n = normalize(vec3(-d.z, 0.0, d.x) + 1e-5);
   vec3 p1 = (p0 + p2) * 0.5 + n * aParam.z * length(d) + vec3(0.0, length(d) * 0.04, 0.0);
-  float burst = aParam.w > 0.0 ? uTime - aParam.w : 1e6;
+  float burst = aParam.w > 0.0 ? uTime - aParam.w : 1e6; // motion: report
   float t = aParam.x;
   vec3 col = aColor;
   float a = 0.55;
   float grow = 1.0;
-  if (burst < 3.0) {
+  if (burst < 3.0 && uCalm < 0.5) {
     // The report lands: a run of gold from the task back to its parent.
     t = 1.0 - fract(aParam.x + burst * 0.9 * (1.0 - uCalm));
     col = vec3(1.0, 0.8, 0.38);
     a = exp(-burst * 0.45);
     grow = 2.4;
   } else if (aParam.y > 0.0) {
-    t = fract(aParam.x + uTime * aParam.y * (1.0 - uCalm));
+    t = fract(aParam.x + uTime * aParam.y * (1.0 - uCalm)); // motion: tether current
     a = 0.75;
   }
   float u = 1.0 - t;
@@ -606,7 +610,7 @@ void main() {
   vec4 a = vRow(aIdx, 0.0);
   vec4 b = vRow(aIdx, 1.0);
   if (b.y < 0.5 || b.y > 1.5) { gl_Position = vec4(2.0, 2.0, 2.0, 1.0); vA = 0.0; return; }
-  float age = fract(aSeed.x + uTime * 0.32 * (1.0 - uCalm));
+  float age = fract(aSeed.x + uTime * 0.32 * (1.0 - uCalm)); // motion: working
   float L = a.w; float B = b.x;
   vec3 l = vec3(-L * 0.5 - age * L * 0.85, 0.03, aSeed.y * (B * 0.22 + age * B * 1.25));
   vec4 mv = viewMatrix * vec4(toWorld(a, l), 1.0);
@@ -644,6 +648,7 @@ void main() {
   vec4 a = vRow(aIdx, 0.0);
   vec4 b = vRow(aIdx, 1.0);
   vec4 c = vRow(aIdx, 2.0);
+  vec4 d = vRow(aIdx, 3.0);
   float L = a.w; float B = b.x;
   vec3 l = vec3(0.0);
   vColor = vec3(0.0); vA = 0.0;
@@ -655,7 +660,10 @@ void main() {
       // not a light in the sky (theseus-hnof).
       l = vec3(-L * 0.47, B * 0.45 + 0.35, 0.0);
       vColor = vec3(1.0, 0.77, 0.15);
-      pulse = 0.78 + 0.22 * sin(uTime * 2.4) * (1.0 - uCalm);
+      // It stands lit while it waits (nothing happens until the operator answers). One that lights while the page
+      // watches swells up once, then settles.
+      float lit = d.x > 0.0 ? uTime - d.x : 1e6; // motion: waiting
+      if (lit < 1.5 && uCalm < 0.5) pulse = smoothstep(0.0, 0.25, lit) * (1.0 + 0.9 * exp(-lit * 2.6));
       size = 1.6 + B * 0.45;
     } else if (b.y > 2.5) {
       // The flare: it failed.
@@ -667,12 +675,12 @@ void main() {
     if (c.y > 0.5) {
       l = aAt;
       vColor = vec3(0.68, 0.58, 1.0);
-      pulse = 0.6 + 0.4 * sin(uTime * 7.0) * (1.0 - uCalm);
+      pulse = 0.6 + 0.4 * sin(uTime * 7.0) * (1.0 - uCalm); // motion: stream
       size = 1.1;
     }
   } else {
-    float age = c.x > 0.0 ? uTime - c.x : 1e6;
-    if (age < 2.6) {
+    float age = c.x > 0.0 ? uTime - c.x : 1e6; // motion: failed
+    if (age < 2.6 && uCalm < 0.5) {
       l = vec3(L * 0.1, B * 1.0 + age * B * 1.6, 0.0);
       vColor = vec3(1.0, 0.42, 0.42);
       pulse = exp(-age * 1.2);
@@ -736,12 +744,12 @@ void main() {
   // The stroke: a sweep about the oarlock, aft and back, both sides together (mirrored), with the blade dipping.
   float rowing = bit(flags, 1.0) * (1.0 - uCalm);
   float side = sign(d.y + 1e-5);
-  float ph = uTime * 2.6 + aState.z;
+  float ph = uTime * 2.6 + aState.z; // motion: rowing
   float ang = rowing * 0.30 * sin(ph) * side;
   float c = cos(ang); float s = sin(ang);
   d = vec2(d.x * c - d.y * s, d.x * s + d.y * c);
   // An oar that arrives while we watch grows out from the hull.
-  float grow = aState.x > 0.0 ? smoothstep(0.0, 1.0, clamp((uTime - aState.x) / 0.6, 0.0, 1.0)) : 1.0;
+  float grow = aState.x > 0.0 ? smoothstep(0.0, 1.0, clamp((uTime - aState.x) / 0.6, 0.0, 1.0)) : 1.0; // motion: oar-out
   grow = mix(grow, 1.0, uCalm);
   d *= max(grow, 0.02);
   float len = length(d);
@@ -761,7 +769,7 @@ void main() {
   vW = w;
   vFlags = flags;
   vColor = aColor;
-  vResult = aState.y > 0.0 ? uTime - aState.y : 1e6;
+  vResult = aState.y > 0.0 ? uTime - aState.y : 1e6; // motion: result-back
   // Oars come up as their vessel grows on screen: far out, the rail and the rig say enough.
   float hullPx = a.w * uScale / max(1.0, -(viewMatrix * vec4(a.x, 0.0, a.y, 1.0)).z);
   vFade = smoothstep(50.0 * uPixel, 190.0 * uPixel, hullPx);
@@ -807,12 +815,13 @@ void main() {
   float job = bit(vFlags, 32.0);
   vec3 c = vColor;
   float fill = pending > 0.5 ? 0.0 : 0.5;
-  if (waiting > 0.5) fill = 0.42 + 0.3 * (0.5 + 0.5 * sin(uTime * 2.4)) * (1.0 - uCalm);
+  // Waiting for the operator: a steady amber blade (it waits; nothing moves until the answer).
+  if (waiting > 0.5) fill = 0.62;
   if (job > 0.5) {
     // A job running: the blade is a brass gear, turning.
     vec2 g = vec2((along - (bladeStart + bladeLen * 0.5)) / (bladeLen * 0.5), across / (vW * 0.5));
     float gr = length(g);
-    float ga = atan(g.y, g.x) + uTime * 1.6 * (1.0 - uCalm);
+    float ga = atan(g.y, g.x) + uTime * 1.6 * (1.0 - uCalm); // motion: gear
     float teeth = step(0.5, fract(ga / 6.2831853 * 9.0));
     float gear = 1.0 - smoothstep(0.04, 0.12, abs(gr - (0.72 + teeth * 0.16)));
     float hub = 1.0 - smoothstep(0.18, 0.26, gr);
@@ -830,9 +839,10 @@ void main() {
       col = mix(col, vec3(1.0, 0.92, 0.9), cross);
       alpha = max(alpha, cross);
     }
-    // Pending: an open blade with a light running out along the shaft to it.
-    if (pending > 0.5 && waiting < 0.5) {
-      float run = fract(uTime * 0.6) * (1.0 - uCalm);
+    // Pending while its turn rows: an open blade with a light running out along the shaft to it. A pending call whose
+    // turn does not row (it ended without the result) is an open blade, still.
+    if (pending > 0.5 && waiting < 0.5 && bit(vFlags, 1.0) > 0.5 && uCalm < 0.5) {
+      float run = fract(uTime * 0.6); // motion: rowing
       float dot1 = exp(-pow((along / max(vLen, 1e-3) - run) * 9.0, 2.0)) * shaft * 2.0;
       col += vec3(0.13, 0.83, 0.93) * dot1;
       alpha = max(alpha, dot1);
@@ -879,7 +889,7 @@ void main() {
   vec4 a = vRow(aIdx, 0.0);
   vec4 b = vRow(aIdx, 1.0);
   vKind = aMark.x;
-  vAge = aMark.y > 0.0 ? uTime - aMark.y : 1e6;
+  vAge = aMark.y > 0.0 ? uTime - aMark.y : 1e6; // motion: recall
   vec4 mv = viewMatrix * vec4(toWorld(a, position), 1.0);
   gl_Position = projectionMatrix * mv;
   float s = clamp(b.x * 0.42, 0.7, 1.6);
@@ -906,20 +916,21 @@ void main() {
     // A pennant: a pole and a swallow-tailed flag, rose.
     float pole = (1.0 - smoothstep(0.05, 0.11, abs(uv.x + 0.55))) * step(-0.9, uv.y) * step(uv.y, 0.85);
     vec2 f = vec2(uv.x + 0.5, uv.y - 0.38);
-    float wave = 0.06 * sin(f.x * 6.0 + uTime * 3.0 * (1.0 - uCalm));
+    // It stands: a failure stays, and so does its flag's ripple, still.
+    float wave = 0.06 * sin(f.x * 6.0);
     float inFlag = step(0.0, f.x) * step(f.x, 1.25) * step(abs(f.y + wave) , 0.42 * (1.0 - f.x / 1.6));
     float notch = step(1.0 - abs(f.y + wave) * 1.4, f.x * 0.82);
     float flag = inFlag * (1.0 - notch * 0.0);
     col = vec3(0.95, 0.85, 0.7) * pole * 0.8 + vec3(1.0, 0.36, 0.44) * flag;
     a = max(pole * 0.85, flag);
   } else if (vKind < 1.5) {
-    // A lamp: amber, swinging gently while it waits.
-    float r = length(uv - vec2(0.0, 0.05 * sin(uTime * 2.0) * (1.0 - uCalm)));
+    // A lamp: amber and steady while it waits.
+    float r = length(uv);
     float core = 1.0 - smoothstep(0.22, 0.42, r);
-    float halo = exp(-r * r * 3.0) * (0.55 + 0.25 * sin(uTime * 2.4) * (1.0 - uCalm));
+    float halo = exp(-r * r * 3.0) * 0.68;
     col = vec3(1.0, 0.77, 0.15) * (core + halo);
     a = core + halo * 0.7;
-  } else {
+  } else if (uCalm < 0.5) {
     // Memory recalled: a violet spark that rings out and fades.
     float r = length(uv);
     float ring = 1.0 - smoothstep(0.0, 0.1, abs(r - clamp(vAge / 1.4, 0.2, 0.95)));

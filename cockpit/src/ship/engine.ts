@@ -3,16 +3,15 @@
 // every node's light, the oars, the currents and tethers, the wakes, and the beacons. React draws the brass
 // instruments around it.
 //
-// The sea's swell is ambient: in Live mode the waves roll gently and the stars' glints on the water twinkle, always,
-// idle included (theseus-wp2d). Everything else moves only when something is happening now: the camera, a vessel changing slot, a
-// fact's flare, a vessel under sail (its wake), a lantern (waiting for the operator), a job's gear, a model call
-// streaming, a running task's current. While one of those moves the loop draws every display frame; when none does,
-// it draws the swell alone at `IDLE_FPS` (`loop.ts`): the composite alone, which draws the waves over the sea's cache
-// and under the fleet's layer, both kept (`post.ts`). A hidden tab draws nothing. Calm mode stops all motion, the
-// swell included, and the post-processing: an idle daemon in Calm draws one frame and stops. `?swell=0` stills the
-// sea for one page.
+// Everything moves only when the daemon says something happened, as the motion table says (`motion.ts`, theseus-hnof.2):
+// a one-off (a flare, an oar growing out, a result flashing back) at every display frame for its seconds; a state that
+// moves while it lasts (oars rowing, a gear turning, a wake) at a steady pace; the sea's swell alone at the sea's pace,
+// the composite alone, which draws the waves over the sea's cache and under the fleet's layer, both kept (`post.ts`).
+// When nothing moves, nothing is drawn. A hidden tab draws nothing. Calm mode stops all motion, the swell included,
+// and the post-processing: a change draws one frame. `?swell=0` stills the sea for one page.
 import * as THREE from 'three'
-import { Loop, type Tick } from './loop'
+import { IDLE_FPS, Loop, type Tick } from './loop'
+import { motionsNow, paceOf, type MotionId } from './motion'
 import { oarReach, type Light, type ShipModel } from './model'
 import { Post } from './post'
 import {
@@ -171,8 +170,14 @@ export class ShipEngine {
   private selected = -1
   private hovered = -1
   private highlight = -1
-  /** Until when (engine seconds) something flares, so the loop keeps drawing. */
-  private flareUntil = 0
+  /** Until when (engine seconds) each one-off motion plays: its event's time and its seconds (`motion.ts`). */
+  private until: Partial<Record<MotionId, number>> = {}
+  /** The paced frames a second the loop draws when no one-off plays: the steady motions' pace, the sea's, or none. */
+  private paceFps = 0
+  /** The motions of the last frame (dev and bench: `window.__shipEngine.motions`). */
+  motions: MotionId[] = []
+  /** Each vessel's lantern: when it lit while the page watched (engine seconds), by session id. */
+  private lanternAt = new Map<string, number>()
   /** `swellFrames`: frames that drew only the swell (the composite alone), a share of `frames`. */
   stats = { frames: 0, swellFrames: 0, cpu: [] as number[], firstFrameAt: 0, firstFleetAt: 0, scale: 1 }
 
@@ -191,7 +196,7 @@ export class ShipEngine {
       timer: (cb, ms) => window.setTimeout(cb, ms),
       cancelTimer: (id) => window.clearTimeout(id),
       hidden: () => document.hidden,
-    }, this.frame, () => this.rolling())
+    }, this.frame, () => this.paceFps)
     this.devicePixels = Math.min(window.devicePixelRatio || 1, 1.5)
     this.renderer.setPixelRatio(this.devicePixels)
     this.renderer.setClearColor(0x030912, 1)
@@ -587,7 +592,8 @@ export class ShipEngine {
   private stepVessels(dt: number): boolean {
     if (!this.settling || !this.model) return false
     const n = this.model.vessels.length
-    const k = 1 - Math.exp(-dt * 7)
+    // Calm: a vessel takes its new slot at once (motion `settle` plays only in Live mode).
+    const k = this.calm ? 1 : 1 - Math.exp(-dt * 7)
     let moving = false
     for (let i = 0; i < n; i++) {
       for (let j = 0; j < 3; j++) {
@@ -617,7 +623,7 @@ export class ShipEngine {
     const n = m.vessels.length
     this.ensureCapacity(n)
     const now = this.now()
-    let flare = 0
+    const wasRig = new Map(old?.vessels.map((v) => [v.id, v.rig]))
     m.vessels.forEach((v, i) => {
       this.goal[i * 3] = v.x
       this.goal[i * 3 + 1] = v.heading
@@ -648,8 +654,15 @@ export class ShipEngine {
       this.vdata[o2 + 1] = v.streaming ? 1 : 0
       this.vdata[o2 + 2] = v.planks > 0 ? Math.min(1, v.goldPlanks / v.planks) : 0
       this.vdata[o2 + 3] = hashSeed(v.id)
-      if (born) flare = Math.max(flare, born + 2.5)
-      if (fl) flare = Math.max(flare, fl + 3)
+      // A lantern that lights while the page watches swells once (motion `waiting`); one lit before stands lit.
+      const rigWas = wasRig.get(v.id)
+      if (v.rig !== 'lantern') this.lanternAt.delete(v.id)
+      else if (old && rigWas !== undefined && rigWas !== 'lantern' && !this.lanternAt.has(v.id)) this.lanternAt.set(v.id, now)
+      const lit = this.lanternAt.get(v.id) ?? 0
+      this.vdata[this.texel(i, 3)] = lit
+      if (born) this.play('session-born', born + 2.5)
+      if (fl) this.play('failed', fl + 3)
+      if (lit) this.play('waiting', lit + 1.5)
     })
     this.settling = true
     // Keep selection and hover on the same vessels.
@@ -663,14 +676,13 @@ export class ShipEngine {
     this.writeVesselFlags()
 
     this.rebuildHulls(n)
-    flare = Math.max(flare, this.rebuildLights(m))
-    flare = Math.max(flare, this.rebuildOars(m))
+    this.rebuildLights(m)
+    this.rebuildOars(m)
     this.rebuildMarks(m)
     this.rebuildLines(m)
     this.rebuildFlows(m)
     this.rebuildWakes(n)
     this.rebuildBeacons(m)
-    if (flare > now) this.flareUntil = Math.max(this.flareUntil, flare)
 
     const b = m.bounds
     const fitD = this.fitDistance(b.minX, b.maxX, b.minZ, b.maxZ)
@@ -704,7 +716,7 @@ export class ShipEngine {
     return { x: x + l.lx * c - l.lz * s, y: l.ly, z: z + l.lx * s + l.lz * c }
   }
 
-  private rebuildLights(m: ShipModel): number {
+  private rebuildLights(m: ShipModel) {
     const n = m.lights.length
     const pos = new Float32Array(n * 3)
     const idx = new Float32Array(n)
@@ -712,7 +724,6 @@ export class ShipEngine {
     const size = new Float32Array(n)
     const flags = new Float32Array(n)
     const times = new Float32Array(n * 2)
-    let until = 0
     m.lights.forEach((l, i) => {
       pos[i * 3] = l.lx; pos[i * 3 + 1] = l.ly; pos[i * 3 + 2] = l.lz
       idx[i] = l.vessel
@@ -724,12 +735,14 @@ export class ShipEngine {
         + (this.dimmed(l) ? 32 : 0)
       const born = this.secs(l.born)
       times[i * 2] = born
-      if (born) until = Math.max(until, born + 2.2)
+      // A message or a model call flares in; a tool call grows out as its oar instead, and a result flashes on its
+      // blade (rebuildOars).
+      if (born && (l.kind === 'user' || l.kind === 'model')) this.play('node-born', born + 2.2)
       // A verified cancel collapses the shield: as it is seen, or (-1) already collapsed when the page loaded.
       if (l.collapsedAt !== undefined) {
         const gone = l.collapsedAt ? this.secs(l.collapsedAt) : 0
         times[i * 2 + 1] = gone || -1
-        if (gone) until = Math.max(until, gone + 1.4)
+        if (gone) this.play('collapse', gone + 1.4)
       }
     })
     const g = new THREE.BufferGeometry()
@@ -741,11 +754,10 @@ export class ShipEngine {
     g.setAttribute('aTimes', new THREE.BufferAttribute(times, 2))
     this.lights.geometry.dispose()
     this.lights.geometry = g
-    return until
   }
 
   /** Every tool call's oar: from its oarlock to its blade (its result's place, or where the result will land). */
-  private rebuildOars(m: ShipModel): number {
+  private rebuildOars(m: ShipModel) {
     const ends: number[] = []
     const idx: number[] = []
     const col: number[] = []
@@ -753,7 +765,6 @@ export class ShipEngine {
     const resultOf = new Map<string, number>()
     m.lights.forEach((l, i) => { if (l.kind === 'result' && l.toolUseId && l.ox !== undefined) resultOf.set(l.toolUseId, i) })
     this.oarOf.clear()
-    let until = 0
     m.lights.forEach((l, i) => {
       if (l.kind !== 'call') return
       const v = m.vessels[l.vessel]
@@ -771,8 +782,8 @@ export class ShipEngine {
         + (l.running ? 32 : 0) + (this.dimmed(l) ? 64 : 0) + (i === this.highlight || (ri !== undefined && ri === this.highlight) ? 128 : 0) + (l.l1 ? 256 : 0)
       const bornCall = this.secs(l.born)
       const bornResult = r ? this.secs(r.born) : 0
-      if (bornCall) until = Math.max(until, bornCall + 0.8)
-      if (bornResult) until = Math.max(until, bornResult + 1.7)
+      if (bornCall) this.play('oar-out', bornCall + 0.8)
+      if (bornResult) this.play('result-back', bornResult + 1.7)
       this.oarOf.set(i, idx.length)
       if (ri !== undefined) this.oarOf.set(ri, idx.length)
       ends.push(l.lx, l.lz, tipX, tipZ)
@@ -788,7 +799,6 @@ export class ShipEngine {
     g.setAttribute('aState', new THREE.InstancedBufferAttribute(new Float32Array(state), 4))
     resetInstances(g)
     g.instanceCount = idx.length
-    return until
   }
 
   /** The benches' signs: a pennant where a turn had a failure, a lamp where a call waits for the operator, and a spark
@@ -818,7 +828,7 @@ export class ShipEngine {
   /** A turn recalled memory (its turn.ended said so): a violet spark at its bench, for a few seconds. */
   markRecall(turnId: string) {
     this.recalls.set(turnId, this.now())
-    this.flareUntil = Math.max(this.flareUntil, this.now() + 6.5)
+    this.play('recall', this.now() + 6.5)
     if (this.model) this.rebuildMarks(this.model)
     this.requestRender()
   }
@@ -893,7 +903,7 @@ export class ShipEngine {
         col.push(...c)
         size.push(t.live ? 0.42 : 0.3)
       }
-      if (burst) this.flareUntil = Math.max(this.flareUntil, burst + 3.2)
+      if (burst) this.play('report', burst + 3.2)
     }
     for (const c of m.currents) {
       const la = c.fromLight !== undefined ? m.lights[c.fromLight] : undefined
@@ -1230,18 +1240,26 @@ export class ShipEngine {
 
   private lastFrame = performance.now()
 
-  /** Whether anything shown moves on its own: a wake, a lantern, a gear, a stream, a flowing current, a flare. */
-  private alive(t: number): boolean {
-    if (this.bench) return true
-    if (t < this.flareUntil) return true
-    if (this.calm) return false
+  /** A one-off motion plays until `end` (engine seconds): the latest end of each wins. */
+  private play(id: MotionId, end: number) {
+    if (end > this.now()) this.until[id] = Math.max(this.until[id] ?? 0, end)
+  }
+
+  /** The motions running now (`motion.ts`): the table decides what moves, and nothing else does. */
+  private motionsAt(t: number, camera: boolean): MotionId[] {
+    if (this.bench) return ['camera']
     const m = this.model
-    if (!m) return false
-    if (m.vessels.some((v) => v.rig === 'sail' || v.rig === 'lantern' || v.streaming || v.activeBench >= 0)) return true
-    // A call waiting for the operator swings its lamp; a failure's pennant stays still.
-    if (m.benches.some((b) => b.waiting)) return true
-    if (m.tethers.some((x) => x.live)) return true
-    return m.lights.some((l) => l.running)
+    const v = m?.vessels ?? []
+    return motionsNow({
+      calm: this.calm, camera, settling: this.settling, t, until: this.until,
+      rowing: v.some((x) => x.activeBench >= 0),
+      working: v.some((x) => x.rig === 'sail'),
+      streaming: v.some((x) => x.streaming),
+      gears: !!m?.lights.some((l) => l.running),
+      tethers: !!m?.tethers.some((x) => x.live),
+      currents: !!m?.currents.some((c) => v[c.from]?.rig === 'sail' || v[c.to]?.rig === 'sail'),
+      sea: this.rolling(),
+    })
   }
 
   /** Draws a frame; true while something moves, so the loop draws the next display frame too. */
@@ -1255,10 +1273,12 @@ export class ShipEngine {
     const t = this.now()
     const camMoved = this.stepCamera(performance.now())
     const vesselsMoved = this.stepVessels(dt)
-    const alive = this.alive(t)
+    const motions = this.motionsAt(t, camMoved || this.tween !== null)
+    const pace = paceOf(motions, IDLE_FPS)
+    this.motions = motions
     // The whole scene is drawn when something changed or moves. Otherwise only the swell moved: the composite alone is
     // drawn, over the sea's cache and the fleet's kept layer.
-    const full = tick.changed || camMoved || vesselsMoved || alive
+    const full = tick.changed || camMoved || vesselsMoved || pace.full
     // The swell's clock runs on wall time, so slow frames (a CPU rasteriser) don't slow the sea, and a long gap (a
     // hidden tab, Calm) resumes it where it stood.
     if (this.rolling()) this.swellU.uSwell.value = this.swellT += Math.min(0.25, interval / 1000)
@@ -1275,7 +1295,9 @@ export class ShipEngine {
     if (this.stats.cpu.length > 240) this.stats.cpu.shift()
     // The labels and the porthole follow the camera and the fleet, which a swell's frame leaves where they were.
     if (full) this.hooks.onFrame?.(camMoved || vesselsMoved)
-    return camMoved || this.settling || this.tween !== null || alive
+    // A one-off asks for the next display frame; steady motions and the swell, for a paced one; nothing, for none.
+    this.paceFps = pace.display ? 0 : pace.fps
+    return pace.display
   }
 
   /** Dev and bench only: hide layers by name, to see what draws what. */

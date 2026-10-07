@@ -1,0 +1,108 @@
+// The Ship's motion (theseus-hnof.2, step 3): every motion on the chart, the one event that starts it, how long it lasts,
+// and how often it needs a frame. Nothing else moves: the loop draws a frame only while one of these runs (or something
+// changed), and every term of the shaders that moves with time names its row (a test reads them). Pure.
+//
+// - **display**: a one-off that plays once (a flare, an oar growing out, a result flashing back): every display frame,
+//   for its seconds.
+// - **steady**: a state that moves while it lasts (oars rowing, a gear turning, a wake): a steady pace, `STEADY_FPS`.
+// - **sea**: the swell alone, at the sea's pace (`IDLE_FPS`, the composite only).
+// The camera and a vessel gliding to its new slot are the operator's own moves and the layout's: every display frame.
+// Calm mode (and reduced motion, which turns it on) stills them all: a change draws one frame, and nothing plays.
+
+export type Pace = 'display' | 'steady' | 'sea'
+
+export interface Motion {
+  id: string
+  /** What starts it: the protocol's event (or, for the camera, the operator). */
+  event: string
+  /** What moves, in words. */
+  moves: string
+  /** A one-off's seconds; none for a motion that lasts while its state does. */
+  secs?: number
+  pace: Pace
+  /** Drawn on the canvas (the engine and its shaders) or on the page (a DOM element over it). */
+  on: 'canvas' | 'page'
+}
+
+/** The table: one row a motion. A protocol event starts one motion, and a motion has one event. */
+export const MOTIONS = [
+  { id: 'camera', event: 'the operator: a scroll, a drag, a click on a shape, Fleet, Fly to, a depth', moves: 'the camera flies there, in an arc for a long way', pace: 'display', on: 'canvas' },
+  { id: 'settle', event: 'node.written that grows a ship a bench, so the layout moves', moves: 'a vessel glides to its new slot', pace: 'display', on: 'canvas' },
+  { id: 'session-born', event: 'a session opens (session.list gains one)', moves: 'its ship flares in, brass going gold', secs: 2.5, pace: 'display', on: 'canvas' },
+  { id: 'node-born', event: 'node.written: a message or a model call', moves: 'its lamp flares on the keel and a ring runs out from it', secs: 2.2, pace: 'display', on: 'canvas' },
+  { id: 'oar-out', event: 'node.written: a tool call', moves: 'a new oar grows out from the hull', secs: 0.8, pace: 'display', on: 'canvas' },
+  { id: 'result-back', event: 'node.written: a tool result', moves: 'the blade flashes and a light runs back along the shaft to the hull', secs: 1.7, pace: 'display', on: 'canvas' },
+  { id: 'rowing', event: 'turn.started, until turn.ended or turn.failed (and while a job its turn started runs)', moves: 'its bench’s oars row, out of step by side, and a call still out sends a light down its shaft', pace: 'steady', on: 'canvas' },
+  { id: 'working', event: 'a session works (its execution running)', moves: 'its ship makes way: a wake trails astern', pace: 'steady', on: 'canvas' },
+  { id: 'stream', event: 'model.delta', moves: 'a violet beacon pulses at the bow, where the model call’s lamp will land', pace: 'steady', on: 'canvas' },
+  { id: 'gear', event: 'tool.started for a job (an unsettled proc.run), until tool.ended', moves: 'a brass gear turns at the blade', pace: 'steady', on: 'canvas' },
+  { id: 'tether', event: 'a task runs (execution.changed to running)', moves: 'the current along its tether flows to it', pace: 'steady', on: 'canvas' },
+  { id: 'current', event: 'node.reach: a node copied to a session that works now', moves: 'the current between the two flows', pace: 'steady', on: 'canvas' },
+  { id: 'report', event: 'execution.changed: a task completes', moves: 'gold runs back along its tether to the ship that started it', secs: 3.2, pace: 'display', on: 'canvas' },
+  { id: 'failed', event: 'turn.failed, or execution.changed to failed', moves: 'the flare bursts and rises; the pennant goes up and stands', secs: 3, pace: 'display', on: 'canvas' },
+  { id: 'waiting', event: 'a question for the operator (confirm.list, a budget question)', moves: 'the lantern lights at the stern, swelling once; then it stands lit', secs: 1.5, pace: 'display', on: 'canvas' },
+  { id: 'recall', event: 'turn.ended that recalled memory', moves: 'a violet spark rings out on its bench', secs: 6.5, pace: 'display', on: 'canvas' },
+  { id: 'collapse', event: 'a cancel verified (an action’s verdict: termination_verified)', moves: 'the job’s hex shield collapses to an ember', secs: 1.4, pace: 'display', on: 'canvas' },
+  { id: 'coin', event: 'turn.ended with a cost', moves: 'a gold coin rises from the ship and flies to Spent today', secs: 1.3, pace: 'display', on: 'page' },
+  { id: 'sea', event: 'the work now: tokens a minute and running turns', moves: 'the swell rolls', pace: 'sea', on: 'canvas' },
+] as const satisfies readonly Motion[]
+
+export type MotionId = (typeof MOTIONS)[number]['id']
+
+const ROW = new Map<string, Motion>(MOTIONS.map((m) => [m.id, m]))
+
+/** A row of the table by its id. */
+export const motion = (id: MotionId): Motion => ROW.get(id)!
+
+/** Frames a second for the steady motions: half the display's, enough for a stroke or a gear, at half the cost. */
+export const STEADY_FPS = 30
+
+/** What moves now, as the engine knows it. */
+export interface MotionState {
+  /** Calm mode (or reduced motion): nothing plays; a change draws one frame. */
+  calm: boolean
+  /** The camera flies, or a vessel glides to its slot. */
+  camera: boolean
+  settling: boolean
+  /** Engine seconds now, and when each one-off running ends (its event's time plus its seconds). */
+  t: number
+  until: Partial<Record<MotionId, number>>
+  /** The states that move while they last. */
+  rowing: boolean
+  working: boolean
+  streaming: boolean
+  gears: boolean
+  tethers: boolean
+  currents: boolean
+  /** The swell rolls: Live mode with work going on (the living sea). */
+  sea: boolean
+}
+
+/** The motions running now, in the table's order. */
+export function motionsNow(s: MotionState): MotionId[] {
+  const on = new Set<MotionId>()
+  if (s.camera) on.add('camera')
+  if (s.settling) on.add('settle')
+  if (!s.calm) {
+    for (const [id, end] of Object.entries(s.until) as [MotionId, number][]) if (s.t < end) on.add(id)
+    if (s.rowing) on.add('rowing')
+    if (s.working) on.add('working')
+    if (s.streaming) on.add('stream')
+    if (s.gears) on.add('gear')
+    if (s.tethers) on.add('tether')
+    if (s.currents) on.add('current')
+    if (s.sea) on.add('sea')
+  }
+  return MOTIONS.map((m) => m.id).filter((id) => on.has(id))
+}
+
+/** How the loop draws for the motions running: every display frame, a steady pace, the sea's pace, or not at all
+ *  (`fps` 0); and whether a frame draws the whole scene or the sea alone. The page's motions (a coin's flight) are the
+ *  browser's, and ask nothing of the canvas. */
+export function paceOf(active: readonly MotionId[], idleFps: number): { fps: number; full: boolean; display: boolean } {
+  const rows = active.map(motion).filter((m) => m.on === 'canvas')
+  if (rows.some((m) => m.pace === 'display')) return { fps: 60, full: true, display: true }
+  if (rows.some((m) => m.pace === 'steady')) return { fps: STEADY_FPS, full: true, display: false }
+  if (rows.some((m) => m.pace === 'sea')) return { fps: idleFps, full: false, display: false }
+  return { fps: 0, full: false, display: false }
+}
