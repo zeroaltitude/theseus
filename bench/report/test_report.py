@@ -10,6 +10,9 @@ comments:
 - **beta**, sampled: 2 trials, both solved; $0.80; 20,200 tokens.
 - **gamma**, an old job (no records): one trial with Theseus's own files,
   one with only its trajectory; Harbor's dollars, $0.60; not sampled.
+
+Two Pi jobs beside them (theseus-jp9p): one whose records hold the other
+arms' caps, one trial past them, and an old trial read from Pi's session log.
 """
 
 from __future__ import annotations
@@ -194,18 +197,28 @@ class Report(unittest.TestCase):
 
     def test_three_charts_that_parse_one_point_per_arm(self):
         for _, _, _, file in rp.PARETO:
-            root = ET.parse(self.out / file).getroot()
-            self.assertEqual(root.tag, SVG + "svg")
-            circles = root.findall(SVG + "circle")
-            labels = {t.text for t in root.findall(SVG + "text")}
-            want = {"alpha", "beta"} if file == "pareto-ram.svg" else {"alpha", "beta", "gamma"}
-            self.assertEqual(len(circles), len(want), file)
-            self.assertTrue(want <= labels, file)
-            blue = sum(1 for c in circles if c.get("fill") == "#3b6fb6")
-            self.assertEqual(blue, 2, file)
+            for f in (file, file.replace(".svg", "-dark.svg")):
+                root = ET.parse(self.out / f).getroot()
+                self.assertEqual(root.tag, SVG + "svg")
+                dots = [c for c in root.iter(SVG + "circle") if c.get("r") == "6"]
+                rings = [c for c in root.iter(SVG + "circle") if c.get("r") == "10"]
+                labels = {t.text for t in root.iter(SVG + "text")}
+                want = {"alpha", "beta"} if file == "pareto-ram.svg" else {"alpha", "beta", "gamma"}
+                self.assertEqual(len(dots), len(want), f)
+                self.assertTrue(want <= labels, f)
+                self.assertEqual(len(rings), 2, f"{f}: the front, alpha and beta, is ringed")
+                hover = [g.find(SVG + "title").text for g in root.iter(SVG + "g") if g.find(SVG + "title") is not None]
+                for name in want:
+                    self.assertTrue(any(h.startswith(name + ":") for h in hover), f"{f}: {name} has its hover text")
         md = (self.out / "report.md").read_text()
         for _, _, _, file in rp.PARETO:
             self.assertIn(f"({file})", md)
+
+    def test_an_arm_outside_the_palette_is_named_in_the_legend(self):
+        pts = [("theseus", 0.14, 0.72), ("claude-code", 0.13, 0.81), ("pi", 0.10, 0.70)]
+        texts = [t.text for t in ET.fromstring(rp.svg("Score", "dollars", pts, rp.front(pts))).iter(SVG + "text")]
+        self.assertEqual(texts.count("pi"), 2, "its point's label and its legend entry")
+        self.assertNotIn("other arm", texts)
 
     def test_the_command_line_and_the_trials_csv(self):
         out = self.root / "cli"
@@ -223,6 +236,50 @@ class Report(unittest.TestCase):
         self.assertEqual((rp._dollars(24.72), rp._dollars(0.6), rp._dollars(0.00064), rp._dollars(0)),
                          ("$24.72", "$0.60", "$0.0006", "$0.00"))
         self.assertIn("| Cost, total | $0.60 | $0.80 | $0.60 |", (self.out / "report.md").read_text())
+
+    def test_a_pi_arm_counts_its_trials_past_the_others_caps(self):
+        """Pi enforces no cap: its records hold the others' and whether each
+        trial passed them, and only then does the report say so."""
+        self.assertNotIn("caps", (self.out / "report.md").read_text())
+        job = self.root / "pi"
+        job.mkdir()
+        for n, cost, over in (("fix-git__p1", 0.10, False), ("build-pmars__p2", 2.50, True)):
+            r = dict(rec(cost, toks(100, 800, 100, 50), 5, 4, 0.5, 100000), arm="pi")
+            r["limits"] = {"enforced": False, "max_budget_usd": 2.0, "max_turns": 200, "answers": 5,
+                           "over_budget": over, "over_turns": False}
+            trial(job, n, 1.0, 60, record=r)
+        result = rp.report(self.arms + [("pi", job)], self.root / "with-pi")
+        p = {a["arm"]: a for a in result["arms"]}["pi"]
+        self.assertEqual((p["past_caps"], p["solved"]), (1, 2))
+        self.assertIsNone({a["arm"]: a for a in result["arms"]}["alpha"]["past_caps"])
+        md = (self.root / "with-pi" / "report.md").read_text()
+        self.assertIn("| Trials past the others' caps (not enforced) | – | – | – | 1/2 |", md)
+        self.assertIn("| pi | 1.000 | $1.300 |", md)
+
+    def test_an_old_pi_trial_is_read_from_its_session_log(self):
+        job = self.root / "pi-old"
+        job.mkdir()
+        trial(job, "fix-git__q1", 1.0, 30, harbor={"cost_usd": 0.0058})
+        logs = job / "fix-git__q1" / "agent" / "pi" / "sessions"
+        logs.mkdir(parents=True)
+        cost = {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0}
+        lines = [{"type": "session", "version": 3, "id": "s", "timestamp": "2026-10-05T10:00:00.000Z"},
+                 {"type": "message", "id": "a1", "timestamp": "2026-10-05T10:00:01.000Z", "message": {
+                     "role": "assistant", "model": "claude-sonnet-5-5", "stopReason": "toolUse",
+                     "content": [{"type": "toolCall", "id": "t1", "name": "bash", "arguments": {}}],
+                     "usage": {"input": 120, "output": 45, "cacheRead": 0, "cacheWrite": 1800,
+                               "cost": dict(cost, total=0.00519)}}},
+                 {"type": "message", "id": "a2", "timestamp": "2026-10-05T10:00:02.000Z", "message": {
+                     "role": "assistant", "model": "claude-sonnet-5-5", "stopReason": "stop", "content": [],
+                     "usage": {"input": 60, "output": 12, "cacheRead": 1800, "cacheWrite": 0,
+                               "cost": dict(cost, total=0.0006)}}}]
+        (logs / "s.jsonl").write_text("\n".join(json.dumps(x) for x in lines) + "\n")
+        [t] = rp.load_job(job)
+        self.assertEqual((t["record_from"], t["record"]["arm"]), ("pi files", "pi"))
+        self.assertEqual(t["record"]["tokens"], toks(180, 1800, 1800, 57))
+        self.assertEqual((t["record"]["model_calls"], t["record"]["tool_calls"]), (2, 1))
+        # Harbor's dollars are the job's own account of an old trial.
+        self.assertEqual(t["record"]["cost_usd"], 0.0058)
 
     def test_an_svg_escapes_an_arms_name(self):
         text = rp.svg("Score <&>", "dollars", [("a<b>&c", 0.1, 0.5)], {"a<b>&c"})

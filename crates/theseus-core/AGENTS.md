@@ -66,7 +66,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     detour admits its window's messages, replies and results, and a task's arrangement among them, never a recall
     or a summary (`compile_detour` leaves those out). `check`, after the compile, fails a piece not admitted, or a
     set that does not close (a result without its call, a call without its result), as `context_unadmitted`, with
-    nothing sent and no retry; it enforces from the first day, with no shadow mode (Eddie, 2026-10-05). An assembled
+    nothing sent and no retry; it enforces from the first day, with no shadow mode (the owner, 2026-10-05). An assembled
     `recall_id` whose node is not in the session is a section never written (its call never dispatched; nodes are
     never deleted): the render leaves it out, and so does the check (theseus-783a). The
     precedence line (`PRECEDENCE`) follows the persona and the assembly note in the header. Headers written from 35a
@@ -196,7 +196,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   `cgroup` startup phase holds the answer, and `run_job` hands it to each wrapper (`WrapperArgs.cgroup`), whose
   command is born in a cgroup of its own with `[tools] job_pids_max`. A result whose cap refused processes says so
   (`toolrun/job.rs`). The daemon's `tests/cgroup.rs` runs them in delegated scopes and units.
-- **Grants in L1** (theseus-w5op; decided by Eddie 2026-10-03, superseding theseus-7y9y): an L1 job takes its
+- **Grants in L1** (theseus-w5op; decided by the owner 2026-10-03, superseding theseus-7y9y): an L1 job takes its
   program's broker grants at its launch, exactly as an L0 job does. The gate's order (`toolrun/order.rs`) runs
   the L1 decision (`sandbox::unbrokered`) through `ToolRuntime::brokered` (decision 15: the stricter of the call's
   posture and the secret's, so any approval comes before the launch), and `sandbox::for_job` asks
@@ -315,7 +315,15 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   and marked in the trace there (a zero-length `judge` span of kind `mark`: pack, point, mode, judgment); the call is
   spawned after the frame with that id (`theseus_judge::Ask::id`). Every point that dispatches inside a turn marks
   the same way. The facts (`fact/judge.rs`) say their sentences, and `Telemetry::record_judgment` counts each
-  judgment, once the sink's frame is written; nothing of a judgment rides in a turn's frames but its mark.
+  judgment, once the sink's frame is written; nothing of a judgment rides in a turn's frames but its mark. The
+  sink's frames are written only between turns (theseus-0j2.8), through the memory pass's writer handshake
+  (`memory_pass::turns`, `JudgeService::write_between`), as consolidation's are: a row, its sentences and its
+  metric wait while turns run (the pass's bounds end the wait), and a press finds it in `pending` meanwhile. A
+  backlog keeps one clock from its pass's start until the queue is empty (`sink::Queue`, theseus-s1am), so past the
+  quiet bound it drains in the next gaps; a clean stop writes the queue before its last checkpoint (`finish_stop`,
+  `JudgeService::flush_sink`, theseus-ych4), and a SIGKILL loses it. Tests: `tests_sink_backlog.rs`,
+  `tests_sink_flush.rs`.
+  `theseus-sim bench turn --judge` measures where the judge's frames land.
   `judge.list` and `judge.get` are `rpc/judge.rs`; `judge.list` pages back from the newest `judge.call` row (its
   kind's tag, or its kind-and-session tag) and stops one match past its limit, so `matched` is a floor when `more`
   (theseus-wse2; `tests_judge_reads.rs`). Tests: `tests_judge.rs`, `tests_judge_surfaces.rs`,
@@ -371,7 +379,9 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     `learning.report` are `rpc/learning.rs`; the run writes its labels, `judge.report` rows and the run's META mark
     in one frame, then `<state>/learning/<date>.json`. The mark keeps the last position the run read (`through`),
     and the next run's rules read no judgment whose windows closed before it (`system::Cut`, `open_ms`: its
-    session's nodes, its call's action, the task briefs; theseus-cf5c), and log how many sessions they read.
+    session's nodes, its call's action, the task briefs; theseus-cf5c), and log how many sessions they read. The
+    mark's `cut_ms` is where the next run cuts: the run's clock, never past the newest judgment it read, so a clock
+    that read ahead closes no open window (theseus-gf8j); a mark without it walks everything once.
     Tests: `tests_learning.rs`, `learning::*::tests`.
   - **Routing** (step 25e, theseus-0j2.11): `route.v1` rides the inbound point's request, live while `[judge]`
     is on (`[routing]`, `config/routing.rs`, lowers it). Its verdict comes back over a oneshot (`RouteWait`), and
@@ -414,30 +424,40 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     `pack.mode` rows from their scope, since the ladder's first load writes) runs the generator over them; `theseus
     judge prove` prints its Markdown byte for byte as `theseus-judge prove` does. Tests: `tests_prove.rs`.
   - **The ladder** (step 26a, `judge/ladder/`): each pack version's mode as `pack.mode` rows scoped per pack id
-    (`pack:<id>`, a few rows), read once after serving (`Core::warm_ladder`) or by the first judgment, then kept
-    (`Ladder`; with no row, `WIRED`'s line). Every point asks `JudgeService::mode_for(pack, session)` (or
-    `ask_mode`, which records `pack_arm` in the judgment's context): the ladder's rung under `JudgeConfig::mode_of`'s
-    ceiling, a canary acting in its `learn::arm` and the control in shadow, `rolled_back` as shadow. A ceiling at
-    shadow needs no read. Rollback (`rules.rs`): each event a rule counts is a `pack.event` row scoped
-    `pack.event:<id>:<day>`, so a restart reads the day back; `learn::check_all` runs as each lands
-    (`JudgeService::land`; `judge.label` lands a label's) and again after the nightly report; a rule from the
-    adoption table (`adopt.rs`: `route.v1`, `rerank.v1`, `security.v3`, live before the ladder, adopted once as the
-    owner's) is a day's brake (`until` the next local midnight, folded away after it), any other stands until a
-    promotion. `rpc/packs.rs` is `pack.list`, `pack.promote` and `pack.rollback` (`judge_act(Act::Ladder)`; short
-    of `promote::bar` the owner's row is `forced`, the system's refused); a `security.*` promotion is a card, its
-    question planned on the ladder's own session (META `ladder.session`) and answered by `action.confirm` like an
-    extension's ack (`answer_promotion`: the bind or decline and the row in one frame, nothing wakes). Tests:
-    `tests_ladder.rs`, `judge::ladder::tests`.
+    (`pack:<id>`, a few rows), read once after serving (`Core::warm_ladder`, `JudgeService::read_ladder`), or by an
+    RPC (`pack.*`, `judge.label`) or the nightly check, then kept (`Ladder`; with no row, `WIRED`'s line). No point
+    reads it (theseus-289c): before the warm read, `Ladder::given` answers `Ladder::unread`, the wired line under
+    the config with a pack that would act in shadow (a row may have rolled it back; never act on an unread ladder),
+    `placed` the root, health's lines say so (`… shadow (until the ladder is read; wired live)`), and route_base
+    keeps a session's move for the read ladder. The warm read writes the adoptions in one frame, a quiet stretch
+    after serving and between turns (`memory_pass::turns`). A new local day starts empty, reading nothing: every
+    event since midnight landed through `land`, and the notices' brake reloads the ladder. Core rigs whose turns are
+    judged do the warm read at build (`tests_judge::warm`: `tests_judge`'s rigs, `tests_route`, `tests_rerank`,
+    `tests_notices`, `tests_security`); `tests_ladder_unread.rs` holds the rule. Every point asks
+    `JudgeService::mode_for(pack, session)` (or `ask_mode`, which records `pack_arm` in the judgment's context): the
+    ladder's rung under `JudgeConfig::mode_of`'s ceiling, a canary acting in its `learn::arm` and the control in
+    shadow, `rolled_back` as shadow. A ceiling at shadow needs no read. Rollback (`rules.rs`): each event a rule
+    counts is a `pack.event` row scoped `pack.event:<id>:<day>`, so a restart reads the day back; `learn::check_all`
+    runs as each lands (`JudgeService::land`; `judge.label` lands a label's) and again after the nightly report; a
+    rule from the adoption table (`adopt.rs`: `route.v1`, `rerank.v1`, `security.v3`, live before the ladder,
+    adopted once as the owner's) is a day's brake (`until` the next local midnight, folded away after it), any other
+    stands until a promotion. `rpc/packs.rs` is `pack.list`, `pack.promote` and `pack.rollback`
+    (`judge_act(Act::Ladder)`; short of `promote::bar` the owner's row is `forced`, the system's refused); a
+    `security.*` promotion is a card, its question planned on the ladder's own session (META `ladder.session`) and
+    answered by `action.confirm` like an extension's ack (`answer_promotion`: the bind or decline and the row in one
+    frame, nothing wakes). A promotion's `said` names a learned version standing ahead of the one moved, where the
+    move judges nowhere or only in a canary's control arm, and its rollback (`rpc/packs_ahead.rs`, theseus-nwa5):
+    said, never refused. Tests: `tests_ladder.rs`, `judge::ladder::tests`.
   - **The learning loop** (step 25f, theseus-0j2.12; design §2.17): `learning/propose.rs` (the run: nightly after
     the report, and `judge.learn`, the owner's act), with its pure parts in `theseus_judge::propose` (names from
     v101, the interleaved split below 200 labeled in the window, the text-only check, the threshold re-fit, the
     decision, the writer's prompt). Learned versions are `pack.version` rows scoped `judge.learn:<id>` beside the
-    `judge.proposal` rows, read by `judge/lineage.rs` (`JudgeService::pack`, `root_of`, `placed`) after serving
-    or at the first judgment, their files `<state>/packs/` derived. Every point asks `placed(root, session)` for
-    the version standing in its root's place, then `mode_for` that version (capped by the root's config line).
-    A move is `Core::promote_learned` (26a's act, citing the proposal). The writer's output is capped
-    (`WRITER_MAX_TOKENS`): the profile's own cap reserves past the day's limit. Tests: `tests_learn_loop.rs`,
-    `theseus_judge::propose::tests`.
+    `judge.proposal` rows, read by `judge/lineage.rs` (`JudgeService::pack`, `root_of`, `placed`) by the warm read
+    after serving, or by `placed_read` (the learning loop, `pack.list`), never by a point, their files
+    `<state>/packs/` derived. Every point asks `placed(root, session)` for the version standing in its root's place,
+    then `mode_for` that version (capped by the root's config line). A move is `Core::promote_learned` (26a's act,
+    citing the proposal). The writer's output is capped (`WRITER_MAX_TOKENS`): the profile's own cap reserves past
+    the day's limit. Tests: `tests_learn_loop.rs`, `theseus_judge::propose::tests`.
 - **Recall** (M6 step 30a, in shadow): `recall.rs` (`Memory`: `[memory]`, the science, and who answers the index's
   query, the tender or a test's stand-in, `Memory::set_ask`; the manifest; `TurnRunner::place_of`, the place rule
   read as `class_of` reads it), `turn/recall_step.rs` (begun as the first loop's model call goes out, read once it
@@ -561,7 +581,11 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   episode, hash, source, agent, place and labels as recorded facts, triage, as-of; store format 23), its id the
   episode's (`ses_ep<64 hex>`, `session_id_of`), its record scoped `import:<tag>`. It has no execution, and
   `turn.submit` refuses it (`import::refusal`), so it never takes a turn or reaches a compile but as recall's
-  testimony; `session.list` leaves it out (`rpc/pages.rs` skips it by key). Its place is private whatever place
+  testimony; `session.list` leaves it out unread: the whole list, `confirm.list` and `compilation.list` read
+  `Store::live_sessions` (theseus-store's `latest_of_kind_where`, which skips a key before its record is read),
+  and a page and the learning tender's task-brief walk (`sessions_from`) step over the import's births by key in
+  their walk (`newest_keys_where`, theseus-7087); health's fallback totals alone read every session, since the
+  projection's count holds imported ones. Its place is private whatever place
   the episode names (`TurnRunner::place_of` reads the id), so a shared place never recalls it. Each message is a
   node of origin `import` (`Body::Imported`: source, unit, sha256, integrity; `created_at_ms` the message's own
   time), the summary a `Body::ImportedSummary` citing its messages' ids; outside integrity is external to the index,
@@ -707,7 +731,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   allow list, then the posture; a granted secret's posture and the external-text hold apply after it, and the
   stricter wins. The whole order after the place's refusal is written once, in `toolrun/order.rs`, which the gate
   and `policy.explain` both run.
-- **An L1 call runs at notify** (Eddie's decision, 2026-10-02): none of the L0 order applies, since the view hides
+- **An L1 call runs at notify** (the owner's decision, 2026-10-02): none of the L0 order applies, since the view hides
   the floor, the approve list's paths, and the socket; the external-text hold still does, and so does the
   operator's own word about the tool: a `[policy.tools]` line or a tightening that asks makes it wait
   (theseus-jfs6), and so do hosts its call names beyond `[sandbox] egress` (18c), and a granted secret's posture,
@@ -748,7 +772,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   template test holds it (`the_templates_harness_only_keys`). A program granted `aws_account` gets a short-lived
   job session at launch (`Broker::for_job_of`, `aws::Account::job_session`), never the key, and none before the
   owner role exists. Containment is that, the operator's `[broker]` grants,
-  and the egress list: credentials as stand-ins (TLS interception at the proxy) were dropped for v1 (Eddie,
+  and the egress list: credentials as stand-ins (TLS interception at the proxy) were dropped for v1 (the owner,
   2026-10-03). Do nothing heavier without his say.
 - **One fact, recorded once.** A new ledger row, notification, or narrative sentence is a fact's projection in
   `fact/`, not a hand-written channel at its site. Recording writes no frame: its row rides in the turn's next frame

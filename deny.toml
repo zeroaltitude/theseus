@@ -27,7 +27,7 @@ allow = [
 confidence-threshold = 0.8
 # MPL-2.0 is off the list (review 2's consideration 5: `shellexpand`, which brought it in, is gone). The voice
 # engine's songbird brings it back by these seven crates alone, by name (rows 77 and 78, theseus-drrs; the licence is
-# Eddie's call, theseus-yl5w): symphonia's decoding and DAVE's HPKE. An MPL-2.0 crate anywhere else fails the gate.
+# the owner's call, theseus-yl5w): symphonia's decoding and DAVE's HPKE. An MPL-2.0 crate anywhere else fails the gate.
 exceptions = [
     { allow = ["MPL-2.0"], crate = "symphonia" },
     { allow = ["MPL-2.0"], crate = "symphonia-core" },

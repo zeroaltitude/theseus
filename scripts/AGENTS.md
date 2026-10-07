@@ -121,7 +121,7 @@ on to the end under the lock, and a signal to its `flock` alone frees the lock u
 
 ### The busy allowance
 
-(theseus-lew7; Eddie's "business wiggle room", 2026-10-03.) The chain's join gate no longer pauses the lanes' compilers,
+(theseus-lew7; the owner's "business wiggle room", 2026-10-03.) The chain's join gate no longer pauses the lanes' compilers,
 so its benches can measure a busy machine, and a busy machine slows the daemon's starts and stops. There, and only
 there, the timing budgets get an overage allowance.
 
@@ -129,7 +129,7 @@ there, the timing budgets get an overage allowance.
   under 10 %, CPU pressure under 20 %, and the load under three quarters of the cores, 12 of 16, all at once). A quiet
   window, a machine without PSI, or `THESEUS_GATE_BENCH_ALLOWANCE=0` keeps every budget strict, as before. Each settle
   decides for the run after it, so a rerun after a miss decides again.
-- **The bar and the wait** (Eddie, 2026-10-03 14:20; theseus-lf1n). Until then the load bar was the core count and the
+- **The bar and the wait** (the owner, 2026-10-03 14:20; theseus-lf1n). Until then the load bar was the core count and the
   wait 5 minutes. With the lanes no longer paused, the strict misses cluster at loads of 12 to 16 (at normal priority,
   a phase missed in 41 % of the runs at 12 or more, 10 % from 8 to 12, 6 % under 8), a band the old bar called quiet,
   so a second miss there failed a join. Now a gate there waits, then benches with the allowance, which was calibrated

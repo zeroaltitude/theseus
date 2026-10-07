@@ -1,4 +1,4 @@
-//! A refusal's client-side fallback (theseus-7gir.18; Eddie's decision of
+//! A refusal's client-side fallback (theseus-7gir.18; the owner's decision of
 //! 2026-10-04). When the model refuses a request and its catalog entry names a
 //! fallback (`refusal_fallback_model`: Sonnet 5.5's is Sonnet 5), the same
 //! request is made once more on that model, by the same provider, as Claude

@@ -30,6 +30,7 @@ mod methods;
 pub(crate) use methods::ledger_tags;
 mod ontology;
 mod packs;
+mod packs_ahead;
 mod pages;
 mod policy;
 mod proposals;
@@ -41,6 +42,8 @@ pub(crate) use server::write_item;
 mod tests;
 #[cfg(test)]
 mod tests_history;
+#[cfg(test)]
+mod tests_imported;
 #[cfg(test)]
 mod tests_ledger;
 #[cfg(test)]
@@ -742,6 +745,10 @@ impl Core {
         }
         core.tools.extend.attach(&core.mcp);
         core.runner.judge.attach(&core);
+        // The judge's sink writes between turns, as the pass does.
+        core.runner
+            .judge
+            .write_between(core.runner.pass.turns().clone());
         // The loaded extensions (M7 43b): one META key, and each one's
         // stored list, offered at once; each starts after serving.
         if let Err(e) = core.seed_extensions() {

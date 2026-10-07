@@ -146,7 +146,7 @@ impl ProviderRequest {
     }
 }
 
-/// Tokens of framing a message costs, its role and turn markers. In Eddie's
+/// Tokens of framing a message costs, its role and turn markers. In the owner's
 /// DM an answer and a short message cost 6 more than the answer's output
 /// tokens and the message's text (the tokens lane, 2026-10-01).
 pub const MESSAGE_TOKENS: u64 = 3;
@@ -154,13 +154,13 @@ pub const MESSAGE_TOKENS: u64 = 3;
 pub const BLOCK_TOKENS: u64 = 1;
 /// Tokens a tool call's id costs, in its `tool_use` block and again in its
 /// `tool_result`: the provider assigns it, so an answer's output tokens
-/// leave it out. Fitted to Eddie's DM, where each call and result after a
+/// leave it out. Fitted to the owner's DM, where each call and result after a
 /// counted request cost about 15 tokens more than their content.
 pub const ID_TOKENS: u64 = 15;
 /// Bytes a token of a thinking block's signature, or of redacted thinking:
 /// the provider counts the thinking they carry, not their bytes. A
 /// signature runs about 3 to 16 bytes for each token of the thinking it
-/// carries (Eddie's DM), so a fourth over-counts it, the safe side. Only a
+/// carries (the owner's DM), so a fourth over-counts it, the safe side. Only a
 /// request with no counted part estimates thinking at all.
 pub const OPAQUE_BYTES_PER_TOKEN: f64 = 4.0;
 /// The densest figure a catalog row may set: a config's 0 would divide by

@@ -1,0 +1,60 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="416" viewBox="0 0 720 416" role="img" aria-labelledby="t-scale-dose t-scale-dose-d" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
+<title id="t-scale-dose">Scale: the gold's BM25 rank against the near-duplicates around it</title>
+<desc id="t-scale-dose-d">How fast does a lexical rank lose the gold as near-duplicates pile up?</desc>
+<rect width="720" height="416" rx="8" fill="#1a1a19" stroke="#2c2c2a"/>
+<text x="18.0" y="32.0" font-size="15" fill="#ffffff" font-weight="600">Scale: the gold's BM25 rank against the near-duplicates around it</text>
+<line x1="58.4" y1="322.0" x2="696.0" y2="322.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="52.4" y="326.0" font-size="11" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">1</text>
+<line x1="58.4" y1="235.3" x2="696.0" y2="235.3" stroke="#2c2c2a" stroke-width="1"/>
+<text x="52.4" y="239.3" font-size="11" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">10</text>
+<line x1="58.4" y1="148.7" x2="696.0" y2="148.7" stroke="#2c2c2a" stroke-width="1"/>
+<text x="52.4" y="152.7" font-size="11" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">100</text>
+<line x1="58.4" y1="62.0" x2="696.0" y2="62.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="52.4" y="66.0" font-size="11" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">1,000</text>
+<line x1="184.1" y1="322.0" x2="184.1" y2="326.0" stroke="#383835" stroke-width="1"/>
+<text x="184.1" y="338.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">10</text>
+<line x1="354.7" y1="322.0" x2="354.7" y2="326.0" stroke="#383835" stroke-width="1"/>
+<text x="354.7" y="338.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">20</text>
+<line x1="580.3" y1="322.0" x2="580.3" y2="326.0" stroke="#383835" stroke-width="1"/>
+<text x="580.3" y="338.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">50</text>
+<line x1="58.4" y1="322.0" x2="696.0" y2="322.0" stroke="#383835" stroke-width="1"/>
+<text x="18.0" y="54.0" font-size="11" fill="#c3c2b7">the gold's rank in BM25's list (1 = first)</text>
+<g><title>recall's budget: top 6: 6</title>
+<line x1="58.4" y1="254.6" x2="696.0" y2="254.6" stroke="#c3c2b7" stroke-width="1.25"/>
+</g>
+<g><title>a reranker's window: top 20: 20</title>
+<line x1="58.4" y1="209.2" x2="696.0" y2="209.2" stroke="#c3c2b7" stroke-width="1.25"/>
+</g>
+<clipPath id="clip-scale-dose-1"><rect x="53.4" y="57.0" width="647.6" height="270.0"/></clipPath>
+<g clip-path="url(#clip-scale-dose-1)">
+<g><title>BM25: 1 (scale-1 (tuning): 8 near-duplicates, gold at rank 1)</title>
+<circle cx="113.9" cy="322.0" r="4" fill="#d55181" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<g><title>BM25: 17 (scale-5 (held out): 8 near-duplicates, gold at rank 17)</title>
+<circle cx="143.5" cy="215.4" r="4" fill="#d55181" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<g><title>BM25: 18 (scale-2 (tuning): 16 near-duplicates, gold at rank 18)</title>
+<circle cx="284.6" cy="213.2" r="4" fill="#d55181" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<g><title>BM25: 17 (scale-6 (held out): 16 near-duplicates, gold at rank 17)</title>
+<circle cx="314.2" cy="215.4" r="4" fill="#d55181" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<g><title>BM25: 76 (scale-3 (tuning): 32 near-duplicates, gold at rank 76)</title>
+<circle cx="455.2" cy="159.0" r="4" fill="#d55181" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<g><title>BM25: 73 (scale-7 (held out): 32 near-duplicates, gold at rank 73)</title>
+<circle cx="484.8" cy="160.5" r="4" fill="#d55181" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<g><title>BM25: 178 (scale-4 (tuning): 64 near-duplicates, gold at rank 178)</title>
+<circle cx="625.8" cy="127.0" r="4" fill="#d55181" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<g><title>BM25: 114 (scale-8 (held out): 64 near-duplicates, gold at rank 114)</title>
+<circle cx="655.4" cy="143.7" r="4" fill="#d55181" stroke="#1a1a19" stroke-width="2"/>
+</g>
+</g>
+<text x="694.0" y="250.6" font-size="11" fill="#c3c2b7" stroke="#1a1a19" stroke-width="3" stroke-linejoin="round" paint-order="stroke" text-anchor="end">recall's budget: top 6</text>
+<text x="694.0" y="205.2" font-size="11" fill="#c3c2b7" stroke="#1a1a19" stroke-width="3" stroke-linejoin="round" paint-order="stroke" text-anchor="end">a reranker's window: top 20</text>
+<text x="377.2" y="356.0" font-size="12" fill="#c3c2b7" text-anchor="middle">near-duplicate sessions about the same thing</text>
+<text x="18.0" y="378.0" font-size="11" fill="#c3c2b7">8 items, one tuning and one held-out item at each dose of 8, 16, 32 and 64, drawn just left and just right of it; rank 1 is first.</text>
+<text x="18.0" y="393.0" font-size="11" fill="#c3c2b7">Both axes log.</text>
+</svg>

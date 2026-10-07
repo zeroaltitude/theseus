@@ -8,11 +8,11 @@ use std::time::Duration;
 
 use theseus_voice::{
     write_wav, Audio, Command, Config, Engine, Event, Played, Speaker, Spoken, StandInSpeech,
-    TurnId, Utterance, WavIo,
+    TurnId, Utterance, WavIo, TABLE,
 };
 use tokio::time::{sleep, sleep_until, Instant};
 
-const EDDIE: Speaker = Speaker(101);
+const OWNER: Speaker = Speaker(101);
 const ROBIN: Speaker = Speaker(202);
 const STRANGER: Speaker = Speaker(303);
 
@@ -109,7 +109,7 @@ async fn an_utterance_ends_after_700_ms_of_silence() {
     let dir = tempfile::tempdir().unwrap();
     let mut io = WavIo::new(ms(6000));
     io.say_wav(
-        EDDIE,
+        OWNER,
         ms(0),
         &fixture(dir.path(), "one-second", &[(true, 1000)]),
     )
@@ -120,13 +120,13 @@ async fn an_utterance_ends_after_700_ms_of_silence() {
         "with-a-pause",
         &[(true, 600), (false, 600), (true, 600)],
     );
-    io.say_wav(EDDIE, ms(3000), &paused).unwrap();
+    io.say_wav(OWNER, ms(3000), &paused).unwrap();
     let speech = Arc::new(
         StandInSpeech::new()
-            .transcript(EDDIE, "first")
-            .transcript(EDDIE, "second"),
+            .transcript(OWNER, "first")
+            .transcript(OWNER, "second"),
     );
-    let (seen, _) = call(io, Config::new([EDDIE]), speech, silent(), vec![]).await;
+    let (seen, _) = call(io, Config::new([OWNER]), speech, silent(), vec![]).await;
 
     let said = utterances(&seen);
     assert_eq!(said.len(), 2, "{said:?}");
@@ -148,20 +148,24 @@ async fn an_utterance_ends_after_700_ms_of_silence() {
 async fn two_speakers_are_kept_apart() {
     let dir = tempfile::tempdir().unwrap();
     let mut io = WavIo::new(ms(6000));
-    io.say_wav(EDDIE, ms(0), &fixture(dir.path(), "eddie", &[(true, 1000)]))
-        .unwrap()
-        .say_wav(
-            ROBIN,
-            ms(500),
-            &fixture(dir.path(), "robin", &[(true, 1500)]),
-        )
-        .unwrap();
+    io.say_wav(
+        OWNER,
+        ms(0),
+        &fixture(dir.path(), "zeroaltitude", &[(true, 1000)]),
+    )
+    .unwrap()
+    .say_wav(
+        ROBIN,
+        ms(500),
+        &fixture(dir.path(), "robin", &[(true, 1500)]),
+    )
+    .unwrap();
     let speech = Arc::new(
         StandInSpeech::new()
-            .transcript(EDDIE, "hello from eddie")
+            .transcript(OWNER, "hello from zeroaltitude")
             .transcript(ROBIN, "and robin here"),
     );
-    let (seen, _) = call(io, Config::new([EDDIE, ROBIN]), speech, silent(), vec![]).await;
+    let (seen, _) = call(io, Config::new([OWNER, ROBIN]), speech, silent(), vec![]).await;
 
     // Overlapping speech, two utterances: each its own speaker's audio
     // alone, closed by its own silence, transcribed as its own.
@@ -172,14 +176,14 @@ async fn two_speakers_are_kept_apart() {
     assert_eq!(
         said,
         [
-            (EDDIE, ms(0), ms(1000), ms(1700), "hello from eddie"),
+            (OWNER, ms(0), ms(1000), ms(1700), "hello from zeroaltitude"),
             (ROBIN, ms(500), ms(1500), ms(2700), "and robin here"),
         ]
     );
     assert_eq!(
         turns(&seen),
         [
-            (ms(1700), vec![(EDDIE, "hello from eddie")]),
+            (ms(1700), vec![(OWNER, "hello from zeroaltitude")]),
             (ms(2700), vec![(ROBIN, "and robin here")]),
         ]
     );
@@ -191,20 +195,20 @@ async fn utterances_during_a_turn_coalesce_into_the_next() {
     let short = fixture(dir.path(), "short", &[(true, 500)]);
     let aside = fixture(dir.path(), "aside", &[(true, 400)]);
     let mut io = WavIo::new(ms(8000));
-    io.say_wav(EDDIE, ms(0), &short)
+    io.say_wav(OWNER, ms(0), &short)
         .unwrap()
         // Both close while turn 0 is in flight (1.2 s to 4.2 s).
         .say_wav(ROBIN, ms(1600), &aside)
         .unwrap()
-        .say_wav(EDDIE, ms(2200), &aside)
+        .say_wav(OWNER, ms(2200), &aside)
         .unwrap();
     let speech = Arc::new(
         StandInSpeech::new()
-            .transcript(EDDIE, "what changed?")
+            .transcript(OWNER, "what changed?")
             .transcript(ROBIN, "the deploy")
-            .transcript(EDDIE, "and the tests"),
+            .transcript(OWNER, "and the tests"),
     );
-    let mut config = Config::new([EDDIE, ROBIN]);
+    let mut config = Config::new([OWNER, ROBIN]);
     config.acknowledge_after = Duration::from_secs(60);
     let answer: Answer = Box::new(|turn, _| match turn {
         TurnId(0) => (ms(3000), "Two things.".into()),
@@ -215,12 +219,12 @@ async fn utterances_during_a_turn_coalesce_into_the_next() {
     assert_eq!(
         turns(&seen),
         [
-            (ms(1200), vec![(EDDIE, "what changed?")]),
+            (ms(1200), vec![(OWNER, "what changed?")]),
             // The reply ends turn 0 at 4.2 s; the two that closed during it
             // (at 2.7 s and 3.3 s) are the next turn, in that order.
             (
                 ms(4200),
-                vec![(ROBIN, "the deploy"), (EDDIE, "and the tests")]
+                vec![(ROBIN, "the deploy"), (OWNER, "and the tests")]
             ),
         ]
     );
@@ -230,20 +234,20 @@ async fn utterances_during_a_turn_coalesce_into_the_next() {
 async fn a_barge_in_stops_playback_within_300_ms() {
     let dir = tempfile::tempdir().unwrap();
     let mut io = WavIo::new(ms(8000));
-    io.say_wav(EDDIE, ms(0), &fixture(dir.path(), "ask", &[(true, 500)]))
+    io.say_wav(OWNER, ms(0), &fixture(dir.path(), "ask", &[(true, 500)]))
         .unwrap()
         // A listed speaker's 200 ms over the reply: too short to stop it.
         .say_wav(ROBIN, ms(1500), &fixture(dir.path(), "hm", &[(true, 200)]))
         .unwrap()
-        // Eddie talks over it from 2.0 s.
+        // The owner talks over it from 2.0 s.
         .say_wav(
-            EDDIE,
+            OWNER,
             ms(2000),
             &fixture(dir.path(), "wait", &[(true, 600)]),
         )
         .unwrap();
     // Robin's "hm" is a backchannel: it would resume a stop, and its 200 ms
-    // makes none. Eddie's words (the stand-in's `[utterance 0.6 s]`) cut.
+    // makes none. The owner's words (the stand-in's `[utterance 0.6 s]`) cut.
     let speech = Arc::new(StandInSpeech::new().transcript(ROBIN, "hm"));
     let reply = "This first sentence of a long reply runs on for a good few seconds. \
                  This second sentence is never heard.";
@@ -251,9 +255,9 @@ async fn a_barge_in_stops_playback_within_300_ms() {
         TurnId(0) => (Duration::ZERO, reply.into()),
         _ => (Duration::ZERO, String::new()),
     });
-    let (seen, played) = call(io, Config::new([EDDIE, ROBIN]), speech, answer, vec![]).await;
+    let (seen, played) = call(io, Config::new([OWNER, ROBIN]), speech, answer, vec![]).await;
 
-    // The first sentence started at 1.2 s, and stopped 300 ms into Eddie's
+    // The first sentence started at 1.2 s, and stopped 300 ms into the owner's
     // speech; held, it never played again, and the second never played.
     assert_eq!(played.len(), 1, "{played:?}");
     assert_eq!(played[0].started, ms(1200));
@@ -265,23 +269,23 @@ async fn a_barge_in_stops_playback_within_300_ms() {
         .iter()
         .filter(|(_, e)| matches!(e, Event::BargeIn { .. }))
         .collect();
-    // The barge-in is the commit: when Eddie's words are known, at his
+    // The barge-in is the commit: when the owner's words are known, at his
     // utterance's close and transcript (2.6 s of speech end, plus 700 ms).
     assert_eq!(
         barge_ins,
         [&(
             ms(3300),
             Event::BargeIn {
-                speaker: EDDIE,
+                speaker: OWNER,
                 what: Spoken::Reply(TurnId(0)),
                 dropped: 2
             }
         )]
     );
-    // What Eddie said over it is still heard: the next turn.
+    // What the owner said over it is still heard: the next turn.
     assert!(turns(&seen)
         .iter()
-        .any(|(at, who)| *at == ms(3300) && who.len() == 1 && who[0].0 == EDDIE));
+        .any(|(at, who)| *at == ms(3300) && who.len() == 1 && who[0].0 == OWNER));
 }
 
 #[tokio::test(start_paused = true)]
@@ -289,9 +293,9 @@ async fn the_acknowledgment_comes_after_2_s() {
     let dir = tempfile::tempdir().unwrap();
     let ask = fixture(dir.path(), "ask", &[(true, 500)]);
     let mut io = WavIo::new(ms(10_000));
-    io.say_wav(EDDIE, ms(0), &ask)
+    io.say_wav(OWNER, ms(0), &ask)
         .unwrap()
-        .say_wav(EDDIE, ms(6000), &ask)
+        .say_wav(OWNER, ms(6000), &ask)
         .unwrap();
     let speech = Arc::new(StandInSpeech::new());
     // Turn 0 takes 3 s, turn 1 takes 1.5 s.
@@ -299,7 +303,7 @@ async fn the_acknowledgment_comes_after_2_s() {
         TurnId(0) => (ms(3000), "Here you go.".into()),
         _ => (ms(1500), "Done.".into()),
     });
-    let (seen, played) = call(io, Config::new([EDDIE]), speech, answer, vec![]).await;
+    let (seen, played) = call(io, Config::new([OWNER]), speech, answer, vec![]).await;
 
     let acks: Vec<_> = seen
         .iter()
@@ -323,7 +327,7 @@ async fn the_acknowledgment_comes_after_2_s() {
 async fn a_report_waits_for_the_pause() {
     let dir = tempfile::tempdir().unwrap();
     let mut io = WavIo::new(ms(7000));
-    io.say_wav(EDDIE, ms(0), &fixture(dir.path(), "long", &[(true, 1500)]))
+    io.say_wav(OWNER, ms(0), &fixture(dir.path(), "long", &[(true, 1500)]))
         .unwrap();
     let speech = Arc::new(StandInSpeech::new());
     let answer: Answer = Box::new(|_, _| (ms(500), "Sure.".into()));
@@ -333,7 +337,7 @@ async fn a_report_waits_for_the_pause() {
         // At a pause: it plays at once.
         (ms(5000), "The tests passed."),
     ];
-    let (seen, played) = call(io, Config::new([EDDIE]), speech, answer, reports).await;
+    let (seen, played) = call(io, Config::new([OWNER]), speech, answer, reports).await;
 
     let reply = StandInSpeech::tone_for("Sure.").duration();
     let first_report = StandInSpeech::tone_for("The deploy finished.").duration();
@@ -341,7 +345,7 @@ async fn a_report_waits_for_the_pause() {
     assert_eq!(
         starts,
         [
-            // Eddie spoke until 1.5 s and his turn ran 2.2 s to 2.7 s: the
+            // The owner spoke until 1.5 s and his turn ran 2.2 s to 2.7 s: the
             // reply came first, and the report at the pause after it.
             (ms(2700), reply),
             (ms(2700) + reply, first_report),
@@ -375,7 +379,7 @@ async fn an_unlisted_speaker_is_dropped() {
     let mut io = WavIo::new(ms(7000));
     io.say_wav(STRANGER, ms(0), &talk)
         .unwrap()
-        .say_wav(EDDIE, ms(1500), &fixture(dir.path(), "ask", &[(true, 500)]))
+        .say_wav(OWNER, ms(1500), &fixture(dir.path(), "ask", &[(true, 500)]))
         .unwrap()
         // Over the reply too: no barge-in.
         .say_wav(STRANGER, ms(3000), &talk)
@@ -383,12 +387,12 @@ async fn an_unlisted_speaker_is_dropped() {
     let speech = Arc::new(StandInSpeech::new());
     let reply = "A reply long enough to be talked over by a stranger.";
     let answer: Answer = Box::new(move |_, _| (Duration::ZERO, reply.into()));
-    let (seen, played) = call(io, Config::new([EDDIE]), speech.clone(), answer, vec![]).await;
+    let (seen, played) = call(io, Config::new([OWNER]), speech.clone(), answer, vec![]).await;
 
-    // Never transcribed: one transcription, Eddie's.
+    // Never transcribed: one transcription, the owner's.
     assert_eq!(speech.transcriptions(), 1);
     let said: Vec<_> = utterances(&seen).iter().map(|u| u.speaker).collect();
-    assert_eq!(said, [EDDIE]);
+    assert_eq!(said, [OWNER]);
     let unlisted: Vec<_> = seen
         .iter()
         .filter(|(_, e)| matches!(e, Event::Unlisted { .. }))
@@ -404,12 +408,12 @@ async fn an_unlisted_speaker_is_dropped() {
 async fn a_reply_is_synthesized_and_played_a_sentence_at_a_time() {
     let dir = tempfile::tempdir().unwrap();
     let mut io = WavIo::new(ms(5000));
-    io.say_wav(EDDIE, ms(0), &fixture(dir.path(), "ask", &[(true, 500)]))
+    io.say_wav(OWNER, ms(0), &fixture(dir.path(), "ask", &[(true, 500)]))
         .unwrap();
     // Each synthesis takes 150 ms, and each sentence plays for 400 ms.
     let speech = Arc::new(StandInSpeech::new().delays(Duration::ZERO, ms(150)));
     let answer: Answer = Box::new(|_, _| (Duration::ZERO, "One. Two. Six.".into()));
-    let (seen, played) = call(io, Config::new([EDDIE]), speech.clone(), answer, vec![]).await;
+    let (seen, played) = call(io, Config::new([OWNER]), speech.clone(), answer, vec![]).await;
 
     // The first audio began after one synthesis, not three, and the rest
     // followed back to back: each made while the one before it played.
@@ -433,12 +437,48 @@ async fn a_reply_is_synthesized_and_played_a_sentence_at_a_time() {
             }));
 }
 
+/// A reply written for a screen is spoken as speech (theseus-rkvl): its
+/// prose, and one sentence for its 9-row table, which stays in the text;
+/// its emphasis markers unsaid.
+#[tokio::test(start_paused = true)]
+async fn a_reply_with_a_table_speaks_its_prose_and_one_table_sentence() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut io = WavIo::new(ms(8000));
+    io.say_wav(OWNER, ms(0), &fixture(dir.path(), "ask", &[(true, 500)]))
+        .unwrap();
+    let speech = Arc::new(StandInSpeech::new());
+    let answer: Answer = Box::new(|_, _| {
+        let reply = "Here's last week's spend.\n\n| Day | Spend |\n|---|---:|\n| Mon | $4.10 |\n\
+             | Tue | $3.90 |\n| Wed | $2.00 |\n| Thu | $5.25 |\n| Fri | $1.10 |\n| Sat | $0.00 |\n\
+             | Sun | $0.40 |\n\n**Thursday** was the most.";
+        (Duration::ZERO, reply.into())
+    });
+    let (seen, played) = call(io, Config::new([OWNER]), speech.clone(), answer, vec![]).await;
+    assert_eq!(speech.syntheses(), 3);
+    assert!(seen.iter().any(|(_, e)| *e
+        == Event::Speaking {
+            what: Spoken::Reply(TurnId(0)),
+            sentences: 3,
+            first_audio: Duration::ZERO
+        }));
+    let lengths: Vec<Duration> = played.iter().map(|p| p.length).collect();
+    let tone = |t: &str| StandInSpeech::tone_for(t).duration();
+    assert_eq!(
+        lengths,
+        [
+            tone("Here's last week's spend."),
+            tone(TABLE),
+            tone("Thursday was the most.")
+        ]
+    );
+}
+
 #[tokio::test]
 async fn building_the_engine_spawns_nothing() {
     let metrics = tokio::runtime::Handle::current().metrics();
     let before = metrics.num_alive_tasks();
     let (engine, _handle) = Engine::new(
-        Config::new([EDDIE]),
+        Config::new([OWNER]),
         Box::new(WavIo::new(ms(100))),
         Arc::new(StandInSpeech::new()),
     );
@@ -450,11 +490,11 @@ async fn building_the_engine_spawns_nothing() {
 async fn leave_stops_speaking_and_ends_the_run() {
     let dir = tempfile::tempdir().unwrap();
     let mut io = WavIo::new(ms(60_000));
-    io.say_wav(EDDIE, ms(0), &fixture(dir.path(), "ask", &[(true, 500)]))
+    io.say_wav(OWNER, ms(0), &fixture(dir.path(), "ask", &[(true, 500)]))
         .unwrap();
     let played = io.played();
     let (engine, mut handle) = Engine::new(
-        Config::new([EDDIE]),
+        Config::new([OWNER]),
         Box::new(io),
         Arc::new(StandInSpeech::new()),
     );
@@ -525,7 +565,7 @@ async fn a_dropped_connection_is_a_failed_event_with_its_reason() {
     };
     let (seen, _) = call(
         WavIo::new(ms(0)),
-        Config::new([EDDIE]),
+        Config::new([OWNER]),
         Arc::new(StandInSpeech::new()),
         silent(),
         vec![],
@@ -533,7 +573,7 @@ async fn a_dropped_connection_is_a_failed_event_with_its_reason() {
     .await;
     assert!(seen.is_empty(), "a WAV's end is no failure: {seen:?}");
     let (engine, mut handle) = Engine::new(
-        Config::new([EDDIE]),
+        Config::new([OWNER]),
         Box::new(io),
         Arc::new(StandInSpeech::new()),
     );

@@ -1,4 +1,4 @@
-//! Reopening an execution the old unit budget ended (theseus-3ebd, Eddie's
+//! Reopening an execution the old unit budget ended (theseus-3ebd, the owner's
 //! option (a), 2026-10-01): startup's step 2 does it, once, beside the unit
 //! budget's migration to dollars (theseus-0sg).
 

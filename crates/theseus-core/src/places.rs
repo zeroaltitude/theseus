@@ -28,7 +28,7 @@
 //!   undo of a tightening, a trust, and a publish count only from a private
 //!   place, by the owner (`owner_in_private`). A shared place's cards go to
 //!   the owner's DM.
-//! - **Gliding follows it** (38b, Eddie 2026-10-04): words that move between
+//! - **Gliding follows it** (38b, the owner 2026-10-04): words that move between
 //!   places, a `channel.post` or a `channel.read`, take `glide_rule`. Into a
 //!   private place they always may, and what comes from a shared place is
 //!   outside text there; out of a private place, or between two shared
@@ -101,7 +101,7 @@ impl crate::config::Config {
 pub struct BoundPlace {
     /// `discord:channel:<id>` or `discord:dm:<user id>` (`outbox.target`).
     pub target: String,
-    /// `#openclaw`, `DM @eddie`.
+    /// `#openclaw`, `DM @zeroaltitude`.
     pub name: String,
     /// A guild channel bound private: by its own `private = true`, or by its
     /// trusted guild's when it says nothing (theseus-rdqg). A DM's class is
@@ -200,7 +200,7 @@ impl PlaceRule {
     }
 
     /// The bound place `to` names: its name (`#openclaw`, `openclaw`, `DM
-    /// @eddie`), its target (`discord:channel:<id>`), its key
+    /// @zeroaltitude`), its target (`discord:channel:<id>`), its key
     /// (`channel:<id>`), or its id.
     pub fn find(&self, to: &str) -> Option<BoundPlace> {
         let to = to.trim();
@@ -418,7 +418,7 @@ pub enum Glide {
 }
 
 /// The place rule for words that move between places (38b, approved by
-/// Eddie on 2026-10-04), the one rule every glide takes: `from` is where
+/// the owner on 2026-10-04), the one rule every glide takes: `from` is where
 /// the words were said, `to` where they go. A post goes from its session's
 /// place to the place it names; a read goes from the place it names into
 /// its session's.
@@ -514,7 +514,7 @@ pub fn refusal(class: PlaceClass, name: &str, plan: &Plan, public: &[PathBuf]) -
 /// The card of a fetch that waits on a private address, in a shared place
 /// (theseus-94a6). DD5 asks before `http.fetch` reaches a private address,
 /// and a shared place is offered the tool, so an approved fetch brings that
-/// page into a conversation others can read. The approver decides (Eddie,
+/// page into a conversation others can read. The approver decides (the owner,
 /// 2026-10-03: "Leave it to the approver"), and the reason tells them, in its
 /// parenthesis: "… — approve (127.0.0.1 is a loopback address, and a private
 /// address waits for approval; this is a shared place, so the page joins a
@@ -621,7 +621,7 @@ mod tests {
         assert!(rule.owners(&cfg).is_empty(), "nobody, before a DM is bound");
         rule.bind(vec![BoundPlace {
             target: "discord:dm:271828182845904523".into(),
-            name: "DM @eddie".into(),
+            name: "DM @zeroaltitude".into(),
             private: false,
             ..Default::default()
         }]);
@@ -655,7 +655,7 @@ mod tests {
             assert_eq!(cfg.places.public_paths, ["~/w/open"]);
         }
         for (bad, says) in [
-            ("[places]\nowner = [\"eddie\"]", "places.owner"),
+            ("[places]\nowner = [\"zeroaltitude\"]", "places.owner"),
             (
                 "[places]\npublic_paths = [\"w/open\"]",
                 "places.public_paths",

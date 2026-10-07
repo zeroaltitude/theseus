@@ -1,0 +1,2739 @@
+{
+ "report": "2026-10-01-retrieval-fusion",
+ "title": "Retrieval: BM25, entities, vectors and their fusion on the exam's items",
+ "suite": "retrieval (exam-v2's items with gold, held-in then held-out)",
+ "date": "2026-10-01",
+ "commit": "vectors lane 2285f56, 575c791 (on main at 648239e); recall lane db908dd, 87514ff, 87ba735 (rebased onto main as 837f846, 9645403, f7f7607)",
+ "arms": [
+  {
+   "key": "bm25",
+   "label": "BM25 and entities"
+  },
+  {
+   "key": "vector",
+   "label": "vectors alone (Nomic v1.5)"
+  },
+  {
+   "key": "fused",
+   "label": "weighted rank fusion of all three"
+  }
+ ],
+ "summary": {
+  "exam_digest": "sha256:68302a539eddadf41e9cca33e704d70ce21af70cfad99c72fbba8995fbe44c32",
+  "store_last_position": 5412,
+  "tender_status_at_grid": {
+   "documents": 1584,
+   "nodes": 1584,
+   "mode": "hybrid"
+  },
+  "items": {
+   "held_in": 34,
+   "held_out": 34,
+   "hard_in": 16,
+   "hard_out": 16
+  },
+  "held_in": {
+   "bm25": {
+    "@1": {
+     "all": 8,
+     "hard": 1,
+     "v1": 7,
+     "decision": 0,
+     "distractor": 2,
+     "episode": 0,
+     "fact": 0,
+     "injection": 1,
+     "paraphrase": 0,
+     "preference": 1,
+     "private": 2,
+     "procedure": 1,
+     "scale": 1,
+     "superseded": 0,
+     "time": 0,
+     "tool_output": 0
+    },
+    "@3": {
+     "all": 12,
+     "hard": 1,
+     "v1": 11,
+     "decision": 0,
+     "distractor": 2,
+     "episode": 1,
+     "fact": 0,
+     "injection": 2,
+     "paraphrase": 0,
+     "preference": 1,
+     "private": 2,
+     "procedure": 2,
+     "scale": 1,
+     "superseded": 1,
+     "time": 0,
+     "tool_output": 0
+    },
+    "@6": {
+     "all": 13,
+     "hard": 1,
+     "v1": 12,
+     "decision": 0,
+     "distractor": 2,
+     "episode": 1,
+     "fact": 0,
+     "injection": 2,
+     "paraphrase": 0,
+     "preference": 1,
+     "private": 2,
+     "procedure": 2,
+     "scale": 1,
+     "superseded": 2,
+     "time": 0,
+     "tool_output": 0
+    },
+    "@10": {
+     "all": 13,
+     "hard": 1,
+     "v1": 12,
+     "decision": 0,
+     "distractor": 2,
+     "episode": 1,
+     "fact": 0,
+     "injection": 2,
+     "paraphrase": 0,
+     "preference": 1,
+     "private": 2,
+     "procedure": 2,
+     "scale": 1,
+     "superseded": 2,
+     "time": 0,
+     "tool_output": 0
+    },
+    "@20": {
+     "all": 17,
+     "hard": 2,
+     "v1": 15,
+     "decision": 0,
+     "distractor": 2,
+     "episode": 1,
+     "fact": 2,
+     "injection": 2,
+     "paraphrase": 0,
+     "preference": 2,
+     "private": 2,
+     "procedure": 2,
+     "scale": 2,
+     "superseded": 2,
+     "time": 0,
+     "tool_output": 0
+    }
+   },
+   "vector": {
+    "@1": {
+     "all": 13,
+     "hard": 3,
+     "v1": 10,
+     "decision": 0,
+     "distractor": 2,
+     "episode": 0,
+     "fact": 1,
+     "injection": 1,
+     "paraphrase": 2,
+     "preference": 2,
+     "private": 2,
+     "procedure": 2,
+     "scale": 1,
+     "superseded": 0,
+     "time": 0,
+     "tool_output": 0
+    },
+    "@3": {
+     "all": 20,
+     "hard": 6,
+     "v1": 14,
+     "decision": 1,
+     "distractor": 2,
+     "episode": 1,
+     "fact": 2,
+     "injection": 1,
+     "paraphrase": 3,
+     "preference": 2,
+     "private": 2,
+     "procedure": 2,
+     "scale": 1,
+     "superseded": 1,
+     "time": 0,
+     "tool_output": 2
+    },
+    "@6": {
+     "all": 22,
+     "hard": 7,
+     "v1": 15,
+     "decision": 1,
+     "distractor": 2,
+     "episode": 1,
+     "fact": 2,
+     "injection": 2,
+     "paraphrase": 3,
+     "preference": 2,
+     "private": 2,
+     "procedure": 2,
+     "scale": 1,
+     "superseded": 1,
+     "time": 1,
+     "tool_output": 2
+    },
+    "@10": {
+     "all": 23,
+     "hard": 7,
+     "v1": 16,
+     "decision": 1,
+     "distractor": 2,
+     "episode": 1,
+     "fact": 2,
+     "injection": 2,
+     "paraphrase": 3,
+     "preference": 2,
+     "private": 2,
+     "procedure": 2,
+     "scale": 1,
+     "superseded": 2,
+     "time": 1,
+     "tool_output": 2
+    },
+    "@20": {
+     "all": 23,
+     "hard": 7,
+     "v1": 16,
+     "decision": 1,
+     "distractor": 2,
+     "episode": 1,
+     "fact": 2,
+     "injection": 2,
+     "paraphrase": 3,
+     "preference": 2,
+     "private": 2,
+     "procedure": 2,
+     "scale": 1,
+     "superseded": 2,
+     "time": 1,
+     "tool_output": 2
+    }
+   },
+   "w=1": {
+    "@1": {
+     "all": 8,
+     "hard": 0,
+     "v1": 8,
+     "decision": 0,
+     "distractor": 2,
+     "episode": 0,
+     "fact": 0,
+     "injection": 1,
+     "paraphrase": 0,
+     "preference": 1,
+     "private": 2,
+     "procedure": 2,
+     "scale": 0,
+     "superseded": 0,
+     "time": 0,
+     "tool_output": 0
+    },
+    "@3": {
+     "all": 15,
+     "hard": 1,
+     "v1": 14,
+     "decision": 0,
+     "distractor": 2,
+     "episode": 1,
+     "fact": 1,
+     "injection": 2,
+     "paraphrase": 0,
+     "preference": 2,
+     "private": 2,
+     "procedure": 2,
+     "scale": 0,
+     "superseded": 2,
+     "time": 0,
+     "tool_output": 1
+    },
+    "@6": {
+     "all": 19,
+     "hard": 3,
+     "v1": 16,
+     "decision": 1,
+     "distractor": 2,
+     "episode": 2,
+     "fact": 1,
+     "injection": 2,
+     "paraphrase": 2,
+     "preference": 2,
+     "private": 2,
+     "procedure": 2,
+     "scale": 0,
+     "superseded": 2,
+     "time": 0,
+     "tool_output": 1
+    },
+    "@10": {
+     "all": 21,
+     "hard": 4,
+     "v1": 17,
+     "decision": 1,
+     "distractor": 2,
+     "episode": 2,
+     "fact": 2,
+     "injection": 2,
+     "paraphrase": 2,
+     "preference": 2,
+     "private": 2,
+     "procedure": 2,
+     "scale": 1,
+     "superseded": 2,
+     "time": 0,
+     "tool_output": 1
+    },
+    "@20": {
+     "all": 25,
+     "hard": 8,
+     "v1": 17,
+     "decision": 1,
+     "distractor": 2,
+     "episode": 2,
+     "fact": 2,
+     "injection": 2,
+     "paraphrase": 3,
+     "preference": 2,
+     "private": 2,
+     "procedure": 2,
+     "scale": 2,
+     "superseded": 2,
+     "time": 1,
+     "tool_output": 2
+    }
+   },
+   "w=1.5": {
+    "@1": {
+     "all": 10,
+     "hard": 0,
+     "v1": 10,
+     "decision": 0,
+     "distractor": 2,
+     "episode": 0,
+     "fact": 1,
+     "injection": 1,
+     "paraphrase": 0,
+     "preference": 2,
+     "private": 2,
+     "procedure": 2,
+     "scale": 0,
+     "superseded": 0,
+     "time": 0,
+     "tool_output": 0
+    },
+    "@3": {
+     "all": 16,
+     "hard": 1,
+     "v1": 15,
+     "decision": 0,
+     "distractor": 2,
+     "episode": 2,
+     "fact": 1,
+     "injection": 2,
+     "paraphrase": 0,
+     "preference": 2,
+     "private": 2,
+     "procedure": 2,
+     "scale": 0,
+     "superseded": 2,
+     "time": 0,
+     "tool_output": 1
+    },
+    "@6": {
+     "all": 21,
+     "hard": 4,
+     "v1": 17,
+     "decision": 1,
+     "distractor": 2,
+     "episode": 2,
+     "fact": 2,
+     "injection": 2,
+     "paraphrase": 2,
+     "preference": 2,
+     "private": 2,
+     "procedure": 2,
+     "scale": 1,
+     "superseded": 2,
+     "time": 0,
+     "tool_output": 1
+    },
+    "@10": {
+     "all": 22,
+     "hard": 5,
+     "v1": 17,
+     "decision": 1,
+     "distractor": 2,
+     "episode": 2,
+     "fact": 2,
+     "injection": 2,
+     "paraphrase": 2,
+     "preference": 2,
+     "private": 2,
+     "procedure": 2,
+     "scale": 1,
+     "superseded": 2,
+     "time": 0,
+     "tool_output": 2
+    },
+    "@20": {
+     "all": 25,
+     "hard": 8,
+     "v1": 17,
+     "decision": 1,
+     "distractor": 2,
+     "episode": 2,
+     "fact": 2,
+     "injection": 2,
+     "paraphrase": 3,
+     "preference": 2,
+     "private": 2,
+     "procedure": 2,
+     "scale": 2,
+     "superseded": 2,
+     "time": 1,
+     "tool_output": 2
+    }
+   },
+   "w=2": {
+    "@1": {
+     "all": 10,
+     "hard": 0,
+     "v1": 10,
+     "decision": 0,
+     "distractor": 2,
+     "episode": 0,
+     "fact": 1,
+     "injection": 1,
+     "paraphrase": 0,
+     "preference": 2,
+     "private": 2,
+     "procedure": 2,
+     "scale": 0,
+     "superseded": 0,
+     "time": 0,
+     "tool_output": 0
+    },
+    "@3": {
+     "all": 17,
+     "hard": 1,
+     "v1": 16,
+     "decision": 1,
+     "distractor": 2,
+     "episode": 2,
+     "fact": 1,
+     "injection": 2,
+     "paraphrase": 0,
+     "preference": 2,
+     "private": 2,
+     "procedure": 2,
+     "scale": 0,
+     "superseded": 2,
+     "time": 0,
+     "tool_output": 1
+    },
+    "@6": {
+     "all": 22,
+     "hard": 5,
+     "v1": 17,
+     "decision": 1,
+     "distractor": 2,
+     "episode": 2,
+     "fact": 2,
+     "injection": 2,
+     "paraphrase": 2,
+     "preference": 2,
+     "private": 2,
+     "procedure": 2,
+     "scale": 1,
+     "superseded": 2,
+     "time": 0,
+     "tool_output": 2
+    },
+    "@10": {
+     "all": 22,
+     "hard": 5,
+     "v1": 17,
+     "decision": 1,
+     "distractor": 2,
+     "episode": 2,
+     "fact": 2,
+     "injection": 2,
+     "paraphrase": 2,
+     "preference": 2,
+     "private": 2,
+     "procedure": 2,
+     "scale": 1,
+     "superseded": 2,
+     "time": 0,
+     "tool_output": 2
+    },
+    "@20": {
+     "all": 25,
+     "hard": 8,
+     "v1": 17,
+     "decision": 1,
+     "distractor": 2,
+     "episode": 2,
+     "fact": 2,
+     "injection": 2,
+     "paraphrase": 3,
+     "preference": 2,
+     "private": 2,
+     "procedure": 2,
+     "scale": 2,
+     "superseded": 2,
+     "time": 1,
+     "tool_output": 2
+    }
+   },
+   "w=3": {
+    "@1": {
+     "all": 11,
+     "hard": 1,
+     "v1": 10,
+     "decision": 0,
+     "distractor": 2,
+     "episode": 0,
+     "fact": 1,
+     "injection": 1,
+     "paraphrase": 1,
+     "preference": 2,
+     "private": 2,
+     "procedure": 2,
+     "scale": 0,
+     "superseded": 0,
+     "time": 0,
+     "tool_output": 0
+    },
+    "@3": {
+     "all": 20,
+     "hard": 4,
+     "v1": 16,
+     "decision": 1,
+     "distractor": 2,
+     "episode": 1,
+     "fact": 2,
+     "injection": 2,
+     "paraphrase": 2,
+     "preference": 2,
+     "private": 2,
+     "procedure": 2,
+     "scale": 0,
+     "superseded": 2,
+     "time": 0,
+     "tool_output": 2
+    },
+    "@6": {
+     "all": 22,
+     "hard": 5,
+     "v1": 17,
+     "decision": 1,
+     "distractor": 2,
+     "episode": 2,
+     "fact": 2,
+     "injection": 2,
+     "paraphrase": 2,
+     "preference": 2,
+     "private": 2,
+     "procedure": 2,
+     "scale": 1,
+     "superseded": 2,
+     "time": 0,
+     "tool_output": 2
+    },
+    "@10": {
+     "all": 24,
+     "hard": 7,
+     "v1": 17,
+     "decision": 1,
+     "distractor": 2,
+     "episode": 2,
+     "fact": 2,
+     "injection": 2,
+     "paraphrase": 3,
+     "preference": 2,
+     "private": 2,
+     "procedure": 2,
+     "scale": 1,
+     "superseded": 2,
+     "time": 1,
+     "tool_output": 2
+    },
+    "@20": {
+     "all": 25,
+     "hard": 8,
+     "v1": 17,
+     "decision": 1,
+     "distractor": 2,
+     "episode": 2,
+     "fact": 2,
+     "injection": 2,
+     "paraphrase": 3,
+     "preference": 2,
+     "private": 2,
+     "procedure": 2,
+     "scale": 2,
+     "superseded": 2,
+     "time": 1,
+     "tool_output": 2
+    }
+   },
+   "w=4": {
+    "@1": {
+     "all": 11,
+     "hard": 1,
+     "v1": 10,
+     "decision": 0,
+     "distractor": 2,
+     "episode": 0,
+     "fact": 1,
+     "injection": 1,
+     "paraphrase": 1,
+     "preference": 2,
+     "private": 2,
+     "procedure": 2,
+     "scale": 0,
+     "superseded": 0,
+     "time": 0,
+     "tool_output": 0
+    },
+    "@3": {
+     "all": 21,
+     "hard": 5,
+     "v1": 16,
+     "decision": 1,
+     "distractor": 2,
+     "episode": 1,
+     "fact": 2,
+     "injection": 2,
+     "paraphrase": 2,
+     "preference": 2,
+     "private": 2,
+     "procedure": 2,
+     "scale": 1,
+     "superseded": 2,
+     "time": 0,
+     "tool_output": 2
+    },
+    "@6": {
+     "all": 22,
+     "hard": 6,
+     "v1": 16,
+     "decision": 1,
+     "distractor": 2,
+     "episode": 1,
+     "fact": 2,
+     "injection": 2,
+     "paraphrase": 3,
+     "preference": 2,
+     "private": 2,
+     "procedure": 2,
+     "scale": 1,
+     "superseded": 2,
+     "time": 0,
+     "tool_output": 2
+    },
+    "@10": {
+     "all": 24,
+     "hard": 7,
+     "v1": 17,
+     "decision": 1,
+     "distractor": 2,
+     "episode": 2,
+     "fact": 2,
+     "injection": 2,
+     "paraphrase": 3,
+     "preference": 2,
+     "private": 2,
+     "procedure": 2,
+     "scale": 1,
+     "superseded": 2,
+     "time": 1,
+     "tool_output": 2
+    },
+    "@20": {
+     "all": 25,
+     "hard": 8,
+     "v1": 17,
+     "decision": 1,
+     "distractor": 2,
+     "episode": 2,
+     "fact": 2,
+     "injection": 2,
+     "paraphrase": 3,
+     "preference": 2,
+     "private": 2,
+     "procedure": 2,
+     "scale": 2,
+     "superseded": 2,
+     "time": 1,
+     "tool_output": 2
+    }
+   },
+   "w=6": {
+    "@1": {
+     "all": 11,
+     "hard": 1,
+     "v1": 10,
+     "decision": 0,
+     "distractor": 2,
+     "episode": 0,
+     "fact": 1,
+     "injection": 1,
+     "paraphrase": 1,
+     "preference": 2,
+     "private": 2,
+     "procedure": 2,
+     "scale": 0,
+     "superseded": 0,
+     "time": 0,
+     "tool_output": 0
+    },
+    "@3": {
+     "all": 22,
+     "hard": 6,
+     "v1": 16,
+     "decision": 1,
+     "distractor": 2,
+     "episode": 1,
+     "fact": 2,
+     "injection": 2,
+     "paraphrase": 3,
+     "preference": 2,
+     "private": 2,
+     "procedure": 2,
+     "scale": 1,
+     "superseded": 2,
+     "time": 0,
+     "tool_output": 2
+    },
+    "@6": {
+     "all": 23,
+     "hard": 7,
+     "v1": 16,
+     "decision": 1,
+     "distractor": 2,
+     "episode": 1,
+     "fact": 2,
+     "injection": 2,
+     "paraphrase": 3,
+     "preference": 2,
+     "private": 2,
+     "procedure": 2,
+     "scale": 1,
+     "superseded": 2,
+     "time": 1,
+     "tool_output": 2
+    },
+    "@10": {
+     "all": 23,
+     "hard": 7,
+     "v1": 16,
+     "decision": 1,
+     "distractor": 2,
+     "episode": 1,
+     "fact": 2,
+     "injection": 2,
+     "paraphrase": 3,
+     "preference": 2,
+     "private": 2,
+     "procedure": 2,
+     "scale": 1,
+     "superseded": 2,
+     "time": 1,
+     "tool_output": 2
+    },
+    "@20": {
+     "all": 24,
+     "hard": 7,
+     "v1": 17,
+     "decision": 1,
+     "distractor": 2,
+     "episode": 2,
+     "fact": 2,
+     "injection": 2,
+     "paraphrase": 3,
+     "preference": 2,
+     "private": 2,
+     "procedure": 2,
+     "scale": 1,
+     "superseded": 2,
+     "time": 1,
+     "tool_output": 2
+    }
+   }
+  },
+  "held_out": {
+   "bm25": {
+    "@1": {
+     "all": 7,
+     "hard": 0,
+     "v1": 7,
+     "decision": 1,
+     "distractor": 1,
+     "episode": 0,
+     "fact": 1,
+     "injection": 0,
+     "paraphrase": 0,
+     "preference": 0,
+     "private": 2,
+     "procedure": 2,
+     "scale": 0,
+     "superseded": 0,
+     "time": 0,
+     "tool_output": 0
+    },
+    "@3": {
+     "all": 14,
+     "hard": 1,
+     "v1": 13,
+     "decision": 1,
+     "distractor": 2,
+     "episode": 1,
+     "fact": 2,
+     "injection": 1,
+     "paraphrase": 0,
+     "preference": 1,
+     "private": 2,
+     "procedure": 2,
+     "scale": 0,
+     "superseded": 1,
+     "time": 0,
+     "tool_output": 1
+    },
+    "@6": {
+     "all": 14,
+     "hard": 1,
+     "v1": 13,
+     "decision": 1,
+     "distractor": 2,
+     "episode": 1,
+     "fact": 2,
+     "injection": 1,
+     "paraphrase": 0,
+     "preference": 1,
+     "private": 2,
+     "procedure": 2,
+     "scale": 0,
+     "superseded": 1,
+     "time": 0,
+     "tool_output": 1
+    },
+    "@10": {
+     "all": 14,
+     "hard": 1,
+     "v1": 13,
+     "decision": 1,
+     "distractor": 2,
+     "episode": 1,
+     "fact": 2,
+     "injection": 1,
+     "paraphrase": 0,
+     "preference": 1,
+     "private": 2,
+     "procedure": 2,
+     "scale": 0,
+     "superseded": 1,
+     "time": 0,
+     "tool_output": 1
+    },
+    "@20": {
+     "all": 19,
+     "hard": 5,
+     "v1": 14,
+     "decision": 1,
+     "distractor": 2,
+     "episode": 1,
+     "fact": 2,
+     "injection": 2,
+     "paraphrase": 1,
+     "preference": 1,
+     "private": 2,
+     "procedure": 2,
+     "scale": 3,
+     "superseded": 1,
+     "time": 0,
+     "tool_output": 1
+    }
+   },
+   "vector": {
+    "@1": {
+     "all": 10,
+     "hard": 2,
+     "v1": 8,
+     "decision": 1,
+     "distractor": 2,
+     "episode": 0,
+     "fact": 1,
+     "injection": 0,
+     "paraphrase": 1,
+     "preference": 0,
+     "private": 2,
+     "procedure": 2,
+     "scale": 1,
+     "superseded": 0,
+     "time": 0,
+     "tool_output": 0
+    },
+    "@3": {
+     "all": 20,
+     "hard": 5,
+     "v1": 15,
+     "decision": 2,
+     "distractor": 2,
+     "episode": 1,
+     "fact": 2,
+     "injection": 2,
+     "paraphrase": 3,
+     "preference": 0,
+     "private": 2,
+     "procedure": 2,
+     "scale": 1,
+     "superseded": 2,
+     "time": 0,
+     "tool_output": 1
+    },
+    "@6": {
+     "all": 22,
+     "hard": 7,
+     "v1": 15,
+     "decision": 2,
+     "distractor": 2,
+     "episode": 1,
+     "fact": 2,
+     "injection": 2,
+     "paraphrase": 3,
+     "preference": 0,
+     "private": 2,
+     "procedure": 2,
+     "scale": 2,
+     "superseded": 2,
+     "time": 0,
+     "tool_output": 2
+    },
+    "@10": {
+     "all": 23,
+     "hard": 8,
+     "v1": 15,
+     "decision": 2,
+     "distractor": 2,
+     "episode": 1,
+     "fact": 2,
+     "injection": 2,
+     "paraphrase": 4,
+     "preference": 0,
+     "private": 2,
+     "procedure": 2,
+     "scale": 2,
+     "superseded": 2,
+     "time": 0,
+     "tool_output": 2
+    },
+    "@20": {
+     "all": 24,
+     "hard": 9,
+     "v1": 15,
+     "decision": 2,
+     "distractor": 2,
+     "episode": 1,
+     "fact": 2,
+     "injection": 2,
+     "paraphrase": 4,
+     "preference": 0,
+     "private": 2,
+     "procedure": 2,
+     "scale": 2,
+     "superseded": 2,
+     "time": 1,
+     "tool_output": 2
+    }
+   },
+   "w=1": {
+    "@1": {
+     "all": 8,
+     "hard": 0,
+     "v1": 8,
+     "decision": 1,
+     "distractor": 2,
+     "episode": 0,
+     "fact": 1,
+     "injection": 0,
+     "paraphrase": 0,
+     "preference": 0,
+     "private": 2,
+     "procedure": 2,
+     "scale": 0,
+     "superseded": 0,
+     "time": 0,
+     "tool_output": 0
+    },
+    "@3": {
+     "all": 16,
+     "hard": 2,
+     "v1": 14,
+     "decision": 1,
+     "distractor": 2,
+     "episode": 1,
+     "fact": 2,
+     "injection": 2,
+     "paraphrase": 1,
+     "preference": 0,
+     "private": 2,
+     "procedure": 2,
+     "scale": 0,
+     "superseded": 2,
+     "time": 0,
+     "tool_output": 1
+    },
+    "@6": {
+     "all": 16,
+     "hard": 2,
+     "v1": 14,
+     "decision": 1,
+     "distractor": 2,
+     "episode": 1,
+     "fact": 2,
+     "injection": 2,
+     "paraphrase": 1,
+     "preference": 0,
+     "private": 2,
+     "procedure": 2,
+     "scale": 0,
+     "superseded": 2,
+     "time": 0,
+     "tool_output": 1
+    },
+    "@10": {
+     "all": 19,
+     "hard": 3,
+     "v1": 16,
+     "decision": 1,
+     "distractor": 2,
+     "episode": 1,
+     "fact": 2,
+     "injection": 2,
+     "paraphrase": 1,
+     "preference": 2,
+     "private": 2,
+     "procedure": 2,
+     "scale": 1,
+     "superseded": 2,
+     "time": 0,
+     "tool_output": 1
+    },
+    "@20": {
+     "all": 25,
+     "hard": 8,
+     "v1": 17,
+     "decision": 2,
+     "distractor": 2,
+     "episode": 1,
+     "fact": 2,
+     "injection": 2,
+     "paraphrase": 3,
+     "preference": 2,
+     "private": 2,
+     "procedure": 2,
+     "scale": 2,
+     "superseded": 2,
+     "time": 1,
+     "tool_output": 2
+    }
+   },
+   "w=6 (default)": {
+    "@1": {
+     "all": 8,
+     "hard": 0,
+     "v1": 8,
+     "decision": 1,
+     "distractor": 2,
+     "episode": 0,
+     "fact": 1,
+     "injection": 0,
+     "paraphrase": 0,
+     "preference": 0,
+     "private": 2,
+     "procedure": 2,
+     "scale": 0,
+     "superseded": 0,
+     "time": 0,
+     "tool_output": 0
+    },
+    "@3": {
+     "all": 19,
+     "hard": 5,
+     "v1": 14,
+     "decision": 1,
+     "distractor": 2,
+     "episode": 1,
+     "fact": 2,
+     "injection": 2,
+     "paraphrase": 3,
+     "preference": 0,
+     "private": 2,
+     "procedure": 2,
+     "scale": 1,
+     "superseded": 2,
+     "time": 0,
+     "tool_output": 1
+    },
+    "@6": {
+     "all": 22,
+     "hard": 7,
+     "v1": 15,
+     "decision": 2,
+     "distractor": 2,
+     "episode": 1,
+     "fact": 2,
+     "injection": 2,
+     "paraphrase": 3,
+     "preference": 0,
+     "private": 2,
+     "procedure": 2,
+     "scale": 2,
+     "superseded": 2,
+     "time": 0,
+     "tool_output": 2
+    },
+    "@10": {
+     "all": 23,
+     "hard": 8,
+     "v1": 15,
+     "decision": 2,
+     "distractor": 2,
+     "episode": 1,
+     "fact": 2,
+     "injection": 2,
+     "paraphrase": 4,
+     "preference": 0,
+     "private": 2,
+     "procedure": 2,
+     "scale": 2,
+     "superseded": 2,
+     "time": 0,
+     "tool_output": 2
+    },
+    "@20": {
+     "all": 25,
+     "hard": 9,
+     "v1": 16,
+     "decision": 2,
+     "distractor": 2,
+     "episode": 1,
+     "fact": 2,
+     "injection": 2,
+     "paraphrase": 4,
+     "preference": 1,
+     "private": 2,
+     "procedure": 2,
+     "scale": 2,
+     "superseded": 2,
+     "time": 1,
+     "tool_output": 2
+    }
+   }
+  },
+  "vectors_lane_harness": {
+   "bm25": {
+    "@1": 8,
+    "@3": 12,
+    "@6": 13,
+    "@10": 13,
+    "@20": 17
+   },
+   "w=1": {
+    "@1": 8,
+    "@3": 15,
+    "@6": 19,
+    "@10": 21,
+    "@20": 25
+   },
+   "vector": {
+    "@1": 13,
+    "@3": 20,
+    "@6": 22,
+    "@10": 23,
+    "@20": 23
+   }
+  },
+  "vectors_lane_vs_recall_probe_ranks": {
+   "same": 102,
+   "different": []
+  },
+  "choice_rule": {
+   "keys": {
+    "w=1": [
+     19,
+     15,
+     21,
+     8,
+     -1
+    ],
+    "w=1.5": [
+     21,
+     16,
+     22,
+     10,
+     -1.5
+    ],
+    "w=2": [
+     22,
+     17,
+     22,
+     10,
+     -2
+    ],
+    "w=3": [
+     22,
+     20,
+     24,
+     11,
+     -3
+    ],
+    "w=4": [
+     22,
+     21,
+     24,
+     11,
+     -4
+    ],
+    "w=6": [
+     23,
+     22,
+     23,
+     11,
+     -6
+    ]
+   },
+   "chosen": 6
+  },
+  "paired_held_out_k6": [
+   {
+    "a": "w=1",
+    "b": "w=6 (default)",
+    "k": 6,
+    "items": 34,
+    "only_a": [],
+    "only_b": [
+     "decision-4",
+     "paraphrase-6",
+     "paraphrase-8",
+     "scale-5",
+     "scale-6",
+     "tool-output-6"
+    ],
+    "p": 0.0312
+   },
+   {
+    "a": "vector",
+    "b": "w=6 (default)",
+    "k": 6,
+    "items": 34,
+    "only_a": [],
+    "only_b": [],
+    "p": 1.0
+   },
+   {
+    "a": "bm25",
+    "b": "w=6 (default)",
+    "k": 6,
+    "items": 34,
+    "only_a": [
+     "preference-3"
+    ],
+    "only_b": [
+     "decision-4",
+     "superseded-3",
+     "injection-3",
+     "paraphrase-5",
+     "paraphrase-6",
+     "paraphrase-8",
+     "scale-5",
+     "scale-6",
+     "tool-output-6"
+    ],
+    "p": 0.0215
+   },
+   {
+    "a": "bm25",
+    "b": "vector",
+    "k": 6,
+    "items": 34,
+    "only_a": [
+     "preference-3"
+    ],
+    "only_b": [
+     "decision-4",
+     "superseded-3",
+     "injection-3",
+     "paraphrase-5",
+     "paraphrase-6",
+     "paraphrase-8",
+     "scale-5",
+     "scale-6",
+     "tool-output-6"
+    ],
+    "p": 0.0215
+   }
+  ],
+  "paired_held_in_k6": [
+   {
+    "a": "w=1",
+    "b": "w=6",
+    "k": 6,
+    "items": 34,
+    "only_a": [
+     "episode-1"
+    ],
+    "only_b": [
+     "fact-2",
+     "paraphrase-1",
+     "scale-2",
+     "time-1",
+     "tool-output-1"
+    ],
+    "p": 0.2188
+   },
+   {
+    "a": "vector",
+    "b": "w=6",
+    "k": 6,
+    "items": 34,
+    "only_a": [],
+    "only_b": [
+     "superseded-1"
+    ],
+    "p": 1.0
+   },
+   {
+    "a": "bm25",
+    "b": "w=6",
+    "k": 6,
+    "items": 34,
+    "only_a": [
+     "scale-1"
+    ],
+    "only_b": [
+     "fact-1",
+     "fact-2",
+     "preference-2",
+     "decision-1",
+     "paraphrase-1",
+     "paraphrase-2",
+     "paraphrase-3",
+     "scale-2",
+     "time-1",
+     "tool-output-1",
+     "tool-output-3"
+    ],
+    "p": 0.0063
+   },
+   {
+    "a": "bm25",
+    "b": "vector",
+    "k": 6,
+    "items": 34,
+    "only_a": [
+     "superseded-1",
+     "scale-1"
+    ],
+    "only_b": [
+     "fact-1",
+     "fact-2",
+     "preference-2",
+     "decision-1",
+     "paraphrase-1",
+     "paraphrase-2",
+     "paraphrase-3",
+     "scale-2",
+     "time-1",
+     "tool-output-1",
+     "tool-output-3"
+    ],
+    "p": 0.0225
+   }
+  ],
+  "pooled_both_halves_k6": {
+   "bm25 vs vector": {
+    "only_a": 3,
+    "only_b": 20,
+    "p": 0.0005,
+    "a_total": 27,
+    "b_total": 44,
+    "items": 68
+   },
+   "w=1 vs w6": {
+    "only_a": 1,
+    "only_b": 11,
+    "p": 0.0063,
+    "a_total": 35,
+    "b_total": 45,
+    "items": 68
+   },
+   "vector vs w6": {
+    "only_a": 0,
+    "only_b": 1,
+    "p": 1.0,
+    "a_total": 44,
+    "b_total": 45,
+    "items": 68
+   }
+  },
+  "rerank_room": {
+   "held-in": {
+    "w=1": [
+     "fact-2",
+     "paraphrase-1",
+     "scale-1",
+     "scale-2",
+     "time-1",
+     "tool-output-1"
+    ],
+    "w=6": [
+     "episode-1"
+    ],
+    "vector": [
+     "superseded-1"
+    ],
+    "bm25": [
+     "fact-1",
+     "fact-2",
+     "preference-2",
+     "scale-2"
+    ]
+   },
+   "held-out": {
+    "w=1": [
+     "preference-3",
+     "preference-4",
+     "decision-4",
+     "paraphrase-7",
+     "paraphrase-8",
+     "scale-5",
+     "scale-6",
+     "time-7",
+     "tool-output-6"
+    ],
+    "w=6 (default)": [
+     "preference-4",
+     "paraphrase-7",
+     "time-7"
+    ],
+    "vector": [
+     "paraphrase-7",
+     "time-7"
+    ],
+    "bm25": [
+     "injection-3",
+     "paraphrase-5",
+     "scale-5",
+     "scale-6",
+     "scale-8"
+    ]
+   }
+  },
+  "missing_at_6_under_w6_held_in": [
+   [
+    "decision-2",
+    [
+     83
+    ]
+   ],
+   [
+    "episode-1",
+    [
+     15,
+     1
+    ]
+   ],
+   [
+    "paraphrase-4",
+    [
+     73
+    ]
+   ],
+   [
+    "scale-1",
+    [
+     22
+    ]
+   ],
+   [
+    "scale-3",
+    [
+     65
+    ]
+   ],
+   [
+    "scale-4",
+    [
+     65
+    ]
+   ],
+   [
+    "time-2",
+    [
+     22
+    ]
+   ],
+   [
+    "time-3",
+    [
+     25
+    ]
+   ],
+   [
+    "time-4",
+    [
+     2,
+     24
+    ]
+   ],
+   [
+    "tool-output-2",
+    [
+     49
+    ]
+   ],
+   [
+    "tool-output-4",
+    [
+     null
+    ]
+   ]
+  ],
+  "lexical_only_finds_that_sink_held_out": [
+   [
+    "preference-3",
+    [
+     3
+    ],
+    [
+     7
+    ],
+    [
+     72
+    ],
+    [
+     null
+    ]
+   ]
+  ],
+  "latency": {
+   "busy_box_load_before": [
+    3.90576171875,
+    8.115234375,
+    9.052734375
+   ],
+   "quiet_load_before": [
+    4.2529296875,
+    7.2802734375,
+    8.5947265625
+   ],
+   "busy": {
+    "short, all sources, k=40": {
+     "total_ms": {
+      "n": 40,
+      "p50": 87.366982,
+      "p95": 97.352841,
+      "max": 102.50793399999999
+     },
+     "embed_ms": {
+      "n": 40,
+      "p50": 86.198419,
+      "p95": 96.09032400000001,
+      "max": 101.363424
+     },
+     "fuse_ms": {
+      "n": 40,
+      "p50": 0.07398,
+      "p95": 0.097191,
+      "max": 0.170226
+     },
+     "bm25_ms": {
+      "n": 40,
+      "p50": 0.099929,
+      "p95": 0.12179,
+      "max": 0.226792
+     },
+     "vector_ms": {
+      "n": 40,
+      "p50": 0.843868,
+      "p95": 1.016013,
+      "max": 1.110077
+     },
+     "client_ms": {
+      "n": 40,
+      "p50": 88.05990000018937,
+      "p95": 97.99835400008305,
+      "max": 103.12859100031346
+     }
+    },
+    "long, all sources, k=40": {
+     "total_ms": {
+      "n": 40,
+      "p50": 339.101673,
+      "p95": 350.65298099999995,
+      "max": 357.524581
+     },
+     "embed_ms": {
+      "n": 40,
+      "p50": 337.64092,
+      "p95": 348.964541,
+      "max": 356.008422
+     },
+     "fuse_ms": {
+      "n": 40,
+      "p50": 0.082869,
+      "p95": 0.108127,
+      "max": 0.152198
+     },
+     "bm25_ms": {
+      "n": 40,
+      "p50": 0.352102,
+      "p95": 0.430238,
+      "max": 0.6299199999999999
+     },
+     "vector_ms": {
+      "n": 40,
+      "p50": 0.842857,
+      "p95": 0.9770559999999999,
+      "max": 1.108915
+     },
+     "client_ms": {
+      "n": 40,
+      "p50": 339.8172279994469,
+      "p95": 351.6441350002424,
+      "max": 358.221808000053
+     }
+    },
+    "short, all sources, k=100": {
+     "total_ms": {
+      "n": 40,
+      "p50": 94.38390600000001,
+      "p95": 97.88825800000001,
+      "max": 100.224201
+     },
+     "embed_ms": {
+      "n": 40,
+      "p50": 91.50188,
+      "p95": 95.145425,
+      "max": 96.653339
+     },
+     "fuse_ms": {
+      "n": 40,
+      "p50": 0.244344,
+      "p95": 0.31163700000000005,
+      "max": 0.371381
+     },
+     "bm25_ms": {
+      "n": 40,
+      "p50": 0.117052,
+      "p95": 0.172735,
+      "max": 0.195981
+     },
+     "vector_ms": {
+      "n": 40,
+      "p50": 1.987777,
+      "p95": 2.344552,
+      "max": 2.6460239999999997
+     },
+     "client_ms": {
+      "n": 40,
+      "p50": 95.67861899995478,
+      "p95": 99.17533399948297,
+      "max": 101.74828500021249
+     }
+    },
+    "short, bm25 and entities, k=40": {
+     "total_ms": {
+      "n": 40,
+      "p50": 0.23212999999999998,
+      "p95": 0.28481300000000004,
+      "max": 0.396302
+     },
+     "embed_ms": {
+      "n": 40,
+      "p50": 0.0,
+      "p95": 0.0,
+      "max": 0.0
+     },
+     "fuse_ms": {
+      "n": 40,
+      "p50": 0.04391,
+      "p95": 0.050595,
+      "max": 0.072035
+     },
+     "bm25_ms": {
+      "n": 40,
+      "p50": 0.06212500000000001,
+      "p95": 0.09663999999999999,
+      "max": 0.23494400000000001
+     },
+     "vector_ms": {
+      "n": 40,
+      "p50": 0.0,
+      "p95": 0.0,
+      "max": 0.0
+     },
+     "client_ms": {
+      "n": 40,
+      "p50": 0.6917269993209629,
+      "p95": 0.7882749996497296,
+      "max": 0.8502479995513568
+     }
+    },
+    "short, bm25 and entities, k=100": {
+     "total_ms": {
+      "n": 40,
+      "p50": 0.546713,
+      "p95": 0.6442960000000001,
+      "max": 0.746741
+     },
+     "embed_ms": {
+      "n": 40,
+      "p50": 0.0,
+      "p95": 0.0,
+      "max": 0.0
+     },
+     "fuse_ms": {
+      "n": 40,
+      "p50": 0.126657,
+      "p95": 0.167935,
+      "max": 0.194296
+     },
+     "bm25_ms": {
+      "n": 40,
+      "p50": 0.107426,
+      "p95": 0.158746,
+      "max": 0.178176
+     },
+     "vector_ms": {
+      "n": 40,
+      "p50": 0.0,
+      "p95": 0.0,
+      "max": 0.0
+     },
+     "client_ms": {
+      "n": 40,
+      "p50": 1.6484160005347803,
+      "p95": 1.8936009992103209,
+      "max": 1.9531020006979816
+     }
+    },
+    "load_after": [
+     3.44189453125,
+     7.67041015625,
+     8.8798828125
+    ]
+   },
+   "quiet": {
+    "short, all sources, k=40": {
+     "total_ms": {
+      "n": 40,
+      "p50": 84.52303599999999,
+      "p95": 89.080073,
+      "max": 92.455887
+     },
+     "embed_ms": {
+      "n": 40,
+      "p50": 82.357951,
+      "p95": 86.42595299999999,
+      "max": 90.407455
+     },
+     "fuse_ms": {
+      "n": 40,
+      "p50": 0.117376,
+      "p95": 0.134554,
+      "max": 0.159044
+     },
+     "bm25_ms": {
+      "n": 40,
+      "p50": 0.099431,
+      "p95": 0.16785899999999998,
+      "max": 0.21299099999999999
+     },
+     "vector_ms": {
+      "n": 40,
+      "p50": 1.6959829999999998,
+      "p95": 2.367661,
+      "max": 3.082302
+     },
+     "client_ms": {
+      "n": 40,
+      "p50": 85.26676499968744,
+      "p95": 89.7699429997374,
+      "max": 93.19602100003976
+     }
+    },
+    "long, all sources, k=40": {
+     "total_ms": {
+      "n": 40,
+      "p50": 326.472527,
+      "p95": 348.894919,
+      "max": 359.86577800000003
+     },
+     "embed_ms": {
+      "n": 40,
+      "p50": 324.88328900000005,
+      "p95": 347.141576,
+      "max": 358.32977700000004
+     },
+     "fuse_ms": {
+      "n": 40,
+      "p50": 0.10554,
+      "p95": 0.123693,
+      "max": 0.152101
+     },
+     "bm25_ms": {
+      "n": 40,
+      "p50": 0.368778,
+      "p95": 0.43360099999999996,
+      "max": 0.498505
+     },
+     "vector_ms": {
+      "n": 40,
+      "p50": 0.837918,
+      "p95": 0.978429,
+      "max": 1.471617
+     },
+     "client_ms": {
+      "n": 40,
+      "p50": 327.1711999996114,
+      "p95": 349.9302699992768,
+      "max": 360.6458089998341
+     }
+    },
+    "short, all sources, k=100": {
+     "total_ms": {
+      "n": 40,
+      "p50": 92.233165,
+      "p95": 99.056917,
+      "max": 103.070981
+     },
+     "embed_ms": {
+      "n": 40,
+      "p50": 89.21828900000001,
+      "p95": 96.326833,
+      "max": 100.501041
+     },
+     "fuse_ms": {
+      "n": 40,
+      "p50": 0.270823,
+      "p95": 0.34487100000000004,
+      "max": 0.393798
+     },
+     "bm25_ms": {
+      "n": 40,
+      "p50": 0.12490299999999999,
+      "p95": 0.17055099999999998,
+      "max": 0.303217
+     },
+     "vector_ms": {
+      "n": 40,
+      "p50": 1.9402650000000001,
+      "p95": 2.5823869999999998,
+      "max": 2.987547
+     },
+     "client_ms": {
+      "n": 40,
+      "p50": 93.69067100033135,
+      "p95": 100.64243399938277,
+      "max": 104.53960599988932
+     }
+    },
+    "short, bm25 and entities, k=40": {
+     "total_ms": {
+      "n": 40,
+      "p50": 0.319351,
+      "p95": 0.377383,
+      "max": 0.458318
+     },
+     "embed_ms": {
+      "n": 40,
+      "p50": 0.0,
+      "p95": 0.0,
+      "max": 0.0
+     },
+     "fuse_ms": {
+      "n": 40,
+      "p50": 0.080218,
+      "p95": 0.094848,
+      "max": 0.133191
+     },
+     "bm25_ms": {
+      "n": 40,
+      "p50": 0.096895,
+      "p95": 0.13368899999999997,
+      "max": 0.209463
+     },
+     "vector_ms": {
+      "n": 40,
+      "p50": 0.0,
+      "p95": 0.0,
+      "max": 0.0
+     },
+     "client_ms": {
+      "n": 40,
+      "p50": 0.8649259998492198,
+      "p95": 1.0294229996361537,
+      "max": 1.0925609994956176
+     }
+    },
+    "short, bm25 and entities, k=100": {
+     "total_ms": {
+      "n": 40,
+      "p50": 0.572265,
+      "p95": 0.689974,
+      "max": 1.217183
+     },
+     "embed_ms": {
+      "n": 40,
+      "p50": 0.0,
+      "p95": 0.0,
+      "max": 0.0
+     },
+     "fuse_ms": {
+      "n": 40,
+      "p50": 0.14640599999999998,
+      "p95": 0.192246,
+      "max": 0.256145
+     },
+     "bm25_ms": {
+      "n": 40,
+      "p50": 0.11049099999999999,
+      "p95": 0.177529,
+      "max": 0.231073
+     },
+     "vector_ms": {
+      "n": 40,
+      "p50": 0.0,
+      "p95": 0.0,
+      "max": 0.0
+     },
+     "client_ms": {
+      "n": 40,
+      "p50": 1.6936270003498066,
+      "p95": 1.919964000080654,
+      "max": 2.9868760002500494
+     }
+    },
+    "load_after": [
+     3.3828125,
+     6.82470703125,
+     8.40771484375
+    ]
+   },
+   "embed_by_length_1_thread": [
+    [
+     8,
+     15,
+     94.6
+    ],
+    [
+     16,
+     24,
+     107.0
+    ],
+    [
+     32,
+     46,
+     166.3
+    ],
+    [
+     48,
+     66,
+     227.4
+    ],
+    [
+     64,
+     89,
+     270.6
+    ],
+    [
+     78,
+     115,
+     350.1
+    ]
+   ],
+   "embed_by_length_threads_run": {
+    "4": [
+     [
+      8,
+      15,
+      77.9
+     ],
+     [
+      16,
+      24,
+      78.5
+     ],
+     [
+      32,
+      46,
+      93.0
+     ],
+     [
+      48,
+      66,
+      110.5
+     ],
+     [
+      64,
+      89,
+      136.8
+     ],
+     [
+      78,
+      115,
+      212.8
+     ]
+    ],
+    "1": [
+     [
+      8,
+      15,
+      83.2
+     ],
+     [
+      16,
+      24,
+      104.8
+     ],
+     [
+      32,
+      46,
+      150.3
+     ],
+     [
+      48,
+      66,
+      199.0
+     ],
+     [
+      64,
+      89,
+      250.7
+     ],
+     [
+      78,
+      115,
+      319.5
+     ]
+    ]
+   },
+   "fit_ms": {
+    "intercept": 50.7,
+    "per_word_piece": 2.57
+   },
+   "owner_store_copy": {
+    "1": {
+     "bm25_only": {
+      "p50": 0.19,
+      "p95": 0.29,
+      "max": 0.47,
+      "n": 90
+     },
+     "hybrid": {
+      "p50": 75.5,
+      "p95": 94.58,
+      "max": 99.5,
+      "n": 90
+     },
+     "embed": {
+      "p50": 74.86,
+      "p95": 93.72,
+      "max": 98.8,
+      "n": 90
+     },
+     "vector_scan": {
+      "p50": 0.4,
+      "p95": 0.55,
+      "max": 0.79,
+      "n": 90
+     },
+     "client_wall_bm25": {
+      "p50": 0.55,
+      "p95": 0.8,
+      "max": 1.08,
+      "n": 90
+     },
+     "client_wall_hybrid": {
+      "p50": 76.03,
+      "p95": 95.25,
+      "max": 100.11,
+      "n": 90
+     },
+     "skipped": 0
+    },
+    "2": {
+     "bm25_only": {
+      "p50": 0.19,
+      "p95": 0.29,
+      "max": 0.4,
+      "n": 90
+     },
+     "hybrid": {
+      "p50": 74.2,
+      "p95": 86.19,
+      "max": 98.18,
+      "n": 90
+     },
+     "embed": {
+      "p50": 73.58,
+      "p95": 85.45,
+      "max": 97.14,
+      "n": 90
+     },
+     "vector_scan": {
+      "p50": 0.38,
+      "p95": 0.44,
+      "max": 0.6,
+      "n": 90
+     },
+     "client_wall_bm25": {
+      "p50": 0.61,
+      "p95": 0.79,
+      "max": 0.94,
+      "n": 90
+     },
+     "client_wall_hybrid": {
+      "p50": 74.69,
+      "p95": 86.71,
+      "max": 98.8,
+      "n": 90
+     },
+     "skipped": 0
+    }
+   },
+   "per_arm_median_in_runs": {
+    "held-in": {
+     "bm25": {
+      "embed_ms": 0.0,
+      "fuse_ms": 0.8,
+      "total_ms": 1.4
+     },
+     "vector": {
+      "embed_ms": 133.17,
+      "fuse_ms": 0.87,
+      "total_ms": 137.05
+     },
+     "w=1": {
+      "embed_ms": 132.0,
+      "fuse_ms": 1.43,
+      "total_ms": 136.8
+     },
+     "w=1.5": {
+      "embed_ms": 124.85,
+      "fuse_ms": 1.41,
+      "total_ms": 128.89
+     },
+     "w=2": {
+      "embed_ms": 126.42,
+      "fuse_ms": 1.41,
+      "total_ms": 130.66
+     },
+     "w=3": {
+      "embed_ms": 134.36,
+      "fuse_ms": 1.4,
+      "total_ms": 138.79
+     },
+     "w=4": {
+      "embed_ms": 131.41,
+      "fuse_ms": 1.42,
+      "total_ms": 135.61
+     },
+     "w=6": {
+      "embed_ms": 130.05,
+      "fuse_ms": 1.46,
+      "total_ms": 134.62
+     }
+    },
+    "held-out": {
+     "bm25": {
+      "embed_ms": 0.0,
+      "fuse_ms": 0.13,
+      "total_ms": 0.59
+     },
+     "vector": {
+      "embed_ms": 90.7,
+      "fuse_ms": 0.15,
+      "total_ms": 93.67
+     },
+     "w=1": {
+      "embed_ms": 90.04,
+      "fuse_ms": 0.27,
+      "total_ms": 93.09
+     },
+     "w=6 (default)": {
+      "embed_ms": 90.91,
+      "fuse_ms": 0.25,
+      "total_ms": 93.64
+     }
+    }
+   }
+  },
+  "forget": {
+   "ms": 42.2,
+   "compaction_ms": 17.9,
+   "records_before": 581,
+   "records_after": 580,
+   "found_after": {
+    "bm25+entity+vector": null,
+    "vector": null,
+    "bm25+entity": null
+   }
+  }
+ },
+ "figures": [
+  {
+   "name": "weight-grid",
+   "form": "multiples",
+   "columns": 2,
+   "title": "Held-in items with all their gold in the top k, by vector weight w",
+   "question": "Does weighting the vector source let its finds through, and at which k?",
+   "note": "exam-v2's 34 held-in items with gold; the choice rule (most items in the top 6) was written before the grid ran. Flat lines: the single sources.",
+   "x": {
+    "label": "vector weight w (BM25 and entities at 1)",
+    "type": "number",
+    "format": "num"
+   },
+   "panels": [
+    {
+     "title": "top 1",
+     "y": {
+      "label": "items with all gold in the top 1 (of 34)",
+      "min": 0,
+      "max": 1,
+      "format": "pct"
+     },
+     "series": [
+      {
+       "arm": "fused",
+       "label": "fusion, BM25 and entities at 1, vectors at w",
+       "style": "both",
+       "points": [
+        [
+         1,
+         0.2353
+        ],
+        [
+         1.5,
+         0.2941
+        ],
+        [
+         2,
+         0.2941
+        ],
+        [
+         3,
+         0.3235
+        ],
+        [
+         4,
+         0.3235
+        ],
+        [
+         6,
+         0.3235
+        ]
+       ]
+      },
+      {
+       "arm": "vector",
+       "label": "vectors alone",
+       "style": "line",
+       "points": [
+        [
+         1,
+         0.3824
+        ],
+        [
+         6,
+         0.3824
+        ]
+       ]
+      },
+      {
+       "arm": "bm25",
+       "label": "BM25 and entities",
+       "style": "line",
+       "points": [
+        [
+         1,
+         0.2353
+        ],
+        [
+         6,
+         0.2353
+        ]
+       ]
+      }
+     ]
+    },
+    {
+     "title": "top 3",
+     "y": {
+      "label": "items with all gold in the top 3 (of 34)",
+      "min": 0,
+      "max": 1,
+      "format": "pct"
+     },
+     "series": [
+      {
+       "arm": "fused",
+       "label": "fusion, BM25 and entities at 1, vectors at w",
+       "style": "both",
+       "points": [
+        [
+         1,
+         0.4412
+        ],
+        [
+         1.5,
+         0.4706
+        ],
+        [
+         2,
+         0.5
+        ],
+        [
+         3,
+         0.5882
+        ],
+        [
+         4,
+         0.6176
+        ],
+        [
+         6,
+         0.6471
+        ]
+       ]
+      },
+      {
+       "arm": "vector",
+       "label": "vectors alone",
+       "style": "line",
+       "points": [
+        [
+         1,
+         0.5882
+        ],
+        [
+         6,
+         0.5882
+        ]
+       ]
+      },
+      {
+       "arm": "bm25",
+       "label": "BM25 and entities",
+       "style": "line",
+       "points": [
+        [
+         1,
+         0.3529
+        ],
+        [
+         6,
+         0.3529
+        ]
+       ]
+      }
+     ]
+    },
+    {
+     "title": "top 6",
+     "y": {
+      "label": "items with all gold in the top 6 (of 34)",
+      "min": 0,
+      "max": 1,
+      "format": "pct"
+     },
+     "series": [
+      {
+       "arm": "fused",
+       "label": "fusion, BM25 and entities at 1, vectors at w",
+       "style": "both",
+       "points": [
+        [
+         1,
+         0.5588
+        ],
+        [
+         1.5,
+         0.6176
+        ],
+        [
+         2,
+         0.6471
+        ],
+        [
+         3,
+         0.6471
+        ],
+        [
+         4,
+         0.6471
+        ],
+        [
+         6,
+         0.6765
+        ]
+       ]
+      },
+      {
+       "arm": "vector",
+       "label": "vectors alone",
+       "style": "line",
+       "points": [
+        [
+         1,
+         0.6471
+        ],
+        [
+         6,
+         0.6471
+        ]
+       ]
+      },
+      {
+       "arm": "bm25",
+       "label": "BM25 and entities",
+       "style": "line",
+       "points": [
+        [
+         1,
+         0.3824
+        ],
+        [
+         6,
+         0.3824
+        ]
+       ]
+      }
+     ]
+    },
+    {
+     "title": "top 10",
+     "y": {
+      "label": "items with all gold in the top 10 (of 34)",
+      "min": 0,
+      "max": 1,
+      "format": "pct"
+     },
+     "series": [
+      {
+       "arm": "fused",
+       "label": "fusion, BM25 and entities at 1, vectors at w",
+       "style": "both",
+       "points": [
+        [
+         1,
+         0.6176
+        ],
+        [
+         1.5,
+         0.6471
+        ],
+        [
+         2,
+         0.6471
+        ],
+        [
+         3,
+         0.7059
+        ],
+        [
+         4,
+         0.7059
+        ],
+        [
+         6,
+         0.6765
+        ]
+       ]
+      },
+      {
+       "arm": "vector",
+       "label": "vectors alone",
+       "style": "line",
+       "points": [
+        [
+         1,
+         0.6765
+        ],
+        [
+         6,
+         0.6765
+        ]
+       ]
+      },
+      {
+       "arm": "bm25",
+       "label": "BM25 and entities",
+       "style": "line",
+       "points": [
+        [
+         1,
+         0.3824
+        ],
+        [
+         6,
+         0.3824
+        ]
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "held-out",
+   "form": "intervals",
+   "title": "All the gold in the top 6: held-in, then held-out once",
+   "question": "Does the chosen weight hold on items nobody tuned on?",
+   "note": "34 held-in and 34 held-out items of exam-v2; Wilson 95% intervals over items. The same release tender, store and real Nomic weights.",
+   "x": {
+    "label": "items with all their gold in the top 6",
+    "min": 0,
+    "max": 1,
+    "format": "pct"
+   },
+   "rows": [
+    {
+     "label": "BM25 and entities",
+     "arm": "bm25",
+     "group": "held-in: the weight was chosen here",
+     "value": 0.3824,
+     "lo": 0.239,
+     "hi": 0.5496,
+     "tip": "BM25 and entities, held-in: 13 of 34 items with all their gold in the top 6"
+    },
+    {
+     "label": "vectors alone",
+     "arm": "vector",
+     "group": "held-in: the weight was chosen here",
+     "value": 0.6471,
+     "lo": 0.4791,
+     "hi": 0.7851,
+     "tip": "vectors alone, held-in: 22 of 34 items with all their gold in the top 6"
+    },
+    {
+     "label": "fusion, equal weights",
+     "arm": "fused",
+     "group": "held-in: the weight was chosen here",
+     "value": 0.5588,
+     "lo": 0.3945,
+     "hi": 0.7112,
+     "tip": "fusion, equal weights, held-in: 19 of 34 items with all their gold in the top 6"
+    },
+    {
+     "label": "fusion, vectors × 6",
+     "arm": "fused",
+     "group": "held-in: the weight was chosen here",
+     "value": 0.6765,
+     "lo": 0.5084,
+     "hi": 0.8087,
+     "tip": "fusion, vectors × 6, held-in: 23 of 34 items with all their gold in the top 6"
+    },
+    {
+     "label": "BM25 and entities",
+     "arm": "bm25",
+     "group": "held-out: asked once, after the choice",
+     "value": 0.4118,
+     "lo": 0.2637,
+     "hi": 0.5778,
+     "tip": "BM25 and entities, held-out: 14 of 34 items with all their gold in the top 6"
+    },
+    {
+     "label": "vectors alone",
+     "arm": "vector",
+     "group": "held-out: asked once, after the choice",
+     "value": 0.6471,
+     "lo": 0.4791,
+     "hi": 0.7851,
+     "tip": "vectors alone, held-out: 22 of 34 items with all their gold in the top 6"
+    },
+    {
+     "label": "fusion, equal weights",
+     "arm": "fused",
+     "group": "held-out: asked once, after the choice",
+     "value": 0.4706,
+     "lo": 0.3145,
+     "hi": 0.6326,
+     "tip": "fusion, equal weights, held-out: 16 of 34 items with all their gold in the top 6"
+    },
+    {
+     "label": "fusion, vectors × 6",
+     "arm": "fused",
+     "group": "held-out: asked once, after the choice",
+     "value": 0.6471,
+     "lo": 0.4791,
+     "hi": 0.7851,
+     "tip": "fusion, vectors × 6, held-out: 22 of 34 items with all their gold in the top 6"
+    }
+   ],
+   "legend_labels": {
+    "bm25": "BM25 and entities",
+    "vector": "vectors alone",
+    "fused": "weighted fusion"
+   }
+  },
+  {
+   "name": "held-out-items",
+   "form": "matrix",
+   "title": "Held-out items where the four arms disagree at the top 6",
+   "question": "Where does each source win and lose, item by item?",
+   "note": "Filled: all the item's gold in the top 6. The other 24 of 34 items agree in all four arms.",
+   "state_labels": {
+    "P": "all gold in the top 6",
+    "F": "not"
+   },
+   "columns": [
+    {
+     "label": "BM25 + entities",
+     "arm": "bm25"
+    },
+    {
+     "label": "vectors",
+     "arm": "vector"
+    },
+    {
+     "label": "fused, w = 1",
+     "arm": "fused"
+    },
+    {
+     "label": "fused, w = 6",
+     "arm": "fused"
+    }
+   ],
+   "rows": [
+    {
+     "label": "preference-3",
+     "cells": "PFFF",
+     "note": "a lexical-only find; fused at w = 6 it sinks"
+    },
+    {
+     "label": "decision-4",
+     "cells": "FPFP",
+     "note": "a vector-only find that equal weights lose"
+    },
+    {
+     "label": "superseded-3",
+     "cells": "FPPP",
+     "note": "a vector-only find that both fusions keep"
+    },
+    {
+     "label": "injection-3",
+     "cells": "FPPP",
+     "note": "a vector-only find that both fusions keep"
+    },
+    {
+     "label": "paraphrase-5",
+     "cells": "FPPP",
+     "note": "a vector-only find that both fusions keep"
+    },
+    {
+     "label": "paraphrase-6",
+     "cells": "FPFP",
+     "note": "a vector-only find that equal weights lose"
+    },
+    {
+     "label": "paraphrase-8",
+     "cells": "FPFP",
+     "note": "a vector-only find that equal weights lose"
+    },
+    {
+     "label": "scale-5",
+     "cells": "FPFP",
+     "note": "a vector-only find that equal weights lose"
+    },
+    {
+     "label": "scale-6",
+     "cells": "FPFP",
+     "note": "a vector-only find that equal weights lose"
+    },
+    {
+     "label": "tool-output-6",
+     "cells": "FPFP",
+     "note": "a vector-only find that equal weights lose"
+    }
+   ],
+   "legend_labels": {
+    "bm25": "BM25 and entities",
+    "vector": "vectors alone",
+    "fused": "weighted fusion"
+   }
+  },
+  {
+   "name": "embed-time",
+   "form": "lines",
+   "title": "The query's embedding time against its length, one thread (p50 of 10 runs)",
+   "question": "Can the vector arm meet recall's deadline with the design's query?",
+   "note": "Release tender, Nomic Embed v1.5 on candle f32. The design's query (the turn plus 500 characters of the last reply) is about 115 word pieces.",
+   "x": {
+    "label": "query length, word pieces",
+    "type": "number",
+    "format": "int",
+    "min": 0
+   },
+   "y": {
+    "label": "embedding time, ms",
+    "format": "ms",
+    "min": 0
+   },
+   "series": [
+    {
+     "arm": "vector",
+     "label": "one thread",
+     "style": "both",
+     "points": [
+      [
+       15,
+       94.6
+      ],
+      [
+       24,
+       107.0
+      ],
+      [
+       46,
+       166.3
+      ],
+      [
+       66,
+       227.4
+      ],
+      [
+       89,
+       270.6
+      ],
+      [
+       115,
+       350.1
+      ]
+     ]
+    }
+   ],
+   "limits": [
+    {
+     "y": 250,
+     "label": "recall's deadline, 250 ms"
+    },
+    {
+     "y": 60,
+     "label": "recall's p95 target, 60 ms"
+    }
+   ]
+  }
+ ]
+}

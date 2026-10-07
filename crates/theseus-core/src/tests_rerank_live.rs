@@ -309,9 +309,25 @@ fn normalized(reqs: &[String], ids: &[&str]) -> Vec<String> {
             for (i, id) in ids.iter().enumerate() {
                 r = r.replace(id, &format!("<session {i}>"));
             }
-            undated(&r)
+            unpositioned(&undated(&r))
         })
         .collect()
+}
+
+/// `(as of @12)` as `(as of @<n>)`: a judged rig's warm read writes the
+/// adoptions before its first session (theseus-289c), so its records stand
+/// three positions on from a judge-off rig's.
+fn unpositioned(s: &str) -> String {
+    let mut out = String::new();
+    let mut rest = s;
+    while let Some(i) = rest.find("(as of @") {
+        let (head, tail) = rest.split_at(i + "(as of @".len());
+        out.push_str(head);
+        out.push_str("<n>");
+        rest = tail.trim_start_matches(|c: char| c.is_ascii_digit());
+    }
+    out.push_str(rest);
+    out
 }
 
 /// `2026-10-04 18:14 UTC` as `<date>`.

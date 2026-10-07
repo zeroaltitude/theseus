@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="478" viewBox="0 0 720 478" role="img" aria-labelledby="t-precision t-precision-d" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
+<title id="t-precision">Memory once loaded against speed, by engine and precision</title>
+<desc id="t-precision-d">What does each precision buy, in memory and in speed?</desc>
+<rect width="720" height="478" rx="8" fill="#fcfcfb" stroke="#e6e5df"/>
+<text x="18.0" y="32.0" font-size="15" fill="#0b0b0b" font-weight="600">Memory once loaded against speed, by engine and precision</text>
+<circle cx="25.0" cy="50.0" r="5" fill="#008300"/>
+<text x="40.0" y="54.0" font-size="12" fill="#52514e">candle 0.11</text>
+<circle cx="135.0" cy="50.0" r="5" fill="#898781"/>
+<text x="150.0" y="54.0" font-size="12" fill="#52514e">tract 0.23.8</text>
+<circle cx="243.3" cy="50.0" r="4.5" fill="#fcfcfb" stroke="#52514e" stroke-width="1.6"/>
+<text x="258.3" y="54.0" font-size="12" fill="#52514e">on the Pareto front (none does better on both)</text>
+<line x1="34.8" y1="384.0" x2="692.0" y2="384.0" stroke="#e1e0d9" stroke-width="1"/>
+<text x="28.8" y="388.0" font-size="11" fill="#52514e" text-anchor="end" style="font-variant-numeric: tabular-nums">0</text>
+<line x1="34.8" y1="284.0" x2="692.0" y2="284.0" stroke="#e1e0d9" stroke-width="1"/>
+<text x="28.8" y="288.0" font-size="11" fill="#52514e" text-anchor="end" style="font-variant-numeric: tabular-nums">1</text>
+<line x1="34.8" y1="184.0" x2="692.0" y2="184.0" stroke="#e1e0d9" stroke-width="1"/>
+<text x="28.8" y="188.0" font-size="11" fill="#52514e" text-anchor="end" style="font-variant-numeric: tabular-nums">2</text>
+<line x1="34.8" y1="84.0" x2="692.0" y2="84.0" stroke="#e1e0d9" stroke-width="1"/>
+<text x="28.8" y="88.0" font-size="11" fill="#52514e" text-anchor="end" style="font-variant-numeric: tabular-nums">3</text>
+<text x="34.8" y="76.0" font-size="11" fill="#52514e">128-token chunks per second, one thread</text>
+<line x1="34.8" y1="84.0" x2="34.8" y2="384.0" stroke="#e1e0d9" stroke-width="1"/>
+<text x="34.8" y="400.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">0</text>
+<line x1="253.9" y1="84.0" x2="253.9" y2="384.0" stroke="#e1e0d9" stroke-width="1"/>
+<text x="253.9" y="400.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">200</text>
+<line x1="472.9" y1="84.0" x2="472.9" y2="384.0" stroke="#e1e0d9" stroke-width="1"/>
+<text x="472.9" y="400.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">400</text>
+<line x1="692.0" y1="84.0" x2="692.0" y2="384.0" stroke="#e1e0d9" stroke-width="1"/>
+<text x="692.0" y="400.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">600</text>
+<line x1="34.8" y1="384.0" x2="692.0" y2="384.0" stroke="#c3c2b7" stroke-width="1"/>
+<text x="363.4" y="418.0" font-size="12" fill="#52514e" text-anchor="middle">RSS once loaded, MiB</text>
+<path d="M222.1,242.0H617.5V109.3" fill="none" stroke="#52514e" stroke-width="1.25"/>
+<g><title>candle f32: 2.75 at 532 (candle f32: 532 MiB loaded (peak 1054 during the load), 364 ms a 128-token chunk)</title>
+<circle cx="617.5" cy="109.3" r="12" fill="transparent"/>
+<circle cx="617.5" cy="109.3" r="6" fill="#008300" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<circle cx="617.5" cy="109.3" r="10" fill="none" stroke="#52514e" stroke-width="1.25"/>
+<g><title>candle f16: 1.14 at 271 (candle f16: 271 MiB loaded (peak 800 during the load), 878 ms a 128-token chunk)</title>
+<circle cx="331.7" cy="270.1" r="12" fill="transparent"/>
+<circle cx="331.7" cy="270.1" r="6" fill="#008300" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<g><title>candle Q8_0, x86-64-v3: 1.42 at 171 (candle Q8_0, x86-64-v3: 171 MiB loaded (peak 699 during the load), 704 ms a 128-token chunk)</title>
+<circle cx="222.1" cy="242.0" r="12" fill="transparent"/>
+<circle cx="222.1" cy="242.0" r="6" fill="#008300" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<circle cx="222.1" cy="242.0" r="10" fill="none" stroke="#52514e" stroke-width="1.25"/>
+<g><title>candle Q8_0, portable: 0.12 at 171 (candle Q8_0: 171 MiB loaded (peak 699 during the load), 8034 ms a 128-token chunk)</title>
+<circle cx="222.1" cy="371.6" r="12" fill="transparent"/>
+<circle cx="222.1" cy="371.6" r="6" fill="#008300" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<g><title>tract f32: 2.17 at 547 (tract f32: 547 MiB loaded (peak 1063 during the load), 461 ms a 128-token chunk)</title>
+<circle cx="634.0" cy="167.1" r="12" fill="transparent"/>
+<circle cx="634.0" cy="167.1" r="6" fill="#898781" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<text x="617.5" y="95.3" font-size="11" fill="#0b0b0b" stroke="#fcfcfb" stroke-width="3" stroke-linejoin="round" paint-order="stroke" text-anchor="middle">candle f32</text>
+<text x="331.7" y="256.1" font-size="11" fill="#0b0b0b" stroke="#fcfcfb" stroke-width="3" stroke-linejoin="round" paint-order="stroke" text-anchor="middle">candle f16</text>
+<text x="222.1" y="228.0" font-size="11" fill="#0b0b0b" stroke="#fcfcfb" stroke-width="3" stroke-linejoin="round" paint-order="stroke" text-anchor="middle">candle Q8_0, x86-64-v3</text>
+<text x="222.1" y="357.6" font-size="11" fill="#0b0b0b" stroke="#fcfcfb" stroke-width="3" stroke-linejoin="round" paint-order="stroke" text-anchor="middle">candle Q8_0, portable</text>
+<text x="634.0" y="153.1" font-size="11" fill="#0b0b0b" stroke="#fcfcfb" stroke-width="3" stroke-linejoin="round" paint-order="stroke" text-anchor="middle">tract f32</text>
+<text x="18.0" y="440.0" font-size="11" fill="#52514e">128-token chunks, one thread, static musl builds. Up and to the left is better. Only f32 and f16 keep the 0.999 agreement</text>
+<text x="18.0" y="455.0" font-size="11" fill="#52514e">bar; Q8_0 misses it (0.998).</text>
+</svg>

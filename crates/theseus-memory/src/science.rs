@@ -268,7 +268,7 @@ impl MemoryScience for Baseline {
             .filter(|n| !n.cosine.is_nan())
             .max_by(|a, b| a.cosine.total_cmp(&b.cosine));
         match top {
-            // A correction first (theseus-lx3x, Eddie's decision 10): it
+            // A correction first (theseus-lx3x, the owner's decision 10): it
             // restates most of what it corrects, so it can pass the
             // near-duplicate line (0.954 on Nomic v1.5, live), and it
             // supersedes all the same.

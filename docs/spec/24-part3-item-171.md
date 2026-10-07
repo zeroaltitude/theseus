@@ -27,7 +27,7 @@ files, +917 −58, without the cloud files; no new package, no store format chan
   HEAD carries no `s3:prefix`, so only `IfExists` lets it through; with it a missing key heads 404, and an object in
   flight at a crash is sent once. The policy is now three statements, still with no delete and no action ending in
   `*`. The test fake's HEAD arm answered 404 to anyone; it now answers by the session's policy through one helper,
-  `may_know_missing`, which the GET arm shares, and a 403 with no body, as S3 does.
+  `may_know_missing`, which the GET arm shares, and a 403 with no body, as S3 does. _(theseus-bfk9, Part III Item 198: "a HEAD carries no `s3:prefix`" is false on real S3: a HEAD's implied list carries the key as `s3:prefix`, so the statement is now `StringLike`, which refuses a list with no prefix and still lets a missing key head 404.)_
 - **Only synced frames ship** (203fc632). The bound is the writer's own `Wal::synced()`: exact, live, and in the
   process that writes the log. `WalStore::synced_to()` (theseus-store) is wrapped by the core's `Store::synced_to()`
   and handed to the shipper as `Hooks::synced_to`, a closure that holds the core by `Weak` and reads 0 once the core
@@ -78,13 +78,13 @@ files, +917 −58, without the cloud files; no new package, no store format chan
   bound is read once per batch and only grows, and that with fsync on a held pass is only the window between a write
   and its sync.
 - **Live:** none. Every live check reaches AWS, and the overnight rules allowed no AWS call; the fake's `IfExists`
-  model (the review's plant 2 shows it) stands in. Two checks wait for Eddie (Known gaps).
+  model (the review's plant 2 shows it) stands in. Two checks wait for the owner (Known gaps).
 
 **What the session found.** The fake had hidden the bug: once its HEAD answered by the policy, the existing
 `a_refusal_is_said_in_health_and_the_next_pass_ships` failed on main's policy too, and had passed only because of the
 fake. A frame's synced mark is a batch behind, so a bound read from the marks would never ship a quiet store's last
 write; hence the writer's `synced()`. The hands' policy needs no list statement: a hand only puts its outputs, and
-needs `StringLikeIfExists` too if it ever reads back.
+needs `StringLikeIfExists` too if it ever reads back. _(Since theseus-bfk9, Part III Item 198: `ListBucket` under `StringLike` on its prefix.)_
 
 **The join** (stack A's first; R9's dry runs clean on b07150d6, 1a08a40e and, by the joiner at 07:25, 3dba509d).
 Lock `cloud-durability-fixes-join` 07:27:49; the merge at 07:29:09 on sim2's 3dba509d was clean (git placed the
@@ -101,9 +101,9 @@ shutdown with a job 35.7 / 53.0; binary swap 57.4 / 61.6; the daemon's own clock
 08:17; done line 08:17:15. theseus-iame, theseus-mgw.12 and theseus-b9x6 closed with the hash, each with a note naming
 the live check still owed. The store stays at format 19.
 
-**The install** (2026-10-05 13:07 at 60b43fb6, install #4). Nothing changes while durability is off, as it is on Eddie's daemon. Once it is on:
+**The install** (2026-10-05 13:07 at 60b43fb6, install #4). Nothing changes while durability is off, as it is on the owner's daemon. Once it is on:
 only synced frames ship; a missing key heads 404 and an in-flight object is sent once; health's durability line may
-read `waiting` "for the WAL's sync" for a moment; a restore stitches the tails after a sealed object. Turning it on
+read `waiting` "for the WAL's sync" for a moment; a restore stitches the tails after a sealed object. _(Health's text printed no durability line until theseus-9ai1, Part III Item 198: the status was in `--json health` alone. Durability went on for the owner's daemon at install #6, 2026-10-06.)_ Turning it on
 waits for the live checks. Health after the restart (13:07:43): `theseusd check` exit 0, 9 secrets ready 1.05 s after the start, startup serving at 29.1 ms with builds beside it, `cgroup: delegated`, `route.v1`, `rerank.v1` and `security.v3` live, memory live on the `baseline` arm, Discord ready, and no error or warning in the journal; the store from format 16 to 20 at its first write, after the install's backup.
 
 **Divergences.** The bound is an argument to a new `read_upto`, not a field of `Batch`. The fsync-off case ships what
@@ -111,7 +111,7 @@ the page cache holds, the old behaviour; R9 recommended keeping it, since fsync 
 no daemon setting has it. `Hooks::default()` ships with no bound; only tests use it. The window b9x6 named was closed
 by stitching, not by a message.
 
-**Known gaps.** Two AWS live checks wait for Eddie: a HEAD and a GET of a missing key in the tender's session (404 and
+**Known gaps.** Two AWS live checks wait for the owner: a HEAD and a GET of a missing key in the tender's session (404 and
 `NoSuchKey`, 403 with the statement removed), which proves `IfExists` on real S3; and a scratch daemon with
 `durability = true` through two turns, a restore, a start that ships only the `store.restored` row, and a second
 restore that says "from its object and 1 tail(s) after it", then the teardown (under a cent). theseus-nysv (P3): two
@@ -227,7 +227,7 @@ notification, and a slow watcher still gets one `events.lost`. The ledger's `by`
 watcher the serialization moved from the writer's thread to the publisher's. `tests_actor.rs` slipped into step 1's
 commit (nothing compiles it until step 3's `mod` line); history was not rewritten, and the join did not squash it.
 
-**Known gaps.** For Eddie, both recommended yes by R10: `turn.submit`'s author following `actor`
+**Known gaps.** For the owner, both recommended yes by R10: `turn.submit`'s author following `actor`
 (`conn.actor(p.author.as_deref())`), as its own step with the golden's diff read, since it changes what the model
 reads; and the golden run on a thread with an explicit 8 MiB stack, since the boxing leaves about 150 KiB. theseus-vbju
 (P3): `tests_judge::a_failing_jev_is_recorded_by_its_class_and_changes_no_turn` overran its 3 s turn bound once under
@@ -358,7 +358,7 @@ their 10 minutes. Health after the restart (13:07:43): `theseusd check` exit 0, 
 share the code; (c) was the test's. m9iy marks at the driver's first tick, not at startup's reconcile, which keeps
 startup writing nothing new. `in_process` is scoped to provider calls.
 
-**Known gaps.** **theseus-f3wr** (P2, waiting for Eddie): an earlier process's call's reservation stays held unknown
+**Known gaps.** **theseus-f3wr** (P2, waiting for the owner): an earlier process's call's reservation stays held unknown
 for good; R8 recommends booking it as spent at the mark (the request reached the provider and may have been charged),
 and his reset then clears it. **theseus-cs71** (P2): the cancel test's 1.5 s wall bound fails under a loaded suite;
 R8 recommends bounding the verdict's own `ms` and keeping g11i's longer waits, which cost a normal cancel nothing. (a)
@@ -465,7 +465,7 @@ checks still owed. The store stays at format 19.
 `hourly_alert_usd`, `daily_budget_usd` or `runaway_factor` within the same period, as the refusal's words promise; a
 lowered line keeps the mark, and nothing changes unless a mark exists. The key check runs once after serving: a key
 that names no AWS service or operation shows in health's `aws:` line and as one log warning each, with the looser line
-the call falls to; if every key is right, nothing shows. The joiner did not read Eddie's config; after install #4
+the call falls to; if every key is right, nothing shows. The joiner did not read the owner's config; after install #4
 the journal held no warning, so no `[policy.aws]` key of his was unknown. Health after the restart (13:07:43): `theseusd check` exit 0, 9 secrets ready 1.05 s after the start, startup serving at 29.1 ms with builds beside it, `cgroup: delegated`, `route.v1`, `rerank.v1` and `security.v3` live, memory live on the `baseline` arm, Discord ready, and no error or warning in the journal; the store from format 16 to 20 at its first write, after the install's backup.
 
 **Divergences.** The runaway rule is read at admission, not applied at the start. An unknown key is warned of, not
@@ -474,7 +474,7 @@ keeping it, with a refusal, if wanted, as a config check before a restart. Ambig
 reads as no service. `unknown_policy_keys` is not `ts(optional)` on the Rust side (ts-rs rejects it on a `Vec`); it is
 skipped when empty, like the other such lists, and optional in the generated type. No cockpit code reads it yet.
 
-**Known gaps.** The AWS live checks wait for Eddie: runaway with a deployed hands stack and his go (a line low enough
+**Known gaps.** The AWS live checks wait for the owner: runaway with a deployed hands stack and his go (a line low enough
 that one small group enters runaway mode, a raised `hourly_alert_usd`, a restart within the hour, and the same group
 runs; with theseus-ongv), and, optionally, the health line on the real account. `build.sh` was not run for real (a cold
 `release-thin` musl build and a Docker Hub base image); the stubbed Python tests and two plants stand in, and a real
@@ -482,7 +482,7 @@ run is in R9's follow-up list.
 
 ### Item 175. `proc.run` takes steps: up to 16 programs judged as the strictest and run in turn to the first failure, with one result, a batch's steps in one class; and `fs.patch` recounts its hunk headers (theseus-7gir.3 and theseus-inw, with theseus-nrvq; the benchmark program's tool answer to batching; the seventh cloud batch's proc-steps session, fired 2026-10-05 01:35 from 80ef1dea, Opus 5.5; e92f5d04, 0be84690 and 32335372; reviewed 05:55 to 06:56 by local reviewer R10, stack P, and accepted with the stack at 07:28, theseus-nrvq's option 1 decided then as a join fix; joined 09:13 at d8ac9b54, a signed merge onto 60d2d6c3, by the stack-P joiner; store format 19 to 20; installed 2026-10-05 13:07 at 60b43fb6, install #4)
 
-**Why.** The benchmark program's rule (Eddie, 2026-10-04 15:52) is that a fix changes what the agent can do or see,
+**Why.** The benchmark program's rule (the owner, 2026-10-04 15:52) is that a fix changes what the agent can do or see,
 never instructions in the prompt, which retired B6's "batch shell steps" paragraph (theseus-n88g.6). Where round trips
 cost Theseus, the tool's answer is a `steps` array on `proc.run`, described in its own schema (theseus-7gir.3). And
 the dogfood pilot found `fs.patch` refusing a hunk whose header counts were off by one, a common slip in a model's
@@ -569,7 +569,7 @@ removed line `--- x` beside an added line `+++ y` still reads to `split_patch` a
 the patch then fails and writes nothing (a test holds it; not widened). Jev's security input sees an empty `argv` for
 a batch, its `steps` riding in the input's rest, and Discord's summary falls through to the input's JSON.
 
-**The decision made for Eddie** (the DM thread, 07:28; morning notes 47; reversible). The goal is theseus-core's
+**The decision made for the owner** (the DM thread, 07:28; morning notes 47; reversible). The goal is theseus-core's
 written invariant, "Nothing falls back from L1 to L0". As built, a batch bound one job class, its strictest step's, so
 an L0 step at approve or the floor carried an `l1_argv` step out of L1 on the operator's yes, and the card did not say
 so. Of R10's three options, option 1 went in as join fix 2: a batch whose steps differ in class is invalid input,
@@ -606,7 +606,7 @@ skipped); lifecycle in every budget (cold start p50 22.6 / p95 29.9 ms; SIGKILL 
 gates' spread of 72.4 to 86.4 and 142.5 to 196.4, at the same fdatasync). Pushed; done line 09:13:59. theseus-7gir.3,
 inw and nrvq closed with the hash; theseus-grms and vbju open. **Main's store format: 20.**
 
-**The install** (2026-10-05 13:07 at 60b43fb6, install #4). Eddie's store moved from format 16 to 20 at the new build's first write (20 is this
+**The install** (2026-10-05 13:07 at 60b43fb6, install #4). The owner's store moved from format 16 to 20 at the new build's first write (20 is this
 join's), one way, after the install's backup. No config key. A model can send `proc.run` with `steps`: up to 16 programs in turn, stopping
 at the first failure, with one result and one card for the whole batch; a batch that mixes an `l1_argv` program with
 an L0 step is refused as invalid input, and the model is told to split it. `fs.patch` recounts miscounted hunk
@@ -617,7 +617,7 @@ condition, not call by call. `Plan.steps` carries argv only; each step's directo
 need a new protocol type, and `ts.rs`'s list is at its line limit). The class rule came at the join, not in the
 session.
 
-**Known gaps.** R10's "For Eddie", each recommended as built unless he says otherwise: the steps after a background
+**Known gaps.** R10's "For the owner", each recommended as built unless he says otherwise: the steps after a background
 step never run (the answer says so; a durable continuation would need each step's spec in the record and a launch from
 the drain); a restart mid-batch settles from the running step alone (a `tool.step_finished` row only if an operator
 needs the earlier steps); the approval card's reason names the strictest step, and Discord's card and the cockpit
@@ -750,20 +750,20 @@ error) now cuts its batch back off the log, and its callers' "failed" stays true
 fails, the log goes broken until a restart. Nothing changes on a healthy disk. Health after the restart (13:07:43): `theseusd check` exit 0, 9 secrets ready 1.05 s after the start, startup serving at 29.1 ms with builds beside it, `cgroup: delegated`, `route.v1`, `rerank.v1` and `security.v3` live, memory live on the `baseline` arm, Discord ready, and no error or warning in the journal; the store from format 16 to 20 at its first write, after the install's backup.
 
 **Divergences.** The brief's design, with the log taking frames again after a successful cut rather than staying
-broken until a restart (one line in `cut_back` if Eddie prefers the other). The two concurrency fixes were not in the
+broken until a restart (one line in `cut_back` if the owner prefers the other). The two concurrency fixes were not in the
 brief. The follower's check wraps `read` and touched no line of durability-fixes' bounded read; the join put it inside
 `read_upto`.
 
 **Known gaps.** **theseus-3q29** (P2, FAST): skip c67g's directory sync when the open already knows a position in the
 found segment was synced (the index's checkpoint, or a mark, at or past its first position), which makes a clean
 restart free and leaves only a start after a crash to pay; its one hole is a start after an upgrade from a build that
-synced frames without the name, which ext4's ordered journal covers anyway. R9 recommended building it. **theseus-lu5n**
+synced frames without the name, which ext4's ordered journal covers anyway. R9 recommended building it. _(Built 2026-10-06, Part III Item 196, with the close for an upgraded store; its one hole, a manifest moved before the first frame's sync, is theseus-xva3.)_ **theseus-lu5n**
 (P3), above. R9's other recommendations, keeping the code as built: the log taking frames after a cut, plus a health
-count of cut batches ("the WAL cut N failed batches since start", not filed; Eddie's call); and the strict
+count of cut batches ("the WAL cut N failed batches since start", not filed; the owner's call); and the strict
 `found_unsynced` rule. fsync off (tests and benches only) still syncs at a roll, so a failed roll's sync there cuts
 frames answered without a sync; no daemon path reaches it.
 
-### Item 177. Health words: a `web:` line, the 1-hour cache write priced and counted, the cockpit's binary card, and one row and one notice when free space crosses a line (theseus-jxau, theseus-4v1z, theseus-od13's binary half (V6) and theseus-f337 (V10); the seventh cloud batch's health-words session, fired 2026-10-05 01:35 from 80ef1dea, Sonnet 5.5, finished 02:37; de5e779f, 80affc3e, 56509918 and 7b36f314; reviewed 07:59 to 08:48 by local reviewer R13, stack H, and accepted with the stack at 09:36; its join held for Eddie's account switch and the disk compaction; joined 11:47 at 319b95b0, a signed merge onto d50e6f2f, by the stack-H joiner; installed 2026-10-05 13:07 at 60b43fb6, install #4)
+### Item 177. Health words: a `web:` line, the 1-hour cache write priced and counted, the cockpit's binary card, and one row and one notice when free space crosses a line (theseus-jxau, theseus-4v1z, theseus-od13's binary half (V6) and theseus-f337 (V10); the seventh cloud batch's health-words session, fired 2026-10-05 01:35 from 80ef1dea, Sonnet 5.5, finished 02:37; de5e779f, 80affc3e, 56509918 and 7b36f314; reviewed 07:59 to 08:48 by local reviewer R13, stack H, and accepted with the stack at 09:36; its join held for the owner's account switch and the disk compaction; joined 11:47 at 319b95b0, a signed merge onto d50e6f2f, by the stack-H joiner; installed 2026-10-05 13:07 at 60b43fb6, install #4)
 
 **Why.** Four small gaps between what the daemon knew and what the operator was told:
 - **theseus-jxau.** Health's web section (the refusals by kind, the dev origin) was JSON only since the hardening
@@ -831,7 +831,7 @@ it, and it committed the empty file; its final message survived, and R13 reconst
   76.4 against 76.8 ms, tool call 160.5 against 159.5; every lifecycle phase equal or quicker on the stack (cold start
   22.5 against 20.4 ms, SIGKILL restart 26.4 against 24.8), no budget missed. Level.
 
-**The join** (stack H's first; R13's dry runs on 38bb2924, 60d2d6c3 and d50e6f2f clean; held from 09:36 by Eddie's
+**The join** (stack H's first; R13's dry runs on 38bb2924, 60d2d6c3 and d50e6f2f clean; held from 09:36 by the owner's
 08:25 ask, finish what is in flight and start nothing until his account switch and the disk's compaction, which ended
 at 11:20; the joiner spawned at 11:29). Lock `cloud-health-words-join` 11:31:06; the merge at 11:31:14 on wal-sync's
 d50e6f2f: no conflict, no script, no join fix. By hand: courier.rs (lane speed's outbox, the disk arm in `plan`'s
@@ -857,7 +857,7 @@ Systems view its binary card, pill and dot. Health after the restart (13:07:43):
 binary quietly unless jobs can write it. `disk_post` split out of the courier's `plan` for clippy. The session split
 render.rs's change across commits, so de5e779f or 80affc3e alone may not build; the join is one merge.
 
-**Known gaps.** **theseus-83y0** (P3), the one Eddie should know first (morning notes 50): under WSL the disk line and
+**Known gaps.** **theseus-83y0** (P3), the one the owner should know first (morning notes 50): under WSL the disk line and
 the new crossings read the virtual disk (about 650 GB free on this machine), not the Windows drive, which fills first
 (24 to 43 GB free that morning), so the notice cannot fire for the failure this machine actually has; R13 recommended
 it before relying on the notice here. A switched-off web UI should read `web: off`, through an `enabled` field on
@@ -866,7 +866,7 @@ fields in the idle tone; a `summary.ts` case and the fault tone for `disk.below_
 theseus-xiaz and theseus-8phq (P2), the two test gaps. The disk lines' defaults (warn 5,120 MB, floor 1,024, margins
 256 and 51 MB) stay, as R13 recommended.
 
-### Item 178. Telemetry of calls: a failed provider call's time and span carry `error.type`, and AWS requests are counted and timed by service, operation and outcome (theseus-lmhp and theseus-ku5f; AWS design §3.8; the seventh cloud batch's second part, its telemetry-calls session, fired 2026-10-05 02:35 from faaa9df6, Sonnet 5.5; 251fdb37 and 20ac831f; reviewed 06:57 to 08:40 by local reviewer R12, stack Y, and accepted with the stack at 08:52; its join held for Eddie's account switch and the disk compaction; joined 12:02 at 4d7cd561, a signed merge onto 319b95b0, by the stack-Y joiner; installed 2026-10-05 13:07 at 60b43fb6, install #4)
+### Item 178. Telemetry of calls: a failed provider call's time and span carry `error.type`, and AWS requests are counted and timed by service, operation and outcome (theseus-lmhp and theseus-ku5f; AWS design §3.8; the seventh cloud batch's second part, its telemetry-calls session, fired 2026-10-05 02:35 from faaa9df6, Sonnet 5.5; 251fdb37 and 20ac831f; reviewed 06:57 to 08:40 by local reviewer R12, stack Y, and accepted with the stack at 08:52; its join held for the owner's account switch and the disk compaction; joined 12:02 at 4d7cd561, a signed merge onto 319b95b0, by the stack-Y joiner; installed 2026-10-05 13:07 at 60b43fb6, install #4)
 
 **Why.** Two holes in the metrics (§3.20, the GenAI names):
 - **theseus-lmhp**, from the telemetry lane. `theseus.provider.call.duration_ms` mixed failed calls with answered
@@ -956,11 +956,11 @@ it and naming it in §3.20 as a cancellation, so an error-rate panel leaves it o
 separate counter, its rate unchanged). The first token carries none. The AWS code is kept off the metric; a per-code
 count, if ever wanted, would map codes to a few bounded classes (throttled, denied, not found, other).
 
-**Known gaps.** The live AWS check waits for Eddie: with an account bound, a turn that calls `aws_whoami` should give
+**Known gaps.** The live AWS check waits for the owner: with an account bound, a turn that calls `aws_whoami` should give
 one `theseus.aws.calls` point (`rpc.service = sts`, `theseus.outcome = ok`) and its duration; an unbound
 `GetCallerIdentity` gives `unbound`, and a refused `aws_call` `error`. theseus-qjd6 (P3), the load-flaky test above.
 
-### Item 179. `theseus judge prove`: the prove's records built from the daemon's ledger, one per finished task, the generator run over them, and classify.v1 held against the model's own `task_create` (theseus-0j2.18; roadmap-v2 row 50, L3's join, M5 §2.9's prove; the seventh cloud batch's prove-wire-in session, fired 2026-10-05 01:35 from 80ef1dea, Opus 5.5; e83d87b0, b133c40c, c59813e0, c92b7bea and 9d54a5ab; reviewed 08:27 to 09:31 by local reviewer R13, stack H, and accepted with the stack at 09:36; its join held for Eddie's account switch and the disk compaction; joined 12:34 at 19a768a3, a signed merge onto 4d7cd561, by the stack-H joiner and, after the account's weekly limit stopped it, the DM thread; installed 2026-10-05 13:07 at 60b43fb6, install #4)
+### Item 179. `theseus judge prove`: the prove's records built from the daemon's ledger, one per finished task, the generator run over them, and classify.v1 held against the model's own `task_create` (theseus-0j2.18; roadmap-v2 row 50, L3's join, M5 §2.9's prove; the seventh cloud batch's prove-wire-in session, fired 2026-10-05 01:35 from 80ef1dea, Opus 5.5; e83d87b0, b133c40c, c59813e0, c92b7bea and 9d54a5ab; reviewed 08:27 to 09:31 by local reviewer R13, stack H, and accepted with the stack at 09:36; its join held for the owner's account switch and the disk compaction; joined 12:34 at 19a768a3, a signed merge onto 4d7cd561, by the stack-H joiner and, after the account's weekly limit stopped it, the DM thread; installed 2026-10-05 13:07 at 60b43fb6, install #4)
 
 **Why.** The prove's generator joined with judge-prove (Item 101): theseus-judge's `prove.rs` and
 the `theseus-judge prove` binary, over JSONL records of finished tasks. The one-command wire-in did not: nothing built
@@ -1080,7 +1080,7 @@ moved yet it reads "insufficient", with its counts. Health after the restart (13
 for a learning run, not the clock. `should_stop` from a `not:<other class>` label is `null`. The window is read from
 `pack:loop`'s scope, not the ladder, so the read writes nothing. A task whose judgments all failed counts in its arm.
 
-**Known gaps.** R13's "For Eddie", each recommended: 26b writes one row per nudge naming its judgment and turn (to fill
+**Known gaps.** R13's "For the owner", each recommended: 26b writes one row per nudge naming its judgment and turn (to fill
 `nudges` and `unnecessary_nudges`) and follows §2.6 for who pays an acting canary judgment; keep success waiting for
 the learning run, and `should_stop`'s `null`; the cockpit's Judgment view is a later cockpit step (every field is in
 `JudgeProveResult`); keep intent to treat, and say it. theseus-ag0t (P2), the learned loop version, fixed before the
@@ -1088,7 +1088,7 @@ first one is placed (a reason of its own, and a window line). theseus-w38g and t
 If a canary is rolled back and promoted again, the default window restarts at the new move, and earlier canary tasks
 need `--since`.
 
-### Item 180. Telemetry resumed: a confirmed call's run and a background job's end traced in the turn that answers them, each tool call counted once at its answer, and an approved AWS call's requests under its call (theseus-8pei and theseus-0zm4; telemetry2's last step; the seventh cloud batch's second part, its telemetry-resumed session, fired 2026-10-05 02:35 from faaa9df6, Opus 5.5; 82a2cade, 081994e8 and 7d6ce7bd; reviewed 07:43 to 08:45 by local reviewer R12, stack Y, and accepted with the stack at 08:52; its join held for Eddie's account switch and the disk compaction; joined 13:00 at 60b43fb6, a signed merge onto 19a768a3, by the stack-Y joiner, relaunched after the account's weekly limit stopped it; installed 2026-10-05 13:07 at 60b43fb6, install #4)
+### Item 180. Telemetry resumed: a confirmed call's run and a background job's end traced in the turn that answers them, each tool call counted once at its answer, and an approved AWS call's requests under its call (theseus-8pei and theseus-0zm4; telemetry2's last step; the seventh cloud batch's second part, its telemetry-resumed session, fired 2026-10-05 02:35 from faaa9df6, Opus 5.5; 82a2cade, 081994e8 and 7d6ce7bd; reviewed 07:43 to 08:45 by local reviewer R12, stack Y, and accepted with the stack at 08:52; its join held for the owner's account switch and the disk compaction; joined 13:00 at 60b43fb6, a signed merge onto 19a768a3, by the stack-Y joiner, relaunched after the account's weekly limit stopped it; installed 2026-10-05 13:07 at 60b43fb6, install #4)
 
 **Why.** Two calls the telemetry never saw, both found by the telemetry lane and C1:
 - **theseus-8pei.** `theseus.tool.calls` and `theseus.tool.duration_ms` read the turn's `tool <name>` spans, and a
@@ -1200,11 +1200,12 @@ record). `finish`'s late results are traced at the trace's top level, not under 
 AGENTS.md says the continuation for both, a nit R12 noted). The counting rule moved the two series' points rather than
 keeping the proposing turn's placeholders.
 
-**Known gaps.** R12's "For Eddie", each recommended: accept "moved" and say it in §3.23 and the status page (if "how
+**Known gaps.** R12's "For the owner", each recommended: accept "moved" and say it in §3.23 and the status page (if "how
 often is the operator asked" is wanted as a metric, add a counter for it, not the double count); the calls that never
 count, a waiting call answered by `answer_after_cancel` and a background job whose late result no turn takes, accepted
 now with a P3 follow-up that counts them where the cancel answers them; `theseus.task.changes` now counting a layer-1
 task edit approved in a continuation, accepted; `TurnSubmitResult.tool_calls` kept as the turn's own loop, its doc
 comment to say the metrics are the full count. theseus-kxyc and theseus-6xwq (P2), the two test gaps, soon after the
-join. The live AWS check waits for Eddie. turn.rs's long-files ceiling can drop to about 3,460; toolrun.rs and
+join. The live AWS check waits for the owner. turn.rs's long-files ceiling can drop to about 3,460; toolrun.rs and
 telemetry/tests.rs sit just under 2,500, so their next additions need a split or an entry.
+

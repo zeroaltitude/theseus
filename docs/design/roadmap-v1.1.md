@@ -1,13 +1,13 @@
 # Theseus v1.1: the week after v1 (roadmap v1.1)
 
-_Beads theseus-empf. Written by Tabitha/Claude on 2026-10-01, from 23:35 MST, to Eddie's request at 23:11 for "a
+_Beads theseus-empf. Written by Tabitha/Claude on 2026-10-01, from 23:35 MST, to the owner's request at 23:11 for "a
 nice ~1week roadmap for after v1 to v1.1". Sources, read at `main` 9ac009d: every open Beads issue labelled
-`post-v1` (51 of them when this was written), [Review 2](review-2.md)'s deferred items with Eddie's answers to it
+`post-v1` (51 of them when this was written), [Review 2](review-2.md)'s deferred items with the owner's answers to it
 (2026-10-01, 19:54), the open questions of the six designs this directory holds, [the status page](../status.md)'s
 known limits, and the "Known gaps" of [the spec](../the-ship-of-theseus.md)'s Part III. Docs only: nothing was built,
 filed, or changed in Beads. Every size and date here is an estimate._
 
-**What this plan leaves out on purpose.** The critical work Eddie named at 23:11 (security, performance, and proof
+**What this plan leaves out on purpose.** The critical work the owner named at 23:11 (security, performance, and proof
 points) is done before v1: by lanes `hardening2`, `perf1`, `proofs1`, `bench2`, `security3`, `robust2`, and
 `robust3`, and by the spine's C2 (one typed event per fact) and S2 (the store-writer thread). Nothing those carry is
 planned here. The gaps they file as `post-v1` while they work join the matching theme (§4's reserve).
@@ -20,7 +20,7 @@ planned here. The gaps they file as `post-v1` while they work join the matching 
 3. The lanes
 4. The week, day by day
 5. What is not in v1.1, and why
-6. What v1.1 needs from Eddie
+6. What v1.1 needs from the owner
 7. Appendix: every input, and where it went
 
 ## 0. The answer on one screen
@@ -66,10 +66,10 @@ planned here. The gaps they file as `post-v1` while they work join the matching 
   - kernel-sim covering every transition a turn can take.
 - **Not in v1.1 (§5).**
   - Eight issues ride with their v1 rows: d64, 3nk, 646, w6b, 3fjv, b9l4, 7zm, and 0pd.
-  - 2r70 is Eddie's own, and part of it is due before v1. rnx waits for a PTY that no roadmap builds.
+  - 2r70 is the owner's own, and part of it is due before v1. rnx waits for a PTY that no roadmap builds.
   - Recommend closing obmo now, and 4htx and cox0 once their checks have run.
-  - The designs' "filed" items wait for their triggers: the soak, M4 to M7 landing, or Eddie.
-- **From Eddie (§6), nothing blocks the week.** S5's accounting call (may a crash between the answer and the turn's
+  - The designs' "filed" items wait for their triggers: the soak, M4 to M7 landing, or the owner.
+- **From the owner (§6), nothing blocks the week.** S5's accounting call (may a crash between the answer and the turn's
   end leave the call unknown, its reservation held?), the herdr plugin in his own setup, and the test voice channel,
   which decides where C5 lands.
 
@@ -89,7 +89,7 @@ What remains is Review 2's S5, and five issues on the kernel and the store.
 | 2xep | A job's completion queues its execution with no `execution.queued` row, only the action row's `execution_state`. Add `{ why: "result" }` in the completion's frame | in V3 |
 | oqxw | A transaction's closure that calls the kernel itself, on an execution the transaction didn't name, takes a lock out of order: a deadlock no test catches. Panic on any lock taken while the thread holds another | V4 (1) |
 | q49, ef0 | Records carry two schema numbers (the header's per kind, and some payloads' own): fold them, or write the rule down. Then keep a waiting call's reason and floor on its action, so `confirm.list` reads no transcript (ACTION's schema bump), and merge a confirm continuation's queue and run frames (ef0's note) | V5 (1.5) |
-| 2uby; Review 2 S5 | A plain turn in fewer than 5 frames. A kernel transaction cannot span an `.await`, so measure the middle way first (the admission with `turn.started`), then the lock held through the compile; the completion rides the end frame only with Eddie's yes (§6). Also S5's second half, not in 2uby: cache the manifest's digests per request spec | V7 (2.5) |
+| 2uby; Review 2 S5 | A plain turn in fewer than 5 frames. A kernel transaction cannot span an `.await`, so measure the middle way first (the admission with `turn.started`), then the lock held through the compile; the completion rides the end frame only with the owner's yes (§6). Also S5's second half, not in 2uby: cache the manifest's digests per request spec | V7 (2.5) |
 
 **Proves:** a plain turn writes the fewest frames the machine's rules allow, and bench2's frames-per-turn budget is
 lowered to hold it; every transition that queues an execution says so in an `execution.*` row in its own frame; a
@@ -142,7 +142,7 @@ The tokens lane (Item 31) made the estimate honest, and named what it couldn't m
 
 | Ids | What | Slots |
 |---|---|---|
-| c5ba, o388 | Haiku 4.5's bytes-per-token figures come from one request; measure them by class (well under a cent). Confirm Sonnet 5.5's prompt-cache minimum (512) against the caching docs, which Tabitha fetches for the lane | lane `tokens2` (4, all five) |
+| c5ba, o388 | Haiku 4.5's bytes-per-token figures come from one request; measure them by class (well under a cent). Confirm Sonnet 5.5's prompt-cache minimum (512) against the caching docs, which Tabitha/Claude fetches for the lane | lane `tokens2` (4, all five) |
 | vj9q | A recompile's estimate is bytes only, so its ring can ring at about 71% of the budget by the provider's count. Carry the session's density from its last counted request | `tokens2` |
 | p171 | Tool output denser than 1.76 bytes a token (hex, base64, digests): measure it on a scratch daemon, then a class of its own if the numbers want one | `tokens2` |
 | kucs | Z.ai's error for a GLM prompt past its window is unknown, so such a session may be refused every turn. Learn its shape from Z.ai's documented codes, or one probe (about $0.16 if a refusal is billed) | `tokens2` |
@@ -156,12 +156,12 @@ measured density; a GLM session past its window recovers by itself, as an Anthro
 
 | Ids | What | Slots |
 |---|---|---|
-| Review 2 C5 | The Discord binding reaches into `Core` directly (37 calls at the review). Name the seam as a `BindingPort` trait that `Core` implements, and correct the crate's doc. Eddie's answer: deferred "until the voice binding needs it" | lane `discord2` (2 of its 3.5) |
+| Review 2 C5 | The Discord binding reaches into `Core` directly (37 calls at the review). Name the seam as a `BindingPort` trait that `Core` implements, and correct the crate's doc. The owner's answer: deferred "until the voice binding needs it" | lane `discord2` (2 of its 3.5) |
 | Review 2 C7 | A shared rig builder in `theseusd/tests/common` (the config, a fake `op`, the fake model, the fake Discord, and the socket, each opted into). At 9ac009d, 14 of the daemon's 19 test files carry their own `#!/bin/sh` scripts, 18 in all (Review 2 counted 12, in nine files) | lane `tests2` (2) |
 | Review 2 C7 | Split `tests_m3.rs` by subject: 7,374 lines at 9ac009d, up from 5,422 at the review | V12 (1.5) |
 | Review 2 S6 | Serialize once. The push added the backlog cap and `events.lost`, but `SessionBus::publish` still clones each message per watcher (`bus.rs:88-117`), and each connection serializes it again (`rpc/server.rs:368-380`). **Done 2026-10-05** for serialization (theseus-celu.36; Part III Item 172); latest-wins and the slow client's disconnect remain | lane `push2` (1) |
 | a6be | `NodeInfo.detail` is still a JSON map per node kind, read by key in three renderers. Type it per kind, generate its TypeScript, and match today's output byte for byte | V2 (2) |
-| g7qp | Four spellings pass the reader rule's registry test though nothing reads the item. Close the two cheap ones: an install list in the repo, checked against `tool` markers; and a reader counted only where `theseus_core::graph` is in scope | lane `reader` (1) |
+| g7qp | Four spellings pass the reader rule's registry test though nothing reads the item. Close the two cheap ones: an install list in the repo, checked against `tool` markers; and a reader counted only where `theseus_core::graph` is in scope. **Done 2026-10-05** for holes 2 and 4, with theseus-t7ra (Part III Item 182): the two install scripts' lists read as text, and a read counted only where the type it names is ours; holes 1 and 3 stay open | lane `reader` (1) |
 | zay1, 4htx, cox0 | The bench's noise margins re-derived from `main`'s gate history, or `--runs 20`; dependency variants counted after the workspace-only rule (close 4htx if few, by its own rule); `cargo deny` run without the advisory ignores, and each one whose fix has shipped dropped | lane `hygiene` (1) |
 
 **Proves:** the binding has a seam for the voice binding to follow; the daemon's tests share one rig; `tests_m3.rs` is
@@ -173,7 +173,7 @@ four holes are closed.
 | Ids | What | Slots |
 |---|---|---|
 | Part III Items 6, 8, and 9 (and A3) | kernel-sim's random operations never drive `/stop`, a scheduled wake, a report wake, or the outbox, and inject no crash around the outbox's transitions. Still true at 9ac009d: its step picks an open, a turn, a limit change, a cancel, a budget or confirm answer, and the heartbeat (`kernel_sim.rs:498-596`) | lane `sim2` (2) |
-| 6hk, 8gf | An image's retry takes a loop index, so a turn can make one call past `max_loops`; a request with several refused images recovers one per turn. The vision limits are checked against the live docs, which Tabitha fetches for the step | V9 (1.5) |
+| 6hk, 8gf | An image's retry takes a loop index, so a turn can make one call past `max_loops`; a request with several refused images recovers one per turn. The vision limits are checked against the live docs, which Tabitha/Claude fetches for the step | V9 (1.5) |
 | inw | `fs.patch` rejects a hunk whose header counts are off, and the pilot's builder gave up on the tool. Recount from the hunk's body, as `git apply --recount` does, and say so | lane `tools2` (1) |
 
 **Proves:** kernel-sim drives every transition a turn can take, the newer ones included, under crashes and with
@@ -184,8 +184,8 @@ four holes are closed.
 
 | Ids | What | Slots |
 |---|---|---|
-| ocwt | The binding reads its bindings file only at start, so a place removed while the daemon runs stays bound. Watch the file (inotify, or the heartbeat's mtime check), diff the places, stop the removed ones' lanes, and refuse their unsettled posts | lane `discord2` (1) |
-| Part III Item 6 | A lane's maps grow for the process's life. Still true at 9ac009d: `sent` and `sealed` (`courier.rs:250-254`) are never pruned. Bound them | `discord2` (0.5) |
+| ocwt | The binding reads its bindings file only at start, so a place removed while the daemon runs stays bound. Watch the file (inotify, or the heartbeat's mtime check), diff the places, stop the removed ones' lanes, and refuse their unsettled posts. **Done 2026-10-06** as a 2 s stat of the file's mtime, size and inode, a removed place's lane retired so its post in flight settles as sent (theseus-ocwt; Part III Item 207) | lane `discord2` (1) |
+| Part III Item 6 | A lane's maps grow for the process's life. Still true at 9ac009d: `sent` and `sealed` (`courier.rs:250-254`) are never pruned. Bound them. **Done 2026-10-06:** a lane keeps its newest 256 keys of `msgs`, `sent` and `sealed`, the task board's key exempt (theseus-celu.37; Part III Item 207); a cross-turn edit past 192 later keys posts a held turn's tool line again (theseus-6809) | `discord2` (0.5) |
 
 **Proves:** a place removed from the bindings file stops being served without a restart, and a long-running
 binding's memory stays flat.
@@ -198,11 +198,11 @@ and `protocol.ts`. The steps are numbered V1 to V13 so as not to collide with ro
 
 | # | Step | Ids | Slots | Waits on |
 |---|---|---|---|---|
-| V1 | History and the ledger page both ways: `after` on `ledger.tail` and `session.history`, `before` on `session.history`; short node ids for `node.reach`, and in `theseus history` | xo0m, kym3's protocol half, glyw | 1.5 | v1 |
+| V1 | History and the ledger page both ways: `after` on `ledger.tail` and `session.history`, `before` on `session.history`; short node ids for `node.reach`, and in `theseus history`. **Done 2026-10-05** (theseus-xo0m, glyw, and kym3's protocol half; Part III Item 193): `ledger.tail` already paged both ways, so `session.history` took its shape; the TUI's older pages wait for kym3's TUI half, with `tui2` | xo0m, kym3's protocol half, glyw | 1.5 | v1 |
 | V2 | `NodeInfo.detail` typed per node kind, with today's output captured first | a6be | 2 | V1 (both change the protocol crate). Before `web2` and `tui2`, whose readers it changes |
-| V3 | Every queue writes its row, in its frame: a late result's wake in the turn's end frame; `execution.queued { why: "result" }` in a completion's frame | 6qwr, 2xep | 1.5 | C2 (`turn.rs`) |
+| V3 | Every queue writes its row, in its frame: a late result's wake in the turn's end frame; `execution.queued { why: "result" }` in a completion's frame. **Done 2026-10-06** (theseus-6qwr and 2xep; Part III Item 194): the row is written in `accept_completion`, so every caller writes it, and the end and the late result's wake are one frame (`end_and_wake`, which reads the stop under the frame's lock) | 6qwr, 2xep | 1.5 | C2 (`turn.rs`) |
 | V4 | A lock taken while the thread holds another panics, after checking that nothing nests on purpose (the outbox's keys, the observer, startup's scans) | oqxw | 1 | robust2's R7 (`!Send` locks) |
-| V5 | One schema rule (fold or document); then a waiting call's reason and floor on its action, and a confirm continuation in one frame | q49, ef0 | 1.5 | robust2's R8 (the golden-schema test). ACTION's schema takes its number when V5 lands; snapshot Eddie's store before the install |
+| V5 | One schema rule (fold or document); then a waiting call's reason and floor on its action, and a confirm continuation in one frame | q49, ef0 | 1.5 | robust2's R8 (the golden-schema test). ACTION's schema takes its number when V5 lands; snapshot the owner's store before the install |
 | V6 | Health and the catalog in every surface's words: the `web:` line, the 1-hour cache writes, `approval.open` and `binary`. **Done 2026-10-05** (theseus-jxau, 4v1z, and od13's `binary` half; Part III Item 177); `approval.open` went with theseus-zmgb | jxau, 4v1z, od13 | 1 | v1 (hardening2's health facts). Smaller if hardening2's join already showed od13's lines |
 | V7 | S5: a plain turn in fewer frames, measured step by step; the manifest's digests cached per request spec | 2uby, Review 2 S5 | 2.5 | V3; `sim2` merged; S2's writer thread (vni9); bench2's frames-per-turn gate, which V7 lowers; `tokens2` merged (both touch `compiler.rs`) |
 | V8 | Every operator act's `by` from `Conn::actor`, with a test per act. **Done 2026-10-05**, in push2's session (theseus-cny7; Part III Item 172): `profile.use` and `session.recompile` were the acts left; `turn.submit`'s author still falls back to the label, a step of its own | cny7 | 1 | C2; `push2` merged (both near `rpc/server.rs`) |
@@ -225,21 +225,21 @@ merges when it is reviewed. Weight: **H** is a Rust build, **L** a web or light 
 | Lane | Steps, in order | Depends on | Joins | Slots | W |
 |---|---|---|---|---|---|
 | **telemetry2** (core's `telemetry/`) | re-read each issue against C2's recorder → a failed turn's spend (b85w) → each call's first token, and `error.type` (8u02, lmhp) → a failed tool span's ERROR status (iu3a) → a resumed call's run and a late result timed and counted once (8pei). **Done 2026-10-05** (b85w, 8u02 and iu3a on 2026-10-03, Part III Item 67; lmhp, Item 178; 8pei, Item 180) | C2. 8pei rebases over V3 if it needs `turn.rs` | merges | 2.5 | H |
-| **tokens2** (core's `compiler.rs`, `provider.rs`'s `Census`, `catalog.rs`) | Haiku's figures and Sonnet 5.5's cache minimum (c5ba, o388) → a recompile's density (vj9q) → dense tool output, measured first (p171) → Z.ai's overflow (kucs) | the caching docs and Z.ai's error codes, fetched by Tabitha | merges, before V7 | 4 | H |
+| **tokens2** (core's `compiler.rs`, `provider.rs`'s `Census`, `catalog.rs`) | Haiku's figures and Sonnet 5.5's cache minimum (c5ba, o388) → a recompile's density (vj9q) → dense tool output, measured first (p171) → Z.ai's overflow (kucs) | the caching docs and Z.ai's error codes, fetched by Tabitha/Claude | merges, before V7 | 4 | H |
 | **sim2** (`crates/theseus-sim`) | kernel-sim drives `/stop`, scheduled wakes, and report wakes → crashes around the outbox's transitions | v1 | merges, before V7 | 2 | H |
 | **web2** (`web/`, `cockpit/`) | a Stop control (nkt) → the estimate's panel (kdkv) → Approve only where the web may answer (step 2b's gap) → the rest of the polls follow the push, with V1's `after` (7ovb) | V1, V2 | V11 | 3.5 | L |
-| **tui2** (`crates/theseus-tui`) | older pages at the pane's top, with V1's `before` (kym3) → another surface's message in its place (v6yc) | V1, V2 | merges | 2 | H |
+| **tui2** (`crates/theseus-tui`) | older pages at the pane's top, with V1's `before` (kym3) → another surface's message in its place (v6yc) (v6yc **done 2026-10-06** in smalls, Part III Item 195; kym3's older pages remain) | V1, V2 | merges | 2 | H |
 | **push2** (core's `bus.rs`, `rpc/server.rs`) | one serialization per notification, shared by every watcher (S6). **Done 2026-10-05** (theseus-celu.36; Part III Item 172) | v1 | merges, before V8 | 1 | H |
 | **tools2** (`crates/theseus-tools`) | `fs.patch` recounts a hunk's header from its body (inw). **Done 2026-10-05**, in the proc-steps session (theseus-inw; Part III Item 175) | — | merges | 1 | H |
-| **discord2** (`crates/theseus-discord`, and `Core`'s side of the port) | the bindings file read live (ocwt) → the lane maps bounded (Item 6) → C5's `BindingPort`, last | C5: right before 44b, wherever 44b lands | merges | 3.5 | H |
-| **reader** (core's `tests_registry`) | g7qp's two cheap closures | — | merges | 1 | H |
-| **cli** (`crates/theseus`, never `main.rs`) | `watch` ends its line (1n2l: two goldens change by one newline) → a remembered pin (d5oc: a pane token, the smallest of its three options) → stretch: the herdr plugin (pkaq) | pkaq: Eddie's herdr (§6) | merges | 0.75, + 1 stretch | H |
+| **discord2** (`crates/theseus-discord`, and `Core`'s side of the port) | the bindings file read live (ocwt) → the lane maps bounded (Item 6) → C5's `BindingPort`, last. **The first two done 2026-10-06** (theseus-ocwt, theseus-celu.37; Part III Item 207); C5's `BindingPort` is left | C5: right before 44b, wherever 44b lands | merges | 3.5 | H |
+| **reader** (core's `tests_registry`) | g7qp's two cheap closures. **Done 2026-10-05** (theseus-g7qp holes 2 and 4, with theseus-t7ra; Part III Item 182) | — | merges | 1 | H |
+| **cli** (`crates/theseus`, never `main.rs`) | `watch` ends its line (1n2l: two goldens change by one newline) → a remembered pin (d5oc: a pane token, the smallest of its three options) → stretch: the herdr plugin (pkaq) | pkaq: the owner's herdr (§6) | merges | 0.75, + 1 stretch | H |
 | **tests2** (`crates/theseusd/tests`) | C7's shared rig, and the daemon's test files moved onto it | `discord2` merged, or rebased over its tests | merges | 2 | H |
 | **hygiene** (`theseus-sim`'s bench, the dependency tree, `deny.toml`) | zay1, then 4htx's count, then cox0's check | bench2 merged (it owns the bench and `gate.sh`); a `gate.sh` line rides V11 | V11, if `gate.sh` changes | 1 | L |
 
 - **If 44b (the voice wire-in, roadmap-v2's row 77) lands in v1,** C5 goes with it there, and `discord2` shrinks to
   1.5 slots.
-- **sim2 is a proof point.** If Tabitha wants it before v1, it fits beside the spine now: it touches only
+- **sim2 is a proof point.** If Tabitha/Claude wants it before v1, it fits beside the spine now: it touches only
   `theseus-sim`.
 
 ## 4. The week, day by day
@@ -258,7 +258,7 @@ Agent-hours use roadmap-v2's rates: 1.3 to 1.55 a spine slot with its review, an
 | **Total** | **16.5** | **24.25** | **about 58 to 62** |
 
 - **At most three heavy lanes and one light lane at once,** beside the spine, as roadmap-v2 measured the machine
-  (memory binds first, then Tabitha's review).
+  (memory binds first, then Tabitha/Claude's review).
 - **Review:** about 6 hours of spine reviews (30 minutes a step) and 6 of lane reviews (15 minutes a step, about 25
   steps): under 2 hours a day.
 - **The reserve.** Days 6 and 7 leave about 5 agent-hours. What the soak files, and what the v1 lanes file as
@@ -280,13 +280,13 @@ without its issue sends the issue to v1.1's reserve.
 | 646 | row 51 (29b's wire-in), or 29c | The issue: "fold into row 51's wire-in or 29c" |
 | w6b | row 72 (41b) | The issue: "decide at 41b" |
 | 3fjv | row 58 (32a's wire-in) | FSRS's parameters become configurable there |
-| b9l4 | before row 58 | Which same-day rule FSRS keeps matters once `+retention` runs. It needs the FSRS wiki and a second scheduler's code, which Tabitha fetches |
+| b9l4 | before row 58 | Which same-day rule FSRS keeps matters once `+retention` runs. It needs the FSRS wiki and a second scheduler's code, which Tabitha/Claude fetches |
 | 7zm | row 49 (28b) | The issue: measure "when categorize.v1 is wired" |
 | 0pd | row 37 (23a), or later | The issue: "at 23a or later", and low priority while Jev's tables are small |
 
-### Eddie's, and part of it is due before v1
+### The owner's, and part of it is due before v1
 
-- **2r70**, Review 2's operational changes. None is code, and each touches Eddie's own setup: his daemon under the
+- **2r70**, Review 2's operational changes. None is code, and each touches the owner's own setup: his daemon under the
   user unit, the `[approval]` lines in his config, and the builder under `--separate` before it works unattended.
   The `[approval]` paste is due before his daemon restarts onto a build with hardening2's fail-closed default, or his
   web UI's approvals are refused (the issue's note, 23:25). That is v1's business, not v1.1's.
@@ -321,7 +321,7 @@ trigger fires; the design is its record until then.
 
 | Item | Source | Its trigger |
 |---|---|---|
-| A Discord `/queue` of what needs Eddie, with buttons | stage2 §5 question 15, and §6 | The soak shows he answers from Discord, not the TUI or the web |
+| A Discord `/queue` of what needs the owner, with buttons | stage2 §5 question 15, and §6 | The soak shows he answers from Discord, not the TUI or the web |
 | MCP servers started on first use | M7 §5 question 7, and §6 | A server's RSS against §9's 1 GB |
 | Per-client MCP tokens | M7 §6 | A second MCP client |
 | Role grants and per-author executions | M7 §6 | A place with several people in it |
@@ -330,7 +330,7 @@ trigger fires; the design is its record until then.
 | A task's mechanical veto, and repeating wakes in tasks | M7 §5 questions 13 and 11 | After the task graph (rows 70 and 71) |
 | L1's looser posture, scratch promotion, `rw_paths`, the job host's queue, ad hoc `op://` fetches, CPU limits | M4 §5 questions 1, 8, 12, 13, and 14, and §6 | M4 in daily use |
 | Pack overrides from the state dir, the confirm band asking a person, JUDGE_STOP live in conversations, Jev choosing the persona | M5 §5 questions 10, 13, 8, and 5 | M5's prove, on the soak's data |
-| The AWS design's open questions (where the hard limits live, the NAT, the monthly amount) | AWS §6 | Eddie, as roadmap-v2 §7 has them |
+| The AWS design's open questions (where the hard limits live, the NAT, the monthly amount) | AWS §6 | The owner, as roadmap-v2 §7 has them |
 
 ### Known gaps left as they are
 
@@ -356,12 +356,12 @@ and the web's Approve buttons):
 
 - **"Linux only. One daily user so far."** No issue asks for another platform, and the soak is the daily use.
 - **"A stop that lands earlier, while a job still waits for its secrets ... A fix is in progress."** That fix is
-  36to, now closed. The line is stale, for Tabitha's next docs commit. A different early stop, hmwv, is in lane
+  36to, now closed. The line is stale, for Tabitha/Claude's next docs commit. A different early stop, hmwv, is in lane
   `security3`.
 - **The memory target** (10,000 parked and 50 active sessions in under 1 GB) is lane `perf1`'s proof point, before
   v1.
 
-## 6. What v1.1 needs from Eddie
+## 6. What v1.1 needs from the owner
 
 Nothing blocks the week: each item has a default.
 
@@ -417,12 +417,12 @@ that end by closing their issue.
 | p171 | Dense tool output as a class | `tokens2` |
 | a6be | `NodeInfo.detail` typed | V2 |
 | obmo | The reader rule and config keys | §5: recommend closing |
-| g7qp | The reader rule's four open spellings | `reader` (two of them) |
+| g7qp | The reader rule's four open spellings; two closed 2026-10-05 (Part III Item 182) | `reader` (two of them) |
 | kucs | Z.ai's word for a prompt past the window | `tokens2` |
 | 7ovb | What still polls in the web apps | `web2` |
 | 2xep | `execution.queued` for a completion | V3 |
 | 1n2l | `theseus watch`'s last line | `cli` |
-| 2r70 | Review 2's operational changes, with Eddie | §5: Eddie's, before v1 |
+| 2r70 | Review 2's operational changes, with the owner | §5: the owner's, before v1 |
 | glyw | Short node ids for `theseus reach` | V1 |
 | ug9i | A directory's guide, named on first touch | V13 (stretch) |
 | kym3 | The TUI's older history | V1 and `tui2` |
@@ -435,7 +435,7 @@ that end by closing their issue.
 
 ### Review 2's deferred items
 
-| Item | Eddie's answer (19:54) | Where |
+| Item | The owner's answer (19:54) | Where |
 |---|---|---|
 | C5, the binding's port seam | Deferred until the voice binding needs it | `discord2`, last; with 44b if 44b lands in v1 |
 | C7, the shared rig and the split of `tests_m3.rs` | Deferred; C7's lighter half (gate phase timings, a flaky-test list) went to bench2 | `tests2` and V12 |

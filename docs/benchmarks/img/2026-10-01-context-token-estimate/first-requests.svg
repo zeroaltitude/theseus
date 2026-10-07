@@ -1,0 +1,88 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="398" viewBox="0 0 720 398" role="img" aria-labelledby="t-first-requests t-first-requests-d" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
+<title id="t-first-requests">Each first request's estimate, as a share of the provider's count</title>
+<desc id="t-first-requests-d">How far below the provider's count did chars/4 read Theseus's first requests, and where does the shipped estimate land?</desc>
+<rect width="720" height="398" rx="8" fill="#fcfcfb" stroke="#e6e5df"/>
+<text x="18.0" y="32.0" font-size="15" fill="#0b0b0b" font-weight="600">Each first request's estimate, as a share of the provider's count</text>
+<circle cx="25.0" cy="50.0" r="5" fill="#88b3e7"/>
+<text x="40.0" y="54.0" font-size="12" fill="#52514e">chars/4 (before)</text>
+<circle cx="162.0" cy="50.0" r="5" fill="#2a78d6"/>
+<text x="177.0" y="54.0" font-size="12" fill="#52514e">the shipped estimate</text>
+<line x1="292.3" y1="76.0" x2="292.3" y2="304.0" stroke="#e1e0d9" stroke-width="1"/>
+<line x1="361.9" y1="76.0" x2="361.9" y2="304.0" stroke="#e1e0d9" stroke-width="1"/>
+<line x1="431.5" y1="76.0" x2="431.5" y2="304.0" stroke="#e1e0d9" stroke-width="1"/>
+<line x1="501.1" y1="76.0" x2="501.1" y2="304.0" stroke="#e1e0d9" stroke-width="1"/>
+<line x1="570.8" y1="76.0" x2="570.8" y2="304.0" stroke="#e1e0d9" stroke-width="1"/>
+<text x="278.3" y="94.0" font-size="12" fill="#0b0b0b" text-anchor="end">Sonnet 5.5 · tools + small context</text>
+<g><title>Sonnet 5.5 · tools + small context: 65.6% → 104.3% (Sonnet 5.5, tools + small context: the provider counted 5,248; chars/4 said 3,444 (65.6%), the shipped estimate 5,473 (+4.3%))</title>
+<line x1="311.9" y1="90.0" x2="446.5" y2="90.0" stroke="#88b3e7" stroke-width="3" stroke-linecap="round"/>
+<circle cx="311.9" cy="90.0" r="5" fill="#88b3e7" stroke="#fcfcfb" stroke-width="2"/>
+<circle cx="446.5" cy="90.0" r="12" fill="transparent"/>
+<circle cx="446.5" cy="90.0" r="5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<text x="602.2" y="94.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">65.6% → 104.3%</text>
+<text x="278.3" y="122.0" font-size="12" fill="#0b0b0b" text-anchor="end">Sonnet 5.5 · tools + 6.5 KB of prose</text>
+<g><title>Sonnet 5.5 · tools + 6.5 KB of prose: 70.6% → 103.5% (Sonnet 5.5, tools + 6.5 KB of prose: the provider counted 7,208; chars/4 said 5,090 (70.6%), the shipped estimate 7,461 (+3.5%))</title>
+<line x1="329.3" y1="118.0" x2="443.7" y2="118.0" stroke="#88b3e7" stroke-width="3" stroke-linecap="round"/>
+<circle cx="329.3" cy="118.0" r="5" fill="#88b3e7" stroke="#fcfcfb" stroke-width="2"/>
+<circle cx="443.7" cy="118.0" r="12" fill="transparent"/>
+<circle cx="443.7" cy="118.0" r="5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<text x="602.2" y="122.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">70.6% → 103.5%</text>
+<text x="278.3" y="150.0" font-size="12" fill="#0b0b0b" text-anchor="end">Sonnet 5.5 · tools, a tool loop's first call</text>
+<g><title>Sonnet 5.5 · tools, a tool loop's first call: 65.6% → 104.2% (Sonnet 5.5, tools, a tool loop's first call: the provider counted 5,265; chars/4 said 3,456 (65.6%), the shipped estimate 5,487 (+4.2%))</title>
+<line x1="311.9" y1="146.0" x2="446.2" y2="146.0" stroke="#88b3e7" stroke-width="3" stroke-linecap="round"/>
+<circle cx="311.9" cy="146.0" r="5" fill="#88b3e7" stroke="#fcfcfb" stroke-width="2"/>
+<circle cx="446.2" cy="146.0" r="12" fill="transparent"/>
+<circle cx="446.2" cy="146.0" r="5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<text x="602.2" y="150.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">65.6% → 104.2%</text>
+<text x="278.3" y="178.0" font-size="12" fill="#0b0b0b" text-anchor="end">Sonnet 5.5 · no tools</text>
+<g><title>Sonnet 5.5 · no tools: 89.7% → 93.5% (Sonnet 5.5, no tools: the provider counted 155; chars/4 said 139 (89.7%), the shipped estimate 145 (-6.5%))</title>
+<line x1="395.6" y1="174.0" x2="409.1" y2="174.0" stroke="#88b3e7" stroke-width="3" stroke-linecap="round"/>
+<circle cx="395.6" cy="174.0" r="5" fill="#88b3e7" stroke="#fcfcfb" stroke-width="2"/>
+<circle cx="409.1" cy="174.0" r="12" fill="transparent"/>
+<circle cx="409.1" cy="174.0" r="5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<text x="602.2" y="178.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">89.7% → 93.5%</text>
+<text x="278.3" y="206.0" font-size="12" fill="#0b0b0b" text-anchor="end">GLM-5.3 Flash · tools + small context</text>
+<g><title>GLM-5.3 Flash · tools + small context: 97.4% → 101.9% (GLM-5.3 Flash, tools + small context: the provider counted 3,537; chars/4 said 3,444 (97.4%), the shipped estimate 3,605 (+1.9%))</title>
+<line x1="422.4" y1="202.0" x2="438.2" y2="202.0" stroke="#88b3e7" stroke-width="3" stroke-linecap="round"/>
+<circle cx="422.4" cy="202.0" r="5" fill="#88b3e7" stroke="#fcfcfb" stroke-width="2"/>
+<circle cx="438.2" cy="202.0" r="12" fill="transparent"/>
+<circle cx="438.2" cy="202.0" r="5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<text x="602.2" y="206.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">97.4% → 101.9%</text>
+<text x="278.3" y="234.0" font-size="12" fill="#0b0b0b" text-anchor="end">GLM-5.3 Flash · tools + 6.5 KB of prose</text>
+<g><title>GLM-5.3 Flash · tools + 6.5 KB of prose: 102.2% → 102.3% (GLM-5.3 Flash, tools + 6.5 KB of prose: the provider counted 4,983; chars/4 said 5,090 (102.2%), the shipped estimate 5,096 (+2.3%))</title>
+<line x1="439.0" y1="230.0" x2="439.4" y2="230.0" stroke="#88b3e7" stroke-width="3" stroke-linecap="round"/>
+<circle cx="439.0" cy="230.0" r="5" fill="#88b3e7" stroke="#fcfcfb" stroke-width="2"/>
+<circle cx="439.4" cy="230.0" r="12" fill="transparent"/>
+<circle cx="439.4" cy="230.0" r="5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<text x="602.2" y="234.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">102.2% → 102.3%</text>
+<text x="278.3" y="262.0" font-size="12" fill="#0b0b0b" text-anchor="end">GLM-5.3 Flash · tools, a tool loop's first call</text>
+<g><title>GLM-5.3 Flash · tools, a tool loop's first call: 97.4% → 101.9% (GLM-5.3 Flash, tools, a tool loop's first call: the provider counted 3,548; chars/4 said 3,456 (97.4%), the shipped estimate 3,615 (+1.9%))</title>
+<line x1="422.5" y1="258.0" x2="438.1" y2="258.0" stroke="#88b3e7" stroke-width="3" stroke-linecap="round"/>
+<circle cx="422.5" cy="258.0" r="5" fill="#88b3e7" stroke="#fcfcfb" stroke-width="2"/>
+<circle cx="438.1" cy="258.0" r="12" fill="transparent"/>
+<circle cx="438.1" cy="258.0" r="5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<text x="602.2" y="262.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">97.4% → 101.9%</text>
+<text x="278.3" y="290.0" font-size="12" fill="#0b0b0b" text-anchor="end">GLM-5.3 Flash · no tools</text>
+<g><title>GLM-5.3 Flash · no tools: 140.2% → 99.1% (GLM-5.3 Flash, no tools: the provider counted 112; chars/4 said 157 (140.2%), the shipped estimate 111 (-0.9%))</title>
+<line x1="571.4" y1="286.0" x2="428.4" y2="286.0" stroke="#88b3e7" stroke-width="3" stroke-linecap="round"/>
+<circle cx="571.4" cy="286.0" r="5" fill="#88b3e7" stroke="#fcfcfb" stroke-width="2"/>
+<circle cx="428.4" cy="286.0" r="12" fill="transparent"/>
+<circle cx="428.4" cy="286.0" r="5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<text x="602.2" y="290.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">140.2% → 99.1%</text>
+<text x="292.3" y="320.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">60%</text>
+<text x="361.9" y="320.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">80%</text>
+<text x="431.5" y="320.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">100%</text>
+<text x="501.1" y="320.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">120%</text>
+<text x="570.8" y="320.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">140%</text>
+<line x1="292.3" y1="304.0" x2="588.2" y2="304.0" stroke="#c3c2b7" stroke-width="1"/>
+<text x="440.2" y="338.0" font-size="12" fill="#52514e" text-anchor="middle">estimate ÷ the provider's count</text>
+<text x="18.0" y="360.0" font-size="11" fill="#52514e">8 first requests: the release check of 042ff07 (6) and the lane check's no-tools pair (recomputed with the shipped figures).</text>
+<text x="18.0" y="375.0" font-size="11" fill="#52514e">100% is the provider's own count.</text>
+</svg>

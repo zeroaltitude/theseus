@@ -1,0 +1,136 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="560" viewBox="0 0 720 560" role="img" aria-labelledby="t-latency t-latency-d" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
+<title id="t-latency">Time to embed one chunk, f32, batch 1: candle 0.11 and tract 0.23.8</title>
+<desc id="t-latency-d">Which engine embeds a chunk faster, on the one thread the design budgets?</desc>
+<rect width="720" height="560" rx="8" fill="#fcfcfb" stroke="#e6e5df"/>
+<text x="18.0" y="32.0" font-size="15" fill="#0b0b0b" font-weight="600">Time to embed one chunk, f32, batch 1: candle 0.11 and tract 0.23.8</text>
+<circle cx="25.0" cy="50.0" r="5" fill="#008300"/>
+<text x="40.0" y="54.0" font-size="12" fill="#52514e">candle 0.11</text>
+<circle cx="135.0" cy="50.0" r="5" fill="#898781"/>
+<text x="150.0" y="54.0" font-size="12" fill="#52514e">tract 0.23.8</text>
+<line x1="149.9" y1="72.0" x2="149.9" y2="466.0" stroke="#e1e0d9" stroke-width="1"/>
+<line x1="212.3" y1="72.0" x2="212.3" y2="466.0" stroke="#e1e0d9" stroke-width="1"/>
+<line x1="274.6" y1="72.0" x2="274.6" y2="466.0" stroke="#e1e0d9" stroke-width="1"/>
+<line x1="356.9" y1="72.0" x2="356.9" y2="466.0" stroke="#e1e0d9" stroke-width="1"/>
+<line x1="419.2" y1="72.0" x2="419.2" y2="466.0" stroke="#e1e0d9" stroke-width="1"/>
+<line x1="481.5" y1="72.0" x2="481.5" y2="466.0" stroke="#e1e0d9" stroke-width="1"/>
+<text x="18.0" y="89.0" font-size="12" fill="#0b0b0b" stroke="#fcfcfb" stroke-width="3" stroke-linejoin="round" paint-order="stroke" font-weight="600">1 thread</text>
+<text x="18.0" y="285.0" font-size="12" fill="#0b0b0b" stroke="#fcfcfb" stroke-width="3" stroke-linejoin="round" paint-order="stroke" font-weight="600">4 threads</text>
+<text x="135.9" y="116.0" font-size="12" fill="#0b0b0b" text-anchor="end">16 tokens · candle</text>
+<g><title>16 tokens · candle: 91.2 ms  [87.1 ms, 98.1 ms] (candle, 1 thread, 16 tokens: median 91 ms (fastest 87, p95 98; 10 runs); repeat pass 87 ms)</title>
+<line x1="199.8" y1="112.0" x2="210.5" y2="112.0" stroke="#008300" stroke-width="2" stroke-linecap="round"/>
+<line x1="199.8" y1="107.0" x2="199.8" y2="117.0" stroke="#008300" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="210.5" y1="107.0" x2="210.5" y2="117.0" stroke="#008300" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="204.0" cy="112.0" r="12" fill="transparent"/>
+<circle cx="204.0" cy="112.0" r="5" fill="#008300" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<text x="532.0" y="116.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">91.2 ms  [87.1 ms, 98.1 ms]</text>
+<text x="135.9" y="144.0" font-size="12" fill="#0b0b0b" text-anchor="end">16 tokens · tract</text>
+<g><title>16 tokens · tract: 86 ms  [82.4 ms, 89.4 ms] (tract, 1 thread, 16 tokens: median 86 ms (fastest 82, p95 89; 10 runs); repeat pass 84 ms)</title>
+<line x1="194.9" y1="140.0" x2="202.2" y2="140.0" stroke="#898781" stroke-width="2" stroke-linecap="round"/>
+<line x1="194.9" y1="135.0" x2="194.9" y2="145.0" stroke="#898781" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="202.2" y1="135.0" x2="202.2" y2="145.0" stroke="#898781" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="198.7" cy="140.0" r="12" fill="transparent"/>
+<circle cx="198.7" cy="140.0" r="5" fill="#898781" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<text x="532.0" y="144.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">86 ms  [82.4 ms, 89.4 ms]</text>
+<text x="135.9" y="172.0" font-size="12" fill="#0b0b0b" text-anchor="end">128 tokens · candle</text>
+<g><title>128 tokens · candle: 364 ms  [352 ms, 382 ms] (candle, 1 thread, 128 tokens: median 364 ms (fastest 352, p95 382; 10 runs); repeat pass 351 ms)</title>
+<line x1="325.5" y1="168.0" x2="332.8" y2="168.0" stroke="#008300" stroke-width="2" stroke-linecap="round"/>
+<line x1="325.5" y1="163.0" x2="325.5" y2="173.0" stroke="#008300" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="332.8" y1="163.0" x2="332.8" y2="173.0" stroke="#008300" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="328.4" cy="168.0" r="12" fill="transparent"/>
+<circle cx="328.4" cy="168.0" r="5" fill="#008300" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<text x="532.0" y="172.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">364 ms  [352 ms, 382 ms]</text>
+<text x="135.9" y="200.0" font-size="12" fill="#0b0b0b" text-anchor="end">128 tokens · tract</text>
+<g><title>128 tokens · tract: 461 ms  [448 ms, 488 ms] (tract, 1 thread, 128 tokens: median 461 ms (fastest 448, p95 488; 10 runs); repeat pass 491 ms)</title>
+<line x1="347.2" y1="196.0" x2="354.7" y2="196.0" stroke="#898781" stroke-width="2" stroke-linecap="round"/>
+<line x1="347.2" y1="191.0" x2="347.2" y2="201.0" stroke="#898781" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="354.7" y1="191.0" x2="354.7" y2="201.0" stroke="#898781" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="349.6" cy="196.0" r="12" fill="transparent"/>
+<circle cx="349.6" cy="196.0" r="5" fill="#898781" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<text x="532.0" y="200.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">461 ms  [448 ms, 488 ms]</text>
+<text x="135.9" y="228.0" font-size="12" fill="#0b0b0b" text-anchor="end">512 tokens · candle</text>
+<g><title>512 tokens · candle: 1,642 ms  [1,607 ms, 1,813 ms] (candle, 1 thread, 512 tokens: median 1642 ms (fastest 1607, p95 1813; 10 runs); repeat pass 1606 ms)</title>
+<line x1="461.9" y1="224.0" x2="472.7" y2="224.0" stroke="#008300" stroke-width="2" stroke-linecap="round"/>
+<line x1="461.9" y1="219.0" x2="461.9" y2="229.0" stroke="#008300" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="472.7" y1="219.0" x2="472.7" y2="229.0" stroke="#008300" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="463.8" cy="224.0" r="12" fill="transparent"/>
+<circle cx="463.8" cy="224.0" r="5" fill="#008300" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<text x="532.0" y="228.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">1,642 ms  [1,607 ms, 1,813 ms]</text>
+<text x="135.9" y="256.0" font-size="12" fill="#0b0b0b" text-anchor="end">512 tokens · tract</text>
+<g><title>512 tokens · tract: 2,343 ms  [2,270 ms, 2,433 ms] (tract, 1 thread, 512 tokens: median 2343 ms (fastest 2270, p95 2433; 10 runs); repeat pass 2285 ms)</title>
+<line x1="492.9" y1="252.0" x2="499.2" y2="252.0" stroke="#898781" stroke-width="2" stroke-linecap="round"/>
+<line x1="492.9" y1="247.0" x2="492.9" y2="257.0" stroke="#898781" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="499.2" y1="247.0" x2="499.2" y2="257.0" stroke="#898781" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="495.8" cy="252.0" r="12" fill="transparent"/>
+<circle cx="495.8" cy="252.0" r="5" fill="#898781" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<text x="532.0" y="256.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">2,343 ms  [2,270 ms, 2,433 ms]</text>
+<text x="135.9" y="312.0" font-size="12" fill="#0b0b0b" text-anchor="end">16 tokens · candle</text>
+<g><title>16 tokens · candle: 82.2 ms  [76.4 ms, 91.4 ms] (candle, 4 threads, 16 tokens: median 82 ms (fastest 76, p95 91; 10 runs); repeat pass 69 ms)</title>
+<line x1="188.1" y1="308.0" x2="204.2" y2="308.0" stroke="#008300" stroke-width="2" stroke-linecap="round"/>
+<line x1="188.1" y1="303.0" x2="188.1" y2="313.0" stroke="#008300" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="204.2" y1="303.0" x2="204.2" y2="313.0" stroke="#008300" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="194.6" cy="308.0" r="12" fill="transparent"/>
+<circle cx="194.6" cy="308.0" r="5" fill="#008300" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<text x="532.0" y="312.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">82.2 ms  [76.4 ms, 91.4 ms]</text>
+<text x="135.9" y="340.0" font-size="12" fill="#0b0b0b" text-anchor="end">16 tokens · tract</text>
+<g><title>16 tokens · tract: 70.7 ms  [66.5 ms, 74.7 ms] (tract, 4 threads, 16 tokens: median 71 ms (fastest 67, p95 75; 10 runs); repeat pass 51 ms)</title>
+<line x1="175.6" y1="336.0" x2="186.0" y2="336.0" stroke="#898781" stroke-width="2" stroke-linecap="round"/>
+<line x1="175.6" y1="331.0" x2="175.6" y2="341.0" stroke="#898781" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="186.0" y1="331.0" x2="186.0" y2="341.0" stroke="#898781" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="181.1" cy="336.0" r="12" fill="transparent"/>
+<circle cx="181.1" cy="336.0" r="5" fill="#898781" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<text x="532.0" y="340.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">70.7 ms  [66.5 ms, 74.7 ms]</text>
+<text x="135.9" y="368.0" font-size="12" fill="#0b0b0b" text-anchor="end">128 tokens · candle</text>
+<g><title>128 tokens · candle: 224 ms  [217 ms, 236 ms] (candle, 4 threads, 128 tokens: median 224 ms (fastest 217, p95 236; 10 runs); repeat pass 215 ms)</title>
+<line x1="282.1" y1="364.0" x2="289.6" y2="364.0" stroke="#008300" stroke-width="2" stroke-linecap="round"/>
+<line x1="282.1" y1="359.0" x2="282.1" y2="369.0" stroke="#008300" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="289.6" y1="359.0" x2="289.6" y2="369.0" stroke="#008300" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="284.9" cy="364.0" r="12" fill="transparent"/>
+<circle cx="284.9" cy="364.0" r="5" fill="#008300" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<text x="532.0" y="368.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">224 ms  [217 ms, 236 ms]</text>
+<text x="135.9" y="396.0" font-size="12" fill="#0b0b0b" text-anchor="end">128 tokens · tract</text>
+<g><title>128 tokens · tract: 268 ms  [235 ms, 410 ms] (tract, 4 threads, 128 tokens: median 268 ms (fastest 235, p95 410; 10 runs); repeat pass 217 ms)</title>
+<line x1="289.0" y1="392.0" x2="339.2" y2="392.0" stroke="#898781" stroke-width="2" stroke-linecap="round"/>
+<line x1="289.0" y1="387.0" x2="289.0" y2="397.0" stroke="#898781" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="339.2" y1="387.0" x2="339.2" y2="397.0" stroke="#898781" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="300.9" cy="392.0" r="12" fill="transparent"/>
+<circle cx="300.9" cy="392.0" r="5" fill="#898781" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<text x="532.0" y="396.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">268 ms  [235 ms, 410 ms]</text>
+<text x="135.9" y="424.0" font-size="12" fill="#0b0b0b" text-anchor="end">512 tokens · candle</text>
+<g><title>512 tokens · candle: 1,013 ms  [850 ms, 1,098 ms] (candle, 4 threads, 512 tokens: median 1013 ms (fastest 850, p95 1098; 10 runs); repeat pass 755 ms)</title>
+<line x1="404.6" y1="420.0" x2="427.7" y2="420.0" stroke="#008300" stroke-width="2" stroke-linecap="round"/>
+<line x1="404.6" y1="415.0" x2="404.6" y2="425.0" stroke="#008300" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="427.7" y1="415.0" x2="427.7" y2="425.0" stroke="#008300" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="420.4" cy="420.0" r="12" fill="transparent"/>
+<circle cx="420.4" cy="420.0" r="5" fill="#008300" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<text x="532.0" y="424.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">1,013 ms  [850 ms, 1,098 ms]</text>
+<text x="135.9" y="452.0" font-size="12" fill="#0b0b0b" text-anchor="end">512 tokens · tract</text>
+<g><title>512 tokens · tract: 1,152 ms  [877 ms, 1,311 ms] (tract, 4 threads, 512 tokens: median 1152 ms (fastest 877, p95 1311; 10 runs); repeat pass 867 ms)</title>
+<line x1="407.4" y1="448.0" x2="443.6" y2="448.0" stroke="#898781" stroke-width="2" stroke-linecap="round"/>
+<line x1="407.4" y1="443.0" x2="407.4" y2="453.0" stroke="#898781" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="443.6" y1="443.0" x2="443.6" y2="453.0" stroke="#898781" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="432.0" cy="448.0" r="12" fill="transparent"/>
+<circle cx="432.0" cy="448.0" r="5" fill="#898781" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<text x="532.0" y="452.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">1,152 ms  [877 ms, 1,311 ms]</text>
+<line x1="149.9" y1="466.0" x2="518.0" y2="466.0" stroke="#c3c2b7" stroke-width="1"/>
+<text x="149.9" y="482.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">50</text>
+<text x="212.3" y="482.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">100</text>
+<text x="274.6" y="482.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">200</text>
+<text x="356.9" y="482.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">500</text>
+<text x="419.2" y="482.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">1,000</text>
+<text x="481.5" y="482.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">2,000</text>
+<text x="334.0" y="500.0" font-size="12" fill="#52514e" text-anchor="middle">ms per chunk (log scale)</text>
+<text x="18.0" y="522.0" font-size="11" fill="#52514e">Static musl release builds; the median of 10 timed runs after 2 warm-ups, whiskers fastest to p95. A shared i5-12600K</text>
+<text x="18.0" y="537.0" font-size="11" fill="#52514e">under WSL2 (load 2 to 4).</text>
+</svg>

@@ -1,0 +1,440 @@
+{
+ "report": "2026-10-06-async-smokes",
+ "title": "Async: the async bench's smokes, before its first full run",
+ "suite": "async (bench/async, six local Harbor task families)",
+ "date": "2026-10-06",
+ "commit": "079f1db (Theseus's binaries in every model trial); the harness code at each review's commit",
+ "arms": [
+  {
+   "key": "theseus",
+   "label": "Theseus (TheseusAsync)"
+  },
+  {
+   "key": "claude-code",
+   "label": "Claude Code 2.1.288 (ClaudeCodeAsync)"
+  },
+  {
+   "key": "oracle",
+   "label": "the oracle (each family's own solution)"
+  }
+ ],
+ "summary": {
+  "smokes": [
+   {
+    "smoke": 1,
+    "review": "R11",
+    "date": "2026-10-05",
+    "window": "05:23 to 06:01",
+    "model_trials": 3,
+    "oracle_trials": 6,
+    "spend": 0.1019
+   },
+   {
+    "smoke": 2,
+    "review": "R16",
+    "date": "2026-10-05",
+    "window": "17:35 to 17:52",
+    "model_trials": 2,
+    "oracle_trials": 6,
+    "spend": 0.0889
+   },
+   {
+    "smoke": 3,
+    "review": "R25",
+    "date": "2026-10-06",
+    "window": "00:50 to 00:53",
+    "model_trials": 1,
+    "oracle_trials": 0,
+    "spend": 0.0359
+   },
+   {
+    "smoke": 4,
+    "review": "R35",
+    "date": "2026-10-06",
+    "window": "none",
+    "model_trials": 0,
+    "oracle_trials": 0,
+    "spend": 0.0
+   }
+  ],
+  "model_trials_spend": 0.2097,
+  "full_run_owed": {
+   "families": 6,
+   "arms": 2,
+   "attempts": 2,
+   "trials": 24,
+   "dollars_estimate": "about $1",
+   "wall_estimate": "30 to 60 minutes",
+   "waits_on": "a static build of today's main (bench/build.sh)"
+  }
+ },
+ "trials": [
+  {
+   "smoke": 1,
+   "review": "R11",
+   "started": "2026-10-05 05:29",
+   "arm": "theseus",
+   "family": "cancel",
+   "reward": 1,
+   "ended": "settled",
+   "exception": null,
+   "wall_s": 90.3,
+   "ideal_s": 18.4,
+   "over_ideal": 4.913,
+   "wait_tax_calls": 0,
+   "wait_tax_tokens": 0,
+   "responsiveness_s": 56.5,
+   "orphans": 0,
+   "duplicated_effects": 0,
+   "model_calls": 8,
+   "tool_calls": 5,
+   "dollars": 0.04233,
+   "inject_after_s": 18.5,
+   "harness_cpu_s": null,
+   "harness_rss_mib": null,
+   "sampled": false,
+   "scores_from": "recomputed"
+  },
+  {
+   "smoke": 1,
+   "review": "R11",
+   "started": "2026-10-05 05:29",
+   "arm": "theseus",
+   "family": "interrupt",
+   "reward": 1,
+   "ended": "settled",
+   "exception": null,
+   "wall_s": 187.4,
+   "ideal_s": 174.6,
+   "over_ideal": 1.073,
+   "wait_tax_calls": 5,
+   "wait_tax_tokens": 30771,
+   "responsiveness_s": 46.4,
+   "orphans": 0,
+   "duplicated_effects": 0,
+   "model_calls": 9,
+   "tool_calls": 5,
+   "dollars": 0.03197,
+   "inject_after_s": 22.8,
+   "harness_cpu_s": null,
+   "harness_rss_mib": null,
+   "sampled": false,
+   "scores_from": "recomputed"
+  },
+  {
+   "smoke": 1,
+   "review": "R11",
+   "started": "2026-10-05 05:35",
+   "arm": "claude-code",
+   "family": "interrupt",
+   "reward": 1,
+   "ended": "timeout",
+   "exception": "AgentTimeoutError",
+   "wall_s": 900.3,
+   "ideal_s": 161.9,
+   "over_ideal": 5.562,
+   "wait_tax_calls": 0,
+   "wait_tax_tokens": 0,
+   "responsiveness_s": 146.6,
+   "orphans": 0,
+   "duplicated_effects": 0,
+   "model_calls": 4,
+   "tool_calls": 3,
+   "dollars": 0.02765,
+   "inject_after_s": 23.0,
+   "harness_cpu_s": null,
+   "harness_rss_mib": null,
+   "sampled": false,
+   "scores_from": "recomputed"
+  },
+  {
+   "smoke": 2,
+   "review": "R16",
+   "started": "2026-10-05 17:35",
+   "arm": "theseus",
+   "family": "interrupt",
+   "reward": 1,
+   "ended": "settled",
+   "exception": null,
+   "wall_s": 319.5,
+   "ideal_s": 197.5,
+   "over_ideal": 1.618,
+   "wait_tax_calls": 8,
+   "wait_tax_tokens": 52687,
+   "responsiveness_s": 49.2,
+   "orphans": 0,
+   "duplicated_effects": 0,
+   "model_calls": 13,
+   "tool_calls": 8,
+   "dollars": 0.04413,
+   "inject_after_s": 25.5,
+   "harness_cpu_s": 0.56,
+   "harness_rss_mib": 27.48,
+   "sampled": true,
+   "scores_from": "the scorer's output kept with the records"
+  },
+  {
+   "smoke": 2,
+   "review": "R16",
+   "started": "2026-10-05 17:43",
+   "arm": "claude-code",
+   "family": "interrupt",
+   "reward": 1,
+   "ended": "settled",
+   "exception": null,
+   "wall_s": 191.9,
+   "ideal_s": 178.8,
+   "over_ideal": 1.073,
+   "wait_tax_calls": 0,
+   "wait_tax_tokens": 0,
+   "responsiveness_s": 162.8,
+   "orphans": 0,
+   "duplicated_effects": 0,
+   "model_calls": 4,
+   "tool_calls": 3,
+   "dollars": 0.02763,
+   "inject_after_s": 24.6,
+   "harness_cpu_s": 2.15,
+   "harness_rss_mib": 208.86,
+   "sampled": true,
+   "scores_from": "the scorer's output kept with the records"
+  },
+  {
+   "smoke": 3,
+   "review": "R25",
+   "started": "2026-10-06 00:50",
+   "arm": "theseus",
+   "family": "fanout",
+   "reward": 1,
+   "ended": "settled",
+   "exception": null,
+   "wall_s": 171.4,
+   "ideal_s": null,
+   "over_ideal": null,
+   "wait_tax_calls": null,
+   "wait_tax_tokens": null,
+   "responsiveness_s": null,
+   "orphans": null,
+   "duplicated_effects": null,
+   "model_calls": 7,
+   "tool_calls": 11,
+   "dollars": 0.03594,
+   "inject_after_s": null,
+   "harness_cpu_s": 0.33,
+   "harness_rss_mib": 24.37,
+   "sampled": true,
+   "scores_from": "the record only (its ledger was not kept)",
+   "billed_usd": 0.035941,
+   "cut_calls": 0,
+   "truncated": false
+  }
+ ],
+ "oracle": [
+  {
+   "smoke": 1,
+   "family": "cancel",
+   "reward": 1,
+   "wall_s": 0.9,
+   "ideal_s": null,
+   "over_ideal": null,
+   "orphans": 0,
+   "duplicated_effects": 0
+  },
+  {
+   "smoke": 1,
+   "family": "contention",
+   "reward": 1,
+   "wall_s": 37.7,
+   "ideal_s": 34.3,
+   "over_ideal": 1.101,
+   "orphans": 0,
+   "duplicated_effects": 0
+  },
+  {
+   "smoke": 1,
+   "family": "fanout",
+   "reward": 1,
+   "wall_s": 32.6,
+   "ideal_s": 31.5,
+   "over_ideal": 1.035,
+   "orphans": 0,
+   "duplicated_effects": 0
+  },
+  {
+   "smoke": 1,
+   "family": "interrupt",
+   "reward": 1,
+   "wall_s": 209.2,
+   "ideal_s": 208.6,
+   "over_ideal": 1.003,
+   "orphans": 0,
+   "duplicated_effects": 0
+  },
+  {
+   "smoke": 1,
+   "family": "parallel",
+   "reward": 1,
+   "wall_s": 42.9,
+   "ideal_s": 42.0,
+   "over_ideal": 1.022,
+   "orphans": 0,
+   "duplicated_effects": 0
+  },
+  {
+   "smoke": 1,
+   "family": "wait-tax",
+   "reward": 1,
+   "wall_s": 112.6,
+   "ideal_s": 112.1,
+   "over_ideal": 1.005,
+   "orphans": 0,
+   "duplicated_effects": 0
+  },
+  {
+   "smoke": 2,
+   "family": "cancel",
+   "reward": 1,
+   "wall_s": 1.2,
+   "ideal_s": null,
+   "over_ideal": null,
+   "orphans": null,
+   "duplicated_effects": null
+  },
+  {
+   "smoke": 2,
+   "family": "contention",
+   "reward": 1,
+   "wall_s": 34.2,
+   "ideal_s": null,
+   "over_ideal": null,
+   "orphans": null,
+   "duplicated_effects": null
+  },
+  {
+   "smoke": 2,
+   "family": "fanout",
+   "reward": 1,
+   "wall_s": 32.8,
+   "ideal_s": null,
+   "over_ideal": null,
+   "orphans": null,
+   "duplicated_effects": null
+  },
+  {
+   "smoke": 2,
+   "family": "interrupt",
+   "reward": 1,
+   "wall_s": 188.2,
+   "ideal_s": null,
+   "over_ideal": null,
+   "orphans": null,
+   "duplicated_effects": null
+  },
+  {
+   "smoke": 2,
+   "family": "parallel",
+   "reward": 1,
+   "wall_s": 43.2,
+   "ideal_s": null,
+   "over_ideal": null,
+   "orphans": null,
+   "duplicated_effects": null
+  },
+  {
+   "smoke": 2,
+   "family": "wait-tax",
+   "reward": 1,
+   "wall_s": 134.1,
+   "ideal_s": null,
+   "over_ideal": null,
+   "orphans": null,
+   "duplicated_effects": null
+  }
+ ],
+ "figures": [
+  {
+   "name": "responsiveness",
+   "form": "bars",
+   "orientation": "h",
+   "title": "From the second message to its answer in the ledger, one trial each",
+   "question": "How soon did each arm act on a message that arrived while it worked?",
+   "categories": [
+    "interrupt, smoke 1",
+    "interrupt, smoke 2",
+    "cancel, smoke 1"
+   ],
+   "series": [
+    {
+     "arm": "theseus",
+     "label": "Theseus (its daemon, 60 s before a command goes to the background)",
+     "values": [
+      46.4,
+      49.2,
+      56.5
+     ]
+    },
+    {
+     "arm": "claude-code",
+     "label": "Claude Code 2.1.288",
+     "values": [
+      146.6,
+      162.8,
+      null
+     ]
+    }
+   ],
+   "value": {
+    "label": "seconds",
+    "min": 0,
+    "format": "s"
+   },
+   "legend_labels": {
+    "theseus": "Theseus (its daemon, 60 s before a command goes to the background)",
+    "claude-code": "Claude Code 2.1.288"
+   },
+   "note": "interrupt: the ticket count's answer; cancel: the migration's first stop. Claude Code's cancel family was not run."
+  },
+  {
+   "name": "wait-tax",
+   "form": "bars",
+   "orientation": "h",
+   "title": "Model calls made while the slow job ran, one trial each",
+   "question": "Did an arm keep calling the model while its slow job ran?",
+   "categories": [
+    "interrupt, smoke 1",
+    "interrupt, smoke 2",
+    "cancel, smoke 1"
+   ],
+   "series": [
+    {
+     "arm": "theseus",
+     "label": "Theseus (its daemon, 60 s before a command goes to the background)",
+     "values": [
+      5,
+      8,
+      0
+     ]
+    },
+    {
+     "arm": "claude-code",
+     "label": "Claude Code 2.1.288",
+     "values": [
+      0,
+      0,
+      null
+     ]
+    }
+   ],
+   "value": {
+    "label": "model calls inside the slow job's window",
+    "min": 0,
+    "format": "int"
+   },
+   "legend_labels": {
+    "theseus": "Theseus (its daemon, 60 s before a command goes to the background)",
+    "claude-code": "Claude Code 2.1.288"
+   },
+   "note": "The slow job: train-model (interrupt), the migration (cancel). Theseus's calls from its ledger, Claude Code's from its trajectory."
+  }
+ ]
+}

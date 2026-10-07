@@ -236,7 +236,7 @@ mod tests {
     use super::*;
     use crate::config::Config;
 
-    /// A config with no `[voice]`, as Eddie's note has none until he pastes
+    /// A config with no `[voice]`, as the owner's note has none until he pastes
     /// one: voice is off, its key is no secret Theseus reads, and the
     /// section stays out of `theseusd config`.
     #[test]

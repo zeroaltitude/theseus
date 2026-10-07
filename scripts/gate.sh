@@ -283,7 +283,7 @@ lifecycle() {
 # (theseus-611s).
 #
 # Since 2026-10-03 the bar is three quarters of the cores (12 of 16), and
-# the wait 2 minutes (Eddie, 14:20: "Your pick is good"; theseus-lf1n). With
+# the wait 2 minutes (the owner, 14:20: "Your pick is good"; theseus-lf1n). With
 # the lanes' compilers no longer paused for the bench (theseus-lew7), the
 # strict misses cluster at loads of 12 to 16: at normal priority a phase
 # missed in 41 % of the runs at a load of 12 or more, against 10 % from 8 to

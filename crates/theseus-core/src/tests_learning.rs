@@ -1001,6 +1001,19 @@ async fn a_second_run_reads_only_what_can_still_change() {
     assert_eq!(read1.closed, 0);
     assert_eq!(first.labels.system_written as usize, OLD / 10);
     message_at(c, &open.session_id, "go on", turn_end(c, &open) + 60_000);
+    // A later judgment, which reads no session: what the second run's mark
+    // cuts at, so the open one closes for the third (theseus-gf8j: a mark
+    // never cuts past the newest judgment its run read).
+    let witness = judgment(
+        "jdg_witness",
+        "loop.v1",
+        loop_answers("complete", 0.9, 0.1),
+        json!({"decision": "no_tool_calls", "class": "reply"}),
+        300,
+    );
+    c.store
+        .append(&[call_row(&witness, first_at + DAY_MS - 60_000)])
+        .unwrap();
     let (second, read2) = c
         .run_learning_read(first_at + DAY_MS, "on_demand", |_| {})
         .unwrap();
@@ -1020,11 +1033,108 @@ async fn a_second_run_reads_only_what_can_still_change() {
         .iter()
         .any(|(_, r)| r.data["judgment"] == "jdg_open" && r.data["rule"] == "continuation"));
     // A third run reads nothing new: the open one is labeled, and closes
-    // once its window is past the second run.
+    // once its window is past the second run's cut, the witness.
     let (third, read3) = c
         .run_learning_read(first_at + 2 * DAY_MS, "on_demand", |_| {})
         .unwrap();
     assert_eq!((read3.sessions, third.labels.system_written), (0, 0));
+}
+
+/// A run whose clock read ahead closes no window still open
+/// (theseus-gf8j): a judgment now, a run at now + 5 h, then the turn's "go
+/// on" a minute after it. The next run, 20 minutes on or a day on, reads
+/// the session and writes the continuation label, since the fast run's mark
+/// cuts at the newest judgment it read, not at its clock.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_run_whose_clock_read_ahead_closes_no_open_window() {
+    const HOUR_MS: u64 = 3_600_000;
+    for next in [20 * 60_000, DAY_MS] {
+        let r = rig(texts(1), |_| {});
+        let c = &r.core;
+        let res = turn(c, None, "Draft the release notes.").await;
+        let now = theseus_protocol::now_unix_ms();
+        let j = judgment(
+            "jdg_probe",
+            "loop.v1",
+            loop_answers("complete", 0.9, 0.1),
+            loop_context(&res, "no_tool_calls", "reply"),
+            300,
+        );
+        c.store.append(&[call_row(&j, now)]).unwrap();
+        let (fast, _) = c
+            .run_learning_read(now + 5 * HOUR_MS, "on_demand", |_| {})
+            .unwrap();
+        assert_eq!(fast.labels.system_written, 0, "no \"go on\" yet");
+        let mark: Value = c
+            .store
+            .get_meta(crate::learning::LAST_RUN)
+            .unwrap()
+            .unwrap();
+        assert_eq!(mark["at_unix_ms"], now + 5 * HOUR_MS, "the run's own clock");
+        assert_eq!(mark["cut_ms"], now, "the newest judgment's time");
+        message_at(c, &res.session_id, "go on", turn_end(c, &res) + 60_000);
+        let (then, read) = c
+            .run_learning_read(now + next, "on_demand", |_| {})
+            .unwrap();
+        assert_eq!(
+            (read.closed, read.sessions),
+            (0, 1),
+            "next {next}: {read:?}"
+        );
+        assert_eq!(then.labels.system_written, 1, "next {next}");
+        let labels = rows(c, "judge:loop", LedgerKind::JudgeLabel);
+        assert!(
+            labels
+                .iter()
+                .any(|(_, r)| r.data["judgment"] == "jdg_probe" && r.data["rule"] == "continuation"),
+            "next {next}: {labels:?}"
+        );
+    }
+}
+
+/// A mark written before its `cut_ms` (theseus-gf8j) reads as no cut, once:
+/// that run walks everything and writes the key, and the next cuts again.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_mark_without_its_cut_walks_everything_once() {
+    let r = rig(texts(1), |_| {});
+    let c = &r.core;
+    let res = turn(c, None, "Draft the release notes.").await;
+    let now = theseus_protocol::now_unix_ms();
+    let j = judgment(
+        "jdg_old",
+        "loop.v1",
+        loop_answers("complete", 0.9, 0.1),
+        loop_context(&res, "no_tool_calls", "reply"),
+        300,
+    );
+    // A later judgment that reads no session: where the next mark cuts.
+    let witness = judgment(
+        "jdg_witness",
+        "loop.v1",
+        loop_answers("complete", 0.9, 0.1),
+        json!({"decision": "no_tool_calls", "class": "reply"}),
+        300,
+    );
+    c.store
+        .append(&[
+            call_row(&j, now - 3 * DAY_MS),
+            call_row(&witness, now - DAY_MS),
+        ])
+        .unwrap();
+    // The mark as a build before the cut wrote it.
+    c.store
+        .put_meta(
+            crate::learning::LAST_RUN,
+            &json!({"at_unix_ms": now - DAY_MS, "date": "2026-01-01", "trigger": "nightly",
+                "through": c.store.last_position()}),
+        )
+        .unwrap();
+    let (_, read) = c.run_learning_read(now, "on_demand", |_| {}).unwrap();
+    assert_eq!((read.closed, read.sessions), (0, 1), "no cut: {read:?}");
+    let (_, read) = c
+        .run_learning_read(now + 60_000, "on_demand", |_| {})
+        .unwrap();
+    assert_eq!((read.closed, read.sessions), (1, 0), "cut again: {read:?}");
 }
 
 /// An imported session (soul-import, theseus-0lrr.6) is born at its import
@@ -1073,4 +1183,65 @@ async fn an_imported_session_does_not_end_the_task_briefs_walk() {
         read.tasks
     );
     assert_eq!(read.tasks, 2, "both task sessions are read past the import");
+}
+
+/// The task-brief walk steps over imported sessions by key, their records
+/// unread (theseus-7087, at imported-skip's join): a learning read past an
+/// import of 300 sessions reads what one past an import of 1 reads, and
+/// both read the two task sessions born before the import.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_task_briefs_walk_reads_no_imported_record() {
+    async fn read_past(imported: usize) -> (u64, usize) {
+        let r = rig(texts(8), |_| {});
+        let c = &r.core;
+        let js = loop_history(c).await;
+        let lines: Vec<theseus_protocol::import::ImportLine> = (0..imported)
+            .map(|i| {
+                let mut ep = json!({
+                    "format": 1, "import_tag": "walk-2026-08",
+                    "episode_id": format!("ep_{:064x}", 0xbee6_0000_u64 + i as u64),
+                    "source": "wiki", "agent": "main",
+                    "place": {"kind": "dm", "name": "dm-0", "id": null},
+                    "as_of": {"start": "2026-08-01T10:00:00Z", "end": "2026-08-01T10:05:00Z"},
+                    "labels": {"sensitivity": "personal", "partner": null, "topic": ["walk"],
+                               "book_hint": "diary", "credential_redacted": false},
+                    "summary": null,
+                    "messages": [{"idx": 0, "time": "2026-08-01T10:00:00Z", "author": "wren",
+                                  "integrity": "operator", "text": format!("An old note, {i}."),
+                                  "unit": format!("unit-{i}"), "sha256": "ab".repeat(32)}],
+                });
+                ep["hash"] = json!(crate::import::episode::hash_of(&ep));
+                theseus_protocol::import::ImportLine {
+                    line: i as u64 + 1,
+                    text: ep.to_string(),
+                }
+            })
+            .collect();
+        for chunk in lines.chunks(500) {
+            let p = theseus_protocol::import::ImportEpisodesParams {
+                file: "walk.jsonl".into(),
+                lines: chunk.to_vec(),
+            };
+            let got = crate::import::write::import_batch(&c.store, &p, "cli").unwrap();
+            assert_eq!(got.imported as usize, chunk.len(), "{got:?}");
+        }
+        let now = theseus_protocol::now_unix_ms();
+        let recs: Vec<NewRecord> = js.iter().map(|j| call_row(j, now)).collect();
+        c.store.append(&recs).unwrap();
+        let before = theseus_store::records_read_here();
+        let (_, read) = c.run_learning_read(now, "on_demand", |_| {}).unwrap();
+        (theseus_store::records_read_here() - before, read.tasks)
+    }
+    let (one, tasks_one) = read_past(1).await;
+    let (many, tasks_many) = read_past(300).await;
+    assert_eq!(
+        (tasks_one, tasks_many),
+        (2, 2),
+        "both task sessions are read past either import"
+    );
+    assert!(one > 0, "the read counts its records on this thread");
+    assert_eq!(
+        many, one,
+        "300 imported sessions add no record to the read ({one} past 1)"
+    );
 }

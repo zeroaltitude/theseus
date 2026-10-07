@@ -1,0 +1,287 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="592" viewBox="0 0 720 592" role="img" aria-labelledby="t-weight-grid t-weight-grid-d" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
+<title id="t-weight-grid">Held-in items with all their gold in the top k, by vector weight w</title>
+<desc id="t-weight-grid-d">Does weighting the vector source let its finds through, and at which k?</desc>
+<rect width="720" height="592" rx="8" fill="#fcfcfb" stroke="#e6e5df"/>
+<text x="18.0" y="32.0" font-size="15" fill="#0b0b0b" font-weight="600">Held-in items with all their gold in the top k, by vector weight w</text>
+<line x1="18.0" y1="50.0" x2="34.0" y2="50.0" stroke="#4a3aa7" stroke-width="2" stroke-linecap="round"/>
+<text x="40.0" y="54.0" font-size="12" fill="#52514e">fusion, BM25 and entities at 1, vectors at w</text>
+<line x1="320.1" y1="50.0" x2="336.1" y2="50.0" stroke="#008300" stroke-width="2" stroke-linecap="round"/>
+<text x="342.1" y="54.0" font-size="12" fill="#52514e">vectors alone</text>
+<line x1="441.4" y1="50.0" x2="457.4" y2="50.0" stroke="#e87ba4" stroke-width="2" stroke-linecap="round"/>
+<text x="463.4" y="54.0" font-size="12" fill="#52514e">BM25 and entities</text>
+<text x="18.0" y="88.0" font-size="12" fill="#0b0b0b" font-weight="600">top 1</text>
+<line x1="57.1" y1="254.0" x2="343.0" y2="254.0" stroke="#e1e0d9" stroke-width="1"/>
+<text x="51.1" y="258.0" font-size="10" fill="#52514e" text-anchor="end" style="font-variant-numeric: tabular-nums">0%</text>
+<line x1="57.1" y1="224.0" x2="343.0" y2="224.0" stroke="#e1e0d9" stroke-width="1"/>
+<text x="51.1" y="228.0" font-size="10" fill="#52514e" text-anchor="end" style="font-variant-numeric: tabular-nums">20%</text>
+<line x1="57.1" y1="194.0" x2="343.0" y2="194.0" stroke="#e1e0d9" stroke-width="1"/>
+<text x="51.1" y="198.0" font-size="10" fill="#52514e" text-anchor="end" style="font-variant-numeric: tabular-nums">40%</text>
+<line x1="57.1" y1="164.0" x2="343.0" y2="164.0" stroke="#e1e0d9" stroke-width="1"/>
+<text x="51.1" y="168.0" font-size="10" fill="#52514e" text-anchor="end" style="font-variant-numeric: tabular-nums">60%</text>
+<line x1="57.1" y1="134.0" x2="343.0" y2="134.0" stroke="#e1e0d9" stroke-width="1"/>
+<text x="51.1" y="138.0" font-size="10" fill="#52514e" text-anchor="end" style="font-variant-numeric: tabular-nums">80%</text>
+<line x1="57.1" y1="104.0" x2="343.0" y2="104.0" stroke="#e1e0d9" stroke-width="1"/>
+<text x="51.1" y="108.0" font-size="10" fill="#52514e" text-anchor="end" style="font-variant-numeric: tabular-nums">100%</text>
+<line x1="57.1" y1="254.0" x2="57.1" y2="258.0" stroke="#c3c2b7" stroke-width="1"/>
+<text x="57.1" y="270.0" font-size="10" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">1</text>
+<line x1="114.3" y1="254.0" x2="114.3" y2="258.0" stroke="#c3c2b7" stroke-width="1"/>
+<text x="114.3" y="270.0" font-size="10" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">2</text>
+<line x1="171.5" y1="254.0" x2="171.5" y2="258.0" stroke="#c3c2b7" stroke-width="1"/>
+<text x="171.5" y="270.0" font-size="10" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">3</text>
+<line x1="228.7" y1="254.0" x2="228.7" y2="258.0" stroke="#c3c2b7" stroke-width="1"/>
+<text x="228.7" y="270.0" font-size="10" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">4</text>
+<line x1="285.8" y1="254.0" x2="285.8" y2="258.0" stroke="#c3c2b7" stroke-width="1"/>
+<text x="285.8" y="270.0" font-size="10" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">5</text>
+<line x1="343.0" y1="254.0" x2="343.0" y2="258.0" stroke="#c3c2b7" stroke-width="1"/>
+<text x="343.0" y="270.0" font-size="10" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">6</text>
+<line x1="57.1" y1="254.0" x2="343.0" y2="254.0" stroke="#c3c2b7" stroke-width="1"/>
+<clipPath id="clip-weight-grid-1"><rect x="52.1" y="99.0" width="295.9" height="160.0"/></clipPath>
+<g clip-path="url(#clip-weight-grid-1)">
+<g><title>fusion, BM25 and entities at 1, vectors at w: 6 points, lowest 23.5%, median 32.4%, highest 32.4%</title>
+<polyline points="57.1,218.7 85.7,209.9 114.3,209.9 171.5,205.5 228.7,205.5 343.0,205.5" fill="none" stroke="#4a3aa7" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+</g>
+<g><title>fusion, BM25 and entities at 1, vectors at w: 23.5%</title>
+<circle cx="57.1" cy="218.7" r="4" fill="#4a3aa7" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<g><title>fusion, BM25 and entities at 1, vectors at w: 29.4%</title>
+<circle cx="85.7" cy="209.9" r="4" fill="#4a3aa7" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<g><title>fusion, BM25 and entities at 1, vectors at w: 29.4%</title>
+<circle cx="114.3" cy="209.9" r="4" fill="#4a3aa7" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<g><title>fusion, BM25 and entities at 1, vectors at w: 32.4%</title>
+<circle cx="171.5" cy="205.5" r="4" fill="#4a3aa7" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<g><title>fusion, BM25 and entities at 1, vectors at w: 32.4%</title>
+<circle cx="228.7" cy="205.5" r="4" fill="#4a3aa7" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<g><title>fusion, BM25 and entities at 1, vectors at w: 32.4%</title>
+<circle cx="343.0" cy="205.5" r="4" fill="#4a3aa7" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<g><title>vectors alone: 2 points, lowest 38.2%, median 38.2%, highest 38.2%</title>
+<polyline points="57.1,196.6 343.0,196.6" fill="none" stroke="#008300" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+</g>
+<g><title>vectors alone: 38.2%</title>
+<circle cx="57.1" cy="196.6" r="8" fill="transparent"/>
+</g>
+<g><title>vectors alone: 38.2%</title>
+<circle cx="343.0" cy="196.6" r="8" fill="transparent"/>
+</g>
+<g><title>BM25 and entities: 2 points, lowest 23.5%, median 23.5%, highest 23.5%</title>
+<polyline points="57.1,218.7 343.0,218.7" fill="none" stroke="#e87ba4" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+</g>
+<g><title>BM25 and entities: 23.5%</title>
+<circle cx="57.1" cy="218.7" r="8" fill="transparent"/>
+</g>
+<g><title>BM25 and entities: 23.5%</title>
+<circle cx="343.0" cy="218.7" r="8" fill="transparent"/>
+</g>
+</g>
+<text x="373.0" y="88.0" font-size="12" fill="#0b0b0b" font-weight="600">top 3</text>
+<line x1="412.1" y1="254.0" x2="698.0" y2="254.0" stroke="#e1e0d9" stroke-width="1"/>
+<text x="406.1" y="258.0" font-size="10" fill="#52514e" text-anchor="end" style="font-variant-numeric: tabular-nums">0%</text>
+<line x1="412.1" y1="224.0" x2="698.0" y2="224.0" stroke="#e1e0d9" stroke-width="1"/>
+<text x="406.1" y="228.0" font-size="10" fill="#52514e" text-anchor="end" style="font-variant-numeric: tabular-nums">20%</text>
+<line x1="412.1" y1="194.0" x2="698.0" y2="194.0" stroke="#e1e0d9" stroke-width="1"/>
+<text x="406.1" y="198.0" font-size="10" fill="#52514e" text-anchor="end" style="font-variant-numeric: tabular-nums">40%</text>
+<line x1="412.1" y1="164.0" x2="698.0" y2="164.0" stroke="#e1e0d9" stroke-width="1"/>
+<text x="406.1" y="168.0" font-size="10" fill="#52514e" text-anchor="end" style="font-variant-numeric: tabular-nums">60%</text>
+<line x1="412.1" y1="134.0" x2="698.0" y2="134.0" stroke="#e1e0d9" stroke-width="1"/>
+<text x="406.1" y="138.0" font-size="10" fill="#52514e" text-anchor="end" style="font-variant-numeric: tabular-nums">80%</text>
+<line x1="412.1" y1="104.0" x2="698.0" y2="104.0" stroke="#e1e0d9" stroke-width="1"/>
+<text x="406.1" y="108.0" font-size="10" fill="#52514e" text-anchor="end" style="font-variant-numeric: tabular-nums">100%</text>
+<line x1="412.1" y1="254.0" x2="412.1" y2="258.0" stroke="#c3c2b7" stroke-width="1"/>
+<text x="412.1" y="270.0" font-size="10" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">1</text>
+<line x1="469.3" y1="254.0" x2="469.3" y2="258.0" stroke="#c3c2b7" stroke-width="1"/>
+<text x="469.3" y="270.0" font-size="10" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">2</text>
+<line x1="526.5" y1="254.0" x2="526.5" y2="258.0" stroke="#c3c2b7" stroke-width="1"/>
+<text x="526.5" y="270.0" font-size="10" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">3</text>
+<line x1="583.7" y1="254.0" x2="583.7" y2="258.0" stroke="#c3c2b7" stroke-width="1"/>
+<text x="583.7" y="270.0" font-size="10" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">4</text>
+<line x1="640.8" y1="254.0" x2="640.8" y2="258.0" stroke="#c3c2b7" stroke-width="1"/>
+<text x="640.8" y="270.0" font-size="10" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">5</text>
+<line x1="698.0" y1="254.0" x2="698.0" y2="258.0" stroke="#c3c2b7" stroke-width="1"/>
+<text x="698.0" y="270.0" font-size="10" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">6</text>
+<line x1="412.1" y1="254.0" x2="698.0" y2="254.0" stroke="#c3c2b7" stroke-width="1"/>
+<clipPath id="clip-weight-grid-2"><rect x="407.1" y="99.0" width="295.9" height="160.0"/></clipPath>
+<g clip-path="url(#clip-weight-grid-2)">
+<g><title>fusion, BM25 and entities at 1, vectors at w: 6 points, lowest 44.1%, median 58.8%, highest 64.7%</title>
+<polyline points="412.1,187.8 440.7,183.4 469.3,179.0 526.5,165.8 583.7,161.4 698.0,156.9" fill="none" stroke="#4a3aa7" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+</g>
+<g><title>fusion, BM25 and entities at 1, vectors at w: 44.1%</title>
+<circle cx="412.1" cy="187.8" r="4" fill="#4a3aa7" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<g><title>fusion, BM25 and entities at 1, vectors at w: 47.1%</title>
+<circle cx="440.7" cy="183.4" r="4" fill="#4a3aa7" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<g><title>fusion, BM25 and entities at 1, vectors at w: 50.0%</title>
+<circle cx="469.3" cy="179.0" r="4" fill="#4a3aa7" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<g><title>fusion, BM25 and entities at 1, vectors at w: 58.8%</title>
+<circle cx="526.5" cy="165.8" r="4" fill="#4a3aa7" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<g><title>fusion, BM25 and entities at 1, vectors at w: 61.8%</title>
+<circle cx="583.7" cy="161.4" r="4" fill="#4a3aa7" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<g><title>fusion, BM25 and entities at 1, vectors at w: 64.7%</title>
+<circle cx="698.0" cy="156.9" r="4" fill="#4a3aa7" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<g><title>vectors alone: 2 points, lowest 58.8%, median 58.8%, highest 58.8%</title>
+<polyline points="412.1,165.8 698.0,165.8" fill="none" stroke="#008300" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+</g>
+<g><title>vectors alone: 58.8%</title>
+<circle cx="412.1" cy="165.8" r="8" fill="transparent"/>
+</g>
+<g><title>vectors alone: 58.8%</title>
+<circle cx="698.0" cy="165.8" r="8" fill="transparent"/>
+</g>
+<g><title>BM25 and entities: 2 points, lowest 35.3%, median 35.3%, highest 35.3%</title>
+<polyline points="412.1,201.1 698.0,201.1" fill="none" stroke="#e87ba4" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+</g>
+<g><title>BM25 and entities: 35.3%</title>
+<circle cx="412.1" cy="201.1" r="8" fill="transparent"/>
+</g>
+<g><title>BM25 and entities: 35.3%</title>
+<circle cx="698.0" cy="201.1" r="8" fill="transparent"/>
+</g>
+</g>
+<text x="18.0" y="322.0" font-size="12" fill="#0b0b0b" font-weight="600">top 6</text>
+<line x1="57.1" y1="488.0" x2="343.0" y2="488.0" stroke="#e1e0d9" stroke-width="1"/>
+<text x="51.1" y="492.0" font-size="10" fill="#52514e" text-anchor="end" style="font-variant-numeric: tabular-nums">0%</text>
+<line x1="57.1" y1="458.0" x2="343.0" y2="458.0" stroke="#e1e0d9" stroke-width="1"/>
+<text x="51.1" y="462.0" font-size="10" fill="#52514e" text-anchor="end" style="font-variant-numeric: tabular-nums">20%</text>
+<line x1="57.1" y1="428.0" x2="343.0" y2="428.0" stroke="#e1e0d9" stroke-width="1"/>
+<text x="51.1" y="432.0" font-size="10" fill="#52514e" text-anchor="end" style="font-variant-numeric: tabular-nums">40%</text>
+<line x1="57.1" y1="398.0" x2="343.0" y2="398.0" stroke="#e1e0d9" stroke-width="1"/>
+<text x="51.1" y="402.0" font-size="10" fill="#52514e" text-anchor="end" style="font-variant-numeric: tabular-nums">60%</text>
+<line x1="57.1" y1="368.0" x2="343.0" y2="368.0" stroke="#e1e0d9" stroke-width="1"/>
+<text x="51.1" y="372.0" font-size="10" fill="#52514e" text-anchor="end" style="font-variant-numeric: tabular-nums">80%</text>
+<line x1="57.1" y1="338.0" x2="343.0" y2="338.0" stroke="#e1e0d9" stroke-width="1"/>
+<text x="51.1" y="342.0" font-size="10" fill="#52514e" text-anchor="end" style="font-variant-numeric: tabular-nums">100%</text>
+<line x1="57.1" y1="488.0" x2="57.1" y2="492.0" stroke="#c3c2b7" stroke-width="1"/>
+<text x="57.1" y="504.0" font-size="10" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">1</text>
+<line x1="114.3" y1="488.0" x2="114.3" y2="492.0" stroke="#c3c2b7" stroke-width="1"/>
+<text x="114.3" y="504.0" font-size="10" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">2</text>
+<line x1="171.5" y1="488.0" x2="171.5" y2="492.0" stroke="#c3c2b7" stroke-width="1"/>
+<text x="171.5" y="504.0" font-size="10" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">3</text>
+<line x1="228.7" y1="488.0" x2="228.7" y2="492.0" stroke="#c3c2b7" stroke-width="1"/>
+<text x="228.7" y="504.0" font-size="10" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">4</text>
+<line x1="285.8" y1="488.0" x2="285.8" y2="492.0" stroke="#c3c2b7" stroke-width="1"/>
+<text x="285.8" y="504.0" font-size="10" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">5</text>
+<line x1="343.0" y1="488.0" x2="343.0" y2="492.0" stroke="#c3c2b7" stroke-width="1"/>
+<text x="343.0" y="504.0" font-size="10" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">6</text>
+<line x1="57.1" y1="488.0" x2="343.0" y2="488.0" stroke="#c3c2b7" stroke-width="1"/>
+<clipPath id="clip-weight-grid-3"><rect x="52.1" y="333.0" width="295.9" height="160.0"/></clipPath>
+<g clip-path="url(#clip-weight-grid-3)">
+<g><title>fusion, BM25 and entities at 1, vectors at w: 6 points, lowest 55.9%, median 64.7%, highest 67.7%</title>
+<polyline points="57.1,404.2 85.7,395.4 114.3,390.9 171.5,390.9 228.7,390.9 343.0,386.5" fill="none" stroke="#4a3aa7" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+</g>
+<g><title>fusion, BM25 and entities at 1, vectors at w: 55.9%</title>
+<circle cx="57.1" cy="404.2" r="4" fill="#4a3aa7" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<g><title>fusion, BM25 and entities at 1, vectors at w: 61.8%</title>
+<circle cx="85.7" cy="395.4" r="4" fill="#4a3aa7" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<g><title>fusion, BM25 and entities at 1, vectors at w: 64.7%</title>
+<circle cx="114.3" cy="390.9" r="4" fill="#4a3aa7" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<g><title>fusion, BM25 and entities at 1, vectors at w: 64.7%</title>
+<circle cx="171.5" cy="390.9" r="4" fill="#4a3aa7" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<g><title>fusion, BM25 and entities at 1, vectors at w: 64.7%</title>
+<circle cx="228.7" cy="390.9" r="4" fill="#4a3aa7" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<g><title>fusion, BM25 and entities at 1, vectors at w: 67.7%</title>
+<circle cx="343.0" cy="386.5" r="4" fill="#4a3aa7" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<g><title>vectors alone: 2 points, lowest 64.7%, median 64.7%, highest 64.7%</title>
+<polyline points="57.1,390.9 343.0,390.9" fill="none" stroke="#008300" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+</g>
+<g><title>vectors alone: 64.7%</title>
+<circle cx="57.1" cy="390.9" r="8" fill="transparent"/>
+</g>
+<g><title>vectors alone: 64.7%</title>
+<circle cx="343.0" cy="390.9" r="8" fill="transparent"/>
+</g>
+<g><title>BM25 and entities: 2 points, lowest 38.2%, median 38.2%, highest 38.2%</title>
+<polyline points="57.1,430.6 343.0,430.6" fill="none" stroke="#e87ba4" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+</g>
+<g><title>BM25 and entities: 38.2%</title>
+<circle cx="57.1" cy="430.6" r="8" fill="transparent"/>
+</g>
+<g><title>BM25 and entities: 38.2%</title>
+<circle cx="343.0" cy="430.6" r="8" fill="transparent"/>
+</g>
+</g>
+<text x="373.0" y="322.0" font-size="12" fill="#0b0b0b" font-weight="600">top 10</text>
+<line x1="412.1" y1="488.0" x2="698.0" y2="488.0" stroke="#e1e0d9" stroke-width="1"/>
+<text x="406.1" y="492.0" font-size="10" fill="#52514e" text-anchor="end" style="font-variant-numeric: tabular-nums">0%</text>
+<line x1="412.1" y1="458.0" x2="698.0" y2="458.0" stroke="#e1e0d9" stroke-width="1"/>
+<text x="406.1" y="462.0" font-size="10" fill="#52514e" text-anchor="end" style="font-variant-numeric: tabular-nums">20%</text>
+<line x1="412.1" y1="428.0" x2="698.0" y2="428.0" stroke="#e1e0d9" stroke-width="1"/>
+<text x="406.1" y="432.0" font-size="10" fill="#52514e" text-anchor="end" style="font-variant-numeric: tabular-nums">40%</text>
+<line x1="412.1" y1="398.0" x2="698.0" y2="398.0" stroke="#e1e0d9" stroke-width="1"/>
+<text x="406.1" y="402.0" font-size="10" fill="#52514e" text-anchor="end" style="font-variant-numeric: tabular-nums">60%</text>
+<line x1="412.1" y1="368.0" x2="698.0" y2="368.0" stroke="#e1e0d9" stroke-width="1"/>
+<text x="406.1" y="372.0" font-size="10" fill="#52514e" text-anchor="end" style="font-variant-numeric: tabular-nums">80%</text>
+<line x1="412.1" y1="338.0" x2="698.0" y2="338.0" stroke="#e1e0d9" stroke-width="1"/>
+<text x="406.1" y="342.0" font-size="10" fill="#52514e" text-anchor="end" style="font-variant-numeric: tabular-nums">100%</text>
+<line x1="412.1" y1="488.0" x2="412.1" y2="492.0" stroke="#c3c2b7" stroke-width="1"/>
+<text x="412.1" y="504.0" font-size="10" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">1</text>
+<line x1="469.3" y1="488.0" x2="469.3" y2="492.0" stroke="#c3c2b7" stroke-width="1"/>
+<text x="469.3" y="504.0" font-size="10" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">2</text>
+<line x1="526.5" y1="488.0" x2="526.5" y2="492.0" stroke="#c3c2b7" stroke-width="1"/>
+<text x="526.5" y="504.0" font-size="10" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">3</text>
+<line x1="583.7" y1="488.0" x2="583.7" y2="492.0" stroke="#c3c2b7" stroke-width="1"/>
+<text x="583.7" y="504.0" font-size="10" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">4</text>
+<line x1="640.8" y1="488.0" x2="640.8" y2="492.0" stroke="#c3c2b7" stroke-width="1"/>
+<text x="640.8" y="504.0" font-size="10" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">5</text>
+<line x1="698.0" y1="488.0" x2="698.0" y2="492.0" stroke="#c3c2b7" stroke-width="1"/>
+<text x="698.0" y="504.0" font-size="10" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">6</text>
+<line x1="412.1" y1="488.0" x2="698.0" y2="488.0" stroke="#c3c2b7" stroke-width="1"/>
+<clipPath id="clip-weight-grid-4"><rect x="407.1" y="333.0" width="295.9" height="160.0"/></clipPath>
+<g clip-path="url(#clip-weight-grid-4)">
+<g><title>fusion, BM25 and entities at 1, vectors at w: 6 points, lowest 61.8%, median 67.7%, highest 70.6%</title>
+<polyline points="412.1,395.4 440.7,390.9 469.3,390.9 526.5,382.1 583.7,382.1 698.0,386.5" fill="none" stroke="#4a3aa7" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+</g>
+<g><title>fusion, BM25 and entities at 1, vectors at w: 61.8%</title>
+<circle cx="412.1" cy="395.4" r="4" fill="#4a3aa7" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<g><title>fusion, BM25 and entities at 1, vectors at w: 64.7%</title>
+<circle cx="440.7" cy="390.9" r="4" fill="#4a3aa7" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<g><title>fusion, BM25 and entities at 1, vectors at w: 64.7%</title>
+<circle cx="469.3" cy="390.9" r="4" fill="#4a3aa7" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<g><title>fusion, BM25 and entities at 1, vectors at w: 70.6%</title>
+<circle cx="526.5" cy="382.1" r="4" fill="#4a3aa7" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<g><title>fusion, BM25 and entities at 1, vectors at w: 70.6%</title>
+<circle cx="583.7" cy="382.1" r="4" fill="#4a3aa7" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<g><title>fusion, BM25 and entities at 1, vectors at w: 67.7%</title>
+<circle cx="698.0" cy="386.5" r="4" fill="#4a3aa7" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<g><title>vectors alone: 2 points, lowest 67.7%, median 67.7%, highest 67.7%</title>
+<polyline points="412.1,386.5 698.0,386.5" fill="none" stroke="#008300" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+</g>
+<g><title>vectors alone: 67.7%</title>
+<circle cx="412.1" cy="386.5" r="8" fill="transparent"/>
+</g>
+<g><title>vectors alone: 67.7%</title>
+<circle cx="698.0" cy="386.5" r="8" fill="transparent"/>
+</g>
+<g><title>BM25 and entities: 2 points, lowest 38.2%, median 38.2%, highest 38.2%</title>
+<polyline points="412.1,430.6 698.0,430.6" fill="none" stroke="#e87ba4" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+</g>
+<g><title>BM25 and entities: 38.2%</title>
+<circle cx="412.1" cy="430.6" r="8" fill="transparent"/>
+</g>
+<g><title>BM25 and entities: 38.2%</title>
+<circle cx="698.0" cy="430.6" r="8" fill="transparent"/>
+</g>
+</g>
+<text x="360.0" y="526.0" font-size="12" fill="#52514e" text-anchor="middle">vector weight w (BM25 and entities at 1)</text>
+<text x="18.0" y="554.0" font-size="11" fill="#52514e">exam-v2's 34 held-in items with gold; the choice rule (most items in the top 6) was written before the grid ran. Flat lines:</text>
+<text x="18.0" y="569.0" font-size="11" fill="#52514e">the single sources.</text>
+</svg>

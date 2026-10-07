@@ -1,0 +1,126 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="268" viewBox="0 0 720 268" role="img" aria-labelledby="t-probes t-probes-d" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
+<title id="t-probes">Each smoke's eight probes, scored by today's scorer (strict)</title>
+<desc id="t-probes-d">Which misses were the arm's, and which were the scorer's?</desc>
+<rect width="720" height="268" rx="8" fill="#fcfcfb" stroke="#e6e5df"/>
+<text x="18.0" y="32.0" font-size="15" fill="#0b0b0b" font-weight="600">Each smoke's eight probes, scored by today's scorer (strict)</text>
+<circle cx="25.0" cy="50.0" r="5" fill="#52514e"/>
+<text x="40.0" y="54.0" font-size="12" fill="#52514e">right</text>
+<circle cx="92.0" cy="50.0" r="4.5" fill="#fcfcfb" stroke="#52514e" stroke-width="1.6"/>
+<text x="107.0" y="54.0" font-size="12" fill="#52514e">wrong</text>
+<text x="131.7" y="99.3" font-size="10" fill="#52514e" transform="rotate(-45 131.7 99.3)">R11</text>
+<text x="146.7" y="99.3" font-size="10" fill="#52514e" transform="rotate(-45 146.7 99.3)">R16</text>
+<text x="161.7" y="99.3" font-size="10" fill="#52514e" transform="rotate(-45 161.7 99.3)">R25</text>
+<text x="118.2" y="115.8" font-size="11" fill="#0b0b0b" text-anchor="end">p001 direct</text>
+<g><title>p001 direct · R11: wrong</title>
+<rect x="126.2" y="104.3" width="15" height="15" fill="transparent"/>
+<circle cx="133.7" cy="111.8" r="4" fill="#fcfcfb" stroke="#2a78d6" stroke-width="1.5"/>
+</g>
+<g><title>p001 direct · R16: right</title>
+<rect x="141.2" y="104.3" width="15" height="15" fill="transparent"/>
+<circle cx="148.7" cy="111.8" r="4.6" fill="#2a78d6"/>
+</g>
+<g><title>p001 direct · R25: wrong</title>
+<rect x="156.2" y="104.3" width="15" height="15" fill="transparent"/>
+<circle cx="163.7" cy="111.8" r="4" fill="#fcfcfb" stroke="#2a78d6" stroke-width="1.5"/>
+</g>
+<text x="181.2" y="115.8" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">R11 retracts the old value (right under retracted); R25 cites it</text>
+<rect x="18.0" y="119.3" width="501.4" height="15" fill="#e1e0d9" fill-opacity="0.45"/>
+<text x="118.2" y="130.8" font-size="11" fill="#0b0b0b" text-anchor="end">p002 indirect</text>
+<g><title>p002 indirect · R11: right</title>
+<rect x="126.2" y="119.3" width="15" height="15" fill="transparent"/>
+<circle cx="133.7" cy="126.8" r="4.6" fill="#2a78d6"/>
+</g>
+<g><title>p002 indirect · R16: wrong</title>
+<rect x="141.2" y="119.3" width="15" height="15" fill="transparent"/>
+<circle cx="148.7" cy="126.8" r="4" fill="#fcfcfb" stroke="#2a78d6" stroke-width="1.5"/>
+</g>
+<g><title>p002 indirect · R25: wrong</title>
+<rect x="156.2" y="119.3" width="15" height="15" fill="transparent"/>
+<circle cx="163.7" cy="126.8" r="4" fill="#fcfcfb" stroke="#2a78d6" stroke-width="1.5"/>
+</g>
+<text x="181.2" y="130.8" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">R16, R25 declined to write the file without a confirmation</text>
+<text x="118.2" y="145.8" font-size="11" fill="#0b0b0b" text-anchor="end">p003 abstention</text>
+<g><title>p003 abstention · R11: right</title>
+<rect x="126.2" y="134.3" width="15" height="15" fill="transparent"/>
+<circle cx="133.7" cy="141.8" r="4.6" fill="#2a78d6"/>
+</g>
+<g><title>p003 abstention · R16: right</title>
+<rect x="141.2" y="134.3" width="15" height="15" fill="transparent"/>
+<circle cx="148.7" cy="141.8" r="4.6" fill="#2a78d6"/>
+</g>
+<g><title>p003 abstention · R25: right</title>
+<rect x="156.2" y="134.3" width="15" height="15" fill="transparent"/>
+<circle cx="163.7" cy="141.8" r="4.6" fill="#2a78d6"/>
+</g>
+<text x="181.2" y="145.8" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">R11's 'I can't tell' failed the old admission rule</text>
+<rect x="18.0" y="149.3" width="501.4" height="15" fill="#e1e0d9" fill-opacity="0.45"/>
+<text x="118.2" y="160.8" font-size="11" fill="#0b0b0b" text-anchor="end">p004 direct</text>
+<g><title>p004 direct · R11: right</title>
+<rect x="126.2" y="149.3" width="15" height="15" fill="transparent"/>
+<circle cx="133.7" cy="156.8" r="4.6" fill="#2a78d6"/>
+</g>
+<g><title>p004 direct · R16: right</title>
+<rect x="141.2" y="149.3" width="15" height="15" fill="transparent"/>
+<circle cx="148.7" cy="156.8" r="4.6" fill="#2a78d6"/>
+</g>
+<g><title>p004 direct · R25: right</title>
+<rect x="156.2" y="149.3" width="15" height="15" fill="transparent"/>
+<circle cx="163.7" cy="156.8" r="4.6" fill="#2a78d6"/>
+</g>
+<text x="118.2" y="175.8" font-size="11" fill="#0b0b0b" text-anchor="end">p005 direct</text>
+<g><title>p005 direct · R11: right</title>
+<rect x="126.2" y="164.3" width="15" height="15" fill="transparent"/>
+<circle cx="133.7" cy="171.8" r="4.6" fill="#2a78d6"/>
+</g>
+<g><title>p005 direct · R16: right</title>
+<rect x="141.2" y="164.3" width="15" height="15" fill="transparent"/>
+<circle cx="148.7" cy="171.8" r="4.6" fill="#2a78d6"/>
+</g>
+<g><title>p005 direct · R25: right</title>
+<rect x="156.2" y="164.3" width="15" height="15" fill="transparent"/>
+<circle cx="163.7" cy="171.8" r="4.6" fill="#2a78d6"/>
+</g>
+<rect x="18.0" y="179.3" width="501.4" height="15" fill="#e1e0d9" fill-opacity="0.45"/>
+<text x="118.2" y="190.8" font-size="11" fill="#0b0b0b" text-anchor="end">p006 abstention</text>
+<g><title>p006 abstention · R11: right</title>
+<rect x="126.2" y="179.3" width="15" height="15" fill="transparent"/>
+<circle cx="133.7" cy="186.8" r="4.6" fill="#2a78d6"/>
+</g>
+<g><title>p006 abstention · R16: wrong</title>
+<rect x="141.2" y="179.3" width="15" height="15" fill="transparent"/>
+<circle cx="148.7" cy="186.8" r="4" fill="#fcfcfb" stroke="#2a78d6" stroke-width="1.5"/>
+</g>
+<g><title>p006 abstention · R25: wrong</title>
+<rect x="156.2" y="179.3" width="15" height="15" fill="transparent"/>
+<circle cx="163.7" cy="186.8" r="4" fill="#fcfcfb" stroke="#2a78d6" stroke-width="1.5"/>
+</g>
+<text x="181.2" y="190.8" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">R16, R25 named another ticket only to reject it</text>
+<text x="118.2" y="205.8" font-size="11" fill="#0b0b0b" text-anchor="end">p007 direct</text>
+<g><title>p007 direct · R11: right</title>
+<rect x="126.2" y="194.3" width="15" height="15" fill="transparent"/>
+<circle cx="133.7" cy="201.8" r="4.6" fill="#2a78d6"/>
+</g>
+<g><title>p007 direct · R16: right</title>
+<rect x="141.2" y="194.3" width="15" height="15" fill="transparent"/>
+<circle cx="148.7" cy="201.8" r="4.6" fill="#2a78d6"/>
+</g>
+<g><title>p007 direct · R25: right</title>
+<rect x="156.2" y="194.3" width="15" height="15" fill="transparent"/>
+<circle cx="163.7" cy="201.8" r="4.6" fill="#2a78d6"/>
+</g>
+<rect x="18.0" y="209.3" width="501.4" height="15" fill="#e1e0d9" fill-opacity="0.45"/>
+<text x="118.2" y="220.8" font-size="11" fill="#0b0b0b" text-anchor="end">p008 indirect</text>
+<g><title>p008 indirect · R11: right</title>
+<rect x="126.2" y="209.3" width="15" height="15" fill="transparent"/>
+<circle cx="133.7" cy="216.8" r="4.6" fill="#2a78d6"/>
+</g>
+<g><title>p008 indirect · R16: right</title>
+<rect x="141.2" y="209.3" width="15" height="15" fill="transparent"/>
+<circle cx="148.7" cy="216.8" r="4.6" fill="#2a78d6"/>
+</g>
+<g><title>p008 indirect · R25: right</title>
+<rect x="156.2" y="209.3" width="15" height="15" fill="transparent"/>
+<circle cx="163.7" cy="216.8" r="4.6" fill="#2a78d6"/>
+</g>
+<text x="18.0" y="244.3" font-size="11" fill="#52514e">Columns: the smokes R11, R16, R25. 4 direct, 2 indirect, 2 abstention probes each; the row notes say what each miss was.</text>
+</svg>

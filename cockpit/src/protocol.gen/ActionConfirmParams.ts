@@ -8,7 +8,7 @@ export type ActionConfirmParams = { correlation_id: string, approve: boolean, no
  */
 watch: boolean, 
 /**
- * Who answered, as a label (e.g. `discord:eddie`). Default: the connection.
+ * Who answered, as a label (e.g. `discord:zeroaltitude`). Default: the connection.
  * A label names; it proves nothing. With `[approval]`, the connection's
  * surface and `discord` decide whether the answer counts.
  */

@@ -27,7 +27,7 @@ Appendix B, Appendix F, P6, Part III B1, J1, Z1, and A4 item 10). Code read at `
    - 2.11 EXQUISITE VISIBILITY
    - 2.12 Catalog: config, protocol, store, ledger
 3. The build plan
-4. What it needs from Eddie
+4. What it needs from the owner
 5. Open questions, with defaults
 6. Risks, and what would change the plan
 7. Appendix: probes of this machine (2026-09-30)
@@ -44,7 +44,7 @@ Appendix B, Appendix F, P6, Part III B1, J1, Z1, and A4 item 10). Code read at `
   - `no_new_privs` and a seccomp deny list;
   - an init process whose exit kills the whole tree.
 
-  Every piece was probed working, unprivileged, on Eddie's machine today (§7).
+  Every piece was probed working, unprivileged, on the owner's machine today (§7).
 - **Nothing on the start path.** The sandbox costs something per job (the target is a start p95 under 25 ms,
   benched), and its host probe runs after serving.
 - **L0 stays the default** (§1). A job goes to L1 in three cases: the model asks (`proc.run { sandbox: true }`),
@@ -76,7 +76,7 @@ Appendix B, Appendix F, P6, Part III B1, J1, Z1, and A4 item 10). Code read at `
   - an L1 job that reached the network gives an external result, which closes theseus-20f for L1.
 - **Confidentiality is enforced at compile time.** The compiler admits a node only when its readers cover the
   session's audience, and a withheld tool result keeps its pairing as a placeholder.
-  - On Eddie's deployment nothing is withheld: the DM, the CLI, the web UI, and the private test channel all
+  - On the owner's deployment nothing is withheld: the DM, the CLI, the web UI, and the private test channel all
     have him alone as their audience.
   - The disclosure simulator proves the rule over synthetic shared channels.
   - Widening an audience is **graduation**: a new node with a warrant, never a relabel.
@@ -107,12 +107,12 @@ The spec's P6: "Make the durability and safety claims true, and measure them." [
   - Integrity by transmission and the external origin (Appendix F, adopted; theseus-3vu).
   - Confidentiality with audience-safe compilation (§3.9 "Information flow": "Enforcement is at compile time,
     not at output time").
-- **The fungible ontology's first slice.** §2 FUNGIBLE ONTOLOGY, and §4.1a, whose playback Eddie confirmed
+- **The fungible ontology's first slice.** §2 FUNGIBLE ONTOLOGY, and §4.1a, whose playback the owner confirmed
   on 2026-09-27 at 20:26, including both guardrails.
 - **Control-plane separation as an option.** §1 says "strongly recommended in the documentation and the
   installer, not a default".
 
-### Eddie's terms, which bind every step
+### The owner's terms, which bind every step
 
 - **Notify over block.** "Asked, sure, but a hard no, almost never." Nothing in M4 refuses a call, so the
   boundaries live in the environment, not in the gate.
@@ -137,12 +137,12 @@ The spec's P6: "Make the durability and safety claims true, and measure them." [
 | Integrity | The `external` origin; labels by transmission (a brief, a report, a file); T1's hold as the latch; T1's rules unchanged | The `Advisory`, the `quarantined` level, and the one-step-stricter rule; "text shaped like instructions" (Jev, M5) |
 | Confidentiality | Readers on every new node; the session's audience; the compile filter with placeholders; graduation; the outbox check; the disclosure simulator | Recall across sessions (M6); gliding (M7); MCP responses (M7); a fetch's URL as outward text (T1's accepted gap) |
 | Ontology | The kinds table; topic as the first new kind; operator-declared memberships; guidance; the compile walk; CLI and web UI | Jev's `categorize.v1` (M5); embeddings, sweeps, dreams, and the `ranked` and `recall_only` rules (M6); §5.5's namespaces as kinds (M6) |
-| Control plane | `theseusd install` plans and applies; the daemon as `theseus`; the job host; proved in a container | Switching Eddie's own daemon (his call, with sudo); several operators' job hosts |
+| Control plane | `theseusd install` plans and applies; the daemon as `theseus`; the job host; proved in a container | Switching the owner's own daemon (his call, with sudo); several operators' job hosts |
 
 ### Principles as constraints on this phase
 
 - **Nothing loosens without the owner.** L1 does not loosen a call's posture in M4, and labels only tighten.
-  Whether L1 should earn a looser posture is Eddie's to say (§5, question 1).
+  Whether L1 should earn a looser posture is the owner's to say (§5, question 1).
 - **Deterministic.** No model judgment decides L1's contract, a label, or the latch. Jev may tighten later
   (M5), and never loosen.
 - **FAST.** Nothing new runs before serving. Per-job and per-compile costs land with a bench row (§2.10).
@@ -188,12 +188,12 @@ decided at most one way: toward L1. _(As built 2026-10-05, theseus-nrvq; spec Pa
 175: a `proc.run` batch runs every step in one class, the one its proposal binds, so a batch whose
 steps differ in class, an `l1_argv` step beside an L0 one, is invalid input, refused before any card, its result
 naming each step's class and what chose L1. Before the fix a stricter L0 step's approval would have run the L1 program
-at L0. Option 1 of three, decided for Eddie at the join and reversible; a class per step, or L1 for the whole batch,
+at L0. Option 1 of three, decided for the owner at the join and reversible; a class per step, or L1 for the whole batch,
 stay his.)_
 
 | Source | Effect |
 |---|---|
-| `[sandbox] default` | `"l0"` built in, so an upgrade changes nothing. The template documents `"l1"`, and `theseusd install` writes `"l1"` into a config it generates. So the open-source default is L1 (§1), and Eddie's note stays L0 |
+| `[sandbox] default` | `"l0"` built in, so an upgrade changes nothing. The template documents `"l1"`, and `theseusd install` writes `"l1"` into a config it generates. So the open-source default is L1 (§1), and the owner's note stays L0 |
 | `[sandbox] l1_argv` | The operator's argv prefixes that always run in L1 (for example `["npm", "install"]`), matched as `allow_argv` matches |
 | The model's `sandbox: true` | Asks for L1. `sandbox: false` cannot override the list or the default |
 | Jev's `shell.v1` | M5, choosing within the permitted set. Never wider |
@@ -203,7 +203,7 @@ stay his.)_
 - **The class is bound.** It goes into the gate record, the proposal digest that a confirm binds (so an
   approved L1 run cannot dispatch as L0), `tool.started`, the tool-call node, and every surface.
 - **The gate is unchanged.** The floor, the lists, and the postures judge an L1 call as they judge an L0 one. In
-  M4, L1 earns no looser posture; that is Eddie's call (§5, question 1).
+  M4, L1 earns no looser posture; that is the owner's call (§5, question 1).
 
 **The spawn chain.** It uses one binary in three roles:
 
@@ -612,8 +612,8 @@ deterministic test of whether generated prose reveals it"). Each compile admits 
   - `withheld`, the node ids with their reasons.
 
   `context.compiled` gets `audience` and `withheld: n`.
-- **On Eddie's deployment nothing is withheld.** His DM, the CLI, the web UI, and #theseus-test (Eddie and the
-  bot alone) all have Eddie as their whole audience. What changes for him is the manifest, the Observatory's
+- **On the owner's deployment nothing is withheld.** His DM, the CLI, the web UI, and #theseus-test (the owner and the
+  bot alone) all have the owner as their whole audience. What changes for him is the manifest, the Observatory's
   badges, and one health line.
 
 **Where content leaves: `labels::may_leave(readers, audience)`** (decision 14: it waits, and never refuses).
@@ -626,7 +626,7 @@ deterministic test of whether generated prose reveals it"). Each compile admits 
   - On the happy path it never fires.
 - **Later callers** use the same function and the same rows: MCP responses (M7), posts to another channel and
   gliding (M7), and any typed push or PR tool.
-- **Not in M4:** a fetch's URL (T1's accepted gap, which Eddie kept on 2026-09-30: "Yes, keep it!"), and
+- **Not in M4:** a fetch's URL (T1's accepted gap, which the owner kept on 2026-09-30: "Yes, keep it!"), and
   `proc.run`'s arguments. The environment and the egress list are the controls for `proc.run`.
 
 **Graduation: the only way an audience widens** (Appendix F: "relabelling in place is not an operation").
@@ -729,7 +729,7 @@ be an injection path. Ontology writes therefore go through `judge_act(Act::Ontol
 
 ### 2.9 Control-plane separation (an installer option)
 
-> **Superseded in part (2026-10-03, the sandbox trims: Tier 4; the spec's Part III, Item 77).** No unit sets `Delegate=yes` any more, the separate-user one included. The rest stands: isolation is kept, by Eddie's choice.
+> **Superseded in part (2026-10-03, the sandbox trims: Tier 4; the spec's Part III, Item 77).** No unit sets `Delegate=yes` any more, the separate-user one included. The rest stands: isolation is kept, by the owner's choice.
 
 **The option** (§1): the runtime and its storage run under their own OS identity, `theseus`, and L0 jobs run as
 the operator. It is strongly recommended, and never the default.
@@ -789,7 +789,7 @@ idempotent, and logs every action. `--check` compares the machine with the layou
 | `--separate` | root | Creates the `theseus` user and the `theseus-ops` group, adds the operator to the group, makes the layout above, and installs the binary and both units. It writes a generated config's paths and `[sandbox] default = "l1"`. `--migrate-state <dir>` copies a stopped daemon's store (the F4 rules: never deleted, never written by an older build) |
 
 - **The vault note stays the config's source.** Only the token file moves.
-- **Proof.** Sudo here needs a password, so the chain proves `--separate` in a throwaway container. Eddie's
+- **Proof.** Sudo here needs a password, so the chain proves `--separate` in a throwaway container. The owner's
   user is in the `docker` group. The container runs with `--network none`, the release binaries mounted
   read-only, and the fake model and fake `op` from the test rigs. So no real secret enters it (§4, item 5).
 
@@ -823,7 +823,7 @@ idempotent, and logs every action. `--check` compares the machine with the layou
 | Piece | Discord | Web UI and Observatory | CLI | Ledger | Narrative | Telemetry and health |
 |---|---|---|---|---|---|---|
 | L1 | The tool line gets `🛡️ L1`, then "no network", or "egress: github.com", and what it wrote to scratch | An L1 pill on the call. A Sandbox section: the probe, the jobs by class, the cgroup mode, egress and refusals, and limit hits | `theseus health`'s `sandbox:` line; the notice line names the class | `sandbox.started` (class, limits, egress list), `sandbox.limit_hit` (pids, memory, fsize, from `pids.events` and `memory.events`), `sandbox.probe` | "proc.run `cargo test` ran in L1: no network, 2 GiB, 512 pids; 3 files to scratch, discarded" | `theseus.job.start_ms{class}`, `theseus.sandbox.limit_hits{limit}` |
-| Cancellation | `⏹️ stopped (verified)` or "(not verified: why)" | The execution's actions show `verified_by` and `survivors` | `theseus executions` | `action.cancel_verified`, `_unsupported`, and `_uncertain` | "Stopped job a1b2c3: its pid namespace (4 processes) is gone" | `theseus.cancel{backend,state}` |
+| Cancellation | `⏹️ stopped (verified)` or "(not verified: why)" | The execution's actions show `verified_by` and `survivors` | `theseus executions` | `action.cancel_verified`, `_unsupported`, and `_uncertain` | "Stopped job a1b2c3: its pid namespace (4 processes) is gone" | `theseus.cancel{backend,state}` _(built 2026-10-05, Part III Item 190: counted where health counts its cancels; an L0 job stopped through its delegated cgroup counts `l0`)_ |
 | Egress | The tool line lists the hosts reached | Egress per job, with bytes | The completion's `egress` in `executions --json` | `sandbox.egress`, `sandbox.egress_refused` | "reached github.com:443 (2 connections)" | `theseus.sandbox.egress.bytes{host}` |
 | Credential requests | `🔑 job a1b2c3 asked for crates_io_token: granted`, or a card when it waits | The card, and the Secrets field | `confirm` and `watch` show the request | `secret.requested`, `secret.granted { via: request }`, `secret.declined` | "Job a1b2c3 asked for crates_io_token, at proc.run's notify" | Health's `broker[]` counts requests |
 | Integrity | T1's lines and buttons, unchanged; the reason names `via: file`, `via: job`, or egress | The External text section becomes "Integrity": holds, their paths, and untrusted nodes badged 🌐 in the transcript | `theseus node <id>` shows the label and its source | `session.external_read` (with the new `via` values), `fomite.recorded`, `session.trusted` | T1's lines, plus "this session read a file that session s1 wrote after reading external text" | `theseus.integrity.latched` (a gauge of sessions) |
@@ -884,7 +884,7 @@ ACTION.
 ## 3. The build plan
 
 Sixteen steps. Each is about an hour of one agent, and each is proved live on a scratch daemon over a copy of
-Eddie's store, with Discord and the web UI off unless the step needs them.
+the owner's store, with Discord and the web UI off unless the step needs them.
 - **SPINE** steps touch the kernel, the store, the core's gate or turn loop, or the protocol. They run one at a
   time on `main`.
 - **LANE** steps live in their own crate or binary. They are built in a worktree, with its own
@@ -956,7 +956,7 @@ Eddie's store, with Discord and the web UI off unless the step needs them.
   - an approved L1 call cannot be dispatched as L0 (the digest);
   - the template test;
   - the jobs bench row.
-- *Live check:* a scratch daemon over a copy of Eddie's store, with his note.
+- *Live check:* a scratch daemon over a copy of the owner's store, with his note.
   - A GLM turn runs `proc.run { sandbox: true }` of a probe script, and its result shows the contract.
   - An L0 run in the same session shows the contrast.
   - Health's `sandbox:` line and the ledger's rows are shown.
@@ -1048,8 +1048,8 @@ Eddie's store, with Discord and the web UI off unless the step needs them.
   - a context file is withheld with its reason;
   - F4a's old-store fixture compiles exactly as before;
   - the frame budget holds at 8.
-- *Live check:* on Eddie's store copy, his DM compiles with nothing withheld, and its manifest reads
-  `People{eddie}`. With the fake Discord, a synthetic channel whose member list has a second user withholds an
+- *Live check:* on the owner's store copy, his DM compiles with nothing withheld, and its manifest reads
+  `People{zeroaltitude}`. With the fake Discord, a synthetic channel whose member list has a second user withholds an
   owner-only `fs.read`. The step adds the members endpoint to the fake if it lacks one.
 - *Depends on:* T1 (built), F4a's rules.
 
@@ -1132,7 +1132,7 @@ Eddie's store, with Discord and the web UI off unless the step needs them.
   - given memberships refuse writes;
   - admissions are identical with and without memberships;
   - a job's process cannot write guidance.
-- *Live check:* on Eddie's store copy:
+- *Live check:* on the owner's store copy:
   1. Add the topic `theseus`, with a line of guidance.
   2. Assign it to his DM session, and run `theseus session recompile`.
   3. The next manifest lists the membership, and GLM's answer follows the guidance.
@@ -1155,7 +1155,7 @@ Eddie's store, with Discord and the web UI off unless the step needs them.
   - a second plan after an apply is empty (idempotent);
   - `--check` names a wrong mode.
 - *Live check:* `--user` in plan mode on this machine, and applied with a scratch `HOME`. The container run of
-  `--separate`, if Eddie allows Docker for it (§4, item 5).
+  `--separate`, if the owner allows Docker for it (§4, item 5).
 - *Depends on:* nothing.
 
 **22b, the job host (SPINE).**
@@ -1191,7 +1191,7 @@ Eddie's store, with Discord and the web UI off unless the step needs them.
 | After M4 | M6, steps 30 and 35 | Recall is filtered by readers. A summary takes its inputs' integrity. Testimony renders labels |
 | After M4 | M7, steps 36, 38, 40, 41, and 43 | MCP results have the `external` origin, and MCP responses use `may_leave`. Gliding meets two audiences. The AWS shells are rows in 18a's table. A self-extended MCP server runs in L1, which needs a long-running stdio job there |
 
-## 4. What it needs from Eddie
+## 4. What it needs from the owner
 
 None of these blocks the chain. Each says when it matters, and the default the chain takes without an answer.
 
@@ -1211,7 +1211,7 @@ None of these blocks the chain. Each says when it matters, and the default the c
 
 > **Superseded in part (2026-10-03).** The questions on labels and graduation, integrity by labels and fomites, and the delegated cgroup are moot since the place rule (the spec's Part III, Item 76), integrity's light pieces (Item 74), and the sandbox trims (Item 77).
 
-The build never waits on these: each step takes the default, and Eddie can overturn it later.
+The build never waits on these: each step takes the default, and the owner can overturn it later.
 
 1. **Should L1 earn a looser posture?** For example, `proc.run` at `open` in L1 while L0 stays at `notify`.
    This is where L1 pays off: the tags "mean what they say again" (Appendix B).
@@ -1284,7 +1284,7 @@ The build never waits on these: each step takes the default, and Eddie can overt
 - **T1 regressing through 20a.** T1's 13 tests are the floor's contract and are not edited, and 20a's live
   check repeats T1's word for word.
 - **Schema bumps.** An older binary refuses the store after the first newer write, as F4a designed. Before
-  installing each step that bumps a schema, take a snapshot of Eddie's store, as F4a's review did.
+  installing each step that bumps a schema, take a snapshot of the owner's store, as F4a's review did.
 - **Cross-user assumptions under separation.** One is already found (J1's web trace; §2.9). A hardened host
   that mounts `/proc` with `hidepid` would break J1's socket trace too, and answers would then be refused:
   closed and loud, not open.
@@ -1297,7 +1297,7 @@ The build never waits on these: each step takes the default, and Eddie can overt
 - **The fomite index only grows** (META keys, one per latched write). It stays small in practice, and a tender
   can compact it later.
 - **Confidentiality friction in shared channels** (M7): owner-only results are withheld there, and graduation
-  is manual. Eddie's deployment is unaffected.
+  is manual. The owner's deployment is unaffected.
 
 **What would change the plan.**
 - **L1 becomes his default** (Appendix B's revisit). Promoting scratch writes becomes the happy path, one more

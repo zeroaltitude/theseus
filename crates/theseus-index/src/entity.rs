@@ -11,7 +11,7 @@
 //! | `commit` | 7 to 40 hex digits with at least one digit and one letter; the 7-digit prefix too, so a short hash matches a long one | `commit:d069c4c` |
 //! | `host` | the host of a URL | `host:github.com` |
 //! | `crate` | `theseus-<name>`, a Rust path's first segment (`tantivy::Index`), `-p`/`--package`, `cargo add`/`install`, a `crates/<name>/` directory, and a `name = "1.2"` dependency line; `_` read as `-` | `crate:theseus-store` |
-//! | `mention` | Discord's `<@id>`, and `@name` that is not an e-mail address or a package scope | `mention:271828182845904523`, `mention:eddie` |
+//! | `mention` | Discord's `<@id>`, and `@name` that is not an e-mail address or a package scope | `mention:271828182845904523`, `mention:zeroaltitude` |
 //!
 //! The rules overlap on purpose (`theseus-sim` is a crate name and has the
 //! shape of a Beads id): a term is exact either way, so an extra type costs
@@ -318,11 +318,11 @@ mod tests {
     #[test]
     fn mentions() {
         has(
-            "hey <@271828182845904523> and @Eddie.",
-            &["mention:271828182845904523", "mention:eddie"],
+            "hey <@271828182845904523> and @zeroaltitude.",
+            &["mention:271828182845904523", "mention:zeroaltitude"],
         );
         lacks(
-            "mail eddie@example.com, npm i @types/node",
+            "mail zeroaltitude@example.com, npm i @types/node",
             &["mention:example.com", "mention:types"],
         );
     }

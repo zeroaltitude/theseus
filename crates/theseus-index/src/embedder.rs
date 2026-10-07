@@ -11,7 +11,7 @@
 //! **Windows.** A text past 512 tokens is embedded in windows of 512, each
 //! `[CLS]`, the prefix, the next stretch of the text, `[SEP]`, and its pooled
 //! vector is the mean over every window's tokens. The index's chunks are cut
-//! by an estimate (29b's), and on Eddie's store a quarter of them came out a
+//! by an estimate (29b's), and on the owner's store a quarter of them came out a
 //! little past 512 word pieces: windows embed all of each, not its first 512.
 //! At most [`MAX_WINDOWS`]; past that a text is cut, and says so.
 //!

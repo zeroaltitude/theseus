@@ -1,4 +1,4 @@
-//! The turns the pass writes between (theseus-ms5m; Eddie's decision 10,
+//! The turns the pass writes between (theseus-ms5m; the owner's decision 10,
 //! 2026-10-04): a count of the turns running in the daemon, every
 //! session's, and a handshake with the pass's frame, so that no pass frame
 //! lands inside a turn.

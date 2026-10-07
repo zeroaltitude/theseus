@@ -98,7 +98,7 @@ fn orphans(kind: &str, declared: &[&str]) -> Vec<String> {
 /// Why a reserved marker is malformed, if it is. Its form is `row <n>
 /// (<step>), <milestone>: <its reader>`: a row of the roadmap re-cut's §2, with
 /// its step, and a milestone, `M<n>` (`M3.6`), or `AWS`, block D, which floats
-/// on Eddie's go and belongs to no milestone.
+/// on the owner's go and belongs to no milestone.
 fn malformed(marker: &str) -> Option<String> {
     const FORM: &str = "its form is `row <n> (<step>), <milestone>: <its reader>`";
     let Some((head, reader)) = marker.split_once(": ") else {

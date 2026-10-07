@@ -1,4 +1,4 @@
-//! The cockpit's protocol types, generated from these (theseus-0g4; Eddie's
+//! The cockpit's protocol types, generated from these (theseus-0g4; the owner's
 //! call, 2026-10-01): one file per type in `cockpit/src/protocol.gen/`, and
 //! `index.ts` exporting them all. `cockpit/src/protocol.ts` re-exports them
 //! beside the client, and the cockpit imports it as `@protocol`.

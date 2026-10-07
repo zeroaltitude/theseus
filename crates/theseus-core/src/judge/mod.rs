@@ -184,6 +184,15 @@ pub struct JudgeService {
     ladder: ladder::Ladder,
     /// Learned versions (25f), read with the ladder, then kept.
     lineage: lineage::Lineage,
+    /// The daemon's running turns: the sink writes between them
+    /// (theseus-0j2.8; `sink::run`).
+    between: OnceLock<Arc<crate::memory_pass::turns::Turns>>,
+    /// The judgments settled and not yet written (`sink::Queue`): the
+    /// sink's writer takes its frames from it, and a clean stop the rest.
+    queue: Arc<sink::Queue>,
+    /// A test's shorter bounds for the sink's waits.
+    #[cfg(test)]
+    pub(crate) sink_timing: OnceLock<crate::memory_pass::Timing>,
 }
 
 impl JudgeService {
@@ -239,6 +248,10 @@ impl JudgeService {
             me: me.clone(),
             narrator: OnceLock::new(),
             telemetry: OnceLock::new(),
+            between: OnceLock::new(),
+            queue: Arc::default(),
+            #[cfg(test)]
+            sink_timing: OnceLock::new(),
         })
     }
 
@@ -262,6 +275,22 @@ impl JudgeService {
     /// The ladder (26a): each pack version's mode.
     pub fn ladder(&self) -> &ladder::Ladder {
         &self.ladder
+    }
+
+    /// The warm read (theseus-289c): the ladder and the learned versions,
+    /// read now on the caller's thread, and nothing written (the adoptions
+    /// are `Ladder::adopt`'s). `Core::warm_ladder` runs it after serving on
+    /// the blocking pool; an RPC or a test that needs the read ladder at
+    /// once may call it.
+    pub fn read_ladder(&self) {
+        self.ladder.read();
+        self.lineage.read(&self.store);
+    }
+
+    /// Whether the warm read has happened: until it has, every point
+    /// answers from the wired lines and the roots, reading nothing.
+    pub fn ladder_read(&self) -> bool {
+        self.ladder.is_loaded() && self.lineage.is_loaded()
     }
 
     /// What `pack` does in `session` (26a): off, shadow, or live, and the
@@ -383,12 +412,12 @@ impl JudgeService {
                 &[rerank::RERANK_PACK],
                 BreakerConfig::default(),
             );
-        let (channel, rx) = sink::Channel::new();
+        let channel = sink::Channel::new(self.queue.clone());
         let b = Arc::new(Built {
             judge: Recording::new(judge, channel),
         });
         if self.built.set(b.clone()).is_ok() {
-            tokio::spawn(sink::run(rx, self.me.clone(), self.flush));
+            tokio::spawn(sink::run(self.queue.clone(), self.me.clone(), self.flush));
         }
         Ok(self.built.get().cloned().unwrap_or(b))
     }
@@ -784,8 +813,10 @@ impl JudgeService {
 impl JudgeService {
     /// Health's line per wired pack (26a): its mode, share and why
     /// (`route.v1: live (owner: decision of 2026-10-04)`), or what the
-    /// config caps it at. Before the ladder's first read, each pack's wired
-    /// line under the config: health never reads the ladder itself.
+    /// config caps it at. Before the ladder's first read, what each pack
+    /// does then (`Ladder::unread`): its wired line under the config, one
+    /// that would act in shadow until the read (theseus-289c). Health never
+    /// reads the ladder itself.
     pub fn pack_lines(&self) -> Vec<String> {
         let loaded = self.cfg.enabled && self.ladder.is_loaded();
         self.ladder
@@ -793,7 +824,19 @@ impl JudgeService {
             .iter()
             .map(|(p, wired)| {
                 if !loaded {
-                    return format!("{p}: {}", self.cfg.mode_of(p, *wired).as_str());
+                    let line = self.cfg.mode_of(p, *wired);
+                    let now = match self.cfg.enabled {
+                        true => self.ladder.unread(&self.cfg, p),
+                        false => line,
+                    };
+                    return match now == line {
+                        true => format!("{p}: {}", line.as_str()),
+                        false => format!(
+                            "{p}: {} (until the ladder is read; wired {})",
+                            now.as_str(),
+                            line.as_str()
+                        ),
+                    };
                 }
                 let s = self.ladder.standing(p);
                 let acts = self.cfg.mode_of(p, s.rung.acts_as());

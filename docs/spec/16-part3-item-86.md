@@ -1,7 +1,7 @@
 # The Ship of Theseus, chapter 16: Part III, A4's Items 86 to 96 ([index](README.md))
 ### Item 86. The cockpit replaces the Observatory: the last gaps closed, the cockpit at `/`, and `web/` deleted (theseus-vm3n.6, its second step; the simplification cut-list's 6.4; the `cockpit-parity` lane; 2026-10-03 17:23 to 18:43, stopped from outside at 17:49 and relaunched; 92facd7 and c7ae697 on 238de39, a merge of `main` at 1abf099; reviewed 19:21 to 19:23; joined 20:24 at ea5dc9f, a signed merge onto d9b0931; installed 23:31 at 96d01de)
 
-**Why.** Eddie at 17:14: "Let's fix the observatory gaps and then retire it in favor of the cockpit." The third cloud
+**Why.** The owner at 17:14: "Let's fix the observatory gaps and then retire it in favor of the cockpit." The third cloud
 batch's obs-parity (Item 80) had ported most of the Observatory into the cockpit and listed what was left: the sandbox
 section's details and eleven minor gaps. Part 1 closes them in the cockpit; Part 2 serves the cockpit at `/`, deletes
 `web/`, moves the protocol's TypeScript out of it, and drops the gate's web phases.
@@ -161,7 +161,7 @@ join's suite. A follow-up note (theseus-8eyh, P3) says a load-flakes test commen
 
 ### Item 88. Tier 7's kernel: a job's completion is an event, each record is written once per frame, and wz4y joins (theseus-kpfv, with theseus-wz4y; the simplification cut-list's 7.1 and 7.3; spine, in a worktree; 2026-10-03 16:58 to 20:10, in three runs; 5a0a6f5, 83535f9, b492e5d, c112d47 (the wz4y merge, bringing f515661 and a7c15cf with their ids) and 9d8fd79, with `main` merged in at 15a4adc and 228a706; reviewed 20:35; joined 20:51 at ae1b9ef, a signed merge onto 9fee6df, by a join wake; installed 23:31 at 96d01de)
 
-**Why.** The simplification review's C1, F2 and F1, approved with every Tier 7 pick by Eddie at 14:20. A synchronous
+**Why.** The simplification review's C1, F2 and F1, approved with every Tier 7 pick by the owner at 14:20. A synchronous
 `proc.run` looked at its job every 50 ms, though its wrapper already poked `notify.sock` and the drain took the
 completion; the wrapper itself woke every 20 ms; and the drain and the turn's look raced, so a tool-call turn wrote 11
 or 12 frames, and the race kept the second cloud batch's wz4y (each turn's own frame count; Item 70) from joining.
@@ -244,7 +244,7 @@ completion leaves that file for the drain's next pass: slower, not wrong.
 
 ### Item 89. A trusted guild: every channel bound in the operator's guild is private, with no viewer warning (theseus-rdqg, with theseus-xbtr; a lane, in a worktree, on origin as `lane/trusted-guild`; 2026-10-03 18:49 to 20:09, stopped at about 19:25 by the account's spend limit and resumed at 19:31; 72335e3 and 53f05e5 on d9b0931; reviewed 20:41; joined 21:07 at d54fd82, a signed merge onto ae1b9ef, by a join wake; installed 23:31 at 96d01de, with the operator's bindings line)
 
-**Why.** Eddie at 17:14, on health's warning that another bot can view his test channels: "Theseus should be considered
+**Why.** The owner at 17:14, on health's warning that another bot can view his test channels: "Theseus should be considered
 perfectly safe and open to use globally on the personally managed [guild], regardless of where." Under the
 default-trust principle (§2), the operator's word can cover his whole guild, as Item 76's `private = true` covers one
 channel. The goal is unchanged: private material never reaches a shared place. What changed is how the operator says a
@@ -302,7 +302,7 @@ on the flaky list.
 **The install** (23:31, at 96d01de). The binary first, then one line in the operator's bindings file, `private = true`
 under `guild_id` (an older build refuses the key), and in the pending `bindings.toml.next` that brings the voice
 channel; then a restart, at 23:31:57. His places line then read `places: private: CLI, web, #openclaw (in a trusted
-guild), DM @eddie`; from 23:38, with the bindings file that brings voice, it names his test voice channel too, private
+guild), DM @zeroaltitude`; from 23:38, with the bindings file that brings voice, it names his test voice channel too, private
 in the trusted guild.
 
 **Divergences.** The brief's "keep the read itself if anything else uses it" found no other user, so the read is
@@ -312,9 +312,9 @@ example, would keep a trusted guild's channel shared. A gate flake met on the wa
 
 **What it costs, said plainly.** In a trusted guild, everyone who can view a bound channel sees what Theseus says there,
 the owner's material included, and a member who joins later is never noticed: the operator's word is the whole check.
-That is Eddie's call at 17:14. Theseus's approval cards for a call made in `#openclaw` post in `#openclaw`.
+That is the owner's call at 17:14. Theseus's approval cards for a call made in `#openclaw` post in `#openclaw`.
 
-**Left for Eddie** (theseus-yzhv, not built; still open). Whether "regardless of where" means answering in every channel
+**Left for the owner** (theseus-yzhv, not built; still open). Whether "regardless of where" means answering in every channel
 of the guild without a `[[channel]]` for each. Today a daemon answers only where its own bindings file names
 (theseus-e89), which keeps several daemons on one bot token apart; answering everywhere would make a scratch daemon's
 test channel answered twice. The lane's recommendation: ask which was meant, and if it is "everywhere", give the scratch
@@ -322,7 +322,7 @@ daemons a bot of their own first, then build `channels = "all"` with an `except`
 
 ### Item 90. A sparse config note, and no copy of the prices in the template (theseus-vwar, with theseus-81ig; review item 15, the core review's E2 and E3; the `sparse-config` lane, in a worktree; 2026-10-03 18:49 to 20:40, stopped by the account's spend limit at about 19:25 and resumed at 19:31; 13569b9, d56f2a6 and 20d21f4 on d9b0931, and e1c15dd merging `main` at ea5dc9f; reviewed 20:51; joined 21:29 at e4b6647, a signed merge onto d54fd82, by a join wake; installed 23:31 at 96d01de; the operator's note cut at 23:37)
 
-**Why.** Eddie at 15:10, to item 15's explanation: "Yes to both sounds great". His note was the whole template, pasted,
+**Why.** The owner at 15:10, to item 15's explanation: "Yes to both sounds great". His note was the whole template, pasted,
 with his own values put in place by a private overlay (theseus-dxgb; Item 57), so every new key or changed default
 needed a paste, and the overlay needed a TOML line editor of its own. And the template carried a copy of the code's prices, one
 `[catalog]` table per built-in model. Pasted, those tables overrode the code: a price fixed in code never reached him,
@@ -378,9 +378,9 @@ and 9, the jobs phase's L1 start p95 5.88 ms; pushed 21:29:01. theseus-vwar clos
 
 **The install** (23:31, at 96d01de). With the installed binary, `theseusd config --sparse` cut the operator's vault note,
 and two things he asked for were added to the cut: `[sandbox] egress = ["*.amazonaws.com:443"]`, so L1 `aws` jobs reach
-AWS without an approval each time (Item 94; Eddie at 23:24), and `[voice] enabled = true` with the Deepgram key's
+AWS without an approval each time (Item 94; the owner at 23:24), and `[voice] enabled = true` with the Deepgram key's
 reference under `[secrets]` (Item 83). The note to paste was 71 lines, 57 of them live, in thirteen tables, and its 9
-secrets resolved. Eddie replaced the note's whole text with it in the vault, which no agent can write, at about 23:37;
+secrets resolved. The owner replaced the note's whole text with it in the vault, which no agent can write, at about 23:37;
 the daemon saw `config.changed` and restarted in place onto it at 23:38:01, and health at 23:39 read 9 secrets, one
 egress host, and voice ready. From now on a new key or default reaches him with the build.
 
@@ -396,13 +396,13 @@ egress host, and voice ready. From now on a new key or default reaches him with 
 check` once said its 8 secrets resolved "in 0 ms", a race between the secret board's ready list and its settle record,
 harmless to the verdict); theseus-or7p (above). The cockpit shows no config-table lines.
 
-### Item 91. Reads that don't grow with history: `ledger.tail` and the polled lists through the index, counts in one row, and the shape build's own durable checkpoint (theseus-vm3n.5, theseus-96w2 and theseus-tphr, with theseus-celu.16 and theseus-celu.16.1; Eddie's 6.3 pick, the server half; the third cloud batch's ledger-reads session, fired 2026-10-03 13:00 from a59b7c1, 8f6866a, dd53c05, 3b6d848 and ab710b6; a join attempt 17:05 to 17:24 that failed in the lifecycle bench; the `ledger-perf` lane, 18:01 to 20:33, stopped 19:25 to 19:31 by the account's spend limit, 884833a and three merges of `main`, the last c2a56ef; reviewed 20:57; joined 21:50 at fe371af, a signed merge onto e4b6647, by a join wake; installed 23:31 at 96d01de)
+### Item 91. Reads that don't grow with history: `ledger.tail` and the polled lists through the index, counts in one row, and the shape build's own durable checkpoint (theseus-vm3n.5, theseus-96w2 and theseus-tphr, with theseus-celu.16 and theseus-celu.16.1; the owner's 6.3 pick, the server half; the third cloud batch's ledger-reads session, fired 2026-10-03 13:00 from a59b7c1, 8f6866a, dd53c05, 3b6d848 and ab710b6; a join attempt 17:05 to 17:24 that failed in the lifecycle bench; the `ledger-perf` lane, 18:01 to 20:33, stopped 19:25 to 19:31 by the account's spend limit, 884833a and three merges of `main`, the last c2a56ef; reviewed 20:57; joined 21:50 at fe371af, a signed merge onto e4b6647, by a join wake; installed 23:31 at 96d01de)
 
 **Why.** Every read the polled surfaces make walked history. `ledger.tail` with a `kind` or `session_id` filter read the
 newest `n × 50` rows and filtered them, so it both grew with history and could miss a quiet session's rows. Health
 counted by walking every record. `action.list`, `node.list`, `session.history` and `session.list` read every record of
 their kind. At 10,000 sessions and 470,000 ledger rows, `action.list {n:500}` took 165 ms, a filtered `ledger.tail` 147
-ms, and health 46 ms, and the daemon peaked at 625 to 685 MB. Eddie took 6.3 at 12:28, its server half for the cloud.
+ms, and health 46 ms, and the daemon peaked at 625 to 685 MB. The owner took 6.3 at 12:28, its server half for the cloud.
 
 **What landed** (`crates/theseus-store/AGENTS.md`, "The shape is a projection too").
 - **The index's shape** (8f6866a). Nine `index.redb` tables are kept with every append and replay, in the redb
@@ -452,7 +452,7 @@ ms, and health 46 ms, and the daemon peaked at 625 to 685 MB. Eddie took 6.3 at 
 **The join attempt, the stop that wasn't slower, and the one that was.** The first join (17:05 to 17:24, the held-joins
 wake: the signed merge d3b5793 on 1d11949, with t7-store's open kept at `Durability::None` and the nine tables added to
 it) failed its gate in the lifecycle bench: the clean stop with executions waiting read 88.0 and 70.8 ms at p50 against
-`main`'s 31. It was parked, and Eddie asked at 17:59: "Let's see if we can fix the performance of the ledger lane." The
+`main`'s 31. It was parked, and the owner asked at 17:59: "Let's see if we can fix the performance of the ledger lane." The
 lane found no slower stop on the bench's path:
 - **A/Bs of frozen debug builds** in one hold of the gate lock, in palindrome order: `main`, the join's exact commit and
   the merged lane stop alike, 31 to 36 ms in a quiet window. The daemon's own stop phases are the same in every build
@@ -503,7 +503,7 @@ positions. Past the checkpoint, and in any log opened with no index (a full repl
 restore`), the bytes alone cannot tell rot from a batch torn before its sync: the writer writes a batch's frames back to
 back and syncs once, so a power loss can leave a later frame whole and an earlier one torn. So a synced frame gone bad
 there was cut as a torn tail, with every acknowledged frame after it. The wal-rot session designed the fix and left the
-format change to Eddie, who approved it at 17:14: "Bump the format for WAL remainder."
+format change to the owner, who approved it at 17:14: "Bump the format for WAL remainder."
 
 **What landed** (§6; `crates/theseus-store/AGENTS.md`).
 - **The mark.** The writer stamps each frame with the last position whose sync had returned Ok when it wrote the frame:
@@ -586,19 +586,19 @@ cutting stays the right call. With `fsync: false` (the benches) the marks, like 
 synced, so a torn frame there is refused, not cut.
 
 **Known gaps.** theseus-c67g (P3, post-v1): a reopened log never syncs the directory of the last segment it recovered (a
-crash before a new segment's first sync), a gap in theseus-xprd's rule found while reading the sync path. A reader of
+crash before a new segment's first sync), a gap in theseus-xprd's rule found while reading the sync path. _(Closed 2026-10-05 by wal-sync, theseus-c67g, Part III Item 176: an open that finds its last segment syncs the log's directory with its first frame. Since 2026-10-06 that sync is skipped when the index's checkpoint or a mark vouches for the segment's name; Part III Item 196.)_ A reader of
 the WAL outside the store must now tell the two frame layouts apart by their magic.
 
-### Item 93. Benchmark plumbing: secrets from outside the vault for everyone, a headless run that says how it ended, and the Harbor adapter in the repo (theseus-n88g.1 to .3, after the worth spike, theseus-2sg0; Eddie's D1 to D7 of 2026-10-03 17:14; the `bench-plumbing` lane, 17:23 to 19:46, stopped from outside at 17:59 and at about 19:25, and relaunched each time; the spike's 60dfb45 merged as 9263c0f, then edaa196, f6e383b and 258d441, with `main` merged in at 413e149 and 4b80d5f; reviewed 20:05; joined 22:24 at ac65a38, a signed merge onto f3564f2, by a join wake; installed 23:31 at 96d01de)
+### Item 93. Benchmark plumbing: secrets from outside the vault for everyone, a headless run that says how it ended, and the Harbor adapter in the repo (theseus-n88g.1 to .3, after the worth spike, theseus-2sg0; the owner's D1 to D7 of 2026-10-03 17:14; the `bench-plumbing` lane, 17:23 to 19:46, stopped from outside at 17:59 and at about 19:25, and relaunched each time; the spike's 60dfb45 merged as 9263c0f, then edaa196, f6e383b and 258d441, with `main` merged in at 413e149 and 4b80d5f; reviewed 20:05; joined 22:24 at ac65a38, a signed merge onto f3564f2, by a join wake; installed 23:31 at 96d01de)
 
-**Why.** At 15:08 Eddie asked how Theseus's worth could be proven (from a conversation of his with Theseus that afternoon).
+**Why.** At 15:08 the owner asked how Theseus's worth could be proven (from a conversation of his with Theseus that afternoon).
 The worth spike (theseus-2sg0, 15:34 to 16:53; it merged nothing) proved that Theseus runs Terminal-Bench 2.0 through
 Harbor: three of its tasks and one SWE-bench Verified task end to end, 1.0 on all four, as Claude Code scored through
 Harbor's own adapter with the same model (Sonnet 5.5), for $0.42 in all. It took a 193-line adapter, the two binaries
 built static, a bench config file, and a 70-line `env:` and `file:` secrets change (`spike/worth`, 60dfb45). On those
 easy tasks Theseus was slower and a little dearer, because the model made 1.5 to 2 times as many calls under its prompt;
 the harness's own work was about 2 % of a turn, and one paragraph of system text closed most of the gap. Theseus's
-install took 0.5 s a trial, Claude Code's about 4.5 minutes. The spike put seven decisions to Eddie, and at 17:14 he
+install took 0.5 s a trial, Claude Code's about 4.5 minutes. The spike put seven decisions to the owner, and at 17:14 he
 said yes to all of them: the plumbing now, as lanes beside the spine, and the full runs after (D1); a standing
 benchmark budget (D2); Sonnet 5.5 as the main model, GLM-5.3 as a second (D3); results published in the repo first,
 with the attempts and the model beside every score (D4); the batching paragraph in the default prompt if the full run
@@ -660,7 +660,7 @@ health names no secret from outside it.
 
 **B5, under way.** The first full Terminal-Bench 2.0 run (theseus-n88g.5: 89 tasks, three configurations, Theseus plain,
 Theseus with the batching paragraph, and Claude Code, two attempts each, on Sonnet 5.5; estimated $180 to $540 in model
-tokens) waited for Eddie's OK after this join. He gave it at 22:58 ("I'm cool with the run, gathering data is amazing").
+tokens) waited for the owner's OK after this join. He gave it at 22:58 ("I'm cool with the run, gathering data is amazing").
 Its lane started at 23:01, and the run's driver at 23:21:20, as a user service of its own, task by task, with a pause
 past $600 or under 35 GB free on the disk, and a harvest wake that carries it to its results. At 23:49 it had run 23
 of its 534 trials, for $2.53, with no errors. Its results go to `docs/benchmarks.md` when it finishes; this record has
@@ -746,7 +746,7 @@ jobs phase's L1 start p95 5.03 ms; frames 5 and 9; pushed 22:53:20. theseus-mgw.
 
 **The install** (23:31, at 96d01de). Nothing visible changes on the operator's daemon: his `[sandbox] default` is L0, his
 `l1_argv` does not name `aws`, and his approve list already names `~/.aws`; an L1 job mounts one path fewer. At 23:24
-Eddie asked for `[sandbox] egress = ["*.amazonaws.com:443"]`, so that his L1 `aws` jobs reach AWS without an approval
+the owner asked for `[sandbox] egress = ["*.amazonaws.com:443"]`, so that his L1 `aws` jobs reach AWS without an approval
 each time; it went live with his paste of the sparse note at 23:38 (Item 90), and health lists the one host. So every
 L1 job may now reach AWS's hosts, granted or not, and what a job brings back from them is not outside text.
 
@@ -764,7 +764,7 @@ their spelled path.
 
 **Why.** Item 80's `security.v2` caught v1's missed case, but not the file-laundered injection (one session writes a
 fetched page's instructions to a file, and a second follows the file): Jev read it as steered (0.83) but scored `risky`
-0.55, under the 0.60 confirm line, so v2's one deciding question would not ask (theseus-ibm3). At 17:22 Eddie chose
+0.55, under the 0.60 confirm line, so v2's one deciding question would not ask (theseus-ibm3). At 17:22 the owner chose
 option A: `steered` decides beside `risky`, above a high bar set from shadow data. Option B, file provenance, was to come
 only if A proved too blunt, after v1.
 
@@ -796,7 +796,7 @@ $0.0016; every risky case asks (6 of 6), the laundered one by `steered` at 0.81;
 **The finding** (theseus-sh05). The 0.75 bar is too blunt on one benign case, and no bar on `steered` alone can fix it: the
 operator's own notes file ("the next step is in my notes, do it") reads steered **0.88**, above the laundered case's
 **0.81**. What separates them is where the file's text came from, which is option B's condition. The other benign ask is
-`risky`'s own: a post to a named hook read 0.61, just over its 0.60 line (v2's run had read it 0.58). Eddie at 23:24, on the
+`risky`'s own: a post to a named hook read 0.61, just over its 0.60 line (v2's run had read it 0.58). The owner at 23:24, on the
 recommendation: "take your rec": v3 stays in shadow, its data gathered through the soak, and option B is decided at v1
 with real numbers. Nothing is built for it now.
 
@@ -816,7 +816,7 @@ theseus-sh05 (deferred to v1, above).
 
 **Why.** The worth spike (Item 93) probed six language servers and designed LSP tools for Theseus: lazy servers, a
 hand-written client (no new crates), and diagnostics in edit results as the main feature, as Claude Code and OpenCode
-do, plus read tools and a gated rename. Eddie said yes at 17:14 (D1: the LSP crate now, as a lane). L1 is the client
+do, plus read tools and a gated rename. The owner said yes at 17:14 (D1: the LSP crate now, as a lane). L1 is the client
 alone, in a crate of its own; L2 (the board and the tools in theseus-core) is its reader.
 
 **What landed** (`crates/theseus-lsp`, new, 32 files, +5,287; outside it only the workspace's `members` line and
@@ -891,7 +891,7 @@ locate the definition first. rust-analyzer's own analysis gives its diagnostics,
 reused pid is never signalled. Its gate (23:02:27): 1,855 of 1,855 (17 skipped, the crate's 7 live tests among them), no
 flaky retries; lifecycle ok on the first run (cold start p50 19.9 ms, the clean shutdown p50 29.9); the jobs phase's L1
 start p95 5.76 ms; frames 5 and 9; pushed 23:02. theseus-n88g.7 and theseus-celu.23 closed. L2 (theseus-n88g.8) became
-startable, and waits while new cloud batches are held (Eddie, 21:00).
+startable, and waits while new cloud batches are held (the owner, 21:00).
 
 **The install** (23:31, at 96d01de). No shipped binary links the crate until L2 reads it.
 

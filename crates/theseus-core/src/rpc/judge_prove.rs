@@ -62,7 +62,8 @@ impl Core {
 
     /// The window: the days given, else since `loop.v1`'s latest move to
     /// canary (its `pack.mode` row), else everything; and, in its line,
-    /// a learned loop version placed inside it (theseus-ag0t).
+    /// a learned loop version standing as it opens (theseus-clbx) or placed
+    /// inside it (theseus-ag0t).
     fn prove_window(
         &self,
         p: &JudgeProveParams,
@@ -124,6 +125,7 @@ impl Core {
             .judge
             .lineage()
             .names_of_root(&self.store, LOOP_PACK);
+        window.push_str(&learned_before(&rows, &learned, since));
         window.push_str(&learned_placed(&rows, &learned, since, until));
         Ok((since, until, window))
     }
@@ -174,6 +176,36 @@ impl Core {
             elapsed_ms: began.elapsed().as_millis() as u64,
         })
     }
+}
+
+/// What the window's line adds for each learned version of loop.v1 that
+/// stood in its place as the window opened (theseus-clbx): its latest row at
+/// or before `since`, declined ones skipped, put it in shadow, a canary, or
+/// live. Its tasks there are left out as `learned_version` as a placement's
+/// inside the window are. Newest first; nothing with no `since`, since
+/// nothing stood before every task.
+fn learned_before(rows: &[(u64, PackModeRow)], learned: &[String], since: Option<u64>) -> String {
+    let Some(since) = since else {
+        return String::new();
+    };
+    let mut out = String::new();
+    for name in learned {
+        let Some((at, m)) = rows
+            .iter()
+            .rfind(|(at, m)| &m.pack == name && !m.declined && *at <= since)
+        else {
+            continue;
+        };
+        if !matches!(m.mode.as_str(), "shadow" | "canary" | "live") {
+            continue;
+        }
+        out.push_str(&format!(
+            "; {name} stood in {LOOP_PACK}'s place from before it ({} since {})",
+            crate::fact::ladder::mode_words(&m.mode, m.share),
+            crate::judge::spend::local_day(*at)
+        ));
+    }
+    out
 }
 
 /// What the window's line adds when a learned version of loop.v1 was placed

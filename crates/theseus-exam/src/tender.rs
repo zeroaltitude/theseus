@@ -572,11 +572,11 @@ key = "a"
 place = "cli"
 [[item.session.node]]
 at = "2026-09-01 10:00"
-who = "eddie"
+who = "zeroaltitude"
 text = "the web ui listens on 7433"
 [[item.session.node]]
 at = "2026-09-01 10:01"
-who = "eddie"
+who = "zeroaltitude"
 text = "the web ui once listened on 8080"
 [[item]]
 id = "paraphrase-1"
@@ -590,11 +590,11 @@ key = "a"
 place = "cli"
 [[item.session.node]]
 at = "2026-09-02 10:00"
-who = "eddie"
+who = "zeroaltitude"
 text = "the dashboard binds port 9147"
 [[item.session.node]]
 at = "2026-09-02 10:01"
-who = "eddie"
+who = "zeroaltitude"
 text = "front end attach browser where does"
 [[item]]
 id = "fact-2"
@@ -608,7 +608,7 @@ key = "a"
 place = "cli"
 [[item.session.node]]
 at = "2026-09-03 10:00"
-who = "eddie"
+who = "zeroaltitude"
 text = "held out gold"
 "#;
 

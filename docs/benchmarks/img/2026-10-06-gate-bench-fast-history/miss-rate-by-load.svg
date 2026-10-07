@@ -1,0 +1,70 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="331" viewBox="0 0 720 331" role="img" aria-labelledby="t-miss-rate-by-load t-miss-rate-by-load-d" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
+<title id="t-miss-rate-by-load">Share of main gates whose first lifecycle run missed a limit, by the 1-minute load</title>
+<desc id="t-miss-rate-by-load-d">How does a gate's chance of a strict miss depend on the machine's load?</desc>
+<rect width="720" height="331" rx="8" fill="#fcfcfb" stroke="#e6e5df"/>
+<text x="18.0" y="32.0" font-size="15" fill="#0b0b0b" font-weight="600">Share of main gates whose first lifecycle run missed a limit, by the 1-minute</text>
+<text x="18.0" y="52.0" font-size="15" fill="#0b0b0b" font-weight="600">load</text>
+<line x1="25.0" y1="63.0" x2="25.0" y2="77.0" stroke="#52514e" stroke-width="1.5"/>
+<text x="40.0" y="74.0" font-size="12" fill="#52514e">all 240: 13.3%</text>
+<line x1="146.3" y1="104.0" x2="146.3" y2="252.0" stroke="#e1e0d9" stroke-width="1"/>
+<line x1="250.8" y1="104.0" x2="250.8" y2="252.0" stroke="#e1e0d9" stroke-width="1"/>
+<line x1="355.3" y1="104.0" x2="355.3" y2="252.0" stroke="#e1e0d9" stroke-width="1"/>
+<line x1="459.8" y1="104.0" x2="459.8" y2="252.0" stroke="#e1e0d9" stroke-width="1"/>
+<line x1="564.3" y1="104.0" x2="564.3" y2="252.0" stroke="#e1e0d9" stroke-width="1"/>
+<g><title>all 240: 13.3%: 13.3%</title>
+<line x1="215.8" y1="98.0" x2="215.8" y2="252.0" stroke="#52514e" stroke-width="1.5"/>
+</g>
+<text x="132.3" y="126.0" font-size="12" fill="#0b0b0b" text-anchor="end">load &lt;4 (n = 70)</text>
+<g><title>load &lt;4 (n = 70): 2.9%  [0.8%, 9.8%] (2 of 70 first runs missed)</title>
+<line x1="150.4" y1="122.0" x2="197.5" y2="122.0" stroke="#2a78d6" stroke-width="2" stroke-linecap="round"/>
+<line x1="150.4" y1="117.0" x2="150.4" y2="127.0" stroke="#2a78d6" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="197.5" y1="117.0" x2="197.5" y2="127.0" stroke="#2a78d6" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="161.4" cy="122.0" r="12" fill="transparent"/>
+<circle cx="161.4" cy="122.0" r="5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<text x="578.3" y="126.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">2.9%  [0.8%, 9.8%]</text>
+<text x="132.3" y="154.0" font-size="12" fill="#0b0b0b" text-anchor="end">load 4-8 (n = 108)</text>
+<g><title>load 4-8 (n = 108): 13.0%  [7.9%, 20.6%] (14 of 108 first runs missed)</title>
+<line x1="187.6" y1="150.0" x2="253.9" y2="150.0" stroke="#2a78d6" stroke-width="2" stroke-linecap="round"/>
+<line x1="187.6" y1="145.0" x2="187.6" y2="155.0" stroke="#2a78d6" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="253.9" y1="145.0" x2="253.9" y2="155.0" stroke="#2a78d6" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="214.2" cy="150.0" r="12" fill="transparent"/>
+<circle cx="214.2" cy="150.0" r="5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<text x="578.3" y="154.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">13.0%  [7.9%, 20.6%]</text>
+<text x="132.3" y="182.0" font-size="12" fill="#0b0b0b" text-anchor="end">load 8-12 (n = 46)</text>
+<g><title>load 8-12 (n = 46): 21.7%  [12.3%, 35.6%] (10 of 46 first runs missed)</title>
+<line x1="210.5" y1="178.0" x2="332.3" y2="178.0" stroke="#2a78d6" stroke-width="2" stroke-linecap="round"/>
+<line x1="210.5" y1="173.0" x2="210.5" y2="183.0" stroke="#2a78d6" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="332.3" y1="173.0" x2="332.3" y2="183.0" stroke="#2a78d6" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="259.7" cy="178.0" r="12" fill="transparent"/>
+<circle cx="259.7" cy="178.0" r="5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<text x="578.3" y="182.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">21.7%  [12.3%, 35.6%]</text>
+<text x="132.3" y="210.0" font-size="12" fill="#0b0b0b" text-anchor="end">load 12-16 (n = 11)</text>
+<g><title>load 12-16 (n = 11): 36.4%  [15.2%, 64.6%] (4 of 11 first runs missed)</title>
+<line x1="225.7" y1="206.0" x2="483.9" y2="206.0" stroke="#2a78d6" stroke-width="2" stroke-linecap="round"/>
+<line x1="225.7" y1="201.0" x2="225.7" y2="211.0" stroke="#2a78d6" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="483.9" y1="201.0" x2="483.9" y2="211.0" stroke="#2a78d6" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="336.5" cy="206.0" r="12" fill="transparent"/>
+<circle cx="336.5" cy="206.0" r="5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<text x="578.3" y="210.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">36.4%  [15.2%, 64.6%]</text>
+<text x="132.3" y="238.0" font-size="12" fill="#0b0b0b" text-anchor="end">load 16+ (n = 5)</text>
+<g><title>load 16+ (n = 5): 40.0%  [11.8%, 76.9%] (2 of 5 first runs missed)</title>
+<line x1="207.9" y1="234.0" x2="548.1" y2="234.0" stroke="#2a78d6" stroke-width="2" stroke-linecap="round"/>
+<line x1="207.9" y1="229.0" x2="207.9" y2="239.0" stroke="#2a78d6" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="548.1" y1="229.0" x2="548.1" y2="239.0" stroke="#2a78d6" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="355.3" cy="234.0" r="12" fill="transparent"/>
+<circle cx="355.3" cy="234.0" r="5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<text x="578.3" y="238.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">40.0%  [11.8%, 76.9%]</text>
+<line x1="146.3" y1="252.0" x2="564.3" y2="252.0" stroke="#c3c2b7" stroke-width="1"/>
+<text x="146.3" y="268.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">0%</text>
+<text x="250.8" y="268.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">20%</text>
+<text x="355.3" y="268.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">40%</text>
+<text x="459.8" y="268.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">60%</text>
+<text x="564.3" y="268.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">80%</text>
+<text x="355.3" y="286.0" font-size="12" fill="#52514e" text-anchor="middle">first runs past a limit (Wilson 95% interval)</text>
+<text x="18.0" y="308.0" font-size="11" fill="#52514e">The load is the 1-minute load average as the bench ended (16 vCPUs), so it includes the bench's own work.</text>
+</svg>

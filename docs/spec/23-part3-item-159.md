@@ -107,13 +107,13 @@ the computed cap is not expanded (a design choice M6 did not state). Additions s
 on a long session the turn's neighbours would take the 20 slots and activation would add fewer unseen nodes, silently
 (the code is right). theseus-3edq (P2, filed at the join): the projection's build walks every page with no PSI pace;
 the page walk is shared with `refresh`, which runs inside a turn's deadline and must never wait, so the build needs a
-pace flag of its own before `+activation` meets Eddie's store. Under any live arm a turn walks its kept transcript twice
+pace flag of its own before `+activation` meets the owner's store. Under any live arm a turn walks its kept transcript twice
 for `in_context` (folding them is a cleanup). Unlabeled nodes (a store from before 31a, the exam's written past) have no
 entities, so there activation spreads by position and tool pairs only; asking the tender for their entities after
 serving is the next step if the exam should measure shared entities. The cap loses sums of small contributions through
 common entities. The lifecycle bench does not configure the arm, so §9's RSS rows do not include it. The replay does
 not recompute `+activation`. `via = "synthesis"` spreads nothing, rightly, but counts as `unmapped`; mapping it to zero
-explicitly would keep that count honest (optional). R5's recommendations for Eddie, each how the code works now: keep
+explicitly would keep that count honest (optional). R5's recommendations for the owner, each how the code works now: keep
 the cap; keep skipping in-context additions.
 
 ### Item 160. Consolidation: co-recalled clusters into cited syntheses, Jev's `citation.v1` in shadow, the `+synthesis` arm, and a private place that draws on every session (theseus-6fn.10, with theseus-1is6; step 31b, roadmap row 57; the sixth cloud batch's consolidation session, fired 2026-10-04 20:00 from 3085f71a, Opus 5.5; c0b9535c, 94618d81, b5ce8698 and 90856ea6; reviewed 01:56 to 02:36 by local reviewer R5, stack M, on activation's review merge; joined 03:50 at fd9235d0, a signed merge onto dca30347, by the stack-M joiner; store format 18; installed 2026-10-05 13:07 at 60b43fb6, install #4)
@@ -123,7 +123,7 @@ has a model propose one synthesis per cluster, has Jev check every sentence agai
 accepted ones as `Synthesis` nodes, scored in shadow and shown only through a bounded canary. Step 31b builds it as
 M6's third arm, `+synthesis`, after retention (Item 157) and activation (Item 159). The place
 rule's half, theseus-1is6 (P2), was found by the batch-6 task writer on 2026-10-04 and given to this session: M6's
-§2.15 and the place rule Eddie approved on 2026-10-03 (Item 76) say a private place draws on any session, but
+§2.15 and the place rule the owner approved on 2026-10-03 (Item 76) say a private place draws on any session, but
 recall's `Place::may_draw_on` (30a) admitted only private places' sessions to a private place.
 
 **What landed** (68 files, +3,594 −111 beside the cloud files; the merge 69 files, +3,572 −116; no new package). Steps
@@ -221,9 +221,9 @@ runs against a budget of 50 + 7, read as one noisy run (the tender starts after 
 at p50 75.8 ms and the tool-call turn 9 at 159.2; resident memory 90.7 MB after the burst. Pushed; the branch deleted;
 the done line at 03:50:01; theseus-6fn.10 and theseus-1is6 closed.
 
-**The install** (2026-10-05 13:07 at 60b43fb6, install #4). Install #4 moved Eddie's store from format 16 to 20 at its first write (18 is this join's),
+**The install** (2026-10-05 13:07 at 60b43fb6, install #4). Install #4 moved the owner's store from format 16 to 20 at its first write (18 is this join's),
 after the install's backup. Three new keys in `[memory]`: `synth_profile = "session"`, `synth_limit_usd_per_day = 0.50`, `consolidate_hour =
-4`; `+synthesis` is off unless `[memory] arm` names it, and no other arm puts a synthesis before a model. With Eddie's
+4`; `+synthesis` is off unless `[memory] arm` names it, and no other arm puts a synthesis before a model. With the owner's
 memory mode live, the nightly run would spend by default, up to $0.50 a day, losing for good every cluster the model
 titles until theseus-8edz is fixed; so install #4 set `[memory] synth_limit_usd_per_day = 0` on his config, by his 12:03
 "Take your recommendation" (morning notes sections 39 and 42), and consolidation's writer stays off until 8edz lands. Health after the restart (13:07:43): `theseusd check` exit 0, 9 secrets ready 1.05 s after the start, startup serving at 29.1 ms with builds beside it, `cgroup: delegated`, `route.v1`, `rerank.v1` and `security.v3` live, memory live on the `baseline` arm, Discord ready, and no error or warning in the journal; the store from format 16 to 20 at its first write, after the install's backup.
@@ -241,7 +241,7 @@ message to a synthesis (`same_entity`), and `baseline` would then drop the synth
 excluding the harness session from `index.neighbours` closes it. A checked synthesis is an eligible rerank candidate, so
 rerank.v1 may see its text (private, as its sources). The exam has no recall rows to cluster, so `+synthesis` there needs
 a run under `baseline` first and Jev. The cockpit has no Memory view and lists no synthesis. R5's recommendations for
-Eddie, each how the code works now: keep a shadow verdict qualifying for `+synthesis`, but require a live one before it
+the owner, each how the code works now: keep a shadow verdict qualifying for `+synthesis`, but require a live one before it
 is ever a canary's arm; keep `session` and watch `profiles_disagree`; keep the $0.50 cap and the hour 4.
 
 ### Item 161. Detour-recall: a trivial detour sends no recall, writes none, and its row says `detoured` (theseus-n7nc, lane context-honesty's fix B; the `detour-recall` lane, a subagent of the DM thread, Opus 5.5, 2026-10-05 02:47 to 03:58, from origin/main; 969c099f and 9cb5af90, with `main` merged in at 4a36a685; joined by the lane at 03:50 at 62de744f, a signed merge onto fd9235d0; reviewed 04:20 to 04:22 by the DM thread; installed 2026-10-05 13:07 at 60b43fb6, install #4)
@@ -427,7 +427,7 @@ plain 5 frames at p50 76.0 ms, tool-call 9 at 152.3. Pushed; the done line at 04
 theseus-6fn.13 closed; R5's tree and its 9.5 GB target removed.
 
 **The install** (2026-10-05 13:07 at 60b43fb6, install #4). One new key, `[memory] node_cache_mb = 64`. The cache is the store's read path, not
-memory's, so it serves on Eddie's daemon whatever his memory mode. Health gains the `node cache` line; `context.compiled`
+memory's, so it serves on the owner's daemon whatever his memory mode. Health gains the `node cache` line; `context.compiled`
 rows gain `decoded` and `stubs`. Health after the restart (13:07:43): `theseusd check` exit 0, 9 secrets ready 1.05 s after the start, startup serving at 29.1 ms with builds beside it, `cgroup: delegated`, `route.v1`, `rerank.v1` and `security.v3` live, memory live on the `baseline` arm, Discord ready, and no error or warning in the journal; the store from format 16 to 20 at its first write, after the install's backup.
 
 **Divergences.** **A read is a scan plus a peek**, not positions from the index alone (`positions_in_scope`) as §2.10
@@ -436,7 +436,7 @@ and the step expected no store change. **The cache is keyed by WAL position, not
 position names its bytes for good. A failed rehydration reads as a placeholder where a whole read used to fail.
 
 **Known gaps.** theseus-q0qe (P2): nothing holds that `stub::Kind::of` agrees with the peek's kind for every `Body`
-variant. The review's recommendations for Eddie, none decided at the join: keep the bound in record bytes and have
+variant. The review's recommendations for the owner, none decided at the join: keep the bound in record bytes and have
 health say "of records" (not yet changed); accept a ring's one whole decode; leave the payload scan until the
 long-session row shows it dominating; let `+retention`'s science give `decay_sweep`'s hints when that arm is measured.
 Not yet run: the release-build `bench idle --active 50`, and a live compaction keeping a summarized range as stubs. A
@@ -547,7 +547,7 @@ cold start p50 20.6 and p95 21.9 ms, SIGKILL and restart p95 27.0, swap 55.1, cl
 5.38 ms; the turn plain 5 frames at p50 74.0 ms, tool-call 9 at 152.9. Pushed (23f132f7..ef37f325); the done line at
 04:53:57; the branch and the parked branch deleted; theseus-ext.14 and theseus-83qm closed.
 
-**The install** (2026-10-05 13:07 at 60b43fb6, install #4). Install #4 moved Eddie's store from format 16 to 20 at its first write (19 is this join's),
+**The install** (2026-10-05 13:07 at 60b43fb6, install #4). Install #4 moved the owner's store from format 16 to 20 at its first write (19 is this join's),
 after the install's backup. New:
 `[kernel] task_lease_minutes = 30`, and the template's commented `# "task.claim" = "notify"` under `[policy.tools]`. The
 binding watches every execution; `warm_leases` runs after serving, before the harness loop and the driver. Health after the restart (13:07:43): `theseusd check` exit 0, 9 secrets ready 1.05 s after the start, startup serving at 29.1 ms with builds beside it, `cgroup: delegated`, `route.v1`, `rerank.v1` and `security.v3` live, memory live on the `baseline` arm, Discord ready, and no error or warning in the journal; the store from format 16 to 20 at its first write, after the install's backup.
@@ -558,7 +558,7 @@ message a place, not a thread, with no buttons (filed); the binding hears every 
 publishing a task change to its home's session (R6: the core's way would put a scan of the task records on the turn
 path). The graph is a panel in Actions, not a route.
 
-**Known gaps.** Eddie's, recommended by the session and R6 and not built: refuse a non-holder's `task.close` while a
+**Known gaps.** The owner's, recommended by the session and R6 and not built: refuse a non-holder's `task.close` while a
 claim holds, the one edit that silently ends the holder's work (one check in `close`). theseus-8xqt (P3, the two test
 gaps). `until HH:MM` truncates to the minute. After `/new` in a place, the old session's tasks have no routed home and
 their changes draw nothing. The board, `/tasks` and a layer-1 question read every task record per change, and the
@@ -567,7 +567,7 @@ by tests. `warm_leases` grows with plan items, on the way to the driver's first 
 
 ### Item 164. The learning loop: the owner's labels rewrite a pack's wording as a learned version, a replay checks it, and the ladder places it (theseus-0j2.12, with theseus-bgg5; step 25f; the fifth cloud batch's learn-loop row, launched with the sixth batch, fired 2026-10-04 20:00 from 3085f71a, Opus 5.5; 27cfc943, a391753b, 31777e14, 991b3d3a, 23e425ab, 165b7935, b9b018f4, d5743154 and 5203d5ce; reviewed 02:01 to 04:15 by local reviewer R7, stack J, in two follow-ups, built and proven on dca30347; joined 05:12 at b07150d6, a signed merge onto ef37f325, by the stack-M joiner; installed 2026-10-05 13:07 at 60b43fb6, install #4)
 
-**Why.** Eddie, 2026-10-04 10:11: "Live reinforcement learning is exciting"; 10:21: "I'm very eager for labels being
+**Why.** The owner, 2026-10-04 10:11: "Live reinforcement learning is exciting"; 10:21: "I'm very eager for labels being
 used to adjust jev prompts." Until this step the owner's labels on Jev's judgments were measurement only: the nightly
 learning report (Item 129) graded the packs, and the ladder (Item 145) and its
 thresholds used the numbers, but nothing fed a label back into the only prompt there is, each question's wording, which
@@ -660,9 +660,9 @@ ms and tool-call 9 at 156.7, inside the last dozen gates' spread (the turn bench
 line at 05:12:23; the branch deleted. theseus-0j2.12 left open with the hash and what remains; theseus-bgg5 left open
 for its audit at nice 19.
 
-**The install** (2026-10-05 13:07 at 60b43fb6, install #4). No store format change. `[judge.learn]` is on by default, and Eddie's config names
+**The install** (2026-10-05 13:07 at 60b43fb6, install #4). No store format change. `[judge.learn]` is on by default, and the owner's config names
 `[profiles.opus]` (since install #2), so **the nightly writer can spend, up to $2.00 a day, once his labels give a
-version 10 new train errors and 5 labeled holdout judgments**; most nights it sends nothing. Eddie's 12:03 yes leaves it
+version 10 new train errors and 5 labeled holdout judgments**; most nights it sends nothing. The owner's 12:03 yes leaves it
 on. `[judge.learn] enabled = false` or `writer_limit_usd_per_day = 0` would stop it. New surfaces: `theseus judge
 learn`, `<state>/packs/`, learned versions in `theseus packs`, the Versions panel, and a notice per proposal. Health after the restart (13:07:43): `theseusd check` exit 0, 9 secrets ready 1.05 s after the start, startup serving at 29.1 ms with builds beside it, `cgroup: delegated`, `route.v1`, `rerank.v1` and `security.v3` live, memory live on the `baseline` arm, Discord ready, and no error or warning in the journal; the store from format 16 to 20 at its first write, after the install's backup.
 
@@ -761,7 +761,7 @@ brief, the joiner re-warmed and **re-gated once** (05:31:10 to 05:47:56, 607 s o
 2,693, one flaky (the simulator's seeded-faults test, on the named flaky list as theseus-81ig, passed on its second
 try); lifecycle cold start p95 22.8 ms, clean shutdown p95 48.8, SIGKILL and restart 27.7, swap 54.4; the turn plain 5
 frames at p50 77.2 ms and tool-call 9 at 156.3. Pushed; the done line at 05:48:31; the branch deleted;
-theseus-ext.15 closed. Batch 6 was then all on main but situations, which waited for Eddie.
+theseus-ext.15 closed. Batch 6 was then all on main but situations, which waited for the owner.
 
 **The install** (2026-10-05 13:07 at 60b43fb6, install #4). The cockpit's build ships with the daemon: Money's Budgets panel, the followed Ledger,
 and `/policy`. No config, no store change. Health after the restart (13:07:43): `theseusd check` exit 0, 9 secrets ready 1.05 s after the start, startup serving at 29.1 ms with builds beside it, `cgroup: delegated`, `route.v1`, `rerank.v1` and `security.v3` live, memory live on the `baseline` arm, Discord ready, and no error or warning in the journal; the store from format 16 to 20 at its first write, after the install's backup.
@@ -773,7 +773,7 @@ daemon asked). The views live in `cockpit/`, since the cockpit replaced `web/` (
 
 **Known gaps.** theseus-n9wa (P3): put `policy.tightened`, `policy.untightened` and `session.trusted` in the wide
 notifications, as task-board did for `task.changed`. theseus-19t8 (P3): `explain.rs`'s tightening flag, then drop the
-view's workaround. The search filter serializes every row at each keystroke: if it drags at Eddie's store's size,
+view's workaround. The search filter serializes every row at each keystroke: if it drags at the owner's store's size,
 build each row's search text once, as it lands. Budgets' burn walks every `provider.call` row once per budget row
 every 10 s, and an unfiltered export builds one string of the whole ledger. Boundaries' undo stays live under the time
 machine, as before.
@@ -788,7 +788,7 @@ notify, which the killed daemon's leftover socket refuses (best effort by design
 reconciler will find it"). `harness::run` binds the notify socket only after `after_serving`'s inline steps, and then
 skipped its first tick as "startup already reconciled", so the next look at the spool was the heartbeat, 60 s later.
 Quiet, the window between the drain and the bind is about 22 ms; under an IO stall it is half a second to a second, and
-the gate's restart ran at load 23 beside other trees' builds. It was in Eddie's installed daemon too: a job that ends
+the gate's restart ran at load 23 beside other trees' builds. It was in the owner's installed daemon too: a job that ends
 while the daemon is starting could wait a minute for its result.
 
 **What landed** (2c4b52fe, 3 files, +135 −1).
@@ -851,7 +851,7 @@ record say "the driver's first tick queues" a due wake; that is true unless the 
 
 ### Item 167. Efficiency in every benchmark trial: a sampler of the harness's CPU and RAM apart from its work, one record for every arm, a measured Claude Code arm, and Pareto reports (theseus-7gir.12; the bench program's efficiency track; the seventh cloud batch's bench-efficiency session, fired 2026-10-05 01:35 from 80ef1dea, Opus 5.5; c41e43bf, fdeeda6c, ad6048a6, 44cf178e, 952e8a9f, b568b2a0, 3791637f, fd2fe6d6 and 590a54fc; reviewed 05:01 to 05:34 by local reviewer R11, stack B; joined 06:50 at 4bcaeef6, a signed merge onto 62ec4199, the first of stack B's three merges, by the stack-B joiner; nothing installed: `bench/` only)
 
-**Why.** Eddie, 2026-10-04 16:36: benchmark efficiency against performance, RAM and CPU as well as tokens. The first
+**Why.** The owner, 2026-10-04 16:36: benchmark efficiency against performance, RAM and CPU as well as tokens. The first
 full Terminal-Bench run (Item 148) published each arm's score and dollars, but no CPU or RAM, and Harbor's
 input count folds the cache writes in. The bench program's efficiency track asked for one record per trial, for every
 arm: tokens by class (input, cache read, cache write, output), dollars, wall time, model and tool calls, and the
@@ -934,14 +934,14 @@ own. "Harness CPU per tool call" uses the harness alone.
 **Known gaps.** theseus-1xxi (P3): `efficiency.machine()` subtracts the sampler's own CPU twice, so the work's cgroup
 CPU reads low by it (live, 0.268 s against the samples' 0.36); and an old trial with no files counts 0 model calls, not
 unknown. theseus-t412 (P3): the real fix for the test bound. With `hidepid` on `/proc`, other users' processes vanish
-from the samples. Eddie's, costed by R11 and not run: the full measured run, both arms over terminal-bench@2.0, about
+from the samples. The owner's, costed by R11 and not run: the full measured run, both arms over terminal-bench@2.0, about
 $47 and 6 hours, after 1xxi; publishing efficiency rows in docs/benchmarks.md only from a sampled full run. The report's
 `--arm` takes one job directory, so b5's per-task layout needs a directory of symlinks (worth a line in
 `bench/README.md`).
 
 ### Item 168. Novel benchmark 4, the async bench: six task families where concurrency is the point, a Theseus arm on its own daemon, a Claude Code arm fed through a FIFO, and a scorer (theseus-7gir.16; the bench program's fourth novel benchmark; the seventh cloud batch's bench-async session, fired 2026-10-05 01:35 from 80ef1dea, Opus 5.5; ed7d73f9, edae6ddc, 69d2644a, 08b9a87f, 8db94d0d, 64562755 and 2cd066ea; reviewed 05:16 to 06:02 by local reviewer R11, stack B, on bench-efficiency's review merge; joined 06:50 at 32efb965, a signed merge onto 4bcaeef6, by the stack-B joiner; nothing installed: `bench/` only)
 
-**Why.** Eddie, 2026-10-04 16:36: "We also have a simultaneity aspect, with async tools and tasks, and could have an
+**Why.** The owner, 2026-10-04 16:36: "We also have a simultaneity aspect, with async tools and tasks, and could have an
 async bench we also test against". Terminal-Bench gives one instruction and waits for the end, so nothing in it rewards
 doing things at once, answering while working, or stopping cleanly. The async bench is containerised tasks where
 concurrency is the point, run through Harbor with a driver that injects a message mid-trial, each arm using its own
@@ -1015,12 +1015,12 @@ receiving the message.
 8), runs no sampler, and the scorer reads top-level CPU and RAM keys the nested record never has; one follow-up step,
 before the full run. theseus-70vi's live rerun of one ClaudeCodeAsync trial (about $0.03) is owed. theseus-6xre (P3):
 the two test gaps, a stand-in race seen once under load, and the stand-in daemon's leak found at the join. A trial past
-1,000 model calls would be under-counted. Eddie's, costed and not run: the six families on both arms, about 24 trials,
+1,000 model calls would be under-counted. The owner's, costed and not run: the six families on both arms, about 24 trials,
 about $1 and 30 minutes, after z5ty.
 
 ### Item 169. Novel benchmark 5, the incidental-recall bench: a seeded progression of facts said in passing, probed at measured distances, with Theseus and Claude Code drivers and a scorer (theseus-7gir.17; the bench program's fifth novel benchmark; the seventh cloud batch's bench-recall session, fired 2026-10-05 01:35 from 80ef1dea, Opus 5.5; 908d32b6, 2915f311, bbda2334, b255a871, 48af0bed, 2ac2ec3f, 30ec2842, 027d9d73 and b0397246; reviewed 05:36 to 05:45 by local reviewer R11, stack B, on bench-async's review merge; joined 06:50 at e4d09068, a signed merge onto 32efb965, by the stack-B joiner; nothing installed: `bench/` only)
 
-**Why.** Eddie, 2026-10-04 16:37: "a recall benchmark that is about reference out of the way facts given a context
+**Why.** The owner, 2026-10-04 16:37: "a recall benchmark that is about reference out of the way facts given a context
 progression". theseus-exam's families are Theseus-only and have no salience, no progression and no indirect probes. This
 bench replays one scripted, multi-session progression identically to each arm, with facts seeded at known points, some
 central to the topic and some incidental (said once, in a tool's output, an error message, an aside or a side remark),
@@ -1090,7 +1090,7 @@ The check language has no `calls` subjects, since the arms name their tools diff
 must be absent). The index is off for the `none` arm, as the exam's daemons have it.
 
 **Known gaps.** theseus-523y's three fixes, then the full on Theseus alone first: about $8 to $11 and two to three hours
-an arm (Eddie's). R11's recommendations, not decided: widen the admission check and keep strict abstention; accept a
+an arm (the owner's). R11's recommendations, not decided: widen the admission check and keep strict abstention; accept a
 retracted stale value, counting the old value named in a column of its own; keep indirect probes answerable from an
 arm's own notes, reported per arm; decide whether a ring trim moves a probe's bucket; build OpenClaw's driver after the
 checks settle. The full size is untuned against a live run, and Claude Code's arm needs a throwaway container. Offline,
@@ -1170,7 +1170,7 @@ deleted; theseus-81ig and theseus-celu.35 closed.
 its `kernel-sim` is sim2's. Health after the restart (13:07:43): `theseusd check` exit 0, 9 secrets ready 1.05 s after the start, startup serving at 29.1 ms with builds beside it, `cgroup: delegated`, `route.v1`, `rerank.v1` and `security.v3` live, memory live on the `baseline` arm, Discord ready, and no error or warning in the journal; the store from format 16 to 20 at its first write, after the install's backup.
 
 **Divergences.** Steps 2 to 5 are one commit, since the operations share one turn-end helper. The forced first-race
-`Frame` and the always-declined task budget question are the session's choices, both for Eddie (morning notes; R8
+`Frame` and the always-declined task budget question are the session's choices, both for the owner (morning notes; R8
 recommends accepting the first, and for the second keeping the product rule, an operator's approval trusted, and
 teaching the sim a matching rule: a parent's allowance grows by each approved task reset). Held posts and the credential
 request are driven by neither.

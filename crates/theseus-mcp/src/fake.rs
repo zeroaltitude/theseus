@@ -1082,8 +1082,12 @@ mod tests {
         assert!(fake
             .page(&json!({"cursor": "page-9"}), "tools", fake.tools())
             .is_err());
-        let g = get_prompt(&json!({"name": "greet", "arguments": {"name": "Eddie"}})).unwrap();
-        assert_eq!(g["messages"][0]["content"]["text"], "Say hello to Eddie.");
+        let g =
+            get_prompt(&json!({"name": "greet", "arguments": {"name": "zeroaltitude"}})).unwrap();
+        assert_eq!(
+            g["messages"][0]["content"]["text"],
+            "Say hello to zeroaltitude."
+        );
         assert!(get_prompt(&json!({"name": "greet"})).is_err());
         assert!(get_prompt(&json!({"name": "nope"})).is_err());
     }

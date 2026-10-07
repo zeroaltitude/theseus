@@ -207,6 +207,8 @@ mod tests_judge_surfaces;
 #[cfg(test)]
 mod tests_ladder;
 #[cfg(test)]
+mod tests_ladder_unread;
+#[cfg(test)]
 mod tests_layouts;
 #[cfg(test)]
 mod tests_learn_loop;
@@ -274,6 +276,12 @@ mod tests_route_rows;
 mod tests_sandbox;
 #[cfg(test)]
 mod tests_security;
+#[cfg(test)]
+mod tests_sink_backlog;
+#[cfg(test)]
+mod tests_sink_between;
+#[cfg(test)]
+mod tests_sink_flush;
 #[cfg(test)]
 mod tests_situation;
 #[cfg(test)]

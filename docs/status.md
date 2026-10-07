@@ -1,6 +1,6 @@
 # Theseus: status and roadmap
 
-_Updated 2026-10-05 13:21 MST. Version 0.0.1; the design document is at v0.82._
+_Updated 2026-10-06 13:31 MST. Version 0.0.1; the design document is at v0.83._
 
 This page changes with every step that lands. The [README](../README.md) stays the same and links here. For the
 full record of each step (what it built, how it was proven, and where it diverged from the plan), see Part III
@@ -9,7 +9,9 @@ for the week after v1, [the v1.1 roadmap](design/roadmap-v1.1.md).
 
 ## Working today
 
-As installed on the operator's daemon on October 5 at 13:07 (install #4; the store at format 20).
+As installed on the operator's daemon on October 6 at 13:03 (install #7; the store at format 23). Install #5
+(October 5, 16:48) put the v1 build there, and install #6 (October 6, 10:12) turned the S3 backup on; what install
+#7 added is listed after this list.
 
 - Conversations in Discord (DMs and channels), the terminal, and the browser, with Claude and GLM models.
 - **The model for each message, picked by Jev.** `route.v1` reads each message's interaction mode as it arrives and
@@ -17,7 +19,8 @@ As installed on the operator's daemon on October 5 at 13:07 (install #4; the sto
   by default): a greeting or a thank-you goes to Haiku, chat stays on the session's own model, deep coding goes to Opus
   5.5, the most sophisticated work to Fable, and routine coding to GLM-5.3. A routed session keeps its
   move only while `route.v1` acts, and `profile.use` moves it back (Items 139 and
-  150). A request the model refuses is retried once on its fallback, Sonnet 5 for Sonnet 5.5
+  150); it keeps the base it was moved from, across a restart, and follows a change of that base, and each loop
+  records one compile and one start (Item 181). A request the model refuses is retried once on its fallback, Sonnet 5 for Sonnet 5.5
   (and, in his config, Opus 5 for Opus 5.5), and every surface says so (Item 154).
 - **Fast replies.** A greeting's reply shows on Discord as its model streams, the verdicts a turn waits on land
   inside their wait, and a trivial message routes to the small model from a 0.4 bar (Item 158). A trivial
@@ -38,7 +41,9 @@ As installed on the operator's daemon on October 5 at 13:07 (install #4; the sto
   129), and the learning loop rewrites a pack version's wording from them, nightly, under a
   $2.00-a-day limit (Item 164). Replay, audit and backfill try a pack version against the record
   (Item 144), and `theseus judge prove` reports lane L3's exit from the daemon's own ledger (Items
-  101 and 179).
+  101 and 179). Replay and the loop share one rule for whether a lean was right, the audit runs off its low
+  thread, and the prove leaves out a learned loop version's tasks and names its placement (Item
+  203).
 - **Memory in every turn.** Recall runs live in front of the model, place-safe (a shared place recalls only its own
   sessions; a private one draws on every session), on the `baseline` arm, with `rerank.v1`'s order (Items
   99, 112 and 160). The memory pass after each turn labels
@@ -49,8 +54,17 @@ As installed on the operator's daemon on October 5 at 13:07 (install #4; the sto
   says how a request was assembled (Item 156). A bounded node cache means a turn decodes only what
   it reads (Item 162). Retention, activation and consolidation's cited syntheses are built as arms, each
   off unless `[memory] arm` names it (Items 157, 159 and 160), and
-  measured by the four-arm exam (Item 124). Consolidation's nightly writer is off on the operator's
-  daemon until theseus-8edz is fixed.
+  measured by the four-arm exam (Item 124). Consolidation's nightly writer is on again, at $0.50 a
+  day, since a synthesis that opens with a heading is checked without it (Item 188), and
+  `+activation`'s warm build yields to a busy machine and never holds a stop (Item 187).
+- **Situations, checked before anything is sent** (35a, enforced from the first day). Each turn's compiled
+  request is checked against its situation: a turn whose compiled set does not close fails before anything is
+  sent, with a `context.unadmitted` row and words that name the piece. A recalled item's header names its place
+  and the reply's model, and a volatile value says it is unverified (Item 183).
+- **The operator's earlier history, importable.** `theseus import openclaw|list|erase` brings the episodes of
+  his earlier agent's history in as imported sessions: closed, private, left out of the session list, each
+  message at its own time with an `import` origin, idempotent, and erasable by tag (Item
+  201). The real import waits for the fix that keeps a session list fast past them.
 - **Tasks as records.** A task has a record of three layers and a place in a graph, edited by compare-and-swap through
   the task tools, its first layer asked of the owner only for tasks the owner created (Items 125 and
   146). A task is created with its arrangement (references, a refusal, a fidelity check; Item
@@ -84,13 +98,16 @@ As installed on the operator's daemon on October 5 at 13:07 (install #4; the sto
 - What needs you, the same everywhere: one rule, shown as a pill in the terminal and the cockpit.
   Changes are pushed live to every surface instead of polled, each notification serialized once for every watcher
   (Item 172). `theseus watch --all` follows every session, and `theseus wait` returns the moment a
-  session needs you or settles.
+  session needs you or settles. Every queue says why, and a late result's wake rides its turn's end, so a
+  settled wait returns after the late result is read (Item 194); `theseus watch` ends a
+  reply's open line when the daemon dies (Item 191).
 - A terminal UI, `theseus tui`: every session in one sidebar, the one that needs you a key away, its question
   answered inline, and a finished session marked done until you have looked at it.
 - herdr panes that show each session's true state: `theseus watch` inside a pane reports it, and
   `theseus herdr sync` gives every session that needs you or is working a pane of its own. A message typed in a
   pane runs on the session's own model.
-- `theseus reach`: where a message went, through the sessions that copied it.
+- `theseus reach`: where a message went, through the sessions that copied it, from a node's short id; and
+  `theseus history` pages a session both ways (Item 193).
 - An answer takes effect in one step, so no surface shows a session waiting on a question it no longer has.
   Underneath, several kernel state changes commit as one, and every ledger row, live event, and narrative line of
   a turn comes from one typed fact, so they can't disagree.
@@ -110,7 +127,8 @@ As installed on the operator's daemon on October 5 at 13:07 (install #4; the sto
   the user service's is, each ordinary job runs in a cgroup of its own, capped at 4,096 processes and threads and
   stopped exactly (Item 152). A job's completion takes one sync, and the background passes wait while the
   machine is busy (Item 151). A job result that arrives during a restart's startup is taken at once, not
-  a minute later (Item 166).
+  a minute later (Item 166). Health's cancels count a cgroup-stopped job as `l0`, and telemetry counts each
+  cancel as health does, with the index tender's lag and size (Item 190).
 - **The harness-only keys.** Your AWS keys and your model providers' keys are never handed to a job: Theseus's own
   tools use them. `theseusd check` and `theseus health` say so by name, and name any of them you grant after all.
 - **A cancel that says how it knows.** A cancel or a stop ends every process of a job, one that detached into a
@@ -147,9 +165,15 @@ As installed on the operator's daemon on October 5 at 13:07 (install #4; the sto
     line (runaway mode; Items 116, 147 and 174).
   - `[policy.aws]` keys are checked against the catalog after serving, and an unknown one shows in health (Item
     174).
+  - **The S3 backup is on** (since install #6, October 6; the operator's yes of October 5): the durability tender
+    ships the store's synced frames and blobs to his bucket and table, each session listing only its own prefix,
+    and health and the cockpit's AWS card say how far it has shipped; a restore drill gave back the same sessions
+    and nodes (Item 198).
 - **Budgets and policy, explained.** `theseus budgets` lists every budget with what is spent and reserved, and
   `policy.explain` says which rule of the gate's order decides a call (Item 130); the cockpit has
-  Budgets, Ledger and Policy tabs (Item 165).
+  Budgets, Ledger and Policy tabs (Item 165). A provider call in flight at a crash or a stop is booked as
+  spent at its reservation when the restart marks it unknown, so a budget's reset frees it (Item
+  197).
 - **The cockpit is the web UI**, served at `/` (an old `/cockpit/…` address redirects to the same page). It shows
   everything the Observatory did, which is gone: ledger rows in words, the session deck's questions and live turn,
   every execution, every system's card, and the sandbox's settings. It draws the agent as a fleet at night (places,
@@ -164,7 +188,10 @@ As installed on the operator's daemon on October 5 at 13:07 (install #4; the sto
 - **The ontology, wired in:** categories, guidance and memberships as records, which every compile walks (Item
   100); `categorize.v1` proposes a private conversation's topics, in shadow.
 - **Voice in a Discord voice channel**, with Deepgram: `/join` from a private place, speech both ways, replies spoken
-  sentence by sentence with barge-in, and speech counted as spend. On since October 3 at 23:38.
+  sentence by sentence with barge-in, and speech counted as spend. On since October 3 at 23:38. Since October 6 a
+  barge-in holds the reply until the words over it decide: a wordless sound, an echo, a backchannel or "go on"
+  resumes the cut sentence from its held audio, words cut it, and a reply waits for the floor (Item
+  202).
 - **Set it up in one command:** `scripts/setup.sh` checks the machine, builds the cockpit and the binaries, installs
   them, and writes the default config, `/etc/theseus/theseus.toml`, which `theseusd` reads by default (Item
   138). The config holds only what differs: `theseusd config --sparse` cuts one to your own values and
@@ -176,12 +203,13 @@ As installed on the operator's daemon on October 5 at 13:07 (install #4; the sto
 - **Health says what it sees:** the web UI's refusals, the 1-hour cache's writes (priced in `theseus catalog`), the
   memory block, the node cache, and free space crossing a line, which writes one row and tells the operator (Item
   177). A failed provider call's time and span carry its error's class (Item
-  178).
+  178). The durability tender's state, loud when failing or stopped (Item 198).
 - **Speed at scale.** With 10,000 parked sessions, a cold start answers in about 22 ms and health in under 1 ms, and
   50 turns at once peak at about 104 MB of memory. Every write goes through one writer thread with group commit, so
   a burst of writes no longer stalls the requests beside it. The polled lists and the ledger read a page through the
   index (an action list in 4.5 ms where it took 147), and a store's open makes nothing durable, so a restart after a
-  crash pays two syncs fewer.
+  crash pays two syncs fewer, and none for the log's directory when a mark vouches for its segment (Item
+  196). A turn needs 576 KiB of stack where it needed 1,856 (Item 192).
 - **A job's end wakes its turn.** A quick command returns in about 30 ms, not 50, a waiting job's wrapper sleeps, and
   a turn that runs a tool writes 9 durable frames, not 12.
 - **No acknowledged write is lost silently.** Each frame of the log carries how far the log was known synced, so a
@@ -192,7 +220,9 @@ As installed on the operator's daemon on October 5 at 13:07 (install #4; the sto
   and `bench/` runs Terminal-Bench and SWE-bench tasks through Theseus. The first full Terminal-Bench 2.0 run, three
   configurations, is in [benchmarks.md](benchmarks.md) (Item 148), and the bench program has three more
   harnesses: efficiency, concurrency, and incidental recall (Items 167, 168 and
-  169).
+  169), measured end to end and held to a recall plan's overhead since October 5 (Items
+  184 to 186, 199 and
+  200). The static musl build compiles again (Item 195).
 - A session that outgrows its model's window drops its earliest turns and retries once, by itself. A job
   that prints past its output cap keeps the end of its output, where builds and tests print their verdict.
 - A stop reaches a job even while the job is still starting, and cuts the model's reply mid-stream.
@@ -209,7 +239,30 @@ As installed on the operator's daemon on October 5 at 13:07 (install #4; the sto
   sandboxed command's start is held under 25 ms in every join's gate. The gate has one way of taking its shared lock,
   waits for a quiet machine (under three quarters of the cores, at most 2 minutes), and on a machine that stays busy
   its timing budgets get a calibrated allowance, shown in its log and history, instead of failing for noise. An
-  install builds only the five binaries it ships.
+  install builds only the five binaries it ships. The tests that failed under load wait on what they test, not on
+  the clock (Item 189).
+
+## New at install #7 (October 6, 13:03)
+
+- **A secret printed JSON-escaped** (any of its characters escaped: serde's and Python's forms, `\/`, `\u`
+  escapes, Rust's `{:?}`) is withheld before the model and the WAL (Item 204).
+- **The gate's layers held by turns**, and `theseus policy explain` names L3 where an edit's language server raised
+  the posture (Item 205).
+- **A declined call ends its batch's waits:** the later calls that would ask are answered "Not run" with no card,
+  and an approved call runs even when its id repeats an earlier answered call's (Item 206).
+- **Discord's bindings, read while the daemon runs:** a place added or removed binds or unbinds within 2 s, with no
+  restart; a new guild's invite check and voice still wait for one (Item 207).
+- **The judgment log pages from the newest**, the notices' brake reads today's rows, the learning rules skip closed
+  windows, and inbound and compile judgments record their class (Items 208 and
+  209).
+- **A search during the paced warm build answers `building` at once**, and a summary's call is reserved on the
+  estimate's upper bound (Item 210); the daemon's own telemetry path is held by tests (Item
+  211).
+- **A routed turn's trace root and metrics name the model it ran on** (Item 213); the core's
+  waits are proved (Item 212); a `--stdio` daemon's stop closes its store first, the lifecycle bench
+  times a cancel's round trip, and the flaky list is empty (Item 214).
+- **In a voice call, an answer that repeats its question's words and a "yes" on a question's last word are turns
+  again:** an echo must be a near-whole, in-order copy (Item 215).
 
 ## Built, and waiting to be turned on
 
@@ -218,28 +271,29 @@ These are built, tested and installed, and off on the operator's daemon until he
   backend, overdue hands reaped, quotas and waves, `hands.list` and the cockpit's grid, in an existing VPC and never
   with a NAT of their own (Items 107, 116 and 134). The account has
   no hand yet: its stack and image wait for the operator's go (theseus-ongv).
-- **The durability tender and restore from S3:** the tender ships the store's synced frames and blobs to the
-  foundation's bucket and table, and `theseusd restore --from s3://…` rebuilds a store from them (Items
-  108, 123 and 171). Both passed a live check on the account
-  on October 4, which found the tender's 403 on a missing object, fixed since; the tender is off on the operator's
-  daemon, and the fixes' own live checks wait for him.
 - **The MCP server** on loopback (`[mcp_server]`, off by default).
-- **Memory's measured arms:** `+retention`, `+activation` and `+synthesis`, each off unless `[memory] arm` names it,
-  and consolidation's nightly writer (off: `synth_limit_usd_per_day = 0`, until theseus-8edz).
+- **Memory's measured arms:** `+retention`, `+activation` and `+synthesis`, each off unless `[memory] arm` names it.
+- **The import of the operator's earlier history** (Item 201): built and installed; the
+  real import follows the session list's fix for imported sessions (theseus-7087, in review).
 
 ## Under way now
 
-- **The reviews behind batch 7:** route-gaps (the first compile's rows held until the call uses them, store format 21)
-  and the reader are in review; they join after this record.
-- **Situations (35a)**, enforced from the first day: a turn whose compiled set does not close fails outright, before
-  anything is sent, and says why. The operator decided it on October 5 at 12:17; a lane builds it.
-- **The eighth cloud batch** is being written for the free cloud slots.
-- **The v1 soak.** v1 comes after at least seven days of the operator's daily use with no serious bug (a serious one
-  restarts the count), with every speed target met and each of B5's losses explained or fixed: about October 13 at
-  the earliest (his rule of October 4, 22:09).
-- **With the operator:** the AWS live checks (the hands' stack and image, the runaway brake's, and the October 5
-  fixes' checks); what a crashed call's held money does (theseus-f3wr); whether a trusted guild answers in every
-  channel, unbound (theseus-yzhv); and the other items the morning notes list for him.
+- **In review or joining:** the session list's fix for imported sessions (theseus-7087), voice's heard-whole and
+  resumed replies, and the judgment sink's cost fix with its fix round; the real import of the operator's earlier
+  history follows the first.
+- **In the cloud:** the bench program's fourth arm, Pi, a minimal coding agent (the operator's yes of October 6,
+  11:47), and the tenth batch's eleven tasks: Discord's bound lanes, watch and tests, the daemon's stops, a faster
+  cancel, the flakes' causes, a learned version in shadow, the scrub's other encodings, a turn's reservation on
+  the upper bound, the core's gaps, and the bench's bounds.
+- **The v1 count.** v1 comes after at least seven days of the operator's daily use with no serious bug (a serious
+  one restarts the count), with every speed target met and each of B5's losses explained or fixed (his rule of
+  October 4, 22:09). The count began on October 5 at 16:48, when install #5 put the v1 build on his daemon: about
+  October 12, in the evening, at the earliest.
+- **The benchmark program's full runs** (the operator's go of October 5, 16:43): recall on Theseus first, then the
+  async families, then efficiency at full size, with B5's held-out rerun, on a quiet machine.
+- **With the operator:** the AWS live checks of the hands' stack and the runaway brake (theseus-ongv); whether a
+  trusted guild answers in every channel, unbound (theseus-yzhv); and the other items §2 of the spec lists as
+  still open.
 
 ## The roadmap
 
@@ -252,21 +306,50 @@ before it joins.
 | **A. Stage 1's remainder** | Fix batches from two reviews, the dogfood pilot, the complexity cuts, the reader rule | Done. Review 2 was accepted whole on October 1. Its spine items (C6, C2, and S2) are all in, with its security items (installed on October 2) and the lanes for robustness, security, performance, proof points, and the bench. What it deferred is in the v1.1 roadmap. |
 | **B. The operator's surfaces** | Live updates pushed instead of polled, `session.wait`, the CLI's client library, the first graph edge, a terminal UI, herdr | Done on October 1: the push, the client library, reach, the terminal UI, and herdr. |
 | **C. M4, boundaries** | The sandbox wired into `proc.run`, egress, credentials at launch, private and shared places, integrity, the ontology, the job host | Done for v1. L1, cancellation verified per backend, egress, credentials at launch, the place rule, integrity's light pieces and the sandbox's trims landed on October 2 and 3; the trusted guild and 18e on October 3's evening; the ontology wired in (21b) and its cockpit view (21c) on October 4. The job host (22b) moves after v1. |
-| **D. AWS** | The bound account, its stacks and budget, curated tools, the durability tender, restore from S3, hands on Lambda and Fargate | Built. The bound account (C1) and its stacks and writes (C2) by October 3; on October 4 the curated tools (C3), the durability tender (15), restore from S3 (16), and the hands (step 40, both parts, and their network), installed at 14:09; runaway mode at 20:00; fixes to the tender, restore and runaway mode on October 5. The hands' stack and the live checks on the account wait for the operator. |
-| **E. M5, judgment** | Jev wired in: the loop's stopping point, the gate's safety call, roles, continuation, all in shadow and then under canary | Built, from October 4: the wire-in (23a), its surfaces (23b), the security check and its live notices (24), inbound class and role (25a), continuation (25b), the learning ledger (25c), replay (25d), routing (25e, live), the ladder (26a), the task arrangement (27), independent checks (28a), topics (28b), L3's proof (row 50) and the learning loop. Left: JUDGE_STOP for tasks under canary (26b) and the roles table under canary (26c). |
-| **F. M6, memory** | Recall in turns, the memory pass, retention and activation as measured arms, tiering, and books | Built, from October 4: recall in shadow (30a), then live in front of the model (30b), compaction (30c), the exam's arms (34b), the memory pass (31a), consolidation (31b), retention (32a), activation (32b), Jev's rerank, in shadow and then live (32c, 32d), and tiering (33). Left: situations (35a, building) and lessons (35b). |
-| **G. M7, surface** | MCP in turns, repeating schedules, many-server bindings, the task board, budget and policy views, self-proposed extensions, voice | Built, from October 3: repeating wakes (37a) and voice (rows 77 and 78); on October 4 and 5, MCP tools and prompts (36b, 36c), tasks that set wakes (37b), bindings' second format (38a), gliding (38b), the task record and board (39a, 39b), the MCP server (41b), budgets and policy (42a) and their tabs (42b), and self-proposed extensions (43a, 43b). |
+| **D. AWS** | The bound account, its stacks and budget, curated tools, the durability tender, restore from S3, hands on Lambda and Fargate | Built. The bound account (C1) and its stacks and writes (C2) by October 3; on October 4 the curated tools (C3), the durability tender (15), restore from S3 (16), and the hands (step 40, both parts, and their network), installed at 14:09; runaway mode at 20:00; fixes to the tender, restore and runaway mode on October 5, and the S3 backup on the operator's daemon from October 6 (install #6). The hands' stack and their live checks on the account wait for the operator. |
+| **E. M5, judgment** | Jev wired in: the loop's stopping point, the gate's safety call, roles, continuation, all in shadow and then under canary | Built, from October 4: the wire-in (23a), its surfaces (23b), the security check and its live notices (24), inbound class and role (25a), continuation (25b), the learning ledger (25c), replay (25d), routing (25e, live), the ladder (26a), the task arrangement (27), independent checks (28a), topics (28b), L3's proof (row 50) and the learning loop; on October 5 and 6, fixes to replay, the judgment log and the learning rules. Left: JUDGE_STOP for tasks under canary (26b) and the roles table under canary (26c). |
+| **F. M6, memory** | Recall in turns, the memory pass, retention and activation as measured arms, tiering, and books | Built, from October 4: recall in shadow (30a), then live in front of the model (30b), compaction (30c), the exam's arms (34b), the memory pass (31a), consolidation (31b), retention (32a), activation (32b), Jev's rerank, in shadow and then live (32c, 32d), tiering (33), and situations (35a), enforced from October 5; the importer for the operator's earlier history on October 6. Left: lessons (35b). |
+| **G. M7, surface** | MCP in turns, repeating schedules, many-server bindings, the task board, budget and policy views, self-proposed extensions, voice | Built, from October 3: repeating wakes (37a) and voice (rows 77 and 78); on October 4 and 5, MCP tools and prompts (36b, 36c), tasks that set wakes (37b), bindings' second format (38a), gliding (38b), the task record and board (39a, 39b), the MCP server (41b), budgets and policy (42a) and their tabs (42b), and self-proposed extensions (43a, 43b); on October 5 and 6, history pages, Discord's bindings read live, and voice's held barge-in and echoes. |
 
 **After v1:** [the v1.1 roadmap](design/roadmap-v1.1.md) plans the week that follows, about 60 agent-hours: the
 kernel's last frames, visibility, the operator's surfaces, cost accuracy, the codebase's shape, proof and the
 turn's edges, and Discord.
 
 **When.** v1 follows the operator's rule of October 4 (22:09): at least seven days of his daily use with no serious
-bug, every speed target met, and each of B5's losses explained or fixed, so about **October 13** at the earliest. The
-spine's last rows (26b, 26c, 35a and 35b) run beside that soak. This pass did not re-estimate v1.1's date.
+bug, every speed target met, and each of B5's losses explained or fixed. The count began on October 5 at 16:48
+(install #5), so about **October 12** at the earliest. The spine's last rows (26b, 26c and 35b) run beside it. This
+pass did not re-estimate v1.1's date.
 
 ## Recently landed
 
+- **2026-10-06, late morning:** the tools stack: a JSON-escaped secret scrubbed (Item
+  204), the gate's layers held by tests and L3 in `policy explain` (Item
+  205), a decline that ends its batch's waits (Item 206).
+  Discord's bindings read live (Item 207). The judge pair (Items
+  208 and 209). Memory's and telemetry's tests (Items
+  210 and 211). The core stack: its waits, route.v1's tests and a
+  routed turn's trace, and the daemon's proofs (Items 212, 213 and
+  214). Voice's echoes (Item 215). All installed at 13:03 (install #7).
+- **2026-10-06, morning:** the importer for the operator's earlier history, and the store at format 23 (Item
+  201). Voice's held barge-in and the floor (Item 202). The learning
+  fixes (Item 203). All installed at 10:12 (install #6), with the S3 backup turned on
+  and consolidation's nightly writer at $0.50 a day; the operator's store moved from format 22 to 23 at its first
+  write, after the install's backup.
+- **2026-10-05 to 06, night:** the eighth cloud batch's stacks T, R and S, and the bench stack. `theseus watch` ends
+  its line when the daemon dies (Item 191); the turn's stack (Item
+  192); history pages both ways (Item 193); every queue says why
+  (Item 194); the smalls, among them the static musl build (Item 195); the WAL
+  directory's sync skipped when a mark vouches (Item 196); a crashed call's hold
+  booked as spent (Item 197); the durability tender's own prefix and its health lines (Item
+  198); and the bench's hygiene and recall plan (Items 199 and
+  200). All installed at 10:12 on October 6 (install #6).
+- **2026-10-05, afternoon and evening:** route.v1's gaps, the store at format 21 (Item
+  181); the reader rule's holes (Item 182); situations, enforced from the first day,
+  the store at format 22 (Item 183), these three installed at 16:48 (install #5, the v1 build).
+  Then the bench fixes (Items 184 to 186),
+  memory's checks (Item 187), a synthesis's heading (Item 188), the
+  timing flakes (Item 189) and telemetry's third pass (Item 190),
+  installed on October 6 at 10:12 (install #6).
 - **2026-10-05, morning:** the seventh cloud batch's fixes. The durability tender ships only synced frames, and a
   restore stitches the tails after a sealed object (Item 171). Each notification is serialized
   once for every watcher (Item 172). A job's deadline stop verifies its whole tree's kill, and after a
@@ -406,22 +489,35 @@ spine's last rows (26b, 26c, 35a and 35b) run beside that soak. This pass did no
 - Linux only, by design (the operator, October 4): Theseus uses what the kernel offers. One daily user so far.
 - The terminal UI loads a session's newest 200 messages.
 - With no params, `session.list` and `execution.list` still read every record: about 140 to 180 ms at 10,000
-  sessions. The other polled reads page through the index.
+  sessions. The other polled reads page through the index. Imported sessions are read past one by one, so with
+  about 21,000 of them a whole list takes about half a second until theseus-7087 joins.
 - The AWS hands are built and installed, but wait for their stack and their live checks on the account; until a hand
-  runs, the runaway brake has not been seen live (theseus-ongv). The durability tender is off on the operator's daemon.
+  runs, the runaway brake has not been seen live (theseus-ongv).
 - A sandboxed command holds a granted secret for its whole run, and can't ask for one it didn't get at its start.
   It has no memory limit, as an ordinary command has none.
 - A daemon run as root refuses sandboxed commands, since Linux exempts root from the process limit L1 sets. Run it
   as your own user, as the user service does.
 - A sandboxed command with no network and no secret still waits in a session that read outside text.
-- Whether anyone else can view a Discord channel you bound private is checked when the binding starts, so a member
-  added mid-run is seen at the next start. In a trusted guild it isn't checked at all: your word is the check.
+- Whether anyone else can view a Discord channel you bound private is checked when the binding starts (at the
+  daemon's start, or when the place is added while it runs), so a member added later is seen at the next start.
+  In a trusted guild it isn't checked at all: your word is the check.
 - A store moves to a newer build's format at that build's first write, one way: the install's backup is the only way
   back to an older build.
 - Under WSL, health's free-space lines watch the virtual disk under the state directory, not the Windows drive that
   holds it, which fills first (theseus-83y0).
-- Consolidation's nightly writer is off until theseus-8edz is fixed: an entry the model heads with a title is
-  rejected, and its cluster is never proposed again.
+- A `--stdio` daemon answers `shutdown` and keeps serving (theseus-yg1y); the socket daemon stops.
+- In a voice call, an echo that spans sentences, or is cut short by its own stop, is heard as words, so a call on
+  loudspeakers without echo cancellation can hear Theseus's own words as a turn (theseus-j2ut).
+- A learned loop version in shadow keeps a `loop.v1` canary from acting anywhere (theseus-nwa5).
+- An erase of imported history hides it: its text stays in the WAL, in backups and in the S3 copy until the spec's
+  in-place redaction (§5.6) is built, and an erased episode cannot be imported again under any tag (Item
+  201).
+- A secret escaped twice as JSON, in YAML's or `repr`'s escapes, or as base64 broken by escaped newlines inside a
+  JSON string is not yet withheld (theseus-nlvx and theseus-cjyt; Item 204).
+- In Discord, once a lane has passed its bound, a background job's late tool line can post twice (theseus-6809),
+  and a place added while the daemon runs whose session cannot open is not tried again (theseus-u6v6).
+- In a voice call, a transcript that never comes holds the reply up to the provider's 20 s bound, and a listed
+  speaker's steady sound holds the floor while it lasts (theseus-aq4t).
 - Voice's speech prices are Deepgram's published rates, assumed until confirmed.
 - Replay and audit runs each keep a spend cap of their own and do not draw on the judge's day budget, which the
   October 4 default asked for (Item 144).

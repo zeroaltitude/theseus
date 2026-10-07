@@ -1,0 +1,774 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="558" viewBox="0 0 720 558" role="img" aria-labelledby="t-contested-tasks t-contested-tasks-d" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
+<title id="t-contested-tasks">The 27 tasks where the six trials disagree</title>
+<desc id="t-contested-tasks-d">On which tasks do the arms part, and how did each of those trials end?</desc>
+<rect width="720" height="558" rx="8" fill="#1a1a19" stroke="#2c2c2a"/>
+<text x="18.0" y="32.0" font-size="15" fill="#ffffff" font-weight="600">The 27 tasks where the six trials disagree</text>
+<circle cx="25.0" cy="50.0" r="5" fill="#3987e5"/>
+<text x="40.0" y="54.0" font-size="12" fill="#c3c2b7">A. Theseus plain</text>
+<circle cx="164.3" cy="50.0" r="5" fill="#199e70"/>
+<text x="179.3" y="54.0" font-size="12" fill="#c3c2b7">B. Theseus + paragraph</text>
+<circle cx="347.7" cy="50.0" r="5" fill="#d95926"/>
+<text x="362.7" y="54.0" font-size="12" fill="#c3c2b7">C. Claude Code</text>
+<circle cx="481.8" cy="50.0" r="5" fill="#c3c2b7"/>
+<text x="496.8" y="54.0" font-size="12" fill="#c3c2b7">solved</text>
+<circle cx="560.5" cy="50.0" r="4.5" fill="#1a1a19" stroke="#c3c2b7" stroke-width="1.6"/>
+<text x="575.5" y="54.0" font-size="12" fill="#c3c2b7">not solved</text>
+<circle cx="25.0" cy="70.0" r="4.5" fill="#1a1a19" stroke="#c3c2b7" stroke-width="1.6"/>
+<line x1="21.5" y1="73.5" x2="28.5" y2="66.5" stroke="#c3c2b7" stroke-width="1.6"/>
+<text x="40.0" y="74.0" font-size="12" fill="#c3c2b7">ended in an error class</text>
+<text x="228.9" y="104.0" font-size="10" fill="#c3c2b7" text-anchor="middle">A1</text>
+<text x="243.9" y="104.0" font-size="10" fill="#c3c2b7" text-anchor="middle">A2</text>
+<text x="266.9" y="104.0" font-size="10" fill="#c3c2b7" text-anchor="middle">B1</text>
+<text x="281.9" y="104.0" font-size="10" fill="#c3c2b7" text-anchor="middle">B2</text>
+<text x="304.9" y="104.0" font-size="10" fill="#c3c2b7" text-anchor="middle">C1</text>
+<text x="319.9" y="104.0" font-size="10" fill="#c3c2b7" text-anchor="middle">C2</text>
+<text x="213.4" y="121.5" font-size="11" fill="#ffffff" text-anchor="end">pytorch-model-cli</text>
+<g><title>pytorch-model-cli · A1: not solved (A1: not solved; $0.08; 10 calls)</title>
+<rect x="221.4" y="110.0" width="15" height="15" fill="transparent"/>
+<circle cx="228.9" cy="117.5" r="4" fill="#1a1a19" stroke="#3987e5" stroke-width="1.5"/>
+</g>
+<g><title>pytorch-model-cli · A2: not solved (A2: not solved; $0.11; 12 calls)</title>
+<rect x="236.4" y="110.0" width="15" height="15" fill="transparent"/>
+<circle cx="243.9" cy="117.5" r="4" fill="#1a1a19" stroke="#3987e5" stroke-width="1.5"/>
+</g>
+<g><title>pytorch-model-cli · B1: solved (B1: solved; $0.05; 8 calls)</title>
+<rect x="259.4" y="110.0" width="15" height="15" fill="transparent"/>
+<circle cx="266.9" cy="117.5" r="4.6" fill="#199e70"/>
+</g>
+<g><title>pytorch-model-cli · B2: solved (B2: solved; $0.06; 9 calls)</title>
+<rect x="274.4" y="110.0" width="15" height="15" fill="transparent"/>
+<circle cx="281.9" cy="117.5" r="4.6" fill="#199e70"/>
+</g>
+<g><title>pytorch-model-cli · C1: solved (C1: solved; $0.06; 5 calls)</title>
+<rect x="297.4" y="110.0" width="15" height="15" fill="transparent"/>
+<circle cx="304.9" cy="117.5" r="4.6" fill="#d95926"/>
+</g>
+<g><title>pytorch-model-cli · C2: solved (C2: solved; $0.05; 5 calls)</title>
+<rect x="312.4" y="110.0" width="15" height="15" fill="transparent"/>
+<circle cx="319.9" cy="117.5" r="4.6" fill="#d95926"/>
+</g>
+<text x="337.4" y="121.5" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">medium</text>
+<rect x="18.0" y="125.0" width="366.1" height="15" fill="#2c2c2a" fill-opacity="0.45"/>
+<text x="213.4" y="136.5" font-size="11" fill="#ffffff" text-anchor="end">regex-chess</text>
+<g><title>regex-chess · A1: ended in an error class (A1: cut at the 32,000-token output cap; $0.35; 3 calls)</title>
+<rect x="221.4" y="125.0" width="15" height="15" fill="transparent"/>
+<circle cx="228.9" cy="132.5" r="4" fill="#1a1a19" stroke="#3987e5" stroke-width="1.5"/>
+<line x1="225.5" y1="135.9" x2="232.3" y2="129.1" stroke="#3987e5" stroke-width="1.5"/>
+</g>
+<g><title>regex-chess · A2: ended in an error class (A2: cut at the 32,000-token output cap; $0.35; 3 calls)</title>
+<rect x="236.4" y="125.0" width="15" height="15" fill="transparent"/>
+<circle cx="243.9" cy="132.5" r="4" fill="#1a1a19" stroke="#3987e5" stroke-width="1.5"/>
+<line x1="240.5" y1="135.9" x2="247.3" y2="129.1" stroke="#3987e5" stroke-width="1.5"/>
+</g>
+<g><title>regex-chess · B1: ended in an error class (B1: cut at the 32,000-token output cap; $0.33; 2 calls)</title>
+<rect x="259.4" y="125.0" width="15" height="15" fill="transparent"/>
+<circle cx="266.9" cy="132.5" r="4" fill="#1a1a19" stroke="#199e70" stroke-width="1.5"/>
+<line x1="263.5" y1="135.9" x2="270.3" y2="129.1" stroke="#199e70" stroke-width="1.5"/>
+</g>
+<g><title>regex-chess · B2: solved (B2: solved; $0.60; 8 calls)</title>
+<rect x="274.4" y="125.0" width="15" height="15" fill="transparent"/>
+<circle cx="281.9" cy="132.5" r="4.6" fill="#199e70"/>
+</g>
+<g><title>regex-chess · C1: solved (C1: solved; $0.55; 10 calls)</title>
+<rect x="297.4" y="125.0" width="15" height="15" fill="transparent"/>
+<circle cx="304.9" cy="132.5" r="4.6" fill="#d95926"/>
+</g>
+<g><title>regex-chess · C2: solved (C2: solved; $0.52; 7 calls)</title>
+<rect x="312.4" y="125.0" width="15" height="15" fill="transparent"/>
+<circle cx="319.9" cy="132.5" r="4.6" fill="#d95926"/>
+</g>
+<text x="337.4" y="136.5" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">hard</text>
+<text x="213.4" y="151.5" font-size="11" fill="#ffffff" text-anchor="end">schemelike-metacircular-eval</text>
+<g><title>schemelike-metacircular-eval · A1: ended in an error class (A1: cut at the 32,000-token output cap; $0.49; 4 calls)</title>
+<rect x="221.4" y="140.0" width="15" height="15" fill="transparent"/>
+<circle cx="228.9" cy="147.5" r="4" fill="#1a1a19" stroke="#3987e5" stroke-width="1.5"/>
+<line x1="225.5" y1="150.9" x2="232.3" y2="144.1" stroke="#3987e5" stroke-width="1.5"/>
+</g>
+<g><title>schemelike-metacircular-eval · A2: ended in an error class (A2: cut at the 32,000-token output cap; $0.40; 3 calls)</title>
+<rect x="236.4" y="140.0" width="15" height="15" fill="transparent"/>
+<circle cx="243.9" cy="147.5" r="4" fill="#1a1a19" stroke="#3987e5" stroke-width="1.5"/>
+<line x1="240.5" y1="150.9" x2="247.3" y2="144.1" stroke="#3987e5" stroke-width="1.5"/>
+</g>
+<g><title>schemelike-metacircular-eval · B1: solved (B1: solved; $0.52; 7 calls)</title>
+<rect x="259.4" y="140.0" width="15" height="15" fill="transparent"/>
+<circle cx="266.9" cy="147.5" r="4.6" fill="#199e70"/>
+</g>
+<g><title>schemelike-metacircular-eval · B2: ended in an error class (B2: cut at the 32,000-token output cap; $0.36; 3 calls)</title>
+<rect x="274.4" y="140.0" width="15" height="15" fill="transparent"/>
+<circle cx="281.9" cy="147.5" r="4" fill="#1a1a19" stroke="#199e70" stroke-width="1.5"/>
+<line x1="278.5" y1="150.9" x2="285.3" y2="144.1" stroke="#199e70" stroke-width="1.5"/>
+</g>
+<g><title>schemelike-metacircular-eval · C1: solved (C1: solved; $0.40; 5 calls)</title>
+<rect x="297.4" y="140.0" width="15" height="15" fill="transparent"/>
+<circle cx="304.9" cy="147.5" r="4.6" fill="#d95926"/>
+</g>
+<g><title>schemelike-metacircular-eval · C2: solved (C2: solved; $0.46; 20 calls)</title>
+<rect x="312.4" y="140.0" width="15" height="15" fill="transparent"/>
+<circle cx="319.9" cy="147.5" r="4.6" fill="#d95926"/>
+</g>
+<text x="337.4" y="151.5" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">medium</text>
+<rect x="18.0" y="155.0" width="366.1" height="15" fill="#2c2c2a" fill-opacity="0.45"/>
+<text x="213.4" y="166.5" font-size="11" fill="#ffffff" text-anchor="end">break-filter-js-from-html</text>
+<g><title>break-filter-js-from-html · A1: ended in an error class (A1: refused by the model; $0.01; 1 calls)</title>
+<rect x="221.4" y="155.0" width="15" height="15" fill="transparent"/>
+<circle cx="228.9" cy="162.5" r="4" fill="#1a1a19" stroke="#3987e5" stroke-width="1.5"/>
+<line x1="225.5" y1="165.9" x2="232.3" y2="159.1" stroke="#3987e5" stroke-width="1.5"/>
+</g>
+<g><title>break-filter-js-from-html · A2: ended in an error class (A2: refused by the model; $0.01; 1 calls)</title>
+<rect x="236.4" y="155.0" width="15" height="15" fill="transparent"/>
+<circle cx="243.9" cy="162.5" r="4" fill="#1a1a19" stroke="#3987e5" stroke-width="1.5"/>
+<line x1="240.5" y1="165.9" x2="247.3" y2="159.1" stroke="#3987e5" stroke-width="1.5"/>
+</g>
+<g><title>break-filter-js-from-html · B1: ended in an error class (B1: refused by the model; $0.01; 1 calls)</title>
+<rect x="259.4" y="155.0" width="15" height="15" fill="transparent"/>
+<circle cx="266.9" cy="162.5" r="4" fill="#1a1a19" stroke="#199e70" stroke-width="1.5"/>
+<line x1="263.5" y1="165.9" x2="270.3" y2="159.1" stroke="#199e70" stroke-width="1.5"/>
+</g>
+<g><title>break-filter-js-from-html · B2: ended in an error class (B2: refused by the model; $0.01; 1 calls)</title>
+<rect x="274.4" y="155.0" width="15" height="15" fill="transparent"/>
+<circle cx="281.9" cy="162.5" r="4" fill="#1a1a19" stroke="#199e70" stroke-width="1.5"/>
+<line x1="278.5" y1="165.9" x2="285.3" y2="159.1" stroke="#199e70" stroke-width="1.5"/>
+</g>
+<g><title>break-filter-js-from-html · C1: solved (C1: solved; $0.35; 14 calls)</title>
+<rect x="297.4" y="155.0" width="15" height="15" fill="transparent"/>
+<circle cx="304.9" cy="162.5" r="4.6" fill="#d95926"/>
+</g>
+<g><title>break-filter-js-from-html · C2: solved (C2: solved; $0.27; 17 calls)</title>
+<rect x="312.4" y="155.0" width="15" height="15" fill="transparent"/>
+<circle cx="319.9" cy="162.5" r="4.6" fill="#d95926"/>
+</g>
+<text x="337.4" y="166.5" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">medium</text>
+<text x="213.4" y="181.5" font-size="11" fill="#ffffff" text-anchor="end">crack-7z-hash</text>
+<g><title>crack-7z-hash · A1: ended in an error class (A1: refused by the model; $0.00; 1 calls)</title>
+<rect x="221.4" y="170.0" width="15" height="15" fill="transparent"/>
+<circle cx="228.9" cy="177.5" r="4" fill="#1a1a19" stroke="#3987e5" stroke-width="1.5"/>
+<line x1="225.5" y1="180.9" x2="232.3" y2="174.1" stroke="#3987e5" stroke-width="1.5"/>
+</g>
+<g><title>crack-7z-hash · A2: ended in an error class (A2: refused by the model; $0.00; 1 calls)</title>
+<rect x="236.4" y="170.0" width="15" height="15" fill="transparent"/>
+<circle cx="243.9" cy="177.5" r="4" fill="#1a1a19" stroke="#3987e5" stroke-width="1.5"/>
+<line x1="240.5" y1="180.9" x2="247.3" y2="174.1" stroke="#3987e5" stroke-width="1.5"/>
+</g>
+<g><title>crack-7z-hash · B1: ended in an error class (B1: refused by the model; $0.02; 1 calls)</title>
+<rect x="259.4" y="170.0" width="15" height="15" fill="transparent"/>
+<circle cx="266.9" cy="177.5" r="4" fill="#1a1a19" stroke="#199e70" stroke-width="1.5"/>
+<line x1="263.5" y1="180.9" x2="270.3" y2="174.1" stroke="#199e70" stroke-width="1.5"/>
+</g>
+<g><title>crack-7z-hash · B2: ended in an error class (B2: refused by the model; $0.02; 1 calls)</title>
+<rect x="274.4" y="170.0" width="15" height="15" fill="transparent"/>
+<circle cx="281.9" cy="177.5" r="4" fill="#1a1a19" stroke="#199e70" stroke-width="1.5"/>
+<line x1="278.5" y1="180.9" x2="285.3" y2="174.1" stroke="#199e70" stroke-width="1.5"/>
+</g>
+<g><title>crack-7z-hash · C1: solved (C1: solved; $0.10; 13 calls)</title>
+<rect x="297.4" y="170.0" width="15" height="15" fill="transparent"/>
+<circle cx="304.9" cy="177.5" r="4.6" fill="#d95926"/>
+</g>
+<g><title>crack-7z-hash · C2: solved (C2: solved; $0.13; 15 calls)</title>
+<rect x="312.4" y="170.0" width="15" height="15" fill="transparent"/>
+<circle cx="319.9" cy="177.5" r="4.6" fill="#d95926"/>
+</g>
+<text x="337.4" y="181.5" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">medium</text>
+<rect x="18.0" y="185.0" width="366.1" height="15" fill="#2c2c2a" fill-opacity="0.45"/>
+<text x="213.4" y="196.5" font-size="11" fill="#ffffff" text-anchor="end">vulnerable-secret</text>
+<g><title>vulnerable-secret · A1: ended in an error class (A1: refused by the model; $0.00; 2 calls)</title>
+<rect x="221.4" y="185.0" width="15" height="15" fill="transparent"/>
+<circle cx="228.9" cy="192.5" r="4" fill="#1a1a19" stroke="#3987e5" stroke-width="1.5"/>
+<line x1="225.5" y1="195.9" x2="232.3" y2="189.1" stroke="#3987e5" stroke-width="1.5"/>
+</g>
+<g><title>vulnerable-secret · A2: ended in an error class (A2: refused by the model; $0.00; 2 calls)</title>
+<rect x="236.4" y="185.0" width="15" height="15" fill="transparent"/>
+<circle cx="243.9" cy="192.5" r="4" fill="#1a1a19" stroke="#3987e5" stroke-width="1.5"/>
+<line x1="240.5" y1="195.9" x2="247.3" y2="189.1" stroke="#3987e5" stroke-width="1.5"/>
+</g>
+<g><title>vulnerable-secret · B1: ended in an error class (B1: refused by the model; $0.00; 2 calls)</title>
+<rect x="259.4" y="185.0" width="15" height="15" fill="transparent"/>
+<circle cx="266.9" cy="192.5" r="4" fill="#1a1a19" stroke="#199e70" stroke-width="1.5"/>
+<line x1="263.5" y1="195.9" x2="270.3" y2="189.1" stroke="#199e70" stroke-width="1.5"/>
+</g>
+<g><title>vulnerable-secret · B2: ended in an error class (B2: refused by the model; $0.00; 2 calls)</title>
+<rect x="274.4" y="185.0" width="15" height="15" fill="transparent"/>
+<circle cx="281.9" cy="192.5" r="4" fill="#1a1a19" stroke="#199e70" stroke-width="1.5"/>
+<line x1="278.5" y1="195.9" x2="285.3" y2="189.1" stroke="#199e70" stroke-width="1.5"/>
+</g>
+<g><title>vulnerable-secret · C1: solved (C1: solved; $0.14; 9 calls)</title>
+<rect x="297.4" y="185.0" width="15" height="15" fill="transparent"/>
+<circle cx="304.9" cy="192.5" r="4.6" fill="#d95926"/>
+</g>
+<g><title>vulnerable-secret · C2: solved (C2: solved; $0.11; 7 calls)</title>
+<rect x="312.4" y="185.0" width="15" height="15" fill="transparent"/>
+<circle cx="319.9" cy="192.5" r="4.6" fill="#d95926"/>
+</g>
+<text x="337.4" y="196.5" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">medium</text>
+<text x="213.4" y="211.5" font-size="11" fill="#ffffff" text-anchor="end">hf-model-inference</text>
+<g><title>hf-model-inference · A1: ended in an error class (A1: transient provider timeout, not retried; ?; 0 calls)</title>
+<rect x="221.4" y="200.0" width="15" height="15" fill="transparent"/>
+<circle cx="228.9" cy="207.5" r="4" fill="#1a1a19" stroke="#3987e5" stroke-width="1.5"/>
+<line x1="225.5" y1="210.9" x2="232.3" y2="204.1" stroke="#3987e5" stroke-width="1.5"/>
+</g>
+<g><title>hf-model-inference · A2: solved (A2: solved; $0.05; 5 calls)</title>
+<rect x="236.4" y="200.0" width="15" height="15" fill="transparent"/>
+<circle cx="243.9" cy="207.5" r="4.6" fill="#3987e5"/>
+</g>
+<g><title>hf-model-inference · B1: solved (B1: solved; $0.04; 4 calls)</title>
+<rect x="259.4" y="200.0" width="15" height="15" fill="transparent"/>
+<circle cx="266.9" cy="207.5" r="4.6" fill="#199e70"/>
+</g>
+<g><title>hf-model-inference · B2: solved (B2: solved; $0.04; 4 calls)</title>
+<rect x="274.4" y="200.0" width="15" height="15" fill="transparent"/>
+<circle cx="281.9" cy="207.5" r="4.6" fill="#199e70"/>
+</g>
+<g><title>hf-model-inference · C1: solved (C1: solved; $0.04; 4 calls)</title>
+<rect x="297.4" y="200.0" width="15" height="15" fill="transparent"/>
+<circle cx="304.9" cy="207.5" r="4.6" fill="#d95926"/>
+</g>
+<g><title>hf-model-inference · C2: solved (C2: solved; $0.03; 4 calls)</title>
+<rect x="312.4" y="200.0" width="15" height="15" fill="transparent"/>
+<circle cx="319.9" cy="207.5" r="4.6" fill="#d95926"/>
+</g>
+<text x="337.4" y="211.5" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">medium</text>
+<rect x="18.0" y="215.0" width="366.1" height="15" fill="#2c2c2a" fill-opacity="0.45"/>
+<text x="213.4" y="226.5" font-size="11" fill="#ffffff" text-anchor="end">install-windows-3.11</text>
+<g><title>install-windows-3.11 · A1: not solved (A1: not solved; $0.52; 45 calls)</title>
+<rect x="221.4" y="215.0" width="15" height="15" fill="transparent"/>
+<circle cx="228.9" cy="222.5" r="4" fill="#1a1a19" stroke="#3987e5" stroke-width="1.5"/>
+</g>
+<g><title>install-windows-3.11 · A2: ended in an error class (A2: waited for an approval no one gives; $0.05; 7 calls)</title>
+<rect x="236.4" y="215.0" width="15" height="15" fill="transparent"/>
+<circle cx="243.9" cy="222.5" r="4" fill="#1a1a19" stroke="#3987e5" stroke-width="1.5"/>
+<line x1="240.5" y1="225.9" x2="247.3" y2="219.1" stroke="#3987e5" stroke-width="1.5"/>
+</g>
+<g><title>install-windows-3.11 · B1: not solved (B1: not solved; $0.80; 61 calls)</title>
+<rect x="259.4" y="215.0" width="15" height="15" fill="transparent"/>
+<circle cx="266.9" cy="222.5" r="4" fill="#1a1a19" stroke="#199e70" stroke-width="1.5"/>
+</g>
+<g><title>install-windows-3.11 · B2: solved (B2: solved; $0.78; 54 calls)</title>
+<rect x="274.4" y="215.0" width="15" height="15" fill="transparent"/>
+<circle cx="281.9" cy="222.5" r="4.6" fill="#199e70"/>
+</g>
+<g><title>install-windows-3.11 · C1: solved (C1: solved; $0.51; 37 calls)</title>
+<rect x="297.4" y="215.0" width="15" height="15" fill="transparent"/>
+<circle cx="304.9" cy="222.5" r="4.6" fill="#d95926"/>
+</g>
+<g><title>install-windows-3.11 · C2: not solved (C2: not solved; $1.12; 68 calls)</title>
+<rect x="312.4" y="215.0" width="15" height="15" fill="transparent"/>
+<circle cx="319.9" cy="222.5" r="4" fill="#1a1a19" stroke="#d95926" stroke-width="1.5"/>
+</g>
+<text x="337.4" y="226.5" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">hard</text>
+<text x="213.4" y="241.5" font-size="11" fill="#ffffff" text-anchor="end">llm-inference-batching-scheduler</text>
+<g><title>llm-inference-batching-scheduler · A1: solved (A1: solved; $0.12; 6 calls)</title>
+<rect x="221.4" y="230.0" width="15" height="15" fill="transparent"/>
+<circle cx="228.9" cy="237.5" r="4.6" fill="#3987e5"/>
+</g>
+<g><title>llm-inference-batching-scheduler · A2: ended in an error class (A2: the task's agent timeout; $0.22; 7 calls)</title>
+<rect x="236.4" y="230.0" width="15" height="15" fill="transparent"/>
+<circle cx="243.9" cy="237.5" r="4" fill="#1a1a19" stroke="#3987e5" stroke-width="1.5"/>
+<line x1="240.5" y1="240.9" x2="247.3" y2="234.1" stroke="#3987e5" stroke-width="1.5"/>
+</g>
+<g><title>llm-inference-batching-scheduler · B1: solved (B1: solved; $0.13; 9 calls)</title>
+<rect x="259.4" y="230.0" width="15" height="15" fill="transparent"/>
+<circle cx="266.9" cy="237.5" r="4.6" fill="#199e70"/>
+</g>
+<g><title>llm-inference-batching-scheduler · B2: solved (B2: solved; $0.23; 12 calls)</title>
+<rect x="274.4" y="230.0" width="15" height="15" fill="transparent"/>
+<circle cx="281.9" cy="237.5" r="4.6" fill="#199e70"/>
+</g>
+<g><title>llm-inference-batching-scheduler · C1: solved (C1: solved; $0.09; 8 calls)</title>
+<rect x="297.4" y="230.0" width="15" height="15" fill="transparent"/>
+<circle cx="304.9" cy="237.5" r="4.6" fill="#d95926"/>
+</g>
+<g><title>llm-inference-batching-scheduler · C2: solved (C2: solved; $0.14; 10 calls)</title>
+<rect x="312.4" y="230.0" width="15" height="15" fill="transparent"/>
+<circle cx="319.9" cy="237.5" r="4.6" fill="#d95926"/>
+</g>
+<text x="337.4" y="241.5" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">hard</text>
+<rect x="18.0" y="245.0" width="366.1" height="15" fill="#2c2c2a" fill-opacity="0.45"/>
+<text x="213.4" y="256.5" font-size="11" fill="#ffffff" text-anchor="end">make-mips-interpreter</text>
+<g><title>make-mips-interpreter · A1: not solved (A1: not solved; $0.49; 13 calls)</title>
+<rect x="221.4" y="245.0" width="15" height="15" fill="transparent"/>
+<circle cx="228.9" cy="252.5" r="4" fill="#1a1a19" stroke="#3987e5" stroke-width="1.5"/>
+</g>
+<g><title>make-mips-interpreter · A2: solved (A2: solved; $0.49; 13 calls)</title>
+<rect x="236.4" y="245.0" width="15" height="15" fill="transparent"/>
+<circle cx="243.9" cy="252.5" r="4.6" fill="#3987e5"/>
+</g>
+<g><title>make-mips-interpreter · B1: solved (B1: solved; $0.41; 14 calls)</title>
+<rect x="259.4" y="245.0" width="15" height="15" fill="transparent"/>
+<circle cx="266.9" cy="252.5" r="4.6" fill="#199e70"/>
+</g>
+<g><title>make-mips-interpreter · B2: solved (B2: solved; $0.39; 11 calls)</title>
+<rect x="274.4" y="245.0" width="15" height="15" fill="transparent"/>
+<circle cx="281.9" cy="252.5" r="4.6" fill="#199e70"/>
+</g>
+<g><title>make-mips-interpreter · C1: solved (C1: solved; $0.22; 10 calls)</title>
+<rect x="297.4" y="245.0" width="15" height="15" fill="transparent"/>
+<circle cx="304.9" cy="252.5" r="4.6" fill="#d95926"/>
+</g>
+<g><title>make-mips-interpreter · C2: solved (C2: solved; $0.27; 12 calls)</title>
+<rect x="312.4" y="245.0" width="15" height="15" fill="transparent"/>
+<circle cx="319.9" cy="252.5" r="4.6" fill="#d95926"/>
+</g>
+<text x="337.4" y="256.5" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">hard</text>
+<text x="213.4" y="271.5" font-size="11" fill="#ffffff" text-anchor="end">extract-moves-from-video</text>
+<g><title>extract-moves-from-video · A1: ended in an error class (A1: the task's agent timeout; $0.18; 14 calls)</title>
+<rect x="221.4" y="260.0" width="15" height="15" fill="transparent"/>
+<circle cx="228.9" cy="267.5" r="4" fill="#1a1a19" stroke="#3987e5" stroke-width="1.5"/>
+<line x1="225.5" y1="270.9" x2="232.3" y2="264.1" stroke="#3987e5" stroke-width="1.5"/>
+</g>
+<g><title>extract-moves-from-video · A2: ended in an error class (A2: the task's agent timeout; $0.18; 16 calls)</title>
+<rect x="236.4" y="260.0" width="15" height="15" fill="transparent"/>
+<circle cx="243.9" cy="267.5" r="4" fill="#1a1a19" stroke="#3987e5" stroke-width="1.5"/>
+<line x1="240.5" y1="270.9" x2="247.3" y2="264.1" stroke="#3987e5" stroke-width="1.5"/>
+</g>
+<g><title>extract-moves-from-video · B1: ended in an error class (B1: the task's agent timeout; $0.09; 13 calls)</title>
+<rect x="259.4" y="260.0" width="15" height="15" fill="transparent"/>
+<circle cx="266.9" cy="267.5" r="4" fill="#1a1a19" stroke="#199e70" stroke-width="1.5"/>
+<line x1="263.5" y1="270.9" x2="270.3" y2="264.1" stroke="#199e70" stroke-width="1.5"/>
+</g>
+<g><title>extract-moves-from-video · B2: ended in an error class (B2: the task's agent timeout; $0.39; 28 calls)</title>
+<rect x="274.4" y="260.0" width="15" height="15" fill="transparent"/>
+<circle cx="281.9" cy="267.5" r="4" fill="#1a1a19" stroke="#199e70" stroke-width="1.5"/>
+<line x1="278.5" y1="270.9" x2="285.3" y2="264.1" stroke="#199e70" stroke-width="1.5"/>
+</g>
+<g><title>extract-moves-from-video · C1: solved (C1: solved; $1.12; 35 calls)</title>
+<rect x="297.4" y="260.0" width="15" height="15" fill="transparent"/>
+<circle cx="304.9" cy="267.5" r="4.6" fill="#d95926"/>
+</g>
+<g><title>extract-moves-from-video · C2: ended in an error class (C2: the task's agent timeout; $0.44; 36 calls)</title>
+<rect x="312.4" y="260.0" width="15" height="15" fill="transparent"/>
+<circle cx="319.9" cy="267.5" r="4" fill="#1a1a19" stroke="#d95926" stroke-width="1.5"/>
+<line x1="316.5" y1="270.9" x2="323.3" y2="264.1" stroke="#d95926" stroke-width="1.5"/>
+</g>
+<text x="337.4" y="271.5" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">hard</text>
+<rect x="18.0" y="275.0" width="366.1" height="15" fill="#2c2c2a" fill-opacity="0.45"/>
+<text x="213.4" y="286.5" font-size="11" fill="#ffffff" text-anchor="end">protein-assembly</text>
+<g><title>protein-assembly · A1: not solved (A1: not solved; $0.21; 16 calls)</title>
+<rect x="221.4" y="275.0" width="15" height="15" fill="transparent"/>
+<circle cx="228.9" cy="282.5" r="4" fill="#1a1a19" stroke="#3987e5" stroke-width="1.5"/>
+</g>
+<g><title>protein-assembly · A2: solved (A2: solved; $0.25; 15 calls)</title>
+<rect x="236.4" y="275.0" width="15" height="15" fill="transparent"/>
+<circle cx="243.9" cy="282.5" r="4.6" fill="#3987e5"/>
+</g>
+<g><title>protein-assembly · B1: solved (B1: solved; $0.22; 14 calls)</title>
+<rect x="259.4" y="275.0" width="15" height="15" fill="transparent"/>
+<circle cx="266.9" cy="282.5" r="4.6" fill="#199e70"/>
+</g>
+<g><title>protein-assembly · B2: not solved (B2: not solved; $0.31; 19 calls)</title>
+<rect x="274.4" y="275.0" width="15" height="15" fill="transparent"/>
+<circle cx="281.9" cy="282.5" r="4" fill="#1a1a19" stroke="#199e70" stroke-width="1.5"/>
+</g>
+<g><title>protein-assembly · C1: solved (C1: solved; $0.15; 9 calls)</title>
+<rect x="297.4" y="275.0" width="15" height="15" fill="transparent"/>
+<circle cx="304.9" cy="282.5" r="4.6" fill="#d95926"/>
+</g>
+<g><title>protein-assembly · C2: solved (C2: solved; $0.19; 12 calls)</title>
+<rect x="312.4" y="275.0" width="15" height="15" fill="transparent"/>
+<circle cx="319.9" cy="282.5" r="4.6" fill="#d95926"/>
+</g>
+<text x="337.4" y="286.5" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">hard</text>
+<text x="213.4" y="301.5" font-size="11" fill="#ffffff" text-anchor="end">train-fasttext</text>
+<g><title>train-fasttext · A1: not solved (A1: not solved; $0.11; 11 calls)</title>
+<rect x="221.4" y="290.0" width="15" height="15" fill="transparent"/>
+<circle cx="228.9" cy="297.5" r="4" fill="#1a1a19" stroke="#3987e5" stroke-width="1.5"/>
+</g>
+<g><title>train-fasttext · A2: not solved (A2: not solved; $0.44; 16 calls)</title>
+<rect x="236.4" y="290.0" width="15" height="15" fill="transparent"/>
+<circle cx="243.9" cy="297.5" r="4" fill="#1a1a19" stroke="#3987e5" stroke-width="1.5"/>
+</g>
+<g><title>train-fasttext · B1: ended in an error class (B1: the task's agent timeout; $0.19; 13 calls)</title>
+<rect x="259.4" y="290.0" width="15" height="15" fill="transparent"/>
+<circle cx="266.9" cy="297.5" r="4" fill="#1a1a19" stroke="#199e70" stroke-width="1.5"/>
+<line x1="263.5" y1="300.9" x2="270.3" y2="294.1" stroke="#199e70" stroke-width="1.5"/>
+</g>
+<g><title>train-fasttext · B2: not solved (B2: not solved; $0.11; 11 calls)</title>
+<rect x="274.4" y="290.0" width="15" height="15" fill="transparent"/>
+<circle cx="281.9" cy="297.5" r="4" fill="#1a1a19" stroke="#199e70" stroke-width="1.5"/>
+</g>
+<g><title>train-fasttext · C1: solved (C1: solved; $0.10; 9 calls)</title>
+<rect x="297.4" y="290.0" width="15" height="15" fill="transparent"/>
+<circle cx="304.9" cy="297.5" r="4.6" fill="#d95926"/>
+</g>
+<g><title>train-fasttext · C2: not solved (C2: not solved; $0.07; 9 calls)</title>
+<rect x="312.4" y="290.0" width="15" height="15" fill="transparent"/>
+<circle cx="319.9" cy="297.5" r="4" fill="#1a1a19" stroke="#d95926" stroke-width="1.5"/>
+</g>
+<text x="337.4" y="301.5" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">hard</text>
+<rect x="18.0" y="305.0" width="366.1" height="15" fill="#2c2c2a" fill-opacity="0.45"/>
+<text x="213.4" y="316.5" font-size="11" fill="#ffffff" text-anchor="end">video-processing</text>
+<g><title>video-processing · A1: not solved (A1: not solved; $0.17; 11 calls)</title>
+<rect x="221.4" y="305.0" width="15" height="15" fill="transparent"/>
+<circle cx="228.9" cy="312.5" r="4" fill="#1a1a19" stroke="#3987e5" stroke-width="1.5"/>
+</g>
+<g><title>video-processing · A2: solved (A2: solved; $0.11; 7 calls)</title>
+<rect x="236.4" y="305.0" width="15" height="15" fill="transparent"/>
+<circle cx="243.9" cy="312.5" r="4.6" fill="#3987e5"/>
+</g>
+<g><title>video-processing · B1: solved (B1: solved; $0.14; 10 calls)</title>
+<rect x="259.4" y="305.0" width="15" height="15" fill="transparent"/>
+<circle cx="266.9" cy="312.5" r="4.6" fill="#199e70"/>
+</g>
+<g><title>video-processing · B2: not solved (B2: not solved; $0.19; 12 calls)</title>
+<rect x="274.4" y="305.0" width="15" height="15" fill="transparent"/>
+<circle cx="281.9" cy="312.5" r="4" fill="#1a1a19" stroke="#199e70" stroke-width="1.5"/>
+</g>
+<g><title>video-processing · C1: solved (C1: solved; $0.09; 7 calls)</title>
+<rect x="297.4" y="305.0" width="15" height="15" fill="transparent"/>
+<circle cx="304.9" cy="312.5" r="4.6" fill="#d95926"/>
+</g>
+<g><title>video-processing · C2: solved (C2: solved; $0.09; 8 calls)</title>
+<rect x="312.4" y="305.0" width="15" height="15" fill="transparent"/>
+<circle cx="319.9" cy="312.5" r="4.6" fill="#d95926"/>
+</g>
+<text x="337.4" y="316.5" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">hard</text>
+<text x="213.4" y="331.5" font-size="11" fill="#ffffff" text-anchor="end">configure-git-webserver</text>
+<g><title>configure-git-webserver · A1: solved (A1: solved; $0.03; 5 calls)</title>
+<rect x="221.4" y="320.0" width="15" height="15" fill="transparent"/>
+<circle cx="228.9" cy="327.5" r="4.6" fill="#3987e5"/>
+</g>
+<g><title>configure-git-webserver · A2: not solved (A2: not solved; $0.04; 7 calls)</title>
+<rect x="236.4" y="320.0" width="15" height="15" fill="transparent"/>
+<circle cx="243.9" cy="327.5" r="4" fill="#1a1a19" stroke="#3987e5" stroke-width="1.5"/>
+</g>
+<g><title>configure-git-webserver · B1: not solved (B1: not solved; $0.04; 5 calls)</title>
+<rect x="259.4" y="320.0" width="15" height="15" fill="transparent"/>
+<circle cx="266.9" cy="327.5" r="4" fill="#1a1a19" stroke="#199e70" stroke-width="1.5"/>
+</g>
+<g><title>configure-git-webserver · B2: not solved (B2: not solved; $0.04; 5 calls)</title>
+<rect x="274.4" y="320.0" width="15" height="15" fill="transparent"/>
+<circle cx="281.9" cy="327.5" r="4" fill="#1a1a19" stroke="#199e70" stroke-width="1.5"/>
+</g>
+<g><title>configure-git-webserver · C1: solved (C1: solved; $0.04; 4 calls)</title>
+<rect x="297.4" y="320.0" width="15" height="15" fill="transparent"/>
+<circle cx="304.9" cy="327.5" r="4.6" fill="#d95926"/>
+</g>
+<g><title>configure-git-webserver · C2: solved (C2: solved; $0.03; 4 calls)</title>
+<rect x="312.4" y="320.0" width="15" height="15" fill="transparent"/>
+<circle cx="319.9" cy="327.5" r="4.6" fill="#d95926"/>
+</g>
+<text x="337.4" y="331.5" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">hard</text>
+<rect x="18.0" y="335.0" width="366.1" height="15" fill="#2c2c2a" fill-opacity="0.45"/>
+<text x="213.4" y="346.5" font-size="11" fill="#ffffff" text-anchor="end">raman-fitting</text>
+<g><title>raman-fitting · A1: not solved (A1: not solved; $0.17; 16 calls)</title>
+<rect x="221.4" y="335.0" width="15" height="15" fill="transparent"/>
+<circle cx="228.9" cy="342.5" r="4" fill="#1a1a19" stroke="#3987e5" stroke-width="1.5"/>
+</g>
+<g><title>raman-fitting · A2: solved (A2: solved; $0.11; 11 calls)</title>
+<rect x="236.4" y="335.0" width="15" height="15" fill="transparent"/>
+<circle cx="243.9" cy="342.5" r="4.6" fill="#3987e5"/>
+</g>
+<g><title>raman-fitting · B1: not solved (B1: not solved; $0.11; 10 calls)</title>
+<rect x="259.4" y="335.0" width="15" height="15" fill="transparent"/>
+<circle cx="266.9" cy="342.5" r="4" fill="#1a1a19" stroke="#199e70" stroke-width="1.5"/>
+</g>
+<g><title>raman-fitting · B2: not solved (B2: not solved; $0.19; 16 calls)</title>
+<rect x="274.4" y="335.0" width="15" height="15" fill="transparent"/>
+<circle cx="281.9" cy="342.5" r="4" fill="#1a1a19" stroke="#199e70" stroke-width="1.5"/>
+</g>
+<g><title>raman-fitting · C1: solved (C1: solved; $0.10; 9 calls)</title>
+<rect x="297.4" y="335.0" width="15" height="15" fill="transparent"/>
+<circle cx="304.9" cy="342.5" r="4.6" fill="#d95926"/>
+</g>
+<g><title>raman-fitting · C2: solved (C2: solved; $0.07; 8 calls)</title>
+<rect x="312.4" y="335.0" width="15" height="15" fill="transparent"/>
+<circle cx="319.9" cy="342.5" r="4.6" fill="#d95926"/>
+</g>
+<text x="337.4" y="346.5" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">medium</text>
+<text x="213.4" y="361.5" font-size="11" fill="#ffffff" text-anchor="end">adaptive-rejection-sampler</text>
+<g><title>adaptive-rejection-sampler · A1: not solved (A1: not solved; $0.27; 7 calls)</title>
+<rect x="221.4" y="350.0" width="15" height="15" fill="transparent"/>
+<circle cx="228.9" cy="357.5" r="4" fill="#1a1a19" stroke="#3987e5" stroke-width="1.5"/>
+</g>
+<g><title>adaptive-rejection-sampler · A2: not solved (A2: not solved; $0.31; 7 calls)</title>
+<rect x="236.4" y="350.0" width="15" height="15" fill="transparent"/>
+<circle cx="243.9" cy="357.5" r="4" fill="#1a1a19" stroke="#3987e5" stroke-width="1.5"/>
+</g>
+<g><title>adaptive-rejection-sampler · B1: solved (B1: solved; $0.23; 7 calls)</title>
+<rect x="259.4" y="350.0" width="15" height="15" fill="transparent"/>
+<circle cx="266.9" cy="357.5" r="4.6" fill="#199e70"/>
+</g>
+<g><title>adaptive-rejection-sampler · B2: not solved (B2: not solved; $0.27; 6 calls)</title>
+<rect x="274.4" y="350.0" width="15" height="15" fill="transparent"/>
+<circle cx="281.9" cy="357.5" r="4" fill="#1a1a19" stroke="#199e70" stroke-width="1.5"/>
+</g>
+<g><title>adaptive-rejection-sampler · C1: not solved (C1: not solved; $0.15; 5 calls)</title>
+<rect x="297.4" y="350.0" width="15" height="15" fill="transparent"/>
+<circle cx="304.9" cy="357.5" r="4" fill="#1a1a19" stroke="#d95926" stroke-width="1.5"/>
+</g>
+<g><title>adaptive-rejection-sampler · C2: not solved (C2: not solved; $0.16; 5 calls)</title>
+<rect x="312.4" y="350.0" width="15" height="15" fill="transparent"/>
+<circle cx="319.9" cy="357.5" r="4" fill="#1a1a19" stroke="#d95926" stroke-width="1.5"/>
+</g>
+<text x="337.4" y="361.5" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">medium</text>
+<rect x="18.0" y="365.0" width="366.1" height="15" fill="#2c2c2a" fill-opacity="0.45"/>
+<text x="213.4" y="376.5" font-size="11" fill="#ffffff" text-anchor="end">compile-compcert</text>
+<g><title>compile-compcert · A1: ended in an error class (A1: the task's agent timeout; $0.10; 11 calls)</title>
+<rect x="221.4" y="365.0" width="15" height="15" fill="transparent"/>
+<circle cx="228.9" cy="372.5" r="4" fill="#1a1a19" stroke="#3987e5" stroke-width="1.5"/>
+<line x1="225.5" y1="375.9" x2="232.3" y2="369.1" stroke="#3987e5" stroke-width="1.5"/>
+</g>
+<g><title>compile-compcert · A2: solved (A2: solved; $0.11; 15 calls)</title>
+<rect x="236.4" y="365.0" width="15" height="15" fill="transparent"/>
+<circle cx="243.9" cy="372.5" r="4.6" fill="#3987e5"/>
+</g>
+<g><title>compile-compcert · B1: solved (B1: solved; $0.12; 13 calls)</title>
+<rect x="259.4" y="365.0" width="15" height="15" fill="transparent"/>
+<circle cx="266.9" cy="372.5" r="4.6" fill="#199e70"/>
+</g>
+<g><title>compile-compcert · B2: solved (B2: solved; $0.12; 12 calls)</title>
+<rect x="274.4" y="365.0" width="15" height="15" fill="transparent"/>
+<circle cx="281.9" cy="372.5" r="4.6" fill="#199e70"/>
+</g>
+<g><title>compile-compcert · C1: solved (C1: solved; $0.13; 14 calls)</title>
+<rect x="297.4" y="365.0" width="15" height="15" fill="transparent"/>
+<circle cx="304.9" cy="372.5" r="4.6" fill="#d95926"/>
+</g>
+<g><title>compile-compcert · C2: ended in an error class (C2: the task's agent timeout; $0.20; 19 calls)</title>
+<rect x="312.4" y="365.0" width="15" height="15" fill="transparent"/>
+<circle cx="319.9" cy="372.5" r="4" fill="#1a1a19" stroke="#d95926" stroke-width="1.5"/>
+<line x1="316.5" y1="375.9" x2="323.3" y2="369.1" stroke="#d95926" stroke-width="1.5"/>
+</g>
+<text x="337.4" y="376.5" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">medium</text>
+<text x="213.4" y="391.5" font-size="11" fill="#ffffff" text-anchor="end">query-optimize</text>
+<g><title>query-optimize · A1: not solved (A1: not solved; $0.06; 4 calls)</title>
+<rect x="221.4" y="380.0" width="15" height="15" fill="transparent"/>
+<circle cx="228.9" cy="387.5" r="4" fill="#1a1a19" stroke="#3987e5" stroke-width="1.5"/>
+</g>
+<g><title>query-optimize · A2: solved (A2: solved; $0.07; 5 calls)</title>
+<rect x="236.4" y="380.0" width="15" height="15" fill="transparent"/>
+<circle cx="243.9" cy="387.5" r="4.6" fill="#3987e5"/>
+</g>
+<g><title>query-optimize · B1: not solved (B1: not solved; $0.05; 6 calls)</title>
+<rect x="259.4" y="380.0" width="15" height="15" fill="transparent"/>
+<circle cx="266.9" cy="387.5" r="4" fill="#1a1a19" stroke="#199e70" stroke-width="1.5"/>
+</g>
+<g><title>query-optimize · B2: solved (B2: solved; $0.04; 4 calls)</title>
+<rect x="274.4" y="380.0" width="15" height="15" fill="transparent"/>
+<circle cx="281.9" cy="387.5" r="4.6" fill="#199e70"/>
+</g>
+<g><title>query-optimize · C1: not solved (C1: not solved; $0.07; 7 calls)</title>
+<rect x="297.4" y="380.0" width="15" height="15" fill="transparent"/>
+<circle cx="304.9" cy="387.5" r="4" fill="#1a1a19" stroke="#d95926" stroke-width="1.5"/>
+</g>
+<g><title>query-optimize · C2: solved (C2: solved; $0.06; 7 calls)</title>
+<rect x="312.4" y="380.0" width="15" height="15" fill="transparent"/>
+<circle cx="319.9" cy="387.5" r="4.6" fill="#d95926"/>
+</g>
+<text x="337.4" y="391.5" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">medium</text>
+<rect x="18.0" y="395.0" width="366.1" height="15" fill="#2c2c2a" fill-opacity="0.45"/>
+<text x="213.4" y="406.5" font-size="11" fill="#ffffff" text-anchor="end">build-pmars</text>
+<g><title>build-pmars · A1: solved (A1: solved; $0.05; 10 calls)</title>
+<rect x="221.4" y="395.0" width="15" height="15" fill="transparent"/>
+<circle cx="228.9" cy="402.5" r="4.6" fill="#3987e5"/>
+</g>
+<g><title>build-pmars · A2: solved (A2: solved; $0.04; 8 calls)</title>
+<rect x="236.4" y="395.0" width="15" height="15" fill="transparent"/>
+<circle cx="243.9" cy="402.5" r="4.6" fill="#3987e5"/>
+</g>
+<g><title>build-pmars · B1: solved (B1: solved; $0.04; 8 calls)</title>
+<rect x="259.4" y="395.0" width="15" height="15" fill="transparent"/>
+<circle cx="266.9" cy="402.5" r="4.6" fill="#199e70"/>
+</g>
+<g><title>build-pmars · B2: not solved (B2: not solved; $0.04; 8 calls)</title>
+<rect x="274.4" y="395.0" width="15" height="15" fill="transparent"/>
+<circle cx="281.9" cy="402.5" r="4" fill="#1a1a19" stroke="#199e70" stroke-width="1.5"/>
+</g>
+<g><title>build-pmars · C1: solved (C1: solved; $0.05; 7 calls)</title>
+<rect x="297.4" y="395.0" width="15" height="15" fill="transparent"/>
+<circle cx="304.9" cy="402.5" r="4.6" fill="#d95926"/>
+</g>
+<g><title>build-pmars · C2: solved (C2: solved; $0.03; 6 calls)</title>
+<rect x="312.4" y="395.0" width="15" height="15" fill="transparent"/>
+<circle cx="319.9" cy="402.5" r="4.6" fill="#d95926"/>
+</g>
+<text x="337.4" y="406.5" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">medium</text>
+<text x="213.4" y="421.5" font-size="11" fill="#ffffff" text-anchor="end">large-scale-text-editing</text>
+<g><title>large-scale-text-editing · A1: solved (A1: solved; $0.04; 5 calls)</title>
+<rect x="221.4" y="410.0" width="15" height="15" fill="transparent"/>
+<circle cx="228.9" cy="417.5" r="4.6" fill="#3987e5"/>
+</g>
+<g><title>large-scale-text-editing · A2: solved (A2: solved; $0.04; 5 calls)</title>
+<rect x="236.4" y="410.0" width="15" height="15" fill="transparent"/>
+<circle cx="243.9" cy="417.5" r="4.6" fill="#3987e5"/>
+</g>
+<g><title>large-scale-text-editing · B1: not solved (B1: not solved; $0.03; 6 calls)</title>
+<rect x="259.4" y="410.0" width="15" height="15" fill="transparent"/>
+<circle cx="266.9" cy="417.5" r="4" fill="#1a1a19" stroke="#199e70" stroke-width="1.5"/>
+</g>
+<g><title>large-scale-text-editing · B2: solved (B2: solved; $0.03; 4 calls)</title>
+<rect x="274.4" y="410.0" width="15" height="15" fill="transparent"/>
+<circle cx="281.9" cy="417.5" r="4.6" fill="#199e70"/>
+</g>
+<g><title>large-scale-text-editing · C1: solved (C1: solved; $0.02; 3 calls)</title>
+<rect x="297.4" y="410.0" width="15" height="15" fill="transparent"/>
+<circle cx="304.9" cy="417.5" r="4.6" fill="#d95926"/>
+</g>
+<g><title>large-scale-text-editing · C2: solved (C2: solved; $0.03; 3 calls)</title>
+<rect x="312.4" y="410.0" width="15" height="15" fill="transparent"/>
+<circle cx="319.9" cy="417.5" r="4.6" fill="#d95926"/>
+</g>
+<text x="337.4" y="421.5" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">medium</text>
+<rect x="18.0" y="425.0" width="366.1" height="15" fill="#2c2c2a" fill-opacity="0.45"/>
+<text x="213.4" y="436.5" font-size="11" fill="#ffffff" text-anchor="end">mcmc-sampling-stan</text>
+<g><title>mcmc-sampling-stan · A1: solved (A1: solved; $0.10; 9 calls)</title>
+<rect x="221.4" y="425.0" width="15" height="15" fill="transparent"/>
+<circle cx="228.9" cy="432.5" r="4.6" fill="#3987e5"/>
+</g>
+<g><title>mcmc-sampling-stan · A2: solved (A2: solved; $0.06; 10 calls)</title>
+<rect x="236.4" y="425.0" width="15" height="15" fill="transparent"/>
+<circle cx="243.9" cy="432.5" r="4.6" fill="#3987e5"/>
+</g>
+<g><title>mcmc-sampling-stan · B1: not solved (B1: not solved; $0.07; 8 calls)</title>
+<rect x="259.4" y="425.0" width="15" height="15" fill="transparent"/>
+<circle cx="266.9" cy="432.5" r="4" fill="#1a1a19" stroke="#199e70" stroke-width="1.5"/>
+</g>
+<g><title>mcmc-sampling-stan · B2: not solved (B2: not solved; $0.10; 11 calls)</title>
+<rect x="274.4" y="425.0" width="15" height="15" fill="transparent"/>
+<circle cx="281.9" cy="432.5" r="4" fill="#1a1a19" stroke="#199e70" stroke-width="1.5"/>
+</g>
+<g><title>mcmc-sampling-stan · C1: solved (C1: solved; $0.12; 9 calls)</title>
+<rect x="297.4" y="425.0" width="15" height="15" fill="transparent"/>
+<circle cx="304.9" cy="432.5" r="4.6" fill="#d95926"/>
+</g>
+<g><title>mcmc-sampling-stan · C2: solved (C2: solved; $0.07; 8 calls)</title>
+<rect x="312.4" y="425.0" width="15" height="15" fill="transparent"/>
+<circle cx="319.9" cy="432.5" r="4.6" fill="#d95926"/>
+</g>
+<text x="337.4" y="436.5" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">hard</text>
+<text x="213.4" y="451.5" font-size="11" fill="#ffffff" text-anchor="end">mteb-leaderboard</text>
+<g><title>mteb-leaderboard · A1: solved (A1: solved; $0.28; 20 calls)</title>
+<rect x="221.4" y="440.0" width="15" height="15" fill="transparent"/>
+<circle cx="228.9" cy="447.5" r="4.6" fill="#3987e5"/>
+</g>
+<g><title>mteb-leaderboard · A2: not solved (A2: not solved; $0.36; 20 calls)</title>
+<rect x="236.4" y="440.0" width="15" height="15" fill="transparent"/>
+<circle cx="243.9" cy="447.5" r="4" fill="#1a1a19" stroke="#3987e5" stroke-width="1.5"/>
+</g>
+<g><title>mteb-leaderboard · B1: solved (B1: solved; $0.14; 15 calls)</title>
+<rect x="259.4" y="440.0" width="15" height="15" fill="transparent"/>
+<circle cx="266.9" cy="447.5" r="4.6" fill="#199e70"/>
+</g>
+<g><title>mteb-leaderboard · B2: solved (B2: solved; $0.33; 27 calls)</title>
+<rect x="274.4" y="440.0" width="15" height="15" fill="transparent"/>
+<circle cx="281.9" cy="447.5" r="4.6" fill="#199e70"/>
+</g>
+<g><title>mteb-leaderboard · C1: ended in an error class (C1: the task's agent timeout; $0.19; 18 calls)</title>
+<rect x="297.4" y="440.0" width="15" height="15" fill="transparent"/>
+<circle cx="304.9" cy="447.5" r="4" fill="#1a1a19" stroke="#d95926" stroke-width="1.5"/>
+<line x1="301.5" y1="450.9" x2="308.3" y2="444.1" stroke="#d95926" stroke-width="1.5"/>
+</g>
+<g><title>mteb-leaderboard · C2: not solved (C2: not solved; $0.04; 4 calls)</title>
+<rect x="312.4" y="440.0" width="15" height="15" fill="transparent"/>
+<circle cx="319.9" cy="447.5" r="4" fill="#1a1a19" stroke="#d95926" stroke-width="1.5"/>
+</g>
+<text x="337.4" y="451.5" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">medium</text>
+<rect x="18.0" y="455.0" width="366.1" height="15" fill="#2c2c2a" fill-opacity="0.45"/>
+<text x="213.4" y="466.5" font-size="11" fill="#ffffff" text-anchor="end">custom-memory-heap-crash</text>
+<g><title>custom-memory-heap-crash · A1: solved (A1: solved; $0.15; 14 calls)</title>
+<rect x="221.4" y="455.0" width="15" height="15" fill="transparent"/>
+<circle cx="228.9" cy="462.5" r="4.6" fill="#3987e5"/>
+</g>
+<g><title>custom-memory-heap-crash · A2: solved (A2: solved; $0.13; 12 calls)</title>
+<rect x="236.4" y="455.0" width="15" height="15" fill="transparent"/>
+<circle cx="243.9" cy="462.5" r="4.6" fill="#3987e5"/>
+</g>
+<g><title>custom-memory-heap-crash · B1: solved (B1: solved; $0.14; 12 calls)</title>
+<rect x="259.4" y="455.0" width="15" height="15" fill="transparent"/>
+<circle cx="266.9" cy="462.5" r="4.6" fill="#199e70"/>
+</g>
+<g><title>custom-memory-heap-crash · B2: solved (B2: solved; $0.09; 7 calls)</title>
+<rect x="274.4" y="455.0" width="15" height="15" fill="transparent"/>
+<circle cx="281.9" cy="462.5" r="4.6" fill="#199e70"/>
+</g>
+<g><title>custom-memory-heap-crash · C1: not solved (C1: not solved; $0.09; 9 calls)</title>
+<rect x="297.4" y="455.0" width="15" height="15" fill="transparent"/>
+<circle cx="304.9" cy="462.5" r="4" fill="#1a1a19" stroke="#d95926" stroke-width="1.5"/>
+</g>
+<g><title>custom-memory-heap-crash · C2: solved (C2: solved; $0.07; 8 calls)</title>
+<rect x="312.4" y="455.0" width="15" height="15" fill="transparent"/>
+<circle cx="319.9" cy="462.5" r="4.6" fill="#d95926"/>
+</g>
+<text x="337.4" y="466.5" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">medium</text>
+<text x="213.4" y="481.5" font-size="11" fill="#ffffff" text-anchor="end">feal-linear-cryptanalysis</text>
+<g><title>feal-linear-cryptanalysis · A1: solved (A1: solved; $0.33; 10 calls)</title>
+<rect x="221.4" y="470.0" width="15" height="15" fill="transparent"/>
+<circle cx="228.9" cy="477.5" r="4.6" fill="#3987e5"/>
+</g>
+<g><title>feal-linear-cryptanalysis · A2: solved (A2: solved; $0.10; 6 calls)</title>
+<rect x="236.4" y="470.0" width="15" height="15" fill="transparent"/>
+<circle cx="243.9" cy="477.5" r="4.6" fill="#3987e5"/>
+</g>
+<g><title>feal-linear-cryptanalysis · B1: solved (B1: solved; $0.11; 4 calls)</title>
+<rect x="259.4" y="470.0" width="15" height="15" fill="transparent"/>
+<circle cx="266.9" cy="477.5" r="4.6" fill="#199e70"/>
+</g>
+<g><title>feal-linear-cryptanalysis · B2: solved (B2: solved; $0.17; 6 calls)</title>
+<rect x="274.4" y="470.0" width="15" height="15" fill="transparent"/>
+<circle cx="281.9" cy="477.5" r="4.6" fill="#199e70"/>
+</g>
+<g><title>feal-linear-cryptanalysis · C1: ended in an error class (C1: the task's agent timeout; $0.20; 7 calls)</title>
+<rect x="297.4" y="470.0" width="15" height="15" fill="transparent"/>
+<circle cx="304.9" cy="477.5" r="4" fill="#1a1a19" stroke="#d95926" stroke-width="1.5"/>
+<line x1="301.5" y1="480.9" x2="308.3" y2="474.1" stroke="#d95926" stroke-width="1.5"/>
+</g>
+<g><title>feal-linear-cryptanalysis · C2: solved (C2: solved; $0.12; 3 calls)</title>
+<rect x="312.4" y="470.0" width="15" height="15" fill="transparent"/>
+<circle cx="319.9" cy="477.5" r="4.6" fill="#d95926"/>
+</g>
+<text x="337.4" y="481.5" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">hard</text>
+<rect x="18.0" y="485.0" width="366.1" height="15" fill="#2c2c2a" fill-opacity="0.45"/>
+<text x="213.4" y="496.5" font-size="11" fill="#ffffff" text-anchor="end">chess-best-move</text>
+<g><title>chess-best-move · A1: solved (A1: solved; $0.03; 3 calls)</title>
+<rect x="221.4" y="485.0" width="15" height="15" fill="transparent"/>
+<circle cx="228.9" cy="492.5" r="4.6" fill="#3987e5"/>
+</g>
+<g><title>chess-best-move · A2: solved (A2: solved; $0.03; 3 calls)</title>
+<rect x="236.4" y="485.0" width="15" height="15" fill="transparent"/>
+<circle cx="243.9" cy="492.5" r="4.6" fill="#3987e5"/>
+</g>
+<g><title>chess-best-move · B1: not solved (B1: not solved; $0.02; 3 calls)</title>
+<rect x="259.4" y="485.0" width="15" height="15" fill="transparent"/>
+<circle cx="266.9" cy="492.5" r="4" fill="#1a1a19" stroke="#199e70" stroke-width="1.5"/>
+</g>
+<g><title>chess-best-move · B2: solved (B2: solved; $0.04; 8 calls)</title>
+<rect x="274.4" y="485.0" width="15" height="15" fill="transparent"/>
+<circle cx="281.9" cy="492.5" r="4.6" fill="#199e70"/>
+</g>
+<g><title>chess-best-move · C1: not solved (C1: not solved; $0.03; 3 calls)</title>
+<rect x="297.4" y="485.0" width="15" height="15" fill="transparent"/>
+<circle cx="304.9" cy="492.5" r="4" fill="#1a1a19" stroke="#d95926" stroke-width="1.5"/>
+</g>
+<g><title>chess-best-move · C2: solved (C2: solved; $0.03; 3 calls)</title>
+<rect x="312.4" y="485.0" width="15" height="15" fill="transparent"/>
+<circle cx="319.9" cy="492.5" r="4.6" fill="#d95926"/>
+</g>
+<text x="337.4" y="496.5" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">medium</text>
+<text x="213.4" y="511.5" font-size="11" fill="#ffffff" text-anchor="end">rstan-to-pystan</text>
+<g><title>rstan-to-pystan · A1: solved (A1: solved; $0.14; 10 calls)</title>
+<rect x="221.4" y="500.0" width="15" height="15" fill="transparent"/>
+<circle cx="228.9" cy="507.5" r="4.6" fill="#3987e5"/>
+</g>
+<g><title>rstan-to-pystan · A2: solved (A2: solved; $0.12; 9 calls)</title>
+<rect x="236.4" y="500.0" width="15" height="15" fill="transparent"/>
+<circle cx="243.9" cy="507.5" r="4.6" fill="#3987e5"/>
+</g>
+<g><title>rstan-to-pystan · B1: ended in an error class (B1: the task's agent timeout; $0.13; 10 calls)</title>
+<rect x="259.4" y="500.0" width="15" height="15" fill="transparent"/>
+<circle cx="266.9" cy="507.5" r="4" fill="#1a1a19" stroke="#199e70" stroke-width="1.5"/>
+<line x1="263.5" y1="510.9" x2="270.3" y2="504.1" stroke="#199e70" stroke-width="1.5"/>
+</g>
+<g><title>rstan-to-pystan · B2: solved (B2: solved; $0.15; 10 calls)</title>
+<rect x="274.4" y="500.0" width="15" height="15" fill="transparent"/>
+<circle cx="281.9" cy="507.5" r="4.6" fill="#199e70"/>
+</g>
+<g><title>rstan-to-pystan · C1: solved (C1: solved (after the task's agent timeout); $0.20; 9 calls)</title>
+<rect x="297.4" y="500.0" width="15" height="15" fill="transparent"/>
+<circle cx="304.9" cy="507.5" r="4.6" fill="#d95926"/>
+</g>
+<g><title>rstan-to-pystan · C2: ended in an error class (C2: the task's agent timeout; $0.08; 6 calls)</title>
+<rect x="312.4" y="500.0" width="15" height="15" fill="transparent"/>
+<circle cx="319.9" cy="507.5" r="4" fill="#1a1a19" stroke="#d95926" stroke-width="1.5"/>
+<line x1="316.5" y1="510.9" x2="323.3" y2="504.1" stroke="#d95926" stroke-width="1.5"/>
+</g>
+<text x="337.4" y="511.5" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">medium</text>
+<text x="18.0" y="535.0" font-size="11" fill="#c3c2b7">Rows: Claude Code's lead over plain Theseus, largest first. Not shown: 52 tasks every trial solved, 10 no trial solved.</text>
+</svg>

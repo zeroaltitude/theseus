@@ -731,9 +731,24 @@ impl Store {
             .load(std::sync::atomic::Ordering::SeqCst)
     }
 
+    /// Every session record, imported ones included: for a reader whose
+    /// answer counts them. A list of the sessions that take turns reads
+    /// `live_sessions`.
     pub fn list_sessions<T: DeserializeOwned>(&self) -> Result<Vec<T>> {
         self.inner
             .latest_of_kind(kinds::SESSION)?
+            .iter()
+            .map(|r| r.decode())
+            .collect()
+    }
+
+    /// Every session record but the imported ones (theseus-7087): an
+    /// imported session is told by its key (`import::is_imported`), so its
+    /// record is never read, and a list of the live sessions costs them
+    /// alone however large the import.
+    pub fn live_sessions<T: DeserializeOwned>(&self) -> Result<Vec<T>> {
+        self.inner
+            .latest_of_kind_where(kinds::SESSION, &|k| !crate::import::is_imported(k))?
             .iter()
             .map(|r| r.decode())
             .collect()

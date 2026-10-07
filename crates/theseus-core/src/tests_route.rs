@@ -100,8 +100,10 @@ fn rig_built(
     p.providers.insert("zai".into(), zai.clone());
     p.secrets = secrets;
     parts(&mut p);
+    let core = Core::build(p).unwrap();
+    crate::tests_judge::warm(&core);
     Rig {
-        core: Core::build(p).unwrap(),
+        core,
         claude,
         zai,
         dir,

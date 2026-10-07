@@ -2,7 +2,7 @@
 
 _Checked in on 2026-10-01 from the agents' working reports. Local paths became plain words or links, and the research agent's working line above the title was dropped; nothing else changed. Times are MST._
 
-**Prepared for:** Tabitha, for Eddie's Theseus comparison. **Research run 2** (run 1 was lost in the 00:32 WSL crash).
+**Prepared for:** Tabitha/Claude, for the owner's Theseus comparison. **Research run 2** (run 1 was lost in the 00:32 WSL crash).
 **Method.** OpenClaw comes first from its local docs (a local checkout of its docs at `2c69d06`, 2026-09-29, package `2026.9.6`). Its public presence and every other harness come from the web.
 - **GitHub numbers** (stars, licence, dates) come from the GitHub API, fetched 2026-10-01 between 09:06 and 09:17 UTC.
 - **Search results are not sources here.** The `web_search` provider returns Gemini-written summaries. I checked every load-bearing claim against a primary page (vendor blog, docs, changelog, press release) or a named outlet. Anything I couldn't check is marked **(unconfirmed)**.
@@ -92,7 +92,7 @@ Sources: local docs at checkout `2c69d06` (2026-09-29); GitHub API; [openclaw.ai
 - **Channels.** A2A, Reef, Telegram and WebChat ship in core. Official plugins add Discord, Slack, Signal, WhatsApp, iMessage, Teams, Matrix, IRC, Nostr, SMS, Google Chat and more.
 - **Voice.** Discord voice channels support realtime voice, auto-join and voice-follow (`channels/discord.md`). There are also voice-wake and talk modes.
 - **Licence and governance.** It is MIT, stewarded by the **OpenClaw Foundation**, a 501(c)(3), and has "no paid tier, no hosted service, no token." The local docs name donors and partners including Amazon, Atlassian, GitHub, Microsoft, NVIDIA, OpenAI, Red Hat and Tencent.
-- **History.** The project was named Clawdbot, then Moltbot, then OpenClaw; the January 2026 rename followed a trademark request from Anthropic (`start/lore.md`). Founder Peter Steinberger joined OpenAI in early 2026 ([Kilo blog](https://blog.kilo.ai/p/kiloclaw-hosted-openclaw), citing Sam Altman).
+- **History.** The project was named Clawdbot, then Moltbot, then OpenClaw; the January 2026 rename followed a trademark request from Anthropic (`start/lore.md`). Its founder joined OpenAI in early 2026 ([Kilo blog](https://blog.kilo.ai/p/kiloclaw-hosted-openclaw), citing OpenAI's chief executive).
 - **Release cadence.** v2026.8.1 ("OpenClaw 2.0") was tagged 2026-08-30, then v2026.8.2 (08-31), 9.1 (09-03), 9.2 (09-05), 9.3 (09-07), 9.4 (09-10), 9.5 (09-18) and 9.6 (09-22). These are local tag dates.
 
 **2. Models**
@@ -107,7 +107,7 @@ Sources: local docs at checkout `2c69d06` (2026-09-29); GitHub API; [openclaw.ai
 - **Cloud workers.** Ephemeral machines are launched through the bundled Crabbox provider. The transcript and accepted changes stay with the Gateway, and repo-only cloud sessions are supported.
 - **Restart recovery.** Per the docs: "Conversations, transcripts, scheduled jobs, native subagent records, and queued outbound messages live on disk. After a gateway restart, eligible work interrupted mid-turn is detected and resumed automatically" (`gateway/restart-recovery.md`). Releases 9.2 and 9.6 extended this.
 - **Updates.** "Atomic Updates" (9.5) check the next version before switching over.
-- **Limit observed in this install.** Tabitha's memory notes from 2026-09-30 record that stopping the parent run or the gateway can kill running `sessions_spawn` children. That is a local observation, not a doc claim.
+- **Limit observed in this install.** Tabitha/Claude's memory notes from 2026-09-30 record that stopping the parent run or the gateway can kill running `sessions_spawn` children. That is a local observation, not a doc claim.
 
 **4. Safety**
 - **Sandboxing is off by default.** The docs say so plainly: "Default OpenClaw is a trusted single-operator assistant."
@@ -132,7 +132,7 @@ Sources: local docs at checkout `2c69d06` (2026-09-29); GitHub API; [openclaw.ai
   - an outbound sanitizer removes leaked scaffolding
 - **Taint.** Memory provenance marks network-sourced tool output as tainted, but it governs memory admission, not tool gating (`concepts/memory-provenance.md`).
 - **Stated limits.** Native plugins run in-process and are unsandboxed. Egress allowlisting covers "cooperating traffic only." `openclaw security audit` checks for drift from a hardened baseline. The docs count 647 public repository advisories as of 2026-08-27.
-- **This install differs.** The taint-based restrictions this session ran under come from a provenance plugin in Eddie's install, not from core docs. Observation: in this session, read-only `grep` Bash calls still ran after web reads.
+- **This install differs.** The taint-based restrictions this session ran under come from a provenance plugin in the owner's install, not from core docs. Observation: in this session, read-only `grep` Bash calls still ran after web reads.
 
 **5. Cost governance**
 - **No per-session or per-turn dollar cap found in the docs.** I searched for budget, spend, maxCost and similar terms.
@@ -262,7 +262,7 @@ Sources: [Windsurf is now Devin Desktop, 2026-06-02](https://devin.ai/blog/winds
 ### Kilo Code
 - **Shape.** MIT, 27,461★. Runs in VS Code, JetBrains, a CLI and cloud agents.
 - **Rebuild.** After Roo shut down, Kilo **rebuilt its VS Code extension "on the OpenCode server,"** the engine it shares with the Kilo CLI and Cloud Agents. That brought parallel execution, subagent delegation and an Agent Manager ([Kilo blog](https://blog.kilo.ai/p/thank-you-roo)).
-- **KiloClaw.** Kilo's managed OpenClaw hosting reached GA with "500+ models" ([Kilo blog](https://blog.kilo.ai/p/kiloclaw-hosted-openclaw); [VentureBeat](https://venturebeat.com/orchestration/kilo-launches-kiloclaw-allowing-anyone-to-deploy-hosted-openclaw-agents-into)). Coverage dates GA to early 2026 **(exact date unconfirmed)**. Kilo is backed by GitLab co-founder Sid Sijbrandij.
+- **KiloClaw.** Kilo's managed OpenClaw hosting reached GA with "500+ models" ([Kilo blog](https://blog.kilo.ai/p/kiloclaw-hosted-openclaw); [VentureBeat](https://venturebeat.com/orchestration/kilo-launches-kiloclaw-allowing-anyone-to-deploy-hosted-openclaw-agents-into)). Coverage dates GA to early 2026 **(exact date unconfirmed)**. Kilo is backed by one of GitLab's co-founders.
 
 ### Roo Code
 - **Shut down.** The repo was archived on 2026-05-15 to go "all-in on Roomote," the team's cloud agent. It had about 3M installs, per Kilo's post. **Out of the running.**

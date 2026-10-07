@@ -2087,7 +2087,7 @@ mod tests {
     }
 
     /// The spellings the loader once accepted with a warning, which no
-    /// deployment still uses (Eddie's note checked by key name, 2026-09-29),
+    /// deployment still uses (the owner's note checked by key name, 2026-09-29),
     /// now fail to load like any unknown key (theseus-0g4): the renamed lists,
     /// the policy class keys, the hook spans, and the old output-cap name.
     #[test]
@@ -2174,7 +2174,7 @@ mod tests {
         }
     }
 
-    /// Eddie's vault config (its [kernel] keys checked 2026-09-29, by name
+    /// The owner's vault config (its [kernel] keys checked 2026-09-29, by name
     /// only) still sets the unit budget, `default_budget` and
     /// `control_reserve` (theseus-0sg). It loads with exactly one warning,
     /// which names both; the session limit is the $100 default; and
@@ -2223,7 +2223,7 @@ mod tests {
         }
     }
 
-    /// Eddie's vault config (its [discord] keys checked 2026-09-29, by name
+    /// The owner's vault config (its [discord] keys checked 2026-09-29, by name
     /// only) has no `notice_embeds` (theseus-w4f). It loads unchanged, with no
     /// warning and the embeds off; the key parses either way, and the
     /// template leaves it off.
@@ -2490,7 +2490,7 @@ mod tests {
         assert!(Config::parse(&format!("{base}[catalog.\"glm-5.3\"]\nprice = 1.0\n")).is_err());
     }
 
-    /// `[approval]` is retired (theseus-zmgb). Eddie's vault config without it
+    /// `[approval]` is retired (theseus-zmgb). The owner's vault config without it
     /// loads with no warning, and `theseusd config` prints no such section;
     /// the template has none. A config that still has one, his three lines
     /// among them, loads with one warning that it is retired, whatever it
@@ -2524,7 +2524,7 @@ mod tests {
     }
 
     /// `[web] bind` is a loopback address or the config fails to load, since
-    /// the web UI has no auth yet (theseus-2fo). Eddie's `127.0.0.1` and the
+    /// the web UI has no auth yet (theseus-2fo). The owner's `127.0.0.1` and the
     /// template's load unchanged.
     #[test]
     fn a_web_bind_off_loopback_fails_to_load() {
@@ -2557,7 +2557,7 @@ mod tests {
 
     /// `[web] dev_origin` (theseus-zab) is off unless set, and when set it is
     /// a dev page on this machine or the config fails to load. A config
-    /// without it, as Eddie's is, loads unchanged.
+    /// without it, as the owner's is, loads unchanged.
     #[test]
     fn a_dev_origin_is_off_by_default_and_a_page_on_this_machine() {
         let doc = |line: &str| {

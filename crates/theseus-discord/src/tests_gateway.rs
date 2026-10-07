@@ -109,6 +109,11 @@ impl Rig {
         let fake = FakeDiscord::start_with_gateway();
         fake.set_guild(guild);
         let core = core_at(dir.path(), &fake, model(dir.path(), fake.clone()), tweak);
+        // The ladder's warm read, as the daemon reads it after serving: no
+        // judged point reads it (theseus-289c).
+        if core.cfg.judge.enabled {
+            core.runner.judge.read_ladder();
+        }
         let path = dir.path().join("bindings.toml");
         std::fs::write(&path, bindings).unwrap();
         // The continuation driver, as the daemon starts it: an answered
@@ -330,7 +335,7 @@ async fn a_typed_message_is_a_turn_and_its_reply_answers_it_in_the_channel() {
 /// owner but not one of `#lab`'s users, it is refused and the call keeps
 /// waiting; pressed by ana, Approve is acknowledged, the call runs, the card
 /// says so and loses its buttons, and the reply comes.
-/// Eddie's case (theseus-c9l6): a PDF attached to a typed message is
+/// The owner's case (theseus-c9l6): a PDF attached to a typed message is
 /// downloaded from the CDN (the stand-in's), kept whole, and read by the
 /// model as a document block of its own bytes, with its line before it.
 #[tokio::test]

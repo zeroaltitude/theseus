@@ -543,7 +543,7 @@ impl Core {
     ) -> anyhow::Result<Option<Gathered>> {
         let j = &self.runner.judge;
         let lc = &self.cfg.judge.learn;
-        let parent_name = j.placed(root, "");
+        let parent_name = j.placed_read(root, "");
         let parent = j
             .pack(&parent_name)
             .with_context(|| format!("{parent_name} does not load"))?;
