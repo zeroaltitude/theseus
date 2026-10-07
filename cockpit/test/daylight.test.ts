@@ -3,7 +3,8 @@
 // leaving names, functions and what is not a colour alone.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { daylight, daylightColor, MARKS, THEME, TONES } from '../src/lib/daylight.ts'
+import { readFileSync } from 'node:fs'
+import { CHOICES, choiceOf, daylight, daylightColor, MARKS, modeOf, nextChoice, THEME, TONES } from '../src/lib/daylight.ts'
 import { CATEGORICAL, CHROME, TONE_MARK, TONE_SERIES } from '../src/lib/viz.ts'
 
 /** WCAG contrast, as the validator computes it. */
@@ -82,4 +83,50 @@ test('a treemap keeps its leaf labels ivory on the deepened tiles, and maps the 
   assert.equal(day.series[0].label.color, '#efe3c8')
   assert.equal(day.series[0].upperLabel.color, THEME.light.inkDim)
   assert.equal(day.series[0].levels[0].itemStyle.borderColor, THEME.light.hull)
+})
+
+test('night, daylight, or the system: night is the default, the system light or not; the address chooses for one page', () => {
+  // Nothing chosen: night, whatever the system says.
+  assert.equal(choiceOf(null, null), 'dark')
+  assert.equal(modeOf(choiceOf(null, null), true), 'dark')
+  // Kept in this browser; the address's, for one page, over it; anything else is not a choice.
+  assert.equal(choiceOf(null, 'system'), 'system')
+  assert.equal(choiceOf('light', 'system'), 'light')
+  assert.equal(choiceOf('system', 'dark'), 'system')
+  assert.equal(choiceOf('noon', 'light'), 'light')
+  assert.equal(choiceOf('noon', 'dusk'), 'dark')
+  // The system's follows it.
+  assert.deepEqual([modeOf('system', true), modeOf('system', false), modeOf('light', false), modeOf('dark', true)], ['light', 'dark', 'light', 'dark'])
+  // The rail's button: night, daylight, the system's, night.
+  assert.deepEqual(CHOICES.map(nextChoice), ['light', 'system', 'dark'])
+})
+
+test("the page's first paint chooses as the app does: public/mode.js against choiceOf and modeOf", () => {
+  const src = readFileSync(new URL('../public/mode.js', import.meta.url), 'utf8')
+  const words = [null, 'dark', 'light', 'system', 'noon']
+  for (const asked of words) {
+    for (const kept of words) {
+      for (const light of [true, false]) {
+        const classes = new Set<string>()
+        const document = { documentElement: { classList: { add: (c: string) => classes.add(c), remove: (c: string) => classes.delete(c) } } }
+        const location = { search: asked === null ? '' : `?mode=${asked}` }
+        const localStorage = { getItem: () => kept }
+        const window = { matchMedia: (q: string) => ({ matches: q === '(prefers-color-scheme: light)' && light }) }
+        new Function('document', 'location', 'localStorage', 'window', src)(document, location, localStorage, window)
+        const want = modeOf(choiceOf(asked, kept), light)
+        assert.equal(classes.has('light'), want === 'light', `asked ${asked}, kept ${kept}, the system ${light ? 'light' : 'dark'}`)
+      }
+    }
+  }
+})
+
+test("the look's three choices: the rail's button steps through them, the palette lists each, the system is followed", () => {
+  const shell = readFileSync(new URL('../src/components/Shell.tsx', import.meta.url), 'utf8')
+  assert.match(shell, /onClick=\{\(\) => setChoice\(nextChoice\(choice\)\)\}/)
+  assert.match(shell, /\{CHOICES\.map\(\(c\) => \{/)
+  assert.match(shell, /system: \{ Icon: SunMoon, name: 'Follow the system'/)
+  const mode = readFileSync(new URL('../src/lib/mode.ts', import.meta.url), 'utf8')
+  assert.match(mode, /window\.matchMedia\(SYSTEM_LIGHT\)\.addEventListener\('change'/)
+  assert.match(mode, /if \(st\.choice !== 'system' \|\| mode === st\.mode\) return/)
+  assert.match(mode, /const choice = initial\(\)\nconst start = modeOf\(choice, systemLight\(\)\)/)
 })

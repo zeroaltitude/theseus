@@ -69,8 +69,9 @@ build.
 - The frame (theseus-hnof.5): `src/components/Heartbeat.tsx`, the heartbeat bar across every view (the profile chip
   and its menu, UP, the health lamps with `src/lib/healthwords.ts`'s words, and the moment's "then" under the time
   machine); `src/lib/flow.ts` (rows a second, on the activity strip's bar); `src/lib/activity.ts` (the strip's lines
-  folded, numbers aside, every line kept); `src/lib/mode.ts` and `src/lib/daylight.ts` (night or daylight, and each
-  night colour's daylight step); `public/mode.js` (the mode's class before the first paint).
+  folded, numbers aside, every line kept); `src/lib/mode.ts` and `src/lib/daylight.ts` (night, daylight, or the
+  system's, night by default (theseus-001m), and each night colour's daylight step); `public/mode.js` (the mode's class
+  before the first paint, chosen as `daylight.ts` chooses).
 - `src/protocol.ts`: the protocol client, imported as `@protocol`. It re-exports the protocol's types,
   `src/protocol.gen/`, which theseus-protocol's test writes from the Rust ones: never edit them by hand.
 - The look is in `index.css`'s tokens and the shared components (`.panel`, `.brass-card`, `.brass-button`,

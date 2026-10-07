@@ -4,7 +4,7 @@ import { NavLink, Outlet, useLocation, useMatch, useNavigate } from 'react-route
 import { motion } from 'motion/react'
 import { Command } from 'cmdk'
 import {
-  Activity, BellOff, BellRing, ChevronDown, ChevronUp, CircleCheck, Moon, Sun, Coins, Command as CommandIcon, Cpu, Crosshair, Gauge, Gavel, Landmark, Layers, Navigation, OctagonX, Pause, Radio,
+  Activity, BellOff, BellRing, ChevronDown, ChevronUp, CircleCheck, Moon, Sun, SunMoon, Check, Coins, Command as CommandIcon, Cpu, Crosshair, Gauge, Gavel, Landmark, Layers, Navigation, OctagonX, Pause, Radio,
   Sailboat, Scale, ScrollText, ShieldCheck, ShieldHalf, Shapes, Zap,
 } from 'lucide-react'
 import type { ConfirmRequest, ExecutionInfo, NodeInfo, SessionInfo } from '@protocol'
@@ -20,7 +20,8 @@ import { useFlow } from '@/lib/flow'
 import { useAsOf } from '@/lib/timemachine'
 import { FOLDS } from '@/lib/world'
 import { useCalm } from '@/lib/calm'
-import { useMode } from '@/lib/mode'
+import { useMode, type ModeChoice } from '@/lib/mode'
+import { CHOICES, nextChoice } from '@/lib/daylight'
 import { foldKey, foldRepeats, STRIP_KEY, stripOpen, type Fold, type StripLine } from '@/lib/activity'
 import { TimeMachine } from './TimeMachine'
 
@@ -295,25 +296,39 @@ function FoldText({ f, wide, onSession }: { f: Fold; wide?: boolean; onSession?:
   )
 }
 
-/** Night or daylight (lib/mode.ts, theseus-hnof.5): the bridge on navy glass, or ivory and brass for a bright room.
- *  The button shows where a press goes; the choice is kept in this browser. */
+/** Each choice of mode (lib/mode.ts): its icon, its name, and what it is. */
+const CHOICE_WORDS: Record<ModeChoice, { Icon: typeof Sun; name: string; what: string }> = {
+  dark: { Icon: Moon, name: 'Night', what: 'the bridge on navy glass' },
+  light: { Icon: Sun, name: 'Daylight', what: 'ivory and brass, for a bright room' },
+  system: { Icon: SunMoon, name: 'Follow the system', what: 'daylight while the system is light, night while it is dark' },
+}
+
+/** Night, daylight, or the system's (lib/mode.ts, theseus-hnof.5 and theseus-001m): the bridge on navy glass, ivory and
+ *  brass for a bright room, or whichever the system is. The button steps through them and shows where a press goes;
+ *  the choice is kept in this browser. */
 function ModeToggle() {
+  const choice = useMode((s) => s.choice)
   const mode = useMode((s) => s.mode)
-  const setMode = useMode((s) => s.setMode)
-  const day = mode === 'light'
+  const setChoice = useMode((s) => s.setChoice)
+  const now = CHOICE_WORDS[choice]
+  const next = CHOICE_WORDS[nextChoice(choice)]
+  const following = choice === 'system' ? ` (${mode === 'light' ? 'light' : 'dark'} now)` : ''
   return (
-    <button onClick={() => setMode(day ? 'dark' : 'light')} aria-pressed={day}
-      title={day ? 'Daylight: ivory and brass, for a bright room. Press for the night.' : 'Night: the bridge on navy glass. Press for daylight (the Ship and the ship’s log track stay at night).'}
+    <button onClick={() => setChoice(nextChoice(choice))} aria-label={`The look: ${now.name}${following}. Press for ${next.name.toLowerCase()}.`}
+      title={`${now.name}${following}: ${now.what}. Press for ${next.name.toLowerCase()}: ${next.what}. The Ship and the ship’s log track stay at night.`}
       className="rounded-lg p-2 text-ink-faint hover:bg-white/5 hover:text-ink">
-      {day ? <Moon size={17} /> : <Sun size={17} />}
+      <next.Icon size={17} />
     </button>
   )
 }
 
+/** More words the palette finds each choice by. */
+const CHOICE_SEARCH: Record<ModeChoice, string> = { dark: 'dark', light: 'light day', system: 'auto os light dark' }
+
 function Palette({ open, onOpenChange }: { open: boolean; onOpenChange: (v: boolean) => void }) {
   const nav = useNavigate()
-  const day = useMode((s) => s.mode) === 'light'
-  const setMode = useMode((s) => s.setMode)
+  const choice = useMode((s) => s.choice)
+  const setChoice = useMode((s) => s.setChoice)
   const { data } = useRpc<{ sessions: SessionInfo[] }>('session.list', undefined, 5000)
   const { data: cl } = useRpc<{ confirms: ConfirmRequest[] }>('confirm.list', undefined, 3000)
   const { data: el } = useRpc<{ executions: ExecutionInfo[] }>('execution.list', undefined, 3000)
@@ -345,10 +360,16 @@ function Palette({ open, onOpenChange }: { open: boolean; onOpenChange: (v: bool
       <Command.List className="max-h-[420px] overflow-auto p-2">
         <Command.Empty className="px-3 py-6 text-center text-sm text-ink-faint">Nothing matches.</Command.Empty>
         <Command.Group heading="Look" className={group}>
-          <Command.Item value={day ? 'night mode dark' : 'daylight mode light day'} onSelect={() => { onOpenChange(false); setMode(day ? 'dark' : 'light') }} className={item}>
-            {day ? <Moon size={14} className="text-gold" /> : <Sun size={14} className="text-gold" />} {day ? 'Night' : 'Daylight'}
-            <span className="ml-auto text-[11px] text-ink-faint">{day ? 'the bridge on navy glass' : 'ivory and brass, for a bright room'}</span>
-          </Command.Item>
+          {CHOICES.map((c) => {
+            const { Icon, name, what } = CHOICE_WORDS[c]
+            return (
+              <Command.Item key={c} value={`${name.toLowerCase()} mode ${CHOICE_SEARCH[c]}`} onSelect={() => { onOpenChange(false); setChoice(c) }} className={item}>
+                <Icon size={14} className="text-gold" /> {name}
+                {c === choice && <Check size={13} className="text-gold" aria-label="chosen" />}
+                <span className="ml-auto text-[11px] text-ink-faint">{what}</span>
+              </Command.Item>
+            )
+          })}
         </Command.Group>
         <Command.Group heading="Views" className="text-[11px] text-ink-faint [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5">
           {NAV.map((n) => (
