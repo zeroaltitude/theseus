@@ -32,7 +32,7 @@ additions, since a tear only ever shortens a file; not done, as the brief left i
 `order_dms` rebuilds `Routes::dms` in the new file's order, keeping the bound ones (a failed DM is out until it binds),
 after `apply` and after a retry. Test `a_dm_put_back_live_keeps_its_place_in_the_files_order` (ana's DM removed and put
 back; an operator notice goes to ana's DM, none to ben's). Plant (order_dms a no-op, the push as before): FAIL.
-## 5. theseus-02bq, a changed place keeps its turn and messages (b2e5921a, fix 2a in the last commit before this)
+## 5. theseus-02bq, a changed place keeps its turn and messages (b2e5921a; the load fix is 943637f5)
 Test `a_changed_place_keeps_its_turn_and_its_messages` (a wake.at call waiting in ana's DM, #lab's users changed
 meanwhile, nonce window 0, the card approved): the messages first posted keep their ids, none repeats, and the tool line
 is edited to its end. Plant (`unbind` + `bind` for `rebind`): FAIL: with the plant the tool line stays at
