@@ -387,6 +387,19 @@ fn every_credential_shaped_output_is_secret_bearing_or_allowed() {
     }
     for (row, used) in ALLOWED.iter().zip(&used) {
         assert!(!row.why.is_empty());
+        // A row names its member (theseus-b586): one whose member is a glob
+        // alone (`*`, `Shape.*`) would pass any credential a weekly update
+        // adds to that shape unseen.
+        let named = row
+            .member
+            .rsplit_once('.')
+            .is_some_and(|(_, m)| m.chars().any(char::is_alphanumeric));
+        if !named {
+            bad.push(format!(
+                "the allowed row {}:{:?} {} names no member: name each",
+                row.service, row.ops, row.member
+            ));
+        }
         if !used {
             bad.push(format!(
                 "stale: the allowed row {}:{:?} {} matches no credential-shaped member",

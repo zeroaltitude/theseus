@@ -1957,12 +1957,6 @@ pub(crate) static RETRY: &[RetryRow] = &[
         "GetEnvironmentCredentials",
         RetryClass::SafeToRepeat,
     ),
-    retry("signin", "CreateOAuth2Token", RetryClass::SafeToRepeat),
-    retry(
-        "amplifyuibuilder",
-        "ExchangeCodeForToken",
-        RetryClass::SafeToRepeat,
-    ),
     retry("amplifyuibuilder", "RefreshToken", RetryClass::SafeToRepeat),
     retry(
         "bedrock-agentcore",
