@@ -8,7 +8,9 @@ import {
   Sailboat, Scale, ScrollText, ShieldCheck, ShieldHalf, Shapes, Zap,
 } from 'lucide-react'
 import type { ConfirmRequest, ExecutionInfo, NodeInfo, SessionInfo } from '@protocol'
-import { call, useConn, useRpc, usePush } from '@/lib/rpc'
+import { call, client, useConn, useRpc, usePush } from '@/lib/rpc'
+import { onNewRows } from '@/lib/history'
+import { Stir, STIR_CLASS } from '@/lib/stir'
 import { useLedger } from '@/lib/derive'
 import { summarize } from '@/lib/summary'
 import { cn, short, usd, clock, stamp } from '@/lib/format'
@@ -45,6 +47,7 @@ const GO: Record<string, string> = {
 }
 
 export function Shell() {
+  useStir()
   const nav = useNavigate()
   const [palette, setPalette] = useState(false)
   // The Ship is full-bleed: the main area has no margin. The index redirects to the Ship, so it counts as the Ship.
@@ -90,6 +93,29 @@ export function Shell() {
       <Palette open={palette} onOpenChange={setPalette} />
     </div>
   )
+}
+
+/** The page's endless decorations run while the daemon says something, and stand still between (`stir.ts`,
+ *  theseus-jgme): a push, a new ledger row in the page's one copy, or the link changing stirs them. */
+function useStir() {
+  const status = useConn((s) => s.status)
+  const stir = useRef<Stir | null>(null)
+  useEffect(() => {
+    const s = (stir.current = new Stir(
+      { timer: (cb, ms) => window.setTimeout(cb, ms), cancelTimer: (id) => window.clearTimeout(id) },
+      (on) => document.documentElement.classList.toggle(STIR_CLASS, on),
+    ))
+    const off = client.onNotify(() => s.poke())
+    const offRows = onNewRows(() => s.poke())
+    return () => {
+      off()
+      offRows()
+      s.dispose()
+      stir.current = null
+      document.documentElement.classList.remove(STIR_CLASS)
+    }
+  }, [])
+  useEffect(() => { stir.current?.poke() }, [status])
 }
 
 /** Opt-in desktop notices: each approval that starts waiting is announced once, while this page is open. */

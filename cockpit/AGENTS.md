@@ -51,7 +51,7 @@ build.
   (the plank strip and the coin).
 - `src/lib/`: `rpc.ts` and `hooks.ts` (the connection and its queries), `derive.ts`, `summary.ts`, `format.ts`,
   `money.ts` (the catalog's rates and a call's split by token kind), `verdict.ts` (18a's verdicts in words), and
-  `calm.ts` (calm mode), `scores.ts` (a notified call's `risk N% (shadow)`, M5 24), `fallback.ts` (a refusal's
+  `calm.ts` (calm mode), `stir.ts` (the page's endless decorations run only while something changes), `scores.ts` (a notified call's `risk N% (shadow)`, M5 24), `fallback.ts` (a refusal's
   fallback in theseus-protocol's words, theseus-7gir.18), `sandboxwords.ts` (L1 in the CLI's words), `drafts.ts` (what was sent and not yet written), and `ontology.ts` (the category tree's
   order, and what a session's next compile would change).
 - The chart method (theseus-hnof.4): `src/lib/chart.ts` takes its look from `src/lib/viz.ts`; `src/lib/palette.ts`
@@ -96,6 +96,10 @@ build.
   idle Live Ship draws only the roll, and a hidden tab draws nothing. Calm mode (`?calm=1`, the toggle, or
   `prefers-reduced-motion`) stills it all, the roll included (dead calm, exactly 0: no frame at all), and drops the
   glow and every chart's transitions: a change draws one frame. `?swell=0` stills the sea for one page.
+- **The page's decorations stand still while nothing changes** (theseus-jgme): the header's sweep, the live dots'
+  pings and the soft pulses run while the daemon says something (a push, a new ledger row, the link changing) and
+  `STIR_MS` after (`src/lib/stir.ts`, `html.stirred`), then stand lit. A new endless CSS animation takes the same
+  rule in `index.css`, beside Calm's.
 - **Sound is off until the operator turns it on** (the Ship's Sound button, kept in the browser): three cues on the
   daemon's own pushes and ledger rows (`src/ship/sound.ts`), made in the browser with Web Audio (`audio.ts`), no
   recorded or third-party sound. A cue is a row of `CUES`, with its events and its source.
@@ -149,7 +153,8 @@ build.
 - `window.__shipEngine.motions` (dev and bench builds) lists the motions of the last frame, and `seaLevel` the sea's
   height; `window.__shipCues` the sound cues played.
 - Headless Chrome never hides a page (a tab behind another, or a minimized window, still runs requestAnimationFrame
-  at 60 a second), and it composites Live mode's CSS animations all the time. To check a hidden tab, set
+  at 60 a second), and it composites Live mode's CSS animations while they run (a few seconds after each change,
+  `stir.ts`; until theseus-jgme, all the time). To check a hidden tab, set
   `document.hidden` and fire `visibilitychange`; to price the swell, compare Live against Live with `?swell=0`, not
   against Calm, which also stops those animations.
 

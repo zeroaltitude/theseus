@@ -493,6 +493,11 @@ section[data-linked="1"] { box-shadow: inset 3px 0 0 var(--color-neon); }
 html.calm .egress-refused { animation: none; }
 @media (prefers-reduced-motion: reduce) { .egress-refused { animation: none; } }
 
+/* Still while nothing changes (theseus-jgme): the endless decorations run only while the daemon says something, and
+   for a few seconds after (`src/lib/stir.ts` puts `stirred` on the page); between, they stand lit. */
+html:not(.stirred) .live-sweep, html:not(.stirred) .animate-ping, html:not(.stirred) .animate-pulse-soft { animation: none !important; }
+html:not(.stirred) .animate-ping { display: none; }
+
 /* Calm: no decorative motion anywhere (the operator's choice, or the system's reduced motion). */
 html.calm .live-sweep, html.calm .animate-ping, html.calm .animate-pulse-soft, html.calm .plank-new { animation: none !important; }
 html.calm .animate-ping { display: none; }
