@@ -22,6 +22,9 @@ build.
   pure), `shaders.ts`, `post.ts` (the glow, and the swell's composite), `labels.ts` (nameplates and tags, HTML over the
   canvas), `instruments.tsx` (the brass gauges), `Minimap.tsx`, `useShipData.ts` (the reads and pushes it composes),
   and `synth.ts` (a seeded 10,000-node fleet for measuring).
+- The watch, the Ship's column of plates (theseus-hnof): `src/ship/Watch.tsx` draws them, `src/ship/watch.ts` works
+  them out (working, waiting, slow against each job's usual, spent with a day of 23 to 25 hours, went wrong). Keys 1
+  to 5 toggle their overlays. Its test is `test/watch.test.ts`.
 - `src/components/PromptPicker.tsx` (beside the composer; its pure parts are `src/lib/prompts.ts`): runs an MCP server's
   prompt as the next turn, a field per argument, through `turn.submit { prompt }`.
 - `src/components/Extensions.tsx` (in Systems; its pure parts are `src/lib/extensions.ts`): the loaded extensions

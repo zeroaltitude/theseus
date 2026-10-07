@@ -6,7 +6,8 @@
 // - The lights: node.list, all sessions at once (the newest 2,000); past that, each session by itself. A session
 //   that works is watched (session.watch) while it works, and each node.written reads its nodes again.
 // - L1 and jobs: a call node's gate decision (`class: "l1"`); for a node from before, tool.job_started rows and
-//   tool.started pushes; and tool.ended and the actions in flight.
+//   tool.started pushes; and tool.ended and the actions in flight: action.list's newest 500, and every action not
+//   settled however old (its `unsettled` read, theseus-hnof.3), so a job that has run for hours keeps its gear.
 // - Reach: node.reach for the selected vessel's nodes, read only while it is selected.
 //
 // What the pushes say lives in a small store per mounted Ship, replaced (never mutated) on each change, so a render
@@ -21,6 +22,7 @@ import type {
 import { call, client, useConn, useRpc } from '@/lib/rpc'
 import type { World } from '@/lib/timemachine'
 import { buildModel, type ReachLink, type ShipModel } from './model'
+import { mergeActions } from './watch.ts'
 
 type D = Record<string, unknown>
 
@@ -40,7 +42,8 @@ export interface ShipData {
   past?: World
   /** The selected vessel's currents come from its newest `read` nodes of `total`, when it has more than that. */
   reachCap?: { read: number; total: number }
-  /** The calls in flight and settled (action.list), or the fold's at the time machine's moment: the watch reads them. */
+  /** The calls: action.list's newest and every one not settled however old, or the fold's at the time machine's
+   *  moment. The watch reads them. */
   actions?: ActionInfo[]
   /** The questions waiting for the operator (confirm.list), or the fold's. */
   confirms?: ConfirmRequest[]
@@ -135,6 +138,10 @@ export function useShipLive(selected: string | undefined, world: World | null): 
   const { data: calls } = useRpc<{ rows: LedgerEntry[] }>('ledger.tail', { n: 400, kind: 'provider.call', session_id: null }, 5000)
   const anyWork = (sl?.sessions ?? []).some((s) => s.attention?.level === 'working' || s.execution_state === 'running')
   const { data: al } = useRpc<{ actions: ActionInfo[] }>('action.list', { execution_id: null, n: 500 }, anyWork ? 1000 : 5000)
+  // The newest 500 count model calls too: after 500 later calls a job running for hours drops out of them. Every
+  // action not settled, however old, read beside them, keeps it (and every question waiting) on the Ship.
+  const { data: ul } = useRpc<{ actions: ActionInfo[] }>('action.list', { unsettled: true }, anyWork ? 1000 : 5000)
+  const actions = useMemo(() => mergeActions(al?.actions, ul?.actions), [al, ul])
 
   // A session's nodes, read again shortly after it says it wrote one (debounced per session).
   const pending = useRef(new Map<string, ReturnType<typeof setTimeout>>())
@@ -343,11 +350,11 @@ export function useShipLive(selected: string | undefined, world: World | null): 
   // engine animates a collapse that settles while the page is open, and draws an older one collapsed.
   const cancelled = useMemo(() => {
     const m = new Map<string, number>()
-    for (const a of al?.actions ?? []) {
+    for (const a of actions ?? []) {
       if (a.verdict?.state === 'termination_verified') m.set(a.correlation_id, a.settled_at_ms ?? 0)
     }
     return m
-  }, [al])
+  }, [actions])
 
   const model = useMemo(() => {
     if (world) {
@@ -382,7 +389,7 @@ export function useShipLive(selected: string | undefined, world: World | null): 
     // Jobs running: dispatched and not settled (the action list), and those tool.started said began.
     const run = new Set(st.running)
     const reserved = new Map<string, number>()
-    for (const a of al?.actions ?? []) {
+    for (const a of actions ?? []) {
       if (!a.settled_at_ms && a.dispatched_at_ms && a.tool === 'proc.run') run.add(a.correlation_id)
       if (a.settled_at_ms) run.delete(a.correlation_id)
       if (!a.settled_at_ms && a.reserved_usd > 0) reserved.set(a.execution_id, (reserved.get(a.execution_id) ?? 0) + a.reserved_usd)
@@ -407,7 +414,7 @@ export function useShipLive(selected: string | undefined, world: World | null): 
       now: st.now,
       placesSeen,
     })
-  }, [world, sl, el, tl, cl, jobs, al, cancelled, st.nodes, st.l1, st.running, st.streaming, st.failedAt, st.reports, st.born, st.bornSessions, st.reach, st.active, st.now, placesSeen])
+  }, [world, sl, el, tl, cl, jobs, actions, cancelled, st.nodes, st.l1, st.running, st.streaming, st.failedAt, st.reports, st.born, st.bornSessions, st.reach, st.active, st.now, placesSeen])
 
   const tpm = useMemo(() => {
     if (!calls) return null
@@ -425,7 +432,7 @@ export function useShipLive(selected: string | undefined, world: World | null): 
   return {
     model, progress: st.progress, reachCap: !world && st.reachOf && st.reachOf.total > st.reachOf.read ? st.reachOf : undefined, health, profiles, tpm: world ? world.gauges.tpm : tpm, arrivals: world ? 0 : st.arrivals.length,
     synthetic: false, error: st.error, ...(world ? { past: world } : {}),
-    actions: world ? world.actions : al?.actions, confirms: world ? world.confirms : cl?.confirms,
+    actions: world ? world.actions : actions, confirms: world ? world.confirms : cl?.confirms,
   }
 }
 

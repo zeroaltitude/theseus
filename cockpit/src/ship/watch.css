@@ -3,6 +3,11 @@
    carries state, always with a word or an icon beside it: live cyan, wait amber, fault rose, ok emerald, money gold. */
 
 .watch { display: flex; flex-direction: column; gap: 5px; width: 280px; }
+/* The plates fit a 1080 px screen; a shorter one (above the compact strip's 900 px) scrolls the column rather than
+   running it under the activity strip. Its padding keeps the lit plate's glow inside the scroller. */
+@media (min-height: 900px) and (min-width: 1400px) {
+  .watch { max-height: calc(100vh - 186px); overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; padding: 2px 10px 12px; margin: -2px -10px 0; width: 300px; }
+}
 
 .watch .watch-plate { padding: 6px 10px 7px 11px; }
 .watch-plate-on { box-shadow: 0 0 0 1px rgb(34 211 238 / 0.55), 0 0 16px rgb(34 211 238 / 0.22), 0 16px 40px -16px rgb(0 0 0 / 0.9) !important; }
@@ -23,6 +28,13 @@
 .watch-show:hover:not(:disabled) { color: #fffaf0; box-shadow: 0 0 0 1px rgb(34 211 238 / 0.5), 0 0 10px rgb(34 211 238 / 0.25); }
 .watch-show-on { color: var(--color-neon); box-shadow: 0 0 0 1px rgb(34 211 238 / 0.45), 0 0 10px rgb(34 211 238 / 0.25); }
 .watch-show:disabled { opacity: 0.38; cursor: default; }
+/* The key that toggles it, 1 to 5, as a small cap after the word. */
+.watch-key {
+  font-family: var(--font-mono); font-size: 8.5px; font-weight: 600; line-height: 1; letter-spacing: 0;
+  padding: 1px 3px; margin-left: 1px; border-radius: 3px; color: var(--color-ink-faint);
+  box-shadow: inset 0 0 0 1px rgb(176 141 87 / 0.4);
+}
+.watch-show-on .watch-key { color: var(--color-neon); box-shadow: inset 0 0 0 1px rgb(34 211 238 / 0.5); }
 .watch-link { flex: none; display: inline-grid; place-items: center; width: 18px; height: 18px; border-radius: 4px; color: var(--color-ink-faint); }
 .watch-link:hover { color: var(--color-neon); background: rgb(34 211 238 / 0.08); }
 
@@ -69,10 +81,12 @@ button.watch-line:hover, button.watch-line:focus-visible { background: rgb(34 21
 .watch-fig { flex: none; font-family: var(--font-mono); font-size: 10.5px; font-variant-numeric: tabular-nums; color: var(--color-ink-dim); }
 .watch-detail { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10px; line-height: 12px; color: var(--color-ink-faint); }
 
-/* Flags: a word, and an icon for the sandbox. */
+/* Flags: a word, and an icon for the sandbox; how many times its usual something has run, in amber. */
 .watch-flag { flex: none; display: inline-flex; align-items: center; gap: 2px; font-family: var(--font-mono); font-size: 9.5px; color: var(--color-ink-faint); }
 .watch-flag[data-flag="L1"] { color: #5eead4; }
-.watch-flag[data-flag="expired"] { color: var(--color-fault); }
+.watch-flag[data-flag="expired"], .watch-flag[data-flag="unknown"], .watch-flag[data-flag="disk"] { color: var(--color-fault); }
+.watch-flag[data-flag="times"] { color: var(--color-wait); font-weight: 600; }
+.watch-flag[data-flag="not run"], .watch-flag[data-flag="declined"], .watch-flag[data-flag="exit"] { color: #fda4af; }
 
 /* State colours, for icons and flags (always beside a word). */
 .watch-tone-live { color: var(--color-live); }
@@ -91,8 +105,9 @@ button.watch-line:hover, button.watch-line:focus-visible { background: rgb(34 21
 .watch-spark-hit { fill: transparent; }
 .watch-spark-hit:hover + .watch-spark-bar, .watch-spark-hit:hover + .watch-spark-now { filter: brightness(1.35); }
 
-/* The time machine's moment, above the plates. */
-.watch-asof { display: flex; align-items: center; gap: 5px; padding: 2px 8px; font-size: 10.5px; color: var(--color-wait); }
+/* The time machine's moment, above the plates, with the profile live then and the daemon's uptime (or "down then"). */
+.watch-asof { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 5px; padding: 2px 8px; font-size: 10.5px; color: var(--color-wait); }
+.watch-asof-more { color: var(--color-ink-dim); }
 
 /* Compact: a strip of one line a plate, for a short or narrow window; a plate's lines open under its line. */
 .watch-compact { width: 100%; padding: 4px 6px; }

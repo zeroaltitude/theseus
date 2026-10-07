@@ -1,20 +1,24 @@
 // The Ship's watch (`src/ship/watch.ts`, theseus-hnof), run by `npm test`: the five plates' numbers, lines, and
-// overlays, from a small fleet, its calls, its questions, and its ledger rows, at a fixed moment.
+// overlays, from a small fleet, its calls, its questions, and its ledger rows, at a fixed moment; and the calls the Ship
+// reads, the newest with every one not settled (theseus-hnof.3).
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { argvWords, DAY_MS, dollars, HOUR_MS, median, platesOf, resultWords, shortPaths, span, watchOf, type WatchInput } from '../src/ship/watch.ts'
+import {
+  argvWords, commandKey, DAY_MS, dollars, HOUR_MS, hoursOf, keyOf, median, mergeActions, platesOf, programOf, resultWords, shortPaths, span, watchOf, WATCH_KEYS,
+  WRONG_KINDS, type WatchInput,
+} from '../src/ship/watch.ts'
 
 // 14:00 on a day whose local midnight is 07:00 UTC (a UTC-7 clock): the moment's hour is the day's 14th.
 const DAY = Date.UTC(2026, 9, 6, 7, 0, 0)
 const NOW = DAY + 14 * HOUR_MS
 const MIN = 60_000
 
-interface V { id: string; title?: string; state?: string; attention?: { level: string; label: string; since_ms: number } }
+interface V { id: string; title?: string; state?: string; attention?: { level: string; label: string; since_ms: number }; hold?: Record<string, unknown> }
 interface L { id: string; session: string; kind: 'user' | 'model' | 'call' | 'result'; at: number; turn?: string; tool?: string; cid?: string; failed?: boolean; l1?: boolean; running?: boolean; preview?: string }
 
 /** A model with only what the watch reads: vessels, lights, and their lookups. */
 function fleet(vs: V[], ls: L[] = []) {
-  const vessels = vs.map((v) => ({ id: v.id, title: v.title ?? v.id, state: v.state ?? 'waiting', attention: v.attention, kind: 'conversation', rig: 'anchor' }))
+  const vessels = vs.map((v) => ({ id: v.id, title: v.title ?? v.id, state: v.state ?? 'waiting', attention: v.attention, hold: v.hold, kind: 'conversation', rig: 'anchor' }))
   const byId = new Map(vessels.map((v, i) => [v.id, i]))
   const lights = ls.map((l) => ({
     id: l.id, sessionId: l.session, vessel: byId.get(l.session), kind: l.kind, at: l.at, turnId: l.turn, tool: l.tool,
@@ -217,7 +221,8 @@ test("a failed tool call, a failed turn, and a spend limit went wrong; a model c
   assert.deepEqual(w.wrong.lines[2].to, { session: 'ses_a', node: 'trs_read' })
   assert.deepEqual(w.wrong.lines[1].to, { session: 'ses_b', node: 'msg_bad' })
   assert.deepEqual(w.wrong.focus, { vessels: ['ses_a', 'ses_b', 'ses_c'], lights: ['msg_bad', 'tcl_read', 'trs_read'] })
-  assert.equal(w.wrong.link.to, `/ledger?kind=action.failed,turn.failed,budget.asked,execution.budget_exhausted&from=${NOW - DAY_MS}&to=${NOW}`)
+  assert.equal(w.wrong.link.to, `/ledger?kind=${WRONG_KINDS.join(',')}&from=${NOW - DAY_MS}&to=${NOW}`)
+  assert.ok(w.wrong.link.to.includes('job.wrapper_lost') && w.wrong.link.to.includes('server.crashed'))
 })
 
 test("the time machine's moment: nothing after it is read", () => {
@@ -269,4 +274,200 @@ test('the words: spans, dollars, commands, paths, and the median', () => {
   assert.equal(median([]), null)
   assert.equal(median([5, 1, 3]), 3)
   assert.equal(median([4, 1, 3, 2]), 2.5)
+})
+
+test('a lost, refused, stopped or never-started job, an unknown outcome and a crash went wrong, each call once', () => {
+  const rows = [
+    // A job whose wrapper was killed: the lost wrapper and the unknown outcome are one failure, the wrapper's row its words.
+    row(NOW - 50 * MIN, 'action.planned', 'ses_a', { correlation_id: 'act_lost', tool: 'proc.run' }),
+    row(NOW - 40 * MIN, 'job.wrapper_lost', 'ses_a', { correlation_id: 'act_lost', pid: 4242, signal: 9, tool: 'proc.run', execution_id: 'exe_a' }),
+    row(NOW - 40 * MIN + 5, 'action.outcome_unknown', 'ses_a', { correlation_id: 'act_lost', producer: 'reconciler:overdue_no_evidence', outcome: 'unknown' }),
+    // Below the disk's floor: one refused at its launch (its call failed too), one stopped as it ran.
+    row(NOW - 30 * MIN, 'job.refused', 'ses_b', { correlation_id: 'act_refused', tool: 'proc.run', free_mb: 812, floor_mb: 1024 }),
+    row(NOW - 30 * MIN + 3, 'action.failed', 'ses_b', { correlation_id: 'act_refused', producer: 'job', outcome: 'failed' }),
+    row(NOW - 20 * MIN, 'job.stopped_below_floor', 'ses_b', { correlation_id: 'act_stopped', tool: 'proc.run', free_mb: 700, floor_mb: 1024 }),
+    // A stop reached it before its launch.
+    row(NOW - 15 * MIN, 'job.not_started', 'ses_c', { correlation_id: 'act_never', tool: 'proc.run', cancel: 'requested', resolution: 'its execution was stopped before its launch' }),
+    // The daemon crashed 12 minutes ago; the start that found its crash file wrote the row a minute later.
+    row(NOW - 11 * MIN, 'server.crashed', null, { at_unix_ms: NOW - 12 * MIN, pid: 77, version: '0.0.1', thread: 'tokio-runtime-worker', location: 'turn.rs:88:5' }),
+    // An unknown outcome a later result settled as succeeded is none; nor is a model call's.
+    row(NOW - 9 * MIN, 'action.outcome_unknown', 'ses_a', { correlation_id: 'act_late', producer: 'reconciler:overdue_no_evidence' }),
+    row(NOW - 8 * MIN, 'action.resolved', 'ses_a', { correlation_id: 'act_late', outcome: 'succeeded', producer: 'job' }),
+    row(NOW - 7 * MIN, 'action.planned', 'ses_a', { correlation_id: 'act_model', tool: 'provider.messages' }),
+    row(NOW - 6 * MIN, 'action.outcome_unknown', 'ses_a', { correlation_id: 'act_model', producer: 'reconciler:overdue_no_evidence' }),
+    // After the moment: never read.
+    row(NOW + MIN, 'server.crashed', null, { at_unix_ms: NOW + 30_000, thread: 'main' }),
+  ]
+  const model = fleet([{ id: 'ses_a', title: 'Night build' }, { id: 'ses_b', title: 'Chart tools' }, { id: 'ses_c', title: 'Dredging run' }], [
+    { id: 'tcl_lost', session: 'ses_a', kind: 'call', at: NOW - 50 * MIN, cid: 'act_lost', tool: 'proc.run' },
+    { id: 'tcl_refused', session: 'ses_b', kind: 'call', at: NOW - 30 * MIN, cid: 'act_refused', tool: 'proc.run' },
+  ])
+  const w = watchOf(at({ model, rows }))
+  assert.equal(w.wrong.count, 5)
+  assert.deepEqual([w.wrong.calls, w.wrong.turns, w.wrong.budgets, w.wrong.crashes], [4, 0, 0, 1])
+  assert.equal(w.wrong.caption, 'failures in the last 24 hours: 4 calls and 1 crash')
+  assert.deepEqual(w.wrong.lines.map((l) => [l.tag, l.text, l.flag, l.figure]), [
+    ['daemon', 'the daemon crashed: a panic on thread tokio-runtime-worker at turn.rs:88:5; it started again', undefined, '12m ago'],
+    ['proc.run', 'not started: its execution was stopped before its launch', 'not run', '15m ago'],
+    ['proc.run', 'stopped: the disk fell to 700 MB free, under its floor of 1,024 MB', 'disk', '20m ago'],
+  ])
+  // The daemon's own failure has no session to fly to.
+  assert.equal(w.wrong.lines[0].to, undefined)
+  assert.equal(w.wrong.more, 2)
+  assert.deepEqual(w.wrong.focus, { vessels: ['ses_a', 'ses_b', 'ses_c'], lights: ['tcl_lost', 'tcl_refused'] })
+  // The two older, each said by its job's own row, and when the newest of its rows was written.
+  const older = watchOf(at({ model, rows: rows.filter((r) => r.at_unix_ms < NOW - 25 * MIN) }))
+  assert.deepEqual(older.wrong.lines.map((l) => [l.tag, l.text, l.flag, l.to?.node]), [
+    ['proc.run', 'not started: the disk had 812 MB free, under its floor of 1,024 MB', 'disk', 'tcl_refused'],
+    ['proc.run', "its job's wrapper was killed by signal 9 before it reported: its outcome is unknown", 'unknown', 'tcl_lost'],
+  ])
+  assert.equal(older.wrong.count, 2)
+  // An unknown outcome alone says why the reconciler could not tell.
+  const alone = watchOf(at({ model, rows: rows.filter((r) => r.kind !== 'job.wrapper_lost' && r.at_unix_ms < NOW - 35 * MIN) }))
+  assert.deepEqual(alone.wrong.lines.map((l) => [l.text, l.flag]), [['its outcome is unknown: overdue, with no evidence', 'unknown']])
+})
+
+/** A settled proc.run: its plan, its job's argv, and its result after `took` ms. */
+const job = (cid: string, argv: string[], took: number, end: number) => [
+  row(end - took - 5, 'action.planned', 'ses_x', { correlation_id: cid, tool: 'proc.run' }),
+  row(end - took, 'tool.job_started', 'ses_x', { correlation_id: cid, argv }),
+  row(end, 'action.succeeded', 'ses_x', { correlation_id: cid, duration_ms: took, outcome: 'succeeded' }),
+]
+
+test('slow holds each job against its own program, each call against its tool, and each turn against the day', () => {
+  const sleep = (s: number) => ['sh', '-c', `sleep ${s}; echo the berths are clear`]
+  const rows = [
+    // A day of jobs: `sleep` runs take about 2 s, `cargo` builds about 11 minutes.
+    ...job('act_s1', sleep(1), 1000, NOW - 9 * HOUR_MS), ...job('act_s2', sleep(2), 2000, NOW - 8 * HOUR_MS), ...job('act_s3', sleep(2), 2000, NOW - 7 * HOUR_MS),
+    ...job('act_s4', sleep(3), 3000, NOW - 6 * HOUR_MS), ...job('act_s5', sleep(2), 2500, NOW - 5 * HOUR_MS),
+    ...job('act_c1', ['cargo', 'build'], 10 * MIN, NOW - 4 * HOUR_MS), ...job('act_c2', ['cargo', 'build'], 12 * MIN, NOW - 3 * HOUR_MS),
+    ...job('act_c3', ['cargo', 'build'], 11 * MIN, NOW - 2 * HOUR_MS),
+    // fs.read takes about 125 ms; one, ten minutes ago, took 6 s.
+    ...[100, 120, 125, 130].map((t, i) => row(NOW - (5 - i) * HOUR_MS, 'action.succeeded', 'ses_x', { correlation_id: `act_r${i}`, duration_ms: t })),
+    ...[0, 1, 2, 3].map((i) => row(NOW - (5 - i) * HOUR_MS - 10, 'action.planned', 'ses_x', { correlation_id: `act_r${i}`, tool: 'fs.read' })),
+    row(NOW - 10 * MIN - 6000, 'action.planned', 'ses_x', { correlation_id: 'act_rslow', tool: 'fs.read' }),
+    row(NOW - 10 * MIN, 'action.succeeded', 'ses_x', { correlation_id: 'act_rslow', duration_ms: 6000 }),
+    // Four turns this hour took 1 to 4 s; a turn has run for 40 s.
+    ...[2000, 2000, 4000, 1000].map((e, i) => row(NOW - (50 - i) * MIN, 'turn.ended', 'ses_x', { elapsed_ms: e }, `turn_${i}`)),
+    row(NOW - 40_000, 'turn.started', 'ses_t', {}, 'turn_now'),
+    // Running: a `sleep` job for 15 minutes, a build for 12.
+    row(NOW - 15 * MIN, 'tool.job_started', 'ses_j', { correlation_id: 'act_sleep', argv: sleep(21000) }),
+    row(NOW - 12 * MIN, 'tool.job_started', 'ses_j', { correlation_id: 'act_cargo', argv: ['cargo', 'build', '--release'] }),
+  ].sort((a, b) => a.at_unix_ms - b.at_unix_ms)
+  const model = fleet([{ id: 'ses_t', title: 'Tide tables', state: 'running' }, { id: 'ses_j', title: 'Night build' }, { id: 'ses_x', title: 'Harbour list' }])
+  const actions = [
+    action('act_sleep', { session_id: 'ses_j', dispatched_at_ms: NOW - 15 * MIN }),
+    action('act_cargo', { session_id: 'ses_j', dispatched_at_ms: NOW - 12 * MIN }),
+  ]
+  const w = watchOf(at({ model, rows, actions }))
+  assert.equal(w.slow.slow, 2)
+  assert.equal(w.slow.worst, 450)
+  assert.equal(w.slow.longestMs, 15 * MIN)
+  assert.equal(w.slow.value, '15m')
+  assert.equal(w.slow.tone, 'wait')
+  assert.equal(w.slow.caption, '2 of the 3 things running are past 3× their usual')
+  assert.deepEqual(w.slow.lines.map((l) => [l.id, l.flag, l.tone, l.detail]), [
+    ['job:act_sleep', '450×', 'wait', 'usually 2.00 s (5 runs of this command today)'],
+    ['turn:turn_now', '20×', 'wait', 'usually 2.00 s (4 turns today)'],
+    ['slowcall:act_rslow', '48×', 'wait', 'usually 125 ms (5 fs.read calls today)'],
+  ])
+  // The build is within its usual: it is the one not shown.
+  assert.equal(w.slow.more, 1)
+  assert.deepEqual([w.slow.ended, w.slow.slowestMs, w.slow.medianMs], [4, 4000, 2000])
+  // With only the build running, the plate says it is within its usual.
+  const calm = watchOf(at({ model: fleet([{ id: 'ses_j', title: 'Night build' }, { id: 'ses_x' }]), rows: rows.filter((r) => r.data.correlation_id !== 'act_rslow'), actions: [actions[1]] }))
+  assert.equal(calm.slow.slow, 0)
+  assert.equal(calm.slow.tone, 'live')
+  assert.equal(calm.slow.caption, 'the one job running now, within its usual')
+  assert.deepEqual(calm.slow.lines.map((l) => [l.id, l.flag, l.detail]), [
+    ['job:act_cargo', 'L0', 'usually 11m 0s (3 `cargo` jobs today)'],
+    ['slowest:turn_2', undefined, 'the median of 4 turns this hour: 2.00 s'],
+  ])
+})
+
+test('a program run too few times is held against its tool, and a call with no usual says so', () => {
+  const rows = [
+    ...job('act_a', ['ls'], 1000, NOW - 3 * HOUR_MS), ...job('act_b', ['ls', '-l'], 3000, NOW - 2 * HOUR_MS), ...job('act_c', ['date'], 2000, NOW - HOUR_MS - MIN),
+    row(NOW - 2 * MIN, 'tool.job_started', 'ses_j', { correlation_id: 'act_npm', argv: ['npm', 'ci'] }),
+  ]
+  const model = fleet([{ id: 'ses_j', title: 'Night build' }], [
+    { id: 'tcl_hands', session: 'ses_j', kind: 'call', at: NOW - MIN, cid: 'act_hands', tool: 'aws.hands.run', running: true, preview: 'run 4 hands' },
+  ])
+  const actions = [action('act_npm', { session_id: 'ses_j', dispatched_at_ms: NOW - 2 * MIN })]
+  const w = watchOf(at({ model, rows, actions }))
+  assert.deepEqual(w.slow.lines.map((l) => [l.id, l.flag, l.detail]), [
+    ['job:act_npm', '60×', 'usually 2.00 s (3 proc.run calls today)'],
+    ['job:act_hands', 'L0', 'no usual yet: under 3 like it today'],
+  ])
+  assert.equal(w.slow.caption, '1 of the 2 things running is past 3× its usual')
+})
+
+test("a day the clocks change has 23 or 25 hours, and each hour's spend lands in its own bar", () => {
+  assert.equal(hoursOf(DAY), 24)
+  assert.equal(hoursOf(DAY, DAY + 23 * HOUR_MS), 23)
+  assert.equal(hoursOf(DAY, DAY + 25 * HOUR_MS), 25)
+  // The clocks go back: the day's 25th hour is its last bar, not folded into the 24th.
+  const back = watchOf(at({
+    rows: [row(DAY + 23 * HOUR_MS + 10 * MIN, 'provider.call', 'ses_a', { cost_usd: 0.25 }), row(DAY + 24 * HOUR_MS + 30 * MIN, 'provider.call', 'ses_a', { cost_usd: 0.5 })],
+    now: DAY + 24 * HOUR_MS + 45 * MIN, dayEnd: DAY + 25 * HOUR_MS,
+  }))
+  assert.equal(back.spent.hours.length, 25)
+  assert.deepEqual([back.spent.hours[23], back.spent.hours[24], back.spent.hour], [0.25, 0.5, 24])
+  // The clocks go forward: 23 bars, the last the day's 23rd hour.
+  const fwd = watchOf(at({ rows: [row(DAY + 22 * HOUR_MS + 12 * MIN, 'provider.call', 'ses_a', { cost_usd: 0.1 })], now: DAY + 22 * HOUR_MS + 30 * MIN, dayEnd: DAY + 23 * HOUR_MS }))
+  assert.equal(fwd.spent.hours.length, 23)
+  assert.deepEqual([fwd.spent.hours[22], fwd.spent.hour], [0.1, 22])
+  assert.equal(fwd.spent.usd, 0.1)
+})
+
+test('the calls the Ship reads: the newest, and every one not settled however old, each once', () => {
+  const newest = [
+    action('act_b', { planned_at_ms: NOW - 2 * MIN, state: 'succeeded', dispatched_at_ms: NOW - 2 * MIN, settled_at_ms: NOW - MIN }),
+    action('act_c', { planned_at_ms: NOW - MIN, dispatched_at_ms: NOW - MIN }),
+  ]
+  const unsettled = [
+    // A job dispatched six hours ago, out of the newest page long since.
+    action('act_old', { planned_at_ms: NOW - 6 * HOUR_MS, dispatched_at_ms: NOW - 6 * HOUR_MS }),
+    // Read a moment before it settled: the newest page says it settled, and a call never unsettles.
+    action('act_b', { planned_at_ms: NOW - 2 * MIN, dispatched_at_ms: NOW - 2 * MIN }),
+    action('act_c', { planned_at_ms: NOW - MIN, dispatched_at_ms: NOW - MIN }),
+    // A daemon from before the option answers its newest page: what it settled is left out.
+    action('act_x', { planned_at_ms: NOW - 3 * MIN, state: 'failed', settled_at_ms: NOW - 3 * MIN }),
+  ]
+  const both = mergeActions(newest, unsettled)!
+  assert.deepEqual(both.map((a) => [a.correlation_id, a.state]), [['act_c', 'dispatched'], ['act_b', 'succeeded'], ['act_old', 'dispatched']])
+  assert.equal(mergeActions(undefined, undefined), undefined)
+  assert.deepEqual(mergeActions(newest, undefined)!.map((a) => a.correlation_id), ['act_c', 'act_b'])
+  assert.deepEqual(mergeActions(undefined, unsettled)!.map((a) => a.correlation_id), ['act_c', 'act_b', 'act_old'])
+  // The six-hour job works on the watch only from the unsettled read.
+  const model = fleet([{ id: 'ses_b', title: 'Dredging run' }])
+  assert.deepEqual(watchOf(at({ model, actions: both })).working.lines.map((l) => [l.id, l.figure]), [['job:act_c', '1m'], ['job:act_old', '6h 00m']])
+  assert.equal(watchOf(at({ model, actions: newest })).working.jobs, 1)
+})
+
+test("the words: a job's program, and each plate's key", () => {
+  assert.equal(programOf(['sh', '-c', 'sleep 8; echo busiest hour']), 'sleep')
+  assert.equal(programOf(['/bin/bash', '-lc', 'cargo test --workspace']), 'cargo')
+  assert.equal(programOf(['/usr/bin/python3', 'tides.py']), 'python3')
+  assert.equal(programOf(['sh', '-c', 'RUST_LOG=info cargo run']), 'cargo')
+  assert.equal(programOf(['sh', '-c', '(cd harbour && make)']), 'make')
+  assert.equal(programOf(['sh', '-c', 'nice -n 19 timeout 60 cargo build']), 'cargo')
+  assert.equal(commandKey(['sh', '-c', 'sleep 8; echo 41 departures']), 'sleep N; echo N departures')
+  assert.equal(commandKey(['cargo', 'build', '--release']), 'cargo build --release')
+  assert.equal(programOf(['sh', '-c', '"$x" go']), undefined)
+  assert.deepEqual(WATCH_KEYS.map(keyOf), ['1', '2', '3', '4', '5'])
+  assert.deepEqual([keyOf('working'), keyOf('wrong')], ['1', '5'])
+})
+
+test('a session that holds web text waits for your trust: said in the caption and on its line, not in the number', () => {
+  const hold = { since_ms: NOW - 20 * MIN, tool: 'http.fetch', url: 'tides.example/today', node_id: 'trs_tides' }
+  const model = fleet([{ id: 'ses_h', title: 'Tide news', hold }, { id: 'ses_q', title: 'Search the charts', hold: { ...hold, tool: 'web.search', query: 'north channel silt', node_id: '' } }])
+  const w = watchOf(at({ model }))
+  assert.deepEqual([w.waiting.value, w.waiting.holds, w.waiting.tone], ['0', 2, 'idle'])
+  assert.equal(w.waiting.caption, 'nothing waits for your answer; 2 sessions hold web text')
+  assert.deepEqual(w.waiting.lines.map((l) => [l.tag, l.text, l.detail, l.to?.node]), [
+    ['holds', 'read http.fetch tides.example/today', 'since 20m · Tide news', 'trs_tides'],
+    ['holds', 'read web.search "north channel silt"', 'since 20m · Search the charts', undefined],
+  ])
+  assert.deepEqual(w.waiting.focus, { vessels: ['ses_h', 'ses_q'], lights: [] })
 })
