@@ -187,7 +187,10 @@ joined since, for install #10, after that. Theseus has been feature complete (v1
   build each daemon runs is named in its health, its log and its Systems card (Item 177). New since
   October 3: the Ontology view and a session's memberships (Item 111), the Judgment section, the
   task graph, the Budgets, Ledger and Policy tabs, the Extensions card, and a plain page where WebGL is missing (Item
-  135).
+  135). New since October 7: the Context page, what Theseus knows and what a turn sees (theseus-7n3e): the imported
+  episodes filtered, counted by facet and opened to their messages (`import.sessions`), their topics and book hints,
+  asking the index, and a turn's request part by part with its tokens and why each note was recalled
+  (`context.explain`), from any ship or bench.
 - **The ontology, wired in:** categories, guidance and memberships as records, which every compile walks (Item
   100); `categorize.v1` proposes a private conversation's topics, in shadow.
 - **Voice in a Discord voice channel**, with Deepgram: `/join` from a private place, speech both ways, replies spoken

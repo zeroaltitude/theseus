@@ -5,7 +5,7 @@
 // gauge says how deep the camera reads. Everything shown is the daemon's own data, and moves only when it happens.
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router'
-import { Anchor, Crosshair, ExternalLink, HelpCircle, Maximize, Search, Volume2, VolumeX, Waves } from 'lucide-react'
+import { Anchor, Crosshair, ExternalLink, HelpCircle, Maximize, Search, Telescope, Volume2, VolumeX, Waves } from 'lucide-react'
 import { ShipEngine, type Hit } from '@/ship/engine'
 import { LabelLayer, usdShort } from '@/ship/labels'
 import { Minimap, type MinimapHandle } from '@/ship/Minimap'
@@ -33,6 +33,7 @@ import { useCalm } from '@/lib/calm'
 import { useConn } from '@/lib/rpc'
 import { useWorld } from '@/lib/world'
 import { ago, cn, short, stamp } from '@/lib/format'
+import { contextHref } from '@/lib/explorer'
 
 // The synthetic fleet is for measuring, in dev and bench builds only (never in a production build).
 const SYNTH = (import.meta.env.DEV || import.meta.env.MODE === 'bench') && new URLSearchParams(window.location.search).has('synthetic')
@@ -500,6 +501,7 @@ function VesselCard({ v, model, bench, onClose, now, reachCap, ref }: { v: Vesse
       )}
       <div className="mt-2.5 flex flex-wrap gap-1.5">
         <Link to={`/session/${v.id}${bench ? `?turn=${encodeURIComponent(bench.turnId)}` : ''}`} className="brass-button"><ExternalLink size={12} /> {bench ? `Turn ${bench.n} in the session` : 'Session deck'}</Link>
+        <Link to={contextHref(v.id, bench?.turnId)} className="brass-button" title="what Theseus put in front of the model: the system block, the guidance, the tools, the recall, with token counts"><Telescope size={12} /> {bench ? `Turn ${bench.n}’s context` : 'Its context'}</Link>
         <Link to={`/ledger?q=${v.id}`} className="brass-button">Ledger rows</Link>
       </div>
       <p className="mt-2 text-[10.5px] leading-snug text-ink-faint">Click a bench for its turn, an oar for its call. Double-click to fly in.</p>
