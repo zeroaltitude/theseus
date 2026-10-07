@@ -1,4 +1,4 @@
-import { defineConfig } from 'vite'
+import { defineConfig, searchForWorkspaceRoot } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import { fileURLToPath } from 'node:url'
@@ -13,6 +13,9 @@ import { fileURLToPath } from 'node:url'
 // no /ws proxy: a proxy, whether or not it rewrites Origin, relays other pages and other users' processes to the
 // daemon from the operator's own socket (theseus-zab, theseus-88im). Never add one.
 const devDaemon = process.env.THESEUS_DEV_DAEMON ?? '127.0.0.1:7434'
+// The Benchmarks view (theseus-raf4) reads the published runs, `docs/benchmarks/`, which the build embeds: the dev
+// server may read that one directory outside the cockpit too, read only.
+const benchmarks = fileURLToPath(new URL('../docs/benchmarks', import.meta.url))
 
 export default defineConfig({
   base: '/',
@@ -36,5 +39,6 @@ export default defineConfig({
     host: '127.0.0.1',
     port: 5174,
     strictPort: true,
+    fs: { allow: [searchForWorkspaceRoot(process.cwd()), benchmarks] },
   },
 })

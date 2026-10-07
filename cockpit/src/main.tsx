@@ -32,6 +32,9 @@ const Speed = lazy(() => import('./views/Speed'))
 const Ontology = lazy(() => import('./views/Ontology'))
 // Jev's judgments (M5 23b).
 const Judgment = lazy(() => import('./views/Judgment'))
+// The published benchmark runs and the frontier of measured harnesses (theseus-raf4), and each run's report.
+const Benchmarks = lazy(() => import('./views/Benchmarks'))
+const BenchRun = lazy(() => import('./views/BenchRun'))
 
 const queries = new QueryClient({
   defaultOptions: { queries: { retry: 1, refetchOnWindowFocus: false, placeholderData: (prev: unknown) => prev } },
@@ -66,6 +69,8 @@ const router = createBrowserRouter(
             { path: 'speed', element: wrap(<Speed />) },
             { path: 'ontology', element: wrap(<Ontology />) },
             { path: 'judgment', element: wrap(<Judgment />) },
+            { path: 'benchmarks', element: wrap(<Benchmarks />) },
+            { path: 'benchmarks/:run', element: wrap(<BenchRun />) },
             { path: '*', element: <NotFound /> },
           ],
         },

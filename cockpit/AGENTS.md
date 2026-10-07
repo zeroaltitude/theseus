@@ -8,9 +8,9 @@ build.
 
 ## What's here
 
-- `src/views/`: the fourteen views. The Ship (`Ship.tsx`, the landing view at `/ship`), then `Bridge`, `Fleet`,
+- `src/views/`: the fifteen views. The Ship (`Ship.tsx`, the landing view at `/ship`), then `Bridge`, `Fleet`,
   `SessionDeck`, `Actions`, `Boundaries` (the boundaries board), `Ledger`, `Money` (the money river), `Economics`,
-  `Speed` (the speed wall), `Policy` (`policy.explain`: each place's tools, layer by layer, and the tightenings with their undo; M7 42b), `Judgment` (Jev's judgments, M5 23b, over `judge.list` and `judge.get`, with
+  `Speed` (the speed wall), `Benchmarks` (below), `Policy` (`policy.explain`: each place's tools, layer by layer, and the tightenings with their undo; M7 42b), `Judgment` (Jev's judgments, M5 23b, over `judge.list` and `judge.get`, with
   `src/lib/judgment.ts`), `Systems`, `Ontology` (the kinds, the category tree, guidance, and topics; it shows
   the present only). A session's memberships are in its deck's Context tab (`src/components/Memberships.tsx`).
 - The time machine: `src/components/TimeMachine.tsx` (the ship's log, at every page's foot), `src/lib/history.ts`
@@ -33,6 +33,16 @@ build.
   `src/ship/since.ts` the sixth, since you last looked, whose stretch this browser keeps (`cockpit.watch.looked`) and
   whose replay runs the time machine. Keys 1 to 6 toggle their overlays. Their tests are `test/watch.test.ts` and
   `test/since.test.ts`.
+- Benchmarks (theseus-raf4): `src/views/Benchmarks.tsx` (`/benchmarks`: the frontier, a Pareto chart of measured
+  harnesses on two properties the operator picks, and every run, newest first) and `src/views/BenchRun.tsx`
+  (`/benchmarks/<report>`: a run's report whole, every figure with its table). The runs are `docs/benchmarks/` as the
+  build embeds it (`src/lib/benchfiles.ts`, Vite's `import.meta.glob`: each report's files a chunk of their own, every
+  figure's SVG an asset); no protocol method reads them, and the view reads nothing from the daemon. Its pure half is
+  `src/lib/bench.ts` (`test/bench.test.ts`, on the real reports): the index, a task set's per-trial table folded into
+  points (a harness in one run), the properties and their better directions, the reports' intervals, and the frontier.
+  **Only measured data**: a condition the data holds is computed; one only a report's words hold is a note carrying the
+  report's exact phrase, and the test holds each phrase to its report. A new report shows after the next install; a
+  new harness table (another task set) is a row of `TASK_SETS`.
 - `src/components/PromptPicker.tsx` (beside the composer; its pure parts are `src/lib/prompts.ts`): runs an MCP server's
   prompt as the next turn, a field per argument, through `turn.submit { prompt }`.
 - `src/components/Extensions.tsx` (in Systems; its pure parts are `src/lib/extensions.ts`): the loaded extensions
