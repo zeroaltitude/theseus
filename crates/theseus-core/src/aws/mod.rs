@@ -90,6 +90,8 @@ mod tests_restore;
 #[cfg(test)]
 mod tests_resumed;
 #[cfg(test)]
+mod tests_secret_shapes;
+#[cfg(test)]
 mod tests_synced;
 
 /// The AWS tools' names, for the config's check of `[policy.tools]`.

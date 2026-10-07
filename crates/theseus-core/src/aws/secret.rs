@@ -8,8 +8,9 @@
 //! reads the board, withholds it from anything that would carry it later.
 //!
 //! What is secret is read from the operation's output shape: a member whose
-//! shape the model marks sensitive, or whose name is one of [`NAMED`] (STS's
-//! `SessionToken` is not marked). A secret-bearing call in which nothing is
+//! shape the model marks sensitive, or whose name is one of [`NAMED`] in any
+//! case (STS's `SessionToken` is not marked, nor ECR's `authorizationToken`,
+//! which until theseus-ye7o was held by no name, so ECR's call failed closed). A secret-bearing call in which nothing is
 //! found to hold returns nothing of its output, and says so: it fails
 //! closed.
 
@@ -21,8 +22,9 @@ use crate::secrets::{Secret, SecretBoard};
 /// The handle's prefix.
 pub const PREFIX: &str = "aws-secret:";
 
-/// Members that hold a secret whether or not the model marks them.
-const NAMED: &[&str] = &[
+/// Members that hold a secret whether or not the model marks them, matched
+/// in any case. The output-shape rule (`tests_secret_shapes`) reads them too.
+pub(super) const NAMED: &[&str] = &[
     "SecretString",
     "SecretBinary",
     "SecretAccessKey",
@@ -124,6 +126,12 @@ fn value_of(v: &Value) -> Option<String> {
     }
 }
 
+/// A member's name is one of [`NAMED`], in any case: `credentials` and
+/// `sessionToken` as `Credentials` and `SessionToken`.
+fn named(name: &str) -> bool {
+    NAMED.iter().any(|n| n.eq_ignore_ascii_case(name))
+}
+
 /// Walk `v` along `shape`, replacing every secret with its mask, and
 /// holding its value on `board`.
 fn walk(
@@ -134,7 +142,7 @@ fn walk(
     sensitive: bool,
     keep: &mut dyn FnMut(&str, &Value) -> String,
 ) {
-    let secret = sensitive || shape.is_sensitive() || name.is_some_and(|n| NAMED.contains(&n));
+    let secret = sensitive || shape.is_sensitive() || name.is_some_and(named);
     if secret {
         if let Some(_value) = value_of(v) {
             let handle = keep(path, v);
@@ -251,10 +259,25 @@ mod tests {
         assert_eq!(m["secret"], "aws-secret:x");
     }
 
+    /// The values the walk test plants: none may be left in a masked body.
+    const PLANTED: &[&str] = &[
+        "s3cr3t",
+        "first-secret",
+        "second-secret",
+        "c2VjcmV0",
+        "sts-secret",
+        "sts-token",
+        "jwt-secret",
+        "pod-token",
+        "pod-secret",
+        "ZWNyLXRva2Vu",
+    ];
+
     /// Every secret of the catalog's own outputs is found: Secrets Manager's
     /// string, an SSM parameter's value, KMS's plaintext, STS's keys, and the
     /// mints the tables learned late (theseus-ye7o): STS's delegated keys and
-    /// web identity token, and EKS's pod identity keys.
+    /// web identity token, EKS's pod identity keys, and ECR's token, whose
+    /// lower-case name no model marks.
     #[test]
     fn the_catalogs_secret_members_are_found_and_masked() {
         let board = SecretBoard::empty();
@@ -314,23 +337,20 @@ mod tests {
                 }),
                 vec!["credentials"],
             ),
+            (
+                "ecr",
+                "GetAuthorizationToken",
+                json!({}),
+                json!({"authorizationData": [{"authorizationToken": "ZWNyLXRva2VuLTAwMDU=", "expiresAt": 1_791_028_800.0, "proxyEndpoint": "https://111122223333.dkr.ecr.us-west-2.amazonaws.com"}]}),
+                vec!["authorizationData[0].authorizationToken"],
+            ),
         ] {
             let before = body.to_string();
             let held = hold(&board, service, op, &input, &mut body).unwrap();
             let got: Vec<&str> = held.iter().map(|h| h.path.as_str()).collect();
             assert_eq!(got, paths, "{service}:{op}");
             let after = body.to_string();
-            for secret in [
-                "s3cr3t",
-                "first-secret",
-                "second-secret",
-                "c2VjcmV0",
-                "sts-secret",
-                "sts-token",
-                "jwt-secret",
-                "pod-token",
-                "pod-secret",
-            ] {
+            for secret in PLANTED {
                 if before.contains(secret) {
                     assert!(!after.contains(secret), "{secret} in {after}");
                 }

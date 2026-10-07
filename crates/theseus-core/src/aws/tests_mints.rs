@@ -1,7 +1,9 @@
 //! The credential mints the catalog's tables learned late (theseus-ye7o),
 //! through `aws.call`: STS's `GetDelegatedAccessToken` and
 //! `GetWebIdentityToken` (the query protocol) and EKS's
-//! `AssumeRoleForPodIdentity` (REST-JSON). Each is a secret-bearing write:
+//! `AssumeRoleForPodIdentity` (REST-JSON), and ECR's `GetAuthorizationToken`
+//! (JSON), which failed closed until `walk` read names in any case. Each is a
+//! secret-bearing write:
 //! its text and meta hold handles and never a value, and the board holds
 //! each value (AWS design §3.5).
 
@@ -14,6 +16,8 @@ const DELEGATED_TOKEN: &str = "delegated-token-0001";
 const WEB_IDENTITY_JWT: &str = "eyJraWQiOi.web-identity-jwt-0002.c2ln";
 const POD_SECRET: &str = "pod-secret-0003";
 const POD_TOKEN: &str = "pod-token-0003";
+/// ECR's token: base64 of `AWS:` and a password.
+const ECR_TOKEN: &str = "QVdTOmVjci1wYXNzd29yZC0wMDA0";
 
 fn xml(n: usize, body: String) -> Reply {
     (
@@ -90,6 +94,16 @@ fn answers(s: &Seen, n: usize) -> Reply {
             body.to_string(),
         );
     }
+    if super::tests_c3::target(s) == Some("GetAuthorizationToken") {
+        return super::tests_c3::json_reply(
+            n,
+            json!({"authorizationData": [{
+                "authorizationToken": ECR_TOKEN,
+                "expiresAt": 1_791_028_800.0,
+                "proxyEndpoint": format!("https://{ACCOUNT}.dkr.ecr.us-west-2.amazonaws.com")
+            }]}),
+        );
+    }
     (400, vec![], "{}".into())
 }
 
@@ -121,6 +135,16 @@ async fn each_mint_answers_with_handles_and_the_board_holds_its_values() {
             vec![(
                 "aws-secret:AssumeRoleForPodIdentity#credentials",
                 vec![POD_SECRET, POD_TOKEN],
+            )],
+        ),
+        // A mint the tables named before (theseus-ye7o found it failing
+        // closed): its lower-case `authorizationToken` is held only because
+        // `walk` matches `NAMED` in any case.
+        (
+            json!({"service": "ecr", "operation": "GetAuthorizationToken", "input": {}}),
+            vec![(
+                "aws-secret:GetAuthorizationToken#authorizationData[0].authorizationToken",
+                vec![ECR_TOKEN],
             )],
         ),
     ] {
