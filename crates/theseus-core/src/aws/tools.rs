@@ -157,6 +157,10 @@ struct Planned {
     class: ToolClass,
     /// It returns a secret (§3.5): held on the board, shown as a handle.
     secret: bool,
+    /// A secret-bearing answer in which nothing is found to hold is
+    /// withheld whole; false for one that holds a secret only when it is
+    /// there (`SecretBearing::WhenPresent`, theseus-qan5).
+    fail_closed: bool,
     /// The floor's confirm line, when a guardrail hits (§3.6).
     guardrail: Option<String>,
     /// A hit AWS's guards refuse in a work session: the approved call runs
@@ -311,6 +315,7 @@ impl CallTool {
             cost_bearing: c.cost_bearing,
             class,
             secret,
+            fail_closed: c.secret.fails_closed(),
             guardrail,
             floor_session,
             destructive,
@@ -402,7 +407,7 @@ impl Tool for CallTool {
                     &mut out.body,
                 )
                 .map_err(ToolFailure::new)?;
-                if held.is_empty() {
+                if held.is_empty() && p.fail_closed {
                     return Err(ToolFailure::new(format!(
                         "{} returns a secret, and no member of its output was found to hold \
                          it, so none of its output is returned (request {})",
@@ -410,7 +415,11 @@ impl Tool for CallTool {
                         out.request_id.as_deref().unwrap_or("(none)")
                     )));
                 }
-                m["secrets"] = json!(held.iter().map(|h| &h.handle).collect::<Vec<_>>());
+                // One that holds a secret only when it is there, with none
+                // this time, answers whole (theseus-qan5).
+                if !held.is_empty() {
+                    m["secrets"] = json!(held.iter().map(|h| &h.handle).collect::<Vec<_>>());
+                }
             }
             Ok((
                 ToolOutput {

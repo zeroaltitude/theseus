@@ -79,8 +79,16 @@ pub fn describe_operation(op: OperationRef<'_>) -> Value {
     if let Some(t) = &c.idempotency_token {
         o.insert("idempotency_token".into(), json!(t));
     }
-    if let SecretBearing::WhenInputTrue(m) = c.secret {
-        o.insert("secret_when".into(), json!(m));
+    match c.secret {
+        SecretBearing::WhenInputTrue(m) => {
+            o.insert("secret_when".into(), json!(m));
+        }
+        // It may hold one: what it holds comes back as handles, and an
+        // answer with none comes back whole (theseus-qan5).
+        SecretBearing::WhenPresent => {
+            o.insert("secret".into(), json!("when_present"));
+        }
+        SecretBearing::No | SecretBearing::Always => {}
     }
     if c.inert {
         o.insert("inert".into(), json!(true));

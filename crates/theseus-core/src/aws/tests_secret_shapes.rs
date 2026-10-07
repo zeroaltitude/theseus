@@ -10,9 +10,11 @@
 //! paginator) or a tag's key (`Tag.Key`, marked sensitive by a few).
 //!
 //! An operation with one must be secret-bearing (the catalog's `SECRET`
-//! table), or each of its members must be on [`ALLOWED`] below, with the
-//! reason. An allowed row that matches nothing, or that matches a
-//! secret-bearing operation, fails too: it is stale.
+//! table, or `WHEN_PRESENT` for a secret a resource keeps only sometimes),
+//! or each of its members must be on [`ALLOWED`] below, with the reason. An
+//! allowed row that matches nothing, or that matches a secret-bearing
+//! operation, fails too: it is stale; and so does a `WHEN_PRESENT`
+//! operation with no such member, since its walk would never hold anything.
 //!
 //! The rule lives here, not in the catalog, so it reads the walk's own names.
 
@@ -25,12 +27,6 @@ use super::secret::NAMED;
 /// Endings that make a sensitive member credential-shaped.
 const ENDINGS: &[&str] = &["Token", "Password", "Secret", "Key", "Credentials"];
 
-/// A resource's description whose configured secret is one optional member:
-/// `SECRET` would withhold the whole result whenever the member is absent
-/// (a secret-bearing call that holds nothing fails closed), so these stay
-/// plain until `aws.call` can hold a member only where it is present.
-const ECHO: &str = "a resource's description, whose configured secret is one optional member: \
-                    as SECRET it would fail closed whenever the member is absent";
 /// A member that names a Secrets Manager secret, and holds no value.
 const NAMES_A_SECRET: &str = "names a Secrets Manager secret by its ARN or id; holds no value";
 const PUBLIC_KEY: &str = "a public key";
@@ -92,12 +88,6 @@ static ALLOWED: &[Allowed] = &[
         &["GetPipelineState"],
         "*Execution.token",
         "an approval's token: it answers the approval only with the caller's own credentials",
-    ),
-    allow(
-        "cognito-idp",
-        ALL,
-        "TokenValidityUnitsType.*",
-        "a token lifetime's unit: minutes, hours or days",
     ),
     allow(
         "cognito-idp",
@@ -193,101 +183,34 @@ static ALLOWED: &[Allowed] = &[
         "a grant's type, an empty structure: it holds no token",
     ),
     allow("wisdom", ALL, "*.plainText", TEXT),
-    // A configured secret, echoed in a resource's description (`ECHO`).
-    allow("amplify", ALL, "*.basicAuthCredentials", ECHO),
-    allow(
-        "amplifybackend",
-        &["GetBackendAuth"],
-        "BackendAuthAppleProviderConfig.PrivateKey",
-        ECHO,
-    ),
+    // A configured secret that the model's own doc says AWS never returns
+    // (theseus-qan5; the rest of aws-mints' `ECHO` rows are `WHEN_PRESENT`).
     allow(
         "appstream",
-        ALL,
+        &["DescribeDirectoryConfigs"],
         "ServiceAccountCredentials.AccountPassword",
-        ECHO,
-    ),
-    allow("chime", &["ListBots"], "Bot.SecurityToken", ECHO),
-    allow(
-        "chime-sdk-identity",
-        &["DescribeAppInstanceUserEndpoint"],
-        "EndpointAttributes.*Token",
-        ECHO,
+        "never returned: \"this password is not returned in the actual response\", says the \
+         operation's doc",
     ),
     allow(
-        "chime-sdk-meetings",
-        &["ListAttendees", "UpdateAttendeeCapabilities"],
-        "Attendee.JoinToken",
-        ECHO,
+        "datasync",
+        &["DescribeLocationFsxOntap"],
+        "FsxProtocolSmb.Password",
+        "never returned: the operation \"doesn't actually return a Password\", says its doc",
     ),
-    allow("cognito-idp", ALL, "UserPoolClientType.ClientSecret", ECHO),
     allow(
-        "connecthealth",
-        &["GetPatientInsightsJob"],
-        "FHIRServer.oauthToken",
-        ECHO,
-    ),
-    allow("datasync", ALL, "FsxProtocolSmb.Password", ECHO),
-    allow(
-        "datazone",
-        &["CreateConnection", "ListConnections", "UpdateConnection"],
-        "*",
-        ECHO,
-    ),
-    allow("dms", ALL, "*Settings.*Password", ECHO),
-    allow(
-        "ds",
-        &["DescribeDirectories"],
-        "RadiusSettings.SharedSecret",
-        ECHO,
-    ),
-    allow("ec2", ALL, "OidcOptions.ClientSecret", ECHO),
-    allow("ec2", ALL, "TunnelOption.PreSharedKey", ECHO),
-    allow(
-        "ec2",
-        &["ExportVerifiedAccessInstanceClientConfiguration"],
-        "VerifiedAccessInstanceUserTrustProviderClientConfiguration.ClientSecret",
-        ECHO,
+        "datasync",
+        &["DescribeLocationFsxOpenZfs"],
+        "FsxProtocolSmb.Password",
+        "never returned: \"response elements related to SMB aren't supported\" here, says the \
+         operation's doc",
     ),
     allow(
         "fsx",
         ALL,
         "OntapFileSystemConfiguration.FsxAdminPassword",
-        ECHO,
-    ),
-    allow("iot", &["GetTopicRule"], "SalesforceAction.token", ECHO),
-    allow(
-        "iot-managed-integrations",
-        &["GetManagedThing"],
-        "GetManagedThingResponse.DeviceSpecificKey",
-        ECHO,
-    ),
-    allow(
-        "ivs-realtime",
-        &["CreateStage"],
-        "ParticipantToken.token",
-        ECHO,
-    ),
-    allow("lexv2-models", ALL, "EncryptionSetting.*Password", ECHO),
-    allow("medialive", ALL, "HlsAkamaiSettings.Token", ECHO),
-    allow("mediapackage", ALL, "IngestEndpoint.Password", ECHO),
-    allow(
-        "quicksight",
-        &["DescribeAssetBundleImportJob"],
-        "AssetBundleImportJobDataSource*",
-        ECHO,
-    ),
-    allow(
-        "rds",
-        ALL,
-        "*PendingModifiedValues.MasterUserPassword",
-        ECHO,
-    ),
-    allow(
-        "redshift",
-        ALL,
-        "PendingModifiedValues.MasterUserPassword",
-        ECHO,
+        "never returned: \"the password value is always redacted in the response\", says the \
+         member's doc",
     ),
 ];
 
@@ -392,8 +315,19 @@ fn every_credential_shaped_output_is_secret_bearing_or_allowed() {
     for e in c.services() {
         let svc = c.service(&e.name).expect("the service decodes");
         for op in svc.operations() {
-            let secret = op.classify().secret != SecretBearing::No;
-            for hit in hits(op) {
+            let kind = op.classify().secret;
+            let secret = kind != SecretBearing::No;
+            let hits = hits(op);
+            // One that holds a secret only when it is there must have a
+            // member the walk holds: else it would answer whole, always.
+            if kind == SecretBearing::WhenPresent && hits.is_empty() {
+                bad.push(format!(
+                    "stale: {}:{} is when_present, and its output has no credential-shaped member",
+                    e.name,
+                    op.name()
+                ));
+            }
+            for hit in hits {
                 let rows: Vec<usize> = (0..ALLOWED.len())
                     .filter(|&i| matches(&ALLOWED[i], &e.name, op.name(), &hit.member))
                     .collect();

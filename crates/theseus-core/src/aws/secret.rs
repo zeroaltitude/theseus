@@ -10,9 +10,11 @@
 //! What is secret is read from the operation's output shape: a member whose
 //! shape the model marks sensitive, or whose name is one of [`NAMED`] in any
 //! case (STS's `SessionToken` is not marked, nor ECR's `authorizationToken`,
-//! which until theseus-ye7o was held by no name, so ECR's call failed closed). A secret-bearing call in which nothing is
-//! found to hold returns nothing of its output, and says so: it fails
-//! closed.
+//! which until theseus-ye7o was held by no name, so ECR's call failed
+//! closed). A secret-bearing call in which nothing is found to hold returns
+//! nothing of its output, and says so: it fails closed. One whose secret a
+//! resource keeps only sometimes (`SecretBearing::WhenPresent`,
+//! theseus-qan5) holds what is found and answers whole when nothing is.
 
 use serde_json::{json, Map, Value};
 use theseus_aws::catalog::{Catalog, Kind, ShapeRef};

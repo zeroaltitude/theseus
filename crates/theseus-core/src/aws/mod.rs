@@ -93,6 +93,8 @@ mod tests_resumed;
 mod tests_secret_shapes;
 #[cfg(test)]
 mod tests_synced;
+#[cfg(test)]
+mod tests_when_present;
 
 /// The AWS tools' names, for the config's check of `[policy.tools]`.
 pub const NAMES: [&str; 16] = [
