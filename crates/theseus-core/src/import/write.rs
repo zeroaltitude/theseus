@@ -10,6 +10,14 @@
 //!   stop ends the writer at the first boundary that finds it
 //!   (theseus-autz), with what it wrote adding up, so the stop's drop of
 //!   the runtime waits a frame, never the whole batch or erase.
+//! - **The counts ride with what they count.** Every frame of a batch or an
+//!   erase carries its tags' counts as they stand after it, so a reader
+//!   lags a frame at most, and a kill or a crash between two frames leaves
+//!   them whole. An erase's count of the tag's erased sessions is absolute,
+//!   counted as it reads the tag's sessions, never added to the stored one:
+//!   a run cut between frames before this rule left a count short of its
+//!   tombstones, and the next erase of the tag counts it whole
+//!   (theseus-mce3).
 //! - **Idempotent.** An episode is found by its session's key: one imported
 //!   with the same hash is skipped, one with another hash is rejected and
 //!   named, never overwritten; an erased one is not imported again.
@@ -356,10 +364,27 @@ pub struct Erasure {
     pub result: ImportEraseResult,
     pub nodes: Vec<String>,
     /// The daemon's stop ended the erase early (theseus-autz): `result`
-    /// counts what was erased, its last frame carries the tag's counts and
-    /// its `import.erased` row for that much, and the erase run again
+    /// counts what was erased, every frame carries the tag's counts and the
+    /// last its `import.erased` row for that much, and the erase run again
     /// finishes the tag, skipping what was erased.
     pub stopped: bool,
+}
+
+/// The tag's counts as they stand after an erase's frame, added to it
+/// (theseus-mce3): `erased` is the tag's sessions erased before the run and
+/// in it, so a reader lags a frame at most, and a kill between two frames
+/// leaves the count whole.
+fn counted(
+    frame: &mut Frame,
+    tag: &str,
+    counts: &mut TagCounts,
+    erased: u64,
+    now: u64,
+) -> Result<()> {
+    counts.erased = erased;
+    counts.updated_ms = now;
+    frame.push(NewRecord::json(kinds::META, Some(&tag_key(tag)), &*counts)?);
+    Ok(())
 }
 
 /// `import.erase`: tombstone every session of `tag` and each of its nodes
@@ -377,8 +402,9 @@ pub fn erase(store: &Store, tag: &str, why: Option<&str>, by: &str) -> Result<Er
 
 /// [`erase`], ending at the first frame boundary that finds `stopping`
 /// (the daemon's stop), and in the read of the tag's sessions before the
-/// first frame, every [`LOOK_EVERY`] records. The tag's counts and its row
-/// are written in the last frame, for what was erased.
+/// first frame, every [`LOOK_EVERY`] records. The tag's counts ride in
+/// every frame, its sessions erased counted whole (theseus-mce3), and its
+/// row in the last, for what this run erased.
 pub fn erase_unless(
     store: &Store,
     tag: &str,
@@ -418,6 +444,19 @@ pub(super) fn erase_in(
             stopped,
         });
     };
+    // The tag's sessions erased before this run, a cut run's among them:
+    // each frame's count starts from them, never from the stored count,
+    // which such a run left short (theseus-mce3).
+    let before = sessions
+        .values()
+        .filter(|r| r.imported.as_ref().is_some_and(|i| i.erased.is_some()))
+        .count() as u64;
+    let mut counts = store
+        .get_meta::<TagCounts>(&tag_key(tag))?
+        .unwrap_or_else(|| TagCounts {
+            tag: tag.to_string(),
+            ..TagCounts::default()
+        });
     let receipt = format!("import.erase of {tag}");
     let mut frame = Frame::new(cap);
     let (mut n_sessions, mut n_nodes, mut frames) = (0u64, 0u64, 0u64);
@@ -447,6 +486,7 @@ pub(super) fn erase_in(
         frame.push(NewRecord::json(kinds::SESSION, Some(&sid), &rec)?.scoped(&tag_scope(tag)));
         n_sessions += 1;
         if frame.full() {
+            counted(&mut frame, tag, &mut counts, before + n_sessions, now)?;
             store.append(&std::mem::take(&mut frame.records))?;
             frame.bytes = 0;
             frames += 1;
@@ -454,22 +494,15 @@ pub(super) fn erase_in(
                 theseus_store::pressure::BOUND,
                 &stopping,
             );
-            // The rest waits for a rerun: this much is closed below.
+            // The rest waits for a rerun: this much is counted, and its row
+            // is written below.
             if stopping() {
                 stopped = true;
                 break;
             }
         }
     }
-    let mut c = store
-        .get_meta::<TagCounts>(&tag_key(tag))?
-        .unwrap_or_else(|| TagCounts {
-            tag: tag.to_string(),
-            ..TagCounts::default()
-        });
-    c.erased += n_sessions;
-    c.updated_ms = now;
-    frame.push(NewRecord::json(kinds::META, Some(&tag_key(tag)), &c)?);
+    counted(&mut frame, tag, &mut counts, before + n_sessions, now)?;
     let row = fact::import::ImportErased {
         tag,
         by,

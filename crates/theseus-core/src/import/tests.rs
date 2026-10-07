@@ -20,11 +20,12 @@ use theseus_protocol::import::{
 };
 use theseus_protocol::index::{IndexHit, IndexQueryResult, IndexSourceRank};
 use theseus_protocol::method;
+use theseus_store::{kinds, NewRecord};
 
 use crate::approval::{Client, Surface};
 
 use super::episode::{self, CREDENTIAL_MARK, PLACE_KINDS, SOURCES};
-use super::{is_imported, session_id_of, Integrity};
+use super::{is_imported, session_id_of, tag_scope, Erased, Integrity};
 use crate::config::MemoryMode;
 use crate::node::{Body, Node, Origin};
 use crate::recall::{Ask, AskFuture};
@@ -920,6 +921,135 @@ async fn a_stop_ends_an_erase_between_frames_and_a_rerun_finishes_it() {
         let rec: SessionRecord = c.store.get_session(&sid).unwrap().unwrap();
         assert!(rec.imported.unwrap().erased.is_some(), "{sid}");
     }
+}
+
+/// How many of `episodes`' sessions the store holds tombstoned now.
+fn tombstoned(c: &Arc<Core>, episodes: &[Value]) -> u64 {
+    sessions_of(episodes)
+        .iter()
+        .filter(|sid| {
+            let rec: SessionRecord = c.store.get_session(sid).unwrap().unwrap();
+            rec.imported.unwrap().erased.is_some()
+        })
+        .count() as u64
+}
+
+/// What health says of the imported sessions: held, and erased.
+fn health_of(c: &Arc<Core>) -> (u64, u64) {
+    let h = c.health();
+    (h.imported.sessions, h.imported.erased)
+}
+
+/// A kill between an erase's frames (theseus-mce3): each frame carries the
+/// tag's counts with the tombstones it writes, so at every frame boundary
+/// the count is the store's tombstones, what a kill there leaves adds up,
+/// and the rerun counts the cut run's tombstones too. The kill is a panic
+/// at the second boundary, after which the erase writes nothing, as after a
+/// SIGKILL there. The count was written in the erase's last frame alone, as
+/// what that run erased: it lagged the tombstones for a whole run, and a cut
+/// run's stayed out of it for good.
+#[tokio::test]
+async fn a_kill_between_an_erases_frames_leaves_its_counts_whole_and_the_rerun_counts_every_tombstone(
+) {
+    let eps = many(300);
+    let nodes = nodes_of(&eps);
+    let r = live();
+    let c = &r.core;
+    import_quietly(c, &eps);
+    let base = c.store.stats().unwrap().frames_appended;
+    // At each frame boundary: the tag's erased count, and the tombstones.
+    let seen = std::cell::RefCell::new(Vec::new());
+    let boundary = || {
+        let frames = c.store.stats().unwrap().frames_appended - base;
+        let n = {
+            let mut seen = seen.borrow_mut();
+            if frames > seen.len() as u64 {
+                seen.push((tallies(c).0 .2, tombstoned(c, &eps)));
+            }
+            seen.len()
+        };
+        assert!(n < 2, "killed between two frames");
+        false
+    };
+    let killed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        super::write::erase_in(&c.store, TAG, None, "cli", boundary, CAP)
+    }));
+    assert!(killed.is_err(), "the erase ran past its kill");
+    let seen = seen.into_inner();
+    assert!(
+        seen.len() == 2 && seen[0].1 > 0 && seen[0].1 < seen[1].1,
+        "{seen:?}"
+    );
+    for (erased, tombstones) in &seen {
+        assert_eq!(erased, tombstones, "a frame boundary's count: {seen:?}");
+    }
+    // What the kill left: two frames' tombstones, counted, and no row.
+    let cut = tombstoned(c, &eps);
+    assert_eq!(cut, seen[1].1);
+    assert_eq!(tallies(c), ((300, nodes, cut), (0, 0)));
+    assert_eq!(health_of(c), (300 - cut, cut));
+    let again = super::write::erase_in(&c.store, TAG, None, "cli", || false, CAP).unwrap();
+    assert!(!again.stopped);
+    assert_eq!(again.result.sessions, 300 - cut);
+    assert_eq!(tallies(c).0, (300, nodes, 300));
+    assert_eq!(health_of(c), (0, 300));
+}
+
+/// An erase counts the tag's sessions erased before it whole (theseus-mce3).
+/// A run cut between two frames before the count rode in every frame left
+/// tombstones its count never took in: here a third of the tag's, written
+/// directly. The next erase counts them from the tag's records, not from the
+/// count stored, so the tag reads 300 erased of 300, where it read 200.
+#[tokio::test]
+async fn an_erase_counts_the_tombstones_a_cut_run_left_uncounted() {
+    let eps = many(300);
+    let nodes = nodes_of(&eps);
+    let r = live();
+    let c = &r.core;
+    import_quietly(c, &eps);
+    let mut cut = Vec::new();
+    for sid in &sessions_of(&eps)[..100] {
+        let mut rec: SessionRecord = c.store.get_session(sid).unwrap().unwrap();
+        for (_, n) in c.store.session_nodes(sid).unwrap() {
+            cut.push(n.erased(FIRST_MS, "import.erase of reef").record().unwrap());
+        }
+        rec.imported.as_mut().unwrap().erased = Some(Erased {
+            at_ms: FIRST_MS,
+            by: "cli".into(),
+            why: None,
+        });
+        rec.title = None;
+        cut.push(
+            NewRecord::json(kinds::SESSION, Some(sid), &rec)
+                .unwrap()
+                .scoped(&tag_scope(TAG)),
+        );
+    }
+    c.store.append(&cut).unwrap();
+    assert_eq!(tallies(c).0, (300, nodes, 0), "the cut run's count, short");
+    // Each frame's count, against the tombstones, at its boundary.
+    let base = c.store.stats().unwrap().frames_appended;
+    let seen = std::cell::RefCell::new(Vec::new());
+    let boundary = || {
+        let frames = c.store.stats().unwrap().frames_appended - base;
+        let mut seen = seen.borrow_mut();
+        if frames > seen.len() as u64 {
+            seen.push((tallies(c).0 .2, tombstoned(c, &eps)));
+        }
+        false
+    };
+    let e = super::write::erase_in(&c.store, TAG, None, "cli", boundary, CAP).unwrap();
+    let seen = seen.into_inner();
+    assert!(!seen.is_empty() && seen[0].1 > 100, "{seen:?}");
+    for (erased, tombstones) in &seen {
+        assert_eq!(erased, tombstones, "a frame boundary's count: {seen:?}");
+    }
+    assert_eq!(e.result.sessions, 200);
+    assert_eq!(tallies(c), ((300, nodes, 300), (200, e.result.nodes)));
+    assert_eq!(health_of(c), (0, 300));
+    // Run again with nothing left to erase, it keeps the count whole.
+    let twice = super::write::erase_in(&c.store, TAG, None, "cli", || false, CAP).unwrap();
+    assert_eq!((twice.result.sessions, tallies(c).0 .2), (0, 300));
 }
 
 /// Over the protocol, a batch or an erase the stop ended answers an error

@@ -617,7 +617,10 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   or erase at a time; an episode imported before is skipped, the same id with another hash rejected, an erased one
   not imported again, and a line that does not read named by its number. `import.erase` tombstones a tag (each node
   written again under its id, origin and time with `Body::Erased`, the session's `erased` receipt, an
-  `import.erased` row), then asks a running tender's `index.forget`; the follower drops a tombstoned node as it
+  `import.erased` row), then asks a running tender's `index.forget`. The tag's counts ride in every frame of a batch
+  or an erase, and an erase's count of the tag's erased sessions is absolute, counted from the tag's records as it
+  reads them: a reader lags a frame at most, a kill between frames leaves the counts whole, and the next erase counts
+  a cut run's tombstones too (theseus-mce3). The follower drops a tombstoned node as it
   reads it, at a rebuild too; `session.history` and `node.list` show an imported node by its newest record
   (`import::shown`), so an erased one is its tombstone. The WAL's earlier frames still hold the payloads: §5.6's
   erasure in place is not built. `import.list` reads the tags' META records. The owner's acts (`judge_act(Act::Import)`; the CLI's
