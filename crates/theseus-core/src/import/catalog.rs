@@ -7,9 +7,9 @@
 //!   all META reads; a batch or an erase moves them, and nothing else
 //!   writes an imported session's record. A read whose key differs builds
 //!   it again, from each tag's scope, the walk `import.erase` makes.
-//! - **A query costs the rows in memory**, never the store: its filters,
-//!   its facets (each counted with every other filter, its own aside) and
-//!   its sort, in one pass. Every value a filter or a facet reads (a tag, a
+//! - **A query costs the rows in memory**, never the store: its filters
+//!   and its facets (each counted with every other filter, its own aside),
+//!   in one pass over the rows in its sort's order, made once. Every value a filter or a facet reads (a tag, a
 //!   source, a place kind, a sensitivity, a book, a month, each topic path
 //!   with its ancestors) is interned when the projection is built, so the
 //!   pass compares and counts small numbers. Only its page's summaries are
@@ -91,6 +91,9 @@ pub struct Catalog {
     pub version: String,
     pub rows: Vec<Row>,
     dict: Dict,
+    /// The rows in each sort's order (newest, oldest, longest), made once,
+    /// so a query walks one and sorts nothing.
+    orders: [Vec<u32>; 3],
 }
 
 impl Catalog {
@@ -129,11 +132,24 @@ impl Catalog {
                     paths,
                 }
             })
-            .collect();
+            .collect::<Vec<Row>>();
+        let order = |cmp: &dyn Fn(&ImportedEpisode, &ImportedEpisode) -> std::cmp::Ordering| {
+            let mut v: Vec<u32> = (0..rows.len() as u32).collect();
+            v.sort_by(|a, b| cmp(&rows[*a as usize].ep, &rows[*b as usize].ep));
+            v
+        };
+        let orders = [
+            order(&|a, b| (b.end_ms, &a.session_id).cmp(&(a.end_ms, &b.session_id))),
+            order(&|a, b| (a.start_ms, &a.session_id).cmp(&(b.start_ms, &b.session_id))),
+            order(&|a, b| {
+                (b.messages, b.end_ms, &a.session_id).cmp(&(a.messages, a.end_ms, &b.session_id))
+            }),
+        ];
         Self {
             version,
             rows,
             dict,
+            orders,
         }
     }
 }
@@ -388,7 +404,13 @@ pub fn query(cat: &Catalog, p: &ImportSessionsParams) -> Answer {
         (BOOK, D_BOOK),
         (SPAN, D_MONTH),
     ];
-    for (i, r) in rows.iter().enumerate() {
+    let order = match p.sort.as_deref() {
+        Some("oldest") => &cat.orders[1],
+        Some("longest") => &cat.orders[2],
+        _ => &cat.orders[0],
+    };
+    for i in order.iter().map(|i| *i as usize) {
+        let r = &rows[i];
         if (r.ep.erased && !p.erased)
             || (!ids.is_empty() && !ids.contains(r.ep.session_id.as_str()))
         {
@@ -410,20 +432,6 @@ pub fn query(cat: &Catalog, p: &ImportSessionsParams) -> Answer {
         if m == ALL {
             kept.push(i);
         }
-    }
-    match p.sort.as_deref() {
-        Some("oldest") => kept.sort_unstable_by(|a, b| {
-            let (a, b) = (&rows[*a].ep, &rows[*b].ep);
-            (a.start_ms, &a.session_id).cmp(&(b.start_ms, &b.session_id))
-        }),
-        Some("longest") => kept.sort_unstable_by(|a, b| {
-            let (a, b) = (&rows[*a].ep, &rows[*b].ep);
-            (b.messages, b.end_ms, &a.session_id).cmp(&(a.messages, a.end_ms, &b.session_id))
-        }),
-        _ => kept.sort_unstable_by(|a, b| {
-            let (a, b) = (&rows[*a].ep, &rows[*b].ep);
-            (b.end_ms, &a.session_id).cmp(&(a.end_ms, &b.session_id))
-        }),
     }
     let total = kept.len() as u64;
     let offset = p.offset.unwrap_or(0).min(total) as usize;
