@@ -69,6 +69,8 @@ pub struct Queue {
     /// The stop has flushed: nothing more is written, since a row after
     /// the stop's last checkpoint would be replayed by the next start.
     closed: AtomicBool,
+    /// The frames the stop's flush wrote.
+    flushed_frames: AtomicUsize,
 }
 
 impl Queue {
@@ -159,14 +161,16 @@ impl Queue {
         self.closed.store(true, SeqCst);
         let blobs = self.front_blobs(usize::MAX);
         svc.write_staged_blobs(blobs.iter().map(String::as_str));
-        let mut written = 0;
+        let (mut written, mut frames) = (0, 0);
         loop {
             let batch = self.take(STOP_ROWS);
             if batch.is_empty() {
+                self.flushed_frames.store(frames, SeqCst);
                 return written;
             }
             svc.write(&batch);
             written += batch.len();
+            frames += 1;
         }
     }
 }
@@ -277,6 +281,11 @@ impl JudgeService {
     /// checkpoint, and nothing is written after. Returns how many.
     pub fn flush_sink(&self) -> usize {
         self.queue.flush(self)
+    }
+
+    /// The frames the stop's flush wrote (its line's `frames`).
+    pub fn flushed_frames(&self) -> usize {
+        self.queue.flushed_frames.load(SeqCst)
     }
 
     /// The judgments settled and not yet written.

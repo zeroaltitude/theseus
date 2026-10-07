@@ -201,7 +201,7 @@ impl Blobs {
             let _ = rx.recv();
         }
         std::fs::create_dir_all(&self.dir)?;
-        let tmp = self.dir.join(format!(".{d}.tmp-{}", std::process::id()));
+        let tmp = self.tmp(&d);
         {
             let mut f = std::fs::File::create(&tmp)?;
             f.write_all(bytes)?;
@@ -242,7 +242,7 @@ impl Blobs {
             if let Some(rx) = self.hold.lock().unwrap().as_ref() {
                 let _ = rx.recv();
             }
-            let tmp = self.dir.join(format!(".{d}.tmp-{}", std::process::id()));
+            let tmp = self.tmp(d);
             let written = std::fs::File::create(&tmp).and_then(|mut f| {
                 f.write_all(bytes)?;
                 Ok(f)
@@ -316,6 +316,17 @@ impl Blobs {
                 })
                 .collect()
         })
+    }
+
+    /// A new blob's temporary file: its own for each write, so two writes of
+    /// the same bytes at once (two judgments of one state) each rename their
+    /// own file, where a name shared by the process let one rename the
+    /// other's away and fail with "no such file".
+    fn tmp(&self, d: &str) -> PathBuf {
+        static NEXT: AtomicU64 = AtomicU64::new(0);
+        let n = NEXT.fetch_add(1, Ordering::Relaxed);
+        self.dir
+            .join(format!(".{d}.tmp-{}-{n}", std::process::id()))
     }
 
     /// The directory's sync, which makes its renames durable.
@@ -453,6 +464,26 @@ mod tests {
         let before = blobs.syncs();
         assert!(blobs.put_many(&asked).iter().all(Result::is_ok));
         assert_eq!(blobs.syncs(), before, "nothing new, nothing synced");
+    }
+
+    /// The same bytes put from several threads at once: every put returns
+    /// the digest, and one file is left.
+    #[test]
+    fn the_same_blob_put_at_once_from_many_threads_is_stored_once() {
+        let dir = tempfile::tempdir().unwrap();
+        let blobs = Blobs::new(dir.path());
+        let bytes = vec![7u8; 64 * 1024];
+        for _ in 0..20 {
+            let d = digest(&bytes);
+            let _ = std::fs::remove_file(blobs.path(&d));
+            std::thread::scope(|s| {
+                let each: Vec<_> = (0..8).map(|_| s.spawn(|| blobs.put(&bytes))).collect();
+                for h in each {
+                    assert_eq!(h.join().unwrap().unwrap(), d);
+                }
+            });
+            assert_eq!(std::fs::read_dir(blobs.dir()).unwrap().count(), 1);
+        }
     }
 
     #[test]

@@ -948,14 +948,13 @@ impl crate::Core {
     fn flush_judgments(&self) {
         let t0 = std::time::Instant::now();
         let judge = &self.runner.judge;
-        let stats = |s: &crate::store::Store| s.stats().map(|s| s.frames_appended).unwrap_or(0);
-        let (frames, syncs) = (stats(&self.store), self.store.blobs().syncs());
+        let syncs = self.store.blobs().syncs();
         let written = theseus_store::blocking(|| judge.flush_sink());
         if written > 0 {
             tracing::info!(
                 judgments = written,
                 ms = t0.elapsed().as_secs_f64() * 1000.0,
-                frames = stats(&self.store).saturating_sub(frames),
+                frames = judge.flushed_frames(),
                 blob_syncs = self.store.blobs().syncs().saturating_sub(syncs),
                 turns_running = self.runner.pass.turns().running(),
                 "stopping: the judge's settled judgments are written"
