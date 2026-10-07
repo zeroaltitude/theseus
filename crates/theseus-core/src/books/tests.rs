@@ -642,7 +642,7 @@ fn the_books_over_twenty_thousand_episodes_timed() {
     });
     let filtered = BooksPageParams {
         topic: Some("eel/run".into()),
-        place: Some("dm:teal".into()),
+        place: Some("dm:wren".into()),
         ..params("diary")
     };
     time("books.page diary, topic and place", &|| {

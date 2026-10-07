@@ -190,11 +190,11 @@ function EpisodeRow({ e, on, onOpen }: { e: BookEpisode; on: boolean; onOpen: ()
 /** An episode opened: its summary, its labels, and its messages, from its imported session. */
 function EpisodePanel({ sessionId, e, onClose }: { sessionId: string | null; e?: BookEpisode; onClose: () => void }) {
   const { data: hist, error } = useRpc<SessionHistory>('session.history', { session_id: sessionId ?? '' }, 0, { enabled: !!sessionId })
-  if (!sessionId) return <Panel title="episode" icon={<BookOpen size={13} />} bodyClassName="h-48"><Empty>pick an episode to read its summary, labels, and messages</Empty></Panel>
+  if (!sessionId) return <Panel title="episode" icon={<BookOpen size={13} />} className="self-start" bodyClassName="h-48"><Empty>pick an episode to read its summary, labels, and messages</Empty></Panel>
   const nodes: NodeInfo[] = hist?.nodes ?? []
   const messages = nodes.filter((n) => n.kind !== 'imported_summary')
   return (
-    <Panel title={<>episode · {e ? episodeWhen(e) : sessionId}</>} icon={<BookOpen size={13} />}
+    <Panel title={<>episode · {e ? episodeWhen(e) : sessionId}</>} icon={<BookOpen size={13} />} className="self-start xl:sticky xl:top-2"
       actions={<button type="button" onClick={onClose} aria-label="close the episode" className="text-ink-faint hover:text-ink"><X size={13} /></button>}>
       <div className="flex flex-col gap-3 p-3">
         {e && (
