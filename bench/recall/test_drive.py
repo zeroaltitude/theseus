@@ -140,6 +140,7 @@ class ClaudeCodeDriver(unittest.TestCase):
                 self.assertEqual(c["cwd"], str((d / "run" / "workspace").resolve()))
                 self.assertIsNone(c["parent"], "a parent session's variables are taken out")
                 self.assertIn("--output-format", a)
+                self.assertEqual(a[a.index("--effort") + 1], "medium", "every arm's default is medium")
                 self.assertEqual(a[a.index("--tools") + 1], drive.CC_TOOLS)
                 first = t.index == prog.session_turns(t.session)[0].index
                 if first:
@@ -156,6 +157,7 @@ class ClaudeCodeDriver(unittest.TestCase):
             # turn's request is the compacted one.
             self.assertEqual(run["compactions"], [prog.marks()[0] + 1])
             self.assertEqual(run["cc_compact"], "marks")
+            self.assertEqual(run["effort"], "medium")
             self.assertEqual(run["delivered"], len(prog.facts))
             rows = [json.loads(x) for x in (d / "run" / "turns.jsonl").read_text().splitlines()]
             self.assertEqual(len(rows), len(prog.turns))
@@ -310,6 +312,7 @@ class PiDriver(unittest.TestCase):
                 self.assertEqual((a[a.index("--provider") + 1], a[a.index("--model") + 1]),
                                  ("anthropic", "claude-sonnet-5-5"))
                 self.assertEqual(a[a.index("--tools") + 1], drive.PI_TOOLS)
+                self.assertEqual(a[a.index("--thinking") + 1], "medium", "every arm's default is medium")
                 self.assertEqual(c["prompt"], t.text)
                 # No version check, no telemetry, and no overlay of newer catalog
                 # data (its prices, its thinking map): the pinned Pi's own.
@@ -351,6 +354,15 @@ class PiDriver(unittest.TestCase):
             s = score.summarize(score.score_run(score.load_run(d / "run")))
             self.assertEqual((s["recall_accuracy"], s["abstention_accuracy"]), (1.0, 1.0))
             self.assertEqual(s["undelivered"] + s["failed"] + s["confident_wrong"], 0)
+
+    def test_an_effort_is_pis_thinking_level_and_run_json_names_it(self):
+        prog = generate.build(7, "smoke")
+        with tempfile.TemporaryDirectory() as d:
+            rc, _ = run_pi(prog, Path(d), argv=["--effort", "high"])
+            self.assertEqual(rc, 0)
+            calls = [json.loads(x) for x in (Path(d) / "calls.jsonl").read_text().splitlines()]
+            self.assertEqual({c["argv"][c["argv"].index("--thinking") + 1] for c in calls}, {"high"})
+            self.assertEqual(json.loads((Path(d) / "run" / "run.json").read_text())["effort"], "high")
 
     def test_the_threshold_is_the_windows_less_what_theseuss_overhead_holds_beyond_pis(self):
         prog = generate.build(7, "smoke")
@@ -510,6 +522,13 @@ class TheseusConfig(unittest.TestCase):
             self.assertEqual(back["catalog"]["claude-sonnet-5-5"]["context_window"], 32000)
             self.assertEqual(back["tools"]["projects_dir"], "/w")
             self.assertNotIn("api_base", back["model"])
+        # Without an effort the profile's is left as the bench profile has it; with one, it is that.
+        kw = dict(model="anthropic/claude-sonnet-5-5", memory_arm="baseline", workspace=Path("/w"), window=32000,
+                  spend_limit=3, max_loops=9)
+        self.assertNotIn("effort", drive.theseus_config(base, **kw)["profiles"]["bench"])
+        for effort in drive.EFFORTS:
+            t = drive.theseus_config(base, effort=effort, **kw)
+            self.assertEqual(tomllib.loads(drive.toml_dumps(t))["profiles"]["bench"]["effort"], effort)
         t = drive.theseus_config({"mcp_server": {"enabled": True}}, model="m", memory_arm="bm25",
                                  workspace=Path("/w"), window=32000, spend_limit=3, max_loops=9,
                                  api_base="http://127.0.0.1:1")
@@ -749,6 +768,10 @@ class TheseusDriver(unittest.TestCase):
             rc, said, out = self.drive(Path(d), prog, rules_for(prog), counting=True)
             self.assertEqual(rc, 3, said)
             self.assertIn(f"tools are {real:,} tokens, past the {real - 500:,}", said)
+            # Every run's effort is medium unless it says otherwise: the daemon's config has it.
+            self.assertEqual(tomllib.loads((out / "daemon" / "config.toml").read_text())["profiles"]["bench"]["effort"],
+                             "medium")
+            self.assertEqual(json.loads((out / "run.json").read_text())["effort"], "medium")
             run = json.loads((out / "run.json").read_text())
             self.assertEqual({k: run["overhead"][k] for k in ("planned", "measured", "past_cushion", "allowed")},
                              {"planned": real - 500, "measured": real, "past_cushion": True, "allowed": False})

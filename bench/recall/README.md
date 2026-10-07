@@ -206,6 +206,12 @@ Theseus runs the bench profile (every tool open, roots at `/`), and Claude Code 
 - **OpenClaw**, a fourth arm, is not built yet. Its memory would be its memory search and its wiki. A driver is a
   class with `drive()`, writing the same run directory, and the scorer reads any arm's.
 
+**Effort.** Every arm runs at one reasoning effort, `--effort` (default `medium`; `low`, `high`, `xhigh` and `max`
+too), and `run.json` names it. Theseus on Sonnet 5.5 sends no effort unless its profile sets one, and the model's
+default is then high, where Claude Code and Pi send medium by their own defaults: the driver sets the scratch
+config's `profiles.bench.effort` (a Harbor run's level is its own, in `bench/theseus-bench.toml`), passes Claude Code
+`--effort` and Pi `--thinking`.
+
 **Days are dated text.** No arm's CLI takes a clock, so each session opens with its date. What this measures is
 recall of what was said on a dated day, across the arm's session boundaries and compactions. It can't measure the
 effect of time itself. Theseus and Claude Code see the real date in their system prompts too (Pi 1.0.4's has

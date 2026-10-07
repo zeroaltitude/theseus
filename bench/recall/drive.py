@@ -34,6 +34,9 @@ Each arm uses its own memory:
   after each mark's turn (`--cc-compact`). Compactions are read from its
   session log (`compact_boundary`). Its memory files are kept.
 
+Every arm runs at `--effort` (default `medium`): Theseus's `profiles.bench.effort`,
+Claude Code's `--effort`, Pi's `--thinking`.
+
 Every fact's delivery is checked: its marker's text in the arm's transcript.
 A probe whose fact never reached the arm is excluded by the scorer, and
 counted, never scored as a miss.
@@ -85,6 +88,9 @@ import tokens as tk  # noqa: E402
 
 PROFILE = HERE.parent / "theseus-bench.toml"
 CC_TOOLS = "Bash,Read,Write,Edit,Glob,Grep"
+# The effort levels Theseus's profile, Claude Code's `--effort` and Pi's
+# `--thinking` all take.
+EFFORTS = ("low", "medium", "high", "xhigh", "max")
 CC_AUTOCOMPACT_MIN = 100_000
 STOP_WAIT = 20.0
 SERVE_WAIT = 60.0
@@ -147,6 +153,7 @@ def theseus_config(
     spend_limit: float,
     max_loops: int,
     api_base: str | None = None,
+    effort: str | None = None,
 ) -> dict:
     """The scratch daemon's config: the bench profile with the run's lines
     set, then daemon.rs's `config_for` (memory live at the arm; Discord, the
@@ -155,6 +162,10 @@ def theseus_config(
     m = model_id(model)
     t.setdefault("model", {}).update({"model": m, "max_loops": max_loops})
     t.setdefault("profiles", {}).setdefault("bench", {}).update({"model": m, "max_loops": max_loops})
+    if effort:
+        # Sonnet 5.5's default, with none set, is high: the arms are held to
+        # the one level the run names.
+        t["profiles"]["bench"]["effort"] = effort
     t.setdefault("kernel", {})["spend_limit_usd"] = float(spend_limit)
     t.setdefault("tools", {})["projects_dir"] = str(workspace)
     t["memory"] = {**t.get("memory", {}), "mode": "live", "arm": memory_arm}
@@ -383,6 +394,7 @@ class Theseus:
             spend_limit=a.spend_limit,
             max_loops=a.max_loops,
             api_base=a.api_base,
+            effort=a.effort,
         )
         self.cfg.write_text(toml_dumps(cfg))
         self.env = _env_without(("THESEUS_CONFIG", "THESEUS_STATE_DIR", "THESEUS_SOCKET", "THESEUS_SESSION"))
@@ -575,7 +587,8 @@ class ClaudeCode:
 
     def call(self, text: str, sid: str, first: bool, timeout: float) -> tuple[dict, str, int | None, int]:
         cmd = [self.claude, "-p", "--output-format", "json", "--model", model_id(self.a.model),
-               "--tools", CC_TOOLS, "--allowedTools", CC_TOOLS, "--permission-prompts", "none"]
+               "--effort", self.a.effort, "--tools", CC_TOOLS, "--allowedTools", CC_TOOLS,
+               "--permission-prompts", "none"]
         if self.mode == "window":
             cmd += ["--autocompact", f"{max(CC_AUTOCOMPACT_MIN, self.window) // 1000}k"]
         cmd += ["--session-id", sid] if first else ["--resume", sid]
@@ -812,7 +825,8 @@ class Pi:
 
     def call(self, text: str, sid: str, timeout: float) -> tuple[dict, str, int | None, int]:
         cmd = [self.pi, "--print", "--mode", "json", "--session-dir", str(self.sessions), "--session-id", sid,
-               "--provider", self.provider, "--model", self.model, "--tools", PI_TOOLS]
+               "--provider", self.provider, "--model", self.model, "--thinking", self.a.effort,
+               "--tools", PI_TOOLS]
         cmd += self.a.pi_arg
         t0 = time.monotonic()
         out, _, code = run_group(cmd, text, timeout, cwd=self.run.workspace, env=self.env)
@@ -883,6 +897,9 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--progression", type=Path, required=True, help="a generator's out, or its progression.json")
     ap.add_argument("--out", type=Path, required=True, help="the run directory (new or empty)")
     ap.add_argument("--model", default="anthropic/claude-sonnet-5-5")
+    ap.add_argument("--effort", choices=EFFORTS, default="medium",
+                    help="reasoning effort on every arm: Theseus's profile `effort`, Claude Code's `--effort`, Pi's "
+                         "`--thinking`; run.json names it")
     ap.add_argument("--context-window", type=int, default=None, help="default: the progression's")
     ap.add_argument("--turn-timeout", type=float, default=900.0, help="seconds a turn may take")
     ap.add_argument("--allow-overhead", action="store_true",
@@ -914,7 +931,7 @@ def main(argv: list[str] | None = None) -> int:
     a = ap.parse_args(argv)
     prog = pg.load(a.progression)
     pg.validate(prog)
-    meta = {"model": a.model, "context_window": a.context_window or prog.context_window}
+    meta = {"model": a.model, "effort": a.effort, "context_window": a.context_window or prog.context_window}
     if a.arm == "theseus":
         meta["memory_arm"] = a.memory_arm
     run = Run(a.out, prog, a.arm, meta)
