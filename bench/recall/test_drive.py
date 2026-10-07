@@ -406,6 +406,17 @@ class PiDriver(unittest.TestCase):
         self.assertEqual((v["stop"], v["error"], v["answers"], v["cost_usd"]), ("error", "529 overloaded", 1, 0.0))
         self.assertEqual(drive.pi_turn([])["cost_usd"], None)
         self.assertTrue(drive.pi_failed(0, v), "print mode exits 0 on a provider's error")
+        # An aborted answer (a request cut off) fails the turn as an error does.
+        aborted = drive.pi_turn(drive.pi_events(json.dumps(
+            {"type": "message_end", "message": {"role": "assistant", "content": [], "stopReason": "aborted",
+                                                "usage": {"input": 0, "output": 0, "cost": {"total": 0}}}})))
+        self.assertEqual((aborted["stop"], aborted["answers"]), ("aborted", 1))
+        self.assertTrue(drive.pi_failed(0, aborted), "print mode exits 0 on an aborted answer too")
+        # And a turn that ended well, or answered nothing, is told from them.
+        stopped = dict(aborted, stop="stop")
+        self.assertFalse(drive.pi_failed(0, stopped))
+        self.assertTrue(drive.pi_failed(0, dict(stopped, answers=0)))
+        self.assertTrue(drive.pi_failed(1, stopped))
         # A compaction's own summary call is the turn's spend too.
         answer = {"role": "assistant", "content": [{"type": "toolCall", "id": "t1"}], "stopReason": "stop",
                   "usage": {"input": 100, "output": 10, "cacheRead": 50, "cost": {"total": 0.002}}}
