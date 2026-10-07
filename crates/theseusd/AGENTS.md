@@ -119,7 +119,9 @@ Key modules: `main.rs`, `web.rs`, `install/`. Read by: (a binary).
   `--stdio` client is `tests/common/stdio.rs`, each answer awaited with a bound.
 - A stop or a restart that comes as the daemon begins to serve meets after_serving's startup work. A test that
   checks what the next start replays holds the stop until the daemon has settled: `config_copy.rs` holds the fake
-  vault's read (`hold-read`) until `settled` (theseus-fts6).
+  vault's read (`hold-read`) until `settled`, and never past half of `op`'s `OP_TIMEOUT` (10 s), after which the
+  daemon gives up on the read and no restart comes (theseus-fts6). `settled` leaves out the history check, which
+  waits out a busy machine.
 - A wrapper's stop SIGTERMs every process it meets in its job's tree through the grace, one born after the first
   signal too, so a test job's SIGTERM trap must not fork for what it records: `stops.rs`'s took its time with
   `date`, which the wrapper's next look SIGTERMed, and left the file empty (theseus-y0lm). Take it in the shell
