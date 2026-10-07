@@ -86,7 +86,8 @@ build.
   a row of the motion table (`src/ship/motion.ts`): one event starts it, and every term of the shaders that moves with
   time names its row in a `motion:` comment, which a test reads (a new animation with no row fails it). A one-off (a
   flare, an oar growing out, a result flashing back) draws every display frame for its seconds; a state that moves
-  while it lasts (oars rowing, a gear, a wake, a flow) a steady `STEADY_FPS`; the swell alone `IDLE_FPS`, one
+  while it lasts (oars rowing, a gear, a wake, a flow) a steady `STEADY_FPS`, and `QUIET_FPS` once a minute has passed
+  with no event (`heard`: a long job, a long model call; theseus-n2hd); the swell alone `IDLE_FPS`, one
   composite pass a frame; the idle roll `ROLL_FPS`. A state that only waits (a question for the operator, a failure's
   pennant) is lit, not moved.
   **The sea is the work** (the owner's C5, `src/ship/sea.ts`): its height is tokens a minute and the turns running.

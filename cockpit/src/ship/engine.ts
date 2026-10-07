@@ -12,7 +12,7 @@
 // swell included, and the post-processing: a change draws one frame. `?swell=0` stills the sea for one page.
 import * as THREE from 'three'
 import { IDLE_FPS, Loop, type Tick } from './loop'
-import { motionsNow, paceOf, type MotionId } from './motion'
+import { heard, motionsNow, paceOf, type MotionId, type Quiet } from './motion'
 import { SEA_ROLL, seaPace, seaStep } from './sea'
 import { oarReach, type Light, type ShipModel } from './model'
 import { Post } from './post'
@@ -182,6 +182,9 @@ export class ShipEngine {
   private paceFps = 0
   /** The motions of the last frame (dev and bench: `window.__shipEngine.motions`). */
   motions: MotionId[] = []
+  /** The last event's time, for the lasting states' quiet pace (`heard`); `quiet` whether they keep it now. */
+  private quietQ: Quiet = { eventAt: 0, steady: '' }
+  quiet = false
   /** Each vessel's lantern: when it lit while the page watched (engine seconds), by session id. */
   private lanternAt = new Map<string, number>()
   /** `swellFrames`: frames that drew only the swell (the composite alone), a share of `frames`. */
@@ -1297,7 +1300,9 @@ export class ShipEngine {
     const camMoved = this.stepCamera(performance.now())
     const vesselsMoved = this.stepVessels(dt)
     const motions = this.motionsAt(t, camMoved || this.tween !== null)
-    const pace = paceOf(motions, IDLE_FPS)
+    // A lasting state with no event for a minute (a long job's gear, a long model call) draws at the quiet pace.
+    this.quiet = heard(this.quietQ, motions, t)
+    const pace = paceOf(motions, IDLE_FPS, this.quiet)
     this.motions = motions
     // The whole scene is drawn when something changed or moves. Otherwise only the swell moved: the composite alone is
     // drawn, over the sea's cache and the fleet's kept layer.

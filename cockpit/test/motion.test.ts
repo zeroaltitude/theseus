@@ -3,7 +3,9 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
-import { MOTIONS, motionsNow, paceOf, ROLL_FPS, STEADY_FPS, type MotionState } from '../src/ship/motion.ts'
+import {
+  heard, MOTIONS, motionsNow, paceOf, QUIET_AFTER_S, QUIET_FPS, ROLL_FPS, STEADY_FPS, type MotionState,
+} from '../src/ship/motion.ts'
 import { IDLE_FPS, Loop, type Clock } from '../src/ship/loop.ts'
 
 const idle: MotionState = {
@@ -144,4 +146,69 @@ test('Live mode with nothing happening rolls the sea slowly: the composite alone
   drawn = 0
   run(20_000)
   assert.equal(drawn, 0, 'a hidden tab rolls nothing')
+})
+
+test('a lasting state drops to the quiet pace after a minute with no event, and an event brings it back (theseus-n2hd)', () => {
+  assert.ok(QUIET_FPS <= STEADY_FPS / 2 && QUIET_FPS >= 8, `a gear still reads as turning: ${QUIET_FPS}`)
+  assert.equal(QUIET_AFTER_S, 60)
+  assert.deepEqual(paceOf(['gear'], IDLE_FPS, true), { fps: QUIET_FPS, full: true, display: false })
+  // Quiet never slows a one-off, the sea, or the roll.
+  assert.equal(paceOf(['gear', 'failed'], IDLE_FPS, true).fps, 60)
+  assert.equal(paceOf(['sea'], IDLE_FPS, true).fps, IDLE_FPS)
+  assert.equal(paceOf(['roll'], IDLE_FPS, true).fps, ROLL_FPS)
+  const q = { eventAt: 0, steady: '' }
+  // A job starts (its gear): an event. A minute of its gear and nothing else: quiet.
+  assert.equal(heard(q, ['gear', 'roll'], 10), false)
+  assert.equal(heard(q, ['gear', 'roll'], 69.9), false)
+  assert.equal(heard(q, ['gear', 'roll'], 70), true)
+  assert.equal(heard(q, ['gear', 'roll'], 3600), true)
+  // The operator's camera is not an event.
+  assert.equal(heard(q, ['camera', 'gear'], 3601), true)
+  // A one-off (a result back, a failure) is: the steady pace again, for a minute.
+  assert.equal(heard(q, ['result-back', 'gear'], 3602), false)
+  assert.equal(heard(q, ['gear'], 3661), false)
+  assert.equal(heard(q, ['gear'], 3662), true)
+  // So is a change in the lasting states: a turn starts to row beside the job.
+  assert.equal(heard(q, ['rowing', 'gear'], 3663), false)
+  assert.equal(heard(q, ['rowing', 'gear'], 3724), true)
+  assert.equal(heard(q, ['gear'], 3725), false, 'the turn ended')
+  // On the loop: a gear at 30 for its first minute, then at 10.
+  const frames: ((w: number) => void)[] = []
+  const timers: { at: number; cb: () => void }[] = []
+  let t = 0
+  const clock: Clock = {
+    now: () => t, frame: (cb) => frames.push(cb), cancelFrame: () => {}, hidden: () => false,
+    timer: (cb, ms) => timers.push({ at: t + ms, cb }), cancelTimer: () => {},
+  }
+  const run = (until: number) => {
+    while (t < until) {
+      const vs = (Math.floor(t / (1000 / 60) + 1e-6) + 1) * (1000 / 60)
+      timers.sort((a, b) => a.at - b.at)
+      const next = Math.min(timers[0]?.at ?? Infinity, frames.length ? vs : Infinity)
+      if (next > until) { t = until; return }
+      t = next
+      if (timers[0]?.at === t) timers.shift()!.cb()
+      else frames.splice(0).forEach((cb) => cb(t))
+    }
+  }
+  const lq = { eventAt: 0, steady: '' }
+  let quiet = false
+  let drawn = 0
+  const loop = new Loop(clock, (when) => {
+    drawn++
+    quiet = heard(lq, ['gear'], when / 1000)
+    return false
+  }, () => paceOf(['gear'], IDLE_FPS, quiet).fps)
+  loop.request()
+  run(50_000)
+  assert.ok(Math.abs(drawn / 50 - STEADY_FPS) <= 1.5, `the first minute at the steady pace: ${(drawn / 50).toFixed(1)} a second`)
+  run(70_000)
+  drawn = 0
+  run(130_000)
+  assert.ok(Math.abs(drawn / 60 - QUIET_FPS) <= 1.5, `then the quiet pace: ${(drawn / 60).toFixed(1)} a second`)
+})
+
+test('the engine paces its lasting states by what it heard', () => {
+  const engine = readFileSync(new URL('../src/ship/engine.ts', import.meta.url), 'utf8')
+  assert.match(engine, /this\.quiet = heard\(this\.quietQ, motions, t\)\s+const pace = paceOf\(motions, IDLE_FPS, this\.quiet\)/)
 })
