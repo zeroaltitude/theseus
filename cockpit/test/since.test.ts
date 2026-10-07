@@ -3,7 +3,10 @@
 // replay's moments.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { LOOK_GAP_MS, lookAt, looked, replayMoments, sinceOf, type SinceInput } from '../src/ship/since.ts'
+import { readFileSync } from 'node:fs'
+import { LOOK_GAP_MS, lookAt, looked, replayMoments, sinceOf, StretchWalk, type SinceInput } from '../src/ship/since.ts'
+import { DayScan, DAY_MS, endOf, median, startOf, watchOf } from '../src/ship/watch.ts'
+import { busyDay, randomLedger, said, seeded } from './busy.ts'
 
 const HOUR = 3_600_000
 const MIN = 60_000
@@ -182,4 +185,85 @@ test('a replay gives the busy minutes its time, from the stretch start to its en
   // With nothing in it, the stretch sweeps evenly.
   const even = replayMoments([], from, from + 4 * MIN, 5)
   assert.deepEqual(even, [from, from + MIN, from + 2 * MIN, from + 3 * MIN, from + 4 * MIN])
+})
+
+// ---------------------------------------------------------------- kept between recomputes (theseus-qilc)
+
+test('a kept walk tells what a fresh one tells: live as rows come, through a replay, and after "seen"', () => {
+  for (const seed of [1, 2, 3]) {
+    const rows = randomLedger(seed, 2400, NOW - 40 * HOUR)
+    const r = seeded(seed + 200)
+    const walk = new StretchWalk()
+    // Away from the 300th row to the 1,500th; then live, the rows coming and the moment moving on with them.
+    const since = rows[300].at_unix_ms
+    const until = rows[1500].at_unix_ms
+    const tell = (o: Partial<SinceInput>, where: string) => {
+      const input = at({ model: null, confirms: [], since, until, ...o })
+      assert.deepEqual(said(sinceOf(input, walk)), said(sinceOf(input)), `seed ${seed}: ${where}`)
+    }
+    for (let n = 1600; n < rows.length; n += 1 + Math.floor(r() * 60)) {
+      const read = walk.read
+      tell({ rows: rows.slice(0, n), now: rows[n - 1].at_unix_ms }, `live, ${n} rows`)
+      // Once the walk has read the stretch, a live recompute reads only the rows near its end.
+      if (n > 1700) assert.ok(walk.read - read <= 60, `live, ${n} rows: ${walk.read - read} rows read`)
+    }
+    // The replay: the moment from the stretch's start to its end, each step reading only the rows it moves over.
+    const read = walk.read
+    for (const now of replayMoments(rows.map((x) => x.at_unix_ms), since, until, 96)) tell({ rows, now }, `replay at ${now}`)
+    const inStretch = endOf(rows, until) - startOf(rows, since)
+    assert.ok(walk.read - read <= 2 * inStretch, `the replay read ${walk.read - read} rows for a stretch of ${inStretch}`)
+    // Seen: the plate starts over, quiet, and the next stretch is read afresh.
+    tell({ rows, now: until, since: until }, 'seen')
+    tell({ rows, now: rows[2000].at_unix_ms, since: rows[1800].at_unix_ms, until: rows[1900].at_unix_ms }, 'the next stretch')
+  }
+})
+
+test("a busy day's replay: each step reads only the rows it moves over, the watch and the sixth plate both", () => {
+  // 50,000 rows a day, a stretch of twelve hours away, replayed in 96 steps (twelve seconds at 8 a second).
+  const rows = busyDay(50_000, NOW)
+  const dayStart = Date.UTC(2026, 9, 6, 7, 0, 0)
+  const since = NOW - 12 * HOUR - 10 * MIN
+  const until = NOW - 10 * MIN
+  const moments = replayMoments(rows.map((x) => x.at_unix_ms), since, until, 96)
+  const step = (now: number, day?: DayScan, walk?: StretchWalk) => {
+    const input = { model: null, actions: [], confirms: [], rows, rowsReady: true, now, dayStart, dayEnd: dayStart + DAY_MS }
+    watchOf(input, day)
+    sinceOf({ ...input, since, until }, walk)
+  }
+  // A replay before, as the page has run its recomputes before one: the second is timed.
+  let day = new DayScan()
+  let walk = new StretchWalk()
+  for (const now of moments) step(now, day, walk)
+  day = new DayScan()
+  walk = new StretchWalk()
+  step(moments[0], day, walk)
+  const read = day.read + walk.read
+  const kept: number[] = []
+  const fresh: number[] = []
+  moments.slice(1).forEach((now, k) => {
+    let t = performance.now()
+    step(now, day, walk)
+    kept.push(performance.now() - t)
+    // A fresh read of the day and the stretch, every fourth step, timed beside it.
+    if (k % 4) return
+    t = performance.now()
+    step(now)
+    fresh.push(performance.now() - t)
+  })
+  // Each row of the stretch is read by each at most twice (once before its time, again when the moment reaches it),
+  // where reading the day afresh at each step would read about 96 × 45,000.
+  const inStretch = endOf(rows, until) - startOf(rows, since)
+  assert.ok(day.read + walk.read - read <= 4 * inStretch, `the replay read ${day.read + walk.read - read} rows for a stretch of ${inStretch}`)
+  // Side by side, so a loaded machine slows both: a kept step is a small part of a fresh read (2 to 4 ms on a quiet
+  // machine: the report's FAST).
+  const [k, f] = [median(kept)!, median(fresh)!]
+  assert.ok(k < f / 3, `a kept replay step takes ${k.toFixed(1)} ms at the median, a fresh read ${f.toFixed(1)} ms`)
+})
+
+test('the watch keeps its scan and its walk between recomputes, one each, and hands them to every recompute', () => {
+  const src = readFileSync(new URL('../src/ship/Watch.tsx', import.meta.url), 'utf8')
+  assert.match(src, /const \[day\] = useState\(\(\) => new DayScan\(\)\)/)
+  assert.match(src, /const \[walk\] = useState\(\(\) => new StretchWalk\(\)\)/)
+  assert.match(src, /watchOf\(\{[^}]*\}, day\)/)
+  assert.match(src, /sinceOf\(\{[^}]*\}, walk\)/)
 })

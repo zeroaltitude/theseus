@@ -32,7 +32,11 @@ build.
   out five (working, waiting, slow against each job's usual, spent with a day of 23 to 25 hours, went wrong) and
   `src/ship/since.ts` the sixth, since you last looked, whose stretch this browser keeps (`cockpit.watch.looked`) and
   whose replay runs the time machine. Keys 1 to 6 toggle their overlays. Their tests are `test/watch.test.ts` and
-  `test/since.test.ts`.
+  `test/since.test.ts`. The watch keeps the day's scan (`DayScan`) and the stretch's walk (`StretchWalk`) between
+  recomputes (theseus-qilc): the ledger's rows only join its end and the live moment (and a replay's) only moves on,
+  so a recompute reads only the rows since its last, and a median is a look; a moment moved back reads afresh. A kept
+  read says what a fresh one says: a test holds it on seeded ledgers (`test/busy.ts`), and holds a busy day's recompute
+  and replay step under a frame.
 - `src/components/PromptPicker.tsx` (beside the composer; its pure parts are `src/lib/prompts.ts`): runs an MCP server's
   prompt as the next turn, a field per argument, through `turn.submit { prompt }`.
 - `src/components/Extensions.tsx` (in Systems; its pure parts are `src/lib/extensions.ts`): the loaded extensions
