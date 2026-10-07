@@ -573,6 +573,35 @@ fn a_stdio_daemon_stops_cleanly_on_a_sigterm_or_a_sigint() {
     }
 }
 
+/// A `--stdio` daemon stops on the protocol's `shutdown` (theseus-yg1y), as
+/// the socket daemon does: the answer, then exit 0, the last
+/// `server.stopping` row the method's (a signal's names it), and the next
+/// open of its store replays nothing and repairs nothing. Its serving loop
+/// had no branch for the stop's wake, so it answered and went on serving.
+#[test]
+fn a_stdio_daemon_stops_on_the_shutdown_method() {
+    let rig = Rig::new();
+    let (mut d, mut c) = rig.spawn_stdio();
+    rig.stdio_settled(&mut c);
+    assert_eq!(c.call("shutdown", Value::Null), Ok(json!({"ok": true})));
+    let status = rig.wait("the stop", || d.try_wait());
+    assert!(status.success(), "{status}: {}", tail(&rig.log(), 20));
+    let (_d, mut c) = rig.spawn_stdio();
+    rig.stdio_replayed_nothing(&mut c, "shutdown");
+    let rows = c.call("ledger.tail", json!({"n": 200})).unwrap();
+    let stopping: Vec<&Value> = rows["rows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|r| r["kind"] == "server.stopping")
+        .collect();
+    assert_eq!(
+        stopping.last().map(|r| r["data"].clone()),
+        Some(Value::Null),
+        "the method's row names no signal: {stopping:?}"
+    );
+}
+
 /// A `--stdio` daemon's stop while a task on the runtime's blocking pool
 /// still holds the core (theseus-xbtr): the plant holds it 1.5 s past the
 /// stop's start, as a warm build can on a loaded machine. The runtime's end

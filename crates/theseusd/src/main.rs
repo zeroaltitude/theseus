@@ -556,6 +556,14 @@ async fn daemon(cli: Cli, lookup: Lookup, origin: Instant) -> Result<Exit> {
         use tokio::signal::unix::{signal, SignalKind};
         let mut sigint = signal(SignalKind::interrupt())?;
         let mut sigterm = signal(SignalKind::terminate())?;
+        // The `shutdown` method's wake, registered before anything is served,
+        // as `serve_socket`'s is: `notify_waiters` wakes only the waiters
+        // registered when it is called, and with no branch for it the daemon
+        // answered `shutdown` and went on serving (theseus-yg1y). A restart
+        // notifies it too, after asking: `exit` execs whichever branch wins.
+        let stop = core.shutdown.notified();
+        tokio::pin!(stop);
+        stop.as_mut().enable();
         tokio::spawn(after_serving(core.clone(), keep, None, state_dir, mode));
         stdio::planted_hold(&core);
         let (stdin, stdout) = stdio::pipes()?.into_split();
@@ -566,6 +574,10 @@ async fn daemon(cli: Cli, lookup: Lookup, origin: Instant) -> Result<Exit> {
             .serve_connection(stdin, stdout, Client::new("stdio", Surface::Cli));
         let served = tokio::select! {
             r = conn => r,
+            () = &mut stop => {
+                tracing::info!("shutdown requested over protocol");
+                Ok(())
+            }
             _ = core.restart_asked() => Ok(()),
             _ = sigint.recv() => {
                 tracing::info!(signal = "SIGINT", "stopping on a signal");
