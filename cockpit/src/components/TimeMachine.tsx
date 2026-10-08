@@ -11,7 +11,7 @@ import { marksOf, type Mark, type MarkKind } from '@/lib/marks'
 import { FOLDS } from '@/lib/world'
 import { useTick } from '@/lib/hooks'
 import { useCalm } from '@/lib/calm'
-import { clock, cn, ms, stamp } from '@/lib/format'
+import { clock, cn, monthDay, ms, stamp } from '@/lib/format'
 
 const SPANS = { '1h': 3_600_000, '6h': 21_600_000, '1d': 86_400_000, all: Infinity } as const
 type Span = keyof typeof SPANS
@@ -266,7 +266,7 @@ export function TimeMachine() {
           title={folds ? 'The cockpit shows this moment, folded from the ledger. Click to return to the present.' : 'This view shows the present; the Ship, Fleet, Actions, the money river, the boundaries board, and the session deck transcript show this moment.'}>
           <span className="font-display text-[11px] font-bold tracking-[0.14em] text-wait">AS OF</span>
           <span className="num text-[13px] font-semibold text-ivory">{clock(t)}</span>
-          <span className="text-[10.5px] text-ink-faint">{new Date(t).toDateString() === new Date(now).toDateString() ? '' : new Date(t).toLocaleDateString([], { month: 'short', day: 'numeric' })}</span>
+          <span className="text-[10.5px] text-ink-faint">{new Date(t).toDateString() === new Date(now).toDateString() ? '' : monthDay(t)}</span>
           <span className="text-ink-faint">·</span>
           <span className="font-display text-[10.5px] font-bold tracking-[0.12em] text-live">return to LIVE</span>
           {!folds && <span className="text-[10px] text-ink-faint">(this view is live)</span>}

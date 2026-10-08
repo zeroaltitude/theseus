@@ -54,6 +54,8 @@ export function summarize(r: LedgerEntry): string {
       return `notified · ${s('tool')} · ${s('summary')} · ${s('setting')}${d.granted ? ` · 🔑 ${s('granted')}` : ''}`
     case 'secret.granted': return `${d.program ? `${s('program')} got ${s('variable')}` : `${s('tool')} got`} (${s('secret')}) · ${s('correlation_id')}`
     case 'secret.withheld': return `${s('program')} got no ${s('variable')} (${s('secret')}): ${s('why')}`
+    case 'job.wrapper_gone':
+      return `${s('tool')} · job ${s('correlation_id')} lost its wrapper (pid ${s('pid')}) while the daemon was down · outcome unknown`
     case 'job.wrapper_lost':
       return `${s('tool')} · job ${s('correlation_id')} lost its wrapper (pid ${s('pid')}, signal ${s('signal')}) before it reported · outcome unknown`
     case 'approval.refused':

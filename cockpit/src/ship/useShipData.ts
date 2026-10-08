@@ -24,7 +24,7 @@ import type {
 import { onNewRows } from '@/lib/history'
 import { call, client, useConn, useRpc } from '@/lib/rpc'
 import type { World } from '@/lib/timemachine'
-import { flareOf, flaresOfRows, newFlares } from './flares.ts'
+import { flareOf, flaresOfRows, isStoppingFailure, newFlares } from './flares.ts'
 import { buildModel, type ReachLink, type ShipModel } from './model'
 import { tpmOf } from './sea.ts'
 import { mergeActions } from './watch.ts'
@@ -246,7 +246,7 @@ export function useShipLive(selected: string | undefined, world: World | null): 
           break
         case 'turn.failed':
           if (sid) {
-            const flare = flareOf(flares, { session: sid, turn: typeof p.turn_id === 'string' ? p.turn_id : null, heard: Date.now() })
+            const flare = !isStoppingFailure(p) && flareOf(flares, { session: sid, turn: typeof p.turn_id === 'string' ? p.turn_id : null, heard: Date.now() })
             store.setState((s) => ({
               failedAt: flare ? withMap(s.failedAt, sid, Date.now()) : s.failedAt, streaming: withMap(s.streaming, sid, undefined), arrivals: arrive(s),
               active: s.active.has(sid) ? withMap(s.active, sid, undefined) : s.active,

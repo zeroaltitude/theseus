@@ -18,7 +18,7 @@ import type { ConfirmRequest, ExecutionInfo, Health, LedgerEntry, SessionInfo } 
 import { useRpc } from '@/lib/rpc'
 import { providerCalls, spendCurve, totalIn, turnRows, useLedger, type ProviderCall, type RateLimit } from '@/lib/derive'
 import { useHistoryRows } from '@/lib/history'
-import { ago, clock, ms, pct, short, stamp, tokens, usd } from '@/lib/format'
+import { ago, clock, monthDay, ms, pct, short, stamp, tokens, usd } from '@/lib/format'
 import { ledgerKind, stateTone, type Tone } from '@/lib/taxonomy'
 import { Echart } from '@/components/Echart'
 import type { EChartsOption } from '@/lib/chart'
@@ -205,7 +205,7 @@ const PULSE_H = 236
 /** The span's bins, in words: the time, with the day when the span crosses one. */
 function binWords(b: Bins, i: number): string {
   const long = b.ends[b.ends.length - 1] - b.starts[0] > 20 * 3600_000
-  const day = (t: number) => new Date(t).toLocaleDateString([], { month: 'short', day: 'numeric' })
+  const day = monthDay
   return long ? `${day(b.starts[i])} ${clock(b.starts[i]).slice(0, 5)} – ${day(b.ends[i])} ${clock(b.ends[i]).slice(0, 5)}` : `${clock(b.starts[i])} – ${clock(b.ends[i])}`
 }
 
