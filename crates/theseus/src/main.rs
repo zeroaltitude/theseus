@@ -15,6 +15,7 @@
 mod budgets;
 mod cmd;
 mod extend;
+mod follow;
 mod herdr;
 mod herdr_sync;
 mod import;
@@ -66,7 +67,8 @@ Quick start:
   theseus catalog                            models, context windows, and prices
   theseus index search \"port 7433\"           find what was said, run, or read; `index status`: how far the index has read
   theseus memory recalled <session>          what recall would have admitted on each turn, and why it dropped the rest
-  theseus --spawn ask \"...\"                 no daemon: spawn theseusd on stdio for one turn, then stop it cleanly
+  theseus --spawn ask \"...\"                 no daemon: spawn theseusd on stdio for one turn and what it left for
+                                             later (a job's late result, a wake: --follow-for), then stop it cleanly
   theseus shutdown
 
 Web UI:      http://127.0.0.1:7433/  (while theseusd runs)
@@ -77,7 +79,8 @@ More:        theseus <command> --help";
 /// `theseus ask --help`'s exit codes (theseus-n88g.2): how the turn ended,
 /// for a script or a benchmark's harness that runs it headless.
 const ASK_EXIT_CODES: &str = "\
-Exit codes, by how the turn ended (`--json` gives its stop_reason in full):
+Exit codes, by how the turn ended, the last one under --spawn's follow (`--json` gives its stop_reason
+in full):
   0  done: the model ended its turn
   1  failed: a provider's or a tool's fault, or the daemon's error
   2  usage · 3 cannot connect or spawn theseusd
@@ -86,7 +89,8 @@ Exit codes, by how the turn ended (`--json` gives its stop_reason in full):
   7  the model refused
   8  a limit ended the turn before the model did: the loop cap, the output limit, or the context window
   9  stopped: by an operator (/stop, `theseus stop`), or, under --spawn, by a SIGINT or SIGTERM, which
-     stops the turn as /stop does, with what it spent, before the spawned daemon's clean stop
+     stops the turn as /stop does, with what it spent, before the spawned daemon's clean stop; during
+     the follow, it stops the session's later work (its jobs, a later turn) the same way
   130 or 143  under --spawn, a second SIGINT or SIGTERM ended the run before the turn stopped";
 
 #[derive(Parser, Debug)]
@@ -420,6 +424,11 @@ struct AskArgs {
     /// model reads page by page; or any other file up to 32 MiB, kept for the model.
     #[arg(long = "attach", value_name = "FILE")]
     attach: Vec<PathBuf>,
+    /// Under --spawn: after the turn, keep the daemon up while what it left for later can still
+    /// come back (a job's late result, a wake due within the bound) and print each turn that
+    /// comes, for at most this long (30m, 90s, 2h). 0 follows nothing.
+    #[arg(long, value_name = "DURATION", default_value = follow::FOLLOW_FOR, value_parser = follow::parse_follow_for)]
+    follow_for: std::time::Duration,
 }
 
 #[derive(Args, Debug)]
@@ -795,9 +804,11 @@ async fn run(cli: Cli) -> Result<()> {
     if let Cmd::Tui { args } = &cli.cmd {
         return cmd::tui(&cli.socket, cli.spawn.is_some(), args);
     }
-    let mut conn = match &cli.spawn {
-        Some(bin) => Conn::spawn(bin)?,
-        None => Conn::socket(&cli.socket).await?,
+    let mut conn = match (&cli.spawn, &cli.cmd) {
+        // One run's daemon, followed for its bound (theseus-mqxk).
+        (Some(bin), Cmd::Ask(a)) => Conn::spawn_with(bin, &follow::daemon_args(a.follow_for))?,
+        (Some(bin), _) => Conn::spawn(bin)?,
+        (None, _) => Conn::socket(&cli.socket).await?,
     };
     let (c, json, spawned) = (&mut conn, cli.json, cli.spawn.is_some());
     let result = match cli.cmd {

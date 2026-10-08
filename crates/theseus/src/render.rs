@@ -27,6 +27,7 @@ mod imported;
 mod index;
 mod judge;
 mod judge_runs;
+pub mod later;
 mod learning;
 mod lsp;
 mod mcp;
@@ -457,7 +458,7 @@ pub fn status_line(r: &TurnSubmitResult) -> String {
         None => format!(" · route {}", ro.reason),
     });
     format!(
-        "[{} → {}/{}{} · {} loop(s){}{} · {} · tokens in {} out {}{}{} · {} ms{} · session {}]",
+        "[{} → {}/{}{} · {} loop(s){}{} · {} · tokens in {} out {}{}{} · {} ms{} · session {}{}]",
         r.profile,
         r.provider,
         r.model,
@@ -468,11 +469,7 @@ pub fn status_line(r: &TurnSubmitResult) -> String {
         } else {
             String::new()
         },
-        if r.continuation {
-            " · continuation"
-        } else {
-            ""
-        },
+        ["", " · continuation"][usize::from(r.continuation)],
         r.stop_reason,
         r.usage.input_tokens,
         r.usage.output_tokens,
@@ -484,7 +481,8 @@ pub fn status_line(r: &TurnSubmitResult) -> String {
         r.first_token_ms
             .map(|t| format!(" (first token {t} ms)"))
             .unwrap_or_default(),
-        r.session_id
+        r.session_id,
+        later::left(r)
     )
 }
 

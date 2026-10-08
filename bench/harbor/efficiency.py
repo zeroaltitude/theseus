@@ -120,6 +120,18 @@ def _provider_spans(span: dict[str, Any] | None) -> int:
     return own + sum(_provider_spans(c) for c in span.get("children") or [])
 
 
+def run_turn_ids(turn: dict[str, Any] | None) -> tuple[str, ...] | None:
+    """The turns `theseus --json ask`'s result accounts for: its own, and
+    after a follow (theseus-mqxk: a late result's turn, a wake's) the ask's
+    (`asked`) and each followed one (`continuations`), whose spend the
+    result sums. None when it names no turn."""
+    tid = (turn or {}).get("turn_id")
+    if tid is None:
+        return None
+    more = [(turn or {}).get("asked") or {}] + list((turn or {}).get("continuations") or [])
+    return (tid, *(t["turn_id"] for t in more if t.get("turn_id")))
+
+
 def theseus_spend(turn: dict[str, Any] | None, history: dict[str, Any] | None) -> dict[str, Any]:
     """A Theseus trial's spend, from `theseus --json ask`'s result (`turn`)
     and `theseus --json history`.
@@ -131,9 +143,9 @@ def theseus_spend(turn: dict[str, Any] | None, history: dict[str, Any] | None) -
     model. A turn cut short printed no result: then the history's answers
     are the spend, as `theseus_atif.spend` sums them."""
     nodes = (history or {}).get("nodes") or []
-    tid = (turn or {}).get("turn_id")
+    tids = run_turn_ids(turn)
     answers = [n for n in nodes if n.get("kind") == "assistant_message"
-               and (tid is None or n.get("turn_id") in (None, tid))]
+               and (tids is None or n.get("turn_id") in (None, *tids))]
     by_model: dict[str, dict[str, Any]] = {}
     costs: list[float | None] = []
     for n in answers:
@@ -155,8 +167,11 @@ def theseus_spend(turn: dict[str, Any] | None, history: dict[str, Any] | None) -
             m.update(_add(m, {c: max(v, 0) for c, v in left.items()}))
             if m["cost_usd"] is not None:
                 m["cost_usd"] = None if cost_left is None else round(m["cost_usd"] + max(cost_left, 0), 6)
-        # The trace counts every call; without one, the answers, else the loops.
-        calls = _provider_spans(turn.get("trace")) or len(answers) or int(turn.get("loops") or 0)
+        # The trace counts every call; without one, the answers, else the
+        # loops. A followed run's trace is its last turn's alone: its answers.
+        followed = bool(turn.get("continuations"))
+        calls = (0 if followed else _provider_spans(turn.get("trace"))) or len(answers) \
+            or int(turn.get("loops") or 0)
         tools = turn.get("tool_calls")
         if tools is None:
             tools = sum(1 for n in nodes if n.get("kind") == "tool_call")

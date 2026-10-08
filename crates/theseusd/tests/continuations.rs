@@ -247,6 +247,9 @@ fn a_late_results_turn_runs_on_the_profile_that_started_the_job() {
     let _daemon = r.spawn();
     let first = ask_glm(&r.path("sock"), "Run the job").unwrap();
     assert_eq!(first["profile"], "glm", "{first}");
+    // A socket daemon's result names nothing left for later: its late
+    // results come back on their own (theseus-mqxk).
+    assert!(first.get("later").is_none(), "{first}");
     r.late_result_answered(0);
     r.all_on_glm(1);
 }
@@ -292,4 +295,12 @@ fn a_wakes_turn_runs_on_the_profile_of_the_turn_that_set_it() {
         (fired == 1 && started == 2 && r.rows("turn.ended").len() == 2).then_some(())
     });
     r.all_on_glm(1);
+    // The socket daemon's words for the wake are as they were, and its
+    // result names nothing left (theseus-mqxk).
+    assert!(first.get("later").is_none(), "{first}");
+    let said = r.model.requests().iter().any(|q| {
+        let m = q["messages"].to_string();
+        m.contains("This conversation gets a turn then") && !m.contains("will not fire")
+    });
+    assert!(said, "the wake's answer changed");
 }

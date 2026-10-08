@@ -877,8 +877,13 @@ pub fn job_in_cmdline(cmdline: &[u8]) -> Option<String> {
 /// `theseusd`'s options that take a value (theseus-6uo): what follows one is
 /// its value, never a subcommand. A test in `theseusd` keeps this in step with
 /// its command line.
-pub const DAEMON_VALUE_FLAGS: [&str; 4] =
-    ["--config", "--op-token-file", "--socket", "--state-dir"];
+pub const DAEMON_VALUE_FLAGS: [&str; 5] = [
+    "--config",
+    "--one-shot",
+    "--op-token-file",
+    "--socket",
+    "--state-dir",
+];
 
 /// Is this command line a serving `theseusd` (theseus-6uo)? Its program's file
 /// name is `theseusd`, and no subcommand follows: the socket daemon or

@@ -370,6 +370,9 @@ pub fn set(
         span(w.due_at_ms.saturating_sub(now))
     );
     let series = w.repeat.as_ref().map(series_of);
+    // A daemon spawned for one run ends with it (theseus-mqxk): a wake due
+    // after that never fires here, and the model hears so.
+    let after_run = tc.outbox.one_shot.wake_after_run(now, w, &s, &when);
     if set.set {
         tc.record(&crate::fact::tool::WakeSet {
             short: &s,
@@ -379,7 +382,9 @@ pub fn set(
             series: series.as_deref(),
         });
     }
-    let text = if set.set && w.repeat.is_some() {
+    let text = if let Some(words) = after_run.clone() {
+        words
+    } else if set.set && w.repeat.is_some() {
         format!(
             "Set wake {s}, {}, first at {when}; {} of {MAX_PENDING} wakes are pending (a series \
              counts once), and its id is {}. This conversation gets a turn at each occurrence, \
@@ -415,6 +420,9 @@ pub fn set(
         "set": set.set,
         "target": target,
     });
+    if after_run.is_some() {
+        meta["after_run"] = json!(true);
+    }
     if let Some(r) = &w.repeat {
         meta["every"] = json!(r.every.to_string());
         meta["days"] = json!(r.days);

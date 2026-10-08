@@ -96,7 +96,8 @@ pub async fn run(
     spawned: bool,
 ) -> Result<()> {
     let p = serde_json::to_value(params(&a)?)?;
-    crate::cmd::stream_turn(conn, json, no_stream, p, a.thinking, a.trace, spawned).await
+    let shown = (a.thinking, a.trace);
+    crate::cmd::stream_turn(conn, json, no_stream, p, shown, spawned, None).await
 }
 
 #[cfg(test)]

@@ -52,6 +52,7 @@ pub mod memory_pass;
 pub mod narrative;
 pub mod node;
 pub mod node_cache;
+pub mod one_shot;
 pub mod ontology;
 pub mod outbound;
 pub mod outbox;

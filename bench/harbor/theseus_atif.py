@@ -121,11 +121,15 @@ def _unanswered(history: dict[str, Any], turn: dict[str, Any]) -> dict[str, Any]
     model call that a stop cut (a timeout's), or one that failed, which the
     kernel settled at its own estimate. One agent step holds those tokens and
     that cost, so the trajectory's totals are the turn's, as Harbor's are."""
+    # A followed run's result (theseus-mqxk) sums its turns: the ask's
+    # (`asked`) and each followed one (`continuations`).
     tid = turn.get("turn_id")
+    more = [turn.get("asked") or {}] + list(turn.get("continuations") or [])
+    tids = {tid, *(t.get("turn_id") for t in more)} - {None}
     answers = [
         n.get("detail") or {}
         for n in history.get("nodes") or []
-        if n.get("kind") == "assistant_message" and (tid is None or n.get("turn_id") == tid)
+        if n.get("kind") == "assistant_message" and (tid is None or n.get("turn_id") in tids)
     ]
     usage = turn.get("usage") or {}
     left = {

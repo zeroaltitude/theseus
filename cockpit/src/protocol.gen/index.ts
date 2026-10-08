@@ -185,6 +185,8 @@ export type * from './JudgeScored';
 export type * from './KernelStatus';
 export type * from './LabelCounts';
 export type * from './LatencyRow';
+export type * from './Later';
+export type * from './LaterWake';
 export type * from './LearnClass';
 export type * from './LearnQuestion';
 export type * from './LearnThreshold';

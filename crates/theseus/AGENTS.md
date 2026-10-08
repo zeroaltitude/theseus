@@ -15,6 +15,13 @@ Key modules: `main.rs`, `cmd.rs`, `render.rs`, `client.rs`. Read by: (a binary).
 - `src/cmd.rs`: one function per subcommand, and `output()`. `ask --attach FILE` sends a text file's text and any
   other file's bytes, up to 32 MiB, for the daemon to keep and read (an image, a PDF; theseus-c9l6). `tui` connects nothing: it execs `theseus-tui`, found
   beside this binary or else on PATH, with `--socket` first and the arguments after it (step 10f).
+- `src/follow.rs`: `ask` under `--spawn` follows what its turn left for later (theseus-mqxk): main.rs spawns
+  `theseusd --stdio --one-shot SECS` for an `ask`, each turn's result names its `later` (jobs running, a result
+  queued, wakes), and while a turn can still come within `--follow-for` (`FOLLOW_FOR`, 30 minutes, the owner's call)
+  the ask prints each one and stops when none is left, or says what still runs at the bound. `--json` stays one
+  object (`combined`: the last turn's result, its spend summed, `asked` and `continuations`), and the exit code is
+  the last turn's; a first signal stops the session's work (exit 9 when no turn ran), a second ends the run.
+  `render/later.rs` is the status line's words for what a run left behind.
 - `src/print.rs`: the `Printer`, which writes the library's lines in one of four modes: `Text` (`ask`), `Quiet`
   (`ask --no-stream`), `Watch` (`watch`), and `Json`.
 - `src/render/history.rs`: `theseus history`'s own lines: each node with its short id, which `theseus reach` takes
@@ -40,6 +47,8 @@ Key modules: `main.rs`, `cmd.rs`, `render.rs`, `client.rs`. Read by: (a binary).
 - `tests/golden.rs` compares each scenario's output with its golden in `tests/golden/`.
   `THESEUS_GOLDEN=write cargo nextest run --workspace -E 'package(theseus)'` rewrites them: only for an output change
   you mean, with the diff read.
+- The follow's tests run the real binaries: theseusd's `tests/spawn_follow.rs`. A theseusd test runs the
+  `theseus` beside its binary, which `cargo nextest run -p theseusd` does not rebuild: build `-p theseus` first.
 - `tests/connect.rs` covers how the CLI reaches a daemon (`--spawn`, and exit 3). `main` reads exit 3 from the
   error's text, which the library writes, so these tests hold the two together.
 - `tests/refusal.rs` covers a refused answer: `theseus confirm` prints the daemon's reason and exits 1.

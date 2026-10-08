@@ -73,8 +73,15 @@ impl Conn {
     /// process's. `close` stops it cleanly; a connection dropped without
     /// `close` kills it.
     pub fn spawn(bin: &str) -> Result<Self> {
+        Self::spawn_with(bin, &[])
+    }
+
+    /// `spawn`, with more of the daemon's arguments after `--stdio`: an
+    /// `ask`'s `--one-shot SECS` (theseus-mqxk).
+    pub fn spawn_with(bin: &str, args: &[String]) -> Result<Self> {
         let mut child = tokio::process::Command::new(bin)
             .arg("--stdio")
+            .args(args)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit())

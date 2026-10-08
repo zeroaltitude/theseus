@@ -105,6 +105,27 @@ class Theseus(unittest.TestCase):
                                                    "cost_usd": 0.005, "calls": 1})
         self.assertEqual((s["cost_usd"], s["model_calls"]), (0.017, 3))
 
+    def test_a_followed_run_is_every_turns_spend_once(self):
+        """`ask` followed a late result (theseus-mqxk): one object, the last
+        turn's result with both turns' spend summed, the ask's own turn in
+        `asked` and the late result's in `continuations`. Both turns'
+        answers are the run's, and none is counted twice."""
+        history = json.loads(json.dumps(PLAIN_HISTORY))
+        history["nodes"].append(answer(SONNET, usage(30, 2000, 0, 10), 0.005, turn="turn_2",
+                                       stop="end_turn"))
+        turn = dict(PLAIN_TURN, turn_id="turn_2", cost_usd=0.035, loops=3, trace=trace(1),
+                    usage=usage(180, 4500, 500, 70),
+                    asked={"turn_id": "turn_1", "cost_usd": 0.03},
+                    continuations=[{"turn_id": "turn_2", "cost_usd": 0.005}])
+        s = ef.theseus_spend(turn, history)
+        self.assertEqual(s["tokens"], {"input": 180, "cache_read": 4500, "cache_write": 500,
+                                       "output": 70})
+        self.assertEqual(s["by_model"][SONNET]["calls"], 3)
+        self.assertEqual((s["cost_usd"], s["model_calls"]), (0.035, 3))
+        self.assertEqual(ef.run_turn_ids(turn), ("turn_2", "turn_1", "turn_2"))
+        self.assertEqual(ef.run_turn_ids(PLAIN_TURN), ("turn_1",))
+        self.assertIsNone(ef.run_turn_ids(None))
+
     def test_the_record_reads_a_trials_agent_directory(self):
         with tempfile.TemporaryDirectory() as t:
             logs = Path(t)

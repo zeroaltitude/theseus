@@ -75,7 +75,9 @@ pub async fn ask(
         // Inside a job, its session (theseus-b5cl).
         opened_from: theseus_client::client::job_session(),
     })?;
-    stream_turn(conn, json, no_stream, params, a.thinking, a.trace, spawned).await
+    let follow_for = spawned.then_some(a.follow_for);
+    let shown = (a.thinking, a.trace);
+    stream_turn(conn, json, no_stream, params, shown, spawned, follow_for).await
 }
 
 /// One `turn.submit`, streamed as `ask` prints it: the reply as it comes (or
@@ -86,9 +88,9 @@ pub(crate) async fn stream_turn(
     json: bool,
     no_stream: bool,
     params: Value,
-    thinking: bool,
-    trace: bool,
+    (thinking, trace): (bool, bool),
     spawned: bool,
+    follow_for: Option<std::time::Duration>,
 ) -> Result<()> {
     let stream = !no_stream && !json;
     let mode = match (json, stream) {
@@ -114,6 +116,10 @@ pub(crate) async fn stream_turn(
         }
     };
     let r: TurnSubmitResult = serde_json::from_value(result.clone())?;
+    // What the turn left for later, under `--spawn` (theseus-mqxk).
+    let modes = (json, stream);
+    let (result, r, error) =
+        crate::follow::after(conn, &mut printer, follow_for, (result, r), modes).await?;
     if json {
         println!("{}", serde_json::to_string(&result)?);
     } else {
@@ -139,6 +145,9 @@ pub(crate) async fn stream_turn(
                 &render::span_lines(t, 0, &Frame::turn(t)),
             )?;
         }
+    }
+    if let Some(e) = error {
+        return Err(e);
     }
     match outcome::TurnEnd::of(&r) {
         outcome::TurnEnd::Done => Ok(()),

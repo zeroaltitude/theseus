@@ -18,7 +18,11 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   headless run ends with its turn: theseus-7gir.21). Once the stop has begun (`Outbox::stopping`), the driver begins
   no continuation and a call about to be sent is settled failed unsent, class `stopping` (`ProviderError::Stopping`),
   with no in-turn retry, so the next start's driver retries it (`turn/stopping_step.rs`, theseus-jtrc); its run posts no
-  notice and health and telemetry count no provider error for it (theseus-36re). A refused request goes once to its model's fallback, the catalog's
+  notice and health and telemetry count no provider error for it (theseus-36re). A `--stdio` daemon started `--one-shot SECS`
+  (`theseus --spawn ask`, theseus-mqxk) serves one run (`one_shot.rs`, on the outbox): each turn's result names what
+  it left for later (`TurnSubmitResult.later`, `turn/later_step.rs`, the jobs read before the late results are taken
+  and again as it parks), its turn's connection watches the session, and `wake.at` says a wake due past the bound
+  will not fire here; no other daemon reads it. A refused request goes once to its model's fallback, the catalog's
   `refusal_fallback_model` (Sonnet 5.5's: Sonnet 5), and the rest of the turn runs there (`turn/fallback_step.rs`,
   theseus-7gir.18; `[model.retries] refusal`, on by default; the provider's own `refusal_fallbacks` wins where it rides
   the request, `compiler::server_fallbacks`). The compilation stays the profile model's: the requests name the fallback
