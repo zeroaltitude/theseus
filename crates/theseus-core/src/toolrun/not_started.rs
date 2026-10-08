@@ -1,8 +1,12 @@
-//! A job whose command never started (theseus-f7tz): its wrapper's spawn
-//! failed, and its completion's `detail.spawn_error` says why. The result
-//! said nothing of it before, and read "(no output)" with no exit code: in a
-//! container that refused the spawn's system call, the model saw an empty
-//! answer to every `proc.run`, and gave up on the shell.
+//! What a job's start could not do, said in its result (theseus-f7tz).
+//!
+//! A command that never started: its wrapper's spawn failed, and its
+//! completion's `detail.spawn_error` says why. The result said nothing of it
+//! before, and read "(no output)" with no exit code: in a container that
+//! refused the spawn's system call, the model saw an empty answer to every
+//! `proc.run`, and gave up on the shell. And a command that ran without its
+//! cgroup, so without its process cap, which its `detail.cgroup_error` said
+//! to no one.
 
 use serde_json::Value;
 
@@ -39,6 +43,17 @@ pub(super) fn line(detail: &Value, term: bool) -> Option<String> {
     ))
 }
 
+/// The result's line for an L0 job whose cgroup could not be made: it ran,
+/// without the cap of processes and threads its cgroup holds. `None` when it
+/// had its cgroup, or the daemon has none to give.
+pub(super) fn uncapped(detail: &Value) -> Option<String> {
+    let why = detail.get("cgroup_error").and_then(Value::as_str)?;
+    Some(format!(
+        "[its cgroup could not be made ({why}): it ran without its cap of processes and threads \
+         ([tools] job_pids_max)]\n"
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -65,6 +80,13 @@ mod tests {
              printed nothing.]\n"
         );
         assert_eq!(line(&json!({"exit_code": 0}), true), None);
+        let lost = json!({"exit_code": 0, "cgroup_error": "Permission denied (os error 13)"});
+        assert_eq!(
+            uncapped(&lost).unwrap(),
+            "[its cgroup could not be made (Permission denied (os error 13)): it ran without its \
+             cap of processes and threads ([tools] job_pids_max)]\n"
+        );
+        assert_eq!(uncapped(&json!({"exit_code": 0})), None);
         assert_eq!(line(&Value::Null, true), None);
     }
 }

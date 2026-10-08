@@ -814,7 +814,11 @@ impl ToolRuntime {
             ),
             _ => header,
         };
-        let header = format!("{header}{}", cap_line(&detail).unwrap_or_default());
+        let header = format!(
+            "{header}{}{}",
+            cap_line(&detail).unwrap_or_default(),
+            super::not_started::uncapped(&detail).unwrap_or_default()
+        );
         // No report, and the file stopped where the head does: the output
         // went past the head, and its end waited in the job's wrapper, which
         // was killed before the pipe's end (theseus-gsn9).
