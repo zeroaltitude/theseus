@@ -1031,6 +1031,9 @@ async fn after_serving(
     // The ontology's snapshot, by one META prefix scan (theseus-8kk.1): a
     // compile reads it from memory.
     core.warm_ontology();
+    // The daemon's memory (theseus-9lxe): a trim after work and a quiet
+    // stretch, and the import's catalog dropped after an idle one.
+    core.tend_memory_after_serving();
     // Recall's labels (M6 30b), by one scan of their scope, so a turn's
     // recall reads them from memory.
     core.warm_labels();

@@ -23,6 +23,7 @@ import type { McpServerStatus } from "./McpServerStatus";
 import type { MemoryHealth } from "./MemoryHealth";
 import type { PlacesHealth } from "./PlacesHealth";
 import type { PushStatus } from "./PushStatus";
+import type { ResidentHealth } from "./ResidentHealth";
 import type { SandboxHealth } from "./SandboxHealth";
 import type { SecretsStatus } from "./SecretsStatus";
 import type { SpoolStatus } from "./SpoolStatus";
@@ -221,4 +222,8 @@ memory?: MemoryHealth,
 /**
  * The language servers (L2): absent when `[lsp]` is off.
  */
-lsp?: Array<LspServerStatus>, };
+lsp?: Array<LspServerStatus>, 
+/**
+ * The daemon's own memory and its largest caches (theseus-9lxe).
+ */
+resident?: ResidentHealth, };

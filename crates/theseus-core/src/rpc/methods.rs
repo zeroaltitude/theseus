@@ -112,6 +112,7 @@ impl Core {
             lsp: self.tools.lsp.as_ref().map(|b| b.health()),
             memory: self.runner.memory.on().then(|| self.memory_health()),
             tasks: Some(self.tasks_health()),
+            resident: Some(self.resident_health()),
         }
     }
 

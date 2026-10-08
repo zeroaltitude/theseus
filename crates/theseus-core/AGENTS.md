@@ -670,6 +670,19 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   topics, place, partner) is withheld and no filter or facet reads it, as recall keeps the import from a shared
   place. An episode's messages are `session.history`. Tests: `books/tests.rs` (the measure over 20,000 is ignored:
   `--ignored --nocapture`).
+- **The daemon's resident memory** (theseus-9lxe): `resident.rs`. glibc keeps an arena per thread that allocated at
+  once, and a blocking-pool thread that built something large (`import.sessions`' catalog, a full `ontology.list`, the
+  books' terms rebuilt, an import's batch) leaves its freed pages held: over 21,779 imported sessions a daemon held
+  202 MiB from the system with 60 in use. Every method's answer and each background build's end marks work
+  (`Resident::mark`); after `QUIET` (10 s) with no other mark, and never later than `MAX_DEFER` (60 s) after the first
+  (the cockpit reads `health` every 2 s while in sight), the tender trims (`malloc_trim(0)`) when the free heap passes
+  `TRIM_FLOOR` (8 MiB). `import.sessions`' catalog (`import/catalog.rs`) is built a page of records at a time, under a lock of
+  its own (health and the tender read its state on a runtime worker, never waiting for a build),
+  holds each episode compactly (its repeated values interned; `Catalog::episode` makes a page's rows whole), and is dropped after `CATALOG_IDLE` (10 min) with no read; the next read builds it again (the Context page reads it
+  every 30 s while open). The tender starts after serving (`tend_memory_after_serving`), waits on a `Notify` and
+  tokio's timer, holds the core by `Weak`, and trims and drops on the blocking pool. Health's `resident` block: the
+  resident set, the heap in use and held (`mallinfo2`, as the tender last read it: it walks every free chunk under each arena's lock, so health never calls it), the trims, and the caches by size. A musl build reads no heap
+  and trims nothing. Tests: `import/tests_catalog.rs`, `resident::tests`.
 - **The arrangement** (M5 step 27, theseus-vug.2): `arrangement.rs`. `task.create` needs an `arrangement` of quoted
   pieces (`{quote | node, role}`, `trust`, `supersedes`), resolved in the calling session's own transcript (exact,
   whitespace runs as one space, at least 20 characters, exactly one node; the reply holding the call and earlier

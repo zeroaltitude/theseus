@@ -189,7 +189,7 @@ impl Core {
         let a = catalog::query(&cat, &p);
         let mut episodes = Vec::with_capacity(a.page.len());
         for i in a.page {
-            let mut e = cat.rows[i].ep.clone();
+            let mut e = cat.episode(i);
             if !private {
                 e.title = None;
                 e.place_name = None;

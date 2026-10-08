@@ -35,6 +35,7 @@ mod memory;
 mod ontology;
 mod parked;
 mod places;
+mod resident;
 mod sandbox;
 mod store;
 mod task_graph;
@@ -1787,7 +1788,10 @@ pub fn health_lines(h: &theseus_protocol::HealthResult, now_ms: u64) -> Vec<Line
     if let Some(line) = store_history_line(&h.startup) {
         push(o, Tag::Plain, &line);
     }
-    for (tag, line) in store_lines(&h.store) {
+    for (tag, line) in store_lines(&h.store)
+        .into_iter()
+        .chain(resident::resident_lines(h.resident.as_ref()))
+    {
         push(o, tag, &line);
     }
     if let Some(c) = &h.crash {

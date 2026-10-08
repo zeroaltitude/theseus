@@ -39,6 +39,7 @@ mod ontology;
 pub mod packs;
 mod places;
 mod push;
+pub mod resident;
 pub mod route;
 pub mod sandbox;
 pub mod signals;
@@ -642,6 +643,10 @@ pub struct HealthResult {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub lsp: Option<Vec<lsp::LspServerStatus>>,
+    /// The daemon's own memory and its largest caches (theseus-9lxe).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub resident: Option<resident::ResidentHealth>,
 }
 
 /// The AWS accounts the config binds (`[aws.accounts.<id>]`).
