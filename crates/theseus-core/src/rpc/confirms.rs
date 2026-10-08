@@ -778,6 +778,11 @@ pub(crate) enum Act<'a> {
     /// grades Jev by it, so a job's process that wrote it would grade the
     /// judge watching it. `what` names it: `wrong on jdg_…`.
     JudgeLabel { what: &'a str },
+    /// The owner's correction of a turn's routing (theseus-q31l,
+    /// `route.correct`): it labels the route judgment and moves the session,
+    /// so a job's process that made it would choose its own model. `what`
+    /// names it: `route.v2 on turn_… (to fable)`.
+    RouteCorrect { what: &'a str },
     /// A loaded extension's revoke (M7 43b, `extension.revoke`): it stops a
     /// server the owner acked, so a job's process that made it would undo
     /// the owner's word.
@@ -810,6 +815,7 @@ impl Act<'_> {
             Act::Ontology { method, .. } => method,
             Act::Label { .. } => theseus_protocol::method::MEMORY_LABEL,
             Act::JudgeLabel { .. } => theseus_protocol::method::JUDGE_LABEL,
+            Act::RouteCorrect { .. } => theseus_protocol::method::ROUTE_CORRECT,
             Act::Revoke { .. } => theseus_protocol::method::EXTENSION_REVOKE,
             Act::JudgeRun { method, .. } => method,
             Act::Ladder { method, .. } => method,

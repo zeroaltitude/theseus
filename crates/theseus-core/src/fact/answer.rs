@@ -175,6 +175,7 @@ impl ActRefused<'_> {
             | Act::Ontology { .. }
             | Act::Label { .. }
             | Act::JudgeLabel { .. }
+            | Act::RouteCorrect { .. }
             | Act::Revoke { .. }
             | Act::JudgeRun { .. }
             | Act::Ladder { .. }
@@ -208,6 +209,7 @@ impl Fact for ActRefused<'_> {
             Act::Ontology { what, .. }
             | Act::Label { what }
             | Act::JudgeLabel { what }
+            | Act::RouteCorrect { what }
             | Act::JudgeRun { what, .. }
             | Act::Ladder { what, .. }
             | Act::Import { what, .. } => {
@@ -273,6 +275,11 @@ impl Fact for ActRefused<'_> {
                 Act::JudgeLabel { what } => format!(
                     "A judgment's label, {what}, from {} through {}, did not count: {}. \
                      Nothing was written.",
+                    r.who, r.via, r.why
+                ),
+                Act::RouteCorrect { what } => format!(
+                    "A correction of routing, {what}, from {} through {}, did not count: {}. \
+                     Nothing was written, and the session runs where it ran.",
                     r.who, r.via, r.why
                 ),
                 Act::Revoke { name } => format!(

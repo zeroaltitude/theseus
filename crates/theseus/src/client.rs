@@ -260,8 +260,10 @@ pub fn job_session() -> Option<String> {
 /// move on the ladder (M5 26a: a promotion can make Jev act, and a rollback can
 /// silence security's notices), and the import, its erase and its topics
 /// (theseus-0lrr.6, theseus-anh3: an import can plant memories, an erase take
-/// the owner's away, and the topics write tens of thousands of memberships).
-pub const OPERATORS: [(&str, &str); 24] = [
+/// the owner's away, and the topics write tens of thousands of memberships),
+/// and a correction of routing (theseus-q31l: it labels the route judgment
+/// and picks the session's model).
+pub const OPERATORS: [(&str, &str); 25] = [
     (method::ACTION_CONFIRM, "theseus confirm"),
     (method::POLICY_UNTIGHTEN, "theseus policy untighten"),
     (method::POLICY_TRUST, "theseus policy trust"),
@@ -276,6 +278,7 @@ pub const OPERATORS: [(&str, &str); 24] = [
     (method::MEMORY_LABEL, "theseus memory label"),
     (method::MEMORY_CONSOLIDATE, "theseus memory consolidate"),
     (method::JUDGE_LABEL, "theseus judge label"),
+    (method::ROUTE_CORRECT, "theseus judge correct"),
     (method::EXTENSION_REVOKE, "theseus extend revoke"),
     (method::JUDGE_REPLAY, "theseus judge replay"),
     (method::JUDGE_AUDIT, "theseus judge audit"),

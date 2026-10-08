@@ -30,6 +30,11 @@
 //!   there while `route.v1` acts live for it, and goes back to its own
 //!   profile, its `routed` cleared, once it does not, or once the owner
 //!   switches the live profile ([`TurnRunner::route_base`]).
+//! - **The owner's correction first** (theseus-q31l, [`correct`]): a turn
+//!   the owner's correction or the live layer steers runs there ahead of the
+//!   verdict, and does not wait for it.
+
+mod correct;
 
 use std::future::Future;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -39,6 +44,7 @@ use theseus_protocol::route::TurnRoute;
 
 use super::*;
 use crate::config::PackMode;
+use crate::correction::{By, RoutedTurn, Steer, Steering};
 use crate::judge::inbound::{Answered, RouteWait, ROUTE_PACK};
 use crate::routing::{self, Decision, HoldNext, Reason, Verdict};
 
@@ -64,6 +70,14 @@ pub(super) struct RouteState {
     pub(super) keeps: Option<TargetRef>,
     /// What the turn's result says.
     pub(super) result: Option<TurnRoute>,
+    /// Where the owner's correction, or the layer, steers the turn ahead of
+    /// the verdict (theseus-q31l).
+    pub(super) steer: Option<Steering>,
+    /// The message's content words, for a correction to find it by.
+    pub(super) words: Vec<String>,
+    /// The turn is the owner's correction itself: a later correction finds
+    /// the turn it corrected, not this one.
+    pub(super) correcting: bool,
 }
 
 impl RouteState {
@@ -342,18 +356,21 @@ impl TurnRunner {
         // has answered since): no verdict will come in time, so the turn
         // does not wait for one (theseus-otny).
         let unreachable = live && self.judge.jev_unreachable();
+        // A steered turn runs where the owner said: it waits for no verdict.
+        let steering = t.route.steer.take().filter(|_| live);
         t.route.defer_persist = live;
         let max_wait = Duration::from_millis(self.cfg.routing.max_wait_ms);
         let compile = Box::pin(self.compile_step(t, session, spec, force, strip, overflow, i));
-        let (compiled, w) = beside(compile, &mut rx, max_wait, live && !unreachable).await;
+        let wait = live && !unreachable && steering.is_none();
+        let (compiled, w) = beside(compile, &mut rx, max_wait, wait).await;
         // Missed: the turn decides without its own verdict (theseus-ddbi).
-        let late = live && w.got == Got::Late;
+        let late = live && steering.is_none() && w.got == Got::Late;
         let answered_ms = w.answered.map(|at| {
             at.into_std()
                 .saturating_duration_since(t.started)
                 .as_millis() as u64
         });
-        if live {
+        if live && steering.is_none() {
             self.judge.record_route_wait(w.waited, late);
         }
         let (got, waited) = (w.got, w.waited);
@@ -371,8 +388,9 @@ impl TurnRunner {
             session.last_turn_id.as_deref(),
             unreachable,
         );
-        let decision = match (&verdict, reason) {
-            (Some(v), None) => Some(self.decide_route(t, session, v, compiled.est_tokens)),
+        let decision = match (&steering, &verdict, reason) {
+            (Some(s), _, _) => Some(self.decide_steer(t, session, s, compiled.est_tokens)),
+            (None, Some(v), None) => Some(self.decide_route(t, session, v, compiled.est_tokens)),
             _ => None,
         };
         Self::record_route(
@@ -386,7 +404,9 @@ impl TurnRunner {
                 late,
                 answered_ms,
             },
+            steering.as_ref(),
         );
+        self.note_routed(t, verdict.as_ref(), decision.as_ref());
         if live {
             // A routed turn: the owner's pin of another profile within 10
             // minutes after it counts on route.v1's ladder (26a).
@@ -522,9 +542,11 @@ impl TurnRunner {
         reason: Option<Reason>,
         compiled: &Compiled,
         timed: Timed,
+        steering: Option<&Steering>,
     ) {
         let base = t.target.profile.clone();
         let reason = decision.map_or(reason.unwrap_or(Reason::NoVerdict), |d| d.reason);
+        let source = steering.map(|_| "correction");
         let profile = decision.map_or(base.clone(), |d| d.profile.clone());
         t.record(&fact::route::RouteDecided {
             mode: verdict.map(|v| v.mode.as_str()),
@@ -539,11 +561,14 @@ impl TurnRunner {
             wait_ms: timed.waited.as_millis() as u64,
             late: timed.late,
             answered_ms: timed.answered_ms,
+            source,
+            follows: steering.map(|s| s.follows.as_str()),
         });
         t.route.result = Some(TurnRoute {
             mode: verdict.map(|v| v.mode.clone()),
             reason: reason.as_str().into(),
             from: base,
+            source: source.map(str::to_string),
         });
     }
 

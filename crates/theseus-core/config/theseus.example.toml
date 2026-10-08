@@ -905,6 +905,16 @@ switch_confidence = 0.6                 # a verdict routes only at this confiden
 # profiles = ["opus", "sonnet"]
 # [routing.modes.routine_coding]
 # profiles = ["haikuhi", "sonnet"]
+# Your corrections (theseus-q31l): in a private place, "that should have been on fable",
+# "use opus for that", "that needed more effort" or "rerun that on opus" labels the last
+# turn's route judgment as yours and moves the session there at once; so does a reaction
+# on a reply (Discord's ⬆️ and ⬇️) or the cockpit's control, and `theseus judge correct`.
+# A later message close to a corrected one (its content words in common) runs where you
+# said, ahead of the verdict, until another version of the route pack acts.
+# [routing.corrections]
+# enabled = true                        # off: words are messages, and the layer steers nothing
+# similarity = 0.5                      # the share of content words a close message has in common
+# max_entries = 64                      # the layer's bound, the oldest out
 
 # ---------------------------------------------------------------- mcp
 # MCP servers (M7 36b): only a server named here is started or reached, and

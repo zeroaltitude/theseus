@@ -21,6 +21,95 @@ pub struct TurnRoute {
     pub reason: String,
     /// The profile the session ran on before routing.
     pub from: String,
+    /// `correction` when the owner's correction (or the live layer's entry
+    /// close to this message) placed the turn ahead of the verdict
+    /// (theseus-q31l); absent when the verdict did.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub source: Option<String>,
+}
+
+/// `route.correct` (theseus-q31l): the owner's correction of a turn's
+/// routing, from a reaction, a footer's control, the cockpit, or the CLI.
+/// Judged as `judge.label` is: the owner, from a private place.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct RouteCorrectParams {
+    pub session_id: String,
+    /// The turn corrected; absent: the session's last turn routing decided.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub turn_id: Option<String>,
+    /// Where it should have run: a profile (`fable`), a profile's model, a
+    /// mode of the acting route pack (`deep_coding`), `stronger` or `cheaper`.
+    pub to: String,
+    /// What the owner corrected with: `reaction`, `button`, `cockpit`, `cli`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub via: Option<String>,
+    /// Its id there (a reaction's message and emoji, a press's interaction).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub provenance: Option<String>,
+    /// The binding's reading of where it came from, as `judge.label`'s.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub discord: Option<crate::DiscordOrigin>,
+}
+
+/// What a correction did.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct RouteCorrectResult {
+    /// The correction's id (`rcx_…`), its `route.corrected` row's key.
+    pub correction: String,
+    pub turn_id: String,
+    /// The owner's label it wrote, when the turn's mode was wrong.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub label: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub judgment: Option<String>,
+    /// Where the session runs from its next turn, when it moves.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub profile: Option<String>,
+    /// One line that says it.
+    pub line: String,
+}
+
+/// `route.corrections`: the live correction layer, a read.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct RouteCorrectionsResult {
+    /// The route pack version acting; entries of any other have retired.
+    pub pack: String,
+    /// Newest first.
+    pub entries: Vec<RouteCorrectionInfo>,
+    pub max_entries: u32,
+    pub similarity: f64,
+    /// Entries retired since the daemon started.
+    pub retired: u64,
+    pub enabled: bool,
+}
+
+/// One correction in the layer.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct RouteCorrectionInfo {
+    pub id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub label: Option<String>,
+    pub pack: String,
+    pub session_id: String,
+    pub turn_id: String,
+    /// Where a close message runs: a profile, or `mode <id>`.
+    pub to: String,
+    /// The corrected message's content words, which a close message shares.
+    pub words: Vec<String>,
+    pub at_ms: u64,
 }
 
 /// A refusal's client-side fallback in one turn (theseus-7gir.18): the model

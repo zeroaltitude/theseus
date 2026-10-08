@@ -18,4 +18,10 @@ reason: string,
 /**
  * The profile the session ran on before routing.
  */
-from: string, };
+from: string, 
+/**
+ * `correction` when the owner's correction (or the live layer's entry
+ * close to this message) placed the turn ahead of the verdict
+ * (theseus-q31l); absent when the verdict did.
+ */
+source?: string, };
