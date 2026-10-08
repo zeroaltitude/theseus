@@ -1,0 +1,477 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="603" viewBox="0 0 720 603" role="img" aria-labelledby="t-task-strip t-task-strip-d" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
+<title id="t-task-strip">Each task, each harness: how many of its two attempts solved it</title>
+<desc id="t-task-strip-d">Where does each harness win and lose, task by task?</desc>
+<rect width="720" height="603" rx="8" fill="#fcfcfb" stroke="#e6e5df"/>
+<text x="18.0" y="32.0" font-size="15" fill="#0b0b0b" font-weight="600">Each task, each harness: how many of its two attempts solved it</text>
+<circle cx="25.0" cy="50.0" r="4.5" fill="#fcfcfb" stroke="#c3c2b7" stroke-width="1.6"/>
+<text x="40.0" y="54.0" font-size="12" fill="#52514e">0 of 2</text>
+<circle cx="100.5" cy="50.0" r="5" fill="#b9b7b0"/>
+<text x="115.5" y="54.0" font-size="12" fill="#52514e">1 of 2</text>
+<circle cx="176.1" cy="50.0" r="5" fill="#52514e"/>
+<text x="191.1" y="54.0" font-size="12" fill="#52514e">2 of 2 solved</text>
+<text x="201.7" y="88.0" font-size="11.5" fill="#0b0b0b" font-weight="600">Oct 7: eight harnesses, 14 tasks × 2</text>
+<text x="543.7" y="88.0" font-size="11.5" fill="#0b0b0b" font-weight="600">Oct 4 run</text>
+<text x="221.7" y="146.0" font-size="11.5" fill="#0b0b0b" transform="rotate(-40 221.7 146.0)" font-weight="600">Theseus</text>
+<circle cx="221.7" cy="154.0" r="4" fill="#2a78d6"/>
+<text x="261.7" y="146.0" font-size="11.5" fill="#0b0b0b" transform="rotate(-40 261.7 146.0)" font-weight="600">Claude Code</text>
+<circle cx="261.7" cy="154.0" r="4" fill="#eb6834"/>
+<text x="301.7" y="146.0" font-size="11.5" fill="#0b0b0b" transform="rotate(-40 301.7 146.0)">OpenCode</text>
+<text x="341.7" y="146.0" font-size="11.5" fill="#0b0b0b" transform="rotate(-40 341.7 146.0)">OpenHands</text>
+<text x="381.7" y="146.0" font-size="11.5" fill="#0b0b0b" transform="rotate(-40 381.7 146.0)">OpenClaw</text>
+<text x="421.7" y="146.0" font-size="11.5" fill="#0b0b0b" transform="rotate(-40 421.7 146.0)">Codex CLI</text>
+<text x="461.7" y="146.0" font-size="11.5" fill="#0b0b0b" transform="rotate(-40 461.7 146.0)">Aider</text>
+<text x="501.7" y="146.0" font-size="11.5" fill="#0b0b0b" transform="rotate(-40 501.7 146.0)">Pi</text>
+<text x="563.7" y="146.0" font-size="11.5" fill="#0b0b0b" transform="rotate(-40 563.7 146.0)" font-weight="600">Theseus</text>
+<circle cx="563.7" cy="154.0" r="4" fill="#2a78d6"/>
+<text x="603.7" y="146.0" font-size="11.5" fill="#0b0b0b" transform="rotate(-40 603.7 146.0)" font-weight="600">Claude Code</text>
+<circle cx="603.7" cy="154.0" r="4" fill="#eb6834"/>
+<text x="191.7" y="177.0" font-size="11.5" fill="#0b0b0b" text-anchor="end">reshard-c4-data</text>
+<g><title>Theseus on reshard-c4-data: 2 of 2 solved</title>
+<rect x="202.7" y="162.0" width="38.0" height="22" rx="4" fill="#52514e"/>
+</g>
+<g><title>Claude Code on reshard-c4-data: 2 of 2 solved</title>
+<rect x="242.7" y="162.0" width="38.0" height="22" rx="4" fill="#52514e"/>
+</g>
+<g><title>OpenCode on reshard-c4-data: 2 of 2 solved</title>
+<rect x="282.7" y="162.0" width="38.0" height="22" rx="4" fill="#52514e"/>
+</g>
+<g><title>OpenHands on reshard-c4-data: 2 of 2 solved</title>
+<rect x="322.7" y="162.0" width="38.0" height="22" rx="4" fill="#52514e"/>
+</g>
+<g><title>OpenClaw on reshard-c4-data: 2 of 2 solved</title>
+<rect x="362.7" y="162.0" width="38.0" height="22" rx="4" fill="#52514e"/>
+</g>
+<g><title>Codex CLI on reshard-c4-data: 2 of 2 solved</title>
+<rect x="402.7" y="162.0" width="38.0" height="22" rx="4" fill="#52514e"/>
+</g>
+<g><title>Aider on reshard-c4-data: 1 of 2 solved</title>
+<rect x="442.7" y="162.0" width="38.0" height="22" rx="4" fill="#b9b7b0"/>
+</g>
+<g><title>Pi on reshard-c4-data: 2 of 2 solved</title>
+<rect x="482.7" y="162.0" width="38.0" height="22" rx="4" fill="#52514e"/>
+</g>
+<g><title>Theseus (Oct 4) on reshard-c4-data: 2 of 2 solved</title>
+<rect x="544.7" y="162.0" width="38.0" height="22" rx="4" fill="#52514e"/>
+</g>
+<g><title>Claude Code (Oct 4) on reshard-c4-data: 2 of 2 solved</title>
+<rect x="584.7" y="162.0" width="38.0" height="22" rx="4" fill="#52514e"/>
+</g>
+<text x="191.7" y="201.0" font-size="11.5" fill="#0b0b0b" text-anchor="end">cobol-modernization</text>
+<g><title>Theseus on cobol-modernization: 2 of 2 solved</title>
+<rect x="202.7" y="186.0" width="38.0" height="22" rx="4" fill="#52514e"/>
+</g>
+<g><title>Claude Code on cobol-modernization: 2 of 2 solved</title>
+<rect x="242.7" y="186.0" width="38.0" height="22" rx="4" fill="#52514e"/>
+</g>
+<g><title>OpenCode on cobol-modernization: 2 of 2 solved</title>
+<rect x="282.7" y="186.0" width="38.0" height="22" rx="4" fill="#52514e"/>
+</g>
+<g><title>OpenHands on cobol-modernization: 2 of 2 solved</title>
+<rect x="322.7" y="186.0" width="38.0" height="22" rx="4" fill="#52514e"/>
+</g>
+<g><title>OpenClaw on cobol-modernization: 2 of 2 solved</title>
+<rect x="362.7" y="186.0" width="38.0" height="22" rx="4" fill="#52514e"/>
+</g>
+<g><title>Codex CLI on cobol-modernization: 2 of 2 solved</title>
+<rect x="402.7" y="186.0" width="38.0" height="22" rx="4" fill="#52514e"/>
+</g>
+<g><title>Aider on cobol-modernization: 0 of 2 solved</title>
+<rect x="443.4" y="186.8" width="36.5" height="20.5" rx="4" fill="#fcfcfb" stroke="#c3c2b7" stroke-width="1.2"/>
+</g>
+<g><title>Pi on cobol-modernization: 2 of 2 solved</title>
+<rect x="482.7" y="186.0" width="38.0" height="22" rx="4" fill="#52514e"/>
+</g>
+<g><title>Theseus (Oct 4) on cobol-modernization: 2 of 2 solved</title>
+<rect x="544.7" y="186.0" width="38.0" height="22" rx="4" fill="#52514e"/>
+</g>
+<g><title>Claude Code (Oct 4) on cobol-modernization: 2 of 2 solved</title>
+<rect x="584.7" y="186.0" width="38.0" height="22" rx="4" fill="#52514e"/>
+</g>
+<text x="191.7" y="225.0" font-size="11.5" fill="#0b0b0b" text-anchor="end">large-scale-text-editing</text>
+<g><title>Theseus on large-scale-text-editing: 2 of 2 solved</title>
+<rect x="202.7" y="210.0" width="38.0" height="22" rx="4" fill="#52514e"/>
+</g>
+<g><title>Claude Code on large-scale-text-editing: 2 of 2 solved</title>
+<rect x="242.7" y="210.0" width="38.0" height="22" rx="4" fill="#52514e"/>
+</g>
+<g><title>OpenCode on large-scale-text-editing: 2 of 2 solved</title>
+<rect x="282.7" y="210.0" width="38.0" height="22" rx="4" fill="#52514e"/>
+</g>
+<g><title>OpenHands on large-scale-text-editing: 2 of 2 solved</title>
+<rect x="322.7" y="210.0" width="38.0" height="22" rx="4" fill="#52514e"/>
+</g>
+<g><title>OpenClaw on large-scale-text-editing: 2 of 2 solved</title>
+<rect x="362.7" y="210.0" width="38.0" height="22" rx="4" fill="#52514e"/>
+</g>
+<g><title>Codex CLI on large-scale-text-editing: 2 of 2 solved</title>
+<rect x="402.7" y="210.0" width="38.0" height="22" rx="4" fill="#52514e"/>
+</g>
+<g><title>Aider on large-scale-text-editing: 0 of 2 solved</title>
+<rect x="443.4" y="210.8" width="36.5" height="20.5" rx="4" fill="#fcfcfb" stroke="#c3c2b7" stroke-width="1.2"/>
+</g>
+<g><title>Pi on large-scale-text-editing: 2 of 2 solved</title>
+<rect x="482.7" y="210.0" width="38.0" height="22" rx="4" fill="#52514e"/>
+</g>
+<g><title>Theseus (Oct 4) on large-scale-text-editing: 2 of 2 solved</title>
+<rect x="544.7" y="210.0" width="38.0" height="22" rx="4" fill="#52514e"/>
+</g>
+<g><title>Claude Code (Oct 4) on large-scale-text-editing: 2 of 2 solved</title>
+<rect x="584.7" y="210.0" width="38.0" height="22" rx="4" fill="#52514e"/>
+</g>
+<text x="191.7" y="249.0" font-size="11.5" fill="#0b0b0b" text-anchor="end">model-extraction-relu-logits</text>
+<g><title>Theseus on model-extraction-relu-logits: 2 of 2 solved</title>
+<rect x="202.7" y="234.0" width="38.0" height="22" rx="4" fill="#52514e"/>
+</g>
+<g><title>Claude Code on model-extraction-relu-logits: 1 of 2 solved</title>
+<rect x="242.7" y="234.0" width="38.0" height="22" rx="4" fill="#b9b7b0"/>
+</g>
+<g><title>OpenCode on model-extraction-relu-logits: 2 of 2 solved</title>
+<rect x="282.7" y="234.0" width="38.0" height="22" rx="4" fill="#52514e"/>
+</g>
+<g><title>OpenHands on model-extraction-relu-logits: 2 of 2 solved</title>
+<rect x="322.7" y="234.0" width="38.0" height="22" rx="4" fill="#52514e"/>
+</g>
+<g><title>OpenClaw on model-extraction-relu-logits: 1 of 2 solved</title>
+<rect x="362.7" y="234.0" width="38.0" height="22" rx="4" fill="#b9b7b0"/>
+</g>
+<g><title>Codex CLI on model-extraction-relu-logits: 2 of 2 solved</title>
+<rect x="402.7" y="234.0" width="38.0" height="22" rx="4" fill="#52514e"/>
+</g>
+<g><title>Aider on model-extraction-relu-logits: 2 of 2 solved</title>
+<rect x="442.7" y="234.0" width="38.0" height="22" rx="4" fill="#52514e"/>
+</g>
+<g><title>Pi on model-extraction-relu-logits: 2 of 2 solved</title>
+<rect x="482.7" y="234.0" width="38.0" height="22" rx="4" fill="#52514e"/>
+</g>
+<g><title>Theseus (Oct 4) on model-extraction-relu-logits: 2 of 2 solved</title>
+<rect x="544.7" y="234.0" width="38.0" height="22" rx="4" fill="#52514e"/>
+</g>
+<g><title>Claude Code (Oct 4) on model-extraction-relu-logits: 2 of 2 solved</title>
+<rect x="584.7" y="234.0" width="38.0" height="22" rx="4" fill="#52514e"/>
+</g>
+<text x="191.7" y="273.0" font-size="11.5" fill="#0b0b0b" text-anchor="end">regex-chess</text>
+<g><title>Theseus on regex-chess: 2 of 2 solved</title>
+<rect x="202.7" y="258.0" width="38.0" height="22" rx="4" fill="#52514e"/>
+</g>
+<g><title>Claude Code on regex-chess: 2 of 2 solved</title>
+<rect x="242.7" y="258.0" width="38.0" height="22" rx="4" fill="#52514e"/>
+</g>
+<g><title>OpenCode on regex-chess: 2 of 2 solved</title>
+<rect x="282.7" y="258.0" width="38.0" height="22" rx="4" fill="#52514e"/>
+</g>
+<g><title>OpenHands on regex-chess: 2 of 2 solved</title>
+<rect x="322.7" y="258.0" width="38.0" height="22" rx="4" fill="#52514e"/>
+</g>
+<g><title>OpenClaw on regex-chess: 2 of 2 solved</title>
+<rect x="362.7" y="258.0" width="38.0" height="22" rx="4" fill="#52514e"/>
+</g>
+<g><title>Codex CLI on regex-chess: 2 of 2 solved</title>
+<rect x="402.7" y="258.0" width="38.0" height="22" rx="4" fill="#52514e"/>
+</g>
+<g><title>Aider on regex-chess: 0 of 2 solved</title>
+<rect x="443.4" y="258.8" width="36.5" height="20.5" rx="4" fill="#fcfcfb" stroke="#c3c2b7" stroke-width="1.2"/>
+</g>
+<g><title>Pi on regex-chess: 2 of 2 solved</title>
+<rect x="482.7" y="258.0" width="38.0" height="22" rx="4" fill="#52514e"/>
+</g>
+<g><title>Theseus (Oct 4) on regex-chess: 0 of 2 solved</title>
+<rect x="545.4" y="258.8" width="36.5" height="20.5" rx="4" fill="#fcfcfb" stroke="#c3c2b7" stroke-width="1.2"/>
+</g>
+<g><title>Claude Code (Oct 4) on regex-chess: 2 of 2 solved</title>
+<rect x="584.7" y="258.0" width="38.0" height="22" rx="4" fill="#52514e"/>
+</g>
+<text x="191.7" y="297.0" font-size="11.5" fill="#0b0b0b" text-anchor="end">schemelike-metacircular-eval</text>
+<g><title>Theseus on schemelike-metacircular-eval: 2 of 2 solved</title>
+<rect x="202.7" y="282.0" width="38.0" height="22" rx="4" fill="#52514e"/>
+</g>
+<g><title>Claude Code on schemelike-metacircular-eval: 2 of 2 solved</title>
+<rect x="242.7" y="282.0" width="38.0" height="22" rx="4" fill="#52514e"/>
+</g>
+<g><title>OpenCode on schemelike-metacircular-eval: 2 of 2 solved</title>
+<rect x="282.7" y="282.0" width="38.0" height="22" rx="4" fill="#52514e"/>
+</g>
+<g><title>OpenHands on schemelike-metacircular-eval: 2 of 2 solved</title>
+<rect x="322.7" y="282.0" width="38.0" height="22" rx="4" fill="#52514e"/>
+</g>
+<g><title>OpenClaw on schemelike-metacircular-eval: 2 of 2 solved</title>
+<rect x="362.7" y="282.0" width="38.0" height="22" rx="4" fill="#52514e"/>
+</g>
+<g><title>Codex CLI on schemelike-metacircular-eval: 2 of 2 solved</title>
+<rect x="402.7" y="282.0" width="38.0" height="22" rx="4" fill="#52514e"/>
+</g>
+<g><title>Aider on schemelike-metacircular-eval: 0 of 2 solved</title>
+<rect x="443.4" y="282.8" width="36.5" height="20.5" rx="4" fill="#fcfcfb" stroke="#c3c2b7" stroke-width="1.2"/>
+</g>
+<g><title>Pi on schemelike-metacircular-eval: 2 of 2 solved</title>
+<rect x="482.7" y="282.0" width="38.0" height="22" rx="4" fill="#52514e"/>
+</g>
+<g><title>Theseus (Oct 4) on schemelike-metacircular-eval: 0 of 2 solved</title>
+<rect x="545.4" y="282.8" width="36.5" height="20.5" rx="4" fill="#fcfcfb" stroke="#c3c2b7" stroke-width="1.2"/>
+</g>
+<g><title>Claude Code (Oct 4) on schemelike-metacircular-eval: 2 of 2 solved</title>
+<rect x="584.7" y="282.0" width="38.0" height="22" rx="4" fill="#52514e"/>
+</g>
+<text x="191.7" y="321.0" font-size="11.5" fill="#0b0b0b" text-anchor="end">winning-avg-corewars</text>
+<g><title>Theseus on winning-avg-corewars: 2 of 2 solved</title>
+<rect x="202.7" y="306.0" width="38.0" height="22" rx="4" fill="#52514e"/>
+</g>
+<g><title>Claude Code on winning-avg-corewars: 2 of 2 solved</title>
+<rect x="242.7" y="306.0" width="38.0" height="22" rx="4" fill="#52514e"/>
+</g>
+<g><title>OpenCode on winning-avg-corewars: 2 of 2 solved</title>
+<rect x="282.7" y="306.0" width="38.0" height="22" rx="4" fill="#52514e"/>
+</g>
+<g><title>OpenHands on winning-avg-corewars: 2 of 2 solved</title>
+<rect x="322.7" y="306.0" width="38.0" height="22" rx="4" fill="#52514e"/>
+</g>
+<g><title>OpenClaw on winning-avg-corewars: 2 of 2 solved</title>
+<rect x="362.7" y="306.0" width="38.0" height="22" rx="4" fill="#52514e"/>
+</g>
+<g><title>Codex CLI on winning-avg-corewars: 2 of 2 solved</title>
+<rect x="402.7" y="306.0" width="38.0" height="22" rx="4" fill="#52514e"/>
+</g>
+<g><title>Aider on winning-avg-corewars: 0 of 2 solved</title>
+<rect x="443.4" y="306.8" width="36.5" height="20.5" rx="4" fill="#fcfcfb" stroke="#c3c2b7" stroke-width="1.2"/>
+</g>
+<g><title>Pi on winning-avg-corewars: 2 of 2 solved</title>
+<rect x="482.7" y="306.0" width="38.0" height="22" rx="4" fill="#52514e"/>
+</g>
+<g><title>Theseus (Oct 4) on winning-avg-corewars: 2 of 2 solved</title>
+<rect x="544.7" y="306.0" width="38.0" height="22" rx="4" fill="#52514e"/>
+</g>
+<g><title>Claude Code (Oct 4) on winning-avg-corewars: 2 of 2 solved</title>
+<rect x="584.7" y="306.0" width="38.0" height="22" rx="4" fill="#52514e"/>
+</g>
+<text x="191.7" y="345.0" font-size="11.5" fill="#0b0b0b" text-anchor="end">torch-tensor-parallelism</text>
+<g><title>Theseus on torch-tensor-parallelism: 2 of 2 solved</title>
+<rect x="202.7" y="330.0" width="38.0" height="22" rx="4" fill="#52514e"/>
+</g>
+<g><title>Claude Code on torch-tensor-parallelism: 2 of 2 solved</title>
+<rect x="242.7" y="330.0" width="38.0" height="22" rx="4" fill="#52514e"/>
+</g>
+<g><title>OpenCode on torch-tensor-parallelism: 2 of 2 solved</title>
+<rect x="282.7" y="330.0" width="38.0" height="22" rx="4" fill="#52514e"/>
+</g>
+<g><title>OpenHands on torch-tensor-parallelism: 1 of 2 solved</title>
+<rect x="322.7" y="330.0" width="38.0" height="22" rx="4" fill="#b9b7b0"/>
+</g>
+<g><title>OpenClaw on torch-tensor-parallelism: 2 of 2 solved</title>
+<rect x="362.7" y="330.0" width="38.0" height="22" rx="4" fill="#52514e"/>
+</g>
+<g><title>Codex CLI on torch-tensor-parallelism: 0 of 2 solved</title>
+<rect x="403.4" y="330.8" width="36.5" height="20.5" rx="4" fill="#fcfcfb" stroke="#c3c2b7" stroke-width="1.2"/>
+</g>
+<g><title>Aider on torch-tensor-parallelism: 2 of 2 solved</title>
+<rect x="442.7" y="330.0" width="38.0" height="22" rx="4" fill="#52514e"/>
+</g>
+<g><title>Pi on torch-tensor-parallelism: 2 of 2 solved</title>
+<rect x="482.7" y="330.0" width="38.0" height="22" rx="4" fill="#52514e"/>
+</g>
+<g><title>Theseus (Oct 4) on torch-tensor-parallelism: 2 of 2 solved</title>
+<rect x="544.7" y="330.0" width="38.0" height="22" rx="4" fill="#52514e"/>
+</g>
+<g><title>Claude Code (Oct 4) on torch-tensor-parallelism: 2 of 2 solved</title>
+<rect x="584.7" y="330.0" width="38.0" height="22" rx="4" fill="#52514e"/>
+</g>
+<text x="191.7" y="369.0" font-size="11.5" fill="#0b0b0b" text-anchor="end">gpt2-codegolf</text>
+<g><title>Theseus on gpt2-codegolf: 2 of 2 solved</title>
+<rect x="202.7" y="354.0" width="38.0" height="22" rx="4" fill="#52514e"/>
+</g>
+<g><title>Claude Code on gpt2-codegolf: 1 of 2 solved</title>
+<rect x="242.7" y="354.0" width="38.0" height="22" rx="4" fill="#b9b7b0"/>
+</g>
+<g><title>OpenCode on gpt2-codegolf: 1 of 2 solved</title>
+<rect x="282.7" y="354.0" width="38.0" height="22" rx="4" fill="#b9b7b0"/>
+</g>
+<g><title>OpenHands on gpt2-codegolf: 2 of 2 solved</title>
+<rect x="322.7" y="354.0" width="38.0" height="22" rx="4" fill="#52514e"/>
+</g>
+<g><title>OpenClaw on gpt2-codegolf: 2 of 2 solved</title>
+<rect x="362.7" y="354.0" width="38.0" height="22" rx="4" fill="#52514e"/>
+</g>
+<g><title>Codex CLI on gpt2-codegolf: 2 of 2 solved</title>
+<rect x="402.7" y="354.0" width="38.0" height="22" rx="4" fill="#52514e"/>
+</g>
+<g><title>Aider on gpt2-codegolf: 1 of 2 solved</title>
+<rect x="442.7" y="354.0" width="38.0" height="22" rx="4" fill="#b9b7b0"/>
+</g>
+<g><title>Pi on gpt2-codegolf: 1 of 2 solved</title>
+<rect x="482.7" y="354.0" width="38.0" height="22" rx="4" fill="#b9b7b0"/>
+</g>
+<g><title>Theseus (Oct 4) on gpt2-codegolf: 2 of 2 solved</title>
+<rect x="544.7" y="354.0" width="38.0" height="22" rx="4" fill="#52514e"/>
+</g>
+<g><title>Claude Code (Oct 4) on gpt2-codegolf: 2 of 2 solved</title>
+<rect x="584.7" y="354.0" width="38.0" height="22" rx="4" fill="#52514e"/>
+</g>
+<text x="191.7" y="393.0" font-size="11.5" fill="#0b0b0b" text-anchor="end">mailman</text>
+<g><title>Theseus on mailman: 1 of 2 solved</title>
+<rect x="202.7" y="378.0" width="38.0" height="22" rx="4" fill="#b9b7b0"/>
+</g>
+<g><title>Claude Code on mailman: 1 of 2 solved</title>
+<rect x="242.7" y="378.0" width="38.0" height="22" rx="4" fill="#b9b7b0"/>
+</g>
+<g><title>OpenCode on mailman: 2 of 2 solved</title>
+<rect x="282.7" y="378.0" width="38.0" height="22" rx="4" fill="#52514e"/>
+</g>
+<g><title>OpenHands on mailman: 2 of 2 solved</title>
+<rect x="322.7" y="378.0" width="38.0" height="22" rx="4" fill="#52514e"/>
+</g>
+<g><title>OpenClaw on mailman: 2 of 2 solved</title>
+<rect x="362.7" y="378.0" width="38.0" height="22" rx="4" fill="#52514e"/>
+</g>
+<g><title>Codex CLI on mailman: 2 of 2 solved</title>
+<rect x="402.7" y="378.0" width="38.0" height="22" rx="4" fill="#52514e"/>
+</g>
+<g><title>Aider on mailman: 0 of 2 solved</title>
+<rect x="443.4" y="378.8" width="36.5" height="20.5" rx="4" fill="#fcfcfb" stroke="#c3c2b7" stroke-width="1.2"/>
+</g>
+<g><title>Pi on mailman: 2 of 2 solved</title>
+<rect x="482.7" y="378.0" width="38.0" height="22" rx="4" fill="#52514e"/>
+</g>
+<g><title>Theseus (Oct 4) on mailman: 2 of 2 solved</title>
+<rect x="544.7" y="378.0" width="38.0" height="22" rx="4" fill="#52514e"/>
+</g>
+<g><title>Claude Code (Oct 4) on mailman: 2 of 2 solved</title>
+<rect x="584.7" y="378.0" width="38.0" height="22" rx="4" fill="#52514e"/>
+</g>
+<text x="191.7" y="417.0" font-size="11.5" fill="#0b0b0b" text-anchor="end">nginx-request-logging</text>
+<g><title>Theseus on nginx-request-logging: 0 of 2 solved</title>
+<rect x="203.4" y="402.8" width="36.5" height="20.5" rx="4" fill="#fcfcfb" stroke="#c3c2b7" stroke-width="1.2"/>
+</g>
+<g><title>Claude Code on nginx-request-logging: 2 of 2 solved</title>
+<rect x="242.7" y="402.0" width="38.0" height="22" rx="4" fill="#52514e"/>
+</g>
+<g><title>OpenCode on nginx-request-logging: 2 of 2 solved</title>
+<rect x="282.7" y="402.0" width="38.0" height="22" rx="4" fill="#52514e"/>
+</g>
+<g><title>OpenHands on nginx-request-logging: 2 of 2 solved</title>
+<rect x="322.7" y="402.0" width="38.0" height="22" rx="4" fill="#52514e"/>
+</g>
+<g><title>OpenClaw on nginx-request-logging: 1 of 2 solved</title>
+<rect x="362.7" y="402.0" width="38.0" height="22" rx="4" fill="#b9b7b0"/>
+</g>
+<g><title>Codex CLI on nginx-request-logging: 2 of 2 solved</title>
+<rect x="402.7" y="402.0" width="38.0" height="22" rx="4" fill="#52514e"/>
+</g>
+<g><title>Aider on nginx-request-logging: 0 of 2 solved</title>
+<rect x="443.4" y="402.8" width="36.5" height="20.5" rx="4" fill="#fcfcfb" stroke="#c3c2b7" stroke-width="1.2"/>
+</g>
+<g><title>Pi on nginx-request-logging: 2 of 2 solved</title>
+<rect x="482.7" y="402.0" width="38.0" height="22" rx="4" fill="#52514e"/>
+</g>
+<g><title>Theseus (Oct 4) on nginx-request-logging: 2 of 2 solved</title>
+<rect x="544.7" y="402.0" width="38.0" height="22" rx="4" fill="#52514e"/>
+</g>
+<g><title>Claude Code (Oct 4) on nginx-request-logging: 2 of 2 solved</title>
+<rect x="584.7" y="402.0" width="38.0" height="22" rx="4" fill="#52514e"/>
+</g>
+<text x="191.7" y="441.0" font-size="11.5" fill="#0b0b0b" text-anchor="end">build-pov-ray</text>
+<g><title>Theseus on build-pov-ray: 1 of 2 solved</title>
+<rect x="202.7" y="426.0" width="38.0" height="22" rx="4" fill="#b9b7b0"/>
+</g>
+<g><title>Claude Code on build-pov-ray: 1 of 2 solved</title>
+<rect x="242.7" y="426.0" width="38.0" height="22" rx="4" fill="#b9b7b0"/>
+</g>
+<g><title>OpenCode on build-pov-ray: 2 of 2 solved</title>
+<rect x="282.7" y="426.0" width="38.0" height="22" rx="4" fill="#52514e"/>
+</g>
+<g><title>OpenHands on build-pov-ray: 1 of 2 solved</title>
+<rect x="322.7" y="426.0" width="38.0" height="22" rx="4" fill="#b9b7b0"/>
+</g>
+<g><title>OpenClaw on build-pov-ray: 1 of 2 solved</title>
+<rect x="362.7" y="426.0" width="38.0" height="22" rx="4" fill="#b9b7b0"/>
+</g>
+<g><title>Codex CLI on build-pov-ray: 2 of 2 solved</title>
+<rect x="402.7" y="426.0" width="38.0" height="22" rx="4" fill="#52514e"/>
+</g>
+<g><title>Aider on build-pov-ray: 0 of 2 solved</title>
+<rect x="443.4" y="426.8" width="36.5" height="20.5" rx="4" fill="#fcfcfb" stroke="#c3c2b7" stroke-width="1.2"/>
+</g>
+<g><title>Pi on build-pov-ray: 2 of 2 solved</title>
+<rect x="482.7" y="426.0" width="38.0" height="22" rx="4" fill="#52514e"/>
+</g>
+<g><title>Theseus (Oct 4) on build-pov-ray: 2 of 2 solved</title>
+<rect x="544.7" y="426.0" width="38.0" height="22" rx="4" fill="#52514e"/>
+</g>
+<g><title>Claude Code (Oct 4) on build-pov-ray: 2 of 2 solved</title>
+<rect x="584.7" y="426.0" width="38.0" height="22" rx="4" fill="#52514e"/>
+</g>
+<text x="191.7" y="465.0" font-size="11.5" fill="#0b0b0b" text-anchor="end">hf-model-inference</text>
+<g><title>Theseus on hf-model-inference: 0 of 2 solved</title>
+<rect x="203.4" y="450.8" width="36.5" height="20.5" rx="4" fill="#fcfcfb" stroke="#c3c2b7" stroke-width="1.2"/>
+</g>
+<g><title>Claude Code on hf-model-inference: 2 of 2 solved</title>
+<rect x="242.7" y="450.0" width="38.0" height="22" rx="4" fill="#52514e"/>
+</g>
+<g><title>OpenCode on hf-model-inference: 2 of 2 solved</title>
+<rect x="282.7" y="450.0" width="38.0" height="22" rx="4" fill="#52514e"/>
+</g>
+<g><title>OpenHands on hf-model-inference: 2 of 2 solved</title>
+<rect x="322.7" y="450.0" width="38.0" height="22" rx="4" fill="#52514e"/>
+</g>
+<g><title>OpenClaw on hf-model-inference: 1 of 2 solved</title>
+<rect x="362.7" y="450.0" width="38.0" height="22" rx="4" fill="#b9b7b0"/>
+</g>
+<g><title>Codex CLI on hf-model-inference: 1 of 2 solved</title>
+<rect x="402.7" y="450.0" width="38.0" height="22" rx="4" fill="#b9b7b0"/>
+</g>
+<g><title>Aider on hf-model-inference: 0 of 2 solved</title>
+<rect x="443.4" y="450.8" width="36.5" height="20.5" rx="4" fill="#fcfcfb" stroke="#c3c2b7" stroke-width="1.2"/>
+</g>
+<g><title>Pi on hf-model-inference: 2 of 2 solved</title>
+<rect x="482.7" y="450.0" width="38.0" height="22" rx="4" fill="#52514e"/>
+</g>
+<g><title>Theseus (Oct 4) on hf-model-inference: 1 of 2 solved</title>
+<rect x="544.7" y="450.0" width="38.0" height="22" rx="4" fill="#b9b7b0"/>
+</g>
+<g><title>Claude Code (Oct 4) on hf-model-inference: 2 of 2 solved</title>
+<rect x="584.7" y="450.0" width="38.0" height="22" rx="4" fill="#52514e"/>
+</g>
+<text x="191.7" y="489.0" font-size="11.5" fill="#0b0b0b" text-anchor="end">install-windows-3.11</text>
+<g><title>Theseus on install-windows-3.11: 0 of 2 solved</title>
+<rect x="203.4" y="474.8" width="36.5" height="20.5" rx="4" fill="#fcfcfb" stroke="#c3c2b7" stroke-width="1.2"/>
+</g>
+<g><title>Claude Code on install-windows-3.11: 1 of 2 solved</title>
+<rect x="242.7" y="474.0" width="38.0" height="22" rx="4" fill="#b9b7b0"/>
+</g>
+<g><title>OpenCode on install-windows-3.11: 0 of 2 solved</title>
+<rect x="283.4" y="474.8" width="36.5" height="20.5" rx="4" fill="#fcfcfb" stroke="#c3c2b7" stroke-width="1.2"/>
+</g>
+<g><title>OpenHands on install-windows-3.11: 0 of 2 solved</title>
+<rect x="323.4" y="474.8" width="36.5" height="20.5" rx="4" fill="#fcfcfb" stroke="#c3c2b7" stroke-width="1.2"/>
+</g>
+<g><title>OpenClaw on install-windows-3.11: 1 of 2 solved</title>
+<rect x="362.7" y="474.0" width="38.0" height="22" rx="4" fill="#b9b7b0"/>
+</g>
+<g><title>Codex CLI on install-windows-3.11: 0 of 2 solved</title>
+<rect x="403.4" y="474.8" width="36.5" height="20.5" rx="4" fill="#fcfcfb" stroke="#c3c2b7" stroke-width="1.2"/>
+</g>
+<g><title>Aider on install-windows-3.11: 0 of 2 solved</title>
+<rect x="443.4" y="474.8" width="36.5" height="20.5" rx="4" fill="#fcfcfb" stroke="#c3c2b7" stroke-width="1.2"/>
+</g>
+<g><title>Pi on install-windows-3.11: 0 of 2 solved</title>
+<rect x="483.4" y="474.8" width="36.5" height="20.5" rx="4" fill="#fcfcfb" stroke="#c3c2b7" stroke-width="1.2"/>
+</g>
+<g><title>Theseus (Oct 4) on install-windows-3.11: 0 of 2 solved</title>
+<rect x="545.4" y="474.8" width="36.5" height="20.5" rx="4" fill="#fcfcfb" stroke="#c3c2b7" stroke-width="1.2"/>
+</g>
+<g><title>Claude Code (Oct 4) on install-windows-3.11: 1 of 2 solved</title>
+<rect x="584.7" y="474.0" width="38.0" height="22" rx="4" fill="#b9b7b0"/>
+</g>
+<text x="191.7" y="515.0" font-size="11.5" fill="#52514e" text-anchor="end">trials solved</text>
+<text x="221.7" y="515.0" font-size="11.5" fill="#0b0b0b" text-anchor="middle" font-weight="600" style="font-variant-numeric: tabular-nums">20</text>
+<text x="261.7" y="515.0" font-size="11.5" fill="#0b0b0b" text-anchor="middle" font-weight="600" style="font-variant-numeric: tabular-nums">23</text>
+<text x="301.7" y="515.0" font-size="11.5" fill="#0b0b0b" text-anchor="middle" style="font-variant-numeric: tabular-nums">25</text>
+<text x="341.7" y="515.0" font-size="11.5" fill="#0b0b0b" text-anchor="middle" style="font-variant-numeric: tabular-nums">24</text>
+<text x="381.7" y="515.0" font-size="11.5" fill="#0b0b0b" text-anchor="middle" style="font-variant-numeric: tabular-nums">23</text>
+<text x="421.7" y="515.0" font-size="11.5" fill="#0b0b0b" text-anchor="middle" style="font-variant-numeric: tabular-nums">23</text>
+<text x="461.7" y="515.0" font-size="11.5" fill="#0b0b0b" text-anchor="middle" style="font-variant-numeric: tabular-nums">6</text>
+<text x="501.7" y="515.0" font-size="11.5" fill="#0b0b0b" text-anchor="middle" style="font-variant-numeric: tabular-nums">25</text>
+<text x="563.7" y="515.0" font-size="11.5" fill="#0b0b0b" text-anchor="middle" font-weight="600" style="font-variant-numeric: tabular-nums">21</text>
+<text x="603.7" y="515.0" font-size="11.5" fill="#0b0b0b" text-anchor="middle" font-weight="600" style="font-variant-numeric: tabular-nums">27</text>
+<text x="191.7" y="530.0" font-size="10.5" fill="#898781" text-anchor="end">of 28</text>
+<text x="18.0" y="550.0" font-size="11" fill="#52514e">The night run of Oct 7 (eight harnesses), and on the right the Oct 4 run's Theseus and Claude Code on the same 14 tasks.</text>
+<text x="18.0" y="565.0" font-size="11" fill="#52514e">An attempt that ended in an error counts as not solved. Theseus's Oct 7 column ran with every shell command failing to</text>
+<text x="18.0" y="580.0" font-size="11" fill="#52514e">start (since fixed).</text>
+</svg>

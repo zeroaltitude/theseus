@@ -1,0 +1,191 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="824" viewBox="0 0 720 824" role="img" aria-labelledby="t-memory t-memory-d" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
+<title id="t-memory">Memory: what the exams, the retrieval probes and the recall smokes measured, in date order</title>
+<desc id="t-memory-d">Does Theseus remember, and is the gap its retrieval or the model?</desc>
+<rect width="720" height="824" rx="8" fill="#1a1a19" stroke="#2c2c2a"/>
+<text x="18.0" y="32.0" font-size="15" fill="#ffffff" font-weight="600">Memory: what the exams, the retrieval probes and the recall smokes measured,</text>
+<text x="18.0" y="52.0" font-size="15" fill="#ffffff" font-weight="600">in date order</text>
+<circle cx="25.0" cy="70.0" r="5" fill="#898781"/>
+<text x="40.0" y="74.0" font-size="12" fill="#c3c2b7">no memory</text>
+<circle cx="133.7" cy="70.0" r="5" fill="#c3c2b7"/>
+<text x="148.7" y="74.0" font-size="12" fill="#c3c2b7">the oracle</text>
+<circle cx="234.3" cy="70.0" r="5" fill="#d55181"/>
+<text x="249.3" y="74.0" font-size="12" fill="#c3c2b7">BM25 (and entities)</text>
+<circle cx="392.2" cy="70.0" r="5" fill="#9085e9"/>
+<text x="407.2" y="74.0" font-size="12" fill="#c3c2b7">fused ranks, the shipped default</text>
+<circle cx="25.0" cy="90.0" r="5" fill="#008300"/>
+<text x="40.0" y="94.0" font-size="12" fill="#c3c2b7">vectors</text>
+<line x1="258.4" y1="112.0" x2="258.4" y2="730.0" stroke="#2c2c2a" stroke-width="1"/>
+<line x1="316.9" y1="112.0" x2="316.9" y2="730.0" stroke="#2c2c2a" stroke-width="1"/>
+<line x1="375.3" y1="112.0" x2="375.3" y2="730.0" stroke="#2c2c2a" stroke-width="1"/>
+<line x1="433.8" y1="112.0" x2="433.8" y2="730.0" stroke="#2c2c2a" stroke-width="1"/>
+<line x1="492.2" y1="112.0" x2="492.2" y2="730.0" stroke="#2c2c2a" stroke-width="1"/>
+<line x1="550.6" y1="112.0" x2="550.6" y2="730.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="18.0" y="129.0" font-size="12" fill="#ffffff" stroke="#1a1a19" stroke-width="3" stroke-linejoin="round" paint-order="stroke" font-weight="600">Sep 30 · exam v1, 40 items: pass rate (bootstrap over items)</text>
+<text x="18.0" y="213.0" font-size="12" fill="#ffffff" stroke="#1a1a19" stroke-width="3" stroke-linejoin="round" paint-order="stroke" font-weight="600">Sep 30 · exam v2's 34 new items: pass rate (Wilson over cells)</text>
+<text x="18.0" y="297.0" font-size="12" fill="#ffffff" stroke="#1a1a19" stroke-width="3" stroke-linejoin="round" paint-order="stroke" font-weight="600">Oct 4 · exam v2, 72 items, the real recall pipeline: pass rate</text>
+<text x="18.0" y="437.0" font-size="12" fill="#ffffff" stroke="#1a1a19" stroke-width="3" stroke-linejoin="round" paint-order="stroke" font-weight="600">Sep 30 to Oct 4 · retrieval: all of an item's notes in the top 6</text>
+<text x="18.0" y="633.0" font-size="12" fill="#ffffff" stroke="#1a1a19" stroke-width="3" stroke-linejoin="round" paint-order="stroke" font-weight="600">Oct 5 to 6 · its own work, recalled later (three smokes of 6 probes)</text>
+<text x="244.4" y="156.0" font-size="12" fill="#ffffff" text-anchor="end">no memory</text>
+<g><title>no memory: 25.8%  [14.2%, 39.2%]</title>
+<line x1="299.9" y1="152.0" x2="373.0" y2="152.0" stroke="#898781" stroke-width="2" stroke-linecap="round"/>
+<line x1="299.9" y1="147.0" x2="299.9" y2="157.0" stroke="#898781" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="373.0" y1="147.0" x2="373.0" y2="157.0" stroke="#898781" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="333.8" cy="152.0" r="12" fill="transparent"/>
+<circle cx="333.8" cy="152.0" r="5" fill="#898781" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="564.6" y="156.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">25.8%  [14.2%, 39.2%]</text>
+<text x="244.4" y="184.0" font-size="12" fill="#ffffff" text-anchor="end">shown the right notes</text>
+<g><title>shown the right notes: 100.0%  [91.2%, 100.0%] (40 of 40 items, Wilson over items)</title>
+<line x1="525.0" y1="180.0" x2="550.6" y2="180.0" stroke="#c3c2b7" stroke-width="2" stroke-linecap="round"/>
+<line x1="525.0" y1="175.0" x2="525.0" y2="185.0" stroke="#c3c2b7" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="550.6" y1="175.0" x2="550.6" y2="185.0" stroke="#c3c2b7" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="550.6" cy="180.0" r="12" fill="transparent"/>
+<circle cx="550.6" cy="180.0" r="5" fill="#c3c2b7" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="564.6" y="184.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">100.0%  [91.2%, 100.0%]</text>
+<text x="244.4" y="240.0" font-size="12" fill="#ffffff" text-anchor="end">no memory</text>
+<g><title>no memory: 2.9%  [1.0%, 8.3%] (3 of 102)</title>
+<line x1="261.4" y1="236.0" x2="282.7" y2="236.0" stroke="#898781" stroke-width="2" stroke-linecap="round"/>
+<line x1="261.4" y1="231.0" x2="261.4" y2="241.0" stroke="#898781" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="282.7" y1="231.0" x2="282.7" y2="241.0" stroke="#898781" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="267.0" cy="236.0" r="12" fill="transparent"/>
+<circle cx="267.0" cy="236.0" r="5" fill="#898781" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="564.6" y="240.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">2.9%  [1.0%, 8.3%]</text>
+<text x="244.4" y="268.0" font-size="12" fill="#ffffff" text-anchor="end">shown the right notes</text>
+<g><title>shown the right notes: 100.0%  [96.4%, 100.0%] (102 of 102)</title>
+<line x1="540.0" y1="264.0" x2="550.6" y2="264.0" stroke="#c3c2b7" stroke-width="2" stroke-linecap="round"/>
+<line x1="540.0" y1="259.0" x2="540.0" y2="269.0" stroke="#c3c2b7" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="550.6" y1="259.0" x2="550.6" y2="269.0" stroke="#c3c2b7" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="550.6" cy="264.0" r="12" fill="transparent"/>
+<circle cx="550.6" cy="264.0" r="5" fill="#c3c2b7" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="564.6" y="268.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">100.0%  [96.4%, 100.0%]</text>
+<text x="244.4" y="324.0" font-size="12" fill="#ffffff" text-anchor="end">no memory</text>
+<g><title>no memory: 14.6%  [6.9%, 22.9%]</title>
+<line x1="278.6" y1="320.0" x2="325.3" y2="320.0" stroke="#898781" stroke-width="2" stroke-linecap="round"/>
+<line x1="278.6" y1="315.0" x2="278.6" y2="325.0" stroke="#898781" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="325.3" y1="315.0" x2="325.3" y2="325.0" stroke="#898781" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="301.1" cy="320.0" r="12" fill="transparent"/>
+<circle cx="301.1" cy="320.0" r="5" fill="#898781" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="564.6" y="324.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">14.6%  [6.9%, 22.9%]</text>
+<text x="244.4" y="352.0" font-size="12" fill="#ffffff" text-anchor="end">BM25 and entities</text>
+<g><title>BM25 and entities: 45.8%  [34.7%, 56.9%]</title>
+<line x1="359.8" y1="348.0" x2="424.7" y2="348.0" stroke="#d55181" stroke-width="2" stroke-linecap="round"/>
+<line x1="359.8" y1="343.0" x2="359.8" y2="353.0" stroke="#d55181" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="424.7" y1="343.0" x2="424.7" y2="353.0" stroke="#d55181" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="392.3" cy="348.0" r="12" fill="transparent"/>
+<circle cx="392.3" cy="348.0" r="5" fill="#d55181" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="564.6" y="352.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">45.8%  [34.7%, 56.9%]</text>
+<text x="244.4" y="380.0" font-size="12" fill="#ffffff" text-anchor="end">plus vectors, fused (shipped)</text>
+<g><title>plus vectors, fused (shipped): 67.1%  [56.0%, 77.8%]</title>
+<line x1="422.1" y1="376.0" x2="485.8" y2="376.0" stroke="#9085e9" stroke-width="2" stroke-linecap="round"/>
+<line x1="422.1" y1="371.0" x2="422.1" y2="381.0" stroke="#9085e9" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="485.8" y1="371.0" x2="485.8" y2="381.0" stroke="#9085e9" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="454.5" cy="376.0" r="12" fill="transparent"/>
+<circle cx="454.5" cy="376.0" r="5" fill="#9085e9" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="564.6" y="380.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">67.1%  [56.0%, 77.8%]</text>
+<text x="244.4" y="408.0" font-size="12" fill="#ffffff" text-anchor="end">shown the right notes</text>
+<g><title>shown the right notes: 99.5%  [98.6%, 100.0%]</title>
+<line x1="546.5" y1="404.0" x2="550.6" y2="404.0" stroke="#c3c2b7" stroke-width="2" stroke-linecap="round"/>
+<line x1="546.5" y1="399.0" x2="546.5" y2="409.0" stroke="#c3c2b7" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="550.6" y1="399.0" x2="550.6" y2="409.0" stroke="#c3c2b7" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="549.2" cy="404.0" r="12" fill="transparent"/>
+<circle cx="549.2" cy="404.0" r="5" fill="#c3c2b7" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="564.6" y="408.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">99.5%  [98.6%, 100.0%]</text>
+<text x="244.4" y="464.0" font-size="12" fill="#ffffff" text-anchor="end">BM25, exam v1's items (Sep 30)</text>
+<g><title>BM25, exam v1's items (Sep 30): 91.7%  [78.2%, 97.1%] (33 of 36)</title>
+<line x1="486.9" y1="460.0" x2="542.2" y2="460.0" stroke="#d55181" stroke-width="2" stroke-linecap="round"/>
+<line x1="486.9" y1="455.0" x2="486.9" y2="465.0" stroke="#d55181" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="542.2" y1="455.0" x2="542.2" y2="465.0" stroke="#d55181" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="526.3" cy="460.0" r="12" fill="transparent"/>
+<circle cx="526.3" cy="460.0" r="5" fill="#d55181" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="564.6" y="464.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">91.7%  [78.2%, 97.1%]</text>
+<text x="244.4" y="492.0" font-size="12" fill="#ffffff" text-anchor="end">BM25, exam v2's hard items (Sep 30)</text>
+<g><title>BM25, exam v2's hard items (Sep 30): 3.1%  [0.6%, 15.7%] (1 of 32)</title>
+<line x1="260.1" y1="488.0" x2="304.4" y2="488.0" stroke="#d55181" stroke-width="2" stroke-linecap="round"/>
+<line x1="260.1" y1="483.0" x2="260.1" y2="493.0" stroke="#d55181" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="304.4" y1="483.0" x2="304.4" y2="493.0" stroke="#d55181" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="267.6" cy="488.0" r="12" fill="transparent"/>
+<circle cx="267.6" cy="488.0" r="5" fill="#d55181" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="564.6" y="492.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">3.1%  [0.6%, 15.7%]</text>
+<text x="244.4" y="520.0" font-size="12" fill="#ffffff" text-anchor="end">BM25 and entities, held out (Oct 1)</text>
+<g><title>BM25 and entities, held out (Oct 1): 41.2%  [26.4%, 57.8%] (14 of 34)</title>
+<line x1="335.5" y1="516.0" x2="427.3" y2="516.0" stroke="#d55181" stroke-width="2" stroke-linecap="round"/>
+<line x1="335.5" y1="511.0" x2="335.5" y2="521.0" stroke="#d55181" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="427.3" y1="511.0" x2="427.3" y2="521.0" stroke="#d55181" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="378.8" cy="516.0" r="12" fill="transparent"/>
+<circle cx="378.8" cy="516.0" r="5" fill="#d55181" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="564.6" y="520.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">41.2%  [26.4%, 57.8%]</text>
+<text x="244.4" y="548.0" font-size="12" fill="#ffffff" text-anchor="end">vectors alone, held out (Oct 1)</text>
+<g><title>vectors alone, held out (Oct 1): 64.7%  [47.9%, 78.5%] (22 of 34)</title>
+<line x1="398.4" y1="544.0" x2="487.8" y2="544.0" stroke="#008300" stroke-width="2" stroke-linecap="round"/>
+<line x1="398.4" y1="539.0" x2="398.4" y2="549.0" stroke="#008300" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="487.8" y1="539.0" x2="487.8" y2="549.0" stroke="#008300" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="447.5" cy="544.0" r="12" fill="transparent"/>
+<circle cx="447.5" cy="544.0" r="5" fill="#008300" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="564.6" y="548.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">64.7%  [47.9%, 78.5%]</text>
+<text x="244.4" y="576.0" font-size="12" fill="#ffffff" text-anchor="end">equal-weight fusion, held out (Oct 1)</text>
+<g><title>equal-weight fusion, held out (Oct 1): 47.1%  [31.5%, 63.3%] (16 of 34)</title>
+<line x1="350.3" y1="572.0" x2="443.3" y2="572.0" stroke="#9085e9" stroke-width="2" stroke-linecap="round"/>
+<line x1="350.3" y1="567.0" x2="350.3" y2="577.0" stroke="#9085e9" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="443.3" y1="567.0" x2="443.3" y2="577.0" stroke="#9085e9" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="395.9" cy="572.0" r="12" fill="transparent"/>
+<circle cx="395.9" cy="572.0" r="5" fill="#9085e9" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="564.6" y="576.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">47.1%  [31.5%, 63.3%]</text>
+<text x="244.4" y="604.0" font-size="12" fill="#ffffff" text-anchor="end">fusion, vectors × 6, held out (Oct 1)</text>
+<g><title>fusion, vectors × 6, held out (Oct 1): 64.7%  [47.9%, 78.5%] (22 of 34)</title>
+<line x1="398.4" y1="600.0" x2="487.8" y2="600.0" stroke="#9085e9" stroke-width="2" stroke-linecap="round"/>
+<line x1="398.4" y1="595.0" x2="398.4" y2="605.0" stroke="#9085e9" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="487.8" y1="595.0" x2="487.8" y2="605.0" stroke="#9085e9" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="447.5" cy="600.0" r="12" fill="transparent"/>
+<circle cx="447.5" cy="600.0" r="5" fill="#9085e9" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="564.6" y="604.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">64.7%  [47.9%, 78.5%]</text>
+<text x="244.4" y="660.0" font-size="12" fill="#ffffff" text-anchor="end">smoke 1 (Oct 5)</text>
+<g><title>smoke 1 (Oct 5): 83.3%  [43.6%, 97.0%] (5 of 6)</title>
+<line x1="386.0" y1="656.0" x2="541.9" y2="656.0" stroke="#9085e9" stroke-width="2" stroke-linecap="round"/>
+<line x1="386.0" y1="651.0" x2="386.0" y2="661.0" stroke="#9085e9" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="541.9" y1="651.0" x2="541.9" y2="661.0" stroke="#9085e9" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="501.9" cy="656.0" r="12" fill="transparent"/>
+<circle cx="501.9" cy="656.0" r="5" fill="#9085e9" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="564.6" y="660.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">83.3%  [43.6%, 97.0%]</text>
+<text x="244.4" y="688.0" font-size="12" fill="#ffffff" text-anchor="end">smoke 2 (Oct 5)</text>
+<g><title>smoke 2 (Oct 5): 83.3%  [43.6%, 97.0%] (5 of 6)</title>
+<line x1="386.0" y1="684.0" x2="541.9" y2="684.0" stroke="#9085e9" stroke-width="2" stroke-linecap="round"/>
+<line x1="386.0" y1="679.0" x2="386.0" y2="689.0" stroke="#9085e9" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="541.9" y1="679.0" x2="541.9" y2="689.0" stroke="#9085e9" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="501.9" cy="684.0" r="12" fill="transparent"/>
+<circle cx="501.9" cy="684.0" r="5" fill="#9085e9" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="564.6" y="688.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">83.3%  [43.6%, 97.0%]</text>
+<text x="244.4" y="716.0" font-size="12" fill="#ffffff" text-anchor="end">smoke 3 (Oct 6)</text>
+<g><title>smoke 3 (Oct 6): 66.7%  [30.0%, 90.3%] (4 of 6)</title>
+<line x1="346.1" y1="712.0" x2="522.4" y2="712.0" stroke="#9085e9" stroke-width="2" stroke-linecap="round"/>
+<line x1="346.1" y1="707.0" x2="346.1" y2="717.0" stroke="#9085e9" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="522.4" y1="707.0" x2="522.4" y2="717.0" stroke="#9085e9" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="453.2" cy="712.0" r="12" fill="transparent"/>
+<circle cx="453.2" cy="712.0" r="5" fill="#9085e9" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="564.6" y="716.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">66.7%  [30.0%, 90.3%]</text>
+<line x1="258.4" y1="730.0" x2="550.6" y2="730.0" stroke="#383835" stroke-width="1"/>
+<text x="258.4" y="746.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">0%</text>
+<text x="316.9" y="746.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">20%</text>
+<text x="375.3" y="746.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">40%</text>
+<text x="433.8" y="746.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">60%</text>
+<text x="492.2" y="746.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">80%</text>
+<text x="550.6" y="746.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">100%</text>
+<text x="404.5" y="764.0" font-size="12" fill="#c3c2b7" text-anchor="middle">share passed or found (95% intervals)</text>
+<text x="18.0" y="786.0" font-size="11" fill="#c3c2b7">GLM-5.3 Flash in the exams; Claude Sonnet 5.5 in the smokes (strict scoring, today's scorer). The retrieval rows use no</text>
+<text x="18.0" y="801.0" font-size="11" fill="#c3c2b7">model. Exam v2's items are built so that a lexical search fails.</text>
+</svg>

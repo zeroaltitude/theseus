@@ -8,8 +8,12 @@ it, so every table and plot can be checked and redrawn. How a benchmark is set u
 
 ## Every run, newest first
 
+The first row is pinned: the omnibus review, the one undated page, is the living overview of every run below, and
+its date is the day it was last brought up to date.
+
 | Date | Suite | Arms | Headline | Report |
 |---|---|---|---|---|
+| 2026-10-08 | all | every arm | **Pinned: start here.** What all the runs say, by question: it solves 71.9% of Terminal-Bench 2.0's trials (Claude Code 81.5%; most of the gap was harness faults, now mostly fixed); its harness is the lightest measured (36.5 MiB, 17 ms a tool call, under a second to install); recall lifts a cheap model from 15% to 67%; every speed budget's median is a fifth to a half of its limit. | [The benchmarks omnibus review: what every run says](omnibus.md) |
 | 2026-10-06 | `harbor` | Theseus · Theseus + paragraph · Claude Code 2.1.288 · Pi 1.0.4 | The harness apart from the model: Theseus 24 to 28 MiB peak and 16 to 25 ms CPU per tool call; Claude Code 209 to 430 MiB and 175 to 394 ms; Pi 125 MiB and 108 ms. A `fix-git` trial costs about the same in each. | [Harbor: what each harness costs to run, apart from the model, the live efficiency checks](2026-10-06-harbor-efficiency-checks.md) |
 | 2026-10-06 | `gate-bench` | Theseus on main (each gate's p95 and p50) | 240 gates on main: every lifecycle phase's median far inside its budget all week (a cold start's p50 22.6 ms against 50); the slowest of ten runs crossed a limit in 32 gates (13.3% [9.6, 18.2]), more often under load; four joins moved a number. | [Gate bench: FAST's history, the gate's speed benches from Oct 1 to Oct 6](2026-10-06-gate-bench-fast-history.md) |
 | 2026-10-06 | `async` | Theseus · Claude Code 2.1.288 · the oracle | Smokes, not a run (six model trials): every trial earned its reward; Theseus acted on a mid-task message in 46 to 56 s, Claude Code in 147 and 163 s, at 5 and 8 more model calls. | [Async: the async bench's smokes, before its first full run](2026-10-06-async-smokes.md) |

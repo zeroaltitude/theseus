@@ -1,0 +1,127 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="495" viewBox="0 0 720 495" role="img" aria-labelledby="t-speed-budgets t-speed-budgets-d" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
+<title id="t-speed-budgets">FAST: each budgeted phase against its limit</title>
+<desc id="t-speed-budgets-d">How much of each speed budget does Theseus use?</desc>
+<rect width="720" height="495" rx="8" fill="#fcfcfb" stroke="#e6e5df"/>
+<text x="18.0" y="32.0" font-size="15" fill="#0b0b0b" font-weight="600">FAST: each budgeted phase against its limit</text>
+<circle cx="25.0" cy="50.0" r="5" fill="#2a78d6"/>
+<text x="40.0" y="54.0" font-size="12" fill="#52514e">p50 (median over gates)</text>
+<rect x="204.5" y="44.0" width="14" height="12" rx="3" fill="#88b3e7"/>
+<text x="226.5" y="54.0" font-size="12" fill="#52514e">to the p95's median</text>
+<line x1="370.0" y1="43.0" x2="370.0" y2="57.0" stroke="#0b0b0b" stroke-width="1.5"/>
+<text x="385.0" y="54.0" font-size="12" fill="#52514e">the limit</text>
+<circle cx="458.8" cy="50.0" r="4.5" fill="#fcfcfb" stroke="#898781" stroke-width="1.6"/>
+<text x="473.8" y="54.0" font-size="12" fill="#52514e">before the fix (10,000 sessions)</text>
+<text x="18.0" y="89.0" font-size="12" fill="#0b0b0b" font-weight="600">The gate's bench: debug build, 240 gates on main, Oct 1 to 6</text>
+<text x="18.0" y="299.0" font-size="12" fill="#0b0b0b" font-weight="600">10,000 parked sessions, release build, after the perf1 lane (Oct 2)</text>
+<line x1="250.1" y1="96.0" x2="250.1" y2="388.0" stroke="#e1e0d9" stroke-width="1"/>
+<line x1="325.6" y1="96.0" x2="325.6" y2="388.0" stroke="#e1e0d9" stroke-width="1"/>
+<line x1="401.1" y1="96.0" x2="401.1" y2="388.0" stroke="#e1e0d9" stroke-width="1"/>
+<line x1="476.5" y1="96.0" x2="476.5" y2="388.0" stroke="#e1e0d9" stroke-width="1"/>
+<line x1="552.0" y1="96.0" x2="552.0" y2="388.0" stroke="#e1e0d9" stroke-width="1"/>
+<line x1="552.0" y1="94.0" x2="552.0" y2="388.0" stroke="#0b0b0b" stroke-width="1.5"/>
+<text x="564.0" y="89.0" font-size="10.5" fill="#898781">p50 of the limit</text>
+<text x="702.0" y="89.0" font-size="10.5" fill="#898781" text-anchor="end">slow runs</text>
+<text x="236.1" y="115.0" font-size="12" fill="#0b0b0b" text-anchor="end">cold start to the first answer</text>
+<g><title>cold start to the first answer: p50 22.6 ms, p95 median 29.2 ms, p95 90th pct 45.6 ms, limit 57.1 ms</title>
+<path d="M250.1,106.0H400.5A4,4 0 0 1 404.5,110.0V112.0A4,4 0 0 1 400.5,116.0H250.1Z" fill="#88b3e7"/>
+<line x1="404.5" y1="111.0" x2="491.2" y2="111.0" stroke="#88b3e7" stroke-width="2" stroke-linecap="round"/>
+<line x1="491.2" y1="107.0" x2="491.2" y2="115.0" stroke="#88b3e7" stroke-width="1.6" stroke-linecap="round"/>
+<circle cx="369.6" cy="111.0" r="12" fill="transparent"/>
+<circle cx="369.6" cy="111.0" r="5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<text x="564.0" y="115.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">22.6 of 57.1 ms</text>
+<text x="702.0" y="115.0" font-size="11" fill="#52514e" text-anchor="end" style="font-variant-numeric: tabular-nums">14</text>
+<text x="236.1" y="141.0" font-size="12" fill="#0b0b0b" text-anchor="end">cold start from the config copy</text>
+<g><title>cold start from the config copy: p50 22.6 ms, p95 median 29.6 ms, p95 90th pct 40.2 ms, limit 57.1 ms</title>
+<path d="M250.1,132.0H402.6A4,4 0 0 1 406.6,136.0V138.0A4,4 0 0 1 402.6,142.0H250.1Z" fill="#88b3e7"/>
+<line x1="406.6" y1="137.0" x2="462.7" y2="137.0" stroke="#88b3e7" stroke-width="2" stroke-linecap="round"/>
+<line x1="462.7" y1="133.0" x2="462.7" y2="141.0" stroke="#88b3e7" stroke-width="1.6" stroke-linecap="round"/>
+<circle cx="369.6" cy="137.0" r="12" fill="transparent"/>
+<circle cx="369.6" cy="137.0" r="5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<text x="564.0" y="141.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">22.6 of 57.1 ms</text>
+<text x="702.0" y="141.0" font-size="11" fill="#52514e" text-anchor="end" style="font-variant-numeric: tabular-nums">7</text>
+<text x="236.1" y="167.0" font-size="12" fill="#0b0b0b" text-anchor="end">clean shutdown, a job running</text>
+<g><title>clean shutdown, a job running: p50 35.1 ms, p95 median 52.4 ms, p95 90th pct 80.6 ms, limit 104.0 ms</title>
+<path d="M250.1,158.0H398.2A4,4 0 0 1 402.2,162.0V164.0A4,4 0 0 1 398.2,168.0H250.1Z" fill="#88b3e7"/>
+<line x1="402.2" y1="163.0" x2="484.1" y2="163.0" stroke="#88b3e7" stroke-width="2" stroke-linecap="round"/>
+<line x1="484.1" y1="159.0" x2="484.1" y2="167.0" stroke="#88b3e7" stroke-width="1.6" stroke-linecap="round"/>
+<circle cx="352.0" cy="163.0" r="12" fill="transparent"/>
+<circle cx="352.0" cy="163.0" r="5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<text x="564.0" y="167.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">35.1 of 104 ms</text>
+<text x="702.0" y="167.0" font-size="11" fill="#52514e" text-anchor="end" style="font-variant-numeric: tabular-nums">14</text>
+<text x="236.1" y="193.0" font-size="12" fill="#0b0b0b" text-anchor="end">SIGKILL, then restart</text>
+<g><title>SIGKILL, then restart: p50 35.6 ms, p95 median 40.8 ms, p95 90th pct 62.9 ms, limit 175.1 ms</title>
+<path d="M250.1,184.0H316.5A4,4 0 0 1 320.5,188.0V190.0A4,4 0 0 1 316.5,194.0H250.1Z" fill="#88b3e7"/>
+<line x1="320.5" y1="189.0" x2="358.6" y2="189.0" stroke="#88b3e7" stroke-width="2" stroke-linecap="round"/>
+<line x1="358.6" y1="185.0" x2="358.6" y2="193.0" stroke="#88b3e7" stroke-width="1.6" stroke-linecap="round"/>
+<circle cx="311.5" cy="189.0" r="12" fill="transparent"/>
+<circle cx="311.5" cy="189.0" r="5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<text x="564.0" y="193.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">35.6 of 175.1 ms</text>
+<text x="702.0" y="193.0" font-size="11" fill="#52514e" text-anchor="end" style="font-variant-numeric: tabular-nums">3</text>
+<text x="236.1" y="219.0" font-size="12" fill="#0b0b0b" text-anchor="end">binary swap</text>
+<g><title>binary swap: p50 51.7 ms, p95 median 64.7 ms, p95 90th pct 112.6 ms, limit 202.0 ms</title>
+<path d="M250.1,210.0H342.8A4,4 0 0 1 346.8,214.0V216.0A4,4 0 0 1 342.8,220.0H250.1Z" fill="#88b3e7"/>
+<line x1="346.8" y1="215.0" x2="418.4" y2="215.0" stroke="#88b3e7" stroke-width="2" stroke-linecap="round"/>
+<line x1="418.4" y1="211.0" x2="418.4" y2="219.0" stroke="#88b3e7" stroke-width="1.6" stroke-linecap="round"/>
+<circle cx="327.4" cy="215.0" r="12" fill="transparent"/>
+<circle cx="327.4" cy="215.0" r="5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<text x="564.0" y="219.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">51.7 of 202 ms</text>
+<text x="702.0" y="219.0" font-size="11" fill="#52514e" text-anchor="end" style="font-variant-numeric: tabular-nums">6</text>
+<text x="236.1" y="245.0" font-size="12" fill="#0b0b0b" text-anchor="end">cancel a running job (4 gates, Oct 6)</text>
+<g><title>cancel a running job (4 gates, Oct 6): p50 101.4 ms, p95 median 108.8 ms, limit 250.0 ms</title>
+<path d="M250.1,236.0H377.5A4,4 0 0 1 381.5,240.0V242.0A4,4 0 0 1 377.5,246.0H250.1Z" fill="#88b3e7"/>
+<circle cx="372.6" cy="241.0" r="12" fill="transparent"/>
+<circle cx="372.6" cy="241.0" r="5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<text x="564.0" y="245.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">101.4 of 250 ms</text>
+<text x="702.0" y="245.0" font-size="11" fill="#52514e" text-anchor="end" style="font-variant-numeric: tabular-nums">0</text>
+<text x="236.1" y="271.0" font-size="12" fill="#0b0b0b" text-anchor="end">an L1 job's start (135 join gates)</text>
+<g><title>an L1 job's start (135 join gates): p50 6.0 ms, p95 median 7.2 ms, limit 25.0 ms</title>
+<path d="M250.1,262.0H333.1A4,4 0 0 1 337.1,266.0V268.0A4,4 0 0 1 333.1,272.0H250.1Z" fill="#88b3e7"/>
+<circle cx="322.6" cy="267.0" r="12" fill="transparent"/>
+<circle cx="322.6" cy="267.0" r="5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<text x="564.0" y="271.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">6 of 25 ms</text>
+<text x="702.0" y="271.0" font-size="11" fill="#52514e" text-anchor="end" style="font-variant-numeric: tabular-nums">0</text>
+<text x="236.1" y="325.0" font-size="12" fill="#0b0b0b" text-anchor="end">cold start</text>
+<g><title>cold start: p50 21.5 ms, p95 median 32.8 ms, limit 250.0 ms; before the fix p50 119.1 ms</title>
+<path d="M250.1,316.0H285.7A4,4 0 0 1 289.7,320.0V322.0A4,4 0 0 1 285.7,326.0H250.1Z" fill="#88b3e7"/>
+<circle cx="393.9" cy="321.0" r="4.5" fill="#fcfcfb" stroke="#898781" stroke-width="1.6"/>
+<line x1="388.9" y1="321.0" x2="283.1" y2="321.0" stroke="#898781" stroke-width="1"/>
+<circle cx="276.1" cy="321.0" r="12" fill="transparent"/>
+<circle cx="276.1" cy="321.0" r="5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<text x="564.0" y="325.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">21.5 of 250 ms</text>
+<text x="236.1" y="351.0" font-size="12" fill="#0b0b0b" text-anchor="end">SIGKILL, then restart</text>
+<g><title>SIGKILL, then restart: p50 48.0 ms, p95 median 89.2 ms, limit 350.0 ms; before the fix p50 149.9 ms</title>
+<path d="M250.1,342.0H323.1A4,4 0 0 1 327.1,346.0V348.0A4,4 0 0 1 323.1,352.0H250.1Z" fill="#88b3e7"/>
+<circle cx="379.4" cy="347.0" r="4.5" fill="#fcfcfb" stroke="#898781" stroke-width="1.6"/>
+<line x1="374.4" y1="347.0" x2="298.5" y2="347.0" stroke="#898781" stroke-width="1"/>
+<circle cx="291.5" cy="347.0" r="12" fill="transparent"/>
+<circle cx="291.5" cy="347.0" r="5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<text x="564.0" y="351.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">48 of 350 ms</text>
+<text x="236.1" y="377.0" font-size="12" fill="#0b0b0b" text-anchor="end">binary swap</text>
+<g><title>binary swap: p50 45.6 ms, p95 median 47.5 ms, limit 200.0 ms; before the fix p50 149.2 ms</title>
+<path d="M250.1,368.0H317.8A4,4 0 0 1 321.8,372.0V374.0A4,4 0 0 1 317.8,378.0H250.1Z" fill="#88b3e7"/>
+<circle cx="475.3" cy="373.0" r="4.5" fill="#fcfcfb" stroke="#898781" stroke-width="1.6"/>
+<line x1="470.3" y1="373.0" x2="326.0" y2="373.0" stroke="#898781" stroke-width="1"/>
+<circle cx="319.0" cy="373.0" r="12" fill="transparent"/>
+<circle cx="319.0" cy="373.0" r="5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<text x="564.0" y="377.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">45.6 of 200 ms</text>
+<line x1="250.1" y1="388.0" x2="552.0" y2="388.0" stroke="#c3c2b7" stroke-width="1"/>
+<text x="250.1" y="403.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">0%</text>
+<text x="325.6" y="403.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">25%</text>
+<text x="401.1" y="403.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">50%</text>
+<text x="476.5" y="403.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">75%</text>
+<text x="552.0" y="403.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">100%</text>
+<text x="401.1" y="420.0" font-size="12" fill="#52514e" text-anchor="middle">share of the limit used</text>
+<text x="18.0" y="442.0" font-size="11" fill="#52514e">A dot is the median of the gates' p50s; the bar runs to the median of their p95s (each run's slowest of ten) and the whisker</text>
+<text x="18.0" y="457.0" font-size="11" fill="#52514e">to the 90th percentile of those. The limit is the budget plus its September margin. Slow runs: gates whose first run's slowest</text>
+<text x="18.0" y="472.0" font-size="11" fill="#52514e">sample crossed the limit (a rerun decides; 8 of 240 gates failed, every one the machine's stall).</text>
+</svg>

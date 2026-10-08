@@ -1,0 +1,214 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="796" viewBox="0 0 720 796" role="img" aria-labelledby="t-harness-weight t-harness-weight-d" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
+<title id="t-harness-weight">What each harness costs to run, apart from the model: every trial of the Oct 7 run</title>
+<desc id="t-harness-weight-d">How heavy is Theseus itself, beside the other harnesses?</desc>
+<rect width="720" height="796" rx="8" fill="#1a1a19" stroke="#2c2c2a"/>
+<text x="18.0" y="32.0" font-size="15" fill="#ffffff" font-weight="600">What each harness costs to run, apart from the model: every trial of the Oct 7</text>
+<text x="18.0" y="52.0" font-size="15" fill="#ffffff" font-weight="600">run</text>
+<text x="18.0" y="83.0" font-size="12.5" fill="#ffffff" font-weight="600">Peak memory of the harness itself (MiB)</text>
+<line x1="109.8" y1="92.0" x2="109.8" y2="270.0" stroke="#2c2c2a" stroke-width="1"/>
+<line x1="207.3" y1="92.0" x2="207.3" y2="270.0" stroke="#2c2c2a" stroke-width="1"/>
+<line x1="314.2" y1="92.0" x2="314.2" y2="270.0" stroke="#2c2c2a" stroke-width="1"/>
+<line x1="411.7" y1="92.0" x2="411.7" y2="270.0" stroke="#2c2c2a" stroke-width="1"/>
+<line x1="518.5" y1="92.0" x2="518.5" y2="270.0" stroke="#2c2c2a" stroke-width="1"/>
+<line x1="616.0" y1="92.0" x2="616.0" y2="270.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="97.8" y="107.0" font-size="12" fill="#ffffff" text-anchor="end" font-weight="600">Theseus</text>
+<g><title>Theseus: median 36.5 MiB, 35.4 to 42.9 (22 trials)</title>
+<line x1="222.0" y1="103.0" x2="239.1" y2="103.0" stroke="#3987e5" stroke-width="2.4" stroke-linecap="round" stroke-opacity="0.45"/>
+<circle cx="224.7" cy="103.0" r="12" fill="transparent"/>
+<circle cx="224.7" cy="103.0" r="5" fill="#3987e5" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="626.0" y="107.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">36.5 MiB</text>
+<text x="97.8" y="129.0" font-size="12" fill="#ffffff" text-anchor="end">Pi</text>
+<g><title>Pi: median 125 MiB, 123 to 171 (22 trials)</title>
+<line x1="332.7" y1="125.0" x2="361.9" y2="125.0" stroke="#898781" stroke-width="2.4" stroke-linecap="round" stroke-opacity="0.45"/>
+<circle cx="333.8" cy="125.0" r="12" fill="transparent"/>
+<circle cx="333.8" cy="125.0" r="5" fill="#898781" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="626.0" y="129.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">125 MiB</text>
+<text x="97.8" y="151.0" font-size="12" fill="#ffffff" text-anchor="end">Codex CLI</text>
+<g><title>Codex CLI: median 156 MiB, 153 to 162 (28 trials)</title>
+<line x1="352.0" y1="147.0" x2="357.2" y2="147.0" stroke="#898781" stroke-width="2.4" stroke-linecap="round" stroke-opacity="0.45"/>
+<circle cx="353.9" cy="147.0" r="12" fill="transparent"/>
+<circle cx="353.9" cy="147.0" r="5" fill="#898781" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="626.0" y="151.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">156 MiB</text>
+<text x="97.8" y="173.0" font-size="12" fill="#ffffff" text-anchor="end">Aider</text>
+<g><title>Aider: median 244 MiB, 237 to 246 (22 trials)</title>
+<line x1="390.7" y1="169.0" x2="394.2" y2="169.0" stroke="#898781" stroke-width="2.4" stroke-linecap="round" stroke-opacity="0.45"/>
+<circle cx="393.4" cy="169.0" r="12" fill="transparent"/>
+<circle cx="393.4" cy="169.0" r="5" fill="#898781" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="626.0" y="173.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">244 MiB</text>
+<text x="97.8" y="195.0" font-size="12" fill="#ffffff" text-anchor="end" font-weight="600">Claude Code</text>
+<g><title>Claude Code: median 249 MiB, 228 to 278 (28 trials)</title>
+<line x1="387.3" y1="191.0" x2="404.8" y2="191.0" stroke="#d95926" stroke-width="2.4" stroke-linecap="round" stroke-opacity="0.45"/>
+<circle cx="395.2" cy="191.0" r="12" fill="transparent"/>
+<circle cx="395.2" cy="191.0" r="5" fill="#d95926" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="626.0" y="195.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">249 MiB</text>
+<text x="97.8" y="217.0" font-size="12" fill="#ffffff" text-anchor="end">OpenHands</text>
+<g><title>OpenHands: median 296 MiB, 291 to 299 (22 trials)</title>
+<line x1="409.0" y1="213.0" x2="411.3" y2="213.0" stroke="#898781" stroke-width="2.4" stroke-linecap="round" stroke-opacity="0.45"/>
+<circle cx="410.4" cy="213.0" r="12" fill="transparent"/>
+<circle cx="410.4" cy="213.0" r="5" fill="#898781" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="626.0" y="217.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">296 MiB</text>
+<text x="97.8" y="239.0" font-size="12" fill="#ffffff" text-anchor="end">OpenCode</text>
+<g><title>OpenCode: median 770 MiB, 734 to 1.24e+03 (28 trials)</title>
+<line x1="491.0" y1="235.0" x2="537.6" y2="235.0" stroke="#898781" stroke-width="2.4" stroke-linecap="round" stroke-opacity="0.45"/>
+<circle cx="495.3" cy="235.0" r="12" fill="transparent"/>
+<circle cx="495.3" cy="235.0" r="5" fill="#898781" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="626.0" y="239.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">770 MiB</text>
+<text x="97.8" y="261.0" font-size="12" fill="#ffffff" text-anchor="end">OpenClaw</text>
+<g><title>OpenClaw: median 1.38e+03 MiB, 935 to 1.65e+03 (22 trials)</title>
+<line x1="512.5" y1="257.0" x2="562.7" y2="257.0" stroke="#898781" stroke-width="2.4" stroke-linecap="round" stroke-opacity="0.45"/>
+<circle cx="547.1" cy="257.0" r="12" fill="transparent"/>
+<circle cx="547.1" cy="257.0" r="5" fill="#898781" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="626.0" y="261.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">1,380 MiB</text>
+<line x1="109.8" y1="270.0" x2="616.0" y2="270.0" stroke="#383835" stroke-width="1"/>
+<text x="109.8" y="284.0" font-size="10.5" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">10</text>
+<text x="207.3" y="284.0" font-size="10.5" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">30</text>
+<text x="314.2" y="284.0" font-size="10.5" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">100</text>
+<text x="411.7" y="284.0" font-size="10.5" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">300</text>
+<text x="518.5" y="284.0" font-size="10.5" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">1,000</text>
+<text x="616.0" y="284.0" font-size="10.5" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">3,000</text>
+<text x="18.0" y="315.0" font-size="12.5" fill="#ffffff" font-weight="600">Its CPU per tool call, apart from the commands it runs (ms)</text>
+<line x1="109.8" y1="324.0" x2="109.8" y2="480.0" stroke="#2c2c2a" stroke-width="1"/>
+<line x1="176.0" y1="324.0" x2="176.0" y2="480.0" stroke="#2c2c2a" stroke-width="1"/>
+<line x1="302.5" y1="324.0" x2="302.5" y2="480.0" stroke="#2c2c2a" stroke-width="1"/>
+<line x1="429.1" y1="324.0" x2="429.1" y2="480.0" stroke="#2c2c2a" stroke-width="1"/>
+<line x1="555.6" y1="324.0" x2="555.6" y2="480.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="97.8" y="339.0" font-size="12" fill="#ffffff" text-anchor="end" font-weight="600">Theseus</text>
+<g><title>Theseus: median 17.3 ms, 11.2 to 36.7 (22 trials)</title>
+<line x1="182.2" y1="335.0" x2="247.4" y2="335.0" stroke="#3987e5" stroke-width="2.4" stroke-linecap="round" stroke-opacity="0.45"/>
+<circle cx="206.1" cy="335.0" r="12" fill="transparent"/>
+<circle cx="206.1" cy="335.0" r="5" fill="#3987e5" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="626.0" y="339.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">17.3 ms</text>
+<text x="97.8" y="361.0" font-size="12" fill="#ffffff" text-anchor="end">Codex CLI</text>
+<g><title>Codex CLI: median 140 ms, 73.6 to 317 (28 trials)</title>
+<line x1="285.7" y1="357.0" x2="365.9" y2="357.0" stroke="#898781" stroke-width="2.4" stroke-linecap="round" stroke-opacity="0.45"/>
+<circle cx="321.2" cy="357.0" r="12" fill="transparent"/>
+<circle cx="321.2" cy="357.0" r="5" fill="#898781" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="626.0" y="361.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">140 ms</text>
+<text x="97.8" y="383.0" font-size="12" fill="#ffffff" text-anchor="end">Pi</text>
+<g><title>Pi: median 175 ms, 80.6 to 460 (22 trials)</title>
+<line x1="290.7" y1="379.0" x2="386.4" y2="379.0" stroke="#898781" stroke-width="2.4" stroke-linecap="round" stroke-opacity="0.45"/>
+<circle cx="333.3" cy="379.0" r="12" fill="transparent"/>
+<circle cx="333.3" cy="379.0" r="5" fill="#898781" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="626.0" y="383.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">175 ms</text>
+<text x="97.8" y="405.0" font-size="12" fill="#ffffff" text-anchor="end" font-weight="600">Claude Code</text>
+<g><title>Claude Code: median 347 ms, 107 to 810 (28 trials)</title>
+<line x1="306.1" y1="401.0" x2="417.5" y2="401.0" stroke="#d95926" stroke-width="2.4" stroke-linecap="round" stroke-opacity="0.45"/>
+<circle cx="370.9" cy="401.0" r="12" fill="transparent"/>
+<circle cx="370.9" cy="401.0" r="5" fill="#d95926" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="626.0" y="405.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">347 ms</text>
+<text x="97.8" y="427.0" font-size="12" fill="#ffffff" text-anchor="end">OpenHands</text>
+<g><title>OpenHands: median 633 ms, 98.8 to 1.9e+03 (20 trials)</title>
+<line x1="301.9" y1="423.0" x2="464.4" y2="423.0" stroke="#898781" stroke-width="2.4" stroke-linecap="round" stroke-opacity="0.45"/>
+<circle cx="404.0" cy="423.0" r="12" fill="transparent"/>
+<circle cx="404.0" cy="423.0" r="5" fill="#898781" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="626.0" y="427.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">633 ms</text>
+<text x="97.8" y="449.0" font-size="12" fill="#ffffff" text-anchor="end">OpenClaw</text>
+<g><title>OpenClaw: median 1.95e+03 ms, 628 to 2.15e+04 (22 trials)</title>
+<line x1="403.5" y1="445.0" x2="597.7" y2="445.0" stroke="#898781" stroke-width="2.4" stroke-linecap="round" stroke-opacity="0.45"/>
+<circle cx="465.8" cy="445.0" r="12" fill="transparent"/>
+<circle cx="465.8" cy="445.0" r="5" fill="#898781" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="626.0" y="449.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">1,952 ms</text>
+<text x="97.8" y="471.0" font-size="12" fill="#ffffff" text-anchor="end">OpenCode</text>
+<g><title>OpenCode: median 4.92e+03 ms, 950 to 1.54e+04 (28 trials)</title>
+<line x1="426.2" y1="467.0" x2="579.5" y2="467.0" stroke="#898781" stroke-width="2.4" stroke-linecap="round" stroke-opacity="0.45"/>
+<circle cx="516.7" cy="467.0" r="12" fill="transparent"/>
+<circle cx="516.7" cy="467.0" r="5" fill="#898781" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="626.0" y="471.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">4,923 ms</text>
+<line x1="109.8" y1="480.0" x2="616.0" y2="480.0" stroke="#383835" stroke-width="1"/>
+<text x="109.8" y="494.0" font-size="10.5" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">3</text>
+<text x="176.0" y="494.0" font-size="10.5" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">10</text>
+<text x="302.5" y="494.0" font-size="10.5" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">100</text>
+<text x="429.1" y="494.0" font-size="10.5" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">1,000</text>
+<text x="555.6" y="494.0" font-size="10.5" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">10,000</text>
+<text x="18.0" y="525.0" font-size="12.5" fill="#ffffff" font-weight="600">Installing and starting it in the task's container (seconds)</text>
+<line x1="109.8" y1="534.0" x2="109.8" y2="712.0" stroke="#2c2c2a" stroke-width="1"/>
+<line x1="184.9" y1="534.0" x2="184.9" y2="712.0" stroke="#2c2c2a" stroke-width="1"/>
+<line x1="253.5" y1="534.0" x2="253.5" y2="712.0" stroke="#2c2c2a" stroke-width="1"/>
+<line x1="328.6" y1="534.0" x2="328.6" y2="712.0" stroke="#2c2c2a" stroke-width="1"/>
+<line x1="397.2" y1="534.0" x2="397.2" y2="712.0" stroke="#2c2c2a" stroke-width="1"/>
+<line x1="472.3" y1="534.0" x2="472.3" y2="712.0" stroke="#2c2c2a" stroke-width="1"/>
+<line x1="540.9" y1="534.0" x2="540.9" y2="712.0" stroke="#2c2c2a" stroke-width="1"/>
+<line x1="616.0" y1="534.0" x2="616.0" y2="712.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="97.8" y="549.0" font-size="12" fill="#ffffff" text-anchor="end" font-weight="600">Theseus</text>
+<g><title>Theseus: median 0.83 s, 0.75 to 1 (28 trials)</title>
+<line x1="167.0" y1="545.0" x2="184.9" y2="545.0" stroke="#3987e5" stroke-width="2.4" stroke-linecap="round" stroke-opacity="0.45"/>
+<circle cx="173.3" cy="545.0" r="12" fill="transparent"/>
+<circle cx="173.3" cy="545.0" r="5" fill="#3987e5" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="626.0" y="549.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">0.83 s</text>
+<text x="97.8" y="571.0" font-size="12" fill="#ffffff" text-anchor="end">Aider</text>
+<g><title>Aider: median 19.5 s, 10 to 33.2 (28 trials)</title>
+<line x1="328.8" y1="567.0" x2="403.4" y2="567.0" stroke="#898781" stroke-width="2.4" stroke-linecap="round" stroke-opacity="0.45"/>
+<circle cx="370.3" cy="567.0" r="12" fill="transparent"/>
+<circle cx="370.3" cy="567.0" r="5" fill="#898781" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="626.0" y="571.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">19.5 s</text>
+<text x="97.8" y="593.0" font-size="12" fill="#ffffff" text-anchor="end">OpenHands</text>
+<g><title>OpenHands: median 29.3 s, 19.5 to 39.6 (28 trials)</title>
+<line x1="370.3" y1="589.0" x2="414.5" y2="589.0" stroke="#898781" stroke-width="2.4" stroke-linecap="round" stroke-opacity="0.45"/>
+<circle cx="395.6" cy="589.0" r="12" fill="transparent"/>
+<circle cx="395.6" cy="589.0" r="5" fill="#898781" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="626.0" y="593.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">29.3 s</text>
+<text x="97.8" y="615.0" font-size="12" fill="#ffffff" text-anchor="end">Pi</text>
+<g><title>Pi: median 34 s, 24 to 44 (28 trials)</title>
+<line x1="383.3" y1="611.0" x2="421.1" y2="611.0" stroke="#898781" stroke-width="2.4" stroke-linecap="round" stroke-opacity="0.45"/>
+<circle cx="405.1" cy="611.0" r="12" fill="transparent"/>
+<circle cx="405.1" cy="611.0" r="5" fill="#898781" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="626.0" y="615.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">34 s</text>
+<text x="97.8" y="637.0" font-size="12" fill="#ffffff" text-anchor="end">OpenClaw</text>
+<g><title>OpenClaw: median 75.2 s, 65.3 to 84.5 (28 trials)</title>
+<line x1="445.8" y1="633.0" x2="461.8" y2="633.0" stroke="#898781" stroke-width="2.4" stroke-linecap="round" stroke-opacity="0.45"/>
+<circle cx="454.6" cy="633.0" r="12" fill="transparent"/>
+<circle cx="454.6" cy="633.0" r="5" fill="#898781" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="626.0" y="637.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">75.2 s</text>
+<text x="97.8" y="659.0" font-size="12" fill="#ffffff" text-anchor="end">OpenCode</text>
+<g><title>OpenCode: median 246 s, 174 to 287 (28 trials)</title>
+<line x1="507.0" y1="655.0" x2="538.0" y2="655.0" stroke="#898781" stroke-width="2.4" stroke-linecap="round" stroke-opacity="0.45"/>
+<circle cx="528.5" cy="655.0" r="12" fill="transparent"/>
+<circle cx="528.5" cy="655.0" r="5" fill="#898781" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="626.0" y="659.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">246 s</text>
+<text x="97.8" y="681.0" font-size="12" fill="#ffffff" text-anchor="end" font-weight="600">Claude Code</text>
+<g><title>Claude Code: median 253 s, 178 to 276 (28 trials)</title>
+<line x1="508.2" y1="677.0" x2="535.6" y2="677.0" stroke="#d95926" stroke-width="2.4" stroke-linecap="round" stroke-opacity="0.45"/>
+<circle cx="530.3" cy="677.0" r="12" fill="transparent"/>
+<circle cx="530.3" cy="677.0" r="5" fill="#d95926" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="626.0" y="681.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">253 s</text>
+<text x="97.8" y="703.0" font-size="12" fill="#ffffff" text-anchor="end">Codex CLI</text>
+<g><title>Codex CLI: median 304 s, 255 to 415 (28 trials)</title>
+<line x1="530.6" y1="699.0" x2="561.2" y2="699.0" stroke="#898781" stroke-width="2.4" stroke-linecap="round" stroke-opacity="0.45"/>
+<circle cx="541.6" cy="699.0" r="12" fill="transparent"/>
+<circle cx="541.6" cy="699.0" r="5" fill="#898781" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="626.0" y="703.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">304 s</text>
+<line x1="109.8" y1="712.0" x2="616.0" y2="712.0" stroke="#383835" stroke-width="1"/>
+<text x="109.8" y="726.0" font-size="10.5" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">0.3</text>
+<text x="184.9" y="726.0" font-size="10.5" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">1</text>
+<text x="253.5" y="726.0" font-size="10.5" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">3</text>
+<text x="328.6" y="726.0" font-size="10.5" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">10</text>
+<text x="397.2" y="726.0" font-size="10.5" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">30</text>
+<text x="472.3" y="726.0" font-size="10.5" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">100</text>
+<text x="540.9" y="726.0" font-size="10.5" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">300</text>
+<text x="616.0" y="726.0" font-size="10.5" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">1,000</text>
+<text x="18.0" y="758.0" font-size="11" fill="#c3c2b7">Measured inside each task's container by the bench's sampler (/proc every 250 ms; 22 to 28 sampled trials an arm). A dot is</text>
+<text x="18.0" y="773.0" font-size="11" fill="#c3c2b7">the median; the bar spans every trial. Aider runs no tool calls under Harbor, so it has no CPU-per-call row. Log scales.</text>
+</svg>
