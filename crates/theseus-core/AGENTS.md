@@ -243,13 +243,21 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   its session, so `toolrun`'s async path runs a `term.*` call through `Terms::run`. `term.open` plans its argv and
   `term.send` its terminal's, so the gate judges both as that program's run; `term.read` and `term.close` are reads.
   A listed external program's screen (or a terminal sent keys naming one: `Listed::in_text`) is outside text. At
-  most 4 a session; closed at its execution's end (`turn.rs`), a cancel and a `/stop` (`rpc/driver.rs`), and the
-  daemon's stop (`finish_stop`), with a close that hangs up, waits its grace, and kills what lingers, including a
-  process that left the tree but holds the pty. In memory only: the rows `term.opened` and `term.closed`
-  (`fact/term.rs`) are the record. No broker grant reaches a terminal (`brokered`). Tests: `term/tests.rs` (goldens
+  most 4 a session whose programs run: an ended one frees its slot, its last screen readable until `term.close` or
+  until a full session's open reclaims the oldest (theseus-ggqf). Closed at its execution's end (`turn.rs`), a cancel
+  and a `/stop` (`rpc/driver.rs`), and the daemon's stop (`finish_stop`). `term.close`, a cancel and a `/stop` hang
+  up, wait the grace, and kill what lingers, a process that left the tree but holds the pty included. At the
+  session's end and the daemon's stop, under `[tools.term] keep_background` (default on, `config/term.rs`), the
+  close ends only the program and the pty's foreground group (by group signals, so a fork mid-close is not spared)
+  and leaves the background running, as `proc.run` does (`term/left.rs`: booked, in health's `terminals_left`, a
+  `term.left` row, ended by a later cancel or `/stop` of the session's execution or its parent's,
+  `Core::end_terminals_left`). `term.read`'s `until_idle` waits for the program back in front (`tcgetpgrp`), looked
+  at every 20 ms and never within 100 ms of a send. In memory only: the rows `term.opened`, `term.closed` and
+  `term.left` (`fact/term.rs`) are the record. No broker grant reaches a terminal (`brokered`). Tests: `term/tests.rs` (goldens
   and real `sh`, `python3`, `cat`; a `/proc` scan for a test's own processes looks for a marker holding the run's
-  pid, so another tree's run beside it is never taken for its own, theseus-d006, theseus-fps6), `tests_term.rs`
-  (the gate, the hold, each close).
+  pid, so another tree's run beside it is never taken for its own, theseus-d006, theseus-fps6), `term/tests_keep.rs`,
+  `tests_idle.rs`, `tests_slots.rs` (theseus-ggqf; `term/bench.rs` its ignored measures), `tests_term.rs` (the
+  gate, the hold, each close, a task's job left and a `/stop`'s end of it), and theseusd's `tests/headless.rs`.
 - **The protocol server**: `rpc/` (`server.rs` routes each method by name; `methods.rs`; `confirms.rs`), with
   `bus.rs` and `outbound.rs` (one ordered, capped queue per connection; a test may lower the cap a new connection
   takes, `Push::backlog_cap`, so the lag prove overflows it with a few hundred events, theseus-0u6g).

@@ -20,6 +20,7 @@ pub(crate) mod lsp;
 pub(crate) mod memory;
 pub(crate) mod routing;
 mod sparse;
+pub mod term;
 pub use aws::{
     default_hourly_alert_usd, default_runaway_factor, AwsAccountConfig, AwsConfig,
     AwsCredentialNames, HandsNetwork,
@@ -302,6 +303,8 @@ pub struct ToolsConfig {
     /// `[tools.web]`: `http.fetch` and `web.search` (DD5).
     #[serde(default)]
     pub web: WebToolsConfig,
+    #[serde(default)]
+    pub term: term::TermToolsConfig,
 }
 
 /// `[tools.web]`: the limits of `http.fetch` and `web.search`, and the secret
@@ -426,6 +429,7 @@ impl Default for ToolsConfig {
             job_output_max_bytes: default_job_output_max_bytes(),
             job_pids_max: default_job_pids_max(),
             web: WebToolsConfig::default(),
+            term: term::TermToolsConfig::default(),
         }
     }
 }
@@ -2900,12 +2904,8 @@ mod tests {
         match v {
             toml::Value::Table(t) => {
                 for (k, v) in t {
-                    let p = if path.is_empty() {
-                        k.clone()
-                    } else {
-                        format!("{path}.{k}")
-                    };
-                    walk(v, &p, k, f);
+                    let p = format!("{path}.{k}");
+                    walk(v, p.trim_start_matches('.'), k, f);
                 }
             }
             _ => f(path, key),

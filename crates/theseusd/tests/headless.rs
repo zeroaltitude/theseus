@@ -420,3 +420,82 @@ fn proc_run_runs_where_the_host_refuses_clone3_and_a_failed_start_says_why() {
     );
     assert!(!results[1].contains("(no output)"), "{}", results[1]);
 }
+
+/// theseus-ggqf: a listener the model's terminal starts in the background
+/// (`nohup … &`, in a bash with job control) outlives its turn and the
+/// daemon's stop, as one `proc.run` starts does: it still accepts a
+/// connection once `ask` has returned and its daemon is gone. The stop ended
+/// the terminal's own program and its foreground `sleep`, and its log names
+/// what it left.
+#[test]
+fn a_listener_a_terminal_started_in_the_background_outlives_the_daemon() {
+    let port = std::net::TcpListener::bind("127.0.0.1:0")
+        .unwrap()
+        .local_addr()
+        .unwrap()
+        .port();
+    // Its seconds name this run, so no other run's sleep is taken for it.
+    let front = format!("4799.{:07}", std::process::id());
+    let open = json!({"argv": ["bash", "-c",
+        format!("set -m; nohup python3 listen.py {port} >/dev/null 2>&1 & sleep {front}")],
+        "quiet_ms": 300});
+    let model = FakeModel::start(move |prompt| match prompt.contains("start the listener") {
+        true => vec![("term_open", open.clone())],
+        false => vec![],
+    });
+    let dir = rig(&model, |_| {});
+    let projects = dir.path().join("projects");
+    std::fs::write(
+        projects.join("listen.py"),
+        "import os, socket, sys\n\
+         s = socket.socket()\n\
+         s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)\n\
+         s.bind(('127.0.0.1', int(sys.argv[1])))\n\
+         s.listen(8)\n\
+         open('listen.pid', 'w').write(str(os.getpid()))\n\
+         while True:\n\
+         \x20   c, _ = s.accept()\n\
+         \x20   c.sendall(b'up\\n')\n\
+         \x20   c.close()\n",
+    )
+    .unwrap();
+    let run = ask(dir.path(), "start the listener");
+    let pid: Option<i32> = std::fs::read_to_string(projects.join("listen.pid"))
+        .ok()
+        .and_then(|p| p.trim().parse().ok());
+    // The listener is ended here, whatever the asserts find.
+    struct Kill(Option<i32>);
+    impl Drop for Kill {
+        fn drop(&mut self) {
+            if let Some(p) = self.0 {
+                unsafe { libc::kill(p, libc::SIGKILL) };
+            }
+        }
+    }
+    let _kill = Kill(pid);
+    assert_eq!(run.code, 0, "{}\n{}", run.turn, run.stderr);
+    assert_eq!(run.turn["tool_calls"], 1, "{}", run.turn);
+    assert!(pid.is_some(), "the listener never started:\n{}", run.stderr);
+    use std::io::Read;
+    let mut got = String::new();
+    std::net::TcpStream::connect(("127.0.0.1", port))
+        .expect("the listener did not outlive the daemon")
+        .read_to_string(&mut got)
+        .unwrap();
+    assert_eq!(got, "up\n");
+    assert!(
+        run.stderr
+            .contains("a terminal's close left processes running"),
+        "{}",
+        run.stderr
+    );
+    let fronts = std::fs::read_dir("/proc")
+        .unwrap()
+        .flatten()
+        .filter(|e| {
+            std::fs::read(e.path().join("cmdline"))
+                .is_ok_and(|c| String::from_utf8_lossy(&c).contains(&front))
+        })
+        .count();
+    assert_eq!(fronts, 0, "the foreground sleep outlived the daemon");
+}

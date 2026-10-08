@@ -2180,10 +2180,10 @@ pub fn build_runtime(
         Registry::new()
     };
     // Terminals (theseus-n88g.4): each program gets the job environment.
-    let terms = Arc::new(crate::term::Terms::new(
-        proc_env.clone(),
-        cfg.policy.external_programs.clone(),
-    ));
+    let terms = Arc::new(
+        crate::term::Terms::new(proc_env.clone(), cfg.policy.external_programs.clone())
+            .configured(t.term.keep_background, t.proc_sync_secs),
+    );
     if t.enabled {
         for tool in crate::term::tools::all(&terms) {
             registry.register(tool);

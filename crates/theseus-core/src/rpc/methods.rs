@@ -108,6 +108,7 @@ impl Core {
             places: Some(self.runner.place_rule.health(&self.cfg)),
             judge: Some(self.runner.judge.health()),
             terminals: self.tools.terms.all().iter().map(|t| t.info()).collect(),
+            terminals_left: self.tools.terms.left_info(),
             mcp_server: self.mcp_server.health(self.cfg.mcp_server.enabled),
             lsp: self.tools.lsp.as_ref().map(|b| b.health()),
             memory: self.runner.memory.on().then(|| self.memory_health()),

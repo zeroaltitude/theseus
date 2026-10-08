@@ -250,10 +250,12 @@ fn the_gate_judges_a_terminal_as_its_programs_run() {
             (24, 80),
             None,
         )
-        .unwrap();
+        .unwrap()
+        .0;
     let t_cat = terms
         .open("s1", &["cat".into()], root, (24, 80), None)
-        .unwrap();
+        .unwrap()
+        .0;
     let send = tools::Send(terms.clone());
     let (p, why, _) = decide(&send, json!({"terminal": t_py.id, "text": "print(1)\n"}));
     assert_eq!(p, Posture::Approve, "{why}");
@@ -513,4 +515,84 @@ fn lives_marked(marker: &str) -> bool {
             && std::fs::read(format!("/proc/{pid}/cmdline"))
                 .is_ok_and(|c| String::from_utf8_lossy(&c).contains(marker))
     })
+}
+
+/// theseus-ggqf: a task's terminal leaves its background job running at the
+/// task's end, as `proc.run` would: a `term.left` row names it, health lists
+/// it, and its terminal's foreground program is gone. The parent's `/stop`
+/// then ends it, with a `term.left` row that says so.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_tasks_background_job_outlives_its_end_until_a_stop() {
+    const START: &str = "START a task that leaves a job running, please";
+    let run = format!("{:07}", std::process::id());
+    let (bg, fg) = (format!("4791.{run}"), format!("4792.{run}"));
+    let script = format!("set -m; sleep {bg} & exec sleep {fg}");
+    let r = rig(&[], true, move |req| {
+        let (first, last, n) = asked(req);
+        if first.contains("CHILD") {
+            return match n {
+                0 => call(
+                    "o1",
+                    term::OPEN,
+                    json!({"argv": ["bash", "-c", script], "quiet_ms": 200}),
+                ),
+                _ => Scripted::text("Started it, and done."),
+            };
+        }
+        match (last.as_str(), n) {
+            (START, 0) => call(
+                "t1",
+                crate::task::CREATE,
+                json!({
+                    "brief": "CHILD start a job",
+                    "arrangement": {"pieces": [{"quote": START, "role": "objective"}]}
+                }),
+            ),
+            _ => Scripted::text("Started."),
+        }
+    });
+    let sid = session(&r.core);
+    r.core.outbox.bind_place(PLACE, &sid).unwrap();
+    r.core
+        .runner
+        .place_rule
+        .bind_one(crate::places::BoundPlace {
+            target: format!("discord:{PLACE}"),
+            name: "a private channel".into(),
+            private: true,
+            ..Default::default()
+        });
+    let res = turn(&r.core, &sid, START).await;
+    until("the task's terminal left its job", || {
+        !rows(&r.core, "term.left").is_empty()
+    })
+    .await;
+    let left = rows(&r.core, "term.left");
+    assert_eq!(left[0].1["ended"], false, "{left:?}");
+    assert_eq!(left[0].1["by"], term::BY_SESSION_END);
+    assert_eq!(left[0].1["left"][0]["program"], "sleep");
+    assert_eq!(left[0].1["left"][0]["why"], term::pty::WHY_BACKGROUND);
+    assert!(
+        lives_marked(&bg),
+        "the background job did not outlive its session"
+    );
+    until("the foreground program's end", || !lives_marked(&fg)).await;
+    let health = r.core.health();
+    assert_eq!(
+        health.terminals_left.len(),
+        1,
+        "{:?}",
+        health.terminals_left
+    );
+    assert_eq!(health.terminals_left[0].program, "sleep");
+    r.core
+        .stop_execution(res.execution_id.as_deref().unwrap(), "test")
+        .await
+        .unwrap();
+    until("the stop's end of what was left", || !lives_marked(&bg)).await;
+    let left = rows(&r.core, "term.left");
+    assert_eq!(left.len(), 2, "{left:?}");
+    let ended = left.iter().find(|(_, r)| r["ended"] == true).unwrap();
+    assert_eq!(ended.1["by"], term::BY_STOP, "{left:?}");
+    assert!(r.core.health().terminals_left.is_empty());
 }

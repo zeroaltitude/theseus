@@ -31,6 +31,7 @@ import type { StoreStatus } from "./StoreStatus";
 import type { TasksHealth } from "./TasksHealth";
 import type { TelemetryStatus } from "./TelemetryStatus";
 import type { TerminalInfo } from "./TerminalInfo";
+import type { TerminalLeft } from "./TerminalLeft";
 import type { Tightening } from "./Tightening";
 import type { Usage } from "./Usage";
 import type { WakeInfo } from "./WakeInfo";
@@ -210,6 +211,10 @@ places?: PlacesHealth,
  * The open terminals (`term.*`, theseus-n88g.4), oldest first.
  */
 terminals?: Array<TerminalInfo>, 
+/**
+ * What terminals' closes left running (theseus-ggqf), while it runs.
+ */
+terminals_left?: Array<TerminalLeft>, 
 /**
  * The MCP server (step 41b): absent while `[mcp_server]` is off.
  */

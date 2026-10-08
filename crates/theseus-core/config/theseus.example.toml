@@ -360,6 +360,16 @@ timeout_secs = 30                       # a fetch's or a search's whole time, re
 max_bytes = 2097152                     # the most of a body a fetch reads; a call may ask for fewer
 search_key_secret = "brave_api_key"     # the [secrets] entry that holds the Brave Search API key; without it, web.search says it has no key
 
+# The terminals (term.open, term.send, term.read, term.close): a program on a
+# pty the model drives with keys and reads as a screen. A close at a session's
+# end or at the daemon's stop ends the terminal's program and its foreground
+# process group; with keep_background, what it started in the background
+# (`nohup app &`, a `setsid` child, a server that daemonizes) keeps running,
+# as with proc.run, and health lists it. term.close, a cancel and /stop end
+# everything a terminal started.
+[tools.term]
+keep_background = true                  # false: every close ends everything the terminal started
+
 # ---------------------------------------------------------------- aws
 # The AWS accounts Theseus owns, each by its id, with its key (the root of
 # trust) as two [secrets] entries. After serving, the key is checked once:
