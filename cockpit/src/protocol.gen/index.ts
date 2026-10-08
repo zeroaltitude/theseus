@@ -293,6 +293,7 @@ export type * from './RecallOutcomes';
 export type * from './RecallRerank';
 export type * from './RecallRetention';
 export type * from './RecallTimings';
+export type * from './RecallWhen';
 export type * from './ReliabilityBin';
 export type * from './ReplayClassFell';
 export type * from './ReplayEval';

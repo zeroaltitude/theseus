@@ -130,9 +130,19 @@ impl TurnRunner {
         };
         let (query, as_of) = query_of(&nodes, t.tc.turn_id)?;
         let deadline = std::time::Duration::from_millis(self.memory.cfg().recall_deadline_ms);
-        let mut begun = self
-            .memory
-            .begin(query, Some(as_of), crate::recall::K, arm, deadline);
+        // A span of time the turn's words name keeps recall inside it
+        // (theseus-w9qv): read here, in microseconds, with no call.
+        let now = theseus_protocol::now_unix_ms();
+        let when = crate::recall::when::of_turn(&nodes, t.tc.turn_id, now);
+        let mut begun = self.memory.begin_within(
+            query,
+            Some(as_of),
+            crate::recall::K,
+            arm,
+            deadline,
+            when,
+            Vec::new(),
+        );
         // The turn's new node seeds a spread (32b).
         begun.new_node = nodes
             .iter()

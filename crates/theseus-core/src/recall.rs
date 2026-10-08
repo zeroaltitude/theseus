@@ -35,6 +35,7 @@ pub mod labels;
 pub mod outcomes;
 pub mod render;
 pub mod retention;
+pub mod when;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::future::Future;
@@ -351,6 +352,25 @@ impl Memory {
         arm: MemoryArm,
         deadline: Duration,
     ) -> Begun {
+        self.begin_within(query, as_of, k, arm, deadline, None, Vec::new())
+    }
+
+    /// `begin`, kept to the span of time `when` names (theseus-w9qv): the
+    /// index's top k is drawn from inside it, and the pack drops any hit
+    /// outside it (`when` drops: a tender of an older build ignores the
+    /// span). `sessions`, when any, are the only sessions asked
+    /// (`memory.lookup`'s book or topic).
+    #[expect(clippy::too_many_arguments, reason = "begin's, and the two filters")]
+    pub fn begin_within(
+        &self,
+        query: String,
+        as_of: Option<u64>,
+        k: usize,
+        arm: MemoryArm,
+        deadline: Duration,
+        when: Option<when::When>,
+        sessions: Vec<String>,
+    ) -> Begun {
         let sources = arm.sources();
         let exclude: Vec<String> = match arm {
             MemoryArm::Synthesis => Vec::new(),
@@ -370,6 +390,10 @@ impl Memory {
         p.as_of = as_of;
         p.sources = sources.iter().map(|s| s.to_string()).collect();
         p.exclude_sessions = exclude;
+        if let Some(w) = &when {
+            (p.filters.from_ms, p.filters.to_ms) = (w.from_ms, w.to_ms);
+        }
+        p.filters.sessions = sessions;
         let started = Instant::now();
         let task = tokio::spawn(async move {
             let (answer, words_only) = match ask {
@@ -386,6 +410,8 @@ impl Memory {
             deadline,
             new_node: None,
             words_only: None,
+            when,
+            max_items: None,
         }
     }
 }
@@ -487,12 +513,27 @@ pub struct Begun {
     pub deadline: Duration,
     /// The turn's new node, which seeds a spread at 1.0 (32b).
     pub new_node: Option<String>,
+    /// The span of time the question named (theseus-w9qv).
+    pub when: Option<when::When>,
+    /// The most items the pack admits, when not `[memory] recall_max_items`:
+    /// a `memory.lookup` page's (theseus-w9qv).
+    pub max_items: Option<usize>,
     /// Once answered: the hits are the word sources' alone, and why (the
     /// vector search was late or failed; theseus-w9qv).
     pub words_only: Option<String>,
 }
 
 impl Begun {
+    /// The pack's parameters: the config's, under `budget_tokens`, and this
+    /// recall's own page size when it has one.
+    fn params(&self, p: theseus_memory::Params, budget_tokens: u64) -> theseus_memory::Params {
+        theseus_memory::Params {
+            budget_tokens,
+            max_items: self.max_items.unwrap_or(p.max_items),
+            ..p
+        }
+    }
+
     /// Its outcome once its hits are in: `ran`, or `words_only` when they
     /// are the word sources' alone.
     fn outcome(&self) -> &'static str {
@@ -615,6 +656,7 @@ impl Memory {
         let t0 = Instant::now();
         m.indexed_through = Some(r.indexed_through);
         m.candidates = r.hits.len() as u64;
+        let r = when::kept(&mut m, begun.when.as_ref(), r);
         m.skipped = r.skipped;
         m.timings.index = Some(r.timings);
         let mut sources: BTreeMap<String, u64> = BTreeMap::new();
@@ -667,10 +709,7 @@ impl Memory {
             now_ms: theseus_protocol::now_unix_ms(),
             retention: &retention,
         };
-        let params = theseus_memory::Params {
-            budget_tokens: m.budget_tokens,
-            ..self.cfg.params()
-        };
+        let params = begun.params(self.cfg.params(), m.budget_tokens);
         let pack = pipeline::recall(&*scene.science, &asker, candidates.clone(), &params);
         let kept = ranks.clone();
         fill(&mut m, pack, &mut ranks, texts);

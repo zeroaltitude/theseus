@@ -5,6 +5,7 @@ import type { RecallDrop } from "./RecallDrop";
 import type { RecallItem } from "./RecallItem";
 import type { RecallRerank } from "./RecallRerank";
 import type { RecallTimings } from "./RecallTimings";
+import type { RecallWhen } from "./RecallWhen";
 
 /**
  * One recall: what the index offered, what the pack would admit, and why
@@ -92,4 +93,9 @@ retention?: string,
  * Spreading activation's part (M6 32b, the `+activation` arm): what it
  * reached, what it added, and why it did not run.
  */
-activation?: RecallActivation, };
+activation?: RecallActivation, 
+/**
+ * The span of time the question named (theseus-w9qv), which kept the
+ * candidates to the nodes inside it.
+ */
+when?: RecallWhen, };

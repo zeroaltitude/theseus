@@ -2158,6 +2158,7 @@ mod tests {
                     sessions: vec!["ses_2".into(), "ses_3".into()],
                     kinds: vec!["tool_result".into()],
                     external: Some(false),
+                    ..Filters::default()
                 },
             ),
             (
