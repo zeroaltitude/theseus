@@ -622,6 +622,7 @@ impl Core {
             .context("reading the tool tightenings")?;
         tracing::info!(
             tools = tools.registry.len(),
+            not_offered = ?tools.not_offered,
             roots = ?tools.ctx.roots,
             enforcement = tools.policy.enforcement.as_str(),
             overrides = ?tools.policy.tools,

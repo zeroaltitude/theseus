@@ -321,6 +321,8 @@ pub struct ToolRuntime {
     /// The AWS accounts the config binds, behind the `aws.*` tools (AWS
     /// design §3.5); None when it binds none.
     pub aws: Option<Arc<crate::aws::Aws>>,
+    /// Tools left out of the registry, each with why (theseus-4o4c).
+    pub not_offered: Vec<String>,
     /// `file.read`'s reader (theseus-c9l6): Deepgram's key and settings, and
     /// the caps.
     pub files: Arc<crate::file_read::Reader>,
@@ -470,6 +472,7 @@ impl ToolRuntime {
             output_max_bytes: theseus_kernel::job::DEFAULT_OUTPUT_MAX_BYTES,
             disk: Arc::new(crate::disk::Disk::new(tmp.clone(), 0, 0)),
             aws: None,
+            not_offered: Vec::new(),
             files: Arc::new(crate::file_read::Reader::disabled()),
             question_due: Default::default(),
             leases: crate::task_graph::lease::Leases::new(30 * 60_000),
@@ -2148,12 +2151,28 @@ pub fn build_runtime(
     // starts until a call for a file of a server's language.
     let lsp = (t.enabled && cfg.lsp.enabled)
         .then(|| crate::lsp::Board::new(&cfg.lsp, roots.clone(), proc_env.clone(), &state));
+    // web.search needs its key's [secrets] entry (theseus-4o4c).
+    let not_offered: Vec<String> = t
+        .enabled
+        .then(|| crate::web::search_missing(cfg))
+        .flatten()
+        .into_iter()
+        .collect();
+    if not_offered
+        .iter()
+        .any(|_| cfg.policy.tools.contains_key("web.search"))
+    {
+        tracing::warn!(
+            "[policy.tools] names web.search, which is not offered: {}",
+            not_offered[0]
+        );
+    }
     let mut registry = if t.enabled {
         let mut r = theseus_tools::default_registry();
         // The web tools wait on the network, as async tools (DD5).
         let private = cfg.policy.private_addresses;
         let web = crate::web::Web::new(&t.web, t.result_max_chars, cpu.clone(), private);
-        for tool in web.tools() {
+        for tool in web.tools_with(not_offered.is_empty()) {
             r.register(tool);
         }
         for tool in aws.iter().flat_map(|a| a.tools()) {
@@ -2212,7 +2231,7 @@ pub fn build_runtime(
     let broker = Broker::new(&cfg.broker, secrets, std::env::var("PATH").ok());
     // web.search's key: its calls run at no looser a posture than the
     // key's, and health lists the grant with its uses (DD5).
-    if t.enabled {
+    if t.enabled && not_offered.is_empty() {
         broker.grant_tool("web.search", &t.web.search_key_secret);
     }
     // A program's AWS job session comes from these accounts (C2).
@@ -2270,6 +2289,7 @@ pub fn build_runtime(
             cfg.server.disk_floor_mb,
         )),
         aws,
+        not_offered,
         files,
         question_due: Default::default(),
         leases: crate::task_graph::lease::Leases::new(cfg.kernel.task_lease_ms()),

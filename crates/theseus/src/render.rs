@@ -1739,7 +1739,7 @@ pub fn health_lines(h: &theseus_protocol::HealthResult, now_ms: u64) -> Vec<Line
     memory::push_health(o, h.memory.as_ref());
     mcp_server::push_health(o, h.mcp_server.as_ref());
     parked::push_health(o, h.tasks.as_ref());
-    web::push_health(o, &h.web);
+    web::push_health(o, &h.web, &h.tools_not_offered);
     if let Some(line) = disk_line(&h.disk) {
         push(o, Tag::Plain, &line);
     }

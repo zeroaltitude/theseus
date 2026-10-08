@@ -773,6 +773,9 @@ async fn policy_list(conn: &mut Conn, json: bool) -> Result<()> {
     let l: ToolListResult = serde_json::from_value(tools)?;
     let h: HealthResult = serde_json::from_value(health)?;
     print!("{}", render::policy_list(&l, &h.tightenings));
+    for why in &h.tools_not_offered {
+        println!("{why}");
+    }
     if let Some(line) = render::external_line(&h.external_text) {
         println!("{line}");
     }

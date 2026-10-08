@@ -527,6 +527,9 @@ pub struct HealthResult {
     /// only, never a value.
     #[serde(default)]
     pub broker: Vec<GrantStatus>,
+    /// Tools left out for want of what they need, each with why (theseus-4o4c).
+    #[serde(default)]
+    pub tools_not_offered: Vec<String>,
     /// What a job may be handed, and what stays the harness's own: the AWS
     /// and providers' keys (theseus-gh7). Absent from a daemon before it.
     #[serde(default, skip_serializing_if = "Option::is_none")]

@@ -358,7 +358,7 @@ job_pids_max = 4096                     # the most processes and threads one L0 
 [tools.web]
 timeout_secs = 30                       # a fetch's or a search's whole time, redirects included (at most 110)
 max_bytes = 2097152                     # the most of a body a fetch reads; a call may ask for fewer
-search_key_secret = "brave_api_key"     # the [secrets] entry that holds the Brave Search API key; without it, web.search says it has no key
+search_key_secret = "brave_api_key"     # the [secrets] entry that holds the Brave Search API key; without a [secrets] entry of this name, web.search is not offered
 
 # ---------------------------------------------------------------- aws
 # The AWS accounts Theseus owns, each by its id, with its key (the root of
