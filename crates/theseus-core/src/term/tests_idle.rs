@@ -32,6 +32,16 @@ async fn bash(terms: &Arc<Terms>, dir: &std::path::Path) -> String {
     id
 }
 
+/// The wait's own count, "after N ms", from a read's text.
+fn waited_ms(text: &str) -> u64 {
+    let at = text.find(" after ").expect("a wait's count") + " after ".len();
+    text[at..]
+        .split(' ')
+        .next()
+        .and_then(|n| n.parse().ok())
+        .unwrap_or_else(|| panic!("no count in {text}"))
+}
+
 async fn idle_read(terms: &Arc<Terms>, id: &str, timeout_ms: u64, dir: &std::path::Path) -> String {
     let (o, _) = call(
         terms,
@@ -55,14 +65,9 @@ async fn until_idle_waits_for_the_typed_command() {
     let id = bash(&terms, d.path()).await;
     // At an idle prompt, at once.
     tokio::time::sleep(IDLE_SETTLE).await;
-    let t0 = Instant::now();
     let text = idle_read(&terms, &id, 5_000, d.path()).await;
     assert!(text.contains("Waited: its program is idle"), "{text}");
-    assert!(
-        t0.elapsed() < Duration::from_millis(100),
-        "{:?}",
-        t0.elapsed()
-    );
+    assert!(waited_ms(&text) < 100, "{text}");
     // A command of a second: the read ends once it does, and no sooner.
     let marker = d.path().join("slept");
     call(
@@ -73,17 +78,22 @@ async fn until_idle_waits_for_the_typed_command() {
         d.path(),
     )
     .await;
+    let began = std::time::SystemTime::now();
     let text = idle_read(&terms, &id, 10_000, d.path()).await;
-    let returned = std::time::SystemTime::now();
     assert!(text.contains("Waited: its program is idle"), "{text}");
     let finished = std::fs::metadata(&marker)
         .expect("the read returned before the command finished")
         .modified()
         .unwrap();
-    let late = returned.duration_since(finished).unwrap_or_default();
+    // When the wait ended, by its own count from its start: the time the
+    // test then takes to get its answer is the scheduler's, not the wait's,
+    // and on a loaded machine it is not small (117 ms seen under four busy
+    // loops at nice 19).
+    let ended = began + Duration::from_millis(waited_ms(&text));
+    let late = ended.duration_since(finished).unwrap_or_default();
     assert!(
         late < Duration::from_millis(100),
-        "{late:?} after the command"
+        "{late:?} after the command:\n{text}"
     );
     // A pipeline in its own group: busy, and the bound ends the wait.
     call(
