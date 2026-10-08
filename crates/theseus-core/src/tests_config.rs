@@ -593,7 +593,10 @@ async fn a_limit_raised_in_the_vault_lets_a_session_waiting_at_its_old_limit_con
             &"word ".repeat(30_000),
             &[("t1", "text_diff", json!({"a": "x\n", "b": "y\n"}))],
         )],
-        |c| c.kernel.spend_limit_usd = 1.40,
+        |c| {
+            c.kernel.spend_limit_usd = 1.40;
+            c.kernel.spend_limit_mode = crate::config::SpendLimitMode::Ask;
+        },
     );
     let res = turn(&r.core, "diff these").await;
     assert_eq!(res.stop_reason, "budget", "{res:?}");

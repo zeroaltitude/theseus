@@ -48,6 +48,12 @@ pub struct BudgetRow {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub limit_by: Option<String>,
+    /// What reaching the limit does (theseus-usei): `notify` (a notice at
+    /// the limit and at each multiple of it, and its calls go on) or `ask`
+    /// (it waits on the budget question). Unset from a build before it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub mode: Option<String>,
     /// Settled costs since it opened or was last reset.
     pub spent_usd: f64,
     /// Reserved for calls in flight, its tasks' carves among them.

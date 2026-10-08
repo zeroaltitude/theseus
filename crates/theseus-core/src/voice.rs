@@ -198,7 +198,8 @@ impl Core {
             return Ok(());
         };
         let b = &e.budget;
-        if b.available() >= estimate {
+        // A limit that notifies stops no speech (theseus-usei).
+        if b.available() >= estimate || self.kernel.overdraws(&e) {
             return Ok(());
         }
         Err(format!(
@@ -311,6 +312,7 @@ mod tests {
         let mut cfg = Config::example();
         cfg.server.state_dir = d.path().to_string_lossy().into_owned();
         cfg.kernel.spend_limit_usd = 0.001;
+        cfg.kernel.spend_limit_mode = crate::config::SpendLimitMode::Ask;
         let store = crate::store::Store::open(&d.path().join("store")).unwrap();
         let model = std::sync::Arc::new(crate::provider::FakeProvider::scripted(vec![]));
         let core = Core::build(crate::rpc::Parts::for_tests(cfg, model, store)).unwrap();

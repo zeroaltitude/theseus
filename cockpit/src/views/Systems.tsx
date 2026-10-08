@@ -75,7 +75,7 @@ export default function Systems() {
         <Field label="actions">{Object.entries(k.actions_by_state).map(([s, n]) => <Pill key={s} tone={stateTone(s)} className="ml-1">{s} {n}</Pill>)}</Field>
         <Field label="quarantined completions" mono><span className={k.quarantined_completions ? 'text-wait' : ''} title="results that matched no action; never inferred into anything">{k.quarantined_completions}</span></Field>
         <Field label="lingering wrappers" mono>{k.lingering_wrappers ?? 0}</Field>
-        <Field label="spend limit per session" mono>{usd(k.spend_limit_usd)}</Field>
+        <Field label="spend limit per session" mono>{usd(k.spend_limit_usd)}{k.spend_limit_mode ? ` · ${k.spend_limit_mode}` : ''}</Field>
         <PushFields push={h.push} />
         {Array.isArray(st.steps) && (
           <div className="mt-2">

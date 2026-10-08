@@ -75,6 +75,10 @@ Key modules: `kernel.rs`, `tx.rs`, `locks.rs`, `job.rs`, `cgroup.rs`, `children.
   as `wrapper_gone_at_start`, all in one frame; one with neither (an in-process tool, a hand, a job whose daemon
   died before writing its pid) is left to its deadline. The core records `job.wrapper_gone` for each, and the
   probe's cost as the `jobs_at_start` startup phase.
+- `overdraw.rs` (theseus-usei): a spend limit that notifies (`KernelConfig::spend_limit_notify`): a provider
+  call's reservation past an unpinned limit (or a task's whose parent's is unpinned) is made, never refused
+  (`OverBudget`); every other tool's still is, and so is any call under a pinned limit. `open_task` then carves what
+  the task asked for, up to the parent's whole limit. Tests: `tests_overdraw.rs`.
 - `spool.rs` (completions on disk, one sync each: a start finishes a rename a crash cut short, and takes a
   completion its action settled already as a no-op, theseus-yxiv), `redact.rs` (granted secrets withheld from a
   job's output), `stops.rs` (the soft stop), `tasks.rs` (task executions and their carve), `wakes.rs`, `repeat.rs` (a repeating wake's series:

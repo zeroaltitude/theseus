@@ -26,6 +26,12 @@ limit_from: string,
  */
 limit_by?: string, 
 /**
+ * What reaching the limit does (theseus-usei): `notify` (a notice at
+ * the limit and at each multiple of it, and its calls go on) or `ask`
+ * (it waits on the budget question). Unset from a build before it.
+ */
+mode?: string, 
+/**
  * Settled costs since it opened or was last reset.
  */
 spent_usd: number, 

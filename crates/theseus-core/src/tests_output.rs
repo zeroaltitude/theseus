@@ -513,7 +513,8 @@ async fn budget(out: &mut String) {
         )),
     };
     let mut w = world(vec![first, Scripted::text("The diff is one line.")], |c| {
-        c.kernel.spend_limit_usd = 1.40
+        c.kernel.spend_limit_usd = 1.40;
+        c.kernel.spend_limit_mode = crate::config::SpendLimitMode::Ask;
     });
     let core = w.core.clone();
     let s = w.session(Some("dm:44"));
@@ -531,6 +532,35 @@ async fn budget(out: &mut String) {
     w.take(out, "the driver: the call that did not fit", &d);
 }
 
+/// A session past a spend limit that notifies (theseus-usei): its call goes
+/// out, its place hears one notice, and the turn ends as the model ends it.
+async fn budget_notify(out: &mut String) {
+    out.push_str("\n== a spend limit that notifies\n");
+    let first = Scripted::Billed {
+        usage: Usage {
+            input_tokens: 1_000,
+            output_tokens: 30_000,
+            ..Default::default()
+        },
+        then: Box::new(Scripted::tools(
+            "Diffing.",
+            &[("d1", "text_diff", json!({"a": "x\n", "b": "y\n"}))],
+        )),
+    };
+    let mut w = world(vec![first, Scripted::text("The diff is one line.")], |c| {
+        c.kernel.spend_limit_usd = 0.20;
+    });
+    let core = w.core.clone();
+    let s = w.session(Some("dm:45"));
+    w.take(out, "a session that posts to dm:45", "");
+    let r = turn(&core, &s, "Diff x and y.").await;
+    w.take(
+        out,
+        "the first call passes the limit: a notice, and the turn goes on",
+        &told(&r),
+    );
+}
+
 #[tokio::test]
 async fn the_cores_output_matches_its_golden() {
     let mut out = String::new();
@@ -540,6 +570,7 @@ async fn the_cores_output_matches_its_golden() {
     // at retention's join, theseus-6fn.11).
     Box::pin(conversation(&mut out)).await;
     Box::pin(budget(&mut out)).await;
+    Box::pin(budget_notify(&mut out)).await;
     let got = shapes(&alias(&out));
     if std::env::var("THESEUS_GOLDEN").as_deref() == Ok("write") {
         let to = std::env::var("THESEUS_GOLDEN_TO").unwrap_or_else(|_| GOLDEN.to_string());

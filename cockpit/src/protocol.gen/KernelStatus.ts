@@ -31,6 +31,11 @@ startup: unknown,
  */
 spend_limit_usd: number, 
 /**
+ * What reaching it does (`[kernel] spend_limit_mode`, theseus-usei):
+ * `notify` or `ask`. Unset from a build before it.
+ */
+spend_limit_mode?: string, 
+/**
  * Job wrappers whose command has exited, each still waiting for the
  * descendants that outlived it (theseus-6qy).
  */

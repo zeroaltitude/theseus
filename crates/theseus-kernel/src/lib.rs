@@ -23,6 +23,7 @@ pub mod kernel;
 mod locks;
 pub mod mcp_l1;
 pub mod outbox;
+mod overdraw;
 pub mod place_limit;
 pub mod redact;
 mod reopen;
@@ -49,6 +50,8 @@ mod tests_earlier;
 mod tests_frames;
 #[cfg(test)]
 mod tests_gone;
+#[cfg(test)]
+mod tests_overdraw;
 #[cfg(test)]
 mod tests_place_limit;
 #[cfg(test)]

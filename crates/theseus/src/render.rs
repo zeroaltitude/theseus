@@ -1694,14 +1694,18 @@ pub fn health_lines(h: &theseus_protocol::HealthResult, now_ms: u64) -> Vec<Line
         }
     };
     push(o, Tag::Plain, &format!(
-        "kernel: {} · turns held {}/{} · executions [{}] · actions [{}] · quarantined completions {}{}",
+        "kernel: {} · turns held {}/{} · executions [{}] · actions [{}] · quarantined completions {}{}{}",
         if k.accepting { "accepting" } else { "starting" },
         k.turns_held,
         k.admission_ceiling,
         fmt_counts(&k.executions_by_state),
         fmt_counts(&k.actions_by_state),
         k.quarantined_completions,
-        lingering_note(k.lingering_wrappers)
+        lingering_note(k.lingering_wrappers),
+        // What a session's spend limit does when reached (theseus-usei).
+        k.spend_limit_mode.as_ref().map_or_else(String::new, |m| {
+            format!(" · spend limit ${:.2} a session, {m}", k.spend_limit_usd)
+        })
     ));
     if let Some(line) = children_line(&h.children) {
         push(o, Tag::Plain, &line);

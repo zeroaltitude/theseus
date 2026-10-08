@@ -397,7 +397,7 @@ async fn a_tasks_spend_counts_against_its_parent_and_it_asks_at_its_carve() {
             }
             start("CHILD: diff two lines", Some(1.40))
         },
-        |_| {},
+        |c| c.kernel.spend_limit_mode = crate::config::SpendLimitMode::Ask,
     );
     *r.model.hold.lock().unwrap() = Some("CHILD".into());
     let parent = parent_session(&r.core);
@@ -466,7 +466,10 @@ async fn a_request_for_more_than_the_parent_has_left_is_capped() {
             }
             start("CHILD: anything", Some(1_000_000.0))
         },
-        |c| c.kernel.spend_limit_usd = 20.0,
+        |c| {
+            c.kernel.spend_limit_usd = 20.0;
+            c.kernel.spend_limit_mode = crate::config::SpendLimitMode::Ask;
+        },
     );
     let parent = parent_session(&r.core);
     turn(&r.core, &parent, ASK).await;
@@ -788,7 +791,10 @@ async fn a_report_that_starts_a_turn_at_the_parents_limit_asks() {
             }
             Scripted::text("this call does not fit")
         },
-        |c| c.kernel.spend_limit_usd = 2.70,
+        |c| {
+            c.kernel.spend_limit_usd = 2.70;
+            c.kernel.spend_limit_mode = crate::config::SpendLimitMode::Ask;
+        },
     );
     *r.model.hold.lock().unwrap() = Some("CHILD".into());
     let parent = parent_session(&r.core);

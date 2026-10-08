@@ -1391,6 +1391,11 @@ pub struct KernelStatus {
     /// spend_limit_usd`).
     #[serde(default)]
     pub spend_limit_usd: f64,
+    /// What reaching it does (`[kernel] spend_limit_mode`, theseus-usei):
+    /// `notify` or `ask`. Unset from a build before it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub spend_limit_mode: Option<String>,
     /// Job wrappers whose command has exited, each still waiting for the
     /// descendants that outlived it (theseus-6qy).
     #[serde(default)]

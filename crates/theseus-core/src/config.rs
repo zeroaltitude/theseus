@@ -14,6 +14,7 @@ use crate::secrets::{OpReader, SecretRef};
 
 mod aws;
 mod judge;
+mod limits;
 mod lookup;
 pub(crate) mod lsp;
 pub(crate) mod memory;
@@ -24,6 +25,7 @@ pub use aws::{
     AwsCredentialNames, HandsNetwork,
 };
 pub use judge::{JudgeConfig, JudgePackConfig, PackMode, SignalsConfig};
+pub use limits::{MaxLoopsMode, SpendLimitMode};
 // Where the config comes from when nothing names one (theseus-5aqz).
 pub use lookup::{find_config, Lookup, DEFAULT_CONFIG, NO_CONFIG, SYSTEM_CONFIG};
 pub use lsp::{LspConfig, LspServerConfig};
@@ -569,10 +571,12 @@ pub struct KernelSection {
     /// How many executions may hold a turn at once.
     #[serde(default = "default_admission_ceiling")]
     pub admission_ceiling: u32,
-    /// Each session's spend limit in US dollars (theseus-0sg). At the limit
-    /// the session asks the operator whether its spend may go back to $0.
+    /// Each session's spend limit in US dollars (theseus-0sg). What reaching
+    /// it does is `spend_limit_mode`: a notice, or the question (theseus-usei).
     #[serde(default = "default_spend_limit_usd")]
     pub spend_limit_usd: f64,
+    #[serde(default, skip_serializing_if = "SpendLimitMode::is_default")]
+    pub spend_limit_mode: SpendLimitMode,
     /// Retired (theseus-0sg): budget units, and the units kept back as a
     /// control reserve. Both still load, so an older config starts, and are
     /// never honored: budgets are dollars, and nothing reserves for control
@@ -628,6 +632,7 @@ impl Default for KernelSection {
         Self {
             admission_ceiling: default_admission_ceiling(),
             spend_limit_usd: default_spend_limit_usd(),
+            spend_limit_mode: SpendLimitMode::default(),
             default_budget: None,
             control_reserve: None,
             heartbeat_secs: default_heartbeat_secs(),
@@ -661,6 +666,7 @@ impl KernelSection {
             admission_ceiling: self.admission_ceiling.max(1),
             default_deadline_ms: self.default_deadline_secs * 1000,
             spend_limit_micros: theseus_kernel::usd_to_micros(self.spend_limit_usd),
+            spend_limit_notify: self.spend_limit_mode == SpendLimitMode::Notify,
             confirm_ttl_ms: self.confirm_ttl_secs * 1000,
             heartbeat_ms: self.heartbeat_secs.max(1) * 1000,
             fault_after_startup_step: None,
@@ -860,9 +866,11 @@ pub struct ProfileConfig {
     pub effort: Option<Effort>,
     #[serde(default)]
     pub thinking_display: ThinkingDisplay,
-    /// Tool loops per turn before the Advancer ends it.
+    /// Tool loops per turn before a notice, or the turn's end: `max_loops_mode`.
     #[serde(default = "default_max_loops")]
     pub max_loops: u32,
+    #[serde(default, skip_serializing_if = "MaxLoopsMode::is_default")]
+    pub max_loops_mode: MaxLoopsMode,
     /// Server-side refusal fallbacks where the model supports them.
     #[serde(default = "default_true")]
     pub refusal_fallbacks: bool,
@@ -998,6 +1006,8 @@ pub struct ModelConfig {
     pub thinking_display: ThinkingDisplay,
     #[serde(default = "default_max_loops")]
     pub max_loops: u32,
+    #[serde(default, skip_serializing_if = "MaxLoopsMode::is_default")]
+    pub max_loops_mode: MaxLoopsMode,
     #[serde(default = "default_true")]
     pub refusal_fallbacks: bool,
     #[serde(default, skip_serializing_if = "CacheTtl::is_default")]
@@ -1148,6 +1158,7 @@ impl Default for ModelConfig {
             effort: None,
             thinking_display: ThinkingDisplay::Summarized,
             max_loops: default_max_loops(),
+            max_loops_mode: MaxLoopsMode::default(),
             refusal_fallbacks: true,
             cache_ttl: CacheTtl::default(),
             api_base: default_api_base(),
@@ -1584,6 +1595,7 @@ impl Config {
                 effort: m.effort,
                 thinking_display: m.thinking_display,
                 max_loops: m.max_loops,
+                max_loops_mode: m.max_loops_mode,
                 refusal_fallbacks: m.refusal_fallbacks,
                 cache_ttl: m.cache_ttl,
             });
