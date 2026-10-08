@@ -84,6 +84,15 @@ Key modules: `kernel.rs`, `tx.rs`, `locks.rs`, `job.rs`, `cgroup.rs`, `children.
   call's reservation past an unpinned limit (or a task's whose parent's is unpinned) is made, never refused
   (`OverBudget`); every other tool's still is, and so is any call under a pinned limit. `open_task` then carves what
   the task asked for, up to the parent's whole limit. Tests: `tests_overdraw.rs`.
+- `day_ceiling.rs` (theseus-kp20): the daemon's day ceiling, `[kernel] daily_spend_ceiling_usd` ($200), one counter
+  for every model call by the local day of `KernelConfig::zone`, in memory (no store read or write). A provider call's
+  reservation holds on it in `plan` and is refused with `KernelError::DayCeiling`, nothing written, past it; its
+  settle spends the real cost (an unknown one its reservation). A settle's change is an `Effect`, applied after its
+  frame (`day_after`; inside a transaction at its commit, and a failed transaction lets its holds go, `tx.rs`). Only
+  `PROVIDER_TOOL` counts: an AWS hand and a task's carve never, and a task's carry to its parent adds nothing. The core
+  holds its own calls with `hold_call`/`Hold` (or by amount, `settle_part`), books late costs (`book`), and seeds the
+  day at the start (`seed`). `budget_question.rs` is the budget question, moved out of kernel.rs whole.
+  Tests: `tests_day_ceiling.rs`.
 - `spool.rs` (completions on disk, one sync each: a start finishes a rename a crash cut short, and takes a
   completion its action settled already as a no-op, theseus-yxiv), `redact.rs` (granted secrets withheld from a
   job's output), `stops.rs` (the soft stop), `tasks.rs` (task executions and their carve), `wakes.rs`, `repeat.rs` (a repeating wake's series:

@@ -6,11 +6,17 @@
 //! its notice carries the words to the session's place (a task's failure
 //! ends it, and its report says why). The day's first refusal writes its
 //! `spend.ceiling` row and the owner's post (`TurnRunner::day_refused`).
+//! The session keeps a note of it, a node the model reads as the user's (as
+//! a wake's or a task's report), so its next context says why its call did
+//! not run.
 
 use super::*;
 
 /// The failure's class.
 pub const DAY_CEILING_CLASS: &str = "daily_ceiling";
+
+/// The note's author.
+pub const NOTE_AUTHOR: &str = "harness:day_ceiling";
 
 impl TurnRunner {
     pub(super) fn day_ceiling_failed(
@@ -29,6 +35,19 @@ impl TurnRunner {
         t.record(&fact::turn::LoopCut {
             decision: DAY_CEILING_CLASS,
         });
+        let note = Node::relayed(
+            t.tc.session_id,
+            Some(t.tc.turn_id),
+            crate::node::Origin::Harness,
+            NOTE_AUTHOR,
+            &format!("⛔ day ceiling: this turn's model call was not made: {r}."),
+        );
+        match note.record().and_then(|rec| t.tc.store.append(&[rec])) {
+            Ok(_) => t.tc.node_written(&note),
+            Err(e) => {
+                tracing::warn!(error = %format!("{e:#}"), "day ceiling: the session's note was not written");
+            }
+        }
         Failure {
             class: DAY_CEILING_CLASS.into(),
             transient: false,

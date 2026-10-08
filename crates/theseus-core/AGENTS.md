@@ -723,6 +723,16 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   the background day caps. Under notify a task's carve is what it asked for up to the parent's whole limit, and
   speech and transcripts are not refused for the limit. The budget question's words are `turn/budget_words.rs`.
   Tests: `tests_limits_notify.rs`, and the kernel's `tests_overdraw.rs`.
+- **The day ceiling** (theseus-kp20; the kernel's `day_ceiling.rs` is the counter): `day_ceiling.rs` reads today's
+  model spend back before serving (`read_today`: the ledger's pages by kind from local midnight, provider settles,
+  booked reservations, speech, synthesis, the learning runs, the judge's day record), and says a refusal
+  (`TurnRunner::day_refused`: the day's first writes one `spend.ceiling` row and, with a DM bound, one
+  `spend_ceiling` post to the owner's DM, which the courier sends nowhere else; the start reads the row back). A
+  turn's refused call fails it, class `daily_ceiling`, and leaves a harness note the next context reads
+  (`turn/ceiling_step.rs`); the judge's day budget holds on it (`ShadowBudget::set_ceiling`), and consolidation, the
+  audit, replay, backfill and the learning writer hold through `TurnRunner::day_hold`; compaction's summary is refused
+  through the kernel and the ring runs; speech asks before its call. No mode: it stops. Tests: `tests_day_ceiling.rs`,
+  and one each in `tests_compaction.rs` and `tests_consolidate.rs`.
 - **The operator's two reads** (step 42a, theseus-ext.7): `rpc/budgets.rs` is `budget.list`, each open execution's
   money from its record (`Kernel::open_executions`), where its limit comes from (`config`, `place`, `carve`, or
   `pinned`), its session's lifetime cost, and its last reset from one small ledger page by kind and session tag,

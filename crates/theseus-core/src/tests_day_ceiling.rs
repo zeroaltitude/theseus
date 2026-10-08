@@ -79,24 +79,33 @@ async fn turn(
     core.store.put_session(&rec.session_id, &rec).unwrap();
     core.outbox.bind_place(PLACE, &rec.session_id).unwrap();
     let sid = rec.session_id.clone();
+    let res = turn_in(core, &sid, input).await;
+    (sid, res)
+}
+
+/// A turn in the session `sid`.
+async fn turn_in(
+    core: &Arc<Core>,
+    sid: &str,
+    input: &str,
+) -> anyhow::Result<theseus_protocol::TurnSubmitResult> {
+    let rec: SessionRecord = core.store.get_session(sid).unwrap().unwrap();
     let (live, _) = core.live_profile();
     let target = core.runner.resolve_target(&live, None, None, None).unwrap();
-    let res = core
-        .runner
+    core.runner
         .run(TurnRequest {
             prompt: None,
             session: rec,
             input: Some(input.into()),
             target,
-            sink: EventSink::new(core.bus.clone(), &sid, None),
+            sink: EventSink::new(core.bus.clone(), sid, None),
             author: "test".into(),
             recompile: None,
             attachments: vec![],
             arrived: None,
             reply_to: None,
         })
-        .await;
-    (sid, res)
+        .await
 }
 
 fn rows(core: &Core, kind: &str) -> Vec<crate::ledger::LedgerRow> {
@@ -223,10 +232,31 @@ async fn a_turn_at_the_ceiling_makes_no_call_and_ends_with_the_words() {
         .open_for(OWNER_DM)
         .iter()
         .all(|a| crate::outbox::kind_of(a) != "spend_ceiling"));
+    // The session keeps a note of it, which the model's next context reads.
+    let sid = &failed[0]["session_id"];
+    let nodes = r.core.store.transcript(sid.as_str().unwrap()).unwrap();
+    let (_, last) = nodes.last().unwrap();
+    assert_eq!(last.author.as_deref(), Some("harness:day_ceiling"));
+    let note = match &last.body {
+        crate::node::Body::UserMessage { text, .. } => text.clone(),
+        other => panic!("{other:?}"),
+    };
+    assert!(note.contains("daily_spend_ceiling_usd"), "{note}");
+    let c = r.core.kernel.day_ceiling();
+    c.set_limit(200_000_000);
+    turn_in(&r.core, sid.as_str().unwrap(), "the next day")
+        .await
+        .unwrap();
+    let sent = serde_json::to_string(&r.fake.requests()[0].messages).unwrap();
+    assert!(
+        sent.contains("this turn's model call was not made"),
+        "{sent}"
+    );
+    c.set_limit(10_000);
     // A second refusal the same day writes no second row or post.
     let (_, res) = turn(&r.core, "again").await;
     assert!(res.is_err());
-    assert!(r.fake.requests().is_empty());
+    assert_eq!(r.fake.requests().len(), 1, "only the next day's call");
     assert_eq!(rows(&r.core, "spend.ceiling").len(), 1);
     assert_eq!(posts(&r.core, "spend_ceiling").len(), 1);
     // budget.list says it, and `theseus budgets` prints it.
