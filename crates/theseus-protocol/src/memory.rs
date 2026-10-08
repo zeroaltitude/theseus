@@ -134,6 +134,31 @@ pub struct RecallManifest {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub activation: Option<RecallActivation>,
+    /// The span of time the question named (theseus-w9qv), which kept the
+    /// candidates to the nodes inside it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub when: Option<RecallWhen>,
+}
+
+/// A span of time a question named (theseus-w9qv): "March 2026", "last
+/// week", read from its words in the owner's time zone. Recall keeps to the
+/// nodes whose own time is inside it: an imported message's (inside its
+/// episode's as-of span; its summary's is the span's end), a native node's
+/// creation. Either end may be open.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct RecallWhen {
+    /// The words that named it, as the question wrote them.
+    pub said: String,
+    /// Its start, unix ms.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional, type = "number"))]
+    pub from_ms: Option<u64>,
+    /// Its end, unix ms, not included.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional, type = "number"))]
+    pub to_ms: Option<u64>,
 }
 
 /// A recalled node's FSRS-6 retention at the recall (M6 32a): what the

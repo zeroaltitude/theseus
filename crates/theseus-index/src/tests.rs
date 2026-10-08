@@ -539,6 +539,52 @@ fn filters_keep_and_drop_sessions_kinds_and_external_text() {
     assert_eq!(sessions(p), vec!["ses_2"]);
 }
 
+/// A span of time keeps the nodes whose own time is inside it, its start
+/// included and its end not (theseus-w9qv), in every source.
+#[test]
+fn a_span_of_time_keeps_the_nodes_inside_it() {
+    // 2026-02-28 23:59:59.999, 2026-03-01 00:00, 2026-03-31 12:00, 2026-04-01 00:00 (UTC).
+    const MARCH: u64 = 1_772_323_200_000;
+    const APRIL: u64 = 1_775_001_600_000;
+    let at = |session: &str, ms: u64| {
+        let mut n = user(session, "kelp in the harbour logs");
+        n.created_at_ms = ms;
+        n
+    };
+    let rig = Rig::new();
+    rig.put(&[
+        at("ses_feb", MARCH - 1),
+        at("ses_mar1", MARCH),
+        at("ses_mar31", APRIL - 43_200_000),
+        at("ses_apr", APRIL),
+    ]);
+    let mut t = rig.open();
+    settle(&mut t);
+    let shared = t.shared();
+    let found = |from: Option<u64>, to: Option<u64>| {
+        let mut p = QueryParams::new("kelp");
+        p.filters = Filters {
+            from_ms: from,
+            to_ms: to,
+            ..Filters::default()
+        };
+        let r = shared.query(&p).unwrap();
+        for h in &r.hits {
+            assert!(p.filters.holds_time(h.time_ms), "{h:?}");
+        }
+        let mut s: Vec<String> = r.hits.iter().map(|h| h.session_id.clone()).collect();
+        s.sort();
+        s
+    };
+    assert_eq!(found(Some(MARCH), Some(APRIL)), ["ses_mar1", "ses_mar31"]);
+    assert_eq!(
+        found(Some(MARCH), None),
+        ["ses_apr", "ses_mar1", "ses_mar31"]
+    );
+    assert_eq!(found(None, Some(MARCH)), ["ses_feb"]);
+    assert_eq!(found(None, None).len(), 4);
+}
+
 #[test]
 fn a_session_s_place_comes_from_the_core_s_meta_records() {
     let rig = Rig::new();

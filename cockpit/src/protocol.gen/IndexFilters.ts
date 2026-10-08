@@ -12,4 +12,14 @@ kinds?: Array<string>,
 /**
  * Only external text (`true`), or none of it (`false`).
  */
-external?: boolean, };
+external?: boolean, 
+/**
+ * Only nodes whose time (an imported message's own, a native node's
+ * creation: a hit's `time_ms`) is at or after this, unix ms
+ * (theseus-w9qv).
+ */
+from_ms?: number, 
+/**
+ * Only nodes whose time is before this, unix ms.
+ */
+to_ms?: number, };

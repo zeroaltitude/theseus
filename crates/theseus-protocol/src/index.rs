@@ -189,11 +189,30 @@ pub struct IndexFilters {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub external: Option<bool>,
+    /// Only nodes whose time (an imported message's own, a native node's
+    /// creation: a hit's `time_ms`) is at or after this, unix ms
+    /// (theseus-w9qv).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional, type = "number"))]
+    pub from_ms: Option<u64>,
+    /// Only nodes whose time is before this, unix ms.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional, type = "number"))]
+    pub to_ms: Option<u64>,
 }
 
 impl IndexFilters {
     pub fn is_empty(&self) -> bool {
-        self.sessions.is_empty() && self.kinds.is_empty() && self.external.is_none()
+        self.sessions.is_empty()
+            && self.kinds.is_empty()
+            && self.external.is_none()
+            && self.from_ms.is_none()
+            && self.to_ms.is_none()
+    }
+
+    /// Whether a node at `time_ms` is inside the span.
+    pub fn holds_time(&self, time_ms: u64) -> bool {
+        self.from_ms.is_none_or(|f| time_ms >= f) && self.to_ms.is_none_or(|t| time_ms < t)
     }
 }
 

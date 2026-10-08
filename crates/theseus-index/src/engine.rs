@@ -380,7 +380,7 @@ impl Engine {
 
     /// The filters every source shares, as clauses that score nothing:
     /// `as_of` (only positions before it), the sessions to keep or leave
-    /// out, the kinds, and the external flag.
+    /// out, the kinds, the external flag, and a span of the nodes' times.
     fn filters(&self, p: &QueryParams) -> Vec<(Occur, Box<dyn Query>)> {
         let f = &self.f;
         let quiet =
@@ -424,6 +424,21 @@ impl Engine {
         }
         if !filters.kinds.is_empty() {
             out.push((Occur::Must, quiet(any_of(f.kind, &filters.kinds))));
+        }
+        // A span of time (theseus-w9qv): the nodes' own times, a fast field.
+        if filters.from_ms.is_some() || filters.to_ms.is_some() {
+            let at = |ms: u64| Term::from_field_u64(f.time, ms);
+            out.push((
+                Occur::Must,
+                quiet(Box::new(RangeQuery::new(
+                    filters
+                        .from_ms
+                        .map_or(Bound::Unbounded, |m| Bound::Included(at(m))),
+                    filters
+                        .to_ms
+                        .map_or(Bound::Unbounded, |m| Bound::Excluded(at(m))),
+                ))),
+            ));
         }
         if let Some(ext) = filters.external {
             out.push((
