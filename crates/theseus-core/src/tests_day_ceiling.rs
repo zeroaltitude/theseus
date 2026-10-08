@@ -198,6 +198,24 @@ async fn a_turn_at_the_ceiling_makes_no_call_and_ends_with_the_words() {
         text.contains("$0.01 daily ceiling") && text.contains("daily_spend_ceiling_usd"),
         "{text}"
     );
+    // The session's place hears the turn failed, with the words.
+    let failed: Vec<serde_json::Value> = r
+        .core
+        .outbox
+        .open_for(OWNER_DM)
+        .iter()
+        .filter(|a| crate::outbox::kind_of(a) == "failed")
+        .map(|a| crate::outbox::body_of(a).clone())
+        .collect();
+    assert_eq!(failed.len(), 1, "{failed:?}");
+    assert_eq!(failed[0]["class"], "daily_ceiling");
+    assert!(
+        failed[0]["error"]
+            .as_str()
+            .unwrap()
+            .contains("daily ceiling"),
+        "{failed:?}"
+    );
     // The owner's post is no post to the session's place.
     assert!(r
         .core
@@ -333,4 +351,109 @@ async fn the_defaults_leave_the_turn_as_it_was() {
     assert!(!day.reached && day.spent_usd > 0.0 && day.held_usd == 0.0);
     assert!(rows(&r.core, "spend.ceiling").is_empty());
     drop(r.dir);
+}
+
+fn row_at(kind: &str, at: u64, data: serde_json::Value) -> theseus_store::NewRecord {
+    let r = crate::ledger::LedgerRow {
+        at_unix_ms: at,
+        kind: kind.into(),
+        session_id: Some("ses_seed".into()),
+        turn_id: None,
+        data,
+    };
+    theseus_store::NewRecord::json(theseus_store::kinds::LEDGER, None, &r).unwrap()
+}
+
+/// The start's read counts today's model spend and nothing else: a
+/// provider's settled calls (and a booked reservation), speech, a
+/// synthesis, a learning run's; never an AWS hand's settle, a row of
+/// another kind, or a row from before local midnight; and today's
+/// `spend.ceiling` row says the day's notice was taken.
+#[test]
+fn the_start_reads_todays_model_spend_and_nothing_else() {
+    use serde_json::json;
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::open(&dir.path().join("store")).unwrap();
+    let now = theseus_protocol::now_unix_ms();
+    let since = now - 60_000;
+    store
+        .append(&[
+            row_at(
+                "action.succeeded",
+                now,
+                json!({"producer": "provider:anthropic", "cost_usd": 0.5}),
+            ),
+            row_at(
+                "action.failed",
+                now,
+                json!({"producer": "provider:anthropic", "cost_usd": 0.25}),
+            ),
+            row_at(
+                "action.outcome_unknown",
+                now,
+                json!({"producer": "earlier", "cost_usd": 0.125, "cost_basis": "reservation"}),
+            ),
+            row_at(
+                "action.succeeded",
+                now,
+                json!({"producer": "hands:group", "cost_usd": 3.0}),
+            ),
+            row_at("speech.synthesized", now, json!({"cost_usd": 0.0625})),
+            row_at("synthesis.proposed", now, json!({"cost_usd": 0.03125})),
+            row_at("judge.replay", now, json!({"cost_usd": 0.015625})),
+            row_at("judge.proposal", now, json!({"writer_usd": 0.0078125})),
+            row_at("provider.call", now, json!({"cost_usd": 9.0})),
+            row_at(
+                "action.succeeded",
+                since - 1,
+                json!({"producer": "provider:anthropic", "cost_usd": 7.0}),
+            ),
+            row_at("spend.ceiling", now, json!({"day": "today"})),
+        ])
+        .unwrap();
+    let s = crate::day_ceiling::read_today(&store, since, "today")
+        .unwrap()
+        .expect("the pages are built");
+    assert_eq!(s.seed.spent, 992_188, "{s:?}");
+    assert_eq!(s.seed.reached_at_ms, Some(now));
+    let other = crate::day_ceiling::read_today(&store, since, "another day")
+        .unwrap()
+        .unwrap();
+    assert_eq!(other.seed.reached_at_ms, None);
+}
+
+/// The start's read on a busy day (theseus-kp20's FAST check): 5,000 cost
+/// rows today among 5,000 others, timed. A measurement:
+/// `--run-ignored only --no-capture`.
+#[test]
+#[ignore = "a measurement"]
+fn the_starts_read_of_a_busy_day() {
+    use serde_json::json;
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::open(&dir.path().join("store")).unwrap();
+    let now = theseus_protocol::now_unix_ms();
+    for _ in 0..20 {
+        let mut frame = Vec::new();
+        for i in 0..250 {
+            frame.push(row_at("action.succeeded", now, json!({"producer": "provider:anthropic", "cost_usd": 0.001, "correlation_id": format!("act_{i}")})));
+            frame.push(row_at(
+                "turn.started",
+                now,
+                json!({"turn_id": format!("trn_{i}")}),
+            ));
+        }
+        store.append(&frame).unwrap();
+    }
+    for pass in 0..3 {
+        let t = std::time::Instant::now();
+        let s = crate::day_ceiling::read_today(&store, now - 3_600_000, "today")
+            .unwrap()
+            .unwrap();
+        let took = t.elapsed();
+        assert_eq!(s.rows, 5_000);
+        println!(
+            "pass {pass}: read 5,000 cost rows (of 10,000 today) in {took:?}, spent {} micros",
+            s.seed.spent
+        );
+    }
 }

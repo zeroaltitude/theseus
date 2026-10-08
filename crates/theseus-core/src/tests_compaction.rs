@@ -911,3 +911,46 @@ async fn the_summary_is_reserved_on_the_estimates_upper_bound() {
     assert_eq!(call.reserved_micros, reserved);
     assert_eq!(call.state, ActionState::Succeeded);
 }
+
+/// The daemon's day ceiling (theseus-kp20) refuses the summary's call
+/// before it is made: the ring runs, the row says why in the ceiling's
+/// words, glm is never asked, and the turn's own call is refused next, so
+/// the turn fails `daily_ceiling`; the day's `spend.ceiling` row names
+/// compaction, which met it first.
+#[tokio::test]
+async fn the_day_ceiling_refuses_the_summary_before_its_call() {
+    // A first run finds the turn that compacts.
+    let probe = rig(vec![], vec![summary("Six tides.", 9_000, 120)]);
+    let sid = session(&probe.core);
+    let k = until_recompiled(&probe, &sid, 6_000).await;
+    drop(probe);
+    let r = rig(vec![], vec![summary("Six tides.", 9_000, 120)]);
+    let sid = session(&r.core);
+    for i in 0..k - 1 {
+        turn(&r.core, &sid, &words(&format!("turn{i}"), 6_000))
+            .await
+            .unwrap();
+    }
+    let d = r.core.kernel.day_ceiling();
+    let t = d.today(d.now());
+    d.set_limit(t.spent + t.held);
+    let asked = r.model.requests().len();
+    let err = turn(&r.core, &sid, &words(&format!("turn{}", k - 1), 6_000))
+        .await
+        .unwrap_err();
+    assert_eq!(
+        err.downcast_ref::<TurnError>().unwrap().class,
+        "daily_ceiling"
+    );
+    assert!(r.glm.requests().is_empty(), "the summary was never asked");
+    assert_eq!(r.model.requests().len(), asked, "nor the turn's own call");
+    let row = rows(&r.core, "context.compacted").pop().unwrap();
+    assert_eq!(row["outcome"], "ring");
+    assert!(
+        row["why"].as_str().unwrap().contains("daily ceiling"),
+        "{row}"
+    );
+    let ceiling = rows(&r.core, "spend.ceiling");
+    assert_eq!(ceiling.len(), 1, "{ceiling:?}");
+    assert_eq!(ceiling[0]["what"], "compaction");
+}

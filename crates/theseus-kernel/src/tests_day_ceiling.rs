@@ -297,3 +297,81 @@ fn a_background_hold_settles_or_lets_go() {
     assert!(c.fits(c.now(), 220).is_ok());
     assert!(c.fits(c.now(), 221).is_err());
 }
+
+/// The reservation path's cost (theseus-kp20's FAST check), in one run: a
+/// provider call's `plan_action` with its reservation (A: it holds the day),
+/// then a call of another tool reserving the same (B: no hold, the path as
+/// it was), then A again, each timed alone over many calls; and the hold and
+/// settle by themselves. A measurement: `--run-ignored only --no-capture`.
+#[test]
+#[ignore = "a measurement"]
+fn the_reservation_path_with_and_without_the_day_hold() {
+    use std::time::Instant;
+    const N: usize = 500;
+    let pct = |v: &mut Vec<u128>, p: usize| {
+        v.sort_unstable();
+        v[(v.len() * p / 100).min(v.len() - 1)]
+    };
+    // Each block on a fresh store, so the store's growth is the same for each.
+    for (label, tool) in [
+        ("A provider call (holds the day)", PROVIDER_TOOL),
+        ("B another tool (no hold)", "fs.read"),
+        ("A provider call (holds the day)", PROVIDER_TOOL),
+    ] {
+        let w = world_with(KernelConfig::default());
+        let (_, _, g) = running(&w);
+        let mut ns = Vec::with_capacity(N);
+        for _ in 0..N {
+            let t = Instant::now();
+            let a = plan(&w, &g, tool, 10).unwrap();
+            ns.push(t.elapsed().as_nanos());
+            w.kernel
+                .authorize(&a.correlation_id, &proposal(tool), None)
+                .unwrap();
+            w.kernel.dispatch(&a.correlation_id, None).unwrap();
+            settle(&w, &a, Some(1));
+        }
+        println!(
+            "{label}: plan_action p50 {} µs, p95 {} µs over {N} calls",
+            pct(&mut ns, 50) / 1000,
+            pct(&mut ns, 95) / 1000
+        );
+    }
+    let w = world_with(KernelConfig::default());
+    let c = w.kernel.day_ceiling();
+    let mut ns = Vec::with_capacity(100_000);
+    for i in 0..100_000 {
+        let id = format!("rsv_{i}");
+        let t = Instant::now();
+        c.hold(c.now(), &id, 10).unwrap();
+        c.settle(c.now(), &id, 10, Some(1));
+        ns.push(t.elapsed().as_nanos());
+    }
+    println!(
+        "the hold and its settle alone: p50 {} ns, p95 {} ns over 100,000",
+        pct(&mut ns, 50),
+        pct(&mut ns, 95)
+    );
+}
+
+/// A task's provider call meets the same ceiling as its parent's: at it the
+/// task's plan is refused and writes nothing (the core then fails the task's
+/// turn, `daily_ceiling`, and its report says why), while a call of another
+/// tool still plans.
+#[test]
+fn a_tasks_call_at_the_ceiling_is_refused_too() {
+    let w = ceiling_world(10_000);
+    let (_, _, g) = running(&w);
+    let a = dispatched(&w, &g, PROVIDER_TOOL, 9_000);
+    settle(&w, &a, Some(9_000));
+    let t = w
+        .kernel
+        .open_task(&g, &new_id("act"), 5_000, None, false, |_| Ok(vec![]))
+        .unwrap();
+    let tg = w.kernel.admit(&t.task.id).unwrap();
+    let frames = w.kernel.store().stats().unwrap().frames_appended;
+    let r = refused(&plan(&w, &tg, PROVIDER_TOOL, 2_000)).expect("refused");
+    assert_eq!((r.spent, r.needed), (9_000, 2_000));
+    assert_eq!(w.kernel.store().stats().unwrap().frames_appended, frames);
+    plan(&w, &tg, "fs.read", 0).unwrap();
+}
