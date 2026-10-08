@@ -1795,7 +1795,11 @@ impl ToolRuntime {
             .execution(tc.execution_id)
             .ok()
             .flatten()
-            .map_or(u64::MAX, |e| e.budget.available());
+            .map_or(u64::MAX, |e| match tc.kernel.overdraws(&e) {
+                // A limit that notifies stops no transcript (theseus-usei).
+                true => u64::MAX,
+                false => e.budget.available(),
+            });
         let shared = tc.class != crate::places::PlaceClass::Private;
         self.files.run(
             &nodes,

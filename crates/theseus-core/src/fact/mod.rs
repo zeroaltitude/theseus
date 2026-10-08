@@ -54,6 +54,7 @@ pub mod index;
 pub mod judge;
 pub mod judge_runs;
 pub mod ladder;
+pub mod limits;
 pub mod lsp;
 pub mod mcp;
 pub mod memory;
@@ -278,6 +279,8 @@ facts![
     turn::FellBack<'static>,
     turn::BudgetAsked<'static>,
     turn::LoopEndedOnBudget<'static>,
+    limits::SpendReached<'static>,
+    limits::LoopsReached<'static>,
     turn::OverLimit<'static>,
     turn::ImageNotShown<'static>,
     turn::ImagesHidden<'static>,

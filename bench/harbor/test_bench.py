@@ -65,6 +65,16 @@ class Profile(unittest.TestCase):
         self.assertFalse(cfg["web"]["enabled"] or cfg["discord"]["enabled"])
         self.assertNotIn("op://", text)
 
+    def test_a_trial_keeps_the_limits_that_end_it(self):
+        # The defaults notify and go on (theseus-usei); a trial keeps the old
+        # stops, so it ends at its limit (exit 5) and at its loop cap (exit 8).
+        values = tb.settings("claude-sonnet-5-5", "/app", max_loops=7, spend_limit_usd=0.5)
+        cfg = tomllib.loads(tb.profile(tb.PROFILE.read_text(), values))
+        self.assertEqual(cfg["kernel"]["spend_limit_mode"], "ask")
+        self.assertEqual(cfg["model"]["max_loops_mode"], "end")
+        self.assertEqual(cfg["profiles"]["bench"]["max_loops_mode"], "end")
+        self.assertEqual((tb.ended(5), tb.ended(8)), ("spend_limit", "cut"))
+
     def test_the_profile_asks_for_the_effort_every_arm_asks_for(self):
         """Theseus's bench profile says `effort = "medium"` (theseus-n6p5): on
         Sonnet 5.5 it would send none, and the model's default is high, where

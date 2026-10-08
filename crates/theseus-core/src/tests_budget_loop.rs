@@ -24,6 +24,7 @@ async fn the_loop_that_asks_the_budget_question_writes_its_loop_ended_row() {
     cfg.server.state_dir = dir.path().to_string_lossy().into_owned();
     cfg.tools.roots = vec![];
     cfg.kernel.spend_limit_usd = 1.40;
+    cfg.kernel.spend_limit_mode = crate::config::SpendLimitMode::Ask;
     let first = Scripted::Billed {
         usage: Usage {
             input_tokens: 2_000,

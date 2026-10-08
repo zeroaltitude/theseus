@@ -51,7 +51,14 @@ model = "claude-sonnet-5-5"
 # system = "You are Theseus."           # appended to the built-in persona, the assembly note, the precedence line, and the tools note
 # effort = "high"                       # low | medium | high | xhigh | max (models that take effort)
 thinking_display = "summarized"         # summarized | omitted | updates (Fable 5.x, Opus 5.5)
-max_loops = 40                          # tool loops per turn before the Advancer ends it
+max_loops = 40                          # tool loops per turn before a notice (or, with "end", the turn's end)
+# What reaching max_loops does (theseus-usei; the owner's decision, 2026-10-07:
+# for tasks and tokens, notify, not restrict). "notify" posts one notice to the
+# session's place at max_loops, and one at each multiple of it, and the turn
+# goes on until the model stops calling tools or you stop it (`theseus stop`,
+# `/stop`, the cockpit's Stop). "end" ends the turn there, as before. Each
+# profile has its own; this is the default profile's.
+max_loops_mode = "notify"               # notify | end
 refusal_fallbacks = true                # server-side refusal fallbacks where the model supports them
 # cache_ttl = "1h"                      # 5m (the default) | 1h; see [profiles.sonnet]
 api_base = "https://api.anthropic.com"  # the implicit anthropic provider's endpoint
@@ -295,12 +302,20 @@ disk_floor_mb = 1024                    # a job is refused below this many MB fr
 # ---------------------------------------------------------------- kernel
 # The durable kernel (M2): one execution per session, actions with correlation
 # ids, completions through the spool at <state_dir>/spool, and a spend limit in
-# dollars per session, priced from the catalog. At the limit the session waits
-# and asks you (Discord, web UI, or `theseus confirm`) whether to reset its
-# spend to $0 and go on; the session's lifetime cost keeps counting either way.
+# dollars per session, priced from the catalog. What reaching the limit does is
+# spend_limit_mode (theseus-usei; the owner's decision, 2026-10-07: for tasks
+# and tokens, notify, not restrict; AWS budgets still restrict). "notify": the
+# session's place hears one notice at the limit, and one at each multiple of it
+# (2x, 3x, ...), saying the spend so far and how to stop the work, and its
+# model calls go on; a call's reservation is still priced and recorded, never
+# refused for the limit. "ask": at the limit the session waits and asks you
+# (Discord, web UI, or `theseus confirm`) whether to reset its spend to $0 and
+# go on. A limit a place's ceiling or an MCP client names still asks, and so
+# does an AWS hands group. The session's lifetime cost keeps counting either way.
 [kernel]
 admission_ceiling = 8                   # executions that may hold a turn at once (§3.2a)
 spend_limit_usd = 100.0                 # each session's spend limit in US dollars (theseus-0sg)
+spend_limit_mode = "notify"             # notify | ask: what reaching it does
 heartbeat_secs = 60                     # reconciler cadence: due wakes, overdue actions, spool drain
 default_deadline_secs = 600             # deadline for an action whose tool declares none
 confirm_ttl_secs = 900                  # how long a call waits for your answer: then it expires, not run, and its card says so; and how long an approval stays valid

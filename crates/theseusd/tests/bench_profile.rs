@@ -15,7 +15,7 @@ use std::sync::{Arc, Mutex};
 
 use common::model::FakeModel;
 use serde_json::{json, Value};
-use theseus_core::config::Config;
+use theseus_core::config::{Config, MaxLoopsMode, SpendLimitMode};
 use theseus_core::policy::Posture;
 use theseus_core::web::net::PrivateAddresses;
 
@@ -160,6 +160,39 @@ fn a_first_byte_timeout_is_retried_inside_the_headless_turn() {
         seen(&model),
         run.stderr
     );
+}
+
+/// A trial stays capped (theseus-usei): where the defaults now notify and go
+/// on, the bench profile keeps the old stops, `[kernel] spend_limit_mode =
+/// "ask"` and `max_loops_mode = "end"` on `[model]` and `[profiles.bench]`.
+/// A trial whose first call's reservation passes its limit exits 5 with no
+/// call made, and one at its `max_loops` exits 8 where the model would go on.
+#[test]
+fn a_bench_trial_still_ends_at_its_spend_limit_and_its_loop_cap() {
+    let text = std::fs::read_to_string(profile_path()).unwrap();
+    let (cfg, _) = Config::parse(&text).unwrap();
+    assert_eq!(cfg.kernel.spend_limit_mode, SpendLimitMode::Ask);
+    assert_eq!(cfg.model.max_loops_mode, MaxLoopsMode::End);
+    assert_eq!(cfg.profiles["bench"].max_loops_mode, MaxLoopsMode::End);
+    // The stand-in answers a tool's result with text: a turn of two loops.
+    let diffs = |_: &str| vec![("text_diff", json!({"a": "x\n", "b": "y\n"}))];
+    let model = FakeModel::start(diffs);
+    let dir = trial(&model, |t| {
+        set(t, &["kernel", "spend_limit_usd"], 0.002.into());
+    });
+    let run = ask(dir.path(), "diff these");
+    assert_eq!(run.code, 5, "{}\n{}", run.turn, run.stderr);
+    assert_eq!(run.turn["stop_reason"], "budget", "{}", run.turn);
+    assert!(model.requests().is_empty(), "a call ran past the limit");
+    let model = FakeModel::start(diffs);
+    let dir = trial(&model, |t| {
+        set(t, &["model", "max_loops"], 1.into());
+        set(t, &["profiles", "bench", "max_loops"], 1.into());
+    });
+    let run = ask(dir.path(), "diff these");
+    assert_eq!(run.code, 8, "{}\n{}", run.turn, run.stderr);
+    assert_eq!(run.turn["stop_reason"], "max_loops", "{}", run.turn);
+    assert_eq!(model.requests().len(), 1, "the cap's one call");
 }
 
 /// Each request the stand-in saw (theseus-jtrc): its arrival after the

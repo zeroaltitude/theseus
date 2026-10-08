@@ -119,6 +119,13 @@ fn row(out: &mut String, after: &mut Vec<String>, e: &BudgetRow, lead: &str) {
             e.limit_usd
         ));
     }
+    if e.mode.as_deref() == Some("notify") && e.spent_usd >= e.limit_usd {
+        after.push(format!(
+            "{} is past its limit and goes on: the limit notifies · theseus stop {} ends the work",
+            render::short_id(&e.session_id),
+            e.session_id
+        ));
+    }
     if let Some(q) = &e.question {
         after.push(format!(
             "{} waits at its limit: its next call needs ${:.4} · theseus confirm {}",

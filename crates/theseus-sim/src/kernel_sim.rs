@@ -340,6 +340,8 @@ fn cfg(p: &SimParams, spend_limit_micros: Micros) -> KernelConfig {
         admission_ceiling: p.ceiling,
         default_deadline_ms: 30_000,
         spend_limit_micros,
+        // The budget question's path, which its operations exercise.
+        spend_limit_notify: false,
         confirm_ttl_ms: 60_000,
         heartbeat_ms: 60_000,
         fault_after_startup_step: None,

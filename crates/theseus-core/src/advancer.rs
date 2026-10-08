@@ -44,10 +44,12 @@ impl Advancer for StopAfterOneLoop {
     }
 }
 
-/// The conventional agent loop with a hard cap. Not selectable in M0; here so
-/// the trait has two implementations from the start.
+/// The conventional agent loop with a cap: at `max_loops` the turn ends, or,
+/// when the cap notifies (`notify`, theseus-usei), it goes on, and the turn
+/// posts its notice (`turn/budget_step.rs`).
 pub struct UntilNoToolCalls {
     pub max_loops: u32,
+    pub notify: bool,
 }
 
 impl Advancer for UntilNoToolCalls {
@@ -57,7 +59,7 @@ impl Advancer for UntilNoToolCalls {
     fn decide(&self, o: &LoopOutcome) -> Decision {
         if o.tool_calls == 0 {
             Decision::EndTurn("no_tool_calls".into())
-        } else if o.loop_index + 1 >= self.max_loops {
+        } else if !self.notify && o.loop_index + 1 >= self.max_loops {
             Decision::EndTurn("max_loops".into())
         } else {
             Decision::Continue
@@ -86,7 +88,10 @@ mod tests {
 
     #[test]
     fn until_no_tool_calls_caps() {
-        let a = UntilNoToolCalls { max_loops: 3 };
+        let a = UntilNoToolCalls {
+            max_loops: 3,
+            notify: false,
+        };
         assert_eq!(a.decide(&outcome(0, 1)), Decision::Continue);
         assert_eq!(
             a.decide(&outcome(2, 1)),
@@ -94,6 +99,20 @@ mod tests {
         );
         assert_eq!(
             a.decide(&outcome(0, 0)),
+            Decision::EndTurn("no_tool_calls".into())
+        );
+    }
+
+    #[test]
+    fn a_cap_that_notifies_goes_on_until_no_tool_calls() {
+        let a = UntilNoToolCalls {
+            max_loops: 3,
+            notify: true,
+        };
+        assert_eq!(a.decide(&outcome(2, 1)), Decision::Continue);
+        assert_eq!(a.decide(&outcome(8, 1)), Decision::Continue);
+        assert_eq!(
+            a.decide(&outcome(9, 0)),
             Decision::EndTurn("no_tool_calls".into())
         );
     }

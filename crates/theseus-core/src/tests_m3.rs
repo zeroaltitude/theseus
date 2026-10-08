@@ -3095,7 +3095,10 @@ fn over_budget_rig(then: Vec<Scripted>) -> Rig {
         &[("t1", "text_diff", json!({"a": "x\n", "b": "y\n"}))],
     )];
     script.extend(then);
-    rig_with(script, |c| c.kernel.spend_limit_usd = 1.40)
+    rig_with(script, |c| {
+        c.kernel.spend_limit_usd = 1.40;
+        c.kernel.spend_limit_mode = crate::config::SpendLimitMode::Ask;
+    })
 }
 
 /// A new session watched from before its first turn.
@@ -3345,6 +3348,7 @@ async fn a_declined_reset_keeps_waiting_and_the_next_message_asks_again() {
 fn over_limit_rig() -> Rig {
     rig_with(vec![Scripted::text("never sent")], |c| {
         c.kernel.spend_limit_usd = 1.0;
+        c.kernel.spend_limit_mode = crate::config::SpendLimitMode::Ask;
     })
 }
 
@@ -3524,7 +3528,10 @@ async fn a_reset_that_cannot_free_what_is_held_unknown_asks_once_and_does_not_lo
             Scripted::Fail(crate::provider::ProviderError::Truncated { elapsed_ms: 5 }),
             Scripted::text("never sent"),
         ],
-        |c| c.kernel.spend_limit_usd = 2.0,
+        |c| {
+            c.kernel.spend_limit_usd = 2.0;
+            c.kernel.spend_limit_mode = crate::config::SpendLimitMode::Ask;
+        },
     );
     let (sid, mut rx) = watched_session(&r);
     let cut = failing_turn(&r.core, &sid, "hello").await;
@@ -5570,7 +5577,10 @@ async fn the_budget_question_follows_the_same_rule() {
         ),
         Scripted::text("The diff is one line."),
     ];
-    let r = rig_with(script, |c| c.kernel.spend_limit_usd = 1.40);
+    let r = rig_with(script, |c| {
+        c.kernel.spend_limit_usd = 1.40;
+        c.kernel.spend_limit_mode = crate::config::SpendLimitMode::Ask;
+    });
     bind_places(&r, false);
     let res = turn(&r.core, None, "diff these").await;
     assert_eq!(res.stop_reason, "budget");
@@ -7048,6 +7058,7 @@ async fn a_lowered_limit_makes_the_next_turn_over_it_ask() {
     std::fs::create_dir_all(&root).unwrap();
     let mut cfg = config(&root.canonicalize().unwrap(), dir.path());
     cfg.kernel.spend_limit_usd = 5.0;
+    cfg.kernel.spend_limit_mode = crate::config::SpendLimitMode::Ask;
     let (sid, exec, spent, lifetime) = {
         let store = Store::open(&dir.path().join("store")).unwrap();
         let fake = Arc::new(FakeProvider::scripted(vec![

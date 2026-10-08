@@ -20,7 +20,10 @@
 #     to 4 times, after 2, 4, 8 and 16 s: a headless run ends with its turn,
 #     so no later retry comes (theseus-7gir.21);
 #   - the reasoning effort is medium, as it is on the other arms (theseus-n6p5);
-#   - Discord, the web UI, and the index tender are off.
+#   - Discord, the web UI, and the index tender are off;
+#   - a trial stays capped (theseus-usei): its spend limit asks and its loop
+#     cap ends the turn, so a headless trial exits 5 at the limit and 8 at the
+#     cap, where the defaults notify and go on.
 #
 # The Harbor adapter (bench/harbor/theseus_agent.py) writes this file into each
 # trial's container, with the lines marked "set by the adapter" set for that
@@ -34,6 +37,7 @@ provider = "anthropic"
 model = "claude-sonnet-5-5"             # set by the adapter
 api_key_secret = "anthropic_api_key"
 max_loops = 200                         # set by the adapter: a task's turn runs until the model ends it
+max_loops_mode = "end"                  # a trial ends at max_loops (exit 8), where the default notifies and goes on
 
 [model.retries]
 transient = 4
@@ -42,6 +46,7 @@ transient = 4
 provider = "anthropic"
 model = "claude-sonnet-5-5"             # set by the adapter
 max_loops = 200                         # set by the adapter
+max_loops_mode = "end"
 # Reasoning effort medium, as Claude Code's and Pi's own defaults send it:
 # omitted, Sonnet 5.5 would run at its default, high (theseus-n6p5).
 effort = "medium"
@@ -57,6 +62,7 @@ disk_floor_mb = 0
 
 [kernel]
 spend_limit_usd = 2.0                   # set by the adapter: the most one trial may spend
+spend_limit_mode = "ask"                # a trial ends at its limit (exit 5), where the default notifies and goes on
 
 [tools]
 projects_dir = "/app"                   # set by the adapter: the task's working directory

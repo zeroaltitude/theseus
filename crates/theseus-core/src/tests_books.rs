@@ -306,7 +306,10 @@ async fn a_fault_on_the_budget_question_books_the_loop_that_fit() {
             &[("t1", "text_diff", json!({"a": "x\n", "b": "y\n"}))],
         ),
     );
-    let r = rig_with(vec![first], |c| c.kernel.spend_limit_usd = 1.40);
+    let r = rig_with(vec![first], |c| {
+        c.kernel.spend_limit_usd = 1.40;
+        c.kernel.spend_limit_mode = crate::config::SpendLimitMode::Ask;
+    });
     let sid = session(&r.core);
     r.core.store.fail_turn_frame(|records| {
         records

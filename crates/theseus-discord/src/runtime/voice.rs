@@ -1514,6 +1514,8 @@ mod tests {
         let core = core_with(dir, SecretBoard::empty(), |c| {
             c.voice.enabled = true;
             c.kernel.spend_limit_usd = limit_usd;
+            // The question's path: past a limit that asks, no call is made.
+            c.kernel.spend_limit_mode = theseus_core::config::SpendLimitMode::Ask;
         });
         let (p, _rx) = place(&core, "ses_unused");
         let info: theseus_protocol::SessionInfo = p

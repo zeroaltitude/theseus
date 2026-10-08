@@ -108,6 +108,13 @@ impl Core {
             limit_usd: usd(b.limit_micros),
             limit_from: limit_from.into(),
             limit_by,
+            mode: Some(
+                match self.kernel.overdraws(e) {
+                    true => "notify",
+                    false => "ask",
+                }
+                .into(),
+            ),
             spent_usd: usd(b.spent_micros),
             reserved_usd: usd(b.reserved_micros),
             held_unknown_usd: usd(b.held_unknown_micros),

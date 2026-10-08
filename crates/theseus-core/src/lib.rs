@@ -219,6 +219,8 @@ mod tests_learn_loop;
 #[cfg(test)]
 mod tests_learning;
 #[cfg(test)]
+mod tests_limits_notify;
+#[cfg(test)]
 mod tests_lsp;
 #[cfg(test)]
 mod tests_lsp_edits;

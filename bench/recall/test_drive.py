@@ -522,6 +522,9 @@ class TheseusConfig(unittest.TestCase):
             self.assertEqual(back["catalog"]["claude-sonnet-5-5"]["context_window"], 32000)
             self.assertEqual(back["tools"]["projects_dir"], "/w")
             self.assertNotIn("api_base", back["model"])
+            # The bench profile's stops (theseus-usei): the limit asks, the cap ends the turn.
+            self.assertEqual(back["kernel"]["spend_limit_mode"], "ask")
+            self.assertEqual(back["profiles"]["bench"]["max_loops_mode"], "end")
         # Without an effort the profile's is left as the bench profile has it; with one, it is that.
         kw = dict(model="anthropic/claude-sonnet-5-5", memory_arm="baseline", workspace=Path("/w"), window=32000,
                   spend_limit=3, max_loops=9)

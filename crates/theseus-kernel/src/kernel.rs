@@ -46,6 +46,9 @@ pub struct KernelConfig {
     /// execution whose limit is the config's follows it at startup
     /// (theseus-3pj; startup's step 2).
     pub spend_limit_micros: Micros,
+    /// A provider call past the limit goes on (`Kernel::overdraws`, theseus-usei).
+    #[serde(default)]
+    pub spend_limit_notify: bool,
     /// How long a confirmation stays valid.
     pub confirm_ttl_ms: u64,
     /// Reconciler cadence (the heartbeat, §3.3).
@@ -74,6 +77,7 @@ impl Default for KernelConfig {
             admission_ceiling: 8,
             default_deadline_ms: 10 * 60 * 1000,
             spend_limit_micros: 100 * MICROS_PER_USD,
+            spend_limit_notify: false,
             confirm_ttl_ms: 15 * 60 * 1000,
             heartbeat_ms: 60_000,
             fault_after_startup_step: None,
@@ -1556,7 +1560,7 @@ impl Kernel {
         let mut reservation_id = None;
         if reserve_micros > 0 {
             let available = e.budget.available();
-            if reserve_micros > available {
+            if reserve_micros > available && !self.overdraws_for(&e, &proposal.tool) {
                 return Err(KernelError::OverBudget {
                     needed: reserve_micros,
                     available,

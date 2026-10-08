@@ -713,6 +713,16 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     the cockpit.
 - **Parked tasks** (28b; theseus-vug): `parked.rs`, health's `tasks.parked`: each task that cannot progress by itself,
   with its blocker, from the open executions alone (a question counts as progress for 24 hours).
+- **Limits that notify** (theseus-usei; the owner, 2026-10-07: for tasks and tokens, notify, not restrict):
+  `turn/budget_step.rs`. With `[kernel] spend_limit_mode = "notify"` (the default) a provider call past the
+  session's limit goes out (`Kernel::overdraws`, theseus-kernel's `overdraw.rs`), and the loop whose call took the
+  spend past the limit, or a multiple of it (`crossed`), posts one `notice` to the session's place, a
+  `budget.reached` row and a narrative line, all in the turn's next frame; `[profiles.*] max_loops_mode = "notify"`
+  does the same at `max_loops` and each multiple (`loop.cap_reached`), and the turn goes on. `"ask"` and `"end"`
+  are the old behaviour. Still asking: a pinned limit (a place's ceiling, an MCP client's), an AWS hands group, and
+  the background day caps. Under notify a task's carve is what it asked for up to the parent's whole limit, and
+  speech and transcripts are not refused for the limit. The budget question's words are `turn/budget_words.rs`.
+  Tests: `tests_limits_notify.rs`, and the kernel's `tests_overdraw.rs`.
 - **The operator's two reads** (step 42a, theseus-ext.7): `rpc/budgets.rs` is `budget.list`, each open execution's
   money from its record (`Kernel::open_executions`), where its limit comes from (`config`, `place`, `carve`, or
   `pinned`), its session's lifetime cost, and its last reset from one small ledger page by kind and session tag,

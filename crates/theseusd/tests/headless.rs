@@ -171,13 +171,14 @@ fn a_failed_turn_exits_1() {
     assert!(run.stderr.contains("invalid_request"), "{}", run.stderr);
 }
 
-/// The session's spend limit is below the first call's reservation: the
-/// turn waits for the operator's reset, 5.
+/// The session's spend limit, which asks, is below the first call's
+/// reservation: the turn waits for the operator's reset, 5.
 #[test]
 fn a_turn_at_the_spend_limit_exits_5() {
     let model = FakeModel::start(reads_notes);
     let dir = rig(&model, |t| {
         set(t, &["kernel", "spend_limit_usd"], 0.002.into());
+        set(t, &["kernel", "spend_limit_mode"], "ask".into());
     });
     let run = ask(dir.path(), "say hello");
     assert_eq!(run.code, 5, "{}\n{}", run.turn, run.stderr);
@@ -249,17 +250,35 @@ fn a_refusal_its_fallback_answers_exits_0_and_says_so() {
     );
 }
 
-/// The loop cap ends the turn before the model does: 8.
+/// The loop cap, which ends, ends the turn before the model does: 8.
 #[test]
 fn a_turn_cut_by_the_loop_cap_exits_8() {
     let model = FakeModel::start(reads_notes);
     let dir = rig(&model, |t| {
         set(t, &["model", "max_loops"], 1.into());
+        set(t, &["model", "max_loops_mode"], "end".into());
         set(t, &["profiles", "sonnet", "max_loops"], 1.into());
+        set(t, &["profiles", "sonnet", "max_loops_mode"], "end".into());
     });
     let run = ask(dir.path(), "read the notes");
     assert_eq!(run.code, 8, "{}\n{}", run.turn, run.stderr);
     assert_eq!(run.turn["stop_reason"], "max_loops", "{}", run.turn);
+}
+
+/// The same limit and cap that notify, the defaults (theseus-usei): the
+/// turn goes past both and ends as the model ends it, 0.
+#[test]
+fn a_turn_past_a_limit_and_a_cap_that_notify_goes_on_and_exits_0() {
+    let model = FakeModel::start(reads_notes);
+    let dir = rig(&model, |t| {
+        set(t, &["kernel", "spend_limit_usd"], 0.002.into());
+        set(t, &["model", "max_loops"], 1.into());
+        set(t, &["profiles", "sonnet", "max_loops"], 1.into());
+    });
+    let run = ask(dir.path(), "read the notes");
+    assert_eq!(run.code, 0, "{}\n{}", run.turn, run.stderr);
+    assert_eq!(run.turn["stop_reason"], "no_tool_calls", "{}", run.turn);
+    assert_eq!(model.requests().len(), 2, "both calls went out");
 }
 
 /// A SIGTERM to a `--spawn` run (a harness's timeout) stops the turn as

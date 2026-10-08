@@ -12,7 +12,8 @@
 //!   child's turns run on the parent's target. Its cards and its budget
 //!   question go where the parent's go, and name the task.
 //! - **Its budget** is carved from what the parent has left: `budget_usd`, or
-//!   a quarter of what is left, capped at all of it. Its spend counts against
+//!   a quarter of what is left, capped at all of it. Under a limit that
+//!   notifies, from the parent's whole limit instead (theseus-usei). Its spend counts against
 //!   the parent (the kernel's carve and carry).
 //! - **Its arrangement** (M5 27, theseus-vug.2; `arrangement.rs`). A task
 //!   starts only from quoted pieces of this session: the messages that define
@@ -429,9 +430,15 @@ pub fn create<'a>(
         None => arranged(tc, &i, &nodes, holder.as_deref())?,
     };
     let left = parent.budget.available();
+    // Under a limit that notifies, a quarter of the parent's limit, even
+    // once the parent has passed it (theseus-usei).
+    let share_of = match tc.kernel.overdraws(&parent) {
+        true => left.max(parent.budget.limit_micros),
+        false => left,
+    };
     let want = match i.budget_usd {
         Some(b) => usd_to_micros(b),
-        None => left / DEFAULT_SHARE.1 * DEFAULT_SHARE.0,
+        None => share_of / DEFAULT_SHARE.1 * DEFAULT_SHARE.0,
     };
     let target = tc.outbox.target(tc.session_id);
     let title = i.title.clone().unwrap_or_else(|| title_from(brief));
@@ -602,7 +609,15 @@ pub fn create<'a>(
         }
     }
     let capped = i.budget_usd.is_some() && want > limit;
-    let budget = if capped {
+    let budget = if capped && limit > opened.available_before {
+        // Under a limit that notifies, the cap is the parent's whole limit.
+        format!(
+            "{} (you asked for {}, and this session's limit is {})",
+            usd(limit),
+            usd(want),
+            usd(parent.budget.limit_micros)
+        )
+    } else if capped {
         format!(
             "{} (you asked for {}, and this session had {} left)",
             usd(limit),

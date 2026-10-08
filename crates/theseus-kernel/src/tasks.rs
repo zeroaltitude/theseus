@@ -114,7 +114,13 @@ impl Kernel {
             return Err(KernelError::TaskDepth { id: parent.id }.into());
         }
         crate::kernel::require_turn(&parent)?;
-        let limit = want_micros.min(available_before);
+        // Under a limit that notifies, the carve is what the task asked for
+        // up to the parent's whole limit, even past what the parent has left,
+        // so the task notifies at its own limit (theseus-usei).
+        let limit = match self.overdraws(&parent) {
+            true => want_micros.min(parent.budget.limit_micros),
+            false => want_micros.min(available_before),
+        };
         if limit == 0 {
             return Err(KernelError::NothingToCarve {
                 available: available_before,

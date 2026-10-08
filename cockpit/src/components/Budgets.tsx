@@ -144,6 +144,9 @@ function BudgetLine({ r, depth, burn, withTasks, open, onOpen, onSession, now }:
         <Pill tone={r.kind === 'task' ? 'tool' : 'idle'}>{r.kind}</Pill>
         <span className="num text-[10.5px] text-ink-faint">{r.state}</span>
         {r.question && <Pill tone="wait">asks to reset</Pill>}
+        {r.mode === 'notify' && r.spent_usd >= r.limit_usd && (
+          <Pill tone="wait" title="past its limit, it goes on: the limit notifies (theseus-usei); Stop on its deck ends the work">past its limit · goes on</Pill>
+        )}
         <button type="button" onClick={onOpen} className="num ml-auto text-[11.5px] text-ink-dim hover:text-live" title="the figures">{usd(r.spent_usd)} of {usd(r.limit_usd)}</button>
       </div>
       <div className="relative mt-1 h-2 overflow-hidden rounded-full bg-black/45 shadow-[inset_0_0_0_1px_rgba(176,141,87,0.28)]" role="img"
@@ -158,6 +161,7 @@ function BudgetLine({ r, depth, burn, withTasks, open, onOpen, onSession, now }:
         <span title="the session's lifetime cost, which no reset lowers">lifetime {usd(r.lifetime_usd)}</span>
         <span className="text-live" title={withTasks ? 'its own and its tasks’ calls over the last hour, scaled to an hour' : 'the last hour’s calls, scaled to an hour'}>{usd(burn)}/h</span>
         <span>limit: {limitWords(r)}</span>
+        {r.mode && <span title="what reaching the limit does: a notice at it and each multiple, or the budget question">at the limit: {r.mode === 'ask' ? 'asks' : 'notifies'}</span>}
         {r.parent && r.carve_held_usd !== undefined && <span>its parent holds {usd(r.carve_held_usd)} for it</span>}
         {r.resets > 0 && <span>{r.resets} reset{r.resets === 1 ? '' : 's'}</span>}
       </div>
