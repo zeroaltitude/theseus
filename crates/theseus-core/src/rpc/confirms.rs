@@ -801,6 +801,11 @@ pub(crate) enum Act<'a> {
     /// erase could take the owner's away. `what` names it: `the erase of
     /// <tag>`.
     Import { method: &'static str, what: &'a str },
+    /// A session's retirement or its reopening (theseus-emqx,
+    /// `session.retire`, `session.reopen`): a job's process that could retire
+    /// sessions could hide the owner's conversations from the default view.
+    /// `what` names it: `the retirement of ses_…`.
+    Session { method: &'static str, what: &'a str },
 }
 
 impl Act<'_> {
@@ -820,6 +825,7 @@ impl Act<'_> {
             Act::JudgeRun { method, .. } => method,
             Act::Ladder { method, .. } => method,
             Act::Import { method, .. } => method,
+            Act::Session { method, .. } => method,
         }
     }
 }

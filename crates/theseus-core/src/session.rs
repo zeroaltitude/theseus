@@ -82,6 +82,27 @@ pub struct SessionRecord {
     /// in records written before it (store format 23). Boxed, as `routed`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub imported: Option<Box<crate::import::ImportedFrom>>,
+    /// Its stored retirement (theseus-emqx): superseded, or by the owner's
+    /// hand; an empty one is derived, never stored. `session.reopen` clears
+    /// it. Absent in records written before it (store format 25), as in
+    /// every session never retired.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub retired: Option<theseus_protocol::SessionRetired>,
+    /// The session its place moved to, written in the frame that moves the
+    /// place (`crate::succession`), and the one it replaced, in the same
+    /// frame. Both stay as history after a reopen.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub superseded_by: Option<theseus_protocol::SessionLink>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub supersedes: Option<theseus_protocol::SessionLink>,
+    /// When the owner last reopened it: activity for the window, and no
+    /// empty retirement after it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reopened_ms: Option<u64>,
+    /// Its titles before the re-title (`turn::title_step`), oldest first;
+    /// one at most, since a session is re-titled once.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub title_was: Vec<String>,
 }
 
 /// An image the provider refused (theseus-0s4).
@@ -266,6 +287,11 @@ impl SessionRecord {
             not_shown: Vec::new(),
             routed: None,
             imported: None,
+            retired: None,
+            superseded_by: None,
+            supersedes: None,
+            reopened_ms: None,
+            title_was: Vec::new(),
         }
     }
     /// What a turn writes into the stored record (theseus-xeo): the fields it
@@ -295,6 +321,38 @@ impl SessionRecord {
         if self.title.is_none() {
             self.title.clone_from(&turn.title);
         }
+        // The re-title (theseus-emqx), once: the turn's new title and the
+        // old one it keeps.
+        if self.title_was.is_empty() && !turn.title_was.is_empty() {
+            self.title.clone_from(&turn.title);
+            self.title_was.clone_from(&turn.title_was);
+        }
+    }
+
+    /// Its state at `now_ms` (theseus-emqx), with the retirement that makes
+    /// it retired. `busy`: its execution runs or is queued, or it waits on
+    /// the owner.
+    pub fn state_at(
+        &self,
+        rule: theseus_protocol::sessions::StateRule,
+        now_ms: u64,
+        busy: bool,
+    ) -> (
+        theseus_protocol::SessionState,
+        Option<theseus_protocol::SessionRetired>,
+    ) {
+        theseus_protocol::sessions::derive(
+            theseus_protocol::sessions::StateOf {
+                retired: self.retired.as_ref(),
+                turns: self.turns,
+                created_ms: self.created_at_unix_ms,
+                last_active_ms: self.last_active_ms,
+                reopened_ms: self.reopened_ms,
+                busy,
+            },
+            rule,
+            now_ms,
+        )
     }
 
     pub fn info(&self) -> SessionInfo {
@@ -319,6 +377,11 @@ impl SessionRecord {
             limit_usd: None,
             external_text: self.external.clone(),
             attention: None,
+            state: None,
+            retired: self.retired.clone(),
+            superseded_by: self.superseded_by.clone(),
+            supersedes: self.supersedes.clone(),
+            title_was: Some(self.title_was.clone()).filter(|t| !t.is_empty()),
         }
     }
 }

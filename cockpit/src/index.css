@@ -285,6 +285,9 @@
 .ship-plate[data-rig="lantern"] .ship-plate-sub i { background: var(--color-wait); box-shadow: 0 0 7px var(--color-wait); }
 .ship-plate[data-rig="flare"] .ship-plate-sub i { background: var(--color-fault); box-shadow: 0 0 7px var(--color-fault); }
 .ship-plate[data-rig="lantern"] .ship-plate-sub { color: #f3d58c; }
+.ship-plate[data-life="quiet"] { opacity: 0.82; }
+.ship-plate[data-life="retired"] { opacity: 0.6; }
+.ship-plate[data-life="retired"] .ship-plate-title { font-style: italic; }
 .ship-plate[data-on="selected"] { box-shadow: 0 0 0 1px var(--color-live), 0 0 18px rgb(34 211 238 / 0.45); }
 .ship-plate[data-on="hovered"] { box-shadow: 0 0 0 1px rgb(243 217 164 / 0.8), 0 4px 14px rgb(0 0 0 / 0.6); }
 .ship-formation {

@@ -51,6 +51,7 @@ fn guild() -> Guild {
 }
 
 async fn rig(script: Vec<Scripted>, bindings: &str, more: &[u64]) -> Rig {
+    crate::tests_gateway::OPEN_AT_BIND.with(|o| o.set(true));
     let more: Vec<String> = more.iter().map(|c| format!("channel:{c}")).collect();
     Rig::start_on(
         |_, _| Arc::new(FakeProvider::scripted(script)),

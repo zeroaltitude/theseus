@@ -586,7 +586,9 @@ const BULK: usize = 4096;
 /// `Erased` NODE bodies.
 /// 24 = an import's topics (theseus-anh3): a category's `retired_ms`, and
 /// the `import` origin in an `onto:member` list.
-const MANIFEST_FORMAT: u32 = 24;
+/// 25 = a session's state (theseus-emqx): its stored `retired`, its
+/// `superseded_by` and `supersedes` links, `reopened_ms`, and `title_was`.
+const MANIFEST_FORMAT: u32 = 25;
 /// The oldest format this build reads. A format-3 manifest's per-kind marks
 /// are left unread.
 const MANIFEST_OLDEST: u32 = 2;

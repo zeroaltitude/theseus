@@ -12,7 +12,10 @@
 //!   against a stand-in for the Messages API, `fake_model`);
 //! - `inflight`: the same, with a turn's reply post in flight to a stand-in
 //!   Discord that holds its answer, so the stop waits out its grace
-//!   (theseus-ndw);
+//!   (theseus-ndw). The turn is a message typed in the bound DM, as the
+//!   owner's are, and the first one opens the place's session
+//!   (theseus-emqx): it is timed to its reply's post, beside the later ones,
+//!   with no budget;
 //! - `kill`: SIGKILL, then a new process to its first `health` answer;
 //! - `swap`: a binary upgrade under the same load (F4b). The `shutdown`
 //!   request, its answer, and at once the other build on the same store, to
@@ -628,9 +631,10 @@ impl Rig {
         loop {
             let h = self.call("health", Value::Null)?;
             let b = &h["bindings"][0];
-            let bound = b["places"][0]["session_id"]
-                .as_str()
-                .is_some_and(|s| !s.is_empty());
+            // The binding is ready with its DM place listed: a place opens no
+            // session until its first message (theseus-emqx), so a session id
+            // is no sign of the bind.
+            let bound = bound_place(b);
             if let (true, Some(ms)) = (bound, token_ms(&h)) {
                 return Ok(ms);
             }
@@ -645,6 +649,15 @@ impl Rig {
             }
             std::thread::sleep(Duration::from_millis(5));
         }
+    }
+
+    /// The session of the binding's first place, or none yet.
+    fn place_session(&self) -> Result<Option<String>> {
+        let h = self.call("health", Value::Null)?;
+        Ok(h["bindings"][0]["places"][0]["session_id"]
+            .as_str()
+            .filter(|s| !s.is_empty())
+            .map(str::to_string))
     }
 
     /// The `shutdown` request to process exit, in ms.
@@ -705,6 +718,11 @@ impl Rig {
             .as_u64()
             .unwrap_or(0))
     }
+}
+
+/// Whether a binding (health's `bindings[i]`) is ready with a place listed.
+fn bound_place(b: &Value) -> bool {
+    b["state"] == "ready" && b["places"].as_array().is_some_and(|p| !p.is_empty())
 }
 
 fn send(s: &UnixStream, method: &str, params: Value) -> Result<()> {
@@ -989,6 +1007,8 @@ pub struct Report {
     pub restore: Option<RestoreRow>,
     /// The `cancel` phase's frames a cancel (theseus-kq4n).
     pub cancel_frames: Option<CancelFrames>,
+    /// The `inflight` phase's typed messages, each to its reply's post.
+    pub first_message: Option<FirstMessage>,
     pub samples: BTreeMap<String, Vec<f64>>,
     /// The first starts, unmeasured: the first creates an empty store, or
     /// reads a copied one into the page cache.
@@ -1019,6 +1039,18 @@ impl Report {
             && self.restore.as_ref().is_none_or(|r| r.serves)
             && self.cancel_frames.as_ref().is_none_or(CancelFrames::ok)
     }
+}
+
+/// The `inflight` phase's typed messages (theseus-emqx), each from the fake
+/// Discord's send to its reply's post there, in ms: the first, which opens
+/// the place's session where a place has none until its first message, and
+/// the later ones, on that session. Measured, with no budget.
+#[derive(Debug, Clone, Serialize)]
+pub struct FirstMessage {
+    pub ms: f64,
+    /// Whether the place had no session before the first message.
+    pub opened_session: bool,
+    pub later: Option<Summary>,
 }
 
 /// The job the swap phase keeps running (F4b).
@@ -1342,9 +1374,11 @@ pub fn run(o: &Opts) -> Result<Report> {
         rig.stop_anyhow(&mut child);
         measured?;
     }
-    if want("inflight") {
-        inflight_phase(o, &work, &mut samples)?;
-    }
+    let first_message = if want("inflight") {
+        Some(inflight_phase(o, &work, &mut samples)?)
+    } else {
+        None
+    };
     // Restore copies the rig's store and the cancel row's runs each start a
     // job through a turn, so cancel writes into it: it runs after restore
     // (theseus-ma8r).
@@ -1466,6 +1500,7 @@ pub fn run(o: &Opts) -> Result<Report> {
         swap_lock_wait: Summary::of(&lock_waits),
         restore,
         cancel_frames,
+        first_message,
         samples,
         warm_up_ms,
         starts,
@@ -1536,10 +1571,10 @@ fn cancel_phase(
 /// which only the post writes (the stream's text never has it).
 const FOOTER: &str = "\n-# ";
 
-/// The `inflight` phase's bindings: one DM, with invented ids the binding
-/// takes as Discord's (15 to 21 digits), so its place binds at the fake.
-const INFLIGHT_BINDINGS: &str =
-    "guild_id = \"100000000000000001\"\n[[dm]]\nuser = \"100000000000000002\"\nname = \"bench\"\n";
+/// The `inflight` phase's bindings: the bench's one DM ([`BENCH_BINDINGS`]),
+/// whose user types each run's message at the fake Discord.
+const INFLIGHT_BINDINGS: &str = BENCH_BINDINGS;
+const INFLIGHT_USER: u64 = 100_000_000_000_000_002;
 
 /// The `inflight` phase (theseus-ndw): a clean stop with a reply's post in
 /// flight. The shutdown phase never has one: its Discord REST is a port
@@ -1552,7 +1587,17 @@ const INFLIGHT_BINDINGS: &str =
 /// its token at the start, and the turn's job is `true`, so the reply comes
 /// in the same turn. Each start first lets the last stop's held post go out
 /// again (it stayed dispatched), so every stop has exactly one in flight.
-fn inflight_phase(o: &Opts, work: &Path, samples: &mut BTreeMap<String, Vec<f64>>) -> Result<()> {
+///
+/// Each run's turn is a message the DM's user types at the fake Discord,
+/// through its gateway, as the owner's are (theseus-emqx): a place opens no
+/// session until its first message, so the first run's message opens it the
+/// way the owner's first message does. Each message is timed from its send
+/// to its reply's post at the fake ([`FirstMessage`]).
+fn inflight_phase(
+    o: &Opts,
+    work: &Path,
+    samples: &mut BTreeMap<String, Vec<f64>>,
+) -> Result<FirstMessage> {
     let dir = work.join("inflight");
     let _ = std::fs::remove_dir_all(&dir);
     let (state, projects, bin) = (dir.join("state"), dir.join("projects"), dir.join("bin"));
@@ -1561,13 +1606,13 @@ fn inflight_phase(o: &Opts, work: &Path, samples: &mut BTreeMap<String, Vec<f64>
     }
     let sock = dir.join("sock");
     let model = FakeModel::start(vec!["true".into()])?;
-    let fake = theseus_sim::fake_discord::FakeDiscord::start();
-    let mut t: toml::Table = bench_config(&model.base(), &state, &sock, &projects)?.parse()?;
-    if let Some(d) = t.get_mut("discord").and_then(toml::Value::as_table_mut) {
-        d.insert("rest_proxy".into(), fake.addr.clone().into());
-    }
+    let fake = theseus_sim::fake_discord::FakeDiscord::start_with_gateway();
+    let text = on_fake_discord(
+        &bench_config(&model.base(), &state, &sock, &projects)?,
+        &fake,
+    )?;
     let config = dir.join("config.toml");
-    std::fs::write(&config, toml::to_string(&t)?)?;
+    std::fs::write(&config, text)?;
     std::fs::write(state.join("bindings.toml"), INFLIGHT_BINDINGS)?;
     let op = bin.join("op");
     std::fs::write(&op, fake_op(0, &config))?;
@@ -1598,34 +1643,49 @@ fn inflight_phase(o: &Opts, work: &Path, samples: &mut BTreeMap<String, Vec<f64>
     };
     let held = || fake.seen().iter().filter(|s| s.outcome == "held").count();
     // One run unmeasured: the store is new, and the bind notice goes first.
+    let (mut first, mut later) = (None, Vec::new());
     for run in 0..=o.runs {
         let (mut child, _) = rig.start()?;
-        let mut session = String::new();
         until("bound DM place, its outbox idle", &mut || {
             let h = rig.call("health", Value::Null)?;
             let b = &h["bindings"][0];
-            session = b["places"][0]["session_id"]
-                .as_str()
-                .unwrap_or("")
-                .to_string();
-            Ok(!session.is_empty()
+            Ok(bound_place(b)
                 && b["outbox"]["pending"] == 0
                 && b["outbox"]["sent"].as_u64() >= Some(1))
         })?;
+        let had = rig.place_session()?;
         let before = held();
         fake.hold_writes_containing(Some(FOOTER));
-        rig.call(
-            "turn.submit",
-            json!({"session_id": session, "input": "post it", "author": "bench", "attachments": []}),
-        )?;
+        let t0 = Instant::now();
+        fake.say(&theseus_sim::fake_discord::Typed {
+            user: INFLIGHT_USER,
+            name: "bench",
+            channel: None,
+            content: "post it",
+            file: None,
+        })
+        .map_err(|e| anyhow::anyhow!("inflight: the message was not sent: {e}"))?;
         until("held post", &mut || Ok(held() > before))?;
+        let typed_ms = t0.elapsed().as_secs_f64() * 1000.0;
+        if rig.place_session()?.is_none() {
+            bail!("inflight: the place has no session after its message was answered");
+        }
+        match run {
+            0 => first = Some((typed_ms, had.is_none())),
+            _ => later.push(typed_ms),
+        }
         let ms = rig.stop(&mut child)?;
         fake.hold_writes_containing(None);
         if run > 0 {
             samples.entry("inflight".into()).or_default().push(ms);
         }
     }
-    Ok(())
+    let (ms, opened_session) = first.context("inflight: no run")?;
+    Ok(FirstMessage {
+        ms,
+        opened_session,
+        later: Summary::of(&later),
+    })
 }
 
 /// The restore phase (F4b), with the daemon stopped: `runs` restores of a
@@ -1845,6 +1905,21 @@ pub fn print(r: &Report) {
             println!("  restore's own phases, p50 ms: {}", phases.join(" · "));
         }
     }
+    if let Some(f) = &r.first_message {
+        println!(
+            "  inflight: the first message typed in the DM reached its reply's post in {:.1} ms ({}); {}; no budget",
+            f.ms,
+            if f.opened_session {
+                "it opened the place's session"
+            } else {
+                "its place had a session at the bind"
+            },
+            f.later.map_or("no later message".to_string(), |s| format!(
+                "each later one p50 {:.1} ms, p95 {:.1} ms (min {:.1}, max {:.1})",
+                s.p50, s.p95, s.min, s.max
+            ))
+        );
+    }
     if let Some(f) = &r.cancel_frames {
         println!(
             "  cancel: {} to {} frames a cancel; the fewest {} its limit of {CANCEL_FRAMES}",
@@ -1998,6 +2073,7 @@ mod tests {
             swap_lock_wait: None,
             restore: None,
             cancel_frames: None,
+            first_message: None,
             samples: BTreeMap::new(),
             warm_up_ms: vec![],
             starts: vec![],

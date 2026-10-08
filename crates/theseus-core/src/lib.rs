@@ -78,6 +78,7 @@ pub mod signals;
 pub mod startup;
 pub mod store;
 pub mod stub;
+pub mod succession;
 pub mod sweep;
 pub mod task;
 pub mod task_graph;

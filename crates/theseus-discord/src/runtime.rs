@@ -24,8 +24,8 @@ use theseus_core::Core;
 use theseus_protocol::Event as CoreEvent;
 use theseus_protocol::{
     Attachment, BindingStatus, DiscordOrigin, Notification, PlaceStatus, PolicyTightenParams,
-    SessionInfo, SessionKind, SessionListResult, SessionOpenParams, SessionRef, TightenResult,
-    TrustResult, TurnSubmitParams, TurnSubmitResult,
+    SessionInfo, SessionListResult, SessionRef, TightenResult, TrustResult, TurnSubmitParams,
+    TurnSubmitResult,
 };
 use tokio::sync::{mpsc, oneshot};
 use twilight_gateway::{Event, EventTypeFlags, Intents, Shard, ShardId, StreamExt as _};
@@ -67,8 +67,13 @@ pub(crate) use live::PERIOD as LIVE_PERIOD;
 mod prompt;
 mod publish;
 pub(crate) mod route;
+mod succession;
+#[cfg(test)]
+pub(crate) use succession::open_at_bind;
 #[cfg(test)]
 mod tests_held;
+#[cfg(test)]
+mod tests_succession;
 mod voice;
 use publish::PublishAsk;
 
@@ -739,22 +744,6 @@ enum Control {
     Revoke(String, Option<DiscordOrigin>),
 }
 
-/// What a place says when it is bound to a fresh session: how to talk, and
-/// each control with its one effect (W1: `/stop` keeps the conversation).
-fn bind_notice(session_id: &str, mention_only: bool) -> String {
-    let how = if mention_only {
-        "@mention me or reply to one of my messages to talk"
-    } else {
-        "Talk to me in this place"
-    };
-    format!(
-        "🔗 Theseus is bound here (session `{session_id}`). {how}. `/stop` halts what I am doing \
-         and keeps the conversation, `/new` starts a fresh one, `/trust` trusts the conversation \
-         again after it reads web text, and `/status`, `/tasks` and `/wakes` show this place's; \
-         everything shows in the web UI."
-    )
-}
-
 /// What `/stop` answers (W1): what stopped, and that the conversation goes
 /// on; and, when there are any, the tasks and wakes it left running, each of
 /// which `/cancel <id>` stops.
@@ -1001,7 +990,10 @@ impl Shared {
         users: Vec<u64>,
         mention_only: bool,
     ) -> anyhow::Result<()> {
-        let (session_id, fresh) = self.session_for(&key, &label).await?;
+        // None: the place's first message opens its session (theseus-emqx).
+        let (resumed, notice) = self.resumable(&key, &label).await?;
+        let fresh = resumed.is_none();
+        let session_id = resumed.unwrap_or_default();
         let target = format!("discord:{key}");
         let lane = self
             .lane(&target)
@@ -1046,56 +1038,27 @@ impl Shared {
             stopped_turn: None,
             stopping: false,
             last_activity_ms: 0,
+            fresh,
             tx,
         };
         place.report();
-        if fresh {
-            place.say(&bind_notice(&place.session_id, mention_only), None);
+        if fresh && notice {
+            // Bound the first time, with no session yet: its first message
+            // opens one.
+            self.core.binding_ledger(
+                LedgerKind::DiscordBound,
+                None,
+                self.bound_row(&place.key, &place.label),
+            );
+        }
+        if notice {
+            place.say(&succession::bind_notice(mention_only), None);
         }
         tokio::spawn(place.run(rx));
         Ok(())
     }
 
-    /// The session stored for this place, if it still exists and can take
-    /// turns; otherwise a new conversation session, stored for next time.
-    async fn session_for(&self, key: &str, label: &str) -> anyhow::Result<(String, bool)> {
-        if let Some(sid) = self.core.outbox.place_session(key)? {
-            if let Some(info) = self.session_info(&sid).await {
-                if !terminal(info.execution_state.as_deref()) {
-                    self.watch(&sid).await;
-                    self.place_limit(key, label, &sid);
-                    return Ok((sid, false));
-                }
-            }
-        }
-        Ok((self.open_session(key, label).await?, true))
-    }
-
-    async fn open_session(&self, key: &str, label: &str) -> anyhow::Result<String> {
-        let info: SessionInfo = self
-            .rpc
-            .call(
-                theseus_protocol::method::SESSION_OPEN,
-                SessionOpenParams {
-                    kind: Some(SessionKind::Conversation),
-                    label: Some(format!("discord {label}")),
-                    opened_from: None,
-                },
-            )
-            .await?;
-        // The place's record, and where the session's posts go from now on.
-        self.core.outbox.bind_place(key, &info.session_id)?;
-        self.core.binding_ledger(
-            LedgerKind::DiscordBound,
-            Some(&info.session_id),
-            self.bound_row(key, label),
-        );
-        self.place_limit(key, label, &info.session_id);
-        self.watch(&info.session_id).await;
-        Ok(info.session_id)
-    }
-
-    async fn watch(&self, sid: &str) {
+    pub(super) async fn watch(&self, sid: &str) {
         if let Err(e) = self
             .rpc
             .call::<_, Value>(
@@ -1110,10 +1073,13 @@ impl Shared {
         }
     }
 
-    async fn session_info(&self, sid: &str) -> Option<SessionInfo> {
+    pub(super) async fn session_info(&self, sid: &str) -> Option<SessionInfo> {
         let list: SessionListResult = self
             .rpc
-            .call(theseus_protocol::method::SESSION_LIST, json!({}))
+            .call(
+                theseus_protocol::method::SESSION_LIST,
+                json!({"ids": [sid]}),
+            )
             .await
             .ok()?;
         list.sessions.into_iter().find(|s| s.session_id == sid)
@@ -1873,6 +1839,9 @@ struct Place {
     /// nothing more, since the stop's answer did.
     stopping: bool,
     last_activity_ms: u64,
+    /// No session yet, or its session can take no more: the next message
+    /// opens one (theseus-emqx, `runtime/succession.rs`).
+    fresh: bool,
     tx: mpsc::UnboundedSender<PlaceMsg>,
 }
 
@@ -1927,7 +1896,7 @@ impl Place {
                 }
                 if self.inflight {
                     self.queued.push(m);
-                } else {
+                } else if self.ready().await {
                     self.submit(vec![m]);
                 }
                 self.report();
@@ -1988,33 +1957,14 @@ impl Place {
                         } else {
                             class
                         };
-                        let note = format!(
-                            "This place's session can't take turns any more ({class}), so I opened a new one. The old one stays in the web UI."
-                        );
-                        match self.rebind().await {
-                            Ok(()) => {
-                                self.say(&note, None);
-                                let batch = std::mem::take(&mut self.queued);
-                                if !batch.is_empty() {
-                                    self.submit(batch);
-                                }
-                                self.voice_next();
-                                return;
-                            }
-                            Err(err) => self.shared.board.error("rebind", None, err),
-                        }
+                        self.cannot_take_turns(&class);
                     } else if !self.saw_failure {
                         self.say(&format!("⚠️ {}", e.message), None);
                     }
                 }
-                let batch = std::mem::take(&mut self.queued);
-                if !batch.is_empty() {
-                    self.submit(batch);
-                }
-                self.voice_next();
-                self.report();
+                self.next_after_turn().await;
             }
-            PlaceMsg::Voice(t) => self.voice_turn(t),
+            PlaceMsg::Voice(t) => self.voice_when_ready(t).await,
             PlaceMsg::Board => self.board(),
             PlaceMsg::Rebound(r) => self.rebound(*r),
             PlaceMsg::Unbind => {}
@@ -2105,7 +2055,12 @@ impl Place {
     #[expect(clippy::too_many_lines, reason = "shape budget: split it")]
     async fn control(&mut self, cmd: Control, by: &str) -> String {
         match cmd {
-            Control::Prompt(r) => self.run_prompt(*r, by),
+            Control::Prompt(r) if self.inflight || self.ready().await => self.run_prompt(*r, by),
+            Control::Prompt(_) => "No session could be opened here for the prompt.".into(),
+            Control::Status if self.fresh => format!(
+                "No session yet here ({}): a fresh one starts with your next message.",
+                self.label
+            ),
             Control::Status => {
                 let Some(s) = self.shared.session_info(&self.session_id).await else {
                     return format!("Session `{}` is not in the store.", self.session_id);
@@ -2122,13 +2077,10 @@ impl Place {
                     s.model.map(|m| format!(" · last model {m}")).unwrap_or_default()
                 )
             }
-            Control::New => match self.rebind().await {
-                Ok(()) => format!(
-                    "🆕 New session `{}` here. The previous one stays in the cockpit's Fleet.",
-                    self.session_id
-                ),
-                Err(e) => format!("⚠️ Could not open a new session: {e}"),
-            },
+            Control::New => {
+                self.start_fresh();
+                self.new_answer()
+            }
             Control::Stop => {
                 // W1: halt this session's work and keep the conversation. The
                 // messages queued for the next turn go too; the next message
@@ -2289,32 +2241,6 @@ impl Place {
         }
     }
 
-    /// Point this place at a fresh session.
-    async fn rebind(&mut self) -> anyhow::Result<()> {
-        let old = self.session_id.clone();
-        let sid = self.shared.open_session(&self.key, &self.label).await?;
-        {
-            let mut r = self.shared.routes.lock().unwrap();
-            r.by_session.remove(&old);
-            r.by_session.insert(sid.clone(), self.tx.clone());
-        }
-        let _ = self
-            .shared
-            .rpc
-            .call::<_, Value>(
-                theseus_protocol::method::SESSION_UNWATCH,
-                SessionRef { session_id: old },
-            )
-            .await;
-        self.session_id = sid;
-        // The old session's turns are dropped with its renderer: the lane
-        // forgets their messages (theseus-6809).
-        self.renderer = self.shared.renderer();
-        let _ = self.lane.send(LaneMsg::Held(self.renderer.held()));
-        self.report();
-        Ok(())
-    }
-
     /// Live progress to the place's lane: best-effort, never replayed.
     fn apply(&mut self, ops: Vec<crate::render::Op>) {
         for op in ops {
@@ -2345,7 +2271,7 @@ impl Place {
             kind: self.kind.into(),
             label: self.label.clone(),
             channel_id: self.channel.map(|c| c.to_string()),
-            session_id: Some(self.session_id.clone()),
+            session_id: Some(self.session_id.clone()).filter(|s| !s.is_empty()),
             users: self.users.iter().map(u64::to_string).collect(),
             mention_only: self.mention_only,
             last_activity_ms: self.last_activity_ms,
@@ -2436,13 +2362,14 @@ pub(crate) mod tests {
     #[test]
     fn the_bind_notice_and_the_stops_answer_name_each_control_with_its_one_effect() {
         assert_eq!(
-            bind_notice("ses_1", false),
-            "🔗 Theseus is bound here (session `ses_1`). Talk to me in this place. `/stop` halts \
-             what I am doing and keeps the conversation, `/new` starts a fresh one, `/trust` \
-             trusts the conversation again after it reads web text, and `/status`, `/tasks` and \
-             `/wakes` show this place's; everything shows in the web UI."
+            succession::bind_notice(false),
+            "🔗 Theseus is bound here; a fresh session starts with your next message. Talk to me \
+             in this place. `/stop` halts what I am doing and keeps the conversation, `/new` \
+             starts a fresh one, `/trust` trusts the conversation again after it reads web text, \
+             and `/status`, `/tasks` and `/wakes` show this place's; everything shows in the web \
+             UI."
         );
-        assert!(bind_notice("ses_1", true).contains(". @mention me or reply"));
+        assert!(succession::bind_notice(true).contains(". @mention me or reply"));
         let exec = theseus_protocol::ExecutionInfo {
             execution_id: "exe_1".into(),
             session_id: "ses_1".into(),
@@ -2810,6 +2737,7 @@ pub(crate) mod tests {
             stopped_turn: None,
             stopping: false,
             last_activity_ms: 0,
+            fresh: false,
             tx,
         };
         (place, rx)
@@ -2858,7 +2786,10 @@ pub(crate) mod tests {
         let _guard = tracing::subscriber::set_default(loud.clone());
         let d = tempfile::tempdir().unwrap();
         let core = core_for_tests(d.path());
-        let rec = theseus_core::session::SessionRecord::new(SessionKind::Conversation, None);
+        let rec = theseus_core::session::SessionRecord::new(
+            theseus_protocol::SessionKind::Conversation,
+            None,
+        );
         let sid = rec.session_id.clone();
         core.store.put_session(&sid, &rec).unwrap();
         let (mut place, mut mailbox) = place_for_tests(&core, &sid);
@@ -3015,10 +2946,12 @@ pub(crate) mod tests {
         let rec: theseus_core::session::SessionRecord =
             core.store.get_session(&sid).unwrap().unwrap();
         assert_eq!(rec.turns, 2, "both turns in the one session");
-        // `/new` alone starts a fresh one.
+        // `/new` alone starts a fresh one, with the next message
+        // (theseus-emqx: `runtime/tests_succession.rs`).
         let answer = place.control(Control::New, "discord:zeroaltitude").await;
+        assert!(answer.starts_with("🆕 A fresh session starts"), "{answer}");
+        assert!(place.ready().await);
         assert_ne!(place.session_id, sid);
-        assert!(answer.starts_with("🆕 New session"), "{answer}");
         assert_eq!(
             core.outbox.place_session("dm:42").unwrap().as_deref(),
             Some(place.session_id.as_str())

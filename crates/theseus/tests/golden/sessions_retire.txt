@@ -1,0 +1,7 @@
+$ theseus sessions retire ses_qu1et0
+--- requests
+session.retire
+--- stdout
+ses_qu1et0: retired (by hand). Nothing is deleted; `theseus sessions reopen ses_qu1et0` brings it back
+--- stderr
+--- exit 0

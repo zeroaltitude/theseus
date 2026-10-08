@@ -34,6 +34,9 @@ import { useConn } from '@/lib/rpc'
 import { useWorld } from '@/lib/world'
 import { ago, cn, short, stamp } from '@/lib/format'
 import { contextHref } from '@/lib/explorer'
+import { countsOf, FILTERS, filterOf, paramOf, shownIds, type Counts, type ShipFilter } from '@/lib/sessionState'
+import { hiddenOf, viewOf, type Hidden } from '@/ship/states'
+import { RetireButton, SessionLinks, StateBadge } from '@/components/SessionLife'
 
 // The synthetic fleet is for measuring, in dev and bench builds only (never in a production build).
 const SYNTH = (import.meta.env.DEV || import.meta.env.MODE === 'bench') && new URLSearchParams(window.location.search).has('synthetic')
@@ -87,8 +90,20 @@ function ShipView({ data, onFail }: { data: ShipData; onFail: OnFail }) {
   const [keyPinned, setKeyPinned] = useState<KeyLine | null>(null)
   const [tour, setTour] = useState(false)
   const [depth, setDepth] = useState<Depth>('fleet')
-  const model = data.model
+  // The state filter (theseus-emqx): `?st=` (absent is Live). The engine draws the whole model's view, each vessel in
+  // its slot; the selected session, and one the address flies to, show whatever the filter (visitors).
+  const whole = data.model
+  const filter = filterOf(params.get('st'))
   const selId = params.get('s') ?? undefined
+  const fly = params.get('fly')
+  const flySession = whole && fly ? (whole.byId.has(fly) ? fly : whole.lights[whole.lightById.get(fly) ?? -1]?.sessionId) : undefined
+  const fleet = useMemo(() => (whole ? whole.vessels.map((v) => ({ session_id: v.id, kind: v.kind, state: v.life, parent_session_id: v.parentId })) : []), [whole])
+  const counts = useMemo(() => countsOf(fleet), [fleet])
+  // A ship that flares (a failure, its seconds of burst) shows whatever the filter, as the watch's plates do.
+  const flaring = useMemo(() => (whole ? whole.vessels.filter((v) => v.flareAt > 0).map((v) => v.id) : []), [whole])
+  const model = useMemo(() => (whole ? viewOf(whole, shownIds(fleet, filter, [selId, flySession, ...flaring])) : null), [whole, fleet, filter, selId, flySession, flaring])
+  const hidden = whole && model ? hiddenOf(whole, model) : undefined
+  const setFilter = (f: ShipFilter) => setParams((p) => { const v = paramOf(f); if (v) p.set('st', v); else p.delete('st'); return p }, { replace: true })
   const sel = model && selId ? model.byId.get(selId) ?? -1 : -1
   const hlId = params.get('n') ?? undefined
   const benchId = params.get('b') ?? undefined
@@ -176,7 +191,8 @@ function ShipView({ data, onFail }: { data: ShipData; onFail: OnFail }) {
     if (!engine || !m) return
     const li = t.node ? m.lightById.get(t.node) : undefined
     const vi = t.session ? m.byId.get(t.session) : li !== undefined ? m.lights[li].vessel : undefined
-    if (vi === undefined) return
+    // A plate names a session the filter hides: it shows as a visitor, and the fly lands once it is drawn.
+    if (vi === undefined) { const to = t.node ?? t.session; if (to) setParams((p) => { p.set('fly', to); return p }, { replace: true }); return }
     setParams((p) => { p.set('s', m.vessels[vi].id); if (t.node && li !== undefined) p.set('n', t.node); else p.delete('n'); p.delete('b'); return p }, { replace: true })
     if (li !== undefined) engine.flyToLight(li)
     else engine.flyToVessel(vi)
@@ -265,7 +281,6 @@ function ShipView({ data, onFail }: { data: ShipData; onFail: OnFail }) {
   }, [engine, setParams])
 
   // ?fly= (from the palette, ⌘K): a session or a node, once the graph is read (vessels grow as their nodes arrive).
-  const fly = params.get('fly')
   const read = data.progress >= 1
   useEffect(() => {
     if (!fly || !engine || !model || !read) return
@@ -370,7 +385,8 @@ function ShipView({ data, onFail }: { data: ShipData; onFail: OnFail }) {
       <div ref={labelsRoot} className="ship-labels pointer-events-none absolute inset-0 overflow-hidden" />
       {data.progress < 1 && <div className="pointer-events-none absolute inset-x-0 top-0" title="Reading the graph"><PlankStrip progress={data.progress} height={6} /></div>}
 
-      <Cartouche model={model} synthetic={data.synthetic} live={status === 'open'} error={data.error} asOf={data.past?.t} />
+      <Cartouche model={model} synthetic={data.synthetic} live={status === 'open'} error={data.error} asOf={data.past?.t} hidden={hidden} filter={filter} />
+      <StateBar filter={filter} counts={counts} onPick={setFilter} />
 
       <div data-ship-ui className="absolute right-3 top-4 flex items-center gap-1.5">
         <BrassButton title="Fly to a session or a call (Ctrl+K)" onClick={() => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', ctrlKey: true }))}>
@@ -390,7 +406,7 @@ function ShipView({ data, onFail }: { data: ShipData; onFail: OnFail }) {
         <BrassButton title="The tour: what each shape is, on the chart (?)" onClick={() => setTour(true)}><HelpCircle size={13} /> Tour</BrassButton>
       </div>
 
-      {vessel && model && <VesselCard ref={card} v={vessel} model={model} bench={bench_} now={data.past?.t} reachCap={data.reachCap} onClose={() => setParams((p) => { p.delete('s'); p.delete('n'); p.delete('b'); return p }, { replace: true })} />}
+      {vessel && model && <VesselCard ref={card} v={vessel} model={model} whole={whole ?? model} bench={bench_} now={data.past?.t} reachCap={data.reachCap} onClose={() => setParams((p) => { p.delete('s'); p.delete('n'); p.delete('b'); return p }, { replace: true })} />}
       {hover && model && !touring && <HoverCard hover={hover} model={model} />}
       <Key model={model} pinned={keyPinned?.id ?? null} onPreview={setKeyPreview} onPin={setKeyPinned} onTour={() => setTour(true)} maxHeight={keyRoom} sea={seaWord(sea)} />
 
@@ -406,7 +422,7 @@ function ShipView({ data, onFail }: { data: ShipData; onFail: OnFail }) {
       </div>
 
       <div data-ship-ui className="ship-watch-slot pointer-events-auto absolute right-3 top-[64px]">
-        <Watch model={model} data={data} focus={overlay} onFocus={(f) => { setKeyPinned(null); setOverlay(f) }} onFly={flyTo} />
+        <Watch model={whole} data={data} focus={overlay} onFocus={(f) => { setKeyPinned(null); setOverlay(f) }} onFly={flyTo} />
       </div>
 
       {/* The porthole and the depth gauge stand left of the watch's column, in the foot's row; when the watch folds to
@@ -433,7 +449,7 @@ function BrassButton({ children, onClick, title, on, className }: { children: Re
 
 /** The Ship's title, its counts, and the time machine's moment ("as of"). What the top bar's readouts said then (the
  *  profile, the uptime, or that the daemon was down) the top bar says itself, marked "then" (theseus-hnof). */
-function Cartouche({ model, synthetic, live, error, asOf }: { model: ShipModel | null; synthetic: boolean; live: boolean; error?: string; asOf?: number }) {
+function Cartouche({ model, synthetic, live, error, asOf, hidden, filter }: { model: ShipModel | null; synthetic: boolean; live: boolean; error?: string; asOf?: number; hidden?: Hidden; filter: ShipFilter }) {
   const s = model?.stats
   const failed = model?.vessels.filter((v) => v.rig === 'flare').length ?? 0
   return (
@@ -450,6 +466,11 @@ function Cartouche({ model, synthetic, live, error, asOf }: { model: ShipModel |
         <span className={s?.running ? 'text-live' : ''}><b className="num">{s?.running ?? 0}</b> working</span>
         {!!s?.waiting && <span className="text-wait"><b className="num">{s.waiting}</b> waiting for you</span>}
         {!!failed && <span className="text-fault"><b className="num">{failed}</b> failed</span>}
+        {!!hidden && hidden.sessions + hidden.tasks > 0 && (
+          <span className="text-ink-faint" title="Nothing is deleted: the filter above chooses what the Ship draws, and All shows every session">
+            <b className="num">{hidden.sessions}</b> {hidden.sessions === 1 ? 'session' : 'sessions'}{hidden.tasks ? ` and ${hidden.tasks} ${hidden.tasks === 1 ? 'task' : 'tasks'}` : ''} hidden by {FILTERS.find((f) => f.key === filter)?.word ?? filter}
+          </span>
+        )}
       </div>
       {!synthetic && !live && <div className="mt-1 text-[11.5px] text-wait">the link to the daemon is down: reconnecting…</div>}
       {error && <div className="mt-1 text-[11.5px] text-fault">{error}</div>}
@@ -457,7 +478,22 @@ function Cartouche({ model, synthetic, live, error, asOf }: { model: ShipModel |
   )
 }
 
-function VesselCard({ v, model, bench, onClose, now, reachCap, ref }: { v: Vessel; model: ShipModel; bench?: ShipModel['benches'][number]; onClose: () => void; now?: number; reachCap?: ShipData['reachCap']; ref?: React.Ref<HTMLElement> }) {
+/** The state filter: Live · Quiet · Retired · All, each with its count (conversations; a task sails with its parent).
+ *  Live is the default, and the choice is the address's `st`. */
+function StateBar({ filter, counts, onPick }: { filter: ShipFilter; counts: Counts; onPick: (f: ShipFilter) => void }) {
+  return (
+    <div data-ship-ui className="ship-statebar pointer-events-auto absolute left-4 top-[72px] flex items-center gap-1" role="radiogroup" aria-label="Which sessions the Ship draws">
+      {FILTERS.map((f) => (
+        <button key={f.key} type="button" role="radio" aria-checked={filter === f.key} title={f.title} onClick={() => onPick(f.key)}
+          className={cn('brass-button !px-2 !py-0.5 text-[11.5px]', filter === f.key && 'brass-button-on')}>
+          {f.word} <b className="num ml-1 text-ink">{counts[f.key]}</b>
+        </button>
+      ))}
+    </div>
+  )
+}
+
+function VesselCard({ v, model, whole, bench, onClose, now, reachCap, ref }: { v: Vessel; model: ShipModel; whole: ShipModel; bench?: ShipModel['benches'][number]; onClose: () => void; now?: number; reachCap?: ShipData['reachCap']; ref?: React.Ref<HTMLElement> }) {
   const lights = useMemo(() => model.lights.filter((l) => l.sessionId === v.id), [model, v.id])
   const kinds = { user: 0, model: 0, call: 0, result: 0 } as Record<string, number>
   for (const l of lights) kinds[l.kind]++
@@ -470,12 +506,14 @@ function VesselCard({ v, model, bench, onClose, now, reachCap, ref }: { v: Vesse
   const card = cardLines(v, { user: kinds.user, model: kinds.model, call: kinds.call }, failed, ago(v.lastActive, now))
   const tone = st.tone === 'live' ? 'text-live' : st.tone === 'wait' ? 'text-wait' : st.tone === 'fault' ? 'text-fault' : 'text-ink-dim'
   return (
-    <aside ref={ref} data-ship-ui className="brass-card pointer-events-auto absolute left-4 top-[100px] w-[310px]">
+    <aside ref={ref} data-ship-ui className="brass-card pointer-events-auto absolute left-4 top-[106px] w-[310px]">
       <header className="flex items-start gap-2">
         <div className="min-w-0 flex-1">
           <div className="ship-engraved text-[10px]">{v.kind === 'task' ? `task ${v.taskShort ?? ''}` : `session · ${placeOf({ label: v.label, kind: v.kind }).label}`}</div>
           <h2 className="truncate font-display text-[16px] font-semibold text-ivory" title={v.title}>{v.title}</h2>
           <div className={cn('num text-[11.5px]', tone)}>{st.word} <span className="text-ink-faint">· {st.sea}</span></div>
+          <div className="mt-0.5"><StateBadge state={v.life} retired={v.retired} /></div>
+          {v.titleWas?.length ? <div className="truncate text-[10.5px] text-ink-faint" title={v.titleWas.join(' · ')}>was: {v.titleWas.join(' · ')}</div> : null}
         </div>
         <button onClick={onClose} title="Let the selection go (Esc)" className="rounded px-1 text-ink-faint hover:text-ink">×</button>
       </header>
@@ -501,7 +539,10 @@ function VesselCard({ v, model, bench, onClose, now, reachCap, ref }: { v: Vesse
           <div className="num text-[10.5px] text-ink-dim">{benchLine(bench, usdShort)}</div>
         </div>
       )}
+      <div className="mt-2"><SessionLinks by={v.supersededBy} replaces={v.supersedes} to={(id) => `/ship?s=${id}`}
+        titleOf={(id) => { const i = whole.byId.get(id); return i === undefined ? undefined : whole.vessels[i].title }} /></div>
       <div className="mt-2.5 flex flex-wrap gap-1.5">
+        {v.kind === 'conversation' && <RetireButton sessionId={v.id} state={v.life} retired={v.retired} disabled={now !== undefined} />}
         <Link to={`/session/${v.id}${bench ? `?turn=${encodeURIComponent(bench.turnId)}` : ''}`} className="brass-button"><ExternalLink size={12} /> {bench ? `Turn ${bench.n} in the session` : 'Session deck'}</Link>
         <Link to={contextHref(v.id, bench?.turnId)} className="brass-button" title="what Theseus put in front of the model: the system block, the guidance, the tools, the recall, with token counts"><Telescope size={12} /> {bench ? `Turn ${bench.n}’s context` : 'Its context'}</Link>
         <Link to={`/ledger?q=${v.id}`} className="brass-button">Ledger rows</Link>

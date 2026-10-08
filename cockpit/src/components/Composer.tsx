@@ -11,7 +11,11 @@ import { cn } from '@/lib/format'
 import { PromptPicker } from '@/components/PromptPicker'
 import { RouteFooter } from '@/components/RouteFooter'
 
-export function Composer({ sessionId, busy }: { sessionId: string; busy: boolean }) {
+/** A draft deck's composer (theseus-emqx): no session yet; the first send opens it (`session.open`, with the draft's
+ *  label), hands its id to `onOpened`, and goes on as any send. */
+export interface DraftOf { label?: string; onOpened: (sessionId: string) => void }
+
+export function Composer({ sessionId, busy, draft: drafting }: { sessionId: string; busy: boolean; draft?: DraftOf }) {
   const { data: pl } = useRpc<ProfileList>('profile.list', undefined, 30_000)
   const [text, setText] = useState('')
   const [profile, setProfile] = useState<string>('')
@@ -23,6 +27,19 @@ export function Composer({ sessionId, busy }: { sessionId: string; busy: boolean
   const send = () => {
     const input = text.trim()
     if (!input) return
+    if (drafting) {
+      // The first message opens the session, then goes as any send does, in its own deck.
+      setError(null)
+      call<{ session_id: string }>('session.open', { kind: 'conversation', label: drafting.label })
+        .then((s) => { submit(s.session_id, input); drafting.onOpened(s.session_id) })
+        .catch((e: any) => setError(e?.message ?? String(e)))
+      setText('')
+      return
+    }
+    submit(sessionId, input)
+    setText('')
+  }
+  const submit = (sessionId: string, input: string) => {
     setPending((n) => n + 1)
     setError(null)
     const draft = addDraft(sessionId, input)
@@ -39,7 +56,6 @@ export function Composer({ sessionId, busy }: { sessionId: string; busy: boolean
         setError(`${data.class ? `turn failed · class ${data.class}${data.class === 'stopping' ? ' · not sent as the daemon stopped: its next start retries it' : data.transient ? ' · transient' : ' · permanent'}${data.usage_unknown ? ' · usage unknown (reservation held)' : ''}: ` : ''}${e?.message ?? String(e)}`)
       })
       .finally(() => setPending((n) => n - 1))
-    setText('')
   }
   return (
     <div className="border-t border-line bg-hull/80 p-2.5">
@@ -51,7 +67,7 @@ export function Composer({ sessionId, busy }: { sessionId: string; busy: boolean
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() } }}
           rows={Math.min(6, Math.max(1, text.split('\n').length))}
-          placeholder={busy ? 'a turn is running… (a message you send now queues behind it)' : 'Continue this session… (Enter to send, Shift+Enter for a new line)'}
+          placeholder={drafting ? 'Your first message opens the session… (Enter to send, Shift+Enter for a new line)' : busy ? 'a turn is running… (a message you send now queues behind it)' : 'Continue this session… (Enter to send, Shift+Enter for a new line)'}
           className="min-h-9 flex-1 resize-none rounded-lg bg-white/[0.04] px-3 py-2 text-[13px] text-ink outline-none ring-1 ring-line placeholder:text-ink-faint focus:ring-live/40"
         />
         <select value={profile} onChange={(e) => setProfile(e.target.value)} title="profile for this turn"
@@ -59,7 +75,7 @@ export function Composer({ sessionId, busy }: { sessionId: string; busy: boolean
           <option value="">{pl ? `${pl.live} (live)` : 'live'}</option>
           {(pl?.profiles ?? []).filter((p) => !p.live).map((p) => <option key={p.name} value={p.name}>{p.name} · {p.model}</option>)}
         </select>
-        <PromptPicker sessionId={sessionId} profile={profile} onError={setError} />
+        {!drafting && <PromptPicker sessionId={sessionId} profile={profile} onError={setError} />}
         <button onClick={send} disabled={!text.trim()} title={busy || pending > 0 ? 'Send (queues behind the running turn)' : 'Send'}
           className={cn('grid h-9 w-9 place-items-center rounded-lg ring-1 transition-colors',
             text.trim() ? 'bg-live/15 text-live ring-live/40 hover:bg-live/25' : 'text-ink-faint ring-line')}>

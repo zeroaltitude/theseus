@@ -2,6 +2,9 @@
 import type { Attention } from "./Attention";
 import type { ExternalText } from "./ExternalText";
 import type { SessionKind } from "./SessionKind";
+import type { SessionLink } from "./SessionLink";
+import type { SessionRetired } from "./SessionRetired";
+import type { SessionState } from "./SessionState";
 import type { Usage } from "./Usage";
 
 export type SessionInfo = { session_id: string, kind: SessionKind, label: string | null, created_at_unix_ms: number, turns: number, 
@@ -41,4 +44,21 @@ external_text?: ExternalText,
 /**
  * What its execution needs from people, by `attention()` (theseus-in3).
  */
-attention?: Attention, };
+attention?: Attention, 
+/**
+ * Live, quiet or retired, as read (theseus-emqx, `sessions::derive`).
+ */
+state?: SessionState, 
+/**
+ * Why and when it was retired; a busy session that reads live still
+ * carries a stored one.
+ */
+retired?: SessionRetired, 
+/**
+ * The session its place moved to, and the one it replaced.
+ */
+superseded_by?: SessionLink, supersedes?: SessionLink, 
+/**
+ * Its earlier titles, oldest first, once it was re-titled.
+ */
+title_was?: Array<string>, };

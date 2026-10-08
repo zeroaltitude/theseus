@@ -33,6 +33,13 @@ Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
   each a `judge.label` with the presser's `DiscordOrigin`, which the core judges (the owner, from a private place).
   A refused press tells the presser alone; a counted one comes back as the core's `jev_labeled` post, which edits
   the notice and clears its buttons. `judge.noticed` draws nothing in a place.
+- **A place's session** (`runtime/succession.rs`, theseus-emqx): a place resumes its stored session when it can take
+  turns and is not retired; otherwise it starts fresh, and nothing is opened at the bind, at `/new`, or when its
+  session can take no more turns: its next message opens one (`Place::ready`) through `Core::bind_place_to`, which
+  records the supersession both ways in the place's frame. A session the owner retired is succeeded the same way. A
+  place says its bind notice only at its first bind (META `discord.bound.<place>`). Tests that submit to a place's
+  session before any message name their core (`runtime::open_at_bind`), or run a debug daemon with the plant
+  `THESEUS_TEST_OPEN_AT_BIND` (theseusd's outbox, tasks and wakes tests). Tests: `runtime/tests_succession.rs`.
 - **The bindings file, read live** (`runtime/live.rs`, theseus-ocwt): stat'ed every 2 s, parsed only when its mtime,
   size or inode moved, acted on only when its revision did. Places diff by key: a removed one loses its routes and actor
   at once, and its lane is retired (`Shared::retired`), ending between posts and then refusing the rest

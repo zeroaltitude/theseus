@@ -8,13 +8,14 @@ import '@xyflow/react/dist/style.css'
 import { Group, Panel as RPanel, Separator } from 'react-resizable-panels'
 import { ArrowDownUp, Layers, Network, Plus, Search, Wrench } from 'lucide-react'
 import type { ExecutionInfo, SessionInfo } from '@protocol'
-import { call, useRpc } from '@/lib/rpc'
+import { useRpc } from '@/lib/rpc'
 import { useSettled, useTick } from '@/lib/hooks'
 import { useWorld } from '@/lib/world'
 import { ago, cn, pct, short, stamp, tokens, usd } from '@/lib/format'
 import { stateTone, toneHex } from '@/lib/taxonomy'
 import { AttentionPill, Empty, LiveDot, Meter, Panel, Pill, Segmented } from '@/components/ui'
 import { ExecutionTable } from '@/components/ExecutionTable'
+import { StateBadge } from '@/components/SessionLife'
 
 type Key = 'state' | 'title' | 'turns' | 'tools' | 'tokens' | 'out' | 'cache' | 'cost' | 'active'
 type Sort = { k: Key; desc: boolean }
@@ -33,27 +34,18 @@ function Th({ k, sort, setSort, children, right }: { k: Key; sort: Sort; setSort
 
 const tokIn = (s: SessionInfo) => s.usage.input_tokens + s.usage.cache_read_input_tokens + s.usage.cache_creation_input_tokens
 
-/** session.open from the cockpit: a new conversation with an optional label, opened in its deck, where the
- *  composer sends its first turn. */
-function NewSession({ onOpened }: { onOpened: (sessionId: string) => void }) {
-  const [busy, setBusy] = useState(false)
-  const open = async () => {
+/** A new conversation from the cockpit (theseus-emqx): a draft deck, with an optional label; its first message opens
+ *  the session (`session.open`), so a deck left unused leaves no empty session. */
+function NewSession({ onDraft }: { onDraft: (label: string) => void }) {
+  const open = () => {
     const label = window.prompt('A label for the new session (optional):', '')
     if (label === null) return
-    setBusy(true)
-    try {
-      const s = await call<SessionInfo>('session.open', { kind: 'conversation', label: label.trim() || undefined })
-      onOpened(s.session_id)
-    } catch (e: any) {
-      window.alert(e?.message ?? String(e))
-    } finally {
-      setBusy(false)
-    }
+    onDraft(label.trim())
   }
   return (
-    <button onClick={open} disabled={busy} title="Open a new conversation session"
+    <button onClick={open} title="A new conversation: its first message opens the session"
       className="flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] text-live ring-1 ring-live/30 hover:bg-live/10 disabled:opacity-50">
-      <Plus size={12} /> {busy ? 'opening…' : 'New session'}
+      <Plus size={12} /> New session
     </button>
   )
 }
@@ -137,7 +129,7 @@ export default function Fleet() {
           <Panel title={view === 'executions' ? <>Executions · {executions.length}</> : 'Sessions'} icon={<Layers size={13} />} className="h-full" bodyClassName="min-h-0 overflow-auto"
             actions={<>
               <Segmented value={view} options={['sessions', 'executions'] as const} onChange={setView} />
-              {world ? <span className="text-[11px] text-ink-faint">return to LIVE to open a session</span> : <NewSession onOpened={(id) => nav(`/session/${id}`)} />}
+              {world ? <span className="text-[11px] text-ink-faint">return to LIVE to open a session</span> : <NewSession onDraft={(label) => nav(`/session/new${label ? `?label=${encodeURIComponent(label)}` : ''}`)} />}
             </>}>
             {view === 'executions' ? <ExecutionTable executions={executions} title={titleOf} now={now} past={!!world} /> : <>
             <table className="w-full whitespace-nowrap text-[12px]">
@@ -154,7 +146,7 @@ export default function Fleet() {
                   const b = e?.budget
                   return (
                     <tr key={s.session_id} onClick={() => nav(`/session/${s.session_id}`)} className="cursor-pointer border-t border-line/60 hover:bg-live/[0.04]">
-                      <td className="px-2 py-1.5"><AttentionPill a={s.attention} state={s.execution_state} /></td>
+                      <td className="px-2 py-1.5"><AttentionPill a={s.attention} state={s.execution_state} /><div className="mt-0.5"><StateBadge state={s.state} retired={s.retired} /></div></td>
                       <td className="max-w-[280px] px-2 py-1.5">
                         <div className="truncate text-ink">{s.title || s.label || 'untitled'}</div>
                         <div className="num truncate text-[10.5px] text-ink-faint">{short(s.session_id)} · {s.kind}{s.label && s.title ? ` · ${s.label}` : ''}{s.model ? ` · ${s.model}` : ''}</div>

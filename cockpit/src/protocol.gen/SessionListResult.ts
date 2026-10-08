@@ -6,4 +6,9 @@ export type SessionListResult = { sessions: Array<SessionInfo>,
  * With `n`: the `before` for the next page back while older sessions
  * remain; absent at the first one, and without `n`.
  */
-older?: number, };
+older?: number, 
+/**
+ * The window and the empty grace each `state` was derived with
+ * (theseus-emqx), so a client derives the same for a past moment.
+ */
+live_window_ms?: number, empty_grace_ms?: number, };

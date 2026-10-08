@@ -72,6 +72,7 @@ mod route_step;
 pub(crate) mod situation_step;
 pub mod stdio_step;
 mod stopping_step;
+mod title_step;
 
 pub use route_step::{LiveSwitched, SWITCHED};
 
@@ -1653,13 +1654,7 @@ impl TurnRunner {
             let files = self.accept_files(t, attachments);
             let first_file = files.first().map(|a| a.name.clone());
             let node = Node::user_with(sid, Some(turn_id), &author, text, files);
-            if session.title.is_none() {
-                let title = title_from(text);
-                session.title = Some(match first_file {
-                    Some(name) if title.is_empty() => title_from(&name),
-                    _ => title,
-                });
-            }
+            self.title_input(session, text, first_file.as_deref());
             // A new target rides in the input's frame, under the record's
             // lock; the same one writes nothing more.
             let written = match &moved {

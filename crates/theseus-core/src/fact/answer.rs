@@ -179,7 +179,8 @@ impl ActRefused<'_> {
             | Act::Revoke { .. }
             | Act::JudgeRun { .. }
             | Act::Ladder { .. }
-            | Act::Import { .. } => None,
+            | Act::Import { .. }
+            | Act::Session { .. } => None,
         }
     }
 }
@@ -212,7 +213,8 @@ impl Fact for ActRefused<'_> {
             | Act::RouteCorrect { what }
             | Act::JudgeRun { what, .. }
             | Act::Ladder { what, .. }
-            | Act::Import { what, .. } => {
+            | Act::Import { what, .. }
+            | Act::Session { what, .. } => {
                 json!({"act": act.method(), "what": what, "who": r.who, "via": r.via,
                        "why": r.why, "by": self.by})
             }
@@ -270,6 +272,10 @@ impl Fact for ActRefused<'_> {
                 Act::Import { what, .. } => format!(
                     "The import's {what}, from {} through {}, did not count: {}. Nothing was \
                      written.",
+                    r.who, r.via, r.why
+                ),
+                Act::Session { what, .. } => format!(
+                    "{what}, from {} through {}, did not count: {}. The session is as it was.",
                     r.who, r.via, r.why
                 ),
                 Act::JudgeLabel { what } => format!(

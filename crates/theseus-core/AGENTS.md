@@ -253,6 +253,15 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
 - **The protocol server**: `rpc/` (`server.rs` routes each method by name; `methods.rs`; `confirms.rs`), with
   `bus.rs` and `outbound.rs` (one ordered, capped queue per connection; a test may lower the cap a new connection
   takes, `Push::backlog_cap`, so the lag prove overflows it with a few hundred events, theseus-0u6g).
+- **Session states** (theseus-emqx): live, quiet or retired, derived when read (`theseus_protocol::sessions::derive`,
+  `SessionRecord::state_at`; `session_info` gives every list its state, busy reading live whatever its age), never
+  stored as a state: the record keeps only `retired` (superseded or by hand; empty is derived past `[sessions]
+  empty_grace_minutes`), the `superseded_by`/`supersedes` links, `reopened_ms` and `title_was` (store format 25).
+  `succession.rs`: a place's move (`Core::bind_place_to`: the place's record, both links and `session.superseded` in
+  one frame, the old session's lock then the new one's), and the owner's `session.retire`/`session.reopen`
+  (`judge_act(Act::Session)`, `rpc/sessions.rs`). `session.list` with no params is every session as before; `state`
+  filters, and the answer names its windows. The re-title is `turn/title_step.rs` (in the turn's own session write,
+  once, never a task's). Tests: `rpc/tests_session_states.rs`.
 - **Surfaces of the record**: `push.rs` (the board), `outbox.rs`, `narrative.rs`, `ledger.rs`, `trace.rs`, and
   `telemetry/` (OTLP, metrics, spans).
 - **Facts**: `fact/` (theseus-j6qn, Review 2's C2). One type per thing that happened, which says in one place what

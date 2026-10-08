@@ -53,6 +53,13 @@ pub(crate) struct Rig {
     pub(crate) core: Arc<Core>,
 }
 
+thread_local! {
+    /// The rig's places open their session at the bind, as before
+    /// theseus-emqx: the live file's tests submit to them by hand. Read on
+    /// the test's own thread, before the binding starts.
+    pub(crate) static OPEN_AT_BIND: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
 impl Rig {
     /// A core whose binding talks only to the stand-in, bound to `#lab`
     /// (private) and ana's DM, its gateway connected. `script` gets the rig's
@@ -109,6 +116,9 @@ impl Rig {
         let fake = FakeDiscord::start_with_gateway();
         fake.set_guild(guild);
         let core = core_at(dir.path(), &fake, model(dir.path(), fake.clone()), tweak);
+        if OPEN_AT_BIND.with(std::cell::Cell::get) {
+            crate::runtime::open_at_bind(&core);
+        }
         // The ladder's warm read, as the daemon reads it after serving: no
         // judged point reads it (theseus-289c).
         if core.cfg.judge.enabled {
@@ -131,11 +141,15 @@ impl Rig {
             fake.gateway_state()
         );
         let r = Self { dir, fake, core };
+        // Each place starts fresh: its first message opens its session
+        // (theseus-emqx), so a place is bound once the binding reports it.
+        let want = 2 + more.len();
         r.until("every place bound", || {
-            [format!("channel:{LAB}"), format!("dm:{ANA}")]
-                .iter()
-                .chain(more)
-                .all(|k| r.core.outbox.place_session(k).unwrap().is_some())
+            r.core
+                .bindings
+                .all()
+                .first()
+                .is_some_and(|b| b.places.len() >= want)
         })
         .await;
         r

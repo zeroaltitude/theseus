@@ -757,6 +757,20 @@ idle_unload_mins = 10.0                   # the model unloads after this long un
 # command = ["some-server", "--stdio"]
 # extensions = ["some"]
 
+# ---------------------------------------------------------------- sessions
+# A session's state, which the cockpit's Ship filters by (Live by default):
+# live has a turn within live_window_hours, or runs, or waits on you; quiet has
+# none; retired was superseded (its place moved to a newer session), retired
+# by hand (theseus sessions retire), or never took a turn and is past
+# empty_grace_minutes. Nothing is deleted: a retired session stays readable
+# and searchable, and theseus sessions reopen brings it back. The first prompt
+# with substance among a session's first retitle_within_turns becomes its
+# title, once, and the old one is kept beside it (0 turns that off).
+# [sessions]
+# live_window_hours = 24.0                # a turn within this long reads live
+# empty_grace_minutes = 60.0              # a session never used reads retired this long after it opened
+# retitle_within_turns = 3                # 0: titles stay the first prompt's
+
 # ---------------------------------------------------------------- sandbox
 # L1, the sandbox (M4): a proc.run job in namespaces of its own, as your own
 # uid with no capabilities, over a view built from an empty root: the system's

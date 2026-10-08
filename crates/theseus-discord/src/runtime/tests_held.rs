@@ -47,8 +47,11 @@ async fn a_turns_start_and_a_rebind_tell_the_lane_the_held_turns() {
     }
     // The ninth turn's start held turns 1 to 8: the first was dropped.
     // `/new` drops them all.
+    // `/new` drops them all once the next message opens the fresh session
+    // (theseus-emqx).
     let answer = place.control(Control::New, "discord:zeroaltitude").await;
-    assert!(answer.starts_with("🆕 New session"), "{answer}");
+    assert!(answer.starts_with("🆕 A fresh session starts"), "{answer}");
+    assert!(place.ready().await);
     assert_ne!(place.session_id, sid);
     assert_eq!(helds(&mut lane), [Vec::<String>::new()], "the rebind");
 }

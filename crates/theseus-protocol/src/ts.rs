@@ -100,7 +100,7 @@ fn the_cockpits_types_are_generated_from_the_rust_ones() {
         ExecutionCancelParams, ExecutionCancelResult, ExecutionStopParams, ExecutionStopResult,
         TaskInfo, TaskListParams, TaskListResult, TaskCancelParams, TaskCancelResult, WakeInfo,
         WakeListParams, WakeListResult, WakeCancelParams, WakeCancelResult, TaskRef, SessionKind,
-        SessionOpenParams, SessionInfo, SessionListResult, TurnSubmitParams, Attachment,
+        SessionOpenParams, SessionInfo, SessionListResult, TurnSubmitParams, Attachment, sessions::SessionRetireParams, sessions::SessionReopenParams,
         ProfileInfo, ProfileListResult, ProfileUseParams, ProfileChanged, Span, Usage,
         TurnSubmitResult, LedgerTailParams, LedgerEntry, LedgerTailResult, SessionRef,
         SessionHistoryParams, NodeInfo, SessionHistoryResult, SessionRecompileParams,

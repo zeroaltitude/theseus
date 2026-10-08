@@ -144,6 +144,10 @@ impl Rig {
                     ),
                 )
                 .env("OP_SERVICE_ACCOUNT_TOKEN", "test-not-a-token")
+                // These tests submit to the DM place's session by hand, before
+                // any message: a debug build's plant opens it at the bind, as
+                // before theseus-emqx.
+                .env("THESEUS_TEST_OPEN_AT_BIND", "1")
                 .env_remove("THESEUS_OP_TOKEN_FILE")
                 .env_remove("THESEUS_CONFIG")
                 .env_remove("THESEUS_STATE_DIR")

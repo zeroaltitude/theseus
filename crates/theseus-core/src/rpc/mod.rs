@@ -39,6 +39,7 @@ mod proposals;
 mod publish;
 mod route_correct;
 mod server;
+mod sessions;
 #[cfg(test)]
 pub(crate) use server::write_item;
 #[cfg(test)]
@@ -55,6 +56,8 @@ mod tests_ledger;
 mod tests_lists;
 #[cfg(test)]
 mod tests_node_names;
+#[cfg(test)]
+mod tests_session_states;
 mod trust;
 
 pub use bindings::BindingBoard;

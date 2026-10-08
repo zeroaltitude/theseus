@@ -636,13 +636,11 @@ fn steps(r: &mut Rig, theseusd: &Path) -> Option<()> {
     })
     .then_some(())?;
     r.step("the binding binds #lab and ana's DM", |r| {
+        // A place has no session until its first message (theseus-emqx): the
+        // typed message below opens #lab's.
         wait("two bound places", || {
             let b = r.binding();
-            let bound = b["places"].as_array().map_or(0, |p| {
-                p.iter()
-                    .filter(|p| p["session_id"].as_str().is_some_and(|s| !s.is_empty()))
-                    .count()
-            });
+            let bound = b["places"].as_array().map_or(0, Vec::len);
             (b["state"] == "ready" && bound == 2).then(|| format!("state ready, {bound} places"))
         })
     })

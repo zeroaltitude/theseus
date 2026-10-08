@@ -38,6 +38,7 @@ import { CallInspector } from '@/components/CallInspector'
 import { ModelInspector } from '@/components/ModelInspector'
 import { SessionGraph } from '@/components/SessionGraph'
 import { Composer } from '@/components/Composer'
+import { RetireButton, SessionLinks, StateBadge } from '@/components/SessionLife'
 import { ContextGrowth, TokenMix } from '@/components/instruments'
 import { TOKEN_LEGEND, contextTable, tokenMixTable } from '@/components/instrumentTables'
 import { MembershipsPanel, PendingNote } from '@/components/Memberships'
@@ -45,8 +46,34 @@ import { AttentionPill, Btn, Empty, Field, LiveDot, Meter, Panel, Pill } from '@
 
 type Rows = LedgerEntry[] | undefined
 
-export default function SessionDeck() {
+// `/session/new` is a draft deck (theseus-emqx): no session until the first message, which opens it and goes on in
+// its own deck, so the cockpit's "New session" leaves no empty session behind.
+export default function SessionDeckRoute() {
   const { id = '' } = useParams()
+  return id === 'new' ? <DraftDeck /> : <SessionDeck id={id} />
+}
+
+function DraftDeck() {
+  const nav = useNavigate()
+  const [params] = useSearchParams()
+  const label = params.get('label') ?? undefined
+  return (
+    <div className="flex h-full min-h-0 flex-col gap-3">
+      <div className="panel flex items-center gap-3 px-4 py-3">
+        <button onClick={() => nav('/fleet')} className="rounded-md p-1 text-ink-faint hover:bg-white/5 hover:text-ink"><ArrowLeft size={16} /></button>
+        <div>
+          <h1 className="text-[17px] font-semibold text-ink">A new session{label ? ` · ${label}` : ''}</h1>
+          <div className="text-[11.5px] text-ink-faint">Nothing is opened yet: your first message opens the session, and its deck takes over.</div>
+        </div>
+      </div>
+      <Panel title="draft" className="min-h-0 flex-1" bodyClassName="flex min-h-0 flex-col justify-end">
+        <Composer sessionId="" busy={false} draft={{ label, onOpened: (sid) => nav(`/session/${sid}`, { replace: true }) }} />
+      </Panel>
+    </div>
+  )
+}
+
+function SessionDeck({ id }: { id: string }) {
   const nav = useNavigate()
   const qc = useQueryClient()
   useSessionWatch(id)
@@ -233,7 +260,10 @@ function Header({ s, exec, onBack }: { s: SessionHistory['session']; exec?: Exec
           <AttentionPill a={s.attention} state={s.execution_state} />
           <Pill tone={s.kind === 'task' ? 'tool' : 'idle'}>{s.kind}</Pill>
           {s.external_text && <Pill tone="wait"><ShieldCheck size={11} /> holds external text</Pill>}
+          <StateBadge state={s.state} retired={s.retired} />
         </div>
+        {s.title_was?.length ? <div className="truncate text-[11px] text-ink-faint" title={s.title_was.join(' · ')}>was: {s.title_was.join(' · ')}</div> : null}
+        <SessionLinks by={s.superseded_by} replaces={s.supersedes} />
         <div className="num mt-0.5 flex flex-wrap gap-x-3 text-[11px] text-ink-faint">
           <button onClick={() => navigator.clipboard?.writeText(s.session_id)} className="inline-flex items-center gap-1 hover:text-ink"><Copy size={10} />{s.session_id}</button>
           {s.label && <span>{s.label}</span>}
@@ -259,6 +289,7 @@ function Header({ s, exec, onBack }: { s: SessionHistory['session']; exec?: Exec
         </div>
       )}
       <div className="ml-auto flex items-center gap-2">
+        {s.kind === 'conversation' && <RetireButton sessionId={s.session_id} state={s.state} retired={s.retired} />}
         <PendingNote sessionId={s.session_id} />
         <Recompile busy={!!busy?.startsWith('Recompile')} onPick={(strategy) => act(`Recompile (${strategy})`, 'session.recompile', { session_id: s.session_id, strategy }).then(() => undefined)} />
         {s.external_text && <Btn tone="wait" onClick={() => act('Trust', 'policy.trust', { session_id: s.session_id })} busy={busy === 'Trust'}><ShieldCheck size={13} /> Trust</Btn>}
