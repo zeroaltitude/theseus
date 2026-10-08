@@ -571,6 +571,17 @@ impl Place {
         self.submit_voice(t);
     }
 
+    /// A voice turn of this place's call waits for the turn in flight.
+    pub(super) fn voice_waits(&self) -> bool {
+        self.shared
+            .voice
+            .call
+            .lock()
+            .unwrap()
+            .as_ref()
+            .is_some_and(|c| c.key == self.key && !c.waiting.is_empty())
+    }
+
     /// After a turn: a voice turn that waited goes now.
     pub(super) fn voice_next(&mut self) {
         if self.inflight {

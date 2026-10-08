@@ -241,8 +241,7 @@ impl Core {
         match req.method.as_str() {
             method::HEALTH => reply(self.health_now().await),
             method::SESSION_OPEN => route(params, |p| self.session_open_on(surface, p)),
-            // Its filter is optional: no params lists every session.
-            method::SESSION_LIST => route(or_empty(params), |p| self.session_list_of(p)),
+            m if super::sessions::OWN.contains(&m) => self.rpc_sessions(m, params, conn),
             method::TURN_SUBMIT => reply(self.turn_submit(parse(params)?, conn).await?),
             method::PROFILE_LIST => reply(self.profile_list()),
             method::PROFILE_USE => route(params, |p| self.profile_use(p, conn)),
@@ -470,7 +469,7 @@ pub(super) fn parse<T: DeserializeOwned>(v: Value) -> Result<T, RpcFailure> {
 
 /// Params a method may leave out: none reads as `{}`, so its filters take
 /// their defaults.
-fn or_empty(v: Value) -> Value {
+pub(super) fn or_empty(v: Value) -> Value {
     if v.is_null() {
         json!({})
     } else {

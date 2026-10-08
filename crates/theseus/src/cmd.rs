@@ -977,6 +977,26 @@ pub async fn sessions(conn: &mut Conn, json: bool, cmd: SessionsCmd) -> Result<(
                 Ok(())
             })
         }
+        SessionsCmd::Retire { session } => {
+            let p = theseus_protocol::sessions::SessionRetireParams {
+                session_id: session,
+            };
+            let v = conn.request(method::SESSION_RETIRE, p).await?;
+            output(json, v, |s: theseus_protocol::SessionInfo| {
+                println!("{}", render::sessions::session_state_line(&s));
+                Ok(())
+            })
+        }
+        SessionsCmd::Reopen { session } => {
+            let p = theseus_protocol::sessions::SessionReopenParams {
+                session_id: session,
+            };
+            let v = conn.request(method::SESSION_REOPEN, p).await?;
+            output(json, v, |s: theseus_protocol::SessionInfo| {
+                println!("{}", render::sessions::session_state_line(&s));
+                Ok(())
+            })
+        }
     }
 }
 

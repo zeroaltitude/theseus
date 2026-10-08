@@ -18,6 +18,8 @@ mod lookup;
 pub(crate) mod lsp;
 pub(crate) mod memory;
 pub(crate) mod routing;
+mod sessions;
+pub use sessions::SessionsConfig;
 mod sparse;
 pub use aws::{
     default_hourly_alert_usd, default_runaway_factor, AwsAccountConfig, AwsConfig,
@@ -124,6 +126,9 @@ pub struct Config {
     /// default, in `config/lsp.rs`.
     #[serde(default, skip_serializing_if = "LspConfig::is_default")]
     pub lsp: LspConfig,
+    /// `[sessions]`: the state windows and the re-title (theseus-emqx).
+    #[serde(default, skip_serializing_if = "SessionsConfig::is_default")]
+    pub sessions: SessionsConfig,
     /// `[sandbox]`: L1 for `proc.run` (M4 17b), in `crate::sandbox`.
     #[serde(default)]
     pub sandbox: crate::sandbox::SandboxConfig,
@@ -1368,6 +1373,7 @@ impl Config {
         self.routing
             .validate(|p| self.all_profiles().contains_key(p))?;
         self.lsp.validate()?;
+        self.sessions.validate()?;
         self.validate_voice()?;
         self.validate_mcp_server()?;
         if let Some(name) = &self.context.default_persona {

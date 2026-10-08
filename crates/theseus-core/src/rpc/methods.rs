@@ -382,6 +382,21 @@ impl Core {
         &self,
         p: theseus_protocol::SessionListParams,
     ) -> Result<theseus_protocol::SessionListResult, RpcFailure> {
+        let want = p.state;
+        let rule = self.cfg.sessions.rule();
+        let mut r = self.session_list_unfiltered(p)?;
+        if let Some(want) = want {
+            r.sessions.retain(|s| s.state == Some(want));
+        }
+        r.live_window_ms = Some(rule.live_window_ms);
+        r.empty_grace_ms = Some(rule.empty_grace_ms);
+        Ok(r)
+    }
+
+    fn session_list_unfiltered(
+        &self,
+        p: theseus_protocol::SessionListParams,
+    ) -> Result<theseus_protocol::SessionListResult, RpcFailure> {
         let Some(ids) = p.ids else {
             if let Some(n) = p.n {
                 return self.session_page(n.min(1000), p.before);
@@ -389,6 +404,8 @@ impl Core {
             return Ok(theseus_protocol::SessionListResult {
                 sessions: self.session_list()?,
                 older: None,
+                live_window_ms: None,
+                empty_grace_ms: None,
             });
         };
         let mut recs = Vec::new();
@@ -412,6 +429,8 @@ impl Core {
                 .map(|r| self.session_info(r, &pending))
                 .collect(),
             older: None,
+            live_window_ms: None,
+            empty_grace_ms: None,
         })
     }
 
@@ -450,6 +469,8 @@ impl Core {
                 .map(|r| self.session_info(r, &pending))
                 .collect(),
             older,
+            live_window_ms: None,
+            empty_grace_ms: None,
         })
     }
 
@@ -568,8 +589,9 @@ impl Core {
     }
 
     /// A session as `session.list` shows it, with its execution's state and
-    /// attention (theseus-in3). `pending` is `pending_by_execution`'s.
-    fn session_info(
+    /// attention (theseus-in3), and its state (theseus-emqx). `pending` is
+    /// `pending_by_execution`'s.
+    pub(super) fn session_info(
         &self,
         r: &SessionRecord,
         pending: &std::collections::BTreeMap<String, Vec<theseus_protocol::PendingConfirm>>,
@@ -597,6 +619,16 @@ impl Core {
         i.attention = e.as_ref().map(|e| {
             crate::push::view(e, asks, i.parent_session_id.clone(), 0, e.updated_at_ms).attention
         });
+        // Busy: it runs or is queued, or it waits on the owner, so it reads
+        // live whatever its age (theseus-emqx).
+        let busy = matches!(i.execution_state.as_deref(), Some("running" | "queued"))
+            || i.pending_confirms > 0
+            || i.attention
+                .as_ref()
+                .is_some_and(|a| a.level == theseus_protocol::Level::NeedsYou);
+        let now = theseus_protocol::now_unix_ms();
+        let (state, retired) = r.state_at(self.cfg.sessions.rule(), now, busy);
+        (i.state, i.retired) = (Some(state), retired);
         i
     }
 

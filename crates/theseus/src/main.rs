@@ -767,6 +767,12 @@ enum SessionsCmd {
         #[arg(long, default_value = "fresh", value_parser = ["fresh", "transcript"])]
         strategy: String,
     },
+    /// Retire a session by hand: it leaves the cockpit's default (live) view and its place's next
+    /// message starts a successor. Nothing is deleted; `reopen` brings it back. The operator's own.
+    Retire { session: String },
+    /// Reopen a retired session (by hand, superseded, or empty). A superseded one keeps its links,
+    /// and its place stays on its successor. The operator's own.
+    Reopen { session: String },
 }
 
 #[tokio::main]

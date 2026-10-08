@@ -1745,6 +1745,49 @@ fn sessions_list_open_and_recompile() {
     );
 }
 
+/// A daemon that sends each session's state (theseus-emqx): the state after
+/// the pill, a retired one's reason; and `retire` and `reopen`, which answer
+/// the session's state now, its way back, and its links.
+#[test]
+fn sessions_show_their_state_and_retire_and_reopen() {
+    let list = json!({"sessions": [
+        {"session_id": S, "kind": "conversation", "label": null, "title": "Tidy the notes",
+         "created_at_unix_ms": 1_759_300_000_000u64, "last_active_ms": 1_759_300_900_000u64,
+         "turns": 3, "execution_state": "waiting", "model": "glm-x", "state": "live",
+         "supersedes": {"session_id": "ses_b0r1ng", "at_ms": 1_759_300_000_000u64, "place": "dm:42"}},
+        {"session_id": "ses_b0r1ng", "kind": "conversation", "label": "discord DM @tide",
+         "created_at_unix_ms": 1_759_200_000_000u64, "turns": 4, "execution_state": "waiting",
+         "state": "retired", "retired": {"reason": "superseded", "at_ms": 1_759_300_000_000u64},
+         "superseded_by": {"session_id": S, "at_ms": 1_759_300_000_000u64, "place": "dm:42"}},
+        {"session_id": "ses_qu1et0", "kind": "conversation", "label": "scratch",
+         "created_at_unix_ms": 1_759_100_000_000u64, "turns": 2, "state": "quiet"}],
+        "live_window_ms": 86_400_000u64, "empty_grace_ms": 3_600_000u64});
+    golden(
+        "sessions_states",
+        &run(&["sessions"], vec![step("session.list", list)]),
+    );
+    let retired = json!({"session_id": "ses_qu1et0", "kind": "conversation", "label": "scratch",
+        "created_at_unix_ms": 1_759_100_000_000u64, "turns": 2, "state": "retired",
+        "retired": {"reason": "by_hand", "at_ms": 1_759_400_000_000u64}});
+    golden(
+        "sessions_retire",
+        &run(
+            &["sessions", "retire", "ses_qu1et0"],
+            vec![step("session.retire", retired)],
+        ),
+    );
+    let reopened = json!({"session_id": "ses_b0r1ng", "kind": "conversation", "label": null,
+        "created_at_unix_ms": 1_759_200_000_000u64, "turns": 4, "state": "quiet",
+        "superseded_by": {"session_id": S, "at_ms": 1_759_300_000_000u64, "place": "dm:42"}});
+    golden(
+        "sessions_reopen",
+        &run(
+            &["sessions", "reopen", "ses_b0r1ng"],
+            vec![step("session.reopen", reopened)],
+        ),
+    );
+}
+
 /// A daemon that sends `attention` (theseus-in3): each session's pill where
 /// its state goes, and each execution's after its state. A task's line is
 /// time-dependent, so its pill is `render`'s unit test.

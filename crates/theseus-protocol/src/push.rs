@@ -220,6 +220,10 @@ pub struct SessionListParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub before: Option<u64>,
+    /// Only sessions in this state (theseus-emqx). Absent: every session.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub state: Option<crate::SessionState>,
 }
 
 /// What `session.wait` waits for (design `stage2` §2.6).

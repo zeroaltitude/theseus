@@ -264,6 +264,8 @@ mod tests {
         let b = two();
         core.trust_guilds(b.trusted());
         core.bind_places(bound_places(&b));
+        // Its places open their sessions at the bind, so their limits read here (theseus-emqx).
+        super::super::open_at_bind(&core);
         let mut shared = shared_for_tests(&core);
         Arc::get_mut(&mut shared).unwrap().place_bits = PlaceBits::new(&b);
         shared.clone().start_lanes(&b).unwrap();

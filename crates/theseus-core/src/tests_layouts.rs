@@ -56,7 +56,21 @@ pub(crate) const TASK_BEFORE_MODEL_MARK: &str = r#"{"id":"tsk_000000000000000000
 /// before 39b (3085f71) writes.
 pub(crate) const TASK_BEFORE_CLAIM: &str = r#"{"id":"tsk_00000000000000000000000000000095","version":2,"title":"Chart the reef","objective":"chart the reef's north edge","acceptance":["every marker has a depth"],"state":"accepted","deps":[],"owner":"agent","origin":{"session":"ses_lighthouse","principal":"operator","by_model":true},"evidence":[],"created_at_ms":1790000000095,"updated_at_ms":1790000000096}"#;
 
+/// A session record as format 24 wrote it (theseus-anh3's build, unchanged
+/// since format 23), before a session's state (format 25, theseus-emqx): a
+/// place's bind session that never took a turn, as a Discord bind opened
+/// one. It reads with no retirement, no links and no old title, and
+/// derives empty-retired past its grace (`rpc::tests_session_states`). By
+/// hand, in the layout the build before theseus-emqx (73f0a3e) writes.
+pub(crate) const SESSION_BEFORE_STATES: &str = r#"{"session_id":"ses_00000000000000000000000000000071","kind":"conversation","label":"discord #lighthouse","created_at_unix_ms":1790000000071,"turns":0,"last_turn_id":null,"usage":{"input_tokens":0,"output_tokens":0,"cache_read_input_tokens":0,"cache_creation_input_tokens":0},"execution_id":"exe_00000000000000000000000000000071","last_active_ms":1790000000071,"cost_usd":0.0,"tool_calls":0}"#;
+
 const SAMPLES: &[Sample] = &[
+    Sample {
+        kind: kinds::SESSION,
+        layout: "a session at format 24 (theseus-anh3; unchanged since 23): before its state (25, theseus-emqx)",
+        bytes: SESSION_BEFORE_STATES,
+        kept: Kept::All,
+    },
     Sample {
         kind: kinds::TASK,
         layout: "a plan item at format 16 (theseus-ext.10; unchanged through 18): before a task's claim (19, M7 39b)",

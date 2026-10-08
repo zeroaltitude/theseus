@@ -305,7 +305,8 @@ impl Board {
     /// A place no longer bound, or no longer under `label`, leaves health.
     pub(super) fn unplace(&self, label: &str, session: &str) {
         let this = |p: &theseus_protocol::PlaceStatus| {
-            p.label == label && p.session_id.as_deref() == Some(session)
+            // A place with no session yet reports none (theseus-emqx).
+            p.label == label && p.session_id.as_deref() == Some(session).filter(|s| !s.is_empty())
         };
         self.update(|s| s.places.retain(|p| !this(p)));
     }

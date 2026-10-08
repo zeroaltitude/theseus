@@ -453,6 +453,21 @@ impl Outbox {
     pub fn bind_place(&self, place: &str, session_id: &str) -> Result<()> {
         self.store
             .put_meta(&format!("{PLACE_META_PREFIX}{place}"), &session_id)?;
+        self.place_bound(place, session_id)
+    }
+
+    /// The place's record, for a frame that moves it with more
+    /// (`crate::succession`, theseus-emqx); `place_bound` once it is written.
+    pub fn place_record(&self, place: &str, session_id: &str) -> Result<NewRecord> {
+        NewRecord::json(
+            kinds::META,
+            Some(&format!("{PLACE_META_PREFIX}{place}")),
+            &session_id,
+        )
+    }
+
+    /// Where a place's posts go, once its record is written.
+    pub fn place_bound(&self, place: &str, session_id: &str) -> Result<()> {
         let target = format!("discord:{place}");
         self.with(|ix| {
             ix.targets.retain(|_, t| *t != target);

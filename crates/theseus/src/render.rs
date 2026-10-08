@@ -36,6 +36,7 @@ mod ontology;
 mod parked;
 mod places;
 mod sandbox;
+pub mod sessions;
 mod store;
 mod task_graph;
 mod tasks;
@@ -2100,7 +2101,7 @@ pub fn session_row(s: &SessionInfo) -> Line {
             match &s.attention {
                 Some(a) => pill(a),
                 None => s.execution_state.clone().unwrap_or_else(|| "-".into()),
-            },
+            } + &sessions::state_column(s),
             s.model.as_deref().unwrap_or("-"),
             s.label
                 .as_deref()

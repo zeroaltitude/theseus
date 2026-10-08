@@ -32,12 +32,11 @@ impl TurnRunner {
                 Node::prompt_message(sid, Some(turn_id), &prompt.author, &m.text, files)
             })
             .collect();
-        if session.title.is_none() {
-            session.title = Some(match title_from(&prompt.text()) {
-                t if t.is_empty() => prompt.author.clone(),
-                t => t,
-            });
-        }
+        let title = match title_from(&prompt.text()) {
+            t if t.is_empty() => prompt.author.clone(),
+            t => t,
+        };
+        super::title_step::retitle(session, title, self.cfg.sessions.retitle_within_turns);
         let records = nodes
             .iter()
             .map(Node::record)

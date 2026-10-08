@@ -76,6 +76,7 @@ fn core_at(
 async fn bind(core: &Arc<Core>, dir: &Path, bindings: &str) -> Arc<RpcClient> {
     let path = dir.join("bindings.toml");
     std::fs::write(&path, bindings).unwrap();
+    open_at_bind(core);
     tokio::spawn(crate::run(core.clone(), core.cfg.discord.clone(), path));
     let t0 = Instant::now();
     while core
@@ -92,6 +93,12 @@ async fn bind(core: &Arc<Core>, dir: &Path, bindings: &str) -> Arc<RpcClient> {
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
     RpcClient::connect(core.clone(), Client::new("test", Surface::Cli)).0
+}
+
+/// These tests submit to a place's session by hand, before any message: the
+/// places they bind open it at the bind (theseus-emqx; `runtime::succession`).
+fn open_at_bind(core: &Arc<Core>) {
+    crate::runtime::open_at_bind(core);
 }
 
 async fn until(what: &str, secs: u64, f: impl Fn() -> bool) {
@@ -1037,6 +1044,7 @@ async fn an_operators_notice_falls_back_only_to_a_place_this_daemon_binds() {
         ),
     )
     .unwrap();
+    open_at_bind(&core);
     tokio::spawn(crate::run(core.clone(), core.cfg.discord.clone(), path));
     let f = fake.clone();
     until("the channel's bind notice", 10, move || {
@@ -1457,6 +1465,7 @@ fn the_gateway_loop_ends_at_the_daemons_stop_and_leaves_no_core_behind() {
         let core = core_at(d.path(), &fake, vec![], |_| {});
         let path = d.path().join("bindings.toml");
         std::fs::write(&path, dm_only()).unwrap();
+        open_at_bind(&core);
         let run = tokio::spawn(crate::run(core.clone(), core.cfg.discord.clone(), path));
         let c = core.clone();
         until("the DM place is bound", 10, move || {

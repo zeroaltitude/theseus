@@ -41,6 +41,7 @@ mod places;
 mod push;
 pub mod route;
 pub mod sandbox;
+pub mod sessions;
 pub mod signals;
 pub mod tasks;
 pub mod term;
@@ -65,6 +66,7 @@ pub use ledger::*;
 pub use ontology::*;
 pub use places::*;
 pub use push::*;
+pub use sessions::{RetiredReason, SessionLink, SessionRetired, SessionState};
 pub use term::TerminalInfo;
 
 use serde::{Deserialize, Serialize};
@@ -108,6 +110,8 @@ pub mod method {
         HEALTH = "health",
         SESSION_OPEN = "session.open",
         SESSION_LIST = "session.list",
+        /// A session's retirement by the owner, and its undo (theseus-emqx).
+        SESSION_RETIRE = "session.retire", SESSION_REOPEN = "session.reopen",
         TURN_SUBMIT = "turn.submit",
         LEDGER_TAIL = "ledger.tail",
         PROFILE_LIST = "profile.list",
@@ -1888,6 +1892,26 @@ pub struct SessionInfo {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub attention: Option<Attention>,
+    /// Live, quiet or retired, as read (theseus-emqx, `sessions::derive`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub state: Option<SessionState>,
+    /// Why and when it was retired; a busy session that reads live still
+    /// carries a stored one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub retired: Option<SessionRetired>,
+    /// The session its place moved to, and the one it replaced.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub superseded_by: Option<SessionLink>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub supersedes: Option<SessionLink>,
+    /// Its earlier titles, oldest first, once it was re-titled.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub title_was: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1899,6 +1923,14 @@ pub struct SessionListResult {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub older: Option<u64>,
+    /// The window and the empty grace each `state` was derived with
+    /// (theseus-emqx), so a client derives the same for a past moment.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub live_window_ms: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub empty_grace_ms: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

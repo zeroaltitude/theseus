@@ -1,0 +1,9 @@
+$ theseus sessions
+--- requests
+session.list
+--- stdout
+ses_q7f3k2	06:41:40.000Z	turns=3	tools=0	$0.0000	in=0	out=0	waiting	live	glm-x	Tidy the notes
+ses_b0r1ng	02:40:00.000Z	turns=4	tools=0	$0.0000	in=0	out=0	waiting	retired (superseded)	-	discord DM @tide
+ses_qu1et0	22:53:20.000Z	turns=2	tools=0	$0.0000	in=0	out=0	-	quiet	-	scratch
+--- stderr
+--- exit 0

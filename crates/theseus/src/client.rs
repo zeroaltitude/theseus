@@ -261,7 +261,7 @@ pub fn job_session() -> Option<String> {
 /// silence security's notices), and the import, its erase and its topics
 /// (theseus-0lrr.6, theseus-anh3: an import can plant memories, an erase take
 /// the owner's away, and the topics write tens of thousands of memberships).
-pub const OPERATORS: [(&str, &str); 24] = [
+pub const OPERATORS: [(&str, &str); 26] = [
     (method::ACTION_CONFIRM, "theseus confirm"),
     (method::POLICY_UNTIGHTEN, "theseus policy untighten"),
     (method::POLICY_TRUST, "theseus policy trust"),
@@ -286,6 +286,8 @@ pub const OPERATORS: [(&str, &str); 24] = [
     (method::IMPORT_EPISODES, "theseus import openclaw"),
     (method::IMPORT_ERASE, "theseus import erase"),
     (method::IMPORT_TOPICS, "theseus import topics"),
+    (method::SESSION_RETIRE, "theseus sessions retire"),
+    (method::SESSION_REOPEN, "theseus sessions reopen"),
 ];
 
 /// Refuse an operator's method from inside a Theseus job (theseus-zmgb):
