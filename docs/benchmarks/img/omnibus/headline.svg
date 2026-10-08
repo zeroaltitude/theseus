@@ -1,0 +1,49 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="325" viewBox="0 0 720 325" role="img" aria-labelledby="t-headline t-headline-d" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
+<title id="t-headline">Theseus in six numbers, from 19 benchmark reports (Sep 30 to Oct 7, 2026)</title>
+<desc id="t-headline-d">What do the benchmark runs say, in a sentence each?</desc>
+<rect width="720" height="325" rx="8" fill="#fcfcfb" stroke="#e6e5df"/>
+<text x="18.0" y="32.0" font-size="15" fill="#0b0b0b" font-weight="600">Theseus in six numbers, from 19 benchmark reports (Sep 30 to Oct 7, 2026)</text>
+<rect x="18.0" y="48.0" width="220.0" height="112" rx="8" fill="#fcfcfb" stroke="#e1e0d9"/>
+<rect x="19.0" y="49.0" width="4" height="110" rx="2" fill="#2a78d6"/>
+<text x="36.0" y="88.0" font-size="30" fill="#0b0b0b" font-weight="600">71.9%</text>
+<text x="36.0" y="110.0" font-size="12.5" fill="#0b0b0b" font-weight="600">of 178 Terminal-Bench 2.0</text>
+<text x="36.0" y="126.0" font-size="12.5" fill="#0b0b0b" font-weight="600">trials solved</text>
+<text x="36.0" y="142.0" font-size="11" fill="#52514e">all 89 tasks, Oct 4; Claude Code</text>
+<text x="36.0" y="156.0" font-size="11" fill="#52514e">81.5% on the same model</text>
+<rect x="250.0" y="48.0" width="220.0" height="112" rx="8" fill="#fcfcfb" stroke="#e1e0d9"/>
+<rect x="251.0" y="49.0" width="4" height="110" rx="2" fill="#2a78d6"/>
+<text x="268.0" y="88.0" font-size="30" fill="#0b0b0b" font-weight="600">36.5 MiB</text>
+<text x="268.0" y="110.0" font-size="12.5" fill="#0b0b0b" font-weight="600">the harness's own peak</text>
+<text x="268.0" y="126.0" font-size="12.5" fill="#0b0b0b" font-weight="600">memory</text>
+<text x="268.0" y="142.0" font-size="11" fill="#52514e">median; the seven other</text>
+<text x="268.0" y="156.0" font-size="11" fill="#52514e">harnesses 125 to 1,380 MiB</text>
+<rect x="482.0" y="48.0" width="220.0" height="112" rx="8" fill="#fcfcfb" stroke="#e1e0d9"/>
+<rect x="483.0" y="49.0" width="4" height="110" rx="2" fill="#2a78d6"/>
+<text x="500.0" y="88.0" font-size="30" fill="#0b0b0b" font-weight="600">0.8 s</text>
+<text x="500.0" y="110.0" font-size="12.5" fill="#0b0b0b" font-weight="600">to install and start in a</text>
+<text x="500.0" y="126.0" font-size="12.5" fill="#0b0b0b" font-weight="600">task's container</text>
+<text x="500.0" y="142.0" font-size="11" fill="#52514e">the others 20 s (Aider) to 5 min</text>
+<text x="500.0" y="156.0" font-size="11" fill="#52514e">(Codex CLI)</text>
+<rect x="18.0" y="172.0" width="220.0" height="112" rx="8" fill="#fcfcfb" stroke="#e1e0d9"/>
+<rect x="19.0" y="173.0" width="4" height="110" rx="2" fill="#2a78d6"/>
+<text x="36.0" y="212.0" font-size="30" fill="#0b0b0b" font-weight="600">+53 pts</text>
+<text x="36.0" y="234.0" font-size="12.5" fill="#0b0b0b" font-weight="600">from recall on the memory</text>
+<text x="36.0" y="250.0" font-size="12.5" fill="#0b0b0b" font-weight="600">exam</text>
+<text x="36.0" y="266.0" font-size="11" fill="#52514e">a cheap model, 15% → 67%;</text>
+<text x="36.0" y="280.0" font-size="11" fill="#52514e">shown the right notes, 100%</text>
+<rect x="250.0" y="172.0" width="220.0" height="112" rx="8" fill="#fcfcfb" stroke="#e1e0d9"/>
+<rect x="251.0" y="173.0" width="4" height="110" rx="2" fill="#2a78d6"/>
+<text x="268.0" y="212.0" font-size="30" fill="#0b0b0b" font-weight="600">22.6 ms</text>
+<text x="268.0" y="234.0" font-size="12.5" fill="#0b0b0b" font-weight="600">a cold start's median, 240</text>
+<text x="268.0" y="250.0" font-size="12.5" fill="#0b0b0b" font-weight="600">gates</text>
+<text x="268.0" y="266.0" font-size="11" fill="#52514e">budget 50 ms; a crash's restart</text>
+<text x="268.0" y="280.0" font-size="11" fill="#52514e">35.6 ms of 150</text>
+<rect x="482.0" y="172.0" width="220.0" height="112" rx="8" fill="#fcfcfb" stroke="#e1e0d9"/>
+<rect x="483.0" y="173.0" width="4" height="110" rx="2" fill="#2a78d6"/>
+<text x="500.0" y="212.0" font-size="30" fill="#0b0b0b" font-weight="600">$131</text>
+<text x="500.0" y="234.0" font-size="12.5" fill="#0b0b0b" font-weight="600">every model call of every</text>
+<text x="500.0" y="250.0" font-size="12.5" fill="#0b0b0b" font-weight="600">run</text>
+<text x="500.0" y="266.0" font-size="11" fill="#52514e">two Terminal-Bench runs are 97%</text>
+<text x="500.0" y="280.0" font-size="11" fill="#52514e">of it</text>
+<text x="18.0" y="302.0" font-size="11" fill="#52514e">Each number's run is linked from its section of the omnibus review.</text>
+</svg>

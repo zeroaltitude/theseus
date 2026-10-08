@@ -1,0 +1,155 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="598" viewBox="0 0 720 598" role="img" aria-labelledby="t-fixes t-fixes-d" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
+<title id="t-fixes">What the runs changed: the same measurement before and after each fix</title>
+<desc id="t-fixes-d">What did acting on a benchmark's finding buy?</desc>
+<rect width="720" height="598" rx="8" fill="#fcfcfb" stroke="#e6e5df"/>
+<text x="18.0" y="32.0" font-size="15" fill="#0b0b0b" font-weight="600">What the runs changed: the same measurement before and after each fix</text>
+<circle cx="25.0" cy="50.0" r="5" fill="#88b3e7"/>
+<text x="40.0" y="54.0" font-size="12" fill="#52514e">before</text>
+<circle cx="105.0" cy="50.0" r="5" fill="#2a78d6"/>
+<text x="120.0" y="54.0" font-size="12" fill="#52514e">after</text>
+<text x="18.0" y="89.0" font-size="12" fill="#0b0b0b" font-weight="600">A reply on Discord (a stand-in), Oct 5</text>
+<text x="18.0" y="167.0" font-size="12" fill="#0b0b0b" font-weight="600">A store of 10,000 parked sessions, Oct 2 to 3</text>
+<text x="18.0" y="345.0" font-size="12" fill="#0b0b0b" font-weight="600">The gate's own bench (debug), Oct 1 to 4</text>
+<line x1="327.3" y1="94.0" x2="327.3" y2="506.0" stroke="#e1e0d9" stroke-width="1"/>
+<line x1="371.0" y1="94.0" x2="371.0" y2="506.0" stroke="#e1e0d9" stroke-width="1"/>
+<line x1="414.8" y1="94.0" x2="414.8" y2="506.0" stroke="#e1e0d9" stroke-width="1"/>
+<line x1="458.5" y1="94.0" x2="458.5" y2="506.0" stroke="#e1e0d9" stroke-width="1"/>
+<line x1="502.3" y1="94.0" x2="502.3" y2="506.0" stroke="#e1e0d9" stroke-width="1"/>
+<line x1="546.0" y1="94.0" x2="546.0" y2="506.0" stroke="#e1e0d9" stroke-width="1"/>
+<text x="313.3" y="115.0" font-size="12" fill="#0b0b0b" text-anchor="end">first words, after the model's first token</text>
+<g><title>first words, after the model's first token: 376.5 → 3 ms (median of 6 and 7 greetings)</title>
+<line x1="483.7" y1="111.0" x2="391.9" y2="111.0" stroke="#88b3e7" stroke-width="3" stroke-linecap="round"/>
+<circle cx="483.7" cy="111.0" r="5" fill="#88b3e7" stroke="#fcfcfb" stroke-width="2"/>
+<circle cx="391.9" cy="111.0" r="12" fill="transparent"/>
+<circle cx="391.9" cy="111.0" r="5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<text x="556.0" y="115.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">376.5 → 3</text>
+<text x="702.0" y="115.0" font-size="11" fill="#0b0b0b" text-anchor="end" font-weight="600" style="font-variant-numeric: tabular-nums">126×</text>
+<text x="313.3" y="140.0" font-size="12" fill="#0b0b0b" text-anchor="end">whole reply, a disk whose flushes stall 1.4 s</text>
+<g><title>whole reply, a disk whose flushes stall 1.4 s: 5403 → 2 ms (the first greeting)</title>
+<line x1="534.3" y1="136.0" x2="384.2" y2="136.0" stroke="#88b3e7" stroke-width="3" stroke-linecap="round"/>
+<circle cx="534.3" cy="136.0" r="5" fill="#88b3e7" stroke="#fcfcfb" stroke-width="2"/>
+<circle cx="384.2" cy="136.0" r="12" fill="transparent"/>
+<circle cx="384.2" cy="136.0" r="5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<text x="556.0" y="140.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">5,403 → 2</text>
+<text x="702.0" y="140.0" font-size="11" fill="#0b0b0b" text-anchor="end" font-weight="600" style="font-variant-numeric: tabular-nums">2,702×</text>
+<text x="313.3" y="193.0" font-size="12" fill="#0b0b0b" text-anchor="end">health answer</text>
+<g><title>health answer: 25.9 → 0.3 ms (p50)</title>
+<line x1="432.8" y1="189.0" x2="348.1" y2="189.0" stroke="#88b3e7" stroke-width="3" stroke-linecap="round"/>
+<circle cx="432.8" cy="189.0" r="5" fill="#88b3e7" stroke="#fcfcfb" stroke-width="2"/>
+<circle cx="348.1" cy="189.0" r="12" fill="transparent"/>
+<circle cx="348.1" cy="189.0" r="5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<text x="556.0" y="193.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">25.9 → 0.3</text>
+<text x="702.0" y="193.0" font-size="11" fill="#0b0b0b" text-anchor="end" font-weight="600" style="font-variant-numeric: tabular-nums">86×</text>
+<text x="313.3" y="218.0" font-size="12" fill="#0b0b0b" text-anchor="end">action.list, newest 500</text>
+<g><title>action.list, newest 500: 146.9 → 4.5 ms (p50)</title>
+<line x1="465.8" y1="214.0" x2="399.6" y2="214.0" stroke="#88b3e7" stroke-width="3" stroke-linecap="round"/>
+<circle cx="465.8" cy="214.0" r="5" fill="#88b3e7" stroke="#fcfcfb" stroke-width="2"/>
+<circle cx="399.6" cy="214.0" r="12" fill="transparent"/>
+<circle cx="399.6" cy="214.0" r="5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<text x="556.0" y="218.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">146.9 → 4.5</text>
+<text x="702.0" y="218.0" font-size="11" fill="#0b0b0b" text-anchor="end" font-weight="600" style="font-variant-numeric: tabular-nums">33×</text>
+<text x="313.3" y="243.0" font-size="12" fill="#0b0b0b" text-anchor="end">first stop after an install's build</text>
+<g><title>first stop after an install's build: 801.9 → 47 ms (two runs each: 716 and 887, 44 and 50)</title>
+<line x1="498.1" y1="239.0" x2="444.2" y2="239.0" stroke="#88b3e7" stroke-width="3" stroke-linecap="round"/>
+<circle cx="498.1" cy="239.0" r="5" fill="#88b3e7" stroke="#fcfcfb" stroke-width="2"/>
+<circle cx="444.2" cy="239.0" r="12" fill="transparent"/>
+<circle cx="444.2" cy="239.0" r="5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<text x="556.0" y="243.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">716–887 → 44–50</text>
+<text x="702.0" y="243.0" font-size="11" fill="#0b0b0b" text-anchor="end" font-weight="600" style="font-variant-numeric: tabular-nums">17×</text>
+<text x="313.3" y="268.0" font-size="12" fill="#0b0b0b" text-anchor="end">cold start (release)</text>
+<g><title>cold start (release): 119.1 → 21.5 ms (p50 of 10)</title>
+<line x1="461.8" y1="264.0" x2="429.3" y2="264.0" stroke="#88b3e7" stroke-width="3" stroke-linecap="round"/>
+<circle cx="461.8" cy="264.0" r="5" fill="#88b3e7" stroke="#fcfcfb" stroke-width="2"/>
+<circle cx="429.3" cy="264.0" r="12" fill="transparent"/>
+<circle cx="429.3" cy="264.0" r="5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<text x="556.0" y="268.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">119.1 → 21.5</text>
+<text x="702.0" y="268.0" font-size="11" fill="#0b0b0b" text-anchor="end" font-weight="600" style="font-variant-numeric: tabular-nums">5.5×</text>
+<text x="313.3" y="293.0" font-size="12" fill="#0b0b0b" text-anchor="end">binary swap (release)</text>
+<g><title>binary swap (release): 149.2 → 45.6 ms (p50 of 10)</title>
+<line x1="466.1" y1="289.0" x2="443.6" y2="289.0" stroke="#88b3e7" stroke-width="3" stroke-linecap="round"/>
+<circle cx="466.1" cy="289.0" r="5" fill="#88b3e7" stroke="#fcfcfb" stroke-width="2"/>
+<circle cx="443.6" cy="289.0" r="12" fill="transparent"/>
+<circle cx="443.6" cy="289.0" r="5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<text x="556.0" y="293.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">149.2 → 45.6</text>
+<text x="702.0" y="293.0" font-size="11" fill="#0b0b0b" text-anchor="end" font-weight="600" style="font-variant-numeric: tabular-nums">3.3×</text>
+<text x="313.3" y="318.0" font-size="12" fill="#0b0b0b" text-anchor="end">SIGKILL, then restart (release)</text>
+<g><title>SIGKILL, then restart (release): 149.9 → 48 ms (p50 of 10)</title>
+<line x1="466.2" y1="314.0" x2="444.6" y2="314.0" stroke="#88b3e7" stroke-width="3" stroke-linecap="round"/>
+<circle cx="466.2" cy="314.0" r="5" fill="#88b3e7" stroke="#fcfcfb" stroke-width="2"/>
+<circle cx="444.6" cy="314.0" r="12" fill="transparent"/>
+<circle cx="444.6" cy="314.0" r="5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<text x="556.0" y="318.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">149.9 → 48</text>
+<text x="702.0" y="318.0" font-size="11" fill="#0b0b0b" text-anchor="end" font-weight="600" style="font-variant-numeric: tabular-nums">3.1×</text>
+<text x="313.3" y="371.0" font-size="12" fill="#0b0b0b" text-anchor="end">a tool-call turn: a job's end as an event</text>
+<g><title>a tool-call turn: a job's end as an event: 229.1 → 166 ms (ten gates before and after)</title>
+<line x1="474.3" y1="367.0" x2="468.1" y2="367.0" stroke="#88b3e7" stroke-width="3" stroke-linecap="round"/>
+<circle cx="474.3" cy="367.0" r="5" fill="#88b3e7" stroke="#fcfcfb" stroke-width="2"/>
+<circle cx="468.1" cy="367.0" r="12" fill="transparent"/>
+<circle cx="468.1" cy="367.0" r="5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<text x="556.0" y="371.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">229.1 → 166</text>
+<text x="702.0" y="371.0" font-size="11" fill="#0b0b0b" text-anchor="end" font-weight="600" style="font-variant-numeric: tabular-nums">1.4×</text>
+<text x="313.3" y="396.0" font-size="12" fill="#0b0b0b" text-anchor="end">a tool-call turn: one sync per job, not two</text>
+<g><title>a tool-call turn: one sync per job, not two: 179.55 → 160.55 ms (A/B, 8 runs an arm)</title>
+<line x1="469.6" y1="392.0" x2="467.5" y2="392.0" stroke="#88b3e7" stroke-width="3" stroke-linecap="round"/>
+<circle cx="469.6" cy="392.0" r="5" fill="#88b3e7" stroke="#fcfcfb" stroke-width="2"/>
+<circle cx="467.5" cy="392.0" r="12" fill="transparent"/>
+<circle cx="467.5" cy="392.0" r="5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<text x="556.0" y="396.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">179.6 → 160.6</text>
+<text x="702.0" y="396.0" font-size="11" fill="#0b0b0b" text-anchor="end" font-weight="600" style="font-variant-numeric: tabular-nums">1.1×</text>
+<text x="313.3" y="421.0" font-size="12" fill="#0b0b0b" text-anchor="end">a job's completion, heard by the daemon</text>
+<g><title>a job's completion, heard by the daemon: 16.91 → 10.31 ms (A/B, 8 runs an arm)</title>
+<line x1="424.7" y1="417.0" x2="415.3" y2="417.0" stroke="#88b3e7" stroke-width="3" stroke-linecap="round"/>
+<circle cx="424.7" cy="417.0" r="5" fill="#88b3e7" stroke="#fcfcfb" stroke-width="2"/>
+<circle cx="415.3" cy="417.0" r="12" fill="transparent"/>
+<circle cx="415.3" cy="417.0" r="5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<text x="556.0" y="421.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">16.91 → 10.31</text>
+<text x="702.0" y="421.0" font-size="11" fill="#0b0b0b" text-anchor="end" font-weight="600" style="font-variant-numeric: tabular-nums">1.6×</text>
+<text x="313.3" y="446.0" font-size="12" fill="#0b0b0b" text-anchor="end">SIGKILL, then restart: two commits off the path</text>
+<g><title>SIGKILL, then restart: two commits off the path: 41.6 → 25 ms (ten gates before and after)</title>
+<line x1="441.8" y1="442.0" x2="432.2" y2="442.0" stroke="#88b3e7" stroke-width="3" stroke-linecap="round"/>
+<circle cx="441.8" cy="442.0" r="5" fill="#88b3e7" stroke="#fcfcfb" stroke-width="2"/>
+<circle cx="432.2" cy="442.0" r="12" fill="transparent"/>
+<circle cx="432.2" cy="442.0" r="5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<text x="556.0" y="446.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">41.6 → 25</text>
+<text x="702.0" y="446.0" font-size="11" fill="#0b0b0b" text-anchor="end" font-weight="600" style="font-variant-numeric: tabular-nums">1.7×</text>
+<text x="313.3" y="471.0" font-size="12" fill="#0b0b0b" text-anchor="end">clean shutdown: 5 syncs, not 6 or 7</text>
+<g><title>clean shutdown: 5 syncs, not 6 or 7: 42.9 → 31.6 ms (ten gates before and after)</title>
+<line x1="442.4" y1="467.0" x2="436.6" y2="467.0" stroke="#88b3e7" stroke-width="3" stroke-linecap="round"/>
+<circle cx="442.4" cy="467.0" r="5" fill="#88b3e7" stroke="#fcfcfb" stroke-width="2"/>
+<circle cx="436.6" cy="467.0" r="12" fill="transparent"/>
+<circle cx="436.6" cy="467.0" r="5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<text x="556.0" y="471.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">42.9 → 31.6</text>
+<text x="702.0" y="471.0" font-size="11" fill="#0b0b0b" text-anchor="end" font-weight="600" style="font-variant-numeric: tabular-nums">1.4×</text>
+<text x="313.3" y="496.0" font-size="12" fill="#0b0b0b" text-anchor="end">cold start: dependencies optimized</text>
+<g><title>cold start: dependencies optimized: 25.6 → 21.7 ms (A/B, 10 pairs)</title>
+<line x1="432.6" y1="492.0" x2="429.5" y2="492.0" stroke="#88b3e7" stroke-width="3" stroke-linecap="round"/>
+<circle cx="432.6" cy="492.0" r="5" fill="#88b3e7" stroke="#fcfcfb" stroke-width="2"/>
+<circle cx="429.5" cy="492.0" r="12" fill="transparent"/>
+<circle cx="429.5" cy="492.0" r="5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<text x="556.0" y="496.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">25.6 → 21.7</text>
+<text x="702.0" y="496.0" font-size="11" fill="#0b0b0b" text-anchor="end" font-weight="600" style="font-variant-numeric: tabular-nums">1.2×</text>
+<line x1="327.3" y1="506.0" x2="546.0" y2="506.0" stroke="#c3c2b7" stroke-width="1"/>
+<text x="327.3" y="521.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">0.1</text>
+<text x="371.0" y="521.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">1</text>
+<text x="414.8" y="521.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">10</text>
+<text x="458.5" y="521.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">100</text>
+<text x="502.3" y="521.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">1000</text>
+<text x="546.0" y="521.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">10000</text>
+<text x="436.6" y="538.0" font-size="12" fill="#52514e" text-anchor="middle">milliseconds (log scale); right: how many times faster</text>
+<text x="18.0" y="560.0" font-size="11" fill="#52514e">Milliseconds, log scale; each row's own source report has its intervals and tests. Not shown, same sources: an idle daemon</text>
+<text x="18.0" y="575.0" font-size="11" fill="#52514e">at 10,000 sessions went from 5.05% of a core to 0.10%, and its peak memory serving those reads from 353 to 92 MB.</text>
+</svg>
