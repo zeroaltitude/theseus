@@ -1,4 +1,5 @@
-//! Recall's metrics (M6 32b; design §2.13, "Telemetry"): each spread's
+//! Recall's metrics (M6 32b; design §2.13, "Telemetry"): each recall's wait
+//! for the index by outcome, `theseus.recall.index_ms` (theseus-w9qv); each spread's
 //! `recall.activate` span, inside its `recall` span, is timed by outcome in
 //! `theseus.recall.activate_ms`, and the nodes it added, and those
 //! admitted, are counted in `theseus.recall.activated`.
@@ -52,4 +53,47 @@ async fn a_spread_is_timed_by_outcome_and_its_additions_counted() {
         (&added["asInt"], &admitted["asInt"]),
         (&json!("5"), &json!("3"))
     );
+}
+
+/// Each recall's wait for the index is timed by its outcome (theseus-w9qv),
+/// so a run of `deadline` or `words_only` shows in the metrics.
+#[tokio::test]
+async fn a_recalls_wait_for_the_index_is_timed_by_outcome() {
+    let rx = Receiver::start(vec![]).await;
+    let tel = pipeline(&rx.endpoint(), None, tuning());
+    let recall = |outcome: &str, index_ms: f64| {
+        s(
+            "recall",
+            "recall",
+            0,
+            9_000,
+            json!({"outcome": outcome, "index_ms": index_ms}),
+            vec![],
+        )
+    };
+    let trace = s(
+        "turn",
+        "turn",
+        0,
+        10_000,
+        json!({"origin_unix_ms": 1_790_000_000_000u64}),
+        vec![
+            recall("ran", 40.0),
+            recall("words_only", 250.0),
+            recall("words_only", 250.0),
+            recall("deadline", 250.0),
+        ],
+    );
+    tel.record_turn(&result_with(trace));
+    flushed(&tel).await;
+    let metrics = last_metrics(&rx.got());
+    let name = "theseus.recall.index_ms";
+    assert_eq!(points_of(&metrics, name).len(), 3, "one series an outcome");
+    let words = point_with(&metrics, name, &[("theseus.outcome", "words_only")]);
+    assert_eq!(
+        (&words["count"], &words["sum"]),
+        (&json!("2"), &json!(500.0))
+    );
+    let ran = point_with(&metrics, name, &[("theseus.outcome", "ran")]);
+    assert_eq!(ran["count"], json!("1"));
 }

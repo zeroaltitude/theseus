@@ -178,6 +178,39 @@ pub struct MemoryHealth {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub adjacency: Option<AdjacencyHealth>,
+    /// Recall's recent outcomes (theseus-w9qv): absent until a turn has
+    /// recalled in this daemon's life.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub recalls: Option<RecallOutcomes>,
+}
+
+/// How the last turns' recalls went (theseus-w9qv), counted in memory since
+/// the daemon started: the index's whole answer (`ok`), the word sources'
+/// alone when the vector search missed the deadline (`words_only`), nothing
+/// in time (`deadline`), and no index to ask (`error`).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct RecallOutcomes {
+    /// The most recalls counted: the newest this many.
+    #[cfg_attr(test, ts(type = "number"))]
+    pub window: u64,
+    /// Recalls counted, at most `window`.
+    #[cfg_attr(test, ts(type = "number"))]
+    pub turns: u64,
+    #[cfg_attr(test, ts(type = "number"))]
+    pub ok: u64,
+    #[cfg_attr(test, ts(type = "number"))]
+    pub words_only: u64,
+    #[cfg_attr(test, ts(type = "number"))]
+    pub deadline: u64,
+    #[cfg_attr(test, ts(type = "number"))]
+    pub error: u64,
+    /// When a whole answer last arrived (every source it asked for), in ms
+    /// since the epoch: absent when none has since the start.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional, type = "number"))]
+    pub last_full_ms: Option<u64>,
 }
 
 /// The adjacency projection (M6 32b): built after serving, kept current at

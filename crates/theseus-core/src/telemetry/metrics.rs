@@ -220,6 +220,13 @@ const ACTIVATED: Instrument = Instrument {
     unit: "",
     kind: Kind::IntSum,
 };
+const RECALL_INDEX: Instrument = Instrument {
+    name: "theseus.recall.index_ms",
+    description: "A turn's recall's wait for the index, by outcome: ran (the whole answer), \
+                  words_only (the vector search late), deadline, unavailable (theseus-w9qv)",
+    unit: "ms",
+    kind: Kind::Histogram,
+};
 const NODE_CACHE_BYTES: Instrument = Instrument {
     name: "theseus.node_cache.bytes",
     description: "The heat cache of decoded nodes (step 33): the record bytes it holds",
@@ -314,7 +321,7 @@ const VOICE_RESUMED: Instrument = Instrument {
 };
 
 /// Every instrument, in the order a request lists them.
-const INSTRUMENTS: [&Instrument; 44] = [
+const INSTRUMENTS: [&Instrument; 45] = [
     &TURNS,
     &TOKENS,
     &PROVIDER_ERRORS,
@@ -346,6 +353,7 @@ const INSTRUMENTS: [&Instrument; 44] = [
     &RETENTION_NODES,
     &ACTIVATE,
     &ACTIVATED,
+    &RECALL_INDEX,
     &NODE_CACHE_BYTES,
     &NODE_CACHE_READS,
     &AWS_CALLS,
@@ -522,19 +530,30 @@ impl Metrics {
         }
     }
 
-    /// Spreading activation in the turn's recalls (32b): each spread's time
+    /// The turn's recalls: each one's wait for the index by its outcome
+    /// (theseus-w9qv); and spreading activation's (32b): each spread's time
     /// by outcome, and the nodes it added and those admitted.
     fn activations(&mut self, trace: &Span) {
-        fn walk<'a>(s: &'a Span, out: &mut Vec<&'a Span>) {
-            if s.name == "recall.activate" {
+        fn walk<'a>(s: &'a Span, name: &str, out: &mut Vec<&'a Span>) {
+            if s.name == name {
                 out.push(s);
             }
             for c in &s.children {
-                walk(c, out);
+                walk(c, name, out);
+            }
+        }
+        let mut recalls = Vec::new();
+        walk(trace, "recall", &mut recalls);
+        for s in recalls {
+            let outcome = s.attrs.get("outcome").and_then(serde_json::Value::as_str);
+            let index_ms = s.attrs.get("index_ms").and_then(serde_json::Value::as_f64);
+            if let (Some(outcome), Some(ms)) = (outcome, index_ms) {
+                let attrs = vec![("theseus.outcome", Attr::S(outcome.to_string()))];
+                self.record(&RECALL_INDEX, attrs, ms);
             }
         }
         let mut out = Vec::new();
-        walk(trace, &mut out);
+        walk(trace, "recall.activate", &mut out);
         for s in out {
             let n = |k: &str| {
                 s.attrs

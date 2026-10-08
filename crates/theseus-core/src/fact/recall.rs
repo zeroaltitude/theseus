@@ -277,6 +277,11 @@ pub fn words(m: &RecallManifest) -> String {
         Some(a) => line.push_str(&format!("; activation did not run ({})", a.outcome)),
         None => {}
     }
+    if m.outcome == crate::recall::WORDS_ONLY {
+        if let Some(why) = &m.why {
+            line.push_str(&format!("; {why}"));
+        }
+    }
     line.push('.');
     line
 }
@@ -326,6 +331,20 @@ mod tests {
             words(&m),
             "Recall (shadow) found 12 candidates in 34 ms (bm25 8, entity 3) and would admit 3 \
              (1,140 tokens) from 2 sessions; dropped 2 for the budget, 1 for its place."
+        );
+        // The vector search late, the words' hits ranked (theseus-w9qv).
+        let words_only = RecallManifest {
+            outcome: crate::recall::WORDS_ONLY.into(),
+            why: Some(
+                "the vector search had not answered within 250 ms; the words alone ranked".into(),
+            ),
+            ..m.clone()
+        };
+        assert_eq!(
+            words(&words_only),
+            "Recall (shadow) found 12 candidates in 34 ms (bm25 8, entity 3) and would admit 3 \
+             (1,140 tokens) from 2 sessions; dropped 2 for the budget, 1 for its place; the \
+             vector search had not answered within 250 ms; the words alone ranked."
         );
         let late = RecallManifest {
             outcome: "deadline".into(),

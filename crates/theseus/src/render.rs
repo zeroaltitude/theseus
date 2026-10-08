@@ -1732,7 +1732,7 @@ pub fn health_lines(h: &theseus_protocol::HealthResult, now_ms: u64) -> Vec<Line
     }
     places::push_health(o, h.places.as_ref());
     judge::push_health(o, h.judge.as_ref());
-    memory::push_health(o, h.memory.as_ref());
+    memory::push_health(o, h.memory.as_ref(), now_ms);
     mcp_server::push_health(o, h.mcp_server.as_ref());
     parked::push_health(o, h.tasks.as_ref());
     web::push_health(o, &h.web);
