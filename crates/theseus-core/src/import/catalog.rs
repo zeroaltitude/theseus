@@ -48,18 +48,67 @@ const D_BOOK: usize = 4;
 const D_MONTH: usize = 5;
 const D_PATH: usize = 6;
 
-/// One episode: its row, its interned keys, and the folded words `q`
-/// searches.
+/// One episode, compact (theseus-9lxe): its ids and title its own, every
+/// value episodes repeat (a tag, a source, a file, a topic) a number in the
+/// catalog's tables, its interned keys, and the folded words `q` searches.
+/// `Catalog::episode` makes the whole `ImportedEpisode` again, for a page's
+/// rows alone.
 #[derive(Debug, Clone)]
 pub struct Row {
-    pub ep: ImportedEpisode,
+    session_id: Box<str>,
+    episode_id: Box<str>,
+    title: Option<Box<str>>,
+    /// Its agent, place name, partner, triage and file, each a text's
+    /// number (`Catalog::texts`).
+    texts: [Option<u32>; 5],
+    /// Its topics as recorded, each a text's number.
+    topics: Box<[u32]>,
+    start_ms: u64,
+    end_ms: u64,
+    line: u64,
+    imported_at_ms: u64,
+    keep: Option<f64>,
+    messages: u32,
+    credential_redacted: bool,
+    summary: bool,
+    erased: bool,
     /// Its title, place name and topics, lower case.
-    pub words: String,
+    words: Box<str>,
     /// Its tag, source, place kind, sensitivity, book (or none) and month,
     /// each a value's number in its dimension.
     keys: [Option<u32>; 6],
     /// Its topics and their ancestors, each once.
-    paths: Vec<u32>,
+    paths: Box<[u32]>,
+}
+
+impl Row {
+    pub fn session_id(&self) -> &str {
+        &self.session_id
+    }
+}
+
+/// The texts episodes repeat that no facet counts, by number; the index
+/// only while the catalog is built.
+#[derive(Debug, Default)]
+struct Texts {
+    names: Vec<Box<str>>,
+    index: HashMap<String, u32>,
+}
+
+impl Texts {
+    fn intern(&mut self, v: &str) -> u32 {
+        if let Some(n) = self.index.get(v) {
+            return *n;
+        }
+        let n = self.names.len() as u32;
+        self.names.push(v.into());
+        self.index.insert(v.to_string(), n);
+        n
+    }
+
+    fn name(&self, n: Option<u32>) -> Option<String> {
+        n.map(|n| self.names[n as usize].to_string())
+    }
 }
 
 /// Each dimension's values by number, and their numbers by value.
@@ -92,6 +141,7 @@ pub struct Catalog {
     pub version: String,
     pub rows: Vec<Row>,
     dict: Dict,
+    texts: Texts,
     /// The rows in each sort's order (newest, oldest, longest), made once,
     /// so a query walks one and sorts nothing.
     orders: [Vec<u32>; 3],
@@ -101,42 +151,64 @@ impl Catalog {
     /// The rows of `episodes`, their values interned.
     pub fn of(episodes: Vec<ImportedEpisode>, version: String) -> Self {
         let mut dict = Dict::default();
-        let rows = episodes
-            .into_iter()
-            .map(|ep| {
-                let keys = [
-                    Some(dict.intern(D_TAG, &ep.tag)),
-                    Some(dict.intern(D_SOURCE, &ep.source)),
-                    Some(dict.intern(D_PLACE, &ep.place_kind)),
-                    Some(dict.intern(D_SENS, &ep.sensitivity)),
-                    ep.book.as_deref().map(|b| dict.intern(D_BOOK, b)),
-                    Some(dict.intern(D_MONTH, &month_of(ep.start_ms))),
-                ];
-                let paths = with_ancestors(&ep.topics)
-                    .into_iter()
-                    .map(|t| dict.intern(D_PATH, t))
-                    .collect();
-                let mut words = String::new();
-                for w in ep
-                    .title
-                    .iter()
-                    .chain(ep.place_name.iter())
-                    .chain(ep.topics.iter())
-                {
-                    words.push_str(&w.to_lowercase());
-                    words.push('\n');
-                }
-                Row {
-                    ep,
-                    words,
-                    keys,
-                    paths,
-                }
-            })
-            .collect::<Vec<Row>>();
-        let order = |cmp: &dyn Fn(&ImportedEpisode, &ImportedEpisode) -> std::cmp::Ordering| {
+        let mut texts = Texts::default();
+        let mut rows = Vec::with_capacity(episodes.len());
+        for ep in episodes {
+            let keys = [
+                Some(dict.intern(D_TAG, &ep.tag)),
+                Some(dict.intern(D_SOURCE, &ep.source)),
+                Some(dict.intern(D_PLACE, &ep.place_kind)),
+                Some(dict.intern(D_SENS, &ep.sensitivity)),
+                ep.book.as_deref().map(|b| dict.intern(D_BOOK, b)),
+                Some(dict.intern(D_MONTH, &month_of(ep.start_ms))),
+            ];
+            let paths = with_ancestors(&ep.topics)
+                .into_iter()
+                .map(|t| dict.intern(D_PATH, t))
+                .collect();
+            let mut words = String::new();
+            for w in ep
+                .title
+                .iter()
+                .chain(ep.place_name.iter())
+                .chain(ep.topics.iter())
+            {
+                words.push_str(&w.to_lowercase());
+                words.push('\n');
+            }
+            let mut text = |v: &Option<String>| v.as_deref().map(|v| texts.intern(v));
+            let row_texts = [
+                text(&ep.agent),
+                text(&ep.place_name),
+                text(&ep.partner),
+                text(&ep.triage),
+                Some(texts.intern(&ep.file)),
+            ];
+            rows.push(Row {
+                topics: ep.topics.iter().map(|t| texts.intern(t)).collect(),
+                session_id: ep.session_id.into(),
+                episode_id: ep.episode_id.into(),
+                title: ep.title.map(Into::into),
+                texts: row_texts,
+                start_ms: ep.start_ms,
+                end_ms: ep.end_ms,
+                line: ep.line,
+                imported_at_ms: ep.imported_at_ms,
+                keep: ep.keep,
+                messages: ep.messages,
+                credential_redacted: ep.credential_redacted,
+                summary: ep.summary,
+                erased: ep.erased,
+                words: words.into(),
+                keys,
+                paths,
+            });
+        }
+        // Built: the texts are read by number from now on.
+        texts.index = HashMap::new();
+        let order = |cmp: &dyn Fn(&Row, &Row) -> std::cmp::Ordering| {
             let mut v: Vec<u32> = (0..rows.len() as u32).collect();
-            v.sort_by(|a, b| cmp(&rows[*a as usize].ep, &rows[*b as usize].ep));
+            v.sort_by(|a, b| cmp(&rows[*a as usize], &rows[*b as usize]));
             v
         };
         let orders = [
@@ -150,7 +222,47 @@ impl Catalog {
             version,
             rows,
             dict,
+            texts,
             orders,
+        }
+    }
+
+    /// Row `i`'s episode, whole, as `import.sessions` lists it.
+    pub fn episode(&self, i: usize) -> ImportedEpisode {
+        let r = &self.rows[i];
+        let key =
+            |k: usize, dim: usize| r.keys[k].map(|n| self.dict.names[dim][n as usize].clone());
+        let [agent, place_name, partner, triage, file] = r.texts;
+        ImportedEpisode {
+            session_id: r.session_id.to_string(),
+            episode_id: r.episode_id.to_string(),
+            tag: key(0, D_TAG).unwrap_or_default(),
+            source: key(1, D_SOURCE).unwrap_or_default(),
+            agent: self.texts.name(agent),
+            place_kind: key(2, D_PLACE).unwrap_or_default(),
+            place_name: self.texts.name(place_name),
+            start_ms: r.start_ms,
+            end_ms: r.end_ms,
+            sensitivity: key(3, D_SENS).unwrap_or_default(),
+            partner: self.texts.name(partner),
+            topics: r
+                .topics
+                .iter()
+                .map(|t| self.texts.names[*t as usize].to_string())
+                .collect(),
+            book: key(4, D_BOOK),
+            credential_redacted: r.credential_redacted,
+            triage: self.texts.name(triage),
+            keep: r.keep,
+            messages: r.messages,
+            summary: r.summary,
+            title: r.title.as_deref().map(str::to_string),
+            erased: r.erased,
+            file: self.texts.name(file).unwrap_or_default(),
+            line: r.line,
+            imported_at_ms: r.imported_at_ms,
+            summary_text: None,
+            cites: None,
         }
     }
 }
@@ -159,42 +271,16 @@ impl Catalog {
     /// What it holds, estimated (theseus-9lxe): each row and the text it
     /// owns, the values interned, and the orders.
     pub fn bytes(&self) -> u64 {
-        let text = |v: &Option<String>| v.as_ref().map_or(0, String::capacity);
         let rows: usize = self
             .rows
             .iter()
             .map(|r| {
-                let e = &r.ep;
                 std::mem::size_of::<Row>()
-                    + r.words.capacity()
-                    + r.paths.capacity() * 4
-                    + [
-                        &e.session_id,
-                        &e.episode_id,
-                        &e.tag,
-                        &e.source,
-                        &e.place_kind,
-                        &e.sensitivity,
-                        &e.file,
-                    ]
-                    .iter()
-                    .map(|s| s.capacity())
-                    .sum::<usize>()
-                    + [
-                        &e.agent,
-                        &e.place_name,
-                        &e.partner,
-                        &e.book,
-                        &e.triage,
-                        &e.title,
-                    ]
-                    .iter()
-                    .map(|v| text(v))
-                    .sum::<usize>()
-                    + e.topics
-                        .iter()
-                        .map(|t| t.capacity() + std::mem::size_of::<String>())
-                        .sum::<usize>()
+                    + r.session_id.len()
+                    + r.episode_id.len()
+                    + r.title.as_ref().map_or(0, |t| t.len())
+                    + r.words.len()
+                    + (r.topics.len() + r.paths.len()) * 4
             })
             .sum();
         let dict: usize = self
@@ -204,8 +290,14 @@ impl Catalog {
             .flatten()
             .map(|n| 2 * (n.capacity() + std::mem::size_of::<String>()) + 8)
             .sum();
+        let texts: usize = self
+            .texts
+            .names
+            .iter()
+            .map(|n| n.len() + std::mem::size_of::<Box<str>>())
+            .sum();
         let orders: usize = self.orders.iter().map(|o| o.capacity() * 4).sum();
-        (rows + dict + orders) as u64
+        (rows + dict + texts + orders) as u64
     }
 }
 
@@ -508,8 +600,7 @@ impl Wants {
         if topic {
             m |= TOPIC;
         }
-        if self.from.is_none_or(|f| r.ep.end_ms >= f) && self.to.is_none_or(|t| r.ep.start_ms <= t)
-        {
+        if self.from.is_none_or(|f| r.end_ms >= f) && self.to.is_none_or(|t| r.start_ms <= t) {
             m |= SPAN;
         }
         if self.words.iter().all(|w| r.words.contains(w.as_str())) {
@@ -566,9 +657,7 @@ pub fn query(cat: &Catalog, p: &ImportSessionsParams) -> Answer {
     };
     for i in order.iter().map(|i| *i as usize) {
         let r = &rows[i];
-        if (r.ep.erased && !p.erased)
-            || (!ids.is_empty() && !ids.contains(r.ep.session_id.as_str()))
-        {
+        if (r.erased && !p.erased) || (!ids.is_empty() && !ids.contains(r.session_id())) {
             continue;
         }
         let m = want.mask(r);
@@ -677,7 +766,7 @@ mod tests {
         a.page
             .iter()
             .map(|i| {
-                c.rows[*i].ep.session_id[6..]
+                c.rows[*i].session_id()[6..]
                     .trim_start_matches('0')
                     .to_string()
             })
@@ -686,6 +775,38 @@ mod tests {
 
     fn facet(f: &[ImportFacet], v: &str) -> u64 {
         f.iter().find(|x| x.value == v).map_or(0, |x| x.count)
+    }
+
+    /// A row holds its episode compactly (theseus-9lxe): each one made
+    /// whole again equals the episode it was made from, every field.
+    #[test]
+    fn every_rows_episode_is_made_whole_again() {
+        let mut eps: Vec<ImportedEpisode> = (0..7)
+            .map(|i| ep(i, &["reef/survey/", "harbour"], "public", i == 5))
+            .collect();
+        for (i, e) in eps.iter_mut().enumerate() {
+            e.agent = (i % 2 == 0).then(|| format!("agent-{}", i % 3));
+            e.partner = (i == 3).then(|| "partner-candidate:osprey".to_string());
+            e.triage = (i != 4).then(|| "decision_or_preference".to_string());
+            e.keep = (i != 4).then_some(0.25 * i as f64);
+            e.credential_redacted = i == 6;
+            e.summary = i % 3 != 0;
+            e.file = format!("tide-{}.jsonl", i % 2);
+            e.line = 10 + i as u64;
+            e.imported_at_ms = 1_790_000_000_000 + i as u64;
+            if i == 2 {
+                e.title = None;
+                e.place_name = None;
+                e.book = None;
+                e.topics.clear();
+            }
+        }
+        let c = Catalog::of(eps.clone(), String::new());
+        assert_eq!(c.rows.len(), eps.len());
+        for (i, e) in eps.iter().enumerate() {
+            assert_eq!(&c.episode(i), e, "row {i}");
+        }
+        assert!(c.bytes() > 0);
     }
 
     #[test]
@@ -798,8 +919,8 @@ mod tests {
         let rs = rows();
         let p = ImportSessionsParams {
             ids: vec![
-                rs.rows[3].ep.session_id.clone(),
-                rs.rows[6].ep.session_id.clone(),
+                rs.rows[3].session_id().to_string(),
+                rs.rows[6].session_id().to_string(),
                 "ses_epnone".into(),
             ],
             ..ImportSessionsParams::default()
@@ -810,7 +931,7 @@ mod tests {
         assert_eq!(a.facets.months.len(), 2);
         // An erased one is named and still left out unless asked.
         let gone = ImportSessionsParams {
-            ids: vec![rs.rows[5].ep.session_id.clone()],
+            ids: vec![rs.rows[5].session_id().to_string()],
             ..ImportSessionsParams::default()
         };
         assert_eq!(query(&rs, &gone).total, 0);

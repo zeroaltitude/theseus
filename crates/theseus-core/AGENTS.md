@@ -667,8 +667,8 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   books' terms rebuilt, an import's batch) leaves its freed pages held: over 21,779 imported sessions a daemon held
   202 MiB from the system with 60 in use. Every method's answer and each background build's end marks work
   (`Resident::mark`); after `QUIET` (10 s) with no other mark, the tender trims (`malloc_trim(0)`) when the free heap
-  passes `TRIM_FLOOR` (8 MiB). `import.sessions`' catalog (`import/catalog.rs`) is built a page of records at a time
-  and dropped after `CATALOG_IDLE` (10 min) with no read; the next read builds it again (the Context page reads it
+  passes `TRIM_FLOOR` (8 MiB). `import.sessions`' catalog (`import/catalog.rs`) is built a page of records at a time,
+  holds each episode compactly (its repeated values interned; `Catalog::episode` makes a page's rows whole), and is dropped after `CATALOG_IDLE` (10 min) with no read; the next read builds it again (the Context page reads it
   every 30 s while open). The tender starts after serving (`tend_memory_after_serving`), waits on a `Notify` and
   tokio's timer, holds the core by `Weak`, and trims and drops on the blocking pool. Health's `resident` block: the
   resident set, the heap in use and held (`mallinfo2`), the trims, and the caches by size. A musl build reads no heap
