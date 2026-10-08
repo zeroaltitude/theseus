@@ -339,3 +339,65 @@ fn a_sigterm_stops_the_turn_with_its_spend_and_exits_9() {
     );
     assert_eq!(model.requests().len(), 1, "a later spawn resumed the turn");
 }
+
+/// A headless run on a host whose seccomp profile answers `clone3` with
+/// ENOSYS, as Docker's default does (theseus-f7tz): `proc.run`'s command
+/// starts by `clone` and its output reaches the model, and a command that
+/// cannot start reaches it as why. Every `proc.run` of a bench run in Docker
+/// failed to start before ("Function not implemented (os error 38)"), and
+/// the model read "(no output)". The profile is a filter on the thread that
+/// starts the CLI, which its daemon and every wrapper inherit.
+#[test]
+fn proc_run_runs_where_the_host_refuses_clone3_and_a_failed_start_says_why() {
+    let model = FakeModel::start(|prompt| {
+        if prompt.contains("run the echo") {
+            let script = "echo from-the-container-7f3a; echo err-7f3a >&2";
+            vec![("proc_run", json!({"argv": ["sh", "-c", script]}))]
+        } else if prompt.contains("run the missing one") {
+            vec![(
+                "proc_run",
+                json!({"argv": ["theseus-no-such-program-7f3a"]}),
+            )]
+        } else {
+            vec![]
+        }
+    });
+    let dir = rig(&model, |t| {
+        set(t, &["policy", "enforcement"], "open".into());
+    });
+    let path = dir.path().to_path_buf();
+    let (echo, missing) = std::thread::spawn(move || {
+        theseus_sandbox::seccomp::refuse_here(&[(libc::SYS_clone3, libc::ENOSYS)]).unwrap();
+        (
+            ask(&path, "run the echo"),
+            ask(&path, "run the missing one"),
+        )
+    })
+    .join()
+    .unwrap();
+    // What the model was sent after each call: the call's result.
+    let results: Vec<String> = model
+        .requests()
+        .iter()
+        .map(|r| r["messages"].to_string())
+        .filter(|m| m.contains("tool_result"))
+        .collect();
+    assert_eq!(echo.code, 0, "{}\n{}", echo.turn, echo.stderr);
+    assert_eq!(echo.turn["tool_calls"], 1, "{}", echo.turn);
+    assert_eq!(results.len(), 2, "{results:?}\n{}", echo.stderr);
+    assert!(
+        results[0].contains("from-the-container-7f3a") && results[0].contains("err-7f3a"),
+        "the command's output did not reach the model: {}",
+        results[0]
+    );
+    assert!(!results[0].contains("could not start"), "{}", results[0]);
+    assert_eq!(missing.code, 0, "{}\n{}", missing.turn, missing.stderr);
+    assert!(
+        results[1].contains(
+            "the command could not start: No such file or directory (os error 2). It did not run"
+        ),
+        "a failed start's reason did not reach the model: {}",
+        results[1]
+    );
+    assert!(!results[1].contains("(no output)"), "{}", results[1]);
+}

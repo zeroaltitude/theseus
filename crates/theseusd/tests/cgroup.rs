@@ -232,6 +232,68 @@ fn a_job_past_its_cap_is_refused_new_processes_and_its_completion_says_so() {
     );
 }
 
+/// Where `clone3` is refused (theseus-f7tz), a job's command is still in its
+/// cgroup before it runs a thing: the wrapper makes it by `clone`, and the
+/// child moves itself into the threaded `job-<id>` by its `cgroup.procs`, in
+/// the delegated case a daemon's jobs live in. The wrapper is started from a
+/// thread whose seccomp filter answers `clone3` with ENOSYS, as Docker's
+/// default profile does, and inherits it. The command reads its own cgroup,
+/// its cap refuses its sleepers, and its completion says the fallback; one
+/// started without the filter is born there by `clone3` and says none.
+/// (tests_enosys's own cgroup case needs a cgroup it may make at the root, so
+/// it skips where the tests do not run as root.)
+#[test]
+fn a_job_started_by_clone_where_clone3_is_refused_is_in_its_cgroup() {
+    let Some(scope) = Scope::start("clone") else {
+        return skip("a_job_started_by_clone_where_clone3_is_refused_is_in_its_cgroup");
+    };
+    let jobs = scope.jobs(10);
+    let rig = Rig::new();
+    for (id, refused) in [("act_by_clone3", false), ("act_by_clone", true)] {
+        let script = format!(
+            "cat /proc/self/cgroup > \"$1/cgroup-{id}\"; \
+             i=0; while [ $i -lt 30 ]; do sleep 2 & i=$((i+1)); done; exit 0"
+        );
+        std::thread::scope(|t| {
+            t.spawn(|| {
+                if refused {
+                    theseus_sandbox::seccomp::refuse_here(&[(libc::SYS_clone3, libc::ENOSYS)])
+                        .unwrap();
+                }
+                rig.start(&jobs, id, &script);
+            })
+            .join()
+            .unwrap();
+        });
+        let c = wait_for("the completion", Duration::from_secs(20), || {
+            rig.spool.read_completion(id).unwrap()
+        });
+        let d = c.detail.unwrap_or_default();
+        let own = std::fs::read_to_string(rig.dir.path().join(format!("cgroup-{id}"))).unwrap();
+        assert!(
+            own.lines()
+                .any(|l| l.starts_with("0::") && l.ends_with(&format!("/job-{id}"))),
+            "{id} ran outside its cgroup: {own}"
+        );
+        assert!(d["pids_refused"].as_u64().unwrap_or(0) > 0, "{id}: {d}");
+        let fallback = d.get("spawn_fallback").and_then(|v| v.as_str());
+        match refused {
+            true => assert_eq!(
+                fallback,
+                Some("clone: clone3 is refused here (ENOSYS)"),
+                "{d}"
+            ),
+            false => assert_eq!(fallback, None, "{d}"),
+        }
+        let job = scope.dir.join(format!("job-{id}"));
+        wait_for(
+            "the job's cgroup to be removed",
+            Duration::from_secs(20),
+            || (!job.exists()).then_some(()),
+        );
+    }
+}
+
 /// The 219 case (theseus-gyin's cut, survey card 5): a unit as `theseusd
 /// install` writes it (`Delegate=yes`, `KillMode=process`,
 /// `Restart=on-failure`) whose daemon is killed while a job lives in its

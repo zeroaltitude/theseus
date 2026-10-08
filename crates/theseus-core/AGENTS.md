@@ -125,7 +125,8 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   private place); the rows `fact/ontology.rs`. Tests: `tests_ontology.rs`.
 - **Tool calls**: `toolrun.rs` (every call the model makes becomes a kernel action: the gate and the dispatch), with
   a job's call in `toolrun/job.rs` (its turn waits on the job's wake, `toolrun/waits.rs`, and takes the job's
-  completion with its result in one frame; Tier 7.1), a `proc.run` batch's steps in `toolrun/steps.rs` (each a job
+  completion with its result in one frame; Tier 7.1; a command that never started says why, `toolrun/not_started.rs`,
+  never "(no output)": theseus-f7tz), a `proc.run` batch's steps in `toolrun/steps.rs` (each a job
   under the call's one correlation id, the next launched once one exits 0, the turn's wait held across them so
   the drain never settles the call between two; theseus-7gir.3) and its gate in `toolrun/batch.rs` (`judge`: each
   step as the call alone, the strictest taken), the continuation in `toolrun/resume.rs`, and the results

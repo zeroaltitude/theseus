@@ -6,15 +6,36 @@
 //! it fork; and a move into a cgroup by `cgroup.procs` waits for an RCU grace
 //! period, measured at 8 to 40 ms after an idle spell, where the clone costs
 //! what a posix_spawn does.
+//!
+//! Where `clone3` answers ENOSYS (Docker's default seccomp profile refuses it
+//! so, for glibc to fall back; a kernel before 5.3 has none), the child is
+//! made by `clone` with the same flags, as glibc's posix_spawn falls back,
+//! and a child bound for a cgroup moves itself there by its `cgroup.procs`
+//! before its exec, so it is still in it before it runs a thing
+//! (theseus-f7tz). Every proc.run in a container failed to start before.
 
 use std::ffi::{CString, OsStr};
 use std::io::{self, Read};
 use std::os::fd::{AsRawFd, BorrowedFd, RawFd};
 use std::os::unix::ffi::OsStrExt;
 use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 /// linux/sched.h's, as a u64: libc gives it the wrong width on some targets.
 const CLONE_INTO_CGROUP: u64 = 0x2_0000_0000;
+
+/// Set once `clone3` has answered ENOSYS in this process: every spawn after
+/// goes straight to `clone` (theseus-f7tz).
+static NO_CLONE3: AtomicBool = AtomicBool::new(false);
+
+/// What a job's completion says of a child `clone` made.
+pub(crate) const FALLBACK: &str = "clone: clone3 is refused here (ENOSYS)";
+
+/// Whether this process makes its children by `clone`, since `clone3` is
+/// refused here: a job's completion says so (`detail.spawn_fallback`).
+pub(crate) fn by_clone() -> bool {
+    NO_CLONE3.load(Ordering::Relaxed)
+}
 
 unsafe extern "C" {
     static environ: *const *const libc::c_char;
@@ -67,6 +88,9 @@ struct Child<'a> {
     stdio: [RawFd; 3],
     umask: Option<u32>,
     err: RawFd,
+    /// The cgroup to move into before the exec, when `clone` made the child
+    /// and could not place it at its birth.
+    cgroup: Option<RawFd>,
 }
 
 /// Start `e` with `stdio` as its descriptors 0, 1, and 2, under `umask`, and
@@ -95,7 +119,7 @@ pub(crate) fn spawn(
         args.flags |= CLONE_INTO_CGROUP;
         args.cgroup = cg.as_raw_fd() as u64;
     }
-    let c = Child {
+    let mut c = Child {
         exec: e,
         argv: argv.as_ptr(),
         // SAFETY: the process's environment, the job's in a wrapper.
@@ -103,7 +127,9 @@ pub(crate) fn spawn(
         stdio,
         umask,
         err: err_w.as_raw_fd(),
+        cgroup: None,
     };
+    let mut pid: i64 = -(libc::ENOSYS as i64);
     // Every signal is blocked across the clone, so no handler of the wrapper
     // runs in the child, which shares its memory until the exec.
     // SAFETY: sigsets filled by libc, and the mask put back below.
@@ -113,31 +139,69 @@ pub(crate) fn spawn(
         libc::sigfillset(&mut all);
         libc::pthread_sigmask(libc::SIG_SETMASK, &all, &mut old);
     }
-    let pid: i64;
     // SAFETY: clone3 as this function's own instruction. CLONE_VFORK stops
     // this thread until the child has execed or exited, and the child runs
     // `child` alone, on this stack below this frame, which it only reads. A
     // call to libc's syscall() would return in the child too, and the child's
     // next call would push over the return address its parent takes on waking.
-    unsafe {
-        #[cfg(target_arch = "x86_64")]
-        std::arch::asm!(
-            "syscall",
-            inlateout("rax") libc::SYS_clone3 => pid,
-            in("rdi") &mut args as *mut libc::clone_args,
-            in("rsi") std::mem::size_of::<libc::clone_args>(),
-            lateout("rcx") _,
-            lateout("r11") _,
-            options(nostack),
-        );
-        #[cfg(target_arch = "aarch64")]
-        std::arch::asm!(
-            "svc 0",
-            in("x8") libc::SYS_clone3,
-            inlateout("x0") &mut args as *mut libc::clone_args as i64 => pid,
-            in("x1") std::mem::size_of::<libc::clone_args>(),
-            options(nostack),
-        );
+    if !by_clone() {
+        unsafe {
+            #[cfg(target_arch = "x86_64")]
+            std::arch::asm!(
+                "syscall",
+                inlateout("rax") libc::SYS_clone3 => pid,
+                in("rdi") &mut args as *mut libc::clone_args,
+                in("rsi") std::mem::size_of::<libc::clone_args>(),
+                lateout("rcx") _,
+                lateout("r11") _,
+                options(nostack),
+            );
+            #[cfg(target_arch = "aarch64")]
+            std::arch::asm!(
+                "svc 0",
+                in("x8") libc::SYS_clone3,
+                inlateout("x0") &mut args as *mut libc::clone_args as i64 => pid,
+                in("x1") std::mem::size_of::<libc::clone_args>(),
+                options(nostack),
+            );
+        }
+        if pid == -(libc::ENOSYS as i64) {
+            NO_CLONE3.store(true, Ordering::Relaxed);
+        }
+    }
+    // SAFETY: as clone3's above, by the older call: the flags alone, no new
+    // stack (the child runs on this one while this thread is stopped), and
+    // no tids. Its argument order differs between the two architectures
+    // only past the stack, where every argument is 0.
+    if pid == -(libc::ENOSYS as i64) {
+        c.cgroup = cgroup.map(|cg| cg.as_raw_fd());
+        let flags = (libc::CLONE_VM | libc::CLONE_VFORK | libc::SIGCHLD) as u64;
+        unsafe {
+            #[cfg(target_arch = "x86_64")]
+            std::arch::asm!(
+                "syscall",
+                inlateout("rax") libc::SYS_clone => pid,
+                in("rdi") flags,
+                in("rsi") 0u64,
+                in("rdx") 0u64,
+                in("r10") 0u64,
+                in("r8") 0u64,
+                lateout("rcx") _,
+                lateout("r11") _,
+                options(nostack),
+            );
+            #[cfg(target_arch = "aarch64")]
+            std::arch::asm!(
+                "svc 0",
+                in("x8") libc::SYS_clone,
+                inlateout("x0") flags as i64 => pid,
+                in("x1") 0u64,
+                in("x2") 0u64,
+                in("x3") 0u64,
+                in("x4") 0u64,
+                options(nostack),
+            );
+        }
     }
     if pid == 0 {
         // SAFETY: the child, while this thread is stopped.
@@ -166,6 +230,20 @@ pub(crate) fn spawn(
 unsafe fn child(c: &Child<'_>) -> ! {
     for sig in [libc::SIGTERM, libc::SIGCHLD, libc::SIGPIPE] {
         libc::signal(sig, libc::SIG_DFL);
+    }
+    // Made by `clone`, not born in its cgroup: in it before it runs a thing.
+    // "0" is the writer itself, and a threaded cgroup's `cgroup.procs` takes
+    // a whole process.
+    if let Some(cg) = c.cgroup {
+        let fd = libc::openat(
+            cg,
+            c"cgroup.procs".as_ptr(),
+            libc::O_WRONLY | libc::O_CLOEXEC,
+        );
+        if fd == -1 || libc::write(fd, b"0".as_ptr().cast(), 1) != 1 {
+            fail(c.err, *libc::__errno_location());
+        }
+        libc::close(fd);
     }
     for (fd, &from) in (0..).zip(&c.stdio) {
         if libc::dup2(from, fd) == -1 {

@@ -130,10 +130,94 @@ pub(crate) fn mount_setattr(path: &CStr, recursive: bool, set: u64) -> io::Resul
 
 /// `close_range(2)`: closes `first..=last`, or with `cloexec` marks them
 /// close-on-exec instead.
+/// Where the host refuses it (Linux before 5.9, or a container's seccomp
+/// profile that answers ENOSYS or EPERM), the same one descriptor at a time
+/// (theseus-f7tz).
 pub(crate) fn close_range(first: u32, last: u32, cloexec: bool) -> io::Result<()> {
     const CLOSE_RANGE_CLOEXEC: libc::c_uint = 1 << 2;
     let flags = if cloexec { CLOSE_RANGE_CLOEXEC } else { 0 };
-    cvt_long(unsafe { libc::syscall(libc::SYS_close_range, first, last, flags) }).map(drop)
+    match cvt_long(unsafe { libc::syscall(libc::SYS_close_range, first, last, flags) }) {
+        Err(e) if matches!(e.raw_os_error(), Some(libc::ENOSYS | libc::EPERM)) => {
+            each_open(first, last, |fd| unsafe {
+                match cloexec {
+                    true => libc::fcntl(fd, libc::F_SETFD, libc::FD_CLOEXEC),
+                    false => libc::close(fd),
+                };
+            })
+        }
+        r => r.map(drop),
+    }
+}
+
+/// `f` on each open descriptor in `first..=last`, read from `/proc/self/fd`,
+/// or, with no `/proc`, on each below the open-file limit. Raw calls on the
+/// stack alone: the init runs it between its fork and the command's exec.
+fn each_open(first: u32, last: u32, mut f: impl FnMut(libc::c_int)) -> io::Result<()> {
+    let dir = unsafe {
+        libc::open(
+            c"/proc/self/fd".as_ptr(),
+            libc::O_RDONLY | libc::O_DIRECTORY | libc::O_CLOEXEC,
+        )
+    };
+    if dir == -1 {
+        let mut lim: libc::rlimit = unsafe { std::mem::zeroed() };
+        cvt(unsafe { libc::getrlimit(libc::RLIMIT_NOFILE, &mut lim) })?;
+        // An unlimited one stops at the kernel's default `nr_open`.
+        let top = (lim.rlim_cur as u64).min(1 << 20);
+        (u64::from(first)..top.min(u64::from(last) + 1)).for_each(|fd| f(fd as libc::c_int));
+        return Ok(());
+    }
+    // The listing is read whole before any is acted on, so a close never
+    // moves what is still to be read; more than `found` holds are taken by
+    // further passes, from past the last one taken.
+    let mut buf = [0u8; 4096];
+    let mut found = [0 as libc::c_int; 256];
+    let mut from = u64::from(first);
+    loop {
+        let mut n_found = 0;
+        let mut full = false;
+        unsafe { libc::lseek(dir, 0, libc::SEEK_SET) };
+        'read: loop {
+            let n =
+                unsafe { libc::syscall(libc::SYS_getdents64, dir, buf.as_mut_ptr(), buf.len()) };
+            if n <= 0 {
+                break;
+            }
+            let mut at = 0usize;
+            while at < n as usize {
+                // linux_dirent64: ino (8), off (8), reclen (2), type (1), name.
+                let reclen = u16::from_ne_bytes([buf[at + 16], buf[at + 17]]) as usize;
+                let name = &buf[at + 19..at + reclen];
+                at += reclen;
+                let mut digits = name.iter().take_while(|b| b.is_ascii_digit());
+                let Some(fd) = digits.try_fold(0u64, |n, &b| {
+                    n.checked_mul(10)?.checked_add(u64::from(b - b'0'))
+                }) else {
+                    continue;
+                };
+                if !name[0].is_ascii_digit()
+                    || fd < from
+                    || fd > u64::from(last)
+                    || fd == dir as u64
+                {
+                    continue;
+                }
+                if n_found == found.len() {
+                    full = true;
+                    break 'read;
+                }
+                found[n_found] = fd as libc::c_int;
+                n_found += 1;
+            }
+        }
+        found[..n_found].iter().for_each(|&fd| f(fd));
+        match found[..n_found].iter().max() {
+            Some(&top) if full => from = top as u64 + 1,
+            _ => break,
+        }
+    }
+    unsafe { libc::close(dir) };
+    Ok(())
 }
 
 pub(crate) fn pidfd_send_signal(pidfd: RawFd, sig: libc::c_int) -> io::Result<()> {
@@ -255,4 +339,43 @@ pub(crate) fn recv_fd(sock: RawFd) -> io::Result<OwnedFd> {
 /// The errno of the last failed call, for code that may not allocate.
 pub(crate) fn errno() -> libc::c_int {
     unsafe { *libc::__errno_location() }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Where the host refuses `close_range` (ENOSYS, or an older profile's
+    /// EPERM), it marks and closes the range one descriptor at a time, and
+    /// nothing outside it (theseus-f7tz).
+    #[test]
+    fn close_range_marks_and_closes_one_by_one_where_the_host_refuses_it() {
+        for refusal in [libc::ENOSYS, libc::EPERM] {
+            std::thread::spawn(move || {
+                crate::seccomp::refuse_here(&[(libc::SYS_close_range, refusal)]).unwrap();
+                let null = std::fs::File::open("/dev/null").unwrap();
+                // Four descriptors in a row, high enough to be this test's.
+                let fds: Vec<RawFd> = (0..4)
+                    .map(|i| cvt(unsafe { libc::dup2(null.as_raw_fd(), 700 + i) }).unwrap())
+                    .collect();
+                let flags = |fd| unsafe { libc::fcntl(fd, libc::F_GETFD) };
+                close_range(701, 702, true).unwrap();
+                assert_eq!(
+                    fds.iter().map(|&fd| flags(fd)).collect::<Vec<_>>(),
+                    [0, 1, 1, 0]
+                );
+                close_range(701, 702, false).unwrap();
+                assert_eq!(
+                    fds.iter().map(|&fd| flags(fd)).collect::<Vec<_>>(),
+                    [0, -1, -1, 0]
+                );
+                assert!(unsafe { libc::syscall(libc::SYS_close_range, 700, 700, 0) } == -1);
+                assert_eq!(errno(), refusal, "the host's refusal stood in");
+                unsafe { libc::close(700) };
+                unsafe { libc::close(703) };
+            })
+            .join()
+            .unwrap();
+        }
+    }
 }

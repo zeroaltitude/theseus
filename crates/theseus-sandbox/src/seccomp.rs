@@ -233,6 +233,44 @@ pub fn install(program: &[sock_filter]) -> io::Result<()> {
     .map(drop)
 }
 
+/// A host that refuses some system calls, as a container's seccomp profile
+/// does, stood in for a test (theseus-f7tz): on the calling thread, and every
+/// process it starts after, each of `calls` answers its errno at once (a
+/// `(number, errno)` pair: Docker's profile answers `clone3` with ENOSYS, and
+/// an older one every call it does not know with EPERM), and anything else
+/// runs. It sets `no_new_privs` first, as a filter without `CAP_SYS_ADMIN`
+/// needs.
+pub fn refuse_here(calls: &[(libc::c_long, i32)]) -> io::Result<()> {
+    let mut prog = vec![sock_filter {
+        code: LD_W_ABS,
+        jt: 0,
+        jf: 0,
+        k: OFF_NR,
+    }];
+    for &(nr, errno) in calls {
+        prog.push(sock_filter {
+            code: JEQ,
+            jt: 0,
+            jf: 1,
+            k: nr as u32,
+        });
+        prog.push(sock_filter {
+            code: RET,
+            jt: 0,
+            jf: 0,
+            k: RET_ERRNO | errno as u32,
+        });
+    }
+    prog.push(sock_filter {
+        code: RET,
+        jt: 0,
+        jf: 0,
+        k: RET_ALLOW,
+    });
+    crate::sys::cvt(unsafe { libc::prctl(libc::PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) })?;
+    install(&prog)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

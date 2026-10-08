@@ -19,7 +19,8 @@ server in L1, M7 43a).
 - `view.rs`: the view (system binds, `ro_paths`, overlays over the workspace, HOME, `/tmp`, `/dev`, `/proc`,
   `/sys`), and `Spec::hidden` (17b), the paths covered whatever binds them: Theseus's floor and socket, and the
   approve list's paths.
-- `seccomp.rs` (hand-built classic BPF; `seccompiler` is not in the offline registry), `report.rs` (`Started`,
+- `seccomp.rs` (hand-built classic BPF; `seccompiler` is not in the offline registry; and `refuse_here`, a host's
+  profile stood in for a test on its own thread: each listed call answers its errno, theseus-f7tz), `report.rs` (`Started`,
   `Exit`, `Scratch::summary`), `spec.rs`. No cgroup of its own (theseus-gyin, 2026-10-03): a job's processes are
   capped by `RLIMIT_NPROC` in its own user namespace, its files by `RLIMIT_FSIZE`, its scratch by the tmpfs caps, and
   its memory not at all, as an L0 job's is not.
@@ -41,6 +42,9 @@ server in L1, M7 43a).
 - **No L1 job as root.** Linux never applies `RLIMIT_NPROC` to the initial user namespace's root, and user
   namespace 1 maps the job back to the operator, so a root operator's job would have no process limit: `spawn`
   refuses it before it makes anything, with the stage "checking the job's process limit" (theseus-pv6i).
+- **A refused call has a fallback or a reason.** `close_range` refused (ENOSYS, or an older profile's EPERM) is done
+  one descriptor at a time from `/proc/self/fd`, raw calls on the stack (theseus-f7tz). What L1 cannot do without is
+  a `SpawnError` with its stage: never L0 instead.
 - **The view shows nothing it was not given.** A path a `Spec` names must be absolute; a hidden path the view does
   not hold is skipped.
 
