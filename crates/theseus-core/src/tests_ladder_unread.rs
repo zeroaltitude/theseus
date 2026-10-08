@@ -81,7 +81,7 @@ async fn before_the_warm_read_a_judged_turn_reads_and_writes_nothing_of_the_ladd
         // writes the adoptions before it).
         let c = core_at(dir.path(), work.path(), Some(&jev));
         let p = PackRollbackParams {
-            pack: "route.v2".into(),
+            pack: "route.v3".into(),
             why: Some("too many switches".into()),
             off: false,
         };
@@ -100,7 +100,7 @@ async fn before_the_warm_read_a_judged_turn_reads_and_writes_nothing_of_the_ladd
     let want = [
         "classify.v1",
         "role.v1",
-        "route.v2",
+        "route.v3",
         "security.v1",
         "security.v3",
         "loop.v1",
@@ -125,7 +125,7 @@ async fn before_the_warm_read_a_judged_turn_reads_and_writes_nothing_of_the_ladd
     assert_eq!(j.ladder().reads(), 0, "nothing of the ladder was read");
     assert_eq!(pack_modes(&c), before, "no pack.mode row written");
     // What would act judges in shadow until the read.
-    for p in ["route.v2", "rerank.v1", "security.v3"] {
+    for p in ["route.v3", "rerank.v1", "security.v3"] {
         assert_eq!(j.mode_for(p, &res.session_id).mode, PackMode::Shadow, "{p}");
     }
     assert!(
@@ -145,9 +145,9 @@ async fn before_the_warm_read_a_judged_turn_reads_and_writes_nothing_of_the_ladd
     c.warm_ladder();
     until("the warm read", || j.ladder_read()).await;
     assert_eq!(j.ladder().reads(), 1);
-    assert_eq!(j.ladder().standing("route.v2").rung, Rung::RolledBack);
+    assert_eq!(j.ladder().standing("route.v3").rung, Rung::RolledBack);
     assert_eq!(
-        j.mode_for("route.v2", &res.session_id).mode,
+        j.mode_for("route.v3", &res.session_id).mode,
         PackMode::Shadow,
         "rolled back"
     );

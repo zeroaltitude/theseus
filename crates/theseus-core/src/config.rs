@@ -858,6 +858,9 @@ pub struct ProfileConfig {
     /// medium; others: high).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub effort: Option<Effort>,
+    /// `effort` stands whatever Jev's route.v3 answers (theseus-qe3v).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub effort_fixed: bool,
     #[serde(default)]
     pub thinking_display: ThinkingDisplay,
     /// Tool loops per turn before the Advancer ends it.
@@ -908,7 +911,7 @@ impl CacheTtl {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Effort {
     Low,
@@ -1582,6 +1585,7 @@ impl Config {
                 max_output_tokens: m.max_output_tokens,
                 system: m.system.clone(),
                 effort: m.effort,
+                effort_fixed: false,
                 thinking_display: m.thinking_display,
                 max_loops: m.max_loops,
                 refusal_fallbacks: m.refusal_fallbacks,

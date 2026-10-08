@@ -13,6 +13,7 @@ import { dropDraft, type Draft } from '@/lib/drafts'
 import { cn, ms, stamp, tokens, usd } from '@/lib/format'
 import type { TurnRow } from '@/lib/derive'
 import { fallbackLine } from '@/lib/fallback'
+import { effortWords, type TurnRouted } from '@/lib/route'
 import { byteWords, callSummary, diffLines, l1Words, looksLikeDiff, resultWords, wireToName } from '@/lib/toolwords'
 import { JsonView } from './JsonView'
 import { LiveDot, Pill } from './ui'
@@ -111,6 +112,7 @@ export function Transcript({ nodes, turns, live, asking, tightened, scores, noti
                 {t.usage && <TurnUsage u={t.usage} />}
                 {t.first_token_ms != null && <span className="num text-[11px] text-ink-faint" title="time to the first token">first token {ms(t.first_token_ms)}</span>}
                 {t.model && <span className="num text-[11px] text-ink-faint">{t.model}</span>}
+                {t.route && <TurnRoute r={t.route} />}
                 {t.stop && <span className="num text-[11px] text-ink-faint">{t.stop}</span>}
                 {t.failed && <Pill tone="fault">failed</Pill>}
               </>}
@@ -297,6 +299,17 @@ function AssistantItem({ n }: { n: NodeInfo }) {
         </div>
       </div>
     </div>
+  )
+}
+
+/** How routing placed the turn (`route.decided`): Jev's mode, and the effort it set or why it stood aside (route.v3,
+ *  theseus-qe3v). */
+function TurnRoute({ r }: { r: TurnRouted }) {
+  const effort = effortWords(r)
+  return (
+    <span className="num text-[11px] text-ink-faint" title={`routing: ${r.reason}`}>
+      {r.mode ?? 'no verdict'}{effort && <> · <span className={r.effortApplied ? 'text-think' : undefined}>{effort}</span></>}
+    </span>
   )
 }
 

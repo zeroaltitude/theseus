@@ -407,8 +407,8 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     mark's `cut_ms` is where the next run cuts: the run's clock, never past the newest judgment it read, so a clock
     that read ahead closes no open window (theseus-gf8j); a mark without it walks everything once.
     Tests: `tests_learning.rs`, `learning::*::tests`.
-  - **Routing** (step 25e, theseus-0j2.11): the route pack (`judge::inbound::ROUTE_PACK`: `route.v2` since
-    theseus-3okf, live at once in place of `route.v1`, which stays embedded) asks at the inbound point in a request of its own, beside
+  - **Routing** (step 25e, theseus-0j2.11): the route pack (`judge::inbound::ROUTE_PACK`: `route.v3` since
+    theseus-qe3v, live at once in place of `route.v2` and `route.v1`, which stay embedded) asks at the inbound point in a request of its own, beside
     the batch of `classify.v1` and `role.v1` (theseus-ddbi: one question answers sooner than the batch), live while
     `[judge]` is on (`[routing]`, `config/routing.rs`, lowers it). Its verdict comes back over a oneshot
     (`RouteWait`, an `Answered` with the time it came) the moment its request answers, and the call waits for a
@@ -437,6 +437,12 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     base is another (the live profile or a place's changed) clears the move (`same_base`). The pane's carried
     profile, when it is the routed one, stands for `from` (`turn_submit`), never a new base. Tests:
     `tests_route.rs`, `tests_route_base.rs`, `routing::tests`, `turn::route_step::tests`.
+    **The effort** (route.v3, theseus-qe3v): `reply_effort` rides the route pack's one request beside `mode`;
+    `routing/effort.rs` decides, purely: Jev's level over the profile's `effort` unless `effort_fixed`, clamped to
+    `[routing] effort_bounds`, only for a model whose catalog row takes effort; below the question's confirm band,
+    `unclear`, a pin, shadow, or a late (carried) verdict leave the profile's own. `apply_effort` sets it on the spec
+    and the first compile's request (`compiler::output_config`). `route.decided`'s `effort_*` fields and `TurnRoute`
+    say which. Tests: `tests_route_effort.rs`, `routing::effort::tests`.
   - **Replay, audit, and backfill** (step 25d, theseus-0j2.14; the owner's runs, each `judge_act(Act::JudgeRun)`
     and in the CLI's `OPERATORS`, each on a `learning` thread at nice 19, routed together by `rpc/judge_runs.rs`).
     `learning/replay.rs` (`Core::judge_replay`, public for the learning loop): a candidate the build does not wire

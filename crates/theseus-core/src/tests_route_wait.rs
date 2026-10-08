@@ -2,8 +2,9 @@
 //! against the fake Jev with the latencies it is given:
 //!
 //! - `route.v1` asks in a request of its own beside the batch of
-//!   `classify.v1` and `role.v1`, so its verdict comes when its one question
-//!   is answered, never after the batch's; each judgment is recorded once,
+//!   `classify.v1` and `role.v1`, so its verdict comes when its questions
+//!   (route.v3's two: the mode and the reply's effort, theseus-qe3v) are
+//!   answered, never after the batch's; each judgment is recorded once,
 //!   with its own request's cost.
 //! - Jev's connections open once the socket serves (`Core::warm_judge`),
 //!   never on the start path, and are kept warm, so a fresh daemon's first
@@ -86,7 +87,7 @@ async fn route_asks_alone_beside_the_batch_and_each_judgment_is_recorded_once() 
         BTreeMap::from([
             ("classify.v1".to_string(), 1),
             ("role.v1".to_string(), 1),
-            ("route.v2".to_string(), 1)
+            ("route.v3".to_string(), 1)
         ]),
         "each judgment once"
     );
@@ -94,26 +95,36 @@ async fn route_asks_alone_beside_the_batch_and_each_judgment_is_recorded_once() 
     assert_eq!(seen.len(), 2);
     let route_req = seen
         .iter()
-        .find(|s| asked(&s.body).contains("route.v2/mode"))
+        .find(|s| asked(&s.body).contains("route.v3/mode"))
         .unwrap();
     let batch_req = seen
         .iter()
-        .find(|s| !asked(&s.body).contains("route.v2/mode"))
+        .find(|s| !asked(&s.body).contains("route.v3/mode"))
         .unwrap();
-    assert_eq!(asked(&route_req.body).len(), 1, "route.v2's one question");
+    // route.v3's two questions, the mode and the reply's effort, in its one
+    // request (theseus-qe3v).
+    assert_eq!(
+        asked(&route_req.body),
+        BTreeSet::from([
+            "route.v3/mode".to_string(),
+            "route.v3/reply_effort".to_string()
+        ]),
+        "route.v3's two questions, one request"
+    );
     assert_eq!(
         route_req.body["state"], batch_req.body["state"],
         "one state"
     );
     let price = JevPrice::jev_1_13_0();
-    let route = rows.iter().find(|j| j["pack"] == "route.v2").unwrap();
-    let batch: Vec<&Value> = rows.iter().filter(|j| j["pack"] != "route.v2").collect();
+    let route = rows.iter().find(|j| j["pack"] == "route.v3").unwrap();
+    let batch: Vec<&Value> = rows.iter().filter(|j| j["pack"] != "route.v3").collect();
     assert_eq!(
         (
             route["call"]["packs"].as_u64(),
             route["call"]["questions"].as_u64()
         ),
-        (Some(1), Some(1))
+        (Some(1), Some(2)),
+        "one pack, its two questions"
     );
     assert_ne!(route["call"]["id"], batch[0]["call"]["id"], "two calls");
     assert_eq!(batch[0]["call"]["id"], batch[1]["call"]["id"]);
@@ -128,7 +139,7 @@ async fn route_asks_alone_beside_the_batch_and_each_judgment_is_recorded_once() 
         ),
         (u.input_tokens, u.output_tokens)
     );
-    assert_eq!(cost(route), price.cost_micros(&u), "route.v2's whole call");
+    assert_eq!(cost(route), price.cost_micros(&u), "route.v3's whole call");
     let u = billed(&batch_req.body);
     let sum = |k: &str| batch.iter().map(|j| tokens(j, k)).sum::<u64>();
     assert_eq!(
@@ -165,7 +176,7 @@ async fn the_verdict_reaches_the_turn_before_the_batch_answers() {
     assert!(
         kinds(&r.core.store, "judge.call")
             .iter()
-            .all(|j| j.data["pack"] == "route.v2"),
+            .all(|j| j.data["pack"] == "route.v3"),
         "the batch had not answered"
     );
 }

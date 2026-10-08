@@ -34,7 +34,8 @@ pub struct Adopted {
 /// The packs live before the ladder, and `route.v2`, which goes live at once
 /// in place of `route.v1` (theseus-3okf; the owner's standing rule of
 /// 2026-10-06, "we test it live, no more shadows"), its rollback rules
-/// guarding it.
+/// guarding it, and `route.v3`, which goes live at once in place of
+/// `route.v2` the same way (theseus-qe3v).
 pub const ADOPTED: &[Adopted] = &[
     Adopted {
         pack: "route.v1",
@@ -43,6 +44,10 @@ pub const ADOPTED: &[Adopted] = &[
     Adopted {
         pack: "route.v2",
         why: WHY_ROUTE_V2,
+    },
+    Adopted {
+        pack: "route.v3",
+        why: WHY_ROUTE_V3,
     },
     Adopted {
         pack: "rerank.v1",
@@ -56,6 +61,10 @@ pub const ADOPTED: &[Adopted] = &[
 
 /// `route.v2`'s adoption row's reason.
 pub const WHY_ROUTE_V2: &str = "decision of 2026-10-07";
+
+/// `route.v3`'s adoption row's reason: the owner's word of that evening, that
+/// Jev sets the effort as well as the model (theseus-qe3v).
+pub const WHY_ROUTE_V3: &str = "decision of 2026-10-07";
 
 /// The rules adoption gives a pack id (every version of it):
 /// - `route`: the owner pins another profile on 3 routed turns in a local
