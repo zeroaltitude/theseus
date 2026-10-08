@@ -36,35 +36,51 @@ fn cpu_ticks() -> u64 {
     f[11].parse::<u64>().unwrap() + f[12].parse::<u64>().unwrap()
 }
 
-/// Four interactive bash terminals at their prompts, closed together as the
-/// daemon's stop closes them: the time, over ten rounds.
+/// Four interactive bash terminals at their prompts.
+async fn four(terms: &Arc<Terms>) {
+    for i in 0..4 {
+        run(
+            terms,
+            OPEN,
+            json!({"argv": ["bash", "--norc", "--noprofile", "-i"], "quiet_ms": 0}),
+        )
+        .await;
+        let id = format!("t{}", i + 1);
+        run(
+            terms,
+            SEND,
+            json!({"terminal": id, "text": "PS1='r''eady# '\n"}),
+        )
+        .await;
+        run(
+            terms,
+            READ,
+            json!({"terminal": id, "until": "ready# ", "timeout_ms": 10_000}),
+        )
+        .await;
+    }
+}
+
+fn line(what: &str, took: &mut [f64]) {
+    took.sort_by(f64::total_cmp);
+    println!(
+        "{what}: median {:.1} ms, min {:.1}, max {:.1}",
+        took[took.len() / 2],
+        took[0],
+        took[took.len() - 1]
+    );
+}
+
+/// Four terminals with nothing in the background, closed together as the
+/// daemon's stop closes them, and four closed one by one by `term.close`:
+/// the times, over ten rounds.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "a measure: run it by hand"]
 async fn close_of_four_terminals() {
-    let mut took = Vec::new();
+    let (mut stop, mut close) = (Vec::new(), Vec::new());
     for _ in 0..10 {
         let terms = terms();
-        for i in 0..4 {
-            run(
-                &terms,
-                OPEN,
-                json!({"argv": ["bash", "--norc", "--noprofile", "-i"], "quiet_ms": 0}),
-            )
-            .await;
-            let id = format!("t{}", i + 1);
-            run(
-                &terms,
-                SEND,
-                json!({"terminal": id, "text": "PS1='r''eady# '\n"}),
-            )
-            .await;
-            run(
-                &terms,
-                READ,
-                json!({"terminal": id, "until": "ready# ", "timeout_ms": 10_000}),
-            )
-            .await;
-        }
+        four(&terms).await;
         let t0 = Instant::now();
         let closed = tokio::task::spawn_blocking({
             let terms = terms.clone();
@@ -72,16 +88,18 @@ async fn close_of_four_terminals() {
         })
         .await
         .unwrap();
-        took.push(t0.elapsed().as_secs_f64() * 1000.0);
+        stop.push(t0.elapsed().as_secs_f64() * 1000.0);
         assert_eq!(closed.len(), 4);
+        let terms = super::bench::terms();
+        four(&terms).await;
+        for i in 0..4 {
+            let t0 = Instant::now();
+            run(&terms, CLOSE, json!({"terminal": format!("t{}", i + 1)})).await;
+            close.push(t0.elapsed().as_secs_f64() * 1000.0);
+        }
     }
-    took.sort_by(f64::total_cmp);
-    println!(
-        "close of 4 terminals: median {:.1} ms, min {:.1}, max {:.1}",
-        took[took.len() / 2],
-        took[0],
-        took[took.len() - 1]
-    );
+    line("the daemon's stop's close of 4 terminals", &mut stop);
+    line("term.close of one of 4 terminals", &mut close);
 }
 
 /// A 30 s wait on a terminal whose shell runs `sleep 40` in front: the CPU
@@ -122,4 +140,45 @@ async fn cpu_of_a_30_s_wait() {
         text.lines().next().unwrap_or_default()
     );
     terms.close_where(BY_TOOL, |_| true);
+}
+
+/// theseus-ggqf's keeping close: four bash terminals, each with a `sleep &`
+/// job in the background, closed together at the daemon's stop, the jobs
+/// left and then ended. Only on a build with `keep_background`.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "a measure: run it by hand"]
+async fn keeping_close_of_four_terminals() {
+    let mut took = Vec::new();
+    for round in 0..10 {
+        let terms = terms();
+        four(&terms).await;
+        let mark = format!("4798.{:07}{round}", std::process::id());
+        for i in 0..4 {
+            let id = format!("t{}", i + 1);
+            let text = format!("sleep {mark} & echo bg\n");
+            run(&terms, SEND, json!({"terminal": id, "text": text})).await;
+            run(
+                &terms,
+                READ,
+                json!({"terminal": id, "until": "bg\nready# ", "timeout_ms": 10_000}),
+            )
+            .await;
+        }
+        let t0 = Instant::now();
+        let closed = tokio::task::spawn_blocking({
+            let terms = terms.clone();
+            move || terms.close_where(BY_DAEMON, |_| true)
+        })
+        .await
+        .unwrap();
+        took.push(t0.elapsed().as_secs_f64() * 1000.0);
+        assert!(closed.iter().all(|c| c.left.len() == 1), "{closed:?}");
+        tokio::task::spawn_blocking(move || terms.end_left("s1"))
+            .await
+            .unwrap();
+    }
+    line(
+        "the daemon's stop's keeping close of 4 terminals",
+        &mut took,
+    );
 }

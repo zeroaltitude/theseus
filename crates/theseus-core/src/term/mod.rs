@@ -94,7 +94,7 @@ pub const CLOSE_GRACE: Duration = Duration::from_millis(500);
 pub const MAX_WAIT_MS: u64 = 60_000;
 
 /// How often a wait `until_idle` looks at the pty's foreground group.
-pub const IDLE_LOOK: Duration = Duration::from_millis(20);
+pub const IDLE_LOOK: Duration = Duration::from_millis(40);
 
 /// How long after keys are sent before the program in front counts as
 /// idle: a shell reads a typed line, then puts its command in front, and

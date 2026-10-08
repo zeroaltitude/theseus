@@ -252,12 +252,13 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   and leaves the background running, as `proc.run` does (`term/left.rs`: booked, in health's `terminals_left`, a
   `term.left` row, ended by a later cancel or `/stop` of the session's execution or its parent's,
   `Core::end_terminals_left`). `term.read`'s `until_idle` waits for the program back in front (`tcgetpgrp`), looked
-  at every 20 ms and never within 100 ms of a send. In memory only: the rows `term.opened`, `term.closed` and
+  at every 40 ms and never within 100 ms of a send. In memory only: the rows `term.opened`, `term.closed` and
   `term.left` (`fact/term.rs`) are the record. No broker grant reaches a terminal (`brokered`). Tests: `term/tests.rs` (goldens
   and real `sh`, `python3`, `cat`; a `/proc` scan for a test's own processes looks for a marker holding the run's
   pid, so another tree's run beside it is never taken for its own, theseus-d006, theseus-fps6), `term/tests_keep.rs`,
   `tests_idle.rs`, `tests_slots.rs` (theseus-ggqf; `term/bench.rs` its ignored measures), `tests_term.rs` (the
-  gate, the hold, each close, a task's job left and a `/stop`'s end of it), and theseusd's `tests/headless.rs`.
+  gate, the hold, each close, a task's job left and a `/stop`'s end of it), and theseusd's `tests/headless.rs` and
+  `tests/terminals.rs`.
 - **The protocol server**: `rpc/` (`server.rs` routes each method by name; `methods.rs`; `confirms.rs`), with
   `bus.rs` and `outbound.rs` (one ordered, capped queue per connection; a test may lower the cap a new connection
   takes, `Push::backlog_cap`, so the lag prove overflows it with a few hundred events, theseus-0u6g).
