@@ -210,7 +210,13 @@ impl Core {
         closed: &watch::Receiver<()>,
     ) -> Response {
         let id = req.id.clone();
-        match self.dispatch(req, tx, client, surface, closed).await {
+        let answer = self
+            .clone()
+            .dispatch(req, tx, client, surface, closed)
+            .await;
+        // A trim follows once the daemon has been quiet (theseus-9lxe).
+        self.resident.mark();
+        match answer {
             Ok(v) => Response::ok(id, v),
             Err(f) => Response::err_with(id, f.code, f.message, f.data),
         }

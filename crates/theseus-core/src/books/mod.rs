@@ -25,7 +25,7 @@
 //!   them.
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::time::Instant;

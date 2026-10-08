@@ -152,6 +152,9 @@ pub struct Core {
     /// The imported episodes' projection for `import.sessions`
     /// (theseus-7n3e), built on a read that finds the import changed.
     pub episodes: crate::import::catalog::Cache,
+    /// The daemon's own memory: work's marks, the trims after them, and
+    /// health's block (theseus-9lxe).
+    pub resident: crate::resident::Resident,
 }
 
 /// Where the index tender's supervisor writes its facts' rows
@@ -746,6 +749,7 @@ impl Core {
             closed: Default::default(),
             mcp_server: Default::default(),
             episodes: Default::default(),
+            resident: Default::default(),
         });
         core.index.set_ledger(index_ledger(&core));
         core.mcp.attach(Arc::downgrade(&core));
@@ -957,6 +961,10 @@ impl Core {
                     stretches += 1;
                 }
                 Ok(Ok(None)) => {
+                    // Its stretches' garbage is the allocator's to give back.
+                    if let Some(c) = core.upgrade() {
+                        c.resident.mark();
+                    }
                     break json!({"outcome": "whole", "stretches": stretches,
                                  "ms": (t0.elapsed().as_secs_f64() * 1000.0).round(),
                                  "yielded_ms": yielded.as_millis() as u64});
@@ -1004,6 +1012,9 @@ impl Core {
                         stretches += 1;
                     }
                     Ok(Ok(None)) => {
+                        if let Some(c) = core.upgrade() {
+                            c.resident.mark();
+                        }
                         break json!({"outcome": "whole", "stretches": stretches,
                                      "ms": (t0.elapsed().as_secs_f64() * 1000.0).round(),
                                      "yielded_ms": yielded.as_millis() as u64});

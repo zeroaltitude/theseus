@@ -41,6 +41,8 @@ pub mod write;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
+mod tests_catalog;
+#[cfg(test)]
 mod tests_topics;
 
 use serde::{Deserialize, Serialize};

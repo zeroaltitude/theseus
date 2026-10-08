@@ -64,6 +64,7 @@ pub mod provider;
 pub mod push;
 pub mod reach;
 pub mod recall;
+pub mod resident;
 pub mod restore;
 pub mod routing;
 pub mod rpc;

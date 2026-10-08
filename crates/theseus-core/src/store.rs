@@ -1001,6 +1001,12 @@ impl Store {
         self.inner.scan_scope(scope, after, usize::MAX)
     }
 
+    /// A scope's records after `after`, oldest first, at most `limit`: a
+    /// page of `scope_after`, for a reader that holds one page at a time.
+    pub fn scope_page(&self, scope: &str, after: u64, limit: usize) -> Result<Vec<Record>> {
+        self.inner.scan_scope(scope, after, limit)
+    }
+
     pub fn get_compilation(&self, id: &str) -> Result<Option<crate::compiler::Compilation>> {
         match self.inner.latest_by_key(kinds::COMPILATION, id)? {
             Some(r) => Ok(Some(r.decode()?)),

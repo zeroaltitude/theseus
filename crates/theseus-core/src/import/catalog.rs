@@ -19,14 +19,15 @@
 //!   a slash (`a/b` takes `a/b/c`, never `a/bc`): each row's paths hold its
 //!   topics' ancestors by their slashes.
 
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeSet, HashMap};
 use std::sync::{Arc, Mutex};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use anyhow::Result;
 use theseus_protocol::import::{
     ImportFacet, ImportFacets, ImportListResult, ImportSessionsParams, ImportedEpisode,
 };
+use theseus_protocol::resident::CacheHealth;
 use theseus_store::kinds;
 
 use super::{tag_scope, ImportedFrom};
@@ -154,9 +155,79 @@ impl Catalog {
     }
 }
 
-/// The core's copy, built on a read that finds it stale.
+impl Catalog {
+    /// What it holds, estimated (theseus-9lxe): each row and the text it
+    /// owns, the values interned, and the orders.
+    pub fn bytes(&self) -> u64 {
+        let text = |v: &Option<String>| v.as_ref().map_or(0, String::capacity);
+        let rows: usize = self
+            .rows
+            .iter()
+            .map(|r| {
+                let e = &r.ep;
+                std::mem::size_of::<Row>()
+                    + r.words.capacity()
+                    + r.paths.capacity() * 4
+                    + [
+                        &e.session_id,
+                        &e.episode_id,
+                        &e.tag,
+                        &e.source,
+                        &e.place_kind,
+                        &e.sensitivity,
+                        &e.file,
+                    ]
+                    .iter()
+                    .map(|s| s.capacity())
+                    .sum::<usize>()
+                    + [
+                        &e.agent,
+                        &e.place_name,
+                        &e.partner,
+                        &e.book,
+                        &e.triage,
+                        &e.title,
+                    ]
+                    .iter()
+                    .map(|v| text(v))
+                    .sum::<usize>()
+                    + e.topics
+                        .iter()
+                        .map(|t| t.capacity() + std::mem::size_of::<String>())
+                        .sum::<usize>()
+            })
+            .sum();
+        let dict: usize = self
+            .dict
+            .names
+            .iter()
+            .flatten()
+            .map(|n| 2 * (n.capacity() + std::mem::size_of::<String>()) + 8)
+            .sum();
+        let orders: usize = self.orders.iter().map(|o| o.capacity() * 4).sum();
+        (rows + dict + orders) as u64
+    }
+}
+
+/// The core's copy, built on a read that finds it stale, and dropped after
+/// an idle stretch (theseus-9lxe: `crate::resident`'s tender asks
+/// `drop_if_idle`), so the memory of a catalog nobody reads is given back;
+/// the next read builds it again.
 #[derive(Debug, Default)]
-pub struct Cache(Mutex<Option<Arc<Catalog>>>);
+pub struct Cache {
+    kept: Mutex<Kept>,
+}
+
+#[derive(Debug, Default)]
+struct Kept {
+    catalog: Option<Arc<Catalog>>,
+    /// When it was last read: `None` while none is kept.
+    read_at: Option<Instant>,
+    /// Its estimated bytes, made as it was built.
+    bytes: u64,
+    /// The catalogs dropped after an idle stretch since the start.
+    drops: u64,
+}
 
 impl Cache {
     /// The projection at `list`'s counts: the kept one when its key agrees,
@@ -169,16 +240,75 @@ impl Cache {
         let version = version_of(list);
         // Held while it builds: two reads at once build it once.
         let mut kept = self
-            .0
+            .kept
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        if let Some(c) = kept.as_ref().filter(|c| c.version == version) {
+        kept.read_at = Some(Instant::now());
+        if let Some(c) = kept.catalog.as_ref().filter(|c| c.version == version) {
             return Ok((c.clone(), None));
         }
+        // The stale one goes before the new one is built, so the two are
+        // never held at once.
+        kept.catalog = None;
         let t0 = Instant::now();
         let c = Arc::new(build(store, list, version)?);
-        *kept = Some(c.clone());
+        kept.bytes = c.bytes();
+        kept.catalog = Some(c.clone());
         Ok((c, Some(t0.elapsed().as_secs_f64() * 1e3)))
+    }
+
+    /// When the kept catalog was last read: `None` while none is kept.
+    pub fn read_at(&self) -> Option<Instant> {
+        let kept = self
+            .kept
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        kept.catalog.as_ref().and(kept.read_at)
+    }
+
+    /// Drop the kept catalog when nothing has read it for `idle`: its rows
+    /// when it did. A read in progress keeps its own `Arc` to the end.
+    pub fn drop_if_idle(&self, idle: Duration) -> Option<usize> {
+        let mut kept = self
+            .kept
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let idle_now = kept.read_at.is_none_or(|r| r.elapsed() >= idle);
+        if !idle_now {
+            return None;
+        }
+        let c = kept.catalog.take()?;
+        kept.read_at = None;
+        kept.bytes = 0;
+        kept.drops += 1;
+        drop(kept);
+        Some(c.rows.len())
+    }
+
+    /// Health's line for it (theseus-9lxe): its rows and estimated bytes,
+    /// its idle bound, and its drops.
+    pub fn health(&self, idle: Duration) -> CacheHealth {
+        let kept = self
+            .kept
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let rows = kept.catalog.as_ref().map_or(0, |c| c.rows.len() as u64);
+        let state = match (&kept.catalog, kept.read_at) {
+            (Some(_), Some(r)) => format!("read {} s ago", r.elapsed().as_secs()),
+            _ => "not built: the next import.sessions read builds it".into(),
+        };
+        CacheHealth {
+            name: "import catalog".into(),
+            bytes: kept.bytes,
+            cap_bytes: 0,
+            entries: rows,
+            estimated: true,
+            note: format!(
+                "{state}; dropped after {} min with no read ({} so far)",
+                idle.as_secs() / 60,
+                kept.drops
+            ),
+        }
     }
 }
 
@@ -191,25 +321,50 @@ pub fn version_of(list: &ImportListResult) -> String {
         .join(",")
 }
 
+/// The records a build reads at a time (theseus-9lxe): each page's records
+/// are made rows and dropped before the next, so a build holds the rows and
+/// one page, never every record and every decoded session at once.
+const BUILD_PAGE: usize = 1_000;
+
 /// Every imported session of every tag, as rows: each session's newest
-/// record (an erase writes it again).
+/// record (an erase writes it again), read a page at a time.
 pub fn build(store: &Store, list: &ImportListResult, version: String) -> Result<Catalog> {
     let mut episodes = Vec::new();
     for t in &list.tags {
-        let mut latest: BTreeMap<String, SessionRecord> = BTreeMap::new();
-        for r in store.scope_after(&tag_scope(&t.tag), 0)? {
-            if r.kind != kinds::SESSION {
-                continue;
+        let first = episodes.len();
+        // A session's place in `episodes`, so a newer record replaces it.
+        let mut at: HashMap<String, usize> = HashMap::new();
+        let mut after = 0;
+        loop {
+            let page = store.scope_page(&tag_scope(&t.tag), after, BUILD_PAGE)?;
+            let Some(last) = page.last() else { break };
+            after = last.position;
+            let full = page.len() == BUILD_PAGE;
+            for r in page {
+                if r.kind != kinds::SESSION {
+                    continue;
+                }
+                let rec: SessionRecord = r.decode()?;
+                let Some(imp) = rec.imported.as_deref() else {
+                    continue;
+                };
+                let ep = episode_of(&rec.session_id, rec.title.as_deref(), imp);
+                match at.get(&rec.session_id) {
+                    Some(&i) => episodes[i] = ep,
+                    None => {
+                        at.insert(rec.session_id.clone(), episodes.len());
+                        episodes.push(ep);
+                    }
+                }
             }
-            let rec: SessionRecord = r.decode()?;
-            latest.insert(rec.session_id.clone(), rec);
-        }
-        for rec in latest.into_values() {
-            if let Some(imp) = rec.imported.as_deref() {
-                episodes.push(episode_of(&rec.session_id, rec.title.as_deref(), imp));
+            if !full {
+                break;
             }
         }
+        // Each tag's sessions by id, the tags in their order.
+        episodes[first..].sort_by(|a: &ImportedEpisode, b| a.session_id.cmp(&b.session_id));
     }
+    episodes.shrink_to_fit();
     Ok(Catalog::of(episodes, version))
 }
 
