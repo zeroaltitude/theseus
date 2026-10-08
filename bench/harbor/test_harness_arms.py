@@ -146,6 +146,24 @@ class Records(unittest.TestCase):
         sp = ef.openhands_spend(None, traj)
         self.assertEqual((sp["spend_from"], sp["model_calls"]), ("trajectory_totals", 2))
 
+    def test_openclaw_reads_its_envelope(self):
+        env = {"payloads": [{"text": "done {not json"}], "meta": {"durationMs": 49318, "aborted": False, "agentMeta": {
+            "provider": "anthropic", "model": "claude-sonnet-5-5", "assistantTurns": 9,
+            "bridgeCalls": {"search": 8, "describe": 2, "call": 2},
+            "usage": {"input": 20, "output": 2927, "cacheRead": 200827, "cacheWrite": 32275, "total": 236049,
+                      "cost": {"total": 0.1501629}}}}}
+        text = "Now using node v24\n[agent] start {\n" + json.dumps(env, indent=2) + "\n[agent] run ended\n"
+        with tempfile.TemporaryDirectory() as d:
+            (Path(d) / "openclaw.txt").write_text(text)
+            rec = ef.openclaw_record(Path(d))
+        self.assertEqual((rec["spend_from"], rec["model_calls"], rec["tool_calls"], rec["cost_usd"], rec["wall_s"]),
+                         ("envelope", 9, 2, 0.1501629, 49.318))
+        self.assertEqual(rec["tokens"], {"input": 20, "cache_read": 200827, "cache_write": 32275, "output": 2927})
+        # OpenClaw's own bill is the list price, to the dollar's millionth.
+        self.assertAlmostEqual(rec["list_cost_usd"], 0.150163, places=6)
+        self.assertIs(rec["aborted"], False)
+        self.assertIsNone(ef.openclaw_envelope("no json here"))
+
     def test_records_from_a_trials_files(self):
         with tempfile.TemporaryDirectory() as d:
             logs = Path(d)
@@ -380,7 +398,9 @@ class Arms(unittest.TestCase):
         self.assertNotIn("nvm use 22", joined)
         self.assertNotIn("nvm install 22", joined)
         self.assertIn("openclaw@2026.9.8", joined)
-        self.assertIn("nvm use 24", a.get_version_command())
+        self.assertIn("nvm use 24 >/dev/null", a.get_version_command())
+        self.assertEqual(a.parse_version("Now using node v24.21.0 (npm v11.19.0)\nOpenClaw 2026.9.8 (fc23bc8)\n"),
+                         "2026.9.8")
 
     def test_the_record_lands_in_the_context_and_prices_an_unpriced_trial(self):
         (self.logs / "opencode.txt").write_text(OPENCODE)

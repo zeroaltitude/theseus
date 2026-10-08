@@ -793,8 +793,69 @@ def openhands_record(logs: Path) -> dict[str, Any]:
                           wall_s=trajectory_wall(traj))
 
 
+def openclaw_envelope(text: str | None) -> dict[str, Any] | None:
+    """The JSON object `openclaw agent --local --json` prints last, the one
+    with `meta.agentMeta` (log lines come before and after it)."""
+    dec = json.JSONDecoder()
+    found, pos, t = None, 0, text or ""
+    while True:
+        i = t.find("{", pos)
+        if i < 0:
+            return found
+        try:
+            obj, end = dec.raw_decode(t, i)
+        except ValueError:
+            pos = i + 1
+            continue
+        if isinstance(obj, dict) and isinstance((obj.get("meta") or {}).get("agentMeta"), dict):
+            found = obj
+        pos = end
+
+
+def openclaw_spend(envelope: dict[str, Any] | None) -> dict[str, Any]:
+    """OpenClaw's spend from its envelope's `meta.agentMeta`: `usage` (the
+    run's tokens by class, `cacheRead` and `cacheWrite` apart from `input`,
+    and `cost.total`, priced by OpenClaw's own catalog), `assistantTurns`
+    (its model calls), and, for tool calls, `bridgeCalls.call` (OpenClaw
+    2026.9 runs its tools through code mode's bridge: `search` and
+    `describe` find a tool, `call` runs one) else its receipt's tool count."""
+    meta = ((envelope or {}).get("meta") or {}).get("agentMeta") or {}
+    u = meta.get("usage") or {}
+    if not u:
+        return _spend({}, None, None, None, None)
+    m = _model({}, meta.get("model"))
+    m.update(tokens(u, PI_USAGE))
+    cost = (u.get("cost") or {}).get("total")
+    if cost is None:
+        cost = meta.get("costUsd")
+    m["cost_usd"] = cost
+    calls = meta.get("assistantTurns")
+    m["calls"] = int(calls or 0)
+    bridge = meta.get("bridgeCalls") or {}
+    tools = bridge.get("call")
+    if tools is None:
+        tools = len(((meta.get("terminalReceipt") or {}).get("successfulToolNames")) or [])
+    return _spend({meta.get("model") or "unknown": m}, cost, "envelope", calls, tools)
+
+
 def openclaw_record(logs: Path) -> dict[str, Any]:
-    return atif_record("openclaw", logs)
+    """OpenClaw's record from `agent/openclaw.txt`'s envelope; without one,
+    Harbor's trajectory (from a session file, which OpenClaw 2026.9's SQLite
+    sessions leave Harbor without)."""
+    try:
+        text = (logs / "openclaw.txt").read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        text = None
+    env = openclaw_envelope(text)
+    spend = openclaw_spend(env)
+    traj = _trajectory(logs)
+    if spend["spend_from"] is None and traj:
+        spend = trajectory_spend(traj)
+    ms = (((env or {}).get("meta") or {}).get("durationMs"))
+    wall = ms / 1000 if isinstance(ms, (int, float)) else trajectory_wall(traj)
+    rec = _priced_record("openclaw", spend, logs, wall_s=wall)
+    rec["aborted"] = ((env or {}).get("meta") or {}).get("aborted")
+    return rec
 
 
 def opencode_spend(events: list[dict[str, Any]]) -> dict[str, Any]:

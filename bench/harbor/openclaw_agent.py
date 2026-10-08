@@ -9,7 +9,9 @@ task's container, nothing of OpenClaw changed) with `measured.MeasuredArm`:
 OpenClaw pinned at `PINNED_VERSION`, its thinking level `medium`, its own CLI
 timeout lifted (`TIMEOUT_S`) so the task's agent timeout bounds it as it
 bounds every arm, the sampler around its run, and the record from Harbor's
-trajectory of its session (`efficiency.openclaw_record`).
+`--json` envelope (`efficiency.openclaw_record`: its `meta.agentMeta` usage,
+turns and tool bridge calls; Harbor's own trajectory needs a session file that
+OpenClaw 2026.9's SQLite sessions do not leave).
 
 **Node 24.** Harbor's agent installs Node 22 through nvm and runs every
 OpenClaw command under `nvm use 22`; OpenClaw 2026.9.8 asks for Node 24.16 or
@@ -35,7 +37,9 @@ NODE = "24"
 
 
 def node24(command: str) -> str:
-    return command.replace("nvm install 22", f"nvm install {NODE}").replace("nvm use 22", f"nvm use {NODE}")
+    # nvm's "Now using node …" line goes nowhere, so a version read is OpenClaw's own.
+    return (command.replace("nvm install 22", f"nvm install {NODE}")
+            .replace("nvm use 22", f"nvm use {NODE} >/dev/null"))
 
 
 class MeasuredOpenClaw(MeasuredArm, OpenClaw):
@@ -49,6 +53,15 @@ class MeasuredOpenClaw(MeasuredArm, OpenClaw):
 
     def get_version_command(self):
         return node24(super().get_version_command())
+
+    def parse_version(self, stdout: str) -> str:
+        """`openclaw --version` prints `OpenClaw 2026.9.8 (fc23bc8)`; a read
+        taken with nvm's own line before it is read past that line."""
+        for line in reversed(stdout.strip().splitlines()):
+            parts = line.split()
+            if len(parts) >= 2 and parts[0] == "OpenClaw":
+                return parts[1]
+        return stdout.strip()
 
     def rewrite(self, command, env):
         return node24(command), env
