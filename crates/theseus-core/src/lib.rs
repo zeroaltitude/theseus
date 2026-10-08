@@ -29,6 +29,7 @@ pub mod config_gate;
 pub mod consolidate;
 pub mod context_files;
 pub mod context_parts;
+pub mod correction;
 pub mod cpu;
 pub mod crash;
 pub mod disk;
@@ -282,6 +283,8 @@ mod tests_route;
 mod tests_route_base;
 #[cfg(test)]
 mod tests_route_cap;
+#[cfg(test)]
+mod tests_route_correct;
 #[cfg(test)]
 mod tests_route_keep;
 #[cfg(test)]

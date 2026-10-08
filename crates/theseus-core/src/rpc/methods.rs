@@ -845,6 +845,8 @@ impl Core {
                 ..SessionOpenParams::default()
             })?,
         };
+        // The owner's words, read as a correction for the turn (theseus-q31l).
+        self.expect_correction(&p, conn, &session.session_id);
         // A place's profile, unless the turn names one (step 38a).
         let live = self.place_profile(&session.session_id, self.live_profile().0);
         // The pane carries the profile the last turn ran on: when that is

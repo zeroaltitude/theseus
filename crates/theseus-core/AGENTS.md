@@ -438,6 +438,19 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     base is another (the live profile or a place's changed) clears the move (`same_base`). The pane's carried
     profile, when it is the routed one, stands for `from` (`turn_submit`), never a new base. Tests:
     `tests_route.rs`, `tests_route_base.rs`, `routing::tests`, `turn::route_step::tests`.
+  - **The owner's corrections** (theseus-q31l; `correction/`, `turn/route_step/correct.rs`,
+    `rpc/route_correct.rs`): words (`correction::words`, deterministic and narrow, read by `turn.submit`
+    unless a job sent it, and taken at the inbound point only where the owner alone writes, the CLI, the web
+    UI or an owner's DM, never a guild channel bound private and never a task's turn; after a bare verb a lone
+    adjective is a remark, not a name: `named_plainly`), or `route.correct` (a reaction, a press, `theseus judge
+    correct`: `judge_act(Act::RouteCorrect)`).
+    Each writes the owner's label (`not:<mode>` on `mode`, only when the profile named is not one the
+    verdict's mode leads to) and a `route.corrected` row (scoped `route.corrections`, its provenance by
+    id) in one frame: the turn's own for words. The turn steers ahead of the verdict (`Steering`,
+    `routing::steer_to`, `Reason::Correction`, `route.decided`'s `source`/`follows`) and waits for none.
+    The layer (`correction::layer`) is in memory, bounded, rebuilt after serving (`warm_corrections`),
+    and retires when another route pack version acts; the route pack is in `lineage::LEFT_ALONE`, so
+    no nightly rewrite folds it today. Tests: `tests_route_correct.rs`, `correction::*::tests`.
   - **Replay, audit, and backfill** (step 25d, theseus-0j2.14; the owner's runs, each `judge_act(Act::JudgeRun)`
     and in the CLI's `OPERATORS`, each on a `learning` thread at nice 19, routed together by `rpc/judge_runs.rs`).
     `learning/replay.rs` (`Core::judge_replay`, public for the learning loop): a candidate the build does not wire

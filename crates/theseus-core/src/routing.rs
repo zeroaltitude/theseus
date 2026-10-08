@@ -103,6 +103,9 @@ pub enum Reason {
     Pinned,
     /// `route.v1` in shadow: recorded, never routed.
     Shadow,
+    /// The owner's correction, or the layer's entry close to the message,
+    /// placed the turn ahead of the verdict (theseus-q31l).
+    Correction,
 }
 
 impl Reason {
@@ -119,6 +122,7 @@ impl Reason {
             Reason::NoVerdict => "no_verdict",
             Reason::Pinned => "pinned",
             Reason::Shadow => "shadow",
+            Reason::Correction => "correction",
         }
     }
 }
@@ -346,6 +350,54 @@ pub fn decide(cfg: &RoutingConfig, profiles: &Profiles, a: &Ask<'_>) -> Decision
             turn: a.verdict.turn.clone(),
         }),
     )
+}
+
+/// A correction's place for the turn (theseus-q31l): `profile`, if it runs
+/// the turn under the place's cap. The owner's own correction (`at_once`)
+/// switches the session whatever the context's size; a layer's entry keeps
+/// the cache's rule, held above `cold_switch_tokens` until a second turn
+/// agrees.
+pub fn steer_to(
+    cfg: &RoutingConfig,
+    profiles: &Profiles,
+    a: &Ask<'_>,
+    profile: &str,
+    at_once: bool,
+) -> Decision {
+    let stay = |reason| Decision {
+        profile: a.base.to_string(),
+        reason,
+        detour: false,
+        switch: false,
+        hold: HoldNext::Clear,
+    };
+    match profiles.get(profile) {
+        Some(p) if !p.runs(a.images) => return stay(Reason::Fallback),
+        Some(p) if !within(p, a.cap) => return stay(Reason::Capped),
+        Some(_) => {}
+        None => return stay(Reason::Fallback),
+    }
+    if profile == a.base {
+        return stay(Reason::Correction);
+    }
+    let agreed = a.hold.is_some_and(|h| h.profile == profile);
+    if at_once || a.est_tokens < cfg.cold_switch_tokens || agreed {
+        return Decision {
+            profile: profile.to_string(),
+            reason: Reason::Correction,
+            detour: false,
+            switch: true,
+            hold: HoldNext::Clear,
+        };
+    }
+    Decision {
+        hold: HoldNext::Set(Hold {
+            mode: "correction".into(),
+            profile: profile.to_string(),
+            turn: a.verdict.turn.clone(),
+        }),
+        ..stay(Reason::CacheHold)
+    }
 }
 
 /// Whether a verdict that came after its own message's wait may apply to the
@@ -686,6 +738,58 @@ mod tests {
         );
         assert_eq!(d.reason, Reason::CacheHold);
         assert!(matches!(d.hold, HoldNext::Set(Hold { ref profile, .. }) if profile == "haikuhi"));
+    }
+
+    /// A correction's profile (theseus-q31l): the owner's switches at once,
+    /// a layer's waits above `cold_switch_tokens` for a second agreeing turn,
+    /// and neither climbs over a place's cap.
+    #[test]
+    fn a_correction_switches_at_once_and_a_layers_entry_keeps_the_cache_rule() {
+        let cfg = RoutingConfig::default();
+        let ps = five();
+        let v = verdict("chat", 0.9);
+        let d = steer_to(&cfg, &ps, &ask(&v, "sonnet", 200_000), "fable", true);
+        assert_eq!(
+            (d.profile.as_str(), d.reason, d.switch),
+            ("fable", Reason::Correction, true)
+        );
+        let d = steer_to(&cfg, &ps, &ask(&v, "sonnet", 200_000), "fable", false);
+        assert_eq!(
+            (d.profile.as_str(), d.reason),
+            ("sonnet", Reason::CacheHold)
+        );
+        let HoldNext::Set(hold) = d.hold else {
+            panic!("{:?}", d.hold)
+        };
+        let d = steer_to(
+            &cfg,
+            &ps,
+            &Ask {
+                hold: Some(&hold),
+                ..ask(&v, "sonnet", 200_000)
+            },
+            "fable",
+            false,
+        );
+        assert!(d.switch, "the second agreeing turn");
+        let d = steer_to(&cfg, &ps, &ask(&v, "sonnet", 10), "fable", false);
+        assert!(d.switch, "under cold_switch_tokens");
+        let cap = Some(ps["sonnet"].short_cost.unwrap());
+        let d = steer_to(
+            &cfg,
+            &ps,
+            &Ask {
+                cap,
+                ..ask(&v, "sonnet", 10)
+            },
+            "fable",
+            true,
+        );
+        assert_eq!((d.profile.as_str(), d.reason), ("sonnet", Reason::Capped));
+        let d = steer_to(&cfg, &ps, &ask(&v, "sonnet", 10), "nope", true);
+        assert_eq!(d.reason, Reason::Fallback);
+        let d = steer_to(&cfg, &ps, &ask(&v, "fable", 10), "fable", true);
+        assert_eq!((d.reason, d.switch), (Reason::Correction, false));
     }
 
     #[test]

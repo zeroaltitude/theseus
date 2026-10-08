@@ -266,6 +266,7 @@ facts![
     place::GlideRead<'static>,
     turn::LoopStarted<'static>,
     route::RouteDecided<'static>,
+    route::RouteCorrected<'static>,
     turn::LoopCut<'static>,
     turn::LoopEnded<'static>,
     turn::ModelUnpriced<'static>,

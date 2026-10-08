@@ -37,6 +37,7 @@ mod pages;
 mod policy;
 mod proposals;
 mod publish;
+mod route_correct;
 mod server;
 #[cfg(test)]
 pub(crate) use server::write_item;

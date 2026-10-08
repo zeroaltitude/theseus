@@ -19,6 +19,7 @@ mod herdr;
 mod herdr_sync;
 mod import;
 mod interactive;
+mod judge_correct;
 mod judge_prove;
 mod judge_runs;
 mod mcp;
@@ -736,6 +737,13 @@ enum JudgeCmd {
     /// wording as a new version, a replay checks it, and the numbers place it (or hold it).
     /// The operator's alone.
     Learn(judge_runs::LearnArgs),
+    /// Correct a turn's routing: it should have run on a profile, a mode, `stronger`, or
+    /// `cheaper`. Labels its route judgment as yours and moves the session there from its next
+    /// turn; a later message close to it runs there too. The operator's alone: refused inside a
+    /// Theseus job, and from a shared place.
+    Correct(judge_correct::CorrectArgs),
+    /// The live correction layer: each correction that steers a close message, newest first.
+    Corrections,
     /// The prove: loop.v1's canary against its control, from the ledger's finished tasks, at
     /// equal total spend, per task and per dollar; "insufficient" with its counts until each arm
     /// has its labeled tasks. A read.

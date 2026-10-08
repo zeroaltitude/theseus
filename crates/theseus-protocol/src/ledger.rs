@@ -157,6 +157,7 @@ ledger_kinds! {
     LoopEnded = "loop.ended",
     LoopStarted = "loop.started",
     RouteDecided = "route.decided",
+    RouteCorrected = "route.corrected",
     LspFailed = "lsp.failed",
     LspReady = "lsp.ready",
     LspStarted = "lsp.started",

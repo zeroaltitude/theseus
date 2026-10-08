@@ -66,6 +66,7 @@ pub(crate) use live::ticks as live_ticks;
 pub(crate) use live::PERIOD as LIVE_PERIOD;
 mod prompt;
 mod publish;
+pub(crate) mod route;
 #[cfg(test)]
 mod tests_held;
 mod voice;
@@ -308,6 +309,7 @@ async fn connect(
         retired: Mutex::default(),
         voice: voice::Voice::new(&core.cfg.voice, bindings),
         place_bits: guilds::PlaceBits::new(bindings),
+        replies: Default::default(),
     });
     // The lanes first: what the outbox holds for these places needs only
     // REST, so it goes out while the rest connects, or while the gateway is
@@ -385,6 +387,8 @@ async fn event_loop(
         | Intents::GUILD_MESSAGES
         | Intents::DIRECT_MESSAGES
         | Intents::MESSAGE_CONTENT
+        | Intents::DIRECT_MESSAGE_REACTIONS
+        | Intents::GUILD_MESSAGE_REACTIONS
         | shared.voice.intents();
     let mut gateway = twilight_gateway::ConfigBuilder::new(token, intents);
     if let Some(p) = cfg.gateway_proxy.as_deref().filter(|p| !p.is_empty()) {
@@ -465,6 +469,8 @@ async fn event_loop(
                 let i = i.0;
                 tokio::spawn(async move { s.on_interaction(i).await });
             }
+            // ⬆️ or ⬇️ on a reply: the owner's correction of its routing (theseus-q31l).
+            Event::ReactionAdd(r) => drop(tokio::spawn(route::reacted(shared.clone(), r.0))),
             _ => {}
         }
     }
@@ -583,6 +589,8 @@ pub(crate) struct Shared {
     voice: voice::Voice,
     /// Each place's guild and ceiling (step 38a).
     place_bits: guilds::PlaceBits,
+    /// The replies posted, by message, for a reaction to find (theseus-q31l).
+    pub(crate) replies: route::Replies,
 }
 
 /// One message for a turn: who wrote it, what it says, its files (still
@@ -2368,6 +2376,7 @@ pub(crate) fn shared_for_tests(core: &Arc<Core>) -> Arc<Shared> {
         retired: Mutex::default(),
         voice: voice::Voice::none(),
         place_bits: Default::default(),
+        replies: Default::default(),
     })
 }
 

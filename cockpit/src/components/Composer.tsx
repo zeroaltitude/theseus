@@ -4,17 +4,20 @@
 // Each send shows in the transcript as a draft until the session writes it (`lib/drafts.ts`).
 import { useState } from 'react'
 import { SendHorizontal } from 'lucide-react'
-import type { ProfileList, ProviderErrorData } from '@protocol'
+import type { ProfileList, ProviderErrorData, TurnResult } from '@protocol'
 import { call, useRpc } from '@/lib/rpc'
 import { addDraft, dropDraft, failDraft } from '@/lib/drafts'
 import { cn } from '@/lib/format'
 import { PromptPicker } from '@/components/PromptPicker'
+import { RouteFooter } from '@/components/RouteFooter'
 
 export function Composer({ sessionId, busy }: { sessionId: string; busy: boolean }) {
   const { data: pl } = useRpc<ProfileList>('profile.list', undefined, 30_000)
   const [text, setText] = useState('')
   const [profile, setProfile] = useState<string>('')
   const [error, setError] = useState<string | null>(null)
+  // The last turn this composer sent, for its route footer (theseus-q31l).
+  const [last, setLast] = useState<TurnResult | null>(null)
   // Sends in flight: each resolves when its turn ends, so a second send while the first runs is a queued turn.
   const [pending, setPending] = useState(0)
   const send = () => {
@@ -24,8 +27,8 @@ export function Composer({ sessionId, busy }: { sessionId: string; busy: boolean
     setError(null)
     const draft = addDraft(sessionId, input)
     // The call resolves when the turn ends; the transcript follows it live meanwhile.
-    call('turn.submit', { session_id: sessionId, input, profile: profile || undefined })
-      .then(() => dropDraft(draft))
+    call<TurnResult>('turn.submit', { session_id: sessionId, input, profile: profile || undefined })
+      .then((r) => { dropDraft(draft); setLast(r) })
       .catch((e: any) => {
         const data = e?.data as ProviderErrorData | undefined
         // Never admitted (no turn): the draft says why, where it was.
@@ -40,6 +43,7 @@ export function Composer({ sessionId, busy }: { sessionId: string; busy: boolean
   }
   return (
     <div className="border-t border-line bg-hull/80 p-2.5">
+      {last && last.session_id === sessionId && <RouteFooter key={last.turn_id} sessionId={sessionId} result={last} profiles={pl} />}
       {error && <div className="mb-1.5 rounded-md bg-fault/10 px-2.5 py-1 text-[12px] text-fault ring-1 ring-fault/30">{error}</div>}
       <div className="flex items-end gap-2">
         <textarea

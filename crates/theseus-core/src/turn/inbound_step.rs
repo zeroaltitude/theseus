@@ -1,7 +1,8 @@
 //! The inbound point's dispatch (M5 step 25a; `crate::judge::inbound`): a
 //! turn whose input is a person's message hands it to the judge once its
 //! node is written. The judge marks the turn's trace and spawns the rest;
-//! the turn waits on nothing.
+//! the turn waits on nothing. The owner's correction is read here too
+//! (theseus-q31l, `route_step::correct`).
 
 use super::{Turn, TurnRunner};
 use crate::judge::inbound::{author_of, place_kind, Inbound};
@@ -51,6 +52,10 @@ impl TurnRunner {
                 task: t.tc.task.is_some(),
             },
         );
+        let asked = wait.is_some();
         Self::route_asked(t, wait, route, images);
+        // The owner's correction, or the layer (theseus-q31l): a turn that
+        // asked the route pack can be steered; any turn's words can label.
+        self.correction_point(t, &node.id, text, author, place.as_deref(), route, asked);
     }
 }

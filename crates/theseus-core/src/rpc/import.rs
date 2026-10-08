@@ -50,12 +50,14 @@ pub(super) fn prefixed(name: &str) -> bool {
         || name.starts_with("import.")
         || name.starts_with("books.")
         || super::context::prefixed(name)
+        || super::route_correct::ROUTE.contains(&name)
 }
 
 impl Core {
-    /// The ladder's methods (`pack.*`), the import's (`import.*`) and the
-    /// books' (`books.*`), from one arm of `dispatch`, which stays within
-    /// clippy's length that way.
+    /// The ladder's methods (`pack.*`), the import's (`import.*`), the
+    /// books' (`books.*`), and the owner's corrections of routing
+    /// (`route.correct`, `route.corrections`), from one arm of `dispatch`,
+    /// which stays within clippy's length that way.
     pub(super) async fn rpc_prefixed(
         self: Arc<Self>,
         name: &str,
@@ -70,6 +72,9 @@ impl Core {
         }
         if name.starts_with("books.") {
             return self.rpc_books(name, params, conn).await;
+        }
+        if super::route_correct::ROUTE.contains(&name) {
+            return self.rpc_route(name, params, conn);
         }
         self.rpc_import(name, params, conn).await
     }

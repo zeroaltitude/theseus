@@ -44,6 +44,39 @@ pub struct RoutingConfig {
     /// Each mode's profiles, in order: the first usable wins.
     #[serde(default)]
     pub modes: RoutingModes,
+    /// The owner's corrections of routing (theseus-q31l).
+    #[serde(default)]
+    pub corrections: CorrectionsConfig,
+}
+
+/// `[routing.corrections]` (theseus-q31l): the owner's corrections in a
+/// private place ("that should have been on fable", a reaction, a press),
+/// and the live layer that steers a close message the same way.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CorrectionsConfig {
+    /// Read the owner's words as a correction, and let the layer steer.
+    /// Off: words are messages and the layer steers nothing; `route.correct`
+    /// (a reaction, a press, the CLI) still labels and switches.
+    #[serde(default = "yes")]
+    pub enabled: bool,
+    /// A new message whose content words share at least this much with a
+    /// corrected one's (Jaccard) runs where the owner said.
+    #[serde(default = "similarity")]
+    pub similarity: f64,
+    /// The layer's bound: the oldest out past it.
+    #[serde(default = "max_entries")]
+    pub max_entries: u32,
+}
+
+impl Default for CorrectionsConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            similarity: similarity(),
+            max_entries: max_entries(),
+        }
+    }
 }
 
 /// `[routing] mode`.
@@ -132,6 +165,12 @@ fn cold_switch_tokens() -> u64 {
 fn switch_confidence() -> f64 {
     0.6
 }
+fn similarity() -> f64 {
+    0.5
+}
+fn max_entries() -> u32 {
+    64
+}
 fn list(names: &[&str]) -> ModeProfiles {
     ModeProfiles {
         profiles: names.iter().map(|s| (*s).to_string()).collect(),
@@ -203,6 +242,7 @@ impl Default for RoutingConfig {
             cold_switch_tokens: cold_switch_tokens(),
             switch_confidence: switch_confidence(),
             modes: RoutingModes::default(),
+            corrections: CorrectionsConfig::default(),
         }
     }
 }
@@ -243,6 +283,13 @@ impl RoutingConfig {
             if let Some(p) = self.modes.of(m).iter().find(|p| p.trim().is_empty()) {
                 anyhow::bail!("routing.modes.{m}.profiles has an empty name {p:?}");
             }
+        }
+        let c = &self.corrections;
+        if !(c.similarity > 0.0 && c.similarity <= 1.0) {
+            anyhow::bail!("routing.corrections.similarity must be above 0 and at most 1");
+        }
+        if !(1..=4096).contains(&c.max_entries) {
+            anyhow::bail!("routing.corrections.max_entries must be 1 to 4096");
         }
         Ok(())
     }
@@ -286,6 +333,7 @@ pub(crate) fn the_templates_routing_section(cfg: &crate::Config) {
     for m in MODES {
         assert_eq!(r.modes.of(m), RoutingModes::default().of(m), "{m}");
     }
+    assert_eq!(r.corrections, CorrectionsConfig::default());
     // Its one commented bar is trivial's, at the default it documents.
     assert_eq!(r.modes.trivial.switch_confidence, Some(TRIVIAL_CONFIDENCE));
     assert_eq!(r.confidence_for("trivial"), TRIVIAL_CONFIDENCE);
@@ -327,6 +375,23 @@ mod tests {
         assert_eq!(d.modes.of("deep_coding"), ["opus", "sonnet"]);
         assert_eq!(d.modes.of("routine_coding"), ["haikuhi", "sonnet"]);
         d.validate(|_| false).unwrap();
+        assert_eq!(
+            (
+                d.corrections.enabled,
+                d.corrections.similarity,
+                d.corrections.max_entries
+            ),
+            (true, 0.5, 64)
+        );
+        let c = cfg("[corrections]\nsimilarity = 0.7").unwrap();
+        assert_eq!(
+            (c.corrections.similarity, c.corrections.max_entries),
+            (0.7, 64)
+        );
+        assert!(
+            cfg("[corrections]\nthreshold = 0.7").is_err(),
+            "an unknown key"
+        );
     }
 
     #[test]
@@ -347,6 +412,9 @@ mod tests {
             "switch_confidence = 0.0",
             "switch_confidence = 1.5",
             "max_wait_ms = 9000",
+            "[corrections]\nsimilarity = 0.0",
+            "[corrections]\nsimilarity = 1.2",
+            "[corrections]\nmax_entries = 0",
         ] {
             assert!(cfg(bad).unwrap().validate(|_| false).is_err(), "{bad}");
         }

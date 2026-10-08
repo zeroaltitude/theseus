@@ -972,6 +972,40 @@ fn resolved_words(st: &theseus_protocol::SecretsStatus) -> String {
     )
 }
 
+/// The projections and connections a daemon warms once the socket answers,
+/// in this order, each off the start path (`after_serving`'s, kept apart
+/// for its length).
+fn warm_after_serving(core: &Arc<Core>) {
+    // The ontology's snapshot, by one META prefix scan (theseus-8kk.1): a
+    // compile reads it from memory.
+    core.warm_ontology();
+    // The daemon's memory (theseus-9lxe): a trim after work and a quiet
+    // stretch, and the import's catalog dropped after an idle one.
+    core.tend_memory_after_serving();
+    // Recall's labels (M6 30b), by one scan of their scope, so a turn's
+    // recall reads them from memory.
+    core.warm_labels();
+    // The retention projection (M6 32a), when the arm reads it: one walk of
+    // the memory rows on the blocking pool, never on the start path.
+    core.warm_retention();
+    // The adjacency projection (M6 32b), for a daemon whose arm spreads
+    // activation in front of the model.
+    core.warm_activation();
+    // The ladder (M5 26a): each pack's mode, read once the socket answers,
+    // and the adoptions it lacks written then, never on the start path.
+    core.warm_ladder();
+    // The owner's corrections of routing (theseus-q31l): the live layer, by
+    // one scan of its scope, so a turn's lookup reads memory alone.
+    core.warm_corrections();
+    // Jev's connections (theseus-ddbi): opened now and kept warm, so a
+    // fresh daemon's first message pays no connection setup on route.v1's
+    // request, and nothing on the start path touches the network.
+    core.warm_judge();
+    // The task claims that hold (39b), by one read of the task records, so
+    // the driver's due pass frees a lapsed lease from memory.
+    core.warm_leases();
+}
+
 /// What runs once the socket answers: the kernel's startup report and the
 /// start path's phases in the ledger (one frame), the kernel's counts in the
 /// log, the index tender (the socket daemon's, row 51), and the GitHub token
@@ -1028,31 +1062,7 @@ async fn after_serving(
     // no turn waits for it (theseus-q4v).
     let outbox = core.outbox.clone();
     tokio::task::spawn_blocking(move || outbox.warm());
-    // The ontology's snapshot, by one META prefix scan (theseus-8kk.1): a
-    // compile reads it from memory.
-    core.warm_ontology();
-    // The daemon's memory (theseus-9lxe): a trim after work and a quiet
-    // stretch, and the import's catalog dropped after an idle one.
-    core.tend_memory_after_serving();
-    // Recall's labels (M6 30b), by one scan of their scope, so a turn's
-    // recall reads them from memory.
-    core.warm_labels();
-    // The retention projection (M6 32a), when the arm reads it: one walk of
-    // the memory rows on the blocking pool, never on the start path.
-    core.warm_retention();
-    // The adjacency projection (M6 32b), for a daemon whose arm spreads
-    // activation in front of the model.
-    core.warm_activation();
-    // The ladder (M5 26a): each pack's mode, read once the socket answers,
-    // and the adoptions it lacks written then, never on the start path.
-    core.warm_ladder();
-    // Jev's connections (theseus-ddbi): opened now and kept warm, so a
-    // fresh daemon's first message pays no connection setup on route.v1's
-    // request, and nothing on the start path touches the network.
-    core.warm_judge();
-    // The task claims that hold (39b), by one read of the task records, so
-    // the driver's due pass frees a lapsed lease from memory.
-    core.warm_leases();
+    warm_after_serving(&core);
     // The index tender (roadmap row 51; M6 §2.2), started once the socket
     // answers, never before, and by the socket daemon alone (`bindings` is
     // its): a `--stdio` daemon serves `store-stdio` for one client.
