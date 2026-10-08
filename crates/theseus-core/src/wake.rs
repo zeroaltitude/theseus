@@ -372,7 +372,7 @@ pub fn set(
     let series = w.repeat.as_ref().map(series_of);
     // A daemon spawned for one run ends with it (theseus-mqxk): a wake due
     // after that never fires here, and the model hears so.
-    let after_run = tc.outbox.one_shot.wake_after_run(now, w, &s, &when);
+    let after_run = tc.outbox.one_shot.wake_after_run(w, &s, &when);
     if set.set {
         tc.record(&crate::fact::tool::WakeSet {
             short: &s,

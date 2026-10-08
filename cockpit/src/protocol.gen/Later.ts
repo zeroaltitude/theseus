@@ -16,4 +16,8 @@ queued: boolean,
 /**
  * Its pending wakes, the soonest first.
  */
-wakes: Array<LaterWake>, };
+wakes: Array<LaterWake>, 
+/**
+ * When the run ends, in Unix ms: its bound after the ask's turn ended.
+ */
+ends_at_ms: number, };

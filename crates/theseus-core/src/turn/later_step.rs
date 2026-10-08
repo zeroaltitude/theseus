@@ -32,6 +32,15 @@ impl TurnRunner {
         again: bool,
     ) -> Option<Later> {
         let before = before?;
+        let one_shot = &self.outbox.one_shot;
+        // The ask's turn fixes when the run ends. A continuation reads it: one
+        // the driver runs before then (an earlier run's wake in the store)
+        // gets the soonest it can be.
+        let now = self.kernel.now_ms();
+        let ends_at_ms = match t.continuation {
+            false => one_shot.fix_end(now)?,
+            true => one_shot.ends_by(now)?,
+        };
         let jobs = self
             .jobs_outstanding(t.tc.execution_id, &t.background)
             .unwrap_or(before);
@@ -45,6 +54,7 @@ impl TurnRunner {
         let mut wakes: Vec<LaterWake> = wakes
             .into_iter()
             .map(|w| LaterWake {
+                fires: one_shot.fires(&w),
                 wake_id: w.id,
                 due_at_ms: w.due_at_ms,
                 note: w.note,
@@ -55,6 +65,7 @@ impl TurnRunner {
             jobs: jobs as u32,
             queued: again || jobs < before,
             wakes,
+            ends_at_ms,
         };
         (!later.is_empty()).then_some(later)
     }

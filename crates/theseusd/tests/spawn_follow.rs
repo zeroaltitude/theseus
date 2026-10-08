@@ -432,3 +432,65 @@ fn measure_the_wait_after_a_turn_that_leaves_nothing() {
         after[after.len() - 1]
     );
 }
+
+/// A SIGTERM while a later turn runs (its model call stalls at the
+/// stand-in): that turn ends `stopped`, with what it spent, as `/stop` ends
+/// one; the run exits 9 with one JSON object whose spend holds both turns.
+#[test]
+fn a_signal_during_a_later_turn_stops_it_with_its_spend() {
+    let model = FakeModel::start(calls);
+    let dir = rig(&model);
+    let file = |name: &str| std::fs::File::create(dir.path().join(name)).unwrap();
+    let mut child = cli(dir.path(), &["--json", "ask", "run the slow job"])
+        .stdout(file("turn.json"))
+        .stderr(file("stderr.log"))
+        .stdin(Stdio::null())
+        .spawn()
+        .unwrap();
+    let stderr = || std::fs::read_to_string(dir.path().join("stderr.log")).unwrap_or_default();
+    let t0 = Instant::now();
+    while model.requests().len() < 2 {
+        assert!(t0.elapsed() < Duration::from_secs(30), "{}", stderr());
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    // The late result's turn asks next: its call gets no answer.
+    model.stall_next(1);
+    while model.requests().len() < 3 {
+        assert!(t0.elapsed() < Duration::from_secs(30), "{}", stderr());
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert!(Command::new("kill")
+        .args(["-TERM", &child.id().to_string()])
+        .status()
+        .unwrap()
+        .success());
+    let status = loop {
+        if let Some(s) = child.try_wait().unwrap() {
+            break s;
+        }
+        assert!(
+            t0.elapsed() < Duration::from_secs(45),
+            "no exit:\n{}",
+            stderr()
+        );
+        std::thread::sleep(Duration::from_millis(20));
+    };
+    let stdout = std::fs::read_to_string(dir.path().join("turn.json")).unwrap();
+    let v: Value = serde_json::from_str(stdout.trim())
+        .unwrap_or_else(|e| panic!("not one JSON object ({e}):\n{stdout}"));
+    assert_eq!(status.code(), Some(9), "{v}\n{}", stderr());
+    assert_eq!(v["stop_reason"], "stopped", "{v}");
+    let later = &v["continuations"][0];
+    assert_eq!(later["stop_reason"], "stopped", "{v}");
+    let cost = |x: &Value| x["cost_usd"].as_f64().unwrap_or(0.0);
+    assert!(cost(later) > 0.0, "the stopped turn's spend: {v}");
+    assert!(
+        (cost(&v) - cost(&v["asked"]) - cost(later)).abs() < 1e-9,
+        "the spend is both turns': {v}"
+    );
+    assert_eq!(
+        reopened(dir.path()),
+        (0, false),
+        "the daemon did not stop cleanly"
+    );
+}

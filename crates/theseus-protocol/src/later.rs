@@ -18,6 +18,9 @@ pub struct Later {
     /// Its pending wakes, the soonest first.
     #[serde(default)]
     pub wakes: Vec<LaterWake>,
+    /// When the run ends, in Unix ms: its bound after the ask's turn ended.
+    #[serde(default)]
+    pub ends_at_ms: u64,
 }
 
 /// One pending wake.
@@ -28,6 +31,10 @@ pub struct LaterWake {
     /// When it is due, in Unix ms.
     pub due_at_ms: u64,
     pub note: String,
+    /// It fires before the run ends, as `wake.at` told the model when it was
+    /// set; one that does not is left behind.
+    #[serde(default)]
+    pub fires: bool,
 }
 
 impl Later {
@@ -36,9 +43,9 @@ impl Later {
         self.jobs == 0 && !self.queued && self.wakes.is_empty()
     }
 
-    /// Whether a turn may still come before `deadline_ms`: a job runs, a
-    /// turn is queued, or a wake is due by then.
-    pub fn comes_by(&self, deadline_ms: u64) -> bool {
-        self.jobs > 0 || self.queued || self.wakes.iter().any(|w| w.due_at_ms <= deadline_ms)
+    /// Whether a turn may still come before the run ends: a job runs, a
+    /// turn is queued, or a wake fires.
+    pub fn comes(&self) -> bool {
+        self.jobs > 0 || self.queued || self.wakes.iter().any(|w| w.fires)
     }
 }

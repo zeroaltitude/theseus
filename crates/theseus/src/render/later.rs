@@ -52,11 +52,13 @@ mod tests {
             wake_id: id.into(),
             due_at_ms: 1,
             note: "check the lighthouse".into(),
+            fires: false,
         };
         r.later = Some(Later {
             jobs: 1,
             queued: false,
             wakes: vec![wake("wak_1")],
+            ends_at_ms: 2,
         });
         assert_eq!(
             left(&r),
@@ -66,6 +68,7 @@ mod tests {
             jobs: 0,
             queued: true,
             wakes: vec![wake("wak_1"), wake("wak_2")],
+            ends_at_ms: 2,
         });
         assert_eq!(
             left(&r),

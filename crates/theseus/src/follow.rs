@@ -56,11 +56,11 @@ pub fn parse_follow_for(s: &str) -> Result<Duration, String> {
     Ok(Duration::from_millis(ms))
 }
 
-/// The follow of one `ask`: its bound, from the moment its turn ended.
+/// The follow of one `ask`: its bound, and the run's end, which the daemon
+/// fixed as the ask's turn ended (`Later.ends_at_ms`).
 pub struct Follow {
     bound: Duration,
     deadline: tokio::time::Instant,
-    deadline_ms: u64,
 }
 
 /// What the follow saw: every turn it printed, in order, and how it ended.
@@ -83,25 +83,25 @@ impl Followed {
 }
 
 impl Follow {
-    /// A follow of `bound` from now, or none when the bound is 0.
-    pub fn new(bound: Duration) -> Option<Self> {
+    /// A follow of `bound`, until the run's end the daemon named in the
+    /// ask's result; none when the bound is 0 or it named none.
+    pub fn new(bound: Duration, first: &TurnSubmitResult) -> Option<Self> {
+        let ends_at_ms = first.later.as_ref()?.ends_at_ms;
         let now_ms = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map_or(0, |d| d.as_millis() as u64);
+        let left = Duration::from_millis(ends_at_ms.saturating_sub(now_ms)).min(bound);
         (!bound.is_zero()).then(|| Self {
             bound,
-            deadline: tokio::time::Instant::now() + bound,
-            deadline_ms: now_ms.saturating_add(bound.as_millis() as u64),
+            deadline: tokio::time::Instant::now() + left,
         })
     }
 
-    /// Whether a turn may still come within the bound after `r`: it ended
-    /// done, and left a job, a queued result, or a wake due by then.
-    pub fn wants(&self, r: &TurnSubmitResult) -> bool {
+    /// Whether a turn may still come before the run ends, after `r`: it
+    /// ended done, and left a job, a queued result, or a wake that fires.
+    pub fn wants(r: &TurnSubmitResult) -> bool {
         outcome::TurnEnd::of(r) == outcome::TurnEnd::Done
-            && r.later
-                .as_ref()
-                .is_some_and(|l| l.comes_by(self.deadline_ms))
+            && r.later.as_ref().is_some_and(Later::comes)
     }
 
     /// Follow the session's turns after `first`, the ask's own, which
@@ -160,7 +160,7 @@ impl Follow {
                         Some(Event::TurnEnded(t)) => {
                             running = false;
                             printer.settle();
-                            let ends = !self.wants(&t) || stop.is_some();
+                            let ends = !Self::wants(&t) || stop.is_some();
                             out.turns.push((n.params.clone(), t));
                             if ends {
                                 return Ok(out);
@@ -227,11 +227,7 @@ impl Follow {
         if l.queued {
             parts.push("a result waiting for its turn".into());
         }
-        let due = l
-            .wakes
-            .iter()
-            .filter(|w| w.due_at_ms <= self.deadline_ms)
-            .count();
+        let due = l.wakes.iter().filter(|w| w.fires).count();
         if due > 0 {
             parts.push(format!("{due} wake(s) due"));
         }
@@ -270,8 +266,8 @@ pub async fn after(
     modes: (bool, bool),
 ) -> Result<(Value, TurnSubmitResult, Option<anyhow::Error>)> {
     let Some(f) = follow_for
-        .and_then(Follow::new)
-        .filter(|f| f.wants(&first.1))
+        .and_then(|b| Follow::new(b, &first.1))
+        .filter(|_| Follow::wants(&first.1))
     else {
         return Ok((first.0, first.1, None));
     };
@@ -378,7 +374,14 @@ mod tests {
         assert_eq!(parse_follow_for("0"), Ok(Duration::ZERO));
         assert_eq!(parse_follow_for("1500ms"), Ok(Duration::from_millis(1500)));
         assert!(parse_follow_for("soon").is_err());
-        assert!(Follow::new(Duration::ZERO).is_none());
+        let mut r = TurnSubmitResult::default();
+        assert!(
+            Follow::new(Duration::from_secs(60), &r).is_none(),
+            "no run's end named"
+        );
+        r.later = Some(Later::default());
+        assert!(Follow::new(Duration::ZERO, &r).is_none());
+        assert!(Follow::new(Duration::from_secs(60), &r).is_some());
     }
 
     #[test]
