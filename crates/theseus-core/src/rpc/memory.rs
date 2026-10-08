@@ -293,6 +293,7 @@ impl Core {
         };
         theseus_protocol::memory::MemoryHealth {
             adjacency,
+            recalls: memory.outcomes(),
             ..memory.health()
         }
     }

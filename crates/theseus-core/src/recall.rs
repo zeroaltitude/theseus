@@ -32,6 +32,7 @@
 pub mod activation;
 pub mod adjacency;
 pub mod labels;
+pub mod outcomes;
 pub mod render;
 pub mod retention;
 
@@ -59,6 +60,9 @@ use crate::turn::TurnRunner;
 
 /// The index's hits a recall asks for (§2.4).
 pub const K: usize = 40;
+/// A recall's outcome when its vector search missed the deadline (or
+/// failed) and the word sources' hits ranked alone (theseus-w9qv).
+pub const WORDS_ONLY: &str = "words_only";
 /// How much of the previous reply joins the query, so that "yes, do that"
 /// still has a subject.
 pub const REPLY_CHARS: usize = 500;
@@ -90,6 +94,8 @@ pub struct Memory {
     /// The memory's harness session and its checked syntheses (31b), once
     /// read (`syntheses`).
     syntheses: RwLock<Option<Syntheses>>,
+    /// The last turns' recalls by outcome, for health (theseus-w9qv).
+    outcomes: Mutex<outcomes::Outcomes>,
 }
 
 /// The memory's harness session (31b), and the syntheses in it whose
@@ -121,7 +127,24 @@ impl Memory {
             retention: retention::Projection::default(),
             telemetry: std::sync::OnceLock::new(),
             syntheses: RwLock::new(None),
+            outcomes: Mutex::new(outcomes::Outcomes::default()),
         }
+    }
+
+    /// A turn's recall, once the index's answer is read: health counts it.
+    pub fn noted(&self, m: &RecallManifest) {
+        self.outcomes
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .note(m, theseus_protocol::now_unix_ms());
+    }
+
+    /// The last turns' recalls by outcome; none before the first.
+    pub fn outcomes(&self) -> Option<theseus_protocol::memory::RecallOutcomes> {
+        self.outcomes
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .health()
     }
 
     /// Ask `ask` instead of the tender (tests: a stand-in index).
@@ -349,15 +372,11 @@ impl Memory {
         p.exclude_sessions = exclude;
         let started = Instant::now();
         let task = tokio::spawn(async move {
-            let answer = match ask {
-                None => Answer::Unavailable("no index is configured".into()),
-                Some(ask) => match tokio::time::timeout(deadline, ask(p)).await {
-                    Ok(Ok(r)) => Answer::Hits(r),
-                    Ok(Err(why)) => Answer::Unavailable(why),
-                    Err(_) => Answer::Deadline,
-                },
+            let (answer, words_only) = match ask {
+                None => (Answer::Unavailable("no index is configured".into()), None),
+                Some(ask) => race(&ask, p, deadline).await,
             };
-            (answer, started.elapsed())
+            (answer, started.elapsed(), words_only)
         });
         Begun {
             task,
@@ -366,7 +385,73 @@ impl Memory {
             as_of,
             deadline,
             new_node: None,
+            words_only: None,
         }
+    }
+}
+
+/// The index's answer to `p` within `deadline` (theseus-w9qv). A query that
+/// asks for vectors goes out twice at once: as asked, and for its word
+/// sources alone, which answer in a few ms while the query's embedding may
+/// take hundreds. The whole answer wins whenever it comes in time; else the
+/// words' answer is used, with the vector source named in its `skipped` and
+/// why (the second value); with neither, `Deadline`.
+async fn race(ask: &Ask, p: IndexQueryParams, deadline: Duration) -> (Answer, Option<String>) {
+    let words: Vec<String> = p
+        .sources
+        .iter()
+        .filter(|s| *s != "vector")
+        .cloned()
+        .collect();
+    if words.len() == p.sources.len() || words.is_empty() {
+        let answer = match tokio::time::timeout(deadline, ask(p)).await {
+            Ok(Ok(r)) => Answer::Hits(r),
+            Ok(Err(why)) => Answer::Unavailable(why),
+            Err(_) => Answer::Deadline,
+        };
+        return (answer, None);
+    }
+    let mut w = p.clone();
+    w.sources = words;
+    let (mut whole, mut word) = (ask(p), ask(w));
+    let late = tokio::time::sleep(deadline);
+    tokio::pin!(late);
+    let mut words_answer: Option<Result<IndexQueryResult, String>> = None;
+    let mut failed: Option<String> = None;
+    loop {
+        tokio::select! {
+            biased;
+            r = &mut whole, if failed.is_none() => match r {
+                Ok(r) => return (Answer::Hits(r), None),
+                Err(why) if words_answer.is_some() => {
+                    failed = Some(why);
+                    break;
+                }
+                Err(why) => failed = Some(why),
+            },
+            r = &mut word, if words_answer.is_none() => {
+                words_answer = Some(r);
+                if failed.is_some() {
+                    break;
+                }
+            }
+            () = &mut late => break,
+        }
+    }
+    match (words_answer, failed) {
+        (Some(Ok(mut r)), failed) => {
+            let why = match failed {
+                Some(e) => format!("the vector search failed ({e}); the words alone ranked"),
+                None => format!(
+                    "the vector search had not answered within {} ms; the words alone ranked",
+                    deadline.as_millis()
+                ),
+            };
+            r.skipped.insert("vector".into(), why.clone());
+            (Answer::Hits(r), Some(why))
+        }
+        (_, Some(why)) => (Answer::Unavailable(why), None),
+        (Some(Err(_)) | None, None) => (Answer::Deadline, None),
     }
 }
 
@@ -395,20 +480,32 @@ pub enum Answer {
 
 /// A recall whose query is out.
 pub struct Begun {
-    task: tokio::task::JoinHandle<(Answer, Duration)>,
+    task: tokio::task::JoinHandle<(Answer, Duration, Option<String>)>,
     pub started: Instant,
     pub query: String,
     pub as_of: Option<u64>,
     pub deadline: Duration,
     /// The turn's new node, which seeds a spread at 1.0 (32b).
     pub new_node: Option<String>,
+    /// Once answered: the hits are the word sources' alone, and why (the
+    /// vector search was late or failed; theseus-w9qv).
+    pub words_only: Option<String>,
 }
 
 impl Begun {
+    /// Its outcome once its hits are in: `ran`, or `words_only` when they
+    /// are the word sources' alone.
+    fn outcome(&self) -> &'static str {
+        self.words_only.as_ref().map_or("ran", |_| WORDS_ONLY)
+    }
+
     /// The index's answer, and how long it took; never past the deadline.
     pub async fn answer(&mut self) -> (Answer, Duration) {
         match (&mut self.task).await {
-            Ok(a) => a,
+            Ok((answer, took, words_only)) => {
+                self.words_only = words_only;
+                (answer, took)
+            }
             Err(e) => (
                 Answer::Unavailable(format!("the recall's task ended: {e}")),
                 self.started.elapsed(),
@@ -488,7 +585,8 @@ impl Memory {
             mode: scene.mode.into(),
             science: scene.science.id().to_string(),
             activation: scene.activation.clone(),
-            outcome: "ran".into(),
+            outcome: begun.outcome().into(),
+            why: begun.words_only.clone(),
             session_id: scene.session_id.map(str::to_string),
             turn_id: scene.turn_id.map(str::to_string),
             place: place_words(&scene.place),
@@ -505,14 +603,11 @@ impl Memory {
         };
         let r = match answer {
             Answer::Hits(r) => r,
-            Answer::Deadline => {
-                m.outcome = "deadline".into();
-                m.timings.total_ms = ms(begun.started.elapsed());
-                return (m, Vec::new(), Vec::new(), Ranks::new());
-            }
-            Answer::Unavailable(why) => {
-                m.outcome = "unavailable".into();
-                m.why = Some(why);
+            other => {
+                (m.outcome, m.why) = match other {
+                    Answer::Unavailable(why) => ("unavailable".into(), Some(why)),
+                    _ => ("deadline".into(), None),
+                };
                 m.timings.total_ms = ms(begun.started.elapsed());
                 return (m, Vec::new(), Vec::new(), Ranks::new());
             }

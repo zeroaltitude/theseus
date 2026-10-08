@@ -36,6 +36,9 @@ tantivy = { version = "0.26", default-features = false, features = ["mmap", "lz4
 # the version is in every vector's stamp.
 candle-core = "=0.11.0"
 candle-nn = "=0.11.0"
+# A pool of its own for a query's embedding (theseus-w9qv): candle's parallel
+# parts run on rayon, which candle already builds at this version.
+rayon = "1.12"
 # The 768-d vectors at f16 (candle's own `half`).
 half = "2"
 # The weights' pinned hashes, and each chunk text's key.

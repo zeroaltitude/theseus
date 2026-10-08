@@ -4,7 +4,7 @@
 
 use theseus_protocol::memory::{
     MemoryConsolidateResult, MemoryHealth, MemoryRecallsResult, RecallActivation, RecallManifest,
-    RecallRetention,
+    RecallOutcomes, RecallRetention,
 };
 
 use super::{plural, push, Line, Tag};
@@ -161,9 +161,46 @@ fn activation_line(a: &RecallActivation, admitted: usize) -> (Tag, String) {
 
 /// Health's memory line: the mode and arm, the retention projection (32a)
 /// once the arm reads it or a search asked for it, and the adjacency
-/// projection (32b) once an arm reads it.
-pub(super) fn push_health(o: &mut Vec<Line>, h: Option<&MemoryHealth>) {
+/// projection (32b) once an arm reads it; then the last turns' recalls by
+/// outcome (theseus-w9qv).
+pub(super) fn push_health(o: &mut Vec<Line>, h: Option<&MemoryHealth>, now_ms: u64) {
     let Some(h) = h else { return };
+    push_memory(o, h);
+    if let Some(r) = &h.recalls {
+        let (tag, line) = recalls_line(r, now_ms);
+        push(o, tag, &line);
+    }
+}
+
+/// `recall: the last 50: 41 ok, 7 words only, 2 deadline, 0 error · every
+/// source last answered 3 min ago` (theseus-w9qv). A warning while any recall
+/// found nothing in time, or none was answered.
+fn recalls_line(r: &RecallOutcomes, now_ms: u64) -> (Tag, String) {
+    let mut line = format!(
+        "recall: the last {}: {} ok, {} words only, {} deadline, {} error",
+        r.turns, r.ok, r.words_only, r.deadline, r.error
+    );
+    match r.last_full_ms {
+        Some(at) => {
+            let secs = now_ms.saturating_sub(at) / 1000;
+            let ago = match secs {
+                0..120 => format!("{secs} s ago"),
+                120..7_200 => format!("{} min ago", secs / 60),
+                _ => format!("{} h ago", secs / 3_600),
+            };
+            line.push_str(&format!(" · every source last answered {ago}"));
+        }
+        None => line.push_str(" · no answer from every source since the start"),
+    }
+    let tag = if r.deadline + r.error > 0 || r.ok == 0 {
+        Tag::Warn
+    } else {
+        Tag::Plain
+    };
+    (tag, line)
+}
+
+fn push_memory(o: &mut Vec<Line>, h: &MemoryHealth) {
     let retention = h.arm == "+retention" || !matches!(h.retention.as_str(), "" | "unbuilt");
     if h.mode == "off" && h.adjacency.is_none() && !retention {
         return;
@@ -551,7 +588,7 @@ mod tests {
     fn health_names_the_adjacency_projection() {
         let line = |h: &MemoryHealth| {
             let mut o = Vec::new();
-            push_health(&mut o, Some(h));
+            push_health(&mut o, Some(h), 0);
             o.into_iter().map(|l| l.text).collect::<Vec<_>>().join("\n")
         };
         let mut h = MemoryHealth {
@@ -600,6 +637,53 @@ mod tests {
         assert_eq!(
             line(&retention),
             "memory: live · arm +retention · retention ready · 2 nodes (5 events)"
+        );
+    }
+
+    /// Health's recall line (theseus-w9qv): the last turns' recalls by
+    /// outcome, and when the whole answer last came; a warning while a recall
+    /// found nothing in time.
+    #[test]
+    fn health_counts_recalls_by_outcome() {
+        let r = RecallOutcomes {
+            window: 50,
+            turns: 50,
+            ok: 41,
+            words_only: 9,
+            last_full_ms: Some(1_000_000),
+            ..Default::default()
+        };
+        let h = MemoryHealth {
+            mode: "live".into(),
+            arm: "baseline".into(),
+            recalls: Some(r.clone()),
+            ..Default::default()
+        };
+        let mut o = Vec::new();
+        push_health(&mut o, Some(&h), 1_000_000 + 180_000);
+        let text: Vec<&str> = o.iter().map(|l| l.text.as_str()).collect();
+        assert_eq!(
+            text,
+            [
+                "memory: live · arm baseline",
+                "recall: the last 50: 41 ok, 9 words only, 0 deadline, 0 error · every source \
+                 last answered 3 min ago"
+            ]
+        );
+        assert!(matches!(o[1].tag, Tag::Plain));
+        let stuck = RecallOutcomes {
+            ok: 0,
+            words_only: 0,
+            deadline: 50,
+            last_full_ms: None,
+            ..r
+        };
+        let (tag, line) = recalls_line(&stuck, 0);
+        assert!(matches!(tag, Tag::Warn));
+        assert_eq!(
+            line,
+            "recall: the last 50: 0 ok, 0 words only, 50 deadline, 0 error · no answer from \
+             every source since the start"
         );
     }
 }

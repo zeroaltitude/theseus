@@ -410,6 +410,7 @@ impl Memory {
             nodes: s.nodes,
             events: s.events,
             adjacency: None,
+            recalls: None,
         }
     }
 }

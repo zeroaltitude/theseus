@@ -241,6 +241,7 @@ impl TurnRunner {
             |ids| crate::recall::links(&self.store, ids),
             false,
         );
+        self.memory.noted(&m);
         // What the rerank reads of the scene (32c), taken now: the rest of
         // the scene borrows the turn, which the row and the mark need.
         let retention = self.memory.retention_of(&*scene.science, &candidates);
@@ -315,6 +316,7 @@ impl TurnRunner {
         let mut m = self
             .recall_reranked(t, mode, a.arm, activation, &begun, answer)
             .await;
+        self.memory.noted(&m);
         m.arm = Some(a.arm.as_str().into());
         let cap = self.memory.cfg().session_recall_cap_tokens;
         // An assembled section sits in the prefix: the tail's cap is not its.

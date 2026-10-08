@@ -1,6 +1,7 @@
 //! A daemon runs the arm its config names (M6 step 34b; §3.2's 34b row): in
 //! `live` mode, `none` asks the index nothing, `bm25` asks for BM25 and
-//! entities alone, and `baseline` for the fused sources, and each turn's
+//! entities alone, and `baseline` for the fused sources (and the word sources
+//! beside them, theseus-w9qv), and each turn's
 //! `memory.arm` row, `recall.ran` row and `Recall` node name the arm. The
 //! exam runs one daemon per arm (theseus-exam's `arms`), so this is what makes
 //! its arms differ. The index is `tests_recall`'s stand-in, wrapped to keep
@@ -91,10 +92,12 @@ async fn a_daemon_runs_the_arm_its_config_names() {
     assert_eq!(rows, ["live bm25"]);
     assert_eq!(node.as_deref(), Some("bm25"));
 
-    // `baseline`: the fused sources.
+    // `baseline`: the fused sources, and beside them the word sources alone,
+    // whose answer stands in if the vector search is late (theseus-w9qv).
     let (asked, arms, rows, node) = live_turn(MemoryArm::Baseline).await;
-    assert_eq!(asked.len(), 1);
+    assert_eq!(asked.len(), 2);
     assert_eq!(asked[0].sources, ["bm25", "entity", "vector"]);
+    assert_eq!(asked[1].sources, ["bm25", "entity"]);
     assert_eq!(arms[0].data["arm"], "baseline");
     assert_eq!(rows, ["live baseline"]);
     assert_eq!(node.as_deref(), Some("baseline"));
@@ -125,7 +128,7 @@ async fn shadow_and_a_canarys_control_ask_for_baselines_sources() {
         assert_eq!(res.recalled, 0, "{mode:?}");
         assert_eq!(
             *asked.lock().unwrap(),
-            [["bm25", "entity", "vector"]],
+            [vec!["bm25", "entity", "vector"], vec!["bm25", "entity"]],
             "{mode:?}"
         );
     }

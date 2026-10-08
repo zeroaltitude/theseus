@@ -498,6 +498,13 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   nothing, and `memory.recalls`), and `config/memory.rs`. In shadow the model's request is the one compiled without
   recall, and the row rides in the turn's next frame. The filters and pack are `theseus_memory::recall`. Tests:
   `tests_recall.rs`.
+  - **Words in time** (theseus-w9qv): a query that asks for vectors goes out twice at once (`recall::race`): as
+    asked, and for its word sources alone, which answer in a few ms while the query's embedding may take hundreds.
+    The whole answer wins whenever it arrives within the deadline; past it (or when the vector search fails), the
+    words' hits rank and pack as usual, the row's `outcome` is `words_only` (`recall::WORDS_ONLY`) with `why` and
+    `skipped.vector`. Never past the deadline. Health's memory block counts the last 50 recalls by outcome and the
+    last whole answer's time (`recall/outcomes.rs`, in memory since the start; `MemoryHealth.recalls`), and
+    `theseus.recall.index_ms` times each recall's wait by outcome. Tests: `tests_recall_words.rs`.
   - **In front of the model** (step 30b, theseus-6fn.2): `[memory] mode = "canary"` (a sticky share,
     `canary_fraction`, by a hash of session and `experiment`: `MemoryConfig::assign`, recorded once as a `memory.arm`
     row; the control runs `none` live with `baseline` in shadow) or `"live"`. The read finishes before the first
