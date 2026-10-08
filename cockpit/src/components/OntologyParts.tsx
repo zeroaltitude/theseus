@@ -8,10 +8,11 @@ import { call, useRpc } from '@/lib/rpc'
 import { useAsOf } from '@/lib/timemachine'
 import { refusalWords } from '@/lib/ontology'
 
-/** `ontology.list`, the present: one session's memberships when `sessionId` is given, every interpreted one otherwise. The
- *  daemon keeps no past of it, so the time machine's moment does not move it. */
-export function useOntology(sessionId?: string) {
-  const params: OntologyListParams = sessionId ? { session_id: sessionId } : {}
+/** `ontology.list`, the present: one session's memberships when `sessionId` is given, every interpreted one otherwise,
+ *  or none with `treeOnly` (the kinds and the tree, each category counting its sessions: an import's tens of thousands
+ *  of memberships stay on the daemon). The daemon keeps no past of it, so the time machine's moment does not move it. */
+export function useOntology(sessionId?: string, treeOnly = false) {
+  const params: OntologyListParams = sessionId ? { session_id: sessionId } : treeOnly ? { memberships: false } : {}
   return useRpc<OntologyListResult>('ontology.list', params, 5000)
 }
 

@@ -23,6 +23,7 @@ pub fn category(i: &str, name: &str, parent: Option<&str>) -> Category {
         parent: parent.map(id),
         description: String::new(),
         added_by: "ada".into(),
+        retired_ms: None,
     }
 }
 

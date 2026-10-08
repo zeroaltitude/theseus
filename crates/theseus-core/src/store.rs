@@ -1319,7 +1319,7 @@ pub(crate) mod tests {
         let m: serde_json::Value =
             serde_json::from_slice(&std::fs::read(d.path().join("MANIFEST.json")).unwrap())
                 .unwrap();
-        assert_eq!(m["format"], 23, "the write moved it: {m}");
+        assert_eq!(m["format"], 24, "the write moved it: {m}");
         let store = Store::open(d.path()).unwrap();
         let into = store.scope_after("in:msg_first", 0).unwrap();
         assert_eq!(into.len(), 1);

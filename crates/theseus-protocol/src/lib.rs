@@ -230,7 +230,8 @@ pub mod method {
         JUDGE_REPLAY = "judge.replay", JUDGE_AUDIT = "judge.audit", JUDGE_BACKFILL = "judge.backfill", JUDGE_LEARN = "judge.learn", JUDGE_PROVE = "judge.prove",
         /// The ladder (M5 26a; `packs`): each pack's mode, a read; the owner's promote and rollback.
         PACK_LIST = "pack.list", PACK_PROMOTE = "pack.promote", PACK_ROLLBACK = "pack.rollback",
-        /// The import (theseus-0lrr.6; `import`): a batch of episodes; a tag's erase, the owner's; the tags, a read.
+        /// The import (theseus-0lrr.6; `import`): a batch of episodes; a tag's erase, the owner's; the tags, a read;
+        /// and a tag's topics (theseus-anh3), the owner's: its sessions' labels as ontology topics and memberships.
         IMPORT_EPISODES = "import.episodes", IMPORT_ERASE = "import.erase", IMPORT_LIST = "import.list",
         /// The imported episodes, filtered and counted by facet, a page at a time (theseus-7n3e;
         /// `import::ImportSessionsParams`): the context explorer's list. A read.
@@ -242,6 +243,7 @@ pub mod method {
         /// The books, first cut (theseus-civ0; `books`): each book's count and span, and a book's
         /// episodes newest first, filtered and paged. Reads.
         BOOKS_LIST = "books.list", BOOKS_PAGE = "books.page",
+        IMPORT_TOPICS = "import.topics",
         /// The gates' bench history on this machine (theseus-1hk), for the
         /// cockpit's speed wall: every recorded run's p50s, p95s, and limits
         /// (`bench::BenchHistoryResult`). A read of the gate's CSV.

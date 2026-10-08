@@ -176,6 +176,7 @@ fn topic(name: &str, desc: &str) -> Record {
         parent: None,
         description: desc.into(),
         added_by: "the CLI".into(),
+        retired_ms: None,
     })
 }
 
@@ -193,6 +194,7 @@ fn candidates_come_from_the_kinds_table() {
             parent: None,
             description: "the lab channel".into(),
             added_by: "transport".into(),
+            retired_ms: None,
         }),
         Origin::Transport,
     )

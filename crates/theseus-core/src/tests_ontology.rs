@@ -409,6 +409,7 @@ async fn given_memberships_refuse_writes() {
         .core
         .ontology_list(&OntologyListParams {
             session_id: Some(sid),
+            memberships: None,
         })
         .unwrap();
     assert_eq!(list.memberships.len(), 1);

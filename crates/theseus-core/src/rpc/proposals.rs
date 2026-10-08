@@ -385,6 +385,7 @@ fn topic_of(
                     parent: None,
                     description: p.description.clone().unwrap_or_default().trim().to_string(),
                     added_by: super::ontology::added_by(who),
+                    retired_ms: None,
                 };
                 (c.id.clone(), Some(c))
             }

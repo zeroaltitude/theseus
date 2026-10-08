@@ -85,6 +85,11 @@ pub enum Origin {
     Transport,
     /// The owner or an operator, through the CLI or the web UI.
     Operator,
+    /// The import (`theseus import topics`): the owner's past history's
+    /// labels, each imported session's topics. The owner's act, as an
+    /// operator's is, named apart so the tag's erase takes back what it
+    /// assigned and nothing else.
+    Import,
     /// Jev's `categorize.v1`. Not built.
     Jev,
     /// A sweep. Not built.
@@ -94,9 +99,10 @@ pub enum Origin {
 }
 
 impl Origin {
-    pub const ALL: [Origin; 5] = [
+    pub const ALL: [Origin; 6] = [
         Origin::Transport,
         Origin::Operator,
+        Origin::Import,
         Origin::Jev,
         Origin::Sweep,
         Origin::Dream,
@@ -106,6 +112,7 @@ impl Origin {
         match self {
             Origin::Transport => "transport",
             Origin::Operator => "operator",
+            Origin::Import => "import",
             Origin::Jev => "jev",
             Origin::Sweep => "sweep",
             Origin::Dream => "dream",
@@ -116,7 +123,7 @@ impl Origin {
     /// is built.
     pub fn comes_with(self) -> Option<&'static str> {
         match self {
-            Origin::Transport | Origin::Operator => None,
+            Origin::Transport | Origin::Operator | Origin::Import => None,
             Origin::Jev => Some("M5, with Jev's categorize.v1"),
             Origin::Sweep => Some("M6, with sweeps"),
             Origin::Dream => Some("M6, with dreams"),
@@ -400,12 +407,13 @@ pub fn seeds() -> Vec<Kind> {
         row(
             "topic",
             Basis::Interpreted,
-            vec![Origin::Operator],
+            vec![Origin::Operator, Origin::Import],
             PerSession::AtMost(3),
             Some("topic"),
             40,
             Rule::Chain,
-            "What a session is about, declared by the operator. Topics nest.",
+            "What a session is about, declared by the operator, or by the import from an imported \
+             session's labels. Topics nest.",
         ),
     ]
 }

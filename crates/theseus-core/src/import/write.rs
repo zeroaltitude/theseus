@@ -54,8 +54,8 @@ pub const FRAME_RECORDS: usize = 4_000;
 /// A frame's bytes past which a batch is cut into another frame.
 pub const FRAME_BYTES: usize = 8 << 20;
 
-/// One import or erase at a time.
-static ONE: Mutex<()> = Mutex::new(());
+/// One import, erase, or topics run (`topics`) at a time.
+pub(super) static ONE: Mutex<()> = Mutex::new(());
 
 /// A frame being built: its records, their bytes, the tags' counts it
 /// moves, and the records past which it is cut (`FRAME_RECORDS`).
@@ -521,6 +521,7 @@ pub(super) fn erase_in(
             frames,
             index: String::new(),
             ms: t0.elapsed().as_secs_f64() * 1e3,
+            ..ImportEraseResult::default()
         },
         nodes: forget,
         stopped,
@@ -529,7 +530,7 @@ pub(super) fn erase_in(
 
 /// The sessions of `tag`, by id, or `None` once `stopping` turns true: it
 /// is looked at every [`LOOK_EVERY`] records.
-fn sessions_of_tag(
+pub(super) fn sessions_of_tag(
     store: &Store,
     tag: &str,
     stopping: &impl Fn() -> bool,

@@ -670,7 +670,7 @@ has a reader for:
 | `guild` | given | The transport (the place's guild) | 1 | — | 10 | `chain` |
 | `channel` | given | The transport (the place) | 1 | `guild` | 20 | `chain` |
 | `person` | given | The transport (the DM's user; a channel's listed users) | many | — | 30 | `intent_line` |
-| `topic` | interpreted | The operator in M4; `jev` in M5; `sweep` and `dream` in M6 | 3 | `topic` (topics nest) | 40 | `chain` |
+| `topic` | interpreted | The operator in M4, and the import (`import`, from an imported session's labels; theseus-anh3); `jev` in M5; `sweep` and `dream` in M6 | 3 | `topic` (topics nest) | 40 | `chain` |
 
 - **`culture` and `expertise`** (§4.1a's other seed rows) are added with their reader, Jev (M5).
 - **Composition rules.** M4 implements `chain` and `intent_line`. A row naming `ranked` or `recall_only` is

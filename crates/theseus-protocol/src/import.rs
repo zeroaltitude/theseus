@@ -109,6 +109,64 @@ pub struct ImportEraseResult {
     /// that its follower drops them as it reads the markers.
     pub index: String,
     pub ms: f64,
+    /// The erased sessions' topic memberships taken away (theseus-anh3):
+    /// the sessions whose lists were emptied.
+    #[serde(default)]
+    #[cfg_attr(test, ts(type = "number"))]
+    pub memberships: u64,
+    /// The topics the tag's `import.topics` made that nothing else uses,
+    /// taken away.
+    #[serde(default)]
+    #[cfg_attr(test, ts(type = "number"))]
+    pub topics: u64,
+}
+
+/// `import.topics` (theseus-anh3): a tag's imported sessions' topic labels
+/// (`labels.topic`, slash paths) as ontology topics, a tree with a topic
+/// for each prefix, and each session's topic memberships, origin `import`:
+/// at most the kind's per-session count, the rest kept as labels. From the
+/// stored labels, never a re-import; a second run changes nothing. The
+/// owner's act, from a private place.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct ImportTopicsParams {
+    pub tag: String,
+}
+
+/// What `import.topics` did.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct ImportTopicsResult {
+    pub tag: String,
+    /// The tag's sessions read (an erased one is passed over).
+    #[cfg_attr(test, ts(type = "number"))]
+    pub sessions: u64,
+    /// The distinct labels they carry, and the topics those make: one for
+    /// each label and each prefix of one.
+    #[cfg_attr(test, ts(type = "number"))]
+    pub labels: u64,
+    #[cfg_attr(test, ts(type = "number"))]
+    pub topics: u64,
+    /// Topics declared now (the rest were held already).
+    #[cfg_attr(test, ts(type = "number"))]
+    pub made: u64,
+    /// Sessions whose topic list was written now (the rest held it already).
+    #[cfg_attr(test, ts(type = "number"))]
+    pub joined: u64,
+    /// The tag's sessions' memberships from the import, after the run.
+    #[cfg_attr(test, ts(type = "number"))]
+    pub memberships: u64,
+    /// Sessions with more topics than the kind allows one: the first ones in
+    /// the pipeline's order were taken, the rest stay labels.
+    #[cfg_attr(test, ts(type = "number"))]
+    pub capped: u64,
+    /// Labels no topic can be made of (an empty part, deeper than the tree
+    /// nests), left as labels.
+    #[cfg_attr(test, ts(type = "number"))]
+    pub unplaced: u64,
+    #[cfg_attr(test, ts(type = "number"))]
+    pub frames: u64,
+    pub ms: f64,
 }
 
 /// One tag, as `import.list` shows it.

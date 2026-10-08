@@ -5,7 +5,8 @@
  */
 export type OntologyMembership = { session_id: string, kind: string, category: string, 
 /**
- * `transport` (given, read from the session's place, never stored) or
- * `operator`.
+ * `transport` (given, read from the session's place, never stored),
+ * `operator`, or `import` (an imported session's labels, by
+ * `import.topics`).
  */
 origin: string, confidence?: number, as_of_ms: number, };

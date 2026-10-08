@@ -36,12 +36,12 @@
   {
     "name": "topic",
     "basis": "interpreted",
-    "assigned_by": ["operator"],
+    "assigned_by": ["operator", "import"],
     "per_session": 3,
     "parent": "topic",
     "precedence": 40,
     "rule": "chain",
-    "description": "What a session is about, declared by the operator. Topics nest.",
+    "description": "What a session is about, declared by the operator, or by the import from an imported session's labels. Topics nest.",
     "version": 1,
     "added_by": "seed"
   }

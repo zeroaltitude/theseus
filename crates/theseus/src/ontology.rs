@@ -18,21 +18,26 @@ use theseus_protocol::{
 use crate::cmd::output;
 use crate::{OntologyCmd, TopicCmd};
 
+/// `ontology.list` for the kinds and the tree alone: an import's tens of
+/// thousands of memberships are left out (theseus-anh3).
+fn tree_only() -> OntologyListParams {
+    OntologyListParams {
+        session_id: None,
+        memberships: Some(false),
+    }
+}
+
 pub async fn ontology(conn: &mut Conn, json: bool, cmd: OntologyCmd) -> Result<()> {
     match cmd {
         OntologyCmd::Kinds => {
-            let v = conn
-                .request(method::ONTOLOGY_LIST, OntologyListParams::default())
-                .await?;
+            let v = conn.request(method::ONTOLOGY_LIST, tree_only()).await?;
             output(json, v, |r: OntologyListResult| {
                 print(render::ontology_kinds_lines(&r.kinds));
                 Ok(())
             })
         }
         OntologyCmd::Categories => {
-            let v = conn
-                .request(method::ONTOLOGY_LIST, OntologyListParams::default())
-                .await?;
+            let v = conn.request(method::ONTOLOGY_LIST, tree_only()).await?;
             output(json, v, |r: OntologyListResult| {
                 print(render::ontology_categories_lines(&r.categories));
                 Ok(())
@@ -177,6 +182,7 @@ async fn member(conn: &mut Conn, json: bool, session: String, changes: Vec<Strin
                 method::ONTOLOGY_LIST,
                 OntologyListParams {
                     session_id: Some(session),
+                    memberships: None,
                 },
             )
             .await?;

@@ -3,10 +3,10 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import type { OntologyCategory, OntologyKind, OntologyMembership } from '@protocol'
-import { guidanceInPlay, guidanceWords, nothingPending, pendingOf, recordedOf, treeOrder } from '../src/lib/ontology.ts'
+import { ancestorsOf, guidanceInPlay, guidanceWords, nothingPending, parents, pendingOf, recordedOf, shown, treeOrder, withinCounts } from '../src/lib/ontology.ts'
 
-const cat = (id: string, name: string, parent?: string, guidance?: [number, string]): OntologyCategory => ({
-  id, kind: id.split(':')[0], name, parent, depth: 1, description: '', added_by: 'the operator',
+const cat = (id: string, name: string, parent?: string, guidance?: [number, string], members = 0): OntologyCategory => ({
+  id, kind: id.split(':')[0], name, parent, depth: 1, description: '', added_by: 'the operator', members,
   guidance: guidance ? { category: id, text: 'be brief', version: guidance[0], digest: guidance[1], added_by: 'the operator' } : undefined,
 })
 const kind = (name: string, rule: string): OntologyKind => ({
@@ -81,4 +81,38 @@ test('an intent_line kind takes no ancestors, and a manifest with neither field 
   assert.deepEqual(pendingOf([member('topic:harbor')], cats, kinds, undefined), none)
   assert.deepEqual(pendingOf([], cats, kinds, { model: 'x' }), { added: [], removed: [], guidance: [] })
   assert.equal(recordedOf({ memberships: 'no', guidance: [null, 3, { category: 'topic:a', version: 2 }] }).guidance.length, 1)
+})
+
+// The tree at an import's size (theseus-anh3): counts with the descendants', the branches, the folded view, and the
+// selected row's ancestors.
+const sized = [
+  cat('topic:harbor', 'harbor', undefined, undefined, 2),
+  cat('topic:harbor-tides', 'tides', 'topic:harbor', undefined, 5),
+  cat('topic:harbor-tides-neap', 'neap', 'topic:harbor-tides', undefined, 7),
+  cat('topic:harbor-boats', 'boats', 'topic:harbor', undefined, 11),
+  cat('topic:zephyr', 'zephyr', undefined, undefined, 1),
+]
+
+test('a category counts its sessions with every descendant\'s', () => {
+  const within = withinCounts(treeOrder(sized))
+  assert.deepEqual([...within.entries()].sort(), [
+    ['topic:harbor', 25], ['topic:harbor-boats', 11], ['topic:harbor-tides', 12], ['topic:harbor-tides-neap', 7], ['topic:zephyr', 1],
+  ])
+})
+
+test('the branches are the rows with children, and a folded branch hides everything below it', () => {
+  const rows = treeOrder(sized)
+  assert.deepEqual([...parents(rows)].sort(), ['topic:harbor', 'topic:harbor-tides'])
+  const ids = (open: string[]) => shown(rows, new Set(open)).map((r) => r.category.id)
+  assert.deepEqual(ids([]), ['topic:harbor', 'topic:zephyr'])
+  assert.deepEqual(ids(['topic:harbor']), ['topic:harbor', 'topic:harbor-boats', 'topic:harbor-tides', 'topic:zephyr'])
+  assert.deepEqual(ids(['topic:harbor-tides']), ['topic:harbor', 'topic:zephyr'], 'a closed root hides an open child')
+  assert.deepEqual(ids(['topic:harbor', 'topic:harbor-tides']), rows.map((r) => r.category.id))
+})
+
+test('a selected category\'s ancestors are named root first, so it shows', () => {
+  const rows = treeOrder(sized)
+  assert.deepEqual(ancestorsOf(rows, 'topic:harbor-tides-neap'), ['topic:harbor', 'topic:harbor-tides'])
+  assert.deepEqual(ancestorsOf(rows, 'topic:zephyr'), [])
+  assert.deepEqual(ancestorsOf(rows, null), [])
 })

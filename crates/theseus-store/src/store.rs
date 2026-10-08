@@ -584,7 +584,9 @@ const BULK: usize = 4096;
 /// 23 = an imported session (theseus-0lrr.6): a session's `imported`, a
 /// node's `import` origin, and the `Imported`, `ImportedSummary` and
 /// `Erased` NODE bodies.
-const MANIFEST_FORMAT: u32 = 23;
+/// 24 = an import's topics (theseus-anh3): a category's `retired_ms`, and
+/// the `import` origin in an `onto:member` list.
+const MANIFEST_FORMAT: u32 = 24;
 /// The oldest format this build reads. A format-3 manifest's per-kind marks
 /// are left unread.
 const MANIFEST_OLDEST: u32 = 2;

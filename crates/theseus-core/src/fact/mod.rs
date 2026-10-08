@@ -406,6 +406,7 @@ facts![
     synthesis::SynthesisScored<'static>,
     import::ImportBatch<'static>,
     import::ImportErased<'static>,
+    import::ImportTopics<'static>,
     ladder::PackModeSet<'static>,
     ladder::PackEventLanded<'static>,
     mcp::McpStarted,

@@ -8,15 +8,22 @@ use serde::{Deserialize, Serialize};
 
 use crate::DiscordOrigin;
 
-/// `ontology.list`: the kinds table, every category with its guidance, and
-/// memberships: one session's (given ones from its place, and interpreted
-/// ones), or, without a session, every interpreted one stored.
+/// `ontology.list`: the kinds table, every category with its guidance and
+/// its count of sessions, and memberships: one session's (given ones from
+/// its place, and interpreted ones), or, without a session, every
+/// interpreted one stored.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
 pub struct OntologyListParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub session_id: Option<String>,
+    /// `false` leaves the memberships out (each category's `members` still
+    /// counts them): a reader of the tree alone, at an import's size (tens of
+    /// thousands of memberships), reads only the tree. Default `true`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub memberships: Option<bool>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -73,6 +80,11 @@ pub struct OntologyCategory {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub guidance: Option<OntologyGuidance>,
+    /// The sessions whose stored memberships hold it (an interpreted kind's;
+    /// a given one is read from a place, and counts none).
+    #[serde(default)]
+    #[cfg_attr(test, ts(type = "number"))]
+    pub members: u64,
 }
 
 /// A category's guidance.
@@ -97,8 +109,9 @@ pub struct OntologyMembership {
     pub session_id: String,
     pub kind: String,
     pub category: String,
-    /// `transport` (given, read from the session's place, never stored) or
-    /// `operator`.
+    /// `transport` (given, read from the session's place, never stored),
+    /// `operator`, or `import` (an imported session's labels, by
+    /// `import.topics`).
     pub origin: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]

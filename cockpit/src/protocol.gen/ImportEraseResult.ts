@@ -16,4 +16,14 @@ nodes: number, frames: number,
  * What the index did: `forgot 120 nodes`, or why it was not asked and
  * that its follower drops them as it reads the markers.
  */
-index: string, ms: number, };
+index: string, ms: number, 
+/**
+ * The erased sessions' topic memberships taken away (theseus-anh3):
+ * the sessions whose lists were emptied.
+ */
+memberships: number, 
+/**
+ * The topics the tag's `import.topics` made that nothing else uses,
+ * taken away.
+ */
+topics: number, };

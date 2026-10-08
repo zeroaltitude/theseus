@@ -27,14 +27,21 @@
 //!   messages' node ids.
 //! - **The erase** (`write::erase`) tombstones a tag's every node and
 //!   session (§5.6's erasure marker: `Body::Erased`, `ImportedFrom.erased`),
-//!   and the index forgets them.
+//!   and the index forgets them; its second half (`topics::unassign`) takes
+//!   the erased sessions' memberships and the topics nothing else uses.
+//! - **The topics** (`topics::assign`, theseus-anh3): the sessions' topic
+//!   labels as the ontology's topics, a tree, and their memberships, by the
+//!   owner's `import.topics`.
 
 pub mod catalog;
 pub mod episode;
+pub mod topics;
 pub mod write;
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_topics;
 
 use serde::{Deserialize, Serialize};
 

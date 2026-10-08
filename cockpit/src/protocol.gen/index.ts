@@ -130,6 +130,8 @@ export type * from './ImportRejected';
 export type * from './ImportSessionsParams';
 export type * from './ImportSessionsResult';
 export type * from './ImportTagInfo';
+export type * from './ImportTopicsParams';
+export type * from './ImportTopicsResult';
 export type * from './ImportedEpisode';
 export type * from './IndexBackfill';
 export type * from './IndexChunkRef';

@@ -72,6 +72,51 @@ impl Fact for ImportErased<'_> {
     }
 }
 
+/// A tag's topics written (`import.topics`, theseus-anh3), a row for each
+/// frame: the topics declared and the sessions' lists written; or, by the
+/// erase, the sessions' lists emptied and the topics taken away.
+pub struct ImportTopics<'a> {
+    pub tag: &'a str,
+    pub by: &'a str,
+    pub made: u64,
+    pub joined: u64,
+    pub taken: u64,
+    pub retired: u64,
+}
+
+impl Fact for ImportTopics<'_> {
+    const KIND: Option<LedgerKind> = Some(LedgerKind::ImportTopics);
+
+    fn row(&self) -> Value {
+        json!({"tag": self.tag, "by": self.by, "made": self.made, "joined": self.joined,
+               "taken": self.taken, "retired": self.retired})
+    }
+
+    fn narrate(&self, say: &mut Say<'_>) {
+        let line = if self.taken > 0 || self.retired > 0 {
+            format!(
+                "Took back the import {}'s topics: {} emptied, {} taken away.",
+                self.tag,
+                crate::narrative::count(
+                    self.taken,
+                    "session's memberships",
+                    "sessions' memberships"
+                ),
+                crate::narrative::count(self.retired, "topic", "topics"),
+            )
+        } else {
+            format!(
+                "Placed {} of the import {} in its topics ({} declared), by {}.",
+                crate::narrative::count(self.joined, "session", "sessions"),
+                self.tag,
+                crate::narrative::count(self.made, "topic", "topics"),
+                self.by,
+            )
+        };
+        say.line(NarrativePart::Session, line);
+    }
+}
+
 /// A tag's rows' scope.
 pub fn scope(tag: &str) -> String {
     format!("import.ledger:{tag}")
