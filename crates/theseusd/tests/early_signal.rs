@@ -289,6 +289,85 @@ fn stdio_rows(rig: &Rig, sent: &[String]) {
     );
 }
 
+/// The store phase of the next start in the same mode, which is then shut
+/// down over the protocol: what the last stop left to replay.
+fn next_start(rig: &Rig, stdio: bool) -> Value {
+    let wait = |d: &mut Daemon| {
+        let t0 = Instant::now();
+        while d.try_wait().is_none() {
+            assert!(t0.elapsed() < Duration::from_secs(15), "no stop in 15 s");
+            std::thread::sleep(Duration::from_millis(5));
+        }
+    };
+    if stdio {
+        let mut d = Daemon::spawn(
+            rig.command()
+                .arg("--stdio")
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::null()),
+        );
+        let mut c = common::stdio::StdioClient::new(&mut d);
+        let store = store_phase(&c.call("health", Value::Null).unwrap());
+        c.call("shutdown", Value::Null).unwrap();
+        drop(c);
+        wait(&mut d);
+        return store;
+    }
+    let mut d = Daemon::spawn(
+        rig.command()
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null()),
+    );
+    let t0 = Instant::now();
+    let h = loop {
+        if let Ok(h) = call(rig.dir.path(), "health", Value::Null) {
+            break h;
+        }
+        assert!(d.try_wait().is_none(), "the check's start exited");
+        assert!(t0.elapsed() < Duration::from_secs(15), "no health in 15 s");
+        std::thread::sleep(Duration::from_millis(10));
+    };
+    call(rig.dir.path(), "shutdown", Value::Null).unwrap();
+    wait(&mut d);
+    store_phase(&h)
+}
+
+/// A stop on the `serving` line, checked after every run: the work after
+/// serving (`announce_serving`'s frame, the driver's `driver.started`) wrote
+/// on its own time, so a frame of it could land after the stop's last
+/// checkpoint and the next start replayed it. Each now goes through the
+/// core's late-row gate (theseus-81kk).
+fn every_stop_on_serving_leaves_nothing_to_replay(stdio: bool) {
+    let rig = Rig::new();
+    for run in 0..30 {
+        let signal = if run % 2 == 0 {
+            libc::SIGINT
+        } else {
+            libc::SIGTERM
+        };
+        let (status, log) = rig.signalled(stdio, "serving serving_ms=", signal);
+        assert!(status.success(), "run {run}: {status}; the log:\n{log}");
+        let store = next_start(&rig, stdio);
+        assert_eq!(
+            (&store["replayed_into_index"], &store["index_repaired"]),
+            (&json!(0), &json!(false)),
+            "run {run}: the stop left a frame after its last checkpoint: {store}; its log:\n{log}"
+        );
+    }
+}
+
+#[test]
+fn a_stop_on_serving_leaves_nothing_to_replay() {
+    every_stop_on_serving_leaves_nothing_to_replay(false);
+}
+
+#[test]
+fn a_stdio_stop_on_serving_leaves_nothing_to_replay() {
+    every_stop_on_serving_leaves_nothing_to_replay(true);
+}
+
 #[test]
 fn a_signal_just_after_serving_is_a_clean_stop() {
     every_early_signal_is_a_clean_stop(false);

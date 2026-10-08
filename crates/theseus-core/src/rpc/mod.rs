@@ -772,7 +772,9 @@ impl Core {
     /// in one frame, off the start path (theseus-qa0). When the store's open
     /// found an index that was not a database, moved it aside, and built it
     /// again from the WAL, `store.index_replaced` says so in the same frame
-    /// (theseus-0b8).
+    /// (theseus-0b8). A stop that began first (a signal just after serving,
+    /// theseus-6mxq) may have written its last checkpoint already: then the
+    /// frame is dropped, as `ledger_unless_closed` drops a row (theseus-81kk).
     pub fn announce_serving(&self, serving_us: u64) {
         let phases: Vec<_> = self
             .startup_log
@@ -810,6 +812,14 @@ impl Core {
             .iter()
             .map(|r| theseus_store::NewRecord::json(theseus_store::kinds::LEDGER, None, r))
             .collect();
+        let closed = self
+            .closed
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if *closed {
+            tracing::debug!("the stop's last checkpoint is written: the serving rows are dropped");
+            return;
+        }
         if let Err(e) = frame.and_then(|f| self.store.append(&f)) {
             tracing::warn!(error = %e, "ledger append failed");
         }

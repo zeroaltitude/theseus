@@ -98,14 +98,14 @@ pub async fn drive(core: Arc<Core>) {
     let t0 = std::time::Instant::now();
     core.startup_log
         .record("driver", true, t0, serde_json::Value::Null);
-    if let Err(e) = core.store.append_ledger(&crate::ledger::LedgerRow::new(
+    // Dropped once the stop's last checkpoint is written: a signal just after
+    // serving can stop the daemon before the driver starts (theseus-6mxq).
+    core.ledger_unless_closed(&crate::ledger::LedgerRow::new(
         LedgerKind::DriverStarted,
         None,
         None,
         serde_json::json!({"after_start_ms": core.startup_log.us(t0) / 1000}),
-    )) {
-        tracing::warn!(error = %e, "ledger append failed");
-    }
+    ));
     let mut tick = tokio::time::interval(Duration::from_millis(500));
     tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     tracing::info!("continuation driver parked");
