@@ -25,6 +25,24 @@ import efficiency as ef
 import sampler as smp
 
 PROFILE = Path(__file__).resolve().parent.parent / "theseus-bench.toml"
+# The routed arm's profile (theseus-eo3h): the plain one with the judge and
+# the routing table on, and the Jev key as a second secret.
+PROFILE_ROUTED = Path(__file__).resolve().parent.parent / "theseus-bench-routed.toml"
+# The profiles the routed arm names, each given the trial's loop cap.
+ROUTED_PROFILES = ("sonnet", "opus", "fable", "haiku", "haikuhi")
+# The environment variable that holds the Jev key (the profile's
+# `jev_api_key = "env:TYPESAFE_API_KEY"`): passed into the container for the
+# routed arm only.
+JEV_KEY_ENV = "TYPESAFE_API_KEY"
+# The most one trial may spend, by default (`THESEUS_BENCH_SPEND_LIMIT`). The
+# kernel reserves a call's worst case before it runs, and the profiles cap no
+# output (128,000 tokens): one Opus 5.5 call reserves about $2.6 and one Fable
+# 5.1 call about $6.5, so the plain arm's $2 refuses the first call the router
+# sends to either (stop reason `budget`, exit 5). The routed arm's default
+# clears Fable's reserve with room for what the trial has spent (review of
+# theseus-eo3h; the number is the owner's).
+SPEND_LIMIT_USD = 2.0
+ROUTED_SPEND_LIMIT_USD = 20.0
 
 # `theseus ask`'s exit codes, by how the turn ended (theseus-n88g.2).
 ENDS = {
@@ -47,6 +65,11 @@ HISTORY = "theseus-history.json"
 EXIT = "theseus-exit.txt"
 LOG = "theseus.log"
 DONE = "theseus-done"
+# The routed arm's two reads of the ledger, taken after the history: Jev's
+# judgments (`judge.call`, with their cost) and where each turn ran
+# (`route.decided`).
+JUDGE = "theseus-judge.json"
+ROUTES = "theseus-routes.json"
 
 
 def ended(code: int | None) -> str:
@@ -63,6 +86,7 @@ def settings(
     proc_sync_secs: int = 900,
     system: str | None = None,
     api_base: str | None = None,
+    routed: bool = False,
 ) -> dict[tuple[str, str], Any]:
     """The `(table, key)` values a trial sets in the profile: the lines it
     marks "set by the adapter", and the optional system text and API base."""
@@ -79,14 +103,18 @@ def settings(
         s[("profiles.bench", "system")] = system
     if api_base:
         s[("model", "api_base")] = api_base
+    if routed:
+        # The profiles the router may pick run as many loops as `bench` does.
+        for name in ROUTED_PROFILES:
+            s[(f"profiles.{name}", "max_loops")] = max_loops
     return s
 
 
-def profile_effort(text: str | None = None) -> str | None:
+def profile_effort(text: str | None = None, path: Path | None = None) -> str | None:
     """The reasoning effort the bench profile asks for, `[profiles.bench]
     effort` (theseus-n6p5): the same one the other arms ask for
     (`measure.EFFORT`)."""
-    parsed = tomllib.loads(PROFILE.read_text() if text is None else text)
+    parsed = tomllib.loads((path or PROFILE).read_text() if text is None else text)
     return parsed.get("profiles", {}).get("bench", {}).get("effort")
 
 
@@ -127,7 +155,7 @@ def profile(text: str, values: dict[tuple[str, str], Any]) -> str:
 
 
 def run_script(bin_dir: str, state: str, logs: str, sampler: str | None = None,
-               sample_ms: int = smp.INTERVAL_MS) -> str:
+               sample_ms: int = smp.INTERVAL_MS, routed: bool = False) -> str:
     """The trial's one command, run as the task's user, with the instruction
     in `THESEUS_BENCH_INSTRUCTION` (unset before anything else starts).
 
@@ -140,7 +168,13 @@ def run_script(bin_dir: str, state: str, logs: str, sampler: str | None = None,
 
     With `sampler` (its path in the container), the harness sampler
     (`sampler.py`, theseus-7gir.12) starts before the turn and stops after
-    the history is read, before the done marker; it never fails the run."""
+    the history is read, before the done marker; it never fails the run.
+
+    With `routed` (theseus-eo3h), the history is followed by two reads of the
+    ledger, `JUDGE` (the `judge.call` rows: Jev's calls and their cost) and
+    `ROUTES` (the `route.decided` rows: which profile each turn ran on), at
+    most 1000 rows each. A failed read leaves its file empty and fails
+    nothing."""
     b, s, lg = (shlex.quote(p) for p in (bin_dir, state, logs))
     spawn = f"{b}/theseus --spawn {b}/theseusd --json"
     arm = ef.ARMS["theseus"]
@@ -149,6 +183,12 @@ def run_script(bin_dir: str, state: str, logs: str, sampler: str | None = None,
         start = smp.start_script(sampler, logs, state, arm["names"], arm["wrapper_args"],
                                  sample_ms) + "; "
         stop = smp.stop_script(logs, state) + "; "
+    ledger = ""
+    if routed:
+        ledger = "".join(
+            f"{spawn} ledger -n 1000 -k {kind} > {lg}/{out} 2>> {lg}/{LOG}; "
+            for kind, out in (("judge.call", JUDGE), ("route.decided", ROUTES))
+        )
     return (
         'instruction="$THESEUS_BENCH_INSTRUCTION"; unset THESEUS_BENCH_INSTRUCTION; '
         f"rm -f {lg}/{DONE}; "
@@ -157,6 +197,7 @@ def run_script(bin_dir: str, state: str, logs: str, sampler: str | None = None,
         f"echo $! > {s}/ask.pid; wait $!; rc=$?; "
         f"echo $rc > {lg}/{EXIT}; "
         f"{spawn} history > {lg}/{HISTORY} 2>> {lg}/{LOG}; "
+        f"{ledger}"
         f"{stop}"
         f"touch {lg}/{DONE}; "
         f"if [ $rc -ne 0 ]; then grep '^theseus: ' {lg}/{LOG} | tail -n 1 >&2; fi; "

@@ -8,8 +8,9 @@ instruction, and runs the task's tests for a reward. **Every benchmark run ends 
 | File | What it is |
 |---|---|
 | `theseus-bench.toml` | The bench profile: the config a task's container runs. No vault (the model's key is `env:ANTHROPIC_API_KEY`), every tool open, workspace roots at `/`, L0, and Discord, the web UI, and the index off. A test loads it (`crates/theseusd/tests/bench_profile.rs`). |
+| `theseus-bench-routed.toml` | The routed arm's profile (theseus-eo3h), "Theseus as shipped": the plain profile with the judge on, so Jev picks the model per message from the owner's routing table (`route.v2`), the five profiles it names, and the Jev key as a second secret (`env:TYPESAFE_API_KEY`). A test loads it (`crates/theseusd/tests/bench_profile_routed.rs`). |
 | `build.sh` | Builds the two static (musl) binaries the container runs, `theseus` and `theseusd`, into `bench/bin`. |
-| `harbor/theseus_agent.py` | The Harbor agent, `-a theseus_agent:Theseus`. |
+| `harbor/theseus_agent.py` | The Harbor agent, `-a theseus_agent:Theseus`; `-a theseus_agent:TheseusRouted` (or `--ak routed=1`) is the routed arm. |
 | `harbor/theseus_bench.py` | Its parts that need no Harbor: the profile a trial writes, the container's script, and the exit codes. |
 | `harbor/theseus_atif.py` | A session's history as an ATIF trajectory, the format Harbor's viewer and usage totals read. |
 | `harbor/efficiency.py` | A trial's efficiency record, one shape for every arm: tokens by class and model, dollars, calls, and the harness's CPU and memory apart from its work. |
@@ -64,11 +65,37 @@ The adapter's settings come from the environment of `harbor run`:
 | Variable | Default | What it sets |
 |---|---|---|
 | `THESEUS_BENCH_BIN_DIR` | (required) | Where `theseus` and `theseusd` are, static. |
-| `THESEUS_BENCH_SPEND_LIMIT` | `2.0` | The most one trial may spend, in dollars (`[kernel] spend_limit_usd`). |
+| `THESEUS_BENCH_SPEND_LIMIT` | `2.0` (`20.0` on the routed arm) | The most one trial may spend, in dollars (`[kernel] spend_limit_usd`). The kernel reserves a call's worst case first, and no profile caps its output, so one Opus 5.5 call reserves about $2.6 and one Fable 5.1 call about $6.5: at $2 the routed arm's first call to either is refused. |
 | `THESEUS_BENCH_MAX_LOOPS` | `200` | The model calls one turn may make. |
 | `THESEUS_BENCH_PROC_SYNC` | `900` | How long a command may keep the turn waiting, in seconds. A headless run ends with its turn, so a command left running in the background is never read. |
 | `THESEUS_BENCH_SYSTEM_FILE` | (none) | Extra system text, for an A/B arm. |
+| `TYPESAFE_API_KEY` | (routed arm only) | The Jev key. The routed arm refuses to start without it; it reaches the container only as this variable in the agent's environment, never in a file or a command, and no other arm gets it. |
 | `BENCH_SAMPLE_MS` | `250` | How often the harness sampler reads `/proc`, in milliseconds (every arm). |
+
+## The routed arm
+
+`-a theseus_agent:TheseusRouted` runs Theseus as the owner runs it (theseus-eo3h): `[judge]` on, `route.v3` live,
+and the owner's routing table over `haiku` (Haiku 5.5, effort low), `haikuhi` (high), `sonnet`, `opus`, and `fable`,
+so each message's turn runs on the model Jev picks. The conditions of the plain arm hold (the same limits, the same
+output cap, `bench` as the session's own profile at medium effort), and these do not, so a report marks the arm as
+having conditions its peers did not share:
+
+- the model and its effort vary by message: route.v3 asks the reply's effort beside the mode, and a sure answer wins
+  over the profile's own (none sets `effort_fixed`); else `haiku` runs low, `haikuhi` high, and `sonnet`, `opus` and
+  `fable`, which ask for none, at each model's default;
+- the Z.ai profile `glm` is left out (the bench has no Z.ai key), so `trivial` is `["haiku"]`;
+- `[routing] max_wait_ms` is 2000, not the shipped 200: a trial is one message, and a verdict that comes after the
+  wait applies to the next message alone;
+- the trial's spend limit is `20.0` by default, not `2.0` (the kernel reserves a call's worst case and no profile caps
+  its output, so `2.0` refuses the first Opus or Fable call: stop reason `budget`);
+- Jev's calls are billed apart from the model's and outside the kernel's spend limit
+  (`THESEUS_BENCH_SPEND_LIMIT` limits the models' dollars, as on the plain arm).
+
+Each trial leaves `theseus-judge.json` and `theseus-routes.json` (the ledger's `judge.call` and `route.decided`
+rows) beside its history, and its efficiency record has `arm` `theseus-routed`, `cost_usd` (the model's plus Jev's;
+`model_cost_usd` is the model's alone), `jev` (calls, cost, by pack), and `routing` (each turn's mode, profile and
+effort, the model calls by model, and how many turns moved). A `routing.rows_read` of false means the ledger could
+not be read, not that nothing was routed.
 
 ## How a trial runs, and how it ends
 

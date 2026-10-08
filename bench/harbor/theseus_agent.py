@@ -32,8 +32,18 @@ key in ANTHROPIC_API_KEY. bench/README.md has the rest.
   CPU and memory (`sampler.py`, run around the turn at nice 19, every
   BENCH_SAMPLE_MS, 250 by default).
 
+**The routed arm** (theseus-eo3h), "Theseus as shipped": `-a theseus_agent:TheseusRouted` (or
+`-a theseus_agent:Theseus --ak routed=1`) writes `bench/theseus-bench-routed.toml` instead, which turns the judge on,
+so Jev picks the model (and, by the profile, the effort) for each message from the owner's routing table. The Jev key
+is read from `TYPESAFE_API_KEY` in the environment of `harbor run` and reaches the container only as that variable in
+the exec's environment, for this arm alone (the profile names it `env:TYPESAFE_API_KEY`); the run fails before it
+starts if it is unset. After the turn the run reads the ledger's `judge.call` and `route.decided` rows
+(`theseus-judge.json`, `theseus-routes.json`), and the trial's record (`arm` `theseus-routed`) adds Jev's cost to its
+dollars (`cost_usd`; the model's alone is `model_cost_usd`), and names the models and efforts the turns ran on
+(`routing`).
+
 Settings, from the environment of `harbor run`: THESEUS_BENCH_MAX_LOOPS
-(200), THESEUS_BENCH_SPEND_LIMIT (2.0 dollars a trial), THESEUS_BENCH_PROC_SYNC
+(200), THESEUS_BENCH_SPEND_LIMIT (2.0 dollars a trial, 20.0 on the routed arm), THESEUS_BENCH_PROC_SYNC
 (900 s a command may keep the turn waiting), and THESEUS_BENCH_SYSTEM_FILE
 (extra system text, for an A/B arm).
 """
@@ -112,6 +122,16 @@ class Theseus(BaseInstalledAgent):
         base_url_envs=("ANTHROPIC_BASE_URL",),
     )
 
+    # The routed arm (theseus-eo3h): `TheseusRouted` sets it, `--ak routed=1` does too.
+    ROUTED = False
+
+    def __init__(self, *args: Any, routed: Any = None, **kwargs: Any):
+        super().__init__(*args, **kwargs)
+        if routed is not None:
+            self.routed = str(routed).lower() in ("1", "true", "yes")
+        else:
+            self.routed = self.ROUTED
+
     @staticmethod
     @override
     def name() -> str:
@@ -158,12 +178,23 @@ class Theseus(BaseInstalledAgent):
             model,
             workdir,
             max_loops=int(os.environ.get("THESEUS_BENCH_MAX_LOOPS", "200")),
-            spend_limit_usd=float(os.environ.get("THESEUS_BENCH_SPEND_LIMIT", "2.0")),
+            spend_limit_usd=float(
+                os.environ.get(
+                    "THESEUS_BENCH_SPEND_LIMIT",
+                    str(tb.ROUTED_SPEND_LIMIT_USD if self.routed else tb.SPEND_LIMIT_USD),
+                )
+            ),
             proc_sync_secs=int(os.environ.get("THESEUS_BENCH_PROC_SYNC", "900")),
             system=Path(system_file).read_text().strip() if system_file else None,
             api_base=access.configured_base_url,
+            routed=self.routed,
         )
-        config = tb.profile(tb.PROFILE.read_text(), values)
+        jev_key = ""
+        if self.routed:
+            jev_key = os.environ.get(tb.JEV_KEY_ENV, "")
+            if not jev_key:
+                raise RuntimeError(f"the routed arm needs the Jev key in {tb.JEV_KEY_ENV}")
+        config = tb.profile((tb.PROFILE_ROUTED if self.routed else tb.PROFILE).read_text(), values)
         await self._upload_config_text(
             environment, content=config, remote_path=CONFIG, filename="theseus.toml"
         )
@@ -174,11 +205,15 @@ class Theseus(BaseInstalledAgent):
             "THESEUS_LOG": "info",
             "THESEUS_BENCH_INSTRUCTION": instruction,
         }
+        if self.routed:
+            # The Jev key reaches the container for this arm only, and only
+            # as the daemon's environment: never in a file or the command.
+            env[tb.JEV_KEY_ENV] = jev_key
         logs = self.environment_logs_dir.as_posix()
         try:
             sample_ms = int(os.environ.get("BENCH_SAMPLE_MS", str(smp.INTERVAL_MS)))
             await self.exec_as_agent(
-                environment, command=tb.run_script(BIN, STATE, logs, SAMPLER, sample_ms), env=env
+                environment, command=tb.run_script(BIN, STATE, logs, SAMPLER, sample_ms, self.routed), env=env
             )
         except asyncio.CancelledError:
             # Harbor's timeout: stop the turn, and let the run's end read its
@@ -251,11 +286,30 @@ class Theseus(BaseInstalledAgent):
         # from its work. A record that cannot be made never fails the trial.
         try:
             rec = ef.stamp(self.logs_dir, ef.theseus_record(self.logs_dir, tb.TURN, tb.HISTORY),
-                           tb.profile_effort(), None, self.parse_version)
+                           tb.profile_effort(path=tb.PROFILE_ROUTED if self.routed else None),
+                           None, self.parse_version)
+            if self.routed:
+                efforts = ef.profile_efforts(tb.PROFILE_ROUTED.read_text())
+                rec = ef.routed_record(rec, _json(self.logs_dir / tb.JUDGE),
+                                       _json(self.logs_dir / tb.ROUTES), efforts)
+                if rec["cost_usd"] is not None:
+                    context.cost_usd = rec["cost_usd"]
             ef.write(self.logs_dir, rec)
         except Exception as e:  # noqa: BLE001
-            rec = {"schema": ef.SCHEMA, "arm": "theseus", "error": f"{type(e).__name__}: {e}"}
+            rec = {"schema": ef.SCHEMA, "arm": ef.ROUTED_ARM if self.routed else "theseus", "error": f"{type(e).__name__}: {e}"}
         context.metadata = ef.metadata(context.metadata, rec)
+
+
+class TheseusRouted(Theseus):
+    """Theseus as shipped (theseus-eo3h): the judge on, Jev picking the model
+    per message. See the module's text."""
+
+    ROUTED = True
+
+    @staticmethod
+    @override
+    def name() -> str:
+        return "theseus-routed"
 
 
 def _json(path: Path) -> dict[str, Any] | None:
