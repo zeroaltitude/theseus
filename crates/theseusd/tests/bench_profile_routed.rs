@@ -71,7 +71,11 @@ fn the_routed_profile_loads_with_the_judge_and_the_routing_table_on() {
     assert_eq!(cfg.model.live, "bench");
     let bench = &cfg.profiles["bench"];
     assert_eq!(
-        (bench.model.as_str(), bench.max_loops, bench.max_output_tokens),
+        (
+            bench.model.as_str(),
+            bench.max_loops,
+            bench.max_output_tokens
+        ),
         ("claude-sonnet-5-5", 200, None)
     );
     assert_eq!(cfg.kernel.spend_limit_usd, 2.0);
@@ -115,7 +119,10 @@ fn theseusd_check_passes_on_the_routed_profile_with_both_keys_and_names_a_missin
         "{stdout}"
     );
     for seen in [&stdout, &stderr] {
-        assert!(!seen.contains(KEY) && !seen.contains(JEV), "a key's value was printed");
+        assert!(
+            !seen.contains(KEY) && !seen.contains(JEV),
+            "a key's value was printed"
+        );
     }
     let out = check(None);
     let stderr = String::from_utf8_lossy(&out.stderr);
