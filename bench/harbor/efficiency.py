@@ -49,6 +49,30 @@ ARMS: dict[str, dict[str, tuple[str, ...]]] = {
     "theseus": {"names": ("theseus", "theseusd"), "wrapper_args": ("job-wrapper", "job-sandbox")},
     "claude-code": {"names": ("claude",), "wrapper_args": ()},
     "pi": {"names": ("pi",), "wrapper_args": ()},
+    # Harbor's own agents (theseus-qags; `measured.py`). Codex's npm launcher
+    # is `node`, which execs the native `codex`; OpenCode's postinstall puts
+    # its native binary at `bin/opencode.exe`; Aider is a Python script, so
+    # its comm is the script's name; OpenHands' SDK runner is a `python`
+    # script, so its arm runs it through a link named `openhands-py`;
+    # OpenClaw sets its title.
+    "codex": {"names": ("codex",), "wrapper_args": ()},
+    "aider": {"names": ("aider",), "wrapper_args": ()},
+    "opencode": {"names": ("opencode.exe", "opencode"), "wrapper_args": ()},
+    "openhands": {"names": ("openhands-py",), "wrapper_args": ()},
+    "openclaw": {"names": ("openclaw",), "wrapper_args": ()},
+}
+
+# The providers' list prices, dollars a million tokens, by class: what a
+# trial's tokens cost whatever a harness's own table says (theseus-qags).
+# Claude Sonnet 5.5's are the ones Theseus's and Claude Code's own bills
+# work out to in b5 (a cache read at a tenth of an input); the OpenAI models'
+# are LiteLLM's, the table Harbor prices Codex's tokens from (a cache write at
+# 1.25 times an input, as Codex 0.161 reports writes).
+LIST_PRICES: dict[str, dict[str, float]] = {
+    "claude-sonnet-5-5": {"input": 2.0, "cache_read": 0.2, "cache_write": 2.5, "output": 10.0},
+    "gpt-6.1-sol": {"input": 2.0, "cache_read": 0.1, "cache_write": 2.5, "output": 10.0},
+    "gpt-5.6-sol": {"input": 4.0, "cache_read": 0.4, "cache_write": 5.0, "output": 20.0},
+    "gpt-6-astra": {"input": 10.0, "cache_read": 1.0, "cache_write": 12.5, "output": 50.0},
 }
 
 # Anthropic's usage keys, by class.
@@ -300,9 +324,10 @@ def trajectory_tokens(metrics: dict[str, Any]) -> dict[str, int]:
     """An ATIF step's four classes: `prompt_tokens` is input, cache read and
     cache write together (Harbor's and Theseus's converters both write it
     so), `cached_tokens` the read, and `extra.cache_creation_input_tokens`
-    the write."""
+    the write (Harbor's Codex converter names it `cache_write_input_tokens`)."""
     read = int(metrics.get("cached_tokens") or 0)
-    write = int((metrics.get("extra") or {}).get("cache_creation_input_tokens") or 0)
+    extra = metrics.get("extra") or {}
+    write = int(extra.get("cache_creation_input_tokens") or extra.get("cache_write_input_tokens") or 0)
     prompt = int(metrics.get("prompt_tokens") or 0)
     return {"input": max(prompt - read - write, 0), "cache_read": read, "cache_write": write,
             "output": int(metrics.get("completion_tokens") or 0)}
@@ -747,6 +772,332 @@ def pi_record(logs: Path, max_budget_usd: float | None = None,
                               end["turns"] if counted else None)
     rec["effort_ran"] = pi_effort_ran(entries) if entries else None
     return rec
+
+
+# ------------------------------------------- Harbor's own agents (theseus-qags)
+
+
+def list_price(by_model: dict[str, dict[str, Any]]) -> float | None:
+    """A trial's tokens at the providers' list prices (`LIST_PRICES`), each
+    model by its own name (a provider prefix dropped); None when a model
+    with tokens has no list price, or there were none."""
+    total, any_tokens = 0.0, False
+    for name, m in by_model.items():
+        n = sum(int(m.get(c) or 0) for c in CLASSES)
+        if not n:
+            continue
+        any_tokens = True
+        p = LIST_PRICES.get(name.split("/")[-1])
+        if p is None:
+            return None
+        total += sum(int(m.get(c) or 0) * p[c] for c in CLASSES) / 1e6
+    return round(total, 6) if any_tokens else None
+
+
+def limits(rec: dict[str, Any], max_budget_usd: float | None, max_turns: int | None,
+           enforced: bool) -> dict[str, Any]:
+    """The other arms' caps held against a trial: `enforced` when the
+    harness was given them as its own options, else recorded only, and the
+    trial flagged where it passed them. The dollars held are the list
+    price's, else the harness's own; the turns are its model calls."""
+    cost = rec.get("list_cost_usd")
+    if cost is None:
+        cost = rec.get("cost_usd")
+    turns = rec.get("model_calls")
+    return {
+        "enforced": enforced,
+        "max_budget_usd": max_budget_usd,
+        "max_turns": max_turns,
+        "turns": turns,
+        "over_budget": None if max_budget_usd is None or cost is None else cost > max_budget_usd,
+        "over_turns": None if max_turns is None or turns is None else turns > max_turns,
+    }
+
+
+def _priced_record(arm: str, spend: dict[str, Any], logs: Path, wall_s: float | None = None) -> dict[str, Any]:
+    rec = record(arm, spend, read_json(logs / SAMPLER_SUMMARY), wall_s=wall_s)
+    rec["list_cost_usd"] = list_price(rec.get("by_model") or {})
+    return rec
+
+
+def _trajectory(logs: Path) -> dict[str, Any] | None:
+    t = read_json(logs / "trajectory.json")
+    return t if isinstance(t, dict) else None
+
+
+def trajectory_wall(trajectory: dict[str, Any] | None) -> float | None:
+    """The span of a trajectory's step timestamps: the run's own time, when
+    the sampler has none."""
+    times = [t for t in (_iso(s.get("timestamp")) for s in (trajectory or {}).get("steps") or [])
+             if t is not None]
+    return round((max(times) - min(times)).total_seconds(), 3) if len(times) > 1 else None
+
+
+def atif_record(arm: str, logs: Path) -> dict[str, Any]:
+    """A trial's record from Harbor's ATIF trajectory alone (Codex,
+    OpenHands, OpenClaw): Harbor converts each harness's own log, with its
+    token counts a call and its dollars, into `trajectory.json`."""
+    traj = _trajectory(logs)
+    return _priced_record(arm, trajectory_spend(traj), logs, wall_s=trajectory_wall(traj))
+
+
+def codex_record(logs: Path) -> dict[str, Any]:
+    """Codex's: its rollout's token counts a call, through Harbor's
+    trajectory. Codex keeps no dollars; Harbor prices its tokens from
+    LiteLLM's table, which `cost_usd` is."""
+    return atif_record("codex", logs)
+
+
+def openhands_spend(metrics: dict[str, Any] | None, trajectory: dict[str, Any] | None) -> dict[str, Any]:
+    """OpenHands' spend from `openhands-metrics.json` (`openhands_measure_run.py`):
+    each LLM's `token_usages`, one a call, and `costs`, the dollars its SDK's
+    LiteLLM priced. LiteLLM's `prompt_tokens` for an Anthropic call holds the
+    cache's reads and writes too (a probe of 2026-10-07: 6019 = 11 + 6008), so
+    the uncached input is what is left. Tool calls are the trajectory's."""
+    by_model: dict[str, dict[str, Any]] = {}
+    calls = 0
+    costs: list[float | None] = []
+    for llm in (metrics or {}).get("llms") or []:
+        mt = llm.get("metrics") or {}
+        usages = mt.get("token_usages") or []
+        if not usages:
+            continue
+        m = _model(by_model, (llm.get("model") or "").split("/")[-1] or None)
+        for u in usages:
+            read, write = int(u.get("cache_read_tokens") or 0), int(u.get("cache_write_tokens") or 0)
+            m.update(_add(m, {"input": max(int(u.get("prompt_tokens") or 0) - read - write, 0),
+                              "cache_read": read, "cache_write": write,
+                              "output": int(u.get("completion_tokens") or 0)}))
+            m["calls"] += 1
+            calls += 1
+        cost = mt.get("accumulated_cost")
+        costs.append(None if cost is None else float(cost))
+        m["cost_usd"] = None if cost is None or m["cost_usd"] is None else round(m["cost_usd"] + float(cost), 6)
+    steps = [s for s in (trajectory or {}).get("steps") or [] if s.get("source") == "agent"]
+    tools = sum(len(s.get("tool_calls") or []) for s in steps)
+    if calls:
+        return _spend(by_model, _priced(costs), "metrics", calls, tools)
+    final = (trajectory or {}).get("final_metrics") or {}
+    if final.get("total_prompt_tokens"):
+        # Harbor's totals alone: the cache write is lost in them.
+        read = int(final.get("total_cached_tokens") or 0)
+        m = _model(by_model, "claude-sonnet-5-5")
+        m.update({"input": max(int(final["total_prompt_tokens"]) - read, 0), "cache_read": read, "cache_write": 0,
+                  "output": int(final.get("total_completion_tokens") or 0), "cost_usd": final.get("total_cost_usd"),
+                  "calls": len(steps)})
+        return _spend(by_model, final.get("total_cost_usd"), "trajectory_totals", len(steps), tools)
+    return _spend({}, None, None, None, None)
+
+
+def openhands_record(logs: Path) -> dict[str, Any]:
+    traj = _trajectory(logs)
+    metrics = read_json(logs / "openhands-metrics.json")
+    return _priced_record("openhands", openhands_spend(metrics if isinstance(metrics, dict) else None, traj), logs,
+                          wall_s=trajectory_wall(traj))
+
+
+def openclaw_envelope(text: str | None) -> dict[str, Any] | None:
+    """The JSON object `openclaw agent --local --json` prints last, the one
+    with `meta.agentMeta` (log lines come before and after it)."""
+    dec = json.JSONDecoder()
+    found, pos, t = None, 0, text or ""
+    while True:
+        i = t.find("{", pos)
+        if i < 0:
+            return found
+        try:
+            obj, end = dec.raw_decode(t, i)
+        except ValueError:
+            pos = i + 1
+            continue
+        if isinstance(obj, dict) and isinstance((obj.get("meta") or {}).get("agentMeta"), dict):
+            found = obj
+        pos = end
+
+
+def openclaw_spend(envelope: dict[str, Any] | None) -> dict[str, Any]:
+    """OpenClaw's spend from its envelope's `meta.agentMeta`: `usage` (the
+    run's tokens by class, `cacheRead` and `cacheWrite` apart from `input`,
+    and `cost.total`, priced by OpenClaw's own catalog), `assistantTurns`
+    (its model calls), and, for tool calls, `bridgeCalls.call` (OpenClaw
+    2026.9 runs its tools through code mode's bridge: `search` and
+    `describe` find a tool, `call` runs one) else its receipt's tool count."""
+    meta = ((envelope or {}).get("meta") or {}).get("agentMeta") or {}
+    u = meta.get("usage") or {}
+    if not u:
+        return _spend({}, None, None, None, None)
+    m = _model({}, meta.get("model"))
+    m.update(tokens(u, PI_USAGE))
+    cost = (u.get("cost") or {}).get("total")
+    if cost is None:
+        cost = meta.get("costUsd")
+    m["cost_usd"] = cost
+    calls = meta.get("assistantTurns")
+    m["calls"] = int(calls or 0)
+    bridge = meta.get("bridgeCalls") or {}
+    tools = bridge.get("call")
+    if tools is None:
+        tools = len(((meta.get("terminalReceipt") or {}).get("successfulToolNames")) or [])
+    return _spend({meta.get("model") or "unknown": m}, cost, "envelope", calls, tools)
+
+
+def openclaw_record(logs: Path) -> dict[str, Any]:
+    """OpenClaw's record from `agent/openclaw.txt`'s envelope; without one,
+    Harbor's trajectory (from a session file, which OpenClaw 2026.9's SQLite
+    sessions leave Harbor without)."""
+    try:
+        text = (logs / "openclaw.txt").read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        text = None
+    env = openclaw_envelope(text)
+    spend = openclaw_spend(env)
+    traj = _trajectory(logs)
+    if spend["spend_from"] is None and traj:
+        spend = trajectory_spend(traj)
+    ms = (((env or {}).get("meta") or {}).get("durationMs"))
+    wall = ms / 1000 if isinstance(ms, (int, float)) else trajectory_wall(traj)
+    rec = _priced_record("openclaw", spend, logs, wall_s=wall)
+    rec["aborted"] = ((env or {}).get("meta") or {}).get("aborted")
+    return rec
+
+
+def opencode_spend(events: list[dict[str, Any]]) -> dict[str, Any]:
+    """OpenCode's spend from its `run --format=json` stream: each
+    `step_finish` is one model call, with its tokens (`input` uncached,
+    `cache.read`, `cache.write`, `output`, and `reasoning`, billed as output)
+    and its dollars, priced from OpenCode's own catalog; each `tool_use` a
+    tool call."""
+    by_model: dict[str, dict[str, Any]] = {}
+    costs: list[float | None] = []
+    calls = tools = 0
+    for e in events:
+        part = e.get("part") or {}
+        if e.get("type") == "tool_use":
+            tools += 1
+        if e.get("type") != "step_finish":
+            continue
+        calls += 1
+        t = part.get("tokens") or {}
+        cache = t.get("cache") or {}
+        m = _model(by_model, part.get("modelID") or e.get("modelID") or "claude-sonnet-5-5")
+        m.update(_add(m, {"input": int(t.get("input") or 0), "cache_read": int(cache.get("read") or 0),
+                          "cache_write": int(cache.get("write") or 0),
+                          "output": int(t.get("output") or 0) + int(t.get("reasoning") or 0)}))
+        m["calls"] += 1
+        c = part.get("cost")
+        costs.append(None if c is None else float(c))
+        m["cost_usd"] = None if c is None or m["cost_usd"] is None else round(m["cost_usd"] + float(c), 6)
+    if not calls:
+        return _spend({}, None, None, None, None)
+    return _spend(by_model, _priced(costs), "stream", calls, tools)
+
+
+def opencode_wall(events: list[dict[str, Any]]) -> float | None:
+    times = [e["timestamp"] for e in events if isinstance(e.get("timestamp"), (int, float))]
+    return round((max(times) - min(times)) / 1000, 3) if len(times) > 1 else None
+
+
+def opencode_record(logs: Path) -> dict[str, Any]:
+    try:
+        stream = (logs / "opencode.txt").read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        stream = None
+    events = read_jsonl_text(stream)
+    spend = opencode_spend(events)
+    if spend["spend_from"] is None:
+        traj = _trajectory(logs)
+        if traj:
+            spend = trajectory_spend(traj)
+    return _priced_record("opencode", spend, logs, wall_s=opencode_wall(events))
+
+
+# Aider prints a line a model call: "Tokens: 4.2k sent, 1.1k cache write,
+# 3.0k cache hit, 310 received. Cost: $0.0123 message, $0.0456 session."
+_AIDER_NUM = r"([\d.,]+)([kKmM]?)"
+
+
+def _aider_count(n: str, unit: str) -> int:
+    v = float(n.replace(",", ""))
+    return int(round(v * {"": 1, "k": 1e3, "m": 1e6}[unit.lower()]))
+
+
+def aider_calls(text: str | None) -> list[dict[str, Any]]:
+    """Each model call's line in Aider's output: its tokens, as Aider rounds
+    them (`sent` is the whole prompt, the cache's reads and writes in it),
+    and its dollars, from Aider's own table."""
+    import re
+
+    out = []
+    lines = (text or "").splitlines()
+    for i, line in enumerate(lines):
+        if not line.lstrip().startswith("Tokens:"):
+            continue
+        sent = re.search(_AIDER_NUM + r" sent", line)
+        recv = re.search(_AIDER_NUM + r" received", line)
+        write = re.search(_AIDER_NUM + r" cache write", line)
+        hit = re.search(_AIDER_NUM + r" cache hit", line)
+        # A call with both cache reads and writes prints its cost on the next line.
+        cost = re.search(r"Cost: \$([\d.,]+) message", line)
+        if not cost and i + 1 < len(lines) and lines[i + 1].lstrip().startswith("Cost:"):
+            cost = re.search(r"Cost: \$([\d.,]+) message", lines[i + 1])
+        if not sent or not recv:
+            continue
+        w = _aider_count(*write.groups()) if write else 0
+        r = _aider_count(*hit.groups()) if hit else 0
+        out.append({"input": max(_aider_count(*sent.groups()) - w - r, 0), "cache_read": r, "cache_write": w,
+                    "output": _aider_count(*recv.groups()),
+                    "cost_usd": float(cost.group(1).replace(",", "")) if cost else None})
+    return out
+
+
+def aider_analytics(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Aider's `message_send` events from its `--analytics-log`: each call's
+    exact `prompt_tokens` and `completion_tokens`, and its `cost`."""
+    return [e.get("properties") or {} for e in events if e.get("event") == "message_send"]
+
+
+def aider_spend(text: str | None, analytics: list[dict[str, Any]],
+                model: str = "claude-sonnet-5-5") -> dict[str, Any]:
+    """Aider's spend: its printed line a call (the cache's split, rounded),
+    with the analytics log's exact prompt and completion counts and dollars
+    where it has the same calls. Aider has no tool calls; the shell commands
+    it runs, if any (it asks an explicit yes for each, which `--yes-always`
+    does not give), are counted as its `Running` lines."""
+    calls = aider_calls(text)
+    sends = aider_analytics(analytics)
+    source = "stream"
+    if sends and len(sends) == len(calls):
+        source = "analytics"
+        for c, s in zip(calls, sends):
+            if s.get("prompt_tokens") is not None:
+                c["input"] = max(int(s["prompt_tokens"]) - c["cache_read"] - c["cache_write"], 0)
+            if s.get("completion_tokens") is not None:
+                c["output"] = int(s["completion_tokens"])
+            if s.get("cost") is not None:
+                c["cost_usd"] = float(s["cost"])
+    elif sends and not calls:
+        source = "analytics"
+        calls = [{"input": int(s.get("prompt_tokens") or 0), "cache_read": 0, "cache_write": 0,
+                  "output": int(s.get("completion_tokens") or 0),
+                  "cost_usd": None if s.get("cost") is None else float(s["cost"])} for s in sends]
+    if not calls:
+        return _spend({}, None, None, None, None)
+    m = _model({}, model)
+    for c in calls:
+        m.update(_add(m, c))
+        m["calls"] += 1
+    m["cost_usd"] = _priced(c["cost_usd"] for c in calls)
+    commands = sum(1 for line in (text or "").splitlines() if line.startswith("Running "))
+    return _spend({model: m}, m["cost_usd"], source, len(calls), commands)
+
+
+def aider_record(logs: Path) -> dict[str, Any]:
+    try:
+        text = (logs / "aider.txt").read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        text = None
+    analytics = read_jsonl([logs / "aider-analytics.jsonl"])
+    return _priced_record("aider", aider_spend(text, analytics), logs)
 
 
 def version_read(logs: Path, parse: Any = None) -> str | None:
