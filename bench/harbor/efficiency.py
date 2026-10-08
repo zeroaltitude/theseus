@@ -588,6 +588,109 @@ def theseus_record(logs: Path, turn_file: str = "theseus-turn.json",
                   wall_s=None if elapsed is None else elapsed / 1000)
 
 
+ROUTED_ARM = "theseus-routed"
+
+
+def ledger_rows(value: Any) -> list[dict[str, Any]]:
+    """The rows of a `theseus --json ledger` read (`{"rows": [...]}`); none
+    for a file that is missing, empty, or not that."""
+    rows = value.get("rows") if isinstance(value, dict) else None
+    return [r for r in rows if isinstance(r, dict)] if isinstance(rows, list) else []
+
+
+def jev_spend(rows: Iterable[dict[str, Any]]) -> dict[str, Any]:
+    """What Jev's calls cost a trial, from its `judge.call` rows: each row's
+    `cost_micros` (a share of its call's cost; none when the call never ran
+    or its usage is unknown, counted in `unpriced`), in all and by pack. Jev
+    bills apart from the model, so the routed arm's dollars add it."""
+    calls, unpriced, micros = 0, 0, 0
+    by_pack: dict[str, dict[str, Any]] = {}
+    for r in rows:
+        if r.get("kind") != "judge.call":
+            continue
+        d = r.get("data") or {}
+        m = d.get("cost_micros")
+        p = by_pack.setdefault(str(d.get("pack") or "unknown"), {"calls": 0, "cost_usd": 0.0})
+        p["calls"] += 1
+        calls += 1
+        if isinstance(m, (int, float)):
+            micros += int(m)
+            p["cost_usd"] = round(p["cost_usd"] + m / 1e6, 6)
+        else:
+            unpriced += 1
+    return {"calls": calls, "unpriced": unpriced, "cost_usd": round(micros / 1e6, 6),
+            "by_pack": by_pack}
+
+
+def route_turns(rows: Iterable[dict[str, Any]], efforts: dict[str, str | None]) -> list[dict[str, Any]]:
+    """Where each turn ran, from its `route.decided` rows, oldest first:
+    the mode Jev answered and its confidence, the profile the turn ran on
+    and the one it came from, that profile's effort (`efforts`, from the
+    config: None where it names none, so the model's own runs), whether the
+    verdict missed the wait (`late`), and the row's reason."""
+    out = []
+    for r in sorted((r for r in rows if r.get("kind") == "route.decided"),
+                    key=lambda r: r.get("position") or 0):
+        d = r.get("data") or {}
+        profile = d.get("profile")
+        out.append({"mode": d.get("mode"), "confidence": d.get("confidence"), "profile": profile,
+                    "from": d.get("from"), "effort": efforts.get(profile) if profile else None,
+                    "detour": d.get("detour"), "switch": d.get("switch"), "late": d.get("late"),
+                    "reason": d.get("reason")})
+    return out
+
+
+def profile_efforts(config_text: str) -> dict[str, str | None]:
+    """Each profile's `effort` in a TOML config, None where it sets none."""
+    import tomllib
+    profiles = tomllib.loads(config_text).get("profiles") or {}
+    return {name: (p or {}).get("effort") for name, p in profiles.items()}
+
+
+def routed_record(rec: dict[str, Any], judge: Any, routes: Any,
+                  efforts: dict[str, str | None]) -> dict[str, Any]:
+    """The routed arm's record (theseus-eo3h): `rec`, a Theseus trial's,
+    with its arm renamed, Jev's cost added to its dollars, and what the
+    router did.
+
+    - `cost_usd` is the model's (`model_cost_usd`) plus Jev's (`jev`'s
+      `cost_usd`, from the `judge.call` rows); None when the model's is
+      unknown, as a partial sum would understate it. `jev_priced` is false
+      when a judgment had no price (its share of the cost is missing).
+    - `routing`: `turns` (each turn's mode, profile and effort), `models`
+      (model calls by model, from `by_model`: what actually ran, whatever the
+      router said), `profiles` and `modes` (turns by each), `acted` (turns
+      whose profile differs from the one they came from), and
+      `rows_read` (false when a ledger file was missing, so an empty mix
+      is "unknown", not "no routing").
+    A file the trial did not leave (a read that failed) is not an error."""
+    jrows, rrows = ledger_rows(judge), ledger_rows(routes)
+    jev = jev_spend(jrows)
+    turns = route_turns(rrows, efforts)
+    model_cost = rec.get("cost_usd")
+    rec["model_cost_usd"] = model_cost
+    rec["cost_usd"] = None if model_cost is None else round(model_cost + jev["cost_usd"], 6)
+    rec["jev"] = {**jev, "priced": jev["unpriced"] == 0}
+    rec["routing"] = {
+        "turns": turns,
+        "models": {name: m.get("calls") for name, m in (rec.get("by_model") or {}).items()},
+        "profiles": _counts(t["profile"] for t in turns),
+        "modes": _counts(t["mode"] for t in turns),
+        "acted": sum(1 for t in turns if t["profile"] and t["profile"] != t["from"]),
+        "efforts": efforts,
+        "rows_read": isinstance(judge, dict) and isinstance(routes, dict),
+    }
+    rec["arm"] = ROUTED_ARM
+    return rec
+
+
+def _counts(values: Iterable[Any]) -> dict[str, int]:
+    out: dict[str, int] = {}
+    for v in values:
+        out[str(v)] = out.get(str(v), 0) + 1
+    return out
+
+
 def claude_code_record(logs: Path) -> dict[str, Any]:
     """A Claude Code trial's record, from its agent directory: the stream
     (`claude-code.txt`), the session log (`sessions/projects/**/*.jsonl`,

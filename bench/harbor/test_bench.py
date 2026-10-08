@@ -87,6 +87,166 @@ class Profile(unittest.TestCase):
         self.assertEqual(cfg["kernel"], {"spend_limit_usd": 1.0})
 
 
+class Routed(unittest.TestCase):
+    """The routed arm (theseus-eo3h): Theseus as shipped, Jev picking the
+    model per message."""
+
+    def parsed(self, **kw):
+        values = tb.settings("claude-sonnet-5-5", "/app", routed=True, **kw)
+        text = tb.profile(tb.PROFILE_ROUTED.read_text(), values)
+        return text, tomllib.loads(text)
+
+    def test_the_routed_profile_is_the_plain_one_with_the_judge_and_the_table_on(self):
+        text, cfg = self.parsed(max_loops=50)
+        plain = tomllib.loads(tb.profile(tb.PROFILE.read_text(), tb.settings("claude-sonnet-5-5", "/app", max_loops=50)))
+        # Every condition the arms share is the plain profile's.
+        for table in ("model", "server", "kernel", "tools", "policy", "sandbox", "discord", "web", "index"):
+            self.assertEqual(cfg[table], plain[table], table)
+        self.assertEqual(cfg["profiles"]["bench"], plain["profiles"]["bench"])
+        self.assertEqual(cfg["profiles"]["bench"]["effort"], "medium")
+        self.assertNotIn("max_output_tokens", text)
+        # The differences: the judge, the routing table, the profiles it names.
+        self.assertTrue(cfg["judge"]["enabled"])
+        self.assertEqual(cfg["judge"]["key_secret"], "jev_api_key")
+        self.assertEqual(cfg["routing"]["mode"], "live")
+        modes = {m: t["profiles"] for m, t in cfg["routing"]["modes"].items()}
+        self.assertEqual(modes, {
+            "trivial": ["haiku"], "quick": ["haiku"], "chat": [],
+            "sophisticated": ["fable", "opus"], "deep_coding": ["opus", "fable"],
+            "routine_coding": ["haikuhi", "sonnet"]})
+        named = {p for ps in modes.values() for p in ps}
+        self.assertLessEqual(named, set(cfg["profiles"]))
+        self.assertEqual({n: cfg["profiles"][n]["model"] for n in tb.ROUTED_PROFILES}, {
+            "sonnet": "claude-sonnet-5-5", "opus": "claude-opus-5-5", "fable": "claude-fable-5-1",
+            "haiku": "claude-haiku-5-5", "haikuhi": "claude-haiku-5-5"})
+        self.assertEqual((cfg["profiles"]["haiku"]["effort"], cfg["profiles"]["haikuhi"]["effort"]), ("low", "high"))
+        # The trial's loop cap rides every profile the router may pick.
+        for name in ("bench", *tb.ROUTED_PROFILES):
+            self.assertEqual(cfg["profiles"][name]["max_loops"], 50, name)
+        self.assertNotIn("glm", named)
+        self.assertNotIn("op://", text)
+
+    def test_the_jev_key_is_a_second_secret_by_reference_and_the_plain_profile_has_none(self):
+        text, cfg = self.parsed()
+        self.assertEqual(cfg["secrets"], {"anthropic_api_key": "env:ANTHROPIC_API_KEY",
+                                          "jev_api_key": f"env:{tb.JEV_KEY_ENV}"})
+        plain = tb.PROFILE.read_text()
+        self.assertNotIn(tb.JEV_KEY_ENV, plain)
+        self.assertNotIn("[judge", plain)
+        self.assertNotIn("[routing", plain)
+        self.assertNotIn("jev", plain.lower().replace("jev's", ""))
+
+    def test_the_efforts_the_config_names(self):
+        import efficiency as ef
+
+        efforts = ef.profile_efforts(tb.PROFILE_ROUTED.read_text())
+        self.assertEqual(efforts["bench"], "medium")
+        self.assertEqual((efforts["haiku"], efforts["haikuhi"]), ("low", "high"))
+        self.assertEqual((efforts["sonnet"], efforts["opus"], efforts["fable"]), (None, None, None))
+        self.assertEqual(tb.profile_effort(path=tb.PROFILE_ROUTED), "medium")
+
+    def test_a_trials_record_adds_jevs_cost_and_names_the_mix(self):
+        import efficiency as ef
+
+        rec = {"schema": ef.SCHEMA, "arm": "theseus", "cost_usd": 0.5,
+               "by_model": {"claude-haiku-5-5": {"calls": 3}, "claude-opus-5-5": {"calls": 2}}}
+        judge = {"rows": [
+            {"kind": "judge.call", "data": {"pack": "route.v2", "cost_micros": 1500}},
+            {"kind": "judge.call", "data": {"pack": "route.v2", "cost_micros": 500}},
+            {"kind": "judge.call", "data": {"pack": "classify.v1", "cost_micros": None}},
+        ]}
+        routes = {"rows": [
+            {"kind": "route.decided", "position": 9, "data": {
+                "mode": "deep_coding", "confidence": 0.9, "profile": "opus", "from": "bench",
+                "detour": False, "switch": True, "late": False, "reason": "moved"}},
+            {"kind": "route.decided", "position": 4, "data": {
+                "mode": "quick", "profile": "haikuhi", "from": "bench", "detour": True}},
+        ]}
+        efforts = {"bench": "medium", "opus": None, "haikuhi": "high"}
+        out = ef.routed_record(rec, judge, routes, efforts)
+        self.assertEqual(out["arm"], "theseus-routed")
+        self.assertEqual((out["model_cost_usd"], out["cost_usd"]), (0.5, 0.502))
+        self.assertEqual(out["jev"]["calls"], 3)
+        self.assertEqual((out["jev"]["unpriced"], out["jev"]["priced"]), (1, False))
+        self.assertEqual(out["jev"]["by_pack"]["route.v2"], {"calls": 2, "cost_usd": 0.002})
+        r = out["routing"]
+        # Oldest first, by position; efforts from the config.
+        self.assertEqual([(t["profile"], t["effort"]) for t in r["turns"]], [("haikuhi", "high"), ("opus", None)])
+        self.assertEqual(r["models"], {"claude-haiku-5-5": 3, "claude-opus-5-5": 2})
+        self.assertEqual((r["profiles"], r["modes"], r["acted"], r["rows_read"]),
+                         ({"haikuhi": 1, "opus": 1}, {"quick": 1, "deep_coding": 1}, 2, True))
+
+    def test_an_unreadable_ledger_is_unknown_not_no_routing_and_an_unpriced_model_stays_so(self):
+        import efficiency as ef
+
+        out = ef.routed_record({"cost_usd": None, "by_model": {}}, None, None, {})
+        self.assertIsNone(out["cost_usd"])
+        self.assertFalse(out["routing"]["rows_read"])
+        self.assertEqual(out["routing"]["turns"], [])
+
+    def test_the_key_reaches_only_the_routed_arm(self):
+        """The adapter passes the Jev key in the exec's environment for the
+        routed arm alone, never in the command or a file, and refuses to start
+        without it. Needs Harbor (its venv's python)."""
+        try:
+            import asyncio
+            import theseus_agent
+        except ImportError:
+            self.skipTest("Harbor is not installed")
+        key, seen = "jv-invented-key-5d1e", []
+
+        class Env:
+            default_user = None
+
+            async def exec(self, command, **kw):
+                return type("R", (), {"stdout": "/app\n", "return_code": 0})()
+
+        async def go(cls, jev):
+            with tempfile.TemporaryDirectory() as d:
+                agent = cls(logs_dir=Path(d), model_name="anthropic/claude-sonnet-5-5")
+                uploaded = {}
+
+                async def upload(environment, content, remote_path, filename):
+                    uploaded["text"] = content
+
+                async def run(environment, command, env=None, **kw):
+                    seen.append((cls.__name__, command, dict(env or {}), uploaded.get("text")))
+
+                agent._upload_config_text = upload
+                agent.exec_as_agent = run
+                old = {k: os.environ.pop(k, None) for k in (tb.JEV_KEY_ENV,)}
+                if jev:
+                    os.environ[tb.JEV_KEY_ENV] = key
+                try:
+                    await agent.run("Do the task.", Env(), None)
+                finally:
+                    os.environ.pop(tb.JEV_KEY_ENV, None)
+                    for k, v in old.items():
+                        if v is not None:
+                            os.environ[k] = v
+
+        os.environ.setdefault("ANTHROPIC_API_KEY", "an-invented-key")
+        asyncio.run(go(theseus_agent.Theseus, True))
+        asyncio.run(go(theseus_agent.TheseusRouted, True))
+        plain, routed = seen
+        self.assertNotIn(tb.JEV_KEY_ENV, plain[2])
+        self.assertEqual(routed[2][tb.JEV_KEY_ENV], key)
+        for _, command, _, config in seen:
+            self.assertNotIn(key, command)
+            self.assertNotIn(key, config)
+        self.assertIn("[judge]", routed[3])
+        self.assertNotIn("[judge]", plain[3])
+        self.assertIn("ledger -n 1000 -k judge.call", routed[1])
+        self.assertNotIn("ledger", plain[1])
+        with self.assertRaises(RuntimeError):
+            asyncio.run(go(theseus_agent.TheseusRouted, False))
+        # `--ak routed=1` is the same arm.
+        with tempfile.TemporaryDirectory() as d:
+            agent = theseus_agent.Theseus(logs_dir=Path(d), model_name="anthropic/claude-sonnet-5-5", routed="1")
+            self.assertTrue(agent.routed)
+            self.assertEqual(theseus_agent.TheseusRouted.name(), "theseus-routed")
+
+
 class ExitCodes(unittest.TestCase):
     def test_the_table_is_the_clis(self):
         """ENDS says what `theseus ask` exits with: read from outcome.rs, so
@@ -111,6 +271,11 @@ class ExitCodes(unittest.TestCase):
 STANDIN = """#!/bin/sh
 case "$*" in
   *" history"*) echo '{"session": {"session_id": "ses_invented"}, "nodes": []}' ;;
+  *" ledger "*)
+    case "$*" in
+      *judge.call*) echo '{"rows": [{"kind": "judge.call", "data": {"pack": "route.v2", "cost_micros": 1200}}], "total": 1}' ;;
+      *) echo '{"rows": [{"kind": "route.decided", "position": 7, "data": {"mode": "quick", "profile": "haiku", "from": "bench"}}], "total": 1}' ;;
+    esac ;;
   *" ask "*)
     cat > "$STANDIN_DIR/instruction"
     case "$STANDIN_ASK" in
@@ -140,13 +305,14 @@ class Scripts(unittest.TestCase):
         # directory goes, whatever the test did (theseus-99by).
         self.addCleanup(stop_samplers, self, self.logs, self.state, d)
 
-    def start(self, ask: str, sampler: bool = False, path: str | None = None) -> subprocess.Popen:
+    def start(self, ask: str, sampler: bool = False, path: str | None = None,
+              routed: bool = False) -> subprocess.Popen:
         env = dict(os.environ, STANDIN_DIR=self.tmp.name, STANDIN_ASK=ask,
                    THESEUS_BENCH_INSTRUCTION="Fix the repository's history.")
         if path is not None:
             env["PATH"] = path
         script = tb.run_script(str(self.bin), str(self.state), str(self.logs),
-                               str(SAMPLER) if sampler else None, 50)
+                               str(SAMPLER) if sampler else None, 50, routed)
         p = subprocess.Popen([BASH, "-c", "set -o pipefail; " + script], env=env,
                              stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         self.addCleanup(self.reap, p)
@@ -174,6 +340,19 @@ class Scripts(unittest.TestCase):
         self.assertTrue((self.logs / tb.DONE).exists())
         instruction = (Path(self.tmp.name) / "instruction").read_text()
         self.assertEqual(instruction, "Fix the repository's history.")
+
+    def test_only_the_routed_run_reads_the_ledger_for_jevs_calls_and_the_routes(self):
+        """theseus-eo3h: the routed arm leaves the `judge.call` and
+        `route.decided` rows beside the history; the plain arm reads neither."""
+        p = self.start("done")
+        p.communicate(timeout=30)
+        self.assertFalse((self.logs / tb.JUDGE).exists() or (self.logs / tb.ROUTES).exists())
+        p = self.start("done", routed=True)
+        _, err = p.communicate(timeout=30)
+        self.assertEqual(p.returncode, 0, err)
+        self.assertEqual(json.loads(self.read(tb.JUDGE))["rows"][0]["data"]["cost_micros"], 1200)
+        self.assertEqual(json.loads(self.read(tb.ROUTES))["rows"][0]["data"]["profile"], "haiku")
+        self.assertTrue((self.logs / tb.DONE).exists())
 
     def test_a_failure_says_its_cause_on_stderr_where_harbor_reads_it(self):
         p = self.start("failed")
