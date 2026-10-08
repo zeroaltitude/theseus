@@ -17,6 +17,7 @@ use serde_json::{json, Value};
 
 pub mod docs;
 pub mod fs;
+mod fs_window;
 pub mod git;
 pub mod image;
 pub mod net;
@@ -25,6 +26,8 @@ pub mod proc;
 mod recount;
 #[cfg(test)]
 mod tests_patch;
+#[cfg(test)]
+mod tests_window;
 pub mod text;
 
 /// Read, write, or run: the protocol's type, since a call's plan carries its
