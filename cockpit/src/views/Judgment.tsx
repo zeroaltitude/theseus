@@ -11,7 +11,8 @@
 //   `components/LearningReport.tsx` and `components/JudgmentLabels.tsx`; the ladder (26a: each pack's mode, rules
 //   and rows, with promote and roll-back buttons) is `components/PackLadder.tsx`; the versions the learning loop
 //   wrote (25f: each lineage, the diff between any two, `?va=` and `?vb=`, promote and reject) are
-//   `components/PackVersions.tsx`. "disagrees"
+//   `components/PackVersions.tsx`; the owner's corrections of routing that steer a close message (theseus-q31l) are
+//   `components/Corrections.tsx`. "disagrees"
 //   here is the core's: an answered judgment whose pack, in its act band, would have done otherwise than the
 //   baseline.
 // - Jev's live notices (step 24's notices: `security.v3` sure an open call was risky) are the Notices panel: the
@@ -19,7 +20,7 @@
 //   them (on, paused until a day and why, or off).
 import { useMemo } from 'react'
 import { useNavigate, useSearchParams } from 'react-router'
-import { BellRing, GitCompare, GraduationCap, Gavel, ListFilter, Scale, TrendingUp } from 'lucide-react'
+import { BellRing, GitCompare, Undo2, GraduationCap, Gavel, ListFilter, Scale, TrendingUp } from 'lucide-react'
 import type { Health, JudgeGetResult, JudgeListResult, LedgerEntry } from '@protocol'
 import { useRpc } from '@/lib/rpc'
 import { useWorld } from '@/lib/world'
@@ -32,6 +33,7 @@ import { JudgmentLabels } from '@/components/JudgmentLabels'
 import { LearningReport } from '@/components/LearningReport'
 import { PackLadder } from '@/components/PackLadder'
 import { PackVersions } from '@/components/PackVersions'
+import { Corrections } from '@/components/Corrections'
 import { packLine } from '@/lib/packs'
 import { localDay } from '@/lib/learning'
 import { noticeWords } from '@/lib/scores'
@@ -159,6 +161,9 @@ export default function Judgment() {
           <PackLadder readOnly={!!world} />
         </Panel>
 
+        <Panel className="shrink-0" title="Corrections" icon={<Undo2 size={14} />} bodyClassName="max-h-[300px] overflow-auto">
+          <Corrections />
+        </Panel>
         <Panel className="shrink-0" title="Versions" icon={<GitCompare size={14} />} bodyClassName="max-h-[360px] overflow-auto">
           <PackVersions readOnly={!!world} />
         </Panel>

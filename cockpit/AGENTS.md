@@ -55,6 +55,10 @@ build.
   pure parts are `src/lib/explorer.ts`, tested by `test/explorer.test.ts`. The Ship's vessel panel and the session
   deck's Context tab link to it (`contextHref`). Personal and partner-confidential text is veiled on screen until
   opened (`?veil=off` lifts it); the daemon gives imported text only to a private place.
+- The route footer (theseus-q31l): `src/components/RouteFooter.tsx`, under the composer after a turn it sent,
+  `routed: quick · haiku` and the owner's one-tap correction (⬆ stronger, ⬇ cheaper, or a profile), each confirmed and
+  `route.correct`; the live correction layer is Judgment's Corrections panel (`src/components/Corrections.tsx`, over
+  `route.corrections`). Their words are `src/lib/routefooter.ts` (`test/routefooter.test.ts`).
 - `src/components/PromptPicker.tsx` (beside the composer; its pure parts are `src/lib/prompts.ts`): runs an MCP server's
   prompt as the next turn, a field per argument, through `turn.submit { prompt }`.
 - `src/components/Extensions.tsx` (in Systems; its pure parts are `src/lib/extensions.ts`): the loaded extensions

@@ -1254,6 +1254,8 @@ fn footer(r: &TurnSubmitResult) -> String {
         bits.push(r.profile.clone());
     }
     bits.push(r.model.clone());
+    // Where routing ran it: ⬆️ or ⬇️ on the reply corrects it (theseus-q31l).
+    bits.extend(crate::runtime::route::routed(r));
     bits.push(format!(
         "{} loop{}",
         r.loops,

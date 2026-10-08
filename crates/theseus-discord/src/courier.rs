@@ -1196,6 +1196,7 @@ impl Lane {
             .await?;
         self.touch(&w.key);
         self.msgs.insert(w.key.clone(), (w.channel, m));
+        self.shared.replies.noted(m, &w.key);
         if landed != w.content {
             // The nonce returned an earlier send of this message (the stream's,
             // or one before a restart): bring it to this state.

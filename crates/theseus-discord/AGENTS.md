@@ -60,6 +60,13 @@ Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
   limit at each start (`Core::place_spend`). Routing needs no guild: a channel id is unique across guilds. Slash
   commands stay global. A voice channel may be in any bound guild; its call joins in that guild.
 
+- **A reaction corrects routing** (theseus-q31l, `runtime/route.rs`): ⬆️ or ⬇️ on one of this process's replies
+  (found by message in `Shared.replies`, which the courier fills as a turn's key lands, bounded) is `route.correct` on
+  that turn, `stronger` or `cheaper`, with the reactor's place, so the core judges it (the owner, from a private
+  place); a counted one gets ✅. The reply's footer says `routed: <mode>` (or `correction`). There are no footer buttons
+  on Discord: a reaction does the same without a button row under every reply. The gateway asks for both reaction
+  intents (not privileged).
+
 ## Invariants
 
 - **What a person does goes through the protocol** (a message is `turn.submit`, a press `action.confirm`, `/stop`
