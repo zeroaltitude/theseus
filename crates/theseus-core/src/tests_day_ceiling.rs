@@ -1,0 +1,336 @@
+//! The daemon's day ceiling through the core (theseus-kp20): the key and its
+//! check; a turn whose call the ceiling refuses makes no call and ends with
+//! the words, once noticed to the owner's DM and never to a shared place, and
+//! never posted with no DM bound; a restart reads the day back and the
+//! ceiling still holds, with no second notice; the judge skips its call;
+//! `budget.list` shows the day; and the defaults leave a session's limit as it
+//! was.
+
+use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::Arc;
+
+use theseus_protocol::{SessionKind, Usage};
+
+use crate::bus::EventSink;
+use crate::places::BoundPlace;
+use crate::provider::{FakeProvider, Scripted};
+use crate::session::SessionRecord;
+use crate::store::Store;
+use crate::turn::{TurnError, TurnRequest};
+use crate::{Config, Core};
+
+const PLACE: &str = "dm:5150";
+const OWNER_DM: &str = "discord:dm:5150";
+
+fn billed(text: &str) -> Scripted {
+    Scripted::Billed {
+        usage: Usage {
+            input_tokens: 2_000,
+            output_tokens: 1_000,
+            ..Usage::default()
+        },
+        then: Box::new(Scripted::text(text)),
+    }
+}
+
+struct Rig {
+    core: Arc<Core>,
+    fake: Arc<FakeProvider>,
+    dir: tempfile::TempDir,
+}
+
+fn rig(script: Vec<Scripted>, cfg: impl FnOnce(&mut Config)) -> Rig {
+    let dir = tempfile::tempdir().unwrap();
+    let (core, fake) = build(dir.path(), script, cfg);
+    Rig { core, fake, dir }
+}
+
+fn build(
+    dir: &std::path::Path,
+    script: Vec<Scripted>,
+    cfg: impl FnOnce(&mut Config),
+) -> (Arc<Core>, Arc<FakeProvider>) {
+    let mut c = Config::example();
+    c.server.state_dir = dir.to_string_lossy().into_owned();
+    c.tools.roots = vec![];
+    cfg(&mut c);
+    let store = Store::open(&dir.join("store")).unwrap();
+    let fake = Arc::new(FakeProvider::scripted(script));
+    let core = Core::build(crate::rpc::Parts::for_tests(c, fake.clone(), store)).unwrap();
+    (core, fake)
+}
+
+/// A DM with the owner bound, as the binding's start tells it.
+fn bind_dm(core: &Core) {
+    core.runner.place_rule.bind(vec![BoundPlace {
+        target: OWNER_DM.into(),
+        name: "DM @owner".into(),
+        private: true,
+        guild: None,
+        ceiling: None,
+    }]);
+}
+
+async fn turn(
+    core: &Arc<Core>,
+    input: &str,
+) -> (String, anyhow::Result<theseus_protocol::TurnSubmitResult>) {
+    let rec = SessionRecord::new(SessionKind::Conversation, None);
+    core.store.put_session(&rec.session_id, &rec).unwrap();
+    core.outbox.bind_place(PLACE, &rec.session_id).unwrap();
+    let sid = rec.session_id.clone();
+    let (live, _) = core.live_profile();
+    let target = core.runner.resolve_target(&live, None, None, None).unwrap();
+    let res = core
+        .runner
+        .run(TurnRequest {
+            prompt: None,
+            session: rec,
+            input: Some(input.into()),
+            target,
+            sink: EventSink::new(core.bus.clone(), &sid, None),
+            author: "test".into(),
+            recompile: None,
+            attachments: vec![],
+            arrived: None,
+            reply_to: None,
+        })
+        .await;
+    (sid, res)
+}
+
+fn rows(core: &Core, kind: &str) -> Vec<crate::ledger::LedgerRow> {
+    let rows: Vec<(u64, crate::ledger::LedgerRow)> = core.store.ledger_tail(5000).unwrap();
+    rows.into_iter()
+        .map(|(_, r)| r)
+        .filter(|r| r.kind == kind)
+        .collect()
+}
+
+/// The posts of `kind` waiting in the outbox for the owner.
+fn posts(core: &Core, kind: &str) -> Vec<serde_json::Value> {
+    core.outbox
+        .open_for(crate::outbox::OPERATOR_TARGET)
+        .iter()
+        .filter(|a| crate::outbox::kind_of(a) == kind)
+        .map(|a| crate::outbox::body_of(a).clone())
+        .collect()
+}
+
+/// `[kernel] daily_spend_ceiling_usd`: $200 with no line, shown by
+/// `theseusd config`, carried by the template, and refused at 0, below it,
+/// and as NaN with `spend_limit_usd`'s words.
+#[test]
+fn the_key_defaults_to_200_and_refuses_what_is_not_a_dollar_amount() {
+    let (c, w) = Config::parse("[secrets]\nanthropic_api_key = \"op://v/i/f\"\n").unwrap();
+    assert!(w.is_empty(), "{w:?}");
+    assert_eq!(c.kernel.daily_spend_ceiling_usd, 200.0);
+    assert_eq!(
+        c.kernel.to_kernel_config().daily_ceiling_micros,
+        200_000_000
+    );
+    let shown = toml::to_string(&c.kernel).unwrap();
+    assert!(shown.contains("daily_spend_ceiling_usd = 200.0"), "{shown}");
+    assert!(
+        Config::EXAMPLE_TOML.contains("\ndaily_spend_ceiling_usd = 200.0 "),
+        "the template carries it"
+    );
+    assert_eq!(Config::example().kernel.daily_spend_ceiling_usd, 200.0);
+    for bad in ["0.0", "-5.0", "nan"] {
+        let doc = format!(
+            "[secrets]\nanthropic_api_key = \"op://v/i/f\"\n\n[kernel]\ndaily_spend_ceiling_usd = {bad}\n"
+        );
+        let err = format!("{:#}", Config::parse(&doc).unwrap_err());
+        assert!(
+            err.contains(&format!(
+                "kernel.daily_spend_ceiling_usd = {} must be a dollar amount above zero",
+                bad.parse::<f64>().unwrap()
+            )),
+            "{bad}: {err}"
+        );
+    }
+    let (c, _) = Config::parse(
+        "[secrets]\nanthropic_api_key = \"op://v/i/f\"\n\n[kernel]\ndaily_spend_ceiling_usd = 350.0\n",
+    )
+    .unwrap();
+    assert_eq!(
+        c.kernel.to_kernel_config().daily_ceiling_micros,
+        350_000_000
+    );
+}
+
+/// A ceiling below the call's reservation: the turn's call is never made
+/// (the fake provider is never asked), the turn fails `daily_ceiling` with
+/// the words, the day's `spend.ceiling` row is written once, and with a DM
+/// bound one post goes to the owner, never to the session's place; a second
+/// refusal that day posts nothing more.
+#[tokio::test]
+async fn a_turn_at_the_ceiling_makes_no_call_and_ends_with_the_words() {
+    let r = rig(vec![billed("never")], |c| {
+        c.kernel.daily_spend_ceiling_usd = 0.01
+    });
+    bind_dm(&r.core);
+    let (_, res) = turn(&r.core, "hello").await;
+    let err = res.unwrap_err();
+    let te = err.downcast_ref::<TurnError>().expect("a turn's failure");
+    assert_eq!(te.class, "daily_ceiling");
+    let words = format!("{:#}", te.source);
+    assert!(
+        words.starts_with("today's spend reached the $0.01 daily ceiling")
+            && words.contains(
+                "the owner can raise `[kernel] daily_spend_ceiling_usd` or wait until midnight"
+            ),
+        "{words}"
+    );
+    assert!(r.fake.requests().is_empty(), "no call was made");
+    let failed = rows(&r.core, "turn.failed");
+    assert_eq!(failed.len(), 1);
+    assert_eq!(failed[0].data["reason"], "daily_ceiling");
+    let ceiling = rows(&r.core, "spend.ceiling");
+    assert_eq!(ceiling.len(), 1, "{ceiling:?}");
+    assert_eq!(ceiling[0].data["what"], "turn");
+    assert_eq!(ceiling[0].data["limit_usd"], 0.01);
+    assert_eq!(ceiling[0].data["posted"], true);
+    let p = posts(&r.core, "spend_ceiling");
+    assert_eq!(p.len(), 1, "{p:?}");
+    let text = p[0]["text"].as_str().unwrap();
+    assert!(
+        text.contains("$0.01 daily ceiling") && text.contains("daily_spend_ceiling_usd"),
+        "{text}"
+    );
+    // The owner's post is no post to the session's place.
+    assert!(r
+        .core
+        .outbox
+        .open_for(OWNER_DM)
+        .iter()
+        .all(|a| crate::outbox::kind_of(a) != "spend_ceiling"));
+    // A second refusal the same day writes no second row or post.
+    let (_, res) = turn(&r.core, "again").await;
+    assert!(res.is_err());
+    assert!(r.fake.requests().is_empty());
+    assert_eq!(rows(&r.core, "spend.ceiling").len(), 1);
+    assert_eq!(posts(&r.core, "spend_ceiling").len(), 1);
+    // budget.list says it, and `theseus budgets` prints it.
+    let day = r
+        .core
+        .budget_list()
+        .unwrap()
+        .day_ceiling
+        .expect("the day's block");
+    assert!(day.reached && day.reached_at_ms.is_some());
+    assert_eq!(day.ceiling_usd, 0.01);
+}
+
+/// No DM with the owner bound (a headless daemon, the bench): the row says
+/// it, and nothing is posted anywhere.
+#[tokio::test]
+async fn with_no_dm_bound_the_row_says_it_and_nothing_posts() {
+    let r = rig(vec![billed("never")], |c| {
+        c.kernel.daily_spend_ceiling_usd = 0.01
+    });
+    let (_, res) = turn(&r.core, "hello").await;
+    assert!(res.is_err());
+    let ceiling = rows(&r.core, "spend.ceiling");
+    assert_eq!(ceiling.len(), 1);
+    assert_eq!(ceiling[0].data["posted"], false);
+    assert!(posts(&r.core, "spend_ceiling").is_empty());
+}
+
+/// A restart reads today's spend back from the ledger, so the ceiling still
+/// holds; and a restart on a day already stopped posts no second notice.
+#[tokio::test]
+async fn a_restart_reads_the_day_back_and_posts_no_second_notice() {
+    let dir = tempfile::tempdir().unwrap();
+    let spent = {
+        let (core, fake) = build(dir.path(), vec![billed("one")], |_| {});
+        let (_, res) = turn(&core, "hello").await;
+        res.unwrap();
+        assert_eq!(fake.requests().len(), 1);
+        let c = core.kernel.day_ceiling();
+        let t = c.today(c.now());
+        assert!(t.spent > 0);
+        t.spent
+    };
+    // The same store, a ceiling just past the day's spend: the next call's
+    // reservation passes it.
+    let ceiling = theseus_kernel::micros_to_usd(spent + 1);
+    let (core, fake) = build(dir.path(), vec![billed("two")], |c| {
+        c.kernel.daily_spend_ceiling_usd = ceiling;
+    });
+    bind_dm(&core);
+    let c = core.kernel.day_ceiling();
+    assert_eq!(c.today(c.now()).spent, spent, "read back at the start");
+    let (_, res) = turn(&core, "again").await;
+    assert_eq!(
+        res.unwrap_err().downcast_ref::<TurnError>().unwrap().class,
+        "daily_ceiling"
+    );
+    assert!(fake.requests().is_empty());
+    assert_eq!(posts(&core, "spend_ceiling").len(), 1);
+    drop(core);
+    // A third start, the same day: stopped still, and no second notice.
+    let (core, fake) = build(dir.path(), vec![billed("three")], |c| {
+        c.kernel.daily_spend_ceiling_usd = ceiling;
+    });
+    bind_dm(&core);
+    let c = core.kernel.day_ceiling();
+    assert!(c.today(c.now()).reached());
+    let (_, res) = turn(&core, "once more").await;
+    assert!(res.is_err());
+    assert!(fake.requests().is_empty());
+    assert_eq!(rows(&core, "spend.ceiling").len(), 1, "one row a day");
+    assert!(posts(&core, "spend_ceiling").len() <= 1, "no second post");
+    drop(dir);
+}
+
+/// The judge holds every judgment on the day too: at the ceiling its
+/// reservation is refused, the judgment skipped (not queued), and the core
+/// told; what a judgment settles is spent on the day.
+#[test]
+fn the_judge_skips_its_call_at_the_ceiling() {
+    use crate::judge::spend::{Reserve, ShadowBudget};
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::open(&dir.path().join("store")).unwrap();
+    let clock = theseus_kernel::VirtualClock::new(1_000_000);
+    let day = Arc::new(theseus_kernel::DayCeiling::new(
+        1_000,
+        theseus_kernel::TimeZone::UTC,
+        clock,
+    ));
+    let b = ShadowBudget::new(1.0);
+    let told = Arc::new(AtomicU32::new(0));
+    let t = told.clone();
+    b.set_ceiling(
+        day.clone(),
+        Box::new(move |_| {
+            t.fetch_add(1, Ordering::SeqCst);
+        }),
+    );
+    let today = "1970-01-01";
+    assert!(matches!(
+        b.reserve(&store, today, 600),
+        Reserve::Granted(..)
+    ));
+    assert_eq!(day.today(day.now()).held, 600);
+    assert!(matches!(b.reserve(&store, today, 600), Reserve::Paused(..)));
+    assert_eq!(told.load(Ordering::SeqCst), 1);
+    b.settle(today, 600, 250, true, false);
+    let d = day.today(day.now());
+    assert_eq!((d.spent, d.held), (250, 0));
+}
+
+/// The defaults leave a session's limit as it was: a turn under $200 runs,
+/// and the day's block shows its spend, not reached.
+#[tokio::test]
+async fn the_defaults_leave_the_turn_as_it_was() {
+    let r = rig(vec![billed("fine")], |_| {});
+    let (_, res) = turn(&r.core, "hello").await;
+    res.unwrap();
+    assert_eq!(r.fake.requests().len(), 1);
+    let day = r.core.budget_list().unwrap().day_ceiling.unwrap();
+    assert_eq!(day.ceiling_usd, 200.0);
+    assert!(!day.reached && day.spent_usd > 0.0 && day.held_usd == 0.0);
+    assert!(rows(&r.core, "spend.ceiling").is_empty());
+    drop(r.dir);
+}

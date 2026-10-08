@@ -91,6 +91,7 @@ impl Kernel {
             a.resolution = Some(format!("stopped by {by}"));
             if let Some(r) = &a.reservation_id {
                 settle_reservation_in(&mut e.budget, r, Some(0));
+                self.day_after(crate::day_ceiling::Effect::of(&a, Some(0)));
             }
             frame.push(action_record(&a)?);
             frame.push(self.ledger(

@@ -100,6 +100,9 @@ impl Kernel {
                 let spent_before = e.budget.spent_micros;
                 e.outstanding.retain(|x| x != &a.correlation_id);
                 if let Some(r) = &a.reservation_id {
+                    let actual =
+                        (st == CancelState::TerminationVerified).then(|| cost.unwrap_or(0));
+                    self.day_after(crate::day_ceiling::Effect::of(&a, actual));
                     if st == CancelState::TerminationVerified {
                         settle_reservation_in(&mut e.budget, r, Some(cost.unwrap_or(0)));
                     } else {

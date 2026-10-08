@@ -230,7 +230,8 @@ impl Core {
             asks.push(ask);
         }
         let built = self.runner.judge.jev()?;
-        let mut caller = Caller::new(rt, built, usd_to_micros(self.cfg.judge.replay_limit_usd));
+        let mut caller = Caller::new(rt, built, usd_to_micros(self.cfg.judge.replay_limit_usd))
+            .with_ceiling(&self.runner);
         let estimate = caller.estimate(asks.iter())?;
         r.estimate_usd = micros_to_usd(estimate);
         if estimate > caller.limit {
@@ -250,7 +251,7 @@ impl Core {
                 Some(_) => r.failed += 1,
                 None => r.left_out.push(ReplayLeftOut {
                     judgment: key,
-                    reason: "the run reached [judge] replay_limit_usd".into(),
+                    reason: caller.left_reason(),
                 }),
             }
         }

@@ -68,6 +68,7 @@ impl Core {
                 spent_usd: j.spend_today_usd,
                 paused: j.paused,
             }),
+            day_ceiling: Some(day_ceiling(&self.kernel)),
         })
     }
 
@@ -230,4 +231,21 @@ fn totals(open: &[Execution], top: &[BudgetRow]) -> BudgetTotals {
     t.available_usd = usd(available);
     t.lifetime_usd = lifetime;
     t
+}
+
+/// The daemon's day ceiling as `budget.list` shows it (theseus-kp20): a read
+/// of the kernel's counter, never the store's.
+pub(crate) fn day_ceiling(kernel: &theseus_kernel::Kernel) -> theseus_protocol::DayCeilingBudget {
+    let c = kernel.day_ceiling();
+    let t = c.today(c.now());
+    theseus_protocol::DayCeilingBudget {
+        reached: t.reached(),
+        day: t.day,
+        ceiling_usd: usd(t.limit),
+        spent_usd: usd(t.spent),
+        held_usd: usd(t.held),
+        reached_at_ms: t.reached_at_ms,
+        turns_at_ms: t.turns_at_ms,
+        turns_at: t.turns_at,
+    }
 }

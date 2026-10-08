@@ -178,6 +178,15 @@ impl PlaceRule {
             .collect()
     }
 
+    /// Whether the binding binds a DM, where the owner's notices go (the day
+    /// ceiling's, theseus-kp20): none on a headless daemon.
+    pub fn owner_dm_bound(&self) -> bool {
+        let bound = self.bound.read().unwrap();
+        bound
+            .iter()
+            .any(|b| b.place.target.starts_with("discord:dm:"))
+    }
+
     /// One more bound place, as the binding's start would name it: tests
     /// that bind a session to a place by hand bind it here too.
     #[cfg(test)]

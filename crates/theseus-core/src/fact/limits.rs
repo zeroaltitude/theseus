@@ -63,3 +63,31 @@ impl Fact for LoopsReached<'_> {
         say.line(Session, self.text.to_string());
     }
 }
+
+/// `spend.ceiling` (theseus-kp20): the daemon's day ceiling refused its first
+/// model call of the local day. Written once a day, with the owner's post
+/// when a DM with the owner is bound; the start reads today's back, so a
+/// restart on a day already stopped posts nothing again.
+pub struct DayCeilingReached<'a> {
+    pub reached: &'a theseus_kernel::Reached,
+    /// What was not made: `turn`, `task`, `judge`, `consolidation`, …
+    pub what: &'a str,
+    pub posted: bool,
+    pub text: &'a str,
+}
+
+impl Fact for DayCeilingReached<'_> {
+    const KIND: Option<LedgerKind> = Some(LedgerKind::SpendCeiling);
+
+    fn row(&self) -> Value {
+        let r = self.reached;
+        json!({"day": r.day, "limit_usd": micros_to_usd(r.limit),
+               "spent_usd": micros_to_usd(r.spent), "held_usd": micros_to_usd(r.held),
+               "needed_usd": micros_to_usd(r.needed), "turns_at_ms": r.turns_at_ms,
+               "turns_at": r.turns_at, "what": self.what, "posted": self.posted})
+    }
+
+    fn narrate(&self, say: &mut Say<'_>) {
+        say.line(Session, self.text.to_string());
+    }
+}

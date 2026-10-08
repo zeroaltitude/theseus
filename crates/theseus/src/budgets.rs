@@ -1,7 +1,7 @@
 //! `theseus budgets` (step 42a, theseus-ext.7): where the money is, from
 //! `budget.list`. A table of the open executions, each task under its
 //! parent with its carve, then the questions waiting, the totals, and the
-//! judge's shadow day budget.
+//! judge's shadow day budget, and the daemon's day ceiling (theseus-kp20).
 
 use anyhow::Result;
 use serde_json::Value;
@@ -78,7 +78,30 @@ pub fn table(r: &BudgetListResult) -> String {
             false => "judge: off ([judge] enabled = false), so no shadow budget is spent\n".into(),
         });
     }
+    if let Some(d) = &r.day_ceiling {
+        out.push_str(&day_ceiling_line(d));
+    }
     out
+}
+
+/// The daemon's day ceiling (theseus-kp20): today's model spend against it,
+/// and, once reached, that no model call is made until the day turns.
+pub fn day_ceiling_line(d: &theseus_protocol::DayCeilingBudget) -> String {
+    let held = match d.held_usd > 0.0 {
+        true => format!(" (${:.4} held by calls in flight)", d.held_usd),
+        false => String::new(),
+    };
+    match d.reached {
+        true => format!(
+            "day ceiling: REACHED: ${:.4} of ${:.2} on {}{held} · no model call until {} \
+             local time · raise [kernel] daily_spend_ceiling_usd to go on sooner\n",
+            d.spent_usd, d.ceiling_usd, d.day, d.turns_at
+        ),
+        false => format!(
+            "day ceiling: ${:.4} of ${:.2} on {}{held} · the day turns at {} local time\n",
+            d.spent_usd, d.ceiling_usd, d.day, d.turns_at
+        ),
+    }
 }
 
 /// One row, and what it adds after the table: its question, its last reset.
@@ -141,5 +164,45 @@ fn plural(n: u32) -> &'static str {
         ""
     } else {
         "s"
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use theseus_protocol::DayCeilingBudget;
+
+    use super::day_ceiling_line;
+
+    /// The day ceiling's line (theseus-kp20): today against the ceiling, and
+    /// once reached, that no model call is made until the day turns.
+    #[test]
+    fn the_day_ceiling_line_says_today_and_the_stop() {
+        let d = DayCeilingBudget {
+            day: "2026-10-08".into(),
+            ceiling_usd: 200.0,
+            spent_usd: 12.5,
+            held_usd: 0.0,
+            reached: false,
+            reached_at_ms: None,
+            turns_at_ms: 1,
+            turns_at: "2026-10-09 00:00".into(),
+        };
+        assert_eq!(
+            day_ceiling_line(&d),
+            "day ceiling: $12.5000 of $200.00 on 2026-10-08 · the day turns at 2026-10-09 00:00 local time\n"
+        );
+        let stopped = DayCeilingBudget {
+            spent_usd: 199.9,
+            held_usd: 0.25,
+            reached: true,
+            reached_at_ms: Some(5),
+            ..d
+        };
+        assert_eq!(
+            day_ceiling_line(&stopped),
+            "day ceiling: REACHED: $199.9000 of $200.00 on 2026-10-08 ($0.2500 held by calls in flight) · no \
+             model call until 2026-10-09 00:00 local time · raise [kernel] daily_spend_ceiling_usd to go on \
+             sooner\n"
+        );
     }
 }

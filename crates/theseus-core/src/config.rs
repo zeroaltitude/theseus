@@ -573,10 +573,13 @@ pub struct KernelSection {
     pub admission_ceiling: u32,
     /// Each session's spend limit in US dollars (theseus-0sg). What reaching
     /// it does is `spend_limit_mode`: a notice, or the question (theseus-usei).
-    #[serde(default = "default_spend_limit_usd")]
+    #[serde(default = "limits::default_spend_limit_usd")]
     pub spend_limit_usd: f64,
     #[serde(default, skip_serializing_if = "SpendLimitMode::is_default")]
     pub spend_limit_mode: SpendLimitMode,
+    /// The daemon's day ceiling over every model call (theseus-kp20).
+    #[serde(default = "limits::default_daily_ceiling_usd")]
+    pub daily_spend_ceiling_usd: f64,
     /// Retired (theseus-0sg): budget units, and the units kept back as a
     /// control reserve. Both still load, so an older config starts, and are
     /// never honored: budgets are dollars, and nothing reserves for control
@@ -608,9 +611,6 @@ pub struct KernelSection {
 fn default_admission_ceiling() -> u32 {
     8
 }
-fn default_spend_limit_usd() -> f64 {
-    100.0
-}
 fn default_heartbeat_secs() -> u64 {
     60
 }
@@ -631,8 +631,9 @@ impl Default for KernelSection {
     fn default() -> Self {
         Self {
             admission_ceiling: default_admission_ceiling(),
-            spend_limit_usd: default_spend_limit_usd(),
+            spend_limit_usd: limits::default_spend_limit_usd(),
             spend_limit_mode: SpendLimitMode::default(),
+            daily_spend_ceiling_usd: limits::default_daily_ceiling_usd(),
             default_budget: None,
             control_reserve: None,
             heartbeat_secs: default_heartbeat_secs(),
@@ -671,6 +672,7 @@ impl KernelSection {
             heartbeat_ms: self.heartbeat_secs.max(1) * 1000,
             fault_after_startup_step: None,
             min_repeat_ms: self.min_repeat_minutes.max(1) * 60_000,
+            daily_ceiling_micros: theseus_kernel::usd_to_micros(self.daily_spend_ceiling_usd),
             // The system's zone.
             ..Default::default()
         }
@@ -1502,10 +1504,7 @@ impl Config {
                 self.model.live
             );
         }
-        let limit = self.kernel.spend_limit_usd;
-        if !limit.is_finite() || limit <= 0.0 {
-            anyhow::bail!("kernel.spend_limit_usd = {limit} must be a dollar amount above zero");
-        }
+        limits::check_dollars(&self.kernel)?;
         let builtin = crate::catalog::Catalog::builtin();
         for (id, row) in &self.catalog {
             for (key, price) in row.prices() {

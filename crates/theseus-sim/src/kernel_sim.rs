@@ -350,6 +350,8 @@ fn cfg(p: &SimParams, spend_limit_micros: Micros) -> KernelConfig {
         min_repeat_ms: 60_000,
         // A zone of its own, so a run reproduces from its seed on any host.
         zone: theseus_kernel::TimeZone::UTC,
+        // The day ceiling's default: far above what a run spends.
+        daily_ceiling_micros: theseus_kernel::day_ceiling::DEFAULT_CEILING_MICROS,
     }
 }
 

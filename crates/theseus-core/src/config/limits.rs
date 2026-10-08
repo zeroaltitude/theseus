@@ -53,3 +53,28 @@ impl MaxLoopsMode {
         *self == Self::default()
     }
 }
+
+pub(super) fn default_spend_limit_usd() -> f64 {
+    100.0
+}
+
+/// `[kernel] daily_spend_ceiling_usd` (theseus-kp20): the daemon's backstop
+/// over every model call it makes in a local day, $200 (the owner,
+/// 2026-10-08: "It's OK as long as it's high -- like 200 per day"). No mode:
+/// at the ceiling a call is not made, until midnight or a higher ceiling.
+pub(super) fn default_daily_ceiling_usd() -> f64 {
+    200.0
+}
+
+/// `[kernel]`'s dollar amounts: each above zero and finite.
+pub(super) fn check_dollars(k: &super::KernelSection) -> anyhow::Result<()> {
+    for (key, v) in [
+        ("spend_limit_usd", k.spend_limit_usd),
+        ("daily_spend_ceiling_usd", k.daily_spend_ceiling_usd),
+    ] {
+        if !v.is_finite() || v <= 0.0 {
+            anyhow::bail!("kernel.{key} = {v} must be a dollar amount above zero");
+        }
+    }
+    Ok(())
+}

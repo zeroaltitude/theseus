@@ -7,11 +7,11 @@
 import { useMemo } from 'react'
 import { useNavigate, useSearchParams } from 'react-router'
 import { AlertTriangle, ArrowUp, Landmark, RotateCcw } from 'lucide-react'
-import type { AwsHandsStatus, BudgetListResult, BudgetRow, ConfirmRequest, Health, LedgerEntry } from '@protocol'
+import type { AwsHandsStatus, BudgetListResult, BudgetRow, ConfirmRequest, DayCeilingBudget, Health, LedgerEntry } from '@protocol'
 import { useRpc } from '@/lib/rpc'
 import { useTick } from '@/lib/hooks'
 import { providerCalls } from '@/lib/derive'
-import { BURN_WINDOW_MS, burnPerHour, flatten, handsLines, limitWords, questionsWaiting, recentResets, sessionsOf, sums } from '@/lib/budgets'
+import { BURN_WINDOW_MS, burnPerHour, dayCeilingView, flatten, handsLines, limitWords, questionsWaiting, recentResets, sessionsOf, sums } from '@/lib/budgets'
 import { ago, cn, short, stamp, usd } from '@/lib/format'
 import { Empty, Panel, Pill } from '@/components/ui'
 import { ConfirmCard } from '@/components/ConfirmCard'
@@ -97,6 +97,12 @@ export function Budgets({ rows, past }: { rows: LedgerEntry[]; /** the time mach
                       {data.judge.paused && <span className="ml-2 text-wait">paused at its limit: today’s judgments are skipped</span>}
                     </div>
                   : <div className="text-[12px] text-ink-faint">this daemon reports no judge budget</div>}
+              </div>
+              <div>
+                <div className="ship-engraved mb-1 text-[9.5px]">The whole daemon · the day ceiling</div>
+                {data.day_ceiling
+                  ? <DayCeilingBlock d={data.day_ceiling} />
+                  : <div className="text-[12px] text-ink-faint">this daemon reports no day ceiling</div>}
               </div>
               <div>
                 <div className="ship-engraved mb-1 text-[9.5px]">The AWS hands</div>
@@ -211,5 +217,21 @@ export function BudgetQuestions({ past }: { past: number | null }) {
         })}
       </div>
     </Panel>
+  )
+}
+
+/** The day ceiling (theseus-kp20): a quiet bar under it; once reached, a stop that says until when and what lifts it. */
+function DayCeilingBlock({ d }: { d: DayCeilingBudget }) {
+  const v = dayCeilingView(d)
+  return (
+    <div className="num text-[12px] text-ink-dim" title={v.detail}>
+      {v.stopped
+        ? <Pill tone="fault"><AlertTriangle size={11} />{v.text}</Pill>
+        : <span>{v.text}</span>}
+      <div className="mt-1 h-1.5 w-full overflow-hidden rounded bg-white/5" role="meter" aria-valuemin={0} aria-valuemax={1} aria-valuenow={v.share} aria-label="today’s spend against the day ceiling">
+        <div className={cn('h-full', v.tone === 'fault' ? 'bg-fault' : v.tone === 'wait' ? 'bg-wait' : 'bg-ok/60')} style={{ width: `${(v.share * 100).toFixed(1)}%` }} />
+      </div>
+      <div className="mt-0.5 text-[11px] text-ink-faint">{v.detail}</div>
+    </div>
   )
 }

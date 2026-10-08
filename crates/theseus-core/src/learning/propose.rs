@@ -690,20 +690,14 @@ impl Core {
         let limit = usd_to_micros(lc.writer_limit_usd_per_day);
         let spent = self.writer_spent_today(now);
         if spent.saturating_add(need) > limit {
-            prop.decision = "skipped".into();
-            prop.why = format!(
+            let why = format!(
                 "the writer would reserve {} with {} spent today, past [judge.learn] \
                  writer_limit_usd_per_day ({}); nothing was sent",
                 crate::narrative::dollars(need),
                 crate::narrative::dollars(spent),
                 crate::narrative::dollars(limit)
             );
-            // Its errors stay new for the next run.
-            prop.errors.clear();
-            prop.error_judgments.clear();
-            prop.said = format!("The learning loop skipped {parent_name}: {}.", prop.why);
-            self.write_proposal(prop, who, via)?;
-            return Ok(None);
+            return self.writer_refused(prop, parent_name, why, who, via);
         }
         let provider = self
             .runner
@@ -711,6 +705,11 @@ impl Core {
             .get(&target.provider)
             .cloned()
             .with_context(|| format!("the provider {:?} is not configured", target.provider))?;
+        // The daemon's day ceiling (theseus-kp20) holds the call too.
+        let hold = match self.runner.day_hold(need, "learning writer") {
+            Ok(h) => h,
+            Err(why) => return self.writer_refused(prop, parent_name, why, who, via),
+        };
         // On the runtime, waited for here: a blocking pool thread the
         // request starts (a DNS lookup) is a worker's child, never the
         // nightly run's SCHED_IDLE thread's, whose policy it would keep
@@ -721,28 +720,17 @@ impl Core {
                 provider.stream_message(&request, &mut quiet).await
             }))
             .unwrap_or_else(|e| Err(anyhow::anyhow!("the writer's request ended: {e}")));
+        // A failed request may have been billed: booked at its reservation.
+        let cost = reply
+            .as_ref()
+            .map_or(need, |r| self.runner.priced(r, &target.model, need));
+        hold.settle(cost);
+        prop.writer_usd = micros_to_usd(cost);
         let reply = match reply {
-            Ok(resp) => {
-                prop.writer_usd = micros_to_usd(
-                    self.runner
-                        .catalog
-                        .get(&resp.model)
-                        .or_else(|| self.runner.catalog.get(&target.model))
-                        .map_or(need, |e| e.cost_micros(&resp.usage)),
-                );
-                resp.text
-            }
+            Ok(resp) => resp.text,
             Err(e) => {
-                // A failed request may have been billed: booked at its
-                // reservation, and its errors stay new.
-                prop.writer_usd = micros_to_usd(need);
-                prop.errors.clear();
-                prop.error_judgments.clear();
-                prop.decision = "skipped".into();
-                prop.why = format!("the writer's request failed: {e:#}");
-                prop.said = format!("The learning loop skipped {parent_name}: {}.", prop.why);
-                self.write_proposal(prop, who, via)?;
-                return Ok(None);
+                let why = format!("the writer's request failed: {e:#}");
+                return self.writer_refused(prop, parent_name, why, who, via);
             }
         };
         // The candidate: text only, through the loader.
@@ -1099,6 +1087,26 @@ impl Core {
         }
         self.rec(None).announce(&f);
         Ok(())
+    }
+
+    /// The writer's call not made (`why`: the day's limit, or the daemon's
+    /// day ceiling): the proposal skipped and written, its errors new for
+    /// the next run.
+    fn writer_refused(
+        &self,
+        prop: &mut JudgeProposal,
+        parent_name: &str,
+        why: String,
+        who: &str,
+        via: &str,
+    ) -> anyhow::Result<Option<(String, Pack)>> {
+        prop.decision = "skipped".into();
+        prop.why = why;
+        prop.errors.clear();
+        prop.error_judgments.clear();
+        prop.said = format!("The learning loop skipped {parent_name}: {}.", prop.why);
+        self.write_proposal(prop, who, via)?;
+        Ok(None)
     }
 
     fn write_proposal(&self, p: &JudgeProposal, who: &str, via: &str) -> anyhow::Result<()> {

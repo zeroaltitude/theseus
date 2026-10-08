@@ -788,7 +788,7 @@ impl Lane {
                 })
             }
             // Jev's notices (step 24's notices): the owner's DM alone.
-            "jev_notice" | "jev_paused" => self.jev_post(a, &body).await,
+            "jev_notice" | "jev_paused" | "spend_ceiling" => self.jev_post(a, &body).await,
             "jev_labeled" => Ok(self.jev_labeled(&body)),
             other => Err(SendErr::refused(format!(
                 "a post of kind {other:?} is not one this binding knows"

@@ -764,6 +764,19 @@ impl Core {
         if let Err(e) = core.seed_extensions() {
             tracing::warn!(error = %format!("{e:#}"), "the loaded extensions did not read");
         }
+        // The day ceiling's total so far today (theseus-kp20): one bounded
+        // read of today's rows, before serving.
+        let d0 = Instant::now();
+        let seeded = core.runner.seed_day_ceiling();
+        core.startup_log.record(
+            "day_ceiling",
+            false,
+            d0,
+            json!({"rows": seeded.rows, "later": seeded.later}),
+        );
+        if seeded.later {
+            core.seed_day_ceiling_later();
+        }
         // `server.started` waits for `announce_serving`: nothing on the start
         // path needs it durable, and its frame is an fsync (theseus-qa0).
         core.startup_log.record("core", false, c0, Value::Null);

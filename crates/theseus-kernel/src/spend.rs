@@ -48,6 +48,8 @@ impl Kernel {
         self.carry_to_parent(&e, spent_before, &mut frame)?;
         frame.push(self.ledger(kind, Some(&e.session_id), data)?);
         self.commit(&frame)?;
+        // Model spend, booked on the day in full (theseus-kp20).
+        self.day_after([crate::day_ceiling::Effect::Book(cost)]);
         Ok(e)
     }
 }

@@ -148,6 +148,11 @@ pub(super) struct Caller<'a> {
     pub(super) spent: Micros,
     /// Every call made, answered or not: each is a row.
     pub(super) called: Vec<Judgment>,
+    /// The daemon's day ceiling (theseus-kp20), which holds each call too,
+    /// and whom a refusal is said to.
+    ceiling: Option<&'a crate::turn::TurnRunner>,
+    /// Why a call was not made, when the ceiling refused one.
+    pub(super) refused: Option<String>,
 }
 
 impl<'a> Caller<'a> {
@@ -162,7 +167,22 @@ impl<'a> Caller<'a> {
             limit,
             spent: 0,
             called: Vec::new(),
+            ceiling: None,
+            refused: None,
         }
+    }
+
+    /// Each call held on the daemon's day ceiling too (theseus-kp20).
+    pub(super) fn with_ceiling(mut self, runner: &'a crate::turn::TurnRunner) -> Self {
+        self.ceiling = Some(runner);
+        self
+    }
+
+    /// Why a call was left out: the day ceiling's words, or the run's limit.
+    pub(super) fn left_reason(&self) -> String {
+        self.refused
+            .clone()
+            .unwrap_or_else(|| "the run reached [judge] replay_limit_usd".into())
     }
 
     fn reserve(&self, a: &Ask) -> Option<Micros> {
@@ -192,6 +212,13 @@ impl<'a> Caller<'a> {
         if self.spent + need > self.limit {
             return None;
         }
+        let hold = match self.ceiling.map(|r| r.day_hold(need, "learning run")) {
+            Some(Err(why)) => {
+                self.refused = Some(why);
+                return None;
+            }
+            held => held.and_then(Result::ok),
+        };
         // On the runtime, waited for here: a blocking pool thread the call
         // starts (a DNS lookup) is a worker's child, never this low
         // thread's, whose nice value and SCHED_IDLE it would keep
@@ -217,7 +244,11 @@ impl<'a> Caller<'a> {
                 ..
             }
         );
-        self.spent += j.cost_micros.unwrap_or(if unknown { need } else { 0 });
+        let cost = j.cost_micros.unwrap_or(if unknown { need } else { 0 });
+        self.spent += cost;
+        if let Some(h) = hold {
+            h.settle(cost);
+        }
         self.called.push(j.clone());
         Some(j)
     }
@@ -558,7 +589,8 @@ impl Core {
         let ready = self.replay_ready(&mut plan, change, &id);
         // A security candidate's planted-injection set, beside the incumbent.
         let eval_asks = self.eval_asks(&plan, &id);
-        let mut caller = Caller::new(rt, built, usd_to_micros(self.cfg.judge.replay_limit_usd));
+        let mut caller = Caller::new(rt, built, usd_to_micros(self.cfg.judge.replay_limit_usd))
+            .with_ceiling(&self.runner);
         let asks = ready
             .iter()
             .filter_map(|(_, r)| match r {
@@ -595,7 +627,7 @@ impl Core {
                         "the candidate's call was not answered ({})",
                         outcome_word(&j.outcome)
                     ),
-                    None => "the run reached [judge] replay_limit_usd".into(),
+                    None => caller.left_reason(),
                 },
             };
             plan.left_out.push(ReplayLeftOut {
