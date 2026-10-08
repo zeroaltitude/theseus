@@ -531,6 +531,16 @@ async fn daemon(cli: Cli, lookup: Lookup, origin: Instant) -> Result<Exit> {
     };
     let socket_path = cli.socket.clone().unwrap_or_else(|| cfg.socket_path());
     let bindings_path = cfg.discord.bindings_path(&state_dir);
+    // SIGINT and SIGTERM alike are one clean stop (theseus-bv5, theseus-p7q),
+    // registered here, before the core is built and long before anything is
+    // served, for both the socket and `--stdio` (theseus-6mxq). The socket
+    // daemon registered them after binding and spawning `after_serving`, so
+    // a signal in that first moment after the `serving` line took its
+    // default action: the daemon killed outright, no stopping row, no
+    // checkpoint. A signal that lands now is held, and the serving loop
+    // takes it at once. Not before the copy's check: an exec of this image
+    // would lose a signal already taken.
+    let signals = Signals::register()?;
     // Records `providers`, `kernel`, and `core`, one after another.
     let core = Core::new(cfg, secrets, store, startup.clone(), gate)?;
     let _ = CORE.set(Arc::downgrade(&core));
@@ -554,10 +564,11 @@ async fn daemon(cli: Cli, lookup: Lookup, origin: Instant) -> Result<Exit> {
         // one (theseus-p7q): a supervisor's stop, or an MCP client's kill,
         // used to end it outright, with no stopping row and no checkpoint,
         // and the next open of `store-stdio` replayed the tail and repaired
-        // the index. Registered once, before anything is served.
-        use tokio::signal::unix::{signal, SignalKind};
-        let mut sigint = signal(SignalKind::interrupt())?;
-        let mut sigterm = signal(SignalKind::terminate())?;
+        // the index. Registered before the core was built (`signals`).
+        let Signals {
+            mut sigint,
+            mut sigterm,
+        } = signals;
         // The `shutdown` method's wake, registered before anything is served,
         // as `serve_socket`'s is: `notify_waiters` wakes only the waiters
         // registered when it is called, and with no branch for it the daemon
@@ -606,7 +617,7 @@ async fn daemon(cli: Cli, lookup: Lookup, origin: Instant) -> Result<Exit> {
     // connection per state dir, whose bindings file names its places.
     let after_bind = after_serving(core.clone(), keep, Some(bindings_path), state_dir, mode);
     stdio::planted_hold(&core);
-    let served = serve_socket(core.clone(), socket_path, after_bind).await;
+    let served = serve_socket(core.clone(), socket_path, signals, after_bind).await;
     stop_phase("serving loop ended");
     // The index tender gets SIGTERM and is never waited for (§9), unless this
     // is a restart in place, whose next image takes it over (roadmap row 51).
@@ -1134,11 +1145,30 @@ async fn after_serving(
     core.startup_log.end(phase, detail);
 }
 
+/// SIGINT and SIGTERM, each registered once, before the core is built
+/// (theseus-6mxq): from then on either is a clean stop, never the signal's
+/// default action. tokio holds a signal that lands before its `recv`.
+struct Signals {
+    sigint: tokio::signal::unix::Signal,
+    sigterm: tokio::signal::unix::Signal,
+}
+
+impl Signals {
+    fn register() -> Result<Self> {
+        use tokio::signal::unix::{signal, SignalKind};
+        Ok(Self {
+            sigint: signal(SignalKind::interrupt())?,
+            sigterm: signal(SignalKind::terminate())?,
+        })
+    }
+}
+
 /// Serve the protocol socket; `after_bind` starts once the socket answers.
 #[expect(clippy::cognitive_complexity, reason = "shape budget: split it")]
 async fn serve_socket(
     core: Arc<Core>,
     path: PathBuf,
+    signals: Signals,
     after_bind: impl std::future::Future<Output = ()> + Send + 'static,
 ) -> Result<()> {
     let t = Instant::now();
@@ -1176,11 +1206,13 @@ async fn serve_socket(
     stop.as_mut().enable();
     // SIGINT and SIGTERM alike (theseus-bv5). SIGTERM is systemd's stop,
     // `kill`'s default, and most supervisors' signal; it used to kill the
-    // daemon outright, its socket left behind. Each is registered once, as
-    // the stop is, so one that lands while the loop takes a connection waits.
-    use tokio::signal::unix::{signal, SignalKind};
-    let mut sigint = signal(SignalKind::interrupt())?;
-    let mut sigterm = signal(SignalKind::terminate())?;
+    // daemon outright, its socket left behind. Each was registered once,
+    // before the core was built (`Signals`), so one that lands before the
+    // loop, or while it takes a connection, waits for it.
+    let Signals {
+        mut sigint,
+        mut sigterm,
+    } = signals;
     loop {
         tokio::select! {
             accepted = listener.accept() => {

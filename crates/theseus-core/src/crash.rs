@@ -46,16 +46,29 @@ pub struct Crash {
 /// the crash file, then runs the hook it replaced (which prints the panic to
 /// stderr, the log), and the abort follows. A crash file it cannot write is
 /// said on stderr; the panic goes on as it would have.
+///
+/// Two threads that panic at once both run the hook (theseus-g7pw). The
+/// first to take `WRITTEN` writes its crash; the other waits for that write
+/// to end, then writes nothing, so its abort cannot cut the first's write
+/// short, and the file holds the panic that began the end. The later panic
+/// is still printed by the hook it replaced, in the log.
 pub fn install(state_dir: &Path, mode: &'static str) {
+    static WRITTEN: std::sync::Mutex<bool> = std::sync::Mutex::new(false);
     let path = file(state_dir, mode);
     let before = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
         let crash = Crash::of(info, mode);
-        if let Err(e) = write(&path, &crash) {
-            eprintln!(
-                "theseusd: the crash file {} was not written: {e}",
-                path.display()
-            );
+        {
+            let mut written = WRITTEN.lock().unwrap_or_else(|e| e.into_inner());
+            if !*written {
+                *written = true;
+                if let Err(e) = write(&path, &crash) {
+                    eprintln!(
+                        "theseusd: the crash file {} was not written: {e}",
+                        path.display()
+                    );
+                }
+            }
         }
         before(info);
     }));
@@ -88,10 +101,18 @@ impl Crash {
 }
 
 /// Write `crash` to `path` whole, or not at all: a temporary file, synced,
-/// then renamed over it.
+/// then renamed over it. The temporary file is this writer's own, named by
+/// its pid and thread: a shared name let a second writer's create truncate
+/// the first's file before its rename, and the crash file was left empty
+/// (theseus-g7pw).
 fn write(path: &Path, crash: &Crash) -> std::io::Result<()> {
     use std::io::Write as _;
-    let tmp = path.with_extension("json.tmp");
+    let tmp = path.with_extension(format!(
+        "json.{}.{}.tmp",
+        std::process::id(),
+        // SAFETY: gettid has no arguments.
+        unsafe { libc::syscall(libc::SYS_gettid) }
+    ));
     let mut f = std::fs::File::create(&tmp)?;
     f.write_all(&serde_json::to_vec_pretty(crash).map_err(std::io::Error::other)?)?;
     f.sync_all()?;
@@ -174,6 +195,93 @@ mod tests {
             thread: "tokio-runtime-worker".into(),
             location: location.into(),
             message: "byte index 5 is not a char boundary".into(),
+        }
+    }
+
+    /// The child of `two_threads_that_panic_at_once_leave_one_whole_crash_file`:
+    /// with `THESEUS_TEST_CRASH_CHILD` naming a state dir, it installs the
+    /// hook over one that aborts, as the release build's `panic = "abort"`
+    /// does after it, and eight threads panic at once. Run alone, it does
+    /// nothing.
+    #[test]
+    fn panicking_child() {
+        let Some(state) = std::env::var_os("THESEUS_TEST_CRASH_CHILD") else {
+            return;
+        };
+        std::panic::set_hook(Box::new(|_| {
+            // SAFETY: prctl with PR_SET_DUMPABLE takes plain integers and
+            // touches nothing of ours: no core for a planted abort.
+            unsafe { libc::prctl(libc::PR_SET_DUMPABLE, 0, 0, 0, 0) };
+            std::process::abort();
+        }));
+        install(Path::new(&state), "socket");
+        let at_once = std::sync::Arc::new(std::sync::Barrier::new(8));
+        let threads: Vec<_> = (0..8)
+            .map(|i| {
+                let at_once = at_once.clone();
+                std::thread::Builder::new()
+                    .name(format!("panicker-{i}"))
+                    .spawn(move || {
+                        at_once.wait();
+                        panic!("a planted panic on thread {i}");
+                    })
+                    .unwrap()
+            })
+            .collect();
+        for t in threads {
+            let _ = t.join();
+        }
+        unreachable!("the first panic aborts the process");
+    }
+
+    /// Two threads that panic at once (theseus-g7pw): each writer had the
+    /// same temporary file, so the second's create truncated the first's
+    /// before its rename, or the second's abort cut the first's write short,
+    /// and the crash file was left empty or absent. Now the first panic's
+    /// record is whole, every time, and no temporary file is left.
+    #[test]
+    fn two_threads_that_panic_at_once_leave_one_whole_crash_file() {
+        let exe = std::env::current_exe().unwrap();
+        for run in 0..40 {
+            let dir = tempfile::tempdir().unwrap();
+            let out = std::process::Command::new(&exe)
+                .args(["--exact", "crash::tests::panicking_child", "--nocapture"])
+                .env("THESEUS_TEST_CRASH_CHILD", dir.path())
+                .stdin(std::process::Stdio::null())
+                .output()
+                .unwrap();
+            assert!(
+                !out.status.success(),
+                "run {run}: the child aborts: {}",
+                String::from_utf8_lossy(&out.stderr)
+            );
+            let text = std::fs::read(file(dir.path(), "socket")).unwrap_or_else(|e| {
+                panic!(
+                    "run {run}: no crash file ({e}); the dir holds {:?}",
+                    std::fs::read_dir(dir.path())
+                        .unwrap()
+                        .flatten()
+                        .map(|e| e.file_name())
+                        .collect::<Vec<_>>()
+                )
+            });
+            let crash: Crash = serde_json::from_slice(&text).unwrap_or_else(|e| {
+                panic!(
+                    "run {run}: the crash file is not whole ({e}): {:?}",
+                    String::from_utf8_lossy(&text)
+                )
+            });
+            assert!(
+                crash.thread.starts_with("panicker-")
+                    && crash.message == format!("a planted panic on thread {}", &crash.thread[9..]),
+                "run {run}: {crash:?}"
+            );
+            let left: Vec<_> = std::fs::read_dir(dir.path())
+                .unwrap()
+                .flatten()
+                .map(|e| e.file_name())
+                .collect();
+            assert_eq!(left.len(), 1, "run {run}: only the crash file: {left:?}");
         }
     }
 
