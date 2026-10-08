@@ -14,7 +14,11 @@ use crate::trace::Trace;
 /// the first compile, and the reason; whether the verdict missed the wait
 /// (`late`: the turn ran on the session's last verdict or its base), and
 /// when `route.v1`'s request came back, in ms after the turn's start, if it
-/// had by then (theseus-ddbi).
+/// had by then (theseus-ddbi). Since route.v3 (theseus-qe3v), the effort it
+/// answered and its confidence, why the turn ran at its effort
+/// (`effort_reason`), whether Jev's answer set it (`effort_applied`), and the
+/// effort the request carries (`effort_ran`: Jev's, or the profile's own;
+/// none for the model's default or a model that takes none).
 pub struct RouteDecided<'a> {
     pub mode: Option<&'a str>,
     pub confidence: Option<f64>,
@@ -33,6 +37,11 @@ pub struct RouteDecided<'a> {
     pub source: Option<&'a str>,
     /// The owner's label (or correction) it followed.
     pub follows: Option<&'a str>,
+    pub effort: Option<&'a str>,
+    pub effort_confidence: Option<f64>,
+    pub effort_reason: Option<&'a str>,
+    pub effort_applied: bool,
+    pub effort_ran: Option<&'a str>,
 }
 
 impl Fact for RouteDecided<'_> {
@@ -44,6 +53,9 @@ impl Fact for RouteDecided<'_> {
             "from": self.from, "profile": self.profile, "reason": self.reason,
             "detour": self.detour, "switch": self.switch, "est_tokens": self.est_tokens,
             "wait_ms": self.wait_ms, "late": self.late, "answered_ms": self.answered_ms,
+            "effort": self.effort, "effort_confidence": self.effort_confidence,
+            "effort_reason": self.effort_reason, "effort_applied": self.effort_applied,
+            "effort_ran": self.effort_ran,
         });
         if let Some(s) = self.source {
             row["source"] = json!(s);
@@ -61,6 +73,10 @@ impl Fact for RouteDecided<'_> {
             Some(s) => format!(" ({s}, following {})", self.follows.unwrap_or("?")),
             None => self.mode.map_or(String::new(), |m| format!(" ({m})")),
         };
+        let effort = match (self.effort_applied, self.effort_ran) {
+            (true, Some(e)) => format!(" Jev set its effort to {e}."),
+            _ => String::new(),
+        };
         let line = match (self.detour, self.switch) {
             (true, _) => format!(
                 "Routing{mode}: this message alone runs on {}; the session stays on {}.",
@@ -75,7 +91,7 @@ impl Fact for RouteDecided<'_> {
                 self.profile, self.reason
             ),
         };
-        say.line(Model, line);
+        say.line(Model, format!("{line}{effort}"));
     }
 }
 

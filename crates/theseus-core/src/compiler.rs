@@ -1005,10 +1005,7 @@ pub fn render_request(
         }
         _ => None,
     };
-    let output_config = match (entry.map(|e| e.effort), &spec.effort) {
-        (Some(true), Some(e)) => Some(json!({"effort": e})),
-        _ => None,
-    };
+    let output_config = output_config(entry, spec.effort);
     if server_fallbacks(spec, entry) {
         betas.push(BETA_FALLBACKS.to_string());
         extra.insert("fallbacks".to_string(), Value::String("default".into()));
@@ -1049,6 +1046,18 @@ pub fn render_request(
         tail_nodes: tail.len(),
         repairs,
         tail_from,
+    }
+}
+
+/// A request's `output_config`: its effort, for a model whose catalog row
+/// takes effort (route.v3 sets it after the first compile, theseus-qe3v).
+pub fn output_config(
+    entry: Option<&crate::catalog::CatalogEntry>,
+    effort: Option<Effort>,
+) -> Option<Value> {
+    match (entry.map(|e| e.effort), effort) {
+        (Some(true), Some(e)) => Some(json!({"effort": e})),
+        _ => None,
     }
 }
 

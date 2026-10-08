@@ -98,6 +98,7 @@ model = "claude-sonnet-5-5"
 # max_output_tokens = 64000             # omitted: the catalog ceiling (128000 for Sonnet 5.5)
 # system = ""
 # effort = "xhigh"                      # the recommended level for coding and agentic work
+# effort_fixed = false                  # true: effort stands whatever route.v3 answers ([routing])
 thinking_display = "summarized"
 max_loops = 40
 refusal_fallbacks = true
@@ -808,7 +809,7 @@ output_mb = 64                          # the largest file an L1 job may write; 
 # Jev's judgments (M5): typed questions about the session's work, asked of
 # TypeSafe's Jev. Off by default. On, every pack this build wires in judges in
 # shadow but three: each judgment is made, priced, and recorded in the ledger, and
-# nothing acts on one but route.v1's model for a message ([routing], below), rerank.v1's
+# nothing acts on one but the route pack's model and effort for a message ([routing], below), rerank.v1's
 # order of a recall in front of the model, and security.v3's notices (below). A judgment sends its state (your messages, the assistant's final
 # text, and its tool calls, trimmed and scrubbed of secrets) to TypeSafe. It
 # runs beside the turn and the turn never waits for it: a slow or failing Jev
@@ -885,7 +886,7 @@ margin = 0.02                           # at the minimum sample, precision and r
 # tail_band = 0.5                       # the tail passing this share of the window, then each further quarter
 
 # ---------------------------------------------------------------- routing
-# Jev's model per interaction mode (M5 25e). While [judge] is on, route.v2 asks at each
+# Jev's model per interaction mode (M5 25e). While [judge] is on, route.v3 asks at each
 # message you send which mode it needs (beside classify.v1 and role.v1), and
 # the turn runs on that mode's first usable profile: configured, its key settled, its
 # model priced, and able to read the turn's images; else the next; else the session's
@@ -896,6 +897,11 @@ margin = 0.02                           # at the minimum sample, precision and r
 # messages in a row agree (a switch leaves the cache cold). A turn whose profile, provider
 # or model you chose (`theseus ask -P/-p/-m`, the cockpit's picker) is never routed, and
 # a place's profile (its ceiling) is its cap: nothing routes to a dearer model there.
+# In the same request route.v3 asks the effort the reply needs (low, medium, high, xhigh,
+# max), and the turn's model runs at it when its catalog row takes effort, over the
+# profile's own effort unless the profile sets effort_fixed = true, and clamped to
+# effort_bounds. Below the answer's confirm bar, when Jev finds it unclear, on a pinned
+# turn, in shadow, and for a late verdict, the profile's own effort stands.
 [routing]
 enabled = true                          # acts only while [judge] is on
 mode = "live"                           # "shadow" records each verdict and routes nothing
@@ -903,6 +909,7 @@ max_wait_ms = 200                       # the most the first call waits for the 
 trivial_context_turns = 2               # the exchanges a detour (trivial, quick) carries
 cold_switch_tokens = 30000              # at this much context, a switch waits for a second agreeing message
 switch_confidence = 0.6                 # a verdict routes only at this confidence or more
+effort_bounds = ["low", "max"]          # the lowest and highest effort Jev's answer may set
 # Each mode's profiles, in order: the first usable wins. Empty: the session's own. A
 # mode's switch_confidence is its own bar; unset, it is the one above, except trivial's,
 # 0.4: a wrong trivial call is cheap, since its detour carries a few exchanges for one turn.

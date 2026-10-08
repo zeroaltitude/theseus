@@ -27,6 +27,23 @@ pub struct TurnRoute {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub source: Option<String>,
+    /// route.v3's answer about the reply's effort (`low`, `medium`, `high`,
+    /// `xhigh`, `max`, or `unclear`), when a verdict was read (theseus-qe3v).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub effort: Option<String>,
+    /// Why the turn ran at its effort, beside `effort`: `applied`, `clamped`
+    /// (to `[routing] effort_bounds`), `unsure`, `unclear`, `fixed` (the
+    /// profile's `effort_fixed`), `no_effort` (its model takes none),
+    /// `carried` (a late verdict's), or `recorded` (shadow, or a pin).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub effort_reason: Option<String>,
+    /// The effort Jev's answer set on the turn's requests, when it applied:
+    /// `effort` itself, or the bound it was clamped to.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub effort_applied: Option<String>,
 }
 
 /// `route.correct` (theseus-q31l): the owner's correction of a turn's

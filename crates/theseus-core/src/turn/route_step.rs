@@ -1,6 +1,7 @@
 //! The turn's routing step (M5 25e; `crate::routing`): the route pack's
-//! verdict (`route.v2` since theseus-3okf), asked at `inbound` beside
-//! `classify.v1` and `role.v1`, decides which profile the turn runs on.
+//! verdict (`route.v3` since theseus-qe3v), asked at `inbound` beside
+//! `classify.v1` and `role.v1`, decides which profile the turn runs on, and
+//! at what effort.
 //!
 //! - **Beside the first compile, never before it** ([`beside`]): the call
 //!   started at `inbound`, so the turn compiles on the session's profile,
@@ -17,6 +18,11 @@
 //!   which it never writes; the session's profile, `last_target`, and
 //!   compilation stay as they were. Its loops record `loop.started` and no
 //!   `context.compiled`: its compilation is never stored, so no row names it.
+//! - **The effort** (route.v3, `routing::effort`): decided with the route,
+//!   for the profile the turn moves to, and set on the spec and the first
+//!   loop's request once the compile the call uses is made (`apply_effort`),
+//!   so every loop of the turn carries it; the next turn starts from its
+//!   profile's own again.
 //! - **Recorded** as one `route.decided` row, in the turn's next frame, and
 //!   on the turn's result (`TurnSubmitResult.route`).
 //! - **A detour sends no recall** (theseus-n7nc): the turn's pending
@@ -46,6 +52,7 @@ use super::*;
 use crate::config::PackMode;
 use crate::correction::{By, RoutedTurn, Steer, Steering};
 use crate::judge::inbound::{Answered, RouteWait, ROUTE_PACK};
+use crate::routing::effort::{self, EffortDecision, Runs};
 use crate::routing::{self, Decision, HoldNext, Reason, Verdict};
 
 /// What a turn holds of routing, from its inbound point to its end.
@@ -78,6 +85,8 @@ pub(super) struct RouteState {
     /// The turn is the owner's correction itself: a later correction finds
     /// the turn it corrected, not this one.
     pub(super) correcting: bool,
+    /// route.v3's effort for the turn (theseus-qe3v), once decided.
+    effort: Option<EffortDecision>,
 }
 
 impl RouteState {
@@ -325,13 +334,57 @@ impl TurnRunner {
         let Some(rx) = t.route.wait.take().filter(|_| i == 0) else {
             return Box::pin(self.compile_step(t, session, spec, force, strip, overflow, i)).await;
         };
-        let compiled = self
+        let mut compiled = self
             .compile_first(
                 t, session, spec, provider, slot, force, strip, overflow, i, rx,
             )
             .await;
+        if let Ok(Ok(c)) = &mut compiled {
+            self.apply_effort(t, spec, c);
+        }
         Self::recall_routed(t);
         compiled
+    }
+
+    /// Jev's effort, when it applies, on the spec (every later loop's
+    /// compile) and on the request the first compile made (theseus-qe3v).
+    fn apply_effort(&self, t: &Turn<'_>, spec: &mut RequestSpec, c: &mut Compiled) {
+        let Some(e) = t.route.effort.filter(EffortDecision::applied) else {
+            return;
+        };
+        spec.effort = e.ran;
+        let entry = self.catalog.get(&c.request.model);
+        c.request.output_config = crate::compiler::output_config(entry, spec.effort);
+        // The request changed after its compile: what the turn records of it,
+        // and the overflow retry's "same request" check, read its digest.
+        c.digest = c.request.digest();
+    }
+
+    /// The effort rule for the profile the turn moves to (or its own), from
+    /// route.v3's answer: none when the verdict has none (route.v1 and v2
+    /// ask no effort). `acts` when the turn reads a live verdict.
+    fn route_effort(
+        &self,
+        t: &Turn<'_>,
+        v: &Verdict,
+        d: Option<&Decision>,
+        acts: bool,
+    ) -> Option<EffortDecision> {
+        let answer = v.effort.as_ref()?;
+        let profiles = self.cfg.all_profiles();
+        let name = d.map_or(t.target.profile.as_str(), |d| d.profile.as_str());
+        let (own, model) = match profiles.get(name).filter(|_| name != t.target.profile) {
+            Some(p) => (p.effort, p.model.as_str()),
+            None => (t.target.effort, t.target.model.as_str()),
+        };
+        let runs = Runs {
+            own,
+            fixed: profiles.get(name).is_some_and(|p| p.effort_fixed),
+            takes: self.catalog.get(model).is_some_and(|e| e.effort),
+        };
+        let carried = v.turn != t.tc.turn_id;
+        let bounds = self.cfg.routing.effort_bounds;
+        Some(effort::decide(bounds, answer, runs, acts, carried))
     }
 
     /// The first loop's compile, the wait for the verdict beside it, and the
@@ -393,6 +446,9 @@ impl TurnRunner {
             (None, Some(v), None) => Some(self.decide_route(t, session, v, compiled.est_tokens)),
             _ => None,
         };
+        t.route.effort = verdict
+            .as_ref()
+            .and_then(|v| self.route_effort(t, v, decision.as_ref(), reason.is_none()));
         Self::record_route(
             t,
             verdict.as_ref(),
@@ -548,6 +604,9 @@ impl TurnRunner {
         let reason = decision.map_or(reason.unwrap_or(Reason::NoVerdict), |d| d.reason);
         let source = steering.map(|_| "correction");
         let profile = decision.map_or(base.clone(), |d| d.profile.clone());
+        let answer = verdict.and_then(|v| v.effort.as_ref());
+        let e = t.route.effort;
+        let applied = e.filter(EffortDecision::applied).and_then(|e| e.ran);
         t.record(&fact::route::RouteDecided {
             mode: verdict.map(|v| v.mode.as_str()),
             confidence: verdict.map(|v| v.confidence),
@@ -563,12 +622,20 @@ impl TurnRunner {
             answered_ms: timed.answered_ms,
             source,
             follows: steering.map(|s| s.follows.as_str()),
+            effort: answer.map(|a| a.level.as_str()),
+            effort_confidence: answer.map(|a| a.confidence),
+            effort_reason: e.map(|e| e.reason.as_str()),
+            effort_applied: applied.is_some(),
+            effort_ran: e.and_then(|e| e.ran).map(effort::name),
         });
         t.route.result = Some(TurnRoute {
             mode: verdict.map(|v| v.mode.clone()),
             reason: reason.as_str().into(),
             from: base,
             source: source.map(str::to_string),
+            effort: answer.map(|a| a.level.clone()),
+            effort_reason: e.map(|e| e.reason.as_str().into()),
+            effort_applied: applied.map(|e| effort::name(e).into()),
         });
     }
 
@@ -769,6 +836,7 @@ mod tests {
         Verdict {
             mode: mode.into(),
             confidence: 0.9,
+            effort: None,
             judgment: "jdg_1".into(),
             turn: "turn_1".into(),
         }

@@ -452,10 +452,17 @@ pub fn status_line(r: &TurnSubmitResult) -> String {
     } else {
         String::new()
     };
-    // How routing placed the turn (25e): its mode and why.
-    let route = r.route.as_ref().map_or(String::new(), |ro| match &ro.mode {
-        Some(m) => format!(" · {m} ({})", ro.reason),
-        None => format!(" · route {}", ro.reason),
+    // How routing placed the turn (25e): its mode and why, and the effort
+    // Jev set when it applied (route.v3, theseus-qe3v).
+    let route = r.route.as_ref().map_or(String::new(), |ro| {
+        let effort = ro
+            .effort_applied
+            .as_ref()
+            .map_or(String::new(), |e| format!(" · effort {e}"));
+        match &ro.mode {
+            Some(m) => format!(" · {m} ({}){effort}", ro.reason),
+            None => format!(" · route {}{effort}", ro.reason),
+        }
     });
     format!(
         "[{} → {}/{}{} · {} loop(s){}{} · {} · tokens in {} out {}{}{} · {} ms{} · session {}]",
@@ -3099,5 +3106,22 @@ mod tests {
         assert!(lines[1]
             .1
             .starts_with("[sonnet → anthropic/claude-sonnet-5 · 2 loop(s)"));
+    }
+
+    /// The status line says the effort Jev set when it applied (route.v3,
+    /// theseus-qe3v), after the mode, and nothing when it did not.
+    #[test]
+    fn the_status_line_says_the_effort_jev_set() {
+        let mut r: TurnSubmitResult =
+            serde_json::from_value(serde_json::json!({"session_id": "ses_a",
+            "turn_id": "turn_a", "loops": 1, "output": "", "stop_reason": "no_tool_calls",
+            "model": "claude-opus-5-5", "provider": "anthropic", "profile": "opus",
+            "usage": {"input_tokens": 1, "output_tokens": 2}, "elapsed_ms": 900,
+            "route": {"mode": "sophisticated", "reason": "verdict", "from": "sonnet",
+                "effort": "max", "effort_reason": "applied", "effort_applied": "max"}}))
+            .unwrap();
+        assert!(status_line(&r).contains(" · sophisticated (verdict) · effort max · "));
+        r.route.as_mut().unwrap().effort_applied = None;
+        assert!(status_line(&r).contains(" · sophisticated (verdict) · 1 loop(s)"));
     }
 }

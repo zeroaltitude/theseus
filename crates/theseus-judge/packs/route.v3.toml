@@ -1,0 +1,71 @@
+# route.v3 (ROUTE): which interaction mode a person's new message needs, and
+# how much effort its reply needs, so the core can run its turn on a model
+# and at an effort level to match (theseus-qe3v, 2026-10-07; the owner's
+# decision: "jev should also set effort level, not just model"). The `mode`
+# question is route.v2's, word for word. `reply_effort` asks the effort the
+# reply needs on the levels Anthropic's models take (low, medium, high,
+# xhigh, max), with `unclear` its no-match option; its id sorts after `mode`,
+# so the mode stays the judgment's headline. Both questions ride the one
+# request, so the verdict costs one call as route.v2's did. The core applies
+# the effort to the chosen profile's model when its catalog row takes effort,
+# within `[routing] effort_bounds`, unless the profile fixes its own
+# (`effort_fixed`); below `reply_effort`'s confirm bar, on `unclear`, and for
+# a late verdict, the profile's own effort stands. The acting route pack
+# since theseus-qe3v, live with route.v1's rollback rules; route.v1 and
+# route.v2 stay embedded for their history. At `inbound`, beside classify.v1
+# and role.v1: the same `inbound` state. The core maps each mode to its
+# ordered profiles (`[routing.modes.<mode>]`); `other` is routed as `chat`.
+id = "route"
+version = 3
+jev_model = "jev-1.13.0"
+point = "inbound"
+state = "inbound"
+state_cap_tokens = 3000
+sample = 1.0
+baseline = "session_profile"
+action = "route"
+description = "ROUTE: the interaction mode a message needs (nothing, a quick answer, conversation, hard reasoning, hard programming, routine programming), which picks the model its turn runs on, and the effort its reply needs (low to max), which sets the effort that model runs at."
+
+[questions.mode]
+type = "choice"
+decides = true
+instructions = "What kind of work does the reply to the person's new message need?"
+act = 0.90
+confirm = 0.60
+no_match = "other"
+options = [
+  { id = "trivial", means = "It needs almost nothing: a thank-you, an acknowledgement such as ok or got it, a greeting, or a farewell." },
+  { id = "quick", means = "A quick question or small request that a short, direct answer settles: a fact, a definition, a yes or no, a summary of something just said, or where to find something, with no deep thought and no programming." },
+  { id = "chat", means = "Ongoing conversation that builds on the work in progress here: discussing it, explaining it, planning next steps, or giving an opinion, with no hard reasoning and no programming." },
+  { id = "sophisticated", means = "Hard reasoning that is not mainly programming: system design, weighing several approaches, research, analysis, or careful writing." },
+  { id = "deep_coding", means = "Hard or novel programming: designing or writing tricky code, or debugging a problem whose cause is unknown." },
+  { id = "routine_coding", means = "Programming that is long but well understood: repeated mechanical edits, renames across many places, small fixes whose cause is already known, or following a clear plan already agreed." },
+  { id = "other", means = "None of the kinds above fits." },
+]
+
+[questions.reply_effort]
+type = "choice"
+decides = true
+instructions = "How much thinking effort does the reply to the person's new message need?"
+act = 0.90
+confirm = 0.60
+no_match = "unclear"
+options = [
+  { id = "low", means = "Almost none: a greeting, a thank-you, an acknowledgement, or a short answer the person could check at a glance." },
+  { id = "medium", means = "Some care, but the way is clear: a direct question, ongoing conversation, or work that is long but mechanical, such as repeated edits, renames, or following a plan already agreed." },
+  { id = "high", means = "Careful thought: a design with trade-offs, a bug whose cause is unknown, a careful analysis, or writing that must be right." },
+  { id = "xhigh", means = "Very careful thought: a hard design or a hard bug that spans many parts, where a mistake would be costly and the reply must reason through many steps." },
+  { id = "max", means = "The most thought there is: the hardest or most novel problems, or high-stakes work where every step must be checked, or the person asks for the most thorough reply possible." },
+  { id = "unclear", means = "The message gives too little to tell how much thought its reply needs." },
+]
+
+# A routed model that the operator overrides often, or a wait past its bar.
+[[rollback]]
+rule = "labels_per_day"
+label = "wrong model"
+count = 3
+
+[[rollback]]
+rule = "on_path_p95"
+max_ms = 250
+min_samples = 20

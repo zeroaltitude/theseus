@@ -158,6 +158,7 @@ mod tests {
             reason: "detour".into(),
             from: "sonnet".into(),
             source: None,
+            ..Default::default()
         });
         assert_eq!(routed(&r).as_deref(), Some("routed: quick"));
         r.route.as_mut().unwrap().source = Some("correction".into());

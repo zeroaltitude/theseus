@@ -464,7 +464,7 @@ async fn each_adopted_rule_fires_on_its_events_and_not_on_a_near_miss() {
     type Event = fn(String) -> CanaryEvent;
     let cases: [(&str, usize, Event, &str); 3] = [
         (
-            "route.v2",
+            "route.v3",
             3,
             |day| CanaryEvent::Pinned { day },
             "pins_per_day",
@@ -710,15 +710,15 @@ async fn a_canary_judgment_records_its_arm() {
 /// The three packs the owner put live before the ladder (the route pack,
 /// rerank.v1, and security.v3's notices: this build wires each live) are
 /// adopted at the ladder's first read after serving, one row each, `live`,
-/// `who: owner`, "decision of 2026-10-04" (route.v2's "of 2026-10-07",
-/// theseus-3okf), through adoption, and health says so; a restart writes none
+/// `who: owner`, "decision of 2026-10-04" (route.v2's and route.v3's "of 2026-10-07",
+/// theseus-3okf, theseus-qe3v), through adoption, and health says so; a restart writes none
 /// again (batch 5's join, theseus-9j7x).
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_three_live_packs_are_adopted_once_after_serving() {
     let dir = tempfile::tempdir().unwrap();
-    let live = ["route.v2", "rerank.v1", "security.v3"];
+    let live = ["route.v3", "rerank.v1", "security.v3"];
     let why = |p: &str| match p {
-        "route.v2" => "decision of 2026-10-07",
+        "route.v3" => "decision of 2026-10-07",
         _ => "decision of 2026-10-04",
     };
     let c = core_at(dir.path(), None, |_| {});

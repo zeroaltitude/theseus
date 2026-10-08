@@ -1,6 +1,7 @@
 //! Routing (M5 step 25e): the model per interaction mode. The route pack
-//! (`route.v2` since theseus-3okf) judges, at `inbound`, which mode a
-//! person's message needs (`judge::inbound`), and
+//! (`route.v3` since theseus-qe3v) judges, at `inbound`, which mode a
+//! person's message needs (`judge::inbound`), and the effort its reply needs
+//! ([`effort`], which decides the effort the turn runs at), and
 //! this module decides, purely, which profile the turn runs on: the mode's
 //! first usable profile, under the place's cap, by the switch rule. The turn
 //! applies it (`turn::route_step`).
@@ -35,6 +36,8 @@ use serde::{Deserialize, Serialize};
 use crate::catalog::CatalogEntry;
 use crate::config::routing::{is_detour, CHEAPEST};
 use crate::config::RoutingConfig;
+
+pub mod effort;
 
 /// A short turn's uncached input, in tokens, for `cheapest` and the cap.
 pub const SHORT_INPUT: u64 = 4_000;
@@ -127,11 +130,14 @@ impl Reason {
     }
 }
 
-/// A verdict: `route.v1`'s answer, as the turn reads it.
+/// A verdict: the route pack's answer, as the turn reads it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Verdict {
     pub mode: String,
     pub confidence: f64,
+    /// route.v3's answer about the reply's effort (theseus-qe3v), when the
+    /// pack asks it and Jev answered it.
+    pub effort: Option<effort::EffortAnswer>,
     /// The judgment's id.
     pub judgment: String,
     /// The turn it was asked for.
@@ -462,6 +468,7 @@ mod tests {
         Verdict {
             mode: mode.into(),
             confidence,
+            effort: None,
             judgment: "jdg_1".into(),
             turn: "turn_1".into(),
         }

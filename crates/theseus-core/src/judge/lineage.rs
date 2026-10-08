@@ -45,11 +45,12 @@ pub fn key(name: &str) -> String {
 }
 
 /// The roots the learning loop rewrites: every wired version but those the
-/// step leaves alone (the route pack, both versions, and rerank.v1, live with
-/// their own rollback rules; the memory pass's two).
-pub const LEFT_ALONE: [&str; 5] = [
+/// step leaves alone (the route pack, every version, and rerank.v1, live
+/// with their own rollback rules; the memory pass's two).
+pub const LEFT_ALONE: [&str; 6] = [
     "route.v1",
     "route.v2",
+    "route.v3",
     "rerank.v1",
     "memory.v1",
     "attribution.v1",

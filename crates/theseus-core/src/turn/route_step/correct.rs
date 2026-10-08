@@ -351,6 +351,7 @@ impl TurnRunner {
             confidence: 1.0,
             judgment: s.follows.clone(),
             turn: t.tc.turn_id.to_string(),
+            effort: None,
         };
         let a = routing::Ask {
             verdict: &v,

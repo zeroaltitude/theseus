@@ -5,6 +5,7 @@ import type { LedgerEntry, TurnFallback, Usage } from '@protocol'
 import { useRpc } from './rpc'
 import { ledgerKind, type Tone } from './taxonomy'
 import { providerCalls, type ProviderCall } from './calls'
+import { routedOf, type TurnRouted } from './route'
 
 // A billed call's shape and its reading are pure (calls.ts), so the tested modules can name them.
 export { providerCalls, totalIn, type ProviderCall, type RateLimit } from './calls'
@@ -49,6 +50,8 @@ export interface TurnRow {
   usage?: Usage
   /** A refusal moved the turn to its model's fallback (`turn.ended`'s `fallback`, theseus-7gir.18). */
   fallback?: TurnFallback
+  /** How routing placed it (`route.decided`): its mode, and route.v3's effort (theseus-qe3v). */
+  route?: TurnRouted
 }
 
 /** Turns from turn.started / turn.ended / turn.failed, oldest first. */
@@ -58,6 +61,10 @@ export function turnRows(rows: LedgerEntry[] | undefined): TurnRow[] {
     if (!r.turn_id) continue
     const d = (r.data ?? {}) as Record<string, any>
     if (r.kind === 'turn.started') m.set(r.turn_id, { turn_id: r.turn_id, session_id: r.session_id, start: r.at_unix_ms })
+    else if (r.kind === 'route.decided') {
+      const t = m.get(r.turn_id)
+      if (t) t.route = routedOf(r)
+    }
     else if (r.kind === 'turn.ended' || r.kind === 'turn.failed') {
       const t = m.get(r.turn_id) ?? { turn_id: r.turn_id, session_id: r.session_id, start: r.at_unix_ms - Number(d.elapsed_ms ?? 0) }
       Object.assign(t, {

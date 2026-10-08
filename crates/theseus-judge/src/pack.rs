@@ -39,7 +39,8 @@ use crate::learn::RollbackRule;
 /// §2.4's six, `security.v2` and `security.v3`, candidates beside `security.v1`,
 /// `rerank.v1`, recall's `+rerank` arm (M6 step 32c), and `route.v1`, the
 /// model per interaction mode (M5 step 25e), with `route.v2`, its successor
-/// with a `quick` mode (theseus-3okf).
+/// with a `quick` mode (theseus-3okf), and `route.v3`, which asks the reply's
+/// effort beside v2's mode (theseus-qe3v).
 pub const EMBEDDED: &[(&str, &str)] = &[
     ("probe.v1", include_str!("../packs/probe.v1.toml")),
     ("loop.v1", include_str!("../packs/loop.v1.toml")),
@@ -58,6 +59,7 @@ pub const EMBEDDED: &[(&str, &str)] = &[
     ),
     ("route.v1", include_str!("../packs/route.v1.toml")),
     ("route.v2", include_str!("../packs/route.v2.toml")),
+    ("route.v3", include_str!("../packs/route.v3.toml")),
     ("citation.v1", include_str!("../packs/citation.v1.toml")),
 ];
 
@@ -1206,6 +1208,15 @@ mod tests {
                     "rollback [labels_per_day on_path_p95]",
                 ],
             ),
+            (
+                "route.v3",
+                &[
+                    "Inbound Inbound SessionProfile Route",
+                    "mode Choice decides [trivial quick chat sophisticated deep_coding routine_coding other]",
+                    "reply_effort Choice decides [low medium high xhigh max unclear]",
+                    "rollback [labels_per_day on_path_p95]",
+                ],
+            ),
         ];
         for (name, lines) in want {
             let p = by_name(name).unwrap_or_else(|| panic!("{name} is embedded"));
@@ -1266,6 +1277,11 @@ mod tests {
             "route.v2 keeps v1's rules"
         );
         assert_eq!(
+            rules("route.v3"),
+            rules("route.v1"),
+            "route.v3 keeps v1's rules"
+        );
+        assert_eq!(
             rules("role.v1"),
             vec![
                 RollbackRule::SwitchesPerExchange { max: 2 },
@@ -1283,9 +1299,9 @@ mod tests {
         let six: Vec<&(&str, &str)> = EMBEDDED.iter().filter(|(f, _)| *f != "probe.v1").collect();
         assert_eq!(
             six.len(),
-            14,
-            "§2.4's six, security.v2 and v3, rerank.v1, memory.v1, attribution.v1, route.v1 and \
-             v2, and citation.v1"
+            15,
+            "§2.4's six, security.v2 and v3, rerank.v1, memory.v1, attribution.v1, route.v1, v2 \
+             and v3, and citation.v1"
         );
         for (file, text) in six {
             let p = Pack::parse(text).unwrap_or_else(|e| panic!("{file}: {e}"));
@@ -1389,5 +1405,22 @@ mod tests {
             let json = serde_json::to_string(&p).unwrap();
             assert!(!json.contains("decide_above"), "{file}");
         }
+    }
+
+    /// route.v3 (theseus-qe3v) asks route.v2's mode word for word, and the
+    /// reply's effort on the five levels Anthropic's models take, `unclear`
+    /// its no-match option; the effort sorts after the mode, so the mode
+    /// stays the judgment's first deciding answer (its headline).
+    #[test]
+    fn route_v3_asks_v2s_mode_and_the_replys_effort() {
+        let (v2, v3) = (by_name("route.v2").unwrap(), by_name("route.v3").unwrap());
+        assert_eq!(v3.question("mode"), v2.question("mode"), "word for word");
+        let effort = v3.question("reply_effort").unwrap();
+        let ids: Vec<&str> = effort.options.iter().map(|o| o.id.as_str()).collect();
+        assert_eq!(ids, ["low", "medium", "high", "xhigh", "max", "unclear"]);
+        assert_eq!(effort.no_match.as_deref(), Some("unclear"));
+        assert!(effort.decides && effort.kind == Kind::Choice);
+        let order: Vec<&str> = v3.questions.iter().map(|q| q.id.as_str()).collect();
+        assert_eq!(order, ["mode", "reply_effort"]);
     }
 }

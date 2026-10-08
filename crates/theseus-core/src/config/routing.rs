@@ -1,15 +1,17 @@
 //! `[routing]` (M5 step 25e): Jev's model per interaction mode. The route
-//! pack (`route.v2` since theseus-3okf; `route.v1` before it) asks, at
-//! `inbound`, which mode a person's message needs, and the turn runs on that
-//! mode's first usable profile. It acts only while `[judge]` is on, and
-//! `mode = "shadow"` (or `[judge.packs."route.v2"] mode = "shadow"`) records
+//! pack (`route.v3` since theseus-qe3v; `route.v2` and `route.v1` before it)
+//! asks, at `inbound`, which mode a person's message needs, and the turn runs
+//! on that mode's first usable profile; since route.v3 it also asks the
+//! effort the reply needs, which the turn's model runs at, within
+//! `effort_bounds`. It acts only while `[judge]` is on, and
+//! `mode = "shadow"` (or `[judge.packs."route.v3"] mode = "shadow"`) records
 //! the verdict and routes nothing. Every key has a default, so a sparse note
 //! holds only what differs.
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
-use super::PackMode;
+use super::{Effort, PackMode};
 
 /// The profile name that means the usable profile cheapest for a short
 /// turn at catalog prices (reserved: no profile may take it).
@@ -41,6 +43,11 @@ pub struct RoutingConfig {
     /// unless its mode sets its own bar (`[routing.modes.<mode>]`).
     #[serde(default = "switch_confidence")]
     pub switch_confidence: f64,
+    /// The efforts Jev's answer may set, lowest and highest, inclusive
+    /// (route.v3, theseus-qe3v): an answer outside them is clamped to the
+    /// nearer one. The full range by default.
+    #[serde(default = "effort_bounds")]
+    pub effort_bounds: [Effort; 2],
     /// Each mode's profiles, in order: the first usable wins.
     #[serde(default)]
     pub modes: RoutingModes,
@@ -171,6 +178,9 @@ fn similarity() -> f64 {
 fn max_entries() -> u32 {
     64
 }
+fn effort_bounds() -> [Effort; 2] {
+    [Effort::Low, Effort::Max]
+}
 fn list(names: &[&str]) -> ModeProfiles {
     ModeProfiles {
         profiles: names.iter().map(|s| (*s).to_string()).collect(),
@@ -241,6 +251,7 @@ impl Default for RoutingConfig {
             trivial_context_turns: trivial_context_turns(),
             cold_switch_tokens: cold_switch_tokens(),
             switch_confidence: switch_confidence(),
+            effort_bounds: effort_bounds(),
             modes: RoutingModes::default(),
             corrections: CorrectionsConfig::default(),
         }
@@ -268,6 +279,11 @@ impl RoutingConfig {
                     );
                 }
             }
+        }
+        if self.effort_bounds[0] > self.effort_bounds[1] {
+            anyhow::bail!(
+                "routing.effort_bounds is [lowest, highest]: its first is above its second"
+            );
         }
         if self.max_wait_ms > 5_000 {
             anyhow::bail!(
@@ -330,6 +346,7 @@ pub(crate) fn the_templates_routing_section(cfg: &crate::Config) {
         (200, 2, 30_000)
     );
     assert_eq!(r.switch_confidence, 0.6);
+    assert_eq!(r.effort_bounds, effort_bounds(), "the full range");
     for m in MODES {
         assert_eq!(r.modes.of(m), RoutingModes::default().of(m), "{m}");
     }
@@ -488,6 +505,29 @@ mod tests {
         assert_eq!(c.confidence_for("quick"), 0.7);
         assert_eq!(c.modes.of("trivial"), ["haiku", "glm", "cheapest"]);
         c.validate(|_| false).unwrap();
+    }
+
+    /// `effort_bounds` (route.v3, theseus-qe3v): the full range by default,
+    /// any two levels lowest first, and a pair the wrong way round refused.
+    #[test]
+    fn the_effort_bounds_default_to_the_full_range_and_go_lowest_first() {
+        assert_eq!(cfg("").unwrap().effort_bounds, [Effort::Low, Effort::Max]);
+        let c = cfg("effort_bounds = [\"medium\", \"high\"]").unwrap();
+        assert_eq!(c.effort_bounds, [Effort::Medium, Effort::High]);
+        c.validate(|_| false).unwrap();
+        cfg("effort_bounds = [\"high\", \"high\"]")
+            .unwrap()
+            .validate(|_| false)
+            .unwrap();
+        let e = cfg("effort_bounds = [\"max\", \"low\"]")
+            .unwrap()
+            .validate(|_| false);
+        assert!(format!("{:#}", e.unwrap_err()).contains("effort_bounds"));
+        assert!(cfg("effort_bounds = [\"low\"]").is_err(), "two levels");
+        assert!(
+            cfg("effort_bounds = [\"low\", \"huge\"]").is_err(),
+            "levels only"
+        );
     }
 
     #[test]

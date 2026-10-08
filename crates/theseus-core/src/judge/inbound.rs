@@ -47,10 +47,11 @@ pub const CLASSIFY_PACK: &str = "classify.v1";
 pub const ROLE_PACK: &str = "role.v1";
 /// ROUTE (25e), at `inbound`, in a request of its own beside the batch:
 /// live.
-/// The acting route pack: `route.v2` since theseus-3okf (2026-10-07), live
-/// at once with route.v1's rollback rules; `route.v1` stays embedded for its
-/// history, and the ladder never runs it again.
-pub const ROUTE_PACK: &str = "route.v2";
+/// The acting route pack: `route.v3` since theseus-qe3v (2026-10-07), the
+/// mode and the reply's effort in one request, live at once with route.v1's
+/// rollback rules; `route.v2` (theseus-3okf) and `route.v1` stay embedded
+/// for their history, and the ladder never runs them again.
+pub const ROUTE_PACK: &str = "route.v3";
 /// The packs asked at `inbound`, in the order they are asked.
 pub const PACKS: [&str; 3] = [CLASSIFY_PACK, ROLE_PACK, ROUTE_PACK];
 
@@ -506,23 +507,37 @@ struct Ready {
     beside: super::Beside,
 }
 
-/// `route.v1`'s verdict from its judgment: its `mode` answer, when it was
-/// answered by the model the pack pins.
+/// The route pack's verdict from its judgment: its `mode` answer, when it
+/// was answered by the model the pack pins, and route.v3's `reply_effort`
+/// answer beside it, sure when its band reached the question's confirm bar
+/// (theseus-qe3v).
 pub fn verdict(j: &theseus_judge::Judgment, turn: &str) -> Option<crate::routing::Verdict> {
+    use crate::routing::effort::{EffortAnswer, QUESTION};
     if !j.actionable() {
         return None;
     }
-    match &j.answer("mode")?.answer {
-        theseus_judge::Answer::Choice {
-            choice, confidence, ..
-        } => Some(crate::routing::Verdict {
-            mode: choice.clone(),
-            confidence: *confidence,
-            judgment: j.id.clone(),
-            turn: turn.to_string(),
-        }),
-        _ => None,
-    }
+    let choice = |q: &str| {
+        let a = j.answer(q)?;
+        match &a.answer {
+            theseus_judge::Answer::Choice {
+                choice, confidence, ..
+            } => Some((choice.clone(), *confidence, a.band.band)),
+            _ => None,
+        }
+    };
+    let (mode, confidence, _) = choice("mode")?;
+    let effort = choice(QUESTION).map(|(level, confidence, band)| EffortAnswer {
+        level,
+        confidence,
+        sure: band != theseus_judge::band::Band::Escalate,
+    });
+    Some(crate::routing::Verdict {
+        mode,
+        confidence,
+        effort,
+        judgment: j.id.clone(),
+        turn: turn.to_string(),
+    })
 }
 
 /// The urgency of a request whose asks run in `modes`: live when one acts

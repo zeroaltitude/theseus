@@ -286,6 +286,8 @@ mod tests_route_cap;
 #[cfg(test)]
 mod tests_route_correct;
 #[cfg(test)]
+mod tests_route_effort;
+#[cfg(test)]
 mod tests_route_keep;
 #[cfg(test)]
 mod tests_route_late;
