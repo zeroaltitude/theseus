@@ -6673,6 +6673,7 @@ dependencies = [
  "crc32fast",
  "half",
  "libc",
+ "rayon",
  "regex",
  "serde",
  "serde_json",

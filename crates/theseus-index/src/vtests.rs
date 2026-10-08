@@ -852,3 +852,134 @@ fn fusion_weights_are_the_querys_over_the_tenders_and_ones_are_the_old_fusion() 
         .unwrap_err();
     assert!(format!("{e:#}").contains("finite number"), "{e:#}");
 }
+
+/// Queries ahead of the backfill (theseus-w9qv). A query's embedding runs in
+/// a rayon pool of its own: with the global pool's every thread busy (as the
+/// backfill's jobs keep the tender's one), it still answers at once. And
+/// while a query embeds, the embedding thread starts no batch; the query's
+/// end lets it go on.
+#[test]
+fn queries_are_served_ahead_of_the_backfill() {
+    use std::sync::{mpsc, Arc, Mutex};
+    let v = VRig::new();
+    let nodes: Vec<_> = TEXTS[..6].iter().map(|t| user("ses_1", t)).collect();
+    v.rig.put(&nodes);
+    let mut t = v.open();
+    settle_all(&mut t);
+    let shared = t.shared();
+
+    // The global pool busy, every thread of it.
+    let n = rayon::current_num_threads();
+    let (release, held) = mpsc::channel::<()>();
+    let held = Arc::new(Mutex::new(held));
+    let (started, busy) = mpsc::channel();
+    for _ in 0..n {
+        let (held, started) = (held.clone(), started.clone());
+        rayon::spawn(move || {
+            started.send(()).unwrap();
+            let _ = held.lock().unwrap().recv();
+        });
+    }
+    for _ in 0..n {
+        busy.recv_timeout(Duration::from_secs(10)).unwrap();
+    }
+    let (tx, rx) = mpsc::channel();
+    let s = shared.clone();
+    std::thread::spawn(move || {
+        let _ = tx.send(s.query(&vector_query("tides follow the moon", 3)));
+    });
+    let answered = rx.recv_timeout(Duration::from_secs(10));
+    for _ in 0..n {
+        release.send(()).unwrap();
+    }
+    let r = answered
+        .expect("the query's embedding waited for the global pool")
+        .unwrap();
+    assert!(r.skipped.is_empty(), "{:?}", r.skipped);
+    assert_eq!(r.hits.len(), 3);
+
+    // A backlog, and a query embedding: no batch starts until it ends.
+    let more: Vec<_> = TEXTS[6..].iter().map(|t| user("ses_1", t)).collect();
+    v.rig.put(&more);
+    settle(&mut t);
+    assert_eq!(status(&shared).pending, 6);
+    let wakes = std::sync::atomic::AtomicU32::new(0);
+    let hold = shared.vectors.ahead.hold(|| {
+        wakes.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    });
+    for _ in 0..3 {
+        shared.vectors.work_once(&shared.engine);
+    }
+    assert_eq!(
+        status(&shared).pending,
+        6,
+        "the backfill waited for the query"
+    );
+    assert!(shared.vectors.ahead.deferred() >= 1);
+    drop(hold);
+    assert_eq!(wakes.load(std::sync::atomic::Ordering::SeqCst), 1);
+    // A turn may compact first (the vector side's housekeeping).
+    for _ in 0..4 {
+        shared.vectors.work_once(&shared.engine);
+    }
+    assert!(status(&shared).pending < 6, "the query's end let it go on");
+}
+
+/// A measure, not a check (`--ignored --nocapture`; theseus-w9qv): a query's
+/// embedding time while the global rayon pool is kept busy, as the backfill
+/// keeps it (jobs of 20 ms each, always eight queued), against the same with
+/// the pool idle.
+#[test]
+#[ignore = "a measure: run with --ignored --nocapture"]
+fn measure_a_querys_embedding_beside_a_busy_pool() {
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+    use std::sync::Arc;
+    let v = VRig::new();
+    let nodes: Vec<_> = TEXTS.iter().map(|t| user("ses_1", t)).collect();
+    v.rig.put(&nodes);
+    let mut t = v.open();
+    settle_all(&mut t);
+    let shared = t.shared();
+    let embed_ms = |label: &str| {
+        let mut ms: Vec<f64> = (0..20)
+            .map(|_| {
+                let r = shared
+                    .query(&vector_query("tides follow the moon", 3))
+                    .unwrap();
+                assert!(r.skipped.is_empty(), "{:?}", r.skipped);
+                r.timings.embed_ms
+            })
+            .collect();
+        ms.sort_by(f64::total_cmp);
+        println!(
+            "{label}: a query's embedding p50 {:.1} ms, max {:.1} ms (20 queries)",
+            ms[10], ms[19]
+        );
+    };
+    embed_ms("the global pool idle");
+    let stop = Arc::new(AtomicBool::new(false));
+    let feeder = {
+        let stop = stop.clone();
+        let queued = Arc::new(AtomicUsize::new(0));
+        std::thread::spawn(move || {
+            while !stop.load(Ordering::SeqCst) {
+                if queued.load(Ordering::SeqCst) < 8 {
+                    queued.fetch_add(1, Ordering::SeqCst);
+                    let q = queued.clone();
+                    rayon::spawn(move || {
+                        let t0 = Instant::now();
+                        while t0.elapsed() < Duration::from_millis(20) {
+                            std::hint::spin_loop();
+                        }
+                        q.fetch_sub(1, Ordering::SeqCst);
+                    });
+                } else {
+                    std::thread::sleep(Duration::from_micros(200));
+                }
+            }
+        })
+    };
+    embed_ms("the global pool busy");
+    stop.store(true, Ordering::SeqCst);
+    feeder.join().unwrap();
+}

@@ -17,6 +17,7 @@
 //! `Tender` child kind, the spawn after serving, health's `index`, and the
 //! CLI) is the wire-in, roadmap row 51.
 
+pub mod ahead;
 pub mod chunk;
 pub mod client;
 pub mod embedder;

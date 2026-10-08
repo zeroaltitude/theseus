@@ -21,8 +21,8 @@
 //! - **The model** loads on first use (a backfill batch, a query that may
 //!   wait, `index.embed`, or `index.warm`), on the embedding thread, never on
 //!   the tender's start path; it unloads after `idle_unload`. A query embeds
-//!   on its own connection's thread while a backfill batch runs, so it never
-//!   waits behind one.
+//!   on its own connection's thread, in a rayon pool of its own, and the
+//!   backfill starts no batch while it does (`ahead`, theseus-w9qv).
 
 use std::cmp::{Ordering as CmpOrdering, Reverse};
 use std::collections::{BTreeSet, BinaryHeap, HashMap, HashSet};
@@ -37,6 +37,7 @@ use std::time::{Duration, Instant, SystemTime};
 use anyhow::Context as _;
 use sha2::{Digest, Sha256};
 
+use crate::ahead::Ahead;
 use crate::embedder::{self, dot_i8, quantize, stamp_key, Embedder, ModelSpec, Vector, Windows};
 use crate::proto::{
     Compactions, EmbedParams, EmbedResult, EmbedStats, Filters, Neighbour, Reembed, Stamp, Task,
@@ -1062,6 +1063,8 @@ pub struct Vectors {
     compactions: Mutex<CompactState>,
     /// Held while the files are read, so they are read once.
     opening: Mutex<()>,
+    /// Queries embedding now, ahead of the backfill (theseus-w9qv).
+    pub(crate) ahead: Ahead,
 }
 
 /// The compactions so far, and when a failed one may be tried again.
@@ -1150,6 +1153,7 @@ impl Vectors {
             stats: Mutex::new((EmbedStats::default(), None, 0)),
             compactions: Mutex::new(CompactState::default()),
             opening: Mutex::new(()),
+            ahead: Ahead::default(),
             cfg,
         }
     }
@@ -1588,6 +1592,10 @@ impl Vectors {
         let need = st.want || (opened && pending > 0);
         let next = match &st.model {
             Model::Unloaded if need => Next::Load,
+            // A query embedding now goes first; its end wakes this thread.
+            Model::Loaded(_) if opened && pending > 0 && !self.ahead.may_backfill() => {
+                Next::Wait(BACKSTOP)
+            }
             Model::Loaded(emb) if opened && pending > 0 => Next::Embed(emb.clone()),
             Model::Loaded(_) => {
                 let idle = st.last_used.elapsed();
@@ -1857,10 +1865,12 @@ impl Vectors {
     ) -> Result<(Vec<VectorHit>, f64, f64), String> {
         let emb = self.model(wait)?;
         let t0 = Instant::now();
-        let v = emb
-            .embed(Task::SearchQuery, &[text])
+        // Ahead of the backfill, in a pool of its own (`ahead`).
+        let hold = self.ahead.hold(|| self.wake());
+        let v = crate::ahead::install(|| emb.embed(Task::SearchQuery, &[text]))
             .map_err(|e| format!("the query would not embed: {e:#}"))?
             .remove(0);
+        drop(hold);
         let embed_ms = t0.elapsed().as_secs_f64() * 1e3;
         let t1 = Instant::now();
         let t = self.table.read().unwrap();
