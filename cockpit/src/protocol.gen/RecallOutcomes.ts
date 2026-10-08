@@ -2,9 +2,11 @@
 
 /**
  * How the last turns' recalls went (theseus-w9qv), counted in memory since
- * the daemon started: the index's whole answer (`ok`), the word sources'
- * alone when the vector search missed the deadline (`words_only`), nothing
- * in time (`deadline`), and no index to ask (`error`).
+ * the daemon started: the index's answer to the query as asked (`ok`; a
+ * source the tender could not answer, such as vectors without weights, is in
+ * its `skipped`), the word sources' alone when the vector search missed the
+ * deadline or failed (`words_only`), nothing in time (`deadline`), and no
+ * index to ask (`error`).
  */
 export type RecallOutcomes = { 
 /**
@@ -16,7 +18,7 @@ window: number,
  */
 turns: number, ok: number, words_only: number, deadline: number, error: number, 
 /**
- * When a whole answer last arrived (every source it asked for), in ms
- * since the epoch: absent when none has since the start.
+ * When an answer last came from every source it asked for (nothing
+ * skipped), in ms since the epoch: absent when none has since the start.
  */
 last_full_ms?: number, };

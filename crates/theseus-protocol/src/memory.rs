@@ -186,9 +186,11 @@ pub struct MemoryHealth {
 }
 
 /// How the last turns' recalls went (theseus-w9qv), counted in memory since
-/// the daemon started: the index's whole answer (`ok`), the word sources'
-/// alone when the vector search missed the deadline (`words_only`), nothing
-/// in time (`deadline`), and no index to ask (`error`).
+/// the daemon started: the index's answer to the query as asked (`ok`; a
+/// source the tender could not answer, such as vectors without weights, is in
+/// its `skipped`), the word sources' alone when the vector search missed the
+/// deadline or failed (`words_only`), nothing in time (`deadline`), and no
+/// index to ask (`error`).
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
 pub struct RecallOutcomes {
@@ -206,8 +208,8 @@ pub struct RecallOutcomes {
     pub deadline: u64,
     #[cfg_attr(test, ts(type = "number"))]
     pub error: u64,
-    /// When a whole answer last arrived (every source it asked for), in ms
-    /// since the epoch: absent when none has since the start.
+    /// When an answer last came from every source it asked for (nothing
+    /// skipped), in ms since the epoch: absent when none has since the start.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional, type = "number"))]
     pub last_full_ms: Option<u64>,

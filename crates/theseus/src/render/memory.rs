@@ -172,12 +172,12 @@ pub(super) fn push_health(o: &mut Vec<Line>, h: Option<&MemoryHealth>, now_ms: u
     }
 }
 
-/// `recall: the last 50: 41 whole, 7 words only, 2 deadline, 0 error · the
-/// last whole answer 3 min ago` (theseus-w9qv). A warning while any recall
-/// found nothing in time, or none had its whole answer.
+/// `recall: the last 50: 41 ok, 7 words only, 2 deadline, 0 error · every
+/// source last answered 3 min ago` (theseus-w9qv). A warning while any recall
+/// found nothing in time, or none was answered.
 fn recalls_line(r: &RecallOutcomes, now_ms: u64) -> (Tag, String) {
     let mut line = format!(
-        "recall: the last {}: {} whole, {} words only, {} deadline, {} error",
+        "recall: the last {}: {} ok, {} words only, {} deadline, {} error",
         r.turns, r.ok, r.words_only, r.deadline, r.error
     );
     match r.last_full_ms {
@@ -188,9 +188,9 @@ fn recalls_line(r: &RecallOutcomes, now_ms: u64) -> (Tag, String) {
                 120..7_200 => format!("{} min ago", secs / 60),
                 _ => format!("{} h ago", secs / 3_600),
             };
-            line.push_str(&format!(" · the last whole answer {ago}"));
+            line.push_str(&format!(" · every source last answered {ago}"));
         }
-        None => line.push_str(" · no whole answer since the start"),
+        None => line.push_str(" · no answer from every source since the start"),
     }
     let tag = if r.deadline + r.error > 0 || r.ok == 0 {
         Tag::Warn
@@ -666,8 +666,8 @@ mod tests {
             text,
             [
                 "memory: live · arm baseline",
-                "recall: the last 50: 41 whole, 9 words only, 0 deadline, 0 error · the last \
-                 whole answer 3 min ago"
+                "recall: the last 50: 41 ok, 9 words only, 0 deadline, 0 error · every source \
+                 last answered 3 min ago"
             ]
         );
         assert!(matches!(o[1].tag, Tag::Plain));
@@ -682,8 +682,8 @@ mod tests {
         assert!(matches!(tag, Tag::Warn));
         assert_eq!(
             line,
-            "recall: the last 50: 0 whole, 0 words only, 50 deadline, 0 error · no whole answer \
-             since the start"
+            "recall: the last 50: 0 ok, 0 words only, 50 deadline, 0 error · no answer from \
+             every source since the start"
         );
     }
 }
