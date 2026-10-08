@@ -352,6 +352,8 @@ pub struct ToolRuntime {
     /// The judge (M5 step 24): every call that acts goes to `gate` once it
     /// is planned. Set as the core is built; unset, nothing is judged.
     pub judge: std::sync::OnceLock<Arc<crate::judge::JudgeService>>,
+    /// What `memory.lookup` reads (theseus-w9qv): the core, once built.
+    pub lookup: crate::memory_lookup::Board,
     /// The configured profiles, each what it runs on: a check's `profile`
     /// names one (M5 28a).
     pub profiles: BTreeMap<String, crate::session::TargetRef>,
@@ -480,6 +482,7 @@ impl ToolRuntime {
             terms: Arc::new(crate::term::Terms::new(Vec::new(), Vec::new())),
             lsp: None,
             judge: Default::default(),
+            lookup: Default::default(),
             extend: Arc::new(crate::extend::Extensions::new(
                 tmp.join("extensions"),
                 vec![],
@@ -1630,6 +1633,8 @@ impl ToolRuntime {
                 )),
                 // The session's files, found on this task (theseus-c9l6).
                 crate::file_read::FAMILY => self.read_file(tc, &input, &ctx),
+                // The owner's memory, read for this session (theseus-w9qv).
+                crate::memory_lookup::FAMILY => self.lookup.run(tc, &input),
                 _ => t.run_async_with_media(&input, &ctx),
             };
             let mut task = tokio::spawn(run);
@@ -2170,6 +2175,8 @@ pub fn build_runtime(
         r.register(Arc::new(crate::glide::ChannelRead));
         // The files people gave the session (theseus-c9l6).
         r.register(Arc::new(crate::file_read::FileRead));
+        // A read of memory the model calls (theseus-w9qv).
+        r.register(Arc::new(crate::memory_lookup::MemoryLookup));
         r
     } else {
         Registry::new()
@@ -2277,6 +2284,7 @@ pub fn build_runtime(
         lsp,
         extend,
         judge: Default::default(),
+        lookup: Default::default(),
         profiles: cfg
             .all_profiles()
             .iter()

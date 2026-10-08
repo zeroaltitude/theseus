@@ -1462,6 +1462,7 @@ impl Config {
                 .chain(crate::aws::NAMES)
                 .chain(crate::term::NAMES)
                 .chain(crate::lsp::NAMES)
+                .chain(crate::memory_lookup::NAMES)
         };
         for name in self.policy.tools.keys() {
             let known = match name.strip_prefix(crate::policy::MCP_PREFIX) {
@@ -1898,7 +1899,7 @@ mod tests {
         assert_eq!(cfg.policy.tools["aws.stack.apply"], Posture::Approve);
         assert_eq!(cfg.policy.tools["extend.propose"], Posture::Notify);
         assert_eq!(cfg.policy.tools["channel.post"], Posture::Notify);
-        assert_eq!(cfg.policy.tools.len(), 49);
+        assert_eq!(cfg.policy.tools.len(), 50);
         // The AWS account's table, and [policy.aws]'s lines (rows 29 and 30, C1 and C2).
         let a = &cfg.aws.accounts["111122223333"];
         assert_eq!(a.credentials, AwsCredentialNames::default());
@@ -2004,6 +2005,7 @@ mod tests {
             .chain(crate::aws::NAMES.map(String::from))
             .chain(crate::term::NAMES.map(String::from))
             .chain(crate::lsp::NAMES.map(String::from))
+            .chain(crate::memory_lookup::NAMES.map(String::from))
             .collect();
         for t in &tools {
             assert!(
@@ -2029,6 +2031,7 @@ mod tests {
             "aws.describe",
             "term.read",
             "term.close",
+            "memory.lookup",
         ];
         for r in reads {
             assert_eq!(set.get(r), Some(&Posture::Open), "{r}");

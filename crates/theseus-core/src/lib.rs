@@ -48,6 +48,7 @@ pub mod ledger;
 pub mod lsp;
 pub mod mcp;
 pub mod mcp_server;
+pub mod memory_lookup;
 pub mod memory_pass;
 pub mod narrative;
 pub mod node;
@@ -226,6 +227,8 @@ mod tests_lsp_edits;
 mod tests_m3;
 #[cfg(test)]
 mod tests_memory_arm;
+#[cfg(test)]
+mod tests_memory_lookup;
 #[cfg(test)]
 mod tests_notices;
 #[cfg(test)]
