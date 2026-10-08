@@ -14,6 +14,13 @@
 // rows.
 import type { LedgerEntry } from '@protocol'
 
+/** A turn that failed because the daemon's stop held its model call back (theseus-36re): its row's `reason` is
+ *  `provider:stopping`, its push's `class` is `stopping`. A restart's artifact, which the next start answers: no
+ *  failure to count, flare or sound. */
+export function isStoppingFailure(x: { reason?: unknown; class?: unknown } | null | undefined): boolean {
+  return x?.reason === 'provider:stopping' || x?.class === 'stopping'
+}
+
 /** A failure, as one source tells it. */
 export interface Failure {
   session: string
@@ -63,10 +70,10 @@ export function flareOf(f: Flares, x: Failure): boolean {
 
 /** The sessions whose ships new ledger rows flare: each turn.failed row from `since` (when the page opened), once with
  *  the push or the execution's change that may have told it first. `heard`: now, on the page's clock. */
-export function flaresOfRows(f: Flares, rows: readonly Pick<LedgerEntry, 'kind' | 'session_id' | 'turn_id' | 'at_unix_ms'>[], since: number, heard: number): string[] {
+export function flaresOfRows(f: Flares, rows: readonly (Pick<LedgerEntry, 'kind' | 'session_id' | 'turn_id' | 'at_unix_ms'> & { data?: unknown })[], since: number, heard: number): string[] {
   const out: string[] = []
   for (const r of rows) {
-    if (r.kind !== 'turn.failed' || !r.session_id || r.at_unix_ms < since) continue
+    if (r.kind !== 'turn.failed' || !r.session_id || r.at_unix_ms < since || isStoppingFailure(r.data as object | undefined)) continue
     if (flareOf(f, { session: r.session_id, turn: r.turn_id, heard, at: r.at_unix_ms })) out.push(r.session_id)
   }
   return out

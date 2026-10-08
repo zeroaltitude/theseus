@@ -632,3 +632,35 @@ test("a kept scan reads only the rows since its last: a busy day's recompute cos
   const [k, f] = [median(kept)!, median(fresh)!]
   assert.ok(k < f / 4, `a kept recompute takes ${k.toFixed(1)} ms at the median, a fresh read ${f.toFixed(1)} ms`)
 })
+
+test('a turn held back by the stop is not "went wrong"; a job whose wrapper went while the daemon was down is, once', () => {
+  const rows = [
+    row(NOW - 5 * MIN, 'turn.failed', 'ses_a', { reason: 'provider:stopping', class: 'stopping' }, 'turn_stop'),
+    row(NOW - 4 * MIN, 'turn.failed', 'ses_a', { reason: 'unpriced: claude-bogus-9' }, 'turn_bad'),
+    row(NOW - 40 * MIN, 'action.planned', 'ses_a', { correlation_id: 'act_gone', tool: 'proc.run' }),
+    row(NOW - 30 * MIN, 'job.wrapper_gone', 'ses_a', { correlation_id: 'act_gone', pid: 5151, tool: 'proc.run', execution_id: 'exe_a' }),
+    row(NOW - 30 * MIN + 5, 'action.outcome_unknown', 'ses_a', { correlation_id: 'act_gone', producer: 'reconciler:wrapper_gone_at_start' }),
+    row(NOW - 20 * MIN, 'job.wrapper_gone', 'ses_a', { correlation_id: 'act_gone2', pid: 5152, tool: 'proc.run' }),
+    row(NOW - 19 * MIN, 'action.resolved', 'ses_a', { correlation_id: 'act_gone2', outcome: 'succeeded', producer: 'job' }),
+  ]
+  const w = watchOf(at({ model: fleet([{ id: 'ses_a', title: 'Night build' }]), rows }))
+  assert.deepEqual([w.wrong.count, w.wrong.turns, w.wrong.calls], [2, 1, 1])
+  assert.deepEqual(w.wrong.lines.map((l) => [l.text, l.flag]), [
+    ['unpriced: claude-bogus-9', undefined],
+    ['its wrapper went while the daemon was down (pid 5151): its outcome is unknown', 'unknown'],
+  ])
+  assert.ok(WRONG_KINDS.includes('job.wrapper_gone'))
+})
+
+test('the time formatters are made once and say what toLocale*String says', async () => {
+  const { clock, stamp, monthDay } = await import('../src/lib/figures.ts')
+  const t = Date.UTC(2026, 9, 6, 21, 4, 5)
+  assert.equal(clock(t), new Date(t).toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' }))
+  assert.equal(monthDay(t), new Date(t).toLocaleDateString([], { month: 'short', day: 'numeric' }))
+  assert.equal(stamp(t), `${monthDay(t)} ${clock(t)}`)
+  const made = Intl.DateTimeFormat
+  let n = 0
+  ;(Intl as any).DateTimeFormat = function (...a: unknown[]) { n++; return new (made as any)(...a) }
+  try { for (let i = 0; i < 100; i++) { clock(t + i); stamp(t + i); monthDay(t + i) } } finally { Intl.DateTimeFormat = made }
+  assert.equal(n, 0, 'no formatter is made per call')
+})

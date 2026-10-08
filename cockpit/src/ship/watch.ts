@@ -10,6 +10,7 @@
 import type { ActionInfo, ConfirmRequest, LedgerEntry } from '@protocol'
 import type { Light, ShipModel, Vessel } from './model.ts'
 import { ago, ms, short, usd } from '../lib/figures.ts'
+import { isStoppingFailure } from './flares.ts'
 
 export const HOUR_MS = 3_600_000
 export const DAY_MS = 24 * HOUR_MS
@@ -31,7 +32,7 @@ export const USUAL_MIN = 3
  *  stopped below the disk's floor or never started, a call whose outcome is unknown, a failed turn, a spend limit
  *  reached, and a crash of the daemon. */
 export const WRONG_KINDS = [
-  'action.failed', 'action.outcome_unknown', 'job.wrapper_lost', 'job.refused', 'job.stopped_below_floor',
+  'action.failed', 'action.outcome_unknown', 'job.wrapper_lost', 'job.wrapper_gone', 'job.refused', 'job.stopped_below_floor',
   'job.not_started', 'turn.failed', 'budget.asked', 'execution.budget_exhausted', 'server.crashed',
 ] as const
 
@@ -312,7 +313,7 @@ export interface Failure {
 }
 
 /** A call's rows, the most precise first: a job's own word on why it ended before the call's outcome. */
-const CALL_WHY = ['job.wrapper_lost', 'job.stopped_below_floor', 'job.refused', 'job.not_started', 'action.outcome_unknown', 'action.failed']
+const CALL_WHY = ['job.wrapper_lost', 'job.wrapper_gone', 'job.stopped_below_floor', 'job.refused', 'job.not_started', 'action.outcome_unknown', 'action.failed']
 
 function budgetWords(d: D): string {
   const need = num(d.needed_usd)
@@ -335,6 +336,7 @@ const FAILURE_KINDS: ReadonlySet<string> = new Set(WRONG_KINDS)
 export function failureOf(r: LedgerEntry): Failure | null {
   if (!FAILURE_KINDS.has(r.kind)) return null
   const d = (r.data ?? {}) as D
+  if (r.kind === 'turn.failed' && isStoppingFailure(d)) return null
   const at = r.at_unix_ms
   const session = r.session_id
   const cid = str(d.correlation_id)
@@ -344,6 +346,8 @@ export function failureOf(r: LedgerEntry): Failure | null {
     case 'action.outcome_unknown': return call(unknownWords(str(d.producer)))
     case 'job.wrapper_lost':
       return call(`its job's wrapper was killed${num(d.signal) !== undefined ? ` by signal ${d.signal}` : ''} before it reported: its outcome is unknown`)
+    case 'job.wrapper_gone':
+      return call(`its wrapper went while the daemon was down${num(d.pid) !== undefined ? ` (pid ${d.pid})` : ''}: its outcome is unknown`)
     case 'job.refused': return call(`not started: the disk had ${mb(d.free_mb)} free, under its floor of ${mb(d.floor_mb)}`)
     case 'job.stopped_below_floor': return call(`stopped: the disk fell to ${mb(d.free_mb)} free, under its floor of ${mb(d.floor_mb)}`)
     case 'job.not_started': return call(`not started: ${str(d.resolution) ?? 'a stop reached it before its launch'}`)
@@ -380,7 +384,7 @@ export class Failures {
     if (!f) return
     if (f.kind !== 'call') { this.others.push(f); return }
     const cid = f.cid!
-    if (this.resolved.has(cid) && (f.why === 'action.outcome_unknown' || f.why === 'job.wrapper_lost')) return
+    if (this.resolved.has(cid) && (f.why === 'action.outcome_unknown' || f.why === 'job.wrapper_lost' || f.why === 'job.wrapper_gone')) return
     const was = this.calls.get(cid)
     if (!was) { this.calls.set(cid, f); return }
     const precise = CALL_WHY.indexOf(f.why) < CALL_WHY.indexOf(was.why) ? f : was
@@ -401,7 +405,7 @@ export const isModelFailure = (toolOf: ToolOf) => (f: Failure) =>
   !!((f.tool ?? toolOf(f.cid!))?.startsWith('provider.') || f.producer?.startsWith('provider:'))
 
 const FLAG_OF: Record<string, string> = {
-  'action.outcome_unknown': 'unknown', 'job.wrapper_lost': 'unknown', 'job.refused': 'disk', 'job.stopped_below_floor': 'disk',
+  'action.outcome_unknown': 'unknown', 'job.wrapper_lost': 'unknown', 'job.wrapper_gone': 'unknown', 'job.refused': 'disk', 'job.stopped_below_floor': 'disk',
   'job.not_started': 'not run',
 }
 

@@ -115,3 +115,10 @@ test('the bell and the horn play on every page, the oar on the Ship; the Shell h
   assert.match(hook, /useEffect\(\(\) => \{\s+if \(!on\) return/)
   assert.match(hook, /const cue = cueHere\(heard, here\.current\)/)
 })
+
+test('a turn failure the stop held back sounds no horn, by its push or its row', () => {
+  const ear = newEar()
+  assert.equal(cueOf(ear, 'turn.failed', { session_id: 's1', class: 'stopping' }, 1000), null)
+  assert.equal(cueOfRow(ear, { kind: 'turn.failed', session_id: 's1', at_unix_ms: 2000, data: { reason: 'provider:stopping' } }, 2000, 0), null)
+  assert.equal(cueOf(ear, 'turn.failed', { session_id: 's1' }, 3000), 'horn')
+})

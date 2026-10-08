@@ -55,16 +55,26 @@ export function ago(at: number | null | undefined, now = Date.now()): string {
   return `${Math.floor(d / 86400)}d ago`
 }
 
+// One formatter per format, made once: building an Intl.DateTimeFormat costs far more than formatting with one (a
+// replay's rows spent about half a second of the main thread in making them, theseus-yal8).
+let clockFormat: Intl.DateTimeFormat | undefined
+let monthDayFormat: Intl.DateTimeFormat | undefined
+
 export function clock(at: number | null | undefined): string {
   if (!at) return '—'
-  const d = new Date(at)
-  return d.toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })
+  clockFormat ??= new Intl.DateTimeFormat([], { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })
+  return clockFormat.format(at)
+}
+
+/** `Oct 6`: a day's short month and number, in the viewer's locale. */
+export function monthDay(at: number): string {
+  monthDayFormat ??= new Intl.DateTimeFormat([], { month: 'short', day: 'numeric' })
+  return monthDayFormat.format(at)
 }
 
 export function stamp(at: number | null | undefined): string {
   if (!at) return '—'
-  const d = new Date(at)
-  return `${d.toLocaleDateString([], { month: 'short', day: 'numeric' })} ${clock(at)}`
+  return `${monthDay(at)} ${clock(at)}`
 }
 
 /** `ses_01a0ebfa…61b55e` → `ses·61b55e`: people name ids by their last six characters. */

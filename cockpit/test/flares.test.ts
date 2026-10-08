@@ -4,7 +4,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
-import { flareOf, flaresOfRows, newFlares, SAME_FAILURE_MS } from '../src/ship/flares.ts'
+import { isStoppingFailure, flareOf, flaresOfRows, newFlares, SAME_FAILURE_MS } from '../src/ship/flares.ts'
 
 /** When the page opened (ms). */
 const OPENED = 1_000_000
@@ -66,10 +66,19 @@ test("the Ship hears the ledger copy's new rows from when it opened: its flare, 
   const data = readFileSync(new URL('../src/ship/useShipData.ts', import.meta.url), 'utf8')
   assert.match(data, /const since = Date\.now\(\)\s+return onNewRows\(\(rows\) => \{[\s\S]{0,120}?flaresOfRows\(flares, rows, since, now\)[\s\S]{0,120}?failedAt/,
     'the ledger copy flares the ship, from when it opened')
-  assert.match(data, /case 'turn\.failed':[\s\S]{0,120}?const flare = flareOf\(flares, [\s\S]{0,240}?failedAt: flare \? withMap/,
+  assert.match(data, /case 'turn\.failed':[\s\S]{0,120}?const flare = !isStoppingFailure\(p\) && flareOf\(flares, [\s\S]{0,240}?failedAt: flare \? withMap/,
     'the push flares once with the row')
   assert.match(data, /case 'execution\.changed':[\s\S]{0,240}?&& flareOf\(flares, [\s\S]{0,400}?failedAt: failed \? withMap/,
     "the execution's change flares once with the row")
   const sound = readFileSync(new URL('../src/ship/useShipSound.ts', import.meta.url), 'utf8')
   assert.match(sound, /onNewRows\(\(rows\) => \{ for \(const r of rows\) sound\(cueOfRow\(ear, r, Date\.now\(\), since\)\)/, 'the horn hears the same rows')
+})
+
+test('a turn the stop held back (provider:stopping) flares and sounds nothing', () => {
+  const f = newFlares()
+  const held = { ...failed('s5', 't9', OPENED + 5000), data: { reason: 'provider:stopping' } }
+  assert.deepEqual(flaresOfRows(f, [held], OPENED, OPENED + 6000), [])
+  assert.deepEqual(flaresOfRows(f, [failed('s5', 't10', OPENED + 5000)], OPENED, OPENED + 6000), ['s5'])
+  assert.equal(isStoppingFailure({ class: 'stopping' }), true)
+  assert.equal(isStoppingFailure({ reason: 'unpriced: x' }), false)
 })

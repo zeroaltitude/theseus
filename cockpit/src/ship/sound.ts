@@ -18,6 +18,8 @@
 // Ship does not watch (a model the daemon cannot price fails before it runs) says so only in the ledger: its row
 // (turn.failed), and a question's (tool.confirm_requested, budget.asked), sound the same cue from the page's one copy of
 // the ledger, a few seconds later, once with the push that may have said it first (`cueOfRow`).
+import { isStoppingFailure } from './flares.ts'
+
 
 export type Cue = 'oar' | 'bell' | 'horn'
 
@@ -54,7 +56,7 @@ export function cueOf(ear: Ear, method: string, params: unknown, now: number): C
   let cue: Cue | null = null
   if (method === 'tool.started') cue = 'oar'
   else if (method === 'confirm.requested') cue = 'bell'
-  else if (method === 'turn.failed') cue = 'horn'
+  else if (method === 'turn.failed') cue = isStoppingFailure(p) ? null : 'horn'
   else if (method === 'execution.changed') {
     const state = typeof p.state === 'string' ? p.state : ''
     const level = typeof (p.attention as D | undefined)?.level === 'string' ? ((p.attention as D).level as string) : ''
@@ -93,9 +95,10 @@ const ROW_CUE: Record<string, Cue> = {
 
 /** The cue a new ledger row sounds, if any: a failure or a question, once with its push. `since` (ms): rows from before
  *  sound was on, or from before the page opened, are not news. */
-export function cueOfRow(ear: Ear, row: { kind: string; session_id?: string | null; at_unix_ms: number }, now: number, since: number): Cue | null {
+export function cueOfRow(ear: Ear, row: { kind: string; session_id?: string | null; at_unix_ms: number; data?: unknown }, now: number, since: number): Cue | null {
   const cue = ROW_CUE[row.kind]
   if (!cue || row.at_unix_ms < since) return null
+  if (row.kind === 'turn.failed' && isStoppingFailure(row.data as object | undefined)) return null
   return gate(ear, cue, row.session_id ?? '', now)
 }
 
