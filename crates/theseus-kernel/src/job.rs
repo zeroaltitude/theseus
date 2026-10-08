@@ -684,6 +684,10 @@ fn spawn_l0(
         let stdio = [null.as_raw_fd(), write.as_raw_fd(), err.as_raw_fd()];
         let pid =
             crate::spawn::spawn(&exec, stdio, args.umask, cgroup.map(crate::cgroup::Job::fd))?;
+        // Made by the older call where `clone3` is refused (theseus-f7tz).
+        if crate::spawn::by_clone() {
+            detail["spawn_fallback"] = serde_json::json!(crate::spawn::FALLBACK);
+        }
         return Ok((pid, None));
     }
     let mut command = Command::new(&args.argv[0]);

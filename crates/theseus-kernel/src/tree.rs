@@ -31,7 +31,8 @@
 //!
 //! Each process is signalled through a pidfd, opened for it and checked
 //! against the start time the scan read, so a pid the kernel has since given
-//! another process is never signalled. The verdict counts what the stop
+//! another process is never signalled. Where the host refuses pidfds, by its
+//! pid after the same check (theseus-f7tz). The verdict counts what the stop
 //! ended, and names what it left alive: a process in uninterruptible sleep
 //! (`D`) can outlast the kill's wait.
 //!
@@ -191,34 +192,75 @@ pub fn alive(p: Proc) -> bool {
 /// against its start time, so a pid reused since the scan is left alone.
 /// Whether the signal was sent.
 pub fn signal(p: Proc, sig: libc::c_int) -> bool {
-    pidfd(p).is_some_and(|fd| send(&fd, sig))
+    !matches!(reach(p, sig), Reached::Not)
 }
 
-/// A pidfd for `p`, checked against its start time: `None` when its pid
-/// holds no process, or another one.
-fn pidfd(p: Proc) -> Option<OwnedFd> {
-    let fd = open_pidfd(p.pid)?;
-    // Opened before this check, the descriptor names the process the check
-    // reads, or one that has since exited, which a signal cannot reach.
-    stat(p.pid)
-        .is_some_and(|s| s.start == p.start)
-        .then_some(fd)
+/// How a signal reached `p`.
+enum Reached {
+    /// Through its pidfd, kept for a wait on its exit.
+    Fd(OwnedFd),
+    /// By its pid, where this host has no pidfds (theseus-f7tz).
+    Pid,
+    /// Not at all: its pid holds no process, or another one.
+    Not,
+}
+
+/// `sig` to `p` through a pidfd checked against its start time; where the
+/// host refuses pidfds (a kernel before 5.3, or a container's seccomp profile
+/// that answers ENOSYS or EPERM), by its pid after the same check, which a
+/// pid reused in the instant between the two could still meet: the best this
+/// host allows, where the stop would otherwise end nothing (theseus-f7tz).
+fn reach(p: Proc, sig: libc::c_int) -> Reached {
+    let same = || stat(p.pid).is_some_and(|s| s.start == p.start);
+    match open_pidfd_or(p.pid) {
+        // Opened before this check, the descriptor names the process the
+        // check reads, or one that has since exited, which a signal cannot
+        // reach.
+        Ok(fd) if same() => match send(&fd, sig) {
+            Ok(()) => Reached::Fd(fd),
+            Err(e) if refused(&e) => by_pid(p.pid, sig),
+            Err(_) => Reached::Not,
+        },
+        Ok(_) => Reached::Not,
+        Err(e) if refused(&e) && same() => by_pid(p.pid, sig),
+        Err(_) => Reached::Not,
+    }
+}
+
+/// Whether a pidfd call's error says the host has none, not that the
+/// process is gone: `pidfd_open` itself never answers EPERM.
+fn refused(e: &std::io::Error) -> bool {
+    matches!(e.raw_os_error(), Some(libc::ENOSYS | libc::EPERM))
+}
+
+/// `sig` to `pid` by `kill`.
+fn by_pid(pid: u32, sig: libc::c_int) -> Reached {
+    // SAFETY: a signal to one pid; no memory is shared.
+    match unsafe { libc::kill(pid as libc::pid_t, sig) } {
+        0 => Reached::Pid,
+        _ => Reached::Not,
+    }
 }
 
 /// A pidfd for whatever process `pid` holds now, unchecked: its caller
 /// checks, once it is open, that the process is the one it means.
 pub(crate) fn open_pidfd(pid: u32) -> Option<OwnedFd> {
+    open_pidfd_or(pid).ok()
+}
+
+/// `open_pidfd`, with its error.
+fn open_pidfd_or(pid: u32) -> std::io::Result<OwnedFd> {
     // SAFETY: pidfd_open takes a pid and flags and returns a new descriptor,
     // which the OwnedFd below closes.
     let fd = unsafe { libc::syscall(libc::SYS_pidfd_open, pid as libc::pid_t, 0) };
     if fd < 0 {
-        return None;
+        return Err(std::io::Error::last_os_error());
     }
-    Some(unsafe { OwnedFd::from_raw_fd(fd as i32) })
+    Ok(unsafe { OwnedFd::from_raw_fd(fd as i32) })
 }
 
-/// `sig` through a pidfd: whether it was sent.
-fn send(fd: &OwnedFd, sig: libc::c_int) -> bool {
+/// `sig` through a pidfd.
+fn send(fd: &OwnedFd, sig: libc::c_int) -> std::io::Result<()> {
     use std::os::fd::AsRawFd;
     // SAFETY: a signal sent through the descriptor; no memory is shared.
     let sent = unsafe {
@@ -230,15 +272,17 @@ fn send(fd: &OwnedFd, sig: libc::c_int) -> bool {
             0,
         )
     };
-    sent == 0
+    match sent {
+        0 => Ok(()),
+        _ => Err(std::io::Error::last_os_error()),
+    }
 }
 
 /// SIGTERM to `p`, through a pidfd checked against its start time, kept in
 /// `termed` to wake the grace's wait at its exit while fewer than `WATCHED`
 /// are; past them, closed at once, and its end seen at the next look.
 fn term(p: Proc, termed: &mut Vec<(Proc, OwnedFd)>) {
-    if let Some(fd) = pidfd(p) {
-        send(&fd, libc::SIGTERM);
+    if let Reached::Fd(fd) = reach(p, libc::SIGTERM) {
         if termed.len() < WATCHED {
             termed.push((p, fd));
         }
@@ -374,9 +418,10 @@ fn stop_with(
         std::thread::sleep(Duration::from_millis(1));
     }
     // 3. SIGKILL, and the wait for each killed process to exit.
+    // Killed by pid where the host has no pidfds: its end is seen by the
+    // scans, every `LOOK`.
     fn kill(p: Proc, killed: &mut Vec<(Proc, OwnedFd)>) {
-        if let Some(fd) = pidfd(p) {
-            send(&fd, libc::SIGKILL);
+        if let Reached::Fd(fd) = reach(p, libc::SIGKILL) {
             killed.push((p, fd));
         }
     }

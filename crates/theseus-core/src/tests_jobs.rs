@@ -196,3 +196,44 @@ async fn the_drain_leaves_a_waited_jobs_completion_to_its_turn() {
     assert!(!r.core.spool.has_completion("act_waited"));
     assert_eq!(r.core.kernel.quarantined().unwrap().len(), 1);
 }
+
+/// A job whose command could not start says why to the model, in its
+/// result, never an empty "(no output)" with no exit code (theseus-f7tz: in
+/// a container that refused the spawn, every `proc.run` read so, and the
+/// model gave up on the shell).
+#[tokio::test]
+async fn a_command_that_cannot_start_tells_the_model_why() {
+    let job = json!({"argv": ["theseus-no-such-program-7f3a"]});
+    let r = rig(vec![
+        Scripted::tools("Running it.", &[("t1", "proc_run", job)]),
+        Scripted::text("It could not start."),
+    ]);
+    let res = r.turn(None, "run it").await;
+    assert!(
+        res.output.ends_with("It could not start."),
+        "{}",
+        res.output
+    );
+    let (status, content) = r
+        .core
+        .store
+        .session_nodes(&res.session_id)
+        .unwrap()
+        .into_iter()
+        .find_map(|(_, n)| match n.body {
+            Body::ToolResult {
+                status, content, ..
+            } => Some((status, content)),
+            _ => None,
+        })
+        .expect("the job's result");
+    assert_eq!(status, ResultStatus::Error, "{content}");
+    assert!(
+        content.contains(
+            "[the command could not start: No such file or directory (os error 2). It did not \
+             run, and printed nothing. The program was not found"
+        ),
+        "{content}"
+    );
+    assert!(!content.contains("(no output)"), "{content}");
+}

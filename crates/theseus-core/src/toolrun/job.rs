@@ -749,7 +749,10 @@ impl ToolRuntime {
                     .to_string()
             }
             (_, Some(c), _) => format!("[exit code {c}]\n"),
-            _ => String::new(),
+            // Its command never started: why, never an empty result
+            // (theseus-f7tz).
+            _ => super::not_started::line(&detail, self.registry.get(crate::term::SEND).is_some())
+                .unwrap_or_default(),
         };
         // A job that printed past the cap kept only the cap's worth: the
         // result says how much it printed, how much was dropped, and how to
@@ -864,7 +867,9 @@ impl ToolRuntime {
                 .as_ref()
                 .map_or_else(String::new, crate::external::Listed::line)
         );
-        let raw = if out.is_empty() {
+        let raw = if out.is_empty() && detail.get("spawn_error").is_some() {
+            header
+        } else if out.is_empty() {
             format!("{header}(no output)")
         } else {
             format!("{header}{out}")

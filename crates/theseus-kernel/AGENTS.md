@@ -31,11 +31,16 @@ Key modules: `kernel.rs`, `tx.rs`, `locks.rs`, `job.rs`, `cgroup.rs`, `children.
   and the reap, until each killed process's pidfd says it exited (up to `KILL_WAIT`, 2 s). Each process is signalled
   through a pidfd checked against its start time. A `children` file can miss a live child, so an empty scan ends a phase
   only when the caller's reap agrees (`tree::Left`: in a wrapper, a subreaper, `waitpid`'s ECHILD means none is left;
-  theseus-g11i). The stop wherever a job has no cgroup.
+  theseus-g11i). The stop wherever a job has no cgroup. Where the host refuses `pidfd_open` (ENOSYS, or an older
+  profile's EPERM), each process is signalled by `kill` after the same start-time check, and its end seen by the
+  scans (theseus-f7tz).
 - `spawn.rs` (theseus-ypqg): an L0 command started by its wrapper with `clone3(CLONE_VM | CLONE_VFORK)`, as
   posix_spawn clones, so nothing is copied; the child sets the operator's umask, which std's `Command` could set only
   by `pre_exec`, a fork. With a cgroup, `CLONE_INTO_CGROUP`: born inside, since a move by `cgroup.procs` waits for an
-  RCU grace period (8 to 40 ms measured).
+  RCU grace period (8 to 40 ms measured). Where `clone3` answers ENOSYS (Docker's default seccomp profile, a kernel
+  before 5.3), `clone` with the same flags, and a child bound for a cgroup writes `0` to its `cgroup.procs` before its
+  exec; the completion's `detail.spawn_fallback` says so (theseus-f7tz). Before, every `proc.run` in a container
+  failed to start.
 - `cgroup.rs` (theseus-a5nv): an L0 job's cgroup, where the daemon's is delegated: `<daemon's>/job-<id>`, threaded
   (the daemon stays in its unit's cgroup, which `pids` makes a thread root), with `pids.max`; its `cpu.stat` and
   refusals go in the completion. A stop: SIGTERM to each process in it, the grace, then `pids.max` 0 and SIGKILL to
@@ -147,6 +152,10 @@ Key modules: `kernel.rs`, `tx.rs`, `locks.rs`, `job.rs`, `cgroup.rs`, `children.
 - `tests_frames.rs` is a golden: every frame a scripted run of the transitions commits, record by record, against
   `tests/golden/kernel_frames.txt`. A refactor leaves it byte-identical; `THESEUS_GOLDEN=write` rewrites it, for a
   change you mean.
+- `tests_enosys.rs` (theseus-f7tz): a host that refuses `clone3` or `pidfd_open`, stood in by a seccomp filter on
+  the test's own thread (`theseus_sandbox::seccomp::refuse_here`), which the processes it starts inherit; a command's
+  cgroup by both clones (where a cgroup v2 directory can be made: as root here); and the spawn's micro-bench
+  (ignored: `--run-ignored only --no-capture`).
 - `tests/children.rs` makes its process a subreaper, so it is a test binary of its own: a sweep reaps any child of
   the process, other tests' included.
 - `tests/tree.rs` (`harness = false`, 18a) re-execs itself as a job's wrapper, and as stand-ins for a wrapper from
