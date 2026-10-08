@@ -3,6 +3,7 @@
 // shown as data. Every name in it is invented.
 import type { ConfirmRequest, ExecutionInfo, NodeInfo, SessionInfo, TaskInfo } from '@protocol'
 import type { ShipInput } from './model'
+import { busyOf, DEFAULT_RULE, deriveState } from '../lib/sessionState.ts'
 
 function mulberry32(seed: number) {
   return () => {
@@ -122,6 +123,7 @@ export function synthInput(now: number, sessionsN = 200, nodesN = 10_000): ShipI
       confirms.push({ correlation_id: `act_wait_${sid}`, session_id: sid, execution_id: eid, tool: 'proc.run', input: {}, reason: 'asks first', by: 'synth', requested_at_ms: now, expires_at_ms: now + 600_000, floor: false } as ConfirmRequest)
     }
   }
+  lifeOf(sessions, now)
   return {
     sessions, executions, tasks, nodes, confirms, l1, jobsRunning: running, streaming, failedAt: new Map(), reports: new Map(),
     born: new Map(), bornSessions: new Map(), reserved: new Map(), reach, now,
@@ -130,4 +132,31 @@ export function synthInput(now: number, sessionsN = 200, nodesN = 10_000): ShipI
 
 function node(id: string, kind: string, sid: string, position: number, at: number, turn: string, o: { text?: string; detail?: Record<string, unknown> }): NodeInfo {
   return { node_id: id, kind, session_id: sid, position, at_unix_ms: at, turn_id: turn, text: o.text ?? '', thinking: '', detail: o.detail ?? null, bytes: 0 } as NodeInfo
+}
+
+/** Every state and reason (theseus-emqx), with no draw from the seed, so the fleet is the one it was: every seventh
+ *  conversation retired by hand, every eleventh superseded by the next conversation of its place (both links), every
+ *  thirteenth never used, and the rest live or quiet by the 24-hour window. */
+function lifeOf(sessions: SessionInfo[], now: number): void {
+  const convs = sessions.filter((s) => s.kind === 'conversation')
+  convs.forEach((s, i) => {
+    let retired: SessionInfo['retired']
+    if (i % 7 === 3) retired = { reason: 'by_hand', at_ms: s.last_active_ms + 60_000 }
+    if (i % 11 === 5) {
+      const next = convs.slice(i + 1).find((x) => x.label === s.label && !x.supersedes)
+      if (next) {
+        const at = next.created_at_unix_ms
+        s.superseded_by = { session_id: next.session_id, at_ms: at, place: s.label ?? undefined }
+        next.supersedes = { session_id: s.session_id, at_ms: at, place: s.label ?? undefined }
+        retired = { reason: 'superseded', at_ms: at }
+      }
+    }
+    if (i % 13 === 6) retired = { reason: 'empty', at_ms: s.created_at_unix_ms + DEFAULT_RULE.empty_grace_ms }
+    if (i % 17 === 8) s.title_was = ['hi']
+    const busy = busyOf(s)
+    const st = deriveState({ retired, turns: s.turns, created_ms: s.created_at_unix_ms, last_active_ms: s.last_active_ms, busy }, DEFAULT_RULE, now)
+    s.state = st.state
+    if (st.retired) s.retired = st.retired
+  })
+  for (const s of sessions) if (s.kind === 'task') s.state = deriveState({ turns: s.turns, created_ms: s.created_at_unix_ms, last_active_ms: s.last_active_ms, busy: busyOf(s) }, DEFAULT_RULE, now).state
 }

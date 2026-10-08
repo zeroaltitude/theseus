@@ -45,6 +45,11 @@ export const NEWS: NewsItem[] = [
     body: 'The Context page (in the rail): the imported episodes with their sources, places, labels and summaries, the topics, the books’ state, and asking the index. Pick a ship (or a bench) and “Its context” opens what its turn carried: the system block part by part, the guidance, the tools, the recall and why each note came, with token counts.',
     anchor: { kind: 'fleet' },
   },
+  {
+    id: 'states', since: '2026-10-08', title: 'Live, quiet and retired',
+    body: 'The Ship shows the live fleet by default: ships at sea with a turn in the last day, working, or waiting for you. Quiet ones ride at anchor, and retired ones lie up in harbour, dimmed: replaced by a newer session (a superseded ship flies a signal to its successor), retired by hand, or never used. Pick Live, Quiet, Retired or All here, each with its count; nothing is deleted, the palette (⌘K) finds every session, and a session you select shows whatever the filter. The session deck retires and reopens.',
+    anchor: { kind: 'dom', selector: '.ship-statebar' },
+  },
 ]
 
 /** The cockpit's version: the newest stop's. */

@@ -29,6 +29,16 @@ build.
   voice, fades, ducks, wave shape and noise; pure, theseus-pl0x), `instruments.tsx` (the brass gauges), `Minimap.tsx`, `useShipData.ts` (the reads and
   pushes it composes), `flares.ts` (a failure flares its ship once, whichever of its push, its execution's change and
   its ledger row tells the page first; pure, theseus-1skt), and `synth.ts` (a seeded 10,000-node fleet for measuring).
+- Session states (theseus-emqx): `src/lib/sessionState.ts` (pure: the daemon's rule line for line, the filter's
+  address `?st=` with Live the default, its counts, the sessions it shows with the visitors, the palette's order, and
+  the time machine's fold of `session.superseded`, `session.retired` and `session.reopened`), `src/ship/states.ts` (the
+  engine draws the whole model's view under the filter, every vessel in the slot the whole model gave it, so a switch
+  never reshuffles the sea), and `src/components/SessionLife.tsx` (the badge, the "Replaced by"/"Replaces" links,
+  Retire and Reopen, confirmed first). A selected session, one the address or the palette flies to, a watch plate's
+  and a flaring ship show whatever the filter; the palette lists every session, the retired ones after the others. A
+  retired ship is laid up (dimmed), a quiet one at anchor, and a superseded one's plate flies a signal to its
+  successor. "New session" opens a draft deck (`/session/new`), whose first message opens the session. Tests:
+  `test/sessionState.test.ts`.
 - The watch, the Ship's column of six plates (theseus-hnof): `src/ship/Watch.tsx` draws them, `src/ship/watch.ts` works
   out five (working, waiting, slow against each job's usual, spent with a day of 23 to 25 hours, went wrong) and
   `src/ship/since.ts` the sixth, since you last looked, whose stretch this browser keeps (`cockpit.watch.looked`) and

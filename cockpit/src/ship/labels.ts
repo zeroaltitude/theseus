@@ -65,6 +65,7 @@ export class LabelLayer {
       el.dataset.tone = st.tone
       el.dataset.task = v.kind === 'task' ? '1' : ''
       el.dataset.hold = v.hold ? '1' : ''
+      el.dataset.life = v.life
       const kind = el.children[0] as HTMLElement
       const k = v.kind === 'task' ? `task${v.taskShort ? ` ${v.taskShort}` : ''}` : 'session'
       if (kind.textContent !== k) { kind.textContent = k; sizes.delete(el) }

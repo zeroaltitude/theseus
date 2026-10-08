@@ -7,7 +7,8 @@ import type { Bench, Light, ShipModel, Vessel } from './model'
 import { authorWord, benchLine, benchState, count, LIGHT_NOUN, LIGHT_SEA, outcome, rawState, recentLine, SHAPES, span, stateWord, type Tone, usdShort, vesselNoun, vesselSea } from './words'
 import { placeCard } from './placement'
 import { instrumentRects } from './instrumentRects'
-import { ago, clock } from '@/lib/format'
+import { ago, clock, stamp } from '@/lib/format'
+import { StateBadge } from '@/components/SessionLife'
 
 const TONE: Record<Tone, string> = { live: 'text-live', wait: 'text-wait', fault: 'text-fault', ok: 'text-ok', idle: 'text-ink-dim' }
 
@@ -19,6 +20,12 @@ function Head({ noun, sea, right }: { noun: string; sea: string; right?: string 
       {right && <span className="num ml-auto shrink-0 text-[10.5px] text-ink-faint">{right}</span>}
     </div>
   )
+}
+
+/** Another session by its title when the Ship draws it, else by its id. */
+function titleOf(model: ShipModel, id: string): string {
+  const i = model.byId.get(id)
+  return i === undefined ? id : `“${model.vessels[i].title.slice(0, 40)}”`
 }
 
 function VesselBody({ v, model }: { v: Vessel; model: ShipModel }) {
@@ -36,6 +43,10 @@ function VesselBody({ v, model }: { v: Vessel; model: ShipModel }) {
       <div className="mt-0.5 font-display text-[13.5px] font-semibold leading-snug text-ivory">{v.title}</div>
       <div className={`num text-[11.5px] ${TONE[st.tone]}`}>{st.word} <span className="text-ink-faint">· {st.sea}</span></div>
       {raw !== 'idle' && raw !== st.word && <div className="num max-w-[380px] truncate text-[10.5px] text-ink-faint">{raw}</div>}
+      <div className="mt-0.5"><StateBadge state={v.life} retired={v.retired} /></div>
+      {v.titleWas?.length ? <div className="max-w-[380px] truncate text-[10.5px] text-ink-faint">was: {v.titleWas.join(' · ')}</div> : null}
+      {v.supersededBy && <div className="num text-[11px] text-brass">⚑ Replaced by {titleOf(model, v.supersededBy.session_id)} on {stamp(v.supersededBy.at_ms)}</div>}
+      {v.supersedes && <div className="num text-[11px] text-ink-dim">Replaces {titleOf(model, v.supersedes.session_id)}</div>}
       <div className="num mt-1 text-[11px] text-ink-dim">
         {count(v.turns, 'turn')} · {count(messages, 'message')} · {count(calls, 'tool call')}{failed ? `, ${failed} failed` : ''} · {usdShort(v.cost)}{v.limit ? ` of ${usdShort(v.limit)}` : ''}
       </div>

@@ -15,6 +15,8 @@ import type {
   SessionInfo, TaskInfo, Tightening, Usage,
 } from '@protocol'
 
+import { busyOf, DEFAULT_RULE, deriveState, foldLife, type Life, type StateRule } from './sessionState'
+
 type D = Record<string, any>
 
 // ---------------------------------------------------------------- the moment
@@ -96,6 +98,8 @@ export interface Snap {
   usageTotal: Usage
   /** Jev's judgments (M5 23b): replaced, never mutated, by each judge row. */
   judge: JudgeAt
+  /** Each session's state rows (theseus-emqx): retired, superseded, reopened. */
+  lives: Map<string, Life>
 }
 
 /** The judge as of a moment: its judgments, their cost, the shadow budget's pause, and the breaker. */
@@ -126,12 +130,12 @@ function addUsage(a: Usage, u: D | undefined): Usage {
 }
 
 const empty = (): Snap => ({
-  index: 0, sessions: new Map(), execs: new Map(), acts: new Map(), asks: new Map(), tight: new Map(), jobs: new Set(),
+  index: 0, lives: new Map(), sessions: new Map(), execs: new Map(), acts: new Map(), asks: new Map(), tight: new Map(), jobs: new Set(),
   l1: new Set(), startedAt: null, stoppedAt: null, costTotal: 0, usageTotal: zeroUsage(), judge: zeroJudge,
 })
 
 const copy = (s: Snap): Snap => ({
-  ...s, sessions: new Map(s.sessions), execs: new Map(s.execs), acts: new Map(s.acts), asks: new Map(s.asks),
+  ...s, lives: new Map(s.lives), sessions: new Map(s.sessions), execs: new Map(s.execs), acts: new Map(s.acts), asks: new Map(s.asks),
   tight: new Map(s.tight), jobs: new Set(s.jobs), l1: new Set(s.l1),
 })
 
@@ -204,6 +208,11 @@ function step(s: Snap, r: LedgerEntry): void {
     return
   }
   switch (k) {
+    case 'session.superseded':
+    case 'session.retired':
+    case 'session.reopened':
+      foldLife(s.lives, r)
+      break
     case 'session.opened':
       if (sid && !s.sessions.has(sid)) s.sessions.set(sid, { ...sessionOf(s, sid, at), execId: typeof d.execution_id === 'string' ? d.execution_id : undefined })
       return
@@ -556,7 +565,7 @@ function attentionOf(e: ExecAt | undefined, asks: ConfirmRequest[], outstanding:
 }
 
 /** The lists the views read, as they stood at `t`, from the fold and the live lists' fixed fields. */
-export function worldAt(f: Folder, t: number, live: { sessions: SessionInfo[]; tasks: TaskInfo[] }, calls: LedgerEntry[]): World {
+export function worldAt(f: Folder, t: number, live: { sessions: SessionInfo[]; tasks: TaskInfo[]; rule?: StateRule }, calls: LedgerEntry[]): World {
   const s = f.at(t)
   const asksBySession = new Map<string, ConfirmRequest[]>()
   for (const a of s.asks.values()) {
@@ -616,6 +625,13 @@ export function worldAt(f: Folder, t: number, live: { sessions: SessionInfo[]; t
     }
     if (!fs?.hold) delete info.external_text
     if (!e?.attention) delete info.attention
+    // Its state then (theseus-emqx): the fold's rows, derived with the window `session.list` names.
+    const life = s.lives.get(ls.session_id) ?? {}
+    const st = deriveState({ retired: life.retired, turns: info.turns, created_ms: created, last_active_ms: info.last_active_ms, reopened_ms: life.reopened, busy: busyOf(info) }, live.rule ?? DEFAULT_RULE, t)
+    info.state = st.state
+    if (st.retired) info.retired = st.retired; else delete info.retired
+    if (life.supersededBy) info.superseded_by = life.supersededBy; else delete info.superseded_by
+    if (life.supersedes) info.supersedes = life.supersedes; else delete info.supersedes
     sessions.push(info)
     if (fs?.hold) {
       const task = live.tasks.find((x) => x.task_id === ls.session_id)

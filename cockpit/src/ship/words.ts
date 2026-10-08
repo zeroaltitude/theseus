@@ -213,8 +213,13 @@ export function benchLabel(b: Pick<BenchLike, 'n' | 'calls' | 'running' | 'waiti
 }
 
 /** A nameplate's line under its title: "idle · 17 turns · $0.0069", and "holds web text" when it does. */
-export function plateLine(v: VesselLike & { turns: number; cost: number; hold?: unknown }): string {
-  return `${stateWord(v).word} · ${count(v.turns, 'turn')} · ${usdShort(v.cost)}${v.hold ? ' · holds web text' : ''}`
+export function plateLine(v: VesselLike & { turns: number; cost: number; hold?: unknown; life?: string; retired?: { reason: string }; supersededBy?: { session_id: string } }): string {
+  // Its state, when not live (theseus-emqx): at anchor in the roads, or laid up, and a superseded ship's signal toward
+  // its successor.
+  const why = v.retired ? ({ superseded: 'superseded', empty: 'never used', by_hand: 'retired by hand' } as Record<string, string>)[v.retired.reason] ?? v.retired.reason : ''
+  const life = v.life === 'quiet' ? ' · at anchor' : v.life === 'retired' ? ` · laid up${why ? `, ${why}` : ''}` : ''
+  const signal = v.supersededBy ? ` · ⚑ to …${v.supersededBy.session_id.slice(-6)}` : ''
+  return `${stateWord(v).word}${life} · ${count(v.turns, 'turn')} · ${usdShort(v.cost)}${v.hold ? ' · holds web text' : ''}${signal}`
 }
 
 /** A harbour's line beside its name: " · 3 sessions · 4 tasks". */

@@ -2,7 +2,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { NavLink, Outlet, useLocation, useMatch, useNavigate } from 'react-router'
 import { motion } from 'motion/react'
-import { Command } from 'cmdk'
+import { Command, defaultFilter } from 'cmdk'
 import {
   Activity, BellOff, BellRing, ChevronDown, ChevronUp, CircleCheck, Moon, Sun, SunMoon, Check, Coins, Command as CommandIcon, Cpu, Crosshair, FlaskConical, Gauge, Gavel, Landmark, Layers, Library, Navigation, OctagonX, Pause, Radio,
   Sailboat, Scale, ScrollText, ShieldCheck, ShieldHalf, Shapes, Telescope, Zap,
@@ -27,6 +27,8 @@ import { useMode, type ModeChoice } from '@/lib/mode'
 import { CHOICES, nextChoice } from '@/lib/daylight'
 import { foldKey, foldRepeats, STRIP_KEY, stripOpen, type Fold, type StripLine } from '@/lib/activity'
 import { TimeMachine } from './TimeMachine'
+import { StateBadge } from './SessionLife'
+import { paletteOrder, searchText, stateOf } from '@/lib/sessionState'
 
 const NAV = [
   { to: '/ship', label: 'Ship', icon: Sailboat },
@@ -358,6 +360,10 @@ function ModeToggle() {
 /** More words the palette finds each choice by. */
 const CHOICE_SEARCH: Record<ModeChoice, string> = { dark: 'dark', light: 'light day', system: 'auto os light dark' }
 
+/** cmdk's own score, a retired session's at a third (theseus-emqx): it is still found, after the others. */
+const retiredAfter = (value: string, search: string, keywords?: string[]) =>
+  defaultFilter(value, search, keywords) * (keywords?.includes('retired') ? 1 / 3 : 1)
+
 function Palette({ open, onOpenChange }: { open: boolean; onOpenChange: (v: boolean) => void }) {
   const nav = useNavigate()
   const choice = useMode((s) => s.choice)
@@ -378,10 +384,12 @@ function Palette({ open, onOpenChange }: { open: boolean; onOpenChange: (v: bool
   const group = 'text-[11px] text-ink-faint [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5'
   const running = (el?.executions ?? []).filter((e) => e.state === 'running' || e.state === 'queued')
   const held = (data?.sessions ?? []).filter((s) => s.external_text)
+  const sessions = useMemo(() => paletteOrder(data?.sessions ?? []), [data])
   return (
     <Command.Dialog
       open={open}
       onOpenChange={onOpenChange}
+      filter={retiredAfter}
       label="Command palette"
       className="brass-card fixed left-1/2 top-[18%] z-50 w-[680px] -translate-x-1/2 overflow-hidden !p-0 shadow-2xl"
       overlayClassName="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm"
@@ -441,12 +449,16 @@ function Palette({ open, onOpenChange }: { open: boolean; onOpenChange: (v: bool
             ))}
           </Command.Group>
         )}
+        {/* Every session, whatever the Ship's filter (theseus-emqx), the retired ones after the others, each with its
+            badge; a hidden one flies in as a visitor. Its old titles match too. */}
         <Command.Group heading="Fly to a session" className={group}>
-          {(data?.sessions ?? []).map((s) => (
-            <Command.Item key={`f-${s.session_id}`} value={`fly ${s.title ?? ''} ${s.label ?? ''} ${s.session_id}`} onSelect={() => go(`/ship?fly=${s.session_id}`)} className={item}>
+          {sessions.map((s) => (
+            <Command.Item key={`f-${s.session_id}`} value={`fly ${searchText(s)}`} keywords={[stateOf(s)]} onSelect={() => go(`/ship?fly=${s.session_id}`)} className={item}>
               <Navigation size={14} className="shrink-0 text-gold" />
               <span className="truncate">{s.title || s.label || 'untitled'}</span>
-              <span className="num ml-auto text-[11px] text-ink-faint">{s.kind === 'task' ? 'task · ' : ''}{short(s.session_id)}</span>
+              {s.title_was?.length ? <span className="truncate text-[11px] text-ink-faint">was: {s.title_was[0]}</span> : null}
+              <span className="ml-auto flex shrink-0 items-center gap-2"><StateBadge state={s.state} retired={s.retired} />
+                <span className="num text-[11px] text-ink-faint">{s.kind === 'task' ? 'task · ' : ''}{short(s.session_id)}</span></span>
             </Command.Item>
           ))}
         </Command.Group>
@@ -466,10 +478,11 @@ function Palette({ open, onOpenChange }: { open: boolean; onOpenChange: (v: bool
           </Command.Group>
         )}
         <Command.Group heading="Sessions" className="text-[11px] text-ink-faint [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5">
-          {(data?.sessions ?? []).map((s) => (
+          {sessions.map((s) => (
             <Command.Item
               key={s.session_id}
-              value={`${s.title ?? ''} ${s.label ?? ''} ${s.session_id}`}
+              value={searchText(s)}
+              keywords={[stateOf(s)]}
               onSelect={() => go(`/session/${s.session_id}`)}
               className="flex cursor-pointer items-center gap-2.5 rounded-lg px-2.5 py-2 text-[13px] text-ink data-[selected=true]:bg-live/10"
             >

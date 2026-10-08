@@ -11,7 +11,7 @@
 //
 // Positions are deterministic and stable: a vessel keeps its slot when others arrive, and (given `placesSeen`) a
 // harbour keeps its place as its ships grow, so the map never reshuffles under the operator's eye. `asOf` is the seam for the time machine (a later round): it shows the fleet as it was.
-import type { Attention, ConfirmRequest, ExecutionInfo, ExternalText, NodeInfo, SessionInfo, TaskInfo } from '@protocol'
+import type { Attention, ConfirmRequest, ExecutionInfo, ExternalText, NodeInfo, SessionInfo, SessionLink, SessionRetired, SessionState, TaskInfo } from '@protocol'
 
 export type LightKind = 'user' | 'model' | 'call' | 'result'
 /** How a vessel is rigged: at anchor (nothing running), under sail (working), a lantern (waiting for the
@@ -98,6 +98,14 @@ export interface Vessel {
   /** Planks: one per turn (up to 36 drawn), gold for the turns of the last hour. */
   planks: number
   goldPlanks: number
+  /** Live, quiet or retired (theseus-emqx): at sea, at anchor in the roads, or laid up in harbour. */
+  life: SessionState
+  retired?: SessionRetired
+  /** The session its place moved to, and the one it replaced: a superseded ship flies a signal toward its successor. */
+  supersededBy?: SessionLink
+  supersedes?: SessionLink
+  /** Its titles before the re-title. */
+  titleWas?: string[]
   // layout, world units
   x: number
   z: number
@@ -345,6 +353,11 @@ export function buildModel(input: ShipInput): ShipModel {
       activeBench: -1,
       planks: Math.max(1, s.turns),
       goldPlanks: recentTurns.size,
+      life: s.state ?? 'live',
+      ...(s.retired ? { retired: s.retired } : {}),
+      ...(s.superseded_by ? { supersededBy: s.superseded_by } : {}),
+      ...(s.supersedes ? { supersedes: s.supersedes } : {}),
+      ...(s.title_was?.length ? { titleWas: s.title_was } : {}),
       x: 0, z: 0, heading: 0, length: len, beam: hullBeam(len),
     })
   }

@@ -2,10 +2,11 @@
 // folded from the shared ledger history (`timemachine.ts`). One folder for the page, so every view scrubbing at once
 // reuses the same checkpoints, and a small cache of recent moments, so scrubbing back over a stretch folds nothing.
 import { useMemo } from 'react'
-import type { LedgerEntry, SessionInfo, TaskInfo } from '@protocol'
+import type { LedgerEntry, SessionInfo, SessionListResult, TaskInfo } from '@protocol'
 import { useRpc } from './rpc'
 import { useHistoryRows } from './history'
 import { Folder, useAsOf, worldAt, type World } from './timemachine'
+import { ruleOf, type StateRule } from './sessionState'
 
 /** The page's one folder and its recent worlds. A new ledger, or new live lists (they lend the fold their fixed
  *  fields), is a new world; moments in one second with the same rows behind them are the same one. */
@@ -16,7 +17,7 @@ class Worlds {
   private tasks: TaskInfo[] | null = null
   private cache = new Map<string, World>()
 
-  at(t: number, rows: LedgerEntry[], sessions: SessionInfo[], tasks: TaskInfo[] | null, calls: LedgerEntry[]): World {
+  at(t: number, rows: LedgerEntry[], sessions: SessionInfo[], tasks: TaskInfo[] | null, calls: LedgerEntry[], rule?: StateRule): World {
     if (this.rows !== rows) {
       this.folder.update(rows)
       this.rows = rows
@@ -30,7 +31,7 @@ class Worlds {
     const key = `${this.folder.count(t)}:${Math.floor(t / 1000)}`
     const hit = this.cache.get(key)
     if (hit) return hit
-    const w = worldAt(this.folder, t, { sessions, tasks: tasks ?? [] }, calls)
+    const w = worldAt(this.folder, t, { sessions, tasks: tasks ?? [], rule }, calls)
     if (this.cache.size > 96) this.cache.delete(this.cache.keys().next().value!)
     this.cache.set(key, w)
     return w
@@ -46,10 +47,10 @@ export const FOLDS = ['/ship', '/fleet', '/actions', '/money', '/boundaries', '/
 export function useWorld(): World | null {
   const t = useAsOf((s) => s.t)
   const h = useHistoryRows(t === null)
-  const { data: sl } = useRpc<{ sessions: SessionInfo[] }>('session.list', undefined, 3000)
+  const { data: sl } = useRpc<SessionListResult>('session.list', undefined, 3000)
   const { data: tl } = useRpc<{ tasks: TaskInfo[] }>('task.list', {}, 3000)
   const calls = useMemo(() => h.rows.filter((r) => r.kind === 'provider.call'), [h.rows])
-  return useMemo(() => (t === null || !sl ? null : worlds.at(t, h.rows, sl.sessions, tl?.tasks ?? null, calls)), [t, h.rows, sl, tl, calls])
+  return useMemo(() => (t === null || !sl ? null : worlds.at(t, h.rows, sl.sessions, tl?.tasks ?? null, calls, ruleOf(sl))), [t, h.rows, sl, tl, calls])
 }
 
 /** Dev and bench builds: the fold at the present against the daemon's own lists. Every execution's state, every
