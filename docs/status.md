@@ -2,6 +2,8 @@
 
 _Updated 2026-10-07 03:52 MST. Version 0.0.1; the design document is at v0.84._
 
+**The picture:** [the development timeline](assets/timeline/theseus-timeline.png), from conception to now and what is ahead ([SVG](assets/timeline/theseus-timeline.svg)).
+
 This page changes with every step that lands. The [README](../README.md) stays the same and links here. For the
 full record of each step (what it built, how it was proven, and where it diverged from the plan), see Part III
 of [The Ship of Theseus](the-ship-of-theseus.md). For the whole plan, see [the roadmap](design/roadmap-v2.md), and

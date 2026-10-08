@@ -1,0 +1,374 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="3456" height="2234" viewBox="0 0 3456 2234" font-family="Ubuntu, -apple-system, &#x27;Segoe UI&#x27;, &#x27;Helvetica Neue&#x27;, Arial, sans-serif" role="img" aria-labelledby="tl-title tl-desc">
+<title id="tl-title">Theseus: the development timeline, from conception to now, and what is ahead</title>
+<desc id="tl-desc">A horizontal timeline from September 23, 2026, when the idea was written down, to October 8, 2026, with the phases of the build as coloured bands, commits per day as bars, sixteen dated callouts, and six planned items ahead, undated.</desc>
+<defs>
+<linearGradient id="tl-bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0a1522"/><stop offset="1" stop-color="#0d1a2a"/></linearGradient>
+<radialGradient id="tl-glow" cx="0.5" cy="0.5" r="0.5"><stop offset="0" stop-color="#d6a548" stop-opacity="0.55"/><stop offset="1" stop-color="#d6a548" stop-opacity="0"/></radialGradient>
+<linearGradient id="tl-bar" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#4a6a8f"/><stop offset="1" stop-color="#2c4460"/></linearGradient>
+</defs>
+<rect width="3456" height="2234" fill="url(#tl-bg)"/>
+<g><circle cx="2484" cy="263" r="1.44" fill="#e9c97f" opacity="0.42"/><circle cx="1059" cy="230" r="1.20" fill="#e9c97f" opacity="0.31"/><circle cx="30" cy="47" r="2.27" fill="#e9c97f" opacity="0.47"/><circle cx="2709" cy="20" r="1.29" fill="#e9c97f" opacity="0.35"/><circle cx="952" cy="145" r="1.56" fill="#e9c97f" opacity="0.47"/><circle cx="1783" cy="200" r="0.97" fill="#e9c97f" opacity="0.21"/><circle cx="2050" cy="67" r="1.07" fill="#e9c97f" opacity="0.26"/><circle cx="73" cy="154" r="1.86" fill="#e9c97f" opacity="0.29"/><circle cx="380" cy="193" r="0.99" fill="#e9c97f" opacity="0.22"/><circle cx="523" cy="60" r="2.17" fill="#e9c97f" opacity="0.42"/><circle cx="38" cy="199" r="2.27" fill="#e9c97f" opacity="0.47"/><circle cx="3261" cy="128" r="1.74" fill="#e9c97f" opacity="0.24"/><circle cx="2816" cy="259" r="2.13" fill="#e9c97f" opacity="0.41"/><circle cx="3167" cy="314" r="1.37" fill="#e9c97f" opacity="0.39"/><circle cx="2058" cy="35" r="1.36" fill="#e9c97f" opacity="0.38"/><circle cx="2033" cy="158" r="1.34" fill="#e9c97f" opacity="0.37"/><circle cx="2500" cy="41" r="1.96" fill="#e9c97f" opacity="0.33"/><circle cx="1011" cy="34" r="1.60" fill="#e9c97f" opacity="0.49"/><circle cx="46" cy="315" r="1.64" fill="#e9c97f" opacity="0.19"/><circle cx="1637" cy="162" r="2.26" fill="#e9c97f" opacity="0.46"/><circle cx="200" cy="95" r="1.16" fill="#e9c97f" opacity="0.29"/><circle cx="1095" cy="108" r="1.60" fill="#e9c97f" opacity="0.49"/><circle cx="3090" cy="29" r="1.19" fill="#e9c97f" opacity="0.30"/><circle cx="3225" cy="48" r="1.57" fill="#e9c97f" opacity="0.47"/><circle cx="3340" cy="101" r="0.93" fill="#e9c97f" opacity="0.19"/><circle cx="2651" cy="128" r="1.26" fill="#e9c97f" opacity="0.34"/><circle cx="1078" cy="209" r="1.47" fill="#e9c97f" opacity="0.43"/><circle cx="909" cy="88" r="1.11" fill="#e9c97f" opacity="0.27"/><circle cx="1296" cy="149" r="1.56" fill="#e9c97f" opacity="0.47"/><circle cx="303" cy="336" r="1.14" fill="#e9c97f" opacity="0.29"/><circle cx="2074" cy="349" r="1.36" fill="#e9c97f" opacity="0.38"/><circle cx="2241" cy="258" r="1.69" fill="#e9c97f" opacity="0.21"/><circle cx="2900" cy="243" r="1.21" fill="#e9c97f" opacity="0.32"/><circle cx="2883" cy="94" r="1.94" fill="#e9c97f" opacity="0.32"/><circle cx="2110" cy="69" r="1.53" fill="#e9c97f" opacity="0.46"/><circle cx="2741" cy="272" r="0.94" fill="#e9c97f" opacity="0.20"/><circle cx="2648" cy="25" r="2.07" fill="#e9c97f" opacity="0.38"/><circle cx="2583" cy="220" r="1.66" fill="#e9c97f" opacity="0.20"/><circle cx="1314" cy="297" r="1.47" fill="#e9c97f" opacity="0.43"/><circle cx="2281" cy="54" r="1.57" fill="#e9c97f" opacity="0.47"/><circle cx="924" cy="303" r="1.10" fill="#e9c97f" opacity="0.27"/><circle cx="1067" cy="268" r="1.83" fill="#e9c97f" opacity="0.27"/><circle cx="1990" cy="231" r="1.70" fill="#e9c97f" opacity="0.22"/><circle cx="2397" cy="290" r="1.06" fill="#e9c97f" opacity="0.25"/><circle cx="2336" cy="347" r="1.04" fill="#e9c97f" opacity="0.24"/><circle cx="1535" cy="122" r="2.11" fill="#e9c97f" opacity="0.40"/><circle cx="2858" cy="293" r="0.96" fill="#e9c97f" opacity="0.20"/><circle cx="2961" cy="280" r="1.46" fill="#e9c97f" opacity="0.42"/><circle cx="2020" cy="285" r="1.10" fill="#e9c97f" opacity="0.27"/><circle cx="659" cy="166" r="1.37" fill="#e9c97f" opacity="0.39"/><circle cx="974" cy="27" r="1.41" fill="#e9c97f" opacity="0.41"/><circle cx="3333" cy="98" r="1.34" fill="#e9c97f" opacity="0.37"/><circle cx="2280" cy="47" r="1.39" fill="#e9c97f" opacity="0.39"/><circle cx="871" cy="24" r="1.71" fill="#e9c97f" opacity="0.22"/><circle cx="1714" cy="57" r="1.36" fill="#e9c97f" opacity="0.38"/><circle cx="697" cy="166" r="2.03" fill="#e9c97f" opacity="0.36"/><circle cx="1068" cy="113" r="2.19" fill="#e9c97f" opacity="0.43"/><circle cx="507" cy="158" r="1.37" fill="#e9c97f" opacity="0.39"/><circle cx="2774" cy="163" r="0.96" fill="#e9c97f" opacity="0.20"/><circle cx="1069" cy="290" r="2.20" fill="#e9c97f" opacity="0.44"/><circle cx="1712" cy="289" r="2.01" fill="#e9c97f" opacity="0.35"/><circle cx="1999" cy="116" r="2.11" fill="#e9c97f" opacity="0.40"/><circle cx="1466" cy="77" r="1.36" fill="#e9c97f" opacity="0.38"/><circle cx="2145" cy="280" r="0.94" fill="#e9c97f" opacity="0.20"/><circle cx="1396" cy="233" r="1.27" fill="#e9c97f" opacity="0.34"/><circle cx="2787" cy="96" r="1.37" fill="#e9c97f" opacity="0.39"/><circle cx="222" cy="133" r="1.36" fill="#e9c97f" opacity="0.38"/><circle cx="981" cy="58" r="1.86" fill="#e9c97f" opacity="0.29"/><circle cx="2040" cy="61" r="1.16" fill="#e9c97f" opacity="0.29"/><circle cx="2487" cy="84" r="2.23" fill="#e9c97f" opacity="0.45"/></g>
+<image x="96" y="30" width="160" height="160" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA1MTIgNTEyIiByb2xlPSJpbWciIGFyaWEtbGFiZWxsZWRieT0idGl0bGUgZGVzYyI+CiAgPHRpdGxlIGlkPSJ0aXRsZSI+VGhlc2V1czwvdGl0bGU+CiAgPGRlc2MgaWQ9ImRlc2MiPkEgR3JlZWsgc2hpcCBvbiBhbiBvbGQgY29pbiwgc2FpbGluZyBhdCBuaWdodC4gTW9zdCBvZiBpdHMgcGxhbmtzIGFyZSB3b3JuIGl2b3J5OyBhIGZldyBhcmUgbmV3IGdvbGQgb25lcywgcHV0IGluIGFzIHRoZSBvbGQgb25lcyB3b3JlIG91dC4gSXQgaXMgc3RpbGwgdGhlIHNhbWUgc2hpcC48L2Rlc2M+CiAgPGRlZnM+CiAgICA8Y2xpcFBhdGggaWQ9ImZpZWxkIj48Y2lyY2xlIGN4PSIyNTYiIGN5PSIyNTYiIHI9IjIyNSIvPjwvY2xpcFBhdGg+CiAgICA8Y2xpcFBhdGggaWQ9Imh1bGwiPgogICAgICA8cGF0aCBkPSJNMTUwIDI4NiBRMjc3IDMwMCA0MDQgMjg0IEM0MTAgMzAwIDQxNCAzMTYgNDIwIDMyNiBMNDM2IDMzMiBMNDE2IDMzOCBDMzgwIDM1MCAyMjAgMzUyIDE2OCAzNDIgQzE0OCAzMzYgMTQwIDMxMiAxNTAgMjg2IFoiLz4KICAgIDwvY2xpcFBhdGg+CiAgICA8Y2xpcFBhdGggaWQ9InN0cmFrZS10b3AiPjxwYXRoIGQ9Ik0xMDAgMTUwIEw0NjAgMTUwIEw0NjAgMzAwIFEyODAgMzIwIDEwMCAzMDQgWiIvPjwvY2xpcFBhdGg+CiAgICA8Y2xpcFBhdGggaWQ9InN0cmFrZS1taWQiPjxwYXRoIGQ9Ik0xMDAgMzA0IFEyODAgMzIwIDQ2MCAzMDAgTDQ2MCAzMTYgUTI4MCAzMzYgMTAwIDMyMCBaIi8+PC9jbGlwUGF0aD4KICAgIDxjbGlwUGF0aCBpZD0ic3RyYWtlLWxvdyI+PHBhdGggZD0iTTEwMCAzMjAgUTI4MCAzMzYgNDYwIDMxNiBMNDYwIDQyMCBMMTAwIDQyMCBaIi8+PC9jbGlwUGF0aD4KICA8L2RlZnM+CgogIDwhLS0gdGhlIGNvaW4gLS0+CiAgPGNpcmNsZSBjeD0iMjU2IiBjeT0iMjU2IiByPSIyNTIiIGZpbGw9IiMxMzMxNGQiLz4KICA8Y2lyY2xlIGN4PSIyNTYiIGN5PSIyNTYiIHI9IjI0MSIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjZDZhNTQ4IiBzdHJva2Utd2lkdGg9IjYiLz4KICA8Y2lyY2xlIGN4PSIyNTYiIGN5PSIyNTYiIHI9IjIzMCIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjZDZhNTQ4IiBzdHJva2Utd2lkdGg9IjQiIHN0cm9rZS1kYXNoYXJyYXk9IjAuMSA5LjYiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIvPgoKICA8ZyBjbGlwLXBhdGg9InVybCgjZmllbGQpIj4KICAgIDwhLS0gdGhlIG5pZ2h0OiBhIGZldyBzdGFycywgYW5kIHRoZSBzZWEgLS0+CiAgICA8ZyBmaWxsPSIjZTljOTdmIj4KICAgICAgPGNpcmNsZSBjeD0iMTUwIiBjeT0iMTIyIiByPSIyLjYiLz4KICAgICAgPGNpcmNsZSBjeD0iMzYyIiBjeT0iMTA0IiByPSIyLjEiLz4KICAgICAgPGNpcmNsZSBjeD0iNDA0IiBjeT0iMTcyIiByPSIxLjciLz4KICAgICAgPGNpcmNsZSBjeD0iMTE2IiBjeT0iMTkwIiByPSIxLjkiLz4KICAgICAgPGNpcmNsZSBjeD0iMjEyIiBjeT0iOTIiIHI9IjEuNSIvPgogICAgICA8Y2lyY2xlIGN4PSIzMTgiIGN5PSI3MCIgcj0iMS41Ii8+CiAgICAgIDxjaXJjbGUgY3g9IjQzMCIgY3k9IjIzNiIgcj0iMS40Ii8+CiAgICA8L2c+CiAgICA8cmVjdCB4PSIwIiB5PSIzNDYiIHdpZHRoPSI1MTIiIGhlaWdodD0iMTY2IiBmaWxsPSIjMTczYzVmIi8+CgogICAgPCEtLSB0aGlydHkgb2FycywgZ2l2ZSBvciB0YWtlIC0tPgogICAgPGcgc3Ryb2tlPSIjZWZlM2M4IiBzdHJva2Utd2lkdGg9IjMuNiIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIj4KICAgICAgPGxpbmUgeDE9IjE4MCIgeTE9IjM0NSIgeDI9IjE2MiIgeTI9IjM4MyIvPgogICAgICA8bGluZSB4MT0iMjAwIiB5MT0iMzQ3IiB4Mj0iMTgyIiB5Mj0iMzg1Ii8+CiAgICAgIDxsaW5lIHgxPSIyMjAiIHkxPSIzNDgiIHgyPSIyMDIiIHkyPSIzODYiLz4KICAgICAgPGxpbmUgeDE9IjI0MCIgeTE9IjM0OCIgeDI9IjIyMiIgeTI9IjM4NiIvPgogICAgICA8bGluZSB4MT0iMjYwIiB5MT0iMzQ4IiB4Mj0iMjQyIiB5Mj0iMzg2Ii8+CiAgICAgIDxsaW5lIHgxPSIyODAiIHkxPSIzNDgiIHgyPSIyNjIiIHkyPSIzODYiLz4KICAgICAgPGxpbmUgeDE9IjMwMCIgeTE9IjM0OCIgeDI9IjI4MiIgeTI9IjM4NiIvPgogICAgICA8bGluZSB4MT0iMzIwIiB5MT0iMzQ3IiB4Mj0iMzAyIiB5Mj0iMzg1Ii8+CiAgICAgIDxsaW5lIHgxPSIzNDAiIHkxPSIzNDYiIHgyPSIzMjIiIHkyPSIzODQiLz4KICAgICAgPGxpbmUgeDE9IjM2MCIgeTE9IjM0NSIgeDI9IjM0MiIgeTI9IjM4MyIvPgogICAgICA8bGluZSB4MT0iMzgwIiB5MT0iMzQzIiB4Mj0iMzYyIiB5Mj0iMzgxIi8+CiAgICA8L2c+CgogICAgPCEtLSB0aGUgaHVsbCwgcGxhbmsgYnkgcGxhbms6IHRocmVlIHN0cmFrZXMsIHRoZSBidXR0IGpvaW50cyBzdGFnZ2VyZWQgbGlrZSBicmlja3dvcmsgLS0+CiAgICA8cGF0aCBkPSJNMTUwIDI4NiBRMjc3IDMwMCA0MDQgMjg0IEM0MTAgMzAwIDQxNCAzMTYgNDIwIDMyNiBMNDM2IDMzMiBMNDE2IDMzOCBDMzgwIDM1MCAyMjAgMzUyIDE2OCAzNDIgQzE0OCAzMzYgMTQwIDMxMiAxNTAgMjg2IFoiIGZpbGw9IiNlZmUzYzgiLz4KICAgIDxnIGNsaXAtcGF0aD0idXJsKCNodWxsKSI+CiAgICAgIDxnIGNsaXAtcGF0aD0idXJsKCNzdHJha2UtdG9wKSI+CiAgICAgICAgPHJlY3QgeD0iMjQ1IiB5PSIyNTAiIHdpZHRoPSI1NSIgaGVpZ2h0PSI4MCIgZmlsbD0iI2UyYWU0ZiIvPgogICAgICAgIDxnIHN0cm9rZT0iIzEzMzE0ZCIgc3Ryb2tlLW9wYWNpdHk9IjAuNTUiIHN0cm9rZS13aWR0aD0iMi4yIj4KICAgICAgICAgIDxsaW5lIHgxPSIxOTAiIHkxPSIyNTAiIHgyPSIxOTAiIHkyPSIzMzAiLz4KICAgICAgICAgIDxsaW5lIHgxPSIyNDUiIHkxPSIyNTAiIHgyPSIyNDUiIHkyPSIzMzAiLz4KICAgICAgICAgIDxsaW5lIHgxPSIzMDAiIHkxPSIyNTAiIHgyPSIzMDAiIHkyPSIzMzAiLz4KICAgICAgICAgIDxsaW5lIHgxPSIzNTUiIHkxPSIyNTAiIHgyPSIzNTUiIHkyPSIzMzAiLz4KICAgICAgICA8L2c+CiAgICAgIDwvZz4KICAgICAgPGcgY2xpcC1wYXRoPSJ1cmwoI3N0cmFrZS1taWQpIj4KICAgICAgICA8cmVjdCB4PSIxNjUiIHk9IjI4MCIgd2lkdGg9IjU1IiBoZWlnaHQ9IjcwIiBmaWxsPSIjZTJhZTRmIi8+CiAgICAgICAgPHJlY3QgeD0iMzMwIiB5PSIyODAiIHdpZHRoPSI1NSIgaGVpZ2h0PSI3MCIgZmlsbD0iI2UyYWU0ZiIvPgogICAgICAgIDxnIHN0cm9rZT0iIzEzMzE0ZCIgc3Ryb2tlLW9wYWNpdHk9IjAuNTUiIHN0cm9rZS13aWR0aD0iMi4yIj4KICAgICAgICAgIDxsaW5lIHgxPSIxNjUiIHkxPSIyODAiIHgyPSIxNjUiIHkyPSIzNTAiLz4KICAgICAgICAgIDxsaW5lIHgxPSIyMjAiIHkxPSIyODAiIHgyPSIyMjAiIHkyPSIzNTAiLz4KICAgICAgICAgIDxsaW5lIHgxPSIyNzUiIHkxPSIyODAiIHgyPSIyNzUiIHkyPSIzNTAiLz4KICAgICAgICAgIDxsaW5lIHgxPSIzMzAiIHkxPSIyODAiIHgyPSIzMzAiIHkyPSIzNTAiLz4KICAgICAgICAgIDxsaW5lIHgxPSIzODUiIHkxPSIyODAiIHgyPSIzODUiIHkyPSIzNTAiLz4KICAgICAgICA8L2c+CiAgICAgIDwvZz4KICAgICAgPGcgY2xpcC1wYXRoPSJ1cmwoI3N0cmFrZS1sb3cpIj4KICAgICAgICA8cmVjdCB4PSIyMDAiIHk9IjMwMCIgd2lkdGg9IjU1IiBoZWlnaHQ9IjgwIiBmaWxsPSIjZTJhZTRmIi8+CiAgICAgICAgPHJlY3QgeD0iMzY1IiB5PSIzMDAiIHdpZHRoPSI5MCIgaGVpZ2h0PSI4MCIgZmlsbD0iI2UyYWU0ZiIvPgogICAgICAgIDxnIHN0cm9rZT0iIzEzMzE0ZCIgc3Ryb2tlLW9wYWNpdHk9IjAuNTUiIHN0cm9rZS13aWR0aD0iMi4yIj4KICAgICAgICAgIDxsaW5lIHgxPSIyMDAiIHkxPSIzMDAiIHgyPSIyMDAiIHkyPSIzODAiLz4KICAgICAgICAgIDxsaW5lIHgxPSIyNTUiIHkxPSIzMDAiIHgyPSIyNTUiIHkyPSIzODAiLz4KICAgICAgICAgIDxsaW5lIHgxPSIzMTAiIHkxPSIzMDAiIHgyPSIzMTAiIHkyPSIzODAiLz4KICAgICAgICAgIDxsaW5lIHgxPSIzNjUiIHkxPSIzMDAiIHgyPSIzNjUiIHkyPSIzODAiLz4KICAgICAgICA8L2c+CiAgICAgIDwvZz4KICAgICAgPGcgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjMTMzMTRkIiBzdHJva2Utb3BhY2l0eT0iMC41NSIgc3Ryb2tlLXdpZHRoPSIyLjIiPgogICAgICAgIDxwYXRoIGQ9Ik0xMDAgMzA0IFEyODAgMzIwIDQ2MCAzMDAiLz4KICAgICAgICA8cGF0aCBkPSJNMTAwIDMyMCBRMjgwIDMzNiA0NjAgMzE2Ii8+CiAgICAgIDwvZz4KICAgIDwvZz4KCiAgICA8IS0tIHRoZSBleWUgYXQgdGhlIGJvdywgYW5kIHRoZSBjdXJsIG9mIHRoZSBzdGVybiAtLT4KICAgIDxwYXRoIGQ9Ik0zODYgMzE0IFEzOTcgMzA1IDQwOCAzMTQgUTM5NyAzMjMgMzg2IDMxNCBaIiBmaWxsPSIjMTMzMTRkIi8+CiAgICA8Y2lyY2xlIGN4PSIzOTciIGN5PSIzMTQiIHI9IjMuMiIgZmlsbD0iI2UyYWU0ZiIvPgogICAgPHBhdGggZD0iTTE1MiAyOTAgQzEzMiAyNzYgMTE2IDI1NCAxMjAgMjMyIEMxMjMgMjE1IDEzOSAyMDggMTQ3IDIxOCIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjZWZlM2M4IiBzdHJva2Utd2lkdGg9IjkiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIvPgoKICAgIDwhLS0gbWFzdCwgeWFyZCwgcmlnZ2luZywgYW5kIHRoZSBzYWlsIHdpdGggaXRzIHRoZXRhIC0tPgogICAgPGcgc3Ryb2tlPSIjZWZlM2M4IiBzdHJva2UtbGluZWNhcD0icm91bmQiPgogICAgICA8bGluZSB4MT0iMjYyIiB5MT0iMjk0IiB4Mj0iMjYyIiB5Mj0iMTM2IiBzdHJva2Utd2lkdGg9IjciLz4KICAgICAgPGxpbmUgeDE9IjE5MiIgeTE9IjE1NiIgeDI9IjMzMiIgeTI9IjE1NiIgc3Ryb2tlLXdpZHRoPSI2Ii8+CiAgICAgIDxsaW5lIHgxPSIxOTQiIHkxPSIxNTgiIHgyPSIxNTMiIHkyPSIyODYiIHN0cm9rZS13aWR0aD0iMiIgc3Ryb2tlLW9wYWNpdHk9IjAuNyIvPgogICAgICA8bGluZSB4MT0iMzMwIiB5MT0iMTU4IiB4Mj0iNDAxIiB5Mj0iMjg0IiBzdHJva2Utd2lkdGg9IjIiIHN0cm9rZS1vcGFjaXR5PSIwLjciLz4KICAgIDwvZz4KICAgIDxwYXRoIGQ9Ik0yMDAgMTU5IEwzMjQgMTU5IEwzMTkgMjY0IFEyNjIgMjc5IDIwNSAyNjQgWiIgZmlsbD0iI2VmZTNjOCIvPgogICAgPGcgc3Ryb2tlPSIjMTMzMTRkIiBzdHJva2Utd2lkdGg9IjgiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIgZmlsbD0ibm9uZSI+CiAgICAgIDxlbGxpcHNlIGN4PSIyNjIiIGN5PSIyMTEiIHJ4PSIyNiIgcnk9IjMxIi8+CiAgICAgIDxsaW5lIHgxPSIyNTAiIHkxPSIyMTEiIHgyPSIyNzQiIHkyPSIyMTEiLz4KICAgIDwvZz4KCiAgICA8IS0tIHRoZSB3YXZlcyAtLT4KICAgIDxnIGZpbGw9Im5vbmUiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCI+CiAgICAgIDxwYXRoIGQ9Ik0wIDM1NiBxMTYgLTkgMzIgMCB0MzIgMCB0MzIgMCB0MzIgMCB0MzIgMCB0MzIgMCB0MzIgMCB0MzIgMCB0MzIgMCB0MzIgMCB0MzIgMCB0MzIgMCB0MzIgMCB0MzIgMCB0MzIgMCB0MzIgMCIgc3Ryb2tlPSIjNWFhMGI0IiBzdHJva2Utd2lkdGg9IjQuNSIvPgogICAgICA8cGF0aCBkPSJNLTE2IDM5MiBxMTYgLTkgMzIgMCB0MzIgMCB0MzIgMCB0MzIgMCB0MzIgMCB0MzIgMCB0MzIgMCB0MzIgMCB0MzIgMCB0MzIgMCB0MzIgMCB0MzIgMCB0MzIgMCB0MzIgMCB0MzIgMCB0MzIgMCB0MzIgMCIgc3Ryb2tlPSIjNGE4ZWEzIiBzdHJva2Utd2lkdGg9IjQiIHN0cm9rZS1vcGFjaXR5PSIwLjgiLz4KICAgICAgPHBhdGggZD0iTTAgNDI2IHExNiAtOSAzMiAwIHQzMiAwIHQzMiAwIHQzMiAwIHQzMiAwIHQzMiAwIHQzMiAwIHQzMiAwIHQzMiAwIHQzMiAwIHQzMiAwIHQzMiAwIHQzMiAwIHQzMiAwIHQzMiAwIHQzMiAwIiBzdHJva2U9IiMzZDdkOTMiIHN0cm9rZS13aWR0aD0iMy41IiBzdHJva2Utb3BhY2l0eT0iMC42Ii8+CiAgICAgIDxwYXRoIGQ9Ik0tMTYgNDU4IHExNiAtOSAzMiAwIHQzMiAwIHQzMiAwIHQzMiAwIHQzMiAwIHQzMiAwIHQzMiAwIHQzMiAwIHQzMiAwIHQzMiAwIHQzMiAwIHQzMiAwIHQzMiAwIHQzMiAwIHQzMiAwIHQzMiAwIHQzMiAwIiBzdHJva2U9IiMzMzZmODQiIHN0cm9rZS13aWR0aD0iMyIgc3Ryb2tlLW9wYWNpdHk9IjAuNDUiLz4KICAgIDwvZz4KICA8L2c+Cjwvc3ZnPgo="/>
+<text x="284.0" y="118.0" font-size="96" font-weight="700" fill="#f3eee4" text-anchor="start" letter-spacing="1">Theseus</text>
+<text x="288.0" y="172.0" font-size="34" font-weight="400" fill="#c3c8cf" text-anchor="start">A Rust agent harness: from one message to a daily driver in fifteen days</text>
+<text x="3396.0" y="92.0" font-size="24" font-weight="700" fill="#d6a548" text-anchor="end" letter-spacing="4">THE DEVELOPMENT TIMELINE</text>
+<text x="3396.0" y="132.0" font-size="24" font-weight="400" fill="#c3c8cf" text-anchor="end">September 23 to October 8, 2026, and what is ahead</text>
+<text x="3396.0" y="168.0" font-size="24" font-weight="400" fill="#8f9db0" text-anchor="end">as of October 8, 2026, 16:30 MST</text>
+<rect x="96" y="214" width="3300" height="116" rx="16" fill="#12243a" stroke="rgba(255,255,255,0.12)" stroke-width="1.5" data-box="stats"/>
+<text x="302.2" y="282.0" font-size="52" font-weight="700" fill="#f3eee4" text-anchor="middle" data-chk="stat">15</text>
+<text x="302.2" y="316.0" font-size="20" font-weight="400" fill="#8f9db0" text-anchor="middle" data-chk="stat">days, idea to now</text>
+<line x1="508.5" y1="236" x2="508.5" y2="308" stroke="#24384f" stroke-width="1.5"/>
+<text x="714.8" y="282.0" font-size="52" font-weight="700" fill="#f3eee4" text-anchor="middle" data-chk="stat">1,752</text>
+<text x="714.8" y="316.0" font-size="20" font-weight="400" fill="#8f9db0" text-anchor="middle" data-chk="stat">commits on main</text>
+<line x1="921.0" y1="236" x2="921.0" y2="308" stroke="#24384f" stroke-width="1.5"/>
+<text x="1127.2" y="282.0" font-size="52" font-weight="700" fill="#f3eee4" text-anchor="middle" data-chk="stat">251</text>
+<text x="1127.2" y="316.0" font-size="20" font-weight="400" fill="#8f9db0" text-anchor="middle" data-chk="stat">merges into main</text>
+<line x1="1333.5" y1="236" x2="1333.5" y2="308" stroke="#24384f" stroke-width="1.5"/>
+<text x="1539.8" y="282.0" font-size="52" font-weight="700" fill="#f3eee4" text-anchor="middle" data-chk="stat">3,390</text>
+<text x="1539.8" y="316.0" font-size="20" font-weight="400" fill="#8f9db0" text-anchor="middle" data-chk="stat">tests in the gate</text>
+<line x1="1746.0" y1="236" x2="1746.0" y2="308" stroke="#24384f" stroke-width="1.5"/>
+<text x="1952.2" y="282.0" font-size="52" font-weight="700" fill="#f3eee4" text-anchor="middle" data-chk="stat">24</text>
+<text x="1952.2" y="316.0" font-size="20" font-weight="400" fill="#8f9db0" text-anchor="middle" data-chk="stat">crates · 463k lines of Rust</text>
+<line x1="2158.5" y1="236" x2="2158.5" y2="308" stroke="#24384f" stroke-width="1.5"/>
+<text x="2364.8" y="282.0" font-size="52" font-weight="700" fill="#f3eee4" text-anchor="middle" data-chk="stat">25</text>
+<text x="2364.8" y="316.0" font-size="20" font-weight="400" fill="#8f9db0" text-anchor="middle" data-chk="stat">store format</text>
+<line x1="2571.0" y1="236" x2="2571.0" y2="308" stroke="#24384f" stroke-width="1.5"/>
+<text x="2777.2" y="282.0" font-size="52" font-weight="700" fill="#f3eee4" text-anchor="middle" data-chk="stat">14</text>
+<text x="2777.2" y="316.0" font-size="20" font-weight="400" fill="#8f9db0" text-anchor="middle" data-chk="stat">installs on the owner’s daemon</text>
+<line x1="2983.5" y1="236" x2="2983.5" y2="308" stroke="#24384f" stroke-width="1.5"/>
+<text x="3189.8" y="282.0" font-size="52" font-weight="700" fill="#f3eee4" text-anchor="middle" data-chk="stat">19</text>
+<text x="3189.8" y="316.0" font-size="20" font-weight="400" fill="#8f9db0" text-anchor="middle" data-chk="stat">benchmark runs · $131</text>
+<g data-layer="bars">
+<path d="M441.7,1170 V1164.8 Q441.7,1160.8 445.7,1160.8 H541.7 Q545.7,1160.8 545.7,1164.8 V1170 Z" fill="url(#tl-bar)" opacity="0.9"/>
+<path d="M613.6,1170 V1156.9 Q613.6,1152.9 617.6,1152.9 H713.6 Q717.6,1152.9 717.6,1156.9 V1170 Z" fill="url(#tl-bar)" opacity="0.9"/>
+<path d="M785.4,1170 V1170.8 Q785.4,1166.8 789.4,1166.8 H885.4 Q889.4,1166.8 889.4,1170.8 V1170 Z" fill="url(#tl-bar)" opacity="0.9"/>
+<path d="M957.3,1170 V1162.5 Q957.3,1158.5 961.3,1158.5 H1057.3 Q1061.3,1158.5 1061.3,1162.5 V1170 Z" fill="url(#tl-bar)" opacity="0.9"/>
+<path d="M1129.1,1170 V1146.8 Q1129.1,1142.8 1133.1,1142.8 H1229.1 Q1233.1,1142.8 1233.1,1146.8 V1170 Z" fill="url(#tl-bar)" opacity="0.9"/>
+<path d="M1301.0,1170 V1142.2 Q1301.0,1138.2 1305.0,1138.2 H1401.0 Q1405.0,1138.2 1405.0,1142.2 V1170 Z" fill="url(#tl-bar)" opacity="0.9"/>
+<path d="M1472.8,1170 V1107.1 Q1472.8,1103.1 1476.8,1103.1 H1572.8 Q1576.8,1103.1 1576.8,1107.1 V1170 Z" fill="url(#tl-bar)" opacity="0.9"/>
+<path d="M1644.7,1170 V1126.9 Q1644.7,1122.9 1648.7,1122.9 H1744.7 Q1748.7,1122.9 1748.7,1126.9 V1170 Z" fill="url(#tl-bar)" opacity="0.9"/>
+<path d="M1816.5,1170 V1093.7 Q1816.5,1089.7 1820.5,1089.7 H1916.5 Q1920.5,1089.7 1920.5,1093.7 V1170 Z" fill="url(#tl-bar)" opacity="0.9"/>
+<path d="M1988.4,1170 V1036.9 Q1988.4,1032.9 1992.4,1032.9 H2088.4 Q2092.4,1032.9 2092.4,1036.9 V1170 Z" fill="url(#tl-bar)" opacity="0.9"/>
+<path d="M2160.2,1170 V1024.0 Q2160.2,1020.0 2164.2,1020.0 H2260.2 Q2264.2,1020.0 2264.2,1024.0 V1170 Z" fill="url(#tl-bar)" opacity="0.9"/>
+<path d="M2332.1,1170 V1051.7 Q2332.1,1047.7 2336.1,1047.7 H2432.1 Q2436.1,1047.7 2436.1,1051.7 V1170 Z" fill="url(#tl-bar)" opacity="0.9"/>
+<path d="M2503.9,1170 V1085.8 Q2503.9,1081.8 2507.9,1081.8 H2603.9 Q2607.9,1081.8 2607.9,1085.8 V1170 Z" fill="url(#tl-bar)" opacity="0.9"/>
+<path d="M2648.9,1170 V1157.4 Q2648.9,1153.4 2652.9,1153.4 H2748.9 Q2752.9,1153.4 2752.9,1157.4 V1170 Z" fill="url(#tl-bar)" opacity="0.55"/>
+<text x="202.0" y="1152.0" font-size="18" font-weight="500" fill="#8f9db0" text-anchor="start" data-chk="barlab">Commits per day</text>
+<text x="202.0" y="1128.0" font-size="18" font-weight="500" fill="#8f9db0" text-anchor="start" data-chk="barlab" font-style="italic">no repository yet: the spec</text>
+</g>
+<rect x="175.4" y="1185" width="346.2" height="32" fill="#3987e5" rx="4"/>
+<text x="187.4" y="1209.0" font-size="20" font-weight="700" fill="#ffffff" text-anchor="start" data-chk="band" data-max="521.6">Spec</text>
+<rect x="524.6" y="1185" width="385.0" height="32" fill="#d95926" rx="4"/>
+<text x="536.6" y="1209.0" font-size="20" font-weight="700" fill="#ffffff" text-anchor="start" data-chk="band" data-max="909.6">The spine: M0 to M3</text>
+<rect x="912.6" y="1185" width="484.5" height="32" fill="#199e70" rx="4"/>
+<text x="924.6" y="1209.0" font-size="20" font-weight="700" fill="#ffffff" text-anchor="start" data-chk="band" data-max="1397.1">Build chain: cuts, Fast, Daily Driver</text>
+<rect x="1400.1" y="1185" width="370.5" height="32" fill="#9085e9" rx="4"/>
+<text x="1412.1" y="1209.0" font-size="20" font-weight="700" fill="#ffffff" text-anchor="start" data-chk="band" data-max="1770.6">Parallel lanes</text>
+<rect x="1773.6" y="1185" width="470.0" height="32" fill="#d55181" rx="4"/>
+<text x="1785.6" y="1209.0" font-size="20" font-weight="700" fill="#ffffff" text-anchor="start" data-chk="band" data-max="2243.6">Cloud batches</text>
+<rect x="2246.6" y="1185" width="510.4" height="32" fill="#008300" rx="4"/>
+<text x="2258.6" y="1209.0" font-size="20" font-weight="700" fill="#ffffff" text-anchor="start" data-chk="band" data-max="2757.0">v1 live: hardening, benchmarks</text>
+<line x1="235.9" y1="1217" x2="235.9" y2="1227" stroke="#8f9db0" stroke-width="1.5"/>
+<line x1="407.8" y1="1217" x2="407.8" y2="1227" stroke="#8f9db0" stroke-width="1.5"/>
+<line x1="579.6" y1="1217" x2="579.6" y2="1227" stroke="#8f9db0" stroke-width="1.5"/>
+<line x1="751.5" y1="1217" x2="751.5" y2="1227" stroke="#8f9db0" stroke-width="1.5"/>
+<line x1="923.3" y1="1217" x2="923.3" y2="1227" stroke="#8f9db0" stroke-width="1.5"/>
+<line x1="1095.2" y1="1217" x2="1095.2" y2="1227" stroke="#8f9db0" stroke-width="1.5"/>
+<line x1="1267.0" y1="1217" x2="1267.0" y2="1227" stroke="#8f9db0" stroke-width="1.5"/>
+<line x1="1438.9" y1="1217" x2="1438.9" y2="1227" stroke="#8f9db0" stroke-width="1.5"/>
+<line x1="1610.7" y1="1217" x2="1610.7" y2="1227" stroke="#8f9db0" stroke-width="1.5"/>
+<line x1="1782.6" y1="1217" x2="1782.6" y2="1227" stroke="#8f9db0" stroke-width="1.5"/>
+<line x1="1954.4" y1="1217" x2="1954.4" y2="1227" stroke="#8f9db0" stroke-width="1.5"/>
+<line x1="2126.3" y1="1217" x2="2126.3" y2="1227" stroke="#8f9db0" stroke-width="1.5"/>
+<line x1="2298.1" y1="1217" x2="2298.1" y2="1227" stroke="#8f9db0" stroke-width="1.5"/>
+<line x1="2470.0" y1="1217" x2="2470.0" y2="1227" stroke="#8f9db0" stroke-width="1.5"/>
+<line x1="2641.9" y1="1217" x2="2641.9" y2="1227" stroke="#8f9db0" stroke-width="1.5"/>
+<line x1="110" y1="1170" x2="2760" y2="1170" stroke="#c3c8cf" stroke-width="3"/>
+<line x1="2760" y1="1170" x2="3386" y2="1170" stroke="#c3c8cf" stroke-width="3" stroke-dasharray="14 12" opacity="0.55"/>
+<path d="M3382,1159 L3400,1170 L3382,1181" fill="none" stroke="#c3c8cf" stroke-width="3" opacity="0.55" stroke-linejoin="round"/>
+<line x1="175.4" y1="1170" x2="175.4" y2="751.0" stroke="#d6a548" stroke-width="2" opacity="0.9" data-leader="1"/>
+<line x1="350.5" y1="1217" x2="350.5" y2="1318.0" stroke="#7f8fa4" stroke-width="2" opacity="0.75" data-leader="1"/>
+<line x1="524.6" y1="1217" x2="524.6" y2="1567.0" stroke="#d6a548" stroke-width="2" opacity="0.9" data-leader="1"/>
+<line x1="665.6" y1="1170" x2="665.6" y2="1000.0" stroke="#d6a548" stroke-width="2" opacity="0.9" data-leader="1"/>
+<line x1="987.8" y1="1217" x2="987.8" y2="1318.0" stroke="#7f8fa4" stroke-width="2" opacity="0.75" data-leader="1"/>
+<line x1="1353.0" y1="1170" x2="1301.0" y2="1000.0" stroke="#d6a548" stroke-width="2" opacity="0.9" data-leader="1"/>
+<line x1="1524.8" y1="1217" x2="1524.8" y2="1318.0" stroke="#7f8fa4" stroke-width="2" opacity="0.75" data-leader="1"/>
+<line x1="1773.6" y1="1170" x2="1742.0" y2="1000.0" stroke="#7f8fa4" stroke-width="2" opacity="0.75" data-leader="1"/>
+<line x1="1868.5" y1="1217" x2="1868.5" y2="1318.0" stroke="#7f8fa4" stroke-width="2" opacity="0.75" data-leader="1"/>
+<line x1="2055.8" y1="1217" x2="2055.8" y2="1567.0" stroke="#d6a548" stroke-width="2" opacity="0.9" data-leader="1"/>
+<line x1="2011.7" y1="1170" x2="2011.7" y2="1000.0" stroke="#7f8fa4" stroke-width="2" opacity="0.75" data-leader="1"/>
+<line x1="2246.6" y1="1170" x2="2236.0" y2="751.0" stroke="#d6a548" stroke-width="2" opacity="0.9" data-leader="1"/>
+<line x1="2355.4" y1="1217" x2="2355.4" y2="1318.0" stroke="#7f8fa4" stroke-width="2" opacity="0.75" data-leader="1"/>
+<line x1="2456.2" y1="1170" x2="2456.2" y2="1000.0" stroke="#d6a548" stroke-width="2" opacity="0.9" data-leader="1"/>
+<line x1="2555.9" y1="1217" x2="2555.9" y2="1567.0" stroke="#7f8fa4" stroke-width="2" opacity="0.75" data-leader="1"/>
+<line x1="2705.9" y1="1170" x2="2705.9" y2="751.0" stroke="#7f8fa4" stroke-width="2" opacity="0.75" data-leader="1"/>
+<text x="493.7" y="1152.8" font-size="18" font-weight="500" fill="#8f9db0" text-anchor="middle" data-chk="bar" paint-order="stroke" stroke="#0d1a2a" stroke-width="9" stroke-linejoin="round">20</text>
+<text x="665.6" y="1144.9" font-size="18" font-weight="500" fill="#8f9db0" text-anchor="middle" data-chk="bar" paint-order="stroke" stroke="#0d1a2a" stroke-width="9" stroke-linejoin="round">37</text>
+<text x="837.4" y="1158.8" font-size="18" font-weight="500" fill="#8f9db0" text-anchor="middle" data-chk="bar" paint-order="stroke" stroke="#0d1a2a" stroke-width="9" stroke-linejoin="round">7</text>
+<text x="1009.3" y="1150.5" font-size="18" font-weight="500" fill="#8f9db0" text-anchor="middle" data-chk="bar" paint-order="stroke" stroke="#0d1a2a" stroke-width="9" stroke-linejoin="round">25</text>
+<text x="1181.1" y="1134.8" font-size="18" font-weight="500" fill="#8f9db0" text-anchor="middle" data-chk="bar" paint-order="stroke" stroke="#0d1a2a" stroke-width="9" stroke-linejoin="round">59</text>
+<text x="1353.0" y="1130.2" font-size="18" font-weight="500" fill="#8f9db0" text-anchor="middle" data-chk="bar" paint-order="stroke" stroke="#0d1a2a" stroke-width="9" stroke-linejoin="round">69</text>
+<text x="1524.8" y="1129.1" font-size="18" font-weight="500" fill="#c3c8cf" text-anchor="middle" data-chk="bar" paint-order="stroke" stroke="#3f5d80" stroke-width="9" stroke-linejoin="round">145</text>
+<text x="1696.7" y="1148.9" font-size="18" font-weight="500" fill="#c3c8cf" text-anchor="middle" data-chk="bar" paint-order="stroke" stroke="#3f5d80" stroke-width="9" stroke-linejoin="round">102</text>
+<text x="1868.5" y="1115.7" font-size="18" font-weight="500" fill="#c3c8cf" text-anchor="middle" data-chk="bar" paint-order="stroke" stroke="#3f5d80" stroke-width="9" stroke-linejoin="round">174</text>
+<text x="2040.4" y="1058.9" font-size="18" font-weight="500" fill="#c3c8cf" text-anchor="middle" data-chk="bar" paint-order="stroke" stroke="#3f5d80" stroke-width="9" stroke-linejoin="round">297</text>
+<text x="2212.2" y="1046.0" font-size="18" font-weight="500" fill="#c3c8cf" text-anchor="middle" data-chk="bar" paint-order="stroke" stroke="#3f5d80" stroke-width="9" stroke-linejoin="round">325</text>
+<text x="2384.1" y="1073.7" font-size="18" font-weight="500" fill="#c3c8cf" text-anchor="middle" data-chk="bar" paint-order="stroke" stroke="#3f5d80" stroke-width="9" stroke-linejoin="round">265</text>
+<text x="2555.9" y="1107.8" font-size="18" font-weight="500" fill="#c3c8cf" text-anchor="middle" data-chk="bar" paint-order="stroke" stroke="#3f5d80" stroke-width="9" stroke-linejoin="round">191</text>
+<text x="2700.9" y="1145.4" font-size="18" font-weight="500" fill="#8f9db0" text-anchor="middle" data-chk="bar" paint-order="stroke" stroke="#0d1a2a" stroke-width="9" stroke-linejoin="round">36 so far</text>
+<text x="150.0" y="1249.0" font-size="18" font-weight="500" fill="#8f9db0" text-anchor="middle" letter-spacing="1.5" paint-order="stroke" stroke="#0d1a2a" stroke-width="10" stroke-linejoin="round" data-chk="tick">SEP 23</text>
+<text x="321.9" y="1249.0" font-size="18" font-weight="500" fill="#8f9db0" text-anchor="middle" letter-spacing="1.5" paint-order="stroke" stroke="#0d1a2a" stroke-width="10" stroke-linejoin="round" data-chk="tick">SEP 24</text>
+<text x="493.7" y="1249.0" font-size="18" font-weight="500" fill="#8f9db0" text-anchor="middle" letter-spacing="1.5" paint-order="stroke" stroke="#0d1a2a" stroke-width="10" stroke-linejoin="round" data-chk="tick">SEP 25</text>
+<text x="665.6" y="1249.0" font-size="18" font-weight="500" fill="#8f9db0" text-anchor="middle" letter-spacing="1.5" paint-order="stroke" stroke="#0d1a2a" stroke-width="10" stroke-linejoin="round" data-chk="tick">SEP 26</text>
+<text x="837.4" y="1249.0" font-size="18" font-weight="500" fill="#8f9db0" text-anchor="middle" letter-spacing="1.5" paint-order="stroke" stroke="#0d1a2a" stroke-width="10" stroke-linejoin="round" data-chk="tick">SEP 27</text>
+<text x="1009.3" y="1249.0" font-size="18" font-weight="500" fill="#8f9db0" text-anchor="middle" letter-spacing="1.5" paint-order="stroke" stroke="#0d1a2a" stroke-width="10" stroke-linejoin="round" data-chk="tick">SEP 28</text>
+<text x="1181.1" y="1249.0" font-size="18" font-weight="500" fill="#8f9db0" text-anchor="middle" letter-spacing="1.5" paint-order="stroke" stroke="#0d1a2a" stroke-width="10" stroke-linejoin="round" data-chk="tick">SEP 29</text>
+<text x="1353.0" y="1249.0" font-size="18" font-weight="500" fill="#8f9db0" text-anchor="middle" letter-spacing="1.5" paint-order="stroke" stroke="#0d1a2a" stroke-width="10" stroke-linejoin="round" data-chk="tick">SEP 30</text>
+<text x="1524.8" y="1249.0" font-size="18" font-weight="500" fill="#8f9db0" text-anchor="middle" letter-spacing="1.5" paint-order="stroke" stroke="#0d1a2a" stroke-width="10" stroke-linejoin="round" data-chk="tick">OCT 1</text>
+<text x="1696.7" y="1249.0" font-size="18" font-weight="500" fill="#8f9db0" text-anchor="middle" letter-spacing="1.5" paint-order="stroke" stroke="#0d1a2a" stroke-width="10" stroke-linejoin="round" data-chk="tick">OCT 2</text>
+<text x="1868.5" y="1249.0" font-size="18" font-weight="500" fill="#8f9db0" text-anchor="middle" letter-spacing="1.5" paint-order="stroke" stroke="#0d1a2a" stroke-width="10" stroke-linejoin="round" data-chk="tick">OCT 3</text>
+<text x="2040.4" y="1249.0" font-size="18" font-weight="500" fill="#8f9db0" text-anchor="middle" letter-spacing="1.5" paint-order="stroke" stroke="#0d1a2a" stroke-width="10" stroke-linejoin="round" data-chk="tick">OCT 4</text>
+<text x="2212.2" y="1249.0" font-size="18" font-weight="500" fill="#8f9db0" text-anchor="middle" letter-spacing="1.5" paint-order="stroke" stroke="#0d1a2a" stroke-width="10" stroke-linejoin="round" data-chk="tick">OCT 5</text>
+<text x="2384.1" y="1249.0" font-size="18" font-weight="500" fill="#8f9db0" text-anchor="middle" letter-spacing="1.5" paint-order="stroke" stroke="#0d1a2a" stroke-width="10" stroke-linejoin="round" data-chk="tick">OCT 6</text>
+<text x="2555.9" y="1249.0" font-size="18" font-weight="500" fill="#8f9db0" text-anchor="middle" letter-spacing="1.5" paint-order="stroke" stroke="#0d1a2a" stroke-width="10" stroke-linejoin="round" data-chk="tick">OCT 7</text>
+<g data-card="Conception">
+<rect x="76.0" y="557.0" width="410" height="194" rx="14" fill="#12243a" stroke="#d6a548" stroke-width="2" stroke-opacity="0.75" data-box="card"/>
+<path d="M105,579 l7,7 l-7,7 l-7,-7 Z" fill="#d6a548"/>
+<text x="120.0" y="592.0" font-size="17" font-weight="500" fill="#d6a548" text-anchor="start" letter-spacing="2" data-chk="in">SEP 23 · 15:33</text>
+<text x="98.0" y="632.0" font-size="28" font-weight="700" fill="#f3eee4" text-anchor="start" data-chk="in">Conception</text>
+<text x="98.0" y="669.0" font-size="22" font-weight="400" fill="#c3c8cf" text-anchor="start" data-chk="in">“I have decided to build my own</text>
+<text x="98.0" y="698.0" font-size="22" font-weight="400" fill="#c3c8cf" text-anchor="start" data-chk="in">agent harness.” Rust, Discord, AWS,</text>
+<text x="98.0" y="727.0" font-size="22" font-weight="400" fill="#c3c8cf" text-anchor="start" data-chk="in">Jev. Named two minutes later.</text>
+</g>
+<g data-card="The spec in a day">
+<rect x="84.0" y="1318.0" width="410" height="194" rx="14" fill="#12243a" stroke="rgba(255,255,255,0.12)" stroke-width="1.5" stroke-opacity="1" data-box="card"/>
+<text x="106.0" y="1353.0" font-size="17" font-weight="500" fill="#8f9db0" text-anchor="start" letter-spacing="2" data-chk="in">SEP 24</text>
+<text x="106.0" y="1393.0" font-size="28" font-weight="700" fill="#f3eee4" text-anchor="start" data-chk="in">The spec in a day</text>
+<text x="106.0" y="1430.0" font-size="22" font-weight="400" fill="#c3c8cf" text-anchor="start" data-chk="in">v0.4 to v0.11: two outside reviews, a</text>
+<text x="106.0" y="1459.0" font-size="22" font-weight="400" fill="#c3c8cf" text-anchor="start" data-chk="in">hooks surface, an event-driven</text>
+<text x="106.0" y="1488.0" font-size="22" font-weight="400" fill="#c3c8cf" text-anchor="start" data-chk="in">kernel. Now at v0.84.</text>
+</g>
+<g data-card="First commit, M0 First light">
+<rect x="470.0" y="1567.0" width="410" height="194" rx="14" fill="#12243a" stroke="#d6a548" stroke-width="2" stroke-opacity="0.75" data-box="card"/>
+<path d="M499,1589 l7,7 l-7,7 l-7,-7 Z" fill="#d6a548"/>
+<text x="514.0" y="1602.0" font-size="17" font-weight="500" fill="#d6a548" text-anchor="start" letter-spacing="2" data-chk="in">SEP 25 · 16:19</text>
+<text x="492.0" y="1642.0" font-size="28" font-weight="700" fill="#f3eee4" text-anchor="start" data-chk="in">First commit, M0 First light</text>
+<text x="492.0" y="1679.0" font-size="22" font-weight="400" fill="#c3c8cf" text-anchor="start" data-chk="in">The repo opens with spec v0.12. By</text>
+<text x="492.0" y="1708.0" font-size="22" font-weight="400" fill="#c3c8cf" text-anchor="start" data-chk="in">night a daemon and CLI talk</text>
+<text x="492.0" y="1737.0" font-size="22" font-weight="400" fill="#c3c8cf" text-anchor="start" data-chk="in">JSON-RPC: 16 tests, CI green.</text>
+</g>
+<g data-card="M1 · M2 · M3 in one day">
+<rect x="447.0" y="806.0" width="410" height="194" rx="14" fill="#12243a" stroke="#d6a548" stroke-width="2" stroke-opacity="0.75" data-box="card"/>
+<path d="M476,828 l7,7 l-7,7 l-7,-7 Z" fill="#d6a548"/>
+<text x="491.0" y="841.0" font-size="17" font-weight="500" fill="#d6a548" text-anchor="start" letter-spacing="2" data-chk="in">SEP 26</text>
+<text x="469.0" y="881.0" font-size="28" font-weight="700" fill="#f3eee4" text-anchor="start" data-chk="in">M1 · M2 · M3 in one day</text>
+<text x="469.0" y="918.0" font-size="22" font-weight="400" fill="#c3c8cf" text-anchor="start" data-chk="in">Keel: a WAL that survives real</text>
+<text x="469.0" y="947.0" font-size="22" font-weight="400" fill="#c3c8cf" text-anchor="start" data-chk="in">SIGKILLs. Kernel: a fault sim found 2</text>
+<text x="469.0" y="976.0" font-size="22" font-weight="400" fill="#c3c8cf" text-anchor="start" data-chk="in">bugs first. Hands: 11 tools.</text>
+</g>
+<g data-card="The reversal">
+<rect x="749.0" y="1318.0" width="410" height="194" rx="14" fill="#12243a" stroke="rgba(255,255,255,0.12)" stroke-width="1.5" stroke-opacity="1" data-box="card"/>
+<text x="771.0" y="1353.0" font-size="17" font-weight="500" fill="#8f9db0" text-anchor="start" letter-spacing="2" data-chk="in">SEP 28</text>
+<text x="771.0" y="1393.0" font-size="28" font-weight="700" fill="#f3eee4" text-anchor="start" data-chk="in">The reversal</text>
+<text x="771.0" y="1430.0" font-size="22" font-weight="400" fill="#c3c8cf" text-anchor="start" data-chk="in">5,911 lines of hand-built shell</text>
+<text x="771.0" y="1459.0" font-size="22" font-weight="400" fill="#c3c8cf" text-anchor="start" data-chk="in">detection deleted. The rule since:</text>
+<text x="771.0" y="1488.0" font-size="22" font-weight="400" fill="#c3c8cf" text-anchor="start" data-chk="in">notify over block.</text>
+</g>
+<g data-card="M3.5 Fast">
+<rect x="925.0" y="806.0" width="410" height="194" rx="14" fill="#12243a" stroke="#d6a548" stroke-width="2" stroke-opacity="0.75" data-box="card"/>
+<path d="M954,828 l7,7 l-7,7 l-7,-7 Z" fill="#d6a548"/>
+<text x="969.0" y="841.0" font-size="17" font-weight="500" fill="#d6a548" text-anchor="start" letter-spacing="2" data-chk="in">SEP 30</text>
+<text x="947.0" y="881.0" font-size="28" font-weight="700" fill="#f3eee4" text-anchor="start" data-chk="in">M3.5 Fast</text>
+<text x="947.0" y="918.0" font-size="22" font-weight="400" fill="#c3c8cf" text-anchor="start" data-chk="in">Cold start had been 1.3 s to the first</text>
+<text x="947.0" y="947.0" font-size="22" font-weight="400" fill="#c3c8cf" text-anchor="start" data-chk="in">answer; now lifecycle budgets fail</text>
+<text x="947.0" y="976.0" font-size="22" font-weight="400" fill="#c3c8cf" text-anchor="start" data-chk="in">the gate. Parallel lanes begin.</text>
+</g>
+<g data-card="Ten lanes in a day">
+<rect x="1187.0" y="1318.0" width="410" height="165" rx="14" fill="#12243a" stroke="rgba(255,255,255,0.12)" stroke-width="1.5" stroke-opacity="1" data-box="card"/>
+<text x="1209.0" y="1353.0" font-size="17" font-weight="500" fill="#8f9db0" text-anchor="start" letter-spacing="2" data-chk="in">OCT 1</text>
+<text x="1209.0" y="1393.0" font-size="28" font-weight="700" fill="#f3eee4" text-anchor="start" data-chk="in">Ten lanes in a day</text>
+<text x="1209.0" y="1430.0" font-size="22" font-weight="400" fill="#c3c8cf" text-anchor="start" data-chk="in">145 commits: the first merge batch,</text>
+<text x="1209.0" y="1459.0" font-size="22" font-weight="400" fill="#c3c8cf" text-anchor="start" data-chk="in">the cockpit UI and the terminal UI.</text>
+</g>
+<g data-card="The first cloud batch">
+<rect x="1366.0" y="806.0" width="410" height="194" rx="14" fill="#12243a" stroke="rgba(255,255,255,0.12)" stroke-width="1.5" stroke-opacity="1" data-box="card"/>
+<text x="1388.0" y="841.0" font-size="17" font-weight="500" fill="#8f9db0" text-anchor="start" letter-spacing="2" data-chk="in">OCT 2 · 22:45</text>
+<text x="1388.0" y="881.0" font-size="28" font-weight="700" fill="#f3eee4" text-anchor="start" data-chk="in">The first cloud batch</text>
+<text x="1388.0" y="918.0" font-size="22" font-weight="400" fill="#c3c8cf" text-anchor="start" data-chk="in">Cloud sessions build branches in</text>
+<text x="1388.0" y="947.0" font-size="22" font-weight="400" fill="#c3c8cf" text-anchor="start" data-chk="in">parallel. A 10,000-session cold start:</text>
+<text x="1388.0" y="976.0" font-size="22" font-weight="400" fill="#c3c8cf" text-anchor="start" data-chk="in">119.1 → 21.5 ms.</text>
+</g>
+<g data-card="Voice · AWS · Jev">
+<rect x="1631.0" y="1318.0" width="410" height="194" rx="14" fill="#12243a" stroke="rgba(255,255,255,0.12)" stroke-width="1.5" stroke-opacity="1" data-box="card"/>
+<text x="1653.0" y="1353.0" font-size="17" font-weight="500" fill="#8f9db0" text-anchor="start" letter-spacing="2" data-chk="in">OCT 3</text>
+<text x="1653.0" y="1393.0" font-size="28" font-weight="700" fill="#f3eee4" text-anchor="start" data-chk="in">Voice · AWS · Jev</text>
+<text x="1653.0" y="1430.0" font-size="22" font-weight="400" fill="#c3c8cf" text-anchor="start" data-chk="in">Deepgram speech both ways, AWS</text>
+<text x="1653.0" y="1459.0" font-size="22" font-weight="400" fill="#c3c8cf" text-anchor="start" data-chk="in">stacks on the real account, Jev wired</text>
+<text x="1653.0" y="1488.0" font-size="22" font-weight="400" fill="#c3c8cf" text-anchor="start" data-chk="in">into the loop, MCP both ways.</text>
+</g>
+<g data-card="Install #1 · Jev routes live">
+<rect x="1859.0" y="1567.0" width="410" height="194" rx="14" fill="#12243a" stroke="#d6a548" stroke-width="2" stroke-opacity="0.75" data-box="card"/>
+<path d="M1888,1589 l7,7 l-7,7 l-7,-7 Z" fill="#d6a548"/>
+<text x="1903.0" y="1602.0" font-size="17" font-weight="500" fill="#d6a548" text-anchor="start" letter-spacing="2" data-chk="in">OCT 4 · 14:09</text>
+<text x="1881.0" y="1642.0" font-size="28" font-weight="700" fill="#f3eee4" text-anchor="start" data-chk="in">Install #1 · Jev routes live</text>
+<text x="1881.0" y="1679.0" font-size="22" font-weight="400" fill="#c3c8cf" text-anchor="start" data-chk="in">Live on the owner’s daemon.</text>
+<text x="1881.0" y="1708.0" font-size="22" font-weight="400" fill="#c3c8cf" text-anchor="start" data-chk="in">route.v1 picks each message’s</text>
+<text x="1881.0" y="1737.0" font-size="22" font-weight="400" fill="#c3c8cf" text-anchor="start" data-chk="in">model, Haiku to Fable. 297 commits.</text>
+</g>
+<g data-card="The first outside measures">
+<rect x="1804.0" y="806.0" width="410" height="194" rx="14" fill="#12243a" stroke="rgba(255,255,255,0.12)" stroke-width="1.5" stroke-opacity="1" data-box="card"/>
+<text x="1826.0" y="841.0" font-size="17" font-weight="500" fill="#8f9db0" text-anchor="start" letter-spacing="2" data-chk="in">OCT 4</text>
+<text x="1826.0" y="881.0" font-size="28" font-weight="700" fill="#f3eee4" text-anchor="start" data-chk="in">The first outside measures</text>
+<text x="1826.0" y="918.0" font-size="22" font-weight="400" fill="#c3c8cf" text-anchor="start" data-chk="in">Terminal-Bench 2.0: 71.9% vs Claude</text>
+<text x="1826.0" y="947.0" font-size="22" font-weight="400" fill="#c3c8cf" text-anchor="start" data-chk="in">Code’s 81.5%, same model. Memory</text>
+<text x="1826.0" y="976.0" font-size="22" font-weight="400" fill="#c3c8cf" text-anchor="start" data-chk="in">exam: recall lifts 15% → 67%.</text>
+</g>
+<g data-card="v1 is live">
+<rect x="1860.0" y="557.0" width="410" height="194" rx="14" fill="#12243a" stroke="#d6a548" stroke-width="2" stroke-opacity="0.75" data-box="card"/>
+<path d="M1889,579 l7,7 l-7,7 l-7,-7 Z" fill="#d6a548"/>
+<text x="1904.0" y="592.0" font-size="17" font-weight="500" fill="#d6a548" text-anchor="start" letter-spacing="2" data-chk="in">OCT 5 · 16:48</text>
+<text x="1882.0" y="632.0" font-size="28" font-weight="700" fill="#f3eee4" text-anchor="start" data-chk="in">v1 is live</text>
+<text x="1882.0" y="669.0" font-size="22" font-weight="400" fill="#c3c8cf" text-anchor="start" data-chk="in">Install #5 puts the v1 build on the</text>
+<text x="1882.0" y="698.0" font-size="22" font-weight="400" fill="#c3c8cf" text-anchor="start" data-chk="in">owner’s daemon. 325 commits: the</text>
+<text x="1882.0" y="727.0" font-size="22" font-weight="400" fill="#c3c8cf" text-anchor="start" data-chk="in">busiest day.</text>
+</g>
+<g data-card="Light and fast">
+<rect x="2129.0" y="1318.0" width="410" height="194" rx="14" fill="#12243a" stroke="rgba(255,255,255,0.12)" stroke-width="1.5" stroke-opacity="1" data-box="card"/>
+<text x="2151.0" y="1353.0" font-size="17" font-weight="500" fill="#8f9db0" text-anchor="start" letter-spacing="2" data-chk="in">OCT 6</text>
+<text x="2151.0" y="1393.0" font-size="28" font-weight="700" fill="#f3eee4" text-anchor="start" data-chk="in">Light and fast</text>
+<text x="2151.0" y="1430.0" font-size="22" font-weight="400" fill="#c3c8cf" text-anchor="start" data-chk="in">24–28 MiB at peak, 16–25 ms of CPU</text>
+<text x="2151.0" y="1459.0" font-size="22" font-weight="400" fill="#c3c8cf" text-anchor="start" data-chk="in">per tool call; Claude Code 209–430</text>
+<text x="2151.0" y="1488.0" font-size="22" font-weight="400" fill="#c3c8cf" text-anchor="start" data-chk="in">MiB and 175–394 ms.</text>
+</g>
+<g data-card="Feature complete: v1-beta">
+<rect x="2260.0" y="806.0" width="410" height="194" rx="14" fill="#12243a" stroke="#d6a548" stroke-width="2" stroke-opacity="0.75" data-box="card"/>
+<path d="M2289,828 l7,7 l-7,7 l-7,-7 Z" fill="#d6a548"/>
+<text x="2304.0" y="841.0" font-size="17" font-weight="500" fill="#d6a548" text-anchor="start" letter-spacing="2" data-chk="in">OCT 6 · 22:04</text>
+<text x="2282.0" y="881.0" font-size="28" font-weight="700" fill="#f3eee4" text-anchor="start" data-chk="in">Feature complete: v1-beta</text>
+<text x="2282.0" y="918.0" font-size="22" font-weight="400" fill="#c3c8cf" text-anchor="start" data-chk="in">S3 backup on; 21,779 episodes of</text>
+<text x="2282.0" y="947.0" font-size="22" font-weight="400" fill="#c3c8cf" text-anchor="start" data-chk="in">earlier history imported in two</text>
+<text x="2282.0" y="976.0" font-size="22" font-weight="400" fill="#c3c8cf" text-anchor="start" data-chk="in">minutes, none rejected.</text>
+</g>
+<g data-card="Five installs in a day">
+<rect x="2360.0" y="1567.0" width="410" height="194" rx="14" fill="#12243a" stroke="rgba(255,255,255,0.12)" stroke-width="1.5" stroke-opacity="1" data-box="card"/>
+<text x="2382.0" y="1602.0" font-size="17" font-weight="500" fill="#8f9db0" text-anchor="start" letter-spacing="2" data-chk="in">OCT 7</text>
+<text x="2382.0" y="1642.0" font-size="28" font-weight="700" fill="#f3eee4" text-anchor="start" data-chk="in">Five installs in a day</text>
+<text x="2382.0" y="1679.0" font-size="22" font-weight="400" fill="#c3c8cf" text-anchor="start" data-chk="in">#10 to #14, store format 24.</text>
+<text x="2382.0" y="1708.0" font-size="22" font-weight="400" fill="#c3c8cf" text-anchor="start" data-chk="in">Overnight: 8 harnesses × 28</text>
+<text x="2382.0" y="1737.0" font-size="22" font-weight="400" fill="#c3c8cf" text-anchor="start" data-chk="in">Terminal-Bench trials.</text>
+</g>
+<g data-card="Today: a P0, fixed">
+<rect x="2390.0" y="528.0" width="410" height="223" rx="14" fill="#12243a" stroke="rgba(255,255,255,0.12)" stroke-width="1.5" stroke-opacity="1" data-box="card"/>
+<text x="2412.0" y="563.0" font-size="17" font-weight="500" fill="#8f9db0" text-anchor="start" letter-spacing="2" data-chk="in">OCT 8 · TODAY</text>
+<text x="2412.0" y="603.0" font-size="28" font-weight="700" fill="#f3eee4" text-anchor="start" data-chk="in">Today: a P0, fixed</text>
+<text x="2412.0" y="640.0" font-size="22" font-weight="400" fill="#c3c8cf" text-anchor="start" data-chk="in">28 night trials could start no shell</text>
+<text x="2412.0" y="669.0" font-size="22" font-weight="400" fill="#c3c8cf" text-anchor="start" data-chk="in">command, yet solved 20; fixed by</text>
+<text x="2412.0" y="698.0" font-size="22" font-weight="400" fill="#c3c8cf" text-anchor="start" data-chk="in">08:57. Then recall by words, Jev</text>
+<text x="2412.0" y="727.0" font-size="22" font-weight="400" fill="#c3c8cf" text-anchor="start" data-chk="in">picks effort, session states.</text>
+</g>
+<path d="M175.4,1157 l13,13 l-13,13 l-13,-13 Z" fill="#d6a548" stroke="#0d1a2a" stroke-width="3"/>
+<circle cx="350.5" cy="1170" r="8" fill="#f3eee4" stroke="#0d1a2a" stroke-width="3"/>
+<path d="M524.6,1157 l13,13 l-13,13 l-13,-13 Z" fill="#d6a548" stroke="#0d1a2a" stroke-width="3"/>
+<path d="M665.6,1157 l13,13 l-13,13 l-13,-13 Z" fill="#d6a548" stroke="#0d1a2a" stroke-width="3"/>
+<circle cx="987.8" cy="1170" r="8" fill="#f3eee4" stroke="#0d1a2a" stroke-width="3"/>
+<path d="M1353.0,1157 l13,13 l-13,13 l-13,-13 Z" fill="#d6a548" stroke="#0d1a2a" stroke-width="3"/>
+<circle cx="1524.8" cy="1170" r="8" fill="#f3eee4" stroke="#0d1a2a" stroke-width="3"/>
+<circle cx="1773.6" cy="1170" r="8" fill="#f3eee4" stroke="#0d1a2a" stroke-width="3"/>
+<circle cx="1868.5" cy="1170" r="8" fill="#f3eee4" stroke="#0d1a2a" stroke-width="3"/>
+<path d="M2055.8,1157 l13,13 l-13,13 l-13,-13 Z" fill="#d6a548" stroke="#0d1a2a" stroke-width="3"/>
+<circle cx="2011.7" cy="1170" r="8" fill="#f3eee4" stroke="#0d1a2a" stroke-width="3"/>
+<path d="M2246.6,1157 l13,13 l-13,13 l-13,-13 Z" fill="#d6a548" stroke="#0d1a2a" stroke-width="3"/>
+<circle cx="2355.4" cy="1170" r="8" fill="#f3eee4" stroke="#0d1a2a" stroke-width="3"/>
+<path d="M2456.2,1157 l13,13 l-13,13 l-13,-13 Z" fill="#d6a548" stroke="#0d1a2a" stroke-width="3"/>
+<circle cx="2555.9" cy="1170" r="8" fill="#f3eee4" stroke="#0d1a2a" stroke-width="3"/>
+<circle cx="2705.9" cy="1170" r="8" fill="#f3eee4" stroke="#0d1a2a" stroke-width="3"/>
+<circle cx="2760" cy="1170" r="44" fill="url(#tl-glow)"/>
+<circle cx="2760" cy="1170" r="11" fill="#d6a548" stroke="#0d1a2a" stroke-width="3"/>
+<text x="2862.0" y="1066.0" font-size="26" font-weight="700" fill="#d6a548" text-anchor="start" letter-spacing="5" data-chk="ahead">AHEAD</text>
+<text x="2862.0" y="1100.0" font-size="20" font-weight="400" fill="#8f9db0" text-anchor="start" data-chk="ahead">planned work, in order; no dates</text>
+<text x="2760.0" y="1234.0" font-size="20" font-weight="700" fill="#d6a548" text-anchor="middle" letter-spacing="3" paint-order="stroke" stroke="#0d1a2a" stroke-width="10" stroke-linejoin="round" data-chk="tick">NOW</text>
+<line x1="2828" y1="393" x2="2828" y2="1775" stroke="#c3c8cf" stroke-width="2" stroke-dasharray="6 9" opacity="0.5"/>
+<circle cx="2828" cy="393" r="17" fill="#0d1a2a" stroke="#c3c8cf" stroke-opacity="0.6" stroke-width="2"/>
+<text x="2828.0" y="400.0" font-size="15" font-weight="700" fill="#c3c8cf" text-anchor="middle">1</text>
+<g data-card="In review now">
+<rect x="2862" y="353" width="534" height="230" rx="14" fill="#0f1f31" stroke="#c3c8cf" stroke-opacity="0.35" stroke-width="1.5" stroke-dasharray="10 8" data-box="card"/>
+<rect x="2884" y="371" width="122.3" height="28" rx="14" fill="none" stroke="#d6a548" stroke-width="1.5"/>
+<text x="2895.0" y="390.0" font-size="15" font-weight="700" fill="#d6a548" text-anchor="start" letter-spacing="2.5">IN REVIEW</text>
+<text x="2884.0" y="437.0" font-size="28" font-weight="700" fill="#f3eee4" text-anchor="start" data-chk="in">In review now</text>
+<text x="2884.0" y="474.0" font-size="22" font-weight="400" fill="#c3c8cf" text-anchor="start" data-chk="in">A $200 daily spend ceiling, and four fixes</text>
+<text x="2884.0" y="503.0" font-size="22" font-weight="400" fill="#c3c8cf" text-anchor="start" data-chk="in">from the bench assessment: terminals,</text>
+<text x="2884.0" y="532.0" font-size="22" font-weight="400" fill="#c3c8cf" text-anchor="start" data-chk="in">spawn-ask, fs.read windows, keyless</text>
+<text x="2884.0" y="561.0" font-size="22" font-weight="400" fill="#c3c8cf" text-anchor="start" data-chk="in">web.search.</text>
+</g>
+<circle cx="2828" cy="645" r="17" fill="#0d1a2a" stroke="#c3c8cf" stroke-opacity="0.6" stroke-width="2"/>
+<text x="2828.0" y="652.0" font-size="15" font-weight="700" fill="#c3c8cf" text-anchor="middle">2</text>
+<g data-card="The rerun">
+<rect x="2862" y="605" width="534" height="172" rx="14" fill="#0f1f31" stroke="#c3c8cf" stroke-opacity="0.35" stroke-width="1.5" stroke-dasharray="10 8" data-box="card"/>
+<rect x="2884" y="623" width="111.7" height="28" rx="14" fill="none" stroke="#8f9db0" stroke-width="1.5"/>
+<text x="2895.0" y="642.0" font-size="15" font-weight="700" fill="#8f9db0" text-anchor="start" letter-spacing="2.5">PLANNED</text>
+<text x="2884.0" y="689.0" font-size="28" font-weight="700" fill="#f3eee4" text-anchor="start" data-chk="in">The rerun</text>
+<text x="2884.0" y="726.0" font-size="22" font-weight="400" fill="#c3c8cf" text-anchor="start" data-chk="in">Theseus as fixed and as routed, beside the</text>
+<text x="2884.0" y="755.0" font-size="22" font-weight="400" fill="#c3c8cf" text-anchor="start" data-chk="in">other harnesses on Terminal-Bench 2.0.</text>
+</g>
+<circle cx="2828" cy="839" r="17" fill="#0d1a2a" stroke="#c3c8cf" stroke-opacity="0.6" stroke-width="2"/>
+<text x="2828.0" y="846.0" font-size="15" font-weight="700" fill="#c3c8cf" text-anchor="middle">3</text>
+<g data-card="v1 exit">
+<rect x="2862" y="799" width="534" height="201" rx="14" fill="#0f1f31" stroke="#c3c8cf" stroke-opacity="0.35" stroke-width="1.5" stroke-dasharray="10 8" data-box="card"/>
+<rect x="2884" y="817" width="111.7" height="28" rx="14" fill="none" stroke="#8f9db0" stroke-width="1.5"/>
+<text x="2895.0" y="836.0" font-size="15" font-weight="700" fill="#8f9db0" text-anchor="start" letter-spacing="2.5">PLANNED</text>
+<text x="2884.0" y="883.0" font-size="28" font-weight="700" fill="#f3eee4" text-anchor="start" data-chk="in">v1 exit</text>
+<text x="2884.0" y="920.0" font-size="22" font-weight="400" fill="#c3c8cf" text-anchor="start" data-chk="in">Seven days of daily use, no serious bug,</text>
+<text x="2884.0" y="949.0" font-size="22" font-weight="400" fill="#c3c8cf" text-anchor="start" data-chk="in">speed targets met, every benchmark loss</text>
+<text x="2884.0" y="978.0" font-size="22" font-weight="400" fill="#c3c8cf" text-anchor="start" data-chk="in">explained or fixed.</text>
+</g>
+<circle cx="2828" cy="1358" r="17" fill="#0d1a2a" stroke="#c3c8cf" stroke-opacity="0.6" stroke-width="2"/>
+<text x="2828.0" y="1365.0" font-size="15" font-weight="700" fill="#c3c8cf" text-anchor="middle">4</text>
+<g data-card="New benchmarks">
+<rect x="2862" y="1318" width="534" height="201" rx="14" fill="#0f1f31" stroke="#c3c8cf" stroke-opacity="0.35" stroke-width="1.5" stroke-dasharray="10 8" data-box="card"/>
+<rect x="2884" y="1336" width="111.7" height="28" rx="14" fill="none" stroke="#8f9db0" stroke-width="1.5"/>
+<text x="2895.0" y="1355.0" font-size="15" font-weight="700" fill="#8f9db0" text-anchor="start" letter-spacing="2.5">PLANNED</text>
+<text x="2884.0" y="1402.0" font-size="28" font-weight="700" fill="#f3eee4" text-anchor="start" data-chk="in">New benchmarks</text>
+<text x="2884.0" y="1439.0" font-size="22" font-weight="400" fill="#c3c8cf" text-anchor="start" data-chk="in">Async work, incidental recall, continuity</text>
+<text x="2884.0" y="1468.0" font-size="22" font-weight="400" fill="#c3c8cf" text-anchor="start" data-chk="in">across seams; the fast-inference thesis:</text>
+<text x="2884.0" y="1497.0" font-size="22" font-weight="400" fill="#c3c8cf" text-anchor="start" data-chk="in">time-to-result against dollars.</text>
+</g>
+<circle cx="2828" cy="1581" r="17" fill="#0d1a2a" stroke="#c3c8cf" stroke-opacity="0.6" stroke-width="2"/>
+<text x="2828.0" y="1588.0" font-size="15" font-weight="700" fill="#c3c8cf" text-anchor="middle">5</text>
+<g data-card="Fable 5.5, when it ships">
+<rect x="2862" y="1541" width="534" height="172" rx="14" fill="#0f1f31" stroke="#c3c8cf" stroke-opacity="0.35" stroke-width="1.5" stroke-dasharray="10 8" data-box="card"/>
+<rect x="2884" y="1559" width="111.7" height="28" rx="14" fill="none" stroke="#8f9db0" stroke-width="1.5"/>
+<text x="2895.0" y="1578.0" font-size="15" font-weight="700" fill="#8f9db0" text-anchor="start" letter-spacing="2.5">PLANNED</text>
+<text x="2884.0" y="1625.0" font-size="28" font-weight="700" fill="#f3eee4" text-anchor="start" data-chk="in">Fable 5.5, when it ships</text>
+<text x="2884.0" y="1662.0" font-size="22" font-weight="400" fill="#c3c8cf" text-anchor="start" data-chk="in">A catalog entry, a profile, a comparison</text>
+<text x="2884.0" y="1691.0" font-size="22" font-weight="400" fill="#c3c8cf" text-anchor="start" data-chk="in">bench, and the routing swap.</text>
+</g>
+<circle cx="2828" cy="1775" r="17" fill="#0d1a2a" stroke="#c3c8cf" stroke-opacity="0.6" stroke-width="2"/>
+<text x="2828.0" y="1782.0" font-size="15" font-weight="700" fill="#c3c8cf" text-anchor="middle">6</text>
+<g data-card="The back half of the plan">
+<rect x="2862" y="1735" width="534" height="201" rx="14" fill="#0f1f31" stroke="#c3c8cf" stroke-opacity="0.35" stroke-width="1.5" stroke-dasharray="10 8" data-box="card"/>
+<rect x="2884" y="1753" width="111.7" height="28" rx="14" fill="none" stroke="#8f9db0" stroke-width="1.5"/>
+<text x="2895.0" y="1772.0" font-size="15" font-weight="700" fill="#8f9db0" text-anchor="start" letter-spacing="2.5">PLANNED</text>
+<text x="2884.0" y="1819.0" font-size="28" font-weight="700" fill="#f3eee4" text-anchor="start" data-chk="in">The back half of the plan</text>
+<text x="2884.0" y="1856.0" font-size="22" font-weight="400" fill="#c3c8cf" text-anchor="start" data-chk="in">M4 Boundaries · M5 Judgment: Jev beats</text>
+<text x="2884.0" y="1885.0" font-size="22" font-weight="400" fill="#c3c8cf" text-anchor="start" data-chk="in">the baseline · M6 Memory as experiment ·</text>
+<text x="2884.0" y="1914.0" font-size="22" font-weight="400" fill="#c3c8cf" text-anchor="start" data-chk="in">M7 Surface: OpenClaw out of the loop.</text>
+</g>
+<line x1="96" y1="2044" x2="3396" y2="2044" stroke="#24384f" stroke-width="1.5"/>
+<path d="M108,2071 l12,12 l-12,12 l-12,-12 Z" fill="#d6a548"/>
+<text x="130.0" y="2091.0" font-size="21" font-weight="400" fill="#c3c8cf" text-anchor="start" data-chk="legend">a Theseus milestone</text>
+<circle cx="387.3462219238281" cy="2083" r="8" fill="#f3eee4"/>
+<text x="407.3" y="2091.0" font-size="21" font-weight="400" fill="#c3c8cf" text-anchor="start" data-chk="legend">an event</text>
+<rect x="543.4349060058594" y="2068" width="22" height="28" rx="3" fill="url(#tl-bar)"/>
+<text x="577.4" y="2091.0" font-size="21" font-weight="400" fill="#c3c8cf" text-anchor="start" data-chk="legend">commits per day</text>
+<rect x="787.9682464599609" y="2074" width="16" height="18" rx="3" fill="#3987e5"/>
+<rect x="805.9682464599609" y="2074" width="16" height="18" rx="3" fill="#d95926"/>
+<rect x="823.9682464599609" y="2074" width="16" height="18" rx="3" fill="#199e70"/>
+<rect x="841.9682464599609" y="2074" width="16" height="18" rx="3" fill="#9085e9"/>
+<rect x="859.9682464599609" y="2074" width="16" height="18" rx="3" fill="#d55181"/>
+<rect x="877.9682464599609" y="2074" width="16" height="18" rx="3" fill="#008300"/>
+<text x="908.0" y="2091.0" font-size="21" font-weight="400" fill="#c3c8cf" text-anchor="start" data-chk="legend">how it was built: each band marks when a way of building took over; each carried on after</text>
+<line x1="1805.9758758544922" y1="2083" x2="1849.9758758544922" y2="2083" stroke="#c3c8cf" stroke-width="3" stroke-dasharray="10 8" opacity="0.6"/>
+<text x="1864.0" y="2091.0" font-size="21" font-weight="400" fill="#c3c8cf" text-anchor="start" data-chk="legend">ahead: planned, not done</text>
+<text x="96.0" y="2148.0" font-size="18" font-weight="400" fill="#8f9db0" text-anchor="start" data-chk="foot">Sources: the repository’s history on main, the design document’s Part III (Items 1 to 243), docs/status.md and docs/benchmarks/. Counts from the tree on October 8, 2026; tests from that day’s gate. Planned work carries no dates.</text>
+<text x="3396.0" y="2148.0" font-size="18" font-weight="400" fill="#8f9db0" text-anchor="end" data-chk="foot">Drawn by Tabitha/Claude for the owner · theseus-m29k</text>
+</svg>
