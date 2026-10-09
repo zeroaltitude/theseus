@@ -135,6 +135,9 @@ impl Core {
             let _ = writer.shutdown().await;
         });
 
+        // The ordered lane (theseus-klo2): what changes a session applies in
+        // the order it arrived.
+        let lane = Arc::new(super::ordered::Lane::default());
         let mut lines = BufReader::new(reader).lines();
         while let Ok(Some(line)) = lines.next_line().await {
             let line = line.trim().to_string();
@@ -161,10 +164,11 @@ impl Core {
                     let client = client.clone();
                     let closed = closed_rx.clone();
                     let shutdown = req.method == method::SHUTDOWN;
+                    // Entered here, in its arrival order (theseus-klo2).
+                    let ticket = lane.ticket_for(&req.method);
                     tokio::spawn(async move {
                         let resp = core
-                            .clone()
-                            .handle(req, tx, &client, surface, &closed)
+                            .handle_in_lane(ticket, req, tx, &client, surface, &closed)
                             .await;
                         let stopping = shutdown && resp.error.is_none();
                         resp_tx.respond(Message::Response(resp));
@@ -199,6 +203,25 @@ impl Core {
             let _ = tokio::time::timeout(ANSWER_FLUSH, written).await;
         }
         self.shutdown.notify_waiters();
+    }
+
+    /// `handle`, after the earlier requests on its lane have taken effect
+    /// when it is an ordered one, with its mark in reach (theseus-klo2).
+    async fn handle_in_lane(
+        self: &Arc<Self>,
+        ticket: Option<super::ordered::Ticket>,
+        req: Request,
+        tx: Outbound,
+        client: &str,
+        surface: Surface,
+        closed: &watch::Receiver<()>,
+    ) -> Response {
+        let Some(t) = ticket else {
+            return self.clone().handle(req, tx, client, surface, closed).await;
+        };
+        t.wait(self.lane_key(&req.method, &req.params)).await;
+        let work = self.clone().handle(req, tx, client, surface, closed);
+        super::ordered::scope(t.applied(), work).await
     }
 
     async fn handle(

@@ -202,6 +202,8 @@ impl Core {
             }
             Ok(records)
         })?;
+        // Marked: the next request on its client's lane may run (theseus-klo2).
+        super::ordered::applied();
         if let Some(post) = report {
             self.outbox.posted(&post);
         }
@@ -386,6 +388,7 @@ impl Core {
     ) -> Result<theseus_protocol::ExecutionStopResult> {
         self.runner.stop_landed(id, by);
         let stop = self.kernel.stop_execution(id, by)?;
+        super::ordered::applied();
         let Some(stop) = stop else {
             let e = self
                 .kernel
