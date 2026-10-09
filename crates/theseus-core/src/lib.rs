@@ -351,3 +351,5 @@ mod tests_tiering;
 mod tests_turn_reserve;
 #[cfg(test)]
 mod tests_wakes;
+#[cfg(test)]
+mod tests_web_offer;

@@ -8,7 +8,10 @@ use super::{push, Line, Tag};
 
 /// The line, loud (the bad tag) where the owner check is off. Health carries
 /// no word for a web UI that is switched off, so it reads as `web: ok`.
-pub(super) fn push_health(o: &mut Vec<Line>, w: &WebStatus) {
+pub(super) fn push_health(o: &mut Vec<Line>, w: &WebStatus, not_offered: &[String]) {
+    for why in not_offered {
+        push(o, Tag::Plain, why);
+    }
     let tag = match w.peer_unchecked {
         Some(_) => Tag::Bad,
         None => Tag::Plain,
@@ -85,7 +88,7 @@ mod tests {
     #[test]
     fn the_owner_checks_absence_is_loud_and_the_rest_is_quiet() {
         let mut quiet = Vec::new();
-        push_health(&mut quiet, &WebStatus::default());
+        push_health(&mut quiet, &WebStatus::default(), &[]);
         assert_eq!(quiet.len(), 1);
         assert_eq!(quiet[0].tag, Tag::Plain);
         let mut loud = Vec::new();
@@ -93,7 +96,16 @@ mod tests {
             peer_unchecked: Some("invented reason".into()),
             ..WebStatus::default()
         };
-        push_health(&mut loud, &w);
+        push_health(&mut loud, &w, &[]);
         assert_eq!(loud[0].tag, Tag::Bad);
+    }
+
+    #[test]
+    fn a_tool_not_offered_is_a_line_that_says_why() {
+        let mut o = Vec::new();
+        let why = "web.search: not offered: no [secrets] entry brave_api_key".to_string();
+        push_health(&mut o, &WebStatus::default(), std::slice::from_ref(&why));
+        assert_eq!(o.len(), 2);
+        assert!(o[0].text.contains(&why));
     }
 }

@@ -25,6 +25,18 @@ pub mod search;
 /// The web tools' names, for the config's check of `[policy.tools]`.
 pub const NAMES: [&str; 2] = ["http.fetch", "web.search"];
 
+/// Why `web.search` is not offered, or `None` when it is (theseus-4o4c): it
+/// needs a `[secrets]` entry named by `[tools.web] search_key_secret`. An entry
+/// that cannot be read still offers the tool, so the call says why.
+pub fn search_missing(cfg: &crate::Config) -> Option<String> {
+    let name = &cfg.tools.web.search_key_secret;
+    (name.is_empty() || !cfg.secrets.contains_key(name)).then(|| {
+        format!(
+            "web.search: not offered: no [secrets] entry {name}; add it and restart theseusd to offer it"
+        )
+    })
+}
+
 /// Where `web.search` asks.
 pub const BRAVE_ENDPOINT: &str = "https://api.search.brave.com/res/v1/web/search";
 
@@ -82,10 +94,16 @@ impl Web {
 
     /// `http.fetch` and `web.search`.
     pub fn tools(self: &Arc<Self>) -> Vec<Arc<dyn Tool>> {
-        vec![
-            Arc::new(fetch::Fetch(self.clone())),
-            Arc::new(search::Search(self.clone())),
-        ]
+        self.tools_with(true)
+    }
+
+    /// `http.fetch` always; `web.search` when `search` (see `search_missing`).
+    pub fn tools_with(self: &Arc<Self>, search: bool) -> Vec<Arc<dyn Tool>> {
+        let mut tools: Vec<Arc<dyn Tool>> = vec![Arc::new(fetch::Fetch(self.clone()))];
+        if search {
+            tools.push(Arc::new(search::Search(self.clone())));
+        }
+        tools
     }
 
     /// The client a request goes out on. Every name it resolves is checked

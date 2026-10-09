@@ -70,6 +70,7 @@ impl Core {
             kernel: self.kernel_status(),
             children: self.children_status(),
             broker: self.tools.broker.status(),
+            tools_not_offered: self.tools.not_offered.clone(),
             harness_only: Some(crate::broker::harness_only(&self.cfg, &self.tools.broker)),
             cost_usd_total: totals.cost_usd,
             catalog_version: self.catalog.version.clone(),

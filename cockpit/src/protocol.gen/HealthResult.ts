@@ -96,6 +96,10 @@ children: ChildrenStatus,
  */
 broker: Array<GrantStatus>, 
 /**
+ * Tools left out for want of what they need, each with why (theseus-4o4c).
+ */
+tools_not_offered: Array<string>, 
+/**
  * What a job may be handed, and what stays the harness's own: the AWS
  * and providers' keys (theseus-gh7). Absent from a daemon before it.
  */

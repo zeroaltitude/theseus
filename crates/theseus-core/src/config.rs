@@ -1355,8 +1355,8 @@ impl Config {
                 anyhow::bail!("profiles.{name}.max_loops must be at least 1");
             }
         }
-        // The search key's secret may be absent: web.search then says it has
-        // no key, as a result the model reads (DD5).
+        // The search key's secret may be absent: web.search is then not
+        // offered, and health says why (theseus-4o4c).
         let web = &self.tools.web;
         if !(1..=WEB_TIMEOUT_MAX_SECS).contains(&web.timeout_secs) {
             anyhow::bail!(
