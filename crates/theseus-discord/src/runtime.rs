@@ -67,6 +67,7 @@ pub(crate) use live::PERIOD as LIVE_PERIOD;
 mod prompt;
 mod publish;
 pub(crate) mod route;
+mod show;
 mod succession;
 #[cfg(test)]
 pub(crate) use succession::open_at_bind;
@@ -315,6 +316,7 @@ async fn connect(
         voice: voice::Voice::new(&core.cfg.voice, bindings),
         place_bits: guilds::PlaceBits::new(bindings),
         replies: Default::default(),
+        pings: Default::default(),
     });
     // The lanes first: what the outbox holds for these places needs only
     // REST, so it goes out while the rest connects, or while the gateway is
@@ -596,6 +598,8 @@ pub(crate) struct Shared {
     place_bits: guilds::PlaceBits,
     /// The replies posted, by message, for a reaction to find (theseus-q31l).
     pub(crate) replies: route::Replies,
+    /// Each place's ping words, and its window's last pings (theseus-l1y1).
+    pub(crate) pings: crate::policy::Pings,
 }
 
 /// One message for a turn: who wrote it, what it says, its files (still
@@ -987,8 +991,7 @@ impl Shared {
         kind: &'static str,
         label: String,
         channel: Option<Id<ChannelMarker>>,
-        users: Vec<u64>,
-        mention_only: bool,
+        (users, mention_only, show): (Vec<u64>, bool, show::Show),
     ) -> anyhow::Result<()> {
         // None: the place's first message opens its session (theseus-emqx).
         let (resumed, notice) = self.resumable(&key, &label).await?;
@@ -1031,6 +1034,7 @@ impl Shared {
             mention_only,
             session_id,
             renderer,
+            view: show::View::new(show),
             lane,
             inflight: false,
             queued: Vec::new(),
@@ -1825,6 +1829,9 @@ struct Place {
     mention_only: bool,
     session_id: String,
     renderer: Renderer,
+    /// Its loops' process messages: tool lines and thinking, shown or not
+    /// (theseus-l1y1).
+    view: show::View,
     /// The place's lane: the one writer of its messages (theseus-q4v).
     lane: mpsc::UnboundedSender<LaneMsg>,
     /// A `turn.submit` of ours is outstanding.
@@ -1856,7 +1863,8 @@ impl Place {
                     Some(m) => self.handle(m).await,
                 },
                 _ = tick.tick() => {
-                    let ops = self.renderer.tick();
+                    let mut ops = self.view.tick();
+                    ops.extend(self.view.fold(self.renderer.tick()));
                     self.apply(ops);
                 }
                 _ = typing.tick() => {
@@ -1923,7 +1931,8 @@ impl Place {
                         _ => {}
                     }
                 }
-                let ops = self.renderer.on_event(&e);
+                let mut ops = self.view.on_event(&e);
+                ops.extend(self.view.fold(self.renderer.on_event(&e)));
                 self.apply(ops);
                 // A turn's start may drop the oldest: the lane keeps the held
                 // turns' messages whole, and forgets a dropped one's
@@ -2091,7 +2100,7 @@ impl Place {
                 // The stopped turn's stream stops here, where Discord last
                 // saw it; it posts no reply.
                 if let Some(turn) = self.renderer.running_turn() {
-                    let ops = self.renderer.stop(&turn);
+                    let ops = self.view.fold(self.renderer.stop(&turn));
                     self.apply(ops);
                     self.stopped_turn = Some(turn);
                 }
@@ -2303,6 +2312,7 @@ pub(crate) fn shared_for_tests(core: &Arc<Core>) -> Arc<Shared> {
         voice: voice::Voice::none(),
         place_bits: Default::default(),
         replies: Default::default(),
+        pings: Default::default(),
     })
 }
 
@@ -2721,6 +2731,7 @@ pub(crate) mod tests {
             .insert(sid.to_string(), tx.clone());
         let place = Place {
             renderer: shared.renderer(),
+            view: show::View::new(show::Show::default()),
             shared,
             key: "dm:42".into(),
             target: "discord:dm:42".into(),

@@ -125,6 +125,21 @@ pub struct Msg {
     /// Pinned in its channel (39b's board).
     #[serde(default)]
     pub pinned: bool,
+    /// The create's `flags`, as sent (theseus-l1y1): `SUPPRESS_NOTIFICATIONS`
+    /// (4096) makes it a silent message, which no device notifies. An edit
+    /// leaves it as the create set it.
+    #[serde(default)]
+    pub flags: u64,
+}
+
+/// Discord's `SUPPRESS_NOTIFICATIONS` message flag (1 << 12).
+pub const SUPPRESS_NOTIFICATIONS: u64 = 1 << 12;
+
+impl Msg {
+    /// Its create was silent: it posted, and no device notified.
+    pub fn silent(&self) -> bool {
+        self.flags & SUPPRESS_NOTIFICATIONS != 0
+    }
 }
 
 /// A button on a message.
@@ -666,6 +681,7 @@ impl FakeDiscord {
                 buttons: vec![],
                 components_json: json!([]),
                 pinned: false,
+                flags: 0,
             });
             (at, id)
         };
@@ -899,6 +915,7 @@ impl FakeDiscord {
                         buttons: buttons(&body["components"]),
                         components_json: body["components"].clone(),
                         pinned: false,
+                        flags: body["flags"].as_u64().unwrap_or(0),
                     };
                     st.messages.push(m.clone());
                     (m, "created")

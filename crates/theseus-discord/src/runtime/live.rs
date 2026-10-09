@@ -50,6 +50,7 @@ use twilight_model::id::Id;
 use super::{guilds, Board, Place, PlaceMsg, Shared};
 use crate::bindings::{snowflake, Bindings, ChannelBinding, DmBinding};
 use crate::courier::{Lane, LaneMsg};
+use crate::policy::PlacePings;
 
 /// How often the file is stat'ed.
 pub(crate) const PERIOD: Duration = Duration::from_secs(2);
@@ -282,6 +283,7 @@ pub(super) struct Rebound {
     label: String,
     users: Vec<u64>,
     mention_only: bool,
+    show: super::show::Show,
 }
 
 impl Place {
@@ -294,6 +296,7 @@ impl Place {
         self.label = r.label;
         self.users = r.users;
         self.mention_only = r.mention_only;
+        self.view.set(r.show);
         let _ = self.lane.send(LaneMsg::Label(self.label.clone()));
         self.shared
             .place_limit(&self.key, &self.label, &self.session_id);
@@ -425,6 +428,7 @@ impl Shared {
     pub(super) fn start_channel_lane(self: &Arc<Self>, c: &ChannelBinding) -> anyhow::Result<()> {
         let id = snowflake("channel id", &c.id)?;
         let target = format!("discord:channel:{}", c.id);
+        self.pings.set(&target, PlacePings::of_channel(c));
         self.start_lane(target, "channel", c.label(), Some(id), None);
         Ok(())
     }
@@ -433,6 +437,7 @@ impl Shared {
         let user = snowflake("dm user", &d.user)?;
         self.add_dm(user, d.label());
         let target = format!("discord:dm:{}", d.user);
+        self.pings.set(&target, PlacePings::of_dm(d));
         self.start_lane(target, "dm", d.label(), None, Some(user));
         Ok(())
     }
@@ -448,7 +453,13 @@ impl Shared {
         let key = format!("channel:{}", c.id);
         let (label, mention_only) = (c.label(), c.mention_only);
         self.clone()
-            .start_place(key, "channel", label, Some(channel), users, mention_only)
+            .start_place(
+                key,
+                "channel",
+                label,
+                Some(channel),
+                (users, mention_only, super::show::Show::of_channel(c)),
+            )
             .await
     }
 
@@ -464,7 +475,13 @@ impl Shared {
         };
         let key = format!("dm:{}", d.user);
         self.clone()
-            .start_place(key, "dm", d.label(), channel, vec![user], false)
+            .start_place(
+                key,
+                "dm",
+                d.label(),
+                channel,
+                (vec![user], false, super::show::Show::of_dm(d)),
+            )
             .await
     }
 
@@ -650,12 +667,20 @@ impl Shared {
     /// The place `key`'s settings changed: its routes now, its actor and
     /// lane by message.
     fn rebind(&self, key: &str, p: &Spot<'_>) {
-        let (label, users, mention_only) = match p {
+        let (label, users, mention_only, show) = match p {
             Spot::Channel(c) => {
                 let users: Vec<u64> = c.users.iter().filter_map(|u| u.parse().ok()).collect();
-                (c.label(), users, c.mention_only)
+                let show = super::show::Show::of_channel(c);
+                self.pings
+                    .set(&format!("discord:{key}"), PlacePings::of_channel(c));
+                (c.label(), users, c.mention_only, show)
             }
-            Spot::Dm(d) => (d.label(), d.user.parse().into_iter().collect(), false),
+            Spot::Dm(d) => {
+                let show = super::show::Show::of_dm(d);
+                self.pings
+                    .set(&format!("discord:{key}"), PlacePings::of_dm(d));
+                (d.label(), d.user.parse().into_iter().collect(), false, show)
+            }
         };
         let place = {
             let mut r = self.routes.lock().unwrap();
@@ -683,6 +708,7 @@ impl Shared {
                 label,
                 users,
                 mention_only,
+                show,
             };
             let _ = tx.send(PlaceMsg::Rebound(Box::new(r)));
         }

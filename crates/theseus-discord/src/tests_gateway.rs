@@ -105,7 +105,7 @@ impl Rig {
     }
 
     /// The same, with the config changed by `tweak` before the core builds.
-    async fn start_tweaked(
+    pub(crate) async fn start_tweaked(
         model: impl FnOnce(&Path, Arc<FakeDiscord>) -> Arc<dyn Provider>,
         guild: Guild,
         bindings: &str,

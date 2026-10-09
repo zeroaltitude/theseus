@@ -608,6 +608,17 @@ token_secret = "discord_bot_token"      # name of the [secrets] entry holding th
 bindings_file = "bindings.toml"         # the guild, channel, and who may drive it; relative = in the state dir
 edit_interval_ms = 1200                 # how often a streaming reply is edited (Discord rate-limits edits)
 notice_embeds = false                   # an embed per notified call; off, its line in the tool message says 🔔 notified
+silent = []                             # categories of message that post without a ping; today's pings by default,
+                                        # and silence is per category, per place (a [[channel]] or [[dm]] in the
+                                        # bindings file may give its own list). Any of "cards", "failures" (a
+                                        # failed turn or task, disk below the floor), "answer" (the first part of
+                                        # the reply to your message), "later_parts" (its later parts and footer, a
+                                        # reply to anyone else), "woken" (a turn a wake or a task's report
+                                        # started), "tool_lines" (and notice embeds), "reports" (a task's end, a
+                                        # hands line), "notices" (a bind, budgets, Jev, glides), "ops" (a restart,
+                                        # MCP, low disk). A closed card, the task board and a loop's thinking alone
+                                        # never ping
+ping_window_secs = 0                    # at most one ping per place in this many seconds (a place may set its own); 0 is off
 # A turn's reply, a confirm card and how it closed, and the notices you must see
 # are posts in the outbox, written when they happen and sent once when Discord
 # can take them, in order per place; health shows what waits. For tests and

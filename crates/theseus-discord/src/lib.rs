@@ -25,6 +25,7 @@ pub mod bindings;
 mod courier;
 mod diskwords;
 mod files;
+mod policy;
 pub mod render;
 pub mod rpc_client;
 mod runtime;
@@ -34,6 +35,12 @@ mod tests_gateway;
 mod tests_live;
 #[cfg(test)]
 mod tests_outbox;
+#[cfg(test)]
+mod tests_process;
+#[cfg(test)]
+mod tests_show;
+#[cfg(test)]
+mod tests_silent;
 pub mod viewers;
 
 pub use bindings::{Bindings, EXAMPLE_BINDINGS};

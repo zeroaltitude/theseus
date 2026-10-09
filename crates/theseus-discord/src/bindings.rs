@@ -6,6 +6,7 @@ use std::path::Path;
 use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use theseus_core::config::discord::Category;
 use theseus_protocol::{GuildInfo, PlaceCeiling};
 use toml::Spanned;
 
@@ -76,6 +77,17 @@ pub struct ChannelBinding {
     pub voice: bool,
     /// What the place gets beneath the place rule (step 38a).
     pub ceiling: Option<PlaceCeiling>,
+    /// It shows each loop's tool line, and a notified call's embed
+    /// (theseus-l1y1). On by default.
+    pub show_tools: bool,
+    /// It shows each loop's thinking (theseus-l1y1). On by default.
+    pub show_thinking: bool,
+    /// The categories that post silent here (theseus-l1y1): absent,
+    /// `[discord] silent`'s.
+    pub silent: Option<Vec<Category>>,
+    /// At most one ping here in this many seconds: absent,
+    /// `[discord] ping_window_secs`; 0 is off.
+    pub ping_window_secs: Option<u64>,
 }
 
 /// A `[[channel]]` as the file writes it, with where its keys are.
@@ -96,6 +108,14 @@ struct RawChannel {
     voice: bool,
     #[serde(default)]
     ceiling: Option<Ceiling>,
+    #[serde(default = "yes")]
+    show_tools: bool,
+    #[serde(default = "yes")]
+    show_thinking: bool,
+    #[serde(default)]
+    silent: Option<Vec<Category>>,
+    #[serde(default)]
+    ping_window_secs: Option<u64>,
 }
 
 /// The file as written, with where its format's keys are.
@@ -171,6 +191,14 @@ struct RawDm {
     name: Option<String>,
     #[serde(default)]
     ceiling: Option<Ceiling>,
+    #[serde(default = "yes")]
+    show_tools: bool,
+    #[serde(default = "yes")]
+    show_thinking: bool,
+    #[serde(default)]
+    silent: Option<Vec<Category>>,
+    #[serde(default)]
+    ping_window_secs: Option<u64>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -179,6 +207,11 @@ pub struct DmBinding {
     pub name: Option<String>,
     /// What the place gets beneath the place rule (step 38a).
     pub ceiling: Option<PlaceCeiling>,
+    /// As a channel's (theseus-l1y1).
+    pub show_tools: bool,
+    pub show_thinking: bool,
+    pub silent: Option<Vec<Category>>,
+    pub ping_window_secs: Option<u64>,
 }
 
 impl ChannelBinding {
@@ -274,6 +307,10 @@ impl Bindings {
                 user: d.user,
                 name: d.name,
                 ceiling,
+                show_tools: d.show_tools,
+                show_thinking: d.show_thinking,
+                silent: d.silent,
+                ping_window_secs: d.ping_window_secs,
             });
         }
         let digest = Sha256::digest(text.as_bytes());
@@ -377,6 +414,10 @@ impl Bindings {
             private: c.private,
             voice: c.voice,
             ceiling,
+            show_tools: c.show_tools,
+            show_thinking: c.show_thinking,
+            silent: c.silent,
+            ping_window_secs: c.ping_window_secs,
         })
     }
 }
@@ -419,6 +460,51 @@ mod tests {
         assert_eq!(c.tools.unwrap(), ["fs", "git", "web"]);
         assert_eq!(c.spend_limit_usd, Some(5.0));
         assert_eq!(c.profile.as_deref(), Some("default"));
+    }
+
+    /// A place shows its tool lines and its thinking unless it says not to
+    /// (theseus-l1y1): both on by default, each its own word, a channel's
+    /// and a DM's; the example's lines, uncommented, are real.
+    #[test]
+    fn a_place_shows_tools_and_thinking_unless_it_says_not_to() {
+        let b = Bindings::parse(EXAMPLE_BINDINGS).unwrap();
+        let (c, d) = (&b.channel[0], &b.dm[0]);
+        assert!(c.show_tools && c.show_thinking && d.show_tools && d.show_thinking);
+        let example = EXAMPLE_BINDINGS
+            .replacen("# show_tools = true ", "show_tools = false ", 1)
+            .replacen("# show_thinking = true ", "show_thinking = true ", 2)
+            .replacen("# show_tools = true ", "show_tools = true ", 1);
+        let b = Bindings::parse(&example).unwrap();
+        assert!(!b.channel[0].show_tools && b.channel[0].show_thinking);
+        assert!(b.dm[0].show_tools && b.dm[0].show_thinking);
+        let b = Bindings::parse("[[dm]]\nuser = \"323456789012345678\"\nshow_thinking = false\n")
+            .unwrap();
+        assert!(b.dm[0].show_tools && !b.dm[0].show_thinking);
+    }
+
+    /// A place's own `silent` list and window (theseus-l1y1): absent by
+    /// default, so `[discord]`'s apply; the example's lines, uncommented,
+    /// are real; a category no list knows is refused.
+    #[test]
+    fn a_place_may_give_its_own_silent_list_and_window() {
+        let b = Bindings::parse(EXAMPLE_BINDINGS).unwrap();
+        let (c, d) = (&b.channel[0], &b.dm[0]);
+        assert_eq!((&c.silent, c.ping_window_secs), (&None, None));
+        assert_eq!((&d.silent, d.ping_window_secs), (&None, None));
+        let example = EXAMPLE_BINDINGS
+            .replace("# silent = [", "silent = [")
+            .replace("# ping_window_secs = 0 ", "ping_window_secs = 30 ");
+        let b = Bindings::parse(&example).unwrap();
+        for (silent, window) in [
+            (&b.channel[0].silent, b.channel[0].ping_window_secs),
+            (&b.dm[0].silent, b.dm[0].ping_window_secs),
+        ] {
+            assert_eq!(silent.as_deref(), Some(&[Category::ToolLines][..]));
+            assert_eq!(window, Some(30));
+        }
+        let bad = example.replacen("silent = [\"tool_lines\"]", "silent = [\"tools\"]", 1);
+        let e = format!("{:#}", Bindings::parse(&bad).unwrap_err());
+        assert!(e.contains("tools"), "{e}");
     }
 
     /// A voice channel is a `[[channel]]` bound `voice = true` (rows 77 and

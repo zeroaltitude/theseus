@@ -671,14 +671,29 @@ fn steps(r: &mut Rig, theseusd: &Path) -> Option<()> {
         .then_some(())?;
     r.step("the card is updated: approved, its buttons gone", settled)
         .then_some(())?;
-    r.step("the resumed turn's reply posts", |r| {
-        wait("the reply", || {
-            r.posted(LAB)
-                .into_iter()
-                .find(|m| m.content.contains(DONE_TEXT))
-                .map(|m| format!("{:?}", first_line(&m.content)))
-        })
-    })
+    r.step(
+        "the resumed turn's reply posts, and every create pinged",
+        |r| {
+            let done = wait("the reply", || {
+                r.posted(LAB)
+                    .into_iter()
+                    .find(|m| m.content.contains(DONE_TEXT))
+                    .map(|m| format!("{:?}", first_line(&m.content)))
+            })?;
+            // Today's pings with no config (theseus-l1y1): no closed card here.
+            let bot = BOT_ID.to_string();
+            let all = r.fake.all_messages();
+            let silent: Vec<_> = all
+                .iter()
+                .filter(|m| m.author == bot && m.silent())
+                .collect();
+            if !silent.is_empty() {
+                return Err(format!("silent with no config: {silent:?}"));
+            }
+            let n = all.iter().filter(|m| m.author == bot).count();
+            Ok(format!("{done}; all {n} of the bot's creates pinged"))
+        },
+    )
     .then_some(())?;
     r.step(
         "the daemon stops cleanly, with no binding error and no token kept",
@@ -740,9 +755,16 @@ fn typed_message(r: &mut Rig) -> Result<String, String> {
             m.reply_to.as_deref() == Some(typed.as_str()) && m.content.contains(READY_TEXT)
         })
     })?;
+    // With no `[discord] silent`, every write notifies (theseus-l1y1).
+    if reply.silent() {
+        return Err(format!(
+            "the answer to ana's message went out silent: {reply:?}"
+        ));
+    }
     Ok(format!(
-        "message {typed} answered by {}: {:?}",
+        "message {typed} answered by {} (flags {}): {:?}",
         reply.id,
+        reply.flags,
         first_line(&reply.content)
     ))
 }
@@ -791,10 +813,14 @@ fn card(r: &mut Rig) -> Result<String, String> {
     if card.mentions != [ANA.to_string()] {
         return Err(format!("it notifies {:?}, not only ana", card.mentions));
     }
+    if card.silent() {
+        return Err(format!("the card went out silent: {card:?}"));
+    }
     r.card = card.id.clone();
     Ok(format!(
-        "{:?}, buttons {labels:?}",
-        first_line(&card.content)
+        "{:?}, buttons {labels:?} (flags {})",
+        first_line(&card.content),
+        card.flags
     ))
 }
 
@@ -926,7 +952,8 @@ fn clip(s: &str) -> String {
 }
 
 /// Every message the stand-in holds, by channel, each version in order, its
-/// buttons, and every answer to an interaction.
+/// buttons, each of the bot's creates' flags (theseus-l1y1: silent, or it
+/// pings), and every answer to an interaction.
 fn transcript(fake: &FakeDiscord) -> Vec<String> {
     let who = |a: &str| match a.parse::<u64>() {
         Ok(BOT_ID) => "theseus".to_string(),
@@ -947,8 +974,13 @@ fn transcript(fake: &FakeDiscord) -> Vec<String> {
             .map(|v| format!("{:?}", clip(v)))
             .collect();
         let buttons: Vec<&str> = m.buttons.iter().map(|b| b.label.as_str()).collect();
+        let flags = match (m.author == BOT_ID.to_string(), m.silent()) {
+            (false, _) => String::new(),
+            (true, true) => format!(" (flags {}: silent)", m.flags),
+            (true, false) => format!(" (flags {}: pings)", m.flags),
+        };
         out.push(format!(
-            "{place} {}: {}{}",
+            "{place} {}: {}{}{flags}",
             who(&m.author),
             versions.join(" -> "),
             if buttons.is_empty() {

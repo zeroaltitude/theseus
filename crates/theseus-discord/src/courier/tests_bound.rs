@@ -51,6 +51,7 @@ async fn post_final(lane: &mut Lane, key: &str, content: &str) {
         reply_to: None,
         message: None,
         mentions: vec![],
+        ping: false,
     };
     lane.write(&w).await.unwrap();
 }
