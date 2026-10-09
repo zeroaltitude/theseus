@@ -1,0 +1,8 @@
+$ theseus --no-stream ask List.
+--- requests
+turn.submit
+--- stdout
+Two files.
+--- stderr
+[quick → zed/glm-x · 2 loop(s) · 3 tool call(s) · end_turn · tokens in 5230 out 212 cache r4096 w0 · $0.0031 · 3021 ms (first token 640 ms) · session ses_q7f3k2]
+--- exit 0

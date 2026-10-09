@@ -3,7 +3,7 @@ $ theseus ask --trace List.
 turn.submit
 --- stdout
 --- stderr
-[quick → zed/glm-x · 2 loop(s) · 3 tool call(s) · end_turn · tokens in 5230 out 212 cache r4096 w0 · $0.0031 · 3021 ms (first token 640 ms) · session ses_q7f3k2]
+[quick → zed/glm-x · 2 loop(s) · 3 tool call(s) · end_turn · tokens in 5230 out 212 cache r4096 w0 · $0.0412 total ($0.0031 this reply) · 3021 ms (first token 640 ms) · session ses_q7f3k2]
 --- trace (3.02 s total)
 ████████████████████████    3.02 s  turn [turn]
 █·······················    500 µs    admission.wait [lock]

@@ -37,6 +37,9 @@ Key modules: `lib.rs` (the `method`, `notify`, `error_code` tables), `events.rs`
   wording every surface shows (`cockpit/src/lib/check.ts` mirrors it).
 - `route.rs`: how routing placed a turn (`TurnRoute`), and a refusal's fallback (`TurnFallback`, theseus-7gir.18) with
   `TurnFallback::line`, the one wording every surface shows (`cockpit/src/lib/fallback.ts` mirrors it).
+- `cost.rs` (theseus-c0bb): `TurnSubmitResult::cost_words`, the one wording of a turn's cost that the Discord
+  footer and the CLI's status line show: the session's total with this reply's cost, `$47.52 total ($7.86 this
+  reply)`, four decimals under a dollar; the turn's cost alone from a daemon that sends no `session_cost_usd`.
 - `books.rs` (theseus-civ0): `books.list` and `books.page`'s params and results, `BOOKS` and `UNSORTED`.
 - `ts.rs`: the TypeScript export.
 

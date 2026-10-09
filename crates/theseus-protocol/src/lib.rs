@@ -17,6 +17,7 @@ mod budgets;
 pub mod cancel;
 pub mod check;
 pub mod context;
+mod cost;
 pub mod cred;
 mod events;
 mod explain;
@@ -2141,6 +2142,10 @@ pub struct TurnSubmitResult {
     /// Dollars for this turn's provider calls, from the model catalog (None: model not in catalog).
     #[serde(default)]
     pub cost_usd: Option<f64>,
+    /// What the session has cost in all, this turn included (theseus-c0bb).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub session_cost_usd: Option<f64>,
     #[serde(default)]
     pub tool_calls: u32,
     /// Set when the turn parked waiting for the operator to confirm this action.

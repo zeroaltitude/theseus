@@ -246,6 +246,11 @@ fn turn_and_loop() {
     }))
     .unwrap();
     wire("turn_ended", &line(notify::TURN_ENDED, &ended));
+    // Its session's total (theseus-c0bb): a result without one, an older
+    // daemon's as above, keeps its bytes.
+    let mut total = ended;
+    total.session_cost_usd = Some(0.0412);
+    wire("turn_ended_total", &line(notify::TURN_ENDED, &total));
     for (name, class, then) in [
         ("turn_failed_backoff", Some("rate_limited"), Some("backoff")),
         ("turn_failed_plain", None, None),
@@ -1094,7 +1099,7 @@ fn every_fixture_decodes_as_an_event_and_writes_the_same_bytes() {
         assert_eq!(again, line, "{}", path.display());
         n += 1;
     }
-    assert_eq!(n, 41);
+    assert_eq!(n, 42);
 }
 
 /// Every line of a real daemon's capture (`theseus --json watch`, its path in
