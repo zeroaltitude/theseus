@@ -36,7 +36,7 @@ impl Lane {
                 reply_to: None,
                 message: None,
                 mentions: vec![],
-                ping: crate::policy::pings(crate::policy::Event::Board),
+                ping: self.pings(crate::policy::Event::Board),
             })
             .await?;
         if let (true, Some((c, m))) = (made, at) {

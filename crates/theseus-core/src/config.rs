@@ -13,6 +13,7 @@ use crate::places::PlacesConfig;
 use crate::secrets::{OpReader, SecretRef};
 
 mod aws;
+pub mod discord;
 mod judge;
 mod limits;
 mod lookup;
@@ -192,6 +193,9 @@ pub struct DiscordConfig {
     /// the ledger row and the web UI's notice are the same either way.
     #[serde(default)]
     pub notice_embeds: bool,
+    /// The kinds of message that post silent (theseus-l1y1): none by default.
+    #[serde(default)]
+    pub silent: Vec<discord::Category>,
     /// A local stand-in for Discord's REST API, `host:port` over plain http
     /// (twilight's proxy base): tests and scratch daemons only, so that no
     /// request and no token leaves the machine (theseus-q4v).
@@ -211,20 +215,6 @@ fn default_bindings_file() -> String {
 }
 fn default_edit_interval_ms() -> u64 {
     1200
-}
-
-impl Default for DiscordConfig {
-    fn default() -> Self {
-        Self {
-            enabled: true,
-            token_secret: default_discord_token_secret(),
-            bindings_file: default_bindings_file(),
-            edit_interval_ms: default_edit_interval_ms(),
-            notice_embeds: false,
-            rest_proxy: None,
-            gateway_proxy: None,
-        }
-    }
 }
 
 /// The warning a config with `[approval]` loads with (theseus-zmgb).

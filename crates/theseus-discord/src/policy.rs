@@ -1,44 +1,23 @@
-//! Which of the binding's messages notify (theseus-l1y1): every create says
-//! whether it pings, and only what needs the owner does. The rest go out
-//! silent, with Discord's `SUPPRESS_NOTIFICATIONS` flag: they post, and no
-//! device notifies, mentions included. An edit never notifies, so only a
-//! create carries the flag.
+//! Which of the binding's messages notify (theseus-l1y1). Every create
+//! notifies by default, as it always has: the owner wants a lively chat. The
+//! kinds `[discord] silent` names post silent instead, with Discord's
+//! `SUPPRESS_NOTIFICATIONS` flag: they post, and no device notifies, mentions
+//! included. An edit never notifies, so only a create carries the flag.
 //!
-//! This table is to be replaced by `theseus_protocol::notify`, the shared
-//! notification policy (task management's work-types row, theseus-753z), once
-//! both have joined: its words are this table's (Interrupt for a question or
-//! a failure, Inform for the rest), and it is data, so the replacement is
-//! mechanical.
-//!
-//! On top of the table, a place pings at most once per `WINDOW`: a second
-//! write that would ping inside it goes out silent (a card's buttons work as
-//! always). The window is per channel, in memory, and bounded.
-
-use std::collections::HashMap;
-use std::sync::Mutex;
-use std::time::Duration;
+//! The table maps each write to the category `[discord] silent` names it by
+//! (`theseus_core::config::discord::Category`). It is to be replaced by
+//! `theseus_protocol::notices`, the shared notification policy (task
+//! management's work-types row, theseus-753z), once both have joined: it is
+//! data, so the replacement maps each `Event` to the shared policy's kinds.
 
 use serde_json::Value;
-use tokio::time::Instant;
+use theseus_core::config::discord::Category;
 
 /// Discord's `SUPPRESS_NOTIFICATIONS` message flag (1 << 12).
 pub(crate) const SUPPRESS_NOTIFICATIONS: u64 = 1 << 12;
 
-/// At most one ping per place in this long (the owner's D3).
-pub(crate) const WINDOW: Duration = Duration::from_secs(30);
-
-/// How many places' last pings are kept: past it, the oldest is forgotten.
-/// Only a ping inside `WINDOW` matters, so an older one is dropped first.
-const PLACES_KEPT: usize = 256;
-
-/// How much a message needs the owner: `theseus_protocol::notify`'s words.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Urgency {
-    /// It needs the owner: a question, or a failure. It pings.
-    Interrupt,
-    /// It tells: silent.
-    Inform,
-}
+/// How a loop's thinking message's key ends: `<turn>:L<loop>:think`.
+pub(crate) const THINK_SUFFIX: &str = ":think";
 
 /// What a write is, as the table reads it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -57,16 +36,18 @@ pub(crate) enum Event {
     TaskFailed,
     /// A task that finished, or was cancelled (its report).
     TaskEnded,
-    /// The first part of the reply to the owner's own message (D1).
+    /// The first part of the reply to the owner's own message.
     Answer,
     /// A reply's later parts, its footer, and any part of a reply to someone
     /// else's message.
     ReplyPart,
     /// A turn a wake or a task's report started: its reply.
     Woken,
-    /// A loop's tool line.
+    /// A loop's tool line, and a notified call's embed.
     ToolLine,
-    /// A notice: a publish, a budget's or the hours' line, a proposal.
+    /// A loop's thinking message.
+    Thinking,
+    /// A notice: a bind, a publish, a budget's or the hours' line, a proposal.
     Note,
     /// The restart notice.
     Restarted,
@@ -82,39 +63,42 @@ pub(crate) enum Event {
     DiskCritical,
     /// Free space is low, or back.
     Disk,
-    /// The task board: a task starts, moves, or finishes (D2).
+    /// The task board: a task starts, moves, or finishes.
     Board,
 }
 
-/// The table: what pings.
-pub(crate) const TABLE: &[(Event, Urgency)] = &[
-    (Event::Card, Urgency::Interrupt),
-    (Event::CardNote, Urgency::Inform),
-    (Event::CardClosed, Urgency::Inform),
-    (Event::TurnFailed, Urgency::Interrupt),
-    (Event::TaskFailed, Urgency::Interrupt),
-    (Event::TaskEnded, Urgency::Inform),
-    (Event::Answer, Urgency::Interrupt),
-    (Event::ReplyPart, Urgency::Inform),
-    (Event::Woken, Urgency::Inform),
-    (Event::ToolLine, Urgency::Inform),
-    (Event::Note, Urgency::Inform),
-    (Event::Restarted, Urgency::Inform),
-    (Event::Mcp, Urgency::Inform),
-    (Event::Jev, Urgency::Inform),
-    (Event::Glide, Urgency::Inform),
-    (Event::Hands, Urgency::Inform),
-    (Event::DiskCritical, Urgency::Interrupt),
-    (Event::Disk, Urgency::Inform),
-    (Event::Board, Urgency::Inform),
+/// The table: each write's category, the name `[discord] silent` gives it.
+pub(crate) const TABLE: &[(Event, Category)] = &[
+    (Event::Card, Category::Cards),
+    (Event::CardNote, Category::Cards),
+    (Event::CardClosed, Category::Cards),
+    (Event::TurnFailed, Category::Failures),
+    (Event::TaskFailed, Category::Failures),
+    (Event::TaskEnded, Category::Tasks),
+    (Event::Answer, Category::Answer),
+    (Event::ReplyPart, Category::Replies),
+    (Event::Woken, Category::Woken),
+    (Event::ToolLine, Category::Tools),
+    (Event::Thinking, Category::Thinking),
+    (Event::Note, Category::Notes),
+    (Event::Restarted, Category::Notes),
+    (Event::Mcp, Category::Notes),
+    (Event::Jev, Category::Notes),
+    (Event::Glide, Category::Notes),
+    (Event::Hands, Category::Notes),
+    (Event::DiskCritical, Category::Disk),
+    (Event::Disk, Category::Disk),
+    (Event::Board, Category::Tasks),
 ];
 
-/// Whether `e` pings, by the table. An event it does not name is silent.
-pub(crate) fn pings(e: Event) -> bool {
+/// Whether `e` pings, given the categories `[discord] silent` names: yes
+/// unless its category is one of them. An event the table does not name
+/// pings, as every write did before the table.
+pub(crate) fn pings(e: Event, silent: &[Category]) -> bool {
     TABLE
         .iter()
         .find(|(t, _)| *t == e)
-        .is_some_and(|(_, u)| *u == Urgency::Interrupt)
+        .is_none_or(|(_, c)| !silent.contains(c))
 }
 
 /// A task's report, by its outcome.
@@ -145,6 +129,23 @@ pub(crate) fn of_reply(body: &Value) -> Event {
     }
 }
 
+/// A live message, by its key: a turn's text part (`<turn>:L<loop>:p<part>`,
+/// the stream's and the reply's, the answer's when `owed`), its thinking
+/// (`…:think`), or its tool line and anything else live (a notice embed).
+pub(crate) fn of_live(key: &str, owed: bool) -> Event {
+    if is_text_part(key) {
+        if owed {
+            Event::Answer
+        } else {
+            Event::ReplyPart
+        }
+    } else if key.ends_with(THINK_SUFFIX) {
+        Event::Thinking
+    } else {
+        Event::ToolLine
+    }
+}
+
 /// Is `key` a turn's text part (`<turn>:L<loop>:p<part>`), the stream's and
 /// the reply's, as against its tool line, footer, or notice card?
 pub(crate) fn is_text_part(key: &str) -> bool {
@@ -156,93 +157,65 @@ pub(crate) fn is_text_part(key: &str) -> bool {
     part.strip_prefix('p').is_some_and(digits) && lp.strip_prefix('L').is_some_and(digits)
 }
 
-/// Each place's last ping, by channel: a place pings at most once per
-/// `WINDOW`. Shared by every lane, since a card from one place's lane lands
-/// in the owner's DM, whose own lane writes there too.
-#[derive(Default)]
-pub(crate) struct Pings {
-    last: Mutex<HashMap<u64, Instant>>,
-}
-
-impl Pings {
-    /// May `channel` ping now? No when it pinged within `WINDOW`.
-    pub(crate) fn open(&self, channel: u64, now: Instant) -> bool {
-        self.last
-            .lock()
-            .unwrap()
-            .get(&channel)
-            .is_none_or(|at| now.saturating_duration_since(*at) >= WINDOW)
-    }
-
-    /// `channel` pinged now. Kept bounded: the pings older than `WINDOW` go
-    /// first, then the oldest, past `PLACES_KEPT`.
-    pub(crate) fn mark(&self, channel: u64, now: Instant) {
-        let mut last = self.last.lock().unwrap();
-        last.insert(channel, now);
-        if last.len() <= PLACES_KEPT {
-            return;
-        }
-        last.retain(|_, at| now.saturating_duration_since(*at) < WINDOW);
-        while last.len() > PLACES_KEPT {
-            let Some(oldest) = last.iter().min_by_key(|(_, at)| **at).map(|(c, _)| *c) else {
-                break;
-            };
-            last.remove(&oldest);
-        }
-    }
-
-    #[cfg(test)]
-    pub(crate) fn len(&self) -> usize {
-        self.last.lock().unwrap().len()
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::json;
 
-    /// The owner's table (theseus-l1y1): a card, a failure, the answer to
-    /// the owner's own message, and disk critical ping; nothing else does.
+    const EVERY: [Event; 20] = [
+        Event::Card,
+        Event::CardNote,
+        Event::CardClosed,
+        Event::TurnFailed,
+        Event::TaskFailed,
+        Event::TaskEnded,
+        Event::Answer,
+        Event::ReplyPart,
+        Event::Woken,
+        Event::ToolLine,
+        Event::Thinking,
+        Event::Note,
+        Event::Restarted,
+        Event::Mcp,
+        Event::Jev,
+        Event::Glide,
+        Event::Hands,
+        Event::DiskCritical,
+        Event::Disk,
+        Event::Board,
+    ];
+
+    /// With nothing named silent, every write pings, as before the table;
+    /// the table names every event once, and every category has a write.
     #[test]
-    fn only_what_needs_the_owner_pings() {
-        let loud: Vec<Event> = TABLE
-            .iter()
-            .filter(|(e, _)| pings(*e))
-            .map(|(e, _)| *e)
-            .collect();
-        assert_eq!(
-            loud,
-            [
-                Event::Card,
-                Event::TurnFailed,
-                Event::TaskFailed,
-                Event::Answer,
-                Event::DiskCritical
-            ]
-        );
-        for e in [
-            Event::CardNote,
-            Event::CardClosed,
-            Event::TaskEnded,
-            Event::ReplyPart,
-            Event::Woken,
-            Event::ToolLine,
-            Event::Note,
-            Event::Restarted,
-            Event::Mcp,
-            Event::Jev,
-            Event::Glide,
-            Event::Hands,
-            Event::Disk,
-            Event::Board,
-        ] {
-            assert!(!pings(e), "{e:?} is silent");
+    fn with_nothing_silent_every_write_pings() {
+        for e in EVERY {
+            assert!(pings(e, &[]), "{e:?} pings by default");
+            assert_eq!(TABLE.iter().filter(|(t, _)| *t == e).count(), 1, "{e:?}");
+        }
+        assert_eq!(TABLE.len(), EVERY.len());
+        for c in Category::ALL {
+            assert!(TABLE.iter().any(|(_, t)| *t == c), "{c:?} names a write");
         }
     }
 
+    /// Each category silences its own writes and nothing else.
+    #[test]
+    fn each_category_silences_only_its_own() {
+        for c in Category::ALL {
+            for (e, of) in TABLE {
+                assert_eq!(pings(*e, &[c]), *of != c, "{e:?} with {c:?} silent");
+            }
+        }
+        assert!(!pings(Event::ToolLine, &[Category::Tools]));
+        assert!(pings(Event::Answer, &[Category::Tools, Category::Replies]));
+        assert!(!pings(Event::Board, &[Category::Tasks]));
+        assert!(!pings(Event::Restarted, &[Category::Notes]));
+    }
+
     /// Each kind's reading: a report by its outcome, a disk crossing by its
-    /// state, a reply by whether a wake or a report started its turn.
+    /// state, a reply by whether a wake or a report started its turn, a live
+    /// message by its key.
     #[test]
     fn a_posts_body_says_which_event_it_is() {
         assert_eq!(of_report(&json!({"outcome": "failed"})), Event::TaskFailed);
@@ -267,6 +240,11 @@ mod tests {
             of_reply(&json!({"reports": [{"text": "📋 task a1b2c3 reported"}]})),
             Event::Woken
         );
+        assert_eq!(of_live("turn_a:L0:p0", true), Event::Answer);
+        assert_eq!(of_live("turn_a:L0:p0", false), Event::ReplyPart);
+        assert_eq!(of_live("turn_a:L0:think", true), Event::Thinking);
+        assert_eq!(of_live("turn_a:L0:tools", true), Event::ToolLine);
+        assert_eq!(of_live("turn_a:notice:tu_1", false), Event::ToolLine);
     }
 
     #[test]
@@ -274,47 +252,11 @@ mod tests {
         assert!(is_text_part("turn_a:L0:p0"));
         assert!(is_text_part("turn_a:L12:p3"));
         assert!(!is_text_part("turn_a:L0:tools"));
+        assert!(!is_text_part("turn_a:L0:think"));
         assert!(!is_text_part("turn_a:footer"));
         assert!(!is_text_part("turn_a:notice:tu_1"));
         assert!(!is_text_part("turn_a:L:p0"));
         assert!(!is_text_part("p0"));
         assert!(!is_text_part("confirm:act_1"));
-    }
-
-    /// One ping per place per `WINDOW`: a second inside it is held back, one
-    /// at its end goes, and another place is its own.
-    #[test]
-    fn a_place_pings_once_per_window() {
-        let p = Pings::default();
-        let t0 = Instant::now();
-        assert!(p.open(1, t0));
-        p.mark(1, t0);
-        assert!(!p.open(1, t0 + Duration::from_secs(1)));
-        assert!(!p.open(1, t0 + WINDOW - Duration::from_millis(1)));
-        assert!(p.open(1, t0 + WINDOW));
-        assert!(p.open(2, t0), "another place is its own");
-    }
-
-    /// The window's map is bounded: past `PLACES_KEPT`, the pings older than
-    /// the window go, then the oldest.
-    #[test]
-    fn the_windows_map_is_bounded() {
-        let p = Pings::default();
-        let t0 = Instant::now();
-        for c in 0..PLACES_KEPT as u64 {
-            p.mark(c, t0);
-        }
-        assert_eq!(p.len(), PLACES_KEPT);
-        let later = t0 + WINDOW;
-        p.mark(10_000, later);
-        assert_eq!(p.len(), 1, "every ping older than the window went");
-        for c in 0..(PLACES_KEPT as u64 * 2) {
-            p.mark(20_000 + c, later + Duration::from_millis(c));
-        }
-        assert_eq!(p.len(), PLACES_KEPT);
-        assert!(
-            !p.open(20_000 + PLACES_KEPT as u64 * 2 - 1, later),
-            "the newest is kept"
-        );
     }
 }

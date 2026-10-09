@@ -740,8 +740,7 @@ fn typed_message(r: &mut Rig) -> Result<String, String> {
             m.reply_to.as_deref() == Some(typed.as_str()) && m.content.contains(READY_TEXT)
         })
     })?;
-    // The answer to the owner's own message is the one write that pings
-    // (theseus-l1y1).
+    // With no `[discord] silent`, every write notifies (theseus-l1y1).
     if reply.silent() {
         return Err(format!(
             "the answer to ana's message went out silent: {reply:?}"
@@ -799,10 +798,14 @@ fn card(r: &mut Rig) -> Result<String, String> {
     if card.mentions != [ANA.to_string()] {
         return Err(format!("it notifies {:?}, not only ana", card.mentions));
     }
+    if card.silent() {
+        return Err(format!("the card went out silent: {card:?}"));
+    }
     r.card = card.id.clone();
     Ok(format!(
-        "{:?}, buttons {labels:?}",
-        first_line(&card.content)
+        "{:?}, buttons {labels:?} (flags {})",
+        first_line(&card.content),
+        card.flags
     ))
 }
 

@@ -9,6 +9,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use theseus_core::approval::{Client, Surface};
+use theseus_core::config::discord::Category;
 use theseus_core::policy::Posture;
 use theseus_core::provider::{FakeProvider, Provider, Scripted};
 use theseus_core::secrets::{Secret, SecretBoard};
@@ -436,8 +437,8 @@ fn a_post_for_a_place_no_longer_bound_is_refused_at_the_next_start() {
 
 /// A card and how its question closed, both written while Discord is away:
 /// when it is back, the card is written once, already saying how it closed,
-/// with no buttons, and silent (theseus-l1y1: not a live card and then its
-/// settle); the settle finds nothing to edit. The name is from before
+/// with no buttons (theseus-l1y1: not a live card and then its settle); the
+/// settle finds nothing to edit. The name is from before
 /// theseus-l1y1, when the settle edited the card it waited for.
 #[tokio::test]
 async fn a_cards_settle_waits_for_its_create_and_edits_it_by_id() {
@@ -496,8 +497,8 @@ async fn a_cards_settle_waits_for_its_create_and_edits_it_by_id() {
         "written once, settled: {card:?}"
     );
     assert!(
-        card.silent(),
-        "a closed question's card pings no one: {card:?}"
+        !card.silent(),
+        "a card notifies by default, as its create on main did: {card:?}"
     );
     let seen = fake.seen();
     let writes: Vec<&str> = seen
@@ -1447,13 +1448,8 @@ async fn each_disk_crossing_posts_one_note_in_the_dm_approvals_go_to() {
         let got = replies(&fake);
         assert_eq!(got.len(), i + 1, "one message per crossing: {got:?}");
         assert_eq!(got[i].content, crate::diskwords::disk_note(&body));
-        // Only below the floor does it ping (theseus-l1y1).
-        assert_eq!(
-            got[i].silent(),
-            state != "below_floor",
-            "{state}: {:?}",
-            got[i]
-        );
+        // Each notifies, unless `[discord] silent` names `disk` (theseus-l1y1).
+        assert!(!got[i].silent(), "{state}: {:?}", got[i]);
         let settled = core.kernel.outbox_action(&corr).unwrap().unwrap();
         let messages = settled.detail.unwrap()["messages"].clone();
         let key = format!("note:{corr}");
@@ -1621,74 +1617,126 @@ fn report(outcome: &str) -> serde_json::Value {
         "spent_usd": 0.01, "limit_usd": 1.0, "turns": 2, "elapsed_ms": 4000})
 }
 
-/// theseus-l1y1: a notice, the bind's included, and a finished task's report
-/// are silent; a failed task's report pings (the table's Interrupt).
-#[tokio::test]
-async fn a_failed_tasks_report_pings_and_a_finished_ones_and_notes_do_not() {
-    let d = tempfile::tempdir().unwrap();
-    let fake = FakeDiscord::start();
-    let core = core_at(d.path(), &fake, vec![], |_| {});
-    bind(&core, d.path(), &dm_only()).await;
-    let f = fake.clone();
-    until("the bind notice", 10, move || f.messages(DM).len() == 1).await;
-    assert!(fake.messages(DM)[0].silent(), "the bind notice");
-    let note = post_to_dm(
-        &core,
-        serde_json::json!({"kind": "notice", "text": "📎 a note"}),
-    );
-    assert!(posted(&core, &fake, &note).await.silent(), "a note");
-    let done = post_to_dm(&core, report("complete"));
-    assert!(
-        posted(&core, &fake, &done).await.silent(),
-        "a finished task"
-    );
-    let cancelled = post_to_dm(&core, report("cancelled"));
-    assert!(
-        posted(&core, &fake, &cancelled).await.silent(),
-        "a cancelled task"
-    );
-    let failed = post_to_dm(&core, report("failed"));
-    let m = posted(&core, &fake, &failed).await;
-    assert!(!m.silent(), "a failed task pings: {m:?}");
+/// Each kind of post the outbox holds, as the core writes it: a notice, a
+/// task's report (finished, cancelled, failed), a failed turn, the restart
+/// notice, an MCP notice, a hands line, and a disk crossing: each to the DM,
+/// or to the operator, whose notices go to the DM approvals go to.
+fn every_kind() -> Vec<(&'static str, &'static str, serde_json::Value)> {
+    use serde_json::json;
+    vec![
+        ("note", "dm", json!({"kind": "notice", "text": "📎 a note"})),
+        ("finished task", "dm", report("complete")),
+        ("cancelled task", "dm", report("cancelled")),
+        ("failed task", "dm", report("failed")),
+        (
+            "failed turn",
+            "dm",
+            json!({"kind": "failed", "class": "overloaded", "error": "the model is busy", "turns": 1}),
+        ),
+        (
+            "restart",
+            "operator",
+            json!({"kind": "restarted", "at_unix_ms": 1_700_000_000_000_u64, "tables": []}),
+        ),
+        (
+            "mcp",
+            "operator",
+            json!({"kind": "mcp_changed", "server": "tides", "summary": "+1 tool"}),
+        ),
+        (
+            "hands",
+            "dm",
+            json!({"kind": "hands", "group": "grp_tidepool", "text": "🖐️ 3 hands running"}),
+        ),
+        (
+            "disk",
+            "operator",
+            json!({"kind": "disk", "state": "below_floor", "left": "low", "free_mb": 900,
+                "total_mb": 100_000, "warn_mb": 5120, "floor_mb": 1024}),
+        ),
+    ]
 }
 
-/// theseus-l1y1: a failed turn's post pings.
-#[tokio::test]
-async fn a_failed_turns_post_pings() {
+/// Which of `every_kind`'s posts went out silent, with `silent` set, and
+/// whether the bind notice did.
+async fn silenced(silent: &[Category]) -> (bool, Vec<(&'static str, bool)>) {
     let d = tempfile::tempdir().unwrap();
     let fake = FakeDiscord::start();
-    let core = core_at(d.path(), &fake, vec![], |_| {});
+    let silent = silent.to_vec();
+    let core = core_at(d.path(), &fake, vec![], move |c| c.discord.silent = silent);
     bind(&core, d.path(), &dm_only()).await;
     let f = fake.clone();
     until("the bind notice", 10, move || f.messages(DM).len() == 1).await;
-    let failed = post_to_dm(
-        &core,
-        serde_json::json!({"kind": "failed", "class": "overloaded", "error": "the model is busy",
-            "turns": 1}),
-    );
-    let m = posted(&core, &fake, &failed).await;
-    assert!(!m.silent(), "a failed turn pings: {m:?}");
+    let bound = fake.messages(DM)[0].silent();
+    let mut got = Vec::new();
+    for (what, to, body) in every_kind() {
+        let corr = match to {
+            "dm" => post_to_dm(&core, body),
+            _ => {
+                core.outbox
+                    .to_operator(Some(&session(&core)), body)
+                    .unwrap()
+                    .correlation_id
+            }
+        };
+        got.push((what, posted(&core, &fake, &corr).await.silent()));
+    }
+    (bound, got)
+}
+
+/// theseus-l1y1, redirected: with no config every kind of post notifies, as
+/// it always has; with its category in `[discord] silent` each goes out
+/// silent, and only it.
+#[tokio::test]
+async fn every_post_notifies_by_default_and_each_category_silences_only_its_own() {
+    let (bound, got) = silenced(&[]).await;
+    assert!(!bound, "the bind notice notifies");
+    assert!(got.iter().all(|(_, s)| !s), "nothing is silent: {got:?}");
+    let (bound, got) = silenced(&[Category::Tasks]).await;
+    assert!(!bound, "a note is not a task");
+    let quiet: Vec<&str> = got.iter().filter(|(_, s)| *s).map(|(w, _)| *w).collect();
+    assert_eq!(quiet, ["finished task", "cancelled task"], "{got:?}");
+    let (bound, got) = silenced(&[Category::Failures]).await;
+    assert!(!bound);
+    let quiet: Vec<&str> = got.iter().filter(|(_, s)| *s).map(|(w, _)| *w).collect();
+    assert_eq!(quiet, ["failed task", "failed turn"], "{got:?}");
+    let (bound, got) = silenced(&[Category::Notes]).await;
+    assert!(bound, "the bind notice is a note");
+    let quiet: Vec<&str> = got.iter().filter(|(_, s)| *s).map(|(w, _)| *w).collect();
+    assert_eq!(quiet, ["note", "restart", "mcp", "hands"], "{got:?}");
+    let (bound, got) = silenced(&[Category::Disk]).await;
+    assert!(!bound);
+    let quiet: Vec<&str> = got.iter().filter(|(_, s)| *s).map(|(w, _)| *w).collect();
+    assert_eq!(quiet, ["disk"], "{got:?}");
 }
 
 /// theseus-l1y1: a reply to no message of the owner's (a turn the CLI sent
-/// here) is silent, every part of it.
+/// here) is one of `replies`, never the `answer`: it notifies by default,
+/// and only `replies` silences it.
 #[tokio::test]
-async fn a_reply_to_no_owners_message_is_silent() {
-    let d = tempfile::tempdir().unwrap();
-    let fake = FakeDiscord::start();
-    let core = core_at(
-        d.path(),
-        &fake,
-        vec![Scripted::text("Low tide at six.")],
-        |_| {},
-    );
-    let rpc = bind(&core, d.path(), &dm_only()).await;
-    let f = fake.clone();
-    until("the bind notice", 10, move || f.messages(DM).len() == 1).await;
-    ask(&rpc, &session(&core), "when is low tide?").await;
-    let c = core.clone();
-    until("the reply is delivered", 20, move || pending(&c) == 0).await;
-    let got = replies(&fake);
-    assert_eq!(got.len(), 1, "{got:?}");
-    assert!(got[0].silent(), "{:?}", got[0]);
+async fn a_reply_to_no_owners_message_is_a_reply_not_the_answer() {
+    for (silent, quiet) in [
+        (vec![], false),
+        (vec![Category::Answer], false),
+        (vec![Category::Replies], true),
+    ] {
+        let d = tempfile::tempdir().unwrap();
+        let fake = FakeDiscord::start();
+        let set = silent.clone();
+        let core = core_at(
+            d.path(),
+            &fake,
+            vec![Scripted::text("Low tide at six.")],
+            move |c| c.discord.silent = set,
+        );
+        let rpc = bind(&core, d.path(), &dm_only()).await;
+        let f = fake.clone();
+        until("the bind notice", 10, move || f.messages(DM).len() == 1).await;
+        ask(&rpc, &session(&core), "when is low tide?").await;
+        let c = core.clone();
+        until("the reply is delivered", 20, move || pending(&c) == 0).await;
+        let got = replies(&fake);
+        assert_eq!(got.len(), 1, "{got:?}");
+        assert_eq!(got[0].silent(), quiet, "{silent:?}: {:?}", got[0]);
+    }
 }
