@@ -289,9 +289,39 @@ impl Core {
         let now = theseus_protocol::now_unix_ms();
         let inherited = crate::external::from_job(&self.store, p.opened_from.as_deref(), now)?;
         let mut rec = SessionRecord::new(p.kind.unwrap_or(SessionKind::Conversation), p.label);
-        let exec =
-            self.kernel
-                .open_execution(&rec.session_id, rec.kind, authority, limit_micros, None)?;
+        // The execution, its row, the session's record, and `session.opened`
+        // in one frame (theseus-q5af), with the hold's row and record on the
+        // hold's path: a watcher that hears the execution's first view and
+        // asks for its session finds the record, its label included.
+        let exec = self.kernel.frame(&[], |k| {
+            let exec =
+                k.open_execution(&rec.session_id, rec.kind, authority, limit_micros, None)?;
+            rec.execution_id = Some(exec.id.clone());
+            let mut data = json!({"execution_id": rec.execution_id});
+            if let Some(from) = &p.opened_from {
+                data["opened_from"] = json!(from);
+            }
+            let opened =
+                LedgerRow::new(LedgerKind::SessionOpened, Some(&rec.session_id), None, data);
+            let opened =
+                theseus_store::NewRecord::json(theseus_store::kinds::LEDGER, None, &opened)?;
+            let frame = match &inherited {
+                None => vec![
+                    theseus_store::NewRecord::json(
+                        theseus_store::kinds::SESSION,
+                        Some(&rec.session_id),
+                        &rec,
+                    )?,
+                    opened,
+                ],
+                // The row that opens it, then the hold's row and the record.
+                Some(h) => std::iter::once(opened)
+                    .chain(crate::external::hold(rec.clone(), h.clone(), None)?.unwrap_or_default())
+                    .collect(),
+            };
+            k.stage(&frame)?;
+            Ok(exec)
+        })?;
         if self.narrator.on() {
             self.narrator.first_sight(&rec.session_id);
             narrate!(
@@ -306,26 +336,9 @@ impl Core {
                 crate::narrative::dollars(exec.budget.limit_micros)
             );
         }
-        rec.execution_id = Some(exec.id);
-        let mut data = json!({"execution_id": rec.execution_id});
-        if let Some(from) = &p.opened_from {
-            data["opened_from"] = json!(from);
-        }
-        let opened = LedgerRow::new(LedgerKind::SessionOpened, Some(&rec.session_id), None, data);
         let Some(h) = inherited else {
-            self.store.put_session(&rec.session_id, &rec)?;
-            self.store.append_ledger(&opened)?;
             return Ok(rec);
         };
-        // The row that opens it, then the hold's row and the record, in one
-        // frame.
-        let mut frame = vec![theseus_store::NewRecord::json(
-            theseus_store::kinds::LEDGER,
-            None,
-            &opened,
-        )?];
-        frame.extend(crate::external::hold(rec.clone(), h.clone(), None)?.unwrap_or_default());
-        self.store.append(&frame)?;
         rec.external = Some(h.clone());
         self.session_rec(&rec.session_id)
             .record(&crate::fact::tool::HoldTaken {

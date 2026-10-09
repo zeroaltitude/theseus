@@ -13,7 +13,9 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
-use theseus_kernel::{Action, Committed, ExecState, Execution, Observer, Wake, BUDGET_TOOL};
+use theseus_kernel::{
+    Action, Committed, ExecState, Execution, Observer, Wake, BUDGET_TOOL, PROVIDER_TOOL,
+};
 use theseus_protocol::{
     attention, Attention, Event, ExecutionView, GateDecision, Level, Message, PendingConfirm,
     PushStatus, WaitingOn,
@@ -180,6 +182,17 @@ struct Entry {
     /// The highest position of its records that the seed read, frozen: an
     /// action record at or below it is on the board already.
     seed_pos: u64,
+    /// The model's own calls among its `outstanding`, known by their action
+    /// records: its view leaves them out (below, `tool_calls`).
+    models: Vec<String>,
+}
+
+/// The calls in flight a view shows: tool calls only, never the model's own,
+/// as `park` counts them. No surface reads the model's call from a view, and
+/// counting it sent two views more for every loop of every turn.
+fn tool_calls(e: &Execution, models: &mut Vec<String>) -> u32 {
+    models.retain(|c| e.outstanding.contains(c));
+    e.outstanding.iter().filter(|c| !models.contains(c)).count() as u32
 }
 
 #[derive(Default)]
@@ -429,6 +442,10 @@ fn seed(core: &Core) -> anyhow::Result<Board> {
         let entry = b.entries.entry(a.execution_id.clone()).or_default();
         entry.seed_pos = entry.seed_pos.max(p);
         b.position = b.position.max(p);
+        // Only one in flight: the seed reads every call an execution made.
+        if a.tool == PROVIDER_TOOL && !a.state.is_settled() {
+            entry.models.push(a.correlation_id.clone());
+        }
         if a.awaits_confirm() {
             waiting.push(a);
         }
@@ -450,13 +467,16 @@ fn seed(core: &Core) -> anyhow::Result<Board> {
             .as_deref()
             .and_then(|x| session_of.get(x))
             .map(|s| s.to_string());
-        entry.view = Some(view(
+        let mut v = view(
             e,
             entry.pending.clone(),
             parent,
             entry.seed_pos,
             e.updated_at_ms,
-        ));
+        );
+        v.outstanding = tool_calls(e, &mut entry.models);
+        v.attention = attention(&v, &hm);
+        entry.view = Some(v);
     }
     // The questions of an execution whose record came after the first read:
     // kept until that record comes off the queue.
@@ -524,6 +544,12 @@ impl Board {
         }
         for a in actions {
             let entry = self.entries.entry(a.execution_id.clone()).or_default();
+            if a.tool == PROVIDER_TOOL
+                && !a.state.is_settled()
+                && !entry.models.contains(&a.correlation_id)
+            {
+                entry.models.push(a.correlation_id.clone());
+            }
             let at = entry
                 .pending
                 .iter()
@@ -570,7 +596,12 @@ impl Board {
                         f.position,
                         f.at_ms,
                     );
-                    v.why = why.remove(&id);
+                    v.outstanding = tool_calls(e, &mut entry.models);
+                    // A view still queued keeps the why it had, unless
+                    // this frame wrote it a new one.
+                    v.why = why
+                        .remove(&id)
+                        .or_else(|| old.as_ref().and_then(|o| o.why.clone()));
                     v
                 }
                 (None, Some(old)) => {
@@ -611,14 +642,16 @@ fn touch(touched: &mut Vec<String>, id: &str) {
 }
 
 /// Whether two views show the same: the state, what it waits on, its
-/// questions, its turns, how it ended, its attention, and its spend and limit
-/// to the cent. A frame that changes none of these sends nothing.
+/// questions, its turns, its tool calls in flight, how it ended, its
+/// attention, and its spend and limit to the cent. A frame that changes none
+/// of these sends nothing.
 fn same(a: &ExecutionView, b: &ExecutionView) -> bool {
     let cents = |x: f64| (x * 100.0).round() as i64;
     a.state == b.state
         && a.waiting_on == b.waiting_on
         && a.pending == b.pending
         && a.turns == b.turns
+        && a.outstanding == b.outstanding
         && a.ended_reason == b.ended_reason
         && a.attention.level == b.attention.level
         && a.attention.label == b.attention.label
@@ -656,6 +689,8 @@ fn decision_on(n: &Node, correlation_id: &str) -> Option<GateDecision> {
 mod tests {
     use super::*;
     use theseus_kernel::{ActionState, Authority, Budget, RetryClass, SessionKind};
+
+    mod why;
 
     fn execution(state: ExecState, wake: Option<Wake>) -> Execution {
         Execution {

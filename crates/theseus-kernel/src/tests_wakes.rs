@@ -377,3 +377,80 @@ fn a_cancel_clears_the_wake_and_nothing_fires() {
     assert!(w.kernel.reconcile(&NoEvidence).unwrap().woke_due.is_empty());
     assert!(w.kernel.pending_wakes().unwrap().is_empty());
 }
+
+/// A question answered while the turn that asked it still runs
+/// (theseus-q5af): the answer binds (or declines) it, and its wake finds the
+/// turn running and changes nothing, so the turn's end, which would park on
+/// it, queues the execution instead, why `answered`, for the continuation
+/// that runs (or answers) the call. Before, the end parked it on a question
+/// nobody would ask again. One answered after the end wakes it as ever.
+#[test]
+fn a_question_answered_while_its_turn_runs_queues_the_turns_end() {
+    for approve in [true, false] {
+        let w = world();
+        let (_, e, g) = running(&w);
+        let ask = proposal("fs.write");
+        let q = w
+            .kernel
+            .plan_confirm_with(&g, &ask, RetryClass::NonRepeatable, None, |_| Ok(vec![]))
+            .unwrap();
+        w.kernel
+            .frame(&[&e.id], |k| {
+                match approve {
+                    true => k
+                        .bind_confirm(&q.correlation_id, "zeroaltitude", &ask)
+                        .map(|_| ())?,
+                    false => k
+                        .decline_action(&q.correlation_id, "zeroaltitude", "not now")
+                        .map(|_| ())?,
+                }
+                k.wake(&e.id, if approve { "confirmed" } else { "declined" })
+            })
+            .unwrap();
+        assert_eq!(
+            exec(&w, &e.id).state,
+            ExecState::Running,
+            "the wake found it running"
+        );
+        let end = w
+            .kernel
+            .end_turn(
+                g,
+                TurnEnd::Wait {
+                    wake: Wake::Confirm {
+                        confirm_id: q.correlation_id.clone(),
+                    },
+                },
+            )
+            .unwrap();
+        assert_eq!(
+            (end.state, end.wake.clone(), end.resume_pending),
+            (ExecState::Queued, None, true),
+            "approve {approve}: {end:?}"
+        );
+        let queued = rows(&w, &e.session_id, "execution.queued");
+        assert_eq!(queued.last().unwrap()["why"], "answered", "{queued:?}");
+    }
+    // Unanswered, it parks on the question as before.
+    let w = world();
+    let (_, e, g) = running(&w);
+    let q = w
+        .kernel
+        .plan_confirm_with(
+            &g,
+            &proposal("fs.write"),
+            RetryClass::NonRepeatable,
+            None,
+            |_| Ok(vec![]),
+        )
+        .unwrap();
+    let wake = Wake::Confirm {
+        confirm_id: q.correlation_id,
+    };
+    let end = w
+        .kernel
+        .end_turn(g, TurnEnd::Wait { wake: wake.clone() })
+        .unwrap();
+    assert_eq!((end.state, end.wake), (ExecState::Waiting, Some(wake)));
+    assert_eq!(exec(&w, &e.id).state, ExecState::Waiting);
+}

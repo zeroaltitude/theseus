@@ -146,6 +146,9 @@ Key modules: `kernel.rs`, `tx.rs`, `locks.rs`, `job.rs`, `cgroup.rs`, `children.
   waiting with none queues it instead (`wakes::task_unparked`, in `cancel_wake` and `end_turn`), so its next turn
   finds nothing new, ends it, and it reports. A `/stop` still leaves a task waiting on input, as it leaves a
   conversation.
+- **A question answered while its turn runs is read at the turn's end** (theseus-q5af): `end_turn` queues the
+  execution (`Kernel::queued_at_end`, why `answered`) instead of parking it on a question already bound, so an
+  answer is never lost to a running turn, and one continuation follows. Tests: `tests_answered.rs`.
 - **An attempt that may have run is `OutcomeUnknown`**, never "not sent". Its money is held, unless its process is
   gone (an earlier process's in-process call), when it is booked at its reservation (theseus-f3wr).
 - **Read by state, never every record** (theseus-lv2). The store's index keeps `terms.rs`'s terms for each

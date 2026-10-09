@@ -2393,7 +2393,6 @@ impl TurnRunner {
         };
         let kept = Kept::of(t.tc.kernel, t.tc.execution_id);
         let question = budget_question(&who, spent, limit, needed, kept, &call);
-        let now = theseus_protocol::now_unix_ms();
         let req = ConfirmRequest {
             correlation_id: q.correlation_id.clone(),
             session_id: t.tc.session_id.into(),
@@ -2403,7 +2402,7 @@ impl TurnRunner {
             resource: None,
             reason: question,
             by: OPERATOR.into(),
-            requested_at_ms: now,
+            requested_at_ms: q.planned_at_ms,
             expires_at_ms: 0,
             floor: false,
             budget: Some(BudgetAsk {

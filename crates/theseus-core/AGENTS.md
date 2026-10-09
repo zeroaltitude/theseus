@@ -840,7 +840,9 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   its tool calls, answers, and the driver, one type each, recorded once (theseus-j6qn). The ledger's kinds:
   `crates/theseus-protocol/src/ledger.rs`.
 - **The push's board**: `crates/theseus-core/src/push.rs`, fed by `Kernel::observe`; `attention()` is in
-  `crates/theseus-protocol/src/push.rs`.
+  `crates/theseus-protocol/src/push.rs`. A view's `outstanding` counts tool calls only, never the model's own
+  (`tool_calls`, as `park` counts them), and `same()` compares it; a queued view keeps its `why` until it leaves
+  `queued`; `confirm.list` lists a question from its plan on (theseus-q5af).
 - **The outbox**: `crates/theseus-kernel/src/outbox.rs`, `crates/theseus-core/src/outbox.rs`, and
   `crates/theseus-discord/src/courier.rs`.
 - **The config**: `crates/theseus-core/src/config.rs`, and the template `crates/theseus-core/config/theseus.example.toml`

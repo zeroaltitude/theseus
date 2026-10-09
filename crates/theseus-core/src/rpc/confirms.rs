@@ -227,8 +227,8 @@ impl Core {
     }
 
     /// Everything waiting for the operator (`confirm.list`, what `theseus
-    /// confirm` with no id lists): the questions of every session parked on
-    /// one, the most recently active session first. One scan of the open
+    /// confirm` with no id lists): every session's open questions, from
+    /// their plan on, the most recently active session first. One scan of the open
     /// actions; a transcript is read only for a session with a tool call waiting.
     pub fn confirm_list(&self) -> Result<Vec<ConfirmRequest>> {
         let pending = self.kernel.pending_confirms()?;
@@ -241,12 +241,9 @@ impl Core {
                 .iter()
                 .filter(|a| a.session_id == rec.session_id)
                 .collect();
-            let parked = rec
-                .execution_id
-                .as_deref()
-                .and_then(|id| self.kernel.execution(id).ok().flatten())
-                .is_some_and(|e| e.state == theseus_kernel::ExecState::Waiting);
-            if asks.is_empty() || !parked {
+            // Listed from its plan on, as the board shows it, though its
+            // turn may still run (theseus-q5af).
+            if asks.is_empty() {
                 continue;
             }
             let nodes = if asks.iter().any(|a| {

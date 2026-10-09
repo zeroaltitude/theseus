@@ -87,6 +87,17 @@ impl Stops {
         }
     }
 
+    /// Whether call `correlation_id`'s task is reachable by a cancel yet: a
+    /// test's cancel waits for it, since one that lands between the call's
+    /// dispatch and its `track` finds no task (`unsupported`).
+    #[cfg(test)]
+    pub(crate) fn tracks(&self, correlation_id: &str) -> bool {
+        self.tasks
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .contains_key(correlation_id)
+    }
+
     fn take(&self, correlation_id: &str) -> Option<tokio::task::AbortHandle> {
         self.tasks
             .lock()
