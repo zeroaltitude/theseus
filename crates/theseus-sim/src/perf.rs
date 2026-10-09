@@ -46,8 +46,10 @@ mod burst;
 mod judge;
 mod long;
 mod runs;
+mod status;
 
 use runs::Run;
+pub use status::{status_cmd, StatusArgs};
 
 /// §9's per-turn overhead, restated as frames (review 2, consideration 8): a
 /// plain one-loop turn writes at most this many. 5 since theseus-l6y; the

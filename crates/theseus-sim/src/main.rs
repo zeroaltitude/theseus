@@ -286,6 +286,10 @@ enum BenchCmd {
     /// frames it writes, and its memory, on an empty store or a synthetic
     /// one (--sessions 10000). Measured, with no budget yet (theseus-goa8).
     Idle(perf::IdleArgs),
+    /// What a prompt's `theseus status --short` costs: the CLI's whole run against a daemon
+    /// serving a synthetic store (--sessions 1000), p50 and p90 over many runs; --check holds
+    /// p90 to 5 ms (theseus-lweh).
+    Status(perf::StatusArgs),
     /// The release binaries' sizes, against §9's 60 MB (theseus-goa8).
     Size(perf::SizeArgs),
     /// What a job's start costs, by class (M4 17b): `/bin/true` through the
@@ -426,6 +430,9 @@ fn main() -> Result<()> {
         Cmd::Bench {
             bench: BenchCmd::Idle(args),
         } => perf::idle_cmd(args),
+        Cmd::Bench {
+            bench: BenchCmd::Status(args),
+        } => perf::status_cmd(args),
         Cmd::Bench {
             bench: BenchCmd::Size(args),
         } => perf::size_cmd(args),

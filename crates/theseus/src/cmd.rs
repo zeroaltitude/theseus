@@ -1195,7 +1195,7 @@ pub async fn wait(
 }
 
 /// `90s`, `10m`, `2h`, `1500ms`, or bare seconds, in milliseconds.
-fn parse_duration_ms(s: &str) -> Result<u64> {
+pub(crate) fn parse_duration_ms(s: &str) -> Result<u64> {
     let t = s.trim();
     let (n, unit) = t
         .find(|c: char| !c.is_ascii_digit())

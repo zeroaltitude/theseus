@@ -15,6 +15,15 @@ Key modules: `main.rs`, `cmd.rs`, `render.rs`, `client.rs`. Read by: (a binary).
 - `src/cmd.rs`: one function per subcommand, and `output()`. `ask --attach FILE` sends a text file's text and any
   other file's bytes, up to 32 MiB, for the daemon to keep and read (an image, a PDF; theseus-c9l6). `tui` connects nothing: it execs `theseus-tui`, found
   beside this binary or else on PATH, with `--socket` first and the arguments after it (step 10f).
+- `src/status.rs`: `theseus status` and `wait --any` (theseus-lweh). One read, `executions.watch {limit: 0}`, feeds
+  `Board` (the executions that need you or work, by the position rule) and its forms: the long one (a header and a
+  row each, a command under what asks), `--short` (`●1 ◐3 ✗1 ◆2`; empty when nothing works or waits), `--watch`
+  (a line when a count or the first needs-you item changes, never on a timer, through a daemon's restarts), and
+  `--watch --tab` (OSC 9;4 to `/dev/tty`, through tmux's passthrough inside tmux). `status` connects for itself,
+  within 100 ms (`Conn::socket_within`), and `--short` exits 3 silently when it cannot. ◆ is `new_since_seen`, which
+  returns 0 until the shared seen file joins (theseus-yus0). Tests: `status_tests.rs` (the pure parts and the watch
+  on tokio's paused clock) and `tests/status.rs` (the binary against a scripted daemon). `theseus-sim bench status`
+  times `status --short` against 1,000 sessions (p90 5 ms with `--check`).
 - `src/print.rs`: the `Printer`, which writes the library's lines in one of four modes: `Text` (`ask`), `Quiet`
   (`ask --no-stream`), `Watch` (`watch`), and `Json`.
 - `src/render/history.rs`: `theseus history`'s own lines: each node with its short id, which `theseus reach` takes
