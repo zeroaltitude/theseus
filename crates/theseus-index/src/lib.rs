@@ -66,4 +66,6 @@ mod tests;
 #[cfg(test)]
 mod tests_import;
 #[cfg(test)]
+mod tests_query;
+#[cfg(test)]
 mod vtests;

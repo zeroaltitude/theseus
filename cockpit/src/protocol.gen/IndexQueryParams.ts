@@ -26,4 +26,14 @@ wait_ms?: number,
  * Weights for the fusion, by source (`bm25`, `entity`, `vector`); a
  * source not named takes the tender's default ([`IndexWeights`]).
  */
-weights?: { [key in string]: number }, };
+weights?: { [key in string]: number }, 
+/**
+ * The vector source's text, when not `text` (theseus-zo1y): a turn's
+ * new words alone, while BM25 and entities read the whole query.
+ */
+vector_text?: string, 
+/**
+ * The most word pieces of its text the vector source embeds, counted
+ * by the model's own tokenizer; 0: as many as the model reads.
+ */
+vector_tokens?: number, };

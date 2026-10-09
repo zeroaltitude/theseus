@@ -546,6 +546,11 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     `skipped.vector`. Never past the deadline. Health's memory block counts the last 50 recalls by outcome and the
     last whole answer's time (`recall/outcomes.rs`, in memory since the start; `MemoryHealth.recalls`), and
     `theseus.recall.index_ms` times each recall's wait by outcome. Tests: `tests_recall_words.rs`.
+    Since theseus-zo1y the vector source embeds the turn's new text alone (`RecallQuery.vector`, from `query_of`),
+    cut by the tender at `[memory] recall_vector_tokens` (32) word pieces, while the words read the longer query; the
+    two queries go on one connection, the words' first (`tender/pair.rs`, `IndexTender::query_two`), which closes
+    once no one waits (the deadline passed, or the turn dropped its `Begun`, which aborts its task), so the tender
+    stops embedding. Tests: `tests_recall_deadline.rs` (a stand-in socket that counts connections).
   - **In front of the model** (step 30b, theseus-6fn.2): `[memory] mode = "canary"` (a sticky share,
     `canary_fraction`, by a hash of session and `experiment`: `MemoryConfig::assign`, recorded once as a `memory.arm`
     row; the control runs `none` live with `baseline` in shadow) or `"live"`. The read finishes before the first

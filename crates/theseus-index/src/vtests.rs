@@ -169,6 +169,7 @@ impl VRig {
             idle_unload: Duration::from_secs(600),
             engine: engine.into(),
             yield_bound: Duration::ZERO,
+            query_step: Duration::ZERO,
         };
         c
     }

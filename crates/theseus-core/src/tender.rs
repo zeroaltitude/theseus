@@ -54,6 +54,7 @@ use crate::fact::index::{
 use crate::fact::Fact;
 use crate::ledger::LedgerRow;
 
+pub mod pair;
 mod sample;
 
 /// What the tender tends, in the children registry and in health.

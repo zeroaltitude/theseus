@@ -73,6 +73,15 @@ pub struct IndexQueryParams {
     /// source not named takes the tender's default ([`IndexWeights`]).
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub weights: BTreeMap<String, f64>,
+    /// The vector source's text, when not `text` (theseus-zo1y): a turn's
+    /// new words alone, while BM25 and entities read the whole query.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub vector_text: Option<String>,
+    /// The most word pieces of its text the vector source embeds, counted
+    /// by the model's own tokenizer; 0: as many as the model reads.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub vector_tokens: u64,
 }
 
 impl IndexQueryParams {
@@ -86,6 +95,8 @@ impl IndexQueryParams {
             sources: Vec::new(),
             wait_ms: 0,
             weights: BTreeMap::new(),
+            vector_text: None,
+            vector_tokens: 0,
         }
     }
 }

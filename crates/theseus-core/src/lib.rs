@@ -260,6 +260,8 @@ mod tests_reach;
 #[cfg(test)]
 mod tests_recall;
 #[cfg(test)]
+mod tests_recall_deadline;
+#[cfg(test)]
 mod tests_recall_node;
 #[cfg(test)]
 mod tests_recall_when;

@@ -72,6 +72,28 @@ pub const REPLY_CHARS: usize = 500;
 pub type AskFuture = Pin<Box<dyn Future<Output = Result<IndexQueryResult, String>> + Send>>;
 /// Who answers a recall's query: the index tender, or a test's stand-in.
 pub type Ask = Arc<dyn Fn(IndexQueryParams) -> AskFuture + Send + Sync>;
+/// Who answers a recall's two queries at once, its words' alone and then
+/// the whole, on one of the tender's connections (theseus-zo1y).
+pub type AskTwo =
+    Arc<dyn Fn(IndexQueryParams, IndexQueryParams) -> (AskFuture, AskFuture) + Send + Sync>;
+
+/// A recall's query: the words BM25 and entities read, and the text the
+/// vector source embeds when not those words (theseus-zo1y: a turn's new
+/// text alone, cut at `[memory] recall_vector_tokens` word pieces).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RecallQuery {
+    pub words: String,
+    pub vector: Option<String>,
+}
+
+impl From<String> for RecallQuery {
+    fn from(words: String) -> Self {
+        Self {
+            words,
+            vector: None,
+        }
+    }
+}
 
 /// Recall's settings, its science, and the index it asks.
 pub struct Memory {
@@ -82,6 +104,9 @@ pub struct Memory {
     /// The adjacency projection it spreads over, built after serving.
     pub(crate) adjacency: Arc<activation::Adjacent>,
     ask: RwLock<Option<Ask>>,
+    /// The tender's two queries on one connection; none for a stand-in,
+    /// whose two are asked apart.
+    two: RwLock<Option<AskTwo>>,
     /// The nodes the operator labeled wrong or stale, once read (`labels`).
     labels: RwLock<Option<BTreeSet<String>>>,
     /// The sessions whose `memory.arm` row this daemon has seen or written.
@@ -110,6 +135,9 @@ pub struct Syntheses {
 impl Memory {
     /// Recall over `tender`'s index, as `cfg` says.
     pub fn new(cfg: MemoryConfig, tender: Option<Arc<IndexTender>>) -> Self {
+        let two = tender.clone().map(|t| -> AskTwo {
+            Arc::new(move |a: IndexQueryParams, b: IndexQueryParams| t.query_two(&a, &b))
+        });
         let ask = tender.map(|t| -> Ask {
             Arc::new(move |p: IndexQueryParams| -> AskFuture {
                 let t = t.clone();
@@ -122,6 +150,7 @@ impl Memory {
             activated: Arc::new(Activated::default()),
             adjacency: Arc::new(activation::Adjacent::default()),
             ask: RwLock::new(ask),
+            two: RwLock::new(two),
             labels: RwLock::new(None),
             armed: Mutex::new(BTreeSet::new()),
             sources: Mutex::new(render::Sources::new()),
@@ -151,6 +180,13 @@ impl Memory {
     /// Ask `ask` instead of the tender (tests: a stand-in index).
     pub fn set_ask(&self, ask: Ask) {
         *self.ask.write().unwrap_or_else(PoisonError::into_inner) = Some(ask);
+        *self.two.write().unwrap_or_else(PoisonError::into_inner) = None;
+    }
+
+    /// Ask `two` for a recall's two queries at once (tests: a stand-in
+    /// that counts connections).
+    pub fn set_ask_two(&self, two: AskTwo) {
+        *self.two.write().unwrap_or_else(PoisonError::into_inner) = Some(two);
     }
 
     pub fn cfg(&self) -> &MemoryConfig {
@@ -346,7 +382,7 @@ impl Memory {
     /// before the index's top k (`exclude_sessions`).
     pub fn begin(
         &self,
-        query: String,
+        query: impl Into<RecallQuery>,
         as_of: Option<u64>,
         k: usize,
         arm: MemoryArm,
@@ -363,7 +399,7 @@ impl Memory {
     #[expect(clippy::too_many_arguments, reason = "begin's, and the two filters")]
     pub fn begin_within(
         &self,
-        query: String,
+        query: impl Into<RecallQuery>,
         as_of: Option<u64>,
         k: usize,
         arm: MemoryArm,
@@ -385,7 +421,18 @@ impl Memory {
             .read()
             .unwrap_or_else(PoisonError::into_inner)
             .clone();
+        let two = self
+            .two
+            .read()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone();
+        let RecallQuery {
+            words: query,
+            vector,
+        } = query.into();
         let mut p = IndexQueryParams::new(&query);
+        p.vector_text = vector;
+        p.vector_tokens = self.cfg.recall_vector_tokens;
         p.k = k.clamp(1, 100);
         p.as_of = as_of;
         p.sources = sources.iter().map(|s| s.to_string()).collect();
@@ -398,7 +445,7 @@ impl Memory {
         let task = tokio::spawn(async move {
             let (answer, words_only) = match ask {
                 None => (Answer::Unavailable("no index is configured".into()), None),
-                Some(ask) => race(&ask, p, deadline).await,
+                Some(ask) => race(&ask, two.as_ref(), p, deadline).await,
             };
             (answer, started.elapsed(), words_only)
         });
@@ -421,8 +468,14 @@ impl Memory {
 /// sources alone, which answer in a few ms while the query's embedding may
 /// take hundreds. The whole answer wins whenever it comes in time; else the
 /// words' answer is used, with the vector source named in its `skipped` and
-/// why (the second value); with neither, `Deadline`.
-async fn race(ask: &Ask, p: IndexQueryParams, deadline: Duration) -> (Answer, Option<String>) {
+/// why (the second value); with neither, `Deadline`. With `two` (the
+/// tender), both go on one connection, the words' first (theseus-zo1y).
+async fn race(
+    ask: &Ask,
+    two: Option<&AskTwo>,
+    p: IndexQueryParams,
+    deadline: Duration,
+) -> (Answer, Option<String>) {
     let words: Vec<String> = p
         .sources
         .iter()
@@ -439,7 +492,14 @@ async fn race(ask: &Ask, p: IndexQueryParams, deadline: Duration) -> (Answer, Op
     }
     let mut w = p.clone();
     w.sources = words;
-    let (mut whole, mut word) = (ask(p), ask(w));
+    w.vector_text = None;
+    let (mut whole, mut word) = match two {
+        Some(two) => {
+            let (word, whole) = two(w, p);
+            (whole, word)
+        }
+        None => (ask(p), ask(w)),
+    };
     let late = tokio::time::sleep(deadline);
     tokio::pin!(late);
     let mut words_answer: Option<Result<IndexQueryResult, String>> = None;
@@ -521,6 +581,15 @@ pub struct Begun {
     /// Once answered: the hits are the word sources' alone, and why (the
     /// vector search was late or failed; theseus-w9qv).
     pub words_only: Option<String>,
+}
+
+/// A recall nothing will read (its turn ended, or failed) asks no more: its
+/// task ends, and with it the tender's connection, so the tender stops the
+/// query's embedding (theseus-zo1y).
+impl Drop for Begun {
+    fn drop(&mut self) {
+        self.task.abort();
+    }
 }
 
 impl Begun {
@@ -921,20 +990,32 @@ pub fn place_words(p: &Place) -> String {
 /// wakes, its reports) are in `nodes`: their texts and their files' names,
 /// then the start of the reply before them. `None`: the turn brings nothing
 /// new. With it, the position recall reads as of: the first new node's.
-pub fn query_of(nodes: &Transcript, turn_id: &str) -> Option<(String, u64)> {
+///
+/// The vector source embeds the new texts alone (theseus-zo1y), which the
+/// tender cuts at `[memory] recall_vector_tokens` word pieces: a query's
+/// embedding grows with its tokens, and the whole query (about 115 word
+/// pieces with the reply's start) took longer than recall's deadline. A turn
+/// whose new text is one word ("yes") embeds that word; its words' query
+/// still carries the reply's subject. With no new text (files alone), the
+/// vector source embeds the whole query, cut the same way.
+pub fn query_of(nodes: &Transcript, turn_id: &str) -> Option<(RecallQuery, u64)> {
     let first = nodes.iter().position(|(_, n)| {
         n.turn_id.as_deref() == Some(turn_id) && matches!(n.body, Body::UserMessage { .. })
     })?;
     let mut parts = Vec::new();
+    let mut new = Vec::new();
     for (_, n) in &nodes[first..] {
         if n.turn_id.as_deref() != Some(turn_id) {
             continue;
         }
         if let Body::UserMessage { text, attachments } = &n.body {
             parts.push(text.clone());
+            new.push(text.as_str());
             parts.extend(attachments.iter().map(|a| a.name.clone()));
         }
     }
+    let vector = new.join("\n");
+    let vector = (!vector.trim().is_empty()).then_some(vector);
     let reply = nodes[..first]
         .iter()
         .rev()
@@ -945,8 +1026,8 @@ pub fn query_of(nodes: &Transcript, turn_id: &str) -> Option<(String, u64)> {
     if let Some(r) = reply.filter(|r| !r.trim().is_empty()) {
         parts.push(r.chars().take(REPLY_CHARS).collect());
     }
-    let query = parts.join("\n");
-    (!query.trim().is_empty()).then(|| (query, nodes[first].0))
+    let words = parts.join("\n");
+    (!words.trim().is_empty()).then(|| (RecallQuery { words, vector }, nodes[first].0))
 }
 
 /// A node's text, as the index reads it: for `memory.recalls`'s excerpts.
