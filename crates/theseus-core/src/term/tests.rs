@@ -170,12 +170,12 @@ fn named_keys_are_an_xterms_bytes() {
 
 // ------------------------------------------------------------ real ptys
 
-fn ctx(root: &Path) -> ToolCtx {
+pub(super) fn ctx(root: &Path) -> ToolCtx {
     ToolCtx::for_tests(root)
 }
 
 /// A registry whose programs get a plain environment.
-fn terms(external: &[&str]) -> Arc<Terms> {
+pub(super) fn terms(external: &[&str]) -> Arc<Terms> {
     let path = std::env::var("PATH").unwrap_or_else(|_| "/usr/bin:/bin".into());
     Arc::new(Terms::new(
         vec![("PATH".into(), path), ("HOME".into(), "/tmp".into())],
@@ -183,7 +183,7 @@ fn terms(external: &[&str]) -> Arc<Terms> {
     ))
 }
 
-async fn call(
+pub(super) async fn call(
     terms: &Arc<Terms>,
     session: &str,
     tool: &str,
@@ -196,7 +196,13 @@ async fn call(
     }
 }
 
-async fn fails(terms: &Arc<Terms>, session: &str, tool: &str, input: Value, root: &Path) -> String {
+pub(super) async fn fails(
+    terms: &Arc<Terms>,
+    session: &str,
+    tool: &str,
+    input: Value,
+    root: &Path,
+) -> String {
     match terms.run(tool, session, &input, &ctx(root)).await {
         Ok((o, _)) => panic!("{tool} {input} ran: {}", o.text),
         Err(f) => f.message,
@@ -204,7 +210,13 @@ async fn fails(terms: &Arc<Terms>, session: &str, tool: &str, input: Value, root
 }
 
 /// Read until `text` shows, bounded.
-async fn read_until(terms: &Arc<Terms>, sid: &str, id: &str, text: &str, root: &Path) -> String {
+pub(super) async fn read_until(
+    terms: &Arc<Terms>,
+    sid: &str,
+    id: &str,
+    text: &str,
+    root: &Path,
+) -> String {
     let (o, _) = call(
         terms,
         sid,
@@ -223,12 +235,12 @@ async fn read_until(terms: &Arc<Terms>, sid: &str, id: &str, text: &str, root: &
 }
 
 /// Whether a process with `pid` lives (a zombie does not).
-fn lives(pid: u32) -> bool {
+pub(super) fn lives(pid: u32) -> bool {
     theseus_kernel::tree::stat(pid).is_some_and(|s| !matches!(s.state, 'Z' | 'X'))
 }
 
 /// The pids of live processes whose command line holds `marker`.
-fn marked(marker: &str) -> Vec<u32> {
+pub(super) fn marked(marker: &str) -> Vec<u32> {
     std::fs::read_dir("/proc")
         .unwrap()
         .flatten()
@@ -244,12 +256,12 @@ fn marked(marker: &str) -> Vec<u32> {
 
 /// A process's time on a CPU so far, in nanoseconds: the scheduler's own
 /// count (`/proc/<pid>/stat`'s ticks are sampled, and can jump by two at once).
-fn cpu_ns(pid: u32) -> u64 {
+pub(super) fn cpu_ns(pid: u32) -> u64 {
     let s = std::fs::read_to_string(format!("/proc/{pid}/schedstat")).unwrap();
     s.split_whitespace().next().unwrap().parse().unwrap()
 }
 
-fn id_of(o: &ToolOutput) -> String {
+pub(super) fn id_of(o: &ToolOutput) -> String {
     o.meta["terminal"].as_str().unwrap().to_string()
 }
 
@@ -643,7 +655,7 @@ async fn a_session_holds_four_terminals() {
     }
     let e = fails(&terms, "s1", OPEN, json!({"argv": ["cat"]}), d.path()).await;
     assert!(
-        e.contains("this session has 4 terminals open, the most it may"),
+        e.contains("this session has 4 terminals running, the most it may"),
         "{e}"
     );
     call(
@@ -747,7 +759,7 @@ async fn a_close_leaves_no_child_behind() {
 
 /// A process as a failure names it: its pid, parent, session, process group,
 /// state, start (clock ticks after boot), cgroup, and command line.
-fn described(pid: u32) -> String {
+pub(super) fn described(pid: u32) -> String {
     let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).unwrap_or_default();
     let f: Vec<&str> = stat
         .rfind(')')

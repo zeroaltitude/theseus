@@ -29,16 +29,56 @@ pub struct TerminalInfo {
     pub last_output_unix_ms: u64,
 }
 
+/// A process a terminal's close left running (theseus-ggqf): it was in the
+/// background when its session ended or the daemon stopped, and runs on, as
+/// a `proc.run` job's background process does. Listed while it runs.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct TerminalLeft {
+    pub pid: u32,
+    /// Its program, by its process name.
+    pub program: String,
+    /// Why the close left it: "a background job" (a group of its own in the
+    /// terminal's session) or "its own session (setsid, or a daemon)".
+    pub why: String,
+    /// The terminal that started it, its program, and its session.
+    pub terminal: String,
+    pub terminal_program: String,
+    pub session_id: String,
+    pub left_at_unix_ms: u64,
+}
+
+/// Health's lines for the terminals and what their closes left running.
+pub fn health_lines(open: &[TerminalInfo], left: &[TerminalLeft], now_ms: u64) -> Vec<String> {
+    let mut lines: Vec<String> = open.iter().map(|t| health_line(t, now_ms)).collect();
+    lines.extend(left.iter().map(|l| {
+        format!(
+            "left running by terminal {} ({}) · {} · pid {} ({}) · {} · for {}",
+            l.terminal,
+            l.terminal_program,
+            l.session_id,
+            l.pid,
+            l.program,
+            l.why,
+            ago(now_ms.saturating_sub(l.left_at_unix_ms) / 1000)
+        )
+    }));
+    lines
+}
+
+fn ago(s: u64) -> String {
+    match s {
+        s if s < 120 => format!("{s} s"),
+        s if s < 7200 => format!("{} min", s / 60),
+        s => format!("{} h", s / 3600),
+    }
+}
+
 /// Health's line for a terminal: `terminal t1 (python3) · ses_… · pid 4242 ·
 /// 24x80 · running · open 3 min · 1,204 B out, 40 B in`, and its listed
 /// program when its screen is outside text.
 pub fn health_line(t: &TerminalInfo, now_ms: u64) -> String {
-    let open_s = now_ms.saturating_sub(t.opened_at_unix_ms) / 1000;
-    let open = match open_s {
-        s if s < 120 => format!("{s} s"),
-        s if s < 7200 => format!("{} min", s / 60),
-        s => format!("{} h", s / 3600),
-    };
+    let open = ago(now_ms.saturating_sub(t.opened_at_unix_ms) / 1000);
     format!(
         "terminal {} ({}) · {} · pid {} · {}x{} · {} · open {open} · {} B out, {} B in{}",
         t.id,
@@ -50,7 +90,7 @@ pub fn health_line(t: &TerminalInfo, now_ms: u64) -> String {
         if t.running {
             "running"
         } else {
-            "its program has ended"
+            "its program has ended, its slot free"
         },
         t.bytes_out,
         t.bytes_in,
@@ -150,6 +190,29 @@ mod tests {
             super::health_line(&t, 181_000),
             "terminal t1 (python3) · ses_a · pid 4242 · 24x80 · running · open 3 min · 1204 B \
              out, 40 B in · outside text (gh is listed)"
+        );
+        let ended = super::TerminalInfo {
+            running: false,
+            external: None,
+            ..t
+        };
+        let left = super::TerminalLeft {
+            pid: 4300,
+            program: "python3".into(),
+            why: "a background job".into(),
+            terminal: "t1".into(),
+            terminal_program: "bash".into(),
+            session_id: "ses_a".into(),
+            left_at_unix_ms: 121_000,
+        };
+        assert_eq!(
+            super::health_lines(&[ended], &[left], 181_000),
+            [
+                "terminal t1 (python3) · ses_a · pid 4242 · 24x80 · its program has ended, its \
+                 slot free · open 3 min · 1204 B out, 40 B in",
+                "left running by terminal t1 (bash) · ses_a · pid 4300 (python3) · a background \
+                 job · for 60 s"
+            ]
         );
     }
 }

@@ -1836,12 +1836,9 @@ pub fn health_lines(h: &theseus_protocol::HealthResult, now_ms: u64) -> Vec<Line
     if let Some(line) = external_line(&h.external_text) {
         push(o, Tag::Plain, &line);
     }
-    // A line per open terminal (theseus-n88g.4).
-    o.extend(
-        h.terminals
-            .iter()
-            .map(|t| Line::new(Tag::Plain, theseus_protocol::term::health_line(t, now_ms))),
-    );
+    // A line per open terminal (theseus-n88g.4), and what their closes left.
+    let terms = theseus_protocol::term::health_lines(&h.terminals, &h.terminals_left, now_ms);
+    o.extend(terms.into_iter().map(|l| Line::new(Tag::Plain, l)));
     out
 }
 

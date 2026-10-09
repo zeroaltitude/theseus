@@ -22,13 +22,27 @@
 //!   one sent text that names a listed program (`gh` typed into a shell), is
 //!   outside text from then on: every screen it gives is marked, and holds
 //!   its session (`via: program`).
-//! - **Lifetime.** At most `PER_SESSION` terminals a session. Each is closed
-//!   by `term.close`, at its session's end (its execution ends: a task that
-//!   reported, a failure, a spent budget), at a cancel or a `/stop` of its
-//!   execution, and at the daemon's stop. Terminals live in memory: a daemon
-//!   that dies takes their ptys with it, and the kernel hangs up each
-//!   program's session as its master closes. Their rows (`term.opened`,
-//!   `term.closed`) are the record.
+//! - **Lifetime.** At most `PER_SESSION` terminals a session whose programs
+//!   run (theseus-ggqf): one whose program has ended frees its slot, and its
+//!   last screen stays readable until `term.close`, or until an open finds
+//!   the session full and reclaims the oldest ended one, which its result
+//!   names. Each is closed by `term.close`, at its session's end (its
+//!   execution ends: a task that reported, a failure, a spent budget), at a
+//!   cancel or a `/stop` of its execution, and at the daemon's stop.
+//!   Terminals live in memory: a daemon that dies takes their ptys with it,
+//!   and the kernel hangs up each program's session as its master closes.
+//!   Their rows (`term.opened`, `term.closed`, `term.left`) are the record.
+//! - **What a close leaves** (theseus-ggqf, `left.rs`): at a session's end
+//!   and the daemon's stop, under `[tools.term] keep_background` (the
+//!   default), a close ends the program and the pty's foreground process
+//!   group and leaves what ran in the background, as `proc.run` does.
+//!   `term.close`, a cancel and a `/stop` end everything, and a cancel or a
+//!   `/stop` ends what its session's and its tasks' closes left too
+//!   (`Core::end_terminals_left`).
+//! - **Waiting for a typed command** (`term.read`'s `until_idle`): the
+//!   program back in front of its pty (`Pty::idle`, `tcgetpgrp` on the
+//!   master), looked at every `IDLE_LOOK`, never sooner than `IDLE_SETTLE`
+//!   after the last keys were sent.
 //! - **Surfaces.** A line per terminal in health (`terminals`), the
 //!   narrative's lines, the ledger's rows, and the tool lines, whose subject
 //!   is the program (`term.send python3`).
@@ -43,12 +57,21 @@ use serde_json::{json, Value};
 use theseus_tools::{AsyncRun, ToolCtx, ToolFailure, ToolOutput};
 
 pub mod keys;
+pub mod left;
 pub mod pty;
 pub mod tools;
 pub mod vt;
 
 #[cfg(test)]
+mod bench;
+#[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_idle;
+#[cfg(test)]
+mod tests_keep;
+#[cfg(test)]
+mod tests_slots;
 
 /// The tools' family, and their names: the one place they are spelt.
 pub const FAMILY: &str = "term";
@@ -59,15 +82,24 @@ pub const CLOSE: &str = "term.close";
 /// Every terminal tool, for the config's check of `[policy.tools]`.
 pub const NAMES: [&str; 4] = [OPEN, SEND, READ, CLOSE];
 
-/// The most terminals a session holds at once.
+/// The most terminals a session holds whose programs run.
 pub const PER_SESSION: usize = 4;
 
 /// How long a close waits for a program to go after its hang-up and
 /// SIGTERM, before SIGKILL.
 pub const CLOSE_GRACE: Duration = Duration::from_millis(500);
 
-/// The longest a read (or an open's first screen) waits.
+/// The longest a read (or an open's first screen) waits; `until_idle` alone
+/// may wait up to `[tools] proc_sync_secs` when that is longer.
 pub const MAX_WAIT_MS: u64 = 60_000;
+
+/// How often a wait `until_idle` looks at the pty's foreground group.
+pub const IDLE_LOOK: Duration = Duration::from_millis(40);
+
+/// How long after keys are sent before the program in front counts as
+/// idle: a shell reads a typed line, then puts its command in front, and
+/// between the two it is still in front itself.
+pub const IDLE_SETTLE: Duration = Duration::from_millis(100);
 
 /// Why a terminal closed, as its row and its line say.
 pub const BY_TOOL: &str = "term.close";
@@ -75,6 +107,7 @@ pub const BY_SESSION_END: &str = "its session ended";
 pub const BY_CANCEL: &str = "its execution was cancelled";
 pub const BY_STOP: &str = "its conversation was stopped";
 pub const BY_DAEMON: &str = "the daemon stopped";
+pub const BY_RECLAIM: &str = "term.open reclaimed its slot";
 
 /// One terminal: its program on its pty, and what its last read saw.
 pub struct Terminal {
@@ -90,6 +123,8 @@ pub struct Terminal {
     /// The rows and the scroll count its last read returned.
     last: Mutex<(Vec<String>, u64)>,
     closed: AtomicBool,
+    /// When keys were last sent to it, in ms since the epoch.
+    sent_ms: AtomicU64,
 }
 
 impl Terminal {
@@ -100,6 +135,28 @@ impl Terminal {
 
     pub fn external(&self) -> Option<crate::external::Listed> {
         self.external.lock().unwrap().clone()
+    }
+
+    /// Its program has ended: it holds no slot.
+    pub fn ended(&self) -> bool {
+        self.pty.exited().is_some()
+    }
+
+    /// Its program is in front of its pty, and no keys were sent to it in
+    /// the last `IDLE_SETTLE` (`until_idle`).
+    pub fn idle(&self) -> bool {
+        let since =
+            theseus_protocol::now_unix_ms().saturating_sub(self.sent_ms.load(Ordering::Relaxed));
+        since >= IDLE_SETTLE.as_millis() as u64 && self.pty.idle()
+    }
+
+    /// What holds its pty's front now, for a wait that ended busy: the
+    /// foreground group's leader, by its name.
+    pub fn in_front(&self) -> Option<String> {
+        let g = self.pty.foreground()?;
+        std::fs::read_to_string(format!("/proc/{g}/comm"))
+            .ok()
+            .map(|c| c.trim_end().to_string())
     }
 
     /// Health's line for it.
@@ -146,6 +203,8 @@ pub struct Closed {
     pub signal: Option<i32>,
     /// Processes the close had to kill after its grace.
     pub killed: usize,
+    /// What it left running (theseus-ggqf).
+    pub left: Vec<pty::Kept>,
     pub open_ms: u64,
     pub bytes_out: u64,
     pub bytes_in: u64,
@@ -162,10 +221,21 @@ impl Closed {
     }
 
     pub fn meta(&self) -> Value {
-        json!({"terminal": self.id, "program": program(&self.argv), "argv": self.argv,
+        let mut m = json!({"terminal": self.id, "program": program(&self.argv), "argv": self.argv,
             "by": self.by, "exit": self.exit, "signal": self.signal, "killed": self.killed,
-            "open_ms": self.open_ms, "bytes_out": self.bytes_out, "bytes_in": self.bytes_in})
+            "open_ms": self.open_ms, "bytes_out": self.bytes_out, "bytes_in": self.bytes_in});
+        if !self.left.is_empty() {
+            m["left"] = left_json(&self.left);
+        }
+        m
     }
+}
+
+/// Processes left, as a row names them.
+pub fn left_json(left: &[pty::Kept]) -> Value {
+    left.iter()
+        .map(|k| json!({"pid": k.proc.pid, "program": k.program, "why": k.why}))
+        .collect()
 }
 
 /// Every open terminal, by id.
@@ -177,6 +247,13 @@ pub struct Terms {
     pub env: Vec<(String, String)>,
     /// `[policy] external_programs`.
     pub external_programs: Vec<String>,
+    /// `[tools.term] keep_background` (theseus-ggqf).
+    pub keep_background: bool,
+    /// The longest `until_idle` alone waits: `[tools] proc_sync_secs`, or
+    /// `MAX_WAIT_MS` when that is longer.
+    pub idle_max_ms: u64,
+    /// What closes left running.
+    pub left: left::Book,
 }
 
 /// The terminal type a program is told it has: the subset `vt` models.
@@ -189,7 +266,22 @@ impl Terms {
             next: AtomicU64::new(1),
             env,
             external_programs,
+            keep_background: crate::config::term::KEEP_BACKGROUND,
+            idle_max_ms: MAX_WAIT_MS,
+            left: left::Book::default(),
         }
+    }
+
+    /// The config's terminal settings.
+    pub fn configured(mut self, keep_background: bool, proc_sync_secs: u64) -> Self {
+        self.keep_background = keep_background;
+        self.idle_max_ms = MAX_WAIT_MS.max(proc_sync_secs.saturating_mul(1000));
+        self
+    }
+
+    /// What closes left that still runs, for health.
+    pub fn left_info(&self) -> Vec<theseus_protocol::TerminalLeft> {
+        self.left.live().iter().map(left::Left::info).collect()
     }
 
     /// A terminal by id.
@@ -227,15 +319,22 @@ impl Terms {
         cwd: PathBuf,
         (rows, cols): (u16, u16),
         umask: Option<u32>,
-    ) -> Result<Arc<Terminal>, String> {
+    ) -> Result<(Arc<Terminal>, Option<Closed>), String> {
         let mut map = self.map.lock().unwrap();
-        let held = map.values().filter(|t| t.session == session).count();
-        if held >= PER_SESSION {
+        let mut held: Vec<&Arc<Terminal>> = map.values().filter(|t| t.session == session).collect();
+        held.sort_by_key(|t| (t.opened_ms, t.id.clone()));
+        let running = held.iter().filter(|t| !t.ended()).count();
+        if running >= PER_SESSION {
             return Err(format!(
-                "this session has {held} terminals open, the most it may: close one first \
+                "this session has {running} terminals running, the most it may: close one first \
                  (term_close)"
             ));
         }
+        // Full of running terminals and ended ones: the oldest ended one
+        // gives its slot back (theseus-ggqf).
+        let reclaim = (held.len() >= PER_SESSION)
+            .then(|| held.iter().find(|t| t.ended()).map(|t| (*t).clone()))
+            .flatten();
         if !cwd.is_dir() {
             return Err(format!(
                 "working directory {} does not exist",
@@ -269,9 +368,13 @@ impl Terms {
             external: Mutex::new(external),
             last: Mutex::new((Vec::new(), 0)),
             closed: AtomicBool::new(false),
+            sent_ms: AtomicU64::new(0),
         });
         map.insert(id, t.clone());
-        Ok(t)
+        drop(map);
+        // Its program has ended, so its close waits for nothing.
+        let reclaimed = reclaim.and_then(|r| self.close_one(&r, BY_RECLAIM, CLOSE_GRACE));
+        Ok((t, reclaimed))
     }
 
     /// Type `bytes` into a session's terminal; `text` is what of them was
@@ -297,6 +400,8 @@ impl Terms {
                 *ext = crate::external::Listed::in_text(text, &self.external_programs);
             }
         }
+        t.sent_ms
+            .store(theseus_protocol::now_unix_ms(), Ordering::Relaxed);
         t.pty
             .send(bytes)
             .map_err(|e| format!("could not write to terminal {id}: {e}"))?;
@@ -304,13 +409,36 @@ impl Terms {
     }
 
     /// Close one terminal: it leaves the map at once, and its program is
-    /// stopped. Blocks for up to the grace: call it off the workers.
+    /// stopped. At its session's end and the daemon's stop, under
+    /// `keep_background`, what ran in the background is left, and booked.
+    /// Blocks for up to the grace: call it off the workers.
     pub fn close_one(&self, t: &Terminal, by: &str, grace: Duration) -> Option<Closed> {
         if t.closed.swap(true, Ordering::AcqRel) {
             return None;
         }
         self.map.lock().unwrap().remove(&t.id);
-        let (status, killed) = t.pty.close(grace);
+        let keep = self.keep_background && matches!(by, BY_SESSION_END | BY_DAEMON);
+        let pty::Ended {
+            status,
+            killed,
+            left,
+        } = t.pty.close(grace, keep);
+        let now = theseus_protocol::now_unix_ms();
+        if !left.is_empty() {
+            let each: Vec<String> = left
+                .iter()
+                .map(|k| format!("{} ({}: {})", k.proc.pid, k.program, k.why))
+                .collect();
+            tracing::info!(terminal = %t.id, session = %t.session, by, left = %each.join(", "),
+                "a terminal's close left processes running");
+        }
+        self.left.add(left.iter().map(|k| left::Left {
+            session: t.session.clone(),
+            terminal: t.id.clone(),
+            terminal_program: t.program(),
+            kept: k.clone(),
+            since_ms: now,
+        }));
         use std::os::unix::process::ExitStatusExt;
         let s = &t.pty.shared;
         Some(Closed {
@@ -321,7 +449,8 @@ impl Terms {
             exit: status.and_then(|s| s.code()),
             signal: status.and_then(|s| s.signal()),
             killed,
-            open_ms: theseus_protocol::now_unix_ms().saturating_sub(t.opened_ms),
+            left,
+            open_ms: now.saturating_sub(t.opened_ms),
             bytes_out: s.bytes_out.load(Ordering::Relaxed),
             bytes_in: s.bytes_in.load(Ordering::Relaxed),
         })
@@ -356,6 +485,29 @@ impl Terms {
         self.close_where(by, |t| t.session == session)
     }
 
+    /// A cancel's or a `/stop`'s end of what the session's earlier closes
+    /// left running (`left::end`): each terminal's, with how many it had to
+    /// kill. Blocks for up to the grace: call it off the workers.
+    pub fn end_left(&self, session: &str) -> Vec<(String, String, Vec<pty::Kept>)> {
+        let taken = self.left.take(session);
+        if taken.is_empty() {
+            return Vec::new();
+        }
+        left::end(&taken, CLOSE_GRACE);
+        let mut by_terminal: BTreeMap<String, (String, Vec<pty::Kept>)> = BTreeMap::new();
+        for l in taken {
+            by_terminal
+                .entry(l.terminal)
+                .or_insert_with(|| (l.terminal_program, Vec::new()))
+                .1
+                .push(l.kept);
+        }
+        by_terminal
+            .into_iter()
+            .map(|(t, (p, k))| (t, p, k))
+            .collect()
+    }
+
     /// A session's terminals closed off the runtime's workers, with each
     /// recorded as `rec`'s fact.
     pub async fn close_session_recorded(
@@ -372,7 +524,7 @@ impl Terms {
             .await
             .unwrap_or_default();
         for c in &closed {
-            rec.record(&crate::fact::term::TermClosed { closed: c });
+            record_closed(rec, c);
         }
     }
 
@@ -397,6 +549,52 @@ impl Terms {
 }
 
 impl crate::rpc::Core {
+    /// A cancel's or a `/stop`'s end of what terminals' closes left running
+    /// (theseus-ggqf): its execution's session's, and its tasks' (whose
+    /// sessions ended with them, which is when their terminals left
+    /// something), off the runtime's workers, each recorded in its session.
+    pub async fn end_terminals_left(&self, execution_id: &str, by: &'static str) {
+        let terms = self.tools.terms.clone();
+        if terms.left.live().is_empty() {
+            return;
+        }
+        let mut sessions = Vec::new();
+        let mut under = vec![execution_id.to_string()];
+        while let Some(id) = under.pop() {
+            if let Ok(Some(e)) = self.kernel.execution(&id) {
+                sessions.push(e.session_id);
+            }
+            under.extend(
+                self.kernel
+                    .tasks(Some(&id))
+                    .unwrap_or_default()
+                    .into_iter()
+                    .map(|t| t.id),
+            );
+        }
+        sessions.retain(|s| terms.left.holds(s));
+        let ended = tokio::task::spawn_blocking(move || {
+            sessions
+                .into_iter()
+                .map(|s| (terms.end_left(&s), s))
+                .collect::<Vec<_>>()
+        })
+        .await
+        .unwrap_or_default();
+        for (each, session) in &ended {
+            for (terminal, program, procs) in each {
+                self.session_rec(session)
+                    .record(&crate::fact::term::TermLeft {
+                        terminal,
+                        program,
+                        by,
+                        procs,
+                        ended: true,
+                    });
+            }
+        }
+    }
+
     /// At the daemon's stop: every terminal closed, off the runtime's
     /// workers, each recorded in its own session.
     pub async fn close_terminals(&self) {
@@ -408,9 +606,23 @@ impl crate::rpc::Core {
             .await
             .unwrap_or_default();
         for c in &closed {
-            self.session_rec(&c.session)
-                .record(&crate::fact::term::TermClosed { closed: c });
+            record_closed(&self.session_rec(&c.session), c);
         }
+    }
+}
+
+/// A close's facts: its `term.closed`, and its `term.left` when it left
+/// something running.
+pub fn record_closed(rec: &crate::fact::Rec<'_>, c: &Closed) {
+    rec.record(&crate::fact::term::TermClosed { closed: c });
+    if !c.left.is_empty() {
+        rec.record(&crate::fact::term::TermLeft {
+            terminal: &c.id,
+            program: &program(&c.argv),
+            by: &c.by,
+            procs: &c.left,
+            ended: false,
+        });
     }
 }
 
@@ -423,7 +635,7 @@ impl Drop for Terms {
             .collect();
         for t in ts {
             t.closed.store(true, Ordering::Release);
-            t.pty.close(Duration::ZERO);
+            t.pty.close(Duration::ZERO, false);
         }
     }
 }

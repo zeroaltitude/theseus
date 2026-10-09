@@ -39,8 +39,13 @@ use crate::turn::compaction::OVERAGE_CLASS;
 use crate::turn::{TurnError, TurnRequest};
 use crate::{Config, Core};
 
-/// The session's model's window in this suite, and its output cap.
-const WINDOW: u64 = 40_000;
+/// The session's model's window in this suite, and its output cap. The
+/// request carries every tool's definition (32 KB of 59 at 40,000), so the
+/// window grows with the catalog: 40,000 left the kept turns 225 to 264
+/// tokens past the summary's room once theseus-ggqf's terminal words joined
+/// (the join's review). 48,000 leaves room; at 44,000 the override test's
+/// probe and its glm turn ring at different turns.
+const WINDOW: u64 = 48_000;
 const OUTPUT: u32 = 2_000;
 
 struct Rig {
@@ -571,8 +576,8 @@ async fn the_newest_exchange_past_the_window_fails_with_context_overage() {
     assert_eq!(te.class, OVERAGE_CLASS);
     let message = format!("{:#}", te.source);
     for part in [
-        "the newest exchange alone does not fit claude-sonnet-5-5's window of 40,000",
-        "upper bound) against the 33,904 the window leaves",
+        "the newest exchange alone does not fit claude-sonnet-5-5's window of 48,000",
+        "upper bound) against the 41,904 the window leaves",
         "Nothing was sent.",
     ] {
         assert!(message.contains(part), "{part:?} in {message}");

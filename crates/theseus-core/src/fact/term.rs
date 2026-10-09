@@ -1,6 +1,8 @@
 //! Terminals' facts (theseus-n88g.4): a terminal opened, and one closed,
 //! by `term.close` or by its session's end, a cancel, a stop, or the
-//! daemon's stop. Each call of a `term.*` tool has its own tool rows too.
+//! daemon's stop; and what a close left running, or a cancel or a stop
+//! ended of it (theseus-ggqf). Each call of a `term.*` tool has its own
+//! tool rows too.
 
 use serde_json::{json, Value};
 use theseus_protocol::LedgerKind;
@@ -8,7 +10,8 @@ use theseus_protocol::NarrativePart::Tool;
 
 use super::{Fact, Say};
 use crate::narrative;
-use crate::term::{program, Closed};
+use crate::term::pty::Kept;
+use crate::term::{left_json, program, Closed};
 
 /// A terminal opened (`term.opened`): its program, where, and its size.
 pub struct TermOpened<'a> {
@@ -97,6 +100,53 @@ impl Fact for TermClosed<'_> {
     }
 }
 
+/// What a terminal's close left running (`term.left`), or, `ended`, what a
+/// cancel or a `/stop` ended of it later: each process by its pid, its
+/// program, and why it was left.
+pub struct TermLeft<'a> {
+    pub terminal: &'a str,
+    pub program: &'a str,
+    pub by: &'a str,
+    pub procs: &'a [Kept],
+    pub ended: bool,
+}
+
+impl Fact for TermLeft<'_> {
+    const KIND: Option<LedgerKind> = Some(LedgerKind::TermLeft);
+
+    fn row(&self) -> Value {
+        json!({"terminal": self.terminal, "program": self.program, "by": self.by,
+            "ended": self.ended, "left": left_json(self.procs)})
+    }
+
+    fn narrate(&self, say: &mut Say<'_>) {
+        let each: Vec<String> = self
+            .procs
+            .iter()
+            .map(|k| format!("pid {} ({}, {})", k.proc.pid, k.program, k.why))
+            .collect();
+        say.line(
+            Tool,
+            match self.ended {
+                false => format!(
+                    "Left running as terminal {} ({}) closed because {}: {}.",
+                    self.terminal,
+                    self.program,
+                    self.by,
+                    each.join(", ")
+                ),
+                true => format!(
+                    "Ended what terminal {} ({}) left running, because {}: {}.",
+                    self.terminal,
+                    self.program,
+                    self.by,
+                    each.join(", ")
+                ),
+            },
+        );
+    }
+}
+
 /// The facts a `term.*` call's result names, recorded once it is written:
 /// an open's, and a close's.
 pub fn of_result(rec: &super::Rec<'_>, meta: &Value) {
@@ -106,7 +156,15 @@ pub fn of_result(rec: &super::Rec<'_>, meta: &Value) {
     if let Some(opened) = meta.get("opened") {
         rec.record(&TermOpened { id, opened });
     }
-    if let Some(c) = meta.get("closed") {
+    // A close's, and the ended terminal an open reclaimed (theseus-ggqf).
+    for (id, c) in [
+        meta.get("closed").map(|c| (id, c)),
+        meta.get("reclaimed")
+            .and_then(|c| Some((c.get("terminal")?.as_str()?, c))),
+    ]
+    .into_iter()
+    .flatten()
+    {
         let closed = Closed {
             id: id.into(),
             session: rec.session.unwrap_or_default().into(),
@@ -122,6 +180,7 @@ pub fn of_result(rec: &super::Rec<'_>, meta: &Value) {
             exit: c["exit"].as_i64().map(|v| v as i32),
             signal: c["signal"].as_i64().map(|v| v as i32),
             killed: c["killed"].as_u64().unwrap_or(0) as usize,
+            left: Vec::new(),
             open_ms: c["open_ms"].as_u64().unwrap_or(0),
             bytes_out: c["bytes_out"].as_u64().unwrap_or(0),
             bytes_in: c["bytes_in"].as_u64().unwrap_or(0),

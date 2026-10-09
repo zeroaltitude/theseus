@@ -48,6 +48,11 @@ struct SendArgs {
     text: Option<String>,
     #[serde(default)]
     keys: Vec<String>,
+    /// Once sent, wait until the program is back in front (`until_idle`).
+    #[serde(default)]
+    until_idle: bool,
+    #[serde(default)]
+    timeout_ms: Option<u64>,
 }
 
 #[derive(Deserialize)]
@@ -58,6 +63,8 @@ struct ReadArgs {
     quiet_ms: Option<u64>,
     #[serde(default)]
     until: Option<String>,
+    #[serde(default)]
+    until_idle: bool,
     #[serde(default)]
     timeout_ms: Option<u64>,
 }
@@ -119,7 +126,9 @@ impl Tool for Open {
          an editor, a pager, or anything that wants a terminal or asks for input. argv is the \
          program and its arguments, run directly with no shell (give [\"bash\"] for a shell). \
          Drive it with term_send, read it with term_read, and end it with term_close. A session \
-         may hold 4 terminals; each closes when its session ends."
+         may run 4 at once; each closes when its session ends. Programs it starts in the \
+         background keep running after the session ends, as with proc_run; term_close stops \
+         everything it started."
     }
     fn input_schema(&self) -> Value {
         json!({"type": "object", "required": ["argv"], "additionalProperties": false,
@@ -177,15 +186,18 @@ impl Tool for Send {
     fn description(&self) -> &'static str {
         "Type into a terminal: text (each newline is Enter), then named keys in order (Enter, \
          Tab, Escape, Backspace, Delete, Space, Up, Down, Left, Right, Home, End, PageUp, \
-         PageDown, F1-F12, Ctrl-C and any Ctrl-<letter>). It answers once the keys are sent; \
-         term_read shows what they did. Sending to a terminal counts as running its program."
+         PageDown, F1-F12, Ctrl-C and any Ctrl-<letter>). It answers once the keys are sent, or \
+         with until_idle once the program is back in front (as term_read's) with its screen. \
+         Sending to a terminal counts as running its program."
     }
     fn input_schema(&self) -> Value {
         json!({"type": "object", "required": ["terminal"], "additionalProperties": false,
         "properties": {
             "terminal": {"type": "string", "description": "the id term_open gave"},
             "text": {"type": "string"},
-            "keys": {"type": "array", "items": {"type": "string"}}
+            "keys": {"type": "array", "items": {"type": "string"}},
+            "until_idle": {"type": "boolean"},
+            "timeout_ms": {"type": "integer", "minimum": 0}
         }})
     }
     fn class(&self) -> ToolClass {
@@ -234,9 +246,11 @@ impl Tool for Read {
     }
     fn description(&self) -> &'static str {
         "Read a terminal's screen: its rows as text, the cursor, the lines that scrolled off \
-         since the last read, and which rows changed. To wait for a program, give quiet_ms (the \
-         screen unchanged that long) or until (a text that appears on the screen), bounded by \
-         timeout_ms (default 10000, at most 60000)."
+         since the last read, and which rows changed. To wait for a command you typed to finish, \
+         give until_idle: true (the program, a shell or a REPL, is back in front, waiting for \
+         input). Or wait for quiet_ms (the screen unchanged that long) or until (a text that \
+         appears on the screen); whichever comes first, bounded by timeout_ms (default 10000, \
+         at most 60000; until_idle alone may wait as long as proc_run's sync wait)."
     }
     fn input_schema(&self) -> Value {
         json!({"type": "object", "required": ["terminal"], "additionalProperties": false,
@@ -244,7 +258,8 @@ impl Tool for Read {
             "terminal": {"type": "string"},
             "quiet_ms": {"type": "integer", "minimum": 0},
             "until": {"type": "string", "description": "plain text, not a pattern"},
-            "timeout_ms": {"type": "integer", "minimum": 0, "maximum": MAX_WAIT_MS}
+            "until_idle": {"type": "boolean"},
+            "timeout_ms": {"type": "integer", "minimum": 0}
         }})
     }
     fn class(&self) -> ToolClass {
@@ -279,8 +294,8 @@ impl Tool for Close {
         CLOSE
     }
     fn description(&self) -> &'static str {
-        "Close a terminal: its program and everything it started get a hang-up, then are \
-         killed if they linger. Says how the program ended."
+        "Close a terminal: its program and everything it started, background jobs too, get a \
+         hang-up, then are killed if they linger. Says how the program ended."
     }
     fn input_schema(&self) -> Value {
         json!({"type": "object", "required": ["terminal"], "additionalProperties": false,
@@ -320,14 +335,22 @@ fn unreachable_run() -> AsyncRun {
     ))))
 }
 
-/// Wait on a terminal: until its screen is quiet for `quiet`, or shows
-/// `until`, or `bound` passes, or its program ends. What the wait found.
-async fn wait(
-    t: &Terminal,
+/// What a read waits for: the screen quiet for `quiet`, a text it shows
+/// (`until`), the program back in front (`idle`); whichever comes first,
+/// bounded by `bound`, or the program's end. As before `idle`, a wait for a
+/// text is not ended by quiet.
+#[derive(Default)]
+struct Wait<'a> {
     quiet: Option<Duration>,
-    until: Option<&str>,
-    bound: Duration,
-) -> String {
+    until: Option<&'a str>,
+    idle: bool,
+}
+
+/// Wait on a terminal for `w`, or until `bound` passes, or its program ends.
+/// What the wait found. A wait `idle` looks at the pty's front every
+/// `IDLE_LOOK`, a timer's wake, and at each change of the screen.
+async fn wait(t: &Terminal, w: Wait<'_>, bound: Duration) -> String {
+    let Wait { quiet, until, idle } = w;
     let t0 = Instant::now();
     let mut rx = t.pty.shared.version.subscribe();
     // The screen's rows as one text, so a text may span rows.
@@ -347,36 +370,67 @@ async fn wait(
         "" => u,
         cut => cut,
     });
+    // Quiet is counted from the last change, as a timer reset at each.
+    let mut quiet_from = Instant::now();
     loop {
         if let Some(u) = until {
             if shows(u) {
                 return format!("{u:?} appeared after {} ms", t0.elapsed().as_millis());
             }
         }
-        if t.pty.shared.hung_up.load(Ordering::Relaxed) {
+        if t.pty.shared.hung_up.load(Ordering::Relaxed) || (idle && t.ended()) {
             return format!("its program ended after {} ms", t0.elapsed().as_millis());
+        }
+        if idle && t.idle() {
+            return format!(
+                "its program is idle, back in front, after {} ms",
+                t0.elapsed().as_millis()
+            );
+        }
+        if let Some(q) = quiet.filter(|_| idle && until.is_none()) {
+            if quiet_from.elapsed() >= q {
+                return format!(
+                    "quiet for {} ms after {} ms",
+                    q.as_millis(),
+                    t0.elapsed().as_millis()
+                );
+            }
         }
         let left = bound.saturating_sub(t0.elapsed());
         if left.is_zero() {
-            return match until {
-                Some(u) => format!("{u:?} did not appear in {} ms", bound.as_millis()),
-                None => format!(
+            let busy = || {
+                t.in_front()
+                    .map(|p| format!(" ({p} is in front)"))
+                    .unwrap_or_default()
+            };
+            return match (until, idle) {
+                (Some(u), _) => format!("{u:?} did not appear in {} ms", bound.as_millis()),
+                (None, true) => format!(
+                    "its program was not idle in {} ms{}",
+                    bound.as_millis(),
+                    busy()
+                ),
+                (None, false) => format!(
                     "the screen was not quiet for {} ms in {} ms",
                     quiet.unwrap_or_default().as_millis(),
                     bound.as_millis()
                 ),
             };
         }
-        // The next change, or the quiet that ends the wait.
-        let step = match (quiet, until) {
-            (Some(q), _) => q.min(left),
-            (None, _) => left,
+        // The next change, the quiet that ends the wait, or the next look.
+        let mut step = match quiet {
+            Some(q) if idle => q.saturating_sub(quiet_from.elapsed()).min(left),
+            Some(q) => q.min(left),
+            None => left,
         };
+        if idle {
+            step = step.min(super::IDLE_LOOK);
+        }
         rx.mark_unchanged();
         match tokio::time::timeout(step, rx.changed()).await {
-            Ok(Ok(())) => {}
+            Ok(Ok(())) => quiet_from = Instant::now(),
             Ok(Err(_)) => return "its terminal closed".into(),
-            Err(_) if quiet.is_some() && until.is_none() => {
+            Err(_) if quiet.is_some() && until.is_none() && !idle => {
                 return format!(
                     "quiet for {} ms after {} ms",
                     step.as_millis(),
@@ -386,6 +440,16 @@ async fn wait(
             Err(_) => {}
         }
     }
+}
+
+/// A read's bound: `timeout_ms`, or the default, at most `MAX_WAIT_MS`, or
+/// for `until_idle` alone at most `[tools] proc_sync_secs`.
+pub(super) fn bound_of(terms: &Terms, timeout_ms: Option<u64>, idle_alone: bool) -> Duration {
+    let max = match idle_alone {
+        true => terms.idle_max_ms,
+        false => MAX_WAIT_MS,
+    };
+    Duration::from_millis(timeout_ms.unwrap_or(READ_WAIT_MS).min(max))
 }
 
 /// One `term.*` call, for `session`.
@@ -401,37 +465,49 @@ pub async fn run(
             let a: OpenArgs = parse(input).map_err(ToolFailure::new)?;
             let size = size_of(&a).map_err(ToolFailure::new)?;
             let cwd = cwd_of(a.cwd.as_deref(), ctx);
-            let t = terms
+            let (t, reclaimed) = terms
                 .open(session, &a.argv, cwd, size, ctx.umask)
                 .map_err(ToolFailure::new)?;
             let quiet =
                 Duration::from_millis(a.quiet_ms.unwrap_or(OPEN_QUIET_MS).min(OPEN_WAIT_MS));
-            let waited = wait(&t, Some(quiet), None, Duration::from_millis(OPEN_WAIT_MS)).await;
-            let (mut out, ext) = super::snapshot(&t, Some(format!("Opened; {waited}")))?;
+            let w = Wait {
+                quiet: Some(quiet),
+                ..Wait::default()
+            };
+            let waited = wait(&t, w, Duration::from_millis(OPEN_WAIT_MS)).await;
+            let mut opened = format!("Opened; {waited}");
+            if let Some(r) = &reclaimed {
+                opened = format!(
+                    "Opened in the slot of terminal {} ({}), whose program had ended ({}): it is \
+                     closed; {waited}",
+                    r.id,
+                    program_of(&r.argv),
+                    r.how()
+                );
+            }
+            let (mut out, ext) = super::snapshot(&t, Some(opened))?;
             out.meta["opened"] = json!({"argv": t.argv, "cwd": t.cwd, "pid": t.pty.pid(),
                 "rows": size.0, "cols": size.1});
+            if let Some(r) = &reclaimed {
+                out.meta["reclaimed"] = r.meta();
+            }
             Ok((out, ext))
         }
-        SEND => send(terms, session, input),
+        SEND => send(terms, session, input).await,
         READ => {
             let a: ReadArgs = parse(input).map_err(ToolFailure::new)?;
             let t = terms.of(session, &a.terminal).map_err(ToolFailure::new)?;
-            let waits = a.quiet_ms.is_some() || a.until.is_some();
+            let until = a.until.as_deref().filter(|u| !u.is_empty());
+            let waits = a.quiet_ms.is_some() || until.is_some() || a.until_idle;
             let waited = match waits {
                 true => {
-                    let bound = Duration::from_millis(
-                        a.timeout_ms.unwrap_or(READ_WAIT_MS).min(MAX_WAIT_MS),
-                    );
-                    let quiet = a.quiet_ms.map(Duration::from_millis);
-                    Some(
-                        wait(
-                            &t,
-                            quiet,
-                            a.until.as_deref().filter(|u| !u.is_empty()),
-                            bound,
-                        )
-                        .await,
-                    )
+                    let idle_alone = a.until_idle && a.quiet_ms.is_none() && until.is_none();
+                    let w = Wait {
+                        quiet: a.quiet_ms.map(Duration::from_millis),
+                        until,
+                        idle: a.until_idle,
+                    };
+                    Some(wait(&t, w, bound_of(terms, a.timeout_ms, idle_alone)).await)
                 }
                 false => None,
             };
@@ -442,8 +518,9 @@ pub async fn run(
     }
 }
 
-/// `term.send`: the keys typed, and what was sent, in words.
-fn send(terms: &Arc<Terms>, session: &str, input: &Value) -> AsyncResult {
+/// `term.send`: the keys typed, and what was sent, in words; with
+/// `until_idle`, the screen once the program is back in front.
+async fn send(terms: &Arc<Terms>, session: &str, input: &Value) -> AsyncResult {
     let a: SendArgs = parse(input).map_err(ToolFailure::new)?;
     let (bytes, text) = send_bytes(&a).map_err(ToolFailure::new)?;
     let t = terms
@@ -455,6 +532,20 @@ fn send(terms: &Arc<Terms>, session: &str, input: &Value) -> AsyncResult {
     }
     if !a.keys.is_empty() {
         what.push(a.keys.join(", "));
+    }
+    if a.until_idle {
+        let w = Wait {
+            idle: true,
+            ..Wait::default()
+        };
+        let waited = wait(&t, w, bound_of(terms, a.timeout_ms, true)).await;
+        let (mut out, ext) = super::snapshot(
+            &t,
+            Some(format!("Sent {}; waited: {waited}", what.join(", then "))),
+        )?;
+        out.meta["bytes"] = json!(bytes.len());
+        out.meta["keys"] = json!(a.keys);
+        return Ok((out, ext));
     }
     Ok((
         ToolOutput {

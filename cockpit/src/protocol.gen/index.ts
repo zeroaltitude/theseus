@@ -366,6 +366,7 @@ export type * from './TasksHealth';
 export type * from './TelemetryStatus';
 export type * from './TenderStatus';
 export type * from './TerminalInfo';
+export type * from './TerminalLeft';
 export type * from './TightenResult';
 export type * from './Tightening';
 export type * from './ToolClass';

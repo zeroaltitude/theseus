@@ -68,7 +68,7 @@ pub use ontology::*;
 pub use places::*;
 pub use push::*;
 pub use sessions::{RetiredReason, SessionLink, SessionRetired, SessionState};
-pub use term::TerminalInfo;
+pub use term::{TerminalInfo, TerminalLeft};
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -641,6 +641,9 @@ pub struct HealthResult {
     /// The open terminals (`term.*`, theseus-n88g.4), oldest first.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub terminals: Vec<TerminalInfo>,
+    /// What terminals' closes left running (theseus-ggqf), while it runs.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub terminals_left: Vec<TerminalLeft>,
     /// The MCP server (step 41b): absent while `[mcp_server]` is off.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]

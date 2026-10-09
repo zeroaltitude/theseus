@@ -432,10 +432,11 @@ async fn a_piece_its_situation_does_not_admit_fails_naming_it() {
     assert_eq!(row[0]["situation"]["kind"], "conversation_start");
 }
 
-const WINDOW: u64 = 40_000;
+const WINDOW: u64 = 48_000;
 
-/// A core whose model has a 40k window, summaries on glm, and recall in
-/// front of the model, recalling `HERON`'s session for every query.
+/// A core whose model has a 48k window (tests_compaction's, which says
+/// why), summaries on glm, and recall in front of the model, recalling
+/// `HERON`'s session for every query.
 fn compacting(dir: &Path, model: Arc<FakeProvider>, glm: Arc<FakeProvider>) -> Arc<Core> {
     let root = dir.join("w");
     std::fs::create_dir_all(&root).unwrap();

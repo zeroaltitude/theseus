@@ -237,6 +237,7 @@ impl Core {
                 &self.session_rec(&session_id),
             )
             .await;
+        self.end_terminals_left(id, crate::term::BY_CANCEL).await;
         // The jobs' last steps and their facts' rows, and what the cancel
         // left unanswered in the transcript (theseus-0o8), in one frame
         // (theseus-dwoj): the calls it stopped are answered where they
@@ -432,6 +433,7 @@ impl Core {
                 &self.session_rec(&e.session_id),
             )
             .await;
+        self.end_terminals_left(id, crate::term::BY_STOP).await;
         let tasks_running = self
             .kernel
             .tasks(Some(id))?

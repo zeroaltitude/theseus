@@ -242,6 +242,7 @@ ledger_kinds! {
     TaskStaleRefused = "task.stale_refused",
     TaskUpdated = "task.updated",
     TermClosed = "term.closed",
+    TermLeft = "term.left",
     TermOpened = "term.opened",
     ToolConfirmRequested = "tool.confirm_requested",
     ToolInvalidInput = "tool.invalid_input",

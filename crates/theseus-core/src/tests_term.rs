@@ -250,10 +250,12 @@ fn the_gate_judges_a_terminal_as_its_programs_run() {
             (24, 80),
             None,
         )
-        .unwrap();
+        .unwrap()
+        .0;
     let t_cat = terms
         .open("s1", &["cat".into()], root, (24, 80), None)
-        .unwrap();
+        .unwrap()
+        .0;
     let send = tools::Send(terms.clone());
     let (p, why, _) = decide(&send, json!({"terminal": t_py.id, "text": "print(1)\n"}));
     assert_eq!(p, Posture::Approve, "{why}");
@@ -513,4 +515,176 @@ fn lives_marked(marker: &str) -> bool {
             && std::fs::read(format!("/proc/{pid}/cmdline"))
                 .is_ok_and(|c| String::from_utf8_lossy(&c).contains(marker))
     })
+}
+
+/// theseus-ggqf: a task's terminal leaves its background job running at the
+/// task's end, as `proc.run` would: a `term.left` row names it, health lists
+/// it, and its terminal's foreground program is gone. The parent's `/stop`
+/// then ends it, with a `term.left` row that says so.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_tasks_background_job_outlives_its_end_until_a_stop() {
+    background_job_until(term::BY_STOP, "4791", "4792").await;
+}
+
+/// A cancel of the parent's execution ends what the task's terminal left, as
+/// a `/stop` does (the join's review: no test held the cancel's end).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_tasks_background_job_outlives_its_end_until_a_cancel() {
+    background_job_until(term::BY_CANCEL, "4789", "4790").await;
+}
+
+/// A task's terminal leaves `set -m; sleep BG & exec sleep FG`'s job at the
+/// task's end, and the parent's `/stop` or cancel (`by`) ends it.
+async fn background_job_until(by: &'static str, bg: &str, fg: &str) {
+    const START: &str = "START a task that leaves a job running, please";
+    let run = format!("{:07}", std::process::id());
+    let (bg, fg) = (format!("{bg}.{run}"), format!("{fg}.{run}"));
+    let script = format!("set -m; sleep {bg} & exec sleep {fg}");
+    let r = rig(&[], true, move |req| {
+        let (first, last, n) = asked(req);
+        if first.contains("CHILD") {
+            return match n {
+                0 => call(
+                    "o1",
+                    term::OPEN,
+                    json!({"argv": ["bash", "-c", script], "quiet_ms": 200}),
+                ),
+                _ => Scripted::text("Started it, and done."),
+            };
+        }
+        match (last.as_str(), n) {
+            (START, 0) => call(
+                "t1",
+                crate::task::CREATE,
+                json!({
+                    "brief": "CHILD start a job",
+                    "arrangement": {"pieces": [{"quote": START, "role": "objective"}]}
+                }),
+            ),
+            _ => Scripted::text("Started."),
+        }
+    });
+    let sid = session(&r.core);
+    r.core.outbox.bind_place(PLACE, &sid).unwrap();
+    r.core
+        .runner
+        .place_rule
+        .bind_one(crate::places::BoundPlace {
+            target: format!("discord:{PLACE}"),
+            name: "a private channel".into(),
+            private: true,
+            ..Default::default()
+        });
+    let res = turn(&r.core, &sid, START).await;
+    until("the task's terminal left its job", || {
+        !rows(&r.core, "term.left").is_empty()
+    })
+    .await;
+    let left = rows(&r.core, "term.left");
+    assert_eq!(left[0].1["ended"], false, "{left:?}");
+    assert_eq!(left[0].1["by"], term::BY_SESSION_END);
+    assert_eq!(left[0].1["left"][0]["program"], "sleep");
+    assert_eq!(left[0].1["left"][0]["why"], term::pty::WHY_BACKGROUND);
+    assert!(
+        lives_marked(&bg),
+        "the background job did not outlive its session"
+    );
+    until("the foreground program's end", || !lives_marked(&fg)).await;
+    let health = r.core.health();
+    assert_eq!(
+        health.terminals_left.len(),
+        1,
+        "{:?}",
+        health.terminals_left
+    );
+    assert_eq!(health.terminals_left[0].program, "sleep");
+    let execution = res.execution_id.as_deref().unwrap();
+    match by {
+        term::BY_STOP => drop(r.core.stop_execution(execution, "test").await.unwrap()),
+        _ => drop(r.core.cancel_execution(execution, "test").await.unwrap()),
+    }
+    until("the end of what was left", || !lives_marked(&bg)).await;
+    let left = rows(&r.core, "term.left");
+    assert_eq!(left.len(), 2, "{left:?}");
+    let ended = left.iter().find(|(_, r)| r["ended"] == true).unwrap();
+    assert_eq!(ended.1["by"], by, "{left:?}");
+    assert!(r.core.health().terminals_left.is_empty());
+    // The narrative's two lines in the task's session: what was left, and
+    // its end (the join's review: no test read them).
+    let task = left[0].0.clone().unwrap();
+    let said: Vec<String> = r
+        .core
+        .narrator
+        .tail()
+        .into_iter()
+        .filter(|l| l.session_id.as_deref() == Some(task.as_str()))
+        .map(|l| l.text)
+        .collect();
+    let pid = &left[0].1["left"][0]["pid"];
+    for line in [
+        format!(
+            "Left running as terminal t1 (bash) closed because its session ended: pid {pid} \
+             (sleep, a background job)."
+        ),
+        format!(
+            "Ended what terminal t1 (bash) left running, because {by}: pid {pid} (sleep, a \
+             background job)."
+        ),
+    ] {
+        assert!(
+            said.iter().any(|t| t.contains(&line)),
+            "{line:?} in {said:#?}"
+        );
+    }
+}
+
+/// An open that finds its session full of ended terminals reclaims the
+/// oldest, and the reclaimed terminal's close is recorded: a `term.closed`
+/// row by `term.open reclaimed its slot` (the join's review: no test read a
+/// result's `reclaimed` into its row).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_open_that_reclaims_a_slot_records_the_reclaimed_close() {
+    let r = rig(&[], false, |req| {
+        let (_, last, n) = asked(req);
+        match (last.as_str(), n) {
+            ("open five", n) if n < 5 => call(
+                &format!("o{n}"),
+                term::OPEN,
+                json!({"argv": ["bash", "-c", format!("echo done-{n}")], "quiet_ms": 200}),
+            ),
+            _ => Scripted::text("Opened five."),
+        }
+    });
+    let sid = session(&r.core);
+    turn(&r.core, &sid, "open five").await;
+    let closed = rows(&r.core, "term.closed");
+    assert_eq!(closed.len(), 1, "{closed:?}");
+    assert_eq!(closed[0].0.as_deref(), Some(sid.as_str()));
+    assert_eq!(closed[0].1["terminal"], "t1", "{closed:?}");
+    assert_eq!(closed[0].1["by"], term::BY_RECLAIM);
+    assert_eq!(closed[0].1["exit"], 0);
+    assert_eq!(r.core.tools.terms.of_session(&sid).len(), term::PER_SESSION);
+}
+
+/// `[tools.term] keep_background` and `[tools] proc_sync_secs` reach the
+/// core's terminals (the join's review: no test read the config's key
+/// through to them).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_configs_term_settings_reach_the_terminals() {
+    for (keep, sync_secs, idle_max_ms) in [(false, 900, 900_000), (true, 30, 60_000)] {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("work");
+        std::fs::create_dir_all(&root).unwrap();
+        let mut cfg = Config::example();
+        cfg.server.state_dir = dir.path().to_string_lossy().into_owned();
+        cfg.tools.projects_dir = Some(root.canonicalize().unwrap().to_string_lossy().into_owned());
+        cfg.tools.roots = vec![];
+        cfg.tools.term.keep_background = keep;
+        cfg.tools.proc_sync_secs = sync_secs;
+        let store = Store::open(&dir.path().join("store")).unwrap();
+        let model = Arc::new(Model(Box::new(|_| Scripted::text("."))));
+        let core = Core::build(crate::rpc::Parts::for_tests(cfg, model, store)).unwrap();
+        assert_eq!(core.tools.terms.keep_background, keep);
+        assert_eq!(core.tools.terms.idle_max_ms, idle_max_ms);
+    }
 }
