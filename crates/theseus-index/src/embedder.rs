@@ -15,14 +15,16 @@
 //! little past 512 word pieces: windows embed all of each, not its first 512.
 //! At most [`MAX_WINDOWS`]; past that a text is cut, and says so.
 //!
-//! **One thread.** candle sizes gemm's parallelism from `RAYON_NUM_THREADS`
+//! **Threads.** candle sizes gemm's parallelism from `RAYON_NUM_THREADS`
 //! at every matmul, and its quantized pool from `CANDLE_NUM_THREADS`, both
-//! every core when unset. The tender's binary sets both to `[index] threads`
-//! (1) before anything starts; a core that spawns the tender should set them
-//! in its environment too.
+//! every core when unset. The tender's binary sets `CANDLE_NUM_THREADS` to
+//! `[index] threads` (1), and `RAYON_NUM_THREADS` to the larger of that and a
+//! query's threads, before anything starts; the pool a matmul runs in bounds
+//! it (`ahead`: a query's up to 4, the backfill's `[index] threads`).
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use anyhow::Context as _;
 use candle_core::{DType, Device, Tensor};
@@ -160,6 +162,20 @@ pub struct Embedder {
     sep: u32,
     /// Each task's prefix, as ids.
     prefixes: [Vec<u32>; 4],
+    /// A pause before each layer of a query's pass: zero, but for a test's
+    /// stand-in for a slow model ([`Embedder::slowed`]).
+    step: Duration,
+}
+
+/// A row's sum of its tokens' last hidden states, and how many tokens.
+type Sums = (Vec<f64>, usize);
+
+/// Why a query's embedding gave no vector.
+#[derive(Debug)]
+pub enum QueryMiss {
+    /// Its caller went away mid-pass; it stopped at the next layer.
+    Gone,
+    Failed(anyhow::Error),
 }
 
 fn task_index(t: Task) -> usize {
@@ -220,7 +236,16 @@ impl Embedder {
             cls,
             sep,
             prefixes,
+            step: Duration::ZERO,
         })
+    }
+
+    /// This model, pausing `step` before each layer of a query's pass: a
+    /// test's slow model, whose queries take as long as a real one's.
+    #[must_use]
+    pub fn slowed(mut self, step: Duration) -> Self {
+        self.step = step;
+        self
     }
 
     pub fn spec(&self) -> &ModelSpec {
@@ -232,23 +257,80 @@ impl Embedder {
     /// The prefix ends in a space, so the text's word pieces are the same
     /// apart as after it.
     pub fn tokenize(&self, task: Task, text: &str) -> Windows {
-        let prefix = &self.prefixes[task_index(task)];
-        let room = MAX_TOKENS.min(self.spec.config.max_pos) - 2 - prefix.len();
+        let room = self.room(task);
         let (body, truncated) = self.tok.ids(text, room * MAX_WINDOWS);
-        let window = |part: &[u32]| {
-            let mut w = Vec::with_capacity(part.len() + prefix.len() + 2);
-            w.push(self.cls);
-            w.extend_from_slice(prefix);
-            w.extend_from_slice(part);
-            w.push(self.sep);
-            w
-        };
         let ids = if body.is_empty() {
-            vec![window(&[])]
+            vec![self.window(task, &[])]
         } else {
-            body.chunks(room).map(window).collect()
+            body.chunks(room).map(|p| self.window(task, p)).collect()
         };
         Windows { ids, truncated }
+    }
+
+    /// A query as the model reads it: one window, the text's word pieces cut
+    /// at `max` by this tokenizer's count (0: as [`Embedder::tokenize`]
+    /// reads it), so a long query never costs a long pass (theseus-zo1y).
+    /// `truncated` says it was cut.
+    pub fn tokenize_query(&self, text: &str, max: usize) -> Windows {
+        if max == 0 {
+            return self.tokenize(Task::SearchQuery, text);
+        }
+        let (body, truncated) = self.tok.ids(text, max.min(self.room(Task::SearchQuery)));
+        Windows {
+            ids: vec![self.window(Task::SearchQuery, &body)],
+            truncated,
+        }
+    }
+
+    /// The text's room in one window: the window's, less `[CLS]`, `[SEP]`
+    /// and the task's prefix.
+    fn room(&self, task: Task) -> usize {
+        MAX_TOKENS.min(self.spec.config.max_pos) - 2 - self.prefixes[task_index(task)].len()
+    }
+
+    /// `[CLS]`, the task's prefix, `part`, `[SEP]`.
+    fn window(&self, task: Task, part: &[u32]) -> Vec<u32> {
+        let prefix = &self.prefixes[task_index(task)];
+        let mut w = Vec::with_capacity(part.len() + prefix.len() + 2);
+        w.push(self.cls);
+        w.extend_from_slice(prefix);
+        w.extend_from_slice(part);
+        w.push(self.sep);
+        w
+    }
+
+    /// A query's vector, its text cut at `max` word pieces
+    /// ([`Embedder::tokenize_query`]), asking `gone` before each layer: once
+    /// its caller has gone, the pass stops there (theseus-zo1y).
+    pub fn embed_query(
+        &self,
+        text: &str,
+        max: usize,
+        gone: &dyn Fn() -> bool,
+    ) -> Result<Vector, QueryMiss> {
+        let w = self.tokenize_query(text, max);
+        let mut go_on = || {
+            if gone() {
+                return false;
+            }
+            if !self.step.is_zero() {
+                std::thread::sleep(self.step);
+            }
+            !gone()
+        };
+        let mut sum = (vec![0f64; self.spec.config.hidden], 0usize);
+        for win in &w.ids {
+            let Some(mut s) = self
+                .token_sums_while(&[win.as_slice()], &mut go_on)
+                .map_err(QueryMiss::Failed)?
+            else {
+                return Err(QueryMiss::Gone);
+            };
+            let (s, n) = s.remove(0);
+            sum.0.iter_mut().zip(&s).for_each(|(a, b)| *a += b);
+            sum.1 += n;
+        }
+        Ok(self.pooled(&sum.0, sum.1, &w))
     }
 
     /// The texts' vectors: callers group texts of about one length (a batch
@@ -280,28 +362,40 @@ impl Embedder {
         Ok(sums
             .iter()
             .zip(items)
-            .map(|((sum, n), w)| {
-                let pooled: Vec<f32> = sum
-                    .iter()
-                    .map(|&s| (s / (*n).max(1) as f64) as f32)
-                    .collect();
-                let (full, short) = finish(&pooled, self.spec.cut);
-                Vector {
-                    full,
-                    cut: short,
-                    tokens: w.tokens(),
-                    windowed: w.ids.len() > 1,
-                    truncated: w.truncated,
-                }
-            })
+            .map(|((sum, n), w)| self.pooled(sum, *n, w))
             .collect())
+    }
+
+    /// A text's vector from the sum of its `n` tokens' states.
+    fn pooled(&self, sum: &[f64], n: usize, w: &Windows) -> Vector {
+        let pooled: Vec<f32> = sum.iter().map(|&s| (s / n.max(1) as f64) as f32).collect();
+        let (full, short) = finish(&pooled, self.spec.cut);
+        Vector {
+            full,
+            cut: short,
+            tokens: w.tokens(),
+            windowed: w.ids.len() > 1,
+            truncated: w.truncated,
+        }
     }
 
     /// One padded batch through the encoder: each row's sum of its tokens'
     /// last hidden states, and how many tokens.
-    fn token_sums(&self, rows: &[&[u32]]) -> anyhow::Result<Vec<(Vec<f64>, usize)>> {
+    fn token_sums(&self, rows: &[&[u32]]) -> anyhow::Result<Vec<Sums>> {
+        Ok(self
+            .token_sums_while(rows, &mut || true)?
+            .expect("a pass asked to go on runs to its end"))
+    }
+
+    /// [`Embedder::token_sums`], asking `go_on` before each layer; `None`
+    /// once it says no.
+    fn token_sums_while(
+        &self,
+        rows: &[&[u32]],
+        go_on: &mut dyn FnMut() -> bool,
+    ) -> anyhow::Result<Option<Vec<Sums>>> {
         if rows.is_empty() {
-            return Ok(Vec::new());
+            return Ok(Some(Vec::new()));
         }
         let batch = rows.len();
         let seq = rows.iter().map(|r| r.len()).max().unwrap_or(0);
@@ -314,15 +408,17 @@ impl Embedder {
         let dev = Device::Cpu;
         let ids_t = Tensor::from_vec(ids, (batch, seq), &dev)?;
         let mask_t = Tensor::from_vec(mask.clone(), (batch, seq), &dev)?;
-        let hidden = self.model.forward(&ids_t, &mask_t)?;
+        let Some(hidden) = self.model.forward_while(&ids_t, &mask_t, go_on)? else {
+            return Ok(None);
+        };
         let hidden: Vec<f32> = hidden.flatten_all()?.to_vec1()?;
-        Ok(token_sums(
+        Ok(Some(token_sums(
             &hidden,
             &mask,
             batch,
             seq,
             self.spec.config.hidden,
-        ))
+        )))
     }
 }
 

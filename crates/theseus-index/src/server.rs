@@ -1,10 +1,18 @@
 //! The tender's socket: JSON-RPC 2.0, one request per line and one response
 //! per line, on `<index>/sock` (mode 0600, in a 0700 directory). A thread
 //! per connection, at most [`MAX_CONNECTIONS`] at once: the core is the only
-//! client, and holds one or two.
+//! client, and a recall holds one (its words' query, then its whole one, on
+//! one connection: theseus-zo1y).
+//!
+//! **A caller that has gone frees its slot.** A query whose caller closed its
+//! connection (a recall past its deadline, or whose turn ended) stops at the
+//! embedder's next layer ([`closed`], asked between layers), and its thread
+//! ends: one recall's abandoned vector query no longer holds a slot for the
+//! whole of its embedding.
 
 use std::fs;
 use std::io::{self, BufRead, BufReader, Write};
+use std::os::fd::{AsRawFd, RawFd};
 use std::os::unix::fs::PermissionsExt;
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::Path;
@@ -26,6 +34,14 @@ pub const MAX_CONNECTIONS: usize = 16;
 /// Bind the socket at `path` (a stale one from a killed tender is replaced:
 /// the caller holds the directory's lock) and serve it on a thread.
 pub fn spawn(path: &Path, shared: Arc<Shared>) -> io::Result<thread::JoinHandle<()>> {
+    Ok(spawn_counted(path, shared)?.0)
+}
+
+/// [`spawn`], and the count of connections it serves now (tests count them).
+pub fn spawn_counted(
+    path: &Path,
+    shared: Arc<Shared>,
+) -> io::Result<(thread::JoinHandle<()>, Arc<AtomicUsize>)> {
     match fs::remove_file(path) {
         Ok(()) => {}
         Err(e) if e.kind() == io::ErrorKind::NotFound => {}
@@ -34,7 +50,8 @@ pub fn spawn(path: &Path, shared: Arc<Shared>) -> io::Result<thread::JoinHandle<
     let listener = UnixListener::bind(path)?;
     fs::set_permissions(path, fs::Permissions::from_mode(0o600))?;
     let active = Arc::new(AtomicUsize::new(0));
-    thread::Builder::new()
+    let count = active.clone();
+    let served = thread::Builder::new()
         .name("index-socket".into())
         .spawn(move || {
             for conn in listener.incoming() {
@@ -57,26 +74,49 @@ pub fn spawn(path: &Path, shared: Arc<Shared>) -> io::Result<thread::JoinHandle<
                     active.fetch_sub(1, Ordering::SeqCst);
                 }
             }
-        })
+        })?;
+    Ok((served, count))
 }
 
 fn serve(conn: UnixStream, shared: &Shared) -> io::Result<()> {
     let reader = BufReader::new(conn.try_clone()?);
+    let fd = conn.as_raw_fd();
+    let gone = move || closed(fd);
     let mut writer = conn;
     for line in reader.lines() {
         let line = line?;
         if line.trim().is_empty() {
             continue;
         }
-        let mut out = serde_json::to_vec(&answer(&line, shared))?;
+        let mut out = serde_json::to_vec(&answer_while(&line, shared, &gone))?;
         out.push(b'\n');
         writer.write_all(&out)?;
     }
     Ok(())
 }
 
+/// Whether the peer of the connection on `fd` has closed it (or it broke):
+/// `poll` with no wait, for `POLLRDHUP`. Requests already sent and not yet
+/// read (a recall's second query) leave it open.
+pub fn closed(fd: RawFd) -> bool {
+    let mut p = libc::pollfd {
+        fd,
+        events: libc::POLLRDHUP,
+        revents: 0,
+    };
+    // SAFETY: one pollfd, owned here, and a zero timeout.
+    let n = unsafe { libc::poll(&mut p, 1, 0) };
+    n > 0 && p.revents & (libc::POLLRDHUP | libc::POLLHUP | libc::POLLERR) != 0
+}
+
 /// One request's response.
 pub fn answer(line: &str, shared: &Shared) -> Response {
+    answer_while(line, shared, &|| false)
+}
+
+/// [`answer`] for a caller that may go: a query stops embedding once `gone`
+/// says so.
+pub fn answer_while(line: &str, shared: &Shared, gone: &(dyn Fn() -> bool + Sync)) -> Response {
     let req: Request = match serde_json::from_str(line) {
         Ok(r) => r,
         Err(e) => {
@@ -90,7 +130,7 @@ pub fn answer(line: &str, shared: &Shared) -> Response {
                 Ok(p) => p,
                 Err(e) => return Response::err(id, error_code::INVALID_PARAMS, e.to_string()),
             };
-            match shared.query(&p) {
+            match shared.query_while(&p, gone) {
                 Ok(r) => Response::ok(id, r),
                 Err(e) => Response::err(id, error_code::INVALID_PARAMS, format!("{e:#}")),
             }

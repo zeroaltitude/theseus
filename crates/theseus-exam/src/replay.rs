@@ -162,7 +162,7 @@ pub fn read(store: &Store) -> Result<Record> {
             let d = &row.data;
             let why = match query_of(&transcript, &turn_id) {
                 None => Some("the turn brings nothing new".to_string()),
-                Some((q, _)) if Some(digest(&q).as_str()) != d["query_digest"].as_str() => {
+                Some((q, _)) if Some(digest(&q.words).as_str()) != d["query_digest"].as_str() => {
                     Some("its query's digest differs from the row's".into())
                 }
                 Some((_, a)) if Some(a) != d["as_of"].as_u64() => {
@@ -188,7 +188,7 @@ pub fn read(store: &Store) -> Result<Record> {
                         turn_id: turn_id.clone(),
                         recall_id: d["recall_id"].as_str().unwrap_or("").into(),
                         as_of,
-                        query,
+                        query: query.words,
                         said: said.join("\n"),
                         calls,
                     });

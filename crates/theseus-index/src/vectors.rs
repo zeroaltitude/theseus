@@ -38,7 +38,9 @@ use anyhow::Context as _;
 use sha2::{Digest, Sha256};
 
 use crate::ahead::Ahead;
-use crate::embedder::{self, dot_i8, quantize, stamp_key, Embedder, ModelSpec, Vector, Windows};
+use crate::embedder::{
+    self, dot_i8, quantize, stamp_key, Embedder, ModelSpec, QueryMiss, Vector, Windows,
+};
 use crate::proto::{
     Compactions, EmbedParams, EmbedResult, EmbedStats, Filters, Neighbour, Reembed, Stamp, Task,
     VectorStatus,
@@ -47,6 +49,9 @@ use crate::weights::LoadError;
 
 /// How many candidates of the int8 scan the 768-d vectors re-score.
 pub const RESCORE: usize = 100;
+
+/// A vector search whose caller went away mid-embedding (theseus-zo1y).
+pub const GONE: &str = "the query's caller has gone";
 
 /// Texts embedded together, when each is this many tokens or fewer.
 pub const BATCH: usize = 8;
@@ -74,6 +79,9 @@ pub struct VectorConfig {
     /// while the machine is busy (theseus-tood). Tests give zero: there the
     /// suite's own load is the pressure.
     pub yield_bound: Duration,
+    /// A pause before each layer of a query's pass: zero, but for a test's
+    /// stand-in for a slow model (`Embedder::slowed`, theseus-zo1y).
+    pub query_step: Duration,
 }
 
 impl VectorConfig {
@@ -85,6 +93,7 @@ impl VectorConfig {
             idle_unload: Duration::from_secs(600),
             engine: embedder::engine_tag(),
             yield_bound: theseus_store::pressure::BOUND,
+            query_step: Duration::ZERO,
         }
     }
 
@@ -1527,6 +1536,8 @@ impl Vectors {
         // SAFETY: no pointers. On Linux the nice value is the calling
         // thread's: this one only.
         unsafe { libc::setpriority(libc::PRIO_PROCESS, 0, 19) };
+        // The backfill's pool, born here at nice 19 (`ahead`).
+        crate::ahead::build_backfill_pool();
         if let Err(e) = self.open_files() {
             self.error(format!("reading the vector files: {e:#}"));
         }
@@ -1634,7 +1645,7 @@ impl Vectors {
 
     fn load(&self, dir: &Path) {
         let t0 = Instant::now();
-        let r = Embedder::load(dir, &self.cfg.spec);
+        let r = Embedder::load(dir, &self.cfg.spec).map(|e| e.slowed(self.cfg.query_step));
         let ms = t0.elapsed().as_secs_f64() * 1e3;
         let mut st = self.state.lock().unwrap();
         st.want = false;
@@ -1702,8 +1713,13 @@ impl Vectors {
         let tokens: u64 = rows.iter().map(|r| r.tokens() as u64).sum();
         let truncated = rows.iter().filter(|r| r.truncated).count() as u64;
         let windowed = rows.iter().filter(|r| r.ids.len() > 1).count() as u64;
-        let r = emb.embed_windows(&rows);
-        let (wall, cpu) = (t0.elapsed().as_millis() as u64, thread_cpu_ms() - c0);
+        // On the backfill's pool, whose thread runs the matmuls (`ahead`).
+        let (r, pool_cpu) = crate::ahead::on_backfill(|| {
+            let c = thread_cpu_ms();
+            (emb.embed_windows(&rows), thread_cpu_ms() - c)
+        });
+        let wall = t0.elapsed().as_millis() as u64;
+        let cpu = thread_cpu_ms() - c0 + pool_cpu;
         self.state.lock().unwrap().last_used = Instant::now();
         let vectors = match r {
             Ok(v) => v,
@@ -1852,24 +1868,36 @@ impl Vectors {
         st.model.name().into()
     }
 
-    /// The vector source: the query embedded, the scan, the re-score.
-    /// `Err` says why the source did not answer.
+    /// The vector source: the query embedded (its text cut at `max_tokens`
+    /// word pieces, 0: uncut), the scan, the re-score. `Err` says why the
+    /// source did not answer; once `gone` says the caller has gone, the
+    /// embedding stops at its next layer, and the error is [`GONE`].
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the query's parts, and its caller"
+    )]
     pub fn search(
         &self,
         text: &str,
+        max_tokens: usize,
         as_of: Option<u64>,
         exclude: &[String],
         filters: &Filters,
         fetch: usize,
         wait: Duration,
+        gone: &(dyn Fn() -> bool + Sync),
     ) -> Result<(Vec<VectorHit>, f64, f64), String> {
         let emb = self.model(wait)?;
         let t0 = Instant::now();
         // Ahead of the backfill, in a pool of its own (`ahead`).
         let hold = self.ahead.hold(|| self.wake());
-        let v = crate::ahead::install(|| emb.embed(Task::SearchQuery, &[text]))
-            .map_err(|e| format!("the query would not embed: {e:#}"))?
-            .remove(0);
+        let v =
+            crate::ahead::install(|| emb.embed_query(text, max_tokens, gone)).map_err(
+                |e| match e {
+                    QueryMiss::Gone => GONE.to_string(),
+                    QueryMiss::Failed(e) => format!("the query would not embed: {e:#}"),
+                },
+            )?;
         drop(hold);
         let embed_ms = t0.elapsed().as_secs_f64() * 1e3;
         let t1 = Instant::now();

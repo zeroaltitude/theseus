@@ -139,6 +139,18 @@ impl Shared {
     /// tender's. A vector source that cannot answer (the model loading, no
     /// weights) is left out and named in `skipped`; the others still answer.
     pub fn query(&self, p: &QueryParams) -> anyhow::Result<QueryResult> {
+        self.query_while(p, &|| false)
+    }
+
+    /// [`Shared::query`] for a caller that may go: the vector source embeds
+    /// `vector_text` (else `text`) cut at `vector_tokens` word pieces, and
+    /// stops at the embedder's next layer once `gone` says its caller has
+    /// gone, answering nothing more (theseus-zo1y).
+    pub fn query_while(
+        &self,
+        p: &QueryParams,
+        gone: &(dyn Fn() -> bool + Sync),
+    ) -> anyhow::Result<QueryResult> {
         let t0 = Instant::now();
         let weights = self.weights.with(&p.weights).map_err(anyhow::Error::msg)?;
         let mut wanted: Vec<&str> = if p.sources.is_empty() {
@@ -162,17 +174,20 @@ impl Shared {
         let (mut embed_ms, mut scan_ms) = (0.0, 0.0);
         if wanted.contains(&"vector") {
             match self.vectors.search(
-                &p.text,
+                p.vector_text.as_deref().unwrap_or(&p.text),
+                usize::try_from(p.vector_tokens).unwrap_or(usize::MAX),
                 p.as_of,
                 &p.exclude_sessions,
                 &p.filters,
                 engine::fetch_for(p.k),
                 Duration::from_millis(p.wait_ms),
+                gone,
             ) {
                 Ok((hits, e, s)) => {
                     vector = Some(hits);
                     (embed_ms, scan_ms) = (e, s);
                 }
+                Err(why) if why == crate::vectors::GONE => anyhow::bail!(why),
                 Err(why) => {
                     skipped.insert("vector".to_string(), why);
                 }

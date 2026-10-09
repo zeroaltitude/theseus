@@ -299,7 +299,7 @@ async fn the_race_keeps_its_deadline_on_a_paused_clock() {
     let run = |words: Side, vector: Side| async move {
         let m = memory(words, vector);
         let t0 = tokio::time::Instant::now();
-        let mut begun = m.begin("otters".into(), None, 5, MemoryArm::Baseline, deadline);
+        let mut begun = m.begin("otters".to_string(), None, 5, MemoryArm::Baseline, deadline);
         let (answer, _) = begun.answer().await;
         let kind = match answer {
             Answer::Hits(r) => {

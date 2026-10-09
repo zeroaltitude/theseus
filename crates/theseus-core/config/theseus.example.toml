@@ -706,6 +706,7 @@ idle_unload_mins = 10.0                   # the model unloads after this long un
 # recall_budget_tokens = 1500             # the pack's tokens
 # recall_max_items = 6                    # the pack's items, at most 40
 # recall_deadline_ms = 250                # how long recall waits for the index; the turn never waits past its model call and this
+# recall_vector_tokens = 32               # the most word pieces of a turn's new text the vector search embeds (the words' search reads the whole query), at most 500; 0: uncut
 # rerank_wait_ms = 200                    # how long a recall in front of the model waits for Jev's rerank (rerank.v1 live), 1 to 600; past it, recall's own order stands
 # include_external = false                # whether fetched text may be recalled
 # Compaction (step 30c): where the ring would drop a session's leading turns to fit

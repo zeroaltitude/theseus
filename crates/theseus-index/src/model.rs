@@ -208,6 +208,20 @@ impl NomicBert {
     /// `ids` and `mask` are `(batch, seq)` u32. Returns the last hidden state
     /// `(batch, seq, hidden)`.
     pub fn forward(&self, ids: &Tensor, mask: &Tensor) -> Result<Tensor> {
+        Ok(self
+            .forward_while(ids, mask, &mut || true)?
+            .expect("a forward pass asked to go on runs to its end"))
+    }
+
+    /// [`NomicBert::forward`], asking `go_on` before each layer: `None` once
+    /// it says no (a query whose caller has gone, theseus-zo1y), so a pass
+    /// stops within one layer.
+    pub fn forward_while(
+        &self,
+        ids: &Tensor,
+        mask: &Tensor,
+        go_on: &mut dyn FnMut() -> bool,
+    ) -> Result<Option<Tensor>> {
         let (_, s) = ids.dims2()?;
         if s > self.max_pos {
             candle_core::bail!("{s} tokens, past the model's {}", self.max_pos);
@@ -221,8 +235,11 @@ impl NomicBert {
         let cos = self.cos.narrow(0, 0, s)?;
         let sin = self.sin.narrow(0, 0, s)?;
         for layer in &self.layers {
+            if !go_on() {
+                return Ok(None);
+            }
             x = layer.forward(&x, &mask, &cos, &sin)?;
         }
-        Ok(x)
+        Ok(Some(x))
     }
 }

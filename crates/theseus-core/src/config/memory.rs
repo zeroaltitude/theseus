@@ -136,6 +136,11 @@ pub struct MemoryConfig {
     /// it past its model call's answer and this.
     #[serde(default = "default_deadline_ms")]
     pub recall_deadline_ms: u64,
+    /// The most word pieces of a turn's new text the vector source embeds
+    /// (theseus-zo1y): an embedding's time grows with its tokens, and a
+    /// recall's whole query (about 115) missed the deadline. 0: uncut.
+    #[serde(default = "default_vector_tokens")]
+    pub recall_vector_tokens: u64,
     /// How long a recall in front of the model waits for Jev's live rerank
     /// (32d), from the rerank's start, its state's build included. Past it,
     /// recall's own order stands, and the answer is recorded `late`.
@@ -185,6 +190,11 @@ fn default_max_items() -> usize {
 fn default_deadline_ms() -> u64 {
     250
 }
+/// About 90 ms an embedding on one thread in the scale plan's spike, against
+/// about 350 at 115 word pieces.
+fn default_vector_tokens() -> u64 {
+    32
+}
 /// 11 live reranks took p50 115 ms and p95 149 ms (the most 149): 200
 /// misses few, and with the index's 250 ms stays inside §2.12's 600 ms.
 fn default_rerank_wait_ms() -> u64 {
@@ -231,6 +241,9 @@ pub const SUMMARY_SESSION: &str = "session";
 
 /// The longest a recall may wait for the index.
 pub const MAX_RECALL_DEADLINE_MS: u64 = 5_000;
+/// The most word pieces a query's one window holds (the model's 512, less
+/// its markers and prefix).
+pub const MAX_RECALL_VECTOR_TOKENS: u64 = 500;
 /// The longest a recall may wait for Jev's live rerank: its call's own
 /// deadline (`judge::rerank::DEADLINE`).
 pub const MAX_RERANK_WAIT_MS: u64 = 600;
@@ -248,6 +261,7 @@ impl Default for MemoryConfig {
             recall_budget_tokens: default_budget(),
             recall_max_items: default_max_items(),
             recall_deadline_ms: default_deadline_ms(),
+            recall_vector_tokens: default_vector_tokens(),
             rerank_wait_ms: default_rerank_wait_ms(),
             include_external: false,
             summary_profile: default_summary_profile(),
@@ -319,6 +333,13 @@ impl MemoryConfig {
                 "memory.recall_deadline_ms = {} is outside 1 to {MAX_RECALL_DEADLINE_MS}: recall \
                  never holds a turn for long",
                 self.recall_deadline_ms
+            );
+        }
+        if self.recall_vector_tokens > MAX_RECALL_VECTOR_TOKENS {
+            bail!(
+                "memory.recall_vector_tokens = {} is over {MAX_RECALL_VECTOR_TOKENS}: a query's \
+                 one window holds no more",
+                self.recall_vector_tokens
             );
         }
         if self.synth_profile.trim().is_empty() {
@@ -441,6 +462,7 @@ mod tests {
         assert!(parse("[memory]\nrecall_after = 1\n").is_err());
         assert_eq!(crate::Config::example().memory.rerank_wait_ms, 200);
         assert_eq!(crate::Config::example().memory.node_cache_mb, 64);
+        assert_eq!(crate::Config::example().memory.recall_vector_tokens, 32);
         assert!(parse("[memory]\narm = \"+rerank\"\n").is_err());
         for (arm, want) in [
             ("none", MemoryArm::None),
@@ -463,6 +485,7 @@ mod tests {
             "recall_max_items = 41",
             "recall_deadline_ms = 0",
             "recall_deadline_ms = 5001",
+            "recall_vector_tokens = 501",
             "rerank_wait_ms = 0",
             "rerank_wait_ms = 601",
             "canary_fraction = 1.5",

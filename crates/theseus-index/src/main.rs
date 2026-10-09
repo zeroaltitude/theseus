@@ -60,6 +60,10 @@ enum Cmd {
         /// `CANDLE_NUM_THREADS`, set for this process before anything starts.
         #[arg(long, default_value_t = 1)]
         threads: usize,
+        /// A query's embedding's threads (theseus-zo1y); 0: half the
+        /// machine's cores, at most 4 (`ahead::query_threads`).
+        #[arg(long, default_value_t = 0)]
+        query_threads: usize,
         /// The fusion's default weights, over the built-in ones
         /// (`bm25=1,entity=1,vector=2`; `[index] fusion` at the wire-in).
         #[arg(long)]
@@ -238,14 +242,19 @@ fn run(cmd: Cmd) -> anyhow::Result<ExitCode> {
             no_vectors,
             idle_unload_mins,
             threads,
+            query_threads,
             weights,
             parent,
         } => {
             // Before any thread starts: candle reads these at every matmul,
-            // and rayon's pool at its first use. Every core when unset.
-            let threads = threads.max(1).to_string();
-            std::env::set_var("RAYON_NUM_THREADS", &threads);
-            std::env::set_var("CANDLE_NUM_THREADS", &threads);
+            // and rayon's pool at its first use. Every core when unset. A
+            // matmul is split as RAYON_NUM_THREADS says in the pool it runs
+            // in: a query's in its own pool of `query_threads`, the
+            // backfill's in the global one of `threads` (`ahead`).
+            let threads = threads.max(1);
+            let queries = theseus_index::ahead::set_threads(query_threads, threads);
+            std::env::set_var("RAYON_NUM_THREADS", threads.max(queries).to_string());
+            std::env::set_var("CANDLE_NUM_THREADS", threads.to_string());
             // tantivy logs every commit at info (five lines each): quiet
             // unless asked, and no colour codes in a log file.
             tracing_subscriber::fmt()
