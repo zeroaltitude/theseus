@@ -17,9 +17,9 @@ use crate::{
     ToolFailure, ToolOutput,
 };
 
-const MAX_LINE_CHARS: usize = 2000;
+pub(crate) const MAX_LINE_CHARS: usize = 2000;
 const DEFAULT_READ_LINES: usize = 2000;
-const MAX_FILE_BYTES: u64 = 16 * 1024 * 1024;
+pub(crate) const MAX_FILE_BYTES: u64 = 16 * 1024 * 1024;
 
 fn is_binary(bytes: &[u8]) -> bool {
     bytes.iter().take(8192).any(|b| *b == 0)
@@ -47,7 +47,7 @@ impl Unread {
             ),
             Self::Over(n) => format!(
                 "{} grew while it was read, to {n} bytes or more; files over {MAX_FILE_BYTES} \
-                 bytes are not read whole (use fs_grep to find the part you need)",
+                 bytes are not read whole: give offset and limit to read a window of it, or use fs_grep",
                 path.display()
             ),
         }
@@ -239,7 +239,7 @@ impl Tool for Read {
         "fs.read"
     }
     fn description(&self) -> &'static str {
-        "Read a file. A text file comes back with line numbers (`   12\\tline`): use it before editing a file and whenever you need a file's current contents, and pass offset/limit to page through a long one. An image (PNG, JPEG, GIF, WebP) comes back as an image. A PDF comes back as its pages, up to 20 at a time: pass pages (\"3\", \"3-5\", \"21-\") to choose them; a model that reads PDFs sees each page whole, scans and charts included, and any other reads their text. A document (Word .docx, Excel .xlsx, PowerPoint .pptx, OpenDocument .odt/.ods/.odp, EPUB, RTF, a Jupyter notebook .ipynb) comes back as its text by section (sheets as tables, slides with titles and notes, cells with outputs), and an archive (zip, tar, tar.gz) as its list; pages counts sections. Other binary files are reported, not returned."
+        "Read a file. A text file comes back with line numbers (`   12\\tline`): use it before editing a file and whenever you need a file's current contents, and pass offset/limit to page through a long one (a file over 16 MiB is read only by window: give offset or limit). An image (PNG, JPEG, GIF, WebP) comes back as an image. A PDF comes back as its pages, up to 20 at a time: pass pages (\"3\", \"3-5\", \"21-\") to choose them; a model that reads PDFs sees each page whole, scans and charts included, and any other reads their text. A document (Word .docx, Excel .xlsx, PowerPoint .pptx, OpenDocument .odt/.ods/.odp, EPUB, RTF, a Jupyter notebook .ipynb) comes back as its text by section (sheets as tables, slides with titles and notes, cells with outputs), and an archive (zip, tar, tar.gz) as its list; pages counts sections. Other binary files are reported, not returned."
     }
     fn input_schema(&self) -> Value {
         json!({
@@ -299,11 +299,20 @@ impl Tool for Read {
             false => MAX_FILE_BYTES,
         };
         if meta.len() > cap {
-            return Err(ToolFailure::new(format!(
-                "{} is {} bytes; files over {} bytes are not read whole (use fs_grep to find the part you need)",
-                path.display(),
+            let asked = a.offset.is_some() || a.limit.is_some();
+            if cap == MAX_FILE_BYTES && asked {
+                let (from, limit) = (
+                    a.offset.unwrap_or(1).max(1),
+                    a.limit.unwrap_or(DEFAULT_READ_LINES),
+                );
+                if let Some(out) = crate::fs_window::read(&path, from, limit, ctx.max_read_bytes)? {
+                    return Ok((out, None));
+                }
+            }
+            return Err(ToolFailure::new(crate::fs_window::refusal(
+                &path,
                 meta.len(),
-                cap
+                asked,
             )));
         }
         let bytes = read_regular(&path, cap, true)

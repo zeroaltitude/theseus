@@ -18,7 +18,12 @@ Key modules: `fs.rs`, `git.rs`, `proc.rs`, `paths.rs`. Read by: core.
   their text (`Media::Pdf`, through theseus-files' capped converter; `pdf_pages` in `src/docs.rs`, which
   `http.fetch` and `file.read` share; theseus-c9l6); a document (Word, Excel, PowerPoint, OpenDocument, EPUB, RTF, a
   notebook) as its text by section, and an archive as its list, `pages` counting sections (`docs::read_doc`). A
-  PDF may be 32 MiB, any other file 16. The runtime stores what a tool returns in the blobs (`run_with_media`, and
+  PDF may be 32 MiB, any other file 16, whole. A text file over 16 MiB is read by window when the call gives
+  `offset` or `limit` (`src/fs_window.rs`, theseus-ywdd): lines streamed from the start, the scan bounded at 256 MiB
+  (`MAX_SCAN_BYTES`, about 0.2 s warm), the window's bytes at `max_read_bytes`, each line kept to 8 KB while it is
+  scanned. The scan bound ends a line too, so a file of one huge line costs the bound, not the file. A head with a
+  NUL, an image, or a kind `theseus_files::kind::sniff` names (archive, document, notebook, RTF) gets the old
+  refusal, worded for whether the call asked for a window. The runtime stores what a tool returns in the blobs (`run_with_media`, and
   `run_async_with_media` for an async tool).
 - **`proc.run`'s `steps`** (theseus-7gir.3): a batch in place of `argv`, exactly one of the two, at most
   `MAX_STEPS` (16). `Tool::steps` gives each step as the call it would be alone (the gate judges each), and
