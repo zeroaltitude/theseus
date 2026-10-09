@@ -86,6 +86,12 @@ async fn the_answer_to_the_owners_message_pings_once_and_its_tool_line_and_later
         r.posted(LAB).iter().any(|m| m.content.contains("06:12."))
             && r.posted(LAB).iter().any(|m| m.content.contains("fs.read"))
             && r.core.outbox.status("discord").pending == 0
+            // Each create's row is written soon after it, off the lane's path.
+            && [":L0:p0", ":L0:tools", ":L1:p0"].iter().all(|t| {
+                r.ledger("discord.message.out")
+                    .iter()
+                    .any(|d| d["part"].as_str().is_some_and(|p| p.ends_with(t)))
+            })
     })
     .await;
     let answer = first(&r, "Reading the tide chart.");
@@ -171,15 +177,20 @@ async fn a_burst_of_three_cards_pings_once_and_every_card_keeps_its_buttons() {
     let loud: Vec<&Msg> = got.iter().filter(|m| !m.silent()).collect();
     assert_eq!(loud.len(), 1, "one ping for the burst: {got:#?}");
     assert_eq!(loud[0].id, got[0].id, "the first card's");
-    let rows: Vec<serde_json::Value> = r
-        .ledger("discord.message.out")
-        .into_iter()
-        .filter(|d| {
-            d["part"]
-                .as_str()
-                .is_some_and(|p| p.starts_with("confirm:"))
-        })
-        .collect();
+    let card_rows = || -> Vec<serde_json::Value> {
+        r.ledger("discord.message.out")
+            .into_iter()
+            .filter(|d| {
+                d["part"]
+                    .as_str()
+                    .is_some_and(|p| p.starts_with("confirm:"))
+            })
+            .collect()
+    };
+    // Each create's row is written soon after it, off the lane's path.
+    r.until("the three cards' rows", || card_rows().len() == 3)
+        .await;
+    let rows = card_rows();
     let said: Vec<(bool, bool)> = rows
         .iter()
         .map(|d| (d["ping"] == true, d["held"] == true))
