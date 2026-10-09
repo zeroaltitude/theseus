@@ -1,63 +1,63 @@
 //! `[discord]`'s defaults, and which of the binding's messages go out silent
 //! (theseus-l1y1).
 //!
-//! Every message the binding writes notifies, as it always has: the owner
-//! wants a lively chat, and a ping for each. `[discord] silent` names the
-//! kinds that post without one (Discord's `SUPPRESS_NOTIFICATIONS`: the
-//! message posts, and no device notifies). It is empty by default, and it is
-//! daemon-wide, not per place: a ping is about the owner's phone, a card for
-//! a shared place lands in the owner's DM (so a place's own word would not
-//! say which place's applies), and Discord's own channel settings already
-//! mute a whole place. Which messages a place shows at all is the bindings
-//! file's, per place (`show_tools`, `show_thinking`).
+//! Every message the binding writes pings, as it always has: today's pings by
+//! default, and silence is per category, per place. `[discord] silent` names
+//! the categories that post without a ping (Discord's
+//! `SUPPRESS_NOTIFICATIONS`: the message posts, and no device notifies); a
+//! `[[channel]]` or `[[dm]]` in the bindings file may give its own list, which
+//! takes the daemon's place there. `ping_window_secs`, 0 (off) by default,
+//! holds a place to one ping in that long, and a place may set its own too.
+//! Which messages a place shows at all is the bindings file's, per place
+//! (`show_tools`, `show_thinking`).
 
 use serde::{Deserialize, Serialize};
 
 use super::DiscordConfig;
 
-/// A kind of message the binding writes, as `[discord] silent` names it.
-/// The binding's `policy.rs` maps each of its writes to one.
+/// A chat category of message the binding writes, as `[discord] silent`
+/// names it. The binding's `policy.rs` maps each of its writes to one.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Category {
+    /// An approval card (a call's, a budget's, a layer-1 change's), and the
+    /// note beside one that went to the DM.
+    Cards,
+    /// A failed turn, a failed task's report, and free space below the floor.
+    Failures,
     /// The first part of the reply to the owner's own message.
     Answer,
     /// A reply's later parts and its footer, and a reply to anyone else's
     /// message.
-    Replies,
+    LaterParts,
     /// The reply of a turn a wake or a task's report started.
     Woken,
     /// A loop's tool line, and a notified call's embed.
-    Tools,
+    ToolLines,
+    /// A finished or cancelled task's report, and a hands group's line.
+    Reports,
+    /// The notices: a bind, a publish, a budget's or the hours' line, Jev's
+    /// notices, and glides.
+    Notices,
+    /// The restart notice, MCP's changes, and low free space or its return.
+    Ops,
     /// A loop's thinking message.
     Thinking,
-    /// An approval card (a call's, a budget's, a layer-1 change's), and the
-    /// note beside one that went to the DM.
-    Cards,
-    /// A failed turn, and a failed task's report.
-    Failures,
-    /// A finished or cancelled task's report, and the task board.
-    Tasks,
-    /// The notices: a bind, a publish, a budget's or the hours' line, the
-    /// restart notice, MCP and Jev notices, glides, and hands lines.
-    Notes,
-    /// Free space under the state dir: low, below the floor, or back.
-    Disk,
 }
 
 impl Category {
     /// Every category, in the template's order.
     pub const ALL: [Self; 10] = [
-        Self::Answer,
-        Self::Replies,
-        Self::Woken,
-        Self::Tools,
-        Self::Thinking,
         Self::Cards,
         Self::Failures,
-        Self::Tasks,
-        Self::Notes,
-        Self::Disk,
+        Self::Answer,
+        Self::LaterParts,
+        Self::Woken,
+        Self::ToolLines,
+        Self::Reports,
+        Self::Notices,
+        Self::Ops,
+        Self::Thinking,
     ];
 }
 
@@ -70,6 +70,7 @@ impl Default for DiscordConfig {
             edit_interval_ms: super::default_edit_interval_ms(),
             notice_embeds: false,
             silent: Vec::new(),
+            ping_window_secs: 0,
             rest_proxy: None,
             gateway_proxy: None,
         }
@@ -85,18 +86,26 @@ mod tests {
         Ok(crate::Config::parse(&format!("{base}\n{toml}"))?.0)
     }
 
-    /// Nothing is silent by default: the template's `silent` is empty, as
-    /// the default is, and the template names every category.
+    /// Nothing is silent and no window holds a ping by default: the
+    /// template's `silent` is empty and its `ping_window_secs` 0, as the
+    /// defaults are, and the template names every category.
     #[test]
     fn nothing_is_silent_by_default_and_the_template_names_every_kind() {
         assert!(DiscordConfig::default().silent.is_empty());
-        assert!(crate::Config::example().discord.silent.is_empty());
+        assert_eq!(DiscordConfig::default().ping_window_secs, 0);
+        let example = crate::Config::example();
+        assert!(example.discord.silent.is_empty());
+        assert_eq!(example.discord.ping_window_secs, 0);
         let t = crate::Config::EXAMPLE_TOML;
         let line = t
             .lines()
             .find(|l| l.starts_with("silent = "))
             .expect("the template's [discord] silent");
         assert!(line.starts_with("silent = []"), "{line}");
+        assert!(
+            t.contains("\nping_window_secs = 0 "),
+            "the template's window"
+        );
         for c in Category::ALL {
             let name = toml::Value::try_from(c).unwrap();
             let name = name.as_str().unwrap();
@@ -122,9 +131,15 @@ mod tests {
         let doc = format!("{}{doc}{}", &base[..at], &base[at + "[discord]\n".len()..]);
         let cfg = crate::Config::parse(&doc).unwrap().0;
         assert_eq!(cfg.discord.silent, Category::ALL);
-        let bad = doc.replace("\"tools\"", "\"tool_lines\"");
-        let e = format!("{:#}", crate::Config::parse(&bad).unwrap_err());
-        assert!(e.contains("tool_lines"), "{e}");
+        // An earlier cut's names are no category's, and are refused.
+        for old in ["tools", "replies", "tasks", "notes", "disk"] {
+            let bad = doc.replace("\"tool_lines\"", &format!("\"{old}\""));
+            let e = format!("{:#}", crate::Config::parse(&bad).unwrap_err());
+            assert!(e.contains(old), "{e}");
+        }
         assert!(parse("").is_ok());
+        let window = doc.replace("ping_window_secs = 0 ", "ping_window_secs = 30 ");
+        let cfg = crate::Config::parse(&window).unwrap().0;
+        assert_eq!(cfg.discord.ping_window_secs, 30);
     }
 }

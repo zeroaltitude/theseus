@@ -671,14 +671,29 @@ fn steps(r: &mut Rig, theseusd: &Path) -> Option<()> {
         .then_some(())?;
     r.step("the card is updated: approved, its buttons gone", settled)
         .then_some(())?;
-    r.step("the resumed turn's reply posts", |r| {
-        wait("the reply", || {
-            r.posted(LAB)
-                .into_iter()
-                .find(|m| m.content.contains(DONE_TEXT))
-                .map(|m| format!("{:?}", first_line(&m.content)))
-        })
-    })
+    r.step(
+        "the resumed turn's reply posts, and every create pinged",
+        |r| {
+            let done = wait("the reply", || {
+                r.posted(LAB)
+                    .into_iter()
+                    .find(|m| m.content.contains(DONE_TEXT))
+                    .map(|m| format!("{:?}", first_line(&m.content)))
+            })?;
+            // Today's pings with no config (theseus-l1y1): no closed card here.
+            let bot = BOT_ID.to_string();
+            let all = r.fake.all_messages();
+            let silent: Vec<_> = all
+                .iter()
+                .filter(|m| m.author == bot && m.silent())
+                .collect();
+            if !silent.is_empty() {
+                return Err(format!("silent with no config: {silent:?}"));
+            }
+            let n = all.iter().filter(|m| m.author == bot).count();
+            Ok(format!("{done}; all {n} of the bot's creates pinged"))
+        },
+    )
     .then_some(())?;
     r.step(
         "the daemon stops cleanly, with no binding error and no token kept",

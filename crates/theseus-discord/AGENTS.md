@@ -99,22 +99,27 @@ Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
   thinks, and no card posts. The renderer's
   `emitted` and `menus` hold only its held turns' keys, and `notices` only their calls' (`render/held.rs`). Every
   insert goes through `touch` (or `seal`), or the bound leaks.
-- **Every write notifies unless the config says it is silent** (theseus-l1y1, `policy.rs`; the owner: a lively
-  chat, and a ping for each): every `Write` says whether its create `ping`s, and a create that doesn't carries
-  `flags: 4096` (`SUPPRESS_NOTIFICATIONS`; mentions notify no one either). With no config every create pings, as
-  before. `[discord] silent` (daemon-wide; `theseus_core::config::discord::Category`) names the kinds that post
-  silent: `answer` (the first text part of the reply to an owner's own message: `Lane::owed`, set with the anchor
-  when the author is an owner, taken by that part's create, live or the post's), `replies`, `woken`, `tools` (the
-  tool line and a notice embed), `thinking`, `cards`, `failures`, `tasks`, `notes`, `disk`. An edit never notifies.
-  The `discord.message.out` row says `ping`. A card whose question had closed before it was written is written
-  once, settled, without buttons or mention (`detail.settled`), and its settle edits nothing. The table is to be
-  replaced by `theseus_protocol::notices` once both have joined.
+- **Today's pings by default; silence is per category, per place** (theseus-l1y1, `policy.rs`; the owner: a lively
+  chat, and nothing said in channel not worth a buzz). Every `Write` says whether its create `ping`s, and a create
+  that doesn't carries `flags: 4096` (`SUPPRESS_NOTIFICATIONS`; mentions notify no one either), as does a notice
+  embed. With no config every chat message pings, as before. `policy::TABLE` (data) gives each write its chat
+  category: `cards`, `failures` (a failed turn or task, disk below the floor), `answer` (the first text part of the
+  reply to an owner's own message: `Lane::owed`, set with the anchor when the author is an owner, taken when that
+  part is written, live or by the post, ping or not), `later_parts`, `woken`, `tool_lines` (and notice embeds),
+  `reports` (a task's end, hands), `notices` (Note, Jev, Glide), `ops` (restart, MCP, low disk), `thinking`. A
+  write pings unless its place's `silent` list (its `[[channel]]`'s or `[[dm]]`'s, else `[discord] silent`) names
+  its category. A closed card (written once, settled, without buttons or mention: `detail.settled`; its settle
+  edits nothing) and the task board have no category and never ping. `ping_window_secs` (the place's, else
+  `[discord]`'s; 0, off, by default) holds a channel to one ping in that long (`policy::Pings`, in memory, 256
+  channels kept); a ping it holds goes out silent. An edit never notifies. The `discord.message.out` row says
+  `ping` and `held` (the window took it). The shared policy's urgency (`theseus_protocol::notices`) decides what
+  the house shows, not whether the chat buzzes.
 - **A place shows its tool lines and its thinking unless its binding says not to** (theseus-l1y1,
   `runtime/show.rs`): `show_tools` and `show_thinking` on a `[[channel]]` or a `[[dm]]`, both on by default, read
   live with the rest of the file. Off filters those live ops out before the lane (`Place::apply`), in that place
   alone; the turn, its cards and its reply are unchanged. A loop's thinking (`model.thinking`) is a message of its
   own, `<turn>:L<n>:think`, before the loop's text (`render/thinking.rs`: the start of it, up to 1,800 characters,
-  saying what it left out), held for the renderer's turns; the binding showed no thinking before theseus-l1y1.
+  saying what it left out; it keeps 3,600 and counts the rest), held for the renderer's turns; the binding showed no thinking before theseus-l1y1.
 - **A place answers only where its bindings file binds it.** An interaction in an unbound place gets no answer, so
   daemons on one bot token with disjoint bindings each answer their own places (Item 11). A card in a guild channel
   mentions exactly its answerers, and nothing else mentions anyone (Item 15).
@@ -126,8 +131,9 @@ Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
   Discord does, and can be down, hang creates, or fail). Point a daemon at it with `[discord] rest_proxy` and
   `gateway_proxy`.
 - `src/tests_silent.rs` (theseus-l1y1): which creates ping, through the stand-in's gateway (the fake keeps each
-  create's `flags`; `Msg::silent`), with no config and with each `[discord] silent` category; a create's row is
-  written soon after it, off the lane's path, so a test waits for the rows it reads as well as the messages.
+  create's `flags`; `Msg::silent`), with no config, with each category silent, with a place's own list, and with a
+  30 s window, daemon-wide and a place's; a create's row is written soon after it, off the lane's path, so a test
+  waits for the rows it reads as well as the messages.
 - `src/tests_show.rs` (theseus-l1y1): a place bound `show_tools = false` and `show_thinking = false` beside one
   that says nothing, through the gateway. The fake provider streams a `thinking` block as `Delta::Thinking`.
 - `src/tests_gateway.rs` drives it through the stand-in's gateway too (theseus-6g62): `FakeDiscord::say` types a

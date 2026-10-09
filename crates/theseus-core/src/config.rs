@@ -196,6 +196,9 @@ pub struct DiscordConfig {
     /// The kinds of message that post silent (theseus-l1y1): none by default.
     #[serde(default)]
     pub silent: Vec<discord::Category>,
+    /// At most one ping per place in this many seconds; 0, the default, is off.
+    #[serde(default)]
+    pub ping_window_secs: u64,
     /// A local stand-in for Discord's REST API, `host:port` over plain http
     /// (twilight's proxy base): tests and scratch daemons only, so that no
     /// request and no token leaves the machine (theseus-q4v).

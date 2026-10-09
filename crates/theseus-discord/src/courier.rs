@@ -702,7 +702,7 @@ impl Lane {
     async fn plan(&mut self, a: &Action) -> Result<Plan, SendErr> {
         let body = body_of(a).clone();
         let corr = &a.correlation_id;
-        let silent = self.shared.core.cfg.discord.silent.clone();
+        let silent = self.silent();
         let text =
             |t: String, key: String, channel: u64, reply_to: Option<u64>, event: Event| Write {
                 key,
@@ -1059,10 +1059,24 @@ impl Lane {
         })
     }
 
-    /// Whether a write of `e` pings: unless `[discord] silent` names its
-    /// category (theseus-l1y1).
+    /// Whether a write of `e` pings: unless its place's `silent` list names
+    /// its category (theseus-l1y1).
     fn pings(&self, e: Event) -> bool {
-        policy::pings(e, &self.shared.core.cfg.discord.silent)
+        policy::pings(e, &self.silent())
+    }
+
+    /// How long this place's window holds it to one ping: its own, else
+    /// `[discord] ping_window_secs`; zero, the default, is none.
+    fn window(&self) -> Duration {
+        let own = self.shared.pings.of(&self.target).window_secs;
+        Duration::from_secs(own.unwrap_or(self.shared.core.cfg.discord.ping_window_secs))
+    }
+
+    /// The categories that post silent here: the place's own list, else
+    /// `[discord] silent`.
+    fn silent(&self) -> Vec<theseus_core::config::discord::Category> {
+        let own = self.shared.pings.of(&self.target).silent;
+        own.unwrap_or_else(|| self.shared.core.cfg.discord.silent.clone())
     }
 
     /// Whether the place's latest message came from an owner, whose answer
@@ -1300,6 +1314,11 @@ impl Lane {
                 Err(e) => return Err(e),
             }
         }
+        // At most one ping per place per window, when it has one
+        // (theseus-l1y1): taken only once the create lands, so a create
+        // Discord never took leaves it open.
+        let (now, window) = (tokio::time::Instant::now(), self.window());
+        let ping = w.ping && self.shared.pings.open(w.channel, now, window);
         let (m, landed) = self
             .create(
                 w.channel,
@@ -1307,9 +1326,12 @@ impl Lane {
                 &w.content,
                 &w.buttons,
                 w.reply_to,
-                (&w.mentions, w.ping),
+                (&w.mentions, w.ping, ping),
             )
             .await?;
+        if ping {
+            self.shared.pings.mark(w.channel, now, window);
+        }
         self.touch(&w.key);
         self.msgs.insert(w.key.clone(), (w.channel, m));
         self.shared.replies.noted(m, &w.key);
@@ -1328,7 +1350,8 @@ impl Lane {
     /// Discord notifies exactly `mentions` (theseus-9j9): nobody for any
     /// message but a card, whatever its text says; and only when it `ping`s
     /// (theseus-l1y1): else it carries `SUPPRESS_NOTIFICATIONS`, and no
-    /// device notifies.
+    /// device notifies. `wants` is the table's word, before the window: its
+    /// row says when the window held a ping back.
     async fn create(
         &mut self,
         channel: u64,
@@ -1336,7 +1359,7 @@ impl Lane {
         content: &str,
         buttons: &Buttons,
         reply_to: Option<u64>,
-        (mentions, ping): (&[u64], bool),
+        (mentions, wants, ping): (&[u64], bool, bool),
     ) -> Result<(u64, String), SendErr> {
         let mut allowed = json!({"parse": [], "replied_user": false});
         if !mentions.is_empty() {
@@ -1392,7 +1415,7 @@ impl Lane {
         self.shared.core.binding_ledger_soon(
             LedgerKind::DiscordMessageOut,
             None,
-            json!({"place": self.label, "message_id": m.id.to_string(), "part": key, "ping": ping,
+            json!({"place": self.label, "message_id": m.id.to_string(), "part": key, "ping": ping, "held": wants && !ping,
                    "chars": content.chars().count(), "buttons": matches!(buttons, Buttons::Confirm(_) | Buttons::ConfirmTrust(_) | Buttons::Accept(_)),
                    "menu": matches!(buttons, Buttons::ShouldHaveAsked(_)), "mentions": mentioned}),
         );
@@ -1533,12 +1556,16 @@ impl Lane {
                 self.shared.board.update(|s| s.edits += 1);
             }
             None => {
-                // A call's notice is a tool message (theseus-l1y1).
+                // A call's notice is a tool line (theseus-l1y1), held to the
+                // place's window as any create is.
+                let wants = self.pings(Event::ToolLine);
+                let (now, window) = (tokio::time::Instant::now(), self.window());
+                let ping = wants && self.shared.pings.open(channel, now, window);
                 let mut req = http
                     .create_message(Id::new(channel))
                     .embeds(&embeds)
                     .allowed_mentions(Some(&none));
-                if !self.pings(Event::ToolLine) {
+                if !ping {
                     req = req.flags(MessageFlags::SUPPRESS_NOTIFICATIONS);
                 }
                 if !comps.is_empty() {
@@ -1555,13 +1582,17 @@ impl Lane {
                         gone: false,
                         message: e.to_string(),
                     })?;
+                if ping {
+                    self.shared.pings.mark(channel, now, window);
+                }
                 self.touch(key);
                 self.msgs.insert(key.to_string(), (channel, m.id.get()));
                 self.shared.board.update(|s| s.messages_out += 1);
                 self.shared.core.binding_ledger_soon(
                     LedgerKind::DiscordMessageOut,
                     None,
-                    json!({"place": self.label, "message_id": m.id.to_string(), "part": key, "notice": card.title}),
+                    json!({"place": self.label, "message_id": m.id.to_string(), "part": key, "notice": card.title,
+                           "ping": ping, "held": wants && !ping}),
                 );
             }
         }

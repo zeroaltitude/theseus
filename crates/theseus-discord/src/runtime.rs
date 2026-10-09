@@ -316,6 +316,7 @@ async fn connect(
         voice: voice::Voice::new(&core.cfg.voice, bindings),
         place_bits: guilds::PlaceBits::new(bindings),
         replies: Default::default(),
+        pings: Default::default(),
     });
     // The lanes first: what the outbox holds for these places needs only
     // REST, so it goes out while the rest connects, or while the gateway is
@@ -597,6 +598,8 @@ pub(crate) struct Shared {
     place_bits: guilds::PlaceBits,
     /// The replies posted, by message, for a reaction to find (theseus-q31l).
     pub(crate) replies: route::Replies,
+    /// Each place's ping words, and its window's last pings (theseus-l1y1).
+    pub(crate) pings: crate::policy::Pings,
 }
 
 /// One message for a turn: who wrote it, what it says, its files (still
@@ -2308,6 +2311,7 @@ pub(crate) fn shared_for_tests(core: &Arc<Core>) -> Arc<Shared> {
         voice: voice::Voice::none(),
         place_bits: Default::default(),
         replies: Default::default(),
+        pings: Default::default(),
     })
 }
 

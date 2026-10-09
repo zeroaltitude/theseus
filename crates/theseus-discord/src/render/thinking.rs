@@ -24,6 +24,11 @@ use crate::policy::THINK_SUFFIX;
 /// header and the line that says what it left out, under Discord's 2,000.
 const SHOWN: usize = 1800;
 
+/// The most of a loop's thinking kept, in characters: what it shows, with
+/// room for the whitespace its start trims. The rest is only counted, so a
+/// long thinking costs the place no more memory than a short one.
+const KEPT: usize = 2 * SHOWN;
+
 #[derive(Default)]
 pub struct Thinking {
     turns: VecDeque<(String, BTreeMap<u32, Think>)>,
@@ -31,7 +36,11 @@ pub struct Thinking {
 
 #[derive(Default)]
 struct Think {
+    /// Its first `KEPT` characters.
     text: String,
+    /// How many characters `text` holds, and how many more came.
+    kept: usize,
+    more: usize,
     /// Grew since Discord last got it.
     dirty: bool,
 }
@@ -58,7 +67,14 @@ impl Thinking {
                 };
                 let th = loops.entry(d.loop_index).or_default();
                 let first = th.text.trim().is_empty();
-                th.text.push_str(&d.text);
+                for c in d.text.chars() {
+                    if th.kept < KEPT {
+                        th.text.push(c);
+                        th.kept += 1;
+                    } else {
+                        th.more += 1;
+                    }
+                }
                 th.dirty = true;
                 if first && !th.text.trim().is_empty() {
                     return self.tick();
@@ -80,7 +96,7 @@ impl Thinking {
                 }
                 ops.push(Op::Upsert {
                     key: format!("{turn}:L{li}{THINK_SUFFIX}"),
-                    content: content(&th.text),
+                    content: content(&th.text, th.more),
                     buttons: Buttons::Keep,
                 });
             }
@@ -90,10 +106,15 @@ impl Thinking {
 }
 
 /// A loop's thinking as its message says it: a header, then the thinking
-/// quoted, cut at `SHOWN` characters with what was left out said.
-fn content(text: &str) -> String {
-    let text = text.trim();
-    let n = text.chars().count();
+/// quoted, cut at `SHOWN` characters with what was left out said (`more`
+/// came past what was kept).
+fn content(text: &str, more: usize) -> String {
+    let text = if more == 0 {
+        text.trim()
+    } else {
+        text.trim_start()
+    };
+    let n = text.chars().count() + more;
     let mut shown: String = text.chars().take(SHOWN).collect();
     if n > SHOWN {
         shown.push_str(&format!("… ({} more characters)", n - SHOWN));
@@ -174,6 +195,18 @@ mod tests {
         let got = upserts(&t.on_event(&thinking("turn_a", 0, &long)));
         assert!(got[0].1.ends_with("… (25 more characters)"), "{got:?}");
         assert!(got[0].1.chars().count() < 2000);
+        // A long thinking keeps only its start, and still counts the rest.
+        let th = |t: &Thinking| t.turns[0].1[&0].text.chars().count();
+        let tide = "é".repeat(KEPT);
+        assert!(t.on_event(&thinking("turn_a", 0, &tide)).is_empty());
+        let got = upserts(&t.tick());
+        assert!(
+            got[0]
+                .1
+                .ends_with(&format!("… ({} more characters)", 25 + KEPT)),
+            "{got:?}"
+        );
+        assert_eq!(th(&t), KEPT, "only the start is kept");
         assert!(t.on_event(&thinking("turn_x", 0, "unseen")).is_empty());
         for i in 0..RECENT_TURNS {
             t.on_event(&started(&format!("turn_{i}")));

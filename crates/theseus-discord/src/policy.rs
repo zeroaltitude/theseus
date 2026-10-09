@@ -1,17 +1,32 @@
-//! Which of the binding's messages notify (theseus-l1y1). Every create
-//! notifies by default, as it always has: the owner wants a lively chat. The
-//! kinds `[discord] silent` names post silent instead, with Discord's
-//! `SUPPRESS_NOTIFICATIONS` flag: they post, and no device notifies, mentions
+//! Which of the binding's messages ping (theseus-l1y1): today's pings by
+//! default, and silence is per category, per place. Every create says
+//! whether it pings; one that does not carries Discord's
+//! `SUPPRESS_NOTIFICATIONS` flag: it posts, and no device notifies, mentions
 //! included. An edit never notifies, so only a create carries the flag.
 //!
-//! The table maps each write to the category `[discord] silent` names it by
-//! (`theseus_core::config::discord::Category`). It is to be replaced by
-//! `theseus_protocol::notices`, the shared notification policy (task
-//! management's work-types row, theseus-753z), once both have joined: it is
-//! data, so the replacement maps each `Event` to the shared policy's kinds.
+//! The table maps each write to its chat category, the name a `silent` list
+//! gives it (`theseus_core::config::discord::Category`): a write pings unless
+//! its place's list (its binding's, else `[discord] silent`) names its
+//! category. Two writes have none and never ping, since they are not
+//! conversation: a card whose question had already closed (nothing to
+//! answer: a buzz would be a false alarm), and the task board (status). The
+//! shared notification policy's urgency (`theseus_protocol::notices`) decides
+//! what the house shows and what escalates; it does not decide whether the
+//! chat buzzes, which is this table's.
+//!
+//! On top of the table, a place may ping at most once per window
+//! (`ping_window_secs`, its binding's, else `[discord]`'s; 0, the default, is
+//! off): a second write that would ping inside it goes out silent, and its
+//! row says `held` (a card's buttons work as always). The window is per
+//! channel, in memory, and bounded.
+
+use std::collections::HashMap;
+use std::sync::Mutex;
+use std::time::Duration;
 
 use serde_json::Value;
 use theseus_core::config::discord::Category;
+use tokio::time::Instant;
 
 /// Discord's `SUPPRESS_NOTIFICATIONS` message flag (1 << 12).
 pub(crate) const SUPPRESS_NOTIFICATIONS: u64 = 1 << 12;
@@ -67,38 +82,134 @@ pub(crate) enum Event {
     Board,
 }
 
-/// The table: each write's category, the name `[discord] silent` gives it.
-pub(crate) const TABLE: &[(Event, Category)] = &[
-    (Event::Card, Category::Cards),
-    (Event::CardNote, Category::Cards),
-    (Event::CardClosed, Category::Cards),
-    (Event::TurnFailed, Category::Failures),
-    (Event::TaskFailed, Category::Failures),
-    (Event::TaskEnded, Category::Tasks),
-    (Event::Answer, Category::Answer),
-    (Event::ReplyPart, Category::Replies),
-    (Event::Woken, Category::Woken),
-    (Event::ToolLine, Category::Tools),
-    (Event::Thinking, Category::Thinking),
-    (Event::Note, Category::Notes),
-    (Event::Restarted, Category::Notes),
-    (Event::Mcp, Category::Notes),
-    (Event::Jev, Category::Notes),
-    (Event::Glide, Category::Notes),
-    (Event::Hands, Category::Notes),
-    (Event::DiskCritical, Category::Disk),
-    (Event::Disk, Category::Disk),
-    (Event::Board, Category::Tasks),
+/// The table: each write's chat category, the name a `silent` list gives
+/// it; `None` for a write that never pings.
+pub(crate) const TABLE: &[(Event, Option<Category>)] = &[
+    (Event::Card, Some(Category::Cards)),
+    (Event::CardNote, Some(Category::Cards)),
+    (Event::CardClosed, None),
+    (Event::TurnFailed, Some(Category::Failures)),
+    (Event::TaskFailed, Some(Category::Failures)),
+    (Event::DiskCritical, Some(Category::Failures)),
+    (Event::Answer, Some(Category::Answer)),
+    (Event::ReplyPart, Some(Category::LaterParts)),
+    (Event::Woken, Some(Category::Woken)),
+    (Event::ToolLine, Some(Category::ToolLines)),
+    (Event::TaskEnded, Some(Category::Reports)),
+    (Event::Hands, Some(Category::Reports)),
+    (Event::Note, Some(Category::Notices)),
+    (Event::Jev, Some(Category::Notices)),
+    (Event::Glide, Some(Category::Notices)),
+    (Event::Restarted, Some(Category::Ops)),
+    (Event::Mcp, Some(Category::Ops)),
+    (Event::Disk, Some(Category::Ops)),
+    (Event::Thinking, Some(Category::Thinking)),
+    (Event::Board, None),
 ];
 
-/// Whether `e` pings, given the categories `[discord] silent` names: yes
-/// unless its category is one of them. An event the table does not name
-/// pings, as every write did before the table.
+/// Whether `e` pings, given the categories its place's `silent` list names:
+/// yes unless the list names its category, and never for a write with none.
 pub(crate) fn pings(e: Event, silent: &[Category]) -> bool {
-    TABLE
-        .iter()
-        .find(|(t, _)| *t == e)
-        .is_none_or(|(_, c)| !silent.contains(c))
+    match TABLE.iter().find(|(t, _)| *t == e) {
+        Some((_, Some(c))) => !silent.contains(c),
+        Some((_, None)) => false,
+        None => true,
+    }
+}
+
+/// How many channels' last pings are kept: past it, the oldest is
+/// forgotten. Only a ping inside its window matters, so an older one goes
+/// first.
+const PLACES_KEPT: usize = 256;
+
+/// A place's own words on its pings, from its binding (`silent`,
+/// `ping_window_secs` on a `[[channel]]` or a `[[dm]]`): each, when unset,
+/// is `[discord]`'s.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct PlacePings {
+    pub silent: Option<Vec<Category>>,
+    pub window_secs: Option<u64>,
+}
+
+impl PlacePings {
+    pub(crate) fn of_channel(c: &crate::bindings::ChannelBinding) -> Self {
+        Self {
+            silent: c.silent.clone(),
+            window_secs: c.ping_window_secs,
+        }
+    }
+
+    pub(crate) fn of_dm(d: &crate::bindings::DmBinding) -> Self {
+        Self {
+            silent: d.silent.clone(),
+            window_secs: d.ping_window_secs,
+        }
+    }
+}
+
+/// Each place's words, by its lane's target, and each channel's last ping
+/// with the window it was held to.
+#[derive(Default)]
+pub(crate) struct Pings {
+    places: Mutex<HashMap<String, PlacePings>>,
+    last: Mutex<HashMap<u64, (Instant, Duration)>>,
+}
+
+impl Pings {
+    /// The place `target`'s words, set at its start and when its binding
+    /// changes (theseus-ocwt).
+    pub(crate) fn set(&self, target: &str, p: PlacePings) {
+        self.places.lock().unwrap().insert(target.to_string(), p);
+    }
+
+    /// The place `target`'s words: none of its own when it is not a place
+    /// (the operator's lane).
+    pub(crate) fn of(&self, target: &str) -> PlacePings {
+        self.places
+            .lock()
+            .unwrap()
+            .get(target)
+            .cloned()
+            .unwrap_or_default()
+    }
+
+    /// May `channel` ping now, under `window`? No when it pinged within it;
+    /// always when the window is zero.
+    pub(crate) fn open(&self, channel: u64, now: Instant, window: Duration) -> bool {
+        window.is_zero()
+            || self
+                .last
+                .lock()
+                .unwrap()
+                .get(&channel)
+                .is_none_or(|(at, _)| now.saturating_duration_since(*at) >= window)
+    }
+
+    /// `channel` pinged now, under `window` (nothing is kept for none).
+    /// Kept bounded: the pings older than their window go first, then the
+    /// oldest, past `PLACES_KEPT`.
+    pub(crate) fn mark(&self, channel: u64, now: Instant, window: Duration) {
+        if window.is_zero() {
+            return;
+        }
+        let mut last = self.last.lock().unwrap();
+        last.insert(channel, (now, window));
+        if last.len() <= PLACES_KEPT {
+            return;
+        }
+        last.retain(|_, (at, w)| now.saturating_duration_since(*at) < *w);
+        while last.len() > PLACES_KEPT {
+            let Some(oldest) = last.iter().min_by_key(|(_, at)| at.0).map(|(c, _)| *c) else {
+                break;
+            };
+            last.remove(&oldest);
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn len(&self) -> usize {
+        self.last.lock().unwrap().len()
+    }
 }
 
 /// A task's report, by its outcome.
@@ -185,32 +296,127 @@ mod tests {
         Event::Board,
     ];
 
-    /// With nothing named silent, every write pings, as before the table;
-    /// the table names every event once, and every category has a write.
+    /// With nothing named silent, today's pings: every write but a closed
+    /// card and the board pings, these 18 (the redesign's 17, and the new
+    /// thinking message); the table names every event once, and every
+    /// category has a write.
     #[test]
-    fn with_nothing_silent_every_write_pings() {
+    fn with_nothing_silent_every_chat_message_pings() {
+        let loud: Vec<Event> = EVERY.into_iter().filter(|e| pings(*e, &[])).collect();
+        assert_eq!(
+            loud,
+            [
+                Event::Card,
+                Event::CardNote,
+                Event::TurnFailed,
+                Event::TaskFailed,
+                Event::TaskEnded,
+                Event::Answer,
+                Event::ReplyPart,
+                Event::Woken,
+                Event::ToolLine,
+                Event::Thinking,
+                Event::Note,
+                Event::Restarted,
+                Event::Mcp,
+                Event::Jev,
+                Event::Glide,
+                Event::Hands,
+                Event::DiskCritical,
+                Event::Disk,
+            ]
+        );
         for e in EVERY {
-            assert!(pings(e, &[]), "{e:?} pings by default");
             assert_eq!(TABLE.iter().filter(|(t, _)| *t == e).count(), 1, "{e:?}");
         }
         assert_eq!(TABLE.len(), EVERY.len());
         for c in Category::ALL {
-            assert!(TABLE.iter().any(|(_, t)| *t == c), "{c:?} names a write");
+            assert!(
+                TABLE.iter().any(|(_, t)| *t == Some(c)),
+                "{c:?} names a write"
+            );
         }
     }
 
-    /// Each category silences its own writes and nothing else.
+    /// Each category silences its own writes and nothing else; a closed card
+    /// and the board are silent whatever the list.
     #[test]
     fn each_category_silences_only_its_own() {
         for c in Category::ALL {
             for (e, of) in TABLE {
-                assert_eq!(pings(*e, &[c]), *of != c, "{e:?} with {c:?} silent");
+                assert_eq!(
+                    pings(*e, &[c]),
+                    *of != Some(c) && of.is_some(),
+                    "{e:?} with {c:?} silent"
+                );
             }
         }
-        assert!(!pings(Event::ToolLine, &[Category::Tools]));
-        assert!(pings(Event::Answer, &[Category::Tools, Category::Replies]));
-        assert!(!pings(Event::Board, &[Category::Tasks]));
-        assert!(!pings(Event::Restarted, &[Category::Notes]));
+        assert!(!pings(Event::ToolLine, &[Category::ToolLines]));
+        assert!(pings(
+            Event::Answer,
+            &[Category::ToolLines, Category::LaterParts]
+        ));
+        assert!(!pings(Event::DiskCritical, &[Category::Failures]));
+        assert!(pings(Event::Disk, &[Category::Failures]));
+        assert!(!pings(Event::Restarted, &[Category::Ops]));
+        assert!(!pings(Event::Hands, &[Category::Reports]));
+    }
+
+    /// One ping per channel per window, when a window is set: a second
+    /// inside it is held back, one at its end goes, another channel is its
+    /// own, and no window holds nothing.
+    #[test]
+    fn a_place_pings_once_per_window_when_it_has_one() {
+        let p = Pings::default();
+        let w = Duration::from_secs(30);
+        let t0 = Instant::now();
+        assert!(p.open(1, t0, w));
+        p.mark(1, t0, w);
+        assert!(!p.open(1, t0 + Duration::from_secs(1), w));
+        assert!(!p.open(1, t0 + w - Duration::from_millis(1), w));
+        assert!(p.open(1, t0 + w, w));
+        assert!(p.open(2, t0, w), "another channel is its own");
+        let off = Duration::ZERO;
+        p.mark(3, t0, off);
+        assert!(p.open(3, t0, off), "no window holds nothing");
+        assert_eq!(p.len(), 1, "and keeps nothing");
+    }
+
+    /// The window's map is bounded: past `PLACES_KEPT`, the pings older than
+    /// their window go, then the oldest.
+    #[test]
+    fn the_windows_map_is_bounded() {
+        let p = Pings::default();
+        let w = Duration::from_secs(30);
+        let t0 = Instant::now();
+        for c in 0..PLACES_KEPT as u64 {
+            p.mark(c, t0, w);
+        }
+        assert_eq!(p.len(), PLACES_KEPT);
+        let later = t0 + w;
+        p.mark(10_000, later, w);
+        assert_eq!(p.len(), 1, "every ping older than its window went");
+        for c in 0..(PLACES_KEPT as u64 * 2) {
+            p.mark(20_000 + c, later + Duration::from_millis(c), w);
+        }
+        assert_eq!(p.len(), PLACES_KEPT);
+        assert!(
+            !p.open(20_000 + PLACES_KEPT as u64 * 2 - 1, later, w),
+            "the newest is kept"
+        );
+    }
+
+    /// A place's words are its own, and a lane that is no place's has none.
+    #[test]
+    fn a_places_words_are_kept_by_its_target() {
+        let p = Pings::default();
+        let words = PlacePings {
+            silent: Some(vec![Category::ToolLines]),
+            window_secs: Some(30),
+        };
+        p.set("discord:channel:1", words.clone());
+        assert_eq!(p.of("discord:channel:1"), words);
+        assert_eq!(p.of("discord:operator"), PlacePings::default());
     }
 
     /// Each kind's reading: a report by its outcome, a disk crossing by its

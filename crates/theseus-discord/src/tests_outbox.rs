@@ -497,8 +497,8 @@ async fn a_cards_settle_waits_for_its_create_and_edits_it_by_id() {
         "written once, settled: {card:?}"
     );
     assert!(
-        !card.silent(),
-        "a card notifies by default, as its create on main did: {card:?}"
+        card.silent(),
+        "a closed card never pings: nothing to answer: {card:?}"
     );
     let seen = fake.seen();
     let writes: Vec<&str> = seen
@@ -1250,6 +1250,10 @@ async fn the_board_is_one_message_edited_in_place_and_pinned() {
     let b = &boards(&fake, DM)[0];
     assert_eq!(boards(&fake, DM).len(), 1, "one board a place");
     assert!(b.edits >= 1, "edited in place: {b:?}");
+    assert!(
+        b.silent(),
+        "the board is status, and never pings (theseus-l1y1)"
+    );
     assert!(b.content.contains("Chart the reef"), "{}", b.content);
     assert!(
         b.content
@@ -1654,6 +1658,12 @@ fn every_kind() -> Vec<(&'static str, &'static str, serde_json::Value)> {
             json!({"kind": "disk", "state": "below_floor", "left": "low", "free_mb": 900,
                 "total_mb": 100_000, "warn_mb": 5120, "floor_mb": 1024}),
         ),
+        (
+            "low disk",
+            "operator",
+            json!({"kind": "disk", "state": "low", "left": "ok", "free_mb": 4000,
+                "total_mb": 100_000, "warn_mb": 5120, "floor_mb": 1024}),
+        ),
     ]
 }
 
@@ -1692,33 +1702,37 @@ async fn every_post_notifies_by_default_and_each_category_silences_only_its_own(
     let (bound, got) = silenced(&[]).await;
     assert!(!bound, "the bind notice notifies");
     assert!(got.iter().all(|(_, s)| !s), "nothing is silent: {got:?}");
-    let (bound, got) = silenced(&[Category::Tasks]).await;
-    assert!(!bound, "a note is not a task");
+    let (bound, got) = silenced(&[Category::Reports]).await;
+    assert!(!bound, "a notice is not a report");
     let quiet: Vec<&str> = got.iter().filter(|(_, s)| *s).map(|(w, _)| *w).collect();
-    assert_eq!(quiet, ["finished task", "cancelled task"], "{got:?}");
+    assert_eq!(
+        quiet,
+        ["finished task", "cancelled task", "hands"],
+        "{got:?}"
+    );
     let (bound, got) = silenced(&[Category::Failures]).await;
     assert!(!bound);
     let quiet: Vec<&str> = got.iter().filter(|(_, s)| *s).map(|(w, _)| *w).collect();
-    assert_eq!(quiet, ["failed task", "failed turn"], "{got:?}");
-    let (bound, got) = silenced(&[Category::Notes]).await;
-    assert!(bound, "the bind notice is a note");
+    assert_eq!(quiet, ["failed task", "failed turn", "disk"], "{got:?}");
+    let (bound, got) = silenced(&[Category::Notices]).await;
+    assert!(bound, "the bind notice is a notice");
     let quiet: Vec<&str> = got.iter().filter(|(_, s)| *s).map(|(w, _)| *w).collect();
-    assert_eq!(quiet, ["note", "restart", "mcp", "hands"], "{got:?}");
-    let (bound, got) = silenced(&[Category::Disk]).await;
+    assert_eq!(quiet, ["note"], "{got:?}");
+    let (bound, got) = silenced(&[Category::Ops]).await;
     assert!(!bound);
     let quiet: Vec<&str> = got.iter().filter(|(_, s)| *s).map(|(w, _)| *w).collect();
-    assert_eq!(quiet, ["disk"], "{got:?}");
+    assert_eq!(quiet, ["restart", "mcp", "low disk"], "{got:?}");
 }
 
 /// theseus-l1y1: a reply to no message of the owner's (a turn the CLI sent
-/// here) is one of `replies`, never the `answer`: it notifies by default,
-/// and only `replies` silences it.
+/// here) is one of `later_parts`, never the `answer`: it notifies by
+/// default, and only `later_parts` silences it.
 #[tokio::test]
 async fn a_reply_to_no_owners_message_is_a_reply_not_the_answer() {
     for (silent, quiet) in [
         (vec![], false),
         (vec![Category::Answer], false),
-        (vec![Category::Replies], true),
+        (vec![Category::LaterParts], true),
     ] {
         let d = tempfile::tempdir().unwrap();
         let fake = FakeDiscord::start();
@@ -1738,5 +1752,102 @@ async fn a_reply_to_no_owners_message_is_a_reply_not_the_answer() {
         let got = replies(&fake);
         assert_eq!(got.len(), 1, "{got:?}");
         assert_eq!(got[0].silent(), quiet, "{silent:?}: {:?}", got[0]);
+    }
+}
+
+/// theseus-l1y1: the reply of a turn a wake started pings by default, and
+/// only `woken` silences it. The woken post is the asked turn's own reply,
+/// held while Discord is away, written again as a wake's turn would be.
+#[tokio::test]
+async fn a_woken_turns_reply_pings_unless_woken_is_silent() {
+    use theseus_core::outbox::{body_of, kind_of};
+    for (silent, quiet) in [
+        (vec![], false),
+        (vec![Category::LaterParts, Category::Answer], false),
+        (vec![Category::Woken], true),
+    ] {
+        let d = tempfile::tempdir().unwrap();
+        let fake = FakeDiscord::start();
+        let set = silent.clone();
+        let core = core_at(
+            d.path(),
+            &fake,
+            vec![Scripted::text("Low tide at six.")],
+            move |c| c.discord.silent = set,
+        );
+        let rpc = bind(&core, d.path(), &dm_only()).await;
+        let f = fake.clone();
+        until("the bind notice", 10, move || f.messages(DM).len() == 1).await;
+        fake.set_mode(Mode::Down);
+        ask(&rpc, &session(&core), "when is low tide?").await;
+        let reply = core
+            .outbox
+            .open_for(&format!("discord:dm:{USER}"))
+            .into_iter()
+            .find(|a| kind_of(a) == "reply")
+            .expect("the reply waits");
+        let mut body = body_of(&reply).clone();
+        body["turn_id"] = serde_json::json!("turn_woken_tide");
+        body["wakes"] = serde_json::json!([{"text": "⏰ wake: check the tide"}]);
+        let corr = post_to_dm(&core, body);
+        fake.set_mode(Mode::Up);
+        let m = posted(&core, &fake, &corr).await;
+        assert!(m.content.starts_with("-# ⏰ wake"), "{m:?}");
+        assert_eq!(m.silent(), quiet, "{silent:?}: {m:?}");
+    }
+}
+
+/// theseus-l1y1: a call's notice embed is a tool line: it pings by default,
+/// a place's `tool_lines` silences it, and a place's window holds the second
+/// of two, as it holds any create.
+#[tokio::test]
+async fn a_notice_embed_is_a_tool_line_and_keeps_the_window() {
+    use crate::courier::{Lane, LaneMsg};
+    use crate::policy::PlacePings;
+    use crate::render::{NoticeCard, Op};
+    let tool_lines = PlacePings {
+        silent: Some(vec![Category::ToolLines]),
+        window_secs: None,
+    };
+    let window = PlacePings {
+        silent: None,
+        window_secs: Some(30),
+    };
+    for (words, want) in [
+        (PlacePings::default(), [false, false]),
+        (tool_lines, [true, true]),
+        (window, [false, true]),
+    ] {
+        let d = tempfile::tempdir().unwrap();
+        let fake = FakeDiscord::start();
+        let core = core_at(d.path(), &fake, vec![], |_| {});
+        let _rpc = bind(&core, d.path(), &dm_only()).await;
+        let shared = crate::runtime::shared_for_tests(&core);
+        shared.pings.set("discord:test", words.clone());
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        let lane = Lane::new(
+            shared,
+            "discord:test".into(),
+            "channel",
+            "#test".into(),
+            Some(CHANNEL),
+            None,
+        );
+        tokio::spawn(lane.run(rx));
+        for i in 0..2 {
+            let card = NoticeCard {
+                title: "🔔 notified".into(),
+                color: 0,
+                description: format!("`fs.write` tide{i}.txt"),
+                fields: vec![],
+                ask: None,
+            };
+            let key = format!("turn_tide:notice:tu_{i}");
+            let _ = tx.send(LaneMsg::Live(Op::Notice { key, card }));
+        }
+        let f = fake.clone();
+        until("both embeds", 10, move || f.messages(CHANNEL).len() == 2).await;
+        let got: Vec<bool> = fake.messages(CHANNEL).iter().map(Msg::silent).collect();
+        assert_eq!(got, want, "{words:?}");
     }
 }

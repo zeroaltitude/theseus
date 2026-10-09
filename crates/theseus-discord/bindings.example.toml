@@ -36,6 +36,10 @@ voice = false                      # true for a voice channel: /join from a priv
 # show_tools = true                # false: no tool lines or notice embeds here (the calls still run, and
                                    # their cards still post)
 # show_thinking = true             # false: no thinking messages here; the turn still thinks
+# silent = ["tool_lines"]          # what posts here without a ping: this place's own list, in place of
+                                   # [discord] silent (whose comment names the categories); every
+                                   # message pings by default
+# ping_window_secs = 0             # at most one ping here in this many seconds, in place of [discord]'s
 # [channel.ceiling]                # what this place gets beneath the place rule: it narrows, never widens
 # posture_floor = "approve"        # no call here runs looser than this (open, notify, approve)
 # tools = ["fs", "git", "web"]     # the tool families offered here, and MCP servers as "mcp:<server>"
@@ -47,4 +51,6 @@ user = "000000000000000000"        # who may talk to Theseus in direct messages
 name = "zeroaltitude"
 # show_tools = true                # as a channel's
 # show_thinking = true             # as a channel's
+# silent = ["tool_lines"]          # as a channel's
+# ping_window_secs = 0             # as a channel's
 # [dm.ceiling]                     # a DM's ceiling, as a channel's
