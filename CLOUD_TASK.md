@@ -75,7 +75,7 @@ The gate's shape phase fails a Rust file over its line ceiling in scripts/long-f
 - One commit per green sub-step, on the branch named below, created from `main` as you cloned it. Don't merge or rebase onto a newer main; the maintainer merges.
 - The subject is `area: what changed (<issue id>)`, as in `git log`. The body says what changed and why, in plain words. End each message with the trailer `Co-Authored-By: Claude (cloud session, Opus 5.5) <noreply@anthropic.com>`.
 - You can't sign here: commit without `-S`. The maintainer's merge commit is signed.
-- Commit and push each sub-step as soon as it is proved; don't hold commits for the end. Push only your branch, `git push origin HEAD:refs/heads/cloud/20261009-people`, at every green point, so nothing is lost if the session ends. Never push to main, never force-push, never delete a branch, and open no pull request.
+- Commit and push each sub-step as soon as it is proved; don't hold commits for the end. Push only your branch, `git push origin HEAD:refs/heads/cloud/20261009-people-jev`, at every green point, so nothing is lost if the session ends. Never push to main, never force-push, never delete a branch, and open no pull request.
 - No new dependencies: Cargo.lock and the package-lock.json files must not gain a package, and bench/'s Python gains no import beyond the standard library and the Harbor its adapter already uses. If the right design needs one, say so in the report instead.
 - Use invented names in fixtures, tests, and commits (AGENTS.md, Item 16). Write nothing about the owner, the owner's machine, accounts, or anyone else.
 - **Write no person's name anywhere**: not in code, comments, docs, fixtures, goldens, commit messages or your report. Where a person is meant, write "the owner" (the handle `zeroaltitude` where an identity string is needed), "collaborator" for anyone else; the AI assistant may appear only as "Tabitha/Claude", and your commit trailer names only Claude. The names lane cleared the tree at ea34457e: never bring a name back from memory, an old branch or a fixture you copy.
@@ -96,81 +96,71 @@ Then the gate's result, naming each failing test and why. Your final message is 
 **Load:** where your task asks for runs under load, use AGENTS.md's recipe. Priority, not count, makes the load: run the test with `nice -n 19`, and beside it four busy loops at nice 0, each `sh -c 'while :; do :; done' &`. Kill the loops by the pids you started, never by a name pattern.
 
 ---
-## Your task: people, the person category beyond Discord DMs, from the import and from Jev, shown in the cockpit (theseus-wy7y)
+## Your task: people-jev, proposing people from text: a model extracts the names, Jev judges them (theseus-wy7y follow-up)
 
-Branch: `cloud/20261009-people`. Every commit's subject carries `theseus-wy7y`. Deadline for the report: 3 hours after
-you start.
+Branch: `cloud/20261009-people-jev`. Every commit's subject carries `theseus-wy7y`. Deadline for the report: 3 hours
+after you start.
 
-**Main has moved since the preamble was written.** You clone main at `78b58b8a` or later. The preamble's "What main
-holds" and "Other changes in flight" are out of date: everything they list has joined. The store's format on main is
-**25**: if your change adds a field or a variant to a stored record, or a new record kind, bump `MANIFEST_FORMAT`
-(crates/theseus-store/src/store.rs) to 26 with the old layout's sample in theseus-core's tests_layouts.rs, as AGENTS.md's
-store version rule says, and say why in the report (other rows may bump it too; the maintainer renumbers at the join).
-Read `scripts/long-files.txt` before you start: several long files are full or nearly (protocol lib.rs, golden.rs,
-config.rs, compiler.rs, the Discord render.rs). Add no net line to a full one: new code goes in a module of its own.
+**Your branch starts from the `people` row's branch, not main.** Its head holds the people work (person categories
+from the import and the operator, handles, merge, `theseus import people`, bulk accept, the cockpit's people
+pulldowns; the store format moved to 26). Read its CLOUD_REPORT.md first, in full, and especially "Not built: Jev
+proposing people". That branch is being reviewed and joined to main while you work; build on it, change its code only
+where this task needs to, and name every such change in your report. Delete nothing of its report; replace
+CLOUD_TASK.md and CLOUD_REPORT.md with your own as usual. The store's format on that branch is **26**: bump it to 27
+only if you add a stored field, variant or record kind, as AGENTS.md's store version rule says. Read
+`scripts/long-files.txt` before you start: several long files are full; new code goes in modules of its own.
 
-**Rows in flight beside this one** (each on its own branch): keel-guard (scripts/gate.sh, scripts/keel-guard*),
-self-ledger-kill (`[self]` config, an `rsi` module, `theseus self`), discord-silent-fold (the Discord binding's
-render/silence). Stay out of their areas; name any shared-file edit in your report.
+**Why this work exists.** The owner wants every person his agents worked with in the ontology's people category. The
+people row made them from the import's authors and DM peers, but most people in his history appear only as names in
+text his agents read. The owner asked (2026-10-09) to "build that into jev". Jev (TypeSafe's hosted judgment model,
+`jev-1.13.0`) answers only choices, yes/no Nouls and scores; it cannot return a name. So the design is the documented
+Jev pattern, "a model writes the text, Jev selects, code verifies":
 
-**Why this work exists.** The owner asked (2026-10-09): "Why aren't all the people we know of in the people category in
-theseus's ontology?" and "the pulldowns for other ontology elements is awesome -- we should have all the people under
-there", then "Yes, please build it!". On his daemon the ontology holds 161 categories: 158 topics, 2 channels and **one
-person, his own DM**. The reason is by design: the kinds table makes `person` a `given` kind assigned only by the
-transport, and `crates/theseus-core/src/ontology.rs` `place_category` makes a person only from a `discord:dm:<user>`
-place at its first bind. On 2026-10-06 the owner's OpenClaw history was imported (tag `openclaw-2026-10`: 21,779
-imported sessions, 115,346 nodes); the import made topics from the stored labels (`crates/theseus-core/src/import/
-topics.rs`, `theseus import topics`) but could make no person. The people his agents worked with are in that history
-as message authors and places (Slack DMs and channels, Discord), and, mostly, as names in text the agents read.
+1. **Extract (a generative model).** A cheap profile (default `haiku`, the cascade's Haiku 5.5; a config key
+   `[people] extract_profile`) reads a session's human-facing text and returns candidate people through a **tool
+   schema, not prose**: `[{name, handles: [...], role_line, evidence: [node ids]}]`. Its instructions are short (the
+   repository's minimal-prompting rule: the schema and the field descriptions carry the contract) and say: people only
+   (not agents, assistants, bots, products, codenames, programs or companies); the role line is what the person does
+   or owns (role, projects, channels), never an evaluation of them; no line at all is better than a guessed one.
+2. **Judge (Jev), per candidate, in one call:**
+   - a Noul "is {name} a real person, not an agent, a bot, a product or a codename?";
+   - a Noul "is {name} involved in this session's work (spoke, was addressed, owns or hands off a task)?";
+   - a Choice matching the candidate to a held person (the 50 nearest by name and handle, each with its handles and
+     description) or `new person`, with `unsure`;
+   - a Noul "does this role line judge or evaluate the person rather than state their role?": if yes, the line is
+     dropped and the proposal keeps the name only.
+3. **Code decides.** Exclusions before any call: the owner, the configured personas and agents (read them from the
+   config and the persona files; add a `[people] not_people` list for more), and names already rejected for that
+   session. Bands as `categorize.v1`'s (act, ask, drop) with thresholds in config. Result: a **proposal**, never a
+   membership: a new person (name, handles, role line) or an existing person for the session, in `ontology.proposals`
+   beside the topics' proposals, answered through the same accept/reject path and the people row's bulk accept.
+   Make `Proposed::category` find people (the people report's one-line change: `k.stores() && assigned_by` names the
+   operator, not `!k.is_given()`).
 
-**What to build** (read `crates/theseus-ontology/src/{kind.rs,category.rs,ontology.rs}`, `crates/theseus-core/src/
-ontology.rs`, `crates/theseus-core/src/import/topics.rs`, `crates/theseus-core/src/judge/categorize.rs`,
-`crates/theseus-core/src/rpc/proposals.rs` and the cockpit's `cockpit/src/components/{OntologyParts.tsx,
-Memberships.tsx}` first; follow their patterns and their doc-comment style):
+**Where it runs:**
+- **Live, a sibling pack `people.v1`** at the same exchange-end point and on the same mark discipline as
+  `categorize.v1` (`crates/theseus-core/src/judge/categorize.rs`), private places only (the place rule), with its own
+  due rule. Live, not shadow: it writes proposals the owner sees.
+- **Backfill: `theseus import people TAG --propose`**, the owner's act: over the tag's imported sessions, paced by the
+  machine's quiet, resumable by a META mark per tag, **under a spend cap** (default $5, `--cap`), with
+  `--dry-run` printing the sessions, the token count and the projected cost (the extractor's price from the profile,
+  Jev's at about $0.042 per million tokens) without a call. It stops cleanly at the cap and says how to resume.
+  Sessions with no human-facing text are skipped. The secret scrub that guards every outbound judgment applies to
+  both calls.
+- **The ledger:** every extraction and judgment writes its row (cost, tokens, model), as other judgments do, so the
+  spend shows in the money river and `theseus self log`-style reads.
 
-1. **Person categories beyond the transport.** A person category may be made by the transport (as now), by the
-   import, and by the operator (`theseus ontology person add NAME [--handle KIND:ID ...] [--desc ...]`, from a private
-   place only, as `guide` is). Memberships of a session in a person may come from the transport (given, as now), the
-   import (origin `import`) and the operator. Keep the place rule first: a shared place's walk still reads only its own
-   place's given memberships. Decide whether `person` stays `given` with extra assigners or gains an interpreted side;
-   say why in the report. Keep the per-session limit sensible for people (a session can involve several people).
-2. **One person, many handles.** A person category carries its handles: `discord:<id>`, `slack:<id>`, `email:<addr>`,
-   and display names. A DM's given person and an imported Slack person with the same human are merged by the
-   operator (`theseus ontology person merge A B`, which keeps one id and moves memberships and guidance; reversible
-   from the ledger's row) and, when a handle matches exactly, automatically. Never merge on a display name alone.
-3. **People from the import, deterministic, no model call:** `theseus import people [TAG]` (the owner's act, like
-   `import topics`: never at a start, a live session never touched, idempotent, cut in frames with the machine's
-   quiet waited for, and taken back by the erase of its tag). It reads the imported sessions' stored records: message
-   authors that are people (not the owner, agents, tools or outside text), and the places' peers (a Slack or Discord
-   DM's other party, with its id). Each distinct person becomes one category with its handles and names, and each
-   session that person spoke in or was the DM of gets a membership (origin `import`). Report counts with `--dry-run`.
-4. **People from names in text, by Jev, as proposals:** extend `categorize.v1` (or add a sibling judgment with the same
-   shape and its own pack) so an answer can propose a **person**: an existing person the session mentions, or a new
-   person (name, and a short role line from the text). Proposals go through `ontology.proposals` like topics.
-   Add **bulk answers**: `theseus ontology accept --kind person --min-confidence X` and the cockpit's equivalent
-   (select all, accept). Also a backfill driver over an import tag (`theseus import people TAG --propose`) that runs the
-   judgment over imported sessions under a spend cap (default $5, a flag to change it), paced by the machine's quiet,
-   resumable; it writes proposals only, never memberships.
-5. **The cockpit:** people appear in the ontology pulldowns and the Ontology view exactly as topics do: grouped,
-   searchable, with each person's handles, session count and membership controls; a person's page lists their
-   sessions; proposals for people sit beside topic proposals with select-all accept. Rebuild the bundle as the gate's
-   cockpit step does.
-6. **What a person record may hold:** a person's description and guidance hold role facts (what they do and own,
-   their projects, channels, how work flows between them and the owner), never evaluations of them. Say so in the
-   judgment's instructions and the CLI help for `person add` and `guide`.
+**Tests** (a fake model and a fake Jev, as the judge's tests use): extraction parses the tool answer; agents and the
+owner are excluded before any call; the Noul bands; matching to an existing person; an evaluative role line dropped;
+proposals listed and bulk-accepted (`--kind person`); the backfill's dry run, cap stop and resume; a shared place gets
+nothing. **Invented names only** in tests, fixtures and docs: no real person's name anywhere in the repository.
 
-**Tests:** the ontology crate (new assigners, handles, merge, refusals); the import (`import people` on a fixture
-history: people and memberships, idempotence, the erase takes them back, a shared place still reads none); the
-judgment (a fixture answer proposing a person; bulk accept); the cockpit (a component or snapshot test of the people
-pulldown). **Use invented names only in tests, fixtures and docs** (no real person's name anywhere in the repo).
-Update `theseusd example-config`'s template if you add a config key, with its template tests, and docs/ if a page
-describes the ontology's kinds.
-
-**Live check on this VM:** a scratch daemon, a small fixture import with three people across a Slack DM, a Discord DM
-and a channel; run `theseus import people --dry-run`, then for real; show `theseus ontology categories` before and
-after; merge two handles of one person; erase the tag and show the people gone. Paste the outputs in the report.
+**Live check on this VM:** a scratch daemon with the people row's fixture import plus a few sessions whose text names
+people (invented) and an agent; the model and Jev as stand-ins (no keys here); run `--dry-run`, then the backfill, list
+the proposals, bulk-accept them, and show the people in `theseus ontology categories`. Write in the report the exact
+commands the maintainer runs on the owner's machine with real keys after the install, with the dry run's projected
+cost shown before the real run.
 
 Run the gate before every commit; commit CLOUD_REPORT.md as the branch's last commit (what you built, the decisions
-with reasons, the format bump if any, the live check's outputs, the commands the owner runs after the install:
-`theseus import people openclaw-2026-10 --dry-run`, then without it, then `--propose`), and end with a short final
-message starting `CLOUD REPORT COMPLETE`.
+with reasons, every change to the people row's code, the format bump if any, the live check's outputs, the commands
+for the owner's machine), and end with a short final message starting `CLOUD REPORT COMPLETE`.
