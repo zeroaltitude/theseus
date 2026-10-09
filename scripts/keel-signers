@@ -1,0 +1,5 @@
+# The keel's signers (theseus-pw1q.1): the GPG fingerprints, one a line, whose signed commits may ack a keel
+# guard finding (scripts/keel-guard.py) with a `Keel: <rule> <path>[, <path>…] — <why>` trailer. The guard reads
+# this file at the range's base, never its head, so a branch cannot list its own key. Adding a key here is itself
+# a keel finding, which only a listed key's signed ack passes.
+# No key yet: the maintainer adds the owner's at the join.
