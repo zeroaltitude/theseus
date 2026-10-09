@@ -19,6 +19,8 @@ fn cat(i: &str, name: &str, parent: Option<&str>) -> Category {
         description: String::new(),
         added_by: "ada".into(),
         retired_ms: None,
+        handles: Vec::new(),
+        merged_into: None,
     }
 }
 
@@ -919,10 +921,15 @@ fn the_import_writes_topics_and_lists_while_the_kind_names_it() {
     // The operator keeps a list the import wrote, and adds to it.
     l.members.push(Membership::operator(id("topic:cooking"), 2));
     o2.put(Record::Members(l), OP).unwrap();
-    // Given kinds and the kinds table stay closed to it.
+    // Guild and channel and the kinds table stay closed to it (a person is
+    // the import's to declare since theseus-wy7y: tests_people.rs).
     let e = refused(
         &o,
-        Record::Category(cat("person:300000000000000009", "Kit", None)),
+        Record::Category(cat(
+            "channel:200000000000000009",
+            "deck",
+            Some("guild:100000000000000001"),
+        )),
         Origin::Import,
     );
     assert!(matches!(e, Refusal::Given { .. }), "{e:?}");

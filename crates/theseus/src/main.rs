@@ -518,8 +518,9 @@ enum OntologyCmd {
         #[command(subcommand)]
         cmd: TopicCmd,
     },
-    /// Set CATEGORY's guidance (its id, or a topic's name): TEXT, or stdin with `-` or nothing.
-    /// Empty text takes it away. Only you, from a private place (the CLI is one), may.
+    /// Set CATEGORY's guidance (its id, or a topic's or a person's name): TEXT, or stdin with
+    /// `-` or nothing. Empty text takes it away. Only you, from a private place (the CLI is
+    /// one), may. A person's guidance is one line of role facts, never an evaluation of them.
     Guide {
         category: String,
         #[arg(value_name = "TEXT|-")]
@@ -542,8 +543,15 @@ enum OntologyCmd {
     },
     /// Accept a proposal: the session joins the topic (yours, `operator`), and the judgment is
     /// labelled. For a new topic, --topic names it: an existing topic, or a new one (--desc).
+    /// Without JUDGMENT, every unanswered proposal of --kind at --min-confidence or more.
     Accept {
-        judgment: String,
+        judgment: Option<String>,
+        /// With no JUDGMENT: only proposals of this kind (`topic` or `person`).
+        #[arg(long, conflicts_with = "judgment")]
+        kind: Option<String>,
+        /// With no JUDGMENT: only proposals at this confidence or more (0 to 1).
+        #[arg(long, conflicts_with = "judgment")]
+        min_confidence: Option<f64>,
         #[arg(long)]
         topic: Option<String>,
         #[arg(long)]
@@ -551,11 +559,42 @@ enum OntologyCmd {
         #[arg(long)]
         note: Option<String>,
     },
+    /// People: declare one with its handles, or merge two who are one (theseus-wy7y).
+    Person {
+        #[command(subcommand)]
+        cmd: PersonCmd,
+    },
     /// Reject a proposal: the judgment is labelled, and nothing else changes.
     Reject {
         judgment: String,
         #[arg(long)]
         note: Option<String>,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+enum PersonCmd {
+    /// A new person, NAME, with their handles. A handle another person holds exactly (not a
+    /// name) is that person: the new handles join them, and no second person is made. A
+    /// person's description and guidance hold role facts (what they do and own, their projects
+    /// and channels, how work flows between them and you), never an evaluation of them.
+    Add {
+        name: String,
+        /// `discord:<id>`, `slack:<id>`, `email:<addr>`, or `name:<display name>`; repeat it.
+        #[arg(long = "handle", value_name = "KIND:ID")]
+        handles: Vec<String>,
+        /// Their role, in a line or two: what they do and own (never an evaluation).
+        #[arg(long)]
+        desc: Option<String>,
+    },
+    /// Merge A into B: B keeps its id and takes A's handles, memberships and guidance. A DM's
+    /// person always survives. `--undo` undoes A's newest merge, from its ledger row.
+    Merge {
+        a: String,
+        #[arg(required_unless_present = "undo")]
+        b: Option<String>,
+        #[arg(long)]
+        undo: bool,
     },
 }
 

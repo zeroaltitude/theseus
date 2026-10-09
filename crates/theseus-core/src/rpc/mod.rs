@@ -35,6 +35,7 @@ pub(crate) mod ordered;
 mod packs;
 mod packs_ahead;
 mod pages;
+mod people;
 mod policy;
 mod proposals;
 mod publish;

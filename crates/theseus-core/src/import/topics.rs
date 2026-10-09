@@ -157,6 +157,8 @@ fn tree(o: &mut Ontology, paths: &[Vec<String>], tag: &str) -> Result<(Ids, Vec<
                         description: format!("imported label {}", p[..depth].join("/")),
                         added_by: made_by(tag),
                         retired_ms: None,
+                        handles: Vec::new(),
+                        merged_into: None,
                     };
                     o.put(Record::Category(c.clone()), Origin::Import)?;
                     made.push(c.clone());
@@ -304,6 +306,7 @@ pub(super) fn assign_in(
         tag,
         by,
         origin: Origin::Import,
+        people: false,
     };
     let stopped = write_frames(store, board, records, cap, &stopping, &to, &mut out.frames)?;
     out.ms = t0.elapsed().as_secs_f64() * 1e3;
@@ -322,7 +325,7 @@ pub struct Unassigned {
 /// Who the erase's half writes as: the erase is the operator's act, and an
 /// operator may always empty a list or take a topic away, so a kinds row
 /// changed since the import never stops an erase halfway.
-const ERASER: Origin = Origin::Operator;
+pub(super) const ERASER: Origin = Origin::Operator;
 
 /// The erase's half (`import.erase`, after its tombstones): every erased
 /// session of `tag` loses its interpreted memberships, then each topic an
@@ -358,7 +361,7 @@ pub(super) fn unassign_in(
     let kinds: Vec<String> = work
         .kinds()
         .into_iter()
-        .filter(|k| !k.is_given())
+        .filter(|k| k.stores())
         .map(|k| k.name.clone())
         .collect();
     let mut records = Vec::new();
@@ -404,24 +407,27 @@ pub(super) fn unassign_in(
         tag,
         by,
         origin: ERASER,
+        people: false,
     };
     out.stopped = write_frames(store, board, records, cap, &stopping, &to, &mut frames)?;
     Ok(out)
 }
 
-/// Who writes a run's frames: its tag, who ordered it, and the origin the
-/// ontology judges the records as.
-struct Writer<'a> {
-    tag: &'a str,
-    by: &'a str,
-    origin: Origin,
+/// Who writes a run's frames: its tag, who ordered it, the origin the
+/// ontology judges the records as, and whose row each frame carries
+/// (`import.people`'s, theseus-wy7y, or `import.topics`').
+pub(super) struct Writer<'a> {
+    pub(super) tag: &'a str,
+    pub(super) by: &'a str,
+    pub(super) origin: Origin,
+    pub(super) people: bool,
 }
 
 /// Write `records` through the ontology, `cap` a frame, each frame with its
 /// `import.topics` row counting what it holds; the machine's quiet waited
 /// for between two frames, and the stop looked for there. True when a stop
 /// ended it early.
-fn write_frames(
+pub(super) fn write_frames(
     store: &Store,
     board: &Board,
     records: Vec<Record>,
@@ -450,10 +456,19 @@ fn write_frames(
                 _ => {}
             }
         }
+        let p = fact::import::ImportPeople {
+            tag: to.tag,
+            by: to.by,
+            made: f.made,
+            joined: f.joined,
+            retired: f.retired,
+        };
         board.write(store, frame, to.origin, |_| {
-            Ok(vec![
-                fact::row(&f, None, None)?.scoped(&fact::import::scope(to.tag))
-            ])
+            let row = match to.people {
+                true => fact::row(&p, None, None)?,
+                false => fact::row(&f, None, None)?,
+            };
+            Ok(vec![row.scoped(&fact::import::scope(to.tag))])
         })?;
         *frames += 1;
         if left.peek().is_some() {

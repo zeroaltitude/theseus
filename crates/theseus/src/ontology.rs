@@ -11,12 +11,14 @@ use theseus_client::{render, Conn};
 use theseus_protocol::{
     method, OntologyCategory, OntologyCategoryAddParams, OntologyGuidance,
     OntologyGuidanceSetParams, OntologyListParams, OntologyListResult, OntologyMembershipResult,
-    OntologyMembershipSetParams, OntologyProposalAcceptParams, OntologyProposalAnswered,
-    OntologyProposalRejectParams, OntologyProposalsParams, OntologyProposalsResult,
+    OntologyMembershipSetParams, OntologyPersonMergeParams, OntologyPersonMerged,
+    OntologyProposalAcceptAllParams, OntologyProposalAcceptAllResult, OntologyProposalAcceptParams,
+    OntologyProposalAnswered, OntologyProposalRejectParams, OntologyProposalsParams,
+    OntologyProposalsResult,
 };
 
 use crate::cmd::output;
-use crate::{OntologyCmd, TopicCmd};
+use crate::{OntologyCmd, PersonCmd, TopicCmd};
 
 /// `ontology.list` for the kinds and the tree alone: an import's tens of
 /// thousands of memberships are left out (theseus-anh3).
@@ -45,30 +47,7 @@ pub async fn ontology(conn: &mut Conn, json: bool, cmd: OntologyCmd) -> Result<(
         }
         OntologyCmd::Topic {
             cmd: TopicCmd::Add { name, parent, desc },
-        } => {
-            let v = conn
-                .request(
-                    method::ONTOLOGY_CATEGORY_ADD,
-                    OntologyCategoryAddParams {
-                        kind: Some("topic".into()),
-                        name,
-                        parent,
-                        description: desc,
-                        author: None,
-                        discord: None,
-                    },
-                )
-                .await?;
-            output(json, v, |c: OntologyCategory| {
-                println!(
-                    "topic {} ({}){}",
-                    c.name,
-                    c.id,
-                    c.parent.map(|p| format!(", under {p}")).unwrap_or_default()
-                );
-                Ok(())
-            })
-        }
+        } => topic_add(conn, json, name, parent, desc).await,
         OntologyCmd::Guide { category, text } => guide(conn, json, category, text).await,
         OntologyCmd::Member { session, changes } => member(conn, json, session, changes).await,
         OntologyCmd::Proposals { session, limit } => {
@@ -86,11 +65,19 @@ pub async fn ontology(conn: &mut Conn, json: bool, cmd: OntologyCmd) -> Result<(
                 Ok(())
             })
         }
+        OntologyCmd::Person { cmd } => person(conn, json, cmd).await,
         OntologyCmd::Accept {
-            judgment,
+            judgment: None,
+            kind,
+            min_confidence,
+            ..
+        } => accept_all(conn, json, kind, min_confidence).await,
+        OntologyCmd::Accept {
+            judgment: Some(judgment),
             topic,
             desc,
             note,
+            ..
         } => {
             let v = conn
                 .request(
@@ -120,6 +107,149 @@ pub async fn ontology(conn: &mut Conn, json: bool, cmd: OntologyCmd) -> Result<(
                 )
                 .await?;
             output(json, v, answered)
+        }
+    }
+}
+
+/// `theseus ontology topic add`.
+async fn topic_add(
+    conn: &mut Conn,
+    json: bool,
+    name: String,
+    parent: Option<String>,
+    desc: Option<String>,
+) -> Result<()> {
+    let v = conn
+        .request(
+            method::ONTOLOGY_CATEGORY_ADD,
+            OntologyCategoryAddParams {
+                kind: Some("topic".into()),
+                name,
+                parent,
+                description: desc,
+                handles: Vec::new(),
+                author: None,
+                discord: None,
+            },
+        )
+        .await?;
+    output(json, v, |c: OntologyCategory| {
+        println!(
+            "topic {} ({}){}",
+            c.name,
+            c.id,
+            c.parent.map(|p| format!(", under {p}")).unwrap_or_default()
+        );
+        Ok(())
+    })
+}
+
+/// `theseus ontology accept` with no judgment: every proposal of `kind` at
+/// `min_confidence` or more (theseus-wy7y).
+async fn accept_all(
+    conn: &mut Conn,
+    json: bool,
+    kind: Option<String>,
+    min_confidence: Option<f64>,
+) -> Result<()> {
+    if kind.is_none() && min_confidence.is_none() {
+        bail!(
+            "name a JUDGMENT, or accept in bulk with --kind topic|person and \
+                     --min-confidence X (`theseus ontology proposals` lists them)"
+        );
+    }
+    let v = conn
+        .request(
+            method::ONTOLOGY_PROPOSAL_ACCEPT_ALL,
+            OntologyProposalAcceptAllParams {
+                kind,
+                min_confidence: min_confidence.unwrap_or(0.0),
+                ..Default::default()
+            },
+        )
+        .await?;
+    output(json, v, |r: OntologyProposalAcceptAllResult| {
+        println!("{} accepted.", r.accepted.len());
+        for j in &r.accepted {
+            println!("  {j}");
+        }
+        if !r.left.is_empty() {
+            println!("{} left for one at a time:", r.left.len());
+            for l in &r.left {
+                println!("  {l}");
+            }
+        }
+        Ok(())
+    })
+}
+
+/// `theseus ontology person`: add one, or merge two (theseus-wy7y).
+async fn person(conn: &mut Conn, json: bool, cmd: PersonCmd) -> Result<()> {
+    match cmd {
+        PersonCmd::Add {
+            name,
+            handles,
+            desc,
+        } => {
+            let v = conn
+                .request(
+                    method::ONTOLOGY_CATEGORY_ADD,
+                    OntologyCategoryAddParams {
+                        kind: Some("person".into()),
+                        name,
+                        parent: None,
+                        description: desc,
+                        handles,
+                        author: None,
+                        discord: None,
+                    },
+                )
+                .await?;
+            output(json, v, |c: OntologyCategory| {
+                println!("person {} ({})", c.name, c.id);
+                if !c.handles.is_empty() {
+                    println!("  handles: {}", c.handles.join(", "));
+                }
+                Ok(())
+            })
+        }
+        PersonCmd::Merge { a, b, undo } => {
+            let v = conn
+                .request(
+                    method::ONTOLOGY_PERSON_MERGE,
+                    OntologyPersonMergeParams {
+                        absorbed: a,
+                        survivor: b.unwrap_or_default(),
+                        undo,
+                        author: None,
+                        discord: None,
+                    },
+                )
+                .await?;
+            output(json, v, |m: OntologyPersonMerged| {
+                match m.undone {
+                    true => println!(
+                        "undid the merge of {} into {}: {} sessions' lists as they were.",
+                        m.absorbed, m.survivor.id, m.sessions
+                    ),
+                    false => println!(
+                        "merged {} into {} ({}): {} sessions moved{}.",
+                        m.absorbed,
+                        m.survivor.name,
+                        m.survivor.id,
+                        m.sessions,
+                        if m.guidance_moved {
+                            ", and its guidance"
+                        } else {
+                            ""
+                        }
+                    ),
+                }
+                if !m.survivor.handles.is_empty() {
+                    println!("  handles: {}", m.survivor.handles.join(", "));
+                }
+                Ok(())
+            })
         }
     }
 }

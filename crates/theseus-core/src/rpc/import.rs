@@ -23,8 +23,8 @@ use std::time::Duration;
 use serde_json::Value;
 use theseus_protocol::error_code;
 use theseus_protocol::import::{
-    ImportEpisodesParams, ImportEraseParams, ImportSessionsParams, ImportSessionsResult,
-    ImportTopicsParams,
+    ImportEpisodesParams, ImportEraseParams, ImportPeopleParams, ImportSessionsParams,
+    ImportSessionsResult, ImportTopicsParams,
 };
 use theseus_protocol::index::{self, IndexForgetParams, IndexForgetResult};
 use theseus_protocol::method;
@@ -32,7 +32,7 @@ use theseus_protocol::method;
 use super::server::{parse, Conn, RpcFailure};
 use super::{Act, Core};
 use crate::approval::Refusal;
-use crate::import::{catalog, summary_id_of, topics, write};
+use crate::import::{catalog, people, summary_id_of, topics, write};
 use crate::node::Body;
 
 /// Why a place that is not private reads no imported text.
@@ -44,13 +44,15 @@ pub(crate) const WITHHELD: &str = "an imported session is the owner's own histor
 const FORGET_DEADLINE: Duration = Duration::from_secs(70);
 
 /// Whether `rpc_prefixed` routes `name`: the ladder's, the import's, and
-/// `context.explain` (theseus-7n3e), and the books' (theseus-civ0).
+/// `context.explain` (theseus-7n3e), the books' (theseus-civ0), and the
+/// people's two ontology methods (theseus-wy7y).
 pub(super) fn prefixed(name: &str) -> bool {
     name.starts_with("pack.")
         || name.starts_with("import.")
         || name.starts_with("books.")
         || super::context::prefixed(name)
         || super::route_correct::ROUTE.contains(&name)
+        || super::people::ROUTE.contains(&name)
 }
 
 impl Core {
@@ -75,6 +77,9 @@ impl Core {
         }
         if super::route_correct::ROUTE.contains(&name) {
             return self.rpc_route(name, params, conn);
+        }
+        if super::people::ROUTE.contains(&name) {
+            return self.rpc_ontology(name, params, conn);
         }
         self.rpc_import(name, params, conn).await
     }
@@ -139,6 +144,18 @@ impl Core {
                         e.result.topics = u.topics;
                         e.stopped = u.stopped;
                     }
+                    // And the people the import made that nothing uses now.
+                    if !e.stopped {
+                        let (n, stopped) = people::unassign(
+                            &core.store,
+                            &core.runner.ontology,
+                            &tag,
+                            &by,
+                            stopping,
+                        )?;
+                        e.result.people = n;
+                        e.stopped = stopped;
+                    }
                     Ok(e)
                 })
                 .await?;
@@ -165,6 +182,7 @@ impl Core {
                 serde_json::to_value(r)
             }
             method::IMPORT_TOPICS => return self.import_topics(params, conn).await,
+            method::IMPORT_PEOPLE => return self.import_people(params, conn).await,
             other => {
                 return Err(RpcFailure::new(
                     error_code::METHOD_NOT_FOUND,
@@ -242,6 +260,41 @@ impl Core {
             return Err(stopped(
                 format!(
                     "the daemon stopped the topics of {} between two frames ({} frames written); \
+                     run it again to finish (what was written is kept)",
+                    r.tag, r.frames
+                ),
+                &r,
+            ));
+        }
+        serde_json::to_value(r).map_err(|e| RpcFailure::invalid(e.into()))
+    }
+
+    /// `import.people` (theseus-wy7y): a tag's people, or their counts.
+    async fn import_people(
+        self: Arc<Self>,
+        params: Value,
+        conn: Conn<'_>,
+    ) -> Result<Value, RpcFailure> {
+        let p: ImportPeopleParams = parse(params)?;
+        let what = format!("the people of {}", p.tag);
+        let by = self.import_judged(conn, method::IMPORT_PEOPLE, &what)?;
+        let core = self.clone();
+        let (r, stopped_early) = blocking(move || {
+            let stopping = || core.outbox.stopping();
+            people::assign_unless(
+                &core.store,
+                &core.runner.ontology,
+                &p.tag,
+                &by,
+                p.dry_run,
+                stopping,
+            )
+        })
+        .await?;
+        if stopped_early {
+            return Err(stopped(
+                format!(
+                    "the daemon stopped the people of {} between two frames ({} frames written); \
                      run it again to finish (what was written is kept)",
                     r.tag, r.frames
                 ),

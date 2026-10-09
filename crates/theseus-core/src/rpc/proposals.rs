@@ -386,6 +386,8 @@ fn topic_of(
                     description: p.description.clone().unwrap_or_default().trim().to_string(),
                     added_by: super::ontology::added_by(who),
                     retired_ms: None,
+                    handles: Vec::new(),
+                    merged_into: None,
                 };
                 (c.id.clone(), Some(c))
             }

@@ -20,7 +20,8 @@ use theseus_protocol::{
     error_code, method, OntologyCategory, OntologyCategoryAddParams, OntologyGuidance,
     OntologyGuidanceSetParams, OntologyKind, OntologyListParams, OntologyListResult,
     OntologyMembership, OntologyMembershipResult, OntologyMembershipSetParams,
-    OntologyProposalAcceptParams, OntologyProposalRejectParams,
+    OntologyPersonMergeParams, OntologyProposalAcceptAllParams, OntologyProposalAcceptParams,
+    OntologyProposalRejectParams,
 };
 
 use super::confirms::Act;
@@ -109,6 +110,13 @@ impl Core {
             .as_deref()
             .map(|s| resolve(&o, &parent_kind, s))
             .transpose()?;
+        let mut handles = Vec::new();
+        for h in &p.handles {
+            let h = theseus_ontology::handle(h)?;
+            if !handles.contains(&h) {
+                handles.push(h);
+            }
+        }
         let c = Category {
             id: o.mint_id(kind, &p.name)?,
             name: p.name.trim().to_string(),
@@ -116,6 +124,27 @@ impl Core {
             description: p.description.clone().unwrap_or_default().trim().to_string(),
             added_by: added_by(&who),
             retired_ms: None,
+            handles,
+            merged_into: None,
+        };
+        // A person whose exact handle another holds is that person: the new
+        // handles and name join the held one (the automatic merge), and no
+        // second category is made.
+        let c = match o.handle_twin(&c) {
+            Some((_, twin)) => {
+                let mut held = o.category(&twin).cloned().unwrap_or(c.clone());
+                let name = theseus_ontology::handle(&format!("name:{}", c.name)).ok();
+                for h in c.handles.iter().chain(name.iter()) {
+                    if !theseus_ontology::handles_of(&held).contains(h) {
+                        held.handles.push(h.clone());
+                    }
+                }
+                if held.description.is_empty() {
+                    held.description = c.description.clone();
+                }
+                held
+            }
+            None => c,
         };
         let (who_s, via) = (who.who(), who.via());
         let set = fact::ontology::CategorySet {
@@ -151,7 +180,7 @@ impl Core {
             },
         )?;
         let o = self.runner.ontology.snapshot(&self.store)?;
-        let id = resolve(&o, "topic", &p.category)?;
+        let id = resolve_any(&o, &p.category)?;
         let old = o.guidance(&id);
         let g = Guidance::new(
             id.clone(),
@@ -216,7 +245,7 @@ impl Core {
                 .len()
         };
         for s in &p.add {
-            let id = resolve(&o, "topic", s)?;
+            let id = resolve_any(&o, s)?;
             list(&mut lists, id.kind());
             let l = lists.get_mut(id.kind()).unwrap();
             if !l.iter().any(|m| m.category == id) {
@@ -224,7 +253,7 @@ impl Core {
             }
         }
         for s in &p.remove {
-            let id = resolve(&o, "topic", s)?;
+            let id = resolve_any(&o, s)?;
             list(&mut lists, id.kind());
             lists
                 .get_mut(id.kind())
@@ -278,11 +307,25 @@ impl Core {
     /// or renamed one; nothing when all are as they were.
     pub(crate) fn bind_categories(&self, places: &[BoundPlace]) -> Result<()> {
         let o = self.runner.ontology.snapshot(&self.store)?;
-        let made: Vec<Category> = places
+        let mut made: Vec<Category> = places
             .iter()
             .filter_map(|p| crate::ontology::bound_category(&p.target, &p.name))
             .filter(|c| o.category(&c.id).is_none_or(|old| old.name != c.name))
             .collect();
+        // A DM's new person whose discord id another person holds merges
+        // that one into it (theseus-wy7y), in a frame of its own.
+        let mut merged = Vec::new();
+        for c in &made {
+            if o.category(&c.id).is_none() && o.handle_twin(c).is_some() {
+                match self.bind_person_merging(c) {
+                    Ok(true) => merged.push(c.id.clone()),
+                    Ok(false) => {}
+                    Err(e) => tracing::warn!(person = %c.id, error = %format!("{e:#}"),
+                        "a DM's person could not take the person holding its id"),
+                }
+            }
+        }
+        made.retain(|c| !merged.contains(&c.id));
         if made.is_empty() {
             return Ok(());
         }
@@ -334,6 +377,16 @@ impl Core {
                 let who = conn.answerer(p.author.clone(), p.discord.clone());
                 self.ontology_proposal_reject(&p, who).map_err(failure)
             }),
+            method::ONTOLOGY_PERSON_MERGE => route(params, |p: OntologyPersonMergeParams| {
+                let who = conn.answerer(p.author.clone(), p.discord.clone());
+                self.ontology_person_merge(&p, who).map_err(failure)
+            }),
+            method::ONTOLOGY_PROPOSAL_ACCEPT_ALL => {
+                route(params, |p: OntologyProposalAcceptAllParams| {
+                    let who = conn.answerer(p.author.clone(), p.discord.clone());
+                    self.ontology_proposal_accept_all(&p, who).map_err(failure)
+                })
+            }
             _ => route(params, |p| self.rpc_ontology_membership_set(p, conn)),
         }
     }
@@ -436,6 +489,15 @@ pub(super) fn resolve(o: &Ontology, kind: &str, s: &str) -> Result<CategoryId> {
     }
 }
 
+/// A category named by its id, or by its name among the topics, then among
+/// the people (theseus-wy7y).
+pub(super) fn resolve_any(o: &Ontology, s: &str) -> Result<CategoryId> {
+    resolve(o, "topic", s).or_else(|e| match resolve(o, "person", s) {
+        Ok(id) => Ok(id),
+        Err(_) => Err(e),
+    })
+}
+
 /// The category tree below `parent`, depth first, each with its count.
 fn tree(
     o: &Ontology,
@@ -489,7 +551,15 @@ fn category_info(o: &Ontology, c: &Category, depth: u32, members: u64) -> Ontolo
             .filter(|g| !g.is_empty())
             .map(guidance_info),
         members,
+        handles: theseus_ontology::handles_of(c),
     }
+}
+
+/// A held category as `ontology.list` shows it, with its count.
+pub(super) fn category_info_of(o: &Ontology, id: &CategoryId) -> Result<OntologyCategory> {
+    let c = o.category(id).ok_or_else(|| anyhow!("no category {id}"))?;
+    let n = o.member_counts().get(id).copied().unwrap_or(0);
+    Ok(category_info(o, c, depth(o, id), n))
 }
 
 fn guidance_info(g: &Guidance) -> OntologyGuidance {

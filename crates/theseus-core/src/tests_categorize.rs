@@ -177,6 +177,8 @@ fn topic(name: &str, desc: &str) -> Record {
         description: desc.into(),
         added_by: "the CLI".into(),
         retired_ms: None,
+        handles: Vec::new(),
+        merged_into: None,
     })
 }
 
@@ -195,6 +197,8 @@ fn candidates_come_from_the_kinds_table() {
             description: "the lab channel".into(),
             added_by: "transport".into(),
             retired_ms: None,
+            handles: Vec::new(),
+            merged_into: None,
         }),
         Origin::Transport,
     )

@@ -27,6 +27,7 @@ pub mod category;
 pub mod compose;
 pub mod kind;
 pub mod ontology;
+pub mod person;
 pub mod refusal;
 mod text;
 
@@ -34,6 +35,7 @@ pub use category::{Category, CategoryId, Guidance, MemberList, Membership};
 pub use compose::{Composition, GuidanceUsed, MembershipUsed, Skipped, PATH_SEP, PREAMBLE};
 pub use kind::{seeds, Basis, Kind, Origin, PerSession, Rule, GIVEN, SEED};
 pub use ontology::{Ontology, MAX_DEPTH};
+pub use person::{handle, handles_of, Merge};
 pub use refusal::Refusal;
 pub use text::{ADDED_BY_MAX, DESCRIPTION_MAX, GUIDANCE_MAX, INTENT_LINE_MAX, NAME_MAX};
 
@@ -146,3 +148,5 @@ impl Record {
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_people;

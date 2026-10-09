@@ -208,7 +208,9 @@ pub struct Kind {
     pub name: String,
     pub basis: Basis,
     /// The origins that may assign a membership of the kind: `transport`
-    /// alone for a given kind, never `transport` for an interpreted one.
+    /// for a given kind (and, for `person`, the operator and the import
+    /// beside it, whose memberships are stored: [`Kind::stores`]), never
+    /// `transport` for an interpreted one.
     pub assigned_by: Vec<Origin>,
     pub per_session: PerSession,
     /// The kind of a category's parent: the kind's own name when its
@@ -396,13 +398,14 @@ pub fn seeds() -> Vec<Kind> {
         row(
             "person",
             Basis::Given,
-            vec![Origin::Transport],
+            vec![Origin::Transport, Origin::Operator, Origin::Import],
             PerSession::Many,
             None,
             30,
             Rule::IntentLine,
-            "The people a session talks with, from the transport: a DM's user, or a channel's \
-             listed users.",
+            "The people a session involves: given by the transport (a DM's user, read from the \
+             place), and stored beside it, declared by the operator or by the import from an \
+             imported session's authors and places. A person carries its handles.",
         ),
         row(
             "topic",

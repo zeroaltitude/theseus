@@ -119,6 +119,58 @@ pub struct ImportEraseResult {
     #[serde(default)]
     #[cfg_attr(test, ts(type = "number"))]
     pub topics: u64,
+    /// The people the tag's `import.people` made that nothing else uses,
+    /// taken away (theseus-wy7y).
+    #[serde(default)]
+    #[cfg_attr(test, ts(type = "number"))]
+    pub people: u64,
+}
+
+/// `import.people` (theseus-wy7y): a tag's imported sessions' people as the
+/// ontology's: each message author who is a person (`person:<name>`), and
+/// each DM's other party with its id, one person each, found by an exact
+/// handle first; and each session a person spoke in or was the DM of, a
+/// membership of origin `import`. From the stored records, deterministic,
+/// no model call; a second run changes nothing. `dry_run` counts and writes
+/// nothing. The owner's act, from a private place.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct ImportPeopleParams {
+    pub tag: String,
+    #[serde(default)]
+    pub dry_run: bool,
+}
+
+/// What `import.people` did, or would do.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct ImportPeopleResult {
+    pub tag: String,
+    pub dry_run: bool,
+    /// Live imported sessions read.
+    #[cfg_attr(test, ts(type = "number"))]
+    pub sessions: u64,
+    /// Distinct people found, and of those, the ones held already (by an
+    /// exact handle, or made by this tag's run before) and the ones made.
+    #[cfg_attr(test, ts(type = "number"))]
+    pub people: u64,
+    #[cfg_attr(test, ts(type = "number"))]
+    pub held: u64,
+    #[cfg_attr(test, ts(type = "number"))]
+    pub made: u64,
+    /// Sessions whose person list was written, and the memberships of
+    /// origin `import` they hold.
+    #[cfg_attr(test, ts(type = "number"))]
+    pub joined: u64,
+    #[cfg_attr(test, ts(type = "number"))]
+    pub memberships: u64,
+    /// Sessions with more people than a list keeps: the most active ones
+    /// were taken.
+    #[cfg_attr(test, ts(type = "number"))]
+    pub capped: u64,
+    #[cfg_attr(test, ts(type = "number"))]
+    pub frames: u64,
+    pub ms: f64,
 }
 
 /// `import.topics` (theseus-anh3): a tag's imported sessions' topic labels

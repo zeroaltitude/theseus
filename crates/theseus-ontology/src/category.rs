@@ -103,9 +103,41 @@ pub struct Category {
     /// takes the topics it made that way. Declaring it again supersedes it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub retired_ms: Option<u64>,
+    /// A person's handles (theseus-wy7y; store format 26): `discord:<id>`,
+    /// `slack:<id>`, `email:<addr>`, and display names as `name:<name>`
+    /// ([`crate::person`]). Only a person carries them, and no two people
+    /// hold one handle but a name.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub handles: Vec<String>,
+    /// Merged into another person (theseus-wy7y; store format 26): a record
+    /// that says so is no category, as a retired one is, and its memberships
+    /// and guidance went to that person in the same frame. The ledger's
+    /// `ontology.merged` row holds what the merge moved, so it can be undone.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub merged_into: Option<CategoryId>,
 }
 
 impl Category {
+    /// A category of `id` named `name`, with nothing else set: the fields a
+    /// caller does not name stay empty (`Category { .., ..Category::new(..) }`).
+    pub fn new(id: CategoryId, name: impl Into<String>, added_by: impl Into<String>) -> Self {
+        Category {
+            id,
+            name: name.into(),
+            parent: None,
+            description: String::new(),
+            added_by: added_by.into(),
+            retired_ms: None,
+            handles: Vec::new(),
+            merged_into: None,
+        }
+    }
+
+    /// Taken away: retired, or merged into another.
+    pub fn is_gone(&self) -> bool {
+        self.retired_ms.is_some() || self.merged_into.is_some()
+    }
+
     pub fn kind(&self) -> &str {
         self.id.kind()
     }
@@ -140,7 +172,7 @@ impl Category {
                 path: format!("{} › {}", self.id, self.id),
             });
         }
-        Ok(())
+        crate::person::check_handles(self)
     }
 }
 

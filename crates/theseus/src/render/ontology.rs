@@ -54,6 +54,9 @@ pub fn ontology_categories_lines(categories: &[OntologyCategory]) -> Vec<String>
             n => format!("  {n} sessions"),
         };
         out.push(format!("{pad}{} ({}){held}{guide}", c.name, c.id));
+        if !c.handles.is_empty() {
+            out.push(format!("{pad}  handles: {}", c.handles.join(", ")));
+        }
     }
     out
 }
@@ -145,6 +148,7 @@ mod tests {
                 added_by: "the CLI".into(),
             }),
             members: 0,
+            handles: Vec::new(),
         };
         let lines = ontology_categories_lines(&[
             c(

@@ -20,13 +20,14 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
-use anyhow::{Context as _, Result};
+use anyhow::{bail, Context as _, Result};
 use clap::Subcommand;
 use serde_json::Value;
 use theseus_client::Conn;
 use theseus_protocol::import::{
     ImportEpisodesParams, ImportEpisodesResult, ImportEraseParams, ImportEraseResult, ImportLine,
-    ImportListResult, ImportRejected, ImportTopicsParams, ImportTopicsResult,
+    ImportListResult, ImportPeopleParams, ImportPeopleResult, ImportRejected, ImportTopicsParams,
+    ImportTopicsResult,
 };
 use theseus_protocol::method;
 use tokio::io::{AsyncBufReadExt, BufReader};
@@ -66,6 +67,18 @@ pub enum ImportCmd {
         #[arg(long)]
         tag: String,
     },
+    /// Make a tag's sessions' people the ontology's (theseus-wy7y): each message author who is
+    /// a person and each DM's other party, one person each with their handles (found by an
+    /// exact handle first, never by a display name alone), and each session they spoke in or
+    /// were the DM of, a membership. From the stored records, no model call; a second run
+    /// changes nothing; the tag's erase takes them back. TAG may be left out when one tag is
+    /// imported.
+    People {
+        tag: Option<String>,
+        /// Count what it would do, and write nothing.
+        #[arg(long)]
+        dry_run: bool,
+    },
 }
 
 pub async fn run(conn: &mut Conn, json: bool, cmd: ImportCmd) -> Result<()> {
@@ -92,7 +105,7 @@ pub async fn run(conn: &mut Conn, json: bool, cmd: ImportCmd) -> Result<()> {
             output(json, v, |r: ImportEraseResult| {
                 println!(
                     "erased {}: {} and {} tombstoned in {} ({:.0} ms); index: {}; topics: the \
-                     memberships of {} emptied, {} taken away",
+                     memberships of {} emptied, {} taken away; {} taken away",
                     r.tag,
                     count(r.sessions, "session"),
                     count(r.nodes, "node"),
@@ -101,6 +114,7 @@ pub async fn run(conn: &mut Conn, json: bool, cmd: ImportCmd) -> Result<()> {
                     r.index,
                     count(r.memberships, "session"),
                     count(r.topics, "topic"),
+                    people_count(r.people),
                 );
                 Ok(())
             })
@@ -114,6 +128,37 @@ pub async fn run(conn: &mut Conn, json: bool, cmd: ImportCmd) -> Result<()> {
                 .await?;
             output(json, v, |r: ImportTopicsResult| {
                 print!("{}", topics(&r));
+                Ok(())
+            })
+        }
+        ImportCmd::People { tag, dry_run } => {
+            let tag = match tag {
+                Some(t) => t,
+                None => {
+                    let v = conn.request(method::IMPORT_LIST, Value::Null).await?;
+                    let l: ImportListResult = serde_json::from_value(v)?;
+                    match l.tags.as_slice() {
+                        [one] => one.tag.clone(),
+                        [] => bail!("nothing is imported: no tag to read people from"),
+                        many => bail!(
+                            "name a tag: {} are imported ({})",
+                            many.len(),
+                            many.iter()
+                                .map(|t| t.tag.as_str())
+                                .collect::<Vec<_>>()
+                                .join(", ")
+                        ),
+                    }
+                }
+            };
+            let v = conn
+                .request(
+                    method::IMPORT_PEOPLE,
+                    serde_json::to_value(ImportPeopleParams { tag, dry_run })?,
+                )
+                .await?;
+            output(json, v, |r: ImportPeopleResult| {
+                print!("{}", people(&r));
                 Ok(())
             })
         }
@@ -199,6 +244,13 @@ async fn send(
     Ok(())
 }
 
+fn people_count(n: u64) -> String {
+    match n {
+        1 => "1 person".into(),
+        n => format!("{n} people"),
+    }
+}
+
 fn count(n: u64, one: &str) -> String {
     if n == 1 {
         format!("1 {one}")
@@ -228,6 +280,34 @@ pub fn lines(name: &str, r: &ImportEpisodesResult) -> String {
         }
     }
     out
+}
+
+/// What `import people` did, or would do, in a line.
+pub fn people(r: &ImportPeopleResult) -> String {
+    format!(
+        "people of {}{}: {} read, {} found ({} held already, {} {}); {} {}, {} memberships of \
+         origin import{}; {} ({:.0} ms)\n",
+        r.tag,
+        if r.dry_run {
+            " (dry run: nothing written)"
+        } else {
+            ""
+        },
+        count(r.sessions, "session"),
+        people_count(r.people),
+        r.held,
+        r.made,
+        if r.dry_run { "to declare" } else { "declared" },
+        count(r.joined, "session"),
+        if r.dry_run { "to join" } else { "joined" },
+        r.memberships,
+        match r.capped {
+            0 => String::new(),
+            n => format!(", {} capped at {}", count(n, "session"), 12),
+        },
+        count(r.frames, "frame"),
+        r.ms
+    )
 }
 
 /// What `import topics` did, in a line.

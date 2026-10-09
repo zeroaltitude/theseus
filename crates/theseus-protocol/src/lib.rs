@@ -179,7 +179,7 @@ pub mod method {
         /// operator's answers to one, judged as the ontology's writes are.
         ONTOLOGY_PROPOSALS = "ontology.proposals",
         ONTOLOGY_PROPOSAL_ACCEPT = "ontology.proposal.accept",
-        ONTOLOGY_PROPOSAL_REJECT = "ontology.proposal.reject",
+        ONTOLOGY_PROPOSAL_REJECT = "ontology.proposal.reject", ONTOLOGY_PROPOSAL_ACCEPT_ALL = "ontology.proposal.accept_all", ONTOLOGY_PERSON_MERGE = "ontology.person.merge",
         /// Tasks (DD7): the child sessions conversations started, with state and
         /// spend.
         TASK_LIST = "task.list",
@@ -255,7 +255,7 @@ pub mod method {
         /// The books, first cut (theseus-civ0; `books`): each book's count and span, and a book's
         /// episodes newest first, filtered and paged. Reads.
         BOOKS_LIST = "books.list", BOOKS_PAGE = "books.page",
-        IMPORT_TOPICS = "import.topics",
+        IMPORT_TOPICS = "import.topics", IMPORT_PEOPLE = "import.people",
         /// The gates' bench history on this machine (theseus-1hk), for the
         /// cockpit's speed wall: every recorded run's p50s, p95s, and limits
         /// (`bench::BenchHistoryResult`). A read of the gate's CSV.
