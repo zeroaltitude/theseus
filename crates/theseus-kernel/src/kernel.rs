@@ -1383,13 +1383,19 @@ impl Kernel {
                     let reported = !e.report_wakes.is_empty();
                     // A task with no wake left to park on goes on (37b).
                     let unparked = crate::wakes::task_unparked(&e);
-                    if crate::wakes::free(&e)
-                        && (crate::wakes::wake_due(&e, now) || reported || unparked)
+                    // Its question answered while it ran: the answer's wake
+                    // found it running and did nothing (theseus-klo2).
+                    let answered = self.answered_while_running(&e)?;
+                    if answered
+                        || crate::wakes::free(&e)
+                            && (crate::wakes::wake_due(&e, now) || reported || unparked)
                     {
                         e.state = ExecState::Queued;
                         e.wake = None;
                         e.resume_pending = true;
-                        why = Some(if crate::wakes::wake_due(&e, now) {
+                        why = Some(if answered {
+                            "answered"
+                        } else if crate::wakes::wake_due(&e, now) {
                             "wake"
                         } else if reported {
                             "report"
@@ -1779,6 +1785,17 @@ impl Kernel {
     }
 
     /// Bind a confirmation to the action's *current* digest (§3.9).
+    /// Whether the question `e` would park on was answered (bound, or
+    /// declined) before its turn ended: a wake would never come for it.
+    fn answered_while_running(&self, e: &Execution) -> Result<bool> {
+        let Some(Wake::Confirm { confirm_id }) = &e.wake else {
+            return Ok(false);
+        };
+        Ok(self
+            .action(confirm_id)?
+            .is_some_and(|a| a.confirm.is_some() || a.state != ActionState::Planned))
+    }
+
     pub fn bind_confirm(
         &self,
         correlation_id: &str,
