@@ -135,9 +135,10 @@ fn five() -> Vec<Value> {
 }
 
 fn titles() -> Value {
-    let s = |id: &str, label: &str| {
-        json!({"session_id": format!("ses_{id}"), "kind": "task", "label": label,
-               "created_at_unix_ms": 1, "turns": 1})
+    // The store labels every task `task`: a task is named by its title.
+    let s = |id: &str, title: &str| {
+        json!({"session_id": format!("ses_{id}"), "kind": "task", "label": "task",
+               "title": title, "created_at_unix_ms": 1, "turns": 1})
     };
     json!({"sessions": [
         s("2a329e", "Paint the south buoy red and log it."),

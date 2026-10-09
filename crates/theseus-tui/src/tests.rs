@@ -197,6 +197,8 @@ pub struct Rig {
 
 impl Rig {
     pub fn new(width: u16, height: u16, script: Script) -> Self {
+        // The pane's times at the tests' fixed zone, never the machine's.
+        theseus_client::render::time::pin_for_tests();
         let daemons = Arc::new(Mutex::new(Vec::new()));
         let up = Arc::new(AtomicBool::new(true));
         let (d, u) = (daemons.clone(), up.clone());
@@ -1033,12 +1035,12 @@ async fn the_detail_pane_shows_a_recorded_history_then_its_events() {
         rows[1..16],
         [
             " ses …dm0001 · DM · glm-5.3-flash · ○ ready",
-            " [14:13:30.000Z] operator (discord:zeroaltitude): when is low water?",
-            " [14:13:31.000Z] glm-5.3-flash: (1 tool call(s))",
+            " [07:13:30.000] operator (discord:zeroaltitude): when is low water?",
+            " [07:13:31.000] glm-5.3-flash: (1 tool call(s))",
             "       ↳ tool_use · in 1200 out 40 · $0.0004",
             "       ⚙ fs.read {\"path\":\"tides.txt\"} [open: a read]",
             "       ← fs.read ok · 3 ms · 21 B: low 14:10, high 20:30",
-            " [14:13:34.000Z] glm-5.3-flash: Low water is at 14:10.",
+            " [07:13:34.000] glm-5.3-flash: Low water is at 14:10.",
             "       ↳ end_turn · in 1300 out 12 · $0.0003",
             " ── turn turn_b2",
             // The reply streamed in three pieces, one with a newline.

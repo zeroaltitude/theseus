@@ -20,7 +20,7 @@ use anyhow::{bail, Context, Result};
 use clap::Args;
 use serde::Serialize;
 use serde_json::Value;
-use theseus_client::{render, Conn};
+use theseus_client::{names, render, Conn};
 use theseus_protocol::{
     method, ConfirmRequest, Event, ExecutionView, ExecutionsWatchParams, ExecutionsWatchResult,
     Level, SessionListParams, SessionListResult, SessionWaitResult,
@@ -302,7 +302,7 @@ pub fn header_line(s: &Summary, now_ms: u64, hm: &dyn Fn(u64) -> String) -> Stri
 
 /// The long form: the header, then a row for each task (a line under each
 /// that needs you, with the command that answers it). `at` is the time now
-/// and the terminal's width; `titles` maps a session to its label.
+/// and the terminal's width; `titles` maps a session to its name.
 pub fn long_lines(
     board: &Board,
     sum: &Summary,
@@ -422,8 +422,10 @@ fn cut(s: &str, max: usize) -> String {
 
 // ------------------------------------------------------------------ titles
 
-/// The labels of the sessions the long form shows, until the view carries
-/// them: one `session.list {ids}`.
+/// The names of the sessions the long form shows, until the view carries
+/// them: one `session.list {ids}`. A task is named by its title, a
+/// conversation by its label or title (`theseus_client::names`,
+/// theseus-0n1v); one with neither is left out, for its kind.
 async fn titles(conn: &mut Conn, board: &Board) -> Result<HashMap<String, String>> {
     let ids: Vec<String> = board
         .ordered()
@@ -445,8 +447,9 @@ async fn titles(conn: &mut Conn, board: &Board) -> Result<HashMap<String, String
         .await?;
     let r: SessionListResult = serde_json::from_value(v)?;
     Ok(r.sessions
-        .into_iter()
-        .filter_map(|s| s.label.map(|l| (s.session_id, l)))
+        .iter()
+        .filter(|s| names::words(s.kind, s.label.as_deref(), s.title.as_deref()).is_some())
+        .map(|s| (s.session_id.clone(), names::of(s)))
         .collect())
 }
 
@@ -799,24 +802,10 @@ fn now_ms() -> u64 {
         .map_or(0, |d| d.as_millis() as u64)
 }
 
-extern "C" {
-    fn tzset();
-}
-
-/// A time of day on this machine's clock (`TZ` and the system zone), `18:16`.
+/// A time of day on this machine's clock, `18:16`: the clients' one zone
+/// reader (`render::time`, theseus-0n1v).
 pub fn local_hm(unix_ms: u64) -> String {
-    let t = (unix_ms / 1000) as libc::time_t;
-    // SAFETY: `tm` is plain data; `tzset` and `localtime_r` read the zone and
-    // write only `tm`, and nothing else here changes the environment.
-    let tm = unsafe {
-        let mut tm: libc::tm = std::mem::zeroed();
-        tzset();
-        if libc::localtime_r(&t, &mut tm).is_null() {
-            return theseus_protocol::utc_hm(unix_ms);
-        }
-        tm
-    };
-    format!("{:02}:{:02}", tm.tm_hour, tm.tm_min)
+    render::time::fmt_hm(unix_ms)
 }
 
 /// The terminal's width: its own, else `COLUMNS`, else 100.

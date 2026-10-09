@@ -15,7 +15,8 @@ pub fn clip(a: &TaskArrangement) -> String {
 }
 
 /// One line per piece, indented under its task: its index and role, the
-/// node it quotes, who wrote it and when (UTC), and its first line.
+/// node it quotes, who wrote it and when (on this machine's clock), and its
+/// first line.
 pub fn task_pieces(t: &TaskInfo) -> Vec<String> {
     let Some(a) = &t.arrangement else {
         return vec![];
@@ -35,11 +36,11 @@ pub fn task_pieces(t: &TaskInfo) -> Vec<String> {
                 marks.push_str(&format!(", superseded by {b}"));
             }
             format!(
-                "  📎 {} {}{marks}\t{}\t{who}, {} UTC\t{}",
+                "  📎 {} {}{marks}\t{}\t{who}, {}\t{}",
                 p.index,
                 p.role,
                 p.node_id,
-                theseus_protocol::utc_hm(p.at_ms),
+                super::time::fmt_hm(p.at_ms),
                 p.first_line
             )
         })
@@ -121,8 +122,8 @@ mod tests {
         assert_eq!(
             task_pieces(&t),
             [
-                "  📎 0 objective, superseded by 1\tmsg_0\toperator (cli), 14:13 UTC\tPaint the lamp room.",
-                "  📎 1 design, trusted\tmsg_1\toperator (cli), 14:13 UTC\tPaint the lamp room."
+                "  📎 0 objective, superseded by 1\tmsg_0\toperator (cli), 07:13\tPaint the lamp room.",
+                "  📎 1 design, trusted\tmsg_1\toperator (cli), 07:13\tPaint the lamp room."
             ]
         );
     }

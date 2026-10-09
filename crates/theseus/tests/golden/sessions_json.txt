@@ -2,6 +2,6 @@ $ theseus --json sessions list
 --- requests
 session.list
 --- stdout
-{"sessions":[{"cost_usd":0.0123,"created_at_unix_ms":1759300000000,"execution_state":"waiting","kind":"conversation","label":null,"last_active_ms":1759300900000,"model":"glm-x","session_id":"ses_q7f3k2","title":"Tidy the notes","tool_calls":4,"turns":3,"usage":{"input_tokens":9000,"output_tokens":400}},{"created_at_unix_ms":1759200000000,"kind":"conversation","label":"scratch","session_id":"ses_b0r1ng","turns":0}]}
+{"sessions":[{"cost_usd":0.0123,"created_at_unix_ms":1759300000000,"execution_state":"waiting","kind":"conversation","label":null,"last_active_ms":1759300900000,"model":"glm-x","session_id":"ses_q7f3k2","title":"Tidy the notes","tool_calls":4,"turns":3,"usage":{"input_tokens":9000,"output_tokens":400}},{"created_at_unix_ms":1759200000000,"kind":"conversation","label":"scratch","session_id":"ses_b0r1ng","turns":0},{"created_at_unix_ms":1759200000000,"kind":"task","label":"task","session_id":"ses_n0rthq","title":"Survey the north quay","turns":1}]}
 --- stderr
 --- exit 0

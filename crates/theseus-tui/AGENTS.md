@@ -45,6 +45,9 @@ Key modules: `run.rs` (the loop), `app.rs` (no I/O), `board.rs`, `ui.rs`. Read b
 - `src/tests_notice.rs`: the policy's notices on the harbour rig (a question rings once with its words, spend rings
   nothing, a wake on a root rings once, a burst rings once). Push a view, `settle`, then move `NOW`: a view the loop
   takes after the clock moved is due a second later than the test expects.
+- `src/tests_names.rs` (theseus-0n1v): a task named by its title in the tree, its notice and the arm prompt; a
+  session whose first answer lacked its name asked again as its turns grow; the input line's `profile` and
+  `carried`; Enter after a filter. The rig pins the CLI's time zone (`render::time::pin_for_tests`).
 - `src/tests_order.rs`: the app alone, its order forced by hand: another surface's message lands in the place its
   `node.written` marked, above a reply that streamed while it was read (theseus-v6yc).
 - The CLI's `tests/tui.rs` holds `theseus tui`: the exec, the socket and the arguments passed through, and exit 2
@@ -52,6 +55,10 @@ Key modules: `run.rs` (the loop), `app.rs` (no I/O), `board.rs`, `ui.rs`. Read b
 
 ## Traps
 
+- The `start_paused` tests need tokio's `test-util`, which the manifest's dev-dependencies name, so
+  `cargo test -p theseus-tui` builds alone too (it once built only through the workspace's feature unification).
+- The input line's `turn.submit` carries the session's last profile with `carried: true`, as `watch --interactive`
+  does (theseus-0n1v): without it the daemon's live profile takes the turn, another model without a word.
 - A change to `theseus_client`'s `client` or `render` changes the TUI too.
 - `theseus-tui` has no `--spawn`: a TUI over a spawned `--stdio` daemon would show only that daemon's sessions.
 - A live check runs it in tmux, at 80×24 and 160×48, over a scratch daemon's socket. Never point it at the

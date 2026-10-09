@@ -635,7 +635,8 @@ fn a_note_declines_and_a_refused_answer_is_asked_again() {
                 "execution": view(30, "waiting", "needs_you", "confirm proc.run",
                                   Some("act_m3"), 0.0),
                 "confirms": [question("act_m3")]}),
-            "session.list" => json!({"sessions": []}),
+            "session.list" => json!({"sessions": [{"session_id": S, "kind": "conversation",
+                "label": null, "created_at_unix_ms": 1_759_300_000_000u64, "turns": 2}]}),
             "action.confirm" => {
                 let mut once = r.lock().unwrap();
                 if !*once {
@@ -752,6 +753,38 @@ fn an_unlabelled_session_is_titled_once_it_has_a_title() {
     );
 }
 
+/// A task is named by its title (theseus-0n1v): the store labels every task
+/// `task`, and the pane said `task` for each of them. Its title is the pane's
+/// title and the words of its agent's name, cut at herdr's 32 characters.
+#[test]
+fn a_task_is_named_by_its_title_not_its_label() {
+    let dir = tempfile::tempdir().unwrap();
+    let herdr = FakeHerdr::start(dir.path());
+    let d = FakeDaemon::start(dir.path(), move |req| {
+        Some(Ok(match req["method"].as_str().unwrap() {
+            "session.watch" => json!({"watching": true}),
+            "session.wait" => json!({"reached": "settled", "already": true,
+                                     "execution": view(10, "waiting", "ready", "ready", None, 0.0)}),
+            "session.list" => json!({"sessions": [{"session_id": S, "kind": "task",
+                "label": "task", "title": "Survey the north quay",
+                "created_at_unix_ms": 1_759_300_000_000u64, "turns": 1}]}),
+            _ => return None,
+        }))
+    });
+    let w = Watch::start(&d, Some(&herdr), &[]);
+    let got = herdr.wait_for("pane.report_metadata", 1);
+    let rename = got.iter().find(|r| r["method"] == "agent.rename").unwrap();
+    assert_eq!(rename["params"]["name"], "theseus-q7f3k2-survey-the-north");
+    let meta = got
+        .iter()
+        .find(|r| r["method"] == "pane.report_metadata")
+        .unwrap();
+    assert_eq!(meta["params"]["title"], "Survey the north quay");
+    d.close();
+    let (code, err) = w.finish();
+    assert_eq!(code, 0, "{err}");
+}
+
 /// `--no-herdr`, inside a pane: herdr hears nothing, and the watch is the
 /// plain one, which sends only `session.watch`.
 #[test]
@@ -771,7 +804,9 @@ fn no_herdr_reports_nothing() {
     assert_eq!(code, 0, "{err}");
     assert!(herdr.requests().is_empty(), "{:?}", herdr.requests());
     let methods: Vec<Value> = d.requests().iter().map(|r| r["method"].clone()).collect();
-    assert_eq!(methods, [json!("session.watch")]);
+    // The session named whole is read once, so an unknown one is refused
+    // (theseus-0n1v), then watched.
+    assert_eq!(methods, [json!("session.list"), json!("session.watch")]);
 }
 
 /// The wall clock, in ms since the epoch.

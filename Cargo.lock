@@ -6491,6 +6491,7 @@ dependencies = [
  "anyhow",
  "base64 0.22.1",
  "clap",
+ "jiff",
  "libc",
  "serde",
  "serde_json",
@@ -6874,7 +6875,6 @@ version = "0.0.1"
 dependencies = [
  "anyhow",
  "crossterm",
- "jiff",
  "ratatui",
  "serde",
  "serde_json",

@@ -2,7 +2,8 @@ $ theseus sessions
 --- requests
 session.list
 --- stdout
-ses_q7f3k2	06:41:40.000Z	turns=3	tools=4	$0.0123	in=9000	out=400	waiting	glm-x	Tidy the notes
-ses_b0r1ng	02:40:00.000Z	turns=0	tools=0	$0.0000	in=0	out=0	-	-	scratch
+ses_q7f3k2	23:41:40.000	turns=3	tools=4	$0.0123	in=9000	out=400	waiting	glm-x	Tidy the notes
+ses_b0r1ng	19:40:00.000	turns=0	tools=0	$0.0000	in=0	out=0	-	-	scratch
+ses_n0rthq	19:40:00.000	turns=1	tools=0	$0.0000	in=0	out=0	-	-	Survey the north quay
 --- stderr
 --- exit 0

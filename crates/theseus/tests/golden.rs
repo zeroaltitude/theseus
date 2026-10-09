@@ -21,6 +21,9 @@ use serde_json::{json, Value};
 
 const THESEUS: &str = env!("CARGO_BIN_EXE_theseus");
 
+/// The zone every golden's times are written in: UTC−7, all year.
+const GOLDEN_TZ: &str = "<-07>7";
+
 const S: &str = "ses_q7f3k2";
 const T: &str = "turn_m4p8z1";
 const X: &str = "exe_q7f3k2";
@@ -133,7 +136,11 @@ fn run_in(args: &[&str], steps: Vec<Step>, job: Option<&str>) -> String {
         .env_remove("THESEUS_SESSION")
         .env_remove("HERDR_ENV")
         .env_remove("HERDR_PANE_ID")
-        .env_remove("HERDR_SOCKET_PATH");
+        .env_remove("HERDR_SOCKET_PATH")
+        // Times are written on the machine's clock (theseus-0n1v): a fixed
+        // UTC−7 here, as a POSIX string, so no golden reads the machine's
+        // zone or a tz database.
+        .env("TZ", GOLDEN_TZ);
     if let Some(job) = job {
         cmd.env("THESEUS_SESSION", job);
     }
@@ -866,6 +873,16 @@ fn a_failed_ask_prints_its_trace_and_the_error() {
     );
 }
 
+/// `session.list { ids: [S] }`'s answer: `watch` reads a session named whole
+/// before it watches it, so an unknown one is refused (theseus-0n1v).
+fn known() -> Step {
+    step(
+        "session.list",
+        json!({"sessions": [{"session_id": S, "kind": "conversation", "label": null,
+            "created_at_unix_ms": 1_759_300_000_000u64, "turns": 1}]}),
+    )
+}
+
 #[test]
 fn watch_prints_turns_and_context_decisions() {
     let mut s = step("session.watch", json!({}));
@@ -887,14 +904,17 @@ fn watch_prints_turns_and_context_decisions() {
         "execution_id": X, "continuation": true}),
     ));
     s.after = notes;
-    golden("watch", &run(&["watch", S, "--thinking"], vec![s]));
+    golden("watch", &run(&["watch", S, "--thinking"], vec![known(), s]));
 }
 
 #[test]
 fn watch_json_prints_each_notification() {
     let mut s = step("session.watch", json!({}));
     s.after = turn_notes().into_iter().take(6).collect();
-    golden("watch_json", &run(&["--json", "watch", S], vec![s]));
+    golden(
+        "watch_json",
+        &run(&["--json", "watch", S], vec![known(), s]),
+    );
 }
 
 #[test]
@@ -936,7 +956,10 @@ fn ask_watch_and_no_stream_print_the_printers_other_shapes() {
     );
     let mut s = step("session.watch", json!({}));
     s.after = more_notes();
-    golden("watch_shapes", &run(&["watch", S, "--thinking"], vec![s]));
+    golden(
+        "watch_shapes",
+        &run(&["watch", S, "--thinking"], vec![known(), s]),
+    );
 }
 
 /// `theseus watch` after `events.lost` (theseus-in3): it ends the reply's
@@ -958,7 +981,7 @@ fn watch_says_what_it_lost_and_where_to_read_it() {
             json!({"turn_id": T, "loop_index": 0, "text": " there."}),
         ),
     ];
-    golden("watch_lost", &run(&["watch", S], vec![s]));
+    golden("watch_lost", &run(&["watch", S], vec![known(), s]));
 }
 
 #[test]
@@ -1744,7 +1767,12 @@ fn sessions_list_open_and_recompile() {
          "usage": {"input_tokens": 9000, "output_tokens": 400},
          "execution_state": "waiting", "model": "glm-x"},
         {"session_id": "ses_b0r1ng", "kind": "conversation", "label": "scratch",
-         "created_at_unix_ms": 1_759_200_000_000u64, "turns": 0}]});
+         "created_at_unix_ms": 1_759_200_000_000u64, "turns": 0},
+        // A task, labelled `task` as the store labels every task: named by
+        // its title (theseus-0n1v).
+        {"session_id": "ses_n0rthq", "kind": "task", "label": "task",
+         "title": "Survey the north quay", "created_at_unix_ms": 1_759_200_000_000u64,
+         "turns": 1}]});
     golden(
         "sessions",
         &run(&["sessions"], vec![step("session.list", list.clone())]),
@@ -2372,4 +2400,107 @@ fn policy_explain_prints_each_place_and_a_tool_in_full() {
             vec![step("policy.explain", one)],
         ),
     );
+}
+
+/// The one id resolver (theseus-0n1v), for each command that names a
+/// session or a question: a unique end of four characters or more, or the
+/// whole id; an ambiguous end refused, naming each; one under four
+/// characters refused before anything is sent; an unknown one refused, and
+/// `watch` of one exits 1 instead of watching nothing.
+#[test]
+fn one_resolver_names_a_session_or_a_question_for_every_command() {
+    // A task's execution and session share their tail; two others share an
+    // end with each other.
+    let mut task = execution("exe_0c7e527d2a", "waiting", None);
+    task["session_id"] = json!("ses_0c7e527d2a");
+    task["kind"] = json!("task");
+    let mut a = execution("exe_11aa99e5f6", "waiting", None);
+    a["session_id"] = json!("ses_22bb99e5f6");
+    let mut b = execution("exe_33cc4d4e5f6", "waiting", None);
+    b["session_id"] = json!("ses_44dd4d4e5f6");
+    let list = json!({"executions": [task.clone(), a, b]});
+    let execs = || step("execution.list", list.clone());
+    let mut ask = confirm_tool();
+    ask["correlation_id"] = json!("act_0c7e527d2a");
+    ask["session_id"] = json!("ses_0c7e527d2a");
+    ask["execution_id"] = json!("exe_0c7e527d2a");
+    let mut other = confirm_budget();
+    other["correlation_id"] = json!("act_9f9f99e5f6");
+    other["session_id"] = json!("ses_22bb99e5f6");
+    let mut third = confirm_tool();
+    third["correlation_id"] = json!("act_7a7a4d4e5f6");
+    third["session_id"] = json!("ses_44dd4d4e5f6");
+    let asks = json!({"confirms": [ask, other, third]});
+    let waiting = || step("confirm.list", asks.clone());
+    let answered = json!({"correlation_id": "act_0c7e527d2a", "session_id": "ses_0c7e527d2a",
+        "execution_id": "exe_0c7e527d2a",
+        "approved": true, "resumes": true});
+    let history = json!({"session": {"session_id": "ses_0c7e527d2a", "kind": "task",
+        "label": "task", "title": "Survey the north quay", "created_at_unix_ms": 1_759_300_000_000u64,
+        "turns": 1}, "nodes": [], "pending_confirms": []});
+    let mut unique = String::new();
+    unique += &run(
+        &["history", "527d2a"],
+        vec![execs(), step("session.history", history.clone())],
+    );
+    // An execution's id named whole is found among the executions.
+    unique += &run(
+        &["history", "exe_0c7e527d2a"],
+        vec![execs(), step("session.history", history)],
+    );
+    unique += &run(
+        &["watch", "…527d2a"],
+        vec![execs(), step("session.watch", json!({}))],
+    );
+    unique += &run(
+        &["confirm", "527d2a", "--no-wait"],
+        vec![waiting(), step("action.confirm", answered)],
+    );
+    unique += &run(
+        &["stop", "527d2a"],
+        vec![
+            execs(),
+            step(
+                "execution.stop",
+                json!({"execution": task, "stopped": true,
+            "stopped_actions": [], "declined": [], "turn_running": false,
+            "tasks_running": 0, "wakes_pending": 0}),
+            ),
+        ],
+    );
+    golden("resolve_unique", &unique);
+    let mut ambiguous = String::new();
+    for args in [
+        &["history", "e5f6"][..],
+        &["watch", "e5f6"],
+        &["stop", "e5f6"],
+        &["wait", "e5f6"],
+        &["executions", "explain", "e5f6"],
+    ] {
+        ambiguous += &run(args, vec![execs()]);
+    }
+    ambiguous += &run(&["confirm", "e5f6"], vec![waiting()]);
+    golden("resolve_ambiguous", &ambiguous);
+    let mut short = String::new();
+    for args in [
+        &["history", "5f6"][..],
+        &["watch", "5f6"],
+        &["confirm", "5f6"],
+        &["stop", "5f6"],
+        &["cancel", "5f6"],
+        &["wait", "5f6"],
+        &["executions", "explain", "5f6"],
+    ] {
+        short += &run(args, vec![]);
+    }
+    golden("resolve_short", &short);
+    let mut unknown = String::new();
+    unknown += &run(&["watch", "zzzz99"], vec![execs()]);
+    unknown += &run(
+        &["watch", "ses_zzzz99"],
+        vec![step("session.list", json!({"sessions": []}))],
+    );
+    unknown += &run(&["history", "zzzz99"], vec![execs()]);
+    unknown += &run(&["confirm", "zzzz99"], vec![waiting()]);
+    golden("resolve_unknown", &unknown);
 }

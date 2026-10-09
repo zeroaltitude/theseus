@@ -1,0 +1,42 @@
+$ theseus history e5f6
+--- requests
+execution.list
+--- stdout
+--- stderr
+theseus: `e5f6` names 2 sessions (ses_22bb99e5f6, ses_44dd4d4e5f6): give more of its id
+--- exit 1
+$ theseus watch e5f6
+--- requests
+execution.list
+--- stdout
+--- stderr
+theseus: `e5f6` names 2 sessions (ses_22bb99e5f6, ses_44dd4d4e5f6): give more of its id
+--- exit 1
+$ theseus stop e5f6
+--- requests
+execution.list
+--- stdout
+--- stderr
+theseus: `e5f6` names 2 sessions (ses_22bb99e5f6, ses_44dd4d4e5f6): give more of its id
+--- exit 1
+$ theseus wait e5f6
+--- requests
+execution.list
+--- stdout
+--- stderr
+theseus: `e5f6` names 2 sessions (ses_22bb99e5f6, ses_44dd4d4e5f6): give more of its id
+--- exit 1
+$ theseus executions explain e5f6
+--- requests
+execution.list
+--- stdout
+--- stderr
+theseus: `e5f6` names 2 sessions (ses_22bb99e5f6, ses_44dd4d4e5f6): give more of its id
+--- exit 1
+$ theseus confirm e5f6
+--- requests
+confirm.list
+--- stdout
+--- stderr
+theseus: `e5f6` names 2 questions (act_9f9f99e5f6, act_7a7a4d4e5f6): give more of its id
+--- exit 1

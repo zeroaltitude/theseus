@@ -2,9 +2,9 @@ $ theseus reach msg_task_last
 --- requests
 node.reach
 --- stdout
-msg_task_last: seen by 3 contexts in 2 sessions · first 06:26:40.123Z · last 06:27:41.456Z
+msg_task_last: seen by 3 contexts in 2 sessions · first 23:26:40.123 · last 23:27:41.456
   generation 0 · ses_task01 · msg_task_last at 120: no context held it
-  generation 1 · ses_q7f3k2 · msg_relayed at 140, derived_from msg_task_last by the report: 1 compilation, 2 loops · first 06:26:40.123Z · last 06:27:41.456Z
-      compilation cmp_r7 (transcript, 06:26:40.123Z)
+  generation 1 · ses_q7f3k2 · msg_relayed at 140, derived_from msg_task_last by the report: 1 compilation, 2 loops · first 23:26:40.123 · last 23:27:41.456
+      compilation cmp_r7 (transcript, 23:26:40.123)
 --- stderr
 --- exit 0

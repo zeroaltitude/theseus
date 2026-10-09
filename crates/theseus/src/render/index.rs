@@ -195,25 +195,11 @@ pub fn index_hits_lines(q: &str, r: &theseus_protocol::index::IndexQueryResult) 
     out
 }
 
-/// `2026-03-14 09:12 UTC`: a hit's time (an imported message's own, a native
-/// node's creation), in UTC as the CLI's other times are (theseus-w9qv).
+/// `2026-03-14 02:12`: a hit's time (an imported message's own, a native
+/// node's creation), on this machine's clock as the CLI's other times are
+/// (theseus-w9qv, theseus-0n1v).
 pub fn fmt_date(unix_ms: u64) -> String {
-    // Howard Hinnant's civil-from-days.
-    let z = (unix_ms / 86_400_000) as i64 + 719_468;
-    let era = z.div_euclid(146_097);
-    let doe = z - era * 146_097;
-    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let d = doy - (153 * mp + 2) / 5 + 1;
-    let m = if mp < 10 { mp + 3 } else { mp - 9 };
-    let y = yoe + era * 400 + i64::from(m <= 2);
-    let s = unix_ms / 1000 % 86_400;
-    format!(
-        "{y:04}-{m:02}-{d:02} {:02}:{:02} UTC",
-        s / 3600,
-        s / 60 % 60
-    )
+    super::time::fmt_date(unix_ms)
 }
 
 #[cfg(test)]
@@ -246,13 +232,13 @@ mod tests {
     /// search's reader needs it to tell March from September.
     #[test]
     fn each_hit_says_its_date() {
-        // 2026-03-14 09:12:30 UTC.
+        // 2026-03-14 09:12:30 UTC, written at the tests' UTC−7.
         let march = 1_773_479_550_000;
-        assert_eq!(fmt_date(march), "2026-03-14 09:12 UTC");
-        assert_eq!(fmt_date(0), "1970-01-01 00:00 UTC");
+        assert_eq!(fmt_date(march), "2026-03-14 02:12");
+        assert_eq!(fmt_date(0), "1969-12-31 17:00");
         // A leap day, and the last minute of a year.
-        assert_eq!(fmt_date(1_709_164_800_000), "2024-02-29 00:00 UTC");
-        assert_eq!(fmt_date(1_798_761_599_000), "2026-12-31 23:59 UTC");
+        assert_eq!(fmt_date(1_709_164_800_000), "2024-02-28 17:00");
+        assert_eq!(fmt_date(1_798_761_599_000), "2026-12-31 16:59");
         let r = IndexQueryResult {
             hits: vec![hit(march)],
             indexed_through: 42,
@@ -268,7 +254,7 @@ mod tests {
             .unwrap()
             .text;
         assert!(
-            head.starts_with(" 1. 2026-03-14 09:12 UTC · imported · ses_ep00 @42"),
+            head.starts_with(" 1. 2026-03-14 02:12 · imported · ses_ep00 @42"),
             "{head}"
         );
     }

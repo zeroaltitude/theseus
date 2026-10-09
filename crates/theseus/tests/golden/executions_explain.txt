@@ -14,6 +14,6 @@ questions:
       approve, and trust the session again: theseus confirm --trust act_k4
       decline: theseus confirm --decline act_k4
 last rows of its session:
-    2040  06:26:40.123Z  execution.waiting                                      {"execution_id":"exe_q7f3k2","wake":{"on":"confirm"}}
+    2040  23:26:40.123  execution.waiting                                      {"execution_id":"exe_q7f3k2","wake":{"on":"confirm"}}
 --- stderr
 --- exit 0

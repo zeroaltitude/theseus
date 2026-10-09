@@ -4,7 +4,7 @@ tool.list health
 --- stdout
 tool         posture  set by
 fs.read      open     
-proc.run     approve   at 06:31:40.250Z (the config says notify, )
+proc.run     approve   at 23:31:40.250 (the config says notify, )
 1 tightening · undo one with `theseus policy untighten <tool>`
 external text: 1 session read it, so their calls that act wait: …q7f3k2 since 14:02 (http.fetch notes.example/today) · trust one again: theseus policy trust <session>
 --- stderr

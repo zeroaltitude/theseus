@@ -10,7 +10,7 @@ use anyhow::{anyhow, Context, Result};
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 use theseus_client::render::{self, Frame};
-use theseus_client::{outcome, CallError, Conn};
+use theseus_client::{outcome, resolve, CallError, Conn};
 use theseus_protocol::judge::{JudgeGetParams, JudgeGetResult, JudgeListParams, JudgeListResult};
 use theseus_protocol::{
     method, notify, ActionConfirmParams, ActionConfirmResult, CatalogListResult, ConfirmListResult,
@@ -258,7 +258,10 @@ pub async fn history(
     (n, after, before): (Option<usize>, Option<u64>, Option<u64>),
     full: bool,
 ) -> Result<()> {
-    let session_id = resolve_session(conn, session).await?;
+    let session_id = match session {
+        Some(s) => resolve::session(conn, &s).await?,
+        None => latest_session(conn).await?,
+    };
     let v = conn
         .request(
             method::SESSION_HISTORY,
@@ -298,7 +301,10 @@ pub async fn watch(
     session: Option<String>,
     thinking: bool,
 ) -> Result<()> {
-    let sid = resolve_session(conn, session).await?;
+    let sid = match session {
+        Some(s) => resolve::existing_session(conn, &s).await?,
+        None => latest_session(conn).await?,
+    };
     conn.request(
         method::SESSION_WATCH,
         SessionRef {
@@ -458,9 +464,10 @@ async fn confirm_shown(
     a: ConfirmArgs,
     shown: &mut Vec<String>,
 ) -> Result<()> {
-    let Some(correlation_id) = a.correlation_id else {
+    let Some(given) = a.correlation_id else {
         return confirm_list(conn, json, shown).await;
     };
+    let correlation_id = resolve::question(conn, &given).await?;
     let mode = if json { Mode::Json } else { Mode::Text };
     let mut printer = Printer::new(mode, false);
     let v = conn
@@ -1114,9 +1121,8 @@ pub async fn executions(conn: &mut Conn, json: bool, cmd: ExecutionsCmd) -> Resu
 /// `theseus executions explain ID` (theseus-in3): one execution in full,
 /// from four reads.
 async fn explain(conn: &mut Conn, json: bool, id: &str) -> Result<()> {
-    let l: theseus_protocol::ExecutionListResult =
-        serde_json::from_value(conn.request(method::EXECUTION_LIST, Value::Null).await?)?;
-    let e = explain_target(&l.executions, id)?;
+    resolve::long_enough(id, "session")?;
+    let e = explain_target(&resolve::executions(conn).await?, id)?;
     let confirms: ConfirmListResult =
         serde_json::from_value(conn.request(method::CONFIRM_LIST, Value::Null).await?)?;
     let wakes: theseus_protocol::WakeListResult = serde_json::from_value(
@@ -1180,36 +1186,13 @@ async fn explain(conn: &mut Conn, json: bool, id: &str) -> Result<()> {
     Ok(())
 }
 
-/// The execution `explain` names: an execution's or a session's id, or at
-/// least the last four characters of either.
+/// The execution `explain` names: an execution's or a session's id, or a
+/// unique end of either (`resolve`'s rule, theseus-0n1v).
 fn explain_target(
     execs: &[theseus_protocol::ExecutionInfo],
     id: &str,
 ) -> Result<theseus_protocol::ExecutionInfo> {
-    let s = id.trim().trim_start_matches('…');
-    if s.len() < 4 {
-        anyhow::bail!("`{id}` is too short: give at least four characters of an id");
-    }
-    let exact: Vec<_> = execs
-        .iter()
-        .filter(|e| e.execution_id == s || e.session_id == s)
-        .collect();
-    let found: Vec<_> = if exact.is_empty() {
-        execs
-            .iter()
-            .filter(|e| e.execution_id.ends_with(s) || e.session_id.ends_with(s))
-            .collect()
-    } else {
-        exact
-    };
-    match found.as_slice() {
-        [] => anyhow::bail!("no execution or session is named `{id}`"),
-        [one] => Ok((*one).clone()),
-        many => anyhow::bail!(
-            "`{id}` names {} executions: give more of its id",
-            many.len()
-        ),
-    }
+    Ok(resolve::session_of(id, execs)?[0].clone())
 }
 
 /// `theseus wait SESSION` (theseus-in3): `session.wait`, then the state it
@@ -1222,9 +1205,9 @@ pub async fn wait(
     after: Option<u64>,
     timeout: Option<String>,
 ) -> Result<()> {
-    let l: theseus_protocol::ExecutionListResult =
-        serde_json::from_value(conn.request(method::EXECUTION_LIST, Value::Null).await?)?;
-    let session_id = explain_target(&l.executions, &session)?.session_id;
+    resolve::long_enough(&session, "session")?;
+    let execs = resolve::executions(conn).await?;
+    let session_id = resolve::session_of(&session, &execs)?[0].session_id.clone();
     let timeout_ms = timeout.as_deref().map(parse_duration_ms).transpose()?;
     let until = match until.as_str() {
         "blocked" => theseus_protocol::WaitUntil::Blocked,
@@ -1281,9 +1264,8 @@ pub(crate) fn parse_duration_ms(s: &str) -> Result<u64> {
 /// (W1).
 pub async fn stop(conn: &mut Conn, json: bool, session: String) -> Result<()> {
     // The session's open execution: one per session (W1).
-    let l: theseus_protocol::ExecutionListResult =
-        serde_json::from_value(conn.request(method::EXECUTION_LIST, Value::Null).await?)?;
-    let execution_id = stop_target(&l.executions, &session)?;
+    resolve::long_enough(&session, "session")?;
+    let execution_id = stop_target(&resolve::executions(conn).await?, &session)?;
     let v = conn
         .request(
             method::EXECUTION_STOP,
@@ -1533,6 +1515,9 @@ pub async fn judge(conn: &mut Conn, json: bool, cmd: JudgeCmd) -> Result<()> {
 /// named by the end of its id, and the daemon refuses a name that means
 /// both.
 pub async fn cancel(conn: &mut Conn, json: bool, name: String) -> Result<()> {
+    // The daemon resolves the name by the same rule (`resolve`); one too
+    // short is refused before anything is sent.
+    resolve::long_enough(&name, "task or a wake")?;
     let wake = conn
         .request(
             method::WAKE_CANCEL,
@@ -1746,11 +1731,9 @@ pub fn tui(socket: &str, spawn: bool, args: &[String]) -> Result<()> {
     Err(err).with_context(|| format!("running {}", program.display()))
 }
 
-/// The session a command means: the one named, or the most recently active.
-async fn resolve_session(conn: &mut Conn, session: Option<String>) -> Result<String> {
-    if let Some(s) = session {
-        return Ok(s);
-    }
+/// The session a command means when it names none: the most recently
+/// active.
+async fn latest_session(conn: &mut Conn) -> Result<String> {
     let l: SessionListResult =
         serde_json::from_value(conn.request(method::SESSION_LIST, Value::Null).await?)?;
     l.sessions
@@ -1772,31 +1755,16 @@ fn call_message(e: &anyhow::Error) -> String {
 }
 
 /// The execution `theseus stop SESSION` stops (W1): the one of the session
-/// named by its id, or by the end of it (four characters at least), when
-/// exactly one session matches.
+/// named by its id, or a unique end of it (`resolve`'s rule, theseus-0n1v);
+/// of a session's executions, its conversation's before a task's.
 fn stop_target(execs: &[theseus_protocol::ExecutionInfo], session: &str) -> Result<String> {
-    let s = session.trim().trim_start_matches('…');
-    if s.len() < 4 {
-        anyhow::bail!(
-            "`{session}` is too short to name a session: give at least four characters of its id"
-        );
-    }
-    let exact: Vec<_> = execs.iter().filter(|e| e.session_id == s).collect();
-    let found = if exact.is_empty() {
-        execs.iter().filter(|e| e.session_id.ends_with(s)).collect()
-    } else {
-        exact
-    };
-    let mut sessions: Vec<&str> = found.iter().map(|e| e.session_id.as_str()).collect();
-    sessions.dedup();
-    match (found.as_slice(), sessions.len()) {
-        ([], _) => anyhow::bail!("no session is named `{session}`"),
-        (_, 1) => Ok(found
-            .iter()
-            .find(|e| e.kind != "task")
-            .map_or_else(|| found[0].execution_id.clone(), |e| e.execution_id.clone())),
-        (_, n) => anyhow::bail!("`{session}` names {n} sessions: give more of its id"),
-    }
+    let found = resolve::session_of(session, execs)?;
+    Ok(found
+        .iter()
+        .find(|e| e.kind != "task")
+        .unwrap_or(&found[0])
+        .execution_id
+        .clone())
 }
 
 /// The session `policy trust` names (theseus-9bp): its whole id, or at least
@@ -1974,11 +1942,13 @@ mod tests {
             held("ses_0000aa1111", None, None),
             held("ses_0000bb1111", Some("bb1111"), Some("task.create")),
         ];
-        // From a daemon that sends no local time: UTC, as before.
+        // From a daemon that sends no local time: this machine's clock,
+        // pinned at the tests' zone (theseus-0n1v).
+        theseus_client::render::time::pin_for_tests();
         assert_eq!(
             external_line(&two).unwrap(),
             "external text: 2 sessions read it, so their calls that act wait: …aa1111 since \
-             00:00:00.000Z (http.fetch https://example.test/a); task bb1111 since 00:00:00.000Z \
+             17:00:00.000 (http.fetch https://example.test/a); task bb1111 since 17:00:00.000 \
              (http.fetch https://example.test/a, from the session that started it) · trust one \
              again: theseus policy trust <session>"
         );

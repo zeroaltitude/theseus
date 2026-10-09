@@ -18,6 +18,8 @@ mod ui;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
+mod tests_names;
+#[cfg(test)]
 mod tests_notice;
 #[cfg(test)]
 mod tests_order;
@@ -145,13 +147,8 @@ fn now_ms() -> u64 {
 }
 
 /// A time of day on this machine's clock, `15:42`, as the daemon writes its
-/// labels' times (`sleeping until 16:00`).
+/// labels' times (`sleeping until 16:00`), and as every time the TUI and the
+/// CLI show is written (theseus-0n1v).
 fn local_hm(unix_ms: u64) -> String {
-    jiff::Timestamp::from_millisecond(unix_ms as i64)
-        .map(|t| {
-            t.to_zoned(jiff::tz::TimeZone::system())
-                .strftime("%H:%M")
-                .to_string()
-        })
-        .unwrap_or_else(|_| theseus_protocol::utc_hm(unix_ms))
+    theseus_client::render::time::fmt_hm(unix_ms)
 }

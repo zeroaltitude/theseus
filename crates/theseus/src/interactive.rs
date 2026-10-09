@@ -13,7 +13,7 @@ use std::collections::{HashMap, HashSet};
 
 use anyhow::{anyhow, Result};
 use serde_json::{json, Value};
-use theseus_client::{render, CallError, Conn};
+use theseus_client::{render, resolve, CallError, Conn};
 use theseus_protocol::{
     method, notify, ConfirmRequest, Event, Id, Message, Notification, Response, SessionListResult,
     SessionWaitResult,
@@ -113,7 +113,10 @@ pub async fn watch(
     let mut interrupt = signal(SignalKind::interrupt())?;
     let mut early = Vec::new();
     let sid = match session {
-        Some(s) => s,
+        // Named whole: the read below finds it, or refuses it; named by an
+        // end: by the one rule (theseus-0n1v).
+        Some(s) if resolve::whole_session(&s).is_some() => resolve::trimmed(&s).to_string(),
+        Some(s) => resolve::existing_session(conn, &s).await?,
         None => serde_json::from_value::<SessionListResult>(
             call(conn, method::SESSION_LIST, Value::Null, &mut early).await?,
         )?
@@ -148,9 +151,12 @@ pub async fn watch(
     .sessions
     .into_iter()
     .find(|s| s.session_id == sid);
-    let turns = info.as_ref().map_or(0, |i| i.turns);
-    let (label, title, profile) =
-        info.map_or((None, None, None), |i| (i.label, i.title, i.profile));
+    // An unknown session is refused, never watched (theseus-0n1v).
+    let Some(info) = info else {
+        anyhow::bail!("no session is named `{sid}`");
+    };
+    let (turns, kind) = (info.turns, info.kind);
+    let (label, title, profile) = (info.label, info.title, info.profile);
 
     let mut w = Watch {
         sid: sid.clone(),
@@ -159,7 +165,7 @@ pub async fn watch(
         printer: Printer::new(Mode::Watch, thinking),
         reporter: pane.map(|env| {
             herdr::release_on_panic(&env);
-            Reporter::start(env, &sid, label, title)
+            Reporter::start(env, &sid, kind, label, title)
         }),
         questions: Vec::new(),
         asked: None,

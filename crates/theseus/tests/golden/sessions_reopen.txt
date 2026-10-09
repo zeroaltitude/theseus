@@ -2,6 +2,6 @@ $ theseus sessions reopen ses_b0r1ng
 --- requests
 session.reopen
 --- stdout
-ses_b0r1ng: quiet; replaced by ses_q7f3k2 on 06:26:40.000Z
+ses_b0r1ng: quiet; replaced by ses_q7f3k2 on 23:26:40.000
 --- stderr
 --- exit 0

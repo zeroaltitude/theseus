@@ -39,3 +39,12 @@ pub fn session_state_line(s: &SessionInfo) -> String {
     }
     out
 }
+
+/// `theseus sessions`' last column: what names the session (a task's title,
+/// a conversation's label or title; theseus-0n1v), or nothing, since its id
+/// leads the row.
+pub(super) fn name_column(s: &SessionInfo) -> String {
+    crate::names::words(s.kind, s.label.as_deref(), s.title.as_deref())
+        .map(|_| crate::names::of(s))
+        .unwrap_or_default()
+}

@@ -145,7 +145,8 @@ enum Cmd {
     #[command(after_help = ASK_EXIT_CODES)]
     Prompt(prompt::PromptArgs),
     /// A session's transcript: messages, tool calls with their gate decisions, results, and
-    /// anything waiting for your confirmation. SESSION defaults to the most recently active.
+    /// anything waiting for your confirmation. SESSION defaults to the most recently active; it is
+    /// an id, or a unique end of one (four characters at least).
     History {
         session: Option<String>,
         /// Only the newest N nodes; with --after or --before, a page's size (default 200).
@@ -203,7 +204,8 @@ enum Cmd {
         cmd: Option<OntologyCmd>,
     },
     /// Follow a session live: streamed text, tool calls, confirmations, context decisions,
-    /// whoever started the turn (web UI, CLI, the harness). SESSION defaults to the most recent.
+    /// whoever started the turn (web UI, CLI, the harness). SESSION defaults to the most recent;
+    /// it is an id, or a unique end of one (four characters at least). An unknown one exits 1.
     Watch {
         session: Option<String>,
         /// Show thinking summaries too.
@@ -447,6 +449,8 @@ struct AskArgs {
 
 #[derive(Args, Debug)]
 struct ConfirmArgs {
+    /// The question: its correlation id, or a unique end of it, its session's or its
+    /// execution's (four characters at least, as `theseus tasks` shows a task's).
     correlation_id: Option<String>,
     /// Approve, which is what an answer does unless --decline says otherwise.
     #[arg(long, conflicts_with = "decline")]

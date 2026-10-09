@@ -3,7 +3,7 @@ $ theseus budgets
 budget.list
 --- stdout
 session        state     limit                      spent  reserved      held available  lifetime  resets
-…q7f3k2        waiting   $100.00 config           $3.2500   $4.5000   $0.0000  $92.2500   $7.5000  1 (last at 06:31:40.000Z by cli)
+…q7f3k2        waiting   $100.00 config           $3.2500   $4.5000   $0.0000  $92.2500   $7.5000  1 (last at 23:31:40.000 by cli)
 └ …lamp01      running   $3.00 carve of …q7f3k2   $0.5000   $0.0000   $0.0000   $2.5000   $0.5000  0
 └ …lens02      running   $2.00 carve of …q7f3k2   $0.0000   $0.0000   $0.0000   $2.0000   $0.0000  0
 …pier01        waiting   $40.00 #pier             $1.0000   $0.0000   $0.0000  $39.0000   $1.0000  2 (the last not read: the ledger's index is being built after the start; ask again in a moment)

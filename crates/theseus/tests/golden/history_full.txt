@@ -3,12 +3,12 @@ $ theseus history ses_q7f3k2 --full
 session.history
 --- stdout
 ── ses_q7f3k2 · "Tidy the notes" · 3 turn(s) · 4 tool call(s) · $0.0123 · glm-x · waiting
-[06:26:41.234Z] nod·nod_1 operator (discord:ana):
+[23:26:41.234] nod·nod_1 operator (discord:ana):
     Please tidy the notes folder.
     Then sum up.
-[06:26:42.468Z] nod·nod_2 operator:
+[23:26:42.468] nod·nod_2 operator:
     And list them.
-[06:26:43.702Z] nod·nod_3 glm-x: (2 tool call(s))
+[23:26:43.702] nod·nod_3 glm-x: (2 tool call(s))
       (thinking) Look first, ⏎ then act.
       ↳ tool_use · in 1200 out 85 · $0.0012
       ⚙ nod·nod_4 fs.list {"path":"notes"} [open: fs.list — open (enforcement = open)]
@@ -24,10 +24,10 @@ session.history
         declined by the operator
       ← nod·nod_11 fs.write not run · 1520 ms · 6 B
         denied
-[06:26:54.808Z] nod·nod_12 glm-x:
+[23:26:54.808] nod·nod_12 glm-x:
     Two files. Two files. Two files. Two files. Two files. Two files. Two files. Two files. Two files. Two files. Two files. Two files. Two files. Two files. Two files. Two files. Two files. Two files. Two files. Two files. Two files. Two files. Two files. Two files. Two files. Two files. Two files. Two files. Two files. Two files. Two files. Two files. Two files. Two files. Two files. Two files. Two files. Two files. Two files. Two files. 
       ↳ end_turn · in 2200 out 310
-[06:26:56.042Z] nod·nod_13 compaction
+[23:26:56.042] nod·nod_13 compaction
   ? fs.write waits for you in ses_q7f3k2: write outside the roots (/w)
       input: {"path":"/srv/motd","text":"hello"}
       approve: theseus confirm act_k4
