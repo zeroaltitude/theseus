@@ -68,6 +68,11 @@ Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
   limit at each start (`Core::place_spend`). Routing needs no guild: a channel id is unique across guilds. Slash
   commands stay global. A voice channel may be in any bound guild; its call joins in that guild.
 
+- **"halt self"** (theseus-pw1q.2, `runtime/halt.rs`): a message whose first two words are `halt self` (any case;
+  the rest is why) is `self.halt` as its author with the message's ids, in any place the binding reads (a halt is
+  anyone's); there is no Discord word for the resume. The week's self digest is a `self_digest` post, to the
+  owner's DM alone (`jev_post`).
+
 - **A reaction corrects routing** (theseus-q31l, `runtime/route.rs`): ⬆️ or ⬇️ on one of this process's replies
   (found by message in `Shared.replies`, which the courier fills as a turn's key lands, bounded) is `route.correct` on
   that turn, `stronger` or `cheaper`, with the reactor's place, so the core judges it (the owner, from a private

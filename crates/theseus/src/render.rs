@@ -65,7 +65,7 @@ pub use sandbox::sandbox_line;
 pub use store::{crash_line, node_cache_line, store_lines, store_reads_line};
 pub use task_graph::{task_tree_lines, tree_line};
 pub use tasks::{task_check, task_pieces};
-pub use time::fmt_time;
+pub use time::{fmt_date, fmt_time};
 
 /// What a line is, as the CLI's marks have always told one from another. The
 /// CLI prints a line's text alone, so a tag changes nothing it prints; the

@@ -132,6 +132,8 @@ pub async fn drive(core: Arc<Core>) {
         // A task claim whose lease lapsed is freed, from the claims kept in
         // memory (39b).
         core.free_expired_leases_if_due();
+        // The week's self-improvement digest, while `[self]` posts it (theseus-pw1q.4).
+        core.post_self_digest_if_due();
         // The queued executions and those a due time may wake, by their
         // terms: a tick reads none of the parked ones (theseus-lv2).
         let Some(execs) = unlisted.runnable(&core) else {

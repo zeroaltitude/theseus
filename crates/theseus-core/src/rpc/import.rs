@@ -51,13 +51,15 @@ pub(super) fn prefixed(name: &str) -> bool {
         || name.starts_with("books.")
         || super::context::prefixed(name)
         || super::route_correct::ROUTE.contains(&name)
+        || super::rsi::OWN.contains(&name)
 }
 
 impl Core {
     /// The ladder's methods (`pack.*`), the import's (`import.*`), the
     /// books' (`books.*`), and the owner's corrections of routing
-    /// (`route.correct`, `route.corrections`), from one arm of `dispatch`,
-    /// which stays within clippy's length that way.
+    /// (`route.correct`, `route.corrections`), and self-improvement's
+    /// (`self.*`, theseus-pw1q), from one arm of `dispatch`, which stays within
+    /// clippy's length that way.
     pub(super) async fn rpc_prefixed(
         self: Arc<Self>,
         name: &str,
@@ -75,6 +77,9 @@ impl Core {
         }
         if super::route_correct::ROUTE.contains(&name) {
             return self.rpc_route(name, params, conn);
+        }
+        if super::rsi::OWN.contains(&name) {
+            return self.rpc_self(name, params, conn);
         }
         self.rpc_import(name, params, conn).await
     }

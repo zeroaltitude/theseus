@@ -38,6 +38,7 @@ mod policy;
 mod proposals;
 mod publish;
 mod route_correct;
+mod rsi;
 mod server;
 mod sessions;
 #[cfg(test)]
@@ -56,6 +57,8 @@ mod tests_ledger;
 mod tests_lists;
 #[cfg(test)]
 mod tests_node_names;
+#[cfg(test)]
+mod tests_self;
 #[cfg(test)]
 mod tests_session_states;
 mod trust;
@@ -159,6 +162,8 @@ pub struct Core {
     /// The daemon's own memory: work's marks, the trims after them, and
     /// health's block (theseus-9lxe).
     pub resident: crate::resident::Resident,
+    /// Self-improvement's kill switch, cached (theseus-pw1q.2; `crate::rsi`).
+    pub rsi: crate::rsi::Switch,
 }
 
 /// Where the index tender's supervisor writes its facts' rows
@@ -755,6 +760,7 @@ impl Core {
             mcp_server: Default::default(),
             episodes: Default::default(),
             resident: Default::default(),
+            rsi: Default::default(),
         });
         core.index.set_ledger(index_ledger(&core));
         core.mcp.attach(Arc::downgrade(&core));

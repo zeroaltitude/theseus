@@ -29,6 +29,7 @@ mod packs;
 mod policy_explain;
 mod print;
 mod prompt;
+mod self_cmd;
 mod status;
 
 use std::path::PathBuf;
@@ -405,6 +406,13 @@ enum Cmd {
         #[command(subcommand)]
         cmd: extend::ExtendCmd,
     },
+    /// Self-improvement (theseus-pw1q): `self log` shows what Theseus changed about itself,
+    /// `self halt [WHY]` stops all self-directed work at once, `self resume` (the owner's) releases.
+    #[command(name = "self")]
+    SelfImprove {
+        #[command(subcommand)]
+        cmd: self_cmd::SelfCmd,
+    },
     /// Send a raw JSON-RPC request (e.g. `rpc health`, `rpc turn.submit '{"input":"hi"}'`); notifications echo to stderr.
     Rpc {
         method: String,
@@ -506,10 +514,11 @@ enum PolicyCmd {
     },
 }
 
-#[derive(Subcommand, Debug)]
+#[derive(Subcommand, Debug, Default)]
 enum OntologyCmd {
     /// The kinds table: where each kind's memberships come from, how many a session holds, its
     /// precedence, and its rule (default).
+    #[default]
     Kinds,
     /// The category tree, with each category's guidance.
     Categories,
@@ -876,9 +885,7 @@ async fn run(cli: Cli) -> Result<()> {
         Cmd::Tools { verbose } => cmd::tools(c, json, verbose).await,
         Cmd::Policy { cmd } => cmd::policy(c, json, cmd.unwrap_or(PolicyCmd::List)).await,
         Cmd::Aws { cmd } => cmd::aws(c, json, cmd).await,
-        Cmd::Ontology { cmd } => {
-            ontology::ontology(c, json, cmd.unwrap_or(OntologyCmd::Kinds)).await
-        }
+        Cmd::Ontology { cmd } => ontology::ontology(c, json, cmd.unwrap_or_default()).await,
         Cmd::Catalog => cmd::catalog(c, json).await,
         Cmd::Health => cmd::health(c, json).await,
         Cmd::Sessions { cmd } => cmd::sessions(c, json, cmd.unwrap_or(SessionsCmd::List)).await,
@@ -915,6 +922,7 @@ async fn run(cli: Cli) -> Result<()> {
         Cmd::Import { cmd } => import::run(c, json, cmd.unwrap_or(import::ImportCmd::List)).await,
         Cmd::Mcp { cmd } => mcp::run(c, json, cmd).await,
         Cmd::Extend { cmd } => extend::run(c, json, cmd).await,
+        Cmd::SelfImprove { cmd } => self_cmd::run(c, json, cmd).await,
         Cmd::Rpc { method, params } => cmd::rpc(c, json, method, params).await,
         Cmd::Shutdown => cmd::shutdown(c, json).await,
         Cmd::Tui { .. } => unreachable!("`theseus tui` execs theseus-tui before connecting"),

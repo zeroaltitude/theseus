@@ -345,6 +345,21 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   in the CLI's `OPERATORS`): one frame (the record without it, its manifest `revoked`, `extend.revoked`), then the
   board drops it and SIGTERMs its group; the frozen copy stays. Tests: `extend/tests_load.rs`, theseusd's
   `tests/extend.rs`.
+- **Self-improvement's spine** (theseus-pw1q.2, theseus-pw1q.4; off by default): `rsi/`. `rsi::gate(&ctx)` is the
+  one question every self step asks before it starts and between its phases: `Off` while `[self] mode = "off"`
+  (`config/rsi.rs`, read at the start), `Halted` while the kill switch is on (whatever the mode; a store never
+  resumed is halted, so `"act"` alone starts nothing), else `Allowed`. One read of a cached state: the META record
+  `self.switch`, read at the first ask and kept by the moves (`rsi::Switch`, `Core.rsi`); unreadable is halted.
+  `self.halt` is anyone's and idempotent; `self.resume` is `judge_act(Act::SelfResume)` (the owner, from a private
+  place; a `from_job`, the `THESEUS_SESSION` the CLI sends, never counts), a refusal an `approval.refused` row. Each
+  move is one frame: the record and `self.halted`/`self.resumed` (`fact/rsi.rs`). `self.log` (`rsi/log.rs`) reads
+  every `theseus_protocol::rsi::SELF_ROWS` name and today's self-change kinds (`rsi::TODAY`) through the ledger's
+  pages by kind, newest first, each with what, why, numbers and undo; a later self step's row carries those four in
+  its data and shows with no change here, and its kind becomes a `LedgerKind` on the commit that writes it.
+  `rsi/digest.rs`: the week's text (`self.digest`), and the driver's tick posts it to the owner's DM once a week
+  (`post_self_digest_if_due`, kind `self_digest`, META `self.digest.posted`) only while `posts_digest()` (mode act,
+  digest weekly): with the mode off it reads and writes nothing. Methods in `rpc/rsi.rs`, routed through
+  `rpc_prefixed`. Tests: `rpc/tests_self.rs`.
 - **The index tender's supervisor**: `tender.rs` (row 51): it starts `theseus-index` 2 s after serving
   (`START_AFTER`, so a start's aftermath stays quiet), restarts it with backoff, takes over the one an exec kept
   at once, and asks it for health and `index.query`, each call bounded (health asks only a tender that runs, and

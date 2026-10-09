@@ -62,6 +62,7 @@ pub mod ontology;
 pub mod place;
 pub mod recall;
 pub mod route;
+pub mod rsi;
 pub mod sandbox;
 pub mod situation;
 pub mod start;
@@ -434,6 +435,8 @@ facts![
     extend::ExtendDeclined<'static>,
     extend::ExtendLoaded<'static>,
     extend::ExtendRevoked<'static>,
+    rsi::SelfHalted<'static>,
+    rsi::SelfResumed<'static>,
 ];
 
 #[cfg(test)]
