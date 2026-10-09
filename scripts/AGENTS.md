@@ -24,6 +24,8 @@ scripts/gate.sh && git commit -S -F <message file>
 
 It runs, in order:
 
+0. *Without the lock, before any compile*, the keel guard (`keel`, then `keel tests`; see "The keel guard"): a branch
+   that deletes or loosens a test, a budget or a ceiling fails in about a second, unless the owner's signed ack passes it.
 1. *Without the lock*, every compile: `cargo fmt --all -- --check`, then `scripts/shape.sh` (no Rust file over 2,500
    lines unless listed), then `features` (the five shipped binaries get no fewer features built alone than in the
    workspace; see "Releases", "Features"), then `cargo clippy --workspace --all-targets -- -D warnings`, which also
@@ -182,6 +184,31 @@ and for a quiet machine, can each add minutes, so give the gate's command a time
   inherited it: scan `/proc/*/fd` for it, since `/proc/locks` hides a dead owner), or cargo's package cache. The gate
   names the holders in its log (`gate: waiting, the lock is held by:`, with each one's worktree). Find the holder
   before waiting longer, and never kill another agent's process.
+
+### The keel guard
+
+(theseus-pw1q.1; the owner's decision on self-improvement, 2026-10-09: deleting or loosening a test, a budget or a
+ceiling needs the owner's yes.) `scripts/keel-guard.py` (standard library only) judges a range's net change and prints
+each erosion as `path:line: rule: old -> new`; its header names every rule and every file it watches:
+`test-removed`, `test-ignored`, `assert-removed`, `allow-added` (an `allow` or an `expect`, a lint level, a clippy.toml
+threshold), `budget-raised` (the lifecycle, turn and jobs benches' limits, the busy allowance's default), `cap-raised`
+(bench/'s spend and loop caps, the config template's spend and day lines), `ceiling-raised` (long-files.txt,
+shape.sh's limit, nextest's retries, timeouts and overrides) and `keel-file` (the guard itself).
+
+- **The range.** On a branch, merge-base(HEAD, main)..the working tree (`origin/main` when it is newer or there is no
+  local `main`), so the gate before a commit judges what it will hold; on a join's merge commit, HEAD^1..HEAD.
+  `THESEUS_KEEL_BASE=<rev>` names the base. The gate finds the base in its own shell and runs the base's copy of the
+  guard, so a branch's copy decides neither. There is no switch to skip it.
+- **The ack.** A finding passes only when a commit in the range, signed by a key that `scripts/keel-signers` lists
+  at the base, carries `Keel: <rule> <path>[, <path>…] — <why>` (a path may be a glob; the gate prints the exact
+  lines to fill in). An unsigned trailer, or one signed by any other key, counts for nothing and is said so. At a
+  join the owner's signed merge commit carries the trailers in its message.
+- **Moved and renamed tests** are the same test: matched by name, then by body, then a test that went and one that
+  came at least half alike (difflib over their words; the guard prints each pairing). An assertion made a wait
+  (`wait_for(`, `.until(`) keeps its check.
+- **Its suite**, `scripts/test_keel_guard.py`, builds a throwaway repository per case (signed cases with throwaway
+  keys in their own `GNUPGHOME`); the gate runs it when the guard or the suite differs from the base. Run it alone
+  with `python3 -m unittest scripts/test_keel_guard.py`.
 
 ### The shape budget
 
