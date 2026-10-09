@@ -4,6 +4,8 @@
 // it shows a moment the view says so and its controls are off. The selected category is in the address (`?category=`).
 // At an import's size (theseus-anh3: well over a hundred topics, tens of thousands of memberships) it reads the tree
 // alone, each category with its count of sessions, and past `FOLD_AT` categories the tree starts folded at its roots.
+// People (theseus-wy7y) are listed beside the tree, searchable by handle, each with a page of their sessions and a merge;
+// Jev's proposals for topics and people sit beside them, with select-all accept (`components/People.tsx`).
 import { useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router'
 import { ChevronDown, ChevronRight, Compass, ListTree, Pencil, Plus, Shapes } from 'lucide-react'
@@ -13,6 +15,7 @@ import { cn, clock } from '@/lib/format'
 import { useAsOf } from '@/lib/timemachine'
 import { Empty, Panel, Pill } from '@/components/ui'
 import { Act, Refused, useInPast, useOntology, useOntologyWrite } from '@/components/OntologyParts'
+import { AddPerson, PeoplePanel, PersonPage, ProposalsPanel } from '@/components/People'
 
 const field = 'rounded-md bg-white/5 px-2.5 py-1.5 text-[12px] text-ink outline-none ring-1 ring-line placeholder:text-ink-faint focus:ring-live/40 disabled:opacity-50'
 
@@ -112,8 +115,12 @@ export default function Ontology() {
           )}
         </Panel>
         <div className="flex flex-col gap-3">
+          {picked?.kind === 'person' && <PersonPage key={picked.id} person={picked} people={data.categories.filter((c) => c.kind === 'person')} disabled={past} />}
           <GuidanceEditor key={`${picked?.id ?? ''}:${picked?.guidance?.digest ?? ''}`} category={picked} disabled={past} />
+          <PeoplePanel categories={data.categories} selected={selected} select={select} />
+          <ProposalsPanel disabled={past} />
           <AddTopic rows={rows.map((r) => r.category)} disabled={past} parentDefault={picked?.kind === 'topic' ? picked.id : ''} />
+          <AddPerson disabled={past} />
         </div>
       </div>
     </div>
