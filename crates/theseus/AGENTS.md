@@ -20,6 +20,14 @@ Key modules: `main.rs`, `cmd.rs`, `render.rs`, `client.rs`. Read by: (a binary).
 - `src/render/history.rs`: `theseus history`'s own lines: each node with its short id, which `theseus reach` takes
   (theseus-glyw), and `page_lines`, where a page ends and the command for the next one either way (theseus-xo0m).
   Its `node_lines` is the history's own; `render.rs`'s, which the terminal UI shares, stays apart.
+- `src/names.rs`: what a session is called in every client (theseus-0n1v): a task's title (the store labels every
+  task `task`), a conversation's label else its title, else its kind and the end of its id. The CLI, the terminal
+  UI and herdr's reporter all call it; never read `label` before `title` at a site.
+- `src/resolve.rs`: the one id resolver (theseus-0n1v) for `confirm`, `history`, `watch`, `stop`, `cancel`, `wait`
+  and `explain`: a whole id, or a unique end of at least four characters; ambiguous, short and unknown names are
+  refused, and `watch` of an unknown one exits 1. One read a resolution at most.
+- `src/render/time.rs`: every time in human output, on this machine's clock, its zone read at the first time printed
+  (TZ, else `/etc/localtime` alone: jiff's `system()` lists the tz database); `--json` prints the daemon's numbers.
 
 ## Invariants
 
@@ -37,7 +45,8 @@ Key modules: `main.rs`, `cmd.rs`, `render.rs`, `client.rs`. Read by: (a binary).
 
 ## Tests
 
-- `tests/golden.rs` compares each scenario's output with its golden in `tests/golden/`.
+- `tests/golden.rs` compares each scenario's output with its golden in `tests/golden/`. It runs the CLI at
+  `TZ=<-07>7`, and the crate's own tests write times at the same fixed zone, so no test reads the machine's.
   `THESEUS_GOLDEN=write cargo nextest run --workspace -E 'package(theseus)'` rewrites them: only for an output change
   you mean, with the diff read.
 - `tests/connect.rs` covers how the CLI reaches a daemon (`--spawn`, and exit 3). `main` reads exit 3 from the

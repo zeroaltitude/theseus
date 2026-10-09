@@ -39,6 +39,9 @@ Key modules: `run.rs` (the loop), `app.rs` (no I/O), `board.rs`, `ui.rs`. Read b
 - `src/tests.rs`: the TUI over a scripted daemon (a JSON-RPC stream on a duplex, through `Conn::over`), drawn on
   ratatui's `TestBackend`, whose buffer each test reads as text. Run them as
   `cargo nextest run --workspace -E 'package(theseus-tui)'`.
+- `src/tests_names.rs` (theseus-0n1v): a task named by its title in the tree, its notice and the arm prompt; a
+  session whose first answer lacked its name asked again as its turns grow; the input line's `profile` and
+  `carried`; Enter after a filter. The rig pins the CLI's time zone (`render::time::pin_for_tests`).
 - `src/tests_order.rs`: the app alone, its order forced by hand: another surface's message lands in the place its
   `node.written` marked, above a reply that streamed while it was read (theseus-v6yc).
 - The CLI's `tests/tui.rs` holds `theseus tui`: the exec, the socket and the arguments passed through, and exit 2
@@ -46,6 +49,10 @@ Key modules: `run.rs` (the loop), `app.rs` (no I/O), `board.rs`, `ui.rs`. Read b
 
 ## Traps
 
+- `cargo test -p theseus-tui` alone does not build: its `start_paused` tests need tokio's `test-util`, which only
+  the workspace's feature unification turns on. Run it through the workspace, as above.
+- The input line's `turn.submit` carries the session's last profile with `carried: true`, as `watch --interactive`
+  does (theseus-0n1v): without it the daemon's live profile takes the turn, another model without a word.
 - A change to `theseus_client`'s `client` or `render` changes the TUI too.
 - `theseus-tui` has no `--spawn`: a TUI over a spawned `--stdio` daemon would show only that daemon's sessions.
 - A live check runs it in tmux, at 80×24 and 160×48, over a scratch daemon's socket. Never point it at the
