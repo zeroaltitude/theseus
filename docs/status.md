@@ -8,6 +8,12 @@ _Updated 2026-10-07 03:52 MST. Version 0.0.1; the design document is at v0.84._
 
 **Self-improvement (RSI):** [the plan](design/rsi-plan.md) for Theseus to build its own code, yardsticks and backlog: act first and tell the owner after, inside a hard keel that still needs his yes; the machinery built now and off until the benchmark rerun ([PDF](design/rsi-plan.pdf)).
 
+**The killer features:** [one page](design/killer-features.md) with a short section per feature (speed, self-improvement, parallel tool calls, task horizons, memory, personality, remote runtimes, speculation, Discord), each linking its plan ([PDF](design/killer-features.pdf)).
+
+**Remote runtimes:** [the design](design/remote-runtimes.md) for the CLI, the daemon and the index each on its own machine, over TLS 1.3 with mTLS, off by default; decided, and waiting for the benchmark rerun ([PDF](design/remote-runtimes.pdf)).
+
+**Speculative activity:** [the design](design/speculation.md) for Theseus to guess the likely next ask, work ahead in a sandbox while the machine is idle, and offer the result, never applied without Use; decided, and waiting for the benchmark rerun ([PDF](design/speculation.pdf)).
+
 This page changes with every step that lands. The [README](../README.md) stays the same and links here. For the
 full record of each step (what it built, how it was proven, and where it diverged from the plan), see Part III
 of [The Ship of Theseus](the-ship-of-theseus.md). For the whole plan, see [the roadmap](design/roadmap-v2.md), and
