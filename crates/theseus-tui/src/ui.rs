@@ -358,9 +358,11 @@ fn footer(app: &App, area: Rect, buf: &mut Buffer) -> Option<(u16, u16)> {
         _ => None,
     };
     if let Some((prompt, text)) = typed {
-        // The end of what is typed, when it is longer than the line.
+        // The end of what is typed, when it is longer than the line; a
+        // pasted line break shows as `↵` (theseus-8hcg).
         let room = (area.width as usize).saturating_sub(prompt.width() + 3);
-        let line = format!(" {prompt}{}", tail_fit(text, room));
+        let text = text.replace('\n', "↵").replace('\t', " ");
+        let line = format!(" {prompt}{}", tail_fit(&text, room));
         buf.set_stringn(area.x, area.y, &line, area.width as usize, Style::default());
         let x = (line.width() as u16).min(area.width.saturating_sub(1));
         return Some((area.x + x, area.y));

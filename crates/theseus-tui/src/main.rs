@@ -14,17 +14,21 @@ mod detail;
 mod notice;
 mod run;
 mod seen;
+mod term;
 mod ui;
 
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
 mod tests_order;
+#[cfg(test)]
+mod tests_paste;
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{bail, Result};
 use theseus_client::Conn;
+use tokio::signal::unix::{signal, SignalKind};
 
 use crate::app::App;
 use crate::notice::Delivery;
@@ -120,16 +124,28 @@ async fn tui(args: Args) -> Result<()> {
     });
     let mut app = App::new(local_hm);
     app.seen = Seen::open(Seen::default_path());
-    // Raw mode and the alternate screen, put back on exit and on a panic.
-    // Focus events: the session in focus gets no notice while the terminal
-    // has focus (design §2.9).
-    let term = ratatui::try_init()?;
-    crossterm::execute!(std::io::stdout(), crossterm::event::EnableFocusChange)?;
-    let mut runner = Runner::new(app, term, connect, rx, now_ms);
+    // SIGTERM and SIGHUP end the loop as a quit does, so the terminal is
+    // put back (theseus-8hcg).
+    let (end, signals) = tokio::sync::mpsc::unbounded_channel();
+    let mut sigterm = signal(SignalKind::terminate())?;
+    let mut sighup = signal(SignalKind::hangup())?;
+    tokio::spawn(async move {
+        tokio::select! {
+            _ = sigterm.recv() => {}
+            _ = sighup.recv() => {}
+        }
+        let _ = end.send(());
+    });
+    // Raw mode and the alternate screen, put back on exit and on a panic;
+    // the loop turns on focus events and bracketed paste, and off again
+    // (`term`), and a panic turns them off.
+    let terminal = ratatui::try_init()?;
+    term::on_panic(|| Box::new(std::io::stdout()));
+    let mut runner = Runner::new(app, terminal, connect, rx, now_ms);
     runner.out = Box::new(std::io::stdout());
     runner.delivery = args.notify;
+    runner.signals = Some(signals);
     let ran = runner.run().await;
-    let _ = crossterm::execute!(std::io::stdout(), crossterm::event::DisableFocusChange);
     ratatui::try_restore()?;
     ran
 }
