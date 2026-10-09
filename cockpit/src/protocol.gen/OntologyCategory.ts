@@ -21,4 +21,10 @@ guidance?: OntologyGuidance,
  * The sessions whose stored memberships hold it (an interpreted kind's;
  * a given one is read from a place, and counts none).
  */
-members: number, };
+members: number, 
+/**
+ * A person's handles (theseus-wy7y): `discord:<id>`, `slack:<id>`,
+ * `email:<addr>`, `name:<display name>`; a DM's person holds its
+ * `discord:<id>` without storing it.
+ */
+handles?: Array<string>, };

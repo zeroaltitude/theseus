@@ -26,4 +26,9 @@ memberships: number,
  * The topics the tag's `import.topics` made that nothing else uses,
  * taken away.
  */
-topics: number, };
+topics: number, 
+/**
+ * The people the tag's `import.people` made that nothing else uses,
+ * taken away (theseus-wy7y).
+ */
+people: number, };

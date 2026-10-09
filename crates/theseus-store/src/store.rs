@@ -588,7 +588,9 @@ const BULK: usize = 4096;
 /// the `import` origin in an `onto:member` list.
 /// 25 = a session's state (theseus-emqx): its stored `retired`, its
 /// `superseded_by` and `supersedes` links, `reopened_ms`, and `title_was`.
-const MANIFEST_FORMAT: u32 = 25;
+/// 26 = people (theseus-wy7y): a category's `handles` and `merged_into`, and
+/// stored `person` lists (`onto:member:<session>:person`).
+const MANIFEST_FORMAT: u32 = 26;
 /// The oldest format this build reads. A format-3 manifest's per-kind marks
 /// are left unread.
 const MANIFEST_OLDEST: u32 = 2;

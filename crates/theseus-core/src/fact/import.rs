@@ -117,6 +117,45 @@ impl Fact for ImportTopics<'_> {
     }
 }
 
+/// A tag's people written (`import.people`, theseus-wy7y), a row for each
+/// frame: the people declared and the sessions' lists written; or, by the
+/// erase, the people taken away.
+pub struct ImportPeople<'a> {
+    pub tag: &'a str,
+    pub by: &'a str,
+    pub made: u64,
+    pub joined: u64,
+    pub retired: u64,
+}
+
+impl Fact for ImportPeople<'_> {
+    const KIND: Option<LedgerKind> = Some(LedgerKind::ImportPeople);
+
+    fn row(&self) -> Value {
+        json!({"tag": self.tag, "by": self.by, "made": self.made, "joined": self.joined,
+               "retired": self.retired})
+    }
+
+    fn narrate(&self, say: &mut Say<'_>) {
+        let line = if self.retired > 0 {
+            format!(
+                "Took back the import {}'s people: {} taken away.",
+                self.tag,
+                crate::narrative::count(self.retired, "person", "people"),
+            )
+        } else {
+            format!(
+                "Placed {} of the import {} with its people ({} declared), by {}.",
+                crate::narrative::count(self.joined, "session", "sessions"),
+                self.tag,
+                crate::narrative::count(self.made, "person", "people"),
+                self.by,
+            )
+        };
+        say.line(NarrativePart::Session, line);
+    }
+}
+
 /// A tag's rows' scope.
 pub fn scope(tag: &str) -> String {
     format!("import.ledger:{tag}")

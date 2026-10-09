@@ -126,3 +126,58 @@ impl Fact for MembershipSet<'_> {
         );
     }
 }
+
+/// Two people were merged into one, or a merge was undone
+/// (`ontology.merged`, theseus-wy7y). The row holds what the merge moved:
+/// the absorbed person's record as it was, the survivor's handles before,
+/// the sessions whose lists moved, and whether guidance moved; an undo
+/// reads it back.
+pub struct PersonMerged<'a> {
+    pub absorbed: &'a Category,
+    pub survivor: &'a str,
+    pub handles_before: &'a [String],
+    pub sessions: &'a [String],
+    /// The moved sessions' person lists as they were: what an undo writes.
+    pub lists_before: &'a [MemberList],
+    pub guidance_moved: bool,
+    /// An undo's row.
+    pub undone: bool,
+    /// `operator`, or `automatic` for an exact handle's merge.
+    pub how: &'a str,
+    pub who: &'a str,
+    pub via: &'a str,
+}
+
+impl Fact for PersonMerged<'_> {
+    const KIND: Option<LedgerKind> = Some(LedgerKind::OntologyMerged);
+
+    fn row(&self) -> Value {
+        json!({"absorbed": self.absorbed.id, "survivor": self.survivor,
+               "absorbed_record": self.absorbed, "handles_before": self.handles_before,
+               "sessions": self.sessions, "lists_before": self.lists_before,
+               "guidance_moved": self.guidance_moved,
+               "undone": self.undone, "how": self.how, "who": self.who, "via": self.via})
+    }
+
+    fn narrate(&self, say: &mut Say<'_>) {
+        let line = match self.undone {
+            true => format!(
+                "Ontology: {} undid the merge of {} into {}: {} back.",
+                self.who,
+                self.absorbed.id,
+                self.survivor,
+                crate::narrative::count(self.sessions.len() as u64, "session", "sessions"),
+            ),
+            false => format!(
+                "Ontology: {} merged the person {} ({}) into {} ({}): {} moved.",
+                self.who,
+                self.absorbed.name,
+                self.absorbed.id,
+                self.survivor,
+                self.how,
+                crate::narrative::count(self.sessions.len() as u64, "session", "sessions"),
+            ),
+        };
+        say.line(Session, line);
+    }
+}

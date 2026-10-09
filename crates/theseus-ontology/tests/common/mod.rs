@@ -24,6 +24,8 @@ pub fn category(i: &str, name: &str, parent: Option<&str>) -> Category {
         description: String::new(),
         added_by: "ada".into(),
         retired_ms: None,
+        handles: Vec::new(),
+        merged_into: None,
     }
 }
 

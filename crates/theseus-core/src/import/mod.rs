@@ -32,9 +32,13 @@
 //! - **The topics** (`topics::assign`, theseus-anh3): the sessions' topic
 //!   labels as the ontology's topics, a tree, and their memberships, by the
 //!   owner's `import.topics`.
+//! - **The people** (`people::assign_unless`, theseus-wy7y): the sessions'
+//!   person authors and DM parties as the ontology's people, with their
+//!   handles, and their memberships, by the owner's `import.people`.
 
 pub mod catalog;
 pub mod episode;
+pub mod people;
 pub mod topics;
 pub mod write;
 
@@ -42,6 +46,8 @@ pub mod write;
 mod tests;
 #[cfg(test)]
 mod tests_catalog;
+#[cfg(test)]
+mod tests_people;
 #[cfg(test)]
 mod tests_topics;
 

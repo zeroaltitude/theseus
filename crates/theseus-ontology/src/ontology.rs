@@ -179,6 +179,7 @@ impl Ontology {
                 let kind = self.kind_of(c.kind())?;
                 match (kind.basis, by) {
                     (Basis::Given, Origin::Transport) => {}
+                    (Basis::Given, _) if stored_by(kind, by) => {}
                     (Basis::Interpreted, _) if interprets(kind, by) => {}
                     (Basis::Given, _) => {
                         return Err(Refusal::Given {
@@ -200,9 +201,10 @@ impl Ontology {
                         })
                     }
                 }
-                match c.retired_ms {
-                    Some(_) => self.check_retire(c),
-                    None => self.check_category(c),
+                match (&c.retired_ms, &c.merged_into) {
+                    (Some(_), _) => self.check_retire(c),
+                    (None, Some(into)) => self.check_merged(c, into),
+                    (None, None) => self.check_category(c),
                 }
             }
             Record::Guidance(g) => {
@@ -227,10 +229,10 @@ impl Ontology {
             }
             Record::Members(l) => {
                 let kind = self.kind_of(&l.kind)?;
-                if kind.is_given() {
+                if !kind.stores() {
                     return Err(given_memberships(kind));
                 }
-                if !interprets(kind, by) {
+                if !(stored_by(kind, by) || (!kind.is_given() && interprets(kind, by))) {
                     return Err(Refusal::Writer {
                         why: format!(
                             "`{}` memberships are the operator's to set, or the import's when the \
@@ -286,8 +288,9 @@ impl Ontology {
             }
         }
 
-        // A category taken away is none: it is neither held nor dropped.
-        cats.retain(|c| c.retired_ms.is_none());
+        // A category taken away (retired or merged) is none: it is neither
+        // held nor dropped, and a merged one's old guidance is left unread.
+        let gone = take_gone(&mut cats);
         cats.sort_by(|a, b| a.id.cmp(&b.id));
         let mut pending = cats;
         passes(&mut pending, |c| {
@@ -307,6 +310,9 @@ impl Ontology {
         }
 
         for g in guides {
+            if gone.contains(&g.category) && !onto.categories.contains_key(&g.category) {
+                continue;
+            }
             match onto.check_guidance(&g) {
                 Ok(()) => {
                     onto.guidance.insert(g.category.clone(), g);
@@ -384,10 +390,13 @@ impl Ontology {
             Record::Kind(k) => {
                 self.kinds.insert(k.name.clone(), k);
             }
-            Record::Category(c) if c.retired_ms.is_some() => {
+            Record::Category(c) if c.is_gone() => {
                 if let Some(old) = self.categories.remove(&c.id) {
                     unindex(&mut self.children, &old.parent, &old.id);
                     unindex(&mut self.names, &name_key(&old), &old.id);
+                }
+                if c.merged_into.is_some() {
+                    self.guidance.remove(&c.id);
                 }
             }
             Record::Category(c) => self.insert_category(c),
@@ -501,6 +510,15 @@ impl Ontology {
                 max: MAX_DEPTH,
             });
         }
+        if let Some((h, twin)) = self.handle_twin(c) {
+            return Err(Refusal::Duplicate {
+                why: format!(
+                    "`{twin}` holds the handle {h:?} already: one person, one category. Merge \
+                     them (`theseus ontology person merge {} {twin}`)",
+                    c.id
+                ),
+            });
+        }
         if kind.basis == Basis::Interpreted {
             let twin = self
                 .names
@@ -554,6 +572,45 @@ impl Ontology {
             .count();
         if held > 0 {
             return in_use(format!("{held} sessions' memberships"));
+        }
+        Ok(())
+    }
+
+    /// A person merged into another: both are held people, the survivor is
+    /// not itself, and no session's list still holds it (the merge moves
+    /// them first). Its guidance goes with the merge.
+    fn check_merged(&self, c: &Category, into: &CategoryId) -> Result<(), Refusal> {
+        if c.kind() != crate::person::KIND || into.kind() != crate::person::KIND {
+            return Err(Refusal::WrongKind {
+                why: format!(
+                    "only a person merges into a person: `{}` into `{into}`",
+                    c.id
+                ),
+            });
+        }
+        for id in [&c.id, into] {
+            if !self.categories.contains_key(id) {
+                return Err(Refusal::Missing {
+                    what: "person",
+                    id: id.to_string(),
+                });
+            }
+        }
+        if c.id == *into {
+            return Err(Refusal::Cycle {
+                path: format!("{} › {}", c.id, c.id),
+            });
+        }
+        let held = self
+            .members
+            .values()
+            .filter(|l| l.members.iter().any(|m| m.category == c.id))
+            .count();
+        if held > 0 {
+            return Err(Refusal::InUse {
+                id: c.id.to_string(),
+                by: format!("{held} sessions' memberships: the merge moves them first"),
+            });
         }
         Ok(())
     }
@@ -640,7 +697,7 @@ impl Ontology {
     fn list_kind(&self, l: &MemberList) -> Result<&Kind, Refusal> {
         l.check_fields()?;
         let kind = self.kind_of(&l.kind)?;
-        if kind.is_given() {
+        if !kind.stores() {
             return Err(given_memberships(kind));
         }
         Ok(kind)
@@ -674,6 +731,16 @@ impl Ontology {
                     m.origin,
                     kind.name,
                     names.join(", ")
+                ),
+            });
+        }
+        if m.origin == Origin::Transport {
+            return Err(Refusal::Given {
+                kind: kind.name.clone(),
+                why: format!(
+                    "a `{}` membership from the transport is read from the session's place, \
+                     never stored",
+                    kind.name
                 ),
             });
         }
@@ -789,6 +856,17 @@ fn interprets(kind: &Kind, by: Origin) -> bool {
     by == Origin::Operator || (by == Origin::Import && kind.assigned_by.contains(&by))
 }
 
+/// Whether `by` may write a given kind's stored side (its categories and
+/// lists beside the transport's): only when the kind's row names it, and
+/// never the transport, whose memberships are never stored.
+fn stored_by(kind: &Kind, by: Origin) -> bool {
+    by != Origin::Transport
+        && kind.is_given()
+        && kind.stores()
+        && kind.assigned_by.contains(&by)
+        && matches!(by, Origin::Operator | Origin::Import)
+}
+
 fn given_memberships(kind: &Kind) -> Refusal {
     Refusal::Given {
         kind: kind.name.clone(),
@@ -808,6 +886,18 @@ fn unique(before: &[Membership], m: &Membership) -> Result<(), Refusal> {
         });
     }
     Ok(())
+}
+
+/// Take the categories taken away (retired or merged) out of `cats`: their
+/// ids.
+fn take_gone(cats: &mut Vec<Category>) -> BTreeSet<CategoryId> {
+    let gone = cats
+        .iter()
+        .filter(|c| c.is_gone())
+        .map(|c| c.id.clone())
+        .collect();
+    cats.retain(|c| !c.is_gone());
+    gone
 }
 
 /// Try each pending item; keep the ones that fail, and go again while a pass

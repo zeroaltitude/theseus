@@ -25,11 +25,11 @@
   {
     "name": "person",
     "basis": "given",
-    "assigned_by": ["transport"],
+    "assigned_by": ["transport", "operator", "import"],
     "per_session": "many",
     "precedence": 30,
     "rule": "intent_line",
-    "description": "The people a session talks with, from the transport: a DM's user, or a channel's listed users.",
+    "description": "The people a session involves: given by the transport (a DM's user, read from the place), and stored beside it, declared by the operator or by the import from an imported session's authors and places. A person carries its handles.",
     "version": 1,
     "added_by": "seed"
   },

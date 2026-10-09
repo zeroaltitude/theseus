@@ -16,6 +16,12 @@ kind?: string, name: string,
  */
 parent?: string, description?: string, 
 /**
+ * A person's handles (theseus-wy7y): `discord:<id>`, `slack:<id>`,
+ * `email:<addr>`, `name:<name>`. A handle another person holds exactly
+ * (not a name) merges this one into that person instead.
+ */
+handles?: Array<string>, 
+/**
  * Who made it, as a label. Default: the connection. It names and
  * proves nothing; the connection's surface decides.
  */

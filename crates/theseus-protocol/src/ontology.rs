@@ -85,6 +85,12 @@ pub struct OntologyCategory {
     #[serde(default)]
     #[cfg_attr(test, ts(type = "number"))]
     pub members: u64,
+    /// A person's handles (theseus-wy7y): `discord:<id>`, `slack:<id>`,
+    /// `email:<addr>`, `name:<display name>`; a DM's person holds its
+    /// `discord:<id>` without storing it.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[cfg_attr(test, ts(as = "Option<Vec<String>>", optional))]
+    pub handles: Vec<String>,
 }
 
 /// A category's guidance.
@@ -137,6 +143,12 @@ pub struct OntologyCategoryAddParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub description: Option<String>,
+    /// A person's handles (theseus-wy7y): `discord:<id>`, `slack:<id>`,
+    /// `email:<addr>`, `name:<name>`. A handle another person holds exactly
+    /// (not a name) merges this one into that person instead.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[cfg_attr(test, ts(as = "Option<Vec<String>>", optional))]
+    pub handles: Vec<String>,
     /// Who made it, as a label. Default: the connection. It names and
     /// proves nothing; the connection's surface decides.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -310,4 +322,77 @@ pub struct OntologyProposalAnswered {
     pub topic: Option<String>,
     /// The session's interpreted memberships after it.
     pub memberships: Vec<OntologyMembership>,
+}
+
+/// `ontology.person.merge` (theseus-wy7y): two people who are one. `survivor`
+/// keeps its id and takes `absorbed`'s handles, memberships and guidance;
+/// `absorbed` is written as merged into it, and the `ontology.merged` row
+/// holds what moved, which `ontology.person.unmerge` reads to undo it. A DM's
+/// person (the transport's) always survives. The owner's act, from a private
+/// place.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct OntologyPersonMergeParams {
+    /// Each by id, or by its name among the people.
+    pub absorbed: String,
+    pub survivor: String,
+    /// `ontology.person.unmerge`: undo the newest merge of `absorbed` (an id),
+    /// from its row; `survivor` is then ignored.
+    #[serde(default)]
+    pub undo: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub author: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub discord: Option<DiscordOrigin>,
+}
+
+/// What a merge, or its undo, did.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct OntologyPersonMerged {
+    pub survivor: OntologyCategory,
+    pub absorbed: String,
+    /// The sessions whose person lists moved.
+    #[cfg_attr(test, ts(type = "number"))]
+    pub sessions: u64,
+    pub guidance_moved: bool,
+    /// True for an undo.
+    #[serde(default)]
+    pub undone: bool,
+}
+
+/// `ontology.proposal.accept_all` (theseus-wy7y): the operator's yes to every
+/// unanswered proposal of a kind at or above a confidence, each as
+/// `ontology.proposal.accept` would take it (a proposal naming a new topic
+/// or person with no name is left for one at a time).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct OntologyProposalAcceptAllParams {
+    /// `topic` or `person`; absent: both.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub kind: Option<String>,
+    /// At least this top-choice probability (default 0).
+    #[serde(default)]
+    pub min_confidence: f64,
+    /// Exactly these judgments (the cockpit's selection), else every match.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[cfg_attr(test, ts(as = "Option<Vec<String>>", optional))]
+    pub judgments: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub author: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub discord: Option<DiscordOrigin>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct OntologyProposalAcceptAllResult {
+    pub accepted: Vec<String>,
+    /// Matching proposals left unanswered, each with why.
+    pub left: Vec<String>,
 }

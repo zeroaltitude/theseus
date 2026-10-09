@@ -34,6 +34,7 @@ mod ontology;
 mod packs;
 mod packs_ahead;
 mod pages;
+mod people;
 mod policy;
 mod proposals;
 mod publish;

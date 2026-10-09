@@ -64,7 +64,20 @@ pub(crate) const TASK_BEFORE_CLAIM: &str = r#"{"id":"tsk_00000000000000000000000
 /// hand, in the layout the build before theseus-emqx (73f0a3e) writes.
 pub(crate) const SESSION_BEFORE_STATES: &str = r#"{"session_id":"ses_00000000000000000000000000000071","kind":"conversation","label":"discord #lighthouse","created_at_unix_ms":1790000000071,"turns":0,"last_turn_id":null,"usage":{"input_tokens":0,"output_tokens":0,"cache_read_input_tokens":0,"cache_creation_input_tokens":0},"execution_id":"exe_00000000000000000000000000000071","last_active_ms":1790000000071,"cost_usd":0.0,"tool_calls":0}"#;
 
+/// A category as format 24 wrote it (theseus-anh3's build, unchanged
+/// through 25), an `onto:cat:` META record: an import's topic, before a
+/// person's handles and merge (`handles`, `merged_into`, format 26,
+/// theseus-wy7y). It reads with no handles and merged into nothing. By hand,
+/// in the layout the build before theseus-wy7y (78b58b8) writes.
+pub(crate) const CATEGORY_BEFORE_PEOPLE: &str = r#"{"id":"topic:garden-beds","name":"beds","parent":"topic:garden","description":"imported label garden/beds","added_by":"import tern-2026-02"}"#;
+
 const SAMPLES: &[Sample] = &[
+    Sample {
+        kind: kinds::META,
+        layout: "an ontology category at format 24 (theseus-anh3; unchanged through 25): before a person's handles and merge (26, theseus-wy7y)",
+        bytes: CATEGORY_BEFORE_PEOPLE,
+        kept: Kept::All,
+    },
     Sample {
         kind: kinds::SESSION,
         layout: "a session at format 24 (theseus-anh3; unchanged since 23): before its state (25, theseus-emqx)",
@@ -352,6 +365,9 @@ fn reread(kind: RecordKind, bytes: &[u8]) -> anyhow::Result<String> {
         kinds::COMPILATION => again::<Compilation>(bytes),
         // New at format 12 (39a); its layout before 16 is a sample above.
         kinds::TASK => again::<crate::task_graph::TaskRecord>(bytes),
+        // META holds many records; its samples here are the ontology's
+        // categories (`onto:cat:`).
+        kinds::META => again::<theseus_ontology::Category>(bytes),
         k => anyhow::bail!("kind {k} has no reader here"),
     }
 }

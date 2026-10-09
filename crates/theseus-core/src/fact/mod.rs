@@ -412,6 +412,8 @@ facts![
     import::ImportBatch<'static>,
     import::ImportErased<'static>,
     import::ImportTopics<'static>,
+    import::ImportPeople<'static>,
+    ontology::PersonMerged<'static>,
     ladder::PackModeSet<'static>,
     ladder::PackEventLanded<'static>,
     mcp::McpStarted,

@@ -185,6 +185,8 @@ pub fn bound_category(target: &str, name: &str) -> Option<Category> {
         description: String::new(),
         added_by: Origin::Transport.name().to_string(),
         retired_ms: None,
+        handles: Vec::new(),
+        merged_into: None,
     })
 }
 
@@ -214,7 +216,12 @@ impl Walk {
         snapshot.categories().next()?;
         let mut current = given(place, now_ms);
         if class == PlaceClass::Private {
-            current.extend(snapshot.memberships(session));
+            // A stored person the place gives too is taken once, as given.
+            for m in snapshot.memberships(session) {
+                if !current.iter().any(|g| g.category == m.category) {
+                    current.push(m);
+                }
+            }
         }
         Some(Walk {
             snapshot,

@@ -300,6 +300,8 @@ async fn the_erase_takes_back_the_memberships_and_the_topics_nothing_uses() {
         description: String::new(),
         added_by: "the operator".into(),
         retired_ms: None,
+        handles: Vec::new(),
+        merged_into: None,
     };
     operator_write(c, Record::Category(harbor.clone()));
     import(c, TAG, 0, N, labels_of);
@@ -388,6 +390,8 @@ async fn the_operators_membership_is_kept_and_counts_first() {
         description: String::new(),
         added_by: "the operator".into(),
         retired_ms: None,
+        handles: Vec::new(),
+        merged_into: None,
     };
     operator_write(c, Record::Category(pier.clone()));
     import(c, TAG, 3, 1, labels_of);
@@ -428,6 +432,8 @@ async fn a_membership_appended_after_the_run_is_kept_in_its_place() {
         description: String::new(),
         added_by: "the operator".into(),
         retired_ms: None,
+        handles: Vec::new(),
+        merged_into: None,
     };
     operator_write(c, Record::Category(pier.clone()));
     let mut l = snapshot(c).member_list(&sid(0), "topic").unwrap().clone();

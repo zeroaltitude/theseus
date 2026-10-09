@@ -208,8 +208,9 @@ impl Ontology {
     }
 
     /// Whether a compile can use a membership: its kind and its category are
-    /// held, a given kind's comes from the transport, and an interpreted
-    /// kind's from an origin the kind lets assign it.
+    /// held, a given kind's comes from the transport (or, for a person, an
+    /// origin its row names), and an interpreted kind's from an origin the
+    /// kind lets assign it.
     fn usable(&self, m: &Membership) -> Result<&Kind, Refusal> {
         let kind = self.kinds.get(m.kind()).ok_or_else(|| Refusal::Missing {
             what: "kind",
@@ -221,7 +222,10 @@ impl Ontology {
                 id: m.category.to_string(),
             });
         }
-        if kind.is_given() != (m.origin == Origin::Transport) {
+        // A given kind with a stored side (a person, theseus-wy7y) also
+        // takes the origins its row names beside the transport.
+        let stored = kind.stores() && m.origin != Origin::Transport;
+        if kind.is_given() != (m.origin == Origin::Transport) && !(kind.is_given() && stored) {
             return Err(Refusal::Given {
                 kind: kind.name.clone(),
                 why: if kind.is_given() {
