@@ -1651,6 +1651,7 @@ impl TurnRunner {
         // 2. The new input, with its files in the same node and frame.
         if let Some(p) = prompt {
             self.write_prompt_input(t, session, p, moved.as_ref())?;
+            crate::rpc::ordered::applied();
         } else if let Some(text) = &input {
             let files = self.accept_files(t, attachments);
             let first_file = files.first().map(|a| a.name.clone());
@@ -1668,6 +1669,8 @@ impl TurnRunner {
             if written.is_none() {
                 t.tc.store.append(&[node.record()?])?;
             }
+            // Stored: the next request on its client's lane may run (theseus-klo2).
+            crate::rpc::ordered::applied();
             t.tc.node_written(&node);
             self.inbound_point(t, &node, &author);
         }

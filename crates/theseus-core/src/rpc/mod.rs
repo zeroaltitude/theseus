@@ -31,6 +31,7 @@ mod memory;
 mod methods;
 pub(crate) use methods::ledger_tags;
 mod ontology;
+pub(crate) mod ordered;
 mod packs;
 mod packs_ahead;
 mod pages;
@@ -56,6 +57,8 @@ mod tests_ledger;
 mod tests_lists;
 #[cfg(test)]
 mod tests_node_names;
+#[cfg(test)]
+mod tests_ordered;
 #[cfg(test)]
 mod tests_session_states;
 mod trust;
