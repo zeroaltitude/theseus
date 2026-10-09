@@ -32,6 +32,8 @@ libc = "0.2"
 
 [dev-dependencies]
 tempfile = "3"
+# The paused clock: `--watch` prints on events and never on a timer (theseus-lweh).
+tokio = { workspace = true, features = ["test-util"] }
 
 [lints]
 workspace = true

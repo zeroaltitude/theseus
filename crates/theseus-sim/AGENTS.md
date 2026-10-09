@@ -68,6 +68,11 @@ Key modules: `lifecycle.rs`, `kernel_sim.rs`, `fake_discord.rs`, `discord_proof.
     read beside the daemon's (the `theseus-index` child), and `--active N` then opens N sessions and runs a turn in each
     and reads both again: with `--sessions 10000 --active 50`, design M6 §2.10's row (§9: under 1 GB together).
   - `bench size`: the shipped binaries' sizes against §9's 60 MB. Meaningful on a release or install build.
+  - `bench status` (`src/perf/status.rs`, theseus-lweh): what a prompt's `theseus status --short` costs, the CLI's whole run
+    (spawn to exit) against a scratch daemon on a synthetic store (`--sessions 1000`), p50 and p90 over `--runs` (300).
+    `--check` holds p90 to 5 ms: meant for a release-thin build on the owner's machine (a debug build on a 4-core VM
+    reads p90 about 6 ms at 1,000 sessions, 4.9 at 10, where the process's own start is about 3.7). Outside lifecycle's
+    gated phases; `--record` writes the `status_short` column.
   - `bench history` (`src/history.rs`): each phase's recent runs and headroom, from the CSV every gate appends. The
     other benches' columns (`history::OTHER`) are in the same file, each with its unit.
   - `synth-store` (`src/synth.rs`): a store of parked sessions, for `bench lifecycle --sessions N`.

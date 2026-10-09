@@ -28,6 +28,7 @@ mod packs;
 mod policy_explain;
 mod print;
 mod prompt;
+mod status;
 
 use std::path::PathBuf;
 
@@ -59,6 +60,8 @@ Quick start:
   theseus cancel <id>                       stop a task and its jobs, or cancel a wake (its last six characters are enough)
   theseus stop <session>                     halt a session's running turn and jobs, as /stop does; the conversation goes on
   theseus wait <session> --until blocked      return once a session needs you (or settled, or terminal for a task)
+  theseus wait --any --until blocked         return once any session needs you
+  theseus status [--short] [--watch]         what needs you, what works, what failed: a screen, a prompt segment, a status bar
   theseus executions explain <id>            one execution in full: what it waits on, its questions, budget, last rows
   theseus tools                              the toollets, their policy, and calls so far
   theseus policy tighten proc.run            should have asked: proc.run asks first from now on (untighten: undo)
@@ -292,16 +295,26 @@ enum Cmd {
         #[arg(value_name = "ID")]
         name: String,
     },
+    /// What needs you, what works, and what failed, in one screen: a header of counts and a row
+    /// for each task (what it asks, and the command that answers). `--short` is a line for a
+    /// prompt or a status bar, `--watch` keeps it current from the push (`--tab`: the terminal
+    /// tab's progress as well). One read, within 100 ms of connecting.
+    Status(status::StatusArgs),
     /// Wait until a session needs you, settles, or ends, then print its state and its questions
     /// (session.wait). The daemon owns the wait, so nothing polls, and a wait already satisfied
     /// answers at once. SESSION is its id, or at least its last four characters. Exit codes: 0
     /// reached, 4 timed out, and 1, 2, and 3 as for every command.
     Wait {
-        #[arg(value_name = "SESSION")]
-        session: String,
+        #[arg(value_name = "SESSION", required_unless_present = "any")]
+        session: Option<String>,
+        /// Any session, not one: return once anything needs you (`--until blocked`, which this
+        /// implies), over executions.watch. `until theseus wait --any; do :; done`.
+        #[arg(long, conflicts_with_all = ["session", "after"])]
+        any: bool,
         /// blocked (it needs you), settled (nothing runs or is queued for it: it needs you, is
         /// ready, or ended; a job or a child task still runs), or terminal (a task ended).
-        #[arg(long, default_value = "settled", value_parser = ["blocked", "settled", "terminal"])]
+        #[arg(long, default_value = "settled", default_value_if("any", "true", "blocked"),
+              value_parser = ["blocked", "settled", "terminal"])]
         until: String,
         /// Only a change after this WAL position counts (one `theseus watch --all` printed, or
         /// a previous wait's).
@@ -809,6 +822,10 @@ async fn run(cli: Cli) -> Result<()> {
     if let Cmd::Tui { args } = &cli.cmd {
         return cmd::tui(&cli.socket, cli.spawn.is_some(), args);
     }
+    // `theseus status` connects within 100 ms, and `--short` stays silent when it cannot.
+    if let Cmd::Status(a) = &cli.cmd {
+        return status::run(&cli.socket, cli.spawn.as_deref(), cli.json, a).await;
+    }
     let mut conn = match &cli.spawn {
         Some(bin) => Conn::spawn(bin)?,
         None => Conn::socket(&cli.socket).await?,
@@ -859,11 +876,17 @@ async fn run(cli: Cli) -> Result<()> {
         Cmd::Cancel { name } => cmd::cancel(c, json, name).await,
         Cmd::Stop { session } => cmd::stop(c, json, session).await,
         Cmd::Wait {
-            session,
+            session: Some(session),
             until,
             after,
             timeout,
+            ..
         } => cmd::wait(c, json, session, until, after, timeout).await,
+        Cmd::Wait { until, timeout, .. } => {
+            let ms = timeout.as_deref().map(cmd::parse_duration_ms).transpose()?;
+            status::wait_any(c, json, &until, ms).await
+        }
+        Cmd::Status(_) => unreachable!("`theseus status` connects for itself"),
         Cmd::Profile { cmd } => cmd::profile(c, json, cmd.unwrap_or(ProfileCmd::List)).await,
         Cmd::Ledger { n, kind, session } => cmd::ledger(c, json, n, kind, session).await,
         Cmd::Herdr { cmd } => {

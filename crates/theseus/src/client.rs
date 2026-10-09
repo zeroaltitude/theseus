@@ -56,15 +56,28 @@ pub struct Conn {
 impl Conn {
     /// Connect to a daemon's socket; a leading `~` is the home directory.
     pub async fn socket(path: &str) -> Result<Self> {
+        Self::socket_within(path, None).await
+    }
+
+    /// `socket`, giving up after `within`: what a prompt's segment or a
+    /// status line can afford (`theseus status`, theseus-lweh). The error
+    /// reads as any failed connect does, so it exits 3.
+    pub async fn socket_within(path: &str, within: Option<std::time::Duration>) -> Result<Self> {
         let path = PathBuf::from(tilde(path, std::env::var("HOME").ok()));
-        let stream = tokio::net::UnixStream::connect(&path)
-            .await
-            .with_context(|| {
-                format!(
-                    "connecting to theseusd at {} (is it running? try --spawn)",
-                    path.display()
-                )
-            })?;
+        let connect = tokio::net::UnixStream::connect(&path);
+        let stream = match within {
+            Some(d) => tokio::time::timeout(d, connect)
+                .await
+                .map_err(|_| std::io::Error::new(std::io::ErrorKind::TimedOut, "timed out"))
+                .and_then(|r| r),
+            None => connect.await,
+        }
+        .with_context(|| {
+            format!(
+                "connecting to theseusd at {} (is it running? try --spawn)",
+                path.display()
+            )
+        })?;
         let (r, w) = stream.into_split();
         Ok(Self::over(r, w))
     }
