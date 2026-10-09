@@ -75,7 +75,9 @@ pub async fn ask(
         // Inside a job, its session (theseus-b5cl).
         opened_from: theseus_client::client::job_session(),
     })?;
-    stream_turn(conn, json, no_stream, params, a.thinking, a.trace, spawned).await
+    let follow_for = spawned.then_some(a.follow_for);
+    let shown = (a.thinking, a.trace);
+    stream_turn(conn, json, no_stream, params, shown, spawned, follow_for).await
 }
 
 /// One `turn.submit`, streamed as `ask` prints it: the reply as it comes (or
@@ -86,9 +88,9 @@ pub(crate) async fn stream_turn(
     json: bool,
     no_stream: bool,
     params: Value,
-    thinking: bool,
-    trace: bool,
+    (thinking, trace): (bool, bool),
     spawned: bool,
+    follow_for: Option<std::time::Duration>,
 ) -> Result<()> {
     let stream = !no_stream && !json;
     let mode = match (json, stream) {
@@ -97,11 +99,16 @@ pub(crate) async fn stream_turn(
         (false, false) => Mode::Quiet,
     };
     let mut printer = Printer::new(mode, thinking);
-    let call = if spawned {
-        submit_stoppable(conn, params, &mut printer).await
-    } else {
-        conn.call(method::TURN_SUBMIT, params, |m, p| printer.on(m, p))
-            .await
+    let mut signalled = false;
+    // Under --spawn, one listener for the turn and its follow, so no signal
+    // falls between them.
+    let mut signals = spawned.then(crate::follow::Signals::new).transpose()?;
+    let call = match signals.as_mut() {
+        Some(sig) => submit_stoppable(conn, params, &mut printer, sig, &mut signalled).await,
+        None => {
+            conn.call(method::TURN_SUBMIT, params, |m, p| printer.on(m, p))
+                .await
+        }
     };
     printer.settle();
     let result = match call {
@@ -114,6 +121,18 @@ pub(crate) async fn stream_turn(
         }
     };
     let r: TurnSubmitResult = serde_json::from_value(result.clone())?;
+    // What the turn left for later, under `--spawn` (theseus-mqxk).
+    let modes = (json, stream);
+    let first = (result, r);
+    let (result, r, error) = crate::follow::after(
+        conn,
+        &mut printer,
+        follow_for,
+        first,
+        modes,
+        (signals.as_mut(), signalled),
+    )
+    .await?;
     if json {
         println!("{}", serde_json::to_string(&result)?);
     } else {
@@ -140,6 +159,9 @@ pub(crate) async fn stream_turn(
             )?;
         }
     }
+    if let Some(e) = error {
+        return Err(e);
+    }
     match outcome::TurnEnd::of(&r) {
         outcome::TurnEnd::Done => Ok(()),
         end => Err(outcome::Ended {
@@ -156,10 +178,14 @@ pub(crate) async fn stream_turn(
 /// turn then ends `stopped`, with what it spent, and nothing is left for the
 /// store's next open to resume. A second signal ends the run at once
 /// (`outcome::Signalled`); the daemon still gets its clean stop after.
-async fn submit_stoppable(conn: &mut Conn, params: Value, printer: &mut Printer) -> Result<Value> {
-    use tokio::signal::unix::{signal, SignalKind};
-    let mut sigint = signal(SignalKind::interrupt())?;
-    let mut sigterm = signal(SignalKind::terminate())?;
+/// `signalled` says a first signal came, which the follow reads.
+async fn submit_stoppable(
+    conn: &mut Conn,
+    params: Value,
+    printer: &mut Printer,
+    signals: &mut crate::follow::Signals,
+    signalled: &mut bool,
+) -> Result<Value> {
     let id = conn.send(method::TURN_SUBMIT, params).await?;
     let mut execution: Option<String> = None;
     // The signal that asked for the stop, and whether it was sent.
@@ -182,8 +208,7 @@ async fn submit_stoppable(conn: &mut Conn, params: Value, printer: &mut Printer)
                 }
                 None
             }
-            _ = sigint.recv() => Some(libc::SIGINT),
-            _ = sigterm.recv() => Some(libc::SIGTERM),
+            s = signals.recv() => Some(s),
         };
         if let Some(s) = signal {
             if stop.is_some() {
@@ -194,6 +219,7 @@ async fn submit_stoppable(conn: &mut Conn, params: Value, printer: &mut Printer)
                 outcome::signal_name(s)
             );
             stop = Some((s, false));
+            *signalled = true;
         }
         if let (Some((s, false)), Some(exec)) = (stop, &execution) {
             let author = format!("cli:{}", outcome::signal_name(s));

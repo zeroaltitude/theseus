@@ -33,6 +33,16 @@ Key modules: `main.rs`, `cmd.rs`, `render.rs`, `client.rs`. Read by: (a binary).
   at the position `session.wait` gives (one answered at once per session, 450 bytes; a snapshot is 70 KB and misses a session past its 200), never failing the command (one line on stderr). `history` (to the end of
   the session), `watch` (on Ctrl-C), and `confirm` call it; a watch the daemon closes records nothing, and a command inside a job (`THESEUS_SESSION`) records nothing: the agent's reading is not the operator's. Writes read the
   file again, merge by the greatest position under a lock file, and replace it atomically.
+- `src/follow.rs`: `ask` under `--spawn` follows what its turn left for later (theseus-mqxk): main.rs spawns
+  `theseusd --stdio --one-shot SECS` for an `ask`, each turn's result names its `later` (jobs running, a result
+  queued, wakes), and while a turn can still come within `--follow-for` (`FOLLOW_FOR`, 30 minutes, the owner's call)
+  the ask prints each one and stops when none is left, or says what still runs at the bound. `--json` stays one
+  object (`combined`: the last turn's result, its spend summed, `asked` and `continuations`), and the exit code is
+  the last turn's; a first signal stops the session's work (exit 9 when no turn ran), a second ends the run. A
+  first signal during the ask's own turn means nothing is followed: a turn that ended done as its stop went out
+  has what it left stopped, and exits 9 (`after`'s `signalled`). The turn and its follow share one signal
+  listener (`follow::Signals`, made under `--spawn` only): one each lost a signal that came between them.
+  `render/later.rs` is the status line's words for what a run left behind.
 - `src/print.rs`: the `Printer`, which writes the library's lines in one of four modes: `Text` (`ask`), `Quiet`
   (`ask --no-stream`), `Watch` (`watch`), and `Json`.
 - `src/render/history.rs`: `theseus history`'s own lines: each node with its short id, which `theseus reach` takes
@@ -58,6 +68,8 @@ Key modules: `main.rs`, `cmd.rs`, `render.rs`, `client.rs`. Read by: (a binary).
 - `tests/golden.rs` compares each scenario's output with its golden in `tests/golden/`.
   `THESEUS_GOLDEN=write cargo nextest run --workspace -E 'package(theseus)'` rewrites them: only for an output change
   you mean, with the diff read.
+- The follow's tests run the real binaries: theseusd's `tests/spawn_follow.rs`. A theseusd test runs the
+  `theseus` beside its binary, which `cargo nextest run -p theseusd` does not rebuild: build `-p theseus` first.
 - `tests/connect.rs` covers how the CLI reaches a daemon (`--spawn`, and exit 3). `main` reads exit 3 from the
   error's text, which the library writes, so these tests hold the two together.
 - `tests/refusal.rs` covers a refused answer: `theseus confirm` prints the daemon's reason and exits 1.

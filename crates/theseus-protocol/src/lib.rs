@@ -30,6 +30,7 @@ pub mod import;
 pub mod index;
 pub mod judge;
 pub mod judge_runs;
+pub mod later;
 pub mod learning;
 mod ledger;
 pub mod lsp;
@@ -2171,6 +2172,10 @@ pub struct TurnSubmitResult {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub fallback: Option<route::TurnFallback>,
+    /// What the turn left for later, on a daemon spawned for one run (theseus-mqxk); never a socket daemon's.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub later: Option<later::Later>,
 }
 
 fn is_zero_u32(n: &u32) -> bool {

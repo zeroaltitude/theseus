@@ -201,6 +201,8 @@ pub struct Outbox {
     changed: tokio::sync::watch::Sender<u64>,
     /// The posts in flight, and whether the daemon is stopping (theseus-pfv).
     flight: Arc<tokio::sync::watch::Sender<Flight>>,
+    /// Whether this daemon serves one run, and its bound (theseus-mqxk).
+    pub one_shot: crate::one_shot::OneShot,
 }
 
 /// The posts this process has sent and not yet settled, and when its stop
@@ -240,6 +242,7 @@ impl Outbox {
             index: Mutex::new(None),
             changed: tokio::sync::watch::Sender::new(0),
             flight: Arc::new(tokio::sync::watch::Sender::new(Flight::default())),
+            one_shot: crate::one_shot::OneShot::default(),
         }
     }
 

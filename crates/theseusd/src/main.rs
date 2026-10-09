@@ -87,6 +87,12 @@ struct Cli {
     #[arg(long)]
     stdio: bool,
 
+    /// With --stdio: serve one run (`theseus --spawn ask`), whose client follows its later turns
+    /// for at most SECS after its turn. Each result names what its turn left for later, and a wake
+    /// due past that is said not to fire here.
+    #[arg(long, value_name = "SECS", requires = "stdio")]
+    one_shot: Option<u64>,
+
     /// Unix socket path; overrides [server].socket in config.
     #[arg(long, env = "THESEUS_SOCKET")]
     socket: Option<PathBuf>,
@@ -560,6 +566,10 @@ async fn daemon(cli: Cli, lookup: Lookup, origin: Instant) -> Result<Exit> {
         // Its one client has a failed turn, and retries it if it wants: the
         // driver retries none (theseus-zqxv). Said before anything is served.
         core.runner.failed_turns.leave_to_the_client();
+        // One run's daemon, when its client said so (theseus-mqxk).
+        if let Some(secs) = cli.one_shot {
+            core.outbox.one_shot.set(secs.saturating_mul(1000));
+        }
         // SIGINT and SIGTERM stop a `--stdio` daemon as they do the socket
         // one (theseus-p7q): a supervisor's stop, or an MCP client's kill,
         // used to end it outright, with no stopping row and no checkpoint,

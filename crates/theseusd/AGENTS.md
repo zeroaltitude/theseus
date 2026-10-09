@@ -37,6 +37,9 @@ Key modules: `main.rs`, `web.rs`, `install/`. Read by: (a binary).
 - `job-wrapper` catches SIGTERM from its first moments (M4 18a): a cancel asks it alone, and it stops its job's
   whole tree (`theseus_kernel::tree`), an L1 job through its init, then answers in the spool.
   `tests/job_wrapper.rs` stops real trees, a `setsid` sleeper included; `tests/sandbox.rs` an L1 job's.
+- `--one-shot SECS` (with `--stdio`, theseus-mqxk): `theseus --spawn ask` says the daemon serves one run, which
+  it follows for at most SECS after its turn; set on the core before serving (`one_shot.rs`). `tests/spawn_follow.rs`
+  runs the follow through the real CLI; `tests/continuations.rs` holds the socket daemon unchanged.
 - `src/web.rs`: the web server for the cockpit, at `/`. It embeds `cockpit/dist` (with `allow_missing`), redirects
   the cockpit's old `/cockpit/…` to the same route at `/…`, and refuses a wrong `Host` or `Origin` and any uid but
   the daemon's own.

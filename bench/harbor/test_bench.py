@@ -593,6 +593,21 @@ class Trajectories(unittest.TestCase):
                                                   "cache_creation_input_tokens": 500})
         self.assertEqual(len(self.trajectory(turn=whole)["steps"]), 3)
 
+    def test_a_followed_runs_turns_are_all_answered(self):
+        """A followed run's result (theseus-mqxk) sums its turns: the ask's
+        answers are no unanswered spend of the last turn's."""
+        h = json.loads(json.dumps(HISTORY))
+        for n in h["nodes"]:
+            n["turn_id"] = "turn_1"
+        h["nodes"][-1]["turn_id"] = "turn_2"
+        turn = {"turn_id": "turn_2", "stop_reason": "no_tool_calls", "cost_usd": 0.03,
+                "usage": {"input_tokens": 150, "output_tokens": 60,
+                          "cache_read_input_tokens": 2500, "cache_creation_input_tokens": 500},
+                "asked": {"turn_id": "turn_1"}, "continuations": [{"turn_id": "turn_2"}]}
+        t = atif.trajectory(h, version="0.0.1", turn=turn)
+        self.assertEqual(len(t["steps"]), 3)
+        self.assertEqual(t["final_metrics"]["total_cost_usd"], 0.03)
+
     def test_a_result_with_no_call_in_the_history_is_a_system_step(self):
         h = {"session": {}, "nodes": [HISTORY["nodes"][3]]}
         t = atif.trajectory(h, version="0.0.1")

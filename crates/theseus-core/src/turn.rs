@@ -65,6 +65,7 @@ mod compile_step;
 mod end_step;
 mod fallback_step;
 mod inbound_step;
+mod later_step;
 mod prompt_input;
 mod recall_step;
 mod rerank_step;
@@ -3088,6 +3089,7 @@ impl TurnRunner {
         session: &mut SessionRecord,
         unused_recompile: Option<Recompile>,
     ) -> Result<(TurnSubmitResult, TurnEnd, bool, Option<SessionHold>)> {
+        let jobs = self.jobs_before(&t);
         let late = match self.take_late(&mut t) {
             Ok(late) => late,
             Err(e) => return Err(Self::fault(t, session, e)),
@@ -3155,6 +3157,7 @@ impl TurnRunner {
             recalled: t.recall.count,
             route: t.route.result.take(),
             fallback: t.fallback.as_ref().map(|f| f.fallback.clone()),
+            later: self.later_of(&t, jobs, late > 0 && t.stop_reason != "stopped"),
         };
         t.record(&fact::turn::TurnBooked {
             result: &result,
@@ -3243,6 +3246,7 @@ impl TurnRunner {
         let footer = TurnSubmitResult {
             output: String::new(),
             trace: None,
+            later: None,
             ..result.clone()
         };
         let mut body = json!({

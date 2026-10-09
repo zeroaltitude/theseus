@@ -881,6 +881,12 @@ impl Core {
         };
         // The owner's words, read as a correction for the turn (theseus-q31l).
         self.expect_correction(&p, conn, &session.session_id);
+        // A one-run daemon's client follows the session's later turns, so
+        // its connection hears them from the start (theseus-mqxk).
+        if self.outbox.one_shot.follow_ms().is_some() {
+            self.bus
+                .watch(&session.session_id, conn.client, conn.tx.clone());
+        }
         // A place's profile, unless the turn names one (step 38a).
         let live = self.place_profile(&session.session_id, self.live_profile().0);
         // The pane carries the profile the last turn ran on: when that is
