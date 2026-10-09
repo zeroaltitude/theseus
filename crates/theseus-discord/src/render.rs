@@ -23,6 +23,7 @@ use theseus_core::outbox::Closed;
 use theseus_protocol::{ConfirmRequest, Event, TurnSubmitResult};
 mod board;
 mod held;
+pub(crate) mod thinking;
 pub use board::{board, tasks_here, BOARD_HEAD, BOARD_KEY};
 
 /// Discord's limit is 2000 characters; parts stay under it with room for a fence repair.

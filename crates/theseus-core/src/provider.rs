@@ -1317,6 +1317,15 @@ impl Provider for FakeProvider {
                         let name = b.get("name").and_then(Value::as_str).unwrap_or_default();
                         on_delta(Delta::ToolUseStart { id, name });
                     }
+                    // A thinking block streams whole, as its summary.
+                    Some("thinking") => {
+                        let t = b
+                            .get("thinking")
+                            .and_then(Value::as_str)
+                            .unwrap_or_default();
+                        on_delta(Delta::Thinking(t));
+                        tokio::task::yield_now().await;
+                    }
                     _ => {}
                 }
             }

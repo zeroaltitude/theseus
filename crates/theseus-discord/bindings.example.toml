@@ -33,6 +33,9 @@ mention_only = true                # answer only when @mentioned or replied to; 
 voice = false                      # true for a voice channel: /join from a private place brings Theseus
                                    # into it ([voice] in the config); only its users are heard, and its
                                    # text chat is this place's text
+# show_tools = true                # false: no tool lines or notice embeds here (the calls still run, and
+                                   # their cards still post)
+# show_thinking = true             # false: no thinking messages here; the turn still thinks
 # [channel.ceiling]                # what this place gets beneath the place rule: it narrows, never widens
 # posture_floor = "approve"        # no call here runs looser than this (open, notify, approve)
 # tools = ["fs", "git", "web"]     # the tool families offered here, and MCP servers as "mcp:<server>"
@@ -42,4 +45,6 @@ voice = false                      # true for a voice channel: /join from a priv
 [[dm]]
 user = "000000000000000000"        # who may talk to Theseus in direct messages
 name = "zeroaltitude"
+# show_tools = true                # as a channel's
+# show_thinking = true             # as a channel's
 # [dm.ceiling]                     # a DM's ceiling, as a channel's

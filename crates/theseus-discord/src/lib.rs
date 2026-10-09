@@ -36,6 +36,8 @@ mod tests_live;
 #[cfg(test)]
 mod tests_outbox;
 #[cfg(test)]
+mod tests_show;
+#[cfg(test)]
 mod tests_silent;
 pub mod viewers;
 

@@ -76,6 +76,11 @@ pub struct ChannelBinding {
     pub voice: bool,
     /// What the place gets beneath the place rule (step 38a).
     pub ceiling: Option<PlaceCeiling>,
+    /// It shows each loop's tool line, and a notified call's embed
+    /// (theseus-l1y1). On by default.
+    pub show_tools: bool,
+    /// It shows each loop's thinking (theseus-l1y1). On by default.
+    pub show_thinking: bool,
 }
 
 /// A `[[channel]]` as the file writes it, with where its keys are.
@@ -96,6 +101,10 @@ struct RawChannel {
     voice: bool,
     #[serde(default)]
     ceiling: Option<Ceiling>,
+    #[serde(default = "yes")]
+    show_tools: bool,
+    #[serde(default = "yes")]
+    show_thinking: bool,
 }
 
 /// The file as written, with where its format's keys are.
@@ -171,6 +180,10 @@ struct RawDm {
     name: Option<String>,
     #[serde(default)]
     ceiling: Option<Ceiling>,
+    #[serde(default = "yes")]
+    show_tools: bool,
+    #[serde(default = "yes")]
+    show_thinking: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -179,6 +192,9 @@ pub struct DmBinding {
     pub name: Option<String>,
     /// What the place gets beneath the place rule (step 38a).
     pub ceiling: Option<PlaceCeiling>,
+    /// As a channel's (theseus-l1y1).
+    pub show_tools: bool,
+    pub show_thinking: bool,
 }
 
 impl ChannelBinding {
@@ -274,6 +290,8 @@ impl Bindings {
                 user: d.user,
                 name: d.name,
                 ceiling,
+                show_tools: d.show_tools,
+                show_thinking: d.show_thinking,
             });
         }
         let digest = Sha256::digest(text.as_bytes());
@@ -377,6 +395,8 @@ impl Bindings {
             private: c.private,
             voice: c.voice,
             ceiling,
+            show_tools: c.show_tools,
+            show_thinking: c.show_thinking,
         })
     }
 }
@@ -419,6 +439,26 @@ mod tests {
         assert_eq!(c.tools.unwrap(), ["fs", "git", "web"]);
         assert_eq!(c.spend_limit_usd, Some(5.0));
         assert_eq!(c.profile.as_deref(), Some("default"));
+    }
+
+    /// A place shows its tool lines and its thinking unless it says not to
+    /// (theseus-l1y1): both on by default, each its own word, a channel's
+    /// and a DM's; the example's lines, uncommented, are real.
+    #[test]
+    fn a_place_shows_tools_and_thinking_unless_it_says_not_to() {
+        let b = Bindings::parse(EXAMPLE_BINDINGS).unwrap();
+        let (c, d) = (&b.channel[0], &b.dm[0]);
+        assert!(c.show_tools && c.show_thinking && d.show_tools && d.show_thinking);
+        let example = EXAMPLE_BINDINGS
+            .replacen("# show_tools = true ", "show_tools = false ", 1)
+            .replacen("# show_thinking = true ", "show_thinking = true ", 2)
+            .replacen("# show_tools = true ", "show_tools = true ", 1);
+        let b = Bindings::parse(&example).unwrap();
+        assert!(!b.channel[0].show_tools && b.channel[0].show_thinking);
+        assert!(b.dm[0].show_tools && b.dm[0].show_thinking);
+        let b = Bindings::parse("[[dm]]\nuser = \"323456789012345678\"\nshow_thinking = false\n")
+            .unwrap();
+        assert!(b.dm[0].show_tools && !b.dm[0].show_thinking);
     }
 
     /// A voice channel is a `[[channel]]` bound `voice = true` (rows 77 and

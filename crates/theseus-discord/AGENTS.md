@@ -95,7 +95,8 @@ Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
   named most recently (`Lane::touch`; a late live state names its key too). The place's actor sends the held turns
   (`LaneMsg::Held`, `courier/held.rs`) at each turn's start and at `/new`'s rebind; a turn that leaves the list is
   forgotten. So a lane holds at most 8 x (`max_loops`, 40 by default, x (a loop's text parts + its tool line + its
-  notice cards) + a footer) + 256 + 1 keys: 905 when each loop's text is one part and no card posts. The renderer's
+  thinking + its notice cards) + a footer) + 256 + 1 keys: 1,225 when each loop's text is one part, each loop
+  thinks, and no card posts. The renderer's
   `emitted` and `menus` hold only its held turns' keys, and `notices` only their calls' (`render/held.rs`). Every
   insert goes through `touch` (or `seal`), or the bound leaks.
 - **Every write notifies unless the config says it is silent** (theseus-l1y1, `policy.rs`; the owner: a lively
@@ -104,10 +105,16 @@ Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
   before. `[discord] silent` (daemon-wide; `theseus_core::config::discord::Category`) names the kinds that post
   silent: `answer` (the first text part of the reply to an owner's own message: `Lane::owed`, set with the anchor
   when the author is an owner, taken by that part's create, live or the post's), `replies`, `woken`, `tools` (the
-  tool line and a notice embed), `thinking` (no write yet), `cards`, `failures`, `tasks`, `notes`, `disk`. An edit never notifies.
+  tool line and a notice embed), `thinking`, `cards`, `failures`, `tasks`, `notes`, `disk`. An edit never notifies.
   The `discord.message.out` row says `ping`. A card whose question had closed before it was written is written
   once, settled, without buttons or mention (`detail.settled`), and its settle edits nothing. The table is to be
   replaced by `theseus_protocol::notices` once both have joined.
+- **A place shows its tool lines and its thinking unless its binding says not to** (theseus-l1y1,
+  `runtime/show.rs`): `show_tools` and `show_thinking` on a `[[channel]]` or a `[[dm]]`, both on by default, read
+  live with the rest of the file. Off filters those live ops out before the lane (`Place::apply`), in that place
+  alone; the turn, its cards and its reply are unchanged. A loop's thinking (`model.thinking`) is a message of its
+  own, `<turn>:L<n>:think`, before the loop's text (`render/thinking.rs`: the start of it, up to 1,800 characters,
+  saying what it left out), held for the renderer's turns; the binding showed no thinking before theseus-l1y1.
 - **A place answers only where its bindings file binds it.** An interaction in an unbound place gets no answer, so
   daemons on one bot token with disjoint bindings each answer their own places (Item 11). A card in a guild channel
   mentions exactly its answerers, and nothing else mentions anyone (Item 15).
@@ -121,6 +128,8 @@ Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
 - `src/tests_silent.rs` (theseus-l1y1): which creates ping, through the stand-in's gateway (the fake keeps each
   create's `flags`; `Msg::silent`), with no config and with each `[discord] silent` category; a create's row is
   written soon after it, off the lane's path, so a test waits for the rows it reads as well as the messages.
+- `src/tests_show.rs` (theseus-l1y1): a place bound `show_tools = false` and `show_thinking = false` beside one
+  that says nothing, through the gateway. The fake provider streams a `thinking` block as `Delta::Thinking`.
 - `src/tests_gateway.rs` drives it through the stand-in's gateway too (theseus-6g62): `FakeDiscord::say` types a
   message as a user, and `press` presses a button the binding posted, each sent as Discord sends it; `replies()`
   is what the binding answered each press, and each message keeps every version (theseus-qifw). A guild set on
