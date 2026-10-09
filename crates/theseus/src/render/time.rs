@@ -4,6 +4,7 @@
 //! The zone is read once, when the first time is printed, never at a start;
 //! jiff reads `TZ` (an IANA name or a POSIX string), then `/etc/localtime`.
 
+use std::path::Path;
 use std::sync::OnceLock;
 
 use jiff::tz::{Offset, TimeZone};
@@ -19,9 +20,45 @@ fn zone() -> &'static TimeZone {
         if cfg!(test) {
             fixed_for_tests()
         } else {
-            TimeZone::system()
+            machine_zone()
         }
     })
+}
+
+/// This machine's zone, as `TZ` names it (an IANA name, a POSIX string, or a
+/// file), else `/etc/localtime`, each read alone: jiff's own `system()` lists
+/// the whole tz database to name `/etc/localtime`, a sixth of a millisecond
+/// and more on every command that prints a time.
+fn machine_zone() -> TimeZone {
+    const ZONEINFO: &str = "/usr/share/zoneinfo";
+    let tzif = |name: &str, path: &Path| {
+        std::fs::read(path)
+            .ok()
+            .and_then(|bytes| TimeZone::tzif(name, &bytes).ok())
+    };
+    let found = match std::env::var("TZ") {
+        Ok(tz) if !tz.is_empty() => {
+            let name = tz.strip_prefix(':').unwrap_or(&tz);
+            if name.starts_with('/') {
+                tzif(name, Path::new(name))
+            } else if name.split('/').any(|part| part == "..") {
+                None
+            } else {
+                tzif(name, &Path::new(ZONEINFO).join(name)).or_else(|| TimeZone::posix(name).ok())
+            }
+        }
+        _ => {
+            let local = Path::new("/etc/localtime");
+            let target = std::fs::read_link(local).ok();
+            let name = target
+                .as_deref()
+                .and_then(|t| t.to_str())
+                .and_then(|t| t.split_once("zoneinfo/").map(|(_, n)| n.to_string()))
+                .unwrap_or_else(|| "Local".to_string());
+            tzif(&name, local)
+        }
+    };
+    found.unwrap_or_else(TimeZone::system)
 }
 
 /// The zone the tests write times in: UTC−7, all year.
