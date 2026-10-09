@@ -834,14 +834,17 @@ impl Lane {
         let streamed = self.msgs.keys().any(|k| k.starts_with(&prefix));
         let to: Option<u64> = body["reply_to"].as_str().and_then(|s| s.parse().ok());
         let mut anchor = (!streamed).then_some(to).flatten();
-        // Its first part pings when it answers the owner's own message and
-        // the stream did not write it already (theseus-l1y1).
+        // Its first part is the answer when it answers the owner's own
+        // message and the stream did not write that part already: a live
+        // create of it takes `owed`, so `owed` says so alone. The stream may
+        // have written another key of the turn, a loop's thinking or tool
+        // line, before the post came (theseus-l1y1).
         let owed = to.is_some() && self.owed == to;
         if owed {
             self.owed = None;
         }
         let event = policy::of_reply(body);
-        let mut answers = event == Event::Answer && owed && !streamed;
+        let mut answers = event == Event::Answer && owed;
         let writes = parts
             .into_iter()
             .map(|(key, content)| {

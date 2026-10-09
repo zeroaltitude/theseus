@@ -291,3 +291,56 @@ async fn a_place_that_silences_tool_lines_silences_its_process_messages_alone() 
     let dm = exchange(&r, None, "dm", 2, 3).await;
     assert_eq!((dm.len(), pings(&dm)), (4, 3), "{dm:#?}");
 }
+
+/// A thinking answer whose text the stream had not written when the reply's
+/// post came (its process message's create answered late) is still the
+/// answer: the post's first part takes the answer's category, not a later
+/// part's, though the stream wrote a key of the turn (its thinking). With
+/// `silent = ["later_parts"]` it pings.
+#[tokio::test]
+async fn an_answer_the_post_writes_after_the_thinking_is_still_the_answer() {
+    let r = Rig::start_on(
+        |_, _| {
+            Arc::new(FakeProvider::scripted(vec![Scripted::Blocks {
+                blocks: vec![
+                    thought("The chart says 06:12."),
+                    serde_json::json!({"type": "text", "text": "Low tide by the held chart is at 06:12."}),
+                ],
+                stop_reason: "end_turn".into(),
+            }]))
+        },
+        Guild::new(DEFAULT_GUILD, (ANA, "ana")).private_channel(LAB, "lab", &[ANA]),
+        &bindings("silent = [\"later_parts\"]\n"),
+        &[],
+    )
+    .await;
+    // The lane waits on the thinking's create while the turn ends.
+    r.fake.hold_writes_containing(Some("💭 thinking"));
+    r.say(
+        (ANA, "ana"),
+        Some(LAB),
+        "When is low tide by the held chart?",
+    );
+    r.until("the thinking's create, held, and the reply's post", || {
+        r.posted(LAB).iter().any(|m| m.content.starts_with("-# 💭"))
+            && r.core.outbox.status("discord").pending > 0
+    })
+    .await;
+    r.fake.hold_writes_containing(None);
+    r.until("the answer and the fold", || {
+        let got = r.posted(LAB);
+        got.iter()
+            .any(|m| m.content.contains("held chart is at 06:12."))
+            && got
+                .iter()
+                .any(|m| m.content.starts_with("-# 💭 thought for"))
+            && r.core.outbox.status("discord").pending == 0
+    })
+    .await;
+    let got = r.posted(LAB);
+    let answer = got
+        .iter()
+        .find(|m| m.content.contains("held chart"))
+        .unwrap();
+    assert!(!answer.silent(), "the answer pings: {got:#?}");
+}
