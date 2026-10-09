@@ -1268,9 +1268,8 @@ fn footer(r: &TurnSubmitResult) -> String {
             if r.tool_calls == 1 { "" } else { "s" }
         ));
     }
-    if let Some(c) = r.cost_usd {
-        bits.push(format!("${c:.4}"));
-    }
+    // The session's total with this reply's cost (theseus-c0bb).
+    bits.extend(r.cost_words());
     bits.push(format!("{:.1} s", r.elapsed_ms as f64 / 1000.0));
     if r.continuation {
         bits.push("continued".into());
@@ -1479,7 +1478,7 @@ mod tests {
         json!({"session_id": "s", "turn_id": turn, "loops": 2, "output": "", "stop_reason": "no_tool_calls",
                "provider_stop_reason": null, "model": "claude-sonnet-5", "provider": "anthropic", "profile": "sonnet",
                "usage": {"input_tokens": 1, "output_tokens": 2, "cache_read_input_tokens": 0, "cache_creation_input_tokens": 0},
-               "elapsed_ms": 4200, "tool_calls": 1, "cost_usd": 0.0123, "awaiting_confirm": awaiting, "continuation": false})
+               "elapsed_ms": 4200, "tool_calls": 1, "cost_usd": 0.0123, "session_cost_usd": 47.52, "awaiting_confirm": awaiting, "continuation": false})
     }
 
     #[test]
@@ -1537,15 +1536,18 @@ mod tests {
         assert_eq!(parts[1].0, "t1:L1:p0");
         assert!(
             parts[1].1.starts_with(
-                "Done.\n-# sonnet · claude-sonnet-5 · 2 loops · 1 tool call · $0.0123 · 4.2 s"
+                "Done.\n-# sonnet · claude-sonnet-5 · 2 loops · 1 tool call · $47.52 total ($0.0123 this reply) · 4.2 s"
             ),
             "{}",
             parts[1].1
         );
-        // With no text, the footer stands alone.
-        let alone = reply_parts("t2", &[], Some(&result_of(ended("t2", None))));
+        // With no text, the footer stands alone; an older daemon's gives no total.
+        let mut old = ended("t2", None);
+        old.as_object_mut().unwrap().remove("session_cost_usd");
+        let alone = reply_parts("t2", &[], Some(&result_of(old)));
         assert_eq!(alone.len(), 1);
         assert_eq!(alone[0].0, "t2:footer");
+        assert!(alone[0].1.ends_with("· $0.0123 · 4.2 s"), "{alone:?}");
         // A reply recall fed says how many notes (M6 30b); shadow says none.
         let mut fed = ended("t3", None);
         fed["recalled"] = json!(2);

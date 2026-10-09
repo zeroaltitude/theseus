@@ -2,6 +2,6 @@ $ theseus --json ask List.
 --- requests
 turn.submit
 --- stdout
-{"awaiting_confirm":null,"continuation":false,"cost_usd":0.0031,"elapsed_ms":3021,"execution_id":"exe_q7f3k2","first_token_ms":640,"loops":2,"model":"glm-x","output":"Two files.","profile":"quick","provider":"zed","provider_stop_reason":"end_turn","request_id":"req_a1","session_id":"ses_q7f3k2","stop_details":null,"stop_reason":"end_turn","tool_calls":3,"trace":null,"turn_id":"turn_m4p8z1","usage":{"cache_creation_input_tokens":0,"cache_read_input_tokens":4096,"input_tokens":5230,"output_tokens":212}}
+{"awaiting_confirm":null,"continuation":false,"cost_usd":0.0031,"elapsed_ms":3021,"execution_id":"exe_q7f3k2","first_token_ms":640,"loops":2,"model":"glm-x","output":"Two files.","profile":"quick","provider":"zed","provider_stop_reason":"end_turn","request_id":"req_a1","session_cost_usd":0.0412,"session_id":"ses_q7f3k2","stop_details":null,"stop_reason":"end_turn","tool_calls":3,"trace":null,"turn_id":"turn_m4p8z1","usage":{"cache_creation_input_tokens":0,"cache_read_input_tokens":4096,"input_tokens":5230,"output_tokens":212}}
 --- stderr
 --- exit 0

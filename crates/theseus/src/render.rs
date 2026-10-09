@@ -486,8 +486,8 @@ pub fn status_line(r: &TurnSubmitResult) -> String {
         r.usage.input_tokens,
         r.usage.output_tokens,
         cache,
-        r.cost_usd
-            .map(|c| format!(" · ${c:.4}"))
+        r.cost_words()
+            .map(|c| format!(" · {c}"))
             .unwrap_or_default(),
         r.elapsed_ms,
         r.first_token_ms

@@ -490,6 +490,53 @@ async fn one_turn_is_one_loop_with_streamed_deltas() {
     assert_eq!(core.health().sessions, 1);
 }
 
+/// A turn's result says what its session has cost in all, this turn included
+/// (theseus-c0bb): the session's books as the turn closed them, read from no
+/// store, and the total `session.list` answers after it, which `theseus
+/// sessions` prints and the reply's footer puts beside the turn's own cost.
+#[tokio::test]
+async fn a_turns_result_says_what_its_session_has_cost_in_all() {
+    let core = test_core("hello there friend");
+    let result = |msgs: Vec<Message>| -> TurnSubmitResult {
+        serde_json::from_value(responses(&msgs)[0].result.clone().unwrap()).unwrap()
+    };
+    let first = result(roundtrip(core.clone(), vec![submit(1, "hi")]).await);
+    let one = first.cost_usd.expect("the catalog prices the turn");
+    assert!(one > 0.0, "{one}");
+    assert_eq!(
+        first.session_cost_usd,
+        Some(one),
+        "a first turn is all its session cost"
+    );
+    let mut again = submit(2, "and again");
+    again.params["session_id"] = json!(first.session_id);
+    let second = result(roundtrip(core.clone(), vec![again]).await);
+    assert_eq!(second.session_id, first.session_id);
+    let total = second.session_cost_usd.unwrap();
+    assert_eq!(
+        total,
+        one + second.cost_usd.unwrap(),
+        "the total includes this turn"
+    );
+    let listed = roundtrip(
+        core,
+        vec![Request::new(Id::Num(3), method::SESSION_LIST, Value::Null)],
+    )
+    .await;
+    let list: SessionListResult =
+        serde_json::from_value(responses(&listed)[0].result.clone().unwrap()).unwrap();
+    let s = list
+        .sessions
+        .iter()
+        .find(|s| s.session_id == first.session_id)
+        .unwrap();
+    assert_eq!(
+        (s.turns, s.cost_usd),
+        (2, total),
+        "theseus sessions' total is the footer's"
+    );
+}
+
 #[tokio::test]
 async fn rejects_empty_input_and_unknown_session() {
     let core = test_core("x");

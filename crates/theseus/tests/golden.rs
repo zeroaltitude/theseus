@@ -164,8 +164,8 @@ fn turn_result(output: &str) -> Value {
         "usage": {"input_tokens": 5230, "output_tokens": 212,
                   "cache_read_input_tokens": 4096, "cache_creation_input_tokens": 0},
         "elapsed_ms": 3021, "first_token_ms": 640, "request_id": "req_a1",
-        "trace": null, "execution_id": X, "cost_usd": 0.0031, "tool_calls": 3,
-        "awaiting_confirm": null, "stop_details": null, "continuation": false
+        "trace": null, "execution_id": X, "cost_usd": 0.0031, "session_cost_usd": 0.0412,
+        "tool_calls": 3, "awaiting_confirm": null, "stop_details": null, "continuation": false
     })
 }
 
@@ -790,6 +790,19 @@ fn ask_json_prints_the_result_only() {
     let mut s = step("turn.submit", turn_result("Two files."));
     s.before = turn_notes();
     golden("ask_json", &run(&["--json", "ask", "List."], vec![s]));
+}
+
+/// A daemon from before the session's total (theseus-c0bb) sends none: the
+/// status line gives the turn's cost alone.
+#[test]
+fn ask_against_an_older_daemon_gives_the_turns_cost_alone() {
+    let mut r = turn_result("Two files.");
+    r.as_object_mut().unwrap().remove("session_cost_usd");
+    let s = step("turn.submit", r);
+    golden(
+        "ask_older_daemon",
+        &run(&["--no-stream", "ask", "List."], vec![s]),
+    );
 }
 
 #[test]

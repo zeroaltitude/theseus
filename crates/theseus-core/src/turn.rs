@@ -3145,6 +3145,9 @@ impl TurnRunner {
             trace: None,
             execution_id: Some(t.tc.execution_id.into()),
             cost_usd: t.cost,
+            // The record in hand, its books closed above: no store read
+            // (theseus-c0bb), and the total `session.list` will answer.
+            session_cost_usd: Some(session.cost_usd),
             tool_calls: t.tool_calls,
             awaiting_confirm: t.awaiting.clone().or_else(|| t.budget_question.clone()),
             stop_details: last.and_then(|r| r.stop_details.clone()),

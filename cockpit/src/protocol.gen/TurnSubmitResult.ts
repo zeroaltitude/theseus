@@ -32,7 +32,11 @@ trace: Span | null, execution_id: string | null,
 /**
  * Dollars for this turn's provider calls, from the model catalog (None: model not in catalog).
  */
-cost_usd: number | null, tool_calls: number, 
+cost_usd: number | null, 
+/**
+ * What the session has cost in all, this turn included (theseus-c0bb).
+ */
+session_cost_usd?: number, tool_calls: number, 
 /**
  * Set when the turn parked waiting for the operator to confirm this action.
  */
