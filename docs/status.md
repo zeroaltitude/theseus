@@ -6,6 +6,8 @@ _Updated 2026-10-07 03:52 MST. Version 0.0.1; the design document is at v0.84._
 
 **The north star:** [the plan](design/north-star-plan.md) to match or beat Claude Code at coding and delight, then crush it on memory, personality, speed, scale and task horizons ([PDF](design/north-star-plan.pdf)).
 
+**Self-improvement (RSI):** [the plan](design/rsi-plan.md) for Theseus to build its own code, yardsticks and backlog: act first and tell the owner after, inside a hard keel that still needs his yes; the machinery built now and off until the benchmark rerun ([PDF](design/rsi-plan.pdf)).
+
 This page changes with every step that lands. The [README](../README.md) stays the same and links here. For the
 full record of each step (what it built, how it was proven, and where it diverged from the plan), see Part III
 of [The Ship of Theseus](the-ship-of-theseus.md). For the whole plan, see [the roadmap](design/roadmap-v2.md), and
