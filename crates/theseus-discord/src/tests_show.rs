@@ -159,3 +159,63 @@ async fn a_rewritten_file_changes_what_a_place_shows() {
         "the second turn shows neither: {new:#?}"
     );
 }
+
+/// A place's `silent` list is read live too (theseus-l1y1): `#lab`'s first
+/// turn pings its thinking, its tool line and its answer; the file is
+/// rewritten with `silent = ["tool_lines", "thinking"]`, and the next turn's
+/// thinking and tool line post silent, its answer still pinging, with no
+/// restart.
+#[tokio::test]
+async fn a_rewritten_file_changes_what_a_place_silences() {
+    let r = Rig::start_on(
+        |dir, _| {
+            let mut s = turn(dir, "first");
+            s.extend(turn(dir, "second"));
+            Arc::new(FakeProvider::scripted(s))
+        },
+        Guild::new(DEFAULT_GUILD, (ANA, "ana")).private_channel(LAB, "lab", &[ANA]),
+        &bindings(""),
+        &[],
+    )
+    .await;
+    let silent = |got: &[Msg], s: &str| -> bool {
+        got.iter()
+            .find(|m| m.content.contains(s))
+            .unwrap_or_else(|| panic!("no {s:?}: {got:#?}"))
+            .silent()
+    };
+    let got = exchange(&r, Some(LAB), "first", true).await;
+    for s in ["💭 thinking", "fs.read", "Reading the first chart."] {
+        assert!(!silent(&got, s), "{s} pings with no config");
+    }
+    let quiet = bindings("silent = [\"tool_lines\", \"thinking\"]\n");
+    let revision = crate::bindings::Bindings::parse(&quiet).unwrap().revision;
+    std::fs::write(r.dir.path().join("bindings.toml"), &quiet).unwrap();
+    r.until("the change is bound", || {
+        r.core
+            .bindings
+            .all()
+            .first()
+            .and_then(|b| b.revision.clone())
+            == Some(revision.clone())
+    })
+    .await;
+    let before = got.len();
+    exchange(&r, Some(LAB), "second", true).await;
+    // The exchange's wait sees the first turn's tool line: wait for this one.
+    let lines = || {
+        r.posted(LAB)
+            .iter()
+            .filter(|m| m.content.contains("fs.read"))
+            .count()
+    };
+    r.until("the second tool line", || lines() == 2).await;
+    let got = r.posted(LAB);
+    let new = &got[before..];
+    assert!(silent(new, "💭 thinking"), "{new:#?}");
+    assert!(silent(new, "fs.read"), "{new:#?}");
+    assert!(
+        !silent(new, "Reading the second chart."),
+        "the answer pings"
+    );
+}
