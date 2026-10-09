@@ -389,9 +389,42 @@ impl Kernel {
         Ok(out)
     }
 
-    /// An execution that ends drops its wakes (a cancel, `/stop`, a task's
-    /// end): each gets a `wake.cancelled` row in the frame being built, with
-    /// `why`. Nothing for an execution with none.
+    /// Why a turn that would park `e` queues it at once instead, if it
+    /// does: a wake of its own came due while it ran, or a task's report
+    /// asked for a turn (W1), and it would wait where a wake may fire (DD8);
+    /// a task has no wake left to park on (37b); or the question it would
+    /// wait on was answered while its turn still ran (theseus-q5af): the
+    /// answer bound or declined it, and its wake found the turn running, so
+    /// nothing would wake it again. The answer's frame and this one each hold
+    /// the execution's lock, so an answer lands before the end, and is read
+    /// here, or after it, and wakes it.
+    pub(crate) fn queued_at_end(&self, e: &Execution, now: u64) -> Result<Option<&'static str>> {
+        if let Some(Wake::Confirm { confirm_id }) = &e.wake {
+            if self
+                .action(confirm_id)?
+                .is_some_and(|a| !a.awaits_confirm())
+            {
+                return Ok(Some("answered"));
+            }
+        }
+        if !free(e) {
+            return Ok(None);
+        }
+        Ok(if wake_due(e, now) {
+            Some("wake")
+        } else if !e.report_wakes.is_empty() {
+            Some("report")
+        } else if task_unparked(e) {
+            Some("task_unparked")
+        } else {
+            None
+        })
+    }
+
+    /// An execution that ends drops its wakes (a cancel, a task's end): each
+    /// gets a `wake.cancelled` row in the frame being built, with `why`.
+    /// Nothing for an execution with none. A `/stop` ends nothing, so it
+    /// keeps them, as it keeps tasks (`stop_execution`).
     pub(crate) fn drop_wakes(
         &self,
         e: &mut Execution,

@@ -1358,22 +1358,11 @@ impl Kernel {
                     }
                     e.state = ExecState::Waiting;
                     e.wake = Some(wake);
-                    let reported = !e.report_wakes.is_empty();
-                    // A task with no wake left to park on goes on (37b).
-                    let unparked = crate::wakes::task_unparked(&e);
-                    if crate::wakes::free(&e)
-                        && (crate::wakes::wake_due(&e, now) || reported || unparked)
-                    {
+                    if let Some(w) = self.queued_at_end(&e, now)? {
                         e.state = ExecState::Queued;
                         e.wake = None;
                         e.resume_pending = true;
-                        why = Some(if crate::wakes::wake_due(&e, now) {
-                            "wake"
-                        } else if reported {
-                            "report"
-                        } else {
-                            "task_unparked"
-                        });
+                        why = Some(w);
                         kind = LedgerKind::ExecutionQueued;
                     } else {
                         kind = LedgerKind::ExecutionWaiting;
@@ -2618,7 +2607,7 @@ impl Kernel {
         let mut frame = Vec::new();
         let why = format!("the execution was cancelled by {by}");
         let not_run = self.end_unsent(&mut e, by, &why, &mut frame)?;
-        // Its wakes end with it (DD8): `/stop` and a cancel clear them.
+        // Its wakes end with it (DD8); a `/stop` ends nothing and keeps them.
         self.drop_wakes(&mut e, by, "the execution was cancelled", &mut frame)?;
         frame.insert(0, exec_record(&e)?);
         let mut to_kill = Vec::new();

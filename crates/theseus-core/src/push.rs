@@ -570,7 +570,11 @@ impl Board {
                         f.position,
                         f.at_ms,
                     );
-                    v.why = why.remove(&id);
+                    // A view still queued keeps the why it had, unless
+                    // this frame wrote it a new one.
+                    v.why = why
+                        .remove(&id)
+                        .or_else(|| old.as_ref().and_then(|o| o.why.clone()));
                     v
                 }
                 (None, Some(old)) => {
@@ -611,14 +615,16 @@ fn touch(touched: &mut Vec<String>, id: &str) {
 }
 
 /// Whether two views show the same: the state, what it waits on, its
-/// questions, its turns, how it ended, its attention, and its spend and limit
-/// to the cent. A frame that changes none of these sends nothing.
+/// questions, its turns, its calls in flight, how it ended, its attention,
+/// and its spend and limit to the cent. A frame that changes none of these
+/// sends nothing.
 fn same(a: &ExecutionView, b: &ExecutionView) -> bool {
     let cents = |x: f64| (x * 100.0).round() as i64;
     a.state == b.state
         && a.waiting_on == b.waiting_on
         && a.pending == b.pending
         && a.turns == b.turns
+        && a.outstanding == b.outstanding
         && a.ended_reason == b.ended_reason
         && a.attention.level == b.attention.level
         && a.attention.label == b.attention.label
@@ -656,6 +662,8 @@ fn decision_on(n: &Node, correlation_id: &str) -> Option<GateDecision> {
 mod tests {
     use super::*;
     use theseus_kernel::{ActionState, Authority, Budget, RetryClass, SessionKind};
+
+    mod why;
 
     fn execution(state: ExecState, wake: Option<Wake>) -> Execution {
         Execution {

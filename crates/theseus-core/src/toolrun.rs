@@ -1327,7 +1327,8 @@ impl ToolRuntime {
         tool: &str,
         g: Gated,
     ) -> Result<CallOutcome> {
-        let now = theseus_protocol::now_unix_ms();
+        // Asked at its plan's time, and expiring then plus the TTL, as
+        // `confirm.list`, the watch's snapshot, and the board say.
         let req = ConfirmRequest {
             correlation_id: a.correlation_id.clone(),
             session_id: tc.session_id.into(),
@@ -1337,8 +1338,8 @@ impl ToolRuntime {
             resource: g.proposal.resource,
             reason: g.decision.reason,
             by: self.policy.confirmer.clone(),
-            requested_at_ms: now,
-            expires_at_ms: now + tc.confirm_ttl_ms,
+            requested_at_ms: a.planned_at_ms,
+            expires_at_ms: a.planned_at_ms + tc.confirm_ttl_ms,
             floor: g.decision.floor,
             budget: None,
             task: tc.task.map(|_| theseus_protocol::TaskRef {
