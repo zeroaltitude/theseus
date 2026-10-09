@@ -13,7 +13,6 @@ mod card;
 mod detail;
 mod notice;
 mod run;
-mod seen;
 mod ui;
 
 #[cfg(test)]
@@ -29,7 +28,7 @@ use theseus_client::Conn;
 use crate::app::App;
 use crate::notice::Delivery;
 use crate::run::{Connector, Runner};
-use crate::seen::Seen;
+use theseus_client::seen::Seen;
 
 const USAGE: &str = "theseus-tui: every session of a running theseusd, in one terminal
 

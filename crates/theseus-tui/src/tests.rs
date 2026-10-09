@@ -24,8 +24,8 @@ use crate::app::App;
 use crate::board::{short_label, Board, Only};
 use crate::notice::{Delivery, Kind, Notices};
 use crate::run::{Connector, Runner};
-use crate::seen::Seen;
 use crate::ui;
+use theseus_client::seen::Seen;
 
 /// 2026-09-21 14:13:20 UTC, the tests' epoch.
 pub const T0: u64 = 1_790_000_000_000;
