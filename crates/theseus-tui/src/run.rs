@@ -24,6 +24,7 @@ use tokio::time::Instant;
 
 use crate::app::{App, Effect, Purpose};
 use crate::notice::Delivery;
+use crate::term;
 
 /// How the loop gets a connection: a socket in the binary, a scripted daemon
 /// in tests.
@@ -63,6 +64,9 @@ pub struct Runner<B: Backend> {
     pub out: Box<dyn Write + Send>,
     /// How a notice reaches the operator (`--notify`).
     pub delivery: Delivery,
+    /// SIGTERM or SIGHUP, in the binary: the loop ends as a quit does, and
+    /// puts the terminal's modes back (theseus-8hcg).
+    pub signals: Option<UnboundedReceiver<()>>,
     /// How many terminal events the loop has handled: a test waits on it.
     #[cfg(test)]
     pub terminal_events: u64,
@@ -73,6 +77,7 @@ enum Woke {
     Daemon(Result<Option<Message>>),
     Terminal(Option<TermEvent>),
     Deadline,
+    Signal,
 }
 
 impl<B: Backend> Runner<B> {
@@ -101,17 +106,25 @@ impl<B: Backend> Runner<B> {
             clock,
             out: Box::new(std::io::sink()),
             delivery: Delivery::default(),
+            signals: None,
             #[cfg(test)]
             terminal_events: 0,
         }
     }
 
-    /// Run until the operator quits.
+    /// Run until the operator quits, with the terminal's modes on, and off
+    /// again on every way out: a quit, an error, a signal (theseus-8hcg).
     pub async fn run(&mut self) -> Result<()> {
-        while !self.quit {
-            self.step().await?;
+        self.write(&term::enter());
+        let ran = async {
+            while !self.quit {
+                self.step().await?;
+            }
+            Ok(())
         }
-        Ok(())
+        .await;
+        self.write(&term::leave());
+        ran
     }
 
     #[cfg(test)]
@@ -126,6 +139,7 @@ impl<B: Backend> Runner<B> {
         let woke = {
             let conn = &mut self.conn;
             let events = &mut self.events;
+            let signals = &mut self.signals;
             tokio::select! {
                 m = async {
                     match conn {
@@ -140,6 +154,16 @@ impl<B: Backend> Runner<B> {
                         None => std::future::pending().await,
                     }
                 } => Woke::Deadline,
+                () = async {
+                    // A closed channel is no signal.
+                    let got = match signals {
+                        Some(rx) => rx.recv().await,
+                        None => None,
+                    };
+                    if got.is_none() {
+                        std::future::pending::<()>().await;
+                    }
+                } => Woke::Signal,
             }
         };
         self.app.now_ms = (self.clock)();
@@ -151,6 +175,7 @@ impl<B: Backend> Runner<B> {
             // The terminal's reader ended: nothing more can be typed.
             Woke::Terminal(None) => self.apply(vec![Effect::Quit]).await,
             Woke::Deadline => self.deadlines().await,
+            Woke::Signal => self.apply(vec![Effect::Quit]).await,
         }
         // The title carries the queue's count (design §2.9): set when it
         // changes.
@@ -247,6 +272,11 @@ impl<B: Backend> Runner<B> {
         }
         let effects = match e {
             TermEvent::Key(k) => self.app.key(k),
+            // One event, never keys (theseus-8hcg).
+            TermEvent::Paste(text) => {
+                self.app.paste(&text);
+                Vec::new()
+            }
             TermEvent::Resize(w, h) => {
                 self.app.resized(w, h);
                 Vec::new()

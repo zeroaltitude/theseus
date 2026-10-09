@@ -694,7 +694,7 @@ impl App {
                         return self.focus(&sid);
                     }
                 }
-                self.step(1);
+                return self.open_first();
             }
             KeyCode::Char('/') => self.mode = Mode::Filter,
             KeyCode::Char('b') => self.only = Only::NeedsYou,
@@ -923,6 +923,48 @@ impl App {
         Vec::new()
     }
 
+    /// Enter with no row under the cursor, as on a fresh start: the first
+    /// row shown opens (theseus-8hcg).
+    fn open_first(&mut self) -> Vec<Effect> {
+        match self.rows().first().map(|r| r.session_id.clone()) {
+            Some(sid) => self.focus(&sid),
+            None => Vec::new(),
+        }
+    }
+
+    /// A paste (bracketed paste, theseus-8hcg): text, never keys, so a
+    /// pasted `q` quits nothing and a pasted `y` answers no question. Typed
+    /// into the input line with its line breaks, into the filter as one line,
+    /// or into a decline's note; anywhere else it opens the input line with
+    /// the text in it. It sends nothing and answers nothing: enter does.
+    pub fn paste(&mut self, text: &str) {
+        let text = pasted(text);
+        match self.mode {
+            Mode::Input => self.input.push_str(&text),
+            Mode::Filter => self.filter.push_str(&text.replace(['\n', '\t'], " ")),
+            Mode::Note(_) => self.note.push_str(&text),
+            Mode::Normal | Mode::Help | Mode::Armed(..) => {
+                if let Mode::Armed(arm, _) = self.mode {
+                    let not = match arm {
+                        Arm::Stop => "not stopped",
+                        Arm::Cancel => "not cancelled",
+                    };
+                    self.flash = Some((Tag::Dim, not.to_string()));
+                }
+                self.mode = Mode::Normal;
+                self.input.push_str(&text);
+                if self.shown().is_some() {
+                    self.mode = Mode::Input;
+                } else {
+                    self.flash = Some((
+                        Tag::Dim,
+                        "pasted into the input line: open a session (enter), then i".to_string(),
+                    ));
+                }
+            }
+        }
+    }
+
     fn filter_key(&mut self, k: KeyEvent) {
         match k.code {
             KeyCode::Enter => self.mode = Mode::Normal,
@@ -999,6 +1041,26 @@ impl App {
             }
         })
     }
+}
+
+/// A paste's text as the input line keeps it: a line break as `\n` (a
+/// terminal sends `\r`), and no other control character.
+fn pasted(text: &str) -> String {
+    // One pass: a megabyte's paste is read once (theseus-8hcg's review).
+    let mut out = String::with_capacity(text.len());
+    let mut chars = text.chars().peekable();
+    while let Some(c) = chars.next() {
+        match c {
+            '\r' => {
+                chars.next_if_eq(&'\n');
+                out.push('\n');
+            }
+            '\n' | '\t' => out.push(c),
+            c if c.is_control() => {}
+            c => out.push(c),
+        }
+    }
+    out
 }
 
 fn call(method: &'static str, params: Value, purpose: Purpose) -> Effect {

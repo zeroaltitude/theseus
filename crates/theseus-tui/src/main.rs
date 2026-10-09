@@ -13,6 +13,7 @@ mod card;
 mod detail;
 mod notice;
 mod run;
+mod term;
 mod ui;
 
 #[cfg(test)]
@@ -23,11 +24,15 @@ mod tests_names;
 mod tests_notice;
 #[cfg(test)]
 mod tests_order;
+#[cfg(test)]
+mod tests_paste;
 
+use std::io::Write;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{bail, Result};
 use theseus_client::Conn;
+use tokio::signal::unix::{signal, SignalKind};
 
 use crate::app::App;
 use crate::notice::Delivery;
@@ -123,18 +128,42 @@ async fn tui(args: Args) -> Result<()> {
     });
     let mut app = App::new(local_hm);
     app.seen = Seen::open(Seen::default_path());
-    // Raw mode and the alternate screen, put back on exit and on a panic.
-    // Focus events: the session in focus gets no notice while the terminal
-    // has focus (design §2.9).
-    let term = ratatui::try_init()?;
-    crossterm::execute!(std::io::stdout(), crossterm::event::EnableFocusChange)?;
-    let mut runner = Runner::new(app, term, connect, rx, now_ms);
+    // SIGTERM and SIGHUP end the loop as a quit does, so the terminal is
+    // put back (theseus-8hcg).
+    let (end, signals) = tokio::sync::mpsc::unbounded_channel();
+    let mut sigterm = signal(SignalKind::terminate())?;
+    let mut sighup = signal(SignalKind::hangup())?;
+    tokio::spawn(async move {
+        tokio::select! {
+            _ = sigterm.recv() => {}
+            _ = sighup.recv() => {}
+        }
+        let _ = end.send(());
+    });
+    // Raw mode and the alternate screen, put back on exit and on a panic;
+    // the loop turns on focus events and bracketed paste, and off again
+    // (`term`), and a panic turns them off.
+    let terminal = ratatui::try_init()?;
+    term::on_panic(|| Box::new(std::io::stdout()));
+    let mut runner = Runner::new(app, terminal, connect, rx, now_ms);
     runner.out = Box::new(std::io::stdout());
     runner.delivery = args.notify;
     runner.app.quiet = args.notify == Delivery::Off;
+    runner.signals = Some(signals);
     let ran = runner.run().await;
-    let _ = crossterm::execute!(std::io::stdout(), crossterm::event::DisableFocusChange);
-    ratatui::try_restore()?;
+    if let Err(e) = ratatui::try_restore() {
+        // The terminal is gone, as after a hangup: there is nothing to put
+        // back. A print to it fails, and a failed `eprintln!` (the error's
+        // own, or the terminal's drop showing its cursor) is a panic, which
+        // aborts. So say it where it can be said, and leave without the
+        // drops; the seen file was written as the loop ended.
+        let mut err = std::io::stderr();
+        if let Err(r) = &ran {
+            let _ = writeln!(err, "theseus-tui: {r:#}");
+        }
+        let _ = writeln!(err, "theseus-tui: the terminal: {e}");
+        std::process::exit(i32::from(ran.is_err()));
+    }
     ran
 }
 

@@ -10,7 +10,10 @@ Key modules: `run.rs` (the loop), `app.rs` (no I/O), `board.rs`, `ui.rs`. Read b
 
 ## What's here
 
-- `src/main.rs`: the arguments (`--socket`, `--notify`), the terminal's modes, and the loop's start.
+- `src/main.rs`: the arguments (`--socket`, `--notify`), raw mode and the alternate screen, SIGTERM and SIGHUP,
+  and the loop's start.
+- `src/term.rs`: the TUI's own terminal modes, focus events and bracketed paste: on when the loop starts, off on
+  every way out (a quit, an error, a signal, and a panic's hook) (theseus-8hcg).
 - `src/run.rs`: the loop. One connection, read in one `select!` with the terminal's events (read on a thread of
   their own) and one deadline; reconnecting with backoff; the frame clock.
 - `src/app.rs`: the state and every change to it (keys, the daemon's messages, answers). It does no I/O: it returns
@@ -48,6 +51,9 @@ Key modules: `run.rs` (the loop), `app.rs` (no I/O), `board.rs`, `ui.rs`. Read b
 - `src/tests_names.rs` (theseus-0n1v): a task named by its title in the tree, its notice and the arm prompt; a
   session whose first answer lacked its name asked again as its turns grow; the input line's `profile` and
   `carried`; Enter after a filter. The rig pins the CLI's time zone (`render::time::pin_for_tests`).
+- `src/tests_paste.rs`: a paste is one event, never keys: text in the input line, sent on enter; elsewhere it opens
+  the input line and answers, quits, stops, and arms nothing. Enter at start opens the first row. Bracketed paste is
+  off on every way out, read from the bytes the loop wrote (theseus-8hcg).
 - `src/tests_order.rs`: the app alone, its order forced by hand: another surface's message lands in the place its
   `node.written` marked, above a reply that streamed while it was read (theseus-v6yc).
 - The CLI's `tests/tui.rs` holds `theseus tui`: the exec, the socket and the arguments passed through, and exit 2
@@ -59,6 +65,8 @@ Key modules: `run.rs` (the loop), `app.rs` (no I/O), `board.rs`, `ui.rs`. Read b
   `cargo test -p theseus-tui` builds alone too (it once built only through the workspace's feature unification).
 - The input line's `turn.submit` carries the session's last profile with `carried: true`, as `watch --interactive`
   does (theseus-0n1v): without it the daemon's live profile takes the turn, another model without a word.
+- **A paste is never keys.** `TermEvent::Paste` goes to `App::paste`, never through `key`: a pasted `q` would quit
+  and a pasted `y` would answer the card. A new terminal mode goes in `term.rs`'s `enter` and `leave`, both.
 - A change to `theseus_client`'s `client` or `render` changes the TUI too.
 - `theseus-tui` has no `--spawn`: a TUI over a spawned `--stdio` daemon would show only that daemon's sessions.
 - A live check runs it in tmux, at 80×24 and 160×48, over a scratch daemon's socket. Never point it at the

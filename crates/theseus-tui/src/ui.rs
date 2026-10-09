@@ -358,7 +358,8 @@ fn footer(app: &App, area: Rect, buf: &mut Buffer) -> Option<(u16, u16)> {
         _ => None,
     };
     if let Some((prompt, text)) = typed {
-        // The end of what is typed, when it is longer than the line.
+        // The end of what is typed, when it is longer than the line; a
+        // pasted line break shows as `↵` (theseus-8hcg).
         let room = (area.width as usize).saturating_sub(prompt.width() + 3);
         let line = format!(" {prompt}{}", tail_fit(text, room));
         buf.set_stringn(area.x, area.y, &line, area.width as usize, Style::default());
@@ -387,22 +388,35 @@ fn footer(app: &App, area: Rect, buf: &mut Buffer) -> Option<(u16, u16)> {
 }
 
 /// The end of `text` that fits in `room` columns, with `…` before it when
-/// it was cut.
+/// it was cut; a line break shows as `↵` and a tab as a space. It reads only
+/// the end it keeps, so a pasted megabyte costs a frame no more than a line
+/// (theseus-8hcg's review).
 fn tail_fit(text: &str, room: usize) -> String {
-    if text.width() <= room {
-        return text.to_string();
-    }
     let mut kept: Vec<char> = Vec::new();
-    let mut used = 1;
+    let mut used = 0;
+    let mut cut = false;
     for c in text.chars().rev() {
+        let c = match c {
+            '\n' => '↵',
+            '\t' => ' ',
+            c => c,
+        };
         let w = UnicodeWidthChar::width(c).unwrap_or(0);
         if used + w > room {
+            cut = true;
             break;
         }
         used += w;
         kept.push(c);
     }
-    kept.push('…');
+    if cut {
+        // Room for the `…`: the first kept go.
+        while used + 1 > room {
+            let Some(c) = kept.pop() else { break };
+            used -= UnicodeWidthChar::width(c).unwrap_or(0);
+        }
+        kept.push('…');
+    }
     kept.into_iter().rev().collect()
 }
 
