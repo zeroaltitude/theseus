@@ -9,7 +9,9 @@
 //! - [`Env`]: a watch inside a herdr pane knows its pane and herdr's socket from
 //!   the environment herdr gives every pane.
 //! - [`Reporter`]: the session's attention as herdr's state, sent only when it
-//!   changes, with a `seq` from the clock, then released on exit.
+//!   changes, with a `seq` from the clock, then released on exit; and, by the
+//!   one notification policy (`theseus_protocol::notices`, theseus-753z), a
+//!   `notification.show` for a ping the state does not already say.
 //! - [`request`]: one request on a fresh connection. herdr's API is
 //!   newline-delimited JSON with string ids and results tagged by `type`; it is
 //!   not JSON-RPC.
@@ -20,6 +22,8 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use anyhow::{anyhow, Context, Result};
 use serde_json::{json, Value};
+use theseus_protocol::notices::{self, Burst, Delivery, Rules, Viewer, Why};
+use theseus_protocol::work::WorkView;
 use theseus_protocol::{ExecutionView, Level};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::sync::{mpsc, oneshot};
@@ -199,6 +203,12 @@ pub fn report_params(pane_id: &str, state: &str, message: &str, seq: u64) -> Val
            "message": message, "seq": seq})
 }
 
+/// `notification.show`'s params: the session's name, the notice's line, and
+/// `request` for a ping with sound, else `none`.
+pub fn notice_params(title: &str, body: &str, sound: bool) -> Value {
+    json!({"title": fit(title), "body": body, "sound": if sound { "request" } else { "none" }})
+}
+
 /// `pane.release_agent`'s params.
 pub fn release_params(pane_id: &str, seq: u64) -> Value {
     json!({"pane_id": pane_id, "source": SOURCE, "agent": AGENT, "seq": seq})
@@ -274,6 +284,10 @@ pub struct Reporter {
     cost: String,
     confirm: Option<String>,
     named: bool,
+    /// The policy's memory: the session's last work view, and the burst.
+    rules: Rules,
+    burst: Burst,
+    work: Option<WorkView>,
 }
 
 impl Reporter {
@@ -294,6 +308,9 @@ impl Reporter {
             cost: theseus_protocol::usd(0.0),
             confirm: None,
             named: false,
+            rules: Rules::default(),
+            burst: Burst::new(&Rules::default()),
+            work: None,
         }
     }
 
@@ -328,6 +345,65 @@ impl Reporter {
         let now = (state_of(view.attention.level), view.attention.label.clone());
         self.viewed = Some(now.clone());
         self.report(now);
+        let mut work = WorkView::from_execution(view);
+        work.title = self.name();
+        self.tell(work);
+    }
+
+    /// The session's name, as the pane's title says it.
+    fn name(&self) -> String {
+        self.label
+            .clone()
+            .or_else(|| self.title.clone())
+            .unwrap_or_else(|| self.session_id.clone())
+    }
+
+    /// The policy on the session's change, with the pane as its viewer: a
+    /// ping the pane's state does not already say (a reminder, a wake, a
+    /// burst's line) goes out as one `notification.show`. A question, a
+    /// failure, and a finish are the state's own (blocked; idle, which herdr
+    /// makes done), so they send nothing more.
+    fn tell(&mut self, next: WorkView) {
+        let prev = self.work.replace(next.clone());
+        let Some(n) = notices::policy(prev.as_ref(), &next, &self.rules, &theseus_protocol::utc_hm)
+        else {
+            return;
+        };
+        let own = n.line.clone();
+        let n = self.burst.fold(n);
+        let said = n.line == own
+            && matches!(
+                n.why,
+                Why::Asked | Why::Failed | Why::Blocked | Why::Finished
+            );
+        let viewer = Viewer {
+            sound: true,
+            ..Viewer::default()
+        };
+        if let Delivery::Ping { sound } = notices::deliver(&n, &viewer) {
+            if !said {
+                self.push(
+                    "notification.show",
+                    notice_params(&self.name(), &n.line, sound),
+                );
+            }
+        }
+    }
+
+    /// When the session's question is due its reminder, if it waits for one.
+    pub fn next_due(&self) -> Option<u64> {
+        self.work
+            .as_ref()
+            .and_then(|w| notices::next_reminder(w, &self.rules))
+    }
+
+    /// The clock reached `now_ms`: the last view against itself, for its
+    /// question's reminder.
+    pub fn remind(&mut self, now_ms: u64) {
+        if let Some(mut w) = self.work.clone() {
+            w.at_ms = w.at_ms.max(now_ms);
+            self.tell(w);
+        }
     }
 
     /// A session with no execution yet: ready for its first message.
@@ -452,6 +528,9 @@ async fn send_all(socket: PathBuf, mut rx: mpsc::UnboundedReceiver<Job>) {
                     // A name another pane holds is herdr's to keep.
                     if o.method == "agent.rename" {
                         eprintln!("theseus: herdr kept the pane's name: {said}");
+                    } else if o.method == "notification.show" {
+                        // A notice is best effort: the pane's state still says it.
+                        eprintln!("theseus: herdr did not show a notice: {said}");
                     } else if failing.as_deref() != Some(&said) {
                         eprintln!(
                             "theseus: {said}; the pane's state is sent again when herdr answers"
@@ -571,6 +650,9 @@ mod tests {
             cost: "$0".into(),
             confirm: None,
             named: false,
+            rules: Rules::default(),
+            burst: Burst::new(&Rules::default()),
+            work: None,
         };
         (r, rx)
     }

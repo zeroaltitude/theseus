@@ -202,6 +202,11 @@ pub async fn watch(
                 None => break,
                 Some(l) => w.on_line(conn, &l).await?,
             },
+            _ = reminder(w.reporter.as_ref().and_then(Reporter::next_due)) => {
+                if let Some(r) = &mut w.reporter {
+                    r.remind(now_ms());
+                }
+            }
             _ = term.recv() => break,
             _ = hangup.recv() => break,
             _ = interrupt.recv() => break,
@@ -212,6 +217,24 @@ pub async fn watch(
         r.release().await;
     }
     Ok(())
+}
+
+/// Until the wall clock reaches `at_ms`: a question's reminder for herdr's
+/// pane. None waits forever.
+async fn reminder(at_ms: Option<u64>) {
+    match at_ms {
+        Some(at) => {
+            let wait = at.saturating_sub(now_ms());
+            tokio::time::sleep(std::time::Duration::from_millis(wait)).await;
+        }
+        None => std::future::pending().await,
+    }
+}
+
+fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
 }
 
 /// `session.wait` as a read: settled or not, it answers at once with the

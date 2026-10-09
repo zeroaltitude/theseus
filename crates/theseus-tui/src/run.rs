@@ -277,8 +277,8 @@ impl<B: Backend> Runner<B> {
                         self.save(&path, &text);
                     }
                 }
-                Effect::Notice(text) => {
-                    let bytes = self.delivery.bytes(&text);
+                Effect::Notice(text, sound) => {
+                    let bytes = self.delivery.bytes(&text, sound);
                     self.write(&bytes);
                 }
                 Effect::Title(t) => self.write(format!("\x1b]0;{t}\x07").as_bytes()),

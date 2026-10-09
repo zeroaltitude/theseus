@@ -19,6 +19,8 @@ mod ui;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
+mod tests_notice;
+#[cfg(test)]
 mod tests_order;
 
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -128,6 +130,7 @@ async fn tui(args: Args) -> Result<()> {
     let mut runner = Runner::new(app, term, connect, rx, now_ms);
     runner.out = Box::new(std::io::stdout());
     runner.delivery = args.notify;
+    runner.app.quiet = args.notify == Delivery::Off;
     let ran = runner.run().await;
     let _ = crossterm::execute!(std::io::stdout(), crossterm::event::DisableFocusChange);
     ratatui::try_restore()?;

@@ -1081,6 +1081,9 @@ fn every_fixture_decodes_as_an_event_and_writes_the_same_bytes() {
     let mut n = 0;
     for e in std::fs::read_dir(dir).unwrap() {
         let path = e.unwrap().path();
+        if path.is_dir() {
+            continue; // `work/`: the work view's shapes (tests/work.rs).
+        }
         let text = std::fs::read_to_string(&path).unwrap();
         let line = text.trim_end_matches('\n');
         let Message::Notification(note) = serde_json::from_str(line).unwrap() else {

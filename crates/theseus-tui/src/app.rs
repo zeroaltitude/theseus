@@ -18,8 +18,9 @@ use theseus_protocol::{
 
 use crate::board::{short, Board, Moved, Only, Question, Row};
 use crate::detail::Detail;
-use crate::notice::{Kind, Notices};
+use crate::notice::Notices;
 use crate::seen::Seen;
+use theseus_protocol::notices::{self, Viewer};
 
 /// What the TUI's requests carry as their author: the ledger names it, and
 /// `[approval]` counts its answers as the CLI's (the `cli` channel).
@@ -69,8 +70,9 @@ pub enum Purpose {
 pub enum Effect {
     Call(Call),
     Quit,
-    /// Tell the operator, as `--notify` says: the bell, OSC 9, or OSC 777.
-    Notice(String),
+    /// Tell the operator, as `--notify` says: the bell, OSC 9, or OSC 777;
+    /// and whether the ping may sound (a finish rings no bell).
+    Notice(String, bool),
     /// The terminal's title: `theseus (2)`.
     Title(String),
     /// Write the seen file: its path and its text.
@@ -157,6 +159,10 @@ pub struct App {
     /// says otherwise). While it has, the session in focus is seen, and gets
     /// no notice.
     pub term_focus: bool,
+    /// When the terminal last lost focus: how long the operator has been away.
+    blurred_at: u64,
+    /// `--notify off`: notices show in the footer and never ring.
+    pub quiet: bool,
     /// The title last set.
     title: String,
     /// When the seen file is due to be written: a change of focus waits a
@@ -190,6 +196,8 @@ impl App {
             seen: Seen::default(),
             notices: Notices::default(),
             term_focus: true,
+            blurred_at: 0,
+            quiet: false,
             title: String::new(),
             save_at: None,
         }
@@ -220,10 +228,10 @@ impl App {
     fn took(&mut self, v: &ExecutionView, moved: Option<Moved>) {
         let watching = self.watching(&v.session_id);
         self.seen.applied(v, watching);
-        if let Some(m) = moved {
-            if !watching {
-                self.notices.moved(&v.session_id, m.before, v, self.now_ms);
-            }
+        let title = self.board.name(&v.session_id);
+        match moved {
+            Some(_) => self.notices.moved(v, &title, self.now_ms, &self.hm),
+            None => self.notices.saw(v, &title),
         }
     }
 
@@ -240,6 +248,9 @@ impl App {
 
     /// The terminal gained or lost focus.
     pub fn term_focused(&mut self, focused: bool) {
+        if self.term_focus && !focused {
+            self.blurred_at = self.now_ms;
+        }
         self.term_focus = focused;
         self.mark_shown();
     }
@@ -282,21 +293,32 @@ impl App {
     pub fn tick(&mut self) -> Vec<Effect> {
         let mut out = Vec::new();
         let fired = {
-            let board = &self.board;
-            let (focus, shown) = (self.term_focus, self.shown().map(String::from));
-            self.notices
-                .take_due(self.now_ms, &|sid| board.view(sid).cloned(), &|sid| {
-                    focus && shown.as_deref() == Some(sid)
-                })
-        };
-        for (sid, kind) in fired {
-            let text = format!("{} {}", self.board.name(&sid), kind.words());
-            let mark = match kind {
-                Kind::NeedsYou => render::glyph(theseus_protocol::Level::NeedsYou),
-                Kind::Finished => crate::ui::DONE,
+            let (board, seen) = (&self.board, &self.seen);
+            let viewer = Viewer {
+                focused: self.shown().map(String::from),
+                seen: 0,
+                away_ms: if self.term_focus {
+                    0
+                } else {
+                    self.now_ms.saturating_sub(self.blurred_at).max(1)
+                },
+                quiet: self.quiet,
+                sound: true,
             };
-            self.flash = Some((Tag::Ok, format!("{mark} {text}")));
-            out.push(Effect::Notice(text));
+            let view = |sid: &str| board.view(sid).cloned();
+            let viewer = |sid: &str| Viewer {
+                seen: board
+                    .view(sid)
+                    .map_or(0, |v| seen.displayed(&v.execution_id)),
+                ..viewer.clone()
+            };
+            self.notices.take_due(self.now_ms, &view, &viewer, &self.hm)
+        };
+        for f in fired {
+            self.flash = Some((Tag::Ok, f.line.clone()));
+            if let notices::Delivery::Ping { sound } = f.delivery {
+                out.push(Effect::Notice(f.line, sound));
+            }
         }
         if self.save_at.is_some_and(|at| at <= self.now_ms) {
             out.extend(self.save());

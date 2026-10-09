@@ -35,6 +35,7 @@ pub mod lsp;
 pub mod mcp;
 pub mod mcp_server;
 pub mod memory;
+pub mod notices;
 mod ontology;
 pub mod packs;
 mod places;
@@ -49,6 +50,7 @@ pub mod term;
 #[cfg(test)]
 mod ts;
 pub mod voice;
+pub mod work;
 
 pub use actions::{ActionInfo, ActionListParams, ActionListResult};
 pub use arrangement::{ArrangementPiece, TaskArrangement};
