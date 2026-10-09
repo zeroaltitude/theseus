@@ -18,5 +18,6 @@ pub mod client;
 pub mod outcome;
 pub mod render;
 pub mod seen;
+pub mod shown;
 
 pub use client::{CallError, Conn};

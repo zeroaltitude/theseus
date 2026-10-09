@@ -15,6 +15,11 @@ Key modules: `main.rs`, `cmd.rs`, `render.rs`, `client.rs`. Read by: (a binary).
 - `src/cmd.rs`: one function per subcommand, and `output()`. `ask --attach FILE` sends a text file's text and any
   other file's bytes, up to 32 MiB, for the daemon to keep and read (an image, a PDF; theseus-c9l6). `tui` connects nothing: it execs `theseus-tui`, found
   beside this binary or else on PATH, with `--socket` first and the arguments after it (step 10f).
+- `src/seen.rs` and `src/shown.rs` (theseus-yus0): the machine's seen file (`$XDG_STATE_HOME/theseus/seen.json`) and
+  the one call, `shown::shown(conn, sessions)`, by which a command records what it displayed: after its output,
+  at the position `executions.watch` gives, never failing the command (one line on stderr). `history` (to the end of
+  the session), `watch` (on Ctrl-C), and `confirm` call it; a watch the daemon closes records nothing. Writes read the
+  file again, merge by the greatest position under a lock file, and replace it atomically.
 - `src/print.rs`: the `Printer`, which writes the library's lines in one of four modes: `Text` (`ask`), `Quiet`
   (`ask --no-stream`), `Watch` (`watch`), and `Json`.
 - `src/render/history.rs`: `theseus history`'s own lines: each node with its short id, which `theseus reach` takes
@@ -43,6 +48,7 @@ Key modules: `main.rs`, `cmd.rs`, `render.rs`, `client.rs`. Read by: (a binary).
 - `tests/connect.rs` covers how the CLI reaches a daemon (`--spawn`, and exit 3). `main` reads exit 3 from the
   error's text, which the library writes, so these tests hold the two together.
 - `tests/refusal.rs` covers a refused answer: `theseus confirm` prints the daemon's reason and exits 1.
+- `tests/seen.rs` covers `history` recording into the seen file, and not failing when it can't.
 - `tests/tui.rs` covers `theseus tui`: the exec (the stand-in runs in the CLI's own pid), the socket and the
   arguments passed through, and exit 2, saying where it looked, when `theseus-tui` is found nowhere. Each test links
   the CLI into a directory of its own, since the workspace builds the real `theseus-tui` beside `target/debug/theseus`.

@@ -1,7 +1,13 @@
 //! Done until seen (design `stage2` §2.2 and §2.9): which sessions finished
 //! since the operator last looked at them. It is the client's, on this
-//! machine, never the server's: `$XDG_STATE_HOME/theseus/tui-seen.json`, by
-//! default `~/.local/state/theseus/tui-seen.json`.
+//! machine, never the server's: `$XDG_STATE_HOME/theseus/seen.json`, by
+//! default `~/.local/state/theseus/seen.json`. One file per machine, shared by
+//! the TUI and the CLI (theseus-yus0): when it is absent, the TUI's older
+//! `tui-seen.json` beside it is read, and the new name is written from then on.
+//!
+//! Every write reads the file again, takes per execution the greatest of each
+//! position it holds, and replaces the file atomically, so two clients that
+//! write at once lose nothing that matters.
 //!
 //! A session is done when its level moved from working or needs you to ready
 //! or idle, after the TUI last displayed it, and it did not end `cancelled`.
@@ -11,13 +17,18 @@
 //! found: a level that moved, or a turn that ran, between the two runs.
 
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::io;
+use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 use theseus_protocol::{ExecutionView, Level};
 
 /// The file's format.
 const VERSION: u32 = 1;
+
+/// The file's name, and the TUI's older one, read when it is absent.
+const FILE_NAME: &str = "seen.json";
+const OLD_FILE_NAME: &str = "tui-seen.json";
 
 /// What the TUI knows of one execution.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -36,7 +47,164 @@ pub struct Mark {
 #[derive(Debug, Serialize, Deserialize)]
 struct File {
     version: u32,
+    /// The TUI has read a board: an execution it never knew is new. A file a
+    /// CLI made before any TUI ran says false, so a first start still shows
+    /// nothing done. A file without the field was the TUI's own: true.
+    #[serde(default = "yes")]
+    board_read: bool,
     executions: HashMap<String, Mark>,
+    /// Executions to drop from the file (the TUI's board no longer holds
+    /// them). Never written to disk.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    forget: Vec<String>,
+}
+
+fn yes() -> bool {
+    true
+}
+
+/// The file at `path`, or the older one beside it when `path` is absent. A
+/// file that does not parse is no file.
+fn read_file(path: &Path) -> Option<File> {
+    let text = match std::fs::read_to_string(path) {
+        Ok(t) => t,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => {
+            std::fs::read_to_string(path.with_file_name(OLD_FILE_NAME)).ok()?
+        }
+        Err(_) => return None,
+    };
+    serde_json::from_str::<File>(&text)
+        .ok()
+        .filter(|f| f.version == VERSION)
+}
+
+/// Two marks of one execution, by the greatest position of each: the greater
+/// of the displayed and finished positions, and the view (position, level,
+/// turns) of the newer.
+fn merge_mark(a: Mark, b: Mark) -> Mark {
+    let newer = if b.position > a.position { b } else { a };
+    Mark {
+        displayed: a.displayed.max(b.displayed),
+        finished: a.finished.max(b.finished),
+        position: newer.position,
+        level: newer.level,
+        turns: newer.turns,
+    }
+}
+
+fn merge_into(into: &mut HashMap<String, Mark>, from: impl IntoIterator<Item = (String, Mark)>) {
+    for (id, m) in from {
+        let merged = into.get(&id).map_or(m, |old| merge_mark(*old, m));
+        into.insert(id, merged);
+    }
+}
+
+/// Hold the machine's seen file against another writer, while `f` reads,
+/// merges, and replaces it. The lock is a file beside it; if it can't be
+/// taken the write goes on without it (the merge still keeps the greater
+/// positions, but a write in the same instant may be lost).
+fn locked<T>(path: &Path, f: impl FnOnce() -> T) -> T {
+    use std::os::fd::AsRawFd;
+    let lock = std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(path.with_file_name("seen.json.lock"))
+        .ok();
+    if let Some(l) = &lock {
+        // SAFETY: flock on a descriptor this function owns; released on drop.
+        unsafe {
+            libc::flock(l.as_raw_fd(), libc::LOCK_EX);
+        }
+    }
+    f()
+}
+
+/// Replace `path` with `bytes`, whole or not at all: write a temporary file
+/// in the same directory, then rename it over. `rename` is a parameter so a
+/// test can make it fail.
+fn write_atomic(
+    path: &Path,
+    bytes: &[u8],
+    rename: &dyn Fn(&Path, &Path) -> io::Result<()>,
+) -> io::Result<()> {
+    let dir = path.parent().unwrap_or_else(|| Path::new("."));
+    std::fs::create_dir_all(dir)?;
+    let tmp = dir.join(format!(
+        ".{}.{}.tmp",
+        path.file_name().and_then(|n| n.to_str()).unwrap_or("seen"),
+        std::process::id()
+    ));
+    let done = std::fs::write(&tmp, bytes).and_then(|()| rename(&tmp, path));
+    if done.is_err() {
+        let _ = std::fs::remove_file(&tmp);
+    }
+    done
+}
+
+/// Read the file, change it with `change`, and write it back atomically,
+/// under the lock. Returns the file as written.
+fn update(
+    path: &Path,
+    rename: &dyn Fn(&Path, &Path) -> io::Result<()>,
+    change: impl FnOnce(&mut File),
+) -> io::Result<File> {
+    locked(path, || {
+        let mut file = read_file(path).unwrap_or(File {
+            version: VERSION,
+            board_read: false,
+            executions: HashMap::new(),
+            forget: Vec::new(),
+        });
+        change(&mut file);
+        let text = serde_json::to_string(&file).map_err(io::Error::other)?;
+        write_atomic(path, text.as_bytes(), rename)?;
+        Ok(file)
+    })
+}
+
+/// Write the TUI's `text` (from [`Seen::text`]) into the file, merged with
+/// what is there. Returns the executions as written, for the TUI to take up
+/// what another client recorded.
+pub fn write_merged(path: &Path, text: &str) -> io::Result<HashMap<String, Mark>> {
+    let mine: File = serde_json::from_str(text).map_err(io::Error::other)?;
+    let file = update(path, &|a, b| std::fs::rename(a, b), |cur| {
+        cur.board_read |= mine.board_read;
+        for id in &mine.forget {
+            cur.executions.remove(id);
+        }
+        merge_into(&mut cur.executions, mine.executions);
+    })?;
+    Ok(file.executions)
+}
+
+/// Record that the operator was shown `views`: each execution is displayed at
+/// its view's position. Another client's write is kept by the merge.
+pub fn record(path: &Path, views: &[ExecutionView]) -> io::Result<()> {
+    record_with(path, views, &|a, b| std::fs::rename(a, b))
+}
+
+fn record_with(
+    path: &Path,
+    views: &[ExecutionView],
+    rename: &dyn Fn(&Path, &Path) -> io::Result<()>,
+) -> io::Result<()> {
+    update(path, rename, |cur| {
+        let marks = views.iter().map(|v| {
+            (
+                v.execution_id.clone(),
+                Mark {
+                    displayed: v.position,
+                    finished: 0,
+                    position: v.position,
+                    level: v.attention.level,
+                    turns: v.turns,
+                },
+            )
+        });
+        merge_into(&mut cur.executions, marks);
+    })
+    .map(|_| ())
 }
 
 #[derive(Debug)]
@@ -62,16 +230,12 @@ impl Seen {
     /// The seen file at `path`, read if it is there. A file that does not
     /// parse starts fresh, as no file does.
     pub fn open(path: Option<PathBuf>) -> Self {
-        let file = path
-            .as_ref()
-            .and_then(|p| std::fs::read_to_string(p).ok())
-            .and_then(|text| serde_json::from_str::<File>(&text).ok())
-            .filter(|f| f.version == VERSION);
+        let file = path.as_deref().and_then(read_file);
         match file {
             Some(f) => Self {
                 path,
                 marks: f.executions,
-                fresh: false,
+                fresh: !f.board_read,
                 dirty: false,
             },
             None => Self {
@@ -83,8 +247,8 @@ impl Seen {
         }
     }
 
-    /// The default path: `$XDG_STATE_HOME/theseus/tui-seen.json`, else
-    /// `~/.local/state/theseus/tui-seen.json`.
+    /// The default path: `$XDG_STATE_HOME/theseus/seen.json`, else
+    /// `~/.local/state/theseus/seen.json`.
     pub fn default_path() -> Option<PathBuf> {
         let base = std::env::var_os("XDG_STATE_HOME")
             .filter(|v| !v.is_empty())
@@ -92,7 +256,7 @@ impl Seen {
             .or_else(|| {
                 std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local").join("state"))
             })?;
-        Some(base.join("theseus").join("tui-seen.json"))
+        Some(base.join("theseus").join(FILE_NAME))
     }
 
     pub fn path(&self) -> Option<&PathBuf> {
@@ -162,6 +326,13 @@ impl Seen {
     /// TUI never knew is new, not part of a first start's board.
     pub fn first_board_read(&mut self) {
         self.fresh = false;
+        self.dirty = true;
+    }
+
+    /// What another client recorded, as the file holds it after a write: the
+    /// greater positions are taken up.
+    pub fn adopt(&mut self, marks: HashMap<String, Mark>) {
+        merge_into(&mut self.marks, marks);
     }
 
     /// The operator looks at this execution now: whatever finished is seen.
@@ -183,10 +354,16 @@ impl Seen {
             .filter(|(id, _)| keep(id))
             .map(|(id, m)| (id.clone(), *m))
             .collect();
+        let forget = self.marks.keys().filter(|id| !keep(id)).cloned().collect();
         serde_json::to_string(&File {
             version: VERSION,
+            board_read: !self.fresh,
             executions,
+            forget,
         })
         .unwrap_or_default()
     }
 }
+
+#[cfg(test)]
+mod tests;

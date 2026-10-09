@@ -309,19 +309,16 @@ impl<B: Backend> Runner<B> {
     /// Write the seen file whole: a temporary file beside it, then a rename,
     /// so a crash never leaves half a file. A failure says so in the footer.
     fn save(&mut self, path: &Path, text: &str) {
-        let written = (|| {
-            if let Some(dir) = path.parent() {
-                std::fs::create_dir_all(dir)?;
+        // Merged with what another client recorded (theseus-yus0), which is
+        // then taken up.
+        match theseus_client::seen::write_merged(path, text) {
+            Ok(marks) => self.app.seen.adopt(marks),
+            Err(e) => {
+                self.app.flash = Some((
+                    theseus_client::render::Tag::Bad,
+                    format!("the seen file {}: {e}", path.display()),
+                ));
             }
-            let tmp = path.with_extension("json.tmp");
-            std::fs::write(&tmp, text)?;
-            std::fs::rename(&tmp, path)
-        })();
-        if let Err(e) = written {
-            self.app.flash = Some((
-                theseus_client::render::Tag::Bad,
-                format!("the seen file {}: {e}", path.display()),
-            ));
         }
     }
 

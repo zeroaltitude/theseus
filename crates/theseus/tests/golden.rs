@@ -68,7 +68,21 @@ fn run_in(args: &[&str], steps: Vec<Step>, job: Option<&str>) -> String {
             if reader.read_line(&mut line).unwrap() == 0 {
                 break;
             }
-            let req: Value = serde_json::from_str(&line).unwrap();
+            let mut req: Value = serde_json::from_str(&line).unwrap();
+            // The snapshot a command asks for after its output, to record
+            // what it showed (theseus-yus0): answered with an empty board,
+            // outside the script, so the scenarios' requests stay as they
+            // were and nothing is recorded.
+            while req["method"] == "executions.watch" && st.method != "executions.watch" {
+                let empty = json!({"position": 0, "executions": [], "confirms": [], "total": 0});
+                let a = json!({"jsonrpc": "2.0", "id": req["id"], "result": empty});
+                (&s).write_all(format!("{a}\n").as_bytes()).unwrap();
+                line.clear();
+                if reader.read_line(&mut line).unwrap() == 0 {
+                    return seen;
+                }
+                req = serde_json::from_str(&line).unwrap();
+            }
             seen.push(req["method"].as_str().unwrap_or("?").to_string());
             let mut out = String::new();
             if req["method"] != st.method {
@@ -90,6 +104,21 @@ fn run_in(args: &[&str], steps: Vec<Step>, job: Option<&str>) -> String {
             }
             (&s).write_all(out.as_bytes()).unwrap();
         }
+        // After the last step, the snapshot of a command that records what
+        // it showed; any other request ends the connection, as before.
+        // A command that records nothing sends none, and the connection
+        // closes after a moment, as a stopped daemon's would.
+        s.set_read_timeout(Some(std::time::Duration::from_millis(250)))
+            .unwrap();
+        let mut line = String::new();
+        if reader.read_line(&mut line).unwrap_or(0) > 0 {
+            let req: Value = serde_json::from_str(&line).unwrap();
+            if req["method"] == "executions.watch" {
+                let empty = json!({"position": 0, "executions": [], "confirms": [], "total": 0});
+                let a = json!({"jsonrpc": "2.0", "id": req["id"], "result": empty});
+                let _ = (&s).write_all(format!("{a}\n").as_bytes());
+            }
+        }
         seen
     });
     // Hermetic: a gate run inside a herdr pane would turn the watch's
@@ -99,6 +128,7 @@ fn run_in(args: &[&str], steps: Vec<Step>, job: Option<&str>) -> String {
     cmd.arg("--socket")
         .arg(&sock)
         .args(args)
+        .env("XDG_STATE_HOME", dir.path().join("state"))
         .env_remove("THESEUS_SOCKET")
         .env_remove("THESEUS_SESSION")
         .env_remove("HERDR_ENV")

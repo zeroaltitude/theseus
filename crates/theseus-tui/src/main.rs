@@ -40,8 +40,8 @@ usage: theseus-tui [--socket PATH] [--notify HOW]
   -h, --help      this help
   -V, --version   the version
 
-What you have seen is kept in $XDG_STATE_HOME/theseus/tui-seen.json
-(~/.local/state/theseus/tui-seen.json), on this machine only. Keys: ? in the TUI.";
+What you have seen is kept in $XDG_STATE_HOME/theseus/seen.json
+(~/.local/state/theseus/seen.json), on this machine only. Keys: ? in the TUI.";
 
 /// What the command line says.
 struct Args {

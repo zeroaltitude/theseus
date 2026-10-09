@@ -1683,7 +1683,7 @@ pub fn harbour_rig_seen(
 #[tokio::test]
 async fn done_until_seen_survives_a_restart() {
     let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("theseus").join("tui-seen.json");
+    let path = dir.path().join("theseus").join("seen.json");
     let world = harbour_world();
     // Run 1: a first start sees the board as it is, then the tide task ends.
     let mut rig = harbour_rig_seen(80, 24, world.clone(), &path);
