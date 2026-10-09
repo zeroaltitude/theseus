@@ -313,10 +313,16 @@ disk_floor_mb = 1024                    # a job is refused below this many MB fr
 # (Discord, web UI, or `theseus confirm`) whether to reset its spend to $0 and
 # go on. A limit a place's ceiling or an MCP client names still asks, and so
 # does an AWS hands group. The session's lifetime cost keeps counting either way.
+# daily_spend_ceiling_usd is a backstop, not a budget (theseus-kp20): every
+# model call the daemon makes in a local day (turns, tasks, the judge,
+# consolidation, compaction, learning runs, speech) counts toward it, and once
+# a call would pass it, no call is made until local midnight; the owner hears
+# once that day, in a DM. It has no mode and sits above every limit here.
 [kernel]
 admission_ceiling = 8                   # executions that may hold a turn at once (§3.2a)
 spend_limit_usd = 100.0                 # each session's spend limit in US dollars (theseus-0sg)
 spend_limit_mode = "notify"             # notify | ask: what reaching it does
+daily_spend_ceiling_usd = 200.0         # the whole daemon's model spend per local day: past it no call is made until midnight
 heartbeat_secs = 60                     # reconciler cadence: due wakes, overdue actions, spool drain
 default_deadline_secs = 600             # deadline for an action whose tool declares none
 confirm_ttl_secs = 900                  # how long a call waits for your answer: then it expires, not run, and its card says so; and how long an approval stays valid

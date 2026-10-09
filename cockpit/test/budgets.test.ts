@@ -2,7 +2,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
-import { burnPerHour, flatten, handsLines, HOUR_MS, limitWords, questionsWaiting, recentResets, sessionsOf, sums } from '../src/lib/budgets.ts'
+import { burnPerHour, dayCeilingView, flatten, handsLines, HOUR_MS, limitWords, questionsWaiting, recentResets, sessionsOf, sums } from '../src/lib/budgets.ts'
 
 const row = (id: string, o: Record<string, unknown> = {}) => ({
   execution_id: `exe_${id}`, session_id: `ses_${id}`, kind: 'conversation', state: 'waiting', limit_usd: 10, limit_from: 'config',
@@ -89,4 +89,22 @@ test("a budget question waiting shows above Money's river, only while one waits;
   const questions = budgets.slice(budgets.indexOf('export function BudgetQuestions('))
   assert.match(questions, /if \(!waiting\.length\) return null/)
   assert.match(questions, /<ConfirmCard key=\{q\.correlation_id\} c=\{card\} \/>/)
+})
+
+// The day ceiling (theseus-kp20): a quiet bar under it, a clear stop once reached.
+test('the day ceiling is a quiet bar under it and a stop once reached', () => {
+  const day = { day: '2026-10-08', ceiling_usd: 200, spent_usd: 50, held_usd: 10, reached: false, turns_at_ms: 1, turns_at: '2026-10-09 00:00' }
+  const under = dayCeilingView(day)
+  assert.equal(under.stopped, false)
+  assert.equal(under.tone, 'ok')
+  assert.equal(under.share, 0.3)
+  assert.equal(under.text, '$50.00 of $200.00 today')
+  assert.match(under.detail, /\$10\.00 held by calls in flight · the day turns at 2026-10-09 00:00 local time/)
+  assert.equal(dayCeilingView({ ...day, spent_usd: 165 }).tone, 'wait')
+  const stopped = dayCeilingView({ ...day, spent_usd: 199.5, held_usd: 0, reached: true, reached_at_ms: 5 })
+  assert.equal(stopped.stopped, true)
+  assert.equal(stopped.tone, 'fault')
+  assert.equal(stopped.share, 1)
+  assert.match(stopped.text, /^stopped: today’s model spend reached the \$200\.00 daily ceiling/)
+  assert.match(stopped.detail, /no model call until 2026-10-09 00:00 local time · raise \[kernel\] daily_spend_ceiling_usd/)
 })

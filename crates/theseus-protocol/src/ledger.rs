@@ -214,6 +214,7 @@ ledger_kinds! {
     SessionTrusted = "session.trusted",
     SpeechSynthesized = "speech.synthesized",
     SpeechTranscribed = "speech.transcribed",
+    SpendCeiling = "spend.ceiling",
     SpoolSwept = "spool.swept",
     StartupStep = "startup.step",
     SynthesisChecked = "synthesis.checked",

@@ -56,6 +56,7 @@ use crate::Config;
 mod budget_step;
 mod budget_words;
 mod calls;
+mod ceiling_step;
 pub(crate) use budget_words::{budget_question, lower_cap, Kept};
 #[cfg(test)]
 pub(crate) use calls::call_result;
@@ -2229,6 +2230,9 @@ impl TurnRunner {
                 }
                 if let Some(KernelError::Stopped { by, .. }) = e.downcast_ref::<KernelError>() {
                     return Ok(Called::Stopped { by: by.clone() });
+                }
+                if let Some(KernelError::DayCeiling(r)) = e.downcast_ref::<KernelError>() {
+                    return Ok(Called::Failed(self.day_ceiling_failed(t, r)));
                 }
                 t.record(&fact::turn::ModelNotPlanned {
                     model: &target.model,

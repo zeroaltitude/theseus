@@ -82,6 +82,7 @@ export type * from './ContextSource';
 export type * from './ContextStatus';
 export type * from './ContextTurn';
 export type * from './CrashStatus';
+export type * from './DayCeilingBudget';
 export type * from './DiscordOrigin';
 export type * from './DiskStatus';
 export type * from './EstimateSummary';

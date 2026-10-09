@@ -32,6 +32,7 @@ pub mod context_parts;
 pub mod correction;
 pub mod cpu;
 pub mod crash;
+pub mod day_ceiling;
 pub mod disk;
 pub mod egress;
 pub mod extend;
@@ -182,6 +183,8 @@ mod tests_continuations;
 mod tests_continue;
 #[cfg(test)]
 mod tests_continue_slow;
+#[cfg(test)]
+mod tests_day_ceiling;
 #[cfg(test)]
 mod tests_disk_watch;
 #[cfg(test)]

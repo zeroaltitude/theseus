@@ -254,6 +254,15 @@ impl JudgeService {
     /// set once, as the core is built.
     pub fn attach(&self, core: &Arc<Core>) {
         let _ = self.categorize.core.set(Arc::downgrade(core));
+        // Every judgment holds on the daemon's day ceiling too (theseus-kp20).
+        let weak = Arc::downgrade(core);
+        let hook = move |r: &theseus_kernel::Reached| {
+            if let Some(c) = weak.upgrade() {
+                c.runner.day_refused(r, "judgment", None);
+            }
+        };
+        self.budget
+            .set_ceiling(core.kernel.day_ceiling().clone(), Box::new(hook));
     }
 
     /// The core it was attached to, while it lives (the notices' outbox).

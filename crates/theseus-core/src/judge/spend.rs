@@ -120,7 +120,18 @@ impl Said {
 pub struct ShadowBudget {
     limit: Micros,
     day: Mutex<Day>,
+    /// The daemon's day ceiling (theseus-kp20), above this budget: a
+    /// judgment holds on it as it reserves here, and is skipped when it
+    /// refuses; what the judgment settles is spent there too. The hook says
+    /// a refusal (outside this budget's lock).
+    ceiling: std::sync::OnceLock<(std::sync::Arc<theseus_kernel::DayCeiling>, CeilingHook)>,
 }
+
+/// What the core does with a judgment the day ceiling refused.
+pub type CeilingHook = Box<dyn Fn(&theseus_kernel::Reached) + Send + Sync>;
+
+/// The judge's key on the day ceiling: it holds and settles by amount.
+const CEILING_KEY: &str = "judge";
 
 /// Today's counts, for health.
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -138,7 +149,17 @@ impl ShadowBudget {
         Self {
             limit: theseus_judge::price::usd_to_micros(limit_usd),
             day: Mutex::default(),
+            ceiling: std::sync::OnceLock::new(),
         }
+    }
+
+    /// Hold every judgment on the daemon's day ceiling, too (once).
+    pub fn set_ceiling(
+        &self,
+        ceiling: std::sync::Arc<theseus_kernel::DayCeiling>,
+        hook: CeilingHook,
+    ) {
+        let _ = self.ceiling.set((ceiling, hook));
     }
 
     fn lock(&self) -> std::sync::MutexGuard<'_, Day> {
@@ -268,6 +289,13 @@ impl ShadowBudget {
             }
             return Reserve::Paused(out, said);
         }
+        if let Some((r, hook)) = self.ceiling_refuses(need) {
+            d.skipped += 1;
+            out.extend((!out.is_empty()).then(|| meta(&d.stored)));
+            drop(d);
+            hook(&r);
+            return Reserve::Paused(out, said);
+        }
         if held + need > d.stored.reserved_micros {
             let blocks = (held + need - d.stored.reserved_micros).div_ceil(BLOCK_MICROS);
             d.stored.reserved_micros = (d.stored.reserved_micros + blocks * BLOCK_MICROS)
@@ -281,10 +309,20 @@ impl ShadowBudget {
         Reserve::Granted(out, said)
     }
 
+    /// Whether the day ceiling refuses a judgment of `need` (it holds it
+    /// otherwise), with the hook that says so.
+    fn ceiling_refuses(&self, need: Micros) -> Option<(theseus_kernel::Reached, &CeilingHook)> {
+        let (c, hook) = self.ceiling.get()?;
+        c.hold(c.now(), CEILING_KEY, need).err().map(|r| (r, hook))
+    }
+
     /// A judgment came back: its reservation is released and what it cost
     /// (`spent`) is counted. `called`: it reached Jev; `failed`: it failed
     /// there.
     pub fn settle(&self, today: &str, reserved: Micros, spent: Micros, called: bool, failed: bool) {
+        if let Some((c, _)) = self.ceiling.get() {
+            c.settle_part(c.now(), CEILING_KEY, reserved, spent);
+        }
         let mut d = self.lock();
         d.in_flight = d.in_flight.saturating_sub(reserved);
         if d.stored.day != today {

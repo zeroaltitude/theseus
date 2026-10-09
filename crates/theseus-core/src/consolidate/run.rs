@@ -449,17 +449,19 @@ impl Core {
                 crate::narrative::dollars(*spent)
             )));
         }
+        // The daemon's day ceiling (theseus-kp20) holds the call too.
+        let hold = match self.runner.day_hold(need, "consolidation") {
+            Ok(h) => h,
+            Err(why) => return Ok(Step::Stop(why)),
+        };
         let mut quiet = |_: crate::provider::Delta<'_>| {};
-        let (text, model, cost) = match provider.stream_message(&request, &mut quiet).await {
-            Ok(resp) => {
-                let cost = self
-                    .runner
-                    .catalog
-                    .get(&resp.model)
-                    .or_else(|| self.runner.catalog.get(&target.model))
-                    .map_or(need, |e| e.cost_micros(&resp.usage));
-                (resp.text.trim().to_string(), resp.model, cost)
-            }
+        let answered = provider.stream_message(&request, &mut quiet).await;
+        let cost = answered
+            .as_ref()
+            .map_or(need, |r| self.runner.priced(r, &target.model, need));
+        hold.settle(cost);
+        let (text, model, cost) = match answered {
+            Ok(resp) => (resp.text.trim().to_string(), resp.model, cost),
             Err(e) => {
                 // A failed request may have been billed: booked at its
                 // reservation, as the audit's are.

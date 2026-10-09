@@ -328,6 +328,12 @@ impl TurnRunner {
                     crate::narrative::dollars(*needed)
                 ),
                 Some(KernelError::Stopped { by, .. }) => format!("stopped by {by}"),
+                // The day ceiling (theseus-kp20): the summary is skipped,
+                // and the ring runs; the loop's own call meets it next.
+                Some(KernelError::DayCeiling(r)) => {
+                    self.day_refused(r, "compaction", Some(t.tc.session_id));
+                    r.to_string()
+                }
                 _ => format!("its call was not planned: {e:#}"),
             })
     }

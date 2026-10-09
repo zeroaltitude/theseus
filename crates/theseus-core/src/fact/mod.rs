@@ -282,6 +282,7 @@ facts![
     turn::LoopEndedOnBudget<'static>,
     limits::SpendReached<'static>,
     limits::LoopsReached<'static>,
+    limits::DayCeilingReached<'static>,
     turn::OverLimit<'static>,
     turn::ImageNotShown<'static>,
     turn::ImagesHidden<'static>,

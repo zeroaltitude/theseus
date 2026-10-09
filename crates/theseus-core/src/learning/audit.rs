@@ -340,16 +340,21 @@ impl Core {
                 ));
                 break;
             }
+            // The daemon's day ceiling (theseus-kp20) holds the call too.
+            let hold = self.runner.day_hold(need, "audit");
+            let Ok(hold) = hold.map_err(|why| r.stopped = Some(why)) else {
+                break;
+            };
             r.asked += 1;
             let sent = send_on_runtime(rt, &provider, request);
+            let cost = sent
+                .as_ref()
+                .map_or(need, |resp| self.runner.priced(resp, &target.model, need));
+            hold.settle(cost);
+            // A failed request may have been billed: booked at its reservation.
+            spent += cost;
             match sent {
                 Ok(resp) => {
-                    spent += self
-                        .runner
-                        .catalog
-                        .get(&resp.model)
-                        .or_else(|| self.runner.catalog.get(&target.model))
-                        .map_or(need, |e| e.cost_micros(&resp.usage));
                     let (got, dropped) = labels_of(pack, &resp.text);
                     r.dropped += dropped;
                     for (question, label) in got {
@@ -363,9 +368,6 @@ impl Core {
                     }
                 }
                 Err(e) => {
-                    // A failed request may have been billed: it is booked
-                    // at its reservation.
-                    spent += need;
                     r.failed += 1;
                     tracing::warn!(error = %format!("{e:#}"), judgment = %s.judgment.id, "audit: a request failed");
                 }

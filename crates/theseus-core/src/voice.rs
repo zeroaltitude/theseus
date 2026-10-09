@@ -191,6 +191,12 @@ impl Core {
     /// session's spend limit now: what its execution may still reserve. A
     /// call that does not fit is not made, and the reason says how to go on.
     pub fn speech_fits(&self, session_id: &str, estimate: Micros) -> Result<(), String> {
+        // The daemon's day ceiling first (theseus-kp20): no mode stops it.
+        let ceiling = self.kernel.day_ceiling();
+        if let Err(r) = ceiling.fits(ceiling.now(), estimate) {
+            self.runner.day_refused(&r, "speech", Some(session_id));
+            return Err(r.to_string());
+        }
         let execution = self
             .execution_of(session_id)
             .map_err(|e| format!("reading the session: {e:#}"))?;
@@ -231,6 +237,10 @@ impl Core {
                 self.kernel.book_spend(id, cost, call.kind.ledger(), data)?;
             }
             _ => {
+                if let Some(c) = cost {
+                    let ceiling = self.kernel.day_ceiling();
+                    ceiling.book(ceiling.now(), c);
+                }
                 data["cost_usd"] = cost.map_or(Value::Null, |c| micros_to_usd(c).into());
                 data["unbooked"] = match cost {
                     None => "no price for this model".into(),

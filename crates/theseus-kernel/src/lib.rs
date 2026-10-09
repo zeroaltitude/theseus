@@ -8,10 +8,12 @@
 //! only overdue work. Everything is synchronous and takes its time from a
 //! `Clock`, so the simulator drives it deterministically.
 
+mod budget_question;
 mod cancels;
 pub mod cgroup;
 pub mod children;
 pub mod clock;
+pub mod day_ceiling;
 mod earlier;
 pub mod gate;
 pub mod gone;
@@ -45,6 +47,8 @@ mod tests;
 #[cfg(test)]
 mod tests_budgets;
 #[cfg(test)]
+mod tests_day_ceiling;
+#[cfg(test)]
 mod tests_earlier;
 #[cfg(test)]
 mod tests_enosys;
@@ -72,6 +76,7 @@ mod tests_tx;
 mod tests_wakes;
 
 pub use clock::{Clock, RealClock, VirtualClock};
+pub use day_ceiling::{DayCeiling, Hold, Reached, Seed, Today};
 pub use earlier::EARLIER_PROCESS;
 pub use gate::{digest_json, digest_proposal, Proposal};
 pub use kernel::{

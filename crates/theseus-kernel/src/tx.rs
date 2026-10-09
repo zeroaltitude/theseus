@@ -33,6 +33,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 use anyhow::Result;
 use theseus_store::{kinds, NewRecord, Record, RecordKind, Store, StoreStats, FROZEN_SCHEMA};
 
+use crate::day_ceiling::Effect;
 use crate::kernel::{Kernel, TurnGuard};
 use crate::terms;
 
@@ -45,6 +46,9 @@ pub(crate) struct Tx {
     pub(crate) staged: Arc<Staged>,
     /// Freed once the frame is committed (or the transaction fails).
     ended: Mutex<Vec<TurnGuard>>,
+    /// The day ceiling's holds its transitions made, let go if it fails, and
+    /// its settles, applied once its frame is written (theseus-kp20).
+    day: Mutex<(Vec<String>, Vec<Effect>)>,
 }
 
 impl Tx {
@@ -67,6 +71,39 @@ impl Tx {
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .push(guard);
+    }
+
+    /// A provider call's hold on the day, made inside.
+    pub(crate) fn day_held(&self, id: &str) {
+        self.day_lock().0.push(id.to_string());
+    }
+
+    /// Settles on the day, for the frame's commit.
+    pub(crate) fn day_effects(&self, effects: impl IntoIterator<Item = Effect>) {
+        self.day_lock().1.extend(effects);
+    }
+
+    fn day_lock(&self) -> std::sync::MutexGuard<'_, (Vec<String>, Vec<Effect>)> {
+        self.day.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    fn day_len(&self) -> (usize, usize) {
+        let d = self.day_lock();
+        (d.0.len(), d.1.len())
+    }
+
+    /// Take back what was done on the day since `mark`: its holds let go,
+    /// its settles dropped.
+    fn day_rewind(&self, k: &Kernel, mark: (usize, usize)) {
+        let let_go = {
+            let mut d = self.day_lock();
+            d.1.truncate(mark.1);
+            let at = mark.0.min(d.0.len());
+            d.0.split_off(at)
+        };
+        for id in let_go {
+            k.day_ceiling().release(&id);
+        }
     }
 
     fn ended_len(&self) -> usize {
@@ -358,11 +395,12 @@ impl Kernel {
             for id in ids {
                 tx.require(&[id]);
             }
-            let (staged, ended) = (tx.staged.len(), tx.ended_len());
+            let (staged, ended, day) = (tx.staged.len(), tx.ended_len(), tx.day_len());
             let out = f(self);
             if out.is_err() {
                 tx.staged.rewind(staged);
                 tx.free_since(ended);
+                tx.day_rewind(self, day);
             }
             return out;
         }
@@ -384,15 +422,27 @@ impl Kernel {
             held,
             staged: staged.clone(),
             ended: Mutex::default(),
+            day: Mutex::default(),
         });
         let out = {
             let view = self.transaction_view(tx.clone(), staged.clone());
-            f(&view)?
+            f(&view)
         };
         let frame = staged.take();
-        if !frame.is_empty() {
-            self.commit(&frame)?;
-        }
+        let committed = match out {
+            Ok(out) if frame.is_empty() => Ok(out),
+            Ok(out) => self.commit(&frame).map(|_| out),
+            Err(e) => Err(e),
+        };
+        let out = match committed {
+            Ok(out) => out,
+            Err(e) => {
+                tx.day_rewind(self, (0, 0));
+                return Err(e);
+            }
+        };
+        let effects = std::mem::take(&mut tx.day_lock().1);
+        self.apply_day(effects);
         // The turns its transitions ended are free once their end is written,
         // and before the locks go.
         tx.free_since(0);

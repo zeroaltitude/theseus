@@ -910,3 +910,41 @@ async fn forge(r: &Rig, channel: u64, judgment: &str) -> String {
         .unwrap();
     posted["id"].as_str().unwrap().to_string()
 }
+
+/// The day ceiling's notice (theseus-kp20; a review's test): a turn in
+/// `#lab`, bound shared, refused at the daemon's day ceiling, gets its own
+/// failed notice there, saying so without the owner's totals; the ceiling's
+/// post goes to the owner's DM alone, never to `#lab`, and the model is
+/// never asked.
+#[tokio::test]
+async fn a_day_ceiling_notice_goes_to_the_owners_dm_alone() {
+    let fake = Arc::new(FakeProvider::scripted(vec![Scripted::text("never sent")]));
+    let asked = fake.clone();
+    let model = move |_: &Path, _| -> Arc<dyn Provider> { fake.clone() };
+    let r = Rig::start_tweaked(model, guild(true), &bindings(false), &[], |c| {
+        c.kernel.daily_spend_ceiling_usd = 0.000_001;
+    })
+    .await;
+    r.say((ANA, "ana"), Some(LAB), "Hello there.");
+    let is_post = |m: &Msg| m.versions[0].contains("Today's model spend reached");
+    r.until("the ceiling's post in ana's DM", || {
+        r.posted(ANA_DM).iter().any(is_post)
+    })
+    .await;
+    r.until("the turn's failed notice in #lab", || {
+        r.posted(LAB)
+            .iter()
+            .any(|m| m.content.contains("(daily_ceiling)"))
+    })
+    .await;
+    assert!(r.posted(LAB).iter().all(|m| !is_post(m)), "never in #lab");
+    // #lab hears the stop and when the day turns, never the owner's totals.
+    assert!(
+        r.posted(LAB).iter().all(|m| !m.content.contains('$')),
+        "{:?}",
+        r.posted(LAB).iter().map(|m| &m.content).collect::<Vec<_>>()
+    );
+    assert_eq!(r.posted(ANA_DM).iter().filter(|m| is_post(m)).count(), 1);
+    assert!(asked.requests().is_empty(), "no model call was made");
+    assert_eq!(r.ledger("spend.ceiling").len(), 1);
+}

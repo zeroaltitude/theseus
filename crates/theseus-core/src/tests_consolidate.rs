@@ -480,6 +480,35 @@ async fn spend_stops_at_the_days_cap() {
     assert!(rows(c, LedgerKind::SynthesisProposed).is_empty());
 }
 
+/// The daemon's day ceiling (theseus-kp20) stops consolidation too: at it
+/// the synthesis's call is not made, the run says the ceiling's words, and
+/// the day's `spend.ceiling` row names consolidation.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_day_ceiling_stops_a_synthesis_before_its_call() {
+    let r = rig(MemoryMode::Shadow, None, |_| {});
+    let c = &r.core;
+    kestrel(c).await;
+    let d = c.kernel.day_ceiling();
+    let t = d.today(d.now());
+    d.set_limit(t.spent + t.held + 1);
+    let calls = r.model.requests().len();
+    let out = consolidate(c, false).await;
+    assert!(out.clusters.is_empty(), "{out:?}");
+    assert!(
+        out.stopped.as_deref().unwrap().contains("daily ceiling"),
+        "{out:?}"
+    );
+    assert_eq!(r.model.requests().len(), calls, "nothing sent");
+    let tail: Vec<(u64, LedgerRow)> = c.store.ledger_tail(5000).unwrap();
+    let ceiling: Vec<LedgerRow> = tail
+        .into_iter()
+        .map(|(_, r)| r)
+        .filter(|r| r.kind == LedgerKind::SpendCeiling.as_str())
+        .collect();
+    assert_eq!(ceiling.len(), 1, "{ceiling:?}");
+    assert_eq!(ceiling[0].data["what"], "consolidation");
+}
+
 /// `synth_profile = "session"`: sources whose sessions last used different
 /// profiles wait, counted.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

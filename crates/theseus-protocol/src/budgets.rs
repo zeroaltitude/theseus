@@ -23,6 +23,10 @@ pub struct BudgetListResult {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub judge: Option<JudgeDayBudget>,
+    /// The daemon's day ceiling over every model call (theseus-kp20).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub day_ceiling: Option<DayCeilingBudget>,
 }
 
 /// One open execution's money.
@@ -143,6 +147,30 @@ pub struct JudgeDayBudget {
     pub paused: bool,
 }
 
+/// The daemon's day ceiling (`[kernel] daily_spend_ceiling_usd`,
+/// theseus-kp20): every model call's spend today, against the ceiling.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct DayCeilingBudget {
+    /// The local day, `YYYY-MM-DD`.
+    pub day: String,
+    pub ceiling_usd: f64,
+    /// Settled and booked today.
+    pub spent_usd: f64,
+    /// Held by calls in flight.
+    pub held_usd: f64,
+    /// Whether no model call is made until the day turns.
+    pub reached: bool,
+    /// When the first call was refused today (unix ms).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub reached_at_ms: Option<u64>,
+    /// When the day turns: the next local midnight (unix ms), and its local
+    /// time, `2026-10-09 00:00`.
+    pub turns_at_ms: u64,
+    pub turns_at: String,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -204,6 +232,7 @@ mod tests {
             },
             config_limit_usd: 100.0,
             judge: None,
+            day_ceiling: None,
         };
         let text = serde_json::to_string(&r).unwrap();
         assert_eq!(
