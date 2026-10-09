@@ -417,6 +417,64 @@ deny_check() {
   cargo deny --offline --log-level error check
 }
 
+# The keel guard (theseus-pw1q.1; the owner's decision on self-improvement, 2026-10-09): a range that deletes or
+# loosens a test, a budget or a ceiling fails here, before any compile, unless a commit in it signed by a key in
+# scripts/keel-signers (at the base) acks each finding with a `Keel:` trailer; scripts/keel-guard.py says the rules.
+# The range is the branch's (merge-base with main..the working tree), or a join's merge whole (HEAD^1..HEAD);
+# THESEUS_KEEL_BASE=<rev> names its base. The guard that judges is the base's own copy when the base has one, so a
+# branch cannot loosen the guard that judges it (a change to it is itself a finding), and the range's base is found
+# here, as the guard finds it, not by the branch's copy. There is no switch to skip it.
+keel_base=""
+keel_range_base() {
+  local main local_main remote first
+  if [ -n "${THESEUS_KEEL_BASE:-}" ]; then
+    git rev-parse --verify -q "$THESEUS_KEEL_BASE^{commit}" || {
+      echo "keel: no commit $THESEUS_KEEL_BASE (THESEUS_KEEL_BASE)" >&2
+      return 1
+    }
+    return 0
+  fi
+  local_main="$(git rev-parse --verify -q 'main^{commit}' || true)"
+  remote="$(git rev-parse --verify -q 'origin/main^{commit}' || true)"
+  main="${local_main:-$remote}"
+  if [ -n "$local_main" ] && [ -n "$remote" ] && git merge-base --is-ancestor "$local_main" "$remote"; then
+    main=$remote
+  fi
+  [ -n "$main" ] || {
+    echo "keel: no main and no origin/main to judge against: set THESEUS_KEEL_BASE=<rev>" >&2
+    return 1
+  }
+  if git rev-parse --verify -q 'HEAD^2' >/dev/null; then
+    first="$(git rev-parse 'HEAD^1')"
+    if git merge-base --is-ancestor "$first" "$main"; then
+      echo "$first"
+      return 0
+    fi
+  fi
+  git merge-base HEAD "$main"
+}
+keel_guard() {
+  command -v python3 >/dev/null || { echo "keel: no python3 to run scripts/keel-guard.py"; return 1; }
+  local guard=scripts/keel-guard.py
+  keel_base="$(keel_range_base)"
+  if git cat-file -e "$keel_base:scripts/keel-guard.py" 2>/dev/null; then
+    git show "$keel_base:scripts/keel-guard.py" >"$gate_tmp/keel-guard.py"
+    guard="$gate_tmp/keel-guard.py"
+  fi
+  python3 "$guard" --base "$keel_base"
+}
+# The guard's planted-erosion suite (about 40 throwaway repositories, signed acks among them: seconds), run when the
+# guard or its suite differs from the range's base, which a change to either is; otherwise it would prove again what
+# the base's gate proved.
+keel_tests() {
+  if git diff --quiet "$keel_base" -- scripts/keel-guard.py scripts/test_keel_guard.py &&
+    [ -z "$(git ls-files --others --exclude-standard -- scripts/keel-guard.py scripts/test_keel_guard.py)" ]; then
+    echo "keel tests: the guard is the base's; its suite ran there"
+    return 0
+  fi
+  PYTHONDONTWRITEBYTECODE=1 python3 -m unittest -q scripts/test_keel_guard.py
+}
+
 # One npm script of the cockpit, its output kept in `$gate_tmp/<app>-<script>.log` (theseus-o8nk). A failure prints
 # the log's last 40 lines, where the phase table alone said only "cockpit <- failed here".
 npm_step() {
@@ -605,6 +663,9 @@ if [ "$part" = locked ]; then
   exit 0
 fi
 
+# The keel first: it needs no build, so a branch that removed what would fail it stops in seconds.
+phase keel keel_guard
+phase "keel tests" keel_tests
 phase fmt cargo fmt --all -- --check
 # The shape budget (theseus-goa8; review 2's C1): the file ceiling is scripts/shape.sh, here; function length
 # and complexity are clippy's lints, held by the next phase.
