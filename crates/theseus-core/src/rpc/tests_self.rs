@@ -133,10 +133,7 @@ fn the_gate_is_halted_until_the_owners_resume_and_after_anyones_halt() {
     let h = &rows(&c, "self.halted")[0];
     assert_eq!(h["why"], "it looks wrong", "{h}");
     assert_eq!(h["place"], "discord:77", "{h}");
-    assert_eq!(
-        h["undo"],
-        "theseus self resume (the owner, from a private place)"
-    );
+    assert_eq!(h["undo"], "theseus self resume");
 }
 
 /// A halt on a store never resumed is written, so the log says who.
@@ -360,6 +357,20 @@ fn the_digest_lists_a_seeded_week() {
         t.starts_with("What Theseus changed about itself this week"),
         "{t}"
     );
+    let empty = crate::rsi::digest_text(&[], 0, 1, &c.self_state());
+    assert!(empty.ends_with("Nothing changed.\n"), "{empty}");
+    let free = theseus_protocol::rsi::SelfLogRow {
+        position: 1,
+        at_unix_ms: now,
+        kind: "self.halted".into(),
+        what: "halted".into(),
+        why: None,
+        numbers: serde_json::Value::Null,
+        undo: None,
+        session_id: None,
+    };
+    let zero = crate::rsi::digest_text(&[free], 0, now, &c.self_state());
+    assert!(zero.contains("Cost: $0.00."), "never $-0.00: {zero}");
     assert!(
         t.contains("3 changes: 1 judge.proposal, 1 self.halted, 1 self.joined."),
         "{t}"

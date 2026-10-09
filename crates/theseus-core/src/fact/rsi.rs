@@ -26,7 +26,7 @@ impl Fact for SelfHalted<'_> {
         json!({"by": self.by, "place": self.place,
                "what": format!("self-improvement halted by {}", self.by),
                "why": self.why, "numbers": null,
-               "undo": "theseus self resume (the owner, from a private place)"})
+               "undo": "theseus self resume"})
     }
 
     fn narrate(&self, say: &mut Say<'_>) {

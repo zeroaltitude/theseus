@@ -154,7 +154,7 @@ fn cost_of(r: &SelfLogRow) -> f64 {
     ["cost_usd", "writer_usd", "spent_usd"]
         .iter()
         .filter_map(|k| r.numbers[*k].as_f64())
-        .sum()
+        .fold(0.0, |a, c| a + c)
 }
 
 /// A row in a line: its time, what, its numbers and its undo.
@@ -197,7 +197,8 @@ pub fn digest_text(rows: &[SelfLogRow], since: u64, until: u64, state: &SelfStat
     }
     let counts: Vec<String> = counts.iter().map(|(k, n)| format!("{n} {k}")).collect();
     out.push_str(&format!("{} changes: {}.\n", rows.len(), counts.join(", ")));
-    let cost: f64 = rows.iter().map(cost_of).sum();
+    // From 0.0: an empty f64 sum is -0.0, which prints "$-0.00".
+    let cost: f64 = rows.iter().map(cost_of).fold(0.0, |a, c| a + c);
     out.push_str(&format!("Cost: ${cost:.2}.\n"));
     for (title, kinds) in [
         (
