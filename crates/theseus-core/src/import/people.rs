@@ -26,7 +26,8 @@
 //!   waited for between two and the daemon's stop looked for there.
 //! - **The erase takes them back**: the erased sessions' person lists are
 //!   emptied with the rest (`topics::unassign`), then [`unassign`] takes
-//!   away each person an import made that nothing uses.
+//!   away each person this tag's import made that nothing uses: never
+//!   another tag's, the operator's or the transport's.
 
 use std::collections::{BTreeMap, HashMap};
 use std::time::Instant;
@@ -38,7 +39,7 @@ use theseus_ontology::{
 use theseus_protocol::import::ImportPeopleResult;
 
 use super::tag_scope;
-use super::topics::{made_by, write_frames, Writer, ERASER, MADE_BY};
+use super::topics::{made_by, write_frames, Writer, ERASER};
 use super::write::{FRAME_RECORDS, ONE};
 use crate::node::Body;
 use crate::ontology::Board;
@@ -357,9 +358,10 @@ pub(super) fn assign_in(
 }
 
 /// The erase's last half (`import.erase`, after `topics::unassign` emptied
-/// the erased sessions' lists): each person an import made that nothing
-/// uses (no membership, no guidance) taken away. How many, and whether the
-/// stop came first.
+/// the erased sessions' lists): each person `tag`'s import made that
+/// nothing uses (no membership, no guidance) taken away; another tag's
+/// unused person stays (one held past [`PER_SESSION`], say). How many, and
+/// whether the stop came first.
 pub fn unassign(
     store: &Store,
     board: &Board,
@@ -373,9 +375,10 @@ pub fn unassign(
     let snapshot = board.snapshot(store)?;
     let mut work = (*snapshot).clone();
     let now = theseus_protocol::now_unix_ms();
+    let mine = made_by(tag);
     let made: Vec<Category> = work
         .categories()
-        .filter(|c| c.kind() == KIND && c.added_by.split(' ').next() == Some(MADE_BY))
+        .filter(|c| c.kind() == KIND && c.added_by == mine)
         .cloned()
         .collect();
     let mut records = Vec::new();

@@ -272,6 +272,48 @@ async fn a_dms_person_holding_the_id_is_used_and_the_erase_takes_the_rest_back()
     assert_eq!(people(&snapshot(c)).len(), 1);
 }
 
+/// The erase of one tag takes back that tag's people only: another tag's
+/// person that nothing uses (one held past the per-session limit, say) and
+/// the operator's stay (the people joiner's join fix).
+#[tokio::test]
+async fn the_erase_of_one_tag_leaves_another_tags_and_the_operators_people() {
+    let rig = rig();
+    let c = &rig.core;
+    let other = Category::new(
+        CategoryId::new("person", "quillon-reef").unwrap(),
+        "Quillon Reef",
+        super::topics::made_by("heron-2026-03"),
+    );
+    let mine = Category::new(
+        CategoryId::new("person", "ottar-vane").unwrap(),
+        "Ottar Vane",
+        "operator",
+    );
+    for (cat, origin) in [(&other, Origin::Import), (&mine, Origin::Operator)] {
+        c.runner
+            .ontology
+            .write(
+                &c.store,
+                vec![Record::Category(cat.clone())],
+                origin,
+                |_| Ok(vec![]),
+            )
+            .unwrap();
+    }
+    import(c);
+    assert_eq!(run(c, false).await.made, 3);
+    let e: theseus_protocol::import::ImportEraseResult = serde_json::from_value(
+        call(c, method::IMPORT_ERASE, json!({"tag": TAG}))
+            .await
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(e.people, 3, "this tag's three, and no one else");
+    let mut left: Vec<String> = people(&snapshot(c)).into_iter().map(|(n, _)| n).collect();
+    left.sort();
+    assert_eq!(left, ["Ottar Vane", "Quillon Reef"]);
+}
+
 #[tokio::test]
 async fn a_merge_moves_a_person_and_its_undo_puts_it_back() {
     let rig = rig();
