@@ -19,7 +19,7 @@ Key modules: `run.rs` (the loop), `app.rs` (no I/O), `board.rs`, `ui.rs`. Read b
   queue.
 - `src/ui.rs`: drawing into a ratatui buffer. Nothing here changes the app.
 - `src/detail.rs` (the focused session's history and events, as the CLI's `render` lines), `src/card.rs` (a
-  question's card), `src/notice.rs` (the bell, OSC 9, OSC 777), and `src/seen.rs` (done until seen).
+  question's card), `src/notice.rs` (the bell, OSC 9, OSC 777). Done until seen is `theseus_client::seen`, shared with the CLI.
 
 ## Invariants
 
@@ -31,7 +31,9 @@ Key modules: `run.rs` (the loop), `app.rs` (no I/O), `board.rs`, `ui.rs`. Read b
   The first snapshot after a connect is the truth for every session no event has updated on the new connection: a
   daemon restarted on another store may have lower positions.
 - **What you have seen is the client's**, on this machine, never the server's:
-  `$XDG_STATE_HOME/theseus/tui-seen.json`.
+  `$XDG_STATE_HOME/theseus/seen.json`, one file per machine shared with the CLI, whose `history`, `watch`, and
+  `confirm` record what they showed (theseus-yus0). A save merges by the greatest position and replaces the file
+  atomically; the TUI takes up what the CLI recorded at each save. `tui-seen.json` is read when the new one is absent.
 - **`theseus tui` passes its `--socket` first**, and the last `--socket` wins, so one typed after `tui` is kept.
 
 ## Tests

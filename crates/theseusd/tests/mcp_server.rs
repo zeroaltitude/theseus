@@ -204,6 +204,8 @@ impl Rig {
             .arg("--socket")
             .arg(self.path("projects/sock"))
             .args(args)
+            // The CLI's seen file is the test's own, never the machine's (theseus-yus0).
+            .env("XDG_STATE_HOME", self.path("xdg-state"))
             .env_remove("THESEUS_SESSION")
             .stdin(Stdio::null())
             .output()

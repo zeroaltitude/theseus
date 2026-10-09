@@ -77,6 +77,8 @@ fn theseus(dir: &Path, args: &[&str]) -> (i32, String, String) {
         .args(args)
         .env("THESEUS_CONFIG", dir.join("config.toml"))
         .env("THESEUS_STATE_DIR", dir.join("state"))
+        // The CLI's seen file is the test's own, never the machine's (theseus-yus0).
+        .env("XDG_STATE_HOME", dir.join("xdg-state"))
         .env("ANTHROPIC_API_KEY", KEY)
         .env("TYPESAFE_API_KEY", JEV)
         .env_remove("OP_SERVICE_ACCOUNT_TOKEN")

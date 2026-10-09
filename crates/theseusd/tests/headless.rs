@@ -75,6 +75,8 @@ fn spawn_bare(dir: &Path) -> Command {
         .arg(&theseusd)
         .env("THESEUS_CONFIG", dir.join("config.toml"))
         .env("THESEUS_STATE_DIR", dir.join("state"))
+        // The CLI's seen file is the test's own, never the machine's (theseus-yus0).
+        .env("XDG_STATE_HOME", dir.join("xdg-state"))
         .env(KEY_VAR, "tv-headless-7f3a9c")
         // The stop's phases are logged at info (theseus-vjn7), the level a
         // daemon logs at with nothing set: the spawned daemon inherits it.

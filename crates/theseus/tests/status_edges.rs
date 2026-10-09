@@ -20,7 +20,10 @@ fn theseus(sock: &Path, args: &[&str]) -> Command {
         .args(args)
         .env_remove("THESEUS_SOCKET")
         .env_remove("THESEUS_SESSION")
-        .env_remove("TMUX");
+        .env_remove("TMUX")
+        // The seen file (the diamond, and what the long form records) is the
+        // test's own, beside its socket, never the machine's.
+        .env("XDG_STATE_HOME", sock.parent().unwrap().join("state"));
     c
 }
 

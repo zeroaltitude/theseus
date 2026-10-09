@@ -267,6 +267,8 @@ impl Watch {
             .arg(&d.sock)
             .args(["watch", S])
             .args(extra)
+            // The CLI's seen file is the test's own, never the machine's (theseus-yus0).
+            .env("XDG_STATE_HOME", d.sock.with_file_name("xdg-state"))
             .env_remove("THESEUS_SOCKET")
             .env_remove("HERDR_ENV")
             .env_remove("HERDR_PANE_ID")

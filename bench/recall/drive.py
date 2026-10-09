@@ -402,9 +402,11 @@ class Theseus:
             self.env["ANTHROPIC_API_KEY"] = "stand-in"  # the stand-in model reads none
 
     def cli(self, *args: str, input: str | None = None, timeout: float = 60.0) -> subprocess.CompletedProcess:
+        # `history` records what it showed in the CLI's seen file (theseus-yus0): the run's own, never the machine's.
         return subprocess.run(
             [str(self.theseus), "--socket", str(self.sock), *args],
-            input=input, capture_output=True, text=True, timeout=timeout, env=self.env,
+            input=input, capture_output=True, text=True, timeout=timeout,
+            env={**self.env, "XDG_STATE_HOME": str(self.dir / "xdg-state")},
         )
 
     def start(self) -> None:

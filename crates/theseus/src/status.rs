@@ -104,6 +104,17 @@ pub async fn run(socket: &str, spawn: Option<&str>, json: bool, a: &StatusArgs) 
         }
     }
     drop(out);
+    // The long form shows the sessions that need you or work: recorded as seen
+    // after its output, as `history` does. `--short` and `--json` are a status
+    // bar's and a script's polls, and show no one anything.
+    if !a.short && !json {
+        let shown: Vec<String> = board
+            .ordered()
+            .iter()
+            .map(|v| v.session_id.clone())
+            .collect();
+        theseus_client::shown::shown(&mut conn, &shown).await;
+    }
     conn.close().await
 }
 
@@ -217,11 +228,16 @@ fn group(v: &ExecutionView) -> u8 {
     }
 }
 
-/// What finished since the owner last looked (◆), from the seen file.
-/// The TUI's seen file is moving into `theseus_client` with the one-seen-file
-/// row (theseus-yus0), whose joiner wires it here; until then nothing is new.
+/// What finished since the owner last looked (◆), from the machine's seen file
+/// (theseus-yus0): the TUI's account of the finishes, less what a command
+/// showed since. It asks no daemon, and is 0 with no file. A unit test's board
+/// is its own: it never reads the machine's file (the binary's tests point
+/// `XDG_STATE_HOME` at their own directory instead).
 fn new_since_seen() -> u32 {
-    0
+    if cfg!(test) {
+        return 0;
+    }
+    theseus_client::seen::Seen::default_path().map_or(0, |p| theseus_client::seen::done_count(&p))
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]

@@ -34,6 +34,8 @@ fn a_refused_answer_is_printed_with_its_reason_and_exits_1() {
         .arg("--socket")
         .arg(&sock)
         .args(["confirm", "--approve", "act_1", "--no-wait"])
+        // The CLI's seen file is the test's own, never the machine's (theseus-yus0).
+        .env("XDG_STATE_HOME", dir.path().join("xdg-state"))
         .output()
         .unwrap();
     let req = daemon.join().unwrap();

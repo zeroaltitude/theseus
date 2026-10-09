@@ -92,6 +92,9 @@ fn theseus(sock: &Path, args: &[&str]) -> Command {
         .env_remove("THESEUS_SOCKET")
         .env_remove("THESEUS_SESSION")
         .env_remove("TMUX")
+        // The seen file (the diamond, and what the long form records) is the
+        // test's own, beside its socket, never the machine's.
+        .env("XDG_STATE_HOME", sock.parent().unwrap().join("state"))
         .env("TZ", "America/Phoenix")
         .env("COLUMNS", "100");
     c
@@ -230,6 +233,46 @@ fn the_long_form_cuts_the_title_to_the_terminal() {
         }
     }
     assert!(out.contains('…'), "{out}");
+}
+
+/// The diamond is the seen file's count of what finished since a client last
+/// showed it (theseus-yus0's `seen::done_count`): one execution finished after
+/// it was displayed, one displayed since it finished.
+#[test]
+fn the_diamond_counts_what_finished_since_the_seen_file_last_showed_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let sock = dir.path().join("sock");
+    let seen = dir.path().join("state").join("theseus");
+    std::fs::create_dir_all(&seen).unwrap();
+    let mark = |displayed: u64| {
+        json!({
+            "displayed": displayed,
+            "finished": 9,
+            "position": 9,
+            "level": "ready",
+            "turns": 2
+        })
+    };
+    let file = json!({
+        "version": 1,
+        "board_read": true,
+        "executions": {"exe_a": mark(3), "exe_b": mark(9)}
+    });
+    std::fs::write(seen.join("seen.json"), file.to_string()).unwrap();
+    let listener = UnixListener::bind(&sock).unwrap();
+    let daemon = std::thread::spawn(move || {
+        let (s, _) = listener.accept().unwrap();
+        serve(
+            s,
+            &[("executions.watch", snapshot(&[]))],
+            &[],
+            Duration::ZERO,
+        );
+    });
+    let out = theseus(&sock, &["status", "--short"]).output().unwrap();
+    daemon.join().unwrap();
+    assert_eq!(String::from_utf8_lossy(&out.stdout), "◆1\n");
+    assert_eq!(out.status.code(), Some(0));
 }
 
 #[test]

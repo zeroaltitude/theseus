@@ -237,14 +237,16 @@ pub async fn history(
         .request(
             method::SESSION_HISTORY,
             SessionHistoryParams {
-                session_id,
+                session_id: session_id.clone(),
                 n,
                 after,
                 before,
             },
         )
         .await?;
-    output(json, v, |h: SessionHistoryResult| {
+    // Shown to the end of the session: not a page back, not one that goes on.
+    let to_the_end = before.is_none() && v.get("next").is_none_or(Value::is_null);
+    let shown = output(json, v, |h: SessionHistoryResult| {
         let mut out = io::stdout().lock();
         writeln!(out, "{}", render::session_header(&h.session))?;
         for node in &h.nodes {
@@ -255,7 +257,11 @@ pub async fn history(
         }
         print::lines(&mut out, &render::history::page_lines(&h))?;
         Ok(())
-    })
+    });
+    if shown.is_ok() && to_the_end {
+        theseus_client::shown::shown(conn, &[session_id]).await;
+    }
+    shown
 }
 
 /// `theseus watch`: a session's events as they come, until the connection
@@ -274,9 +280,21 @@ pub async fn watch(
         },
     )
     .await?;
+    // The handler first: a Ctrl-C after the line below must end in a record.
+    let mut sigint = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt())?;
     eprintln!("watching {sid} (Ctrl-C to stop)");
     let mut printer = Printer::new(Mode::Watch, thinking);
-    while let Some(msg) = conn.next().await? {
+    loop {
+        // Ctrl-C ends the watch, and what it showed is recorded first.
+        let msg = tokio::select! {
+            m = conn.next() => m?,
+            _ = sigint.recv() => {
+                printer.settle();
+                theseus_client::shown::shown(conn, std::slice::from_ref(&sid)).await;
+                return Ok(());
+            }
+        };
+        let Some(msg) = msg else { break };
         if let Message::Notification(n) = msg {
             if json {
                 println!("{}", serde_json::to_string(&n)?);
@@ -398,8 +416,24 @@ pub async fn watch_all(conn: &mut Conn, json: bool) -> Result<()> {
 /// `theseus confirm`: everything waiting, or an answer, then the turn it
 /// resumes.
 pub async fn confirm(conn: &mut Conn, json: bool, a: ConfirmArgs) -> Result<()> {
+    let mut shown = Vec::new();
+    let done = confirm_shown(conn, json, a, &mut shown).await;
+    if done.is_ok() {
+        theseus_client::shown::shown(conn, &shown).await;
+    }
+    done
+}
+
+/// `confirm`, collecting into `shown` the sessions whose questions it listed
+/// or answered, for the seen file.
+async fn confirm_shown(
+    conn: &mut Conn,
+    json: bool,
+    a: ConfirmArgs,
+    shown: &mut Vec<String>,
+) -> Result<()> {
     let Some(correlation_id) = a.correlation_id else {
-        return confirm_list(conn, json).await;
+        return confirm_list(conn, json, shown).await;
     };
     let mode = if json { Mode::Json } else { Mode::Text };
     let mut printer = Printer::new(mode, false);
@@ -419,6 +453,7 @@ pub async fn confirm(conn: &mut Conn, json: bool, a: ConfirmArgs) -> Result<()> 
         )
         .await?;
     let r: ActionConfirmResult = serde_json::from_value(v.clone())?;
+    shown.push(r.session_id.clone());
     if !r.resumes && r.approved {
         // A proposed extension's ack (M7 43a): nothing loads, and no turn
         // resumes.
@@ -462,11 +497,12 @@ pub async fn confirm(conn: &mut Conn, json: bool, a: ConfirmArgs) -> Result<()> 
 }
 
 /// Everything waiting for an answer, across sessions (`confirm.list`).
-async fn confirm_list(conn: &mut Conn, json: bool) -> Result<()> {
+async fn confirm_list(conn: &mut Conn, json: bool, shown: &mut Vec<String>) -> Result<()> {
     let waiting = serde_json::from_value::<ConfirmListResult>(
         conn.request(method::CONFIRM_LIST, Value::Null).await?,
     )?
     .confirms;
+    shown.extend(waiting.iter().map(|c| c.session_id.clone()));
     if json {
         println!("{}", serde_json::to_string(&waiting)?);
     } else if waiting.is_empty() {

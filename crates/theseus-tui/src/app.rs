@@ -19,7 +19,7 @@ use theseus_protocol::{
 use crate::board::{short, Board, Moved, Only, Question, Row};
 use crate::detail::Detail;
 use crate::notice::{Kind, Notices};
-use crate::seen::Seen;
+use theseus_client::seen::Seen;
 
 /// What the TUI's requests carry as their author: the ledger names it, and
 /// `[approval]` counts its answers as the CLI's (the `cli` channel).

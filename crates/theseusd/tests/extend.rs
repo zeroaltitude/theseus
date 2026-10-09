@@ -247,6 +247,8 @@ impl Rig {
             .args(["confirm", id])
             .env_remove("THESEUS_SESSION")
             .envs(env.iter().copied())
+            // The CLI's seen file is the test's own, never the machine's (theseus-yus0).
+            .env("XDG_STATE_HOME", self.path("xdg-state"))
             .output()
             .unwrap();
         (
@@ -491,6 +493,8 @@ impl Rig {
             .args(args)
             .env_remove("THESEUS_SESSION")
             .envs(env.iter().copied())
+            // The CLI's seen file is the test's own, never the machine's (theseus-yus0).
+            .env("XDG_STATE_HOME", self.path("xdg-state"))
             .output()
             .unwrap();
         (

@@ -13,7 +13,6 @@ mod card;
 mod detail;
 mod notice;
 mod run;
-mod seen;
 mod ui;
 
 #[cfg(test)]
@@ -29,7 +28,7 @@ use theseus_client::Conn;
 use crate::app::App;
 use crate::notice::Delivery;
 use crate::run::{Connector, Runner};
-use crate::seen::Seen;
+use theseus_client::seen::Seen;
 
 const USAGE: &str = "theseus-tui: every session of a running theseusd, in one terminal
 
@@ -41,8 +40,8 @@ usage: theseus-tui [--socket PATH] [--notify HOW]
   -h, --help      this help
   -V, --version   the version
 
-What you have seen is kept in $XDG_STATE_HOME/theseus/tui-seen.json
-(~/.local/state/theseus/tui-seen.json), on this machine only. Keys: ? in the TUI.";
+What you have seen is kept in $XDG_STATE_HOME/theseus/seen.json
+(~/.local/state/theseus/seen.json), on this machine only. Keys: ? in the TUI.";
 
 /// What the command line says.
 struct Args {

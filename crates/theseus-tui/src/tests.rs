@@ -24,8 +24,8 @@ use crate::app::App;
 use crate::board::{short_label, Board, Only};
 use crate::notice::{Delivery, Kind, Notices};
 use crate::run::{Connector, Runner};
-use crate::seen::Seen;
 use crate::ui;
+use theseus_client::seen::Seen;
 
 /// 2026-09-21 14:13:20 UTC, the tests' epoch.
 pub const T0: u64 = 1_790_000_000_000;
@@ -1683,7 +1683,7 @@ pub fn harbour_rig_seen(
 #[tokio::test]
 async fn done_until_seen_survives_a_restart() {
     let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("theseus").join("tui-seen.json");
+    let path = dir.path().join("theseus").join("seen.json");
     let world = harbour_world();
     // Run 1: a first start sees the board as it is, then the tide task ends.
     let mut rig = harbour_rig_seen(80, 24, world.clone(), &path);
