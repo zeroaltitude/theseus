@@ -478,7 +478,7 @@ fn tail(id: &str) -> &str {
 }
 
 /// One line of a reason, cut at `LABEL_REASON_CHARS`.
-fn clip(s: &str) -> String {
+pub(crate) fn clip(s: &str) -> String {
     let line = s.lines().next().unwrap_or_default().trim();
     if line.chars().count() <= LABEL_REASON_CHARS {
         return line.to_string();

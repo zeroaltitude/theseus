@@ -51,6 +51,8 @@ fn declared() -> Vec<(String, bool)> {
         include_str!("ontology.rs"),
         include_str!("places.rs"),
         include_str!("push.rs"),
+        include_str!("work.rs"),
+        include_str!("notices.rs"),
     ] {
         let lines: Vec<&str> = src.lines().collect();
         for (i, l) in lines.iter().enumerate() {
@@ -154,7 +156,7 @@ fn the_cockpits_types_are_generated_from_the_rust_ones() {
         extend::ExtendLoadedInfo, extend::ExtensionRevokeParams, extend::ExtensionRevokeResult,
         tasks::TaskState, tasks::TaskOrigin, tasks::TaskEvidence, tasks::TaskProposal,
         tasks::TaskRecord, tasks::TaskGetParams, tasks::TaskGetResult, tasks::TaskChanged,
-        tasks::TaskViewSummary, tasks::TaskClaim, tasks::TaskChange,
+        tasks::TaskViewSummary, tasks::TaskClaim, tasks::TaskChange, work::WorkKind, work::WorkState, work::WorkView, work::DoingKind, work::Doing, work::Progress, work::QuestionKind, work::WorkRef, work::Question, work::Style, work::AnswerOption, work::Rollup, work::Eta, work::Cost, work::WorkReport, work::Woke, notices::Urgency, notices::Why, notices::Notice, notices::Finished, notices::Rules, notices::Viewer, notices::Delivery,
     }
     let files: BTreeSet<String> = std::fs::read_dir(&dir)
         .unwrap()

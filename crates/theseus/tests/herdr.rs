@@ -773,3 +773,100 @@ fn no_herdr_reports_nothing() {
     let methods: Vec<Value> = d.requests().iter().map(|r| r["method"].clone()).collect();
     assert_eq!(methods, [json!("session.watch")]);
 }
+
+/// The wall clock, in ms since the epoch.
+fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as u64
+}
+
+/// The `notification.show` requests herdr received.
+fn shown(got: &[Value]) -> Vec<Value> {
+    got.iter()
+        .filter(|r| r["method"] == "notification.show")
+        .map(|r| r["params"].clone())
+        .collect()
+}
+
+/// The notification policy's pings that the pane's state does not already
+/// say (theseus-753z): a question's reminder at half its life is one
+/// `notification.show`, once; the question itself is the pane's blocked
+/// state, and sends none. Its life is 24 s, so its reminder falls outside
+/// the burst window (10 s) the question opened.
+#[test]
+fn a_reminder_is_one_notification() {
+    let dir = tempfile::tempdir().unwrap();
+    let herdr = FakeHerdr::answering(dir.path(), |r| {
+        Ok(if r["method"] == "notification.show" {
+            json!({"type": "rate_limited"})
+        } else {
+            json!({"type": "ok"})
+        })
+    });
+    let now = now_ms();
+    let first = json!({"position": 10, "at_ms": now, "execution_id": X, "session_id": S,
+        "kind": "conversation", "state": "waiting",
+        "waiting_on": {"on": "confirm", "confirm_id": "cor_tide"},
+        "pending": [{"correlation_id": "cor_tide", "tool": "proc.run",
+                     "reason": "run the tide tables", "expires_at_ms": now + 24_000}],
+        "turns": 2, "spent_usd": 0.0, "limit_usd": 10.0,
+        "attention": {"level": "needs_you", "label": "confirm proc.run: run the tide tables",
+                      "since_ms": now}});
+    let d = daemon(dir.path(), first, vec![]);
+    let w = Watch::start(&d, Some(&herdr), &[]);
+    let got = herdr.wait_for("notification.show", 1);
+    assert_eq!(
+        reports(&got),
+        [rep("blocked", "confirm proc.run: run the tide tables")]
+    );
+    assert_eq!(
+        shown(&got),
+        [json!({"title": "Tide notes", "sound": "request",
+                "body": "● still waiting, 1 min left: Tide notes's proc.run"})]
+    );
+    assert!(now_ms() >= now + 12_000, "not before half its life");
+    std::thread::sleep(Duration::from_millis(1_500));
+    assert_eq!(shown(&herdr.requests()).len(), 1, "once");
+    let err = w.err.lock().unwrap().clone();
+    assert!(
+        !err.contains("herdr did not"),
+        "rate_limited is an answer: {err}"
+    );
+}
+
+/// A wake's turn on the session says so in one notification; a spend change
+/// sends no notification, only the metadata it sent before.
+#[test]
+fn a_wake_is_one_notification_and_spend_is_none() {
+    let dir = tempfile::tempdir().unwrap();
+    let herdr = FakeHerdr::start(dir.path());
+    let (s, l, lbl) = READY;
+    let d = daemon(dir.path(), view(10, s, l, lbl, None, 0.0), vec![]);
+    let _w = Watch::start(&d, Some(&herdr), &[]);
+    herdr.wait_for("pane.report_metadata", 1);
+    d.push(
+        "execution.changed",
+        view(11, "running", "working", "turn 2", None, 0.0),
+    );
+    herdr.wait_for("pane.report_metadata", 2);
+    let before = herdr.requests().len();
+    d.push(
+        "execution.changed",
+        view(12, "running", "working", "turn 2", None, 0.42),
+    );
+    let got = herdr.wait_for("pane.report_metadata", 3);
+    std::thread::sleep(Duration::from_millis(300));
+    assert_eq!(herdr.requests().len(), before + 1, "the metadata alone");
+    assert!(shown(&got).is_empty());
+    let mut queued = view(13, "queued", "working", "queued · wake", None, 0.42);
+    queued["why"] = json!("wake");
+    d.push("execution.changed", queued);
+    let got = herdr.wait_for("notification.show", 1);
+    assert_eq!(
+        shown(&got),
+        [json!({"title": "Tide notes", "sound": "request",
+                "body": "⏰ Tide notes · its wake fired"})]
+    );
+}

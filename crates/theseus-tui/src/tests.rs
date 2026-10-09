@@ -22,10 +22,11 @@ use tokio::sync::mpsc;
 
 use crate::app::App;
 use crate::board::{short_label, Board, Only};
-use crate::notice::{Delivery, Kind, Notices};
+use crate::notice::{Delivery, Notices};
 use crate::run::{Connector, Runner};
 use crate::ui;
 use theseus_client::seen::Seen;
+use theseus_protocol::notices::{Delivery::Ping, Viewer};
 
 /// 2026-09-21 14:13:20 UTC, the tests' epoch.
 pub const T0: u64 = 1_790_000_000_000;
@@ -1532,35 +1533,45 @@ async fn a_budget_question_says_what_approving_does() {
 // ---------------------------------------------------------------- 10e
 
 /// A notice waits out its second and is checked against the latest view: a
-/// session that finished and went back to work within the second gives
-/// none; one that stays finished gives one, once.
+/// session that failed and went back to work within the second gives none;
+/// one that stays failed gives one, once, in the policy's words.
 #[test]
 fn a_notice_is_debounced_and_checked_again_before_it_fires() {
     let mut n = Notices::default();
-    let ready = conv(11, "ses_a", "waiting", input(), 0.0);
+    let hm = |ms: u64| utc_hm(ms);
+    let viewer = |_: &str| Viewer {
+        sound: true,
+        ..Viewer::default()
+    };
+    n.saw(&conv(10, "ses_a", "running", None, 0.0), "DM");
+    let failed = |p| conv(p, "ses_a", "failed", None, 0.0);
     let again = conv(12, "ses_a", "running", None, 0.0);
-    n.moved("ses_a", Some(Level::Working), &ready, 1_000);
+    n.moved(&failed(11), "DM", 1_000, &hm);
     assert_eq!(n.next_due(), Some(2_000));
     // Back to work at 1.5 s: at 2 s the latest view no longer holds it.
-    n.moved("ses_a", Some(Level::Ready), &again, 1_500);
+    n.moved(&again, "DM", 1_500, &hm);
     let latest = again.clone();
     assert!(n
-        .take_due(2_000, &|_| Some(latest.clone()), &|_| false)
+        .take_due(2_000, &|_| Some(latest.clone()), &viewer, &hm)
         .is_empty());
-    // Finished again, and it stays: one notice, once.
-    n.moved("ses_a", Some(Level::Working), &ready, 3_000);
-    let latest = ready.clone();
+    // Failed again, and it stays: one notice, once.
+    n.moved(&failed(13), "DM", 3_000, &hm);
+    let latest = failed(13);
     assert!(
-        n.take_due(3_999, &|_| Some(latest.clone()), &|_| false)
+        n.take_due(3_999, &|_| Some(latest.clone()), &viewer, &hm)
             .is_empty(),
         "not before its second"
     );
+    let fired = n.take_due(4_000, &|_| Some(latest.clone()), &viewer, &hm);
     assert_eq!(
-        n.take_due(4_000, &|_| Some(latest.clone()), &|_| false),
-        [("ses_a".to_string(), Kind::Finished)]
+        fired
+            .iter()
+            .map(|f| (f.sid.as_str(), f.line.as_str(), f.delivery))
+            .collect::<Vec<_>>(),
+        [("ses_a", "✗ DM failed", Ping { sound: true })]
     );
     assert!(
-        n.take_due(9_000, &|_| Some(latest.clone()), &|_| false)
+        n.take_due(9_000, &|_| Some(latest.clone()), &viewer, &hm)
             .is_empty(),
         "once"
     );
@@ -1571,15 +1582,28 @@ fn a_notice_is_debounced_and_checked_again_before_it_fires() {
 #[test]
 fn the_focused_session_gets_no_notice_while_the_terminal_has_focus() {
     let mut n = Notices::default();
-    let ready = conv(11, "ses_a", "waiting", input(), 0.0);
-    n.moved("ses_a", Some(Level::Working), &ready, 0);
-    let latest = ready.clone();
+    let hm = |ms: u64| utc_hm(ms);
+    let failed = conv(11, "ses_a", "failed", None, 0.0);
+    let present = |_: &str| Viewer {
+        focused: Some("ses_a".into()),
+        sound: true,
+        ..Viewer::default()
+    };
+    let away = |_: &str| Viewer {
+        away_ms: 5_000,
+        ..present("")
+    };
+    n.saw(&conv(10, "ses_a", "running", None, 0.0), "DM");
+    n.moved(&failed, "DM", 0, &hm);
+    let latest = failed.clone();
     assert!(n
-        .take_due(1_000, &|_| Some(latest.clone()), &|_| true)
+        .take_due(1_000, &|_| Some(latest.clone()), &present, &hm)
         .is_empty());
-    n.moved("ses_a", Some(Level::Working), &ready, 2_000);
+    n.moved(&conv(12, "ses_a", "running", None, 0.0), "DM", 1_500, &hm);
+    n.moved(&conv(13, "ses_a", "failed", None, 0.0), "DM", 2_000, &hm);
+    let latest = conv(13, "ses_a", "failed", None, 0.0);
     assert_eq!(
-        n.take_due(3_000, &|_| Some(latest.clone()), &|_| false)
+        n.take_due(3_000, &|_| Some(latest.clone()), &away, &hm)
             .len(),
         1
     );
@@ -1587,17 +1611,21 @@ fn the_focused_session_gets_no_notice_while_the_terminal_has_focus() {
 
 #[test]
 fn a_notice_reaches_the_terminal_as_its_delivery_says() {
-    assert_eq!(Delivery::Bell.bytes("DM finished"), b"\x07");
+    assert_eq!(Delivery::Bell.bytes("DM finished", true), b"\x07");
+    assert!(
+        Delivery::Bell.bytes("DM finished", false).is_empty(),
+        "a ping without sound rings no bell"
+    );
     assert_eq!(
-        Delivery::Osc9.bytes("DM finished"),
+        Delivery::Osc9.bytes("DM finished", false),
         b"\x1b]9;theseus: DM finished\x07"
     );
     assert_eq!(
-        Delivery::Osc777.bytes("DM\x1b finished"),
+        Delivery::Osc777.bytes("DM\x1b finished", true),
         b"\x1b]777;notify;theseus;DM finished\x07",
         "no control character reaches the sequence"
     );
-    assert!(Delivery::Off.bytes("DM finished").is_empty());
+    assert!(Delivery::Off.bytes("DM finished", true).is_empty());
     assert_eq!(Delivery::parse("osc777"), Some(Delivery::Osc777));
     assert_eq!(Delivery::parse("loud"), None);
 }
@@ -1624,10 +1652,11 @@ impl Captured {
 }
 
 /// §3.2's live check for 10e, in a test: a background task finishes; its row
-/// says ◆ done, the header counts it, the title carries the count, and the
-/// notice waits out its second, then rings once.
+/// says ◆ done, the header counts it, the title carries the count, and its
+/// report waits out its second, then shows in the footer without a bell (the
+/// policy's row 8: a task's report informs; theseus-753z).
 #[tokio::test]
-async fn a_finished_task_is_done_counted_and_rung_once() {
+async fn a_finished_task_is_done_counted_and_told_without_a_bell() {
     let mut rig = harbour_rig(80, 24);
     let out = Captured::default();
     rig.runner.out = Box::new(out.clone());
@@ -1654,15 +1683,13 @@ async fn a_finished_task_is_done_counted_and_rung_once() {
         |o: &Captured| o.text().matches('\x07').count() - o.text().matches("\x1b]0;").count();
     assert_eq!(bells(&out), 0, "not before its second");
     NOW.with(|n| n.set(T0 + 1_000));
-    rig.until("the bell", |_| bells(&out) == 1).await;
-    assert!(
-        rig.screen()[23].contains("check the tide tables finished"),
-        "{:?}",
-        rig.screen()
-    );
+    rig.until("the report in the footer", |r| {
+        r.screen()[23].contains("check the tide tables reported")
+    })
+    .await;
     NOW.with(|n| n.set(T0 + 5_000));
     rig.settle().await;
-    assert_eq!(bells(&out), 1, "once");
+    assert_eq!(bells(&out), 0, "a report informs: no bell");
 }
 
 /// A rig whose seen file is `path`.

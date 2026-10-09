@@ -344,6 +344,11 @@ impl Seen {
         finished
     }
 
+    /// The position of the execution's view last displayed; 0 for none.
+    pub fn displayed(&self, execution_id: &str) -> u64 {
+        self.marks.get(execution_id).map_or(0, |m| m.displayed)
+    }
+
     /// The board was read for the first time: from now on an execution the
     /// TUI never knew is new, not part of a first start's board.
     pub fn first_board_read(&mut self) {
