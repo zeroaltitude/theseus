@@ -6,6 +6,7 @@
 
 use std::collections::{HashMap, HashSet, VecDeque};
 
+use theseus_client::names;
 use theseus_protocol::{
     Attention, ConfirmRequest, ConfirmResolved, ExecutionView, ExecutionsWatchResult, Level,
     PendingConfirm, SessionInfo, SessionKind,
@@ -26,8 +27,9 @@ pub struct Board {
     views: HashMap<String, ExecutionView>,
     /// Titles, kinds, and models, from `session.list`.
     sessions: HashMap<String, SessionInfo>,
-    /// Sessions whose title was asked for, so each is asked once.
-    asked: HashSet<String>,
+    /// Sessions whose title was asked for, with the turns each view had
+    /// then: one is asked again only when its turns grow (theseus-0n1v).
+    asked: HashMap<String, u64>,
     /// The questions waiting, whole, by correlation id.
     confirms: HashMap<String, ConfirmRequest>,
     resolved: VecDeque<String>,
@@ -242,29 +244,54 @@ impl Board {
     /// Titles from `session.list`.
     pub fn titles(&mut self, sessions: Vec<SessionInfo>) {
         for s in sessions {
-            self.asked.insert(s.session_id.clone());
+            self.asked.entry(s.session_id.clone()).or_insert(0);
             self.sessions.insert(s.session_id.clone(), s);
         }
     }
 
-    /// Sessions with a view and no title yet, not asked for before: they are
-    /// marked asked.
-    pub fn untitled(&mut self) -> Vec<String> {
+    /// The sessions to ask `session.list` about, each marked asked at its
+    /// view's stage: one seen for the first time; one whose answer lacked
+    /// its name (its first view can come before its record is written, and a
+    /// title is written with its first turn), once its turns grow or its turn
+    /// settles; and the session `focus` names while its answer's turns lag
+    /// its view's, so a message typed to it continues on the profile its last
+    /// turn ran on (theseus-0n1v). At most two asks a session a turn, never
+    /// one a frame.
+    pub fn untitled(&mut self, focus: Option<&str>) -> Vec<String> {
         let mut ids: Vec<String> = self
             .views
-            .keys()
-            .filter(|sid| !self.asked.contains(*sid))
-            .cloned()
+            .values()
+            .filter(|v| match self.asked.get(&v.session_id) {
+                None => true,
+                Some(at) if stage(v) > *at => {
+                    let info = self.sessions.get(&v.session_id);
+                    let named = info.is_some_and(|s| {
+                        names::words(v.kind, s.label.as_deref(), s.title.as_deref()).is_some()
+                    });
+                    let lags = focus == Some(v.session_id.as_str())
+                        && info.is_none_or(|s| s.turns < v.turns);
+                    !named || lags
+                }
+                Some(_) => false,
+            })
+            .map(|v| v.session_id.clone())
             .collect();
         ids.sort();
-        self.asked.extend(ids.iter().cloned());
+        for sid in &ids {
+            let at = self.views.get(sid).map_or(0, stage);
+            self.asked.insert(sid.clone(), at);
+        }
         ids
     }
 
     /// Forget which titles were asked for and not answered (a reconnect asks
     /// again).
     pub fn ask_again(&mut self) {
-        self.asked = self.sessions.keys().cloned().collect();
+        self.asked = self
+            .sessions
+            .keys()
+            .map(|sid| (sid.clone(), self.views.get(sid).map_or(0, stage)))
+            .collect();
     }
 
     /// A question a view lists that the board does not hold whole: asked for
@@ -347,30 +374,24 @@ impl Board {
         ids
     }
 
-    /// A session's name in the sidebar: its label or title, else its kind
-    /// and the end of its id.
+    /// A session's name in the sidebar, its notices and its prompts, by the
+    /// clients' one rule (`theseus_client::names`, theseus-0n1v): a task's
+    /// title, a conversation's label or title, else its kind and the end of
+    /// its id.
     pub fn name(&self, sid: &str) -> String {
         let info = self.sessions.get(sid);
-        let named = info.and_then(|s| {
-            s.label
-                .as_deref()
-                .filter(|l| !l.trim().is_empty())
-                .or(s.title.as_deref())
-                .filter(|t| !t.trim().is_empty())
-        });
-        if let Some(n) = named {
-            return one_line(n);
-        }
         let kind = self
             .views
             .get(sid)
             .map(|v| v.kind)
             .or(info.map(|s| s.kind))
             .unwrap_or(SessionKind::Conversation);
-        match kind {
-            SessionKind::Task => format!("task {}", short(sid)),
-            SessionKind::Conversation => format!("ses {}", short(sid)),
-        }
+        names::name(
+            kind,
+            info.and_then(|s| s.label.as_deref()),
+            info.and_then(|s| s.title.as_deref()),
+            sid,
+        )
     }
 
     /// The sidebar: with `Only::All` and no text, every session as a tree (a
@@ -579,6 +600,12 @@ pub fn short_label(a: &Attention) -> String {
         }
     }
     one_line(l)
+}
+
+/// Where a session's view stands, for the board's asks: two steps a turn,
+/// its start and its settling.
+fn stage(v: &ExecutionView) -> u64 {
+    v.turns * 2 + u64::from(v.state != "running")
 }
 
 /// The end of an id, as people name it (`/cancel a1b2c3`).

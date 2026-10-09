@@ -41,6 +41,7 @@ pub mod sessions;
 mod store;
 mod task_graph;
 mod tasks;
+pub mod time;
 mod web;
 pub use aws::{aws_call_line, aws_lines, bootstrap_lines};
 pub use cancel::{cancels_line, verdict_lines};
@@ -63,6 +64,7 @@ pub use sandbox::sandbox_line;
 pub use store::{crash_line, node_cache_line, store_lines, store_reads_line};
 pub use task_graph::{task_tree_lines, tree_line};
 pub use tasks::{task_check, task_pieces};
+pub use time::fmt_time;
 
 /// What a line is, as the CLI's marks have always told one from another. The
 /// CLI prints a line's text alone, so a tag changes nothing it prints; the
@@ -1372,7 +1374,7 @@ fn reach_generation(lines: &mut Vec<Line>, head: String, e: &theseus_protocol::R
     }
 }
 
-/// ` · first 03:41:07.123Z · last 03:42:10.456Z`, or nothing when nothing
+/// ` · first 20:41:07.123 · last 20:42:10.456`, or nothing when nothing
 /// held it.
 fn exposed(first: Option<u64>, last: Option<u64>) -> String {
     match (first, last) {
@@ -1619,20 +1621,6 @@ pub fn tightened_line(r: &theseus_protocol::TightenResult, tightened: bool) -> S
             r.tool, r.tightening.by, r.setting
         ),
     }
-}
-
-/// hh:mm:ss.mmm in local time, without pulling in a date crate.
-pub fn fmt_time(unix_ms: u64) -> String {
-    let secs = unix_ms / 1000;
-    let ms = unix_ms % 1000;
-    let s = secs % 86_400;
-    format!(
-        "{:02}:{:02}:{:02}.{:03}Z",
-        s / 3600,
-        (s / 60) % 60,
-        s % 60,
-        ms
-    )
 }
 
 pub fn fmt_us(us: u64) -> String {
@@ -2118,10 +2106,7 @@ pub fn session_row(s: &SessionInfo) -> Line {
                 None => s.execution_state.clone().unwrap_or_else(|| "-".into()),
             } + &sessions::state_column(s),
             s.model.as_deref().unwrap_or("-"),
-            s.label
-                .as_deref()
-                .or(s.title.as_deref())
-                .unwrap_or_default()
+            sessions::name_column(s)
         ),
     )
 }
@@ -2627,7 +2612,7 @@ mod tests {
         let out = policy_list(&l, &[t.clone(), gone]);
         assert!(
             out.contains(
-                "proc.run     approve  tightened by discord:zeroaltitude at 01:00:00.000Z, from act_1 \
+                "proc.run     approve  tightened by discord:zeroaltitude at 18:00:00.000, from act_1 \
                  (the config says notify, enforcement = notify)"
             ),
             "{out}"
@@ -2837,7 +2822,7 @@ mod tests {
             config_line(&held).unwrap(),
             "config: held: the vault's note changed again since the restart; restart to apply\n  \
              acting on the copy this start served from; the next start reads the vault again\n  \
-             restarted at 01:00:00.000Z onto the vault's changed note; changed since the copy: \
+             restarted at 18:00:00.000 onto the vault's changed note; changed since the copy: \
              kernel"
         );
     }

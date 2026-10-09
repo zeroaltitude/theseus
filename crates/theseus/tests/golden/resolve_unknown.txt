@@ -1,0 +1,28 @@
+$ theseus watch zzzz99
+--- requests
+execution.list
+--- stdout
+--- stderr
+theseus: no session is named `zzzz99`
+--- exit 1
+$ theseus watch ses_zzzz99
+--- requests
+session.list
+--- stdout
+--- stderr
+theseus: no session is named `ses_zzzz99`
+--- exit 1
+$ theseus history zzzz99
+--- requests
+execution.list
+--- stdout
+--- stderr
+theseus: no session is named `zzzz99`
+--- exit 1
+$ theseus confirm zzzz99
+--- requests
+confirm.list
+--- stdout
+--- stderr
+theseus: no question is named `zzzz99`
+--- exit 1

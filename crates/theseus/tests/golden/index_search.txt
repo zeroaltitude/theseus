@@ -3,9 +3,9 @@ $ theseus index search port 7433 -k 5
 index.query
 --- stdout
 2 hits for "port 7433" · through position 1607 · 0 B behind · 75.5 ms (bm25 0.4, entity 0.1, embed 74.2, vector 0.6)
- 1. 2025-10-01 06:26 UTC · user_message · ses_q7f3k2 @1509 · nod_u1#0 · bm25 #1, vector #2 · fused 0.1148
+ 1. 2025-09-30 23:26 · user_message · ses_q7f3k2 @1509 · nod_u1#0 · bm25 #1, vector #2 · fused 0.1148
     the web UI listens on 7433, not on 7434
- 2. 2025-10-01 06:10 UTC · tool_result · ses_b2c9w1 @1388 · nod_t2#1 · entity #1 · fused 0.0164 · fs.read · external · entities file:Cargo.toml
+ 2. 2025-09-30 23:10 · tool_result · ses_b2c9w1 @1388 · nod_t2#1 · entity #1 · fused 0.0164 · fs.read · external · entities file:Cargo.toml
     [workspace] members = ["crates/core", "crates/cli"] resolver = "2" [workspace.package] version = "0.0.1" edition = "2021" license = "MIT OR Apache-2.0" rust-ver…
 --- stderr
 --- exit 0

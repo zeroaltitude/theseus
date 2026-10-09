@@ -14,6 +14,7 @@ const SID: &str = "ses_dm0001";
 
 /// An app focused on the DM, its history read.
 fn focused() -> App {
+    theseus_client::render::time::pin_for_tests();
     let mut app = App::new(utc_hm);
     app.focus(SID);
     app.answered(Purpose::History(SID.into()), Ok(dm_history()));
@@ -65,7 +66,7 @@ fn reply(app: &mut App, turn: &str, pieces: &[&str]) {
     }
 }
 
-const ASKED: &str = "[14:13:40.000Z] operator (discord:wren): and the next high water?";
+const ASKED: &str = "[07:13:40.000] operator (discord:wren): and the next high water?";
 
 /// The message's line shows above the reply that streamed while it was read,
 /// and the reply's open line goes on below it.
@@ -112,7 +113,7 @@ fn two_messages_keep_the_order_they_were_written_in() {
         got[before..],
         [
             ASKED,
-            "[14:13:40.000Z] operator (discord:wren): and the moon?",
+            "[07:13:40.000] operator (discord:wren): and the moon?",
             "── turn turn_c2",
             "Noted.",
         ],

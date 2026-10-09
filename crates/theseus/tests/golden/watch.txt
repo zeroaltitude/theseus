@@ -1,6 +1,6 @@
 $ theseus watch ses_q7f3k2 --thinking
 --- requests
-session.watch
+session.list session.watch
 --- stdout
 Looking at the folder.
 

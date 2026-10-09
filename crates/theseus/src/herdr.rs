@@ -20,7 +20,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use anyhow::{anyhow, Context, Result};
 use serde_json::{json, Value};
-use theseus_protocol::{ExecutionView, Level};
+use theseus_protocol::{ExecutionView, Level, SessionKind};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::sync::{mpsc, oneshot};
 
@@ -156,7 +156,9 @@ pub async fn request(socket: &Path, id: &str, method: &str, params: Value) -> Re
 }
 
 /// herdr's name for an agent: `[a-z][a-z0-9_-]{0,31}`. A session's is
-/// `theseus-`, the end of its id, then its label's words: `theseus-q7f3k2-tide-notes`.
+/// `theseus-`, the end of its id, then the words of its name
+/// (`theseus_client::names`: a task's title, a conversation's label or
+/// title): `theseus-q7f3k2-tide-notes`.
 pub fn agent_name(session_id: &str, label: Option<&str>) -> String {
     let word = |s: &str| -> String {
         let mut out = String::new();
@@ -259,6 +261,7 @@ enum Job {
 pub struct Reporter {
     env: Env,
     session_id: String,
+    kind: SessionKind,
     label: Option<String>,
     title: Option<String>,
     tx: mpsc::UnboundedSender<Job>,
@@ -278,12 +281,19 @@ pub struct Reporter {
 
 impl Reporter {
     /// A reporter for `session_id` in the pane `env` names, and its task.
-    pub fn start(env: Env, session_id: &str, label: Option<String>, title: Option<String>) -> Self {
+    pub fn start(
+        env: Env,
+        session_id: &str,
+        kind: SessionKind,
+        label: Option<String>,
+        title: Option<String>,
+    ) -> Self {
         let (tx, rx) = mpsc::unbounded_channel();
         tokio::spawn(send_all(env.socket.clone(), rx));
         Self {
             env,
             session_id: session_id.to_string(),
+            kind,
             label,
             title,
             tx,
@@ -310,10 +320,16 @@ impl Reporter {
         }
     }
 
-    /// Whether the pane's title still waits for the session's: a session the
-    /// operator labelled is titled by its label, and needs no other.
+    /// Whether the pane's title still waits for the session's: a
+    /// conversation the operator labelled is titled by its label, and needs no
+    /// other; a task, by its title alone (theseus-0n1v).
     pub fn wants_title(&self) -> bool {
-        self.label.is_none() && self.title.is_none()
+        self.named().is_none()
+    }
+
+    /// The words that name the session (`theseus_client::names`).
+    fn named(&self) -> Option<&str> {
+        theseus_client::names::words(self.kind, self.label.as_deref(), self.title.as_deref())
     }
 
     /// A view of the session, from the first read or `execution.changed`.
@@ -361,7 +377,7 @@ impl Reporter {
                 // herdr names only a pane that is an agent, so after the first
                 // report; a release clears the name, so every watch names it.
                 self.named = true;
-                let name = agent_name(&self.session_id, self.label.as_deref());
+                let name = agent_name(&self.session_id, self.named());
                 self.push(
                     "agent.rename",
                     json!({"target": self.env.pane_id, "name": name}),
@@ -376,7 +392,7 @@ impl Reporter {
             return;
         };
         let meta = Meta {
-            title: self.label.clone().or_else(|| self.title.clone()),
+            title: self.named().map(String::from),
             display_agent: format!("{AGENT}: {label}"),
             session: self.session_id.clone(),
             cost: self.cost.clone(),
@@ -561,6 +577,7 @@ mod tests {
                 socket: PathBuf::from("/nowhere"),
             },
             session_id: "ses_q7f3k2".into(),
+            kind: SessionKind::Conversation,
             label: Some("Tide notes".into()),
             title: None,
             tx,

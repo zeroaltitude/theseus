@@ -39,7 +39,7 @@ pub fn node_lines(n: &NodeInfo, full: bool) -> Vec<Line> {
     out
 }
 
-/// `line` with `id` after its mark: `[06:26:41.234Z] `, or the indent and
+/// `line` with `id` after its mark: `[23:26:41.234] `, or the indent and
 /// symbol of a call or a result.
 fn with_id(line: &str, id: &str) -> String {
     let at = if line.starts_with('[') {
@@ -64,8 +64,8 @@ mod tests {
         assert_eq!(short("msg_0198a0b1c2d3e4f5a6b7c8d9e0f1a2b3"), "msg·f1a2b3");
         assert_eq!(short("abcdefgh"), "cdefgh");
         assert_eq!(
-            with_id("[06:26:41.234Z] operator: hi", "msg·f1a2b3"),
-            "[06:26:41.234Z] msg·f1a2b3 operator: hi"
+            with_id("[23:26:41.234] operator: hi", "msg·f1a2b3"),
+            "[23:26:41.234] msg·f1a2b3 operator: hi"
         );
         assert_eq!(
             with_id("      ← fs.list ok · 9 B: a.md", "res·a1b2c3"),

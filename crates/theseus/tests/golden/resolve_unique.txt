@@ -1,0 +1,28 @@
+$ theseus history 527d2a
+--- requests
+execution.list session.history
+--- stdout
+── ses_0c7e527d2a · "Survey the north quay" · 1 turn(s) · 0 tool call(s) · $0.0000 · -
+--- stderr
+--- exit 0
+$ theseus watch …527d2a
+--- requests
+execution.list session.watch
+--- stdout
+--- stderr
+watching ses_0c7e527d2a (Ctrl-C to stop)
+--- exit 0
+$ theseus confirm 527d2a --no-wait
+--- requests
+confirm.list action.confirm
+--- stdout
+approved act_0c7e527d2a · session ses_0c7e527d2a
+--- stderr
+--- exit 0
+$ theseus stop 527d2a
+--- requests
+execution.list execution.stop
+--- stdout
+stopped session ses_0c7e527d2a's work · 0 action(s) told to stop · 0 declined · the conversation goes on
+--- stderr
+--- exit 0

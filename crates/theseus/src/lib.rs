@@ -11,9 +11,14 @@
 //!   text, and the TUI styles it by its tag.
 //! - [`outcome`]: how a turn ended, as `theseus ask`'s exit code
 //!   (theseus-n88g.2).
+//! - [`names`]: what a session is called, in every client (theseus-0n1v).
+//! - [`resolve`]: the one rule by which a command names a session, an
+//!   execution or a question: its id, or a unique end of it (theseus-0n1v).
 
 pub mod client;
+pub mod names;
 pub mod outcome;
 pub mod render;
+pub mod resolve;
 
 pub use client::{CallError, Conn};

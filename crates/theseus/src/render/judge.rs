@@ -491,8 +491,8 @@ mod tests {
         assert_eq!(
             judge_log_lines(&[answered, failed]),
             [
-                "01:02:03.000Z loop.v1 (shadow) ses_a · work_state=complete 0.95 act · announced_unfinished=no 0.04 act · $0.000089 · 412 ms",
-                "01:02:03.000Z loop.v1 (shadow) ses_a · failed: timeout · no cost · 1000 ms",
+                "18:02:03.000 loop.v1 (shadow) ses_a · work_state=complete 0.95 act · announced_unfinished=no 0.04 act · $0.000089 · 412 ms",
+                "18:02:03.000 loop.v1 (shadow) ses_a · failed: timeout · no cost · 1000 ms",
             ]
         );
     }
@@ -526,7 +526,7 @@ mod tests {
         assert_eq!(
             judge_show_lines(&r),
             [
-                "jdg_a · loop.v1 v1 (shadow) at loop_end · 01:02:03.000Z",
+                "jdg_a · loop.v1 v1 (shadow) at loop_end · 18:02:03.000",
                 "session ses_a · turn turn_a · class reply · baseline no_tool_calls",
                 "answered · model jev-1.13.0 · 412 ms (queued 0, http 400) · $0.000089 · agrees with the baseline",
                 "state: 120 bytes, ~30 tokens (cap 4000), loop v1, sha256 ab12",
@@ -596,9 +596,9 @@ mod tests {
         assert_eq!(
             judge_log_lines(&[changed, kept, fell]),
             [
-                "01:02:03.000Z rerank.v1 (shadow) ses_b · recall rcl_a1 · 3 notes · changed what would be admitted (+1 −1) · $0.000120 · 341 ms of 600",
-                "01:02:03.000Z rerank.v1 (shadow) ses_b · recall rcl_a2 · 20 notes · kept what would be admitted · $0.000120 · 298 ms of 600",
-                "01:02:03.000Z rerank.v1 (shadow) ses_b · recall rcl_a3 · 2 notes · fell back to the fused order (timeout) · $0.000120 · 601 ms of 600",
+                "18:02:03.000 rerank.v1 (shadow) ses_b · recall rcl_a1 · 3 notes · changed what would be admitted (+1 −1) · $0.000120 · 341 ms of 600",
+                "18:02:03.000 rerank.v1 (shadow) ses_b · recall rcl_a2 · 20 notes · kept what would be admitted · $0.000120 · 298 ms of 600",
+                "18:02:03.000 rerank.v1 (shadow) ses_b · recall rcl_a3 · 2 notes · fell back to the fused order (timeout) · $0.000120 · 601 ms of 600",
             ]
         );
     }

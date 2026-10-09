@@ -560,11 +560,13 @@ impl App {
         }
     }
 
-    /// What the board needs after a change: the titles of new sessions, and
-    /// the whole of any question it holds only in brief.
+    /// What the board needs after a change: the titles of new sessions (and
+    /// of the session in focus, for its profile), and the whole of any
+    /// question it holds only in brief.
     fn follow_up(&mut self) -> Vec<Effect> {
         let mut out = Vec::new();
-        let ids = self.board.untitled();
+        let focus = self.detail.as_ref().map(|d| d.session_id.clone());
+        let ids = self.board.untitled(focus.as_deref());
         if !ids.is_empty() {
             out.push(call(
                 method::SESSION_LIST,
@@ -605,6 +607,7 @@ impl App {
         self.mark_shown();
         self.save_at = Some(self.now_ms + SAVE_AFTER_MS);
         out.extend(read_session(sid));
+        out.extend(self.follow_up());
         out
     }
 
@@ -657,8 +660,17 @@ impl App {
             KeyCode::Down | KeyCode::Char('j') => self.step(1),
             KeyCode::Up | KeyCode::Char('k') => self.step(-1),
             KeyCode::Enter => {
-                if let Some(sid) = self.selected.clone() {
-                    return self.focus(&sid);
+                // The row the cursor is on; when a filter hides it, the first
+                // row shown (theseus-0n1v).
+                if self.selected.is_some() {
+                    let rows = self.rows();
+                    let shown = match self.cursor(&rows) {
+                        Some(i) => rows.get(i),
+                        None => rows.first(),
+                    };
+                    if let Some(sid) = shown.map(|r| r.session_id.clone()) {
+                        return self.focus(&sid);
+                    }
                 }
                 self.step(1);
             }
@@ -873,11 +885,16 @@ impl App {
                     d.sent(&text);
                     d.scroll = 0;
                 }
-                return vec![call(
-                    method::TURN_SUBMIT,
-                    json!({ "session_id": sid, "input": text, "author": AUTHOR }),
-                    Purpose::Submit(sid),
-                )];
+                // On the profile the session's last turn ran on, carried and
+                // not chosen, as `watch --interactive` sends it: without it the
+                // daemon's live profile took the turn, another model without a
+                // word (theseus-nu3z, theseus-0n1v).
+                let mut params = json!({ "session_id": sid, "input": text, "author": AUTHOR });
+                if let Some(profile) = self.board.info(&sid).and_then(|i| i.profile.clone()) {
+                    params["profile"] = json!(profile);
+                    params["carried"] = json!(true);
+                }
+                return vec![call(method::TURN_SUBMIT, params, Purpose::Submit(sid))];
             }
             _ => {}
         }

@@ -1,0 +1,49 @@
+$ theseus history 5f6
+--- requests
+
+--- stdout
+--- stderr
+theseus: `5f6` is too short to name a session: give at least four characters of its id
+--- exit 1
+$ theseus watch 5f6
+--- requests
+
+--- stdout
+--- stderr
+theseus: `5f6` is too short to name a session: give at least four characters of its id
+--- exit 1
+$ theseus confirm 5f6
+--- requests
+
+--- stdout
+--- stderr
+theseus: `5f6` is too short to name a question: give at least four characters of its id
+--- exit 1
+$ theseus stop 5f6
+--- requests
+
+--- stdout
+--- stderr
+theseus: `5f6` is too short to name a session: give at least four characters of its id
+--- exit 1
+$ theseus cancel 5f6
+--- requests
+
+--- stdout
+--- stderr
+theseus: `5f6` is too short to name a task or a wake: give at least four characters of its id
+--- exit 1
+$ theseus wait 5f6
+--- requests
+
+--- stdout
+--- stderr
+theseus: `5f6` is too short to name a session: give at least four characters of its id
+--- exit 1
+$ theseus executions explain 5f6
+--- requests
+
+--- stdout
+--- stderr
+theseus: `5f6` is too short to name a session: give at least four characters of its id
+--- exit 1
