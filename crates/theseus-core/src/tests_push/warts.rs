@@ -101,7 +101,7 @@ async fn settled(core: &Arc<Core>) {
 /// view, so the cancelled execution's last view reads `outstanding` 0, as
 /// its record does. Before, `same()` did not compare it and the view stayed
 /// at 1 on every surface.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test]
 async fn a_cancels_verified_stop_sends_a_view_with_nothing_outstanding() {
     let server = serve().await;
     let dir = tempfile::tempdir().unwrap();
@@ -133,10 +133,19 @@ async fn a_cancels_verified_stop_sends_a_view_with_nothing_outstanding() {
         fetch.is_some()
     })
     .await;
-    let exec = fetch.unwrap().execution_id;
+    let fetch = fetch.unwrap();
+    // Its task reachable by the cancel: one that lands before is
+    // `unsupported`, and settles nothing (tests_cancel sleeps for it).
+    until("the fetch's task is tracked", || {
+        core.tools.stops.tracks(&fetch.correlation_id)
+    })
+    .await;
+    let exec = fetch.execution_id;
     let (_, _, verdicts) = core.cancel_execution_judged(&exec, "test").await.unwrap();
     assert_eq!(verdicts[0].state.as_str(), "termination_verified");
-    let _ = tokio::time::timeout(Duration::from_secs(10), turn)
+    // A bound on its liveness, not its time: at nice 19 beside four busy
+    // loops the end took 14 s here, and under 1 s unloaded.
+    let _ = tokio::time::timeout(Duration::from_secs(60), turn)
         .await
         .expect("the turn ended");
     let e = core.kernel.execution(&exec).unwrap().unwrap();
