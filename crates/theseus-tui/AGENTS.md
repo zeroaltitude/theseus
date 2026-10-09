@@ -19,7 +19,8 @@ Key modules: `run.rs` (the loop), `app.rs` (no I/O), `board.rs`, `ui.rs`. Read b
   queue.
 - `src/ui.rs`: drawing into a ratatui buffer. Nothing here changes the app.
 - `src/detail.rs` (the focused session's history and events, as the CLI's `render` lines), `src/card.rs` (a
-  question's card), `src/notice.rs` (the bell, OSC 9, OSC 777), and `src/seen.rs` (done until seen).
+  question's card), `src/notice.rs` (notices by the protocol's one policy, `theseus_protocol::notices`, delivered by
+  the bell, OSC 9, OSC 777), and `src/seen.rs` (done until seen).
 
 ## Invariants
 
@@ -39,6 +40,9 @@ Key modules: `run.rs` (the loop), `app.rs` (no I/O), `board.rs`, `ui.rs`. Read b
 - `src/tests.rs`: the TUI over a scripted daemon (a JSON-RPC stream on a duplex, through `Conn::over`), drawn on
   ratatui's `TestBackend`, whose buffer each test reads as text. Run them as
   `cargo nextest run --workspace -E 'package(theseus-tui)'`.
+- `src/tests_notice.rs`: the policy's notices on the harbour rig (a question rings once with its words, spend rings
+  nothing, a wake on a root rings once, a burst rings once). Push a view, `settle`, then move `NOW`: a view the loop
+  takes after the clock moved is due a second later than the test expects.
 - `src/tests_order.rs`: the app alone, its order forced by hand: another surface's message lands in the place its
   `node.written` marked, above a reply that streamed while it was read (theseus-v6yc).
 - The CLI's `tests/tui.rs` holds `theseus tui`: the exec, the socket and the arguments passed through, and exit 2

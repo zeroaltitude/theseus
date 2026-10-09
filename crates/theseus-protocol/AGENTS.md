@@ -19,6 +19,16 @@ Key modules: `lib.rs` (the `method`, `notify`, `error_code` tables), `events.rs`
   records keep their bytes.
 - `push.rs`: what every surface shows of an execution: `ExecutionView` and `attention()`, the design's rules,
   first match wins. The caller passes how to write a time of day, since this crate reads no clock.
+- `work.rs` (theseus-753z): the work view, one task model for every surface (`WorkView`: conversations, tasks,
+  steps, jobs, questions and wakes in one tree), `attention_of()` (attention's levels and labels for every kind),
+  `answer_options()` (a question's answers, worded once), and `WorkView::from_execution()`, so a reader adopts the
+  policy before the daemon's work board fills views itself.
+- `notices.rs` (theseus-753z; the method table owns the name `notify`): the notification policy, pure. `policy()`
+  is the owner's table, one function per row, first match wins; `Rules` holds its numbers as data; `deliver()` says
+  how a notice reaches one viewer; `notices/burst.rs`'s `Burst` (a client's memory, not a wire type) folds a root's
+  Interrupts within 10 s into one. No clock: a reminder is a view against itself later (`next_reminder`), and the
+  caller's `hm` writes a time of day. Its tests are one per row (`tests_notices.rs`); the wire shapes are
+  `tests/work.rs` against `tests/wire/work/`, a directory `tests/wire.rs`'s notification walk skips.
 - `ledger.rs`: the ledger's kinds, `LedgerKind` (theseus-j6qn): every kind a row is written under, by any crate,
   one line each. Writers take a variant, so a new kind is a new line here, and core's `tests_registry` fails a
   variant nothing writes. A row stores the kind's name, so old kinds (`LedgerKind::RENAMED`) and unknown ones still
