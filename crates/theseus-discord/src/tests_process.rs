@@ -261,3 +261,33 @@ async fn a_place_that_hides_thinking_shows_its_tool_lines_as_before() {
         .count();
     assert_eq!(folded, 3, "{dm:#?}");
 }
+
+/// `silent = ["tool_lines"]` in `#lab` silences its process messages there,
+/// a thinking one and one that holds a tool line alike, and owes no ping:
+/// the answer alone pings. The DM, saying nothing, pings as main does.
+#[tokio::test]
+async fn a_place_that_silences_tool_lines_silences_its_process_messages_alone() {
+    let r = Rig::start_on(
+        |dir, _| {
+            let mut s = turn(dir, "lab", true);
+            s.extend(turn(dir, "dm", true));
+            Arc::new(FakeProvider::scripted(s))
+        },
+        Guild::new(DEFAULT_GUILD, (ANA, "ana")).private_channel(LAB, "lab", &[ANA]),
+        &bindings("silent = [\"tool_lines\"]\n"),
+        &[],
+    )
+    .await;
+    let lab = exchange(&r, Some(LAB), "lab", 2, 3).await;
+    assert_eq!((lab.len(), pings(&lab)), (4, 1), "{lab:#?}");
+    for m in lab.iter().filter(|m| m.content.starts_with("-# 💭")) {
+        assert!(m.silent(), "{m:#?}");
+    }
+    let answer = lab
+        .iter()
+        .find(|m| m.content.contains("the lab charts"))
+        .unwrap();
+    assert!(!answer.silent(), "{answer:#?}");
+    let dm = exchange(&r, None, "dm", 2, 3).await;
+    assert_eq!((dm.len(), pings(&dm)), (4, 3), "{dm:#?}");
+}
