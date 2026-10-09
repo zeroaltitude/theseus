@@ -41,13 +41,11 @@ pub enum Category {
     Notices,
     /// The restart notice, MCP's changes, and low free space or its return.
     Ops,
-    /// A loop's thinking message.
-    Thinking,
 }
 
 impl Category {
     /// Every category, in the template's order.
-    pub const ALL: [Self; 10] = [
+    pub const ALL: [Self; 9] = [
         Self::Cards,
         Self::Failures,
         Self::Answer,
@@ -57,7 +55,6 @@ impl Category {
         Self::Reports,
         Self::Notices,
         Self::Ops,
-        Self::Thinking,
     ];
 }
 
@@ -132,7 +129,7 @@ mod tests {
         let cfg = crate::Config::parse(&doc).unwrap().0;
         assert_eq!(cfg.discord.silent, Category::ALL);
         // An earlier cut's names are no category's, and are refused.
-        for old in ["tools", "replies", "tasks", "notes", "disk"] {
+        for old in ["tools", "replies", "tasks", "notes", "disk", "thinking"] {
             let bad = doc.replace("\"tool_lines\"", &format!("\"{old}\""));
             let e = format!("{:#}", crate::Config::parse(&bad).unwrap_err());
             assert!(e.contains(old), "{e}");

@@ -1829,7 +1829,8 @@ struct Place {
     mention_only: bool,
     session_id: String,
     renderer: Renderer,
-    /// Its tool and thinking messages, shown or not (theseus-l1y1).
+    /// Its loops' process messages: tool lines and thinking, shown or not
+    /// (theseus-l1y1).
     view: show::View,
     /// The place's lane: the one writer of its messages (theseus-q4v).
     lane: mpsc::UnboundedSender<LaneMsg>,
@@ -1862,8 +1863,8 @@ impl Place {
                     Some(m) => self.handle(m).await,
                 },
                 _ = tick.tick() => {
-                    let mut ops = self.renderer.tick();
-                    ops.extend(self.view.tick());
+                    let mut ops = self.view.tick();
+                    ops.extend(self.view.fold(self.renderer.tick()));
                     self.apply(ops);
                 }
                 _ = typing.tick() => {
@@ -1931,7 +1932,7 @@ impl Place {
                     }
                 }
                 let mut ops = self.view.on_event(&e);
-                ops.extend(self.renderer.on_event(&e));
+                ops.extend(self.view.fold(self.renderer.on_event(&e)));
                 self.apply(ops);
                 // A turn's start may drop the oldest: the lane keeps the held
                 // turns' messages whole, and forgets a dropped one's
@@ -2099,7 +2100,7 @@ impl Place {
                 // The stopped turn's stream stops here, where Discord last
                 // saw it; it posts no reply.
                 if let Some(turn) = self.renderer.running_turn() {
-                    let ops = self.renderer.stop(&turn);
+                    let ops = self.view.fold(self.renderer.stop(&turn));
                     self.apply(ops);
                     self.stopped_turn = Some(turn);
                 }
@@ -2251,7 +2252,7 @@ impl Place {
 
     /// Live progress to the place's lane: best-effort, never replayed.
     fn apply(&mut self, ops: Vec<crate::render::Op>) {
-        for op in ops.into_iter().filter(|o| self.view.shows(o)) {
+        for op in ops {
             let _ = self.lane.send(LaneMsg::Live(op));
         }
     }

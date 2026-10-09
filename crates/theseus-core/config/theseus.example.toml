@@ -600,7 +600,8 @@ silent = []                             # categories of message that post withou
                                         # reply to anyone else), "woken" (a turn a wake or a task's report
                                         # started), "tool_lines" (and notice embeds), "reports" (a task's end, a
                                         # hands line), "notices" (a bind, budgets, Jev, glides), "ops" (a restart,
-                                        # MCP, low disk), "thinking". A closed card and the task board never ping
+                                        # MCP, low disk). A closed card, the task board and a loop's thinking alone
+                                        # never ping
 ping_window_secs = 0                    # at most one ping per place in this many seconds (a place may set its own); 0 is off
 # A turn's reply, a confirm card and how it closed, and the notices you must see
 # are posts in the outbox, written when they happen and sent once when Discord

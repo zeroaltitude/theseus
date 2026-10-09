@@ -287,6 +287,12 @@ pub(crate) struct Lane {
     /// anchor, when its author is an owner; taken by the part's create, or
     /// by the reply's post that answers it.
     pub owed: Option<u64>,
+    /// The last process message made silent by its thinking alone, and the
+    /// turn (`<turn>:`) owed the ping its tool line would have made had the
+    /// line come first (theseus-l1y1, `render/process.rs`): the turn's next
+    /// such create takes it, so a thinking turn pings as one without.
+    pub quiet: Option<String>,
+    pub owe: Option<String>,
     /// Discord is away until then: nothing is tried, and live ops drop.
     pub retry_at: Option<tokio::time::Instant>,
     pub attempt: u32,
@@ -335,6 +341,8 @@ impl Lane {
             live: Vec::new(),
             anchor: None,
             owed: None,
+            quiet: None,
+            owe: None,
             retry_at: None,
             attempt: 0,
             unsure: HashSet::new(),
@@ -1065,6 +1073,29 @@ impl Lane {
         policy::pings(e, &self.silent())
     }
 
+    /// Whether a live write of `key` pings, and whether it is a process
+    /// message made by its thinking alone (theseus-l1y1). Such a create is
+    /// silent unless its turn owes a tool line's ping: one that gained its
+    /// tool line after its silent create owes one, and pays it with the
+    /// turn's next. So a loop that thinks and calls a tool pings as one that
+    /// doesn't (a beat later), and the turn's last loop, which thinks and
+    /// answers, pings only for its answer.
+    fn process_ping(&mut self, key: &str, new: bool, event: Event) -> (bool, bool) {
+        let turn = || key.split_once(":L").map(|(t, _)| format!("{t}:"));
+        if !new && event == Event::ToolLine && self.quiet.as_deref() == Some(key) {
+            self.quiet = None;
+            if self.pings(Event::ToolLine) {
+                self.owe = turn();
+            }
+        }
+        if !(new && event == Event::Thinking) {
+            return (self.pings(event), false);
+        }
+        self.quiet = Some(key.to_string());
+        let owed = self.owe.is_some() && self.owe == turn();
+        (owed && self.pings(Event::ToolLine), true)
+    }
+
     /// How long this place's window holds it to one ping: its own, else
     /// `[discord] ping_window_secs`; zero, the default, is none.
     fn window(&self) -> Duration {
@@ -1483,7 +1514,8 @@ impl Lane {
                     // The first text part of the turn that answers the
                     // owner's own message is the answer (theseus-l1y1).
                     let part = policy::is_text_part(&key);
-                    let ping = self.pings(policy::of_live(&key, self.owed.is_some()));
+                    let event = policy::of_live(&key, self.owed.is_some(), &content);
+                    let (ping, thought) = self.process_ping(&key, new, event);
                     let r = self
                         .write(&Write {
                             key,
@@ -1498,6 +1530,9 @@ impl Lane {
                         .await;
                     if new && part && matches!(r, Ok(Some(_))) {
                         self.owed = None;
+                    }
+                    if new && thought && matches!(r, Ok(Some(_))) {
+                        self.owe = self.owe.take().filter(|_| !ping);
                     }
                     r.map(|_| ())
                 }

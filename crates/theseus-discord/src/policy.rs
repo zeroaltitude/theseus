@@ -7,9 +7,12 @@
 //! The table maps each write to its chat category, the name a `silent` list
 //! gives it (`theseus_core::config::discord::Category`): a write pings unless
 //! its place's list (its binding's, else `[discord] silent`) names its
-//! category. Two writes have none and never ping, since they are not
-//! conversation: a card whose question had already closed (nothing to
-//! answer: a buzz would be a false alarm), and the task board (status). The
+//! category. Three writes have none and never ping: a card whose question
+//! had already closed (nothing to answer: a buzz would be a false alarm),
+//! the task board (status), and a loop's process message made by its
+//! thinking alone (`render/process.rs`; the loop's tool line or answer says
+//! when there is something to see, and a tool line that lands in such a
+//! message pings on the turn's next one: `Lane::apply_live`). The
 //! shared notification policy's urgency (`theseus_protocol::notices`) decides
 //! what the house shows and what escalates; it does not decide whether the
 //! chat buzzes, which is this table's.
@@ -30,9 +33,6 @@ use tokio::time::Instant;
 
 /// Discord's `SUPPRESS_NOTIFICATIONS` message flag (1 << 12).
 pub(crate) const SUPPRESS_NOTIFICATIONS: u64 = 1 << 12;
-
-/// How a loop's thinking message's key ends: `<turn>:L<loop>:think`.
-pub(crate) const THINK_SUFFIX: &str = ":think";
 
 /// What a write is, as the table reads it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -60,7 +60,9 @@ pub(crate) enum Event {
     Woken,
     /// A loop's tool line, and a notified call's embed.
     ToolLine,
-    /// A loop's thinking message.
+    /// A loop's process message made by its thinking, before any tool line
+    /// (`render/process.rs`): its tool line, or its answer, pings when it
+    /// comes.
     Thinking,
     /// A notice: a bind, a publish, a budget's or the hours' line, a proposal.
     Note,
@@ -103,7 +105,7 @@ pub(crate) const TABLE: &[(Event, Option<Category>)] = &[
     (Event::Restarted, Some(Category::Ops)),
     (Event::Mcp, Some(Category::Ops)),
     (Event::Disk, Some(Category::Ops)),
-    (Event::Thinking, Some(Category::Thinking)),
+    (Event::Thinking, None),
     (Event::Board, None),
 ];
 
@@ -241,16 +243,17 @@ pub(crate) fn of_reply(body: &Value) -> Event {
 }
 
 /// A live message, by its key: a turn's text part (`<turn>:L<loop>:p<part>`,
-/// the stream's and the reply's, the answer's when `owed`), its thinking
-/// (`…:think`), or its tool line and anything else live (a notice embed).
-pub(crate) fn of_live(key: &str, owed: bool) -> Event {
+/// the stream's and the reply's, the answer's when `owed`), a loop's process
+/// message that holds only its thinking (`content`), or its tool line and
+/// anything else live (a notice embed).
+pub(crate) fn of_live(key: &str, owed: bool, content: &str) -> Event {
     if is_text_part(key) {
         if owed {
             Event::Answer
         } else {
             Event::ReplyPart
         }
-    } else if key.ends_with(THINK_SUFFIX) {
+    } else if key.ends_with(":tools") && crate::render::process::thinking_only(content) {
         Event::Thinking
     } else {
         Event::ToolLine
@@ -296,10 +299,10 @@ mod tests {
         Event::Board,
     ];
 
-    /// With nothing named silent, today's pings: every write but a closed
-    /// card and the board pings, these 18 (the redesign's 17, and the new
-    /// thinking message); the table names every event once, and every
-    /// category has a write.
+    /// With nothing named silent, today's pings: every write pings but a
+    /// closed card, the board, and a process message made by its thinking
+    /// alone: these 17, the redesign's; the table names every event once,
+    /// and every category has a write.
     #[test]
     fn with_nothing_silent_every_chat_message_pings() {
         let loud: Vec<Event> = EVERY.into_iter().filter(|e| pings(*e, &[])).collect();
@@ -315,7 +318,6 @@ mod tests {
                 Event::ReplyPart,
                 Event::Woken,
                 Event::ToolLine,
-                Event::Thinking,
                 Event::Note,
                 Event::Restarted,
                 Event::Mcp,
@@ -446,11 +448,15 @@ mod tests {
             of_reply(&json!({"reports": [{"text": "📋 task a1b2c3 reported"}]})),
             Event::Woken
         );
-        assert_eq!(of_live("turn_a:L0:p0", true), Event::Answer);
-        assert_eq!(of_live("turn_a:L0:p0", false), Event::ReplyPart);
-        assert_eq!(of_live("turn_a:L0:think", true), Event::Thinking);
-        assert_eq!(of_live("turn_a:L0:tools", true), Event::ToolLine);
-        assert_eq!(of_live("turn_a:notice:tu_1", false), Event::ToolLine);
+        let line = "▫️ `fs.read` a";
+        assert_eq!(of_live("turn_a:L0:p0", true, "x"), Event::Answer);
+        assert_eq!(of_live("turn_a:L0:p0", false, "x"), Event::ReplyPart);
+        let thought = "-# 💭 thinking\n-# Tides.";
+        assert_eq!(of_live("turn_a:L0:tools", true, thought), Event::Thinking);
+        let both = format!("{thought}\n{line}");
+        assert_eq!(of_live("turn_a:L0:tools", true, &both), Event::ToolLine);
+        assert_eq!(of_live("turn_a:L0:tools", true, line), Event::ToolLine);
+        assert_eq!(of_live("turn_a:notice:tu_1", false, "x"), Event::ToolLine);
     }
 
     #[test]
@@ -458,7 +464,6 @@ mod tests {
         assert!(is_text_part("turn_a:L0:p0"));
         assert!(is_text_part("turn_a:L12:p3"));
         assert!(!is_text_part("turn_a:L0:tools"));
-        assert!(!is_text_part("turn_a:L0:think"));
         assert!(!is_text_part("turn_a:footer"));
         assert!(!is_text_part("turn_a:notice:tu_1"));
         assert!(!is_text_part("turn_a:L:p0"));

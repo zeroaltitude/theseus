@@ -35,7 +35,7 @@ voice = false                      # true for a voice channel: /join from a priv
                                    # text chat is this place's text
 # show_tools = true                # false: no tool lines or notice embeds here (the calls still run, and
                                    # their cards still post)
-# show_thinking = true             # false: no thinking messages here; the turn still thinks
+# show_thinking = true             # false: no thinking atop the tool lines here; the turn still thinks
 # silent = ["tool_lines"]          # what posts here without a ping: this place's own list, in place of
                                    # [discord] silent (whose comment names the categories); every
                                    # message pings by default

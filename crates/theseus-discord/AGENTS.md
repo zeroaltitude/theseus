@@ -94,9 +94,9 @@ Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
   `<turn_id>:`, a call's notice card `<turn>:notice:<tool_use_id>` included), and the `KEYS_KEPT` (256) other keys
   named most recently (`Lane::touch`; a late live state names its key too). The place's actor sends the held turns
   (`LaneMsg::Held`, `courier/held.rs`) at each turn's start and at `/new`'s rebind; a turn that leaves the list is
-  forgotten. So a lane holds at most 8 x (`max_loops`, 40 by default, x (a loop's text parts + its tool line + its
-  thinking + its notice cards) + a footer) + 256 + 1 keys: 1,225 when each loop's text is one part, each loop
-  thinks, and no card posts. The renderer's
+  forgotten. So a lane holds at most 8 x (`max_loops`, 40 by default, x (a loop's text parts + its process message +
+  its notice cards) + a footer) + 256 + 1 keys: 905 when each loop's text is one part and no card posts; a loop's
+  thinking is in its process message and adds no key. The renderer's
   `emitted` and `menus` hold only its held turns' keys, and `notices` only their calls' (`render/held.rs`). Every
   insert goes through `touch` (or `seal`), or the bound leaks.
 - **Today's pings by default; silence is per category, per place** (theseus-l1y1, `policy.rs`; the owner: a lively
@@ -106,20 +106,28 @@ Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
   category: `cards`, `failures` (a failed turn or task, disk below the floor), `answer` (the first text part of the
   reply to an owner's own message: `Lane::owed`, set with the anchor when the author is an owner, taken when that
   part is written, live or by the post, ping or not), `later_parts`, `woken`, `tool_lines` (and notice embeds),
-  `reports` (a task's end, hands), `notices` (Note, Jev, Glide), `ops` (restart, MCP, low disk), `thinking`. A
-  write pings unless its place's `silent` list (its `[[channel]]`'s or `[[dm]]`'s, else `[discord] silent`) names
-  its category. A closed card (written once, settled, without buttons or mention: `detail.settled`; its settle
-  edits nothing) and the task board have no category and never ping. `ping_window_secs` (the place's, else
+  `reports` (a task's end, hands), `notices` (Note, Jev, Glide), `ops` (restart, MCP, low disk). A write pings
+  unless its place's `silent` list (its `[[channel]]`'s or `[[dm]]`'s, else `[discord] silent`) names its
+  category. A closed card (written once, settled, without buttons or mention: `detail.settled`; its settle edits
+  nothing), the task board, and a loop's process message created by its thinking alone
+  (`render/process.rs::thinking_only`) have no category and never ping; a tool line that lands in such a message
+  owes its ping to the turn's next one (`Lane::process_ping`, two `Option`s), so a thinking turn pings as one
+  without, and its last loop (thinking, then the answer) adds one silent create. `ping_window_secs` (the place's, else
   `[discord]`'s; 0, off, by default) holds a channel to one ping in that long (`policy::Pings`, in memory, 256
   channels kept); a ping it holds goes out silent. An edit never notifies. The `discord.message.out` row says
   `ping` and `held` (the window took it). The shared policy's urgency (`theseus_protocol::notices`) decides what
   the house shows, not whether the chat buzzes.
 - **A place shows its tool lines and its thinking unless its binding says not to** (theseus-l1y1,
   `runtime/show.rs`): `show_tools` and `show_thinking` on a `[[channel]]` or a `[[dm]]`, both on by default, read
-  live with the rest of the file. Off filters those live ops out before the lane (`Place::apply`), in that place
-  alone; the turn, its cards and its reply are unchanged. A loop's thinking (`model.thinking`) is a message of its
-  own, `<turn>:L<n>:think`, before the loop's text (`render/thinking.rs`: the start of it, up to 1,800 characters,
-  saying what it left out; it keeps 3,600 and counts the rest), held for the renderer's turns; the binding showed no thinking before theseus-l1y1.
+  live with the rest of the file. Both live in a loop's process message, `<turn>:L<n>:tools` (`render/process.rs`, through
+  `View::fold` on every renderer op): the loop's thinking (`model.thinking`) streams as `-#` lines at its top, made
+  at the loop's first thinking or first tool line, whichever comes first, and folds to `-# 💭 thought for N s`
+  once the loop's text starts (or the loop ends); the tool lines below are the renderer's, as without thinking.
+  It shows at most what fits beside the tool lines in 2,000 bytes (1,800 characters), saying what it left out; it
+  keeps 3,600 characters and counts the rest, for the renderer's held turns. Off hides that half in that place
+  alone, and a message with neither half is never made; the turn, its cards and its reply are unchanged. There is
+  no thinking message of its own (an earlier cut's `:think`), and the binding showed no thinking before
+  theseus-l1y1.
 - **A place answers only where its bindings file binds it.** An interaction in an unbound place gets no answer, so
   daemons on one bot token with disjoint bindings each answer their own places (Item 11). A card in a guild channel
   mentions exactly its answerers, and nothing else mentions anyone (Item 15).
@@ -136,6 +144,9 @@ Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
   waits for the rows it reads as well as the messages.
 - `src/tests_show.rs` (theseus-l1y1): a place bound `show_tools = false` and `show_thinking = false` beside one
   that says nothing, through the gateway. The fake provider streams a `thinking` block as `Delta::Thinking`.
+  `src/tests_process.rs`: a thinking turn's creates and pings against the same turn without thinking, the fold,
+  a thinking answer's silent create, and `show_thinking = false` in one place. Which process message carries an
+  owed ping depends on whether its tool line landed before its create, so they count pings, not assign them.
 - `src/tests_gateway.rs` drives it through the stand-in's gateway too (theseus-6g62): `FakeDiscord::say` types a
   message as a user, and `press` presses a button the binding posted, each sent as Discord sends it; `replies()`
   is what the binding answered each press, and each message keeps every version (theseus-qifw). A guild set on
