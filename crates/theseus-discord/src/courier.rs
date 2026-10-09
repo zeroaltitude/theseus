@@ -38,9 +38,10 @@ use theseus_protocol::TurnSubmitResult;
 use tokio::sync::mpsc;
 use twilight_http::request::Request;
 use twilight_http::routing::Route as HttpRoute;
-use twilight_model::channel::message::{AllowedMentions, Message};
+use twilight_model::channel::message::{AllowedMentions, Message, MessageFlags};
 use twilight_model::id::Id;
 
+use crate::policy::{self, Event};
 use crate::render::{self, Buttons, NoticeCard, Op, Route};
 use crate::runtime::{asked_button, asked_menu, confirm_buttons, Shared};
 
@@ -203,6 +204,9 @@ struct Write {
     /// Who its create notifies (theseus-9j9): a card's answerers, named at
     /// the start of its content; nobody, for every other message.
     mentions: Vec<u64>,
+    /// Whether its create notifies at all (theseus-l1y1, `policy`): without
+    /// it the message is silent, mentions included. An edit never notifies.
+    ping: bool,
 }
 
 /// `content`, after a mention of each of `users`: Discord notifies them,
@@ -277,6 +281,11 @@ pub(crate) struct Lane {
     /// Live ops waiting: the latest per message, in the order they first came.
     pub live: Vec<Op>,
     pub anchor: Option<u64>,
+    /// The owner's message whose turn's first text part has not been written
+    /// yet: that part pings (theseus-l1y1, the owner's D1). Set with the
+    /// anchor, when its author is an owner; taken by the part's create, or
+    /// by the reply's post that answers it.
+    pub owed: Option<u64>,
     /// Discord is away until then: nothing is tried, and live ops drop.
     pub retry_at: Option<tokio::time::Instant>,
     pub attempt: u32,
@@ -324,6 +333,7 @@ impl Lane {
             clock: 0,
             live: Vec::new(),
             anchor: None,
+            owed: None,
             retry_at: None,
             attempt: 0,
             unsure: HashSet::new(),
@@ -408,7 +418,10 @@ impl Lane {
             LaneMsg::Wake => {}
             LaneMsg::Channel(c) => self.channel = Some(c),
             LaneMsg::Author(a) => self.last_author = Some(a),
-            LaneMsg::Anchor(a) => self.anchor = Some(a),
+            LaneMsg::Anchor(a) => {
+                self.anchor = Some(a);
+                self.owed = self.by_an_owner().then_some(a);
+            }
             LaneMsg::Label(l) => self.label = l,
             LaneMsg::Held(turns) => self.hold(turns),
             LaneMsg::Asked(q) => {
@@ -688,15 +701,17 @@ impl Lane {
     async fn plan(&mut self, a: &Action) -> Result<Plan, SendErr> {
         let body = body_of(a).clone();
         let corr = &a.correlation_id;
-        let text = |t: String, key: String, channel: u64, reply_to: Option<u64>| Write {
-            key,
-            channel,
-            content: t,
-            buttons: Buttons::Keep,
-            reply_to,
-            message: None,
-            mentions: vec![],
-        };
+        let text =
+            |t: String, key: String, channel: u64, reply_to: Option<u64>, event: Event| Write {
+                key,
+                channel,
+                content: t,
+                buttons: Buttons::Keep,
+                reply_to,
+                message: None,
+                mentions: vec![],
+                ping: policy::pings(event),
+            };
         let reply_to = body["reply_to"].as_str().and_then(|s| s.parse().ok());
         match kind_of(a) {
             "reply" => {
@@ -709,41 +724,18 @@ impl Lane {
                 let channel = self.place_channel().await?;
                 let t = body["text"].as_str().unwrap_or("").to_string();
                 Ok(Plan {
-                    writes: vec![text(t, format!("note:{corr}"), channel, reply_to)],
+                    writes: vec![text(
+                        t,
+                        format!("note:{corr}"),
+                        channel,
+                        reply_to,
+                        Event::Note,
+                    )],
                     extra: json!({}),
                 })
             }
-            "failed" => {
-                let channel = self.place_channel().await?;
-                let key = match body["turn_id"].as_str() {
-                    Some(t) => format!("{t}:failed"),
-                    None => format!("failed:{corr}"),
-                };
-                let t = render::failed(
-                    body["class"].as_str().unwrap_or("error"),
-                    body["error"].as_str().unwrap_or(""),
-                    body["then"].as_str(),
-                    body["turns"].as_u64().unwrap_or(1),
-                );
-                Ok(Plan {
-                    writes: vec![text(t, key, channel, None)],
-                    extra: json!({}),
-                })
-            }
-            "report" => {
-                // A task's report (DD7): one message, in the place the task
-                // reports to, under a key of its own, so it posts once.
-                let channel = self.place_channel().await?;
-                let said = body["node"]
-                    .as_str()
-                    .and_then(|n| self.shared.core.outbox.said(n));
-                let t = render::report(&body, said.as_deref());
-                let key = format!("report:{}", body["task"].as_str().unwrap_or(corr));
-                Ok(Plan {
-                    writes: vec![text(t, key, channel, None)],
-                    extra: json!({"task": body["task"]}),
-                })
-            }
+            "failed" => self.failed_post(&body, corr).await,
+            "report" => self.report_post(&body, corr).await,
             // A hands group's one line (step 40 part 2): under its group's
             // key, so each new state of it edits the one message.
             "hands" => {
@@ -751,7 +743,7 @@ impl Lane {
                 let t = body["text"].as_str().unwrap_or("").to_string();
                 let key = format!("hands:{}", body["group"].as_str().unwrap_or(corr));
                 Ok(Plan {
-                    writes: vec![text(t, key, channel, None)],
+                    writes: vec![text(t, key, channel, None, Event::Hands)],
                     extra: json!({}),
                 })
             }
@@ -770,7 +762,13 @@ impl Lane {
                 let t = render::restarted(body["at_unix_ms"].as_u64().unwrap_or(0), &tables);
                 let (channel, place) = self.operator_channel(&body).await?;
                 Ok(Plan {
-                    writes: vec![text(t, format!("note:{corr}"), channel, None)],
+                    writes: vec![text(
+                        t,
+                        format!("note:{corr}"),
+                        channel,
+                        None,
+                        Event::Restarted,
+                    )],
                     extra: json!({"place": place}),
                 })
             }
@@ -783,7 +781,7 @@ impl Lane {
                 let t = mcp_note(&body);
                 let (channel, place) = self.operator_channel(&body).await?;
                 Ok(Plan {
-                    writes: vec![text(t, format!("note:{corr}"), channel, None)],
+                    writes: vec![text(t, format!("note:{corr}"), channel, None, Event::Mcp)],
                     extra: json!({"place": place}),
                 })
             }
@@ -815,13 +813,29 @@ impl Lane {
         // nothing of it.
         let prefix = format!("{turn_id}:");
         let streamed = self.msgs.keys().any(|k| k.starts_with(&prefix));
-        let mut anchor = (!streamed)
-            .then(|| body["reply_to"].as_str().and_then(|s| s.parse().ok()))
-            .flatten();
+        let to: Option<u64> = body["reply_to"].as_str().and_then(|s| s.parse().ok());
+        let mut anchor = (!streamed).then_some(to).flatten();
+        // Its first part pings when it answers the owner's own message and
+        // the stream did not write it already (theseus-l1y1).
+        let owed = to.is_some() && self.owed == to;
+        if owed {
+            self.owed = None;
+        }
+        let event = policy::of_reply(body);
+        let mut answers = event == Event::Answer && owed && !streamed;
         let writes = parts
             .into_iter()
             .map(|(key, content)| {
                 self.seal(&key);
+                // A footer alone (a turn that only asked) is no answer.
+                let part = if std::mem::take(&mut answers) && policy::is_text_part(&key) {
+                    Event::Answer
+                } else if event == Event::Woken {
+                    Event::Woken
+                } else {
+                    Event::ReplyPart
+                };
+                let ping = policy::pings(part);
                 Write {
                     key,
                     channel,
@@ -830,6 +844,7 @@ impl Lane {
                     reply_to: anchor.take(),
                     message: None,
                     mentions: vec![],
+                    ping,
                 }
             })
             .collect();
@@ -840,9 +855,10 @@ impl Lane {
     }
 
     /// A confirm card, where its route says: here, in a trusted DM with a
-    /// note here, or only a note here. A question that closed while the card
-    /// waited is posted all the same: its settle is next in line, and edits
-    /// it to say how it closed.
+    /// note here, or only a note here. The card pings (theseus-l1y1); its
+    /// note does not. A question that closed while the card waited (Discord
+    /// away, say) is written once, already settled and silent, and its settle
+    /// then has nothing left to edit.
     async fn card(&mut self, body: &Value) -> Result<Plan, SendErr> {
         let q = body["question"].as_str().unwrap_or("").to_string();
         let core = self.shared.core.clone();
@@ -859,18 +875,34 @@ impl Lane {
         let channel = self.place_channel().await?;
         let route = self.route().await?;
         let elsewhere = theseus_core::approval::elsewhere(core.cfg.web.enabled);
-        let card = render::card(&req, &route, elsewhere);
-        let note = render::card_note(&route, &card.line, elsewhere);
+        let mut card = render::card(&req, &route, elsewhere);
+        let mut note = render::card_note(&route, &card.line, elsewhere);
         let key = format!("confirm:{q}");
         let note_key = format!("approval:{q}");
         // A call that waits because its session read external text gets the
         // third button, which trusts the session again (theseus-9bp).
-        let buttons = if req.change.is_some() {
+        let mut buttons = if req.change.is_some() {
             Buttons::Accept(q.clone())
         } else if req.external_text.is_some() {
             Buttons::ConfirmTrust(q.clone())
         } else {
             Buttons::Confirm(q.clone())
+        };
+        let closed = Closed::of(&question).map(|c| self.waiting_settle(&q).unwrap_or(c));
+        if let Some(c) = &closed {
+            // Written as its settle would leave it: no buttons, no mention.
+            card.content = render::settled(c, &card.line, card.budget);
+            let dm = match &route {
+                Route::Dm { dm, .. } => Some(dm.as_str()),
+                _ => None,
+            };
+            note = note.map(|_| render::settled_note(&card.content, dm));
+            buttons = Buttons::Clear;
+        }
+        let event = if closed.is_some() {
+            Event::CardClosed
+        } else {
+            Event::Card
         };
         let mut writes = Vec::new();
         // A card in a guild channel names the people who can answer it, and
@@ -880,7 +912,7 @@ impl Lane {
         let mut named = Vec::new();
         let (how, dm) = match &route {
             Route::Here => {
-                if self.kind == "channel" {
+                if self.kind == "channel" && closed.is_none() {
                     let owners = core.runner.place_rule.owners(&core.cfg);
                     named = answerers(&self.shared.place_users(channel), &owners);
                 }
@@ -892,6 +924,7 @@ impl Lane {
                     reply_to: None,
                     message: None,
                     mentions: named.clone(),
+                    ping: policy::pings(event),
                 });
                 ("here", None)
             }
@@ -905,6 +938,7 @@ impl Lane {
                     reply_to: None,
                     message: None,
                     mentions: vec![],
+                    ping: policy::pings(event),
                 });
                 ("dm", Some(dm.clone()))
             }
@@ -919,13 +953,28 @@ impl Lane {
                 reply_to: None,
                 message: None,
                 mentions: vec![],
+                ping: policy::pings(Event::CardNote),
             });
         }
         let named: Vec<String> = named.iter().map(u64::to_string).collect();
-        Ok(Plan {
-            writes,
-            extra: json!({"question": q, "route": how, "dm": dm, "line": card.line, "budget": card.budget, "mentions": named}),
-        })
+        let mut extra = json!({"question": q, "route": how, "dm": dm, "line": card.line, "budget": card.budget, "mentions": named});
+        if let Some(c) = closed {
+            extra["settled"] = json!(c.how);
+        }
+        Ok(Plan { writes, extra })
+    }
+
+    /// How the settle waiting behind a card says its question closed: the
+    /// close's own words (who answered, and from where), which the question's
+    /// action alone does not keep. Read only for a card whose question closed.
+    fn waiting_settle(&self, question: &str) -> Option<Closed> {
+        self.shared
+            .core
+            .outbox
+            .open_for(&self.target)
+            .iter()
+            .find(|a| kind_of(a) == "settle" && body_of(a)["question"] == question)
+            .and_then(|a| serde_json::from_value(body_of(a)["closed"].clone()).ok())
     }
 
     /// How a card's question closed: each message its card posted, edited,
@@ -938,6 +987,10 @@ impl Lane {
             _ => return Plan::nothing("its card was never posted"),
         };
         let d = card.detail.unwrap_or_default();
+        // Its question had closed when it was written: it was written settled.
+        if !d["settled"].is_null() {
+            return Plan::nothing("its card was written settled");
+        }
         let line = d["line"].as_str().unwrap_or("");
         let content = render::settled(&closed, line, d["budget"].as_bool().unwrap_or(false));
         let dm = (d["route"] == "dm").then(|| d["dm"].as_str().unwrap_or("the DM"));
@@ -963,6 +1016,7 @@ impl Lane {
                 reply_to: None,
                 message: Some(message),
                 mentions: vec![],
+                ping: policy::pings(Event::CardClosed),
             });
         }
         if writes.is_empty() {
@@ -1000,6 +1054,18 @@ impl Lane {
         })
     }
 
+    /// Whether the place's latest message came from an owner, whose answer
+    /// pings (theseus-l1y1): the owners the place rule names.
+    fn by_an_owner(&self) -> bool {
+        let core = &self.shared.core;
+        self.last_author.is_some_and(|a| {
+            core.runner
+                .place_rule
+                .owners(&core.cfg)
+                .contains(&format!("discord:{a}"))
+        })
+    }
+
     /// This place's channel; a DM's opens on first use.
     async fn place_channel(&mut self) -> Result<u64, SendErr> {
         if let Some(c) = self.channel {
@@ -1018,9 +1084,50 @@ impl Lane {
         }
     }
 
+    /// A failed turn's post: it pings (theseus-l1y1).
+    async fn failed_post(&mut self, body: &Value, corr: &str) -> Result<Plan, SendErr> {
+        let channel = self.place_channel().await?;
+        let key = match body["turn_id"].as_str() {
+            Some(t) => format!("{t}:failed"),
+            None => format!("failed:{corr}"),
+        };
+        let content = render::failed(
+            body["class"].as_str().unwrap_or("error"),
+            body["error"].as_str().unwrap_or(""),
+            body["then"].as_str(),
+            body["turns"].as_u64().unwrap_or(1),
+        );
+        Ok(Plan {
+            writes: vec![lone(
+                key,
+                channel,
+                content,
+                policy::pings(Event::TurnFailed),
+            )],
+            extra: json!({}),
+        })
+    }
+
+    /// A task's report (DD7): one message, in the place the task reports to,
+    /// under a key of its own, so it posts once. A failed task's pings.
+    async fn report_post(&mut self, body: &Value, corr: &str) -> Result<Plan, SendErr> {
+        let channel = self.place_channel().await?;
+        let said = body["node"]
+            .as_str()
+            .and_then(|n| self.shared.core.outbox.said(n));
+        let content = render::report(body, said.as_deref());
+        let key = format!("report:{}", body["task"].as_str().unwrap_or(corr));
+        let ping = policy::pings(policy::of_report(body));
+        Ok(Plan {
+            writes: vec![lone(key, channel, content, ping)],
+            extra: json!({"task": body["task"]}),
+        })
+    }
+
     /// A disk crossing's post (theseus-f337), where approvals go.
     async fn disk_post(&mut self, body: &Value, corr: &str) -> Result<Plan, SendErr> {
         let t = crate::diskwords::disk_note(body);
+        let ping = policy::pings(policy::of_disk(body));
         let (channel, place) = self.operator_channel(body).await?;
         Ok(Plan {
             writes: vec![Write {
@@ -1031,6 +1138,7 @@ impl Lane {
                 reply_to: None,
                 message: None,
                 mentions: vec![],
+                ping,
             }],
             extra: json!({"place": place}),
         })
@@ -1064,6 +1172,7 @@ impl Lane {
                 reply_to: None,
                 message: None,
                 mentions: vec![],
+                ping: policy::pings(Event::Jev),
             }],
             extra: json!({"place": place, "text": content}),
         })
@@ -1105,6 +1214,7 @@ impl Lane {
                     reply_to: None,
                     message: Some(m["id"].as_str()?.parse().ok()?),
                     mentions: vec![],
+                    ping: policy::pings(Event::Jev),
                 })
             })
             .collect();
@@ -1184,6 +1294,10 @@ impl Lane {
                 Err(e) => return Err(e),
             }
         }
+        // One ping per place per window (theseus-l1y1): taken only once the
+        // create lands, so a create Discord never took leaves it open.
+        let now = tokio::time::Instant::now();
+        let ping = w.ping && self.shared.pings.open(w.channel, now);
         let (m, landed) = self
             .create(
                 w.channel,
@@ -1191,9 +1305,12 @@ impl Lane {
                 &w.content,
                 &w.buttons,
                 w.reply_to,
-                &w.mentions,
+                (&w.mentions, w.ping, ping),
             )
             .await?;
+        if ping {
+            self.shared.pings.mark(w.channel, now);
+        }
         self.touch(&w.key);
         self.msgs.insert(w.key.clone(), (w.channel, m));
         self.shared.replies.noted(m, &w.key);
@@ -1210,7 +1327,10 @@ impl Lane {
     /// of it returns the first message. Returns its id and the content Discord
     /// has for it, which is an earlier send's when the nonce matched one.
     /// Discord notifies exactly `mentions` (theseus-9j9): nobody for any
-    /// message but a card, whatever its text says.
+    /// message but a card, whatever its text says; and only when it `ping`s
+    /// (theseus-l1y1): else it carries `SUPPRESS_NOTIFICATIONS`, and no
+    /// device notifies. `wants` is the table's word, before the window: its
+    /// row says when the window held a ping back.
     async fn create(
         &mut self,
         channel: u64,
@@ -1218,7 +1338,7 @@ impl Lane {
         content: &str,
         buttons: &Buttons,
         reply_to: Option<u64>,
-        mentions: &[u64],
+        (mentions, wants, ping): (&[u64], bool, bool),
     ) -> Result<(u64, String), SendErr> {
         let mut allowed = json!({"parse": [], "replied_user": false});
         if !mentions.is_empty() {
@@ -1230,6 +1350,9 @@ impl Lane {
             "enforce_nonce": true,
             "allowed_mentions": allowed,
         });
+        if !ping {
+            body["flags"] = json!(policy::SUPPRESS_NOTIFICATIONS);
+        }
         let comps = match buttons {
             Buttons::Confirm(corr) => confirm_buttons(corr, false),
             Buttons::ConfirmTrust(corr) => confirm_buttons(corr, true),
@@ -1271,7 +1394,7 @@ impl Lane {
         self.shared.core.binding_ledger_soon(
             LedgerKind::DiscordMessageOut,
             None,
-            json!({"place": self.label, "message_id": m.id.to_string(), "part": key,
+            json!({"place": self.label, "message_id": m.id.to_string(), "part": key, "ping": ping, "held": wants && !ping,
                    "chars": content.chars().count(), "buttons": matches!(buttons, Buttons::Confirm(_) | Buttons::ConfirmTrust(_) | Buttons::Accept(_)),
                    "menu": matches!(buttons, Buttons::ShouldHaveAsked(_)), "mentions": mentioned}),
         );
@@ -1334,20 +1457,37 @@ impl Lane {
                     let Ok(channel) = self.place_channel().await else {
                         continue;
                     };
-                    let reply_to = (!self.msgs.contains_key(&key))
-                        .then(|| self.anchor.take())
-                        .flatten();
-                    self.write(&Write {
-                        key,
-                        channel,
-                        content,
-                        buttons,
-                        reply_to,
-                        message: None,
-                        mentions: vec![],
-                    })
-                    .await
-                    .map(|_| ())
+                    let new = !self.msgs.contains_key(&key);
+                    let reply_to = new.then(|| self.anchor.take()).flatten();
+                    // The first text part of the turn that answers the
+                    // owner's own message pings; a tool line never does
+                    // (theseus-l1y1).
+                    let ping = new
+                        && if policy::is_text_part(&key) {
+                            policy::pings(if self.owed.is_some() {
+                                Event::Answer
+                            } else {
+                                Event::ReplyPart
+                            })
+                        } else {
+                            policy::pings(Event::ToolLine)
+                        };
+                    let r = self
+                        .write(&Write {
+                            key,
+                            channel,
+                            content,
+                            buttons,
+                            reply_to,
+                            message: None,
+                            mentions: vec![],
+                            ping,
+                        })
+                        .await;
+                    if ping && matches!(r, Ok(Some(_))) {
+                        self.owed = None;
+                    }
+                    r.map(|_| ())
                 }
                 Op::Notice { key, card } => self.notice(&key, &card).await,
             };
@@ -1404,10 +1544,12 @@ impl Lane {
                 self.shared.board.update(|s| s.edits += 1);
             }
             None => {
+                // A call's notice is live progress: silent (theseus-l1y1).
                 let mut req = http
                     .create_message(Id::new(channel))
                     .embeds(&embeds)
-                    .allowed_mentions(Some(&none));
+                    .allowed_mentions(Some(&none))
+                    .flags(MessageFlags::SUPPRESS_NOTIFICATIONS);
                 if !comps.is_empty() {
                     req = req.components(&comps);
                 }
@@ -1453,6 +1595,20 @@ pub(crate) async fn courier(shared: Arc<Shared>) {
     }
 }
 
+/// One plain message a post writes, pinging or not.
+fn lone(key: String, channel: u64, content: String, ping: bool) -> Write {
+    Write {
+        key,
+        channel,
+        content,
+        buttons: Buttons::Keep,
+        reply_to: None,
+        message: None,
+        mentions: vec![],
+        ping,
+    }
+}
+
 /// A glide's post (38b): another session's words, posted in `channel` once,
 /// under its call's keys (`glide:<call>`, then `glide:<call>:<part>`), in
 /// this place's order.
@@ -1472,6 +1628,7 @@ fn glide(body: &Value, corr: &str, channel: u64) -> Plan {
             reply_to: None,
             message: None,
             mentions: vec![],
+            ping: policy::pings(Event::Glide),
         })
         .collect();
     Plan {

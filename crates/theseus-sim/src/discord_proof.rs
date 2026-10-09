@@ -740,9 +740,17 @@ fn typed_message(r: &mut Rig) -> Result<String, String> {
             m.reply_to.as_deref() == Some(typed.as_str()) && m.content.contains(READY_TEXT)
         })
     })?;
+    // The answer to the owner's own message is the one write that pings
+    // (theseus-l1y1).
+    if reply.silent() {
+        return Err(format!(
+            "the answer to ana's message went out silent: {reply:?}"
+        ));
+    }
     Ok(format!(
-        "message {typed} answered by {}: {:?}",
+        "message {typed} answered by {} (flags {}): {:?}",
         reply.id,
+        reply.flags,
         first_line(&reply.content)
     ))
 }
@@ -926,7 +934,8 @@ fn clip(s: &str) -> String {
 }
 
 /// Every message the stand-in holds, by channel, each version in order, its
-/// buttons, and every answer to an interaction.
+/// buttons, each of the bot's creates' flags (theseus-l1y1: silent, or it
+/// pings), and every answer to an interaction.
 fn transcript(fake: &FakeDiscord) -> Vec<String> {
     let who = |a: &str| match a.parse::<u64>() {
         Ok(BOT_ID) => "theseus".to_string(),
@@ -947,8 +956,13 @@ fn transcript(fake: &FakeDiscord) -> Vec<String> {
             .map(|v| format!("{:?}", clip(v)))
             .collect();
         let buttons: Vec<&str> = m.buttons.iter().map(|b| b.label.as_str()).collect();
+        let flags = match (m.author == BOT_ID.to_string(), m.silent()) {
+            (false, _) => String::new(),
+            (true, true) => format!(" (flags {}: silent)", m.flags),
+            (true, false) => format!(" (flags {}: pings)", m.flags),
+        };
         out.push(format!(
-            "{place} {}: {}{}",
+            "{place} {}: {}{}{flags}",
             who(&m.author),
             versions.join(" -> "),
             if buttons.is_empty() {

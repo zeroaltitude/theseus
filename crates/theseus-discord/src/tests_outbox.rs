@@ -435,8 +435,10 @@ fn a_post_for_a_place_no_longer_bound_is_refused_at_the_next_start() {
 }
 
 /// A card and how its question closed, both written while Discord is away:
-/// when it is back, the card is posted, then edited to say how it closed,
-/// at the id its create returned, its buttons gone.
+/// when it is back, the card is written once, already saying how it closed,
+/// with no buttons, and silent (theseus-l1y1: not a live card and then its
+/// settle); the settle finds nothing to edit. The name is from before
+/// theseus-l1y1, when the settle edited the card it waited for.
 #[tokio::test]
 async fn a_cards_settle_waits_for_its_create_and_edits_it_by_id() {
     let d = tempfile::tempdir().unwrap();
@@ -488,17 +490,22 @@ async fn a_cards_settle_waits_for_its_create_and_edits_it_by_id() {
         "{}",
         card.content
     );
-    assert_eq!((card.edits, card.components), (1, 0), "{card:?}");
+    assert_eq!(
+        (card.edits, card.components, card.versions.len()),
+        (0, 0, 1),
+        "written once, settled: {card:?}"
+    );
+    assert!(
+        card.silent(),
+        "a closed question's card pings no one: {card:?}"
+    );
     let seen = fake.seen();
-    let create = seen
+    let writes: Vec<&str> = seen
         .iter()
-        .position(|s| s.outcome == "created" && s.message_id.as_deref() == Some(card.id.as_str()))
-        .unwrap();
-    let edit = seen
-        .iter()
-        .position(|s| s.outcome == "edited" && s.message_id.as_deref() == Some(card.id.as_str()))
-        .unwrap();
-    assert!(create < edit, "the edit went after its create, to its id");
+        .filter(|s| s.message_id.as_deref() == Some(card.id.as_str()))
+        .map(|s| s.outcome.as_str())
+        .collect();
+    assert_eq!(writes, ["created"], "no live card, then no settle's edit");
 }
 
 /// A glide (38b) out of the owner's DM into a channel bound shared asks
@@ -1440,6 +1447,13 @@ async fn each_disk_crossing_posts_one_note_in_the_dm_approvals_go_to() {
         let got = replies(&fake);
         assert_eq!(got.len(), i + 1, "one message per crossing: {got:?}");
         assert_eq!(got[i].content, crate::diskwords::disk_note(&body));
+        // Only below the floor does it ping (theseus-l1y1).
+        assert_eq!(
+            got[i].silent(),
+            state != "below_floor",
+            "{state}: {:?}",
+            got[i]
+        );
         let settled = core.kernel.outbox_action(&corr).unwrap().unwrap();
         let messages = settled.detail.unwrap()["messages"].clone();
         let key = format!("note:{corr}");
@@ -1567,4 +1581,114 @@ async fn a_place_removed_live_and_put_back_has_its_new_post_sent_not_refused() {
         "{:?}",
         fake.messages(CHANNEL)
     );
+}
+
+/// A post written straight to the DM's outbox, as the core writes it.
+fn post_to_dm(core: &Core, body: serde_json::Value) -> String {
+    let sid = session(core);
+    core.outbox
+        .post(&sid, "", &format!("discord:dm:{USER}"), body)
+        .unwrap()
+        .correlation_id
+}
+
+/// The message the settled post `corr` made.
+async fn posted(core: &Arc<Core>, fake: &FakeDiscord, corr: &str) -> Msg {
+    let c = core.clone();
+    let id = corr.to_string();
+    until("the post settles", 10, move || {
+        c.kernel
+            .outbox_action(&id)
+            .unwrap()
+            .is_some_and(|a| a.state == theseus_kernel::ActionState::Succeeded)
+    })
+    .await;
+    let a = core.kernel.outbox_action(corr).unwrap().unwrap();
+    let m = a.detail.unwrap()["messages"][0]["id"]
+        .as_str()
+        .expect("its message")
+        .to_string();
+    fake.messages(DM)
+        .into_iter()
+        .find(|x| x.id == m)
+        .expect("on the fake")
+}
+
+fn report(outcome: &str) -> serde_json::Value {
+    serde_json::json!({"kind": "report", "task": format!("ses_tidepool_{outcome}"),
+        "short": "c0ffee", "execution_id": "exe_tidepool", "title": "chart the tide pools",
+        "outcome": outcome, "node": null, "reason": "the probe broke",
+        "spent_usd": 0.01, "limit_usd": 1.0, "turns": 2, "elapsed_ms": 4000})
+}
+
+/// theseus-l1y1: a notice, the bind's included, and a finished task's report
+/// are silent; a failed task's report pings (the table's Interrupt).
+#[tokio::test]
+async fn a_failed_tasks_report_pings_and_a_finished_ones_and_notes_do_not() {
+    let d = tempfile::tempdir().unwrap();
+    let fake = FakeDiscord::start();
+    let core = core_at(d.path(), &fake, vec![], |_| {});
+    bind(&core, d.path(), &dm_only()).await;
+    let f = fake.clone();
+    until("the bind notice", 10, move || f.messages(DM).len() == 1).await;
+    assert!(fake.messages(DM)[0].silent(), "the bind notice");
+    let note = post_to_dm(
+        &core,
+        serde_json::json!({"kind": "notice", "text": "📎 a note"}),
+    );
+    assert!(posted(&core, &fake, &note).await.silent(), "a note");
+    let done = post_to_dm(&core, report("complete"));
+    assert!(
+        posted(&core, &fake, &done).await.silent(),
+        "a finished task"
+    );
+    let cancelled = post_to_dm(&core, report("cancelled"));
+    assert!(
+        posted(&core, &fake, &cancelled).await.silent(),
+        "a cancelled task"
+    );
+    let failed = post_to_dm(&core, report("failed"));
+    let m = posted(&core, &fake, &failed).await;
+    assert!(!m.silent(), "a failed task pings: {m:?}");
+}
+
+/// theseus-l1y1: a failed turn's post pings.
+#[tokio::test]
+async fn a_failed_turns_post_pings() {
+    let d = tempfile::tempdir().unwrap();
+    let fake = FakeDiscord::start();
+    let core = core_at(d.path(), &fake, vec![], |_| {});
+    bind(&core, d.path(), &dm_only()).await;
+    let f = fake.clone();
+    until("the bind notice", 10, move || f.messages(DM).len() == 1).await;
+    let failed = post_to_dm(
+        &core,
+        serde_json::json!({"kind": "failed", "class": "overloaded", "error": "the model is busy",
+            "turns": 1}),
+    );
+    let m = posted(&core, &fake, &failed).await;
+    assert!(!m.silent(), "a failed turn pings: {m:?}");
+}
+
+/// theseus-l1y1: a reply to no message of the owner's (a turn the CLI sent
+/// here) is silent, every part of it.
+#[tokio::test]
+async fn a_reply_to_no_owners_message_is_silent() {
+    let d = tempfile::tempdir().unwrap();
+    let fake = FakeDiscord::start();
+    let core = core_at(
+        d.path(),
+        &fake,
+        vec![Scripted::text("Low tide at six.")],
+        |_| {},
+    );
+    let rpc = bind(&core, d.path(), &dm_only()).await;
+    let f = fake.clone();
+    until("the bind notice", 10, move || f.messages(DM).len() == 1).await;
+    ask(&rpc, &session(&core), "when is low tide?").await;
+    let c = core.clone();
+    until("the reply is delivered", 20, move || pending(&c) == 0).await;
+    let got = replies(&fake);
+    assert_eq!(got.len(), 1, "{got:?}");
+    assert!(got[0].silent(), "{:?}", got[0]);
 }
