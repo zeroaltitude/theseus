@@ -280,17 +280,15 @@ impl Core {
         })?;
         let mut out = OntologyProposalAcceptAllResult::default();
         for pr in all.proposals {
+            // A new topic's proposal is of the topic kind.
             let kind = pr
                 .topic
                 .as_deref()
                 .and_then(|t| t.split_once(':'))
-                .map(|(k, _)| k);
+                .map_or("topic", |(k, _)| k);
             let picked = match p.judgments.is_empty() {
                 true => {
-                    pr.confidence >= p.min_confidence
-                        && p.kind
-                            .as_deref()
-                            .is_none_or(|k| kind == Some(k) || pr.new_topic)
+                    pr.confidence >= p.min_confidence && p.kind.as_deref().is_none_or(|k| kind == k)
                 }
                 false => p.judgments.contains(&pr.judgment),
             };

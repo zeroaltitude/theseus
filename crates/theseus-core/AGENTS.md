@@ -702,6 +702,17 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   (`Category.retired_ms`: no child, membership, or guidance; the snapshot holds none for it, a load skips it), the
   deepest first. `ontology.list` counts each category's sessions (`members`) and leaves the memberships out on
   `memberships: false` (the cockpit's page and the CLI's tree). Tests: `import/tests_topics.rs`.
+  **Its people** (theseus-wy7y): `import.people` (`import/people.rs`, the owner's act, `--dry-run` counts) reads a tag's
+  live sessions' `person:<name>` authors (from their nodes) and each DM's other party (its place's id: digits are
+  `discord:`, else `slack:`), one person each (a name that spoke alone in one party's DMs is that party), found by an
+  exact handle first (`Ontology::person_by_handle`; a DM's person holds its `discord:<id>`), never by a display name
+  across makers; each session's person list, origin `import`, at most `PER_SESSION` (12). The erase empties every
+  stored kind's lists (`Kind::stores`) and retires the import's people nothing uses. The person kind is given with a
+  stored side (`theseus_ontology::person`): the operator and the import declare people and keep stored lists, never
+  the transport; `Walk::of` takes a stored person the place also gives once; handles, merges and their undo are
+  `rpc/people.rs` (`ontology.person.merge`, the `ontology.merged` row holds what moved; a DM's first bind whose id
+  another person holds merges that one into it), with `ontology.proposal.accept_all`, the bulk yes. Tests:
+  `import/tests_people.rs`, `tests_people_proposals.rs`, theseus-ontology's `tests_people.rs`.
 - **The books, first cut** (theseus-civ0): `books/`, `rpc/books.rs`. `books.list` (each of the seven books and
   `unsorted` with its count and its episodes' first and last start) and `books.page` (a book's episodes newest first,
   by cursor, filtered by topic, source and place, its facets on a first page), read only, from the import's labels

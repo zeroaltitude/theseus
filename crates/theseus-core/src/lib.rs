@@ -249,6 +249,8 @@ mod tests_outside_text;
 #[cfg(test)]
 mod tests_overflow;
 #[cfg(test)]
+mod tests_people_proposals;
+#[cfg(test)]
 mod tests_places;
 #[cfg(test)]
 mod tests_prove;
