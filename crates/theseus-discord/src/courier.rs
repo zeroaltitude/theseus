@@ -421,6 +421,12 @@ impl Lane {
         match m {
             LaneMsg::Live(op) => {
                 if self.retry_at.is_none() {
+                    // A loop's thinking goes before the reply that follows it
+                    // (theseus-l1y1), as a call's progress goes before its card.
+                    if let Op::Upsert { key, content, .. } = &op {
+                        self.stream_first |= !self.msgs.contains_key(key)
+                            && policy::of_live(key, false, content) == Event::Thinking;
+                    }
                     self.queue_live(op);
                 }
             }
