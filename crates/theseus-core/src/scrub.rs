@@ -4,9 +4,12 @@
 //! (standard or URL-safe, at any offset inside a longer encoding, wrapped
 //! across lines or not), percent-encoded (review 2's H9), and with any of its
 //! characters JSON-escaped (theseus-ubp7, `escaped.rs`). Well-known
-//! shapes of secrets never resolved here are replaced by `[redacted:<shape>]`:
-//! token prefixes, AWS access key ids and the secret keys and session tokens
-//! beside them, private-key blocks, and JWTs.
+//! shapes of secrets never resolved here are replaced by `[redacted:<shape>]`
+//! (`shapes.rs`): token prefixes (Anthropic, OpenAI, Stripe, Google, GitHub,
+//! Slack and others), AWS access key ids and the secret keys and session
+//! tokens beside them, private-key blocks, JWTs, and a connection URL's
+//! password; as written, and in the same encodings a value is looked for in
+//! (`decoded.rs`, theseus-oyrt).
 //!
 //! The values are read from the secret board at each scrub, so a value is
 //! known here the moment it resolves (theseus-qa0). A turn waits for the
@@ -19,30 +22,27 @@ use base64::Engine as _;
 
 use crate::secrets::{SecretBoard, SecretState};
 
+#[cfg(test)]
+mod corpus;
+mod decoded;
 mod escaped;
+mod shapes;
+#[cfg(test)]
+mod tests_corpus;
 #[cfg(test)]
 mod tests_escaped;
 #[cfg(test)]
 mod tests_fold;
 #[cfg(test)]
 mod tests_nested;
+#[cfg(test)]
+mod tests_shapes;
 
 #[derive(Default)]
 pub struct Scrubber {
     exact: Vec<(String, String)>,
     board: Option<Arc<SecretBoard>>,
 }
-
-/// Token prefixes worth catching even when the value was never resolved here.
-const PREFIXES: &[(&str, &str)] = &[
-    ("sk-ant-", "anthropic_key"),
-    ("ghp_", "github_token"),
-    ("github_pat_", "github_token"),
-    ("gho_", "github_token"),
-    ("ops_", "op_service_account"),
-    ("xoxb-", "slack_token"),
-    ("xoxp-", "slack_token"),
-];
 
 /// The shortest value scrubbed: a shorter one would match by chance.
 const MIN_VALUE: usize = 8;
@@ -95,12 +95,12 @@ impl Scrubber {
         n += encoded(&mut out, &values);
         drop(values);
         drop(states);
-        let shapes: [fn(&str) -> Vec<Span>; 3] = [private_keys, jwts, aws];
-        for shape in shapes {
-            let spans = shape(&out);
+        for find in shapes::FINDERS {
+            let spans = find(&out);
             n += splice(&mut out, spans);
         }
-        n += prefixed(&mut out);
+        let spans = decoded::spans(&out);
+        n += splice(&mut out, spans);
         (out, n)
     }
 }
@@ -165,20 +165,29 @@ fn base64_spans<'a>(
     if needles.is_empty() {
         return spans;
     }
-    for lines in base64_runs(text) {
+    let (mut joined, mut starts) = (String::new(), Vec::new());
+    for lines in base64_runs(text).iter() {
         if !keep(lines[0].start..lines[lines.len() - 1].end) {
             continue;
         }
-        // The run without its line breaks, and where each line starts in it.
-        let mut joined = String::new();
-        let mut starts = Vec::with_capacity(lines.len());
-        for l in &lines {
-            starts.push(joined.len());
-            joined.push_str(&text[l.clone()]);
-        }
+        // The run without its line breaks, and where each line starts in it:
+        // a run of one line, most of them, is read where it lies.
+        let run = if let [line] = lines {
+            starts.clear();
+            starts.push(0);
+            &text[line.clone()]
+        } else {
+            joined.clear();
+            starts.clear();
+            for l in lines {
+                starts.push(joined.len());
+                joined.push_str(&text[l.clone()]);
+            }
+            joined.as_str()
+        };
         let line_of = |at: usize| &lines[starts.partition_point(|s| *s <= at) - 1];
         for (needle, name) in needles {
-            for (at, _) in joined.match_indices(needle.as_str()) {
+            for (at, _) in run.match_indices(needle.as_str()) {
                 let (first, last) = (line_of(at), line_of(at + needle.len() - 1));
                 spans.push((first.start, last.end, *name));
             }
@@ -232,9 +241,9 @@ fn is_base64(c: u8) -> bool {
 /// skip hides no needle. Any other escape's letter starts a run as any letter
 /// does, so a value's base64 right after a lone backslash (a Windows path's
 /// `C:\`) is read whole (theseus-g88t).
-fn base64_runs(text: &str) -> Vec<Vec<Range<usize>>> {
+fn base64_runs(text: &str) -> Runs {
     let b = text.as_bytes();
-    let mut runs = Vec::new();
+    let mut runs = Runs::default();
     let mut i = 0;
     while i < b.len() {
         if !is_base64(b[i])
@@ -243,7 +252,7 @@ fn base64_runs(text: &str) -> Vec<Vec<Range<usize>>> {
             i += 1;
             continue;
         }
-        let mut lines = Vec::new();
+        let first = runs.lines.len();
         loop {
             let line = i;
             while i < b.len() && is_base64(b[i]) {
@@ -253,7 +262,7 @@ fn base64_runs(text: &str) -> Vec<Vec<Range<usize>>> {
             while j < b.len() && b[j] == b'=' && j - i < 2 {
                 j += 1;
             }
-            lines.push(line..j);
+            runs.lines.push(line..j);
             let lf = if b.get(j) == Some(&b'\r') { j + 1 } else { j };
             let wraps = j == i
                 && i - line >= 40
@@ -265,11 +274,31 @@ fn base64_runs(text: &str) -> Vec<Vec<Range<usize>>> {
             }
             i = lf + 1;
         }
-        if lines.iter().map(ExactSizeIterator::len).sum::<usize>() >= 10 {
-            runs.push(lines);
+        let len: usize = runs.lines[first..].iter().map(ExactSizeIterator::len).sum();
+        if len >= 10 {
+            runs.ends.push(runs.lines.len());
+        } else {
+            runs.lines.truncate(first);
         }
     }
     runs
+}
+
+/// The text's base64 runs: every run's lines in one list, and where each run
+/// ends in it, so a scan allocates nothing for each word it passes
+/// (theseus-oyrt: a run's own list was most of a scrub's allocations).
+#[derive(Default)]
+struct Runs {
+    lines: Vec<Range<usize>>,
+    ends: Vec<usize>,
+}
+
+impl Runs {
+    /// Each run's lines, in order.
+    fn iter(&self) -> impl Iterator<Item = &[Range<usize>]> {
+        let starts = std::iter::once(0).chain(self.ends.iter().copied());
+        starts.zip(&self.ends).map(|(a, b)| &self.lines[a..*b])
+    }
 }
 
 /// Where `v` appears with at least one of its bytes percent-encoded (`%2F` or
@@ -305,237 +334,6 @@ fn percent_spans(t: &[u8], v: &[u8]) -> Vec<(usize, usize)> {
             i = j;
         } else {
             i += 1;
-        }
-    }
-    spans
-}
-
-// ---------------------------------------------------------------- shapes
-
-/// A prefixed token: the prefix and at least 8 characters more of letters,
-/// digits, `_`, and `-`. A shorter one is skipped, and the scan goes on past
-/// it.
-fn prefixed(out: &mut String) -> u32 {
-    let mut n = 0;
-    for (prefix, shape) in PREFIXES {
-        let mut from = 0;
-        while let Some(rel) = out[from..].find(prefix) {
-            let i = from + rel;
-            let end = out[i..]
-                .find(|c: char| !(c.is_ascii_alphanumeric() || c == '_' || c == '-'))
-                .map_or(out.len(), |e| i + e);
-            if end - i < prefix.len() + 8 {
-                from = i + prefix.len();
-                continue;
-            }
-            let with = format!("[redacted:{shape}]");
-            out.replace_range(i..end, &with);
-            from = i + with.len();
-            n += 1;
-        }
-    }
-    n
-}
-
-/// Private-key blocks: `-----BEGIN … PRIVATE KEY-----` to its END line. When
-/// the END line is missing, as in a cut result, the block runs to the end of
-/// the BEGIN line and over the lines after it that look like a key's.
-fn private_keys(s: &str) -> Vec<Span> {
-    const BEGIN: &str = "-----BEGIN ";
-    let mut spans = Vec::new();
-    let mut from = 0;
-    while let Some(rel) = s[from..].find(BEGIN) {
-        let start = from + rel;
-        let label_at = start + BEGIN.len();
-        from = label_at;
-        let line_end = s[start..].find('\n').map_or(s.len(), |e| start + e);
-        let Some(len) = s[label_at..line_end].find("-----") else {
-            continue;
-        };
-        let label = &s[label_at..label_at + len];
-        if !label.contains("PRIVATE KEY") {
-            continue;
-        }
-        let end_line = format!("-----END {label}-----");
-        let end = match s[label_at..].find(&end_line) {
-            Some(e) => label_at + e + end_line.len(),
-            None => key_body_end(s, line_end),
-        };
-        spans.push((start, end, "[redacted:private_key]".into()));
-        from = end;
-    }
-    spans
-}
-
-/// The end of the lines after `at` (a line's end) that look like a key's
-/// body: base64, a `Name: value` header, or blank.
-fn key_body_end(s: &str, mut at: usize) -> usize {
-    while at < s.len() {
-        let next = at + 1;
-        let end = s[next..].find('\n').map_or(s.len(), |e| next + e);
-        let line = s[next..end].trim_end_matches('\r');
-        let body = line
-            .bytes()
-            .all(|c| c.is_ascii_alphanumeric() || matches!(c, b'+' | b'/' | b'='))
-            || line.contains(": ");
-        if !body {
-            break;
-        }
-        at = end;
-    }
-    at
-}
-
-/// JWTs: three dot-joined base64url parts, the first `eyJ` (`{"`), the first
-/// two at least 10 characters, and the signature possibly empty; a JWE's two
-/// further parts go with it.
-fn jwts(s: &str) -> Vec<Span> {
-    let b = s.as_bytes();
-    let url = |c: u8| c.is_ascii_alphanumeric() || c == b'-' || c == b'_';
-    let run = |mut j: usize| {
-        while j < b.len() && url(b[j]) {
-            j += 1;
-        }
-        j
-    };
-    let mut spans = Vec::new();
-    let mut from = 0;
-    while let Some(rel) = s[from..].find("eyJ") {
-        let i = from + rel;
-        from = i + 3;
-        if i > 0 && url(b[i - 1]) {
-            continue;
-        }
-        let header = run(i);
-        if header - i < 10 || b.get(header) != Some(&b'.') {
-            continue;
-        }
-        let payload = run(header + 1);
-        if payload - (header + 1) < 10 || b.get(payload) != Some(&b'.') {
-            continue;
-        }
-        let mut end = run(payload + 1);
-        for _ in 0..2 {
-            if b.get(end) == Some(&b'.') && run(end + 1) > end + 1 {
-                end = run(end + 1);
-            } else {
-                break;
-            }
-        }
-        spans.push((i, end, "[redacted:jwt]".into()));
-        from = end;
-    }
-    spans
-}
-
-/// AWS: access key ids (`AKIA` or `ASIA`, and 16 capitals and digits); a
-/// 40-character secret key on the same line as one, as the console's CSV and
-/// a pasted pair put them; and a secret key or session token after a label
-/// that names one (`aws_secret_access_key = …`, `"SecretAccessKey": "…"`,
-/// `AWS_SESSION_TOKEN=…`).
-fn aws(s: &str) -> Vec<Span> {
-    let b = s.as_bytes();
-    let mut spans = Vec::new();
-    for prefix in ["AKIA", "ASIA"] {
-        let mut from = 0;
-        while let Some(rel) = s[from..].find(prefix) {
-            let i = from + rel;
-            from = i + prefix.len();
-            let end = i + 20;
-            let id = end <= b.len()
-                && b[i + 4..end]
-                    .iter()
-                    .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit())
-                && (i == 0 || !b[i - 1].is_ascii_alphanumeric())
-                && !b.get(end).is_some_and(u8::is_ascii_alphanumeric);
-            if !id {
-                continue;
-            }
-            spans.push((i, end, "[redacted:aws_access_key_id]".into()));
-            let line = s[..i].rfind('\n').map_or(0, |p| p + 1)
-                ..s[end..].find('\n').map_or(s.len(), |p| end + p);
-            spans.extend(bare_secret_keys(b, line));
-        }
-    }
-    spans.extend(labeled(s));
-    spans
-}
-
-/// 40-character tokens of the secret keys' alphabet within `line`, each with
-/// a capital, `/`, or `+` (so a 40-digit hex hash is not one).
-fn bare_secret_keys(b: &[u8], line: Range<usize>) -> Vec<Span> {
-    let key = |c: u8| c.is_ascii_alphanumeric() || c == b'/' || c == b'+';
-    let mut spans = Vec::new();
-    let mut i = line.start;
-    while i < line.end {
-        if !key(b[i]) {
-            i += 1;
-            continue;
-        }
-        let start = i;
-        while i < line.end && key(b[i]) {
-            i += 1;
-        }
-        let token = &b[start..i];
-        let alone = b.get(i) != Some(&b'=');
-        let mixed = token
-            .iter()
-            .any(|c| c.is_ascii_uppercase() || matches!(c, b'/' | b'+'));
-        if token.len() == 40 && alone && mixed {
-            spans.push((start, i, "[redacted:aws_secret_access_key]".into()));
-        }
-    }
-    spans
-}
-
-/// `word`, its underscores dropped and its case folded, ends with `tail`
-/// (lower case, no underscores).
-fn ends_folded(word: &[u8], tail: &str) -> bool {
-    let mut w = word
-        .iter()
-        .rev()
-        .filter(|c| **c != b'_')
-        .map(u8::to_ascii_lowercase);
-    tail.bytes().rev().all(|t| w.next() == Some(t))
-}
-
-/// A secret key or session token after the label that names it: the value
-/// (16 or more characters of base64) after at most 6 of ` \t"':=`.
-fn labeled(s: &str) -> Vec<Span> {
-    let b = s.as_bytes();
-    let word = |c: u8| c.is_ascii_alphanumeric() || c == b'_';
-    let value = |c: u8| c.is_ascii_alphanumeric() || matches!(c, b'/' | b'+' | b'=');
-    let mut spans = Vec::new();
-    let mut i = 0;
-    while i < b.len() {
-        if !word(b[i]) {
-            i += 1;
-            continue;
-        }
-        let start = i;
-        while i < b.len() && word(b[i]) {
-            i += 1;
-        }
-        let w = &b[start..i];
-        let shape = if ends_folded(w, "secretaccesskey") {
-            "aws_secret_access_key"
-        } else if ends_folded(w, "sessiontoken") || ends_folded(w, "securitytoken") {
-            "aws_session_token"
-        } else {
-            continue;
-        };
-        let mut j = i;
-        while j < b.len() && j - i < 6 && matches!(b[j], b' ' | b'\t' | b'"' | b'\'' | b':' | b'=')
-        {
-            j += 1;
-        }
-        let v = j;
-        while j < b.len() && value(b[j]) {
-            j += 1;
-        }
-        if j - v >= 16 {
-            spans.push((v, j, format!("[redacted:{shape}]")));
-            i = j;
         }
     }
     spans

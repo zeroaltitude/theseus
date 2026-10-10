@@ -44,28 +44,11 @@ pub(super) fn spans<'a>(
     if values.is_empty() || !text.contains('\\') {
         return Vec::new();
     }
-    // Each level's decoded text and its escapes, which map it back to the
-    // level before it (the first, to the text).
-    let mut levels: Vec<(String, Vec<Escape>)> = Vec::new();
+    let levels = levels(text);
     let mut out = Vec::new();
-    while levels.len() < LEVELS {
-        let from = levels.last().map_or(text, |l| l.0.as_str());
-        if !levels.is_empty() && !from.contains('\\') {
-            break;
-        }
-        let (decoded, escapes) = decode(from);
-        if escapes.is_empty() {
-            break;
-        }
-        levels.push((decoded, escapes));
-        let (decoded, escapes) = &levels[levels.len() - 1];
-        // A range of this level's text, as a range of the output.
-        let back = |a: usize, b: usize| {
-            levels
-                .iter()
-                .rev()
-                .fold((a, b), |(a, b), (_, e)| (start(e, a), end(e, b)))
-        };
+    for top in 1..=levels.len() {
+        let (decoded, escapes) = &levels[top - 1];
+        let back = |a: usize, b: usize| back(&levels[..top], a, b);
         // Every value in every level: one holding a literal `\n` matches in
         // the first only.
         for (v, name) in values {
@@ -91,6 +74,85 @@ pub(super) fn spans<'a>(
         }
     }
     out
+}
+
+/// What `find` finds in each level of the text's decoding, as byte ranges of
+/// the text, each with its stand-in (theseus-oyrt: the shapes, read where an
+/// escape hid one). Only the lines an escape of the level is on are read,
+/// each as that level decoded it, since every other line it holds as the
+/// level before it did. A text with no backslash costs one scan for it.
+pub(super) fn found(text: &str, find: impl Fn(&str) -> Vec<super::Span>) -> Vec<super::Span> {
+    if !text.contains('\\') {
+        return Vec::new();
+    }
+    let levels = levels(text);
+    let mut out = Vec::new();
+    for top in 1..=levels.len() {
+        let source = if top == 1 { text } else { &levels[top - 2].0 };
+        let (decoded, escapes) = &levels[top - 1];
+        for (from, to) in lines_of(source, escapes) {
+            for (a, b, with) in find(&decoded[from..to]) {
+                let (a, b) = back(&levels[..top], from + a, from + b);
+                out.push((a, b, with));
+            }
+        }
+    }
+    out
+}
+
+/// The lines of `source` the escapes are on, as ranges of its decoded text.
+/// A folded line break is inside the line it folds.
+fn lines_of(source: &str, escapes: &[Escape]) -> Vec<(usize, usize)> {
+    // A line's start or end, where no escape is, as the decoded text's.
+    let forward = |p: usize| match escapes.partition_point(|e| e.src < p).checked_sub(1) {
+        None => p,
+        Some(k) => escapes[k].dec_end + (p - escapes[k].src_end),
+    };
+    let end_after = |p: usize| source[p..].find('\n').map_or(source.len(), |e| p + e);
+    let mut lines: Vec<(usize, usize)> = Vec::new();
+    let mut open: Option<(usize, usize)> = None;
+    for e in escapes {
+        match open {
+            Some((_, ref mut to)) if e.src < *to => *to = (*to).max(end_after(e.src_end)),
+            _ => {
+                lines.extend(open.take());
+                let from = source[..e.src].rfind('\n').map_or(0, |p| p + 1);
+                open = Some((from, end_after(e.src_end)));
+            }
+        }
+    }
+    lines.extend(open);
+    lines
+        .into_iter()
+        .map(|(from, to)| (forward(from), forward(to)))
+        .collect()
+}
+
+/// Each level's decoded text and its escapes, which map it back to the level
+/// before it (the first, to the text). A second decode runs only when the
+/// first leaves a backslash.
+fn levels(text: &str) -> Vec<(String, Vec<Escape>)> {
+    let mut levels: Vec<(String, Vec<Escape>)> = Vec::new();
+    while levels.len() < LEVELS {
+        let from = levels.last().map_or(text, |l| l.0.as_str());
+        if !levels.is_empty() && !from.contains('\\') {
+            break;
+        }
+        let (decoded, escapes) = decode(from);
+        if escapes.is_empty() {
+            break;
+        }
+        levels.push((decoded, escapes));
+    }
+    levels
+}
+
+/// A range of the last level's text, as a range of the text.
+fn back(levels: &[(String, Vec<Escape>)], a: usize, b: usize) -> (usize, usize) {
+    levels
+        .iter()
+        .rev()
+        .fold((a, b), |(a, b), (_, e)| (start(e, a), end(e, b)))
 }
 
 /// Whether an escape stands for a line break or a base64 character between

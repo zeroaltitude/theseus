@@ -963,7 +963,13 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   for JSON inside a JSON string, YAML's and Python repr's escapes among them (a run of `\xNN` that is one character's
   UTF-8 read as that character; theseus-nlvx), and base64 in a decoded text where an escape joins it (`\n` every 60
   characters in a JSON string; theseus-cjyt), and
-  the shapes of secrets never resolved here (token prefixes, AWS keys, private-key blocks, JWTs). The broker hands a value only to the program it is granted to, run by its
+  the shapes of secrets never resolved here (`scrub/shapes.rs`: token prefixes, OpenAI, Stripe and Google keys among
+  them, AWS keys, private-key blocks, JWTs, and a URL's password, the password alone), as written and inside base64,
+  percent-escapes, and the escapes (`scrub/decoded.rs`, theseus-oyrt); YAML's folded line break is an escape that decodes
+  to nothing (theseus-d80h). A new shape lands with its row in `scrub/corpus.rs`, the planted-secret corpus that
+  `scrub/tests_corpus.rs` and theseusd's `tests/planted_secrets.rs` (a daemon, every sink grepped) hold to zero leaks,
+  and the clean corpus to zero false positives. Build test secrets from parts: GitHub refuses a push holding one
+  whole. The broker hands a value only to the program it is granted to, run by its
   own argv, and never to one the call could make it run (`broker::launches`: the call's own environment, gh's
   aliases and extensions, git's aliases, `-c`, and the programs its options and URLs name), in L1 as at L0.
 - **The AWS keys and the providers' keys are harness-only** (theseus-gh7): Theseus's own tools read them from the
