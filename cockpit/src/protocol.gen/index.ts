@@ -366,6 +366,7 @@ export type * from './SpoolStatus';
 export type * from './SpoolSweep';
 export type * from './StartupPhase';
 export type * from './StoreStatus';
+export type * from './StubbedFile';
 export type * from './Style';
 export type * from './SynthesisReport';
 export type * from './TaskArrangement';

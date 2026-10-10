@@ -35,6 +35,7 @@ use theseus_protocol::memory::{BudgetDrop, BudgetOverage, BudgetRange, BudgetRep
 
 pub mod compaction;
 pub mod situation;
+pub mod stubs;
 
 pub const COMPILER_VERSION: u32 = 1;
 /// 2 since 13c (theseus-ev1): the system goes out as two blocks, and a block

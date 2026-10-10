@@ -327,6 +327,8 @@ impl TurnRunner {
         spec.walk = self.walk(sid, place.class);
         let built = (|| -> anyhow::Result<_> {
             let nodes = self.store.transcript(sid)?;
+            // The stubs in force: a read is warm, so it never decides.
+            let (nodes, _) = self.stubbed_view(sid, &spec.model, &rec.not_shown, nodes, None);
             let current = match rec.compilation_id.as_deref() {
                 Some(id) => self.store.get_compilation(id)?,
                 None => None,
@@ -550,6 +552,20 @@ impl TurnRunner {
             cache_read: u.cache_read_input_tokens,
             cache_written: u.cache_creation_input_tokens,
         }
+    }
+
+    /// Whether a turn's first request now writes the cache whole anyway: the
+    /// session's last call (its last turn's end, or a keep-warm read since)
+    /// is older than the request's conversation TTL (theseus-ezeg).
+    pub fn cold_now(
+        &self,
+        sid: &str,
+        session: &SessionRecord,
+        spec: &crate::compiler::RequestSpec,
+    ) -> bool {
+        let last = session.last_active_ms.max(self.keep_warm.read_ms(sid));
+        let ttl = spec.conversation_ttl.min(spec.cache_ttl).ms();
+        crate::compiler::stubs::cold(theseus_protocol::now_unix_ms(), last, ttl)
     }
 
     /// `theseus.keep_warm.reads`, by outcome.

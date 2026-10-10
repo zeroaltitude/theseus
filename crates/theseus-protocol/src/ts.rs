@@ -112,7 +112,7 @@ fn the_cockpits_types_are_generated_from_the_rust_ones() {
         ConfirmListResult, ActionConfirmParams, ActionConfirmResult, ToolInfo, ToolListResult,
         ProviderErrorData, TurnStarted, TurnFailed, LoopStarted, ModelDelta, LoopEnded,
         NarrativePart, NarrativeLine, NarrativeWatchResult, ToolProposed, ContextFileRef,
-        CacheSummary, EstimateSummary, CensusSummary, ContextCompiled, Situation, ToolStarted, ToolEnded,
+        CacheSummary, StubbedFile, EstimateSummary, CensusSummary, ContextCompiled, Situation, ToolStarted, ToolEnded,
         ConfirmResolved, NodeWritten, PolicyNotified, Access, Resource, Plan, Proposal,
         Notice, GateDecision, GateResult, GateRecord, Level, Attention, WaitingOn, PendingConfirm,
         ExecutionView, ExecutionsWatchParams, ExecutionsWatchResult, SessionListParams, PushStatus,

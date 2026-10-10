@@ -338,6 +338,8 @@ mod tests_stopping;
 #[cfg(test)]
 mod tests_stub_kinds;
 #[cfg(test)]
+mod tests_stubs;
+#[cfg(test)]
 mod tests_task_claims;
 #[cfg(test)]
 mod tests_task_graph;

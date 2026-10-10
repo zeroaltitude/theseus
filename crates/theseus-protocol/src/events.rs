@@ -77,6 +77,24 @@ pub struct CacheSummary {
     pub ttl: String,
     /// The conversation's TTL, at most `ttl`.
     pub conversation_ttl: String,
+    /// The attachments this request sent as a stub (theseus-ezeg): its
+    /// session's last cold rewrite stubbed them, and every request in the
+    /// warm window after it does too. Empty, and absent, for most.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub stubbed: Vec<StubbedFile>,
+}
+
+/// An attachment a request sent as its one line, not its text
+/// (theseus-ezeg): its message, its place among the message's files, its
+/// name, and the tokens its text is estimated at. The stored message keeps
+/// it whole.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct StubbedFile {
+    pub node_id: String,
+    pub index: u32,
+    pub name: String,
+    pub tokens: u64,
 }
 
 /// How the compiler sized a request (theseus-f5hf): the provider's own count

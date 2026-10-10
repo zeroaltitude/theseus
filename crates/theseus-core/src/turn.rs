@@ -169,8 +169,10 @@ pub struct TurnRunner {
     pub run_compiles: situation::RunCompiles,
     /// Who retries a failed turn: the driver, or a `--stdio` daemon's client.
     pub failed_turns: stdio_step::FailedTurns,
-    /// The conversations kept warm after their turns (theseus-ezeg).
+    /// The conversations kept warm after their turns, and the stubs their
+    /// cold rewrites decided (theseus-ezeg).
     pub keep_warm: crate::keep_warm::KeepWarm,
+    pub stubs: crate::compiler::stubs::InForce,
 }
 
 /// What a `/stop` tells the turn that holds its execution while the model's
