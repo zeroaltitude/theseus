@@ -19,6 +19,7 @@ use theseus_protocol::{
 };
 
 mod aws;
+mod cache;
 mod cancel;
 mod catalog;
 mod failed;
@@ -1785,6 +1786,7 @@ pub fn health_lines(h: &theseus_protocol::HealthResult, now_ms: u64) -> Vec<Line
     for (tag, line) in store_lines(&h.store)
         .into_iter()
         .chain(resident::resident_lines(h.resident.as_ref()))
+        .chain(cache::cache_lines(h.cache.as_ref()))
     {
         push(o, tag, &line);
     }

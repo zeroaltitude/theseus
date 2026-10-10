@@ -154,6 +154,7 @@ ledger_kinds! {
     JudgeReport = "judge.report",
     JudgeResumed = "judge.resumed",
     JudgeShed = "judge.shed",
+    KeepWarm = "keep_warm",
     LoopCapReached = "loop.cap_reached",
     LoopEnded = "loop.ended",
     LoopStarted = "loop.started",

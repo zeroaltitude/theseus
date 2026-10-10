@@ -205,3 +205,37 @@ pub struct ParkedTask {
     /// last change.
     pub since_ms: u64,
 }
+
+/// The prompt cache (theseus-ezeg): each profile's TTL and where it comes
+/// from, and the keep-warm read's state. Absent from a daemon before it.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[serde(default)]
+pub struct PromptCacheHealth {
+    /// Every profile, by name.
+    pub profiles: Vec<ProfileTtl>,
+    /// `[cache] keep_warm_minutes`: how long after a session's last call
+    /// its read goes.
+    pub keep_warm_minutes: f64,
+    /// Sessions kept warm now: in their window, their reads not stopped.
+    pub kept: u64,
+    /// Sessions whose reads stopped (refused or failed) until their next
+    /// message.
+    pub stopped: u64,
+    /// Today's reads (local day) and what they cost.
+    pub reads_today: u64,
+    pub usd_today: f64,
+}
+
+/// A profile's cache TTL (`5m` or `1h`), whether it inherited `[model]`'s,
+/// and its keep-warm window in hours (0: none, as for every 5-minute one).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[serde(default)]
+pub struct ProfileTtl {
+    pub profile: String,
+    pub model: String,
+    pub ttl: String,
+    pub inherited: bool,
+    pub keep_warm_hours: f64,
+}

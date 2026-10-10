@@ -115,6 +115,7 @@ impl Core {
             memory: self.runner.memory.on().then(|| self.memory_health()),
             tasks: Some(self.tasks_health()),
             resident: Some(self.resident_health()),
+            cache: Some(self.cache_health()),
         }
     }
 
@@ -894,6 +895,13 @@ impl Core {
         };
         // The owner's words, read as a correction for the turn (theseus-q31l).
         self.expect_correction(&p, conn, &session.session_id);
+        // A person's message starts its keep-warm window again (theseus-ezeg).
+        let person = p.opened_from.is_none()
+            && !matches!(
+                conn.surface,
+                crate::approval::Surface::Mcp | crate::approval::Surface::Unnamed
+            );
+        self.runner.keep_warm.message(&session.session_id, person);
         // A one-run daemon's client follows the session's later turns, so
         // its connection hears them from the start (theseus-mqxk).
         if self.outbox.one_shot.follow_ms().is_some() {

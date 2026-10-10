@@ -590,19 +590,16 @@ pub struct HealthResult {
     /// The spool's sweeps of raw job output (theseus-2ij).
     #[serde(default)]
     pub spool: SpoolStatus,
-    /// The push (theseus-in3): its board, its watchers, and its seed. Absent
-    /// from a daemon before it.
+    /// The push (theseus-in3): its board, its watchers, and its seed. Absent from a daemon before it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub push: Option<PushStatus>,
-    /// The AWS accounts the config binds (AWS design §3.10), each as its
-    /// check left it. Absent when it binds none.
+    /// The AWS accounts the config binds (AWS design §3.10), each as its check left it; or none.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub aws: Option<AwsStatus>,
     /// The index tender (M6 §2.2, roadmap row 51): the tender as the core
-    /// supervises it, and its own status when it answers. Absent from a
-    /// daemon before it.
+    /// supervises it, and its own status when it answers; or none.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub index: Option<index::IndexHealth>,
@@ -616,8 +613,7 @@ pub struct HealthResult {
     /// The store's refused reads (R4, theseus-15g); zero from a daemon before it.
     #[serde(default)]
     pub store: StoreStatus,
-    /// The newest crash a start found (Review 2's consideration 1): what
-    /// panicked when the daemon last died. Absent when it never has.
+    /// The newest crash a start found (Review 2's consideration 1); or none.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub crash: Option<CrashStatus>,
@@ -664,6 +660,10 @@ pub struct HealthResult {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub resident: Option<resident::ResidentHealth>,
+    /// The prompt cache: each profile's TTL, and the keep-warm (theseus-ezeg).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub cache: Option<PromptCacheHealth>,
 }
 
 /// The AWS accounts the config binds (`[aws.accounts.<id>]`).

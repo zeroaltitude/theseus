@@ -22,6 +22,7 @@ import type { McpServerHealth } from "./McpServerHealth";
 import type { McpServerStatus } from "./McpServerStatus";
 import type { MemoryHealth } from "./MemoryHealth";
 import type { PlacesHealth } from "./PlacesHealth";
+import type { PromptCacheHealth } from "./PromptCacheHealth";
 import type { PushStatus } from "./PushStatus";
 import type { ResidentHealth } from "./ResidentHealth";
 import type { SandboxHealth } from "./SandboxHealth";
@@ -158,19 +159,16 @@ binary: BinaryStatus,
  */
 spool: SpoolStatus, 
 /**
- * The push (theseus-in3): its board, its watchers, and its seed. Absent
- * from a daemon before it.
+ * The push (theseus-in3): its board, its watchers, and its seed. Absent from a daemon before it.
  */
 push?: PushStatus, 
 /**
- * The AWS accounts the config binds (AWS design §3.10), each as its
- * check left it. Absent when it binds none.
+ * The AWS accounts the config binds (AWS design §3.10), each as its check left it; or none.
  */
 aws?: AwsStatus, 
 /**
  * The index tender (M6 §2.2, roadmap row 51): the tender as the core
- * supervises it, and its own status when it answers. Absent from a
- * daemon before it.
+ * supervises it, and its own status when it answers; or none.
  */
 index?: IndexHealth, 
 /**
@@ -186,8 +184,7 @@ extensions?: ExtendHealth,
  */
 store: StoreStatus, 
 /**
- * The newest crash a start found (Review 2's consideration 1): what
- * panicked when the daemon last died. Absent when it never has.
+ * The newest crash a start found (Review 2's consideration 1); or none.
  */
 crash?: CrashStatus, 
 /**
@@ -235,4 +232,8 @@ lsp?: Array<LspServerStatus>,
 /**
  * The daemon's own memory and its largest caches (theseus-9lxe).
  */
-resident?: ResidentHealth, };
+resident?: ResidentHealth, 
+/**
+ * The prompt cache: each profile's TTL, and the keep-warm (theseus-ezeg).
+ */
+cache?: PromptCacheHealth, };

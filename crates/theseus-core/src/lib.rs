@@ -45,6 +45,7 @@ pub mod graph;
 pub mod harness;
 pub mod import;
 pub mod judge;
+pub mod keep_warm;
 pub mod learning;
 pub mod ledger;
 pub mod lsp;
@@ -216,6 +217,8 @@ mod tests_judge;
 mod tests_judge_reads;
 #[cfg(test)]
 mod tests_judge_surfaces;
+#[cfg(test)]
+mod tests_keep_warm;
 #[cfg(test)]
 mod tests_ladder;
 #[cfg(test)]

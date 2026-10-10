@@ -169,6 +169,8 @@ pub struct TurnRunner {
     pub run_compiles: situation::RunCompiles,
     /// Who retries a failed turn: the driver, or a `--stdio` daemon's client.
     pub failed_turns: stdio_step::FailedTurns,
+    /// The conversations kept warm after their turns (theseus-ezeg).
+    pub keep_warm: crate::keep_warm::KeepWarm,
 }
 
 /// What a `/stop` tells the turn that holds its execution while the model's
@@ -1305,6 +1307,7 @@ impl TurnRunner {
             Err(e) => tracing::warn!(error = %e, "ledger append failed"),
         }
         drop(session_hold);
+        self.keep_warm.turn_ended(&failure_sink.session_id);
         if let Ok((res, _, _)) = &r {
             self.judge.after_turn(res, task_of.is_some());
             self.pass.after_turn(res);
