@@ -591,14 +591,16 @@ CHECKS = {
 }
 
 
-def check(family: str) -> dict[str, Any]:
+def check(family: str, checks: dict[str, Any] | None = None) -> dict[str, Any]:
     """The verifier: the ledger checked as a record of itself, then the
-    family's outcome; reward 1 only when both hold. Writes reward.json and
-    problems.json, and copies the ledger, to the verifier's log directory."""
+    family's outcome (its check in `checks`, by default this file's
+    `CHECKS`; Layer 2's are layer2.py's); reward 1 only when both hold.
+    Writes reward.json and problems.json, and copies the ledger, to the
+    verifier's log directory."""
     rec = read()
     problems = verify_chain(rec) + verify_steps(rec, scale())
     if not problems:
-        problems = CHECKS[family](rec)
+        problems = (checks or CHECKS)[family](rec)
     out = verifier_logs()
     out.mkdir(parents=True, exist_ok=True)
     if ledger_path().exists():

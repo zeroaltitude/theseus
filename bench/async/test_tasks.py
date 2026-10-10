@@ -44,10 +44,11 @@ class Trial:
         self.task = TASKS / family
         self.dir = tempfile.TemporaryDirectory()
         self.root = Path(self.dir.name)
-        (self.root / "app").mkdir()
+        # As the image's `COPY app/ /app/`: the whole tree.
         if (self.task / "environment/app").is_dir():
-            for f in (self.task / "environment/app").iterdir():
-                shutil.copy(f, self.root / "app" / f.name)
+            shutil.copytree(self.task / "environment/app", self.root / "app")
+        else:
+            (self.root / "app").mkdir()
         # The run's own TMPDIR: whatever a script makes there and leaves is
         # seen (`left`), not left in the host's /tmp (theseus-3rjr).
         self.tmp = self.root / "tmp"

@@ -1,0 +1,4 @@
+3f9a2c1 add the checkout totals
+8b04d7e round totals per line
+c71e5a9 cache the price lookups
+e2d8f40 batch the tax calls

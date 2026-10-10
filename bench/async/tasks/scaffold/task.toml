@@ -1,0 +1,21 @@
+schema_version = "1.4"
+
+[metadata]
+category = "async"
+description = "Eight config files scaffolded from a spec, each validated."
+
+[metadata.async]
+family = "scaffold"
+layer = 2
+shape = "writes"
+
+[verifier]
+timeout_sec = 120.0
+
+[agent]
+timeout_sec = 900.0
+
+[environment]
+build_timeout_sec = 600.0
+cpus = 2
+memory_mb = 2048

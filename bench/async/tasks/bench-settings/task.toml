@@ -1,0 +1,21 @@
+schema_version = "1.4"
+
+[metadata]
+category = "async"
+description = "A benchmark at four settings, then the best written to a config."
+
+[metadata.async]
+family = "bench-settings"
+layer = 2
+shape = "programs"
+
+[verifier]
+timeout_sec = 120.0
+
+[agent]
+timeout_sec = 900.0
+
+[environment]
+build_timeout_sec = 600.0
+cpus = 2
+memory_mb = 2048

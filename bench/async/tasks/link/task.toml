@@ -1,0 +1,21 @@
+schema_version = "1.4"
+
+[metadata]
+category = "async"
+description = "Two independent slow builds, then the link."
+
+[metadata.async]
+family = "link"
+layer = 2
+shape = "mixed"
+
+[verifier]
+timeout_sec = 120.0
+
+[agent]
+timeout_sec = 900.0
+
+[environment]
+build_timeout_sec = 600.0
+cpus = 2
+memory_mb = 2048

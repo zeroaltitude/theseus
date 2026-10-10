@@ -1,0 +1,1 @@
+Create the eight configuration files that /app/spec.md describes, under /app/config/. Then check each with `validate-config FILE` (each check takes a while), and fix any it rejects, until all eight pass.
