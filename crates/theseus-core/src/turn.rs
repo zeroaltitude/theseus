@@ -1737,6 +1737,11 @@ impl TurnRunner {
                 self.ask_budget(t, session, o.needed, o.available, o.spent, o.limit)?;
                 break;
             }
+            // A job that ended since the last loop: its result, before the
+            // next request (theseus-n8gk).
+            if t.loops > 0 {
+                self.take_late(t)?;
+            }
             let i = t.loops;
             t.loops += 1;
             t.record(&fact::turn::LoopOpened {

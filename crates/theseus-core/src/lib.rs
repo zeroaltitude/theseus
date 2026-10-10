@@ -209,6 +209,8 @@ mod tests_harness;
 #[cfg(test)]
 mod tests_inbound;
 #[cfg(test)]
+mod tests_job_handles;
+#[cfg(test)]
 mod tests_jobs;
 #[cfg(test)]
 mod tests_judge;

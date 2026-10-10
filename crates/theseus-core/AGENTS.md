@@ -162,6 +162,20 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   under `StringLike`: each session lists only its own prefix, theseus-bfk9), `aws/tests_synced.rs`
   (only frames the writer synced ship: `Hooks::synced_to`, `Store::synced_to`, theseus-mgw.12), and
   `aws/tests_restore.rs`; `config/aws.rs` holds `[aws]`'s types and checks.
+- **A job's handle** (theseus-n8gk): a job that goes on in the background, past `proc_sync_secs` or at once with
+  `proc.run {background: true}`, gets a short id in its session (`j1`, `j2`, …; `toolrun/handles.rs`), which its
+  placeholder's meta names (`job`), so a restart reads the map again from the transcript; the long id still works.
+  `job.read`, `job.wait` and `job.stop` (schemas in theseus-tools' `jobs.rs`) run in `toolrun/jobs_tools.rs`, through
+  the core (`Board`, attached as `memory.lookup`'s is): a read is the one tail reader, `toolrun/peek.rs`
+  (`crate::toolrun::peek`, bounded: 64 KiB by seek, lines counted only up to 8 MiB), which the work board's
+  `work.peek` is to call too; a wait wakes on `JobWaits::settled` (the drain's take, a stop's and the reconciler's
+  wakes) and takes nothing; a stop is `Kernel::stop_call` and `terminate_all`. The gate finds the job in the calling
+  session (`job_planned`: another session's is refused by name) and judges `job.stop` as a run of the job's own
+  argv and directory. A wait's or a stop's result that gives the job's end names it (`delivers`), and the late result
+  the end still writes says only that, and asks for no turn of its own (`LateCall.delivered`). A job that ends
+  while its turn runs reaches the model at the turn's next loop: `take_late` runs at the top of each loop after the
+  first, writing nothing when nothing settled. Tests: `tests_job_handles.rs`, and theseusd's `tests/job_handles.rs`
+  (real wrappers: a wait, and a stop that leaves no process).
 - **Hands** (step 40, theseus-mgw.6 and .11): `aws/hands/`. `aws.hands.run` (`tool.rs`, `launch.rs`: the request, the
   backend Lambda or Fargate as §3.3 chooses, the stacks' outputs read once per account, each launch and its tags) runs
   through `toolrun/hands.rs`, not `run_inproc`: its call answers `background`, and the group's aggregate is its late

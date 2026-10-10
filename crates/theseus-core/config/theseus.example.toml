@@ -508,6 +508,12 @@ external_programs = ["gh"]              # program names, matched by file name (b
 # "term.send" = "notify"
 "term.read" = "open"
 "term.close" = "open"
+# a job proc_run left in the background (theseus-n8gk): job.read shows its
+# latest output and job.wait its end, reads of this session's own job;
+# job.stop is judged as a run of the job's own program, as term.send is
+"job.read" = "open"
+"job.wait" = "open"
+# "job.stop" = "notify"
 # a proposed extension (M7 43a): its directory frozen, started in L1, and tested;
 # nothing loads until you ack its card. Inherits enforcement, so each proposal is
 # a notice

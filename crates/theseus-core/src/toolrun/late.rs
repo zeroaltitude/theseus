@@ -28,6 +28,9 @@ pub struct LateCall {
     pub status: ResultStatus,
     /// The job's run, its dispatch to its settle, in ms.
     pub run_ms: Option<u64>,
+    /// A job tool's call gave its end already (theseus-n8gk): the model has
+    /// read it, so it asks for no turn of its own.
+    pub delivered: bool,
 }
 
 impl ToolRuntime {
@@ -79,13 +82,16 @@ impl ToolRuntime {
             tool,
             status,
             duration_ms,
+            meta,
             ..
         } = &node.body
         else {
             return None;
         };
         let run = a.settled_at_ms.zip(a.dispatched_at_ms);
+        let delivered = meta.get(super::jobs_tools::DELIVERS).is_some();
         Some(LateCall {
+            delivered,
             tool_use_id: tool_use_id.clone(),
             wire: self
                 .registry
@@ -148,6 +154,26 @@ impl ToolRuntime {
             }
             let input = call_input(&nodes, &a.correlation_id);
             let mut r = self.job_result(tc.store, a, &tool_use_id, &tool, input);
+            // A job tool's call gave its end already (theseus-n8gk): this
+            // says only that, and names the call.
+            let given = results(at + 1).find_map(|(_, node)| match &node.body {
+                Body::ToolResult { tool, meta, .. }
+                    if meta
+                        .get(super::jobs_tools::DELIVERS)
+                        .and_then(Value::as_str)
+                        == Some(a.correlation_id.as_str()) =>
+                {
+                    Some(tool.clone())
+                }
+                _ => None,
+            });
+            if let Some(by) = &given {
+                r.text = format!(
+                    "Its result was given by your {} call already.",
+                    theseus_tools::wire_name(by)
+                );
+                r.meta[super::jobs_tools::DELIVERS] = json!(a.correlation_id);
+            }
             // A batch's step that ran on in the background (theseus-7gir.3).
             if input.is_some_and(|i| i.get("steps").is_some()) {
                 r.text = format!("[the batch's step that went on in the background; the steps after it were not run]\n{}", r.text);

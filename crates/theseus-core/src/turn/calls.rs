@@ -115,14 +115,16 @@ pub(super) fn late_spans(trace: &Trace, tools: &ToolRuntime, late: &[LateCall]) 
 }
 
 impl TurnRunner {
-    /// The late results that settled while the turn ran (`finish`), each
-    /// traced as it is taken: how many were written.
+    /// The late results that settled while the turn ran (`finish`, and the
+    /// top of each loop after the first, theseus-n8gk), each traced as it is
+    /// taken: how many the model has not read in a job tool's result.
     pub(super) fn take_late(&self, t: &mut Turn<'_>) -> anyhow::Result<u32> {
         let (_, late) = self.tools.absorb(&t.tc)?;
         for span in late_spans(&t.trace, &self.tools, &late) {
             t.trace.push(span);
         }
-        Ok(late.len() as u32)
+        // One a job tool gave already asks for no turn (theseus-n8gk).
+        Ok(late.iter().filter(|c| !c.delivered).count() as u32)
     }
 }
 

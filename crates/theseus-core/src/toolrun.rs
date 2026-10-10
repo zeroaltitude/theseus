@@ -41,11 +41,14 @@ use crate::store::Store;
 mod batch;
 mod calls;
 mod glide;
+pub(crate) mod handles;
 mod hands;
 mod job;
+pub mod jobs_tools;
 mod late;
 mod not_started;
 pub(crate) mod order;
+mod peek;
 mod resume;
 mod steps;
 mod waits;
@@ -53,6 +56,7 @@ mod waits;
 pub(crate) use batch::Turned;
 pub use late::LateCall;
 pub(crate) use late::{announce_cancelled, not_run_results};
+pub use peek::{peek, Peek};
 pub use waits::{JobDone, JobWaits, Waiting};
 
 /// Starts a job. The real one spawns `theseusd job-wrapper` detached, whose
@@ -357,6 +361,8 @@ pub struct ToolRuntime {
     pub judge: std::sync::OnceLock<Arc<crate::judge::JudgeService>>,
     /// What `memory.lookup` reads (theseus-w9qv): the core, once built.
     pub lookup: crate::memory_lookup::Board,
+    /// The job tools' core and the sessions' short job ids (theseus-n8gk).
+    pub jobs: jobs_tools::Board,
     /// The configured profiles, each what it runs on: a check's `profile`
     /// names one (M5 28a).
     pub profiles: BTreeMap<String, crate::session::TargetRef>,
@@ -487,6 +493,7 @@ impl ToolRuntime {
             lsp: None,
             judge: Default::default(),
             lookup: Default::default(),
+            jobs: Default::default(),
             extend: Arc::new(crate::extend::Extensions::new(
                 tmp.join("extensions"),
                 vec![],
@@ -1113,6 +1120,8 @@ impl ToolRuntime {
         let planned = planned.map(|p| {
             crate::task_graph::tools::authority_for(tc.store, tool.name(), &call.input, p)
         });
+        // A job tool's job is its session's; a stop runs its program (theseus-n8gk).
+        let planned = planned.and_then(|p| self.job_planned(tc, tool.name(), &call.input, p));
         // A glide's places (38b): the one it names must be bound here.
         let glide = (planned.is_ok() && crate::glide::is_glide(tool.name()))
             .then(|| crate::glide::resolve(tc, tool.name(), &call.input));
@@ -1640,6 +1649,8 @@ impl ToolRuntime {
                 crate::file_read::FAMILY => self.read_file(tc, &input, &ctx),
                 // The owner's memory, read for this session (theseus-w9qv).
                 crate::memory_lookup::FAMILY => self.lookup.run(tc, &input),
+                // A job's handle needs its session (theseus-n8gk).
+                theseus_tools::jobs::FAMILY => self.run_job_tool(tc, tool.name(), &input),
                 _ => t.run_async_with_media(&input, &ctx),
             };
             let mut task = tokio::spawn(run);
@@ -2311,6 +2322,7 @@ pub fn build_runtime(
         extend,
         judge: Default::default(),
         lookup: Default::default(),
+        jobs: Default::default(),
         profiles: cfg
             .all_profiles()
             .iter()

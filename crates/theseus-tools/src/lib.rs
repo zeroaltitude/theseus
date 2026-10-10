@@ -20,6 +20,7 @@ pub mod fs;
 mod fs_window;
 pub mod git;
 pub mod image;
+pub mod jobs;
 pub mod net;
 pub mod paths;
 pub mod proc;
@@ -490,5 +491,8 @@ pub fn default_registry() -> Registry {
     r.register(Arc::new(git::Diff));
     r.register(Arc::new(git::Log));
     r.register(Arc::new(proc::Run));
+    for t in jobs::all() {
+        r.register(t);
+    }
     r
 }

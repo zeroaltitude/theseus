@@ -28,6 +28,9 @@ Key modules: `fs.rs`, `git.rs`, `proc.rs`, `paths.rs`. Read by: core.
 - **`proc.run`'s `steps`** (theseus-7gir.3): a batch in place of `argv`, exactly one of the two, at most
   `MAX_STEPS` (16). `Tool::steps` gives each step as the call it would be alone (the gate judges each), and
   `Tool::jobs` each step's job, every directory checked before the first starts; the plan's `steps` holds each argv.
+- **A job's handle** (theseus-n8gk): `proc.run`'s `background: true` (one program, never `steps`), and `src/jobs.rs`,
+  the schemas and plans of `job.read`, `job.wait` (reads) and `job.stop` (a run). Their plans read the input alone;
+  the core finds the job in the calling session, makes `job.stop`'s plan the job's own run, and runs all three.
 - `src/recount.rs`: `fs.patch` rewrites each hunk header's lengths from its body before diffy parses it
   (theseus-inw), keeping its starts, so diffy still checks the context; an empty line inside a hunk is blank context,
   and the empty lines that end it are its end unless its header counts them.

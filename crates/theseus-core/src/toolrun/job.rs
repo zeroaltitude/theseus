@@ -46,7 +46,7 @@ pub(super) struct Tail {
     /// The file's whole length.
     pub total: u64,
     /// The bytes before what was read.
-    unread: u64,
+    pub unread: u64,
 }
 
 /// What the turn's look at its job needs (7.1).
@@ -132,7 +132,7 @@ pub(super) fn read_result_file(path: Option<&str>) -> Tail {
 }
 
 /// `read_result_file` over any reader that seeks.
-fn read_tail<R: Read + Seek>(r: &mut R, max: u64) -> std::io::Result<Tail> {
+pub(super) fn read_tail<R: Read + Seek>(r: &mut R, max: u64) -> std::io::Result<Tail> {
     let total = r.seek(SeekFrom::End(0))?;
     let mut unread = total.saturating_sub(max);
     r.seek(SeekFrom::Start(unread))?;
@@ -196,7 +196,12 @@ impl ToolRuntime {
                 specs.len()
             ));
         };
-        let bound = Duration::from_secs(self.proc_sync_secs.min(spec.timeout_secs + 5));
+        // `background: true` (theseus-n8gk): no wait, the handle at once.
+        let background = call.input.get("background").and_then(Value::as_bool) == Some(true);
+        let bound = match background {
+            true => Duration::ZERO,
+            false => Duration::from_secs(self.proc_sync_secs.min(spec.timeout_secs + 5)),
+        };
         // The turn waits on its job from before the launch, so the drain
         // leaves the job's completion to it, and wakes it (7.1).
         let waiting = self.job_waits.wait(correlation_id);
@@ -217,28 +222,42 @@ impl ToolRuntime {
             after: "",
             steps: None,
         };
-        loop {
-            if let Some(status) = self.look_at_job(tc, &look)? {
-                return Ok(CallOutcome::Done { status });
+        if !background {
+            loop {
+                if let Some(status) = self.look_at_job(tc, &look)? {
+                    return Ok(CallOutcome::Done { status });
+                }
+                let left = bound.saturating_sub(t0.elapsed());
+                if left.is_zero() {
+                    break;
+                }
+                // The drain's word, a stop's, or the backstop's look (7.1).
+                waiting.woken(left.min(super::waits::LOOK)).await;
             }
-            let left = bound.saturating_sub(t0.elapsed());
-            if left.is_zero() {
-                break;
-            }
-            // The drain's word, a stop's, or the backstop's look (7.1).
-            waiting.woken(left.min(super::waits::LOOK)).await;
         }
         // Past its bound the job goes on in the background, and its
         // completion is the drain's to take: one the drain left to this turn
         // as the wait ended is taken here.
         drop(waiting);
-        if let Some(status) = self.look_at_job(tc, &look)? {
-            return Ok(CallOutcome::Done { status });
+        if !background {
+            if let Some(status) = self.look_at_job(tc, &look)? {
+                return Ok(CallOutcome::Done { status });
+            }
         }
-        let mut text = format!(
-            "Still running as background job {correlation_id} after {} seconds (timeout {} seconds). Its result will arrive in a later message; you can keep working or tell the operator you are waiting.",
-            self.proc_sync_secs, spec.timeout_secs
-        );
+        // Its handle (theseus-n8gk): a short id in its session, which the job
+        // tools take, named in the placeholder's meta.
+        let name = self
+            .jobs
+            .handles
+            .assign(tc.store, tc.session_id, correlation_id, &spec.argv);
+        let mut text = match background {
+            true => super::jobs_tools::started(&name, spec, &spool.result_path(correlation_id)),
+            false => format!(
+                "Still running as job {name} after {} s (timeout {} s). job_read, job_wait or \
+                 job_stop it; its result also arrives by itself when it ends.",
+                self.proc_sync_secs, spec.timeout_secs
+            ),
+        };
         if let Some(n) = &note {
             text.push_str(&format!("\n{n}"));
         }
@@ -246,7 +265,7 @@ impl ToolRuntime {
             tc,
             ResultNode {
                 correlation_id: Some(correlation_id),
-                meta: json!({"pid": pid}),
+                meta: json!({"pid": pid, super::handles::KEY: name}),
                 ..ResultNode::new(&call.id, tool.name(), ResultStatus::Background, text)
             },
         )?;
@@ -916,7 +935,7 @@ impl ToolRuntime {
     /// job killed before its completion (a stop, a cancel), the spool's file
     /// for its id, when there is one (theseus-ewev). A stopped job's result
     /// reads it too, so it shows what the job printed before the stop.
-    fn raw_output(&self, a: &Action) -> Option<String> {
+    pub(super) fn raw_output(&self, a: &Action) -> Option<String> {
         a.result_ref.clone().or_else(|| {
             let path = self.spool.as_ref()?.result_path(&a.correlation_id);
             path.exists().then(|| path.to_string_lossy().into_owned())

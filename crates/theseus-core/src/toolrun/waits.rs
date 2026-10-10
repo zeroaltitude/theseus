@@ -28,6 +28,9 @@ pub const LOOK: Duration = Duration::from_secs(1);
 pub struct JobWaits {
     waiting: Mutex<HashMap<String, Arc<Notify>>>,
     looks: AtomicU64,
+    /// Each settle a job's end can be: what a `job.wait` wakes on
+    /// (theseus-n8gk). It takes nothing; it looks at its job again.
+    settles: Notify,
 }
 
 impl JobWaits {
@@ -55,9 +58,22 @@ impl JobWaits {
         }
     }
 
+    /// A job may have settled: every `job.wait` looks again (theseus-n8gk).
+    /// The drain calls it once it has taken a completion; a stop's and the
+    /// reconciler's wakes call it too.
+    pub fn settled(&self) {
+        self.settles.notify_waiters();
+    }
+
+    /// What a `job.wait` waits on: the next `settled`, once enabled.
+    pub fn on_settle(&self) -> tokio::sync::futures::Notified<'_> {
+        self.settles.notified()
+    }
+
     /// Wake the turn that waits on job `id`: whether one does, which makes
     /// the job's completion that turn's to take.
     pub fn wake(&self, id: &str) -> bool {
+        self.settled();
         match self.waiting.lock().unwrap().get(id) {
             Some(n) => {
                 n.notify_one();
@@ -69,6 +85,7 @@ impl JobWaits {
 
     /// Wake every waiting turn to look at its job again.
     pub fn wake_all(&self) {
+        self.settled();
         for n in self.waiting.lock().unwrap().values() {
             n.notify_one();
         }

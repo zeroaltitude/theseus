@@ -768,6 +768,7 @@ impl Core {
         }
         core.tools.extend.attach(&core.mcp);
         core.tools.lookup.attach(&core);
+        core.tools.jobs.attach(&core);
         core.runner.judge.attach(&core);
         // The judge's sink writes between turns, as the pass does.
         core.runner
