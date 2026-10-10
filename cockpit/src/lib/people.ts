@@ -47,11 +47,21 @@ export function peopleOf(categories: readonly OntologyCategory[], q = ''): Ontol
     .sort((a, b) => (b.members ?? 0) - (a.members ?? 0) || a.name.localeCompare(b.name) || a.id.localeCompare(b.id))
 }
 
-/** A proposal's kind: the kind of the category it names, or `topic` for a new topic. */
-export const proposalKind = (p: OntologyProposal) => (p.topic ? p.topic.split(':')[0] : 'topic')
+/** A proposal's kind: a person's (people.v1's, held or new), else the kind of the category it names, or `topic` for a new topic. */
+export const proposalKind = (p: OntologyProposal) => (p.person ? 'person' : p.topic ? p.topic.split(':')[0] : 'topic')
 
-/** Whether a proposal can be accepted in bulk: it names a held category (a new one needs a name, one at a time). */
-export const bulkable = (p: OntologyProposal) => !p.new_topic && !!p.topic
+/** Whether a proposal can be accepted in bulk: it names a held category, or a new person by name (a new topic needs a name, one at a time). */
+export const bulkable = (p: OntologyProposal) => !p.new_topic && (!!p.topic || !!p.person)
+
+/** What a proposal proposes, in words: a person's name, handles and role line; a topic's name. */
+export const proposalWhat = (p: OntologyProposal): string => {
+  if (p.person) {
+    const h = p.person.handles?.length ? ` (${p.person.handles.join(', ')})` : ''
+    const role = p.person.role_line ? `: ${p.person.role_line}` : ''
+    return `${p.person.new ? 'a new person, ' : ''}${p.person.name}${h}${role}`
+  }
+  return p.new_topic ? 'a new topic' : p.topic_name ?? p.topic ?? '?'
+}
 
 /** The judgments "select all" picks: every bulkable proposal of `kind` (or of any) at `min` or more. */
 export function selectAll(ps: readonly OntologyProposal[], kind: string | null, min = 0): string[] {

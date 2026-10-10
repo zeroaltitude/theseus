@@ -2,7 +2,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import type { OntologyCategory, OntologyProposal } from '@protocol'
-import { handlesLine, matches, peopleOf, pulldownGroups, selectAll } from '../src/lib/people.ts'
+import { handlesLine, matches, peopleOf, proposalKind, proposalWhat, pulldownGroups, selectAll } from '../src/lib/people.ts'
 
 const cat = (id: string, name: string, handles: string[] = [], members = 0): OntologyCategory => ({
   id, kind: id.split(':')[0], name, depth: 1, description: '', added_by: 'import gull-2026-04', members, handles,
@@ -47,4 +47,21 @@ test('select all takes the bulkable proposals of a kind at a confidence', () => 
   const ps = [p('jdg_1', 'person:marlo-quill', 0.9), p('jdg_2', 'topic:harbor', 0.95), p('jdg_3', undefined, 0.99), p('jdg_4', 'person:pell', 0.4)]
   assert.deepEqual(selectAll(ps, 'person', 0.5), ['jdg_1'])
   assert.deepEqual(selectAll(ps, null), ['jdg_1', 'jdg_2', 'jdg_4'])
+})
+
+test('a person Jev proposes (people.v1) is a person’s proposal, new or held, and bulkable', () => {
+  const base = { session_id: 'ses_b', new_topic: false, band: 'act', at_ms: 1 }
+  const fresh: OntologyProposal = {
+    ...base, judgment: 'jdg_5', confidence: 0.93,
+    person: { name: 'Wren Halloway', handles: ['slack:U0TIDE07'], role_line: 'Takes the gauge readings.', new: true },
+  }
+  const held: OntologyProposal = {
+    ...base, judgment: 'jdg_6', confidence: 0.91, topic: 'person:orrin-vale', topic_name: 'Orrin Vale',
+    person: { name: 'Orrin Vale', new: false },
+  }
+  assert.equal(proposalKind(fresh), 'person')
+  assert.equal(proposalWhat(fresh), 'a new person, Wren Halloway (slack:U0TIDE07): Takes the gauge readings.')
+  assert.equal(proposalWhat(held), 'Orrin Vale')
+  assert.deepEqual(selectAll([fresh, held], 'person', 0.92), ['jdg_5'])
+  assert.deepEqual(selectAll([fresh, held], 'topic'), [])
 })
