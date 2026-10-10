@@ -211,3 +211,79 @@ async fn a_stop_while_the_turn_is_held_ends_it_with_no_dispatch() {
     assert_eq!(e.state, theseus_kernel::ExecState::Waiting);
     assert!(e.stopped.is_none(), "the end clears the mark");
 }
+
+/// The input's frame is the turn's start whole or not at all: when it fails
+/// (as a full disk fails it), nothing of it is written, and the turn's one
+/// exit (a fault) admits and ends the held turn in its end's frame, as the
+/// end of a turn admitted before it was, so the execution is waiting again,
+/// never left running; no call went out, the input is not stored, and the
+/// next input runs a turn. Written, the frame holds the admission and the
+/// input together (`an_inputs_admission_rides_its_inputs_frame`).
+#[tokio::test]
+async fn a_failed_input_frame_writes_neither_half_and_the_turn_ends_waiting() {
+    let r = rig(vec![Scripted::text("first"), Scripted::text("after it")]);
+    let first = turn(&r.core, None, "warm up").await;
+    let sid = first.session_id.clone();
+    let exec = first.execution_id.clone().expect("an execution");
+    let before = r.core.kernel.execution(&exec).unwrap().unwrap();
+    r.core.store.fail_turn_frame(|records| {
+        records.iter().any(|rec| {
+            rec.kind == theseus_store::kinds::NODE
+                && rec.payload.windows(9).any(|w| w == b"lost line")
+        })
+    });
+    let rec = r
+        .core
+        .store
+        .get_session::<SessionRecord>(&sid)
+        .unwrap()
+        .unwrap();
+    let (live, _) = r.core.live_profile();
+    let target = r
+        .core
+        .runner
+        .resolve_target(&live, None, None, None)
+        .unwrap();
+    let failed = r
+        .core
+        .runner
+        .run(TurnRequest {
+            prompt: None,
+            session: rec,
+            input: Some("a lost line".into()),
+            target,
+            sink: EventSink::new(r.core.bus.clone(), &sid, None),
+            author: "test".into(),
+            recompile: None,
+            attachments: vec![],
+            arrived: None,
+            reply_to: None,
+        })
+        .await;
+    assert!(
+        failed.is_err(),
+        "the turn whose start was not written failed"
+    );
+    let after = r.core.kernel.execution(&exec).unwrap().unwrap();
+    assert_eq!(
+        (after.state, after.turns),
+        (theseus_kernel::ExecState::Waiting, before.turns + 1),
+        "the fault's end admits and ends the held turn"
+    );
+    assert_eq!(dispatched(&r.core, &exec), 1, "only the first turn's call");
+    let inputs = |core: &Core| -> Vec<String> {
+        core.store
+            .session_nodes(&sid)
+            .unwrap()
+            .into_iter()
+            .filter_map(|(_, n)| match n.body {
+                Body::UserMessage { text, .. } => Some(text),
+                _ => None,
+            })
+            .collect()
+    };
+    assert_eq!(inputs(&r.core), ["warm up"]);
+    let next = turn(&r.core, Some(&sid), "the next input").await;
+    assert_eq!(next.output, "after it");
+    assert_eq!(inputs(&r.core), ["warm up", "the next input"]);
+}
