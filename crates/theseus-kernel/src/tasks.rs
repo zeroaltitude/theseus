@@ -291,6 +291,17 @@ impl Kernel {
         Ok(())
     }
 
+    /// The tasks that have not ended, in id order, by their `ot` term
+    /// (theseus-id8d): health's parked tasks read these, never every open
+    /// execution.
+    pub fn open_tasks(&self) -> Result<Vec<Execution>> {
+        Ok(self
+            .executions_by(&[crate::terms::one(crate::terms::OPEN_TASK)])?
+            .into_iter()
+            .filter(|e| e.kind == SessionKind::Task && !e.state.is_terminal())
+            .collect())
+    }
+
     /// Every task execution, oldest first; only `parent`'s when it is given.
     /// Read by their terms (theseus-lv2), never every execution.
     pub fn tasks(&self, parent: Option<&str>) -> Result<Vec<Execution>> {
