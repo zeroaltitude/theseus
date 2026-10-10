@@ -10,7 +10,7 @@ import type {
   OntologyProposalAcceptAllParams, OntologyProposalAcceptAllResult, OntologyProposalsResult,
 } from '@protocol'
 import { useRpc } from '@/lib/rpc'
-import { bulkable, handlesLine, peopleOf, proposalKind, selectAll } from '@/lib/people'
+import { bulkable, handlesLine, peopleOf, proposalKind, proposalWhat, selectAll } from '@/lib/people'
 import { cn } from '@/lib/format'
 import { Empty, Panel } from '@/components/ui'
 import { Act, Refused, useOntologyWrite } from '@/components/OntologyParts'
@@ -144,7 +144,7 @@ export function ProposalsPanel({ disabled }: { disabled: boolean }) {
               {ps.map((p) => (
                 <tr key={p.judgment} className="border-t border-line/50">
                   <td className="py-1 pr-1"><input type="checkbox" aria-label={`pick ${p.judgment}`} disabled={!bulkable(p)} checked={picked.has(p.judgment)} onChange={() => toggle(p.judgment)} /></td>
-                  <td className="text-ink">{p.new_topic ? <span className="text-wait">a new topic</span> : p.topic_name ?? p.topic}<div className="num text-[10px] text-ink-faint">{proposalKind(p)} · {p.session_title ?? p.session_id}</div></td>
+                  <td className="text-ink">{p.new_topic ? <span className="text-wait">a new topic</span> : proposalWhat(p)}<div className="num text-[10px] text-ink-faint">{proposalKind(p)} · {p.session_title ?? p.session_id}</div></td>
                   <td className="num px-1 text-right text-ink-dim">{p.confidence.toFixed(2)}</td>
                   <td className="px-1 text-ink-faint">{p.band}</td>
                 </tr>

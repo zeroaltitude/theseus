@@ -38,6 +38,8 @@ pub const MEMORY_VERSION: u32 = 1;
 pub const ATTRIBUTION_VERSION: u32 = 1;
 /// `citation.v1`'s builder (module `citation`, M6 step 31b).
 pub const CITATION_VERSION: u32 = 1;
+/// `people.v1`'s builder (module `people`, theseus-wy7y).
+pub const PEOPLE_VERSION: u32 = 1;
 
 /// The most a builder keeps of each list.
 pub const LOOP_CALLS: usize = 8;
@@ -291,6 +293,8 @@ pub enum Input {
     Attribution(AttributionInput),
     /// `citation.v1`'s (M6 31b): a synthesis's sentences and sources.
     Citation(CitationInput),
+    /// `people.v1`'s (theseus-wy7y): one candidate person and the held ones.
+    People(PeopleInput),
 }
 
 impl Input {
@@ -307,6 +311,7 @@ impl Input {
             Input::Memory(_) => Builder::Memory,
             Input::Attribution(_) => Builder::Attribution,
             Input::Citation(_) => Builder::Citation,
+            Input::People(_) => Builder::People,
         }
     }
 
@@ -324,6 +329,7 @@ impl Input {
             Builder::Memory => Input::Memory(serde_json::from_str(json)?),
             Builder::Attribution => Input::Attribution(serde_json::from_str(json)?),
             Builder::Citation => Input::Citation(serde_json::from_str(json)?),
+            Builder::People => Input::People(serde_json::from_str(json)?),
         })
     }
 }
@@ -358,6 +364,7 @@ pub fn prepare(pack: &Pack, input: &Input, scrub: &dyn Scrub) -> Result<Prepared
         Input::Memory(i) => memory::memory(i, cap, scrub),
         Input::Attribution(i) => memory::attribution(i, cap, scrub),
         Input::Citation(i) => citation::citation(i, cap, scrub),
+        Input::People(i) => people::people(i, cap, scrub),
     })
 }
 
@@ -556,11 +563,13 @@ pub fn loop_state(i: &LoopInput, cap: u64, scrub: &dyn Scrub) -> Prepared {
 
 mod citation;
 mod memory;
+mod people;
 mod rerank;
 mod security2;
 
 pub use citation::{pair_key, CitationInput, CitedSentence, CITATION_PAIRS};
 pub use memory::{AttributionInput, MemoryInput, NoteInput, NOTES};
+pub use people::{HeldPerson, PeopleInput, PersonCandidate, PEOPLE};
 pub use rerank::{RerankInput, RerankNote, RERANK_NOTES};
 
 /// `security.v1`: the call (tool, class, posture and why), its arguments
@@ -958,6 +967,7 @@ mod tests {
             "memory.v1",
             "attribution.v1",
             "citation.v1",
+            "people.v1",
         ] {
             let (p, prepared) = prepared(pack);
             golden(

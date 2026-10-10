@@ -484,7 +484,8 @@ async fn a_signal_and_no_trigger_asks_continue_in_shadow_once() {
             "rerank.v1: live (owner: decision of 2026-10-04)",
             "memory.v1: shadow",
             "attribution.v1: shadow",
-            "citation.v1: shadow"
+            "citation.v1: shadow",
+            "people.v1: live"
         ]
     );
 }

@@ -1,0 +1,57 @@
+# people.v1 (theseus-wy7y): whether a name a generative model found in a
+# session's text is a person to propose for the ontology's people. Jev answers
+# no names: a cheap profile reads the session and returns candidates through a
+# tool schema (name, handles, role line, evidence), and this pack judges each
+# candidate in one call; code decides (bands from `[people]`). At
+# `exchange_end`, beside categorize.v1, in private places, and over an import
+# tag's sessions by the owner's backfill. The state is the session's title, the
+# candidate, its evidence and the held people it may be; the `match` options
+# are the held people nearest by name and handle (at most 50). No live action:
+# its answers become proposals the owner accepts or rejects.
+id = "people"
+version = 1
+jev_model = "jev-1.13.0"
+point = "exchange_end"
+state = "people"
+state_cap_tokens = 3000
+sample = 1.0
+baseline = "no_membership"
+action = "none"
+description = "Whether a name found in a session's text is a real person involved in its work, which held person it is, and whether its role line judges the person."
+
+[questions.real]
+type = "noul"
+instructions = "Is the candidate named in the state a real person, not an agent, an assistant, a bot, a product, a program, a company or a codename?"
+act = 0.90
+confirm = 0.60
+when_true = "The candidate is a human being: someone who writes, speaks, owns work or is asked to do something."
+when_false = "The candidate is software (an agent, an assistant, a bot, a tool), a product, a program, a project codename, a team or a company."
+
+[questions.involved]
+type = "noul"
+instructions = "Is the candidate involved in this session's work: did they speak, were they addressed, or do they own or hand off a task in it?"
+act = 0.90
+confirm = 0.60
+when_true = "The evidence shows the person speaking, being spoken to, or owning, taking or handing off a piece of the work."
+when_false = "The person is only mentioned in passing, quoted from elsewhere, or named as an example."
+
+[questions.match]
+type = "choice"
+instructions = "Which of the people already held is the candidate, if any of them?"
+act = 0.90
+confirm = 0.60
+options_from = "people"
+no_match = "unsure"
+options = [
+  { id = "new_person", means = "The candidate is none of the people listed: a person not held yet." },
+  { id = "unsure", means = "The candidate may be one of the people listed, but the state does not settle which." },
+]
+
+[questions.evaluative]
+type = "noul"
+instructions = "Does the candidate's role line judge or evaluate the person rather than state their role?"
+act = 0.90
+confirm = 0.60
+only_when = "role_line"
+when_true = "The line praises, criticizes or rates the person, or says what they are like, how they behave, or how they are regarded."
+when_false = "The line states only what the person does or owns: a role, projects, channels or responsibilities."

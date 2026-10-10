@@ -73,11 +73,23 @@ pub enum ImportCmd {
     /// were the DM of, a membership. From the stored records, no model call; a second run
     /// changes nothing; the tag's erase takes them back. TAG may be left out when one tag is
     /// imported.
+    ///
+    /// With --propose: people from the sessions' text instead (theseus-wy7y). A model
+    /// ([people] extract_profile) reads each session's human-facing text and names its people,
+    /// Jev judges each, and each kept one is a proposal (`theseus ontology proposals`), never a
+    /// membership. Paced by the machine's quiet, under --cap, resumable: a second run goes on
+    /// from where the first stopped. --dry-run prints the sessions, tokens and projected cost.
     People {
         tag: Option<String>,
         /// Count what it would do, and write nothing.
         #[arg(long)]
         dry_run: bool,
+        /// Propose people from the sessions' text (a model and Jev; it costs money).
+        #[arg(long)]
+        propose: bool,
+        /// --propose's spend cap for this run, in dollars.
+        #[arg(long, default_value_t = 5.0, requires = "propose")]
+        cap: f64,
     },
 }
 
@@ -131,7 +143,12 @@ pub async fn run(conn: &mut Conn, json: bool, cmd: ImportCmd) -> Result<()> {
                 Ok(())
             })
         }
-        ImportCmd::People { tag, dry_run } => {
+        ImportCmd::People {
+            tag,
+            dry_run,
+            propose,
+            cap,
+        } => {
             let tag = match tag {
                 Some(t) => t,
                 None => {
@@ -154,7 +171,12 @@ pub async fn run(conn: &mut Conn, json: bool, cmd: ImportCmd) -> Result<()> {
             let v = conn
                 .request(
                     method::IMPORT_PEOPLE,
-                    serde_json::to_value(ImportPeopleParams { tag, dry_run })?,
+                    serde_json::to_value(ImportPeopleParams {
+                        tag,
+                        dry_run,
+                        propose,
+                        cap_usd: propose.then_some(cap),
+                    })?,
                 )
                 .await?;
             output(json, v, |r: ImportPeopleResult| {
@@ -284,6 +306,9 @@ pub fn lines(name: &str, r: &ImportEpisodesResult) -> String {
 
 /// What `import people` did, or would do, in a line.
 pub fn people(r: &ImportPeopleResult) -> String {
+    if let Some(p) = &r.propose {
+        return propose(&r.tag, r.dry_run, p, r.ms);
+    }
     format!(
         "people of {}{}: {} read, {} found ({} held already, {} {}); {} {}, {} memberships of \
          origin import{}; {} ({:.0} ms)\n",
@@ -308,6 +333,53 @@ pub fn people(r: &ImportPeopleResult) -> String {
         count(r.frames, "frame"),
         r.ms
     )
+}
+
+/// What `import people --propose` did, or would do (theseus-wy7y).
+pub fn propose(
+    tag: &str,
+    dry_run: bool,
+    p: &theseus_protocol::import::PeopleProposeReport,
+    ms: f64,
+) -> String {
+    let mut out = match dry_run {
+        true => format!(
+            "people proposed from {tag} (dry run: no call): {} of {} to read ({} done before, {} \
+             with no human-facing text), about {} tokens to {} ({}); projected ${:.4} with Jev's \
+             (cap ${})\n",
+            p.read,
+            count(p.sessions, "session"),
+            p.done_before,
+            p.no_text,
+            p.tokens,
+            p.profile,
+            p.model,
+            p.projected_usd,
+            p.cap_usd
+        ),
+        false => format!(
+            "people proposed from {tag}: {} of {} read ({} done before, {} with no human-facing \
+             text), {} candidates ({} excluded), {} judged by Jev, {} failed; spent ${:.4} of \
+             ${} ({:.0} ms)\n",
+            p.read,
+            count(p.sessions, "session"),
+            p.done_before,
+            p.no_text,
+            p.candidates,
+            p.excluded,
+            p.judged,
+            p.failed,
+            p.spent_usd,
+            p.cap_usd,
+            ms
+        ),
+    };
+    if let Some(why) = &p.stopped {
+        out.push_str(&format!("{why}\n"));
+    } else if !dry_run {
+        out.push_str("the proposals: theseus ontology proposals; accept: theseus ontology accept --kind person\n");
+    }
+    out
 }
 
 /// What `import topics` did, in a line.
@@ -379,6 +451,46 @@ mod tests {
             lines("reef.jsonl", &r),
             "reef.jsonl: read 4, imported 2, skipped 0, rejected 2 (5 nodes in 1 frame, 3 ms)\n  \
              line 2: not JSON: EOF\n  line 4 (ep_ab): imported before with another hash\n"
+        );
+    }
+
+    /// `import people --propose`'s lines: a dry run's price, and a run
+    /// stopped at its cap saying how to go on (theseus-wy7y).
+    #[test]
+    fn a_propose_runs_lines_say_its_price_and_its_stop() {
+        let p = theseus_protocol::import::PeopleProposeReport {
+            sessions: 4,
+            done_before: 1,
+            no_text: 1,
+            read: 2,
+            tokens: 1633,
+            profile: "haiku".into(),
+            model: "claude-haiku-5-5".into(),
+            projected_usd: 0.0014,
+            cap_usd: 5.0,
+            ..Default::default()
+        };
+        assert_eq!(
+            propose("tern-2026-05", true, &p, 1.0),
+            "people proposed from tern-2026-05 (dry run: no call): 2 of 4 sessions to read (1 done \
+             before, 1 with no human-facing text), about 1633 tokens to haiku (claude-haiku-5-5); \
+             projected $0.0014 with Jev's (cap $5)\n"
+        );
+        let stopped = theseus_protocol::import::PeopleProposeReport {
+            candidates: 3,
+            excluded: 1,
+            judged: 2,
+            spent_usd: 0.5,
+            cap_usd: 0.4,
+            left: 2,
+            stopped: Some("stopped at the cap: go on from the tag's mark".into()),
+            ..p
+        };
+        assert_eq!(
+            propose("tern-2026-05", false, &stopped, 40.0),
+            "people proposed from tern-2026-05: 2 of 4 sessions read (1 done before, 1 with no \
+             human-facing text), 3 candidates (1 excluded), 2 judged by Jev, 0 failed; spent \
+             $0.5000 of $0.4 (40 ms)\nstopped at the cap: go on from the tag's mark\n"
         );
     }
 }

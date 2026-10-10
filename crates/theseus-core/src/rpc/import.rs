@@ -278,6 +278,14 @@ impl Core {
         let p: ImportPeopleParams = parse(params)?;
         let what = format!("the people of {}", p.tag);
         let by = self.import_judged(conn, method::IMPORT_PEOPLE, &what)?;
+        if p.propose {
+            // Proposals from the sessions' text, under a cap (theseus-wy7y).
+            let r = self
+                .import_people_propose(&p)
+                .await
+                .map_err(RpcFailure::invalid)?;
+            return serde_json::to_value(r).map_err(|e| RpcFailure::invalid(e.into()));
+        }
         let core = self.clone();
         let (r, stopped_early) = blocking(move || {
             let stopping = || core.outbox.stopping();

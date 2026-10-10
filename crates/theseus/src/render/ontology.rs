@@ -87,19 +87,34 @@ pub fn ontology_memberships_lines(ms: &[OntologyMembership]) -> Vec<String> {
 /// what answers it.
 pub fn ontology_proposals_lines(r: &OntologyProposalsResult) -> Vec<String> {
     if r.proposals.is_empty() {
-        return vec!["No proposals: Jev's categorize.v1 has none unanswered.".into()];
+        return vec![
+            "No proposals: Jev's categorize.v1 and people.v1 have none unanswered.".into(),
+        ];
     }
     let mut out: Vec<String> = r
         .proposals
         .iter()
         .map(|p| {
-            let what = match (&p.topic, p.new_topic) {
-                (_, true) => "a new topic".to_string(),
-                (Some(t), _) => match &p.topic_name {
+            let what = match (&p.topic, p.new_topic, &p.person) {
+                (_, _, Some(who)) => format!(
+                    "{} {}{}{}",
+                    if who.new { "a new person," } else { "person" },
+                    who.name,
+                    match who.handles.as_slice() {
+                        [] => String::new(),
+                        hs => format!(" ({})", hs.join(", ")),
+                    },
+                    who.role_line
+                        .as_deref()
+                        .map(|r| format!(": {r}"))
+                        .unwrap_or_default()
+                ),
+                (_, true, _) => "a new topic".to_string(),
+                (Some(t), _, _) => match &p.topic_name {
                     Some(n) => format!("{t} ({n})"),
                     None => format!("{t} (gone)"),
                 },
-                (None, false) => "?".to_string(),
+                (None, false, _) => "?".to_string(),
             };
             format!(
                 "{}  {}{} -> {what}  {:.2} {}  {}",

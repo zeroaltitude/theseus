@@ -139,6 +139,64 @@ pub struct ImportPeopleParams {
     pub tag: String,
     #[serde(default)]
     pub dry_run: bool,
+    /// Propose people from the sessions' text (theseus-wy7y): a model
+    /// extracts the candidates, Jev judges them, and each kept one is a
+    /// proposal; nothing joins the ontology until the owner accepts. With
+    /// `dry_run`, the sessions, tokens and projected cost, with no call.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[cfg_attr(test, ts(as = "Option<bool>", optional))]
+    pub propose: bool,
+    /// `propose`'s spend cap for this run, in dollars (5 when absent).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub cap_usd: Option<f64>,
+}
+
+/// What `import.people { propose }` did, or would do (theseus-wy7y).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct PeopleProposeReport {
+    /// The tag's live imported sessions, and of those: done by an earlier
+    /// run (before the tag's mark), skipped for no human-facing text, and
+    /// read by this run (or, dry, that a run would read).
+    #[cfg_attr(test, ts(type = "number"))]
+    pub sessions: u64,
+    #[cfg_attr(test, ts(type = "number"))]
+    pub done_before: u64,
+    #[cfg_attr(test, ts(type = "number"))]
+    pub no_text: u64,
+    #[cfg_attr(test, ts(type = "number"))]
+    pub read: u64,
+    /// The extractor's input, estimated, over the sessions read.
+    #[cfg_attr(test, ts(type = "number"))]
+    pub tokens: u64,
+    /// The extractor's profile and model.
+    pub profile: String,
+    pub model: String,
+    /// Dry: the projected cost of the sessions left (the extractor's price
+    /// and Jev's); else what this run spent, both calls.
+    pub projected_usd: f64,
+    pub spent_usd: f64,
+    pub cap_usd: f64,
+    /// Candidates the extractor returned, those excluded before any call
+    /// (the owner, personas, agents, `[people] not_people`, a rejected or
+    /// held name), and Jev's judgments asked.
+    #[cfg_attr(test, ts(type = "number"))]
+    pub candidates: u64,
+    #[cfg_attr(test, ts(type = "number"))]
+    pub excluded: u64,
+    #[cfg_attr(test, ts(type = "number"))]
+    pub judged: u64,
+    /// Extractions that failed (each booked at its reservation).
+    #[cfg_attr(test, ts(type = "number"))]
+    pub failed: u64,
+    /// Sessions left after a stop (the cap, or the daemon's), and how to go
+    /// on from the tag's mark.
+    #[cfg_attr(test, ts(type = "number"))]
+    pub left: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub stopped: Option<String>,
 }
 
 /// What `import.people` did, or would do.
@@ -171,6 +229,10 @@ pub struct ImportPeopleResult {
     #[cfg_attr(test, ts(type = "number"))]
     pub frames: u64,
     pub ms: f64,
+    /// `propose`'s report, in place of the counts above.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub propose: Option<PeopleProposeReport>,
 }
 
 /// `import.topics` (theseus-anh3): a tag's imported sessions' topic labels

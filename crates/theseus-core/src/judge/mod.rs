@@ -39,6 +39,7 @@ pub mod loop_end;
 pub mod mark;
 pub mod memory;
 pub mod notice;
+pub mod people;
 pub mod rerank;
 pub mod sink;
 pub mod spend;
@@ -92,6 +93,7 @@ pub const WIRED: &[(&str, PackMode)] = &[
     (memory::MEMORY_PACK, PackMode::Shadow),
     (memory::ATTRIBUTION_PACK, PackMode::Shadow),
     (citation::CITATION_PACK, PackMode::Shadow),
+    (people::PACK, PackMode::Live),
 ];
 
 /// The mode `WIRED` gives `pack` (shadow for one it does not list).
@@ -171,6 +173,8 @@ pub struct JudgeService {
     blocks: Mutex<()>,
     /// `categorize.v1`'s point (28b): the core it reads, and its decisions.
     categorize: categorize::Point,
+    /// `people.v1`'s live point (theseus-wy7y): its decisions.
+    people: people::live::Point,
     rerank_deadline: rerank::RerankDeadline,
     /// `route.v1` verdicts that came after their turn's wait, by session:
     /// each applies from the session's next message (25e).
@@ -254,6 +258,7 @@ impl JudgeService {
             blob_puts: Mutex::default(),
             blocks: Mutex::default(),
             categorize: Default::default(),
+            people: Default::default(),
             rerank_deadline: rerank::RerankDeadline::default(),
             late: Mutex::default(),
             routed: Mutex::default(),
