@@ -239,6 +239,16 @@ fn after_serving(tail: &mut Tail) -> Result<()> {
     until_quiet(tail).map(drop)
 }
 
+/// The frames a turn's window read, apart from the memory passes in it: a
+/// frame whose records are all `ledger:memory.*` (`memory.labeled`,
+/// `memory.gated`) is a pass that ran between turns. A turn's frame that also
+/// holds a memory row stays the turn's. Returns (the turn's, the passes).
+fn split_memory_passes(frames: Vec<Frame>) -> (Vec<Frame>, Vec<Frame>) {
+    frames.into_iter().partition(|f| {
+        f.records.is_empty() || !f.records.iter().all(|r| r.starts_with("ledger:memory."))
+    })
+}
+
 fn labels(frames: &[Frame]) -> Vec<String> {
     frames.iter().map(Frame::label).collect()
 }
@@ -391,13 +401,21 @@ impl Driver<'_> {
     /// frames from just before it to a quiet stretch after it. Whatever the
     /// WAL held before it, a straggler of the last turn's among it, is not
     /// this turn's.
-    fn measured(&mut self, session: &str, input: &str) -> Result<(Value, f64, Vec<Frame>)> {
+    ///
+    /// A frame made only of `ledger:memory.*` rows is a memory pass between
+    /// turns, not the turn's: it comes back apart, fourth, and the turn's
+    /// count and budgets leave it out (theseus-2x5y).
+    fn measured(
+        &mut self,
+        session: &str,
+        input: &str,
+    ) -> Result<(Value, f64, Vec<Frame>, Vec<Frame>)> {
         until_quiet(&mut self.tail)?;
         let t = Instant::now();
         let r = self.submit(session, input)?;
         let wall = ms_since(t);
-        let frames = until_quiet(&mut self.tail)?;
-        Ok((r, wall, frames))
+        let (frames, passes) = split_memory_passes(until_quiet(&mut self.tail)?);
+        Ok((r, wall, frames, passes))
     }
 
     /// `runs` measured turns of `input` (`loops` and `tool_calls` as the
@@ -414,7 +432,7 @@ impl Driver<'_> {
         let (mut wall, mut daemon, mut frames_each) = (Vec::new(), Vec::new(), Vec::new());
         let (mut each, mut last) = (Vec::new(), Vec::new());
         for i in 0..runs {
-            let (r, w, frames) = self.measured(session, &format!("{input} {i}"))?;
+            let (r, w, frames, passes) = self.measured(session, &format!("{input} {i}"))?;
             let got = (
                 r["loops"].as_u64().unwrap_or(0),
                 r["tool_calls"].as_u64().unwrap_or(0),
@@ -445,6 +463,13 @@ impl Driver<'_> {
             daemon.push(r["elapsed_ms"].as_f64().unwrap_or(0.0));
             frames_each.push(frames.len() as u64);
             last = labels(&frames);
+            if !passes.is_empty() {
+                last.push(format!(
+                    "+{} memory pass frame{}",
+                    passes.len(),
+                    if passes.len() == 1 { "" } else { "s" }
+                ));
+            }
         }
         let frames: Vec<f64> = frames_each.iter().map(|n| *n as f64).collect();
         Ok(Kind {
@@ -1270,6 +1295,37 @@ mod tests {
         assert!(!turn_verdicts(&frames(&[5.0; 10]), &raced)[1].ok);
         // Fewer frames than the budget passes: a step that gets to 2 is a gain.
         assert!(turn_verdicts(&frames(&[2.0; 10]), &tool)[0].ok);
+    }
+
+    fn frame(first: u64, records: &[&str]) -> Frame {
+        Frame {
+            first,
+            records: records.iter().map(|r| r.to_string()).collect(),
+        }
+    }
+
+    #[test]
+    fn a_memory_pass_between_a_turns_frames_is_not_the_turns() {
+        let tail = vec![
+            frame(1, &["ledger:turn.started", "node"]),
+            frame(3, &["ledger:memory.labeled"]),
+            frame(4, &["ledger:memory.gated", "ledger:memory.labeled"]),
+            frame(6, &["node", "ledger:turn.finished"]),
+        ];
+        let (turn, passes) = split_memory_passes(tail);
+        assert_eq!(turn.len(), 2);
+        assert_eq!(passes.len(), 2);
+        assert!(turn.iter().all(|f| f.first == 1 || f.first == 6));
+    }
+
+    #[test]
+    fn a_turn_frame_that_also_holds_a_memory_row_still_counts() {
+        let tail = vec![
+            frame(1, &["ledger:turn.started", "ledger:memory.labeled"]),
+            frame(3, &["node"]),
+        ];
+        let (turn, passes) = split_memory_passes(tail);
+        assert_eq!((turn.len(), passes.len()), (2, 0));
     }
 
     #[test]

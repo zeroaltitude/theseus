@@ -117,7 +117,8 @@ pub fn run_long(o: &LongOpts) -> Result<LongReport> {
         (Vec::new(), Vec::new(), Vec::new(), Vec::new());
     for i in 0..o.runs {
         let before = decodes(&s.rig)?;
-        let (r, w, frames) = d.measured(&session, &format!("a turn in a long session {i}"))?;
+        let (r, w, frames, _passes) =
+            d.measured(&session, &format!("a turn in a long session {i}"))?;
         if r["output"].is_null() && r["error"].is_object() {
             bail!("a turn in the long session failed: {r}");
         }
