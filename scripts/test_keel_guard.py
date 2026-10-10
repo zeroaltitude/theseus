@@ -602,6 +602,14 @@ class Door(GateCase):
         self.assertIn("gate: ok (main's gate judged this tree)", out)
         self.assertNotIn("keel:", out, "the lane does not change gate.sh, so its own copy does not run")
 
+    def test_a_long_main_gate_is_still_seen_to_have_the_door(self):
+        # Main's copy names the door early and runs on for 400 KB: a `cat-file | grep -q` under pipefail failed here
+        # (grep's early exit SIGPIPEs cat-file), and the door took main for one without it.
+        self.main_gate(STUB_GATE + "# padding\n" * 40_000)
+        for _ in range(3):
+            code, out = self.gate()
+            self.assertIn("as judge", out)
+
     def test_main_s_gate_failing_fails_the_door(self):
         self.main_gate(STUB_GATE)
         code, out = self.gate(STUB_EXIT="1")

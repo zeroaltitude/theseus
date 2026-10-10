@@ -483,7 +483,8 @@ keel_door() {
   [ "${THESEUS_GATE_DOOR:-}" != judge ] || return 0
   main="$(keel_main 2>/dev/null)" || return 0
   theirs="$(git rev-parse -q --verify "$main:scripts/gate.sh" 2>/dev/null)" || return 0
-  if ! git cat-file blob "$theirs" | grep -q THESEUS_GATE_DOOR; then
+  # Not `git cat-file … | grep -q`: under pipefail, grep's early exit can SIGPIPE cat-file and fail the pipe.
+  if [[ "$(git cat-file blob "$theirs")" != *THESEUS_GATE_DOOR* ]]; then
     echo "door: main's gate.sh has no door yet, so this copy judges"
     return 0
   fi
