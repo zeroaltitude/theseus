@@ -240,6 +240,7 @@ fn the_view_is_the_last_block_and_the_breakpoint_sits_before_it() {
     assert_eq!(blocks[0]["cache_control"]["type"], "ephemeral");
     assert_eq!(blocks[1]["text"], v.text.as_str());
     assert!(blocks[1].get("cache_control").is_none());
+    assert!(req.cache_control.is_none(), "moved, not copied: one slot");
 }
 
 /// A check's basis over `ses_maker`, which excludes it (theseus-w8ys).

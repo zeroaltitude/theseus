@@ -15,11 +15,26 @@
 
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
+use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::OnceLock;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
 use serde::Deserialize;
 use serde_json::{json, Value};
+
+/// Where `fake-model --dump` writes each request's body, and how many it
+/// has written (theseus-aab7's live check).
+static DUMP: OnceLock<PathBuf> = OnceLock::new();
+static DUMPED: AtomicU64 = AtomicU64::new(0);
+
+/// Write each request's body into `dir` from now on.
+pub fn dump_to(dir: PathBuf) -> Result<()> {
+    std::fs::create_dir_all(&dir).with_context(|| format!("making {}", dir.display()))?;
+    let _ = DUMP.set(dir);
+    Ok(())
+}
 
 /// The model name the fake answers as: the template's live profile's.
 pub const MODEL: &str = "claude-sonnet-5-5";
@@ -137,6 +152,10 @@ fn answer(mut stream: TcpStream, script: &Script) -> Result<()> {
     }
     let mut body = vec![0; len];
     r.read_exact(&mut body)?;
+    if let Some(d) = DUMP.get() {
+        let n = DUMPED.fetch_add(1, Ordering::Relaxed);
+        std::fs::write(d.join(format!("request-{n:03}.json")), &body)?;
+    }
     let req: Value = serde_json::from_slice(&body).context("request body")?;
     let events = match (script, carries_tool_result(&req)) {
         (Script::Job(_), true) => text_turn("Started; it runs in the background."),

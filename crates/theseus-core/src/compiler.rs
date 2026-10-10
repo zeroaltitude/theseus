@@ -34,6 +34,7 @@ use crate::provider::{tool_uses_in, Census, ProviderRequest, ID_TOKENS, MESSAGE_
 use theseus_protocol::memory::{BudgetDrop, BudgetOverage, BudgetRange, BudgetReport};
 
 pub mod compaction;
+pub mod session_block;
 pub mod situation;
 
 pub const COMPILER_VERSION: u32 = 1;
@@ -93,8 +94,8 @@ pub struct Manifest {
 /// up to each breakpoint. Each system block gets one, so an edit to a
 /// context file rewrites the second block and what follows while the tools
 /// and the header still read from the cache; the top-level automatic one
-/// follows the conversation. That is 3 of the provider's 4. Fixed for the
-/// compilation's life: the blocks, the tools, and the model are in its
+/// follows the conversation; the session's block takes the 4th (aab7). Fixed:
+/// for its life, the blocks, the tools, and the model are in its
 /// digests. The TTLs are not: they are each request's (`context.compiled`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CacheLayout {
@@ -109,8 +110,8 @@ pub struct CacheLayout {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BlockBreakpoint {
-    /// `header` (the persona, the tools note, the profile's `system`) or
-    /// `context` (the context files).
+    /// `header` (the persona, the tools note, the profile's `system`),
+    /// `context` (the context files), or `session` (its directory, aab7).
     pub block: String,
     /// The prefix the breakpoint closes, the tools and the system through
     /// this block, in bytes of their JSON.
@@ -216,6 +217,8 @@ pub struct RequestSpec {
     /// The system's second block: the context files, the system level's,
     /// then the persona's; empty without any.
     pub context_text: String,
+    /// The third block: the session's own (`session_block`); maybe empty.
+    pub session_text: String,
     /// The context files `context_text` carries, for the manifest.
     pub context_files: Vec<ContextFileRef>,
     /// The persona in play when the spec was built (theseus-c48), whose
@@ -548,6 +551,7 @@ fn system_blocks(spec: &RequestSpec) -> Vec<(&'static str, &str)> {
     [
         ("header", spec.system_text.as_str()),
         ("context", spec.context_text.as_str()),
+        (session_block::NAME, spec.session_text.as_str()),
     ]
     .into_iter()
     .filter(|(_, text)| !text.is_empty())
@@ -1360,6 +1364,7 @@ mod tests {
             max_tokens: 1000,
             system_text: system.into(),
             context_text: String::new(),
+            session_text: String::new(),
             context_files: vec![],
             persona: None,
             tools: vec![

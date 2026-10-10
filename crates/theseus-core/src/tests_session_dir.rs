@@ -2,7 +2,9 @@
 //! through the protocol, as `theseus ask` sends it. Its tools follow it
 //! (`proc_run ["pwd"]` prints it, `fs_read a.txt` reads it from there), a
 //! resumed session keeps it and `dir` moves it, a client that sends none
-//! gets `[tools] cwd`, and a directory outside the roots changes no policy.
+//! gets `[tools] cwd`, a directory outside the roots changes no policy, and
+//! the model reads it in block 3, the session's own, after a header every
+//! session shares byte for byte.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -14,7 +16,7 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
 use crate::node::Body;
 use crate::policy::Posture;
-use crate::provider::{FakeProvider, Scripted};
+use crate::provider::{FakeProvider, ProviderRequest, Scripted};
 use crate::session::SessionRecord;
 use crate::store::Store;
 use crate::{Config, Core};
@@ -109,12 +111,37 @@ fn result_of(core: &Core, sid: &str, id: &str) -> String {
         .unwrap_or_else(|| panic!("no result for {id}"))
 }
 
+/// The system blocks' texts of a request, and where each breakpoint went.
+fn system_texts(req: &ProviderRequest) -> Vec<String> {
+    req.system
+        .iter()
+        .map(|b| b["text"].as_str().unwrap().to_string())
+        .collect()
+}
+
+/// Every `cache_control` a request carries: its system blocks', its
+/// messages' blocks', and the top-level one. The provider takes four.
+fn breakpoints(req: &ProviderRequest) -> usize {
+    let marked = |v: &Value| v.get("cache_control").is_some() as usize;
+    let in_messages: usize = req
+        .messages
+        .iter()
+        .filter_map(|m| m["content"].as_array())
+        .flatten()
+        .map(marked)
+        .sum();
+    req.system.iter().map(marked).sum::<usize>()
+        + in_messages
+        + req.cache_control.is_some() as usize
+}
+
 fn pwd(id: &str) -> Scripted {
     Scripted::tools("", &[(id, "proc_run", json!({"argv": ["pwd"]}))])
 }
 
 /// A session started in X works in X: `proc_run ["pwd"]` prints X, and
-/// `fs_read a.txt` reads X's `a.txt`, not the root's.
+/// `fs_read a.txt` reads X's `a.txt`, not the root's. The model reads X in
+/// block 3; the tools note no longer names a directory.
 #[tokio::test]
 async fn a_session_started_in_a_directory_works_there() {
     let r = rig(vec![
@@ -140,6 +167,55 @@ async fn a_session_started_in_a_directory_works_there() {
     let read = result_of(&r.core, sid, "t2");
     assert!(read.contains("the tide table of harbour-tides"), "{read}");
     assert_eq!(r.fake.requests().len(), 3, "a loop a call, and the answer");
+    let req = r.fake.requests().pop().unwrap();
+    let blocks = system_texts(&req);
+    assert_eq!(
+        blocks.last().unwrap(),
+        &format!("Directory: {}", x.display())
+    );
+    assert!(
+        blocks[0].contains("Relative paths resolve against the session's directory"),
+        "the header names no directory"
+    );
+    assert!(!blocks[0].contains(&x.display().to_string()));
+}
+
+/// Two sessions in two directories send the header's bytes exactly, and
+/// differ only in block 3, which carries the fourth breakpoint: the
+/// header's, the context's, its own, and the conversation's.
+#[tokio::test]
+async fn two_sessions_share_the_header_and_differ_only_in_block_3() {
+    let r = rig(vec![Scripted::text("one"), Scripted::text("two")]);
+    let a = project(&r.root, "reef-north");
+    let b = project(&r.root, "reef-south");
+    submit(&r.core, json!({"input": "hi", "dir": a.to_string_lossy()})).await;
+    submit(&r.core, json!({"input": "hi", "dir": b.to_string_lossy()})).await;
+    let reqs = r.fake.requests();
+    let (one, two) = (&reqs[0], &reqs[1]);
+    let n = one.system.len();
+    assert_eq!(n, two.system.len());
+    assert_eq!(
+        one.system[..n - 1],
+        two.system[..n - 1],
+        "every block before the session's is the same bytes"
+    );
+    assert_eq!(one.tools, two.tools);
+    assert_eq!(
+        one.system[n - 1]["text"],
+        format!("Directory: {}", a.display())
+    );
+    assert_eq!(
+        two.system[n - 1]["text"],
+        format!("Directory: {}", b.display())
+    );
+    assert!(
+        one.system[n - 1].get("cache_control").is_some(),
+        "block 3 takes its own breakpoint: {:?}",
+        one.system[n - 1]
+    );
+    for req in [one, two] {
+        assert!(breakpoints(req) <= 4, "the provider takes four: {req:?}");
+    }
 }
 
 /// A directory outside the workspace roots changes no policy: the run
@@ -188,6 +264,11 @@ async fn a_resumed_session_keeps_its_directory_and_dir_moves_it() {
     .await;
     assert_eq!(record(&r.core, &sid).dir.as_deref(), b.to_str());
     assert!(result_of(&r.core, &sid, "t2").contains(&format!("{}\n", b.display())));
+    let req = r.fake.requests().pop().unwrap();
+    assert_eq!(
+        system_texts(&req).last().unwrap(),
+        &format!("Directory: {}", b.display())
+    );
 }
 
 /// A client that sends no directory (Discord, the cockpit) gets today's
@@ -203,6 +284,11 @@ async fn a_client_that_sends_no_directory_gets_todays_cwd() {
     assert!(
         printed.contains(&format!("{}\n", r.root.display())),
         "{printed}"
+    );
+    let req = r.fake.requests().pop().unwrap();
+    assert_eq!(
+        system_texts(&req).last().unwrap(),
+        &format!("Directory: {}", r.root.display())
     );
 }
 

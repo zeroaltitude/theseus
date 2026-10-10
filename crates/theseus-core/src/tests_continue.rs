@@ -38,6 +38,7 @@ fn spec() -> RequestSpec {
         max_tokens: 1000,
         system_text: "You are Theseus.".into(),
         context_text: String::new(),
+        session_text: String::new(),
         context_files: vec![],
         persona: None,
         tools: vec![

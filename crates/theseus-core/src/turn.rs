@@ -802,6 +802,8 @@ impl TurnRunner {
             max_tokens: target.max_tokens,
             system_text,
             context_text,
+            // The session's block is its caller's (`session_block`).
+            session_text: String::new(),
             context_files: files.iter().map(|f| f.file.clone()).collect(),
             persona: target.persona.clone(),
             tools: self.tools.definitions_for(place),
@@ -1691,6 +1693,7 @@ impl TurnRunner {
         // So is the place's class (the place rule): a class that changes
         // mid-turn applies at the next turn's first loop.
         let (mut spec, unreadable) = self.request_spec(target, session.kind, t.tc.place());
+        spec.session_text = self.session_block(t.tc.dir, t.tc.place());
         spec.walk = self.walk(sid, t.tc.class);
         for u in &unreadable {
             tracing::warn!(path = %u.path, error = %u.error, session_id = %sid,

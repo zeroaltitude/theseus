@@ -188,6 +188,11 @@ enum Cmd {
         addr: String,
         #[arg(long)]
         rules: PathBuf,
+        /// Write each request's body to this directory as it comes,
+        /// `request-000.json` on, so a live check reads what the daemon
+        /// sent (its system blocks and their breakpoints: theseus-aab7).
+        #[arg(long)]
+        dump: Option<PathBuf>,
     },
     /// The fake MCP server (M7 36b), for a scratch daemon's `[mcp.servers]`:
     /// stdio by default, as a daemon starts it, or `--http`.
@@ -336,7 +341,10 @@ fn main() -> Result<()> {
                 std::thread::park();
             }
         }
-        Cmd::FakeModel { addr, rules } => {
+        Cmd::FakeModel { addr, rules, dump } => {
+            if let Some(d) = dump {
+                fake_model::dump_to(d)?;
+            }
             let text = std::fs::read_to_string(&rules)
                 .with_context(|| format!("reading {}", rules.display()))?;
             let rules: Vec<fake_model::Rule> = serde_json::from_str(&text)

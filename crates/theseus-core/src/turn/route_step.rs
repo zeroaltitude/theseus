@@ -700,6 +700,7 @@ impl TurnRunner {
             "model": target.model,
         }));
         let (mut s, _) = self.request_spec(target, session.kind, t.tc.place());
+        s.session_text = self.session_block(t.tc.dir, t.tc.place());
         s.walk = self.walk(t.tc.session_id, t.tc.class);
         *spec = s;
         if d.switch {

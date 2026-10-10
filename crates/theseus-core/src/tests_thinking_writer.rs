@@ -27,6 +27,7 @@ fn spec(model: &str, fallback: Option<&str>) -> RequestSpec {
         max_tokens: 1000,
         system_text: "You keep the harbour's log.".into(),
         context_text: String::new(),
+        session_text: String::new(),
         context_files: vec![],
         persona: None,
         tools: vec![],

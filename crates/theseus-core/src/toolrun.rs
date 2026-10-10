@@ -671,14 +671,13 @@ impl ToolRuntime {
         format!(
             "Tools. You act through tools; every call is recorded, checked against policy, and may wait for the operator's confirmation.\n\
              - Workspace roots: {}. Reading or running a program outside them, or touching a path on the operator's approve list, waits for the operator's approval; a write outside them takes its tool's posture, as inside.\n\
-             - Relative paths resolve against {}.\n\
+             - Relative paths resolve against the session's directory, which its own block names.\n\
              - Postures (open runs; notify runs and tells the operator; approve waits for the operator's approval): {}.{}\n\
              - Prefer fs_read, fs_edit, fs_grep, fs_glob, fs_list, git_diff, and git_log over proc_run. proc_run runs one program with a typed argv and no shell; pass [\"bash\", \"-c\", \"...\"] explicitly only when a shell is truly needed.\n\
              - Read a file before editing it; keep edits exact and minimal.\n\
              - A declined call is final for that request: tell the operator and do not route around it.\n\
              - proc_run calls that take longer than {} seconds continue in the background; their result arrives in a later message.{}",
             roots.join(", "),
-            self.ctx.cwd.display(),
             postures.join("; "),
             if allowed.is_empty() { String::new() } else { format!(" proc_run runs these as open: {}.", allowed.join("; ")) },
             self.proc_sync_secs,

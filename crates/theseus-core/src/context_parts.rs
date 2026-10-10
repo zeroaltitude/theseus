@@ -71,7 +71,12 @@ impl TurnRunner {
         if place.class == PlaceClass::Shared {
             crate::context_files::withhold_shared(&mut files);
         }
-        let spec = self.spec_of(target, kind, place, files.clone());
+        let mut spec = self.spec_of(target, kind, place, files.clone());
+        let dir = self
+            .store
+            .get_session::<crate::session::SessionRecord>(session);
+        spec.session_text =
+            self.session_block(dir.ok().flatten().and_then(|r| r.dir).as_deref(), place);
         let header = self.header_parts(target, place);
         let Some(walk) = self.walk(session, place.class) else {
             return Built {

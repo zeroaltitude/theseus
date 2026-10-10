@@ -3832,7 +3832,11 @@ async fn a_header_under_the_models_cache_minimum_gets_no_breakpoint() {
     assert_eq!(header.block, "header");
     assert!(header.prefix_bytes >= 8_192 && header.marked, "{layout:?}");
     let sent = r.fake.requests().pop().unwrap();
-    assert_eq!(sent.system.len(), 1, "no context files: one block");
+    assert_eq!(
+        sent.system.len(),
+        2,
+        "no context files: the header, the session's"
+    );
     assert_eq!(
         sent.system[0]["cache_control"],
         json!({"type": "ephemeral"})
@@ -4001,6 +4005,8 @@ fn system_of(r: &Rig, i: usize) -> String {
         .system
         .iter()
         .map(|b| b["text"].as_str().unwrap())
+        // Block 3, the session's directory: `tests_session_dir`'s (aab7).
+        .filter(|t| !t.starts_with("Directory: "))
         .collect::<Vec<_>>()
         .join("\n\n")
 }
@@ -4046,7 +4052,11 @@ async fn a_context_file_puts_its_rule_in_the_system_block_and_its_digest_in_the_
     );
     // The file is the system's second block, after the header (theseus-ev1).
     let sent = &r.fake.requests()[0].system;
-    assert_eq!(sent.len(), 2);
+    assert_eq!(
+        sent.len(),
+        3,
+        "the header, the context, the session's (aab7)"
+    );
     assert!(sent[1]["text"].as_str().unwrap().starts_with(&header));
     assert!(!sent[0]["text"].as_str().unwrap().contains("Context file"));
     let want = crate::compiler::ContextFileRef {
