@@ -716,6 +716,30 @@ class Acks(unittest.TestCase):
         self.assertIn("keel-file", out)
         self.assertIn(f"signed by {self.stranger}", out)
 
+    @unittest.skipIf(shutil.which("ssh-keygen") is None, "no ssh-keygen: the ssh-signed ack is not tested here")
+    def test_an_ssh_signed_ack_is_refused_even_where_it_verifies(self):
+        keys = tempfile.mkdtemp(prefix="keel-ssh-")
+        self.addCleanup(shutil.rmtree, keys, True)
+        key = f"{keys}/key"
+        subprocess.run(["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-C", "wren@example.invalid", "-f", key],
+                       check=True, capture_output=True)
+        with open(f"{keys}/allowed", "w") as f:
+            f.write("wren@example.invalid " + Path(key + ".pub").read_text())
+        fpr = subprocess.run(["ssh-keygen", "-lf", key + ".pub"], check=True, capture_output=True,
+                             text=True).stdout.split()[1]
+        # A base that lists the ssh key's fingerprint, so only the kind of the signature can refuse it.
+        self.repo.git("checkout", "-q", "main")
+        self.repo.commit({"scripts/keel-signers": f"# the keel's signers\n{self.listed}\n{fpr}\n"}, "list it")
+        self.repo.git("checkout", "-q", "-B", "lane")
+        self.repo.commit({"scripts/long-files.txt": sub(LONG, "big.rs 3000", "big.rs 3050")}, "raise a ceiling")
+        self.repo.git("config", "gpg.ssh.allowedSignersFile", f"{keys}/allowed")
+        self.repo.git("-c", "gpg.format=ssh", "-c", f"user.signingkey={key}", "commit", "-q", "--allow-empty", "-S",
+                      "-m", self.ACK)
+        self.assertEqual(self.repo.git("log", "-1", "--format=%G?|%GF").strip(), f"G|{fpr}", "it verifies")
+        code, out = self.repo.guard()
+        self.assertEqual(code, 1, out)
+        self.assertIn("an ssh signature: the keel takes a GPG key's only", out)
+
     def test_a_signed_merge_carries_the_join_s_acks(self):
         self.repo.git("checkout", "-q", "main")
         self.repo.git("-c", f"user.signingkey={self.listed}", "merge", "-q", "--no-ff", "-S", "-m", self.ACK, "lane")

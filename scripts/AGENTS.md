@@ -224,7 +224,10 @@ shape.sh's limit, nextest's retries, timeouts and overrides) and `keel-file` (th
   `THESEUS_GATE_DOOR` is the door's word to the copies it starts (`judge`, `own`), not an option.
 - **The ack.** A finding passes only when a commit in the range, signed by a key that `scripts/keel-signers` lists
   at the base, carries `Keel: <rule> <path>[, <path>…] — <why>` (a path may be a glob; the gate prints the exact
-  lines to fill in). An unsigned trailer, or one signed by any other key, counts for nothing and is said so. At a
+  lines to fill in). An unsigned trailer, or one signed by any other key, counts for nothing and is said so. Only a
+  GPG key's signature counts: an ssh or x509 one is refused by name even where it verifies (an ssh signature verifies
+  against whatever `gpg.ssh.allowedSignersFile` the machine names, and its SHA256 fingerprint would match a listed
+  one; theseus-pw1q.18). At a
   join the owner's signed merge commit carries the trailers in its message.
 - **Moved and renamed tests** are the same test: matched by name, then by body, then a test that went and one that
   came at least half alike (difflib over their words; the guard prints each pairing). An assertion made a wait

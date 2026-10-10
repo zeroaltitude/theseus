@@ -12,7 +12,7 @@ scripts/keel-signers carries a trailer for it:
     Keel: <rule> <path>[, <path>...] — <why>
 
 (`--` or ` - ` may stand for the dash; a path may be a glob). An unsigned commit's trailer counts for nothing, so a
-branch can't ack itself. The signer list is read from the base, never the head, so a branch can't list its own key.
+branch can't ack itself; nor does one signed with an ssh or x509 key, whatever it verifies against: GPG keys only. The signer list is read from the base, never the head, so a branch can't list its own key.
 
 The range (`THESEUS_KEEL_BASE=<rev>` or `--base` overrides its base, and the gate finds it as below in its own shell,
 then passes it as `--base` to the base's copy of this script, so a branch's copy decides neither; `--head` names a commit to judge instead of the
@@ -1202,6 +1202,18 @@ def signers(tree):
     return keys
 
 
+# A signature's kind, from the armour in the commit's gpgsig header. The keel takes a GPG (OpenPGP) key's only
+# (theseus-pw1q.18): scripts/keel-signers lists GPG fingerprints, and an ssh signature verifies against whatever
+# gpg.ssh.allowedSignersFile the machine names, with its SHA256 fingerprint as %GF; an x509 one against gpgsm's keys.
+SIG_KINDS = {"PGP SIGNATURE": "gpg", "SSH SIGNATURE": "ssh", "SIGNED MESSAGE": "x509"}
+
+
+def signature_kind(repo, sha):
+    head = (git(repo, "cat-file", "commit", sha, check=False) or "").split("\n\n", 1)[0]
+    m = re.search(r"^gpgsig(?:-sha256)? -----BEGIN ([A-Z0-9 ]+)-----", head, re.M)
+    return SIG_KINDS.get(m.group(1), m.group(1).lower()) if m else None
+
+
 def acks(repo, base, head_commit, keys):
     """[(rule, [path globs], sha)] from the range's commits whose signature a listed key made."""
     out = git(repo, "log", "--format=%H%x00%(trailers:key=Keel,valueonly,unfold)%x1e", f"{base}..{head_commit}")
@@ -1216,11 +1228,16 @@ def acks(repo, base, head_commit, keys):
             continue
         verdict = git(repo, "log", "-1", "--format=%G?%x00%GF%x00%GP", sha, check=False) or "N\0\0"
         mark, fpr, primary = (verdict.strip("\n").split("\0") + ["", ""])[:3]
-        ok = mark in ("G", "U") and keys and (fpr.upper() in keys or primary.upper() in keys)
+        kind = signature_kind(repo, sha)
+        ok = kind == "gpg" and mark in ("G", "U") and keys and (fpr.upper() in keys or primary.upper() in keys)
         for x in lines:
             m = ACK.match(x)
             if not m:
                 refused.append((sha, x, "not of the form `<rule> <path>[, <path>…] — <why>`"))
+                continue
+            if not ok and kind not in (None, "gpg"):
+                refused.append((sha, x, f"an {kind} signature: the keel takes a GPG key's only ({SIGNERS} lists GPG "
+                                        "fingerprints)"))
                 continue
             if not ok:
                 why = "unsigned" if mark == "N" else (
