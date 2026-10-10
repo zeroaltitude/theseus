@@ -232,14 +232,20 @@ def wait_tax(family: str, rec: list[dict[str, Any]], model_calls: list[dict[str,
 
 def responses(trial: Path) -> list[int] | None:
     """Each model response's tool calls, in order: the ATIF trajectory's
-    agent steps (one step a response in every arm's converter), else
-    OpenCode's own stream (`agent/opencode.txt`: the `tool_use` events
-    between a `step_start` and its `step_finish`). None when the trial left
-    neither."""
+    agent steps (one step a response in every arm's converter), with
+    Theseus's task sessions' answers after them (`theseus-history-<task>.json`:
+    its trajectory is the conversation's, as Claude Code's holds its
+    subagents' sidechains); else OpenCode's own stream (`agent/opencode.txt`:
+    the `tool_use` events between a `step_start` and its `step_finish`).
+    None when the trial left neither."""
     traj = _json(trial / "agent/trajectory.json")
     steps = [s for s in (traj or {}).get("steps") or [] if isinstance(s, dict) and s.get("source") == "agent"]
     if steps:
-        return [len(s.get("tool_calls") or []) for s in steps]
+        out = [len(s.get("tool_calls") or []) for s in steps]
+        for h in sorted((trial / "agent").glob("theseus-history-*.json")):
+            out += [len(((n.get("detail") or {}).get("tool_calls")) or [])
+                    for n in (_json(h) or {}).get("nodes") or [] if n.get("kind") == "assistant_message"]
+        return out
     try:
         text = (trial / "agent/opencode.txt").read_text(encoding="utf-8", errors="replace")
     except OSError:

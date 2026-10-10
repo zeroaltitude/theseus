@@ -1153,7 +1153,8 @@ def check_bisect(rec: list[dict[str, Any]]) -> list[str]:
     first = bad[0]
     i = COMMITS.index(first)
     problems = []
-    if i > 0 and res.get(COMMITS[i - 1]) is not True:
+    # The oldest is good by the instruction's word: a search may trust it.
+    if i > 1 and res.get(COMMITS[i - 1]) is not True:
         problems.append(f"the commit before {first}, {COMMITS[i - 1]}, was never tested good")
     got = (_lines(ab.app() / "first-bad.txt") or [None])[0]
     if got != first:

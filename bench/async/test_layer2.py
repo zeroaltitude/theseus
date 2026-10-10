@@ -12,6 +12,7 @@ read from the ledgers the oracles leave.
 
 from __future__ import annotations
 
+import json
 import os
 import sys
 import tomllib
@@ -90,12 +91,12 @@ class Oracles(unittest.TestCase):
         """At a larger scale, so the steps outlast the processes' starts:
         six digests' worth of independent steps overlap several times over;
         a control's chain runs one step at a time."""
-        for f, lo, hi in (("host-logs", 2.0, 6.05), ("doc-questions", 3.0, 8.05), ("migrations", 0.5, 1.05),
-                          ("pipeline", 0.5, 1.05)):
+        for f, lo, hi in (("host-logs", 2.0, 6.05), ("doc-questions", 3.0, 8.05), ("migrations", 0.0, 1.0),
+                          ("pipeline", 0.0, 1.0)):
             with self.subTest(family=f):
                 t = Trial(f, "0.1")
                 try:
-                    t.run()
+                    t.run(timeout=600)
                     tools = set(families.BY_NAME[f].tools)
                     o = l2.overlap(t.ledger(), tools)
                     self.assertTrue(lo <= o["overlap"] <= hi, o)
@@ -221,15 +222,44 @@ echo app-0000000000 > "$APP/artifact.txt"
 """, "artifact.txt holds")
 
 
+class Fair(unittest.TestCase):
+    """What the instruction says may be trusted: bisect's oldest commit is good."""
+
+    def test_a_search_that_trusts_the_oldest_commit_earns_reward_1(self):
+        t = Trial("bisect")
+        try:
+            # The draw the rule matters for: the second commit is the first bad one.
+            st = t.root / "var/lib/async/state"
+            st.mkdir(parents=True)
+            (st / "world-bisect.json").write_text(json.dumps({"first_bad": 1}))
+            t.run("""
+for c in $(awk 'NR > 1 {print $1}' "$APP/commits.txt"); do
+  (make-worktree "$c" && test-commit "$c") > "$APP/$c.t" & done; wait
+for c in $(awk 'NR > 1 {print $1}' "$APP/commits.txt"); do
+  if grep -q FAIL "$APP/$c.t"; then echo "$c" > "$APP/first-bad.txt"; break; fi
+done
+""")
+            got = t.check()
+            self.assertEqual((got["reward"], got["problems"]), (1, []))
+            self.assertNotIn(l2.COMMITS[0], {r["step"] for r in ab.by(t.ledger(), "start", "test-commit")})
+        finally:
+            t.close()
+
+
 class Order(unittest.TestCase):
     """A dependent step started before its prerequisite ended is reward 0,
-    even when the run then does it right and its answer is right. A larger
-    time scale, so the prerequisite outlasts the dependent step's start."""
+    even when the run then does it right and its answer is right. The rule
+    is judged by the ledger's order, so each plant starts the dependent step
+    before its prerequisite has run at all: a batch that starts both at once
+    breaks the same rule whichever starts first, and this way no load can
+    make the plant start late (theseus-2wxa: under four busy loops, a plant
+    that started the step while its 1 to 3 s prerequisite ran started it
+    after the prerequisite's end)."""
 
     def early(self, family: str, script: str, problem: str) -> None:
         t = Trial(family, "0.1")
         try:
-            t.run(script)
+            t.run(script, timeout=600)
             got = t.check()
             self.assertEqual(got["reward"], 0, got)
             self.assertTrue(any(p.startswith("order violation: " + problem) for p in got["problems"]),
@@ -241,51 +271,52 @@ class Order(unittest.TestCase):
         finally:
             t.close()
 
-    def test_pipeline_running_the_app_while_it_builds(self):
+    def test_pipeline_running_the_app_before_it_is_built(self):
         """The early run is yesterday's binary; the run then builds, runs and
         checks in order, and its verdict is right."""
         self.early("pipeline", """
-build > /dev/null & $AWAIT --tool build --kind start --timeout 30 > /dev/null; run-app > /dev/null; wait
+run-app > /dev/null
+build > /dev/null
 run-app > /dev/null
 check-output | sed -n 's/.*verdict \\([0-9a-f]*\\)$/\\1/p' > "$APP/verdict.txt"
 """, "run-app run started")
 
-    def test_service_queried_while_it_starts(self):
+    def test_service_queried_before_it_starts(self):
         self.early("service", """
-start-service > /dev/null & $AWAIT --tool start-service --kind start --timeout 30 > /dev/null
-query-service stock; wait
+query-service stock
+start-service > /dev/null
 query-service stock | sed -n 's/^in stock: //p' > "$APP/stock.txt"
 """, "query-service stock started")
 
-    def test_migrations_run_together(self):
+    def test_migrations_out_of_order(self):
         self.early("migrations", """
-migrate-db 001 > /dev/null & $AWAIT --tool migrate-db --kind start --timeout 30 > /dev/null
-migrate-db 002; wait
+migrate-db 002
+migrate-db 001 > /dev/null
 migrate-db 002 > /dev/null
 migrate-db 003 | sed -n 's/.*schema checksum //p' > "$APP/schema.txt"
 """, "migrate-db 002 started")
 
-    def test_edit_test_testing_while_the_codemod_runs(self):
+    def test_edit_test_testing_before_the_codemod(self):
         self.early("edit-test", """
-codemod > /dev/null & $AWAIT --tool codemod --kind start --timeout 30 > /dev/null; test-suite; wait
+test-suite
+codemod > /dev/null
 sed -i 's/legacy_mode/compat_mode/g' "$APP/tests/test_flags.py"
 test-suite > /dev/null
 """, "test-suite tests started")
 
-    def test_link_while_a_library_builds(self):
+    def test_link_before_the_libraries_are_built(self):
         self.early("link", """
-build-lib core > /dev/null & build-lib ui > /dev/null &
-$AWAIT --tool build-lib --kind start --count 2 --timeout 30 > /dev/null; link-app; wait
+link-app
+build-lib core > /dev/null & build-lib ui > /dev/null & wait
 link-app | sed -n 's/^linked out\\///p' > "$APP/artifact.txt"
 """, "link-app link started")
 
     def test_bisect_testing_before_the_worktree_is_made(self):
         self.early("bisect", """
-for c in $(awk '{print $1}' "$APP/commits.txt"); do
-  make-worktree "$c" > /dev/null & $AWAIT --tool make-worktree --kind start --timeout 30 > /dev/null
-  test-commit "$c" > /dev/null; wait
-  test-commit "$c" > "$APP/$c.t"
-done
+c1=$(awk 'NR == 1 {print $1}' "$APP/commits.txt")
+test-commit "$c1"
+for c in $(awk '{print $1}' "$APP/commits.txt"); do (make-worktree "$c" && test-commit "$c") > "$APP/$c.t" & done
+wait
 for c in $(awk '{print $1}' "$APP/commits.txt"); do
   if grep -q FAIL "$APP/$c.t"; then echo "$c" > "$APP/first-bad.txt"; break; fi
 done

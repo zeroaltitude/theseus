@@ -178,6 +178,14 @@ class Columns(unittest.TestCase):
         md = score.markdown(score.rows(self.scores), ["x"])
         self.assertIn("| Overlap | Calls / response | Multi-call share | Order violations |", md)
 
+    def test_theseus_task_sessions_answers_count_beside_the_conversations(self):
+        with tempfile.TemporaryDirectory() as d:
+            agent = Path(d) / "t/agent"
+            agent.mkdir(parents=True)
+            self.theseus(agent)
+            (agent / "theseus-history-task_1.json").write_text(json.dumps(theseus_history([4, 0])))
+            self.assertEqual(score.responses(agent.parent), CALLS_EACH + [4, 0])
+
     def test_a_label_names_the_arm_of_its_jobs_trials(self):
         with tempfile.TemporaryDirectory() as d:
             score.main([f"theseus-before={self.jobs[0]}", f"theseus-after={self.jobs[0]}", str(self.jobs[1]),
