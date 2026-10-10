@@ -1,0 +1,957 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="393" viewBox="0 0 720 393" role="img" aria-labelledby="t-outcomes t-outcomes-d" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
+<title id="t-outcomes">Every trial's outcome, task by arm and attempt</title>
+<desc id="t-outcomes-d">Where does each harness win and lose?</desc>
+<rect width="720" height="393" rx="8" fill="#1a1a19" stroke="#2c2c2a"/>
+<text x="18.0" y="32.0" font-size="15" fill="#ffffff" font-weight="600">Every trial's outcome, task by arm and attempt</text>
+<circle cx="25.0" cy="50.0" r="5" fill="#3987e5"/>
+<text x="40.0" y="54.0" font-size="12" fill="#c3c2b7">Theseus</text>
+<circle cx="115.5" cy="50.0" r="5" fill="#d95926"/>
+<text x="130.5" y="54.0" font-size="12" fill="#c3c2b7">Claude Code</text>
+<circle cx="233.3" cy="50.0" r="5" fill="#898781"/>
+<text x="248.3" y="54.0" font-size="12" fill="#c3c2b7">other arm</text>
+<circle cx="331.8" cy="50.0" r="5" fill="#c98500"/>
+<text x="346.8" y="54.0" font-size="12" fill="#c3c2b7">OpenClaw</text>
+<circle cx="435.0" cy="50.0" r="5" fill="#c3c2b7"/>
+<text x="450.0" y="54.0" font-size="12" fill="#c3c2b7">solved</text>
+<circle cx="513.7" cy="50.0" r="4.5" fill="#1a1a19" stroke="#c3c2b7" stroke-width="1.6"/>
+<text x="528.7" y="54.0" font-size="12" fill="#c3c2b7">not solved</text>
+<circle cx="25.0" cy="70.0" r="4.5" fill="#1a1a19" stroke="#c3c2b7" stroke-width="1.6"/>
+<line x1="21.5" y1="73.5" x2="28.5" y2="66.5" stroke="#c3c2b7" stroke-width="1.6"/>
+<text x="40.0" y="74.0" font-size="12" fill="#c3c2b7">ended in an error</text>
+<text x="207.7" y="157.7" font-size="10" fill="#c3c2b7" transform="rotate(-45 207.7 157.7)">Theseus 1</text>
+<text x="222.7" y="157.7" font-size="10" fill="#c3c2b7" transform="rotate(-45 222.7 157.7)">Theseus 2</text>
+<text x="245.7" y="157.7" font-size="10" fill="#c3c2b7" transform="rotate(-45 245.7 157.7)">Claude Code 1</text>
+<text x="260.7" y="157.7" font-size="10" fill="#c3c2b7" transform="rotate(-45 260.7 157.7)">Claude Code 2</text>
+<text x="283.7" y="157.7" font-size="10" fill="#c3c2b7" transform="rotate(-45 283.7 157.7)">OpenCode 1</text>
+<text x="298.7" y="157.7" font-size="10" fill="#c3c2b7" transform="rotate(-45 298.7 157.7)">OpenCode 2</text>
+<text x="313.7" y="157.7" font-size="10" fill="#c3c2b7" transform="rotate(-45 313.7 157.7)">OpenHands 1</text>
+<text x="328.7" y="157.7" font-size="10" fill="#c3c2b7" transform="rotate(-45 328.7 157.7)">OpenHands 2</text>
+<text x="351.7" y="157.7" font-size="10" fill="#c3c2b7" transform="rotate(-45 351.7 157.7)">OpenClaw 1</text>
+<text x="366.7" y="157.7" font-size="10" fill="#c3c2b7" transform="rotate(-45 366.7 157.7)">OpenClaw 2</text>
+<text x="389.7" y="157.7" font-size="10" fill="#c3c2b7" transform="rotate(-45 389.7 157.7)">Codex CLI 1</text>
+<text x="404.7" y="157.7" font-size="10" fill="#c3c2b7" transform="rotate(-45 404.7 157.7)">Codex CLI 2</text>
+<text x="419.7" y="157.7" font-size="10" fill="#c3c2b7" transform="rotate(-45 419.7 157.7)">Aider 1</text>
+<text x="434.7" y="157.7" font-size="10" fill="#c3c2b7" transform="rotate(-45 434.7 157.7)">Aider 2</text>
+<text x="449.7" y="157.7" font-size="10" fill="#c3c2b7" transform="rotate(-45 449.7 157.7)">Pi 1</text>
+<text x="464.7" y="157.7" font-size="10" fill="#c3c2b7" transform="rotate(-45 464.7 157.7)">Pi 2</text>
+<text x="194.2" y="174.2" font-size="11" fill="#ffffff" text-anchor="end">build-pov-ray</text>
+<g><title>build-pov-ray · Theseus 1: solved</title>
+<rect x="202.2" y="162.7" width="15" height="15" fill="transparent"/>
+<circle cx="209.7" cy="170.2" r="4.6" fill="#3987e5"/>
+</g>
+<g><title>build-pov-ray · Theseus 2: not solved</title>
+<rect x="217.2" y="162.7" width="15" height="15" fill="transparent"/>
+<circle cx="224.7" cy="170.2" r="4" fill="#1a1a19" stroke="#3987e5" stroke-width="1.5"/>
+</g>
+<g><title>build-pov-ray · Claude Code 1: solved</title>
+<rect x="240.2" y="162.7" width="15" height="15" fill="transparent"/>
+<circle cx="247.7" cy="170.2" r="4.6" fill="#d95926"/>
+</g>
+<g><title>build-pov-ray · Claude Code 2: not solved</title>
+<rect x="255.2" y="162.7" width="15" height="15" fill="transparent"/>
+<circle cx="262.7" cy="170.2" r="4" fill="#1a1a19" stroke="#d95926" stroke-width="1.5"/>
+</g>
+<g><title>build-pov-ray · OpenCode 1: solved</title>
+<rect x="278.2" y="162.7" width="15" height="15" fill="transparent"/>
+<circle cx="285.7" cy="170.2" r="4.6" fill="#898781"/>
+</g>
+<g><title>build-pov-ray · OpenCode 2: solved</title>
+<rect x="293.2" y="162.7" width="15" height="15" fill="transparent"/>
+<circle cx="300.7" cy="170.2" r="4.6" fill="#898781"/>
+</g>
+<g><title>build-pov-ray · OpenHands 1: solved</title>
+<rect x="308.2" y="162.7" width="15" height="15" fill="transparent"/>
+<circle cx="315.7" cy="170.2" r="4.6" fill="#898781"/>
+</g>
+<g><title>build-pov-ray · OpenHands 2: not solved</title>
+<rect x="323.2" y="162.7" width="15" height="15" fill="transparent"/>
+<circle cx="330.7" cy="170.2" r="4" fill="#1a1a19" stroke="#898781" stroke-width="1.5"/>
+</g>
+<g><title>build-pov-ray · OpenClaw 1: solved</title>
+<rect x="346.2" y="162.7" width="15" height="15" fill="transparent"/>
+<circle cx="353.7" cy="170.2" r="4.6" fill="#c98500"/>
+</g>
+<g><title>build-pov-ray · OpenClaw 2: not solved</title>
+<rect x="361.2" y="162.7" width="15" height="15" fill="transparent"/>
+<circle cx="368.7" cy="170.2" r="4" fill="#1a1a19" stroke="#c98500" stroke-width="1.5"/>
+</g>
+<g><title>build-pov-ray · Codex CLI 1: solved</title>
+<rect x="384.2" y="162.7" width="15" height="15" fill="transparent"/>
+<circle cx="391.7" cy="170.2" r="4.6" fill="#898781"/>
+</g>
+<g><title>build-pov-ray · Codex CLI 2: solved</title>
+<rect x="399.2" y="162.7" width="15" height="15" fill="transparent"/>
+<circle cx="406.7" cy="170.2" r="4.6" fill="#898781"/>
+</g>
+<g><title>build-pov-ray · Aider 1: not solved</title>
+<rect x="414.2" y="162.7" width="15" height="15" fill="transparent"/>
+<circle cx="421.7" cy="170.2" r="4" fill="#1a1a19" stroke="#898781" stroke-width="1.5"/>
+</g>
+<g><title>build-pov-ray · Aider 2: not solved</title>
+<rect x="429.2" y="162.7" width="15" height="15" fill="transparent"/>
+<circle cx="436.7" cy="170.2" r="4" fill="#1a1a19" stroke="#898781" stroke-width="1.5"/>
+</g>
+<g><title>build-pov-ray · Pi 1: solved</title>
+<rect x="444.2" y="162.7" width="15" height="15" fill="transparent"/>
+<circle cx="451.7" cy="170.2" r="4.6" fill="#898781"/>
+</g>
+<g><title>build-pov-ray · Pi 2: solved</title>
+<rect x="459.2" y="162.7" width="15" height="15" fill="transparent"/>
+<circle cx="466.7" cy="170.2" r="4.6" fill="#898781"/>
+</g>
+<rect x="18.0" y="177.7" width="468.2" height="15" fill="#2c2c2a" fill-opacity="0.45"/>
+<text x="194.2" y="189.2" font-size="11" fill="#ffffff" text-anchor="end">cobol-modernization</text>
+<g><title>cobol-modernization · Theseus 1: solved</title>
+<rect x="202.2" y="177.7" width="15" height="15" fill="transparent"/>
+<circle cx="209.7" cy="185.2" r="4.6" fill="#3987e5"/>
+</g>
+<g><title>cobol-modernization · Theseus 2: solved</title>
+<rect x="217.2" y="177.7" width="15" height="15" fill="transparent"/>
+<circle cx="224.7" cy="185.2" r="4.6" fill="#3987e5"/>
+</g>
+<g><title>cobol-modernization · Claude Code 1: solved</title>
+<rect x="240.2" y="177.7" width="15" height="15" fill="transparent"/>
+<circle cx="247.7" cy="185.2" r="4.6" fill="#d95926"/>
+</g>
+<g><title>cobol-modernization · Claude Code 2: solved</title>
+<rect x="255.2" y="177.7" width="15" height="15" fill="transparent"/>
+<circle cx="262.7" cy="185.2" r="4.6" fill="#d95926"/>
+</g>
+<g><title>cobol-modernization · OpenCode 1: solved</title>
+<rect x="278.2" y="177.7" width="15" height="15" fill="transparent"/>
+<circle cx="285.7" cy="185.2" r="4.6" fill="#898781"/>
+</g>
+<g><title>cobol-modernization · OpenCode 2: solved</title>
+<rect x="293.2" y="177.7" width="15" height="15" fill="transparent"/>
+<circle cx="300.7" cy="185.2" r="4.6" fill="#898781"/>
+</g>
+<g><title>cobol-modernization · OpenHands 1: solved</title>
+<rect x="308.2" y="177.7" width="15" height="15" fill="transparent"/>
+<circle cx="315.7" cy="185.2" r="4.6" fill="#898781"/>
+</g>
+<g><title>cobol-modernization · OpenHands 2: solved</title>
+<rect x="323.2" y="177.7" width="15" height="15" fill="transparent"/>
+<circle cx="330.7" cy="185.2" r="4.6" fill="#898781"/>
+</g>
+<g><title>cobol-modernization · OpenClaw 1: solved</title>
+<rect x="346.2" y="177.7" width="15" height="15" fill="transparent"/>
+<circle cx="353.7" cy="185.2" r="4.6" fill="#c98500"/>
+</g>
+<g><title>cobol-modernization · OpenClaw 2: solved</title>
+<rect x="361.2" y="177.7" width="15" height="15" fill="transparent"/>
+<circle cx="368.7" cy="185.2" r="4.6" fill="#c98500"/>
+</g>
+<g><title>cobol-modernization · Codex CLI 1: solved</title>
+<rect x="384.2" y="177.7" width="15" height="15" fill="transparent"/>
+<circle cx="391.7" cy="185.2" r="4.6" fill="#898781"/>
+</g>
+<g><title>cobol-modernization · Codex CLI 2: solved</title>
+<rect x="399.2" y="177.7" width="15" height="15" fill="transparent"/>
+<circle cx="406.7" cy="185.2" r="4.6" fill="#898781"/>
+</g>
+<g><title>cobol-modernization · Aider 1: not solved</title>
+<rect x="414.2" y="177.7" width="15" height="15" fill="transparent"/>
+<circle cx="421.7" cy="185.2" r="4" fill="#1a1a19" stroke="#898781" stroke-width="1.5"/>
+</g>
+<g><title>cobol-modernization · Aider 2: not solved</title>
+<rect x="429.2" y="177.7" width="15" height="15" fill="transparent"/>
+<circle cx="436.7" cy="185.2" r="4" fill="#1a1a19" stroke="#898781" stroke-width="1.5"/>
+</g>
+<g><title>cobol-modernization · Pi 1: solved</title>
+<rect x="444.2" y="177.7" width="15" height="15" fill="transparent"/>
+<circle cx="451.7" cy="185.2" r="4.6" fill="#898781"/>
+</g>
+<g><title>cobol-modernization · Pi 2: solved</title>
+<rect x="459.2" y="177.7" width="15" height="15" fill="transparent"/>
+<circle cx="466.7" cy="185.2" r="4.6" fill="#898781"/>
+</g>
+<text x="194.2" y="204.2" font-size="11" fill="#ffffff" text-anchor="end">gpt2-codegolf</text>
+<g><title>gpt2-codegolf · Theseus 1: solved</title>
+<rect x="202.2" y="192.7" width="15" height="15" fill="transparent"/>
+<circle cx="209.7" cy="200.2" r="4.6" fill="#3987e5"/>
+</g>
+<g><title>gpt2-codegolf · Theseus 2: solved</title>
+<rect x="217.2" y="192.7" width="15" height="15" fill="transparent"/>
+<circle cx="224.7" cy="200.2" r="4.6" fill="#3987e5"/>
+</g>
+<g><title>gpt2-codegolf · Claude Code 1: not solved</title>
+<rect x="240.2" y="192.7" width="15" height="15" fill="transparent"/>
+<circle cx="247.7" cy="200.2" r="4" fill="#1a1a19" stroke="#d95926" stroke-width="1.5"/>
+</g>
+<g><title>gpt2-codegolf · Claude Code 2: solved</title>
+<rect x="255.2" y="192.7" width="15" height="15" fill="transparent"/>
+<circle cx="262.7" cy="200.2" r="4.6" fill="#d95926"/>
+</g>
+<g><title>gpt2-codegolf · OpenCode 1: solved</title>
+<rect x="278.2" y="192.7" width="15" height="15" fill="transparent"/>
+<circle cx="285.7" cy="200.2" r="4.6" fill="#898781"/>
+</g>
+<g><title>gpt2-codegolf · OpenCode 2: not solved</title>
+<rect x="293.2" y="192.7" width="15" height="15" fill="transparent"/>
+<circle cx="300.7" cy="200.2" r="4" fill="#1a1a19" stroke="#898781" stroke-width="1.5"/>
+</g>
+<g><title>gpt2-codegolf · OpenHands 1: solved</title>
+<rect x="308.2" y="192.7" width="15" height="15" fill="transparent"/>
+<circle cx="315.7" cy="200.2" r="4.6" fill="#898781"/>
+</g>
+<g><title>gpt2-codegolf · OpenHands 2: solved</title>
+<rect x="323.2" y="192.7" width="15" height="15" fill="transparent"/>
+<circle cx="330.7" cy="200.2" r="4.6" fill="#898781"/>
+</g>
+<g><title>gpt2-codegolf · OpenClaw 1: solved</title>
+<rect x="346.2" y="192.7" width="15" height="15" fill="transparent"/>
+<circle cx="353.7" cy="200.2" r="4.6" fill="#c98500"/>
+</g>
+<g><title>gpt2-codegolf · OpenClaw 2: solved</title>
+<rect x="361.2" y="192.7" width="15" height="15" fill="transparent"/>
+<circle cx="368.7" cy="200.2" r="4.6" fill="#c98500"/>
+</g>
+<g><title>gpt2-codegolf · Codex CLI 1: solved</title>
+<rect x="384.2" y="192.7" width="15" height="15" fill="transparent"/>
+<circle cx="391.7" cy="200.2" r="4.6" fill="#898781"/>
+</g>
+<g><title>gpt2-codegolf · Codex CLI 2: solved</title>
+<rect x="399.2" y="192.7" width="15" height="15" fill="transparent"/>
+<circle cx="406.7" cy="200.2" r="4.6" fill="#898781"/>
+</g>
+<g><title>gpt2-codegolf · Aider 1: solved</title>
+<rect x="414.2" y="192.7" width="15" height="15" fill="transparent"/>
+<circle cx="421.7" cy="200.2" r="4.6" fill="#898781"/>
+</g>
+<g><title>gpt2-codegolf · Aider 2: not solved</title>
+<rect x="429.2" y="192.7" width="15" height="15" fill="transparent"/>
+<circle cx="436.7" cy="200.2" r="4" fill="#1a1a19" stroke="#898781" stroke-width="1.5"/>
+</g>
+<g><title>gpt2-codegolf · Pi 1: solved</title>
+<rect x="444.2" y="192.7" width="15" height="15" fill="transparent"/>
+<circle cx="451.7" cy="200.2" r="4.6" fill="#898781"/>
+</g>
+<g><title>gpt2-codegolf · Pi 2: not solved</title>
+<rect x="459.2" y="192.7" width="15" height="15" fill="transparent"/>
+<circle cx="466.7" cy="200.2" r="4" fill="#1a1a19" stroke="#898781" stroke-width="1.5"/>
+</g>
+<rect x="18.0" y="207.7" width="468.2" height="15" fill="#2c2c2a" fill-opacity="0.45"/>
+<text x="194.2" y="219.2" font-size="11" fill="#ffffff" text-anchor="end">hf-model-inference</text>
+<g><title>hf-model-inference · Theseus 1: not solved</title>
+<rect x="202.2" y="207.7" width="15" height="15" fill="transparent"/>
+<circle cx="209.7" cy="215.2" r="4" fill="#1a1a19" stroke="#3987e5" stroke-width="1.5"/>
+</g>
+<g><title>hf-model-inference · Theseus 2: not solved</title>
+<rect x="217.2" y="207.7" width="15" height="15" fill="transparent"/>
+<circle cx="224.7" cy="215.2" r="4" fill="#1a1a19" stroke="#3987e5" stroke-width="1.5"/>
+</g>
+<g><title>hf-model-inference · Claude Code 1: solved</title>
+<rect x="240.2" y="207.7" width="15" height="15" fill="transparent"/>
+<circle cx="247.7" cy="215.2" r="4.6" fill="#d95926"/>
+</g>
+<g><title>hf-model-inference · Claude Code 2: solved</title>
+<rect x="255.2" y="207.7" width="15" height="15" fill="transparent"/>
+<circle cx="262.7" cy="215.2" r="4.6" fill="#d95926"/>
+</g>
+<g><title>hf-model-inference · OpenCode 1: solved</title>
+<rect x="278.2" y="207.7" width="15" height="15" fill="transparent"/>
+<circle cx="285.7" cy="215.2" r="4.6" fill="#898781"/>
+</g>
+<g><title>hf-model-inference · OpenCode 2: solved</title>
+<rect x="293.2" y="207.7" width="15" height="15" fill="transparent"/>
+<circle cx="300.7" cy="215.2" r="4.6" fill="#898781"/>
+</g>
+<g><title>hf-model-inference · OpenHands 1: solved</title>
+<rect x="308.2" y="207.7" width="15" height="15" fill="transparent"/>
+<circle cx="315.7" cy="215.2" r="4.6" fill="#898781"/>
+</g>
+<g><title>hf-model-inference · OpenHands 2: solved</title>
+<rect x="323.2" y="207.7" width="15" height="15" fill="transparent"/>
+<circle cx="330.7" cy="215.2" r="4.6" fill="#898781"/>
+</g>
+<g><title>hf-model-inference · OpenClaw 1: not solved</title>
+<rect x="346.2" y="207.7" width="15" height="15" fill="transparent"/>
+<circle cx="353.7" cy="215.2" r="4" fill="#1a1a19" stroke="#c98500" stroke-width="1.5"/>
+</g>
+<g><title>hf-model-inference · OpenClaw 2: solved</title>
+<rect x="361.2" y="207.7" width="15" height="15" fill="transparent"/>
+<circle cx="368.7" cy="215.2" r="4.6" fill="#c98500"/>
+</g>
+<g><title>hf-model-inference · Codex CLI 1: solved</title>
+<rect x="384.2" y="207.7" width="15" height="15" fill="transparent"/>
+<circle cx="391.7" cy="215.2" r="4.6" fill="#898781"/>
+</g>
+<g><title>hf-model-inference · Codex CLI 2: not solved</title>
+<rect x="399.2" y="207.7" width="15" height="15" fill="transparent"/>
+<circle cx="406.7" cy="215.2" r="4" fill="#1a1a19" stroke="#898781" stroke-width="1.5"/>
+</g>
+<g><title>hf-model-inference · Aider 1: not solved</title>
+<rect x="414.2" y="207.7" width="15" height="15" fill="transparent"/>
+<circle cx="421.7" cy="215.2" r="4" fill="#1a1a19" stroke="#898781" stroke-width="1.5"/>
+</g>
+<g><title>hf-model-inference · Aider 2: not solved</title>
+<rect x="429.2" y="207.7" width="15" height="15" fill="transparent"/>
+<circle cx="436.7" cy="215.2" r="4" fill="#1a1a19" stroke="#898781" stroke-width="1.5"/>
+</g>
+<g><title>hf-model-inference · Pi 1: solved</title>
+<rect x="444.2" y="207.7" width="15" height="15" fill="transparent"/>
+<circle cx="451.7" cy="215.2" r="4.6" fill="#898781"/>
+</g>
+<g><title>hf-model-inference · Pi 2: solved</title>
+<rect x="459.2" y="207.7" width="15" height="15" fill="transparent"/>
+<circle cx="466.7" cy="215.2" r="4.6" fill="#898781"/>
+</g>
+<text x="194.2" y="234.2" font-size="11" fill="#ffffff" text-anchor="end">install-windows-3.11</text>
+<g><title>install-windows-3.11 · Theseus 1: not solved</title>
+<rect x="202.2" y="222.7" width="15" height="15" fill="transparent"/>
+<circle cx="209.7" cy="230.2" r="4" fill="#1a1a19" stroke="#3987e5" stroke-width="1.5"/>
+</g>
+<g><title>install-windows-3.11 · Theseus 2: not solved</title>
+<rect x="217.2" y="222.7" width="15" height="15" fill="transparent"/>
+<circle cx="224.7" cy="230.2" r="4" fill="#1a1a19" stroke="#3987e5" stroke-width="1.5"/>
+</g>
+<g><title>install-windows-3.11 · Claude Code 1: solved</title>
+<rect x="240.2" y="222.7" width="15" height="15" fill="transparent"/>
+<circle cx="247.7" cy="230.2" r="4.6" fill="#d95926"/>
+</g>
+<g><title>install-windows-3.11 · Claude Code 2: not solved</title>
+<rect x="255.2" y="222.7" width="15" height="15" fill="transparent"/>
+<circle cx="262.7" cy="230.2" r="4" fill="#1a1a19" stroke="#d95926" stroke-width="1.5"/>
+</g>
+<g><title>install-windows-3.11 · OpenCode 1: ended in an error</title>
+<rect x="278.2" y="222.7" width="15" height="15" fill="transparent"/>
+<circle cx="285.7" cy="230.2" r="4" fill="#1a1a19" stroke="#898781" stroke-width="1.5"/>
+<line x1="282.3" y1="233.6" x2="289.1" y2="226.8" stroke="#898781" stroke-width="1.5"/>
+</g>
+<g><title>install-windows-3.11 · OpenCode 2: ended in an error</title>
+<rect x="293.2" y="222.7" width="15" height="15" fill="transparent"/>
+<circle cx="300.7" cy="230.2" r="4" fill="#1a1a19" stroke="#898781" stroke-width="1.5"/>
+<line x1="297.3" y1="233.6" x2="304.1" y2="226.8" stroke="#898781" stroke-width="1.5"/>
+</g>
+<g><title>install-windows-3.11 · OpenHands 1: not solved</title>
+<rect x="308.2" y="222.7" width="15" height="15" fill="transparent"/>
+<circle cx="315.7" cy="230.2" r="4" fill="#1a1a19" stroke="#898781" stroke-width="1.5"/>
+</g>
+<g><title>install-windows-3.11 · OpenHands 2: not solved</title>
+<rect x="323.2" y="222.7" width="15" height="15" fill="transparent"/>
+<circle cx="330.7" cy="230.2" r="4" fill="#1a1a19" stroke="#898781" stroke-width="1.5"/>
+</g>
+<g><title>install-windows-3.11 · OpenClaw 1: solved</title>
+<rect x="346.2" y="222.7" width="15" height="15" fill="transparent"/>
+<circle cx="353.7" cy="230.2" r="4.6" fill="#c98500"/>
+</g>
+<g><title>install-windows-3.11 · OpenClaw 2: not solved</title>
+<rect x="361.2" y="222.7" width="15" height="15" fill="transparent"/>
+<circle cx="368.7" cy="230.2" r="4" fill="#1a1a19" stroke="#c98500" stroke-width="1.5"/>
+</g>
+<g><title>install-windows-3.11 · Codex CLI 1: not solved</title>
+<rect x="384.2" y="222.7" width="15" height="15" fill="transparent"/>
+<circle cx="391.7" cy="230.2" r="4" fill="#1a1a19" stroke="#898781" stroke-width="1.5"/>
+</g>
+<g><title>install-windows-3.11 · Codex CLI 2: not solved</title>
+<rect x="399.2" y="222.7" width="15" height="15" fill="transparent"/>
+<circle cx="406.7" cy="230.2" r="4" fill="#1a1a19" stroke="#898781" stroke-width="1.5"/>
+</g>
+<g><title>install-windows-3.11 · Aider 1: not solved</title>
+<rect x="414.2" y="222.7" width="15" height="15" fill="transparent"/>
+<circle cx="421.7" cy="230.2" r="4" fill="#1a1a19" stroke="#898781" stroke-width="1.5"/>
+</g>
+<g><title>install-windows-3.11 · Aider 2: not solved</title>
+<rect x="429.2" y="222.7" width="15" height="15" fill="transparent"/>
+<circle cx="436.7" cy="230.2" r="4" fill="#1a1a19" stroke="#898781" stroke-width="1.5"/>
+</g>
+<g><title>install-windows-3.11 · Pi 1: not solved</title>
+<rect x="444.2" y="222.7" width="15" height="15" fill="transparent"/>
+<circle cx="451.7" cy="230.2" r="4" fill="#1a1a19" stroke="#898781" stroke-width="1.5"/>
+</g>
+<g><title>install-windows-3.11 · Pi 2: ended in an error</title>
+<rect x="459.2" y="222.7" width="15" height="15" fill="transparent"/>
+<circle cx="466.7" cy="230.2" r="4" fill="#1a1a19" stroke="#898781" stroke-width="1.5"/>
+<line x1="463.3" y1="233.6" x2="470.1" y2="226.8" stroke="#898781" stroke-width="1.5"/>
+</g>
+<rect x="18.0" y="237.7" width="468.2" height="15" fill="#2c2c2a" fill-opacity="0.45"/>
+<text x="194.2" y="249.2" font-size="11" fill="#ffffff" text-anchor="end">large-scale-text-editing</text>
+<g><title>large-scale-text-editing · Theseus 1: solved</title>
+<rect x="202.2" y="237.7" width="15" height="15" fill="transparent"/>
+<circle cx="209.7" cy="245.2" r="4.6" fill="#3987e5"/>
+</g>
+<g><title>large-scale-text-editing · Theseus 2: solved</title>
+<rect x="217.2" y="237.7" width="15" height="15" fill="transparent"/>
+<circle cx="224.7" cy="245.2" r="4.6" fill="#3987e5"/>
+</g>
+<g><title>large-scale-text-editing · Claude Code 1: solved</title>
+<rect x="240.2" y="237.7" width="15" height="15" fill="transparent"/>
+<circle cx="247.7" cy="245.2" r="4.6" fill="#d95926"/>
+</g>
+<g><title>large-scale-text-editing · Claude Code 2: solved</title>
+<rect x="255.2" y="237.7" width="15" height="15" fill="transparent"/>
+<circle cx="262.7" cy="245.2" r="4.6" fill="#d95926"/>
+</g>
+<g><title>large-scale-text-editing · OpenCode 1: solved</title>
+<rect x="278.2" y="237.7" width="15" height="15" fill="transparent"/>
+<circle cx="285.7" cy="245.2" r="4.6" fill="#898781"/>
+</g>
+<g><title>large-scale-text-editing · OpenCode 2: solved</title>
+<rect x="293.2" y="237.7" width="15" height="15" fill="transparent"/>
+<circle cx="300.7" cy="245.2" r="4.6" fill="#898781"/>
+</g>
+<g><title>large-scale-text-editing · OpenHands 1: solved</title>
+<rect x="308.2" y="237.7" width="15" height="15" fill="transparent"/>
+<circle cx="315.7" cy="245.2" r="4.6" fill="#898781"/>
+</g>
+<g><title>large-scale-text-editing · OpenHands 2: solved</title>
+<rect x="323.2" y="237.7" width="15" height="15" fill="transparent"/>
+<circle cx="330.7" cy="245.2" r="4.6" fill="#898781"/>
+</g>
+<g><title>large-scale-text-editing · OpenClaw 1: solved</title>
+<rect x="346.2" y="237.7" width="15" height="15" fill="transparent"/>
+<circle cx="353.7" cy="245.2" r="4.6" fill="#c98500"/>
+</g>
+<g><title>large-scale-text-editing · OpenClaw 2: solved</title>
+<rect x="361.2" y="237.7" width="15" height="15" fill="transparent"/>
+<circle cx="368.7" cy="245.2" r="4.6" fill="#c98500"/>
+</g>
+<g><title>large-scale-text-editing · Codex CLI 1: solved</title>
+<rect x="384.2" y="237.7" width="15" height="15" fill="transparent"/>
+<circle cx="391.7" cy="245.2" r="4.6" fill="#898781"/>
+</g>
+<g><title>large-scale-text-editing · Codex CLI 2: solved</title>
+<rect x="399.2" y="237.7" width="15" height="15" fill="transparent"/>
+<circle cx="406.7" cy="245.2" r="4.6" fill="#898781"/>
+</g>
+<g><title>large-scale-text-editing · Aider 1: not solved</title>
+<rect x="414.2" y="237.7" width="15" height="15" fill="transparent"/>
+<circle cx="421.7" cy="245.2" r="4" fill="#1a1a19" stroke="#898781" stroke-width="1.5"/>
+</g>
+<g><title>large-scale-text-editing · Aider 2: not solved</title>
+<rect x="429.2" y="237.7" width="15" height="15" fill="transparent"/>
+<circle cx="436.7" cy="245.2" r="4" fill="#1a1a19" stroke="#898781" stroke-width="1.5"/>
+</g>
+<g><title>large-scale-text-editing · Pi 1: solved</title>
+<rect x="444.2" y="237.7" width="15" height="15" fill="transparent"/>
+<circle cx="451.7" cy="245.2" r="4.6" fill="#898781"/>
+</g>
+<g><title>large-scale-text-editing · Pi 2: solved</title>
+<rect x="459.2" y="237.7" width="15" height="15" fill="transparent"/>
+<circle cx="466.7" cy="245.2" r="4.6" fill="#898781"/>
+</g>
+<text x="194.2" y="264.2" font-size="11" fill="#ffffff" text-anchor="end">mailman</text>
+<g><title>mailman · Theseus 1: not solved</title>
+<rect x="202.2" y="252.7" width="15" height="15" fill="transparent"/>
+<circle cx="209.7" cy="260.2" r="4" fill="#1a1a19" stroke="#3987e5" stroke-width="1.5"/>
+</g>
+<g><title>mailman · Theseus 2: solved</title>
+<rect x="217.2" y="252.7" width="15" height="15" fill="transparent"/>
+<circle cx="224.7" cy="260.2" r="4.6" fill="#3987e5"/>
+</g>
+<g><title>mailman · Claude Code 1: solved</title>
+<rect x="240.2" y="252.7" width="15" height="15" fill="transparent"/>
+<circle cx="247.7" cy="260.2" r="4.6" fill="#d95926"/>
+</g>
+<g><title>mailman · Claude Code 2: not solved</title>
+<rect x="255.2" y="252.7" width="15" height="15" fill="transparent"/>
+<circle cx="262.7" cy="260.2" r="4" fill="#1a1a19" stroke="#d95926" stroke-width="1.5"/>
+</g>
+<g><title>mailman · OpenCode 1: solved</title>
+<rect x="278.2" y="252.7" width="15" height="15" fill="transparent"/>
+<circle cx="285.7" cy="260.2" r="4.6" fill="#898781"/>
+</g>
+<g><title>mailman · OpenCode 2: solved</title>
+<rect x="293.2" y="252.7" width="15" height="15" fill="transparent"/>
+<circle cx="300.7" cy="260.2" r="4.6" fill="#898781"/>
+</g>
+<g><title>mailman · OpenHands 1: solved</title>
+<rect x="308.2" y="252.7" width="15" height="15" fill="transparent"/>
+<circle cx="315.7" cy="260.2" r="4.6" fill="#898781"/>
+</g>
+<g><title>mailman · OpenHands 2: solved</title>
+<rect x="323.2" y="252.7" width="15" height="15" fill="transparent"/>
+<circle cx="330.7" cy="260.2" r="4.6" fill="#898781"/>
+</g>
+<g><title>mailman · OpenClaw 1: solved</title>
+<rect x="346.2" y="252.7" width="15" height="15" fill="transparent"/>
+<circle cx="353.7" cy="260.2" r="4.6" fill="#c98500"/>
+</g>
+<g><title>mailman · OpenClaw 2: solved</title>
+<rect x="361.2" y="252.7" width="15" height="15" fill="transparent"/>
+<circle cx="368.7" cy="260.2" r="4.6" fill="#c98500"/>
+</g>
+<g><title>mailman · Codex CLI 1: solved</title>
+<rect x="384.2" y="252.7" width="15" height="15" fill="transparent"/>
+<circle cx="391.7" cy="260.2" r="4.6" fill="#898781"/>
+</g>
+<g><title>mailman · Codex CLI 2: solved</title>
+<rect x="399.2" y="252.7" width="15" height="15" fill="transparent"/>
+<circle cx="406.7" cy="260.2" r="4.6" fill="#898781"/>
+</g>
+<g><title>mailman · Aider 1: not solved</title>
+<rect x="414.2" y="252.7" width="15" height="15" fill="transparent"/>
+<circle cx="421.7" cy="260.2" r="4" fill="#1a1a19" stroke="#898781" stroke-width="1.5"/>
+</g>
+<g><title>mailman · Aider 2: not solved</title>
+<rect x="429.2" y="252.7" width="15" height="15" fill="transparent"/>
+<circle cx="436.7" cy="260.2" r="4" fill="#1a1a19" stroke="#898781" stroke-width="1.5"/>
+</g>
+<g><title>mailman · Pi 1: solved</title>
+<rect x="444.2" y="252.7" width="15" height="15" fill="transparent"/>
+<circle cx="451.7" cy="260.2" r="4.6" fill="#898781"/>
+</g>
+<g><title>mailman · Pi 2: solved</title>
+<rect x="459.2" y="252.7" width="15" height="15" fill="transparent"/>
+<circle cx="466.7" cy="260.2" r="4.6" fill="#898781"/>
+</g>
+<rect x="18.0" y="267.7" width="468.2" height="15" fill="#2c2c2a" fill-opacity="0.45"/>
+<text x="194.2" y="279.2" font-size="11" fill="#ffffff" text-anchor="end">model-extraction-relu-logits</text>
+<g><title>model-extraction-relu-logits · Theseus 1: solved</title>
+<rect x="202.2" y="267.7" width="15" height="15" fill="transparent"/>
+<circle cx="209.7" cy="275.2" r="4.6" fill="#3987e5"/>
+</g>
+<g><title>model-extraction-relu-logits · Theseus 2: solved</title>
+<rect x="217.2" y="267.7" width="15" height="15" fill="transparent"/>
+<circle cx="224.7" cy="275.2" r="4.6" fill="#3987e5"/>
+</g>
+<g><title>model-extraction-relu-logits · Claude Code 1: solved</title>
+<rect x="240.2" y="267.7" width="15" height="15" fill="transparent"/>
+<circle cx="247.7" cy="275.2" r="4.6" fill="#d95926"/>
+</g>
+<g><title>model-extraction-relu-logits · Claude Code 2: not solved</title>
+<rect x="255.2" y="267.7" width="15" height="15" fill="transparent"/>
+<circle cx="262.7" cy="275.2" r="4" fill="#1a1a19" stroke="#d95926" stroke-width="1.5"/>
+</g>
+<g><title>model-extraction-relu-logits · OpenCode 1: solved</title>
+<rect x="278.2" y="267.7" width="15" height="15" fill="transparent"/>
+<circle cx="285.7" cy="275.2" r="4.6" fill="#898781"/>
+</g>
+<g><title>model-extraction-relu-logits · OpenCode 2: solved</title>
+<rect x="293.2" y="267.7" width="15" height="15" fill="transparent"/>
+<circle cx="300.7" cy="275.2" r="4.6" fill="#898781"/>
+</g>
+<g><title>model-extraction-relu-logits · OpenHands 1: solved</title>
+<rect x="308.2" y="267.7" width="15" height="15" fill="transparent"/>
+<circle cx="315.7" cy="275.2" r="4.6" fill="#898781"/>
+</g>
+<g><title>model-extraction-relu-logits · OpenHands 2: solved</title>
+<rect x="323.2" y="267.7" width="15" height="15" fill="transparent"/>
+<circle cx="330.7" cy="275.2" r="4.6" fill="#898781"/>
+</g>
+<g><title>model-extraction-relu-logits · OpenClaw 1: solved</title>
+<rect x="346.2" y="267.7" width="15" height="15" fill="transparent"/>
+<circle cx="353.7" cy="275.2" r="4.6" fill="#c98500"/>
+</g>
+<g><title>model-extraction-relu-logits · OpenClaw 2: not solved</title>
+<rect x="361.2" y="267.7" width="15" height="15" fill="transparent"/>
+<circle cx="368.7" cy="275.2" r="4" fill="#1a1a19" stroke="#c98500" stroke-width="1.5"/>
+</g>
+<g><title>model-extraction-relu-logits · Codex CLI 1: solved</title>
+<rect x="384.2" y="267.7" width="15" height="15" fill="transparent"/>
+<circle cx="391.7" cy="275.2" r="4.6" fill="#898781"/>
+</g>
+<g><title>model-extraction-relu-logits · Codex CLI 2: solved</title>
+<rect x="399.2" y="267.7" width="15" height="15" fill="transparent"/>
+<circle cx="406.7" cy="275.2" r="4.6" fill="#898781"/>
+</g>
+<g><title>model-extraction-relu-logits · Aider 1: solved</title>
+<rect x="414.2" y="267.7" width="15" height="15" fill="transparent"/>
+<circle cx="421.7" cy="275.2" r="4.6" fill="#898781"/>
+</g>
+<g><title>model-extraction-relu-logits · Aider 2: solved</title>
+<rect x="429.2" y="267.7" width="15" height="15" fill="transparent"/>
+<circle cx="436.7" cy="275.2" r="4.6" fill="#898781"/>
+</g>
+<g><title>model-extraction-relu-logits · Pi 1: solved</title>
+<rect x="444.2" y="267.7" width="15" height="15" fill="transparent"/>
+<circle cx="451.7" cy="275.2" r="4.6" fill="#898781"/>
+</g>
+<g><title>model-extraction-relu-logits · Pi 2: solved</title>
+<rect x="459.2" y="267.7" width="15" height="15" fill="transparent"/>
+<circle cx="466.7" cy="275.2" r="4.6" fill="#898781"/>
+</g>
+<text x="194.2" y="294.2" font-size="11" fill="#ffffff" text-anchor="end">nginx-request-logging</text>
+<g><title>nginx-request-logging · Theseus 1: not solved</title>
+<rect x="202.2" y="282.7" width="15" height="15" fill="transparent"/>
+<circle cx="209.7" cy="290.2" r="4" fill="#1a1a19" stroke="#3987e5" stroke-width="1.5"/>
+</g>
+<g><title>nginx-request-logging · Theseus 2: not solved</title>
+<rect x="217.2" y="282.7" width="15" height="15" fill="transparent"/>
+<circle cx="224.7" cy="290.2" r="4" fill="#1a1a19" stroke="#3987e5" stroke-width="1.5"/>
+</g>
+<g><title>nginx-request-logging · Claude Code 1: solved</title>
+<rect x="240.2" y="282.7" width="15" height="15" fill="transparent"/>
+<circle cx="247.7" cy="290.2" r="4.6" fill="#d95926"/>
+</g>
+<g><title>nginx-request-logging · Claude Code 2: solved</title>
+<rect x="255.2" y="282.7" width="15" height="15" fill="transparent"/>
+<circle cx="262.7" cy="290.2" r="4.6" fill="#d95926"/>
+</g>
+<g><title>nginx-request-logging · OpenCode 1: solved</title>
+<rect x="278.2" y="282.7" width="15" height="15" fill="transparent"/>
+<circle cx="285.7" cy="290.2" r="4.6" fill="#898781"/>
+</g>
+<g><title>nginx-request-logging · OpenCode 2: solved</title>
+<rect x="293.2" y="282.7" width="15" height="15" fill="transparent"/>
+<circle cx="300.7" cy="290.2" r="4.6" fill="#898781"/>
+</g>
+<g><title>nginx-request-logging · OpenHands 1: solved</title>
+<rect x="308.2" y="282.7" width="15" height="15" fill="transparent"/>
+<circle cx="315.7" cy="290.2" r="4.6" fill="#898781"/>
+</g>
+<g><title>nginx-request-logging · OpenHands 2: solved</title>
+<rect x="323.2" y="282.7" width="15" height="15" fill="transparent"/>
+<circle cx="330.7" cy="290.2" r="4.6" fill="#898781"/>
+</g>
+<g><title>nginx-request-logging · OpenClaw 1: solved</title>
+<rect x="346.2" y="282.7" width="15" height="15" fill="transparent"/>
+<circle cx="353.7" cy="290.2" r="4.6" fill="#c98500"/>
+</g>
+<g><title>nginx-request-logging · OpenClaw 2: not solved</title>
+<rect x="361.2" y="282.7" width="15" height="15" fill="transparent"/>
+<circle cx="368.7" cy="290.2" r="4" fill="#1a1a19" stroke="#c98500" stroke-width="1.5"/>
+</g>
+<g><title>nginx-request-logging · Codex CLI 1: solved</title>
+<rect x="384.2" y="282.7" width="15" height="15" fill="transparent"/>
+<circle cx="391.7" cy="290.2" r="4.6" fill="#898781"/>
+</g>
+<g><title>nginx-request-logging · Codex CLI 2: solved</title>
+<rect x="399.2" y="282.7" width="15" height="15" fill="transparent"/>
+<circle cx="406.7" cy="290.2" r="4.6" fill="#898781"/>
+</g>
+<g><title>nginx-request-logging · Aider 1: not solved</title>
+<rect x="414.2" y="282.7" width="15" height="15" fill="transparent"/>
+<circle cx="421.7" cy="290.2" r="4" fill="#1a1a19" stroke="#898781" stroke-width="1.5"/>
+</g>
+<g><title>nginx-request-logging · Aider 2: not solved</title>
+<rect x="429.2" y="282.7" width="15" height="15" fill="transparent"/>
+<circle cx="436.7" cy="290.2" r="4" fill="#1a1a19" stroke="#898781" stroke-width="1.5"/>
+</g>
+<g><title>nginx-request-logging · Pi 1: solved</title>
+<rect x="444.2" y="282.7" width="15" height="15" fill="transparent"/>
+<circle cx="451.7" cy="290.2" r="4.6" fill="#898781"/>
+</g>
+<g><title>nginx-request-logging · Pi 2: solved</title>
+<rect x="459.2" y="282.7" width="15" height="15" fill="transparent"/>
+<circle cx="466.7" cy="290.2" r="4.6" fill="#898781"/>
+</g>
+<rect x="18.0" y="297.7" width="468.2" height="15" fill="#2c2c2a" fill-opacity="0.45"/>
+<text x="194.2" y="309.2" font-size="11" fill="#ffffff" text-anchor="end">regex-chess</text>
+<g><title>regex-chess · Theseus 1: solved</title>
+<rect x="202.2" y="297.7" width="15" height="15" fill="transparent"/>
+<circle cx="209.7" cy="305.2" r="4.6" fill="#3987e5"/>
+</g>
+<g><title>regex-chess · Theseus 2: solved</title>
+<rect x="217.2" y="297.7" width="15" height="15" fill="transparent"/>
+<circle cx="224.7" cy="305.2" r="4.6" fill="#3987e5"/>
+</g>
+<g><title>regex-chess · Claude Code 1: solved</title>
+<rect x="240.2" y="297.7" width="15" height="15" fill="transparent"/>
+<circle cx="247.7" cy="305.2" r="4.6" fill="#d95926"/>
+</g>
+<g><title>regex-chess · Claude Code 2: solved</title>
+<rect x="255.2" y="297.7" width="15" height="15" fill="transparent"/>
+<circle cx="262.7" cy="305.2" r="4.6" fill="#d95926"/>
+</g>
+<g><title>regex-chess · OpenCode 1: solved</title>
+<rect x="278.2" y="297.7" width="15" height="15" fill="transparent"/>
+<circle cx="285.7" cy="305.2" r="4.6" fill="#898781"/>
+</g>
+<g><title>regex-chess · OpenCode 2: solved</title>
+<rect x="293.2" y="297.7" width="15" height="15" fill="transparent"/>
+<circle cx="300.7" cy="305.2" r="4.6" fill="#898781"/>
+</g>
+<g><title>regex-chess · OpenHands 1: solved</title>
+<rect x="308.2" y="297.7" width="15" height="15" fill="transparent"/>
+<circle cx="315.7" cy="305.2" r="4.6" fill="#898781"/>
+</g>
+<g><title>regex-chess · OpenHands 2: solved</title>
+<rect x="323.2" y="297.7" width="15" height="15" fill="transparent"/>
+<circle cx="330.7" cy="305.2" r="4.6" fill="#898781"/>
+</g>
+<g><title>regex-chess · OpenClaw 1: solved</title>
+<rect x="346.2" y="297.7" width="15" height="15" fill="transparent"/>
+<circle cx="353.7" cy="305.2" r="4.6" fill="#c98500"/>
+</g>
+<g><title>regex-chess · OpenClaw 2: solved</title>
+<rect x="361.2" y="297.7" width="15" height="15" fill="transparent"/>
+<circle cx="368.7" cy="305.2" r="4.6" fill="#c98500"/>
+</g>
+<g><title>regex-chess · Codex CLI 1: solved</title>
+<rect x="384.2" y="297.7" width="15" height="15" fill="transparent"/>
+<circle cx="391.7" cy="305.2" r="4.6" fill="#898781"/>
+</g>
+<g><title>regex-chess · Codex CLI 2: solved</title>
+<rect x="399.2" y="297.7" width="15" height="15" fill="transparent"/>
+<circle cx="406.7" cy="305.2" r="4.6" fill="#898781"/>
+</g>
+<g><title>regex-chess · Aider 1: not solved</title>
+<rect x="414.2" y="297.7" width="15" height="15" fill="transparent"/>
+<circle cx="421.7" cy="305.2" r="4" fill="#1a1a19" stroke="#898781" stroke-width="1.5"/>
+</g>
+<g><title>regex-chess · Aider 2: not solved</title>
+<rect x="429.2" y="297.7" width="15" height="15" fill="transparent"/>
+<circle cx="436.7" cy="305.2" r="4" fill="#1a1a19" stroke="#898781" stroke-width="1.5"/>
+</g>
+<g><title>regex-chess · Pi 1: solved</title>
+<rect x="444.2" y="297.7" width="15" height="15" fill="transparent"/>
+<circle cx="451.7" cy="305.2" r="4.6" fill="#898781"/>
+</g>
+<g><title>regex-chess · Pi 2: solved</title>
+<rect x="459.2" y="297.7" width="15" height="15" fill="transparent"/>
+<circle cx="466.7" cy="305.2" r="4.6" fill="#898781"/>
+</g>
+<text x="194.2" y="324.2" font-size="11" fill="#ffffff" text-anchor="end">reshard-c4-data</text>
+<g><title>reshard-c4-data · Theseus 1: solved</title>
+<rect x="202.2" y="312.7" width="15" height="15" fill="transparent"/>
+<circle cx="209.7" cy="320.2" r="4.6" fill="#3987e5"/>
+</g>
+<g><title>reshard-c4-data · Theseus 2: solved</title>
+<rect x="217.2" y="312.7" width="15" height="15" fill="transparent"/>
+<circle cx="224.7" cy="320.2" r="4.6" fill="#3987e5"/>
+</g>
+<g><title>reshard-c4-data · Claude Code 1: solved</title>
+<rect x="240.2" y="312.7" width="15" height="15" fill="transparent"/>
+<circle cx="247.7" cy="320.2" r="4.6" fill="#d95926"/>
+</g>
+<g><title>reshard-c4-data · Claude Code 2: solved</title>
+<rect x="255.2" y="312.7" width="15" height="15" fill="transparent"/>
+<circle cx="262.7" cy="320.2" r="4.6" fill="#d95926"/>
+</g>
+<g><title>reshard-c4-data · OpenCode 1: solved</title>
+<rect x="278.2" y="312.7" width="15" height="15" fill="transparent"/>
+<circle cx="285.7" cy="320.2" r="4.6" fill="#898781"/>
+</g>
+<g><title>reshard-c4-data · OpenCode 2: solved</title>
+<rect x="293.2" y="312.7" width="15" height="15" fill="transparent"/>
+<circle cx="300.7" cy="320.2" r="4.6" fill="#898781"/>
+</g>
+<g><title>reshard-c4-data · OpenHands 1: solved</title>
+<rect x="308.2" y="312.7" width="15" height="15" fill="transparent"/>
+<circle cx="315.7" cy="320.2" r="4.6" fill="#898781"/>
+</g>
+<g><title>reshard-c4-data · OpenHands 2: solved</title>
+<rect x="323.2" y="312.7" width="15" height="15" fill="transparent"/>
+<circle cx="330.7" cy="320.2" r="4.6" fill="#898781"/>
+</g>
+<g><title>reshard-c4-data · OpenClaw 1: solved</title>
+<rect x="346.2" y="312.7" width="15" height="15" fill="transparent"/>
+<circle cx="353.7" cy="320.2" r="4.6" fill="#c98500"/>
+</g>
+<g><title>reshard-c4-data · OpenClaw 2: solved</title>
+<rect x="361.2" y="312.7" width="15" height="15" fill="transparent"/>
+<circle cx="368.7" cy="320.2" r="4.6" fill="#c98500"/>
+</g>
+<g><title>reshard-c4-data · Codex CLI 1: solved</title>
+<rect x="384.2" y="312.7" width="15" height="15" fill="transparent"/>
+<circle cx="391.7" cy="320.2" r="4.6" fill="#898781"/>
+</g>
+<g><title>reshard-c4-data · Codex CLI 2: solved</title>
+<rect x="399.2" y="312.7" width="15" height="15" fill="transparent"/>
+<circle cx="406.7" cy="320.2" r="4.6" fill="#898781"/>
+</g>
+<g><title>reshard-c4-data · Aider 1: not solved</title>
+<rect x="414.2" y="312.7" width="15" height="15" fill="transparent"/>
+<circle cx="421.7" cy="320.2" r="4" fill="#1a1a19" stroke="#898781" stroke-width="1.5"/>
+</g>
+<g><title>reshard-c4-data · Aider 2: solved</title>
+<rect x="429.2" y="312.7" width="15" height="15" fill="transparent"/>
+<circle cx="436.7" cy="320.2" r="4.6" fill="#898781"/>
+</g>
+<g><title>reshard-c4-data · Pi 1: solved</title>
+<rect x="444.2" y="312.7" width="15" height="15" fill="transparent"/>
+<circle cx="451.7" cy="320.2" r="4.6" fill="#898781"/>
+</g>
+<g><title>reshard-c4-data · Pi 2: solved</title>
+<rect x="459.2" y="312.7" width="15" height="15" fill="transparent"/>
+<circle cx="466.7" cy="320.2" r="4.6" fill="#898781"/>
+</g>
+<rect x="18.0" y="327.7" width="468.2" height="15" fill="#2c2c2a" fill-opacity="0.45"/>
+<text x="194.2" y="339.2" font-size="11" fill="#ffffff" text-anchor="end">schemelike-metacircular-eval</text>
+<g><title>schemelike-metacircular-eval · Theseus 1: solved</title>
+<rect x="202.2" y="327.7" width="15" height="15" fill="transparent"/>
+<circle cx="209.7" cy="335.2" r="4.6" fill="#3987e5"/>
+</g>
+<g><title>schemelike-metacircular-eval · Theseus 2: solved</title>
+<rect x="217.2" y="327.7" width="15" height="15" fill="transparent"/>
+<circle cx="224.7" cy="335.2" r="4.6" fill="#3987e5"/>
+</g>
+<g><title>schemelike-metacircular-eval · Claude Code 1: solved</title>
+<rect x="240.2" y="327.7" width="15" height="15" fill="transparent"/>
+<circle cx="247.7" cy="335.2" r="4.6" fill="#d95926"/>
+</g>
+<g><title>schemelike-metacircular-eval · Claude Code 2: solved</title>
+<rect x="255.2" y="327.7" width="15" height="15" fill="transparent"/>
+<circle cx="262.7" cy="335.2" r="4.6" fill="#d95926"/>
+</g>
+<g><title>schemelike-metacircular-eval · OpenCode 1: solved</title>
+<rect x="278.2" y="327.7" width="15" height="15" fill="transparent"/>
+<circle cx="285.7" cy="335.2" r="4.6" fill="#898781"/>
+</g>
+<g><title>schemelike-metacircular-eval · OpenCode 2: solved</title>
+<rect x="293.2" y="327.7" width="15" height="15" fill="transparent"/>
+<circle cx="300.7" cy="335.2" r="4.6" fill="#898781"/>
+</g>
+<g><title>schemelike-metacircular-eval · OpenHands 1: solved</title>
+<rect x="308.2" y="327.7" width="15" height="15" fill="transparent"/>
+<circle cx="315.7" cy="335.2" r="4.6" fill="#898781"/>
+</g>
+<g><title>schemelike-metacircular-eval · OpenHands 2: solved</title>
+<rect x="323.2" y="327.7" width="15" height="15" fill="transparent"/>
+<circle cx="330.7" cy="335.2" r="4.6" fill="#898781"/>
+</g>
+<g><title>schemelike-metacircular-eval · OpenClaw 1: solved</title>
+<rect x="346.2" y="327.7" width="15" height="15" fill="transparent"/>
+<circle cx="353.7" cy="335.2" r="4.6" fill="#c98500"/>
+</g>
+<g><title>schemelike-metacircular-eval · OpenClaw 2: solved</title>
+<rect x="361.2" y="327.7" width="15" height="15" fill="transparent"/>
+<circle cx="368.7" cy="335.2" r="4.6" fill="#c98500"/>
+</g>
+<g><title>schemelike-metacircular-eval · Codex CLI 1: solved</title>
+<rect x="384.2" y="327.7" width="15" height="15" fill="transparent"/>
+<circle cx="391.7" cy="335.2" r="4.6" fill="#898781"/>
+</g>
+<g><title>schemelike-metacircular-eval · Codex CLI 2: solved</title>
+<rect x="399.2" y="327.7" width="15" height="15" fill="transparent"/>
+<circle cx="406.7" cy="335.2" r="4.6" fill="#898781"/>
+</g>
+<g><title>schemelike-metacircular-eval · Aider 1: not solved</title>
+<rect x="414.2" y="327.7" width="15" height="15" fill="transparent"/>
+<circle cx="421.7" cy="335.2" r="4" fill="#1a1a19" stroke="#898781" stroke-width="1.5"/>
+</g>
+<g><title>schemelike-metacircular-eval · Aider 2: not solved</title>
+<rect x="429.2" y="327.7" width="15" height="15" fill="transparent"/>
+<circle cx="436.7" cy="335.2" r="4" fill="#1a1a19" stroke="#898781" stroke-width="1.5"/>
+</g>
+<g><title>schemelike-metacircular-eval · Pi 1: solved</title>
+<rect x="444.2" y="327.7" width="15" height="15" fill="transparent"/>
+<circle cx="451.7" cy="335.2" r="4.6" fill="#898781"/>
+</g>
+<g><title>schemelike-metacircular-eval · Pi 2: solved</title>
+<rect x="459.2" y="327.7" width="15" height="15" fill="transparent"/>
+<circle cx="466.7" cy="335.2" r="4.6" fill="#898781"/>
+</g>
+<text x="194.2" y="354.2" font-size="11" fill="#ffffff" text-anchor="end">torch-tensor-parallelism</text>
+<g><title>torch-tensor-parallelism · Theseus 1: solved</title>
+<rect x="202.2" y="342.7" width="15" height="15" fill="transparent"/>
+<circle cx="209.7" cy="350.2" r="4.6" fill="#3987e5"/>
+</g>
+<g><title>torch-tensor-parallelism · Theseus 2: solved</title>
+<rect x="217.2" y="342.7" width="15" height="15" fill="transparent"/>
+<circle cx="224.7" cy="350.2" r="4.6" fill="#3987e5"/>
+</g>
+<g><title>torch-tensor-parallelism · Claude Code 1: solved</title>
+<rect x="240.2" y="342.7" width="15" height="15" fill="transparent"/>
+<circle cx="247.7" cy="350.2" r="4.6" fill="#d95926"/>
+</g>
+<g><title>torch-tensor-parallelism · Claude Code 2: solved</title>
+<rect x="255.2" y="342.7" width="15" height="15" fill="transparent"/>
+<circle cx="262.7" cy="350.2" r="4.6" fill="#d95926"/>
+</g>
+<g><title>torch-tensor-parallelism · OpenCode 1: solved</title>
+<rect x="278.2" y="342.7" width="15" height="15" fill="transparent"/>
+<circle cx="285.7" cy="350.2" r="4.6" fill="#898781"/>
+</g>
+<g><title>torch-tensor-parallelism · OpenCode 2: solved</title>
+<rect x="293.2" y="342.7" width="15" height="15" fill="transparent"/>
+<circle cx="300.7" cy="350.2" r="4.6" fill="#898781"/>
+</g>
+<g><title>torch-tensor-parallelism · OpenHands 1: solved</title>
+<rect x="308.2" y="342.7" width="15" height="15" fill="transparent"/>
+<circle cx="315.7" cy="350.2" r="4.6" fill="#898781"/>
+</g>
+<g><title>torch-tensor-parallelism · OpenHands 2: not solved</title>
+<rect x="323.2" y="342.7" width="15" height="15" fill="transparent"/>
+<circle cx="330.7" cy="350.2" r="4" fill="#1a1a19" stroke="#898781" stroke-width="1.5"/>
+</g>
+<g><title>torch-tensor-parallelism · OpenClaw 1: solved</title>
+<rect x="346.2" y="342.7" width="15" height="15" fill="transparent"/>
+<circle cx="353.7" cy="350.2" r="4.6" fill="#c98500"/>
+</g>
+<g><title>torch-tensor-parallelism · OpenClaw 2: solved</title>
+<rect x="361.2" y="342.7" width="15" height="15" fill="transparent"/>
+<circle cx="368.7" cy="350.2" r="4.6" fill="#c98500"/>
+</g>
+<g><title>torch-tensor-parallelism · Codex CLI 1: not solved</title>
+<rect x="384.2" y="342.7" width="15" height="15" fill="transparent"/>
+<circle cx="391.7" cy="350.2" r="4" fill="#1a1a19" stroke="#898781" stroke-width="1.5"/>
+</g>
+<g><title>torch-tensor-parallelism · Codex CLI 2: not solved</title>
+<rect x="399.2" y="342.7" width="15" height="15" fill="transparent"/>
+<circle cx="406.7" cy="350.2" r="4" fill="#1a1a19" stroke="#898781" stroke-width="1.5"/>
+</g>
+<g><title>torch-tensor-parallelism · Aider 1: solved</title>
+<rect x="414.2" y="342.7" width="15" height="15" fill="transparent"/>
+<circle cx="421.7" cy="350.2" r="4.6" fill="#898781"/>
+</g>
+<g><title>torch-tensor-parallelism · Aider 2: solved</title>
+<rect x="429.2" y="342.7" width="15" height="15" fill="transparent"/>
+<circle cx="436.7" cy="350.2" r="4.6" fill="#898781"/>
+</g>
+<g><title>torch-tensor-parallelism · Pi 1: solved</title>
+<rect x="444.2" y="342.7" width="15" height="15" fill="transparent"/>
+<circle cx="451.7" cy="350.2" r="4.6" fill="#898781"/>
+</g>
+<g><title>torch-tensor-parallelism · Pi 2: solved</title>
+<rect x="459.2" y="342.7" width="15" height="15" fill="transparent"/>
+<circle cx="466.7" cy="350.2" r="4.6" fill="#898781"/>
+</g>
+<rect x="18.0" y="357.7" width="468.2" height="15" fill="#2c2c2a" fill-opacity="0.45"/>
+<text x="194.2" y="369.2" font-size="11" fill="#ffffff" text-anchor="end">winning-avg-corewars</text>
+<g><title>winning-avg-corewars · Theseus 1: solved</title>
+<rect x="202.2" y="357.7" width="15" height="15" fill="transparent"/>
+<circle cx="209.7" cy="365.2" r="4.6" fill="#3987e5"/>
+</g>
+<g><title>winning-avg-corewars · Theseus 2: solved</title>
+<rect x="217.2" y="357.7" width="15" height="15" fill="transparent"/>
+<circle cx="224.7" cy="365.2" r="4.6" fill="#3987e5"/>
+</g>
+<g><title>winning-avg-corewars · Claude Code 1: solved</title>
+<rect x="240.2" y="357.7" width="15" height="15" fill="transparent"/>
+<circle cx="247.7" cy="365.2" r="4.6" fill="#d95926"/>
+</g>
+<g><title>winning-avg-corewars · Claude Code 2: solved</title>
+<rect x="255.2" y="357.7" width="15" height="15" fill="transparent"/>
+<circle cx="262.7" cy="365.2" r="4.6" fill="#d95926"/>
+</g>
+<g><title>winning-avg-corewars · OpenCode 1: solved</title>
+<rect x="278.2" y="357.7" width="15" height="15" fill="transparent"/>
+<circle cx="285.7" cy="365.2" r="4.6" fill="#898781"/>
+</g>
+<g><title>winning-avg-corewars · OpenCode 2: solved</title>
+<rect x="293.2" y="357.7" width="15" height="15" fill="transparent"/>
+<circle cx="300.7" cy="365.2" r="4.6" fill="#898781"/>
+</g>
+<g><title>winning-avg-corewars · OpenHands 1: solved</title>
+<rect x="308.2" y="357.7" width="15" height="15" fill="transparent"/>
+<circle cx="315.7" cy="365.2" r="4.6" fill="#898781"/>
+</g>
+<g><title>winning-avg-corewars · OpenHands 2: solved</title>
+<rect x="323.2" y="357.7" width="15" height="15" fill="transparent"/>
+<circle cx="330.7" cy="365.2" r="4.6" fill="#898781"/>
+</g>
+<g><title>winning-avg-corewars · OpenClaw 1: solved</title>
+<rect x="346.2" y="357.7" width="15" height="15" fill="transparent"/>
+<circle cx="353.7" cy="365.2" r="4.6" fill="#c98500"/>
+</g>
+<g><title>winning-avg-corewars · OpenClaw 2: solved</title>
+<rect x="361.2" y="357.7" width="15" height="15" fill="transparent"/>
+<circle cx="368.7" cy="365.2" r="4.6" fill="#c98500"/>
+</g>
+<g><title>winning-avg-corewars · Codex CLI 1: solved</title>
+<rect x="384.2" y="357.7" width="15" height="15" fill="transparent"/>
+<circle cx="391.7" cy="365.2" r="4.6" fill="#898781"/>
+</g>
+<g><title>winning-avg-corewars · Codex CLI 2: solved</title>
+<rect x="399.2" y="357.7" width="15" height="15" fill="transparent"/>
+<circle cx="406.7" cy="365.2" r="4.6" fill="#898781"/>
+</g>
+<g><title>winning-avg-corewars · Aider 1: not solved</title>
+<rect x="414.2" y="357.7" width="15" height="15" fill="transparent"/>
+<circle cx="421.7" cy="365.2" r="4" fill="#1a1a19" stroke="#898781" stroke-width="1.5"/>
+</g>
+<g><title>winning-avg-corewars · Aider 2: not solved</title>
+<rect x="429.2" y="357.7" width="15" height="15" fill="transparent"/>
+<circle cx="436.7" cy="365.2" r="4" fill="#1a1a19" stroke="#898781" stroke-width="1.5"/>
+</g>
+<g><title>winning-avg-corewars · Pi 1: solved</title>
+<rect x="444.2" y="357.7" width="15" height="15" fill="transparent"/>
+<circle cx="451.7" cy="365.2" r="4.6" fill="#898781"/>
+</g>
+<g><title>winning-avg-corewars · Pi 2: solved</title>
+<rect x="459.2" y="357.7" width="15" height="15" fill="transparent"/>
+<circle cx="466.7" cy="365.2" r="4.6" fill="#898781"/>
+</g>
+</svg>

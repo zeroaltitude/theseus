@@ -23,7 +23,7 @@ All the model calls of all nineteen runs cost $131.
 
 | | |
 |---|---|
-| Runs | 19 reports, Sep 30 to Oct 7, 2026: 18 published, and the harness arms' run of Oct 7, whose report is in review |
+| Runs | 19 reports, Sep 30 to Oct 7, 2026, all published |
 | Questions | Does it solve real tasks? Does it remember? Is it fast? What does it cost? |
 | Harnesses compared | Theseus; Claude Code; and on Oct 7 OpenCode, OpenHands, OpenClaw, Codex CLI, Aider and Pi |
 | Models | Claude Sonnet 5.5 for the task runs (Codex CLI: GPT-5.6-Sol); GLM-5.3 Flash for the memory exams; none for the speed benches and the retrieval probes |
@@ -306,7 +306,7 @@ measurement that judged it.
 |---|---|---|
 | Real tasks | [Harbor: can Theseus run public benchmarks at all? The worth spike](2026-10-03-harbor-worth-spike.md) | Oct 3 |
 | Real tasks | [Terminal-Bench 2.0: Theseus against Claude Code on all 89 tasks, the first full run](2026-10-04-terminal-bench-first-full-run.md) | Oct 4 |
-| Real tasks | Terminal-Bench 2.0: eight harnesses on the same 14 tasks, the harness arms' first run (in review; its numbers are in [`omnibus.json`](omnibus.json)) | Oct 7 |
+| Real tasks | [Terminal-Bench 2.0: 8 harnesses on the same 14 tasks, the harness arms' first run](2026-10-07-terminal-bench-harness-arms.md) | Oct 7 |
 | Memory | [Memory exam: how much does a cheap model gain from being shown its past?](2026-09-30-memory-exam-headroom.md) | Sep 30 |
 | Memory | [Memory exam v2: items built so that retrieval is hard](2026-09-30-memory-exam-v2.md) | Sep 30 |
 | Memory | [Retrieval: which engine embeds for the index, candle or tract?](2026-10-01-retrieval-embedding-engines.md) | Oct 1 |

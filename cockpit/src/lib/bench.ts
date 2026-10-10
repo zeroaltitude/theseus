@@ -345,6 +345,7 @@ const TB2 = '2026-10-04-terminal-bench-first-full-run'
 const FIX = '2026-10-06-harbor-efficiency-checks'
 const WORTH = '2026-10-03-harbor-worth-spike'
 const ASYNC = '2026-10-06-async-smokes'
+const ARMS_RUN = '2026-10-07-terminal-bench-harness-arms'
 
 /** Each harness's effort at the time, as the reports say it. */
 export const EFFORT: Record<string, Note> = {
@@ -462,6 +463,45 @@ export const TASK_SETS: readonly TaskSet[] = [
       'claude-code': { '*': { text: '2.1.288', report: ASYNC, quote: 'Claude Code 2.1.288 (`async_agents:ClaudeCodeAsync`' } },
     },
     notes: {},
+  },
+  {
+    id: 'arms', label: 'Terminal-Bench 2.0, 8 harnesses on the same 14 tasks × 2', short: 'harness arms · 14 tasks', report: ARMS_RUN,
+    about: 'The harness arms’ first run: every harness on the same tasks and attempts, one arm at a time, at medium effort, on Claude Sonnet 5.5 in each but Codex CLI.',
+    keep: () => true,
+    arm: (r) => r.arm,
+    run: () => ({ id: 'arms', label: 'the harness arms’ run' }),
+    conditions: [
+      { text: 'Dollars are list prices for every arm’s tokens, whatever a harness’s own table says.', report: ARMS_RUN, quote: 'Dollars are each trial\'s tokens at the providers\' list prices, the same table for every arm.' },
+      { text: 'Theseus’s limit was $3.75: it reserves a call’s price first, so its real spend could reach the others’ $2.00.', report: ARMS_RUN, quote: 'Theseus\'s spend limit was $3.75' },
+    ],
+    versions: {
+      'theseus': { '*': { text: 'built at 041eb8ed', report: ARMS_RUN, quote: 'Theseus\'s binaries built at `041eb8ed`' } },
+      'claude-code': { '*': { text: '2.1.290', report: ARMS_RUN, quote: 'Claude Code 2.1.290 (`' } },
+      'opencode': { '*': { text: '1.18.35', report: ARMS_RUN, quote: 'OpenCode 1.18.35 (`' } },
+      'openhands': { '*': { text: '1.53.0', report: ARMS_RUN, quote: 'OpenHands 1.53.0 (`' } },
+      'openclaw': { '*': { text: '2026.9.8', report: ARMS_RUN, quote: 'OpenClaw 2026.9.8 (`' } },
+      'codex': { '*': { text: '0.161.0', report: ARMS_RUN, quote: 'Codex CLI 0.161.0 (`' } },
+      'aider': { '*': { text: '0.86.2', report: ARMS_RUN, quote: 'Aider 0.86.2 (`' } },
+      'pi': { '*': { text: '1.0.4', report: ARMS_RUN, quote: 'Pi 1.0.4 (`' } },
+    },
+    notes: {
+      'theseus': { '*': [{ text: 'not a fair measure: every command failed to start (a spawn bug, fixed Oct 8); rerun on the fixed build', report: ARMS_RUN, quote: 'in all 28 of its trials, every `proc.run` failed to start a process' }] },
+      'opencode': { '*': [{ text: 'its spend cap was recorded, not enforced', report: ARMS_RUN, quote: 'so theirs was recorded, not enforced' }] },
+      'openhands': { '*': [{ text: 'its spend cap was recorded, not enforced', report: ARMS_RUN, quote: 'so theirs was recorded, not enforced' }] },
+      'openclaw': { '*': [{ text: 'its spend cap was recorded, not enforced', report: ARMS_RUN, quote: 'so theirs was recorded, not enforced' }] },
+      'codex': { '*': [{ text: 'ran GPT-5.6-Sol, an OpenAI model, not Claude Sonnet 5.5', report: ARMS_RUN, quote: 'Codex CLI ran GPT-5.6-Sol, an OpenAI model, not Claude Sonnet 5.5' }, { text: 'its spend cap was recorded, not enforced', report: ARMS_RUN, quote: 'so theirs was recorded, not enforced' }] },
+      'aider': { '*': [{ text: 'its spend cap was recorded, not enforced', report: ARMS_RUN, quote: 'so theirs was recorded, not enforced' }, { text: 'answers one message by editing files, and runs none of the commands it suggests', report: ARMS_RUN, quote: 'Aider answers one message with up to three reflections' }] },
+    },
+    effort: {
+      'theseus': { text: 'medium', report: ARMS_RUN, quote: 'Every arm ran at medium effort, its version pinned, on the same tasks and attempts, one arm at a time' },
+      'claude-code': { text: 'medium', report: ARMS_RUN, quote: 'Every arm ran at medium effort, its version pinned, on the same tasks and attempts, one arm at a time' },
+      'opencode': { text: 'medium', report: ARMS_RUN, quote: 'Every arm ran at medium effort, its version pinned, on the same tasks and attempts, one arm at a time' },
+      'openhands': { text: 'medium', report: ARMS_RUN, quote: 'Every arm ran at medium effort, its version pinned, on the same tasks and attempts, one arm at a time' },
+      'openclaw': { text: 'medium', report: ARMS_RUN, quote: 'Every arm ran at medium effort, its version pinned, on the same tasks and attempts, one arm at a time' },
+      'codex': { text: 'medium (its model_reasoning_effort)', report: ARMS_RUN, quote: 'Every arm ran at medium effort, its version pinned, on the same tasks and attempts, one arm at a time' },
+      'aider': { text: 'medium', report: ARMS_RUN, quote: 'Every arm ran at medium effort, its version pinned, on the same tasks and attempts, one arm at a time' },
+      'pi': { text: 'medium', report: ARMS_RUN, quote: 'Every arm ran at medium effort, its version pinned, on the same tasks and attempts, one arm at a time' },
+    },
   },
 ]
 
