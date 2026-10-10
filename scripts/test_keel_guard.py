@@ -106,8 +106,57 @@ mod tests {
 }
 """
 
+LIMITS = """\
+/// `[kernel] spend_limit_usd`'s default.
+pub(super) fn default_spend_limit_usd() -> f64 {
+    100.0
+}
+
+pub const CAP_USD: f64 = 5.0;
+pub const LAMBDA_USD_PER_GB_SECOND: f64 = 0.000_016_666_7;
+"""
+
+COCKPIT = """\
+// The ring's tests, run by `npm test`.
+import { describe, test } from 'node:test'
+import assert from 'node:assert/strict'
+
+test('the ring fades within a second', () => {
+  assert.ok(RING_S > 0 && RING_S <= 1, `it fades: ${RING_S} s`)
+  assert.equal(depthOf(379, false), 'fleet')
+})
+
+describe('the sea', () => {
+  test("it shows at fleet depth only", () => {
+    assert.match(RING_VERT, /fleet/)
+    assert.ok(code(RING_VERT).length > 3) // a few lines (at least)
+  })
+})
+"""
+
+CI = """\
+name: ci
+on:
+  push:
+    branches: [main]
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: the cockpit
+        run: cd cockpit && npm ci && npm run lint && npm test && npm run build
+      - run: cargo clippy --workspace --all-targets -q -- -D warnings
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check licenses sources bans
+"""
+
 BASE = {
     "crates/demo/src/lib.rs": LIB,
+    "crates/theseus-core/src/config/limits.rs": LIMITS,
+    "cockpit/test/ring.test.ts": COCKPIT,
+    ".github/workflows/ci.yml": CI,
     "crates/demo/src/timing.rs": TIMING,
     "crates/theseus-sim/src/lifecycle.rs": LIFECYCLE,
     "bench/theseus-bench.toml": BENCH,
@@ -336,6 +385,64 @@ class Erosions(Case):
         self.assertCaught("assert-weakened", "bench/recall/test_drive.py", {"bench/recall/test_drive.py": sub(
             PYTEST, 'self.assertLess(len("ab"), 3)', 'self.assertLess(len("ab"), 30)')})
 
+    def test_a_cap_s_code_default_raised(self):
+        self.assertCaught("cap-raised", "crates/theseus-core/src/config/limits.rs", {
+            "crates/theseus-core/src/config/limits.rs": sub(LIMITS, "    100.0\n", "    150.0\n")})
+
+    def test_a_cap_constant_raised(self):
+        self.assertCaught("cap-raised", "crates/theseus-core/src/config/limits.rs", {
+            "crates/theseus-core/src/config/limits.rs": sub(LIMITS, "CAP_USD: f64 = 5.0", "CAP_USD: f64 = 10.0")})
+
+    def test_a_cap_s_code_default_gone(self):
+        self.assertCaught("cap-raised", "crates/theseus-core/src/config/limits.rs", {
+            "crates/theseus-core/src/config/limits.rs": sub(LIMITS, "    100.0\n", "    f64::INFINITY\n")})
+
+    def test_a_cockpit_test_deleted(self):
+        self.assertCaught("test-removed", "cockpit/test/ring.test.ts", {"cockpit/test/ring.test.ts": sub(
+            COCKPIT, "test('the ring fades within a second', () => {\n", "const unused = (() => {\n")})
+
+    def test_a_cockpit_test_skipped(self):
+        self.assertCaught("test-ignored", "cockpit/test/ring.test.ts", {"cockpit/test/ring.test.ts": sub(
+            COCKPIT, 'test("it shows', 'test.skip("it shows')})
+
+    def test_a_cockpit_test_given_a_skip_option(self):
+        self.assertCaught("test-ignored", "cockpit/test/ring.test.ts", {"cockpit/test/ring.test.ts": sub(
+            COCKPIT, "test('the ring fades within a second', () => {", "test('the ring fades within a second', "
+                                                                       "{ skip: 'later' }, () => {")})
+
+    def test_a_cockpit_assertion_deleted(self):
+        self.assertCaught("assert-removed", "cockpit/test/ring.test.ts", {"cockpit/test/ring.test.ts": sub(
+            COCKPIT, "    assert.match(RING_VERT, /fleet/)\n", "")})
+
+    def test_a_cockpit_equality_made_a_truth_test(self):
+        self.assertCaught("assert-weakened", "cockpit/test/ring.test.ts", {"cockpit/test/ring.test.ts": sub(
+            COCKPIT, "assert.equal(depthOf(379, false), 'fleet')", "assert.ok(depthOf(379, false))")})
+
+    def test_a_cockpit_bound_loosened(self):
+        self.assertCaught("assert-weakened", "cockpit/test/ring.test.ts", {"cockpit/test/ring.test.ts": sub(
+            COCKPIT, "RING_S <= 1,", "RING_S <= 5,")})
+
+    def test_a_cockpit_lower_bound_lowered_beside_an_upper_one(self):
+        self.assertCaught("assert-weakened", "cockpit/test/ring.test.ts", {"cockpit/test/ring.test.ts": sub(
+            COCKPIT, "RING_S > 0 &&", "RING_S > -1 &&")})
+
+    def test_a_ci_command_dropped(self):
+        self.assertCaught("ci-loosened", ".github/workflows/ci.yml", {".github/workflows/ci.yml": sub(
+            CI, "npm run lint && npm test && npm run build", "npm run lint && npm run build")})
+
+    def test_a_ci_command_made_to_pass(self):
+        self.assertCaught("ci-loosened", ".github/workflows/ci.yml", {".github/workflows/ci.yml": sub(
+            CI, "-D warnings\n", "-D warnings || true\n")})
+
+    def test_a_ci_step_allowed_to_fail(self):
+        self.assertCaught("ci-loosened", ".github/workflows/ci.yml", {".github/workflows/ci.yml": sub(
+            CI, "      - run: cargo clippy", "      - continue-on-error: true\n        run: cargo clippy")})
+
+    def test_a_ci_action_removed(self):
+        self.assertCaught("ci-loosened", ".github/workflows/ci.yml", {".github/workflows/ci.yml": sub(
+            CI, "      - uses: EmbarkStudios/cargo-deny-action@v2\n        with:\n"
+                "          command: check licenses sources bans\n", "")})
+
     def test_an_uncommitted_erosion_in_the_working_tree(self):
         self.repo.write({"scripts/long-files.txt": LONG + "crates/demo/src/vast.rs 2700 new\n"})
         code, out = self.findings()
@@ -414,6 +521,25 @@ class NonFindings(Case):
         self.assertClean({"crates/demo/src/timing.rs": sub(TIMING, "assert!(took < Duration::from_millis(50), "
                                                                    "\"a start took {took:?}\");",
                                                            "assert_eq!(took < Duration::from_millis(50), true);")})
+
+    def test_a_cap_s_code_default_lowered_moved_or_new(self):
+        self.assertClean({"crates/theseus-core/src/config/limits.rs": sub(sub(
+            LIMITS, "    100.0\n", "    90.0\n"), "pub const CAP_USD: f64 = 5.0;\n", "")
+            + "\npub(super) fn default_sweep_usd_per_day() -> f64 {\n    2.0\n}\n",
+            "crates/theseus-core/src/judge/backfill.rs": "pub const CAP_USD: f64 = 5.0;\n"})
+
+    def test_a_price_constant_raised(self):
+        self.assertClean({"crates/theseus-core/src/config/limits.rs": sub(
+            LIMITS, "0.000_016_666_7", "0.000_017")})
+
+    def test_a_cockpit_test_renamed_and_one_added(self):
+        self.assertClean({"cockpit/test/ring.test.ts": sub(COCKPIT, "the ring fades within a second",
+                                                           "the ring fades out within a second")
+                          + "\ntest('a third', () => {\n  assert.equal(1, 1)\n})\n"})
+
+    def test_a_ci_step_added_and_an_action_bumped(self):
+        self.assertClean({".github/workflows/ci.yml": sub(CI, "actions/checkout@v4", "actions/checkout@v5")
+                          + "      - run: cargo doc --no-deps\n"})
 
     def test_a_comment_in_a_budget(self):
         self.assertClean({"crates/theseus-sim/src/lifecycle.rs": sub(

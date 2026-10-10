@@ -27,16 +27,20 @@ working tree):
 
 The rules, by the name the report and the ack use:
   test-removed    a test function at the base (Rust: #[test], #[tokio::test], #[rstest], #[test_case], any
-                  attribute whose last segment is `test`; Python: a `def test_*`) that is not at the head under the
+                  attribute whose last segment is `test`; Python: a `def test_*`; the cockpit's TypeScript, in a
+                  test/ directory or a *.test.ts: a `test('name', ...)` or `it(...)`, keyed with its describes'
+                  names) that is not at the head under the
                   same path and name. A test that moved file or module keeping its name, or renamed with the same
                   body, is matched and judged by the rules below instead.
   test-ignored    #[ignore] (or a cfg_attr's ignore) added to a test; in Python a skip decorator (unittest's skip,
                   skipIf, skipUnless, expectedFailure, pytest's skip marks) on the test or its class, or a
-                  self.skipTest / SkipTest added to its body.
+                  self.skipTest / SkipTest added to its body; in TypeScript test.skip/.todo/.only, a { skip: },
+                  { todo: } or { only: } option, or a t.skip( / t.todo( added to its body.
   assert-removed  a test with fewer assertions than at the base (Rust: every `...assert...!` macro, assert!,
                   assert_eq!, debug_assert_ne!, prop_assert!, and a wait that fails the test, wait_for(, wait_until(,
                   .until(, so an assertion made a wait keeps its check; Python: `assert` statements and
-                  self.assert*/fail calls, pytest.raises). Counted per test, comments left out: a rewritten assertion is not a finding.
+                  self.assert*/fail calls, pytest.raises; TypeScript: assert(, assert.*(, expect(). Counted per test,
+                  comments left out: a rewritten assertion is not a finding.
   assert-weakened an assertion of a test loosened in place, which keeps the count (theseus-pw1q.18): an equality made a
                   truth test with no comparison in it (assert_eq! to assert!, assertEqual to assertTrue, assert.equal
                   to assert.ok; one that compared with a bool or None is not), a constant bound loosened (raised on the
@@ -60,10 +64,18 @@ The rules, by the name the report and the ack use:
                                                           MAX_LOOPS, SPEND_LIMIT, spend_limit, BUDGET with a number
                     crates/theseus-core/config/theseus.example.toml  keys naming spend, usd, per_day, daily,
                                                           max_loops (commented lines too)
+                    any Rust file                         a cap's code default: a `fn default_*` naming usd, spend,
+                                                          per_day, daily, day_ceiling, max_loops or max_turns, or a
+                                                          const naming CAP/LIMIT/CEILING/BUDGET and USD/MICROS/SPEND/
+                                                          LOOPS/TURNS, across the changed files (one moved keeps its
+                                                          value; a new one is no finding)
   ceiling-raised  scripts/long-files.txt: a ceiling raised or an entry added; scripts/shape.sh: `limit=` raised;
                   .config/nextest.toml: retries added or raised, slow-timeout's period or terminate-after widened
                   (or terminate-after dropped), leak-timeout widened, an override added (the flaky list given a
                   test).
+  ci-loosened     .github/workflows/*.yml: a step's command gone or changed (each `&&`/`;` part of a run, a uses'
+                  action without its version, a command:), continue-on-error turned on, an `if:` that is false, or
+                  the workflow gone. A step added, or an action's version bumped, is no finding.
   keel-file       any change to the guard itself when it exists at the base: this script, scripts/keel-signers,
                   scripts/test_keel_guard.py, and scripts/gate.sh's lines that name the keel or its door; and a
                   phase of scripts/gate.sh gone (by name). Adding them is not one; adding a key to keel-signers is.
@@ -83,7 +95,7 @@ import time
 from collections import Counter, defaultdict
 
 RULES = ("test-removed", "test-ignored", "assert-removed", "assert-weakened", "allow-added", "budget-raised",
-         "cap-raised", "ceiling-raised", "keel-file")
+         "cap-raised", "ceiling-raised", "ci-loosened", "keel-file")
 KEEL_FILES = ("scripts/keel-guard.py", "scripts/keel-signers", "scripts/test_keel_guard.py")
 SIGNERS = "scripts/keel-signers"
 
@@ -460,6 +472,61 @@ def parse_python(src):
     return tests
 
 
+# ---------------------------------------------------------------- TypeScript (the cockpit's tests, theseus-pw1q.18)
+
+TS_TOKEN = re.compile(r"""//[^\n]*|/\*.*?\*/|"(?:\\.|[^"\\\n])*"|'(?:\\.|[^'\\\n])*'|`(?:\\.|[^`\\])*`""", re.S)
+TS_TEST = re.compile(r"""^[ \t]*(test|it|describe)(?:\.(skip|todo|only))?\s*\(\s*(['"`])((?:\\.|(?!\3).)*?)\3""", re.M)
+TS_ASSERT = re.compile(r"\bassert(?:\.\w+)?\s*\(|\bexpect\s*\(")
+TS_SKIP_OPT = re.compile(r"\b(skip|todo|only)\s*:")
+TS_SKIP_CALL = re.compile(r"\bt\.(?:skip|todo)\s*\(")
+TS_TEST_FILE = re.compile(r"(?:^|/)(?:test|tests|__tests__)/.*\.(?:ts|tsx|mts|js|mjs)$|\.(?:test|spec)\.(?:ts|tsx|mts|js|mjs)$")
+
+
+def strip_ts_comments(text):
+    out, last = [], 0
+    for m in TS_TOKEN.finditer(text):
+        t = m.group(0)
+        if t.startswith("//") or t.startswith("/*"):
+            out.append(text[last:m.start()])
+            out.append("\n" * t.count("\n"))
+            last = m.end()
+    out.append(text[last:])
+    return "".join(out)
+
+
+def parse_ts(src):
+    """node:test's and the like's tests, keyed by their describes' names and their own: test('name', ...)."""
+    code = strip_ts_comments(src)
+    calls = []
+    for m in TS_TEST.finditer(code):
+        open_ = code.index("(", m.start(1))
+        calls.append((m, scan_to(code, open_, QUOTES["ts"])))
+    describes = [(m.start(), end, m.group(4)) for m, end in calls if m.group(1) == "describe"]
+    tests = {}
+    for m, end in calls:
+        if m.group(1) == "describe":
+            continue
+        name = m.group(4)
+        key = " > ".join([d[2] for d in describes if d[0] < m.start() < d[1]] + [name])
+        body = code[m.start():end]
+        head = body[:min([x for x in (body.find("=>"), body.find("function")) if x >= 0] or [len(body)])]
+        marks = [f".{m.group(2)}"] if m.group(2) else [f"{{ {x.group(1)}: }}" for x in TS_SKIP_OPT.finditer(head)]
+        tests[key] = {
+            "name": name,
+            "line": line_of(code, m.start()),
+            "attrs": marks,
+            "ignored": bool(marks),
+            "skips": len(TS_SKIP_CALL.findall(body)),
+            "asserts": len(TS_ASSERT.findall(body)),
+            "norm": " ".join(body.replace(m.group(0).strip(), "test(_", 1).split()),
+            "head": src.split("\n")[line_of(code, m.start()) - 1].strip(),
+            "lang": "ts",
+            "code": body,
+            "raw": "\n".join(src.split("\n")[line_of(code, m.start()) - 1:line_of(code, end)]),
+        }
+    return tests
+
+
 # ---------------------------------------------------------------- the rules
 
 def tests_rule(tree, paths, out):
@@ -471,7 +538,11 @@ def tests_rule(tree, paths, out):
             src = getattr(tree, side)(path)
             if src is None:
                 continue
-            if rust:
+            if TS_TEST_FILE.search(path):
+                if "(" not in src:
+                    continue
+                t = parse_ts(src)
+            elif rust:
                 if "#[" not in src and "#![" not in src:
                     continue
                 t, mk = parse_rust(src)
@@ -510,7 +581,8 @@ def tests_rule(tree, paths, out):
     for bk, hk in pairs:
         b, h = base_tests[bk], head_tests[hk]
         if h["ignored"] and not b["ignored"] or h.get("skips", 0) > b.get("skips", 0):
-            new = next((a for a in h["attrs"] if is_ignore_attr(a) or PY_SKIP_DECO.match(a)), "a skip in its body")
+            new = next((a for a in h["attrs"] if is_ignore_attr(a) or PY_SKIP_DECO.match(a) or h.get("lang") == "ts"),
+                       "a skip in its body")
             out.append(Finding("test-ignored", hk[0], h["line"], b["head"], f"{new} {h['head']}"))
         if h["asserts"] < b["asserts"]:
             out.append(Finding("assert-removed", hk[0], h["line"],
@@ -650,8 +722,8 @@ def assertions(t):
     return out
 
 
-def comparison(expr, quotes):
-    """The operands of an expression's top-level, spaced `<`, `<=`, `>`, `>=`, and the operators between them."""
+def top_split(expr, quotes, sep):
+    """expr split at the top-level, spaced operators `sep` matches, and the operators."""
     parts, ops, depth, q, last, j = [], [], 0, None, 0, 0
     while j < len(expr):
         ch = expr[j]
@@ -668,15 +740,24 @@ def comparison(expr, quotes):
         elif ch in ")]}":
             depth -= 1
         elif ch == " " and depth == 0:
-            m = re.match(r" (<=|>=|<|>) ", expr[j:])
+            m = sep.match(expr, j)
             if m:
                 parts.append(expr[last:j])
                 ops.append(m.group(1))
-                last = j = j + m.end()
+                last = j = m.end()
                 continue
         j += 1
     parts.append(expr[last:])
     return parts, ops
+
+
+CMP_OP = re.compile(r" (<=|>=|<|>) ")
+LOGIC_OP = re.compile(r" (&&|\|\||and|or) ")
+
+
+def comparisons(expr, quotes):
+    """[(operands, operators)] of each top-level `&&`/`||`/`and`/`or` part's spaced `<`, `<=`, `>`, `>=`."""
+    return [top_split(part, quotes, CMP_OP) for part in top_split(expr, quotes, LOGIC_OP)[0]]
 
 
 def is_bound(operand):
@@ -692,15 +773,17 @@ def loosened(kind, old, new, quotes):
         less = ORDER_KINDS[kind]
         sides = [(old[0], new[0], not less), (old[1], new[1], less)]
     elif old:
-        po, ops = comparison(old[0], quotes)
-        pn, opn = comparison(new[0], quotes)
-        if ops != opn:
+        co, cn = comparisons(old[0], quotes), comparisons(new[0], quotes)
+        if len(co) != len(cn):
             return None
-        for k in range(len(po)):
-            upper = (k > 0 and ops[k - 1] in ("<", "<=")) or (k < len(ops) and ops[k] in (">", ">="))
-            lower = (k > 0 and ops[k - 1] in (">", ">=")) or (k < len(ops) and ops[k] in ("<", "<="))
-            if upper != lower:
-                sides.append((po[k], pn[k], upper))
+        for (po, ops), (pn, opn) in zip(co, cn):
+            if ops != opn:
+                continue
+            for k in range(len(po)):
+                upper = (k > 0 and ops[k - 1] in ("<", "<=")) or (k < len(ops) and ops[k] in (">", ">="))
+                lower = (k > 0 and ops[k - 1] in (">", ">=")) or (k < len(ops) and ops[k] in ("<", "<="))
+                if upper != lower:
+                    sides.append((po[k], pn[k], upper))
     for a, b, upper in sides:
         if not (is_bound(a) and is_bound(b)):
             continue
@@ -1002,6 +1085,97 @@ def cap_python(tree, paths, out):
                 out.append(Finding("cap-raised", path, line, text, "(gone or rewritten)"))
 
 
+# A cap's code default (theseus-pw1q.18): the value a spend or loop cap has when no config names it, in the Rust that
+# defines it: a `fn default_*` whose name says a spend or loop cap (serde's defaults), or a constant whose name says a
+# cap and its unit. Judged across the changed Rust files, so one moved keeps its value; a new one is no finding.
+CAP_DEFAULT_FN = re.compile(r"\bfn\s+(default_\w*(?:usd|spend|per_day|daily|day_ceiling|max_loops|max_turns)\w*)\s*\(")
+CAP_CONST = re.compile(r"\bconst\s+([A-Z0-9_]*(?:CAP|LIMIT|CEILING|BUDGET)[A-Z0-9_]*)\s*:")
+CAP_UNIT = re.compile(r"USD|MICROS|SPEND|LOOPS|TURNS")
+
+
+def cap_items(src):
+    if not src or ("default_" not in src and "const" not in src):
+        return []
+    code = strip_rs_comments(src)
+    items = [("fn", m.group(1)) for m in CAP_DEFAULT_FN.finditer(code)]
+    return items + [("const", m.group(1)) for m in CAP_CONST.finditer(code) if CAP_UNIT.search(m.group(1))]
+
+
+def cap_code_rule(tree, paths, out):
+    base, head = defaultdict(list), defaultdict(list)
+    for p in paths:
+        for kind, name in cap_items(tree.old(p)):
+            base[name].append((p, kind))
+        for kind, name in cap_items(tree.new(p)):
+            head[name].append((p, kind))
+    for name, places in base.items():
+        for p, kind in places:
+            old = shape_rows(rust_item_lines(tree.old(p), kind, name))
+            if not old:
+                continue
+            there = [x for x in head.get(name, []) if x[0] == p] or head.get(name, [])
+            if not there:
+                out.append(Finding("cap-raised", p, old[0][2], f"{kind} {name}: {old[0][3]}", "(gone)"))
+                continue
+            hp, hk = there[0]
+            compare_rows("cap-raised", hp, old, shape_rows(rust_item_lines(tree.new(hp), hk, name)), out)
+
+
+# CI's workflows (theseus-pw1q.18): a step's command (each `&&`/`;` part of a run, a uses' action, a command:) gone or
+# changed, continue-on-error turned on, or an `if:` that is false. A step added, or an action's version, is no finding.
+CI_FILE = re.compile(r"^\.github/workflows/[^/]+\.ya?ml$")
+
+
+def ci_model(src):
+    items, lines, flags = {}, src.split("\n"), Counter()
+    i = 0
+    while i < len(lines):
+        raw = lines[i]
+        s = "" if raw.strip().startswith("#") else re.sub(r"\s+#.*$", "", raw).strip()
+        m = re.match(r"(?:-\s*)?(run|uses|command|continue-on-error|if):\s*(.*)$", s)
+        i += 1
+        if not m:
+            continue
+        key, val, line = m.group(1), m.group(2).strip(), i
+        if key == "continue-on-error":
+            flags["continue-on-error"] += val == "true"
+            continue
+        if key == "if":
+            flags["if: false"] += bool(re.fullmatch(r"(?:\$\{\{\s*)?false(?:\s*\}\})?", val))
+            continue
+        if key == "run" and val in ("|", ">", "|-", ">-", "|+", ">+"):
+            ind, block = indent_of(raw), []
+            while i < len(lines) and (not lines[i].strip() or indent_of(lines[i]) > ind):
+                block.append(lines[i].strip())
+                i += 1
+            val = "\n".join(block)
+        if key == "uses":
+            items.setdefault(f"uses {val.split('@')[0]}", line)
+        elif key == "command":
+            items.setdefault(f"command {' '.join(val.split())}", line)
+        else:
+            for part in re.split(r"&&|;|\n", val):
+                if part.strip():
+                    items.setdefault(f"run {' '.join(part.split())}", line)
+    return items, flags
+
+
+def ci_rule(tree, path, out):
+    old, new = tree.old(path), tree.new(path)
+    if old is None:
+        return
+    if new is None:
+        out.append(Finding("ci-loosened", path, 1, "(the workflow)", "(gone)"))
+        return
+    (a, fa), (b, fb) = ci_model(old), ci_model(new)
+    for item, line in a.items():
+        if item not in b:
+            out.append(Finding("ci-loosened", path, line, item, "(gone or changed)"))
+    for flag in ("continue-on-error", "if: false"):
+        if fb[flag] > fa[flag]:
+            out.append(Finding("ci-loosened", path, 1, f"{fa[flag]} {flag}", f"{fb[flag]} {flag}"))
+
+
 def long_files_rule(tree, path, out):
     def entries(src):
         e = {}
@@ -1162,7 +1336,8 @@ def keel_rule(tree, path, out):
 
 def judge(tree, paths):
     out = []
-    tests_rule(tree, [p for p in paths if p.endswith((".rs", ".py"))], out)
+    tests_rule(tree, [p for p in paths if p.endswith((".rs", ".py")) or TS_TEST_FILE.search(p)], out)
+    cap_code_rule(tree, [p for p in paths if p.endswith(".rs")], out)
     cap_python(tree, [p for p in paths if p.startswith("bench/") and p.endswith(".py")
                       and not os.path.basename(p).startswith("test_")], out)
     for p in paths:
@@ -1182,6 +1357,8 @@ def judge(tree, paths):
             nextest_rule(tree, p, out)
         if p == "clippy.toml":
             clippy_toml_rule(tree, p, out)
+        if CI_FILE.match(p):
+            ci_rule(tree, p, out)
         if p in KEEL_FILES or p == "scripts/gate.sh":
             keel_rule(tree, p, out)
     return out

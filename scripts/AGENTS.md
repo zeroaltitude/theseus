@@ -194,8 +194,12 @@ each erosion as `path:line: rule: old -> new`; its header names every rule and e
 count: an equality made a truth test, a constant bound loosened, an assertion made vacuous, commented out or
 discarded), `allow-added` (an `allow` or an `expect`, a lint level, a clippy.toml
 threshold), `budget-raised` (the lifecycle, turn and jobs benches' limits, the busy allowance's default), `cap-raised`
-(bench/'s spend and loop caps, the config template's spend and day lines), `ceiling-raised` (long-files.txt,
-shape.sh's limit, nextest's retries, timeouts and overrides) and `keel-file` (the guard itself).
+(bench/'s spend and loop caps, the config template's spend and day lines, and a cap's code default: a `fn default_*`
+or a constant that names a spend or loop cap), `ceiling-raised` (long-files.txt, shape.sh's limit, nextest's retries,
+timeouts and overrides), `ci-loosened` (a CI step's command gone or changed, `continue-on-error`, an `if:` that is
+false) and `keel-file` (the guard itself, its door, a gate phase gone). The test rules read Rust, Python and the
+cockpit's TypeScript tests (`node:test`'s `test(...)`, its `.skip`/`.todo`/`.only` and `{ skip: }` options, and
+`assert.*` calls).
 
 - **The range.** Main is `origin/main` (the local `main` only where there is no `origin/main`): a join's local main is
   ahead of it by exactly what the join's gate judges. On a branch, merge-base(HEAD, main)..the working tree, so the gate
