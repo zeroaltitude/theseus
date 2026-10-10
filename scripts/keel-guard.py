@@ -37,6 +37,12 @@ The rules, by the name the report and the ack use:
                   assert_eq!, debug_assert_ne!, prop_assert!, and a wait that fails the test, wait_for(, wait_until(,
                   .until(, so an assertion made a wait keeps its check; Python: `assert` statements and
                   self.assert*/fail calls, pytest.raises). Counted per test, comments left out: a rewritten assertion is not a finding.
+  assert-weakened an assertion of a test loosened in place, which keeps the count (theseus-pw1q.18): an equality made a
+                  truth test with no comparison in it (assert_eq! to assert!, assertEqual to assertTrue, assert.equal
+                  to assert.ok; one that compared with a bool or None is not), a constant bound loosened (raised on the
+                  upper side of < or <=, lowered on the lower side; a Duration's or a tolerance's number too; Python's
+                  assertLess/assertGreater), an assertion made vacuous (assert!(true)), commented out, or its line
+                  made a discard (let _ =, _ =, void).
   allow-added     a #[allow(...)], #![allow(...)] or #[expect(...)] (an expect silences a lint as an allow does:
                   the shape budget's marks) added for a lint on an item that had none, counted per lint and item
                   across the changed files, so a moved item keeps its marks; a lint level lowered or removed in a
@@ -76,8 +82,8 @@ import sys
 import time
 from collections import Counter, defaultdict
 
-RULES = ("test-removed", "test-ignored", "assert-removed", "allow-added", "budget-raised", "cap-raised",
-         "ceiling-raised", "keel-file")
+RULES = ("test-removed", "test-ignored", "assert-removed", "assert-weakened", "allow-added", "budget-raised",
+         "cap-raised", "ceiling-raised", "keel-file")
 KEEL_FILES = ("scripts/keel-guard.py", "scripts/keel-signers", "scripts/test_keel_guard.py")
 SIGNERS = "scripts/keel-signers"
 
@@ -324,6 +330,9 @@ def parse_rust(src):
                         "asserts": len(ASSERT_RS.findall(code)),
                         "norm": " ".join(code.replace("fn " + name, "fn _", 1).split()),
                         "head": src[fstart:src.find("\n", fstart)].strip(),
+                        "lang": "rs",
+                        "code": code,
+                        "raw": body,
                     }
             pending.clear()
             pending_fn = None
@@ -439,6 +448,9 @@ def parse_python(src):
                 "asserts": len(PY_ASSERT.findall(code)),
                 "norm": " ".join(code.replace("def " + name, "def _", 1).split()),
                 "head": s,
+                "lang": "py",
+                "code": "\n".join("" if x.strip().startswith("#") else x for x in body.split("\n")),
+                "raw": body,
             }
             decos = []
             i = j
@@ -503,6 +515,7 @@ def tests_rule(tree, paths, out):
         if h["asserts"] < b["asserts"]:
             out.append(Finding("assert-removed", hk[0], h["line"],
                                f"{b['head']} ({b['asserts']} assertions)", f"{h['asserts']} assertions"))
+        weakened_rule(b, h, hk[0], out)
     allow_rule(base_marks, head_marks, out)
 
 
@@ -532,6 +545,239 @@ def rewritten(b, path, cands, head_tests):
 # How alike (difflib's ratio over the bodies' words) a test that went and one that came must be to count as one
 # test renamed and rewritten: the replay of main's last 50 merges set it (scripts/keel-guard.py's tests hold it).
 SIMILAR = 0.5
+
+
+# ---------------------------------------------------------------- weakened assertions (theseus-pw1q.18)
+#
+# assert-removed counts, so an assertion loosened in place kept its count and passed. A test's assertions at the base
+# and at the head are paired in order (difflib over their texts); a pair changed is a finding when the new one is
+# weaker: an equality made a truth test with no comparison in it (assert_eq! to assert!, assertEqual to assertTrue,
+# assert.equal to assert.ok; not when the equality compared with a bool or None, which clippy itself asks to write
+# as assert!), a bound loosened (a number raised on the upper side of `<`/`<=`, or lowered on the lower side, where
+# that side is a constant: a number, a Duration of one, a tolerance; Python's assertLess and assertGreater the same),
+# or made vacuous (assert!(true)). And on its lines: an assertion commented out (a comment that starts with one, more
+# than at the base), or an assertion's line replaced by a discard (`let _ =`, `_ =`, `void`).
+
+QUOTES = {"rs": '"', "py": "\"'", "ts": "\"'`"}
+CALLS = {
+    "rs": re.compile(r"\b(\w*assert\w*)!\s*[(\[{]"),
+    "py": re.compile(r"\bself\.(assert\w*|fail)\s*\(|^[ \t]*(assert)\b", re.M),
+    "ts": re.compile(r"\b(assert(?:\.\w+)?)\s*\("),
+}
+EQ_KINDS = re.compile(
+    r"(?:^|_)assert_(?:eq|ne)$|^assert(?:Equal|NotEqual|Is|IsNot|In|NotIn|CountEqual|ListEqual|DictEqual|SetEqual"
+    r"|TupleEqual|SequenceEqual|MultiLineEqual|Regex|NotRegex|IsInstance)$"
+    r"|^assert\.(?:equal|notEqual|strictEqual|notStrictEqual|deepEqual|notDeepEqual|deepStrictEqual"
+    r"|notDeepStrictEqual|match|doesNotMatch)$")
+PLAIN_KINDS = re.compile(r"(?:^|_)assert$|^assert(?:True|False|IsNotNone)$|^assert\.ok$")
+LITERAL = re.compile(r"^(?:true|false|True|False|None|null|undefined)$")
+COMPARES = {"rs": re.compile(r"==|!=|\bmatches!"), "ts": re.compile(r"==|!="),
+            "py": re.compile(r"==|!=|\bin\b|\bis\b")}
+VACUOUS = {"true", "True", "!false", "not False"}
+ORDER_KINDS = {"assertLess": True, "assertLessEqual": True, "assertGreater": False, "assertGreaterEqual": False}
+# What a constant bound may hold besides its numbers: a Duration's or a timedelta's constructor, a cast, arithmetic.
+BOUND_REST = re.compile(
+    r"\b(?:Duration|std|time|from_millis|from_secs|from_micros|from_nanos|from_secs_f64|from_secs_f32|as|f64|f32"
+    r"|u64|u32|u128|usize|i64|i32|Some|Ok|timedelta|seconds|milliseconds|microseconds)\b|::|[\s()+\-*/,&]"
+    r"|-?\d[\d_]*(?:\.\d+)?(?:e[-+]?\d+)?(?:[a-z_]\w*)?")
+COMMENTED = {"rs": re.compile(r"^\s*//+\s*\w*assert\w*!\s*[(\[{]"),
+             "py": re.compile(r"^\s*#\s*(?:assert\s+\S|self\.assert\w*\s*\()"),
+             "ts": re.compile(r"^\s*//+\s*assert(?:\.\w+)?\s*\(")}
+DISCARD = {"rs": re.compile(r"^\s*let\s+_\s*="), "py": re.compile(r"^\s*_\s*="), "ts": re.compile(r"^\s*void\s")}
+
+
+def scan_to(text, i, quotes, stop_at_newline=False):
+    """The index just past the bracket closing text[i] (or, with stop_at_newline, of the first newline outside any
+    bracket from i), strings and backslash escapes skipped."""
+    depth, j, q = 0, i, None
+    while j < len(text):
+        ch = text[j]
+        if ch == "\\":
+            j += 2
+            continue
+        if q:
+            if ch == q:
+                q = None
+        elif ch in quotes:
+            q = ch
+        elif ch in "([{":
+            depth += 1
+        elif ch in ")]}":
+            depth -= 1
+            if depth == 0 and not stop_at_newline:
+                return j + 1
+        elif ch == "\n" and stop_at_newline and depth <= 0:
+            return j
+        j += 1
+    return len(text)
+
+
+def split_args(text, quotes):
+    out, depth, q, last, j = [], 0, None, 0, 0
+    while j < len(text):
+        ch = text[j]
+        if ch == "\\":
+            j += 2
+            continue
+        if q:
+            if ch == q:
+                q = None
+        elif ch in quotes:
+            q = ch
+        elif ch in "([{":
+            depth += 1
+        elif ch in ")]}":
+            depth -= 1
+        elif ch == "," and depth == 0:
+            out.append(text[last:j])
+            last = j + 1
+        j += 1
+    out.append(text[last:])
+    return [" ".join(a.split()) for a in out if a.strip()]
+
+
+def assertions(t):
+    """[(kind, [args], pos)] of a test's assertions, in order (pos is in t["code"])."""
+    code, lang = t["code"], t["lang"]
+    quotes, out = QUOTES[lang], []
+    for m in CALLS[lang].finditer(code):
+        if lang == "py" and m.group(2):
+            end = scan_to(code, m.end(), quotes, stop_at_newline=True)
+            out.append(("assert", split_args(code[m.end():end], quotes), m.start(2)))
+            continue
+        end = scan_to(code, m.end() - 1, quotes)
+        out.append((m.group(1), split_args(code[m.end():end - 1], quotes), m.start()))
+    return out
+
+
+def comparison(expr, quotes):
+    """The operands of an expression's top-level, spaced `<`, `<=`, `>`, `>=`, and the operators between them."""
+    parts, ops, depth, q, last, j = [], [], 0, None, 0, 0
+    while j < len(expr):
+        ch = expr[j]
+        if ch == "\\":
+            j += 2
+            continue
+        if q:
+            if ch == q:
+                q = None
+        elif ch in quotes:
+            q = ch
+        elif ch in "([{":
+            depth += 1
+        elif ch in ")]}":
+            depth -= 1
+        elif ch == " " and depth == 0:
+            m = re.match(r" (<=|>=|<|>) ", expr[j:])
+            if m:
+                parts.append(expr[last:j])
+                ops.append(m.group(1))
+                last = j = j + m.end()
+                continue
+        j += 1
+    parts.append(expr[last:])
+    return parts, ops
+
+
+def is_bound(operand):
+    return bool(NUM.search(operand)) and not BOUND_REST.sub("", operand).strip()
+
+
+def loosened(kind, old, new, quotes):
+    """old -> new, said, when a bound in it was loosened."""
+    if NUM.sub("#", " ".join(old)) != NUM.sub("#", " ".join(new)):
+        return None
+    sides = []  # (old operand, new operand, is it the upper bound's side)
+    if kind in ORDER_KINDS and len(old) >= 2:
+        less = ORDER_KINDS[kind]
+        sides = [(old[0], new[0], not less), (old[1], new[1], less)]
+    elif old:
+        po, ops = comparison(old[0], quotes)
+        pn, opn = comparison(new[0], quotes)
+        if ops != opn:
+            return None
+        for k in range(len(po)):
+            upper = (k > 0 and ops[k - 1] in ("<", "<=")) or (k < len(ops) and ops[k] in (">", ">="))
+            lower = (k > 0 and ops[k - 1] in (">", ">=")) or (k < len(ops) and ops[k] in ("<", "<="))
+            if upper != lower:
+                sides.append((po[k], pn[k], upper))
+    for a, b, upper in sides:
+        if not (is_bound(a) and is_bound(b)):
+            continue
+        for x, y in zip([num(v) for v in NUM.findall(a)], [num(v) for v in NUM.findall(b)]):
+            if x is not None and y is not None and (y > x if upper else y < x):
+                return f"{a} -> {b} ({'an upper' if upper else 'a lower'} bound)"
+    return None
+
+
+def weaker(o, n, lang):
+    """Why assertion n is weaker than o, its counterpart at the base, or None."""
+    (ok, oa, _), (nk, na, _) = o, n
+    if na and na[0] in VACUOUS and not (oa and oa[0] in VACUOUS):
+        return "made vacuous"
+    if EQ_KINDS.search(ok) and PLAIN_KINDS.search(nk):
+        if any(LITERAL.match(a) for a in oa[:2]) or (na and COMPARES[lang].search(na[0])):
+            return None
+        return "an equality made a truth test"
+    if ok == nk:
+        why = loosened(ok, oa, na, QUOTES[lang])
+        if why:
+            return "a bound loosened: " + why
+    return None
+
+
+def align(olds, news, text):
+    """The pairs of a changed block of assertions, in order, most alike first: an assertion added among changed ones
+    pairs with nothing, never with its neighbour's counterpart (the work-types join, 4ffcc282, added an assert! among
+    assert_eq!s whose arguments all changed). Only pairs at least half alike count."""
+    score = [[difflib.SequenceMatcher(None, text(o), text(n), autojunk=False).ratio() for n in news] for o in olds]
+    best = [[0.0] * (len(news) + 1) for _ in range(len(olds) + 1)]
+    for i in range(len(olds) - 1, -1, -1):
+        for j in range(len(news) - 1, -1, -1):
+            take = score[i][j] + best[i + 1][j + 1] if score[i][j] >= SIMILAR else -1.0
+            best[i][j] = max(take, best[i + 1][j], best[i][j + 1])
+    pairs, i, j = [], 0, 0
+    while i < len(olds) and j < len(news):
+        if score[i][j] >= SIMILAR and best[i][j] == score[i][j] + best[i + 1][j + 1]:
+            pairs.append((olds[i], news[j]))
+            i, j = i + 1, j + 1
+        elif best[i][j] == best[i + 1][j]:
+            i += 1
+        else:
+            j += 1
+    return pairs
+
+
+def weakened_rule(b, h, path, out):
+    if "lang" not in b or b.get("lang") != h.get("lang"):
+        return
+    lang = h["lang"]
+    olds, news = assertions(b), assertions(h)
+    text = lambda a: f"{a[0]}({', '.join(a[1])})"
+    sm = difflib.SequenceMatcher(None, [text(a) for a in olds], [text(a) for a in news], autojunk=False)
+    for tag, i1, i2, j1, j2 in sm.get_opcodes():
+        if tag != "replace":
+            continue
+        for o, n in align(olds[i1:i2], news[j1:j2], text):
+            why = weaker(o, n, lang)
+            if why:
+                line = h["line"] + h["code"].count("\n", 0, n[2])
+                out.append(Finding("assert-weakened", path, line, text(o), f"{text(n)} ({why})"))
+    # On its lines: an assertion commented out, or its line made a discard.
+    braw, hraw = b["raw"].split("\n"), h["raw"].split("\n")
+    gone = [i for i, x in enumerate(hraw) if COMMENTED[lang].match(x)]
+    if len(gone) > sum(1 for x in braw if COMMENTED[lang].match(x)):
+        i = next((i for i in gone if hraw[i].strip() not in {x.strip() for x in braw}), gone[-1])
+        out.append(Finding("assert-weakened", path, h["line"] + i, "an assertion", f"{hraw[i].strip()} (commented out)"))
+    sm = difflib.SequenceMatcher(None, [x.strip() for x in braw], [x.strip() for x in hraw], autojunk=False)
+    for tag, i1, i2, j1, j2 in sm.get_opcodes():
+        if tag != "replace" or not any(CALLS[lang].search(x) for x in braw[i1:i2]):
+            continue
+        for j in range(j1, j2):
+            if DISCARD[lang].match(hraw[j]):
+                old = next(x.strip() for x in braw[i1:i2] if CALLS[lang].search(x))
+                out.append(Finding("assert-weakened", path, h["line"] + j, old, f"{hraw[j].strip()} (discarded)"))
+                break
 
 
 def allow_rule(base_marks, head_marks, out):

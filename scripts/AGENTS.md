@@ -190,7 +190,9 @@ and for a quiet machine, can each add minutes, so give the gate's command a time
 (theseus-pw1q.1; the owner's decision on self-improvement, 2026-10-09: deleting or loosening a test, a budget or a
 ceiling needs the owner's yes.) `scripts/keel-guard.py` (standard library only) judges a range's net change and prints
 each erosion as `path:line: rule: old -> new`; its header names every rule and every file it watches:
-`test-removed`, `test-ignored`, `assert-removed`, `allow-added` (an `allow` or an `expect`, a lint level, a clippy.toml
+`test-removed`, `test-ignored`, `assert-removed`, `assert-weakened` (an assertion loosened in place, which keeps the
+count: an equality made a truth test, a constant bound loosened, an assertion made vacuous, commented out or
+discarded), `allow-added` (an `allow` or an `expect`, a lint level, a clippy.toml
 threshold), `budget-raised` (the lifecycle, turn and jobs benches' limits, the busy allowance's default), `cap-raised`
 (bench/'s spend and loop caps, the config template's spend and day lines), `ceiling-raised` (long-files.txt,
 shape.sh's limit, nextest's retries, timeouts and overrides) and `keel-file` (the guard itself).

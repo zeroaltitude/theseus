@@ -5,6 +5,7 @@ and are skipped, saying so, where there is no gpg.
 """
 
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -85,11 +86,29 @@ import unittest
 class Drive(unittest.TestCase):
     def test_a_trial_ends_at_its_limit(self):
         self.assertEqual(1 + 1, 2)
+        self.assertLess(len("ab"), 3)
         assert True
+"""
+
+TIMING = """\
+#[cfg(test)]
+mod tests {
+    use std::time::{Duration, Instant};
+
+    #[test]
+    fn a_start_is_quick() {
+        let t = Instant::now();
+        let took = t.elapsed();
+        assert!(took < Duration::from_millis(50), "a start took {took:?}");
+        assert_eq!(took.as_secs(), 0);
+        assert_eq!(took.is_zero(), false);
+    }
+}
 """
 
 BASE = {
     "crates/demo/src/lib.rs": LIB,
+    "crates/demo/src/timing.rs": TIMING,
     "crates/theseus-sim/src/lifecycle.rs": LIFECYCLE,
     "bench/theseus-bench.toml": BENCH,
     "scripts/long-files.txt": LONG,
@@ -281,6 +300,42 @@ class Erosions(Case):
         self.assertCaught("ceiling-raised", ".config/nextest.toml", {".config/nextest.toml": sub(
             NEXTEST, 'period = "60s"', 'period = "120s"')})
 
+    def weaken(self, old, new, why):
+        self.head({"crates/demo/src/timing.rs": sub(TIMING, old, new)})
+        code, out = self.findings()
+        self.assertEqual(code, 1, out)
+        self.assertRegex(out, r"crates/demo/src/timing.rs:\d+: assert-weakened: .*" + re.escape(why), out)
+
+    def test_an_assert_eq_made_an_assert(self):
+        self.assertCaught("assert-weakened", "crates/demo/src/lib.rs", {"crates/demo/src/lib.rs": sub(
+            LIB, "assert_eq!(n, 5);", "assert!(n > 0);")})
+
+    def test_a_lower_bound_lowered(self):
+        self.assertCaught("assert-weakened", "crates/demo/src/lib.rs", {"crates/demo/src/lib.rs": sub(
+            LIB, "assert!(n > 4,", "assert!(n > 1,")})
+
+    def test_a_timing_bound_raised_in_a_test(self):
+        self.weaken("Duration::from_millis(50)", "Duration::from_millis(500)", "(an upper bound)")
+
+    def test_an_assertion_made_vacuous(self):
+        self.weaken("assert_eq!(took.as_secs(), 0);", "assert!(true);", "(made vacuous)")
+
+    def test_an_assertion_commented_out_beside_a_new_one(self):
+        self.weaken("        assert_eq!(took.as_secs(), 0);\n",
+                    "        // assert_eq!(took.as_secs(), 0);\n        assert_eq!(took.as_millis(), 0);\n",
+                    "(commented out)")
+
+    def test_an_assertion_made_a_discard(self):
+        self.weaken("assert_eq!(took.as_secs(), 0);", "let _ = took.as_secs();", "(discarded)")
+
+    def test_a_python_equality_made_a_truth_test(self):
+        self.assertCaught("assert-weakened", "bench/recall/test_drive.py", {"bench/recall/test_drive.py": sub(
+            PYTEST, "self.assertEqual(1 + 1, 2)", "self.assertTrue(1 + 1)")})
+
+    def test_a_python_upper_bound_raised(self):
+        self.assertCaught("assert-weakened", "bench/recall/test_drive.py", {"bench/recall/test_drive.py": sub(
+            PYTEST, 'self.assertLess(len("ab"), 3)', 'self.assertLess(len("ab"), 30)')})
+
     def test_an_uncommitted_erosion_in_the_working_tree(self):
         self.repo.write({"scripts/long-files.txt": LONG + "crates/demo/src/vast.rs 2700 new\n"})
         code, out = self.findings()
@@ -331,6 +386,34 @@ class NonFindings(Case):
 
     def test_the_guards_own_files_added(self):
         self.assertClean({"scripts/keel-guard.py": "# the guard\n", "scripts/keel-signers": "# no key\n"})
+
+    def test_an_equality_with_a_bool_made_an_assert(self):
+        self.assertClean({"crates/demo/src/timing.rs": sub(TIMING, "assert_eq!(took.is_zero(), false);",
+                                                           "assert!(!took.is_zero());")})
+
+    def test_an_assert_eq_made_an_assert_of_its_equality(self):
+        self.assertClean({"crates/demo/src/lib.rs": sub(LIB, "assert_eq!(n, 5);", "assert!(n == 5, \"the sum\");")})
+
+    def test_a_timing_bound_tightened(self):
+        self.assertClean({"crates/demo/src/timing.rs": sub(TIMING, "from_millis(50)", "from_millis(40)")})
+
+    def test_a_measured_side_rewritten(self):
+        self.assertClean({"crates/demo/src/timing.rs": sub(TIMING, "assert!(took < Duration::from_millis(50),",
+                                                           "assert!(t.elapsed() < Duration::from_millis(50),")})
+
+    def test_an_assertion_added_among_changed_ones(self):
+        # The work-types join's shape (4ffcc282): an assert! added among assertions whose arguments all changed.
+        self.assertClean({"crates/demo/src/timing.rs": sub(
+            TIMING, '        assert!(took < Duration::from_millis(50), "a start took {took:?}");\n'
+                    '        assert_eq!(took.as_secs(), 0);\n',
+            '        assert!(took < Duration::from_millis(50), "a start took {took:?}, cold");\n'
+            '        assert!(took.subsec_nanos() < 1_000_000_000);\n'
+            '        assert_eq!(took.as_secs() + 0, 0);\n')})
+
+    def test_a_truth_test_made_an_equality(self):
+        self.assertClean({"crates/demo/src/timing.rs": sub(TIMING, "assert!(took < Duration::from_millis(50), "
+                                                                   "\"a start took {took:?}\");",
+                                                           "assert_eq!(took < Duration::from_millis(50), true);")})
 
     def test_a_comment_in_a_budget(self):
         self.assertClean({"crates/theseus-sim/src/lifecycle.rs": sub(
