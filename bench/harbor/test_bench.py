@@ -647,6 +647,51 @@ class Adapter(unittest.TestCase):
                              ("medium", "theseus 0.83.0", None))
             self.assertEqual(ctx.metadata["efficiency"], rec)
 
+    def test_its_install_adds_claude_codes_packages_before_the_agents_clock(self):
+        """Harbor's Claude Code installer adds curl, bash, nodejs, npm and
+        procps in `install`, which Harbor runs before the agent's timed
+        phase. The Theseus arm's install runs the same install first (before
+        its upload of the binaries), and its `run` installs nothing."""
+        import asyncio
+        import theseus_agent
+        from harbor.agents.installed.claude_code import ClaudeCode
+
+        # The same set as Harbor's own installer asks for.
+        import inspect
+        self.assertIn('("curl", "bash", "nodejs", "npm", "procps")', inspect.getsource(ClaudeCode.install))
+        self.assertEqual(theseus_agent.SYSTEM_PACKAGES, ("curl", "bash", "nodejs", "npm", "procps"))
+
+        events = []
+
+        class Env:
+            default_user = None
+
+            async def exec(self, command, **kw):
+                events.append(("exec", command, kw.get("user")))
+                rc = 1 if command.startswith("command -v") else 0
+                out = "apt-get" if "for manager in" in command else ""
+                return type("R", (), {"stdout": out, "stderr": "", "return_code": rc})()
+
+            async def upload_file(self, source, target):
+                events.append(("upload", str(target), None))
+
+        with tempfile.TemporaryDirectory() as d, tempfile.TemporaryDirectory() as bins:
+            for b in ("theseus", "theseusd"):
+                (Path(bins) / b).write_text("x")
+            os.environ["THESEUS_BENCH_BIN_DIR"] = bins
+            agent = theseus_agent.Theseus(logs_dir=Path(d), model_name="anthropic/claude-sonnet-5-5")
+            asyncio.run(agent.install(Env()))
+        installs = [i for i, e in enumerate(events) if e[0] == "exec" and "apt-get install" in e[1]]
+        self.assertEqual(len(installs), 1, events)
+        cmd = events[installs[0]][1]
+        for pkg in ("curl", "bash", "nodejs", "npm", "procps"):
+            self.assertIn(pkg, cmd.split())
+        self.assertEqual(events[installs[0]][2], "root")
+        first_upload = min(i for i, e in enumerate(events) if e[0] == "upload")
+        self.assertLess(installs[0], first_upload, "the packages go in before the binaries")
+        import inspect as _i
+        self.assertNotIn("ensure_system_dependencies", _i.getsource(theseus_agent.Theseus.run))
+
     def test_it_loads_as_an_atif_agent_with_an_error_for_each_end(self):
         import theseus_agent
 
