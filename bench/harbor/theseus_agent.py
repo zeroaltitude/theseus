@@ -44,7 +44,7 @@ dollars (`cost_usd`; the model's alone is `model_cost_usd`), and names the model
 (`routing`).
 
 Settings, from the environment of `harbor run`: THESEUS_BENCH_MAX_LOOPS
-(200), THESEUS_BENCH_SPEND_LIMIT (2.0 dollars a trial, 20.0 on the routed arm), THESEUS_BENCH_PROC_SYNC
+(200), THESEUS_BENCH_SPEND_LIMIT ($2.00 plus one maximum reservation at the model: 3.75 for Sonnet 5.5; 20.0 on the routed arm), THESEUS_BENCH_PROC_SYNC
 (900 s a command may keep the turn waiting), and THESEUS_BENCH_SYSTEM_FILE
 (extra system text, for an A/B arm).
 """
@@ -191,7 +191,7 @@ class Theseus(BaseInstalledAgent):
             spend_limit_usd=float(
                 os.environ.get(
                     "THESEUS_BENCH_SPEND_LIMIT",
-                    str(tb.ROUTED_SPEND_LIMIT_USD if self.routed else tb.SPEND_LIMIT_USD),
+                    str(tb.ROUTED_SPEND_LIMIT_USD if self.routed else tb.spend_limit_usd(model)),
                 )
             ),
             proc_sync_secs=int(os.environ.get("THESEUS_BENCH_PROC_SYNC", "900")),

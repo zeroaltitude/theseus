@@ -34,15 +34,50 @@ ROUTED_PROFILES = ("sonnet", "opus", "fable", "haiku", "haikuhi")
 # `jev_api_key = "env:TYPESAFE_API_KEY"`): passed into the container for the
 # routed arm only.
 JEV_KEY_ENV = "TYPESAFE_API_KEY"
-# The most one trial may spend, by default (`THESEUS_BENCH_SPEND_LIMIT`). The
-# kernel reserves a call's worst case before it runs, and the profiles cap no
-# output (128,000 tokens): one Opus 5.5 call reserves about $2.6 and one Fable
-# 5.1 call about $6.5, so the plain arm's $2 refuses the first call the router
-# sends to either (stop reason `budget`, exit 5). The routed arm's default
-# clears Fable's reserve with room for what the trial has spent (review of
-# theseus-eo3h; the number is the owner's).
-SPEND_LIMIT_USD = 2.0
+# What a trial may spend before it stops is $2.00 (`TRIAL_BUDGET_USD`), the
+# same budget Claude Code's `--max-budget-usd` gets. Theseus's spend limit
+# (`THESEUS_BENCH_SPEND_LIMIT`, `[kernel] spend_limit_usd`) is what stops a
+# trial, and the kernel reserves a call's worst case before it runs: the
+# output cap at the output price plus the input estimate at the input price
+# (`Catalog::reserve_micros`), and no profile caps its output (128,000
+# tokens). So a trial that has spent $1.99 would be refused the call that
+# takes it past $2.00 by the reservation alone, and stop early. The default
+# limit is therefore the budget plus one maximum reservation at the arm's
+# model (`spend_limit_usd`): 128,000 output tokens and, for the input, as many
+# again (a mid-trial context), at the model's list price, rounded up to a
+# quarter dollar. That is $3.75 for Sonnet 5.5 (1.28 + 0.26 = 1.54, so 1.75)
+# and $5.25 for Opus 5.5 (2.56 + 0.51 = 3.07, so 3.25). A trial past
+# $2.00 of real spend is named in its report (`efficiency.OVER_BUDGET_USD`).
+TRIAL_BUDGET_USD = 2.0
+RESERVE_OUTPUT_TOKENS = 128_000
+RESERVE_INPUT_TOKENS = 128_000
+RESERVE_STEP_USD = 0.25
+# The routed arm's default clears Fable's reserve with room for what the
+# trial has spent (review of theseus-eo3h; the number is the owner's): one
+# Opus 5.5 call reserves about $2.6 and one Fable 5.1 call about $6.5.
 ROUTED_SPEND_LIMIT_USD = 20.0
+
+
+def reservation_usd(model: str) -> float:
+    """One maximum reservation at `model`: its output cap at its output
+    price plus `RESERVE_INPUT_TOKENS` at its input price (the bench's list
+    prices, `efficiency.LIST_PRICES`, the catalog's numbers), rounded up to
+    `RESERVE_STEP_USD`."""
+    p = ef.LIST_PRICES.get(model.split("/")[-1])
+    if p is None:
+        raise ValueError(f"no list price for {model}: add it to efficiency.LIST_PRICES")
+    raw = (RESERVE_OUTPUT_TOKENS * p["output"] + RESERVE_INPUT_TOKENS * p["input"]) / 1e6
+    return round(-(-raw // RESERVE_STEP_USD) * RESERVE_STEP_USD, 2)
+
+
+def spend_limit_usd(model: str) -> float:
+    """The plain arm's default spend limit at `model`: the trial's budget
+    plus one maximum reservation."""
+    return round(TRIAL_BUDGET_USD + reservation_usd(model), 2)
+
+
+# The default at Sonnet 5.5, the R0 arms' model.
+SPEND_LIMIT_USD = spend_limit_usd("claude-sonnet-5-5")
 
 # `theseus ask`'s exit codes, by how the turn ended (theseus-n88g.2).
 ENDS = {

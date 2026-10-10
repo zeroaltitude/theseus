@@ -9,13 +9,15 @@ instruction, and runs the task's tests for a reward. **Every benchmark run ends 
 |---|---|
 | `theseus-bench.toml` | The bench profile: the config a task's container runs. No vault (the model's key is `env:ANTHROPIC_API_KEY`), every tool open, workspace roots at `/`, L0, and Discord, the web UI, and the index off. A test loads it (`crates/theseusd/tests/bench_profile.rs`). |
 | `theseus-bench-routed.toml` | The routed arm's profile (theseus-eo3h), "Theseus as shipped": the plain profile with the judge on, so Jev picks the model per message from the owner's routing table (`route.v2`), the five profiles it names, and the Jev key as a second secret (`env:TYPESAFE_API_KEY`). A test loads it (`crates/theseusd/tests/bench_profile_routed.rs`). |
-| `build.sh` | Builds the two static (musl) binaries the container runs, `theseus` and `theseusd`, into `bench/bin`. |
+| `build.sh` | Builds the two static (musl) binaries the container runs, `theseus` and `theseusd`, into `bench/bin`, with `build-commit`, the commit they were built from. |
 | `harbor/theseus_agent.py` | The Harbor agent, `-a theseus_agent:Theseus`; `-a theseus_agent:TheseusRouted` (or `--ak routed=1`) is the routed arm. |
 | `harbor/theseus_bench.py` | Its parts that need no Harbor: the profile a trial writes, the container's script, and the exit codes. |
 | `harbor/theseus_atif.py` | A session's history as an ATIF trajectory, the format Harbor's viewer and usage totals read. |
 | `harbor/efficiency.py` | A trial's efficiency record, one shape for every arm: tokens by class and model, dollars, calls, and the harness's CPU and memory apart from its work. |
 | `harbor/sampler.py` | The harness sampler: run in the task's container around the agent, it reads `/proc` and sorts each process into harness, work, or neither. |
-| `harbor/measure.py` | What the arms share in a container: the effort every arm asks for (`EFFORT`, medium), the stop of a timed-out agent, and the read of the agent's version. |
+| `harbor/measure.py` | What the arms share in a container: the effort every arm asks for (`EFFORT`, medium), the stop of a timed-out agent (by what the run started: below), and the read of the agent's version. |
+| `harbor/run.py`, `harbor/quiet.py`, `harbor/plan.py` | Starting a run the fair way: `run.py --plan bench/plans/<plan>.json -- harbor run …` refuses to start unless the attempt plan is committed and clean (`plan.py`) and the host is quiet (`quiet.py`), and records both in `<jobs>/<job>.run.json` ("A fair run", below). |
+| `plans/` | The attempt plans (`{"name": …, "k": 3}` or `{"name": …, "attempts": {task: n}}`), each committed before the run that reads it. |
 | `harbor/claude_code_agent.py` | Claude Code, measured: `-a claude_code_agent:MeasuredClaudeCode`, Harbor's own adapter with its version pinned, its effort set, the sampler, the stop at a timeout, and the record added. |
 | `harbor/pi_agent.py` | Pi, the minimal coding agent, measured: `-a pi_agent:MeasuredPi`, Harbor's own adapter with its version pinned, its effort set, run offline, the sampler, the stop at a timeout, the trajectory, and the record added. |
 | `harbor/pi_atif.py` | A Pi session log as an ATIF trajectory (Harbor's own Pi adapter writes none). |
@@ -26,6 +28,7 @@ instruction, and runs the task's tests for a reward. **Every benchmark run ends 
 | `report/efficiency.py` | The efficiency report over jobs, one arm each: per-arm numbers, Pareto tables, and three SVG charts. |
 | `report/draft.py` | The report's drafting tool: a run's outputs (Harbor jobs, the bench history, the recall and async scorers' outputs) in; its data file, CSV, figures and skeleton out ("Every run gets its report"). |
 | `report/charts.py` | The house charts: SVG from declarative specs, in the house palette, each in a light and a dark file, every mark with its hover text. The standard library only. |
+| `report/friction.py` | T4 (tool friction per arm) and T5 (cost and calls per solve), read from the trials' ATIF trajectories; `draft.py` prints both in every report. |
 | `report/stats.py` | The statistics every report uses: Wilson intervals, a seeded bootstrap, the exact McNemar test, quantiles. |
 
 ## What you need
@@ -68,7 +71,7 @@ The adapter's settings come from the environment of `harbor run`:
 | Variable | Default | What it sets |
 |---|---|---|
 | `THESEUS_BENCH_BIN_DIR` | (required) | Where `theseus` and `theseusd` are, static. |
-| `THESEUS_BENCH_SPEND_LIMIT` | `2.0` (`20.0` on the routed arm) | The most one trial may spend, in dollars (`[kernel] spend_limit_usd`). The kernel reserves a call's worst case first, and no profile caps its output, so one Opus 5.5 call reserves about $2.6 and one Fable 5.1 call about $6.5: at $2 the routed arm's first call to either is refused. |
+| `THESEUS_BENCH_SPEND_LIMIT` | $2.00 plus one maximum reservation at the arm's model: `3.75` for Sonnet 5.5 (`theseus_bench.spend_limit_usd`; `20.0` on the routed arm) | What stops a trial, in dollars (`[kernel] spend_limit_usd`). The other arms' budget is $2.00. The kernel reserves a call's worst case first (the output cap at the output price, plus the input estimate), and no profile caps its output, so a trial that has spent $1.99 would be refused the call that takes it past $2.00 by the reservation alone: the limit is the budget plus one reservation (128,000 output and as many input tokens at the model's list price, to a quarter dollar: Opus 5.5 gets `5.25`). A trial can therefore end past $2.00 of real spend, and the report names each one. One Opus 5.5 call reserves about $2.6 and one Fable 5.1 call about $6.5, so the routed arm's `20.0` clears either. |
 | `THESEUS_BENCH_MAX_LOOPS` | `200` | The model calls one turn may make. |
 | `THESEUS_BENCH_PROC_SYNC` | `900` | How long a command may keep the turn waiting, in seconds. A headless run ends with its turn, so a command left running in the background is never read. |
 | `THESEUS_BENCH_SYSTEM_FILE` | (none) | Extra system text, for an A/B arm. |
@@ -100,6 +103,34 @@ rows) beside its history, and its efficiency record has `arm` `theseus-routed`, 
 effort, the model calls by model, and how many turns moved). A `routing.rows_read` of false means the ledger could
 not be read, not that nothing was routed.
 
+## A fair run (Terminal-Bench R0)
+
+Four things were different between the arms, or unreadable from what a run leaves (theseus-w052):
+
+- **The same packages.** Harbor's Claude Code installer adds `curl`, `bash`, `nodejs`, `npm` and `procps` to the
+  task's container in `install`, before the agent's clock starts. The Theseus arm's install adds the same set
+  (`theseus_agent.SYSTEM_PACKAGES`), in the same phase, so a task that needs `node` or `ps` costs neither arm a detour.
+- **The trial limit** is $2.00 plus one maximum reservation (the table above); the efficiency record has
+  `over_budget` (real spend past $2.00), and the report lists each such trial.
+- **Quiet graders.** `run.py` is how a run starts. It refuses (exit 3, every reason) while `scripts/gate.sh`'s lock
+  is held, or the host's CPU pressure (`/proc/pressure/cpu`, `some avg10`) is above 5 (`quiet.MAX_CPU_PRESSURE`), or
+  with more than 4 trials at once (`-n` is given 4 when the line has none). A verifier's own timeout
+  (`VerifierTimeoutError`) is the grader's: the report ends it as `grader timeout`, never as the agent's error, and lists
+  those trials apart. Each trial's `overlap` (how many other trials of the report were on the host between its agent's
+  start and its verifier's end) is a column of the report's CSV, and the draft's threats name it: a timeout at a high
+  overlap is the host's.
+- **The attempt plan first.** The attempts a task gets (`k` a task, or a per-task list) are read from a file under
+  `bench/plans/`, and `run.py` refuses to start unless it is tracked and has no difference from HEAD; the run's record
+  (`<jobs>/<job>.run.json`) names the commit that holds it, and the commit the code is at.
+
+```bash
+python3 bench/harbor/run.py --plan bench/plans/r0-sonnet-5-5.json -- \
+  harbor run -d terminal-bench@2.0 -a theseus_agent:Theseus -m anthropic/claude-sonnet-5-5 -o jobs --job-name r0-theseus
+```
+
+The plan decides `-k` and `-i`: a line that names them is refused, and a per-task plan is one `harbor run` per distinct
+number of attempts.
+
 ## How a trial runs, and how it ends
 
 1. **install** uploads the two binaries to `/installed-agent/bin`. Nothing is downloaded in the container, so any
@@ -127,10 +158,15 @@ stops the turn as `/stop` does: its running commands are stopped, it makes no mo
 cleanly. So a timed-out agent neither spends nor changes the task's files while the tests run. Harbor records
 `AgentTimeoutError`. The other two arms are stopped too (theseus-sgpx): Harbor's Docker environment ends only its
 `docker compose exec` client, so `claude` or `pi` would run on in the container the verifier shares, spending and
-changing files unrecorded. Their adapters catch the cancel and stop the agent first (`measure.stop_agent`): a
-SIGTERM to the processes named `claude` or `pi` and to everything they started, a SIGKILL to what is left after
-3 s, then the sampler's stop, then the cancel is raised again. It is plain sh over `/proc`, run as root, since a
-task's image may lack `pkill`.
+changing files unrecorded. Their adapters catch the cancel and stop the agent first (`measure.stop_agent`), by what the run started and not by
+its tree at one moment (theseus-8xp0): the arm lists the container's processes (`pid:starttime`) into its state dir
+before Harbor's run (`pids.before`, after the sampler starts), and the stop SIGSTOPs every process not in the list
+except its own shell and ancestors, reads `/proc` again until none is new (a stopped process forks no more), SIGTERMs and
+SIGCONTs them, waits 3 s, stops what is left and what it forked meanwhile, and SIGKILLs it all. So a command a tool's
+shell backgrounded through a subshell that exited (reparented to PID 1) and what a SIGTERM-ignoring process forks
+during the grace are stopped too, before the sampler's stop and the verifier. With no list, it falls back to the
+processes named `claude` or `pi` and their descendants. It is plain sh over `/proc`, run as root, since a task's image
+may lack `pkill`.
 
 **What each trial leaves** in its `agent/` directory: `theseus-turn.json` (the turn's result: stop reason, loops,
 tool calls, tokens, and dollars), `theseus-history.json` (every message, tool call with its gate decision, and
@@ -149,7 +185,7 @@ Score alone hides what an arm spends to get it, so every trial of every arm leav
 | `tokens` | The four classes, `input` (uncached), `cache_read`, `cache_write`, and `output`, over every model. Harbor's own counters fold the write into `n_input_tokens`; this keeps it apart. |
 | `by_model` | The same per model, with its `cost_usd` and `calls`: a retry is a call, and a refusal's fallback (Sonnet 5.5's is Sonnet 5) bills a second model. |
 | `cost_usd`, `spend_from` | The trial's dollars, and the file they came from. |
-| `effort`, `version`, `version_asked` | What the arm asked for and ran, the same keys on every arm (theseus-n6p5, theseus-7gir.23): the reasoning effort asked for (`medium`); the agent's version as the container read it (`version.txt` in `agent/`, written at install from Harbor's `get_version_command`; null when it could not be read); and the version the install was told to take (Claude Code's and Pi's pin, or `--ak version=`; null for Theseus, whose binaries are the checkout's). A pin that did not take is a `version` that differs from `version_asked`. |
+| `effort`, `version`, `version_asked`, `build_commit` | What the arm asked for and ran, the same keys on every arm (theseus-n6p5, theseus-7gir.23): the reasoning effort asked for (`medium`); the agent's version as the container read it (`version.txt` in `agent/`, written at install from Harbor's `get_version_command`; null when it could not be read); and the version the install was told to take (Claude Code's and Pi's pin, or `--ak version=`; null for Theseus, whose binaries are the checkout's). A pin that did not take is a `version` that differs from `version_asked`. `build_commit` is the commit the Theseus binaries were built from (`build.sh` writes `build-commit` beside them, with `-dirty` for a tree with changes; the install copies it to `agent/build-commit.txt`), since `theseus --version` is the same for every build; null on every other arm. `over_budget` is real spend past $2.00 (the model's alone on the routed arm). |
 | `model_calls`, `tool_calls` | Theseus: its turn's `provider` spans (each retry and fallback one) and tool calls. Claude Code: its session log's messages, each message id once, and their tool uses. Pi: its session log's answers (a failed request it retried is one) and summaries' calls, and their `toolCall` blocks. |
 | `wall_s` | The sampler's window. The report takes Harbor's agent execution from `result.json`. |
 | `harness`, `work`, `wrappers` | Each `cpu_s`, `peak_rss_kb` (the largest summed RSS of the class in one sample), and `peak_hwm_kb` (the largest single process's peak). `wrappers` is Theseus's job wrappers, kept apart from both. Null when the sampler did not run. |
@@ -328,7 +364,7 @@ python3 bench/report/draft.py recall --scores <scores>/scores.json --date <day> 
 python3 bench/report/draft.py async --date <day> <jobs...>                         # bench/async
 ```
 
-`--arm` takes a registry key from `report/charts.py` (`theseus`, `claude-code`, `theseus-batching`, `openclaw`, ...):
+`--arm` takes a registry key from `report/charts.py` (`theseus`, `claude-code`, `theseus-batching`, `openclaw`, `pi`, ...):
 the same arm is the same colour in every report. Harbor writes each job under `-o` (`jobs/<job name>/`): its
 `result.json`, and each trial's directory with the agent's files above and the verifier's output; `--arm` takes a job
 directory, a directory of jobs, or a quoted glob.
@@ -348,7 +384,8 @@ script against a stand-in `theseus` (a turn that ends, a failure, a stop after a
 each, with and without python3), and the trajectory against Harbor's own ATIF model; Pi's record, limits and
 trajectory from a fixture of its session log and stream, and with Harbor its install's pinned version, its
 command line (offline, at effort medium), and the sampler around its run and its stop at a timeout; the stop
-itself on stand-in processes in this host's `/proc` (`test_measure.py`); the sampler's parsers and
+itself on stand-in processes in a PID namespace of its own, as a container is (`unshare -rpf --mount-proc`,
+`test_measure.py`); the sampler's parsers and
 classes on fixture `/proc` trees, and on this host's `/proc` a copy of `sh` under a harness name whose busy child
 must land in work; the record from fixture turns, histories, and session logs; the efficiency report over fixture
 jobs, against numbers worked by hand; the drafting tool over fixture Harbor jobs, a bench history whose header

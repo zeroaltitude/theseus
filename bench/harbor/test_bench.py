@@ -279,6 +279,27 @@ class Routed(unittest.TestCase):
             self.assertEqual(theseus_agent.TheseusRouted.name(), "theseus-routed")
 
 
+    def test_the_plain_arms_limit_is_two_dollars_plus_one_maximum_reservation(self):
+        """A trial that has spent $1.99 must not be refused the call that
+        takes it past $2.00 by the reservation alone: the limit is the $2
+        budget plus one worst-case reservation at the arm's model (128,000
+        output tokens at the output price, and as many input tokens at the
+        input price, to a quarter dollar)."""
+        self.assertEqual(tb.TRIAL_BUDGET_USD, 2.0)
+        self.assertEqual(tb.spend_limit_usd("claude-sonnet-5-5"), 3.75)
+        self.assertEqual(tb.spend_limit_usd("anthropic/claude-sonnet-5-5"), 3.75)
+        self.assertEqual(tb.SPEND_LIMIT_USD, 3.75)
+        self.assertEqual(tb.spend_limit_usd("claude-opus-5-5"), 5.25)
+        for m in ("claude-sonnet-5-5", "claude-opus-5-5", "claude-fable-5-1", "claude-haiku-5-5"):
+            p = ef.LIST_PRICES[m]
+            worst = 128_000 * p["output"] / 1e6 + 128_000 * p["input"] / 1e6
+            self.assertGreaterEqual(tb.reservation_usd(m), worst, m)
+            self.assertLess(tb.reservation_usd(m), worst + tb.RESERVE_STEP_USD, m)
+            # Spent just under the budget, the next call's reserve still fits.
+            self.assertGreaterEqual(tb.spend_limit_usd(m), 1.99 + worst, m)
+        with self.assertRaises(ValueError):
+            tb.spend_limit_usd("no-such-model")
+
     def test_the_routed_arm_defaults_to_a_spend_limit_that_clears_an_opus_or_fable_reserve(self):
         """The kernel reserves a call's worst case (128,000 output tokens at
         the model's price) before it runs: $2 refuses the first Opus 5.5 call
@@ -326,7 +347,7 @@ class Routed(unittest.TestCase):
                 return tomllib.loads(got["text"])["kernel"]["spend_limit_usd"]
 
         os.environ.setdefault("ANTHROPIC_API_KEY", "an-invented-key")
-        self.assertEqual(asyncio.run(limit(theseus_agent.Theseus)), 2.0)
+        self.assertEqual(asyncio.run(limit(theseus_agent.Theseus)), 3.75)
         self.assertEqual(asyncio.run(limit(theseus_agent.TheseusRouted)), 20.0)
         self.assertEqual(asyncio.run(limit(theseus_agent.TheseusRouted, "7.5")), 7.5)
         self.assertEqual(asyncio.run(limit(theseus_agent.Theseus, "3")), 3.0)
