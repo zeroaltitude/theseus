@@ -1,0 +1,18 @@
+{
+  "session_title": "tide survey handoff",
+  "candidate": {
+    "name": "Wren Halloway",
+    "handles": ["slack:U0TIDE07"],
+    "role_line": "Runs the tide gauge counts and owns the #tide-survey channel.",
+    "evidence": [
+      "Wren Halloway: I'll take the north gauge readings this week.",
+      "Can you send Wren the calibration notes before Friday?",
+      "Wren owns the #tide-survey channel now."
+    ]
+  },
+  "held": [
+    {"id": "wren-halloway", "description": "Wren Halloway (slack:U0TIDE07): runs the tide gauge counts."},
+    {"id": "orrin-vale", "description": "Orrin Vale (discord:500000000000000011)"},
+    {"id": "marisol-tern", "description": "Marisol Tern (name:Mari Tern): keeps the survey's budget."}
+  ]
+}

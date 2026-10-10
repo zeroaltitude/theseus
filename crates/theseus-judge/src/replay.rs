@@ -17,7 +17,7 @@ use sha2::{Digest, Sha256};
 use crate::band::band;
 use crate::builders::{
     ATTRIBUTION_VERSION, CATEGORIZE_VERSION, CITATION_VERSION, CONTINUE_VERSION, INBOUND_VERSION,
-    LOOP_VERSION, MEMORY_VERSION, PROBE_VERSION, RERANK_VERSION, SECURITY2_VERSION,
+    LOOP_VERSION, MEMORY_VERSION, PEOPLE_VERSION, PROBE_VERSION, RERANK_VERSION, SECURITY2_VERSION,
     SECURITY_VERSION,
 };
 use crate::judge::{AnswerRecord, StateRecord};
@@ -78,6 +78,7 @@ pub fn builder_identity(b: Builder) -> (&'static str, u32) {
         Builder::Memory => ("memory", MEMORY_VERSION),
         Builder::Attribution => ("attribution", ATTRIBUTION_VERSION),
         Builder::Citation => ("citation", CITATION_VERSION),
+        Builder::People => ("people", PEOPLE_VERSION),
     }
 }
 

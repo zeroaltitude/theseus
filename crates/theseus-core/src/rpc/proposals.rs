@@ -10,6 +10,12 @@
 //! The judgments and their labels share one scope, `judge:categorize`, so
 //! the read is one scan of it; a label is a row keyed by its own id
 //! (`lbl_…`), and a judgment with an operator's label is answered.
+//!
+//! `people.v1`'s proposals (theseus-wy7y) are read the same way from
+//! `judge:people`, decided by code as they are read (`judge::people::decide`,
+//! the bands of `[people]`): a held person the session joins, or a new one
+//! the accept declares (or joins the held person an exact handle or name
+//! finds by then), its labels in that scope.
 
 use std::collections::{BTreeMap, HashSet};
 
@@ -27,6 +33,7 @@ use super::Core;
 use crate::approval::Answerer;
 use crate::fact;
 use crate::judge::categorize::PACK;
+use crate::judge::people::{self, Decided, Whom};
 use crate::ledger::LedgerRow;
 
 /// The pack's scope: its judgments and their labels.
@@ -43,6 +50,8 @@ struct Proposed {
     confidence: f64,
     band: String,
     at_ms: u64,
+    /// `people.v1`'s: the person code decided on.
+    person: Option<Decided>,
 }
 
 impl Proposed {
@@ -74,27 +83,78 @@ impl Proposed {
             band,
             at_ms: row.at_unix_ms,
             judgment,
+            person: None,
         })
     }
 
+    /// An answered `people.v1` judgment code keeps, under `[people]`'s
+    /// bands (`act`, `confirm`).
+    fn of_person(row: &LedgerRow, act: f64, confirm: f64) -> Option<Proposed> {
+        let judgment: Judgment = serde_json::from_value(row.data.clone()).ok()?;
+        let d = people::decide(&judgment, act, confirm)?;
+        Some(Proposed {
+            session: row.session_id.clone()?,
+            choice: match &d.whom {
+                Whom::Held(id) => id.clone(),
+                Whom::New => "new_person".into(),
+            },
+            confidence: d.confidence,
+            band: d.band.into(),
+            at_ms: row.at_unix_ms,
+            judgment,
+            person: Some(d),
+        })
+    }
+
+    /// The pack's scope, where its labels go.
+    fn scope(&self) -> &'static str {
+        match self.person {
+            Some(_) => people::SCOPE,
+            None => SCOPE,
+        }
+    }
+
+    /// The question the label answers.
+    fn question(&self) -> &'static str {
+        match self.person {
+            Some(_) => "match",
+            None => "topic",
+        }
+    }
+
     fn new_topic(&self) -> bool {
-        self.choice == "new_topic"
+        self.person.is_none() && self.choice == "new_topic"
     }
 
     /// The category the choice names, among the kinds the operator assigns
     /// (the candidates' kinds); `topic:<choice>` when none holds it now.
     fn category(&self, o: &Ontology) -> Option<CategoryId> {
-        if self.new_topic() {
-            return None;
-        }
+        let kind = match &self.person {
+            Some(d) if d.whom == Whom::New => return None,
+            Some(_) => Some(theseus_ontology::person::KIND),
+            None if self.new_topic() => return None,
+            None => None,
+        };
         o.categories()
             .find(|c| {
                 c.id.local() == self.choice
+                    && kind.is_none_or(|k| c.kind() == k)
                     && o.kind(c.kind())
-                        .is_some_and(|k| !k.is_given() && k.assigned_by.contains(&Origin::Operator))
+                        .is_some_and(|k| k.stores() && k.assigned_by.contains(&Origin::Operator))
             })
             .map(|c| c.id.clone())
-            .or_else(|| CategoryId::new("topic", &self.choice).ok())
+            .or_else(|| CategoryId::new(kind.unwrap_or("topic"), &self.choice).ok())
+    }
+
+    /// The protocol's word for its person.
+    fn person_info(&self) -> Option<theseus_protocol::ProposedPerson> {
+        let d = self.person.as_ref()?;
+        Some(theseus_protocol::ProposedPerson {
+            name: d.candidate.name.clone(),
+            handles: d.candidate.handles.clone(),
+            role_line: d.role_line.clone(),
+            new: d.whom == Whom::New,
+        })
     }
 }
 
@@ -104,7 +164,10 @@ impl Core {
     fn proposals_scan(&self) -> Result<(Vec<Proposed>, HashSet<String>)> {
         let mut proposed = Vec::new();
         let mut labelled = HashSet::new();
-        for r in self.store.scope_after(SCOPE, 0)? {
+        let (act, confirm) = (self.runner.cfg.people.act, self.runner.cfg.people.confirm);
+        let mut rows = self.store.scope_after(SCOPE, 0)?;
+        rows.extend(self.store.scope_after(people::SCOPE, 0)?);
+        for r in rows {
             let Ok(row) = r.decode::<LedgerRow>() else {
                 continue;
             };
@@ -116,7 +179,8 @@ impl Core {
                         }
                     }
                 }
-                "judge.call" => proposed.extend(Proposed::of(&row)),
+                "judge.call" => proposed
+                    .extend(Proposed::of(&row).or_else(|| Proposed::of_person(&row, act, confirm))),
                 _ => {}
             }
         }
@@ -140,12 +204,13 @@ impl Core {
             {
                 continue;
             }
-            let topic = pr.category(&o);
+            let topic = pr.category(&o).or_else(|| new_person_held(&o, &pr));
             if let Some(t) = &topic {
                 if o.memberships(&pr.session).iter().any(|m| m.category == *t) {
                     continue;
                 }
             }
+            let topic = pr.category(&o);
             let title = titles
                 .entry(pr.session.clone())
                 .or_insert_with(|| self.session_title(&pr.session))
@@ -161,6 +226,7 @@ impl Core {
                 topic: topic.map(|t| t.to_string()),
                 new_topic: pr.new_topic(),
                 confidence: pr.confidence,
+                person: pr.person_info(),
                 band: pr.band,
                 at_ms: pr.at_ms,
             });
@@ -193,8 +259,12 @@ impl Core {
                 anyhow!("no judgment is named {id:?}: `theseus ontology proposals` lists them")
             })?;
         let row: LedgerRow = rec.decode()?;
+        let (act, confirm) = (self.runner.cfg.people.act, self.runner.cfg.people.confirm);
         let pr = Proposed::of(&row)
-            .ok_or_else(|| anyhow!("{id} is not a categorize.v1 judgment that proposes a topic"))?;
+            .or_else(|| Proposed::of_person(&row, act, confirm))
+            .ok_or_else(|| {
+                anyhow!("{id} is not a categorize.v1 or people.v1 judgment that proposes a topic or a person")
+            })?;
         if self.proposals_scan()?.1.contains(id) {
             bail!("{id} is answered already: its label is in the ledger (`theseus ledger -k judge.label`)");
         }
@@ -248,11 +318,12 @@ impl Core {
         };
         let topic = id.to_string();
         let label_id = format!("lbl_{}", uuid::Uuid::now_v7().simple());
+        let pack = pr.judgment.pack.clone();
         let label = fact::judge::ProposalLabel {
             id: &label_id,
             judgment: &pr.judgment.id,
-            pack: PACK,
-            question: "topic",
+            pack: &pack,
+            question: pr.question(),
             label: "accepted",
             answer: &pr.choice,
             topic: Some(&topic),
@@ -274,7 +345,7 @@ impl Core {
         let label_row = || -> Result<NewRecord> {
             let mut r = fact::row(&label, Some(sid), None)?;
             r.key = Some(label_id.clone());
-            Ok(r.scoped(SCOPE))
+            Ok(r.scoped(pr.scope()))
         };
         let mut records: Vec<Record> = made.iter().cloned().map(Record::Category).collect();
         if joins {
@@ -329,11 +400,12 @@ impl Core {
         let sid = pr.session.as_str();
         let (who_s, via) = (who.who(), who.via());
         let label_id = format!("lbl_{}", uuid::Uuid::now_v7().simple());
+        let pack = pr.judgment.pack.clone();
         let label = fact::judge::ProposalLabel {
             id: &label_id,
             judgment: &pr.judgment.id,
-            pack: PACK,
-            question: "topic",
+            pack: &pack,
+            question: pr.question(),
             label: "rejected",
             answer: &pr.choice,
             topic: None,
@@ -343,7 +415,7 @@ impl Core {
         };
         let mut row = fact::row(&label, Some(sid), None)?;
         row.key = Some(label_id.clone());
-        self.store.append(&[row.scoped(SCOPE)])?;
+        self.store.append(&[row.scoped(pr.scope())])?;
         self.rec(Some(sid)).announce(&label);
         let o = self.runner.ontology.snapshot(&self.store)?;
         Ok(answered(&o, &pr, label_id, "rejected", None))
@@ -359,6 +431,21 @@ fn topic_of(
     p: &OntologyProposalAcceptParams,
     who: &Answerer,
 ) -> Result<(CategoryId, Option<Category>)> {
+    if let Some(d) = pr.person.as_ref().filter(|d| d.whom == Whom::New) {
+        if p.topic.is_some() {
+            bail!(
+                "{} proposes a new person by name; --topic is a topic's",
+                pr.judgment.id
+            );
+        }
+        return Ok(match new_person_held(o, pr) {
+            Some(id) => (id, None),
+            None => {
+                let c = new_person(o, d, who)?;
+                (c.id.clone(), Some(c))
+            }
+        });
+    }
     Ok(match (pr.new_topic(), p.topic.as_deref().map(str::trim)) {
         (false, None) => (
             pr.category(o)
@@ -392,6 +479,46 @@ fn topic_of(
                 (c.id.clone(), Some(c))
             }
         },
+    })
+}
+
+/// A new person's proposal's person when the ontology holds one by now: by
+/// an exact handle of the candidate's, or by its name.
+fn new_person_held(o: &Ontology, pr: &Proposed) -> Option<CategoryId> {
+    let d = pr.person.as_ref().filter(|d| d.whom == Whom::New)?;
+    let by_handle = d
+        .candidate
+        .handles
+        .iter()
+        .find_map(|h| o.person_by_handle(h))
+        .or_else(|| o.person_by_handle(&format!("name:{}", d.candidate.name)));
+    let name = people::fold(&d.candidate.name);
+    by_handle
+        .or_else(|| {
+            o.categories().find(|c| {
+                c.kind() == theseus_ontology::person::KIND && people::fold(&c.name) == name
+            })
+        })
+        .map(|c| c.id.clone())
+}
+
+/// The person a new person's accept declares: the name, its handles and a
+/// `name:` one, and the role line Jev kept as its description.
+fn new_person(o: &Ontology, d: &Decided, who: &Answerer) -> Result<Category> {
+    let name = d.candidate.name.trim();
+    let mut handles: Vec<String> = d.candidate.handles.clone();
+    if let Ok(h) = theseus_ontology::handle(&format!("name:{name}")) {
+        handles.push(h);
+    }
+    Ok(Category {
+        id: o.mint_id(theseus_ontology::person::KIND, name)?,
+        name: name.to_string(),
+        parent: None,
+        description: d.role_line.clone().unwrap_or_default(),
+        added_by: super::ontology::added_by(who),
+        retired_ms: None,
+        handles,
+        merged_into: None,
     })
 }
 

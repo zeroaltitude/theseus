@@ -264,7 +264,7 @@ fn candidates_come_from_the_kinds_table() {
 
 pub(crate) struct Rig {
     pub(crate) core: Arc<Core>,
-    fake: Arc<FakeProvider>,
+    pub(crate) fake: Arc<FakeProvider>,
     _dir: tempfile::TempDir,
 }
 

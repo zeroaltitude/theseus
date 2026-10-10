@@ -61,6 +61,7 @@ pub const EMBEDDED: &[(&str, &str)] = &[
     ("route.v2", include_str!("../packs/route.v2.toml")),
     ("route.v3", include_str!("../packs/route.v3.toml")),
     ("citation.v1", include_str!("../packs/citation.v1.toml")),
+    ("people.v1", include_str!("../packs/people.v1.toml")),
 ];
 
 /// Where a pack runs (§2.4). `probe` is the test pack's: the core never
@@ -103,6 +104,9 @@ pub enum Builder {
     Attribution,
     /// `citation.v1`'s: a synthesis's sentences and sources (M6 31b).
     Citation,
+    /// `people.v1`'s: one candidate person and the held people it may be
+    /// (theseus-wy7y).
+    People,
 }
 
 /// What decides when the pack does not (§2.4's baseline column).
@@ -152,6 +156,10 @@ pub enum Source {
     /// and the next ten.
     Pairs,
     MorePairs,
+    /// The held people a candidate may be (`people.v1`), nearest first.
+    People,
+    /// A candidate's role line (`people.v1`): one item, or none.
+    RoleLine,
 }
 
 /// One dynamic item: its key (an option id, or what a per-item Noul is
@@ -1299,9 +1307,9 @@ mod tests {
         let six: Vec<&(&str, &str)> = EMBEDDED.iter().filter(|(f, _)| *f != "probe.v1").collect();
         assert_eq!(
             six.len(),
-            15,
+            16,
             "§2.4's six, security.v2 and v3, rerank.v1, memory.v1, attribution.v1, route.v1, v2 \
-             and v3, and citation.v1"
+             and v3, citation.v1, and people.v1"
         );
         for (file, text) in six {
             let p = Pack::parse(text).unwrap_or_else(|e| panic!("{file}: {e}"));

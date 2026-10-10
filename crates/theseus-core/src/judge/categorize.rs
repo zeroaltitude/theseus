@@ -280,6 +280,8 @@ impl JudgeService {
     /// whether `categorize.v1` judges it is decided in a task of its own.
     /// Returns at once, whatever Jev does.
     pub fn at_exchange_end(&self, end: ExchangeEnd, task: bool) {
+        // people.v1 at the same point, on its own mark (theseus-wy7y).
+        self.people_at_exchange_end(&end, task);
         // The version standing in categorize.v1's place (25f).
         let name = self.placed(PACK, &end.session_id);
         if task || !self.pack_on(&name) {

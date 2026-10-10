@@ -18,6 +18,7 @@ mod limits;
 mod lookup;
 pub(crate) mod lsp;
 pub(crate) mod memory;
+pub(crate) mod people;
 pub(crate) mod routing;
 mod sessions;
 pub use sessions::SessionsConfig;
@@ -132,6 +133,9 @@ pub struct Config {
     /// `[sessions]`: the state windows and the re-title (theseus-emqx).
     #[serde(default, skip_serializing_if = "SessionsConfig::is_default")]
     pub sessions: SessionsConfig,
+    /// `[people]`: people proposed from text (theseus-wy7y), `config/people.rs`.
+    #[serde(default, skip_serializing_if = "people::PeopleConfig::is_default")]
+    pub people: people::PeopleConfig,
     /// `[sandbox]`: L1 for `proc.run` (M4 17b), in `crate::sandbox`.
     #[serde(default)]
     pub sandbox: crate::sandbox::SandboxConfig,
@@ -1394,6 +1398,7 @@ impl Config {
             .validate(|p| self.all_profiles().contains_key(p))?;
         self.lsp.validate()?;
         self.sessions.validate()?;
+        self.people.validate()?;
         self.validate_voice()?;
         self.validate_mcp_server()?;
         if let Some(name) = &self.context.default_persona {

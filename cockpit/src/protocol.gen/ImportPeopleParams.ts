@@ -9,4 +9,15 @@
  * no model call; a second run changes nothing. `dry_run` counts and writes
  * nothing. The owner's act, from a private place.
  */
-export type ImportPeopleParams = { tag: string, dry_run: boolean, };
+export type ImportPeopleParams = { tag: string, dry_run: boolean, 
+/**
+ * Propose people from the sessions' text (theseus-wy7y): a model
+ * extracts the candidates, Jev judges them, and each kept one is a
+ * proposal; nothing joins the ontology until the owner accepts. With
+ * `dry_run`, the sessions, tokens and projected cost, with no call.
+ */
+propose?: boolean, 
+/**
+ * `propose`'s spend cap for this run, in dollars (5 when absent).
+ */
+cap_usd?: number, };

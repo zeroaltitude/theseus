@@ -261,6 +261,29 @@ pub struct OntologyProposal {
     pub band: String,
     /// When it was judged.
     pub at_ms: u64,
+    /// A person `people.v1` proposes (theseus-wy7y): absent for a topic's
+    /// proposal. For a held person, `topic` names it (`person:<id>`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub person: Option<ProposedPerson>,
+}
+
+/// A person a proposal names (theseus-wy7y): what the extractor read and Jev
+/// kept. `new` when Jev matched no held person: an accept declares it (or
+/// joins the held person an exact handle or name finds by then).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct ProposedPerson {
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[cfg_attr(test, ts(as = "Option<Vec<String>>", optional))]
+    pub handles: Vec<String>,
+    /// What the person does or owns; absent when the text said nothing, or
+    /// Jev found the line judged the person rather than stating a role.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub role_line: Option<String>,
+    pub new: bool,
 }
 
 /// `ontology.proposal.accept`: the operator's yes to a proposal. The

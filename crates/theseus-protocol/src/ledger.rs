@@ -183,6 +183,7 @@ ledger_kinds! {
     PackEvent = "pack.event",
     PackMode = "pack.mode",
     PackVersion = "pack.version",
+    PeopleExtracted = "people.extracted",
     PlacePublished = "place.published",
     PlaceViewed = "place.viewed",
     PlaceWarned = "place.warned",

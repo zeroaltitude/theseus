@@ -59,6 +59,7 @@ pub mod lsp;
 pub mod mcp;
 pub mod memory;
 pub mod ontology;
+pub mod people;
 pub mod place;
 pub mod recall;
 pub mod route;
@@ -413,6 +414,7 @@ facts![
     import::ImportErased<'static>,
     import::ImportTopics<'static>,
     import::ImportPeople<'static>,
+    people::PeopleExtracted<'static>,
     ontology::PersonMerged<'static>,
     ladder::PackModeSet<'static>,
     ladder::PackEventLanded<'static>,

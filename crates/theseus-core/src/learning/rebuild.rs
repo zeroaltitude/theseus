@@ -56,6 +56,10 @@ pub fn unrebuildable(b: Builder) -> Option<&'static str> {
             "a citation check's input is a synthesis's text before it was kept, and a rejected \
              one is kept only in its row",
         ),
+        Builder::People => Some(
+            "a people state's candidate is an extractor's answer and the held people as they \
+             stood, which the record keeps only in the judgment's context",
+        ),
     }
 }
 

@@ -420,6 +420,19 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     (`ontology.proposal.accept`/`reject`, through `judge_act`): an accept's membership, its topic for
     `new_topic`, and its `judge.label` row (`fact::judge::ProposalLabel`) in one frame. Tests:
     `tests_categorize.rs`.
+  - **People from text** (theseus-wy7y, `judge/people/`): `people.v1`, live (`WIRED`), at the same exchange end as
+    `categorize.v1` (`live.rs`: private places only, never a task's, `categorize::due` over the records after its own
+    mark, META `judge.people.<session>`, moved in the extraction's frame), and the owner's backfill
+    (`backfill.rs`, `import.people { propose }`: a tag's sessions in id order, the machine's quiet between them,
+    under a spend cap for the run, resumable from META `import.people.propose.<tag>`, a dry run pricing it with no
+    call). A pass (`run.rs`): `[people] extract_profile` (`config/people.rs`) answers through one tool
+    (`extract.rs`: name, handles, role line, evidence; scrubbed lines), a `people.extracted` row (cost, tokens,
+    model; a day-ceiling spend kind); the owner, personas, agents, `[people] not_people` and a session's known names
+    excluded before any call (`NotPeople`); one `people.v1` judgment a kept candidate (real, involved, which of the
+    50 nearest held people or new, whether its role line judges the person), the candidate in its context. Code
+    decides as the proposals are read (`people::decide`, `[people] act`/`confirm`): `rpc/proposals.rs` lists them
+    beside the topics' (`OntologyProposal.person`), and an accept joins the held person, or declares the new one
+    (unless an exact handle or name finds it by then). Tests: `judge/people/tests.rs`.
   - **The learning ledger** (step 25c, `learning/`): labels (`labels.rs`: what a label says of a Noul, a Choice,
     a Score; the heaviest counts, then the newest), system labels derived by each run (`system.rs`, weight 0.5,
     keyed by judgment, question and rule so a second run writes none), the report per pack version and question

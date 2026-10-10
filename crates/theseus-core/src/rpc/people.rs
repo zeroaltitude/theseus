@@ -280,12 +280,16 @@ impl Core {
         })?;
         let mut out = OntologyProposalAcceptAllResult::default();
         for pr in all.proposals {
-            // A new topic's proposal is of the topic kind.
-            let kind = pr
-                .topic
-                .as_deref()
-                .and_then(|t| t.split_once(':'))
-                .map_or("topic", |(k, _)| k);
+            // A new topic's proposal is of the topic kind; a person's,
+            // held or new, of the person kind (theseus-wy7y).
+            let kind = match &pr.person {
+                Some(_) => PERSON,
+                None => pr
+                    .topic
+                    .as_deref()
+                    .and_then(|t| t.split_once(':'))
+                    .map_or("topic", |(k, _)| k),
+            };
             let picked = match p.judgments.is_empty() {
                 true => {
                     pr.confidence >= p.min_confidence && p.kind.as_deref().is_none_or(|k| kind == k)
@@ -295,7 +299,8 @@ impl Core {
             if !picked {
                 continue;
             }
-            if pr.new_topic || pr.topic.is_none() {
+            // A new person's proposal names its person: it needs no name.
+            if pr.new_topic || (pr.topic.is_none() && pr.person.is_none()) {
                 out.left.push(format!(
                     "{}: it proposes a new category, which needs a name: accept it alone",
                     pr.judgment
