@@ -24,7 +24,17 @@ which it reads and never requires. Writes
   the migration's processes still alive at the check, and effects done twice;
 - **harness CPU, its peak RSS, and work CPU**: from bench-efficiency's
   record (efficiency.json, else result.json's `metadata["efficiency"]`),
-  when its sampler ran.
+  when its sampler ran;
+- **overlap** (theseus-2wxa): the ledger's sum of slow-step time over the
+  slow phase's wall (the first slow start to the last slow end): 1 is one
+  step at a time, N is N at once;
+- **calls per response, and the share of responses with more than one
+  call**: over the trajectory's agent steps that call a tool (each step one
+  model response, in every arm's ATIF: Theseus's, Pi's from its converter,
+  Claude Code's and OpenCode's from Harbor's), else OpenCode's own stream;
+- **order violations**: in a family with order rules (`layer2.DEPS`: the
+  controls, link and bisect), each dependent step that started before its
+  prerequisite's end.
 
 A trial whose injection could not reach its agent mid-run is "not
 measurable", never a failure.
@@ -42,14 +52,25 @@ from pathlib import Path
 from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "tools"))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import asyncbench as ab  # noqa: E402
+import families as l2f  # noqa: E402
+import layer2 as l2  # noqa: E402
 
 NOT_MEASURABLE = "not measurable"
 INJECTED = {"interrupt", "cancel"}
 # The slow job each family's wait tax is measured over, by its tool.
 SLOW = {"parallel": "digest", "wait-tax": "build-index", "interrupt": "train-model",
         "fanout": "ingest", "cancel": "migrate", "contention": "deposit"}
+
+
+def slow_tools(family: str) -> set[str]:
+    """The tools whose steps are the family's slow work: Layer 1's one slow
+    job, Layer 2's every tool (theseus-2wxa)."""
+    if family in l2f.BY_NAME:
+        return set(l2f.BY_NAME[family].tools)
+    return {SLOW[family]} if family in SLOW else set()
 
 
 def _json(path: Path) -> Any:
@@ -117,6 +138,8 @@ def ideal(family: str, rec: list[dict[str, Any]], agent_start: float | None) -> 
         for r in d:
             per[r["step"]] = per.get(r["step"], 0.0) + r["duration"]
         return max(sum(r["duration"] for r in d) / ab.DEPOSITS_AT_ONCE, max(per.values()))
+    if family in l2.CHECKS:
+        return l2.ideal(family, rec)
     return None
 
 
@@ -124,15 +147,15 @@ def window(family: str, rec: list[dict[str, Any]]) -> tuple[float, float] | None
     """The slow job's window, by the ledger's wall clock: its first start to
     its last end (or stop, or fail); for cancel, the migration's start to
     the injection, the time it ran before it was asked to stop."""
-    tool = SLOW.get(family)
-    starts = [r["wall"] for r in rec if r["kind"] == "start" and r["tool"] == tool]
+    tools = slow_tools(family)
+    starts = [r["wall"] for r in rec if r["kind"] == "start" and r["tool"] in tools]
     if not starts:
         return None
     if family == "cancel":
         inj = [r["wall"] for r in rec if r["kind"] == "inject"]
         ends = inj[:1]
     else:
-        ends = [r["wall"] for r in rec if r["kind"] in ("end", "fail", "stopped") and r["tool"] == tool]
+        ends = [r["wall"] for r in rec if r["kind"] in ("end", "fail", "stopped") and r["tool"] in tools]
     if not ends:
         return None
     return min(starts), max(ends)
@@ -207,6 +230,52 @@ def wait_tax(family: str, rec: list[dict[str, Any]], model_calls: list[dict[str,
             "window_s": round(w[1] - w[0], 3)}
 
 
+def responses(trial: Path) -> list[int] | None:
+    """Each model response's tool calls, in order: the ATIF trajectory's
+    agent steps (one step a response in every arm's converter), else
+    OpenCode's own stream (`agent/opencode.txt`: the `tool_use` events
+    between a `step_start` and its `step_finish`). None when the trial left
+    neither."""
+    traj = _json(trial / "agent/trajectory.json")
+    steps = [s for s in (traj or {}).get("steps") or [] if isinstance(s, dict) and s.get("source") == "agent"]
+    if steps:
+        return [len(s.get("tool_calls") or []) for s in steps]
+    try:
+        text = (trial / "agent/opencode.txt").read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+    out: list[int] = []
+    n = None
+    for line in text.splitlines():
+        try:
+            e = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        kind = e.get("type") if isinstance(e, dict) else None
+        if kind == "step_start":
+            n = 0
+        elif kind == "tool_use" and n is not None:
+            n += 1
+        elif kind == "step_finish" and n is not None:
+            out.append(n)
+            n = None
+    return out or None
+
+
+def batching(counts: list[int] | None) -> dict[str, Any]:
+    """Calls per response over the responses that call a tool, and the share
+    of them with more than one call; a final answer, which calls none, is
+    neither."""
+    tooled = [n for n in counts or [] if n > 0]
+    return {"responses": len(counts) if counts is not None else None,
+            "tool_responses": len(tooled) if counts is not None else None,
+            "tool_calls": sum(tooled) if counts is not None else None,
+            "calls_per_response": round(sum(tooled) / len(tooled), 3) if tooled else None,
+            "multi_call_responses": sum(1 for n in tooled if n > 1) if counts is not None else None,
+            "multi_call_share": round(sum(1 for n in tooled if n > 1) / len(tooled), 3) if tooled else None,
+            "max_calls": max(tooled) if tooled else None}
+
+
 # bench-efficiency's record (bench/harbor/efficiency.py's SCHEMA).
 EFFICIENCY_SCHEMA = "bench-efficiency/1"
 # A sampler status whose classes are numbers (bench/report's rule): `running`
@@ -244,13 +313,15 @@ def efficiency(trial: Path, result: dict[str, Any] | None = None) -> dict[str, A
 # ---------------------------------------------------------------- a trial
 
 
-def score(trial: Path) -> dict[str, Any]:
+def score(trial: Path, arm: str | None = None) -> dict[str, Any]:
+    """One trial's row; `arm` names its arm where Harbor's agent name does
+    not tell arms apart (the three Theseus arms are all `theseus-async`)."""
     result = _json(trial / "result.json") or {}
     rec = ab.read(trial / "verifier/ledger.jsonl")
     problems = _json(trial / "verifier/problems.json") or {}
     report = _json(trial / "agent/async-driver.json") or {}
     family = problems.get("family") or report.get("family") or result.get("task_name", "")
-    arm = (result.get("agent_info") or {}).get("name") or "unknown"
+    arm = arm or (result.get("agent_info") or {}).get("name") or "unknown"
     ex = result.get("agent_execution") or {}
     t0, t1 = _ts(ex.get("started_at")), _ts(ex.get("finished_at"))
     wall = round(t1 - t0, 3) if t0 is not None and t1 is not None else None
@@ -261,6 +332,8 @@ def score(trial: Path) -> dict[str, Any]:
     best = ideal(family, rec, t0)
     agent = result.get("agent_result") or {}
     alive = sum(1 for p in problems.get("problems", []) if "still run" in p)
+    ov = l2.overlap(rec, slow_tools(family))
+    model_calls = calls(trial)
     return {
         "trial": trial.name,
         "job": trial.parent.name,
@@ -272,7 +345,7 @@ def score(trial: Path) -> dict[str, Any]:
         "wall_s": wall,
         "ideal_s": round(best, 3) if best is not None else None,
         "over_ideal": round(wall / best, 3) if wall and best else None,
-        "wait_tax": wait_tax(family, rec, calls(trial)),
+        "wait_tax": wait_tax(family, rec, model_calls),
         "responsiveness_s": (responsiveness(family, rec) if measurable else NOT_MEASURABLE),
         "trigger": (inj or {}).get("trigger"),
         "unfinished_steps": unfinished(rec),
@@ -282,6 +355,14 @@ def score(trial: Path) -> dict[str, Any]:
         "tokens": (agent.get("n_input_tokens") or 0) + (agent.get("n_output_tokens") or 0),
         "exception": (result.get("exception_info") or {}).get("exception_type"),
         **efficiency(trial, result),
+        "layer": 2 if family in l2f.BY_NAME else 1,
+        "shape": l2f.BY_NAME[family].shape if family in l2f.BY_NAME else None,
+        "overlap": ov["overlap"] if ov else None,
+        "slow_busy_s": ov["busy_s"] if ov else None,
+        "slow_phase_s": ov["phase_s"] if ov else None,
+        "model_calls": len(model_calls) or None,
+        **batching(responses(trial)),
+        "order_violations": len(l2.order_violations(family, rec)) if family in l2.DEPS else None,
     }
 
 
@@ -328,8 +409,22 @@ def rows(scores: list[dict[str, Any]]) -> list[dict[str, Any]]:
             "harness_peak_rss_mb": _median([s["harness_peak_rss_mb"] for s in m]),
             "work_cpu_s": _median([s["work_cpu_s"] for s in m]),
             "cost_usd": _median([s["cost_usd"] for s in m]),
+            "overlap": _median([s["overlap"] for s in m]),
+            **_pooled(m),
+            "order_violations": (sum(s["order_violations"] or 0 for s in m)
+                                 if family in l2.DEPS else None),
         })
     return out
+
+
+def _pooled(trials: list[dict[str, Any]]) -> dict[str, Any]:
+    """Calls per response and the multi-call share, pooled over the trials'
+    tool-calling responses (a trial with many responses weighs more)."""
+    tooled = sum(s.get("tool_responses") or 0 for s in trials)
+    calls_ = sum(s.get("tool_calls") or 0 for s in trials)
+    multi = sum(s.get("multi_call_responses") or 0 for s in trials)
+    return {"calls_per_response": round(calls_ / tooled, 3) if tooled else None,
+            "multi_call_share": round(multi / tooled, 3) if tooled else None}
 
 
 COLUMNS = [
@@ -339,7 +434,8 @@ COLUMNS = [
     ("responsiveness_s", "Responsiveness s"), ("orphans", "Orphans"),
     ("duplicated_effects", "Dup. effects"), ("harness_cpu_s", "Harness CPU s"),
     ("harness_peak_rss_mb", "Harness peak RSS MB"), ("work_cpu_s", "Work CPU s"),
-    ("cost_usd", "Cost $"),
+    ("cost_usd", "Cost $"), ("overlap", "Overlap"), ("calls_per_response", "Calls / response"),
+    ("multi_call_share", "Multi-call share"), ("order_violations", "Order violations"),
 ]
 
 
@@ -360,16 +456,27 @@ def markdown(table: list[dict[str, Any]], jobs: list[str]) -> str:
     return "\n".join(lines) + "\n"
 
 
+def labelled(jobs: list[str]) -> list[tuple[str | None, Path]]:
+    """Job arguments, each a directory or `LABEL=DIR` (theseus-2wxa): the
+    label names the arm of every trial in it."""
+    out = []
+    for j in jobs:
+        label, sep, path = j.partition("=")
+        out.append((label, Path(path)) if sep and not Path(j).exists() else (None, Path(j)))
+    return out
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("jobs", nargs="+", type=Path)
+    ap.add_argument("jobs", nargs="+", help="a job directory, or LABEL=DIR to name its arm")
     ap.add_argument("--out", type=Path, required=True)
     a = ap.parse_args(argv)
-    scores = [score(t) for t in trials(a.jobs)]
+    jobs = labelled(a.jobs)
+    scores = [score(t, label) for label, job in jobs for t in trials([job])]
     a.out.mkdir(parents=True, exist_ok=True)
     (a.out / "scores.json").write_text(json.dumps(scores, indent=2))
     table = rows(scores)
-    (a.out / "report.md").write_text(markdown(table, [j.name for j in a.jobs]))
+    (a.out / "report.md").write_text(markdown(table, [j.name for _, j in jobs]))
     print(f"{len(scores)} trials, {len(table)} rows: {a.out / 'report.md'}")
     return 0
 
