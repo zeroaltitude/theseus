@@ -41,6 +41,7 @@ mod proposals;
 mod publish;
 mod route_correct;
 mod server;
+mod session_dir;
 mod sessions;
 #[cfg(test)]
 pub(crate) use server::write_item;

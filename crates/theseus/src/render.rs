@@ -38,6 +38,7 @@ mod parked;
 mod places;
 mod resident;
 mod sandbox;
+pub mod session_dir;
 pub mod sessions;
 mod store;
 mod task_graph;
@@ -2101,7 +2102,7 @@ pub fn session_row(s: &SessionInfo) -> Line {
                 None => s.execution_state.clone().unwrap_or_else(|| "-".into()),
             } + &sessions::state_column(s),
             s.model.as_deref().unwrap_or("-"),
-            sessions::name_column(s)
+            sessions::name_column(s) + &session_dir::column(s)
         ),
     )
 }

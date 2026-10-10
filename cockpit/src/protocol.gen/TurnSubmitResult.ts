@@ -65,4 +65,8 @@ fallback?: TurnFallback,
 /**
  * What the turn left for later, on a daemon spawned for one run (theseus-mqxk); never a socket daemon's.
  */
-later?: Later, };
+later?: Later, 
+/**
+ * The roots, when this turn put its session in a directory outside every one (theseus-aab7): the CLI says so once.
+ */
+outside_roots?: Array<string>, };

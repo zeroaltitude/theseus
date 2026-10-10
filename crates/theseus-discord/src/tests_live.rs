@@ -96,6 +96,7 @@ impl Rig {
     async fn ask(&self, sid: &str, input: &str) -> TurnSubmitResult {
         let (rpc, _) = RpcClient::connect(self.core.clone(), Client::new("test", Surface::Cli));
         let p = TurnSubmitParams {
+            dir: None,
             carried: false,
             prompt: None,
             session_id: Some(sid.into()),

@@ -1923,6 +1923,10 @@ pub struct SessionInfo {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub title_was: Option<Vec<String>>,
+    /// The directory it works in, as its client sent it (theseus-aab7).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub dir: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -2116,6 +2120,10 @@ pub struct TurnSubmitResult {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub later: Option<later::Later>,
+    /// The roots, when this turn put its session in a directory outside every one (theseus-aab7): the CLI says so once.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub outside_roots: Option<Vec<String>>,
 }
 
 fn is_zero_u32(n: &u32) -> bool {

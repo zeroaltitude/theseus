@@ -440,6 +440,11 @@ struct AskArgs {
     /// model reads page by page; or any other file up to 32 MiB, kept for the model.
     #[arg(long = "attach", value_name = "FILE")]
     attach: Vec<PathBuf>,
+    /// The directory the session works in: its tools' default directory and the base of their
+    /// relative paths (default: this shell's current directory, for a new session). With
+    /// --session, moves that session there; without, the session keeps its own.
+    #[arg(long, value_name = "DIR")]
+    dir: Option<PathBuf>,
     /// Under --spawn: after the turn, keep the daemon up while what it left for later can still
     /// come back (a job's late result, a wake due within the bound) and print each turn that
     /// comes, for at most this long (30m, 90s, 2h). 0 follows nothing.

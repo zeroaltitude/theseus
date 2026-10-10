@@ -165,7 +165,7 @@ impl ToolRuntime {
         ran_at: Posture,
         class: &sandbox::Bound,
     ) -> Result<CallOutcome> {
-        let specs: Vec<JobSpec> = match tool.jobs(&call.input, &self.ctx) {
+        let specs: Vec<JobSpec> = match tool.jobs(&call.input, &self.ctx_in(tc)) {
             Ok(s) => s,
             Err(e) => return self.settle_job_failure(tc, correlation_id, tool.name(), call, &e),
         };

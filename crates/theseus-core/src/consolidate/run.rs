@@ -225,6 +225,7 @@ impl Core {
             return Ok(id);
         }
         let rec = self.open_session(theseus_protocol::SessionOpenParams {
+            dir: None,
             kind: None,
             label: Some("memory: consolidation's syntheses (never compiled)".into()),
             opened_from: None,

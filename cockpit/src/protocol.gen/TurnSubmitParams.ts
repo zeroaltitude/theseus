@@ -50,4 +50,12 @@ opened_from?: string,
  * the server for it, and `input` stays empty. Only a private place's
  * session may run one.
  */
-prompt?: McpPromptRef, };
+prompt?: McpPromptRef, 
+/**
+ * The directory the session works in (theseus-aab7), as
+ * `SessionOpenParams.dir`: the session this turn opens is created
+ * there, and a session named by `session_id` moves there. Absent: a new
+ * session takes the daemon's `[tools] cwd`, and a named one keeps its
+ * own.
+ */
+dir?: string, };

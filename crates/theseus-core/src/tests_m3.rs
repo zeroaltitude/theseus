@@ -4462,6 +4462,7 @@ fn submit_params(
     attachments: Vec<theseus_protocol::Attachment>,
 ) -> theseus_protocol::TurnSubmitParams {
     theseus_protocol::TurnSubmitParams {
+        dir: None,
         carried: false,
         prompt: None,
         session_id: session.map(str::to_string),

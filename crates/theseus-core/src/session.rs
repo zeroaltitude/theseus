@@ -103,6 +103,14 @@ pub struct SessionRecord {
     /// one at most, since a session is re-titled once.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub title_was: Vec<String>,
+    /// The directory it works in (theseus-aab7), as its client sent it:
+    /// written by the frame that creates it, moved only by a `turn.submit`
+    /// that names it with another. Its tools' default `cwd` and the base of
+    /// their relative paths (`ToolRuntime::cwd_for`), and its system
+    /// block's `Directory:`. Absent: the daemon's `[tools] cwd`, and in
+    /// records written before it (store format 27).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dir: Option<String>,
 }
 
 /// An image the provider refused (theseus-0s4).
@@ -292,6 +300,7 @@ impl SessionRecord {
             supersedes: None,
             reopened_ms: None,
             title_was: Vec::new(),
+            dir: None,
         }
     }
     /// What a turn writes into the stored record (theseus-xeo): the fields it
@@ -313,6 +322,11 @@ impl SessionRecord {
         self.execution_id.clone_from(&turn.execution_id);
         self.failing.clone_from(&turn.failing);
         self.routed.clone_from(&turn.routed);
+        // A `turn.submit` that names another directory moves the session
+        // there (theseus-aab7); no turn clears one.
+        if turn.dir.is_some() {
+            self.dir.clone_from(&turn.dir);
+        }
         for n in &turn.not_shown {
             if !self.not_shown.iter().any(|m| m.digest == n.digest) {
                 self.not_shown.push(n.clone());
@@ -382,6 +396,7 @@ impl SessionRecord {
             superseded_by: self.superseded_by.clone(),
             supersedes: self.supersedes.clone(),
             title_was: Some(self.title_was.clone()).filter(|t| !t.is_empty()),
+            dir: self.dir.clone(),
         }
     }
 }

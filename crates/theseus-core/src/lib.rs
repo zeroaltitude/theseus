@@ -313,6 +313,8 @@ mod tests_sandbox;
 #[cfg(test)]
 mod tests_security;
 #[cfg(test)]
+mod tests_session_dir;
+#[cfg(test)]
 mod tests_sink_backlog;
 #[cfg(test)]
 mod tests_sink_between;

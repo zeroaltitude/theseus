@@ -6,4 +6,11 @@ export type SessionOpenParams = { kind: SessionKind | null, label: string | null
  * The session whose job opened this one (`JOB_SESSION_ENV`, theseus-b5cl):
  * one opened from a session that holds external text holds it too.
  */
-opened_from?: string, };
+opened_from?: string, 
+/**
+ * The directory the session works in (theseus-aab7): an absolute
+ * path, the client's own current directory. Its tools' default `cwd`,
+ * the base of their relative paths, and the session's system block
+ * name it. Absent: the daemon's `[tools] cwd`, as before.
+ */
+dir?: string, };

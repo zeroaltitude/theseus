@@ -100,7 +100,9 @@ fn rig(model: &FakeModel) -> tempfile::TempDir {
 fn cli(dir: &Path, args: &[&str]) -> Command {
     let theseusd = PathBuf::from(env!("CARGO_BIN_EXE_theseusd"));
     let mut c = Command::new(theseusd.with_file_name("theseus"));
-    c.arg("--spawn")
+    // Run where the operator works: the session's directory (theseus-aab7).
+    c.current_dir(dir.join("projects"))
+        .arg("--spawn")
         .arg(&theseusd)
         .args(args)
         .env("THESEUS_CONFIG", dir.join("config.toml"))

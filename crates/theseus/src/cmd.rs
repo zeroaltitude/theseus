@@ -61,7 +61,9 @@ pub async fn ask(
         None | Some("-") => read_stdin_prompt()?,
         Some(p) => p.to_string(),
     };
+    let dir = ask_dir(a.dir.as_deref(), a.session.is_some())?;
     let params = serde_json::to_value(TurnSubmitParams {
+        dir,
         carried: false,
         prompt: None,
         session_id: a.session,
@@ -80,6 +82,18 @@ pub async fn ask(
     stream_turn(conn, json, no_stream, params, shown, spawned, follow_for).await
 }
 
+/// The directory `ask` sends (theseus-aab7): `--dir`, made absolute, else
+/// this process's own when it starts a session; a session it continues
+/// keeps its own.
+fn ask_dir(dir: Option<&std::path::Path>, continues: bool) -> Result<Option<String>> {
+    let dir = match dir {
+        Some(d) => std::path::absolute(d)?,
+        None if continues => return Ok(None),
+        None => std::env::current_dir()?,
+    };
+    Ok(Some(dir.display().to_string()))
+}
+
 /// One `turn.submit`, streamed as `ask` prints it: the reply as it comes (or
 /// as JSON, or quiet), the status line, the trace, and the exit code that
 /// says how the turn ended. `theseus prompt` shares it.
@@ -93,6 +107,10 @@ pub(crate) async fn stream_turn(
     follow_for: Option<std::time::Duration>,
 ) -> Result<()> {
     let stream = !no_stream && !json;
+    let dir = params
+        .get("dir")
+        .and_then(Value::as_str)
+        .map(str::to_string);
     let mode = match (json, stream) {
         (true, _) => Mode::Json,
         (false, true) => Mode::Text,
@@ -121,6 +139,10 @@ pub(crate) async fn stream_turn(
         }
     };
     let r: TurnSubmitResult = serde_json::from_value(result.clone())?;
+    // Started outside the workspace roots: said once (theseus-aab7).
+    if let (Some(roots), Some(dir), false) = (&r.outside_roots, &dir, json) {
+        eprintln!("{}", render::session_dir::outside_line(dir, roots));
+    }
     // What the turn left for later, under `--spawn` (theseus-mqxk).
     let modes = (json, stream);
     let first = (result, r);
@@ -1020,6 +1042,7 @@ pub async fn sessions(conn: &mut Conn, json: bool, cmd: SessionsCmd) -> Result<(
                 .request(
                     method::SESSION_OPEN,
                     SessionOpenParams {
+                        dir: None,
                         kind: None,
                         label,
                         opened_from: theseus_client::client::job_session(),

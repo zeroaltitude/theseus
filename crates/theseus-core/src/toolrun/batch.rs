@@ -51,7 +51,7 @@ impl ToolRuntime {
         let mut classes = Vec::new();
         for (i, one) in steps.iter().enumerate() {
             let p = tool
-                .plan(one, &self.ctx)
+                .plan(one, at.ctx)
                 .map_err(|e| Turned::Invalid(format!("step {} of {n}: {e}", i + 1)))?;
             let argv = p.argv.as_deref().unwrap_or_default();
             let named = format!("step {} of {n} (`{}`)", i + 1, argv.join(" "));

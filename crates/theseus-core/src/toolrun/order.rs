@@ -30,6 +30,9 @@ pub(crate) struct At<'a> {
     pub held: &'a dyn Fn() -> Result<Option<ExternalText>, String>,
     pub mcp: &'a dyn Fn() -> Option<Posture>,
     pub glide: Option<&'a crate::glide::Resolved>,
+    /// What the call's plan was made with: its session's directory
+    /// (theseus-aab7), which a batch's steps are planned in too.
+    pub ctx: &'a theseus_tools::ToolCtx,
 }
 
 /// A layer of the order after the place's refusal, as `order` hands each

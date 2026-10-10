@@ -124,6 +124,7 @@ async fn ask(rpc: &RpcClient, sid: &str, input: &str) -> TurnSubmitResult {
     rpc.call(
         theseus_protocol::method::TURN_SUBMIT,
         TurnSubmitParams {
+            dir: None,
             carried: false,
             prompt: None,
             session_id: Some(sid.into()),

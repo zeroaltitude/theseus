@@ -289,6 +289,9 @@ impl Core {
         let now = theseus_protocol::now_unix_ms();
         let inherited = crate::external::from_job(&self.store, p.opened_from.as_deref(), now)?;
         let mut rec = SessionRecord::new(p.kind.unwrap_or(SessionKind::Conversation), p.label);
+        // Its directory rides in the frame that creates it (theseus-aab7).
+        rec.dir =
+            crate::toolrun::session_dir::checked(p.dir.as_deref()).map_err(anyhow::Error::msg)?;
         // The execution, its row, the session's record, and `session.opened`
         // in one frame (theseus-q5af), with the hold's row and record on the
         // hold's path: a watcher that hears the execution's first view and
@@ -882,16 +885,21 @@ impl Core {
         };
         // A turn from a holding session's job holds what that one holds, in
         // the session it opens or the one it names (theseus-b5cl).
-        let session = match &p.session_id {
+        let dir = super::session_dir::check(p.dir.as_deref())?;
+        let mut session = match &p.session_id {
             Some(id) => {
                 self.take_from_job(id, p.opened_from.as_deref())?;
                 self.session(id)?
             }
             None => self.open_session(SessionOpenParams {
                 opened_from: p.opened_from.clone(),
+                dir: dir.clone(),
                 ..SessionOpenParams::default()
             })?,
         };
+        // A directory it names moves the session there: the turn's session
+        // write keeps it (theseus-aab7). Outside the roots, the CLI says so.
+        let outside = crate::rpc::session_dir::moved(&self.tools, &mut session, dir);
         // The owner's words, read as a correction for the turn (theseus-q31l).
         self.expect_correction(&p, conn, &session.session_id);
         // A one-run daemon's client follows the session's later turns, so
@@ -952,7 +960,8 @@ impl Core {
             })
             .await;
         match result {
-            Ok(r) => {
+            Ok(mut r) => {
+                r.outside_roots = outside;
                 self.telemetry().record_turn(&r);
                 self.telemetry()
                     .record_node_cache(&self.store.node_cache().health());

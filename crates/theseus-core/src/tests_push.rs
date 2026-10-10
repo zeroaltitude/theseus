@@ -531,6 +531,7 @@ async fn session_wait_returns_on_blocked_settled_and_terminal() {
     let task = r
         .core
         .open_session(SessionOpenParams {
+            dir: None,
             kind: Some(SessionKind::Task),
             label: None,
             opened_from: None,

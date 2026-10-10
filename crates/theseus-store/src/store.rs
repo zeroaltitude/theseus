@@ -590,7 +590,8 @@ const BULK: usize = 4096;
 /// `superseded_by` and `supersedes` links, `reopened_ms`, and `title_was`.
 /// 26 = people (theseus-wy7y): a category's `handles` and `merged_into`, and
 /// stored `person` lists (`onto:member:<session>:person`).
-const MANIFEST_FORMAT: u32 = 26;
+/// 27 = a session's directory (theseus-aab7): its `dir`.
+const MANIFEST_FORMAT: u32 = 27;
 /// The oldest format this build reads. A format-3 manifest's per-kind marks
 /// are left unread.
 const MANIFEST_OLDEST: u32 = 2;

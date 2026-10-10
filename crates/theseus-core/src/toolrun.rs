@@ -47,6 +47,7 @@ mod late;
 mod not_started;
 pub(crate) mod order;
 mod resume;
+pub(crate) mod session_dir;
 mod steps;
 mod waits;
 
@@ -124,6 +125,9 @@ pub struct TurnCtx<'a> {
     pub ceiling: Option<&'static crate::ceiling::Ceiling>,
     /// The bound places, as a glide names them (38b).
     pub places: crate::places::Places<'a>,
+    /// The session's directory, as its client sent it (theseus-aab7):
+    /// where its calls work (`ToolRuntime::ctx_in`). None: `[tools] cwd`.
+    pub dir: Option<&'a str>,
 }
 
 impl TurnCtx<'_> {
@@ -861,12 +865,12 @@ impl ToolRuntime {
         Ok(())
     }
 
-    fn proposal_for(&self, tool: &dyn Tool, input: &Value) -> Proposal {
+    fn proposal_for(tool: &dyn Tool, input: &Value, ctx: &ToolCtx) -> Proposal {
         Proposal {
             tool: tool.name().into(),
             args: input.clone(),
             resource: None,
-            policy_context: json!({"roots": self.ctx.roots, "cwd": self.ctx.cwd}),
+            policy_context: json!({"roots": ctx.roots, "cwd": ctx.cwd}),
         }
     }
 
@@ -1107,8 +1111,9 @@ impl ToolRuntime {
     /// (theseus-8az). The record keeps the keys stored tool-call nodes carry,
     /// and `tool.proposed` shows it to the session's clients.
     fn gate(&self, tc: &TurnCtx<'_>, tool: &dyn Tool, call: &ToolUse) -> Result<Gated, Invalid> {
-        let mut proposal = self.proposal_for(tool, &call.input);
-        let planned = tool.plan(&call.input, &self.ctx);
+        let ctx = self.ctx_in(tc);
+        let mut proposal = Self::proposal_for(tool, &call.input, &ctx);
+        let planned = tool.plan(&call.input, &ctx);
         // Layer 1 guards only the owner's tasks (theseus-ext.10).
         let planned = planned.map(|p| {
             crate::task_graph::tools::authority_for(tc.store, tool.name(), &call.input, p)
@@ -1124,6 +1129,7 @@ impl ToolRuntime {
             held: &held,
             mcp: &mcp,
             glide: glide.as_ref().and_then(|g| g.as_ref().ok()),
+            ctx: &ctx,
         };
         // A shared place's call reaches only what the place may (the place
         // rule): the catalog offers nothing else, and this refuses it, in case.
@@ -1592,7 +1598,8 @@ impl ToolRuntime {
             correlation_id,
             backend: tool.backend().as_str(),
         });
-        let (t, input, mut ctx) = (tool.clone(), call.input.clone(), self.ctx.clone());
+        let (t, input) = (tool.clone(), call.input.clone());
+        let mut ctx = self.ctx_in(tc).into_owned();
         // A toollet granted a secret reads it through the broker, bound to
         // this call (theseus-dcy). Its secrets settle first, as a turn's do,
         // since a toollet runs on a core and cannot wait.

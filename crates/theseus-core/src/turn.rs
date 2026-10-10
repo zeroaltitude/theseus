@@ -1527,12 +1527,16 @@ impl TurnRunner {
             prompt,
             ..
         } = req;
-        // The caller's copy may be stale: re-read under the lock.
+        // The caller's copy may be stale: re-read under the lock. Its
+        // directory is the one `turn.submit` moved it to (theseus-aab7).
         if let Some(fresh) = self
             .store
             .get_session::<SessionRecord>(&session.session_id)?
         {
-            session = fresh;
+            session = SessionRecord {
+                dir: session.dir.or(fresh.dir.clone()),
+                ..fresh
+            };
         }
         let read;
         (target, read) = self.route_base(&mut session, target, input.is_some());
@@ -1562,6 +1566,7 @@ impl TurnRunner {
         let turn_id = crate::new_id("turn");
         let task_of = session.task.clone();
         let place = self.view_of(&sid);
+        let dir = session.dir.clone();
         let tc = TurnCtx {
             kernel: &frames.kernel,
             store: &frames.store,
@@ -1584,6 +1589,7 @@ impl TurnRunner {
                 rule: &self.place_rule,
                 cfg: &self.cfg,
             },
+            dir: dir.as_deref(),
         };
         if self.narrator.on() && self.narrator.first_sight(&sid) && session.turns > 0 {
             tc.rec().in_turn(None).record(&fact::turn::SessionResumed {
@@ -3162,6 +3168,7 @@ impl TurnRunner {
             route: t.route.result.take(),
             fallback: t.fallback.as_ref().map(|f| f.fallback.clone()),
             later: self.later_of(&t, jobs, late > 0 && t.stop_reason != "stopped"),
+            outside_roots: None,
         };
         t.record(&fact::turn::TurnBooked {
             result: &result,

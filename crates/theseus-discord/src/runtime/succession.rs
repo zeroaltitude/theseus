@@ -112,6 +112,7 @@ impl Shared {
             .call(
                 theseus_protocol::method::SESSION_OPEN,
                 SessionOpenParams {
+                    dir: None,
                     kind: Some(SessionKind::Conversation),
                     label: Some(format!("discord {label}")),
                     opened_from: None,
