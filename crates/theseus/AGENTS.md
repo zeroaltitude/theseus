@@ -48,6 +48,12 @@ Key modules: `main.rs`, `cmd.rs`, `render.rs`, `client.rs`. Read by: (a binary).
 - `src/render/history.rs`: `theseus history`'s own lines: each node with its short id, which `theseus reach` takes
   (theseus-glyw), and `page_lines`, where a page ends and the command for the next one either way (theseus-xo0m).
   Its `node_lines` is the history's own; `render.rs`'s, which the terminal UI shares, stays apart.
+- `src/pages.rs` (theseus-7bee): `theseus sessions` and `theseus executions` print the newest 50 (`session.list
+  {n}`, `execution.list {n}`), a footer (`render/sessions.rs`'s `page_footer`) naming `--before CURSOR` and `--all`, which
+  keeps the bare list. The CLI asks `session.list {n: 1}` where it wants the newest session (`cmd::NEWEST`, `watch
+  --interactive`, `history` with no session) and `{ids}` where it wants one by id; it never asks for every session
+  but under `--all` and `herdr sync`, which reconciles every pane. `history` reads the newest 200 nodes (`-n`).
+  `resolve::executions` reads the executions a page at a time. `tests/pages.rs` records each request's params.
 - `src/names.rs`: what a session is called in every client (theseus-0n1v): a task's title (the store labels every
   task `task`), a conversation's label else its title, else its kind and the end of its id. The CLI, the terminal
   UI and herdr's reporter all call it; never read `label` before `title` at a site.

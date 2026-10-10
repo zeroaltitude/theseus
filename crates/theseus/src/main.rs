@@ -26,6 +26,7 @@ mod judge_runs;
 mod mcp;
 mod ontology;
 mod packs;
+mod pages;
 mod policy_explain;
 mod print;
 mod prompt;
@@ -149,7 +150,7 @@ enum Cmd {
     /// an id, or a unique end of one (four characters at least).
     History {
         session: Option<String>,
-        /// Only the newest N nodes; with --after or --before, a page's size (default 200).
+        /// Only the newest N nodes (default 200); with --after or --before, a page's size.
         #[arg(short, long)]
         n: Option<usize>,
         /// Only nodes after this position, oldest first: 0 for the first page, then the
@@ -268,6 +269,8 @@ enum Cmd {
     Health,
     /// Sessions: list them with per-session token totals, or open one to continue across turns.
     Sessions {
+        #[command(flatten)]
+        page: pages::PageArgs,
         #[command(subcommand)]
         cmd: Option<SessionsCmd>,
     },
@@ -277,6 +280,8 @@ enum Cmd {
     Budgets,
     /// Executions (one per session): state, turns, outstanding actions, budget; `executions cancel <id>`.
     Executions {
+        #[command(flatten)]
+        page: pages::PageArgs,
         #[command(subcommand)]
         cmd: Option<ExecutionsCmd>,
     },
@@ -654,8 +659,9 @@ enum AwsCmd {
 
 #[derive(Subcommand, Debug)]
 enum ExecutionsCmd {
-    /// List every execution with state, turns, outstanding actions, and budget.
-    List,
+    /// List the newest 50 executions with state, turns, outstanding actions, and budget
+    /// (default); `--before` pages back, `--all` lists every one.
+    List(pages::PageArgs),
     /// Cancel an execution: deterministic control path, terminates its jobs.
     Cancel { execution_id: String },
     /// One execution in full: what it needs from you, what it waits on, its questions, its
@@ -825,8 +831,9 @@ enum ProfileCmd {
 
 #[derive(Subcommand, Debug)]
 enum SessionsCmd {
-    /// List sessions with turns and tokens in/out (default).
-    List,
+    /// List the newest 50 sessions with turns and tokens in/out (default); `--before` pages
+    /// back, `--all` lists every one.
+    List(pages::PageArgs),
     /// Open a session and print its id; pass it to `ask -s` to keep turns together.
     Open {
         /// Human label shown in listings.
@@ -920,11 +927,9 @@ async fn run(cli: Cli) -> Result<()> {
         }
         Cmd::Catalog => cmd::catalog(c, json).await,
         Cmd::Health => cmd::health(c, json).await,
-        Cmd::Sessions { cmd } => cmd::sessions(c, json, cmd.unwrap_or(SessionsCmd::List)).await,
+        Cmd::Sessions { page, cmd } => cmd::sessions(c, json, page, cmd).await,
         Cmd::Budgets => budgets::budgets(c, json).await,
-        Cmd::Executions { cmd } => {
-            cmd::executions(c, json, cmd.unwrap_or(ExecutionsCmd::List)).await
-        }
+        Cmd::Executions { page, cmd } => cmd::executions(c, json, page, cmd).await,
         Cmd::Tasks { session } => cmd::tasks(c, json, session).await,
         Cmd::Wakes { session } => cmd::wakes(c, json, session).await,
         Cmd::Cancel { name } => cmd::cancel(c, json, name).await,

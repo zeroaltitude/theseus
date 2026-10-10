@@ -15,15 +15,28 @@ use theseus_protocol::judge::{JudgeGetParams, JudgeGetResult, JudgeListParams, J
 use theseus_protocol::{
     method, notify, ActionConfirmParams, ActionConfirmResult, CatalogListResult, ConfirmListResult,
     Event, HealthResult, LedgerTailParams, LedgerTailResult, Message, ProfileListResult,
-    ProfileUseParams, SessionHistoryParams, SessionHistoryResult, SessionListResult,
-    SessionOpenParams, SessionRecompileParams, SessionRef, ToolListResult, TurnSubmitParams,
-    TurnSubmitResult,
+    ProfileUseParams, SessionHistoryParams, SessionHistoryResult, SessionListParams,
+    SessionListResult, SessionOpenParams, SessionRecompileParams, SessionRef, ToolListResult,
+    TurnSubmitParams, TurnSubmitResult,
 };
 
+use crate::pages::PageArgs;
 use crate::print::{self, Mode, Printer};
 use crate::{
     AskArgs, AwsCmd, ConfirmArgs, ExecutionsCmd, IndexCmd, JudgeCmd, MemoryCmd, PolicyCmd,
     ProfileCmd, SessionsCmd,
+};
+
+/// The nodes `theseus history` reads without `-n`, the newest of them: the
+/// daemon's own page past a cursor (theseus-7bee).
+const HISTORY_PAGE: usize = 200;
+
+/// `session.list`'s params for the newest session alone.
+pub(crate) const NEWEST: SessionListParams = SessionListParams {
+    ids: None,
+    n: Some(1),
+    before: None,
+    state: None,
 };
 
 /// The answer as the daemon sent it under `--json`; else `lines`, given it
@@ -267,7 +280,7 @@ pub async fn history(
             method::SESSION_HISTORY,
             SessionHistoryParams {
                 session_id: session_id.clone(),
-                n,
+                n: Some(n.unwrap_or(HISTORY_PAGE)),
                 after,
                 before,
             },
@@ -1004,17 +1017,14 @@ pub async fn memory(conn: &mut Conn, json: bool, cmd: MemoryCmd) -> Result<()> {
 }
 
 /// `theseus sessions`: list, open, or recompile.
-pub async fn sessions(conn: &mut Conn, json: bool, cmd: SessionsCmd) -> Result<()> {
-    match cmd {
-        SessionsCmd::List => {
-            let v = conn.request(method::SESSION_LIST, Value::Null).await?;
-            output(json, v, |l: SessionListResult| {
-                for s in l.sessions {
-                    println!("{}", render::session_row(&s).text);
-                }
-                Ok(())
-            })
-        }
+pub async fn sessions(
+    conn: &mut Conn,
+    json: bool,
+    page: PageArgs,
+    cmd: Option<SessionsCmd>,
+) -> Result<()> {
+    match cmd.unwrap_or(SessionsCmd::List(page)) {
+        SessionsCmd::List(page) => crate::pages::sessions(conn, json, &page).await,
         SessionsCmd::Open { label } => {
             let v = conn
                 .request(
@@ -1073,20 +1083,14 @@ pub async fn sessions(conn: &mut Conn, json: bool, cmd: SessionsCmd) -> Result<(
 }
 
 /// `theseus executions`: list, or cancel one.
-pub async fn executions(conn: &mut Conn, json: bool, cmd: ExecutionsCmd) -> Result<()> {
-    match cmd {
-        ExecutionsCmd::List => {
-            let v = conn.request(method::EXECUTION_LIST, Value::Null).await?;
-            output(json, v, |l: theseus_protocol::ExecutionListResult| {
-                if l.executions.is_empty() {
-                    println!("no executions");
-                }
-                for e in l.executions {
-                    println!("{}", render::execution_row(&e).text);
-                }
-                Ok(())
-            })
-        }
+pub async fn executions(
+    conn: &mut Conn,
+    json: bool,
+    page: PageArgs,
+    cmd: Option<ExecutionsCmd>,
+) -> Result<()> {
+    match cmd.unwrap_or(ExecutionsCmd::List(page)) {
+        ExecutionsCmd::List(page) => crate::pages::executions(conn, json, &page).await,
         ExecutionsCmd::Explain { id } => explain(conn, json, &id).await,
         ExecutionsCmd::Cancel { execution_id } => {
             let v = conn
@@ -1731,11 +1735,11 @@ pub fn tui(socket: &str, spawn: bool, args: &[String]) -> Result<()> {
     Err(err).with_context(|| format!("running {}", program.display()))
 }
 
-/// The session a command means when it names none: the most recently
-/// active.
+/// The session a command means when it names none: the newest opened. One
+/// page of one: the daemon reads that session, not every one (theseus-7bee).
 async fn latest_session(conn: &mut Conn) -> Result<String> {
     let l: SessionListResult =
-        serde_json::from_value(conn.request(method::SESSION_LIST, Value::Null).await?)?;
+        serde_json::from_value(conn.request(method::SESSION_LIST, NEWEST).await?)?;
     l.sessions
         .first()
         .map(|s| s.session_id.clone())

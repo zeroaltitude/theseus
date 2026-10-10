@@ -2505,7 +2505,11 @@ async fn the_lists_carry_attention_for_a_session_parked_on_a_confirm() {
     assert_eq!(att(&list, &plain.session_id).label, "ready");
     assert_eq!(att(&list, &plain.session_id).level, Level::Ready);
 
-    let execs = r.core.execution_list().unwrap().executions;
+    let execs = r
+        .core
+        .execution_list(Default::default())
+        .unwrap()
+        .executions;
     let e = execs.iter().find(|e| e.session_id == a.session_id).unwrap();
     assert_eq!(
         e.attention.as_ref().unwrap(),

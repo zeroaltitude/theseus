@@ -96,6 +96,7 @@ export type * from './EventsLost';
 export type * from './ExecutionCancelParams';
 export type * from './ExecutionCancelResult';
 export type * from './ExecutionInfo';
+export type * from './ExecutionListParams';
 export type * from './ExecutionListResult';
 export type * from './ExecutionStopParams';
 export type * from './ExecutionStopResult';

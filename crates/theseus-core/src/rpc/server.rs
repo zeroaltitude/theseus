@@ -311,7 +311,7 @@ impl Core {
                 confirms: self.confirm_list()?,
             }),
             method::TOOL_LIST => reply(self.tool_list()),
-            method::EXECUTION_LIST => reply(self.execution_list()?),
+            method::EXECUTION_LIST => route(or_empty(params), |p| self.execution_list(p)),
             method::ACTION_LIST => route(params, |p| self.action_list(p)),
             // A cancel and a stop wait for the jobs they end on the runtime's
             // timer, never holding a worker (theseus-bzq).

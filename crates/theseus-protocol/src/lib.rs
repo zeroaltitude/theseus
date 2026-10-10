@@ -20,6 +20,7 @@ pub mod context;
 mod cost;
 pub mod cred;
 mod events;
+mod exec_list;
 mod explain;
 pub mod extend;
 mod gate;
@@ -61,6 +62,7 @@ pub use budgets::*;
 pub use cancel::{CancelCount, CancelVerdict};
 pub use check::{CheckOverlap, CheckPiece, TaskCheck};
 pub use events::*;
+pub use exec_list::{ExecutionListParams, ExecutionListResult};
 pub use explain::*;
 pub use gate::*;
 pub use hands::*;
@@ -1544,12 +1546,6 @@ pub struct BudgetInfo {
         )
     )]
     pub units_before: Value,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[cfg_attr(test, derive(ts_rs::TS))]
-pub struct ExecutionListResult {
-    pub executions: Vec<ExecutionInfo>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

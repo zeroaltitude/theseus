@@ -13,6 +13,8 @@ Key modules: `lib.rs` (the `method`, `notify`, `error_code` tables), `events.rs`
 - `actions.rs`: `action.list`'s params and result, and `ActionInfo`: the newest `n`, an execution's, or with
   `unsettled` every action not settled however old (theseus-hnof.3), which the cockpit's Ship and watch read beside
   the newest page so a job that runs for hours keeps its place.
+- `exec_list.rs` (theseus-0jet): `execution.list`'s params and result: no params is every execution as before; `{n,
+  before}` the newest `n` by birth with the result's `older` cursor; `{ids}` only those.
 - `cancel.rs` (M4 18a): a cancel's verdict on the wire (`CancelVerdict`), health's `CancelCount`, and `words`, the
   one wording of a verdict every surface shows.
 - `gate.rs`: the gate's record of a tool call (`GateRecord`), written through `canonical` (sorted keys), so stored

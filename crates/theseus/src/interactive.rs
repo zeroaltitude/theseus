@@ -118,7 +118,7 @@ pub async fn watch(
         Some(s) if resolve::whole_session(&s).is_some() => resolve::trimmed(&s).to_string(),
         Some(s) => resolve::existing_session(conn, &s).await?,
         None => serde_json::from_value::<SessionListResult>(
-            call(conn, method::SESSION_LIST, Value::Null, &mut early).await?,
+            call(conn, method::SESSION_LIST, json!({ "n": 1 }), &mut early).await?,
         )?
         .sessions
         .first()

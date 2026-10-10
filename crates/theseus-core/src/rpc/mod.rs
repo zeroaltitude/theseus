@@ -19,6 +19,7 @@ mod context;
 pub(crate) use confirms::{expired_answer, Act, EXPIRY};
 mod disk_watch;
 mod driver;
+mod exec_list;
 mod explain;
 mod import;
 mod info;
@@ -46,6 +47,8 @@ mod sessions;
 pub(crate) use server::write_item;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_exec_list;
 #[cfg(test)]
 mod tests_health_imported;
 #[cfg(test)]

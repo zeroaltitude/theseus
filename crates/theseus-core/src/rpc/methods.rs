@@ -1434,36 +1434,6 @@ impl Core {
         }
     }
 
-    /// Every execution, with its attention (theseus-in3): a task's parent
-    /// session is its parent execution's.
-    pub(crate) fn execution_list(
-        &self,
-    ) -> Result<theseus_protocol::ExecutionListResult, RpcFailure> {
-        let execs = self.kernel.executions()?;
-        let pending = self.pending_by_execution(&self.kernel.pending_confirms()?, None);
-        let session_of: std::collections::HashMap<&str, &str> = execs
-            .iter()
-            .map(|e| (e.id.as_str(), e.session_id.as_str()))
-            .collect();
-        Ok(theseus_protocol::ExecutionListResult {
-            executions: execs
-                .iter()
-                .map(|e| {
-                    let parent = e
-                        .parent
-                        .as_deref()
-                        .and_then(|p| session_of.get(p))
-                        .map(|s| s.to_string());
-                    let asks = pending.get(&e.id).cloned().unwrap_or_default();
-                    let mut info = Self::execution_info(e);
-                    info.attention =
-                        Some(crate::push::view(e, asks, parent, 0, e.updated_at_ms).attention);
-                    info
-                })
-                .collect(),
-        })
-    }
-
     pub(super) fn action_list(
         &self,
         p: theseus_protocol::ActionListParams,
