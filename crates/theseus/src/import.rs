@@ -310,7 +310,7 @@ pub fn people(r: &ImportPeopleResult) -> String {
         return propose(&r.tag, r.dry_run, p, r.ms);
     }
     format!(
-        "people of {}{}: {} read, {} found ({} held already, {} {}); {} {}, {} memberships of \
+        "people of {}{}: {} read, {} found ({} held already, {} {}){}; {} {}, {} memberships of \
          origin import{}; {} ({:.0} ms)\n",
         r.tag,
         if r.dry_run {
@@ -323,6 +323,10 @@ pub fn people(r: &ImportPeopleResult) -> String {
         r.held,
         r.made,
         if r.dry_run { "to declare" } else { "declared" },
+        match r.excluded {
+            0 => String::new(),
+            n => format!(", {n} excluded (the owner, agents, bots)"),
+        },
         count(r.joined, "session"),
         if r.dry_run { "to join" } else { "joined" },
         r.memberships,

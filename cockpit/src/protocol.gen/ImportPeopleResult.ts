@@ -23,7 +23,12 @@ joined: number, memberships: number,
  * Sessions with more people than a list keeps: the most active ones
  * were taken.
  */
-capped: number, frames: number, ms: number, 
+capped: number, frames: number, 
+/**
+ * Distinct authors and DM parties the exclusions left out (the owner,
+ * his agents, the house's names, a bot's or a UI's: theseus-0p1r).
+ */
+excluded: number, ms: number, 
 /**
  * `propose`'s report, in place of the counts above.
  */

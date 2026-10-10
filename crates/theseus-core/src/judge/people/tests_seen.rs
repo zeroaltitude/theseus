@@ -150,7 +150,8 @@ async fn under_the_gate_no_model_is_called_and_a_held_person_is_proposed() {
 
 /// Over the gate: exactly one extraction for the exchange, and people.v1
 /// judges what it found; its role line is kept only when Jev cleared it
-/// (an evaluative one, or one Jev did not answer of, is dropped).
+/// (an evaluative or a sensitive one, or one Jev did not answer of, is
+/// dropped).
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn over_the_gate_exactly_one_extraction_runs() {
     let jev = FakeJev::start().unwrap();
@@ -158,6 +159,7 @@ async fn over_the_gate_exactly_one_extraction_runs() {
     jev.script("real", Jev::Noul(0.95));
     jev.script("involved", Jev::Noul(0.93));
     jev.script("evaluative", Jev::Noul(0.05));
+    jev.script("sensitive", Jev::Noul(0.05));
     jev.script(
         "match",
         Jev::Choice {
@@ -191,6 +193,21 @@ async fn over_the_gate_exactly_one_extraction_runs() {
     assert_eq!(line(&j), None, "an evaluative line is dropped");
     j.answers.retain(|a| a.question != "evaluative");
     assert_eq!(line(&j), None, "a line Jev did not answer of is dropped");
+    let mut j: theseus_judge::Judgment = serde_json::from_value(calls[0].data.clone()).unwrap();
+    for a in j.answers.iter_mut().filter(|a| a.question == "sensitive") {
+        a.answer = theseus_judge::Answer::Noul { noul: 0.91 };
+    }
+    assert_eq!(
+        line(&j),
+        None,
+        "a sensitive line (pay, health, leave, HR) is dropped"
+    );
+    j.answers.retain(|a| a.question != "sensitive");
+    assert_eq!(
+        line(&j),
+        None,
+        "a line Jev did not clear of that is dropped"
+    );
     tokio::time::sleep(Duration::from_millis(300)).await;
     assert_eq!(
         r.fake.requests().len(),

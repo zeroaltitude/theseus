@@ -428,9 +428,15 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     call). A pass (`run.rs`): `[people] extract_profile` (`config/people.rs`) answers through one tool
     (`extract.rs`: name, handles, role line, evidence; scrubbed lines), a `people.extracted` row (cost, tokens,
     model; a day-ceiling spend kind); the owner, personas, agents, `[people] not_people` and a session's known names
-    excluded before any call (`NotPeople`); one `people.v1` judgment a kept candidate (real, involved, which of the
-    50 nearest held people or new, whether its role line judges the person), the candidate in its context. Code
-    decides as the proposals are read (`people::decide`, `[people] act`/`confirm`): `rpc/proposals.rs` lists them
+    excluded before any call (`NotPeople`, built by `Core::not_people` in `house.rs`, theseus-0p1r: the place rule's
+    owner handles, not only `[places] owner`; the held person they hold, by its name and each word, never a
+    candidate nor a `match` option; every imported episode's agent and each agent's `Name:` in its imported
+    `IDENTITY.md`, kept per catalog version; the house's names, the profiles and models; a bot's or a UI's name;
+    `fold` drops a leading "@"); one `people.v1` judgment a kept candidate (real, involved, which of the 50 nearest
+    held people or new, whether its role line judges the person, whether it carries their pay, money, health,
+    leave or HR matters: either, or unanswered, drops the line), the candidate in its context. Code
+    decides as the proposals are read (`people::decide`, `[people] act`/`confirm`; a person the exclusions exclude
+    is not listed nor bulk-accepted, counted in `ontology.proposals`' `hidden`): `rpc/proposals.rs` lists them
     beside the topics' (`OntologyProposal.person`), and an accept joins the held person, or declares the new one
     (unless an exact handle or name finds it by then). Tests: `judge/people/tests.rs`.
     **Live, gated by Jev** (theseus-u5n8, the owner's "combine, gated by Jev"; `seen.rs`, pack `people_seen.v1`,
@@ -731,7 +737,8 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   live sessions' `person:<name>` authors (from their nodes) and each DM's other party (its place's id: digits are
   `discord:`, else `slack:`), one person each (a name that spoke alone in one party's DMs is that party), found by an
   exact handle first (`Ontology::person_by_handle`; a DM's person holds its `discord:<id>`), never by a display name
-  across makers; each session's person list, origin `import`, at most `PER_SESSION` (12). The erase empties every
+  across makers; an author or party the proposals' exclusions exclude (`Core::not_people`, theseus-0p1r) is never a
+  person (counted in `excluded`); each session's person list, origin `import`, at most `PER_SESSION` (12). The erase empties every
   stored kind's lists (`Kind::stores`) and retires the import's people nothing uses. The person kind is given with a
   stored side (`theseus_ontology::person`): the operator and the import declare people and keep stored lists, never
   the transport; `Walk::of` takes a stored person the place also gives once; handles, merges and their undo are

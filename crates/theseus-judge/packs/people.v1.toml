@@ -7,7 +7,9 @@
 # tag's sessions by the owner's backfill. The state is the session's title, the
 # candidate, its evidence and the held people it may be; the `match` options
 # are the held people nearest by name and handle (at most 50). No live action:
-# its answers become proposals the owner accepts or rejects.
+# its answers become proposals the owner accepts or rejects. A role line that
+# judges the person (`evaluative`) or carries what is theirs alone (`sensitive`:
+# pay, money owed or paid, health, leave, HR; theseus-0p1r) is dropped by code.
 id = "people"
 version = 1
 jev_model = "jev-1.13.0"
@@ -17,7 +19,7 @@ state_cap_tokens = 3000
 sample = 1.0
 baseline = "no_membership"
 action = "none"
-description = "Whether a name found in a session's text is a real person involved in its work, which held person it is, and whether its role line judges the person."
+description = "Whether a name found in a session's text is a real person involved in its work, which held person it is, and whether its role line judges the person or carries their private matters."
 
 [questions.real]
 type = "noul"
@@ -55,3 +57,12 @@ confirm = 0.60
 only_when = "role_line"
 when_true = "The line praises, criticizes or rates the person, or says what they are like, how they behave, or how they are regarded."
 when_false = "The line states only what the person does or owns: a role, projects, channels or responsibilities."
+
+[questions.sensitive]
+type = "noul"
+instructions = "Does the candidate's role line carry the person's private matters: their pay, money owed to or paid to them, their health, their leave, or other HR matters?"
+act = 0.90
+confirm = 0.60
+only_when = "role_line"
+when_true = "The line names the person's compensation, a bonus, a salary, an expense, an invoice or a payment to or from them, an illness or a medical matter, time off or leave, a review, a hire, a requisition, a dismissal, or another HR matter about them."
+when_false = "The line states only the person's role, projects, channels or responsibilities, with nothing of their pay, money, health, leave or HR matters."

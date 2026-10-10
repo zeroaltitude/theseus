@@ -128,7 +128,7 @@ export function ProposalsPanel({ disabled }: { disabled: boolean }) {
     if (out) setPicked(new Set())
   }
   return (
-    <Panel title={<>proposals · {data?.proposals.length ?? '…'}{data?.more ? ` (+${data.more})` : ''}</>} icon={<Vote size={13} />}>
+    <Panel title={<>proposals · {data?.proposals.length ?? '…'}{data?.more ? ` (+${data.more})` : ''}{data?.hidden ? ` · ${data.hidden} hidden by the exclusions` : ''}</>} icon={<Vote size={13} />}>
       <div className="flex flex-col gap-2 p-2 text-[11.5px]">
         <div className="flex items-center gap-2">
           {([null, 'topic', 'person'] as const).map((k) => (

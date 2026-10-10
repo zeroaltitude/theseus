@@ -7,6 +7,10 @@
 //!   party, which the episode's place names with its id. A DM's id is the
 //!   other party's handle: `discord:<id>` when it is all digits (a
 //!   snowflake), else `slack:<id>`.
+//! - **Never a person** (theseus-0p1r): an author or a DM's party the
+//!   proposals' exclusions exclude (`judge::people::NotPeople`: the owner,
+//!   his agents and the house's names the store knows, `[people]
+//!   not_people`, a bot's or a UI's name), counted in `excluded`.
 //! - **One person each**: a DM's party is found by its handle. An author is
 //!   found by name, and a name that spoke in the DMs of exactly one party
 //!   (the only person author there) is that party everywhere; any other
@@ -41,6 +45,7 @@ use theseus_protocol::import::ImportPeopleResult;
 use super::tag_scope;
 use super::topics::{made_by, write_frames, Writer, ERASER};
 use super::write::{FRAME_RECORDS, ONE};
+use crate::judge::people::NotPeople;
 use crate::node::Body;
 use crate::ontology::Board;
 use crate::session::SessionRecord;
@@ -86,14 +91,20 @@ pub fn author_person(author: &str) -> Option<&str> {
         .filter(|n| !n.is_empty())
 }
 
+/// The tag's sessions, each with its people, and how many authors and
+/// parties the exclusions left out.
+type Read = (Vec<(String, Seen)>, u64);
+
 /// The tag's live imported sessions, each with its people, read from the
 /// stored records; `None` when the stop came first.
 fn read(
     store: &Store,
     tag: &str,
+    not: &NotPeople,
     stopping: &impl Fn() -> bool,
-) -> Result<Option<Vec<(String, Seen)>>> {
+) -> Result<Option<Read>> {
     let mut out = Vec::new();
+    let mut excluded = std::collections::HashSet::new();
     for (i, r) in store
         .scope_after(&tag_scope(tag), 0)?
         .into_iter()
@@ -112,7 +123,18 @@ fn read(
         let mut seen = Seen::default();
         if imp.place.kind == "dm" {
             if let Some(h) = imp.place.id.as_deref().and_then(party_handle) {
-                seen.party = Some((h, imp.place.name.clone()));
+                let name = imp.place.name.clone();
+                let candidate = theseus_judge::builders::PersonCandidate {
+                    name: name.clone().unwrap_or_default(),
+                    handles: vec![h.clone()],
+                    role_line: String::new(),
+                    evidence: Vec::new(),
+                };
+                if not.excludes(&candidate) {
+                    excluded.insert(h);
+                } else {
+                    seen.party = Some((h, name));
+                }
             }
         }
         for (_, n) in store.session_nodes(&rec.session_id)? {
@@ -120,6 +142,10 @@ fn read(
                 continue;
             }
             if let Some(name) = n.author.as_deref().and_then(author_person) {
+                if not.excludes_name(name) {
+                    excluded.insert(name.to_lowercase());
+                    continue;
+                }
                 let e = seen
                     .authors
                     .entry(name.to_lowercase())
@@ -129,7 +155,7 @@ fn read(
         }
         out.push((rec.session_id.clone(), seen));
     }
-    Ok(Some(out))
+    Ok(Some((out, excluded.len() as u64)))
 }
 
 /// Each name that spoke in one party's DMs alone (the only person author
@@ -247,24 +273,30 @@ fn lists_of(
 }
 
 /// `import.people`: `tag`'s sessions' people as persons and memberships, as
-/// `by` ordered it; with `dry_run`, only the counts.
+/// `by` ordered it, none `not` excludes; with `dry_run`, only the counts.
 pub fn assign_unless(
     store: &Store,
     board: &Board,
-    tag: &str,
-    by: &str,
+    (tag, by): (&str, &str),
     dry_run: bool,
+    not: &NotPeople,
     stopping: impl Fn() -> bool,
 ) -> Result<(ImportPeopleResult, bool)> {
-    assign_in(store, board, tag, by, dry_run, stopping, FRAME_RECORDS)
+    assign_in(
+        store,
+        board,
+        (tag, by),
+        (dry_run, not),
+        stopping,
+        FRAME_RECORDS,
+    )
 }
 
 pub(super) fn assign_in(
     store: &Store,
     board: &Board,
-    tag: &str,
-    by: &str,
-    dry_run: bool,
+    (tag, by): (&str, &str),
+    (dry_run, not): (bool, &NotPeople),
     stopping: impl Fn() -> bool,
     cap: usize,
 ) -> Result<(ImportPeopleResult, bool)> {
@@ -277,9 +309,10 @@ pub(super) fn assign_in(
         dry_run,
         ..ImportPeopleResult::default()
     };
-    let Some(sessions) = read(store, tag, &stopping)? else {
+    let Some((sessions, excluded)) = read(store, tag, not, &stopping)? else {
         return Ok((out, true));
     };
+    out.excluded = excluded;
     out.sessions = sessions.len() as u64;
 
     let (linked, people) = gather(&sessions);

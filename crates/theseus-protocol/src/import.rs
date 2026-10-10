@@ -228,6 +228,11 @@ pub struct ImportPeopleResult {
     pub capped: u64,
     #[cfg_attr(test, ts(type = "number"))]
     pub frames: u64,
+    /// Distinct authors and DM parties the exclusions left out (the owner,
+    /// his agents, the house's names, a bot's or a UI's: theseus-0p1r).
+    #[serde(default)]
+    #[cfg_attr(test, ts(type = "number"))]
+    pub excluded: u64,
     pub ms: f64,
     /// `propose`'s report, in place of the counts above.
     #[serde(default, skip_serializing_if = "Option::is_none")]

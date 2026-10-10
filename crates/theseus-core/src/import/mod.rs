@@ -43,7 +43,7 @@ pub mod topics;
 pub mod write;
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
 #[cfg(test)]
 mod tests_catalog;
 #[cfg(test)]

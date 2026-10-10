@@ -289,12 +289,15 @@ impl Core {
         let core = self.clone();
         let (r, stopped_early) = blocking(move || {
             let stopping = || core.outbox.stopping();
+            // The proposals' exclusions, so no agent or bot is declared (theseus-0p1r).
+            let o = core.runner.ontology.snapshot(&core.store)?;
+            let not = core.not_people(&[], &o);
             people::assign_unless(
                 &core.store,
                 &core.runner.ontology,
-                &p.tag,
-                &by,
+                (&p.tag, &by),
                 p.dry_run,
+                &not,
                 stopping,
             )
         })

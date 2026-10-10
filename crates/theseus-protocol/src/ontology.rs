@@ -231,6 +231,11 @@ pub struct OntologyProposalsResult {
     /// Unanswered proposals past `limit`, left out.
     #[serde(default)]
     pub more: u32,
+    /// Unanswered proposals of a person the exclusions exclude (the owner,
+    /// his agents, the house's names: theseus-0p1r), not listed and never
+    /// taken in bulk; nothing deleted, nothing answered for the owner.
+    #[serde(default)]
+    pub hidden: u32,
 }
 
 /// One proposal: a `categorize.v1` judgment's `topic` answer.

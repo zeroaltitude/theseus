@@ -6,7 +6,9 @@
 //! - `extract_profile`: the profile whose model reads a session's text and
 //!   returns its candidate people through a tool schema (`haiku`).
 //! - `not_people`: names that are never proposed, beside the owner, the
-//!   personas and the agents the sessions name (folded: case and spaces).
+//!   personas, the agents the store knows and the house's names (folded:
+//!   case, spaces and a leading "@"): the names the store cannot know, the
+//!   owner's full name, say (theseus-0p1r).
 //! - `act`, `confirm`: a candidate whose least probability (real, involved,
 //!   and its match) reaches `act` is proposed in the act band, one at
 //!   `confirm` in the confirm band, and one under `confirm` is dropped.

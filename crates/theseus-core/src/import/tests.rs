@@ -106,7 +106,7 @@ fn params(lines: Vec<ImportLine>) -> Value {
 
 /// One request over a connection to the core, as `tests_reach`'s: its
 /// result, or its error's code and message.
-pub(super) async fn call(core: &Arc<Core>, m: &str, params: Value) -> Result<Value, (i64, String)> {
+pub(crate) async fn call(core: &Arc<Core>, m: &str, params: Value) -> Result<Value, (i64, String)> {
     call_as(core, Client::new("cli", Surface::Cli), m, params).await
 }
 

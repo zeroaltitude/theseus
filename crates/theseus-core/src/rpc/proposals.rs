@@ -17,6 +17,13 @@
 //! the accept declares (or joins the held person an exact handle or name
 //! finds by then), its labels in that scope.
 //!
+//! A person's proposal is not listed (and so never taken in bulk) when the
+//! exclusions exclude its person (theseus-0p1r: `Core::not_people`, the
+//! owner's handles and his held person, the agents the store knows, the
+//! house's names, `[people] not_people`): a new person by its candidate, a
+//! held one by its id or name. Those the backfill made before the
+//! exclusions are hidden so, counted in `hidden`; nothing is answered.
+//!
 //! The people gate's (`people_seen.v1`, theseus-u5n8) from `judge:people_seen`:
 //! each listed person whose Noul reaches `[people] confirm` is a proposal of
 //! that held person for the session, one judgment holding several, so each
@@ -283,13 +290,19 @@ impl Core {
     ) -> Result<OntologyProposalsResult> {
         let o = self.runner.ontology.snapshot(&self.store)?;
         let (proposed, labelled) = self.proposals_scan()?;
+        let not = self.not_people(&[], &o);
         let mut titles: BTreeMap<String, Option<String>> = BTreeMap::new();
         let mut out = Vec::new();
+        let mut hidden = 0u32;
         let mut shown: HashSet<(String, String)> = HashSet::new();
         for pr in proposed.into_iter().rev() {
             if labelled.contains(&pr.id())
                 || p.session_id.as_ref().is_some_and(|s| *s != pr.session)
             {
+                continue;
+            }
+            if pr.person.as_ref().is_some_and(|d| excluded(&o, &not, d)) {
+                hidden += 1;
                 continue;
             }
             // A held person once a session, the newest; the gate's, none
@@ -333,6 +346,7 @@ impl Core {
         Ok(OntologyProposalsResult {
             proposals: out,
             more,
+            hidden,
         })
     }
 
@@ -585,6 +599,20 @@ fn topic_of(
             }
         },
     })
+}
+
+/// Whether the exclusions exclude a person's proposal: a new person by its
+/// candidate, a held one by its id (the owner's) or its name.
+fn excluded(o: &Ontology, not: &people::NotPeople, d: &Decided) -> bool {
+    match &d.whom {
+        Whom::New => not.excludes(&d.candidate),
+        Whom::Held(id) => {
+            not.excludes_held(id)
+                || o.categories()
+                    .find(|c| c.kind() == theseus_ontology::person::KIND && c.id.local() == id)
+                    .is_some_and(|c| not.excludes_person(c))
+        }
+    }
 }
 
 /// A new person's proposal's person when the ontology holds one by now: by

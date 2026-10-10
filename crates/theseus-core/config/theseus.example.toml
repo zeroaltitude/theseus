@@ -804,15 +804,22 @@ idle_unload_mins = 10.0                   # the model unloads after this long un
 # human-facing text and returns candidate people through a tool schema; Jev
 # (people.v1) judges each; code decides. Proposals only: the owner accepts them
 # (`theseus ontology proposals`, `theseus ontology accept --kind person`).
-# Never proposed: the owner, the personas, the agents a session names, and
-# not_people. `theseus import people TAG --propose` runs it over an import.
+# Never proposed: the owner (his handles, his DM person and each word of its
+# name), the personas, the agents (a session's, every imported episode's agent,
+# and each agent's name in its imported IDENTITY.md), the house's names
+# (theseus, jev, openclaw, claude, the profiles and their models), a bot's or a
+# UI's name, and not_people (theseus-0p1r); a role line that judges the person
+# or carries their pay, money, health, leave or HR matters is dropped. A name
+# the store cannot know (the owner's full name, an agent never imported) goes
+# in not_people. `theseus import people TAG --propose` runs it over an import.
 # Live, Jev gates the extractor (people_seen.v1, theseus-u5n8): at each due
 # exchange end one Jev call asks which held people the exchange involves (each
 # at `confirm` or above is proposed for the session) and whether a person not
 # held is; only at `gate` or above does the extractor read the exchange.
 # [people]
 # extract_profile = "haiku"               # the profile that extracts the candidates
-# not_people = []                         # names never proposed, e.g. ["Gullbot"]
+# not_people = []                         # names never proposed, e.g. ["Gullbot"], or
+#                                         # the owner's other names: ["Sable Thorn", "S. Thorn"]
 # act = 0.9                               # the least probability that proposes in the act band
 # confirm = 0.6                           # ... in the confirm band; under it, dropped
 # live = true                             # people.v1 at a private conversation's exchange end

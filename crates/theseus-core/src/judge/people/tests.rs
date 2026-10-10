@@ -222,6 +222,7 @@ fn script(jev: &FakeJev) {
     jev.script("real", Jev::Noul(0.95));
     jev.script("involved", Jev::Noul(0.93));
     jev.script("evaluative", Jev::Noul(0.05));
+    jev.script("sensitive", Jev::Noul(0.05));
     jev.script(
         "match",
         Jev::Choice {

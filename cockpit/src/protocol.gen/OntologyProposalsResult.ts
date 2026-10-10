@@ -5,4 +5,10 @@ export type OntologyProposalsResult = { proposals: Array<OntologyProposal>,
 /**
  * Unanswered proposals past `limit`, left out.
  */
-more: number, };
+more: number, 
+/**
+ * Unanswered proposals of a person the exclusions exclude (the owner,
+ * his agents, the house's names: theseus-0p1r), not listed and never
+ * taken in bulk; nothing deleted, nothing answered for the owner.
+ */
+hidden: number, };

@@ -20,7 +20,7 @@ use std::sync::{Arc, Mutex};
 use theseus_store::{kinds, NewRecord};
 
 use super::run::{meta, Session};
-use super::{lines, seen, Line, NotPeople, PACK};
+use super::{lines, seen, Line, PACK};
 use crate::judge::categorize::{due, is_human, ExchangeEnd, Mark};
 use crate::judge::JudgeService;
 use crate::node::Node;
@@ -30,10 +30,12 @@ use crate::rpc::Core;
 /// A session's mark: its last extraction, at META `judge.people.<session>`.
 pub const MARK_PREFIX: &str = "judge.people.";
 
-/// The sessions whose decision is running.
+/// The sessions whose decision is running, and the agents' names the
+/// store knows (`house.rs`).
 #[derive(Default)]
 pub struct Point {
     deciding: Mutex<HashSet<String>>,
+    pub(super) house: super::house::Kept,
 }
 
 impl JudgeService {
@@ -165,7 +167,7 @@ impl Core {
                 Err(_) => return false,
             },
         };
-        let not = NotPeople::of(&self.runner.cfg, found).with_held(&o);
+        let not = self.not_people(found, &o);
         let listed = seen::listed(&o, sid, found, &not);
         let judged = self
             .runner

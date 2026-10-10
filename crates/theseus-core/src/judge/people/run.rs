@@ -168,7 +168,7 @@ impl Core {
                 .snapshot(&self.store)
                 .map_err(|e| format!("the ontology was not read: {e:#}"))?,
         };
-        let not = NotPeople::of(&self.runner.cfg, &s.lines).with_held(&o);
+        let not = self.not_people(&s.lines, &o);
         let mut known = s.known.clone();
         known.extend(Self::people_held_by(&o, s.sid));
         let (mut kept, mut excluded) = (Vec::new(), Vec::new());
@@ -186,7 +186,7 @@ impl Core {
         let (judgments, jev) = self
             .runner
             .judge
-            .judge_people(s.sid, s.title, s.purpose, &id, kept, &o)
+            .judge_people(s.sid, s.title, s.purpose, &id, kept, (&o, &not))
             .await;
         pass.judged = judgments.len() as u64;
         pass.spent += jev;
@@ -230,7 +230,8 @@ impl Core {
 impl JudgeService {
     /// `people.v1` on each kept candidate, one judgment each, in one
     /// decision point: their ids and Jev's cost. None asked when the pack is
-    /// off, the client cannot be built, or the day's budget is spent.
+    /// off, the client cannot be built, or the day's budget is spent. The
+    /// `match` options are the nearest held people `not` leaves.
     pub(crate) async fn judge_people(
         &self,
         sid: &str,
@@ -238,7 +239,7 @@ impl JudgeService {
         purpose: &str,
         extraction: &str,
         kept: Vec<(PersonCandidate, Vec<String>)>,
-        o: &Ontology,
+        (o, not): (&Ontology, &NotPeople),
     ) -> (Vec<String>, Micros) {
         if kept.is_empty() || self.mode_for(PACK, sid).mode == PackMode::Off {
             return (Vec::new(), 0);
@@ -259,7 +260,7 @@ impl JudgeService {
         for (candidate, nodes) in kept {
             let input = PeopleInput {
                 session_title: title.to_string(),
-                held: nearest(o, &candidate),
+                held: nearest(o, &candidate, not),
                 candidate: candidate.clone(),
             };
             let Ok(state) = theseus_judge::prepare(&pack, &Input::People(input), &scrub) else {

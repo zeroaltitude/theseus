@@ -86,10 +86,19 @@ pub fn ontology_memberships_lines(ms: &[OntologyMembership]) -> Vec<String> {
 /// `theseus ontology proposals`: a line per proposal, newest first, with
 /// what answers it.
 pub fn ontology_proposals_lines(r: &OntologyProposalsResult) -> Vec<String> {
+    let hidden = (r.hidden > 0).then(|| {
+        format!(
+            "{} hidden by the exclusions (the owner, his agents, the house's names): not listed, never \
+             accepted in bulk",
+            r.hidden
+        )
+    });
     if r.proposals.is_empty() {
-        return vec![
-            "No proposals: Jev's categorize.v1 and people.v1 have none unanswered.".into(),
+        let mut out = vec![
+            "No proposals: Jev's categorize.v1 and people.v1 have none unanswered.".to_string(),
         ];
+        out.extend(hidden);
+        return out;
     }
     let mut out: Vec<String> = r
         .proposals
@@ -133,6 +142,7 @@ pub fn ontology_proposals_lines(r: &OntologyProposalsResult) -> Vec<String> {
     if r.more > 0 {
         out.push(format!("… and {} more (--limit shows them)", r.more));
     }
+    out.extend(hidden);
     out.push(
         "`theseus ontology accept JUDGMENT` (with --topic NAME for a new topic) or `theseus \
          ontology reject JUDGMENT` answers one."
@@ -180,6 +190,25 @@ mod tests {
                 "lighthouse (topic:lighthouse)  guidance v2 0123456789abcdef: Answer briefly.",
                 "  lamps (topic:lamps)",
             ]
+        );
+    }
+
+    #[test]
+    fn the_proposals_say_how_many_the_exclusions_hide() {
+        let none = OntologyProposalsResult {
+            hidden: 3,
+            ..Default::default()
+        };
+        let lines = ontology_proposals_lines(&none);
+        assert_eq!(lines.len(), 2, "{lines:?}");
+        assert!(
+            lines[1].starts_with("3 hidden by the exclusions"),
+            "{lines:?}"
+        );
+        assert!(
+            ontology_proposals_lines(&OntologyProposalsResult::default())
+                .iter()
+                .all(|l| !l.contains("hidden"))
         );
     }
 }
