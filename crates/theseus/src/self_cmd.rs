@@ -11,7 +11,7 @@ use theseus_client::{render, Conn};
 use theseus_protocol::method;
 use theseus_protocol::rsi::{
     SelfDigestParams, SelfDigestResult, SelfHaltParams, SelfLogParams, SelfLogResult,
-    SelfResumeParams, SelfState, SelfSwitchResult,
+    SelfResumeParams, SelfSwitchResult,
 };
 
 use crate::cmd::output;
@@ -95,7 +95,7 @@ pub async fn run(conn: &mut Conn, json: bool, cmd: SelfCmd) -> Result<()> {
                             "Self-improvement halted: nothing self-directed runs until the owner \
                                  resumes it (`theseus self resume`)."
                                 .to_string(),
-                        false => format!("Already halted: {}.", state_line(&r.state)),
+                        false => format!("Already halted: {}.", render::self_state_line(&r.state)),
                     }
                 );
                 Ok(())
@@ -113,8 +113,11 @@ pub async fn run(conn: &mut Conn, json: bool, cmd: SelfCmd) -> Result<()> {
                 println!(
                     "{}",
                     match r.changed {
-                        true => format!("Self-improvement resumed. {}.", state_line(&r.state)),
-                        false => format!("Not halted: {}.", state_line(&r.state)),
+                        true => format!(
+                            "Self-improvement resumed. {}.",
+                            render::self_state_line(&r.state)
+                        ),
+                        false => format!("Not halted: {}.", render::self_state_line(&r.state)),
                     }
                 );
                 Ok(())
@@ -135,39 +138,12 @@ pub async fn run(conn: &mut Conn, json: bool, cmd: SelfCmd) -> Result<()> {
     }
 }
 
-/// The switch and the mode in a line.
-pub fn state_line(s: &SelfState) -> String {
-    let mode = match s.mode {
-        theseus_protocol::rsi::SelfMode::Off => "mode off: nothing self-directed runs",
-        theseus_protocol::rsi::SelfMode::Act => "mode act",
-    };
-    let switch = match (s.halted, s.never_resumed) {
-        (true, true) => "halted (never resumed)".to_string(),
-        (true, false) => format!(
-            "halted by {}{}{}",
-            s.by.as_deref().unwrap_or("?"),
-            s.at_ms
-                .map(|t| format!(" at {}", render::fmt_date(t)))
-                .unwrap_or_default(),
-            s.why
-                .as_deref()
-                .map(|w| format!(": {w}"))
-                .unwrap_or_default()
-        ),
-        (false, _) => format!(
-            "released by {}{}",
-            s.by.as_deref().unwrap_or("?"),
-            s.at_ms
-                .map(|t| format!(" at {}", render::fmt_date(t)))
-                .unwrap_or_default()
-        ),
-    };
-    format!("{mode}; the kill switch is {switch}")
-}
-
 /// `theseus self log`'s lines: the state, then a row a change, newest first.
 pub fn log_lines(r: &SelfLogResult) -> Vec<String> {
-    let mut out = vec![format!("Self-improvement: {}.", state_line(&r.state))];
+    let mut out = vec![format!(
+        "Self-improvement: {}.",
+        render::self_state_line(&r.state)
+    )];
     if r.building {
         out.push(
             "The ledger's index is still being built after a start: ask again in a minute.".into(),

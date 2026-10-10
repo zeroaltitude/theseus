@@ -469,3 +469,20 @@ fn the_digest_is_posted_weekly_only_while_the_mode_acts() {
     assert!(!fresh.post_self_digest_if_due());
 }
 
+/// Health's `self` line reads the state every surface shows: halted on a
+/// store never resumed, allowed after the owner's resume, with who and where.
+#[test]
+fn health_carries_the_self_state() {
+    let c = core(SelfMode::Act);
+    let h = c.health().self_improve.expect("health's self");
+    assert_eq!(
+        (h.gate.as_str(), h.halted, h.never_resumed),
+        ("halted", true, true)
+    );
+    assert!(resume(&c, &cli(), None).unwrap());
+    let h = c.health().self_improve.unwrap();
+    assert_eq!((h.gate.as_str(), h.halted), ("allowed", false));
+    assert_eq!(h.via.as_deref(), Some("cli"));
+    let off = core(SelfMode::Off).health().self_improve.unwrap();
+    assert_eq!(off.gate, "off");
+}

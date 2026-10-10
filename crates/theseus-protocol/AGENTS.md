@@ -56,7 +56,8 @@ Key modules: `lib.rs` (the `method`, `notify`, `error_code` tables), `events.rs`
 - `rsi.rs` (theseus-pw1q): self-improvement's wire types (`self.halt`, `self.resume`, `self.log`, `self.digest`),
   and `SELF_ROWS`, the `self.*` rows later self steps write, declared with their fields before their writers: a
   name becomes a `LedgerKind` on the commit that first writes it (the reader rule), and every such row's data
-  carries `what`, `why`, `numbers` and `undo`.
+  carries `what`, `why`, `numbers` and `undo`. `SelfState` is also health's `self_improve` (health's `self` line);
+  `BinaryStatus` moved to `health.rs` to make room in lib.rs.
 - `ts.rs`: the TypeScript export.
 
 ## Invariants
