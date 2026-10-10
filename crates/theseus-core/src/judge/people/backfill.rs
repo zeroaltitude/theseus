@@ -63,7 +63,7 @@ fn tally(r: &mut PeopleProposeReport, pass: &super::run::Pass) {
 /// The words of a stop at the cap, and how to go on.
 fn at_cap(worst: Micros, spent: Micros, cap_usd: f64, left: u64, tag: &str) -> String {
     format!(
-        "stopped at the cap: the next session's worst case ({}) would pass ${cap_usd:.2} with {} \
+        "stopped at the cap: the next session's worst case ({}) would pass ${cap_usd} with {} \
          spent; {left} sessions left. Go on from the tag's mark: theseus import people {tag} \
          --propose --cap <dollars>",
         crate::narrative::dollars(worst),
