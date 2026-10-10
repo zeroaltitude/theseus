@@ -27,6 +27,8 @@ use crate::ledger::LedgerRow;
 use crate::node::{Body, Node};
 use crate::Core;
 
+mod hot;
+
 /// A time of day on the daemon's clock, `14:00`: how a label says a due time.
 pub fn hm(unix_ms: u64) -> String {
     crate::wake::local(unix_ms).hm()
@@ -200,6 +202,13 @@ struct Board {
     entries: HashMap<String, Entry>,
     /// The last frame applied.
     position: u64,
+    /// Each session's execution with a view (theseus-id8d): `session.wait`
+    /// finds a session's view by it, never by a walk of the board.
+    by_session: HashMap<String, String>,
+    /// The entries with a view, and their questions, kept as they change so
+    /// health counts nothing (theseus-id8d).
+    views: u64,
+    questions: u64,
 }
 
 /// The push (design `stage2` §2.7): the board, the seed, and the feed that
@@ -368,7 +377,7 @@ impl Push {
     /// The board as `executions.watch` answers it: its position, every view
     /// that needs you or works (needs you first, the longest waiting first),
     /// then the `limit` most recently active of the rest, and how many it
-    /// holds.
+    /// holds: a caller adds the cold ones (`Kernel::count_executions`).
     pub fn snapshot(&self, limit: usize) -> (u64, Vec<ExecutionView>, u64) {
         let b = self.board.lock().unwrap();
         let (mut active, mut rest): (Vec<ExecutionView>, Vec<ExecutionView>) = b
@@ -384,16 +393,27 @@ impl Push {
         (b.position, active, total)
     }
 
-    /// A session's view, if the board holds one: `session.wait` reads it.
+    /// A session's view, loading its execution when the board left it cold
+    /// (theseus-id8d): `session.wait` reads it.
+    pub fn view_or_load(&self, core: &Core, session_id: &str) -> Option<ExecutionView> {
+        if let Some(v) = self.view_of_session(session_id) {
+            return Some(v);
+        }
+        let rec: crate::session::SessionRecord = core.store.get_session(session_id).ok()??;
+        let (pos, e) = core
+            .kernel
+            .execution_at(rec.execution_id.as_deref()?)
+            .ok()??;
+        let parent = parent_session(core, &e);
+        let mut b = self.board.lock().unwrap();
+        b.load(pos, &e, parent)
+    }
+
+    /// A session's view, if the board holds one.
     pub fn view_of_session(&self, session_id: &str) -> Option<ExecutionView> {
-        self.board
-            .lock()
-            .unwrap()
-            .entries
-            .values()
-            .filter_map(|e| e.view.as_ref())
-            .find(|v| v.session_id == session_id)
-            .cloned()
+        let b = self.board.lock().unwrap();
+        let id = b.by_session.get(session_id)?;
+        b.entries.get(id)?.view.clone()
     }
 
     /// The feed: the board's position, after each frame.
@@ -407,8 +427,8 @@ impl Push {
         PushStatus {
             seeded: self.seeded(),
             seed_us: self.seed_us.load(Ordering::Relaxed),
-            board: b.entries.values().filter(|e| e.view.is_some()).count() as u64,
-            questions: b.entries.values().map(|e| e.pending.len() as u64).sum(),
+            board: b.views,
+            questions: b.questions,
             watchers: watchers as u64,
             events: self.events.load(Ordering::Relaxed),
             waiting: self.waits.lock().unwrap().values().sum::<usize>() as u64,
@@ -418,14 +438,36 @@ impl Push {
     }
 }
 
-/// The seed: every execution, then every action, with their positions. The
-/// order matters: a frame that lands between the two reads has its
-/// execution record applied from the queue (its position is above the one
-/// read) and its actions skipped (the second read saw them), so the board
-/// matches the store either way.
+/// The seed (theseus-id8d): the actions not settled, then the executions
+/// that need you or work and the most recently written (`hot`), each by the
+/// store's terms, with their positions: never every action ever, nor every
+/// execution. A frame that lands between the reads is applied from the
+/// queue, each record newer than what the board holds of its entity, and
+/// applying one again changes nothing, so the board matches the store either
+/// way. A settled action shows in no view, so the seed needs none: one whose
+/// record comes off the queue changes nothing the board holds, and its older
+/// records on the queue come before it.
 fn seed(core: &Core) -> anyhow::Result<Board> {
-    let execs = core.kernel.executions_at()?;
-    let actions = core.kernel.actions_at()?;
+    seed_recent(core, hot::RECENT)
+}
+
+/// The seed, with the `recent` most recently written executions.
+fn seed_recent(core: &Core, recent: usize) -> anyhow::Result<Board> {
+    let actions = core.kernel.open_actions_at()?;
+    let execs = hot::executions(core, &actions, recent)?;
+    let newest = core.kernel.newest_action_position()?;
+    let mut b = seed_from(core, execs, actions)?;
+    b.position = b.position.max(newest);
+    Ok(b)
+}
+
+/// The board from these executions and actions, with their positions: the
+/// seed's, and its test's oracle, which hands it every action.
+fn seed_from(
+    core: &Core,
+    execs: Vec<(u64, Execution)>,
+    actions: Vec<(u64, Action)>,
+) -> anyhow::Result<Board> {
     let mut b = Board::default();
     let session_of: HashMap<&str, &str> = execs
         .iter()
@@ -476,6 +518,7 @@ fn seed(core: &Core) -> anyhow::Result<Board> {
         );
         v.outstanding = tool_calls(e, &mut entry.models);
         v.attention = attention(&v, &hm);
+        b.by_session.insert(e.session_id.clone(), e.id.clone());
         entry.view = Some(v);
     }
     // The questions of an execution whose record came after the first read:
@@ -483,10 +526,40 @@ fn seed(core: &Core) -> anyhow::Result<Board> {
     for (id, ps) in pending {
         b.entries.entry(id).or_default().pending = ps;
     }
+    (b.views, b.questions) = b.recount();
     Ok(b)
 }
 
 impl Board {
+    /// A cold execution's view, from its record at `pos`, unless the board
+    /// has one by now: a frame applied since the read made it.
+    fn load(&mut self, pos: u64, e: &Execution, parent: Option<String>) -> Option<ExecutionView> {
+        let entry = self.entries.entry(e.id.clone()).or_default();
+        if let Some(v) = &entry.view {
+            return Some(v.clone());
+        }
+        if pos < entry.exec_pos {
+            return None;
+        }
+        entry.exec_pos = pos;
+        entry.seed_pos = entry.seed_pos.max(pos);
+        let mut v = view(e, entry.pending.clone(), parent, pos, e.updated_at_ms);
+        v.outstanding = tool_calls(e, &mut entry.models);
+        v.attention = attention(&v, &hm);
+        entry.view = Some(v.clone());
+        self.views += 1;
+        self.by_session.insert(e.session_id.clone(), e.id.clone());
+        Some(v)
+    }
+
+    /// The views and questions, counted entry by entry: the seed's counts,
+    /// and what the kept ones must equal.
+    fn recount(&self) -> (u64, u64) {
+        let views = self.entries.values().filter(|e| e.view.is_some()).count();
+        let questions: usize = self.entries.values().map(|e| e.pending.len()).sum();
+        (views as u64, questions as u64)
+    }
+
     /// Apply a frame: each record newer than what the board holds of its
     /// entity, then each touched execution's view, built again. Returns the
     /// views that changed in what a surface shows, with `previous` set.
@@ -558,6 +631,7 @@ impl Board {
                 (true, None) => asks.push(a),
                 (false, Some(i)) => {
                     entry.pending.remove(i);
+                    self.questions = self.questions.saturating_sub(1);
                     touch(&mut touched, &a.execution_id);
                 }
                 _ => {}
@@ -573,7 +647,22 @@ impl Board {
                 // A budget question first, as `Kernel::pending_confirms` orders them.
                 let at = if p.budget { 0 } else { entry.pending.len() };
                 entry.pending.insert(at, p);
+                self.questions += 1;
                 touch(&mut touched, &a.execution_id);
+            }
+        }
+        // A touched execution the board left cold, with no record here:
+        // read, so its view shows what the frame changed (theseus-id8d).
+        let mut loaded = Vec::new();
+        for id in &touched {
+            let cold = self.entries.get(id).is_none_or(|e| e.view.is_none());
+            if cold && !execs.iter().any(|e| &e.id == id) {
+                if let Ok(Some((pos, e))) = core.kernel.execution_at(id) {
+                    let entry = self.entries.entry(id.clone()).or_default();
+                    entry.exec_pos = entry.exec_pos.max(pos);
+                    execs.push(e);
+                    loaded.push(id.clone());
+                }
             }
         }
         let mut out = Vec::new();
@@ -583,7 +672,13 @@ impl Board {
                 .and_then(|e| e.parent.as_deref())
                 .and_then(|p| self.entries.get(p))
                 .and_then(|p| p.view.as_ref())
-                .map(|v| v.session_id.clone());
+                .map(|v| v.session_id.clone())
+                .or_else(|| {
+                    loaded
+                        .contains(&id)
+                        .then(|| parent_session(core, latest?))
+                        .flatten()
+                });
             let Some(entry) = self.entries.get_mut(&id) else {
                 continue;
             };
@@ -626,13 +721,22 @@ impl Board {
                         new.attention.since_ms = old.attention.since_ms;
                     }
                 }
-                None => {}
+                None => self.views += 1,
             }
+            self.by_session
+                .insert(new.session_id.clone(), new.execution_id.clone());
             entry.view = Some(new.clone());
             out.push(new);
         }
         out
     }
+}
+
+/// The session of `e`'s parent, read from the store: a cold execution's
+/// parent may be cold too.
+fn parent_session(core: &Core, e: &Execution) -> Option<String> {
+    let parent = core.kernel.execution(e.parent.as_deref()?).ok()??;
+    Some(parent.session_id)
 }
 
 fn touch(touched: &mut Vec<String>, id: &str) {
@@ -690,6 +794,7 @@ mod tests {
     use super::*;
     use theseus_kernel::{ActionState, Authority, Budget, RetryClass, SessionKind};
 
+    mod seed;
     mod why;
 
     fn execution(state: ExecState, wake: Option<Wake>) -> Execution {

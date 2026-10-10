@@ -500,7 +500,8 @@ impl Core {
     ) -> Result<theseus_protocol::ExecutionsWatchResult, RpcFailure> {
         self.push.ensure(self).await?;
         self.bus.watch_all(conn.client, conn.tx.clone());
-        let (position, executions, total) = self.push.snapshot(p.limit.unwrap_or(200) as usize);
+        let (position, executions, held) = self.push.snapshot(p.limit.unwrap_or(200) as usize);
+        let total = held.max(self.kernel.count_executions().unwrap_or(0));
         Ok(theseus_protocol::ExecutionsWatchResult {
             position,
             executions,
@@ -548,7 +549,7 @@ impl Core {
         let mut first = true;
         loop {
             feed.borrow_and_update();
-            let view = self.push.view_of_session(&p.session_id);
+            let view = self.push.view_or_load(self, &p.session_id);
             if let Some(v) = view.as_ref().filter(|v| {
                 p.until.reached_by(v) && p.after_position.is_none_or(|a| v.position > a)
             }) {
