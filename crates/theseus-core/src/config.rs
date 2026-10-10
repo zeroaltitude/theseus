@@ -19,18 +19,21 @@ mod limits;
 mod lookup;
 pub(crate) mod lsp;
 pub(crate) mod memory;
+mod outputs;
 pub(crate) mod people;
 pub(crate) mod routing;
 mod sessions;
 pub use sessions::SessionsConfig;
 mod sparse;
 pub mod term;
+mod web;
 pub use aws::{
     default_hourly_alert_usd, default_runaway_factor, AwsAccountConfig, AwsConfig,
     AwsCredentialNames, HandsNetwork,
 };
 pub use judge::{JudgeConfig, JudgePackConfig, PackMode, SignalsConfig};
 pub use limits::{MaxLoopsMode, SpendLimitMode};
+pub use web::{WebToolsConfig, WEB_TIMEOUT_MAX_SECS};
 // Where the config comes from when nothing names one (theseus-5aqz).
 pub use lookup::{find_config, Lookup, DEFAULT_CONFIG, NO_CONFIG, SYSTEM_CONFIG};
 pub use lsp::{LspConfig, LspServerConfig};
@@ -298,6 +301,13 @@ pub struct ToolsConfig {
     /// so. The runtime reads only the file's last 4 MiB.
     #[serde(default = "default_job_output_max_bytes")]
     pub job_output_max_bytes: u64,
+    /// A capped result's whole output, kept in `<state>/outputs/` (theseus-v73m),
+    /// is deleted after this many days, at its session's retirement, or,
+    /// oldest first, while all of them pass `outputs_max_bytes`.
+    #[serde(default = "outputs::keep_days")]
+    pub outputs_keep_days: u64,
+    #[serde(default = "outputs::max_bytes")]
+    pub outputs_max_bytes: u64,
     /// Each L0 job's cgroup's `pids.max` (theseus-a5nv), where the daemon's
     /// cgroup is delegated: its processes and threads at once. 0: no cap.
     #[serde(default = "default_job_pids_max")]
@@ -308,46 +318,6 @@ pub struct ToolsConfig {
     #[serde(default)]
     pub term: term::TermToolsConfig,
 }
-
-/// `[tools.web]`: the limits of `http.fetch` and `web.search`, and the secret
-/// that holds the search key (DD5).
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct WebToolsConfig {
-    /// A fetch's or a search's whole time, redirects included.
-    #[serde(default = "default_web_timeout_secs")]
-    pub timeout_secs: u64,
-    /// The most bytes of a body a fetch reads; a call may ask for fewer.
-    #[serde(default = "default_web_max_bytes")]
-    pub max_bytes: usize,
-    /// The `[secrets]` entry that holds the Brave Search API key.
-    #[serde(default = "default_search_key_secret")]
-    pub search_key_secret: String,
-}
-
-fn default_web_timeout_secs() -> u64 {
-    30
-}
-fn default_web_max_bytes() -> usize {
-    2 * 1024 * 1024
-}
-fn default_search_key_secret() -> String {
-    "brave_api_key".into()
-}
-
-impl Default for WebToolsConfig {
-    fn default() -> Self {
-        Self {
-            timeout_secs: default_web_timeout_secs(),
-            max_bytes: default_web_max_bytes(),
-            search_key_secret: default_search_key_secret(),
-        }
-    }
-}
-
-/// The longest a web call may take: every in-process call ends by the
-/// runtime's deadline (120 s), so a web call's own timeout must come first.
-pub const WEB_TIMEOUT_MAX_SECS: u64 = 110;
 
 fn default_approve_paths() -> Vec<String> {
     [
@@ -430,6 +400,8 @@ impl Default for ToolsConfig {
             proc_env: default_proc_env(),
             job_output_max_bytes: default_job_output_max_bytes(),
             job_pids_max: default_job_pids_max(),
+            outputs_keep_days: outputs::keep_days(),
+            outputs_max_bytes: outputs::max_bytes(),
             web: WebToolsConfig::default(),
             term: term::TermToolsConfig::default(),
         }

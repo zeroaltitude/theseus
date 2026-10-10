@@ -895,7 +895,7 @@ async fn a_job_past_its_output_cap_keeps_its_end_and_names_the_dropped_middle() 
         text.starts_with(
             "[exit code 0]\n[truncated: it printed 420,022 bytes, more than its output cap of \
              65,536 bytes: its first 32,640 bytes and its last 32,768 bytes are kept, and the \
-             354,614 bytes between them were dropped; its output is not kept: run it again \
+             354,614 bytes between them were dropped; what was dropped is gone: run it again \
              printing less, or with its output sent to a file that fs_read then reads in ranges]\n\
              a line of the roster\n"
         ),
@@ -1918,8 +1918,8 @@ async fn a_job_whose_child_holds_its_output_says_its_end_was_held() {
             "[exit code 0]".to_string(),
             format!(
                 "[truncated: it printed {}, more than its output cap of 65,536 bytes: its first {} \
-                 and its last {} are kept, and the {} between them were dropped; its output is not \
-                 kept: run it again printing less, or with its output sent to a file that fs_read \
+                 and its last {} are kept, and the {} between them were dropped; what was dropped is \
+                 gone: run it again printing less, or with its output sent to a file that fs_read \
                  then reads in ranges]",
                 n(head + dropped + held),
                 n(head),
@@ -7817,9 +7817,11 @@ fn result_of(core: &Core, sid: &str, tool: &str) -> String {
 }
 
 /// A result too long to show whole says how much the cut left out and the
-/// call that returns it, and never that the whole is stored: nothing keeps it
-/// (theseus-46v). A read names its rows by number, with the range that
-/// returns them; a search, which takes no range, names a narrower one.
+/// call that returns it, and never that the whole is stored (theseus-46v). A
+/// read stops at its own cap (100,000 characters, past the runtime's
+/// `result_max_chars`) at a whole row, and names the offset that reads on
+/// (theseus-v73m: never a hole); a search, which takes no range, names a
+/// narrower one.
 #[tokio::test]
 async fn a_capped_result_says_what_was_cut_and_the_call_that_returns_it() {
     let r = rig_with(
@@ -7839,8 +7841,14 @@ async fn a_capped_result_says_what_was_cut_and_the_call_that_returns_it() {
         ],
         |c| c.tools.result_max_chars = 2_000,
     );
-    let body: String = (1..=300)
-        .map(|i| format!("crate {i:03} of the inventory\n"))
+    let body: String = (1..=3_000)
+        .map(|i| {
+            format!(
+                "crate {i:04} of the inventory, its manifest {}
+",
+                "-".repeat(20)
+            )
+        })
         .collect();
     std::fs::write(r.root.join("inventory.txt"), &body).unwrap();
     let res = turn(&r.core, None, "read the inventory").await;
@@ -7851,30 +7859,26 @@ async fn a_capped_result_says_what_was_cut_and_the_call_that_returns_it() {
         rest.split_once("]…\n").unwrap().0.to_string()
     };
 
-    // The read: the rows left out, by number, are exactly those between
-    // the last row shown before the cut and the first after it.
+    // The read: contiguous rows from the first, up to its own cap, then the
+    // offset that returns the rest.
     let read = result_of(&r.core, &res.session_id, "fs.read");
-    assert!(read.chars().count() < 2_200, "capped: {read}");
+    assert!(
+        read.chars().count() <= 100_000,
+        "capped: {}",
+        read.chars().count()
+    );
     assert!(!read.contains("stored"), "{read}");
-    let m = marker(&read);
-    let (head, tail) = read.split_once("\n…[").unwrap();
-    let row = |line: &str| -> usize { line.split('\t').next().unwrap().trim().parse().unwrap() };
-    let before = row(head.lines().last().unwrap());
-    let after = row(tail.split_once("]…\n").unwrap().1.lines().next().unwrap());
+    let row = |line: &str| -> Option<usize> { line.split('\t').next()?.trim().parse().ok() };
+    let rows: Vec<usize> = read.lines().filter_map(row).collect();
+    let before = *rows.last().unwrap();
+    assert_eq!(rows, (1..=before).collect::<Vec<_>>(), "no hole");
     let range = format!(
-        "lines {}-{}; fs_read with offset={} and limit={} returns them",
-        before + 1,
-        after - 1,
-        before + 1,
-        after - 1 - before
+        "[showing lines 1-{before} of 3000; pass offset={} to read on]",
+        before + 1
     );
     assert!(
-        m.ends_with(&format!(" not shown: {range}")),
-        "{m:?} should end with {range:?}"
-    );
-    assert!(
-        m.starts_with(&format!("{} lines (", after - 1 - before)),
-        "{m}"
+        read.ends_with(&format!("{range}\n")),
+        "{read:?} should end with {range:?}"
     );
 
     // The search: no range to name, so a narrower call.

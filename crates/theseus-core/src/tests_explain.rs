@@ -176,6 +176,7 @@ fn gated(core: &Core, sid: &str, tool: &dyn Tool, input: &Value) -> Option<(Stri
         held: &held,
         mcp: &|| None,
         glide: None,
+        session: Some(sid),
     };
     // The gate's own judgment: a batch's every step (theseus-7gir.3).
     match rt.judge(&at, tool, &plan, input, &mut |_, _| {}) {

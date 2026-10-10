@@ -1161,7 +1161,10 @@ impl Core {
                 let Some(c) = core.upgrade() else {
                     return;
                 };
-                let _ = tokio::task::spawn_blocking(move || c.sweep_spool(first)).await;
+                // And the kept outputs past their keep (theseus-v73m).
+                let _ =
+                    tokio::task::spawn_blocking(move || (c.sweep_spool(first), c.sweep_outputs()))
+                        .await;
                 first = false;
                 tokio::time::sleep(crate::sweep::EVERY).await;
             }

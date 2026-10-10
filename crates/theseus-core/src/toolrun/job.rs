@@ -77,6 +77,10 @@ impl Look<'_> {
         }
         if let Some(steps) = self.steps {
             r.text = format!("{}{}{}", self.before, r.text, self.after);
+            if let Some(k) = r.kept.as_mut() {
+                k.from_end += self.after.len();
+                k.after += self.after.len();
+            }
             if let Some(m) = r.meta.as_object_mut() {
                 m.insert("steps".into(), steps.clone());
             }
@@ -871,6 +875,13 @@ impl ToolRuntime {
                 .as_ref()
                 .map_or_else(String::new, crate::external::Listed::line)
         );
+        // Where its output is, kept whole should the cap cut it (theseus-v73m).
+        let kept = (!out.is_empty()).then(|| super::kept::Source {
+            raw: self.raw_output(a),
+            unread,
+            from_end: out.len(),
+            after: 0,
+        });
         let raw = if out.is_empty() && detail.get("spawn_error").is_some() {
             header
         } else if out.is_empty() {
@@ -890,6 +901,7 @@ impl ToolRuntime {
             bytes_total: Some(total),
             external: egress.or_else(|| listed.as_ref().map(crate::external::Listed::marker)),
             meta,
+            kept,
             ..ResultNode::new(tool_use_id, tool, status, raw)
         }
     }

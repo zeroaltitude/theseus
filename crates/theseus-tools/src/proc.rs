@@ -242,11 +242,11 @@ impl Tool for Run {
                 .collect(),
         )
     }
-    /// A job's raw output is deleted once its result is written
-    /// (theseus-wz2): only a run that prints less, or keeps its output in a
-    /// file, gets the rest.
+    /// What its output cap dropped is gone: only a run that prints less, or
+    /// keeps its output in a file, gets it. What the result's cap leaves out
+    /// is kept, and the runtime names its file (theseus-v73m).
     fn rest(&self, _left_out: &str) -> String {
-        "its output is not kept: run it again printing less, or with its output sent to a file \
+        "what was dropped is gone: run it again printing less, or with its output sent to a file \
          that fs_read then reads in ranges"
             .into()
     }

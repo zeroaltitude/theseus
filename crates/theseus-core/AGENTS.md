@@ -139,7 +139,15 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   no call's own run writes (late ones, and a cancel's) in `toolrun/late.rs` (theseus-5gw9). A call's span is
   built in the turn that answers it (`turn/calls.rs`, theseus-8pei): `run_tools`'s calls in their loop, and the
   calls `resume` answered (`ResumeOutcome.ran`) and the late results `absorb` took (`LateCall`, a point with the
-  job's `run_ms`) under the continuation's span; the tool metrics count each call once, at its answer. The gate's parts are
+  job's `run_ms`) under the continuation's span; the tool metrics count each call once, at its answer. A result the
+  cap cuts keeps its whole output (theseus-v73m; `toolrun/kept.rs`, `outputs.rs`): a job's (`proc.run`, a batch's
+  step: its raw file scrubbed again in a streaming pass, to its 64 MiB, never the tail alone) and a `term.read`'s,
+  0600 at `<state>/outputs/<session>/<call>.out`, named in the node's `full_ref` and in the cut line with the lines
+  left out, counted in the whole output, and the `fs_read` that reads them; that read is judged as one inside the
+  roots (`Outputs::own_read`, in `order.rs`, the session's own folder alone). The raw file is still deleted. The
+  sweep (`Core::sweep_outputs`, with the spool's hourly sweep) deletes a retired session's copies, any past
+  `[tools] outputs_keep_days`, and the oldest past `outputs_max_bytes`. `fs.read` has its own cap
+  (`Tool::result_max_chars`, 100,000), cut as a contiguous head, never head and tail. Tests: `tests_kept.rs`. The gate's parts are
   `policy.rs` (postures and the floor), `external.rs` (the hold after external text), `broker.rs` (granted
   secrets), `approval.rs` (who answers, and from where), and `peer.rs` (the web UI's other-uid check at accept).
   A URL whose host is a private address waits for approval (`listed`) and only an approved fetch reaches it,
@@ -935,7 +943,9 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   `[policy].enforcement` never does. Its proposal names its class, so a confirm binds it, and a confirmed call runs in the class its
   proposal names. Nothing falls back from L1 to L0.
 - **Results tell the truth.** `toolrun::cap` cuts on line edges and says what it left out, with the tool's own way
-  to get the rest (`Tool::rest`). A listing names its scope.
+  to get the rest (`Tool::rest`), or the kept file and its lines (`toolrun/kept.rs`). A listing names its scope.
+- **A kept output is scrubbed, never raw.** What a job printed before the scrubber saw it stays in the spool only
+  until its result is written; a copy anywhere else goes through the scrubber first.
 - **Thinking goes back only to the provider that wrote it**, and every recompile strips the prefix's thinking.
 - **A shared place never receives the owner's material** (the place rule). Its model is offered only the public
   tools, the gate refuses anything else, and its system block carries only public context files. A task takes its

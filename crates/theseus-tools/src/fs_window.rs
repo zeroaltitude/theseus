@@ -74,7 +74,7 @@ pub(crate) fn read_bounded(
     let mut scanned = 0u64;
     let mut line_no = 0usize;
     let mut out = String::new();
-    let mut shown = 0usize;
+    let mut room = crate::fs_read_cap::Room::new(max_bytes);
     let mut last = offset - 1;
     let mut stopped = None;
     let mut line = Vec::new();
@@ -82,6 +82,9 @@ pub(crate) fn read_bounded(
         let want = line_no + 1 >= offset;
         let n = next_line(&mut r, &mut line, want, &mut scanned, max_scan).map_err(io)?;
         if n.n == 0 {
+            if !n.ended {
+                stopped = Some("scan");
+            }
             break;
         }
         if !want {
@@ -109,12 +112,11 @@ pub(crate) fn read_bounded(
             text.to_string()
         };
         let row = format!("{line_no:>6}\t{l}\n");
-        if shown + row.len() > max_bytes {
+        if !room.takes(&row) {
             line_no -= 1;
             stopped = Some("bytes");
             break;
         }
-        shown += row.len();
         out.push_str(&row);
         last = line_no;
         if !n.ended {
@@ -150,7 +152,8 @@ pub(crate) fn read_bounded(
 
 /// What one `next_line` read.
 pub(crate) struct Line {
-    /// Bytes consumed, the newline included; 0 at the end.
+    /// Bytes consumed, the newline included; 0 at the end, or at the bound
+    /// (`ended` false).
     pub(crate) n: usize,
     /// The line was longer than the buffer keeps, or the scan bound ended it.
     pub(crate) cut: bool,
@@ -171,6 +174,16 @@ pub(crate) fn next_line<R: BufRead>(
     max_scan: u64,
 ) -> std::io::Result<Line> {
     line.clear();
+    // At the bound already: nothing more is read (theseus-v73m: a line that
+    // ended within a buffer once read on past the bound, up to the buffer's
+    // edge).
+    if *scanned >= max_scan {
+        return Ok(Line {
+            n: 0,
+            cut: true,
+            ended: false,
+        });
+    }
     let room = MAX_LINE_CHARS * 4 + 2;
     let (mut n, mut cut) = (0usize, false);
     loop {

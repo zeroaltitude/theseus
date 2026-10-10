@@ -385,7 +385,7 @@ impl Tool for Read {
         let from = a.offset.unwrap_or(1).max(1);
         let limit = a.limit.unwrap_or(DEFAULT_READ_LINES);
         let mut out = String::new();
-        let mut shown_bytes = 0usize;
+        let mut room = crate::fs_read_cap::Room::new(ctx.max_read_bytes);
         let mut last = from.saturating_sub(1);
         for (i, line) in lines.iter().enumerate().skip(from - 1).take(limit) {
             let l = if line.chars().count() > MAX_LINE_CHARS {
@@ -397,10 +397,9 @@ impl Tool for Read {
                 line.to_string()
             };
             let row = format!("{:>6}\t{}\n", i + 1, l);
-            if shown_bytes + row.len() > ctx.max_read_bytes {
+            if !room.takes(&row) {
                 break;
             }
-            shown_bytes += row.len();
             out.push_str(&row);
             last = i + 1;
         }
@@ -421,6 +420,9 @@ impl Tool for Read {
             },
             None,
         ))
+    }
+    fn result_max_chars(&self) -> Option<usize> {
+        Some(crate::fs_read_cap::FS_READ_MAX_CHARS)
     }
     /// The rows a cut left out, by their numbers (theseus-46v): an `fs_read`
     /// with that offset and limit returns them.

@@ -344,7 +344,7 @@ projects_dir = "/home/zeroaltitude/projects"   # the operator's projects directo
 # roots = ["/home/zeroaltitude/reports"]   # more workspace roots beside projects_dir (default none)
 # cwd = "/home/zeroaltitude/projects/theseus"   # where relative paths resolve and programs run (default: projects_dir)
 approve_paths = ["~/.ssh", "~/.gnupg", "~/.aws", "~/.config/op", "~/.openclaw-1password-service-token", "~/.theseus"]
-result_max_chars = 30000                # characters of a result the model sees (head and tail kept)
+result_max_chars = 30000                # characters of a result the model sees (head and tail kept; fs_read has its own 100,000, a contiguous head)
 max_read_bytes = 262144                 # cap on one fs.read
 max_attachment_bytes = 33554432         # the largest attached file kept whole (a PDF is read for the model; 32 MiB)
 transcribe_max_minutes = 60             # the most of one recording file_read hears (Deepgram, about $0.26 an hour)
@@ -355,6 +355,13 @@ proc_timeout_max_secs = 3600            # ceiling a call may ask for
 proc_env = ["PATH", "HOME", "USER", "LANG", "LC_ALL", "TERM", "TZ", "CARGO_HOME", "RUSTUP_HOME"]  # the ONLY variables a job sees
 job_output_max_bytes = 67108864         # a job's raw output file keeps at most this much (64 MiB); past it the job runs on, and its result says how much was dropped
 job_pids_max = 4096                     # the most processes and threads one L0 job may have at once, where the daemon's cgroup is delegated (its unit's Delegate=yes); past it a fork fails, and its result says so; 0: no cap
+# A result the cap cuts (result_max_chars) keeps its whole output, scrubbed, in
+# <state>/outputs/<session>/<call>.out, and its cut line names the file and
+# the lines left out, which fs_read reads: a proc_run's (to its job file's
+# job_output_max_bytes) and a term_read's. A copy goes when its session retires,
+# or past either line below.
+outputs_keep_days = 7                   # a kept output is deleted after this many days
+outputs_max_bytes = 2147483648          # past this many bytes in all (2 GiB), the oldest kept outputs are deleted first
 
 # The web tools (DD5): http.fetch GETs a URL, follows up to 5 redirects, and
 # returns an HTML page as text (text, JSON, and XML as they are; other types

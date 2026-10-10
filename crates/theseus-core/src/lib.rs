@@ -59,6 +59,7 @@ pub mod one_shot;
 pub mod ontology;
 pub mod outbound;
 pub mod outbox;
+pub mod outputs;
 pub mod parked;
 pub mod peer;
 pub mod place_warnings;
@@ -216,6 +217,8 @@ mod tests_judge;
 mod tests_judge_reads;
 #[cfg(test)]
 mod tests_judge_surfaces;
+#[cfg(test)]
+mod tests_kept;
 #[cfg(test)]
 mod tests_ladder;
 #[cfg(test)]
