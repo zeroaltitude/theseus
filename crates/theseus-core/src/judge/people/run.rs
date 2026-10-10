@@ -13,7 +13,7 @@ use theseus_judge::{Ask, DecisionPoint, Input, Judge, Outcome, Urgency};
 use theseus_ontology::{handles_of, Ontology};
 use theseus_store::{kinds, NewRecord};
 
-use super::{extract, fold, nearest, Line, NotPeople, PACK, SCOPE};
+use super::{extract, fold, nearest, Line, PACK, SCOPE};
 use crate::config::PackMode;
 use crate::judge::{spend, JudgeService, ScrubWith};
 use crate::ledger::LedgerRow;
@@ -186,7 +186,7 @@ impl Core {
         let (judgments, jev) = self
             .runner
             .judge
-            .judge_people(s.sid, s.title, s.purpose, &id, kept, (&o, &not))
+            .judge_people(s.sid, s.title, s.purpose, &id, kept, &o)
             .await;
         pass.judged = judgments.len() as u64;
         pass.spent += jev;
@@ -230,8 +230,7 @@ impl Core {
 impl JudgeService {
     /// `people.v1` on each kept candidate, one judgment each, in one
     /// decision point: their ids and Jev's cost. None asked when the pack is
-    /// off, the client cannot be built, or the day's budget is spent. The
-    /// `match` options are the nearest held people `not` leaves.
+    /// off, the client cannot be built, or the day's budget is spent.
     pub(crate) async fn judge_people(
         &self,
         sid: &str,
@@ -239,7 +238,7 @@ impl JudgeService {
         purpose: &str,
         extraction: &str,
         kept: Vec<(PersonCandidate, Vec<String>)>,
-        (o, not): (&Ontology, &NotPeople),
+        o: &Ontology,
     ) -> (Vec<String>, Micros) {
         if kept.is_empty() || self.mode_for(PACK, sid).mode == PackMode::Off {
             return (Vec::new(), 0);
@@ -260,7 +259,7 @@ impl JudgeService {
         for (candidate, nodes) in kept {
             let input = PeopleInput {
                 session_title: title.to_string(),
-                held: nearest(o, &candidate, not),
+                held: nearest(o, &candidate),
                 candidate: candidate.clone(),
             };
             let Ok(state) = theseus_judge::prepare(&pack, &Input::People(input), &scrub) else {

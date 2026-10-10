@@ -1,7 +1,7 @@
 //! The exclusions (theseus-0p1r), with a fake model and a fake Jev: a held
 //! "@name" folds to its bare name; the owner (his DM person, which the
 //! place rule binds with no `[places] owner`) is never a candidate by his
-//! first name, never a `match` option, and a proposal of his person is not
+//! first name, stays a `match` option, and a match to his person is not
 //! listed; the agents the store knows (an episode's agent, the name in an
 //! agent's imported `IDENTITY.md`) and the house's names are excluded
 //! before any call; a role line carrying a person's pay or leave is
@@ -302,14 +302,25 @@ fn the_owner_is_excluded(core: &Core, owner: &str, orrin: String) {
 
 /// The backfill: Sable (his name), Jev (the house's) and Gull (an
 /// episode's agent) excluded before any call; Tern not known yet; the
-/// owner never a `match` option.
+/// owner's person among `match`'s options, so Jev can say that "Marlowe", a
+/// name of his the store cannot know, is him.
 async fn backfill(r: &Rig, jev: &FakeJev, owner: &str) {
+    jev.script_when(
+        "\"Marlowe\"",
+        None,
+        "match",
+        Jev::Choice {
+            option: owner.into(),
+            confidence: 0.95,
+        },
+    );
     r.fake.script.lock().unwrap().push_back(answer(json!([
         {"name": "Wren Halloway", "handles": [], "role_line": "Takes the north gauge readings.", "evidence": ["L3"]},
         {"name": "Tern", "handles": [], "role_line": "", "evidence": ["L1"]},
         {"name": "Sable", "handles": [], "role_line": "", "evidence": ["L1"]},
         {"name": "Jev", "handles": [], "role_line": "", "evidence": ["L2"]},
         {"name": "Gull", "handles": [], "role_line": "", "evidence": ["L2"]},
+        {"name": "Marlowe", "handles": [], "role_line": "", "evidence": ["L1"]},
         {"name": "Orrin Vale", "handles": [], "role_line": "Is owed the March invoice and is on leave next week.",
          "evidence": ["L2"]}
     ])));
@@ -327,17 +338,17 @@ async fn backfill(r: &Rig, jev: &FakeJev, owner: &str) {
         .unwrap();
     assert_eq!(
         (pass.candidates, pass.excluded, pass.judged),
-        (6, 3, 3),
+        (7, 3, 4),
         "{pass:?}"
     );
-    let judged = until_rows(&r.core.store, "judge.call", 3).await;
+    let judged = until_rows(&r.core.store, "judge.call", 4).await;
     let mut names: Vec<&str> = judged
         .iter()
         .map(|j| j.data["context"]["candidate"]["name"].as_str().unwrap())
         .collect();
     names.sort_unstable();
-    assert_eq!(names, ["Orrin Vale", "Tern", "Wren Halloway"]);
-    // `match`'s options: the held people, never the owner's person.
+    assert_eq!(names, ["Marlowe", "Orrin Vale", "Tern", "Wren Halloway"]);
+    // `match`'s options: the held people, the owner's person among them.
     let options: Vec<Vec<String>> = jev
         .seen()
         .iter()
@@ -347,26 +358,27 @@ async fn backfill(r: &Rig, jev: &FakeJev, owner: &str) {
                 .map(|c| c.keys().cloned().collect())
         })
         .collect();
-    assert_eq!(options.len(), 3, "{options:?}");
+    assert_eq!(options.len(), 4, "{options:?}");
     for o in &options {
         assert!(
             o.iter().any(|k| k == "orrin-vale"),
             "the options read: {o:?}"
         );
         assert!(
-            !o.iter().any(|k| k == owner),
-            "the owner offered as a match: {o:?}"
+            o.iter().any(|k| k == owner),
+            "the owner's person not offered as a match: {o:?}"
         );
     }
 }
 
 /// Read: Wren new with her line; Orrin held, his line (pay, leave)
-/// dropped; Tern new. Then the owner's held match the old backfill made,
+/// dropped; Tern new; Marlowe, Jev's match to the owner, hidden. Then the
+/// owner's held match the old backfill made,
 /// and Tern once its identity file comes in, are hidden, counted, never
 /// taken in bulk, never deleted.
 fn old_proposals_hide(core: &Arc<Core>, owner: &str) {
     let (all, hidden) = listed(core);
-    assert_eq!((all.len(), hidden), (3, 0), "{all:?}");
+    assert_eq!((all.len(), hidden), (3, 1), "Marlowe hidden: {all:?}");
     let line = |name: &str| {
         all.iter()
             .find(|p| p.person.as_ref().unwrap().name == name)
@@ -389,7 +401,7 @@ fn old_proposals_hide(core: &Arc<Core>, owner: &str) {
     let (all, hidden) = listed(core);
     assert_eq!(
         (all.len(), hidden),
-        (3, 1),
+        (3, 2),
         "the owner's match hidden: {all:?}"
     );
 
@@ -404,7 +416,7 @@ fn old_proposals_hide(core: &Arc<Core>, owner: &str) {
         (shown, hidden),
         (
             vec!["Orrin Vale".to_string(), "Wren Halloway".to_string()],
-            2
+            3
         ),
         "Tern, an agent now, hidden too"
     );
@@ -420,8 +432,8 @@ fn old_proposals_hide(core: &Arc<Core>, owner: &str) {
         .unwrap();
     assert_eq!(done.accepted.len(), 2, "{done:?}");
     let (all, hidden) = listed(core);
-    assert_eq!((all.len(), hidden), (0, 2));
-    assert_eq!(rows(&core.store, "judge.call").len(), 4, "nothing deleted");
+    assert_eq!((all.len(), hidden), (0, 3));
+    assert_eq!(rows(&core.store, "judge.call").len(), 5, "nothing deleted");
     assert_eq!(
         rows(&core.store, "judge.label").len(),
         2,

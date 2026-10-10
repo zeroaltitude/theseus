@@ -13,8 +13,9 @@
 //!    the configured personas, the agents (a session's `agent:<name>`, and
 //!    every agent the store knows, `house.rs`), the house's own names, the
 //!    assistant, `[people] not_people`, and for that session a name already
-//!    proposed, rejected, or held. The owner's person is never among
-//!    `match`'s options either.
+//!    proposed, rejected, or held. The owner's person stays among `match`'s
+//!    options, so Jev can say a name the store cannot know is his; a match
+//!    to it is never a proposal (`rpc/proposals.rs`).
 //! 3. **Judge** (`run.rs`): one `people.v1` call a candidate: is it a real
 //!    person, is it involved in the session's work, which held person is it
 //!    (the 50 nearest by name and handle, [`nearest`]) or a new one, and does
@@ -221,7 +222,8 @@ impl NotPeople {
     }
 
     /// The held people the handles exclude (the owner's own person, a DM's,
-    /// by whatever name it is held): never an option or a proposal, and
+    /// by whatever name it is held): never a proposal (a match to one is
+    /// hidden; they stay `match`'s options), and
     /// their names (each name, `name:` handle, and each word of them) never
     /// a candidate, so the owner is never one by name either (theseus-u5n8;
     /// theseus-0p1r: his first name alone, beside a person held under his
@@ -291,9 +293,11 @@ impl NotPeople {
 /// The held people a candidate may be, nearest first, at most
 /// [`theseus_judge::builders::PEOPLE`]: one holding a handle of the
 /// candidate's, or its name; then those sharing a word of the name; then the
-/// rest, each part by name. Never one `not` excludes (the owner's own
-/// person, theseus-0p1r: Jev's `match` cannot choose what it is not shown).
-pub fn nearest(o: &Ontology, c: &PersonCandidate, not: &NotPeople) -> Vec<HeldPerson> {
+/// rest, each part by name. The people the exclusions exclude stay
+/// options (theseus-0p1r): Jev's match of a name to the owner's own person
+/// is how a form of his name the store cannot know is told apart, and a
+/// match to an excluded person is never listed.
+pub fn nearest(o: &Ontology, c: &PersonCandidate) -> Vec<HeldPerson> {
     let name = fold(&c.name);
     let words: HashSet<&str> = name.split(' ').filter(|w| w.len() > 1).collect();
     let wanted: HashSet<String> = c
@@ -306,7 +310,6 @@ pub fn nearest(o: &Ontology, c: &PersonCandidate, not: &NotPeople) -> Vec<HeldPe
     let mut people: Vec<(u8, &Category)> = o
         .categories()
         .filter(|p| p.kind() == theseus_ontology::person::KIND)
-        .filter(|p| !not.excludes_person(p))
         .map(|p| {
             let hs: Vec<String> = handles_of(p).iter().map(|h| h.to_lowercase()).collect();
             let rank = if fold(&p.name) == name || hs.iter().any(|h| wanted.contains(h)) {

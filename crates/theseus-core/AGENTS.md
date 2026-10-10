@@ -430,7 +430,8 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     model; a day-ceiling spend kind); the owner, personas, agents, `[people] not_people` and a session's known names
     excluded before any call (`NotPeople`, built by `Core::not_people` in `house.rs`, theseus-0p1r: the place rule's
     owner handles, not only `[places] owner`; the held person they hold, by its name and each word, never a
-    candidate nor a `match` option; every imported episode's agent and each agent's `Name:` in its imported
+    candidate, and a `match` to it (it stays an option, so Jev can name a form of his name the store cannot know)
+    never listed; every imported episode's agent and each agent's `Name:` in its imported
     `IDENTITY.md`, kept per catalog version; the house's names, the profiles and models; a bot's or a UI's name;
     `fold` drops a leading "@"); one `people.v1` judgment a kept candidate (real, involved, which of the 50 nearest
     held people or new, whether its role line judges the person, whether it carries their pay, money, health,
