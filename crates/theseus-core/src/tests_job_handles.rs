@@ -157,13 +157,14 @@ impl Rig {
     }
 }
 
-/// `background: true` answers at once, before the job's end: its short id,
-/// its command and directory, and the file its output goes to; the
-/// placeholder's meta names the id, and a session's ids are read again from
-/// it (a restart's map).
+/// `background: true` answers at once, before the job's end (the job still
+/// runs when the turn has ended, by its action, not a stopwatch, which a
+/// loaded machine stretches): its short id, its command and directory, and
+/// the file its output goes to; the placeholder's meta names the id, and a
+/// session's ids are read again from it (a restart's map).
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_background_run_answers_at_once_with_its_id_and_output_path() {
-    let job = json!({"argv": ["sh", "-c", "sleep 2; echo late"], "background": true});
+    let job = json!({"argv": ["sh", "-c", "sleep 30; echo late"], "background": true});
     let r = rig(
         vec![
             Scripted::tools("Starting it.", &[("t1", "proc_run", job)]),
@@ -172,18 +173,18 @@ async fn a_background_run_answers_at_once_with_its_id_and_output_path() {
         10,
         |_| {},
     );
-    let t0 = Instant::now();
     let res = r.turn(None, "start it").await;
-    assert!(
-        t0.elapsed() < Duration::from_millis(1500),
-        "the turn waited {:?} for a 2 s job",
-        t0.elapsed()
-    );
     let (status, text, meta, corr) = r.result(&res.session_id, "t1");
     let corr = corr.expect("a job's call has its correlation id");
+    let a = r.core.kernel.action(&corr).unwrap().unwrap();
+    assert_eq!(
+        a.state,
+        theseus_kernel::ActionState::Dispatched,
+        "it runs on"
+    );
     assert_eq!(status, ResultStatus::Background, "{text}");
     assert!(
-        text.starts_with("Started job j1 (sh -c sleep 2; echo late) in "),
+        text.starts_with("Started job j1 (sh -c sleep 30; echo late) in "),
         "{text}"
     );
     let path = r.core.spool.result_path(&corr);
@@ -233,10 +234,10 @@ async fn a_run_past_its_window_answers_with_its_handle() {
 
 /// `job.read` shows a running job's newest lines, how many it has printed
 /// and how long it has run; with no job it lists the session's running
-/// jobs.
+/// jobs. The job runs 30 s, past a loaded machine's turn.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn job_read_shows_the_newest_lines_and_lists_running_jobs() {
-    let job = json!({"argv": ["sh", "-c", "echo one; echo two; echo three; sleep 3"], "background": true});
+    let job = json!({"argv": ["sh", "-c", "echo one; echo two; echo three; sleep 30"], "background": true});
     let r = rig(
         vec![
             Scripted::tools("Starting it.", &[("t1", "proc_run", job)]),
@@ -261,7 +262,7 @@ async fn job_read_shows_the_newest_lines_and_lists_running_jobs() {
     let (status, text, meta, _) = r.result(sid, "t3");
     assert_eq!(status, ResultStatus::Ok, "{text}");
     assert!(
-        text.starts_with("Job j1 (sh -c echo one; echo two; echo three; sleep 3), running "),
+        text.starts_with("Job j1 (sh -c echo one; echo two; echo three; sleep 30), running "),
         "{text}"
     );
     assert!(
@@ -275,7 +276,7 @@ async fn job_read_shows_the_newest_lines_and_lists_running_jobs() {
     let (_, list, _, _) = r.result(sid, "t4");
     assert!(
         list.starts_with(
-            "This session's 1 job running:\nj1 (sh -c echo one; echo two; echo three; sleep 3) in "
+            "This session's 1 job running:\nj1 (sh -c echo one; echo two; echo three; sleep 30) in "
         ),
         "{list}"
     );
@@ -289,7 +290,7 @@ async fn job_read_shows_the_newest_lines_and_lists_running_jobs() {
 async fn job_wait_gives_the_result_inside_its_window_and_says_still_running_past_it() {
     let quick =
         json!({"argv": ["sh", "-c", "sleep 0.5; printf 'fini%s\\n' shed"], "background": true});
-    let slow = json!({"argv": ["sleep", "4"], "background": true});
+    let slow = json!({"argv": ["sleep", "30"], "background": true});
     let r = rig(
         vec![
             Scripted::tools(
@@ -324,6 +325,40 @@ async fn job_wait_gives_the_result_inside_its_window_and_says_still_running_past
     assert!(t0.elapsed() >= Duration::from_secs(1), "the wait waited");
     let next = r.request(2);
     assert_eq!(next.matches("finished").count(), 1, "given once: {next}");
+    assert!(
+        next.contains("Its result was given by your job_wait call already."),
+        "{next}"
+    );
+}
+
+/// Where no notice reaches the drain (a daemon on its heartbeat alone, as one
+/// whose notify socket's path is too long), `job.wait` still sees the job's
+/// end at its next look: it takes the spooled completion itself, as a turn's
+/// look at its own job does, and the late result that follows is the short
+/// one.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn job_wait_takes_the_end_itself_when_no_drain_comes() {
+    let quick =
+        json!({"argv": ["sh", "-c", "sleep 0.5; printf 'by%s\\n' itself"], "background": true});
+    let r = rig(
+        vec![
+            Scripted::tools("Starting it.", &[("t1", "proc_run", quick)]),
+            Scripted::tools(
+                "Waiting.",
+                &[("t2", "job_wait", json!({"job": "j1", "timeout_secs": 8}))],
+            ),
+            Scripted::text("Done waiting."),
+        ],
+        10,
+        |_| {},
+    );
+    r.drain.abort();
+    let res = r.turn(None, "start and wait").await;
+    let (status, text, meta, _) = r.result(&res.session_id, "t2");
+    assert_eq!(status, ResultStatus::Ok, "{text}");
+    assert_eq!(text, "[exit code 0]\nbyitself\n");
+    assert!(meta["delivers"].is_string(), "{meta}");
+    let next = r.request(2);
     assert!(
         next.contains("Its result was given by your job_wait call already."),
         "{next}"

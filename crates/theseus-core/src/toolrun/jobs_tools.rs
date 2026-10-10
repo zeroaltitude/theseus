@@ -288,8 +288,16 @@ impl ToolRuntime {
     }
 }
 
-/// A job's action now, or as it was found.
+/// A job's action now, or as it was found. A completion its wrapper has
+/// spooled is taken first, with the drain, whichever is first, as a turn's
+/// look at its own job takes one (`job_settled`): where no notice reaches
+/// the drain (heartbeat only), a job's end is still seen at the next look.
 fn now(core: &Core, f: &Found) -> Action {
+    if let Some(spool) = &core.tools.spool {
+        if let Ok(Some(a)) = ToolRuntime::job_settled(&core.kernel, spool, &f.corr) {
+            return a;
+        }
+    }
     core.kernel
         .action(&f.corr)
         .ok()
@@ -400,7 +408,7 @@ async fn wait(core: Arc<Core>, f: Found, secs: u64) -> AsyncMediaResult {
         let settled = rt.job_waits.on_settle();
         tokio::pin!(settled);
         settled.as_mut().enable();
-        let a = now(&core, &f);
+        let a = theseus_store::blocking(|| now(&core, &f));
         if ended(&a) {
             return theseus_store::blocking(|| delivered(&core, &f, &a, ""));
         }
@@ -427,7 +435,7 @@ async fn wait(core: Arc<Core>, f: Found, secs: u64) -> AsyncMediaResult {
 /// verdict recorded; then its output so far, as its result.
 async fn stop(core: Arc<Core>, f: Found) -> AsyncMediaResult {
     let rt = &core.tools;
-    let a = now(&core, &f);
+    let a = theseus_store::blocking(|| now(&core, &f));
     if ended(&a) {
         return theseus_store::blocking(|| delivered(&core, &f, &a, "It had already ended.\n"));
     }
@@ -449,7 +457,7 @@ async fn stop(core: Arc<Core>, f: Found) -> AsyncMediaResult {
     for e in ended_all.iter().filter(|e| e.written) {
         e.record(&core.session_rec(&e.action.session_id));
     }
-    let a = now(&core, &f);
+    let a = theseus_store::blocking(|| now(&core, &f));
     let gone = a
         .verdict
         .as_ref()

@@ -46,7 +46,7 @@ impl Rig {
         let model = FakeModel::start(|prompt| match prompt {
             "Start it" => vec![(
                 "proc_run",
-                json!({"argv": ["sh", "-c", "sleep 4; printf 'do%s\\n' ne"], "background": true}),
+                json!({"argv": ["sh", "-c", "sleep 20; printf 'do%s\\n' ne"], "background": true}),
             )],
             "Read j1" => vec![("job_read", json!({"job": "j1"}))],
             "Wait for j1" => vec![("job_wait", json!({"job": "j1"}))],
@@ -227,21 +227,20 @@ fn holding(marker: &str) -> Vec<(u32, String)> {
     out
 }
 
-/// `proc_run {background: true}` answers at once; `job_read` shows the job
-/// running; `job_wait` returns its result, which the request after it
-/// carries.
+/// `proc_run {background: true}` answers at once (the job still runs at the
+/// next turn's read); `job_read` shows the job running; `job_wait` returns
+/// its result, which the request after it carries.
 #[test]
 fn a_background_job_is_read_and_waited_for() {
     let r = Rig::new(60);
     let _daemon = r.spawn();
-    let t0 = Instant::now();
     let sid = r.turn(None, "Start it");
-    assert!(t0.elapsed() < Duration::from_secs(2), "{:?}", t0.elapsed());
     let started = r.last_result();
     assert!(started.starts_with("Started job j1 ("), "{started}");
     r.turn(Some(&sid), "Read j1");
     let read = r.last_result();
-    assert!(read.starts_with("Job j1 (sh -c "), "{read}");
+    assert!(read.starts_with("Job j1 (sh -c sleep 20; "), "{read}");
+    assert!(read.contains("), running "), "{read}");
     r.turn(Some(&sid), "Wait for j1");
     let waited = r.last_result();
     assert_eq!(waited, "[exit code 0]\ndone\n", "{}", r.log());
