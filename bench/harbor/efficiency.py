@@ -67,9 +67,17 @@ ARMS: dict[str, dict[str, tuple[str, ...]]] = {
 # Claude Sonnet 5.5's are the ones Theseus's and Claude Code's own bills
 # work out to in b5 (a cache read at a tenth of an input); the OpenAI models'
 # are LiteLLM's, the table Harbor prices Codex's tokens from (a cache write at
-# 1.25 times an input, as Codex 0.161 reports writes).
+# 1.25 times an input, as Codex 0.161 reports writes). The other Claude models
+# are the ones the routed arm's Jev may send a message to (theseus-eo3h): their
+# rows are Theseus's model catalog's (`theseus catalog`: crates/theseus-core/src/
+# catalog.rs, `Catalog::builtin`), so the as-shipped arm's dollars are on the
+# same table as every other arm's. Haiku 5.5's are its base tier: the catalog
+# bills 5 times these above a 100,000-token prompt, which this table does not.
 LIST_PRICES: dict[str, dict[str, float]] = {
     "claude-sonnet-5-5": {"input": 2.0, "cache_read": 0.2, "cache_write": 2.5, "output": 10.0},
+    "claude-opus-5-5": {"input": 4.0, "cache_read": 0.2, "cache_write": 5.0, "output": 20.0},
+    "claude-fable-5-1": {"input": 10.0, "cache_read": 0.25, "cache_write": 12.5, "output": 50.0},
+    "claude-haiku-5-5": {"input": 0.1, "cache_read": 0.01, "cache_write": 0.125, "output": 0.5},
     "gpt-6.1-sol": {"input": 2.0, "cache_read": 0.1, "cache_write": 2.5, "output": 10.0},
     "gpt-5.6-sol": {"input": 4.0, "cache_read": 0.4, "cache_write": 5.0, "output": 20.0},
     "gpt-6-astra": {"input": 10.0, "cache_read": 1.0, "cache_write": 12.5, "output": 50.0},

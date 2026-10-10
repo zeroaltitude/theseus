@@ -23,6 +23,7 @@ from pathlib import Path
 
 import sampler as smp
 import theseus_atif as atif
+import efficiency as ef
 import theseus_bench as tb
 from test_sampler import stop_samplers
 
@@ -100,6 +101,23 @@ class Profile(unittest.TestCase):
 class Routed(unittest.TestCase):
     """The routed arm (theseus-eo3h): Theseus as shipped, Jev picking the
     model per message."""
+
+    def test_every_model_the_routed_profile_names_has_a_list_price(self):
+        """The as-shipped arm's dollars are priced on the bench's table, as
+        every other arm's are: a model Jev may send a message to with no row
+        would be priced by Theseus's own table alone."""
+        import tomllib
+
+        parsed = tomllib.loads(tb.PROFILE_ROUTED.read_text())
+        models = {p["model"] for p in parsed["profiles"].values() if "model" in p}
+        models.add(parsed["model"]["model"])
+        self.assertGreaterEqual(len(models), 4, models)
+        for m in sorted(models):
+            self.assertIn(m, ef.LIST_PRICES, f"{m} has no list price row")
+        for m in ("claude-opus-5-5", "claude-fable-5-1", "claude-haiku-5-5"):
+            by = {m: {"input": 1_000_000, "output": 1_000_000}}
+            p = ef.LIST_PRICES[m]
+            self.assertAlmostEqual(ef.list_price(by), p["input"] + p["output"])
 
     def parsed(self, **kw):
         values = tb.settings("claude-sonnet-5-5", "/app", routed=True, **kw)
