@@ -27,6 +27,7 @@
 
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use anyhow::{bail, Context, Result};
@@ -40,11 +41,14 @@ use crate::history;
 use crate::lifecycle::{self, Rig, Summary, Vault, Verdict};
 use crate::procfs::{self, Sample};
 use crate::walcount::{Frame, Tail};
+use counted::{Counted, Counter};
 
 #[cfg(test)]
 mod burst;
+mod counted;
 mod judge;
 mod long;
+mod overhead;
 mod runs;
 mod status;
 
@@ -94,7 +98,9 @@ fn ms_since(t: Instant) -> f64 {
 /// the stand-in model; the fake `op`. It lives as long as this does.
 struct Scratch {
     rig: Rig,
-    _model: FakeModel,
+    model: FakeModel,
+    /// The stand-in's count of the head-to-head's counted rows.
+    counter: Arc<Counter>,
     _tmp: Option<tempfile::TempDir>,
     work: PathBuf,
 }
@@ -156,8 +162,9 @@ fn scratch_with(
     }
     let sock = work.join("sock");
     // A tool call that finishes at once: `true`, started through the product's
-    // own path for a job.
-    let model = FakeModel::start_mixed(vec!["true".to_string()])?;
+    // own path for a job. The counter counts a streamed turn's syncs.
+    let counter = Arc::new(Counter::new(state.join("store").join("wal")));
+    let model = FakeModel::start_mixed_watched(vec!["true".to_string()], counter.clone())?;
     let config = work.join("config.toml");
     let mut t: toml::Table = quiet_config(&model.base(), &state, &sock, &projects)?.parse()?;
     edit(&mut t)?;
@@ -179,7 +186,8 @@ fn scratch_with(
     };
     Ok(Scratch {
         rig,
-        _model: model,
+        model,
+        counter,
         _tmp: tmp,
         work,
     })
@@ -272,6 +280,9 @@ pub struct Kind {
     pub runs: Vec<Run>,
     /// The last turn's frames, each by what it holds.
     pub last_frames: Vec<String>,
+    /// The harness's overhead, the turn less its model and its tools, from
+    /// each turn's trace, part by part (theseus-4w1h).
+    pub overhead: overhead::Overhead,
 }
 
 #[derive(Debug, Serialize)]
@@ -301,6 +312,8 @@ pub struct TurnReport {
     pub rss_start: Sample,
     pub rss_burst: Sample,
     pub burst: Burst,
+    /// The head-to-head's counted rows (theseus-7gir.13).
+    pub counted: Counted,
     pub verdicts: Vec<Verdict>,
     pub wall_ms: f64,
 }
@@ -412,7 +425,7 @@ impl Driver<'_> {
         shape: (u64, u64),
     ) -> Result<Kind> {
         let (mut wall, mut daemon, mut frames_each) = (Vec::new(), Vec::new(), Vec::new());
-        let (mut each, mut last) = (Vec::new(), Vec::new());
+        let (mut each, mut last, mut splits) = (Vec::new(), Vec::new(), Vec::new());
         for i in 0..runs {
             let (r, w, frames) = self.measured(session, &format!("{input} {i}"))?;
             let got = (
@@ -441,6 +454,7 @@ impl Driver<'_> {
                 );
             }
             each.push(Run::of(i + 1, &r, w, &frames));
+            splits.push(overhead::Split::of(&r["trace"]));
             wall.push(w);
             daemon.push(r["elapsed_ms"].as_f64().unwrap_or(0.0));
             frames_each.push(frames.len() as u64);
@@ -455,6 +469,7 @@ impl Driver<'_> {
             frames_each,
             runs: each,
             last_frames: last,
+            overhead: overhead::Overhead::of(&splits),
         })
     }
 }
@@ -476,6 +491,13 @@ pub fn run_turn(o: &TurnOpts) -> Result<TurnReport> {
     for input in ["warm up", "warm up again", "warm up with bench-tool"] {
         d.submit(&session, input)?;
     }
+    let counted = counted::run(&mut d, &s.counter, &s.model.base(), |n| {
+        s.model.entries_at_least(n)
+    })?;
+    // Said at once: a later check that bails leaves these standing.
+    for l in counted.lines() {
+        println!("{l}");
+    }
     let plain = d.kind("plain", &session, "a plain turn", o.runs, (1, 0))?;
     let tool = d.kind(
         "tool-call",
@@ -495,7 +517,8 @@ pub fn run_turn(o: &TurnOpts) -> Result<TurnReport> {
     } else {
         fsync_before
     };
-    let verdicts = turn_verdicts(&plain.frames, &tool.frames);
+    let mut verdicts = turn_verdicts(&plain.frames, &tool.frames);
+    verdicts.extend(counted.verdicts());
     Ok(TurnReport {
         theseusd: o.theseusd.display().to_string(),
         runs: o.runs,
@@ -507,6 +530,7 @@ pub fn run_turn(o: &TurnOpts) -> Result<TurnReport> {
         rss_start,
         rss_burst,
         burst,
+        counted,
         verdicts,
         wall_ms: ms_since(wall),
     })
@@ -636,14 +660,23 @@ pub fn print_turn(r: &TurnReport) {
     );
     for v in &r.verdicts {
         println!(
-            "  {}: {} frame(s) at the p95, budget {}: {}",
+            "  {}: {} {} at the p95, budget {}: {}",
             v.phase,
             v.p95,
+            counted::unit(&v.phase),
             v.budget,
             if v.ok { "ok" } else { "MISSED" }
         );
     }
     println!("  the bench took {:.1} s", r.wall_ms / 1000.0);
+}
+
+/// Each kind's harness overhead from its turns' traces (theseus-4w1h); the
+/// counted rows are said as they are measured.
+pub fn print_counted(r: &TurnReport) {
+    for k in [&r.plain, &r.tool] {
+        println!("{}", k.overhead.line(&k.name));
+    }
 }
 
 /// The frames of each run, `5` when every run wrote the same count and
@@ -1124,6 +1157,7 @@ pub fn turn_cmd(a: TurnArgs) -> Result<()> {
         dir: a.dir,
     })?;
     print_turn(&report);
+    print_counted(&report);
     let out = Output {
         json: a.json.as_deref(),
         record: a.record.as_deref(),
@@ -1365,6 +1399,7 @@ mod tests {
             frames_each: vec![5],
             runs: Vec::new(),
             last_frames: Vec::new(),
+            overhead: overhead::Overhead::default(),
         };
         let turn = TurnReport {
             theseusd: String::new(),
@@ -1384,6 +1419,7 @@ mod tests {
                 per_turn_ms: 0.0,
                 frames: 0,
             },
+            counted: Counted::default(),
             verdicts: turn_verdicts(&single(5.0), &single(9.0)),
             wall_ms: 0.0,
         };

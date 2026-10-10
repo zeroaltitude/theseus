@@ -2,7 +2,8 @@
 // dial with its red line, read from the daemon's own record:
 //
 // - the start: health's phases for the last one, and every start since from its `server.serving` row;
-// - each turn's harness overhead, from its trace (the turn's time less its model and tool time), split into the
+// - each turn's harness overhead, from its trace: the turn's time less its model's calls and its tools' runs, the
+//   disk's commits included (theseus-4w1h: the README's definition, and `theseus-sim bench turn`'s), split into the
 //   disk's commits (the write path, one fsync a frame) and the rest;
 // - the stops, restarts, swaps, and frames per turn: the gates' benches, from the history they append
 //   (`bench.history`), with every gate's numbers over time;
@@ -117,7 +118,7 @@ export default function Speed() {
       const disk = p(recent.map((t) => t.commits), 0.5)
       const rest = p(recent.map((t) => t.rest + t.compile + t.admission), 0.5)
       return {
-        value: p(recent.map((t) => t.harness), 0.5), gate: rest, source: 'the median of the last 50 turns’ traces; the pointer leaves out the disk’s commits',
+        value: p(recent.map((t) => t.harness), 0.5), gate: rest, source: 'the median of the last 50 turns’ traces, each the turn less its model and tools, the disk’s commits included; the pointer leaves the commits out',
         note: disk !== undefined ? `the disk ${ms(disk)} · the rest ${ms(rest)}` : 'no traced turns', spark: recent.map((t) => t.harness),
       }
     }

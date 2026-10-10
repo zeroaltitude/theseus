@@ -53,7 +53,15 @@ Key modules: `lifecycle.rs`, `kernel_sim.rs`, `fake_discord.rs`, `discord_proof.
     wait between turns). Each run of every arm gets the per-run line too (theseus-v2ru): the turn's own frames, where
     the judge's fell (before its answer · after · between it and the run before), and its slowest frame, named the
     judge's or the turn's. Nothing new is gated: `--check` judges the judge-off arm, and the judged arms' wall times and
-    frames go to `--record` under columns of their own (`*_jloop`, `*_jpacks`). `--session-nodes N` (step 33,
+    frames go to `--record` under columns of their own (`*_jloop`, `*_jpacks`). **The head-to-head's counted rows** (`src/perf/counted.rs`,
+    theseus-7gir.13), judged by `--check` beside the frames, counts and not times (the owner's D-6): the syncs a warm
+    turn's WAL gains before the stand-in's first byte (counted by the stand-in from the WAL as it is about to send;
+    `SYNCS_BEFORE_FIRST_BYTE`, 3, only goes down), a fresh session's first request with the default tools (a second
+    scratch daemon of the default config; under `FIRST_REQUEST_KB`, 40; the bench config's is recorded), and no timer
+    between a delta and its write (a paced stream of 8 chunks reaches the client as 8 `model.delta`s, and in
+    lockstep each chunk reaches it alone). A delta's way to the client is recorded. Each kind's harness overhead
+    (`src/perf/overhead.rs`, theseus-4w1h: the turn less its model and its tools, the commits included, split into
+    the commits, the compiles, the admission and the rest, the speed wall's split) is printed and in `--json`. `--session-nodes N` (step 33,
     `src/perf/long.rs`) measures turns in one session of N nodes instead, written before the daemon starts
     (`synth::long_session`: five-node exchanges whose tool results are `--result-bytes`, 8192 by default): each turn's
     wall time, frames, and the nodes the daemon decoded for it (health's `store.node_cache` `decodes`, read around the
@@ -82,7 +90,15 @@ Key modules: `lifecycle.rs`, `kernel_sim.rs`, `fake_discord.rs`, `discord_proof.
     daemon's `api_base`: each turn's last user text takes the first rule (`{when, calls: [{name, input}], text}`) it
     holds, so a live check can script any tool's calls (`task_create`, `wake_at`, …); a tool's result gets `Done.`.
     A rule's `hold_ms` holds its answer that long, each connection on its own thread, so a live check can find a
-    provider call in flight (theseus-f3wr).
+    provider call in flight (theseus-f3wr). The head-to-head's stand-in (theseus-7gir.13, `src/fake_model/`): one
+    model for both harnesses. A rule's `steps` script a whole turn, matched on the turn's opening user text (the last
+    user message with a plain text block: Claude Code merges a prompt after the last turn's results and sends
+    `<system-reminder>` blocks, which never open a turn), step k answering after k user messages of tool results;
+    `{marker}` is the word after `marker=`. `--ttfb-ms`, `--chunks`, `--chunk-ms` (or a rule's own) pace every
+    answer: its first byte that long after the request, then its deltas one write each, apart, with `TCP_NODELAY`;
+    HTTP/1.1 keep-alive, chunked; a request with no tools is a side request; `"stream": false` gets the message
+    whole. `--log` writes one JSON line a request, its times on `CLOCK_MONOTONIC` (`serve::Entry`). `bench/h2h/`
+    drives it.
   - `discord` (`src/discord_cli.rs`): `proof`, kl8m's steps against a real daemon (`src/discord_proof.rs`); and
     for a live check across processes, `rig` (a scratch daemon's config, fake `op`, and bindings), `model` (the
     proof's scripted model), and `say`, `press`, `read` against a running `fake-discord`.

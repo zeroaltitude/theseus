@@ -188,6 +188,21 @@ enum Cmd {
         addr: String,
         #[arg(long)]
         rules: PathBuf,
+        /// Log every request here, one JSON line each, its times on
+        /// CLOCK_MONOTONIC (theseus-7gir.13).
+        #[arg(long)]
+        log: Option<PathBuf>,
+        /// Pace every answer: its first byte this long after the request
+        /// (any of the three paces it; the others take their defaults,
+        /// 300 ms, 8 chunks, 25 ms).
+        #[arg(long)]
+        ttfb_ms: Option<u64>,
+        /// The answer's deltas, one write each.
+        #[arg(long)]
+        chunks: Option<usize>,
+        /// Between one chunk and the next.
+        #[arg(long)]
+        chunk_ms: Option<u64>,
     },
     /// The fake MCP server (M7 36b), for a scratch daemon's `[mcp.servers]`:
     /// stdio by default, as a daemon starts it, or `--http`.
@@ -336,12 +351,33 @@ fn main() -> Result<()> {
                 std::thread::park();
             }
         }
-        Cmd::FakeModel { addr, rules } => {
+        Cmd::FakeModel {
+            addr,
+            rules,
+            log,
+            ttfb_ms,
+            chunks,
+            chunk_ms,
+        } => {
             let text = std::fs::read_to_string(&rules)
                 .with_context(|| format!("reading {}", rules.display()))?;
             let rules: Vec<fake_model::Rule> = serde_json::from_str(&text)
                 .with_context(|| format!("parsing the rules in {}", rules.display()))?;
-            let fake = fake_model::FakeModel::start_rules_on(&addr, rules)?;
+            let d = fake_model::Pace::default();
+            let paced = ttfb_ms.is_some() || chunks.is_some() || chunk_ms.is_some();
+            let serving = fake_model::Serving {
+                pace: paced.then(|| fake_model::Pace {
+                    ttfb_ms: ttfb_ms.unwrap_or(d.ttfb_ms),
+                    chunks: chunks.unwrap_or(d.chunks),
+                    chunk_ms: chunk_ms.unwrap_or(d.chunk_ms),
+                }),
+                log: match &log {
+                    Some(p) => fake_model::Log::to_file(p)?,
+                    None => fake_model::Log::default(),
+                },
+                watch: None,
+            };
+            let fake = fake_model::FakeModel::start_rules_with(&addr, rules, serving)?;
             println!("fake model on {}", fake.base());
             loop {
                 std::thread::park();
