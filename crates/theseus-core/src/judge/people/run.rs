@@ -168,7 +168,7 @@ impl Core {
                 .snapshot(&self.store)
                 .map_err(|e| format!("the ontology was not read: {e:#}"))?,
         };
-        let not = NotPeople::of(&self.runner.cfg, &s.lines);
+        let not = NotPeople::of(&self.runner.cfg, &s.lines).with_held(&o);
         let mut known = s.known.clone();
         known.extend(Self::people_held_by(&o, s.sid));
         let (mut kept, mut excluded) = (Vec::new(), Vec::new());

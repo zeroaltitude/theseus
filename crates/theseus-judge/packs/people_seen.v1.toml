@@ -1,0 +1,48 @@
+# people_seen.v1 (theseus-u5n8): the owner's gate on people.v1's live point,
+# "combine, gated by Jev". At a private conversation's exchange end, before
+# any model reads the session, one Jev call: the state is the session's title
+# and its human-facing lines since people's mark, and the people already held
+# that the exchange may concern (the session's own first, then those whose
+# name or handle the lines hold; at most twenty). One Noul per listed person,
+# whether they are involved (at `[people] confirm` or above, a proposal of
+# that person for the session, never a membership); and one Noul whether a
+# person not listed is: only at `[people] gate` or above does the extractor
+# read the exchange and people.v1 judge what it finds. No live action.
+id = "people_seen"
+version = 1
+jev_model = "jev-1.13.0"
+point = "exchange_end"
+state = "people_seen"
+state_cap_tokens = 3000
+sample = 1.0
+baseline = "no_membership"
+action = "none"
+description = "Which of the people already held an exchange involves, and whether it involves a person not held yet."
+
+[questions.seen]
+type = "noul"
+per = "people"
+max = 10
+instructions = "Is the listed person {item} involved in this exchange?"
+act = 0.90
+confirm = 0.60
+when_true = "In the lines this person speaks, is addressed, or owns, takes or hands off a piece of the work."
+when_false = "This person is not in the lines, or is only mentioned in passing, quoted from elsewhere, or named as an example."
+
+[questions.seen_more]
+type = "noul"
+per = "more_people"
+max = 10
+instructions = "Is the listed person {item} involved in this exchange?"
+act = 0.90
+confirm = 0.60
+when_true = "In the lines this person speaks, is addressed, or owns, takes or hands off a piece of the work."
+when_false = "This person is not in the lines, or is only mentioned in passing, quoted from elsewhere, or named as an example."
+
+[questions.unlisted]
+type = "noul"
+instructions = "Besides the operator and the assistant, does this exchange involve a person who is not among the listed people?"
+act = 0.90
+confirm = 0.60
+when_true = "A human not listed speaks in the lines, is addressed, or owns or hands off a piece of the work."
+when_false = "Every human in the lines is the operator or a listed person, or the lines name no one but agents, bots, tools and products."

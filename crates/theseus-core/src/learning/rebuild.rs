@@ -60,6 +60,10 @@ pub fn unrebuildable(b: Builder) -> Option<&'static str> {
             "a people state's candidate is an extractor's answer and the held people as they \
              stood, which the record keeps only in the judgment's context",
         ),
+        Builder::PeopleSeen => Some(
+            "a people gate's state is an exchange's lines since a mark that has moved and the held \
+             people as they stood",
+        ),
     }
 }
 

@@ -110,3 +110,72 @@ pub fn people(i: &PeopleInput, cap: u64, scrub: &dyn Scrub) -> Prepared {
         dynamic,
     }
 }
+
+/// The held people `people_seen.v1` lists at most: its two per-item Nouls'
+/// ten each.
+pub const SEEN: usize = 20;
+/// The exchange's lines a gate's state keeps at most (the newest), and each
+/// line's characters.
+const SEEN_LINES: usize = 24;
+const SEEN_LINE_CHARS: usize = 400;
+
+/// `people_seen.v1`'s input (theseus-u5n8): a private exchange's
+/// human-facing lines since people's mark, each `author: text`, and the
+/// held people it may involve, the session's own first.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PeopleSeenInput {
+    pub session_title: String,
+    /// Oldest first; the newest are kept.
+    #[serde(default)]
+    pub lines: Vec<String>,
+    #[serde(default)]
+    pub held: Vec<HeldPerson>,
+}
+
+pub fn people_seen(i: &PeopleSeenInput, cap: u64, scrub: &dyn Scrub) -> Prepared {
+    let c = Clipper::new(scrub);
+    let clip = |s: &str, n: usize| clip_with(scrub, s, n);
+    let mut b = StateBuilder::new("people_seen", PEOPLE_SEEN_VERSION, cap, scrub);
+    b.scalar("session_title", c.clip(&i.session_title, 120))
+        .cut_if("session_title", c.cut());
+    let kept = newest(&i.lines, SEEN_LINES);
+    let lines: Vec<Value> = kept
+        .iter()
+        .map(|l| Value::String(c.clip(l.trim(), SEEN_LINE_CHARS)))
+        .collect();
+    b.list_after(
+        "lines",
+        10,
+        share(cap, 70),
+        lines,
+        left_out(&i.lines, kept.len()),
+    )
+    .cut_if("lines", c.cut());
+    let held = &i.held[..i.held.len().min(SEEN)];
+    let listed: Vec<Value> = held
+        .iter()
+        .map(|p| Value::String(c.clip(&p.description, 200)))
+        .collect();
+    b.list_head("listed_people", 9, share(cap, 25), listed, 0)
+        .cut_if("listed_people", c.cut());
+    // A person's Noul names them as the listed line does, quoted.
+    let item = |p: &HeldPerson| Item {
+        key: p.id.clone(),
+        text: format!(
+            "“{}”",
+            clip(p.description.trim().trim_end_matches('.'), 200)
+        ),
+    };
+    let mut dynamic = Dynamic::default();
+    dynamic
+        .sources
+        .insert(Source::People, held.iter().take(10).map(item).collect());
+    dynamic
+        .sources
+        .insert(Source::MorePeople, held.iter().skip(10).map(item).collect());
+    Prepared {
+        state: Arc::new(b.build()),
+        dynamic,
+    }
+}

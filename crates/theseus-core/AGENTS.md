@@ -433,6 +433,13 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     decides as the proposals are read (`people::decide`, `[people] act`/`confirm`): `rpc/proposals.rs` lists them
     beside the topics' (`OntologyProposal.person`), and an accept joins the held person, or declares the new one
     (unless an exact handle or name finds it by then). Tests: `judge/people/tests.rs`.
+    **Live, gated by Jev** (theseus-u5n8, the owner's "combine, gated by Jev"; `seen.rs`, pack `people_seen.v1`,
+    scope `judge:people_seen`): at each due point one Jev call first, over the exchange's lines and the held people
+    it may involve (`seen::listed`: the session's own, then those its lines name; never the owner's or one
+    `NotPeople` excludes; at most 20, two per-item Nouls of ten). A listed person's Noul at `[people] confirm` is a
+    proposal of that person (named `<judgment>/<person>`, once a session, not again where the owner rejected it);
+    only its `unlisted` Noul at `[people] gate` (0.6) runs the extraction and `people.v1`. Under it, or unanswered,
+    no model call; the mark moves either way. The backfill has no gate. Tests: `judge/people/tests_seen.rs`.
   - **The learning ledger** (step 25c, `learning/`): labels (`labels.rs`: what a label says of a Noul, a Choice,
     a Score; the heaviest counts, then the newest), system labels derived by each run (`system.rs`, weight 0.5,
     keyed by judgment, question and rule so a second run writes none), the report per pack version and question

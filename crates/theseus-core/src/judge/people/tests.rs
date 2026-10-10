@@ -42,7 +42,7 @@ fn line(n: usize, author: &str, text: &str) -> Line {
 }
 
 /// The extractor's answer: `people` as its tool's input.
-fn answer(people: serde_json::Value) -> Scripted {
+pub(super) fn answer(people: serde_json::Value) -> Scripted {
     Scripted::tools(
         "",
         &[("tu_1", super::extract::TOOL, json!({"people": people}))],
@@ -199,14 +199,18 @@ fn import(core: &Core) {
     assert!(r.rejected.is_empty(), "{:?}", r.rejected);
 }
 
-/// People on, categorize off, the owner's name never a person.
-fn people_on(c: &mut crate::config::Config) {
+/// People on (and its live gate, people_seen.v1), categorize off, the
+/// owner's name never a person.
+pub(super) fn people_on(c: &mut crate::config::Config) {
     let on = |mode| JudgePackConfig {
         mode: Some(mode),
         sample: None,
         notices: None,
     };
     c.judge.packs.insert("people.v1".into(), on(PackMode::Live));
+    c.judge
+        .packs
+        .insert("people_seen.v1".into(), on(PackMode::Live));
     c.judge
         .packs
         .insert("categorize.v1".into(), on(PackMode::Off));
@@ -519,6 +523,8 @@ fn proposals_are_listed_then_accepted_in_bulk(core: &Arc<Core>) {
 async fn a_shared_place_gets_nothing_and_a_private_one_proposes() {
     let jev = FakeJev::start().unwrap();
     script(&jev);
+    // The owner's gate open: a person not held is involved (theseus-u5n8).
+    jev.script("unlisted", Jev::Noul(0.9));
     let r = rig(Some(&jev), 2 * EVERY, people_on);
     let shared = session(&r.core, Some("channel:314159265358979323"));
     moorings(&r.core, &shared, EVERY).await;

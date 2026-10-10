@@ -11,6 +11,10 @@
 //!   and its match) reaches `act` is proposed in the act band, one at
 //!   `confirm` in the confirm band, and one under `confirm` is dropped.
 //! - `live`: `people.v1` at a private conversation's exchange end (on).
+//! - `gate`: live, the owner's "combine, gated by Jev" (theseus-u5n8): at
+//!   each due exchange end Jev alone first (`people_seen.v1`: which held
+//!   people it involves, and whether a person not held is); only when that
+//!   last Noul reaches `gate` does the extractor read the exchange (0.6).
 
 use anyhow::{bail, Result};
 use serde::{Deserialize, Serialize};
@@ -28,6 +32,8 @@ pub struct PeopleConfig {
     pub confirm: f64,
     #[serde(default = "default_live")]
     pub live: bool,
+    #[serde(default = "default_gate")]
+    pub gate: f64,
 }
 
 fn default_extract_profile() -> String {
@@ -42,6 +48,9 @@ fn default_confirm() -> f64 {
 fn default_live() -> bool {
     true
 }
+fn default_gate() -> f64 {
+    0.6
+}
 
 impl Default for PeopleConfig {
     fn default() -> Self {
@@ -51,6 +60,7 @@ impl Default for PeopleConfig {
             act: default_act(),
             confirm: default_confirm(),
             live: default_live(),
+            gate: default_gate(),
         }
     }
 }
@@ -67,6 +77,9 @@ impl PeopleConfig {
                 self.confirm,
                 self.act
             );
+        }
+        if !(0.0 < self.gate && self.gate <= 1.0) {
+            bail!("[people] needs 0 < gate <= 1 (gate = {})", self.gate);
         }
         if self.extract_profile.trim().is_empty() {
             bail!("[people] extract_profile names no profile");

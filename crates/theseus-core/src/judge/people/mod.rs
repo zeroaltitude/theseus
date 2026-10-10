@@ -44,8 +44,11 @@ pub mod backfill;
 pub mod extract;
 pub mod live;
 pub mod run;
+pub mod seen;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_seen;
 
 /// The pack.
 pub const PACK: &str = "people.v1";
@@ -157,6 +160,44 @@ impl NotPeople {
         n
     }
 
+    /// The names of the held people the config's handles exclude (the
+    /// owner's own person, a DM's, by whatever name it is held), so the
+    /// owner is never a candidate by name either (theseus-u5n8, at the
+    /// join: a live CLI session's lines carry no name of the owner's).
+    pub fn with_held(mut self, o: &Ontology) -> NotPeople {
+        let theirs: Vec<String> = o
+            .categories()
+            .filter(|c| c.kind() == theseus_ontology::person::KIND)
+            .filter(|c| self.holds_handle(c))
+            .flat_map(|c| {
+                let mut v = vec![fold(&c.name)];
+                v.extend(
+                    handles_of(c)
+                        .iter()
+                        .filter_map(|h| h.strip_prefix("name:"))
+                        .map(fold),
+                );
+                v
+            })
+            .collect();
+        self.names.extend(theirs);
+        self.names.remove("");
+        self
+    }
+
+    fn holds_handle(&self, c: &Category) -> bool {
+        handles_of(c)
+            .iter()
+            .filter_map(|h| theseus_ontology::handle(h).ok())
+            .any(|h| self.handles.contains(&h))
+    }
+
+    /// Whether a held person is one never listed or proposed: by a handle,
+    /// or by its folded name.
+    pub fn excludes_person(&self, c: &Category) -> bool {
+        self.holds_handle(c) || self.names.contains(&fold(&c.name))
+    }
+
     /// Whether a candidate is one never proposed: by its folded name, any
     /// word-for-word part of it one of the names (an agent's "Gull" in "Gull
     /// bot"), or any of its handles.
@@ -214,7 +255,7 @@ pub fn nearest(o: &Ontology, c: &PersonCandidate) -> Vec<HeldPerson> {
 }
 
 /// A held person as an option reads: name, handles, and description.
-fn describe(p: &Category) -> String {
+pub(super) fn describe(p: &Category) -> String {
     let handles: Vec<String> = handles_of(p)
         .into_iter()
         .filter(|h| !theseus_ontology::person::is_name(h) || h[5..] != p.name)

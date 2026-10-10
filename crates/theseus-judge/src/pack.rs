@@ -62,6 +62,10 @@ pub const EMBEDDED: &[(&str, &str)] = &[
     ("route.v3", include_str!("../packs/route.v3.toml")),
     ("citation.v1", include_str!("../packs/citation.v1.toml")),
     ("people.v1", include_str!("../packs/people.v1.toml")),
+    (
+        "people_seen.v1",
+        include_str!("../packs/people_seen.v1.toml"),
+    ),
 ];
 
 /// Where a pack runs (§2.4). `probe` is the test pack's: the core never
@@ -107,6 +111,9 @@ pub enum Builder {
     /// `people.v1`'s: one candidate person and the held people it may be
     /// (theseus-wy7y).
     People,
+    /// `people_seen.v1`'s: a private exchange's lines and the held people it
+    /// may involve (theseus-u5n8, the gate on people.v1's live point).
+    PeopleSeen,
 }
 
 /// What decides when the pack does not (§2.4's baseline column).
@@ -160,6 +167,9 @@ pub enum Source {
     People,
     /// A candidate's role line (`people.v1`): one item, or none.
     RoleLine,
+    /// The held people past the first ten (`people_seen.v1`, whose first
+    /// ten are `People`): a per-item Noul asks at most ten.
+    MorePeople,
 }
 
 /// One dynamic item: its key (an option id, or what a per-item Noul is
@@ -1307,9 +1317,9 @@ mod tests {
         let six: Vec<&(&str, &str)> = EMBEDDED.iter().filter(|(f, _)| *f != "probe.v1").collect();
         assert_eq!(
             six.len(),
-            16,
+            17,
             "§2.4's six, security.v2 and v3, rerank.v1, memory.v1, attribution.v1, route.v1, v2 \
-             and v3, citation.v1, and people.v1"
+             and v3, citation.v1, people.v1 and people_seen.v1"
         );
         for (file, text) in six {
             let p = Pack::parse(text).unwrap_or_else(|e| panic!("{file}: {e}"));

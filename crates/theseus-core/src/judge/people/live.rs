@@ -7,14 +7,20 @@
 //! 30 minutes' quiet), and the mark moves in the extraction's frame, so a
 //! crash loses the two together. Live, not shadow: it writes proposals the
 //! owner sees; `[people] live = false` turns it off.
+//!
+//! Gated by Jev (theseus-u5n8, the owner's "combine, gated by Jev"): at
+//! each due point Jev alone first (`seen.rs`, `people_seen.v1`): its listed
+//! people's Nouls are proposals, and only its `unlisted` Noul at `[people]
+//! gate` or above runs the extraction and people.v1 for the exchange. Under
+//! it, no model call; the mark moves either way.
 
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
 
-use theseus_store::kinds;
+use theseus_store::{kinds, NewRecord};
 
 use super::run::{meta, Session};
-use super::{lines, PACK};
+use super::{lines, seen, Line, NotPeople, PACK};
 use crate::judge::categorize::{due, is_human, ExchangeEnd, Mark};
 use crate::judge::JudgeService;
 use crate::node::Node;
@@ -110,10 +116,6 @@ impl Core {
         if found.is_empty() {
             return;
         }
-        let known = match theseus_store::blocking(|| self.people_known()) {
-            Ok(mut k) => k.remove(sid).unwrap_or_default(),
-            Err(_) => return,
-        };
         let moved = Mark {
             judgment: String::new(),
             through,
@@ -121,10 +123,26 @@ impl Core {
             at_ms: theseus_protocol::now_unix_ms(),
         };
         let Ok(mark) = meta(&key, &moved) else { return };
+        self.people_gated(sid, &title, found, mark).await;
+    }
+
+    /// A due point's pass behind the owner's gate (theseus-u5n8): shut, the
+    /// mark moves alone; open, it moves in the extraction's frame.
+    async fn people_gated(&self, sid: &str, title: &str, found: Vec<Line>, mark: NewRecord) {
+        if !self.people_gate(sid, title, &found).await {
+            if let Err(e) = self.people_write(&[mark]).await {
+                tracing::warn!(error = %format!("{e:#}"), "people: the mark was not moved");
+            }
+            return;
+        }
+        let known = match theseus_store::blocking(|| self.people_known()) {
+            Ok(mut k) => k.remove(sid).unwrap_or_default(),
+            Err(_) => return,
+        };
         let pass = self
             .propose_people(Session {
                 sid,
-                title: &title,
+                title,
                 lines: found,
                 purpose: "live",
                 mark: Some(mark),
@@ -134,5 +152,31 @@ impl Core {
         if let Err(why) = pass {
             tracing::info!(session = %sid, why = %why, "people: nothing proposed");
         }
+    }
+
+    /// The gate: whether Jev's `unlisted` Noul for the exchange reaches
+    /// `[people] gate`. Its listed people's Nouls are read as proposals
+    /// from the judgment's row; nothing else is written here.
+    async fn people_gate(&self, sid: &str, title: &str, found: &[Line]) -> bool {
+        let o = match self.runner.ontology.held() {
+            Some(o) => o,
+            None => match self.runner.ontology.snapshot(&self.store) {
+                Ok(o) => o,
+                Err(_) => return false,
+            },
+        };
+        let not = NotPeople::of(&self.runner.cfg, found).with_held(&o);
+        let listed = seen::listed(&o, sid, found, &not);
+        let judged = self
+            .runner
+            .judge
+            .judge_seen(sid, title, found, listed)
+            .await;
+        let open = judged
+            .as_ref()
+            .and_then(seen::unlisted)
+            .is_some_and(|p| p >= self.runner.cfg.people.gate);
+        tracing::debug!(session = %sid, open, "people: the gate");
+        open
     }
 }

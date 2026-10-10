@@ -33,7 +33,7 @@ use crate::store::Store;
 use crate::turn::TurnRequest;
 use crate::Config;
 
-const OWNER: u64 = 271_828_182_845_904_523;
+pub(crate) const OWNER: u64 = 271_828_182_845_904_523;
 const ALICE: u64 = 222_222_222_222_222_222;
 /// A guild channel the bindings file binds, shared.
 const LAB: u64 = 314_159_265_358_979_323;
@@ -381,7 +381,7 @@ pub(crate) fn session(core: &Core, place: Option<&str>) -> String {
     r.session_id
 }
 
-async fn turn(core: &Arc<Core>, sid: &str, input: &str) -> TurnSubmitResult {
+pub(crate) async fn turn(core: &Arc<Core>, sid: &str, input: &str) -> TurnSubmitResult {
     let rec = core
         .store
         .get_session::<SessionRecord>(sid)

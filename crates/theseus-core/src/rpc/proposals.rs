@@ -16,6 +16,14 @@
 //! the bands of `[people]`): a held person the session joins, or a new one
 //! the accept declares (or joins the held person an exact handle or name
 //! finds by then), its labels in that scope.
+//!
+//! The people gate's (`people_seen.v1`, theseus-u5n8) from `judge:people_seen`:
+//! each listed person whose Noul reaches `[people] confirm` is a proposal of
+//! that held person for the session, one judgment holding several, so each
+//! is named `<judgment>/<person>`; its label holds the judgment and the
+//! person (`answer`). The gate asks at every due point, so a person is
+//! listed once a session (the newest proposal), and not again for a
+//! session where the owner rejected that person.
 
 use std::collections::{BTreeMap, HashSet};
 
@@ -33,7 +41,7 @@ use super::Core;
 use crate::approval::Answerer;
 use crate::fact;
 use crate::judge::categorize::PACK;
-use crate::judge::people::{self, Decided, Whom};
+use crate::judge::people::{self, seen, Decided, Whom};
 use crate::ledger::LedgerRow;
 
 /// The pack's scope: its judgments and their labels.
@@ -52,6 +60,9 @@ struct Proposed {
     at_ms: u64,
     /// `people.v1`'s: the person code decided on.
     person: Option<Decided>,
+    /// The gate's (`people_seen.v1`): the question its Noul answered, so its
+    /// proposals of one judgment are told apart.
+    asked: Option<String>,
 }
 
 impl Proposed {
@@ -84,6 +95,7 @@ impl Proposed {
             at_ms: row.at_unix_ms,
             judgment,
             person: None,
+            asked: None,
         })
     }
 
@@ -103,22 +115,75 @@ impl Proposed {
             at_ms: row.at_unix_ms,
             judgment,
             person: Some(d),
+            asked: None,
         })
+    }
+
+    /// The gate's proposals in an answered `people_seen.v1` judgment: each
+    /// listed person whose Noul reaches `confirm`, in the `act` band at
+    /// `act`, a held person for the session.
+    fn of_seen(row: &LedgerRow, act: f64, confirm: f64) -> Vec<Proposed> {
+        let Ok(judgment) = serde_json::from_value::<Judgment>(row.data.clone()) else {
+            return Vec::new();
+        };
+        let Some(session) = row.session_id.clone() else {
+            return Vec::new();
+        };
+        seen::seen(&judgment)
+            .into_iter()
+            .filter(|(_, _, p)| *p >= confirm)
+            .map(|(asked, id, p)| {
+                let band = if p >= act { "act" } else { "confirm" };
+                let name = seen::listed_name(&judgment, &id).unwrap_or_else(|| id.clone());
+                Proposed {
+                    session: session.clone(),
+                    choice: id.clone(),
+                    confidence: p,
+                    band: band.into(),
+                    at_ms: row.at_unix_ms,
+                    person: Some(Decided {
+                        candidate: theseus_judge::builders::PersonCandidate {
+                            name,
+                            handles: Vec::new(),
+                            role_line: String::new(),
+                            evidence: Vec::new(),
+                        },
+                        whom: Whom::Held(id),
+                        confidence: p,
+                        band,
+                        role_line: None,
+                    }),
+                    asked: Some(asked),
+                    judgment: judgment.clone(),
+                }
+            })
+            .collect()
+    }
+
+    /// The proposal's name: its judgment's id, and for the gate's the
+    /// person's too.
+    fn id(&self) -> String {
+        match &self.asked {
+            Some(_) => format!("{}/{}", self.judgment.id, self.choice),
+            None => self.judgment.id.clone(),
+        }
     }
 
     /// The pack's scope, where its labels go.
     fn scope(&self) -> &'static str {
-        match self.person {
-            Some(_) => people::SCOPE,
-            None => SCOPE,
+        match (&self.asked, &self.person) {
+            (Some(_), _) => seen::SEEN_SCOPE,
+            (None, Some(_)) => people::SCOPE,
+            (None, None) => SCOPE,
         }
     }
 
     /// The question the label answers.
-    fn question(&self) -> &'static str {
-        match self.person {
-            Some(_) => "match",
-            None => "topic",
+    fn question(&self) -> &str {
+        match (&self.asked, &self.person) {
+            (Some(q), _) => q,
+            (None, Some(_)) => "match",
+            (None, None) => "topic",
         }
     }
 
@@ -167,6 +232,7 @@ impl Core {
         let (act, confirm) = (self.runner.cfg.people.act, self.runner.cfg.people.confirm);
         let mut rows = self.store.scope_after(SCOPE, 0)?;
         rows.extend(self.store.scope_after(people::SCOPE, 0)?);
+        rows.extend(self.store.scope_after(seen::SEEN_SCOPE, 0)?);
         for r in rows {
             let Ok(row) = r.decode::<LedgerRow>() else {
                 continue;
@@ -174,13 +240,34 @@ impl Core {
             match row.kind.as_str() {
                 "judge.label" => {
                     if row.data["source"] == "operator" {
+                        // A held person rejected for a session (theseus-u5n8).
+                        let person =
+                            row.data["pack"] == seen::SEEN_PACK || row.data["pack"] == people::PACK;
+                        if let (true, "rejected", Some(sid), Some(who)) = (
+                            person,
+                            row.data["label"].as_str().unwrap_or(""),
+                            row.session_id.as_deref(),
+                            row.data["answer"].as_str(),
+                        ) {
+                            labelled.insert(format!("{sid}/{who}"));
+                        }
                         if let Some(j) = row.data["judgment"].as_str() {
-                            labelled.insert(j.to_string());
+                            // A gate's label answers one person of its judgment.
+                            labelled.insert(match row.data["pack"] == seen::SEEN_PACK {
+                                true => {
+                                    format!("{j}/{}", row.data["answer"].as_str().unwrap_or(""))
+                                }
+                                false => j.to_string(),
+                            });
                         }
                     }
                 }
-                "judge.call" => proposed
-                    .extend(Proposed::of(&row).or_else(|| Proposed::of_person(&row, act, confirm))),
+                "judge.call" => {
+                    match Proposed::of(&row).or_else(|| Proposed::of_person(&row, act, confirm)) {
+                        Some(p) => proposed.push(p),
+                        None => proposed.extend(Proposed::of_seen(&row, act, confirm)),
+                    }
+                }
                 _ => {}
             }
         }
@@ -198,9 +285,18 @@ impl Core {
         let (proposed, labelled) = self.proposals_scan()?;
         let mut titles: BTreeMap<String, Option<String>> = BTreeMap::new();
         let mut out = Vec::new();
+        let mut shown: HashSet<(String, String)> = HashSet::new();
         for pr in proposed.into_iter().rev() {
-            if labelled.contains(&pr.judgment.id)
+            if labelled.contains(&pr.id())
                 || p.session_id.as_ref().is_some_and(|s| *s != pr.session)
+            {
+                continue;
+            }
+            // A held person once a session, the newest; the gate's, none
+            // the owner rejected there (theseus-u5n8).
+            let held = matches!(pr.person.as_ref().map(|d| &d.whom), Some(Whom::Held(_)));
+            if (pr.asked.is_some() && labelled.contains(&format!("{}/{}", pr.session, pr.choice)))
+                || (held && !shown.insert((pr.session.clone(), pr.choice.clone())))
             {
                 continue;
             }
@@ -216,7 +312,7 @@ impl Core {
                 .or_insert_with(|| self.session_title(&pr.session))
                 .clone();
             out.push(OntologyProposal {
-                judgment: pr.judgment.id.clone(),
+                judgment: pr.id(),
                 session_id: pr.session.clone(),
                 session_title: title,
                 topic_name: topic
@@ -248,23 +344,32 @@ impl Core {
             .and_then(|s| s.title)
     }
 
-    /// The proposal a judgment id names, unanswered.
+    /// The proposal a judgment id names, unanswered (a gate's:
+    /// `<judgment>/<person>`).
     fn open_proposal(&self, id: &str) -> Result<Proposed> {
         let id = id.trim();
+        let (key, person) = match id.split_once('/') {
+            Some((k, p)) => (k, Some(p)),
+            None => (id, None),
+        };
         let rec = self
             .store
             .inner()
-            .latest_by_key(kinds::LEDGER, id)?
+            .latest_by_key(kinds::LEDGER, key)?
             .ok_or_else(|| {
                 anyhow!("no judgment is named {id:?}: `theseus ontology proposals` lists them")
             })?;
         let row: LedgerRow = rec.decode()?;
         let (act, confirm) = (self.runner.cfg.people.act, self.runner.cfg.people.confirm);
-        let pr = Proposed::of(&row)
-            .or_else(|| Proposed::of_person(&row, act, confirm))
-            .ok_or_else(|| {
-                anyhow!("{id} is not a categorize.v1 or people.v1 judgment that proposes a topic or a person")
-            })?;
+        let pr = match person {
+            None => Proposed::of(&row).or_else(|| Proposed::of_person(&row, act, confirm)),
+            Some(p) => Proposed::of_seen(&row, act, confirm)
+                .into_iter()
+                .find(|s| s.choice == p),
+        }
+        .ok_or_else(|| {
+            anyhow!("{id} is not a categorize.v1, people.v1 or people_seen.v1 judgment that proposes a topic or a person")
+        })?;
         if self.proposals_scan()?.1.contains(id) {
             bail!("{id} is answered already: its label is in the ledger (`theseus ledger -k judge.label`)");
         }
@@ -530,7 +635,7 @@ fn answered(
     topic: Option<String>,
 ) -> OntologyProposalAnswered {
     OntologyProposalAnswered {
-        judgment: pr.judgment.id.clone(),
+        judgment: pr.id(),
         session_id: pr.session.clone(),
         label_id,
         label: label.into(),

@@ -224,7 +224,8 @@ fn a_start_with_the_judge_on_builds_nothing_of_it() {
             "memory.v1: shadow",
             "attribution.v1: shadow",
             "citation.v1: shadow",
-            "people.v1: live"
+            "people.v1: live",
+            "people_seen.v1: live"
         ])
     );
     assert_eq!(rig.rows("pack.mode").len(), 3, "one adoption row each");

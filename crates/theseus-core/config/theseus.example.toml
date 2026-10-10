@@ -806,12 +806,18 @@ idle_unload_mins = 10.0                   # the model unloads after this long un
 # (`theseus ontology proposals`, `theseus ontology accept --kind person`).
 # Never proposed: the owner, the personas, the agents a session names, and
 # not_people. `theseus import people TAG --propose` runs it over an import.
+# Live, Jev gates the extractor (people_seen.v1, theseus-u5n8): at each due
+# exchange end one Jev call asks which held people the exchange involves (each
+# at `confirm` or above is proposed for the session) and whether a person not
+# held is; only at `gate` or above does the extractor read the exchange.
 # [people]
 # extract_profile = "haiku"               # the profile that extracts the candidates
 # not_people = []                         # names never proposed, e.g. ["Gullbot"]
 # act = 0.9                               # the least probability that proposes in the act band
 # confirm = 0.6                           # ... in the confirm band; under it, dropped
 # live = true                             # people.v1 at a private conversation's exchange end
+# gate = 0.6                              # live: Jev's "a person not held is involved" at or above
+#                                         # this runs the extractor; under it, no model call
 
 # ---------------------------------------------------------------- sandbox
 # L1, the sandbox (M4): a proc.run job in namespaces of its own, as your own

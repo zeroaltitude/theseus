@@ -94,6 +94,7 @@ pub const WIRED: &[(&str, PackMode)] = &[
     (memory::ATTRIBUTION_PACK, PackMode::Shadow),
     (citation::CITATION_PACK, PackMode::Shadow),
     (people::PACK, PackMode::Live),
+    (people::seen::SEEN_PACK, PackMode::Live),
 ];
 
 /// The mode `WIRED` gives `pack` (shadow for one it does not list).
