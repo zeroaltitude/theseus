@@ -368,6 +368,85 @@ class Ranges(Case):
         self.assertEqual(code, 2, out)
         self.assertIn("THESEUS_KEEL_BASE", out)
 
+    def join_with_a_fix_after_its_merge(self):
+        """main at the base is origin/main; the lane raises a ceiling; the join merges it on main and commits a fix
+        after the merge, so HEAD is the fix (theseus-pw1q.18: the people join's gate judged HEAD..HEAD here)."""
+        self.repo.git("update-ref", "refs/remotes/origin/main", "main")
+        self.repo.commit({"scripts/long-files.txt": sub(LONG, "big.rs 3000", "big.rs 3200")}, "raise")
+        self.repo.git("checkout", "-q", "main")
+        self.repo.git("merge", "-q", "--no-ff", "-m", "Merge lane", "lane")
+        self.repo.commit({"scripts/shape.sh": "#!/usr/bin/env bash\nlimit=2500\n# the join's fix\n"}, "join fix")
+
+    def test_a_join_whose_fix_follows_its_merge_is_judged_whole(self):
+        self.join_with_a_fix_after_its_merge()
+        code, out = self.findings()
+        self.assertEqual(code, 1, out)
+        self.assertIn("merge-base(HEAD, origin/main)", out)
+        self.assertIn("scripts/long-files.txt:2: ceiling-raised", out)
+
+    def test_a_branch_cut_at_a_landed_join_is_judged_from_it(self):
+        self.repo.git("update-ref", "refs/remotes/origin/main", "main")
+        self.repo.commit({"scripts/long-files.txt": sub(LONG, "big.rs 3000", "big.rs 3200")}, "raise")
+        self.repo.git("checkout", "-q", "main")
+        self.repo.git("merge", "-q", "--no-ff", "-m", "Merge lane", "lane")
+        self.repo.git("update-ref", "refs/remotes/origin/main", "main")
+        self.repo.git("checkout", "-q", "-b", "next")
+        self.repo.write({"scripts/shape.sh": "#!/usr/bin/env bash\nlimit=2400\n"})
+        code, out = self.findings()
+        self.assertEqual(code, 0, "the landed join is not judged again: " + out)
+        self.assertIn("a branch: merge-base(HEAD, origin/main)", out)
+
+
+GATE = Path(__file__).resolve().parent / "gate.sh"
+
+
+class Gate(Case):
+    """The real scripts/gate.sh, run in a throwaway repository: its keel phases run, and its next phase (fmt) fails
+    there, since the repository has no Cargo.toml; the keel's lines say what was judged."""
+
+    def setUp(self):
+        super().setUp()
+        self.repo.git("checkout", "-q", "main")
+        self.repo.commit({"scripts/gate.sh": GATE.read_text(), "scripts/keel-guard.py": GUARD.read_text()}, "gate")
+        os.chmod(self.repo.root / "scripts/gate.sh", 0o755)
+        self.repo.git("checkout", "-q", "-B", "lane")
+        self.logs = tempfile.mkdtemp(prefix="keel-logs-")
+
+    def tearDown(self):
+        super().tearDown()
+        shutil.rmtree(self.logs, ignore_errors=True)
+
+    def gate(self, script="scripts/gate.sh", **env):
+        e = {k: v for k, v in self.repo.env.items()
+             if k not in ("THESEUS_GATE_ROOT", "THESEUS_GATE_DOOR", "THESEUS_GATE_NO_BENCH")}
+        e.update({"THESEUS_GATE_TIMES": f"{self.logs}/times.csv", "THESEUS_BENCH_HISTORY": f"{self.logs}/bench.csv",
+                  "THESEUS_FLAKY_LOG": f"{self.logs}/flaky.csv", "THESEUS_GATE_LOCK_FILE": f"{self.logs}/lock",
+                  "TMPDIR": self.logs, "PYTHONDONTWRITEBYTECODE": "1", **env})
+        p = subprocess.run(["bash", script], cwd=self.repo.root, env=e, capture_output=True, text=True, timeout=60)
+        return p.returncode, p.stdout + p.stderr
+
+    def test_the_gate_judges_a_join_whose_fix_follows_its_merge(self):
+        Ranges.join_with_a_fix_after_its_merge(self)
+        code, out = self.gate()
+        self.assertNotEqual(code, 0, out)
+        self.assertIn("scripts/long-files.txt:2: ceiling-raised", out)
+        self.assertIn("gate: FAILED in keel", out)
+
+    def test_the_gate_judges_a_branch_cut_at_a_landed_join_from_it(self):
+        self.repo.git("checkout", "-q", "main")
+        self.repo.git("update-ref", "refs/remotes/origin/main", "main")
+        self.repo.git("checkout", "-q", "lane")
+        self.repo.commit({"scripts/long-files.txt": sub(LONG, "big.rs 3000", "big.rs 3200")}, "raise")
+        self.repo.git("checkout", "-q", "main")
+        self.repo.git("merge", "-q", "--no-ff", "-m", "Merge lane", "lane")
+        self.repo.git("update-ref", "refs/remotes/origin/main", "main")
+        self.repo.git("checkout", "-q", "-b", "next")
+        self.repo.write({"scripts/shape.sh": "#!/usr/bin/env bash\nlimit=2400\n"})
+        code, out = self.gate()
+        self.assertIn("keel: ok (", out)
+        self.assertIn("1 files changed", out)
+        self.assertIn("gate: FAILED in fmt", out)
+
 
 class KeelFiles(Case):
     def setUp(self):

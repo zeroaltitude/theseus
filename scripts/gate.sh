@@ -425,8 +425,17 @@ deny_check() {
 # branch cannot loosen the guard that judges it (a change to it is itself a finding), and the range's base is found
 # here, as the guard finds it, not by the branch's copy. There is no switch to skip it.
 keel_base=""
+# Main for the keel: origin/main, or the local main when there is no origin/main (theseus-pw1q.18). A join's local main
+# is ahead of origin/main by what this gate judges (its merge, and any fix committed after it), so taking it judged
+# HEAD..HEAD, nothing, whenever a fix followed the merge (the people join's gate, 2026-10-09).
+keel_main() {
+  git rev-parse --verify -q 'origin/main^{commit}' || git rev-parse --verify -q 'main^{commit}' || {
+    echo "keel: no main and no origin/main to judge against: set THESEUS_KEEL_BASE=<rev>" >&2
+    return 1
+  }
+}
 keel_range_base() {
-  local main local_main remote first
+  local main remote first
   if [ -n "${THESEUS_KEEL_BASE:-}" ]; then
     git rev-parse --verify -q "$THESEUS_KEEL_BASE^{commit}" || {
       echo "keel: no commit $THESEUS_KEEL_BASE (THESEUS_KEEL_BASE)" >&2
@@ -434,19 +443,14 @@ keel_range_base() {
     }
     return 0
   fi
-  local_main="$(git rev-parse --verify -q 'main^{commit}' || true)"
+  main="$(keel_main)" || return 1
   remote="$(git rev-parse --verify -q 'origin/main^{commit}' || true)"
-  main="${local_main:-$remote}"
-  if [ -n "$local_main" ] && [ -n "$remote" ] && git merge-base --is-ancestor "$local_main" "$remote"; then
-    main=$remote
-  fi
-  [ -n "$main" ] || {
-    echo "keel: no main and no origin/main to judge against: set THESEUS_KEEL_BASE=<rev>" >&2
-    return 1
-  }
+  # A join's merge, not yet on origin/main, is judged whole; one already there was judged at its join, so a branch
+  # cut at it is judged from it.
   if git rev-parse --verify -q 'HEAD^2' >/dev/null; then
     first="$(git rev-parse 'HEAD^1')"
-    if git merge-base --is-ancestor "$first" "$main"; then
+    if git merge-base --is-ancestor "$first" "$main" &&
+      ! { [ -n "$remote" ] && git merge-base --is-ancestor HEAD "$remote"; }; then
       echo "$first"
       return 0
     fi
@@ -464,11 +468,11 @@ keel_guard() {
   python3 "$guard" --base "$keel_base"
 }
 # The guard's planted-erosion suite (about 40 throwaway repositories, signed acks among them: seconds), run when the
-# guard or its suite differs from the range's base, which a change to either is; otherwise it would prove again what
-# the base's gate proved.
+# guard, its suite or this gate (whose keel range and door it tests) differs from the range's base, which a change to
+# any is; otherwise it would prove again what the base's gate proved.
 keel_tests() {
-  if git diff --quiet "$keel_base" -- scripts/keel-guard.py scripts/test_keel_guard.py &&
-    [ -z "$(git ls-files --others --exclude-standard -- scripts/keel-guard.py scripts/test_keel_guard.py)" ]; then
+  local own=(scripts/keel-guard.py scripts/test_keel_guard.py scripts/gate.sh)
+  if git diff --quiet "$keel_base" -- "${own[@]}" && [ -z "$(git ls-files --others --exclude-standard -- "${own[@]}")" ]; then
     echo "keel tests: the guard is the base's; its suite ran there"
     return 0
   fi

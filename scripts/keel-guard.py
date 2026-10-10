@@ -17,8 +17,11 @@ branch can't ack itself. The signer list is read from the base, never the head, 
 The range (`THESEUS_KEEL_BASE=<rev>` or `--base` overrides its base, and the gate finds it as below in its own shell,
 then passes it as `--base` to the base's copy of this script, so a branch's copy decides neither; `--head` names a commit to judge instead of the
 working tree):
-  - on a merge commit whose first parent is on main (the join's gate): HEAD^1..HEAD, the merge judged whole;
-  - otherwise merge-base(HEAD, main)..HEAD, with `origin/main` when there is no local `main`;
+  - main is `origin/main`, or the local `main` when there is no `origin/main`: a join's local main is ahead of
+    origin/main by what its gate is judging;
+  - on a merge commit whose first parent is on main and which is not on origin/main yet (the join's gate):
+    HEAD^1..HEAD, the merge judged whole;
+  - otherwise merge-base(HEAD, main)..HEAD, so a join whose fix is a commit after its merge is judged whole too;
   - with no `--head`, the head side is the working tree (tracked changes and untracked files), so the gate before a
     commit judges what the commit will hold. Acks are read from the commits in base..HEAD.
 
@@ -107,24 +110,28 @@ def resolve_range(repo, base_arg, head_arg):
         if base is None:
             raise GuardError(f"no commit {base_arg} (THESEUS_KEEL_BASE or --base)")
         return base, head_arg, head_commit, f"{base_arg}..{head_arg or 'the working tree'}"
-    local, remote = rev(repo, "main"), rev(repo, "origin/main")
-    main = local or remote
-    if local and remote and local != remote:
-        # The newer of the two when one contains the other (a clone whose local main was never pulled).
-        if git(repo, "merge-base", "--is-ancestor", local, remote, check=False) is not None:
-            main = remote
+    # origin/main when there is one, else main (theseus-pw1q.18). A join's local main is ahead of origin/main by its
+    # merge and any fix committed after it, none of which a gate has judged: taking local main there judged the empty
+    # range HEAD..HEAD whenever a fix followed the merge (the people join's gate, 2026-10-09).
+    remote = rev(repo, "origin/main")
+    main = remote or rev(repo, "main")
     if main is None:
         raise GuardError("no main and no origin/main to judge against: set THESEUS_KEEL_BASE=<rev>")
+    name = "origin/main" if remote else "main"
     parents = git(repo, "rev-list", "--parents", "-n", "1", head_commit).split()[1:]
     if len(parents) >= 2:
         first = parents[0]
         on_main = git(repo, "merge-base", "--is-ancestor", first, main, check=False) is not None
-        if on_main:
+        # A merge already on origin/main was judged at its join: a branch cut there (its working tree changed, no
+        # commit yet) is judged from it, not as the join again with the join's base's signers.
+        landed = remote is not None and git(repo, "merge-base", "--is-ancestor", head_commit, remote,
+                                            check=False) is not None
+        if on_main and not landed:
             return first, head_arg, head_commit, "a merge: HEAD^1..HEAD"
     mb = git(repo, "merge-base", head_commit, main, check=False)
     if not mb:
-        raise GuardError("HEAD shares no history with main: set THESEUS_KEEL_BASE=<rev>")
-    return mb.strip(), head_arg, head_commit, "a branch: merge-base(HEAD, main)..HEAD"
+        raise GuardError(f"HEAD shares no history with {name}: set THESEUS_KEEL_BASE=<rev>")
+    return mb.strip(), head_arg, head_commit, f"a branch: merge-base(HEAD, {name})..HEAD"
 
 
 class Tree:
