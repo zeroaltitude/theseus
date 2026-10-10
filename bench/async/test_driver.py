@@ -1130,7 +1130,7 @@ class AsyncTimeoutStopsTheAgent(unittest.TestCase):
                     self.assertRaises(asyncio.TimeoutError):
                 asyncio.run(asyncio.wait_for(agent.run("Train the model.", env, AgentContext()), 1.0))
             commands = [c for c, _ in env.calls]
-            stop = measure.stop_agent_script(names)
+            stop = measure.stop_agent_script(names, baseline=f"{state}/pids.before")
             sampler_stop = smp.stop_script(str(logs), state)
             self.assertEqual(commands.count(stop), 1, commands)
             self.assertEqual(commands.count(sampler_stop), 1, commands)

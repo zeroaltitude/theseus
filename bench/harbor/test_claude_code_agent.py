@@ -81,6 +81,9 @@ class Arm(unittest.TestCase):
         self.assertEqual(seen[0][0], "Fix the repository.")
         self.assertEqual(len(seen[0][1]), 1)
         self.assertIn(f"python3 {cca.SAMPLER} --out /logs/agent --names claude", seen[0][1][0])
+        # The container's processes are listed after the sampler starts, before Harbor's run (theseus-8xp0).
+        self.assertIn(f"{cca.STATE}/pids.before", seen[0][1][0])
+        self.assertLess(seen[0][1][0].index("--names claude"), seen[0][1][0].index("pids.before"))
         self.assertEqual(env.commands[-1], cca.smp.stop_script("/logs/agent", cca.STATE))
 
     def test_harbors_timeout_still_stops_the_sampler(self):
@@ -95,7 +98,8 @@ class Arm(unittest.TestCase):
         with mock.patch.object(ClaudeCode, "run", cancelled):
             with self.assertRaises(asyncio.CancelledError):
                 asyncio.run(self.agent.run("Fix it.", env, AgentContext()))
-        self.assertEqual(env.commands[-3:], ["claude, cancelled", cca.measure.stop_agent_script(("claude",)),
+        self.assertEqual(env.commands[-3:], ["claude, cancelled",
+                                             cca.measure.stop_agent_script(("claude",), baseline=f"{cca.STATE}/pids.before"),
                                              cca.smp.stop_script("/logs/agent", cca.STATE)])
         self.assertEqual(env.users[-2], "root")
 
@@ -105,7 +109,7 @@ class Arm(unittest.TestCase):
 
         env = self.run_with(harbors)
         self.assertEqual(len(env.commands), 2)
-        self.assertNotIn(cca.measure.stop_agent_script(("claude",)), env.commands)
+        self.assertNotIn(cca.measure.stop_agent_script(("claude",), baseline=f"{cca.STATE}/pids.before"), env.commands)
 
     def test_the_effort_is_medium_and_a_hosts_environment_does_not_pick_it(self):
         self.assertEqual(cca.measure.EFFORT, "medium")

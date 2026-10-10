@@ -11,6 +11,7 @@ children, one that ignores SIGTERM, and a bystander the script must leave.
 from __future__ import annotations
 
 import os
+import shlex
 import shutil
 import signal
 import subprocess
@@ -141,6 +142,139 @@ class StopAgent(unittest.TestCase):
         self.assertTrue(script.startswith('names="claude"; '))
         self.assertNotIn("pkill", script)
         self.assertNotIn("killall", script)
+
+
+UNSHARE = shutil.which("unshare")
+
+
+class Namespace(unittest.TestCase):
+    """The stop by what the run started (theseus-8xp0), run for real in a PID namespace of its own
+    (`unshare -rpf --mount-proc`), as a container is: its `/proc` holds only what the scenario starts, so the stop
+    cannot reach a process of this host. Stand-ins under names of their own (never `claude` or `pi`).
+
+    The driver shell is the namespace's PID 1, where an orphan is reparented. It starts a bystander, takes the
+    snapshot, starts the agent, runs the stop, and prints what is left under the test's names."""
+
+    def setUp(self):
+        self.assertIsNotNone(UNSHARE, "these tests need `unshare` (util-linux) and user namespaces")
+        self.tmp = tempfile.TemporaryDirectory()
+        self.bin = Path(self.tmp.name)
+        shutil.copy(SH, self.bin / "stopme-agent")
+        shutil.copy(SLEEP, self.bin / "stopme-child")
+        shutil.copy(SLEEP, self.bin / "stopme-pace")
+        self.base = self.bin / "pids.before"
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def scenario(self, agent: str, *, grace_s: int = 1, baseline: bool = True, after: str = "") -> dict[str, str]:
+        """Run the driver; the survivors by pid, `comm cmdline`. `agent` is the agent's script (`$BIN` is the
+        stand-ins' directory); `after` is shell run after the agent starts and before the stop."""
+        b = self.bin.as_posix()
+        stop = measure.stop_agent_script(("stopme-agent",), grace_s, self.base.as_posix() if baseline else None)
+        driver = (
+            f'BIN={b}; $BIN/stopme-child 300 & bystander=$!; '
+            f'{measure.snapshot_script(self.base.as_posix())}\n'
+            f'$BIN/stopme-agent -c {shlex.quote(agent.replace("$BIN", b))} & '
+            'sleep 0.7; ' + after + f'sh -c {shlex.quote(stop)}; echo "stop exit $?"; sleep 1; '
+            'for d in /proc/[0-9]*; do p=${d#/proc/}; c=$(cat $d/comm 2>/dev/null) || continue; '
+            'st=$(cat $d/stat 2>/dev/null) || continue; case "${st##*) }" in Z*) continue;; esac; '
+            'case "$c" in stopme-*) echo "alive $p $c $(tr "\\0" " " < $d/cmdline)";; esac; done; '
+            'echo "bystander $bystander"'
+        )
+        r = subprocess.run([UNSHARE, "-rpf", "--mount-proc", "--kill-child", SH, "-c", driver],
+                           capture_output=True, text=True, timeout=90)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("stop exit 0", r.stdout)
+        self.out = r.stdout
+        alive = {ln.split()[1]: " ".join(ln.split()[2:]) for ln in r.stdout.splitlines() if ln.startswith("alive ")}
+        self.bystander = next(ln.split()[1] for ln in r.stdout.splitlines() if ln.startswith("bystander "))
+        return alive
+
+    def only_the_bystander(self, alive: dict[str, str]) -> None:
+        self.assertEqual(list(alive), [self.bystander], f"left running: {alive}\n{self.out}")
+
+    def test_a_command_orphaned_through_an_exited_subshell_is_stopped(self):
+        """`(cmd &)`: the subshell exits and the command is reparented to PID 1, so no tree from the agent's name
+        reaches it, and it runs on while the verifier does. One of one was left on main's script."""
+        alive = self.scenario("( $BIN/stopme-child 301 & ); $BIN/stopme-child 302 & wait")
+        self.only_the_bystander(alive)
+
+    def test_a_process_that_ignores_sigterm_and_forks_during_the_grace_leaves_nothing(self):
+        """The agent ignores SIGTERM and forks a child every 0.2 s (which ignore it too). Everything it forked
+        before the stop, and during the 2 s of grace, is gone after it: main's script left the ones forked during
+        the grace."""
+        alive = self.scenario("trap '' TERM; while :; do $BIN/stopme-child 305 & $BIN/stopme-pace 0.2; done",
+                              grace_s=2)
+        self.only_the_bystander(alive)
+
+    def test_what_a_stopped_forker_would_have_forked_is_never_forked(self):
+        """The forker is stopped before it is signalled, and again before the SIGKILL (the SIGCONT let it run
+        through the grace), so the children it forks in between are all found: none survives the stop."""
+        alive = self.scenario("trap '' TERM; while :; do $BIN/stopme-child 305 & $BIN/stopme-pace 0.05; done",
+                              grace_s=1)
+        self.only_the_bystander(alive)
+
+    def test_a_listed_process_is_left_and_a_recycled_pid_is_not(self):
+        """The list holds `pid:starttime`: a pid in it with another start time is a recycled pid, another process,
+        and is stopped; one listed with its own start time is left."""
+        b = self.bin.as_posix()
+        stop = measure.stop_agent_script(("stopme-agent",), 1, self.base.as_posix())
+        driver = (
+            f'BIN={b}; $BIN/stopme-child 300 & kept=$!; $BIN/stopme-child 303 & recycled=$!; '
+            'for p in $kept $recycled; do st=$(cat /proc/$p/stat); rest=${st##*) }; set -- $rest; shift 19; '
+            'if [ $p = $recycled ]; then echo "$p:0"; else echo "$p:$1"; fi; done '
+            f'> {self.base}; echo "1:1" >> {self.base}; '
+            f'sh -c {shlex.quote(stop)}; sleep 0.5; '
+            'for p in $kept $recycled; do st=$(cat /proc/$p/stat 2>/dev/null) || { echo "$p gone"; continue; }; '
+            'case "${st##*) }" in Z*) echo "$p gone";; *) echo "$p alive";; esac; done; '
+            'echo "kept $kept recycled $recycled"'
+        )
+        r = subprocess.run([UNSHARE, "-rpf", "--mount-proc", "--kill-child", SH, "-c", driver],
+                           capture_output=True, text=True, timeout=60)
+        kept, recycled = (r.stdout.split("kept ")[1].split() + ["", ""])[:3:2]
+        self.assertIn(f"{kept} alive", r.stdout, r.stdout + r.stderr)
+        self.assertIn(f"{recycled} gone", r.stdout, r.stdout + r.stderr)
+
+    def test_without_a_list_the_agent_is_found_by_name_as_before(self):
+        alive = self.scenario("$BIN/stopme-child 302 & $BIN/stopme-child 303 & wait", baseline=False)
+        self.only_the_bystander(alive)
+
+    def test_a_list_that_cannot_be_read_falls_back_to_the_name(self):
+        self.base.write_text("")  # an empty list is no list
+        b = self.bin.as_posix()
+        stop = measure.stop_agent_script(("stopme-agent",), 1, self.base.as_posix())
+        driver = (f'BIN={b}; $BIN/stopme-child 300 & by=$!; $BIN/stopme-agent -c "$BIN/stopme-child 302 & wait" & '
+                  f'a=$!; sleep 0.5; sh -c {shlex.quote(stop)}; sleep 0.5; '
+                  'st=$(cat /proc/$by/stat) && echo "bystander ${st##*) }"; '
+                  'cat /proc/$a/stat >/dev/null 2>&1 && case "$(cat /proc/$a/stat)" in *") Z"*) echo agent-gone;; '
+                  '*) echo agent-alive;; esac || echo agent-gone')
+        r = subprocess.run([UNSHARE, "-rpf", "--mount-proc", "--kill-child", SH, "-c", driver],
+                           capture_output=True, text=True, timeout=60)
+        self.assertIn("agent-gone", r.stdout, r.stdout + r.stderr)
+        self.assertNotIn("bystander Z", r.stdout)
+
+    def test_the_snapshot_lists_every_process_with_its_start_time(self):
+        r = subprocess.run([UNSHARE, "-rpf", "--mount-proc", "--kill-child", SH, "-c",
+                            f"sleep 5 & {measure.snapshot_script(self.base.as_posix())}"],
+                           capture_output=True, text=True, timeout=60)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        lines = self.base.read_text().split()
+        self.assertGreaterEqual(len(lines), 2, lines)
+        for ln in lines:
+            pid, _, start = ln.partition(":")
+            self.assertTrue(pid.isdigit() and start.isdigit(), ln)
+        self.assertIn("1", [ln.split(":")[0] for ln in lines], "the namespace's PID 1")
+        self.assertFalse((self.bin / "pids.before.tmp").exists())
+
+    def test_the_arms_keep_the_list_in_their_state_dir_and_pass_it_to_the_stop(self):
+        here = Path(__file__).resolve().parent
+        for name in ("claude_code_agent.py", "measured.py", "pi_agent.py"):
+            src = (here / name).read_text()
+            self.assertIn("measure.snapshot_script(baseline)", src, name)
+            self.assertIn("measure.BASELINE_FILE", src, name)
+            self.assertIn("baseline=baseline", src, name)
+        self.assertEqual(measure.BASELINE_FILE, "pids.before")
 
 
 class Version(unittest.TestCase):

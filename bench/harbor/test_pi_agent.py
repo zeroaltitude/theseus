@@ -437,7 +437,7 @@ class Arm(unittest.TestCase):
         with mock.patch.object(Pi, "run", cancelled):
             with self.assertRaises(asyncio.CancelledError):
                 asyncio.run(self.agent().run("Fix it.", env, AgentContext()))
-        self.assertEqual(env.commands[-3:], ["pi, cancelled", pa.measure.stop_agent_script(("pi",)),
+        self.assertEqual(env.commands[-3:], ["pi, cancelled", pa.measure.stop_agent_script(("pi",), baseline=f"{pa.STATE}/pids.before"),
                                              pa.smp.stop_script("/logs/agent", pa.STATE)])
         self.assertEqual(env.users[-2], "root")
 
@@ -449,7 +449,7 @@ class Arm(unittest.TestCase):
         with mock.patch.object(Pi, "run", harbors):
             asyncio.run(self.agent().run("Fix it.", env, AgentContext()))
         self.assertEqual(len(env.commands), 2)
-        self.assertNotIn(pa.measure.stop_agent_script(("pi",)), env.commands)
+        self.assertNotIn(pa.measure.stop_agent_script(("pi",), baseline=f"{pa.STATE}/pids.before"), env.commands)
 
     def test_the_trajectory_record_and_counters_follow_harbors_own(self):
         write_logs(self.logs)

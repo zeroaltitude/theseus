@@ -147,13 +147,14 @@ class MeasuredArm:
         sample_ms = int(os.environ.get("BENCH_SAMPLE_MS", str(smp.INTERVAL_MS)))
         start = smp.start_script(SAMPLER, logs, STATE, arm["names"], arm["wrapper_args"], sample_ms)
         # As the agent's user, as Harbor runs the harness; never the trial's failure.
-        await environment.exec(command=f"{start}; true", timeout_sec=30)
+        baseline = f"{STATE}/{measure.BASELINE_FILE}"
+        await environment.exec(command=f"{start}; {measure.snapshot_script(baseline)}", timeout_sec=30)
         try:
             await super().run(instruction, environment, context)  # type: ignore[misc]
         except asyncio.CancelledError:
             # Harbor's timeout: stop the harness and what it started before
             # the sampler's stop, and before the verifier starts.
-            await measure.stop_agent(environment, arm["names"])
+            await measure.stop_agent(environment, arm["names"], baseline=baseline)
             raise
         finally:
             await environment.exec(command=smp.stop_script(logs, STATE), timeout_sec=30)
