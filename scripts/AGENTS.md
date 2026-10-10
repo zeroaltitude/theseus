@@ -211,7 +211,8 @@ cockpit's TypeScript tests (`node:test`'s `test(...)`, its `.skip`/`.todo`/`.onl
 - **The door** (theseus-pw1q.18). A join runs the merge's `gate.sh`, which is the branch's, so a branch that dropped
   its keel phase (or any check) was judged by its own weakened copy. Now the gate's first phase, `door`, compares the
   running copy with main's (`origin/main:scripts/gate.sh`): when they differ and main's has the door, main's copy runs
-  first, from `$TMPDIR/theseus-gate-door-<blob>.sh` with `THESEUS_GATE_ROOT` naming this tree, and judges it with
+  first, from `$TMPDIR/theseus-gate-door-<blob>/scripts/gate.sh` (so what knows a gate by `scripts/gate.sh
+  --locked-part` in its argv, `review-step.sh` among them, knows it) with `THESEUS_GATE_ROOT` naming this tree, and judges it with
   main's keel; if it fails, the gate fails `in door`. Then, only when the branch itself changes `gate.sh`, the tree's
   own copy runs on, so its new checks are proved before they land; otherwise the gate ends `gate: ok (main's gate
   judged this tree)` (a lane behind main's gate.sh is judged by main's alone). The guard calls any change to the

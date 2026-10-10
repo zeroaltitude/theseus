@@ -761,6 +761,8 @@ class Door(GateCase):
         code, out = self.gate()
         self.assertNotEqual(code, 0, out)
         self.assertIn("door: this gate.sh is not main's", out)
+        self.assertRegex(out, r"main's judges this tree first \(\S*/theseus-gate-door-[0-9a-f]+/scripts/gate\.sh\)",
+                         "main's copy runs as scripts/gate.sh, as review-step.sh knows a gate")
         self.assertIn("scripts/long-files.txt:2: ceiling-raised", out)
         self.assertRegex(out, r"scripts/gate.sh:\d+: keel-file")
         self.assertIn("gate: FAILED in door", out)

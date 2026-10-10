@@ -497,9 +497,12 @@ keel_door() {
     return 0
   fi
   [ "${THESEUS_GATE_DOOR:-}" != own ] || return 0
-  copy="${TMPDIR:-/tmp}/theseus-gate-door-$theirs.sh"
+  # Under a scripts/ of its own, so what knows a gate by `scripts/gate.sh --locked-part` in its argv (review-step.sh,
+  # lock_users' readers) knows this one too.
+  copy="${TMPDIR:-/tmp}/theseus-gate-door-$theirs/scripts/gate.sh"
   if [ ! -f "$copy" ] || [ "$(git hash-object "$copy")" != "$theirs" ]; then
-    git cat-file blob "$theirs" >"$copy.$$" && chmod 755 "$copy.$$" && mv -f "$copy.$$" "$copy"
+    mkdir -p "${copy%/gate.sh}" &&
+      git cat-file blob "$theirs" >"$copy.$$" && chmod 755 "$copy.$$" && mv -f "$copy.$$" "$copy"
   fi
   echo "door: this gate.sh is not main's (${main:0:10}); main's judges this tree first ($copy)"
   if ! THESEUS_GATE_DOOR=judge THESEUS_GATE_ROOT="$PWD" "$copy"; then
