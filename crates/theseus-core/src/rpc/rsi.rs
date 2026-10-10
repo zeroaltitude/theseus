@@ -1,5 +1,5 @@
 //! Self-improvement's methods (theseus-pw1q.2, theseus-pw1q.4): `self.halt`
-//! (anyone's), `self.resume` (the owner's, from a private place; the CLI
+//! (anyone's), `self.resume` (the owner's alone, from any place; the CLI
 //! sends a job's `THESEUS_SESSION` so the core refuses and ledgers it),
 //! `self.log` and `self.digest` (reads). The work is `crate::rsi`'s.
 

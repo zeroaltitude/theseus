@@ -831,8 +831,9 @@ idle_unload_mins = 10.0                   # the model unloads after this long un
 # what passes every gate and telling you after. Off by default: with mode = "off"
 # nothing self-directed runs. With mode = "act", self steps run only while the kill
 # switch is released, and a store that has never seen your resume is halted, so
-# "act" alone starts nothing: `theseus self resume`, from your own shell (or another
-# private place), does. Anyone who may speak to the daemon can halt it at once:
+# "act" alone starts nothing: `theseus self resume` from your own shell, the web UI,
+# or "resume self" from your own account on Discord, does; nobody else's resume
+# counts. Anyone who may speak to the daemon can halt it at once:
 # `theseus self halt [why]`, or "halt self" on Discord. `theseus self log` shows
 # every change Theseus made to itself, with its numbers and its undo; while mode =
 # "act" and digest = "weekly", the week's digest goes to your DM once a week. Read

@@ -1,7 +1,7 @@
 // What Theseus changed about itself (theseus-pw1q.4): `self.log`'s rows, newest first (the self steps' rows and
 // today's self-changes: pack moves, learned packs, extensions, routing corrections, syntheses), each with what, why,
 // its numbers and its undo, and the kill switch's state with a Halt button (`self.halt`, anyone's, confirmed first).
-// The resume is the owner's from a private place: `theseus self resume`, which the card names and never sends.
+// The resume is the owner's alone: `theseus self resume` (or "resume self" from the owner's Discord account), which the card names and never sends.
 import { useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router'

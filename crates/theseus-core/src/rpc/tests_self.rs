@@ -147,22 +147,31 @@ fn a_halt_of_a_store_never_resumed_is_written() {
     assert_eq!(s.why.as_deref(), Some("test"));
 }
 
-/// A resume from a shared place, from a job's shell, from someone who is not
-/// the owner, and through the MCP server is refused and ledgered, and the
-/// switch holds; the owner's DM and the CLI count.
+/// A resume from a job's shell, from someone who is not the owner (in a DM
+/// or a channel), through the MCP server, through a connection no listener
+/// named, or with a Discord user named by another surface is refused and
+/// ledgered, and the switch holds. The owner counts from any place (the
+/// owner's call of 2026-10-10): a channel bound to nothing, the web UI, the
+/// CLI and their DM.
 #[test]
-fn only_the_owners_private_resume_counts_and_each_refusal_is_ledgered() {
+fn only_the_owners_resume_counts_from_any_place_and_each_refusal_is_ledgered() {
     let c = core(SelfMode::Act);
-    let mcp = Answerer {
-        label: "an MCP client".into(),
-        surface: Surface::Mcp,
-        discord: None,
+    let on = |surface, discord| Answerer {
+        label: "someone".into(),
+        surface,
+        discord,
     };
     let refused = [
-        (discord(OWNER, Some(77)), None, "shared place"),
         (cli(), Some("ses_0000aa1b2c3"), "job's shell"),
         (discord(SOMEONE, None), None, "is not an owner"),
-        (mcp, None, "never an approval surface"),
+        (discord(SOMEONE, Some(77)), None, "is not an owner"),
+        (on(Surface::Mcp, None), None, "never an approval surface"),
+        (on(Surface::Unnamed, None), None, "never a private place"),
+        (
+            on(Surface::Cli, discord(OWNER, None).discord),
+            None,
+            "only the Discord binding can name",
+        ),
     ];
     for (who, job, why) in &refused {
         let e = resume(&c, who, *job).unwrap_err();
@@ -178,7 +187,7 @@ fn only_the_owners_private_resume_counts_and_each_refusal_is_ledgered() {
         .filter(|r| r["act"] == "self.resume")
         .collect();
     assert_eq!(refusals.len(), refused.len(), "{refusals:?}");
-    assert_eq!(refusals[1]["from_job"], "ses_0000aa1b2c3");
+    assert_eq!(refusals[0]["from_job"], "ses_0000aa1b2c3");
     assert!(rows(&c, "self.resumed").is_empty());
     let log = c.self_log(&SelfLogParams::default()).unwrap();
     assert_eq!(
@@ -189,11 +198,18 @@ fn only_the_owners_private_resume_counts_and_each_refusal_is_ledgered() {
         refused.len(),
         "the log shows each refused resume"
     );
-    assert!(
-        resume(&c, &discord(OWNER, None), None).unwrap(),
-        "the owner's DM"
-    );
-    assert_eq!(gate_of(&c), Gate::Allowed);
+    let owners = [
+        (discord(OWNER, Some(77)), "the owner in a shared channel"),
+        (on(Surface::Web, None), "the web UI"),
+        (cli(), "the CLI"),
+        (discord(OWNER, None), "the owner's DM"),
+    ];
+    for (who, what) in &owners {
+        assert!(resume(&c, who, None).unwrap(), "{what}");
+        assert_eq!(gate_of(&c), Gate::Allowed, "{what}");
+        assert!(halt(&c, &discord(SOMEONE, Some(77)), "again"), "{what}");
+    }
+    assert_eq!(rows(&c, "self.resumed").len(), owners.len());
 }
 
 /// The halt survives a restart in place, and so does the owner's resume.
@@ -452,3 +468,4 @@ fn the_digest_is_posted_weekly_only_while_the_mode_acts() {
         .is_some());
     assert!(!fresh.post_self_digest_if_due());
 }
+

@@ -77,8 +77,8 @@ build.
   (`extension.revoke`, confirmed first), then the proposals not loaded.
 - `src/components/SelfChanges.tsx` (in Systems; its pure parts are `src/lib/selfchanges.ts`, theseus-pw1q.4): "What
   Theseus changed about itself", over `self.log`: the kill switch's state and mode, a Halt button (`self.halt`,
-  anyone's, confirmed first), and the newest changes with what, why, numbers and undo. The resume is the owner's from
-  a private place (`theseus self resume`); the card never sends it. Tests: `test/selfchanges.test.ts`.
+  anyone's, confirmed first), and the newest changes with what, why, numbers and undo. The resume is the owner's alone
+  (`theseus self resume`, or "resume self" from the owner's account on Discord); the card never sends it. Tests: `test/selfchanges.test.ts`.
 - `src/components/TaskGraph.tsx` (in Actions; its pure parts are `src/lib/taskgraph.ts`, M7 39b): the task records as a
   tree (state, owner, claim, version, a waiting change with its card) and, at `?taskgraph=1` (`&task=<id>`), as a React
   Flow graph. It shows the present: under the time machine it says so and its acts are off. `task.changed` reads

@@ -70,7 +70,8 @@ Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
 
 - **"halt self"** (theseus-pw1q.2, `runtime/halt.rs`): a message whose first two words are `halt self` (any case;
   the rest is why) is `self.halt` as its author with the message's ids, in any place the binding reads (a halt is
-  anyone's); there is no Discord word for the resume. The week's self digest is a `self_digest` post, to the
+  anyone's). "resume self" is `self.resume` the same way, and the core counts it only from an author holding an
+  owner handle (`places::owner_anywhere`); anyone else's is refused and ledgered there. The week's self digest is a `self_digest` post, to the
   owner's DM alone (`jev_post`).
 
 - **A reaction corrects routing** (theseus-q31l, `runtime/route.rs`): ⬆️ or ⬇️ on one of this process's replies

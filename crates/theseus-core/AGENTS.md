@@ -350,8 +350,8 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   (`config/rsi.rs`, read at the start), `Halted` while the kill switch is on (whatever the mode; a store never
   resumed is halted, so `"act"` alone starts nothing), else `Allowed`. One read of a cached state: the META record
   `self.switch`, read at the first ask and kept by the moves (`rsi::Switch`, `Core.rsi`); unreadable is halted.
-  `self.halt` is anyone's and idempotent; `self.resume` is `judge_act(Act::SelfResume)` (the owner, from a private
-  place; a `from_job`, the `THESEUS_SESSION` the CLI sends, never counts), a refusal an `approval.refused` row. Each
+  `self.halt` is anyone's and idempotent; `self.resume` is `judge_act(Act::SelfResume)` (the owner from any place:
+  the CLI, the web UI, or an author holding an owner handle, `places::owner_anywhere`; a `from_job`, the `THESEUS_SESSION` the CLI sends, never counts), a refusal an `approval.refused` row. Each
   move is one frame: the record and `self.halted`/`self.resumed` (`fact/rsi.rs`). `self.log` (`rsi/log.rs`) reads
   every `theseus_protocol::rsi::SELF_ROWS` name and today's self-change kinds (`rsi::TODAY`) through the ledger's
   pages by kind, newest first, each with what, why, numbers and undo; a later self step's row carries those four in

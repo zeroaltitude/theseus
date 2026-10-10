@@ -1,5 +1,5 @@
 //! The kill switch (theseus-pw1q.2): `self.halt`, anyone's, and
-//! `self.resume`, the owner's from a private place. Each move is one frame,
+//! `self.resume`, the owner's alone, from any place. Each move is one frame,
 //! the switch's META record (`super::SWITCH_KEY`) and its row, and then the
 //! cached switch, so the next [`super::gate`] hears it at once.
 
@@ -69,8 +69,8 @@ impl Core {
         })
     }
 
-    /// Release the switch: only the owner, from a private place, and never
-    /// from a job's shell (`judge_act(Act::SelfResume)`, whose refusal is an
+    /// Release the switch: only the owner (the CLI, the web UI, or an author
+    /// holding an owner handle, from any place), and never from a job's shell (`judge_act(Act::SelfResume)`, whose refusal is an
     /// `approval.refused` row). A released switch stays as it is.
     pub fn self_resume(&self, p: &SelfResumeParams, who: &Answerer) -> Result<SelfSwitchResult> {
         let _move = self

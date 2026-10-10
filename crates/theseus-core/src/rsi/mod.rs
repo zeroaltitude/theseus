@@ -23,9 +23,10 @@
 //!
 //! **The switch** (`switch.rs`): halting is open to anyone who may speak to
 //! the daemon (the CLI, the web UI, Discord's "halt self", the MCP server
-//! is not one) and is idempotent; a resume counts only from the owner in a
-//! private place (`judge_act(Act::SelfResume)`, the rule an extension's Load
-//! answers to), never from a job's shell, and a refused one is an
+//! is not one) and is idempotent; a resume counts only from the owner, from
+//! any place (`judge_act(Act::SelfResume)`, `places::owner_anywhere`: the
+//! CLI, the web UI, or an author holding an owner handle; the owner's call of
+//! 2026-10-10), never from a job's shell, and a refused one is an
 //! `approval.refused` row. Each move is one frame: the META record and its
 //! `self.halted` or `self.resumed` row. The record survives a restart and an
 //! install, as the store does.
