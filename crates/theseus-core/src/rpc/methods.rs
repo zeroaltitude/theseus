@@ -1381,8 +1381,9 @@ impl Core {
         })
     }
 
-    pub(super) fn tool_list(&self) -> theseus_protocol::ToolListResult {
+    pub(crate) fn tool_list(&self) -> theseus_protocol::ToolListResult {
         let calls = self.tools.calls.lock().unwrap().clone();
+        let invalid = self.tools.fit_notes.invalid_json();
         let total: u64 = calls.values().sum();
         let proc_calls = calls.get("proc.run").copied().unwrap_or(0);
         // The built-ins, then the MCP servers' tools (M7 36b).
@@ -1413,6 +1414,7 @@ impl Core {
                     tightened: self.tools.tightened.get(t.name()),
                     input_schema: t.input_schema(),
                     calls: calls.get(t.name()).copied().unwrap_or(0),
+                    invalid_json: invalid.get(t.name()).copied().unwrap_or(0),
                 }
             })
             .collect();

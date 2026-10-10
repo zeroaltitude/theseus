@@ -40,6 +40,7 @@ use crate::store::Store;
 
 mod batch;
 mod calls;
+pub mod fit;
 mod glide;
 mod hands;
 mod job;
@@ -297,6 +298,8 @@ pub struct ToolRuntime {
     /// Calls per tool since the daemon started. Counting the store's history
     /// instead would put a scan of every node on the start path (§9).
     pub calls: Mutex<BTreeMap<String, u64>>,
+    /// The notes fitted calls' results start with (theseus-9dt2).
+    pub fit_notes: fit::Notes,
     /// "Should have asked" (theseus-sgh): the tools that ask first because
     /// someone pressed it, from the store. The gate reads them per call.
     pub tightened: crate::tighten::Tightenings,
@@ -466,6 +469,7 @@ impl ToolRuntime {
             proc_sync_secs: 60,
             proc_env: vec![],
             calls: Mutex::new(BTreeMap::new()),
+            fit_notes: Default::default(),
             tightened: Default::default(),
             cpu: crate::cpu::CpuPool::for_host(),
             broker: Arc::new(Broker::empty()),
@@ -601,7 +605,6 @@ impl ToolRuntime {
                             "name": t.wire,
                             "description": t.description,
                             "input_schema": Tool::input_schema(t.as_ref()),
-                            "eager_input_streaming": true,
                         })
                     }),
             );
@@ -669,7 +672,7 @@ impl ToolRuntime {
              - Workspace roots: {}. Reading or running a program outside them, or touching a path on the operator's approve list, waits for the operator's approval; a write outside them takes its tool's posture, as inside.\n\
              - Relative paths resolve against {}.\n\
              - Postures (open runs; notify runs and tells the operator; approve waits for the operator's approval): {}.{}\n\
-             - Prefer fs_read, fs_edit, fs_grep, fs_glob, fs_list, git_diff, and git_log over proc_run. proc_run runs one program with a typed argv and no shell; pass [\"bash\", \"-c\", \"...\"] explicitly only when a shell is truly needed.\n\
+             - Prefer fs_read, fs_edit, fs_grep, fs_glob, fs_list, git_diff, and git_log over proc_run.\n\
              - Read a file before editing it; keep edits exact and minimal.\n\
              - A declined call is final for that request: tell the operator and do not route around it.\n\
              - proc_run calls that take longer than {} seconds continue in the background; their result arrives in a later message.{}",
@@ -725,6 +728,7 @@ impl ToolRuntime {
         loop_index: Option<u32>,
         r: ResultNode<'_>,
     ) -> Node {
+        let r = self.fit_noted(r);
         let (scrubbed, redactions) = self.scrubber.scrub(&r.text);
         // How to get what the cap leaves out is the tool's to say (theseus-46v).
         let tool = self.tool(r.tool);
@@ -1064,16 +1068,7 @@ impl ToolRuntime {
 
     fn unknown_tool(&self, tc: &TurnCtx<'_>, call: &ToolUse) -> Result<CallOutcome> {
         tc.record(&fact::tool::UnknownTool { name: &call.name });
-        let text = format!(
-            "Unknown tool `{}`. Available: {}.",
-            call.name,
-            self.registry
-                .all()
-                .map(|t| t.wire_name())
-                .chain(self.mcp.all().iter().map(|t| t.wire.clone()))
-                .collect::<Vec<_>>()
-                .join(", ")
-        );
+        let text = self.unknown_text(&call.name);
         let r = ResultNode::new(&call.id, &call.name, ResultStatus::Error, text);
         Ok(CallOutcome::Done {
             status: self.answer(tc, r)?,
@@ -1087,11 +1082,12 @@ impl ToolRuntime {
         tool: &str,
         raw: &str,
     ) -> Result<CallOutcome> {
-        let body = json!({"INVALID_JSON": raw}).to_string();
+        let body = Self::invalid_json_text(tool, raw);
         let node = self.result_node(
             tc,
             ResultNode::new(&call.id, tool, ResultStatus::Error, body),
         );
+        self.fit_notes.count_invalid(tool);
         tc.record(&fact::tool::InvalidJson {
             tool,
             tool_use_id: &call.id,
@@ -1211,7 +1207,7 @@ impl ToolRuntime {
             ),
             false => (
                 format!("validation: {}", bad.error),
-                format!("Invalid input: {}", bad.error),
+                format!("Invalid input: {}", self.field_hinted(tool, &bad.error)),
             ),
         };
         let call_node = Self::tool_call_node(tc, assistant_node, call, tool, None, *bad.record);
@@ -2284,6 +2280,7 @@ pub fn build_runtime(
         proc_sync_secs: t.proc_sync_secs,
         proc_env,
         calls: Mutex::new(BTreeMap::new()),
+        fit_notes: Default::default(),
         // Read from the store when the core starts (`Core::build`).
         tightened: Default::default(),
         cpu,

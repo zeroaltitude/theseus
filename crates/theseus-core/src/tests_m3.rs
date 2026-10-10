@@ -203,10 +203,18 @@ async fn a_tool_loop_reads_a_file_and_the_prefix_never_changes() {
     assert_eq!(reqs[1].system, reqs[0].system);
     assert_eq!(reqs[1].tools, reqs[0].tools);
     assert_eq!(reqs[1].messages[2]["content"][0]["type"], "tool_result");
-    assert!(reqs[0]
-        .tools
-        .iter()
-        .any(|t| t["name"] == "fs_read" && t["eager_input_streaming"] == true));
+    // Eager streaming is for the content a model writes, and only that
+    // (theseus-9dt2): a call that streamed `proc_run` broke its JSON.
+    assert!(
+        reqs[0].tools.iter().any(|t| t["name"] == "fs_write")
+            && reqs[0].tools.iter().all(|t| {
+                (t["eager_input_streaming"] == true)
+                    == matches!(
+                        t["name"].as_str(),
+                        Some("fs_write" | "fs_edit" | "fs_patch")
+                    )
+            })
+    );
     assert!(
         reqs[0].system[0]["text"]
             .as_str()
@@ -710,7 +718,7 @@ async fn proc_run_returns_in_turn_and_a_slow_one_comes_back_later_as_a_late_resu
     let rs = results(&r.core, &res.session_id);
     assert_eq!(rs[0].0, ResultStatus::Ok);
     assert!(
-        rs[0].1.contains("hello from a job") && rs[0].1.contains("[exit code 0]"),
+        rs[0].1.contains("hello from a job") && rs[0].1.contains("[exit code 0 · in "),
         "{}",
         rs[0].1
     );
@@ -892,13 +900,14 @@ async fn a_job_past_its_output_cap_keeps_its_end_and_names_the_dropped_middle() 
     let (status, text) = results(&r.core, &res.session_id).remove(0);
     assert_eq!(status, ResultStatus::Ok);
     assert!(
-        text.starts_with(
-            "[exit code 0]\n[truncated: it printed 420,022 bytes, more than its output cap of \
+        text.starts_with(&format!(
+            "[exit code 0 · in {}]\n[truncated: it printed 420,022 bytes, more than its output cap of \
              65,536 bytes: its first 32,640 bytes and its last 32,768 bytes are kept, and the \
              354,614 bytes between them were dropped; its output is not kept: run it again \
              printing less, or with its output sent to a file that fs_read then reads in ranges]\n\
-             a line of the roster\n"
-        ),
+             a line of the roster\n",
+            r.core.tools.ctx.cwd.display()
+        )),
         "{text}"
     );
     assert!(
@@ -1915,7 +1924,7 @@ async fn a_job_whose_child_holds_its_output_says_its_end_was_held() {
     assert_eq!(
         lines,
         [
-            "[exit code 0]".to_string(),
+            format!("[exit code 0 · in {}]", r.core.tools.ctx.cwd.display()),
             format!(
                 "[truncated: it printed {}, more than its output cap of 65,536 bytes: its first {} \
                  and its last {} are kept, and the {} between them were dropped; its output is not \

@@ -272,6 +272,7 @@ test('the words: spans, dollars, commands, paths, and the median', () => {
   assert.equal(shortPaths('copied to s3://harbour/charts/2026/tides.csv'), 'copied to s3://harbour/charts/2026/tides.csv')
   assert.deepEqual(resultWords('[exit code 3]\nerror: the tide gauge is offline\n'), { words: 'error: the tide gauge is offline', exit: '3' })
   assert.deepEqual(resultWords('[ran in L1, the sandbox: no network] [exit code 0] 42 fathoms'), { words: '42 fathoms', exit: '0' })
+  assert.deepEqual(resultWords('[exit code 2 · in /app/sub]\nmake: *** no rule\n'), { words: 'make: *** no rule', exit: '2' })
   assert.deepEqual(resultWords('cannot read it'), { words: 'cannot read it', exit: undefined })
   assert.equal(median([]), null)
   assert.equal(median([5, 1, 3]), 3)

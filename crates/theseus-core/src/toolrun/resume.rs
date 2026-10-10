@@ -34,6 +34,8 @@ impl ToolRuntime {
         let Some((assistant, pending)) = unanswered(&nodes) else {
             return Ok(out);
         };
+        // The calls as the model meant them (theseus-9dt2), as a turn ran them.
+        let pending = self.fit_uses(&pending, &Default::default()).0;
         let calls = calls_of(&nodes, &assistant.id);
         // Calls no turn has gated run as a response's calls do (theseus-a60),
         // but once one of the batch is declined, none of them asks

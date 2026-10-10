@@ -39,4 +39,9 @@ tightened?: Tightening, input_schema: unknown,
 /**
  * Calls since the daemon started.
  */
-calls: number, };
+calls: number, 
+/**
+ * Calls whose input did not parse as JSON, since the daemon started
+ * (theseus-9dt2): the cost of a tool whose input streams as it is written.
+ */
+invalid_json: number, };

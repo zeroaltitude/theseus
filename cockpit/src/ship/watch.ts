@@ -230,7 +230,7 @@ export function resultWords(preview: string): { words: string; exit?: string } {
   let s = oneLine(preview)
   let exit: string | undefined
   for (let m = /^\[([^\]]*)\]\s*/.exec(s); m; m = /^\[([^\]]*)\]\s*/.exec(s)) {
-    const code = /^exit code (-?\d+)$/.exec(m[1])
+    const code = /^exit code (-?\d+)(?: · in .*)?$/.exec(m[1])
     if (code) exit = code[1]
     s = s.slice(m[0].length)
   }

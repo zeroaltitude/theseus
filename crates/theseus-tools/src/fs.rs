@@ -224,6 +224,7 @@ pub struct Read;
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ReadArgs {
+    #[serde(alias = "file", alias = "filename", alias = "file_path")]
     path: String,
     #[serde(default)]
     offset: Option<usize>,
@@ -460,7 +461,9 @@ pub struct WriteFile;
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct WriteArgs {
+    #[serde(alias = "file", alias = "filename", alias = "file_path")]
     path: String,
+    #[serde(alias = "file_text", alias = "contents")]
     content: String,
 }
 
@@ -536,8 +539,11 @@ pub struct Edit;
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct EditArgs {
+    #[serde(alias = "file", alias = "filename", alias = "file_path")]
     path: String,
+    #[serde(alias = "old_str", alias = "old_text")]
     old_string: String,
+    #[serde(alias = "new_str", alias = "new_text")]
     new_string: String,
     #[serde(default)]
     replace_all: bool,
@@ -639,6 +645,7 @@ pub struct Patch;
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct PatchArgs {
+    #[serde(alias = "diff")]
     patch: String,
 }
 
@@ -829,7 +836,7 @@ pub struct Glob;
 #[serde(deny_unknown_fields)]
 struct GlobArgs {
     pattern: String,
-    #[serde(default)]
+    #[serde(default, alias = "file", alias = "filename", alias = "file_path")]
     path: Option<String>,
 }
 
@@ -955,7 +962,7 @@ pub struct Grep;
 #[serde(deny_unknown_fields)]
 struct GrepArgs {
     pattern: String,
-    #[serde(default)]
+    #[serde(default, alias = "file", alias = "filename", alias = "file_path")]
     path: Option<String>,
     #[serde(default)]
     glob: Option<String>,
@@ -1435,7 +1442,7 @@ pub struct List;
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ListArgs {
-    #[serde(default)]
+    #[serde(default, alias = "file", alias = "filename", alias = "file_path")]
     path: Option<String>,
     #[serde(default)]
     depth: Option<usize>,

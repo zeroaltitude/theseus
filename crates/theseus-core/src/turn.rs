@@ -2915,11 +2915,16 @@ impl TurnRunner {
             }
             return Ok(0);
         }
+        // The calls as the model meant them (theseus-9dt2).
+        let (uses, recovered) = self.tools.fit_uses(uses, &resp.invalid_tool_inputs);
+        let uses = uses.as_slice();
         let calls: Vec<Call<'_>> = uses
             .iter()
             .map(|call| Call {
                 call,
-                invalid: resp.invalid_tool_inputs.get(&call.id).map(String::as_str),
+                invalid: (!recovered.contains(&call.id))
+                    .then(|| resp.invalid_tool_inputs.get(&call.id).map(String::as_str))
+                    .flatten(),
             })
             .collect();
         let batch = self.tools.run_calls(&tc, &node.id, &calls).await?;

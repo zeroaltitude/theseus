@@ -16,6 +16,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 pub mod docs;
+pub mod fit;
 pub mod fs;
 mod fs_window;
 pub mod git;
@@ -403,6 +404,12 @@ pub trait Tool: Send + Sync {
 /// `Tool::rest`'s default, and the answer for a tool the runtime does not know.
 pub const REST_NARROWER: &str = "a narrower call returns them";
 
+/// The tools whose input is large, the content a model writes: only these
+/// ask the provider to stream it as it is generated (theseus-9dt2).
+pub fn streams_input(name: &str) -> bool {
+    matches!(name, "fs.write" | "fs.edit" | "fs.patch")
+}
+
 pub fn wire_name(name: &str) -> String {
     name.replace('.', "_")
 }
@@ -448,7 +455,9 @@ impl Registry {
 
     /// Wire definitions sorted by wire name, deterministic byte for byte (the
     /// tool list sits at the front of the cached prefix). `eager` sets
-    /// `eager_input_streaming` so large inputs stream as they are generated.
+    /// `eager_input_streaming` on the tools whose input is large
+    /// (`streams_input`), so it streams as it is generated: on any other tool
+    /// it cost invalid JSON (theseus-9dt2).
     pub fn definitions(&self, eager: bool) -> Vec<Value> {
         self.definitions_of(eager, |_| true)
     }
@@ -465,7 +474,7 @@ impl Registry {
                     "description": t.description(),
                     "input_schema": t.input_schema(),
                 });
-                if eager {
+                if eager && streams_input(t.name()) {
                     d["eager_input_streaming"] = Value::Bool(true);
                 }
                 (t.wire_name(), d)

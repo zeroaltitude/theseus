@@ -199,6 +199,8 @@ mod tests_failures;
 #[cfg(test)]
 mod tests_fallback;
 #[cfg(test)]
+mod tests_fit;
+#[cfg(test)]
 mod tests_gate_layers;
 #[cfg(test)]
 mod tests_glide;
