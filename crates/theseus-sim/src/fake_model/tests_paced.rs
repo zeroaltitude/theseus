@@ -110,7 +110,11 @@ fn a_paced_answer_keeps_its_first_byte_and_spacing_on_a_kept_connection() {
             (0, round as u64),
             "one connection, reused"
         );
-        assert_eq!((e.chunks, e.step, e.side), (8, 0, false));
+        assert_eq!(
+            (e.chunks, e.step, e.side),
+            (8, round, false),
+            "the marker's second ask is its next step"
+        );
         assert_eq!(e.tools, vec!["Read".to_string()]);
         assert_eq!(e.rule.as_deref(), Some("pace me"));
         assert!(e.first_byte_ns - e.arrival_ns >= 120_000_000);
@@ -253,4 +257,29 @@ fn deltas_are_cut_into_the_chunks_asked_for() {
         serde_json::from_str::<Value>(&joined).unwrap()["x"],
         "0123456789"
     );
+}
+
+/// Claude Code's shape: one request whose results sit before its prompt, sent
+/// again with more results; with a marker, each answer is the next step.
+#[test]
+fn a_marked_turn_steps_by_the_requests_it_was_answered() {
+    let rules: Vec<Rule> = serde_json::from_value(json!([
+        {"when": "merged", "steps": [
+            {"calls": [{"name": "Bash", "input": {"command": "true"}}]},
+            {"text": "done-{marker}"}
+        ]}
+    ]))
+    .unwrap();
+    let fake = FakeModel::start_rules_with("127.0.0.1:0", rules, Serving::default()).unwrap();
+    let mut s = TcpStream::connect(fake.addr).unwrap();
+    let req = json!({"tools": [{"name": "Bash"}], "messages": [
+        {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "a", "content": "x"},
+                                     {"type": "text", "text": "merged marker=Q1"}]}]});
+    let (_, first) = ask(&mut s, &req);
+    let (_, second) = ask(&mut s, &req);
+    let body = |c: &[(u64, String)]| c.iter().map(|(_, x)| x.as_str()).collect::<String>();
+    assert!(body(&first).contains("\"Bash\""), "{}", body(&first));
+    assert!(text(&second).contains("done-Q1"), "{}", body(&second));
+    let steps: Vec<usize> = fake.entries_at_least(2).iter().map(|e| e.step).collect();
+    assert_eq!(steps, [0, 1]);
 }

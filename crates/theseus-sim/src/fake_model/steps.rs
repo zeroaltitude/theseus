@@ -1,11 +1,13 @@
 //! A scripted turn of several steps (theseus-7gir.13): a rule is matched on
 //! the turn's opening user text, the last user message that carries a plain
 //! text block (not a harness's `<system-reminder>`, nor the task graph's
-//! view), and its step is how many user messages with tool results came
-//! after it. So one rule scripts a whole turn's calls and its answer for any
-//! harness, whatever else its requests carry: Claude Code merges a new
-//! prompt into the message that holds the last turn's results, after them,
-//! and sends reminders as text blocks beside its results.
+//! view). Its step, when the text names a run's marker (`marker=<word>`), is
+//! the requests the rule has answered for that marker (the stand-in counts
+//! them): Claude Code merges its messages by role, so a turn's own results
+//! can sit before its prompt in one message, and no reading of the messages
+//! gives the step. Without a marker, it is how many user messages with tool
+//! results came after the opening one. Reminders (`<system-reminder>`) never
+//! open a turn.
 
 use serde_json::Value;
 
@@ -15,30 +17,35 @@ fn harness_text(t: &str) -> bool {
         || t.starts_with(theseus_core::task_graph::view::HEAD)
 }
 
-/// A message's plain text: a string, or its text blocks but the harness's,
-/// joined.
+/// A message's plain text: a string, or its last text block but the
+/// harness's (Claude Code merges a turn's prompt into the message that holds
+/// the turns before it, so the last is this turn's).
 fn plain(m: &Value) -> String {
     match &m["content"] {
         Value::String(s) => s.clone(),
         Value::Array(blocks) => blocks
             .iter()
             .filter_map(|b| b["text"].as_str())
-            .filter(|t| !harness_text(t))
-            .collect::<Vec<_>>()
-            .join("\n"),
+            .rfind(|t| !harness_text(t))
+            .unwrap_or("")
+            .to_string(),
         _ => String::new(),
     }
 }
 
-/// The turn's opening user text, and its step.
+/// The turn's opening user text, and its step: the user messages with tool
+/// results after the opening message, and the opening message itself when a
+/// result follows its text there (Claude Code merges a result into the
+/// message that holds the prompt, after it).
 pub fn opening_text(req: &Value) -> (String, usize) {
     let Some(msgs) = req["messages"].as_array() else {
         return (String::new(), 0);
     };
+    let is_result = |b: &Value| b["type"] == "tool_result";
     let has_result = |m: &Value| {
         m["content"]
             .as_array()
-            .is_some_and(|c| c.iter().any(|b| b["type"] == "tool_result"))
+            .is_some_and(|c| c.iter().any(is_result))
     };
     let Some(at) = msgs
         .iter()
@@ -46,11 +53,18 @@ pub fn opening_text(req: &Value) -> (String, usize) {
     else {
         return (String::new(), 0);
     };
-    let steps = msgs[at + 1..]
+    let later = msgs[at + 1..]
         .iter()
         .filter(|m| m["role"] == "user" && has_result(m))
         .count();
-    (plain(&msgs[at]), steps)
+    let blocks = msgs[at]["content"]
+        .as_array()
+        .map_or(&[][..], Vec::as_slice);
+    let last_text = blocks
+        .iter()
+        .rposition(|b| b["text"].as_str().is_some_and(|t| !harness_text(t)));
+    let within = last_text.is_some_and(|i| blocks[i + 1..].iter().any(is_result));
+    (plain(&msgs[at]), later + usize::from(within))
 }
 
 /// The word after `marker=` in `text`, the run's unique marker; empty when
@@ -128,6 +142,20 @@ mod tests {
                                           {"type": "text", "text": "<system-reminder>r</system-reminder>"}]},
         ]});
         assert_eq!(opening_text(&req), ("second marker=B2".to_string(), 1));
+        // Two prompts merged into one message: the last is the turn's.
+        let two = json!({"messages": [{"role": "user", "content": [
+            {"type": "text", "text": "fifth marker=E5"}, {"type": "tool_result", "tool_use_id": "e", "content": ""},
+            {"type": "text", "text": "sixth marker=F6"}]}]});
+        assert_eq!(opening_text(&two).0, "sixth marker=F6");
+        // The result merged into the prompt's own message, after it.
+        let merged = json!({"messages": [
+            {"role": "user", "content": [{"type": "text", "text": "third marker=C3"}]},
+            {"role": "assistant", "content": [{"type": "tool_use", "id": "c", "name": "Bash", "input": {}}]},
+            {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "b", "content": "y"},
+                                          {"type": "text", "text": "fourth marker=D4"},
+                                          {"type": "tool_result", "tool_use_id": "c", "content": "z"}]},
+        ]});
+        assert_eq!(opening_text(&merged), ("fourth marker=D4".to_string(), 1));
     }
 
     #[test]

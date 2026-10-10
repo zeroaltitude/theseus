@@ -538,9 +538,14 @@ pub fn near_limits_of(bench: &str, verdicts: &[Verdict]) -> Vec<String> {
 }
 
 /// Whether a column's nearness to its limit is drift worth a word: not a
-/// count of frames, which a budget holds exactly.
+/// count of frames, which a budget holds exactly, nor the turn bench's
+/// counted rows (theseus-7gir.13: syncs, deltas, and the first request's KB,
+/// each said with its own unit as it is measured).
 fn warns_near(column: &str) -> bool {
     unit(column) != "frames"
+        && !column.starts_with("syncs_")
+        && !column.starts_with("deltas_")
+        && column != "first_request_kb"
 }
 
 /// Append a bench's row to the history at `path`, and say where. A failure to
@@ -1044,5 +1049,28 @@ mod tests {
             line("main busy", "(the run passed on the busy allowance)"),
             "{out}"
         );
+    }
+
+    /// The turn bench's counted rows (theseus-7gir.13) are held exactly, or
+    /// said in their own unit as measured: at their budget, no warning.
+    #[test]
+    fn the_counted_rows_never_warn_at_their_budget() {
+        let at = |phase: &str, x: f64| Verdict {
+            phase: phase.to_string(),
+            p95: x,
+            budget: x,
+            margin: 0.0,
+            ok: true,
+        };
+        let v = [
+            at("syncs_first_byte", 3.0),
+            at("first_request_kb", 39.9),
+            at("deltas_gathered", 0.0),
+            at("deltas_held", 0.0),
+            at("turn_plain", 50.0),
+        ];
+        let lines = near_limits_of("turn", &v);
+        assert_eq!(lines.len(), 1, "{lines:?}");
+        assert!(lines[0].contains("a plain turn's wall time"), "{lines:?}");
     }
 }

@@ -167,14 +167,16 @@ impl FakeModel {
         let addr = listener.local_addr()?;
         let shared = Arc::new(Shared::new(serving.pace, serving.log, serving.watch));
         let served = shared.clone();
+        let turns: Arc<Turns> = Arc::default();
         std::thread::spawn(move || {
             for stream in listener.incoming().flatten() {
                 // Each connection its own thread: a held rule holds no other
                 // call, and a connection kept alive holds no other client.
-                let (script, shared) = (script.clone(), served.clone());
+                let (script, shared, turns) = (script.clone(), served.clone(), turns.clone());
                 std::thread::spawn(move || {
                     let base = shared.pace;
-                    let answer = move |req: &Value, e: &mut Entry| answer(&script, base, req, e);
+                    let answer =
+                        move |req: &Value, e: &mut Entry| answer(&script, base, &turns, req, e);
                     if let Err(e) = serve::connection(stream, &shared, &answer) {
                         eprintln!("fake model: {e:#}");
                     }
@@ -225,8 +227,19 @@ impl FakeModel {
     }
 }
 
+/// The requests a stepped rule has answered for each run's marker: a turn's
+/// step, where its messages cannot say it (Claude Code merges its messages
+/// by role, so a turn's results sit before its prompt).
+type Turns = std::sync::Mutex<std::collections::HashMap<String, usize>>;
+
 /// The events that answer `req`, and its log entry's fields.
-fn answer(script: &Script, base: Option<Pace>, req: &Value, e: &mut Entry) -> Vec<Value> {
+fn answer(
+    script: &Script,
+    base: Option<Pace>,
+    turns: &Turns,
+    req: &Value,
+    e: &mut Entry,
+) -> Vec<Value> {
     let (opening, step) = steps::opening_text(req);
     e.opening = opening.chars().take(120).collect();
     e.marker = steps::marker(&opening).to_string();
@@ -253,6 +266,18 @@ fn answer(script: &Script, base: Option<Pace>, req: &Value, e: &mut Entry) -> Ve
                 .find(|r| !r.steps.is_empty() && opening.contains(&r.when));
             if let Some(r) = stepped {
                 e.rule = Some(r.when.clone());
+                // With a marker, the step is the requests answered for it.
+                let step = if e.marker.is_empty() {
+                    step
+                } else {
+                    let mut t = turns
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner);
+                    let n = t.entry(e.marker.clone()).or_insert(0);
+                    *n += 1;
+                    *n - 1
+                };
+                e.step = step;
                 e.pace = r.pace(base);
                 let s = &r.steps[step.min(r.steps.len() - 1)];
                 let s = steps::fill(

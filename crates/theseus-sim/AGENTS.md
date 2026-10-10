@@ -92,8 +92,10 @@ Key modules: `lifecycle.rs`, `kernel_sim.rs`, `fake_discord.rs`, `discord_proof.
     A rule's `hold_ms` holds its answer that long, each connection on its own thread, so a live check can find a
     provider call in flight (theseus-f3wr). The head-to-head's stand-in (theseus-7gir.13, `src/fake_model/`): one
     model for both harnesses. A rule's `steps` script a whole turn, matched on the turn's opening user text (the last
-    user message with a plain text block: Claude Code merges a prompt after the last turn's results and sends
-    `<system-reminder>` blocks, which never open a turn), step k answering after k user messages of tool results;
+    user message with a plain text block: Claude Code sends
+    `<system-reminder>` blocks, which never open a turn); step k is the k-th request the rule answers for the run's
+    marker (Claude Code merges its messages by role, so a turn's results can sit before its prompt), or, with no
+    marker, the request after k user messages of tool results;
     `{marker}` is the word after `marker=`. `--ttfb-ms`, `--chunks`, `--chunk-ms` (or a rule's own) pace every
     answer: its first byte that long after the request, then its deltas one write each, apart, with `TCP_NODELAY`;
     HTTP/1.1 keep-alive, chunked; a request with no tools is a side request; `"stream": false` gets the message
