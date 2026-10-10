@@ -348,7 +348,8 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
 - **The index tender's supervisor**: `tender.rs` (row 51): it starts `theseus-index` 2 s after serving
   (`START_AFTER`, so a start's aftermath stays quiet), restarts it with backoff, takes over the one an exec kept
   at once, and asks it for health and `index.query`, each call bounded (health asks only a tender that runs, and
-  never past 100 ms). Its rows are facts (`fact/index.rs`). Its tests, `tests_tender.rs`, run on tokio's paused
+  never past 100 ms; one status read a second serves every caller, `tender/status_cache.rs`, and a status older than
+  3 min says `stale`, theseus-id8d). Its rows are facts (`fact/index.rs`). Its tests, `tests_tender.rs`, run on tokio's paused
   clock with a stand-in `Os`. Its gauges (`theseus.index.*`: lag, documents, RSS, and restarts by their rise) are
   sampled from health's block each metrics interval after serving, only while telemetry has an endpoint
   (`tender/sample.rs`, theseus-gfi4; tests `telemetry/tests_index.rs`).
@@ -887,6 +888,10 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   `crates/theseus-protocol/src/push.rs`. A view's `outstanding` counts tool calls only, never the model's own
   (`tool_calls`, as `park` counts them), and `same()` compares it; a queued view keeps its `why` until it leaves
   `queued`; `confirm.list` lists a question from its plan on (theseus-q5af).
+  Its seed reads by the store's terms, never every action or execution (`push/hot.rs`, theseus-id8d): the actions
+  not settled, the executions that need you or work, their parents, and the 1,000 written last. The rest stay cold
+  until a frame touches one or `session.wait` asks (`Push::view_or_load`); the board keeps its counts as entries
+  change, so health counts nothing. `push/tests/seed.rs` holds the seed to the full read over mixed stores.
 - **The outbox**: `crates/theseus-kernel/src/outbox.rs`, `crates/theseus-core/src/outbox.rs`, and
   `crates/theseus-discord/src/courier.rs`.
 - **The config**: `crates/theseus-core/src/config.rs`, and the template `crates/theseus-core/config/theseus.example.toml`

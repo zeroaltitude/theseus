@@ -53,9 +53,12 @@ use serde_json::{json, Value};
 
 use crate::fake_model::FakeModel;
 
-pub const PHASES: [&str; 9] = [
-    "cold", "vault", "shutdown", "inflight", "kill", "swap", "restore", "seed", "cancel",
+pub const PHASES: [&str; 10] = [
+    "cold", "vault", "shutdown", "inflight", "kill", "swap", "restore", "seed", "health", "cancel",
 ];
+
+/// The `health` calls each cold start times after its seed.
+const HEALTH_CALLS: usize = 5;
 
 /// The bench's vault note: the fake `op` answers it with the bench config.
 pub const VAULT_REF: &str = "op://Bench/theseus-config/notesPlain";
@@ -134,11 +137,20 @@ impl Summary {
 /// SIGKILL to serving is the cold budget plus 100 ms of tail replay; a binary
 /// upgrade is under 200 ms without a protocol answer, at any size. Restore
 /// has none yet: §9 asks for the disk's sequential read speed, "to measure".
+/// The seed is 250 ms and a health answer 5 ms, at any size (theseus-id8d).
 pub fn budget_ms(phase: &str, sessions: u64) -> Option<f64> {
     let cold = 50.0 + 200.0 * sessions.min(10_000) as f64 / 10_000.0;
     match phase {
         // A start from the config copy is a cold start (theseus-2fo).
         "cold" | "vault" => Some(cold),
+        // The push's seed and a health answer cost the same at any size
+        // (theseus-id8d): the seed reads by the store's terms (the actions not
+        // settled, the executions that need you or work, the recent ones),
+        // and health counts what the board and the terms keep. Set for 200,000
+        // sessions (`--sessions 200000`), where the seed's target is 50 ms and
+        // health's 5.
+        "seed" => Some(250.0),
+        "health" => Some(5.0),
         "shutdown" => Some(100.0),
         "kill" => Some(cold + 100.0),
         "swap" => Some(200.0),
@@ -1231,8 +1243,9 @@ pub fn run(o: &Opts) -> Result<Report> {
                 s.token_ms = Some(rig.binding_bound(resolver_ms)?);
             }
             // The push's seed (theseus-in3): the first `executions.watch`
-            // reads every execution and action into the board, after serving.
-            // Measured, with no budget yet; `--sessions 10000` is its row.
+            // reads the actions not settled and the executions that need you,
+            // work, or were written last into the board, after serving
+            // (theseus-id8d); `--sessions 200000` is its row.
             if want("seed") {
                 let t = Instant::now();
                 rig.call("executions.watch", json!({}))?;
@@ -1240,6 +1253,19 @@ pub fn run(o: &Opts) -> Result<Report> {
                     .entry("seed".into())
                     .or_default()
                     .push(t.elapsed().as_secs_f64() * 1000.0);
+            }
+            // Health beside it (theseus-id8d): a few answers once the start
+            // has settled into serving, each its own connection, as a
+            // status line asks.
+            if want("health") {
+                for _ in 0..HEALTH_CALLS {
+                    let t = Instant::now();
+                    rig.call("health", json!({}))?;
+                    samples
+                        .entry("health".into())
+                        .or_default()
+                        .push(t.elapsed().as_secs_f64() * 1000.0);
+                }
             }
             starts.push(s);
             rig.stop(&mut child)?;
@@ -1776,7 +1802,7 @@ fn restore_phase(
     })
 }
 
-const TITLES: [(&str, &str); 9] = [
+const TITLES: [(&str, &str); 10] = [
     ("cold", "cold start to the first health answer"),
     (
         "vault",
@@ -1797,6 +1823,10 @@ const TITLES: [(&str, &str); 9] = [
     ),
     ("restore", "theseusd restore from a local WAL, cold"),
     ("seed", "the push's seed: the first executions.watch"),
+    (
+        "health",
+        "health, after the seed, each call its own connection",
+    ),
     (
         "cancel",
         "execution.cancel of a running job, request to answer",

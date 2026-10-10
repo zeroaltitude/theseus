@@ -746,17 +746,17 @@ mod tests {
                 Some(175.0),
                 Some(202.0),
                 None,
-                None,
+                Some(250.0),
                 Some(100.0)
             ],
-            "each limit is the budget plus the margin; restore and the seed have none"
+            "each limit is the budget plus the margin; restore has none"
         );
         let line = r.to_csv();
         assert_eq!(
             line,
             format!(
                 "2026-10-01T10:20:11-07:00,lane/fastgate ecfc574-dirty,3.25,\
-             23.8,33.5,57,23.8,35.3,57,41.6,51.9,104,,,,42.4,49.9,175,58.2,71,202,115.9,125.2,,1.2,1.9,,\
+             23.8,33.5,57,23.8,35.3,57,41.6,51.9,104,,,,42.4,49.9,175,58.2,71,202,115.9,125.2,,1.2,1.9,250,,,,\
              41.1,43.2,100{},true,",
                 // The other benches' columns, empty: three cells for each.
                 // The last cell, the allowance, is empty: the run passed strictly.
@@ -836,8 +836,9 @@ mod tests {
             h.rows[0].allowance, None,
             "no allowance column, no allowance"
         );
-        // Every phase the row measured: all but `inflight` (theseus-ndw).
-        assert_eq!(h.rows[1].phases.len(), PHASES.len() - 1);
+        // Every phase the row measured: all but `inflight` (theseus-ndw)
+        // and `health` (theseus-id8d).
+        assert_eq!(h.rows[1].phases.len(), PHASES.len() - 2);
     }
 
     #[test]
