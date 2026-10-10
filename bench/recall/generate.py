@@ -111,18 +111,13 @@ KINDS = ("port", "path", "version", "host", "ticket", "date")
 VALUE_KINDS = KINDS[:-1]  # the kinds an abstention or a supersession asks after
 
 FULL_PER_CELL = 6
-# The compiler's estimate of a request's system prompt and tool list on the
-# bench profile at Sonnet 5.5's figures: `context.compiled`'s estimate of a
-# new session's first call, less its user message. On a scratch daemon of
-# 60b43fb6 (27 tools, on standin.py, which counted the same 13,533 for
-# "hi"), 13,528; on c4f79e9f, 13,599 (the precedence line and testimony
-# headers); the first live smoke, an older build, said 12,042
-# (theseus-523y). The plan takes today's and 41 for growth, so the daemon
-# stays inside the cushion (`OVERHEAD_CUSHION`) either way (theseus-tqa3: at
-# 13,700 today's daemon was 101 under, and refused): the smoke sits at
-# its margins, and a larger prompt than planned leaves its mark's summary no
-# room (a `ring`, not a `compaction`).
-OVERHEAD_TOKENS = 13640
+# The system prompt and tools a plan is sized at are the daemon's own, measured
+# at run time (`drive.py`: the first compile of a throwaway daemon's first call,
+# less its user message), never a constant here: every tool definition moves
+# it (60b43fb6: 13,528; c4f79e9f: 13,599; a build of 2026-10-09, 13,943), and
+# a constant that main outgrew refused every run (theseus-cs8k). `build` takes
+# it, the progression records it, and a pinned plan (`--overhead`) is held to
+# the cushion below.
 # How far a daemon's measured overhead may be from the one a progression
 # was planned at, over or under, before the driver refuses to run it
 # (`drive.py`, unless `--allow-overhead`). The generator checks each plan's
@@ -740,7 +735,7 @@ def bulk_rng(seed: int, n: int) -> Rng:
     return Rng((seed * 0x9E3779B97F4A7C15 + 0xB0C5 * (n + 1)) & MASK)
 
 
-def build(seed: int, size: str, overhead: int = OVERHEAD_TOKENS) -> Progression:
+def build(seed: int, size: str, overhead: int) -> Progression:
     """The progression of `seed` and `size`, its window and bulks planned at
     a system prompt and tools of `overhead` tokens, which it records."""
     b = Builder(seed, size)
@@ -949,7 +944,7 @@ def mark_turns(i: int, mark_text: str, n: int) -> list[tuple[int, int]]:
     return out
 
 
-def cross_bound(before: int, turns: list[tuple[int, int]], n: int, r: int, overhead: int = OVERHEAD_TOKENS) -> int:
+def cross_bound(before: int, turns: list[tuple[int, int]], n: int, r: int, overhead: int) -> int:
     """The upper bound at the last read's answer, the reads taken one at a
     time (the slower crossing): everything before that read's result was
     counted by the provider, and only that result is estimated."""
@@ -968,13 +963,13 @@ def alone_limit(budget: int) -> int:
     return min(int(budget / (1 + ALONE_MARGIN)), budget - tk.SUMMARY_MAX_TOKENS)
 
 
-def fit_bound(before: int, last: int, overhead: int = OVERHEAD_TOKENS) -> int:
+def fit_bound(before: int, last: int, overhead: int) -> int:
     """The upper bound of the last turn before a mark: what came before it
     counted, its own new part estimated."""
     return tk.upper(overhead + before - last, last)
 
 
-def plan_bulks(turns: list[Turn], marks: list[int], overhead: int = OVERHEAD_TOKENS):
+def plan_bulks(turns: list[Turn], marks: list[int], overhead: int):
     """The scratch context windows, and each mark's bulk reads, by the
     compiler's rule (`tokens.py`), as candidates, the smallest window first
     and in it the fewest reads first: `build` keeps the first whose written
@@ -1036,7 +1031,7 @@ def plan_bulks(turns: list[Turn], marks: list[int], overhead: int = OVERHEAD_TOK
                 yield window, list(plans)
 
 
-def _alone(rt: list[tuple[int, int]], n: int, r: int, overhead: int = OVERHEAD_TOKENS) -> list[int]:
+def _alone(rt: list[tuple[int, int]], n: int, r: int, overhead: int) -> list[int]:
     """Each read turn's ring candidate at its answer: the system prompt and
     tools, its user message, its calls and their results (`r` each),
     estimated whole, at the upper bound. Past the budget, an overage."""
@@ -1099,9 +1094,13 @@ def _put_bulks(seed: int, i: int, m: int, plan: Bulk, turns: list[Turn], ws: Wor
 
 
 def planned_overhead(prog: Progression) -> int:
-    """The overhead `prog` was planned at: its own record, or for a file
-    from before it was recorded, today's `OVERHEAD_TOKENS`."""
-    return OVERHEAD_TOKENS if prog.overhead_tokens is None else prog.overhead_tokens
+    """The overhead `prog` was planned at: its own record. A file from before
+    it was recorded has none, and no constant stands in for it: it is
+    generated again at a measured one."""
+    if prog.overhead_tokens is None:
+        raise ValueError(f"progression {prog.size} seed {prog.seed} records no planned overhead: "
+                         "generate it again with --overhead <the daemon's measured overhead>")
+    return prog.overhead_tokens
 
 
 def bounds_of(prog: Progression, overhead: int | None = None) -> list[dict]:
@@ -1270,8 +1269,10 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--size", choices=("smoke", "full"), required=True)
     ap.add_argument("--out", type=Path, required=True)
     ap.add_argument("--model", default="anthropic/claude-sonnet-5-5", help="for the budget's prices")
-    ap.add_argument("--overhead", type=int, default=OVERHEAD_TOKENS,
-                    help="the system prompt and tools to plan at, in tokens (the driver's measured overhead)")
+    ap.add_argument("--overhead", type=int, required=True,
+                    help="the system prompt and tools to plan at, in tokens: a daemon's measured overhead "
+                         "(`drive.py` measures it and plans at it itself; this pins a plan by hand, and the "
+                         "driver then refuses a daemon more than the cushion off it)")
     a = ap.parse_args(argv)
     prog = build(a.seed, a.size, a.overhead)
     if a.out.exists() and any(a.out.iterdir()):

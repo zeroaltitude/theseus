@@ -38,9 +38,10 @@ A progression (`progression.json`, format `recall-progression-v1`) is:
   supersedes.
 - **probes**: the fact, the kind, the planned distance bucket, the turn that asks it, and the check.
 - **workspace**: the files every arm starts from, byte for byte the same.
-- **overhead_tokens**: the system prompt and tools, in tokens, that the window and the bulks were planned at
-  (`--overhead`, by default `OVERHEAD_TOKENS`). A file from before it was recorded has none, keeps its digest (the
-  key is written only when set), and is held to today's `OVERHEAD_TOKENS`.
+- **overhead_tokens**: the system prompt and tools, in tokens, that the window and the bulks were planned at: the
+  daemon's own, measured at run time (see "The overhead is measured"), or a number given (`--overhead`). No constant
+  stands for it. A file from before it was recorded has none and keeps its digest (the key is written only when
+  set), but it has no plan to hold a daemon to: the driver asks for it to be generated again.
 
 **Salience.** *Incidental*: said once in passing. That can be a line in a script's output ("run
 ./scripts/check-alder-relay.sh: did the build pass?" prints the port among the build lines), a path in an error
@@ -78,16 +79,19 @@ anywhere at all.
 ## The commands
 
 ```bash
-# 1. A progression, and its budget.
-python3 bench/recall/generate.py --seed 7 --size smoke --out /tmp/rc-smoke
-
-# 2. Each arm (an Anthropic key in ANTHROPIC_API_KEY; release binaries for Theseus).
+# 1. Each arm (an Anthropic key in ANTHROPIC_API_KEY; release binaries for Theseus). The Theseus arm measures its
+#    daemon's system prompt and tools first, then plans the progression at that and runs it; its run directory holds
+#    the progression, which the other arms read, and Pi measures its own overhead the same way.
 python3 bench/recall/drive.py --arm theseus --memory-arm baseline --bin-dir target/release \
-  --model anthropic/claude-sonnet-5-5 --progression /tmp/rc-smoke --out /tmp/rc-th
+  --model anthropic/claude-sonnet-5-5 --seed 7 --size smoke --out /tmp/rc-th
 python3 bench/recall/drive.py --arm claude-code \
-  --model anthropic/claude-sonnet-5-5 --progression /tmp/rc-smoke --out /tmp/rc-cc
+  --model anthropic/claude-sonnet-5-5 --progression /tmp/rc-th --out /tmp/rc-cc
 python3 bench/recall/drive.py --arm pi \
-  --model anthropic/claude-sonnet-5-5 --progression /tmp/rc-smoke --out /tmp/rc-pi
+  --model anthropic/claude-sonnet-5-5 --progression /tmp/rc-th --out /tmp/rc-pi
+
+# 2. A progression on its own, and its budget, at an overhead you give (a pinned plan; `--overhead` on the
+#    driver does the same for a run that must match an earlier one).
+python3 bench/recall/generate.py --seed 7 --size smoke --overhead 13943 --out /tmp/rc-smoke
 
 # 3. The scores (and with `--stale retracted`, an old value named only to take it back is no longer stale).
 python3 bench/recall/score.py /tmp/rc-th /tmp/rc-cc /tmp/rc-pi --out /tmp/rc-report
@@ -98,9 +102,8 @@ least one of each kind. `full` is three sessions of 200 turns: two on one day an
 topic blocks each, a mark in each session, and 6 probes in each of the 34 bucket × salience × kind cells (204 in
 all; an abstention has no supersession). The generator prints the counts and an estimate of the tokens and dollars
 per arm at the catalog's price (`--model`), each mark's reads with their bounds, and the window and its budget.
-For seed 7 it says about $0.53 an arm for the smoke and about $11.77 for the full. Treat these as a budget, not a
-measurement: the replies' length and the turns' recall notes are guesses, and the system prompt's size is one
-scratch daemon's.
+For seed 7, planned at 13,943, it says about $0.54 an arm for the smoke and about $12.02 for the full. Treat these as
+a budget, not a measurement: the replies' length and the turns' recall notes are guesses.
 
 **Run live only in a throwaway container or VM.** Neither arm's tools are confined to the workspace on a bare host.
 Theseus runs the bench profile (every tool open, roots at `/`), and Claude Code runs its shell tool.
@@ -122,8 +125,8 @@ Theseus runs the bench profile (every tool open, roots at `/`), and Claude Code 
     16000); a tool result is JSON at 2.4 bytes a token and text 3.3, with 3 tokens a message, 1 a block and 15 a
     tool id; from a turn's second call on, the provider's count of the last request stands and only what was
     written since is estimated; the ring runs when that passes the budget at its upper bound (the estimate × 1.4),
-    and a turn whose newest exchange alone, estimated whole beside the system prompt and tools (13,599 tokens on a
-    scratch daemon of c4f79e9f; the plan takes 13,640, within the cushion of it either way), still passes it fails before any call. So the window is the smallest where the
+    and a turn whose newest exchange alone, estimated whole beside the system prompt and tools (the overhead, measured at
+    run time: 13,943 tokens on main of 2026-10-09, where it was 13,599 a month before), still passes it fails before any call. So the window is the smallest where the
     turns before each mark fit at 15% over their estimate, a session with no mark fits whole, each read turn alone
     stays 10% under the budget with room for a 4,096-token summary beside it, and at 15% under their estimate the
     reads cross the budget: the mark's own, or, where one read can't do both (the smoke's short first session),
@@ -131,15 +134,24 @@ Theseus runs the bench profile (every tool open, roots at `/`), and Claude Code 
     numbers each line, so each log fits under that. A plan is in tokens and its logs are written in bytes, so each
     plan, once written, is worked again from its bytes (`plan_misses`), at its overhead and at `OVERHEAD_CUSHION`
     more and less, and one that misses by rounding gives way to the next: more reads in the same window, then the next
-    window. For seed 7 that is 45000 for the smoke (a budget of 29,654;
-    two logs of about 4,400 tokens, the second at turn 11) and 94000 for the full (73,904).
-  - **The overhead is checked.** After the first turn, before any probe, the driver reads its daemon's first
-    `context.compiled` estimate less that turn's user message: the system prompt and tools, as `OVERHEAD_TOKENS`
-    defines them. More than `OVERHEAD_CUSHION` (50 tokens) off the progression's planned overhead, over or under, a mark
-    may ring (over) or the reads may not cross the budget (under), so the run stops (exit 3) with both numbers,
-    unless `--allow-overhead`. `run.json`'s `overhead`
-    keeps the planned, the measured and the cushion either way. Generate again with `--overhead <measured>` to plan
-    at the daemon's own.
+    window. For seed 7, planned at 13,943, that is 46000 for the smoke (a budget of 30,404;
+    two logs of about 4,650 tokens, the second at turn 11) and 94000 for the full (73,904).
+  - **The overhead is measured, never assumed** (theseus-cs8k). Every new tool definition moves the daemon's system
+    prompt and tools, so no constant can stand for them. Before the progression is fixed, the driver starts a
+    throwaway daemon of the run's own config (the same binaries, profile, memory arm and effort), has it take one
+    short exchange in a session of its own, and reads its first `context.compiled` estimate less that message: the
+    system prompt and tools, as `overhead_of` has them. It is a daemon of its own, so nothing of the probe is in
+    the run's memory. On a stand-in model it costs nothing; on a real one it is one small call that writes the
+    prompt's cache (about 14,000 input tokens at $2.50 a million, about $0.04; `run.json`'s `overhead.probe_cost_usd`
+    says). The progression is then generated at that measure (`--seed` and `--size`), its written bounds checked
+    there and at `OVERHEAD_CUSHION` (50 tokens) more and less (`plan_misses`), and run. The first real turn is read
+    again (`first_turn`) and held to the plan the same way. `run.json`'s `overhead` keeps `planned`, `measured`
+    (the probe's), `first_turn`, `pinned` and `past_cushion`; they are equal unless a plan was pinned, and `score.py`'s
+    report prints them for every arm ("System prompt and tools"), so the overhead's growth stays visible.
+    A **pinned plan** (`--overhead N` with `--seed`, or a `--progression` file, whose recorded overhead is its plan)
+    is for a rerun that must match an earlier one: a daemon measured more than the cushion off it, over (a mark may
+    ring) or under (the reads may not cross the budget), stops the run before its first turn (exit 3) with both
+    numbers, unless `--allow-overhead`.
   - Where it compacted is read from the ledger (`context.compacted`) after every turn, with each row's outcome:
     `compaction`, a summary in the cut's place, or `ring`, the cut kept with no summary and why (the summary would
     not fit, or its call failed), and the cut's span (its message count, its first and last positions).
@@ -173,27 +185,32 @@ Theseus runs the bench profile (every tool open, roots at `/`), and Claude Code 
     and its session logs.
   - Compaction: its own threshold, where the progression's context crosses its window. Pi compacts when the context
     passes its model's window less `reserveTokens`. The progression is planned at Theseus's overhead
-    (`overhead_tokens`, 13,640 for the smoke), Pi's own system prompt and tools are about 2,200 tokens
-    (`PI_OVERHEAD_TOKENS`, 2,233: measured with Pi 1.0.4 against `standin.py`), and one progression is read by every
-    arm, so a Pi at the plain window would run about 11,400 tokens short at every turn and never compact on the
+    (`overhead_tokens`, 13,943 on main of 2026-10-09), Pi's own system prompt and tools are about 2,500 tokens
+    (2,475 in the one live reading, a Harbor trial of Pi 1.0.4 on Sonnet 5.5), and one progression is read by every
+    arm, so a Pi at the plain window would run about 11,500 tokens short at every turn and never compact on the
     smoke. The scratch `settings.json` sets the run model's `reserveTokens` (`compaction.modelOverrides`) to the
     model's window in Pi's catalog (`--pi-model-window`, 1,000,000 for Sonnet 5.5) less the threshold, and the
-    threshold is the progression's window less what the plan's overhead holds beyond Pi's (`pi_threshold`: 36,593 of
-    the smoke's 48,000 at seed 12). Pi then reads the same bytes as the other arms and crosses where the plan does.
+    threshold is the progression's window less what the plan's overhead holds beyond Pi's (`pi_threshold`). Seed 12's
+    smoke, planned at 13,943, has a window of 49,000; Pi measured at 2,475 gets 49,000 - (13,943 - 2,475) = 37,532. Pi then reads the same bytes as the other arms and crosses where the plan does.
     `keepRecentTokens`, what a compaction keeps unsummarized, is Pi's own 20,000 or a quarter of the threshold
     (`pi_keep_recent`), the context Pi holds when it compacts: when the whole context is within it, Pi 1.0.4 has
     nothing to summarize and skips the compaction. `run.json`'s `pi_compact` keeps the window, the model's window,
     the threshold and the two. Pi's print mode sends `/compact` to the model as text, so there are no marks to
     compact at; the threshold works at any window. A compaction counts where a session log gains a `compaction`
     entry, and its summary call's tokens and dollars are its turn's.
-  - Pi's overhead is measured as Theseus's is: the first turn's first answer's input (input, cache read and cache
-    write) less the turn's words at the model's rates, and `run.json`'s `overhead` has the Theseus record's shape
-    (planned, measured, cushion, `past_cushion`, `allowed`) and the `threshold` it was set at. A Pi more than
-    `generate.OVERHEAD_CUSHION` off its plan, over or under, stops after that turn, exits 3 and names both numbers;
-    `--pi-overhead <measured>` moves the plan, and `--allow-overhead` (both drivers read it) runs on. The count is
-    the provider's, where Theseus's is the compiler's estimate; `standin.py` counts by the generator's own rule, so
-    offline the two agree, and on the real model the record shows how far the rule's rates are from the provider's.
-    That is the live check: if it is past the cushion, the constant moves.
+  - Pi's overhead is measured at run time, as Theseus's is, and its threshold is set from the measure (theseus-iec1;
+    no constant stands for it: the one that did was off by 242 on the first live reading, nearly five cushions). The
+    threshold is written into Pi's settings before its first turn, so the measure comes first: a probe turn in a
+    throwaway Pi session (its own agent and session directories, in the run's workspace, so nothing of it is in the
+    run's logs, compaction or memory), and the first answer's input (input, cache read and cache write) less the
+    probe's words at the model's rates. It is the provider's count on a real model and `standin.py`'s on the rig. On
+    a real model it costs one small exchange (about 2,500 input tokens: a cent). `run.json`'s `overhead` has the
+    Theseus record's shape (planned, measured, `first_turn`, `pinned`, cushion, `past_cushion`, `allowed`) and the
+    `threshold` it was set at. `--pi-overhead N` pins the plan (a rerun that must match an earlier one): a probe
+    finding Pi more than `generate.OVERHEAD_CUSHION` off it, over or under, stops the run before its first turn,
+    exits 3 and names both numbers, and `--allow-overhead` (both drivers read it) runs on. Pi's first real turn is
+    read again and held to the plan too. Pi has no daemon to measure the progression's own overhead: it reads the
+    progression the Theseus arm planned (`--progression <its run directory>`).
   - Offline: `PI_OFFLINE=1`, beside `PI_SKIP_VERSION_CHECK` and `PI_TELEMETRY`. Without it Pi 1.0.4 overlays newer
     model-catalog data from its project's server (prices, its thinking map, compat flags), so the pinned version
     would not pin them. Its docs: "`PI_OFFLINE`: Disable automatic network activity, including model catalog
@@ -224,7 +241,7 @@ scored as a miss.
 ## The run directory
 
 `run.json` holds the arm, the memory arm, the model, the progression's digest, the compactions (the turns whose
-request was compacted), Theseus's `compaction_rows` (each turn's outcomes and cuts), what the stop had to kill, and Theseus's `overhead` (planned and measured). `turns.jsonl` holds each turn's reply, exit, tokens, dollars
+request was compacted), Theseus's `compaction_rows` (each turn's outcomes and cuts), what the stop had to kill, and the `overhead` of Theseus and Pi (planned, measured, first turn, pinned). `turns.jsonl` holds each turn's reply, exit, tokens, dollars
 and latency. `delivered.json` holds each fact's delivery. `progression.json` is a copy of the progression, and
 `workspace/` is the arm's workspace as the run left it. `raw/` holds each turn's stdout, the transcripts and the
 daemon's log.
@@ -307,12 +324,13 @@ They cover:
   abstention, and distance measured where the arm compacted.
 - **The Claude Code driver**, against a stand-in `claude` on PATH: session ids carried, a boundary opening a new
   one, `/compact` after the mark.
-- **The Pi driver**, against a stand-in `pi` on PATH: a session id per session, the reserve and the kept
-  tokens at the planned threshold, the offline variables, its overhead recorded and a Pi 51 off its plan refused (50 off not, and
+- **The Pi driver**, against a stand-in `pi` on PATH: a probe turn in a session of its own, a session id per
+  session, the reserve and the kept tokens at the threshold the measure sets (a 2,475 reading plans at 2,475), the
+  offline variables, its overhead recorded, a pinned plan and a Pi 51 off it refused before any turn (50 off not, and
   `--allow-overhead` runs on), a compaction read from its log, a parent's variables taken out, each turn's answers and
   summaries summed, and a provider's error a failed turn.
 - **The Theseus driver**, end to end on this workspace's binaries (`target/debug`, or `THESEUS_RECALL_BIN_DIR`):
-  the smoke on `standin.py`, and a turn past its timeout stopped while the next one runs, on `theseus-sim
+  the smoke planned at the overhead it measures (seed 12), a pinned plan refused before any turn, the smoke on `standin.py`, and a turn past its timeout stopped while the next one runs, on `theseus-sim
   fake-model --rules`. It is skipped when they are missing, and nothing is left running. Theseus trusts the
   provider's count, and theseus-sim's stand-in reports 40 input tokens a call: on it, a turn's history costs
   nothing, and a mark that fails live (an overage) passes. `standin.py` reports each request's estimate by the

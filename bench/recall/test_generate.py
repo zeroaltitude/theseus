@@ -14,7 +14,7 @@ import sys
 import tempfile
 import unittest
 from unittest import mock
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -24,6 +24,10 @@ sys.path.insert(0, str(HERE))
 import generate  # noqa: E402
 import progression as pg  # noqa: E402
 import tokens as tk  # noqa: E402
+
+# A fixture's plan: the overhead the tests' progressions are planned at. The daemon's own is
+# measured at run time (theseus-cs8k); nothing in `generate` stands for it.
+PLAN = 13640
 
 # The smoke's digest for seed 7: a change to the generator, its lists, or
 # SplitMix64 moves it. Pin the new one only for a change meant to make a new
@@ -43,13 +47,13 @@ class Rng(unittest.TestCase):
 
 class Determinism(unittest.TestCase):
     def test_the_smokes_digest_is_pinned(self):
-        self.assertEqual(generate.build(7, "smoke").digest()[:16], SMOKE_7)
+        self.assertEqual(generate.build(7, "smoke", PLAN).digest()[:16], SMOKE_7)
 
     def test_the_full_is_the_same_twice_and_another_seed_differs(self):
-        a, b = generate.build(7, "full"), generate.build(7, "full")
+        a, b = generate.build(7, "full", PLAN), generate.build(7, "full", PLAN)
         self.assertEqual(a.canonical(), b.canonical())
-        self.assertNotEqual(generate.build(8, "full").digest(), a.digest())
-        self.assertNotEqual(generate.build(8, "smoke").digest()[:16], SMOKE_7)
+        self.assertNotEqual(generate.build(8, "full", PLAN).digest(), a.digest())
+        self.assertNotEqual(generate.build(8, "smoke", PLAN).digest()[:16], SMOKE_7)
 
     def test_the_generator_draws_from_splitmix64_alone(self):
         src = (HERE / "generate.py").read_text()
@@ -60,8 +64,8 @@ class Determinism(unittest.TestCase):
 class Stratification(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.full = generate.build(7, "full")
-        cls.smoke = generate.build(7, "smoke")
+        cls.full = generate.build(7, "full", PLAN)
+        cls.smoke = generate.build(7, "smoke", PLAN)
 
     def test_every_cell_of_the_full_is_filled(self):
         cells = pg.cells(self.full)
@@ -70,7 +74,7 @@ class Stratification(unittest.TestCase):
         self.assertEqual(set(cells), set(pg.expected_cells()))
 
     def test_each_fact_comes_before_its_probe_and_is_probed_once(self):
-        for prog in (self.full, self.smoke, generate.build(11, "full")):
+        for prog in (self.full, self.smoke, generate.build(11, "full", PLAN)):
             facts = prog.facts_by_id()
             seen = set()
             for p in prog.probes:
@@ -155,7 +159,7 @@ class Window(unittest.TestCase):
         the mark or the turn after it, which holds nothing else."""
         for size in ("smoke", "full"):
             for seed in self.SEEDS:
-                self.holds(generate.build(seed, size))
+                self.holds(generate.build(seed, size, PLAN))
 
     def holds(self, p: pg.Progression) -> None:
         """Every mark's bounds, worked from `p`'s written bytes at the
@@ -212,6 +216,18 @@ class Window(unittest.TestCase):
         self.assertEqual(first[0], 44000)
         self.assertNotEqual((p.context_window, [len(b["logs"]) for b in generate.bounds_of(p)]), (44000, [1]))
 
+    def test_every_plan_holds_at_the_daemons_measure_of_2026_10_09(self):
+        """theseus-cs8k: main's daemon measures 13,943 (a model tool joined
+        since the 13,640 the bench was planned at). Planned there, the smoke
+        and the full hold at the seeds the sweep takes, as theseus-tqa3
+        checked them at its measure: both bounds of every mark, there and at
+        the cushion either side."""
+        for size in ("smoke", "full"):
+            for seed in (7, 8, 11, 12):
+                p = generate.build(seed, size, 13943)
+                self.assertEqual((p.overhead_tokens, generate.plan_misses(p)), (13943, []), (size, seed))
+                self.holds(p)
+
     def test_every_overhead_from_13528_to_14000_holds(self):
         """The sweep: the smoke at every overhead from 13,528 (60b43fb6's) to
         14,000, and the full at every 59th, each at seeds 7, 8, 11 and 12:
@@ -246,7 +262,7 @@ class Window(unittest.TestCase):
     def test_a_turns_estimate_is_its_messages_at_the_rates(self):
         """A filler that reads a file: its text, the call, the numbered
         lines, and a reply, each framed (provider.rs's Census)."""
-        p = generate.build(7, "smoke")
+        p = generate.build(7, "smoke", PLAN)
         t = next(t for t in p.turns if t.text.startswith("How many lines are in "))
         path = t.text.removeprefix("How many lines are in ").rstrip("?")
         content = p.workspace[path]["content"]
@@ -338,7 +354,7 @@ class Names(unittest.TestCase):
         for lst, names in generate.NAME_LISTS.items():
             for n in names:
                 self.assertNotIn(n, words, f"{lst}: {n}")
-        for prog in (generate.build(7, "full"), generate.build(7, "smoke")):
+        for prog in (generate.build(7, "full", PLAN), generate.build(7, "smoke", PLAN)):
             self.assertTrue(prog.names)
             for n in prog.names:
                 self.assertNotIn(n, words, n)
@@ -371,7 +387,7 @@ class Budget(unittest.TestCase):
             out = Path(d) / "rc"
             buf = io.StringIO()
             with redirect_stdout(buf):
-                rc = generate.main(["--seed", "7", "--size", "smoke", "--out", str(out)])
+                rc = generate.main(["--seed", "7", "--size", "smoke", "--out", str(out), "--overhead", str(PLAN)])
             self.assertEqual(rc, 0)
             text = buf.getvalue()
             self.assertIn(f"digest {SMOKE_7}", text)
@@ -383,16 +399,28 @@ class Budget(unittest.TestCase):
             self.assertEqual(json.loads((out / "progression.json").read_text())["format"], pg.FORMAT)
             # A second run refuses the full directory.
             with redirect_stdout(io.StringIO()):
-                self.assertEqual(generate.main(["--seed", "7", "--size", "smoke", "--out", str(out)]), 2)
+                self.assertEqual(generate.main(["--seed", "7", "--size", "smoke", "--out", str(out),
+                                                           "--overhead", str(PLAN)]), 2)
+
+    def test_the_cli_plans_at_an_overhead_it_is_given_and_has_no_default(self):
+        """No constant stands for the daemon's overhead: planning by hand
+        takes the number (`drive.py` measures it and plans itself)."""
+        with tempfile.TemporaryDirectory() as d, redirect_stderr(io.StringIO()) as err:
+            with self.assertRaises(SystemExit) as e:
+                generate.main(["--seed", "7", "--size", "smoke", "--out", str(Path(d) / "p")])
+            self.assertEqual(e.exception.code, 2)
+            self.assertIn("--overhead", err.getvalue())
 
     def test_the_planned_overhead_is_recorded_and_can_be_set(self):
         """The progression records the overhead its plan took (theseus-dp3y):
         the driver holds its daemon's to it. `--overhead` plans at another."""
-        self.assertEqual(generate.build(7, "smoke").overhead_tokens, generate.OVERHEAD_TOKENS)
+        self.assertEqual(generate.build(7, "smoke", PLAN).overhead_tokens, PLAN)
+        self.assertFalse(hasattr(generate, "OVERHEAD_TOKENS"), "the daemon's overhead is measured, never a constant")
         p = generate.build(7, "smoke", 14000)
         self.assertEqual((p.overhead_tokens, generate.planned_overhead(p)), (14000, 14000))
         p.overhead_tokens = None
-        self.assertEqual(generate.planned_overhead(p), generate.OVERHEAD_TOKENS)
+        with self.assertRaisesRegex(ValueError, "records no planned overhead"):
+            generate.planned_overhead(p)
         with tempfile.TemporaryDirectory() as d:
             out = Path(d) / "rc"
             buf = io.StringIO()
@@ -404,7 +432,7 @@ class Budget(unittest.TestCase):
 
     def test_an_unpriced_model_is_refused(self):
         with self.assertRaises(SystemExit):
-            generate.estimate(generate.build(7, "smoke"), "anthropic/claude-nonesuch")
+            generate.estimate(generate.build(7, "smoke", PLAN), "anthropic/claude-nonesuch")
 
 
 if __name__ == "__main__":

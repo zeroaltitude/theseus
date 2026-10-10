@@ -180,8 +180,8 @@ class Progression:
     context_window: int  # the scratch window that brings compaction near the marks
     names: list[str] = field(default_factory=list)  # every invented name used
     # The system prompt and tools the plan sized the window and the bulks at
-    # (generate.py's `OVERHEAD_TOKENS`, or `--overhead`), which the driver
-    # holds its daemon's to. None in a file from before it was recorded:
+    # (the daemon's, measured by the driver at run time, or `--overhead`),
+    # which a pinned plan holds its daemon's to. None in a file from before it was recorded:
     # such a file keeps its digest, since the key is written only when set.
     overhead_tokens: int | None = None
 

@@ -24,6 +24,10 @@ import generate  # noqa: E402
 import progression as pg  # noqa: E402
 import score  # noqa: E402
 
+# A fixture's plan: the overhead the tests' progressions are planned at. The daemon's own is
+# measured at run time (theseus-cs8k); nothing in `generate` stands for it.
+PLAN = 13640
+
 
 def row(bucket: str, correct: bool, turns: int, tokens: int, kind: str = "direct",
         salience: str = "incidental") -> score.Scored:
@@ -112,7 +116,7 @@ def write_run(d: Path, prog: pg.Progression, label: str, compactions: list[int],
 class Scoring(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.prog = generate.build(7, "smoke")
+        cls.prog = generate.build(7, "smoke", PLAN)
         ids = {p.id: (p.kind, p.bucket, p.turn, p.fact) for p in cls.prog.probes}
         # The fixture's reading of the smoke, checked, so a new smoke fails
         # here first.
@@ -405,7 +409,8 @@ class Scoring(unittest.TestCase):
     def test_the_cli_writes_the_report_the_svg_and_the_scores(self):
         with tempfile.TemporaryDirectory() as d:
             d = Path(d)
-            write_run(d / "th", self.prog, "theseus", [12])
+            oh = {"planned": 13943, "measured": 13943, "first_turn": 13943, "pinned": False}
+            write_run(d / "th", self.prog, "theseus", [12], meta={"overhead": oh})
             write_run(d / "cc", self.prog, "claude-code", [])
             with redirect_stdout(io.StringIO()) as out:
                 rc = score.main([str(d / "th"), str(d / "cc"), "--out", str(d / "rep")])
@@ -414,14 +419,19 @@ class Scoring(unittest.TestCase):
             md = (d / "rep" / "report.md").read_text()
             self.assertIn("| theseus | m | 12 |", md)
             self.assertIn("| claude-code | m | never |", md)
+            # The overhead the arm was measured at is in every report (theseus-cs8k).
+            self.assertIn("| theseus | 13943 | 13943 | 13943 | no |", md)
+            self.assertIn("| claude-code | — | — | — | — |", md)
             svg = (d / "rep" / "curve.svg").read_text()
             self.assertTrue(svg.startswith("<svg") and svg.rstrip().endswith("</svg>"))
             self.assertIn("polyline", svg)
             j = json.loads((d / "rep" / "scores.json").read_text())
             self.assertEqual(set(j["arms"]), {"theseus", "claude-code"})
+            self.assertEqual(j["arms"]["theseus"]["overhead"], oh)
+            self.assertIsNone(j["arms"]["claude-code"]["overhead"])
             self.assertEqual(len(j["probes"]), 2 * len(self.prog.probes))
             # Runs of different progressions are refused.
-            other = generate.build(8, "smoke")
+            other = generate.build(8, "smoke", PLAN)
             write_run(d / "x", other, "claude-code", [])
             with redirect_stdout(io.StringIO()):
                 self.assertEqual(score.main([str(d / "th"), str(d / "x"), "--out", str(d / "rep2")]), 2)

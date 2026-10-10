@@ -635,6 +635,16 @@ def report(runs: list[ArmRun], sums: dict[str, dict], stale_rule: str = "strict"
         c = outcome_counts(r.meta)
         other = sum(n for o, n in c.items() if o not in MOVING_OUTCOMES)
         lines.append(f"| {r.label} | " + " | ".join(str(c.get(o, 0)) for o in MOVING_OUTCOMES) + f" | {other} |")
+    lines += ["", "## System prompt and tools", "",
+              "Each arm's system prompt and tools, in tokens, as the driver measured them at run time (a probe "
+              "exchange; Theseus's is the compiler's estimate, Pi's the provider's count). The progression was "
+              "planned at Theseus's. Its growth is the reason to read it: every new tool moves it.", "",
+              "| Arm | Planned | Measured | First turn | Pinned |", "|---|---|---|---|---|"]
+    for r in runs:
+        o = r.meta.get("overhead")
+        lines.append(f"| {r.label} | " + (" | ".join([_num(o.get("planned")), _num(o.get("measured")),
+                                                       _num(o.get("first_turn")), "yes" if o.get("pinned") else "no"])
+                                          if o else "— | — | — | —") + " |")
     lines += ["", "## How to read it", "",
               "- A probe planned in one bucket can land in another: its arm compacted elsewhere than the marks. "
               + "; ".join(f"{r.label}: {sums[r.label]['moved']} moved" for r in runs) + ".",
@@ -724,6 +734,7 @@ def main(argv: list[str] | None = None) -> int:
         score_cache[r.label] = rows
         sums[r.label] = summarize(rows)
         sums[r.label]["compactions_by_outcome"] = outcome_counts(r.meta)
+        sums[r.label]["overhead"] = r.meta.get("overhead")
         all_rows += rows
     a.out.mkdir(parents=True, exist_ok=True)
     (a.out / "scores.json").write_text(json.dumps(
