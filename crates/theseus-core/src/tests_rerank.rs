@@ -542,7 +542,7 @@ async fn a_reranked_turn_keeps_its_frame_budget() {
         let res = turn(c, &here, "Where does the grey heron nest?").await;
         let frames = c.store.stats().unwrap().frames_appended - before;
         assert_eq!(res.loops, 1);
-        assert!(frames <= 5, "judged {judged}: a plain turn wrote {frames}");
+        assert!(frames <= 4, "judged {judged}: a plain turn wrote {frames}");
         counts.push(frames);
     }
     assert_eq!(counts[0], counts[1], "the rerank changed the turn's frames");

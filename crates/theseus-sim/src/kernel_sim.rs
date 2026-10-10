@@ -88,6 +88,7 @@ use theseus_kernel::*;
 use theseus_store::{Store, WalConfig, WalStore};
 
 mod counts;
+mod held;
 mod outbox;
 mod queues;
 mod stops;
@@ -755,7 +756,11 @@ impl World {
             return self.race_a_turn(&exec_id);
         }
         let admitted = if by_input {
-            self.kernel.admit_input(&exec_id)
+            // Held first half the time (theseus-2uby, `held.rs`).
+            match self.admit_by_input(&exec_id)? {
+                Some(g) => Ok(g),
+                None => return Ok(()),
+            }
         } else {
             self.kernel.admit(&exec_id)
         };

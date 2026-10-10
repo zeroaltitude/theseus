@@ -1161,7 +1161,7 @@ impl Kernel {
     pub fn admit(&self, execution_id: &str) -> Result<TurnGuard> {
         self.require_accepting()?;
         let _w = self.lock(&[execution_id]);
-        let mut e = self
+        let e = self
             .execution(execution_id)?
             .ok_or_else(|| KernelError::UnknownExecution(execution_id.into()))?;
         if e.state != ExecState::Queued {
@@ -1171,6 +1171,15 @@ impl Kernel {
             }
             .into());
         }
+        let guard = self.hold(&e)?;
+        // A frame that fails drops the guard, which frees the turn.
+        self.write_running(e, &guard)?;
+        Ok(guard)
+    }
+
+    /// The turn's slot in this process, and nothing written: no other turn
+    /// may be held on `e`, and the ceiling must have room (`held.rs`).
+    pub(crate) fn hold(&self, e: &Execution) -> Result<TurnGuard> {
         {
             let mut held = self.held.lock().unwrap();
             if held.contains(&e.id) {
@@ -1184,19 +1193,22 @@ impl Kernel {
             }
             held.insert(e.id.clone());
         }
-        let now = self.now_ms();
-        let guard = TurnGuard {
+        Ok(TurnGuard {
             execution_id: e.id.clone(),
             turn: e.turns + 1,
-            started_at_ms: now,
+            started_at_ms: self.now_ms(),
             held: self.held.clone(),
-        };
+        })
+    }
+
+    /// Write `e`, queued, as running the turn `guard` holds: the admission's
+    /// record and row. The caller holds the execution's lock.
+    pub(crate) fn write_running(&self, mut e: Execution, guard: &TurnGuard) -> Result<()> {
         e.state = ExecState::Running;
-        e.turns += 1;
+        e.turns = guard.turn;
         e.wake = None;
         let resumed = std::mem::take(&mut e.resume_pending);
-        e.updated_at_ms = now;
-        // A frame that fails drops the guard, which frees the turn.
+        e.updated_at_ms = self.now_ms();
         self.commit(&[
             exec_record(&e)?,
             self.ledger(
@@ -1205,7 +1217,7 @@ impl Kernel {
                 json!({"execution_id": e.id, "turn": e.turns, "queued_results": e.queued_results.len(), "resumed": resumed}),
             )?,
         ])?;
-        Ok(guard)
+        Ok(())
     }
 
     /// Human input arrived, and its turn starts (theseus-l6y): `wake_input`
@@ -2430,7 +2442,8 @@ impl Kernel {
             return Ok(None);
         }
         let now = self.now_ms();
-        let turn_running = e.state == ExecState::Running;
+        // A turn held and not yet admitted (theseus-2uby) holds it too.
+        let turn_running = e.state == ExecState::Running || self.holds_turn(&e.id);
         e.state = ExecState::Cancelled;
         e.cancel = Some(CancelState::Requested);
         e.ended_reason = Some(format!("cancelled by {by}"));

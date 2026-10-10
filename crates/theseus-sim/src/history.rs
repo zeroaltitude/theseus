@@ -47,12 +47,14 @@ const NEAR_PERCENT: i64 = 10;
 /// unit (theseus-goa8). Each is read as a phase is: a p50, a p95, and a limit
 /// when the bench has a budget for it. A single reading (a size, a memory) is
 /// its own p50 and p95.
-pub const OTHER: [(&str, &str); 25] = [
+pub const OTHER: [(&str, &str); 26] = [
     // `bench turn`
     ("turn_plain", "ms"),
     ("frames_plain", "frames"),
     ("turn_tool", "ms"),
     ("frames_tool", "frames"),
+    // its syncs before the model's first byte (theseus-2uby)
+    ("syncs_plain", "frames"),
     ("rss_start", "MB"),
     ("rss_burst", "MB"),
     // `bench turn --judge` (theseus-0j2.8): the judge on, the inbound
@@ -486,6 +488,7 @@ fn name(phase: &str) -> &str {
         "restore" => "restore from a local WAL",
         "turn_plain" => "a plain turn's wall time",
         "frames_plain" => "a plain turn's frames",
+        "syncs_plain" => "a plain turn's syncs before its model's first byte",
         "turn_tool" => "a tool-call turn's wall time",
         "frames_tool" => "a tool-call turn's frames",
         "turn_plain_jloop" => "a plain turn's wall time with loop.v1 judging",

@@ -2258,6 +2258,8 @@ async fn a_cancel_ends_a_call_waiting_for_approval_and_nothing_counts_it_waiting
     assert_eq!(results(&r.core, &res.session_id).len(), 1);
 }
 
+/// An input's admission in its input's frame (theseus-2uby).
+mod admit_frames;
 /// The calls a cancel or a turn's end must answer (theseus-0o8, theseus-ni5).
 mod every_call_answered;
 mod frames_counted;
@@ -2546,7 +2548,8 @@ fn ledger_after(core: &Core, after: u64) -> Vec<String> {
 }
 
 /// Every WAL frame is its own fsync, so each frame on the turn path costs
-/// every turn. A plain one-loop turn writes 5: 27 before theseus-hco removed
+/// every turn. A plain one-loop turn writes 4 since theseus-2uby (its
+/// admission rides its input's frame), 5 before it: 27 before theseus-hco removed
 /// the hook rows, 17 before theseus-qa0 let the rows that are no state
 /// transition ride in the next frame and planned, authorized, and dispatched
 /// the provider call in one, and 8 before theseus-l6y. That step woke and
@@ -2571,7 +2574,7 @@ async fn a_plain_turn_stays_within_its_frame_budget() {
     let res = turn(&r.core, Some(&first.session_id), "hi").await;
     assert_eq!(res.loops, 1);
     let frames = r.core.store.stats().unwrap().frames_appended - before;
-    assert!(frames <= 5, "a plain turn wrote {frames} frames");
+    assert!(frames <= 4, "a plain turn wrote {frames} frames");
     assert_eq!(
         ledger_after(&r.core, from),
         [

@@ -304,7 +304,7 @@ async fn a_judged_turn_keeps_its_frame_budget() {
     let res = turn(&r.core, Some(&first.session_id), "hi").await;
     let frames = r.core.store.stats().unwrap().frames_appended - before;
     assert_eq!(res.loops, 1);
-    assert!(frames <= 5, "a judged plain turn wrote {frames} frames");
+    assert!(frames <= 4, "a judged plain turn wrote {frames} frames");
     until_judged(&r.core.store, 2).await;
 }
 

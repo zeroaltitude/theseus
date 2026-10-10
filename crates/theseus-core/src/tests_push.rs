@@ -269,7 +269,7 @@ async fn a_plain_turn_keeps_its_frame_budget_while_the_push_watches() {
     let before = r.core.store.stats().unwrap().frames_appended;
     turn(&r.core, Some(&sid)).await;
     let frames = r.core.store.stats().unwrap().frames_appended - before;
-    assert!(frames <= 5, "a plain turn wrote {frames} frames");
+    assert!(frames <= 4, "a plain turn wrote {frames} frames");
     let last = last_kernel_position(&r.core);
     for _ in 0..200 {
         let seen = applied(&got.lock().unwrap());

@@ -60,7 +60,7 @@ It runs, in order:
      found no quiet window; a miss reruns once. The suite's `the_jobs_bench_l1_row` measures the row and bounds
      nothing, since the suite runs under any load (theseus-mll1).
    - Then the turn bench (`theseus-sim bench turn --check`): a plain turn's frames, counted from the daemon's WAL,
-     against §9's per-turn overhead restated as frames (5; the floor is 2). A count needs no quiet machine, and never
+     against §9's per-turn overhead restated as frames (4; the floor is 2). A count needs no quiet machine, and never
      gets the allowance, so it runs in a lane's gate too, with five runs of each kind and no burst (about 5 s); at the
      join it runs ten runs and a burst of 30 turns and records the row (about 11 s). A miss reruns once.
 

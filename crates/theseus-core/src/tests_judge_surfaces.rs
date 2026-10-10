@@ -117,7 +117,7 @@ async fn a_judged_turn_keeps_its_frames_and_its_request_bytes() {
         frames.push(r.core.store.stats().unwrap().frames_appended - before);
     }
     assert_eq!(frames[0], frames[1], "the same frames, judge or no judge");
-    assert!(frames[0] <= 5, "{frames:?}");
+    assert!(frames[0] <= 4, "{frames:?}");
     until_judged(&on.core.store, 2).await;
     let bytes = |r: &crate::tests_judge::Rig| {
         r.fake

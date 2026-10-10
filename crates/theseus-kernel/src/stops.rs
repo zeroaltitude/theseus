@@ -104,7 +104,11 @@ impl Kernel {
         e.budget.question = None;
         e.budget.question_needs_micros = 0;
         let before = e.state;
-        let turn_running = e.state == ExecState::Running;
+        // A turn held and not yet admitted (theseus-2uby) is marked as a
+        // running one is: its admission keeps the mark, so its first step is
+        // refused, where parking the execution here would leave it for the
+        // admission's wake to undo.
+        let turn_running = e.state == ExecState::Running || self.holds_turn(&e.id);
         if turn_running {
             // The turn holds the execution: its next step is refused, and its
             // end parks it on input.

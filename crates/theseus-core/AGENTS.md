@@ -899,7 +899,10 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
 
 ## Invariants
 
-- **The frame budget.** A plain one-loop turn writes 5 frames, and each loop with one in-process tool adds 4.
+- **The frame budget.** A plain one-loop turn writes 4 frames, and each loop with one in-process tool adds 4.
+  An input's turn holds its execution (`Kernel::hold_turn`, nothing written) and is admitted in its input's frame
+  (`turn/admit_step.rs`, theseus-2uby), so it pays 2 syncs before its model's first byte (`syncs_before_call` on its
+  trace); a turn that writes before its input (`catch_up` with anything to take) is admitted alone first.
   Observability rows ride in the turn's next frame; the session's write rides in `end_turn`'s
   (`Store::defer_session`). `tests_m3::a_plain_turn_stays_within_its_frame_budget` fails a sixth frame.
   Each turn counts its own (theseus-wz4y), as `frames` on its trace's root span: its admission's frames, read from

@@ -580,6 +580,17 @@ impl Store {
         }
     }
 
+    /// Take the rows waiting for the turn's next frame, for a frame that
+    /// places them itself (theseus-2uby: after the admission it carries).
+    /// A frame that fails gives them back with `defer`. None on a handle
+    /// that is not a turn's.
+    pub fn take_waiting(&self) -> Vec<NewRecord> {
+        self.turn
+            .as_ref()
+            .map(|t| std::mem::take(&mut *t.waiting.lock().unwrap()))
+            .unwrap_or_default()
+    }
+
     /// The frames this turn has written so far (theseus-wz4y): those its
     /// handle committed, and those counted to it. None on a handle that is
     /// not a turn's.

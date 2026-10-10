@@ -35,9 +35,11 @@ Key modules: `lifecycle.rs`, `kernel_sim.rs`, `fake_discord.rs`, `discord_proof.
     times on one warm session: wall time by the bench's clock and the daemon's, and **frames per turn**, counted from
     the daemon's WAL by `src/walcount.rs` (a read-only tail; the daemon reports no frame count, and the core is not
     changed for a bench). A frame is one `fdatasync`, so frames are §9's per-turn overhead in a unit that does not
-    depend on the disk. `--check` fails a plain turn that writes more than `perf::PLAIN_TURN_FRAMES` (5; the floor is
-    2). Beside them: this disk's `fdatasync`, probed before the daemon starts and after it stops (the quieter is used,
-    so the harness's own share of a turn reads off as an upper bound), and the daemon's resident memory after the start
+    depend on the disk. `--check` fails a plain turn that writes more than `perf::PLAIN_TURN_FRAMES` (4; the floor is
+    2), or whose trace counts more syncs before its model's first byte than `perf::PLAIN_SYNCS_BEFORE_CALL` (2,
+    `syncs_plain`; theseus-2uby). Beside them: this disk's `fdatasync`, probed before the daemon starts and after it
+    stops (the quieter is used, so the harness's own share of a turn reads off as an upper bound), and the daemon's
+    resident memory after the start
     and after a burst. Each run also gets a line (`src/perf/runs.rs`, theseus-w7dk): its wall, the daemon's time, its
     frames, and the slowest frame the store answered since its input arrived, with that frame's time and records (the
     turn's trace carries it as `attrs.slowest_frame`); a run over twice its kind's p50 is flagged. The turn's last
@@ -124,8 +126,8 @@ Key modules: `lifecycle.rs`, `kernel_sim.rs`, `fake_discord.rs`, `discord_proof.
 - `bench turn` counts every frame the WAL gains from just before a turn until it has been still for 50 ms, so a frame
   another writer put in that window counts as the turn's. The gate reruns a miss once; a regression writes its frame
   every time, and the output names each frame by what it holds.
-- A tool-call turn writes 9 frames since Tier 7.1 (theseus-kpfv), held by `--check` as the plain turn's 5 is: the
-  turn takes its job's completion itself, with its result, in one frame. It wrote 10 to 12 before, as the drain
+- A tool-call turn writes 8 frames since theseus-2uby (9 since Tier 7.1, theseus-kpfv), held by `--check` as the
+  plain turn's 4 is: the turn takes its job's completion itself, with its result, in one frame. It wrote 10 to 12 before, as the drain
   usually took the completion first.
 - The stand-in model (`fake_model::FakeModel::start_mixed`) asks for its tool only when a turn's input holds
   `fake_model::TOOL_MARK`; the lifecycle bench's `start` asks on every call.

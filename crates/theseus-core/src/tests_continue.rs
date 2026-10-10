@@ -609,7 +609,7 @@ async fn a_turn_judged_at_its_compile_keeps_its_frame_budget() {
         "judged at its compile"
     );
     assert!(
-        frames <= 5,
+        frames <= 4,
         "a plain turn judged at its compile wrote {frames} frames"
     );
     until(&r.core.store, "judge:continue", 2).await;

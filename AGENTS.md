@@ -96,7 +96,7 @@ Each is a requirement, with its spec section.
   dispatched thing is a WAL record with a correlation id, and its completion arrives as an event. No busy loops.
 - **The WAL and frames** (§6; Part III F2). The WAL is the truth, and every index a projection of it. A kernel method,
   or a kernel transaction (`Kernel::frame`), writes exactly one frame, and a fact lands in one frame with the rows
-  that describe it. A plain one-loop turn writes 5 frames: `tests_m3::a_plain_turn_stays_within_its_frame_budget`
+  that describe it. A plain one-loop turn writes 4 frames (its admission rides its input's, theseus-2uby): `tests_m3::a_plain_turn_stays_within_its_frame_budget`
   holds it in the core, `bench turn` at the daemon.
 - **Append-only** (§2). The record only grows: compaction, supersession, and forgetting are new records. Payload
   erasure (§5.6) is the one receipted exception.

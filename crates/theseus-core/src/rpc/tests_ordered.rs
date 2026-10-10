@@ -378,7 +378,11 @@ async fn a_stop_after_an_input_reaches_its_running_turn() {
 }
 
 /// The fault hook, holding the frame that stores `marker` until `go` is
-/// sent: the request that writes it has not taken effect meanwhile.
+/// sent: the request that writes it has not taken effect meanwhile. It
+/// waits as the store's writer does (`blocking`), handing its worker's role
+/// on: a hold that kept the worker kept what that worker had queued, which a
+/// real slow frame never does (theseus-2uby: the input's frame is the turn's
+/// first since its hold, with no wait for the disk before it).
 fn hold_frame(core: &Core, marker: &'static str) -> std::sync::mpsc::Sender<()> {
     let (go, wait) = std::sync::mpsc::channel::<()>();
     let wait = Mutex::new(Some(wait));
@@ -390,7 +394,7 @@ fn hold_frame(core: &Core, marker: &'static str) -> std::sync::mpsc::Sender<()> 
         });
         // Once: the frames after it pass.
         if let Some(wait) = hit.then(|| wait.lock().unwrap().take()).flatten() {
-            let _ = wait.recv_timeout(ANSWERS * 3);
+            let _ = theseus_store::blocking(|| wait.recv_timeout(ANSWERS * 3));
         }
         false
     });
