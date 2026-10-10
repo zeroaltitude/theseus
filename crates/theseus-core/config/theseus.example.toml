@@ -826,6 +826,22 @@ idle_unload_mins = 10.0                   # the model unloads after this long un
 # gate = 0.6                              # live: Jev's "a person not held is involved" at or above
 #                                         # this runs the extractor; under it, no model call
 
+# ---------------------------------------------------------------- self
+# Self-improvement: Theseus building its own code, yardsticks and backlog, joining
+# what passes every gate and telling you after. Off by default: with mode = "off"
+# nothing self-directed runs. With mode = "act", self steps run only while the kill
+# switch is released, and a store that has never seen your resume is halted, so
+# "act" alone starts nothing: `theseus self resume`, from your own shell (or another
+# private place), does. Anyone who may speak to the daemon can halt it at once:
+# `theseus self halt [why]`, or "halt self" on Discord. `theseus self log` shows
+# every change Theseus made to itself, with its numbers and its undo; while mode =
+# "act" and digest = "weekly", the week's digest goes to your DM once a week. Read
+# at the start: a change takes a restart.
+# [self]
+# mode = "off"                            # "off" or "act"
+# digest = "weekly"                       # "weekly" or "off"
+# [self.budget]                           # the self budget's lines (none yet: the self-budget step adds them)
+
 # ---------------------------------------------------------------- sandbox
 # L1, the sandbox (M4): a proc.run job in namespaces of its own, as your own
 # uid with no capabilities, over a view built from an empty root: the system's

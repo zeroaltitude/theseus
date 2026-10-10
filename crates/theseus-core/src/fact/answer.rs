@@ -180,7 +180,8 @@ impl ActRefused<'_> {
             | Act::JudgeRun { .. }
             | Act::Ladder { .. }
             | Act::Import { .. }
-            | Act::Session { .. } => None,
+            | Act::Session { .. }
+            | Act::SelfResume { .. } => None,
         }
     }
 }
@@ -220,6 +221,10 @@ impl Fact for ActRefused<'_> {
             }
             Act::Revoke { name } => {
                 json!({"act": act.method(), "name": name, "who": r.who, "via": r.via,
+                       "why": r.why, "by": self.by})
+            }
+            Act::SelfResume { from_job } => {
+                json!({"act": act.method(), "from_job": from_job, "who": r.who, "via": r.via,
                        "why": r.why, "by": self.by})
             }
         }
@@ -286,6 +291,11 @@ impl Fact for ActRefused<'_> {
                 Act::RouteCorrect { what } => format!(
                     "A correction of routing, {what}, from {} through {}, did not count: {}. \
                      Nothing was written, and the session runs where it ran.",
+                    r.who, r.via, r.why
+                ),
+                Act::SelfResume { .. } => format!(
+                    "A resume of self-improvement, from {} through {}, did not count: {}. It \
+                     stays halted.",
                     r.who, r.via, r.why
                 ),
                 Act::Revoke { name } => format!(

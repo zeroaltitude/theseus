@@ -72,6 +72,7 @@ pub mod resident;
 pub mod restore;
 pub mod routing;
 pub mod rpc;
+pub mod rsi;
 pub mod sandbox;
 pub mod scrub;
 pub mod secrets;

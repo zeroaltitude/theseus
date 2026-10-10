@@ -590,6 +590,12 @@ impl Core {
     pub(crate) fn judge_act(&self, who: &Answerer, act: Act<'_>) -> Result<()> {
         let verdict = match act {
             Act::Tighten { .. } => who.unknown().map_or(Ok(()), Err),
+            Act::SelfResume {
+                from_job: Some(job),
+            } => Err(format!(
+                "it came from a Theseus job's shell (THESEUS_SESSION={job}), and only the owner \
+                 resumes self-improvement, from their own shell or another private place"
+            )),
             _ => crate::places::owner_in_private(who, &self.runner.place_rule, &self.cfg),
         };
         let Err(why) = verdict else {
@@ -803,6 +809,10 @@ pub(crate) enum Act<'a> {
     /// sessions could hide the owner's conversations from the default view.
     /// `what` names it: `the retirement of ses_…`.
     Session { method: &'static str, what: &'a str },
+    /// The release of self-improvement's kill switch (theseus-pw1q.2,
+    /// `self.resume`): only the owner turns it back on, so a job's shell
+    /// (`from_job`, the `THESEUS_SESSION` the CLI sends) never counts.
+    SelfResume { from_job: Option<&'a str> },
 }
 
 impl Act<'_> {
@@ -823,6 +833,7 @@ impl Act<'_> {
             Act::Ladder { method, .. } => method,
             Act::Import { method, .. } => method,
             Act::Session { method, .. } => method,
+            Act::SelfResume { .. } => theseus_protocol::method::SELF_RESUME,
         }
     }
 }

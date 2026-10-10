@@ -55,6 +55,7 @@ mod board;
 pub(crate) use board::accept_buttons;
 mod extensions;
 mod guilds;
+mod halt;
 mod jev;
 mod live;
 pub(crate) use jev::{
@@ -746,6 +747,8 @@ enum Control {
     Extensions,
     /// Revoke a loaded extension, as the presser.
     Revoke(String, Option<DiscordOrigin>),
+    /// "halt self" (theseus-pw1q.2, `runtime/halt.rs`): why, and its author's ids.
+    HaltSelf(Option<String>, Option<DiscordOrigin>),
 }
 
 /// What `/stop` answers (W1): what stopped, and that the conversation goes
@@ -801,6 +804,9 @@ fn trust_answer(r: &Result<TrustResult, CallError>) -> String {
 }
 
 fn parse_control(text: &str) -> Option<Control> {
+    if let Some(why) = halt::words(text) {
+        return Some(Control::HaltSelf(why, None));
+    }
     let mut words = text.split_whitespace();
     match words.next()? {
         "/stop" => Some(Control::Stop),
@@ -1896,6 +1902,7 @@ impl Place {
                 if let Some(cmd) = parse_control(&m.text) {
                     let cmd = match cmd {
                         Control::Trust(None) => Control::Trust(Some(m.origin())),
+                        Control::HaltSelf(why, None) => Control::HaltSelf(why, Some(m.origin())),
                         cmd => cmd,
                     };
                     let reply = self.control(cmd, &format!("discord:{}", m.author)).await;
@@ -2186,6 +2193,7 @@ impl Place {
             Control::Publish(ask) => self.publish(*ask, by).await,
             Control::Extensions => self.extensions().await,
             Control::Revoke(name, origin) => self.revoke(name, origin, by).await,
+            Control::HaltSelf(why, origin) => self.halt_self(why, origin, by).await,
             Control::Join(named, origin) => self.join(named, origin, by).await,
             Control::Leave => self.leave(by).await,
         }
