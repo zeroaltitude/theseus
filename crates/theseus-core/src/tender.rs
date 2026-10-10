@@ -24,6 +24,8 @@
 //!   ([`IndexTender::health_block`], only of a tender it runs) and
 //!   `index.status` ([`IndexTender::health`]), and `index.query`
 //!   ([`IndexTender::query`]), one connection per call, each under a deadline.
+//!   The status is read at most once a second, and that one read answers
+//!   every caller meanwhile (`status_cache`, theseus-id8d).
 //!
 //! Each start, take-over, failed start, settings change, and exit is a fact
 //! (`crate::fact::index`), an `index.tender` ledger row; a stop records none
@@ -38,10 +40,7 @@ use std::time::Duration;
 
 use serde::de::DeserializeOwned;
 use serde::Serialize;
-use serde_json::Value;
-use theseus_protocol::index::{
-    method, IndexHealth, IndexQueryParams, IndexQueryResult, IndexStatus,
-};
+use theseus_protocol::index::{method, IndexHealth, IndexQueryParams, IndexQueryResult};
 use theseus_protocol::{Id, Request, Response, TenderStatus};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::sync::mpsc;
@@ -56,6 +55,9 @@ use crate::ledger::LedgerRow;
 
 pub mod pair;
 mod sample;
+mod status_cache;
+
+pub use status_cache::{STALE_AFTER, STATUS_EVERY};
 
 /// What the tender tends, in the children registry and in health.
 pub const NAME: &str = "index";
@@ -243,8 +245,14 @@ pub struct IndexTender {
     /// Set once the core is built: it writes each `index.tender` row.
     ledger: std::sync::OnceLock<Ledger>,
     board: Mutex<Board>,
-    /// The tender's last answer to `index.status`, and when (unix ms).
-    last: Mutex<Option<(IndexStatus, u64)>>,
+    /// The tender's status as last read, shared by every caller
+    /// (`status_cache`, theseus-id8d).
+    cache: Mutex<status_cache::Cache>,
+    /// Held by the one caller reading the status now: the others wait for
+    /// its answer instead of asking again.
+    asking: tokio::sync::Mutex<()>,
+    /// How long one read serves every caller: [`STATUS_EVERY`].
+    status_every: Duration,
     events: mpsc::UnboundedSender<Event>,
     inbox: Mutex<Option<mpsc::UnboundedReceiver<Event>>>,
 }
@@ -284,7 +292,9 @@ impl IndexTender {
                 why: None,
                 stopping: false,
             }),
-            last: Mutex::new(None),
+            cache: Mutex::default(),
+            asking: tokio::sync::Mutex::new(()),
+            status_every: STATUS_EVERY,
             events,
             inbox: Mutex::new(Some(inbox)),
         }
@@ -294,6 +304,13 @@ impl IndexTender {
     /// [`START_AFTER`] (tests: zero).
     pub fn with_start_after(mut self, wait: Duration) -> Self {
         self.start_after = wait;
+        self
+    }
+
+    /// The same, with one status read serving every caller for `every`
+    /// instead of [`STATUS_EVERY`] (tests: zero, so each call asks).
+    pub fn with_status_every(mut self, every: Duration) -> Self {
+        self.status_every = every;
         self
     }
 
@@ -641,52 +658,6 @@ impl IndexTender {
         })
     }
 
-    /// Health's `index` block: the tender's own `index.status`, asked under
-    /// `deadline` ([`HEALTH_DEADLINE`] for `health`, [`STATUS_DEADLINE`] for
-    /// `index.status`). A running tender that does not answer in time is
-    /// shown by its last answer, and says how old it is; one that is not
-    /// running is `down`, and why.
-    pub async fn health(&self, deadline: Duration) -> IndexHealth {
-        let Some(tender) = self.status() else {
-            return IndexHealth {
-                state: "off".into(),
-                why: Some("[index] enabled = false".into()),
-                ..IndexHealth::default()
-            };
-        };
-        let asked =
-            call::<IndexStatus>(&self.socket(), method::STATUS, Value::Null, deadline).await;
-        let last = &mut *self.last.lock().unwrap_or_else(PoisonError::into_inner);
-        match asked {
-            Ok(s) => {
-                *last = Some((s.clone(), theseus_protocol::now_unix_ms()));
-                IndexHealth {
-                    state: s.state.clone(),
-                    why: None,
-                    tender: Some(tender),
-                    status: Some(s),
-                }
-            }
-            Err(e) => match last.as_ref().filter(|_| tender.state == "running") {
-                Some((s, at)) => IndexHealth {
-                    state: s.state.clone(),
-                    why: Some(format!(
-                        "its socket did not answer ({e}): its status as of {:.1} s ago",
-                        theseus_protocol::now_unix_ms().saturating_sub(*at) as f64 / 1000.0
-                    )),
-                    tender: Some(tender),
-                    status: Some(s.clone()),
-                },
-                None => IndexHealth {
-                    state: "down".into(),
-                    why: Some(down_why(&tender, Some(&e))),
-                    tender: Some(tender),
-                    status: None,
-                },
-            },
-        }
-    }
-
     /// Health's `index` block for `health`: [`IndexTender::health`] under
     /// [`HEALTH_DEADLINE`], but only of a tender its supervisor runs. Before
     /// one starts, between its runs, or with none installed, the block is what
@@ -778,7 +749,7 @@ pub enum TenderMiss {
 
 /// Why no tender answered, in words: what its supervisor knows, else what the
 /// call met (`None`: none was made).
-fn down_why(t: &TenderStatus, call: Option<&CallError>) -> String {
+pub(crate) fn down_why(t: &TenderStatus, call: Option<&CallError>) -> String {
     let met = || call.map_or_else(|| "no tender runs".to_string(), |c| c.to_string());
     match t.state.as_str() {
         "running" => format!("its socket did not answer ({})", met()),
@@ -791,7 +762,7 @@ fn down_why(t: &TenderStatus, call: Option<&CallError>) -> String {
 }
 
 /// Why a call to the tender failed.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum CallError {
     /// It answered with an error.
     Answered { code: i64, message: String },
