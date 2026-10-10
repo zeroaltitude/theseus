@@ -83,6 +83,14 @@ LIST_PRICES: dict[str, dict[str, float]] = {
     "gpt-6-astra": {"input": 10.0, "cache_read": 1.0, "cache_write": 12.5, "output": 50.0},
 }
 
+# Harbor's exception types for the verifier's own timeout (harbor.trial.errors):
+# the grader's, never the agent's failure (theseus-w052 3, `quiet.py`).
+GRADER_TIMEOUT_ERRORS = frozenset({"VerifierTimeoutError"})
+# A trial that spent more than this, in real dollars, is named in the report
+# (theseus-w052 2): the spend limit is $2.00 plus one reservation, so a trial
+# can pass it by up to that much, and the arms' budgets are $2.00.
+OVER_BUDGET_USD = 2.0
+
 # Anthropic's usage keys, by class.
 ANTHROPIC = {
     "input": "input_tokens",
@@ -1169,7 +1177,18 @@ def metadata(existing: dict[str, Any] | None, rec: dict[str, Any]) -> dict[str, 
 # `ledger.tail` returns at most this many rows a read: a read that returns
 # this many may have left older rows out.
 LEDGER_CAP = 1000
+def over_budget(rec: dict[str, Any]) -> bool | None:
+    """Whether the trial's real spend passed `OVER_BUDGET_USD`: the model's
+    dollars (`model_cost_usd` on the routed arm, which adds Jev's to
+    `cost_usd`), None when the trial is unpriced."""
+    cost = rec.get("model_cost_usd")
+    if cost is None:
+        cost = rec.get("cost_usd")
+    return None if cost is None else cost > OVER_BUDGET_USD
 
+
+
+    rec["over_budget"] = over_budget(rec)
 
 def _tool_calls(history: dict[str, Any] | None) -> int:
     return sum(1 for n in (history or {}).get("nodes") or [] if n.get("kind") == "tool_call")

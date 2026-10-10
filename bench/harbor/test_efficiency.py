@@ -287,5 +287,23 @@ class Machine(unittest.TestCase):
         self.assertEqual(ef.ARMS["claude-code"]["names"], ("claude",))
 
 
+class Budget(unittest.TestCase):
+    def test_a_trial_past_two_dollars_of_real_spend_is_flagged_in_its_record(self):
+        """The spend limit is $2.00 plus one reservation, so a trial can end
+        past $2.00: its record says so (theseus-w052 2). The routed arm's
+        real spend is the model's, not Jev's."""
+        self.assertEqual(ef.OVER_BUDGET_USD, 2.0)
+        self.assertIs(ef.over_budget({"cost_usd": 2.01}), True)
+        self.assertIs(ef.over_budget({"cost_usd": 2.0}), False)
+        self.assertIs(ef.over_budget({"cost_usd": 1.99}), False)
+        self.assertIsNone(ef.over_budget({"cost_usd": None}))
+        self.assertIs(ef.over_budget({"cost_usd": 2.3, "model_cost_usd": 1.9}), False, "Jev's dollars are not the model's")
+        with tempfile.TemporaryDirectory() as d:
+            ef.write(Path(d), {"cost_usd": 2.5})
+            self.assertIs(json.loads((Path(d) / ef.RECORD).read_text())["over_budget"], True)
+            ef.write(Path(d), {"cost_usd": 0.5})
+            self.assertIs(json.loads((Path(d) / ef.RECORD).read_text())["over_budget"], False)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -92,18 +92,25 @@ CHROME = {
 # Status: reserved meaning, never a series; always shipped with a glyph and a label.
 STATUS = {"good": "#0ca30c", "warning": "#fab219", "serious": "#ec835a", "critical": "#d03b3b"}
 
-# The arms: key -> (slot, display name). Harness arms take slots 1 to 4; configurations inside Theseus (memory and
-# retrieval arms) 5 to 8. Two neutrals are not slots: a baseline in the de-emphasis gray, a ceiling in the ink.
+# The arms: key -> (slot, display name). Harness arms take slots 1 to 4 and 5; configurations inside Theseus (memory
+# and retrieval arms) 5 to 8. The method has eight categorical colours and "a 9th series is never a generated hue",
+# so Pi, the fifth harness arm, shares slot 5 with `bm25`: the two never meet in one figure (a harness comparison
+# has no retrieval arm, a retrieval one no harness), and the five harness slots 1 to 5 pass the validator on their
+# own, adjacent pairs, both modes (theseus-3lqk). `HARNESS_ARMS` and `MEMORY_ARMS` are the two families, each with a
+# colour of its own per arm. Two neutrals are not slots: a baseline in the de-emphasis gray, a ceiling in the ink.
 ARMS: dict[str, tuple[int, str]] = {
     "theseus": (1, "Theseus"),
     "claude-code": (2, "Claude Code"),
     "theseus-batching": (3, "Theseus + batching paragraph"),
     "openclaw": (4, "OpenClaw"),
+    "pi": (5, "Pi"),
     "bm25": (5, "BM25"),
     "vector": (6, "vectors"),
     "fused": (7, "fused ranks"),
     "entity": (8, "entities"),
 }
+HARNESS_ARMS = ("theseus", "claude-code", "theseus-batching", "openclaw", "pi")
+MEMORY_ARMS = ("bm25", "vector", "fused", "entity")
 NEUTRALS = {"none": ("muted", "no memory"), "oracle": ("ink2", "oracle"), "other": ("muted", "other arm"),
             "context": ("muted", "context")}
 
@@ -1288,14 +1295,14 @@ def palette_svg(mode: str) -> str:
     rows += [("–", key, name, CHROME[mode][tok]) for key, (tok, name) in NEUTRALS.items()]
     col_w = (f.w - 2 * PAD) / 2
     for i, (slot, key, name, hexv) in enumerate(rows):
-        x = PAD + (i // 6) * col_w
-        y = top + (i % 6) * 40
+        x = PAD + (i // 7) * col_w
+        y = top + (i % 7) * 40
         s.group(f"{key}: {hexv}")
         s.add(f'<rect x="{x:.1f}" y="{y:.1f}" width="34" height="30" rx="4" fill="{hexv}"/>')
         s.end()
         s.text(x + 44, y + 12, f"{slot}  {key}", size=12, fill=c["ink"], weight=600)
         s.text(x + 44, y + 27, f"{name} · {hexv}", size=11)
-    y0 = top + 6 * 40 + 6
+    y0 = top + 7 * 40 + 6
     s.text(PAD, y0 + 12, "Status (reserved for good or bad, always with a glyph and a key):", size=11, fill=c["ink2"])
     x = PAD
     for name, hexv in STATUS.items():

@@ -107,6 +107,23 @@ def build(root: Path) -> list[tuple[str, Path]]:
     return [("alpha", alpha), ("beta", beta), ("gamma", gamma)]
 
 
+class Graders(unittest.TestCase):
+    def test_a_verifiers_own_timeout_is_the_graders_and_never_the_agents_error(self):
+        """`VerifierTimeoutError` is the grader's (theseus-w052 3): the loaded
+        trial says so and carries no agent error, so no arm's error count holds
+        it; an agent's timeout is still the agent's."""
+        with tempfile.TemporaryDirectory() as d:
+            for name, exc in (("a__1", "VerifierTimeoutError"), ("a__2", "AgentTimeoutError")):
+                (Path(d) / name / "agent").mkdir(parents=True)
+                (Path(d) / name / "result.json").write_text(json.dumps({
+                    "task_name": "a", "trial_name": name, "exception_info": {"exception_type": exc},
+                    "agent_result": {"cost_usd": 2.5}}))
+            g, a = (rp.load_trial(Path(d) / n) for n in ("a__1", "a__2"))
+        self.assertEqual((g["grader_timeout"], g["error"]), (True, None))
+        self.assertEqual((a["grader_timeout"], a["error"]), (False, "AgentTimeoutError"))
+        self.assertTrue(g["over_budget"])
+
+
 class Report(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -216,9 +233,9 @@ class Report(unittest.TestCase):
             self.assertIn(f"({file})", md)
 
     def test_an_arm_outside_the_palette_is_named_in_the_legend(self):
-        pts = [("theseus", 0.14, 0.72), ("claude-code", 0.13, 0.81), ("pi", 0.10, 0.70)]
+        pts = [("theseus", 0.14, 0.72), ("claude-code", 0.13, 0.81), ("aider", 0.10, 0.70)]
         texts = [t.text for t in ET.fromstring(rp.svg("Score", "dollars", pts, rp.front(pts))).iter(SVG + "text")]
-        self.assertEqual(texts.count("pi"), 2, "its point's label and its legend entry")
+        self.assertEqual(texts.count("aider"), 2, "its point's label and its legend entry")
         self.assertNotIn("other arm", texts)
 
     def test_the_command_line_and_the_trials_csv(self):
