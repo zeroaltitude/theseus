@@ -47,6 +47,8 @@ pub async fn run(core: Arc<Core>) {
     })
     .await;
     tracing::info!(heartbeat_secs = period.as_secs(), notify = %path.display(), "harness loop parked");
+    // An accept error (a full descriptor table) waits and goes on (theseus-7vtp).
+    let accept_errors = crate::conns::AcceptErrors::new("harness notify");
     loop {
         tokio::select! {
             _ = tick.tick() => {
@@ -59,11 +61,13 @@ pub async fn run(core: Arc<Core>) {
             }
             accepted = async {
                 match &listener {
-                    Some(l) => l.accept().await.map(|(s, _)| s),
+                    Some(l) => Some(crate::conns::accept_until_ok(&accept_errors, || async {
+                        l.accept().await.map(|(s, _)| s)
+                    }).await),
                     None => std::future::pending().await,
                 }
             } => {
-                if let Ok(stream) = accepted {
+                if let Some(stream) = accepted {
                     let mut lines = BufReader::new(stream).lines();
                     let mut ids = Vec::new();
                     while let Ok(Some(line)) = tokio::time::timeout(Duration::from_millis(500), lines.next_line()).await.unwrap_or(Ok(None)) {

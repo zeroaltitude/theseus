@@ -74,6 +74,7 @@ export type * from './ConfigStatus';
 export type * from './ConfirmListResult';
 export type * from './ConfirmRequest';
 export type * from './ConfirmResolved';
+export type * from './ConnectionsHealth';
 export type * from './ContextCompiled';
 export type * from './ContextExplainParams';
 export type * from './ContextExplainResult';

@@ -26,6 +26,7 @@ pub mod compiler;
 pub mod config;
 pub mod config_copy;
 pub mod config_gate;
+pub mod conns;
 pub mod consolidate;
 pub mod context_files;
 pub mod context_parts;

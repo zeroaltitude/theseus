@@ -414,6 +414,7 @@ impl Push {
             waiting: self.waits.lock().unwrap().values().sum::<usize>() as u64,
             lost: self.lost.load(Ordering::Relaxed),
             position: b.position,
+            connections: Default::default(),
         }
     }
 }

@@ -943,7 +943,10 @@ fn a_user_apply_checks_clean_a_second_changes_nothing_and_remove_undoes_it() {
         "{text}"
     );
     assert!(
-        text.contains("\nDelegate=yes\n") && !text.contains("ExecStopPost="),
+        text.contains("\nDelegate=yes\n")
+            && text.contains("\nLimitNOFILE=65536\n")
+            && text.contains("\nTasksMax=49152\n")
+            && !text.contains("ExecStopPost="),
         "{text}"
     );
     assert_eq!(

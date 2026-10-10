@@ -429,8 +429,8 @@ pub mod error_code {
     pub const REFUSED: i64 = -32005;
     // -32006 was `CONFIG_UNCONFIRMED`, the act-gate's refusal (theseus-2fo),
     // retired when the daemon began acting on its config copy (theseus-zmgb).
-    /// A bound on what one connection may hold was reached (theseus-in3):
-    /// 64 parked `session.wait`s.
+    /// A bound was reached (theseus-in3): what one connection may hold, 64
+    /// parked `session.wait`s, or the daemon's connections (theseus-7vtp).
     pub const LIMIT: i64 = -32007;
 }
 

@@ -346,6 +346,28 @@ pub struct PushStatus {
     /// The board's position: the last frame it applied.
     #[serde(default)]
     pub position: u64,
+    /// The socket's connections and the descriptor limits they sit under
+    /// (theseus-7vtp).
+    #[serde(default)]
+    pub connections: ConnectionsHealth,
+}
+
+/// The socket's connections for health (theseus-7vtp): `connections: 3 of
+/// 768 · 0 refused · open files 65536 of 1048576`. Past the ceiling, which
+/// sits under the open-files limit, a new connection is told why and closed.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct ConnectionsHealth {
+    /// Socket connections held now.
+    pub held: u64,
+    /// The most it holds (`[server] max_connections`, or derived from the limit).
+    pub ceiling: u64,
+    /// Connections refused at the ceiling since the daemon started.
+    pub refused: u64,
+    /// The soft open-files limit in effect, after the raise at start.
+    pub fd_soft: u64,
+    /// The hard open-files limit.
+    pub fd_hard: u64,
 }
 
 /// The longest reason a label carries before it is cut with `…`.

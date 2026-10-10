@@ -137,6 +137,8 @@ pub struct Core {
     restart: tokio::sync::watch::Sender<Option<ConfigRestart>>,
     /// What the web UI refused: not its own page or address (theseus-70f).
     web_refusals: Arc<crate::webui::Refusals>,
+    /// The socket's connections and the descriptor limits (theseus-7vtp).
+    pub conns: Arc<crate::conns::Connections>,
     /// The spool's last sweep since the daemon started (theseus-2ij).
     last_sweep: std::sync::Mutex<Option<theseus_protocol::SpoolSweep>>,
     /// The push (theseus-in3): one view per execution, seeded on first need.
@@ -750,6 +752,7 @@ impl Core {
             config_gate,
             restart: tokio::sync::watch::Sender::new(None),
             web_refusals: Arc::default(),
+            conns: Arc::default(),
             last_sweep: Default::default(),
             push: crate::push::Push::default(),
             index,
