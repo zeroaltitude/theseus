@@ -297,6 +297,59 @@ class Scoring(unittest.TestCase):
             r, _ = self.scored([], replies={"p001": reply})
             self.assertEqual((r["p001"].correct, r["p001"].stale), (False, True), reply)
 
+    def test_the_false_rights_of_the_retracted_rule_are_closed(self):
+        """theseus-hau2: six replies the rule once scored right, in three
+        shapes, that a careful reader scores wrong (p001: new 38013, old
+        27340: each gives the old value as current), and three sentences it
+        must keep right, which no test held (the `the old` arm, `after that`,
+        and the other words of the then-from prefix). Strict scores every
+        one stale, as before."""
+        wrong = (
+            # `the old X` beside a retraction that governs another value.
+            "Use the old port 27340 instead; 38013 isn't up yet.",
+            "It's 38013 on paper, but the old port 27340 is what answers, since 38013 was dropped.",
+            # A negation ahead of a prefix.
+            "It's no longer wrong to use 27340; 38013 was a mistake.",
+            # A comma between two clauses read as a list.
+            "Ignore 11111, 27340 is the live port, and 38013 is only planned.",
+            "Ignore 11111, 27340's the live port, and 38013 is only planned.",
+            "No longer 11111, 27340 was the live port, and 38013 is only planned.",
+        )
+        right = (
+            # The `the old` arm: a retraction word about X in its clause.
+            "The old port 27340, the one we no longer use, is closed; it's 38013.",
+            # Each word of the then-from prefix, alone.
+            "It went to 27340 first, and after that from 27340 to 38013.",
+            "It went to 27340 first, and later from 27340 to 38013.",
+            "It went to 27340 first, and next from 27340 to 38013.",
+            # A list's later member under the phrase before it, no verb after it.
+            "Ignore 11111, 27340 and 99999; it's 38013.",
+            "It's 38013 now; 27340, 11111 and 99999 are all retired.",
+        )
+        for reply in wrong:
+            for stale in ("strict", "retracted"):
+                r, _ = self.scored([], replies={"p001": reply}, stale=stale)
+                x = r["p001"]
+                self.assertEqual((x.correct, x.stale, x.old_named), (False, True, False), (stale, reply))
+        for reply in right:
+            r, _ = self.scored([], replies={"p001": reply}, stale="retracted")
+            x = r["p001"]
+            self.assertTrue(x.correct and x.old_named, reply)
+            self.assertFalse(x.stale or x.confident_wrong, reply)
+            r, _ = self.scored([], replies={"p001": reply})
+            self.assertEqual((r["p001"].correct, r["p001"].stale), (False, True), reply)
+
+    def test_a_citing_prefix_in_either_quote_style_governs_nothing(self):
+        """`sentences` folds typographic quotes before any phrase is read,
+        so `CANCEL` needs only the ASCII ones (theseus-hau2)."""
+        for q1, q2 in (("\u201c", "\u201d"), ("\u2018", "\u2019"), ('"', '"'), ("'", "'")):
+            reply = f"You said {q1}moved from 27340 to 38013{q2}, but I can't tell."
+            r, _ = self.scored([], replies={"p001": reply}, stale="retracted")
+            x = r["p001"]
+            self.assertEqual((x.correct, x.stale, x.old_named), (False, True, False), reply)
+        self.assertNotIn("u201c", score.CANCEL.lower())
+        self.assertNotIn("\u201c", score.CANCEL)
+
     def test_the_new_value_must_stand_free_for_a_retraction_to_be_right(self):
         """`retracts_only`'s `new_free`: with every old value retracted but
         the new one stated only where a phrase governs it, nothing says the

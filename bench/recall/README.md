@@ -260,10 +260,12 @@ daemon's log.
   where its last naming is, an earlier one only a move's destination ("to Y") or governed too: named again after
   its retraction ("moved from X to Y, then back to X", "it was X before and is still X"), it is current again. A
   lead word reaches "was" four words off ("before the move it was X"). "The old X" and "the former X" only
-  describe: they govern beside a retraction elsewhere
-  in the clause ("the old X was replaced"), never alone ("the old X is back"). A phrase that cites ("as I said
-  previously", `you wrote "moved from X to Y"`) or is negated ("don't forget", "X is no longer wrong") governs
-  nothing. So "It moved from 27340 to 38013." is right, and
+  describe: they govern beside a retraction word of the
+  clause that is about X, with no other value nearer it ("the old X was replaced", "the old port X, the one we no
+  longer use, is closed"), never alone ("the old X is back") and never beside a retraction of another value ("the
+  old port X is what answers, since Y was dropped"). A bare "instead" is no retraction ("use the old port X
+  instead"); "instead of X" is. A phrase that cites ("as I said previously", `you wrote "moved from X to Y"`) or is
+  negated ("don't forget", "X is no longer wrong", "it's no longer wrong to use X") governs nothing. So "It moved from 27340 to 38013." is right, and
   "It's 27340, previously 38013.", "It was 38013 before, now it's 27340.", "Port 27340 replaced 38013." and
   "38013 is no longer used; it's 27340." are wrong under both rules: each gives the old value as the current one.
   "The archiver is on port 27340." is stale under both, and "It's 27340, or maybe 38013." wrong under both. The report
@@ -271,10 +273,11 @@ daemon's log.
   careful reader would not. A move cited with no citing verb ("the note says moved from X to Y, which I can't confirm") reads as a
   retraction, so it is right; a retraction in words it doesn't list ("X was rolled back") is not one; a list joined by
   words `JOIN` doesn't hold ("X as well as Y") governs only its nearest member; and a phrase in another clause or
-  sentence governs nothing here. Three false rights remain: a retraction anywhere in the clause lets "the old X"
-  govern, even one that retracts another value ("use the old port X instead; Y isn't up yet"); a negation ahead of a
-  prefix doesn't cancel it ("it's no longer wrong to use X"); and a comma between two clauses reads as a list
-  ("ignore Z, X is the live port, and Y is only planned").
+  sentence governs nothing here. A list member that a verb follows at once
+  starts a clause and takes no phrase from before the list ("ignore Z, X is the live port, and Y is only planned":
+  X is current). The three false rights this once left (`the old X` beside a retraction of another value, a negation
+  ahead of a prefix, and a comma read as a list across clauses: theseus-hau2) are closed. Strict scoring is
+  unaffected: each of those replies names the old value, so it is stale there, as before.
 - **Cites**: of the right direct answers, those that say where (the script, or that the user said it) and when
   (its date or weekday, or a relative time).
 - **Cost and latency** per probe: its turn's dollars and wall time.

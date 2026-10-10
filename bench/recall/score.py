@@ -130,20 +130,29 @@ RETRACT_PREFIX = (
     r"not any ?more|not|wrong about)\b"
 )
 # "the old X" and "the former X" only describe: they govern the value they
-# stand before when the clause retracts something else too ("the old port
-# X was replaced", "ignore the old X" through the prefix above).
+# stand before when a retraction word in the clause is about that value ("the
+# old port X was replaced", "the old port X, the one we no longer use, is
+# closed"; "ignore the old X" through the prefix above). A retraction word is
+# about the nearest value of the clause, so one that retracts another ("the
+# old port X is what answers, since Y was dropped") leaves X ungoverned. Bare
+# "instead" is not one: "use the old port X instead" chooses X ("instead of"
+# is, and is a prefix above).
 DESCRIBES = r"\b(?:the old|the former)\b"
-RETRACTS_ELSEWHERE = (r"\b(?:replaced|replaces|supersedes|superseded|retired|deprecated|dropped|outdated|obsolete|"
-                      r"no longer|not any ?more|(?:\w+ )?any ?more|instead|rather than|ignore|disregard|forget)\b")
+RETRACT_WORD = (r"\b(?:replaced|replaces|supersedes|superseded|retired|deprecated|dropped|outdated|obsolete|"
+                r"no longer|not any ?more|(?:\w+ )?any ?more|instead of|rather than|ignore|disregard|forget)\b")
 # A prefix that cites rather than retracts ("as I said previously, X"), or
 # is itself negated ("don't forget X"), governs nothing.
-CANCEL = r"\b(?:said|mentioned|noted|wrote|told you|don't|do not|never|didn't|did not)\s+[\"'\u201c\u2018]?$"
+# (`sentences` folds typographic quotes to ASCII before any phrase is read.)
+CANCEL = r"\b(?:said|mentioned|noted|wrote|told you|don't|do not|never|didn't|did not)\s+[\"']?$"
+# "no longer wrong", "no longer stale": the negation of a retraction, which
+# retracts nothing ahead of a value or after it.
+NEGATED = r"(?:wrong|stale|outdated|obsolete|old|retired|deprecated|dropped|gone)\b"
 # "not" reaches the value at once or past one word ("not port X"): farther,
 # it negates something else ("not sure, but X").
 NOT_REACH = 1
 RETRACT_SUFFIX = (
     r"^[\s\"')]*(?:(?:is|was|are|were|'s|has been|had been|got|isn't|wasn't|is not|was not)\s+"
-    r"(?:both\s+|all\s+)?(?:now\s+|since\s+|\w+ly\s+)?(?:no longer(?! (?:wrong|stale|outdated|obsolete|old|retired|deprecated|dropped|gone)\b)|not (?:\w+ )?(?:any ?more|current|in use|used|valid|right)|"
+    r"(?:both\s+|all\s+)?(?:now\s+|since\s+|\w+ly\s+)?(?:no longer(?! " + NEGATED + r")|not (?:\w+ )?(?:any ?more|current|in use|used|valid|right)|"
     r"(?:\w+ )?any ?more|replaced|superseded|retired|deprecated|dropped|outdated|obsolete|stale|wrong|gone|"
     r"the old\b|old\b)|used to be\b)"
 )
@@ -185,6 +194,9 @@ def _words(s: str) -> int:
 # What joins the members of one list ("X or Y", "X and Y", "X, then Y"): a
 # phrase before the list governs each member, and one after it, each.
 JOIN = r"^\s*(?:,\s*)?(?:(?:and|or|then|and then|and later|and before that|and earlier)\s+)?$"
+# A member of a list that a verb follows at once ("ignore Z, X is the live
+# port") starts a clause: it takes no phrase from before the list.
+STARTS_CLAUSE = r"(?:\s+(?:is|was|are|were)\b|'s\b)"
 # "before the move it was X", "earlier it was X": a lead word ahead of "was",
 # at most REACH words before it, as every phrase reaches ("before you change
 # anything, the port was X" is about something else).
@@ -193,6 +205,17 @@ WAS_EARLIER = (r"\b(?:before|earlier|originally|at first|until)\b(?:[\s,]+[\w'./
 # A move's destination ("to X", "to port X"): a naming the same clause may
 # retract later ("from 11111 to X, then from X to Y").
 DESTINATION = r"\bto\s+(?:\S+\s+)?$"
+
+
+def _retracted_here(low: str, spans: list[tuple[int, int]], at: tuple[int, int]) -> bool:
+    """Whether `low` holds a retraction word about the value at `at`: one
+    with no other value of the clause nearer to it."""
+    for m in re.finditer(RETRACT_WORD, low):
+        def gap(s: tuple[int, int]) -> int:
+            return max(s[0] - m.end(), m.start() - s[1], 0)
+        if all(gap(at) <= gap(s) for s in spans):
+            return True
+    return False
 
 
 def _directly(clause: str, spans: list[tuple[int, int]], at: tuple[int, int]) -> tuple[bool, bool]:
@@ -209,12 +232,14 @@ def _directly(clause: str, spans: list[tuple[int, int]], at: tuple[int, int]) ->
     for m in re.finditer(RETRACT_PREFIX, low[lo:start], re.I):
         if re.search(CANCEL, low[:lo + m.start()], re.I):
             continue
+        if m.group(0) == "no longer" and re.match(r"\s+" + NEGATED, low[lo + m.end():start], re.I):
+            continue
         gap = _words(low[lo + m.end():start])
         if gap <= (NOT_REACH if m.group(0) == "not" else REACH):
             pre = True
     # "the old X" describes, and retracts only beside a retraction elsewhere.
     for m in re.finditer(DESCRIBES, low[lo:start], re.I):
-        if _words(low[lo + m.end():start]) <= REACH and re.search(RETRACTS_ELSEWHERE, low):
+        if _words(low[lo + m.end():start]) <= REACH and _retracted_here(low, spans, at):
             pre = True
     # "was X before", "earlier it was X".
     pre = pre or bool(re.search(WAS_EARLIER, low[lo:start], re.I))
@@ -239,7 +264,8 @@ def governed(clause: str, kind: str, spans: list[tuple[int, int]], at: tuple[int
     i = ordered.index(at)
     # A list's later members take the phrase before it, its earlier members the one after.
     j = i
-    while j > 0 and re.search(JOIN, low[ordered[j - 1][1]:ordered[j][0]]):
+    while j > 0 and re.search(JOIN, low[ordered[j - 1][1]:ordered[j][0]]) \
+            and not re.match(STARTS_CLAUSE, low[ordered[j][1]:]):
         j -= 1
         if _directly(clause, spans, ordered[j])[0]:
             return True
