@@ -190,7 +190,11 @@ Each traces to the Part III item that taught it.
   branch and worktree deleted.
 - **The gate before every commit.** A lane: `THESEUS_GATE_NO_BENCH=1 scripts/gate.sh && git commit …`. The chain's
   gate on `main`: `scripts/gate.sh && …`, with its benches. The gate takes the shared lock itself, so never wrap it in
-  `flock` or `theseus-quiet.sh`. Chain with `&&`, never `;`. `scripts/AGENTS.md` has the rest.
+  `flock` or `theseus-quiet.sh`. Chain with `&&`, never `;`. Its first phases need no build: the door (when this
+  tree's `gate.sh` is not origin/main's, main's copy judges the tree first) and the keel guard (a deleted or loosened
+  test, budget, cap, ceiling or CI step fails unless a commit signed by a key in `scripts/keel-signers` carries the
+  owner's `Keel:` ack; an agent writes one only on his explicit yes, quoted). A join starts main's copy of the gate
+  itself. `scripts/AGENTS.md` has the rest.
 - **Commits** are signed (`git commit -S`), one per green sub-step. The subject is `area: what changed (<issue>)`,
   the area in lower case (`kernel`, `store`, `toolrun`, `cli`, `docs`, …), and the body says what changed and why, in
   plain words. A trailer names the agent, as `Co-Authored-By: Tabitha/Claude <noreply@anthropic.com>` does, or the
