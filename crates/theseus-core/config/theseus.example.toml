@@ -60,7 +60,11 @@ max_loops = 40                          # tool loops per turn before a notice (o
 # profile has its own; this is the default profile's.
 max_loops_mode = "notify"               # notify | end
 refusal_fallbacks = true                # server-side refusal fallbacks where the model supports them
-# cache_ttl = "1h"                      # 5m (the default) | 1h; see [profiles.sonnet]
+# cache_ttl = "1h"                      # 5m (the default) | 1h; every profile that says none inherits it; see [profiles.sonnet]
+# A conversation whose profile caches for 1h is kept warm after its turns end: one read of
+# its prefix every [cache] keep_warm_minutes, for this many hours after its last message
+# (a new message starts the window again); 0 turns it off. Inherited as cache_ttl is.
+keep_warm_hours = 24
 api_base = "https://api.anthropic.com"  # the implicit anthropic provider's endpoint
 api_key_secret = "anthropic_api_key"    # name of the [secrets] entry holding its key
 
@@ -106,8 +110,11 @@ refusal_fallbacks = true
 # or 1h. A 1-hour entry costs 2x input to write instead of 1.25x, and pays when a
 # conversation pauses 5 to 60 minutes after most of its prefix is written: then the
 # next call reads the prefix instead of writing it again. It applies to every cache
-# breakpoint, the conversation's included; a task's own conversation stays 5m.
+# breakpoint, the conversation's included; a task's own conversation stays 5m. A profile
+# that says none takes [model]'s; one that must stay at 5 minutes under a 1-hour [model]
+# says cache_ttl = "5m".
 # cache_ttl = "1h"
+# keep_warm_hours = 24                  # none: [model]'s
 
 [profiles.glm]
 provider = "zai"
@@ -155,6 +162,25 @@ effort = "high"
 thinking_display = "summarized"
 cache_ttl = "1h"
 max_loops = 40
+
+# ---------------------------------------------------------------- the prompt cache
+# A long conversation's prompt is mostly its cached prefix. On a 1-hour profile, after a
+# conversation a person talks in (the CLI, the TUI, the web UI, the owner's DM; never a
+# task, a job, the judge or Jev) goes quiet, the daemon reads its prefix once every
+# keep_warm_minutes, with the smallest answer the provider allows and nothing stored but
+# its keep_warm ledger row, so the next message reads the cache (0.025x of input on Fable
+# 5.1) instead of writing it again (2x). Each read is a model call under the spend limit
+# and the daily ceiling; a refused or failed one stops that session's reads until its
+# next message. A prefix under keep_warm_min_tokens is not kept warm.
+[cache]
+keep_warm_minutes = 55                  # under the 1-hour cache's life by a margin; 0 < it < 60
+keep_warm_min_tokens = 20000            # the smallest prefix kept warm, estimated
+# When a request will write the cache anyway (the session's last call is older than its
+# TTL, and no keep-warm kept it), an attachment's text over stub_min_tokens from before
+# the last stub_after_turns turns is sent as a one-line stub: its name, its size, and
+# file.read to read it again. The stored history is unchanged; 0 turns it off.
+stub_min_tokens = 20000
+stub_after_turns = 3
 
 # ---------------------------------------------------------------- context files
 # Files (~/ or absolute paths) compiled into every session's system block, after the

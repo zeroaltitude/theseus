@@ -703,7 +703,7 @@ impl TurnRunner {
             max_loops: prof.max_loops,
             max_loops_mode: prof.max_loops_mode,
             refusal_fallbacks: prof.refusal_fallbacks,
-            cache_ttl: prof.cache_ttl,
+            cache_ttl: prof.ttl(),
             chosen: None,
         })
     }
