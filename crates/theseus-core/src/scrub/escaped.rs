@@ -10,10 +10,15 @@
 //! decoded twice, and a match in the second text maps back through both
 //! (theseus-nlvx). YAML's double-quoted escapes (`\0`, `\a`, `\e`, `\v`, `\N`,
 //! `\_`, `\L`, `\P`, `\ `, `\xNN`, `\UNNNNNNNN`) and Python repr's (`\'`, and
-//! `\xNN` for a byte of a bytes repr) are decoded beside JSON's.
+//! `\xNN` for a byte of a bytes repr) are decoded beside JSON's, and so is
+//! YAML's escaped line break (theseus-d80h): a `\` at a line's end, which
+//! with the break and the next line's indentation reads as nothing, as
+//! PyYAML writes when it folds a long double-quoted value. It is an escape
+//! whose decoded span is empty (`dec == dec_end`).
 
 /// One escape decoded: where it starts and ends in the text, and where its
-/// character starts and ends in the decoded text.
+/// character starts and ends in the decoded text: an empty span for an
+/// escaped line break, which decodes to nothing.
 struct Escape {
     src: usize,
     src_end: usize,
@@ -93,7 +98,10 @@ pub(super) fn spans<'a>(
 /// does in PHP's: a run the raw text broke there may go on in the decoded.
 fn joins(decoded: &[u8], e: &Escape) -> bool {
     let run = |c: &u8| super::is_base64(*c) || *c == b'=';
-    let c = decoded[e.dec];
+    // A folded line break joins what was either side of it.
+    let Some(&c) = decoded.get(e.dec).filter(|_| e.dec < e.dec_end) else {
+        return e.dec > 0 && run(&decoded[e.dec - 1]) && decoded.get(e.dec).is_some_and(run);
+    };
     (matches!(c, b'\n' | b'\r') || run(&c))
         && e.dec > 0
         && (run(&decoded[e.dec - 1]) || decoded[e.dec - 1] == b'\r')
@@ -130,7 +138,9 @@ fn decode(text: &str) -> (String, Vec<Escape>) {
         };
         decoded.push_str(&text[copied..at]);
         let dec = decoded.len();
-        decoded.push(c);
+        if let Some(c) = c {
+            decoded.push(c);
+        }
         escapes.push(Escape {
             src: at,
             src_end: at + len,
@@ -144,9 +154,11 @@ fn decode(text: &str) -> (String, Vec<Escape>) {
     (decoded, escapes)
 }
 
-/// The character the escape at `at` stands for, and its length in the text:
-/// JSON's escapes, YAML's double-quoted ones, and Python repr's.
-fn escape_at(b: &[u8], at: usize) -> Option<(char, usize)> {
+/// The character the escape at `at` stands for (none for YAML's escaped line
+/// break), and its length in the text: JSON's escapes, YAML's double-quoted
+/// ones, and Python repr's.
+fn escape_at(b: &[u8], at: usize) -> Option<(Option<char>, usize)> {
+    let one = |e: Option<(char, usize)>| e.map(|(c, n)| (Some(c), n));
     let c = match *b.get(at + 1)? {
         b'"' => '"',
         b'\\' => '\\',
@@ -164,9 +176,9 @@ fn escape_at(b: &[u8], at: usize) -> Option<(char, usize)> {
                     .flatten()
                     .filter(|lo| (0xDC00..0xE000).contains(lo))?;
                 let c = 0x10000 + ((hi - 0xD800) << 10) + (lo - 0xDC00);
-                return char::from_u32(c).map(|c| (c, 12));
+                return one(char::from_u32(c).map(|c| (c, 12)));
             }
-            return char::from_u32(hi).map(|c| (c, 6));
+            return one(char::from_u32(hi).map(|c| (c, 6)));
         }
         // YAML's, beside JSON's (PyYAML's double-quoted style).
         b'0' => '\0',
@@ -179,13 +191,29 @@ fn escape_at(b: &[u8], at: usize) -> Option<(char, usize)> {
         b'P' => '\u{2029}',
         b' ' => ' ',
         b'\t' => '\t',
-        b'U' => return char::from_u32(hex(b, at + 2, 8)?).map(|c| (c, 10)),
-        b'x' => return hex_byte(b, at),
+        b'U' => return one(char::from_u32(hex(b, at + 2, 8)?).map(|c| (c, 10))),
+        b'x' => return one(hex_byte(b, at)),
+        // YAML's escaped line break: the break and the next line's leading
+        // spaces and tabs read as nothing (theseus-d80h).
+        b'\n' | b'\r' => {
+            let mut j = at + 1;
+            if b[j] == b'\r' {
+                if b.get(j + 1) != Some(&b'\n') {
+                    return None;
+                }
+                j += 1;
+            }
+            j += 1;
+            while b.get(j).is_some_and(|c| matches!(c, b' ' | b'\t')) {
+                j += 1;
+            }
+            return Some((None, j - at));
+        }
         // Python repr's, for a value holding both quotes.
         b'\'' => '\'',
         _ => return None,
     };
-    Some((c, 2))
+    Some((Some(c), 2))
 }
 
 /// A `\xNN` escape and those after it. A bytes repr writes each byte of a

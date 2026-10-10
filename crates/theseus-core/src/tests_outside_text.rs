@@ -328,6 +328,9 @@ const SCRUB_PIECES: &[&str] = &[
     "\\e",
     "\\'",
     "\\N",
+    "\\\n",
+    "\\\r\n\t ",
+    "\\\n  \\ ",
 ];
 
 /// An invented board value.
