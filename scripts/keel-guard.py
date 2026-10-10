@@ -59,8 +59,8 @@ The rules, by the name the report and the ack use:
                   (or terminate-after dropped), leak-timeout widened, an override added (the flaky list given a
                   test).
   keel-file       any change to the guard itself when it exists at the base: this script, scripts/keel-signers,
-                  scripts/test_keel_guard.py, and scripts/gate.sh's lines that name the keel. Adding them is not
-                  one; adding a key to keel-signers is.
+                  scripts/test_keel_guard.py, and scripts/gate.sh's lines that name the keel or its door; and a
+                  phase of scripts/gate.sh gone (by name). Adding them is not one; adding a key to keel-signers is.
 
 Exit status: 0 nothing unacked; 1 a finding not acked; 2 the guard could not run (no base, not a repository).
 Standard library only.
@@ -879,17 +879,29 @@ def clippy_toml_rule(tree, path, out):
             out.append(Finding("allow-added", path, nl, "(none)", f"{k[1]} = {nv}"))
 
 
+GATE_PHASE = re.compile(r"""^\s*(?:if .*; then\s+)?phase\s+("[^"]+"|'[^']+'|\S+)""")
+
+
 def keel_rule(tree, path, out):
     old, new = tree.old(path), tree.new(path)
     if path == "scripts/gate.sh":
-        pick = lambda s: [t.strip() for t in (s or "").split("\n") if re.search(r"keel", t, re.I)]
+        # The keel's and the door's lines (theseus-pw1q.18: the door is the keel's), any change to them.
+        pick = lambda s: [t.strip() for t in (s or "").split("\n") if re.search(r"keel|door", t, re.I)]
         a, b = pick(old), pick(new)
         if a and a != b:
             line = next((n for n, t in enumerate((new or "").split("\n"), 1)
-                         if re.search(r"keel", t, re.I) and t.strip() not in a), 1)
+                         if re.search(r"keel|door", t, re.I) and t.strip() not in a), 1)
             gone = [t for t in a if t not in b]
             out.append(Finding("keel-file", path, line, gone[0] if gone else "the keel step's lines",
                                next((t for t in b if t not in a), "(gone)")))
+        # A phase of the gate gone (by its name): a check the gate no longer makes. A phase's command changed, or
+        # one added, is no finding.
+        names = lambda s: {m.group(1): n for n, t in enumerate((s or "").split("\n"), 1)
+                           for m in [GATE_PHASE.match(t)] if m}
+        before, after = names(old), names(new)
+        for name, line in before.items():
+            if name not in after:
+                out.append(Finding("keel-file", path, line, f"phase {name}", "(gone)"))
         return
     if old is None or old == new:
         return

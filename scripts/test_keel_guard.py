@@ -400,9 +400,9 @@ class Ranges(Case):
 GATE = Path(__file__).resolve().parent / "gate.sh"
 
 
-class Gate(Case):
-    """The real scripts/gate.sh, run in a throwaway repository: its keel phases run, and its next phase (fmt) fails
-    there, since the repository has no Cargo.toml; the keel's lines say what was judged."""
+class GateCase(Case):
+    """The real scripts/gate.sh, run in a throwaway repository: its door and keel phases run, and its next phase (fmt)
+    fails there, since the repository has no Cargo.toml; the door's and the keel's lines say what was judged."""
 
     def setUp(self):
         super().setUp()
@@ -425,6 +425,8 @@ class Gate(Case):
         p = subprocess.run(["bash", script], cwd=self.repo.root, env=e, capture_output=True, text=True, timeout=60)
         return p.returncode, p.stdout + p.stderr
 
+
+class Gate(GateCase):
     def test_the_gate_judges_a_join_whose_fix_follows_its_merge(self):
         Ranges.join_with_a_fix_after_its_merge(self)
         code, out = self.gate()
@@ -468,6 +470,98 @@ class KeelFiles(Case):
     def test_another_gate_change_is_not(self):
         self.assertClean({"scripts/gate.sh": "phase keel keel_guard\nphase fmt cargo fmt --all\n"})
 
+    def test_a_gate_phase_gone_is_a_finding(self):
+        self.assertCaught("keel-file", "scripts/gate.sh", {"scripts/gate.sh": "phase keel keel_guard\n"})
+
+    def test_a_gate_phase_added_is_not(self):
+        self.assertClean({"scripts/gate.sh": "phase keel keel_guard\nphase fmt cargo fmt\nphase \"a new one\" true\n"})
+
+
+class DoorLines(Case):
+    def setUp(self):
+        super().setUp()
+        self.repo.git("checkout", "-q", "main")
+        self.repo.commit({"scripts/gate.sh": "phase door keel_door\nTHESEUS_GATE_DOOR=judge \"$copy\"\n"}, "the door")
+        self.repo.git("checkout", "-q", "-B", "lane")
+
+    def test_a_door_line_changed_is_a_finding(self):
+        self.assertCaught("keel-file", "scripts/gate.sh", {"scripts/gate.sh": "phase door keel_door\n\"$copy\"\n"})
+
+
+# A stand-in for main's gate.sh that has the door (its word, THESEUS_GATE_DOOR, is all the door looks for): it says
+# what it was asked to judge, and passes or fails as STUB_EXIT says.
+STUB_GATE = """#!/usr/bin/env bash
+# main's gate, standing in: THESEUS_GATE_DOOR
+echo "stub main gate judged ${THESEUS_GATE_ROOT:-?} as ${THESEUS_GATE_DOOR:-?}"
+exit "${STUB_EXIT:-0}"
+"""
+
+
+class Door(GateCase):
+    """The gate that judges is main's (theseus-pw1q.18): a branch's own gate.sh is never its only judge."""
+
+    def main_gate(self, text):
+        """main's (and origin/main's) gate.sh becomes `text`; the lane is cut before it."""
+        self.repo.git("checkout", "-q", "main")
+        self.repo.commit({"scripts/gate.sh": text}, "main's gate moves on")
+        self.repo.git("update-ref", "refs/remotes/origin/main", "main")
+        self.repo.git("checkout", "-q", "lane")
+
+    def weakened(self):
+        """The real gate.sh without its keel phase."""
+        return sub(GATE.read_text(), "phase keel keel_guard\n", "")
+
+    def test_a_lane_behind_main_s_gate_is_judged_by_main_s(self):
+        self.main_gate(STUB_GATE)
+        code, out = self.gate()
+        self.assertEqual(code, 0, out)
+        self.assertIn(f"stub main gate judged {os.path.realpath(self.dir)} as judge", out)
+        self.assertIn("gate: ok (main's gate judged this tree)", out)
+        self.assertNotIn("keel:", out, "the lane does not change gate.sh, so its own copy does not run")
+
+    def test_main_s_gate_failing_fails_the_door(self):
+        self.main_gate(STUB_GATE)
+        code, out = self.gate(STUB_EXIT="1")
+        self.assertNotEqual(code, 0, out)
+        self.assertIn("door: main's gate failed on this tree", out)
+        self.assertIn("gate: FAILED in door", out)
+
+    def test_a_branch_that_changes_gate_sh_runs_its_own_after_main_s(self):
+        self.repo.git("checkout", "-q", "main")
+        self.repo.commit({"scripts/gate.sh": STUB_GATE}, "main's gate is the stand-in")
+        self.repo.git("update-ref", "refs/remotes/origin/main", "main")
+        self.repo.git("checkout", "-q", "-B", "lane")
+        self.repo.commit({"scripts/gate.sh": GATE.read_text()}, "the lane's gate.sh")
+        code, out = self.gate()
+        self.assertIn("as judge", out)
+        self.assertIn("door: main's gate passed; this branch changes scripts/gate.sh, so its own copy runs now", out)
+        self.assertRegex(out, r"(?s)as judge.*\nkeel: ", "the lane's own keel phase ran after main's gate")
+
+    def test_a_weakened_gate_sh_is_judged_by_main_s(self):
+        self.repo.git("update-ref", "refs/remotes/origin/main", "main")
+        self.repo.commit({"scripts/long-files.txt": sub(LONG, "big.rs 3000", "big.rs 3200"),
+                          "scripts/gate.sh": self.weakened()}, "raise, and drop the keel phase")
+        code, out = self.gate()
+        self.assertNotEqual(code, 0, out)
+        self.assertIn("door: this gate.sh is not main's", out)
+        self.assertIn("scripts/long-files.txt:2: ceiling-raised", out)
+        self.assertRegex(out, r"scripts/gate.sh:\d+: keel-file")
+        self.assertIn("gate: FAILED in door", out)
+
+    def test_main_s_copy_from_outside_judges_a_tree_without_the_door(self):
+        self.repo.git("update-ref", "refs/remotes/origin/main", "main")
+        gate = sub(sub(self.weakened(), "phase door keel_door\n", ""), "THESEUS_GATE_DOOR", "THESEUS_GATE_GONE")
+        self.repo.commit({"scripts/long-files.txt": sub(LONG, "big.rs 3000", "big.rs 3200"), "scripts/gate.sh": gate},
+                         "raise, and drop the keel phase and the door")
+        code, out = self.gate()
+        self.assertNotIn("ceiling-raised", out, "the tree's own copy judges nothing of the keel: the hole")
+        copy = Path(self.logs) / "main-gate.sh"
+        copy.write_text(self.repo.git("show", "origin/main:scripts/gate.sh"))
+        code, out = self.gate(str(copy), THESEUS_GATE_ROOT=str(self.repo.root))
+        self.assertNotEqual(code, 0, out)
+        self.assertIn("door: main's copy judges; this tree changes scripts/gate.sh", out)
+        self.assertIn("scripts/long-files.txt:2: ceiling-raised", out)
+        self.assertIn("gate: FAILED in keel", out)
 
 def gpg_key(home, name):
     subprocess.run(["gpg", "--batch", "--passphrase", "", "--quick-gen-key", f"{name} <{name}@example.invalid>",

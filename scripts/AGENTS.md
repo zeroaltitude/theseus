@@ -202,6 +202,24 @@ shape.sh's limit, nextest's retries, timeouts and overrides) and `keel-file` (th
   join's merge commit not yet on origin/main, HEAD^1..HEAD; a branch cut at a merge already on origin/main is judged
   from it. `THESEUS_KEEL_BASE=<rev>` names the base. The gate finds the base in its own shell and runs the base's copy
   of the guard, so a branch's copy decides neither. There is no switch to skip it.
+- **The door** (theseus-pw1q.18). A join runs the merge's `gate.sh`, which is the branch's, so a branch that dropped
+  its keel phase (or any check) was judged by its own weakened copy. Now the gate's first phase, `door`, compares the
+  running copy with main's (`origin/main:scripts/gate.sh`): when they differ and main's has the door, main's copy runs
+  first, from `$TMPDIR/theseus-gate-door-<blob>.sh` with `THESEUS_GATE_ROOT` naming this tree, and judges it with
+  main's keel; if it fails, the gate fails `in door`. Then, only when the branch itself changes `gate.sh`, the tree's
+  own copy runs on, so its new checks are proved before they land; otherwise the gate ends `gate: ok (main's gate
+  judged this tree)` (a lane behind main's gate.sh is judged by main's alone). The guard calls any change to the
+  door's lines, or a phase gone from `gate.sh` (by name), a `keel-file` finding.
+  The door in the tree's copy holds only while that copy is honest: a branch could delete the door too. **A caller that
+  trusts nothing in the tree (a join, and Theseus's own self-join) starts main's copy itself**, which judges the tree
+  and then runs the tree's own changed copy after it:
+
+  ```bash
+  blob=$(git rev-parse origin/main:scripts/gate.sh) && git cat-file blob "$blob" >"/tmp/gate-$blob.sh" &&
+    THESEUS_GATE_ROOT="$PWD" bash "/tmp/gate-$blob.sh"
+  ```
+
+  `THESEUS_GATE_DOOR` is the door's word to the copies it starts (`judge`, `own`), not an option.
 - **The ack.** A finding passes only when a commit in the range, signed by a key that `scripts/keel-signers` lists
   at the base, carries `Keel: <rule> <path>[, <path>…] — <why>` (a path may be a glob; the gate prints the exact
   lines to fill in). An unsigned trailer, or one signed by any other key, counts for nothing and is said so. At a
