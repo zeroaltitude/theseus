@@ -172,6 +172,9 @@ class Theseus(BaseInstalledAgent):
         )
         await measure.record_version(environment, self.get_version_command(),
                                      self.environment_logs_dir.as_posix())
+        # `theseus --version` says 0.0.1 for every build: the commit bench/build.sh wrote beside the binaries
+        # is what tells two builds apart in the record (`build_commit`).
+        await measure.record_build(environment, _build_commit(src), self.environment_logs_dir.as_posix())
 
     @override
     @with_prompt_template
@@ -320,6 +323,14 @@ class TheseusRouted(Theseus):
     @override
     def name() -> str:
         return "theseus-routed"
+
+
+def _build_commit(src: Path) -> str | None:
+    """The commit `bench/build.sh` wrote beside the binaries (`build-commit`), None where there is none."""
+    try:
+        return (src / "build-commit").read_text().strip() or None
+    except OSError:
+        return None
 
 
 def _json(path: Path) -> dict[str, Any] | None:

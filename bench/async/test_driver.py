@@ -820,6 +820,18 @@ class Agents(unittest.TestCase):
 
         self.assertTrue(issubclass(async_agents.ClaudeCodeAsync, cca.MeasuredClaudeCode))
 
+    def test_the_claude_arm_records_the_effort_it_was_asked_for_not_the_default(self):
+        import async_agents
+        from harbor.models.agent.context import AgentContext
+
+        for asked, want in ((None, "medium"), ("high", "high")):
+            with tempfile.TemporaryDirectory() as d:
+                kw = {} if asked is None else {"reasoning_effort": asked}
+                agent = async_agents.ClaudeCodeAsync(logs_dir=Path(d), model_name="anthropic/claude-sonnet-5-5", **kw)
+                agent.populate_context_post_run(AgentContext())
+                rec = json.loads((Path(d) / ef.RECORD).read_text())
+                self.assertEqual(rec["effort"], want)
+
     def test_theseus_records_its_ledger_not_its_first_turn(self):
         import async_agents
         from harbor.models.agent.context import AgentContext

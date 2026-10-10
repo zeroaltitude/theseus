@@ -302,7 +302,7 @@ class Version(unittest.TestCase):
             (logs / measure.VERSION_FILE).write_text("2.1.288 (Claude Code)\n")
             rec = ef.stamp(logs, {"schema": ef.SCHEMA}, "medium", "2.1.290", lambda t: t.split()[0])
             self.assertEqual(rec, {"schema": ef.SCHEMA, "effort": "medium", "version": "2.1.288",
-                                   "version_asked": "2.1.290"})
+                                   "version_asked": "2.1.290", "build_commit": None})
 
 
 if __name__ == "__main__":

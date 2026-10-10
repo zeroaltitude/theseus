@@ -731,6 +731,56 @@ class Adapter(unittest.TestCase):
         import inspect as _i
         self.assertNotIn("ensure_system_dependencies", _i.getsource(theseus_agent.Theseus.run))
 
+    def test_two_builds_tell_apart_in_the_record_by_their_commit(self):
+        """`theseus --version` says 0.0.1 for every build, so the install writes the commit bench/build.sh left
+        beside the binaries to the trial's logs, and the record names it beside the version (theseus-p3jl)."""
+        import asyncio
+        import theseus_agent
+        from harbor.models.agent.context import AgentContext
+
+        commands = []
+
+        class Env:
+            default_user = None
+
+            async def exec(self, command, **kw):
+                commands.append(command)
+                return type("R", (), {"stdout": "", "stderr": "", "return_code": 0})()
+
+            async def upload_file(self, source, target):
+                pass
+
+        recs = []
+        with tempfile.TemporaryDirectory() as d:
+            for commit in ("1111111111111111111111111111111111111111", "2222222222222222222222222222222222222222-dirty"):
+                bins, logs = Path(d) / f"bin-{commit[:4]}", Path(d) / f"logs-{commit[:4]}"
+                bins.mkdir()
+                logs.mkdir()
+                for b in ("theseus", "theseusd"):
+                    (bins / b).write_text("x")
+                (bins / "build-commit").write_text(commit + "\n")
+                os.environ["THESEUS_BENCH_BIN_DIR"] = str(bins)
+                commands.clear()
+                agent = theseus_agent.Theseus(logs_dir=logs, model_name="anthropic/claude-sonnet-5-5",
+                                              environment_logs_dir=logs)
+                asyncio.run(agent.install(Env()))
+                wrote = [c for c in commands if "build-commit.txt" in c]
+                self.assertEqual(wrote, [theseus_agent.measure.build_script(commit, logs.as_posix())])
+                subprocess.run(["sh", "-c", wrote[0]], check=True)
+                (logs / "version.txt").write_text("theseus 0.0.1\n")
+                agent.populate_context_post_run(AgentContext())
+                recs.append(json.loads((logs / "efficiency.json").read_text()))
+            self.assertEqual([r["version"] for r in recs], ["theseus 0.0.1"] * 2, "the version cannot tell them apart")
+            self.assertEqual([r["build_commit"] for r in recs],
+                             ["1111111111111111111111111111111111111111",
+                              "2222222222222222222222222222222222222222-dirty"])
+            # A build with no commit file records none, and the install says nothing.
+            (bins / "build-commit").unlink()
+            commands.clear()
+            asyncio.run(agent.install(Env()))
+            self.assertEqual([c for c in commands if "build-commit.txt" in c], [])
+        self.assertIn("build-commit", (Path(__file__).resolve().parent.parent / "build.sh").read_text())
+
     def test_it_loads_as_an_atif_agent_with_an_error_for_each_end(self):
         import theseus_agent
 

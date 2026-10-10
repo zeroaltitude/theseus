@@ -30,6 +30,8 @@ EFFORT = "medium"
 GRACE_S = 3
 # Where the container's version read goes, in the trial's agent directory.
 VERSION_FILE = "version.txt"
+# Where the Theseus arm's build commit goes (`efficiency.BUILD_FILE`).
+BUILD_FILE = "build-commit.txt"
 
 
 # Where the arm keeps the container's process list from before Harbor's run,
@@ -92,8 +94,6 @@ def stop_agent_script(names: tuple[str, ...] | list[str], grace_s: int = GRACE_S
         '[ -n "$alive" ] || break; sleep 0.1 2>/dev/null || sleep 1; i=$((i+1)); done; '
         '[ -n "$alive" ] && kill -KILL $alive 2>/dev/null; fi; true'
     )
-
-
     if baseline is None:
         return by_name
     b = shlex.quote(baseline)
@@ -125,6 +125,8 @@ def stop_agent_script(names: tuple[str, ...] | list[str], grace_s: int = GRACE_S
         '[ -n "$alive" ] || break; sleep 0.1 2>/dev/null || sleep 1; i=$((i+1)); done; '
         'kill -STOP $stopped 2>/dev/null; settle; kill -KILL $stopped 2>/dev/null; fi; true'
     )
+
+
 async def stop_agent(environment: Any, names: tuple[str, ...] | list[str],
                      grace_s: int = GRACE_S, baseline: str | None = None) -> None:
     """Run `stop_agent_script` in the task's container, as root (the agent's
@@ -142,6 +144,21 @@ def version_script(command: str, logs: str) -> str:
     trial's logs: nothing is written when it fails, and it never fails."""
     return (f"out=$( {command} 2>/dev/null ) && printf '%s\\n' \"$out\" > "
             f"{shlex.quote(logs + '/' + VERSION_FILE)}; true")
+
+
+def build_script(commit: str, logs: str) -> str:
+    """The shell that writes the build's commit to the trial's logs (`efficiency.BUILD_FILE`)."""
+    return f"printf '%s\\n' {shlex.quote(commit)} > {shlex.quote(logs + '/' + BUILD_FILE)}; true"
+
+
+async def record_build(environment: Any, commit: str | None, logs: str) -> None:
+    """Keep the commit the binaries were built from in the logs, where the record names it. Never fails."""
+    if not commit:
+        return
+    try:
+        await environment.exec(command=build_script(commit, logs), timeout_sec=60)
+    except Exception:  # noqa: BLE001
+        pass
 
 
 async def record_version(environment: Any, command: str | None, logs: str) -> None:

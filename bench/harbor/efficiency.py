@@ -1146,6 +1146,20 @@ def version_read(logs: Path, parse: Any = None) -> str | None:
         return text
 
 
+# Where the Theseus arm's install writes the commit its binaries were built from (bench/build.sh's `build-commit`),
+# in the trial's agent directory: `theseus --version` is 0.0.1 for every build, so this tells two builds apart.
+BUILD_FILE = "build-commit.txt"
+
+
+def build_read(logs: Path) -> str | None:
+    """The build's commit, as the install wrote it; None for an arm with no such file (every arm but Theseus's)."""
+    try:
+        text = (logs / BUILD_FILE).read_text(encoding="utf-8", errors="replace").strip()
+    except OSError:
+        return None
+    return text or None
+
+
 def stamp(logs: Path, rec: dict[str, Any], effort: str | None, version_asked: str | None = None,
           parse: Any = None) -> dict[str, Any]:
     """A trial's record with what its arm asked for and ran, the same keys on
@@ -1153,14 +1167,28 @@ def stamp(logs: Path, rec: dict[str, Any], effort: str | None, version_asked: st
     unless an `--ak` says another); `version`, the agent's version as the
     container read it, None when it could not; `version_asked`, the pin or the
     `--ak version=` the install was given, None for Harbor's own latest. A pin
-    that did not take is a `version` that differs from `version_asked`."""
+    that did not take is a `version` that differs from `version_asked`.
+    `build_commit` is the commit the binaries were built from (Theseus's arm
+    alone), beside the `version`, which is the same for every build."""
     rec["effort"] = effort
     rec["version"] = version_read(logs, parse)
     rec["version_asked"] = version_asked
+    rec["build_commit"] = build_read(logs)
     return rec
 
 
+def over_budget(rec: dict[str, Any]) -> bool | None:
+    """Whether the trial's real spend passed `OVER_BUDGET_USD`: the model's
+    dollars (`model_cost_usd` on the routed arm, which adds Jev's to
+    `cost_usd`), None when the trial is unpriced."""
+    cost = rec.get("model_cost_usd")
+    if cost is None:
+        cost = rec.get("cost_usd")
+    return None if cost is None else cost > OVER_BUDGET_USD
+
+
 def write(logs: Path, rec: dict[str, Any]) -> Path:
+    rec["over_budget"] = over_budget(rec)
     path = logs / RECORD
     path.write_text(json.dumps(rec, indent=2, sort_keys=True) + "\n")
     return path
@@ -1177,18 +1205,7 @@ def metadata(existing: dict[str, Any] | None, rec: dict[str, Any]) -> dict[str, 
 # `ledger.tail` returns at most this many rows a read: a read that returns
 # this many may have left older rows out.
 LEDGER_CAP = 1000
-def over_budget(rec: dict[str, Any]) -> bool | None:
-    """Whether the trial's real spend passed `OVER_BUDGET_USD`: the model's
-    dollars (`model_cost_usd` on the routed arm, which adds Jev's to
-    `cost_usd`), None when the trial is unpriced."""
-    cost = rec.get("model_cost_usd")
-    if cost is None:
-        cost = rec.get("cost_usd")
-    return None if cost is None else cost > OVER_BUDGET_USD
 
-
-
-    rec["over_budget"] = over_budget(rec)
 
 def _tool_calls(history: dict[str, Any] | None) -> int:
     return sum(1 for n in (history or {}).get("nodes") or [] if n.get("kind") == "tool_call")

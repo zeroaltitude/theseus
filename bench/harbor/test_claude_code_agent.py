@@ -125,6 +125,19 @@ class Arm(unittest.TestCase):
         self.assertEqual(high.options.reasoning_effort, "high")
         self.assertIn("--effort high", high.build_cli_flags())
 
+    def test_the_record_names_the_effort_the_trial_asked_for_not_the_default(self):
+        """An ablation (`--ak reasoning_effort=high`) must be in the record as `high`: the record's `effort` is what
+        this agent's options say, and a stamp of `measure.EFFORT` for every trial would pass every other test
+        (theseus-p3jl)."""
+        for asked, want in ((None, "medium"), ("high", "high"), ("low", "low")):
+            with tempfile.TemporaryDirectory() as d:
+                kw = {} if asked is None else {"reasoning_effort": asked}
+                agent = cca.MeasuredClaudeCode(logs_dir=Path(d), model_name="anthropic/claude-sonnet-5-5", **kw)
+                agent.populate_context_post_run(AgentContext())
+                rec = json.loads((Path(d) / ef.RECORD).read_text())
+                self.assertEqual(rec["effort"], want)
+                self.assertIn(f"--effort {want}", agent.build_cli_flags())
+
     def test_the_install_is_pinned_on_both_of_harbors_branches(self):
         self.assertEqual(cca.PINNED_VERSION, "2.1.290")
         env = FakeEnvironment()
