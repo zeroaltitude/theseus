@@ -314,7 +314,8 @@ async fn job_wait_gives_the_result_inside_its_window_and_says_still_running_past
     let sid = &res.session_id;
     let (status, text, meta, _) = r.result(sid, "t3");
     assert_eq!(status, ResultStatus::Ok, "{text}");
-    assert_eq!(text, "[exit code 0]\nfinished\n");
+    let cwd = r.core.tools.ctx.cwd.display();
+    assert_eq!(text, format!("[exit code 0 · in {cwd}]\nfinished\n"));
     assert!(meta["delivers"].is_string(), "{meta}");
     let (status, text, _, _) = r.result(sid, "t4");
     assert_eq!(status, ResultStatus::Ok, "{text}");
@@ -356,7 +357,8 @@ async fn job_wait_takes_the_end_itself_when_no_drain_comes() {
     let res = r.turn(None, "start and wait").await;
     let (status, text, meta, _) = r.result(&res.session_id, "t2");
     assert_eq!(status, ResultStatus::Ok, "{text}");
-    assert_eq!(text, "[exit code 0]\nbyitself\n");
+    let cwd = r.core.tools.ctx.cwd.display();
+    assert_eq!(text, format!("[exit code 0 · in {cwd}]\nbyitself\n"));
     assert!(meta["delivers"].is_string(), "{meta}");
     let next = r.request(2);
     assert!(

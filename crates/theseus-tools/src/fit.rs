@@ -373,7 +373,7 @@ mod tests {
             .map(|d| d["name"].as_str().unwrap())
             .collect();
         assert_eq!(eager, ["fs_edit", "fs_patch", "fs_write"]);
-        assert_eq!(defs.len(), 11);
+        assert_eq!(defs.len(), 14);
         assert!(default_registry()
             .definitions(false)
             .iter()

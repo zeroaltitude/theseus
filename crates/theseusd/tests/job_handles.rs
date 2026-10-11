@@ -243,7 +243,15 @@ fn a_background_job_is_read_and_waited_for() {
     assert!(read.contains("), running "), "{read}");
     r.turn(Some(&sid), "Wait for j1");
     let waited = r.last_result();
-    assert_eq!(waited, "[exit code 0]\ndone\n", "{}", r.log());
+    // Its first line names where it ran (theseus-9dt2).
+    assert_eq!(
+        waited
+            .split_once("]\n")
+            .map(|(head, rest)| (head.starts_with("[exit code 0 · in /"), rest)),
+        Some((true, "done\n")),
+        "{waited}\n{}",
+        r.log()
+    );
 }
 
 /// A run past its window answers with its handle; `job_stop` by that handle
