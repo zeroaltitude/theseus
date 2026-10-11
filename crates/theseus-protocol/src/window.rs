@@ -43,6 +43,7 @@ pub const POSTMORTEM_KINDS: &[&str] = &[
     "policy.tightened",
     "tool.job_started",
     "execution.queued",
+    "execution.opened",
     "execution.interrupted",
     "wake.set",
     "wake.fired",

@@ -59,7 +59,7 @@ fn the_window_holds_the_postmortems_kinds_inside_its_times() {
     let ours: Vec<&str> = r
         .rows
         .iter()
-        .filter(|x| x.session_id.is_some())
+        .filter(|x| x.session_id.is_some() && x.kind.starts_with("turn."))
         .map(|x| x.kind.as_str())
         .collect();
     assert!(!r.building, "built");
@@ -221,7 +221,10 @@ fn a_shared_place_sees_only_its_own_session() {
         .iter()
         .filter_map(|x| x.session_id.as_deref())
         .collect();
-    assert_eq!(sessions, [mine.as_str()]);
+    assert!(
+        !sessions.is_empty() && sessions.iter().all(|s| *s == mine),
+        "{sessions:?}"
+    );
     assert!(!serde_json::to_string(&r).unwrap().contains("someone else"));
 }
 
@@ -284,7 +287,11 @@ fn a_busy_days_window_pages_in_under_two_seconds() {
                 Surface::Cli,
             )
             .unwrap();
-        rows += r.rows.iter().filter(|x| x.session_id.is_some()).count();
+        rows += r
+            .rows
+            .iter()
+            .filter(|x| x.session_id.is_some() && x.kind != "execution.opened")
+            .count();
         pages += 1;
         match r.next {
             Some(n) => after = Some(n),

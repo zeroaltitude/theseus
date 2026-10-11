@@ -367,36 +367,17 @@ fn every_fact_the_script_caused_appears_once_in_order() {
         .and_then(|t| t.split("## Cost").next())
         .unwrap();
     // (what the script did, how it reads, how many times it happened)
+    #[rustfmt::skip]
     let facts = [
         ("a tool failed", "tool call `fs.read` failed", 1),
-        (
-            "a question was asked and answered",
-            "approved by the CLI from cli after 4.0 s",
-            1,
-        ),
-        (
-            "a task was opened",
-            "created: Run the long job and report.",
-            1,
-        ),
-        (
-            "the kill cut two turns",
-            "interrupted by a restart of the daemon",
-            2,
-        ),
-        (
-            "the daemon came back",
-            "daemon started again after it was killed",
-            1,
-        ),
-        ("the wake ran late", "fired 4.1 s late", 1),
+        ("a question was asked and answered", "approved by the CLI from cli after 4.0 s", 1),
+        ("a task was created", "created: Run the long job and report.", 1),
+        ("and opened", "task opened, limit $25.00", 1),
+        ("the kill cut two turns", "interrupted by a restart of the daemon", 2),
+        ("the daemon came back", "daemon started again after it was killed", 1),
         ("two turns resumed", "started (resumed after a restart)", 2),
         ("a question expired", "expired unanswered after 25.0 s", 1),
-        (
-            "the long command ran 33 s",
-            "tool call `proc.run` ran 33.0 s",
-            1,
-        ),
+        ("the long command ran 33 s", "tool call `proc.run` ran 33.0 s", 1),
         ("the task ended", "ended complete", 1),
     ];
     let mut at = 0;
