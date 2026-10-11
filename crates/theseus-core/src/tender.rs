@@ -345,6 +345,12 @@ impl IndexTender {
             "--idle-unload-mins".into(),
         ];
         a.push(self.cfg.idle_unload_mins.max(0.0).to_string().into());
+        // 0 is the tender's own default (half the cores, at most 4): left
+        // off, so a kept tender's command line is unchanged by it.
+        if self.cfg.query_threads > 0 {
+            a.push("--query-threads".into());
+            a.push(self.cfg.query_threads.to_string().into());
+        }
         a
     }
 

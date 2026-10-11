@@ -692,6 +692,7 @@ port = 7433
 enabled = true
 weights_dir = "~/.cache/theseus/models"   # the embedding model's files; nothing is fetched, and without them BM25 and entities answer alone
 threads = 1                               # the embedding model's threads
+query_threads = 0                         # a recall query's embedding's own pool, ahead of the backfill; 0: half the cores, at most 4
 idle_unload_mins = 10.0                   # the model unloads after this long unused (about 500 MB), and loads again on the next use
 
 # ---------------------------------------------------------------- memory

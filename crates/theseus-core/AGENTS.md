@@ -580,6 +580,8 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     last whole answer's time (`recall/outcomes.rs`, in memory since the start; `MemoryHealth.recalls`), and
     `theseus.recall.index_ms` times each recall's wait by outcome. Tests: `tests_recall_words.rs`.
     Since theseus-zo1y the vector source embeds the turn's new text alone (`RecallQuery.vector`, from `query_of`),
+    a short turn's (`SHORT_WORDS`, 3 words or fewer: "yes") with the previous reply's last lines after it
+    (`short_context`, 120 characters), so it is not near noise;
     cut by the tender at `[memory] recall_vector_tokens` (32) word pieces, while the words read the longer query; the
     two queries go on one connection, the words' first (`tender/pair.rs`, `IndexTender::query_two`), which closes
     once no one waits (the deadline passed, or the turn dropped its `Begun`, which aborts its task), so the tender

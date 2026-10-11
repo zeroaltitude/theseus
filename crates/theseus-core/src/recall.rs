@@ -67,6 +67,14 @@ pub const WORDS_ONLY: &str = "words_only";
 /// How much of the previous reply joins the query, so that "yes, do that"
 /// still has a subject.
 pub const REPLY_CHARS: usize = 500;
+/// A turn whose new text is this many words or fewer ("yes", "do it") is
+/// short: alone, its vector is near noise, so it embeds with the previous
+/// reply's last lines (`SHORT_CONTEXT_CHARS` of them).
+pub const SHORT_WORDS: usize = 3;
+/// The previous reply's end a short turn's vector text carries, after the
+/// turn's own words: about 30 word pieces, so the two fit in `[memory]
+/// recall_vector_tokens`' default of 32, which keeps the start of a text.
+pub const SHORT_CONTEXT_CHARS: usize = 120;
 
 /// The index's answer to one query, or why there is none.
 pub type AskFuture = Pin<Box<dyn Future<Output = Result<IndexQueryResult, String>> + Send>>;
@@ -1005,10 +1013,12 @@ pub fn place_words(p: &Place) -> String {
 /// The vector source embeds the new texts alone (theseus-zo1y), which the
 /// tender cuts at `[memory] recall_vector_tokens` word pieces: a query's
 /// embedding grows with its tokens, and the whole query (about 115 word
-/// pieces with the reply's start) took longer than recall's deadline. A turn
-/// whose new text is one word ("yes") embeds that word; its words' query
-/// still carries the reply's subject. With no new text (files alone), the
-/// vector source embeds the whole query, cut the same way.
+/// pieces with the reply's start) took longer than recall's deadline. A short
+/// turn (`SHORT_WORDS` words or fewer: "yes") embeds its words, then the
+/// previous reply's last lines (`short_context`): the word alone is near
+/// noise. Its words' query carries the reply's start, as every turn's does.
+/// With no new text (files alone), the vector source embeds the whole query,
+/// cut the same way.
 pub fn query_of(nodes: &Transcript, turn_id: &str) -> Option<(RecallQuery, u64)> {
     let first = nodes.iter().position(|(_, n)| {
         n.turn_id.as_deref() == Some(turn_id) && matches!(n.body, Body::UserMessage { .. })
@@ -1026,7 +1036,7 @@ pub fn query_of(nodes: &Transcript, turn_id: &str) -> Option<(RecallQuery, u64)>
         }
     }
     let vector = new.join("\n");
-    let vector = (!vector.trim().is_empty()).then_some(vector);
+    let mut vector = (!vector.trim().is_empty()).then_some(vector);
     let reply = nodes[..first]
         .iter()
         .rev()
@@ -1035,6 +1045,13 @@ pub fn query_of(nodes: &Transcript, turn_id: &str) -> Option<(RecallQuery, u64)>
             _ => None,
         });
     if let Some(r) = reply.filter(|r| !r.trim().is_empty()) {
+        if let Some(v) = vector
+            .as_mut()
+            .filter(|v| v.split_whitespace().count() <= SHORT_WORDS)
+        {
+            v.push('\n');
+            v.push_str(&short_context(&r));
+        }
         parts.push(r.chars().take(REPLY_CHARS).collect());
     }
     let words = parts.join("\n");
@@ -1044,6 +1061,32 @@ pub fn query_of(nodes: &Transcript, turn_id: &str) -> Option<(RecallQuery, u64)>
         cut: true,
     };
     (!q.words.trim().is_empty()).then(|| (q, nodes[first].0))
+}
+
+/// The end of `reply` a short turn embeds with: its last lines, whole, up to
+/// `SHORT_CONTEXT_CHARS` (the question a "yes" answers is usually there);
+/// when its last line alone is longer, that line's end from a word's start.
+pub fn short_context(reply: &str) -> String {
+    let mut kept: Vec<&str> = Vec::new();
+    let mut chars = 0;
+    for line in reply.lines().rev().map(str::trim).filter(|l| !l.is_empty()) {
+        let n = line.chars().count();
+        if chars + n > SHORT_CONTEXT_CHARS {
+            if kept.is_empty() {
+                let skip = n - SHORT_CONTEXT_CHARS;
+                let end: String = line.chars().skip(skip).collect();
+                return match end.split_once(char::is_whitespace) {
+                    Some((_, rest)) if !rest.trim().is_empty() => rest.trim().to_string(),
+                    _ => end,
+                };
+            }
+            break;
+        }
+        chars += n + 1;
+        kept.push(line);
+    }
+    kept.reverse();
+    kept.join("\n")
 }
 
 /// A node's text, as the index reads it: for `memory.recalls`'s excerpts.
