@@ -25,9 +25,8 @@
 //! **Sized for one query** (theseus-zo1y). A recall's query is one short
 //! text, and its embedding is a chain of matmuls: candle splits each across
 //! `RAYON_NUM_THREADS` jobs, read at every matmul, run in the pool the caller
-//! is in. So the queries' pool has [`query_threads`] threads (up to
-//! [`MAX_QUERY_THREADS`], half the machine's cores at most, so a query never
-//! takes the daemon's), `RAYON_NUM_THREADS` is the larger of that and
+//! is in. So the queries' pool has [`query_threads`] threads (one unless the
+//! config names more: theseus-y9a3), `RAYON_NUM_THREADS` is the larger of that and
 //! `[index] threads`, and the global pool, the backfill's, is built with
 //! `[index] threads` alone ([`build_backfill_pool`]), from the embedding
 //! thread at nice 19: a backfill's matmuls are split as a query's, and run
@@ -36,9 +35,16 @@
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::OnceLock;
 
-/// The most threads one query's embedding takes: the scale plan's spike
-/// measured 214 to 224 ms at 128 tokens on 4, against about 350 on one.
-pub const MAX_QUERY_THREADS: usize = 4;
+/// The threads a query's embedding takes unless `[index] query_threads`
+/// names a number (theseus-y9a3): one. A recall's query is cut at 32 word
+/// pieces (theseus-zo1y): about 90 ms on one thread, 75 on four, on an idle
+/// machine. Beside a busy one, four lose: each matmul is split across them
+/// and waits for its slowest job, and a preempted thread stalls the layer.
+/// With 1.5 times the cores in runnable threads at nice 0, one thread had a
+/// recall's vectors within its 250 ms deadline 10 times in 12, four threads 1
+/// in 16 (3 times the cores: 9 in 16 against 1 in 16). Four were chosen when
+/// a query embedded 128 tokens: 214 to 224 ms on four, about 350 on one.
+pub const DEFAULT_QUERY_THREADS: usize = 1;
 
 /// The pool queries embed in, of [`threads`] threads.
 static QUERY_POOL: OnceLock<Option<rayon::ThreadPool>> = OnceLock::new();
@@ -47,10 +53,10 @@ static QUERY_THREADS: OnceLock<usize> = OnceLock::new();
 /// The backfill's threads (`[index] threads`), when the binary set them.
 static BACKFILL_THREADS: OnceLock<usize> = OnceLock::new();
 
-/// A query's threads on a machine of `cores`: half of them, at least one and
-/// at most [`MAX_QUERY_THREADS`].
+/// A query's threads on a machine of `cores` when the config names none:
+/// [`DEFAULT_QUERY_THREADS`], and never more than the cores.
 pub fn query_threads(cores: usize) -> usize {
-    (cores / 2).clamp(1, MAX_QUERY_THREADS)
+    DEFAULT_QUERY_THREADS.min(cores.max(1))
 }
 
 /// The machine's cores, as the process may use them.
@@ -185,9 +191,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_query_takes_half_the_cores_up_to_four() {
-        let sizes: Vec<usize> = [1, 2, 3, 4, 8, 16, 64].map(query_threads).to_vec();
-        assert_eq!(sizes, [1, 1, 1, 2, 4, 4, 4]);
+    fn a_query_takes_one_thread_unless_the_config_names_more() {
+        let sizes: Vec<usize> = [0, 1, 2, 3, 4, 8, 16, 64].map(query_threads).to_vec();
+        assert_eq!(sizes, [1, 1, 1, 1, 1, 1, 1, 1]);
         assert_eq!(
             install(rayon::current_num_threads),
             query_threads(cores()),

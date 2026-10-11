@@ -18,6 +18,14 @@ window: number,
  */
 turns: number, ok: number, words_only: number, deadline: number, error: number, 
 /**
+ * The same recalls by what the index's answer held (theseus-y9a3,
+ * `RecallManifest::answered`): hits with the vector source among them,
+ * hits of the word sources alone (the vectors late, failed, or the model
+ * loading), and no hits at all (the deadline, no index, or nothing
+ * matched). Zero from a daemon of an older build.
+ */
+with_vectors: number, words_alone: number, empty: number, 
+/**
  * When an answer last came from every source it asked for (nothing
  * skipped), in ms since the epoch: absent when none has since the start.
  */

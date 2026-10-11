@@ -60,8 +60,9 @@ enum Cmd {
         /// `CANDLE_NUM_THREADS`, set for this process before anything starts.
         #[arg(long, default_value_t = 1)]
         threads: usize,
-        /// A query's embedding's threads (theseus-zo1y); 0: half the
-        /// machine's cores, at most 4 (`ahead::query_threads`).
+        /// A query's embedding's threads (theseus-zo1y); 0: one, the
+        /// steadiest beside a busy machine (`ahead::query_threads`,
+        /// theseus-y9a3).
         #[arg(long, default_value_t = 0)]
         query_threads: usize,
         /// The fusion's default weights, over the built-in ones
@@ -148,31 +149,6 @@ enum Cmd {
 }
 
 const CALL_TIMEOUT: Duration = Duration::from_secs(10);
-
-/// The idle I/O class (roadmap row 51): the tender's commits, about 140 ms of
-/// fsyncs each on this disk, wait for the disk to be otherwise idle, so the
-/// core's WAL syncs never queue behind them, where the I/O scheduler honours
-/// classes. Set before any thread starts, and every thread inherits it.
-fn io_idle() {
-    const IOPRIO_WHO_PROCESS: libc::c_int = 1;
-    const IOPRIO_CLASS_IDLE: libc::c_int = 3;
-    const IOPRIO_CLASS_SHIFT: libc::c_int = 13;
-    // SAFETY: plain integers; it sets this thread's own I/O priority.
-    let set = unsafe {
-        libc::syscall(
-            libc::SYS_ioprio_set,
-            IOPRIO_WHO_PROCESS,
-            0,
-            IOPRIO_CLASS_IDLE << IOPRIO_CLASS_SHIFT,
-        )
-    };
-    if set != 0 {
-        tracing::warn!(
-            error = %std::io::Error::last_os_error(),
-            "index: could not take the idle I/O class"
-        );
-    }
-}
 
 /// Exit when `parent` exits (roadmap row 51): the daemon that started this
 /// tender. A restart onto a changed config note execs the daemon in place,
@@ -265,11 +241,9 @@ fn run(cmd: Cmd) -> anyhow::Result<ExitCode> {
                         .unwrap_or_else(|_| "info,tantivy=warn".into()),
                 )
                 .init();
-            // SAFETY: no pointers; it sets this process's own priority.
-            if unsafe { libc::setpriority(libc::PRIO_PROCESS, 0, nice) } != 0 {
-                tracing::warn!(nice, "index: could not lower its priority");
-            }
-            io_idle();
+            // The tender's own work is lowered to `nice` and the idle I/O
+            // class inside `serve`, after the socket's thread is started: its
+            // queries keep the daemon's priority (theseus-y9a3).
             if let Some(parent) = parent {
                 exit_with(parent);
             }
@@ -288,7 +262,7 @@ fn run(cmd: Cmd) -> anyhow::Result<ExitCode> {
                 cfg.vectors = VectorConfig::new(dir);
                 cfg.vectors.idle_unload = Duration::from_secs_f64(idle_unload_mins.max(0.0) * 60.0);
             }
-            match theseus_index::serve(cfg) {
+            match theseus_index::serve(cfg, nice) {
                 Ok(()) => Ok(ExitCode::SUCCESS),
                 Err(OpenError::Held(dir)) => {
                     eprintln!("theseus-index: another tender holds {}", dir.display());

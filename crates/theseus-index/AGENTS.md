@@ -8,6 +8,14 @@ Key modules: `tender.rs`, `engine.rs`, `vectors.rs`, `server.rs`, `extract.rs`. 
   while the machine is busy (`theseus_store::pressure`, `VectorConfig::yield_bound`; tests give zero). It is not in
   `SCHED_IDLE` (theseus-tood): it also loads the model a waiting query needs, and candle's rayon pool takes the
   policy of the thread that first runs it, so query embeddings could inherit it.
+- **Queries at the daemon's priority** (`priority.rs`, theseus-y9a3). The tender's own work (the WAL's ingest,
+  tantivy's merges, the backfill) runs at `serve --nice` (10; the embedding thread lowers itself to 19) in the idle
+  I/O class; its socket's threads, and so each query and the queries' embedding pool, keep the priority the tender
+  started at (the daemon's). A thread cannot take back a priority (`RLIMIT_NICE` is 0 under the daemon's unit), so
+  `open_served` starts the socket's thread first, lowers the caller, opens, and only then hands the socket its
+  `Shared` to bind: a tender refused its index never binds. Lowered whole, beside a busy machine a recall's 3 ms word
+  search answered at ~250 ms, ~450 ms cold, past its deadline. `index.status` says both (`queries_at`, `work_at`).
+  Tests: `tests_priority.rs`.
 - **Queries go ahead of the backfill** (`ahead.rs`, theseus-w9qv). candle's softmax and layer norms are rayon's
   `par_chunks`, and the global pool (one thread, `[index] threads`) is usually born of the embedding thread, at nice
   19: a query that embedded there waited behind the backfill's jobs at its priority (171 to 747 ms under load). A
@@ -17,8 +25,8 @@ Key modules: `tender.rs`, `engine.rs`, `vectors.rs`, `server.rs`, `extract.rs`. 
   `vtests::a_query_holds_the_backfill_while_it_embeds` (a real query takes the hold).
 - **A recall's query fits its deadline** (theseus-zo1y). The vector source embeds `vector_text` (the turn's new text)
   when a query carries one, cut at `vector_tokens` word pieces by the tokenizer (`Embedder::tokenize_query`, one
-  window), while BM25 and entities read `text` whole. The queries' pool has `ahead::query_threads` threads (half the
-  cores, 1 to 4; `serve --query-threads`, which the daemon passes from `[index] query_threads` when it is not 0), `RAYON_NUM_THREADS` is the larger of that and `[index] threads` (candle
+  window), while BM25 and entities read `text` whole. The queries' pool has `ahead::query_threads` threads (one since
+  theseus-y9a3: four lost to a busy machine, each matmul waiting on its slowest job; `serve --query-threads`, which the daemon passes from `[index] query_threads` when it is not 0), `RAYON_NUM_THREADS` is the larger of that and `[index] threads` (candle
   splits each matmul by it, in the pool it runs in), and the global pool, the backfill's, is built with `[index]
   threads` from the embedding thread at nice 19 (`ahead::build_backfill_pool`). A query whose caller closed its
   connection stops at the embedder's next layer (`server::closed`, `POLLRDHUP`, asked between layers through

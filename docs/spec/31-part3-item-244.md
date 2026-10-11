@@ -1,4 +1,4 @@
-# The Ship of Theseus, chapter 31: Part III, A4's Items 244 and 245 (Discord's pings, and a loop's thinking in its tool message; memory.lookup over the CLI) ([index](README.md))
+# The Ship of Theseus, chapter 31: Part III, A4's Items 244 to 246 (Discord's pings, and a loop's thinking in its tool message; memory.lookup over the CLI; recall's words in time) ([index](README.md))
 ### Item 244. Discord's pings: today's pings by default with silence per category and per place, each place showing or hiding its tool lines and its thinking, a loop's thinking at the top of its tool message folding to `💭 thought for N s`, and a thinking turn buzzing for its answer alone (theseus-l1y1; theseus-l00z's wave A, the Discord report's section 4.7 and plan step 1; the cloud row discord-silent, fired 2026-10-09 02:05Z, Opus 5.5, its first cut silent by default; overruled by the owner at 2026-10-08 20:01 and redirected as discord-silent-cont, fired 04:21Z; the first review, review-discord-silent, accepted with a join fix, per place and the window off; the owner's two calls of 2026-10-09 08:26 sent as discord-silent-fold, fired 15:53Z, and its review, review-discord-silent-fold, accepted with a join fix (F1); joined 2026-10-09 16:22 at 9b439511, the merge eed6df88 of 292bb147 onto 4882558a and the fix's two picks, by the evening joiner; installed at install #18 (d32377d5, 2026-10-09 19:47); the owner's open calls F2 and F5 and the low findings F3, F4 and F6 made up by lane L4 discord-calls on 2026-10-10, joined by its own join; the follow-up not installed yet)
 
 _The record of the joins of 2026-10-07 to 2026-10-09 before this one is not yet written as Items; this Item is
@@ -153,3 +153,63 @@ not build. The line is the lever that works whatever the context: it is determin
 
 **Left open.** theseus-y9a3: 42 of 57 live recalls of 2026-10-10 ended at the deadline with nothing, not even the
 words' fallback.
+
+### Item 246. A recall's words answer in time: the tender answers queries at the daemon's priority and its own work stays lowered, a query embeds on one thread, and health counts recalls by what their answers held (theseus-y9a3; lane L12 recall-deadline of 2026-10-10 to 11, joined by its own join; not installed yet)
+
+**Why.** Lane L11 found the DM's March question had no recall framing it: its recall ended `deadline` at 251.8 ms
+with nothing, not even the words' fallback (theseus-w9qv), and the ledger's `recall.ran` rows read 42 `deadline` of
+57. Read again for this item, those 57 rows span 2026-10-04 to 10-10, and two regimes are in them. Before the words'
+race joined (10-09) a recall asked one query, and a warm model's embedding of a 500-character query took past 250 ms
+under load: 36 of the 42. Since: 6 of 2026-10-10's 13 live recalls ended at the deadline with nothing, 5 had the
+words alone, and the 2 `ran` had the words alone too (their vector source skipped, "the model is loading"); no
+recall since the race had vectors. Each of the six began as the tender's model began to load (unloaded after ten
+idle minutes), but the model is not what held them: the words' query never waits for it.
+
+**The cause.** The tender lowered its whole process to nice 10 in the idle I/O class (row 51), its socket's threads
+with it. Beside the builds at nice 0 a nice-10 thread gets about a ninth of a nice-0 one's share, and the idle class
+reads the disk only when nothing else does: a recall's word search, 3 ms of work, waited for a core, and a cold one
+(its pages evicted in the quiet spell that also unloaded the model) waited for the disk too. Reproduced on a copy of
+the store and index with a scratch tender, 48 busy loops at nice 0 on 16 cores standing in for the builds: the
+installed tender's first, cold words answered at 453 ms (BM25 167 ms, the documents' load 187 ms: the rows'
+signature), and a warm 3.9 ms one at 248 ms.
+
+**What landed.**
+
+- **Queries at the daemon's priority** (`theseus-index`'s `priority.rs`, `open_served`). The socket's thread is
+  started first, at the priority the tender started at; then the calling thread lowers itself (nice 10, idle I/O)
+  and opens the tender, so tantivy's threads, the ingest and the embedding thread are born lowered; then the socket
+  is handed its `Shared` and binds. A thread cannot take a priority back (`RLIMIT_NICE` is 0 under the daemon's
+  unit), so the order is the fix. A tender refused its index never binds, so it never takes another's socket.
+  `index.status` says both (`queries_at`, `work_at`). The queries' embedding pool is born of the first query's thread,
+  so it runs at their priority too.
+- **One query thread** (`ahead::DEFAULT_QUERY_THREADS`). A query's embedding took half the cores, up to four, chosen
+  when it embedded 128 tokens. At the 32-token cut (theseus-zo1y) one thread embeds in about 90 ms against 75 on four
+  when the machine is idle, and beside a busy one four lose: each matmul is split across them and waits for its
+  slowest job, and a preempted thread stalls the layer. `[index] query_threads` still names more.
+- **What a recall's answer held.** Health's recall line counted outcomes, and a `ran` whose vector source the
+  model's load skipped counted as ok though it had no vectors. `RecallManifest::answered` reads what a row's answer
+  held (`vectors`, `words`, `empty`) from fields every row has, so the ledger's old rows read the same;
+  `RecallOutcomes` counts `with_vectors`, `words_alone` and `empty`, and the line ends "held N with vectors, M words
+  alone, K empty".
+
+**How it was proven.** Tests: `tests_priority.rs` (a query answered at the starting priority while the work runs
+lowered; a tender refused its index leaves the other's socket), `ahead`'s default, `recall::outcomes`' counts, the
+CLI's line, and `tests_recall_deadline`'s stand-in tender whose words' query answers late (the vectors in time, the
+words alone, nothing past the deadline). Five planted reverts, each caught: lowering before the socket's thread,
+binding before the open (caught once the test waited for a stray bind), `answered` reading the wrong source (by two
+tests), the line without the held counts, and the old thread sizing. The live A/B, one tender binary, two arms
+(the old whole-process lowering, as `nice -n 10 ionice -c3`, against the change), the copy's pages and the model's
+evicted, 48 busy loops at nice 0 on 16 cores, a recall's two queries every 1.5 s: the words answered in 8 to 496 ms
+with 2 of 16 past 250 under the old lowering, in 8 to 58 ms with none past it under the change; with the model
+warm, the vectors came in 1.7 to 5.2 s under the old lowering and in 233 to 680 ms under the change (four threads).
+By query threads, the model warm: idle, a median of 90 ms on one and 75 on four, all 16 inside 250 on each; with 24
+busy loops, 10 of 12 inside 250 on one, 6 of 12 on two, 1 of 16 on four; with 48, 9 of 16 on one, 1 of 16 on four.
+
+**Where it diverged.** The brief suspected the tender's cold model, the words' query queued behind the vector one,
+the query pool, or a lock. The words' query goes first on its connection and touches neither the model nor a vector
+lock; the cold model only marks the quiet spell that also evicted the index's pages. Vectors under heavy load are
+still late (the A/B's 48 loops: 9 in 16 on time): the words now always come, and health says when the vectors don't.
+
+**Left open.** The model loads on the embedding thread, at nice 19 in the idle I/O class: beside a busy machine a
+load took 4 to 9 s on 2026-10-10 (and none finished in the A/B's 35 s burn), and recalls in that time hold the words
+alone. Warming on a keystroke is its own row.

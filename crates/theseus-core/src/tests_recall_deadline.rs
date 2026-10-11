@@ -39,13 +39,16 @@ struct Seen {
 
 /// A stand-in tender on a socket in `dir`: each connection's requests
 /// answered in order, from `index` (`tests_recall`'s stand-in index), the
-/// words' at once and a vector query's after `vector` (each of its hits
+/// words' after `words` and a vector query's after `vector` (each of its hits
 /// ranked by the vector source too). While it waits to answer a vector
 /// query, a close of the connection is noted at once, as the real tender's
-/// embedder notices one between its layers.
-fn tender(
+/// embedder notices one between its layers. Its words' query is answered
+/// after `words` (theseus-y9a3: a busy machine's tender, at its background
+/// priority, answered the words past the deadline).
+fn slow_tender(
     dir: &std::path::Path,
     index: Ask,
+    words: Duration,
     vector: Duration,
     seen: Arc<Seen>,
 ) -> std::path::PathBuf {
@@ -72,6 +75,9 @@ fn tender(
                     seen.asked.lock().unwrap().push((n, p.clone()));
                     let is_vector = p.sources.iter().any(|s| s == "vector");
                     let mut answer = index(p).await.unwrap();
+                    if !is_vector {
+                        tokio::time::sleep(words).await;
+                    }
                     if is_vector {
                         let mut next = String::new();
                         tokio::select! {
@@ -121,6 +127,15 @@ fn two_on(path: std::path::PathBuf) -> AskTwo {
 /// `vector`, under a deadline of `deadline_ms`; and its session for the
 /// turns.
 fn rig(vector: Duration, deadline_ms: u64) -> (Rig, String, Arc<Seen>, tempfile::TempDir) {
+    slow_rig(Duration::ZERO, vector, deadline_ms)
+}
+
+/// `rig`, its tender's words' query answered after `words`.
+fn slow_rig(
+    words: Duration,
+    vector: Duration,
+    deadline_ms: u64,
+) -> (Rig, String, Arc<Seen>, tempfile::TempDir) {
     let r = rig_with(MemoryMode::Live, |c| {
         c.memory.arm = MemoryArm::Baseline;
         c.memory.canary_fraction = 1.0;
@@ -132,7 +147,7 @@ fn rig(vector: Duration, deadline_ms: u64) -> (Rig, String, Arc<Seen>, tempfile:
     let seen = Arc::new(Seen::default());
     let dir = tempfile::tempdir().unwrap();
     let index = index_of(&c, vec![past]);
-    let path = tender(dir.path(), index.clone(), vector, seen.clone());
+    let path = slow_tender(dir.path(), index.clone(), words, vector, seen.clone());
     c.runner.memory.set_ask(index);
     c.runner.memory.set_ask_two(two_on(path));
     (r, now, seen, dir)
@@ -339,5 +354,42 @@ async fn a_recall_dropped_unread_closes_its_connection_at_once() {
             "the connection outlived its dropped recall"
         );
         tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+}
+
+/// Health counts each recall by what its answer held (theseus-y9a3), beside
+/// its outcome: the vectors in time; the words alone when the vectors are
+/// late; nothing when even the words' query answers past the deadline, as a
+/// busy machine's tender did at its background priority (the owner's
+/// 2026-10-10: 6 of 13 live recalls empty, and none since 10-09 held
+/// vectors). The row says the same (`RecallManifest::answered`).
+#[tokio::test]
+async fn health_counts_recalls_by_what_their_answers_held() {
+    use theseus_protocol::memory::answered;
+    let ms = Duration::from_millis;
+    for (words, vector, outcome, held) in [
+        (ms(0), ms(0), "ran", answered::VECTORS),
+        (ms(0), ms(5_000), WORDS_ONLY, answered::WORDS),
+        (ms(1_000), ms(5_000), "deadline", answered::EMPTY),
+    ] {
+        let (r, now, _seen, _dir) = slow_rig(words, vector, 250);
+        let c = &r.core;
+        turn(c, &now, "Where do the otters den?").await;
+        let rows = recalls(c, &now);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(
+            (rows[0].outcome.as_str(), rows[0].answered()),
+            (outcome, held)
+        );
+        let h = c.runner.memory.outcomes().expect("one recall counted");
+        assert_eq!(
+            (h.with_vectors, h.words_alone, h.empty),
+            match held {
+                answered::VECTORS => (1, 0, 0),
+                answered::WORDS => (0, 1, 0),
+                _ => (0, 0, 1),
+            },
+            "{outcome}"
+        );
     }
 }

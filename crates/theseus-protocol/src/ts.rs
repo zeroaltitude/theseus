@@ -134,7 +134,7 @@ fn the_cockpits_types_are_generated_from_the_rust_ones() {
         index::IndexForgetParams, index::IndexChunkRef,
         index::IndexForgetResult, index::IndexWarmResult, index::IndexBackfill, index::IndexStatus,
         index::IndexVectorStatus, index::IndexCompactions, index::IndexReembed,
-        index::IndexEmbedStats, index::IndexRebuildResult, index::IndexHealth,
+        index::IndexEmbedStats, index::IndexRebuildResult, index::IndexHealth, index::IndexPriority,
         memory::MemorySearchParams, memory::MemoryRecallsParams, memory::MemoryRecallsResult,
         memory::RecallManifest, memory::RecallRerank, memory::RecallActivation, memory::MemoryHealth, memory::RecallOutcomes, memory::AdjacencyHealth, memory::RecallItem, memory::RecallDrop, memory::RecallTimings, memory::RecallWhen, resident::ResidentHealth, resident::HeapHealth, resident::TrimHealth, resident::CacheHealth,
         memory::BudgetReport, memory::BudgetDrop, memory::BudgetRange, memory::BudgetOverage,

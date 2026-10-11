@@ -141,6 +141,31 @@ pub struct RecallManifest {
     pub when: Option<RecallWhen>,
 }
 
+/// What a recall's index answer held (theseus-y9a3).
+pub mod answered {
+    /// Hits, the vector source among them.
+    pub const VECTORS: &str = "vectors";
+    /// Hits of the word sources alone (BM25, entities).
+    pub const WORDS: &str = "words";
+    /// No hits: the deadline, no index, or nothing matched.
+    pub const EMPTY: &str = "empty";
+}
+
+impl RecallManifest {
+    /// What the index's answer held, read from the row (theseus-y9a3):
+    /// [`answered::VECTORS`], [`answered::WORDS`], or [`answered::EMPTY`].
+    /// A row of an older build reads the same.
+    pub fn answered(&self) -> &'static str {
+        if self.candidates == 0 {
+            answered::EMPTY
+        } else if self.sources.get("vector").is_some_and(|n| *n > 0) {
+            answered::VECTORS
+        } else {
+            answered::WORDS
+        }
+    }
+}
+
 /// A span of time a question named (theseus-w9qv): "March 2026", "last
 /// week", read from its words in the owner's time zone. Recall keeps to the
 /// nodes whose own time is inside it: an imported message's (inside its
@@ -233,6 +258,20 @@ pub struct RecallOutcomes {
     pub deadline: u64,
     #[cfg_attr(test, ts(type = "number"))]
     pub error: u64,
+    /// The same recalls by what the index's answer held (theseus-y9a3,
+    /// `RecallManifest::answered`): hits with the vector source among them,
+    /// hits of the word sources alone (the vectors late, failed, or the model
+    /// loading), and no hits at all (the deadline, no index, or nothing
+    /// matched). Zero from a daemon of an older build.
+    #[serde(default)]
+    #[cfg_attr(test, ts(type = "number"))]
+    pub with_vectors: u64,
+    #[serde(default)]
+    #[cfg_attr(test, ts(type = "number"))]
+    pub words_alone: u64,
+    #[serde(default)]
+    #[cfg_attr(test, ts(type = "number"))]
+    pub empty: u64,
     /// When an answer last came from every source it asked for (nothing
     /// skipped), in ms since the epoch: absent when none has since the start.
     #[serde(default, skip_serializing_if = "Option::is_none")]

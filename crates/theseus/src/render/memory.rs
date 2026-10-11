@@ -172,14 +172,22 @@ pub(super) fn push_health(o: &mut Vec<Line>, h: Option<&MemoryHealth>, now_ms: u
     }
 }
 
-/// `recall: the last 50: 41 ok, 7 words only, 2 deadline, 0 error · every
-/// source last answered 3 min ago` (theseus-w9qv). A warning while any recall
-/// found nothing in time, or none was answered.
+/// `recall: the last 50: 41 ok, 7 words only, 2 deadline, 0 error · held 30
+/// with vectors, 18 words alone, 2 empty · every source last answered 3 min
+/// ago` (theseus-w9qv; what the answers held, theseus-y9a3, when the daemon
+/// counts it). A warning while any recall found nothing in time, or none was
+/// answered.
 fn recalls_line(r: &RecallOutcomes, now_ms: u64) -> (Tag, String) {
     let mut line = format!(
         "recall: the last {}: {} ok, {} words only, {} deadline, {} error",
         r.turns, r.ok, r.words_only, r.deadline, r.error
     );
+    if r.with_vectors + r.words_alone + r.empty > 0 {
+        line.push_str(&format!(
+            " · held {} with vectors, {} words alone, {} empty",
+            r.with_vectors, r.words_alone, r.empty
+        ));
+    }
     match r.last_full_ms {
         Some(at) => {
             let secs = now_ms.saturating_sub(at) / 1000;
@@ -662,6 +670,19 @@ mod tests {
             line,
             "recall: the last 50: 0 ok, 0 words only, 50 deadline, 0 error · no answer from \
              every source since the start"
+        );
+        // What the answers held (theseus-y9a3), when the daemon counts it.
+        let held = RecallOutcomes {
+            with_vectors: 3,
+            words_alone: 41,
+            empty: 6,
+            ..r
+        };
+        let (_, line) = recalls_line(&held, 1_000_000 + 180_000);
+        assert_eq!(
+            line,
+            "recall: the last 50: 41 ok, 9 words only, 0 deadline, 0 error · held 3 with \
+             vectors, 41 words alone, 6 empty · every source last answered 3 min ago"
         );
     }
 }
