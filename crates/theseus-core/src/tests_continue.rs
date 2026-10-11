@@ -44,6 +44,7 @@ fn spec() -> RequestSpec {
             json!({"name": "fs_read", "description": "d", "input_schema": {"type": "object"}}),
         ],
         effort: Some(Effort::High),
+        turn_effort: None,
         thinking_display: ThinkingDisplay::Summarized,
         refusal_fallbacks: true,
         fallback: None,
@@ -92,6 +93,7 @@ fn answer(cmp: &str, cache_read: u64, input: u64, at: u64) -> Node {
             correlation_id: None,
             compilation_id: Some(cmp.into()),
             request_digest: None,
+            effort: None,
         },
     );
     n.created_at_ms = at;

@@ -143,6 +143,7 @@ fn assistant(session: &str, blocks: serde_json::Value) -> Node {
             correlation_id: None,
             compilation_id: None,
             request_digest: None,
+            effort: None,
         },
     )
 }

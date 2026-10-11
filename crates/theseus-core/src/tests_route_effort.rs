@@ -40,11 +40,10 @@ fn fix_haikuhi(c: &mut crate::Config) {
     *c = fixed;
 }
 
-/// The effort a request carries, if any.
+/// The effort a request carries, if any: its turn's effort message's on a
+/// model that takes per-message effort (theseus-o719), else its top-level one.
 fn sent(req: &crate::provider::ProviderRequest) -> Option<String> {
-    req.output_config
-        .as_ref()
-        .map(|o| o["effort"].as_str().unwrap().to_string())
+    crate::compiler::effort::effective(req).map(|e| crate::routing::effort::name(e).to_string())
 }
 
 /// The row's effort fields.
@@ -142,9 +141,11 @@ async fn every_loop_of_the_turn_carries_the_effort() {
     );
     effort(&jev, "unclear", 0.95);
     turn(&r.core, Some(&res.session_id), "And in winter?", None).await;
+    // The profile leaves effort to the model; after a turn at another level
+    // its own is said as the model's default (theseus-o719).
     assert_eq!(
-        sent(&r.claude.requests()[2]),
-        None,
+        sent(&r.claude.requests()[2]).as_deref(),
+        Some("high"),
         "the profile's own again"
     );
 }

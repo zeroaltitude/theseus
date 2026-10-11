@@ -124,6 +124,7 @@ fn a_node_of_every_kind_reencodes_unchanged() {
                 correlation_id: None,
                 compilation_id: None,
                 request_digest: None,
+                effort: None,
             },
         ));
     }
