@@ -1,0 +1,40 @@
+[1m[48;5;0m theseus · 1 session[0m[48;5;0m                                                                                  [38;5;7m02:32 · socket ok
+[7m[38;5;8m[49m [38;5;3m◐ [39mwaiting on 1 call  what do[38;5;8m $0.00 [0m[38;5;8m│[39m [1mses …7f7cb6 · what does this project do? · claude-sonnet-5-5 · ◐ waiting on 1 call
+[0m                                    [38;5;8m│[39m [38;5;8mms) · session ses_01a128cc2b2274a7a5413437ac7f7cb6][39m
+                                    [38;5;8m│[39m you: run the tests again: python3 -m unittest -v test_tides
+                                    [38;5;8m│[39m [38;5;8m── turn turn_01a128cd3eed72e19fe03f4ab054c2f9[39m
+                                    [38;5;8m│[39m [38;5;8m  ⟳ context append · 13 message(s) · ~96 tokens[39m
+                                    [38;5;8m│[39m [1m[38;5;1m  ? proc.run needs your confirmation: run `python3 -m unittest -v test_tides` in[0m
+                                    [38;5;8m│[39m [1m[38;5;1m/tmp/f10-theseus-120x40-amlqmcmn/project: proc.run — approve ([policy.tools][0m
+                                    [38;5;8m│[39m [1m[38;5;1m"proc.run" = approve)[0m
+                                    [38;5;8m│[39m [38;5;8m[f10 → anthropic/claude-sonnet-5-5 · 1 loop(s) · 1 tool call(s) · awaiting_confirm
+[39m                                    [38;5;8m│[39m [38;5;8m· tokens in 40 out 12 · $0.0015 total ($0.0002 this reply) · 45 ms (first token 6[39m
+                                    [38;5;8m│[39m [38;5;8mms) · session ses_01a128cc2b2274a7a5413437ac7f7cb6][39m
+                                    [38;5;8m│[39m [38;5;2m  ✓ approved act_01a128cd3f15768ca2052ba135221651 (by the TUI)[39m
+                                    [38;5;8m│[39m [38;5;8m── turn turn_01a128cdb83d77faba6ddbfd1d5d2ee2 (continuation)[39m
+                                    [38;5;8m│[39m [38;5;4m  → proc.run [python3 -m unittest -v test_tides] pid 32379[39m
+                                    [38;5;8m│[39m [38;5;4m  ← proc.run ok · exit 0 · 69 ms · 438 B[39m
+                                    [38;5;8m│[39m [38;5;8m  ⟳ context append · 15 message(s) · ~278 tokens[39m
+                                    [38;5;8m│[39m [38;5;15mThe tests pass now.[39m
+                                    [38;5;8m│[39m [38;5;8m[f10 → anthropic/claude-sonnet-5-5 · 1 loop(s) · continuation · no_tool_calls ·[39m
+                                    [38;5;8m│[39m [38;5;8mtokens in 60 out 12 · $0.0018 total ($0.0002 this reply) · 118 ms (first token 4[39m
+                                    [38;5;8m│[39m [38;5;8mms) · session ses_01a128cc2b2274a7a5413437ac7f7cb6][39m
+                                    [38;5;8m│[39m you: run the slow survey
+                                    [38;5;8m│[39m [38;5;8m── turn turn_01a128cdc0f676ab9c42da4ca28c8ba7[39m
+                                    [38;5;8m│[39m [38;5;8m  ⟳ context append · 17 message(s) · ~85 tokens[39m
+                                    [38;5;8m│[39m [1m[38;5;1m  ? proc.run needs your confirmation: run `python3 slow_survey.py` in[0m
+                                    [38;5;8m│[39m [1m[38;5;1m/tmp/f10-theseus-120x40-amlqmcmn/project: proc.run — approve ([policy.tools][0m
+                                    [38;5;8m│[39m [1m[38;5;1m"proc.run" = approve)[0m
+                                    [38;5;8m│[39m [38;5;8m[f10 → anthropic/claude-sonnet-5-5 · 1 loop(s) · 1 tool call(s) · awaiting_confirm
+[39m                                    [38;5;8m│[39m [38;5;8m· tokens in 40 out 12 · $0.0020 total ($0.0002 this reply) · 39 ms (first token 4[39m
+                                    [38;5;8m│[39m [38;5;8mms) · session ses_01a128cc2b2274a7a5413437ac7f7cb6][39m
+                                    [38;5;8m│[39m [38;5;2m  ✓ approved act_01a128cdc11a77f2a6db57537d1565aa (by the TUI)[39m
+                                    [38;5;8m│[39m [38;5;8m── turn turn_01a128ce39517491a39c377e12b4004d (continuation)[39m
+                                    [38;5;8m│[39m [38;5;4m  → proc.run [python3 slow_survey.py] pid 412[39m
+                                    [38;5;8m│[39m [38;5;4m  ← proc.run background · 209 B[39m
+                                    [38;5;8m│[39m [38;5;8m  ⟳ context append · 19 message(s) · ~177 tokens[39m
+                                    [38;5;8m│[39m [38;5;15mThe survey is under way.[39m
+                                    [38;5;8m│[39m [38;5;8m[f10 → anthropic/claude-sonnet-5-5 · 1 loop(s) · continuation · no_tool_calls ·[39m
+                                    [38;5;8m│[39m [38;5;8mtokens in 60 out 12 · $0.0022 total ($0.0002 this reply) · 5060 ms (first token 6[39m
+                                    [38;5;8m│[39m [38;5;8mms) · session ses_01a128cc2b2274a7a5413437ac7f7cb6][39m
+ [38;5;2m✓ approved act_01a128cdc11a77f2a6db57537d1565aa[39m                                                     [38;5;8m[?] help  [q] quit

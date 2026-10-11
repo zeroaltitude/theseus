@@ -1,0 +1,40 @@
+$ theseus
+[1m[31merror:[0m '[33mtheseus[39m' requires a subcommand but one was not provided
+  [subcommands: [32mask[39m, [32mprompt[39m, [32mhistory[39m, [32mreach[39m, [32mplaces[39m, [32mpublish[39m, [32montology[39m, [32mwatch[39m, [32mtui[39m, [32mconfirm[39m, [32mtools[39m, [32mpolicy[39m, [32maws[39m, [32mcatalog
+[39m, [32mhealth[39m, [32msessions[39m, [32mbudgets[39m, [32mexecutions[39m, [32mtasks[39m, [32mwakes[39m, [32mcancel[39m, [32mstatus[39m, [32mwait[39m, [32mstop[39m, [32mprofile[39m, [32mledger[39m, [32mherdr[39m, [32mindex[39m, [32mmemory
+[39m, [32mjudge[39m, [32mpacks[39m, [32mimport[39m, [32mmcp[39m, [32mextend[39m, [32mrpc[39m, [32mshutdown[39m, [32mhelp[39m]
+
+[1;4mUsage:[0m [1mtheseus[0m [OPTIONS] <COMMAND>
+
+For more information, try '[1m--help[0m'.
+$
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

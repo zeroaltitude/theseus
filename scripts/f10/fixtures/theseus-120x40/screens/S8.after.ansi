@@ -1,0 +1,40 @@
+[1m[48;5;0m theseus · 1 session[0m[48;5;0m                                                                                  [38;5;7m02:36 · socket ok
+[7m[38;5;8m[49m [38;5;2m○ [39mready  what does this proj[38;5;8m $0.00 [0m[38;5;8m│[39m [1mses …7f7cb6 · what does this project do? · claude-sonnet-5-5 · ○ ready[0m
+                                    [38;5;8m│[39m      32 12:32:07 INFO station 3: read 2.20 m
+                                    [38;5;8m│[39m      33 12:33:07 INFO station 4: read 2.50 m
+                                    [38;5;8m│[39m      34 12:34:07 INFO station 5: read 2.80 m
+                                    [38;5;8m│[39m      35 12:35:07 INFO station 6: read 1.00 m
+                                    [38;5;8m│[39m      36 12:36:07 INFO station 7: read 1.30 m
+                                    [38;5;8m│[39m      37 12:37:07 INFO station 8: read 1.60 m
+                                    [38;5;8m│[39m      38 12:38:07 INFO station 9: read 1.90 m
+                                    [38;5;8m│[39m      39 12:39:07 INFO station 10: read 2.20 m
+                                    [38;5;8m│[39m      40 12:40:07 INFO station 11: read 2.50 m
+                                    [38;5;8m│[39m      41 12:41:07 ERROR station 17: gauge did not answer (timeout 5 s)
+                                    [38;5;8m│[39m      42 12:42:07 INFO station 13: read 1.00 m
+                                    [38;5;8m│[39m      43 12:43:07 INFO station 14: read 1.30 m
+                                    [38;5;8m│[39m      44 12:44:07 INFO station 15: read 1.60 m
+                                    [38;5;8m│[39m      45 12:45:07 INFO station 16: read 1.90 m
+                                    [38;5;8m│[39m      46 12:46:07 INFO station 17: read 2.20 m
+                                    [38;5;8m│[39m      47 12:47:07 INFO station 18: read 2.50 m
+                                    [38;5;8m│[39m      48 12:48:07 INFO station 19: read 2.80 m
+                                    [38;5;8m│[39m      49 12:49:07 INFO station 20: read 1.00 m
+                                    [38;5;8m│[39m      50 12:50:07 INFO station 21: read 1.30 m
+                                    [38;5;8m│[39m      51 12:51:07 INFO station 22: read 1.60 m
+                                    [38;5;8m│[39m      52 12:52:07 INFO station 23: read 1.90 m
+                                    [38;5;8m│[39m      53 12:53:07 INFO station 24: read 2.20 m
+                                    [38;5;8m│[39m      54 12:54:07 INFO station 25: read 2.50 m
+                                    [38;5;8m│[39m      55 12:55:07 INFO station 26: read 2.80 m
+                                    [38;5;8m│[39m      56 12:56:07 INFO station 27: read 1.00 m
+                                    [38;5;8m│[39m      57 12:57:07 INFO station 28: read 1.30 m
+                                    [38;5;8m│[39m      58 12:58:07 INFO station 29: read 1.60 m
+                                    [38;5;8m│[39m      59 12:59:07 INFO station 30: read 1.90 m
+                                    [38;5;8m│[39m      60 12:60:07 FATAL survey aborted after 3 failed stations
+                                    [38;5;8m│[39m      what do these log lines say went wrong?
+                                    [38;5;8m│[39m [38;5;8m── turn turn_01a128d0f12c70bd94afde1f8b1349cd[39m
+                                    [38;5;8m│[39m [38;5;4m  ← proc.run stopped by the TUI · 315 B · late · verified: process tree, 1 process
+[39m                                    [38;5;8m│[39m [38;5;8m  ⟳ context append · 29 message(s) · ~1004 tokens[39m
+                                    [38;5;8m│[39m [38;5;15mTides are predicted by summing harmonic constituents.[39m
+                                    [38;5;8m│[39m [38;5;8m[f10 → anthropic/claude-sonnet-5-5 · 1 loop(s) · no_tool_calls · tokens in 60 out[39m
+                                    [38;5;8m│[39m [38;5;8m12 · $0.0035 total ($0.0002 this reply) · 30050 ms (first token 30006 ms) ·[39m
+                                    [38;5;8m│[39m [38;5;8msession ses_01a128cc2b2274a7a5413437ac7f7cb6][39m
+                                                                                                     [38;5;8m[?] help  [q] quit

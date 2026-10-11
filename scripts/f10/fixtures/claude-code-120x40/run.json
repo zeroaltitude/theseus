@@ -1,0 +1,73 @@
+{
+ "arm": "claude-code",
+ "size": "120x40",
+ "project_dir": "/tmp/f10-claude-code-120x40-x1y2z3/project",
+ "model": "claude-opus-5-5",
+ "version": "2.1.296 (Claude Code), drawn",
+ "records": {
+  "S1": {
+   "open_cmd": "claude",
+   "foreground": "node",
+   "ready_ms": 763
+  },
+  "S3": {
+   "approve_keys": [
+    "Enter"
+   ],
+   "ran": true,
+   "ids_typed": 0
+  },
+  "S5": {
+   "mode_keys": [
+    "BTab"
+   ]
+  },
+  "S6": {
+   "ended_before_talk": false,
+   "went_on": true
+  },
+  "S7": {
+   "interrupt_keys": [
+    "Escape"
+   ],
+   "foreground_after": "node",
+   "earlier_alive": true,
+   "stop_procs_left": 0
+  },
+  "S8": {
+   "messages": [
+    "01 12:01:07 INFO station 2: read 1.30 m\n02 12:02:07 INFO station 3: read 1.60 m\n03 12:03:07 INFO station 4: read 1.90 m\n04 12:04:07 INFO station 5: read 2.20 m\n05 12:05:07 INFO station 6: read 2.50 m\n06 12:06:07 INFO station 7: read 2.80 m\n07 12:07:07 INFO station 8: read 1.00 m\n08 12:08:07 INFO station 9: read 1.30 m\n09 12:09:07 INFO station 10: read 1.60 m\n10 12:10:07 INFO station 11: read 1.90 m\n11 12:11:07 INFO station 12: read 2.20 m\n12 12:12:07 INFO station 13: read 2.50 m\n13 12:13:07 INFO station 14: read 2.80 m\n14 12:14:07 INFO station 15: read 1.00 m\n15 12:15:07 INFO station 16: read 1.30 m\n16 12:16:07 INFO station 17: read 1.60 m\n17 12:17:07 INFO station 18: read 1.90 m\n18 12:18:07 INFO station 19: read 2.20 m\n19 12:19:07 INFO station 20: read 2.50 m\n20 12:20:07 INFO station 21: read 2.80 m\n21 12:21:07 INFO station 22: read 1.00 m\n22 12:22:07 INFO station 23: read 1.30 m\n23 12:23:07 INFO station 24: read 1.60 m\n24 12:24:07 INFO station 25: read 1.90 m\n25 12:25:07 INFO station 26: read 2.20 m\n26 12:26:07 INFO station 27: read 2.50 m\n27 12:27:07 INFO station 28: read 2.80 m\n28 12:28:07 INFO station 29: read 1.00 m\n29 12:29:07 INFO station 30: read 1.30 m\n30 12:30:07 INFO station 1: read 1.60 m\n31 12:31:07 INFO station 2: read 1.90 m\n32 12:32:07 INFO station 3: read 2.20 m\n33 12:33:07 INFO station 4: read 2.50 m\n34 12:34:07 INFO station 5: read 2.80 m\n35 12:35:07 INFO station 6: read 1.00 m\n36 12:36:07 INFO station 7: read 1.30 m\n37 12:37:07 INFO station 8: read 1.60 m\n38 12:38:07 INFO station 9: read 1.90 m\n39 12:39:07 INFO station 10: read 2.20 m\n40 12:40:07 INFO station 11: read 2.50 m\n41 12:41:07 ERROR station 17: gauge did not answer (timeout 5 s)\n42 12:42:07 INFO station 13: read 1.00 m\n43 12:43:07 INFO station 14: read 1.30 m\n44 12:44:07 INFO station 15: read 1.60 m\n45 12:45:07 INFO station 16: read 1.90 m\n46 12:46:07 INFO station 17: read 2.20 m\n47 12:47:07 INFO station 18: read 2.50 m\n48 12:48:07 INFO station 19: read 2.80 m\n49 12:49:07 INFO station 20: read 1.00 m\n50 12:50:07 INFO station 21: read 1.30 m\n51 12:51:07 INFO station 22: read 1.60 m\n52 12:52:07 INFO station 23: read 1.90 m\n53 12:53:07 INFO station 24: read 2.20 m\n54 12:54:07 INFO station 25: read 2.50 m\n55 12:55:07 INFO station 26: read 2.80 m\n56 12:56:07 INFO station 27: read 1.00 m\n57 12:57:07 INFO station 28: read 1.30 m\n58 12:58:07 INFO station 29: read 1.60 m\n59 12:59:07 INFO station 30: read 1.90 m\n60 12:60:07 FATAL survey aborted after 3 failed stations\nwhat do these log lines say went wrong?"
+   ]
+  },
+  "S9": {
+   "undo_keys": [
+    "Escape",
+    "Escape",
+    "Enter",
+    "Enter"
+   ],
+   "file_restored": true,
+   "answer_gone": true
+  },
+  "S11": {
+   "work_alive": true,
+   "alive_after_restart": false,
+   "restart_how": "claude's exit",
+   "reopen_cmd": "claude -c",
+   "reopen_foreground": "node",
+   "picker_cmd": "claude --resume",
+   "picker_searched": true
+  },
+  "S12": {
+   "plan_keys": [
+    "BTab",
+    "BTab"
+   ],
+   "unchanged_at_plan": true
+  },
+  "B5": {
+   "client_rss_kb": 272384,
+   "client": "node (pid 4242)"
+  }
+ }
+}

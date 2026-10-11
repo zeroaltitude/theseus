@@ -1,0 +1,40 @@
+$ theseus ask "what does this project do?"
+  ⟳ context recompile (new_session, transcript) · 1 message(s) · ~14002 tokens
+  → fs.read
+  → fs.read
+  ← fs.read ok · 0 ms · 407 B
+  ← fs.read ok · 0 ms · 1.9 KB
+# Port Wenlow tides
+
+A **small library** for an invented harbour's tide table. It reads `HH:MM height` lines, finds the high and low waters b
+etween their neighbours, and works out the tidal range between the highest and the lowest water of the day, which the ha
+rbour board shows in metres.
+
+## Its checks
+
+- one *unit test* for each function, against a single invented day of readings
+- a slow survey of thirty stations that prints its progress as it goes
+[f10 → anthropic/claude-sonnet-5-5 · 2 loop(s) · 2 tool call(s) · no_tool_calls · tokens in 100 out 24 · $0.0004 total (
+$0.0004 this reply) · 2587 ms (first token 4 ms) · session ses_01a128cc2b2274a7a5413437ac7f7cb6]
+$
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

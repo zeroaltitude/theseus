@@ -1,0 +1,17 @@
+> run the tests: python3 -m unittest -v test_tides
+
+[38;5;2m●[39m [1mBash[22m(python3 -m unittest -v test_tides)
+  ⎿  Error: test_format_height (test_tides.TidesTest.test_format_height) ... ok
+     test_tidal_range (test_tides.TidesTest.test_tidal_range) ... FAIL
+
+     ======================================================================
+     [38;5;1mFAIL: test_tidal_range (test_tides.TidesTest.test_tidal_range)[39m
+     AssertionError: -2.8 != 2.8
+     … +6 lines (ctrl+r to expand)
+
+[38;5;2m●[39m One test fails: the range comes out negative.
+
+╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ >                                                                                                                    │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+  [38;5;244m? for shortcuts[39m

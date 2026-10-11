@@ -1,0 +1,40 @@
+[1m[48;5;0m theseus · 1 session[0m[48;5;0m                                                                                  [38;5;7m02:35 · socket ok
+[7m[38;5;8m[49m [38;5;3m◐ [39mturn 14  what does this pr[38;5;8m $0.00 [0m[38;5;8m│[39m [1mses …7f7cb6 · what does this project do? · claude-sonnet-5-5 · ◐ turn 14[0m
+                                    [38;5;8m│[39m [38;5;8mtokens in 60 out 12 · $0.0022 total ($0.0002 this reply) · 5060 ms (first token 6[39m
+                                    [38;5;8m│[39m [38;5;8mms) · session ses_01a128cc2b2274a7a5413437ac7f7cb6][39m
+                                    [38;5;8m│[39m you: while that runs: which reading is the low water?
+                                    [38;5;8m│[39m [38;5;8m── turn turn_01a128cea9f37019b5642a01f7145c69[39m
+                                    [38;5;8m│[39m [38;5;8m  ⟳ context append · 21 message(s) · ~94 tokens[39m
+                                    [38;5;8m│[39m [38;5;15mThe low water is the 12:00 reading, at 0.60 m.[39m
+                                    [38;5;8m│[39m [38;5;8m[f10 → anthropic/claude-sonnet-5-5 · 1 loop(s) · no_tool_calls · tokens in 60 out[39m
+                                    [38;5;8m│[39m [38;5;8m12 · $0.0024 total ($0.0002 this reply) · 43 ms (first token 7 ms) · session[39m
+                                    [38;5;8m│[39m [38;5;8mses_01a128cc2b2274a7a5413437ac7f7cb6][39m
+                                    [38;5;8m│[39m [38;5;8m── turn turn_01a128cf991770cf84356b2fb7e4f948 (continuation)[39m
+                                    [38;5;8m│[39m [38;5;4m  ← proc.run ok · exit 0 · 90027 ms · 830 B · late[39m
+                                    [38;5;8m│[39m [38;5;8m  ⟳ context append · 23 message(s) · ~366 tokens[39m
+                                    [38;5;8m│[39m [38;5;15mThe survey finished: all 30 stations read.[39m
+                                    [38;5;8m│[39m [38;5;8m[f10 → anthropic/claude-sonnet-5-5 · 1 loop(s) · continuation · no_tool_calls ·[39m
+                                    [38;5;8m│[39m [38;5;8mtokens in 60 out 12 · $0.0027 total ($0.0002 this reply) · 50 ms (first token 4[39m
+                                    [38;5;8m│[39m [38;5;8mms) · session ses_01a128cc2b2274a7a5413437ac7f7cb6][39m
+                                    [38;5;8m│[39m you: start the survey again, in the background
+                                    [38;5;8m│[39m [38;5;8m── turn turn_01a128cfb0bf7351a97aff4037f10fb7[39m
+                                    [38;5;8m│[39m [38;5;8m  ⟳ context append · 25 message(s) · ~92 tokens[39m
+                                    [38;5;8m│[39m [1m[38;5;1m  ? proc.run needs your confirmation: run `python3 slow_survey.py` in[0m
+                                    [38;5;8m│[39m [1m[38;5;1m/tmp/f10-theseus-120x40-amlqmcmn/project: proc.run — approve ([policy.tools][0m
+                                    [38;5;8m│[39m [1m[38;5;1m"proc.run" = approve)[0m
+                                    [38;5;8m│[39m [38;5;8m[f10 → anthropic/claude-sonnet-5-5 · 1 loop(s) · 1 tool call(s) · awaiting_confirm
+[39m                                    [38;5;8m│[39m [38;5;8m· tokens in 40 out 12 · $0.0029 total ($0.0002 this reply) · 43 ms (first token 5[39m
+                                    [38;5;8m│[39m [38;5;8mms) · session ses_01a128cc2b2274a7a5413437ac7f7cb6][39m
+                                    [38;5;8m│[39m [38;5;2m  ✓ approved act_01a128cfb0e671168ede1fdbd740a860 (by the TUI)[39m
+                                    [38;5;8m│[39m [38;5;8m── turn turn_01a128d029ab73169ca97c13578ca4a3 (continuation)[39m
+                                    [38;5;8m│[39m [38;5;4m  → proc.run [python3 slow_survey.py] pid 1155[39m
+                                    [38;5;8m│[39m [38;5;4m  ← proc.run background · 209 B[39m
+                                    [38;5;8m│[39m [38;5;8m  ⟳ context append · 27 message(s) · ~177 tokens[39m
+                                    [38;5;8m│[39m [38;5;15mThe survey is running in the background.[39m
+                                    [38;5;8m│[39m [38;5;8m[f10 → anthropic/claude-sonnet-5-5 · 1 loop(s) · continuation · no_tool_calls ·[39m
+                                    [38;5;8m│[39m [38;5;8mtokens in 60 out 12 · $0.0031 total ($0.0002 this reply) · 5052 ms (first token 5[39m
+                                    [38;5;8m│[39m [38;5;8mms) · session ses_01a128cc2b2274a7a5413437ac7f7cb6][39m
+                                    [38;5;8m│[39m you: explain how tides are predicted, at length
+                                    [38;5;8m│[39m [38;5;8m── turn turn_01a128d0a8af706b9d76ac10d480eb9e[39m
+                                    [38;5;8m│[39m [38;5;8m  ⟳ context append · 29 message(s) · ~92 tokens[39m
+                                                                                                     [38;5;8m[?] help  [q] quit

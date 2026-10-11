@@ -1,0 +1,20 @@
+> what does this project do?
+
+[38;5;2m●[39m [1mRead[22m(README.md)
+  ⎿  Read 9 lines
+
+[38;5;2m●[39m [1mRead[22m(tides.py)
+  ⎿  Read 56 lines
+
+[38;5;2m●[39m This is [1mtides[22m, a small tide-table library for an invented harbour, Port Wenlow. It reads a table of
+  [38;5;75mHH:MM height[39m lines, finds the high and low waters by comparing each reading with its neighbours, and
+  works out the tidal range between the highest and the lowest water of the day.
+
+  [1mFiles[22m
+  - [38;5;75mtides.py[39m the library: [38;5;75mparse_table[39m, [38;5;75mhigh_waters[39m, [38;5;75mlow_waters[39m, [38;5;75mtidal_range[39m
+  - [38;5;75mtest_tides.py[39m its unit tests, and [38;5;75mslow_survey.py[39m, a 90-second survey script
+
+╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ >                                                                                                                    │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+  [38;5;244m? for shortcuts[39m
