@@ -111,6 +111,9 @@ enum Script {
 /// for any harness. `{marker}` in a step's strings is the word after
 /// `marker=` in the opening text. `ttfb_ms`, `chunks` and `chunk_ms` pace
 /// the rule's answers, over the stand-in's own pace.
+///
+/// The call that answers its calls gets `then` (`Done.` without one), so a scripted turn can read a
+/// file and then reply about it (F10's driver, theseus-qy2a).
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Rule {
@@ -125,6 +128,8 @@ pub struct Rule {
     /// module's doc. 0, the default: once, and a tool result is `Done.`.
     #[serde(default)]
     pub repeat: u64,
+    #[serde(default)]
+    pub then: Option<String>,
     #[serde(default)]
     pub steps: Vec<Step>,
     #[serde(default)]
@@ -449,6 +454,30 @@ pub fn last_user_text(req: &Value) -> String {
     }
 }
 
+/// The text of the last user message that has any: the turn's prompt, where
+/// the last message only answers a tool call.
+pub fn prompt_text(req: &Value) -> String {
+    let Some(messages) = req["messages"].as_array() else {
+        return String::new();
+    };
+    (0..messages.len())
+        .rev()
+        .filter(|&i| messages[i]["role"] == "user")
+        .map(|i| last_user_text(&json!({"messages": [messages[i]]})))
+        .find(|t| !t.is_empty())
+        .unwrap_or_default()
+}
+
+/// The answer to a call that carries tool results: the `then` of the first
+/// rule the turn's prompt holds, else `Done.`.
+pub fn answered_turn(rules: &[Rule], prompt: &str) -> Vec<Value> {
+    let then = rules
+        .iter()
+        .find(|r| prompt.contains(&r.when))
+        .and_then(|r| r.then.as_deref());
+    text_turn(then.unwrap_or("Done."))
+}
+
 /// What the first rule `text` holds says: its calls, or its text; with none,
 /// a plain answer.
 pub fn ruled_turn(rules: &[Rule], text: &str) -> Vec<Value> {
@@ -463,14 +492,14 @@ pub fn ruled_turn(rules: &[Rule], text: &str) -> Vec<Value> {
 /// A turn that carries a tool result, under rules: the first `repeat` rule
 /// whose `when` the request holds asks for its calls again, `{n}` its count,
 /// until it has asked `repeat` times, then answers its text; with none,
-/// `Done.`. The count is the stand-in's, kept for its life (one run).
+/// the rule's `then` by the turn's prompt, else `Done.` (`answered_turn`). The count is the stand-in's, kept for its life (one run).
 pub fn repeated_turn(rules: &[Rule], req: &Value) -> Vec<Value> {
     let whole = req["messages"].to_string();
     let Some(r) = rules
         .iter()
         .find(|r| r.repeat > 0 && !r.calls.is_empty() && whole.contains(&r.when))
     else {
-        return text_turn("Done.");
+        return answered_turn(rules, &prompt_text(req));
     };
     ask_again(r)
 }
@@ -670,6 +699,37 @@ mod tests {
         assert_eq!(repeated_turn(&rules, &req)[2]["delta"]["text"], "All read.");
         let other = json!({"messages": [{"role": "user", "content": "hello"}]});
         assert_eq!(repeated_turn(&rules, &other)[2]["delta"]["text"], "Done.");
+    }
+
+    /// A rule's `then` answers the call that carries its calls' results, found
+    /// by the turn's prompt, the last user message with text (theseus-qy2a).
+    #[test]
+    fn a_rules_then_answers_its_calls_results() {
+        let rules: Vec<Rule> = serde_json::from_value(json!([
+            {"when": "what does", "calls": [{"name": "fs_read", "input": {"path": "README.md"}}],
+             "then": "# Tides\n\nA **tide** library."},
+            {"when": "run it", "calls": [{"name": "proc_run", "input": {"argv": ["true"]}}]}
+        ]))
+        .unwrap();
+        let answered = |prompt: &str| {
+            json!({"messages": [
+                {"role": "user", "content": [{"type": "text", "text": prompt}]},
+                {"role": "assistant", "content": [{"type": "tool_use", "id": "t", "name": "fs_read", "input": {}}]},
+                {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "t", "content": "x"}]},
+            ]})
+        };
+        let req = answered("what does this do?");
+        assert_eq!(
+            last_user_text(&req),
+            "",
+            "the last message is only a result"
+        );
+        assert_eq!(prompt_text(&req), "what does this do?");
+        let then = answered_turn(&rules, &prompt_text(&req));
+        assert_eq!(then[2]["delta"]["text"], "# Tides\n\nA **tide** library.");
+        let plain = answered_turn(&rules, &prompt_text(&answered("run it now")));
+        assert_eq!(plain[2]["delta"]["text"], "Done.", "no then: Done.");
+        assert_eq!(prompt_text(&json!({})), "");
     }
 
     /// A rule's `hold_ms` holds its answer that long, and holds no other

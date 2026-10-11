@@ -1,0 +1,4 @@
+[38;5;2m●[39m [1mUpdate Todos[22m
+  ⎿  [38;5;2m☒[39m Add mean_height to tides.py
+     ☐ Test it in test_tides.py
+     ☐ Run the tests

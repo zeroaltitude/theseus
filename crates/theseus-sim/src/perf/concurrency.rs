@@ -197,6 +197,7 @@ fn one_run(theseusd: &std::path::Path, a: &ConcurrencyArgs, tasks: usize) -> Res
             text: Some("Done, after the stand-in's hold.".into()),
             hold_ms: a.hold_ms,
             repeat: 0,
+            then: None,
             steps: vec![],
             ttfb_ms: None,
             chunks: None,

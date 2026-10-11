@@ -1,0 +1,12 @@
+[38;5;2m●[39m [1mBash[22m(python3 slow_survey.py)
+  ⎿  survey: station 5/30 read
+     [38;5;244mRunning in the background (↓ to manage)[39m
+
+> while that runs: which reading is the low water?
+
+[38;5;2m●[39m The low water is the 12:00 reading, at 0.60 m.
+
+╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ >                                                                                                                    │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+  [38;5;244m? for shortcuts[39m

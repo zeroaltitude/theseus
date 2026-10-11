@@ -1,0 +1,17 @@
+> fix the failing test
+
+╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ [1mEdit file[22m                                                                                                           │
+│                                                                                                                      │
+│   tides.py│
+│   │
+│   48        highest = max(r.height_m for r in readings)│
+│   49        lowest = min(r.height_m for r in readings)│
+│   50 [48;5;52m-    return round([48;5;88mlowest - highest[49m, 2)[49m│
+│   50 [48;5;22m+    return round([48;5;28mhighest - lowest[49m, 2)[49m│
+│                                                                                                                      │
+│ Do you want to proceed?                                                                                              │
+│ [38;5;75m❯[39m 1. Yes
+│   2. Yes, allow all edits during this session (shift+tab)
+│   3. No, and tell Claude what to do differently (esc)
+╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
