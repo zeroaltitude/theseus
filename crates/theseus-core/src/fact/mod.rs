@@ -281,6 +281,7 @@ facts![
     turn::ProviderCall<'static>,
     turn::ProviderRefused<'static>,
     turn::FellBack<'static>,
+    turn::TurnNudged<'static>,
     turn::BudgetAsked<'static>,
     turn::LoopEndedOnBudget<'static>,
     limits::SpendReached<'static>,

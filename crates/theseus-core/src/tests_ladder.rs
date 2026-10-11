@@ -93,7 +93,8 @@ fn refusal(e: &anyhow::Error) -> bool {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_config_lowers_the_ladders_mode_and_never_raises_it() {
     let dir = tempfile::tempdir().unwrap();
-    let c = core_at(dir.path(), None, |_| {});
+    // The stop nudge's switch on (theseus-fh0u): off, it is a ceiling too.
+    let c = core_at(dir.path(), None, |cfg| cfg.judge.stop_nudge = true);
     let j = &c.runner.judge;
     c.pack_promote(&promote("loop.v1", "live", None), "cli")
         .unwrap();
@@ -165,7 +166,8 @@ async fn short_of_the_bar_the_system_is_refused_and_the_owner_forces() {
             row.share,
             row.who.as_str()
         ),
-        ("canary", "shadow", Some(0.2), "owner")
+        // From loop.v1's wired line: live since the stop nudge (theseus-fh0u).
+        ("canary", "live", Some(0.2), "owner")
     );
     assert!(row
         .numbers
@@ -368,10 +370,13 @@ async fn a_rules_trigger_rolls_a_pack_back() {
         final_before: "I will run the tests next.".into(),
         final_after: "I will run the tests next.".into(),
     };
+    // Wired live since the stop nudge (theseus-fh0u): its file's rule fires
+    // on the first nudge loop, before any row of its own.
     j.land("loop.v1", nudge());
-    assert!(
-        rows(&c, "loop.v1").is_empty(),
-        "shadow: nothing to roll back"
+    assert_eq!(
+        rows(&c, "loop.v1").pop().map(|r| r.mode),
+        Some("rolled_back".to_string()),
+        "live: its rule rolls it back"
     );
     c.pack_promote(&promote("loop.v1", "canary", Some(0.5)), "cli")
         .unwrap();
@@ -688,7 +693,9 @@ async fn a_canary_judgment_records_its_arm() {
         },
     );
     let dir = tempfile::tempdir().unwrap();
+    // The canary's arm judges at the stop, live in its arm (theseus-fh0u).
     let c = core_at(dir.path(), Some(&jev), |cfg| {
+        cfg.judge.stop_nudge = true;
         for p in crate::judge::inbound::PACKS {
             cfg.judge.packs.insert(p.into(), crate::tests_judge::off());
         }

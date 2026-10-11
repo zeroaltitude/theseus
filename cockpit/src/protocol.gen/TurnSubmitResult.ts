@@ -2,6 +2,7 @@
 import type { Later } from "./Later";
 import type { Span } from "./Span";
 import type { TurnFallback } from "./TurnFallback";
+import type { TurnNudge } from "./TurnNudge";
 import type { TurnRoute } from "./TurnRoute";
 import type { Usage } from "./Usage";
 
@@ -69,4 +70,8 @@ later?: Later,
 /**
  * The roots, when this turn put its session in a directory outside every one (theseus-aab7): the CLI says so once.
  */
-outside_roots?: Array<string>, };
+outside_roots?: Array<string>, 
+/**
+ * The harness nudged the turn once after an announced stop (theseus-fh0u); absent when it did not.
+ */
+nudged?: TurnNudge, };

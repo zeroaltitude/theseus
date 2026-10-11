@@ -161,8 +161,9 @@ pub(crate) async fn stream_turn(
         if !stream {
             println!("{}", r.output);
         }
-        // A refusal's fallback says so in a line of its own (theseus-7gir.18).
-        if let Some(line) = render::fallback_line(&r) {
+        // A refusal's fallback and a nudge say so in lines of their own
+        // (theseus-7gir.18, theseus-fh0u).
+        for line in r.harness_lines() {
             eprintln!("{line}");
         }
         eprintln!("{}", render::status_line(&r));
@@ -610,7 +611,7 @@ async fn follow_resumed(
                 if json {
                     println!("{}", serde_json::to_string(&t)?);
                 } else {
-                    if let Some(line) = render::fallback_line(&t) {
+                    for line in t.harness_lines() {
                         eprintln!("{line}");
                     }
                     eprintln!("{}", render::status_line(&t));
@@ -1095,6 +1096,17 @@ pub async fn sessions(conn: &mut Conn, json: bool, cmd: SessionsCmd) -> Result<(
             let v = conn.request(method::SESSION_REOPEN, p).await?;
             output(json, v, |s: theseus_protocol::SessionInfo| {
                 println!("{}", render::sessions::session_state_line(&s));
+                Ok(())
+            })
+        }
+        SessionsCmd::Nudge { session, state } => {
+            let p = theseus_protocol::nudge::SessionNudgeParams {
+                session_id: session,
+                on: state == "on",
+            };
+            let v = conn.request(method::SESSION_NUDGE, p).await?;
+            output(json, v, |r: theseus_protocol::nudge::SessionNudgeResult| {
+                println!("{}", render::sessions::nudge_line(&r));
                 Ok(())
             })
         }

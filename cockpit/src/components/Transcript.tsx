@@ -13,6 +13,7 @@ import { dropDraft, type Draft } from '@/lib/drafts'
 import { cn, ms, stamp, tokens, usd } from '@/lib/format'
 import type { TurnRow } from '@/lib/derive'
 import { fallbackLine } from '@/lib/fallback'
+import { nudgeLine } from '@/lib/nudge'
 import { effortWords, type TurnRouted } from '@/lib/route'
 import { byteWords, callSummary, diffLines, l1Words, looksLikeDiff, resultWords, wireToName } from '@/lib/toolwords'
 import { JsonView } from './JsonView'
@@ -125,6 +126,7 @@ export function Transcript({ nodes, turns, live, asking, tightened, scores, noti
                 : <ToolItem key={it.node.node_id} call={it.node} result={it.result} asking={asking} tightened={tightened} scores={scores} noticed={noticed} />)}
               {running && live && <LiveItem live={live} />}
               {t?.fallback && <TurnFellBack t={t} />}
+              {t?.nudged && <TurnNudged t={t} />}
               {t?.failed && <TurnFailed t={t} />}
             </div>
           </section>
@@ -226,6 +228,8 @@ function Gutter({ icon, at, tone }: { icon: React.ReactNode; at?: number; tone: 
 }
 
 function UserItem({ n }: { n: NodeInfo }) {
+  // The harness's own line (a stop nudge, theseus-fh0u; a day ceiling's note): quiet, never the person's words.
+  if (n.author?.startsWith('harness:')) return <div className="ml-[76px] px-3 py-1 text-[12px] italic text-ink-faint">{n.text}</div>
   return (
     <div className="flex gap-3">
       <Gutter icon={<User size={13} />} at={n.at_unix_ms} tone="bg-white/5 text-ink ring-line-strong" />
@@ -319,6 +323,17 @@ function TurnFellBack({ t }: { t: TurnRow }) {
   return (
     <div className="ml-[76px] rounded-lg bg-wait/[0.06] px-3 py-1.5 text-[12px] text-ink-dim ring-1 ring-wait/30">
       {fallbackLine(t.fallback, t.stop ?? '')}
+    </div>
+  )
+}
+
+/** A turn the harness nudged once after an announced stop (theseus-fh0u), in the line every surface shows: the
+ *  harness's, never the person's words. */
+function TurnNudged({ t }: { t: TurnRow }) {
+  if (!t.nudged) return null
+  return (
+    <div className="ml-[76px] px-3 py-1 text-[12px] text-ink-faint" title={`loop.v1 judgment ${t.nudged.judgment}`}>
+      {nudgeLine(t.nudged)}
     </div>
   )
 }

@@ -48,3 +48,16 @@ pub(super) fn name_column(s: &SessionInfo) -> String {
         .map(|_| crate::names::of(s))
         .unwrap_or_default()
 }
+
+/// `theseus sessions nudge`'s answer (theseus-fh0u).
+pub fn nudge_line(r: &theseus_protocol::nudge::SessionNudgeResult) -> String {
+    let daemon = match r.daemon_on {
+        true => "",
+        false => " (the daemon's is off: [judge] stop_nudge, or the judge itself)",
+    };
+    let on = if r.on { "on" } else { "off" };
+    format!(
+        "{}: the stop nudge is {on} for this session{daemon}",
+        r.session_id
+    )
+}

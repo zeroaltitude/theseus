@@ -348,6 +348,8 @@ mod tests_status_cache;
 #[cfg(test)]
 mod tests_steps;
 #[cfg(test)]
+mod tests_stop_nudge;
+#[cfg(test)]
 mod tests_stopping;
 #[cfg(test)]
 mod tests_stub_kinds;

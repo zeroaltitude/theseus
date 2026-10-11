@@ -881,6 +881,13 @@ enum SessionsCmd {
     /// Reopen a retired session (by hand, superseded, or empty). A superseded one keeps its links,
     /// and its place stays on its successor. The operator's own.
     Reopen { session: String },
+    /// The stop nudge for one session: `off` keeps its turns from being nudged on after a reply that
+    /// says more work follows; `on` gives it back to `[judge] stop_nudge`.
+    Nudge {
+        session: String,
+        #[arg(value_parser = ["on", "off"])]
+        state: String,
+    },
 }
 
 #[tokio::main]

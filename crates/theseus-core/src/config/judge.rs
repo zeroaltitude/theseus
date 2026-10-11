@@ -92,6 +92,12 @@ pub struct JudgeConfig {
     /// rewrite a pack's text.
     #[serde(default)]
     pub learn: LearnConfig,
+    /// The stop nudge (theseus-fh0u, the owner's D8): `loop.v1` live at a
+    /// turn's stop, so a private turn whose last message announced work still
+    /// to come goes on once more. `false` keeps `loop.v1` in shadow, judging
+    /// and acting on nothing; `theseus nudge off` lowers it for one session.
+    #[serde(default = "yes")]
+    pub stop_nudge: bool,
     /// `[judge.packs."<pack>"]`, by the pack's name (`loop.v1`).
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub packs: BTreeMap<String, JudgePackConfig>,
@@ -226,6 +232,10 @@ pub struct JudgePackConfig {
 /// The one pack whose line may say `notices`.
 pub const NOTICES_PACK: &str = "security.v3";
 
+/// The pack `stop_nudge` switches: `loop.v1`, whose learned versions its
+/// line binds too (`JudgeService::capped_by_root`).
+pub const STOP_PACK: &str = "loop.v1";
+
 fn live() -> PackMode {
     PackMode::Live
 }
@@ -272,6 +282,7 @@ impl Default for JudgeConfig {
             replay_limit_usd: replay_limit(),
             audit_limit_usd: audit_limit(),
             backfill_consent: false,
+            stop_nudge: true,
             holdout_days: holdout_days(),
             learn: LearnConfig::default(),
             packs: BTreeMap::new(),
@@ -367,7 +378,12 @@ impl JudgeConfig {
             Some(false) => PackMode::Shadow,
             _ => PackMode::Live,
         };
-        given.min(self.max_mode).min(own).min(notices)
+        // loop.v1's one action is the stop nudge (theseus-fh0u): its switch.
+        let nudge = match (pack, self.stop_nudge) {
+            (STOP_PACK, false) => PackMode::Shadow,
+            _ => PackMode::Live,
+        };
+        given.min(self.max_mode).min(own).min(notices).min(nudge)
     }
 
     /// Whether `security.v3`'s notices are switched on: its line's
@@ -405,6 +421,10 @@ pub(crate) fn the_templates_judge_section(cfg: &crate::Config) {
     assert_eq!(j.packs[NOTICES_PACK].notices, Some(true));
     assert_eq!(j.learning_hour, 3);
     assert_eq!(j.holdout_days, 14);
+    assert!(
+        j.stop_nudge,
+        "the stop nudge is on by default (theseus-fh0u)"
+    );
     assert_eq!(j.learn, LearnConfig::default());
     j.validate(&cfg.secrets).unwrap();
 }
@@ -458,6 +478,26 @@ mod tests {
         assert_eq!(capped.mode_of("loop.v1", PackMode::Live), shadow);
         let none = on("max_mode = \"off\"");
         assert_eq!(none.mode_of("loop.v1", shadow), PackMode::Off);
+    }
+
+    /// `stop_nudge` (theseus-fh0u): on by default, so loop.v1 acts as the
+    /// ladder gives it; off, it is held in shadow, its learned versions with
+    /// it, and every other pack is as it was.
+    #[test]
+    fn the_stop_nudges_switch_holds_loop_v1_in_shadow() {
+        let on = |extra: &str| cfg(&format!("enabled = true\n{extra}")).unwrap();
+        assert!(JudgeConfig::default().stop_nudge);
+        let live = PackMode::Live;
+        assert_eq!(on("").mode_of(STOP_PACK, live), live);
+        let off = on("stop_nudge = false");
+        assert_eq!(off.mode_of(STOP_PACK, live), PackMode::Shadow);
+        assert_eq!(
+            off.mode_of("route.v3", live),
+            live,
+            "loop.v1's switch alone"
+        );
+        let quiet = on("stop_nudge = false\n[packs.\"loop.v1\"]\nmode = \"off\"");
+        assert_eq!(quiet.mode_of(STOP_PACK, live), PackMode::Off);
     }
 
     /// The loader's checks: an unknown key, a pack this build lacks, a

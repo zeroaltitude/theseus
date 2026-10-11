@@ -209,6 +209,14 @@ enum Cmd {
         #[arg(long)]
         chunk_ms: Option<u64>,
     },
+    /// The fake Jev (theseus-judge's stand-in), for a scratch daemon's
+    /// `[judge] api_base` (theseus-fh0u's live check): each `--say
+    /// QUESTION=P` answers that Noul question with P (`announced_unfinished=0.97`);
+    /// every other answer is the fake's own. Prints its base; serves until killed.
+    FakeJev {
+        #[arg(long = "say")]
+        say: Vec<String>,
+    },
     /// The fake MCP server (M7 36b), for a scratch daemon's `[mcp.servers]`:
     /// stdio by default, as a daemon starts it, or `--http`.
     FakeMcp(fake_mcp::FakeMcpArgs),
@@ -391,6 +399,20 @@ fn main() -> Result<()> {
             };
             let fake = fake_model::FakeModel::start_rules_with(&addr, rules, serving)?;
             println!("fake model on {}", fake.base());
+            loop {
+                std::thread::park();
+            }
+        }
+        Cmd::FakeJev { say } => {
+            let jev = theseus_judge::fake::FakeJev::start()?;
+            for s in &say {
+                let (q, p) = s
+                    .split_once('=')
+                    .context("--say takes QUESTION=P, as announced_unfinished=0.97")?;
+                let p: f64 = p.parse().context("--say's P is a probability")?;
+                jev.script(q, theseus_judge::fake::Scripted::Noul(p));
+            }
+            println!("fake jev on {}", jev.base());
             loop {
                 std::thread::park();
             }

@@ -1154,6 +1154,40 @@ impl Fact for FellBack<'_> {
     }
 }
 
+/// The harness nudged the turn once after an announced stop (`turn.nudged`,
+/// theseus-fh0u): `loop.v1`'s judgment, the question that acted and its p,
+/// and the loop whose answer stopped. The nudge's own line rides in the
+/// frame beside it, a harness node, never the person's words.
+pub struct TurnNudged<'a> {
+    pub nudge: &'a theseus_protocol::nudge::TurnNudge,
+}
+
+impl Fact for TurnNudged<'_> {
+    const KIND: Option<LedgerKind> = Some(LedgerKind::TurnNudged);
+
+    fn row(&self) -> Value {
+        let n = self.nudge;
+        json!({"judgment": n.judgment, "by": n.by, "p": n.p, "loop": n.loop_index})
+    }
+
+    fn span(&self, trace: &mut Trace) {
+        let n = self.nudge;
+        let attrs = json!({"judgment": n.judgment, "by": n.by, "p": n.p, "loop": n.loop_index});
+        trace.mark("nudge", "mark", attrs);
+    }
+
+    fn narrate(&self, say: &mut Say<'_>) {
+        say.line(
+            Model,
+            format!(
+                "The reply said more work would follow (Jev, {:.2}), so the harness asks the \
+                 model once to continue or say it is done ([judge] stop_nudge).",
+                self.nudge.p
+            ),
+        );
+    }
+}
+
 /// The loop's call did not fit under the spend limit, and the turn asks the
 /// operator to reset the spend (theseus-0sg): the question goes where a tool
 /// approval goes.
@@ -1700,6 +1734,10 @@ impl Fact for TurnBooked<'_> {
         // A refusal's fallback (theseus-7gir.18): only a turn that had one says.
         if let Some(f) = &result.fallback {
             row["fallback"] = json!(f);
+        }
+        // The stop nudge (theseus-fh0u): the prove counts it from here.
+        if let Some(n) = &result.nudged {
+            row["nudged"] = json!(n);
         }
         row
     }
