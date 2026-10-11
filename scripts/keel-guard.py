@@ -12,28 +12,41 @@ scripts/keel-signers carries a trailer for it:
     Keel: <rule> <path>[, <path>...] — <why>
 
 (`--` or ` - ` may stand for the dash; a path may be a glob). An unsigned commit's trailer counts for nothing, so a
-branch can't ack itself. The signer list is read from the base, never the head, so a branch can't list its own key.
+branch can't ack itself; nor does one signed with an ssh or x509 key, whatever it verifies against: GPG keys only. The signer list is read from the base, never the head, so a branch can't list its own key.
 
 The range (`THESEUS_KEEL_BASE=<rev>` or `--base` overrides its base, and the gate finds it as below in its own shell,
 then passes it as `--base` to the base's copy of this script, so a branch's copy decides neither; `--head` names a commit to judge instead of the
 working tree):
-  - on a merge commit whose first parent is on main (the join's gate): HEAD^1..HEAD, the merge judged whole;
-  - otherwise merge-base(HEAD, main)..HEAD, with `origin/main` when there is no local `main`;
+  - main is `origin/main`, or the local `main` when there is no `origin/main`: a join's local main is ahead of
+    origin/main by what its gate is judging;
+  - on a merge commit whose first parent is on main and which is not on origin/main yet (the join's gate):
+    HEAD^1..HEAD, the merge judged whole;
+  - otherwise merge-base(HEAD, main)..HEAD, so a join whose fix is a commit after its merge is judged whole too;
   - with no `--head`, the head side is the working tree (tracked changes and untracked files), so the gate before a
     commit judges what the commit will hold. Acks are read from the commits in base..HEAD.
 
 The rules, by the name the report and the ack use:
   test-removed    a test function at the base (Rust: #[test], #[tokio::test], #[rstest], #[test_case], any
-                  attribute whose last segment is `test`; Python: a `def test_*`) that is not at the head under the
+                  attribute whose last segment is `test`; Python: a `def test_*`; the cockpit's TypeScript, in a
+                  test/ directory or a *.test.ts: a `test('name', ...)` or `it(...)`, keyed with its describes'
+                  names) that is not at the head under the
                   same path and name. A test that moved file or module keeping its name, or renamed with the same
                   body, is matched and judged by the rules below instead.
   test-ignored    #[ignore] (or a cfg_attr's ignore) added to a test; in Python a skip decorator (unittest's skip,
                   skipIf, skipUnless, expectedFailure, pytest's skip marks) on the test or its class, or a
-                  self.skipTest / SkipTest added to its body.
+                  self.skipTest / SkipTest added to its body; in TypeScript test.skip/.todo/.only, a { skip: },
+                  { todo: } or { only: } option, or a t.skip( / t.todo( added to its body.
   assert-removed  a test with fewer assertions than at the base (Rust: every `...assert...!` macro, assert!,
                   assert_eq!, debug_assert_ne!, prop_assert!, and a wait that fails the test, wait_for(, wait_until(,
                   .until(, so an assertion made a wait keeps its check; Python: `assert` statements and
-                  self.assert*/fail calls, pytest.raises). Counted per test, comments left out: a rewritten assertion is not a finding.
+                  self.assert*/fail calls, pytest.raises; TypeScript: assert(, assert.*(, expect(). Counted per test,
+                  comments left out: a rewritten assertion is not a finding.
+  assert-weakened an assertion of a test loosened in place, which keeps the count (theseus-pw1q.18): an equality made a
+                  truth test with no comparison in it (assert_eq! to assert!, assertEqual to assertTrue, assert.equal
+                  to assert.ok; one that compared with a bool or None is not), a constant bound loosened (raised on the
+                  upper side of < or <=, lowered on the lower side; a Duration's or a tolerance's number too; Python's
+                  assertLess/assertGreater), an assertion made vacuous (assert!(true)), commented out, or its line
+                  made a discard (let _ =, _ =, void).
   allow-added     a #[allow(...)], #![allow(...)] or #[expect(...)] (an expect silences a lint as an allow does:
                   the shape budget's marks) added for a lint on an item that had none, counted per lint and item
                   across the changed files, so a moved item keeps its marks; a lint level lowered or removed in a
@@ -51,13 +64,21 @@ The rules, by the name the report and the ack use:
                                                           MAX_LOOPS, SPEND_LIMIT, spend_limit, BUDGET with a number
                     crates/theseus-core/config/theseus.example.toml  keys naming spend, usd, per_day, daily,
                                                           max_loops (commented lines too)
+                    any Rust file                         a cap's code default: a `fn default_*` naming usd, spend,
+                                                          per_day, daily, day_ceiling, max_loops or max_turns, or a
+                                                          const naming CAP/LIMIT/CEILING/BUDGET and USD/MICROS/SPEND/
+                                                          LOOPS/TURNS, across the changed files (one moved keeps its
+                                                          value; a new one is no finding)
   ceiling-raised  scripts/long-files.txt: a ceiling raised or an entry added; scripts/shape.sh: `limit=` raised;
                   .config/nextest.toml: retries added or raised, slow-timeout's period or terminate-after widened
                   (or terminate-after dropped), leak-timeout widened, an override added (the flaky list given a
                   test).
+  ci-loosened     .github/workflows/*.yml: a step's command gone or changed (each `&&`/`;` part of a run, a uses'
+                  action without its version, a command:), continue-on-error turned on, an `if:` that is false, or
+                  the workflow gone. A step added, or an action's version bumped, is no finding.
   keel-file       any change to the guard itself when it exists at the base: this script, scripts/keel-signers,
-                  scripts/test_keel_guard.py, and scripts/gate.sh's lines that name the keel. Adding them is not
-                  one; adding a key to keel-signers is.
+                  scripts/test_keel_guard.py, and scripts/gate.sh's lines that name the keel or its door; and a
+                  phase of scripts/gate.sh gone (by name). Adding them is not one; adding a key to keel-signers is.
 
 Exit status: 0 nothing unacked; 1 a finding not acked; 2 the guard could not run (no base, not a repository).
 Standard library only.
@@ -73,8 +94,8 @@ import sys
 import time
 from collections import Counter, defaultdict
 
-RULES = ("test-removed", "test-ignored", "assert-removed", "allow-added", "budget-raised", "cap-raised",
-         "ceiling-raised", "keel-file")
+RULES = ("test-removed", "test-ignored", "assert-removed", "assert-weakened", "allow-added", "budget-raised",
+         "cap-raised", "ceiling-raised", "ci-loosened", "keel-file")
 KEEL_FILES = ("scripts/keel-guard.py", "scripts/keel-signers", "scripts/test_keel_guard.py")
 SIGNERS = "scripts/keel-signers"
 
@@ -107,24 +128,28 @@ def resolve_range(repo, base_arg, head_arg):
         if base is None:
             raise GuardError(f"no commit {base_arg} (THESEUS_KEEL_BASE or --base)")
         return base, head_arg, head_commit, f"{base_arg}..{head_arg or 'the working tree'}"
-    local, remote = rev(repo, "main"), rev(repo, "origin/main")
-    main = local or remote
-    if local and remote and local != remote:
-        # The newer of the two when one contains the other (a clone whose local main was never pulled).
-        if git(repo, "merge-base", "--is-ancestor", local, remote, check=False) is not None:
-            main = remote
+    # origin/main when there is one, else main (theseus-pw1q.18). A join's local main is ahead of origin/main by its
+    # merge and any fix committed after it, none of which a gate has judged: taking local main there judged the empty
+    # range HEAD..HEAD whenever a fix followed the merge (the people join's gate, 2026-10-09).
+    remote = rev(repo, "origin/main")
+    main = remote or rev(repo, "main")
     if main is None:
         raise GuardError("no main and no origin/main to judge against: set THESEUS_KEEL_BASE=<rev>")
+    name = "origin/main" if remote else "main"
     parents = git(repo, "rev-list", "--parents", "-n", "1", head_commit).split()[1:]
     if len(parents) >= 2:
         first = parents[0]
         on_main = git(repo, "merge-base", "--is-ancestor", first, main, check=False) is not None
-        if on_main:
+        # A merge already on origin/main was judged at its join: a branch cut there (its working tree changed, no
+        # commit yet) is judged from it, not as the join again with the join's base's signers.
+        landed = remote is not None and git(repo, "merge-base", "--is-ancestor", head_commit, remote,
+                                            check=False) is not None
+        if on_main and not landed:
             return first, head_arg, head_commit, "a merge: HEAD^1..HEAD"
     mb = git(repo, "merge-base", head_commit, main, check=False)
     if not mb:
-        raise GuardError("HEAD shares no history with main: set THESEUS_KEEL_BASE=<rev>")
-    return mb.strip(), head_arg, head_commit, "a branch: merge-base(HEAD, main)..HEAD"
+        raise GuardError(f"HEAD shares no history with {name}: set THESEUS_KEEL_BASE=<rev>")
+    return mb.strip(), head_arg, head_commit, f"a branch: merge-base(HEAD, {name})..HEAD"
 
 
 class Tree:
@@ -317,6 +342,9 @@ def parse_rust(src):
                         "asserts": len(ASSERT_RS.findall(code)),
                         "norm": " ".join(code.replace("fn " + name, "fn _", 1).split()),
                         "head": src[fstart:src.find("\n", fstart)].strip(),
+                        "lang": "rs",
+                        "code": code,
+                        "raw": body,
                     }
             pending.clear()
             pending_fn = None
@@ -432,12 +460,70 @@ def parse_python(src):
                 "asserts": len(PY_ASSERT.findall(code)),
                 "norm": " ".join(code.replace("def " + name, "def _", 1).split()),
                 "head": s,
+                "lang": "py",
+                "code": "\n".join("" if x.strip().startswith("#") else x for x in body.split("\n")),
+                "raw": body,
             }
             decos = []
             i = j
             continue
         decos = []
         i += 1
+    return tests
+
+
+# ---------------------------------------------------------------- TypeScript (the cockpit's tests, theseus-pw1q.18)
+
+TS_TOKEN = re.compile(r"""//[^\n]*|/\*.*?\*/|"(?:\\.|[^"\\\n])*"|'(?:\\.|[^'\\\n])*'|`(?:\\.|[^`\\])*`""", re.S)
+TS_TEST = re.compile(r"""^[ \t]*(test|it|describe)(?:\.(skip|todo|only))?\s*\(\s*(['"`])((?:\\.|(?!\3).)*?)\3""", re.M)
+TS_ASSERT = re.compile(r"\bassert(?:\.\w+)?\s*\(|\bexpect\s*\(")
+TS_SKIP_OPT = re.compile(r"\b(skip|todo|only)\s*:")
+TS_SKIP_CALL = re.compile(r"\bt\.(?:skip|todo)\s*\(")
+TS_TEST_FILE = re.compile(r"(?:^|/)(?:test|tests|__tests__)/.*\.(?:ts|tsx|mts|js|mjs)$|\.(?:test|spec)\.(?:ts|tsx|mts|js|mjs)$")
+
+
+def strip_ts_comments(text):
+    out, last = [], 0
+    for m in TS_TOKEN.finditer(text):
+        t = m.group(0)
+        if t.startswith("//") or t.startswith("/*"):
+            out.append(text[last:m.start()])
+            out.append("\n" * t.count("\n"))
+            last = m.end()
+    out.append(text[last:])
+    return "".join(out)
+
+
+def parse_ts(src):
+    """node:test's and the like's tests, keyed by their describes' names and their own: test('name', ...)."""
+    code = strip_ts_comments(src)
+    calls = []
+    for m in TS_TEST.finditer(code):
+        open_ = code.index("(", m.start(1))
+        calls.append((m, scan_to(code, open_, QUOTES["ts"])))
+    describes = [(m.start(), end, m.group(4)) for m, end in calls if m.group(1) == "describe"]
+    tests = {}
+    for m, end in calls:
+        if m.group(1) == "describe":
+            continue
+        name = m.group(4)
+        key = " > ".join([d[2] for d in describes if d[0] < m.start() < d[1]] + [name])
+        body = code[m.start():end]
+        head = body[:min([x for x in (body.find("=>"), body.find("function")) if x >= 0] or [len(body)])]
+        marks = [f".{m.group(2)}"] if m.group(2) else [f"{{ {x.group(1)}: }}" for x in TS_SKIP_OPT.finditer(head)]
+        tests[key] = {
+            "name": name,
+            "line": line_of(code, m.start()),
+            "attrs": marks,
+            "ignored": bool(marks),
+            "skips": len(TS_SKIP_CALL.findall(body)),
+            "asserts": len(TS_ASSERT.findall(body)),
+            "norm": " ".join(body.replace(m.group(0).strip(), "test(_", 1).split()),
+            "head": src.split("\n")[line_of(code, m.start()) - 1].strip(),
+            "lang": "ts",
+            "code": body,
+            "raw": "\n".join(src.split("\n")[line_of(code, m.start()) - 1:line_of(code, end)]),
+        }
     return tests
 
 
@@ -452,7 +538,11 @@ def tests_rule(tree, paths, out):
             src = getattr(tree, side)(path)
             if src is None:
                 continue
-            if rust:
+            if TS_TEST_FILE.search(path):
+                if "(" not in src:
+                    continue
+                t = parse_ts(src)
+            elif rust:
                 if "#[" not in src and "#![" not in src:
                     continue
                 t, mk = parse_rust(src)
@@ -491,11 +581,13 @@ def tests_rule(tree, paths, out):
     for bk, hk in pairs:
         b, h = base_tests[bk], head_tests[hk]
         if h["ignored"] and not b["ignored"] or h.get("skips", 0) > b.get("skips", 0):
-            new = next((a for a in h["attrs"] if is_ignore_attr(a) or PY_SKIP_DECO.match(a)), "a skip in its body")
+            new = next((a for a in h["attrs"] if is_ignore_attr(a) or PY_SKIP_DECO.match(a) or h.get("lang") == "ts"),
+                       "a skip in its body")
             out.append(Finding("test-ignored", hk[0], h["line"], b["head"], f"{new} {h['head']}"))
         if h["asserts"] < b["asserts"]:
             out.append(Finding("assert-removed", hk[0], h["line"],
                                f"{b['head']} ({b['asserts']} assertions)", f"{h['asserts']} assertions"))
+        weakened_rule(b, h, hk[0], out)
     allow_rule(base_marks, head_marks, out)
 
 
@@ -525,6 +617,250 @@ def rewritten(b, path, cands, head_tests):
 # How alike (difflib's ratio over the bodies' words) a test that went and one that came must be to count as one
 # test renamed and rewritten: the replay of main's last 50 merges set it (scripts/keel-guard.py's tests hold it).
 SIMILAR = 0.5
+
+
+# ---------------------------------------------------------------- weakened assertions (theseus-pw1q.18)
+#
+# assert-removed counts, so an assertion loosened in place kept its count and passed. A test's assertions at the base
+# and at the head are paired in order (difflib over their texts); a pair changed is a finding when the new one is
+# weaker: an equality made a truth test with no comparison in it (assert_eq! to assert!, assertEqual to assertTrue,
+# assert.equal to assert.ok; not when the equality compared with a bool or None, which clippy itself asks to write
+# as assert!), a bound loosened (a number raised on the upper side of `<`/`<=`, or lowered on the lower side, where
+# that side is a constant: a number, a Duration of one, a tolerance; Python's assertLess and assertGreater the same),
+# or made vacuous (assert!(true)). And on its lines: an assertion commented out (a comment that starts with one, more
+# than at the base), or an assertion's line replaced by a discard (`let _ =`, `_ =`, `void`).
+
+QUOTES = {"rs": '"', "py": "\"'", "ts": "\"'`"}
+CALLS = {
+    "rs": re.compile(r"\b(\w*assert\w*)!\s*[(\[{]"),
+    "py": re.compile(r"\bself\.(assert\w*|fail)\s*\(|^[ \t]*(assert)\b", re.M),
+    "ts": re.compile(r"\b(assert(?:\.\w+)?)\s*\("),
+}
+EQ_KINDS = re.compile(
+    r"(?:^|_)assert_(?:eq|ne)$|^assert(?:Equal|NotEqual|Is|IsNot|In|NotIn|CountEqual|ListEqual|DictEqual|SetEqual"
+    r"|TupleEqual|SequenceEqual|MultiLineEqual|Regex|NotRegex|IsInstance)$"
+    r"|^assert\.(?:equal|notEqual|strictEqual|notStrictEqual|deepEqual|notDeepEqual|deepStrictEqual"
+    r"|notDeepStrictEqual|match|doesNotMatch)$")
+PLAIN_KINDS = re.compile(r"(?:^|_)assert$|^assert(?:True|False|IsNotNone)$|^assert\.ok$")
+LITERAL = re.compile(r"^(?:true|false|True|False|None|null|undefined)$")
+COMPARES = {"rs": re.compile(r"==|!=|\bmatches!"), "ts": re.compile(r"==|!="),
+            "py": re.compile(r"==|!=|\bin\b|\bis\b")}
+VACUOUS = {"true", "True", "!false", "not False"}
+ORDER_KINDS = {"assertLess": True, "assertLessEqual": True, "assertGreater": False, "assertGreaterEqual": False}
+# What a constant bound may hold besides its numbers: a Duration's or a timedelta's constructor, a cast, arithmetic.
+BOUND_REST = re.compile(
+    r"\b(?:Duration|std|time|from_millis|from_secs|from_micros|from_nanos|from_secs_f64|from_secs_f32|as|f64|f32"
+    r"|u64|u32|u128|usize|i64|i32|Some|Ok|timedelta|seconds|milliseconds|microseconds)\b|::|[\s()+\-*/,&]"
+    r"|-?\d[\d_]*(?:\.\d+)?(?:e[-+]?\d+)?(?:[a-z_]\w*)?")
+COMMENTED = {"rs": re.compile(r"^\s*//+\s*\w*assert\w*!\s*[(\[{]"),
+             "py": re.compile(r"^\s*#\s*(?:assert\s+\S|self\.assert\w*\s*\()"),
+             "ts": re.compile(r"^\s*//+\s*assert(?:\.\w+)?\s*\(")}
+DISCARD = {"rs": re.compile(r"^\s*let\s+_\s*="), "py": re.compile(r"^\s*_\s*="), "ts": re.compile(r"^\s*void\s")}
+
+
+def scan_to(text, i, quotes, stop_at_newline=False):
+    """The index just past the bracket closing text[i] (or, with stop_at_newline, of the first newline outside any
+    bracket from i), strings and backslash escapes skipped."""
+    depth, j, q = 0, i, None
+    while j < len(text):
+        ch = text[j]
+        if ch == "\\":
+            j += 2
+            continue
+        if q:
+            if ch == q:
+                q = None
+        elif ch in quotes:
+            q = ch
+        elif ch in "([{":
+            depth += 1
+        elif ch in ")]}":
+            depth -= 1
+            if depth == 0 and not stop_at_newline:
+                return j + 1
+        elif ch == "\n" and stop_at_newline and depth <= 0:
+            return j
+        j += 1
+    return len(text)
+
+
+def split_args(text, quotes):
+    out, depth, q, last, j = [], 0, None, 0, 0
+    while j < len(text):
+        ch = text[j]
+        if ch == "\\":
+            j += 2
+            continue
+        if q:
+            if ch == q:
+                q = None
+        elif ch in quotes:
+            q = ch
+        elif ch in "([{":
+            depth += 1
+        elif ch in ")]}":
+            depth -= 1
+        elif ch == "," and depth == 0:
+            out.append(text[last:j])
+            last = j + 1
+        j += 1
+    out.append(text[last:])
+    return [" ".join(a.split()) for a in out if a.strip()]
+
+
+def assertions(t):
+    """[(kind, [args], pos)] of a test's assertions, in order (pos is in t["code"])."""
+    code, lang = t["code"], t["lang"]
+    quotes, out = QUOTES[lang], []
+    for m in CALLS[lang].finditer(code):
+        if lang == "py" and m.group(2):
+            end = scan_to(code, m.end(), quotes, stop_at_newline=True)
+            out.append(("assert", split_args(code[m.end():end], quotes), m.start(2)))
+            continue
+        end = scan_to(code, m.end() - 1, quotes)
+        out.append((m.group(1), split_args(code[m.end():end - 1], quotes), m.start()))
+    return out
+
+
+def top_split(expr, quotes, sep):
+    """expr split at the top-level, spaced operators `sep` matches, and the operators."""
+    parts, ops, depth, q, last, j = [], [], 0, None, 0, 0
+    while j < len(expr):
+        ch = expr[j]
+        if ch == "\\":
+            j += 2
+            continue
+        if q:
+            if ch == q:
+                q = None
+        elif ch in quotes:
+            q = ch
+        elif ch in "([{":
+            depth += 1
+        elif ch in ")]}":
+            depth -= 1
+        elif ch == " " and depth == 0:
+            m = sep.match(expr, j)
+            if m:
+                parts.append(expr[last:j])
+                ops.append(m.group(1))
+                last = j = m.end()
+                continue
+        j += 1
+    parts.append(expr[last:])
+    return parts, ops
+
+
+CMP_OP = re.compile(r" (<=|>=|<|>) ")
+LOGIC_OP = re.compile(r" (&&|\|\||and|or) ")
+
+
+def comparisons(expr, quotes):
+    """[(operands, operators)] of each top-level `&&`/`||`/`and`/`or` part's spaced `<`, `<=`, `>`, `>=`."""
+    return [top_split(part, quotes, CMP_OP) for part in top_split(expr, quotes, LOGIC_OP)[0]]
+
+
+def is_bound(operand):
+    return bool(NUM.search(operand)) and not BOUND_REST.sub("", operand).strip()
+
+
+def loosened(kind, old, new, quotes):
+    """old -> new, said, when a bound in it was loosened."""
+    if NUM.sub("#", " ".join(old)) != NUM.sub("#", " ".join(new)):
+        return None
+    sides = []  # (old operand, new operand, is it the upper bound's side)
+    if kind in ORDER_KINDS and len(old) >= 2:
+        less = ORDER_KINDS[kind]
+        sides = [(old[0], new[0], not less), (old[1], new[1], less)]
+    elif old:
+        co, cn = comparisons(old[0], quotes), comparisons(new[0], quotes)
+        if len(co) != len(cn):
+            return None
+        for (po, ops), (pn, opn) in zip(co, cn):
+            if ops != opn:
+                continue
+            for k in range(len(po)):
+                upper = (k > 0 and ops[k - 1] in ("<", "<=")) or (k < len(ops) and ops[k] in (">", ">="))
+                lower = (k > 0 and ops[k - 1] in (">", ">=")) or (k < len(ops) and ops[k] in ("<", "<="))
+                if upper != lower:
+                    sides.append((po[k], pn[k], upper))
+    for a, b, upper in sides:
+        if not (is_bound(a) and is_bound(b)):
+            continue
+        for x, y in zip([num(v) for v in NUM.findall(a)], [num(v) for v in NUM.findall(b)]):
+            if x is not None and y is not None and (y > x if upper else y < x):
+                return f"{a} -> {b} ({'an upper' if upper else 'a lower'} bound)"
+    return None
+
+
+def weaker(o, n, lang):
+    """Why assertion n is weaker than o, its counterpart at the base, or None."""
+    (ok, oa, _), (nk, na, _) = o, n
+    if na and na[0] in VACUOUS and not (oa and oa[0] in VACUOUS):
+        return "made vacuous"
+    if EQ_KINDS.search(ok) and PLAIN_KINDS.search(nk):
+        if any(LITERAL.match(a) for a in oa[:2]) or (na and COMPARES[lang].search(na[0])):
+            return None
+        return "an equality made a truth test"
+    if ok == nk:
+        why = loosened(ok, oa, na, QUOTES[lang])
+        if why:
+            return "a bound loosened: " + why
+    return None
+
+
+def align(olds, news, text):
+    """The pairs of a changed block of assertions, in order, most alike first: an assertion added among changed ones
+    pairs with nothing, never with its neighbour's counterpart (the work-types join, 4ffcc282, added an assert! among
+    assert_eq!s whose arguments all changed). Only pairs at least half alike count."""
+    score = [[difflib.SequenceMatcher(None, text(o), text(n), autojunk=False).ratio() for n in news] for o in olds]
+    best = [[0.0] * (len(news) + 1) for _ in range(len(olds) + 1)]
+    for i in range(len(olds) - 1, -1, -1):
+        for j in range(len(news) - 1, -1, -1):
+            take = score[i][j] + best[i + 1][j + 1] if score[i][j] >= SIMILAR else -1.0
+            best[i][j] = max(take, best[i + 1][j], best[i][j + 1])
+    pairs, i, j = [], 0, 0
+    while i < len(olds) and j < len(news):
+        if score[i][j] >= SIMILAR and best[i][j] == score[i][j] + best[i + 1][j + 1]:
+            pairs.append((olds[i], news[j]))
+            i, j = i + 1, j + 1
+        elif best[i][j] == best[i + 1][j]:
+            i += 1
+        else:
+            j += 1
+    return pairs
+
+
+def weakened_rule(b, h, path, out):
+    if "lang" not in b or b.get("lang") != h.get("lang"):
+        return
+    lang = h["lang"]
+    olds, news = assertions(b), assertions(h)
+    text = lambda a: f"{a[0]}({', '.join(a[1])})"
+    sm = difflib.SequenceMatcher(None, [text(a) for a in olds], [text(a) for a in news], autojunk=False)
+    for tag, i1, i2, j1, j2 in sm.get_opcodes():
+        if tag != "replace":
+            continue
+        for o, n in align(olds[i1:i2], news[j1:j2], text):
+            why = weaker(o, n, lang)
+            if why:
+                line = h["line"] + h["code"].count("\n", 0, n[2])
+                out.append(Finding("assert-weakened", path, line, text(o), f"{text(n)} ({why})"))
+    # On its lines: an assertion commented out, or its line made a discard.
+    braw, hraw = b["raw"].split("\n"), h["raw"].split("\n")
+    gone = [i for i, x in enumerate(hraw) if COMMENTED[lang].match(x)]
+    if len(gone) > sum(1 for x in braw if COMMENTED[lang].match(x)):
+        i = next((i for i in gone if hraw[i].strip() not in {x.strip() for x in braw}), gone[-1])
+        out.append(Finding("assert-weakened", path, h["line"] + i, "an assertion", f"{hraw[i].strip()} (commented out)"))
+    sm = difflib.SequenceMatcher(None, [x.strip() for x in braw], [x.strip() for x in hraw], autojunk=False)
+    for tag, i1, i2, j1, j2 in sm.get_opcodes():
+        if tag != "replace" or not any(CALLS[lang].search(x) for x in braw[i1:i2]):
+            continue
+        for j in range(j1, j2):
+            if DISCARD[lang].match(hraw[j]):
+                old = next(x.strip() for x in braw[i1:i2] if CALLS[lang].search(x))
+                out.append(Finding("assert-weakened", path, h["line"] + j, old, f"{hraw[j].strip()} (discarded)"))
+                break
 
 
 def allow_rule(base_marks, head_marks, out):
@@ -749,6 +1085,97 @@ def cap_python(tree, paths, out):
                 out.append(Finding("cap-raised", path, line, text, "(gone or rewritten)"))
 
 
+# A cap's code default (theseus-pw1q.18): the value a spend or loop cap has when no config names it, in the Rust that
+# defines it: a `fn default_*` whose name says a spend or loop cap (serde's defaults), or a constant whose name says a
+# cap and its unit. Judged across the changed Rust files, so one moved keeps its value; a new one is no finding.
+CAP_DEFAULT_FN = re.compile(r"\bfn\s+(default_\w*(?:usd|spend|per_day|daily|day_ceiling|max_loops|max_turns)\w*)\s*\(")
+CAP_CONST = re.compile(r"\bconst\s+([A-Z0-9_]*(?:CAP|LIMIT|CEILING|BUDGET)[A-Z0-9_]*)\s*:")
+CAP_UNIT = re.compile(r"USD|MICROS|SPEND|LOOPS|TURNS")
+
+
+def cap_items(src):
+    if not src or ("default_" not in src and "const" not in src):
+        return []
+    code = strip_rs_comments(src)
+    items = [("fn", m.group(1)) for m in CAP_DEFAULT_FN.finditer(code)]
+    return items + [("const", m.group(1)) for m in CAP_CONST.finditer(code) if CAP_UNIT.search(m.group(1))]
+
+
+def cap_code_rule(tree, paths, out):
+    base, head = defaultdict(list), defaultdict(list)
+    for p in paths:
+        for kind, name in cap_items(tree.old(p)):
+            base[name].append((p, kind))
+        for kind, name in cap_items(tree.new(p)):
+            head[name].append((p, kind))
+    for name, places in base.items():
+        for p, kind in places:
+            old = shape_rows(rust_item_lines(tree.old(p), kind, name))
+            if not old:
+                continue
+            there = [x for x in head.get(name, []) if x[0] == p] or head.get(name, [])
+            if not there:
+                out.append(Finding("cap-raised", p, old[0][2], f"{kind} {name}: {old[0][3]}", "(gone)"))
+                continue
+            hp, hk = there[0]
+            compare_rows("cap-raised", hp, old, shape_rows(rust_item_lines(tree.new(hp), hk, name)), out)
+
+
+# CI's workflows (theseus-pw1q.18): a step's command (each `&&`/`;` part of a run, a uses' action, a command:) gone or
+# changed, continue-on-error turned on, or an `if:` that is false. A step added, or an action's version, is no finding.
+CI_FILE = re.compile(r"^\.github/workflows/[^/]+\.ya?ml$")
+
+
+def ci_model(src):
+    items, lines, flags = {}, src.split("\n"), Counter()
+    i = 0
+    while i < len(lines):
+        raw = lines[i]
+        s = "" if raw.strip().startswith("#") else re.sub(r"\s+#.*$", "", raw).strip()
+        m = re.match(r"(?:-\s*)?(run|uses|command|continue-on-error|if):\s*(.*)$", s)
+        i += 1
+        if not m:
+            continue
+        key, val, line = m.group(1), m.group(2).strip(), i
+        if key == "continue-on-error":
+            flags["continue-on-error"] += val == "true"
+            continue
+        if key == "if":
+            flags["if: false"] += bool(re.fullmatch(r"(?:\$\{\{\s*)?false(?:\s*\}\})?", val))
+            continue
+        if key == "run" and val in ("|", ">", "|-", ">-", "|+", ">+"):
+            ind, block = indent_of(raw), []
+            while i < len(lines) and (not lines[i].strip() or indent_of(lines[i]) > ind):
+                block.append(lines[i].strip())
+                i += 1
+            val = "\n".join(block)
+        if key == "uses":
+            items.setdefault(f"uses {val.split('@')[0]}", line)
+        elif key == "command":
+            items.setdefault(f"command {' '.join(val.split())}", line)
+        else:
+            for part in re.split(r"&&|;|\n", val):
+                if part.strip():
+                    items.setdefault(f"run {' '.join(part.split())}", line)
+    return items, flags
+
+
+def ci_rule(tree, path, out):
+    old, new = tree.old(path), tree.new(path)
+    if old is None:
+        return
+    if new is None:
+        out.append(Finding("ci-loosened", path, 1, "(the workflow)", "(gone)"))
+        return
+    (a, fa), (b, fb) = ci_model(old), ci_model(new)
+    for item, line in a.items():
+        if item not in b:
+            out.append(Finding("ci-loosened", path, line, item, "(gone or changed)"))
+    for flag in ("continue-on-error", "if: false"):
+        if fb[flag] > fa[flag]:
+            out.append(Finding("ci-loosened", path, 1, f"{fa[flag]} {flag}", f"{fb[flag]} {flag}"))
+
+
 def long_files_rule(tree, path, out):
     def entries(src):
         e = {}
@@ -872,17 +1299,29 @@ def clippy_toml_rule(tree, path, out):
             out.append(Finding("allow-added", path, nl, "(none)", f"{k[1]} = {nv}"))
 
 
+GATE_PHASE = re.compile(r"""^\s*(?:if .*; then\s+)?phase\s+("[^"]+"|'[^']+'|\S+)""")
+
+
 def keel_rule(tree, path, out):
     old, new = tree.old(path), tree.new(path)
     if path == "scripts/gate.sh":
-        pick = lambda s: [t.strip() for t in (s or "").split("\n") if re.search(r"keel", t, re.I)]
+        # The keel's and the door's lines (theseus-pw1q.18: the door is the keel's), any change to them.
+        pick = lambda s: [t.strip() for t in (s or "").split("\n") if re.search(r"keel|door", t, re.I)]
         a, b = pick(old), pick(new)
         if a and a != b:
             line = next((n for n, t in enumerate((new or "").split("\n"), 1)
-                         if re.search(r"keel", t, re.I) and t.strip() not in a), 1)
+                         if re.search(r"keel|door", t, re.I) and t.strip() not in a), 1)
             gone = [t for t in a if t not in b]
             out.append(Finding("keel-file", path, line, gone[0] if gone else "the keel step's lines",
                                next((t for t in b if t not in a), "(gone)")))
+        # A phase of the gate gone (by its name): a check the gate no longer makes. A phase's command changed, or
+        # one added, is no finding.
+        names = lambda s: {m.group(1): n for n, t in enumerate((s or "").split("\n"), 1)
+                           for m in [GATE_PHASE.match(t)] if m}
+        before, after = names(old), names(new)
+        for name, line in before.items():
+            if name not in after:
+                out.append(Finding("keel-file", path, line, f"phase {name}", "(gone)"))
         return
     if old is None or old == new:
         return
@@ -897,7 +1336,8 @@ def keel_rule(tree, path, out):
 
 def judge(tree, paths):
     out = []
-    tests_rule(tree, [p for p in paths if p.endswith((".rs", ".py"))], out)
+    tests_rule(tree, [p for p in paths if p.endswith((".rs", ".py")) or TS_TEST_FILE.search(p)], out)
+    cap_code_rule(tree, [p for p in paths if p.endswith(".rs")], out)
     cap_python(tree, [p for p in paths if p.startswith("bench/") and p.endswith(".py")
                       and not os.path.basename(p).startswith("test_")], out)
     for p in paths:
@@ -917,6 +1357,8 @@ def judge(tree, paths):
             nextest_rule(tree, p, out)
         if p == "clippy.toml":
             clippy_toml_rule(tree, p, out)
+        if CI_FILE.match(p):
+            ci_rule(tree, p, out)
         if p in KEEL_FILES or p == "scripts/gate.sh":
             keel_rule(tree, p, out)
     return out
@@ -937,6 +1379,18 @@ def signers(tree):
     return keys
 
 
+# A signature's kind, from the armour in the commit's gpgsig header. The keel takes a GPG (OpenPGP) key's only
+# (theseus-pw1q.18): scripts/keel-signers lists GPG fingerprints, and an ssh signature verifies against whatever
+# gpg.ssh.allowedSignersFile the machine names, with its SHA256 fingerprint as %GF; an x509 one against gpgsm's keys.
+SIG_KINDS = {"PGP SIGNATURE": "gpg", "SSH SIGNATURE": "ssh", "SIGNED MESSAGE": "x509"}
+
+
+def signature_kind(repo, sha):
+    head = (git(repo, "cat-file", "commit", sha, check=False) or "").split("\n\n", 1)[0]
+    m = re.search(r"^gpgsig(?:-sha256)? -----BEGIN ([A-Z0-9 ]+)-----", head, re.M)
+    return SIG_KINDS.get(m.group(1), m.group(1).lower()) if m else None
+
+
 def acks(repo, base, head_commit, keys):
     """[(rule, [path globs], sha)] from the range's commits whose signature a listed key made."""
     out = git(repo, "log", "--format=%H%x00%(trailers:key=Keel,valueonly,unfold)%x1e", f"{base}..{head_commit}")
@@ -951,11 +1405,16 @@ def acks(repo, base, head_commit, keys):
             continue
         verdict = git(repo, "log", "-1", "--format=%G?%x00%GF%x00%GP", sha, check=False) or "N\0\0"
         mark, fpr, primary = (verdict.strip("\n").split("\0") + ["", ""])[:3]
-        ok = mark in ("G", "U") and keys and (fpr.upper() in keys or primary.upper() in keys)
+        kind = signature_kind(repo, sha)
+        ok = kind == "gpg" and mark in ("G", "U") and keys and (fpr.upper() in keys or primary.upper() in keys)
         for x in lines:
             m = ACK.match(x)
             if not m:
                 refused.append((sha, x, "not of the form `<rule> <path>[, <path>…] — <why>`"))
+                continue
+            if not ok and kind not in (None, "gpg"):
+                refused.append((sha, x, f"an {kind} signature: the keel takes a GPG key's only ({SIGNERS} lists GPG "
+                                        "fingerprints)"))
                 continue
             if not ok:
                 why = "unsigned" if mark == "N" else (

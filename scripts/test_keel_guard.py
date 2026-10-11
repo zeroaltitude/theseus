@@ -5,6 +5,7 @@ and are skipped, saying so, where there is no gpg.
 """
 
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -85,11 +86,78 @@ import unittest
 class Drive(unittest.TestCase):
     def test_a_trial_ends_at_its_limit(self):
         self.assertEqual(1 + 1, 2)
+        self.assertLess(len("ab"), 3)
         assert True
+"""
+
+TIMING = """\
+#[cfg(test)]
+mod tests {
+    use std::time::{Duration, Instant};
+
+    #[test]
+    fn a_start_is_quick() {
+        let t = Instant::now();
+        let took = t.elapsed();
+        assert!(took < Duration::from_millis(50), "a start took {took:?}");
+        assert_eq!(took.as_secs(), 0);
+        assert_eq!(took.is_zero(), false);
+    }
+}
+"""
+
+LIMITS = """\
+/// `[kernel] spend_limit_usd`'s default.
+pub(super) fn default_spend_limit_usd() -> f64 {
+    100.0
+}
+
+pub const CAP_USD: f64 = 5.0;
+pub const LAMBDA_USD_PER_GB_SECOND: f64 = 0.000_016_666_7;
+"""
+
+COCKPIT = """\
+// The ring's tests, run by `npm test`.
+import { describe, test } from 'node:test'
+import assert from 'node:assert/strict'
+
+test('the ring fades within a second', () => {
+  assert.ok(RING_S > 0 && RING_S <= 1, `it fades: ${RING_S} s`)
+  assert.equal(depthOf(379, false), 'fleet')
+})
+
+describe('the sea', () => {
+  test("it shows at fleet depth only", () => {
+    assert.match(RING_VERT, /fleet/)
+    assert.ok(code(RING_VERT).length > 3) // a few lines (at least)
+  })
+})
+"""
+
+CI = """\
+name: ci
+on:
+  push:
+    branches: [main]
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: the cockpit
+        run: cd cockpit && npm ci && npm run lint && npm test && npm run build
+      - run: cargo clippy --workspace --all-targets -q -- -D warnings
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check licenses sources bans
 """
 
 BASE = {
     "crates/demo/src/lib.rs": LIB,
+    "crates/theseus-core/src/config/limits.rs": LIMITS,
+    "cockpit/test/ring.test.ts": COCKPIT,
+    ".github/workflows/ci.yml": CI,
+    "crates/demo/src/timing.rs": TIMING,
     "crates/theseus-sim/src/lifecycle.rs": LIFECYCLE,
     "bench/theseus-bench.toml": BENCH,
     "scripts/long-files.txt": LONG,
@@ -281,6 +349,100 @@ class Erosions(Case):
         self.assertCaught("ceiling-raised", ".config/nextest.toml", {".config/nextest.toml": sub(
             NEXTEST, 'period = "60s"', 'period = "120s"')})
 
+    def weaken(self, old, new, why):
+        self.head({"crates/demo/src/timing.rs": sub(TIMING, old, new)})
+        code, out = self.findings()
+        self.assertEqual(code, 1, out)
+        self.assertRegex(out, r"crates/demo/src/timing.rs:\d+: assert-weakened: .*" + re.escape(why), out)
+
+    def test_an_assert_eq_made_an_assert(self):
+        self.assertCaught("assert-weakened", "crates/demo/src/lib.rs", {"crates/demo/src/lib.rs": sub(
+            LIB, "assert_eq!(n, 5);", "assert!(n > 0);")})
+
+    def test_a_lower_bound_lowered(self):
+        self.assertCaught("assert-weakened", "crates/demo/src/lib.rs", {"crates/demo/src/lib.rs": sub(
+            LIB, "assert!(n > 4,", "assert!(n > 1,")})
+
+    def test_a_timing_bound_raised_in_a_test(self):
+        self.weaken("Duration::from_millis(50)", "Duration::from_millis(500)", "(an upper bound)")
+
+    def test_an_assertion_made_vacuous(self):
+        self.weaken("assert_eq!(took.as_secs(), 0);", "assert!(true);", "(made vacuous)")
+
+    def test_an_assertion_commented_out_beside_a_new_one(self):
+        self.weaken("        assert_eq!(took.as_secs(), 0);\n",
+                    "        // assert_eq!(took.as_secs(), 0);\n        assert_eq!(took.as_millis(), 0);\n",
+                    "(commented out)")
+
+    def test_an_assertion_made_a_discard(self):
+        self.weaken("assert_eq!(took.as_secs(), 0);", "let _ = took.as_secs();", "(discarded)")
+
+    def test_a_python_equality_made_a_truth_test(self):
+        self.assertCaught("assert-weakened", "bench/recall/test_drive.py", {"bench/recall/test_drive.py": sub(
+            PYTEST, "self.assertEqual(1 + 1, 2)", "self.assertTrue(1 + 1)")})
+
+    def test_a_python_upper_bound_raised(self):
+        self.assertCaught("assert-weakened", "bench/recall/test_drive.py", {"bench/recall/test_drive.py": sub(
+            PYTEST, 'self.assertLess(len("ab"), 3)', 'self.assertLess(len("ab"), 30)')})
+
+    def test_a_cap_s_code_default_raised(self):
+        self.assertCaught("cap-raised", "crates/theseus-core/src/config/limits.rs", {
+            "crates/theseus-core/src/config/limits.rs": sub(LIMITS, "    100.0\n", "    150.0\n")})
+
+    def test_a_cap_constant_raised(self):
+        self.assertCaught("cap-raised", "crates/theseus-core/src/config/limits.rs", {
+            "crates/theseus-core/src/config/limits.rs": sub(LIMITS, "CAP_USD: f64 = 5.0", "CAP_USD: f64 = 10.0")})
+
+    def test_a_cap_s_code_default_gone(self):
+        self.assertCaught("cap-raised", "crates/theseus-core/src/config/limits.rs", {
+            "crates/theseus-core/src/config/limits.rs": sub(LIMITS, "    100.0\n", "    f64::INFINITY\n")})
+
+    def test_a_cockpit_test_deleted(self):
+        self.assertCaught("test-removed", "cockpit/test/ring.test.ts", {"cockpit/test/ring.test.ts": sub(
+            COCKPIT, "test('the ring fades within a second', () => {\n", "const unused = (() => {\n")})
+
+    def test_a_cockpit_test_skipped(self):
+        self.assertCaught("test-ignored", "cockpit/test/ring.test.ts", {"cockpit/test/ring.test.ts": sub(
+            COCKPIT, 'test("it shows', 'test.skip("it shows')})
+
+    def test_a_cockpit_test_given_a_skip_option(self):
+        self.assertCaught("test-ignored", "cockpit/test/ring.test.ts", {"cockpit/test/ring.test.ts": sub(
+            COCKPIT, "test('the ring fades within a second', () => {", "test('the ring fades within a second', "
+                                                                       "{ skip: 'later' }, () => {")})
+
+    def test_a_cockpit_assertion_deleted(self):
+        self.assertCaught("assert-removed", "cockpit/test/ring.test.ts", {"cockpit/test/ring.test.ts": sub(
+            COCKPIT, "    assert.match(RING_VERT, /fleet/)\n", "")})
+
+    def test_a_cockpit_equality_made_a_truth_test(self):
+        self.assertCaught("assert-weakened", "cockpit/test/ring.test.ts", {"cockpit/test/ring.test.ts": sub(
+            COCKPIT, "assert.equal(depthOf(379, false), 'fleet')", "assert.ok(depthOf(379, false))")})
+
+    def test_a_cockpit_bound_loosened(self):
+        self.assertCaught("assert-weakened", "cockpit/test/ring.test.ts", {"cockpit/test/ring.test.ts": sub(
+            COCKPIT, "RING_S <= 1,", "RING_S <= 5,")})
+
+    def test_a_cockpit_lower_bound_lowered_beside_an_upper_one(self):
+        self.assertCaught("assert-weakened", "cockpit/test/ring.test.ts", {"cockpit/test/ring.test.ts": sub(
+            COCKPIT, "RING_S > 0 &&", "RING_S > -1 &&")})
+
+    def test_a_ci_command_dropped(self):
+        self.assertCaught("ci-loosened", ".github/workflows/ci.yml", {".github/workflows/ci.yml": sub(
+            CI, "npm run lint && npm test && npm run build", "npm run lint && npm run build")})
+
+    def test_a_ci_command_made_to_pass(self):
+        self.assertCaught("ci-loosened", ".github/workflows/ci.yml", {".github/workflows/ci.yml": sub(
+            CI, "-D warnings\n", "-D warnings || true\n")})
+
+    def test_a_ci_step_allowed_to_fail(self):
+        self.assertCaught("ci-loosened", ".github/workflows/ci.yml", {".github/workflows/ci.yml": sub(
+            CI, "      - run: cargo clippy", "      - continue-on-error: true\n        run: cargo clippy")})
+
+    def test_a_ci_action_removed(self):
+        self.assertCaught("ci-loosened", ".github/workflows/ci.yml", {".github/workflows/ci.yml": sub(
+            CI, "      - uses: EmbarkStudios/cargo-deny-action@v2\n        with:\n"
+                "          command: check licenses sources bans\n", "")})
+
     def test_an_uncommitted_erosion_in_the_working_tree(self):
         self.repo.write({"scripts/long-files.txt": LONG + "crates/demo/src/vast.rs 2700 new\n"})
         code, out = self.findings()
@@ -332,6 +494,53 @@ class NonFindings(Case):
     def test_the_guards_own_files_added(self):
         self.assertClean({"scripts/keel-guard.py": "# the guard\n", "scripts/keel-signers": "# no key\n"})
 
+    def test_an_equality_with_a_bool_made_an_assert(self):
+        self.assertClean({"crates/demo/src/timing.rs": sub(TIMING, "assert_eq!(took.is_zero(), false);",
+                                                           "assert!(!took.is_zero());")})
+
+    def test_an_assert_eq_made_an_assert_of_its_equality(self):
+        self.assertClean({"crates/demo/src/lib.rs": sub(LIB, "assert_eq!(n, 5);", "assert!(n == 5, \"the sum\");")})
+
+    def test_a_timing_bound_tightened(self):
+        self.assertClean({"crates/demo/src/timing.rs": sub(TIMING, "from_millis(50)", "from_millis(40)")})
+
+    def test_a_measured_side_rewritten(self):
+        self.assertClean({"crates/demo/src/timing.rs": sub(TIMING, "assert!(took < Duration::from_millis(50),",
+                                                           "assert!(t.elapsed() < Duration::from_millis(50),")})
+
+    def test_an_assertion_added_among_changed_ones(self):
+        # The work-types join's shape (4ffcc282): an assert! added among assertions whose arguments all changed.
+        self.assertClean({"crates/demo/src/timing.rs": sub(
+            TIMING, '        assert!(took < Duration::from_millis(50), "a start took {took:?}");\n'
+                    '        assert_eq!(took.as_secs(), 0);\n',
+            '        assert!(took < Duration::from_millis(50), "a start took {took:?}, cold");\n'
+            '        assert!(took.subsec_nanos() < 1_000_000_000);\n'
+            '        assert_eq!(took.as_secs() + 0, 0);\n')})
+
+    def test_a_truth_test_made_an_equality(self):
+        self.assertClean({"crates/demo/src/timing.rs": sub(TIMING, "assert!(took < Duration::from_millis(50), "
+                                                                   "\"a start took {took:?}\");",
+                                                           "assert_eq!(took < Duration::from_millis(50), true);")})
+
+    def test_a_cap_s_code_default_lowered_moved_or_new(self):
+        self.assertClean({"crates/theseus-core/src/config/limits.rs": sub(sub(
+            LIMITS, "    100.0\n", "    90.0\n"), "pub const CAP_USD: f64 = 5.0;\n", "")
+            + "\npub(super) fn default_sweep_usd_per_day() -> f64 {\n    2.0\n}\n",
+            "crates/theseus-core/src/judge/backfill.rs": "pub const CAP_USD: f64 = 5.0;\n"})
+
+    def test_a_price_constant_raised(self):
+        self.assertClean({"crates/theseus-core/src/config/limits.rs": sub(
+            LIMITS, "0.000_016_666_7", "0.000_017")})
+
+    def test_a_cockpit_test_renamed_and_one_added(self):
+        self.assertClean({"cockpit/test/ring.test.ts": sub(COCKPIT, "the ring fades within a second",
+                                                           "the ring fades out within a second")
+                          + "\ntest('a third', () => {\n  assert.equal(1, 1)\n})\n"})
+
+    def test_a_ci_step_added_and_an_action_bumped(self):
+        self.assertClean({".github/workflows/ci.yml": sub(CI, "actions/checkout@v4", "actions/checkout@v5")
+                          + "      - run: cargo doc --no-deps\n"})
+
     def test_a_comment_in_a_budget(self):
         self.assertClean({"crates/theseus-sim/src/lifecycle.rs": sub(
             LIFECYCLE, '        "shutdown" => Some(100.0),', '        // 120 once, now 100.\n        "shutdown" => Some(100.0),')})
@@ -368,6 +577,87 @@ class Ranges(Case):
         self.assertEqual(code, 2, out)
         self.assertIn("THESEUS_KEEL_BASE", out)
 
+    def join_with_a_fix_after_its_merge(self):
+        """main at the base is origin/main; the lane raises a ceiling; the join merges it on main and commits a fix
+        after the merge, so HEAD is the fix (theseus-pw1q.18: the people join's gate judged HEAD..HEAD here)."""
+        self.repo.git("update-ref", "refs/remotes/origin/main", "main")
+        self.repo.commit({"scripts/long-files.txt": sub(LONG, "big.rs 3000", "big.rs 3200")}, "raise")
+        self.repo.git("checkout", "-q", "main")
+        self.repo.git("merge", "-q", "--no-ff", "-m", "Merge lane", "lane")
+        self.repo.commit({"scripts/shape.sh": "#!/usr/bin/env bash\nlimit=2500\n# the join's fix\n"}, "join fix")
+
+    def test_a_join_whose_fix_follows_its_merge_is_judged_whole(self):
+        self.join_with_a_fix_after_its_merge()
+        code, out = self.findings()
+        self.assertEqual(code, 1, out)
+        self.assertIn("merge-base(HEAD, origin/main)", out)
+        self.assertIn("scripts/long-files.txt:2: ceiling-raised", out)
+
+    def test_a_branch_cut_at_a_landed_join_is_judged_from_it(self):
+        self.repo.git("update-ref", "refs/remotes/origin/main", "main")
+        self.repo.commit({"scripts/long-files.txt": sub(LONG, "big.rs 3000", "big.rs 3200")}, "raise")
+        self.repo.git("checkout", "-q", "main")
+        self.repo.git("merge", "-q", "--no-ff", "-m", "Merge lane", "lane")
+        self.repo.git("update-ref", "refs/remotes/origin/main", "main")
+        self.repo.git("checkout", "-q", "-b", "next")
+        self.repo.write({"scripts/shape.sh": "#!/usr/bin/env bash\nlimit=2400\n"})
+        code, out = self.findings()
+        self.assertEqual(code, 0, "the landed join is not judged again: " + out)
+        self.assertIn("a branch: merge-base(HEAD, origin/main)", out)
+
+
+GATE = Path(__file__).resolve().parent / "gate.sh"
+
+
+class GateCase(Case):
+    """The real scripts/gate.sh, run in a throwaway repository: its door and keel phases run, and its next phase (fmt)
+    fails there, since the repository has no Cargo.toml; the door's and the keel's lines say what was judged."""
+
+    def setUp(self):
+        super().setUp()
+        self.repo.git("checkout", "-q", "main")
+        self.repo.commit({"scripts/gate.sh": GATE.read_text(), "scripts/keel-guard.py": GUARD.read_text()}, "gate")
+        os.chmod(self.repo.root / "scripts/gate.sh", 0o755)
+        self.repo.git("checkout", "-q", "-B", "lane")
+        self.logs = tempfile.mkdtemp(prefix="keel-logs-")
+
+    def tearDown(self):
+        super().tearDown()
+        shutil.rmtree(self.logs, ignore_errors=True)
+
+    def gate(self, script="scripts/gate.sh", **env):
+        e = {k: v for k, v in self.repo.env.items()
+             if k not in ("THESEUS_GATE_ROOT", "THESEUS_GATE_DOOR", "THESEUS_GATE_NO_BENCH")}
+        e.update({"THESEUS_GATE_TIMES": f"{self.logs}/times.csv", "THESEUS_BENCH_HISTORY": f"{self.logs}/bench.csv",
+                  "THESEUS_FLAKY_LOG": f"{self.logs}/flaky.csv", "THESEUS_GATE_LOCK_FILE": f"{self.logs}/lock",
+                  "TMPDIR": self.logs, "PYTHONDONTWRITEBYTECODE": "1", **env})
+        p = subprocess.run(["bash", script], cwd=self.repo.root, env=e, capture_output=True, text=True, timeout=60)
+        return p.returncode, p.stdout + p.stderr
+
+
+class Gate(GateCase):
+    def test_the_gate_judges_a_join_whose_fix_follows_its_merge(self):
+        Ranges.join_with_a_fix_after_its_merge(self)
+        code, out = self.gate()
+        self.assertNotEqual(code, 0, out)
+        self.assertIn("scripts/long-files.txt:2: ceiling-raised", out)
+        self.assertIn("gate: FAILED in keel", out)
+
+    def test_the_gate_judges_a_branch_cut_at_a_landed_join_from_it(self):
+        self.repo.git("checkout", "-q", "main")
+        self.repo.git("update-ref", "refs/remotes/origin/main", "main")
+        self.repo.git("checkout", "-q", "lane")
+        self.repo.commit({"scripts/long-files.txt": sub(LONG, "big.rs 3000", "big.rs 3200")}, "raise")
+        self.repo.git("checkout", "-q", "main")
+        self.repo.git("merge", "-q", "--no-ff", "-m", "Merge lane", "lane")
+        self.repo.git("update-ref", "refs/remotes/origin/main", "main")
+        self.repo.git("checkout", "-q", "-b", "next")
+        self.repo.write({"scripts/shape.sh": "#!/usr/bin/env bash\nlimit=2400\n"})
+        code, out = self.gate()
+        self.assertIn("keel: ok (", out)
+        self.assertIn("1 files changed", out)
+        self.assertIn("gate: FAILED in fmt", out)
+
 
 class KeelFiles(Case):
     def setUp(self):
@@ -389,6 +679,108 @@ class KeelFiles(Case):
     def test_another_gate_change_is_not(self):
         self.assertClean({"scripts/gate.sh": "phase keel keel_guard\nphase fmt cargo fmt --all\n"})
 
+    def test_a_gate_phase_gone_is_a_finding(self):
+        self.assertCaught("keel-file", "scripts/gate.sh", {"scripts/gate.sh": "phase keel keel_guard\n"})
+
+    def test_a_gate_phase_added_is_not(self):
+        self.assertClean({"scripts/gate.sh": "phase keel keel_guard\nphase fmt cargo fmt\nphase \"a new one\" true\n"})
+
+
+class DoorLines(Case):
+    def setUp(self):
+        super().setUp()
+        self.repo.git("checkout", "-q", "main")
+        self.repo.commit({"scripts/gate.sh": "phase door keel_door\nTHESEUS_GATE_DOOR=judge \"$copy\"\n"}, "the door")
+        self.repo.git("checkout", "-q", "-B", "lane")
+
+    def test_a_door_line_changed_is_a_finding(self):
+        self.assertCaught("keel-file", "scripts/gate.sh", {"scripts/gate.sh": "phase door keel_door\n\"$copy\"\n"})
+
+
+# A stand-in for main's gate.sh that has the door (its word, THESEUS_GATE_DOOR, is all the door looks for): it says
+# what it was asked to judge, and passes or fails as STUB_EXIT says.
+STUB_GATE = """#!/usr/bin/env bash
+# main's gate, standing in: THESEUS_GATE_DOOR
+echo "stub main gate judged ${THESEUS_GATE_ROOT:-?} as ${THESEUS_GATE_DOOR:-?}"
+exit "${STUB_EXIT:-0}"
+"""
+
+
+class Door(GateCase):
+    """The gate that judges is main's (theseus-pw1q.18): a branch's own gate.sh is never its only judge."""
+
+    def main_gate(self, text):
+        """main's (and origin/main's) gate.sh becomes `text`; the lane is cut before it."""
+        self.repo.git("checkout", "-q", "main")
+        self.repo.commit({"scripts/gate.sh": text}, "main's gate moves on")
+        self.repo.git("update-ref", "refs/remotes/origin/main", "main")
+        self.repo.git("checkout", "-q", "lane")
+
+    def weakened(self):
+        """The real gate.sh without its keel phase."""
+        return sub(GATE.read_text(), "phase keel keel_guard\n", "")
+
+    def test_a_lane_behind_main_s_gate_is_judged_by_main_s(self):
+        self.main_gate(STUB_GATE)
+        code, out = self.gate()
+        self.assertEqual(code, 0, out)
+        self.assertIn(f"stub main gate judged {os.path.realpath(self.dir)} as judge", out)
+        self.assertIn("gate: ok (main's gate judged this tree)", out)
+        self.assertNotIn("keel:", out, "the lane does not change gate.sh, so its own copy does not run")
+
+    def test_a_long_main_gate_is_still_seen_to_have_the_door(self):
+        # Main's copy names the door early and runs on for 400 KB: a `cat-file | grep -q` under pipefail failed here
+        # (grep's early exit SIGPIPEs cat-file), and the door took main for one without it.
+        self.main_gate(STUB_GATE + "# padding\n" * 40_000)
+        for _ in range(3):
+            code, out = self.gate()
+            self.assertIn("as judge", out)
+
+    def test_main_s_gate_failing_fails_the_door(self):
+        self.main_gate(STUB_GATE)
+        code, out = self.gate(STUB_EXIT="1")
+        self.assertNotEqual(code, 0, out)
+        self.assertIn("door: main's gate failed on this tree", out)
+        self.assertIn("gate: FAILED in door", out)
+
+    def test_a_branch_that_changes_gate_sh_runs_its_own_after_main_s(self):
+        self.repo.git("checkout", "-q", "main")
+        self.repo.commit({"scripts/gate.sh": STUB_GATE}, "main's gate is the stand-in")
+        self.repo.git("update-ref", "refs/remotes/origin/main", "main")
+        self.repo.git("checkout", "-q", "-B", "lane")
+        self.repo.commit({"scripts/gate.sh": GATE.read_text()}, "the lane's gate.sh")
+        code, out = self.gate()
+        self.assertIn("as judge", out)
+        self.assertIn("door: main's gate passed; this branch changes scripts/gate.sh, so its own copy runs now", out)
+        self.assertRegex(out, r"(?s)as judge.*\nkeel: ", "the lane's own keel phase ran after main's gate")
+
+    def test_a_weakened_gate_sh_is_judged_by_main_s(self):
+        self.repo.git("update-ref", "refs/remotes/origin/main", "main")
+        self.repo.commit({"scripts/long-files.txt": sub(LONG, "big.rs 3000", "big.rs 3200"),
+                          "scripts/gate.sh": self.weakened()}, "raise, and drop the keel phase")
+        code, out = self.gate()
+        self.assertNotEqual(code, 0, out)
+        self.assertIn("door: this gate.sh is not main's", out)
+        self.assertRegex(out, r"main's judges this tree first \(\S*/theseus-gate-door-[0-9a-f]+/scripts/gate\.sh\)",
+                         "main's copy runs as scripts/gate.sh, as review-step.sh knows a gate")
+        self.assertIn("scripts/long-files.txt:2: ceiling-raised", out)
+        self.assertRegex(out, r"scripts/gate.sh:\d+: keel-file")
+        self.assertIn("gate: FAILED in door", out)
+
+    def test_main_s_copy_from_outside_judges_a_tree_without_the_door(self):
+        self.repo.git("update-ref", "refs/remotes/origin/main", "main")
+        gate = sub(sub(self.weakened(), "phase door keel_door\n", ""), "THESEUS_GATE_DOOR", "THESEUS_GATE_GONE")
+        self.repo.commit({"scripts/long-files.txt": sub(LONG, "big.rs 3000", "big.rs 3200"), "scripts/gate.sh": gate},
+                         "raise, and drop the keel phase and the door")
+        code, out = self.gate()
+        self.assertNotIn("ceiling-raised", out, "the tree's own copy judges nothing of the keel: the hole")
+        copy = Path(self.logs) / "main-gate.sh"
+        copy.write_text(self.repo.git("show", "origin/main:scripts/gate.sh"))
+        code, out = self.gate(str(copy), THESEUS_GATE_ROOT=str(self.repo.root))
+        self.assertNotEqual(code, 0, out)
+        self.assertIn("door: main's copy judges; this tree changes scripts/gate.sh", out)
+        self.assertIn("scripts/long-files.txt:2: ceiling-raised", out)
+        self.assertIn("gate: FAILED in keel", out)
 
 def gpg_key(home, name):
     subprocess.run(["gpg", "--batch", "--passphrase", "", "--quick-gen-key", f"{name} <{name}@example.invalid>",
@@ -459,6 +851,30 @@ class Acks(unittest.TestCase):
         self.assertEqual(code, 1, out)
         self.assertIn("keel-file", out)
         self.assertIn(f"signed by {self.stranger}", out)
+
+    @unittest.skipIf(shutil.which("ssh-keygen") is None, "no ssh-keygen: the ssh-signed ack is not tested here")
+    def test_an_ssh_signed_ack_is_refused_even_where_it_verifies(self):
+        keys = tempfile.mkdtemp(prefix="keel-ssh-")
+        self.addCleanup(shutil.rmtree, keys, True)
+        key = f"{keys}/key"
+        subprocess.run(["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-C", "wren@example.invalid", "-f", key],
+                       check=True, capture_output=True)
+        with open(f"{keys}/allowed", "w") as f:
+            f.write("wren@example.invalid " + Path(key + ".pub").read_text())
+        fpr = subprocess.run(["ssh-keygen", "-lf", key + ".pub"], check=True, capture_output=True,
+                             text=True).stdout.split()[1]
+        # A base that lists the ssh key's fingerprint, so only the kind of the signature can refuse it.
+        self.repo.git("checkout", "-q", "main")
+        self.repo.commit({"scripts/keel-signers": f"# the keel's signers\n{self.listed}\n{fpr}\n"}, "list it")
+        self.repo.git("checkout", "-q", "-B", "lane")
+        self.repo.commit({"scripts/long-files.txt": sub(LONG, "big.rs 3000", "big.rs 3050")}, "raise a ceiling")
+        self.repo.git("config", "gpg.ssh.allowedSignersFile", f"{keys}/allowed")
+        self.repo.git("-c", "gpg.format=ssh", "-c", f"user.signingkey={key}", "commit", "-q", "--allow-empty", "-S",
+                      "-m", self.ACK)
+        self.assertEqual(self.repo.git("log", "-1", "--format=%G?|%GF").strip(), f"G|{fpr}", "it verifies")
+        code, out = self.repo.guard()
+        self.assertEqual(code, 1, out)
+        self.assertIn("an ssh signature: the keel takes a GPG key's only", out)
 
     def test_a_signed_merge_carries_the_join_s_acks(self):
         self.repo.git("checkout", "-q", "main")

@@ -28,7 +28,8 @@
 # when something does.
 set -euo pipefail
 self="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
-cd "$(dirname "$0")/.."
+# The tree it judges: its own checkout's, or THESEUS_GATE_ROOT's when the door runs main's copy from outside it.
+cd "${THESEUS_GATE_ROOT:-$(dirname "$0")/..}"
 export PATH="$HOME/.cargo/bin:$PATH"
 
 # `--locked-part DIR ASKED LABEL` is the gate calling itself under the lock, not an option.
@@ -425,8 +426,17 @@ deny_check() {
 # branch cannot loosen the guard that judges it (a change to it is itself a finding), and the range's base is found
 # here, as the guard finds it, not by the branch's copy. There is no switch to skip it.
 keel_base=""
+# Main for the keel: origin/main, or the local main when there is no origin/main (theseus-pw1q.18). A join's local main
+# is ahead of origin/main by what this gate judges (its merge, and any fix committed after it), so taking it judged
+# HEAD..HEAD, nothing, whenever a fix followed the merge (the people join's gate, 2026-10-09).
+keel_main() {
+  git rev-parse --verify -q 'origin/main^{commit}' || git rev-parse --verify -q 'main^{commit}' || {
+    echo "keel: no main and no origin/main to judge against: set THESEUS_KEEL_BASE=<rev>" >&2
+    return 1
+  }
+}
 keel_range_base() {
-  local main local_main remote first
+  local main remote first
   if [ -n "${THESEUS_KEEL_BASE:-}" ]; then
     git rev-parse --verify -q "$THESEUS_KEEL_BASE^{commit}" || {
       echo "keel: no commit $THESEUS_KEEL_BASE (THESEUS_KEEL_BASE)" >&2
@@ -434,19 +444,14 @@ keel_range_base() {
     }
     return 0
   fi
-  local_main="$(git rev-parse --verify -q 'main^{commit}' || true)"
+  main="$(keel_main)" || return 1
   remote="$(git rev-parse --verify -q 'origin/main^{commit}' || true)"
-  main="${local_main:-$remote}"
-  if [ -n "$local_main" ] && [ -n "$remote" ] && git merge-base --is-ancestor "$local_main" "$remote"; then
-    main=$remote
-  fi
-  [ -n "$main" ] || {
-    echo "keel: no main and no origin/main to judge against: set THESEUS_KEEL_BASE=<rev>" >&2
-    return 1
-  }
+  # A join's merge, not yet on origin/main, is judged whole; one already there was judged at its join, so a branch
+  # cut at it is judged from it.
   if git rev-parse --verify -q 'HEAD^2' >/dev/null; then
     first="$(git rev-parse 'HEAD^1')"
-    if git merge-base --is-ancestor "$first" "$main"; then
+    if git merge-base --is-ancestor "$first" "$main" &&
+      ! { [ -n "$remote" ] && git merge-base --is-ancestor HEAD "$remote"; }; then
       echo "$first"
       return 0
     fi
@@ -463,12 +468,72 @@ keel_guard() {
   fi
   python3 "$guard" --base "$keel_base"
 }
+# The door (theseus-pw1q.18; the keel-guard review's finding 3). A join runs the merge's gate.sh, which is the
+# branch's, so a branch that dropped its keel phase, or any check, was judged by its own weakened copy. Now the gate
+# that judges is main's: when this copy is not main's (origin/main's, as the keel takes main) and main's has the door,
+# main's copy runs first, from outside the tree, and judges it; this copy then runs on only when the branch itself
+# changes gate.sh, so its own new checks are proved before they land. Main's copy started from outside the tree (by
+# a caller that trusts nothing in it: scripts/AGENTS.md, "The door") runs the tree's own copy after it the same way.
+# THESEUS_GATE_DOOR is the door's word to the copy it starts (judge: main's, which ends there; own: the tree's,
+# after main's passed), not an option.
+door_after=""
+door_done=""
+keel_door() {
+  local main theirs mine copy
+  [ "${THESEUS_GATE_DOOR:-}" != judge ] || return 0
+  main="$(keel_main 2>/dev/null)" || return 0
+  theirs="$(git rev-parse -q --verify "$main:scripts/gate.sh" 2>/dev/null)" || return 0
+  # Not `git cat-file … | grep -q`: under pipefail, grep's early exit can SIGPIPE cat-file and fail the pipe.
+  if [[ "$(git cat-file blob "$theirs")" != *THESEUS_GATE_DOOR* ]]; then
+    echo "door: main's gate.sh has no door yet, so this copy judges"
+    return 0
+  fi
+  mine="$(git hash-object "$self")"
+  if [ "$mine" = "$theirs" ]; then
+    if [ "$(git hash-object scripts/gate.sh)" != "$theirs" ] && keel_gate_changed; then
+      door_after=1
+      echo "door: main's copy judges; this tree changes scripts/gate.sh, so its own copy runs after this gate passes"
+    fi
+    return 0
+  fi
+  [ "${THESEUS_GATE_DOOR:-}" != own ] || return 0
+  # Under a scripts/ of its own, so what knows a gate by `scripts/gate.sh --locked-part` in its argv (review-step.sh,
+  # lock_users' readers) knows this one too.
+  copy="${TMPDIR:-/tmp}/theseus-gate-door-$theirs/scripts/gate.sh"
+  if [ ! -f "$copy" ] || [ "$(git hash-object "$copy")" != "$theirs" ]; then
+    mkdir -p "${copy%/gate.sh}" &&
+      git cat-file blob "$theirs" >"$copy.$$" && chmod 755 "$copy.$$" && mv -f "$copy.$$" "$copy"
+  fi
+  echo "door: this gate.sh is not main's (${main:0:10}); main's judges this tree first ($copy)"
+  if ! THESEUS_GATE_DOOR=judge THESEUS_GATE_ROOT="$PWD" "$copy"; then
+    echo "door: main's gate failed on this tree"
+    return 1
+  fi
+  if keel_gate_changed; then
+    echo "door: main's gate passed; this branch changes scripts/gate.sh, so its own copy runs now"
+    return 0
+  fi
+  echo "door: main's gate passed, and this branch does not change scripts/gate.sh"
+  door_done=1
+}
+# Does the range change gate.sh (the working tree's against the keel's base)?
+keel_gate_changed() {
+  local base
+  base="$(keel_range_base)" || return 1
+  ! git diff --quiet "$base" -- scripts/gate.sh
+}
+# Main's copy started from outside the tree, done: the tree's own changed copy runs now, after main's passed.
+door_own() {
+  echo "door: this tree changes scripts/gate.sh; main's gate passed, so its own copy runs now"
+  THESEUS_GATE_DOOR=own "$PWD/scripts/gate.sh"
+}
+
 # The guard's planted-erosion suite (about 40 throwaway repositories, signed acks among them: seconds), run when the
-# guard or its suite differs from the range's base, which a change to either is; otherwise it would prove again what
-# the base's gate proved.
+# guard, its suite or this gate (whose keel range and door it tests) differs from the range's base, which a change to
+# any is; otherwise it would prove again what the base's gate proved.
 keel_tests() {
-  if git diff --quiet "$keel_base" -- scripts/keel-guard.py scripts/test_keel_guard.py &&
-    [ -z "$(git ls-files --others --exclude-standard -- scripts/keel-guard.py scripts/test_keel_guard.py)" ]; then
+  local own=(scripts/keel-guard.py scripts/test_keel_guard.py scripts/gate.sh)
+  if git diff --quiet "$keel_base" -- "${own[@]}" && [ -z "$(git ls-files --others --exclude-standard -- "${own[@]}")" ]; then
     echo "keel tests: the guard is the base's; its suite ran there"
     return 0
   fi
@@ -624,7 +689,7 @@ locked_checks() {
   fi
   phase_now="lock wait"
   phase_began=$SECONDS
-  flock -o "$lock" "$self" --locked-part "$gate_tmp" "$asked" "$label" || status=$?
+  THESEUS_GATE_ROOT="$PWD" flock -o "$lock" "$self" --locked-part "$gate_tmp" "$asked" "$label" || status=$?
   phase_now=""
   if [ -f "$rec" ]; then
     while read -r kind secs name; do
@@ -663,7 +728,14 @@ if [ "$part" = locked ]; then
   exit 0
 fi
 
-# The keel first: it needs no build, so a branch that removed what would fail it stops in seconds.
+# The door, then the keel: neither needs a build, so a branch that removed what would fail it stops in seconds.
+phase door keel_door
+if [ -n "$door_done" ]; then
+  gate_done=1
+  summary ok
+  echo "gate: ok (main's gate judged this tree)"
+  exit 0
+fi
 phase keel keel_guard
 phase "keel tests" keel_tests
 phase fmt cargo fmt --all -- --check
@@ -680,6 +752,7 @@ phase cockpit cockpit
 phase "test build" test_build
 locked_checks
 phase deny deny_check
+if [ -n "$door_after" ]; then phase "own gate.sh" door_own; fi
 gate_done=1
 summary ok
 echo "gate: ok"

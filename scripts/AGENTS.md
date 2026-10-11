@@ -190,24 +190,56 @@ and for a quiet machine, can each add minutes, so give the gate's command a time
 (theseus-pw1q.1; the owner's decision on self-improvement, 2026-10-09: deleting or loosening a test, a budget or a
 ceiling needs the owner's yes.) `scripts/keel-guard.py` (standard library only) judges a range's net change and prints
 each erosion as `path:line: rule: old -> new`; its header names every rule and every file it watches:
-`test-removed`, `test-ignored`, `assert-removed`, `allow-added` (an `allow` or an `expect`, a lint level, a clippy.toml
+`test-removed`, `test-ignored`, `assert-removed`, `assert-weakened` (an assertion loosened in place, which keeps the
+count: an equality made a truth test, a constant bound loosened, an assertion made vacuous, commented out or
+discarded), `allow-added` (an `allow` or an `expect`, a lint level, a clippy.toml
 threshold), `budget-raised` (the lifecycle, turn and jobs benches' limits, the busy allowance's default), `cap-raised`
-(bench/'s spend and loop caps, the config template's spend and day lines), `ceiling-raised` (long-files.txt,
-shape.sh's limit, nextest's retries, timeouts and overrides) and `keel-file` (the guard itself).
+(bench/'s spend and loop caps, the config template's spend and day lines, and a cap's code default: a `fn default_*`
+or a constant that names a spend or loop cap), `ceiling-raised` (long-files.txt, shape.sh's limit, nextest's retries,
+timeouts and overrides), `ci-loosened` (a CI step's command gone or changed, `continue-on-error`, an `if:` that is
+false) and `keel-file` (the guard itself, its door, a gate phase gone). The test rules read Rust, Python and the
+cockpit's TypeScript tests (`node:test`'s `test(...)`, its `.skip`/`.todo`/`.only` and `{ skip: }` options, and
+`assert.*` calls).
 
-- **The range.** On a branch, merge-base(HEAD, main)..the working tree (`origin/main` when it is newer or there is no
-  local `main`), so the gate before a commit judges what it will hold; on a join's merge commit, HEAD^1..HEAD.
-  `THESEUS_KEEL_BASE=<rev>` names the base. The gate finds the base in its own shell and runs the base's copy of the
-  guard, so a branch's copy decides neither. There is no switch to skip it.
+- **The range.** Main is `origin/main` (the local `main` only where there is no `origin/main`): a join's local main is
+  ahead of it by exactly what the join's gate judges. On a branch, merge-base(HEAD, main)..the working tree, so the gate
+  before a commit judges what it will hold, and a join whose fix is a commit after its merge is judged whole (until
+  theseus-pw1q.18 the local main won there, and the range was HEAD..HEAD: the people join's gate judged nothing). On a
+  join's merge commit not yet on origin/main, HEAD^1..HEAD; a branch cut at a merge already on origin/main is judged
+  from it. `THESEUS_KEEL_BASE=<rev>` names the base. The gate finds the base in its own shell and runs the base's copy
+  of the guard, so a branch's copy decides neither. There is no switch to skip it.
+- **The door** (theseus-pw1q.18). A join runs the merge's `gate.sh`, which is the branch's, so a branch that dropped
+  its keel phase (or any check) was judged by its own weakened copy. Now the gate's first phase, `door`, compares the
+  running copy with main's (`origin/main:scripts/gate.sh`): when they differ and main's has the door, main's copy runs
+  first, from `$TMPDIR/theseus-gate-door-<blob>/scripts/gate.sh` (so what knows a gate by `scripts/gate.sh
+  --locked-part` in its argv, `review-step.sh` among them, knows it) with `THESEUS_GATE_ROOT` naming this tree, and judges it with
+  main's keel; if it fails, the gate fails `in door`. Then, only when the branch itself changes `gate.sh`, the tree's
+  own copy runs on, so its new checks are proved before they land; otherwise the gate ends `gate: ok (main's gate
+  judged this tree)` (a lane behind main's gate.sh is judged by main's alone). The guard calls any change to the
+  door's lines, or a phase gone from `gate.sh` (by name), a `keel-file` finding.
+  The door in the tree's copy holds only while that copy is honest: a branch could delete the door too. **A caller that
+  trusts nothing in the tree (a join, and Theseus's own self-join) starts main's copy itself**, which judges the tree
+  and then runs the tree's own changed copy after it:
+
+  ```bash
+  blob=$(git rev-parse origin/main:scripts/gate.sh) && git cat-file blob "$blob" >"/tmp/gate-$blob.sh" &&
+    THESEUS_GATE_ROOT="$PWD" bash "/tmp/gate-$blob.sh"
+  ```
+
+  `THESEUS_GATE_DOOR` is the door's word to the copies it starts (`judge`, `own`), not an option.
 - **The ack.** A finding passes only when a commit in the range, signed by a key that `scripts/keel-signers` lists
   at the base, carries `Keel: <rule> <path>[, <path>…] — <why>` (a path may be a glob; the gate prints the exact
-  lines to fill in). An unsigned trailer, or one signed by any other key, counts for nothing and is said so. At a
+  lines to fill in). An unsigned trailer, or one signed by any other key, counts for nothing and is said so. Only a
+  GPG key's signature counts: an ssh or x509 one is refused by name even where it verifies (an ssh signature verifies
+  against whatever `gpg.ssh.allowedSignersFile` the machine names, and its SHA256 fingerprint would match a listed
+  one; theseus-pw1q.18). At a
   join the owner's signed merge commit carries the trailers in its message.
 - **Moved and renamed tests** are the same test: matched by name, then by body, then a test that went and one that
   came at least half alike (difflib over their words; the guard prints each pairing). An assertion made a wait
   (`wait_for(`, `.until(`) keeps its check.
 - **Its suite**, `scripts/test_keel_guard.py`, builds a throwaway repository per case (signed cases with throwaway
-  keys in their own `GNUPGHOME`); the gate runs it when the guard or the suite differs from the base. Run it alone
+  keys in their own `GNUPGHOME`, and the real `gate.sh` run in a throwaway repository for its range and its door); the
+  gate runs it when the guard, the suite or `gate.sh` differs from the base. Run it alone
   with `python3 -m unittest scripts/test_keel_guard.py`.
 
 ### The shape budget
