@@ -1,6 +1,8 @@
 # The async bench
 
-Six families of local Harbor tasks where concurrency is the point (theseus-7gir.16). Every arm runs the same
+Six families of local Harbor tasks where concurrency is the point (theseus-7gir.16), and twenty more whose
+independent slow sub-steps measure parallel tool calls (Layer 2, theseus-2wxa), beside a deterministic stand-in
+for the calls of one response (Layer 1). Every arm runs the same
 tasks through Harbor 0.23 with the same model, limits, attempts, and wall clock, each by its own async means: Theseus
 with its background jobs, tasks, wakes, and daemon-owned waits; Claude Code with its background commands and
 subagents. An instruction states the task, never how to run it ("in parallel", "in the background"), so every arm
@@ -10,10 +12,13 @@ reads one text. A driver sends two families a second message mid-trial, and a sc
 |---|---|
 | `tasks/<family>/` | A Harbor task each: `task.toml`, `instruction.md`, `environment/` (a `python:3.12-slim` image with the family's tools in `/opt/async/bin`), `solution/solve.sh` (the oracle), and `tests/test.sh` (the verifier). |
 | `tools/asyncbench.py` | The tools, the ledger, and the checks, standard library only. Each task holds two copies of it, its image's and its verifier's; `sync.py` writes them. |
+| `tools/layer2.py` | Layer 2's tools, the facts they draw, its order rules (`DEPS`), ideal walls, overlap, and checks, on asyncbench's ledger. Copied beside the library into each Layer 2 task. |
+| `families.py` | Layer 2's twenty tasks: each one's instruction, oracle, files and shape, which `sync.py` writes into `tasks/<family>/`. Not in any image. |
+| `layer1.py` | Layer 1's drivers: the stand-in's rules and each harness's command, its wall measured around the CLI. |
 | `driver.py` | The injection and its trigger, and each arm's commands. Standard library only. |
 | `async_agents.py` | The Harbor agents: `async_agents:TheseusAsync`, `async_agents:ClaudeCodeAsync` and `async_agents:PiAsync`. |
 | `score.py` | The scorer: `report.md` and `scores.json` from job directories. Standard library only. |
-| `test_tasks.py`, `test_driver.py`, `test_score.py` | Their tests. |
+| `test_tasks.py`, `test_driver.py`, `test_score.py`, `test_layer2.py`, `test_score_layer2.py`, `test_layer1.py` | Their tests. |
 
 ## The families
 
@@ -25,6 +30,49 @@ reads one text. A driver sends two families a second message mid-trial, and a sc
 | `fanout` | Six parts to ingest (15 to 30 s each); two of them fail once with a transient error. Each part once, then a summary. | Each part's attempts in turn, the parts side by side. | A part ingested twice, or missing, or a wrong total. |
 | `cancel` | A migration that runs 15 minutes with two workers; 15 s after it starts, the driver says to cancel it and leave nothing running. | The injection's time. | The migration's end reached, or any of its processes alive at the check. |
 | `contention` | Two teams' six deposits, on accounts a race loses an update on, through a service that takes 2 deposits at once and refuses a third. | max(the work / 2, the busiest account's work). | A lost update, a refused (third) deposit, a payment posted twice, or a wrong balance. |
+
+## Layer 2: parallel tool calls (theseus-2wxa)
+
+Twenty chores a developer does, each with independent slow sub-steps, so a harness that runs the independent calls
+of one response together finishes near the ideal wall, and one that runs them in turn takes their sum. Every slow
+sub-step is a tool whose duration is drawn (sleep-based, 10 to 45 s), so load does not move the wall, and the ledger
+gives the ideal wall (the critical path of the drawn durations) and the overlap achieved. The facts a task asks
+about (which test fails, which host logged the error, which commit is the first bad one) are drawn on a tool's first
+use, so only its run tells them. An instruction states the task, never how to run it; the counts are the chores'
+own (3 to 8), not tuned to any harness's cap; and a fifth are controls, whose dependent steps punish batching.
+
+| Shape | Family | The task (its tools) |
+|---|---|---|
+| Independent programs, then combine | `suites` | Four packages' test suites, then the failing tests named (`run-suite`). |
+| | `ci-checks` | Lint, type-check and test a project, then a summary (`lint`, `typecheck`, `unit-tests`). |
+| | `build-configs` | Build three configurations, then report their sizes (`build-config`). |
+| | `bench-settings` | A benchmark at four batch sizes, then the best written to a config (`bench-batch`). |
+| | `host-logs` | Six hosts' logs fetched, then the one with the error named (`fetch-log`). |
+| | `repos-behind` | Five repositories' fetch and status, then those behind listed (`repo-status`). |
+| | `csv-merge` | Five CSV exports converted, then merged (`convert-export`). |
+| | `health-restart` | Four services' health checked, the failing one restarted, then verified (`health`, `restart`). |
+| Independent reads and fetches | `doc-questions` | Three questions answered from eight long notes on a slow archive (`archive-get`). |
+| | `api-summary` | A package's six modules read from a slow mirror, then its API summarised (`module-source`). |
+| | `advisories` | Five advisories queried from a slow local registry (`advisory`). |
+| | `config-diff` | Four environments' configurations compared (`env-config`). |
+| Independent writes | `scaffold` | Eight config files written from a spec, each validated (`validate-config`). |
+| | `rename` | One rename across six files, then the tests (`run-tests`). |
+| Dependent controls | `pipeline` | Build, then run, then check the output (`build`, `run-app`, `check-output`). |
+| | `service` | Start a service, then query it (`start-service`, `query-service`). |
+| | `migrations` | Three ordered migrations (`migrate-db`). |
+| | `edit-test` | Edit by codemod, then test, then fix (`codemod`, `test-suite`). |
+| Mixed | `link` | Two independent slow builds, then the link (`build-lib`, `link-app`). |
+| | `bisect` | Four commits tested in worktrees of their own, then the first bad one named (`make-worktree`, `test-commit`). |
+
+**Order rules.** A step that needs another's result is refused, or runs on a stale input, as the real one would
+(the app run before its build runs yesterday's binary; a query of a service still starting is refused). And the
+check holds the ledger to the family's rules (`layer2.DEPS`): a dependent step whose start came before its
+prerequisite's end is an **order violation, and reward 0**, even when the run then does it right. The controls and
+the mixed families have rules; the others have none.
+
+Each family is graded by script from what the task left and the ledger. Its oracle does it at the ideal schedule
+(independent steps at once, dependent ones in turn) and earns 1; a planted wrong effect per family earns 0
+(`test_layer2.py`). `sync.py` writes every Layer 2 task from `families.py` and `tools/layer2.py`.
 
 **The ledger.** Every tool appends JSONL to `/var/lib/async/ledger.jsonl`, outside the working directory: each
 step's start (with the duration drawn for it), end, failure, stop, effect, and violation, with its pid, its process's
@@ -65,9 +113,87 @@ export PYTHONPATH=$PWD/bench/harbor:$PWD/bench/async HARBOR_TELEMETRY=0
   -m anthropic/claude-sonnet-5-5 --ak max_budget_usd=2.0 --ak max_turns=200 \
   -o jobs --job-name async-pi -k 2
 
-# The scores.
-python3 bench/async/score.py jobs/async-theseus jobs/async-claude jobs/async-pi --out /tmp/async
+# OpenCode: bench/harbor's measured arm as it is (no family of Layer 2 sends a second message;
+# interrupt and cancel read "not measurable" for it).
+.venv/bin/harbor run -p bench/async/tasks -a opencode_agent:MeasuredOpenCode \
+  -m anthropic/claude-sonnet-5-5 --ak max_budget_usd=2.0 --ak max_turns=200 \
+  -o jobs --job-name async-opencode -k 2
+
+# The scores. LABEL=DIR names a job's arm, for arms Harbor names alike.
+python3 bench/async/score.py jobs/async-theseus jobs/async-claude jobs/async-pi jobs/async-opencode --out /tmp/async
 ```
+
+### The parallel-calls run (theseus-2wxa)
+
+Layer 2's twenty families, six arms, all on Claude Sonnet 5.5 at effort medium (bench/harbor's `measured.py`
+convention), $2 and 200 calls a trial, two attempts (`-k 2`): three Theseus arms, each `TheseusAsync` in the bench's
+daemon mode at the product's `proc_sync_secs` (60) and its default caps ($2, 200 loops), on a static build of its own
+(`bench/build.sh` at its commit, its `bench/bin` copied to `bench/bin-<arm>`, which `THESEUS_BENCH_BIN_DIR` names):
+
+| Arm | Its build | Its report key |
+|---|---|---|
+| Theseus before | main before theseus-d1hi joined: one response's calls run in turn | `theseus-before` |
+| Theseus with d1hi | the calls of one response grouped by class and run together (theseus-d1hi) | `theseus-d1hi` |
+| Theseus after | d1hi and the sentence that tells the model so (theseus-da46) | `theseus-after` |
+| Claude Code | `async_agents:ClaudeCodeAsync`, pinned as bench/harbor pins it | `claude-code` |
+| Pi | `async_agents:PiAsync` | `pi` |
+| OpenCode | `opencode_agent:MeasuredOpenCode`, bench/harbor's plain arm | `opencode` |
+
+```bash
+L2="-x parallel -x wait-tax -x interrupt -x fanout -x cancel -x contention"  # Layer 2's twenty alone
+for arm in before d1hi after; do
+  THESEUS_BENCH_BIN_DIR=$PWD/bench/bin-$arm .venv/bin/harbor run -p bench/async/tasks $L2 \
+    -a async_agents:TheseusAsync -m anthropic/claude-sonnet-5-5 -o jobs --job-name pc-theseus-$arm -k 2
+done
+.venv/bin/harbor run -p bench/async/tasks $L2 -a async_agents:ClaudeCodeAsync -m anthropic/claude-sonnet-5-5 \
+  --ak max_budget_usd=2.0 --ak max_turns=200 -o jobs --job-name pc-claude -k 2
+.venv/bin/harbor run -p bench/async/tasks $L2 -a async_agents:PiAsync -m anthropic/claude-sonnet-5-5 \
+  --ak max_budget_usd=2.0 --ak max_turns=200 -o jobs --job-name pc-pi -k 2
+.venv/bin/harbor run -p bench/async/tasks $L2 -a opencode_agent:MeasuredOpenCode -m anthropic/claude-sonnet-5-5 \
+  --ak max_budget_usd=2.0 --ak max_turns=200 -o jobs --job-name pc-opencode -k 2
+```
+
+Then Layer 1 (below), and the report, from both:
+
+```bash
+python3 bench/report/parallel.py --date <the run's day> \
+  --arm theseus-before=jobs/pc-theseus-before --arm theseus-d1hi=jobs/pc-theseus-d1hi \
+  --arm theseus-after=jobs/pc-theseus-after --arm claude-code=jobs/pc-claude --arm pi=jobs/pc-pi \
+  --arm opencode=jobs/pc-opencode \
+  --layer1 theseus-before=/tmp/l1/theseus-before.json --layer1 theseus-d1hi=/tmp/l1/theseus-d1hi.json \
+  --layer1 theseus-after=/tmp/l1/theseus-after.json --layer1 claude-code=/tmp/l1/claude-code.json \
+  --layer1 pi=/tmp/l1/pi.json --layer1 opencode=/tmp/l1/opencode.json
+```
+
+It writes `docs/benchmarks/<date>-asyncbench-parallel-calls.md` (kept if one stands; `--force`), its `.json` (every
+number, the figures, and the omnibus's rows) and `.csv`, and the figures in light and dark.
+
+### Layer 1: N calls in one response, on a stand-in
+
+`theseus-sim fake-model --rules` answers each harness's prompt with one response of N calls of `sleep 2` in that
+harness's tool names (Claude Code's `Bash {"command": "sleep 2"}`, Pi's and OpenCode's `bash`, Theseus's
+`proc_run`), N in 1, 2, 4, 8, 16, and the result's call with "Done.". `layer1.py` points each harness at it by its own
+base-URL setting and times the CLI from spawn to exit: together, about 2 s; in turn, 2 s times N.
+
+```bash
+python3 bench/async/layer1.py rules --out /tmp/l1/rules.json
+target/release/theseus-sim fake-model --rules /tmp/l1/rules.json --addr 127.0.0.1:9448 &
+for h in claude-code pi opencode; do
+  python3 bench/async/layer1.py run --harness $h --base http://127.0.0.1:9448 --out /tmp/l1/$h.json
+done
+for arm in before d1hi after; do
+  python3 bench/async/layer1.py run --harness theseus --bin bench/bin-$arm --base http://127.0.0.1:9448 \
+    --out /tmp/l1/theseus-$arm.json
+done
+```
+
+Claude Code is pointed by `ANTHROPIC_BASE_URL`, its side requests quieted
+(`CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`); Pi by a provider of its own in `models.json` under
+`PI_CODING_AGENT_DIR` (`api: anthropic-messages`); OpenCode by `provider.anthropic.options.baseURL` in its own
+`OPENCODE_CONFIG`; Theseus by `[model] api_base`. Whether each can be driven so is the first thing the run proves: a
+count whose runs fail, or end sooner than one call's 2 s (its calls never ran), is `ok: false` with its reason, and
+the report says "not measurable, why", never a number. Theseus's numbers of record are the turn bench's `batch`
+kind; its row here is the same wall around the CLI as the others'.
 
 `-i <family>` runs one family. A trial takes up to its task's agent timeout (10 to 15 minutes); a family's slow steps
 take 1 to 4 minutes when they overlap as they can.
@@ -167,6 +293,14 @@ OpenClaw (not built yet) fits the same shape: a subclass of its Harbor agent who
   `work.cpu_s`, from trials whose sampler ran (`ok`, or `running` when it never wrote its last summary), as
   bench/report reads them; a trial whose sampler did not run has no numbers, never zeros.
 - **Cost**: Harbor's, which for Theseus is the sum of its ledger's model calls and its cut calls' estimates.
+- **Overlap** (theseus-2wxa): the ledger's sum of slow-step time over the slow phase's wall (the first slow start to
+  the last slow end, by its monotonic clock): 1 is one step at a time, N is N at once. A family's slow steps are
+  its slow job's (Layer 1's six) or every tool's (Layer 2's).
+- **Calls per response, and the share of responses with more than one call**: over the trajectory's agent steps
+  that call a tool, one step a model response in every arm's ATIF (Theseus's, Pi's from `pi_atif.py`, and Claude
+  Code's and OpenCode's from Harbor's converters, which bundle one message's blocks into one step), else OpenCode's
+  own stream. A final answer calls no tool and counts in neither. Pooled over an arm's trials in the table.
+- **Order violations**: in a family with order rules, each dependent step started before its prerequisite's end.
 
 Every run of it gets its report in [`docs/benchmarks/`](../../docs/benchmarks/README.md) ([`bench/README.md`](../README.md), "Every run gets its report").
 
@@ -182,21 +316,24 @@ categories (`harbor run -d bfcl@1.0 ...`). Nothing here is built for them.
 python3 -m unittest discover -s bench/async && python3 -m unittest discover -s bench/harbor
 ```
 
-The standard library runs them without Harbor or Docker: each family's oracle on this host under a scratch
+The standard library runs them without Harbor or Docker: each family's oracle (Layer 2's twenty too) on this host under a scratch
 `ASYNC_ROOT` at a time scale of 0.01, with a `TMPDIR` of its own that it must leave empty (an oracle removes what it
 makes), and a planted wrong effect per family; the ledger's check against an edited
 one; the driver against a fake environment, a stand-in `claude` and a stand-in `pi` (RPC mode) on the FIFO, and the
 daemon-mode script under a
 stand-in `theseus` (a daemon that answers health only once it is up, a wake pending after its job, the sampler
-around it all, and nothing left running after a test); and the scorer over fixture trials worked by hand. Three more run on request:
+around it all, and nothing left running after a test); and the scorer over fixture trials worked by hand, Layer 2's columns over one trajectory per harness format; and
+Layer 1's rules, commands, and judgment. Three more run on request:
 
 ```bash
 ASYNC_HARBOR=1 .venv/bin/python -m unittest discover -s bench/async     # Harbor reads each task; the agents load and run
-ASYNC_E2E_BIN=$PWD/target/debug python3 -m unittest test_driver.EndToEnd # (from bench/async) a real daemon
+ASYNC_E2E_BIN=$PWD/target/debug python3 -m unittest test_driver.EndToEnd test_layer1.EndToEnd  # (from bench/async) a real daemon
 ```
 
 The second runs this workspace's `theseusd` on `theseus-sim fake-model --rules`, making the interrupt oracle's
 `proc.run` calls: the long job goes to the background, the injection is answered while it runs, and the trial
 settles only after the job's continuation (`ASYNC_E2E_KEEP=DIR` keeps its logs).
 
-After changing `tools/asyncbench.py`, run `python3 bench/async/sync.py`; the tests fail on a stale copy.
+After changing `tools/asyncbench.py`, `tools/layer2.py` or `families.py`, run `python3 bench/async/sync.py`; the
+tests fail on a stale copy. Under `ASYNC_HARBOR=1`, Harbor's Claude Code and OpenCode converters are run on fixture
+sessions too (`test_score_layer2.HarborConverters`).

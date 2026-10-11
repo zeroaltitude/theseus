@@ -44,10 +44,11 @@ class Trial:
         self.task = TASKS / family
         self.dir = tempfile.TemporaryDirectory()
         self.root = Path(self.dir.name)
-        (self.root / "app").mkdir()
+        # As the image's `COPY app/ /app/`: the whole tree.
         if (self.task / "environment/app").is_dir():
-            for f in (self.task / "environment/app").iterdir():
-                shutil.copy(f, self.root / "app" / f.name)
+            shutil.copytree(self.task / "environment/app", self.root / "app")
+        else:
+            (self.root / "app").mkdir()
         # The run's own TMPDIR: whatever a script makes there and leaves is
         # seen (`left`), not left in the host's /tmp (theseus-3rjr).
         self.tmp = self.root / "tmp"
@@ -60,7 +61,7 @@ class Trial:
             TMPDIR=str(self.tmp),
         )
 
-    def run(self, script: str | None = None) -> subprocess.CompletedProcess:
+    def run(self, script: str | None = None, timeout: float = 60) -> subprocess.CompletedProcess:
         path = self.task / "solution/solve.sh"
         if script is not None:
             path = self.root / "planted.sh"
@@ -68,7 +69,7 @@ class Trial:
                             f"AWAIT=\"python3 {self.task / 'environment/async/lib/asyncbench.py'} await\"\n"
                             + script)
         return subprocess.run(["bash", str(path)], env=self.env, capture_output=True, text=True,
-                              timeout=60)
+                              timeout=timeout)
 
     def check(self, **env: str) -> dict:
         subprocess.run(["bash", str(self.task / "tests/test.sh")], env=dict(self.env, **env),

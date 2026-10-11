@@ -1,0 +1,21 @@
+schema_version = "1.4"
+
+[metadata]
+category = "async"
+description = "Four packages' test suites, then the failing tests named."
+
+[metadata.async]
+family = "suites"
+layer = 2
+shape = "programs"
+
+[verifier]
+timeout_sec = 120.0
+
+[agent]
+timeout_sec = 900.0
+
+[environment]
+build_timeout_sec = 600.0
+cpus = 2
+memory_mb = 2048

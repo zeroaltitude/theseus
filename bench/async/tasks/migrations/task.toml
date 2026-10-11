@@ -1,0 +1,21 @@
+schema_version = "1.4"
+
+[metadata]
+category = "async"
+description = "Three ordered migrations."
+
+[metadata.async]
+family = "migrations"
+layer = 2
+shape = "control"
+
+[verifier]
+timeout_sec = 120.0
+
+[agent]
+timeout_sec = 900.0
+
+[environment]
+build_timeout_sec = 600.0
+cpus = 2
+memory_mb = 2048
