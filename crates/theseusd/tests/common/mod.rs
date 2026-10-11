@@ -84,6 +84,11 @@ pub fn safe_note(theseusd: &Path, projects: &Path, spend_limit_usd: f64) -> Stri
     table(&mut t, "discord").insert("enabled".into(), false.into());
     table(&mut t, "web").insert("enabled".into(), false.into());
     table(&mut t, "index").insert("enabled".into(), false.into());
+    // The judge follows its key (theseus-is8t), and every stand-in secret
+    // here resolves as far as the config can tell: off, so no test daemon
+    // is ever on its way to Jev's real endpoint. A test that judges turns
+    // on its own.
+    table(&mut t, "judge").insert("enabled".into(), false.into());
     table(&mut t, "tools").insert("projects_dir".into(), projects.display().to_string().into());
     table(&mut t, "kernel").insert("spend_limit_usd".into(), spend_limit_usd.into());
     toml::to_string(&t).unwrap()

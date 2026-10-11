@@ -112,6 +112,7 @@ export type * from './ExtensionRevokeParams';
 export type * from './ExtensionRevokeResult';
 export type * from './ExternalText';
 export type * from './ExternalTextInfo';
+export type * from './Features';
 export type * from './Finished';
 export type * from './GateDecision';
 export type * from './GateRecord';

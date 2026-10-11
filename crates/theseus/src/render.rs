@@ -22,6 +22,7 @@ mod aws;
 mod cancel;
 mod catalog;
 mod failed;
+mod features;
 mod flight;
 pub mod history;
 mod imported;
@@ -1672,6 +1673,7 @@ pub fn fmt_price(p: f64) -> String {
 pub fn health_lines(h: &theseus_protocol::HealthResult, now_ms: u64) -> Vec<Line> {
     let mut out = Vec::new();
     let o = &mut out;
+    features::push_health(o, h.features.as_ref());
     push(o, Tag::Plain, &format!(
         "{} {} · protocol {} · up {}s · live profile {} ({}/{}) · providers [{}] · sessions {} · turns {} · provider errors {} · ledger rows {}",
         h.name, h.version, h.protocol, h.uptime_secs, h.profile, h.provider, h.model, h.providers.join(", "), imported::sessions_words(h.sessions, &h.imported), h.turns, h.provider_errors, h.ledger_rows

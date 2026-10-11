@@ -959,9 +959,11 @@ async fn check(source: &str, cfg: &Config, secrets: &Arc<SecretBoard>, state: &P
         .map(|w| format!("{w}; the vault is the recommended source\n"))
         .unwrap_or_default();
     out(&format!(
-        "ok: config loaded from {source}; {}\n{outside}{}\nL1: the self-test {}\n{}\n",
+        "ok: config loaded from {source}; {}\n{outside}{}\n{}\nL1: the self-test {}\n{}\n",
         resolved_words(&st),
         kept.line(),
+        // Which killer features are on, and why the judge is off if it is.
+        theseus_core::features::of(cfg, None).line,
         theseus_protocol::sandbox::launch_words(&l1),
         theseus_store::pressure::words(state)
     ))

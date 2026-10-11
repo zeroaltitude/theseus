@@ -72,6 +72,9 @@ pub(crate) fn judge_config(state: &Path, jev: Option<&FakeJev>) -> Config {
     cfg.server.state_dir = state.to_string_lossy().into_owned();
     cfg.tools.roots = vec![];
     if let Some(j) = jev {
+        // These tests count Jev's calls: recall (on by default) brings its
+        // own rerank and memory-pass judgments (theseus-is8t).
+        cfg.memory.mode = crate::config::MemoryMode::Off;
         cfg.judge.enabled = true;
         cfg.judge.api_base = j.base();
         cfg.judge.connect_secs = 1;

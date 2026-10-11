@@ -38,6 +38,7 @@ pub mod egress;
 pub mod extend;
 pub mod external;
 pub mod fact;
+pub mod features;
 pub mod file_read;
 pub mod github;
 pub mod glide;
@@ -200,6 +201,8 @@ mod tests_external;
 mod tests_failures;
 #[cfg(test)]
 mod tests_fallback;
+#[cfg(test)]
+mod tests_fresh_recall;
 #[cfg(test)]
 mod tests_gate_layers;
 #[cfg(test)]

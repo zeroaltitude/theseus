@@ -5,9 +5,15 @@
  */
 export type JudgeHealth = { 
 /**
- * `[judge] enabled`. Off: nothing below is counted.
+ * Whether the judge is on. Off: nothing below is counted.
  */
 enabled: boolean, 
+/**
+ * Why it is off (theseus-is8t): `[judge] enabled = false`, or what auto
+ * found (`no jev_api_key entry under [secrets]`). Empty when on, and
+ * from a daemon before it.
+ */
+why: string, 
 /**
  * `[judge] max_mode`: the ceiling on every pack.
  */

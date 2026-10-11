@@ -47,7 +47,12 @@ fn usd(v: f64) -> String {
 /// until midnight` at the day's limit.
 pub fn judge_line(h: &JudgeHealth) -> String {
     if !h.enabled {
-        return "judge: off ([judge] enabled = false)".into();
+        let why = if h.why.is_empty() {
+            "[judge] enabled = false"
+        } else {
+            &h.why
+        };
+        return format!("judge: off ({why})");
     }
     let mut s = format!(
         "judge: {} · max {} · breaker {}",

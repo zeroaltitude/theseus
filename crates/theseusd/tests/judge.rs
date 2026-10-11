@@ -64,6 +64,9 @@ impl Rig {
                 .insert("api_base".into(), model.base.clone().into());
         }
         if let Some(base) = jev {
+            // These tests count Jev's calls: recall (on by default,
+            // theseus-is8t) brings its own judgments.
+            table(&mut t, "memory").insert("mode".into(), "off".into());
             let j = table(&mut t, "judge");
             j.insert("enabled".into(), true.into());
             j.insert("api_base".into(), base.into());

@@ -227,7 +227,7 @@ pub fn check_local(reference: &str) -> Result<()> {
 
 /// The value of a local entry (`is_local`), or why it has none; `None` for an
 /// `op://` reference. A variable's value and a file's text are trimmed.
-fn local_value(reference: &str) -> Option<Result<Secret, String>> {
+pub(crate) fn local_value(reference: &str) -> Option<Result<Secret, String>> {
     if let Some(var) = reference.strip_prefix("env:") {
         return Some(match std::env::var(var) {
             Ok(v) if !v.trim().is_empty() => Ok(Secret::new(v.trim().to_string())),

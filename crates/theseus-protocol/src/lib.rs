@@ -22,6 +22,7 @@ pub mod cred;
 mod events;
 mod explain;
 pub mod extend;
+pub mod features;
 mod gate;
 mod hands;
 mod health;
@@ -666,6 +667,10 @@ pub struct HealthResult {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub self_improve: Option<rsi::SelfState>,
+    /// Which killer features are on (theseus-is8t): health's first line.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub features: Option<features::Features>,
 }
 
 /// The AWS accounts the config binds (`[aws.accounts.<id>]`).

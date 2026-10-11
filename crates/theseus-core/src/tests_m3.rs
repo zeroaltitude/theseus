@@ -2578,6 +2578,9 @@ async fn a_plain_turn_stays_within_its_frame_budget() {
             "execution.queued",
             "execution.running",
             "turn.started",
+            // Recall is on by default (theseus-is8t): its row rides in a
+            // frame the turn already writes.
+            "recall.ran",
             "context.compiled",
             "loop.started",
             "action.planned",
@@ -2797,12 +2800,17 @@ async fn a_turn_that_faults_with_a_call_unanswered_resumes_it_after_a_restart() 
 async fn a_turn_reads_its_transcript_once() {
     let read =
         |id: &str, path: &str| Scripted::tools("", &[(id, "fs_read", json!({ "path": path }))]);
-    let r = rig(vec![
-        Scripted::text("first"),
-        read("t1", "a.txt"),
-        read("t2", "b.txt"),
-        Scripted::text("Both read."),
-    ]);
+    // The memory pass (on by default, theseus-is8t) reads the transcript
+    // after each turn on its own: this counts the turn's reads alone.
+    let r = rig_with(
+        vec![
+            Scripted::text("first"),
+            read("t1", "a.txt"),
+            read("t2", "b.txt"),
+            Scripted::text("Both read."),
+        ],
+        |c| c.memory.mode = crate::config::MemoryMode::Off,
+    );
     std::fs::write(r.root.join("a.txt"), "alpha\n").unwrap();
     std::fs::write(r.root.join("b.txt"), "beta\n").unwrap();
     let sid = turn(&r.core, None, "warm up").await.session_id;
@@ -6407,9 +6415,11 @@ mod parallel {
         let seven: Vec<_> = (1..=7)
             .map(|i| read(&format!("q{i}"), "hello.txt"))
             .collect();
+        // Recall (on by default, theseus-is8t) puts awaits of its own on the
+        // test's one thread, where the stall can land inside a read's run.
         let r = rig_full(
             vec![calls(&seven), Scripted::text("Read seven times.")],
-            |_| {},
+            |c| c.memory.mode = crate::config::MemoryMode::Off,
             vec![slowed(
                 "fs.read",
                 ToolClass::Read,

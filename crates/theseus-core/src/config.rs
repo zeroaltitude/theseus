@@ -1586,6 +1586,10 @@ impl Config {
             profiles,
             providers,
         };
+        // An `enabled` the config leaves out is settled by the Jev key's
+        // entry (theseus-is8t).
+        let secrets = cfg.secrets.clone();
+        cfg.judge.resolve(&secrets);
         Ok(cfg)
     }
 
@@ -1731,3 +1735,5 @@ pub fn expand_with(p: &str, var: impl Fn(&str) -> Option<String>) -> String {
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_fresh;

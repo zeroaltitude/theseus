@@ -46,6 +46,7 @@ impl Core {
         let (profile, _) = self.live_profile();
         let prof = self.cfg.all_profiles().get(&profile).cloned();
         let totals = self.session_totals();
+        let judge = self.runner.judge.health();
         HealthResult {
             name: crate::NAME.into(),
             version: crate::VERSION.into(),
@@ -107,7 +108,8 @@ impl Core {
             sandbox: self.tools.enabled().then(|| self.tools.sandbox.health()),
             cancels: self.tools.stops.counts(),
             places: Some(self.runner.place_rule.health(&self.cfg)),
-            judge: Some(self.runner.judge.health()),
+            features: Some(crate::features::of(&self.cfg, Some(&judge.key))),
+            judge: Some(judge),
             terminals: self.tools.terms.all().iter().map(|t| t.info()).collect(),
             terminals_left: self.tools.terms.left_info(),
             mcp_server: self.mcp_server.health(self.cfg.mcp_server.enabled),

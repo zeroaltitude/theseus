@@ -206,6 +206,14 @@ fn the_lookup_takes_the_flag_then_the_variable_then_the_operators_file_then_the_
         )),
         "{text}"
     );
+    // And which killer features are on (theseus-is8t): this config has no
+    // Jev key, so the judge is off, and says why.
+    assert!(
+        text.contains(
+            "\nfeatures: memory live (baseline) · Jev off (no jev_api_key entry under [secrets])"
+        ),
+        "{text}"
+    );
     // The unit a plan writes names that file, so the service needs no
     // THESEUS_CONFIG (a plan changes nothing; `--user` refuses root).
     let out = command(h).args(["install", "--user"]).output().unwrap();

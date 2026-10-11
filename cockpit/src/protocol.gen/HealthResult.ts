@@ -11,6 +11,7 @@ import type { CrashStatus } from "./CrashStatus";
 import type { DiskStatus } from "./DiskStatus";
 import type { ExtendHealth } from "./ExtendHealth";
 import type { ExternalTextInfo } from "./ExternalTextInfo";
+import type { Features } from "./Features";
 import type { GrantStatus } from "./GrantStatus";
 import type { HarnessOnly } from "./HarnessOnly";
 import type { HealthImported } from "./HealthImported";
@@ -240,4 +241,8 @@ resident?: ResidentHealth,
 /**
  * Self-improvement's mode, kill switch and gate (theseus-pw1q.2): health's `self` line.
  */
-self_improve?: SelfState, };
+self_improve?: SelfState, 
+/**
+ * Which killer features are on (theseus-is8t): health's first line.
+ */
+features?: Features, };
