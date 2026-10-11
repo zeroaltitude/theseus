@@ -25,6 +25,10 @@
 //!   (`RoutingConfig::confidence_for`, theseus-6n5j).
 //! - **A late verdict** (one that came after its message's wait) applies to
 //!   the session's next message alone, and a detour's to none ([`carries`]).
+//! - **The dear tier's guard** (theseus-p8dy): at a compile over
+//!   `dear_tier_max_tokens`, a `sophisticated` or `review` verdict skips a
+//!   profile in the mode's list whose catalog input price is above the next
+//!   usable one's, and the turn says `context_guard`.
 //! - **The cap.** A place's profile is its default and its cap: a profile
 //!   dearer than it at catalog prices is passed over, and the turn says
 //!   `capped`.
@@ -109,6 +113,9 @@ pub enum Reason {
     /// The owner's correction, or the layer's entry close to the message,
     /// placed the turn ahead of the verdict (theseus-q31l).
     Correction,
+    /// The context was over `dear_tier_max_tokens`, so a dearer first
+    /// profile of the mode's list was skipped for the next (theseus-p8dy).
+    ContextGuard,
 }
 
 impl Reason {
@@ -126,6 +133,7 @@ impl Reason {
             Reason::Pinned => "pinned",
             Reason::Shadow => "shadow",
             Reason::Correction => "correction",
+            Reason::ContextGuard => "context_guard",
         }
     }
 }
@@ -153,6 +161,8 @@ pub struct Profile {
     pub unusable: Option<&'static str>,
     /// A short turn's cost at catalog prices, in dollars (none: unpriced).
     pub short_cost: Option<f64>,
+    /// The catalog's input price per million tokens (none: unpriced).
+    pub input_per_mtok: Option<f64>,
     pub vision: bool,
 }
 
@@ -262,6 +272,44 @@ pub fn pick(list: &[String], profiles: &Profiles, images: bool, cap: Option<f64>
     }
 }
 
+/// The modes the dear tier's context guard applies to (theseus-p8dy).
+pub const GUARDED: [&str; 2] = ["sophisticated", "review"];
+
+/// A mode's list without the profiles the guard skips: each usable one
+/// whose input price is above the next usable one's. None when it skips
+/// none. The last usable profile is never skipped.
+fn dear_guard(list: &[String], profiles: &Profiles, images: bool) -> Option<Vec<String>> {
+    let usable: Vec<(usize, &Profile)> = list
+        .iter()
+        .enumerate()
+        .filter_map(|(i, name)| {
+            let found = match name == CHEAPEST {
+                true => cheapest(profiles, images, None),
+                false => Some(name.clone()),
+            }?;
+            profiles
+                .get(&found)
+                .filter(|p| p.runs(images))
+                .map(|p| (i, p))
+        })
+        .collect();
+    let skip: Vec<usize> = usable
+        .windows(2)
+        .filter(|w| {
+            matches!((w[0].1.input_per_mtok, w[1].1.input_per_mtok), (Some(a), Some(b)) if a > b)
+        })
+        .map(|w| w[0].0)
+        .collect();
+    (!skip.is_empty()).then(|| {
+        let keep = |(i, _): &(usize, &String)| !skip.contains(i);
+        list.iter()
+            .enumerate()
+            .filter(keep)
+            .map(|(_, n)| n.clone())
+            .collect()
+    })
+}
+
 /// What a turn asks the rule.
 #[derive(Debug, Clone)]
 pub struct Ask<'a> {
@@ -315,9 +363,22 @@ pub fn decide(cfg: &RoutingConfig, profiles: &Profiles, a: &Ask<'_>) -> Decision
     if a.verdict.confidence < cfg.confidence_for(&a.verdict.mode) {
         return stay(Reason::Unsure, keep_or_clear);
     }
-    let picked = pick(cfg.modes.of(&a.verdict.mode), profiles, a.images, a.cap);
+    let list = cfg.modes.of(&a.verdict.mode);
+    let kept = (GUARDED.contains(&a.verdict.mode.as_str())
+        && a.est_tokens > cfg.dear_tier_max_tokens)
+        .then(|| dear_guard(list, profiles, a.images))
+        .flatten();
+    let picked = pick(list, profiles, a.images, a.cap);
+    let guarded = kept
+        .map(|k| pick(&k, profiles, a.images, a.cap))
+        .filter(|g| *g != picked);
+    let (picked, guard) = match guarded {
+        Some(g) => (g, true),
+        None => (picked, false),
+    };
     let (target, reason) = match picked {
         Picked::Own => (a.base.to_string(), Reason::Verdict),
+        Picked::Profile(p) if guard => (p, Reason::ContextGuard),
         Picked::Profile(p) => (p, Reason::Verdict),
         Picked::Capped(Some(p)) => (p, Reason::Capped),
         Picked::Capped(None) => (a.base.to_string(), Reason::Capped),
@@ -443,6 +504,7 @@ mod tests {
             model: model.into(),
             unusable: None,
             short_cost: Some(cost),
+            input_per_mtok: None,
             vision,
         }
     }
@@ -459,7 +521,11 @@ mod tests {
             ("glm53", "zai", "glm-5.3"),
         ] {
             let e = c.get(model).unwrap();
-            out.insert(name.into(), p(provider, model, short_cost(e), e.vision));
+            let priced = Profile {
+                input_per_mtok: Some(e.input_per_mtok),
+                ..p(provider, model, short_cost(e), e.vision)
+            };
+            out.insert(name.into(), priced);
         }
         out
     }
@@ -624,7 +690,10 @@ mod tests {
         let e = c.get("claude-haiku-5-5").unwrap();
         let mut out = five();
         for name in ["haiku", "haikuhi"] {
-            let h = p("anthropic", "claude-haiku-5-5", short_cost(e), e.vision);
+            let h = Profile {
+                input_per_mtok: Some(e.input_per_mtok),
+                ..p("anthropic", "claude-haiku-5-5", short_cost(e), e.vision)
+            };
             out.insert(name.into(), h);
         }
         out
@@ -911,5 +980,83 @@ mod tests {
         // From Opus to GLM 5.3, output pays for it in about three turns.
         let n = break_even_turns(opus, glm53, 30_000, 1_000).unwrap();
         assert!((2.5..3.5).contains(&n), "{n}");
+    }
+
+    /// The dear tier's context guard (theseus-p8dy): over
+    /// `dear_tier_max_tokens`, a `sophisticated` verdict skips a first
+    /// profile whose input price is above the next usable one's; at the
+    /// threshold and under it nothing changes; nothing is skipped when the
+    /// first is the cheaper, and the last usable profile is never skipped.
+    #[test]
+    fn over_the_dear_tiers_threshold_a_dearer_first_profile_is_skipped() {
+        // Every switch is at once, so the cache rule is out of the way.
+        let mut cfg = RoutingConfig {
+            cold_switch_tokens: u64::MAX,
+            ..RoutingConfig::default()
+        };
+        let mut ps = five();
+        let (dear, cheap) = ("opus", "fable");
+        ps.get_mut(dear).unwrap().input_per_mtok = Some(10.0);
+        ps.get_mut(cheap).unwrap().input_per_mtok = Some(5.0);
+        cfg.modes.sophisticated.profiles = vec![dear.into(), cheap.into()];
+        let v = verdict("sophisticated", 0.9);
+        let at =
+            |est: u64, ps: &Profiles, cfg: &RoutingConfig| decide(cfg, ps, &ask(&v, "sonnet", est));
+        let d = at(200_000, &ps, &cfg);
+        assert_eq!(
+            (d.profile.as_str(), d.reason),
+            (dear, Reason::Verdict),
+            "at the threshold, not over it"
+        );
+        let d = at(200_001, &ps, &cfg);
+        assert_eq!(
+            (d.profile.as_str(), d.reason, d.switch),
+            (cheap, Reason::ContextGuard, true),
+            "over it"
+        );
+        // The threshold is the config's.
+        cfg.dear_tier_max_tokens = 300_000;
+        assert_eq!(at(250_000, &ps, &cfg).profile, dear);
+        cfg.dear_tier_max_tokens = 200_000;
+        // Cheaper first: nothing skipped.
+        cfg.modes.sophisticated.profiles = vec![cheap.into(), dear.into()];
+        let d = at(300_000, &ps, &cfg);
+        assert_eq!((d.profile.as_str(), d.reason), (cheap, Reason::Verdict));
+        // The cheaper unusable: the dear one is the last usable, kept.
+        cfg.modes.sophisticated.profiles = vec![dear.into(), cheap.into()];
+        ps.get_mut(cheap).unwrap().unusable = Some("key");
+        let d = at(300_000, &ps, &cfg);
+        assert_eq!((d.profile.as_str(), d.reason), (dear, Reason::Verdict));
+        // Another mode is not guarded.
+        let v2 = verdict("deep_coding", 0.9);
+        let d = decide(&cfg, &five(), &ask(&v2, "sonnet", 400_000));
+        assert_eq!((d.profile.as_str(), d.reason), ("opus", Reason::Verdict));
+        assert_eq!(Reason::ContextGuard.as_str(), "context_guard");
+    }
+
+    /// The reason is the guard's only where it moved the pick.
+    #[test]
+    fn the_guard_says_so_only_where_it_moved_the_pick() {
+        let mut cfg = RoutingConfig {
+            cold_switch_tokens: u64::MAX,
+            ..RoutingConfig::default()
+        };
+        let mut ps = five();
+        ps.get_mut("opus").unwrap().input_per_mtok = Some(10.0);
+        ps.get_mut("fable").unwrap().input_per_mtok = Some(5.0);
+        cfg.modes.sophisticated.profiles = vec!["fable".into(), "opus".into()];
+        let v = verdict("sophisticated", 0.9);
+        let d = decide(&cfg, &ps, &ask(&v, "sonnet", 500_000));
+        assert_eq!(
+            (d.profile.as_str(), d.reason, d.switch),
+            ("fable", Reason::Verdict, true),
+            "the first was already the cheaper"
+        );
+        cfg.modes.sophisticated.profiles = vec!["opus".into(), "fable".into()];
+        let d = decide(&cfg, &ps, &ask(&v, "sonnet", 500_000));
+        assert_eq!(
+            (d.profile.as_str(), d.reason, d.switch),
+            ("fable", Reason::ContextGuard, true)
+        );
     }
 }

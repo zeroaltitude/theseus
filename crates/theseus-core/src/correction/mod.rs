@@ -392,6 +392,7 @@ mod tests {
                     model: format!("claude-{n}"),
                     unusable: None,
                     short_cost: Some(cost),
+                    input_per_mtok: Some(cost),
                     vision: true,
                 },
             );

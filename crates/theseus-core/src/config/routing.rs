@@ -53,6 +53,12 @@ pub struct RoutingConfig {
     /// ci > 0.70"); at or below, the turn runs at `high`.
     #[serde(default = "high_effort_confidence")]
     pub high_effort_confidence: f64,
+    /// The dear tier's context guard (theseus-p8dy): at a compile of more
+    /// estimated tokens than this, a `sophisticated` or `review` verdict skips
+    /// a profile whose input price is above the next usable one's in the
+    /// mode's list.
+    #[serde(default = "dear_tier_max_tokens")]
+    pub dear_tier_max_tokens: u64,
     /// Each mode's profiles, in order: the first usable wins.
     #[serde(default)]
     pub modes: RoutingModes,
@@ -189,6 +195,9 @@ fn effort_bounds() -> [Effort; 2] {
 fn high_effort_confidence() -> f64 {
     0.70
 }
+fn dear_tier_max_tokens() -> u64 {
+    200_000
+}
 fn list(names: &[&str]) -> ModeProfiles {
     ModeProfiles {
         profiles: names.iter().map(|s| (*s).to_string()).collect(),
@@ -261,6 +270,7 @@ impl Default for RoutingConfig {
             switch_confidence: switch_confidence(),
             effort_bounds: effort_bounds(),
             high_effort_confidence: high_effort_confidence(),
+            dear_tier_max_tokens: dear_tier_max_tokens(),
             modes: RoutingModes::default(),
             corrections: CorrectionsConfig::default(),
         }
@@ -297,6 +307,9 @@ impl RoutingConfig {
         let h = self.high_effort_confidence;
         if !(h > 0.0 && h <= 1.0) {
             anyhow::bail!("routing.high_effort_confidence must be above 0 and at most 1");
+        }
+        if self.dear_tier_max_tokens == 0 {
+            anyhow::bail!("routing.dear_tier_max_tokens must be at least 1");
         }
         if self.max_wait_ms > 5_000 {
             anyhow::bail!(
@@ -361,6 +374,7 @@ pub(crate) fn the_templates_routing_section(cfg: &crate::Config) {
     assert_eq!(r.switch_confidence, 0.6);
     assert_eq!(r.effort_bounds, effort_bounds(), "the full range");
     assert_eq!(r.high_effort_confidence, 0.70);
+    assert_eq!(r.dear_tier_max_tokens, 200_000);
     for m in MODES {
         assert_eq!(r.modes.of(m), RoutingModes::default().of(m), "{m}");
     }
@@ -444,6 +458,7 @@ mod tests {
             "switch_confidence = 1.5",
             "high_effort_confidence = 0.0",
             "high_effort_confidence = 1.1",
+            "dear_tier_max_tokens = 0",
             "max_wait_ms = 9000",
             "[corrections]\nsimilarity = 0.0",
             "[corrections]\nsimilarity = 1.2",
@@ -558,6 +573,15 @@ mod tests {
             .unwrap()
             .validate(|_| false)
             .unwrap();
+    }
+
+    /// `dear_tier_max_tokens` (theseus-p8dy): 200,000 by default, at least 1.
+    #[test]
+    fn the_dear_tiers_context_guard_defaults_to_two_hundred_thousand_tokens() {
+        assert_eq!(cfg("").unwrap().dear_tier_max_tokens, 200_000);
+        let c = cfg("dear_tier_max_tokens = 150000").unwrap();
+        assert_eq!(c.dear_tier_max_tokens, 150_000);
+        c.validate(|_| false).unwrap();
     }
 
     #[test]

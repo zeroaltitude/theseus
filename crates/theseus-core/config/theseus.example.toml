@@ -1005,6 +1005,7 @@ cold_switch_tokens = 30000              # at this much context, a switch waits f
 switch_confidence = 0.6                 # a verdict routes only at this confidence or more
 effort_bounds = ["low", "max"]          # the lowest and highest effort Jev's answer may set
 high_effort_confidence = 0.70           # an xhigh or max answer applies only above this confidence; else the turn runs high
+dear_tier_max_tokens = 200000           # over this much context, sophisticated and review skip a profile dearer (per input token) than the next usable one
 # Each mode's profiles, in order: the first usable wins. Empty: the session's own. A
 # mode's switch_confidence is its own bar; unset, it is the one above, except trivial's,
 # 0.4: a wrong trivial call is cheap, since its detour carries a few exchanges for one turn.
