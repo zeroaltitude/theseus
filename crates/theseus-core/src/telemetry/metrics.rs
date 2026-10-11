@@ -123,6 +123,13 @@ const PUSH_LOST: Instrument = Instrument {
     unit: "",
     kind: Kind::IntSum,
 };
+const WARMS: Instrument = Instrument {
+    name: "theseus.warm",
+    description:
+        "A person's first keystroke warmed something (theseus-tnky): the provider's connection or the index tender's model, by outcome",
+    unit: "",
+    kind: Kind::IntSum,
+};
 const PUSH_DELAY: Instrument = Instrument {
     name: "theseus.push.delay_ms",
     description: "From a frame's commit to its execution.changed being queued",
@@ -321,7 +328,7 @@ const VOICE_RESUMED: Instrument = Instrument {
 };
 
 /// Every instrument, in the order a request lists them.
-const INSTRUMENTS: [&Instrument; 45] = [
+const INSTRUMENTS: [&Instrument; 46] = [
     &TURNS,
     &TOKENS,
     &PROVIDER_ERRORS,
@@ -337,6 +344,7 @@ const INSTRUMENTS: [&Instrument; 45] = [
     &COMPACTION_TOKENS,
     &PUSH_EVENTS,
     &PUSH_LOST,
+    &WARMS,
     &PUSH_DELAY,
     &DURABILITY_SHIPPED,
     &DURABILITY_LAG,
@@ -774,6 +782,15 @@ impl Metrics {
     /// The push (theseus-in3): `n` notifications dropped at a backlog cap.
     pub(super) fn push_lost(&mut self, n: u64) {
         self.add(&PUSH_LOST, Vec::new(), n);
+    }
+
+    /// A warm-up a keystroke started (theseus-tnky).
+    pub(super) fn warmed(&mut self, target: &str, outcome: &str) {
+        let attrs = vec![
+            ("theseus.warm.target", Attr::S(target.to_string())),
+            ("theseus.warm.outcome", Attr::S(outcome.to_string())),
+        ];
+        self.add(&WARMS, attrs, 1);
     }
 
     /// The durability tender (AWS step 15): what it shipped, or the lag it

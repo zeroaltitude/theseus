@@ -3,6 +3,8 @@
 //! owner, from a private place; `crate::succession`), and refused by the CLI
 //! inside a job. Each answers the session as `session.list` shows it.
 
+use std::sync::Arc;
+
 use serde_json::{json, Value};
 use theseus_protocol::sessions::{SessionReopenParams, SessionRetireParams};
 use theseus_protocol::SessionInfo;
@@ -13,16 +15,18 @@ use super::Core;
 use crate::approval::Refusal;
 use crate::session::SessionRecord;
 
-/// The methods routed here: the list and the owner's two acts.
-pub(super) const OWN: [&str; 3] = [
+/// The methods routed here: the list, the owner's two acts, and a person's
+/// first keystroke (theseus-tnky).
+pub(super) const OWN: [&str; 4] = [
     method::SESSION_LIST,
     method::SESSION_RETIRE,
     method::SESSION_REOPEN,
+    method::SESSION_TYPING,
 ];
 
 impl Core {
     pub(super) fn rpc_sessions(
-        &self,
+        self: &Arc<Self>,
         m: &str,
         params: Value,
         conn: Conn<'_>,
@@ -31,6 +35,7 @@ impl Core {
             // Its filter is optional: no params lists every session.
             method::SESSION_LIST => route(or_empty(params), |p| self.session_list_of(p)),
             method::SESSION_RETIRE => route(params, |p| self.rpc_session_retire(p, conn)),
+            method::SESSION_TYPING => route(params, |p| Ok(self.session_typing(p, conn))),
             _ => route(params, |p| self.rpc_session_reopen(p, conn)),
         }
     }

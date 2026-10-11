@@ -36,6 +36,7 @@ import type { TerminalLeft } from "./TerminalLeft";
 import type { Tightening } from "./Tightening";
 import type { Usage } from "./Usage";
 import type { WakeInfo } from "./WakeInfo";
+import type { WarmHealth } from "./WarmHealth";
 import type { WebStatus } from "./WebStatus";
 
 export type HealthResult = { name: string, version: string, protocol: string, 
@@ -235,4 +236,8 @@ lsp?: Array<LspServerStatus>,
 /**
  * The daemon's own memory and its largest caches (theseus-9lxe).
  */
-resident?: ResidentHealth, };
+resident?: ResidentHealth, 
+/**
+ * What a person's first keystroke warmed, and when (theseus-tnky).
+ */
+warm?: WarmHealth, };

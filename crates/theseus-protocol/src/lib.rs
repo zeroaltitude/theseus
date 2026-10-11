@@ -39,6 +39,7 @@ pub mod mcp_server;
 pub mod memory;
 pub mod notices;
 mod ontology;
+mod outbox;
 pub mod packs;
 mod places;
 mod push;
@@ -52,6 +53,7 @@ pub mod term;
 #[cfg(test)]
 mod ts;
 pub mod voice;
+pub mod warm;
 pub mod work;
 
 pub use actions::{ActionInfo, ActionListParams, ActionListResult};
@@ -69,6 +71,7 @@ pub use history::*;
 pub use index::TenderStatus;
 pub use ledger::*;
 pub use ontology::*;
+pub use outbox::OutboxStatus;
 pub use places::*;
 pub use push::*;
 pub use sessions::{RetiredReason, SessionLink, SessionRetired, SessionState};
@@ -117,6 +120,9 @@ pub mod method {
         SESSION_LIST = "session.list",
         /// A session's retirement by the owner, and its undo (theseus-emqx).
         SESSION_RETIRE = "session.retire", SESSION_REOPEN = "session.reopen",
+        /// Someone began to type into a session: the daemon warms what the
+        /// message will wait for (theseus-tnky).
+        SESSION_TYPING = "session.typing",
         TURN_SUBMIT = "turn.submit",
         LEDGER_TAIL = "ledger.tail",
         PROFILE_LIST = "profile.list",
@@ -664,6 +670,10 @@ pub struct HealthResult {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub resident: Option<resident::ResidentHealth>,
+    /// What a person's first keystroke warmed, and when (theseus-tnky).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub warm: Option<warm::WarmHealth>,
 }
 
 /// The AWS accounts the config binds (`[aws.accounts.<id>]`).
@@ -1254,27 +1264,6 @@ pub struct BindingStatus {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub voice: Option<voice::VoiceStatus>,
-}
-
-/// A binding's outbox (theseus-q4v): what waits to reach its channels.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[cfg_attr(test, derive(ts_rs::TS))]
-pub struct OutboxStatus {
-    /// Posts written and not yet delivered.
-    pub pending: u64,
-    /// Posts delivered, in this store's life.
-    pub sent: u64,
-    /// Posts the channel refused for good (a deleted channel, lost access).
-    pub failed: u64,
-    /// When the oldest pending post was written (unix ms); 0 with none.
-    #[serde(default)]
-    pub oldest_pending_ms: u64,
-    /// The last delivery error, and when (unix ms).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[cfg_attr(test, ts(optional))]
-    pub last_error: Option<String>,
-    #[serde(default)]
-    pub last_error_ms: u64,
 }
 
 /// A place Theseus lives in: a text channel or a DM, and the session behind it.

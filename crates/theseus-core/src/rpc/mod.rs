@@ -62,7 +62,10 @@ mod tests_node_names;
 mod tests_ordered;
 #[cfg(test)]
 mod tests_session_states;
+#[cfg(test)]
+mod tests_typing;
 mod trust;
+mod typing;
 
 pub use bindings::BindingBoard;
 
@@ -163,6 +166,9 @@ pub struct Core {
     /// The daemon's own memory: work's marks, the trims after them, and
     /// health's block (theseus-9lxe).
     pub resident: crate::resident::Resident,
+    /// What a first keystroke warmed, and the sessions' idle spells
+    /// (theseus-tnky).
+    pub warmth: crate::warm::Warmth,
 }
 
 /// Where the index tender's supervisor writes its facts' rows
@@ -759,6 +765,7 @@ impl Core {
             mcp_server: Default::default(),
             episodes: Default::default(),
             resident: Default::default(),
+            warmth: Default::default(),
         });
         core.index.set_ledger(index_ledger(&core));
         core.mcp.attach(Arc::downgrade(&core));

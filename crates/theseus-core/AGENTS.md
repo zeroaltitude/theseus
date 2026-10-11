@@ -692,6 +692,19 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     its writers). The arms' seam: `Memory::science_for(arm)` and `Scene.science`; every arm but `+synthesis`
     leaves the harness session out before the index's top k (`Memory::begin`'s `exclude_sessions`), and the
     pipeline drops a synthesis as `arm` or `unchecked` (`MemoryScience::synthesis`). Tests: `tests_consolidate.rs`.
+- **A first keystroke warms what the message will wait for** (theseus-tnky): `warm.rs` and `rpc/typing.rs`. Every
+  surface sends `session.typing` (the TUI's input line, `watch --interactive`, Discord's typing event) once per idle
+  spell (`theseus_protocol::warm::SPELL_SECS`, 120 s; the client's `Typist` and the core's `Warmth::admit` keep the same
+  rule), and the core answers at once and spawns two warm-ups beside it, writing nothing (no frame, no row): the
+  session's provider connection (`Provider::warm`: a keyless `HEAD` of `/v1/messages`, never a model call and
+  nothing billed, sent only when no answer came within the pool's idle time; the provider is the session's last
+  target's, else the live profile's) and the tender's model (`IndexTender::warm`: `index.warm`, to a tender that
+  runs). The client's pool keeps an idle connection `provider::POOL_IDLE` (300 s; reqwest's default is 90). Only an
+  owner's typing counts on Discord (`Core::typist_refused`: another person in a shared place warms nothing), and the
+  MCP surface is refused by its allow-list. Health's `warm` block (`WarmHealth`) says when each was last warmed; the
+  metric is `theseus.warm` by target and outcome. Nothing on a turn's path waits for it. Tests: `warm::tests`,
+  `rpc/tests_typing.rs` (a stand-in provider that counts warm-ups apart from requests, a stand-in tender socket,
+  a provider whose warm-up never ends), `provider/tests_warm.rs` (a loopback server that counts connections).
 - **The import** (theseus-0lrr.6, the soul migration): `import/`. An outside pipeline's episode files (JSON Lines,
   format 1: `import/episode.rs`, every field from the format's lists and the hash over Python's canonical JSON, both
   string forms, `py_float`) become **imported sessions**: a `SessionRecord` with `imported` (`ImportedFrom`: tag,

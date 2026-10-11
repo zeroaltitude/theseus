@@ -43,6 +43,11 @@ Key modules: `main.rs`, `cmd.rs`, `render.rs`, `client.rs`. Read by: (a binary).
   has what it left stopped, and exits 9 (`after`'s `signalled`). The turn and its follow share one signal
   listener (`follow::Signals`, made under `--spawn` only): one each lost a signal that came between them.
   `render/later.rs` is the status line's words for what a run left behind.
+- `src/keys.rs` (theseus-tnky): `watch --interactive`'s input. On a terminal it reads bytes (out of canonical mode and
+  echo, signals on, restored on every way out, a panic's hook too) and keeps the line itself (text, backspace, Ctrl-U,
+  Ctrl-W, Enter, Ctrl-D on an empty line), since a terminal's own line mode shows nothing until Enter, and the first
+  key of a line is the `session.typing` notice's moment; a pipe is read by lines as before. `render/warm.rs` is
+  health's `warm:` line.
 - `src/print.rs`: the `Printer`, which writes the library's lines in one of four modes: `Text` (`ask`), `Quiet`
   (`ask --no-stream`), `Watch` (`watch`), and `Json`.
 - `src/render/history.rs`: `theseus history`'s own lines: each node with its short id, which `theseus reach` takes

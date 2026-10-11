@@ -57,6 +57,9 @@ pub enum Purpose {
     Watch,
     /// `turn.submit` from the input line.
     Submit(String),
+    /// `session.typing`: the input line's first key (theseus-tnky). Nothing
+    /// waits for its answer.
+    Typing,
     /// `execution.stop`.
     Stop(String),
     /// `task.cancel`.
@@ -135,6 +138,8 @@ pub struct App {
     pub filter: String,
     /// The input line's text.
     pub input: String,
+    /// The sessions told that someone types (theseus-tnky).
+    typist: theseus_protocol::warm::Typist,
     /// The decline's note, while `n` waits for it.
     pub note: String,
     /// Why an answer did not count, by its question: on its card until the
@@ -184,6 +189,7 @@ impl App {
             only: Only::All,
             filter: String::new(),
             input: String::new(),
+            typist: Default::default(),
             note: String::new(),
             refused: HashMap::new(),
             link: Link::Connecting,
@@ -532,13 +538,17 @@ impl App {
                 }
             }
             // A turn's answer comes at its end; its events said the rest.
-            Purpose::Submit(_) | Purpose::Watch => {}
+            Purpose::Submit(_) | Purpose::Watch | Purpose::Typing => {}
         }
         Vec::new()
     }
 
     /// A request that failed: say so where the operator looks.
     fn failed(&mut self, purpose: &Purpose, e: &RpcError) {
+        // A notice, whose daemon may not know it (an older one): nothing to say.
+        if matches!(purpose, Purpose::Typing) {
+            return;
+        }
         // An answer that did not count (theseus-sgh): its card says why, and
         // the question stays.
         if let Purpose::Answer { correlation_id, .. } = purpose {
@@ -567,6 +577,7 @@ impl App {
             Purpose::Stop(_) => method::EXECUTION_STOP,
             Purpose::Cancel(_) => method::TASK_CANCEL,
             Purpose::Answer { .. } => method::ACTION_CONFIRM,
+            Purpose::Typing => method::SESSION_TYPING,
         };
         let text = format!("{what}: {}", e.message);
         if let Purpose::Submit(sid) | Purpose::Stop(sid) | Purpose::Cancel(sid) = purpose {
@@ -891,7 +902,10 @@ impl App {
             KeyCode::Backspace => {
                 self.input.pop();
             }
-            KeyCode::Char(c) => self.input.push(c),
+            KeyCode::Char(c) => {
+                self.input.push(c);
+                return self.typing();
+            }
             KeyCode::Enter => {
                 let text = self.input.trim().to_string();
                 let Some(sid) = self.detail.as_ref().map(|d| d.session_id.clone()) else {
@@ -921,6 +935,20 @@ impl App {
             _ => {}
         }
         Vec::new()
+    }
+
+    /// The first key of an idle spell in the focused session's input line:
+    /// one cheap `session.typing`, so the daemon warms what the message will
+    /// wait for. Fire and forget (theseus-tnky).
+    fn typing(&mut self) -> Vec<Effect> {
+        let Some(sid) = self.detail.as_ref().map(|d| d.session_id.clone()) else {
+            return Vec::new();
+        };
+        if !self.typist.keystroke(&sid, self.now_ms) {
+            return Vec::new();
+        }
+        let params = json!({ "session_id": sid, "author": AUTHOR });
+        vec![call(method::SESSION_TYPING, params, Purpose::Typing)]
     }
 
     /// Enter with no row under the cursor, as on a fresh start: the first

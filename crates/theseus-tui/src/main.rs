@@ -26,6 +26,8 @@ mod tests_notice;
 mod tests_order;
 #[cfg(test)]
 mod tests_paste;
+#[cfg(test)]
+mod tests_typing;
 
 use std::io::Write;
 use std::time::{SystemTime, UNIX_EPOCH};

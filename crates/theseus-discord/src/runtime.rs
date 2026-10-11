@@ -69,6 +69,7 @@ mod publish;
 pub(crate) mod route;
 mod show;
 mod succession;
+mod typing;
 #[cfg(test)]
 pub(crate) use succession::open_at_bind;
 #[cfg(test)]
@@ -394,6 +395,8 @@ async fn event_loop(
         | Intents::GUILD_MESSAGES
         | Intents::DIRECT_MESSAGES
         | Intents::MESSAGE_CONTENT
+        | Intents::GUILD_MESSAGE_TYPING
+        | Intents::DIRECT_MESSAGE_TYPING
         | Intents::DIRECT_MESSAGE_REACTIONS
         | Intents::GUILD_MESSAGE_REACTIONS
         | shared.voice.intents();
@@ -471,6 +474,7 @@ async fn event_loop(
                 board.state("resuming", Some(why));
             }
             Event::MessageCreate(m) => shared.clone().on_message(&m.0),
+            Event::TypingStart(t) => shared.on_typing(&t),
             Event::InteractionCreate(i) => {
                 let s = shared.clone();
                 let i = i.0;
@@ -665,6 +669,8 @@ struct Routes {
     bot_roles: Vec<u64>,
     /// turn id → session id (deltas name only the turn)
     turns: HashMap<String, String>,
+    /// The people told to the core as typing, by channel (theseus-tnky).
+    typist: theseus_protocol::warm::Typist,
 }
 
 /// The place a message or an interaction belongs to (`Routes::resolve`).
@@ -718,6 +724,9 @@ enum PlaceMsg {
     Rebound(Box<live::Rebound>),
     /// The bindings file no longer names this place: its actor ends.
     Unbind,
+    /// Someone is typing here: the core is told, with this session's id
+    /// (theseus-tnky).
+    Typing(DiscordOrigin),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1977,6 +1986,7 @@ impl Place {
             PlaceMsg::Board => self.board(),
             PlaceMsg::Rebound(r) => self.rebound(*r),
             PlaceMsg::Unbind => {}
+            PlaceMsg::Typing(origin) => typing::notice(&self.shared.rpc, &self.session_id, origin),
             PlaceMsg::Control { cmd, by, reply } => {
                 let text = self.control(cmd, &by).await;
                 let _ = reply.send(text);

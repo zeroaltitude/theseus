@@ -52,6 +52,8 @@ Key modules: `lib.rs` (the `method`, `notify`, `error_code` tables), `events.rs`
 - `cost.rs` (theseus-c0bb): `TurnSubmitResult::cost_words`, the one wording of a turn's cost that the Discord
   footer and the CLI's status line show: the session's total with this reply's cost, `$47.52 total ($7.86 this
   reply)`, four decimals under a dollar; the turn's cost alone from a daemon that sends no `session_cost_usd`.
+- `warm.rs` (theseus-tnky): `session.typing`'s params and result, health's `warm` block (`WarmHealth`, `WarmStamp`), and
+  `Typist` (a client's memory of whom it told: one notice per session per `SPELL_SECS`, the caller passing the time).
 - `books.rs` (theseus-civ0): `books.list` and `books.page`'s params and results, `BOOKS` and `UNSORTED`.
 - `ts.rs`: the TypeScript export.
 

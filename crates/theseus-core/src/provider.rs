@@ -732,13 +732,49 @@ pub trait Provider: Send + Sync {
         req: &'a ProviderRequest,
         on_delta: DeltaSink<'a>,
     ) -> ProviderFuture<'a>;
+    /// Open the connection a call will use, if it is cold (theseus-tnky): a
+    /// person began to type. Never a model call, and nothing billed. A
+    /// provider with no connection to open answers `already` at once.
+    fn warm(&self) -> WarmFuture<'_> {
+        Box::pin(async {
+            Ok(Warmed {
+                took: Duration::ZERO,
+                already: true,
+            })
+        })
+    }
 }
 
 // --------------------------------------------------------------- anthropic
 
+#[cfg(test)]
+mod tests_warm;
+
+/// How long the client keeps an idle connection (theseus-tnky). reqwest's own
+/// default is 90 s, so a message after a minute and a half of quiet paid a new
+/// connect and TLS (80 to 140 ms) before its request left. The edge closes an
+/// idle connection at 200 to 400 s (the judge's note, theseus-ddbi); 300 s
+/// keeps one through a person's pauses, and the warm-up on a first keystroke
+/// ([`Provider::warm`]) opens one when it has gone anyway.
+pub const POOL_IDLE: Duration = Duration::from_secs(300);
+
+/// What a warm-up found.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Warmed {
+    /// How long the call took.
+    pub took: Duration,
+    /// A connection was already open and answered lately: nothing was sent.
+    pub already: bool,
+}
+
+pub type WarmFuture<'a> = futures_util::future::BoxFuture<'a, Result<Warmed, String>>;
+
 #[derive(Clone)]
 pub struct Anthropic {
     http: reqwest::Client,
+    /// When the API last answered on this client (a call or a warm-up).
+    heard: Arc<std::sync::Mutex<Option<Instant>>>,
+    pool_idle: Duration,
     api_base: String,
     /// The key, read from the board at each call: the daemon serves before
     /// it resolves (theseus-qa0), and a turn waits for it before calling.
@@ -754,17 +790,75 @@ impl Anthropic {
         key_secret: &str,
         timeouts: Timeouts,
     ) -> Result<Self> {
+        Self::with_pool_idle(api_base, secrets, key_secret, timeouts, POOL_IDLE)
+    }
+
+    /// [`Anthropic::new`] with the pool's idle time named (a test's seam).
+    pub fn with_pool_idle(
+        api_base: &str,
+        secrets: Arc<SecretBoard>,
+        key_secret: &str,
+        timeouts: Timeouts,
+        pool_idle: Duration,
+    ) -> Result<Self> {
         let http = reqwest::Client::builder()
             .user_agent(format!("theseus/{}", crate::VERSION))
             .connect_timeout(Duration::from_secs(timeouts.connect_secs))
+            .pool_idle_timeout(pool_idle)
             .build()?;
         Ok(Self {
             http,
+            heard: Arc::default(),
+            pool_idle,
             api_base: api_base.trim_end_matches('/').to_string(),
             secrets,
             key_secret: key_secret.to_string(),
             timeouts,
         })
+    }
+
+    /// Whether the API answered within the pool's idle time, less a margin
+    /// for a pause that ends as the connection closes: one is likely open.
+    fn is_warm(&self) -> bool {
+        let margin = Duration::from_secs(10).min(self.pool_idle / 2);
+        self.heard
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .is_some_and(|t| t.elapsed() < self.pool_idle - margin)
+    }
+
+    fn heard(&self) {
+        *self.heard.lock().unwrap_or_else(|e| e.into_inner()) = Some(Instant::now());
+    }
+
+    /// Open a connection unless one is warm: a `HEAD` of the messages path
+    /// with no key and no body, so it is never a model call and costs
+    /// nothing (the edge answers 4xx, and any answer leaves its connection in
+    /// the pool). Bounded by the connect timeout and a second more.
+    async fn warm_impl(&self) -> Result<Warmed, String> {
+        if self.is_warm() {
+            return Ok(Warmed {
+                took: Duration::ZERO,
+                already: true,
+            });
+        }
+        let t0 = Instant::now();
+        let bound = Duration::from_secs(self.timeouts.connect_secs + 1);
+        let head = self
+            .http
+            .head(format!("{}/v1/messages", self.api_base))
+            .send();
+        match tokio::time::timeout(bound, head).await {
+            Ok(Ok(_)) => {
+                self.heard();
+                Ok(Warmed {
+                    took: t0.elapsed(),
+                    already: false,
+                })
+            }
+            Ok(Err(e)) => Err(e.without_url().to_string()),
+            Err(_) => Err(format!("no answer within {} ms", bound.as_millis())),
+        }
     }
 
     /// The key, or why there is none. Fail closed: no call goes out without it.
@@ -833,6 +927,7 @@ impl Anthropic {
                 .into())
             }
         };
+        self.heard();
         let first_byte_ms = elapsed(started);
         let headers = resp.headers().clone();
         let status = resp.status();
@@ -937,6 +1032,9 @@ impl Provider for Anthropic {
         on_delta: DeltaSink<'a>,
     ) -> ProviderFuture<'a> {
         Box::pin(self.stream_message_impl(req, on_delta))
+    }
+    fn warm(&self) -> WarmFuture<'_> {
+        Box::pin(self.warm_impl())
     }
 }
 
@@ -1224,6 +1322,8 @@ pub struct FakeProvider {
     pub requests: std::sync::Mutex<Vec<ProviderRequest>>,
     /// Artificial latency before the response, for concurrency tests.
     pub delay_ms: u64,
+    /// Warm-ups asked of it (`Provider::warm`), none of them a request.
+    pub warms: std::sync::atomic::AtomicU64,
 }
 
 impl Default for FakeProvider {
@@ -1236,6 +1336,7 @@ impl Default for FakeProvider {
             script: Default::default(),
             requests: Default::default(),
             delay_ms: 0,
+            warms: Default::default(),
         }
     }
 }
@@ -1255,6 +1356,16 @@ impl FakeProvider {
 impl Provider for FakeProvider {
     fn name(&self) -> &str {
         "fake"
+    }
+    fn warm(&self) -> WarmFuture<'_> {
+        self.warms
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        Box::pin(async {
+            Ok(Warmed {
+                took: Duration::ZERO,
+                already: false,
+            })
+        })
     }
     fn stream_message<'a>(
         &'a self,

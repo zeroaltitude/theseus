@@ -767,6 +767,24 @@ impl IndexTender {
     }
 }
 
+#[cfg(test)]
+impl IndexTender {
+    /// A test's tender that runs, though nothing was started: its socket is
+    /// whatever the test bound at [`IndexTender::socket`].
+    pub(crate) fn mark_running(&self) {
+        self.board().state = "running";
+    }
+}
+
+impl IndexTender {
+    /// `index.warm` (theseus-tnky): start the embedding model's load if it is
+    /// unloaded, and answer at once. To a tender that runs; `Err` says why
+    /// not. Never on a turn's path: a person's first keystroke sends it.
+    pub async fn warm(&self) -> Result<theseus_protocol::index::IndexWarmResult, TenderMiss> {
+        self.ask(method::WARM, serde_json::json!({})).await
+    }
+}
+
 /// Why the tender gave no answer to one of the memory pass's calls.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TenderMiss {

@@ -43,6 +43,7 @@ mod store;
 mod task_graph;
 mod tasks;
 pub mod time;
+mod warm;
 mod web;
 pub use aws::{aws_call_line, aws_lines, bootstrap_lines};
 pub use cancel::{cancels_line, verdict_lines};
@@ -1785,6 +1786,7 @@ pub fn health_lines(h: &theseus_protocol::HealthResult, now_ms: u64) -> Vec<Line
     for (tag, line) in store_lines(&h.store)
         .into_iter()
         .chain(resident::resident_lines(h.resident.as_ref()))
+        .chain(warm::warm_lines(h.warm.as_ref(), now_ms))
     {
         push(o, tag, &line);
     }

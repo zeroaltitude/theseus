@@ -75,6 +75,12 @@ Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
   on Discord: a reaction does the same without a button row under every reply. The gateway asks for both reaction
   intents (not privileged).
 
+- **Typing** (theseus-tnky, `runtime/typing.rs`): the gateway asks for both typing intents (not privileged). A typing
+  event of a person the place lets drive it (never in a channel that wants an @mention, never the bot) is told to the
+  place's actor once per person per channel per idle spell, which sends `session.typing` with its session's id and
+  the typist's `DiscordOrigin`; the core warms only for an owner's typing (another person's in a shared place warms
+  nothing). Tests: `tests_typing.rs`, through the stand-in's `TYPING_START` (`FakeDiscord::typing`).
+
 ## Invariants
 
 - **What a person does goes through the protocol** (a message is `turn.submit`, a press `action.confirm`, `/stop`
