@@ -12,7 +12,11 @@
 #                 from the defaults (`theseusd example-config`, then `config --sparse`), every [secrets] entry an
 #                 op:// placeholder for you to fill in, never a value. /etc/theseus is made once with sudo, owned
 #                 by you, 0750, and the file 0640, so nothing later needs sudo. An existing config is never
-#                 overwritten: the run says which keys differ from the template instead.
+#                 overwritten: the run says which keys differ from the template instead. A new config also asks
+#                 once for the Jev key's reference (theseus-is8t): an op:// reference first, or env:NAME, never the
+#                 value. The judge (Jev's routing, rerank and shadow judgments) is on exactly when that key
+#                 resolves, so skipping the question leaves it off, and the run says so. Non-interactive runs
+#                 (--yes, or no terminal) never ask.
 #   5. check      `theseusd check`: every secret resolves. A placeholder still in [secrets], or no token file for
 #                 the config's op:// references, stops the run here, saying what to do.
 #   6. service    scripts/user-service.sh install --yes: the systemd user unit, started (a restart when the
@@ -31,6 +35,9 @@
 #   --state-dir DIR          then these two are required, so it never shares your daemon's store
 #   --socket PATH            or socket
 #   --no-build             install what the target dir's release-thin build holds, without building
+#   --yes, -y              never ask a question (the Jev key's): a run with no terminal never does either
+#   --jev-key REF          the Jev key's reference, answering that question: op://<vault>/<item>/<field> or
+#                          env:NAME, never the value itself ("skip" answers it with no key)
 #   --help, -h
 #
 # It never prints a secret, never stores sudo's password (sudo asks for it itself), and never touches a config
@@ -54,6 +61,8 @@ SHIPPED=(theseusd theseus theseus-tui theseus-sim theseus-index) # scripts/build
 DEFAULT_CONFIG_FILE=/etc/theseus/theseus.toml
 DRY=0
 BUILD=1
+YES=0
+JEV_KEY=""
 PREFIX=$HOME/.local/bin
 CONFIG=$DEFAULT_CONFIG_FILE
 TOKEN=${THESEUS_OP_TOKEN_FILE:-}
@@ -120,6 +129,17 @@ stop_here() { # stop_here CODE WORDS...: the last lines of a run that stops earl
 
 # --- options ---
 
+# A Jev key's reference: `op://<vault>/<item>/<field>` or `env:NAME`, and nothing else.
+jev_reference_ok() {
+  case $1 in
+  op://*[\<\>\"\ ]* | op://) return 1 ;;
+  op://*/*/*) ;;
+  env:[A-Za-z_]*) case ${1#env:} in *[!A-Za-z0-9_]*) return 1 ;; esac ;;
+  *) return 1 ;;
+  esac
+  return 0
+}
+
 need_value() { [ $# -ge 2 ] && [ -n "$2" ] || {
   echo "$SELF: $1 needs a value (--help lists the options)" >&2
   exit 2
@@ -128,6 +148,9 @@ while [ $# -gt 0 ]; do
   case $1 in
   --dry-run) DRY=1 ;;
   --no-build) BUILD=0 ;;
+  --yes | -y) YES=1 ;;
+  --jev-key) need_value "$@"; JEV_KEY=$2; shift ;;
+  --jev-key=*) JEV_KEY=${1#*=} ;;
   --op-token-file) need_value "$@"; TOKEN=$2; shift ;;
   --op-token-file=*) TOKEN=${1#*=} ;;
   --prefix) need_value "$@"; PREFIX=$2; shift ;;
@@ -151,6 +174,11 @@ while [ $# -gt 0 ]; do
   esac
   shift
 done
+
+if [ -n "$JEV_KEY" ] && [ "$JEV_KEY" != skip ] && ! jev_reference_ok "$JEV_KEY"; then
+  echo "$SELF: --jev-key takes op://<vault>/<item>/<field> or env:NAME (never the key itself), or skip" >&2
+  exit 2
+fi
 
 # Paths as a unit needs them: `~` expanded, and absolute.
 absolute() {
@@ -508,6 +536,35 @@ cut_template() { # cut_template DIR: writes DIR/template.toml, DIR/config.toml
   }
 }
 
+# jev_key_answer: the Jev key's reference, from --jev-key or one question; prints it, or `skip`, or nothing when
+# there was no question. A value, or anything that could be one, is refused (and asked again, up to three times),
+# so a secret is never typed into the config. Asked only on a terminal and without --yes.
+jev_key_answer() {
+  local ans=$JEV_KEY tries=0
+  if [ -z "$ans" ] && [ "$YES" = 0 ] && [ -t 0 ]; then
+    say "  Jev's key: Jev routes each message to the model and effort it needs, and judges the turns' work" >&3
+    say "  (docs/technical-overview.md). The judge turns on exactly when its key resolves, and stays off without it." >&3
+    while [ "$tries" -lt 3 ]; do
+      printf '  Jev key reference (op://<vault>/<item>/<field>, or env:NAME; empty to skip): ' >&3
+      IFS= read -r ans || ans=""
+      [ -z "$ans" ] && ans=skip
+      jev_reference_ok "$ans" || [ "$ans" = skip ] && break
+      say "  not a reference (never type the key itself): use op://<vault>/<item>/<field> or env:NAME" >&3
+      ans=skip
+      tries=$((tries + 1))
+    done
+  fi
+  [ -z "$ans" ] && return 1
+  printf '%s' "$ans"
+}
+# set_jev_key DIR ANSWER: writes the answer into DIR/config.toml's [secrets]: the reference, or (skip) no entry.
+set_jev_key() {
+  awk -v ref="$2" '
+    /^\[/ { insec = ($0 == "[secrets]") }
+    insec && /^jev_api_key[[:space:]]*=/ { if (ref != "skip") print "jev_api_key = \"" ref "\""; next }
+    { print }' "$1/config.toml" >"$1/config.jev" && mv -f "$1/config.jev" "$1/config.toml"
+}
+
 if [ "$CONFIG_STATE" = present ]; then
   if dry; then
     note "it exists, so it is left as it is; a real run says which keys differ from the template (never a value)"
@@ -549,11 +606,22 @@ else
     show "$THESEUSD" --config TEMPLATE config --sparse
     note "the template cut to what differs from the defaults, [tools] projects_dir set to ~/projects, a header"
     note "asserted before anything is written: every [secrets] entry is an op:// placeholder, and no token-like text"
+    note "then, on a terminal and without --yes, one question: the Jev key's reference (op:// or env:NAME, never the value)"
     show install -m 0640 CONFIG.new "$CONFIG"
   else
     work=$(mktemp -d)
     trap 'rm -rf "$work"' EXIT
     cut_template "$work" || stop_here 1 "Not set up: the config was not written (above)."
+    jev=$(jev_key_answer) || jev=""
+    case $jev in
+    "") info "Jev: not asked. The config keeps its jev_api_key placeholder, so the judge stays off until you put the key's reference there (or pass --jev-key)" ;;
+    skip)
+      set_jev_key "$work" skip
+      info "Jev: skipped. The judge stays off, and health says why; add jev_api_key under [secrets] and restart, and it turns on" ;;
+    *)
+      set_jev_key "$work" "$jev"
+      info "Jev: the key is $jev; the judge turns on when it resolves" ;;
+    esac
     install -m 0640 "$work/config.toml" "$CONFIG.new" && mv -f "$CONFIG.new" "$CONFIG" ||
       stop_here 1 "Not set up: $CONFIG could not be written."
     names=$(secrets_of "$CONFIG" | cut -f1 | tr '\n' ' ')
@@ -654,7 +722,7 @@ done
 if [ -z "$h" ]; then
   stop_here 1 "Not set up: nothing answers on $SOCKET (${us[*]} status, or ${us[*]} logs)."
 fi
-printf '%s\n' "$h" | mask | grep -E '^(theseus |startup:|config:|secrets:|sandbox:|index:|discord:)' | cut -c1-240 | sed 's/^/  /'
+printf '%s\n' "$h" | mask | grep -E '^(features:|theseus |startup:|config:|secrets:|sandbox:|index:|discord:)' | cut -c1-240 | sed 's/^/  /'
 say "  unit: $(systemctl --user show "$UNIT" -p ActiveState -p SubState -p MainPID | tr '\n' ' ')"
 cli=theseus
 [ -n "$SOCKET_OPT" ] && cli="theseus --socket $SOCKET_OPT"

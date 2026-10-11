@@ -114,6 +114,60 @@ impl Rig {
         (out.status.code().unwrap_or(-1), text)
     }
 
+    /// `run`, with the script's stdin a terminal (a pty) that types `answer` and a newline at the Jev key's
+    /// question (theseus-is8t), and nothing at any other prompt. Returns the exit code and the whole output.
+    fn run_on_a_terminal(&self, more: &[&str], answer: &str) -> (i32, String) {
+        const DRIVER: &str = r#"
+import os, pty, sys, select
+answer, script, *args = sys.argv[1:]
+pid, fd = pty.fork()
+if pid == 0:
+    os.execvp("bash", ["bash", script] + args)
+out, sent = b"", 0
+while True:
+    r, _, _ = select.select([fd], [], [], 60)
+    if not r:
+        break
+    try:
+        d = os.read(fd, 4096)
+    except OSError:
+        break
+    if not d:
+        break
+    out += d
+    asked = out.count(b"empty to skip): ")
+    if asked > sent:
+        os.write(fd, (answer + "\n").encode())
+        sent = asked
+_, status = os.waitpid(pid, 0)
+sys.stdout.write(out.decode(errors="replace"))
+sys.exit(os.waitstatus_to_exitcode(status))
+"#;
+        let out = Command::new("python3")
+            .args(["-I", "-c", DRIVER, answer])
+            .arg(script())
+            .arg("--no-build")
+            .arg("--prefix")
+            .arg(self.at("prefix"))
+            .arg("--config")
+            .arg(self.config())
+            .args(more)
+            .env_clear()
+            .env(
+                "PATH",
+                format!("{}:/usr/bin:/bin", self.at("bin").display()),
+            )
+            .env("HOME", self.at("home"))
+            .env("FAKE", self.at("fake"))
+            .env("CARGO_TARGET_DIR", self.at("target"))
+            .env("LANG", "C.UTF-8")
+            .current_dir(self.dir.path())
+            .output()
+            .unwrap();
+        let text = String::from_utf8_lossy(&out.stdout).replace('\r', "");
+        (out.status.code().unwrap_or(-1), text)
+    }
+
     /// Every file and dir under the scratch dir but the stand-ins' log.
     fn tree(&self) -> Vec<Entry> {
         let top = self.dir.path();
@@ -344,4 +398,133 @@ fn operators_edit(r: &Rig, text: &str) -> String {
         );
     std::fs::write(r.config(), &edited).unwrap();
     edited
+}
+
+/// The `[secrets]` entry `name` of the config the script wrote, as written.
+fn secret_line(cfg: &Path, name: &str) -> Option<String> {
+    let text = std::fs::read_to_string(cfg).unwrap();
+    let secrets = text.split("\n[secrets]\n").nth(1)?;
+    secrets
+        .lines()
+        .take_while(|l| !l.starts_with('['))
+        .find(|l| l.starts_with(&format!("{name} = ")))
+        .map(String::from)
+}
+
+/// With no terminal, or under `--yes`, the Jev key's question is never asked (theseus-is8t): the config keeps the
+/// template's placeholder, the judge stays off until it is filled in, and the run says so.
+#[test]
+fn a_run_with_no_terminal_or_under_yes_never_asks_for_the_jev_key() {
+    for more in [&[][..], &["--yes"][..]] {
+        let r = rig!();
+        let (code, out) = r.run(more);
+        assert_eq!(code, 3, "{out}");
+        assert!(out.contains("Jev: not asked"), "{out}");
+        assert!(!out.contains("Jev key reference"), "asked:\n{out}");
+        let line = secret_line(&r.config(), "jev_api_key").unwrap();
+        assert!(line.contains("op://<"), "the placeholder stays: {line}");
+    }
+}
+
+/// `--jev-key` answers the question in advance: an `op://` reference or `env:NAME` is written as given, `skip`
+/// removes the entry, and a value (anything else) is refused before anything is written.
+#[test]
+fn jev_key_names_a_reference_or_skips_and_never_takes_a_value() {
+    for (given, want) in [
+        (
+            "op://Work/Jev/key",
+            Some("jev_api_key = \"op://Work/Jev/key\""),
+        ),
+        ("env:JEV_KEY", Some("jev_api_key = \"env:JEV_KEY\"")),
+        ("skip", None),
+    ] {
+        let r = rig!();
+        let (code, out) = r.run(&["--jev-key", given]);
+        assert_eq!(code, 3, "{given}: {out}");
+        assert_eq!(
+            secret_line(&r.config(), "jev_api_key").as_deref(),
+            want,
+            "{given}"
+        );
+        assert!(
+            out.contains(if want.is_some() {
+                "Jev: the key is"
+            } else {
+                "Jev: skipped"
+            }),
+            "{given}: {out}"
+        );
+        // The rest of the config is as before: the other placeholders stay.
+        assert!(secret_line(&r.config(), "anthropic_api_key")
+            .unwrap()
+            .contains("op://<"));
+        // It loads, as the daemon will read it.
+        let loads = Command::new(env!("CARGO_BIN_EXE_theseusd"))
+            .env_remove("OP_SERVICE_ACCOUNT_TOKEN")
+            .env_remove("THESEUS_OP_TOKEN_FILE")
+            .arg("--config")
+            .arg(r.config())
+            .args(["config", "--sparse"])
+            .output()
+            .unwrap();
+        assert!(
+            loads.status.success(),
+            "{given}: {}",
+            String::from_utf8_lossy(&loads.stderr)
+        );
+    }
+    let r = rig!();
+    let key = "sk-ant-api03-0123456789abcdefghijklmnopqrstuvwxyz";
+    let (code, out) = r.run(&["--jev-key", key]);
+    assert_eq!(code, 2, "{out}");
+    assert!(
+        !out.contains(key) || out.contains("never the key itself"),
+        "{out}"
+    );
+    assert!(!r.config().exists(), "a refused answer wrote nothing");
+}
+
+/// On a terminal the question is asked once: a reference is written, an empty answer skips it (the entry goes,
+/// so the run is not stopped for it, and the judge stays off), and a typed key is refused, asked for again up to three times, and then taken as a skip.
+#[test]
+fn on_a_terminal_the_jev_key_is_asked_once_and_skipping_leaves_the_judge_off() {
+    let have_python = Command::new("python3").arg("-V").output().is_ok();
+    if !have_python {
+        eprintln!("skipped: no python3 to drive a terminal");
+        return;
+    }
+    let r = rig!();
+    let (code, out) = r.run_on_a_terminal(&[], "env:JEV_KEY");
+    assert_eq!(code, 3, "{out}");
+    assert!(out.contains("Jev key reference (op://"), "{out}");
+    assert_eq!(out.matches("Jev key reference (op://").count(), 1, "{out}");
+    assert_eq!(
+        secret_line(&r.config(), "jev_api_key").as_deref(),
+        Some("jev_api_key = \"env:JEV_KEY\"")
+    );
+    let r = rig!();
+    let (code, out) = r.run_on_a_terminal(&[], "");
+    assert_eq!(code, 3, "{out}");
+    assert!(out.contains("Jev: skipped. The judge stays off"), "{out}");
+    assert_eq!(secret_line(&r.config(), "jev_api_key"), None);
+    // Under --yes, even on a terminal, it is never asked.
+    let r = rig!();
+    let (code, out) = r.run_on_a_terminal(&["--yes"], "env:JEV_KEY");
+    assert_eq!(code, 3, "{out}");
+    assert!(
+        out.contains("Jev: not asked") && !out.contains("Jev key reference"),
+        "{out}"
+    );
+    assert!(secret_line(&r.config(), "jev_api_key")
+        .unwrap()
+        .contains("op://<"));
+    // A typed key is refused and never reaches the config.
+    let r = rig!();
+    let key = "sk-ant-api03-0123456789abcdefghijklmnopqrstuvwxyz";
+    let (_, out) = r.run_on_a_terminal(&[], key);
+    assert!(out.contains("not a reference"), "{out}");
+    assert_eq!(out.matches("Jev key reference (op://").count(), 3, "{out}");
+    let cfg = std::fs::read_to_string(r.config()).unwrap();
+    assert!(!cfg.contains(key), "the typed key reached the config");
+    assert_eq!(secret_line(&r.config(), "jev_api_key"), None, "{out}");
 }

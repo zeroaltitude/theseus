@@ -48,7 +48,12 @@ Each step prints one line per thing it checks or does, and the commands it runs 
    missing, it is made once with `sudo install -d -o <you> -g <your group> -m 0750 /etc/theseus`, and the file is
    yours, mode 0640. sudo asks for your password itself; the script never sees or keeps it. **An existing config
    is never overwritten**: the script says which keys differ from the template (only yours, only the template's,
-   or another value), and never a value.
+   or another value), and never a value. A new config also asks **once** for the Jev key's reference (an `op://`
+   reference first, or `env:NAME`; never the value, which the script refuses to take): Theseus's judge, Jev's
+   routing and rerank, is on exactly when that key resolves, and off without it. Skipping the question (an empty
+   answer) removes the `jev_api_key` line and leaves the judge off, and the run says so. A run with `--yes` or no
+   terminal never asks: the placeholder stays, and `--jev-key REF` (or `--jev-key skip`) answers it in advance.
+   Recall (memory) needs no key and is on in a fresh install.
 5. **Check**: `theseusd check` with the installed binary, which resolves every secret and exits. While a
    `[secrets]` entry is still a placeholder, or the config names `op://` references and no token file is named,
    the run stops here (exit status 3) and says what to do.
@@ -56,7 +61,8 @@ Each step prints one line per thing it checks or does, and the commands it runs 
    it ([user-service.md](user-service.md) has every step), then the unit's own checks: no delegated cgroup, no stop
    hook, `KillMode=process`. When the unit already matches the plan and its daemon answers, there is nothing to
    do; when a binary changed under it, a restart runs the new one.
-7. **Health**: `theseus health` on the daemon's socket, once its secrets have resolved.
+7. **Health**: `theseus health` on the daemon's socket, once its secrets have resolved. Its first line names which
+   killer features are on: memory, Jev (routing live or shadow, or off and why), the secret scrub, and the budgets.
 
 ## The first run, and the next
 
