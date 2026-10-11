@@ -47,6 +47,16 @@ Key modules: `main.rs`, `cmd.rs`, `render.rs`, `client.rs`. Read by: (a binary).
   (sends the shell's `THESEUS_SESSION` as `from_job`, so the daemon refuses a job's resume and ledgers it, rather
   than the CLI refusing it unseen), and `self digest`. The state's words are the library's `render/rsi.rs`
   (`self_state_line`), which health's `self` line uses too (`HealthResult.self_improve`).
+- `src/postmortem.rs` (theseus-m2tiu): `theseus postmortem [--since T] [--until T] [--session S | --task T] [--out FILE]`
+  (`--json` the same facts as data; default window the last 12 hours; `T` is an age, a time of day, `yesterday 22:00`
+  or an RFC 3339 time). It reads `ledger.window` a page at a time (read only: no frame, no lock) and hands the rows to
+  the library's `render/postmortem_facts.rs` (`analyze`: a pure walk, the window's end the caller's) whose `Report`
+  `render/postmortem.rs` words as markdown: Summary, Restarts, Timeline (quiet turns fold), Cost, Asked and answered,
+  Open at the end. `--rows-out FILE` keeps the rows read as JSON Lines and `--from-rows FILE` reports from them with no
+  daemon: how a real incident becomes a fixture (`tests/fixtures/postmortem/`, recorded by theseusd's
+  `tests/postmortem_incident.rs`). Tests: `postmortem_tests.rs` (the times), `render/postmortem_facts_tests.rs` (each
+  section on small row sets), `tests/postmortem.rs` (a scripted daemon, and the golden and the facts-in-order of the
+  recorded incident; `THESEUS_GOLDEN=write` rewrites `incident.md` and `incident.json`).
 - `src/print.rs`: the `Printer`, which writes the library's lines in one of four modes: `Text` (`ask`), `Quiet`
   (`ask --no-stream`), `Watch` (`watch`), and `Json`.
 - `src/render/history.rs`: `theseus history`'s own lines: each node with its short id, which `theseus reach` takes
