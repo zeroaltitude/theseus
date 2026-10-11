@@ -1,0 +1,7 @@
+$ theseus standing list
+--- requests
+standing.list {"all":false}
+--- stdout
+No standing records. `theseus standing add "never push to main"` makes an order.
+--- stderr
+--- exit 0

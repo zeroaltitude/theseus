@@ -815,6 +815,10 @@ pub(crate) enum Act<'a> {
     /// sessions could hide the owner's conversations from the default view.
     /// `what` names it: `the retirement of ses_…`.
     Session { method: &'static str, what: &'a str },
+    /// A standing record's addition or revoke (theseus-a7vi): the owner's
+    /// orders ride every prompt of their scope, so a job's process that wrote
+    /// one would steer every session. `what` names it: `the revoke of std_…`.
+    Standing { method: &'static str, what: &'a str },
     /// The release of self-improvement's kill switch (theseus-pw1q.2,
     /// `self.resume`): only the owner turns it back on (the CLI, the web UI,
     /// or an author holding an owner handle, in any bound place:
@@ -841,6 +845,7 @@ impl Act<'_> {
             Act::Ladder { method, .. } => method,
             Act::Import { method, .. } => method,
             Act::Session { method, .. } => method,
+            Act::Standing { method, .. } => method,
             Act::SelfResume { .. } => theseus_protocol::method::SELF_RESUME,
         }
     }

@@ -72,6 +72,7 @@ mod rerank_step;
 mod retry_step;
 mod route_step;
 pub(crate) mod situation_step;
+mod standing_step;
 pub mod stdio_step;
 mod stopping_step;
 mod title_step;
@@ -159,6 +160,8 @@ pub struct TurnRunner {
     pub pass: Arc<crate::memory_pass::MemoryPass>,
     /// The ontology's snapshot (theseus-8kk.1), built after serving.
     pub ontology: crate::ontology::Board,
+    /// The owner's standing records (theseus-a7vi), in memory.
+    pub standing: crate::standing::Board,
     /// Jev's judgments (M5 23a): each turn's end is handed to it, and it
     /// judges in a task of its own; the turn never waits on it.
     pub judge: Arc<crate::judge::JudgeService>,
@@ -378,6 +381,8 @@ struct Turn<'a> {
     route: route_step::RouteState,
     /// A refusal moved the turn to its model's fallback (theseus-7gir.18).
     fallback: Option<fallback_step::FellBack>,
+    /// The standing block the turn's spec carries (theseus-a7vi).
+    standing: Option<crate::standing::Block>,
 }
 
 /// The class of a turn that faulted (R1): an error the turn did not report
@@ -494,6 +499,7 @@ impl<'a> Turn<'a> {
             recall: recall_step::Recalled::default(),
             route: route_step::RouteState::default(),
             fallback: None,
+            standing: None,
         }
     }
 
@@ -1688,6 +1694,7 @@ impl TurnRunner {
         // mid-turn applies at the next turn's first loop.
         let (mut spec, unreadable) = self.request_spec(target, session.kind, t.tc.place());
         spec.walk = self.walk(sid, t.tc.class);
+        self.stand(t, &mut spec);
         for u in &unreadable {
             tracing::warn!(path = %u.path, error = %u.error, session_id = %sid,
                 "context file unreadable: the system block says it is missing (warned once per daemon run)");

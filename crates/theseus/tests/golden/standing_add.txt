@@ -1,0 +1,7 @@
+$ theseus standing add --kind preference answer in two sentences
+--- requests
+standing.add {"kind":"preference","scope":{"kind":"everywhere"},"text":"answer in two sentences"}
+--- stdout
+Added preference std_0000aaaa for everywhere: every prompt of that scope carries it from its next turn.
+--- stderr
+--- exit 0

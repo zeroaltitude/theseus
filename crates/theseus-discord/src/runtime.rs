@@ -58,6 +58,7 @@ mod guilds;
 mod halt;
 mod jev;
 mod live;
+mod orders;
 pub(crate) use jev::{
     buttons as jev_buttons, labeled_text as jev_labeled_text, notice_text as jev_notice_text,
 };
@@ -566,6 +567,7 @@ fn commands() -> Vec<twilight_model::application::command::Command> {
     );
     cmds.push(prompt::command());
     cmds.push(extensions::command());
+    cmds.push(orders::command());
     cmds.extend(voice::commands());
     cmds
 }
@@ -747,6 +749,8 @@ enum Control {
     Extensions,
     /// Revoke a loaded extension, as the presser.
     Revoke(String, Option<DiscordOrigin>),
+    /// Revoke a standing record, as the presser (theseus-a7vi, `runtime/orders.rs`).
+    Unorder(String, Option<DiscordOrigin>),
     /// "halt self" (theseus-pw1q.2, `runtime/halt.rs`): why, and its author's ids.
     HaltSelf(Option<String>, Option<DiscordOrigin>),
     /// "resume self": its author's ids; the core counts only the owner's.
@@ -1229,9 +1233,10 @@ impl Shared {
             }),
             _ => None,
         };
-        // `/extensions` and its Revoke buttons (`runtime/extensions.rs`).
+        // `/orders` and `/extensions`, each with its Revoke buttons
+        // (`runtime/orders.rs`, `runtime/extensions.rs`).
         if self
-            .extensions_interaction(&i, &tx, &who, discord.clone())
+            .revokable_interaction(&i, &tx, &who, discord.clone())
             .await
         {
             return;
@@ -2199,6 +2204,7 @@ impl Place {
             Control::Publish(ask) => self.publish(*ask, by).await,
             Control::Extensions => self.extensions().await,
             Control::Revoke(name, origin) => self.revoke(name, origin, by).await,
+            Control::Unorder(id, origin) => self.unorder(id, origin, by).await,
             Control::HaltSelf(why, origin) => self.halt_self(why, origin, by).await,
             Control::ResumeSelf(origin) => self.resume_self(origin, by).await,
             Control::Join(named, origin) => self.join(named, origin, by).await,

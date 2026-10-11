@@ -222,6 +222,8 @@ ledger_kinds! {
     SpeechTranscribed = "speech.transcribed",
     SpendCeiling = "spend.ceiling",
     SpoolSwept = "spool.swept",
+    StandingAdded = "standing.added",
+    StandingRevoked = "standing.revoked",
     StartupStep = "startup.step",
     SynthesisChecked = "synthesis.checked",
     SynthesisProposed = "synthesis.proposed",

@@ -85,6 +85,9 @@ pub struct Manifest {
     /// order, with its version and digest.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub guidance: Vec<theseus_ontology::GuidanceUsed>,
+    /// The owner's standing records the second block listed (theseus-a7vi).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub standing: Vec<crate::standing::StandingUsed>,
     // A manifest from 19a to the place rule (COMPILATION schema 4) also has
     // `audience`, `readers`, `integrity`, and `withheld`: they read, and are
     // left unread (COMPILATION schema 5, theseus-nbsh).
@@ -624,6 +627,7 @@ pub fn manifest_for(
         cache: Some(cache_layout(spec, catalog)),
         memberships: spec.memberships.clone(),
         guidance: spec.guidance.clone(),
+        standing: vec![],
     }
 }
 

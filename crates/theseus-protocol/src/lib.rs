@@ -48,6 +48,7 @@ pub mod rsi;
 pub mod sandbox;
 pub mod sessions;
 pub mod signals;
+pub mod standing;
 pub mod tasks;
 pub mod term;
 #[cfg(test)]
@@ -73,6 +74,10 @@ pub use ontology::*;
 pub use places::*;
 pub use push::*;
 pub use sessions::{RetiredReason, SessionLink, SessionRetired, SessionState};
+pub use standing::{
+    StandingAddParams, StandingChanged, StandingInfo, StandingKind, StandingListParams,
+    StandingListResult, StandingRecord, StandingRevokeParams, StandingScope,
+};
 pub use term::{TerminalInfo, TerminalLeft};
 
 use serde::{Deserialize, Serialize};
@@ -175,6 +180,9 @@ pub mod method {
         /// operator's answers to one, judged as the ontology's writes are.
         ONTOLOGY_PROPOSALS = "ontology.proposals",
         ONTOLOGY_PROPOSAL_ACCEPT = "ontology.proposal.accept",
+        /// The owner's standing orders, preferences and facts (theseus-a7vi,
+        /// `standing::StandingListParams`): a read, and the owner's two writes.
+        STANDING_LIST = "standing.list", STANDING_ADD = "standing.add", STANDING_REVOKE = "standing.revoke",
         ONTOLOGY_PROPOSAL_REJECT = "ontology.proposal.reject", ONTOLOGY_PROPOSAL_ACCEPT_ALL = "ontology.proposal.accept_all", ONTOLOGY_PERSON_MERGE = "ontology.person.merge", ONTOLOGY_PROPOSAL_REJECT_ALL = "ontology.proposal.reject_all",
         /// Tasks (DD7): the child sessions conversations started, with state and
         /// spend.

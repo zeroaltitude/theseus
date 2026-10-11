@@ -44,6 +44,7 @@ mod route_correct;
 mod rsi;
 mod server;
 mod sessions;
+mod standing;
 #[cfg(test)]
 pub(crate) use server::write_item;
 #[cfg(test)]
@@ -703,6 +704,7 @@ impl Core {
             place_rule: Default::default(),
             // Built after serving, by one META scan (theseus-8kk.1).
             ontology: Default::default(),
+            standing: Default::default(),
             run_compiles: Default::default(),
             failed_turns: Default::default(),
             judge,

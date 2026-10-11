@@ -1,0 +1,7 @@
+$ theseus standing revoke std_3f9a
+--- requests
+standing.revoke {"id":"std_3f9a"}
+--- stdout
+Revoked std_3f9a1c2d: it leaves every prompt of its scope at the next turn.
+--- stderr
+--- exit 0

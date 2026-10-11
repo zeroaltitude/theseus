@@ -1,0 +1,9 @@
+$ theseus standing
+--- requests
+standing.list {"all":false}
+--- stdout
+std_3f9a1c2d  order      everywhere          2026-09-21 07:13  the CLI  never push to main
+std_77aa01b2  fact       place:discord:dm:u1 2026-09-21 07:13  the CLI  keeps a vegetable garden
+in every compile of their scope since they began: 12 compiles, 0 missing
+--- stderr
+--- exit 0

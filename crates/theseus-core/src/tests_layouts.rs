@@ -301,6 +301,12 @@ const SAMPLES: &[Sample] = &[
         kept: Kept::All,
     },
     Sample {
+        kind: kinds::COMPILATION,
+        layout: "22 (M6 35a) through 27: a compilation with its situation, before its manifest's standing list (28, theseus-a7vi); by hand, in the layout the build before it (fdd1492) writes",
+        bytes: r#"{"id":"cmp_00000000000000000000000000000271","schema":1,"session_id":"ses_lighthouse","created_at_ms":1790000000271,"trigger":"new_session","strategy":"transcript","as_of":61,"includes":["msg_00000000000000000000000000000271"],"derived_from":null,"manifest":{"compiler_version":1,"renderer_version":2,"profile":"sonnet","provider":"anthropic","model":"claude-sonnet-5-5","system_digest":"0123456789abcdef","tools_digest":"fedcba9876543210","tools":["fs_read"],"catalog_version":"2026-10-01","context_window":1000000,"strip_thinking":false,"context_files":[{"path":"/w/NOTES.md","digest":"a1b2c3d4e5f60718","bytes":12}],"cache":{"caches":true,"min_tokens":2048,"blocks":[{"block":"header","prefix_bytes":9000,"marked":true},{"block":"context","prefix_bytes":9400,"marked":true}]}},"situation":{"kind":"conversation_start"}}"#,
+        kept: Kept::All,
+    },
+    Sample {
         kind: kinds::LEDGER,
         layout: "a row of a kind no build writes now (theseus-w5op): 18d's secret.requested",
         bytes: r#"{"at_unix_ms":1790000000047,"kind":"secret.requested","session_id":"ses_lighthouse","data":{"command":"sh","correlation_id":"act_00000000000000000000000000000047","job":"act_00000000000000000000000000000043","kind":"secret","outcome":"granted","posture":"notify","secret":"github_token","setting":"proc.run ran at notify","why":null}}"#,
@@ -407,4 +413,65 @@ fn every_old_layout_on_disk_still_reads() {
             "{name}: a round trip lost something"
         );
     }
+}
+
+/// A store of format 27, which holds a compilation as the build before the
+/// owner's standing records (theseus-a7vi) wrote it and no standing record:
+/// the build opens it, reads the compilation, finds no records, takes one,
+/// and moves the manifest to 28, which an older build then refuses.
+#[test]
+fn a_format_27_store_opens_with_no_standing_records_and_takes_them() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("store");
+    let sample = SAMPLES
+        .iter()
+        .find(|s| s.layout.starts_with("22 (M6 35a) through 27"))
+        .unwrap();
+    {
+        let store = crate::store::Store::open(&path).unwrap();
+        let c: Compilation = serde_json::from_str(sample.bytes).unwrap();
+        store
+            .append(&[theseus_store::NewRecord::bytes(
+                kinds::COMPILATION,
+                Some(&c.id),
+                sample.bytes.as_bytes().to_vec(),
+            )
+            .scoped(&c.session_id)])
+            .unwrap();
+    }
+    let manifest = path.join("MANIFEST.json");
+    std::fs::write(&manifest, r#"{"format": 27, "engine": "redb"}"#).unwrap();
+
+    let store = crate::store::Store::open(&path).unwrap();
+    let read = store
+        .get_compilation("cmp_00000000000000000000000000000271")
+        .unwrap()
+        .unwrap();
+    assert!(read.manifest.standing.is_empty());
+    let board = crate::standing::Board::default();
+    assert!(board.all(&store).unwrap().is_empty());
+    let r = theseus_protocol::StandingRecord {
+        id: "std_00000028".into(),
+        kind: theseus_protocol::StandingKind::Order,
+        text: "never push to main".into(),
+        scope: theseus_protocol::StandingScope::Everywhere,
+        since_ms: 1_790_000_000_000,
+        until_ms: None,
+        source: "the CLI".into(),
+        ends: None,
+    };
+    board
+        .write(&store, |_| Ok(vec![r.clone()]), |_, _| Ok(vec![]))
+        .unwrap();
+    store
+        .append(&[theseus_store::NewRecord::json(kinds::LEDGER, None, &"x").unwrap()])
+        .unwrap();
+    let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
+    assert_eq!(moved["format"], 28);
+    drop(store);
+    let again = crate::store::Store::open(&path).unwrap();
+    assert_eq!(
+        *crate::standing::Board::default().all(&again).unwrap(),
+        vec![r]
+    );
 }

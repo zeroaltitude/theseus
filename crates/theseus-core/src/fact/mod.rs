@@ -66,6 +66,7 @@ pub mod route;
 pub mod rsi;
 pub mod sandbox;
 pub mod situation;
+pub mod standing;
 pub mod start;
 pub mod synthesis;
 pub mod task_graph;
@@ -442,6 +443,8 @@ facts![
     extend::ExtendRevoked<'static>,
     rsi::SelfHalted<'static>,
     rsi::SelfResumed<'static>,
+    standing::StandingAdded<'static>,
+    standing::StandingRevoked<'static>,
 ];
 
 #[cfg(test)]

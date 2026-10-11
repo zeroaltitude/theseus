@@ -51,6 +51,7 @@ fn declared() -> Vec<(String, bool)> {
         include_str!("ontology.rs"),
         include_str!("places.rs"),
         include_str!("push.rs"),
+        include_str!("standing.rs"),
         include_str!("work.rs"),
         include_str!("notices.rs"),
     ] {
@@ -156,7 +157,7 @@ fn the_cockpits_types_are_generated_from_the_rust_ones() {
         extend::ExtendLoadedInfo, extend::ExtensionRevokeParams, extend::ExtensionRevokeResult, rsi::SelfMode, rsi::SelfState, rsi::SelfHaltParams, rsi::SelfResumeParams, rsi::SelfSwitchResult, rsi::SelfLogParams, rsi::SelfLogRow, rsi::SelfLogResult, rsi::SelfDigestParams, rsi::SelfDigestResult,
         tasks::TaskState, tasks::TaskOrigin, tasks::TaskEvidence, tasks::TaskProposal,
         tasks::TaskRecord, tasks::TaskGetParams, tasks::TaskGetResult, tasks::TaskChanged,
-        tasks::TaskViewSummary, tasks::TaskClaim, tasks::TaskChange, work::WorkKind, work::WorkState, work::WorkView, work::DoingKind, work::Doing, work::Progress, work::QuestionKind, work::WorkRef, work::Question, work::Style, work::AnswerOption, work::Rollup, work::Eta, work::Cost, work::WorkReport, work::Woke, notices::Urgency, notices::Why, notices::Notice, notices::Finished, notices::Rules, notices::Viewer, notices::Delivery,
+        tasks::TaskViewSummary, tasks::TaskClaim, tasks::TaskChange, work::WorkKind, work::WorkState, work::WorkView, work::DoingKind, work::Doing, work::Progress, work::QuestionKind, work::WorkRef, work::Question, work::Style, work::AnswerOption, work::Rollup, work::Eta, work::Cost, work::WorkReport, work::Woke, standing::StandingKind, standing::StandingScope, standing::StandingRecord, standing::StandingInfo, standing::StandingListParams, standing::StandingListResult, standing::StandingAddParams, standing::StandingRevokeParams, standing::StandingChanged, notices::Urgency, notices::Why, notices::Notice, notices::Finished, notices::Rules, notices::Viewer, notices::Delivery,
     }
     let files: BTreeSet<String> = std::fs::read_dir(&dir)
         .unwrap()
