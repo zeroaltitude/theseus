@@ -236,6 +236,7 @@ impl Core {
             held: &held,
             mcp: &mcp,
             glide: None,
+            session: None,
         };
         let mut seen: Vec<(Layer, Decision)> = Vec::new();
         let (d, _) = rt.order(&at, tool, &plan, &serde_json::Value::Null, &mut |l, d| {

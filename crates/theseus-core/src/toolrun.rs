@@ -43,6 +43,7 @@ mod calls;
 mod glide;
 mod hands;
 mod job;
+mod kept;
 mod late;
 mod not_started;
 pub(crate) mod order;
@@ -346,6 +347,8 @@ pub struct ToolRuntime {
     /// The jobs turns wait on (Tier 7.1): the drain leaves each one's
     /// completion to its turn, and wakes it.
     pub job_waits: Arc<JobWaits>,
+    /// Where a capped result's whole output is kept (theseus-v73m).
+    pub outputs: crate::outputs::Outputs,
     /// The MCP servers' tools offered now (M7 36b), which the board fills;
     /// offered after the built-ins, in private places only.
     pub mcp: Arc<crate::mcp::McpCatalog>,
@@ -393,9 +396,8 @@ fn forbidden_env(name: &str) -> bool {
 /// tail, each on a line's edge where the text has one near the cut, and
 /// between them one line that says how much is not shown, and how to get it
 /// as `rest` says from what was left out (theseus-46v; empty: only how
-/// much). Nothing keeps a tool's whole result: a job's raw output is deleted
-/// once its result is written (theseus-wz2), and an in-process result was
-/// never kept. So a tool's `rest` names another call, never a stored copy.
+/// much). A job's or a terminal's whole output is kept, and `kept.rs`'s
+/// `rest` names the file (theseus-v73m); a tool's own `rest` names a call.
 pub fn cap(text: &str, max: usize, rest: impl FnOnce(&str) -> String) -> (String, bool) {
     let n = text.chars().count();
     if n <= max || max < 64 {
@@ -487,6 +489,7 @@ impl ToolRuntime {
             stops: Default::default(),
             public_roots: Vec::new(),
             job_waits: Arc::default(),
+            outputs: crate::outputs::Outputs::off(),
             mcp: Default::default(),
             terms: Arc::new(crate::term::Terms::new(Vec::new(), Vec::new())),
             lsp: None,
@@ -731,11 +734,8 @@ impl ToolRuntime {
         r: ResultNode<'_>,
     ) -> Node {
         let (scrubbed, redactions) = self.scrubber.scrub(&r.text);
-        // How to get what the cap leaves out is the tool's to say (theseus-46v).
-        let tool = self.tool(r.tool);
-        let (content, truncated) = cap(&scrubbed, self.result_max_chars, |left| {
-            tool.map_or_else(|| theseus_tools::REST_NARROWER.into(), |t| t.rest(left))
-        });
+        // What the cap leaves out: kept, or the tool's to say (theseus-v73m).
+        let (content, truncated, full_ref) = self.capped(session_id, &r, &scrubbed);
         // A job of the daemon's own CLI names the native call that does it,
         // after the cap so no cut takes it (theseus-8c8s).
         let content = match &r.hint {
@@ -771,14 +771,13 @@ impl ToolRuntime {
                 correlation_id: r.correlation_id.map(str::to_string),
                 bytes_total: r.bytes_total.unwrap_or(r.text.len() as u64),
                 truncated,
-                // A job's raw output is deleted once its result is written
-                // (theseus-wz2), so no node names a file any more.
-                full_ref: None,
+                // The scrubbed whole output a cut result keeps (theseus-v73m).
+                full_ref,
                 duration_ms: r.duration_ms,
                 late: r.late,
                 meta,
                 image: r.image,
-                external: r.external.clone(),
+                external: r.external,
             },
         )
     }
@@ -1155,6 +1154,7 @@ impl ToolRuntime {
             held: &held,
             mcp: &mcp,
             glide: glide.as_ref().and_then(|g| g.as_ref().ok()),
+            session: Some(tc.session_id),
         };
         // A shared place's call reaches only what the place may (the place
         // rule): the catalog offers nothing else, and this refuses it, in case.
@@ -2020,6 +2020,8 @@ struct ResultNode<'a> {
     /// The line its text ends with, past the cap: the native call a job of
     /// the daemon's own CLI stands in for (`native::hint`, theseus-8c8s).
     hint: Option<String>,
+    /// Where the output in its text is, kept whole when cut (theseus-v73m).
+    kept: Option<kept::Source>,
 }
 
 impl<'a> ResultNode<'a> {
@@ -2042,6 +2044,7 @@ impl<'a> ResultNode<'a> {
             image: None,
             external: None,
             hint: None,
+            kept: None,
         }
     }
 }
@@ -2327,6 +2330,11 @@ pub fn build_runtime(
         external_text: cfg.policy.external_text,
         external_programs: cfg.policy.external_programs.clone(),
         output_max_bytes: t.job_output_max_bytes,
+        outputs: crate::outputs::Outputs::new(
+            state.join("outputs"),
+            t.outputs_keep_days,
+            t.outputs_max_bytes,
+        ),
         disk: Arc::new(crate::disk::Disk::new(
             state,
             cfg.server.disk_warn_mb,

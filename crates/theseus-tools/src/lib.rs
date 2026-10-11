@@ -17,6 +17,7 @@ use serde_json::{json, Value};
 
 pub mod docs;
 pub mod fs;
+pub mod fs_read_cap;
 mod fs_window;
 pub mod git;
 pub mod image;
@@ -26,6 +27,8 @@ pub mod proc;
 mod recount;
 #[cfg(test)]
 mod tests_patch;
+#[cfg(test)]
+mod tests_read_cap;
 #[cfg(test)]
 mod tests_window;
 pub mod text;
@@ -391,10 +394,17 @@ pub trait Tool: Send + Sync {
     fn deadline(&self) -> Option<std::time::Duration> {
         None
     }
+    /// The characters of a result past which the runtime cuts it, when the
+    /// tool has a cap of its own: kept as a contiguous head, never head and
+    /// tail (`fs.read`, theseus-v73m). None: the runtime's `[tools]
+    /// result_max_chars`, head and tail.
+    fn result_max_chars(&self) -> Option<usize> {
+        None
+    }
     /// How the model gets what the runtime cut from the middle of a result
-    /// too long to show whole, `left_out` (theseus-46v). Nothing keeps a
-    /// result whole, so the answer is always another call: a range where the
-    /// tool takes one, else a narrower call.
+    /// too long to show whole, `left_out` (theseus-46v): a range where the
+    /// tool takes one, else a narrower call. A job's whole output is kept,
+    /// and the runtime names its file instead (theseus-v73m).
     fn rest(&self, _left_out: &str) -> String {
         REST_NARROWER.into()
     }

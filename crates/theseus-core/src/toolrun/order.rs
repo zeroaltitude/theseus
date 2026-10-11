@@ -30,6 +30,9 @@ pub(crate) struct At<'a> {
     pub held: &'a dyn Fn() -> Result<Option<ExternalText>, String>,
     pub mcp: &'a dyn Fn() -> Option<Posture>,
     pub glide: Option<&'a crate::glide::Resolved>,
+    /// The call's session: a read of its own kept outputs reads as one
+    /// inside the roots (theseus-v73m). None for `policy.explain`'s probe.
+    pub session: Option<&'a str>,
 }
 
 /// A layer of the order after the place's refusal, as `order` hands each
@@ -74,6 +77,20 @@ impl ToolRuntime {
         input: &Value,
         seen: &mut dyn FnMut(Layer, &Decision),
     ) -> (Decision, Bound) {
+        // A read of the session's own kept outputs (theseus-v73m) is judged
+        // as one inside the roots: its paths are not listed, nor is any
+        // other of the state dir's.
+        let own;
+        let plan = match at.session {
+            Some(s) if self.outputs.own_read(s, tool.name(), plan) => {
+                own = Plan {
+                    resources: vec![],
+                    ..plan.clone()
+                };
+                &own
+            }
+            _ => plan,
+        };
         let tightened = self.tightened.get(tool.name());
         let t = tightened.as_ref().map(crate::tighten::as_tightened);
         let (decision, bound) = crate::sandbox::unbrokered(self, tool, plan, input, t);
