@@ -215,6 +215,15 @@ impl Core {
         accept: bool,
         who: &Answerer,
     ) -> Result<PolicyEarnedAnswerResult> {
+        let what = format!("the {} of {id}", if accept { "grant" } else { "pass" });
+        self.judge_act(
+            who,
+            Act::Earned {
+                method: method::POLICY_EARNED_ANSWER,
+                what: &what,
+                tightens: false,
+            },
+        )?;
         let state = self.tools.earned.snapshot();
         if let Some(g) = state.grants.iter().find(|g| g.group.id == id) {
             return Ok(PolicyEarnedAnswerResult {
@@ -228,15 +237,6 @@ impl Core {
             .card
             .as_ref()
             .and_then(|c| c.candidates.iter().find(|g| g.id == id).cloned());
-        let what = format!("the {} of {id}", if accept { "grant" } else { "pass" });
-        self.judge_act(
-            who,
-            Act::Earned {
-                method: method::POLICY_EARNED_ANSWER,
-                what: &what,
-                tightens: false,
-            },
-        )?;
         let Some(group) = on_card else {
             if state.passed.contains_key(id) && !accept {
                 return Ok(PolicyEarnedAnswerResult {
@@ -316,15 +316,6 @@ impl Core {
         who: &Answerer,
         press: Option<&str>,
     ) -> Result<EarnedGrant> {
-        let Some(g) = self
-            .tools
-            .earned
-            .grants()
-            .into_iter()
-            .find(|g| g.group.id == id)
-        else {
-            bail!("{id} is no earned grant; `theseus policy` lists them");
-        };
         let what = format!("the revoke of {id}");
         self.judge_act(
             who,
@@ -334,6 +325,15 @@ impl Core {
                 tightens: true,
             },
         )?;
+        let Some(g) = self
+            .tools
+            .earned
+            .grants()
+            .into_iter()
+            .find(|g| g.group.id == id)
+        else {
+            bail!("{id} is no earned grant; `theseus policy` lists them");
+        };
         let now = theseus_protocol::now_unix_ms();
         let row = LedgerRow::new(
             LedgerKind::PolicyEarnedRevoked,

@@ -8,7 +8,7 @@ use serde_json::json;
 use theseus_protocol::{error_code, method};
 
 use super::*;
-use crate::approval::Surface::{Cli, Discord};
+use crate::approval::Surface::{Cli, Discord, Mcp};
 use crate::policy::earned::Earned;
 
 /// A week, in ms.
@@ -32,8 +32,13 @@ async fn approved_runs(r: &Rig, sid: &str, n: usize) {
 }
 
 fn runs(n: usize) -> Vec<Scripted> {
+    runs_of("hello", n)
+}
+
+/// `n` scripted runs of `echo <word>`, each answered once it has run.
+fn runs_of(word: &str, n: usize) -> Vec<Scripted> {
     (0..n)
-        .flat_map(|i| [echo(&format!("t{i}"), "hello"), Scripted::text("Ran.")])
+        .flat_map(|i| [echo(&format!("{word}{i}"), word), Scripted::text("Ran.")])
         .collect()
 }
 
@@ -116,6 +121,57 @@ async fn the_finder_reads_the_record_and_one_card_is_posted_a_week() {
         "even forced, an open candidate is not proposed twice"
     );
     assert_eq!(ledgered(&r, "policy.earned_proposed").len(), 1);
+}
+
+#[tokio::test]
+async fn a_second_card_waits_for_the_week_even_with_a_new_candidate() {
+    let mut script = runs_of("hello", 3);
+    script.extend(runs_of("world", 3));
+    let r = earned_rig(script);
+    let sid = new_session(&r);
+    approved_runs(&r, &sid, 3).await;
+    let card = r
+        .core
+        .earned_propose(false)
+        .unwrap()
+        .expect("the first card");
+    assert_eq!(card.candidates[0].label, "echo hello");
+    owner_accepts(&r, &id_of(&r), false).await.unwrap();
+
+    // A new group earns its candidacy, and the week's limit still holds.
+    approved_runs(&r, &sid, 3).await;
+    let now = theseus_protocol::now_unix_ms();
+    let found = r.core.earned_candidates(now).unwrap().unwrap();
+    assert_eq!(found.len(), 1, "{found:?}");
+    assert_eq!(found[0].label, "echo world");
+    assert!(
+        r.core.earned_propose(false).unwrap().is_none(),
+        "one card a week: a new candidate waits"
+    );
+    assert_eq!(ledgered(&r, "policy.earned_proposed").len(), 1);
+
+    // The week passes: the next card carries it.
+    let row = crate::ledger::LedgerRow::new(
+        theseus_protocol::LedgerKind::PolicyEarnedPassed,
+        None,
+        None,
+        json!({}),
+    );
+    r.core
+        .tools
+        .earned
+        .update(&r.core.store, &row, vec![], |s| {
+            s.last_card_ms -= WEEK + 1;
+            true
+        })
+        .unwrap();
+    let card = r
+        .core
+        .earned_propose(false)
+        .unwrap()
+        .expect("the week has passed");
+    assert_eq!(card.candidates[0].label, "echo world");
+    assert_eq!(ledgered(&r, "policy.earned_proposed").len(), 2);
 }
 
 #[tokio::test]
@@ -499,4 +555,28 @@ fn the_gate_never_lets_a_grant_pass_the_lists_the_floor_or_a_tightening() {
         Posture::Approve,
         "tightened"
     );
+}
+
+/// An MCP connection is no approval surface: it can neither answer a card
+/// nor revoke a grant, and each refusal is ledgered with `via: mcp`.
+#[tokio::test]
+async fn an_mcp_connection_cannot_answer_a_card_or_revoke_a_grant() {
+    let r = earned_rig(vec![]);
+    by_hand(&r, "ern_00000001", &["echo", "hello"]);
+    let calls = [
+        (
+            method::POLICY_EARNED_ANSWER,
+            json!({"id": "ern_00000001", "accept": true}),
+        ),
+        (method::POLICY_REVOKE, json!({"id": "ern_00000001"})),
+    ];
+    for (m, p) in calls {
+        let e = rpc_as(&r.core, surface("mcp", Mcp), m, p)
+            .await
+            .unwrap_err();
+        assert_eq!(e.code, error_code::REFUSED, "{m}: {e:?}");
+        assert_eq!(e.data["via"], "mcp", "{e:?}");
+    }
+    assert_eq!(r.core.tools.earned.grants().len(), 1);
+    assert_eq!(ledgered(&r, "approval.refused").len(), 2);
 }
