@@ -588,6 +588,12 @@ pub struct IndexVectorStatus {
     pub chunks: u64,
     pub vectors: u64,
     pub pending: u64,
+    /// When those counts, and `records`, `dead` and `reembed`, were read
+    /// (unix ms). A status that finds the tender's table held (a compaction
+    /// rewriting a file, a batch's write) answers the counts it last read,
+    /// and never waits for it (theseus-uazd).
+    #[serde(default)]
+    pub counted_ms: u64,
     /// Records in the vector files this space answers from, and the dead
     /// among them: texts no chunk holds, which answer nothing and go at the
     /// next compaction (a quarter of a file dead, a rebuild, a forget).

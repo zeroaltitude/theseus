@@ -24,8 +24,8 @@ use tokio::time::Instant;
 use crate::config::IndexConfig;
 use crate::ledger::LedgerRow;
 use crate::tender::{
-    exit_words, next_backoff, IndexTender, Os, BACKOFF_FIRST, BACKOFF_MAX, HEALTHY_RUN,
-    HEALTH_DEADLINE, START_AFTER, STATUS_DEADLINE,
+    exit_words, next_backoff, unanswered, CallError, IndexTender, Os, BACKOFF_FIRST, BACKOFF_MAX,
+    HEALTHY_RUN, HEALTH_DEADLINE, STALE_AFTER, START_AFTER, STATUS_DEADLINE,
 };
 
 /// The operating system, as the supervisor sees it: each start recorded with
@@ -716,6 +716,29 @@ async fn health_waits_no_longer_than_its_deadline_on_a_tender_that_does_not_answ
         "{why}"
     );
     task.abort();
+}
+
+/// A last answer past `STALE_AFTER` is called stale in words, with its age
+/// in minutes or hours (theseus-uazd); a recent one gives its age alone.
+#[test]
+fn an_old_answer_is_called_stale_in_words() {
+    let e = CallError::NoAnswer("no answer within 100 ms".into());
+    assert_eq!(
+        unanswered(&e, 4_200),
+        "its socket did not answer (no answer within 100 ms): its status as of 4.2 s ago"
+    );
+    let at = STALE_AFTER.as_millis() as u64;
+    assert!(unanswered(&e, at - 1).starts_with("its socket did not answer"));
+    assert_eq!(
+        unanswered(&e, at),
+        "stale: its socket has not answered for 2 min (no answer within 100 ms); these numbers \
+         are its status as of 2 min ago"
+    );
+    assert_eq!(
+        unanswered(&e, (2 * 3600 + 44 * 60) * 1000),
+        "stale: its socket has not answered for 2 h 44 min (no answer within 100 ms); these \
+         numbers are its status as of 2 h 44 min ago"
+    );
 }
 
 /// Health's block asks no socket before its supervisor runs a tender: a

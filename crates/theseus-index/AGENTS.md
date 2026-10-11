@@ -28,3 +28,8 @@ Key modules: `tender.rs`, `engine.rs`, `vectors.rs`, `server.rs`, `extract.rs`. 
   theseus-0lrr.6): that holds inside one batch too, where the node's first record is indexed but not yet committed
   (`fresh`), as a rebuild meets a node and its tombstone together; `engine.holds` reads only what is committed.
   Test: `tests_import.rs`.
+- **The status never waits on the embedding work** (`vectors/status.rs`, `server.rs`; theseus-uazd). Its table
+  counts are read with `try_read` and kept: while a writer holds the table (a compaction's rewrite, a batch's
+  append) or waits for it, the status answers the last counts and their time (`counted_ms`). Past
+  `MAX_CONNECTIONS`, up to `STATUS_LANE` connections more are served for `index.status` alone, and refuse anything
+  else with why. Tests: `tests_status.rs`.

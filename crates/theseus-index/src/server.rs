@@ -31,6 +31,15 @@ use crate::tender::Shared;
 
 pub const MAX_CONNECTIONS: usize = 16;
 
+/// Connections past [`MAX_CONNECTIONS`] served at once for `index.status`
+/// alone (theseus-uazd): health asks under 100 ms, so a tender whose slots
+/// are all held (queries waiting on the model, an `index.embed` its caller
+/// left) still answers it, and says why it refuses anything else.
+pub const STATUS_LANE: usize = 4;
+
+/// How long a connection in the status lane may take to send its request.
+const LANE_READ: std::time::Duration = std::time::Duration::from_secs(2);
+
 /// Bind the socket at `path` (a stale one from a killed tender is replaced:
 /// the caller holds the directory's lock) and serve it on a thread.
 pub fn spawn(path: &Path, shared: Arc<Shared>) -> io::Result<thread::JoinHandle<()>> {
@@ -50,6 +59,7 @@ pub fn spawn_counted(
     let listener = UnixListener::bind(path)?;
     fs::set_permissions(path, fs::Permissions::from_mode(0o600))?;
     let active = Arc::new(AtomicUsize::new(0));
+    let lane = Arc::new(AtomicUsize::new(0));
     let count = active.clone();
     let served = thread::Builder::new()
         .name("index-socket".into())
@@ -58,7 +68,7 @@ pub fn spawn_counted(
                 let Ok(conn) = conn else { continue };
                 if active.fetch_add(1, Ordering::SeqCst) >= MAX_CONNECTIONS {
                     active.fetch_sub(1, Ordering::SeqCst);
-                    tracing::warn!("index: a connection over the limit, closed");
+                    status_lane(conn, &shared, &lane);
                     continue;
                 }
                 let (shared, done) = (shared.clone(), active.clone());
@@ -76,6 +86,50 @@ pub fn spawn_counted(
             }
         })?;
     Ok((served, count))
+}
+
+/// A connection past the limit: served on a thread of its own for one
+/// `index.status`, while fewer than [`STATUS_LANE`] are; else closed.
+fn status_lane(conn: UnixStream, shared: &Arc<Shared>, lane: &Arc<AtomicUsize>) {
+    if lane.fetch_add(1, Ordering::SeqCst) >= STATUS_LANE {
+        lane.fetch_sub(1, Ordering::SeqCst);
+        tracing::warn!("index: a connection over the limit, closed");
+        return;
+    }
+    let (shared, done) = (shared.clone(), lane.clone());
+    let spawned = thread::Builder::new()
+        .name("index-status".into())
+        .spawn(move || {
+            if let Err(e) = serve_status(conn, &shared) {
+                tracing::debug!(error = %e, "index: a status connection ended");
+            }
+            done.fetch_sub(1, Ordering::SeqCst);
+        });
+    if spawned.is_err() {
+        lane.fetch_sub(1, Ordering::SeqCst);
+    }
+}
+
+/// One request on a connection past the limit: `index.status` answered,
+/// anything else refused with why.
+fn serve_status(conn: UnixStream, shared: &Shared) -> io::Result<()> {
+    conn.set_read_timeout(Some(LANE_READ))?;
+    let mut line = String::new();
+    BufReader::new(conn.try_clone()?).read_line(&mut line)?;
+    let answer = match serde_json::from_str::<Request>(&line) {
+        Ok(r) if r.method == method::STATUS => Response::ok(r.id, shared.status()),
+        Ok(r) => Response::err(
+            r.id,
+            error_code::INTERNAL,
+            format!(
+                "the index tender is serving {MAX_CONNECTIONS} connections; past them it answers index.status alone"
+            ),
+        ),
+        Err(e) => Response::err(Id::Num(0), error_code::PARSE, format!("not a request: {e}")),
+    };
+    let mut out = serde_json::to_vec(&answer)?;
+    out.push(b'\n');
+    (&conn).write_all(&out)
 }
 
 fn serve(conn: UnixStream, shared: &Shared) -> io::Result<()> {

@@ -137,6 +137,8 @@ pub trait Texts {
     fn all_nodes(&self) -> anyhow::Result<Vec<NodeChunks>>;
 }
 
+mod status;
+
 // ---------------------------------------------------------------------------
 // One stamp's vectors on disk.
 
@@ -1074,6 +1076,8 @@ pub struct Vectors {
     opening: Mutex<()>,
     /// Queries embedding now, ahead of the backfill (theseus-w9qv).
     pub(crate) ahead: Ahead,
+    /// The table's counts as the status last read them (`status`).
+    counts: Mutex<status::Counts>,
 }
 
 /// The compactions so far, and when a failed one may be tried again.
@@ -1163,6 +1167,7 @@ impl Vectors {
             compactions: Mutex::new(CompactState::default()),
             opening: Mutex::new(()),
             ahead: Ahead::default(),
+            counts: Mutex::default(),
             cfg,
         }
     }
@@ -2017,75 +2022,6 @@ impl Vectors {
             tokens: lens,
             embed_ms: t0.elapsed().as_secs_f64() * 1e3,
         })
-    }
-
-    pub fn status(&self) -> VectorStatus {
-        let st = self.state.lock().unwrap();
-        let model = st.model.name().to_string();
-        let since = |i: Instant| now_ms().saturating_sub(i.elapsed().as_millis() as u64);
-        let mut s = VectorStatus {
-            model,
-            weights_dir: self
-                .cfg
-                .weights_dir
-                .as_ref()
-                .map(|d| d.display().to_string()),
-            stamp: self.enabled().then(|| self.stamp.clone()),
-            loads: st.loads,
-            unloads: st.unloads,
-            load_ms: st.load_ms,
-            loaded_at_ms: st.loaded_at_ms,
-            last_used_ms: since(st.last_used),
-            idle_unload_secs: self.cfg.idle_unload.as_secs(),
-            threads: format!(
-                "RAYON_NUM_THREADS={} CANDLE_NUM_THREADS={}",
-                std::env::var("RAYON_NUM_THREADS").unwrap_or_else(|_| "unset".into()),
-                std::env::var("CANDLE_NUM_THREADS").unwrap_or_else(|_| "unset".into())
-            ),
-            ..VectorStatus::default()
-        };
-        if let Model::Refused { why, .. } = &st.model {
-            s.last_error = Some(why.clone());
-        }
-        drop(st);
-        {
-            let t = self.table.read().unwrap();
-            let mut done = 0u64;
-            for r in t.alive() {
-                s.chunks += 1;
-                if r.vec.is_some() {
-                    s.vectors += 1;
-                }
-                if matches!(r.vec, Some((0, _))) {
-                    done += 1;
-                }
-            }
-            s.pending = t.backlog.len() as u64;
-            let (records, dead) = t.records();
-            (s.records, s.dead) = (records as u64, dead as u64);
-            if t.caches.len() > 1 || !t.others.is_empty() {
-                s.reembed = Some(Reembed {
-                    from: t
-                        .caches
-                        .iter()
-                        .skip(1)
-                        .map(|c| c.stamp.clone())
-                        .chain(t.others.iter().map(|o| o.0.clone()))
-                        .collect(),
-                    done,
-                    total: s.chunks,
-                });
-            }
-        }
-        let stats = self.stats.lock().unwrap();
-        s.backfill = stats.0.clone();
-        if s.last_error.is_none() {
-            s.last_error = stats.1.clone();
-        }
-        s.last_error_ms = stats.2;
-        drop(stats);
-        s.compactions = self.compactions.lock().unwrap().stats.clone();
-        s
     }
 }
 

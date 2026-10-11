@@ -670,9 +670,9 @@ impl IndexTender {
             Err(e) => match last.as_ref().filter(|_| tender.state == "running") {
                 Some((s, at)) => IndexHealth {
                     state: s.state.clone(),
-                    why: Some(format!(
-                        "its socket did not answer ({e}): its status as of {:.1} s ago",
-                        theseus_protocol::now_unix_ms().saturating_sub(*at) as f64 / 1000.0
+                    why: Some(unanswered(
+                        &e,
+                        theseus_protocol::now_unix_ms().saturating_sub(*at),
                     )),
                     tender: Some(tender),
                     status: Some(s.clone()),
@@ -774,6 +774,33 @@ pub enum TenderMiss {
     Down(String),
     /// It answered with an error (a node it has no vector for yet).
     Refused(String),
+}
+
+/// How old the tender's last answer may be before health calls the numbers
+/// it shows stale (theseus-uazd): health asks every few seconds while the
+/// cockpit is in sight, so minutes without an answer is a silent socket, not
+/// a slow one.
+pub const STALE_AFTER: Duration = Duration::from_secs(120);
+
+/// Why a running tender's numbers are its last answer's: the call that
+/// failed, and the answer's age, `age_ms`; past [`STALE_AFTER`], in words
+/// that say the numbers are stale (theseus-uazd), not an age alone.
+pub(crate) fn unanswered(e: &CallError, age_ms: u64) -> String {
+    if age_ms < STALE_AFTER.as_millis() as u64 {
+        return format!(
+            "its socket did not answer ({e}): its status as of {:.1} s ago",
+            age_ms as f64 / 1000.0
+        );
+    }
+    let secs = age_ms / 1000;
+    let age = if secs < 3600 {
+        format!("{} min", secs / 60)
+    } else {
+        format!("{} h {} min", secs / 3600, secs % 3600 / 60)
+    };
+    format!(
+        "stale: its socket has not answered for {age} ({e}); these numbers are its status as of {age} ago"
+    )
 }
 
 /// Why no tender answered, in words: what its supervisor knows, else what the
