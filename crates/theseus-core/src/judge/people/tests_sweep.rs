@@ -2,7 +2,8 @@
 //! private session whose gate shut is swept once (an extraction with the
 //! purpose `sweep`, Jev's judgment, a proposal), its live mark moved; a
 //! shared place's text and a session an extraction read are not; a second
-//! run the same day finds nothing due and carries the day's spend; a cap
+//! run the same day finds nothing due and carries the day's spend, and so
+//! does a run whose window is put back over the text it read; a cap
 //! that cannot hold one session's worst case passes none and says so; and
 //! the config's key has its default and refuses a negative. Every name here
 //! is invented.
@@ -125,6 +126,15 @@ async fn the_sweep_extracts_what_the_gate_let_pass_once_in_private_places() {
     let row = swept_rows(&r);
     assert_eq!(row.len(), 2);
     assert_eq!(row[1].data["spent_before_usd"].as_f64(), Some(m.spent_usd));
+    assert_eq!(rows(&r.core.store, "people.extracted").len(), 1);
+
+    // The window back over the same text: still nothing due, because an
+    // extraction read it (the newest extraction's point, not the window,
+    // decides).
+    let back = SweepMark { at_ms: 0, ..m };
+    r.core.store.put_meta(LAST_RUN, &back).unwrap();
+    let wide = r.core.people_sweep("nightly").await.unwrap();
+    assert_eq!((wide.due, wide.swept), (0, 0), "{wide:?}");
     assert_eq!(rows(&r.core.store, "people.extracted").len(), 1);
 }
 
