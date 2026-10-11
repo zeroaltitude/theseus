@@ -251,6 +251,8 @@ mod tests_memory_lookup;
 #[cfg(test)]
 mod tests_notices;
 #[cfg(test)]
+mod tests_one_turn;
+#[cfg(test)]
 mod tests_ontology;
 #[cfg(test)]
 mod tests_output;

@@ -394,10 +394,11 @@ pub struct BudgetDrop {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub range: Option<BudgetRange>,
-    /// `budget` (a recall's), `overflow` (the ring's).
+    /// `budget` (a recall's), `overflow` (the ring's), `cleared` (an old
+    /// tool result stubbed to save context, theseus-3ki0).
     pub reason: String,
     pub tokens: u64,
-    /// `recall`, `ring`, or (30c) `compaction`.
+    /// `recall`, `ring`, (30c) `compaction`, or (theseus-3ki0) `cleared`.
     pub tier: String,
 }
 

@@ -40,7 +40,8 @@ impl TurnRunner {
             spec,
             catalog: &self.catalog,
             force,
-            window_override: None,
+            // `[context] working_window_tokens` lowers the window (theseus-3ki0).
+            window_override: self.working_window(spec),
             blobs: Some(self.store.blobs()),
             hidden: &session.not_shown,
             strip,
@@ -57,6 +58,15 @@ impl TurnRunner {
         // with nothing left to drop, the turn fails before any call.
         let mut compiled = Box::pin(self.compact(t, compile(input), input, i)).await?;
         Self::recall_compiled(t, &mut compiled);
+        // A clearing pass (theseus-3ki0): one row a pass.
+        if let Some(pass) = compiled.cleared {
+            t.record(&fact::compaction::Cleared {
+                compilation_id: &compiled.compilation.id,
+                pass,
+                limit: compiled.budget.limit_tokens,
+                loop_index: i,
+            });
+        }
         // A check sees the task it checks by title and state (theseus-w8ys).
         let tasks =
             crate::task_graph::view::attach(&self.store, &self.kernel, session, &mut compiled);
@@ -82,6 +92,13 @@ impl TurnRunner {
         }
         self.compiled_rows(t, &summary, &compiled, spec, (c0, c1), i);
         Ok(Ok(compiled))
+    }
+
+    /// The window a request on `spec`'s model compiles against, when
+    /// `[context] working_window_tokens` lowers the catalog's.
+    pub(super) fn working_window(&self, spec: &RequestSpec) -> Option<u64> {
+        let model = self.catalog.get(&spec.model).map(|e| e.context_window);
+        self.cfg.context.working_window(model)
     }
 
     /// The loop's compile, recorded: its `context.compiled` row, the judge's

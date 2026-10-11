@@ -66,6 +66,22 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     (ffmpeg), OCR (tesseract), or `save`. In a shared place its result is outside text. Tests: `attach.rs`'s, and
     theseusd's `tests/files.rs`, which run the real converter, a turn per model, and `file.read` with a stand-in
     Deepgram.
+  - **One long instruction** (theseus-3ki0): `compiler/clearing.rs` and `compiler/ring.rs`. Past half the budget
+    (`clearing::CLEAR_AT`), a pass stubs results older than the newest 20 answers and over 2,000 characters, oldest
+    first, until 35 %: one recompile, the cleared results kept as its report's drops of tier `cleared` (no store
+    format: the report is stored already), which the render reads, so appends render the same stubs; a pass that
+    would save under half the gap between the lines does not run, so passes stay rare. Each pass is one
+    `context.cleared` row (`fact::compaction::Cleared`, from the compile step). The stub names the call and how to
+    get the result back (a kept output's `full_ref` when there is one). The ring's range holding one user message
+    cuts inside its turn too: at an answer whose earlier calls all have their results before it (`ring::in_turn`),
+    searched by halves; the instruction (the message and what precedes its first answer) is pinned in every
+    candidate, and a summary renders after it (`compaction::summaries_first`, by its range's `first`; `hidden` and
+    `outside` keep a node before a summary's range visible). The summary call is told the work in progress
+    (`turn::compaction::IN_TURN`) when its range holds no user message, and reads a range past its model's window
+    shorter, each node's cut cut in proportion down to 400 characters (`shorter_cut`), before it gives up for the ring. `[context] working_window_tokens`
+    (`config/context.rs`) lowers the window through `window_override` (`TurnRunner::working_window`). The budget
+    and its report are `compiler/budget.rs`. Tests:
+    `compiler/tests_ring.rs`, `tests_one_turn.rs`.
   - **CONTINUE's candidate signals** (M5 25b): `signals.rs`, read inside `compile()` from what it is given (the
     clock passed in as `CompileInput.signals`, never read there): a dormancy gap, the tail crossing its soft band,
     a task report or a wake arriving, and a provider cache miss, each against what was written since the model's

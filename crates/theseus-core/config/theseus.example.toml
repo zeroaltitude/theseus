@@ -170,6 +170,10 @@ files = []                              # the system level, e.g. ["~/.openclaw/w
 # The persona in play: a key of [personas]. Until Jev chooses a persona from its ontology,
 # this is the only choice. Omitted: no persona, and the system level alone.
 # default_persona = "theseus"
+# The working window: the most tokens a request may take, below the model's own window.
+# Omitted: the model's full window from the catalog. Past half of it, a long turn's old
+# tool results become stubs; past it, the turn compacts its earlier loops.
+# working_window_tokens = 200000
 
 # A persona's files, compiled after the system level's while it is in play. A file is
 # yours alone ([places] below); a table entry with readers = "public" lets a shared place

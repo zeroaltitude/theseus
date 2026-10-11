@@ -3,7 +3,8 @@
 //! `context.compacted` row, a `compaction` span under the loop (the
 //! `theseus.compactions` metric reads it), and a narrative line; and the
 //! core overage (`context.overage`): the newest exchange alone does not fit,
-//! and the turn fails before any call.
+//! and the turn fails before any call; and a clearing pass
+//! (`context.cleared`, theseus-3ki0): old results stubbed, one row a pass.
 
 use serde_json::{json, Value};
 use theseus_protocol::memory::BudgetReport;
@@ -141,4 +142,40 @@ pub fn overage_words(o: &Overage<'_>) -> String {
         n(o.budget.limit_tokens),
         n(o.budget.overage.as_ref().map_or(0, |v| v.tokens)),
     )
+}
+
+/// A clearing pass (theseus-3ki0): past the clearing line, old results
+/// became stubs in a new compilation. One a pass, never one a turn.
+pub struct Cleared<'a> {
+    pub compilation_id: &'a str,
+    pub pass: crate::compiler::Pass,
+    /// The window's budget the lines are read against.
+    pub limit: u64,
+    pub loop_index: u32,
+}
+
+impl Fact for Cleared<'_> {
+    const KIND: Option<LedgerKind> = Some(LedgerKind::ContextCleared);
+
+    fn row(&self) -> Value {
+        let p = &self.pass;
+        json!({"compilation_id": self.compilation_id, "results": p.results, "chars": p.chars,
+               "kept": p.kept, "tokens_before": p.tokens_before, "tokens_after": p.tokens_after,
+               "limit": self.limit, "loop": self.loop_index})
+    }
+
+    fn narrate(&self, say: &mut Say<'_>) {
+        let n = narrative::thousands;
+        let p = &self.pass;
+        say.line(
+            Context,
+            format!(
+                "Context: {} cleared to save context ({} characters), {} tokens to {}.",
+                narrative::count(p.results, "old result", "old results"),
+                n(p.chars),
+                n(p.tokens_before),
+                n(p.tokens_after),
+            ),
+        );
+    }
 }

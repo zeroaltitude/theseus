@@ -254,6 +254,7 @@ facts![
     turn::ContextCompiled<'static>,
     compaction::Compacted<'static>,
     compaction::Overage<'static>,
+    compaction::Cleared<'static>,
     recall::RecallShadow<'static>,
     recall::RecallRan<'static>,
     recall::ArmAssigned<'static>,

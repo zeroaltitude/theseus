@@ -95,7 +95,9 @@ Key modules: `lifecycle.rs`, `kernel_sim.rs`, `fake_discord.rs`, `discord_proof.
     daemon's `api_base`: each turn's last user text takes the first rule (`{when, calls: [{name, input}], text}`) it
     holds, so a live check can script any tool's calls (`task_create`, `wake_at`, …); a tool's result gets `Done.`.
     A rule's `hold_ms` holds its answer that long, each connection on its own thread, so a live check can find a
-    provider call in flight (theseus-f3wr).
+    provider call in flight (theseus-f3wr). A rule's `repeat` (theseus-3ki0) keeps one turn going: while the request
+    holds its `when` (a pinned instruction does), each tool result asks for its calls again, `{n}` in their input's
+    strings the count so far (three digits), until it has asked `repeat` times; then its text.
   - `discord` (`src/discord_cli.rs`): `proof`, kl8m's steps against a real daemon (`src/discord_proof.rs`); and
     for a live check across processes, `rig` (a scratch daemon's config, fake `op`, and bindings), `model` (the
     proof's scripted model), and `say`, `press`, `read` against a running `fake-discord`.

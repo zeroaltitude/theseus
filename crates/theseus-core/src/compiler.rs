@@ -31,11 +31,18 @@ use crate::catalog::{Catalog, ThinkingMode, TokenRates};
 use crate::config::{CacheTtl, Effort, ThinkingDisplay};
 use crate::node::{Body, Node};
 use crate::provider::{tool_uses_in, Census, ProviderRequest, ID_TOKENS, MESSAGE_TOKENS};
-use theseus_protocol::memory::{BudgetDrop, BudgetOverage, BudgetRange, BudgetReport};
+use theseus_protocol::memory::{BudgetDrop, BudgetReport};
 
+mod budget;
+use budget::{budget_report, request_budget};
+mod clearing;
 pub mod compaction;
 pub mod effort;
+mod ring;
 pub mod session_block;
+#[cfg(test)]
+mod tests_ring;
+pub use clearing::Pass;
 pub mod situation;
 pub use effort::{output_config, BETA_TURN_EFFORT};
 
@@ -523,6 +530,8 @@ pub struct Compiled {
     pub signals: crate::signals::Signals,
     /// The situation it settled in (M6 35a): what its request may admit.
     pub situation: situation::Situation,
+    /// The clearing pass this compile made (theseus-3ki0), for its row.
+    pub cleared: Option<Pass>,
 }
 
 /// A rendered request.
@@ -792,56 +801,48 @@ fn compile_with(
     let mut est = estimate(&rendered.request, rates, counted);
     let mut ring_drop: Option<BudgetDrop> = None;
 
-    // 2. Overflow: drop leading turns (ring), cutting only before a user
-    // message. It rings on the estimate's upper bound, so a request whose
-    // bytes run denser than the catalog's figures still rings in time; it
-    // keeps turns while the estimate itself is under 60 %, and that
-    // candidate's bound, at most 84 %, does not ring again (theseus-f5hf).
-    // A request the provider said passed the window rings whatever the
-    // estimate says, and its candidates are read at the provider's count:
-    // each estimate is raised by how far the overflowing request's count ran
-    // over its estimate (theseus-9p88).
+    // 2. Old results cleared (`clearing`), then 3. overflow (`ring`): each
+    // a new compilation, made from the recompile's spec and manifest.
+    let mut cleared = None;
+    let same = std::ptr::eq(spec, recompiled);
+    let base = || match same {
+        true => now_manifest.clone(),
+        false => manifest_for(recompiled, input.catalog, window, false),
+    };
     if let Some(w) = window {
         let budget = request_budget(w, spec);
+        let (b, seen) = (base(), (&compilation, &rendered.request, &est));
+        let at = clearing::At {
+            spec: recompiled,
+            base: &b,
+            budget,
+            rates,
+            new: new_compilation,
+        };
+        if let Some(m) = clearing::clear(&input, &at, seen, &make) {
+            (compilation, rendered, est) = (m.compilation, m.rendered, m.est);
+            (cleared, spec, new_compilation) = (Some(m.pass), recompiled, true);
+            trigger = Some(compilation.trigger.clone());
+        }
         if est.upper > budget || input.overflowed.is_some() {
-            let target = budget * 6 / 10;
-            // A ring is a new compilation: it takes the walk's current
-            // memberships, as any recompile does.
-            let ring_base = match std::ptr::eq(spec, recompiled) {
-                true => now_manifest,
-                false => manifest_for(recompiled, input.catalog, window, false),
+            let base = base();
+            let (renderable, carried) = (&all_renderable, compilation.budget.as_ref());
+            let r = ring::Ring {
+                recompiled,
+                base: &base,
+                renderable,
+                est: &est,
+                budget,
+                rates,
+                carried,
             };
-            // The ring leaves a summary out with its range (30c): from its
-            // first kept message on, it may keep every later one.
-            let seq: Vec<&crate::stub::Stub> = all_renderable
-                .iter()
-                .map(|(_, n)| n)
-                .filter(|n| !compaction::is_summary(n))
-                .collect();
-            let floored = seq.len() < all_renderable.len();
-            let starts: Vec<usize> = seq
-                .iter()
-                .enumerate()
-                .filter(|(_, n)| n.kind == crate::stub::Kind::UserMessage)
-                .map(|(i, _)| i)
-                .collect();
-            for &cut in starts.iter().skip(usize::from(!floored)) {
-                let includes: Vec<String> = seq[cut..].iter().map(|n| n.id.clone()).collect();
-                let candidate = make("overflow".into(), "ring", true, includes, &ring_base);
-                let r = render_request(recompiled, input.catalog, &candidate, input.nodes, media);
-                let e = estimate(&r.request, rates, None);
-                let last = cut == *starts.last().unwrap();
-                let tokens = input.overflowed.map_or(e.tokens, |o| o.scale(e.tokens));
-                if tokens <= target || last {
-                    ring_drop = Some(ring_cut(&seq[..cut], est.tokens.saturating_sub(e.tokens)));
-                    compilation = candidate;
-                    rendered = r;
-                    spec = recompiled;
-                    est = e;
-                    new_compilation = true;
-                    trigger = Some("overflow".into());
-                    break;
-                }
+            if let Some(rung) = ring::ring(&input, &r, &make) {
+                // A pass the ring's cut left nothing of is not one.
+                cleared = cleared.filter(|_| rung.compilation.budget.is_some());
+                ring_drop = Some(rung.cut);
+                (compilation, rendered, est) = (rung.compilation, rung.rendered, rung.est);
+                (spec, new_compilation) = (recompiled, true);
+                trigger = Some("overflow".into());
             }
         }
     }
@@ -861,7 +862,10 @@ fn compile_with(
     let messages = request.messages.len();
     let digest = request.digest();
     est.bytes = request.json_bytes();
-    let budget = budget_report(window.map(|w| request_budget(w, spec)), &est, ring_drop);
+    // The results it renders cleared stay in its report (theseus-3ki0).
+    let drops = clearing::drops(compilation.budget.as_ref()).cloned();
+    let limit = window.map(|w| request_budget(w, spec));
+    let budget = budget_report(limit, &est, drops.chain(ring_drop));
     let first = input.current.is_none();
     let situation = situation::settle(input.situation, first, new_compilation, trigger.as_deref());
     if new_compilation {
@@ -897,49 +901,7 @@ fn compile_with(
         withheld: withheld as u64,
         signals,
         situation,
-    }
-}
-
-/// The tokens a request may hold in window `w`: the window less the output
-/// cap and a margin.
-fn request_budget(w: u64, spec: &RequestSpec) -> u64 {
-    w.saturating_sub(spec.max_tokens as u64)
-        .saturating_sub(4_096)
-}
-
-/// The ring's cut (M6 30b, §2.11): the leading nodes it left out, as a range,
-/// and the tokens the estimate says that saved.
-fn ring_cut(dropped: &[&crate::stub::Stub], tokens: u64) -> BudgetDrop {
-    BudgetDrop {
-        node_id: None,
-        range: dropped
-            .first()
-            .zip(dropped.last())
-            .map(|(a, b)| BudgetRange {
-                first: a.id.clone(),
-                last: b.id.clone(),
-                nodes: dropped.len() as u64,
-            }),
-        reason: "overflow".into(),
-        tokens,
-        tier: "ring".into(),
-    }
-}
-
-/// A compilation's report: its limit (0 with no window known), what the
-/// request is estimated at, the ring's cut, and an overage when the
-/// estimate's upper bound still passes the limit.
-fn budget_report(limit: Option<u64>, est: &Estimate, cut: Option<BudgetDrop>) -> BudgetReport {
-    let overage = limit.filter(|l| est.upper > *l).map(|l| BudgetOverage {
-        tokens: est.upper - l,
-        why: "the request's estimate passes the window with every turn the ring may drop gone"
-            .into(),
-    });
-    BudgetReport {
-        limit_tokens: limit.unwrap_or(0),
-        used_tokens: est.tokens,
-        dropped: cut.into_iter().collect(),
-        overage,
+        cleared,
     }
 }
 
@@ -962,7 +924,6 @@ pub fn render_request(
 ) -> Rendered {
     // An assembled prefix's recall section is its, wherever it was written.
     let (prefix, tail) = situation::selected(c, nodes);
-    let prefix = prefix.into_iter().map(|(_, n)| n).collect();
     let prefix = compaction::summaries_first(prefix, c.recall_id.as_deref());
     let tail: Vec<&Node> = tail.into_iter().map(|(_, n)| n).collect();
     let entry = catalog.get(&spec.model);
@@ -985,7 +946,7 @@ pub fn render_request(
         &spec.provider,
         &media,
         retrying.or(fallback.map(|f| f.1)),
-        sources,
+        (sources, &clearing::of(c)),
     );
     let (messages, repairs, image_tokens, tail_from) = (
         rendered.messages,
@@ -1140,7 +1101,7 @@ pub fn render_messages(
     provider: &str,
     media: &Media,
     retrying: Option<&str>,
-    sources: &crate::recall::render::Sources,
+    (sources, cleared): (&crate::recall::render::Sources, &HashSet<&str>),
 ) -> Messages {
     // What the request's images and PDFs use, in render order (theseus-c9l6).
     let mut spend = crate::attach::Spend::default();
@@ -1210,6 +1171,10 @@ pub fn render_messages(
                     let rb: Vec<Value> = uses
                         .iter()
                         .map(|u| match results.get(u.id.as_str()) {
+                            // An old result cleared to save context (theseus-3ki0).
+                            Some(r) if cleared.contains(r.id.as_str()) => {
+                                clearing::block(&u.name, &u.input, r)
+                            }
                             Some(r) => tool_result_block(r, media, &mut spend),
                             None => {
                                 repairs.push(u.id.clone());
@@ -2174,12 +2139,15 @@ mod tests {
     }
 
     /// theseus-9p88: a forced ring with nothing earlier to drop (the session's
-    /// only message passed the window) renders the same request, which the
-    /// turn reads as "the ring could drop nothing".
+    /// only message passed the window, and nothing came after it) renders the
+    /// same request, which the turn reads as "the ring could drop nothing".
+    /// Since theseus-3ki0 the ring also cuts inside the message's turn: once
+    /// its loops follow it, the forced ring drops the early ones, the message
+    /// pinned at the top, and renders a new request.
     #[test]
     fn a_forced_ring_with_one_message_renders_the_same_request() {
         let sp = spec("claude-opus-5", "S");
-        let nodes = vec![(1, Node::user("s", None, "web", "one long message"))];
+        let mut nodes = vec![(1, Node::user("s", None, "web", "one long message"))];
         let c0 = run_over(&nodes, None, &sp, 1, None);
         let o = Overflowed {
             counted: Some(2_000_000),
@@ -2190,6 +2158,29 @@ mod tests {
         let c1 = run_over(&nodes, Some(&c0.compilation), &sp, 1, Some(&o));
         assert!(!c1.new_compilation, "{:?}", c1.trigger);
         assert_eq!(c1.digest, c0.digest);
+        // Its turn's loops after it: the forced ring cuts between them.
+        for k in 0..6u64 {
+            let id = format!("t{k}");
+            nodes.push((2 + k * 2, assistant(vec![call(&id)])));
+            nodes.push((
+                3 + k * 2,
+                result(&id, &"x".repeat(9_000), ResultStatus::Ok, false),
+            ));
+        }
+        let c2 = run_over(&nodes, Some(&c0.compilation), &sp, 13, None);
+        let o = Overflowed {
+            counted: Some(c2.est_tokens * 10),
+            estimated: c2.est_tokens,
+            ..o
+        };
+        let c3 = run_over(&nodes, Some(&c2.compilation), &sp, 13, Some(&o));
+        assert!(c3.new_compilation, "{:?}", c3.trigger);
+        assert_ne!(c3.digest, c2.digest);
+        assert_eq!(
+            c3.request.messages[0]["content"][0]["text"],
+            "one long message"
+        );
+        assert!(c3.request.messages.len() < c2.request.messages.len());
     }
 
     /// An answer of turn `turn`'s, cut at the window, with a call.
