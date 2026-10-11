@@ -106,14 +106,16 @@ Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
   embed. With no config every chat message pings, as before. `policy::TABLE` (data) gives each write its chat
   category: `cards`, `failures` (a failed turn or task, disk below the floor), `answer` (the first text part of the
   reply to an owner's own message: `Lane::owed`, set with the anchor when the author is an owner, taken when that
-  part is written, live or by the post, ping or not), `later_parts`, `woken`, `tool_lines` (and notice embeds),
+  part is written, live or by the post, ping or not; a reply's post classes its first text part the answer whenever
+  `owed` is still set, whatever else of the turn the stream wrote, a loop's process message included), `later_parts`, `woken`, `tool_lines` (and notice embeds),
   `reports` (a task's end, hands), `notices` (Note, Jev, Glide), `ops` (restart, MCP, low disk). A write pings
   unless its place's `silent` list (its `[[channel]]`'s or `[[dm]]`'s, else `[discord] silent`) names its
   category. A closed card (written once, settled, without buttons or mention: `detail.settled`; its settle edits
-  nothing), the task board, and a loop's process message created by its thinking alone
-  (`render/process.rs::thinking_only`) have no category and never ping; a tool line that lands in such a message
-  owes its ping to the turn's next one (`Lane::process_ping`, two `Option`s), so a thinking turn pings as one
-  without, and its last loop (thinking, then the answer) adds one silent create. `ping_window_secs` (the place's, else
+  nothing), the task board, and a loop's process message that holds its thinking (`render/process.rs::holds_thinking`:
+  its top line is `-# 💭`), with its tool lines or before them, have no category and never ping. So a thinking turn
+  buzzes for its answer alone, and its last loop (thinking, then the answer) adds one silent create; a loop that does
+  not think pings for its tool line as before (the owner's call on the fold, 2026-10-10: no ping owed to a later
+  create, which put a tool loop's buzz a loop late under the next loop's thinking). `ping_window_secs` (the place's, else
   `[discord]`'s; 0, off, by default) holds a channel to one ping in that long (`policy::Pings`, in memory, 256
   channels kept); a ping it holds goes out silent. An edit never notifies. The `discord.message.out` row says
   `ping` and `held` (the window took it). The shared policy's urgency (`theseus_protocol::notices`) decides what
@@ -124,7 +126,9 @@ Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
   `View::fold` on every renderer op): the loop's thinking (`model.thinking`) streams as `-#` lines at its top, made
   at the loop's first thinking or first tool line, whichever comes first, and folds to `-# 💭 thought for N s`
   once the loop's text starts (or the loop ends); the tool lines below are the renderer's, as without thinking.
-  It shows at most what fits beside the tool lines in 2,000 bytes (1,800 characters), saying what it left out; it
+  Its backticks and backslashes are escaped as it streams, so a code fence in the thinking never opens a block over
+  the tool lines below. It shows at most what fits beside the tool lines in 2,000 bytes (1,800 characters), saying
+  what it left out; it
   keeps 3,600 characters and counts the rest, for the renderer's held turns. Off hides that half in that place
   alone, and a message with neither half is never made; the turn, its cards and its reply are unchanged. There is
   no thinking message of its own (an earlier cut's `:think`), and the binding showed no thinking before
@@ -145,9 +149,16 @@ Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
   waits for the rows it reads as well as the messages.
 - `src/tests_show.rs` (theseus-l1y1): a place bound `show_tools = false` and `show_thinking = false` beside one
   that says nothing, through the gateway. The fake provider streams a `thinking` block as `Delta::Thinking`.
-  `src/tests_process.rs`: a thinking turn's creates and pings against the same turn without thinking, the fold,
-  a thinking answer's silent create, and `show_thinking = false` in one place. Which process message carries an
-  owed ping depends on whether its tool line landed before its create, so they count pings, not assign them.
+  `src/tests_process.rs`: a thinking turn's creates and pings against the same turn without thinking (its answer
+  the one buzz, every process message silent), the fold, a thinking answer's silent create, `show_thinking = false`
+  in one place, `silent = ["tool_lines"]` in one place against a DM that says nothing
+  (`a_place_that_silences_tool_lines_silences_its_process_messages_alone`), and an answer the reply's post writes
+  while the thinking's create is held at the fake (`an_answer_the_post_writes_after_the_thinking_is_still_the_answer`,
+  `hold_writes_containing`). `render/process.rs`'s unit tests: the stream and the fold, a tool loop folding at
+  `model.answered` and not at its end after the tool ran, a fence in the thinking escaped, the cut.
+  `src/courier/tests_order.rs`: a loop's thinking queued as a new message goes before the lane's waiting post, and a
+  tool line alone after it (the lane run against the fake, everything queued before it starts, so load cannot
+  reorder it).
 - `src/tests_gateway.rs` drives it through the stand-in's gateway too (theseus-6g62): `FakeDiscord::say` types a
   message as a user, and `press` presses a button the binding posted, each sent as Discord sends it; `replies()`
   is what the binding answered each press, and each message keeps every version (theseus-qifw). A guild set on

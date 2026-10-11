@@ -133,6 +133,15 @@ The narrow agent. One channel binding, one shell class, no intelligence beyond t
 - The in-binary web UI in its first form: list executions, actions, and ledger rows; tail a channel. Read-only.
 - `theseus restore` from a local WAL directory (S3 comes in M4), because the restore path exists from the first release.
 
+**Discord's pings (added 2026-10-10, theseus-l1y1, Item 244).** A chat message pings unless its place's `silent` list
+(its `[[channel]]`'s or `[[dm]]`'s, else `[discord] silent`, empty by default) names its category (`cards`,
+`failures`, `answer`, `later_parts`, `woken`, `tool_lines`, `reports`, `notices`, `ops`). A closed card, the task board,
+and a loop's process message that holds its thinking never ping, so a thinking turn buzzes for its answer alone.
+`ping_window_secs` holds a place to one ping in that long, off by default. Each place shows its tool lines and its
+thinking unless its binding says `show_tools = false` or `show_thinking = false`. A loop's thinking streams at the top
+of that loop's tool message and folds to `💭 thought for N s` once the loop's text starts; it has no message of its
+own. An edit never notifies.
+
 **Prove.** The owner completes a real coding task in a known repository from Discord. During a long shell job the harness is killed and restarted; the job finishes, its completion is settled from the spool, the execution continues, and the result lands in the channel. The web UI shows the whole history. A request the owner is not permitted to make is blocked at the gate with a clear message.
 
 **Not yet.** No Jev, so promotion to an autonomous task is by explicit human command (`/task`) only. No roles. No memory beyond transcript. No MCP. No voice. No compaction (long conversations simply get a fresh transcript root by hand). This is the discipline Appendix A demanded and the first place we will be tempted to break it.

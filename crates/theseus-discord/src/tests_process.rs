@@ -1,10 +1,11 @@
 //! A loop's thinking in its process message (theseus-l1y1), end to end
 //! through the stand-in's gateway: the thinking at the top of the loop's
 //! tool line message, folded to `💭 thought for N s` once the loop's text
-//! starts, never a message of its own; a thinking turn makes the pings a
-//! turn without thinking makes, and one create more only for its last loop,
-//! which thinks and answers (a thinking turn of one loop: silent, and its
-//! answer pings).
+//! starts, never a message of its own; a thinking turn buzzes for its
+//! answer alone (every process message holding thinking is silent, its tool
+//! lines with it: the owner's call on the fold, 2026-10-10), and makes one
+//! create more only for its last loop, which thinks and answers (a thinking
+//! turn of one loop: silent, and its answer pings).
 
 use std::path::Path;
 use std::sync::Arc;
@@ -120,11 +121,12 @@ fn pings(got: &[Msg]) -> usize {
 /// The fold, against the same turn without thinking (main's messages, as a
 /// model that does not think makes them): the thinking is at the top of
 /// each loop's tool line message and folds to one line; no message holds
-/// thinking of its own; the pings are the same; the creates are the same
-/// but for the last loop's thinking, one silent create; and the answer's
-/// message holds no thinking.
+/// thinking of its own; every process message is silent, so the answer is
+/// the turn's one buzz where the turn without thinking buzzes for each tool
+/// line too; the creates are the same but for the last loop's thinking, one
+/// silent create; and the answer's message holds no thinking.
 #[tokio::test]
-async fn a_thinking_turn_pings_as_one_without_and_folds_its_thinking() {
+async fn a_thinking_turn_buzzes_for_its_answer_alone_and_folds_its_thinking() {
     let r = Rig::start_on(
         |dir, _| {
             let mut s = turn(dir, "plain", false);
@@ -143,7 +145,7 @@ async fn a_thinking_turn_pings_as_one_without_and_folds_its_thinking() {
     assert_eq!((plain.len(), pings(&plain)), (3, 3), "{plain:#?}");
     let deep = exchange(&r, Some(LAB), "deep", 2, 3).await;
     assert_eq!(deep.len(), plain.len() + 1, "one create more: {deep:#?}");
-    assert_eq!(pings(&deep), pings(&plain), "{deep:#?}");
+    assert_eq!(pings(&deep), 1, "the answer alone: {deep:#?}");
     // Every message with thinking is a process message: its thinking on top.
     let thinking: Vec<&Msg> = deep
         .iter()
@@ -151,6 +153,7 @@ async fn a_thinking_turn_pings_as_one_without_and_folds_its_thinking() {
         .collect();
     assert_eq!(thinking.len(), 3, "{deep:#?}");
     for m in &thinking {
+        assert!(m.silent(), "a process message with thinking: {m:#?}");
         assert!(m.versions.iter().all(|v| v.starts_with("-# 💭 ")), "{m:#?}");
         assert!(
             m.content.starts_with("-# 💭 thought for "),
@@ -163,9 +166,7 @@ async fn a_thinking_turn_pings_as_one_without_and_folds_its_thinking() {
         assert_eq!(lines.len(), 2, "{m:#?}");
         assert!(lines[1].starts_with("✅ `fs.read`"), "{m:#?}");
     }
-    // The last loop's: its thinking alone. Which process message carries a
-    // tool line's ping depends on whether its line landed before its create
-    // (a ping owed rides on the turn's next), so only the count is asserted.
+    // The last loop's: its thinking alone.
     assert_eq!(thinking[2].content.lines().count(), 1, "{:#?}", thinking[2]);
     let answer = deep
         .iter()
@@ -260,17 +261,20 @@ async fn a_place_that_hides_thinking_shows_its_tool_lines_as_before() {
         .filter(|m| m.content.starts_with("-# 💭 thought for"))
         .count();
     assert_eq!(folded, 3, "{dm:#?}");
+    assert_eq!((dm.len(), pings(&dm)), (4, 1), "{dm:#?}");
 }
 
-/// `silent = ["tool_lines"]` in `#lab` silences its process messages there,
-/// a thinking one and one that holds a tool line alike, and owes no ping:
-/// the answer alone pings. The DM, saying nothing, pings as main does.
+/// `silent = ["tool_lines"]` in `#lab` silences its tool lines there: a
+/// thinking turn's process messages are silent anyway, and a turn without
+/// thinking pings for its answer alone too. The DM, saying nothing, pings
+/// for each tool line and the answer, as main does.
 #[tokio::test]
 async fn a_place_that_silences_tool_lines_silences_its_process_messages_alone() {
     let r = Rig::start_on(
         |dir, _| {
             let mut s = turn(dir, "lab", true);
-            s.extend(turn(dir, "dm", true));
+            s.extend(turn(dir, "calm", false));
+            s.extend(turn(dir, "dm", false));
             Arc::new(FakeProvider::scripted(s))
         },
         Guild::new(DEFAULT_GUILD, (ANA, "ana")).private_channel(LAB, "lab", &[ANA]),
@@ -288,8 +292,10 @@ async fn a_place_that_silences_tool_lines_silences_its_process_messages_alone() 
         .find(|m| m.content.contains("the lab charts"))
         .unwrap();
     assert!(!answer.silent(), "{answer:#?}");
-    let dm = exchange(&r, None, "dm", 2, 3).await;
-    assert_eq!((dm.len(), pings(&dm)), (4, 3), "{dm:#?}");
+    let calm = exchange(&r, Some(LAB), "calm", 2, 0).await;
+    assert_eq!((calm.len(), pings(&calm)), (3, 1), "{calm:#?}");
+    let dm = exchange(&r, None, "dm", 2, 0).await;
+    assert_eq!((dm.len(), pings(&dm)), (3, 3), "{dm:#?}");
 }
 
 /// A thinking answer whose text the stream had not written when the reply's

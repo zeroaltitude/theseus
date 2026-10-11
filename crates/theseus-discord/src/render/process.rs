@@ -9,9 +9,9 @@
 //! So thinking makes no message of its own: the process message is made at
 //! the loop's first thinking or its first tool line, whichever comes first,
 //! and a loop that thinks and calls a tool makes the creates it makes
-//! without thinking. A create that holds only thinking goes out silent
-//! (`thinking_only`, read by `policy::of_live`): the loop's answer, or its
-//! tool line, says when there is something to see. Live progress, best
+//! without thinking. A process message that holds thinking goes out silent,
+//! its tool lines with it (`holds_thinking`, read by `policy::of_live`): a
+//! thinking turn buzzes for its answer alone. Live progress, best
 //! effort, never a post; the whole thinking is the session's history. It
 //! holds the turns the place's renderer holds (`RECENT_TURNS`, by the same
 //! `turn.started`), so the lane keeps and forgets its keys with theirs.
@@ -244,16 +244,20 @@ fn loop_of(key: &str) -> Option<(&str, u32)> {
     Some((turn, li.parse().ok()?))
 }
 
-/// Does a process message hold only thinking, no tool line? Its create goes
-/// out silent (`policy::of_live`): every thinking line is a `-#` line, and a
-/// tool line never is.
-pub(crate) fn thinking_only(content: &str) -> bool {
-    content.starts_with("-# 💭") && content.lines().all(|l| l.starts_with("-# "))
+/// Does a process message hold its loop's thinking, streaming or folded?
+/// Its create goes out silent, tool lines and all (`policy::of_live`; the
+/// owner's call on the fold, 2026-10-10: a thinking turn buzzes for its
+/// answer alone). The thinking is always its top line; a tool line never
+/// starts with `-# 💭`.
+pub(crate) fn holds_thinking(content: &str) -> bool {
+    content.starts_with("-# 💭")
 }
 
 /// The thinking as it streams: its header, then its lines as `-#` lines, at
 /// most `SHOWN` characters of it and `budget` bytes in all, saying how many
-/// characters it left out (`more` came past what was kept).
+/// characters it left out (`more` came past what was kept). Its backticks
+/// and backslashes are escaped, so a code fence in the thinking shows as
+/// text and never opens a block over the tool lines below it.
 fn streaming(text: &str, more: usize, budget: usize) -> String {
     let text = if more == 0 {
         text.trim()
@@ -273,13 +277,17 @@ fn streaming(text: &str, more: usize, budget: usize) -> String {
             used += 1;
             continue;
         }
-        let add = c.len_utf8() + if open { 0 } else { 4 };
+        let escaped = matches!(c, '`' | '\\');
+        let add = c.len_utf8() + usize::from(escaped) + if open { 0 } else { 4 };
         if out.len() + add > room {
             break;
         }
         if !open {
             out.push_str("\n-# ");
             open = true;
+        }
+        if escaped {
+            out.push('\\');
         }
         out.push(c);
         used += 1;
@@ -350,7 +358,7 @@ mod tests {
                 "-# 💭 thinking\n-# The tide chart".to_string()
             )]
         );
-        assert!(thinking_only(&got[0].1));
+        assert!(holds_thinking(&got[0].1));
         assert!(p.on_event(&think(" is in\n\nwork/."), t0, BOTH).is_empty());
         let got = upserts(&p.tick(BOTH));
         assert_eq!(
@@ -364,7 +372,7 @@ mod tests {
             got[0].1,
             "-# 💭 thinking\n-# The tide chart is in\n-# work/.\n▫️ `fs.read` work/chart"
         );
-        assert!(!thinking_only(&got[0].1));
+        assert!(holds_thinking(&got[0].1), "a tool line under thinking");
         // The text starts 5.2 s after the first thinking: the fold, at once.
         let text = Event::ModelDelta(delta("turn_a", 0, "Reading it."));
         let got = upserts(&p.on_event(&text, t0 + Duration::from_millis(5200), BOTH));
@@ -398,7 +406,7 @@ mod tests {
         });
         let got = upserts(&p.on_event(&end, t0 + Duration::from_millis(300), BOTH));
         assert_eq!(got[0].1, "-# 💭 thought for 1 s");
-        assert!(thinking_only(&got[0].1));
+        assert!(holds_thinking(&got[0].1));
         let line = tools("turn_a", 1, "▫️ `fs.read` a");
         let got = upserts(&p.fold_ops(vec![line.clone()], BOTH));
         assert_eq!(
@@ -499,15 +507,61 @@ mod tests {
         assert!(p.turns.iter().all(|(id, _)| id != "turn_a"));
     }
 
-    /// Only a message with no tool line is thinking only.
+    /// A tool loop folds when its call is made (`model.answered`), not when
+    /// the loop ends after the tool ran: its N is the thinking's own seconds
+    /// (a 9 s tool after 1.2 s of thinking says 2 s, never 9).
     #[test]
-    fn a_tool_line_is_never_thinking_only() {
-        assert!(thinking_only(
+    fn a_tool_loop_folds_at_its_answer_not_after_its_tool() {
+        let mut p = Process::default();
+        let t0 = Instant::now();
+        p.on_event(&started("turn_a"), t0, BOTH);
+        p.on_event(&Event::ModelThinking(delta("turn_a", 0, "Hmm.")), t0, BOTH);
+        p.fold_ops(vec![tools("turn_a", 0, "▫️ `proc.run` build")], BOTH);
+        let answered = Event::ModelAnswered(delta("turn_a", 0, ""));
+        let got = upserts(&p.on_event(&answered, t0 + Duration::from_millis(1200), BOTH));
+        assert_eq!(got[0].1, "-# 💭 thought for 2 s\n▫️ `proc.run` build");
+        let end = Event::LoopEnded(LoopEnded {
+            turn_id: "turn_a".into(),
+            loop_index: 0,
+            ..Default::default()
+        });
+        assert!(
+            p.on_event(&end, t0 + Duration::from_secs(9), BOTH)
+                .is_empty(),
+            "the loop's end changes nothing"
+        );
+    }
+
+    /// A code fence in the thinking shows as text while it streams, so the
+    /// tool lines below it stay tool lines, not a code block.
+    #[test]
+    fn a_fence_in_the_thinking_never_swallows_the_tool_lines() {
+        let mut p = Process::default();
+        let t0 = Instant::now();
+        p.on_event(&started("turn_a"), t0, BOTH);
+        let think = "Like this:\n```rust\nfn tide() {}\n```\nThen C:\\work.";
+        p.on_event(&Event::ModelThinking(delta("turn_a", 0, think)), t0, BOTH);
+        let got = upserts(&p.fold_ops(vec![tools("turn_a", 0, "▫️ `fs.read` a")], BOTH));
+        let content = &got[0].1;
+        assert!(!content.contains("```"), "{content}");
+        assert_eq!(
+            content,
+            "-# 💭 thinking\n-# Like this:\n-# \\`\\`\\`rust\n-# fn tide() {}\n\
+             -# \\`\\`\\`\n-# Then C:\\\\work.\n▫️ `fs.read` a"
+        );
+    }
+
+    /// A message holds thinking when its top line is the thinking's, with
+    /// tool lines under it or not; tool lines alone never do.
+    #[test]
+    fn a_message_holds_thinking_by_its_top_line_alone() {
+        assert!(holds_thinking(
             "-# 💭 thinking\n-# a\n-# … (3 more characters)"
         ));
-        assert!(thinking_only("-# 💭 thought for 2 s"));
-        assert!(!thinking_only("-# 💭 thought for 2 s\n▫️ `fs.read` a"));
-        assert!(!thinking_only("-# … 3 earlier call(s)\n▫️ `fs.read` a"));
-        assert!(!thinking_only("▫️ `fs.read` a"));
+        assert!(holds_thinking("-# 💭 thought for 2 s"));
+        assert!(holds_thinking("-# 💭 thought for 2 s\n▫️ `fs.read` a"));
+        assert!(holds_thinking("-# 💭 thinking\n-# a\n▫️ `fs.read` a"));
+        assert!(!holds_thinking("-# … 3 earlier call(s)\n▫️ `fs.read` a"));
+        assert!(!holds_thinking("▫️ `fs.read` a"));
     }
 }

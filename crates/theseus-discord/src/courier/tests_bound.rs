@@ -12,9 +12,9 @@ use theseus_sim::fake_discord::FakeDiscord;
 use super::*;
 
 /// An invented channel.
-const CHANNEL: u64 = 900_000_000_000_000_077;
+pub(super) const CHANNEL: u64 = 900_000_000_000_000_077;
 
-fn lane(dir: &std::path::Path, fake: &FakeDiscord) -> Lane {
+pub(super) fn lane(dir: &std::path::Path, fake: &FakeDiscord) -> Lane {
     let secrets = SecretBoard::new([], Instant::now());
     let core = crate::runtime::tests::core_with(dir, secrets, |c| {
         c.discord.rest_proxy = Some(fake.addr.clone());
@@ -31,7 +31,7 @@ fn lane(dir: &std::path::Path, fake: &FakeDiscord) -> Lane {
     )
 }
 
-fn upsert(key: &str, content: &str) -> LaneMsg {
+pub(super) fn upsert(key: &str, content: &str) -> LaneMsg {
     LaneMsg::Live(Op::Upsert {
         key: key.into(),
         content: content.into(),

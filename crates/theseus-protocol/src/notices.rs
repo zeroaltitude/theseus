@@ -1,11 +1,17 @@
 //! The notification policy (theseus-753z): when a piece of work's change is
 //! worth telling the owner, how urgently, and in what words. One pure
-//! function, `policy()`, for every surface, so the TUI, herdr, Discord, and
-//! the cockpit ping for the same reasons, and an answer clears the ping
-//! everywhere (`retracts`). `deliver()` says how one notice reaches one
+//! function, `policy()`, shared by the surfaces that read it, the TUI and
+//! herdr today, so they ping for the same reasons, and an answer clears the
+//! ping in each (`retracts`). `deliver()` says how one notice reaches one
 //! viewer, and `Burst` folds a root's burst into one ping. No clock: the
 //! caller passes the times, and a time of day is written by its `hm`, as
 //! `attention()`'s is.
+//!
+//! Discord's chat does not read it: whether a chat message buzzes is the
+//! binding's own table (theseus-discord's `policy.rs`, theseus-l1y1: the
+//! owner's lively chat, every message pinging unless its place silences its
+//! category), and a card or a failure posts there as the core's outbox
+//! writes it, not as this policy's urgency says.
 //!
 //! (The method-name table owns the module name `notify`, so this one is
 //! `notices`.)

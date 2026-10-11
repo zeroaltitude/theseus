@@ -45,6 +45,7 @@ the split.
 | 28 | [28-part3-item-216.md](28-part3-item-216.md) | Part III: A4's Items 216 to 224, the joins of 2026-10-06's afternoon and early evening (voice told what was heard, no person's name in the tree, Pi as the fourth arm, the lists past imported sessions, a report for every benchmark run, the judge's sink between turns, a learned version's promotion, Discord's bound lanes and their tests) |
 | 29 | [29-part3-item-225.md](29-part3-item-225.md) | Part III: A4's Items 225 to 233, the joins of 2026-10-06's evening (five load flakes fixed at their causes, the scrub's other encodings, the recall driver's bounds, the core's gaps, a turn's reservation on its upper bound, voice's deaf calls and held replies, every AWS credential mint held, health's own sessions) |
 | 30 | [30-part3-item-234.md](30-part3-item-234.md) | Part III: A4's Items 234 to 243, the joins of 2026-10-06's night and 2026-10-07's first hours (the Harbor arms made comparable, a faster cancel, a stopping daemon's retries, route.v1's own request to Jev, the cockpit's phase 2 in four lanes, Discord's bindings watch, the turn bench's rows) |
+| 31 | [31-part3-item-244.md](31-part3-item-244.md) | Part III: A4's Item 244, Discord's pings (today's pings by default, silence per category and per place, a loop's thinking at the top of its tool message, a thinking turn buzzing for its answer alone) |
 
 ## How the chapters fit together
 

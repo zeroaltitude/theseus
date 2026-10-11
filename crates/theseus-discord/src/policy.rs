@@ -9,13 +9,14 @@
 //! its place's list (its binding's, else `[discord] silent`) names its
 //! category. Three writes have none and never ping: a card whose question
 //! had already closed (nothing to answer: a buzz would be a false alarm),
-//! the task board (status), and a loop's process message made by its
-//! thinking alone (`render/process.rs`; the loop's tool line or answer says
-//! when there is something to see, and a tool line that lands in such a
-//! message pings on the turn's next one: `Lane::apply_live`). The
-//! shared notification policy's urgency (`theseus_protocol::notices`) decides
-//! what the house shows and what escalates; it does not decide whether the
-//! chat buzzes, which is this table's.
+//! the task board (status), and a loop's process message that holds its
+//! thinking (`render/process.rs`), with its tool lines or without: a
+//! thinking turn buzzes for its answer alone (the owner's call on the fold,
+//! 2026-10-10), and a loop that does not think pings for its tool line as
+//! before. The shared notification policy (`theseus_protocol::notices`)
+//! decides what the terminal surfaces (the TUI, herdr) show and when they
+//! ping; the chat does not read it, and whether a chat message buzzes is
+//! this table's alone.
 //!
 //! On top of the table, a place may ping at most once per window
 //! (`ping_window_secs`, its binding's, else `[discord]`'s; 0, the default, is
@@ -60,9 +61,9 @@ pub(crate) enum Event {
     Woken,
     /// A loop's tool line, and a notified call's embed.
     ToolLine,
-    /// A loop's process message made by its thinking, before any tool line
-    /// (`render/process.rs`): its tool line, or its answer, pings when it
-    /// comes.
+    /// A loop's process message that holds its thinking, streaming or
+    /// folded, with its tool lines or before them (`render/process.rs`):
+    /// never a ping; the turn's answer is.
     Thinking,
     /// A notice: a bind, a publish, a budget's or the hours' line, a proposal.
     Note,
@@ -244,7 +245,7 @@ pub(crate) fn of_reply(body: &Value) -> Event {
 
 /// A live message, by its key: a turn's text part (`<turn>:L<loop>:p<part>`,
 /// the stream's and the reply's, the answer's when `owed`), a loop's process
-/// message that holds only its thinking (`content`), or its tool line and
+/// message that holds its thinking (`content`), or its tool line and
 /// anything else live (a notice embed).
 pub(crate) fn of_live(key: &str, owed: bool, content: &str) -> Event {
     if is_text_part(key) {
@@ -253,7 +254,7 @@ pub(crate) fn of_live(key: &str, owed: bool, content: &str) -> Event {
         } else {
             Event::ReplyPart
         }
-    } else if key.ends_with(":tools") && crate::render::process::thinking_only(content) {
+    } else if key.ends_with(":tools") && crate::render::process::holds_thinking(content) {
         Event::Thinking
     } else {
         Event::ToolLine
@@ -453,9 +454,15 @@ mod tests {
         assert_eq!(of_live("turn_a:L0:p0", false, "x"), Event::ReplyPart);
         let thought = "-# 💭 thinking\n-# Tides.";
         assert_eq!(of_live("turn_a:L0:tools", true, thought), Event::Thinking);
+        // A thinking loop's tool line is its process message's, which never
+        // pings (the owner's call, 2026-10-10): streaming or folded.
         let both = format!("{thought}\n{line}");
-        assert_eq!(of_live("turn_a:L0:tools", true, &both), Event::ToolLine);
+        assert_eq!(of_live("turn_a:L0:tools", true, &both), Event::Thinking);
+        let folded = format!("-# 💭 thought for 2 s\n{line}");
+        assert_eq!(of_live("turn_a:L0:tools", true, &folded), Event::Thinking);
         assert_eq!(of_live("turn_a:L0:tools", true, line), Event::ToolLine);
+        let earlier = format!("-# … 3 earlier call(s)\n{line}");
+        assert_eq!(of_live("turn_a:L0:tools", true, &earlier), Event::ToolLine);
         assert_eq!(of_live("turn_a:notice:tu_1", false, "x"), Event::ToolLine);
     }
 

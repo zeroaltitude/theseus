@@ -1,6 +1,6 @@
 # Theseus: status and roadmap
 
-_Updated 2026-10-07 03:52 MST. Version 0.0.1; the design document is at v0.84._
+_Updated 2026-10-10 11:49 MST. Version 0.0.1; the design document is at v0.85._
 
 **The picture:** [the development timeline](assets/timeline/theseus-timeline.png), from conception to now and what is ahead ([SVG](assets/timeline/theseus-timeline.svg)).
 
@@ -399,6 +399,11 @@ pass did not re-estimate v1.1's date.
 
 ## Recently landed
 
+- **2026-10-09 to 10:** Discord's pings (Item 244, theseus-l1y1): today's pings by default; silence per category, per
+  place; each place shows or hides its tool lines and its thinking; a loop's thinking tops its tool message and folds
+  to `💭 thought for N s`. Installed at install #18 (October 9, 19:47). The follow-up of October 10, a thinking turn
+  buzzing for its answer alone and a code fence in the thinking shown as text, is on the next install's list. (This
+  page's record of installs #10 to #20 and the joins of October 7 to 9 is not yet written.)
 - **2026-10-06 to 07, night:** the eleventh cloud batch's stack for AWS, health and the bench: every credential mint and
   stored secret in the AWS catalog held to a reviewed decision (Item 232), health's own sessions counted
   apart from the imported (Item 233), and the Harbor arms made comparable (Item
