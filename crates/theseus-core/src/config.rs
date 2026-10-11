@@ -582,6 +582,10 @@ pub struct KernelSection {
     /// How many executions may hold a turn at once.
     #[serde(default = "default_admission_ceiling")]
     pub admission_ceiling: u32,
+    /// How long admission may go without admitting any turn before a
+    /// waiting turn fails (theseus-4g0l): a queue that moves fails none.
+    #[serde(default = "default_admission_stuck_secs")]
+    pub admission_stuck_secs: u64,
     /// Each session's spend limit in US dollars (theseus-0sg). What reaching
     /// it does is `spend_limit_mode`: a notice, or the question (theseus-usei).
     #[serde(default = "limits::default_spend_limit_usd")]
@@ -622,6 +626,9 @@ pub struct KernelSection {
 fn default_admission_ceiling() -> u32 {
     8
 }
+fn default_admission_stuck_secs() -> u64 {
+    600
+}
 fn default_heartbeat_secs() -> u64 {
     60
 }
@@ -642,6 +649,7 @@ impl Default for KernelSection {
     fn default() -> Self {
         Self {
             admission_ceiling: default_admission_ceiling(),
+            admission_stuck_secs: default_admission_stuck_secs(),
             spend_limit_usd: limits::default_spend_limit_usd(),
             spend_limit_mode: SpendLimitMode::default(),
             daily_spend_ceiling_usd: limits::default_daily_ceiling_usd(),
@@ -666,6 +674,11 @@ impl KernelSection {
         .into_iter()
         .filter_map(|(k, set)| set.then_some(k))
         .collect()
+    }
+
+    /// The admission queue's stuck window: at least a second.
+    pub fn admission_stuck(&self) -> std::time::Duration {
+        std::time::Duration::from_secs(self.admission_stuck_secs.max(1))
     }
 
     /// A task claim's lease, in milliseconds: at least a minute.

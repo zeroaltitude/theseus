@@ -10,7 +10,14 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
 - **The turn**: `turn.rs` (the turn runner: one turn under a session's turn lock, its loops, its frames), `advancer.rs`
   (continue or end the turn), `harness.rs` (the harness loop, parked on its events and the heartbeat), and
   `rpc/driver.rs` (what that loop drives: the heartbeat's spool drain and reconcile, continuation turns, due wakes,
-  and the cancel path). A turn's end and a late result's wake are one frame (`turn/end_step.rs`, theseus-6qwr): the
+  and the cancel path). A turn waits for its slot in `turn/admission.rs`'s queue (theseus-4g0l): three classes (a
+  person's typed input, then a conversation's wakes and continuations, then a task session's turns), first come first
+  served inside one, a class higher for each `AGE_STEP` (30 s) waited; a slot given back goes to exactly the next turn,
+  and the kernel counts no ceiling for a queued turn (`Kernel::admit_queued`, `admit_input_queued`). A foreground job's
+  wait lends its slot after `LEND_AFTER` (2 s; `toolrun/job.rs`) and retakes one at its class's head; a wait fails
+  only when no turn was admitted for `[kernel] admission_stuck_secs` (600), class `admission_stuck`. The queue is
+  `ToolRuntime::admission`. Tests: `turn/tests_admission.rs`, `tests_m3/admission.rs`. A turn's end and a late
+  result's wake are one frame (`turn/end_step.rs`, theseus-6qwr): the
   stop read under the frame's lock, the wake nested so its failure takes back only itself. A failed turn's retry is
   the driver's (theseus-ljr), but not a `--stdio` daemon's: its run parks the turn on input for its one client
   (`turn/stdio_step.rs`, set by theseusd before serving, theseus-zqxv); `[model.retries]` can make a transient
