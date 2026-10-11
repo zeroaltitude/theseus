@@ -24,6 +24,7 @@ import tempfile
 import time
 import tomllib
 import unittest
+from unittest import mock
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 
@@ -36,6 +37,10 @@ import generate  # noqa: E402
 import progression as pg  # noqa: E402
 import score  # noqa: E402
 import standin  # noqa: E402
+
+# A fixture's plan: the overhead the tests' progressions are planned at. The daemon's own is
+# measured at run time (theseus-cs8k); nothing in `generate` stands for it.
+PLAN = 13640
 
 STANDIN = r'''#!/usr/bin/env python3
 # A stand-in `claude -p --output-format json`: its sessions under
@@ -103,7 +108,7 @@ def answers_for(prog: pg.Progression) -> dict[str, dict]:
 
 class ClaudeCodeDriver(unittest.TestCase):
     def test_sessions_are_carried_a_boundary_opens_a_new_one_and_marks_compact(self):
-        prog = generate.build(7, "smoke")
+        prog = generate.build(7, "smoke", PLAN)
         with tempfile.TemporaryDirectory() as d:
             d = Path(d)
             bin_ = d / "bin"
@@ -169,7 +174,7 @@ class ClaudeCodeDriver(unittest.TestCase):
             self.assertEqual(s["undelivered"] + s["failed"] + s["confident_wrong"], 0)
 
     def test_a_window_of_100k_or_more_is_claude_codes_own_autocompact(self):
-        prog = generate.build(7, "smoke")
+        prog = generate.build(7, "smoke", PLAN)
         with tempfile.TemporaryDirectory() as d:
             run = drive.Run(Path(d) / "run", prog, "claude-code", {})
 
@@ -185,9 +190,9 @@ PI_STANDIN = r'''#!/usr/bin/env python3
 # A stand-in `pi --print --mode json`: its sessions under --session-dir, one
 # JSONL log each, named as Pi names them; a scripted answer per prompt, and a
 # compaction before each prompt listed in STANDIN_COMPACT_BEFORE. The first
-# prompt's first answer reports STANDIN_FIRST_INPUT input tokens in all
+# prompt's first answer reports STANDIN_COUNTED[prompt] input tokens in all
 # (input, cache read and cache write), as a provider counts a new session's
-# first call.
+# first call; the overhead probe's and the first turn's are counted.
 import json, os, re, subprocess, sys, time
 from pathlib import Path
 args = sys.argv[1:]
@@ -197,6 +202,7 @@ def arg(flag):
 sid, sessions = arg("--session-id"), Path(arg("--session-dir"))
 cfg = Path(os.environ["PI_CODING_AGENT_DIR"])
 settings = json.loads((cfg / "settings.json").read_text())
+counted = json.loads(os.environ["STANDIN_COUNTED"])
 with open(os.environ["STANDIN_LOG"], "a") as f:
     f.write(json.dumps({"argv": args, "cwd": str(Path.cwd()), "prompt": prompt, "settings": settings,
                         "env": {k: os.environ.get(k) for k in ("PI_SKIP_VERSION_CHECK", "PI_TELEMETRY", "PI_OFFLINE")},
@@ -222,8 +228,8 @@ if m:
     calls = [{"type": "toolCall", "id": "toolu_1", "name": "bash", "arguments": {"command": m.group(1)}}]
     first = {"role": "assistant", "content": calls, "model": "claude-sonnet-5-5", "stopReason": "toolUse",
              "usage": {"input": 10, "output": 5, "cacheRead": 100, "cacheWrite": 20, "cost": {"total": 0.0005}}}
-    if prompt == os.environ.get("STANDIN_FIRST_PROMPT"):
-        first["usage"]["input"] = int(os.environ["STANDIN_FIRST_INPUT"]) - 120
+    if prompt in counted:
+        first["usage"]["input"] = counted[prompt] - 120
     result = {"role": "toolResult", "toolCallId": "toolu_1", "toolName": "bash",
               "content": [{"type": "text", "text": r.stdout}], "isError": False}
     entries += [{"type": "message", "id": f"a{time.monotonic_ns()}", "message": first},
@@ -237,8 +243,8 @@ if a.get("file"):
 reply = {"role": "assistant", "content": [{"type": "text", "text": a.get("reply", "ok")}],
          "model": "claude-sonnet-5-5", "stopReason": "stop",
          "usage": {"input": 10, "output": 5, "cacheRead": 100, "cacheWrite": 20, "cost": {"total": 0.0005}}}
-if prompt == os.environ.get("STANDIN_FIRST_PROMPT") and not calls:
-    reply["usage"]["input"] = int(os.environ["STANDIN_FIRST_INPUT"]) - 120
+if prompt in counted and not calls:
+    reply["usage"]["input"] = counted[prompt] - 120
 entries.append({"type": "message", "id": f"a{time.monotonic_ns()}", "message": reply})
 out.append(reply)
 with log.open("a") as f:
@@ -251,17 +257,23 @@ print(dump({"type": "agent_settled"}))
 '''
 
 
-def pi_input(prog: pg.Progression, overhead: int, model: str = "anthropic/claude-sonnet-5-5") -> int:
+# What Pi's system prompt and tools measured on the stand-in: a fixture, as the
+# plan's is (the daemon's, and Pi's, are measured at run time).
+PI_OVERHEAD = 2233
+
+
+def pi_input(text: str, overhead: int, model: str = "anthropic/claude-sonnet-5-5") -> int:
     """What a provider reports for Pi's first call at a system prompt and
-    tools of `overhead` tokens: those, and the first turn's words."""
-    return overhead + drive.tk.user_text(prog.turns[0].text).tokens(drive.tk.rates_of(model))
+    tools of `overhead` tokens: those, and the first message's words."""
+    return overhead + drive.tk.user_text(text).tokens(drive.tk.rates_of(model))
 
 
-def run_pi(prog: pg.Progression, d: Path, argv: list[str] = (), overhead: int = drive.PI_OVERHEAD_TOKENS,
-           compact_before: list[str] = ()) -> tuple[int, str]:
-    """`drive.main` for Pi on the stand-in `pi`, whose first answer counts
-    `overhead` tokens beyond the first turn's words: the exit code and what
-    it said to stderr."""
+def run_pi(prog: pg.Progression, d: Path, argv: list[str] = (), overhead: int = PI_OVERHEAD,
+           compact_before: list[str] = (), first_overhead: int | None = None) -> tuple[int, str]:
+    """`drive.main` for Pi on the stand-in `pi`, whose probe's answer counts
+    `overhead` tokens beyond the probe's words, and whose first turn's counts
+    `first_overhead` (by default the same) beyond its own: the exit code and
+    what it said to stderr."""
     bin_ = d / "bin"
     bin_.mkdir()
     (bin_ / "pi").write_text(PI_STANDIN)
@@ -271,7 +283,9 @@ def run_pi(prog: pg.Progression, d: Path, argv: list[str] = (), overhead: int = 
     (d / "answers.json").write_text(json.dumps(answers_for(prog)))
     env = {"PATH": f"{bin_}:{os.environ['PATH']}", "STANDIN_LOG": str(d / "calls.jsonl"),
            "STANDIN_ANSWERS": str(d / "answers.json"), "STANDIN_COMPACT_BEFORE": json.dumps(list(compact_before)),
-           "STANDIN_FIRST_PROMPT": prog.turns[0].text, "STANDIN_FIRST_INPUT": str(pi_input(prog, overhead)),
+           "STANDIN_COUNTED": json.dumps({
+               drive.PROBE_TEXT: pi_input(drive.PROBE_TEXT, overhead),
+               prog.turns[0].text: pi_input(prog.turns[0].text, overhead if first_overhead is None else first_overhead)}),
            "PI_SESSION_ID": "a-parent", "AI_AGENT": "pi"}
     old = {k: os.environ.get(k) for k in env}
     os.environ.update(env)
@@ -290,19 +304,26 @@ def run_pi(prog: pg.Progression, d: Path, argv: list[str] = (), overhead: int = 
 
 class PiDriver(unittest.TestCase):
     def test_a_session_id_per_session_its_reserve_at_the_planned_threshold_and_compactions_from_its_logs(self):
-        prog = generate.build(7, "smoke")
+        prog = generate.build(7, "smoke", PLAN)
         mark = prog.marks()[0]
         after = prog.turns[mark + 1].text
         # Pi's own overhead is smaller than the plan's: it compacts where its
         # context holds what the plan's holds at the window.
-        threshold = prog.context_window - (generate.planned_overhead(prog) - drive.PI_OVERHEAD_TOKENS)
+        threshold = prog.context_window - (generate.planned_overhead(prog) - PI_OVERHEAD)
         self.assertLess(threshold, prog.context_window)
         with tempfile.TemporaryDirectory() as d:
             d = Path(d)
             rc, _ = run_pi(prog, d, compact_before=[after])
             self.assertEqual(rc, 0)
             calls = [json.loads(x) for x in (d / "calls.jsonl").read_text().splitlines()]
-            self.assertEqual(len(calls), len(prog.turns), "one call a turn, and no /compact")
+            self.assertEqual(len(calls), len(prog.turns) + 1, "the probe, then one call a turn, and no /compact")
+            # The probe: a throwaway session of its own (its own agent
+            # directory, no compaction settings), before any turn.
+            probe, calls = calls[0], calls[1:]
+            self.assertEqual((probe["prompt"], probe["settings"]), (drive.PROBE_TEXT, {}))
+            self.assertEqual(probe["cwd"], str((d / "run" / "workspace").resolve()))
+            self.assertEqual(probe["argv"][probe["argv"].index("--session-dir") + 1],
+                             str((d / "run" / "pi-probe-sessions").resolve()))
             ids = []
             for t, c in zip(prog.turns, calls):
                 a = c["argv"]
@@ -338,9 +359,14 @@ class PiDriver(unittest.TestCase):
                                "a smaller overhead than the plan's is a smaller threshold: a larger reserve")
             # Pi's overhead, in Theseus's record's shape and the threshold it was set at.
             oh = run["overhead"]
-            self.assertEqual((oh["planned"], oh["measured"], oh["past_cushion"], oh["threshold"]),
-                             (drive.PI_OVERHEAD_TOKENS, drive.PI_OVERHEAD_TOKENS, False, threshold))
-            self.assertEqual(set(oh) - {"threshold"}, set(drive.overhead_record(prog, 0, False)))
+            self.assertEqual((oh["planned"], oh["measured"], oh["first_turn"], oh["past_cushion"], oh["pinned"],
+                              oh["threshold"]), (PI_OVERHEAD, PI_OVERHEAD, PI_OVERHEAD, False, False, threshold))
+            self.assertEqual(set(oh) - {"threshold", "source", "probe_cost_usd", "first_turn"},
+                             set(drive.overhead_record(1, 1, False)))
+            self.assertEqual(oh["source"], "probe")
+            self.assertTrue((d / "run" / "raw" / "pi-probe.jsonl").is_file())
+            # The probe's session is not the run's: its logs hold no probe.
+            self.assertFalse(any(drive.PROBE_TEXT in p.read_text() for p in (d / "run" / "pi-sessions").glob("*.jsonl")))
             self.assertEqual(run["delivered"], len(prog.facts))
             rows = [json.loads(x) for x in (d / "run" / "turns.jsonl").read_text().splitlines()]
             self.assertEqual(len(rows), len(prog.turns))
@@ -356,7 +382,7 @@ class PiDriver(unittest.TestCase):
             self.assertEqual(s["undelivered"] + s["failed"] + s["confident_wrong"], 0)
 
     def test_an_effort_is_pis_thinking_level_and_run_json_names_it(self):
-        prog = generate.build(7, "smoke")
+        prog = generate.build(7, "smoke", PLAN)
         with tempfile.TemporaryDirectory() as d:
             rc, _ = run_pi(prog, Path(d), argv=["--effort", "high"])
             self.assertEqual(rc, 0)
@@ -365,51 +391,96 @@ class PiDriver(unittest.TestCase):
             self.assertEqual(json.loads((Path(d) / "run" / "run.json").read_text())["effort"], "high")
 
     def test_the_threshold_is_the_windows_less_what_theseuss_overhead_holds_beyond_pis(self):
-        prog = generate.build(7, "smoke")
+        prog = generate.build(7, "smoke", PLAN)
         plan = generate.planned_overhead(prog)
         self.assertEqual(drive.pi_threshold(prog, 45000, plan), 45000, "at the plan's own overhead: the window")
         self.assertEqual(drive.pi_threshold(prog, 45000, plan - 11340), 45000 - 11340)
         self.assertEqual(drive.pi_keep_recent(33660), 8415)
         self.assertEqual(drive.pi_keep_recent(200_000), drive.PI_KEEP_RECENT)
 
-    def test_a_pi_more_than_the_cushion_off_its_plan_is_refused_and_one_at_it_is_not(self):
-        """Pi's overhead is held to its own plan as Theseus's is held to the
-        progression's: 50 off, either way, runs; 51 off exits 3 naming both
-        numbers and how to move the plan; `--allow-overhead` runs on."""
-        prog = generate.build(7, "smoke")
-        plan, cushion = drive.PI_OVERHEAD_TOKENS, generate.OVERHEAD_CUSHION
-        for measured in (plan + cushion, plan - cushion):
+    def test_pis_plan_is_its_measure_unless_pinned_and_a_pinned_one_is_held_to_the_cushion(self):
+        """theseus-iec1: Pi's overhead is measured by a probe turn before the
+        turns that matter, and its threshold is set from that: a reading of
+        2,475 (a live Harbor trial's) against an offline 2,233 plans at 2,475
+        and runs. A `--pi-overhead` pin is the old plan: the probe finding Pi
+        50 off it runs, 51 off exits 3 before any turn, naming both numbers
+        and how to move the plan; `--allow-overhead` runs on."""
+        prog = generate.build(7, "smoke", PLAN)
+        for measured in (PI_OVERHEAD, 2475, 1900):
             with tempfile.TemporaryDirectory() as d:
                 rc, _ = run_pi(prog, Path(d), overhead=measured)
                 self.assertEqual(rc, 0, measured)
+                run = json.loads((Path(d) / "run" / "run.json").read_text())
+                oh = run["overhead"]
+                self.assertEqual((oh["planned"], oh["measured"], oh["first_turn"], oh["pinned"], oh["past_cushion"]),
+                                 (measured, measured, measured, False, False))
+                self.assertEqual(run["pi_compact"]["threshold"], prog.context_window - (prog.overhead_tokens - measured))
+                self.assertEqual(oh["threshold"], run["pi_compact"]["threshold"])
+        plan, cushion = PI_OVERHEAD, generate.OVERHEAD_CUSHION
+        for measured in (plan + cushion, plan - cushion):
+            with tempfile.TemporaryDirectory() as d:
+                rc, _ = run_pi(prog, Path(d), argv=["--pi-overhead", str(plan)], overhead=measured)
+                self.assertEqual(rc, 0, measured)
                 oh = json.loads((Path(d) / "run" / "run.json").read_text())["overhead"]
-                self.assertEqual((oh["measured"], oh["past_cushion"]), (measured, False))
+                self.assertEqual((oh["planned"], oh["measured"], oh["pinned"], oh["past_cushion"]),
+                                 (plan, measured, True, False))
         for measured in (plan + cushion + 1, plan - cushion - 1):
             with tempfile.TemporaryDirectory() as d:
                 d = Path(d)
-                rc, err = run_pi(prog, d, overhead=measured)
+                rc, err = run_pi(prog, d, argv=["--pi-overhead", str(plan)], overhead=measured)
                 self.assertEqual(rc, 3, measured)
                 self.assertIn(f"{measured:,}", err)
                 self.assertIn(f"{plan:,}", err)
                 self.assertIn(f"--pi-overhead {measured}", err)
                 self.assertIn("--allow-overhead", err)
-                rows = (d / "run" / "turns.jsonl").read_text().splitlines()
-                self.assertEqual(len(rows), 1, "stopped after the first turn")
+                self.assertEqual((d / "run" / "turns.jsonl").read_text(), "", "refused before any turn")
                 oh = json.loads((d / "run" / "run.json").read_text())["overhead"]
                 self.assertEqual((oh["measured"], oh["past_cushion"], oh["allowed"]), (measured, True, False))
             with tempfile.TemporaryDirectory() as d:
-                rc, _ = run_pi(prog, Path(d), argv=["--allow-overhead"], overhead=measured)
+                rc, _ = run_pi(prog, Path(d), argv=["--pi-overhead", str(plan), "--allow-overhead"], overhead=measured)
                 self.assertEqual(rc, 0, measured)
                 run = json.loads((Path(d) / "run" / "run.json").read_text())
                 self.assertEqual((run["turns"], run["overhead"]["past_cushion"], run["overhead"]["allowed"]),
                                  (len(prog.turns), True, True))
-        # Moving the plan moves the threshold and the verdict.
+        # A pin moves the threshold with it.
         with tempfile.TemporaryDirectory() as d:
             rc, _ = run_pi(prog, Path(d), argv=["--pi-overhead", "2500"], overhead=2500)
             self.assertEqual(rc, 0)
             run = json.loads((Path(d) / "run" / "run.json").read_text())
-            self.assertEqual(run["overhead"]["planned"], 2500)
+            self.assertEqual((run["overhead"]["planned"], run["overhead"]["pinned"]), (2500, True))
             self.assertEqual(run["pi_compact"]["threshold"], prog.context_window - (prog.overhead_tokens - 2500))
+
+    def test_a_pis_first_turn_reading_far_from_its_probes_stops_the_run_after_that_turn(self):
+        """The probe plans; the first turn is held to the plan too, so a Pi
+        whose first request differs from its probe's by more than the cushion
+        is caught, after the one turn."""
+        prog = generate.build(7, "smoke", PLAN)
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            rc, err = run_pi(prog, d, overhead=PI_OVERHEAD, first_overhead=PI_OVERHEAD + 51)
+            self.assertEqual(rc, 3)
+            self.assertIn(f"{PI_OVERHEAD + 51:,}", err)
+            self.assertEqual(len((d / "run" / "turns.jsonl").read_text().splitlines()), 1)
+            oh = json.loads((d / "run" / "run.json").read_text())["overhead"]
+            self.assertEqual((oh["planned"], oh["measured"], oh["first_turn"], oh["past_cushion"]),
+                             (PI_OVERHEAD, PI_OVERHEAD, PI_OVERHEAD + 51, True))
+
+    def test_pi_and_claude_code_read_the_progression_the_theseus_arm_planned(self):
+        """`--seed`, `--size` and `--overhead` plan a progression, which only
+        the Theseus arm can measure for: Pi's refuses them, and a file with no
+        recorded overhead, which has no plan to set Pi's threshold from."""
+        for argv in (["--seed", "7", "--size", "smoke"], ["--overhead", "13640"]):
+            with tempfile.TemporaryDirectory() as d, redirect_stderr(io.StringIO()) as err:
+                with self.assertRaises(SystemExit) as e:
+                    drive.main(["--arm", "pi", "--progression", d, "--out", str(Path(d) / "run"), *argv])
+                self.assertEqual(e.exception.code, 2)
+                self.assertIn("--progression <its run directory>", err.getvalue())
+        prog = generate.build(7, "smoke", PLAN)
+        prog.overhead_tokens = None
+        with tempfile.TemporaryDirectory() as d:
+            prog.save(Path(d) / "gen")
+            with self.assertRaisesRegex(SystemExit, "records no planned overhead"):
+                drive.main(["--arm", "pi", "--progression", str(Path(d) / "gen"), "--out", str(Path(d) / "run")])
 
     def test_a_turn_ends_failed_when_its_last_answer_is_a_providers_error(self):
         events = drive.pi_events("\n".join(json.dumps(x) for x in [
@@ -542,7 +613,7 @@ class TheseusConfig(unittest.TestCase):
 
 class Overhead(unittest.TestCase):
     def test_the_overhead_is_the_first_compile_less_its_user_message(self):
-        """`OVERHEAD_TOKENS`' own definition: the earliest `context.compiled`
+        """The overhead's definition: the earliest `context.compiled`
         estimate, less its user message at the model's rates."""
         text = "It's Monday, 2026-11-09. Hi."
         user = drive.tk.user_text(text).tokens(drive.tk.rates_of("anthropic/claude-sonnet-5-5"))
@@ -552,12 +623,13 @@ class Overhead(unittest.TestCase):
         self.assertIsNone(drive.overhead_of([], text, "m"))
 
     def test_past_the_cushion_is_refused_and_both_numbers_are_named(self):
-        prog = generate.build(7, "smoke")
+        prog = generate.build(7, "smoke", PLAN)
         planned, cushion = prog.overhead_tokens, generate.OVERHEAD_CUSHION
         for measured in (planned + cushion, planned - cushion, planned):
-            at = drive.overhead_record(prog, measured, False)
+            at = drive.overhead_record(planned, measured, False)
             self.assertEqual((at["planned"], at["past_cushion"]), (planned, False), measured)
-        past = drive.overhead_record(prog, planned + cushion + 1, False)
+        past = drive.overhead_record(planned, planned + cushion + 1, False, True)
+        self.assertTrue(past["pinned"] and not drive.overhead_record(planned, planned, False)["pinned"])
         self.assertTrue(past["past_cushion"])
         said = drive.overhead_refusal(past)
         self.assertIn(f"{planned + cushion + 1:,}", said)
@@ -569,10 +641,10 @@ class Overhead(unittest.TestCase):
         seed 12 crosses by 31 tokens 101 under the default plan, and not at
         150 under it), so 51 under is refused as 51 over is, and 50 under is
         not. The refusal names both numbers and how to plan at the measured."""
-        prog = generate.build(7, "smoke")
+        prog = generate.build(7, "smoke", PLAN)
         planned, cushion = prog.overhead_tokens, generate.OVERHEAD_CUSHION
-        self.assertFalse(drive.overhead_record(prog, planned - cushion, False)["past_cushion"])
-        under = drive.overhead_record(prog, planned - cushion - 1, False)
+        self.assertFalse(drive.overhead_record(planned, planned - cushion, False)["past_cushion"])
+        under = drive.overhead_record(planned, planned - cushion - 1, False)
         self.assertTrue(under["past_cushion"])
         said = drive.overhead_refusal(under)
         self.assertIn(f"{planned - cushion - 1:,}", said)
@@ -580,14 +652,13 @@ class Overhead(unittest.TestCase):
         self.assertIn(f"by {cushion + 1}", said)
         self.assertIn(f"--overhead {planned - cushion - 1}", said)
         self.assertIn("--allow-overhead", said)
-        over = drive.overhead_refusal(drive.overhead_record(prog, planned + cushion + 1, False))
+        over = drive.overhead_refusal(drive.overhead_record(planned, planned + cushion + 1, False))
         self.assertIn(f"past the {planned:,}", over)
         self.assertIn(f"--overhead {planned + cushion + 1}", over)
-        # An older file, with no record, is held to today's constant.
+        # An older file, with no record, has no plan to be held to: no constant stands in.
         prog.overhead_tokens = None
-        old = drive.overhead_record(prog, 20000, True)
-        self.assertEqual((old["planned"], old["planned_recorded"], old["allowed"]),
-                         (generate.OVERHEAD_TOKENS, False, True))
+        with self.assertRaises(ValueError):
+            generate.planned_overhead(prog)
 
 
 def bin_dir() -> Path | None:
@@ -645,14 +716,18 @@ def rules_for(prog: pg.Progression) -> list[dict]:
 @unittest.skipIf(bin_dir() is None, "no theseus binaries (cargo build --workspace, or THESEUS_RECALL_BIN_DIR)")
 class TheseusDriver(unittest.TestCase):
     def drive(self, d: Path, prog: pg.Progression, rules: list[dict], timeout: str = "120",
-              counting: bool = False, extra: tuple[str, ...] = ()) -> tuple[int, str, Path]:
+              counting: bool = False, extra: tuple[str, ...] = (),
+              plan: tuple[str, ...] | None = None) -> tuple[int, str, Path]:
         """`prog` driven through a scratch daemon on a stand-in model:
         theseus-sim's, which reports 40 input tokens a call, or with
         `counting`, `standin.py`'s, which reports the request's estimate.
-        What it said is its stdout and its stderr."""
+        What it said is its stdout and its stderr. `plan` replaces the saved
+        progression with `--seed` and `--size` (and `--overhead`), which the
+        driver plans at its measure."""
         bins = bin_dir()
         gen = d / "gen"
-        prog.save(gen)
+        if prog is not None:
+            prog.save(gen)
         (d / "rules.json").write_text(json.dumps(rules))
         fake = counted = None
         if counting:
@@ -678,7 +753,8 @@ class TheseusDriver(unittest.TestCase):
             buf = io.StringIO()
             with redirect_stdout(buf), redirect_stderr(buf):
                 rc = drive.main(["--arm", "theseus", "--memory-arm", "baseline", "--bin-dir", str(bins),
-                                 "--progression", str(gen), "--out", str(out), "--turn-timeout", timeout,
+                                 *(plan if plan is not None else ("--progression", str(gen))),
+                                 "--out", str(out), "--turn-timeout", timeout,
                                  "--api-base", base, *extra])
         finally:
             if fake is not None:
@@ -693,7 +769,7 @@ class TheseusDriver(unittest.TestCase):
         # more turn follows it. A recall note may quote a turn's text, and the
         # stand-in takes the first rule whose text it finds anywhere, so the
         # turn after the slow one has its own rule first.
-        prog = generate.build(7, "smoke")
+        prog = generate.build(7, "smoke", PLAN)
         slow = prog.turns[-1]
         prog.turns.append(pg.Turn(index=slow.index + 1, session=slow.session, block=slow.block, topic=slow.topic,
                                   text="Last one: are we done for the day?", role="filler", est_tokens=300))
@@ -726,7 +802,7 @@ class TheseusDriver(unittest.TestCase):
         turn fails as the first live smoke's did: its newest exchange alone
         passes the budget. (On theseus-sim's stand-in, 40 tokens a call, the
         same progression never compacts, and every turn exits 0.)"""
-        prog = generate.build(7, "smoke")
+        prog = generate.build(7, "smoke", self.measured())
         prog.context_window = 35000
         lines, size, i = [], 0, 0
         while size < 6944 * 4:
@@ -751,9 +827,9 @@ class TheseusDriver(unittest.TestCase):
 
     def measured(self) -> int:
         """The scratch daemon's system prompt and tools, from a run refused
-        at its first turn (planned at 1,000), once for the class."""
+        before its first turn (planned at 1,000), once for the class."""
         if TheseusDriver._measured is None:
-            prog = generate.build(7, "smoke")
+            prog = generate.build(7, "smoke", PLAN)
             prog.overhead_tokens = 1000
             with tempfile.TemporaryDirectory() as d:
                 rc, said, out = self.drive(Path(d), prog, rules_for(prog), counting=True)
@@ -763,27 +839,27 @@ class TheseusDriver(unittest.TestCase):
 
     def test_a_progression_planned_under_the_daemons_overhead_is_refused(self):
         """theseus-dp3y: planned 500 tokens under the daemon's real overhead,
-        the run stops after its first turn, before any probe can move,
-        naming both numbers; run.json records both."""
+        the run stops before its first turn (the probe measured it before the
+        progression was fixed: theseus-cs8k), naming both numbers; run.json
+        records both."""
         real = self.measured()
-        prog = generate.build(7, "smoke")
+        prog = generate.build(7, "smoke", PLAN)
         prog.overhead_tokens = real - 500
         with tempfile.TemporaryDirectory() as d:
             rc, said, out = self.drive(Path(d), prog, rules_for(prog), counting=True)
             self.assertEqual(rc, 3, said)
             self.assertIn(f"tools are {real:,} tokens, past the {real - 500:,}", said)
-            # Every run's effort is medium unless it says otherwise: the daemon's config has it.
-            self.assertEqual(tomllib.loads((out / "daemon" / "config.toml").read_text())["profiles"]["bench"]["effort"],
-                             "medium")
             self.assertEqual(json.loads((out / "run.json").read_text())["effort"], "medium")
             run = json.loads((out / "run.json").read_text())
             self.assertEqual({k: run["overhead"][k] for k in ("planned", "measured", "past_cushion", "allowed")},
                              {"planned": real - 500, "measured": real, "past_cushion": True, "allowed": False})
-            self.assertEqual(run["turns"], 1)
-            # Only the first turn ran: no probe's.
-            self.assertGreater(min(p.turn for p in prog.probes), 0)
-            self.assertEqual(run["left_running"], [])
+            self.assertEqual(run["turns"], 0)
+            self.assertEqual((out / "turns.jsonl").read_text(), "")
             self.assertEqual(drive.processes_naming(out), [])
+            # A file's plan is a pinned one, and the probe's daemon was the only one started.
+            self.assertEqual((run["overhead"]["pinned"], run["overhead"]["source"]), (True, "probe"))
+            self.assertFalse((out / "daemon").exists())
+            self.assertEqual(list((out / "raw").glob("t0*.json")), [])
 
     def test_the_smoke_runs_end_to_end_on_a_scratch_daemon_and_leaves_nothing(self):
         """On the counting stand-in, each turn's history costs what it would
@@ -792,10 +868,6 @@ class TheseusDriver(unittest.TestCase):
         daemon's own overhead, it runs (theseus-dp3y), and its written bounds
         hold there however thin the plan's margin."""
         real = self.measured()
-        self.assertLessEqual(real, generate.OVERHEAD_TOKENS + generate.OVERHEAD_CUSHION,
-                             "the daemon's system prompt grew past the plan: raise OVERHEAD_TOKENS")
-        self.assertGreaterEqual(real, generate.OVERHEAD_TOKENS - generate.OVERHEAD_CUSHION,
-                                "the daemon's system prompt shrank under the plan: lower OVERHEAD_TOKENS")
         prog = generate.build(7, "smoke", real)
         with tempfile.TemporaryDirectory() as d:
             d = Path(d)
@@ -804,6 +876,9 @@ class TheseusDriver(unittest.TestCase):
             run = json.loads((out / "run.json").read_text())
             self.assertEqual({k: run["overhead"][k] for k in ("planned", "measured", "past_cushion")},
                              {"planned": real, "measured": real, "past_cushion": False})
+            self.assertEqual((run["overhead"]["pinned"], run["overhead"]["source"]), (True, "probe"))
+            # The first turn's own reading differs from the probe's by what its words' rounding does.
+            self.assertLessEqual(abs(run["overhead"]["first_turn"] - real), 10, run["overhead"])
             self.assertEqual(run["left_running"], [])
             self.assertEqual(run["killed"], [])
             self.assertEqual(drive.processes_naming(out), [])
@@ -837,6 +912,91 @@ class TheseusDriver(unittest.TestCase):
             self.assertEqual(s["scored"], len(prog.probes))
             self.assertEqual((s["recall_accuracy"], s["abstention_accuracy"]), (1.0, 1.0))
             self.assertEqual(s["moved"], 0)
+
+    def test_a_run_plans_at_the_overhead_it_measures_and_records_it(self):
+        """theseus-cs8k: no constant: the driver measures the daemon's system
+        prompt and tools with a probe exchange on a throwaway daemon, plans
+        the progression at that (smoke seed 12, the live check's), and runs
+        it to the end. run.json's overhead has the plan and the measure
+        (equal, unpinned), the probe left nothing in the run's daemon, and the
+        mark compacts where the plan put it."""
+        real = self.measured()
+        prog = generate.build(12, "smoke", real)
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            rc, said, out = self.drive(d, prog, rules_for(prog), counting=True, plan=("--seed", "12", "--size", "smoke"))
+            self.assertEqual(rc, 0, said)
+            run = json.loads((out / "run.json").read_text())
+            oh = run["overhead"]
+            self.assertEqual({k: oh[k] for k in ("planned", "measured", "pinned", "past_cushion", "source")},
+                             {"planned": real, "measured": real, "pinned": False, "past_cushion": False,
+                              "source": "probe"})
+            self.assertLessEqual(abs(oh["first_turn"] - real), 10, oh)
+            # Every run's effort is medium unless it says otherwise: the daemon's config has it.
+            self.assertEqual(tomllib.loads((out / "daemon" / "config.toml").read_text())["profiles"]["bench"]["effort"],
+                             "medium")
+            # The progression is the generator's at that measure, kept in the run.
+            self.assertEqual(run["digest"], prog.digest())
+            self.assertEqual(pg.load(out).overhead_tokens, real)
+            self.assertTrue((out / "raw" / "probe-theseusd.log").is_file())
+            # The probe's session is not the run's: two sessions, none of them its.
+            self.assertEqual(len(run["sessions"]), 2)
+            for sid in range(1, 3):
+                self.assertNotIn(drive.PROBE_TEXT, (out / "raw" / f"history-{sid}.json").read_text())
+            self.assertEqual(drive.processes_naming(out), [])
+            mark = prog.marks()[0]
+            self.assertIn(run["compactions"][0], (mark, mark + 1), run["compaction_rows"])
+            self.assertEqual(run["compaction_rows"][0]["outcomes"], ["compaction"])
+            rows = [json.loads(x) for x in (out / "turns.jsonl").read_text().splitlines()]
+            self.assertEqual([r["exit"] for r in rows if r["exit"] != 0], [])
+            self.assertEqual(len(rows), len(prog.turns))
+
+    def test_a_pinned_plan_is_held_to_the_cushion_before_any_turn(self):
+        """`--overhead N` plans at N for a rerun that must match an earlier
+        plan, and the measure past the cushion is refused as a file's is:
+        before the first turn, exit 3, both numbers named. Within it, the plan
+        is the pin; `--allow-overhead` runs on."""
+        real = self.measured()
+        cushion = generate.OVERHEAD_CUSHION
+        with tempfile.TemporaryDirectory() as d:
+            rc, said, out = self.drive(Path(d), None, [], counting=True,
+                                       plan=("--seed", "7", "--size", "smoke", "--overhead", str(real - cushion - 1)))
+            self.assertEqual(rc, 3, said)
+            self.assertIn(f"{real:,}", said)
+            self.assertIn(f"{real - cushion - 1:,}", said)
+            run = json.loads((out / "run.json").read_text())
+            self.assertEqual((run["turns"], run["overhead"]["pinned"], run["overhead"]["planned"]),
+                             (0, True, real - cushion - 1))
+            self.assertEqual(drive.processes_naming(out), [])
+        with tempfile.TemporaryDirectory() as d:
+            prog = generate.build(7, "smoke", real - cushion)
+            rc, said, out = self.drive(Path(d), prog, rules_for(prog), counting=True,
+                                       plan=("--seed", "7", "--size", "smoke", "--overhead", str(real - cushion)))
+            self.assertEqual(rc, 0, said)
+            oh = json.loads((out / "run.json").read_text())["overhead"]
+            self.assertEqual((oh["planned"], oh["measured"], oh["pinned"], oh["past_cushion"]),
+                             (real - cushion, real, True, False))
+
+    def test_a_first_turn_reading_far_from_the_probes_stops_the_run_after_that_turn(self):
+        """The probe plans; the run's own first compile is held to the plan
+        too. A probe that read 100 tokens under the daemon's real overhead
+        (patched in) plans there, and the first turn's reading catches it:
+        exit 3 after that one turn, both numbers named."""
+        real = self.measured()
+        prog = generate.build(7, "smoke", real - 100)
+        probe = {"measured": real - 100, "log": "", "cost_usd": None, "tokens": {}}
+        with tempfile.TemporaryDirectory() as d, mock.patch.object(drive, "measure_theseus", return_value=probe):
+            rc, said, out = self.drive(Path(d), prog, rules_for(prog), counting=True,
+                                       plan=("--seed", "7", "--size", "smoke"))
+            self.assertEqual(rc, 3, said)
+            run = json.loads((out / "run.json").read_text())
+            oh = run["overhead"]
+            self.assertEqual((oh["planned"], oh["measured"], oh["past_cushion"]), (real - 100, real - 100, True))
+            self.assertLessEqual(abs(oh["first_turn"] - real), 10)
+            self.assertIn(f"{oh['first_turn']:,}", said)
+            self.assertIn(f"{real - 100:,}", said)
+            self.assertEqual(run["turns"], 1)
+            self.assertEqual(drive.processes_naming(out), [])
 
 
 if __name__ == "__main__":

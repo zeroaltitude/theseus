@@ -24,6 +24,10 @@ import generate  # noqa: E402
 import progression as pg  # noqa: E402
 import score  # noqa: E402
 
+# A fixture's plan: the overhead the tests' progressions are planned at. The daemon's own is
+# measured at run time (theseus-cs8k); nothing in `generate` stands for it.
+PLAN = 13640
+
 
 def row(bucket: str, correct: bool, turns: int, tokens: int, kind: str = "direct",
         salience: str = "incidental") -> score.Scored:
@@ -112,7 +116,7 @@ def write_run(d: Path, prog: pg.Progression, label: str, compactions: list[int],
 class Scoring(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.prog = generate.build(7, "smoke")
+        cls.prog = generate.build(7, "smoke", PLAN)
         ids = {p.id: (p.kind, p.bucket, p.turn, p.fact) for p in cls.prog.probes}
         # The fixture's reading of the smoke, checked, so a new smoke fails
         # here first.
@@ -297,6 +301,59 @@ class Scoring(unittest.TestCase):
             r, _ = self.scored([], replies={"p001": reply})
             self.assertEqual((r["p001"].correct, r["p001"].stale), (False, True), reply)
 
+    def test_the_false_rights_of_the_retracted_rule_are_closed(self):
+        """theseus-hau2: six replies the rule once scored right, in three
+        shapes, that a careful reader scores wrong (p001: new 38013, old
+        27340: each gives the old value as current), and three sentences it
+        must keep right, which no test held (the `the old` arm, `after that`,
+        and the other words of the then-from prefix). Strict scores every
+        one stale, as before."""
+        wrong = (
+            # `the old X` beside a retraction that governs another value.
+            "Use the old port 27340 instead; 38013 isn't up yet.",
+            "It's 38013 on paper, but the old port 27340 is what answers, since 38013 was dropped.",
+            # A negation ahead of a prefix.
+            "It's no longer wrong to use 27340; 38013 was a mistake.",
+            # A comma between two clauses read as a list.
+            "Ignore 11111, 27340 is the live port, and 38013 is only planned.",
+            "Ignore 11111, 27340's the live port, and 38013 is only planned.",
+            "No longer 11111, 27340 was the live port, and 38013 is only planned.",
+        )
+        right = (
+            # The `the old` arm: a retraction word about X in its clause.
+            "The old port 27340, the one we no longer use, is closed; it's 38013.",
+            # Each word of the then-from prefix, alone.
+            "It went to 27340 first, and after that from 27340 to 38013.",
+            "It went to 27340 first, and later from 27340 to 38013.",
+            "It went to 27340 first, and next from 27340 to 38013.",
+            # A list's later member under the phrase before it, no verb after it.
+            "Ignore 11111, 27340 and 99999; it's 38013.",
+            "It's 38013 now; 27340, 11111 and 99999 are all retired.",
+        )
+        for reply in wrong:
+            for stale in ("strict", "retracted"):
+                r, _ = self.scored([], replies={"p001": reply}, stale=stale)
+                x = r["p001"]
+                self.assertEqual((x.correct, x.stale, x.old_named), (False, True, False), (stale, reply))
+        for reply in right:
+            r, _ = self.scored([], replies={"p001": reply}, stale="retracted")
+            x = r["p001"]
+            self.assertTrue(x.correct and x.old_named, reply)
+            self.assertFalse(x.stale or x.confident_wrong, reply)
+            r, _ = self.scored([], replies={"p001": reply})
+            self.assertEqual((r["p001"].correct, r["p001"].stale), (False, True), reply)
+
+    def test_a_citing_prefix_in_either_quote_style_governs_nothing(self):
+        """`sentences` folds typographic quotes before any phrase is read,
+        so `CANCEL` needs only the ASCII ones (theseus-hau2)."""
+        for q1, q2 in (("\u201c", "\u201d"), ("\u2018", "\u2019"), ('"', '"'), ("'", "'")):
+            reply = f"You said {q1}moved from 27340 to 38013{q2}, but I can't tell."
+            r, _ = self.scored([], replies={"p001": reply}, stale="retracted")
+            x = r["p001"]
+            self.assertEqual((x.correct, x.stale, x.old_named), (False, True, False), reply)
+        self.assertNotIn("u201c", score.CANCEL.lower())
+        self.assertNotIn("\u201c", score.CANCEL)
+
     def test_the_new_value_must_stand_free_for_a_retraction_to_be_right(self):
         """`retracts_only`'s `new_free`: with every old value retracted but
         the new one stated only where a phrase governs it, nothing says the
@@ -352,7 +409,8 @@ class Scoring(unittest.TestCase):
     def test_the_cli_writes_the_report_the_svg_and_the_scores(self):
         with tempfile.TemporaryDirectory() as d:
             d = Path(d)
-            write_run(d / "th", self.prog, "theseus", [12])
+            oh = {"planned": 13943, "measured": 13943, "first_turn": 13943, "pinned": False}
+            write_run(d / "th", self.prog, "theseus", [12], meta={"overhead": oh})
             write_run(d / "cc", self.prog, "claude-code", [])
             with redirect_stdout(io.StringIO()) as out:
                 rc = score.main([str(d / "th"), str(d / "cc"), "--out", str(d / "rep")])
@@ -361,14 +419,19 @@ class Scoring(unittest.TestCase):
             md = (d / "rep" / "report.md").read_text()
             self.assertIn("| theseus | m | 12 |", md)
             self.assertIn("| claude-code | m | never |", md)
+            # The overhead the arm was measured at is in every report (theseus-cs8k).
+            self.assertIn("| theseus | 13943 | 13943 | 13943 | no |", md)
+            self.assertIn("| claude-code | — | — | — | — |", md)
             svg = (d / "rep" / "curve.svg").read_text()
             self.assertTrue(svg.startswith("<svg") and svg.rstrip().endswith("</svg>"))
             self.assertIn("polyline", svg)
             j = json.loads((d / "rep" / "scores.json").read_text())
             self.assertEqual(set(j["arms"]), {"theseus", "claude-code"})
+            self.assertEqual(j["arms"]["theseus"]["overhead"], oh)
+            self.assertIsNone(j["arms"]["claude-code"]["overhead"])
             self.assertEqual(len(j["probes"]), 2 * len(self.prog.probes))
             # Runs of different progressions are refused.
-            other = generate.build(8, "smoke")
+            other = generate.build(8, "smoke", PLAN)
             write_run(d / "x", other, "claude-code", [])
             with redirect_stdout(io.StringIO()):
                 self.assertEqual(score.main([str(d / "th"), str(d / "x"), "--out", str(d / "rep2")]), 2)
