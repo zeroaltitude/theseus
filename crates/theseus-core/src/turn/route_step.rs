@@ -594,6 +594,12 @@ impl TurnRunner {
                 .and_then(|p| profiles.get(p))
                 .and_then(|p| p.short_cost);
         let hold = session.routed.as_ref().and_then(|r| r.hold.clone());
+        // Jev's own move up from the base is what a step back down undoes.
+        let from = session
+            .routed
+            .as_ref()
+            .filter(|r| r.profile.is_some())
+            .and_then(|r| r.from.as_deref());
         routing::decide(
             &self.cfg.routing,
             &profiles,
@@ -602,6 +608,7 @@ impl TurnRunner {
                 base: &t.target.profile,
                 est_tokens,
                 hold: hold.as_ref(),
+                from,
                 images: t.route.images,
                 cap,
             },

@@ -981,10 +981,20 @@ pub(crate) fn keyless() -> Arc<crate::secrets::SecretBoard> {
 /// The wait for a verdict is long, so a loaded machine never makes one late;
 /// it ends as the verdict lands.
 pub(crate) async fn moved_to_opus(jev: &FakeJev, n: usize) -> (Rig, String) {
+    moved_to_opus_with(jev, n, |_| {}).await
+}
+
+/// [`moved_to_opus`] with `tweak` applied to the config after the placements.
+pub(crate) async fn moved_to_opus_with(
+    jev: &FakeJev,
+    n: usize,
+    tweak: impl FnOnce(&mut Config),
+) -> (Rig, String) {
     mode(jev, "sophisticated", 0.95);
     let r = rig(Some(jev), n, |c| {
         c.routing.max_wait_ms = 5_000;
         glm_placements(c);
+        tweak(c);
     });
     let one = turn(
         &r.core,
