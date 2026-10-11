@@ -32,6 +32,42 @@ export function treeOrder(categories: readonly OntologyCategory[]): TreeRow[] {
   return out
 }
 
+/** The label of the group that holds a category whose kind the kinds table does not name (or names not at all). */
+export const UNKNOWN_GROUP = '<unknown>'
+
+export interface KindGroup {
+  /** A stable key: `kind:<name>`, or `kind:<unknown>`. */
+  key: string
+  /** What its header says: the kind's name, or `<unknown>`. */
+  label: string
+  /** The group's categories as the tree reads them (`treeOrder`), depths counted within the group. */
+  rows: TreeRow[]
+  /** How many categories it holds. */
+  count: number
+}
+
+/** The categories as closed groups, one a kind (theseus-7mow): the kinds in the kinds table's order, then `<unknown>`
+ *  for those whose kind it does not name; a group with nothing in it is left out. Every category is in exactly one
+ *  group, so nothing is lost by folding them. */
+export function groupsOf(categories: readonly OntologyCategory[], kinds: readonly { name: string }[]): KindGroup[] {
+  const known = new Set(kinds.map((k) => k.name))
+  const by = new Map<string, OntologyCategory[]>()
+  for (const c of categories) {
+    const key = c.kind && known.has(c.kind) ? c.kind : UNKNOWN_GROUP
+    const list = by.get(key)
+    if (list) list.push(c)
+    else by.set(key, [c])
+  }
+  const order = [...kinds.map((k) => k.name), UNKNOWN_GROUP]
+  return order.filter((k, i) => order.indexOf(k) === i && by.has(k)).map((k) => ({
+    key: `kind:${k}`, label: k, rows: treeOrder(by.get(k)!), count: by.get(k)!.length,
+  }))
+}
+
+/** The key of the group that holds a category, to open it when the address selects one. */
+export const groupKeyOf = (groups: readonly KindGroup[], id: string | null): string | null =>
+  (id && groups.find((g) => g.rows.some((r) => r.category.id === id))?.key) || null
+
 /** Past this many categories the tree starts folded at its roots: an import's topics (theseus-anh3) are well over a
  *  hundred, and a reader opens the roots they want. */
 export const FOLD_AT = 40
