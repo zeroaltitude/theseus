@@ -58,6 +58,9 @@ Key modules: `lib.rs` (the `method`, `notify`, `error_code` tables), `events.rs`
   name becomes a `LedgerKind` on the commit that first writes it (the reader rule), and every such row's data
   carries `what`, `why`, `numbers` and `undo`. `SelfState` is also health's `self_improve` (health's `self` line);
   `BinaryStatus` moved to `health.rs` to make room in lib.rs.
+- `window.rs` (theseus-m2tiu): `ledger.window`'s params and result and `POSTMORTEM_KINDS`, the kinds `theseus postmortem`
+  reads: one page of a time window, read only, the daemon's answer scrubbed and (for a surface that reads no private
+  text) narrowed to the session named.
 - `ts.rs`: the TypeScript export.
 
 ## Invariants

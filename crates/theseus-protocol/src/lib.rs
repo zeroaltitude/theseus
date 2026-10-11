@@ -53,6 +53,7 @@ pub mod term;
 #[cfg(test)]
 mod ts;
 pub mod voice;
+mod window;
 pub mod work;
 
 pub use actions::{ActionInfo, ActionListParams, ActionListResult};
@@ -74,6 +75,7 @@ pub use places::*;
 pub use push::*;
 pub use sessions::{RetiredReason, SessionLink, SessionRetired, SessionState};
 pub use term::{TerminalInfo, TerminalLeft};
+pub use window::*;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -118,7 +120,7 @@ pub mod method {
         /// A session's retirement by the owner, and its undo (theseus-emqx).
         SESSION_RETIRE = "session.retire", SESSION_REOPEN = "session.reopen",
         TURN_SUBMIT = "turn.submit",
-        LEDGER_TAIL = "ledger.tail",
+        LEDGER_TAIL = "ledger.tail", LEDGER_WINDOW = "ledger.window",
         PROFILE_LIST = "profile.list", PROFILE_USE = "profile.use",
         EXECUTION_LIST = "execution.list", EXECUTION_CANCEL = "execution.cancel",
         /// `/stop` (W1): halt a conversation's work, and keep the conversation.

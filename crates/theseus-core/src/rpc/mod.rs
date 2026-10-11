@@ -66,7 +66,10 @@ mod tests_ordered;
 mod tests_self;
 #[cfg(test)]
 mod tests_session_states;
+#[cfg(test)]
+mod tests_window;
 mod trust;
+mod window;
 
 pub use bindings::BindingBoard;
 

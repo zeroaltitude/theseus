@@ -910,6 +910,13 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   audit, replay, backfill and the learning writer hold through `TurnRunner::day_hold`; compaction's summary is refused
   through the kernel and the ring runs; speech asks before its call. No mode: it stops. Tests: `tests_day_ceiling.rs`,
   and one each in `tests_compaction.rs` and `tests_consolidate.rs`.
+- **`ledger.window`** (theseus-m2tiu, `rpc/window.rs`): the postmortem's read. One page by the kinds' own postings
+  (`POSTMORTEM_KINDS`, or a session's tag when narrowed to it and the tasks below it, found from `Kernel::tasks`),
+  oldest first, `next` the cursor; each row's strings pass the scrubber. A surface that reads no private text
+  (`Surface::reads_private`) must name a session and gets that session's rows and the daemon's, never another's. It
+  writes no frame and takes no session or execution lock. The index counts a row at the time it was written, so the
+  window's own times then decide by each row's `at_unix_ms`. Tests: `rpc/tests_window.rs` (a busy day's window, 6,000
+  report rows in 13 pages, read in 0.14 s in a debug build).
 - **The operator's two reads** (step 42a, theseus-ext.7): `rpc/budgets.rs` is `budget.list`, each open execution's
   money from its record (`Kernel::open_executions`), where its limit comes from (`config`, `place`, `carve`, or
   `pinned`), its session's lifetime cost, and its last reset from one small ledger page by kind and session tag,
