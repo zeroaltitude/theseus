@@ -126,7 +126,7 @@ export default function Fleet() {
 
       <Group orientation="horizontal" className="min-h-0 flex-1">
         <RPanel defaultSize="62" minSize={480} className="min-h-0">
-          <Panel title={view === 'executions' ? <>Executions · {executions.length}</> : 'Sessions'} icon={<Layers size={13} />} className="h-full" bodyClassName="min-h-0 overflow-auto"
+          <Panel help="fleet.list" title={view === 'executions' ? <>Executions · {executions.length}</> : 'Sessions'} icon={<Layers size={13} />} className="h-full" bodyClassName="min-h-0 overflow-auto"
             actions={<>
               <Segmented value={view} options={['sessions', 'executions'] as const} onChange={setView} />
               {world ? <span className="text-[11px] text-ink-faint">return to LIVE to open a session</span> : <NewSession onDraft={(label) => nav(`/session/new${label ? `?label=${encodeURIComponent(label)}` : ''}`)} />}
@@ -170,7 +170,7 @@ export default function Fleet() {
         </RPanel>
         <Separator className="mx-1.5 w-1 rounded-full bg-transparent transition-colors hover:bg-live/30" />
         <RPanel defaultSize="38" minSize={320} className="min-h-0">
-          <Panel title="Graph · tasks and reports" icon={<Network size={13} />} className="h-full" bodyClassName="min-h-0">
+          <Panel help="fleet.graph" title="Graph · tasks and reports" icon={<Network size={13} />} className="h-full" bodyClassName="min-h-0">
             <FleetGraph sessions={graphWorld?.sessions ?? sessions} executions={graphWorld?.executions ?? executions} onOpen={(sid) => nav(`/session/${sid}`)}
               layout={graphWorld ? { sessions: sl?.sessions ?? NO_SESSIONS, executions: el?.executions ?? NO_EXECUTIONS } : undefined} />
           </Panel>

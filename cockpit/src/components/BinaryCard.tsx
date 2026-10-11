@@ -1,5 +1,6 @@
 // Health's binary (theseus-od13): a loud card at the top of Systems when this daemon's jobs can write the binary it
 // runs, and one line in the Daemon card otherwise; the header's dot and the card share `lib/binary.ts`.
+import { CARD_BODY } from '@/lib/cardfit'
 import { ShieldAlert } from 'lucide-react'
 import type { BinaryStatus } from '@protocol'
 import { binaryLine, binaryTone } from '@/lib/binary'
@@ -11,7 +12,7 @@ import { Field, Panel, Pill } from './ui'
 export function BinaryFault({ binary }: { binary?: BinaryStatus }) {
   if (binaryTone(binary) !== 'fault') return null
   return (
-    <Panel title="Binary · jobs can write it" icon={<ShieldAlert size={13} />} bodyClassName="px-3.5 py-2.5">
+    <Panel help="systems.binary" title="Binary · jobs can write it" icon={<ShieldAlert size={13} />} bodyClassName={CARD_BODY}>
       <div className={cn('rounded-md px-2.5 py-2 text-[12px] ring-1', toneClass.fault)}>{binaryLine(binary)}</div>
       <Field label="path" mono>{binary?.path}</Field>
       <Field label="what is writable">{binary?.detail}</Field>

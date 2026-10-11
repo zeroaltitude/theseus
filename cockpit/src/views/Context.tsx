@@ -131,7 +131,7 @@ function Episodes({ params, set }: { params: URLSearchParams; set: SetParams }) 
   return (
     <div className={cn('grid grid-cols-1 gap-3', episode ? 'xl:grid-cols-[250px_minmax(0,1fr)_minmax(0,1.05fr)]' : 'lg:grid-cols-[250px_minmax(0,1fr)]')}>
       <aside className="flex flex-col gap-3" aria-label="filters">
-        <Panel title="filters" icon={<Shapes size={13} />} actions={Object.keys(filters).length ? <button type="button" className="text-[11px] text-ink-faint hover:text-ink" onClick={() => set({ tag: null, source: null, place: null, sens: null, book: null, topic: null, q: null, month: null, page: null })}>clear all</button> : undefined}>
+        <Panel help="context.filters" title="filters" icon={<Shapes size={13} />} actions={Object.keys(filters).length ? <button type="button" className="text-[11px] text-ink-faint hover:text-ink" onClick={() => set({ tag: null, source: null, place: null, sens: null, book: null, topic: null, q: null, month: null, page: null })}>clear all</button> : undefined}>
           <Words key={filters.q ?? ''} initial={filters.q ?? ''} submit={(q) => filter('q', q.trim() || null)} />
           {FACETS.map((f) => <FacetGroup key={f.key} word={f.word} values={data?.facets[f.facet] ?? []} picked={filters[f.key]} pick={(v) => filter(f.key, v)} format={f.key === 'sens' ? (v) => sensitivityWords(v).word : undefined} />)}
           {filters.month && <div className="flex items-center gap-1.5 px-3 pb-2 text-[11.5px] text-ink-dim">as of <span className="num text-ink">{filters.month.replace('..', ' to ')}</span><button type="button" aria-label="clear the months" onClick={() => filter('month', null)} className="text-ink-faint hover:text-ink"><X size={11} /></button></div>}
@@ -140,7 +140,7 @@ function Episodes({ params, set }: { params: URLSearchParams; set: SetParams }) 
       </aside>
       <div className="flex min-w-0 flex-col gap-3">
         <Timeline months={data?.facets.months ?? []} picked={filters.month} pick={(m) => filter('month', m)} />
-        <Panel title={<>episodes · {data ? `${count(data.total)} of ${count(data.all)}` : '…'}</>} icon={<Library size={13} />}
+        <Panel help="context.episodes" title={<>episodes · {data ? `${count(data.total)} of ${count(data.all)}` : '…'}</>} icon={<Library size={13} />}
           actions={<>
             <select aria-label="sort" value={sort ?? 'newest'} onChange={(e) => set({ sort: e.target.value === 'newest' ? null : e.target.value, page: null })}
               className="rounded-md bg-white/5 px-1.5 py-0.5 text-[11px] text-ink-dim ring-1 ring-line">
@@ -228,7 +228,7 @@ function TopicPanel({ topics, picked, pick }: { topics: ImportFacet[]; picked?: 
   const toggle = (p: string) => setOpen((s) => { const n = new Set(s); if (n.has(p)) n.delete(p); else n.add(p); return n })
   const inOntology = paths.size
   return (
-    <Panel title={<>topics · {count(topics.length)}</>} icon={<ListTree size={13} />}>
+    <Panel help="context.topics" title={<>topics · {count(topics.length)}</>} icon={<ListTree size={13} />}>
       <div className="px-3 pt-2 text-[11px] text-ink-faint">
         {inOntology ? `${count(inOntology)} topics are in the ontology; ◆ marks them` : 'from the episodes’ labels: the ontology holds no topic yet (theseus-anh3 brings them in)'}
       </div>
@@ -262,7 +262,7 @@ function Timeline({ months, picked, pick }: { months: ImportFacet[]; picked?: st
   const accent = day ? daylightColor(CATEGORICAL.dark[0]) : CATEGORICAL.dark[0]
   const total = bins.reduce((a, b) => a + b.count, 0)
   return (
-    <ChartPanel id="asof" title={<>as of · episodes a month{bins.length ? ` · ${bins[0].value} to ${bins[bins.length - 1].value}` : ''}</>} icon={<FileText size={13} />} height={132}
+    <ChartPanel id="asof" help="context.asof" title={<>as of · episodes a month{bins.length ? ` · ${bins[0].value} to ${bins[bins.length - 1].value}` : ''}</>} icon={<FileText size={13} />} height={132}
       empty={bins.length ? undefined : 'no months'}
       table={{
         caption: 'imported episodes a month, by their span’s start', rows: [...bins].reverse(), rowKey: (b) => b.value,
@@ -345,7 +345,7 @@ function EpisodeDetail({ id, listed, veil: veilOf, onUnveil, close, onTopic }: {
   const summary = nodes.find((n) => n.kind === 'imported_summary')
   const cites = new Set(((summary?.detail as { cites?: string[] } | null)?.cites) ?? [])
   return (
-    <Panel title={veil ? `${e ? sensitivityWords(e.sensitivity).word : 'an'} episode · veiled` : e?.title ?? 'episode'} icon={<FileText size={13} />} className="min-w-0"
+    <Panel help="context.episode" title={veil ? `${e ? sensitivityWords(e.sensitivity).word : 'an'} episode · veiled` : e?.title ?? 'episode'} icon={<FileText size={13} />} className="min-w-0"
       actions={<button type="button" aria-label="close the episode" onClick={close} className="text-ink-faint hover:text-ink"><X size={13} /></button>}>
       <div className="flex max-h-[calc(100vh-220px)] flex-col gap-3 overflow-auto p-3">
         {e ? (
@@ -440,13 +440,13 @@ function Books({ go }: { go: (book: string) => void }) {
   const hinted = books.reduce((a, b) => a + b.count, 0)
   return (
     <div className="grid grid-cols-1 gap-3 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
-      <Panel title="the books" icon={<BookOpen size={13} />}>
+      <Panel help="context.books" title="the books" icon={<BookOpen size={13} />}>
         <div className="flex flex-col gap-2 p-3 text-[12.5px] leading-relaxed text-ink-dim">
           <p><span className="text-ink">Not compiled yet.</span> The books are typed organizations of what Theseus knows: a dictionary, an encyclopedia, a cookbook, standing procedures, a diary, a casebook, a register. Their design is theseus-lqo6; the soul migration’s stages that fill them from the imported history are theseus-0lrr.7 (curated sources) and theseus-0lrr.8 (the build, the exam, the cut-over).</p>
           <p>Until then, recall reads the imported episodes themselves as testimony, and each episode carries the import’s guess at its book: {data ? <span className="num text-ink">{count(hinted)} of {count(data.all)}</span> : '…'} are hinted, on the right. <Link to="/books" className="text-live hover:underline">Browse them by book in the Books view →</Link></p>
         </div>
       </Panel>
-      <ChartPanel id="books" title="book hints · episodes a book" icon={<Library size={13} />} height={Math.max(120, books.length * 30 + 16)}
+      <ChartPanel id="books" help="context.hints" title="book hints · episodes a book" icon={<Library size={13} />} height={Math.max(120, books.length * 30 + 16)}
         empty={books.length ? undefined : 'no hints'}
         table={{ caption: 'imported episodes by the book the import hinted', rows: books, rowKey: (b) => b.value,
           columns: [{ key: 'b', label: 'book', cell: (b) => b.value }, { key: 'w', label: 'what it holds', cell: (b) => BOOK_WORDS[b.value] ?? '' }, { key: 'n', label: 'episodes', num: true, cell: (b) => count(b.count) }] }}>

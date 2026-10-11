@@ -1,6 +1,7 @@
 // The Systems view's cards that the Observatory's Kernel, Startup, and Discord sections held and the cockpit's did not
 // (theseus-vm3n.6): the push, the AWS accounts, the store and the last crash, what each startup phase found, the Discord
 // binding's recent traffic, and the approval channels' recent rows.
+import { CARD_BODY } from '@/lib/cardfit'
 import { Link } from 'react-router'
 import { Cloud, Rocket, ScrollText } from 'lucide-react'
 import type { AwsDurabilityStatus, AwsStatus, Health, LedgerEntry, StartupPhase } from '@protocol'
@@ -37,7 +38,7 @@ const AWS_STATE: Record<string, [string, Tone]> = {
 export function AwsCard({ aws, now }: { aws?: AwsStatus; now: number }) {
   if (!aws) return null
   return (
-    <Panel title="AWS accounts" icon={<Cloud size={13} />} bodyClassName="px-3.5 py-2.5">
+    <Panel help="systems.aws" title="AWS accounts" icon={<Cloud size={13} />} bodyClassName={CARD_BODY}>
       {aws.accounts.length === 0 && <Empty>no account bound</Empty>}
       {aws.accounts.map((a) => {
         const [words, tone] = AWS_STATE[a.state] ?? [a.state, 'wait']
@@ -84,7 +85,7 @@ function DurabilityFields({ d, now }: { d: AwsDurabilityStatus; now: number }) {
 export function StoreCard({ health }: { health: Health }) {
   const lines = storeLines(health.startup ?? [], health.store, health.crash)
   return (
-    <Panel title="Store · last crash" icon={<ScrollText size={13} />} bodyClassName="px-3.5 py-2.5">
+    <Panel help="systems.crash" title="Store · last crash" icon={<ScrollText size={13} />} bodyClassName={CARD_BODY}>
       {lines.length === 0 && <div className="text-[12px] text-ink-dim">The history check found no corrupt frame, and no crash file was found.</div>}
       {lines.map((l, i) => <div key={i} className={`mb-1 text-[12px] ${l.tone === 'fault' ? 'text-fault' : 'text-ink-faint'}`}>{l.text}</div>)}
     </Panel>
@@ -97,7 +98,7 @@ export function PhasesCard({ phases }: { phases: StartupPhase[] }) {
   if (!phases.length) return null
   const f = startFigures(phases)
   return (
-    <Panel title="Start · what each phase found" icon={<Rocket size={13} />} bodyClassName="px-3.5 py-2.5">
+    <Panel help="systems.startphases" title="Start · what each phase found" icon={<Rocket size={13} />} bodyClassName={CARD_BODY}>
       <Field label="serving" mono>{us(f.serving)} after the process started</Field>
       {f.between >= 500 && <Field label="between phases" mono><span className={f.slow ? 'text-wait' : ''}>{us(f.between)} that no phase names</span></Field>}
       <table className="mt-1.5 w-full text-[11.5px]">

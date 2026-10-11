@@ -28,6 +28,7 @@ import { CHOICES, nextChoice } from '@/lib/daylight'
 import { foldKey, foldRepeats, STRIP_KEY, stripOpen, type Fold, type StripLine } from '@/lib/activity'
 import { TimeMachine } from './TimeMachine'
 import { StateBadge } from './SessionLife'
+import { entered, groupOf, isOpen, NAV_GROUPS, parseChoices, pressed } from '@/lib/navgroups'
 import { paletteOrder, searchText, stateOf } from '@/lib/sessionState'
 
 const NAV = [
@@ -48,6 +49,9 @@ const NAV = [
   { to: '/context', label: 'Context', icon: Telescope },
   { to: '/books', label: 'Books', icon: Library },
 ] as const
+
+type NavItemDef = (typeof NAV)[number]
+const NAV_KEY = 'cockpit.nav.groups'
 
 const GO: Record<string, string> = {
   h: '/ship', b: '/bridge', f: '/fleet', a: '/actions', o: '/boundaries', p: '/policy', l: '/ledger', m: '/money', e: '/economics', w: '/speed', k: '/benchmarks', j: '/judgment', s: '/systems',
@@ -158,6 +162,21 @@ function NavRail({ onPalette }: { onPalette: () => void }) {
   const { data: cl } = useRpc<{ confirms: ConfirmRequest[] }>('confirm.list', undefined, 2000)
   const waiting = cl?.confirms.length ?? 0
   const notify = useApprovalNotices(cl?.confirms)
+  // The accordion (theseus-onxwh): the groups as the operator left them, and the group of every view this page has
+  // been in, open unless folded since. Only the operator's own presses are kept in the browser.
+  const loc = useLocation()
+  const [choices, setChoices] = useState(() => parseChoices(kept(NAV_KEY)))
+  const [state, setState] = useState(() => entered(new Set<string>(), new Set<string>(), loc.pathname))
+  const { shut, visited } = state
+  // A view in another group opens that group (derived while rendering, not in an effect).
+  const [at, setAt] = useState(loc.pathname)
+  if (at !== loc.pathname) { setAt(loc.pathname); setState((s) => entered(s.shut, s.visited, loc.pathname)) }
+  const press = (id: string) => {
+    const x = pressed(choices, shut, visited, id)
+    setChoices(x.choices)
+    setState((s) => ({ ...s, shut: x.shut }))
+    keep(NAV_KEY, JSON.stringify(x.choices))
+  }
   return (
     <nav className="brass-rail relative z-10 flex w-[68px] shrink-0 flex-col items-center gap-1 py-3 [@media(max-height:860px)]:gap-0.5 [@media(max-height:860px)]:py-2">
       <div className="mb-3 flex flex-col items-center [@media(max-height:860px)]:mb-1.5">
@@ -166,32 +185,55 @@ function NavRail({ onPalette }: { onPalette: () => void }) {
           <span className="absolute -right-0.5 top-0"><LiveDot tone={status === 'open' ? 'ok' : status === 'connecting' ? 'wait' : 'fault'} size={7} /></span>
         </div>
       </div>
-      {NAV.map(({ to, label, icon: Icon, ...rest }) => (
-        <NavLink
-          key={to}
-          to={to}
-          end={'end' in rest}
-          className={({ isActive }) => cn(
-            // The items and the rail's foot fit a short screen only with less air between them, measured with fifteen items
-            // down to 1366×768 (the rail held thirteen at py-1 below 860 px).
-            'group relative flex w-[62px] flex-col items-center gap-0.5 rounded-lg py-2 font-display text-[8.5px] font-bold uppercase tracking-[0.03em] transition-colors [@media(max-height:1000px)]:py-1 [@media(max-height:880px)]:py-0.5 [@media(max-height:820px)]:py-0',
-            isActive ? 'text-live' : 'text-ink-faint hover:bg-gold/10 hover:text-ink',
-          )}
-        >
-          {({ isActive }) => (
-            <>
-              {isActive && (
-                <motion.span layoutId="nav-active" className="absolute inset-0 rounded-lg bg-live/10 shadow-[0_0_14px_-2px_rgba(34,211,238,0.45),inset_0_0_0_1px_rgba(34,211,238,0.35)]" transition={{ type: 'spring', stiffness: 400, damping: 32 }} />
-              )}
-              <Icon size={18} className={cn('relative', isActive && 'drop-shadow-[0_0_6px_rgba(34,211,238,0.8)]')} />
-              <span className="relative">{label}</span>
-              {to === '/actions' && waiting > 0 && (
-                <span className="absolute right-1.5 top-1 grid h-4 min-w-4 place-items-center rounded-full bg-wait px-1 text-[9.5px] font-bold text-void shadow-[0_0_10px_#fbbf24] animate-pulse-soft">{waiting}</span>
-              )}
-            </>
-          )}
-        </NavLink>
-      ))}
+      <div className="flex min-h-0 w-full flex-col items-center gap-0.5 overflow-y-auto overflow-x-hidden [scrollbar-width:none]" role="presentation">
+        {NAV_GROUPS.map((g) => {
+          const open = isOpen(choices, shut, visited, g.id)
+          const here = g.id === groupOf(loc.pathname)
+          const items = g.items.map((to) => NAV.find((n) => n.to === to)).filter((n): n is NavItemDef => !!n)
+          return (
+            <div key={g.id} className="flex w-full flex-col items-center" role="group" aria-label={g.label}>
+              <button type="button" onClick={() => press(g.id)} aria-expanded={open} aria-controls={`nav-group-${g.id}`}
+                title={`${g.label}: ${items.map((n) => n.label).join(', ')}`}
+                className={cn('relative flex w-[62px] items-center justify-between gap-0.5 rounded px-1 py-0.5 font-display text-[7.5px] font-bold uppercase tracking-[0.06em] hover:bg-gold/10 hover:text-ink',
+                  here ? 'text-gold' : 'text-ink-faint')}>
+                <span className="truncate">{g.label}</span>
+                <ChevronDown size={9} className={cn('shrink-0 transition-transform', !open && '-rotate-90')} aria-hidden />
+                {!open && g.items.includes('/actions') && waiting > 0 && (
+                  <span className="absolute -right-0.5 -top-1 grid h-3.5 min-w-3.5 place-items-center rounded-full bg-wait px-0.5 text-[8.5px] font-bold text-void shadow-[0_0_8px_#fbbf24] animate-pulse-soft" title={`${waiting} approvals waiting (Actions)`}>{waiting}</span>
+                )}
+                {!open && here && <span className="absolute -left-0.5 top-1/2 h-1.5 w-1.5 -translate-y-1/2 rounded-full bg-live shadow-[0_0_6px_rgba(34,211,238,0.8)]" title="the current view is in this group" />}
+              </button>
+              <div id={`nav-group-${g.id}`} hidden={!open} className="flex w-full flex-col items-center gap-0.5">
+                {items.map(({ to, label, icon: Icon }) => (
+                  <NavLink
+                    key={to}
+                    to={to}
+                    className={({ isActive }) => cn(
+                      // The items and the rail's foot fit a short screen only with less air between them, measured with fifteen items
+                      // down to 1366×768 (the rail held thirteen at py-1 below 860 px).
+                      'group relative flex w-[62px] flex-col items-center gap-0.5 rounded-lg py-1.5 font-display text-[8.5px] font-bold uppercase tracking-[0.03em] transition-colors [@media(max-height:1000px)]:py-1 [@media(max-height:880px)]:py-0.5 [@media(max-height:820px)]:py-0',
+                      isActive ? 'text-live' : 'text-ink-faint hover:bg-gold/10 hover:text-ink',
+                    )}
+                  >
+                    {({ isActive }) => (
+                      <>
+                        {isActive && (
+                          <motion.span layoutId="nav-active" className="absolute inset-0 rounded-lg bg-live/10 shadow-[0_0_14px_-2px_rgba(34,211,238,0.45),inset_0_0_0_1px_rgba(34,211,238,0.35)]" transition={{ type: 'spring', stiffness: 400, damping: 32 }} />
+                        )}
+                        <Icon size={18} className={cn('relative', isActive && 'drop-shadow-[0_0_6px_rgba(34,211,238,0.8)]')} />
+                        <span className="relative">{label}</span>
+                        {to === '/actions' && waiting > 0 && (
+                          <span className="absolute right-1.5 top-1 grid h-4 min-w-4 place-items-center rounded-full bg-wait px-1 text-[9.5px] font-bold text-void shadow-[0_0_10px_#fbbf24] animate-pulse-soft">{waiting}</span>
+                        )}
+                      </>
+                    )}
+                  </NavLink>
+                ))}
+              </div>
+            </div>
+          )
+        })}
+      </div>
       <div className="mt-auto flex flex-col items-center gap-2">
         <ModeToggle />
         <button onClick={notify.toggle} title={notify.on ? 'Desktop notices for approvals: on' : 'Desktop notices for approvals: off'}

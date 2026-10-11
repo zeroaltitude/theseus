@@ -80,7 +80,7 @@ function Shelf({ list, error, book, onPick }: { list?: BooksListResult; error: E
   const empty = error ? `the daemon refused the read: ${error.message}` : !list ? 'reading the books…'
     : list.episodes === 0 ? 'no imported episodes yet: `theseus import openclaw <file>` brings them in' : undefined
   return (
-    <ChartPanel id="books" title={<>the books · {fmt(list?.episodes ?? 0)} episodes</>} icon={<Library size={13} />} table={table} empty={empty}>
+    <ChartPanel id="books" help="books.chart" title={<>the books · {fmt(list?.episodes ?? 0)} episodes</>} icon={<Library size={13} />} table={table} empty={empty}>
       <TipArea>
         <ul className="flex flex-col gap-1 p-1" aria-label="the books">
           {rows.map((r) => (
@@ -127,7 +127,7 @@ function BookPages({ f, q, episodes, selected, onFilter, onOpen }: {
   const facets = first?.facets
   const last = pages[pages.length - 1]
   return (
-    <Panel title={<>{bookTitle(f.book)} · {first ? fmt(first.total) : '…'} episodes</>} icon={<ScrollText size={13} />}
+    <Panel help="books.book" title={<>{bookTitle(f.book)} · {first ? fmt(first.total) : '…'} episodes</>} icon={<ScrollText size={13} />}
       actions={<span className="num text-[10.5px] normal-case tracking-normal text-ink-faint">{BOOK_WORDS[f.book]}</span>}>
       <div className="flex flex-wrap items-center gap-2 border-b border-line px-3 py-2 text-[12px]">
         <Filter size={12} className="text-ink-faint" />
@@ -190,11 +190,11 @@ function EpisodeRow({ e, on, onOpen }: { e: BookEpisode; on: boolean; onOpen: ()
 /** An episode opened: its summary, its labels, and its messages, from its imported session. */
 function EpisodePanel({ sessionId, e, onClose }: { sessionId: string | null; e?: BookEpisode; onClose: () => void }) {
   const { data: hist, error } = useRpc<SessionHistory>('session.history', { session_id: sessionId ?? '' }, 0, { enabled: !!sessionId })
-  if (!sessionId) return <Panel title="episode" icon={<BookOpen size={13} />} className="self-start" bodyClassName="h-48"><Empty>pick an episode to read its summary, labels, and messages</Empty></Panel>
+  if (!sessionId) return <Panel help="books.episode" title="episode" icon={<BookOpen size={13} />} className="self-start" bodyClassName="h-48"><Empty>pick an episode to read its summary, labels, and messages</Empty></Panel>
   const nodes: NodeInfo[] = hist?.nodes ?? []
   const messages = nodes.filter((n) => n.kind !== 'imported_summary')
   return (
-    <Panel title={<>episode · {e ? episodeWhen(e) : sessionId}</>} icon={<BookOpen size={13} />} className="self-start xl:sticky xl:top-2"
+    <Panel help="books.episode" title={<>episode · {e ? episodeWhen(e) : sessionId}</>} icon={<BookOpen size={13} />} className="self-start xl:sticky xl:top-2"
       actions={<button type="button" onClick={onClose} aria-label="close the episode" className="text-ink-faint hover:text-ink"><X size={13} /></button>}>
       <div className="flex flex-col gap-3 p-3">
         {e && (

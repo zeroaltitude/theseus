@@ -4,21 +4,26 @@ import { motion } from 'motion/react'
 import { cn } from '@/lib/format'
 import { stateTone, toneClass, toneHex, type Tone } from '@/lib/taxonomy'
 import { Echart } from './Echart'
+import { HelpButton } from './Help'
 import type { EChartsOption } from '@/lib/chart'
 import type { Attention } from '@protocol'
 
 export function Panel({
-  title, icon, actions, children, className, bodyClassName,
+  title, icon, actions, help, children, className, bodyClassName,
 }: {
-  title?: ReactNode; icon?: ReactNode; actions?: ReactNode; children: ReactNode; className?: string; bodyClassName?: string
+  title?: ReactNode; icon?: ReactNode; actions?: ReactNode
+  /** The panel's explainer in `lib/explainers.ts` (the "?" at its top right), or false for one that is only a notice
+   *  (an error, a stopped view) with nothing to read. */
+  help: string | false
+  children: ReactNode; className?: string; bodyClassName?: string
 }) {
   return (
-    <section className={cn('panel flex min-h-0 flex-col', className)}>
+    <section className={cn('panel flex min-h-0 min-w-0 flex-col', className)}>
       {(title || actions) && (
         <header className="flex items-center gap-2 border-b border-line px-3.5 py-2">
           {icon && <span className="text-ink-faint">{icon}</span>}
           <h2 className="panel-title truncate">{title}</h2>
-          <div className="ml-auto flex items-center gap-1.5">{actions}</div>
+          <div className="ml-auto flex items-center gap-1.5">{actions}{help && <HelpButton id={help} title={typeof title === 'string' ? title : undefined} />}</div>
         </header>
       )}
       <div className={cn('min-h-0 flex-auto', bodyClassName)}>{children}</div>

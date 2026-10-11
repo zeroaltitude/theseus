@@ -40,11 +40,11 @@ export default function Ontology() {
   const picked = rows.find((r) => r.category.id === selected)?.category ?? null
   const select = (id: string | null) => setParams((p) => { if (id) p.set('category', id); else p.delete('category'); return p }, { replace: true })
 
-  if (!data) return <Panel title="ontology" bodyClassName="h-64"><Empty>{error ? `the daemon refused the read: ${(error as Error).message}` : isLoading ? 'reading the ontology…' : 'no ontology'}</Empty></Panel>
+  if (!data) return <Panel help={false} title="ontology" bodyClassName="h-64"><Empty>{error ? `the daemon refused the read: ${(error as Error).message}` : isLoading ? 'reading the ontology…' : 'no ontology'}</Empty></Panel>
   return (
     <div className="flex flex-col gap-3">
       {past && <div className="num px-1 text-[11.5px] text-wait">the ship’s log is at {clock(asOf ?? 0)}; the ontology keeps no past, so this is the present, and its controls are off until you return to LIVE</div>}
-      <Panel title={<>kinds · {data.kinds.length}</>} icon={<Shapes size={13} />}>
+      <Panel help="ontology.kinds" title={<>kinds · {data.kinds.length}</>} icon={<Shapes size={13} />}>
         <div className="overflow-x-auto p-2"><table className="w-full whitespace-nowrap text-[11.5px]">
           <thead className="text-[10px] uppercase tracking-wider text-ink-faint">
             <tr><th className="py-1 text-left">kind</th><th className="px-1 text-left">basis</th><th className="px-1 text-left">assigned by</th><th className="px-1 text-left">per session</th><th className="px-1 text-left">parent</th><th className="px-1 text-right">precedence</th><th className="px-1 text-left">rule</th><th className="px-1 text-right">v</th><th className="px-1 text-left">added by</th><th className="pl-1 text-left">what it is</th></tr>
@@ -68,7 +68,7 @@ export default function Ontology() {
         </table></div>
       </Panel>
       <div className="grid grid-cols-1 gap-3 xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
-        <Panel title={<>categories · {rows.length}{branches.size > 0 && (
+        <Panel help="ontology.categories" title={<>categories · {rows.length}{branches.size > 0 && (
           <span className="ml-2 normal-case tracking-normal">
             <button type="button" className="text-ink-faint hover:text-live" onClick={() => setOpened(new Set(branches))}>open all</button>
             <span className="text-ink-faint"> · </span>
@@ -134,7 +134,7 @@ function GuidanceEditor({ category, disabled }: { category: OntologyCategory | n
   // The parent keys this on the category and its guidance, so a new selection, or a change from another surface, starts
   // the draft over from what is stored.
   const [text, setText] = useState(current)
-  if (!category) return <Panel title="guidance" icon={<Pencil size={13} />}><Empty>pick a category to read or edit its guidance</Empty></Panel>
+  if (!category) return <Panel help="ontology.guidance" title="guidance" icon={<Pencil size={13} />}><Empty>pick a category to read or edit its guidance</Empty></Panel>
   const g = category.guidance
   const dirty = text !== current
   const save = async () => {
@@ -145,7 +145,7 @@ function GuidanceEditor({ category, disabled }: { category: OntologyCategory | n
     await write<OntologyGuidance>(what, 'ontology.guidance.set', p)
   }
   return (
-    <Panel title={<>guidance · {category.name}</>} icon={<Pencil size={13} />}>
+    <Panel help="ontology.guidance" title={<>guidance · {category.name}</>} icon={<Pencil size={13} />}>
       <div className="flex flex-col gap-2 p-3">
         <div className="num text-[11px] text-ink-faint">{category.id} · {g && g.text !== '' ? `v${g.version} · ${g.digest} · by ${g.added_by}` : 'none yet'}</div>
         <textarea value={text} onChange={(e) => setText(e.target.value)} rows={8} disabled={disabled} aria-label={`guidance of ${category.id}`}
@@ -181,7 +181,7 @@ function AddTopic({ rows, disabled, parentDefault }: { rows: OntologyCategory[];
     if (out) { setName(''); setDescription('') }
   }
   return (
-    <Panel title="add a topic" icon={<Plus size={13} />}>
+    <Panel help="ontology.topicadd" title="add a topic" icon={<Plus size={13} />}>
       <form className="flex flex-col gap-2 p-3" onSubmit={(e) => { e.preventDefault(); if (name.trim()) void add() }}>
         <input value={name} onChange={(e) => setName(e.target.value)} placeholder="name" aria-label="topic name" disabled={disabled} className={field} />
         <input value={description} onChange={(e) => setDescription(e.target.value)} placeholder="description (optional)" aria-label="topic description" disabled={disabled} className={field} />

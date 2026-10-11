@@ -84,7 +84,7 @@ export default function Policy() {
 
       <div className="grid grid-cols-1 gap-3 2xl:grid-cols-[1fr_420px]">
         <div className="flex min-w-0 flex-col gap-3">
-          {error && <Panel bodyClassName="p-3"><div className="text-[12.5px] text-fault">policy.explain failed: {String((error as Error).message ?? error)}</div></Panel>}
+          {error && <Panel help={false} bodyClassName="p-3"><div className="text-[12.5px] text-fault">policy.explain failed: {String((error as Error).message ?? error)}</div></Panel>}
           {!data && !error && <Empty>reading the gate…</Empty>}
           {data && !places.length && <Empty>the daemon explains no place</Empty>}
           {places.map((p) => (
@@ -94,7 +94,7 @@ export default function Policy() {
           {data && <div className="num px-1 text-[11px] text-ink-faint">each tool’s result is for a call inside {data.roots.length ? data.roots.join(', ') : 'the workspace roots'} that no condition matches{isFetching ? ' · reading…' : ''}</div>}
         </div>
         <div className="flex min-w-0 flex-col gap-3">
-          <Panel title={<>Tightenings · “Make actions like this ask in the future” · {(h?.tightenings ?? []).length}</>} icon={<Lock size={13} />} bodyClassName="p-2.5">
+          <Panel help="policy.tightenings" title={<>Tightenings · “Make actions like this ask in the future” · {(h?.tightenings ?? []).length}</>} icon={<Lock size={13} />} bodyClassName="p-2.5">
             <Tightenings tight={h?.tightenings ?? []} title={title} now={now} log={log} disabled={asOf !== null}
               onOpen={(sid, cid) => nav(`/session/${sid}${cid ? `?call=${cid}` : ''}`)} />
           </Panel>

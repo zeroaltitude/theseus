@@ -37,7 +37,7 @@ export function Budgets({ rows, past }: { rows: LedgerEntry[]; /** the time mach
   const waiting = useMemo(() => questionsWaiting(tree), [tree])
 
   return (
-    <Panel title={<>Budgets · limits, spend, burn, and the questions waiting</>} icon={<Landmark size={13} />} bodyClassName="p-3"
+    <Panel help="money.budgets" title={<>Budgets · limits, spend, burn, and the questions waiting</>} icon={<Landmark size={13} />} bodyClassName="p-3"
       actions={past !== null ? <Pill tone="wait" title="the daemon's budgets as they are now, not as they stood at the moment">shows the present · its acts are off</Pill> : null}>
       {!data ? <Empty>reading the budgets…</Empty> : (
         <div className="flex flex-col gap-3">
@@ -197,7 +197,7 @@ export function BudgetQuestions({ past }: { past: number | null }) {
   const asks = useMemo(() => new Map((cl?.confirms ?? []).map((c) => [c.correlation_id, c])), [cl])
   if (!waiting.length) return null
   return (
-    <Panel title={waiting.length === 1 ? 'A budget question waits for you · its session holds at its limit until you answer'
+    <Panel help="money.questions" title={waiting.length === 1 ? 'A budget question waits for you · its session holds at its limit until you answer'
       : `${waiting.length} budget questions wait for you · their sessions hold at their limits until you answer`}
       icon={<AlertTriangle size={13} className="text-wait" />} className="ring-1 ring-wait/40" bodyClassName="p-3"
       actions={past !== null ? <Pill tone="wait" title="the questions waiting now, not as they stood at the moment">shows the present · its acts are off</Pill> : null}>

@@ -6,6 +6,7 @@ import { Link, useNavigate } from 'react-router'
 import {
   Baby, Bot, Cpu, FileText, KeyRound, Network, Radio, Rocket, Server, Settings2, ShieldCheck, Tags,
 } from 'lucide-react'
+import { CARD_BODY } from '@/lib/cardfit'
 import type { CatalogList, Health, ProfileList } from '@protocol'
 import { call, useRpc } from '@/lib/rpc'
 import { useTick } from '@/lib/hooks'
@@ -34,14 +35,14 @@ export default function Systems() {
   const { rows } = useHistoryRows()
   const discordRows = useMemo(() => rows.filter((r) => r.kind.startsWith('discord.')).slice(-12).reverse(), [rows])
   const approvalRows = useMemo(() => rows.filter((r) => r.kind.startsWith('approval.')).slice(-8).reverse(), [rows])
-  if (!h) return <Panel title="Systems" bodyClassName="h-64"><Empty>reading health…</Empty></Panel>
+  if (!h) return <Panel help={false} title="Systems" bodyClassName="h-64"><Empty>reading health…</Empty></Panel>
   const k = h.kernel
   const st = (k.startup ?? {}) as Record<string, any>
   return (
     <div className="columns-1 gap-3 lg:columns-2 2xl:columns-3 [&>*]:mb-3 [&>*]:break-inside-avoid">
       <BinaryFault binary={h.binary} />
 
-      <Card title="Daemon" icon={<Server size={13} />}>
+      <Card help="systems.daemon" title="Daemon" icon={<Server size={13} />}>
         <Field label="name · version" mono>{h.name} {h.version} · protocol {h.protocol}</Field>
         <Field label="up" mono>{uptime(h.uptime_secs + (now - dataUpdatedAt) / 1000)}</Field>
         <Field label="sessions · turns" mono>{h.sessions} · {h.turns}</Field>
@@ -71,7 +72,7 @@ export default function Systems() {
 
       {(h.aws?.accounts.length ?? 0) > 0 && <HandsGrid now={now} />}
 
-      <Card title="Kernel" icon={<Cpu size={13} />}>
+      <Card help="systems.kernel" title="Kernel" icon={<Cpu size={13} />}>
         <Field label="accepting">{k.accepting ? <Pill tone="ok">accepting</Pill> : <Pill tone="wait">held</Pill>}</Field>
         <Field label="admission ceiling · turns held" mono>{k.admission_ceiling} · {k.turns_held}</Field>
         <Field label="executions">{Object.entries(k.executions_by_state).map(([s, n]) => <Pill key={s} tone={stateTone(s)} className="ml-1">{s} {n}</Pill>)}</Field>
@@ -89,13 +90,13 @@ export default function Systems() {
         )}
       </Card>
 
-      <Card title="Last start" icon={<Rocket size={13} />} bodyClassName="h-[230px] p-2">
+      <Card help="systems.laststart" title="Last start" icon={<Rocket size={13} />} bodyClassName="h-[230px] p-2">
         <Startup phases={h.startup ?? []} />
       </Card>
 
       <PhasesCard phases={h.startup ?? []} />
 
-      <Card title="Config" icon={<Settings2 size={13} />}>
+      <Card help="systems.config" title="Config" icon={<Settings2 size={13} />}>
         <Field label="source">{h.config?.source ?? '—'}</Field>
         <Field label="reference" mono>{h.config?.reference ?? '—'}</Field>
         <Field label="state">{h.config ? <StatePill state={h.config.state} /> : '—'}</Field>
@@ -107,7 +108,7 @@ export default function Systems() {
         {h.config?.restarted && <div className="mt-1 text-[11.5px] text-wait">Restarted onto the vault&rsquo;s note, which had changed since the copy.</div>}
       </Card>
 
-      <Card title="Secrets · names only" icon={<KeyRound size={13} />}>
+      <Card help="systems.secrets" title="Secrets · names only" icon={<KeyRound size={13} />}>
         <Field label="state">{h.secrets ? <StatePill state={h.secrets.state} /> : '—'}</Field>
         <Field label="method · rounds" mono>{h.secrets?.method ?? '—'} · {h.secrets?.rounds ?? 0}</Field>
         {h.secrets?.settled_ms !== undefined && h.secrets?.settled_ms !== null && <Field label="settled" mono>{ms(h.secrets.settled_ms)} after start</Field>}
@@ -120,7 +121,7 @@ export default function Systems() {
         {h.secrets?.retry_in_ms != null && (h.secrets?.failed.length ?? 0) > 0 && <div className="mt-1 text-[11px] text-ink-faint">fetched again in {Math.ceil(h.secrets.retry_in_ms / 1000)} s</div>}
       </Card>
 
-      <Card title="Children" icon={<Baby size={13} />}>
+      <Card help="systems.children" title="Children" icon={<Baby size={13} />}>
         {h.children ? <>
           <Field label="subreaper">{h.children.subreaper ? <Pill tone="ok">yes</Pill> : <Pill tone="wait">no</Pill>}</Field>
           <Field label="wrappers running · lingering" mono>{h.children.wrappers_running} · {h.children.wrappers_lingering}</Field>
@@ -130,7 +131,7 @@ export default function Systems() {
         </> : <Empty>not reported</Empty>}
       </Card>
 
-      <Card title="Broker grants" icon={<ShieldCheck size={13} />}>
+      <Card help="systems.broker" title="Broker grants" icon={<ShieldCheck size={13} />}>
         {h.broker?.length ? (
           <table className="w-full text-[12px]">
             <tbody>
@@ -149,7 +150,7 @@ export default function Systems() {
       </Card>
 
       {(h.bindings ?? []).map((b) => (
-        <Card key={b.kind} title={`${b.kind} binding`} icon={<Radio size={13} />}>
+        <Card help="systems.binding" key={b.kind} title={`${b.kind} binding`} icon={<Radio size={13} />}>
           <Field label="state"><StatePill state={b.state} /></Field>
           {b.detail && <Field label="detail">{b.detail}</Field>}
           {b.bot_user && <Field label="bot · guilds" mono>{b.bot_user} · {b.guilds?.length ? b.guilds.map((g) => `${g.name ?? g.id}${g.trusted ? ' (trusted)' : ''}`).join(', ') : (b.guild_id ?? '—')}</Field>}
@@ -190,7 +191,7 @@ export default function Systems() {
         </Card>
       ))}
 
-      <Card title="Approval" icon={<ShieldCheck size={13} />}>
+      <Card help="systems.approval" title="Approval" icon={<ShieldCheck size={13} />}>
         <div className="text-[12px] text-ink-dim">An answer counts only from a private place (the CLI, the web UI, a DM with the owner, or a channel bound <span className="num">private = true</span>), by the owner; a shared place&rsquo;s cards go to the owner&rsquo;s DM.</div>
         <div className="panel-title mb-0.5 mt-2">recent approval rows</div>
         <RecentRows rows={approvalRows} empty="no approval rows yet" toneOf={(r) => r.kind === 'approval.refused' ? 'wait' : 'idle'} />
@@ -202,7 +203,7 @@ export default function Systems() {
         )}
       </Card>
 
-      <Card title="Context files" icon={<FileText size={13} />}>
+      <Card help="systems.contextfiles" title="Context files" icon={<FileText size={13} />}>
         {h.context && (h.context.system_files.length > 0 || h.context.persona || h.context.personas.length > 0) && (
           <div className="mb-1 text-[12px] text-ink-dim" title="the config's context files: the system level, which every session gets, then the persona in play's; until Jev chooses one, the persona is [context] default_persona">
             <span className="num text-ink">{h.context.system_files.length}</span> at the system level ·{' '}
@@ -218,7 +219,7 @@ export default function Systems() {
         {!h.context?.system_files.length && !h.context?.persona_files.length && <div className="text-[12px] text-ink-faint">no context files configured</div>}
       </Card>
 
-      <Card title="Profiles" icon={<Bot size={13} />}>
+      <Card help="systems.profiles" title="Profiles" icon={<Bot size={13} />}>
         {(pl?.profiles ?? []).map((p) => (
           <div key={p.name} className="group flex items-center gap-2 border-b border-line/50 py-1 text-[12px]">
             <span className="num w-20 text-ink">{p.name}</span>
@@ -231,7 +232,7 @@ export default function Systems() {
         {pl && <div className="num mt-1 text-[11px] text-ink-faint">live from {pl.live_source}</div>}
       </Card>
 
-      <Card title={`Catalog · ${cat?.version ?? '…'}`} icon={<Tags size={13} />}>
+      <Card help="systems.catalog" title={`Catalog · ${cat?.version ?? '…'}`} icon={<Tags size={13} />}>
         <table className="w-full whitespace-nowrap text-[11.5px]">
           <thead className="text-[10px] uppercase tracking-wider text-ink-faint">
             <tr><th className="py-1 text-left">model</th><th className="pl-2 text-left">provider</th><th className="pl-2 text-right">window</th><th className="pl-2 text-right">max out</th><th className="pl-2 text-right">in</th><th className="pl-2 text-right">out</th><th className="pl-2 text-right" title="cache read / write (5 min) / write (1 hour)">cache r/w/1h</th><th className="pl-2 text-left">thinking</th></tr>
@@ -286,7 +287,7 @@ function WebAccess({ web }: { web: Health['web'] }) {
   const refused = (web?.refused_host ?? 0) + (web?.refused_origin ?? 0) + (web?.refused_peer ?? 0)
   const count = (n: number | undefined) => <span className={n ? 'text-wait' : 'text-ink-dim'}>{n ?? 0}</span>
   return (
-    <Card title="Web UI · access" icon={<Network size={13} />}>
+    <Card help="systems.web" title="Web UI · access" icon={<Network size={13} />}>
       {web ? <>
         <Field label="another address (Host)" mono>{count(web.refused_host)}</Field>
         <Field label="another page (Origin)" mono>{count(web.refused_origin)}</Field>
@@ -317,6 +318,6 @@ function WebAccess({ web }: { web: Health['web'] }) {
   )
 }
 
-function Card({ title, icon, children, bodyClassName }: { title: string; icon: ReactNode; children: ReactNode; bodyClassName?: string }) {
-  return <Panel title={title} icon={icon} bodyClassName={bodyClassName ?? 'px-3.5 py-2.5'}>{children}</Panel>
+function Card({ title, icon, help, children, bodyClassName }: { title: string; icon: ReactNode; help: string; children: ReactNode; bodyClassName?: string }) {
+  return <Panel title={title} icon={icon} help={help} bodyClassName={bodyClassName ?? CARD_BODY}>{children}</Panel>
 }

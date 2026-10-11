@@ -66,7 +66,7 @@ function DraftDeck() {
           <div className="text-[11.5px] text-ink-faint">Nothing is opened yet: your first message opens the session, and its deck takes over.</div>
         </div>
       </div>
-      <Panel title="draft" className="min-h-0 flex-1" bodyClassName="flex min-h-0 flex-col justify-end">
+      <Panel help="deck.draft" title="draft" className="min-h-0 flex-1" bodyClassName="flex min-h-0 flex-col justify-end">
         <Composer sessionId="" busy={false} draft={{ label, onOpened: (sid) => nav(`/session/${sid}`, { replace: true }) }} />
       </Panel>
     </div>
@@ -147,7 +147,7 @@ function SessionDeck({ id }: { id: string }) {
   const s = hist?.session
   const exec = el?.executions.find((e) => e.execution_id === s?.execution_id) ?? el?.executions.find((e) => e.session_id === id)
 
-  if (!s || !hist || !nodes) return <Panel title="session" bodyClassName="h-64"><Empty>{isLoading ? 'reading the session…' : `no session ${short(id)}`}</Empty></Panel>
+  if (!s || !hist || !nodes) return <Panel help={false} title="session" bodyClassName="h-64"><Empty>{isLoading ? 'reading the session…' : `no session ${short(id)}`}</Empty></Panel>
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-3">
@@ -155,7 +155,7 @@ function SessionDeck({ id }: { id: string }) {
       {asOf !== null && <div className="num px-1 text-[11.5px] text-wait">as of {clock(asOf)}: the transcript and the rows beside it stop here; the header and the composer are the session now</div>}
       <Group orientation="horizontal" className="min-h-0 flex-1">
         <RPanel defaultSize="58" minSize={420} className="min-h-0">
-          <Panel title={<>transcript · {nodes.length}{asOf !== null && nodes.length !== hist.nodes.length ? ` of ${hist.nodes.length}` : ''} nodes</>} icon={<ScrollText size={13} />} className="h-full"
+          <Panel help="deck.transcript" title={<>transcript · {nodes.length}{asOf !== null && nodes.length !== hist.nodes.length ? ` of ${hist.nodes.length}` : ''} nodes</>} icon={<ScrollText size={13} />} className="h-full"
             bodyClassName="min-h-0"
             actions={live ? <span className="flex items-center gap-1.5 text-[11px] text-live"><LiveDot size={5} /> {live.text ? 'streaming' : live.thinking ? 'thinking' : 'turn running'}</span> : null}>
             <div className="flex h-full min-h-0 flex-col">
