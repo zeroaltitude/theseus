@@ -58,6 +58,10 @@ Key modules: `lib.rs` (the `method`, `notify`, `error_code` tables), `events.rs`
   name becomes a `LedgerKind` on the commit that first writes it (the reader rule), and every such row's data
   carries `what`, `why`, `numbers` and `undo`. `SelfState` is also health's `self_improve` (health's `self` line);
   `BinaryStatus` moved to `health.rs` to make room in lib.rs.
+- `why.rs` (theseus-ighf): `theseus why`'s and Discord `/why`'s words, pure: `why_lines` (all of it) and `why_short`
+  (each section's top items and a count of the rest, cut to a budget) from a `ContextExplainResult`, the turn's
+  `route.decided` row, `ToolCalled`s (`tools_called` over `node.list`) and `policy.explain`. A shared place's class
+  hides a private or imported source's words (`hide_sources`). No wire type; its goldens are `tests/why/`.
 - `ts.rs`: the TypeScript export.
 
 ## Invariants

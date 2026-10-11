@@ -53,6 +53,7 @@ pub mod term;
 #[cfg(test)]
 mod ts;
 pub mod voice;
+pub mod why;
 pub mod work;
 
 pub use actions::{ActionInfo, ActionListParams, ActionListResult};
