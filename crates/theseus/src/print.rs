@@ -44,6 +44,8 @@ pub struct Printer<O: Write = Stdout, E: Write = Stderr> {
     err: E,
     stdout_mid_line: bool,
     thinking_open: bool,
+    /// The calls in flight, so a `←` line can name its call (theseus-d1hi).
+    flight: render::Flight,
 }
 
 impl Printer {
@@ -75,6 +77,7 @@ impl<O: Write, E: Write> Printer<O, E> {
             err,
             stdout_mid_line: false,
             thinking_open: false,
+            flight: render::Flight::default(),
         }
     }
 
@@ -108,7 +111,7 @@ impl<O: Write, E: Write> Printer<O, E> {
         let Some(show) = self.show else {
             return;
         };
-        for line in render::event(e, show) {
+        for line in self.flight.event(e, show) {
             self.print(&line);
         }
     }

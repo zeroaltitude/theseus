@@ -78,3 +78,10 @@ pub(super) fn check_dollars(k: &super::KernelSection) -> anyhow::Result<()> {
     }
     Ok(())
 }
+
+/// `[tools] parallel_runs` (theseus-d1hi): the most programs one group of a
+/// response's calls runs at once, each its own job; the rest wait for a slot
+/// in the same group, so the results keep their order. 0 reads as 1.
+pub fn default_parallel_runs() -> usize {
+    8
+}

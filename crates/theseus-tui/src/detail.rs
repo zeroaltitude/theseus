@@ -42,6 +42,8 @@ pub struct Detail {
     /// goes above (theseus-v6yc). `None`: its place was dropped past `KEPT`,
     /// so it goes at the end.
     places: Vec<(String, Option<usize>)>,
+    /// The calls in flight, so a `←` line can name its call (theseus-d1hi).
+    flight: render::Flight,
 }
 
 impl Detail {
@@ -161,7 +163,7 @@ impl Detail {
             return;
         }
         let question = matches!(e, Event::ConfirmRequested(_));
-        for l in render::event(e, SHOW) {
+        for l in self.flight.event(e, SHOW) {
             match l.tag {
                 Tag::Reply => self.stream(&l.text),
                 // A question's answers are the CLI's commands; the card says

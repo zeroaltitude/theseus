@@ -31,7 +31,7 @@ pub use aws::{
     AwsCredentialNames, HandsNetwork,
 };
 pub use judge::{JudgeConfig, JudgePackConfig, PackMode, SignalsConfig};
-pub use limits::{MaxLoopsMode, SpendLimitMode};
+pub use limits::{default_parallel_runs, MaxLoopsMode, SpendLimitMode};
 // Where the config comes from when nothing names one (theseus-5aqz).
 pub use lookup::{find_config, Lookup, DEFAULT_CONFIG, NO_CONFIG, SYSTEM_CONFIG};
 pub use lsp::{LspConfig, LspServerConfig};
@@ -287,6 +287,8 @@ pub struct ToolsConfig {
     /// How long a turn waits for `proc.run` before the job continues in the background.
     #[serde(default = "default_proc_sync_secs")]
     pub proc_sync_secs: u64,
+    #[serde(default = "default_parallel_runs")]
+    pub parallel_runs: usize,
     #[serde(default = "default_proc_timeout_secs")]
     pub proc_timeout_secs: u64,
     #[serde(default = "default_proc_timeout_max_secs")]
@@ -294,9 +296,8 @@ pub struct ToolsConfig {
     /// Environment variables `proc.run` passes through from the daemon (nothing else).
     #[serde(default = "default_proc_env")]
     pub proc_env: Vec<String>,
-    /// The most a job's raw output file keeps (theseus-102). Past it the job
-    /// runs on, what it prints is counted and dropped, and its result says
-    /// so. The runtime reads only the file's last 4 MiB.
+    /// The most a job's raw output file keeps (theseus-102). Past it the job runs on, what it prints is counted
+    /// and dropped, and its result says so. The runtime reads only the file's last 4 MiB.
     #[serde(default = "default_job_output_max_bytes")]
     pub job_output_max_bytes: u64,
     /// Each L0 job's cgroup's `pids.max` (theseus-a5nv), where the daemon's
@@ -426,6 +427,7 @@ impl Default for ToolsConfig {
             transcribe_max_minutes: default_transcribe_max_minutes(),
             max_entries: default_max_entries(),
             proc_sync_secs: default_proc_sync_secs(),
+            parallel_runs: default_parallel_runs(),
             proc_timeout_secs: default_proc_timeout_secs(),
             proc_timeout_max_secs: default_proc_timeout_max_secs(),
             proc_env: default_proc_env(),

@@ -7,9 +7,10 @@ use std::time::Instant;
 
 use anyhow::Result;
 use serde_json::json;
-use theseus_tools::ToolClass;
 
-use super::{Admitted, Batch, Call, CallOutcome, Gated, Ran, ResultNode, ToolRuntime, TurnCtx};
+use super::{
+    parallel, Admitted, Batch, Call, CallOutcome, Gated, Ran, ResultNode, ToolRuntime, TurnCtx,
+};
 use crate::fact;
 use crate::node::ResultStatus;
 use crate::provider::ToolUse;
@@ -26,10 +27,13 @@ impl ToolRuntime {
     /// - The first call whose posture is approve ends the gating: it asks
     ///   after every call before it has finished, and the calls after it wait,
     ///   ungated, for the continuation.
-    /// - The rest run in groups: consecutive `Read` calls at once, as futures
-    ///   in the caller's task, and each `Write` or `Run` call alone. So a
-    ///   write or a program starts after every call before it has finished,
-    ///   and the calls after it start after it finishes.
+    /// - The rest run in groups, each group's calls at once, as futures in
+    ///   the caller's task (theseus-d1hi, `parallel`'s rule): consecutive
+    ///   reads; consecutive writes to different paths; consecutive programs
+    ///   that share no terminal, MCP server, or file name, at most
+    ///   `[tools] parallel_runs` at a time. A class change ends a group, so a
+    ///   program after a write starts once the write has finished, and a read
+    ///   after a program reads its effect.
     ///
     /// Every kernel call stays in the caller's task, one at a time: the
     /// kernel rewrites an execution's record from what it read.
@@ -83,15 +87,15 @@ impl ToolRuntime {
         }
         let mut group = Vec::new();
         let mut next = ran.len();
+        let mut open = parallel::Open::default();
         for (i, tool, g) in runnable {
-            if g.plan.class.unwrap_or(tool.class()) == ToolClass::Read {
-                group.push((i, tool, g));
-                continue;
-            }
-            for run in [std::mem::take(&mut group), vec![(i, tool, g)]] {
+            let touch = parallel::Touch::of(tool.as_ref(), &calls[i].call.input, &g.plan);
+            if !open.admit(&touch) {
+                let run = std::mem::take(&mut group);
                 self.run_group(tc, assistant_node, calls, run, &mut next, &mut ran)
                     .await?;
             }
+            group.push((i, tool, g));
         }
         self.run_group(tc, assistant_node, calls, group, &mut next, &mut ran)
             .await?;

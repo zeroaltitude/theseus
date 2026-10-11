@@ -28,6 +28,12 @@ pub const MODEL: &str = "claude-sonnet-5-5";
 /// for its tool; without it, the model answers in plain text.
 pub const TOOL_MARK: &str = "bench-tool";
 
+/// What a mixed stand-in looks for to ask for [`BATCH_CALLS`] programs in one
+/// response (theseus-d1hi): `proc.run` of `sleep` [`BATCH_SLEEP_SECS`] each.
+pub const BATCH_MARK: &str = "bench-batch";
+pub const BATCH_CALLS: usize = 4;
+pub const BATCH_SLEEP_SECS: u64 = 2;
+
 /// What the stand-in answers a call that carries no tool result.
 #[derive(Clone)]
 enum Script {
@@ -142,7 +148,8 @@ fn answer(mut stream: TcpStream, script: &Script) -> Result<()> {
         (Script::Job(_), true) => text_turn("Started; it runs in the background."),
         (Script::Mixed(_), true) => text_turn("The tool ran."),
         (Script::Job(argv), false) => tool_turn(argv),
-        (Script::Mixed(argv), false) if asks_for_tool(&req) => tool_turn(argv),
+        (Script::Mixed(_), false) if asks_for(&req, BATCH_MARK) => batch_turn(),
+        (Script::Mixed(argv), false) if asks_for(&req, TOOL_MARK) => tool_turn(argv),
         (Script::Mixed(_), false) => text_turn("A plain answer from the stand-in model."),
         (Script::Rules(_), true) => text_turn("Done."),
         (Script::Rules(rules), false) => {
@@ -177,12 +184,23 @@ pub fn carries_tool_result(req: &Value) -> bool {
         .is_some_and(|c| c.iter().any(|b| b["type"] == "tool_result"))
 }
 
-/// Whether the request's last message, the turn's input, holds [`TOOL_MARK`].
-pub fn asks_for_tool(req: &Value) -> bool {
+/// Whether the request's last message, the turn's input, holds `mark`
+/// ([`TOOL_MARK`] or [`BATCH_MARK`]).
+pub fn asks_for(req: &Value, mark: &str) -> bool {
     req["messages"]
         .as_array()
         .and_then(|m| m.last())
-        .is_some_and(|m| m["content"].to_string().contains(TOOL_MARK))
+        .is_some_and(|m| m["content"].to_string().contains(mark))
+}
+
+/// [`BATCH_CALLS`] `proc.run`s of `sleep` in one response: the turn bench's
+/// batch (theseus-d1hi).
+fn batch_turn() -> Vec<Value> {
+    let sleep = Call {
+        name: "proc_run".into(),
+        input: json!({"argv": ["sleep", BATCH_SLEEP_SECS.to_string()], "timeout_secs": 60}),
+    };
+    calls_turn(&vec![sleep; BATCH_CALLS])
 }
 
 /// The text of the request's last user message: a string, or its text
@@ -302,9 +320,10 @@ mod tests {
         let marked = json!({"messages": [
             {"role": "user", "content": [{"type": "text", "text": "do it, bench-tool please"}]},
         ]});
-        assert!(!asks_for_tool(&plain));
-        assert!(asks_for_tool(&marked));
-        assert!(!asks_for_tool(&json!({})), "no messages is no ask");
+        assert!(!asks_for(&plain, TOOL_MARK));
+        assert!(asks_for(&marked, TOOL_MARK));
+        assert!(!asks_for(&marked, BATCH_MARK));
+        assert!(!asks_for(&json!({}), TOOL_MARK), "no messages is no ask");
     }
 
     /// The scripted stand-in (37b): the first rule the last user text holds

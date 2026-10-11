@@ -36,7 +36,12 @@ Key modules: `lifecycle.rs`, `kernel_sim.rs`, `fake_discord.rs`, `discord_proof.
     the daemon's WAL by `src/walcount.rs` (a read-only tail; the daemon reports no frame count, and the core is not
     changed for a bench). A frame is one `fdatasync`, so frames are §9's per-turn overhead in a unit that does not
     depend on the disk. `--check` fails a plain turn that writes more than `perf::PLAIN_TURN_FRAMES` (5; the floor is
-    2). Beside them: this disk's `fdatasync`, probed before the daemon starts and after it stops (the quieter is used,
+    2). A third kind, `batch` (theseus-d1hi), is one response of four `proc.run`s of `sleep 2` (the stand-in's
+    `bench-batch` mark), three runs: `--check` holds its frames to `perf::BATCH_TURN_FRAMES` (15: the tool turn's 9 and
+    two for each call past the first) and its wall time at the p50 to `perf::batch_wall_budget`: one sleep, the
+    tool-call turn's own p50 (measured beside it, so the load is in both), and `BATCH_OVER_ONE_CALL_MS` (300), which
+    four programs run one at a time miss by six seconds. Its daemon answers jobs in their turn for 10 s
+    (`proc_sync_secs`; the lifecycle bench's 1 s would put the sleeps in the background). Beside them: this disk's `fdatasync`, probed before the daemon starts and after it stops (the quieter is used,
     so the harness's own share of a turn reads off as an upper bound), and the daemon's resident memory after the start
     and after a burst. Each run also gets a line (`src/perf/runs.rs`, theseus-w7dk): its wall, the daemon's time, its
     frames, and the slowest frame the store answered since its input arrived, with that frame's time and records (the

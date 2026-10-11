@@ -414,3 +414,50 @@ fn an_l1_results_head_says_where_it_ran() {
     assert!(lines.contains("It did not run, in L1 or at L0"), "{lines}");
     assert_eq!(crate::sandbox::result_lines(&json!({"exit_code": 0})), "");
 }
+
+/// Four L1 calls of one response run as one group (theseus-d1hi): each is its
+/// own job, with its own correlation id and its own view, started and listed
+/// once, and each result says three ran beside it.
+#[tokio::test]
+async fn four_l1_calls_of_one_response_are_four_jobs_each_with_its_view() {
+    let four: Vec<(String, &str, Value)> = (1..=4)
+        .map(|i| {
+            let input = json!({"argv": ["true", i.to_string()], "sandbox": true});
+            (format!("l{i}"), "proc_run", input)
+        })
+        .collect();
+    let calls: Vec<(&str, &str, Value)> = four
+        .iter()
+        .map(|(id, n, i)| (id.as_str(), *n, i.clone()))
+        .collect();
+    let r = Rig::new(
+        vec![Scripted::tools("", &calls), Scripted::text("Done.")],
+        |_, _| {},
+    );
+    let res = r.turn(None, "four in L1").await;
+    assert_eq!(res.tool_calls, 4, "{res:?}");
+    assert_eq!(r.launched(), ["l1"; 4]);
+    let kept = r.kept.0.lock().unwrap().clone();
+    let mut ids: Vec<&str> = kept.iter().map(|a| a.correlation_id.as_str()).collect();
+    ids.sort_unstable();
+    ids.dedup();
+    assert_eq!(ids.len(), 4, "one job each: {ids:?}");
+    for a in &kept {
+        let view = a.sandbox.as_ref().unwrap();
+        assert_eq!(view.workspace, std::slice::from_ref(&r.root));
+    }
+    let started = r.rows("sandbox.started");
+    assert_eq!(started.len(), 4, "{started:?}");
+    let mut jobs: Vec<String> = r
+        .rows("tool.job_started")
+        .iter()
+        .map(|j| j["correlation_id"].as_str().unwrap_or_default().to_string())
+        .collect();
+    jobs.sort_unstable();
+    jobs.dedup();
+    assert_eq!(jobs.len(), 4, "each job listed once: {jobs:?}");
+    for (status, text) in r.results(&res.session_id) {
+        assert_eq!(status, ResultStatus::Ok, "{text}");
+        assert!(text.contains("[ran at once with 3 other calls"), "{text}");
+    }
+}
