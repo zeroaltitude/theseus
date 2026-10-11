@@ -1,6 +1,6 @@
 # Theseus: status and roadmap
 
-_Updated 2026-10-10 23:14 MST. Version 0.0.1; the design document is at v0.86._
+_Updated 2026-10-11 00:18 MST. Version 0.0.1; the design document is at v0.87._
 
 **The picture:** [the development timeline](assets/timeline/theseus-timeline.png), from conception to now and what is ahead ([SVG](assets/timeline/theseus-timeline.svg)).
 
@@ -405,6 +405,11 @@ pass did not re-estimate v1.1's date.
 
 ## Recently landed
 
+- **2026-10-11:** recall's words in time (Item 246, theseus-y9a3): the index tender answers queries at the daemon's
+  priority while its own work stays lowered, so beside a busy machine a recall's word search answers in milliseconds,
+  not past the 250 ms deadline (6 of October 10's 13 live recalls had nothing); a query embeds on one thread, steadier
+  under load; health's recall line counts what the answers held (vectors, the words alone, or nothing). On the next
+  install's list.
 - **2026-10-10:** `memory.lookup` over the CLI (Item 245, theseus-8c8s): it reads one session's messages
   (`session`, paged, veiled as the rest), lists a span's own sessions beside the imported episodes, says when to use
   it instead of `theseus index search`, `history` or `sessions` through `proc_run`, and a `proc_run` of the daemon's
