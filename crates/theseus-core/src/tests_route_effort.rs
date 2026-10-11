@@ -329,3 +329,91 @@ async fn a_detour_runs_at_jevs_effort() {
         ("claude-haiku-5-5", Some("medium"))
     );
 }
+
+/// `xhigh` and `max` apply only above `[routing] high_effort_confidence`
+/// (theseus-p8dy): `max` at 0.65 runs `high` with `held_high` and the answer
+/// kept in the row, at 0.9 it runs `max`; `[routing] effort_bounds` clamp after
+/// the gate, and the gate's reason stands where both lower the answer.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn max_runs_only_on_high_confidence_and_is_held_at_high_otherwise() {
+    let jev = FakeJev::start().unwrap();
+    mode(&jev, "chat", 0.95);
+    effort(&jev, "max", 0.65);
+    let r = rig(Some(&jev), 3, |_| {});
+    let one = turn(&r.core, None, "Prove the log's recovery is correct.", None).await;
+    effort(&jev, "max", 0.9);
+    let two = turn(&r.core, Some(&one.session_id), "And the index?", None).await;
+    effort(&jev, "xhigh", 0.70);
+    turn(&r.core, Some(&one.session_id), "And the cache?", None).await;
+    let reqs = r.claude.requests();
+    assert_eq!(
+        reqs.iter().map(sent).collect::<Vec<_>>(),
+        [
+            Some("high".to_string()),
+            Some("max".to_string()),
+            Some("high".to_string())
+        ]
+    );
+    let d = decided(&r.core.store);
+    assert_eq!(
+        row(&d[0]),
+        (json!("max"), json!("held_high"), json!(true), json!("high"))
+    );
+    assert_eq!(d[0]["effort_confidence"], 0.65);
+    assert_eq!(
+        row(&d[1]),
+        (json!("max"), json!("applied"), json!(true), json!("max"))
+    );
+    assert_eq!(
+        row(&d[2]),
+        (
+            json!("xhigh"),
+            json!("held_high"),
+            json!(true),
+            json!("high")
+        ),
+        "at the bar, not above it"
+    );
+    let ro = one.route.unwrap();
+    assert_eq!(
+        (
+            ro.effort.as_deref(),
+            ro.effort_reason.as_deref(),
+            ro.effort_applied.as_deref()
+        ),
+        (Some("max"), Some("held_high"), Some("high"))
+    );
+    assert_eq!(two.route.unwrap().effort_applied.as_deref(), Some("max"));
+}
+
+/// The bounds clamp after the gate; where both lower an answer, the gate's
+/// reason is the row's.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_gate_runs_before_the_bounds_and_its_reason_stands() {
+    let jev = FakeJev::start().unwrap();
+    mode(&jev, "chat", 0.95);
+    effort(&jev, "max", 0.65);
+    let bounds = |c: &mut crate::Config| {
+        c.routing.effort_bounds = [crate::config::Effort::Low, crate::config::Effort::Medium];
+    };
+    let r = rig(Some(&jev), 2, bounds);
+    let one = turn(&r.core, None, "Prove the log's recovery is correct.", None).await;
+    effort(&jev, "max", 0.9);
+    turn(&r.core, Some(&one.session_id), "And the index?", None).await;
+    let d = decided(&r.core.store);
+    assert_eq!(
+        row(&d[0]),
+        (
+            json!("max"),
+            json!("held_high"),
+            json!(true),
+            json!("medium")
+        ),
+        "both lower it: the gate's reason"
+    );
+    assert_eq!(
+        row(&d[1]),
+        (json!("max"), json!("clamped"), json!(true), json!("medium")),
+        "only the bounds lower it"
+    );
+}

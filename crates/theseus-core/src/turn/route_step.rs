@@ -392,8 +392,16 @@ impl TurnRunner {
             takes: self.catalog.get(model).is_some_and(|e| e.effort),
         };
         let carried = v.turn != t.tc.turn_id;
-        let bounds = self.cfg.routing.effort_bounds;
-        Some(effort::decide(bounds, answer, runs, acts, carried))
+        let r = &self.cfg.routing;
+        let bounds = r.effort_bounds;
+        Some(effort::decide(
+            bounds,
+            r.high_effort_confidence,
+            answer,
+            runs,
+            acts,
+            carried,
+        ))
     }
 
     /// The first loop's compile, the wait for the verdict beside it, and the

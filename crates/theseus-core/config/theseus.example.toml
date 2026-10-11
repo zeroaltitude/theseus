@@ -993,7 +993,9 @@ margin = 0.02                           # at the minimum sample, precision and r
 # max), and the turn's model runs at it when its catalog row takes effort, over the
 # profile's own effort unless the profile sets effort_fixed = true, and clamped to
 # effort_bounds. Below the answer's confirm bar, when Jev finds it unclear, on a pinned
-# turn, in shadow, and for a late verdict, the profile's own effort stands.
+# turn, in shadow, and for a late verdict, the profile's own effort stands. An answer of
+# xhigh or max applies only when its confidence is above high_effort_confidence; at or
+# below, the turn runs at high (the row says held_high), before the bounds clamp it.
 [routing]
 enabled = true                          # acts only while [judge] is on
 mode = "live"                           # "shadow" records each verdict and routes nothing
@@ -1002,6 +1004,7 @@ trivial_context_turns = 2               # the exchanges a detour (trivial, quick
 cold_switch_tokens = 30000              # at this much context, a switch waits for a second agreeing message
 switch_confidence = 0.6                 # a verdict routes only at this confidence or more
 effort_bounds = ["low", "max"]          # the lowest and highest effort Jev's answer may set
+high_effort_confidence = 0.70           # an xhigh or max answer applies only above this confidence; else the turn runs high
 # Each mode's profiles, in order: the first usable wins. Empty: the session's own. A
 # mode's switch_confidence is its own bar; unset, it is the one above, except trivial's,
 # 0.4: a wrong trivial call is cheap, since its detour carries a few exchanges for one turn.

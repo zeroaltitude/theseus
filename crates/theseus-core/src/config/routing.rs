@@ -48,6 +48,11 @@ pub struct RoutingConfig {
     /// nearer one. The full range by default.
     #[serde(default = "effort_bounds")]
     pub effort_bounds: [Effort; 2],
+    /// Jev's answer of `xhigh` or `max` applies only when its confidence is
+    /// strictly above this (theseus-p8dy, the owner's "only on high evidence,
+    /// ci > 0.70"); at or below, the turn runs at `high`.
+    #[serde(default = "high_effort_confidence")]
+    pub high_effort_confidence: f64,
     /// Each mode's profiles, in order: the first usable wins.
     #[serde(default)]
     pub modes: RoutingModes,
@@ -181,6 +186,9 @@ fn max_entries() -> u32 {
 fn effort_bounds() -> [Effort; 2] {
     [Effort::Low, Effort::Max]
 }
+fn high_effort_confidence() -> f64 {
+    0.70
+}
 fn list(names: &[&str]) -> ModeProfiles {
     ModeProfiles {
         profiles: names.iter().map(|s| (*s).to_string()).collect(),
@@ -252,6 +260,7 @@ impl Default for RoutingConfig {
             cold_switch_tokens: cold_switch_tokens(),
             switch_confidence: switch_confidence(),
             effort_bounds: effort_bounds(),
+            high_effort_confidence: high_effort_confidence(),
             modes: RoutingModes::default(),
             corrections: CorrectionsConfig::default(),
         }
@@ -284,6 +293,10 @@ impl RoutingConfig {
             anyhow::bail!(
                 "routing.effort_bounds is [lowest, highest]: its first is above its second"
             );
+        }
+        let h = self.high_effort_confidence;
+        if !(h > 0.0 && h <= 1.0) {
+            anyhow::bail!("routing.high_effort_confidence must be above 0 and at most 1");
         }
         if self.max_wait_ms > 5_000 {
             anyhow::bail!(
@@ -347,6 +360,7 @@ pub(crate) fn the_templates_routing_section(cfg: &crate::Config) {
     );
     assert_eq!(r.switch_confidence, 0.6);
     assert_eq!(r.effort_bounds, effort_bounds(), "the full range");
+    assert_eq!(r.high_effort_confidence, 0.70);
     for m in MODES {
         assert_eq!(r.modes.of(m), RoutingModes::default().of(m), "{m}");
     }
@@ -428,6 +442,8 @@ mod tests {
         for bad in [
             "switch_confidence = 0.0",
             "switch_confidence = 1.5",
+            "high_effort_confidence = 0.0",
+            "high_effort_confidence = 1.1",
             "max_wait_ms = 9000",
             "[corrections]\nsimilarity = 0.0",
             "[corrections]\nsimilarity = 1.2",
@@ -528,6 +544,20 @@ mod tests {
             cfg("effort_bounds = [\"low\", \"huge\"]").is_err(),
             "levels only"
         );
+    }
+
+    /// `high_effort_confidence` (theseus-p8dy): 0.70 by default, above 0 and
+    /// at most 1.
+    #[test]
+    fn xhigh_and_max_need_confidence_above_a_bar_that_defaults_to_seven_tenths() {
+        assert_eq!(cfg("").unwrap().high_effort_confidence, 0.70);
+        let c = cfg("high_effort_confidence = 0.85").unwrap();
+        assert_eq!(c.high_effort_confidence, 0.85);
+        c.validate(|_| false).unwrap();
+        cfg("high_effort_confidence = 1.0")
+            .unwrap()
+            .validate(|_| false)
+            .unwrap();
     }
 
     #[test]
