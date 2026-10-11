@@ -93,7 +93,9 @@ impl Core {
             .filter(|(_, s)| *s == "live")
             .map(|(r, _)| *r)
             .collect();
-        let tally = self.standing_tally(&live).map_err(RpcFailure::invalid)?;
+        // A scan of the sessions' compilations: off the async worker.
+        let tally =
+            theseus_store::blocking(|| self.standing_tally(&live)).map_err(RpcFailure::invalid)?;
         let records = shown
             .into_iter()
             .map(|(r, state)| {
@@ -284,9 +286,11 @@ impl Core {
                     return Err(RpcFailure::invalid(anyhow!("no session {s}")));
                 }
             }
-            theseus_protocol::StandingScope::Place(pl) if pl.trim().is_empty() => {
+            theseus_protocol::StandingScope::Place(pl) if !pl.starts_with("discord:") => {
                 return Err(RpcFailure::invalid(anyhow!(
-                    "a place scope names its place"
+                    "a place scope names a bound place's target (`discord:dm:<user id>` or \
+                     `discord:channel:<id>`, as `theseus places` lists them); the CLI and the web \
+                     UI have none: use everywhere, or a session"
                 )));
             }
             _ => {}

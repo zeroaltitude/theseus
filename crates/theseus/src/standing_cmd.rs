@@ -31,8 +31,8 @@ pub enum StandingCmd {
         /// `order` (default), `preference`, or `fact`.
         #[arg(long, default_value = "order")]
         kind: String,
-        /// `everywhere` (default), `place:TARGET` (a place's target, as `theseus places` names it),
-        /// or `session:ID`.
+        /// `everywhere` (default), `place:TARGET` (a bound place's target, `discord:dm:<user id>` or
+        /// `discord:channel:<id>`, as `theseus places` lists it), or `session:ID`.
         #[arg(long, default_value = "everywhere")]
         scope: String,
         /// It lapses by itself after this long: `30m`, `12h`, `7d`, `2w`.

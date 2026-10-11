@@ -631,3 +631,35 @@ async fn the_records_rebuilt_after_a_restart_equal_the_ones_kept_in_memory() {
     assert_eq!(*fresh.all(&r.core.store).unwrap(), *held);
     assert_eq!(held.len(), 3, "two records and one revoke");
 }
+
+/// A place scope names a bound place's target: the CLI and the web UI have
+/// none, so a scope of `cli` is refused with why rather than holding nowhere.
+#[tokio::test]
+async fn a_place_scope_names_a_bound_places_target() {
+    let r = rig();
+    for place in ["cli", "web", ""] {
+        let e = r
+            .core
+            .standing_add(
+                &StandingAddParams {
+                    text: NO_PUSH.into(),
+                    scope: StandingScope::Place(place.into()),
+                    ..Default::default()
+                },
+                "the CLI",
+            )
+            .unwrap_err();
+        assert!(
+            e.message.contains("discord:dm:<user id>"),
+            "{place}: {}",
+            e.message
+        );
+    }
+    assert!(r
+        .core
+        .runner
+        .standing
+        .all(&r.core.store)
+        .unwrap()
+        .is_empty());
+}
