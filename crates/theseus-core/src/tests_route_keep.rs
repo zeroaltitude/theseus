@@ -29,12 +29,13 @@ use crate::provider::Scripted;
 use crate::tests_route::{mode, rig, turn};
 
 /// The window the turn's models get, and their output cap: a request budget of
-/// 34,904 tokens.
-const WINDOW: u64 = 40_000;
+/// 35,904 tokens (40,000 and 34,500 before the job tools joined the request's
+/// tools, theseus-n8gk, whose first compile then rang).
+const WINDOW: u64 = 41_000;
 const OUTPUT: u32 = 1_000;
 
 /// The input the first answer is billed at, past the request budget.
-const BILLED: u64 = 34_500;
+const BILLED: u64 = 35_500;
 
 /// The tiers of what a compilation's budget report dropped.
 fn tiers(c: &Compilation) -> Vec<String> {

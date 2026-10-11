@@ -39,6 +39,10 @@ struct RunArgs {
     /// call's class; here its egress hosts are checked (18c).
     #[serde(default)]
     sandbox: Option<Sandbox>,
+    /// Answer at once with the job's handle, and leave it running
+    /// (theseus-n8gk): one program, not a batch.
+    #[serde(default)]
+    background: bool,
 }
 
 /// One step of a batch: its own program, and its own directory and timeout,
@@ -71,6 +75,10 @@ impl RunArgs {
         }
         match (&self.argv, &self.steps, &self.command) {
             (None, None, None) => Err(format!("name a program: {ONE_OF}")),
+            (_, Some(_), _) if self.background => Err(
+                "background runs one program (argv or command); a batch's steps run in turn and are waited for"
+                    .into(),
+            ),
             (Some(argv), _, _) => named(argv)
                 .then_some(())
                 .ok_or_else(|| "argv must name a program".into()),
@@ -136,7 +144,7 @@ impl Tool for Run {
         "proc.run"
     }
     fn description(&self) -> &'static str {
-        "Run a program: builds, tests, linters, git commands the git tools do not cover. `argv` runs one program with no shell; `command` runs a line in bash. Returns combined stdout and stderr with the exit code and the directory it ran in. The proc_run calls of one response run at once, each its own job, except that one naming a file an earlier one names waits for it; programs that must run in order go in one call as `steps`. Prefer the fs, text, and git tools when they can do the job. Long runs continue in the background and report back later."
+        "Run a program: builds, tests, linters, git commands the git tools do not cover. `argv` runs one program with no shell; `command` runs a line in bash. Returns combined stdout and stderr with the exit code and the directory it ran in. The proc_run calls of one response run at once, each its own job, except that one naming a file an earlier one names waits for it; programs that must run in order go in one call as `steps`. Prefer the fs, text, and git tools when they can do the job. A run past its time limit goes on as a background job that job_read, job_wait and job_stop take, and its result arrives by itself when it ends; `background` starts one so at once."
     }
     fn input_schema(&self) -> Value {
         json!({
@@ -147,6 +155,7 @@ impl Tool for Run {
                 "steps": {"type": "array", "minItems": 1, "maxItems": MAX_STEPS, "items": {"type": "object", "properties": {"argv": {"type": "array", "items": {"type": "string"}, "minItems": 1}, "cwd": {"type": "string"}, "timeout_secs": {"type": "integer", "minimum": 1}}, "required": ["argv"], "additionalProperties": false}, "description": "Programs run in order, in place of argv or command, each with its own argv and optional cwd and timeout_secs (the call's are the default; env and sandbox apply to every step). The run stops at the first step that exits non-zero, and one result gives each step's exit code, output tail, and time, and names the steps not run."},
                 "cwd": {"type": "string", "description": "Working directory. Default: the working directory."},
                 "timeout_secs": {"type": "integer", "minimum": 1, "description": "Kill the program after this many seconds."},
+                "background": {"type": "boolean", "description": "Answer at once with the job's id and leave it running (a server, a long build): job_read shows its latest output, job_wait waits for its end, job_stop stops it. Not with steps."},
                 "env": {"type": "object", "additionalProperties": {"type": "string"}, "description": "Extra environment variables (no secrets; token/key names are refused)."},
                 "sandbox": {"anyOf": [{"type": "boolean"}, {"type": "object", "properties": {"egress": {"type": "array", "items": {"type": "string"}}}}], "description": "Run it in the sandbox (L1): no network, an empty HOME, and its writes discarded afterwards. For untrusted code, builds, and tests. {\"egress\": [\"host:port\"]} lets it reach those hosts through the proxy HTTPS_PROXY names, once approved if the operator has not listed them; what it brings back is outside text."}
             },
@@ -418,5 +427,32 @@ mod tests {
         assert!(plan(json!({"egress": ["https://pypi.org/"]})).is_err());
         assert!(plan(json!({"hosts": ["a.test:443"]})).is_err());
         assert!(plan(json!("yes")).is_err());
+    }
+
+    /// `background: true` (theseus-n8gk) starts one program as a job and
+    /// plans as the same run; a batch's steps are waited for, so a batch
+    /// with it is invalid input.
+    #[test]
+    fn background_takes_one_program_and_never_a_batch() {
+        let d = tempfile::tempdir().unwrap();
+        let c = ToolCtx::for_tests(d.path());
+        let p = Run
+            .plan(&json!({"argv": ["sleep", "20"], "background": true}), &c)
+            .unwrap();
+        assert_eq!(p.argv.unwrap(), vec!["sleep", "20"]);
+        let j = Run
+            .job(&json!({"argv": ["sleep", "20"], "background": true}), &c)
+            .unwrap();
+        assert_eq!(j.argv, vec!["sleep", "20"]);
+        let bad = Run
+            .plan(
+                &json!({"steps": [{"argv": ["ls"]}], "background": true}),
+                &c,
+            )
+            .unwrap_err();
+        assert!(bad.starts_with("background runs one program"), "{bad}");
+        assert!(Run
+            .plan(&json!({"argv": ["ls"], "background": "yes"}), &c)
+            .is_err());
     }
 }
