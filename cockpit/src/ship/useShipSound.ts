@@ -15,6 +15,7 @@ import { client, useRpc } from '@/lib/rpc'
 import { ShipAudio } from './audio'
 import { tpmOf } from './sea.ts'
 import { cueHere, cueOf, cueOfRow, newEar, type Cue } from './sound'
+import { gullCall, gullRng, startGulls } from './gull.ts'
 import { surfHeight } from './surf.ts'
 
 export interface ShipSound {
@@ -101,6 +102,14 @@ function useSurf(on: boolean) {
   }, [hearing])
   const height = surfHeight({ on, calm, swell, tpm, turns: h?.kernel.executions_by_state.running ?? 0 })
   useEffect(() => { theAudio().surf(height) }, [height])
+  // The gull (theseus-7mow): now and then, where the sea is heard; each visit is its own call, never on a beat.
+  useEffect(() => {
+    if (!hearing) return
+    const a = theAudio()
+    const next = gullRng((Date.now() ^ (Math.random() * 0x7fffffff)) >>> 0)
+    const stop = startGulls(true, next, { after: (f, ms) => setTimeout(f, ms), cancel: (h) => clearTimeout(h as number) }, () => { a.gull(gullCall(next)) })
+    return () => { stop(); a.gullStop() }
+  }, [hearing])
   // Dev and bench builds: what the sea plays now, for a live check.
   useEffect(() => {
     if (import.meta.env.DEV || import.meta.env.MODE === 'bench') window.__shipSurf = () => theAudio().surfing
