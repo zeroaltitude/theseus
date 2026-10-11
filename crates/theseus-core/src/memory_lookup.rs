@@ -185,7 +185,7 @@ impl Tool for MemoryLookup {
         LOOKUP
     }
     fn description(&self) -> &'static str {
-        "Search and read your memory: every past conversation in this harness and the operator's imported history (the index and the session store, read in-process). Use it for any question about what was said, done or worked on before (\"what were we doing in March?\", \"when did we fix the parser?\"), instead of running the theseus CLI (theseus index search, theseus history, theseus sessions) through proc_run. By words (ranked like recall), by time (when: \"March 2026\"; from and to), by book or topic; a time alone lists that span's sessions with their summaries; session reads one session's messages in order. Items give date, session id, source and sensitivity; personal and partner-confidential text is veiled. Pages with cursor. Read-only: several calls in one response run at once."
+        "Search and read your memory of past conversations and the operator's imported history, in-process. Use it for anything said, done or worked on before, instead of the theseus CLI (theseus index search, theseus history, theseus sessions) through proc_run. By words, time (when: \"March 2026\"; from, to), book or topic; a time alone lists its sessions; session reads one session's messages. Personal and partner-confidential text is veiled. Page with cursor. Read-only: several calls in one response run at once."
     }
     fn input_schema(&self) -> Value {
         json!({

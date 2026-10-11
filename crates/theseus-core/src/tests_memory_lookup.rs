@@ -685,8 +685,8 @@ fn the_description_and_schema_say_when_and_how() {
     let t = crate::memory_lookup::MemoryLookup;
     let d = t.description();
     for words in [
-        "what was said, done or worked on before",
-        "instead of running the theseus CLI",
+        "said, done or worked on before",
+        "instead of the theseus CLI",
         "theseus index search",
         "\"March 2026\"",
         "session reads one session's messages",
