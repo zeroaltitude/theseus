@@ -635,6 +635,17 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     two queries go on one connection, the words' first (`tender/pair.rs`, `IndexTender::query_two`), which closes
     once no one waits (the deadline passed, or the turn dropped its `Begun`, which aborts its task), so the tender
     stops embedding. Tests: `tests_recall_deadline.rs` (a stand-in socket that counts connections).
+  - **`memory.lookup`, the model's own read of memory** (theseus-w9qv; `memory_lookup.rs`, `memory_lookup/read.rs`):
+    words through recall's pipeline, a span or a book or a topic through the import catalog, and since theseus-8c8s
+    `session` (one session's messages in order, paged, tool calls and outside text left out and counted; with words, a
+    search of that session alone) and a span's listing of the harness's own sessions before the imported episodes.
+    Read, Async, SafeToRepeat; private places only, checked by the gate and again by the tool; personal and
+    partner-confidential text veiled. Its description names the CLI commands it replaces and when to use it: the
+    owner's DM once answered a question about a past month with four `proc_run`s of `theseus index search` while
+    this tool was offered (the context held the CLI from before the tool existed). A `proc_run` of the daemon's own
+    CLI for what it answers ends with a `[native: memory_lookup {…} …]` line, after the cap (`native.rs`,
+    `ResultNode.hint`); the CLI still runs, since running it may be the work. Tests: `tests_memory_lookup.rs`,
+    `native::tests`.
   - **In front of the model** (step 30b, theseus-6fn.2): `[memory] mode = "canary"` (a sticky share,
     `canary_fraction`, by a hash of session and `experiment`: `MemoryConfig::assign`, recorded once as a `memory.arm`
     row; the control runs `none` live with `baseline` in shadow) or `"live"`. The read finishes before the first

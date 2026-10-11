@@ -440,3 +440,329 @@ async fn words_only_hits_are_an_answer() {
     assert!(got.contains("recall's items for \"parser\""), "{got}");
     assert!(got.contains(SHOWN) && !got.contains(&ids[4]), "{got}");
 }
+
+/// An episode of three messages in March 2026: the operator's, an agent's
+/// reply, and a message of outside text between them, `sensitivity`'s.
+fn conversation(n: usize, sensitivity: &str, says: &str) -> Value {
+    let at = |d: u32| format!("2026-03-{d:02}T18:00:00Z");
+    let msg = |idx: u32, author: &str, integrity: &str, text: String| {
+        json!({"idx": idx, "time": at(10 + idx), "author": author, "integrity": integrity,
+               "text": text, "unit": format!("u-{n}-{idx}"), "sha256": "ab".repeat(32)})
+    };
+    let mut v = json!({
+        "format": 1, "import_tag": "kelp-2026", "episode_id": format!("ep_{:064x}", 0xc0de + n),
+        "source": "claude-cli", "agent": "main",
+        "place": {"kind": "cli", "name": format!("desk-{n}")},
+        "as_of": {"start": at(10), "end": at(12)},
+        "labels": {"sensitivity": sensitivity, "topic": ["kelp/notes"], "book_hint": "casebook"},
+        "summary": {"text": format!("Episode {n}: {says}, in three messages."), "cites": [0], "model": "claude-opus-5-5"},
+        "messages": [
+            msg(0, "wren", "operator", format!("First: what about {says}?")),
+            msg(1, "a-page", "outside", "OUTSIDE TEXT pasted from a page".into()),
+            msg(2, "main", "agent", format!("Last: {says} is done.")),
+        ],
+    });
+    v["hash"] = json!(episode::hash_of(&v));
+    v
+}
+
+/// `session` reads one session's messages, oldest first, with its summary
+/// on the first page; outside text and tool calls are left out and counted;
+/// a cursor pages; a veiled session shows its dates and authors, never its
+/// text; an unknown id says so.
+#[tokio::test]
+async fn a_session_reads_its_messages_in_order_veiled_as_the_rest() {
+    let r = rig_scripted(|_| {}, script);
+    let ids = import(
+        &r.core,
+        &[
+            conversation(0, "public", SHOWN),
+            conversation(1, "personal", HIDDEN),
+        ],
+    );
+    let cli = session(&r.core, None);
+    let got = call(&r.core, &cli, json!({"session": ids[0]}))
+        .await
+        .unwrap();
+    assert!(got.contains(&format!("session {}", ids[0])), "{got}");
+    assert!(got.contains("2 messages, oldest first"), "{got}");
+    assert!(
+        got.contains(&format!("Its summary: Episode 0: {SHOWN}")),
+        "{got}"
+    );
+    let (first, last) = (
+        got.find(&format!("First: what about {SHOWN}")).expect(&got),
+        got.find(&format!("Last: {SHOWN} is done")).expect(&got),
+    );
+    assert!(first < last, "oldest first: {got}");
+    assert!(
+        got.contains("· wren\n") && got.contains("· main\n"),
+        "{got}"
+    );
+    assert!(!got.contains("OUTSIDE TEXT"), "{got}");
+    assert!(
+        got.contains("Left out: 1 message of outside text."),
+        "{got}"
+    );
+    assert!(got.contains("Shown 1–2 of 2; that is all."), "{got}");
+    // A page of one, then the next by its cursor; no summary past the first.
+    let page = call(&r.core, &cli, json!({"session": ids[0], "limit": 1}))
+        .await
+        .unwrap();
+    assert!(
+        page.contains("More: call again with this session and cursor 1."),
+        "{page}"
+    );
+    let next = call(
+        &r.core,
+        &cli,
+        json!({"session": ids[0], "limit": 1, "cursor": 1}),
+    )
+    .await
+    .unwrap();
+    assert!(
+        next.contains("Last: ") && !next.contains("First: "),
+        "{next}"
+    );
+    assert!(!next.contains("Its summary"), "{next}");
+    // Veiled: the labels and authors show, the text and summary never do.
+    let got = call(&r.core, &cli, json!({"session": ids[1]}))
+        .await
+        .unwrap();
+    assert!(!got.contains(HIDDEN), "{got}");
+    assert!(
+        got.contains("· personal") && got.contains("Its summary is veiled."),
+        "{got}"
+    );
+    assert_eq!(
+        got.matches("veiled: its text stays veiled").count(),
+        2,
+        "{got}"
+    );
+    // Within a span: the 12th alone holds the last message.
+    let got = call(
+        &r.core,
+        &cli,
+        json!({"session": ids[0], "when": "2026-03-12"}),
+    )
+    .await
+    .unwrap();
+    assert!(
+        got.contains("1 message in 2026-03-12") && got.contains("Last: "),
+        "{got}"
+    );
+    let e = call(&r.core, &cli, json!({"session": "ses_nothing_here"}))
+        .await
+        .unwrap_err();
+    assert!(e.contains("no session is named ses_nothing_here"), "{e}");
+    let e = call(
+        &r.core,
+        &cli,
+        json!({"session": ids[0], "book": "casebook"}),
+    )
+    .await
+    .unwrap_err();
+    assert!(e.contains("leave out book and topic"), "{e}");
+    // A shared place's session gets nothing of it.
+    let shared = session(&r.core, Some(&format!("channel:{LAB}")));
+    let e = call(&r.core, &shared, json!({"session": ids[0]}))
+        .await
+        .unwrap_err();
+    assert!(e.contains("this place is shared"), "{e}");
+}
+
+/// The harness's own session reads too: its operator's message and the
+/// model's reply, its tool calls left out and counted.
+#[tokio::test]
+async fn the_harness_own_session_reads_without_its_tool_calls() {
+    let r = rig_scripted(|_| {}, script);
+    import(&r.core, &episodes());
+    let cli = session(&r.core, None);
+    turn(&r.core, &cli, r#"LOOKUP {"when": "March 2026"}"#).await;
+    let other = session(&r.core, None);
+    let got = call(&r.core, &other, json!({"session": cli}))
+        .await
+        .unwrap();
+    assert!(got.contains(r#"LOOKUP {"when": "March 2026"}"#), "{got}");
+    assert!(got.contains("Done."), "{got}");
+    assert!(got.contains("this harness"), "{got}");
+    assert!(got.contains("Left out: 2 tool calls and results."), "{got}");
+    // The lookup's own result, a tool result, is not read back.
+    assert!(!got.contains(SHOWN), "{got}");
+}
+
+/// A span with no words lists this harness's own sessions in it, before
+/// the imported episodes, and counts both; a span before them lists none.
+#[tokio::test]
+async fn a_span_lists_the_harness_own_sessions_first() {
+    let r = rig_scripted(|_| {}, script);
+    let ids = import(&r.core, &episodes());
+    let cli = session(&r.core, None);
+    turn(&r.core, &cli, "hello there, kelp").await;
+    let quiet = session(&r.core, None);
+    let got = call(
+        &r.core,
+        &quiet,
+        json!({"when": "since March 2026", "limit": 25}),
+    )
+    .await
+    .unwrap();
+    assert!(
+        got.contains("1 session of this harness and 5 imported episodes"),
+        "{got}"
+    );
+    let own = got.find(&cli).expect(&got);
+    assert!(
+        own < got.find(&ids[4]).expect(&got),
+        "the harness's own first: {got}"
+    );
+    // A session with no turn is not listed.
+    assert!(!got.contains(&quiet), "{got}");
+    assert!(got.contains("Shown 1–6 of 6; that is all."), "{got}");
+    // Paged across the two: the second page starts at the first episode.
+    let got = call(
+        &r.core,
+        &quiet,
+        json!({"when": "since March 2026", "limit": 1, "cursor": 1}),
+    )
+    .await
+    .unwrap();
+    assert!(got.contains(&ids[4]) && !got.contains(&cli), "{got}");
+    assert!(
+        got.contains("Shown 2–2 of 6. More: call again with cursor 2."),
+        "{got}"
+    );
+    let got = call(&r.core, &quiet, json!({"when": "March 2026"}))
+        .await
+        .unwrap();
+    assert!(
+        !got.contains(&cli) && got.contains("4 imported episodes"),
+        "{got}"
+    );
+    // A book keeps to the catalog.
+    let got = call(&r.core, &quiet, json!({"book": "casebook", "limit": 25}))
+        .await
+        .unwrap();
+    assert!(!got.contains(&cli), "{got}");
+}
+
+/// Words and a session search that session alone.
+#[tokio::test]
+async fn words_and_a_session_search_that_session_alone() {
+    let r = rig_scripted(|_| {}, script);
+    let ids = import(&r.core, &episodes());
+    // The stand-in keeps to the sessions it is asked, as the index does.
+    let all = index_over(&r.core, ids.clone());
+    r.core.runner.memory.set_ask(Arc::new(
+        move |p: theseus_protocol::index::IndexQueryParams| -> AskFuture {
+            let keep = p.filters.sessions.clone();
+            let asked = all(p);
+            Box::pin(async move {
+                let mut r = asked.await?;
+                r.hits
+                    .retain(|h| keep.is_empty() || keep.contains(&h.session_id));
+                Ok(r)
+            })
+        },
+    ));
+    let cli = session(&r.core, None);
+    let got = call(&r.core, &cli, json!({"words": "parser", "session": ids[3]}))
+        .await
+        .unwrap();
+    assert!(got.contains(&format!("in session {}", ids[3])), "{got}");
+    assert!(got.contains(&ids[3]), "{got}");
+    for other in [&ids[1], &ids[4]] {
+        assert!(!got.contains(other.as_str()), "{got}");
+    }
+}
+
+/// The tool says, where the model reads it, when to use it and that it
+/// beats the CLI through proc_run; every field says what it takes, with an
+/// example.
+#[test]
+fn the_description_and_schema_say_when_and_how() {
+    use theseus_tools::Tool;
+    let t = crate::memory_lookup::MemoryLookup;
+    let d = t.description();
+    for words in [
+        "what was said, done or worked on before",
+        "instead of running the theseus CLI",
+        "theseus index search",
+        "\"March 2026\"",
+        "session reads one session's messages",
+        "several calls in one response run at once",
+    ] {
+        assert!(d.contains(words), "{words}: {d}");
+    }
+    let schema = t.input_schema();
+    let props = schema["properties"].as_object().unwrap();
+    assert!(props.contains_key("session"), "{schema}");
+    for (name, p) in props {
+        let said = p["description"].as_str().unwrap_or_default();
+        assert!(!said.is_empty(), "{name} says nothing: {schema}");
+    }
+    assert_eq!(t.class(), theseus_tools::ToolClass::Read);
+    assert_eq!(t.backend(), theseus_tools::Backend::Async);
+}
+
+/// The model of the owner's DM is offered the lookup (a private place),
+/// and a proc_run of the daemon's own CLI ends with the line naming the
+/// native call, after the cap: the March question's first wrong turn.
+#[tokio::test]
+async fn a_proc_run_of_the_cli_in_the_owners_dm_ends_with_the_native_call() {
+    use crate::tests_places::OWNER;
+    let r = rig_scripted(
+        |c| c.tools.result_max_chars = 2_000,
+        |req: &ProviderRequest| {
+            if answers_a_call(req) {
+                return Scripted::text("Done.");
+            }
+            let last = last_user(req);
+            let argv = match last.contains("long") {
+                true => json!(["./theseus", "index", "search", "--long", "March 2026"]),
+                false => json!([
+                    "bash",
+                    "-c",
+                    "./theseus index search -k 20 --json 'March 2026' | head -5"
+                ]),
+            };
+            Scripted::tools("Searching.", &[("s1", "proc_run", json!({ "argv": argv }))])
+        },
+    );
+    let cli = r.root.join("theseus");
+    std::fs::write(
+        &cli,
+        "#!/bin/sh\nif [ \"$4\" = \"March 2026\" ]; then seq 1 3000; fi\necho \"searched: $*\"\n",
+    )
+    .unwrap();
+    let mut p = std::fs::metadata(&cli).unwrap().permissions();
+    std::os::unix::fs::PermissionsExt::set_mode(&mut p, 0o755);
+    std::fs::set_permissions(&cli, p).unwrap();
+    let dm = session(&r.core, Some(&format!("dm:{OWNER}")));
+    assert_eq!(
+        r.core.runner.class_of(&dm),
+        crate::places::PlaceClass::Private
+    );
+    turn(&r.core, &dm, "do you remember March 2026?").await;
+    assert!(offered(&r.requests()[0]).contains(&"memory_lookup".to_string()));
+    let want = r#"[native: memory_lookup {"when":"March 2026"} does this in-process"#;
+    let got = result_of(&r.core, &dm, "s1");
+    assert!(
+        got.contains("searched: index search -k 20 --json March 2026"),
+        "{got}"
+    );
+    assert!(
+        got.trim_end().lines().last().unwrap().starts_with(want),
+        "{got}"
+    );
+    // A long output is cut, and the line is still its last.
+    let long = session(&r.core, Some(&format!("dm:{OWNER}")));
+    turn(&r.core, &long, "the long one").await;
+    let got = result_of(&r.core, &long, "s1");
+    assert!(got.contains("3000\nsearched:"), "{got}");
+    assert!(got.len() < 4_000, "cut: {}", got.len());
+    assert!(
+        got.trim_end().lines().last().unwrap().starts_with(want),
+        "{got}"
+    );
+}

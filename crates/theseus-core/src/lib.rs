@@ -53,6 +53,7 @@ pub mod mcp_server;
 pub mod memory_lookup;
 pub mod memory_pass;
 pub mod narrative;
+pub mod native;
 pub mod node;
 pub mod node_cache;
 pub mod one_shot;

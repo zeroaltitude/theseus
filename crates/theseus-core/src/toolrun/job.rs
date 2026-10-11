@@ -704,6 +704,14 @@ impl ToolRuntime {
         self.job_result_of(store, a, ended, tool_use_id, tool, input)
     }
 
+    /// The line a job's result ends with when its call ran the daemon's own
+    /// CLI for what `memory.lookup` answers, and this runtime offers it
+    /// (theseus-8c8s).
+    fn native_hint(&self, input: Option<&Value>) -> Option<String> {
+        self.registry.get(crate::memory_lookup::LOOKUP)?;
+        crate::native::hint(input?, theseus_protocol::now_unix_ms())
+    }
+
     /// `job_result` from how the job `ended`: its completion and the status
     /// it settles the call as. The turn's take has them before the action
     /// does, and writes the two in one frame (7.1).
@@ -890,6 +898,7 @@ impl ToolRuntime {
             bytes_total: Some(total),
             external: egress.or_else(|| listed.as_ref().map(crate::external::Listed::marker)),
             meta,
+            hint: self.native_hint(input),
             ..ResultNode::new(tool_use_id, tool, status, raw)
         }
     }
