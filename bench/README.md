@@ -29,6 +29,8 @@ instruction, and runs the task's tests for a reward. **Every benchmark run ends 
 | `report/draft.py` | The report's drafting tool: a run's outputs (Harbor jobs, the bench history, the recall and async scorers' outputs) in; its data file, CSV, figures and skeleton out ("Every run gets its report"). |
 | `report/charts.py` | The house charts: SVG from declarative specs, in the house palette, each in a light and a dark file, every mark with its hover text. The standard library only. |
 | `report/friction.py` | T4 (tool friction per arm) and T5 (cost and calls per solve), read from the trials' ATIF trajectories; `draft.py` prints both in every report. |
+| `report/parallel.py` | The parallel-calls report's generator (theseus-2wxa): bench/async's Layer 1 and Layer 2 runs in, `docs/benchmarks/<date>-asyncbench-parallel-calls.md` with its data, CSV and figures out (bench/async/README.md, "The parallel-calls run"). |
+| `async/layer1.py` | Layer 1's drivers: one stand-in model (`theseus-sim fake-model --rules`) asks for N calls of `sleep 2` in one response, in each harness's own tool names, and the wall is timed around each CLI (bench/async/README.md, "Layer 1"). |
 | `report/stats.py` | The statistics every report uses: Wilson intervals, a seeded bootstrap, the exact McNemar test, quantiles. |
 
 ## What you need

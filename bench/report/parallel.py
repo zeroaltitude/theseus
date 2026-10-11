@@ -52,13 +52,14 @@ families = sys.modules["families"]
 
 SUITE, SLUG = "asyncbench", "parallel-calls"
 # key -> (the colour's registry key, its label). Theseus as it ships today is Theseus's colour; the arm with the
-# sentence takes the batching paragraph's slot; the harness change alone, the ablation between them, the gray.
+# sentence takes the batching paragraph's slot; the harness change alone, the ablation between them, the gray. Pi has
+# its own slot (theseus-3lqk); OpenCode has none and is drawn as `other`, its name on its marks.
 ARMS: dict[str, tuple[str, str]] = {
     "theseus-before": ("theseus", "Theseus before"),
     "theseus-d1hi": ("context", "Theseus, calls grouped (d1hi)"),
     "theseus-after": ("theseus-batching", "Theseus, grouped + the sentence"),
     "claude-code": ("claude-code", "Claude Code"),
-    "pi": ("other", "Pi"),
+    "pi": ("pi", "Pi"),
     "opencode": ("other", "OpenCode"),
     "oracle": ("oracle", "oracle"),
 }

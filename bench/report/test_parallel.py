@@ -152,6 +152,12 @@ class Report(unittest.TestCase):
         self.run_it(["--force"])
         self.assertNotEqual(md.read_text(), "the maintainer's words")
 
+    def test_pi_is_drawn_in_its_own_slot_not_the_others_gray(self):
+        """Pi has a palette slot (theseus-3lqk, bench-parity): its marks are not OpenCode's gray."""
+        self.assertEqual(parallel.ARMS["pi"][0], "pi")
+        for mode in parallel.charts.MODES:
+            self.assertNotEqual(parallel.charts.arm_color("pi", mode), parallel.charts.arm_color("other", mode))
+
     def test_an_unknown_arm_is_refused(self):
         with self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()):
             parallel.main(["--date", "2026-10-11", "--arm", f"codex={self.root}"])
