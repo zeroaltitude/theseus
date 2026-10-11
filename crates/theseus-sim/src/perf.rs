@@ -43,11 +43,13 @@ use crate::walcount::{Frame, Tail};
 
 #[cfg(test)]
 mod burst;
+mod concurrency;
 mod judge;
 mod long;
 mod runs;
 mod status;
 
+pub use concurrency::{concurrency_cmd, ConcurrencyArgs};
 use runs::Run;
 pub use status::{status_cmd, StatusArgs};
 
@@ -161,6 +163,20 @@ fn scratch_with(
     dir: Option<&Path>,
     edit: impl FnOnce(&mut toml::Table) -> Result<()>,
 ) -> Result<Scratch> {
+    // A tool call that finishes at once: `true`, started through the product's
+    // own path for a job.
+    let model = FakeModel::start_mixed(vec!["true".to_string()])?;
+    scratch_on(theseusd, dir, model, edit)
+}
+
+/// [`scratch_with`], on a stand-in of the bench's own (`bench concurrency`'s
+/// held calls).
+fn scratch_on(
+    theseusd: &Path,
+    dir: Option<&Path>,
+    model: FakeModel,
+    edit: impl FnOnce(&mut toml::Table) -> Result<()>,
+) -> Result<Scratch> {
     let (tmp, work) = match dir {
         Some(d) => {
             std::fs::create_dir_all(d)?;
@@ -177,9 +193,6 @@ fn scratch_with(
         std::fs::create_dir_all(d)?;
     }
     let sock = work.join("sock");
-    // A tool call that finishes at once: `true`, started through the product's
-    // own path for a job.
-    let model = FakeModel::start_mixed(vec!["true".to_string()])?;
     let config = work.join("config.toml");
     let mut t: toml::Table = quiet_config(&model.base(), &state, &sock, &projects)?.parse()?;
     edit(&mut t)?;

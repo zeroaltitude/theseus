@@ -295,6 +295,9 @@ enum BenchCmd {
     /// What a job's start costs, by class (M4 17b): `/bin/true` through the
     /// real job wrapper, at L0 and in L1; an L1 start's p95 against 25 ms.
     Jobs(jobs::JobsArgs),
+    /// Admission under a burst (theseus-4g0l): M task turns at once, then a
+    /// person's turn 0.5 s later, on a stand-in that holds each call 2 s.
+    Concurrency(perf::ConcurrencyArgs),
     /// The lifecycle bench's history: each phase's last runs, with the
     /// headroom left under its limit.
     History {
@@ -439,6 +442,9 @@ fn main() -> Result<()> {
         Cmd::Bench {
             bench: BenchCmd::Jobs(args),
         } => jobs::jobs_cmd(args),
+        Cmd::Bench {
+            bench: BenchCmd::Concurrency(args),
+        } => perf::concurrency_cmd(args),
         Cmd::Bench {
             bench: BenchCmd::History { last, file },
         } => {

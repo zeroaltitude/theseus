@@ -78,6 +78,12 @@ Key modules: `lifecycle.rs`, `kernel_sim.rs`, `fake_discord.rs`, `discord_proof.
     `--check` holds p90 to 5 ms: meant for a release-thin build on the owner's machine (a debug build on a 4-core VM
     reads p90 about 6 ms at 1,000 sessions, 4.9 at 10, where the process's own start is about 3.7). Outside lifecycle's
     gated phases; `--record` writes the `status_short` column.
+  - `bench concurrency` (`src/perf/concurrency.rs`, theseus-4g0l): M task turns (`--turns 8,16,32,80`) submitted 5 ms
+    apart, then a person's turn 0.5 s after the first, on a stand-in that holds each call `--hold-ms` (2000): total
+    wall, each turn's wall and admission (its `admission.wait` span), inversions inside the tasks' class (admitted and
+    ended), the person's rank by admission and by end, failures, and the daemon's peak RSS and CPU. `--stuck-secs`
+    sets `[kernel] admission_stuck_secs` below the queue's length. `--check` fails an admission inversion, a person's
+    turn admitted behind more than the turns admitted before it arrived, or any failure. No history column.
   - `bench history` (`src/history.rs`): each phase's recent runs and headroom, from the CSV every gate appends. The
     other benches' columns (`history::OTHER`) are in the same file, each with its unit.
   - `synth-store` (`src/synth.rs`): a store of parked sessions, for `bench lifecycle --sessions N`.
