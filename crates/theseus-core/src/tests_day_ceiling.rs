@@ -187,7 +187,7 @@ async fn a_turn_at_the_ceiling_makes_no_call_and_ends_with_the_words() {
     assert!(
         words.starts_with("today's spend reached the $0.01 daily ceiling")
             && words.contains(
-                "the owner can raise `[kernel] daily_spend_ceiling_usd` or wait until midnight"
+                "a higher `[kernel] daily_spend_ceiling_usd` applies at the daemon's next start"
             ),
         "{words}"
     );

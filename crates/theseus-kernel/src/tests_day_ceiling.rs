@@ -3,7 +3,8 @@
 //! nothing written; a settle spends the real cost; a late cost is booked in
 //! full past it; a task's cost counts once; an AWS hand's never; two calls
 //! racing at the edge cannot both pass; a transaction that fails lets its
-//! hold go; and the day turns at local midnight.
+//! hold go; the day turns at local midnight; and a refusal stops the day,
+//! even for a smaller call, until then or a higher ceiling (theseus-l9on).
 
 use std::sync::{Arc, Barrier};
 
@@ -51,7 +52,9 @@ fn settle(w: &World, a: &Action, cost: Option<Micros>) {
 
 /// A reservation holds its amount on the day until it settles, and the call
 /// whose reservation would pass the ceiling is refused, with nothing
-/// written; its settle spends the real cost and frees the rest.
+/// written; after it a smaller call that would fit is refused too, since the
+/// stop is sticky (theseus-l9on); a settle spends the real cost and frees
+/// the rest.
 #[test]
 fn a_reservation_holds_the_day_and_one_past_the_ceiling_is_refused_unwritten() {
     let w = ceiling_world(1_000);
@@ -73,25 +76,31 @@ fn a_reservation_holds_the_day_and_one_past_the_ceiling_is_refused_unwritten() {
     let words = r.unwrap_err().to_string();
     assert!(
         words.starts_with("today's spend reached the $0.001 daily ceiling")
-            && words.contains("`[kernel] daily_spend_ceiling_usd`")
-            && words.contains("wait until midnight"),
+            && words
+                .contains("`[kernel] daily_spend_ceiling_usd` applies at the daemon's next start")
+            && words.contains("a refused turn or task ends, it does not wait"),
         "{words}"
     );
     // The execution's budget never saw it.
     let b = w.kernel.execution(&e.id).unwrap().unwrap().budget;
     assert_eq!(b.reserved_micros, 600);
-    // The call that fits is still made, and holds.
-    let b2 = plan(&w, &g, PROVIDER_TOOL, 400).unwrap();
-    assert_eq!(today(&w).held, 1_000);
+    // A smaller call that would fit is refused too: the day is stopped.
+    let b2 = plan(&w, &g, PROVIDER_TOOL, 400);
+    assert_eq!(refused(&b2).expect("sticky").needed, 400);
+    assert_eq!(today(&w).held, 600, "and holds nothing");
     // A settle spends the real cost and frees the rest of its hold.
     settle(&w, &a, Some(250));
-    assert_eq!((today(&w).spent, today(&w).held), (250, 400));
-    w.kernel
-        .authorize(&b2.correlation_id, &proposal(PROVIDER_TOOL), None)
-        .unwrap();
-    w.kernel.dispatch(&b2.correlation_id, None).unwrap();
-    settle(&w, &b2, Some(100));
-    assert_eq!((today(&w).spent, today(&w).held), (350, 0));
+    assert_eq!((today(&w).spent, today(&w).held), (250, 0));
+    let words = b2.unwrap_err().to_string();
+    assert!(
+        words.contains("stopped model calls at") && words.contains("not made either"),
+        "{words}"
+    );
+    assert!(
+        refused(&plan(&w, &g, PROVIDER_TOOL, 1)).is_some(),
+        "however small"
+    );
+    assert_eq!((today(&w).spent, today(&w).held), (250, 0));
     assert!(today(&w).reached(), "a call was refused today");
 }
 
@@ -284,7 +293,7 @@ fn a_background_hold_settles_or_lets_go() {
     let w = ceiling_world(1_000);
     let c: &Arc<DayCeiling> = w.kernel.day_ceiling();
     let h = c.hold_call(c.now(), 700).unwrap();
-    assert!(c.hold_call(c.now(), 301).is_err());
+    assert_eq!(today(&w).held, 700);
     drop(h);
     assert_eq!(today(&w).held, 0);
     let h = c.hold_call(c.now(), 700).unwrap();
@@ -295,7 +304,58 @@ fn a_background_hold_settles_or_lets_go() {
     c.settle_part(c.now(), "judge", 100, 30);
     assert_eq!((today(&w).spent, today(&w).held), (680, 100));
     assert!(c.fits(c.now(), 220).is_ok());
-    assert!(c.fits(c.now(), 221).is_err());
+    assert!(c.hold_call(c.now(), 221).is_err());
+    // The refusal stops the day: what fitted a moment ago is refused now.
+    assert!(c.fits(c.now(), 1).is_err());
+}
+
+/// A refusal stops the day (theseus-l9on): every later call that day is
+/// refused, a provider call's, a background hold's and a fit alike, however
+/// small; the next local day is not stopped; a higher ceiling lifts it (as a
+/// start under it does), and a refusal at the new one stops the day again;
+/// a start that reads today's stop back under the same ceiling keeps it.
+#[test]
+fn a_refusal_stops_the_day_until_midnight_or_a_higher_ceiling() {
+    let w = ceiling_world(1_000);
+    // 2026-10-08 23:00:00 at UTC+3.
+    let before = 1_791_489_600_000;
+    w.clock.set(before);
+    let (_, _, g) = running(&w);
+    let c = w.kernel.day_ceiling();
+    let a = dispatched(&w, &g, PROVIDER_TOOL, 500);
+    settle(&w, &a, Some(500));
+    assert!(refused(&plan(&w, &g, PROVIDER_TOOL, 600)).is_some());
+    let r = refused(&plan(&w, &g, PROVIDER_TOOL, 10)).expect("a smaller call is refused");
+    assert_eq!(r.since.as_deref(), Some("2026-10-08 23:00"));
+    assert!(c.hold_call(c.now(), 10).is_err());
+    assert!(c.fits(c.now(), 10).is_err());
+    assert!(today(&w).reached());
+    // The next day is not stopped.
+    w.clock.set(before + 3_600_000);
+    assert!(!today(&w).reached());
+    plan(&w, &g, PROVIDER_TOOL, 600).unwrap();
+    // A refusal today, then a higher ceiling lifts it; at the new one it stops again.
+    assert!(refused(&plan(&w, &g, PROVIDER_TOOL, 500)).is_some());
+    assert!(refused(&plan(&w, &g, PROVIDER_TOOL, 10)).is_some());
+    c.set_limit(2_000);
+    assert!(!today(&w).reached(), "a higher ceiling lifts the stop");
+    plan(&w, &g, PROVIDER_TOOL, 500).unwrap();
+    assert!(refused(&plan(&w, &g, PROVIDER_TOOL, 1_000)).is_some());
+    let r = refused(&plan(&w, &g, PROVIDER_TOOL, 10)).expect("stopped again");
+    assert!(r.since.is_some());
+    // A start that read today's stop back (its row under a ceiling no lower).
+    let w2 = ceiling_world(1_000);
+    let c2 = w2.kernel.day_ceiling();
+    c2.seed(
+        c2.now(),
+        &Seed {
+            spent: 100,
+            reached_at_ms: Some(c2.now()),
+        },
+    );
+    let (_, _, g2) = running(&w2);
+    let r = refused(&plan(&w2, &g2, PROVIDER_TOOL, 10)).expect("still stopped after a start");
+    assert!(r.since.is_some());
 }
 
 /// The reservation path's cost (theseus-kp20's FAST check), in one run: a

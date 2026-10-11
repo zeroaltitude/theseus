@@ -248,13 +248,15 @@ impl TurnRunner {
     }
 }
 
-/// The owner's post: what stopped, today's total, the ceiling, the key, and
-/// when the day turns.
+/// The owner's post: what stopped, today's total, the ceiling, when the day
+/// turns, that a refused turn or task ends (it does not wait), and that a
+/// higher ceiling applies at the next start (theseus-l9on).
 pub fn notice_text(r: &Reached, what: &str) -> String {
     format!(
         "⛔ Today's model spend reached the {} daily ceiling ({} spent): a {what}'s call was \
-         not made, and no model call will be until the day turns at {} local time. Raise \
-         `[kernel] daily_spend_ceiling_usd` to go on sooner.",
+         not made, and no model call will be, however small, until the day turns at {} local \
+         time. A refused turn or task ends; it does not wait for the day to turn. A higher \
+         `[kernel] daily_spend_ceiling_usd` applies at the daemon's next start.",
         crate::narrative::dollars(r.limit),
         crate::narrative::dollars(r.spent.saturating_add(r.held)),
         r.turns_at,
