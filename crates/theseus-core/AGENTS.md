@@ -650,6 +650,14 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     CLI for what it answers ends with a `[native: memory_lookup {…} …]` line, after the cap (`native.rs`,
     `ResultNode.hint`); the CLI still runs, since running it may be the work. Tests: `tests_memory_lookup.rs`,
     `native::tests`.
+  - **The MCP server's memory tools** (theseus-02i1h; `memory_lookup/mcp.rs`, `rpc/memory_read.rs`): `memory_search` and
+    `memory_get` are one read-only method, `memory.lookup`, in `mcp_server::ALLOWED`, served by `memory_lookup`'s own
+    `by_words` (no second pipeline), with `private_only` dropping each hit whose session `place_of` does not read as
+    private (a private asker may draw on a shared place's sessions; these tools never show one). Only `Surface::Mcp`,
+    and only while `[mcp_server] memory` is on (default off). A hit is typed (`MemoryHit`: citation = node id, WAL
+    position, session, as-of minute; origin, harness, sensitivity; veiled text is never in it). Each read is a
+    `memory.read` row (`fact::memory::MemoryRead`: principal, tool, client, a digest of the words, hits). Tests:
+    `tests_mcp_memory.rs`; the tools' golden is theseus-mcp's `tests/golden/memory_tools.json`.
   - **In front of the model** (step 30b, theseus-6fn.2): `[memory] mode = "canary"` (a sticky share,
     `canary_fraction`, by a hash of session and `experiment`: `MemoryConfig::assign`, recorded once as a `memory.arm`
     row; the control runs `none` live with `baseline` in shadow) or `"live"`. The read finishes before the first

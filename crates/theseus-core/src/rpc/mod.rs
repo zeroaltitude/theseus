@@ -30,6 +30,7 @@ mod mcp;
 mod memory;
 mod methods;
 pub(crate) use methods::ledger_tags;
+mod memory_read;
 mod ontology;
 pub(crate) mod ordered;
 mod packs;

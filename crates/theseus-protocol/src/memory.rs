@@ -574,3 +574,115 @@ pub struct SynthesisReport {
     #[serde(default)]
     pub cost_usd: f64,
 }
+
+/// `memory.lookup` (theseus-02i1h): what an MCP client asks of the owner's
+/// private memory, with no model call. `op` is `search` (`words`, with a span
+/// `since`/`until`, a `book` or a `topic`) or `get` (one node by `id` with its
+/// session's neighbours, or one `session` in order). Only the MCP server's
+/// connection calls it, and only while `[mcp_server] memory` is on.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct MemoryLookupParams {
+    /// `search` or `get`.
+    pub op: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub words: Option<String>,
+    /// A span's first and last day or month (`2026-03-01`, `March 2026`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub since: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub until: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub book: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub topic: Option<String>,
+    /// Hits a page: 8 by default, at most 25.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub limit: Option<u64>,
+    /// Where the next page begins, as the last answer's `next` said.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub cursor: Option<u64>,
+    /// `get`: a citation's node id.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub id: Option<String>,
+    /// `get` by `id`: the neighbours before and after it (2 each by
+    /// default, at most 10).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub before: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub after: Option<u64>,
+    /// `get`: one session's messages in order, paged by `cursor`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub session: Option<String>,
+    /// The MCP client's name, for the `memory.read` row.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub client: Option<String>,
+}
+
+/// A citation: where a remembered message is, to be quoted back.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct MemoryCitation {
+    pub node_id: String,
+    /// Its WAL position.
+    #[cfg_attr(test, ts(type = "number"))]
+    pub position: u64,
+    pub session_id: String,
+    /// Its as-of date and minute, in the daemon's time zone.
+    pub as_of: String,
+}
+
+/// One remembered thing, as `memory.lookup` gives it.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct MemoryHit {
+    pub citation: MemoryCitation,
+    /// `native` (this harness's own) or `imported`.
+    pub origin: String,
+    /// The harness it came from: `theseus`, or an imported episode's source.
+    pub harness: String,
+    /// An imported episode's sensitivity; none for the harness's own.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub sensitivity: Option<String>,
+    /// The text is veiled (`personal`, `partner-confidential`, or labels
+    /// that could not be read): `text` says so and holds nothing of it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub veiled: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub book: Option<String>,
+    pub text: String,
+    /// `get` by `id`: this is the node asked for.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub target: bool,
+}
+
+/// `memory.lookup`'s answer: a page of hits and where the next begins.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct MemoryLookupResult {
+    pub hits: Vec<MemoryHit>,
+    #[cfg_attr(test, ts(type = "number"))]
+    pub total: u64,
+    /// The cursor of the next page; none on the last.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional, type = "number"))]
+    pub next: Option<u64>,
+    /// What the page leaves out, said (tool calls, outside text).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub left_out: Option<String>,
+}

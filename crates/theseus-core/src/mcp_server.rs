@@ -50,10 +50,11 @@ pub const FLOOR_CEILING: &str = "posture_floor";
 /// The setting a floored call's notice names.
 pub const SETTING: &str = "[mcp_server] posture_floor";
 
-/// The methods an MCP connection may call: the five tools' needs, all reads
-/// but `session.open` and `turn.submit`. Every other is refused, approvals
+/// The methods an MCP connection may call: the seven tools' needs, all reads
+/// but `session.open` and `turn.submit` (`memory.lookup` answers only while
+/// `[mcp_server] memory` is on). Every other is refused, approvals
 /// first among them.
-pub const ALLOWED: [&str; 7] = [
+pub const ALLOWED: [&str; 8] = [
     method::SESSION_OPEN,
     method::TURN_SUBMIT,
     method::SESSION_WAIT,
@@ -61,6 +62,7 @@ pub const ALLOWED: [&str; 7] = [
     method::TASK_LIST,
     method::WAKE_LIST,
     method::HEALTH,
+    method::MEMORY_LOOKUP,
 ];
 
 /// The owner's acts, which reach their one judgment (`Core::judge_act`) and

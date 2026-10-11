@@ -680,6 +680,7 @@ port = 7433
 # posture_floor = "approve"             # an MCP-opened session's acting calls take at least this posture
 # spend_limit_usd = 5.0                 # each MCP-opened session's spend limit
 # requests_per_minute = 60              # over every client; past it, 429
+# memory = false                        # true: the memory_search and memory_get tools read your private memory (never a shared place's), no model call; each call is a memory.read row
 
 # ---------------------------------------------------------------- index
 # The index tender (M6): `theseus-index`, installed beside theseusd. It starts
