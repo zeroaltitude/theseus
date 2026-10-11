@@ -218,7 +218,7 @@ pub(super) fn people_on(c: &mut crate::config::Config) {
 
 /// Jev's answers: a real person, involved, new, a role line that states a
 /// role; Kestrel is a codename; Orrin is the held Orrin, his line a judgment.
-fn script(jev: &FakeJev) {
+pub(super) fn script(jev: &FakeJev) {
     jev.script("real", Jev::Noul(0.95));
     jev.script("involved", Jev::Noul(0.93));
     jev.script("evaluative", Jev::Noul(0.05));
@@ -254,7 +254,7 @@ fn billed(then: Scripted) -> Scripted {
     }
 }
 
-fn rows(store: &Store, kind: &str) -> Vec<LedgerRow> {
+pub(super) fn rows(store: &Store, kind: &str) -> Vec<LedgerRow> {
     store
         .scope_after(SCOPE, 0)
         .unwrap()
@@ -264,7 +264,7 @@ fn rows(store: &Store, kind: &str) -> Vec<LedgerRow> {
         .collect()
 }
 
-async fn until_rows(store: &Store, kind: &str, n: usize) -> Vec<LedgerRow> {
+pub(super) async fn until_rows(store: &Store, kind: &str, n: usize) -> Vec<LedgerRow> {
     let t0 = Instant::now();
     loop {
         let r = rows(store, kind);

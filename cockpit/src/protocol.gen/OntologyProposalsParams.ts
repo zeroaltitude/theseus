@@ -12,6 +12,17 @@ export type OntologyProposalsParams = {
  */
 session_id?: string, 
 /**
- * At most this many (default 50).
+ * At most this many (default 50); with `by_person`, this many topics'
+ * proposals and this many people.
  */
-limit?: number, };
+limit?: number, 
+/**
+ * People's proposals one row per proposed person (theseus-fvyx), in
+ * `people`; `proposals` then holds the topics' alone.
+ */
+by_person?: boolean, 
+/**
+ * Only proposals at this top-choice probability or more; with
+ * `by_person`, only people whose best proposal reaches it (default 0).
+ */
+min_confidence?: number, };

@@ -125,7 +125,7 @@ fn the_cockpits_types_are_generated_from_the_rust_ones() {
         OntologyMembership, OntologyCategoryAddParams, OntologyGuidanceSetParams,
         OntologyMembershipSetParams, OntologyMembershipResult, OntologyProposalsParams,
         OntologyProposalsResult, OntologyProposal, ProposedPerson, OntologyProposalAcceptParams,
-        OntologyProposalRejectParams, OntologyProposalAnswered, OntologyPersonMergeParams, OntologyPersonMerged, OntologyProposalAcceptAllParams, OntologyProposalAcceptAllResult, TasksHealth, ParkedTask,
+        OntologyProposalRejectParams, OntologyProposalAnswered, OntologyPersonMergeParams, OntologyPersonMerged, OntologyProposalAcceptAllParams, OntologyProposalAcceptAllResult, OntologyPersonProposals, OntologyProposalRejectAllParams, OntologyProposalRejectAllResult, TasksHealth, ParkedTask,
         index::IndexQueryParams, index::IndexWeights, index::IndexFilters, index::IndexSourceRank,
         index::IndexHit, index::IndexTimings, index::IndexLag, index::IndexQueryResult,
         index::IndexStamp, index::IndexEmbedTask, index::IndexNeighboursParams,

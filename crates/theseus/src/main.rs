@@ -533,30 +533,46 @@ enum OntologyCmd {
         #[arg(allow_hyphen_values = true, value_name = "+CATEGORY|-CATEGORY")]
         changes: Vec<String>,
     },
-    /// Jev's unanswered proposals (categorize.v1, in shadow), newest first: a topic a session
-    /// is not in, or a new topic, with Jev's confidence and band.
+    /// Jev's unanswered proposals, newest first: a topic a session is not in, or a new topic,
+    /// with Jev's confidence and band; people one row per person, with its sessions and bands,
+    /// a bare first name inside the one person whose name holds it (theseus-fvyx).
     Proposals {
         #[arg(long, value_name = "SESSION")]
         session: Option<String>,
         #[arg(long)]
         limit: Option<u32>,
+        /// Only proposals at this confidence or more; a person's row by its best (0 to 1).
+        #[arg(long)]
+        min_confidence: Option<f64>,
+        /// Each person's proposal on its own line, not a row per person.
+        #[arg(long)]
+        each: bool,
     },
     /// Accept a proposal: the session joins the topic (yours, `operator`), and the judgment is
     /// labelled. For a new topic, --topic names it: an existing topic, or a new one (--desc).
-    /// Without JUDGMENT, every unanswered proposal of --kind at --min-confidence or more.
+    /// --person NAME accepts a person's row, every proposal of it. Without either, every
+    /// unanswered proposal of --kind at --min-confidence or more, people a row at a time.
     Accept {
         judgment: Option<String>,
+        /// A person's row, by its name or key (`theseus ontology proposals`): all its proposals.
+        #[arg(long, conflicts_with = "judgment")]
+        person: Option<String>,
+        /// Accept as this person (a held person's name or id, or the new person's name): a bare
+        /// first name's, or an ambiguous row's pick.
+        #[arg(long = "as", value_name = "PERSON")]
+        as_person: Option<String>,
         /// With no JUDGMENT: only proposals of this kind (`topic` or `person`).
-        #[arg(long, conflicts_with = "judgment")]
+        #[arg(long, conflicts_with_all = ["judgment", "person"])]
         kind: Option<String>,
-        /// With no JUDGMENT: only proposals at this confidence or more (0 to 1).
-        #[arg(long, conflicts_with = "judgment")]
+        /// With no JUDGMENT: only proposals at this confidence or more (0 to 1); a person's row
+        /// by its best.
+        #[arg(long, conflicts_with_all = ["judgment", "person"])]
         min_confidence: Option<f64>,
         #[arg(long)]
         topic: Option<String>,
         #[arg(long)]
         desc: Option<String>,
-        #[arg(long)]
+        #[arg(long, conflicts_with = "person")]
         note: Option<String>,
     },
     /// People: declare one with its handles, or merge two who are one (theseus-wy7y).
@@ -564,9 +580,13 @@ enum OntologyCmd {
         #[command(subcommand)]
         cmd: PersonCmd,
     },
-    /// Reject a proposal: the judgment is labelled, and nothing else changes.
+    /// Reject a proposal: the judgment is labelled, and nothing else changes. --person NAME
+    /// rejects a person's row, every proposal of it.
     Reject {
-        judgment: String,
+        #[arg(required_unless_present = "person")]
+        judgment: Option<String>,
+        #[arg(long, conflicts_with = "judgment")]
+        person: Option<String>,
         #[arg(long)]
         note: Option<String>,
     },

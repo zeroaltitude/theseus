@@ -387,6 +387,13 @@ impl Core {
                     self.ontology_proposal_accept_all(&p, who).map_err(failure)
                 })
             }
+            method::ONTOLOGY_PROPOSAL_REJECT_ALL => route(
+                params,
+                |p: theseus_protocol::OntologyProposalRejectAllParams| {
+                    let who = conn.answerer(p.author.clone(), p.discord.clone());
+                    self.ontology_proposal_reject_all(&p, who).map_err(failure)
+                },
+            ),
             _ => route(params, |p| self.rpc_ontology_membership_set(p, conn)),
         }
     }

@@ -415,6 +415,7 @@ facts![
     import::ImportTopics<'static>,
     import::ImportPeople<'static>,
     people::PeopleExtracted<'static>,
+    people::PeopleSwept<'static>,
     ontology::PersonMerged<'static>,
     ladder::PackModeSet<'static>,
     ladder::PackEventLanded<'static>,

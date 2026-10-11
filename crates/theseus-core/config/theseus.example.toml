@@ -825,6 +825,10 @@ idle_unload_mins = 10.0                   # the model unloads after this long un
 # live = true                             # people.v1 at a private conversation's exchange end
 # gate = 0.6                              # live: Jev's "a person not held is involved" at or above
 #                                         # this runs the extractor; under it, no model call
+# sweep_usd_per_day = 2.0                 # the nightly sweep at [judge] learning_hour: an extraction
+#                                         # and people.v1 per private session with human text that
+#                                         # day that no extraction read (the gate shut), under this
+#                                         # many dollars a local day; 0 turns it off; off with live
 
 # ---------------------------------------------------------------- sandbox
 # L1, the sandbox (M4): a proc.run job in namespaces of its own, as your own

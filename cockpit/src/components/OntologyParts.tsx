@@ -19,28 +19,33 @@ export function useOntology(sessionId?: string, treeOnly = false) {
 /** Whether the time machine shows a past moment: the ontology's acts are off then, as every act is. */
 export const useInPast = () => useAsOf((s) => s.t !== null)
 
-/** A write, confirmed first with `ask` (which carries the text being sent); a refusal's words are shown. */
+/** A write, confirmed first with `ask` (which carries the text being sent); a refusal's words are shown. `writeEach`
+ *  sends several calls in order under one confirm (a proposed person's rows, theseus-fvyx), stopping at a refusal. */
 export function useOntologyWrite() {
   const qc = useQueryClient()
   const [busy, setBusy] = useState(false)
   const [refused, setRefused] = useState<string | null>(null)
-  const write = async <T,>(ask: string, method: string, params: unknown): Promise<T | null> => {
+  const writeEach = async <T,>(ask: string, calls: readonly (readonly [string, unknown])[]): Promise<T[] | null> => {
     if (!window.confirm(ask)) return null
     setBusy(true)
     setRefused(null)
+    const outs: T[] = []
     try {
-      const out = await call<T>(method, params)
-      await qc.invalidateQueries({ queryKey: ['ontology.list'] })
-      await qc.invalidateQueries({ queryKey: ['compilation.list'] })
-      return out
+      for (const [method, params] of calls) outs.push(await call<T>(method, params))
+      return outs
     } catch (e) {
       setRefused(refusalWords(e))
-      return null
+      return outs.length ? outs : null
     } finally {
+      await qc.invalidateQueries({ queryKey: ['ontology.list'] })
+      await qc.invalidateQueries({ queryKey: ['ontology.proposals'] })
+      await qc.invalidateQueries({ queryKey: ['compilation.list'] })
       setBusy(false)
     }
   }
-  return { write, busy, refused, clear: () => setRefused(null) }
+  const write = async <T,>(ask: string, method: string, params: unknown): Promise<T | null> =>
+    (await writeEach<T>(ask, [[method, params]]))?.[0] ?? null
+  return { write, writeEach, busy, refused, clear: () => setRefused(null) }
 }
 
 /** The shown refusal: the daemon's words, as it said them. */

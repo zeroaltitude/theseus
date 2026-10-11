@@ -1057,6 +1057,8 @@ async fn after_serving(
     // minutes of this start, and nothing with the judge off.
     core.learn_after_serving();
     core.consolidate_after_serving();
+    // People's nightly sweep (theseus-j8qb), at the same hour.
+    core.people_sweep_after_serving();
     if let Some(text) = keep {
         keep_copy(&core, &text);
     }

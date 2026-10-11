@@ -8,4 +8,10 @@ import type { DiscordOrigin } from "./DiscordOrigin";
  * one frame. For `new_topic`, `topic` names the topic: an existing one, or
  * a new one made in the same frame, with `description`.
  */
-export type OntologyProposalAcceptParams = { judgment: string, topic?: string, description?: string, note?: string, author?: string, discord?: DiscordOrigin, };
+export type OntologyProposalAcceptParams = { judgment: string, topic?: string, description?: string, 
+/**
+ * A new person's proposal accepted as this person (theseus-fvyx): a
+ * held person by id or name, or else the name of the person the accept
+ * declares; a bare first name beside its full name.
+ */
+as_person?: string, note?: string, author?: string, discord?: DiscordOrigin, };

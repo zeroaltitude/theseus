@@ -218,10 +218,21 @@ pub struct OntologyProposalsParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub session_id: Option<String>,
-    /// At most this many (default 50).
+    /// At most this many (default 50); with `by_person`, this many topics'
+    /// proposals and this many people.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub limit: Option<u32>,
+    /// People's proposals one row per proposed person (theseus-fvyx), in
+    /// `people`; `proposals` then holds the topics' alone.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[cfg_attr(test, ts(as = "Option<bool>", optional))]
+    pub by_person: bool,
+    /// Only proposals at this top-choice probability or more; with
+    /// `by_person`, only people whose best proposal reaches it (default 0).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub min_confidence: Option<f64>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -236,6 +247,68 @@ pub struct OntologyProposalsResult {
     /// taken in bulk; nothing deleted, nothing answered for the owner.
     #[serde(default)]
     pub hidden: u32,
+    /// With `by_person`: one row per proposed person, most sessions first.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[cfg_attr(test, ts(as = "Option<Vec<OntologyPersonProposals>>", optional))]
+    pub people: Vec<OntologyPersonProposals>,
+    /// People past `limit`, left out.
+    #[serde(default)]
+    pub people_more: u32,
+}
+
+/// One proposed person's proposals (theseus-fvyx): every unanswered
+/// `people.v1` and `people_seen.v1` proposal of one person, a held person by
+/// its id or a new one by its folded name, with one answer for them all
+/// (`ontology.proposal.accept_all` with `judgments` and `as_person`, or
+/// `ontology.proposal.reject_all`). A new person whose whole name is one
+/// word that is a word of exactly one other person's name, proposed or
+/// held, is listed inside that person (`first_names`) and accepted as them;
+/// one with two or more such people is its own row, `ambiguous` naming them.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct OntologyPersonProposals {
+    /// `person:<id>` for a held person, `name:<folded name>` for a new one.
+    pub key: String,
+    /// The held person's name, or the name most of its proposals give.
+    pub name: String,
+    /// No person holds it yet: the first accept declares it.
+    pub new: bool,
+    /// What `as_person` names at the group's accept: the held person's id,
+    /// or the name.
+    pub as_person: String,
+    /// Every proposal of it, newest first.
+    pub judgments: Vec<String>,
+    /// The sessions they are for.
+    pub sessions: u32,
+    /// Their top-choice probabilities, least and greatest.
+    pub confidence_min: f64,
+    pub confidence_max: f64,
+    /// Their bands, the best first (`act`, `confirm`, `escalate`).
+    pub bands: Vec<String>,
+    /// The handles its proposals read.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[cfg_attr(test, ts(as = "Option<Vec<String>>", optional))]
+    pub handles: Vec<String>,
+    /// The newest role line Jev kept.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub role_line: Option<String>,
+    /// A few of its sessions' titles, newest first.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[cfg_attr(test, ts(as = "Option<Vec<String>>", optional))]
+    pub titles: Vec<String>,
+    /// The bare first names listed inside it ("Marlo" beside "Marlo
+    /// Quill"), accepted as this person.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[cfg_attr(test, ts(as = "Option<Vec<String>>", optional))]
+    pub first_names: Vec<String>,
+    /// A bare first name two or more people's names hold: their names. It
+    /// is never accepted in bulk; `as_person` picks one.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[cfg_attr(test, ts(as = "Option<Vec<String>>", optional))]
+    pub ambiguous: Vec<String>,
+    /// The newest proposal's time.
+    pub at_ms: u64,
 }
 
 /// One proposal: a `categorize.v1` judgment's `topic` answer.
@@ -306,6 +379,12 @@ pub struct OntologyProposalAcceptParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub description: Option<String>,
+    /// A new person's proposal accepted as this person (theseus-fvyx): a
+    /// held person by id or name, or else the name of the person the accept
+    /// declares; a bare first name beside its full name.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub as_person: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub note: Option<String>,
@@ -394,7 +473,11 @@ pub struct OntologyPersonMerged {
 /// `ontology.proposal.accept_all` (theseus-wy7y): the operator's yes to every
 /// unanswered proposal of a kind at or above a confidence, each as
 /// `ontology.proposal.accept` would take it (a proposal naming a new topic
-/// or person with no name is left for one at a time).
+/// or person with no name is left for one at a time). People are taken a
+/// person at a time (theseus-fvyx): each proposed person whose best
+/// proposal reaches the confidence, all its proposals, a bare first name
+/// beside its full name as that person; a first name two people's names
+/// hold is left, with why.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
 pub struct OntologyProposalAcceptAllParams {
@@ -402,13 +485,19 @@ pub struct OntologyProposalAcceptAllParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub kind: Option<String>,
-    /// At least this top-choice probability (default 0).
+    /// At least this top-choice probability (default 0); a person's best.
     #[serde(default)]
     pub min_confidence: f64,
-    /// Exactly these judgments (the cockpit's selection), else every match.
+    /// Exactly these judgments (the cockpit's selection, or one person's
+    /// row), else every match.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     #[cfg_attr(test, ts(as = "Option<Vec<String>>", optional))]
     pub judgments: Vec<String>,
+    /// With `judgments`: each new person's proposal accepted as this person
+    /// (`ontology.proposal.accept`'s `as_person`; a person row's).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub as_person: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub author: Option<String>,
@@ -422,5 +511,31 @@ pub struct OntologyProposalAcceptAllParams {
 pub struct OntologyProposalAcceptAllResult {
     pub accepted: Vec<String>,
     /// Matching proposals left unanswered, each with why.
+    pub left: Vec<String>,
+}
+
+/// `ontology.proposal.reject_all` (theseus-fvyx): the operator's no to each
+/// named proposal (one person's row), each as `ontology.proposal.reject`
+/// takes it: its label, and nothing else.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct OntologyProposalRejectAllParams {
+    pub judgments: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub note: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub author: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub discord: Option<DiscordOrigin>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct OntologyProposalRejectAllResult {
+    pub rejected: Vec<String>,
+    /// Named proposals left unanswered, each with why.
     pub left: Vec<String>,
 }

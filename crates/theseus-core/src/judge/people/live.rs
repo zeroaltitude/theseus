@@ -34,7 +34,7 @@ pub const MARK_PREFIX: &str = "judge.people.";
 /// store knows (`house.rs`).
 #[derive(Default)]
 pub struct Point {
-    deciding: Mutex<HashSet<String>>,
+    pub(super) deciding: Mutex<HashSet<String>>,
     pub(super) house: super::house::Kept,
 }
 

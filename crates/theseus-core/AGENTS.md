@@ -447,6 +447,22 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     proposal of that person (named `<judgment>/<person>`, once a session, not again where the owner rejected it);
     only its `unlisted` Noul at `[people] gate` (0.6) runs the extraction and `people.v1`. Under it, or unanswered,
     no model call; the mark moves either way. The backfill has no gate. Tests: `judge/people/tests_seen.rs`.
+    **The nightly sweep** (theseus-j8qb, `sweep.rs`): what the gate let pass. At `[judge] learning_hour` (the
+    learning tender's `due` and `tend`: a missed day once, never within 10 minutes of a start), one pass with the
+    purpose `sweep` for each private session, never a task's, with human text since the last sweep (a day, the
+    first time) after its newest extraction; the live mark moves to what it read, never back. Under `[people]
+    sweep_usd_per_day` (2.0 a local day; 0, or `live = false`, turns it off), the backfill's worst-case rule; a
+    `people.swept` row and META `people.sweep.last` (when, the day, its spend) in one frame. Tests:
+    `judge/people/tests_sweep.rs`.
+    **One row per person** (theseus-fvyx, `rpc/proposal_groups.rs`): `ontology.proposals` with `by_person` groups
+    the people's proposals by the held person (an exact handle or the folded name finds) or the folded name, a
+    bare first name inside the one other person, proposed or held, whose name holds that word (`first_names`;
+    with two or more it is its own row, `ambiguous`); `min_confidence` and `limit` over rows. A row's answer is
+    `ontology.proposal.accept_all` with its `judgments` and `as_person` (an accept's `as_person`: a new person's
+    proposal joins that person, or declares it by that name) or `ontology.proposal.reject_all`; both judge once
+    and answer each proposal through the single path (`accept_open`, `reject_open`), one scan. The bulk yes takes
+    people a row at a time (a row's best at the confidence), leaving an ambiguous first name with why. Tests:
+    `judge/people/tests_groups.rs` (the owner's store's shape: 1,550-odd proposals under 298 names).
   - **The learning ledger** (step 25c, `learning/`): labels (`labels.rs`: what a label says of a Noul, a Choice,
     a Score; the heaviest counts, then the newest), system labels derived by each run (`system.rs`, weight 0.5,
     keyed by judgment, question and rule so a second run writes none), the report per pack version and question

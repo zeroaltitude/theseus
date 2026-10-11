@@ -5,7 +5,11 @@ import type { DiscordOrigin } from "./DiscordOrigin";
  * `ontology.proposal.accept_all` (theseus-wy7y): the operator's yes to every
  * unanswered proposal of a kind at or above a confidence, each as
  * `ontology.proposal.accept` would take it (a proposal naming a new topic
- * or person with no name is left for one at a time).
+ * or person with no name is left for one at a time). People are taken a
+ * person at a time (theseus-fvyx): each proposed person whose best
+ * proposal reaches the confidence, all its proposals, a bare first name
+ * beside its full name as that person; a first name two people's names
+ * hold is left, with why.
  */
 export type OntologyProposalAcceptAllParams = { 
 /**
@@ -13,10 +17,16 @@ export type OntologyProposalAcceptAllParams = {
  */
 kind?: string, 
 /**
- * At least this top-choice probability (default 0).
+ * At least this top-choice probability (default 0); a person's best.
  */
 min_confidence: number, 
 /**
- * Exactly these judgments (the cockpit's selection), else every match.
+ * Exactly these judgments (the cockpit's selection, or one person's
+ * row), else every match.
  */
-judgments?: Array<string>, author?: string, discord?: DiscordOrigin, };
+judgments?: Array<string>, 
+/**
+ * With `judgments`: each new person's proposal accepted as this person
+ * (`ontology.proposal.accept`'s `as_person`; a person row's).
+ */
+as_person?: string, author?: string, discord?: DiscordOrigin, };

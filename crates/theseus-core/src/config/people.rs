@@ -17,6 +17,10 @@
 //!   each due exchange end Jev alone first (`people_seen.v1`: which held
 //!   people it involves, and whether a person not held is); only when that
 //!   last Noul reaches `gate` does the extractor read the exchange (0.6).
+//! - `sweep_usd_per_day`: the nightly sweep's (theseus-j8qb) spend a local
+//!   day: at `[judge] learning_hour`, one extraction and `people.v1` for each
+//!   private session with human text that day that no extraction read (the
+//!   gate shut there); 0 turns it off (2.0, the owner's doubled budget).
 
 use anyhow::{bail, Result};
 use serde::{Deserialize, Serialize};
@@ -36,6 +40,8 @@ pub struct PeopleConfig {
     pub live: bool,
     #[serde(default = "default_gate")]
     pub gate: f64,
+    #[serde(default = "default_sweep_usd_per_day")]
+    pub sweep_usd_per_day: f64,
 }
 
 fn default_extract_profile() -> String {
@@ -53,6 +59,9 @@ fn default_live() -> bool {
 fn default_gate() -> f64 {
     0.6
 }
+fn default_sweep_usd_per_day() -> f64 {
+    2.0
+}
 
 impl Default for PeopleConfig {
     fn default() -> Self {
@@ -63,6 +72,7 @@ impl Default for PeopleConfig {
             confirm: default_confirm(),
             live: default_live(),
             gate: default_gate(),
+            sweep_usd_per_day: default_sweep_usd_per_day(),
         }
     }
 }
@@ -82,6 +92,12 @@ impl PeopleConfig {
         }
         if !(0.0 < self.gate && self.gate <= 1.0) {
             bail!("[people] needs 0 < gate <= 1 (gate = {})", self.gate);
+        }
+        if !(self.sweep_usd_per_day.is_finite() && self.sweep_usd_per_day >= 0.0) {
+            bail!(
+                "[people] sweep_usd_per_day is dollars a day, 0 or more (0 turns the sweep off), not {}",
+                self.sweep_usd_per_day
+            );
         }
         if self.extract_profile.trim().is_empty() {
             bail!("[people] extract_profile names no profile");

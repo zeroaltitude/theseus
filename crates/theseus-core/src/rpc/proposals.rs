@@ -57,7 +57,7 @@ pub const SCOPE: &str = "judge:categorize";
 const LIMIT: u32 = 50;
 
 /// A judgment's `topic` answer, as a proposal.
-struct Proposed {
+pub(super) struct Proposed {
     judgment: Judgment,
     session: String,
     /// `new_topic`, or the option's id (a topic's local id).
@@ -283,25 +283,57 @@ impl Core {
 
     /// `ontology.proposals`: each answered `categorize.v1` judgment whose
     /// topic names a topic its session is not in now, or `new_topic`, that
-    /// no operator has labelled, newest first.
+    /// no operator has labelled, newest first; with `by_person`, the
+    /// people's one row per person (theseus-fvyx).
     pub fn ontology_proposals(
         &self,
         p: &OntologyProposalsParams,
     ) -> Result<OntologyProposalsResult> {
         let o = self.runner.ontology.snapshot(&self.store)?;
-        let (proposed, labelled) = self.proposals_scan()?;
         let not = self.not_people(&[], &o);
+        let (listed, hidden) = self.proposals_listed(&o, &not, p.session_id.as_deref())?;
+        let min = p.min_confidence.unwrap_or(0.0);
+        let limit = p.limit.unwrap_or(LIMIT) as usize;
+        let mut out: Vec<OntologyProposal> = listed.into_iter().map(|(x, _)| x).collect();
+        let mut people = Vec::new();
+        if p.by_person {
+            let (topics, groups) = super::proposal_groups::group(&o, &not, out, min);
+            (out, people) = (topics, groups);
+        } else {
+            out.retain(|x| x.confidence >= min);
+        }
+        let more = out.len().saturating_sub(limit) as u32;
+        out.truncate(limit);
+        let people_more = people.len().saturating_sub(limit) as u32;
+        people.truncate(limit);
+        Ok(OntologyProposalsResult {
+            proposals: out,
+            more,
+            hidden,
+            people,
+            people_more,
+        })
+    }
+
+    /// The unanswered proposals listed, newest first, each with what it
+    /// proposes as read (the session's, if `session` names one), and how many
+    /// the exclusions hide.
+    pub(super) fn proposals_listed(
+        &self,
+        o: &Ontology,
+        not: &people::NotPeople,
+        session: Option<&str>,
+    ) -> Result<(Vec<(OntologyProposal, Proposed)>, u32)> {
+        let (proposed, labelled) = self.proposals_scan()?;
         let mut titles: BTreeMap<String, Option<String>> = BTreeMap::new();
         let mut out = Vec::new();
         let mut hidden = 0u32;
         let mut shown: HashSet<(String, String)> = HashSet::new();
         for pr in proposed.into_iter().rev() {
-            if labelled.contains(&pr.id())
-                || p.session_id.as_ref().is_some_and(|s| *s != pr.session)
-            {
+            if labelled.contains(&pr.id()) || session.is_some_and(|s| s != pr.session) {
                 continue;
             }
-            if pr.person.as_ref().is_some_and(|d| excluded(&o, &not, d)) {
+            if pr.person.as_ref().is_some_and(|d| excluded(o, not, d)) {
                 hidden += 1;
                 continue;
             }
@@ -313,18 +345,18 @@ impl Core {
             {
                 continue;
             }
-            let topic = pr.category(&o).or_else(|| new_person_held(&o, &pr));
+            let topic = pr.category(o).or_else(|| new_person_held(o, &pr));
             if let Some(t) = &topic {
                 if o.memberships(&pr.session).iter().any(|m| m.category == *t) {
                     continue;
                 }
             }
-            let topic = pr.category(&o);
+            let topic = pr.category(o);
             let title = titles
                 .entry(pr.session.clone())
                 .or_insert_with(|| self.session_title(&pr.session))
                 .clone();
-            out.push(OntologyProposal {
+            let listed = OntologyProposal {
                 judgment: pr.id(),
                 session_id: pr.session.clone(),
                 session_title: title,
@@ -336,18 +368,12 @@ impl Core {
                 new_topic: pr.new_topic(),
                 confidence: pr.confidence,
                 person: pr.person_info(),
-                band: pr.band,
+                band: pr.band.clone(),
                 at_ms: pr.at_ms,
-            });
+            };
+            out.push((listed, pr));
         }
-        let limit = p.limit.unwrap_or(LIMIT) as usize;
-        let more = out.len().saturating_sub(limit) as u32;
-        out.truncate(limit);
-        Ok(OntologyProposalsResult {
-            proposals: out,
-            more,
-            hidden,
-        })
+        Ok((out, hidden))
     }
 
     fn session_title(&self, sid: &str) -> Option<String> {
@@ -408,6 +434,17 @@ impl Core {
             },
         )?;
         let pr = self.open_proposal(&p.judgment)?;
+        self.accept_open(pr, p, &who)
+    }
+
+    /// An unanswered proposal accepted, as `ontology.proposal.accept` takes
+    /// it once judged: `accept_all` judges once and calls this for each.
+    pub(super) fn accept_open(
+        &self,
+        pr: Proposed,
+        p: &OntologyProposalAcceptParams,
+        who: &Answerer,
+    ) -> Result<OntologyProposalAnswered> {
         let sid = pr.session.as_str();
         if self
             .store
@@ -418,7 +455,7 @@ impl Core {
         }
         let o = self.runner.ontology.snapshot(&self.store)?;
         let (who_s, via) = (who.who(), who.via());
-        let (id, made) = topic_of(&o, &pr, p, &who)?;
+        let (id, made) = topic_of(&o, &pr, p, who)?;
         let mut members = o
             .member_list(sid, id.kind())
             .map(|l| l.members.clone())
@@ -516,6 +553,16 @@ impl Core {
             },
         )?;
         let pr = self.open_proposal(&p.judgment)?;
+        self.reject_open(pr, p.note.as_deref(), &who)
+    }
+
+    /// An unanswered proposal rejected, once judged (`reject_all`'s each).
+    pub(super) fn reject_open(
+        &self,
+        pr: Proposed,
+        note: Option<&str>,
+        who: &Answerer,
+    ) -> Result<OntologyProposalAnswered> {
         let sid = pr.session.as_str();
         let (who_s, via) = (who.who(), who.via());
         let label_id = format!("lbl_{}", uuid::Uuid::now_v7().simple());
@@ -530,7 +577,7 @@ impl Core {
             topic: None,
             who: &who_s,
             via: &via,
-            note: p.note.as_deref(),
+            note,
         };
         let mut row = fact::row(&label, Some(sid), None)?;
         row.key = Some(label_id.clone());
@@ -550,6 +597,11 @@ fn topic_of(
     p: &OntologyProposalAcceptParams,
     who: &Answerer,
 ) -> Result<(CategoryId, Option<Category>)> {
+    let as_person = p
+        .as_person
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
     if let Some(d) = pr.person.as_ref().filter(|d| d.whom == Whom::New) {
         if p.topic.is_some() {
             bail!(
@@ -557,13 +609,34 @@ fn topic_of(
                 pr.judgment.id
             );
         }
-        return Ok(match new_person_held(o, pr) {
+        // Accepted as another name's person (theseus-fvyx): a bare first
+        // name beside its full name.
+        let held = match as_person {
+            Some(name) => person_named(o, name)?,
+            None => new_person_held(o, pr),
+        };
+        return Ok(match held {
             Some(id) => (id, None),
             None => {
-                let c = new_person(o, d, who)?;
+                let c = new_person(o, d, as_person.unwrap_or(&d.candidate.name), who)?;
                 (c.id.clone(), Some(c))
             }
         });
+    }
+    if let (
+        Some(name),
+        Some(Decided {
+            whom: Whom::Held(id),
+            ..
+        }),
+    ) = (as_person, &pr.person)
+    {
+        if person_named(o, name)?.is_none_or(|n| n.local() != id.as_str()) {
+            bail!(
+                "{} proposes the held person {id}; --as names another",
+                pr.judgment.id
+            );
+        }
     }
     Ok(match (pr.new_topic(), p.topic.as_deref().map(str::trim)) {
         (false, None) => (
@@ -619,13 +692,17 @@ fn excluded(o: &Ontology, not: &people::NotPeople, d: &Decided) -> bool {
 /// an exact handle of the candidate's, or by its name.
 fn new_person_held(o: &Ontology, pr: &Proposed) -> Option<CategoryId> {
     let d = pr.person.as_ref().filter(|d| d.whom == Whom::New)?;
-    let by_handle = d
-        .candidate
-        .handles
+    held_for(o, &d.candidate.name, &d.candidate.handles)
+}
+
+/// The held person a name and its handles are by now: an exact handle, then
+/// the name folded.
+pub(super) fn held_for(o: &Ontology, name: &str, handles: &[String]) -> Option<CategoryId> {
+    let by_handle = handles
         .iter()
         .find_map(|h| o.person_by_handle(h))
-        .or_else(|| o.person_by_handle(&format!("name:{}", d.candidate.name)));
-    let name = people::fold(&d.candidate.name);
+        .or_else(|| o.person_by_handle(&format!("name:{name}")));
+    let name = people::fold(name);
     by_handle
         .or_else(|| {
             o.categories().find(|c| {
@@ -635,10 +712,44 @@ fn new_person_held(o: &Ontology, pr: &Proposed) -> Option<CategoryId> {
         .map(|c| c.id.clone())
 }
 
-/// The person a new person's accept declares: the name, its handles and a
-/// `name:` one, and the role line Jev kept as its description.
-fn new_person(o: &Ontology, d: &Decided, who: &Answerer) -> Result<Category> {
-    let name = d.candidate.name.trim();
+/// The person an accept's `as_person` names (theseus-fvyx): a held person by
+/// id (`person:<id>`), or by its name or local id among the people, merged
+/// and retired ones aside; none when no person has that name, and an
+/// accept then declares it.
+fn person_named(o: &Ontology, name: &str) -> Result<Option<CategoryId>> {
+    let kind = theseus_ontology::person::KIND;
+    if name.contains(':') {
+        let id = CategoryId::parse(name)?;
+        return match o.category(&id) {
+            Some(c) if c.kind() == kind => Ok(Some(id)),
+            _ => bail!("no person is {name}: `theseus ontology categories` lists them"),
+        };
+    }
+    let folded = people::fold(name);
+    let found: Vec<&Category> = o
+        .categories()
+        .filter(|c| c.kind() == kind && c.merged_into.is_none() && c.retired_ms.is_none())
+        .filter(|c| people::fold(&c.name) == folded || c.id.local() == name)
+        .collect();
+    match found.as_slice() {
+        [] => Ok(None),
+        [c] => Ok(Some(c.id.clone())),
+        many => bail!(
+            "{} people are named {name:?} ({}): name one by its id",
+            many.len(),
+            many.iter()
+                .map(|c| c.id.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+    }
+}
+
+/// The person a new person's accept declares, by `name` (the candidate's,
+/// or the `as_person` it is accepted as): its handles and a `name:` one,
+/// and the role line Jev kept as its description.
+fn new_person(o: &Ontology, d: &Decided, name: &str, who: &Answerer) -> Result<Category> {
+    let name = name.trim();
     let mut handles: Vec<String> = d.candidate.handles.clone();
     if let Ok(h) = theseus_ontology::handle(&format!("name:{name}")) {
         handles.push(h);
