@@ -11,8 +11,9 @@
 //! approval or budget question unanswered for a day, a blocked execution, or
 //! one waiting with no wake at all.
 //!
-//! Read from the open executions alone (`Kernel::open_executions`, by the
-//! store's terms) and one action per waiting question, never a history scan.
+//! Read from the open tasks alone (`Kernel::open_tasks`, by the store's `ot`
+//! term, theseus-id8d) and one action per waiting question, never a history
+//! scan nor a decode per open execution.
 
 use theseus_kernel::{ExecState, Execution, SessionKind, Wake};
 use theseus_protocol::ParkedTask;
@@ -131,9 +132,11 @@ pub fn parked(
 }
 
 impl crate::rpc::Core {
-    /// Health's `tasks` block: the parked tasks, from the open executions.
+    /// Health's `tasks` block: the parked tasks, from the tasks that have
+    /// not ended (their `ot` term, theseus-id8d), never every open execution:
+    /// two hundred thousand parked conversations cost it nothing.
     pub fn tasks_health(&self) -> theseus_protocol::TasksHealth {
-        let open = match self.kernel.open_executions() {
+        let open = match self.kernel.open_tasks() {
             Ok(o) => o,
             Err(e) => {
                 tracing::warn!(error = %format!("{e:#}"), "health: the open executions were not read");

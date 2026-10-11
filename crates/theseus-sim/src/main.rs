@@ -232,7 +232,7 @@ enum BenchCmd {
         #[arg(
             long,
             value_delimiter = ',',
-            default_value = "cold,vault,shutdown,inflight,kill,swap,restore,seed,cancel"
+            default_value = "cold,vault,shutdown,inflight,kill,swap,restore,seed,health,cancel"
         )]
         phases: Vec<String>,
         /// Compare each p95 with §9 plus the margin, and exit 1 on a miss.

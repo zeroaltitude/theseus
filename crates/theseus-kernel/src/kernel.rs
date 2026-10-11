@@ -853,6 +853,50 @@ impl Kernel {
         Ok(self.counts_by(kinds::EXECUTION, &wanted)?.iter().sum())
     }
 
+    /// How many executions there are, every state counted, an unreadable
+    /// record's too (theseus-id8d): the push's total, from the store's terms.
+    pub fn count_executions(&self) -> Result<u64> {
+        let mut wanted: Vec<String> = EXEC_STATES.map(terms::state).to_vec();
+        wanted.push(terms::UNREADABLE.to_string());
+        Ok(self.counts_by(kinds::EXECUTION, &wanted)?.iter().sum())
+    }
+
+    /// The executions with a term in any of `ranges`, with the WAL position
+    /// of each record, in id order (theseus-id8d: the push's seed).
+    pub fn executions_by_at(&self, ranges: &[(String, String)]) -> Result<Vec<(u64, Execution)>> {
+        self.records_by(kinds::EXECUTION, ranges)?
+            .iter()
+            .map(|r| Ok((r.position, self.read_execution(r)?)))
+            .collect()
+    }
+
+    /// An execution with the WAL position of its record.
+    pub fn execution_at(&self, id: &str) -> Result<Option<(u64, Execution)>> {
+        match self.store.latest_by_key(kinds::EXECUTION, id)? {
+            Some(r) => Ok(Some((r.position, self.read_execution(&r)?))),
+            None => Ok(None),
+        }
+    }
+
+    /// The newest `n` execution records, settled into their latest: each
+    /// execution once, by its newest record among them, newest first, with
+    /// its position (theseus-id8d: the push's seed reads the recent ones);
+    /// and how many records were read, fewer than `n` once the kind is read
+    /// whole.
+    pub fn newest_executions_at(&self, n: usize) -> Result<(usize, Vec<(u64, Execution)>)> {
+        let mut seen = std::collections::HashSet::new();
+        let mut out = Vec::new();
+        let tail = self.store.tail_of_kind(kinds::EXECUTION, n)?;
+        for r in tail.iter().rev() {
+            if let Some(k) = &r.key {
+                if seen.insert(k.clone()) {
+                    out.push((r.position, self.read_execution(r)?));
+                }
+            }
+        }
+        Ok((tail.len(), out))
+    }
+
     /// How many actions are not settled, counted by state.
     pub fn count_open_actions(&self) -> Result<u64> {
         let wanted = OPEN_ACTIONS.map(terms::action_state);
@@ -974,6 +1018,26 @@ impl Kernel {
             .iter()
             .map(|r| Ok((r.position, r.decode()?)))
             .collect()
+    }
+
+    /// Every action not settled, with the WAL position of its record, from
+    /// the store's terms (theseus-id8d): the push's seed, which reads no
+    /// settled action.
+    pub fn open_actions_at(&self) -> Result<Vec<(u64, Action)>> {
+        let open = OPEN_ACTIONS.map(|s| terms::one(&terms::action_state(s)));
+        self.records_by(kinds::ACTION, &open)?
+            .iter()
+            .map(|r| Ok((r.position, r.decode()?)))
+            .collect()
+    }
+
+    /// The position of the newest action record, settled or not; 0 with none.
+    pub fn newest_action_position(&self) -> Result<u64> {
+        Ok(self
+            .store
+            .tail_of_kind(kinds::ACTION, 1)?
+            .first()
+            .map_or(0, |r| r.position))
     }
 
     /// An execution as stored, decoded as `executions` decodes it (a unit

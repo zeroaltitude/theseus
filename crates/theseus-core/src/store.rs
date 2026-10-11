@@ -45,9 +45,10 @@ use crate::node_cache::NodeCache;
 /// health adds up (sessions, turns, the five token counts, the cost), the
 /// term `e` while it holds external text, and an imported session's book
 /// terms (`books::session_terms`, theseus-civ0). A change to what these say
-/// renames it, and every store builds them again once, after serving.
+/// renames it, and every store builds them again once, after serving
+/// (`projection.core.3`: the kernel's `ot`, a task not ended, theseus-id8d).
 pub static PROJECTION: Projection = Projection {
-    name: "projection.core.2",
+    name: "projection.core.3",
     kinds: &[kinds::EXECUTION, kinds::ACTION, kinds::SESSION],
     terms: terms_of,
     sums: sums_of,
