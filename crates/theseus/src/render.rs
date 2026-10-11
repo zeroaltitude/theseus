@@ -21,6 +21,7 @@ use theseus_protocol::{
 mod aws;
 mod cancel;
 mod catalog;
+pub mod cite;
 mod failed;
 mod flight;
 pub mod history;

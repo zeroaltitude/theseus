@@ -5,7 +5,7 @@ import { useSearchParams } from 'react-router'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Bot, Brain, ChevronRight, CircleCheck, CornerDownRight, KeyRound, OctagonX, ScanSearch, Shield, ShieldCheck, Undo2, User, Wrench, X } from 'lucide-react'
-import type { Health, NodeInfo, PublishResult, Tightening } from '@protocol'
+import type { Citation, Health, NodeInfo, PublishResult, Tightening } from '@protocol'
 import { useTick } from '@/lib/hooks'
 import { call, useRpc } from '@/lib/rpc'
 import { useWorld } from '@/lib/world'
@@ -21,6 +21,7 @@ import { ShouldHaveAsked } from './ShouldHaveAsked'
 import { scoreWords, type Noticed, type Score } from '@/lib/scores'
 import { JudgmentLabels } from '@/components/JudgmentLabels'
 import { authorWord } from '@/ship/words'
+import { ReplyMarkdown } from '@/components/Cites'
 
 type D = Record<string, any>
 
@@ -63,8 +64,10 @@ function items(nodes: NodeInfo[]): Item[] {
 /** What a session's current turn is doing that no node holds yet: the streamed text and thinking, and the tools running. */
 export interface LiveTurn { turn_id: string; text: string; thinking?: string; running?: { id: string; tool: string; startedAt: number }[] }
 
-export function Transcript({ nodes, turns, live, asking, tightened, scores, noticed, drafts }: {
+export function Transcript({ nodes, turns, live, asking, tightened, scores, noticed, drafts, cites }: {
   nodes: NodeInfo[]; turns: Map<string, TurnRow>; live?: LiveTurn | null
+  /** The sources the session's replies cite (`session.history`'s `cites`). */
+  cites?: Citation[]
   /** The correlation ids of the calls waiting for the operator, and the tools "should have asked" tightened. */
   asking?: Set<string>; tightened?: Map<string, Tightening>
   /** Each notified call's score, by its correlation id (M5 step 24). */
@@ -120,7 +123,7 @@ export function Transcript({ nodes, turns, live, asking, tightened, scores, noti
             <div className="flex flex-col gap-2">
               {g.turn_id && !g.items.some((it) => it.kind === 'user') && <Continuation late={late.get(g.turn_id) ?? []} callOf={callOf} />}
               {g.items.map((it) => it.kind === 'user' ? <UserItem key={it.node.node_id} n={it.node} />
-                : it.kind === 'assistant' ? <AssistantItem key={it.node.node_id} n={it.node} />
+                : it.kind === 'assistant' ? <AssistantItem key={it.node.node_id} n={it.node} cites={cites} />
                 : it.kind === 'queued' ? (waits && it.use ? <QueuedItem key={`${it.node.node_id}:${it.use.id}`} at={it.node.at_unix_ms} use={it.use} /> : null)
                 : <ToolItem key={it.node.node_id} call={it.node} result={it.result} asking={asking} tightened={tightened} scores={scores} noticed={noticed} />)}
               {running && live && <LiveItem live={live} />}
@@ -266,7 +269,7 @@ function PublishControl({ nodeId }: { nodeId: string }) {
   )
 }
 
-function AssistantItem({ n }: { n: NodeInfo }) {
+function AssistantItem({ n, cites }: { n: NodeInfo; cites?: Citation[] }) {
   const d = (n.detail ?? {}) as D
   const [think, setThink] = useState(false)
   const [params, setParams] = useSearchParams()
@@ -287,7 +290,7 @@ function AssistantItem({ n }: { n: NodeInfo }) {
           </button>
         )}
         {think && n.thinking && <div className="mb-2 whitespace-pre-wrap rounded-md bg-think/5 px-2.5 py-1.5 text-[12px] italic text-ink-dim ring-1 ring-think/15">{n.thinking}</div>}
-        {n.text ? <div className="md text-[13px] text-ink"><Markdown remarkPlugins={[remarkGfm]}>{n.text}</Markdown></div>
+        {n.text ? <ReplyMarkdown text={n.text} cites={cites} />
           : !n.thinking && <div className="text-[12px] text-ink-faint">(no text: tool calls only)</div>}
         <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-ink-faint">
           {d.model && <span className="num text-model">{d.model}</span>}

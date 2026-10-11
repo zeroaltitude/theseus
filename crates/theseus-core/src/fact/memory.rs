@@ -111,3 +111,26 @@ impl Fact for MemoryUsed<'_> {
         })
     }
 }
+
+/// A reply's citation (theseus-ejdk): a handle the reply wrote that the
+/// turn's recall gave, resolved to the node it names. One row a handle,
+/// scoped `recall:<session>` beside the turn's `memory.used` rows. A handle
+/// the turn was not given is no citation and has no row.
+pub struct MemoryCited<'a> {
+    pub recall_id: &'a str,
+    /// `m:a1b2c3`, as the reply wrote it between brackets.
+    pub handle: &'a str,
+    pub node_id: &'a str,
+    pub source_session: &'a str,
+}
+
+impl Fact for MemoryCited<'_> {
+    const KIND: Option<LedgerKind> = Some(LedgerKind::MemoryCited);
+
+    fn row(&self) -> Value {
+        json!({
+            "recall_id": self.recall_id, "handle": self.handle, "node_id": self.node_id,
+            "source_session": self.source_session,
+        })
+    }
+}

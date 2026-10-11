@@ -1137,6 +1137,7 @@ impl Core {
         page.nodes = crate::import::shown(&self.store, std::mem::take(&mut page.nodes))?;
         let known = cards.as_deref().unwrap_or(&page.nodes);
         let asks = self.pending_by_execution(&mine, Some((&p.session_id, known)));
+        let cites = self.page_cites(&p.session_id, &page.nodes)?;
         Ok(theseus_protocol::SessionHistoryResult {
             session: self.session_info(&rec, &asks),
             pending_confirms: self.confirms_of(&pending, &rec, known),
@@ -1147,6 +1148,7 @@ impl Core {
                 .collect(),
             next: page.next,
             older: page.older,
+            cites,
         })
     }
 

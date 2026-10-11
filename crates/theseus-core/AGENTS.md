@@ -758,6 +758,24 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     its writers). The arms' seam: `Memory::science_for(arm)` and `Scene.science`; every arm but `+synthesis`
     leaves the harness session out before the index's top k (`Memory::begin`'s `exclude_sessions`), and the
     pipeline drops a synthesis as `arm` or `unchecked` (`MemoryScience::synthesis`). Tests: `tests_consolidate.rs`.
+- **Replies that cite what they remember** (theseus-ejdk, provable-memory-a): `recall/cite.rs`, `turn/cite_step.rs`,
+  `rpc/cites.rs`; the pure parts are `theseus_protocol::cite`. Each recalled item's frozen header begins with a
+  handle, `[m:a1b2c3]`: the last six characters of its node's id (what `theseus history` prints after the prefix),
+  grown by the fewest characters that make every id of the pack distinct (`cite::handles_for`; an imported id ends
+  `_<index>`, so a handle's characters are letters, digits and `_`). A header recalled before handles has none and is
+  never cited. The system header's assembly note ends "When you state something from recalled testimony, cite its
+  handle." (one sentence, no new breakpoint). At the turn's end `cite_reply` reads the handles in the reply
+  (`handles_in`) against the turn's own `Recall` items (`Recalled.items`, kept while `count` is above zero: a detour
+  or an unassembled section clears it): a handle the turn was not given is text, and each one it was given is a
+  `memory.cited` row (scope `recall:<session>`, beside `memory.used`: recall id, handle, node, source session) in the
+  turn's next frame, and a `Citation` in the result's `cites` (the reply's post carries it in its footer's `result`).
+  `TurnRunner::citation` builds one: the frozen header, the source's excerpt over the range recall showed (600
+  characters), and, for a person's Discord message, where it was said: the turn's `reply_to` rides in the input's
+  own frame as the META record `msg.origin.<node id>` (no store format change; no row of its own). **A shared place
+  never cites a private or imported source**: `citation(item, shared)` returns none for one, and a shared session's
+  `memory.cites` and `session.history` leave it out; the handle stays text. `memory.cites` (`rpc/cites.rs`) resolves
+  handles in a session's own `Recall` nodes, newest first; `session.history`'s `cites` does the same for the
+  replies on its page. Citations only show: no Jev call, no frame, no ping. Tests: `tests_cite.rs`.
 - **The import** (theseus-0lrr.6, the soul migration): `import/`. An outside pipeline's episode files (JSON Lines,
   format 1: `import/episode.rs`, every field from the format's lists and the hash over Python's canonical JSON, both
   string forms, `py_float`) become **imported sessions**: a `SessionRecord` with `imported` (`ImportedFrom`: tag,

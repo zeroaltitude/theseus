@@ -344,7 +344,7 @@ impl Core {
             method::INDEX_QUERY => reply(self.index_query(parse(params)?).await?),
             // Recall (M6 30a): the pipeline for a query, and a session's recalls.
             method::MEMORY_SEARCH => reply(self.memory_search(parse(params)?).await?),
-            method::MEMORY_RECALLS => reply(self.memory_recalls(parse(params)?)?),
+            m @ (method::MEMORY_RECALLS | method::MEMORY_CITES) => self.memory_reads(m, params),
             method::MEMORY_LABEL => route(params, |p| self.rpc_memory_label(p, conn)),
             // Jev's judgments (M5 23b): their rows, and one with its state.
             method::JUDGE_LIST | method::JUDGE_GET => self.rpc_reads(&req.method, params),

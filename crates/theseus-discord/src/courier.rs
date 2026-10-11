@@ -840,7 +840,7 @@ impl Lane {
         }
         let event = policy::of_reply(body);
         let mut answers = event == Event::Answer && owed;
-        let writes = parts
+        let mut writes: Vec<Write> = parts
             .into_iter()
             .map(|(key, content)| {
                 self.seal(&key);
@@ -865,10 +865,36 @@ impl Lane {
                 }
             })
             .collect();
+        // The sources the reply cites open from a row under its last message
+        // (theseus-ejdk).
+        if let Some(r) = &result {
+            let (_, order) = render::cite::marked(&texts, &r.cites);
+            let srcs = render::cite::sources(&order, |d| self.source_link(d));
+            if let (Some(last), false) = (writes.last_mut(), srcs.is_empty()) {
+                last.buttons = Buttons::Sources(r.session_id.clone(), srcs);
+            }
+        }
         Plan {
             writes,
             extra: json!({"turn_id": turn_id}),
         }
+    }
+
+    /// A cited Discord message's link, when this binding can name its place:
+    /// a bound channel's guild, or this lane's own DM.
+    fn source_link(&self, d: &theseus_protocol::cite::DiscordSource) -> Option<String> {
+        if let Some(id) = d.target.strip_prefix("discord:channel:") {
+            let guild = self.shared.place_bits.get(&format!("channel:{id}")).guild?;
+            return Some(render::cite::jump_link(
+                Some(&guild),
+                id.parse().ok()?,
+                &d.message_id,
+            ));
+        }
+        let own = d.target == self.target && self.target.starts_with("discord:dm:");
+        own.then_some(self.channel)
+            .flatten()
+            .map(|c| render::cite::jump_link(None, c, &d.message_id))
     }
 
     /// A confirm card, where its route says: here, in a trusted DM with a
@@ -1392,6 +1418,7 @@ impl Lane {
             Buttons::Accept(corr) => crate::runtime::accept_buttons(corr),
             Buttons::ShouldHaveAsked(options) => asked_menu(options),
             Buttons::JevLabel(judgment) => crate::runtime::jev_buttons(judgment),
+            Buttons::Sources(session, srcs) => crate::runtime::source_buttons(session, srcs),
             Buttons::Clear | Buttons::Keep => vec![],
         };
         if !comps.is_empty() {
@@ -1448,6 +1475,7 @@ impl Lane {
             Buttons::Accept(corr) => Some(crate::runtime::accept_buttons(corr)),
             Buttons::ShouldHaveAsked(options) => Some(asked_menu(options)),
             Buttons::JevLabel(judgment) => Some(crate::runtime::jev_buttons(judgment)),
+            Buttons::Sources(session, srcs) => Some(crate::runtime::source_buttons(session, srcs)),
             Buttons::Clear => Some(vec![]),
             Buttons::Keep => None,
         };

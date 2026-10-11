@@ -30,6 +30,8 @@ pub mod render;
 pub mod rpc_client;
 mod runtime;
 #[cfg(test)]
+mod tests_cite;
+#[cfg(test)]
 mod tests_gateway;
 #[cfg(test)]
 mod tests_live;

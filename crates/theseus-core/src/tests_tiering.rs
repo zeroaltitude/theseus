@@ -126,6 +126,8 @@ async fn turn_with(core: &Arc<Core>, sid: &str, input: &str, recompile: Option<R
 /// Ids (`ses_` and 32 hex digits) as the order they first appear in, and
 /// clock times as `<time>`: two cores' runs of one script then compare.
 fn normalized(s: &str) -> String {
+    // A handle is its node's id's end (theseus-ejdk): another run's.
+    let s = &theseus_protocol::cite::rewrite(s, |_| Some("[m:H]".into()));
     let b = s.as_bytes();
     let (mut out, mut seen) = (String::new(), Vec::<String>::new());
     let mut i = 0;

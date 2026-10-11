@@ -172,6 +172,7 @@ ledger_kinds! {
     McpStarted = "mcp.started",
     McpToolsChanged = "mcp.tools_changed",
     MemoryArm = "memory.arm",
+    MemoryCited = "memory.cited",
     MemoryGated = "memory.gated",
     MemoryLabel = "memory.label",
     MemoryLabeled = "memory.labeled",

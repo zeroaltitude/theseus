@@ -66,6 +66,10 @@ build.
   pure parts are `src/lib/explorer.ts`, tested by `test/explorer.test.ts`. The Ship's vessel panel and the session
   deck's Context tab link to it (`contextHref`). Personal and partner-confidential text is veiled on screen until
   opened (`?veil=off` lifts it); the daemon gives imported text only to a private place.
+- A reply's citations (theseus-ejdk): `src/lib/cites.ts` (pure: the handles in a reply, the numbered marks, the card's words; `test/cites.test.ts`) and `src/components/Cites.tsx`
+  (`ReplyMarkdown`: the reply as markdown with each cited handle a mark linking to its source's session, with a hover card of
+  the source's header, excerpt and the command that opens it). The sources are `session.history`'s `cites`; a handle with no
+  source (a shared place's private one, or one the turn was not given) stays text.
 - The route footer (theseus-q31l): `src/components/RouteFooter.tsx`, under the composer after a turn it sent,
   `routed: quick · haiku` and the owner's one-tap correction (⬆ stronger, ⬇ cheaper, or a profile), each confirmed and
   `route.correct`; the live correction layer is Judgment's Corrections panel (`src/components/Corrections.tsx`, over

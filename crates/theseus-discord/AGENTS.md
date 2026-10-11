@@ -74,6 +74,13 @@ Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
   owner handle (`places::owner_anywhere`); anyone else's is refused and ledgered there. The week's self digest is a `self_digest` post, to the
   owner's DM alone (`jev_post`).
 
+- **A reply's cited sources** (theseus-ejdk, `render/cite.rs`, `render/reply.rs`, `runtime/source.rs`): the reply's
+  `result.cites` (the core leaves out what a shared place may not show) become numbered marks in its text, `-#`
+  footnotes under its last text part (above the footer), and one row of buttons on its last message: `Open [n]`, a
+  link to the original message when the source was a Discord message in a bound channel (or this lane's own DM), else
+  `Show source [n]` (`src:<session>:<handle>`), whose press asks `memory.cites` and answers the presser alone,
+  ephemerally, with the excerpt. This binding uses classic components, not Components V2, so `-#` text and an action
+  row are the closest equivalent. A reply with no sources is byte-identical to before. Tests: `tests_cite.rs`.
 - **A reaction corrects routing** (theseus-q31l, `runtime/route.rs`): ⬆️ or ⬇️ on one of this process's replies
   (found by message in `Shared.replies`, which the courier fills as a turn's key lands, bounded) is `route.correct` on
   that turn, `stronger` or `cheaper`, with the reactor's place, so the core judges it (the owner, from a private

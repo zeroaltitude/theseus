@@ -22,9 +22,12 @@ use serde_json::Value;
 use theseus_core::outbox::Closed;
 use theseus_protocol::{ConfirmRequest, Event, TurnSubmitResult};
 mod board;
+pub(crate) mod cite;
 mod held;
 pub(crate) mod process;
+mod reply;
 pub use board::{board, tasks_here, BOARD_HEAD, BOARD_KEY};
+pub use reply::{reply_parts, wake_header};
 
 /// Discord's limit is 2000 characters; parts stay under it with room for a fence repair.
 pub const PART_LIMIT: usize = 1900;
@@ -48,6 +51,8 @@ pub enum Buttons {
     JevLabel(String),
     /// Accept and Decline (39b's layer-1 card): Approve's and Decline's ids.
     Accept(String),
+    /// A reply's cited sources, for the session whose recall gave them.
+    Sources(String, Vec<cite::Source>),
     /// Remove every component.
     Clear,
 }
@@ -756,52 +761,6 @@ fn render_turn(t: &TurnView, tightened: &BTreeMap<String, String>, menus: bool) 
 }
 
 // ---------------------------------------------------------------- posts
-
-/// A reply's messages, in order: each loop's text in its final form, under
-/// the keys the stream used, and the footer riding on the last part when it
-/// fits, else standing alone (theseus-q4v).
-pub fn reply_parts(
-    turn_id: &str,
-    texts: &[(u32, String)],
-    result: Option<&TurnSubmitResult>,
-) -> Vec<(String, String)> {
-    let mut out: Vec<(String, String)> = Vec::new();
-    for (li, text) in texts {
-        for (i, part) in split_text(text, PART_LIMIT).into_iter().enumerate() {
-            out.push((format!("{turn_id}:L{li}:p{i}"), part));
-        }
-    }
-    if let Some(f) = result.map(footer) {
-        match out.last_mut() {
-            Some((_, c)) if c.len() + f.len() < DISCORD_LIMIT => {
-                c.push('\n');
-                c.push_str(&f);
-            }
-            _ => out.push((format!("{turn_id}:footer"), f)),
-        }
-    }
-    out
-}
-
-/// A wake's turn (DD8): its reply opens with each wake's line, so the place
-/// sees why Theseus spoke unasked, and so does a turn a task's report started
-/// (W1: `📋 task a1b2c3 reported`). The lines ride on the first part when
-/// they fit; the session's history has them either way.
-pub fn wake_header(parts: &mut [(String, String)], wakes: &[String]) {
-    if wakes.is_empty() {
-        return;
-    }
-    let head = wakes
-        .iter()
-        .map(|w| format!("-# {}", clip(w, 300)))
-        .collect::<Vec<_>>()
-        .join("\n");
-    if let Some((_, first)) = parts.first_mut() {
-        if first.len() + head.len() < DISCORD_LIMIT {
-            *first = format!("{head}\n{first}");
-        }
-    }
-}
 
 /// This place's pending wakes (DD8), as `/wakes` lists them: the soonest
 /// ten, each with its time in the reader's own zone and its note. A series

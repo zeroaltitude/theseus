@@ -53,11 +53,13 @@ use crate::viewers;
 mod audience;
 mod board;
 pub(crate) use board::accept_buttons;
+pub(crate) use source::source_buttons;
 mod extensions;
 mod guilds;
 mod halt;
 mod jev;
 mod live;
+mod source;
 pub(crate) use jev::{
     buttons as jev_buttons, labeled_text as jev_labeled_text, notice_text as jev_notice_text,
 };
@@ -596,7 +598,7 @@ pub(crate) struct Shared {
     retired: Mutex<std::collections::HashSet<String>>,
     voice: voice::Voice,
     /// Each place's guild and ceiling (step 38a).
-    place_bits: guilds::PlaceBits,
+    pub(crate) place_bits: guilds::PlaceBits,
     /// The replies posted, by message, for a reaction to find (theseus-q31l).
     pub(crate) replies: route::Replies,
     /// Each place's ping words, and its window's last pings (theseus-l1y1).

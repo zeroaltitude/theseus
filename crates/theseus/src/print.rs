@@ -46,6 +46,9 @@ pub struct Printer<O: Write = Stdout, E: Write = Stderr> {
     thinking_open: bool,
     /// The calls in flight, so a `←` line can name its call (theseus-d1hi).
     flight: render::Flight,
+    /// The reply's handles as numbered marks, once `mark_cites` turns it on
+    /// (theseus-ejdk).
+    marker: Option<render::cite::Marker>,
 }
 
 impl Printer {
@@ -78,7 +81,27 @@ impl<O: Write, E: Write> Printer<O, E> {
             stdout_mid_line: false,
             thinking_open: false,
             flight: render::Flight::default(),
+            marker: None,
         }
+    }
+
+    /// Show the reply's handles (`[m:a1b2c3]`) as numbered marks as the text
+    /// streams, for `footnotes` to explain once the turn ends (theseus-ejdk).
+    pub fn mark_cites(&mut self) {
+        self.marker = Some(render::cite::Marker::default());
+    }
+
+    /// The footnote block under a reply: each mark's source, with the
+    /// command that opens it. Nothing when no handle streamed past.
+    pub fn footnotes(&mut self, cites: &[theseus_protocol::cite::Citation]) {
+        self.settle();
+        let Some(m) = self.marker.as_ref().filter(|m| !m.is_empty()) else {
+            return;
+        };
+        for l in m.notes(cites) {
+            let _ = writeln!(self.out, "{}", l.text);
+        }
+        let _ = self.out.flush();
     }
 
     /// What it wrote to `out` and to `err`.
@@ -89,6 +112,12 @@ impl<O: Write, E: Write> Printer<O, E> {
 
     /// Finish a partial stdout line or thinking run before an event line.
     pub fn settle(&mut self) {
+        if let Some(rest) = self.marker.as_mut().map(render::cite::Marker::finish) {
+            if !rest.is_empty() {
+                let _ = self.out.write_all(rest.as_bytes());
+                self.stdout_mid_line = !rest.ends_with('\n');
+            }
+        }
         if self.thinking_open {
             let _ = writeln!(self.err);
             self.thinking_open = false;
@@ -126,10 +155,14 @@ impl<O: Write, E: Write> Printer<O, E> {
                     let _ = writeln!(self.err);
                     self.thinking_open = false;
                 }
-                let _ = self.out.write_all(line.text.as_bytes());
+                let shown = match self.marker.as_mut() {
+                    Some(m) => m.push(&line.text),
+                    None => line.text.clone(),
+                };
+                let _ = self.out.write_all(shown.as_bytes());
                 let _ = self.out.flush();
-                if !line.text.is_empty() {
-                    self.stdout_mid_line = !line.text.ends_with('\n');
+                if !shown.is_empty() {
+                    self.stdout_mid_line = !shown.ends_with('\n');
                 }
             }
             Tag::Thinking => {

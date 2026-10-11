@@ -161,7 +161,7 @@ function SessionDeck({ id }: { id: string }) {
             <div className="flex h-full min-h-0 flex-col">
               <div className="relative min-h-0 flex-1">
                 <Follow deps={[nodes.length, live?.text, drafts.length]}>
-                  <Transcript nodes={nodes} turns={turnMap} live={live} asking={asking} tightened={tightened} scores={scores} noticed={noticed} drafts={asOf === null ? drafts : undefined} />
+                  <Transcript nodes={nodes} cites={hist.cites} turns={turnMap} live={live} asking={asking} tightened={tightened} scores={scores} noticed={noticed} drafts={asOf === null ? drafts : undefined} />
                   {!nodes.length && !live && !drafts.length && <Empty>{s.turns > 0 ? `This session's ${s.turns} turn${s.turns === 1 ? '' : 's'} ran before Theseus kept what was said (conversation content is stored from M3 on). Only their numbers survive: timings, tokens, and any error are in its ledger rows.` : 'This session has no messages yet.'}</Empty>}
                 </Follow>
               </div>

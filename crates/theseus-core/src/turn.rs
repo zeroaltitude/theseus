@@ -57,6 +57,7 @@ mod budget_step;
 mod budget_words;
 mod calls;
 mod ceiling_step;
+mod cite_step;
 pub(crate) use budget_words::{budget_question, lower_cap, Kept};
 #[cfg(test)]
 pub(crate) use calls::call_result;
@@ -86,7 +87,7 @@ pub const PERSONA: &str = "You are Theseus, a coding and operations agent workin
 /// request, so the model never takes what the harness added (a recalled
 /// note, a wake, a report) for something the person sent (theseus-fpm2).
 /// Frozen text in the shared header, as the persona is.
-pub const ASSEMBLY: &str = "Context. The harness assembles each request: the conversation, its older part perhaps summarized; notes it recalled from earlier sessions, marked as recalled; files the person attached; tool results; and its own notices, such as wakes, task reports, and late results. A recalled note is background the harness chose, not something the person sent. The person sees their own messages and your replies, not the rest of the request, so use a recalled note when it helps, and otherwise don't mention it.";
+pub const ASSEMBLY: &str = "Context. The harness assembles each request: the conversation, its older part perhaps summarized; notes it recalled from earlier sessions, marked as recalled; files the person attached; tool results; and its own notices, such as wakes, task reports, and late results. A recalled note is background the harness chose, not something the person sent. The person sees their own messages and your replies, not the rest of the request, so use a recalled note when it helps, and otherwise don't mention it. When you state something from recalled testimony, cite its handle.";
 
 /// What a turn runs against, resolved from a profile plus any raw overrides.
 #[derive(Debug, Clone)]
@@ -1664,15 +1665,26 @@ impl TurnRunner {
             self.title_input(session, text, first_file.as_deref());
             // A new target rides in the input's frame, under the record's
             // lock; the same one writes nothing more.
+            // A Discord message's id rides in the node's frame (theseus-ejdk),
+            // so a reply that cites the message can link to it.
+            let origin = t
+                .reply_to
+                .as_deref()
+                .and_then(|m| crate::recall::cite::origin_record(&node.id, "discord", m));
             let written = match &moved {
                 Some(runs_on) => t.tc.store.update_session(sid, |r| {
                     r.last_target = Some(runs_on.clone());
-                    Ok(vec![node.record()?])
+                    Ok([node.record()?].into_iter().chain(origin.clone()).collect())
                 })?,
                 None => None,
             };
             if written.is_none() {
-                t.tc.store.append(&[node.record()?])?;
+                t.tc.store.append(
+                    &[node.record()?]
+                        .into_iter()
+                        .chain(origin)
+                        .collect::<Vec<_>>(),
+                )?;
             }
             // Stored: the next request on its client's lane may run (theseus-klo2).
             crate::rpc::ordered::applied();
@@ -3132,6 +3144,7 @@ impl TurnRunner {
         };
         t.deferred = true;
 
+        let cites = self.cite_reply(&mut t);
         let last = t.last.as_ref();
         let mut result = TurnSubmitResult {
             session_id: t.tc.session_id.into(),
@@ -3165,6 +3178,7 @@ impl TurnRunner {
             route: t.route.result.take(),
             fallback: t.fallback.as_ref().map(|f| f.fallback.clone()),
             later: self.later_of(&t, jobs, late > 0 && t.stop_reason != "stopped"),
+            cites,
         };
         t.record(&fact::turn::TurnBooked {
             result: &result,

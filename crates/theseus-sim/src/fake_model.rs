@@ -226,11 +226,17 @@ pub fn last_user_text(req: &Value) -> String {
 }
 
 /// What the first rule `text` holds says: its calls, or its text; with none,
-/// a plain answer.
+/// a plain answer. A rule's text may hold `{handle}`, which becomes the first
+/// recalled handle in `text` (`m:a1b2c3`, theseus-ejdk), so a live check can
+/// have the model cite what its recall gave it.
 pub fn ruled_turn(rules: &[Rule], text: &str) -> Vec<Value> {
     match rules.iter().find(|r| text.contains(&r.when)) {
         Some(r) if !r.calls.is_empty() => calls_turn(&r.calls),
-        Some(r) => text_turn(r.text.as_deref().unwrap_or("Done.")),
+        Some(r) => {
+            let handle = theseus_protocol::cite::handles_in(text).into_iter().next();
+            let said = r.text.as_deref().unwrap_or("Done.");
+            text_turn(&said.replace("{handle}", handle.as_deref().unwrap_or("m:none00")))
+        }
         None => text_turn("A plain answer from the stand-in model."),
     }
 }
@@ -357,6 +363,26 @@ mod tests {
             "A plain answer from the stand-in model."
         );
         assert!(serde_json::from_value::<Vec<Rule>>(json!([{"when": "x", "cals": []}])).is_err());
+    }
+
+    /// A rule's `{handle}` is the first handle the turn's recall gave the
+    /// model (theseus-ejdk), so a live check has it cite its recall; with
+    /// none in the turn it is `m:none00`.
+    #[test]
+    fn a_rules_text_cites_the_first_recalled_handle() {
+        let rules: Vec<Rule> = serde_json::from_value(json!([
+            {"when": "oak", "text": "We chose oak [{handle}]."}
+        ]))
+        .unwrap();
+        let noted = "What did we choose about oak?\n[Recalled by the harness: 1 note.]\n(1) [m:a1b2c3] a message from ana";
+        assert_eq!(
+            ruled_turn(&rules, noted)[2]["delta"]["text"],
+            "We chose oak [m:a1b2c3]."
+        );
+        assert_eq!(
+            ruled_turn(&rules, "oak?")[2]["delta"]["text"],
+            "We chose oak [m:none00]."
+        );
     }
 
     /// A rule's `hold_ms` holds its answer that long, and holds no other

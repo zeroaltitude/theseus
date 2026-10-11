@@ -99,6 +99,9 @@ pub(crate) async fn stream_turn(
         (false, false) => Mode::Quiet,
     };
     let mut printer = Printer::new(mode, thinking);
+    if stream {
+        printer.mark_cites();
+    }
     let mut signalled = false;
     // Under --spawn, one listener for the turn and its follow, so no signal
     // falls between them.
@@ -136,8 +139,12 @@ pub(crate) async fn stream_turn(
     if json {
         println!("{}", serde_json::to_string(&result)?);
     } else {
-        if !stream {
-            println!("{}", r.output);
+        if stream {
+            printer.footnotes(&r.cites);
+        } else {
+            let (text, order) = render::cite::mark(&r.output, &r.cites);
+            println!("{text}");
+            print::lines(&mut io::stdout(), &render::cite::footnotes(&order))?;
         }
         // A refusal's fallback says so in a line of its own (theseus-7gir.18).
         if let Some(line) = render::fallback_line(&r) {
@@ -258,6 +265,9 @@ pub async fn history(
     (n, after, before): (Option<usize>, Option<u64>, Option<u64>),
     full: bool,
 ) -> Result<()> {
+    if let Some(handle) = session.as_deref().and_then(crate::cite::handle_of) {
+        return crate::cite::open(conn, json, handle).await;
+    }
     let session_id = match session {
         Some(s) => resolve::session(conn, &s).await?,
         None => latest_session(conn).await?,
@@ -279,7 +289,13 @@ pub async fn history(
         let mut out = io::stdout().lock();
         writeln!(out, "{}", render::session_header(&h.session))?;
         for node in &h.nodes {
-            print::lines(&mut out, &render::history::node_lines(node, full))?;
+            match render::cite::cited_node(node, &h.cites) {
+                Some((marked, notes)) => {
+                    print::lines(&mut out, &render::history::node_lines(&marked, full))?;
+                    print::lines(&mut out, &notes)?;
+                }
+                None => print::lines(&mut out, &render::history::node_lines(node, full))?,
+            }
         }
         for c in &h.pending_confirms {
             print::lines(&mut out, &render::confirm_lines(c))?;
