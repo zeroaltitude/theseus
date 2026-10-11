@@ -872,7 +872,11 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   spend past the limit, or a multiple of it (`crossed`), posts one `notice` to the session's place, a
   `budget.reached` row and a narrative line, all in the turn's next frame; `[profiles.*] max_loops_mode = "notify"`
   does the same at `max_loops` and each multiple (`loop.cap_reached`), and the turn goes on. `"ask"` and `"end"`
-  are the old behaviour. Still asking: a pinned limit (a place's ceiling, an MCP client's), an AWS hands group, and
+  are the old behaviour. A multiple is noticed at the check after the settle that crossed it (each loop's start and
+  its call's settle, whatever the call's outcome, against `SpendMarks`, the spend each execution's last check saw, in
+  memory), never skipped to the next. At `[kernel] spend_limit_hard_multiple` (10; 0 never) times the limit the
+  kernel refuses a provider call whose reservation would pass it (`KernelError::HardStop`, `overdraw.rs`), and the
+  turn fails `spend_hard_stop` with the stop's words (theseus-jse4; tests `tests_money.rs`). Still asking: a pinned limit (a place's ceiling, an MCP client's), an AWS hands group, and
   the background day caps. Under notify a task's carve is what it asked for up to the parent's whole limit, and
   speech and transcripts are not refused for the limit. The budget question's words are `turn/budget_words.rs`.
   Tests: `tests_limits_notify.rs`, and the kernel's `tests_overdraw.rs`.

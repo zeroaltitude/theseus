@@ -58,6 +58,13 @@ pub(super) fn default_spend_limit_usd() -> f64 {
     100.0
 }
 
+/// `[kernel] spend_limit_hard_multiple` (theseus-jse4): under notify, a
+/// session's calls stop anyway at 10 times its limit, so a stuck loop has a
+/// bound no owner has to watch for. 0 never stops.
+pub(super) fn default_hard_multiple() -> u64 {
+    theseus_kernel::default_hard_multiple()
+}
+
 /// `[kernel] daily_spend_ceiling_usd` (theseus-kp20): the daemon's backstop
 /// over every model call it makes in a local day, $200 (the owner,
 /// 2026-10-08: "It's OK as long as it's high -- like 200 per day"). No mode:

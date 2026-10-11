@@ -53,7 +53,7 @@ use crate::toolrun::{Call, CallOutcome, ToolRuntime, TurnCtx};
 use crate::trace::Trace;
 use crate::Config;
 
-mod budget_step;
+pub(crate) mod budget_step;
 mod budget_words;
 mod calls;
 mod ceiling_step;
@@ -170,6 +170,8 @@ pub struct TurnRunner {
     pub run_compiles: situation::RunCompiles,
     /// Who retries a failed turn: the driver, or a `--stdio` daemon's client.
     pub failed_turns: stdio_step::FailedTurns,
+    /// Each execution's spend at its last check (theseus-jse4).
+    pub(crate) spend_marks: budget_step::SpendMarks,
 }
 
 /// What a `/stop` tells the turn that holds its execution while the model's
@@ -1780,13 +1782,16 @@ impl TurnRunner {
                 retrying = Some(o);
             }
             let said_before = (t.output.len(), t.said.len());
-            let spent_before = Self::spent_before(t);
+            self.spend_checked(t, session)?;
             let on = routed_to.as_deref().unwrap_or(provider);
             let called = self.call_model(t, on, &compiled, i).await;
             if let Some(r) = recall {
                 self.recall_end(t, r).await;
             }
-            let (resp, node) = match called? {
+            let called = called?;
+            // A multiple the call's settle crossed, whatever its outcome (theseus-jse4).
+            self.spend_checked(t, session)?;
+            let (resp, node) = match called {
                 Called::Answered(called) => *called,
                 Called::Failed(failure) => {
                     if self.retry_after(t, &failure, &mut retried).await? {
@@ -1850,7 +1855,6 @@ impl TurnRunner {
                 }
             };
             Self::fallback_answered(t, &resp);
-            self.spend_noticed(t, session, spent_before)?;
             let uses = resp.tool_uses();
             // A call that fit: a later one over the limit asks again.
             t.retry_over_limit = false;
@@ -2243,6 +2247,9 @@ impl TurnRunner {
                 }
                 if let Some(KernelError::DayCeiling(r)) = e.downcast_ref::<KernelError>() {
                     return Ok(Called::Failed(self.day_ceiling_failed(t, r)));
+                }
+                if let Some(KernelError::HardStop(h)) = e.downcast_ref::<KernelError>() {
+                    return Ok(Called::Failed(Self::hard_stopped(t, h)));
                 }
                 t.record(&fact::turn::ModelNotPlanned {
                     model: &target.model,

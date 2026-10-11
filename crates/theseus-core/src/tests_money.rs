@@ -1,7 +1,10 @@
-//! Money (theseus-3p36): a call a stop cut is booked with its input split as
-//! its request was sent (`turn/cut_step.rs`), the previous call's cache at
-//! the read price, under the old all-plain-input figure and never past its
-//! reservation, and with nothing cached as before.
+//! Money (theseus-3p36, theseus-jse4): a call a stop cut is booked with its
+//! input split as its request was sent (`turn/cut_step.rs`), the previous
+//! call's cache at the read price, under the old all-plain-input figure and
+//! never past its reservation, and with nothing cached as before; a limit
+//! that notifies stops at its hard multiple with its own words
+//! (`[kernel] spend_limit_hard_multiple`); and a multiple is noticed at the
+//! settle that crosses it, a cut call's too.
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -20,6 +23,7 @@ use crate::turn::TurnRequest;
 use crate::{Config, Core};
 
 const PLACE: &str = "dm:5521";
+const TARGET: &str = "discord:dm:5521";
 const STOPPER: &str = "discord:zeroaltitude";
 
 /// The scripted answers, in order, except the call numbered `hold` (from 0),
@@ -62,6 +66,16 @@ fn diffing(n: usize, usage: Usage) -> Scripted {
                 json!({"a": "x\n", "b": "y\n"}),
             )],
         )),
+    }
+}
+
+/// 2,000 tokens in and 30,000 out: about $0.304 on the template's live
+/// profile, whose reservation is past $1.28.
+fn plain() -> Usage {
+    Usage {
+        input_tokens: 2_000,
+        output_tokens: 30_000,
+        ..Usage::default()
     }
 }
 
@@ -122,6 +136,21 @@ impl Rig {
         let rec: SessionRecord = self.core.store.get_session(&self.sid).unwrap().unwrap();
         let id = rec.execution_id.unwrap();
         self.core.kernel.execution(&id).unwrap().unwrap()
+    }
+
+    fn notices(&self) -> Vec<String> {
+        self.core
+            .outbox
+            .open_for(TARGET)
+            .iter()
+            .filter(|a| crate::outbox::kind_of(a) == "notice")
+            .map(|a| {
+                crate::outbox::body_of(a)["text"]
+                    .as_str()
+                    .unwrap_or("")
+                    .to_string()
+            })
+            .collect()
     }
 
     /// What the cut call's whole input estimate would have cost as plain
@@ -221,4 +250,93 @@ async fn a_cut_with_no_cache_read_prices_as_before() {
     let reserved = theseus_kernel::usd_to_micros(cut["reserved_usd"].as_f64().unwrap());
     assert_eq!(cost, r.plain_figure(&cut).min(reserved));
     assert_eq!(r.exec().budget.spent_micros, cost);
+}
+
+/// theseus-jse4: a $0.50 limit that notifies, and a model that diffs for
+/// ever. The calls go out past the limit, each multiple noticed, until the
+/// next call's reservation would take the spend past ten times the limit:
+/// that call is not made, the turn fails `spend_hard_stop` with the stop's
+/// words, and the spend never passes $5.
+#[tokio::test]
+async fn a_notifying_session_stops_at_ten_times_its_limit() {
+    let script: Vec<Scripted> = (1..=40).map(|n| diffing(n, plain())).collect();
+    let fake = Arc::new(FakeProvider::scripted(script));
+    let r = rig(fake.clone(), |c| c.kernel.spend_limit_usd = 0.50);
+    let err = turn(r.core.clone(), r.sid.clone()).await.unwrap_err();
+    let failed = err.downcast_ref::<crate::turn::TurnError>().unwrap();
+    assert_eq!(failed.class, "spend_hard_stop");
+    let words = format!("{err:#}");
+    assert!(
+        words.contains("hard stop, 10 times its $0.50 limit ($5)")
+            && words.contains("spend_limit_hard_multiple")
+            && words.contains("the call was not made"),
+        "{words}"
+    );
+    let spent = r.exec().budget.spent_micros;
+    assert!(spent <= 5_000_000, "{spent}");
+    let calls = fake.requests().len();
+    assert!(calls >= 10, "{calls} calls went out first");
+    // The refused call's reservation was what would have passed the stop.
+    let planned = r.rows("action.planned");
+    let reserve = theseus_kernel::usd_to_micros(
+        planned
+            .iter()
+            .rev()
+            .find(|p| p["tool"] == "provider.messages")
+            .unwrap()["reserved_usd"]
+            .as_f64()
+            .unwrap(),
+    );
+    assert!(spent + reserve > 5_000_000, "{spent} + {reserve}");
+    assert_eq!(
+        planned
+            .iter()
+            .filter(|p| p["tool"] == "provider.messages")
+            .count(),
+        calls
+    );
+    // Every multiple below the stop was noticed, and each notice names the stop.
+    let multiples: Vec<u64> = r
+        .rows("budget.reached")
+        .iter()
+        .map(|x| x["multiple"].as_u64().unwrap())
+        .collect();
+    assert_eq!(multiples, (1..=(spent / 500_000)).collect::<Vec<_>>());
+    let notices = r.notices();
+    assert!(
+        notices[0].contains("At 10 times the limit, $5, its calls stop"),
+        "{}",
+        notices[0]
+    );
+    // The record says why the turn ended.
+    let failed = r.rows("turn.failed");
+    assert!(
+        failed
+            .iter()
+            .any(|f| f.to_string().contains("spend_hard_stop")),
+        "{failed:?}"
+    );
+}
+
+/// theseus-jse4: a multiple is noticed at the settle that crosses it, a cut
+/// call's too, not at the next multiple: a limit far under one call's input
+/// (and no hard stop), the turn's first call cut by a stop. Its estimate
+/// crosses the limit many times over, and the cut's own settle posts the
+/// notice.
+#[tokio::test]
+async fn a_multiple_crossed_by_a_cut_calls_settle_is_noticed_then() {
+    let (r, cut) = cut_at(0, vec![], |c| {
+        c.kernel.spend_limit_usd = 0.000_1;
+        c.kernel.spend_limit_hard_multiple = 0;
+    })
+    .await;
+    let spent = r.exec().budget.spent_micros;
+    assert_eq!(
+        spent,
+        theseus_kernel::usd_to_micros(cut["cost_usd"].as_f64().unwrap())
+    );
+    let reached = r.rows("budget.reached");
+    assert_eq!(reached.len(), 1, "{reached:?}");
+    assert_eq!(reached[0]["multiple"].as_u64().unwrap(), spent / 100);
+    assert_eq!(r.notices().len(), 1);
 }
