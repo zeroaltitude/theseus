@@ -2055,6 +2055,7 @@ impl Place {
                 .call::<_, TurnSubmitResult>(
                     theseus_protocol::method::TURN_SUBMIT,
                     TurnSubmitParams {
+                        dir: None,
                         carried: false,
                         prompt: None,
                         session_id: Some(sid),
@@ -2924,6 +2925,7 @@ pub(crate) mod tests {
             .call(
                 theseus_protocol::method::TURN_SUBMIT,
                 TurnSubmitParams {
+                    dir: None,
                     carried: false,
                     prompt: None,
                     session_id: Some(sid.clone()),

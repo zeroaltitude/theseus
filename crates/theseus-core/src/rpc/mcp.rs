@@ -184,6 +184,7 @@ impl Core {
         surface: Surface,
         p: SessionOpenParams,
     ) -> Result<theseus_protocol::SessionInfo, RpcFailure> {
+        super::session_dir::check(p.dir.as_deref())?;
         match surface {
             Surface::Mcp => self.mcp_open(p),
             _ => self.session_open(p),

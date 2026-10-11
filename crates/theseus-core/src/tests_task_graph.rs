@@ -396,6 +396,12 @@ async fn a_plan_splits_closes_with_evidence_and_refuses_a_stale_edit() {
         "{view}"
     );
     assert!(view.contains("  - "), "children are indented: {view}");
+    // The conversation's breakpoint moved before the view, not copied: with
+    // the session's block (theseus-aab7) the request holds the provider's
+    // four at most.
+    let body = req.body().to_string();
+    assert!(body.matches("\"cache_control\"").count() <= 4, "{body}");
+    assert!(req.cache_control.is_none(), "moved into the messages");
     let compiled = rows(c, "context.compiled");
     let shown = &compiled.last().unwrap().data["tasks"];
     assert_eq!(

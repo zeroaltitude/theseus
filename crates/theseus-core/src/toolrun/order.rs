@@ -33,6 +33,9 @@ pub(crate) struct At<'a> {
     /// The call's session: a read of its own kept outputs reads as one
     /// inside the roots (theseus-v73m). None for `policy.explain`'s probe.
     pub session: Option<&'a str>,
+    /// What the call's plan was made with: its session's directory
+    /// (theseus-aab7), which a batch's steps are planned in too.
+    pub ctx: &'a theseus_tools::ToolCtx,
 }
 
 /// A layer of the order after the place's refusal, as `order` hands each

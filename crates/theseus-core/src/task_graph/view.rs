@@ -196,9 +196,10 @@ pub fn render_for(
 }
 
 /// Add `view` to the request: the last block of its last message, with the
-/// conversation's breakpoint moved to the block before it.
+/// conversation's breakpoint moved to the block before it: moved, not
+/// copied, since the top-level one takes a slot of the provider's four too,
+/// and the session's block took the last free one (theseus-aab7).
 pub fn attach_to(request: &mut crate::provider::ProviderRequest, view: &View) {
-    let marker = request.cache_control.clone();
     let Some(last) = request.messages.last_mut() else {
         return;
     };
@@ -209,8 +210,10 @@ pub fn attach_to(request: &mut crate::provider::ProviderRequest, view: &View) {
     let Some(blocks) = content.as_array_mut() else {
         return;
     };
-    if let (Some(m), Some(Value::Object(b))) = (marker, blocks.last_mut()) {
-        b.entry("cache_control").or_insert(m);
+    if let Some(Value::Object(b)) = blocks.last_mut() {
+        if let Some(m) = request.cache_control.take() {
+            b.entry("cache_control").or_insert(m);
+        }
     }
     blocks.push(json!({"type": "text", "text": view.text}));
 }

@@ -7,9 +7,10 @@
 //! - the first requests of two sessions carry byte-identical tools and
 //!   system, and differ in nothing but their messages;
 //! - so do the first requests of a session and of the task it starts;
-//! - the system is two blocks (13c): the header (the persona, the tools
-//!   note, the profile's `system`) and the context files, each with its
-//!   breakpoint, and the conversation's is the top-level one;
+//! - the system is three blocks (13c; theseus-aab7): the header (the
+//!   persona, the tools note, the profile's `system`), the context files,
+//!   and the session's directory, each with its breakpoint, and the
+//!   conversation's is the top-level one (a task's, before its view);
 //! - after an edit to a context file, a new session's header block is the
 //!   same bytes, and only its context block changed.
 //!
@@ -242,6 +243,15 @@ fn header_fields(req: &Value) -> Value {
     Value::Object(m)
 }
 
+/// Everything but the messages and the conversation's breakpoint, which a
+/// task's request carries in its messages, on the block before its task
+/// view (moved, so the four breakpoints hold: theseus-aab7).
+fn header_fields_of_a_task(req: &Value) -> Value {
+    let mut m = header_fields(req);
+    m.as_object_mut().unwrap().remove("cache_control");
+    m
+}
+
 /// The first request among `raw` whose first user message `pick` takes.
 fn first_request(raw: &[Vec<u8>], what: &str, pick: &dyn Fn(&str) -> bool) -> (Vec<u8>, Value) {
     raw.iter()
@@ -307,19 +317,31 @@ fn the_first_requests_share_one_header(profile: &str, provider: &str) {
             bytes(&a["system"]),
             bytes(&other["system"])
         );
+        let (mine, theirs) = match what {
+            "the task" => (header_fields_of_a_task(&a), header_fields_of_a_task(other)),
+            _ => (header_fields(&a), header_fields(other)),
+        };
         assert_eq!(
-            header_fields(&a),
-            header_fields(other),
+            mine, theirs,
             "{profile}: a field other than the messages differs from {what}"
         );
     }
+    assert!(
+        bytes(&t["messages"]).contains("cache_control"),
+        "{profile}: the task's conversation breakpoint is in its messages"
+    );
     assert_eq!(task["state"], "complete");
 
-    // Two blocks (13c, theseus-ev1): the header, then the context files,
-    // each with its breakpoint; the conversation's is the top-level one.
+    // Three blocks (13c, theseus-ev1; theseus-aab7): the header, then the
+    // context files, then the session's directory, each with its
+    // breakpoint; the conversation's is the top-level one.
     let blocks = a["system"].as_array().unwrap();
-    assert_eq!(blocks.len(), 2, "{profile}: {}", bytes(&a["system"]));
+    assert_eq!(blocks.len(), 3, "{profile}: {}", bytes(&a["system"]));
     let (header, context) = (&blocks[0], &blocks[1]);
+    assert!(
+        text(&blocks[2]).starts_with("Directory: "),
+        "{profile}: block 3"
+    );
     for part in ["You are Theseus", PROFILE_SYSTEM] {
         assert!(
             text(header).contains(part),
@@ -374,7 +396,7 @@ fn the_first_requests_share_one_header(profile: &str, provider: &str) {
         t.starts_with(EDITED)
     });
     let edited = e["system"].as_array().unwrap();
-    assert_eq!(edited.len(), 2, "{profile}: {}", bytes(&e["system"]));
+    assert_eq!(edited.len(), 3, "{profile}: {}", bytes(&e["system"]));
     assert!(
         bytes(&edited[0]) == bytes(header),
         "{profile}: the header block changed with a context file:\n{}\n{}",

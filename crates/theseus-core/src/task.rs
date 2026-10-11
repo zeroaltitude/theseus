@@ -472,6 +472,8 @@ pub fn create<'a>(
             );
             rec.title = Some(title.clone());
             rec.execution_id = Some(task.id.clone());
+            // A task works where its parent does (theseus-aab7).
+            rec.dir = tc.dir.map(str::to_string);
             rec.last_target = tc.target.map(|t| TargetRef {
                 profile: t.profile.clone(),
                 provider: t.provider.clone(),

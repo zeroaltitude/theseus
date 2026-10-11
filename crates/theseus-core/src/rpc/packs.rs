@@ -489,6 +489,7 @@ impl Core {
             }
         }
         let rec = self.open_session(SessionOpenParams {
+            dir: None,
             kind: None,
             label: Some("the ladder: promotions waiting on the owner".into()),
             opened_from: None,

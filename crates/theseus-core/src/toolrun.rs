@@ -53,6 +53,7 @@ pub(crate) mod order;
 mod parallel;
 mod peek;
 mod resume;
+pub(crate) mod session_dir;
 mod steps;
 mod waits;
 
@@ -131,6 +132,9 @@ pub struct TurnCtx<'a> {
     pub ceiling: Option<&'static crate::ceiling::Ceiling>,
     /// The bound places, as a glide names them (38b).
     pub places: crate::places::Places<'a>,
+    /// The session's directory, as its client sent it (theseus-aab7):
+    /// where its calls work (`ToolRuntime::ctx_in`). None: `[tools] cwd`.
+    pub dir: Option<&'a str>,
 }
 
 impl TurnCtx<'_> {
@@ -685,14 +689,13 @@ impl ToolRuntime {
         format!(
             "Tools. You act through tools; every call is recorded, checked against policy, and may wait for the operator's confirmation.\n\
              - Workspace roots: {}. Reading or running a program outside them, or touching a path on the operator's approve list, waits for the operator's approval; a write outside them takes its tool's posture, as inside.\n\
-             - Relative paths resolve against {}.\n\
+             - Relative paths resolve against the session's directory, which its own block names.\n\
              - Postures (open runs; notify runs and tells the operator; approve waits for the operator's approval): {}.{}\n\
              - Prefer fs_read, fs_edit, fs_grep, fs_glob, fs_list, git_diff, and git_log over proc_run.\n\
              - Read a file before editing it; keep edits exact and minimal.\n\
              - A declined call is final for that request: tell the operator and do not route around it.\n\
              - proc_run calls that take longer than {} seconds continue in the background; their result arrives in a later message.{}",
             roots.join(", "),
-            self.ctx.cwd.display(),
             postures.join("; "),
             if allowed.is_empty() { String::new() } else { format!(" proc_run runs these as open: {}.", allowed.join("; ")) },
             self.proc_sync_secs,
@@ -888,12 +891,12 @@ impl ToolRuntime {
         Ok(())
     }
 
-    fn proposal_for(&self, tool: &dyn Tool, input: &Value) -> Proposal {
+    fn proposal_for(tool: &dyn Tool, input: &Value, ctx: &ToolCtx) -> Proposal {
         Proposal {
             tool: tool.name().into(),
             args: input.clone(),
             resource: None,
-            policy_context: json!({"roots": self.ctx.roots, "cwd": self.ctx.cwd}),
+            policy_context: json!({"roots": ctx.roots, "cwd": ctx.cwd}),
         }
     }
 
@@ -1109,8 +1112,9 @@ impl ToolRuntime {
     /// (theseus-8az). The record keeps the keys stored tool-call nodes carry,
     /// and `tool.proposed` shows it to the session's clients.
     fn gate(&self, tc: &TurnCtx<'_>, tool: &dyn Tool, call: &ToolUse) -> Result<Gated, Invalid> {
-        let mut proposal = self.proposal_for(tool, &call.input);
-        let planned = tool.plan(&call.input, &self.ctx);
+        let ctx = self.ctx_in(tc);
+        let mut proposal = Self::proposal_for(tool, &call.input, &ctx);
+        let planned = tool.plan(&call.input, &ctx);
         // Layer 1 guards only the owner's tasks (theseus-ext.10).
         let planned = planned.map(|p| {
             crate::task_graph::tools::authority_for(tc.store, tool.name(), &call.input, p)
@@ -1129,6 +1133,7 @@ impl ToolRuntime {
             mcp: &mcp,
             glide: glide.as_ref().and_then(|g| g.as_ref().ok()),
             session: Some(tc.session_id),
+            ctx: &ctx,
         };
         // A shared place's call reaches only what the place may (the place
         // rule): the catalog offers nothing else, and this refuses it, in case.
@@ -1597,7 +1602,8 @@ impl ToolRuntime {
             correlation_id,
             backend: tool.backend().as_str(),
         });
-        let (t, input, mut ctx) = (tool.clone(), call.input.clone(), self.ctx.clone());
+        let (t, input) = (tool.clone(), call.input.clone());
+        let mut ctx = self.ctx_in(tc).into_owned();
         // A toollet granted a secret reads it through the broker, bound to
         // this call (theseus-dcy). Its secrets settle first, as a turn's do,
         // since a toollet runs on a core and cannot wait.

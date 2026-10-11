@@ -71,7 +71,21 @@ pub(crate) const SESSION_BEFORE_STATES: &str = r#"{"session_id":"ses_00000000000
 /// in the layout the build before theseus-wy7y (78b58b8) writes.
 pub(crate) const CATEGORY_BEFORE_PEOPLE: &str = r#"{"id":"topic:garden-beds","name":"beds","parent":"topic:garden","description":"imported label garden/beds","added_by":"import tern-2026-02"}"#;
 
+/// A session record as format 26 wrote it (theseus-wy7y's build; its
+/// layout unchanged since 25), before a session's directory (`dir`, format
+/// 27, theseus-aab7): a conversation the owner retired by hand and reopened,
+/// re-titled once. It reads with no directory, so its tools work in
+/// `[tools] cwd` as before. By hand, in the layout the build before
+/// theseus-aab7 (2fd1f65) writes.
+pub(crate) const SESSION_BEFORE_DIR: &str = r#"{"session_id":"ses_00000000000000000000000000000261","kind":"conversation","label":null,"created_at_unix_ms":1790000000261,"turns":3,"last_turn_id":"turn_00000000000000000000000000000263","usage":{"input_tokens":1500,"output_tokens":310,"cache_read_input_tokens":900,"cache_creation_input_tokens":200},"execution_id":"exe_00000000000000000000000000000261","compilation_id":"cmp_00000000000000000000000000000262","last_target":{"profile":"sonnet","provider":"anthropic","model":"claude-sonnet-5-5"},"last_active_ms":1790000000269,"cost_usd":0.0142,"tool_calls":2,"title":"Chart the tide gauges","retired":{"reason":"by_hand","at_ms":1790000000265},"reopened_ms":1790000000267,"title_was":["Read the harbour log"]}"#;
+
 const SAMPLES: &[Sample] = &[
+    Sample {
+        kind: kinds::SESSION,
+        layout: "a session at format 26 (theseus-wy7y; unchanged since 25): before its directory (27, theseus-aab7)",
+        bytes: SESSION_BEFORE_DIR,
+        kept: Kept::All,
+    },
     Sample {
         kind: kinds::META,
         layout: "an ontology category at format 24 (theseus-anh3; unchanged through 25): before a person's handles and merge (26, theseus-wy7y)",

@@ -275,6 +275,7 @@ fn renders_the_same_from_stubs(core: &Arc<Core>, sid: &str) {
         max_tokens: 1000,
         system_text: "s".into(),
         context_text: String::new(),
+        session_text: String::new(),
         context_files: vec![],
         persona: None,
         tools: vec![],

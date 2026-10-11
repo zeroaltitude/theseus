@@ -43,6 +43,7 @@ mod publish;
 mod route_correct;
 mod rsi;
 mod server;
+mod session_dir;
 mod sessions;
 #[cfg(test)]
 pub(crate) use server::write_item;
