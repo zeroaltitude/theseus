@@ -2,7 +2,8 @@
 //! per line, on `<index>/sock` (mode 0600, in a 0700 directory). A thread
 //! per connection, at most [`MAX_CONNECTIONS`] at once: the core is the only
 //! client, and a recall holds one (its words' query, then its whole one, on
-//! one connection: theseus-zo1y).
+//! one connection: theseus-zo1y). These threads run at the daemon's
+//! priority, not at the tender's background one (`priority`, theseus-y9a3).
 //!
 //! **A caller that has gone frees its slot.** A query whose caller closed its
 //! connection (a recall past its deadline, or whose turn ended) stops at the
@@ -17,7 +18,7 @@ use std::os::unix::fs::PermissionsExt;
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Arc;
+use std::sync::{mpsc, Arc};
 use std::thread;
 
 use serde_json::Value;
@@ -42,6 +43,46 @@ pub fn spawn_counted(
     path: &Path,
     shared: Arc<Shared>,
 ) -> io::Result<(thread::JoinHandle<()>, Arc<AtomicUsize>)> {
+    let listener = bind(path)?;
+    let active = Arc::new(AtomicUsize::new(0));
+    let count = active.clone();
+    let served = thread::Builder::new()
+        .name("index-socket".into())
+        .spawn(move || accept(&listener, &shared, &active))?;
+    Ok((served, count))
+}
+
+/// [`spawn`] from a thread started before the tender opens (theseus-y9a3):
+/// the socket's thread, and each connection's, keep the priority of the
+/// thread that calls this, while the caller lowers itself and opens the
+/// tender (`priority`). Once `shared` comes, it binds `path` and says how
+/// that went on the returned channel; a `shared` that never comes (the open
+/// failed) ends it.
+pub fn spawn_early(
+    path: &Path,
+    shared: mpsc::Receiver<Arc<Shared>>,
+) -> io::Result<mpsc::Receiver<io::Result<()>>> {
+    let (said, bound) = mpsc::channel();
+    let path = path.to_path_buf();
+    thread::Builder::new()
+        .name("index-socket".into())
+        .spawn(move || {
+            let Ok(shared) = shared.recv() else { return };
+            let listener = match bind(&path) {
+                Ok(l) => l,
+                Err(e) => {
+                    let _ = said.send(Err(e));
+                    return;
+                }
+            };
+            let _ = said.send(Ok(()));
+            accept(&listener, &shared, &Arc::new(AtomicUsize::new(0)));
+        })?;
+    Ok(bound)
+}
+
+/// Bind the socket at `path`, mode 0600; a stale one is replaced.
+fn bind(path: &Path) -> io::Result<UnixListener> {
     match fs::remove_file(path) {
         Ok(()) => {}
         Err(e) if e.kind() == io::ErrorKind::NotFound => {}
@@ -49,33 +90,32 @@ pub fn spawn_counted(
     }
     let listener = UnixListener::bind(path)?;
     fs::set_permissions(path, fs::Permissions::from_mode(0o600))?;
-    let active = Arc::new(AtomicUsize::new(0));
-    let count = active.clone();
-    let served = thread::Builder::new()
-        .name("index-socket".into())
-        .spawn(move || {
-            for conn in listener.incoming() {
-                let Ok(conn) = conn else { continue };
-                if active.fetch_add(1, Ordering::SeqCst) >= MAX_CONNECTIONS {
-                    active.fetch_sub(1, Ordering::SeqCst);
-                    tracing::warn!("index: a connection over the limit, closed");
-                    continue;
+    Ok(listener)
+}
+
+/// Serve each connection on a thread of its own, at most
+/// [`MAX_CONNECTIONS`] at once.
+fn accept(listener: &UnixListener, shared: &Arc<Shared>, active: &Arc<AtomicUsize>) {
+    for conn in listener.incoming() {
+        let Ok(conn) = conn else { continue };
+        if active.fetch_add(1, Ordering::SeqCst) >= MAX_CONNECTIONS {
+            active.fetch_sub(1, Ordering::SeqCst);
+            tracing::warn!("index: a connection over the limit, closed");
+            continue;
+        }
+        let (shared, done) = (shared.clone(), active.clone());
+        let spawned = thread::Builder::new()
+            .name("index-conn".into())
+            .spawn(move || {
+                if let Err(e) = serve(conn, &shared) {
+                    tracing::debug!(error = %e, "index: a connection ended");
                 }
-                let (shared, done) = (shared.clone(), active.clone());
-                let spawned = thread::Builder::new()
-                    .name("index-conn".into())
-                    .spawn(move || {
-                        if let Err(e) = serve(conn, &shared) {
-                            tracing::debug!(error = %e, "index: a connection ended");
-                        }
-                        done.fetch_sub(1, Ordering::SeqCst);
-                    });
-                if spawned.is_err() {
-                    active.fetch_sub(1, Ordering::SeqCst);
-                }
-            }
-        })?;
-    Ok((served, count))
+                done.fetch_sub(1, Ordering::SeqCst);
+            });
+        if spawned.is_err() {
+            active.fetch_sub(1, Ordering::SeqCst);
+        }
+    }
 }
 
 fn serve(conn: UnixStream, shared: &Shared) -> io::Result<()> {
@@ -135,7 +175,12 @@ pub fn answer_while(line: &str, shared: &Shared, gone: &(dyn Fn() -> bool + Sync
                 Err(e) => Response::err(id, error_code::INVALID_PARAMS, format!("{e:#}")),
             }
         }
-        method::STATUS => Response::ok(id, shared.status()),
+        method::STATUS => {
+            let mut s = shared.status();
+            // Asked on this connection's thread: the queries' own priority.
+            s.queries_at = Some(crate::priority::current());
+            Response::ok(id, s)
+        }
         method::REBUILD => {
             shared.request_rebuild();
             Response::ok(id, RebuildResult { accepted: true })

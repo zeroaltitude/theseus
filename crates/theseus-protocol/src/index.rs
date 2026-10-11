@@ -566,6 +566,27 @@ pub struct IndexStatus {
     pub last_error: Option<String>,
     #[serde(default)]
     pub last_error_ms: u64,
+    /// The priority queries are answered at: the socket's thread's, the
+    /// daemon's own (theseus-y9a3). Absent from a tender of an older build.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub queries_at: Option<IndexPriority>,
+    /// The priority of the tender's own work (the ingest, the merges): nice
+    /// 10 in the idle I/O class; the backfill lowers itself to 19.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub work_at: Option<IndexPriority>,
+}
+
+/// A tender thread's CPU and I/O priority (theseus-y9a3).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct IndexPriority {
+    /// Its nice value.
+    pub nice: i32,
+    /// Its I/O class: `best-effort` (the default, by its nice), `realtime`,
+    /// `idle`, or `unknown`.
+    pub io: String,
 }
 
 /// The tender's vector side: `IndexStatus`'s `vectors`.

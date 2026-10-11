@@ -26,6 +26,7 @@ pub mod entity;
 pub mod extract;
 pub mod fuse;
 pub mod model;
+pub mod priority;
 pub mod proto;
 pub mod server;
 pub mod state;
@@ -40,12 +41,37 @@ pub use tender::{Config, OpenError, Shared, Tender};
 /// (from the start, so a query is answered during a backfill), embed on its
 /// own thread, and follow the WAL until the process ends. SIGTERM's default
 /// action is the stop: ingest is idempotent, and a vector file's torn tail
-/// is cut, so nothing is lost but the batches in flight.
-pub fn serve(cfg: Config) -> Result<(), OpenError> {
-    let tender = Tender::open(cfg)?;
-    server::spawn(&tender.paths().socket(), tender.shared()).map_err(|e| {
-        OpenError::Other(anyhow::Error::from(e).context("binding the index's socket"))
+/// is cut, so nothing is lost but the batches in flight. Its own work runs at
+/// `nice` in the idle I/O class, its queries at the priority it started at
+/// ([`open_served`]).
+pub fn serve(cfg: Config, nice: i32) -> Result<(), OpenError> {
+    open_served(cfg, nice)?.run()?;
+    Ok(())
+}
+
+/// [`serve`] but the WAL's following: the tender opened and answering on its
+/// socket, its embedding thread started. The socket's thread is started
+/// first, at the calling thread's priority, which the queries keep; then the
+/// calling thread lowers itself to `nice` in the idle I/O class, so the
+/// tender's own threads (tantivy's, the embedding thread, the ingest it runs
+/// on the caller) are born lowered (`priority`, theseus-y9a3).
+pub fn open_served(cfg: Config, nice: i32) -> Result<Tender, OpenError> {
+    let socket = state::Paths::new(&cfg.index_dir).socket();
+    let (give, shared) = std::sync::mpsc::channel();
+    let bound = server::spawn_early(&socket, shared).map_err(|e| {
+        OpenError::Other(anyhow::Error::from(e).context("starting the socket's thread"))
     })?;
+    priority::lower(nice);
+    let tender = Tender::open(cfg)?;
+    tender.shared().worked_at(priority::current());
+    let _ = give.send(tender.shared());
+    let binding = |e: std::io::Error| {
+        OpenError::Other(anyhow::Error::from(e).context("binding the index's socket"))
+    };
+    bound
+        .recv()
+        .map_err(|_| binding(std::io::Error::other("the socket's thread ended")))?
+        .map_err(binding)?;
     let shared = tender.shared();
     if shared.vectors.enabled() {
         std::thread::Builder::new()
@@ -55,8 +81,7 @@ pub fn serve(cfg: Config) -> Result<(), OpenError> {
                 OpenError::Other(anyhow::Error::from(e).context("starting the embedding thread"))
             })?;
     }
-    tender.run()?;
-    Ok(())
+    Ok(tender)
 }
 
 #[cfg(test)]
@@ -65,6 +90,8 @@ mod ftests;
 mod tests;
 #[cfg(test)]
 mod tests_import;
+#[cfg(test)]
+mod tests_priority;
 #[cfg(test)]
 mod tests_query;
 #[cfg(test)]

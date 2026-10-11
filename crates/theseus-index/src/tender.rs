@@ -276,6 +276,12 @@ impl Shared {
     fn set(&self, f: impl FnOnce(&mut IndexStatus)) {
         f(&mut self.status.lock().unwrap());
     }
+
+    /// The tender's own work runs at `p` (theseus-y9a3), as `index.status`
+    /// says beside its queries' priority.
+    pub fn worked_at(&self, p: crate::priority::Priority) {
+        self.set(|s| s.work_at = Some(p));
+    }
 }
 
 pub struct Tender {
