@@ -6056,6 +6056,7 @@ async fn any_known_surface_tightens_and_only_the_owner_in_a_private_place_undoes
 
 mod parallel {
     use super::*;
+    mod runs;
     use std::collections::HashMap;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::{Mutex, OnceLock};

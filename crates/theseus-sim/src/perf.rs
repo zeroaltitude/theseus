@@ -35,7 +35,7 @@ use serde::Serialize;
 use serde_json::{json, Value};
 use theseus_core::tender::START_AFTER;
 
-use crate::fake_model::{FakeModel, TOOL_MARK};
+use crate::fake_model::{FakeModel, BATCH_CALLS, BATCH_MARK, BATCH_SLEEP_SECS, TOOL_MARK};
 use crate::history;
 use crate::lifecycle::{self, Rig, Summary, Vault, Verdict};
 use crate::procfs::{self, Sample};
@@ -65,6 +65,28 @@ pub const PLAIN_TURN_FRAMES: f64 = 5.0;
 /// (theseus-kpfv); 11 or 12 before, as the drain usually took the completion
 /// first, and the turn's own look could then write a duplicate.
 pub const TOOL_TURN_FRAMES: f64 = 9.0;
+
+/// A turn whose first loop runs [`BATCH_CALLS`] programs of one response
+/// (`proc.run` of `sleep 2`, each its own job; theseus-d1hi) writes at most
+/// this many: the tool turn's 9, and the plan and the completion of each
+/// call past the first. The calls' frames do not depend on their group.
+pub const BATCH_TURN_FRAMES: f64 = 9.0 + 2.0 * (BATCH_CALLS as f64 - 1.0);
+
+/// That turn's wall time at the p50 may pass one sleep and the tool turn's
+/// own p50 (one call, measured beside it, so the machine's load is in both)
+/// by this many ms: the programs run together. One at a time, it is
+/// [`BATCH_CALLS`] sleeps, six seconds over.
+pub const BATCH_OVER_ONE_CALL_MS: f64 = 300.0;
+
+/// The batch turn's wall budget at the p50, in ms, beside a tool turn whose
+/// p50 was `tool_p50`.
+pub fn batch_wall_budget(tool_p50: f64) -> f64 {
+    BATCH_SLEEP_SECS as f64 * 1000.0 + tool_p50 + BATCH_OVER_ONE_CALL_MS
+}
+
+/// Measured batch turns, at most: each holds a sleep, so fewer than the
+/// other kinds' runs.
+const BATCH_RUNS: usize = 3;
 
 /// §9's binary size, in MB (10^6 bytes): under 60.
 pub const BINARY_MB: f64 = 60.0;
@@ -292,6 +314,8 @@ pub struct TurnReport {
     pub start_ms: f64,
     pub plain: Kind,
     pub tool: Kind,
+    /// A response of [`BATCH_CALLS`] programs (theseus-d1hi).
+    pub batch: Kind,
     /// One `fdatasync` of a 4 KiB append on this disk, in ms: the quieter of
     /// two probes, one before the daemon starts and one after it stops, since
     /// a disk another process is using changes in seconds.
@@ -317,6 +341,8 @@ impl TurnReport {
             ("frames_plain".to_string(), self.plain.frames),
             ("turn_tool".to_string(), self.tool.wall_ms),
             ("frames_tool".to_string(), self.tool.frames),
+            ("turn_batch".to_string(), self.batch.wall_ms),
+            ("frames_batch".to_string(), self.batch.frames),
             ("rss_start".to_string(), single(self.rss_start.rss_mb())),
             ("rss_burst".to_string(), single(self.rss_burst.rss_mb())),
         ]
@@ -339,6 +365,29 @@ pub fn turn_verdicts(plain_frames: &Summary, tool_frames: &Summary) -> Vec<Verdi
         ok: frames.p95 <= budget,
     })
     .collect()
+}
+
+/// The batch turn's verdicts (theseus-d1hi): its frames, exactly, and its
+/// wall time at the p50 against one sleep and the tool turn's (`tool`), which
+/// only programs that ran together meet.
+pub fn batch_verdicts(batch: &Kind, tool: &Kind) -> Vec<Verdict> {
+    let wall = batch_wall_budget(tool.wall_ms.p50);
+    vec![
+        Verdict {
+            phase: "frames_batch".to_string(),
+            p95: batch.frames.p95,
+            budget: BATCH_TURN_FRAMES,
+            margin: 0.0,
+            ok: batch.frames.p95 <= BATCH_TURN_FRAMES,
+        },
+        Verdict {
+            phase: "turn_batch_p50".to_string(),
+            p95: batch.wall_ms.p50,
+            budget: wall,
+            margin: 0.0,
+            ok: batch.wall_ms.p50 <= wall,
+        },
+    ]
 }
 
 /// One `fdatasync` of an append of 4 KiB, as the WAL pays for each frame: `n`
@@ -461,7 +510,15 @@ impl Driver<'_> {
 
 pub fn run_turn(o: &TurnOpts) -> Result<TurnReport> {
     let wall = Instant::now();
-    let s = scratch(&o.theseusd, o.dir.as_deref())?;
+    // The lifecycle bench's daemon answers a job in the background after 1 s;
+    // the batch's sleeps are answered in their turn, as the product's 60 s
+    // would answer them (theseus-d1hi).
+    let s = scratch_with(&o.theseusd, o.dir.as_deref(), |t| {
+        let tools = t.get_mut("tools").and_then(toml::Value::as_table_mut);
+        let tools = tools.context("the bench's config has [tools]")?;
+        tools.insert("proc_sync_secs".into(), 10.into());
+        Ok(())
+    })?;
     let fsync_before = fsync_probe(&s.work, 20)?;
     let (mut daemon, start) = s.rig.start()?;
     let pid = daemon.0.id();
@@ -484,6 +541,13 @@ pub fn run_turn(o: &TurnOpts) -> Result<TurnReport> {
         o.runs,
         (2, 1),
     )?;
+    let batch = d.kind(
+        "batch",
+        &session,
+        &format!("a turn of {BATCH_CALLS} programs, {BATCH_MARK}"),
+        o.runs.min(BATCH_RUNS),
+        (2, BATCH_CALLS as u64),
+    )?;
     let burst = burst(&mut d, o.burst)?;
     std::thread::sleep(Duration::from_millis(300));
     let rss_burst = procfs::sample(pid)?;
@@ -495,13 +559,15 @@ pub fn run_turn(o: &TurnOpts) -> Result<TurnReport> {
     } else {
         fsync_before
     };
-    let verdicts = turn_verdicts(&plain.frames, &tool.frames);
+    let mut verdicts = turn_verdicts(&plain.frames, &tool.frames);
+    verdicts.extend(batch_verdicts(&batch, &tool));
     Ok(TurnReport {
         theseusd: o.theseusd.display().to_string(),
         runs: o.runs,
         start_ms: start.ms,
         plain,
         tool,
+        batch,
         fsync_ms,
         fsync_probes_ms,
         rss_start,
@@ -564,11 +630,11 @@ pub fn print_turn(r: &TurnReport) {
         "  {:<10} {:>7} {:>9} {:>9} {:>9} {:>11}",
         "turn", "frames", "wall p50", "wall p95", "max", "daemon p50"
     );
-    for k in [&r.plain, &r.tool] {
-        let budget = if k.name == "plain" {
-            PLAIN_TURN_FRAMES
-        } else {
-            TOOL_TURN_FRAMES
+    for k in [&r.plain, &r.tool, &r.batch] {
+        let budget = match k.name.as_str() {
+            "plain" => PLAIN_TURN_FRAMES,
+            "batch" => BATCH_TURN_FRAMES,
+            _ => TOOL_TURN_FRAMES,
         };
         let budget = format!(" (budget {budget})");
         println!(
@@ -581,7 +647,7 @@ pub fn print_turn(r: &TurnReport) {
             k.daemon_ms.p50
         );
     }
-    for k in [&r.plain, &r.tool] {
+    for k in [&r.plain, &r.tool, &r.batch] {
         println!(
             "  each {} run, by the bench's clock and the daemon's (a run over {}x the p50 is flagged; \
              its slowest frame is the writer's time over a frame it wrote, synced and indexed):",
@@ -634,12 +700,22 @@ pub fn print_turn(r: &TurnReport) {
         "  a tool-call turn's frames: {}",
         r.tool.last_frames.join("  ")
     );
+    println!(
+        "  a batch turn's frames ({BATCH_CALLS} programs of `sleep {BATCH_SLEEP_SECS}` in one response): {}",
+        r.batch.last_frames.join("  ")
+    );
     for v in &r.verdicts {
+        let what = if v.phase.starts_with("turn_") {
+            format!(
+                "{:.1} ms at the p50, budget {:.1} ms (one sleep, the tool turn's p50, and {BATCH_OVER_ONE_CALL_MS} ms)",
+                v.p95, v.budget
+            )
+        } else {
+            format!("{} frame(s) at the p95, budget {}", v.p95, v.budget)
+        };
         println!(
-            "  {}: {} frame(s) at the p95, budget {}: {}",
+            "  {}: {what}: {}",
             v.phase,
-            v.p95,
-            v.budget,
             if v.ok { "ok" } else { "MISSED" }
         );
     }
@@ -1272,6 +1348,32 @@ mod tests {
         assert!(turn_verdicts(&frames(&[2.0; 10]), &tool)[0].ok);
     }
 
+    /// The batch turn (theseus-d1hi): its frames exactly, and its wall time at
+    /// the p50 against one sleep and one call's turn, which four programs one
+    /// at a time miss.
+    #[test]
+    fn a_batch_turn_is_held_to_its_frames_and_one_sleeps_time() {
+        let batch = |frames: f64, wall: &[f64]| Kind {
+            name: "kind".to_string(),
+            wall_ms: Summary::of(wall).unwrap(),
+            daemon_ms: Summary::of(wall).unwrap(),
+            frames: single(frames),
+            frames_each: vec![frames as u64],
+            runs: Vec::new(),
+            last_frames: Vec::new(),
+        };
+        let tool = batch(9.0, &[250.0, 280.0, 300.0]);
+        assert_eq!(BATCH_TURN_FRAMES, 15.0);
+        assert_eq!(batch_wall_budget(280.0), 2580.0);
+        let ok = batch_verdicts(&batch(15.0, &[2400.0, 2450.0, 2900.0]), &tool);
+        assert!(ok.iter().all(|v| v.ok), "{ok:?}");
+        let slow = batch_verdicts(&batch(15.0, &[2600.0, 2650.0, 2500.0]), &tool);
+        assert!(slow[0].ok && !slow[1].ok, "{slow:?}");
+        let serial = batch_verdicts(&batch(15.0, &[8100.0, 8150.0, 8120.0]), &tool);
+        assert!(serial[0].ok && !serial[1].ok, "{serial:?}");
+        assert!(!batch_verdicts(&batch(16.0, &[2100.0]), &tool)[0].ok);
+    }
+
     #[test]
     fn a_run_of_frames_reads_as_one_count_or_a_range() {
         assert_eq!(frames_text(&[5, 5, 5]), "5");
@@ -1372,6 +1474,7 @@ mod tests {
             start_ms: 1.0,
             plain: kind("plain"),
             tool: kind("tool-call"),
+            batch: kind("batch"),
             fsync_ms: single(7.0),
             fsync_probes_ms: [7.0, 8.0],
             rss_start: Sample::default(),

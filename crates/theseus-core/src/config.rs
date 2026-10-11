@@ -30,7 +30,7 @@ pub use aws::{
     AwsCredentialNames, HandsNetwork,
 };
 pub use judge::{JudgeConfig, JudgePackConfig, PackMode, SignalsConfig};
-pub use limits::{MaxLoopsMode, SpendLimitMode};
+pub use limits::{default_parallel_runs, MaxLoopsMode, SpendLimitMode};
 // Where the config comes from when nothing names one (theseus-5aqz).
 pub use lookup::{find_config, Lookup, DEFAULT_CONFIG, NO_CONFIG, SYSTEM_CONFIG};
 pub use lsp::{LspConfig, LspServerConfig};
@@ -286,6 +286,8 @@ pub struct ToolsConfig {
     /// How long a turn waits for `proc.run` before the job continues in the background.
     #[serde(default = "default_proc_sync_secs")]
     pub proc_sync_secs: u64,
+    #[serde(default = "default_parallel_runs")]
+    pub parallel_runs: usize,
     #[serde(default = "default_proc_timeout_secs")]
     pub proc_timeout_secs: u64,
     #[serde(default = "default_proc_timeout_max_secs")]
@@ -425,6 +427,7 @@ impl Default for ToolsConfig {
             transcribe_max_minutes: default_transcribe_max_minutes(),
             max_entries: default_max_entries(),
             proc_sync_secs: default_proc_sync_secs(),
+            parallel_runs: default_parallel_runs(),
             proc_timeout_secs: default_proc_timeout_secs(),
             proc_timeout_max_secs: default_proc_timeout_max_secs(),
             proc_env: default_proc_env(),

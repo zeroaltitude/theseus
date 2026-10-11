@@ -24,7 +24,7 @@ use theseus_kernel::{
     Accepted, Action, Completion, Kernel, Outcome, Proposal, RetryClass, Spool, TurnGuard,
 };
 use theseus_protocol::{ConfirmRequest, GateRecord, GateResult, LedgerKind, PolicyNotified};
-use theseus_tools::{Access, Backend, Plan, Registry, Retry, Tool, ToolCtx};
+use theseus_tools::{Access, Backend, Plan, Registry, Retry, Tool, ToolClass, ToolCtx};
 
 use crate::broker::Broker;
 use crate::bus::EventSink;
@@ -46,6 +46,7 @@ mod job;
 mod late;
 mod not_started;
 pub(crate) mod order;
+mod parallel;
 mod resume;
 mod steps;
 mod waits;
@@ -219,8 +220,8 @@ pub struct Ran {
     pub started: Instant,
     pub ended: Instant,
     /// The group it ran in, numbered in the order the groups ran. A call
-    /// answered at the gate, a write, a program, and a question are each a
-    /// group of one.
+    /// answered at the gate and a question are each a group of one; reads,
+    /// writes, and programs group by `parallel`'s rule (theseus-d1hi).
     pub group: usize,
     /// The judgments dispatched at its gate (M5 step 24): the turn's trace
     /// marks each under the call's span.
@@ -292,6 +293,9 @@ pub struct ToolRuntime {
     pub notify_socket: Option<PathBuf>,
     pub result_max_chars: usize,
     pub proc_sync_secs: u64,
+    /// The most programs one group of a response's calls runs at once
+    /// (`[tools] parallel_runs`, theseus-d1hi); the rest wait for a slot.
+    pub parallel_runs: usize,
     /// The environment every job gets, resolved from the daemon's at startup.
     pub proc_env: Vec<(String, String)>,
     /// Calls per tool since the daemon started. Counting the store's history
@@ -464,6 +468,7 @@ impl ToolRuntime {
             notify_socket: None,
             result_max_chars: 30_000,
             proc_sync_secs: 60,
+            parallel_runs: crate::config::default_parallel_runs(),
             proc_env: vec![],
             calls: Mutex::new(BTreeMap::new()),
             tightened: Default::default(),
@@ -932,7 +937,19 @@ impl ToolRuntime {
         }
         let id = *next;
         *next += 1;
+        // A group of programs takes a slot of `parallel_runs` each
+        // (theseus-d1hi).
+        let (class, n) = (
+            group[0].2.plan.class.unwrap_or(group[0].1.class()),
+            group.len(),
+        );
+        let cap = match class {
+            ToolClass::Run => self.parallel_runs,
+            _ => n,
+        };
+        let slots = &tokio::sync::Semaphore::new(cap.max(1));
         let runs = group.into_iter().map(|(i, tool, g)| async move {
+            let _slot = slots.acquire().await;
             let started = Instant::now();
             let r = self.start(tc, assistant_node, calls[i].call, tool, g).await;
             (i, started, Instant::now(), r)
@@ -2282,6 +2299,7 @@ pub fn build_runtime(
         notify_socket,
         result_max_chars: t.result_max_chars,
         proc_sync_secs: t.proc_sync_secs,
+        parallel_runs: t.parallel_runs.max(1),
         proc_env,
         calls: Mutex::new(BTreeMap::new()),
         // Read from the store when the core starts (`Core::build`).

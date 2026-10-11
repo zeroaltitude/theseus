@@ -47,7 +47,7 @@ const NEAR_PERCENT: i64 = 10;
 /// unit (theseus-goa8). Each is read as a phase is: a p50, a p95, and a limit
 /// when the bench has a budget for it. A single reading (a size, a memory) is
 /// its own p50 and p95.
-pub const OTHER: [(&str, &str); 25] = [
+pub const OTHER: [(&str, &str); 27] = [
     // `bench turn`
     ("turn_plain", "ms"),
     ("frames_plain", "frames"),
@@ -81,6 +81,9 @@ pub const OTHER: [(&str, &str); 25] = [
     ("size_theseus_tui", "MB"),
     // `bench status` (theseus-lweh): `theseus status --short`'s whole run
     ("status_short", "ms"),
+    // `bench turn`'s batch (theseus-d1hi): programs of one response together
+    ("turn_batch", "ms"),
+    ("frames_batch", "frames"),
 ];
 
 /// Every column the history carries: the lifecycle's phases, then the other
@@ -488,6 +491,8 @@ fn name(phase: &str) -> &str {
         "frames_plain" => "a plain turn's frames",
         "turn_tool" => "a tool-call turn's wall time",
         "frames_tool" => "a tool-call turn's frames",
+        "turn_batch" => "a turn of four programs in one response, its wall time",
+        "frames_batch" => "a turn of four programs in one response, its frames",
         "turn_plain_jloop" => "a plain turn's wall time with loop.v1 judging",
         "turn_tool_jloop" => "a tool-call turn's wall time with loop.v1 judging",
         "jframes_jloop" => "the judge's frames before a turn's answer, loop.v1 judging",
