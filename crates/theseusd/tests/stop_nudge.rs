@@ -78,6 +78,7 @@ fn ask(dir: &Path, prompt: &str) -> (Value, String) {
         .arg("--spawn")
         .arg(&theseusd)
         .args(["--json", "ask", prompt])
+        .current_dir(dir.join("projects"))
         .env("THESEUS_CONFIG", dir.join("config.toml"))
         .env("THESEUS_STATE_DIR", dir.join("state"))
         .env(KEY_VAR, "tv-nudge-5e1a")
