@@ -1,6 +1,6 @@
 # Theseus: status and roadmap
 
-_Updated 2026-10-10 11:49 MST. Version 0.0.1; the design document is at v0.85._
+_Updated 2026-10-10 23:14 MST. Version 0.0.1; the design document is at v0.86._
 
 **The picture:** [the development timeline](assets/timeline/theseus-timeline.png), from conception to now and what is ahead ([SVG](assets/timeline/theseus-timeline.svg)).
 
@@ -405,6 +405,10 @@ pass did not re-estimate v1.1's date.
 
 ## Recently landed
 
+- **2026-10-10:** `memory.lookup` over the CLI (Item 245, theseus-8c8s): it reads one session's messages
+  (`session`, paged, veiled as the rest), lists a span's own sessions beside the imported episodes, says when to use
+  it instead of `theseus index search`, `history` or `sessions` through `proc_run`, and a `proc_run` of the daemon's
+  own CLI for what it answers ends with a line naming the equivalent call. On the next install's list.
 - **2026-10-09 to 10:** Discord's pings (Item 244, theseus-l1y1): today's pings by default; silence per category, per
   place; each place shows or hides its tool lines and its thinking; a loop's thinking tops its tool message and folds
   to `💭 thought for N s`. Installed at install #18 (October 9, 19:47). The follow-up of October 10, a thinking turn

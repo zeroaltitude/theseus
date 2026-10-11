@@ -1,4 +1,4 @@
-# The Ship of Theseus, chapter 31: Part III, A4's Item 244 (Discord's pings, and a loop's thinking in its tool message) ([index](README.md))
+# The Ship of Theseus, chapter 31: Part III, A4's Items 244 and 245 (Discord's pings, and a loop's thinking in its tool message; memory.lookup over the CLI) ([index](README.md))
 ### Item 244. Discord's pings: today's pings by default with silence per category and per place, each place showing or hiding its tool lines and its thinking, a loop's thinking at the top of its tool message folding to `💭 thought for N s`, and a thinking turn buzzing for its answer alone (theseus-l1y1; theseus-l00z's wave A, the Discord report's section 4.7 and plan step 1; the cloud row discord-silent, fired 2026-10-09 02:05Z, Opus 5.5, its first cut silent by default; overruled by the owner at 2026-10-08 20:01 and redirected as discord-silent-cont, fired 04:21Z; the first review, review-discord-silent, accepted with a join fix, per place and the window off; the owner's two calls of 2026-10-09 08:26 sent as discord-silent-fold, fired 15:53Z, and its review, review-discord-silent-fold, accepted with a join fix (F1); joined 2026-10-09 16:22 at 9b439511, the merge eed6df88 of 292bb147 onto 4882558a and the fix's two picks, by the evening joiner; installed at install #18 (d32377d5, 2026-10-09 19:47); the owner's open calls F2 and F5 and the low findings F3, F4 and F6 made up by lane L4 discord-calls on 2026-10-10, joined by its own join; the follow-up not installed yet)
 
 _The record of the joins of 2026-10-07 to 2026-10-09 before this one is not yet written as Items; this Item is
@@ -89,3 +89,67 @@ answer buzzes.
 
 **Known gaps.** theseus-o268 (thinking and tools in summary form, status reactions, `/show` per place). The owner's
 live check on the test channel (the review's six steps) is still his.
+
+### Item 245. `memory.lookup` reads a session and lists a span's own sessions, says when to use it over the CLI, and a `proc_run` of the daemon's own CLI ends naming the native call (theseus-8c8s; lane L11 native-memory-tools of 2026-10-10, joined by its own join; not installed yet)
+
+**Why.** On 2026-10-10 the owner's DM asked what had been worked on in a past month. The model answered with four
+`proc_run` calls of `theseus index search` (its help, a search, a shell loop of date strings, and a loop to read
+sessions), concluded that the search could not keep to a date, and paid a shell for each. `memory.lookup` (theseus-w9qv, Item
+not yet written) does exactly that read with `when`, in-process, Read and Async. The evidence, read-only on the
+owner's daemon: the turn's compilation (`compilation.list`) offered 51 tools with `memory_lookup` among them, class
+private, posture notify, not deferred and not disabled; so the tool was offered and the model preferred the CLI.
+That compilation was made at 13:26 that day, the first in the DM to offer the tool; the context before it held the
+README's line naming `theseus index search` and an earlier `proc_run` of it that had worked, from before the tool
+existed. The tool's description named none of the words the model used (search, index, sessions, a date), the tools
+note's "prefer these over proc_run" sentence names only the fs and git tools, and the turn's own recall ended at its
+deadline with nothing (theseus-y9a3), so no recalled note framed the question as memory.
+
+**What landed**, by the owner's levers in order (the API, the schema, the description, result metadata; a prompt
+sentence only if a bench arm earns it):
+- **The API: what the model needed and the tool lacked.** `session` reads one session's messages, oldest first, a
+  page at a time within the call's token budget: an imported one leads with its episode's summary; tool calls and
+  results, and an imported message of outside text, are left out and counted; a session takes its episode's
+  sensitivity (personal and partner-confidential veiled, a catalog miss veiled, fail closed), and the asking session
+  must be private, as for the rest. `session` with `words` searches that session alone. A span with no words, book or
+  topic lists this harness's own sessions in it (a turn at least, from their start to their last activity) before the
+  imported episodes, one cursor across both: the catalog listed only the imported ones.
+- **The schema**: every field says what it takes, with an example (`"March 2026"`, `"since August"`, `ses_…`).
+- **The description** says when to use it (any question about what was said, done or worked on before), that it
+  stands instead of `theseus index search`, `theseus history` and `theseus sessions` through `proc_run`, and that
+  several calls in one response run at once (the parallel calls of theseus-d1hi).
+- **Result metadata** (`native.rs`): a `proc_run` of `theseus index search` or `memory search`, `history`,
+  `sessions` or `sessions list`, or `rpc session.history` or `rpc import.sessions`, given directly, inside a shell's or
+  a launcher's command (split on its quotes and operators), or in a batch's step, ends with one line,
+  `[native: memory_lookup {"when":"March 2026"} does this in-process, without a shell: …]`, naming the equivalent
+  call: a query that is a time goes to `when`, the rest to `words`, a query in a shell variable gives the call's
+  shape. It is appended after the cap (`ResultNode.hint`), so no cut takes it, and only where the runtime offers the
+  tool. Nothing else of the CLI has a native twin today, so nothing else gets a line.
+- **No refusal.** A pure read of the daemon's CLI still runs: the CLI is the right thing to run when it is the work
+  (a check of its output, a bench, a bug in it), and the gate never guesses what a command is for (NOTIFY OVER BLOCK).
+  The line costs one result line; a refusal would cost a turn whenever the CLI is the work.
+- **No prompt sentence.** The tools note is unchanged.
+
+**How it was proven.** 19 tests (`tests_memory_lookup.rs`, `native::tests`), 14 new: the owner's DM (a private
+place) is offered the tool; a `proc_run` of the CLI there, through a shell and directly with an output past the cap,
+ends with the line naming `{"when":"March 2026"}`; a session's read in order, paged, its summary first, outside text
+left out and counted, veiled, refused to a shared place; a span's own sessions first, paged across the two; words in
+one session; the description and every field's. Ten planted reverts, each caught: the line first instead of last,
+no line on jobs, no shell split, a time not sent to `when`, a read unveiled, outside text kept, own sessions of any
+span, a session not narrowing words, the old description, and the read before the place check. A live check on
+scratch daemons (the lane's report has its harness): two frozen debug builds, the lane and the same
+tree with the description, schema and line reverted, a synthetic store of invented episodes (February to April
+2026), the index on, Sonnet 5.5 at medium; 14 trials, $0.68 in all. In the arm with the change, a turn told to run
+`theseus index search telemetry` through `proc_run` got its result ending with
+`[native: memory_lookup {"words":"telemetry"} …]` (read in the store of two of its three trials, the third's harness
+not yet recording it).
+
+**Where it diverged.** The live check did not reproduce the DM's miss: in short sessions Sonnet 5.5 called
+`memory_lookup {"when":"March 2026"}` first, and only it, in all 14 trials of both arms: fresh (1 each), with a
+README note naming the CLI before the question (3 each), and with that note and a turn that ran the CLI before it
+(3 each). The change's arm cost 1 to 3% more a trial ($0.0427 against $0.0423 fresh, $0.0451 against $0.0443 with
+the note, $0.0550 against $0.0533 with the CLI turn), its longer description. So the A/B measures no preference change at that scale; what it shows is that the
+miss needs the DM's conditions (a long context full of the CLI, Fable 5.1, no recall), which a sub-$2 replay does
+not build. The line is the lever that works whatever the context: it is deterministic and tested.
+
+**Left open.** theseus-y9a3: 42 of 57 live recalls of 2026-10-10 ended at the deadline with nothing, not even the
+words' fallback.

@@ -736,6 +736,12 @@ impl ToolRuntime {
         let (content, truncated) = cap(&scrubbed, self.result_max_chars, |left| {
             tool.map_or_else(|| theseus_tools::REST_NARROWER.into(), |t| t.rest(left))
         });
+        // A job of the daemon's own CLI names the native call that does it,
+        // after the cap so no cut takes it (theseus-8c8s).
+        let content = match &r.hint {
+            Some(h) => format!("{content}\n{h}"),
+            None => content,
+        };
         // A call that ran in a group says so, so the model learns what one
         // response may hold (theseus-da46).
         let content = match parallel::beside_line() {
@@ -2011,6 +2017,9 @@ struct ResultNode<'a> {
     image: Option<crate::node::Attachment>,
     /// Where its text came from, when that is outside Theseus (DD5).
     external: Option<theseus_tools::External>,
+    /// The line its text ends with, past the cap: the native call a job of
+    /// the daemon's own CLI stands in for (`native::hint`, theseus-8c8s).
+    hint: Option<String>,
 }
 
 impl<'a> ResultNode<'a> {
@@ -2032,6 +2041,7 @@ impl<'a> ResultNode<'a> {
             meta: Value::Null,
             image: None,
             external: None,
+            hint: None,
         }
     }
 }
