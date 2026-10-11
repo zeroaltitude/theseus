@@ -20,11 +20,10 @@
 //! each three bytes, so a long turn's estimate nears the window as a real
 //! one does.
 
-use std::io::{BufRead, BufReader, Read, Write};
-use std::net::{SocketAddr, TcpListener, TcpStream};
+use std::net::{SocketAddr, TcpListener};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
 use anyhow::{Context, Result};
@@ -43,6 +42,25 @@ pub fn dump_to(dir: PathBuf) -> Result<()> {
     Ok(())
 }
 
+/// Write a request's body where `fake-model --dump` asked, if it did
+/// (theseus-aab7), `request-000.json` on; the server calls it as each
+/// request arrives whole.
+pub(crate) fn dump(body: &[u8]) -> Result<()> {
+    if let Some(d) = DUMP.get() {
+        let n = DUMPED.fetch_add(1, Ordering::Relaxed);
+        std::fs::write(d.join(format!("request-{n:03}.json")), body)?;
+    }
+    Ok(())
+}
+
+mod serve;
+mod steps;
+#[cfg(test)]
+mod tests_paced;
+
+use serve::Shared;
+pub use serve::{mono_ns, Entry, Log, Pace, Watch};
+
 /// The model name the fake answers as: the template's live profile's.
 pub const MODEL: &str = "claude-sonnet-5-5";
 
@@ -56,14 +74,29 @@ pub const BATCH_MARK: &str = "bench-batch";
 pub const BATCH_CALLS: usize = 4;
 pub const BATCH_SLEEP_SECS: u64 = 2;
 
+/// What a mixed stand-in streams paced (theseus-7gir.13): with it in the
+/// input, the answer is [`STREAM_TEXT`], its first byte and its chunks paced
+/// as [`Pace::default`] says, so a bench can count what happens before the
+/// first byte and how the deltas reach a client.
+pub const STREAM_MARK: &str = "bench-stream";
+
+/// The paced answer: long enough for [`Pace::default`]'s 8 chunks.
+pub const STREAM_TEXT: &str =
+    "streamed: the stand-in model answers in eight chunks, twenty-five milliseconds apart, one write each.";
+
+/// What a scripted stand-in answers a request that offers no tools: a side
+/// request (a harness's small-model calls: a title, a summary).
+pub const SIDE_TEXT: &str = "A side answer from the stand-in model.";
+
 /// What the stand-in answers a call that carries no tool result.
 #[derive(Clone)]
 enum Script {
     /// Always ask for `argv` (the lifecycle bench's job).
     Job(Vec<String>),
-    /// Ask for `argv` when the input holds [`TOOL_MARK`], else answer in text.
+    /// Ask for `argv` when the input holds [`TOOL_MARK`], else answer in text
+    /// ([`STREAM_TEXT`], paced, when it holds [`STREAM_MARK`]).
     Mixed(Vec<String>),
-    /// The first rule whose `when` the turn's last user text holds.
+    /// The first rule whose `when` the turn's text holds.
     Rules(Vec<Rule>),
 }
 
@@ -71,6 +104,13 @@ enum Script {
 /// them): when the turn's last user text holds `when`, ask for `calls`, or,
 /// with none, answer `text`, after `hold_ms` (0 by default), so a live check
 /// can find the call in flight (theseus-f3wr).
+///
+/// With `steps` (theseus-7gir.13), `when` is matched on the turn's opening
+/// user text, and step k of the turn (k tool results since that text) answers
+/// `steps[k]` (past the end, the last): a whole turn's calls and its answer,
+/// for any harness. `{marker}` in a step's strings is the word after
+/// `marker=` in the opening text. `ttfb_ms`, `chunks` and `chunk_ms` pace
+/// the rule's answers, over the stand-in's own pace.
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Rule {
@@ -85,6 +125,39 @@ pub struct Rule {
     /// module's doc. 0, the default: once, and a tool result is `Done.`.
     #[serde(default)]
     pub repeat: u64,
+    #[serde(default)]
+    pub steps: Vec<Step>,
+    #[serde(default)]
+    pub ttfb_ms: Option<u64>,
+    #[serde(default)]
+    pub chunks: Option<usize>,
+    #[serde(default)]
+    pub chunk_ms: Option<u64>,
+}
+
+impl Rule {
+    /// The rule's own pace, over `base` (the stand-in's, else the default).
+    fn pace(&self, base: Option<Pace>) -> Option<Pace> {
+        if self.ttfb_ms.is_none() && self.chunks.is_none() && self.chunk_ms.is_none() {
+            return None;
+        }
+        let b = base.unwrap_or_default();
+        Some(Pace {
+            ttfb_ms: self.ttfb_ms.unwrap_or(b.ttfb_ms),
+            chunks: self.chunks.unwrap_or(b.chunks),
+            chunk_ms: self.chunk_ms.unwrap_or(b.chunk_ms),
+        })
+    }
+}
+
+/// One step of a rule's turn: its calls, or, with none, its text.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Step {
+    #[serde(default)]
+    pub calls: Vec<Call>,
+    #[serde(default)]
+    pub text: Option<String>,
 }
 
 /// A tool call a rule asks for: the tool's wire name (`task_create`) and its
@@ -96,119 +169,234 @@ pub struct Call {
     pub input: Value,
 }
 
+/// How a stand-in serves: its pace (none: each answer one write), its log,
+/// and what watches it.
+#[derive(Default)]
+pub struct Serving {
+    pub pace: Option<Pace>,
+    pub log: Log,
+    pub watch: Option<Arc<dyn Watch>>,
+}
+
 pub struct FakeModel {
     pub addr: SocketAddr,
+    shared: Arc<Shared>,
 }
 
 impl FakeModel {
     /// Listen on an ephemeral port; answer until the process ends.
     pub fn start(argv: Vec<String>) -> Result<Self> {
-        Self::listen(Script::Job(argv))
+        Self::listen(Script::Job(argv), Serving::default())
     }
 
     /// As [`FakeModel::start`], but a turn asks for `argv` only when its
-    /// input holds [`TOOL_MARK`], and is otherwise one plain answer.
-    pub fn start_mixed(argv: Vec<String>) -> Result<Self> {
-        Self::listen(Script::Mixed(argv))
+    /// input holds [`TOOL_MARK`], and is otherwise one plain answer; watched
+    /// by `watch` (the turn bench's counted rows).
+    pub fn start_mixed_watched(argv: Vec<String>, watch: Arc<dyn Watch>) -> Result<Self> {
+        let serving = Serving {
+            watch: Some(watch),
+            ..Serving::default()
+        };
+        Self::listen(Script::Mixed(argv), serving)
     }
 
-    fn listen(script: Script) -> Result<Self> {
+    fn listen(script: Script, serving: Serving) -> Result<Self> {
         let listener = TcpListener::bind("127.0.0.1:0").context("binding the fake model")?;
-        Self::serve(listener, script)
+        Self::serve(listener, script, serving)
     }
 
-    fn serve(listener: TcpListener, script: Script) -> Result<Self> {
+    fn serve(listener: TcpListener, script: Script, serving: Serving) -> Result<Self> {
         let addr = listener.local_addr()?;
+        let shared = Arc::new(Shared::new(serving.pace, serving.log, serving.watch));
+        let served = shared.clone();
+        let turns: Arc<Turns> = Arc::default();
         std::thread::spawn(move || {
             for stream in listener.incoming().flatten() {
-                // A rule may hold its answer: each connection its own thread,
-                // so one held call holds no other.
-                if matches!(script, Script::Rules(_)) {
-                    let script = script.clone();
-                    std::thread::spawn(move || {
-                        if let Err(e) = answer(stream, &script) {
-                            eprintln!("fake model: {e:#}");
-                        }
-                    });
-                } else if let Err(e) = answer(stream, &script) {
-                    eprintln!("fake model: {e:#}");
-                }
+                // Each connection its own thread: a held rule holds no other
+                // call, and a connection kept alive holds no other client.
+                let (script, shared, turns) = (script.clone(), served.clone(), turns.clone());
+                std::thread::spawn(move || {
+                    let base = shared.pace;
+                    let answer =
+                        move |req: &Value, e: &mut Entry| answer(&script, base, &turns, req, e);
+                    if let Err(e) = serve::connection(stream, &shared, &answer) {
+                        eprintln!("fake model: {e:#}");
+                    }
+                });
             }
         });
-        Ok(Self { addr })
+        Ok(Self { addr, shared })
     }
 
     /// A scripted stand-in on `addr` (`fake-model --rules`): see [`Rule`].
     pub fn start_rules_on(addr: &str, rules: Vec<Rule>) -> Result<Self> {
+        Self::start_rules_with(addr, rules, Serving::default())
+    }
+
+    /// [`FakeModel::start_rules_on`], paced and logged as `serving` says.
+    pub fn start_rules_with(addr: &str, rules: Vec<Rule>, serving: Serving) -> Result<Self> {
         let listener = TcpListener::bind(addr).with_context(|| format!("binding {addr}"))?;
-        Self::serve(listener, Script::Rules(rules))
+        Self::serve(listener, Script::Rules(rules), serving)
     }
 
     pub fn base(&self) -> String {
         format!("http://{}", self.addr)
     }
+
+    /// Every request answered so far, once there are at least `n` (or 5 s
+    /// passed): an entry is logged just after its last byte is sent, so a
+    /// client that has read the answer may be ahead of it.
+    pub fn entries_at_least(&self, n: usize) -> Vec<Entry> {
+        let until = std::time::Instant::now() + Duration::from_secs(5);
+        loop {
+            let e = self.entries();
+            if e.len() >= n || std::time::Instant::now() > until {
+                return e;
+            }
+            std::thread::sleep(Duration::from_millis(2));
+        }
+    }
+
+    /// Every request answered so far, in the order they were answered.
+    pub fn entries(&self) -> Vec<Entry> {
+        self.shared
+            .log
+            .entries
+            .lock()
+            .map(|v| v.clone())
+            .unwrap_or_default()
+    }
 }
 
-fn answer(mut stream: TcpStream, script: &Script) -> Result<()> {
-    stream.set_read_timeout(Some(Duration::from_secs(10)))?;
-    let mut r = BufReader::new(stream.try_clone()?);
-    let mut len = 0usize;
-    let mut line = String::new();
-    loop {
-        line.clear();
-        if r.read_line(&mut line)? == 0 {
-            return Ok(());
-        }
-        let l = line.trim_end();
-        if l.is_empty() {
-            break;
-        }
-        if let Some(v) = l.to_ascii_lowercase().strip_prefix("content-length:") {
-            len = v.trim().parse().context("content-length")?;
-        }
+/// The requests a stepped rule has answered for each run's marker: a turn's
+/// step, where its messages cannot say it (Claude Code merges its messages
+/// by role, so a turn's results sit before its prompt).
+type Turns = std::sync::Mutex<std::collections::HashMap<String, usize>>;
+
+/// The events that answer `req`, and its log entry's fields. A ruled
+/// stand-in counts its input about as the API would, a token for each three
+/// bytes, so the compiler's estimate, which reads the provider's count, sees
+/// the request's real size (theseus-3ki0).
+fn answer(
+    script: &Script,
+    base: Option<Pace>,
+    turns: &Turns,
+    req: &Value,
+    e: &mut Entry,
+) -> Vec<Value> {
+    let mut events = answer_events(script, base, turns, req, e);
+    if let (Script::Rules(_), Some(first)) = (script, events.first_mut()) {
+        first["message"]["usage"]["input_tokens"] = json!(e.req_bytes / 3);
     }
-    let mut body = vec![0; len];
-    r.read_exact(&mut body)?;
-    if let Some(d) = DUMP.get() {
-        let n = DUMPED.fetch_add(1, Ordering::Relaxed);
-        std::fs::write(d.join(format!("request-{n:03}.json")), &body)?;
-    }
-    let req: Value = serde_json::from_slice(&body).context("request body")?;
-    let mut events = match (script, carries_tool_result(&req)) {
+    events
+}
+
+fn answer_events(
+    script: &Script,
+    base: Option<Pace>,
+    turns: &Turns,
+    req: &Value,
+    e: &mut Entry,
+) -> Vec<Value> {
+    let (opening, step) = steps::opening_text(req);
+    e.opening = opening.chars().take(120).collect();
+    e.marker = steps::marker(&opening).to_string();
+    e.step = step;
+    e.tool_results = step;
+    match (script, carries_tool_result(req)) {
         (Script::Job(_), true) => text_turn("Started; it runs in the background."),
         (Script::Mixed(_), true) => text_turn("The tool ran."),
         (Script::Job(argv), false) => tool_turn(argv),
-        (Script::Mixed(_), false) if asks_for(&req, BATCH_MARK) => batch_turn(),
-        (Script::Mixed(argv), false) if asks_for(&req, TOOL_MARK) => tool_turn(argv),
+        (Script::Mixed(_), false) if asks_for(req, BATCH_MARK) => batch_turn(),
+        (Script::Mixed(argv), false) if asks_for(req, TOOL_MARK) => tool_turn(argv),
+        (Script::Mixed(_), false) if streams(req) => {
+            e.pace = Some(base.unwrap_or_default());
+            text_turn(STREAM_TEXT)
+        }
         (Script::Mixed(_), false) => text_turn("A plain answer from the stand-in model."),
-        (Script::Rules(rules), true) => repeated_turn(rules, &req),
-        (Script::Rules(rules), false) => {
-            let text = last_user_text(&req);
-            let hold = rules.iter().find(|r| text.contains(&r.when));
-            if let Some(ms) = hold.map(|r| r.hold_ms).filter(|&ms| ms > 0) {
+        // A side request, where the rules script whole turns: a harness's
+        // small-model call, never a step of the turn.
+        (Script::Rules(rules), _) if e.side && rules.iter().any(|r| !r.steps.is_empty()) => {
+            text_turn(SIDE_TEXT)
+        }
+        (Script::Rules(rules), result) => {
+            let stepped = rules
+                .iter()
+                .find(|r| !r.steps.is_empty() && opening.contains(&r.when));
+            if let Some(r) = stepped {
+                e.rule = Some(r.when.clone());
+                // With a marker, the step is the requests answered for it.
+                let step = if e.marker.is_empty() {
+                    step
+                } else {
+                    let mut t = turns
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner);
+                    let n = t.entry(e.marker.clone()).or_insert(0);
+                    *n += 1;
+                    *n - 1
+                };
+                e.step = step;
+                e.pace = r.pace(base);
+                let s = &r.steps[step.min(r.steps.len() - 1)];
+                let s = steps::fill(
+                    &serde_json::to_value(StepOut::of(s)).unwrap_or_default(),
+                    steps::marker(&opening),
+                );
+                return step_turn(&s);
+            }
+            if result {
+                return repeated_turn(rules, req);
+            }
+            let text = last_user_text(req);
+            let hit = rules.iter().find(|r| text.contains(&r.when));
+            e.rule = hit.map(|r| r.when.clone());
+            e.pace = hit.and_then(|r| r.pace(base));
+            if let Some(ms) = hit.map(|r| r.hold_ms).filter(|&ms| ms > 0) {
                 std::thread::sleep(Duration::from_millis(ms));
             }
             ruled_turn(rules, &text)
         }
-    };
-    // A ruled stand-in counts its input about as the API would, a token for
-    // each three bytes, so the compiler's estimate, which reads the
-    // provider's count, sees the request's real size (theseus-3ki0).
-    if let (Script::Rules(_), Some(e)) = (script, events.first_mut()) {
-        e["message"]["usage"]["input_tokens"] = json!(len / 3);
     }
-    let mut out = String::from(
-        "HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\ncache-control: no-cache\r\nconnection: close\r\n\r\n",
-    );
-    for e in events {
-        out.push_str(&format!(
-            "event: {}\ndata: {e}\n\n",
-            e["type"].as_str().unwrap_or("")
-        ));
+}
+
+/// A step as JSON, so its strings can take the marker.
+#[derive(serde::Serialize)]
+struct StepOut {
+    calls: Vec<Value>,
+    text: Option<String>,
+}
+
+impl StepOut {
+    fn of(s: &Step) -> Self {
+        Self {
+            calls: s
+                .calls
+                .iter()
+                .map(|c| json!({"name": c.name, "input": c.input}))
+                .collect(),
+            text: s.text.clone(),
+        }
     }
-    stream.write_all(out.as_bytes())?;
-    stream.flush()?;
-    Ok(())
+}
+
+/// A filled step's turn: its calls, or its text.
+fn step_turn(s: &Value) -> Vec<Value> {
+    let calls: Vec<Call> = serde_json::from_value(s["calls"].clone()).unwrap_or_default();
+    if calls.is_empty() {
+        text_turn(s["text"].as_str().unwrap_or("Done."))
+    } else {
+        calls_turn(&calls)
+    }
+}
+
+/// Whether the request's last message, the turn's input, holds
+/// [`STREAM_MARK`].
+pub fn streams(req: &Value) -> bool {
+    req["messages"]
+        .as_array()
+        .and_then(|m| m.last())
+        .is_some_and(|m| m["content"].to_string().contains(STREAM_MARK))
 }
 
 /// Whether the request's last message answers a tool call.
@@ -388,6 +576,8 @@ pub fn text_turn(text: &str) -> Vec<Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::{Read, Write};
+    use std::net::TcpStream;
 
     #[test]
     fn a_tool_result_ends_the_turn_and_anything_else_asks_for_the_job() {
@@ -497,7 +687,7 @@ mod tests {
             let mut s = TcpStream::connect(fake.addr).unwrap();
             write!(
                 s,
-                "POST /v1/messages HTTP/1.1\r\ncontent-length: {}\r\n\r\n{body}",
+                "POST /v1/messages HTTP/1.1\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
                 body.len()
             )
             .unwrap();

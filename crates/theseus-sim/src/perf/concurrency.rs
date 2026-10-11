@@ -197,6 +197,10 @@ fn one_run(theseusd: &std::path::Path, a: &ConcurrencyArgs, tasks: usize) -> Res
             text: Some("Done, after the stand-in's hold.".into()),
             hold_ms: a.hold_ms,
             repeat: 0,
+            steps: vec![],
+            ttfb_ms: None,
+            chunks: None,
+            chunk_ms: None,
         }],
     )?;
     let dir = a.dir.as_ref().map(|d| d.join(format!("m{tasks}")));
