@@ -16,12 +16,14 @@ fn spec() -> RequestSpec {
         max_tokens: 1000,
         system_text: "S".into(),
         context_text: String::new(),
+        session_text: String::new(),
         context_files: vec![],
         persona: None,
         tools: vec![
             json!({"name": "fs_read", "description": "d", "input_schema": {"type": "object"}}),
         ],
         effort: Some(Effort::High),
+        turn_effort: None,
         thinking_display: ThinkingDisplay::Summarized,
         refusal_fallbacks: true,
         fallback: None,
@@ -51,6 +53,7 @@ fn answer(blocks: Vec<Value>) -> Node {
             correlation_id: None,
             compilation_id: None,
             request_digest: None,
+            effort: None,
         },
     )
 }
