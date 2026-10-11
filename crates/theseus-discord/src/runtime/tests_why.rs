@@ -231,4 +231,13 @@ fn a_shared_place_hides_a_private_source_and_the_text_fits_the_limit() {
         "{said}"
     );
     assert!(said.contains("… and 37 more"), "{said}");
+
+    // A title far past the limit is cut by whole lines, with what it left
+    // counted, and still one message.
+    let mut long = x;
+    long.title = Some("x".repeat(3000));
+    long.session_id = "ses_a".repeat(300);
+    let said = fenced(&long, None, None, &[]);
+    assert!(said.chars().count() <= 2000, "{} chars", said.chars().count());
+    assert!(said.contains("more lines"), "{said}");
 }
