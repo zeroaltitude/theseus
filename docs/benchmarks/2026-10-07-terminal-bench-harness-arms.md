@@ -230,10 +230,33 @@ $55.77 at list prices in all:
 
 ## Reproduction
 
+The raw outputs (every trial's Harbor job directory, with its trajectory) are kept on the build machine, not
+published; the CSV beside this report has every trial's numbers. To run the same configuration:
+
+```bash
+git checkout 041eb8ed         # Theseus as it ran (with the spawn bug); feat/harness-arms' adapters joined since
+bench/build.sh                # the static musl theseus and theseusd, into bench/bin
+export THESEUS_BENCH_BIN_DIR=$PWD/bench/bin THESEUS_BENCH_SPEND_LIMIT=3.75
+export PYTHONPATH=$PWD/bench/harbor HARBOR_TELEMETRY=0      # and ANTHROPIC_API_KEY (OPENAI_API_KEY for Codex CLI)
+TASKS="regex-chess schemelike-metacircular-eval install-windows-3.11 hf-model-inference build-pov-ray
+  cobol-modernization gpt2-codegolf large-scale-text-editing mailman model-extraction-relu-logits
+  nginx-request-logging reshard-c4-data torch-tensor-parallelism winning-avg-corewars"
+for t in $TASKS; do
+  harbor run -d terminal-bench@2.0 -i $t -a theseus_agent:Theseus -m anthropic/claude-sonnet-5-5 \
+    -k 2 -n 2 --agent-setup-timeout-multiplier 3.0 -o jobs --job-name ${t}__theseus
+  # the other arms the same way, each with its adapter and the caps as options, for example:
+  harbor run -d terminal-bench@2.0 -i $t -a opencode_agent:MeasuredOpenCode -m anthropic/claude-sonnet-5-5 \
+    --ak max_budget_usd=2.0 --ak max_turns=200 -k 2 -n 2 --agent-setup-timeout-multiplier 3.0 \
+    -o jobs --job-name ${t}__opencode
+done
 ```
-~/reports/theseus-harness-arms/night.sh   # the driver, then this report's data
-python3 make_docs.py --run RUN_DIR --tree TREE --arms theseus,claude-code,opencode,openhands,openclaw,codex,aider,pi --date 2026-10-07
-```
+
+The run went one arm at a time, at most two jobs at once, through a driver kept outside the repository (it waited
+for a quiet machine, pulled each task's image once and recorded what ran beside each job); the commands above run
+the same trials. The adapters are in `bench/harbor/` (`codex_agent:MeasuredCodex` with `-m openai/gpt-5.6-sol`,
+`aider_agent:MeasuredAider`, `opencode_agent:MeasuredOpenCode`, `openhands_agent:MeasuredOpenHands`,
+`openclaw_agent:MeasuredOpenClaw`, `pi_agent:MeasuredPi`, `claude_code_agent:MeasuredClaudeCode`), and each trial's
+record is `agent/efficiency.json`.
 
 ## Data
 
