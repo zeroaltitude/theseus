@@ -498,6 +498,15 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     and the first compile's request (`compiler::output_config`), and takes that request's digest again, which the
     turn records and the overflow retry compares. `route.decided`'s `effort_*` fields and `TurnRoute`
     say which. Tests: `tests_route_effort.rs`, `routing::effort::tests`.
+    **A turn's effort keeps the cache** (theseus-o719, `compiler/effort.rs`): a change of the top-level
+    `output_config.effort` restarts the provider's cache of the messages (only tools and system stay: a 625k DM on
+    Fable 5.1 wrote 612k again for one `low` turn). On a model that takes per-message effort (`effort::default_of`:
+    Fable 5.1, Opus 5.5, Opus 5, Sonnet 5.5; Anthropic's API only) the top-level effort stays the profile's own, and
+    a turn at another level gets an effort-only system message before its user message
+    (`mid-conversation-output-config-2026-07-01`). Its first answer records the level (`effort`, store format 27);
+    the render puts each record's message back before the user message its answer follows, so later requests repeat
+    the bytes. Never derive these messages from the spec: a history edit breaks the cache and preserved thinking.
+    Tests: `tests_turn_effort.rs`.
   - **The owner's corrections** (theseus-q31l; `correction/`, `turn/route_step/correct.rs`,
     `rpc/route_correct.rs`): words (`correction::words`, deterministic and narrow, read by `turn.submit`
     unless a job sent it, and taken at the inbound point only where the owner alone writes, the CLI, the web

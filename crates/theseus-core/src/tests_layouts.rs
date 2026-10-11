@@ -188,7 +188,7 @@ const SAMPLES: &[Sample] = &[
     },
     Sample {
         kind: kinds::NODE,
-        layout: "1, 460a35b's: an assistant message that calls a tool",
+        layout: "1, 460a35b's: an assistant message that calls a tool (unchanged through 26), before an answer's effort (27, theseus-o719)",
         bytes: r#"{"id":"msg_01a0f3f3cd867192886d8ac6d440b3ce","schema":1,"session_id":"ses_01a0f3f3c9b77474a7caa5d4925bd678","turn_id":"turn_01a0f3f3cd4774a9a2462c729fb82f1b","loop_index":0,"origin":"agent","author":null,"created_at_ms":1790799236486,"body":{"kind":"assistant_message","blocks":[{"id":"toolu_bench_job","input":{"argv":["sleep","300"],"timeout_secs":3600},"name":"proc_run","type":"tool_use"}],"model":"claude-sonnet-5-5","provider":"anthropic","stop_reason":"tool_use","usage":{"input_tokens":40,"output_tokens":12,"cache_read_input_tokens":0,"cache_creation_input_tokens":0},"cost_usd":0.0002,"catalog_version":"2026-09-29.1+config:12","request_id":null,"correlation_id":"act_01a0f3f3cd6d775481958e681b008a38","compilation_id":"cmp_01a0f3f3cd57766c8225231563419be3","request_digest":"0f287003f798a76f51e504047d99d54c3612deb2b4866aeef9068aa8ef47ba67"}}"#,
         kept: Kept::All,
     },

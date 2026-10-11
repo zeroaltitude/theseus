@@ -329,6 +329,7 @@ mod tests {
                 correlation_id: None,
                 compilation_id: None,
                 request_digest: None,
+                effort: None,
             },
         );
         reply.created_at_ms = 1_790_000_040_000;

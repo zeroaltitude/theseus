@@ -806,6 +806,7 @@ impl TurnRunner {
             persona: target.persona.clone(),
             tools: self.tools.definitions_for(place),
             effort: target.effort,
+            turn_effort: None,
             thinking_display: target.thinking_display,
             refusal_fallbacks: target.refusal_fallbacks,
             fallback: None,
@@ -2529,6 +2530,7 @@ impl TurnRunner {
                 correlation_id: Some(action.correlation_id.clone()),
                 compilation_id: Some(compiled.compilation.id.clone()),
                 request_digest: Some(compiled.digest.clone()),
+                effort: crate::compiler::effort::placed(&compiled.request),
             },
         );
         // The budget settles at the real cost, each token class at its own

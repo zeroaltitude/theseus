@@ -347,14 +347,23 @@ impl TurnRunner {
     }
 
     /// Jev's effort, when it applies, on the spec (every later loop's
-    /// compile) and on the request the first compile made (theseus-qe3v).
+    /// compile) and on the request the first compile made (theseus-qe3v). A
+    /// model that takes per-message effort keeps the top-level one, and the
+    /// cache of the messages with it: the turn's level is a message before
+    /// the turn's own (theseus-o719).
     fn apply_effort(&self, t: &Turn<'_>, spec: &mut RequestSpec, c: &mut Compiled) {
         let Some(e) = t.route.effort.filter(EffortDecision::applied) else {
             return;
         };
-        spec.effort = e.ran;
-        let entry = self.catalog.get(&c.request.model);
-        c.request.output_config = crate::compiler::output_config(entry, spec.effort);
+        if crate::compiler::effort::takes(spec, &c.request.model) {
+            spec.turn_effort = e.ran;
+            crate::compiler::effort::retarget(&mut c.request, spec);
+            c.messages = c.request.messages.len();
+        } else {
+            spec.effort = e.ran;
+            let entry = self.catalog.get(&c.request.model);
+            c.request.output_config = crate::compiler::output_config(entry, spec.effort);
+        }
         // The request changed after its compile: what the turn records of it,
         // and the overflow retry's "same request" check, read its digest.
         c.digest = c.request.digest();

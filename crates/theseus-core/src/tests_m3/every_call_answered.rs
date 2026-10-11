@@ -215,6 +215,7 @@ fn a_call_planned_and_never_authorized(r: &Rig, gate: &str) -> (String, String, 
             correlation_id: None,
             compilation_id: None,
             request_digest: None,
+            effort: None,
         },
     );
     r.core

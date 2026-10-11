@@ -171,6 +171,11 @@ pub enum Body {
         compilation_id: Option<String>,
         #[serde(default)]
         request_digest: Option<String>,
+        /// The level its request placed before its turn's message, a
+        /// per-message effort (`compiler::effort`, theseus-o719; format 27).
+        /// Absent on any other answer, so stored nodes keep their bytes.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        effort: Option<crate::config::Effort>,
     },
     ToolCall {
         tool_use_id: String,
@@ -693,6 +698,7 @@ mod tests {
                 correlation_id: None,
                 compilation_id: None,
                 request_digest: None,
+                effort: None,
             },
         );
         assert_eq!(a.preview(80), "Reading it. → fs_read");

@@ -31,6 +31,7 @@ fn spec(model: &str, fallback: Option<&str>) -> RequestSpec {
         persona: None,
         tools: vec![],
         effort: None,
+        turn_effort: None,
         thinking_display: ThinkingDisplay::Summarized,
         refusal_fallbacks: true,
         fallback: fallback.map(|m| (m.to_string(), "cyber".to_string())),
@@ -65,6 +66,7 @@ fn nodes() -> Vec<(u64, Stub)> {
             correlation_id: None,
             compilation_id: None,
             request_digest: None,
+            effort: None,
         },
     );
     vec![

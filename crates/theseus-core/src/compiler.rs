@@ -34,7 +34,9 @@ use crate::provider::{tool_uses_in, Census, ProviderRequest, ID_TOKENS, MESSAGE_
 use theseus_protocol::memory::{BudgetDrop, BudgetOverage, BudgetRange, BudgetReport};
 
 pub mod compaction;
+pub mod effort;
 pub mod situation;
+pub use effort::{output_config, BETA_TURN_EFFORT};
 
 pub const COMPILER_VERSION: u32 = 1;
 /// 2 since 13c (theseus-ev1): the system goes out as two blocks, and a block
@@ -224,6 +226,8 @@ pub struct RequestSpec {
     /// Wire tool definitions, sorted by name.
     pub tools: Vec<Value>,
     pub effort: Option<Effort>,
+    /// The turn's own, as a per-message effort (`effort`, theseus-o719).
+    pub turn_effort: Option<Effort>,
     pub thinking_display: ThinkingDisplay,
     pub refusal_fallbacks: bool,
     /// A refusal's fallback for the rest of the turn (theseus-7gir.18): the
@@ -1027,7 +1031,7 @@ pub fn render_request(
         })
         .collect();
     let conversation_ttl = spec.conversation_ttl.min(spec.cache_ttl);
-    let req = ProviderRequest {
+    let mut req = ProviderRequest {
         model: fallback.map_or(spec.model.as_str(), |f| f.0).to_string(),
         max_tokens: spec.max_tokens,
         system,
@@ -1040,24 +1044,13 @@ pub fn render_request(
         extra,
         image_tokens,
     };
+    let tail_from = effort::place(&mut req, &rendered.efforts, spec, tail_from);
     Rendered {
         request: req,
         prefix_nodes: prefix.len(),
         tail_nodes: tail.len(),
         repairs,
         tail_from,
-    }
-}
-
-/// A request's `output_config`: its effort, for a model whose catalog row
-/// takes effort (route.v3 sets it after the first compile, theseus-qe3v).
-pub fn output_config(
-    entry: Option<&crate::catalog::CatalogEntry>,
-    effort: Option<Effort>,
-) -> Option<Value> {
-    match (entry.map(|e| e.effort), effort) {
-        (Some(true), Some(e)) => Some(json!({"effort": e})),
-        _ => None,
     }
 }
 
@@ -1162,7 +1155,7 @@ pub fn render_messages(
     let replaced = replaced_answers(prefix.iter().chain(tail.iter()).copied(), retrying);
     let mut out: Vec<(String, Vec<Value>)> = Vec::new();
     let mut repairs = Vec::new();
-    let mut tail_from = None;
+    let (mut tail_from, mut efforts) = (None, Vec::new());
     let items = prefix
         .iter()
         .map(|n| (*n, true))
@@ -1190,6 +1183,7 @@ pub fn render_messages(
                 blocks,
                 provider: wrote,
                 model: wrote_model,
+                effort,
                 ..
             } => {
                 // A signature is the writing model's: a detour's answer on
@@ -1206,6 +1200,7 @@ pub fn render_messages(
                     continue;
                 }
                 let uses = tool_uses_in(&bl);
+                efforts.extend(effort.map(|e| (out.len(), e)));
                 push(&mut out, "assistant", bl);
                 if !uses.is_empty() {
                     let rb: Vec<Value> = uses
@@ -1263,6 +1258,7 @@ pub fn render_messages(
         repairs,
         image_tokens: spend.tokens,
         tail_from,
+        efforts,
     }
 }
 
@@ -1296,6 +1292,8 @@ pub struct Messages {
     /// The first message that carries a tail node (`messages.len()` when
     /// none does).
     pub tail_from: usize,
+    /// Each answer's recorded effort, at its message's index (`effort::place`).
+    pub efforts: Vec<(usize, Effort)>,
 }
 
 /// An operator's message's blocks: each attachment its own (an image or a
@@ -1366,6 +1364,7 @@ mod tests {
                 json!({"name": "fs_read", "description": "d", "input_schema": {"type": "object"}}),
             ],
             effort: Some(Effort::High),
+            turn_effort: None,
             thinking_display: ThinkingDisplay::Summarized,
             refusal_fallbacks: true,
             fallback: None,
@@ -1411,6 +1410,7 @@ mod tests {
                 correlation_id: None,
                 compilation_id: None,
                 request_digest: None,
+                effort: None,
             },
         )
     }

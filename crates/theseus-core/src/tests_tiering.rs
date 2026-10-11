@@ -279,6 +279,7 @@ fn renders_the_same_from_stubs(core: &Arc<Core>, sid: &str) {
         persona: None,
         tools: vec![],
         effort: None,
+        turn_effort: None,
         thinking_display: Default::default(),
         refusal_fallbacks: false,
         fallback: None,

@@ -265,6 +265,7 @@ pub(crate) fn reply(sid: &str, turn: &str, text: &str) -> Node {
             correlation_id: None,
             compilation_id: None,
             request_digest: None,
+            effort: None,
         },
     )
 }
