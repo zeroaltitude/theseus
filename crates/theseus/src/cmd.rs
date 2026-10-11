@@ -634,6 +634,12 @@ pub async fn tools(conn: &mut Conn, json: bool, verbose: bool) -> Result<()> {
                 "{:<12} {:<12} {:<6} {:<7} {:<8} {:>6}",
                 t.name, t.wire_name, t.class, t.backend, posture, t.calls
             );
+            if t.invalid_json > 0 {
+                println!(
+                    "    {} call(s) whose input was not valid JSON",
+                    t.invalid_json
+                );
+            }
             if verbose {
                 println!("    {}", t.description);
                 println!("    input: {}", serde_json::to_string(&t.input_schema)?);

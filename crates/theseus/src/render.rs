@@ -2298,6 +2298,7 @@ mod tests {
             tightened: None,
             input_schema: Value::Null,
             calls: 0,
+            invalid_json: 0,
         }
     }
 

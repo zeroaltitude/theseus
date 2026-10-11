@@ -191,7 +191,7 @@ async fn a_failed_step_stops_the_batch_and_its_one_result_names_each_step() {
     assert!(text.contains("[exit code 0, "), "{text}");
     assert!(text.contains("\none\n"), "{text}");
     assert!(text.contains("[step 2 of 3: `false`"), "{text}");
-    assert!(text.contains("[exit code 1]"), "{text}");
+    assert!(text.contains("[exit code 1 · in "), "{text}");
     assert!(text.contains("[step 3 of 3: `touch "), "{text}");
     assert!(text.trim_end().ends_with(": not run]"), "{text}");
     let steps = meta["steps"].as_array().expect("each step's row");

@@ -1213,6 +1213,24 @@ impl Scripted {
     }
 }
 
+/// A scripted call whose input is a string is one whose streamed input did
+/// not parse: the string is its raw text, and its input is empty.
+fn unparsed_inputs(blocks: Vec<Value>) -> (Vec<Value>, BTreeMap<String, String>) {
+    let mut invalid = BTreeMap::new();
+    let blocks = blocks
+        .into_iter()
+        .map(|mut b| {
+            if let Some(raw) = b.get("input").and_then(Value::as_str).map(str::to_string) {
+                let id = b.get("id").and_then(Value::as_str).unwrap_or_default();
+                invalid.insert(id.to_string(), raw);
+                b["input"] = Value::Object(Default::default());
+            }
+            b
+        })
+        .collect();
+    (blocks, invalid)
+}
+
 /// A provider for tests: scripted responses consumed in order, then `reply`
 /// forever; or `fail_with` on every call. Every request is recorded.
 pub struct FakeProvider {
@@ -1329,8 +1347,10 @@ impl Provider for FakeProvider {
                     _ => {}
                 }
             }
+            let (blocks, invalid_tool_inputs) = unparsed_inputs(blocks);
             let text = text_of(&blocks);
             Ok(ModelResponse {
+                invalid_tool_inputs,
                 usage: billed.unwrap_or_else(|| Usage {
                     input_tokens: req.estimate_tokens(),
                     output_tokens: (text.split_whitespace().count() as u64).max(1),
