@@ -283,3 +283,28 @@ fn a_marked_turn_steps_by_the_requests_it_was_answered() {
     let steps: Vec<usize> = fake.entries_at_least(2).iter().map(|e| e.step).collect();
     assert_eq!(steps, [0, 1]);
 }
+
+/// A rule's `then` is the stand-in's own answer to the call that carries its
+/// calls' results (F10's driver, theseus-qy2a), through the server, unstepped
+/// and unpaced; a rule without one answers `Done.`.
+#[test]
+fn a_rules_then_is_the_stand_ins_answer_to_its_calls_results() {
+    let rules: Vec<Rule> = serde_json::from_value(json!([
+        {"when": "what does", "calls": [{"name": "fs_read", "input": {"path": "README.md"}}],
+         "then": "# Tides, then"},
+        {"when": "run it", "calls": [{"name": "proc_run", "input": {"argv": ["true"]}}]}
+    ]))
+    .unwrap();
+    let fake = FakeModel::start_rules_with("127.0.0.1:0", rules, Serving::default()).unwrap();
+    let answered = |prompt: &str| {
+        json!({"tools": [{"name": "fs_read"}, {"name": "proc_run"}], "messages": [
+            {"role": "user", "content": [{"type": "text", "text": prompt}]},
+            {"role": "assistant", "content": [{"type": "tool_use", "id": "t", "name": "fs_read", "input": {}}]},
+            {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "t", "content": "x"}]}]})
+    };
+    let mut s = TcpStream::connect(fake.addr).unwrap();
+    let (_, then) = ask(&mut s, &answered("what does this project do?"));
+    assert_eq!(text(&then), "# Tides, then");
+    let (_, plain) = ask(&mut s, &answered("run it now"));
+    assert_eq!(text(&plain), "Done.");
+}
