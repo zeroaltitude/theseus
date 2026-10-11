@@ -38,6 +38,7 @@ pub mod mcp;
 pub mod mcp_server;
 pub mod memory;
 pub mod notices;
+pub mod nudge;
 mod ontology;
 pub mod packs;
 mod places;
@@ -130,7 +131,7 @@ pub mod method {
         SESSION_HISTORY = "session.history",
         SESSION_WATCH = "session.watch",
         SESSION_UNWATCH = "session.unwatch",
-        SESSION_RECOMPILE = "session.recompile",
+        SESSION_RECOMPILE = "session.recompile", SESSION_NUDGE = "session.nudge",
         CATALOG_LIST = "catalog.list", COMPILATION_LIST = "compilation.list", NODE_LIST = "node.list",
         /// Where a node went (theseus-n4m, step 12a): the contexts of its own
         /// session that held it, then its copies in other sessions over
@@ -2161,6 +2162,10 @@ pub struct TurnSubmitResult {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub later: Option<later::Later>,
+    /// The harness nudged the turn once after an announced stop (theseus-fh0u); absent when it did not.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub nudged: Option<nudge::TurnNudge>,
 }
 
 fn is_zero_u32(n: &u32) -> bool {

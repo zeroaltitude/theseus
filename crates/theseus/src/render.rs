@@ -341,7 +341,7 @@ pub fn event(e: &Event, show: Show) -> Vec<Line> {
             );
         }
         Event::TurnEnded(r) if show.turns => {
-            if let Some(line) = fallback_line(r) {
+            for line in r.harness_lines() {
                 push(&mut out, Tag::Warn, &line);
             }
             push(&mut out, Tag::Dim, &status_line(r))
@@ -680,6 +680,8 @@ pub fn node_lines(n: &NodeInfo, full: bool) -> Vec<Line> {
     match n.kind.as_str() {
         "user_message" => {
             let who = match n.author.as_deref() {
+                // The harness's own line (a stop nudge, theseus-fh0u).
+                Some(a) if a.starts_with("harness:") => "harness".to_string(),
                 Some(a) => format!("operator ({a})"),
                 None => "operator".to_string(),
             };

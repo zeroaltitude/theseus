@@ -31,6 +31,17 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   (`RequestSpec::fallback`), carry both models' thinking, and leave the refused answer out (`replaced_answers`, as a
   cut one); the session's target stays. A `provider.fallback` row, and the result's `fallback`, whose `line` every
   surface shows. Tests: `tests_fallback.rs`.
+  **The stop nudge** (theseus-fh0u, the owner's D8; `turn/nudge_step.rs`, `judge/stop.rs`): a loop the baseline ends
+  with no tool calls asks `loop.v1` at the stop, live (it is wired live while `[judge] stop_nudge`, on by default, is
+  on; off, the switch holds it in shadow), and waits at most `judge::stop::WAIT` (1 s, the pack's own on-path bar).
+  When `announced_unfinished` acts true, one harness node (`harness:stop_nudge`, the model reads it as the user's) and
+  its `turn.nudged` row ride one frame, and the turn calls the model once more; at most once a turn, and the nudged
+  turn's end lands `nudge_loop`'s event. Never in a shared place, with the session's own switch off
+  (`session.nudge`, META `stop_nudge.<session>`), while a job of the turn runs, at a strict loop cap, or with Jev
+  unreachable. A stop judged live is marked with point `stop` and not judged again after the turn; every judgment
+  after a turn is recorded in shadow. The result's `nudged` (with `acted`) is on `turn.ended`'s row, which the prove
+  counts. Tests: `tests_stop_nudge.rs`, theseusd's `tests/stop_nudge.rs`; the judge's other tests run loop.v1 in
+  shadow (`tests_judge::judge_config` turns the switch off).
 - **Context**: `compiler.rs` (manifests, recompiles, the cache layout, the token estimate), `context_files.rs`, and
   `catalog.rs` (each model's window, prices, and caching). A model may have a second price tier, `LongPrompt`
   (Haiku 5.5's: 5x past a 100,000-token prompt, theseus-3okf): `terms` prices a usage at the tier its prompt

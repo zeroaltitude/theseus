@@ -2,6 +2,7 @@
 import type { Later } from "./Later";
 import type { Span } from "./Span";
 import type { TurnFallback } from "./TurnFallback";
+import type { TurnNudge } from "./TurnNudge";
 import type { TurnRoute } from "./TurnRoute";
 import type { Usage } from "./Usage";
 
@@ -65,4 +66,8 @@ fallback?: TurnFallback,
 /**
  * What the turn left for later, on a daemon spawned for one run (theseus-mqxk); never a socket daemon's.
  */
-later?: Later, };
+later?: Later, 
+/**
+ * The harness nudged the turn once after an announced stop (theseus-fh0u); absent when it did not.
+ */
+nudged?: TurnNudge, };

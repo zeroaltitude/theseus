@@ -944,6 +944,7 @@ replay_limit_usd = 0.5                  # what one `theseus judge replay` (or ba
 audit_limit_usd = 5.0                   # what one `theseus judge audit` may spend on its model; the run stops before it would pass it
 backfill_consent = false                # true is the owner's consent that `theseus judge backfill` sends recorded history to Jev; agents can't write it
 holdout_days = 14                       # the holdout's days before the report's midnight; the learning loop's split from 200 labeled in it
+stop_nudge = true                       # a private turn whose last message says more work follows (loop.v1, live) goes on once more; false keeps loop.v1 in shadow; `theseus nudge off` for one session
 # api_base = "https://api.typesafe.ai"  # Jev's endpoint (tests point it at a fake)
 # A pack's own lines, by its name. The config can lower a pack's mode, never raise it.
 # [judge.packs."loop.v1"]

@@ -160,11 +160,18 @@ fn seed(c: &Core, like: &Execution, t: &Task<'_>) -> NewRecord {
         .unwrap()
         .scoped(&e.session_id)];
     for i in 0..t.turns {
+        let mut data = json!({"loops": 1, "tool_calls": 0, "stop_reason": "no_tool_calls"});
+        // c's first two turns were nudged at their stop (theseus-fh0u): the
+        // first acted on it, the second answered without acting.
+        if t.name == "c" && i < 2 {
+            data["nudged"] = json!({"judgment": format!("jdg_n{i}"), "by": "announced_unfinished",
+                                    "p": 0.95, "loop": 0, "acted": i == 0});
+        }
         let mut row = LedgerRow::new(
             LedgerKind::TurnEnded,
             Some(&e.session_id),
             Some(&format!("trn_{}_{i}", t.name)),
-            json!({"loops": 1, "tool_calls": 0, "stop_reason": "no_tool_calls"}),
+            data,
         );
         row.at_unix_ms = t.ended_at - 1_000;
         recs.push(NewRecord::json(kinds::LEDGER, None, &row).unwrap());
@@ -241,6 +248,7 @@ fn want() -> Vec<TaskRecord> {
         decision: StopDecision::Stop,
         should_stop: should,
     };
+    // c's turns took two stop nudges, one the model answered without acting.
     let rec = |task: &str, arm, success, spend, judge, turns, fc, stops| TaskRecord {
         task: format!("exe_{task}"),
         arm,
@@ -248,8 +256,8 @@ fn want() -> Vec<TaskRecord> {
         spend_micros: spend,
         judge_micros: judge,
         turns,
-        nudges: 0,
-        unnecessary_nudges: 0,
+        nudges: if task == "c" { 2 } else { 0 },
+        unnecessary_nudges: u32::from(task == "c"),
         false_completion: fc,
         stops,
     };

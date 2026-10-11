@@ -212,7 +212,8 @@ fn a_start_with_the_judge_on_builds_nothing_of_it() {
     assert_eq!(
         j["packs"],
         json!([
-            "loop.v1: shadow",
+            // Live at a turn's stop while `[judge] stop_nudge` is on (theseus-fh0u).
+            "loop.v1: live",
             "security.v1: shadow",
             "security.v3: live (owner: decision of 2026-10-04)",
             "classify.v1: off",

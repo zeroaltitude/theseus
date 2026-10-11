@@ -332,6 +332,8 @@ mod tests_stack;
 #[cfg(test)]
 mod tests_steps;
 #[cfg(test)]
+mod tests_stop_nudge;
+#[cfg(test)]
 mod tests_stopping;
 #[cfg(test)]
 mod tests_stub_kinds;

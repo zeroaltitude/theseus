@@ -1284,8 +1284,8 @@ fn footer(r: &TurnSubmitResult) -> String {
     } else if !matches!(r.stop_reason.as_str(), "" | "no_tool_calls" | "end_turn") {
         bits.push(format!("stopped: {}", r.stop_reason));
     }
-    let fell = r.fallback.as_ref().map(|f| f.line(&r.stop_reason));
-    let fell = fell.map_or(String::new(), |line| format!("-# {line}\n")); // theseus-7gir.18
+    let lines = r.harness_lines(); // a refusal's fallback, a nudge (theseus-7gir.18, theseus-fh0u)
+    let fell: String = lines.iter().map(|l| format!("-# {l}\n")).collect();
     format!("{fell}-# {}", bits.join(" · "))
 }
 

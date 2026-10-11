@@ -66,6 +66,7 @@ mod end_step;
 mod fallback_step;
 mod inbound_step;
 mod later_step;
+pub mod nudge_step;
 mod prompt_input;
 mod recall_step;
 mod rerank_step;
@@ -378,6 +379,8 @@ struct Turn<'a> {
     route: route_step::RouteState,
     /// A refusal moved the turn to its model's fallback (theseus-7gir.18).
     fallback: Option<fallback_step::FellBack>,
+    /// The stop judged live, and the one nudge (theseus-fh0u).
+    nudge: nudge_step::Nudge,
 }
 
 /// The class of a turn that faulted (R1): an error the turn did not report
@@ -494,6 +497,7 @@ impl<'a> Turn<'a> {
             recall: recall_step::Recalled::default(),
             route: route_step::RouteState::default(),
             fallback: None,
+            nudge: nudge_step::Nudge::default(),
         }
     }
 
@@ -1897,6 +1901,8 @@ impl TurnRunner {
             run_model = Self::advance(t, &resp, uses.len(), answered, i, window_retry || fell);
             self.loops_noticed(t, i, run_model)?;
             t.last = Some(resp);
+            // A stop that announced more work goes on once (theseus-fh0u).
+            run_model = run_model || (window_failed.is_none() && self.stop_nudge(t, i).await?);
             if let Some(f) = window_failed {
                 return Ok(Next::Fail(f));
             }
@@ -3163,6 +3169,7 @@ impl TurnRunner {
             route: t.route.result.take(),
             fallback: t.fallback.as_ref().map(|f| f.fallback.clone()),
             later: self.later_of(&t, jobs, late > 0 && t.stop_reason != "stopped"),
+            nudged: t.nudge.result(t.tool_calls),
         };
         t.record(&fact::turn::TurnBooked {
             result: &result,
@@ -3184,8 +3191,7 @@ impl TurnRunner {
         // same turn's from the WAL (`theseus-sim bench turn`).
         let frames = t.tc.store.turn_frames().map(|n| n + 1);
         // A judgment of this turn's end is marked before its last frame (23b).
-        self.judge
-            .mark_turn_end(&mut t.trace, &result, t.tc.task.is_some());
+        self.mark_end(&mut t, &result);
         let attrs = Self::end_attrs(&t, &result, frames);
         result.trace = Some(t.trace.finish(attrs));
         // The trace is finished: the fact draws no span.

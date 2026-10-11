@@ -77,6 +77,11 @@ pub(crate) fn judge_config(state: &Path, jev: Option<&FakeJev>) -> Config {
         cfg.judge.connect_secs = 1;
         cfg.judge.total_secs = 1;
     }
+    // loop.v1 in shadow, judged after the turn: the judge's own machinery
+    // (the sink, the budget, the ladder, the learning loop) is tested on it
+    // here. Its live use at a turn's stop, the default, is
+    // `tests_stop_nudge`'s (theseus-fh0u).
+    cfg.judge.stop_nudge = false;
     cfg
 }
 
