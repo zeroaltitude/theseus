@@ -16,6 +16,7 @@ mod budgets;
 mod cmd;
 mod extend;
 mod follow;
+mod harness;
 mod herdr;
 mod herdr_sync;
 mod import;

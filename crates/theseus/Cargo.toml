@@ -23,6 +23,8 @@ path = "src/main.rs"
 theseus-protocol.workspace = true
 anyhow.workspace = true
 base64.workspace = true
+# An episode's digests (theseus-o73y): the import of Claude Code and Codex sessions.
+sha2 = "0.10"
 clap.workspace = true
 serde.workspace = true
 serde_json.workspace = true

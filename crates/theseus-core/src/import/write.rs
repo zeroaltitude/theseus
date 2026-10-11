@@ -32,6 +32,7 @@ use std::sync::Mutex;
 use std::time::Instant;
 
 use anyhow::Result;
+use sha2::Digest as _;
 use theseus_protocol::import::{
     ImportEpisodesParams, ImportEpisodesResult, ImportEraseResult, ImportListResult,
     ImportRejected, ImportTagInfo,
@@ -46,6 +47,7 @@ use super::{
 };
 use crate::fact;
 use crate::node::{Body, Node};
+use crate::scrub::Scrubber;
 use crate::session::SessionRecord;
 use crate::store::Store;
 
@@ -138,17 +140,43 @@ pub fn import_batch_unless(
     by: &str,
     stopping: impl Fn() -> bool,
 ) -> Result<Batch> {
-    import_batch_in(store, p, by, stopping, FRAME_RECORDS)
+    import_batch_scrubbed(store, p, by, stopping, &Scrubber::default())
+}
+
+/// [`import_batch_unless`], an episode of a harness source (`HARNESS_SOURCES`)
+/// scrubbed by `scrubber` as it is written, so the store never holds a
+/// secret from an import (theseus-o73y). The RPC passes the daemon's own,
+/// which holds the vault's resolved values.
+pub fn import_batch_scrubbed(
+    store: &Store,
+    p: &ImportEpisodesParams,
+    by: &str,
+    stopping: impl Fn() -> bool,
+    scrubber: &Scrubber,
+) -> Result<Batch> {
+    import_batch_cut(store, p, by, stopping, FRAME_RECORDS, scrubber)
 }
 
 /// [`import_batch_unless`], its frames cut past `cap` records: a test's
 /// three frames' worth is then small enough to run under load.
+#[cfg(test)]
 pub(super) fn import_batch_in(
     store: &Store,
     p: &ImportEpisodesParams,
     by: &str,
     stopping: impl Fn() -> bool,
     cap: usize,
+) -> Result<Batch> {
+    import_batch_cut(store, p, by, stopping, cap, &Scrubber::default())
+}
+
+fn import_batch_cut(
+    store: &Store,
+    p: &ImportEpisodesParams,
+    by: &str,
+    stopping: impl Fn() -> bool,
+    cap: usize,
+    scrubber: &Scrubber,
 ) -> Result<Batch> {
     let _one = ONE
         .lock()
@@ -215,6 +243,7 @@ pub(super) fn import_batch_in(
             None => {}
         }
         seen.insert(e.episode_id.clone(), e.hash.clone());
+        let e = scrubbed(e, scrubber);
         let n = records_of(&e, &p.file, l.line, &mut frame)?;
         count(counts.get(&e.import_tag)?, &e, n);
         let t = frame.imported.entry(e.import_tag.clone()).or_default();
@@ -245,6 +274,29 @@ pub(super) fn import_batch_in(
         result: out,
         stopped,
     })
+}
+
+/// A harness episode's text with every secret scrubbed (theseus-o73y): each
+/// message's, a summary's, and the place's name, since the CLI built them
+/// from raw files. The message's `sha256` is then the stored text's. The
+/// episode's `hash`, which the check took over what the CLI sent, stays: it
+/// is the idempotency key, a digest and no text. Any other source is as it
+/// came, its pipeline having removed credentials already.
+fn scrubbed(mut e: Episode, scrubber: &Scrubber) -> Episode {
+    if !episode::HARNESS_SOURCES.contains(&e.source.as_str()) {
+        return e;
+    }
+    for m in &mut e.messages {
+        m.text = scrubber.scrub(&m.text).0;
+        m.sha256 = hex::encode(sha2::Sha256::digest(m.text.as_bytes()));
+    }
+    if let Some(s) = &mut e.summary {
+        s.text = scrubber.scrub(&s.text).0;
+    }
+    if let Some(n) = &mut e.place.name {
+        *n = scrubber.scrub(n).0;
+    }
+    e
 }
 
 /// An episode's session and its `n` nodes, in its tag's counts.

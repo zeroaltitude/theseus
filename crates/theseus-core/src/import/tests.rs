@@ -85,7 +85,7 @@ fn fixture() -> Vec<Value> {
     (0..SOURCES.len()).map(episode).collect()
 }
 
-fn lines(episodes: &[Value]) -> Vec<ImportLine> {
+pub(super) fn lines(episodes: &[Value]) -> Vec<ImportLine> {
     episodes
         .iter()
         .enumerate()
@@ -142,7 +142,7 @@ pub(super) async fn call_as(
     }
 }
 
-async fn import(core: &Arc<Core>, lines: Vec<ImportLine>) -> ImportEpisodesResult {
+pub(super) async fn import(core: &Arc<Core>, lines: Vec<ImportLine>) -> ImportEpisodesResult {
     serde_json::from_value(
         call(core, method::IMPORT_EPISODES, params(lines))
             .await
@@ -154,7 +154,7 @@ async fn import(core: &Arc<Core>, lines: Vec<ImportLine>) -> ImportEpisodesResul
 /// A stand-in index over `sessions`, as the tender's follower would hold
 /// them: each node's newest record (a tombstone holds nothing), its kind
 /// and origin, outside text external.
-fn index_of(core: &Arc<Core>, sessions: Vec<String>) -> Ask {
+pub(super) fn index_of(core: &Arc<Core>, sessions: Vec<String>) -> Ask {
     let store = core.store.clone();
     Arc::new(move |p| -> AskFuture {
         let mut hits = Vec::new();
@@ -228,14 +228,14 @@ fn index_of(core: &Arc<Core>, sessions: Vec<String>) -> Ask {
     })
 }
 
-fn sessions_of(episodes: &[Value]) -> Vec<String> {
+pub(super) fn sessions_of(episodes: &[Value]) -> Vec<String> {
     episodes
         .iter()
         .map(|e| session_id_of(e["episode_id"].as_str().unwrap()))
         .collect()
 }
 
-fn live() -> Rig {
+pub(super) fn live() -> Rig {
     rig_with(MemoryMode::Canary, |c| c.memory.canary_fraction = 1.0)
 }
 

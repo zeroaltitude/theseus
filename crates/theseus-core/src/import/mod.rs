@@ -47,6 +47,8 @@ pub(crate) mod tests;
 #[cfg(test)]
 mod tests_catalog;
 #[cfg(test)]
+mod tests_harness;
+#[cfg(test)]
 mod tests_people;
 #[cfg(test)]
 mod tests_topics;
