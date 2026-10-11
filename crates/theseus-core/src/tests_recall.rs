@@ -378,7 +378,7 @@ async fn shadow_writes_no_frame_and_changes_no_request_byte() {
         let before = c.store.stats().unwrap().frames_appended;
         let res = turn(c, &here, "where does the heron nest?").await;
         let frames = c.store.stats().unwrap().frames_appended - before;
-        assert!(frames <= 5, "{mode:?}: a plain turn wrote {frames} frames");
+        assert!(frames <= 4, "{mode:?}: a plain turn wrote {frames} frames");
         let digests: Vec<String> = c
             .store
             .session_nodes(&here)

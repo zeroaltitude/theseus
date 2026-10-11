@@ -17,6 +17,7 @@ pub mod day_ceiling;
 mod earlier;
 pub mod gate;
 pub mod gone;
+mod held;
 pub mod job;
 mod job_egress;
 mod job_l1;
@@ -58,6 +59,8 @@ mod tests_enosys;
 mod tests_frames;
 #[cfg(test)]
 mod tests_gone;
+#[cfg(test)]
+mod tests_held;
 #[cfg(test)]
 mod tests_overdraw;
 #[cfg(test)]

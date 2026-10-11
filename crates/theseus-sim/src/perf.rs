@@ -52,25 +52,36 @@ use runs::Run;
 pub use status::{status_cmd, StatusArgs};
 
 /// §9's per-turn overhead, restated as frames (review 2, consideration 8): a
-/// plain one-loop turn writes at most this many. 5 since theseus-l6y; the
-/// floor is 2 (review 2's S5: everything up to the dispatch is one frame, and
-/// the completion with the turn's end is the other). A step that writes fewer
+/// plain one-loop turn writes at most this many. 5 since theseus-l6y, 4 since
+/// theseus-2uby (the admission rides the input's frame); the floor is 2
+/// (review 2's S5: everything up to the dispatch is one frame, and the
+/// completion with the turn's end is the other). A step that writes fewer
 /// lowers this number in the same commit, so it only goes down.
-pub const PLAIN_TURN_FRAMES: f64 = 5.0;
+pub const PLAIN_TURN_FRAMES: f64 = 4.0;
+
+/// The syncs a plain turn pays before its model's first byte: the frames it
+/// wrote up to its first call's dispatch, that one included, as its trace
+/// counts them (`attrs.syncs_before_call`, theseus-2uby). 2 since
+/// theseus-2uby (the admission with the input, then the call's dispatch);
+/// the stopping point's rule is 1, the dispatch's frame carrying the input.
+/// It only goes down, as the frames do.
+pub const PLAIN_SYNCS_BEFORE_CALL: f64 = 2.0;
 
 /// A turn whose first loop runs the bench's job (`proc.run` of `true`) writes
-/// at most this many: the plain turn's 5, and 4 for the loop with the job:
+/// at most this many: the plain turn's 4, and 4 for the loop with the job:
 /// its plan and dispatch, its completion with its result (the turn takes the
 /// completion itself), and the second provider call's two. 9 since Tier 7.1
 /// (theseus-kpfv); 11 or 12 before, as the drain usually took the completion
-/// first, and the turn's own look could then write a duplicate.
-pub const TOOL_TURN_FRAMES: f64 = 9.0;
+/// first, and the turn's own look could then write a duplicate. 8 since
+/// theseus-2uby.
+pub const TOOL_TURN_FRAMES: f64 = 8.0;
 
 /// A turn whose first loop runs [`BATCH_CALLS`] programs of one response
 /// (`proc.run` of `sleep 2`, each its own job; theseus-d1hi) writes at most
-/// this many: the tool turn's 9, and the plan and the completion of each
-/// call past the first. The calls' frames do not depend on their group.
-pub const BATCH_TURN_FRAMES: f64 = 9.0 + 2.0 * (BATCH_CALLS as f64 - 1.0);
+/// this many: the tool turn's [`TOOL_TURN_FRAMES`] (8 since theseus-2uby), and
+/// the plan and the completion of each call past the first. The calls' frames
+/// do not depend on their group.
+pub const BATCH_TURN_FRAMES: f64 = TOOL_TURN_FRAMES + 2.0 * (BATCH_CALLS as f64 - 1.0);
 
 /// That turn's wall time at the p50 may pass one sleep and the tool turn's
 /// own p50 (one call, measured beside it, so the machine's load is in both)
@@ -289,6 +300,9 @@ pub struct Kind {
     pub frames: Summary,
     /// Each measured turn's frames, in order.
     pub frames_each: Vec<u64>,
+    /// The syncs before each turn's first model byte, from its trace
+    /// (`attrs.syncs_before_call`, theseus-2uby).
+    pub syncs: Summary,
     /// Each measured turn, in order: its wall time and the daemon's, its
     /// frames, and its slowest frame (theseus-w7dk).
     pub runs: Vec<Run>,
@@ -343,6 +357,7 @@ impl TurnReport {
             ("frames_tool".to_string(), self.tool.frames),
             ("turn_batch".to_string(), self.batch.wall_ms),
             ("frames_batch".to_string(), self.batch.frames),
+            ("syncs_plain".to_string(), self.plain.syncs),
             ("rss_start".to_string(), single(self.rss_start.rss_mb())),
             ("rss_burst".to_string(), single(self.rss_burst.rss_mb())),
         ]
@@ -388,6 +403,18 @@ pub fn batch_verdicts(batch: &Kind, tool: &Kind) -> Vec<Verdict> {
             ok: batch.wall_ms.p50 <= wall,
         },
     ]
+}
+
+/// The verdict on a plain turn's syncs before its model's first byte, held
+/// exactly as its frames are.
+pub fn syncs_verdict(syncs: &Summary) -> Verdict {
+    Verdict {
+        phase: "syncs_plain".to_string(),
+        p95: syncs.p95,
+        budget: PLAIN_SYNCS_BEFORE_CALL,
+        margin: 0.0,
+        ok: syncs.p95 <= PLAIN_SYNCS_BEFORE_CALL,
+    }
 }
 
 /// One `fdatasync` of an append of 4 KiB, as the WAL pays for each frame: `n`
@@ -461,6 +488,7 @@ impl Driver<'_> {
         shape: (u64, u64),
     ) -> Result<Kind> {
         let (mut wall, mut daemon, mut frames_each) = (Vec::new(), Vec::new(), Vec::new());
+        let mut syncs = Vec::new();
         let (mut each, mut last) = (Vec::new(), Vec::new());
         for i in 0..runs {
             let (r, w, frames) = self.measured(session, &format!("{input} {i}"))?;
@@ -489,6 +517,13 @@ impl Driver<'_> {
                     labels(&frames).join(" ")
                 );
             }
+            let Some(synced) = r["trace"]["attrs"]["syncs_before_call"].as_u64() else {
+                bail!(
+                    "a {name} turn's trace counts no syncs before its call: {}",
+                    r["trace"]["attrs"]
+                );
+            };
+            syncs.push(synced as f64);
             each.push(Run::of(i + 1, &r, w, &frames));
             wall.push(w);
             daemon.push(r["elapsed_ms"].as_f64().unwrap_or(0.0));
@@ -502,6 +537,7 @@ impl Driver<'_> {
             daemon_ms: Summary::of(&daemon).context("no runs")?,
             frames: Summary::of(&frames).context("no runs")?,
             frames_each,
+            syncs: Summary::of(&syncs).context("no runs")?,
             runs: each,
             last_frames: last,
         })
@@ -560,6 +596,7 @@ pub fn run_turn(o: &TurnOpts) -> Result<TurnReport> {
         fsync_before
     };
     let mut verdicts = turn_verdicts(&plain.frames, &tool.frames);
+    verdicts.push(syncs_verdict(&plain.syncs));
     verdicts.extend(batch_verdicts(&batch, &tool));
     Ok(TurnReport {
         theseusd: o.theseusd.display().to_string(),
@@ -1332,18 +1369,23 @@ mod tests {
 
     #[test]
     fn each_turns_frames_are_held_to_their_budget_exactly() {
-        let tool = frames(&[9.0; 10]);
-        let ok = turn_verdicts(&frames(&[5.0; 10]), &tool);
-        assert!(ok[0].ok && ok[0].budget == 5.0 && ok[0].margin == 0.0);
-        assert!(ok[1].ok && ok[1].budget == 9.0 && ok[1].phase == "frames_tool");
-        // One run of ten that wrote a sixth frame is the p95: a miss.
-        let mut some = vec![5.0; 9];
-        some.push(6.0);
+        let tool = frames(&[8.0; 10]);
+        let ok = turn_verdicts(&frames(&[4.0; 10]), &tool);
+        assert!(ok[0].ok && ok[0].budget == 4.0 && ok[0].margin == 0.0);
+        assert!(ok[1].ok && ok[1].budget == 8.0 && ok[1].phase == "frames_tool");
+        // One run of ten that wrote a fifth frame is the p95: a miss, as the
+        // admission's frame of its own before theseus-2uby was.
+        let mut some = vec![4.0; 9];
+        some.push(5.0);
         assert!(!turn_verdicts(&frames(&some), &tool)[0].ok);
         // A tool-call turn whose completion the drain took first, and its
-        // turn's look wrote again: 11 or 12, as before Tier 7.1.
-        let raced = frames(&[11.0, 9.0, 12.0, 9.0, 9.0, 9.0, 9.0, 9.0, 9.0, 9.0]);
-        assert!(!turn_verdicts(&frames(&[5.0; 10]), &raced)[1].ok);
+        // turn's look wrote again: 10 or 11, as before Tier 7.1.
+        let raced = frames(&[10.0, 8.0, 11.0, 8.0, 8.0, 8.0, 8.0, 8.0, 8.0, 8.0]);
+        assert!(!turn_verdicts(&frames(&[4.0; 10]), &raced)[1].ok);
+        // The syncs before the first byte: 2 passes, a third (the input's
+        // frame apart from the admission's) is a miss.
+        assert!(syncs_verdict(&frames(&[2.0; 10])).ok);
+        assert!(!syncs_verdict(&frames(&[3.0; 10])).ok);
         // Fewer frames than the budget passes: a step that gets to 2 is a gain.
         assert!(turn_verdicts(&frames(&[2.0; 10]), &tool)[0].ok);
     }
@@ -1358,20 +1400,21 @@ mod tests {
             wall_ms: Summary::of(wall).unwrap(),
             daemon_ms: Summary::of(wall).unwrap(),
             frames: single(frames),
+            syncs: single(2.0),
             frames_each: vec![frames as u64],
             runs: Vec::new(),
             last_frames: Vec::new(),
         };
-        let tool = batch(9.0, &[250.0, 280.0, 300.0]);
-        assert_eq!(BATCH_TURN_FRAMES, 15.0);
+        let tool = batch(8.0, &[250.0, 280.0, 300.0]);
+        assert_eq!(BATCH_TURN_FRAMES, 14.0);
         assert_eq!(batch_wall_budget(280.0), 2580.0);
-        let ok = batch_verdicts(&batch(15.0, &[2400.0, 2450.0, 2900.0]), &tool);
+        let ok = batch_verdicts(&batch(14.0, &[2400.0, 2450.0, 2900.0]), &tool);
         assert!(ok.iter().all(|v| v.ok), "{ok:?}");
-        let slow = batch_verdicts(&batch(15.0, &[2600.0, 2650.0, 2500.0]), &tool);
+        let slow = batch_verdicts(&batch(14.0, &[2600.0, 2650.0, 2500.0]), &tool);
         assert!(slow[0].ok && !slow[1].ok, "{slow:?}");
-        let serial = batch_verdicts(&batch(15.0, &[8100.0, 8150.0, 8120.0]), &tool);
+        let serial = batch_verdicts(&batch(14.0, &[8100.0, 8150.0, 8120.0]), &tool);
         assert!(serial[0].ok && !serial[1].ok, "{serial:?}");
-        assert!(!batch_verdicts(&batch(16.0, &[2100.0]), &tool)[0].ok);
+        assert!(!batch_verdicts(&batch(15.0, &[2100.0]), &tool)[0].ok);
     }
 
     #[test]
@@ -1463,8 +1506,9 @@ mod tests {
             name: name.to_string(),
             wall_ms: single(1.0),
             daemon_ms: single(1.0),
-            frames: single(5.0),
-            frames_each: vec![5],
+            frames: single(4.0),
+            frames_each: vec![4],
+            syncs: single(2.0),
             runs: Vec::new(),
             last_frames: Vec::new(),
         };
@@ -1487,7 +1531,7 @@ mod tests {
                 per_turn_ms: 0.0,
                 frames: 0,
             },
-            verdicts: turn_verdicts(&single(5.0), &single(9.0)),
+            verdicts: turn_verdicts(&single(4.0), &single(8.0)),
             wall_ms: 0.0,
         };
         assert!(turn.ok());

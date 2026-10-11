@@ -337,8 +337,8 @@ async fn a_judged_turn_keeps_its_frame_budget() {
         "judged: the inbound point's three marks (route.v3's, 25e), and loop.v1's at the turn's end (23b)"
     );
     let own = res.trace.as_ref().unwrap().attrs["frames"].as_u64();
-    assert_eq!(own, Some(5), "the turn's own frames");
-    assert!(frames <= 5, "a judged plain turn wrote {frames} frames");
+    assert_eq!(own, Some(4), "the turn's own frames");
+    assert!(frames <= 4, "a judged plain turn wrote {frames} frames");
     until_inbound(&r.core.store, 2).await;
 }
 

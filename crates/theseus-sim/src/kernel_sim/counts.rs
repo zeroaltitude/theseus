@@ -46,6 +46,12 @@ pub struct Sim2Counts {
     pub posts_settled: u64,
     pub second_settles: u64,
     pub post_crashes: u64,
+    /// Input turns held before their admission (theseus-2uby), those a
+    /// cancel refused, those a stop marked, and those admitted to run.
+    pub held_turns: u64,
+    pub held_cancelled: u64,
+    pub held_stopped: u64,
+    pub held_admitted: u64,
 }
 
 impl Sim2Counts {
@@ -73,6 +79,10 @@ impl Sim2Counts {
         self.posts_settled += o.posts_settled;
         self.second_settles += o.second_settles;
         self.post_crashes += o.post_crashes;
+        self.held_turns += o.held_turns;
+        self.held_cancelled += o.held_cancelled;
+        self.held_stopped += o.held_stopped;
+        self.held_admitted += o.held_admitted;
     }
 }
 
@@ -80,7 +90,7 @@ impl fmt::Display for Sim2Counts {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "sim2: {} stops: {} while a turn ran, {} calls told to stop, {} unsent declined, {} next inputs ran a turn; {} calls stopped alone, {} task stops refused · {} tasks opened: {} waking their parent, {} found again, {} refused at depth one; {} reports read: {} woke their parent, {} read together · {} wakes due in a turn queued by its end · {} posts staged in a turn's end, {} planned outside one; {} sent, {} sent again, {} refused, {} settled, {} second settles, {} crashes around a post",
+            "sim2: {} stops: {} while a turn ran, {} calls told to stop, {} unsent declined, {} next inputs ran a turn; {} calls stopped alone, {} task stops refused · {} tasks opened: {} waking their parent, {} found again, {} refused at depth one; {} reports read: {} woke their parent, {} read together · {} wakes due in a turn queued by its end · {} posts staged in a turn's end, {} planned outside one; {} sent, {} sent again, {} refused, {} settled, {} second settles, {} crashes around a post · {} input turns held: {} cancelled before their admission, {} stopped, {} admitted to run",
             self.stops,
             self.stops_in_turn,
             self.stopped_calls,
@@ -104,6 +114,10 @@ impl fmt::Display for Sim2Counts {
             self.posts_settled,
             self.second_settles,
             self.post_crashes,
+            self.held_turns,
+            self.held_cancelled,
+            self.held_stopped,
+            self.held_admitted,
         )
     }
 }
@@ -114,6 +128,10 @@ pub(super) struct Sim2 {
     /// Executions a stop landed on while a turn ran, by that turn, read from
     /// the ledger: until the turn's end, they plan nothing.
     pub stopped_turn: HashMap<String, u64>,
+    /// Of those, the ones whose turn was held and not yet admitted when the
+    /// stop landed (theseus-2uby): its admission's wake and `running` follow
+    /// the stop's row, once.
+    pub stopped_held: HashSet<String>,
     /// Executions a stop left free since the last due scan: a report's wake
     /// waits for that scan.
     pub stopped_since_scan: HashSet<String>,

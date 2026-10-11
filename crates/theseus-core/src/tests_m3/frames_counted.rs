@@ -24,9 +24,9 @@ fn traced_frames(core: &Core, res: &TurnSubmitResult) -> u64 {
     on_result
 }
 
-/// A session's first turn (which opens its execution: 8 frames), a plain turn, and a
+/// A session's first turn (which opens its execution: 7 frames), a plain turn, and a
 /// turn with a tool call each read their own count, and it is the store's
-/// count of frames from before the turn to after it. The plain turn's is 5,
+/// count of frames from before the turn to after it. The plain turn's is 4,
 /// the budget.
 #[tokio::test]
 async fn each_turn_reads_its_own_frames_and_the_store_agrees() {
@@ -56,8 +56,8 @@ async fn each_turn_reads_its_own_frames_and_the_store_agrees() {
         );
         counted.push(written);
     }
-    assert_eq!(counted[0], 8, "a first turn: {counted:?}");
-    assert_eq!(counted[1], 5, "a plain turn: {counted:?}");
+    assert_eq!(counted[0], 7, "a first turn: {counted:?}");
+    assert_eq!(counted[1], 4, "a plain turn: {counted:?}");
     assert_eq!(
         counted[2],
         counted[1] + 4,
