@@ -130,6 +130,7 @@ fn explain(turn: &str) -> Value {
                 {"node_id": "nod_d", "chunk": 0, "session_id": "ses_priv1", "reason": "place", "fused": 0.3}],
             "drops": {"budget": 1, "place": 1}, "budget_tokens": 400, "used_tokens": 300,
             "timings": {"index_ms": 3.0, "pack_ms": 1.0, "total_ms": 5.0, "deadline_ms": 250}}],
+        "noted": {"nod_a": 1772640000000u64, "nod_b": 1772700000000u64},
         "sources": {
             "ses_ep9": {"place": "CLI", "imported": {
                 "session_id": "ses_ep9", "episode_id": "ep9", "tag": "chat", "source": "chat export",

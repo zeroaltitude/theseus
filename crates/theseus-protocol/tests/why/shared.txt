@@ -14,7 +14,7 @@ context: 7 parts, 11,780 tokens (the system blocks are the bytes this turn saw)
 recalled: 2 of 14 candidates
   1. an imported source (not shown in a shared place) · message · 210 tok
      why: ranked 1 of 14 hits, fused score 0.93: bm25 #1 (4.20), vector #3 (0.81)
-  2. this conversation · note · 90 tok
+  2. 2026-03-05 · this conversation · note · 90 tok
      why: ranked 2 of 14 hits, fused score 0.71: entity #1 (1.00)
 left out:
   recall: 1 candidate left out for the budget (300 tok)

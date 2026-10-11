@@ -156,6 +156,12 @@ pub struct ContextExplainResult {
     /// node's excerpt filled to a private place), and each recalled
     /// session's place.
     pub recalls: Vec<RecallManifest>,
+    /// When each admitted node was written, in unix ms, by node id: a native
+    /// node's creation, an imported message's own time. Absent from a
+    /// daemon before `theseus why` (theseus-ighf).
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    #[cfg_attr(test, ts(optional, type = "Record<string, number>"))]
+    pub noted: BTreeMap<String, u64>,
     pub sources: BTreeMap<String, ContextSource>,
     /// Why the text was left out: a place that is not private reads sizes
     /// and digests alone. Absent when it was given.

@@ -48,6 +48,7 @@ pub fn explain(class: &str) -> ContextExplainResult {
             "drops": {"budget": 1, "place": 1},
             "budget_tokens": 400, "used_tokens": 300,
             "timings": {"index_ms": 3.0, "pack_ms": 1.0, "total_ms": 5.0, "deadline_ms": 250}}],
+        "noted": {"nod_a": 1772640000000u64, "nod_b": 1772700000000u64},
         "sources": {
             "ses_ep9": {"place": "CLI", "imported": {
                 "session_id": "ses_ep9", "episode_id": "ep9", "tag": "chat", "source": "chat export",
@@ -147,7 +148,7 @@ fn a_shared_place_shows_that_a_source_was_there_and_nothing_of_it() {
     let (x, p, r) = (explain("shared"), policy(), route());
     let tools = tools_called(&calls(), "trn_k3m9x2");
     let got = why_lines(&input(&x, &p, &r, &tools)).join("\n") + "\n";
-    for secret in ["tide office", "chat export", "ses_ep9", "2026-03"] {
+    for secret in ["tide office", "chat export", "ses_ep9", "2026-03-04"] {
         assert!(
             !got.contains(secret),
             "{secret} reached a shared place:\n{got}"
@@ -185,4 +186,23 @@ fn a_session_with_no_turn_says_so() {
     assert!(got
         .iter()
         .any(|l| l.contains("no turn of this session has compiled")));
+}
+
+#[test]
+fn a_parts_long_note_is_clipped_to_one_line_of_it() {
+    let mut x = explain("private");
+    let tools = x.parts.iter_mut().find(|p| p.block == "tools").unwrap();
+    tools.note = Some("fs.read, ".repeat(60));
+    let lines = why_lines(&WhyInput {
+        explain: &x,
+        policy: None,
+        route: None,
+        tools: &[],
+        hide_sources: false,
+    });
+    let line = lines
+        .iter()
+        .find(|l| l.trim_start().starts_with("tools "))
+        .unwrap();
+    assert!(line.ends_with("…") && line.chars().count() < 160, "{line}");
 }

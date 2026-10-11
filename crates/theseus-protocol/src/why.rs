@@ -129,6 +129,9 @@ pub fn why_short(i: &WhyInput, top: usize, max_chars: usize) -> String {
     for sec in [w.blocks, w.recalled, w.left_out, w.tools] {
         lines.extend(top_items(sec, top));
     }
+    // One long line (a withheld text's reason, a tool list) must not use the
+    // room the sections after it need.
+    let lines = lines.iter().map(|l| clip(l, LINE_CHARS)).collect();
     fit(lines, max_chars)
 }
 
@@ -310,9 +313,24 @@ fn part_line(p: &ContextPart, hide: bool) -> String {
         _ => {}
     }
     if let Some(n) = &p.note {
-        l.push_str(&format!(" · {n}"));
+        l.push_str(&format!(" · {}", clip(n, NOTE_CHARS)));
     }
     l
+}
+
+/// The most characters of a part's note a line keeps (a tools part's note
+/// names every tool).
+const NOTE_CHARS: usize = 80;
+
+/// The most characters of a line the short form keeps.
+const LINE_CHARS: usize = 150;
+
+/// `s` cut to `n` characters, an ellipsis where it was.
+fn clip(s: &str, n: usize) -> String {
+    match s.char_indices().nth(n) {
+        Some((at, _)) => format!("{}…", s[..at].trim_end()),
+        None => s.to_string(),
+    }
 }
 
 fn part_source(p: &ContextPart) -> String {
@@ -343,8 +361,9 @@ fn recalled(i: &WhyInput, hide: bool) -> Vec<String> {
         ));
         for (k, it) in m.admitted.iter().enumerate() {
             out.push(format!(
-                "  {}. {} · {} · {} tok",
+                "  {}. {}{} · {} · {} tok",
                 k + 1,
+                dated(it, x, hide),
                 source_words(&it.session_id, x, hide),
                 it.kind,
                 num(it.tokens)
@@ -389,9 +408,23 @@ fn why_recalled(it: &RecallItem, m: &RecallManifest) -> String {
     s
 }
 
-/// Where a recalled node came from, with its date when it has one (an
-/// imported episode's end); nothing of a private or imported source's own
-/// words when `hide`, only that one was there.
+/// The note's own date and a separator: when it was written, as the daemon
+/// read its record. A note of another session in a shared place has none
+/// shown, since the source is not.
+fn dated(it: &RecallItem, x: &ContextExplainResult, hide: bool) -> String {
+    if hide && it.session_id != x.session_id {
+        return String::new();
+    }
+    // An older daemon sends no times: an imported note's episode ends then.
+    let ms = x.noted.get(&it.node_id).copied().or_else(|| {
+        let e = x.sources.get(&it.session_id)?.imported.as_ref()?;
+        Some(e.end_ms)
+    });
+    ms.map(|ms| format!("{} · ", ymd(ms))).unwrap_or_default()
+}
+
+/// Where a recalled node came from; nothing of a private or imported
+/// source's own words when `hide`, only that one was there.
 fn source_words(session_id: &str, x: &ContextExplainResult, hide: bool) -> String {
     let src = x.sources.get(session_id);
     if hide {
@@ -411,8 +444,7 @@ fn source_words(session_id: &str, x: &ContextExplainResult, hide: bool) -> Strin
     };
     if let Some(e) = imported {
         return format!(
-            "{} · an imported {}{} from {}",
-            ymd(e.end_ms),
+            "an imported {}{} from {}",
             e.place_kind,
             e.place_name
                 .as_deref()

@@ -161,7 +161,7 @@ async fn why_answers_ephemerally_with_the_last_turn_and_writes_nothing() {
     );
     assert!(said.contains(&format!("session {sid}")), "{said}");
     assert!(
-        said.contains("fs_write") && said.contains("approve"),
+        (said.contains("fs.write") || said.contains("fs_write")) && said.contains("approve"),
         "{said}"
     );
     let replies = fake.replies();
@@ -232,12 +232,19 @@ fn a_shared_place_hides_a_private_source_and_the_text_fits_the_limit() {
     );
     assert!(said.contains("… and 37 more"), "{said}");
 
-    // A title far past the limit is cut by whole lines, with what it left
-    // counted, and still one message.
+    // A title far past the limit has its line clipped, and the sections
+    // after it still say what they have, in one message.
     let mut long = x;
     long.title = Some("x".repeat(3000));
     long.session_id = "ses_a".repeat(300);
     let said = fenced(&long, None, None, &[]);
-    assert!(said.chars().count() <= 2000, "{} chars", said.chars().count());
-    assert!(said.contains("more lines"), "{said}");
+    assert!(
+        said.chars().count() <= 2000,
+        "{} chars",
+        said.chars().count()
+    );
+    assert!(
+        said.contains("…") && said.contains("recalled: 40 of"),
+        "{said}"
+    );
 }
