@@ -54,20 +54,22 @@ by colour.
 | 2 | `claude-code` | Claude Code | `#eb6834` | `#d95926` |
 | 3 | `theseus-batching` | Theseus + the batching paragraph (an ablation arm) | `#1baf7a` | `#199e70` |
 | 4 | `openclaw` | OpenClaw (reserved: its arm is not built yet) | `#eda100` | `#c98500` |
+| 5 | `pi` | Pi (a harness arm; shares slot 5 with `bm25`) | `#e87ba4` | `#d55181` |
 | 5 | `bm25` | BM25, the lexical source | `#e87ba4` | `#d55181` |
 | 6 | `vector` | vectors, the dense source | `#008300` | `#008300` |
 | 7 | `fused` | fused ranks (BM25, entities and vectors) | `#4a3aa7` | `#9085e9` |
 | 8 | `entity` | exact entities | `#e34948` | `#e66767` |
 
-Harness arms hold slots 1 to 4; configurations inside Theseus (memory and retrieval arms) hold 5 to 8. Four neutrals
+Harness arms hold slots 1 to 5; configurations inside Theseus (memory and retrieval arms) hold 5 to 8. Four neutrals
 are not slots: `none` (a no-memory baseline) and `context` (the emphasis form's de-emphasised series: a second
 statistic of an arm, or the rest beside the one that matters) in the gray `#898781`; `oracle` (a ceiling) in the
 secondary ink; and `other` (an arm outside the registry) in the gray, with its name on the point. Status colours
 (good `#0ca30c`, warning `#fab219`, serious `#ec835a`, critical `#d03b3b`) are reserved for what means good or bad,
 such as a run over its budget, and always come with a glyph and a key. A new arm takes the next free slot here and
-in `charts.ARMS`, and the palette is validated again. Pi, an arm since 2026-10-06 (`bench/harbor/pi_agent.py`), has
-no slot yet: the eight are taken and slot 4 is held for OpenClaw, so Pi is drawn as `other`, its name on its point
-and in the legend.
+in `charts.ARMS`, and the palette is validated again. Pi, an arm since 2026-10-06 (`bench/harbor/pi_agent.py`), shares
+slot 5 with `bm25` (theseus-3lqk): the method has eight hues and never generates a ninth, and a harness comparison
+has no retrieval arm, nor a retrieval one a harness, so the two never meet in one figure (`charts.HARNESS_ARMS`,
+`charts.MEMORY_ARMS`). The five harness slots pass the validator on their own, adjacent pairs, both modes.
 
 **Validated** with the method's validator (OKLab ΔE × 100, Machado-Oliveira-Fernandes 2009 at severity 1), on the
 chart surfaces `#fcfcfb` (light) and `#1a1a19` (dark):
