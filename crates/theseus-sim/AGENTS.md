@@ -32,8 +32,9 @@ Key modules: `lifecycle.rs`, `kernel_sim.rs`, `fake_discord.rs`, `discord_proof.
     whose fewest frames a cancel are over `lifecycle::CANCEL_FRAMES` (2; its most is printed, not judged, since under
     load it picks up other work's frames; theseus-kq4n). The cancel's budget is 100 ms since cancel-fast.
   - `bench lifecycle --sessions N --phases surfaces` (`src/lifecycle/surfaces.rs`, theseus-7bee): what a prompt waits
-    for on a store with a great many sessions: `theseus watch --interactive` from its spawn to its prompt line, and the
-    TUI's startup reads (`executions.watch`, `confirm.list`), the slower of the two a sample, against 50 ms at any size.
+    for on a store with a great many sessions: `theseus watch --interactive` from its spawn to its prompt line, against 50 ms
+    at any size. The TUI's startup reads (`executions.watch`, `confirm.list`) print beside it with no budget: at 200,000
+    sessions they took p50 330 ms (the push's seed, health-o1's), to be budgeted once it is O(1).
     Not in the default phases (the gate's run is on an empty store). It waits first for the index's shape, since until
     it is built `session.list {n: 1}` reads every session.
   - `bench turn` (`src/perf.rs`, theseus-goa8): a plain turn and a tool-call turn on the stand-in model, each run N

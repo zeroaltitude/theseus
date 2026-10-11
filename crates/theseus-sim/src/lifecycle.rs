@@ -1814,7 +1814,7 @@ const TITLES: [(&str, &str); 10] = [
     ("seed", "the push's seed: the first executions.watch"),
     (
         "surfaces",
-        "watch --interactive to its prompt, and the TUI's startup reads (the slower)",
+        "watch --interactive, spawn to its prompt (the TUI's startup reads print beside it)",
     ),
     (
         "cancel",

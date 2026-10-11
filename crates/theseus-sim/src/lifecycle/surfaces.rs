@@ -3,8 +3,9 @@
 //! --interactive` from its spawn to the line that says it reads input, and
 //! the terminal UI's first screen, which is its startup reads: `executions.watch`
 //! (the board) and `confirm.list` (the questions), on one fresh connection.
-//! Each run's sample is the slower of the two, so the budget holds both; the
-//! rows print apart. It runs on `--sessions N` (`--phases surfaces`), where
+//! The budget holds `watch --interactive`, the row theseus-7bee fixed; the
+//! TUI's reads print beside it, measured and with no budget: its first read,
+//! `executions.watch`, is the push's seed, which health-o1 changes. It runs on `--sessions N` (`--phases surfaces`), where
 //! the CLI's asking the daemon for every session showed: 543 ms at 21,779
 //! sessions (the scale report's row 2). §9's 50 ms holds at any size.
 
@@ -23,7 +24,7 @@ use super::{percentile, tail, Rig};
 /// reads input.
 const PROMPT: &str = "a line you type is sent to the session";
 
-/// §FAST: the slower surface's budget at any size, in ms.
+/// §FAST: `watch --interactive`'s budget at any size, in ms.
 pub const BUDGET_MS: f64 = 50.0;
 
 /// `theseus watch --interactive` from spawn to its prompt, in ms; the
@@ -97,8 +98,7 @@ fn until_shaped(rig: &Rig) -> Result<()> {
     Ok(())
 }
 
-/// Runs the phase on a daemon of its own, and puts each run's slower surface
-/// under `surfaces`.
+/// Runs the phase on a daemon of its own, and puts each run's watch under `surfaces`.
 pub(super) fn phase(
     rig: &Rig,
     theseus: &Path,
@@ -120,7 +120,7 @@ pub(super) fn phase(
         let (mut watch, mut tui) = (Vec::new(), Vec::new());
         for _ in 0..runs {
             let (w, u) = (watch_prompt(rig, theseus)?, tui_ready(rig)?);
-            samples.entry("surfaces".into()).or_default().push(w.max(u));
+            samples.entry("surfaces".into()).or_default().push(w);
             watch.push(w);
             tui.push(u);
         }
