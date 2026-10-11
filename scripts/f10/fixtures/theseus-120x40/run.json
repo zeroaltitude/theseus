@@ -1,7 +1,7 @@
 {
  "arm": "theseus",
  "size": "120x40",
- "project_dir": "/tmp/f10-theseus-120x40-amlqmcmn/project",
+ "project_dir": "/tmp/f10-theseus-120x40-vasp5txq/project",
  "records": {
   "S1": {
    "open_cmd": "theseus",
@@ -13,7 +13,7 @@
   },
   "S3": {
    "open_cmd": "theseus tui",
-   "ready_ms": 73,
+   "ready_ms": 67,
    "approve_keys": [
     "y"
    ],
@@ -21,8 +21,8 @@
    "ids_typed": 0
   },
   "B5": {
-   "client_rss_kb": 7476,
-   "client": "theseus-tui (pid 1479)"
+   "client_rss_kb": 5720,
+   "client": "theseus-tui (pid 27594)"
   },
   "S5": {
    "mode_keys": null
@@ -64,5 +64,5 @@
  },
  "version": "theseus 0.0.1",
  "model": "claude-sonnet-5-5",
- "tmux_socket": "f10-30777"
+ "tmux_socket": "f10-24349"
 }

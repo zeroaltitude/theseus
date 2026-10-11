@@ -1,11 +1,11 @@
-[1m[48;5;0m theseus · 1 session[0m[48;5;0m                                                                                  [38;5;7m02:31 · socket ok
-[7m[38;5;8m[49m [38;5;2m○ [39mready  what does this proj[38;5;8m $0.00 [0m[38;5;8m│[39m [1mses …7f7cb6 · what does this project do? · claude-sonnet-5-5 · ○ ready[0m
-                                    [38;5;8m│[39m [02:30:31.464] operator (sock#2): what does this project do?
-                                    [38;5;8m│[39m [38;5;15m[02:30:33.996] claude-sonnet-5-5: (2 tool call(s))[39m
+[1m[48;5;0m theseus · 1 session[0m[48;5;0m                                                                                  [38;5;7m03:13 · socket ok
+[7m[38;5;8m[49m [38;5;2m○ [39mready  what does this proj[38;5;8m $0.00 [0m[38;5;8m│[39m [1mses …7fb573 · what does this project do? · claude-sonnet-5-5 · ○ ready[0m
+                                    [38;5;8m│[39m [03:12:36.661] operator (sock#2): what does this project do?
+                                    [38;5;8m│[39m [38;5;15m[03:12:39.168] claude-sonnet-5-5: (2 tool call(s))[39m
                                     [38;5;8m│[39m [38;5;8m      ↳ tool_use · in 40 out 12 · $0.0002[39m
-                                    [38;5;8m│[39m [38;5;4m      ⚙ fs.read {"path":"/tmp/f10-theseus-120x40-amlqmcmn/project/README.md"}[39m
+                                    [38;5;8m│[39m [38;5;4m      ⚙ fs.read {"path":"/tmp/f10-theseus-120x40-vasp5txq/project/README.md"}[39m
                                     [38;5;8m│[39m [38;5;4m[open: fs.read — open (enforcement = open)][39m
-                                    [38;5;8m│[39m [38;5;4m      ⚙ fs.read {"path":"/tmp/f10-theseus-120x40-amlqmcmn/project/tides.py"}[39m
+                                    [38;5;8m│[39m [38;5;4m      ⚙ fs.read {"path":"/tmp/f10-theseus-120x40-vasp5txq/project/tides.py"}[39m
                                     [38;5;8m│[39m [38;5;4m[open: fs.read — open (enforcement = open)][39m
                                     [38;5;8m│[39m [38;5;4m      ← fs.read ok · 0 ms · 407 B:      1    # tides ⏎      2     ⏎      3    A[39m
                                     [38;5;8m│[39m [38;5;4msmall tide-table library for an invented harbour, Port Wenlow. ⏎      4     ⏎
@@ -13,28 +13,28 @@
                                     [38;5;8m│[39m [38;5;4m      ← fs.read ok · 0 ms · 1.9 KB:      1    """A small tide-table library: read[39m
                                     [38;5;8m│[39m [38;5;4ma harbour's table, find its high and low ⏎      2    waters, and say how far the[39m
                                     [38;5;8m│[39m [38;5;4mwater moves in a day.""" ⏎      3     ⏎   …[39m
-                                    [38;5;8m│[39m [38;5;15m[02:30:34.046] claude-sonnet-5-5: # Port Wenlow tides ⏎  ⏎ A **small library** for
+                                    [38;5;8m│[39m [38;5;15m[03:12:39.180] claude-sonnet-5-5: # Port Wenlow tides ⏎  ⏎ A **small library** for
 [39m                                    [38;5;8m│[39m [38;5;15man invented harbour's tide table. It reads `HH:MM height` lines, finds the high[39m
                                     [38;5;8m│[39m [38;5;15mand low waters between their neighbours, and works out the tidal range between the
 [39m                                    [38;5;8m│[39m [38;5;15mhighest and the lowest water of the day, which the harbour board shows in metres.[39m
                                     [38;5;8m│[39m [38;5;15m⏎  ⏎ #…[39m
                                     [38;5;8m│[39m [38;5;8m      ↳ end_turn · in 60 out 12 · $0.0002[39m
                                     [38;5;8m│[39m you: run the tests: python3 -m unittest -v test_tides
-                                    [38;5;8m│[39m [38;5;8m── turn turn_01a128cc3ba473bd95cc3eb4ec36ef99[39m
+                                    [38;5;8m│[39m [38;5;8m── turn turn_01a128f2c36d70dba31ce6c4af7d6964[39m
                                     [38;5;8m│[39m [38;5;8m  ⟳ context append · 5 message(s) · ~94 tokens[39m
                                     [38;5;8m│[39m [1m[38;5;1m  ? proc.run needs your confirmation: run `python3 -m unittest -v test_tides` in[0m
-                                    [38;5;8m│[39m [1m[38;5;1m/tmp/f10-theseus-120x40-amlqmcmn/project: proc.run — approve ([policy.tools][0m
+                                    [38;5;8m│[39m [1m[38;5;1m/tmp/f10-theseus-120x40-vasp5txq/project: proc.run — approve ([policy.tools][0m
                                     [38;5;8m│[39m [1m[38;5;1m"proc.run" = approve)[0m
                                     [38;5;8m│[39m [38;5;8m[f10 → anthropic/claude-sonnet-5-5 · 1 loop(s) · 1 tool call(s) · awaiting_confirm
-[39m                                    [38;5;8m│[39m [38;5;8m· tokens in 40 out 12 · $0.0006 total ($0.0002 this reply) · 36 ms (first token 4[39m
-                                    [38;5;8m│[39m [38;5;8mms) · session ses_01a128cc2b2274a7a5413437ac7f7cb6][39m
-                                    [38;5;8m│[39m [38;5;2m  ✓ approved act_01a128cc3bc5724d89ad3f3129adc818 (by the TUI)[39m
-                                    [38;5;8m│[39m [38;5;8m── turn turn_01a128ccb47d752c8b5224dc5e426a46 (continuation)[39m
-                                    [38;5;8m│[39m [38;5;4m  → proc.run [python3 -m unittest -v test_tides] pid 31367[39m
-                                    [38;5;8m│[39m [38;5;4m  ← proc.run error · exit 1 · 77 ms · 880 B[39m
+[39m                                    [38;5;8m│[39m [38;5;8m· tokens in 40 out 12 · $0.0006 total ($0.0002 this reply) · 9 ms (first token 1[39m
+                                    [38;5;8m│[39m [38;5;8mms) · session ses_01a128f2b33272f3abcce1ca1b7fb573][39m
+                                    [38;5;8m│[39m [38;5;2m  ✓ approved act_01a128f2c37470bebf092aee899fc159 (by the TUI)[39m
+                                    [38;5;8m│[39m [38;5;8m── turn turn_01a128f33cee769f8488519780e6ef72 (continuation)[39m
+                                    [38;5;8m│[39m [38;5;4m  → proc.run [python3 -m unittest -v test_tides] pid 24976[39m
+                                    [38;5;8m│[39m [38;5;4m  ← proc.run error · exit 1 · 66 ms · 880 B[39m
                                     [38;5;8m│[39m [38;5;8m  ⟳ context append · 7 message(s) · ~462 tokens[39m
                                     [38;5;8m│[39m [38;5;15mThe tests ran.[39m
                                     [38;5;8m│[39m [38;5;8m[f10 → anthropic/claude-sonnet-5-5 · 1 loop(s) · continuation · no_tool_calls ·[39m
-                                    [38;5;8m│[39m [38;5;8mtokens in 60 out 12 · $0.0009 total ($0.0002 this reply) · 125 ms (first token 5[39m
-                                    [38;5;8m│[39m [38;5;8mms) · session ses_01a128cc2b2274a7a5413437ac7f7cb6][39m
- [38;5;2m✓ approved act_01a128cc3bc5724d89ad3f3129adc818[39m                                                     [38;5;8m[?] help  [q] quit
+                                    [38;5;8m│[39m [38;5;8mtokens in 60 out 12 · $0.0009 total ($0.0002 this reply) · 80 ms (first token 1[39m
+                                    [38;5;8m│[39m [38;5;8mms) · session ses_01a128f2b33272f3abcce1ca1b7fb573][39m
+ [38;5;2m✓ approved act_01a128f2c37470bebf092aee899fc159[39m                                                     [38;5;8m[?] help  [q] quit
