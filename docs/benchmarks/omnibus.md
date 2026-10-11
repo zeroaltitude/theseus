@@ -23,7 +23,7 @@ All the model calls of all nineteen runs cost $131.
 
 | | |
 |---|---|
-| Runs | 19 reports, Sep 30 to Oct 7, 2026, all published |
+| Runs | 20 reports, Sep 30 to Oct 10, 2026, all published (the Oct 10 rerun not yet folded into the sections below) |
 | Questions | Does it solve real tasks? Does it remember? Is it fast? What does it cost? |
 | Harnesses compared | Theseus; Claude Code; and on Oct 7 OpenCode, OpenHands, OpenClaw, Codex CLI, Aider and Pi |
 | Models | Claude Sonnet 5.5 for the task runs (Codex CLI: GPT-5.6-Sol); GLM-5.3 Flash for the memory exams; none for the speed benches and the retrieval probes |
@@ -99,6 +99,8 @@ Claude Sonnet 5.5 at medium effort; Codex CLI speaks only OpenAI's API, so it ra
 </picture>
 
 *Figure 3. Which harnesses solve the most for the least, and where does Theseus sit? Pi and OpenCode solve the most (89%), at $0.15 to $0.16 a trial; Theseus's 71% at $0.36 is off the frontier, in a run where none of its shell commands could start.*
+
+**Rerun with its commands working (Oct 10).** On the same 14 tasks, Theseus on one model solved 20 of 28 as recorded and 24 with four host-hit trials run again, at $0.21 a trial; as shipped, with Jev routing coding to Opus at high effort, 25 at $0.56 ([the rerun's report](2026-10-10-terminal-bench-theseus-rerun.md)). The figure above keeps Oct 7's point until the omnibus is next brought up to date.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="img/omnibus/task-strip-dark.svg">
@@ -307,6 +309,7 @@ measurement that judged it.
 | Real tasks | [Harbor: can Theseus run public benchmarks at all? The worth spike](2026-10-03-harbor-worth-spike.md) | Oct 3 |
 | Real tasks | [Terminal-Bench 2.0: Theseus against Claude Code on all 89 tasks, the first full run](2026-10-04-terminal-bench-first-full-run.md) | Oct 4 |
 | Real tasks | [Terminal-Bench 2.0: 8 harnesses on the same 14 tasks, the harness arms' first run](2026-10-07-terminal-bench-harness-arms.md) | Oct 7 |
+| Real tasks | [Terminal-Bench 2.0: Theseus's arms again, with its commands working (the night set's rerun)](2026-10-10-terminal-bench-theseus-rerun.md) | Oct 10 |
 | Memory | [Memory exam: how much does a cheap model gain from being shown its past?](2026-09-30-memory-exam-headroom.md) | Sep 30 |
 | Memory | [Memory exam v2: items built so that retrieval is hard](2026-09-30-memory-exam-v2.md) | Sep 30 |
 | Memory | [Retrieval: which engine embeds for the index, candle or tract?](2026-10-01-retrieval-embedding-engines.md) | Oct 1 |

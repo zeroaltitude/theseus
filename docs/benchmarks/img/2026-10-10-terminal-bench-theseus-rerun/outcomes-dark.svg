@@ -1,0 +1,847 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="421" viewBox="0 0 720 421" role="img" aria-labelledby="t-outcomes t-outcomes-d" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
+<title id="t-outcomes">Every trial's outcome, task by arm and attempt</title>
+<desc id="t-outcomes-d">Which tasks does each arm win and lose?</desc>
+<rect width="720" height="421" rx="8" fill="#1a1a19" stroke="#2c2c2a"/>
+<text x="18.0" y="32.0" font-size="15" fill="#ffffff" font-weight="600">Every trial's outcome, task by arm and attempt</text>
+<circle cx="25.0" cy="50.0" r="5" fill="#3987e5"/>
+<text x="40.0" y="54.0" font-size="12" fill="#c3c2b7">Theseus</text>
+<circle cx="115.5" cy="50.0" r="5" fill="#898781"/>
+<text x="130.5" y="54.0" font-size="12" fill="#c3c2b7">other arm</text>
+<circle cx="213.9" cy="50.0" r="5" fill="#898781"/>
+<text x="228.9" y="54.0" font-size="12" fill="#c3c2b7">context</text>
+<circle cx="300.2" cy="50.0" r="5" fill="#d95926"/>
+<text x="315.2" y="54.0" font-size="12" fill="#c3c2b7">Claude Code</text>
+<circle cx="418.0" cy="50.0" r="5" fill="#c3c2b7"/>
+<text x="433.0" y="54.0" font-size="12" fill="#c3c2b7">solved</text>
+<circle cx="496.8" cy="50.0" r="4.5" fill="#1a1a19" stroke="#c3c2b7" stroke-width="1.6"/>
+<text x="511.8" y="54.0" font-size="12" fill="#c3c2b7">not solved</text>
+<circle cx="25.0" cy="70.0" r="4.5" fill="#1a1a19" stroke="#c3c2b7" stroke-width="1.6"/>
+<line x1="21.5" y1="73.5" x2="28.5" y2="66.5" stroke="#c3c2b7" stroke-width="1.6"/>
+<text x="40.0" y="74.0" font-size="12" fill="#c3c2b7">ended in an error</text>
+<text x="207.7" y="185.8" font-size="10" fill="#c3c2b7" transform="rotate(-45 207.7 185.8)">Theseus 1</text>
+<text x="222.7" y="185.8" font-size="10" fill="#c3c2b7" transform="rotate(-45 222.7 185.8)">Theseus 2</text>
+<text x="245.7" y="185.8" font-size="10" fill="#c3c2b7" transform="rotate(-45 245.7 185.8)">Theseus as shipped 1</text>
+<text x="260.7" y="185.8" font-size="10" fill="#c3c2b7" transform="rotate(-45 260.7 185.8)">Theseus as shipped 2</text>
+<text x="283.7" y="185.8" font-size="10" fill="#c3c2b7" transform="rotate(-45 283.7 185.8)">Theseus 1</text>
+<text x="298.7" y="185.8" font-size="10" fill="#c3c2b7" transform="rotate(-45 298.7 185.8)">Theseus 2</text>
+<text x="321.7" y="185.8" font-size="10" fill="#c3c2b7" transform="rotate(-45 321.7 185.8)">Claude Code 2.1.290 1</text>
+<text x="336.7" y="185.8" font-size="10" fill="#c3c2b7" transform="rotate(-45 336.7 185.8)">Claude Code 2.1.290 2</text>
+<text x="359.7" y="185.8" font-size="10" fill="#c3c2b7" transform="rotate(-45 359.7 185.8)">OpenCode 1.18.35 1</text>
+<text x="374.7" y="185.8" font-size="10" fill="#c3c2b7" transform="rotate(-45 374.7 185.8)">OpenCode 1.18.35 2</text>
+<text x="389.7" y="185.8" font-size="10" fill="#c3c2b7" transform="rotate(-45 389.7 185.8)">Pi 1.0.4 1</text>
+<text x="404.7" y="185.8" font-size="10" fill="#c3c2b7" transform="rotate(-45 404.7 185.8)">Pi 1.0.4 2</text>
+<text x="419.7" y="185.8" font-size="10" fill="#c3c2b7" transform="rotate(-45 419.7 185.8)">OpenHands 1.53.0 1</text>
+<text x="434.7" y="185.8" font-size="10" fill="#c3c2b7" transform="rotate(-45 434.7 185.8)">OpenHands 1.53.0 2</text>
+<text x="194.2" y="202.3" font-size="11" fill="#ffffff" text-anchor="end">build-pov-ray</text>
+<g><title>build-pov-ray · Theseus 1: solved</title>
+<rect x="202.2" y="190.8" width="15" height="15" fill="transparent"/>
+<circle cx="209.7" cy="198.3" r="4.6" fill="#3987e5"/>
+</g>
+<g><title>build-pov-ray · Theseus 2: not solved</title>
+<rect x="217.2" y="190.8" width="15" height="15" fill="transparent"/>
+<circle cx="224.7" cy="198.3" r="4" fill="#1a1a19" stroke="#3987e5" stroke-width="1.5"/>
+</g>
+<g><title>build-pov-ray · Theseus as shipped 1: solved</title>
+<rect x="240.2" y="190.8" width="15" height="15" fill="transparent"/>
+<circle cx="247.7" cy="198.3" r="4.6" fill="#898781"/>
+</g>
+<g><title>build-pov-ray · Theseus as shipped 2: solved</title>
+<rect x="255.2" y="190.8" width="15" height="15" fill="transparent"/>
+<circle cx="262.7" cy="198.3" r="4.6" fill="#898781"/>
+</g>
+<g><title>build-pov-ray · Theseus 1: solved</title>
+<rect x="278.2" y="190.8" width="15" height="15" fill="transparent"/>
+<circle cx="285.7" cy="198.3" r="4.6" fill="#898781"/>
+</g>
+<g><title>build-pov-ray · Theseus 2: not solved</title>
+<rect x="293.2" y="190.8" width="15" height="15" fill="transparent"/>
+<circle cx="300.7" cy="198.3" r="4" fill="#1a1a19" stroke="#898781" stroke-width="1.5"/>
+</g>
+<g><title>build-pov-ray · Claude Code 2.1.290 1: solved</title>
+<rect x="316.2" y="190.8" width="15" height="15" fill="transparent"/>
+<circle cx="323.7" cy="198.3" r="4.6" fill="#d95926"/>
+</g>
+<g><title>build-pov-ray · Claude Code 2.1.290 2: not solved</title>
+<rect x="331.2" y="190.8" width="15" height="15" fill="transparent"/>
+<circle cx="338.7" cy="198.3" r="4" fill="#1a1a19" stroke="#d95926" stroke-width="1.5"/>
+</g>
+<g><title>build-pov-ray · OpenCode 1.18.35 1: solved</title>
+<rect x="354.2" y="190.8" width="15" height="15" fill="transparent"/>
+<circle cx="361.7" cy="198.3" r="4.6" fill="#898781"/>
+</g>
+<g><title>build-pov-ray · OpenCode 1.18.35 2: solved</title>
+<rect x="369.2" y="190.8" width="15" height="15" fill="transparent"/>
+<circle cx="376.7" cy="198.3" r="4.6" fill="#898781"/>
+</g>
+<g><title>build-pov-ray · Pi 1.0.4 1: solved</title>
+<rect x="384.2" y="190.8" width="15" height="15" fill="transparent"/>
+<circle cx="391.7" cy="198.3" r="4.6" fill="#898781"/>
+</g>
+<g><title>build-pov-ray · Pi 1.0.4 2: solved</title>
+<rect x="399.2" y="190.8" width="15" height="15" fill="transparent"/>
+<circle cx="406.7" cy="198.3" r="4.6" fill="#898781"/>
+</g>
+<g><title>build-pov-ray · OpenHands 1.53.0 1: solved</title>
+<rect x="414.2" y="190.8" width="15" height="15" fill="transparent"/>
+<circle cx="421.7" cy="198.3" r="4.6" fill="#898781"/>
+</g>
+<g><title>build-pov-ray · OpenHands 1.53.0 2: not solved</title>
+<rect x="429.2" y="190.8" width="15" height="15" fill="transparent"/>
+<circle cx="436.7" cy="198.3" r="4" fill="#1a1a19" stroke="#898781" stroke-width="1.5"/>
+</g>
+<rect x="18.0" y="205.8" width="438.2" height="15" fill="#2c2c2a" fill-opacity="0.45"/>
+<text x="194.2" y="217.3" font-size="11" fill="#ffffff" text-anchor="end">cobol-modernization</text>
+<g><title>cobol-modernization · Theseus 1: solved</title>
+<rect x="202.2" y="205.8" width="15" height="15" fill="transparent"/>
+<circle cx="209.7" cy="213.3" r="4.6" fill="#3987e5"/>
+</g>
+<g><title>cobol-modernization · Theseus 2: solved</title>
+<rect x="217.2" y="205.8" width="15" height="15" fill="transparent"/>
+<circle cx="224.7" cy="213.3" r="4.6" fill="#3987e5"/>
+</g>
+<g><title>cobol-modernization · Theseus as shipped 1: solved</title>
+<rect x="240.2" y="205.8" width="15" height="15" fill="transparent"/>
+<circle cx="247.7" cy="213.3" r="4.6" fill="#898781"/>
+</g>
+<g><title>cobol-modernization · Theseus as shipped 2: solved</title>
+<rect x="255.2" y="205.8" width="15" height="15" fill="transparent"/>
+<circle cx="262.7" cy="213.3" r="4.6" fill="#898781"/>
+</g>
+<g><title>cobol-modernization · Theseus 1: solved</title>
+<rect x="278.2" y="205.8" width="15" height="15" fill="transparent"/>
+<circle cx="285.7" cy="213.3" r="4.6" fill="#898781"/>
+</g>
+<g><title>cobol-modernization · Theseus 2: solved</title>
+<rect x="293.2" y="205.8" width="15" height="15" fill="transparent"/>
+<circle cx="300.7" cy="213.3" r="4.6" fill="#898781"/>
+</g>
+<g><title>cobol-modernization · Claude Code 2.1.290 1: solved</title>
+<rect x="316.2" y="205.8" width="15" height="15" fill="transparent"/>
+<circle cx="323.7" cy="213.3" r="4.6" fill="#d95926"/>
+</g>
+<g><title>cobol-modernization · Claude Code 2.1.290 2: solved</title>
+<rect x="331.2" y="205.8" width="15" height="15" fill="transparent"/>
+<circle cx="338.7" cy="213.3" r="4.6" fill="#d95926"/>
+</g>
+<g><title>cobol-modernization · OpenCode 1.18.35 1: solved</title>
+<rect x="354.2" y="205.8" width="15" height="15" fill="transparent"/>
+<circle cx="361.7" cy="213.3" r="4.6" fill="#898781"/>
+</g>
+<g><title>cobol-modernization · OpenCode 1.18.35 2: solved</title>
+<rect x="369.2" y="205.8" width="15" height="15" fill="transparent"/>
+<circle cx="376.7" cy="213.3" r="4.6" fill="#898781"/>
+</g>
+<g><title>cobol-modernization · Pi 1.0.4 1: solved</title>
+<rect x="384.2" y="205.8" width="15" height="15" fill="transparent"/>
+<circle cx="391.7" cy="213.3" r="4.6" fill="#898781"/>
+</g>
+<g><title>cobol-modernization · Pi 1.0.4 2: solved</title>
+<rect x="399.2" y="205.8" width="15" height="15" fill="transparent"/>
+<circle cx="406.7" cy="213.3" r="4.6" fill="#898781"/>
+</g>
+<g><title>cobol-modernization · OpenHands 1.53.0 1: solved</title>
+<rect x="414.2" y="205.8" width="15" height="15" fill="transparent"/>
+<circle cx="421.7" cy="213.3" r="4.6" fill="#898781"/>
+</g>
+<g><title>cobol-modernization · OpenHands 1.53.0 2: solved</title>
+<rect x="429.2" y="205.8" width="15" height="15" fill="transparent"/>
+<circle cx="436.7" cy="213.3" r="4.6" fill="#898781"/>
+</g>
+<text x="194.2" y="232.3" font-size="11" fill="#ffffff" text-anchor="end">gpt2-codegolf</text>
+<g><title>gpt2-codegolf · Theseus 1: solved</title>
+<rect x="202.2" y="220.8" width="15" height="15" fill="transparent"/>
+<circle cx="209.7" cy="228.3" r="4.6" fill="#3987e5"/>
+</g>
+<g><title>gpt2-codegolf · Theseus 2: solved</title>
+<rect x="217.2" y="220.8" width="15" height="15" fill="transparent"/>
+<circle cx="224.7" cy="228.3" r="4.6" fill="#3987e5"/>
+</g>
+<g><title>gpt2-codegolf · Theseus as shipped 1: solved</title>
+<rect x="240.2" y="220.8" width="15" height="15" fill="transparent"/>
+<circle cx="247.7" cy="228.3" r="4.6" fill="#898781"/>
+</g>
+<g><title>gpt2-codegolf · Theseus as shipped 2: solved</title>
+<rect x="255.2" y="220.8" width="15" height="15" fill="transparent"/>
+<circle cx="262.7" cy="228.3" r="4.6" fill="#898781"/>
+</g>
+<g><title>gpt2-codegolf · Theseus 1: solved</title>
+<rect x="278.2" y="220.8" width="15" height="15" fill="transparent"/>
+<circle cx="285.7" cy="228.3" r="4.6" fill="#898781"/>
+</g>
+<g><title>gpt2-codegolf · Theseus 2: solved</title>
+<rect x="293.2" y="220.8" width="15" height="15" fill="transparent"/>
+<circle cx="300.7" cy="228.3" r="4.6" fill="#898781"/>
+</g>
+<g><title>gpt2-codegolf · Claude Code 2.1.290 1: not solved</title>
+<rect x="316.2" y="220.8" width="15" height="15" fill="transparent"/>
+<circle cx="323.7" cy="228.3" r="4" fill="#1a1a19" stroke="#d95926" stroke-width="1.5"/>
+</g>
+<g><title>gpt2-codegolf · Claude Code 2.1.290 2: solved</title>
+<rect x="331.2" y="220.8" width="15" height="15" fill="transparent"/>
+<circle cx="338.7" cy="228.3" r="4.6" fill="#d95926"/>
+</g>
+<g><title>gpt2-codegolf · OpenCode 1.18.35 1: solved</title>
+<rect x="354.2" y="220.8" width="15" height="15" fill="transparent"/>
+<circle cx="361.7" cy="228.3" r="4.6" fill="#898781"/>
+</g>
+<g><title>gpt2-codegolf · OpenCode 1.18.35 2: not solved</title>
+<rect x="369.2" y="220.8" width="15" height="15" fill="transparent"/>
+<circle cx="376.7" cy="228.3" r="4" fill="#1a1a19" stroke="#898781" stroke-width="1.5"/>
+</g>
+<g><title>gpt2-codegolf · Pi 1.0.4 1: solved</title>
+<rect x="384.2" y="220.8" width="15" height="15" fill="transparent"/>
+<circle cx="391.7" cy="228.3" r="4.6" fill="#898781"/>
+</g>
+<g><title>gpt2-codegolf · Pi 1.0.4 2: not solved</title>
+<rect x="399.2" y="220.8" width="15" height="15" fill="transparent"/>
+<circle cx="406.7" cy="228.3" r="4" fill="#1a1a19" stroke="#898781" stroke-width="1.5"/>
+</g>
+<g><title>gpt2-codegolf · OpenHands 1.53.0 1: solved</title>
+<rect x="414.2" y="220.8" width="15" height="15" fill="transparent"/>
+<circle cx="421.7" cy="228.3" r="4.6" fill="#898781"/>
+</g>
+<g><title>gpt2-codegolf · OpenHands 1.53.0 2: solved</title>
+<rect x="429.2" y="220.8" width="15" height="15" fill="transparent"/>
+<circle cx="436.7" cy="228.3" r="4.6" fill="#898781"/>
+</g>
+<rect x="18.0" y="235.8" width="438.2" height="15" fill="#2c2c2a" fill-opacity="0.45"/>
+<text x="194.2" y="247.3" font-size="11" fill="#ffffff" text-anchor="end">hf-model-inference</text>
+<g><title>hf-model-inference · Theseus 1: ended in an error</title>
+<rect x="202.2" y="235.8" width="15" height="15" fill="transparent"/>
+<circle cx="209.7" cy="243.3" r="4" fill="#1a1a19" stroke="#3987e5" stroke-width="1.5"/>
+<line x1="206.3" y1="246.7" x2="213.1" y2="239.9" stroke="#3987e5" stroke-width="1.5"/>
+</g>
+<g><title>hf-model-inference · Theseus 2: ended in an error</title>
+<rect x="217.2" y="235.8" width="15" height="15" fill="transparent"/>
+<circle cx="224.7" cy="243.3" r="4" fill="#1a1a19" stroke="#3987e5" stroke-width="1.5"/>
+<line x1="221.3" y1="246.7" x2="228.1" y2="239.9" stroke="#3987e5" stroke-width="1.5"/>
+</g>
+<g><title>hf-model-inference · Theseus as shipped 1: solved</title>
+<rect x="240.2" y="235.8" width="15" height="15" fill="transparent"/>
+<circle cx="247.7" cy="243.3" r="4.6" fill="#898781"/>
+</g>
+<g><title>hf-model-inference · Theseus as shipped 2: solved</title>
+<rect x="255.2" y="235.8" width="15" height="15" fill="transparent"/>
+<circle cx="262.7" cy="243.3" r="4.6" fill="#898781"/>
+</g>
+<g><title>hf-model-inference · Theseus 1: not solved</title>
+<rect x="278.2" y="235.8" width="15" height="15" fill="transparent"/>
+<circle cx="285.7" cy="243.3" r="4" fill="#1a1a19" stroke="#898781" stroke-width="1.5"/>
+</g>
+<g><title>hf-model-inference · Theseus 2: not solved</title>
+<rect x="293.2" y="235.8" width="15" height="15" fill="transparent"/>
+<circle cx="300.7" cy="243.3" r="4" fill="#1a1a19" stroke="#898781" stroke-width="1.5"/>
+</g>
+<g><title>hf-model-inference · Claude Code 2.1.290 1: solved</title>
+<rect x="316.2" y="235.8" width="15" height="15" fill="transparent"/>
+<circle cx="323.7" cy="243.3" r="4.6" fill="#d95926"/>
+</g>
+<g><title>hf-model-inference · Claude Code 2.1.290 2: solved</title>
+<rect x="331.2" y="235.8" width="15" height="15" fill="transparent"/>
+<circle cx="338.7" cy="243.3" r="4.6" fill="#d95926"/>
+</g>
+<g><title>hf-model-inference · OpenCode 1.18.35 1: solved</title>
+<rect x="354.2" y="235.8" width="15" height="15" fill="transparent"/>
+<circle cx="361.7" cy="243.3" r="4.6" fill="#898781"/>
+</g>
+<g><title>hf-model-inference · OpenCode 1.18.35 2: solved</title>
+<rect x="369.2" y="235.8" width="15" height="15" fill="transparent"/>
+<circle cx="376.7" cy="243.3" r="4.6" fill="#898781"/>
+</g>
+<g><title>hf-model-inference · Pi 1.0.4 1: solved</title>
+<rect x="384.2" y="235.8" width="15" height="15" fill="transparent"/>
+<circle cx="391.7" cy="243.3" r="4.6" fill="#898781"/>
+</g>
+<g><title>hf-model-inference · Pi 1.0.4 2: solved</title>
+<rect x="399.2" y="235.8" width="15" height="15" fill="transparent"/>
+<circle cx="406.7" cy="243.3" r="4.6" fill="#898781"/>
+</g>
+<g><title>hf-model-inference · OpenHands 1.53.0 1: solved</title>
+<rect x="414.2" y="235.8" width="15" height="15" fill="transparent"/>
+<circle cx="421.7" cy="243.3" r="4.6" fill="#898781"/>
+</g>
+<g><title>hf-model-inference · OpenHands 1.53.0 2: solved</title>
+<rect x="429.2" y="235.8" width="15" height="15" fill="transparent"/>
+<circle cx="436.7" cy="243.3" r="4.6" fill="#898781"/>
+</g>
+<text x="194.2" y="262.3" font-size="11" fill="#ffffff" text-anchor="end">install-windows-3.11</text>
+<g><title>install-windows-3.11 · Theseus 1: not solved</title>
+<rect x="202.2" y="250.8" width="15" height="15" fill="transparent"/>
+<circle cx="209.7" cy="258.3" r="4" fill="#1a1a19" stroke="#3987e5" stroke-width="1.5"/>
+</g>
+<g><title>install-windows-3.11 · Theseus 2: not solved</title>
+<rect x="217.2" y="250.8" width="15" height="15" fill="transparent"/>
+<circle cx="224.7" cy="258.3" r="4" fill="#1a1a19" stroke="#3987e5" stroke-width="1.5"/>
+</g>
+<g><title>install-windows-3.11 · Theseus as shipped 1: not solved</title>
+<rect x="240.2" y="250.8" width="15" height="15" fill="transparent"/>
+<circle cx="247.7" cy="258.3" r="4" fill="#1a1a19" stroke="#898781" stroke-width="1.5"/>
+</g>
+<g><title>install-windows-3.11 · Theseus as shipped 2: solved</title>
+<rect x="255.2" y="250.8" width="15" height="15" fill="transparent"/>
+<circle cx="262.7" cy="258.3" r="4.6" fill="#898781"/>
+</g>
+<g><title>install-windows-3.11 · Theseus 1: not solved</title>
+<rect x="278.2" y="250.8" width="15" height="15" fill="transparent"/>
+<circle cx="285.7" cy="258.3" r="4" fill="#1a1a19" stroke="#898781" stroke-width="1.5"/>
+</g>
+<g><title>install-windows-3.11 · Theseus 2: not solved</title>
+<rect x="293.2" y="250.8" width="15" height="15" fill="transparent"/>
+<circle cx="300.7" cy="258.3" r="4" fill="#1a1a19" stroke="#898781" stroke-width="1.5"/>
+</g>
+<g><title>install-windows-3.11 · Claude Code 2.1.290 1: solved</title>
+<rect x="316.2" y="250.8" width="15" height="15" fill="transparent"/>
+<circle cx="323.7" cy="258.3" r="4.6" fill="#d95926"/>
+</g>
+<g><title>install-windows-3.11 · Claude Code 2.1.290 2: not solved</title>
+<rect x="331.2" y="250.8" width="15" height="15" fill="transparent"/>
+<circle cx="338.7" cy="258.3" r="4" fill="#1a1a19" stroke="#d95926" stroke-width="1.5"/>
+</g>
+<g><title>install-windows-3.11 · OpenCode 1.18.35 1: ended in an error</title>
+<rect x="354.2" y="250.8" width="15" height="15" fill="transparent"/>
+<circle cx="361.7" cy="258.3" r="4" fill="#1a1a19" stroke="#898781" stroke-width="1.5"/>
+<line x1="358.3" y1="261.7" x2="365.1" y2="254.9" stroke="#898781" stroke-width="1.5"/>
+</g>
+<g><title>install-windows-3.11 · OpenCode 1.18.35 2: ended in an error</title>
+<rect x="369.2" y="250.8" width="15" height="15" fill="transparent"/>
+<circle cx="376.7" cy="258.3" r="4" fill="#1a1a19" stroke="#898781" stroke-width="1.5"/>
+<line x1="373.3" y1="261.7" x2="380.1" y2="254.9" stroke="#898781" stroke-width="1.5"/>
+</g>
+<g><title>install-windows-3.11 · Pi 1.0.4 1: not solved</title>
+<rect x="384.2" y="250.8" width="15" height="15" fill="transparent"/>
+<circle cx="391.7" cy="258.3" r="4" fill="#1a1a19" stroke="#898781" stroke-width="1.5"/>
+</g>
+<g><title>install-windows-3.11 · Pi 1.0.4 2: ended in an error</title>
+<rect x="399.2" y="250.8" width="15" height="15" fill="transparent"/>
+<circle cx="406.7" cy="258.3" r="4" fill="#1a1a19" stroke="#898781" stroke-width="1.5"/>
+<line x1="403.3" y1="261.7" x2="410.1" y2="254.9" stroke="#898781" stroke-width="1.5"/>
+</g>
+<g><title>install-windows-3.11 · OpenHands 1.53.0 1: not solved</title>
+<rect x="414.2" y="250.8" width="15" height="15" fill="transparent"/>
+<circle cx="421.7" cy="258.3" r="4" fill="#1a1a19" stroke="#898781" stroke-width="1.5"/>
+</g>
+<g><title>install-windows-3.11 · OpenHands 1.53.0 2: not solved</title>
+<rect x="429.2" y="250.8" width="15" height="15" fill="transparent"/>
+<circle cx="436.7" cy="258.3" r="4" fill="#1a1a19" stroke="#898781" stroke-width="1.5"/>
+</g>
+<rect x="18.0" y="265.8" width="438.2" height="15" fill="#2c2c2a" fill-opacity="0.45"/>
+<text x="194.2" y="277.3" font-size="11" fill="#ffffff" text-anchor="end">large-scale-text-editing</text>
+<g><title>large-scale-text-editing · Theseus 1: solved</title>
+<rect x="202.2" y="265.8" width="15" height="15" fill="transparent"/>
+<circle cx="209.7" cy="273.3" r="4.6" fill="#3987e5"/>
+</g>
+<g><title>large-scale-text-editing · Theseus 2: solved</title>
+<rect x="217.2" y="265.8" width="15" height="15" fill="transparent"/>
+<circle cx="224.7" cy="273.3" r="4.6" fill="#3987e5"/>
+</g>
+<g><title>large-scale-text-editing · Theseus as shipped 1: solved</title>
+<rect x="240.2" y="265.8" width="15" height="15" fill="transparent"/>
+<circle cx="247.7" cy="273.3" r="4.6" fill="#898781"/>
+</g>
+<g><title>large-scale-text-editing · Theseus as shipped 2: solved</title>
+<rect x="255.2" y="265.8" width="15" height="15" fill="transparent"/>
+<circle cx="262.7" cy="273.3" r="4.6" fill="#898781"/>
+</g>
+<g><title>large-scale-text-editing · Theseus 1: solved</title>
+<rect x="278.2" y="265.8" width="15" height="15" fill="transparent"/>
+<circle cx="285.7" cy="273.3" r="4.6" fill="#898781"/>
+</g>
+<g><title>large-scale-text-editing · Theseus 2: solved</title>
+<rect x="293.2" y="265.8" width="15" height="15" fill="transparent"/>
+<circle cx="300.7" cy="273.3" r="4.6" fill="#898781"/>
+</g>
+<g><title>large-scale-text-editing · Claude Code 2.1.290 1: solved</title>
+<rect x="316.2" y="265.8" width="15" height="15" fill="transparent"/>
+<circle cx="323.7" cy="273.3" r="4.6" fill="#d95926"/>
+</g>
+<g><title>large-scale-text-editing · Claude Code 2.1.290 2: solved</title>
+<rect x="331.2" y="265.8" width="15" height="15" fill="transparent"/>
+<circle cx="338.7" cy="273.3" r="4.6" fill="#d95926"/>
+</g>
+<g><title>large-scale-text-editing · OpenCode 1.18.35 1: solved</title>
+<rect x="354.2" y="265.8" width="15" height="15" fill="transparent"/>
+<circle cx="361.7" cy="273.3" r="4.6" fill="#898781"/>
+</g>
+<g><title>large-scale-text-editing · OpenCode 1.18.35 2: solved</title>
+<rect x="369.2" y="265.8" width="15" height="15" fill="transparent"/>
+<circle cx="376.7" cy="273.3" r="4.6" fill="#898781"/>
+</g>
+<g><title>large-scale-text-editing · Pi 1.0.4 1: solved</title>
+<rect x="384.2" y="265.8" width="15" height="15" fill="transparent"/>
+<circle cx="391.7" cy="273.3" r="4.6" fill="#898781"/>
+</g>
+<g><title>large-scale-text-editing · Pi 1.0.4 2: solved</title>
+<rect x="399.2" y="265.8" width="15" height="15" fill="transparent"/>
+<circle cx="406.7" cy="273.3" r="4.6" fill="#898781"/>
+</g>
+<g><title>large-scale-text-editing · OpenHands 1.53.0 1: solved</title>
+<rect x="414.2" y="265.8" width="15" height="15" fill="transparent"/>
+<circle cx="421.7" cy="273.3" r="4.6" fill="#898781"/>
+</g>
+<g><title>large-scale-text-editing · OpenHands 1.53.0 2: solved</title>
+<rect x="429.2" y="265.8" width="15" height="15" fill="transparent"/>
+<circle cx="436.7" cy="273.3" r="4.6" fill="#898781"/>
+</g>
+<text x="194.2" y="292.3" font-size="11" fill="#ffffff" text-anchor="end">mailman</text>
+<g><title>mailman · Theseus 1: solved</title>
+<rect x="202.2" y="280.8" width="15" height="15" fill="transparent"/>
+<circle cx="209.7" cy="288.3" r="4.6" fill="#3987e5"/>
+</g>
+<g><title>mailman · Theseus 2: solved</title>
+<rect x="217.2" y="280.8" width="15" height="15" fill="transparent"/>
+<circle cx="224.7" cy="288.3" r="4.6" fill="#3987e5"/>
+</g>
+<g><title>mailman · Theseus as shipped 1: not solved</title>
+<rect x="240.2" y="280.8" width="15" height="15" fill="transparent"/>
+<circle cx="247.7" cy="288.3" r="4" fill="#1a1a19" stroke="#898781" stroke-width="1.5"/>
+</g>
+<g><title>mailman · Theseus as shipped 2: solved</title>
+<rect x="255.2" y="280.8" width="15" height="15" fill="transparent"/>
+<circle cx="262.7" cy="288.3" r="4.6" fill="#898781"/>
+</g>
+<g><title>mailman · Theseus 1: not solved</title>
+<rect x="278.2" y="280.8" width="15" height="15" fill="transparent"/>
+<circle cx="285.7" cy="288.3" r="4" fill="#1a1a19" stroke="#898781" stroke-width="1.5"/>
+</g>
+<g><title>mailman · Theseus 2: solved</title>
+<rect x="293.2" y="280.8" width="15" height="15" fill="transparent"/>
+<circle cx="300.7" cy="288.3" r="4.6" fill="#898781"/>
+</g>
+<g><title>mailman · Claude Code 2.1.290 1: solved</title>
+<rect x="316.2" y="280.8" width="15" height="15" fill="transparent"/>
+<circle cx="323.7" cy="288.3" r="4.6" fill="#d95926"/>
+</g>
+<g><title>mailman · Claude Code 2.1.290 2: not solved</title>
+<rect x="331.2" y="280.8" width="15" height="15" fill="transparent"/>
+<circle cx="338.7" cy="288.3" r="4" fill="#1a1a19" stroke="#d95926" stroke-width="1.5"/>
+</g>
+<g><title>mailman · OpenCode 1.18.35 1: solved</title>
+<rect x="354.2" y="280.8" width="15" height="15" fill="transparent"/>
+<circle cx="361.7" cy="288.3" r="4.6" fill="#898781"/>
+</g>
+<g><title>mailman · OpenCode 1.18.35 2: solved</title>
+<rect x="369.2" y="280.8" width="15" height="15" fill="transparent"/>
+<circle cx="376.7" cy="288.3" r="4.6" fill="#898781"/>
+</g>
+<g><title>mailman · Pi 1.0.4 1: solved</title>
+<rect x="384.2" y="280.8" width="15" height="15" fill="transparent"/>
+<circle cx="391.7" cy="288.3" r="4.6" fill="#898781"/>
+</g>
+<g><title>mailman · Pi 1.0.4 2: solved</title>
+<rect x="399.2" y="280.8" width="15" height="15" fill="transparent"/>
+<circle cx="406.7" cy="288.3" r="4.6" fill="#898781"/>
+</g>
+<g><title>mailman · OpenHands 1.53.0 1: solved</title>
+<rect x="414.2" y="280.8" width="15" height="15" fill="transparent"/>
+<circle cx="421.7" cy="288.3" r="4.6" fill="#898781"/>
+</g>
+<g><title>mailman · OpenHands 1.53.0 2: solved</title>
+<rect x="429.2" y="280.8" width="15" height="15" fill="transparent"/>
+<circle cx="436.7" cy="288.3" r="4.6" fill="#898781"/>
+</g>
+<rect x="18.0" y="295.8" width="438.2" height="15" fill="#2c2c2a" fill-opacity="0.45"/>
+<text x="194.2" y="307.3" font-size="11" fill="#ffffff" text-anchor="end">model-extraction-relu-logits</text>
+<g><title>model-extraction-relu-logits · Theseus 1: solved</title>
+<rect x="202.2" y="295.8" width="15" height="15" fill="transparent"/>
+<circle cx="209.7" cy="303.3" r="4.6" fill="#3987e5"/>
+</g>
+<g><title>model-extraction-relu-logits · Theseus 2: not solved</title>
+<rect x="217.2" y="295.8" width="15" height="15" fill="transparent"/>
+<circle cx="224.7" cy="303.3" r="4" fill="#1a1a19" stroke="#3987e5" stroke-width="1.5"/>
+</g>
+<g><title>model-extraction-relu-logits · Theseus as shipped 1: solved</title>
+<rect x="240.2" y="295.8" width="15" height="15" fill="transparent"/>
+<circle cx="247.7" cy="303.3" r="4.6" fill="#898781"/>
+</g>
+<g><title>model-extraction-relu-logits · Theseus as shipped 2: solved</title>
+<rect x="255.2" y="295.8" width="15" height="15" fill="transparent"/>
+<circle cx="262.7" cy="303.3" r="4.6" fill="#898781"/>
+</g>
+<g><title>model-extraction-relu-logits · Theseus 1: solved</title>
+<rect x="278.2" y="295.8" width="15" height="15" fill="transparent"/>
+<circle cx="285.7" cy="303.3" r="4.6" fill="#898781"/>
+</g>
+<g><title>model-extraction-relu-logits · Theseus 2: solved</title>
+<rect x="293.2" y="295.8" width="15" height="15" fill="transparent"/>
+<circle cx="300.7" cy="303.3" r="4.6" fill="#898781"/>
+</g>
+<g><title>model-extraction-relu-logits · Claude Code 2.1.290 1: solved</title>
+<rect x="316.2" y="295.8" width="15" height="15" fill="transparent"/>
+<circle cx="323.7" cy="303.3" r="4.6" fill="#d95926"/>
+</g>
+<g><title>model-extraction-relu-logits · Claude Code 2.1.290 2: not solved</title>
+<rect x="331.2" y="295.8" width="15" height="15" fill="transparent"/>
+<circle cx="338.7" cy="303.3" r="4" fill="#1a1a19" stroke="#d95926" stroke-width="1.5"/>
+</g>
+<g><title>model-extraction-relu-logits · OpenCode 1.18.35 1: solved</title>
+<rect x="354.2" y="295.8" width="15" height="15" fill="transparent"/>
+<circle cx="361.7" cy="303.3" r="4.6" fill="#898781"/>
+</g>
+<g><title>model-extraction-relu-logits · OpenCode 1.18.35 2: solved</title>
+<rect x="369.2" y="295.8" width="15" height="15" fill="transparent"/>
+<circle cx="376.7" cy="303.3" r="4.6" fill="#898781"/>
+</g>
+<g><title>model-extraction-relu-logits · Pi 1.0.4 1: solved</title>
+<rect x="384.2" y="295.8" width="15" height="15" fill="transparent"/>
+<circle cx="391.7" cy="303.3" r="4.6" fill="#898781"/>
+</g>
+<g><title>model-extraction-relu-logits · Pi 1.0.4 2: solved</title>
+<rect x="399.2" y="295.8" width="15" height="15" fill="transparent"/>
+<circle cx="406.7" cy="303.3" r="4.6" fill="#898781"/>
+</g>
+<g><title>model-extraction-relu-logits · OpenHands 1.53.0 1: solved</title>
+<rect x="414.2" y="295.8" width="15" height="15" fill="transparent"/>
+<circle cx="421.7" cy="303.3" r="4.6" fill="#898781"/>
+</g>
+<g><title>model-extraction-relu-logits · OpenHands 1.53.0 2: solved</title>
+<rect x="429.2" y="295.8" width="15" height="15" fill="transparent"/>
+<circle cx="436.7" cy="303.3" r="4.6" fill="#898781"/>
+</g>
+<text x="194.2" y="322.3" font-size="11" fill="#ffffff" text-anchor="end">nginx-request-logging</text>
+<g><title>nginx-request-logging · Theseus 1: solved</title>
+<rect x="202.2" y="310.8" width="15" height="15" fill="transparent"/>
+<circle cx="209.7" cy="318.3" r="4.6" fill="#3987e5"/>
+</g>
+<g><title>nginx-request-logging · Theseus 2: solved</title>
+<rect x="217.2" y="310.8" width="15" height="15" fill="transparent"/>
+<circle cx="224.7" cy="318.3" r="4.6" fill="#3987e5"/>
+</g>
+<g><title>nginx-request-logging · Theseus as shipped 1: not solved</title>
+<rect x="240.2" y="310.8" width="15" height="15" fill="transparent"/>
+<circle cx="247.7" cy="318.3" r="4" fill="#1a1a19" stroke="#898781" stroke-width="1.5"/>
+</g>
+<g><title>nginx-request-logging · Theseus as shipped 2: solved</title>
+<rect x="255.2" y="310.8" width="15" height="15" fill="transparent"/>
+<circle cx="262.7" cy="318.3" r="4.6" fill="#898781"/>
+</g>
+<g><title>nginx-request-logging · Theseus 1: not solved</title>
+<rect x="278.2" y="310.8" width="15" height="15" fill="transparent"/>
+<circle cx="285.7" cy="318.3" r="4" fill="#1a1a19" stroke="#898781" stroke-width="1.5"/>
+</g>
+<g><title>nginx-request-logging · Theseus 2: not solved</title>
+<rect x="293.2" y="310.8" width="15" height="15" fill="transparent"/>
+<circle cx="300.7" cy="318.3" r="4" fill="#1a1a19" stroke="#898781" stroke-width="1.5"/>
+</g>
+<g><title>nginx-request-logging · Claude Code 2.1.290 1: solved</title>
+<rect x="316.2" y="310.8" width="15" height="15" fill="transparent"/>
+<circle cx="323.7" cy="318.3" r="4.6" fill="#d95926"/>
+</g>
+<g><title>nginx-request-logging · Claude Code 2.1.290 2: solved</title>
+<rect x="331.2" y="310.8" width="15" height="15" fill="transparent"/>
+<circle cx="338.7" cy="318.3" r="4.6" fill="#d95926"/>
+</g>
+<g><title>nginx-request-logging · OpenCode 1.18.35 1: solved</title>
+<rect x="354.2" y="310.8" width="15" height="15" fill="transparent"/>
+<circle cx="361.7" cy="318.3" r="4.6" fill="#898781"/>
+</g>
+<g><title>nginx-request-logging · OpenCode 1.18.35 2: solved</title>
+<rect x="369.2" y="310.8" width="15" height="15" fill="transparent"/>
+<circle cx="376.7" cy="318.3" r="4.6" fill="#898781"/>
+</g>
+<g><title>nginx-request-logging · Pi 1.0.4 1: solved</title>
+<rect x="384.2" y="310.8" width="15" height="15" fill="transparent"/>
+<circle cx="391.7" cy="318.3" r="4.6" fill="#898781"/>
+</g>
+<g><title>nginx-request-logging · Pi 1.0.4 2: solved</title>
+<rect x="399.2" y="310.8" width="15" height="15" fill="transparent"/>
+<circle cx="406.7" cy="318.3" r="4.6" fill="#898781"/>
+</g>
+<g><title>nginx-request-logging · OpenHands 1.53.0 1: solved</title>
+<rect x="414.2" y="310.8" width="15" height="15" fill="transparent"/>
+<circle cx="421.7" cy="318.3" r="4.6" fill="#898781"/>
+</g>
+<g><title>nginx-request-logging · OpenHands 1.53.0 2: solved</title>
+<rect x="429.2" y="310.8" width="15" height="15" fill="transparent"/>
+<circle cx="436.7" cy="318.3" r="4.6" fill="#898781"/>
+</g>
+<rect x="18.0" y="325.8" width="438.2" height="15" fill="#2c2c2a" fill-opacity="0.45"/>
+<text x="194.2" y="337.3" font-size="11" fill="#ffffff" text-anchor="end">regex-chess</text>
+<g><title>regex-chess · Theseus 1: solved</title>
+<rect x="202.2" y="325.8" width="15" height="15" fill="transparent"/>
+<circle cx="209.7" cy="333.3" r="4.6" fill="#3987e5"/>
+</g>
+<g><title>regex-chess · Theseus 2: solved</title>
+<rect x="217.2" y="325.8" width="15" height="15" fill="transparent"/>
+<circle cx="224.7" cy="333.3" r="4.6" fill="#3987e5"/>
+</g>
+<g><title>regex-chess · Theseus as shipped 1: solved</title>
+<rect x="240.2" y="325.8" width="15" height="15" fill="transparent"/>
+<circle cx="247.7" cy="333.3" r="4.6" fill="#898781"/>
+</g>
+<g><title>regex-chess · Theseus as shipped 2: solved</title>
+<rect x="255.2" y="325.8" width="15" height="15" fill="transparent"/>
+<circle cx="262.7" cy="333.3" r="4.6" fill="#898781"/>
+</g>
+<g><title>regex-chess · Theseus 1: solved</title>
+<rect x="278.2" y="325.8" width="15" height="15" fill="transparent"/>
+<circle cx="285.7" cy="333.3" r="4.6" fill="#898781"/>
+</g>
+<g><title>regex-chess · Theseus 2: solved</title>
+<rect x="293.2" y="325.8" width="15" height="15" fill="transparent"/>
+<circle cx="300.7" cy="333.3" r="4.6" fill="#898781"/>
+</g>
+<g><title>regex-chess · Claude Code 2.1.290 1: solved</title>
+<rect x="316.2" y="325.8" width="15" height="15" fill="transparent"/>
+<circle cx="323.7" cy="333.3" r="4.6" fill="#d95926"/>
+</g>
+<g><title>regex-chess · Claude Code 2.1.290 2: solved</title>
+<rect x="331.2" y="325.8" width="15" height="15" fill="transparent"/>
+<circle cx="338.7" cy="333.3" r="4.6" fill="#d95926"/>
+</g>
+<g><title>regex-chess · OpenCode 1.18.35 1: solved</title>
+<rect x="354.2" y="325.8" width="15" height="15" fill="transparent"/>
+<circle cx="361.7" cy="333.3" r="4.6" fill="#898781"/>
+</g>
+<g><title>regex-chess · OpenCode 1.18.35 2: solved</title>
+<rect x="369.2" y="325.8" width="15" height="15" fill="transparent"/>
+<circle cx="376.7" cy="333.3" r="4.6" fill="#898781"/>
+</g>
+<g><title>regex-chess · Pi 1.0.4 1: solved</title>
+<rect x="384.2" y="325.8" width="15" height="15" fill="transparent"/>
+<circle cx="391.7" cy="333.3" r="4.6" fill="#898781"/>
+</g>
+<g><title>regex-chess · Pi 1.0.4 2: solved</title>
+<rect x="399.2" y="325.8" width="15" height="15" fill="transparent"/>
+<circle cx="406.7" cy="333.3" r="4.6" fill="#898781"/>
+</g>
+<g><title>regex-chess · OpenHands 1.53.0 1: solved</title>
+<rect x="414.2" y="325.8" width="15" height="15" fill="transparent"/>
+<circle cx="421.7" cy="333.3" r="4.6" fill="#898781"/>
+</g>
+<g><title>regex-chess · OpenHands 1.53.0 2: solved</title>
+<rect x="429.2" y="325.8" width="15" height="15" fill="transparent"/>
+<circle cx="436.7" cy="333.3" r="4.6" fill="#898781"/>
+</g>
+<text x="194.2" y="352.3" font-size="11" fill="#ffffff" text-anchor="end">reshard-c4-data</text>
+<g><title>reshard-c4-data · Theseus 1: solved</title>
+<rect x="202.2" y="340.8" width="15" height="15" fill="transparent"/>
+<circle cx="209.7" cy="348.3" r="4.6" fill="#3987e5"/>
+</g>
+<g><title>reshard-c4-data · Theseus 2: solved</title>
+<rect x="217.2" y="340.8" width="15" height="15" fill="transparent"/>
+<circle cx="224.7" cy="348.3" r="4.6" fill="#3987e5"/>
+</g>
+<g><title>reshard-c4-data · Theseus as shipped 1: solved</title>
+<rect x="240.2" y="340.8" width="15" height="15" fill="transparent"/>
+<circle cx="247.7" cy="348.3" r="4.6" fill="#898781"/>
+</g>
+<g><title>reshard-c4-data · Theseus as shipped 2: solved</title>
+<rect x="255.2" y="340.8" width="15" height="15" fill="transparent"/>
+<circle cx="262.7" cy="348.3" r="4.6" fill="#898781"/>
+</g>
+<g><title>reshard-c4-data · Theseus 1: solved</title>
+<rect x="278.2" y="340.8" width="15" height="15" fill="transparent"/>
+<circle cx="285.7" cy="348.3" r="4.6" fill="#898781"/>
+</g>
+<g><title>reshard-c4-data · Theseus 2: solved</title>
+<rect x="293.2" y="340.8" width="15" height="15" fill="transparent"/>
+<circle cx="300.7" cy="348.3" r="4.6" fill="#898781"/>
+</g>
+<g><title>reshard-c4-data · Claude Code 2.1.290 1: solved</title>
+<rect x="316.2" y="340.8" width="15" height="15" fill="transparent"/>
+<circle cx="323.7" cy="348.3" r="4.6" fill="#d95926"/>
+</g>
+<g><title>reshard-c4-data · Claude Code 2.1.290 2: solved</title>
+<rect x="331.2" y="340.8" width="15" height="15" fill="transparent"/>
+<circle cx="338.7" cy="348.3" r="4.6" fill="#d95926"/>
+</g>
+<g><title>reshard-c4-data · OpenCode 1.18.35 1: solved</title>
+<rect x="354.2" y="340.8" width="15" height="15" fill="transparent"/>
+<circle cx="361.7" cy="348.3" r="4.6" fill="#898781"/>
+</g>
+<g><title>reshard-c4-data · OpenCode 1.18.35 2: solved</title>
+<rect x="369.2" y="340.8" width="15" height="15" fill="transparent"/>
+<circle cx="376.7" cy="348.3" r="4.6" fill="#898781"/>
+</g>
+<g><title>reshard-c4-data · Pi 1.0.4 1: solved</title>
+<rect x="384.2" y="340.8" width="15" height="15" fill="transparent"/>
+<circle cx="391.7" cy="348.3" r="4.6" fill="#898781"/>
+</g>
+<g><title>reshard-c4-data · Pi 1.0.4 2: solved</title>
+<rect x="399.2" y="340.8" width="15" height="15" fill="transparent"/>
+<circle cx="406.7" cy="348.3" r="4.6" fill="#898781"/>
+</g>
+<g><title>reshard-c4-data · OpenHands 1.53.0 1: solved</title>
+<rect x="414.2" y="340.8" width="15" height="15" fill="transparent"/>
+<circle cx="421.7" cy="348.3" r="4.6" fill="#898781"/>
+</g>
+<g><title>reshard-c4-data · OpenHands 1.53.0 2: solved</title>
+<rect x="429.2" y="340.8" width="15" height="15" fill="transparent"/>
+<circle cx="436.7" cy="348.3" r="4.6" fill="#898781"/>
+</g>
+<rect x="18.0" y="355.8" width="438.2" height="15" fill="#2c2c2a" fill-opacity="0.45"/>
+<text x="194.2" y="367.3" font-size="11" fill="#ffffff" text-anchor="end">schemelike-metacircular-eval</text>
+<g><title>schemelike-metacircular-eval · Theseus 1: solved</title>
+<rect x="202.2" y="355.8" width="15" height="15" fill="transparent"/>
+<circle cx="209.7" cy="363.3" r="4.6" fill="#3987e5"/>
+</g>
+<g><title>schemelike-metacircular-eval · Theseus 2: solved</title>
+<rect x="217.2" y="355.8" width="15" height="15" fill="transparent"/>
+<circle cx="224.7" cy="363.3" r="4.6" fill="#3987e5"/>
+</g>
+<g><title>schemelike-metacircular-eval · Theseus as shipped 1: solved</title>
+<rect x="240.2" y="355.8" width="15" height="15" fill="transparent"/>
+<circle cx="247.7" cy="363.3" r="4.6" fill="#898781"/>
+</g>
+<g><title>schemelike-metacircular-eval · Theseus as shipped 2: solved</title>
+<rect x="255.2" y="355.8" width="15" height="15" fill="transparent"/>
+<circle cx="262.7" cy="363.3" r="4.6" fill="#898781"/>
+</g>
+<g><title>schemelike-metacircular-eval · Theseus 1: solved</title>
+<rect x="278.2" y="355.8" width="15" height="15" fill="transparent"/>
+<circle cx="285.7" cy="363.3" r="4.6" fill="#898781"/>
+</g>
+<g><title>schemelike-metacircular-eval · Theseus 2: solved</title>
+<rect x="293.2" y="355.8" width="15" height="15" fill="transparent"/>
+<circle cx="300.7" cy="363.3" r="4.6" fill="#898781"/>
+</g>
+<g><title>schemelike-metacircular-eval · Claude Code 2.1.290 1: solved</title>
+<rect x="316.2" y="355.8" width="15" height="15" fill="transparent"/>
+<circle cx="323.7" cy="363.3" r="4.6" fill="#d95926"/>
+</g>
+<g><title>schemelike-metacircular-eval · Claude Code 2.1.290 2: solved</title>
+<rect x="331.2" y="355.8" width="15" height="15" fill="transparent"/>
+<circle cx="338.7" cy="363.3" r="4.6" fill="#d95926"/>
+</g>
+<g><title>schemelike-metacircular-eval · OpenCode 1.18.35 1: solved</title>
+<rect x="354.2" y="355.8" width="15" height="15" fill="transparent"/>
+<circle cx="361.7" cy="363.3" r="4.6" fill="#898781"/>
+</g>
+<g><title>schemelike-metacircular-eval · OpenCode 1.18.35 2: solved</title>
+<rect x="369.2" y="355.8" width="15" height="15" fill="transparent"/>
+<circle cx="376.7" cy="363.3" r="4.6" fill="#898781"/>
+</g>
+<g><title>schemelike-metacircular-eval · Pi 1.0.4 1: solved</title>
+<rect x="384.2" y="355.8" width="15" height="15" fill="transparent"/>
+<circle cx="391.7" cy="363.3" r="4.6" fill="#898781"/>
+</g>
+<g><title>schemelike-metacircular-eval · Pi 1.0.4 2: solved</title>
+<rect x="399.2" y="355.8" width="15" height="15" fill="transparent"/>
+<circle cx="406.7" cy="363.3" r="4.6" fill="#898781"/>
+</g>
+<g><title>schemelike-metacircular-eval · OpenHands 1.53.0 1: solved</title>
+<rect x="414.2" y="355.8" width="15" height="15" fill="transparent"/>
+<circle cx="421.7" cy="363.3" r="4.6" fill="#898781"/>
+</g>
+<g><title>schemelike-metacircular-eval · OpenHands 1.53.0 2: solved</title>
+<rect x="429.2" y="355.8" width="15" height="15" fill="transparent"/>
+<circle cx="436.7" cy="363.3" r="4.6" fill="#898781"/>
+</g>
+<text x="194.2" y="382.3" font-size="11" fill="#ffffff" text-anchor="end">torch-tensor-parallelism</text>
+<g><title>torch-tensor-parallelism · Theseus 1: ended in an error</title>
+<rect x="202.2" y="370.8" width="15" height="15" fill="transparent"/>
+<circle cx="209.7" cy="378.3" r="4" fill="#1a1a19" stroke="#3987e5" stroke-width="1.5"/>
+<line x1="206.3" y1="381.7" x2="213.1" y2="374.9" stroke="#3987e5" stroke-width="1.5"/>
+</g>
+<g><title>torch-tensor-parallelism · Theseus 2: ended in an error</title>
+<rect x="217.2" y="370.8" width="15" height="15" fill="transparent"/>
+<circle cx="224.7" cy="378.3" r="4" fill="#1a1a19" stroke="#3987e5" stroke-width="1.5"/>
+<line x1="221.3" y1="381.7" x2="228.1" y2="374.9" stroke="#3987e5" stroke-width="1.5"/>
+</g>
+<g><title>torch-tensor-parallelism · Theseus as shipped 1: solved</title>
+<rect x="240.2" y="370.8" width="15" height="15" fill="transparent"/>
+<circle cx="247.7" cy="378.3" r="4.6" fill="#898781"/>
+</g>
+<g><title>torch-tensor-parallelism · Theseus as shipped 2: solved</title>
+<rect x="255.2" y="370.8" width="15" height="15" fill="transparent"/>
+<circle cx="262.7" cy="378.3" r="4.6" fill="#898781"/>
+</g>
+<g><title>torch-tensor-parallelism · Theseus 1: solved</title>
+<rect x="278.2" y="370.8" width="15" height="15" fill="transparent"/>
+<circle cx="285.7" cy="378.3" r="4.6" fill="#898781"/>
+</g>
+<g><title>torch-tensor-parallelism · Theseus 2: solved</title>
+<rect x="293.2" y="370.8" width="15" height="15" fill="transparent"/>
+<circle cx="300.7" cy="378.3" r="4.6" fill="#898781"/>
+</g>
+<g><title>torch-tensor-parallelism · Claude Code 2.1.290 1: solved</title>
+<rect x="316.2" y="370.8" width="15" height="15" fill="transparent"/>
+<circle cx="323.7" cy="378.3" r="4.6" fill="#d95926"/>
+</g>
+<g><title>torch-tensor-parallelism · Claude Code 2.1.290 2: solved</title>
+<rect x="331.2" y="370.8" width="15" height="15" fill="transparent"/>
+<circle cx="338.7" cy="378.3" r="4.6" fill="#d95926"/>
+</g>
+<g><title>torch-tensor-parallelism · OpenCode 1.18.35 1: solved</title>
+<rect x="354.2" y="370.8" width="15" height="15" fill="transparent"/>
+<circle cx="361.7" cy="378.3" r="4.6" fill="#898781"/>
+</g>
+<g><title>torch-tensor-parallelism · OpenCode 1.18.35 2: solved</title>
+<rect x="369.2" y="370.8" width="15" height="15" fill="transparent"/>
+<circle cx="376.7" cy="378.3" r="4.6" fill="#898781"/>
+</g>
+<g><title>torch-tensor-parallelism · Pi 1.0.4 1: solved</title>
+<rect x="384.2" y="370.8" width="15" height="15" fill="transparent"/>
+<circle cx="391.7" cy="378.3" r="4.6" fill="#898781"/>
+</g>
+<g><title>torch-tensor-parallelism · Pi 1.0.4 2: solved</title>
+<rect x="399.2" y="370.8" width="15" height="15" fill="transparent"/>
+<circle cx="406.7" cy="378.3" r="4.6" fill="#898781"/>
+</g>
+<g><title>torch-tensor-parallelism · OpenHands 1.53.0 1: solved</title>
+<rect x="414.2" y="370.8" width="15" height="15" fill="transparent"/>
+<circle cx="421.7" cy="378.3" r="4.6" fill="#898781"/>
+</g>
+<g><title>torch-tensor-parallelism · OpenHands 1.53.0 2: not solved</title>
+<rect x="429.2" y="370.8" width="15" height="15" fill="transparent"/>
+<circle cx="436.7" cy="378.3" r="4" fill="#1a1a19" stroke="#898781" stroke-width="1.5"/>
+</g>
+<rect x="18.0" y="385.8" width="438.2" height="15" fill="#2c2c2a" fill-opacity="0.45"/>
+<text x="194.2" y="397.3" font-size="11" fill="#ffffff" text-anchor="end">winning-avg-corewars</text>
+<g><title>winning-avg-corewars · Theseus 1: solved</title>
+<rect x="202.2" y="385.8" width="15" height="15" fill="transparent"/>
+<circle cx="209.7" cy="393.3" r="4.6" fill="#3987e5"/>
+</g>
+<g><title>winning-avg-corewars · Theseus 2: solved</title>
+<rect x="217.2" y="385.8" width="15" height="15" fill="transparent"/>
+<circle cx="224.7" cy="393.3" r="4.6" fill="#3987e5"/>
+</g>
+<g><title>winning-avg-corewars · Theseus as shipped 1: solved</title>
+<rect x="240.2" y="385.8" width="15" height="15" fill="transparent"/>
+<circle cx="247.7" cy="393.3" r="4.6" fill="#898781"/>
+</g>
+<g><title>winning-avg-corewars · Theseus as shipped 2: solved</title>
+<rect x="255.2" y="385.8" width="15" height="15" fill="transparent"/>
+<circle cx="262.7" cy="393.3" r="4.6" fill="#898781"/>
+</g>
+<g><title>winning-avg-corewars · Theseus 1: solved</title>
+<rect x="278.2" y="385.8" width="15" height="15" fill="transparent"/>
+<circle cx="285.7" cy="393.3" r="4.6" fill="#898781"/>
+</g>
+<g><title>winning-avg-corewars · Theseus 2: solved</title>
+<rect x="293.2" y="385.8" width="15" height="15" fill="transparent"/>
+<circle cx="300.7" cy="393.3" r="4.6" fill="#898781"/>
+</g>
+<g><title>winning-avg-corewars · Claude Code 2.1.290 1: solved</title>
+<rect x="316.2" y="385.8" width="15" height="15" fill="transparent"/>
+<circle cx="323.7" cy="393.3" r="4.6" fill="#d95926"/>
+</g>
+<g><title>winning-avg-corewars · Claude Code 2.1.290 2: solved</title>
+<rect x="331.2" y="385.8" width="15" height="15" fill="transparent"/>
+<circle cx="338.7" cy="393.3" r="4.6" fill="#d95926"/>
+</g>
+<g><title>winning-avg-corewars · OpenCode 1.18.35 1: solved</title>
+<rect x="354.2" y="385.8" width="15" height="15" fill="transparent"/>
+<circle cx="361.7" cy="393.3" r="4.6" fill="#898781"/>
+</g>
+<g><title>winning-avg-corewars · OpenCode 1.18.35 2: solved</title>
+<rect x="369.2" y="385.8" width="15" height="15" fill="transparent"/>
+<circle cx="376.7" cy="393.3" r="4.6" fill="#898781"/>
+</g>
+<g><title>winning-avg-corewars · Pi 1.0.4 1: solved</title>
+<rect x="384.2" y="385.8" width="15" height="15" fill="transparent"/>
+<circle cx="391.7" cy="393.3" r="4.6" fill="#898781"/>
+</g>
+<g><title>winning-avg-corewars · Pi 1.0.4 2: solved</title>
+<rect x="399.2" y="385.8" width="15" height="15" fill="transparent"/>
+<circle cx="406.7" cy="393.3" r="4.6" fill="#898781"/>
+</g>
+<g><title>winning-avg-corewars · OpenHands 1.53.0 1: solved</title>
+<rect x="414.2" y="385.8" width="15" height="15" fill="transparent"/>
+<circle cx="421.7" cy="393.3" r="4.6" fill="#898781"/>
+</g>
+<g><title>winning-avg-corewars · OpenHands 1.53.0 2: solved</title>
+<rect x="429.2" y="385.8" width="15" height="15" fill="transparent"/>
+<circle cx="436.7" cy="393.3" r="4.6" fill="#898781"/>
+</g>
+</svg>

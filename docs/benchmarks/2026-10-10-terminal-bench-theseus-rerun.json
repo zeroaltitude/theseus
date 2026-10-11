@@ -1,0 +1,2259 @@
+{
+ "report": "2026-10-10-terminal-bench-theseus-rerun",
+ "suite": "terminal-bench",
+ "date": "2026-10-10",
+ "commit": "2fd1f65413c903c29c6e431daf03f82aa0347f70",
+ "kind": "harbor",
+ "model": "anthropic/claude-sonnet-5-5 (the routed arm: Jev's pick of Sonnet, Opus, Fable or Haiku per message)",
+ "arms": [
+  {
+   "key": "theseus",
+   "label": "Theseus (fixed model)",
+   "run": "rerun"
+  },
+  {
+   "key": "theseus-routed",
+   "label": "Theseus as shipped (routed)",
+   "run": "rerun"
+  },
+  {
+   "key": "theseus-oct7",
+   "label": "Theseus, Oct 7 (commands refused)",
+   "run": "night (2026-10-07)"
+  },
+  {
+   "key": "claude-code",
+   "label": "Claude Code 2.1.290",
+   "run": "night (2026-10-07)"
+  },
+  {
+   "key": "opencode",
+   "label": "OpenCode 1.18.35",
+   "run": "night (2026-10-07)"
+  },
+  {
+   "key": "pi",
+   "label": "Pi 1.0.4",
+   "run": "night (2026-10-07)"
+  },
+  {
+   "key": "openhands",
+   "label": "OpenHands 1.53.0",
+   "run": "night (2026-10-07)"
+  }
+ ],
+ "summary": {
+  "theseus": {
+   "label": "Theseus (fixed model)",
+   "trials": 28,
+   "tasks": 14,
+   "pass": {
+    "k": 20,
+    "n": 28,
+    "rate": 0.7143,
+    "lo": 0.5294,
+    "hi": 0.8475
+   },
+   "dollars": 5.86,
+   "unpriced": 0,
+   "dollars_per_trial": {
+    "n": 28,
+    "mean": 0.2093,
+    "lo": 0.1172,
+    "hi": 0.3138,
+    "median": 0.0564,
+    "method": "bootstrap"
+   },
+   "dollars_per_solve": 0.293,
+   "tokens_per_trial": {
+    "n": 28,
+    "mean": 274110.8929,
+    "lo": 141182.367,
+    "hi": 433917.3563,
+    "median": 77163.0,
+    "method": "bootstrap"
+   },
+   "model_calls_per_trial": {
+    "n": 28,
+    "mean": 9.25,
+    "lo": 5.7491,
+    "hi": 13.6786,
+    "median": 5.0,
+    "method": "bootstrap"
+   },
+   "tool_calls_per_trial": {
+    "n": 28,
+    "mean": 10.25,
+    "lo": 5.25,
+    "hi": 16.7857,
+    "median": 4.5,
+    "method": "bootstrap"
+   },
+   "agent_s": {
+    "n": 28,
+    "mean": 550.0643,
+    "lo": 277.8882,
+    "hi": 849.9849,
+    "median": 106.23,
+    "method": "bootstrap"
+   },
+   "endings": {
+    "ended by the agent": 22,
+    "AgentTimeoutError": 4,
+    "VerifierTimeoutError": 2
+   },
+   "over_2usd": 0,
+   "beside_build": 26,
+   "version": "theseus 0.0.1",
+   "effort": "medium"
+  },
+  "theseus-routed": {
+   "label": "Theseus as shipped (routed)",
+   "trials": 28,
+   "tasks": 14,
+   "pass": {
+    "k": 25,
+    "n": 28,
+    "rate": 0.8929,
+    "lo": 0.728,
+    "hi": 0.9629
+   },
+   "dollars": 15.5459,
+   "unpriced": 0,
+   "dollars_per_trial": {
+    "n": 28,
+    "mean": 0.5552,
+    "lo": 0.3423,
+    "hi": 0.799,
+    "median": 0.3372,
+    "method": "bootstrap"
+   },
+   "dollars_per_solve": 0.6218,
+   "tokens_per_trial": {
+    "n": 28,
+    "mean": 579890.4286,
+    "lo": 369583.9714,
+    "hi": 809122.8,
+    "median": 259640.5,
+    "method": "bootstrap"
+   },
+   "model_calls_per_trial": {
+    "n": 28,
+    "mean": 16.0,
+    "lo": 11.6071,
+    "hi": 20.9643,
+    "median": 9.0,
+    "method": "bootstrap"
+   },
+   "tool_calls_per_trial": {
+    "n": 28,
+    "mean": 19.0,
+    "lo": 13.0705,
+    "hi": 25.8937,
+    "median": 9.5,
+    "method": "bootstrap"
+   },
+   "agent_s": {
+    "n": 28,
+    "mean": 590.9964,
+    "lo": 361.6012,
+    "hi": 848.4324,
+    "median": 192.795,
+    "method": "bootstrap"
+   },
+   "endings": {
+    "ended by the agent": 26,
+    "AgentTimeoutError": 2
+   },
+   "over_2usd": 1,
+   "beside_build": 26,
+   "version": "theseus 0.0.1",
+   "effort": "medium"
+  },
+  "theseus-oct7": {
+   "label": "Theseus, Oct 7 (commands refused)",
+   "trials": 28,
+   "tasks": 14,
+   "pass": {
+    "k": 20,
+    "n": 28,
+    "rate": 0.7143,
+    "lo": 0.5294,
+    "hi": 0.8475
+   },
+   "dollars": 10.177,
+   "unpriced": 0,
+   "dollars_per_trial": {
+    "n": 28,
+    "mean": 0.3635,
+    "lo": 0.1944,
+    "hi": 0.5623,
+    "median": 0.107,
+    "method": "bootstrap"
+   },
+   "dollars_per_solve": 0.5089,
+   "tokens_per_trial": {
+    "n": 28,
+    "mean": 873067.6071,
+    "lo": 420826.6643,
+    "hi": 1408418.2187,
+    "median": 221057.5,
+    "method": "bootstrap"
+   },
+   "model_calls_per_trial": {
+    "n": 28,
+    "mean": 22.4643,
+    "lo": 14.5705,
+    "hi": 31.25,
+    "median": 12.0,
+    "method": "bootstrap"
+   },
+   "tool_calls_per_trial": {
+    "n": 28,
+    "mean": 34.9643,
+    "lo": 19.6063,
+    "hi": 53.0375,
+    "median": 15.5,
+    "method": "bootstrap"
+   },
+   "agent_s": {
+    "n": 28,
+    "mean": 342.0921,
+    "lo": 173.4,
+    "hi": 534.1828,
+    "median": 94.74,
+    "method": "bootstrap"
+   },
+   "endings": {
+    "ended by the agent": 28
+   },
+   "over_2usd": 0,
+   "beside_build": 0,
+   "version": "theseus 0.0.1",
+   "effort": "medium"
+  },
+  "claude-code": {
+   "label": "Claude Code 2.1.290",
+   "trials": 28,
+   "tasks": 14,
+   "pass": {
+    "k": 23,
+    "n": 28,
+    "rate": 0.8214,
+    "lo": 0.6441,
+    "hi": 0.9212
+   },
+   "dollars": 5.9268,
+   "unpriced": 0,
+   "dollars_per_trial": {
+    "n": 28,
+    "mean": 0.2117,
+    "lo": 0.1247,
+    "hi": 0.3088,
+    "median": 0.0769,
+    "method": "bootstrap"
+   },
+   "dollars_per_solve": 0.2577,
+   "tokens_per_trial": {
+    "n": 28,
+    "mean": 416381.2143,
+    "lo": 207835.9312,
+    "hi": 657888.833,
+    "median": 123033.0,
+    "method": "bootstrap"
+   },
+   "model_calls_per_trial": {
+    "n": 28,
+    "mean": 11.8929,
+    "lo": 7.1429,
+    "hi": 17.2143,
+    "median": 6.0,
+    "method": "bootstrap"
+   },
+   "tool_calls_per_trial": {
+    "n": 28,
+    "mean": 12.0357,
+    "lo": 6.3929,
+    "hi": 18.5357,
+    "median": 5.0,
+    "method": "bootstrap"
+   },
+   "agent_s": {
+    "n": 28,
+    "mean": 349.0996,
+    "lo": 133.8883,
+    "hi": 606.1756,
+    "median": 43.1,
+    "method": "bootstrap"
+   },
+   "endings": {
+    "ended by the agent": 26,
+    "AgentTimeoutError": 2
+   },
+   "over_2usd": 0,
+   "beside_build": 0,
+   "version": "2.1.290",
+   "effort": "medium"
+  },
+  "opencode": {
+   "label": "OpenCode 1.18.35",
+   "trials": 28,
+   "tasks": 14,
+   "pass": {
+    "k": 25,
+    "n": 28,
+    "rate": 0.8929,
+    "lo": 0.728,
+    "hi": 0.9629
+   },
+   "dollars": 4.4638,
+   "unpriced": 0,
+   "dollars_per_trial": {
+    "n": 28,
+    "mean": 0.1594,
+    "lo": 0.0813,
+    "hi": 0.2482,
+    "median": 0.0485,
+    "method": "bootstrap"
+   },
+   "dollars_per_solve": 0.1786,
+   "tokens_per_trial": {
+    "n": 28,
+    "mean": 231676.8929,
+    "lo": 110247.4161,
+    "hi": 372346.2696,
+    "median": 53083.5,
+    "method": "bootstrap"
+   },
+   "model_calls_per_trial": {
+    "n": 28,
+    "mean": 8.4286,
+    "lo": 5.4634,
+    "hi": 11.9643,
+    "median": 4.0,
+    "method": "bootstrap"
+   },
+   "tool_calls_per_trial": {
+    "n": 28,
+    "mean": 7.6071,
+    "lo": 4.6071,
+    "hi": 11.1429,
+    "median": 3.5,
+    "method": "bootstrap"
+   },
+   "agent_s": {
+    "n": 28,
+    "mean": 569.8796,
+    "lo": 233.3446,
+    "hi": 966.1441,
+    "median": 53.715,
+    "method": "bootstrap"
+   },
+   "endings": {
+    "ended by the agent": 25,
+    "AgentTimeoutError": 3
+   },
+   "over_2usd": 0,
+   "beside_build": 0,
+   "version": "1.18.35",
+   "effort": "medium"
+  },
+  "pi": {
+   "label": "Pi 1.0.4",
+   "trials": 28,
+   "tasks": 14,
+   "pass": {
+    "k": 25,
+    "n": 28,
+    "rate": 0.8929,
+    "lo": 0.728,
+    "hi": 0.9629
+   },
+   "dollars": 4.2711,
+   "unpriced": 0,
+   "dollars_per_trial": {
+    "n": 28,
+    "mean": 0.1525,
+    "lo": 0.0762,
+    "hi": 0.2465,
+    "median": 0.0448,
+    "method": "bootstrap"
+   },
+   "dollars_per_solve": 0.1708,
+   "tokens_per_trial": {
+    "n": 28,
+    "mean": 240125.4286,
+    "lo": 75598.3554,
+    "hi": 466300.1232,
+    "median": 27342.5,
+    "method": "bootstrap"
+   },
+   "model_calls_per_trial": {
+    "n": 28,
+    "mean": 11.0714,
+    "lo": 5.9643,
+    "hi": 17.8214,
+    "median": 4.5,
+    "method": "bootstrap"
+   },
+   "tool_calls_per_trial": {
+    "n": 28,
+    "mean": 12.2143,
+    "lo": 4.5714,
+    "hi": 23.1437,
+    "median": 4.0,
+    "method": "bootstrap"
+   },
+   "agent_s": {
+    "n": 28,
+    "mean": 538.9225,
+    "lo": 203.4601,
+    "hi": 931.2039,
+    "median": 46.115,
+    "method": "bootstrap"
+   },
+   "endings": {
+    "ended by the agent": 25,
+    "AgentTimeoutError": 3
+   },
+   "over_2usd": 0,
+   "beside_build": 0,
+   "version": "1.0.4",
+   "effort": "medium"
+  },
+  "openhands": {
+   "label": "OpenHands 1.53.0",
+   "trials": 28,
+   "tasks": 14,
+   "pass": {
+    "k": 24,
+    "n": 28,
+    "rate": 0.8571,
+    "lo": 0.6851,
+    "hi": 0.943
+   },
+   "dollars": 5.3037,
+   "unpriced": 2,
+   "dollars_per_trial": {
+    "n": 26,
+    "mean": 0.204,
+    "lo": 0.1262,
+    "hi": 0.292,
+    "median": 0.106,
+    "method": "bootstrap"
+   },
+   "dollars_per_solve": 0.221,
+   "tokens_per_trial": {
+    "n": 28,
+    "mean": 343946.7857,
+    "lo": 183039.6259,
+    "hi": 545998.4062,
+    "median": 152024.0,
+    "method": "bootstrap"
+   },
+   "model_calls_per_trial": {
+    "n": 26,
+    "mean": 13.4615,
+    "lo": 9.076,
+    "hi": 18.924,
+    "median": 9.0,
+    "method": "bootstrap"
+   },
+   "tool_calls_per_trial": {
+    "n": 26,
+    "mean": 16.3846,
+    "lo": 9.7298,
+    "hi": 25.1538,
+    "median": 10.0,
+    "method": "bootstrap"
+   },
+   "agent_s": {
+    "n": 28,
+    "mean": 489.7789,
+    "lo": 205.3255,
+    "hi": 813.8021,
+    "median": 72.21,
+    "method": "bootstrap"
+   },
+   "endings": {
+    "ended by the agent": 26,
+    "AgentTimeoutError": 2
+   },
+   "over_2usd": 0,
+   "beside_build": 0,
+   "version": "1.53.0",
+   "effort": "medium"
+  },
+  "theseus-adjusted": {
+   "label": "Theseus (fixed), the 4 host-hit trials run again",
+   "trials": 28,
+   "tasks": 14,
+   "pass": {
+    "k": 24,
+    "n": 28,
+    "rate": 0.8571,
+    "lo": 0.6851,
+    "hi": 0.943
+   },
+   "dollars": 5.8926,
+   "unpriced": 0,
+   "dollars_per_trial": {
+    "n": 28,
+    "mean": 0.2104,
+    "lo": 0.1194,
+    "hi": 0.3151,
+    "median": 0.0624,
+    "method": "bootstrap"
+   },
+   "dollars_per_solve": 0.2455,
+   "tokens_per_trial": {
+    "n": 28,
+    "mean": 275785.5357,
+    "lo": 147767.633,
+    "hi": 436579.5152,
+    "median": 89832.0,
+    "method": "bootstrap"
+   },
+   "model_calls_per_trial": {
+    "n": 28,
+    "mean": 9.3571,
+    "lo": 5.9643,
+    "hi": 13.7143,
+    "median": 6.0,
+    "method": "bootstrap"
+   },
+   "tool_calls_per_trial": {
+    "n": 28,
+    "mean": 10.3571,
+    "lo": 5.5,
+    "hi": 16.8929,
+    "median": 5.0,
+    "method": "bootstrap"
+   },
+   "agent_s": {
+    "n": 28,
+    "mean": 490.4429,
+    "lo": 218.179,
+    "hi": 802.4402,
+    "median": 67.695,
+    "method": "bootstrap"
+   },
+   "endings": {
+    "ended by the agent": 26,
+    "AgentTimeoutError": 2
+   },
+   "over_2usd": 0,
+   "beside_build": 0,
+   "version": "theseus 0.0.1",
+   "effort": "medium",
+   "retried_tasks": [
+    "hf-model-inference",
+    "torch-tensor-parallelism"
+   ]
+  }
+ },
+ "paired": {
+  "theseus-routed": {
+   "against": "theseus",
+   "only_ref": 2,
+   "only_arm": 7,
+   "p_mcnemar": 0.1797
+  },
+  "theseus-oct7": {
+   "against": "theseus",
+   "only_ref": 3,
+   "only_arm": 3,
+   "p_mcnemar": 1.0
+  },
+  "claude-code": {
+   "against": "theseus",
+   "only_ref": 2,
+   "only_arm": 5,
+   "p_mcnemar": 0.4531
+  },
+  "opencode": {
+   "against": "theseus",
+   "only_ref": 1,
+   "only_arm": 6,
+   "p_mcnemar": 0.125
+  },
+  "pi": {
+   "against": "theseus",
+   "only_ref": 1,
+   "only_arm": 6,
+   "p_mcnemar": 0.125
+  },
+  "openhands": {
+   "against": "theseus",
+   "only_ref": 0,
+   "only_arm": 4,
+   "p_mcnemar": 0.125
+  }
+ },
+ "tasks": [
+  "build-pov-ray",
+  "cobol-modernization",
+  "gpt2-codegolf",
+  "hf-model-inference",
+  "install-windows-3.11",
+  "large-scale-text-editing",
+  "mailman",
+  "model-extraction-relu-logits",
+  "nginx-request-logging",
+  "regex-chess",
+  "reshard-c4-data",
+  "schemelike-metacircular-eval",
+  "torch-tensor-parallelism",
+  "winning-avg-corewars"
+ ],
+ "by_task": {
+  "build-pov-ray": {
+   "theseus": {
+    "solved": 1,
+    "trials": 2,
+    "dollars": 0.2093,
+    "model_calls": 21
+   },
+   "theseus-routed": {
+    "solved": 2,
+    "trials": 2,
+    "dollars": 0.0547,
+    "model_calls": 55
+   },
+   "theseus-oct7": {
+    "solved": 1,
+    "trials": 2,
+    "dollars": 0.2503,
+    "model_calls": 30
+   },
+   "claude-code": {
+    "solved": 1,
+    "trials": 2,
+    "dollars": 0.1539,
+    "model_calls": 20
+   },
+   "opencode": {
+    "solved": 2,
+    "trials": 2,
+    "dollars": 0.122,
+    "model_calls": 22
+   },
+   "pi": {
+    "solved": 2,
+    "trials": 2,
+    "dollars": 0.1011,
+    "model_calls": 19
+   },
+   "openhands": {
+    "solved": 1,
+    "trials": 2,
+    "dollars": 0.2582,
+    "model_calls": 25
+   }
+  },
+  "cobol-modernization": {
+   "theseus": {
+    "solved": 2,
+    "trials": 2,
+    "dollars": 0.09,
+    "model_calls": 6
+   },
+   "theseus-routed": {
+    "solved": 2,
+    "trials": 2,
+    "dollars": 1.9325,
+    "model_calls": 47
+   },
+   "theseus-oct7": {
+    "solved": 2,
+    "trials": 2,
+    "dollars": 0.1528,
+    "model_calls": 16
+   },
+   "claude-code": {
+    "solved": 2,
+    "trials": 2,
+    "dollars": 0.1552,
+    "model_calls": 12
+   },
+   "opencode": {
+    "solved": 2,
+    "trials": 2,
+    "dollars": 0.1182,
+    "model_calls": 11
+   },
+   "pi": {
+    "solved": 2,
+    "trials": 2,
+    "dollars": 0.0776,
+    "model_calls": 9
+   },
+   "openhands": {
+    "solved": 2,
+    "trials": 2,
+    "dollars": 0.1804,
+    "model_calls": 14
+   }
+  },
+  "gpt2-codegolf": {
+   "theseus": {
+    "solved": 2,
+    "trials": 2,
+    "dollars": 0.4343,
+    "model_calls": 17
+   },
+   "theseus-routed": {
+    "solved": 2,
+    "trials": 2,
+    "dollars": 0.7531,
+    "model_calls": 17
+   },
+   "theseus-oct7": {
+    "solved": 2,
+    "trials": 2,
+    "dollars": 0.5939,
+    "model_calls": 37
+   },
+   "claude-code": {
+    "solved": 1,
+    "trials": 2,
+    "dollars": 0.4571,
+    "model_calls": 15
+   },
+   "opencode": {
+    "solved": 1,
+    "trials": 2,
+    "dollars": 0.3685,
+    "model_calls": 21
+   },
+   "pi": {
+    "solved": 1,
+    "trials": 2,
+    "dollars": 0.3553,
+    "model_calls": 22
+   },
+   "openhands": {
+    "solved": 2,
+    "trials": 2,
+    "dollars": 0.7539,
+    "model_calls": 43
+   }
+  },
+  "hf-model-inference": {
+   "theseus": {
+    "solved": 0,
+    "trials": 2,
+    "dollars": 0.1046,
+    "model_calls": 8
+   },
+   "theseus-routed": {
+    "solved": 2,
+    "trials": 2,
+    "dollars": 0.0139,
+    "model_calls": 15
+   },
+   "theseus-oct7": {
+    "solved": 0,
+    "trials": 2,
+    "dollars": 0.1401,
+    "model_calls": 23
+   },
+   "claude-code": {
+    "solved": 2,
+    "trials": 2,
+    "dollars": 0.0645,
+    "model_calls": 7
+   },
+   "opencode": {
+    "solved": 2,
+    "trials": 2,
+    "dollars": 0.0421,
+    "model_calls": 6
+   },
+   "pi": {
+    "solved": 2,
+    "trials": 2,
+    "dollars": 0.0348,
+    "model_calls": 6
+   },
+   "openhands": {
+    "solved": 2,
+    "trials": 2,
+    "dollars": 0.0829,
+    "model_calls": 10
+   }
+  },
+  "install-windows-3.11": {
+   "theseus": {
+    "solved": 0,
+    "trials": 2,
+    "dollars": 1.2104,
+    "model_calls": 90
+   },
+   "theseus-routed": {
+    "solved": 1,
+    "trials": 2,
+    "dollars": 1.2458,
+    "model_calls": 90
+   },
+   "theseus-oct7": {
+    "solved": 0,
+    "trials": 2,
+    "dollars": 0.9496,
+    "model_calls": 81
+   },
+   "claude-code": {
+    "solved": 1,
+    "trials": 2,
+    "dollars": 1.1786,
+    "model_calls": 94
+   },
+   "opencode": {
+    "solved": 0,
+    "trials": 2,
+    "dollars": 0.074,
+    "model_calls": 6
+   },
+   "pi": {
+    "solved": 0,
+    "trials": 2,
+    "dollars": 1.6866,
+    "model_calls": 134
+   },
+   "openhands": {
+    "solved": 0,
+    "trials": 2,
+    "dollars": 1.404,
+    "model_calls": 108
+   }
+  },
+  "large-scale-text-editing": {
+   "theseus": {
+    "solved": 2,
+    "trials": 2,
+    "dollars": 0.0446,
+    "model_calls": 6
+   },
+   "theseus-routed": {
+    "solved": 2,
+    "trials": 2,
+    "dollars": 0.1239,
+    "model_calls": 11
+   },
+   "theseus-oct7": {
+    "solved": 2,
+    "trials": 2,
+    "dollars": 0.1048,
+    "model_calls": 18
+   },
+   "claude-code": {
+    "solved": 2,
+    "trials": 2,
+    "dollars": 0.0528,
+    "model_calls": 6
+   },
+   "opencode": {
+    "solved": 2,
+    "trials": 2,
+    "dollars": 0.0374,
+    "model_calls": 6
+   },
+   "pi": {
+    "solved": 2,
+    "trials": 2,
+    "dollars": 0.0297,
+    "model_calls": 6
+   },
+   "openhands": {
+    "solved": 2,
+    "trials": 2,
+    "dollars": 0.0665,
+    "model_calls": 9
+   }
+  },
+  "mailman": {
+   "theseus": {
+    "solved": 2,
+    "trials": 2,
+    "dollars": 0.3981,
+    "model_calls": 29
+   },
+   "theseus-routed": {
+    "solved": 1,
+    "trials": 2,
+    "dollars": 0.5758,
+    "model_calls": 35
+   },
+   "theseus-oct7": {
+    "solved": 1,
+    "trials": 2,
+    "dollars": 0.3769,
+    "model_calls": 38
+   },
+   "claude-code": {
+    "solved": 1,
+    "trials": 2,
+    "dollars": 0.3474,
+    "model_calls": 24
+   },
+   "opencode": {
+    "solved": 2,
+    "trials": 2,
+    "dollars": 0.2137,
+    "model_calls": 17
+   },
+   "pi": {
+    "solved": 2,
+    "trials": 2,
+    "dollars": 0.2159,
+    "model_calls": 21
+   },
+   "openhands": {
+    "solved": 2,
+    "trials": 2,
+    "dollars": 0.4619,
+    "model_calls": 37
+   }
+  },
+  "model-extraction-relu-logits": {
+   "theseus": {
+    "solved": 1,
+    "trials": 2,
+    "dollars": 0.0866,
+    "model_calls": 7
+   },
+   "theseus-routed": {
+    "solved": 2,
+    "trials": 2,
+    "dollars": 0.5655,
+    "model_calls": 17
+   },
+   "theseus-oct7": {
+    "solved": 2,
+    "trials": 2,
+    "dollars": 0.2071,
+    "model_calls": 27
+   },
+   "claude-code": {
+    "solved": 1,
+    "trials": 2,
+    "dollars": 0.1117,
+    "model_calls": 9
+   },
+   "opencode": {
+    "solved": 2,
+    "trials": 2,
+    "dollars": 0.0748,
+    "model_calls": 6
+   },
+   "pi": {
+    "solved": 2,
+    "trials": 2,
+    "dollars": 0.0566,
+    "model_calls": 7
+   },
+   "openhands": {
+    "solved": 2,
+    "trials": 2,
+    "dollars": 0.2113,
+    "model_calls": 18
+   }
+  },
+  "nginx-request-logging": {
+   "theseus": {
+    "solved": 2,
+    "trials": 2,
+    "dollars": 0.0562,
+    "model_calls": 7
+   },
+   "theseus-routed": {
+    "solved": 1,
+    "trials": 2,
+    "dollars": 0.014,
+    "model_calls": 11
+   },
+   "theseus-oct7": {
+    "solved": 0,
+    "trials": 2,
+    "dollars": 0.0481,
+    "model_calls": 10
+   },
+   "claude-code": {
+    "solved": 2,
+    "trials": 2,
+    "dollars": 0.0477,
+    "model_calls": 4
+   },
+   "opencode": {
+    "solved": 2,
+    "trials": 2,
+    "dollars": 0.0514,
+    "model_calls": 8
+   },
+   "pi": {
+    "solved": 2,
+    "trials": 2,
+    "dollars": 0.0424,
+    "model_calls": 8
+   },
+   "openhands": {
+    "solved": 2,
+    "trials": 2,
+    "dollars": 0.0814,
+    "model_calls": 10
+   }
+  },
+  "regex-chess": {
+   "theseus": {
+    "solved": 2,
+    "trials": 2,
+    "dollars": 1.707,
+    "model_calls": 24
+   },
+   "theseus-routed": {
+    "solved": 2,
+    "trials": 2,
+    "dollars": 1.6582,
+    "model_calls": 14
+   },
+   "theseus-oct7": {
+    "solved": 2,
+    "trials": 2,
+    "dollars": 1.3229,
+    "model_calls": 49
+   },
+   "claude-code": {
+    "solved": 2,
+    "trials": 2,
+    "dollars": 0.8883,
+    "model_calls": 19
+   },
+   "opencode": {
+    "solved": 2,
+    "trials": 2,
+    "dollars": 1.0941,
+    "model_calls": 24
+   },
+   "pi": {
+    "solved": 2,
+    "trials": 2,
+    "dollars": 0.8837,
+    "model_calls": 27
+   },
+   "openhands": {
+    "solved": 2,
+    "trials": 2,
+    "dollars": 1.2122,
+    "model_calls": 25
+   }
+  },
+  "reshard-c4-data": {
+   "theseus": {
+    "solved": 2,
+    "trials": 2,
+    "dollars": 0.1225,
+    "model_calls": 6
+   },
+   "theseus-routed": {
+    "solved": 2,
+    "trials": 2,
+    "dollars": 1.4866,
+    "model_calls": 37
+   },
+   "theseus-oct7": {
+    "solved": 2,
+    "trials": 2,
+    "dollars": 0.3742,
+    "model_calls": 26
+   },
+   "claude-code": {
+    "solved": 2,
+    "trials": 2,
+    "dollars": 0.1421,
+    "model_calls": 7
+   },
+   "opencode": {
+    "solved": 2,
+    "trials": 2,
+    "dollars": 0.1339,
+    "model_calls": 6
+   },
+   "pi": {
+    "solved": 2,
+    "trials": 2,
+    "dollars": 0.0895,
+    "model_calls": 6
+   },
+   "openhands": {
+    "solved": 2,
+    "trials": 2,
+    "dollars": 0.2393,
+    "model_calls": 14
+   }
+  },
+  "schemelike-metacircular-eval": {
+   "theseus": {
+    "solved": 2,
+    "trials": 2,
+    "dollars": 1.2451,
+    "model_calls": 22
+   },
+   "theseus-routed": {
+    "solved": 2,
+    "trials": 2,
+    "dollars": 4.2498,
+    "model_calls": 34
+   },
+   "theseus-oct7": {
+    "solved": 2,
+    "trials": 2,
+    "dollars": 2.7622,
+    "model_calls": 126
+   },
+   "claude-code": {
+    "solved": 2,
+    "trials": 2,
+    "dollars": 1.6891,
+    "model_calls": 78
+   },
+   "opencode": {
+    "solved": 2,
+    "trials": 2,
+    "dollars": 1.4546,
+    "model_calls": 52
+   },
+   "pi": {
+    "solved": 2,
+    "trials": 2,
+    "dollars": 0.5688,
+    "model_calls": 30
+   },
+   "openhands": {
+    "solved": 2,
+    "trials": 2,
+    "dollars": 0,
+    "model_calls": 0
+   }
+  },
+  "torch-tensor-parallelism": {
+   "theseus": {
+    "solved": 0,
+    "trials": 2,
+    "dollars": 0.0669,
+    "model_calls": 4
+   },
+   "theseus-routed": {
+    "solved": 2,
+    "trials": 2,
+    "dollars": 0.3198,
+    "model_calls": 10
+   },
+   "theseus-oct7": {
+    "solved": 2,
+    "trials": 2,
+    "dollars": 0.0692,
+    "model_calls": 4
+   },
+   "claude-code": {
+    "solved": 2,
+    "trials": 2,
+    "dollars": 0.078,
+    "model_calls": 4
+   },
+   "opencode": {
+    "solved": 2,
+    "trials": 2,
+    "dollars": 0.067,
+    "model_calls": 5
+   },
+   "pi": {
+    "solved": 2,
+    "trials": 2,
+    "dollars": 0.0625,
+    "model_calls": 4
+   },
+   "openhands": {
+    "solved": 1,
+    "trials": 2,
+    "dollars": 0.1365,
+    "model_calls": 10
+   }
+  },
+  "winning-avg-corewars": {
+   "theseus": {
+    "solved": 2,
+    "trials": 2,
+    "dollars": 0.0843,
+    "model_calls": 12
+   },
+   "theseus-routed": {
+    "solved": 2,
+    "trials": 2,
+    "dollars": 2.5523,
+    "model_calls": 55
+   },
+   "theseus-oct7": {
+    "solved": 2,
+    "trials": 2,
+    "dollars": 2.8248,
+    "model_calls": 144
+   },
+   "claude-code": {
+    "solved": 2,
+    "trials": 2,
+    "dollars": 0.5604,
+    "model_calls": 34
+   },
+   "opencode": {
+    "solved": 2,
+    "trials": 2,
+    "dollars": 0.6122,
+    "model_calls": 46
+   },
+   "pi": {
+    "solved": 2,
+    "trials": 2,
+    "dollars": 0.0667,
+    "model_calls": 11
+   },
+   "openhands": {
+    "solved": 2,
+    "trials": 2,
+    "dollars": 0.2152,
+    "model_calls": 27
+   }
+  }
+ },
+ "figures": [
+  {
+   "name": "pass-rate",
+   "form": "intervals",
+   "title": "Trials solved, each arm, with Wilson 95% intervals",
+   "question": "With its commands working, how many of the 14 tasks does Theseus solve now?",
+   "x": {
+    "label": "share of trials solved",
+    "format": "pct",
+    "min": 0,
+    "max": 1
+   },
+   "rows": [
+    {
+     "label": "Theseus (fixed model)",
+     "arm": "theseus",
+     "value": 0.7143,
+     "lo": 0.5294,
+     "hi": 0.8475,
+     "tip": "20 of 28"
+    },
+    {
+     "label": "Theseus as shipped (routed)",
+     "arm": "other",
+     "value": 0.8929,
+     "lo": 0.728,
+     "hi": 0.9629,
+     "tip": "25 of 28"
+    },
+    {
+     "label": "Theseus, Oct 7 (commands refused)",
+     "arm": "context",
+     "value": 0.7143,
+     "lo": 0.5294,
+     "hi": 0.8475,
+     "tip": "20 of 28"
+    },
+    {
+     "label": "Claude Code 2.1.290",
+     "arm": "claude-code",
+     "value": 0.8214,
+     "lo": 0.6441,
+     "hi": 0.9212,
+     "tip": "23 of 28"
+    },
+    {
+     "label": "OpenCode 1.18.35",
+     "arm": "other",
+     "value": 0.8929,
+     "lo": 0.728,
+     "hi": 0.9629,
+     "tip": "25 of 28"
+    },
+    {
+     "label": "Pi 1.0.4",
+     "arm": "other",
+     "value": 0.8929,
+     "lo": 0.728,
+     "hi": 0.9629,
+     "tip": "25 of 28"
+    },
+    {
+     "label": "OpenHands 1.53.0",
+     "arm": "other",
+     "value": 0.8571,
+     "lo": 0.6851,
+     "hi": 0.943,
+     "tip": "24 of 28"
+    }
+   ],
+   "note": "14 Terminal-Bench 2.0 tasks, 2 attempts each; the reference arms from the Oct 7 run."
+  },
+  {
+   "name": "frontier-dollars",
+   "form": "scatter",
+   "title": "Pass rate against dollars a trial, each arm",
+   "question": "Where does Theseus sit on the frontier now?",
+   "x": {
+    "label": "dollars a trial (mean, list prices)",
+    "format": "usd",
+    "min": 0
+   },
+   "y": {
+    "label": "share of trials solved",
+    "format": "pct",
+    "min": 0,
+    "max": 1
+   },
+   "front": "min-x-max-y",
+   "points": [
+    {
+     "arm": "theseus",
+     "label": "Theseus (fixed model)",
+     "x": 0.2093,
+     "y": 0.7143,
+     "xlo": 0.1172,
+     "xhi": 0.3138,
+     "ylo": 0.5294,
+     "yhi": 0.8475
+    },
+    {
+     "arm": "other",
+     "label": "Theseus as shipped (routed)",
+     "x": 0.5552,
+     "y": 0.8929,
+     "xlo": 0.3423,
+     "xhi": 0.799,
+     "ylo": 0.728,
+     "yhi": 0.9629
+    },
+    {
+     "arm": "context",
+     "label": "Theseus, Oct 7 (commands refused)",
+     "x": 0.3635,
+     "y": 0.7143,
+     "xlo": 0.1944,
+     "xhi": 0.5623,
+     "ylo": 0.5294,
+     "yhi": 0.8475
+    },
+    {
+     "arm": "claude-code",
+     "label": "Claude Code 2.1.290",
+     "x": 0.2117,
+     "y": 0.8214,
+     "xlo": 0.1247,
+     "xhi": 0.3088,
+     "ylo": 0.6441,
+     "yhi": 0.9212
+    },
+    {
+     "arm": "other",
+     "label": "OpenCode 1.18.35",
+     "x": 0.1594,
+     "y": 0.8929,
+     "xlo": 0.0813,
+     "xhi": 0.2482,
+     "ylo": 0.728,
+     "yhi": 0.9629
+    },
+    {
+     "arm": "other",
+     "label": "Pi 1.0.4",
+     "x": 0.1525,
+     "y": 0.8929,
+     "xlo": 0.0762,
+     "xhi": 0.2465,
+     "ylo": 0.728,
+     "yhi": 0.9629
+    },
+    {
+     "arm": "other",
+     "label": "OpenHands 1.53.0",
+     "x": 0.204,
+     "y": 0.8571,
+     "xlo": 0.1262,
+     "xhi": 0.292,
+     "ylo": 0.6851,
+     "yhi": 0.943
+    }
+   ],
+   "note": "Means with their 95% intervals (bootstrap; the range under ten trials)."
+  },
+  {
+   "name": "outcomes",
+   "form": "matrix",
+   "title": "Every trial's outcome, task by arm and attempt",
+   "question": "Which tasks does each arm win and lose?",
+   "columns": [
+    {
+     "label": "Theseus 1",
+     "arm": "theseus"
+    },
+    {
+     "label": "Theseus 2",
+     "arm": "theseus"
+    },
+    {
+     "label": "Theseus as shipped 1",
+     "arm": "other"
+    },
+    {
+     "label": "Theseus as shipped 2",
+     "arm": "other"
+    },
+    {
+     "label": "Theseus 1",
+     "arm": "context"
+    },
+    {
+     "label": "Theseus 2",
+     "arm": "context"
+    },
+    {
+     "label": "Claude Code 2.1.290 1",
+     "arm": "claude-code"
+    },
+    {
+     "label": "Claude Code 2.1.290 2",
+     "arm": "claude-code"
+    },
+    {
+     "label": "OpenCode 1.18.35 1",
+     "arm": "other"
+    },
+    {
+     "label": "OpenCode 1.18.35 2",
+     "arm": "other"
+    },
+    {
+     "label": "Pi 1.0.4 1",
+     "arm": "other"
+    },
+    {
+     "label": "Pi 1.0.4 2",
+     "arm": "other"
+    },
+    {
+     "label": "OpenHands 1.53.0 1",
+     "arm": "other"
+    },
+    {
+     "label": "OpenHands 1.53.0 2",
+     "arm": "other"
+    }
+   ],
+   "rows": [
+    {
+     "label": "build-pov-ray",
+     "cells": "PFPPPFPFPPPPPF"
+    },
+    {
+     "label": "cobol-modernization",
+     "cells": "PPPPPPPPPPPPPP"
+    },
+    {
+     "label": "gpt2-codegolf",
+     "cells": "PPPPPPFPPFPFPP"
+    },
+    {
+     "label": "hf-model-inference",
+     "cells": "EEPPFFPPPPPPPP"
+    },
+    {
+     "label": "install-windows-3.11",
+     "cells": "FFFPFFPFEEFEFF"
+    },
+    {
+     "label": "large-scale-text-editing",
+     "cells": "PPPPPPPPPPPPPP"
+    },
+    {
+     "label": "mailman",
+     "cells": "PPFPFPPFPPPPPP"
+    },
+    {
+     "label": "model-extraction-relu-logits",
+     "cells": "PFPPPPPFPPPPPP"
+    },
+    {
+     "label": "nginx-request-logging",
+     "cells": "PPFPFFPPPPPPPP"
+    },
+    {
+     "label": "regex-chess",
+     "cells": "PPPPPPPPPPPPPP"
+    },
+    {
+     "label": "reshard-c4-data",
+     "cells": "PPPPPPPPPPPPPP"
+    },
+    {
+     "label": "schemelike-metacircular-eval",
+     "cells": "PPPPPPPPPPPPPP"
+    },
+    {
+     "label": "torch-tensor-parallelism",
+     "cells": "EEPPPPPPPPPPPF"
+    },
+    {
+     "label": "winning-avg-corewars",
+     "cells": "PPPPPPPPPPPPPP"
+    }
+   ],
+   "state_labels": {
+    "P": "solved",
+    "F": "not solved",
+    "E": "ended in an error",
+    "-": "no result"
+   }
+  },
+  {
+   "name": "dollars-per-trial",
+   "form": "strip",
+   "title": "Dollars a trial at list prices, every trial",
+   "question": "What does a trial cost in each arm, and how spread?",
+   "x": {
+    "label": "dollars a trial (log scale)",
+    "format": "usd",
+    "log": true
+   },
+   "groups": [
+    {
+     "arm": "theseus",
+     "label": "Theseus (fixed model)",
+     "values": [
+      0.0976,
+      0.1117,
+      0.0447,
+      0.0453,
+      0.1925,
+      0.2418,
+      0.0522,
+      0.0524,
+      0.5443,
+      0.6661,
+      0.0212,
+      0.0234,
+      0.1993,
+      0.1988,
+      0.0398,
+      0.0468,
+      0.0259,
+      0.0303,
+      0.919,
+      0.788,
+      0.0603,
+      0.0622,
+      0.6724,
+      0.5727,
+      0.0344,
+      0.0325,
+      0.0429,
+      0.0414
+     ]
+    },
+    {
+     "arm": "other",
+     "label": "Theseus as shipped (routed)",
+     "values": [
+      0.0266,
+      0.028,
+      1.0123,
+      0.9202,
+      0.4012,
+      0.3519,
+      0.0076,
+      0.0064,
+      0.3224,
+      0.9234,
+      0.0622,
+      0.0617,
+      0.4423,
+      0.1335,
+      0.3097,
+      0.2559,
+      0.0067,
+      0.0073,
+      0.6062,
+      1.052,
+      0.8596,
+      0.627,
+      2.5685,
+      1.6813,
+      0.1491,
+      0.1707,
+      0.6517,
+      1.9006
+     ]
+    },
+    {
+     "arm": "context",
+     "label": "Theseus, Oct 7 (commands refused)",
+     "values": [
+      0.1818,
+      0.0686,
+      0.0805,
+      0.0722,
+      0.3172,
+      0.2766,
+      0.0713,
+      0.0688,
+      0.0432,
+      0.9064,
+      0.0481,
+      0.0567,
+      0.0818,
+      0.2951,
+      0.1322,
+      0.0749,
+      0.024,
+      0.0242,
+      0.6929,
+      0.63,
+      0.2135,
+      0.1607,
+      1.8698,
+      0.8924,
+      0.0354,
+      0.0338,
+      1.6834,
+      1.1413
+     ]
+    },
+    {
+     "arm": "claude-code",
+     "label": "Claude Code 2.1.290",
+     "values": [
+      0.0758,
+      0.0781,
+      0.0821,
+      0.073,
+      0.1899,
+      0.2672,
+      0.0353,
+      0.0293,
+      0.6081,
+      0.5706,
+      0.0313,
+      0.0215,
+      0.2584,
+      0.089,
+      0.0425,
+      0.0692,
+      0.0191,
+      0.0286,
+      0.3134,
+      0.5748,
+      0.0872,
+      0.0549,
+      0.9361,
+      0.753,
+      0.0444,
+      0.0336,
+      0.0743,
+      0.4861
+     ]
+    },
+    {
+     "arm": "other",
+     "label": "OpenCode 1.18.35",
+     "values": [
+      0.0474,
+      0.0746,
+      0.0495,
+      0.0686,
+      0.2372,
+      0.1314,
+      0.0214,
+      0.0207,
+      0.0371,
+      0.0369,
+      0.0194,
+      0.018,
+      0.0725,
+      0.1411,
+      0.0362,
+      0.0386,
+      0.0252,
+      0.0262,
+      0.4009,
+      0.6933,
+      0.0807,
+      0.0532,
+      0.6484,
+      0.8062,
+      0.0334,
+      0.0336,
+      0.0348,
+      0.5774
+     ]
+    },
+    {
+     "arm": "other",
+     "label": "Pi 1.0.4",
+     "values": [
+      0.054,
+      0.0472,
+      0.031,
+      0.0467,
+      0.2599,
+      0.0954,
+      0.0174,
+      0.0174,
+      0.671,
+      1.0156,
+      0.0152,
+      0.0145,
+      0.1062,
+      0.1097,
+      0.0297,
+      0.0269,
+      0.0214,
+      0.021,
+      0.4918,
+      0.3919,
+      0.0465,
+      0.043,
+      0.2955,
+      0.2733,
+      0.0308,
+      0.0318,
+      0.0265,
+      0.0402
+     ]
+    },
+    {
+     "arm": "other",
+     "label": "OpenHands 1.53.0",
+     "values": [
+      0.1139,
+      0.1443,
+      0.0997,
+      0.0807,
+      0.3062,
+      0.4477,
+      0.0492,
+      0.0337,
+      0.7204,
+      0.6836,
+      0.037,
+      0.0295,
+      0.2841,
+      0.1778,
+      0.1038,
+      0.1076,
+      0.0404,
+      0.041,
+      0.4794,
+      0.7328,
+      0.1044,
+      0.1349,
+      0.0413,
+      0.0952,
+      0.1524,
+      0.0628
+     ]
+    }
+   ],
+   "legend_labels": {
+    "theseus": "Theseus (fixed model)",
+    "claude-code": "Claude Code 2.1.290"
+   }
+  },
+  {
+   "name": "model-calls",
+   "form": "strip",
+   "title": "Model calls a trial, every trial",
+   "question": "How many model calls does a trial take in each arm?",
+   "x": {
+    "label": "model calls (log scale)",
+    "format": "num",
+    "log": true
+   },
+   "groups": [
+    {
+     "arm": "theseus",
+     "label": "Theseus (fixed model)",
+     "values": [
+      9,
+      12,
+      3,
+      3,
+      7,
+      10,
+      4,
+      4,
+      42,
+      48,
+      3,
+      3,
+      12,
+      17,
+      3,
+      4,
+      3,
+      4,
+      14,
+      10,
+      3,
+      3,
+      11,
+      11,
+      2,
+      2,
+      6,
+      6
+     ]
+    },
+    {
+     "arm": "other",
+     "label": "Theseus as shipped (routed)",
+     "values": [
+      26,
+      29,
+      25,
+      22,
+      9,
+      8,
+      8,
+      7,
+      28,
+      62,
+      6,
+      5,
+      27,
+      8,
+      8,
+      9,
+      5,
+      6,
+      7,
+      7,
+      20,
+      17,
+      22,
+      12,
+      5,
+      5,
+      17,
+      38
+     ]
+    },
+    {
+     "arm": "context",
+     "label": "Theseus, Oct 7 (commands refused)",
+     "values": [
+      23,
+      7,
+      9,
+      7,
+      19,
+      18,
+      12,
+      11,
+      9,
+      72,
+      8,
+      10,
+      10,
+      28,
+      16,
+      11,
+      5,
+      5,
+      25,
+      24,
+      14,
+      12,
+      78,
+      48,
+      2,
+      2,
+      74,
+      70
+     ]
+    },
+    {
+     "arm": "claude-code",
+     "label": "Claude Code 2.1.290",
+     "values": [
+      9,
+      11,
+      6,
+      6,
+      5,
+      10,
+      3,
+      4,
+      49,
+      45,
+      3,
+      3,
+      18,
+      6,
+      3,
+      6,
+      2,
+      2,
+      8,
+      11,
+      4,
+      3,
+      42,
+      36,
+      2,
+      2,
+      8,
+      26
+     ]
+    },
+    {
+     "arm": "other",
+     "label": "OpenCode 1.18.35",
+     "values": [
+      9,
+      13,
+      4,
+      7,
+      15,
+      6,
+      3,
+      3,
+      3,
+      3,
+      3,
+      3,
+      6,
+      11,
+      3,
+      3,
+      4,
+      4,
+      8,
+      16,
+      3,
+      3,
+      26,
+      26,
+      3,
+      2,
+      5,
+      41
+     ]
+    },
+    {
+     "arm": "other",
+     "label": "Pi 1.0.4",
+     "values": [
+      10,
+      9,
+      4,
+      5,
+      18,
+      4,
+      3,
+      3,
+      59,
+      75,
+      3,
+      3,
+      10,
+      11,
+      3,
+      4,
+      4,
+      4,
+      10,
+      17,
+      3,
+      3,
+      16,
+      14,
+      2,
+      2,
+      5,
+      6
+     ]
+    },
+    {
+     "arm": "other",
+     "label": "OpenHands 1.53.0",
+     "values": [
+      9,
+      16,
+      8,
+      6,
+      18,
+      25,
+      6,
+      4,
+      53,
+      55,
+      5,
+      4,
+      20,
+      17,
+      9,
+      9,
+      5,
+      5,
+      16,
+      9,
+      7,
+      7,
+      3,
+      7,
+      17,
+      10
+     ]
+    }
+   ],
+   "legend_labels": {
+    "theseus": "Theseus (fixed model)",
+    "claude-code": "Claude Code 2.1.290"
+   }
+  }
+ ],
+ "overlap": {
+  "build-pov-ray__theseus": [
+   "cargo",
+   "cargo-nextest",
+   "rustc"
+  ],
+  "install-windows-3.11__theseus": [
+   "cargo",
+   "cargo-nextest",
+   "clippy-driver",
+   "rustc"
+  ],
+  "reshard-c4-data__theseus": [
+   "cargo",
+   "cargo-nextest",
+   "clippy-driver",
+   "rustc"
+  ],
+  "regex-chess__theseus": [
+   "cargo",
+   "cargo-nextest",
+   "clippy-driver",
+   "rustc"
+  ],
+  "mailman__theseus": [
+   "cargo",
+   "cargo-nextest",
+   "rustc"
+  ],
+  "large-scale-text-editing__theseus": [
+   "cargo",
+   "cargo-nextest",
+   "rustc"
+  ],
+  "cobol-modernization__theseus": [
+   "cargo",
+   "cargo-nextest",
+   "clippy-driver",
+   "rustc"
+  ],
+  "gpt2-codegolf__theseus": [
+   "cargo",
+   "cargo-nextest",
+   "clippy-driver",
+   "rustc"
+  ],
+  "hf-model-inference__theseus": [
+   "cargo",
+   "cargo-nextest",
+   "clippy-driver",
+   "rustc"
+  ],
+  "model-extraction-relu-logits__theseus": [
+   "cargo",
+   "cargo-nextest",
+   "clippy-driver",
+   "rustc"
+  ],
+  "nginx-request-logging__theseus": [
+   "cargo",
+   "cargo-nextest",
+   "clippy-driver",
+   "rustc"
+  ],
+  "schemelike-metacircular-eval__theseus": [
+   "cargo",
+   "cargo-nextest",
+   "clippy-driver",
+   "rustc"
+  ],
+  "torch-tensor-parallelism__theseus": [
+   "cargo",
+   "cargo-nextest",
+   "clippy-driver",
+   "rustc"
+  ],
+  "build-pov-ray__theseus-routed": [
+   "cargo",
+   "cargo-nextest",
+   "clippy-driver",
+   "rustc"
+  ],
+  "install-windows-3.11__theseus-routed": [
+   "cargo",
+   "cargo-nextest",
+   "clippy-driver",
+   "rustc"
+  ],
+  "regex-chess__theseus-routed": [
+   "cargo",
+   "cargo-nextest",
+   "clippy-driver",
+   "rustc"
+  ],
+  "winning-avg-corewars__theseus-routed": [
+   "cargo",
+   "cargo-nextest",
+   "clippy-driver",
+   "gate lock",
+   "rustc"
+  ],
+  "schemelike-metacircular-eval__theseus-routed": [
+   "cargo",
+   "cargo-nextest",
+   "clippy-driver",
+   "gate lock",
+   "rustc"
+  ],
+  "reshard-c4-data__theseus-routed": [
+   "cargo",
+   "cargo-nextest",
+   "clippy-driver",
+   "gate lock",
+   "rustc"
+  ],
+  "large-scale-text-editing__theseus-routed": [
+   "cargo",
+   "cargo-nextest",
+   "clippy-driver",
+   "rustc"
+  ],
+  "mailman__theseus-routed": [
+   "cargo",
+   "cargo-nextest",
+   "clippy-driver",
+   "rustc"
+  ],
+  "cobol-modernization__theseus-routed": [
+   "cargo",
+   "cargo-nextest",
+   "clippy-driver",
+   "gate lock",
+   "rustc"
+  ],
+  "gpt2-codegolf__theseus-routed": [
+   "cargo",
+   "cargo-nextest",
+   "clippy-driver",
+   "gate lock",
+   "rustc"
+  ],
+  "hf-model-inference__theseus-routed": [
+   "cargo",
+   "cargo-nextest",
+   "gate lock",
+   "rustc"
+  ],
+  "model-extraction-relu-logits__theseus-routed": [
+   "cargo",
+   "cargo-nextest",
+   "gate lock",
+   "rustc"
+  ],
+  "nginx-request-logging__theseus-routed": [
+   "cargo",
+   "cargo-nextest",
+   "gate lock",
+   "rustc"
+  ],
+  "torch-tensor-parallelism__theseus-routed": [
+   "cargo",
+   "clippy-driver",
+   "rustc"
+  ],
+  "pass2/regex-chess__theseus-routed": [
+   "cargo",
+   "cargo-nextest",
+   "clippy-driver",
+   "gate lock",
+   "rustc"
+  ],
+  "pass2/install-windows-3.11__theseus-routed": [
+   "cargo",
+   "cargo-nextest",
+   "clippy-driver",
+   "gate lock",
+   "rustc"
+  ],
+  "pass2/reshard-c4-data__theseus-routed": [
+   "cargo",
+   "cargo-nextest",
+   "clippy-driver",
+   "gate lock",
+   "rustc"
+  ],
+  "pass2/winning-avg-corewars__theseus-routed": [
+   "cargo",
+   "cargo-nextest",
+   "gate lock",
+   "rustc"
+  ],
+  "pass2/mailman__theseus-routed": [
+   "cargo",
+   "cargo-nextest",
+   "clippy-driver",
+   "gate lock",
+   "rustc"
+  ],
+  "pass2/large-scale-text-editing__theseus-routed": [
+   "cargo",
+   "cargo-nextest",
+   "rustc"
+  ],
+  "pass2/cobol-modernization__theseus-routed": [
+   "cargo-nextest",
+   "gate lock"
+  ],
+  "pass2/gpt2-codegolf__theseus-routed": [
+   "cargo-nextest"
+  ],
+  "pass2/schemelike-metacircular-eval__theseus-routed": [
+   "cargo",
+   "cargo-nextest",
+   "clippy-driver",
+   "gate lock",
+   "rustc"
+  ],
+  "pass2/hf-model-inference__theseus-routed": [
+   "cargo",
+   "cargo-nextest",
+   "clippy-driver",
+   "rustc"
+  ],
+  "pass2/model-extraction-relu-logits__theseus-routed": [
+   "cargo",
+   "cargo-nextest",
+   "clippy-driver",
+   "rustc"
+  ],
+  "pass2/torch-tensor-parallelism__theseus-routed": [
+   "cargo-nextest",
+   "gate lock"
+  ]
+ }
+}
