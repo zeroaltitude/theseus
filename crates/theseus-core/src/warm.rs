@@ -45,6 +45,11 @@ struct Counts {
 /// How many spells are kept before the lapsed ones are swept.
 const SWEEP_AT: usize = 256;
 
+/// The most spells kept at once, however many sessions a client names: past
+/// it, a notice for a session with none is dropped, so a client that sends
+/// a new id each time grows nothing.
+const MAX_SPELLS: usize = 1024;
+
 impl Warmth {
     /// Whether a notice for `key` at `now` starts a warm-up: the first in
     /// its spell does, and opens a new one. Counted either way.
@@ -53,20 +58,21 @@ impl Warmth {
         let fresh = spells
             .get(key)
             .is_none_or(|t| now.saturating_duration_since(*t) >= SPELL);
-        if fresh {
-            if spells.len() >= SWEEP_AT {
-                spells.retain(|_, t| now.saturating_duration_since(*t) < SPELL);
-            }
+        if fresh && spells.len() >= SWEEP_AT {
+            spells.retain(|_, t| now.saturating_duration_since(*t) < SPELL);
+        }
+        let admitted = fresh && (spells.len() < MAX_SPELLS || spells.contains_key(key));
+        if admitted {
             spells.insert(key.to_string(), now);
         }
         drop(spells);
         let mut c = self.counts.lock().unwrap_or_else(|e| e.into_inner());
-        if fresh {
+        if admitted {
             c.started += 1;
         } else {
             c.dropped += 1;
         }
-        fresh
+        admitted
     }
 
     /// A notice that was not admitted, for a reason that is not the spell.
@@ -128,6 +134,21 @@ mod tests {
         assert!(w.admit("ses_a", t0 + SPELL), "the spell ended");
         let h = w.health();
         assert_eq!((h.started, h.dropped), (3, 2));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_client_naming_a_new_session_each_time_grows_nothing_past_the_bound() {
+        let w = Warmth::default();
+        let t0 = Instant::now();
+        for i in 0..MAX_SPELLS {
+            assert!(w.admit(&format!("ses_{i}"), t0));
+        }
+        assert!(!w.admit("ses_one_too_many", t0), "dropped at the bound");
+        assert_eq!(w.spells.lock().unwrap().len(), MAX_SPELLS);
+        assert!(
+            w.admit("ses_one_too_many", t0 + SPELL),
+            "its turn, once they lapse"
+        );
     }
 
     #[tokio::test(start_paused = true)]
