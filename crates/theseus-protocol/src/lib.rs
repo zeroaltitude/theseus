@@ -44,6 +44,7 @@ mod places;
 mod push;
 pub mod resident;
 pub mod route;
+pub mod rsi;
 pub mod sandbox;
 pub mod sessions;
 pub mod signals;
@@ -113,16 +114,13 @@ macro_rules! names {
 pub mod method {
     names! {
         HEALTH = "health",
-        SESSION_OPEN = "session.open",
-        SESSION_LIST = "session.list",
+        SESSION_OPEN = "session.open", SESSION_LIST = "session.list",
         /// A session's retirement by the owner, and its undo (theseus-emqx).
         SESSION_RETIRE = "session.retire", SESSION_REOPEN = "session.reopen",
         TURN_SUBMIT = "turn.submit",
         LEDGER_TAIL = "ledger.tail",
-        PROFILE_LIST = "profile.list",
-        PROFILE_USE = "profile.use",
-        EXECUTION_LIST = "execution.list",
-        EXECUTION_CANCEL = "execution.cancel",
+        PROFILE_LIST = "profile.list", PROFILE_USE = "profile.use",
+        EXECUTION_LIST = "execution.list", EXECUTION_CANCEL = "execution.cancel",
         /// `/stop` (W1): halt a conversation's work, and keep the conversation.
         EXECUTION_STOP = "execution.stop",
         ACTION_LIST = "action.list",
@@ -133,9 +131,7 @@ pub mod method {
         SESSION_WATCH = "session.watch",
         SESSION_UNWATCH = "session.unwatch",
         SESSION_RECOMPILE = "session.recompile",
-        CATALOG_LIST = "catalog.list",
-        COMPILATION_LIST = "compilation.list",
-        NODE_LIST = "node.list",
+        CATALOG_LIST = "catalog.list", COMPILATION_LIST = "compilation.list", NODE_LIST = "node.list",
         /// Where a node went (theseus-n4m, step 12a): the contexts of its own
         /// session that held it, then its copies in other sessions over
         /// `derived_from`, each with theirs. A read, computed when asked.
@@ -285,6 +281,8 @@ pub mod method {
         EXTEND_LIST = "extend.list",
         /// Revoke a loaded extension (43b, `extend::ExtensionRevokeParams`). The operator's.
         EXTENSION_REVOKE = "extension.revoke",
+        /// Self-improvement (theseus-pw1q; `rsi`): the kill switch, anyone's halt and the owner's resume, the log, the digest.
+        SELF_HALT = "self.halt", SELF_RESUME = "self.resume", SELF_LOG = "self.log", SELF_DIGEST = "self.digest",
     }
 }
 
@@ -664,6 +662,10 @@ pub struct HealthResult {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub resident: Option<resident::ResidentHealth>,
+    /// Self-improvement's mode, kill switch and gate (theseus-pw1q.2): health's `self` line.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub self_improve: Option<rsi::SelfState>,
 }
 
 /// The AWS accounts the config binds (`[aws.accounts.<id>]`).
@@ -802,23 +804,6 @@ pub struct DiskStatus {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub error: Option<String>,
-}
-
-/// The binary this daemon runs, and whether its jobs can write it (review
-/// 2's consideration 3). At L0 a job runs as the daemon's user, so a binary
-/// that user can write, or one in a directory it can write, is one a job can
-/// replace, and the next start runs what it finds there.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[cfg_attr(test, derive(ts_rs::TS))]
-pub struct BinaryStatus {
-    /// The path the next start runs ("" when it could not be read).
-    pub path: String,
-    /// `jobs_can_write` (the file, or its directory, is writable by the
-    /// daemon's user), `ok`, or `unknown` (`detail` says why).
-    pub state: String,
-    /// What is writable, or why it is not known, in words.
-    #[serde(default)]
-    pub detail: String,
 }
 
 /// What the web UI refused (theseus-70f): a request whose `Host` is not the

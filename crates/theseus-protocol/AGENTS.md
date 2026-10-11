@@ -53,6 +53,11 @@ Key modules: `lib.rs` (the `method`, `notify`, `error_code` tables), `events.rs`
   footer and the CLI's status line show: the session's total with this reply's cost, `$47.52 total ($7.86 this
   reply)`, four decimals under a dollar; the turn's cost alone from a daemon that sends no `session_cost_usd`.
 - `books.rs` (theseus-civ0): `books.list` and `books.page`'s params and results, `BOOKS` and `UNSORTED`.
+- `rsi.rs` (theseus-pw1q): self-improvement's wire types (`self.halt`, `self.resume`, `self.log`, `self.digest`),
+  and `SELF_ROWS`, the `self.*` rows later self steps write, declared with their fields before their writers: a
+  name becomes a `LedgerKind` on the commit that first writes it (the reader rule), and every such row's data
+  carries `what`, `why`, `numbers` and `undo`. `SelfState` is also health's `self_improve` (health's `self` line);
+  `BinaryStatus` moved to `health.rs` to make room in lib.rs.
 - `ts.rs`: the TypeScript export.
 
 ## Invariants

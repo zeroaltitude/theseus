@@ -349,6 +349,12 @@ These are built, tested and installed, and off on the operator's daemon until he
   no hand yet: its stack and image wait for the operator's go (theseus-ongv).
 - **The MCP server** on loopback (`[mcp_server]`, off by default).
 - **Memory's measured arms:** `+retention`, `+activation` and `+synthesis`, each off unless `[memory] arm` names it.
+- **Self-improvement's spine** (joined October 10; on the next install's list): `[self] mode = "off"` by default, so
+  nothing self-directed runs; a kill switch anyone may throw (`theseus self halt`, the cockpit's Halt, "halt self" on
+  Discord) and only the operator releases (`theseus self resume`, the web UI, or "resume self" from his own Discord
+  account), halted until his first resume; `theseus self log`, every change Theseus made to itself with its numbers
+  and its undo; a weekly digest to his DM while the mode acts; and health's `self` line. The keel guard, the gate's
+  first phase since October 9, fails a branch that deletes or loosens a test, budget or ceiling without his signed ack.
 
 ## Under way now
 

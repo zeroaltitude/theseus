@@ -26,6 +26,7 @@ import type { PushStatus } from "./PushStatus";
 import type { ResidentHealth } from "./ResidentHealth";
 import type { SandboxHealth } from "./SandboxHealth";
 import type { SecretsStatus } from "./SecretsStatus";
+import type { SelfState } from "./SelfState";
 import type { SpoolStatus } from "./SpoolStatus";
 import type { StartupPhase } from "./StartupPhase";
 import type { StoreStatus } from "./StoreStatus";
@@ -235,4 +236,8 @@ lsp?: Array<LspServerStatus>,
 /**
  * The daemon's own memory and its largest caches (theseus-9lxe).
  */
-resident?: ResidentHealth, };
+resident?: ResidentHealth, 
+/**
+ * Self-improvement's mode, kill switch and gate (theseus-pw1q.2): health's `self` line.
+ */
+self_improve?: SelfState, };

@@ -1,6 +1,7 @@
 //! Health's sections for the store's refused reads (R4, theseus-15g), the
 //! last crash (Review 2's consideration 1), the binary's build
-//! (theseus-9o5n), and the secrets (theseus-qa0; their sources,
+//! (theseus-9o5n), whether jobs can write the binary (review 2's
+//! consideration 3), and the secrets (theseus-qa0; their sources,
 //! theseus-n88g.1); `HealthResult` is in lib.rs.
 
 use serde::{Deserialize, Serialize};
@@ -204,4 +205,21 @@ pub struct ParkedTask {
     /// Since when (ms since the epoch): the question's, or the execution's
     /// last change.
     pub since_ms: u64,
+}
+
+/// The binary this daemon runs, and whether its jobs can write it (review
+/// 2's consideration 3). At L0 a job runs as the daemon's user, so a binary
+/// that user can write, or one in a directory it can write, is one a job can
+/// replace, and the next start runs what it finds there.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct BinaryStatus {
+    /// The path the next start runs ("" when it could not be read).
+    pub path: String,
+    /// `jobs_can_write` (the file, or its directory, is writable by the
+    /// daemon's user), `ok`, or `unknown` (`detail` says why).
+    pub state: String,
+    /// What is writable, or why it is not known, in words.
+    #[serde(default)]
+    pub detail: String,
 }

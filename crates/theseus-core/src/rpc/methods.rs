@@ -115,6 +115,7 @@ impl Core {
             memory: self.runner.memory.on().then(|| self.memory_health()),
             tasks: Some(self.tasks_health()),
             resident: Some(self.resident_health()),
+            self_improve: Some(self.self_state()),
         }
     }
 

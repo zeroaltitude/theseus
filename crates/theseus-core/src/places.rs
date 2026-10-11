@@ -335,16 +335,18 @@ impl PlaceRule {
     }
 }
 
-/// Whether `who` may make an owner's act (theseus-zmgb): answer a waiting
-/// call or a budget question, undo a tightening, trust a session again, or
-/// publish into a place. The owner, from a private place: the CLI and the
-/// web UI are the owner's own surfaces; through Discord, an owner, in a DM
-/// with them or a channel bound private. `Err` says why not.
-pub fn owner_in_private(
+/// Whether `who` is the owner, wherever they speak from: the CLI and the web
+/// UI (the owner's own surfaces), or a transport's author who holds one of
+/// the owner's handles (`[places] owner`), in any place the binding reads.
+/// The resume of self-improvement asks this (theseus-pw1q.2: a halt is
+/// anyone's, a resume the owner's alone). `Ok(Some(place))` names the
+/// transport's place an owner spoke from, `Ok(None)` the owner's own
+/// surface; `Err` says why not.
+pub fn owner_anywhere(
     who: &crate::approval::Answerer,
     rule: &PlaceRule,
     cfg: &crate::Config,
-) -> Result<(), String> {
+) -> Result<Option<String>, String> {
     use crate::approval::Surface;
     if let Some(why) = who.unknown() {
         return Err(why);
@@ -355,16 +357,32 @@ pub fn owner_in_private(
         .filter(|_| who.surface == Surface::Discord)
     else {
         // The CLI and the web UI, which `unknown` has let through.
-        return Ok(());
+        return Ok(None);
     };
     let user = format!("discord:{}", d.user_id);
-    let from = match &d.guild_id {
-        None => format!("discord:dm:{}", d.user_id),
-        Some(_) => format!("discord:channel:{}", d.channel_id),
-    };
     if !rule.owners(cfg).contains(&user) {
         return Err(format!("{user} is not an owner"));
     }
+    Ok(Some(match &d.guild_id {
+        None => format!("discord:dm:{}", d.user_id),
+        Some(_) => format!("discord:channel:{}", d.channel_id),
+    }))
+}
+
+/// Whether `who` may make an owner's act (theseus-zmgb): answer a waiting
+/// call or a budget question, undo a tightening, trust a session again, or
+/// publish into a place. The owner, from a private place: the CLI and the
+/// web UI are the owner's own surfaces; through Discord, an owner, in a DM
+/// with them or a channel bound private. `Err` says why not.
+pub fn owner_in_private(
+    who: &crate::approval::Answerer,
+    rule: &PlaceRule,
+    cfg: &crate::Config,
+) -> Result<(), String> {
+    // The CLI and the web UI, which `owner_anywhere` lets through.
+    let Some(from) = owner_anywhere(who, rule, cfg)? else {
+        return Ok(());
+    };
     match rule.class(cfg, Some(&from)) {
         PlaceClass::Private => Ok(()),
         PlaceClass::Shared => Err(

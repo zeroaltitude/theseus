@@ -37,6 +37,7 @@ mod ontology;
 mod parked;
 mod places;
 mod resident;
+mod rsi;
 mod sandbox;
 pub mod sessions;
 mod store;
@@ -61,11 +62,12 @@ pub use ontology::{
 };
 pub use parked::parked_lines;
 pub use places::{places_health_line, places_lines};
+pub use rsi::self_state_line;
 pub use sandbox::sandbox_line;
 pub use store::{crash_line, node_cache_line, store_lines, store_reads_line};
 pub use task_graph::{task_tree_lines, tree_line};
 pub use tasks::{task_check, task_pieces};
-pub use time::fmt_time;
+pub use time::{fmt_date, fmt_time};
 
 /// What a line is, as the CLI's marks have always told one from another. The
 /// CLI prints a line's text alone, so a tag changes nothing it prints; the
@@ -1731,6 +1733,7 @@ pub fn health_lines(h: &theseus_protocol::HealthResult, now_ms: u64) -> Vec<Line
     }
     places::push_health(o, h.places.as_ref());
     judge::push_health(o, h.judge.as_ref());
+    rsi::push_health(o, h.self_improve.as_ref());
     memory::push_health(o, h.memory.as_ref(), now_ms);
     mcp_server::push_health(o, h.mcp_server.as_ref());
     parked::push_health(o, h.tasks.as_ref());

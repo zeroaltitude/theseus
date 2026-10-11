@@ -590,6 +590,18 @@ impl Core {
     pub(crate) fn judge_act(&self, who: &Answerer, act: Act<'_>) -> Result<()> {
         let verdict = match act {
             Act::Tighten { .. } => who.unknown().map_or(Ok(()), Err),
+            Act::SelfResume {
+                from_job: Some(job),
+            } => Err(format!(
+                "it came from a Theseus job's shell (THESEUS_SESSION={job}), and only the owner \
+                 resumes self-improvement, from their own shell, the web UI, or their own account \
+                 on a bound transport"
+            )),
+            // Only the owner, from any place (theseus-pw1q.2, the owner's call
+            // of 2026-10-10): a halt is anyone's, anywhere; a resume the owner's.
+            Act::SelfResume { from_job: None } => {
+                crate::places::owner_anywhere(who, &self.runner.place_rule, &self.cfg).map(|_| ())
+            }
             _ => crate::places::owner_in_private(who, &self.runner.place_rule, &self.cfg),
         };
         let Err(why) = verdict else {
@@ -803,6 +815,12 @@ pub(crate) enum Act<'a> {
     /// sessions could hide the owner's conversations from the default view.
     /// `what` names it: `the retirement of ses_…`.
     Session { method: &'static str, what: &'a str },
+    /// The release of self-improvement's kill switch (theseus-pw1q.2,
+    /// `self.resume`): only the owner turns it back on (the CLI, the web UI,
+    /// or an author holding an owner handle, in any bound place:
+    /// `places::owner_anywhere`), so a job's shell (`from_job`, the
+    /// `THESEUS_SESSION` the CLI sends) never counts.
+    SelfResume { from_job: Option<&'a str> },
 }
 
 impl Act<'_> {
@@ -823,6 +841,7 @@ impl Act<'_> {
             Act::Ladder { method, .. } => method,
             Act::Import { method, .. } => method,
             Act::Session { method, .. } => method,
+            Act::SelfResume { .. } => theseus_protocol::method::SELF_RESUME,
         }
     }
 }

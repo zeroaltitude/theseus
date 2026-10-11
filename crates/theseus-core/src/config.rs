@@ -21,6 +21,7 @@ pub(crate) mod lsp;
 pub(crate) mod memory;
 pub(crate) mod people;
 pub(crate) mod routing;
+pub mod rsi;
 mod sessions;
 pub use sessions::SessionsConfig;
 mod sparse;
@@ -127,8 +128,7 @@ pub struct Config {
         skip_serializing_if = "mcp_server::McpServerConfig::is_default"
     )]
     pub mcp_server: mcp_server::McpServerConfig,
-    /// `[lsp]`: the language-server board and its tools (L2), off by
-    /// default, in `config/lsp.rs`.
+    /// `[lsp]`: the language-server board and its tools (L2), off by default, in `config/lsp.rs`.
     #[serde(default, skip_serializing_if = "LspConfig::is_default")]
     pub lsp: LspConfig,
     /// `[sessions]`: the state windows and the re-title (theseus-emqx).
@@ -137,29 +137,30 @@ pub struct Config {
     /// `[people]`: people proposed from text (theseus-wy7y), `config/people.rs`.
     #[serde(default, skip_serializing_if = "people::PeopleConfig::is_default")]
     pub people: people::PeopleConfig,
+    /// `[self]`: self-improvement, off by default (theseus-pw1q), in `config/rsi.rs`.
+    #[serde(default, rename = "self")]
+    #[serde(skip_serializing_if = "rsi::SelfConfig::is_default")]
+    pub self_improve: rsi::SelfConfig,
     /// `[sandbox]`: L1 for `proc.run` (M4 17b), in `crate::sandbox`.
     #[serde(default)]
     pub sandbox: crate::sandbox::SandboxConfig,
     /// `[judge]`: Jev's judgments, in shadow (M5 23a), in `config/judge.rs`.
     #[serde(default)]
     pub judge: JudgeConfig,
-    /// `[approval]`, retired (theseus-zmgb): an answer counts only from a
-    /// private place, by the owner (the place rule). A config that still has
-    /// the section loads, with one warning a load; nothing reads it.
+    /// `[approval]`, retired (theseus-zmgb): an answer counts only from a private place, by the
+    /// owner (the place rule). A config with the section loads, with a warning; nothing reads it.
     #[serde(default, skip_serializing)]
     pub approval: Option<toml::Table>,
     /// `[places]` (the place rule; `[labels]`, its old name, still reads).
     #[serde(default, alias = "labels")]
     #[serde(skip_serializing_if = "PlacesConfig::is_empty")]
     pub places: PlacesConfig,
-    /// The 1Password token file this daemon was pointed at (`--op-token-file`
-    /// or `THESEUS_OP_TOKEN_FILE`): set at startup, never read from the TOML.
-    /// The floor keeps it, whichever way it was named (theseus-8az).
+    /// The 1Password token file this daemon was pointed at (`--op-token-file` or
+    /// `THESEUS_OP_TOKEN_FILE`): set at startup, never from the TOML; the floor keeps it (theseus-8az).
     #[serde(skip)]
     pub op_token_file: Option<PathBuf>,
-    /// The last-known-good copy of the vault's config note (theseus-2fo):
-    /// set at startup when the config is `op://`, never read from the TOML.
-    /// The floor keeps it, as it keeps the token file.
+    /// The last-known-good copy of the vault's config note (theseus-2fo): set at startup when the
+    /// config is `op://`, never read from the TOML. The floor keeps it, as it keeps the token file.
     #[serde(skip)]
     pub config_copy: Option<PathBuf>,
     /// Every profile and provider, the implicit `default` and `anthropic`

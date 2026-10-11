@@ -114,10 +114,10 @@ for the rerun and for all of them.
 
 | Row | What it builds | Off by default, and the switch |
 |---|---|---|
-| `keel-guard` | The gate step of section 3's wave 0 | Always on: it is a check, not an autonomy |
-| `self-kill` | `theseus self halt` and `resume`: a durable halt row in the store, read before every self step; halt from the CLI, Discord or the cockpit, resume only by the owner in a private place | Halted until the switch goes on |
+| `keel-guard` | The gate step of section 3's wave 0. **Built** (joined 2026-10-09): `scripts/keel-guard.py`, the gate's first phase, the ack a `Keel:` trailer signed by a key in `scripts/keel-signers` | Always on: it is a check, not an autonomy |
+| `self-kill` | `theseus self halt` and `resume`: a durable halt row in the store, read before every self step; halt by anyone from the CLI, Discord ("halt self") or the cockpit, resume only by the owner (the CLI, the web UI, or "resume self" from the owner's account, in any place). **Built** (joined 2026-10-10): the switch is the META record `self.switch`, written in one frame with its `self.halted` or `self.resumed` row; `rsi::gate` is the one question; a refused resume is an `approval.refused` row; health's `self` line shows it | Halted until the switch goes on |
 | `self-budget` | One reservation account for every self loop: $10 a branch, $30 a day; at the line the work stops and says so | `[self.budget]`, read at start; raising it is keel |
-| `rsi-ledger` | `self.*` rows, `theseus self log`, the cockpit's "What Theseus changed about itself", a weekly Discord digest | The rows always record; the digest has its own key |
+| `rsi-ledger` | `self.*` rows, `theseus self log`, the cockpit's "What Theseus changed about itself", a weekly Discord digest. **Built** (joined 2026-10-10), the digest posting only while the mode acts and the owner's DM is bound | The rows always record; the digest has its own key |
 | `sealed-holdouts` | A store outside the workspace roots and the repo, and a scorer that returns numbers only | Holds nothing until the owner seeds it |
 | `self-bench` | The self-improvement benchmark (wave 1) | Runs only when asked; $5 a run |
 | `self-backlog` | Nightly: read the ledger, health, judge reports and the omnibus's gaps; file and rank rows with evidence; start the top ones inside the budget | `[self] mode = "off"` |

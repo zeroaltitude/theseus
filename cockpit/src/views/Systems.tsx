@@ -18,6 +18,7 @@ import { HandsGrid } from '@/components/HandsGrid'
 import { DiskSpoolCard } from '@/components/DiskSpool'
 import { BinaryField, BinaryFault } from '@/components/BinaryCard'
 import { ExtensionsCard } from '@/components/Extensions'
+import { SelfChangesCard } from '@/components/SelfChanges'
 import { RpcConsole } from '@/components/RpcConsole'
 import { Empty, Field, Panel, Pill, StatePill } from '@/components/ui'
 import { ceilingWords } from '@/lib/ceiling'
@@ -65,6 +66,8 @@ export default function Systems() {
       <AwsCard aws={h.aws} now={now} />
 
       {h.extensions && <ExtensionsCard now={now} />}
+
+      <SelfChangesCard now={now} />
 
       {(h.aws?.accounts.length ?? 0) > 0 && <HandsGrid now={now} />}
 
