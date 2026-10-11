@@ -533,6 +533,14 @@ class TheseusConfig(unittest.TestCase):
         for effort in drive.EFFORTS:
             t = drive.theseus_config(base, effort=effort, **kw)
             self.assertEqual(tomllib.loads(drive.toml_dumps(t))["profiles"]["bench"]["effort"], effort)
+        # theseus-l9on: the day ceiling is set, never the daemon's default: twice the
+        # limit, or the one named; it reads back from the TOML the driver writes.
+        back = tomllib.loads(drive.toml_dumps(drive.theseus_config(base, **kw)))
+        self.assertEqual(back["kernel"]["daily_spend_ceiling_usd"], 6.0)
+        back = tomllib.loads(drive.toml_dumps(drive.theseus_config(base, day_ceiling=4.5, **kw)))
+        self.assertEqual((back["kernel"]["spend_limit_usd"], back["kernel"]["daily_spend_ceiling_usd"]), (3.0, 4.5))
+        with self.assertRaises(ValueError):
+            drive.theseus_config(base, day_ceiling=0, **kw)
         t = drive.theseus_config({"mcp_server": {"enabled": True}}, model="m", memory_arm="bm25",
                                  workspace=Path("/w"), window=32000, spend_limit=3, max_loops=9,
                                  api_base="http://127.0.0.1:1")

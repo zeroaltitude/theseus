@@ -75,6 +75,26 @@ class Profile(unittest.TestCase):
         self.assertEqual(cfg["profiles"]["bench"]["max_loops_mode"], "end")
         self.assertEqual((tb.ended(5), tb.ended(8)), ("spend_limit", "cut"))
 
+    def test_a_trial_sets_its_daemons_day_ceiling_explicitly(self):
+        """theseus-l9on: each profile names the day ceiling, so no trial runs
+        on the daemon's $200 default; a trial sets it to twice its spend limit,
+        above the limit that ends it, or to THESEUS_BENCH_DAY_CEILING."""
+        for path in (tb.PROFILE, tb.PROFILE_ROUTED):
+            self.assertIn("daily_spend_ceiling_usd", tomllib.loads(path.read_text())["kernel"])
+            for limit in (0.4, 2.0, 20.0):
+                values = tb.settings("claude-sonnet-5-5", "/app", spend_limit_usd=limit)
+                k = tomllib.loads(tb.profile(path.read_text(), values))["kernel"]
+                self.assertEqual(k["daily_spend_ceiling_usd"], 2 * limit)
+                self.assertGreater(k["daily_spend_ceiling_usd"], k["spend_limit_usd"])
+            values = tb.settings("claude-sonnet-5-5", "/app", spend_limit_usd=2.0, day_ceiling_usd=7.5)
+            k = tomllib.loads(tb.profile(path.read_text(), values))["kernel"]
+            self.assertEqual((k["spend_limit_usd"], k["daily_spend_ceiling_usd"]), (2.0, 7.5))
+        self.assertEqual(tb.day_ceiling(3.0, {}), 6.0)
+        self.assertEqual(tb.day_ceiling(3.0, {tb.DAY_CEILING_ENV: "12.5"}), 12.5)
+        for bad in ("0", "-1"):
+            with self.assertRaises(ValueError):
+                tb.day_ceiling(3.0, {tb.DAY_CEILING_ENV: bad})
+
     def test_the_profile_asks_for_the_effort_every_arm_asks_for(self):
         """Theseus's bench profile says `effort = "medium"` (theseus-n6p5): on
         Sonnet 5.5 it would send none, and the model's default is high, where
@@ -260,6 +280,55 @@ class Routed(unittest.TestCase):
             self.assertTrue(agent.routed)
             self.assertEqual(theseus_agent.TheseusRouted.name(), "theseus-routed")
 
+
+    def test_each_arm_writes_its_day_ceiling_into_the_config_it_uploads(self):
+        """theseus-l9on: the adapter's uploaded config, read back, carries the
+        day ceiling at twice the trial's limit on both arms, and
+        THESEUS_BENCH_DAY_CEILING's where it names one. Needs Harbor."""
+        try:
+            import asyncio
+            import theseus_agent
+        except ImportError:
+            self.skipTest("Harbor is not installed")
+
+        class Uploaded(Exception):
+            pass
+
+        class Env:
+            default_user = None
+
+            async def exec(self, command, **kw):
+                return type("R", (), {"stdout": "/app\n", "return_code": 0})()
+
+        def kernel(cls, env):
+            with tempfile.TemporaryDirectory() as d:
+                agent = cls(logs_dir=Path(d), model_name="anthropic/claude-sonnet-5-5")
+                got = {}
+
+                async def upload(environment, content, remote_path, filename):
+                    got["text"] = content
+                    raise Uploaded
+
+                agent._upload_config_text = upload
+                keys = ("THESEUS_BENCH_SPEND_LIMIT", tb.DAY_CEILING_ENV, tb.JEV_KEY_ENV)
+                saved = {k: os.environ.pop(k, None) for k in keys}
+                os.environ.update({tb.JEV_KEY_ENV: "jv-invented-key-5d1e", **env})
+                try:
+                    with self.assertRaises(Uploaded):
+                        asyncio.run(agent.run("Do the task.", Env(), None))
+                finally:
+                    for k, v in saved.items():
+                        os.environ.pop(k, None)
+                        if v is not None:
+                            os.environ[k] = v
+                return tomllib.loads(got["text"])["kernel"]
+
+        os.environ.setdefault("ANTHROPIC_API_KEY", "an-invented-key")
+        for cls in (theseus_agent.Theseus, theseus_agent.TheseusRouted):
+            k = kernel(cls, {})
+            self.assertEqual(k["daily_spend_ceiling_usd"], 2 * k["spend_limit_usd"], cls)
+            k = kernel(cls, {"THESEUS_BENCH_SPEND_LIMIT": "3", tb.DAY_CEILING_ENV: "9"})
+            self.assertEqual((k["spend_limit_usd"], k["daily_spend_ceiling_usd"]), (3.0, 9.0), cls)
 
     def test_the_routed_arm_defaults_to_a_spend_limit_that_clears_an_opus_or_fable_reserve(self):
         """The kernel reserves a call's worst case (128,000 output tokens at

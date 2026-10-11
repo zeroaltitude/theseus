@@ -890,7 +890,8 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   audit, replay, backfill and the learning writer hold through `TurnRunner::day_hold`; compaction's summary is refused
   through the kernel and the ring runs; speech asks before its call. No mode: it stops, and the stop is sticky
   (theseus-l9on): after a refusal every call that day is refused, however small, until local midnight or a higher
-  ceiling at the next start; the words say a refused turn or task ends (it does not wait). Tests: `tests_day_ceiling.rs`,
+  ceiling at the next start; the words say a refused turn or task ends (it does not wait). The bench drivers set
+  the ceiling explicitly (bench/harbor's `theseus_bench.day_ceiling`, bench/recall's `--day-ceiling`). Tests: `tests_day_ceiling.rs`,
   and one each in `tests_compaction.rs` and `tests_consolidate.rs`.
 - **The operator's two reads** (step 42a, theseus-ext.7): `rpc/budgets.rs` is `budget.list`, each open execution's
   money from its record (`Kernel::open_executions`), where its limit comes from (`config`, `place`, `carve`, or
