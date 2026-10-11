@@ -1,7 +1,10 @@
 // People in the ontology (theseus-wy7y): the pulldowns' groups (topics and people, each searchable by name, id and a
-// person's handles), a person's line, and the proposals' selection. Pure, with no import but the protocol's types, so
+// person's handles), a person's line, and the proposals' selection; a proposed person's row (theseus-fvyx), its words
+// and its one accept or reject. Pure, with no import but the protocol's types, so
 // `node --test` runs its test (`cockpit/test/people.test.ts`) as it is.
-import type { OntologyCategory, OntologyProposal } from '@protocol'
+import type {
+  OntologyCategory, OntologyPersonProposals, OntologyProposal, OntologyProposalAcceptAllParams, OntologyProposalRejectAllParams,
+} from '@protocol'
 
 /** The kinds a session may be added to by hand, in the order the pulldowns show them, with each group's label. */
 export const ADDABLE: readonly { kind: string; label: string }[] = [
@@ -66,4 +69,40 @@ export const proposalWhat = (p: OntologyProposal): string => {
 /** The judgments "select all" picks: every bulkable proposal of `kind` (or of any) at `min` or more. */
 export function selectAll(ps: readonly OntologyProposal[], kind: string | null, min = 0): string[] {
   return ps.filter((p) => bulkable(p) && (kind === null || proposalKind(p) === kind) && p.confidence >= min).map((p) => p.judgment)
+}
+
+/** A proposed person's row in words: its sessions and proposals, their confidence range and bands. */
+export function rowMeta(g: OntologyPersonProposals): string {
+  const n = g.judgments.length
+  const range = g.confidence_min === g.confidence_max ? g.confidence_max.toFixed(2) : `${g.confidence_min.toFixed(2)}–${g.confidence_max.toFixed(2)}`
+  return [
+    g.new ? 'new' : g.key,
+    `${g.sessions} session${g.sessions === 1 ? '' : 's'}`,
+    `${n} proposal${n === 1 ? '' : 's'}`,
+    `${range} ${g.bands.join('/')}`,
+  ].join(' · ')
+}
+
+/** The first names a row holds, as the question its accept answers: `with “Marlo” as Marlo Quill?`; or, for an
+ *  ambiguous first name, the people it may be. Empty when neither. */
+export function rowAsk(g: OntologyPersonProposals): string {
+  if (g.ambiguous?.length) return `ambiguous: a word of ${g.ambiguous.join(', ')}; accept it alone, with --as`
+  if (g.first_names?.length) return `with ${g.first_names.map((f) => `“${f}”`).join(', ')} as ${g.name}?`
+  return ''
+}
+
+/** A row's one accept: every proposal of it, each new person's as the row's person. */
+export const rowAccept = (g: OntologyPersonProposals): OntologyProposalAcceptAllParams =>
+  ({ min_confidence: 0, judgments: [...g.judgments], as_person: g.as_person })
+
+/** A row's one reject: every proposal of it. */
+export const rowReject = (g: OntologyPersonProposals): OntologyProposalRejectAllParams => ({ judgments: [...g.judgments] })
+
+/** Whether a row can be accepted in bulk: an ambiguous first name is accepted alone (`theseus ontology accept --person
+ *  NAME --as PERSON`). */
+export const rowBulkable = (g: OntologyPersonProposals) => !(g.ambiguous?.length)
+
+/** The rows "select all" picks: each bulkable row whose best proposal reaches `min`, by key. */
+export function selectRows(rows: readonly OntologyPersonProposals[], min = 0): string[] {
+  return rows.filter((g) => rowBulkable(g) && g.confidence_max >= min).map((g) => g.key)
 }

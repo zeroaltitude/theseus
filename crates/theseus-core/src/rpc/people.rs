@@ -1,7 +1,8 @@
 //! People's methods (theseus-wy7y): a person's merge and its undo
 //! (`ontology.person.merge`), the automatic merge an exact handle makes,
-//! and the operator's bulk yes to Jev's proposals
-//! (`ontology.proposal.accept_all`). Each is the owner's act, from a private
+//! and the operator's bulk answers to Jev's proposals
+//! (`ontology.proposal.accept_all`, and `ontology.proposal.reject_all` for
+//! one person's row, theseus-fvyx). Each is the owner's act, from a private
 //! place (`judge_act(Act::Ontology)`), before it reads anything; each write
 //! is the ontology's (`ontology::Board::write`: checked, written in one
 //! frame with its rows, held).
@@ -13,15 +14,19 @@
 //! alone: only the operator's word, or an exact handle (`discord:`, `slack:`,
 //! `email:`) two people hold.
 
+use std::collections::HashMap;
+
 use anyhow::{anyhow, bail, Result};
 use theseus_ontology::{Category, CategoryId, Ontology, Origin, Record};
 use theseus_protocol::{
-    method, OntologyPersonMergeParams, OntologyPersonMerged, OntologyProposalAcceptAllParams,
-    OntologyProposalAcceptAllResult, OntologyProposalAcceptParams, OntologyProposalsParams,
+    method, OntologyPersonMergeParams, OntologyPersonMerged, OntologyProposal,
+    OntologyProposalAcceptAllParams, OntologyProposalAcceptAllResult, OntologyProposalAcceptParams,
+    OntologyProposalRejectAllParams, OntologyProposalRejectAllResult,
 };
 
 use super::confirms::Act;
 use super::ontology::{category_info_of, resolve};
+use super::proposals::Proposed;
 use super::Core;
 use crate::approval::Answerer;
 use crate::fact;
@@ -29,10 +34,14 @@ use crate::ledger::LedgerRow;
 
 /// The methods `rpc_prefixed` routes here, to the ontology's arm: `dispatch`
 /// stays within clippy's length that way.
-pub(super) const ROUTE: [&str; 2] = [
+pub(super) const ROUTE: [&str; 3] = [
     method::ONTOLOGY_PERSON_MERGE,
     method::ONTOLOGY_PROPOSAL_ACCEPT_ALL,
+    method::ONTOLOGY_PROPOSAL_REJECT_ALL,
 ];
+
+/// The listed proposals by judgment: what a bulk answer may take.
+type Listed = HashMap<String, (OntologyProposal, Proposed)>;
 
 /// The kind people are.
 const PERSON: &str = theseus_ontology::person::KIND;
@@ -252,21 +261,46 @@ impl Core {
         Ok(true)
     }
 
+    /// The unanswered proposals listed now (the exclusions' aside), by
+    /// judgment, and the ontology they were read over.
+    fn listed_now(
+        &self,
+    ) -> Result<(
+        Listed,
+        std::sync::Arc<Ontology>,
+        crate::judge::people::NotPeople,
+    )> {
+        let o = self.runner.ontology.snapshot(&self.store)?;
+        let not = self.not_people(&[], &o);
+        let (listed, _) = self.proposals_listed(&o, &not, None)?;
+        let by = listed
+            .into_iter()
+            .map(|(l, pr)| (l.judgment.clone(), (l, pr)))
+            .collect();
+        Ok((by, o, not))
+    }
+
     /// `ontology.proposal.accept_all`: each unanswered proposal of `kind` at
-    /// or above `min_confidence` (or exactly the judgments named), accepted
-    /// one by one as `ontology.proposal.accept` takes it; a proposal that
-    /// needs a name (a new topic or person) is left, with why.
+    /// or above `min_confidence`, people a row at a time (theseus-fvyx: each
+    /// person whose best proposal reaches it, all of the row, a first name
+    /// as its person), or exactly the judgments named (as `as_person`, when
+    /// given), each accepted as `ontology.proposal.accept` takes it, judged
+    /// once; a proposal that needs a name (a new topic) or a first name
+    /// several people's names hold is left, with why.
     pub fn ontology_proposal_accept_all(
         &self,
         p: &OntologyProposalAcceptAllParams,
         who: impl Into<Answerer>,
     ) -> Result<OntologyProposalAcceptAllResult> {
         let who = who.into();
-        let what = format!(
-            "every {} proposal at {:.2} or more",
-            p.kind.as_deref().unwrap_or("topic and person"),
-            p.min_confidence
-        );
+        let what = match p.judgments.is_empty() {
+            true => format!(
+                "every {} proposal at {:.2} or more",
+                p.kind.as_deref().unwrap_or("topic and person"),
+                p.min_confidence
+            ),
+            false => format!("{} proposals", p.judgments.len()),
+        };
         self.judge_act(
             &who,
             Act::Ontology {
@@ -274,49 +308,148 @@ impl Core {
                 what: &what,
             },
         )?;
-        let all = self.ontology_proposals(&OntologyProposalsParams {
-            session_id: None,
-            limit: Some(u32::MAX),
-        })?;
+        let (mut by, o, not) = self.listed_now()?;
         let mut out = OntologyProposalAcceptAllResult::default();
-        for pr in all.proposals {
-            // A new topic's proposal is of the topic kind; a person's,
-            // held or new, of the person kind (theseus-wy7y).
-            let kind = match &pr.person {
-                Some(_) => PERSON,
-                None => pr
-                    .topic
-                    .as_deref()
-                    .and_then(|t| t.split_once(':'))
-                    .map_or("topic", |(k, _)| k),
-            };
-            let picked = match p.judgments.is_empty() {
-                true => {
-                    pr.confidence >= p.min_confidence && p.kind.as_deref().is_none_or(|k| kind == k)
+        if !p.judgments.is_empty() {
+            let mut picked = Vec::new();
+            for j in &p.judgments {
+                match by.remove(j) {
+                    Some(x) => picked.push(x),
+                    None => out.left.push(not_listed(j)),
                 }
-                false => p.judgments.contains(&pr.judgment),
-            };
-            if !picked {
+            }
+            // The person `as_person` names first, so a declared one takes
+            // its own proposal's handles and role line.
+            if let Some(name) = p.as_person.as_deref() {
+                let name = crate::judge::people::fold(name);
+                picked.sort_by_key(|(l, _)| {
+                    l.person
+                        .as_ref()
+                        .is_none_or(|w| crate::judge::people::fold(&w.name) != name)
+                });
+            }
+            for (l, pr) in picked {
+                self.accept_bulk(&l, pr, p.as_person.as_deref(), &who, &mut out);
+            }
+            return Ok(out);
+        }
+        let listed: Vec<OntologyProposal> = by.values().map(|(l, _)| l.clone()).collect();
+        let mut listed = listed;
+        listed.sort_by(|a, b| b.at_ms.cmp(&a.at_ms).then(a.judgment.cmp(&b.judgment)));
+        let (topics, rows) = super::proposal_groups::group(&o, &not, listed, p.min_confidence);
+        for t in topics {
+            let kind = t
+                .topic
+                .as_deref()
+                .and_then(|t| t.split_once(':'))
+                .map_or("topic", |(k, _)| k);
+            if p.kind.as_deref().is_none_or(|k| kind == k) {
+                if let Some((l, pr)) = by.remove(&t.judgment) {
+                    self.accept_bulk(&l, pr, None, &who, &mut out);
+                }
+            }
+        }
+        if p.kind.as_deref().is_some_and(|k| k != PERSON) {
+            return Ok(out);
+        }
+        for row in rows {
+            if !row.ambiguous.is_empty() {
+                out.left.extend(row.judgments.iter().map(|j| {
+                    format!(
+                        "{j}: \"{}\" is a word of {} people's names ({}): accept it alone with --as",
+                        row.name,
+                        row.ambiguous.len(),
+                        row.ambiguous.join(", ")
+                    )
+                }));
                 continue;
             }
-            // A new person's proposal names its person: it needs no name.
-            if pr.new_topic || (pr.topic.is_none() && pr.person.is_none()) {
-                out.left.push(format!(
-                    "{}: it proposes a new category, which needs a name: accept it alone",
-                    pr.judgment
-                ));
-                continue;
-            }
-            let one = OntologyProposalAcceptParams {
-                judgment: pr.judgment.clone(),
-                note: Some("accepted in bulk".into()),
-                ..Default::default()
-            };
-            match self.ontology_proposal_accept(&one, who.clone()) {
-                Ok(_) => out.accepted.push(pr.judgment),
-                Err(e) => out.left.push(format!("{}: {e:#}", pr.judgment)),
+            // The row's own name's proposals first, then its first names'.
+            let mut js: Vec<&String> = row.judgments.iter().collect();
+            js.sort_by_key(|j| {
+                by.get(*j)
+                    .and_then(|(l, _)| l.person.as_ref())
+                    .is_some_and(|w| row.first_names.contains(&w.name.trim().to_string()))
+            });
+            for j in js {
+                if let Some((l, pr)) = by.remove(j) {
+                    self.accept_bulk(&l, pr, Some(&row.as_person), &who, &mut out);
+                }
             }
         }
         Ok(out)
     }
+
+    /// One proposal of a bulk yes, judged already.
+    fn accept_bulk(
+        &self,
+        l: &OntologyProposal,
+        pr: Proposed,
+        as_person: Option<&str>,
+        who: &Answerer,
+        out: &mut OntologyProposalAcceptAllResult,
+    ) {
+        // A new person's proposal names its person: it needs no name.
+        if l.new_topic || (l.topic.is_none() && l.person.is_none()) {
+            out.left.push(format!(
+                "{}: it proposes a new category, which needs a name: accept it alone",
+                l.judgment
+            ));
+            return;
+        }
+        let one = OntologyProposalAcceptParams {
+            judgment: l.judgment.clone(),
+            as_person: as_person.filter(|_| l.person.is_some()).map(str::to_string),
+            note: Some("accepted in bulk".into()),
+            ..Default::default()
+        };
+        match self.accept_open(pr, &one, who) {
+            Ok(_) => out.accepted.push(l.judgment.clone()),
+            Err(e) => out.left.push(format!("{}: {e:#}", l.judgment)),
+        }
+    }
+
+    /// `ontology.proposal.reject_all` (theseus-fvyx): each named proposal
+    /// listed now rejected, as `ontology.proposal.reject` takes it, judged
+    /// once; one not listed is left, with why.
+    pub fn ontology_proposal_reject_all(
+        &self,
+        p: &OntologyProposalRejectAllParams,
+        who: impl Into<Answerer>,
+    ) -> Result<OntologyProposalRejectAllResult> {
+        let who = who.into();
+        let what = format!("{} proposals", p.judgments.len());
+        self.judge_act(
+            &who,
+            Act::Ontology {
+                method: method::ONTOLOGY_PROPOSAL_REJECT_ALL,
+                what: &what,
+            },
+        )?;
+        if p.judgments.is_empty() {
+            bail!("name the proposals to reject: a person's row's `judgments`");
+        }
+        let (mut by, _, _) = self.listed_now()?;
+        let note = p.note.as_deref().unwrap_or("rejected in bulk");
+        let mut out = OntologyProposalRejectAllResult::default();
+        for j in &p.judgments {
+            let Some((_, pr)) = by.remove(j) else {
+                out.left.push(not_listed(j));
+                continue;
+            };
+            match self.reject_open(pr, Some(note), &who) {
+                Ok(_) => out.rejected.push(j.clone()),
+                Err(e) => out.left.push(format!("{j}: {e:#}")),
+            }
+        }
+        Ok(out)
+    }
+}
+
+/// Why a named proposal was not taken.
+fn not_listed(j: &str) -> String {
+    format!(
+        "{j}: not listed now: answered already, hidden by the exclusions, or no such proposal \
+         (`theseus ontology proposals` lists them)"
+    )
 }

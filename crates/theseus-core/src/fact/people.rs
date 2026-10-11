@@ -58,3 +58,53 @@ impl Fact for PeopleExtracted<'_> {
         say.line(Context, line);
     }
 }
+
+/// The nightly sweep's run (theseus-j8qb): the private sessions with human
+/// text in its window that no extraction read, how many it passed, and its
+/// spend under the day's cap. Its extractions' rows carry their own cost (so
+/// this row is no spend of the day's ceiling's).
+pub struct PeopleSwept<'a> {
+    /// `nightly` or `missed`.
+    pub trigger: &'a str,
+    /// Human text since this time (unix ms) was read.
+    pub from_ms: u64,
+    /// Sessions due, and those passed.
+    pub due: u64,
+    pub swept: u64,
+    pub candidates: u64,
+    pub judged: u64,
+    pub spent_usd: f64,
+    /// The day's cap, and what earlier runs that day spent.
+    pub cap_usd: f64,
+    pub spent_before_usd: f64,
+    /// Why it stopped before the last session (the cap, the daemon's stop).
+    pub stopped: Option<&'a str>,
+}
+
+impl Fact for PeopleSwept<'_> {
+    const KIND: Option<LedgerKind> = Some(LedgerKind::PeopleSwept);
+
+    fn row(&self) -> Value {
+        json!({"trigger": self.trigger, "from_ms": self.from_ms, "due": self.due,
+               "swept": self.swept, "candidates": self.candidates, "judged": self.judged,
+               "spent_usd": self.spent_usd, "cap_usd": self.cap_usd,
+               "spent_before_usd": self.spent_before_usd, "stopped": self.stopped})
+    }
+
+    fn narrate(&self, say: &mut Say<'_>) {
+        let mut line = format!(
+            "People's sweep ({}): {} of {} due, {} found, {} judged by Jev, for {} of the day's {}.",
+            self.trigger,
+            crate::narrative::count(self.swept, "session", "sessions"),
+            self.due,
+            crate::narrative::count(self.candidates, "candidate", "candidates"),
+            self.judged,
+            crate::narrative::dollars(theseus_judge::price::usd_to_micros(self.spent_usd)),
+            crate::narrative::dollars(theseus_judge::price::usd_to_micros(self.cap_usd)),
+        );
+        if let Some(why) = self.stopped {
+            line.push_str(&format!(" Stopped: {why}."));
+        }
+        say.line(Context, line);
+    }
+}

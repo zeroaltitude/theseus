@@ -12,8 +12,9 @@ use theseus_protocol::{
     method, OntologyCategory, OntologyCategoryAddParams, OntologyGuidance,
     OntologyGuidanceSetParams, OntologyListParams, OntologyListResult, OntologyMembershipResult,
     OntologyMembershipSetParams, OntologyPersonMergeParams, OntologyPersonMerged,
-    OntologyProposalAcceptAllParams, OntologyProposalAcceptAllResult, OntologyProposalAcceptParams,
-    OntologyProposalAnswered, OntologyProposalRejectParams, OntologyProposalsParams,
+    OntologyPersonProposals, OntologyProposalAcceptAllParams, OntologyProposalAcceptAllResult,
+    OntologyProposalAcceptParams, OntologyProposalAnswered, OntologyProposalRejectAllParams,
+    OntologyProposalRejectAllResult, OntologyProposalRejectParams, OntologyProposalsParams,
     OntologyProposalsResult,
 };
 
@@ -50,22 +51,27 @@ pub async fn ontology(conn: &mut Conn, json: bool, cmd: OntologyCmd) -> Result<(
         } => topic_add(conn, json, name, parent, desc).await,
         OntologyCmd::Guide { category, text } => guide(conn, json, category, text).await,
         OntologyCmd::Member { session, changes } => member(conn, json, session, changes).await,
-        OntologyCmd::Proposals { session, limit } => {
-            let v = conn
-                .request(
-                    method::ONTOLOGY_PROPOSALS,
-                    OntologyProposalsParams {
-                        session_id: session,
-                        limit,
-                    },
-                )
-                .await?;
-            output(json, v, |r: OntologyProposalsResult| {
-                print(render::ontology_proposals_lines(&r));
-                Ok(())
-            })
+        OntologyCmd::Proposals {
+            session,
+            limit,
+            min_confidence,
+            each,
+        } => {
+            let p = OntologyProposalsParams {
+                session_id: session,
+                limit,
+                by_person: !each,
+                min_confidence,
+            };
+            proposals(conn, json, p).await
         }
         OntologyCmd::Person { cmd } => person(conn, json, cmd).await,
+        OntologyCmd::Accept {
+            judgment: None,
+            person: Some(name),
+            as_person,
+            ..
+        } => row_accept(conn, json, &name, as_person).await,
         OntologyCmd::Accept {
             judgment: None,
             kind,
@@ -77,6 +83,7 @@ pub async fn ontology(conn: &mut Conn, json: bool, cmd: OntologyCmd) -> Result<(
             topic,
             desc,
             note,
+            as_person,
             ..
         } => {
             let v = conn
@@ -86,6 +93,7 @@ pub async fn ontology(conn: &mut Conn, json: bool, cmd: OntologyCmd) -> Result<(
                         judgment,
                         topic,
                         description: desc,
+                        as_person,
                         note,
                         author: None,
                         discord: None,
@@ -94,7 +102,16 @@ pub async fn ontology(conn: &mut Conn, json: bool, cmd: OntologyCmd) -> Result<(
                 .await?;
             output(json, v, answered)
         }
-        OntologyCmd::Reject { judgment, note } => {
+        OntologyCmd::Reject {
+            judgment: None,
+            person,
+            note,
+        } => row_reject(conn, json, person.as_deref().unwrap_or_default(), note).await,
+        OntologyCmd::Reject {
+            judgment: Some(judgment),
+            note,
+            ..
+        } => {
             let v = conn
                 .request(
                     method::ONTOLOGY_PROPOSAL_REJECT,
@@ -109,6 +126,16 @@ pub async fn ontology(conn: &mut Conn, json: bool, cmd: OntologyCmd) -> Result<(
             output(json, v, answered)
         }
     }
+}
+
+/// `theseus ontology proposals`: people a row per person unless `--each`
+/// (theseus-fvyx), then the topics'.
+async fn proposals(conn: &mut Conn, json: bool, p: OntologyProposalsParams) -> Result<()> {
+    let v = conn.request(method::ONTOLOGY_PROPOSALS, p).await?;
+    output(json, v, |r: OntologyProposalsResult| {
+        print(render::ontology_proposals_lines(&r));
+        Ok(())
+    })
 }
 
 /// `theseus ontology topic add`.
@@ -181,6 +208,134 @@ async fn accept_all(
         }
         Ok(())
     })
+}
+
+/// A name folded as the daemon folds a person's: lowercase, single-spaced,
+/// a handle's "@" off each word.
+fn fold(name: &str) -> String {
+    name.split_whitespace()
+        .map(|w| w.trim_start_matches('@'))
+        .filter(|w| !w.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_lowercase()
+}
+
+/// The person's row `name` names (theseus-fvyx): by its key, its id, or its
+/// name folded.
+async fn row_named(conn: &mut Conn, name: &str) -> Result<OntologyPersonProposals> {
+    let v = conn
+        .request(
+            method::ONTOLOGY_PROPOSALS,
+            OntologyProposalsParams {
+                limit: Some(u32::MAX),
+                by_person: true,
+                ..Default::default()
+            },
+        )
+        .await?;
+    let r: OntologyProposalsResult = serde_json::from_value(v)?;
+    let (want, folded) = (name.trim(), fold(name));
+    let mut found: Vec<OntologyPersonProposals> = r
+        .people
+        .into_iter()
+        .filter(|g| g.key == want || g.as_person == want || fold(&g.name) == folded)
+        .collect();
+    match found.len() {
+        1 => Ok(found.remove(0)),
+        0 => bail!("no person's row is named {name:?}: `theseus ontology proposals` lists them"),
+        n => bail!(
+            "{n} rows are named {name:?}: name one by its key ({})",
+            found
+                .iter()
+                .map(|g| g.key.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+    }
+}
+
+/// `theseus ontology accept --person NAME`: every proposal of the row, as
+/// its person (or `--as`'s).
+async fn row_accept(
+    conn: &mut Conn,
+    json: bool,
+    name: &str,
+    as_person: Option<String>,
+) -> Result<()> {
+    let row = row_named(conn, name).await?;
+    if !row.ambiguous.is_empty() && as_person.is_none() {
+        bail!(
+            "\"{}\" is a word of {} people's names ({}): pick one with --as NAME, or --as \"{}\" \
+             for a new person of that name",
+            row.name,
+            row.ambiguous.len(),
+            row.ambiguous.join(", "),
+            row.name
+        );
+    }
+    let to = as_person.unwrap_or_else(|| row.as_person.clone());
+    let v = conn
+        .request(
+            method::ONTOLOGY_PROPOSAL_ACCEPT_ALL,
+            OntologyProposalAcceptAllParams {
+                judgments: row.judgments.clone(),
+                as_person: Some(to.clone()),
+                ..Default::default()
+            },
+        )
+        .await?;
+    output(json, v, |r: OntologyProposalAcceptAllResult| {
+        println!(
+            "{} of {}'s {} accepted, as {to}; each session joins at its next recompile.",
+            r.accepted.len(),
+            row.name,
+            count_proposals(row.judgments.len())
+        );
+        left(&r.left);
+        Ok(())
+    })
+}
+
+/// `theseus ontology reject --person NAME`: every proposal of the row.
+async fn row_reject(conn: &mut Conn, json: bool, name: &str, note: Option<String>) -> Result<()> {
+    let row = row_named(conn, name).await?;
+    let v = conn
+        .request(
+            method::ONTOLOGY_PROPOSAL_REJECT_ALL,
+            OntologyProposalRejectAllParams {
+                judgments: row.judgments.clone(),
+                note,
+                ..Default::default()
+            },
+        )
+        .await?;
+    output(json, v, |r: OntologyProposalRejectAllResult| {
+        println!(
+            "{} of {}'s {} rejected.",
+            r.rejected.len(),
+            row.name,
+            count_proposals(row.judgments.len())
+        );
+        left(&r.left);
+        Ok(())
+    })
+}
+
+fn count_proposals(n: usize) -> String {
+    match n {
+        1 => "1 proposal".into(),
+        n => format!("{n} proposals"),
+    }
+}
+
+fn left(left: &[String]) {
+    if !left.is_empty() {
+        println!("{} left:", left.len());
+        for l in left {
+            println!("  {l}");
+        }
+    }
 }
 
 /// `theseus ontology person`: add one, or merge two (theseus-wy7y).

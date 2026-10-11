@@ -48,7 +48,7 @@ pub struct TagMark {
 }
 
 /// Jev's projected cost of one session.
-fn jev_projected() -> Micros {
+pub(super) fn jev_projected() -> Micros {
     usd_to_micros(JEV_USD_PER_MTOK * (EST_CANDIDATES * EST_STATE_TOKENS) as f64 / 1e6)
 }
 

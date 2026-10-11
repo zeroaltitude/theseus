@@ -52,12 +52,17 @@ pub mod house;
 pub mod live;
 pub mod run;
 pub mod seen;
+pub mod sweep;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
 mod tests_excl;
 #[cfg(test)]
+mod tests_groups;
+#[cfg(test)]
 mod tests_seen;
+#[cfg(test)]
+mod tests_sweep;
 
 /// The pack.
 pub const PACK: &str = "people.v1";
@@ -132,7 +137,7 @@ pub fn fold(name: &str) -> String {
 }
 
 /// The words of a name, split at anything not a letter or a digit.
-fn name_words(name: &str) -> impl Iterator<Item = &str> {
+pub fn name_words(name: &str) -> impl Iterator<Item = &str> {
     name.split(|c: char| !c.is_alphanumeric())
         .filter(|w| !w.is_empty())
 }

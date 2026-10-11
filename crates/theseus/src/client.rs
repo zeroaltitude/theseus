@@ -284,7 +284,7 @@ pub fn job_session() -> Option<String> {
 /// a correction of routing (theseus-q31l: it labels the route judgment
 /// and picks the session's model), and a session's retirement and its
 /// reopening (theseus-emqx: a retired session leaves the default view).
-pub const OPERATORS: [(&str, &str); 30] = [
+pub const OPERATORS: [(&str, &str); 31] = [
     (method::ACTION_CONFIRM, "theseus confirm"),
     (method::POLICY_UNTIGHTEN, "theseus policy untighten"),
     (method::POLICY_TRUST, "theseus policy trust"),
@@ -296,6 +296,10 @@ pub const OPERATORS: [(&str, &str); 30] = [
     (method::ONTOLOGY_MEMBERSHIP_SET, "theseus ontology member"),
     (method::ONTOLOGY_PROPOSAL_ACCEPT, "theseus ontology accept"),
     (method::ONTOLOGY_PROPOSAL_REJECT, "theseus ontology reject"),
+    (
+        method::ONTOLOGY_PROPOSAL_REJECT_ALL,
+        "theseus ontology reject",
+    ),
     (
         method::ONTOLOGY_PROPOSAL_ACCEPT_ALL,
         "theseus ontology accept",
@@ -390,6 +394,7 @@ mod tests {
             method::ONTOLOGY_PROPOSAL_ACCEPT,
             method::ONTOLOGY_PROPOSAL_REJECT,
             method::ONTOLOGY_PROPOSAL_ACCEPT_ALL,
+            method::ONTOLOGY_PROPOSAL_REJECT_ALL,
             method::ONTOLOGY_PERSON_MERGE,
         ] {
             let e = refuse_in_a_job(m, Some("ses_0000aa1b2c3")).unwrap_err();
