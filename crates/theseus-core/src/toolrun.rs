@@ -360,6 +360,8 @@ pub struct ToolRuntime {
     pub job_waits: Arc<JobWaits>,
     /// Where a capped result's whole output is kept (theseus-v73m).
     pub outputs: crate::outputs::Outputs,
+    /// The admission queue (theseus-4g0l): the turn waits in it, and a job's wait lends its slot.
+    pub admission: Arc<crate::turn::admission::Admission>,
     /// The MCP servers' tools offered now (M7 36b), which the board fills;
     /// offered after the built-ins, in private places only.
     pub mcp: Arc<crate::mcp::McpCatalog>,
@@ -504,6 +506,7 @@ impl ToolRuntime {
             public_roots: Vec::new(),
             job_waits: Arc::default(),
             outputs: crate::outputs::Outputs::off(),
+            admission: crate::turn::admission::Admission::new(8, Duration::from_secs(600)),
             mcp: Default::default(),
             terms: Arc::new(crate::term::Terms::new(Vec::new(), Vec::new())),
             lsp: None,
@@ -2332,6 +2335,10 @@ pub fn build_runtime(
         stops: Default::default(),
         public_roots: crate::places::public_roots(cfg),
         job_waits: Arc::default(),
+        admission: crate::turn::admission::Admission::new(
+            cfg.kernel.admission_ceiling,
+            cfg.kernel.admission_stuck(),
+        ),
         mcp: Default::default(),
         terms,
         lsp,

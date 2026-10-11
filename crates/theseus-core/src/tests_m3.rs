@@ -1652,6 +1652,8 @@ impl crate::toolrun::JobLauncher for PrintedOnly {
     }
 }
 
+/// Admission's queue through the whole core (theseus-4g0l).
+mod admission;
 /// A `/stop` before a turn's admission, and a question's expiry (theseus-hmwv,
 /// theseus-830).
 mod stops_and_expiry;

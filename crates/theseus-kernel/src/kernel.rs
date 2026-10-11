@@ -1223,6 +1223,18 @@ impl Kernel {
     /// The guard frees the turn when dropped, so a caller whose frame fails
     /// lets it go.
     pub fn admit(&self, execution_id: &str) -> Result<TurnGuard> {
+        self.admit_counted(execution_id, true)
+    }
+
+    /// `admit` for a turn the core's admission queue gave a slot
+    /// (theseus-4g0l): the queue keeps the ceiling, so it is not counted
+    /// here, where a turn that lent its slot while it waits on a job still
+    /// holds its turn.
+    pub fn admit_queued(&self, execution_id: &str) -> Result<TurnGuard> {
+        self.admit_counted(execution_id, false)
+    }
+
+    fn admit_counted(&self, execution_id: &str, count: bool) -> Result<TurnGuard> {
         self.require_accepting()?;
         let _w = self.lock(&[execution_id]);
         let e = self
@@ -1235,21 +1247,23 @@ impl Kernel {
             }
             .into());
         }
-        let guard = self.hold(&e)?;
+        let guard = self.hold(&e, count)?;
         // A frame that fails drops the guard, which frees the turn.
         self.write_running(e, &guard)?;
         Ok(guard)
     }
 
     /// The turn's slot in this process, and nothing written: no other turn
-    /// may be held on `e`, and the ceiling must have room (`held.rs`).
-    pub(crate) fn hold(&self, e: &Execution) -> Result<TurnGuard> {
+    /// may be held on `e`, and, with `count`, the ceiling must have room
+    /// (`held.rs`); without it the core's admission queue keeps the ceiling
+    /// (theseus-4g0l).
+    pub(crate) fn hold(&self, e: &Execution, count: bool) -> Result<TurnGuard> {
         {
             let mut held = self.held.lock().unwrap();
             if held.contains(&e.id) {
                 return Err(KernelError::TurnHeld { id: e.id.clone() }.into());
             }
-            if held.len() as u32 >= self.cfg.admission_ceiling {
+            if count && held.len() as u32 >= self.cfg.admission_ceiling {
                 return Err(KernelError::AdmissionFull {
                     ceiling: self.cfg.admission_ceiling,
                 }
@@ -1294,6 +1308,28 @@ impl Kernel {
         self.frame(&[execution_id], |k| {
             k.wake_input(execution_id)?;
             Ok(k.admit(execution_id))
+        })?
+    }
+
+    /// `admit_input` for the core's admission queue (theseus-4g0l): with a
+    /// slot (`slotted`), as `admit_queued`; without one, only the wake is
+    /// written, and admission's error returned, as a full ceiling's.
+    pub fn admit_input_queued(&self, execution_id: &str, slotted: bool) -> Result<TurnGuard> {
+        let ceiling = self.cfg.admission_ceiling;
+        self.frame(&[execution_id], |k| {
+            k.wake_input(execution_id)?;
+            if slotted {
+                return Ok(k.admit_queued(execution_id));
+            }
+            // What `admit` would say first: a state that takes no turn.
+            Ok(match k.execution(execution_id)? {
+                Some(e) if e.state != ExecState::Queued => Err(KernelError::NotRunnable {
+                    id: e.id.clone(),
+                    state: e.state.as_str(),
+                }
+                .into()),
+                _ => Err(KernelError::AdmissionFull { ceiling }.into()),
+            })
         })?
     }
 

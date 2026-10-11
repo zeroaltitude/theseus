@@ -25,6 +25,7 @@ use crate::policy::Posture;
 use crate::provider::ToolUse;
 use crate::sandbox;
 use crate::store::Store;
+use crate::turn::admission::LEND_AFTER;
 
 const MAX_RESULT_READ: usize = 4 * 1024 * 1024;
 
@@ -226,19 +227,34 @@ impl ToolRuntime {
             after: "",
             steps: None,
         };
+        // Past `LEND_AFTER` the turn waits on its job alone, and its
+        // admission slot goes to the next waiting turn; it takes one again,
+        // at its class's head, before it goes on (theseus-4g0l).
+        let exec = &tc.guard.execution_id;
+        let mut lend_tried = false;
         if !background {
             loop {
                 if let Some(status) = self.look_at_job(tc, &look)? {
+                    self.admission.retake(exec).await;
                     return Ok(CallOutcome::Done { status });
                 }
                 let left = bound.saturating_sub(t0.elapsed());
                 if left.is_zero() {
                     break;
                 }
+                let lend_in = LEND_AFTER.saturating_sub(t0.elapsed());
+                if !lend_tried && lend_in.is_zero() {
+                    lend_tried = true;
+                    self.admission.lend(exec);
+                }
+                let nap = left.min(super::waits::LOOK);
                 // The drain's word, a stop's, or the backstop's look (7.1).
-                waiting.woken(left.min(super::waits::LOOK)).await;
+                waiting
+                    .woken(if lend_tried { nap } else { nap.min(lend_in) })
+                    .await;
             }
         }
+        self.admission.retake(exec).await;
         // Past its bound the job goes on in the background, and its
         // completion is the drain's to take: one the drain left to this turn
         // as the wait ended is taken here.

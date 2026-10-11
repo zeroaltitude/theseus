@@ -53,6 +53,7 @@ use crate::toolrun::{Call, CallOutcome, ToolRuntime, TurnCtx};
 use crate::trace::Trace;
 use crate::Config;
 
+pub mod admission;
 mod admit_step;
 #[cfg(test)]
 pub(crate) use admit_step::admit_hook;
@@ -248,6 +249,8 @@ struct Waits {
     lock_us: u64,
     /// Admission and the turn lock alone.
     admit_us: u64,
+    /// Its class and ticket in the admission queue (theseus-4g0l).
+    queued: admission::Queued,
 }
 
 /// A turn's own handles on the store and the kernel (theseus-qa0). A ledger
@@ -292,8 +295,6 @@ pub struct TurnRequest {
     pub prompt: Option<crate::mcp::prompts::PromptInput>,
 }
 
-/// How long a turn may wait for admission before the client gets an error.
-const ADMISSION_WAIT_MAX: Duration = Duration::from_secs(600);
 /// The principal of every local protocol client (file permissions are the auth).
 pub const OPERATOR: &str = "operator";
 
@@ -515,6 +516,7 @@ impl<'a> Turn<'a> {
             secrets_us: waits.secrets_us,
             lock_us: waits.lock_us,
             admit_us: waits.admit_us,
+            queued: waits.queued,
         };
         self.record(&f);
     }
@@ -919,74 +921,6 @@ impl TurnRunner {
         }
     }
 
-    /// Take the kernel turn. With `wait` (an input's turn), wait for
-    /// admission (ceiling, or another turn on the same execution), waking the
-    /// execution in the same frame when it has parked meanwhile
-    /// (theseus-l6y); without it (continuations), give up at once and let the
-    /// driver try again.
-    ///
-    /// `frames` counts the frames it writes (theseus-wz4y): each try is one
-    /// call, with no `.await` in it, so this thread's count is its own.
-    async fn admit(
-        &self,
-        exec_id: &str,
-        arrived: Instant,
-        wait: bool,
-        frames: &mut u64,
-    ) -> Result<Option<TurnGuard>> {
-        loop {
-            let f0 = frames_written_here();
-            let tried = if wait {
-                self.kernel.admit_input(exec_id)
-            } else {
-                self.kernel.admit(exec_id)
-            };
-            *frames += frames_written_here() - f0;
-            match tried {
-                Ok(g) => return Ok(Some(g)),
-                Err(e) => match e.downcast_ref::<KernelError>() {
-                    Some(KernelError::AdmissionFull { .. })
-                    | Some(KernelError::TurnHeld { .. })
-                    | Some(KernelError::NotRunnable {
-                        state: "running", ..
-                    }) => {
-                        if !wait {
-                            return Ok(None);
-                        }
-                    }
-                    Some(KernelError::NotRunnable {
-                        state: "waiting" | "blocked",
-                        ..
-                    }) => {
-                        if !wait {
-                            return Ok(None);
-                        }
-                        let f0 = frames_written_here();
-                        let woke = self.kernel.wake_input(exec_id);
-                        *frames += frames_written_here() - f0;
-                        woke?;
-                        continue;
-                    }
-                    Some(KernelError::NotRunnable { state, .. }) => {
-                        return Err(turn_error(
-                            &format!("execution_{state}"),
-                            "",
-                            "",
-                            arrived.elapsed().as_millis() as u64,
-                            e,
-                        ));
-                    }
-                    _ => return Err(e),
-                },
-            }
-            if arrived.elapsed() > ADMISSION_WAIT_MAX {
-                anyhow::bail!("admission wait exceeded {:?}", ADMISSION_WAIT_MAX);
-            }
-            let _ =
-                tokio::time::timeout(Duration::from_millis(50), self.admission.notified()).await;
-        }
-    }
-
     /// Wait for the secrets a turn needs (theseus-qa0): its provider's key,
     /// and the first round of every secret, since the scrubber must know
     /// each value before any tool output passes through it. Both are
@@ -1140,10 +1074,21 @@ impl TurnRunner {
         // admission must wait, the wait below writes the wake alone and takes
         // the turn, as `admit_input` did (theseus-l6y).
         let mut admitted = None;
+        // Its place in the queue (theseus-4g0l): a slot now only when one is
+        // free and no turn waits.
+        let class = admission::Class::of(req.session.kind, !continuation);
         if !continuation {
             self.supersede_budget_question(&exec, &req.sink, &req.author);
-            match self.kernel.hold_turn(&exec.id) {
-                Ok(g) => admitted = Some(g),
+            // A slot from the queue first (theseus-4g0l), then the turn held
+            // without the kernel's count, the queue keeps the ceiling; with none
+            // free, the wake alone, and the queue's wait below admits.
+            let slot = self.tools.admission.try_take(class);
+            let held = match &slot {
+                Some(_) => self.kernel.hold_turn_queued(&exec.id),
+                None => self.kernel.admit_input_queued(&exec.id, false),
+            };
+            match held {
+                Ok(g) => admitted = slot.map(|s| (g, s)),
                 Err(e) => match e.downcast_ref::<KernelError>() {
                     Some(KernelError::AdmissionFull { .. } | KernelError::TurnHeld { .. })
                     | Some(KernelError::NotRunnable {
@@ -1176,13 +1121,23 @@ impl TurnRunner {
         admission_frames += frames_written_here() - f0;
         // Held or waited for: a stop behind it on its lane reaches it (theseus-klo2).
         crate::rpc::ordered::reachable();
-        let guard = match admitted {
-            Some(g) => g,
+        // The slot is the turn's until it returns, after its last frame.
+        let (guard, _slot) = match admitted {
+            Some((g, mut slot)) => {
+                slot.bind(&g.execution_id);
+                (g, slot)
+            }
             None => match self
-                .admit(&exec.id, arrived, !continuation, &mut admission_frames)
+                .admit(
+                    &exec.id,
+                    arrived,
+                    !continuation,
+                    class,
+                    &mut admission_frames,
+                )
                 .await?
             {
-                Some(g) => g,
+                Some(held) => held,
                 None => {
                     anyhow::bail!("execution {} is not ready for a continuation turn", exec.id)
                 }
@@ -1209,6 +1164,7 @@ impl TurnRunner {
             secrets_us: secret_wait_us,
             lock_us: admission_wait_us,
             admit_us,
+            queued: _slot.queued(),
         };
         let store = self.store.for_turn();
         store.count_frames(admission_frames + (frames_written_here() - f0));

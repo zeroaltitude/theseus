@@ -44,6 +44,8 @@ pub struct TurnStarted<'a> {
     pub secrets_us: u64,
     pub lock_us: u64,
     pub admit_us: u64,
+    /// Its class and ticket in the admission queue (theseus-4g0l).
+    pub queued: crate::turn::admission::Queued,
 }
 
 impl Fact for TurnStarted<'_> {
@@ -84,7 +86,7 @@ impl Fact for TurnStarted<'_> {
             "lock",
             secrets_end,
             self.lock_us,
-            json!({"execution_id": self.execution_id, "turn": self.kernel_turn, "note": "kernel admission + per-execution turn lock"}),
+            json!({"execution_id": self.execution_id, "turn": self.kernel_turn, "class": self.queued.class.as_str(), "ticket": self.queued.ticket, "note": "the admission queue, by class and in order of arrival there, and the per-execution turn lock (theseus-4g0l)"}),
         );
     }
 

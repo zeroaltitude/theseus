@@ -326,6 +326,7 @@ max_connections = 0
 # once that day, in a DM. It has no mode and sits above every limit here.
 [kernel]
 admission_ceiling = 8                   # executions that may hold a turn at once (§3.2a)
+admission_stuck_secs = 600              # a waiting turn fails only when no turn was admitted for this long: a queue that moves fails none
 spend_limit_usd = 100.0                 # each session's spend limit in US dollars (theseus-0sg)
 spend_limit_mode = "notify"             # notify | ask: what reaching it does
 daily_spend_ceiling_usd = 200.0         # the whole daemon's model spend per local day: past it no call is made until midnight

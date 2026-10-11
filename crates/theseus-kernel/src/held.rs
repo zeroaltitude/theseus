@@ -31,6 +31,17 @@ impl Kernel {
     /// `NotRunnable` (`running` while a turn of another process's view runs
     /// it), `TurnHeld`, or `AdmissionFull`.
     pub fn hold_turn(&self, execution_id: &str) -> Result<TurnGuard> {
+        self.hold_turn_counted(execution_id, true)
+    }
+
+    /// `hold_turn` for a turn the core's admission queue gave a slot
+    /// (theseus-4g0l): the queue keeps the ceiling, so it is not counted
+    /// here, as `admit_queued` does not count it.
+    pub fn hold_turn_queued(&self, execution_id: &str) -> Result<TurnGuard> {
+        self.hold_turn_counted(execution_id, false)
+    }
+
+    fn hold_turn_counted(&self, execution_id: &str, count: bool) -> Result<TurnGuard> {
         self.require_accepting()?;
         let _w = self.lock(&[execution_id]);
         let e = self
@@ -43,7 +54,7 @@ impl Kernel {
             }
             .into());
         }
-        self.hold(&e)
+        self.hold(&e, count)
     }
 
     /// Write the admission of the turn `guard` holds, as `admit_input` writes
