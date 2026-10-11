@@ -1,7 +1,7 @@
 //! A failure that will not pass is not retried forever (theseus-ljr), with the
 //! real `theseusd` and its driver, and a stand-in for the Messages API that
 //! refuses with the status a test gives it:
-//! - a 400 on every call: the input turn, one retry by the driver, and then
+//! - a 400 on every call: the input turn, and then (no retry, theseus-posww)
 //!   nothing, however long the daemon runs;
 //! - a 529 twice, then an answer: the driver's retries keep their backoff,
 //!   and the turn answers once the stand-in recovers;
@@ -210,28 +210,25 @@ fn tail(s: &str, n: usize) -> String {
     lines[lines.len().saturating_sub(n)..].join("\n")
 }
 
-/// A 400 on every call: the input turn fails, the driver retries it once,
-/// and then the execution waits on input. Four seconds later (the old
-/// driver's next two retries would have come at 2 s and 4 s) nothing more
-/// has been asked.
+/// A 400 on every call: the input turn fails and the execution waits on input
+/// at once, since an identical request fails the same way (theseus-posww; the
+/// driver used to retry it once first). Four seconds later (the old driver's
+/// retries would have come at 2 s and 4 s) nothing more has been asked.
 #[test]
-fn a_400_every_time_is_retried_once_then_never_again() {
+fn a_400_every_time_parks_at_once_and_is_never_retried() {
     let r = Rig::new();
     let _daemon = r.spawn();
     r.model.fail_always(400);
     let err = ask(&r.path("sock"), "chart the shoals").expect_err("the stand-in refuses it");
     assert_eq!(err["data"]["class"], "invalid_request", "{err}");
-    r.wait("the retry's park", || {
-        (r.rows("turn.failed").len() == 2 && r.nexts().len() == 2).then_some(())
+    r.wait("the park", || {
+        (r.rows("turn.failed").len() == 1 && r.nexts().len() == 1).then_some(())
     });
-    assert_eq!(
-        r.nexts(),
-        [("retry".to_string(), false), ("park".to_string(), true)]
-    );
+    assert_eq!(r.nexts(), [("park".to_string(), true)]);
     assert_eq!(r.execution_state(), "waiting");
     std::thread::sleep(Duration::from_secs(4));
-    assert_eq!(r.model.requests().len(), 2, "no third call");
-    assert_eq!(r.rows("turn.failed").len(), 2, "no third turn");
+    assert_eq!(r.model.requests().len(), 1, "no second call");
+    assert_eq!(r.rows("turn.failed").len(), 1, "no second turn");
     assert_eq!(r.execution_state(), "waiting");
 }
 

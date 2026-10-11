@@ -710,6 +710,7 @@ impl Core {
             ontology: Default::default(),
             run_compiles: Default::default(),
             failed_turns: Default::default(),
+            effort_refusals: Default::default(),
             judge,
             // Read at a routed session's first turn, never on the start path.
             live_switched: Default::default(),

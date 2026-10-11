@@ -1152,6 +1152,38 @@ impl Fact for FellBack<'_> {
     }
 }
 
+/// The provider refused the effort-only system messages with a 400 that names
+/// `output_config` (`provider.effort_refused`, theseus-posww): the turn asks
+/// again without them, and the model takes none for the daemon's life.
+pub struct EffortRefused<'a> {
+    pub model: &'a str,
+    pub error: &'a str,
+}
+
+impl Fact for EffortRefused<'_> {
+    const KIND: Option<LedgerKind> = Some(LedgerKind::ProviderEffortRefused);
+
+    fn row(&self) -> Value {
+        json!({"model": self.model, "error": self.error})
+    }
+
+    fn span(&self, trace: &mut Trace) {
+        trace.mark("effort_refused", "mark", json!({"model": self.model}));
+    }
+
+    fn narrate(&self, say: &mut Say<'_>) {
+        say.line(
+            Model,
+            format!(
+                "{} refused the per-message effort ({}): the request goes again once with the \
+                 top-level effort alone, and the model takes no per-message effort until the \
+                 daemon restarts.",
+                self.model, self.error
+            ),
+        );
+    }
+}
+
 /// The loop's call did not fit under the spend limit, and the turn asks the
 /// operator to reset the spend (theseus-0sg): the question goes where a tool
 /// approval goes.
@@ -1876,7 +1908,7 @@ impl Fact for RetryDecided<'_> {
                     } else if f.class == crate::turn::compaction::OVERAGE_CLASS {
                         "the same exchange would not fit the window again"
                     } else if self.settled {
-                        "it failed again after its retry"
+                        "the same request would fail the same way"
                     } else {
                         "it failed before any provider call returned"
                     }

@@ -280,6 +280,7 @@ facts![
     turn::ProviderCall<'static>,
     turn::ProviderRefused<'static>,
     turn::FellBack<'static>,
+    turn::EffortRefused<'static>,
     turn::BudgetAsked<'static>,
     turn::LoopEndedOnBudget<'static>,
     limits::SpendReached<'static>,

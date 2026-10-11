@@ -66,7 +66,8 @@ fn recorded(r: &crate::tests_route::Rig, session: &str) -> Vec<Option<Effort>> {
         .collect()
 }
 
-/// The owner's case on Sonnet 5.5 (whose profile leaves effort to the model):
+/// The owner's case on Fable 5.1, the one model that takes per-message effort
+/// (whose profile leaves effort to the model; theseus-posww):
 /// a turn at the model's own level, one Jev puts at `low`, and one at the
 /// model's own again. Each request repeats the one before it whole; the
 /// `low` turn's message stays where it went, and the next turn's message
@@ -76,9 +77,9 @@ async fn a_turn_at_jevs_effort_repeats_the_cached_prefix() {
     let jev = FakeJev::start().unwrap();
     mode(&jev, "chat", 0.95);
     effort(&jev, "unclear", 0.95);
-    let r = rig(Some(&jev), 3, |_| {});
+    let r = rig(Some(&jev), 3, |c| c.model.live = "fable".into());
     let one = turn(&r.core, None, "Where do the herons nest?", None).await;
-    assert_eq!(one.profile, "sonnet");
+    assert_eq!(one.profile, "fable");
     effort(&jev, "low", 0.95);
     let two = turn(&r.core, Some(&one.session_id), "And the egrets?", None).await;
     assert_eq!(two.route.unwrap().effort_applied.as_deref(), Some("low"));
@@ -101,7 +102,7 @@ async fn a_turn_at_jevs_effort_repeats_the_cached_prefix() {
     assert!(r2.betas.iter().any(|b| b == BETA_TURN_EFFORT));
     keeps(r2, r3, "the turn after it");
     assert_eq!(r3.messages[r2.messages.len() + 1], says("high"));
-    assert_eq!(effective(r3), Some(Effort::High), "Sonnet 5.5's default");
+    assert_eq!(effective(r3), Some(Effort::High), "Fable 5.1's default");
     assert_eq!(
         recorded(&r, &one.session_id),
         [None, Some(Effort::Low), Some(Effort::High)]
@@ -120,6 +121,7 @@ async fn the_turns_later_loops_repeat_its_message() {
     mode(&jev, "chat", 0.95);
     effort(&jev, "low", 0.95);
     let r = rig(Some(&jev), 0, |c| {
+        c.model.live = "fable".into();
         c.tools.projects_dir = Some(work.to_string_lossy().into_owned());
     });
     {
@@ -141,49 +143,93 @@ async fn the_turns_later_loops_repeat_its_message() {
 }
 
 /// The history's messages come from its answers' records, whatever the
-/// request's top-level effort: on Opus 5.5 (the owner's choice) the `low`
-/// turn's message is still just before its user message; Haiku 5.5, which
-/// takes no per-message effort, gets none and its profile's own `low` at the
-/// top level.
+/// request's top-level effort: on Fable 5.1 the `low` turn's message is still
+/// just before its user message. Opus 5.5 and Haiku 5.5, which are not known
+/// to take per-message effort (theseus-posww), get none, and the beta rides
+/// no request of theirs.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_historys_messages_follow_the_records() {
     let jev = FakeJev::start().unwrap();
     mode(&jev, "chat", 0.95);
     effort(&jev, "low", 0.95);
-    let r = rig(Some(&jev), 3, |_| {});
+    let r = rig(Some(&jev), 4, |c| c.model.live = "fable".into());
     let one = turn(&r.core, None, "Where do the herons nest?", None).await;
     effort(&jev, "unclear", 0.95);
     let sid = one.session_id.clone();
     assert_eq!(
-        turn(&r.core, Some(&sid), "And now?", Some("opus"))
-            .await
-            .profile,
-        "opus"
+        turn(&r.core, Some(&sid), "And now?", None).await.profile,
+        "fable"
     );
-    assert_eq!(
-        turn(&r.core, Some(&sid), "Thanks.", Some("haiku"))
-            .await
-            .profile,
-        "haiku"
-    );
+    for (name, model) in [("opus", "claude-opus-5-5"), ("haiku", "claude-haiku-5-5")] {
+        let res = turn(&r.core, Some(&sid), "Thanks.", Some(name)).await;
+        assert_eq!(res.profile, name);
+        let req = r.claude.requests().pop().unwrap();
+        assert_eq!(req.model, model);
+        assert!(
+            req.messages.iter().all(|m| m["role"] != "system"),
+            "{name}: {:?}",
+            req.messages
+        );
+        assert!(!req.betas.iter().any(|b| b == BETA_TURN_EFFORT), "{name}");
+    }
     let reqs = r.claude.requests();
-    let (opus, haiku) = (&reqs[1], &reqs[2]);
-    assert_eq!(opus.model, "claude-opus-5-5");
+    let fable = &reqs[1];
+    assert_eq!(fable.model, "claude-fable-5-1");
     assert_eq!(
-        (&opus.messages[0], &opus.messages[1]),
+        (&fable.messages[0], &fable.messages[1]),
         (&says("low"), &reqs[0].messages[1])
     );
     assert_eq!(
-        opus.messages[3],
-        says("medium"),
-        "Opus 5.5's default puts it back"
+        fable.messages[3],
+        says("high"),
+        "Fable 5.1's default puts it back"
     );
-    assert_eq!(haiku.model, "claude-haiku-5-5");
-    assert!(
-        haiku.messages.iter().all(|m| m["role"] != "system"),
-        "{:?}",
-        haiku.messages
+}
+
+/// A model that is named as taking per-message effort and refuses it anyway
+/// (Sonnet 5.5 did, 2026-10-11): the provider's 400 that names `output_config`
+/// is asked again once in the same turn, without the effort-only messages and
+/// with the turn's level at the top; a `provider.effort_refused` row says so,
+/// and the model takes none for the rest of the daemon's life (theseus-posww).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_400_on_the_messages_asks_again_without_them_and_remembers() {
+    let jev = FakeJev::start().unwrap();
+    mode(&jev, "chat", 0.95);
+    effort(&jev, "low", 0.95);
+    let r = rig(Some(&jev), 0, |c| c.model.live = "fable".into());
+    {
+        let mut s = r.claude.script.lock().unwrap();
+        s.push_back(Scripted::Fail(crate::provider::ProviderError::InvalidRequest {
+            status: 400,
+            message: "invalid_request_error: messages.0.output_config: Extra inputs are not permitted"
+                .into(),
+        }));
+        s.push_back(Scripted::text("By the weir."));
+        s.push_back(Scripted::text("Nor in winter."));
+    }
+    let one = turn(&r.core, None, "Where do the herons nest?", None).await;
+    assert_eq!(one.output, "By the weir.");
+    let reqs = r.claude.requests();
+    assert_eq!(reqs.len(), 2, "asked again once");
+    let carries = |q: &ProviderRequest| q.messages.iter().any(|m| m["role"] == "system");
+    assert!(carries(&reqs[0]) && reqs[0].betas.iter().any(|b| b == BETA_TURN_EFFORT));
+    assert!(!carries(&reqs[1]) && !reqs[1].betas.iter().any(|b| b == BETA_TURN_EFFORT));
+    assert_eq!(
+        effective(&reqs[1]),
+        Some(Effort::Low),
+        "the level moved to the top"
     );
-    assert!(!haiku.betas.iter().any(|b| b == BETA_TURN_EFFORT));
-    assert_eq!(effective(haiku), Some(Effort::Low));
+    let rows: Vec<(u64, crate::ledger::LedgerRow)> = r.core.store.ledger_tail(2000).unwrap();
+    let refused = rows
+        .iter()
+        .filter(|(_, l)| l.kind == "provider.effort_refused")
+        .count();
+    assert_eq!(refused, 1);
+    // The next message, at another level, sends none either.
+    effort(&jev, "medium", 0.95);
+    turn(&r.core, Some(&one.session_id), "And in winter?", None).await;
+    let next = r.claude.requests().pop().unwrap();
+    assert!(!carries(&next), "{:?}", next.messages);
+    assert_eq!(effective(&next), Some(Effort::Medium));
+    assert_eq!(r.claude.requests().len(), 3, "no further failed call");
 }

@@ -371,6 +371,8 @@ mod tests_turn_effort;
 #[cfg(test)]
 mod tests_turn_reserve;
 #[cfg(test)]
+mod tests_turn_retry;
+#[cfg(test)]
 mod tests_wakes;
 #[cfg(test)]
 mod tests_web_offer;

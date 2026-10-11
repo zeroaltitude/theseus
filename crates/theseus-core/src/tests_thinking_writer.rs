@@ -33,6 +33,7 @@ fn spec(model: &str, fallback: Option<&str>) -> RequestSpec {
         tools: vec![],
         effort: None,
         turn_effort: None,
+        effort_refused: vec![],
         thinking_display: ThinkingDisplay::Summarized,
         refusal_fallbacks: true,
         fallback: fallback.map(|m| (m.to_string(), "cyber".to_string())),

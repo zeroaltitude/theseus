@@ -281,6 +281,7 @@ fn renders_the_same_from_stubs(core: &Arc<Core>, sid: &str) {
         tools: vec![],
         effort: None,
         turn_effort: None,
+        effort_refused: vec![],
         thinking_display: Default::default(),
         refusal_fallbacks: false,
         fallback: None,

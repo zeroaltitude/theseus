@@ -193,6 +193,7 @@ ledger_kinds! {
     ProfileChanged = "profile.changed",
     ProviderCall = "provider.call",
     ProviderCut = "provider.cut",
+    ProviderEffortRefused = "provider.effort_refused",
     ProviderError = "provider.error",
     ProviderFallback = "provider.fallback",
     ProviderRefusal = "provider.refusal",
