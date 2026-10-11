@@ -1,4 +1,5 @@
-//! Which calls of one response run together (theseus-d1hi).
+//! Which calls of one response run together (theseus-d1hi), and what a
+//! call that ran in a group says of it (theseus-da46).
 //!
 //! In response order, a gated call joins the open group when it has the
 //! group's class and touches nothing a call already in it touches; otherwise
@@ -20,6 +21,13 @@ use std::collections::BTreeSet;
 
 use serde_json::Value;
 use theseus_tools::{Access, Backend, Plan, Tool, ToolClass};
+
+tokio::task_local! {
+    /// How many other calls of its group ran at once with the call being
+    /// run, set around each call of a group of writes or programs: its
+    /// result says so, and the model learns what it may put in one response.
+    pub(super) static BESIDE: usize;
+}
 
 /// What a gated call touches, for the grouping rule.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -130,6 +138,16 @@ fn has_extension(w: &str) -> bool {
         }
         None => false,
     }
+}
+
+/// The line a result of a group of writes or programs ends with: how many
+/// calls of the response ran at once with it. None outside such a group.
+pub(super) fn beside_line() -> Option<String> {
+    let n = BESIDE.try_with(|n| *n).ok().filter(|n| *n > 0)?;
+    let s = if n == 1 { "" } else { "s" };
+    Some(format!(
+        "[ran at once with {n} other call{s} of the same response]"
+    ))
 }
 
 #[cfg(test)]

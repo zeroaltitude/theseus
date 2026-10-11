@@ -736,6 +736,12 @@ impl ToolRuntime {
         let (content, truncated) = cap(&scrubbed, self.result_max_chars, |left| {
             tool.map_or_else(|| theseus_tools::REST_NARROWER.into(), |t| t.rest(left))
         });
+        // A call that ran in a group says so, so the model learns what one
+        // response may hold (theseus-da46).
+        let content = match parallel::beside_line() {
+            Some(line) if !r.late => format!("{content}\n{line}"),
+            _ => content,
+        };
         let mut meta = r.meta;
         if redactions > 0 {
             meta["redactions"] = json!(redactions);
@@ -937,12 +943,13 @@ impl ToolRuntime {
         }
         let id = *next;
         *next += 1;
-        // A group of programs takes a slot of `parallel_runs` each
-        // (theseus-d1hi).
+        // A group of writes or programs (theseus-d1hi): each result says how
+        // many ran beside it, and programs take a slot of `parallel_runs`.
         let (class, n) = (
             group[0].2.plan.class.unwrap_or(group[0].1.class()),
             group.len(),
         );
+        let beside = if class == ToolClass::Read { 0 } else { n - 1 };
         let cap = match class {
             ToolClass::Run => self.parallel_runs,
             _ => n,
@@ -951,7 +958,8 @@ impl ToolRuntime {
         let runs = group.into_iter().map(|(i, tool, g)| async move {
             let _slot = slots.acquire().await;
             let started = Instant::now();
-            let r = self.start(tc, assistant_node, calls[i].call, tool, g).await;
+            let call = self.start(tc, assistant_node, calls[i].call, tool, g);
+            let r = parallel::BESIDE.scope(beside, call).await;
             (i, started, Instant::now(), r)
         });
         let mut failed = None;

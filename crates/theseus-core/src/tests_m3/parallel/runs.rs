@@ -1,7 +1,8 @@
 //! A response's writes and programs run together (theseus-d1hi): programs
 //! with programs, writes to different paths with each other, at most
 //! `[tools] parallel_runs` programs at once, and what depends on an earlier
-//! call kept after it.
+//! call kept after it. Each result of such a group says how many ran beside
+//! it (theseus-da46).
 
 use super::*;
 
@@ -49,9 +50,12 @@ fn results_text(r: &Rig) -> Vec<String> {
         .collect()
 }
 
+const BESIDE_3: &str = "[ran at once with 3 other calls of the same response]";
+
 /// Four programs of one response: each its own call, all four in flight at
 /// once (a rendezvous, not a race: a serial dispatch never gets the four
-/// there). Their results come back in one message, in call order.
+/// there). Their results come back in one message, in call order, each
+/// saying how many ran beside it.
 #[tokio::test]
 async fn four_programs_of_one_response_run_together() {
     let timing = Arc::<Timing>::default();
@@ -87,6 +91,7 @@ async fn four_programs_of_one_response_run_together() {
     let texts = results_text(&r);
     for (i, t) in texts.iter().enumerate() {
         assert!(t.contains(&format!("program {}", i + 1)), "{t}");
+        assert!(t.contains(BESIDE_3), "{t}");
     }
 }
 
@@ -110,8 +115,23 @@ async fn four_sleeps_of_one_response_end_in_about_one_sleep() {
     assert_eq!(rs.len(), 4);
     for (status, text) in &rs {
         assert_eq!(*status, ResultStatus::Ok, "{text}");
+        assert!(text.contains(BESIDE_3), "{text}");
     }
     assert_eq!(results_sent(&r), ["s1", "s2", "s3", "s4"].map(String::from));
+    // The model was told, where it reads the tool (theseus-da46): one
+    // response's programs run at once, and `steps` keeps an order.
+    let first = &r.fake.requests()[0];
+    let proc_run = first
+        .tools
+        .iter()
+        .find(|t| t["name"] == "proc_run")
+        .unwrap();
+    let said = proc_run["description"].as_str().unwrap();
+    assert!(said.contains("of one response run at once"), "{said}");
+    assert!(
+        said.contains("must run in order go in one call as `steps`"),
+        "{said}"
+    );
 }
 
 /// `parallel_runs = 2`: four programs, never more than two at once, two at
@@ -200,6 +220,12 @@ async fn what_depends_on_an_earlier_call_runs_after_it() {
             .map(|(_, a, b)| (*a, *b))
             .collect()
     };
+    let beside = |sid: &str| -> Vec<bool> {
+        let rs = results(&r.core, sid);
+        rs.iter()
+            .map(|(_, t)| t.contains("[ran at once with 1 other call of the same response]"))
+            .collect()
+    };
 
     // w1 and w2 wait for each other once started; w3 goes alone, after w1.
     timing.rendezvous(2);
@@ -216,6 +242,7 @@ async fn what_depends_on_an_earlier_call_runs_after_it() {
         std::fs::read_to_string(r.root.join("a.txt")).unwrap(),
         "second\n"
     );
+    assert_eq!(beside(&res.session_id), [true, true, false]);
 
     // x1 and x2 go alone, one after the other; x3 and x4 wait for each other.
     timing.rendezvous_after(2, 2);
@@ -237,6 +264,11 @@ async fn what_depends_on_an_earlier_call_runs_after_it() {
     assert!(
         rs[1].1.contains("d\n"),
         "the program read what the write wrote: {rs:?}"
+    );
+    assert_eq!(
+        beside(&again.session_id),
+        [false, false, true, true],
+        "{rs:?}"
     );
 }
 

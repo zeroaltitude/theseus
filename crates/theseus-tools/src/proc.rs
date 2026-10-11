@@ -105,7 +105,7 @@ impl Tool for Run {
         "proc.run"
     }
     fn description(&self) -> &'static str {
-        "Run one program with a typed argv (no shell): builds, tests, linters, git commands the git tools do not cover. Returns combined stdout and stderr with the exit code. Several programs in a row go in one call as `steps`. Prefer the fs, text, and git tools when they can do the job. Long runs continue in the background and report back later."
+        "Run one program with a typed argv (no shell): builds, tests, linters, git commands the git tools do not cover. Returns combined stdout and stderr with the exit code. The proc_run calls of one response run at once, each its own job, except that one naming a file an earlier one names waits for it; programs that must run in order go in one call as `steps`. Prefer the fs, text, and git tools when they can do the job. Long runs continue in the background and report back later."
     }
     fn input_schema(&self) -> Value {
         json!({

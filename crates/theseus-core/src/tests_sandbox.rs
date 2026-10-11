@@ -417,7 +417,7 @@ fn an_l1_results_head_says_where_it_ran() {
 
 /// Four L1 calls of one response run as one group (theseus-d1hi): each is its
 /// own job, with its own correlation id and its own view, started and listed
-/// once.
+/// once, and each result says three ran beside it.
 #[tokio::test]
 async fn four_l1_calls_of_one_response_are_four_jobs_each_with_its_view() {
     let four: Vec<(String, &str, Value)> = (1..=4)
@@ -458,5 +458,6 @@ async fn four_l1_calls_of_one_response_are_four_jobs_each_with_its_view() {
     assert_eq!(jobs.len(), 4, "each job listed once: {jobs:?}");
     for (status, text) in r.results(&res.session_id) {
         assert_eq!(status, ResultStatus::Ok, "{text}");
+        assert!(text.contains("[ran at once with 3 other calls"), "{text}");
     }
 }
