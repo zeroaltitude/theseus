@@ -196,14 +196,20 @@ class Draft(unittest.TestCase):
             "probes": 9, "scored": 8, "undelivered": 1, "failed": 0, "recall_accuracy": 0.625,
             "abstention_accuracy": 0.5, "confident_wrong": 1, "stale": 0, "stale_of": 2,
             "half_life": {"incidental": {"turns": 30.0, "tokens": 40000}}, "cost_usd_per_probe": 0.04,
-            "curves": {"incidental": curve, "central": []}}},
+            "curves": {"incidental": curve, "central": []},
+            "overhead": {"planned": 14447, "measured": 14447, "first_turn": 14441, "pinned": False}}},
             "probes": [{"arm": "theseus", "id": "p001", "kind": "direct", "status": "scored", "correct": True}]}))
         run(["recall", "--scores", str(scores), "--date", "2026-10-05", "--slug", "smoke", "--out", str(self.out)])
         data = json.loads((self.out / "2026-10-05-recall-smoke.json").read_text())
         rows = data["figures"][0]["rows"]
         self.assertEqual([r["label"] for r in rows], ["near · theseus", "compaction · theseus"])
         self.assertEqual(rows[1]["value"], 0.25)
-        self.assertIn("| Recall accuracy | 62.5% |", (self.out / "2026-10-05-recall-smoke.md").read_text())
+        md = (self.out / "2026-10-05-recall-smoke.md").read_text()
+        self.assertIn("| Recall accuracy | 62.5% |", md)
+        # The overhead the driver measured is in every recall report, and the reproduction plans at it (theseus-cs8k).
+        self.assertIn("| System prompt and tools, measured / planned (tokens) | 14,447 / 14,447 |", md)
+        self.assertIn("drive.py --arm theseus ... --seed <seed> --size <size>", md)
+        self.assertNotIn("generate.py --seed", md)
 
     def test_async_trials_draft_through_the_async_scorers_own_reading(self):
         for i, (agent, reward) in enumerate((("theseus-async", 1), ("claude-code-async", 0))):

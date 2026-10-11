@@ -743,6 +743,16 @@ def history(args: argparse.Namespace) -> int:
 
 # ------------------------------------------------------------------ recall
 
+def _overhead(s: dict) -> str:
+    """An arm's system prompt and tools from scores.json (`overhead`: measured at run time, and the plan), or a dash
+    where the arm has no reading."""
+    o = s.get("overhead") or {}
+    if o.get("measured") is None:
+        return "–"
+    m, p = o["measured"], o.get("planned")
+    return f"{m:,}" if p is None else f"{m:,} / {p:,}"
+
+
 def recall(args: argparse.Namespace) -> int:
     sc = json.loads(Path(args.scores).read_text())
     name = report_name(args.date, "recall", args.slug)
@@ -776,7 +786,10 @@ def recall(args: argparse.Namespace) -> int:
                      ("Stale (of superseded)", lambda s: f'{s.get("stale")} of {s.get("stale_of")}'),
                      ("Half-life, incidental (turns)", lambda s: str(_r(s["half_life"]["incidental"]["turns"], 1))),
                      ("Dollars per probe", lambda s: usd(s.get("cost_usd_per_probe"))),
-                     ("Undelivered / failed", lambda s: f'{s["undelivered"]} / {s["failed"]}')):
+                     ("Undelivered / failed", lambda s: f'{s["undelivered"]} / {s["failed"]}'),
+                     # The system prompt and tools as the driver measured them at run time, and what the
+                     # progression was planned at (theseus-cs8k): every new tool moves it.
+                     ("System prompt and tools, measured / planned (tokens)", _overhead)):
         t += f"| {label} | " + " | ".join(f(sc["arms"][a]) for a in arms) + " |\n"
     data = {"report": name, "suite": "recall", "date": args.date, "kind": "recall", "digest": sc.get("digest"),
             "stale_rule": sc.get("stale_rule"), "arms": [{"key": keys[a], "label": a} for a in arms],
@@ -792,8 +805,9 @@ def recall(args: argparse.Namespace) -> int:
               ("Data", f"[`{name}.json`]({name}.json), [`{name}.csv`]({name}.csv)")]
     sk = skeleton(f"Recall: _what the run asked_ ({args.date})", glance,
                   {"Results": t + "\n" + "\n".join(figs.values()),
-                   "Reproduction": "```bash\npython3 bench/recall/generate.py --seed <seed> --size <size> --out <prog>\n"
-                                   "python3 bench/recall/drive.py --arm <arm> ... --progression <prog> --out <run>\n"
+                   "Reproduction": "```bash\npython3 bench/recall/drive.py --arm theseus ... --seed <seed> --size <size> "
+                                   "--out <run>   # plans at the daemon's measured overhead\n"
+                                   "python3 bench/recall/drive.py --arm <arm> ... --progression <run> --out <arm-run>\n"
                                    "python3 bench/recall/score.py <runs...> --out <scores>\n"
                                    f"python3 bench/report/draft.py recall --scores <scores>/scores.json --date {args.date}\n```\n",
                    "Data": f"[`{name}.json`]({name}.json): each arm's summary and curve, and the figures' specs; "
