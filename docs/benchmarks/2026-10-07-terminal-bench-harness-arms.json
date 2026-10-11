@@ -1,0 +1,1993 @@
+{
+ "report": "2026-10-07-terminal-bench-harness-arms",
+ "suite": "terminal-bench",
+ "date": "2026-10-07",
+ "commit": "041eb8ed",
+ "kind": "harbor",
+ "model": "anthropic/claude-sonnet-5-5 (Codex CLI: openai/gpt-5.6-sol)",
+ "arms": [
+  {
+   "key": "theseus",
+   "label": "Theseus",
+   "native_model": false
+  },
+  {
+   "key": "claude-code",
+   "label": "Claude Code 2.1.290",
+   "native_model": false
+  },
+  {
+   "key": "opencode",
+   "label": "OpenCode 1.18.35",
+   "native_model": false
+  },
+  {
+   "key": "openhands",
+   "label": "OpenHands 1.53.0",
+   "native_model": false
+  },
+  {
+   "key": "openclaw",
+   "label": "OpenClaw 2026.9.8",
+   "native_model": false
+  },
+  {
+   "key": "codex",
+   "label": "Codex CLI 0.161.0",
+   "native_model": true
+  },
+  {
+   "key": "aider",
+   "label": "Aider 0.86.2",
+   "native_model": false
+  },
+  {
+   "key": "pi",
+   "label": "Pi 1.0.4",
+   "native_model": false
+  }
+ ],
+ "summary": {
+  "theseus": {
+   "label": "Theseus",
+   "trials": 28,
+   "tasks": 14,
+   "pass": {
+    "k": 20,
+    "n": 28,
+    "rate": 0.7143,
+    "lo": 0.5294,
+    "hi": 0.8475
+   },
+   "solved_any_attempt": 11,
+   "dollars": 10.177,
+   "unpriced": 0,
+   "dollars_per_trial": {
+    "n": 28,
+    "mean": 0.3635,
+    "lo": 0.1944,
+    "hi": 0.5623,
+    "median": 0.107,
+    "method": "bootstrap"
+   },
+   "dollars_per_solve": 0.5089,
+   "tokens_per_trial": {
+    "n": 28,
+    "mean": 873067.6071,
+    "lo": 420826.6643,
+    "hi": 1408418.2187,
+    "median": 221057.5,
+    "method": "bootstrap"
+   },
+   "model_calls_per_trial": {
+    "n": 28,
+    "mean": 22.4643,
+    "lo": 14.5705,
+    "hi": 31.25,
+    "median": 12.0,
+    "method": "bootstrap"
+   },
+   "agent_s": {
+    "n": 28,
+    "mean": 342.0921,
+    "lo": 173.4,
+    "hi": 534.1828,
+    "median": 94.74,
+    "method": "bootstrap"
+   },
+   "setup_s": {
+    "n": 28,
+    "mean": 0.8386,
+    "lo": 0.8132,
+    "hi": 0.8643,
+    "median": 0.83,
+    "method": "bootstrap"
+   },
+   "harness_rss_mib": {
+    "n": 22,
+    "mean": 37.0591,
+    "lo": 36.4273,
+    "hi": 37.8409,
+    "median": 36.5,
+    "method": "bootstrap"
+   },
+   "harness_ms_per_tool_call": {
+    "n": 22,
+    "mean": 18.7364,
+    "lo": 16.4317,
+    "hi": 21.3636,
+    "median": 17.3,
+    "method": "bootstrap"
+   },
+   "harness_cpu_s": {
+    "n": 22,
+    "mean": 0.6809,
+    "lo": 0.3927,
+    "hi": 1.0159,
+    "median": 0.29,
+    "method": "bootstrap"
+   },
+   "container_mem_peak_mib": {
+    "n": 22,
+    "mean": 395.2136,
+    "lo": 152.6307,
+    "hi": 679.773,
+    "median": 44.35,
+    "method": "bootstrap"
+   },
+   "sampled": 22,
+   "endings": {
+    "ended by the agent": 28
+   },
+   "over_budget": 0,
+   "version": "theseus 0.0.1",
+   "effort": "medium",
+   "model": "claude-sonnet-5-5"
+  },
+  "claude-code": {
+   "label": "Claude Code 2.1.290",
+   "trials": 28,
+   "tasks": 14,
+   "pass": {
+    "k": 23,
+    "n": 28,
+    "rate": 0.8214,
+    "lo": 0.6441,
+    "hi": 0.9212
+   },
+   "solved_any_attempt": 14,
+   "dollars": 5.9268,
+   "unpriced": 0,
+   "dollars_per_trial": {
+    "n": 28,
+    "mean": 0.2117,
+    "lo": 0.1247,
+    "hi": 0.3088,
+    "median": 0.0769,
+    "method": "bootstrap"
+   },
+   "dollars_per_solve": 0.2577,
+   "tokens_per_trial": {
+    "n": 28,
+    "mean": 416381.2143,
+    "lo": 207835.9312,
+    "hi": 657888.833,
+    "median": 123033.0,
+    "method": "bootstrap"
+   },
+   "model_calls_per_trial": {
+    "n": 28,
+    "mean": 11.8929,
+    "lo": 7.1429,
+    "hi": 17.2143,
+    "median": 6.0,
+    "method": "bootstrap"
+   },
+   "agent_s": {
+    "n": 28,
+    "mean": 349.0996,
+    "lo": 133.8883,
+    "hi": 606.1756,
+    "median": 43.1,
+    "method": "bootstrap"
+   },
+   "setup_s": {
+    "n": 28,
+    "mean": 244.1689,
+    "lo": 233.8572,
+    "hi": 253.589,
+    "median": 253.375,
+    "method": "bootstrap"
+   },
+   "harness_rss_mib": {
+    "n": 28,
+    "mean": 250.675,
+    "lo": 246.0498,
+    "hi": 255.3966,
+    "median": 249.15,
+    "method": "bootstrap"
+   },
+   "harness_ms_per_tool_call": {
+    "n": 28,
+    "mean": 394.5893,
+    "lo": 319.3063,
+    "hi": 472.5257,
+    "median": 346.65,
+    "method": "bootstrap"
+   },
+   "harness_cpu_s": {
+    "n": 28,
+    "mean": 3.0007,
+    "lo": 1.7546,
+    "hi": 4.5211,
+    "median": 1.41,
+    "method": "bootstrap"
+   },
+   "container_mem_peak_mib": {
+    "n": 28,
+    "mean": 1893.3179,
+    "lo": 1818.431,
+    "hi": 1969.8863,
+    "median": 1901.4,
+    "method": "bootstrap"
+   },
+   "sampled": 28,
+   "endings": {
+    "ended by the agent": 26,
+    "AgentTimeoutError": 2
+   },
+   "over_budget": 0,
+   "version": "2.1.290",
+   "effort": "medium",
+   "model": "claude-sonnet-5-5"
+  },
+  "opencode": {
+   "label": "OpenCode 1.18.35",
+   "trials": 28,
+   "tasks": 14,
+   "pass": {
+    "k": 25,
+    "n": 28,
+    "rate": 0.8929,
+    "lo": 0.728,
+    "hi": 0.9629
+   },
+   "solved_any_attempt": 13,
+   "dollars": 4.4638,
+   "unpriced": 0,
+   "dollars_per_trial": {
+    "n": 28,
+    "mean": 0.1594,
+    "lo": 0.0813,
+    "hi": 0.2482,
+    "median": 0.0485,
+    "method": "bootstrap"
+   },
+   "dollars_per_solve": 0.1786,
+   "tokens_per_trial": {
+    "n": 28,
+    "mean": 231676.8929,
+    "lo": 110247.4161,
+    "hi": 372346.2696,
+    "median": 53083.5,
+    "method": "bootstrap"
+   },
+   "model_calls_per_trial": {
+    "n": 28,
+    "mean": 8.4286,
+    "lo": 5.4634,
+    "hi": 11.9643,
+    "median": 4.0,
+    "method": "bootstrap"
+   },
+   "agent_s": {
+    "n": 28,
+    "mean": 569.8796,
+    "lo": 233.3446,
+    "hi": 966.1441,
+    "median": 53.715,
+    "method": "bootstrap"
+   },
+   "setup_s": {
+    "n": 28,
+    "mean": 242.1507,
+    "lo": 231.1277,
+    "hi": 252.5505,
+    "median": 246.2,
+    "method": "bootstrap"
+   },
+   "harness_rss_mib": {
+    "n": 28,
+    "mean": 813.5,
+    "lo": 775.8629,
+    "hi": 862.6373,
+    "median": 769.6,
+    "method": "bootstrap"
+   },
+   "harness_ms_per_tool_call": {
+    "n": 28,
+    "mean": 5675.4321,
+    "lo": 4408.3096,
+    "hi": 7095.9561,
+    "median": 4922.85,
+    "method": "bootstrap"
+   },
+   "harness_cpu_s": {
+    "n": 28,
+    "mean": 24.485,
+    "lo": 19.5178,
+    "hi": 29.9188,
+    "median": 17.5,
+    "method": "bootstrap"
+   },
+   "container_mem_peak_mib": {
+    "n": 28,
+    "mean": 2223.7179,
+    "lo": 2104.3356,
+    "hi": 2367.1835,
+    "median": 2049.65,
+    "method": "bootstrap"
+   },
+   "sampled": 28,
+   "endings": {
+    "ended by the agent": 25,
+    "AgentTimeoutError": 3
+   },
+   "over_budget": 0,
+   "version": "1.18.35",
+   "effort": "medium",
+   "model": "claude-sonnet-5-5"
+  },
+  "openhands": {
+   "label": "OpenHands 1.53.0",
+   "trials": 28,
+   "tasks": 14,
+   "pass": {
+    "k": 24,
+    "n": 28,
+    "rate": 0.8571,
+    "lo": 0.6851,
+    "hi": 0.943
+   },
+   "solved_any_attempt": 13,
+   "dollars": 5.3037,
+   "unpriced": 2,
+   "dollars_per_trial": {
+    "n": 26,
+    "mean": 0.204,
+    "lo": 0.1262,
+    "hi": 0.292,
+    "median": 0.106,
+    "method": "bootstrap"
+   },
+   "dollars_per_solve": 0.221,
+   "tokens_per_trial": {
+    "n": 28,
+    "mean": 343946.7857,
+    "lo": 183039.6259,
+    "hi": 545998.4062,
+    "median": 152024.0,
+    "method": "bootstrap"
+   },
+   "model_calls_per_trial": {
+    "n": 26,
+    "mean": 13.4615,
+    "lo": 9.076,
+    "hi": 18.924,
+    "median": 9.0,
+    "method": "bootstrap"
+   },
+   "agent_s": {
+    "n": 28,
+    "mean": 489.7789,
+    "lo": 205.3255,
+    "hi": 813.8021,
+    "median": 72.21,
+    "method": "bootstrap"
+   },
+   "setup_s": {
+    "n": 28,
+    "mean": 28.6096,
+    "lo": 26.8921,
+    "hi": 30.3283,
+    "median": 29.26,
+    "method": "bootstrap"
+   },
+   "harness_rss_mib": {
+    "n": 22,
+    "mean": 295.3409,
+    "lo": 294.6,
+    "hi": 296.0091,
+    "median": 295.65,
+    "method": "bootstrap"
+   },
+   "harness_ms_per_tool_call": {
+    "n": 20,
+    "mean": 733.85,
+    "lo": 540.2266,
+    "hi": 951.5105,
+    "median": 633.4,
+    "method": "bootstrap"
+   },
+   "harness_cpu_s": {
+    "n": 22,
+    "mean": 6.2032,
+    "lo": 5.8064,
+    "hi": 6.6645,
+    "median": 5.815,
+    "method": "bootstrap"
+   },
+   "container_mem_peak_mib": {
+    "n": 22,
+    "mean": 1444.8818,
+    "lo": 1276.6583,
+    "hi": 1620.5435,
+    "median": 1192.85,
+    "method": "bootstrap"
+   },
+   "sampled": 22,
+   "endings": {
+    "ended by the agent": 26,
+    "AgentTimeoutError": 2
+   },
+   "over_budget": 0,
+   "version": "1.53.0",
+   "effort": "medium",
+   "model": "claude-sonnet-5-5"
+  },
+  "openclaw": {
+   "label": "OpenClaw 2026.9.8",
+   "trials": 28,
+   "tasks": 14,
+   "pass": {
+    "k": 23,
+    "n": 28,
+    "rate": 0.8214,
+    "lo": 0.6441,
+    "hi": 0.9212
+   },
+   "solved_any_attempt": 14,
+   "dollars": 12.5586,
+   "unpriced": 0,
+   "dollars_per_trial": {
+    "n": 28,
+    "mean": 0.4485,
+    "lo": 0.2429,
+    "hi": 0.6872,
+    "median": 0.1829,
+    "method": "bootstrap"
+   },
+   "dollars_per_solve": 0.546,
+   "tokens_per_trial": {
+    "n": 28,
+    "mean": 1266469.6429,
+    "lo": 563372.175,
+    "hi": 2124382.1545,
+    "median": 418646.5,
+    "method": "bootstrap"
+   },
+   "model_calls_per_trial": {
+    "n": 28,
+    "mean": 23.9286,
+    "lo": 14.4277,
+    "hi": 35.2161,
+    "median": 14.0,
+    "method": "bootstrap"
+   },
+   "agent_s": {
+    "n": 28,
+    "mean": 271.4214,
+    "lo": 152.4215,
+    "hi": 405.1532,
+    "median": 113.375,
+    "method": "bootstrap"
+   },
+   "setup_s": {
+    "n": 28,
+    "mean": 74.9386,
+    "lo": 72.9853,
+    "hi": 76.899,
+    "median": 75.225,
+    "method": "bootstrap"
+   },
+   "harness_rss_mib": {
+    "n": 22,
+    "mean": 1328.8955,
+    "lo": 1250.9291,
+    "hi": 1402.7525,
+    "median": 1379.65,
+    "method": "bootstrap"
+   },
+   "harness_ms_per_tool_call": {
+    "n": 22,
+    "mean": 3263.55,
+    "lo": 1937.9234,
+    "hi": 5260.3724,
+    "median": 1952.0,
+    "method": "bootstrap"
+   },
+   "harness_cpu_s": {
+    "n": 22,
+    "mean": 28.0095,
+    "lo": 24.8114,
+    "hi": 31.89,
+    "median": 26.08,
+    "method": "bootstrap"
+   },
+   "container_mem_peak_mib": {
+    "n": 22,
+    "mean": 2175.9227,
+    "lo": 2048.2455,
+    "hi": 2396.0545,
+    "median": 2048.0,
+    "method": "bootstrap"
+   },
+   "sampled": 22,
+   "endings": {
+    "ended by the agent": 28
+   },
+   "over_budget": 2,
+   "version": "2026.9.8",
+   "effort": "medium",
+   "model": "claude-sonnet-5-5"
+  },
+  "codex": {
+   "label": "Codex CLI 0.161.0",
+   "trials": 28,
+   "tasks": 14,
+   "pass": {
+    "k": 23,
+    "n": 28,
+    "rate": 0.8214,
+    "lo": 0.6441,
+    "hi": 0.9212
+   },
+   "solved_any_attempt": 12,
+   "dollars": 12.5701,
+   "unpriced": 0,
+   "dollars_per_trial": {
+    "n": 28,
+    "mean": 0.4489,
+    "lo": 0.3373,
+    "hi": 0.5983,
+    "median": 0.3819,
+    "method": "bootstrap"
+   },
+   "dollars_per_solve": 0.5465,
+   "tokens_per_trial": {
+    "n": 28,
+    "mean": 461086.6429,
+    "lo": 287025.1527,
+    "hi": 721677.1214,
+    "median": 332228.0,
+    "method": "bootstrap"
+   },
+   "model_calls_per_trial": {
+    "n": 28,
+    "mean": 16.7857,
+    "lo": 13.0357,
+    "hi": 21.4643,
+    "median": 14.0,
+    "method": "bootstrap"
+   },
+   "agent_s": {
+    "n": 28,
+    "mean": 197.6532,
+    "lo": 134.9823,
+    "hi": 280.7621,
+    "median": 154.24,
+    "method": "bootstrap"
+   },
+   "setup_s": {
+    "n": 28,
+    "mean": 310.2346,
+    "lo": 293.2444,
+    "hi": 328.3305,
+    "median": 303.66,
+    "method": "bootstrap"
+   },
+   "harness_rss_mib": {
+    "n": 28,
+    "mean": 156.7071,
+    "lo": 156.0892,
+    "hi": 157.4107,
+    "median": 156.4,
+    "method": "bootstrap"
+   },
+   "harness_ms_per_tool_call": {
+    "n": 28,
+    "mean": 158.5607,
+    "lo": 136.3391,
+    "hi": 182.6502,
+    "median": 140.4,
+    "method": "bootstrap"
+   },
+   "harness_cpu_s": {
+    "n": 28,
+    "mean": 2.3757,
+    "lo": 1.7293,
+    "hi": 3.1811,
+    "median": 1.565,
+    "method": "bootstrap"
+   },
+   "container_mem_peak_mib": {
+    "n": 28,
+    "mean": 1660.3643,
+    "lo": 1509.044,
+    "hi": 1812.5296,
+    "median": 1733.85,
+    "method": "bootstrap"
+   },
+   "sampled": 28,
+   "endings": {
+    "ended by the agent": 28
+   },
+   "over_budget": 1,
+   "version": "0.161.0",
+   "effort": "medium",
+   "model": "openai/gpt-5.6-sol"
+  },
+  "aider": {
+   "label": "Aider 0.86.2",
+   "trials": 28,
+   "tasks": 14,
+   "pass": {
+    "k": 6,
+    "n": 28,
+    "rate": 0.2143,
+    "lo": 0.1021,
+    "hi": 0.3954
+   },
+   "solved_any_attempt": 4,
+   "dollars": 0.4951,
+   "unpriced": 0,
+   "dollars_per_trial": {
+    "n": 28,
+    "mean": 0.0177,
+    "lo": 0.0125,
+    "hi": 0.0246,
+    "median": 0.0132,
+    "method": "bootstrap"
+   },
+   "dollars_per_solve": 0.0825,
+   "tokens_per_trial": {
+    "n": 28,
+    "mean": 4541.6071,
+    "lo": 3315.2143,
+    "hi": 6641.3223,
+    "median": 3354.0,
+    "method": "bootstrap"
+   },
+   "model_calls_per_trial": {
+    "n": 28,
+    "mean": 1.1071,
+    "lo": 1.0,
+    "hi": 1.3214,
+    "median": 1.0,
+    "method": "bootstrap"
+   },
+   "agent_s": {
+    "n": 28,
+    "mean": 52.0064,
+    "lo": 25.0209,
+    "hi": 86.0465,
+    "median": 19.485,
+    "method": "bootstrap"
+   },
+   "setup_s": {
+    "n": 28,
+    "mean": 19.9286,
+    "lo": 17.9385,
+    "hi": 22.0183,
+    "median": 19.505,
+    "method": "bootstrap"
+   },
+   "harness_rss_mib": {
+    "n": 22,
+    "mean": 243.5545,
+    "lo": 242.559,
+    "hi": 244.4,
+    "median": 244.1,
+    "method": "bootstrap"
+   },
+   "harness_ms_per_tool_call": {
+    "n": 0,
+    "mean": null,
+    "lo": null,
+    "hi": null,
+    "median": null,
+    "method": "none"
+   },
+   "harness_cpu_s": {
+    "n": 22,
+    "mean": 6.6314,
+    "lo": 5.6736,
+    "hi": 7.7464,
+    "median": 5.59,
+    "method": "bootstrap"
+   },
+   "container_mem_peak_mib": {
+    "n": 22,
+    "mean": 1056.9727,
+    "lo": 1025.9856,
+    "hi": 1091.055,
+    "median": 1065.45,
+    "method": "bootstrap"
+   },
+   "sampled": 22,
+   "endings": {
+    "ended by the agent": 28
+   },
+   "over_budget": 0,
+   "version": "0.86.2",
+   "effort": "medium",
+   "model": "claude-sonnet-5-5"
+  },
+  "pi": {
+   "label": "Pi 1.0.4",
+   "trials": 28,
+   "tasks": 14,
+   "pass": {
+    "k": 25,
+    "n": 28,
+    "rate": 0.8929,
+    "lo": 0.728,
+    "hi": 0.9629
+   },
+   "solved_any_attempt": 13,
+   "dollars": 4.2711,
+   "unpriced": 0,
+   "dollars_per_trial": {
+    "n": 28,
+    "mean": 0.1525,
+    "lo": 0.0762,
+    "hi": 0.2465,
+    "median": 0.0448,
+    "method": "bootstrap"
+   },
+   "dollars_per_solve": 0.1708,
+   "tokens_per_trial": {
+    "n": 28,
+    "mean": 240125.4286,
+    "lo": 75598.3554,
+    "hi": 466300.1232,
+    "median": 27342.5,
+    "method": "bootstrap"
+   },
+   "model_calls_per_trial": {
+    "n": 28,
+    "mean": 11.0714,
+    "lo": 5.9643,
+    "hi": 17.8214,
+    "median": 4.5,
+    "method": "bootstrap"
+   },
+   "agent_s": {
+    "n": 28,
+    "mean": 538.9225,
+    "lo": 203.4601,
+    "hi": 931.2039,
+    "median": 46.115,
+    "method": "bootstrap"
+   },
+   "setup_s": {
+    "n": 28,
+    "mean": 33.3375,
+    "lo": 31.5561,
+    "hi": 35.0725,
+    "median": 34.05,
+    "method": "bootstrap"
+   },
+   "harness_rss_mib": {
+    "n": 22,
+    "mean": 128.1955,
+    "lo": 124.2909,
+    "hi": 133.9048,
+    "median": 124.75,
+    "method": "bootstrap"
+   },
+   "harness_ms_per_tool_call": {
+    "n": 22,
+    "mean": 194.9273,
+    "lo": 154.481,
+    "hi": 239.8112,
+    "median": 175.0,
+    "method": "bootstrap"
+   },
+   "harness_cpu_s": {
+    "n": 22,
+    "mean": 1.4873,
+    "lo": 0.7114,
+    "hi": 2.5728,
+    "median": 0.715,
+    "method": "bootstrap"
+   },
+   "container_mem_peak_mib": {
+    "n": 22,
+    "mean": 1167.3955,
+    "lo": 962.7409,
+    "hi": 1400.7374,
+    "median": 811.95,
+    "method": "bootstrap"
+   },
+   "sampled": 22,
+   "endings": {
+    "ended by the agent": 25,
+    "AgentTimeoutError": 3
+   },
+   "over_budget": 0,
+   "version": "1.0.4",
+   "effort": "medium",
+   "model": "claude-sonnet-5-5"
+  }
+ },
+ "paired": {
+  "claude-code": {
+   "against": "theseus",
+   "only_ref": 3,
+   "only_arm": 6,
+   "p_mcnemar": 0.5078
+  },
+  "opencode": {
+   "against": "theseus",
+   "only_ref": 1,
+   "only_arm": 6,
+   "p_mcnemar": 0.125
+  },
+  "openhands": {
+   "against": "theseus",
+   "only_ref": 1,
+   "only_arm": 5,
+   "p_mcnemar": 0.2188
+  },
+  "openclaw": {
+   "against": "theseus",
+   "only_ref": 1,
+   "only_arm": 4,
+   "p_mcnemar": 0.375
+  },
+  "codex": {
+   "against": "theseus",
+   "only_ref": 2,
+   "only_arm": 5,
+   "p_mcnemar": 0.4531
+  },
+  "aider": {
+   "against": "theseus",
+   "only_ref": 14,
+   "only_arm": 0,
+   "p_mcnemar": 0.0001
+  },
+  "pi": {
+   "against": "theseus",
+   "only_ref": 1,
+   "only_arm": 6,
+   "p_mcnemar": 0.125
+  }
+ },
+ "tasks": [
+  "build-pov-ray",
+  "cobol-modernization",
+  "gpt2-codegolf",
+  "hf-model-inference",
+  "install-windows-3.11",
+  "large-scale-text-editing",
+  "mailman",
+  "model-extraction-relu-logits",
+  "nginx-request-logging",
+  "regex-chess",
+  "reshard-c4-data",
+  "schemelike-metacircular-eval",
+  "torch-tensor-parallelism",
+  "winning-avg-corewars"
+ ],
+ "figures": [
+  {
+   "name": "pass-rate",
+   "form": "intervals",
+   "title": "Trials solved, each arm, with Wilson 95% intervals",
+   "question": "Which harness solves the most of the same tasks?",
+   "x": {
+    "label": "share of trials solved",
+    "format": "pct",
+    "min": 0,
+    "max": 1
+   },
+   "rows": [
+    {
+     "label": "Theseus",
+     "arm": "theseus",
+     "value": 0.7143,
+     "lo": 0.5294,
+     "hi": 0.8475,
+     "tip": "20 of 28"
+    },
+    {
+     "label": "Claude Code 2.1.290",
+     "arm": "claude-code",
+     "value": 0.8214,
+     "lo": 0.6441,
+     "hi": 0.9212,
+     "tip": "23 of 28"
+    },
+    {
+     "label": "OpenCode 1.18.35",
+     "arm": "other",
+     "value": 0.8929,
+     "lo": 0.728,
+     "hi": 0.9629,
+     "tip": "25 of 28"
+    },
+    {
+     "label": "OpenHands 1.53.0",
+     "arm": "other",
+     "value": 0.8571,
+     "lo": 0.6851,
+     "hi": 0.943,
+     "tip": "24 of 28"
+    },
+    {
+     "label": "OpenClaw 2026.9.8",
+     "arm": "openclaw",
+     "value": 0.8214,
+     "lo": 0.6441,
+     "hi": 0.9212,
+     "tip": "23 of 28"
+    },
+    {
+     "label": "Codex CLI 0.161.0",
+     "arm": "other",
+     "value": 0.8214,
+     "lo": 0.6441,
+     "hi": 0.9212,
+     "tip": "23 of 28"
+    },
+    {
+     "label": "Aider 0.86.2",
+     "arm": "other",
+     "value": 0.2143,
+     "lo": 0.1021,
+     "hi": 0.3954,
+     "tip": "6 of 28"
+    },
+    {
+     "label": "Pi 1.0.4",
+     "arm": "other",
+     "value": 0.8929,
+     "lo": 0.728,
+     "hi": 0.9629,
+     "tip": "25 of 28"
+    }
+   ],
+   "note": "14 Terminal-Bench 2.0 tasks; each arm's trials."
+  },
+  {
+   "name": "frontier-dollars",
+   "form": "scatter",
+   "title": "Pass rate against dollars a trial, each arm",
+   "question": "Which harnesses are on the frontier of solving more for less?",
+   "x": {
+    "label": "dollars a trial (mean, list prices)",
+    "format": "usd",
+    "min": 0
+   },
+   "y": {
+    "label": "share of trials solved",
+    "format": "pct",
+    "min": 0,
+    "max": 1
+   },
+   "front": "min-x-max-y",
+   "points": [
+    {
+     "arm": "theseus",
+     "label": "Theseus",
+     "x": 0.3635,
+     "y": 0.7143,
+     "xlo": 0.1944,
+     "xhi": 0.5623,
+     "ylo": 0.5294,
+     "yhi": 0.8475
+    },
+    {
+     "arm": "claude-code",
+     "label": "Claude Code 2.1.290",
+     "x": 0.2117,
+     "y": 0.8214,
+     "xlo": 0.1247,
+     "xhi": 0.3088,
+     "ylo": 0.6441,
+     "yhi": 0.9212
+    },
+    {
+     "arm": "other",
+     "label": "OpenCode 1.18.35",
+     "x": 0.1594,
+     "y": 0.8929,
+     "xlo": 0.0813,
+     "xhi": 0.2482,
+     "ylo": 0.728,
+     "yhi": 0.9629
+    },
+    {
+     "arm": "other",
+     "label": "OpenHands 1.53.0",
+     "x": 0.204,
+     "y": 0.8571,
+     "xlo": 0.1262,
+     "xhi": 0.292,
+     "ylo": 0.6851,
+     "yhi": 0.943
+    },
+    {
+     "arm": "openclaw",
+     "label": "OpenClaw 2026.9.8",
+     "x": 0.4485,
+     "y": 0.8214,
+     "xlo": 0.2429,
+     "xhi": 0.6872,
+     "ylo": 0.6441,
+     "yhi": 0.9212
+    },
+    {
+     "arm": "other",
+     "label": "Codex CLI 0.161.0",
+     "x": 0.4489,
+     "y": 0.8214,
+     "xlo": 0.3373,
+     "xhi": 0.5983,
+     "ylo": 0.6441,
+     "yhi": 0.9212
+    },
+    {
+     "arm": "other",
+     "label": "Aider 0.86.2",
+     "x": 0.0177,
+     "y": 0.2143,
+     "xlo": 0.0125,
+     "xhi": 0.0246,
+     "ylo": 0.1021,
+     "yhi": 0.3954
+    },
+    {
+     "arm": "other",
+     "label": "Pi 1.0.4",
+     "x": 0.1525,
+     "y": 0.8929,
+     "xlo": 0.0762,
+     "xhi": 0.2465,
+     "ylo": 0.728,
+     "yhi": 0.9629
+    }
+   ],
+   "note": "Means with their 95% intervals (bootstrap; the range under ten trials)."
+  },
+  {
+   "name": "outcomes",
+   "form": "matrix",
+   "title": "Every trial's outcome, task by arm and attempt",
+   "question": "Where does each harness win and lose?",
+   "columns": [
+    {
+     "label": "Theseus 1",
+     "arm": "theseus"
+    },
+    {
+     "label": "Theseus 2",
+     "arm": "theseus"
+    },
+    {
+     "label": "Claude Code 1",
+     "arm": "claude-code"
+    },
+    {
+     "label": "Claude Code 2",
+     "arm": "claude-code"
+    },
+    {
+     "label": "OpenCode 1",
+     "arm": "other"
+    },
+    {
+     "label": "OpenCode 2",
+     "arm": "other"
+    },
+    {
+     "label": "OpenHands 1",
+     "arm": "other"
+    },
+    {
+     "label": "OpenHands 2",
+     "arm": "other"
+    },
+    {
+     "label": "OpenClaw 1",
+     "arm": "openclaw"
+    },
+    {
+     "label": "OpenClaw 2",
+     "arm": "openclaw"
+    },
+    {
+     "label": "Codex CLI 1",
+     "arm": "other"
+    },
+    {
+     "label": "Codex CLI 2",
+     "arm": "other"
+    },
+    {
+     "label": "Aider 1",
+     "arm": "other"
+    },
+    {
+     "label": "Aider 2",
+     "arm": "other"
+    },
+    {
+     "label": "Pi 1",
+     "arm": "other"
+    },
+    {
+     "label": "Pi 2",
+     "arm": "other"
+    }
+   ],
+   "rows": [
+    {
+     "label": "build-pov-ray",
+     "cells": "PFPFPPPFPFPPFFPP"
+    },
+    {
+     "label": "cobol-modernization",
+     "cells": "PPPPPPPPPPPPFFPP"
+    },
+    {
+     "label": "gpt2-codegolf",
+     "cells": "PPFPPFPPPPPPPFPF"
+    },
+    {
+     "label": "hf-model-inference",
+     "cells": "FFPPPPPPFPPFFFPP"
+    },
+    {
+     "label": "install-windows-3.11",
+     "cells": "FFPFEEFFPFFFFFFE"
+    },
+    {
+     "label": "large-scale-text-editing",
+     "cells": "PPPPPPPPPPPPFFPP"
+    },
+    {
+     "label": "mailman",
+     "cells": "FPPFPPPPPPPPFFPP"
+    },
+    {
+     "label": "model-extraction-relu-logits",
+     "cells": "PPPFPPPPPFPPPPPP"
+    },
+    {
+     "label": "nginx-request-logging",
+     "cells": "FFPPPPPPPFPPFFPP"
+    },
+    {
+     "label": "regex-chess",
+     "cells": "PPPPPPPPPPPPFFPP"
+    },
+    {
+     "label": "reshard-c4-data",
+     "cells": "PPPPPPPPPPPPFPPP"
+    },
+    {
+     "label": "schemelike-metacircular-eval",
+     "cells": "PPPPPPPPPPPPFFPP"
+    },
+    {
+     "label": "torch-tensor-parallelism",
+     "cells": "PPPPPPPFPPFFPPPP"
+    },
+    {
+     "label": "winning-avg-corewars",
+     "cells": "PPPPPPPPPPPPFFPP"
+    }
+   ],
+   "state_labels": {
+    "P": "solved",
+    "F": "not solved",
+    "E": "ended in an error",
+    "-": "no result"
+   }
+  },
+  {
+   "name": "harness-rss",
+   "form": "strip",
+   "title": "The harness's peak memory inside the task's container, every trial",
+   "question": "How much memory does each harness itself hold at its peak?",
+   "x": {
+    "label": "MiB (log scale)",
+    "format": "num",
+    "log": true
+   },
+   "groups": [
+    {
+     "arm": "theseus",
+     "label": "Theseus",
+     "values": [
+      36.4,
+      36.1,
+      36.2,
+      36.3,
+      36.9,
+      39.4,
+      36.9,
+      37.3,
+      36.8,
+      38.3,
+      36.1,
+      35.6,
+      35.4,
+      35.7,
+      36.2,
+      37.1,
+      35.7,
+      35.8,
+      42.9,
+      39.3,
+      38.3,
+      36.6
+     ]
+    },
+    {
+     "arm": "claude-code",
+     "label": "Claude Code 2.1.290",
+     "values": [
+      248.7,
+      264.1,
+      248.0,
+      238.6,
+      255.1,
+      267.1,
+      248.4,
+      258.9,
+      265.5,
+      257.7,
+      240.9,
+      228.0,
+      249.6,
+      250.2,
+      246.3,
+      269.4,
+      268.7,
+      250.2,
+      232.8,
+      232.6,
+      236.9,
+      242.0,
+      235.5,
+      238.3,
+      258.0,
+      277.6,
+      245.1,
+      264.7
+     ]
+    },
+    {
+     "arm": "other",
+     "label": "OpenCode 1.18.35",
+     "values": [
+      928.2,
+      930.6,
+      765.5,
+      756.2,
+      761.4,
+      744.3,
+      741.8,
+      748.6,
+      778.9,
+      762.7,
+      794.3,
+      786.2,
+      770.2,
+      768.6,
+      806.2,
+      781.7,
+      806.4,
+      769.0,
+      759.3,
+      1168.4,
+      733.9,
+      736.9,
+      1240.5,
+      812.0,
+      816.5,
+      760.9,
+      768.5,
+      780.3
+     ]
+    },
+    {
+     "arm": "other",
+     "label": "OpenHands 1.53.0",
+     "values": [
+      294.7,
+      295.4,
+      296.4,
+      294.8,
+      298.7,
+      297.5,
+      295.0,
+      296.3,
+      296.1,
+      293.8,
+      296.2,
+      294.8,
+      297.1,
+      295.1,
+      295.6,
+      295.8,
+      296.1,
+      295.7,
+      294.4,
+      295.7,
+      291.2,
+      291.1
+     ]
+    },
+    {
+     "arm": "openclaw",
+     "label": "OpenClaw 2026.9.8",
+     "values": [
+      965.1,
+      935.1,
+      1291.2,
+      1472.1,
+      1481.4,
+      1480.4,
+      1070.5,
+      1515.7,
+      1393.4,
+      1335.9,
+      1436.1,
+      1312.4,
+      1407.2,
+      1081.6,
+      1404.7,
+      1365.9,
+      1426.9,
+      1357.5,
+      1118.8,
+      1225.8,
+      1645.4,
+      1512.6
+     ]
+    },
+    {
+     "arm": "other",
+     "label": "Codex CLI 0.161.0",
+     "values": [
+      160.9,
+      157.6,
+      154.9,
+      157.4,
+      156.1,
+      154.8,
+      155.5,
+      153.2,
+      157.7,
+      156.7,
+      156.4,
+      155.5,
+      157.4,
+      158.7,
+      156.3,
+      156.4,
+      155.8,
+      158.3,
+      157.4,
+      156.8,
+      156.0,
+      155.3,
+      162.4,
+      156.9,
+      155.7,
+      156.7,
+      155.1,
+      155.9
+     ]
+    },
+    {
+     "arm": "other",
+     "label": "Aider 0.86.2",
+     "values": [
+      243.9,
+      244.1,
+      245.0,
+      246.4,
+      245.6,
+      245.7,
+      243.5,
+      244.2,
+      241.7,
+      242.7,
+      244.5,
+      244.1,
+      244.2,
+      245.4,
+      240.4,
+      236.8,
+      243.5,
+      246.2,
+      241.6,
+      240.3,
+      243.8,
+      244.6
+     ]
+    },
+    {
+     "arm": "other",
+     "label": "Pi 1.0.4",
+     "values": [
+      123.4,
+      123.2,
+      125.1,
+      123.2,
+      171.3,
+      160.6,
+      125.5,
+      124.9,
+      125.4,
+      125.4,
+      124.7,
+      124.9,
+      124.3,
+      124.1,
+      123.6,
+      124.9,
+      124.6,
+      124.8,
+      123.4,
+      125.3,
+      123.9,
+      123.8
+     ]
+    }
+   ],
+   "legend_labels": {
+    "theseus": "Theseus",
+    "claude-code": "Claude Code",
+    "other": "Pi",
+    "openclaw": "OpenClaw"
+   }
+  },
+  {
+   "name": "harness-cpu-per-tool-call",
+   "form": "strip",
+   "title": "The harness's own CPU per tool call, every trial",
+   "question": "How much CPU does each harness spend per tool call, apart from the commands it runs?",
+   "x": {
+    "label": "ms per tool call (log scale)",
+    "format": "num",
+    "log": true
+   },
+   "groups": [
+    {
+     "arm": "theseus",
+     "label": "Theseus",
+     "values": [
+      17.3,
+      16.0,
+      11.2,
+      11.3,
+      36.7,
+      14.2,
+      18.0,
+      17.3,
+      19.1,
+      13.2,
+      12.4,
+      16.7,
+      25.0,
+      25.0,
+      26.8,
+      25.5,
+      21.0,
+      18.0,
+      16.7,
+      20.7,
+      13.9,
+      16.2
+     ]
+    },
+    {
+     "arm": "claude-code",
+     "label": "Claude Code 2.1.290",
+     "values": [
+      205.0,
+      173.0,
+      274.0,
+      262.0,
+      317.5,
+      201.1,
+      660.0,
+      483.3,
+      141.6,
+      136.6,
+      495.0,
+      475.0,
+      201.1,
+      294.0,
+      445.0,
+      224.0,
+      800.0,
+      810.0,
+      485.7,
+      323.0,
+      623.3,
+      660.0,
+      381.2,
+      370.3,
+      680.0,
+      640.0,
+      180.0,
+      106.8
+     ]
+    },
+    {
+     "arm": "other",
+     "label": "OpenCode 1.18.35",
+     "values": [
+      2148.8,
+      1764.2,
+      5113.3,
+      2693.3,
+      1988.6,
+      4830.0,
+      6730.0,
+      6240.0,
+      11837.5,
+      15440.0,
+      6325.0,
+      6455.0,
+      4790.0,
+      1781.0,
+      7500.0,
+      7930.0,
+      4370.0,
+      4453.3,
+      5015.7,
+      2963.1,
+      10385.0,
+      10160.0,
+      2323.2,
+      2245.6,
+      6550.0,
+      12650.0,
+      3280.0,
+      949.5
+     ]
+    },
+    {
+     "arm": "other",
+     "label": "OpenHands 1.53.0",
+     "values": [
+      667.8,
+      931.7,
+      923.3,
+      1786.7,
+      100.8,
+      98.8,
+      1152.0,
+      1903.3,
+      215.8,
+      299.4,
+      503.6,
+      587.0,
+      1050.0,
+      1014.0,
+      523.1,
+      496.7,
+      599.0,
+      716.2,
+      392.8,
+      715.0
+     ]
+    },
+    {
+     "arm": "openclaw",
+     "label": "OpenClaw 2026.9.8",
+     "values": [
+      3446.7,
+      2974.3,
+      4076.0,
+      1496.0,
+      1159.0,
+      628.0,
+      3807.1,
+      4633.3,
+      1941.7,
+      1421.8,
+      1136.2,
+      3074.3,
+      6806.7,
+      21490.0,
+      1049.1,
+      1699.4,
+      2974.4,
+      3211.1,
+      1126.3,
+      1033.3,
+      1962.3,
+      651.1
+     ]
+    },
+    {
+     "arm": "other",
+     "label": "Codex CLI 0.161.0",
+     "values": [
+      73.6,
+      78.2,
+      130.0,
+      130.8,
+      136.0,
+      118.9,
+      101.2,
+      121.4,
+      161.0,
+      166.5,
+      173.8,
+      75.5,
+      97.1,
+      98.7,
+      204.0,
+      264.0,
+      171.4,
+      222.0,
+      257.0,
+      221.8,
+      317.0,
+      257.5,
+      130.8,
+      141.8,
+      200.0,
+      162.9,
+      139.0,
+      87.8
+     ]
+    },
+    {
+     "arm": "other",
+     "label": "Pi 1.0.4",
+     "values": [
+      240.0,
+      148.0,
+      355.0,
+      350.0,
+      80.6,
+      85.8,
+      215.0,
+      245.0,
+      95.0,
+      92.0,
+      235.0,
+      170.0,
+      166.7,
+      180.0,
+      116.2,
+      104.4,
+      460.0,
+      350.0,
+      216.7,
+      187.5,
+      107.5,
+      88.0
+     ]
+    }
+   ],
+   "legend_labels": {
+    "theseus": "Theseus",
+    "claude-code": "Claude Code",
+    "other": "Pi",
+    "openclaw": "OpenClaw"
+   }
+  },
+  {
+   "name": "setup",
+   "form": "strip",
+   "title": "Installing and starting the harness in the task's container, every trial",
+   "question": "How long does each harness take to set up?",
+   "x": {
+    "label": "seconds",
+    "format": "s",
+    "log": false
+   },
+   "groups": [
+    {
+     "arm": "theseus",
+     "label": "Theseus",
+     "values": [
+      0.92,
+      0.91,
+      0.81,
+      0.76,
+      0.78,
+      0.82,
+      0.83,
+      0.83,
+      0.91,
+      0.91,
+      0.89,
+      0.88,
+      0.85,
+      0.8,
+      0.78,
+      0.81,
+      0.75,
+      0.78,
+      0.83,
+      0.86,
+      0.75,
+      0.75,
+      0.83,
+      0.89,
+      0.78,
+      0.78,
+      1.0,
+      0.99
+     ]
+    },
+    {
+     "arm": "claude-code",
+     "label": "Claude Code 2.1.290",
+     "values": [
+      257.26,
+      261.13,
+      231.4,
+      238.91,
+      248.8,
+      265.38,
+      259.18,
+      265.34,
+      193.19,
+      199.14,
+      273.82,
+      275.7,
+      223.52,
+      263.14,
+      256.29,
+      254.68,
+      252.44,
+      244.28,
+      232.37,
+      238.08,
+      244.19,
+      242.41,
+      254.31,
+      256.18,
+      272.37,
+      274.66,
+      180.82,
+      177.74
+     ]
+    },
+    {
+     "arm": "other",
+     "label": "OpenCode 1.18.35",
+     "values": [
+      286.66,
+      259.52,
+      208.44,
+      205.1,
+      217.49,
+      244.25,
+      256.39,
+      258.1,
+      210.04,
+      208.22,
+      234.24,
+      235.96,
+      269.4,
+      253.52,
+      271.7,
+      275.22,
+      261.21,
+      257.04,
+      247.61,
+      244.79,
+      239.43,
+      248.02,
+      237.68,
+      234.49,
+      282.47,
+      281.13,
+      177.7,
+      174.4
+     ]
+    },
+    {
+     "arm": "other",
+     "label": "OpenHands 1.53.0",
+     "values": [
+      21.98,
+      21.81,
+      27.93,
+      29.0,
+      19.51,
+      23.42,
+      29.72,
+      30.0,
+      29.34,
+      28.48,
+      29.66,
+      29.63,
+      29.69,
+      29.56,
+      31.85,
+      28.4,
+      20.64,
+      20.74,
+      30.5,
+      28.73,
+      28.0,
+      29.67,
+      29.18,
+      28.43,
+      39.62,
+      37.18,
+      33.75,
+      34.65
+     ]
+    },
+    {
+     "arm": "openclaw",
+     "label": "OpenClaw 2026.9.8",
+     "values": [
+      84.52,
+      83.04,
+      72.13,
+      67.94,
+      75.65,
+      74.32,
+      69.65,
+      70.29,
+      66.46,
+      68.93,
+      81.76,
+      82.14,
+      75.73,
+      78.75,
+      75.06,
+      74.78,
+      68.81,
+      65.33,
+      75.39,
+      80.16,
+      77.22,
+      77.99,
+      81.25,
+      77.08,
+      72.56,
+      68.61,
+      79.37,
+      73.36
+     ]
+    },
+    {
+     "arm": "other",
+     "label": "Codex CLI 0.161.0",
+     "values": [
+      255.36,
+      254.52,
+      269.41,
+      272.13,
+      317.19,
+      314.29,
+      353.96,
+      350.21,
+      264.66,
+      266.83,
+      292.82,
+      293.03,
+      257.88,
+      260.82,
+      340.79,
+      327.57,
+      329.92,
+      329.47,
+      377.94,
+      377.69,
+      415.42,
+      413.71,
+      262.84,
+      259.82,
+      330.12,
+      329.42,
+      283.89,
+      284.86
+     ]
+    },
+    {
+     "arm": "other",
+     "label": "Aider 0.86.2",
+     "values": [
+      14.1,
+      11.91,
+      19.23,
+      21.02,
+      13.78,
+      13.38,
+      18.15,
+      18.05,
+      19.32,
+      19.18,
+      23.8,
+      25.73,
+      22.47,
+      19.69,
+      18.08,
+      20.04,
+      10.02,
+      14.19,
+      31.54,
+      33.16,
+      22.72,
+      22.92,
+      24.99,
+      24.46,
+      23.76,
+      23.35,
+      14.48,
+      14.48
+     ]
+    },
+    {
+     "arm": "other",
+     "label": "Pi 1.0.4",
+     "values": [
+      27.75,
+      27.15,
+      37.93,
+      36.21,
+      28.55,
+      28.6,
+      34.47,
+      34.94,
+      34.1,
+      34.0,
+      36.87,
+      36.81,
+      36.89,
+      36.8,
+      35.51,
+      33.79,
+      26.88,
+      26.13,
+      35.69,
+      35.92,
+      33.8,
+      33.74,
+      33.68,
+      33.94,
+      40.14,
+      44.0,
+      25.13,
+      24.03
+     ]
+    }
+   ],
+   "legend_labels": {
+    "theseus": "Theseus",
+    "claude-code": "Claude Code",
+    "other": "Pi",
+    "openclaw": "OpenClaw"
+   }
+  }
+ ],
+ "conditions": [
+  "Every arm ran at medium effort, its version pinned, on the same tasks and attempts, one arm at a time, and every one but Codex CLI on Claude Sonnet 5.5.",
+  "Codex CLI ran GPT-5.6-Sol, an OpenAI model, not Claude Sonnet 5.5: Codex speaks only OpenAI's Responses API, which Anthropic's API does not serve.",
+  "Claude Code enforced the $2.00 and 200-turn caps itself and OpenHands its 200 iterations; OpenCode, OpenHands, OpenClaw, Codex CLI, Aider have no spend cap, so theirs was recorded, not enforced.",
+  "Theseus's spend limit was $3.75, because it counts a call's reservation before the call: its real spend could reach $2.00.",
+  "Aider answers one message with up to three reflections, editing files; it suggests shell commands but does not run them (it asks an explicit yes for each, which its --yes-always does not give), and it does not drive a loop of tool calls as the other arms do.",
+  "Dollars are each trial's tokens at the providers' list prices, the same table for every arm."
+ ]
+}

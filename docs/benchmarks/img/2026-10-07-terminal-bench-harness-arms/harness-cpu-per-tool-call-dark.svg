@@ -1,0 +1,594 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="456" viewBox="0 0 720 456" role="img" aria-labelledby="t-harness-cpu-per-tool-call t-harness-cpu-per-tool-call-d" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
+<title id="t-harness-cpu-per-tool-call">The harness's own CPU per tool call, every trial</title>
+<desc id="t-harness-cpu-per-tool-call-d">How much CPU does each harness spend per tool call, apart from the commands it runs?</desc>
+<rect width="720" height="456" rx="8" fill="#1a1a19" stroke="#2c2c2a"/>
+<text x="18.0" y="32.0" font-size="15" fill="#ffffff" font-weight="600">The harness's own CPU per tool call, every trial</text>
+<circle cx="25.0" cy="50.0" r="5" fill="#3987e5"/>
+<text x="40.0" y="54.0" font-size="12" fill="#c3c2b7">Theseus</text>
+<circle cx="115.5" cy="50.0" r="5" fill="#d95926"/>
+<text x="130.5" y="54.0" font-size="12" fill="#c3c2b7">Claude Code</text>
+<circle cx="233.3" cy="50.0" r="5" fill="#898781"/>
+<text x="248.3" y="54.0" font-size="12" fill="#c3c2b7">Pi</text>
+<circle cx="285.8" cy="50.0" r="5" fill="#c98500"/>
+<text x="300.8" y="54.0" font-size="12" fill="#c3c2b7">OpenClaw</text>
+<line x1="389.0" y1="43.0" x2="389.0" y2="57.0" stroke="#ffffff" stroke-width="1.5"/>
+<text x="404.0" y="54.0" font-size="12" fill="#c3c2b7">median</text>
+<line x1="157.4" y1="78.0" x2="157.4" y2="400.0" stroke="#2c2c2a" stroke-width="1"/>
+<line x1="262.8" y1="78.0" x2="262.8" y2="400.0" stroke="#2c2c2a" stroke-width="1"/>
+<line x1="368.2" y1="78.0" x2="368.2" y2="400.0" stroke="#2c2c2a" stroke-width="1"/>
+<line x1="473.6" y1="78.0" x2="473.6" y2="400.0" stroke="#2c2c2a" stroke-width="1"/>
+<line x1="579.0" y1="78.0" x2="579.0" y2="400.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="143.4" y="105.0" font-size="12" fill="#ffffff" text-anchor="end">Theseus</text>
+<g><title>Theseus: quartiles 14.6, 17.3, 20.9</title>
+<rect x="174.8" y="99.0" width="16.3" height="4" rx="2" fill="#c3c2b7" fill-opacity="0.35"/>
+</g>
+<g><title>Theseus: 17.3</title>
+<circle cx="182.5" cy="99.5" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Theseus: 16</title>
+<circle cx="178.9" cy="104.2" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Theseus: 11.2</title>
+<circle cx="162.6" cy="93.5" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Theseus: 11.3</title>
+<circle cx="163.0" cy="105.4" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Theseus: 36.7</title>
+<circle cx="216.9" cy="110.6" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Theseus: 14.2</title>
+<circle cx="173.4" cy="110.6" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Theseus: 18</title>
+<circle cx="184.3" cy="96.2" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Theseus: 17.3</title>
+<circle cx="182.5" cy="94.8" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Theseus: 19.1</title>
+<circle cx="187.0" cy="92.8" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Theseus: 13.2</title>
+<circle cx="170.1" cy="110.9" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Theseus: 12.4</title>
+<circle cx="167.2" cy="104.2" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Theseus: 16.7</title>
+<circle cx="180.8" cy="110.1" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Theseus: 25</title>
+<circle cx="199.3" cy="107.6" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Theseus: 25</title>
+<circle cx="199.3" cy="107.2" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Theseus: 26.8</title>
+<circle cx="202.5" cy="100.5" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Theseus: 25.5</title>
+<circle cx="200.2" cy="100.0" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Theseus: 21</title>
+<circle cx="191.3" cy="89.1" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Theseus: 18</title>
+<circle cx="184.3" cy="104.7" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Theseus: 16.7</title>
+<circle cx="180.8" cy="94.0" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Theseus: 20.7</title>
+<circle cx="190.7" cy="105.2" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Theseus: 13.9</title>
+<circle cx="172.4" cy="90.6" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Theseus: 16.2</title>
+<circle cx="179.5" cy="93.2" r="3.2" fill="#3987e5" fill-opacity="0.75"/>
+</g>
+<g><title>Theseus: median 17.3</title>
+<line x1="182.5" y1="87.0" x2="182.5" y2="115.0" stroke="#ffffff" stroke-width="2" stroke-linecap="round"/>
+</g>
+<text x="593.0" y="105.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">median 17.3 · n 22</text>
+<text x="143.4" y="151.0" font-size="12" fill="#ffffff" text-anchor="end">Claude Code 2.1.290</text>
+<g><title>Claude Code 2.1.290: quartiles 204, 347, 527</title>
+<rect x="295.4" y="145.0" width="43.4" height="4" rx="2" fill="#c3c2b7" fill-opacity="0.35"/>
+</g>
+<g><title>Claude Code 2.1.290: 205</title>
+<circle cx="295.6" cy="140.5" r="3.2" fill="#d95926" fill-opacity="0.75"/>
+</g>
+<g><title>Claude Code 2.1.290: 173</title>
+<circle cx="287.9" cy="139.4" r="3.2" fill="#d95926" fill-opacity="0.75"/>
+</g>
+<g><title>Claude Code 2.1.290: 274</title>
+<circle cx="308.9" cy="143.3" r="3.2" fill="#d95926" fill-opacity="0.75"/>
+</g>
+<g><title>Claude Code 2.1.290: 262</title>
+<circle cx="306.9" cy="149.4" r="3.2" fill="#d95926" fill-opacity="0.75"/>
+</g>
+<g><title>Claude Code 2.1.290: 318</title>
+<circle cx="315.7" cy="155.9" r="3.2" fill="#d95926" fill-opacity="0.75"/>
+</g>
+<g><title>Claude Code 2.1.290: 201</title>
+<circle cx="294.8" cy="158.1" r="3.2" fill="#d95926" fill-opacity="0.75"/>
+</g>
+<g><title>Claude Code 2.1.290: 660</title>
+<circle cx="349.2" cy="138.7" r="3.2" fill="#d95926" fill-opacity="0.75"/>
+</g>
+<g><title>Claude Code 2.1.290: 483</title>
+<circle cx="334.9" cy="150.8" r="3.2" fill="#d95926" fill-opacity="0.75"/>
+</g>
+<g><title>Claude Code 2.1.290: 142</title>
+<circle cx="278.7" cy="150.5" r="3.2" fill="#d95926" fill-opacity="0.75"/>
+</g>
+<g><title>Claude Code 2.1.290: 137</title>
+<circle cx="277.1" cy="147.8" r="3.2" fill="#d95926" fill-opacity="0.75"/>
+</g>
+<g><title>Claude Code 2.1.290: 495</title>
+<circle cx="336.0" cy="158.8" r="3.2" fill="#d95926" fill-opacity="0.75"/>
+</g>
+<g><title>Claude Code 2.1.290: 475</title>
+<circle cx="334.1" cy="136.6" r="3.2" fill="#d95926" fill-opacity="0.75"/>
+</g>
+<g><title>Claude Code 2.1.290: 201</title>
+<circle cx="294.8" cy="145.7" r="3.2" fill="#d95926" fill-opacity="0.75"/>
+</g>
+<g><title>Claude Code 2.1.290: 294</title>
+<circle cx="312.1" cy="158.4" r="3.2" fill="#d95926" fill-opacity="0.75"/>
+</g>
+<g><title>Claude Code 2.1.290: 445</title>
+<circle cx="331.1" cy="143.9" r="3.2" fill="#d95926" fill-opacity="0.75"/>
+</g>
+<g><title>Claude Code 2.1.290: 224</title>
+<circle cx="299.7" cy="157.4" r="3.2" fill="#d95926" fill-opacity="0.75"/>
+</g>
+<g><title>Claude Code 2.1.290: 800</title>
+<circle cx="358.0" cy="150.6" r="3.2" fill="#d95926" fill-opacity="0.75"/>
+</g>
+<g><title>Claude Code 2.1.290: 810</title>
+<circle cx="358.5" cy="152.7" r="3.2" fill="#d95926" fill-opacity="0.75"/>
+</g>
+<g><title>Claude Code 2.1.290: 486</title>
+<circle cx="335.1" cy="151.4" r="3.2" fill="#d95926" fill-opacity="0.75"/>
+</g>
+<g><title>Claude Code 2.1.290: 323</title>
+<circle cx="316.4" cy="142.0" r="3.2" fill="#d95926" fill-opacity="0.75"/>
+</g>
+<g><title>Claude Code 2.1.290: 623</title>
+<circle cx="346.5" cy="136.6" r="3.2" fill="#d95926" fill-opacity="0.75"/>
+</g>
+<g><title>Claude Code 2.1.290: 660</title>
+<circle cx="349.2" cy="143.7" r="3.2" fill="#d95926" fill-opacity="0.75"/>
+</g>
+<g><title>Claude Code 2.1.290: 381</title>
+<circle cx="324.0" cy="140.4" r="3.2" fill="#d95926" fill-opacity="0.75"/>
+</g>
+<g><title>Claude Code 2.1.290: 370</title>
+<circle cx="322.7" cy="147.1" r="3.2" fill="#d95926" fill-opacity="0.75"/>
+</g>
+<g><title>Claude Code 2.1.290: 680</title>
+<circle cx="350.5" cy="138.7" r="3.2" fill="#d95926" fill-opacity="0.75"/>
+</g>
+<g><title>Claude Code 2.1.290: 640</title>
+<circle cx="347.8" cy="141.5" r="3.2" fill="#d95926" fill-opacity="0.75"/>
+</g>
+<g><title>Claude Code 2.1.290: 180</title>
+<circle cx="289.7" cy="141.1" r="3.2" fill="#d95926" fill-opacity="0.75"/>
+</g>
+<g><title>Claude Code 2.1.290: 107</title>
+<circle cx="265.8" cy="155.9" r="3.2" fill="#d95926" fill-opacity="0.75"/>
+</g>
+<g><title>Claude Code 2.1.290: median 347</title>
+<line x1="319.7" y1="133.0" x2="319.7" y2="161.0" stroke="#ffffff" stroke-width="2" stroke-linecap="round"/>
+</g>
+<text x="593.0" y="151.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">median 347 · n 28</text>
+<text x="143.4" y="197.0" font-size="12" fill="#ffffff" text-anchor="end">OpenCode 1.18.35</text>
+<g><title>OpenCode 1.18.35: quartiles 2,601, 4,923, 6,922</title>
+<rect x="411.9" y="191.0" width="44.8" height="4" rx="2" fill="#c3c2b7" fill-opacity="0.35"/>
+</g>
+<g><title>OpenCode 1.18.35: 2,149</title>
+<circle cx="403.2" cy="202.5" r="3.2" fill="#898781" fill-opacity="0.75"/>
+</g>
+<g><title>OpenCode 1.18.35: 1,764</title>
+<circle cx="394.2" cy="191.6" r="3.2" fill="#898781" fill-opacity="0.75"/>
+</g>
+<g><title>OpenCode 1.18.35: 5,113</title>
+<circle cx="442.9" cy="197.7" r="3.2" fill="#898781" fill-opacity="0.75"/>
+</g>
+<g><title>OpenCode 1.18.35: 2,693</title>
+<circle cx="413.5" cy="200.8" r="3.2" fill="#898781" fill-opacity="0.75"/>
+</g>
+<g><title>OpenCode 1.18.35: 1,989</title>
+<circle cx="399.6" cy="187.5" r="3.2" fill="#898781" fill-opacity="0.75"/>
+</g>
+<g><title>OpenCode 1.18.35: 4,830</title>
+<circle cx="440.3" cy="193.1" r="3.2" fill="#898781" fill-opacity="0.75"/>
+</g>
+<g><title>OpenCode 1.18.35: 6,730</title>
+<circle cx="455.5" cy="203.5" r="3.2" fill="#898781" fill-opacity="0.75"/>
+</g>
+<g><title>OpenCode 1.18.35: 6,240</title>
+<circle cx="452.0" cy="183.3" r="3.2" fill="#898781" fill-opacity="0.75"/>
+</g>
+<g><title>OpenCode 1.18.35: 11,838</title>
+<circle cx="481.3" cy="190.9" r="3.2" fill="#898781" fill-opacity="0.75"/>
+</g>
+<g><title>OpenCode 1.18.35: 15,440</title>
+<circle cx="493.5" cy="190.5" r="3.2" fill="#898781" fill-opacity="0.75"/>
+</g>
+<g><title>OpenCode 1.18.35: 6,325</title>
+<circle cx="452.6" cy="193.5" r="3.2" fill="#898781" fill-opacity="0.75"/>
+</g>
+<g><title>OpenCode 1.18.35: 6,455</title>
+<circle cx="453.5" cy="199.9" r="3.2" fill="#898781" fill-opacity="0.75"/>
+</g>
+<g><title>OpenCode 1.18.35: 4,790</title>
+<circle cx="439.9" cy="185.9" r="3.2" fill="#898781" fill-opacity="0.75"/>
+</g>
+<g><title>OpenCode 1.18.35: 1,781</title>
+<circle cx="394.6" cy="193.7" r="3.2" fill="#898781" fill-opacity="0.75"/>
+</g>
+<g><title>OpenCode 1.18.35: 7,500</title>
+<circle cx="460.4" cy="192.8" r="3.2" fill="#898781" fill-opacity="0.75"/>
+</g>
+<g><title>OpenCode 1.18.35: 7,930</title>
+<circle cx="463.0" cy="188.8" r="3.2" fill="#898781" fill-opacity="0.75"/>
+</g>
+<g><title>OpenCode 1.18.35: 4,370</title>
+<circle cx="435.7" cy="201.9" r="3.2" fill="#898781" fill-opacity="0.75"/>
+</g>
+<g><title>OpenCode 1.18.35: 4,453</title>
+<circle cx="436.6" cy="202.2" r="3.2" fill="#898781" fill-opacity="0.75"/>
+</g>
+<g><title>OpenCode 1.18.35: 5,016</title>
+<circle cx="442.0" cy="196.2" r="3.2" fill="#898781" fill-opacity="0.75"/>
+</g>
+<g><title>OpenCode 1.18.35: 2,963</title>
+<circle cx="417.9" cy="191.8" r="3.2" fill="#898781" fill-opacity="0.75"/>
+</g>
+<g><title>OpenCode 1.18.35: 10,385</title>
+<circle cx="475.3" cy="181.8" r="3.2" fill="#898781" fill-opacity="0.75"/>
+</g>
+<g><title>OpenCode 1.18.35: 10,160</title>
+<circle cx="474.3" cy="194.3" r="3.2" fill="#898781" fill-opacity="0.75"/>
+</g>
+<g><title>OpenCode 1.18.35: 2,323</title>
+<circle cx="406.8" cy="188.4" r="3.2" fill="#898781" fill-opacity="0.75"/>
+</g>
+<g><title>OpenCode 1.18.35: 2,246</title>
+<circle cx="405.2" cy="204.0" r="3.2" fill="#898781" fill-opacity="0.75"/>
+</g>
+<g><title>OpenCode 1.18.35: 6,550</title>
+<circle cx="454.2" cy="184.0" r="3.2" fill="#898781" fill-opacity="0.75"/>
+</g>
+<g><title>OpenCode 1.18.35: 12,650</title>
+<circle cx="484.3" cy="189.5" r="3.2" fill="#898781" fill-opacity="0.75"/>
+</g>
+<g><title>OpenCode 1.18.35: 3,280</title>
+<circle cx="422.6" cy="191.5" r="3.2" fill="#898781" fill-opacity="0.75"/>
+</g>
+<g><title>OpenCode 1.18.35: 950</title>
+<circle cx="365.8" cy="190.8" r="3.2" fill="#898781" fill-opacity="0.75"/>
+</g>
+<g><title>OpenCode 1.18.35: median 4,923</title>
+<line x1="441.1" y1="179.0" x2="441.1" y2="207.0" stroke="#ffffff" stroke-width="2" stroke-linecap="round"/>
+</g>
+<text x="593.0" y="197.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">median 4,923 · n 28</text>
+<text x="143.4" y="243.0" font-size="12" fill="#ffffff" text-anchor="end">OpenHands 1.53.0</text>
+<g><title>OpenHands 1.53.0: quartiles 471, 633, 952</title>
+<rect x="333.7" y="237.0" width="32.3" height="4" rx="2" fill="#c3c2b7" fill-opacity="0.35"/>
+</g>
+<g><title>OpenHands 1.53.0: 668</title>
+<circle cx="349.7" cy="249.4" r="3.2" fill="#898781" fill-opacity="0.75"/>
+</g>
+<g><title>OpenHands 1.53.0: 932</title>
+<circle cx="364.9" cy="240.5" r="3.2" fill="#898781" fill-opacity="0.75"/>
+</g>
+<g><title>OpenHands 1.53.0: 923</title>
+<circle cx="364.5" cy="242.5" r="3.2" fill="#898781" fill-opacity="0.75"/>
+</g>
+<g><title>OpenHands 1.53.0: 1,787</title>
+<circle cx="394.7" cy="232.3" r="3.2" fill="#898781" fill-opacity="0.75"/>
+</g>
+<g><title>OpenHands 1.53.0: 101</title>
+<circle cx="263.1" cy="234.1" r="3.2" fill="#898781" fill-opacity="0.75"/>
+</g>
+<g><title>OpenHands 1.53.0: 98.8</title>
+<circle cx="262.2" cy="244.0" r="3.2" fill="#898781" fill-opacity="0.75"/>
+</g>
+<g><title>OpenHands 1.53.0: 1,152</title>
+<circle cx="374.7" cy="241.2" r="3.2" fill="#898781" fill-opacity="0.75"/>
+</g>
+<g><title>OpenHands 1.53.0: 1,903</title>
+<circle cx="397.6" cy="241.4" r="3.2" fill="#898781" fill-opacity="0.75"/>
+</g>
+<g><title>OpenHands 1.53.0: 216</title>
+<circle cx="298.0" cy="233.4" r="3.2" fill="#898781" fill-opacity="0.75"/>
+</g>
+<g><title>OpenHands 1.53.0: 299</title>
+<circle cx="313.0" cy="236.8" r="3.2" fill="#898781" fill-opacity="0.75"/>
+</g>
+<g><title>OpenHands 1.53.0: 504</title>
+<circle cx="336.8" cy="233.2" r="3.2" fill="#898781" fill-opacity="0.75"/>
+</g>
+<g><title>OpenHands 1.53.0: 587</title>
+<circle cx="343.8" cy="246.2" r="3.2" fill="#898781" fill-opacity="0.75"/>
+</g>
+<g><title>OpenHands 1.53.0: 1,050</title>
+<circle cx="370.4" cy="238.2" r="3.2" fill="#898781" fill-opacity="0.75"/>
+</g>
+<g><title>OpenHands 1.53.0: 1,014</title>
+<circle cx="368.8" cy="251.0" r="3.2" fill="#898781" fill-opacity="0.75"/>
+</g>
+<g><title>OpenHands 1.53.0: 523</title>
+<circle cx="338.5" cy="236.1" r="3.2" fill="#898781" fill-opacity="0.75"/>
+</g>
+<g><title>OpenHands 1.53.0: 497</title>
+<circle cx="336.1" cy="246.1" r="3.2" fill="#898781" fill-opacity="0.75"/>
+</g>
+<g><title>OpenHands 1.53.0: 599</title>
+<circle cx="344.7" cy="247.5" r="3.2" fill="#898781" fill-opacity="0.75"/>
+</g>
+<g><title>OpenHands 1.53.0: 716</title>
+<circle cx="352.9" cy="250.2" r="3.2" fill="#898781" fill-opacity="0.75"/>
+</g>
+<g><title>OpenHands 1.53.0: 393</title>
+<circle cx="325.4" cy="242.8" r="3.2" fill="#898781" fill-opacity="0.75"/>
+</g>
+<g><title>OpenHands 1.53.0: 715</title>
+<circle cx="352.8" cy="236.5" r="3.2" fill="#898781" fill-opacity="0.75"/>
+</g>
+<g><title>OpenHands 1.53.0: median 633</title>
+<line x1="347.3" y1="225.0" x2="347.3" y2="253.0" stroke="#ffffff" stroke-width="2" stroke-linecap="round"/>
+</g>
+<text x="593.0" y="243.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">median 633 · n 20</text>
+<text x="143.4" y="289.0" font-size="12" fill="#ffffff" text-anchor="end">OpenClaw 2026.9.8</text>
+<g><title>OpenClaw 2026.9.8: quartiles 1,142, 1,952, 3,388</title>
+<rect x="374.3" y="283.0" width="49.8" height="4" rx="2" fill="#c3c2b7" fill-opacity="0.35"/>
+</g>
+<g><title>OpenClaw 2026.9.8: 3,447</title>
+<circle cx="424.8" cy="293.5" r="3.2" fill="#c98500" fill-opacity="0.75"/>
+</g>
+<g><title>OpenClaw 2026.9.8: 2,974</title>
+<circle cx="418.1" cy="285.4" r="3.2" fill="#c98500" fill-opacity="0.75"/>
+</g>
+<g><title>OpenClaw 2026.9.8: 4,076</title>
+<circle cx="432.5" cy="292.3" r="3.2" fill="#c98500" fill-opacity="0.75"/>
+</g>
+<g><title>OpenClaw 2026.9.8: 1,496</title>
+<circle cx="386.6" cy="282.3" r="3.2" fill="#c98500" fill-opacity="0.75"/>
+</g>
+<g><title>OpenClaw 2026.9.8: 1,159</title>
+<circle cx="374.9" cy="291.3" r="3.2" fill="#c98500" fill-opacity="0.75"/>
+</g>
+<g><title>OpenClaw 2026.9.8: 628</title>
+<circle cx="346.9" cy="291.5" r="3.2" fill="#c98500" fill-opacity="0.75"/>
+</g>
+<g><title>OpenClaw 2026.9.8: 3,807</title>
+<circle cx="429.4" cy="276.5" r="3.2" fill="#c98500" fill-opacity="0.75"/>
+</g>
+<g><title>OpenClaw 2026.9.8: 4,633</title>
+<circle cx="438.4" cy="295.4" r="3.2" fill="#c98500" fill-opacity="0.75"/>
+</g>
+<g><title>OpenClaw 2026.9.8: 1,942</title>
+<circle cx="398.6" cy="288.7" r="3.2" fill="#c98500" fill-opacity="0.75"/>
+</g>
+<g><title>OpenClaw 2026.9.8: 1,422</title>
+<circle cx="384.3" cy="282.4" r="3.2" fill="#c98500" fill-opacity="0.75"/>
+</g>
+<g><title>OpenClaw 2026.9.8: 1,136</title>
+<circle cx="374.0" cy="291.3" r="3.2" fill="#c98500" fill-opacity="0.75"/>
+</g>
+<g><title>OpenClaw 2026.9.8: 3,074</title>
+<circle cx="419.6" cy="288.1" r="3.2" fill="#c98500" fill-opacity="0.75"/>
+</g>
+<g><title>OpenClaw 2026.9.8: 6,807</title>
+<circle cx="456.0" cy="274.6" r="3.2" fill="#c98500" fill-opacity="0.75"/>
+</g>
+<g><title>OpenClaw 2026.9.8: 21,490</title>
+<circle cx="508.6" cy="274.7" r="3.2" fill="#c98500" fill-opacity="0.75"/>
+</g>
+<g><title>OpenClaw 2026.9.8: 1,049</title>
+<circle cx="370.4" cy="275.3" r="3.2" fill="#c98500" fill-opacity="0.75"/>
+</g>
+<g><title>OpenClaw 2026.9.8: 1,699</title>
+<circle cx="392.5" cy="281.6" r="3.2" fill="#c98500" fill-opacity="0.75"/>
+</g>
+<g><title>OpenClaw 2026.9.8: 2,974</title>
+<circle cx="418.1" cy="296.4" r="3.2" fill="#c98500" fill-opacity="0.75"/>
+</g>
+<g><title>OpenClaw 2026.9.8: 3,211</title>
+<circle cx="421.6" cy="281.4" r="3.2" fill="#c98500" fill-opacity="0.75"/>
+</g>
+<g><title>OpenClaw 2026.9.8: 1,126</title>
+<circle cx="373.6" cy="275.8" r="3.2" fill="#c98500" fill-opacity="0.75"/>
+</g>
+<g><title>OpenClaw 2026.9.8: 1,033</title>
+<circle cx="369.7" cy="280.7" r="3.2" fill="#c98500" fill-opacity="0.75"/>
+</g>
+<g><title>OpenClaw 2026.9.8: 1,962</title>
+<circle cx="399.0" cy="282.5" r="3.2" fill="#c98500" fill-opacity="0.75"/>
+</g>
+<g><title>OpenClaw 2026.9.8: 651</title>
+<circle cx="348.5" cy="280.0" r="3.2" fill="#c98500" fill-opacity="0.75"/>
+</g>
+<g><title>OpenClaw 2026.9.8: median 1,952</title>
+<line x1="398.8" y1="271.0" x2="398.8" y2="299.0" stroke="#ffffff" stroke-width="2" stroke-linecap="round"/>
+</g>
+<text x="593.0" y="289.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">median 1,952 · n 22</text>
+<text x="143.4" y="335.0" font-size="12" fill="#ffffff" text-anchor="end">Codex CLI 0.161.0</text>
+<g><title>Codex CLI 0.161.0: quartiles 114, 140, 201</title>
+<rect x="269.0" y="329.0" width="25.8" height="4" rx="2" fill="#c3c2b7" fill-opacity="0.35"/>
+</g>
+<g><title>Codex CLI 0.161.0: 73.6</title>
+<circle cx="248.7" cy="331.4" r="3.2" fill="#898781" fill-opacity="0.75"/>
+</g>
+<g><title>Codex CLI 0.161.0: 78.2</title>
+<circle cx="251.5" cy="338.4" r="3.2" fill="#898781" fill-opacity="0.75"/>
+</g>
+<g><title>Codex CLI 0.161.0: 130</title>
+<circle cx="274.8" cy="321.9" r="3.2" fill="#898781" fill-opacity="0.75"/>
+</g>
+<g><title>Codex CLI 0.161.0: 131</title>
+<circle cx="275.1" cy="330.2" r="3.2" fill="#898781" fill-opacity="0.75"/>
+</g>
+<g><title>Codex CLI 0.161.0: 136</title>
+<circle cx="276.9" cy="339.9" r="3.2" fill="#898781" fill-opacity="0.75"/>
+</g>
+<g><title>Codex CLI 0.161.0: 119</title>
+<circle cx="270.7" cy="342.7" r="3.2" fill="#898781" fill-opacity="0.75"/>
+</g>
+<g><title>Codex CLI 0.161.0: 101</title>
+<circle cx="263.3" cy="330.1" r="3.2" fill="#898781" fill-opacity="0.75"/>
+</g>
+<g><title>Codex CLI 0.161.0: 121</title>
+<circle cx="271.7" cy="342.4" r="3.2" fill="#898781" fill-opacity="0.75"/>
+</g>
+<g><title>Codex CLI 0.161.0: 161</title>
+<circle cx="284.6" cy="335.4" r="3.2" fill="#898781" fill-opacity="0.75"/>
+</g>
+<g><title>Codex CLI 0.161.0: 166</title>
+<circle cx="286.1" cy="340.6" r="3.2" fill="#898781" fill-opacity="0.75"/>
+</g>
+<g><title>Codex CLI 0.161.0: 174</title>
+<circle cx="288.1" cy="341.4" r="3.2" fill="#898781" fill-opacity="0.75"/>
+</g>
+<g><title>Codex CLI 0.161.0: 75.5</title>
+<circle cx="249.9" cy="331.1" r="3.2" fill="#898781" fill-opacity="0.75"/>
+</g>
+<g><title>Codex CLI 0.161.0: 97.1</title>
+<circle cx="261.4" cy="319.1" r="3.2" fill="#898781" fill-opacity="0.75"/>
+</g>
+<g><title>Codex CLI 0.161.0: 98.7</title>
+<circle cx="262.2" cy="324.0" r="3.2" fill="#898781" fill-opacity="0.75"/>
+</g>
+<g><title>Codex CLI 0.161.0: 204</title>
+<circle cx="295.4" cy="323.6" r="3.2" fill="#898781" fill-opacity="0.75"/>
+</g>
+<g><title>Codex CLI 0.161.0: 264</title>
+<circle cx="307.2" cy="331.2" r="3.2" fill="#898781" fill-opacity="0.75"/>
+</g>
+<g><title>Codex CLI 0.161.0: 171</title>
+<circle cx="287.4" cy="321.8" r="3.2" fill="#898781" fill-opacity="0.75"/>
+</g>
+<g><title>Codex CLI 0.161.0: 222</title>
+<circle cx="299.3" cy="338.7" r="3.2" fill="#898781" fill-opacity="0.75"/>
+</g>
+<g><title>Codex CLI 0.161.0: 257</title>
+<circle cx="306.0" cy="342.5" r="3.2" fill="#898781" fill-opacity="0.75"/>
+</g>
+<g><title>Codex CLI 0.161.0: 222</title>
+<circle cx="299.2" cy="328.4" r="3.2" fill="#898781" fill-opacity="0.75"/>
+</g>
+<g><title>Codex CLI 0.161.0: 317</title>
+<circle cx="315.6" cy="321.4" r="3.2" fill="#898781" fill-opacity="0.75"/>
+</g>
+<g><title>Codex CLI 0.161.0: 258</title>
+<circle cx="306.1" cy="336.0" r="3.2" fill="#898781" fill-opacity="0.75"/>
+</g>
+<g><title>Codex CLI 0.161.0: 131</title>
+<circle cx="275.1" cy="329.9" r="3.2" fill="#898781" fill-opacity="0.75"/>
+</g>
+<g><title>Codex CLI 0.161.0: 142</title>
+<circle cx="278.8" cy="338.6" r="3.2" fill="#898781" fill-opacity="0.75"/>
+</g>
+<g><title>Codex CLI 0.161.0: 200</title>
+<circle cx="294.5" cy="325.0" r="3.2" fill="#898781" fill-opacity="0.75"/>
+</g>
+<g><title>Codex CLI 0.161.0: 163</title>
+<circle cx="285.1" cy="335.9" r="3.2" fill="#898781" fill-opacity="0.75"/>
+</g>
+<g><title>Codex CLI 0.161.0: 139</title>
+<circle cx="277.8" cy="319.2" r="3.2" fill="#898781" fill-opacity="0.75"/>
+</g>
+<g><title>Codex CLI 0.161.0: 87.8</title>
+<circle cx="256.8" cy="334.3" r="3.2" fill="#898781" fill-opacity="0.75"/>
+</g>
+<g><title>Codex CLI 0.161.0: median 140</title>
+<line x1="278.3" y1="317.0" x2="278.3" y2="345.0" stroke="#ffffff" stroke-width="2" stroke-linecap="round"/>
+</g>
+<text x="593.0" y="335.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">median 140 · n 28</text>
+<text x="143.4" y="381.0" font-size="12" fill="#ffffff" text-anchor="end">Pi 1.0.4</text>
+<g><title>Pi 1.0.4: quartiles 105, 175, 239</title>
+<rect x="265.1" y="375.0" width="37.5" height="4" rx="2" fill="#c3c2b7" fill-opacity="0.35"/>
+</g>
+<g><title>Pi 1.0.4: 240</title>
+<circle cx="302.9" cy="380.0" r="3.2" fill="#898781" fill-opacity="0.75"/>
+</g>
+<g><title>Pi 1.0.4: 148</title>
+<circle cx="280.7" cy="386.8" r="3.2" fill="#898781" fill-opacity="0.75"/>
+</g>
+<g><title>Pi 1.0.4: 355</title>
+<circle cx="320.8" cy="370.9" r="3.2" fill="#898781" fill-opacity="0.75"/>
+</g>
+<g><title>Pi 1.0.4: 350</title>
+<circle cx="320.1" cy="378.4" r="3.2" fill="#898781" fill-opacity="0.75"/>
+</g>
+<g><title>Pi 1.0.4: 80.6</title>
+<circle cx="252.9" cy="378.4" r="3.2" fill="#898781" fill-opacity="0.75"/>
+</g>
+<g><title>Pi 1.0.4: 85.8</title>
+<circle cx="255.8" cy="380.0" r="3.2" fill="#898781" fill-opacity="0.75"/>
+</g>
+<g><title>Pi 1.0.4: 215</title>
+<circle cx="297.8" cy="380.5" r="3.2" fill="#898781" fill-opacity="0.75"/>
+</g>
+<g><title>Pi 1.0.4: 245</title>
+<circle cx="303.8" cy="388.7" r="3.2" fill="#898781" fill-opacity="0.75"/>
+</g>
+<g><title>Pi 1.0.4: 95</title>
+<circle cx="260.4" cy="385.4" r="3.2" fill="#898781" fill-opacity="0.75"/>
+</g>
+<g><title>Pi 1.0.4: 92</title>
+<circle cx="259.0" cy="376.1" r="3.2" fill="#898781" fill-opacity="0.75"/>
+</g>
+<g><title>Pi 1.0.4: 235</title>
+<circle cx="301.9" cy="372.8" r="3.2" fill="#898781" fill-opacity="0.75"/>
+</g>
+<g><title>Pi 1.0.4: 170</title>
+<circle cx="287.1" cy="379.8" r="3.2" fill="#898781" fill-opacity="0.75"/>
+</g>
+<g><title>Pi 1.0.4: 167</title>
+<circle cx="286.2" cy="366.5" r="3.2" fill="#898781" fill-opacity="0.75"/>
+</g>
+<g><title>Pi 1.0.4: 180</title>
+<circle cx="289.7" cy="378.6" r="3.2" fill="#898781" fill-opacity="0.75"/>
+</g>
+<g><title>Pi 1.0.4: 116</title>
+<circle cx="269.6" cy="385.3" r="3.2" fill="#898781" fill-opacity="0.75"/>
+</g>
+<g><title>Pi 1.0.4: 104</title>
+<circle cx="264.7" cy="386.2" r="3.2" fill="#898781" fill-opacity="0.75"/>
+</g>
+<g><title>Pi 1.0.4: 460</title>
+<circle cx="332.6" cy="365.4" r="3.2" fill="#898781" fill-opacity="0.75"/>
+</g>
+<g><title>Pi 1.0.4: 350</title>
+<circle cx="320.1" cy="383.4" r="3.2" fill="#898781" fill-opacity="0.75"/>
+</g>
+<g><title>Pi 1.0.4: 217</title>
+<circle cx="298.2" cy="386.4" r="3.2" fill="#898781" fill-opacity="0.75"/>
+</g>
+<g><title>Pi 1.0.4: 188</title>
+<circle cx="291.6" cy="365.4" r="3.2" fill="#898781" fill-opacity="0.75"/>
+</g>
+<g><title>Pi 1.0.4: 108</title>
+<circle cx="266.1" cy="367.8" r="3.2" fill="#898781" fill-opacity="0.75"/>
+</g>
+<g><title>Pi 1.0.4: 88</title>
+<circle cx="256.9" cy="368.6" r="3.2" fill="#898781" fill-opacity="0.75"/>
+</g>
+<g><title>Pi 1.0.4: median 175</title>
+<line x1="288.4" y1="363.0" x2="288.4" y2="391.0" stroke="#ffffff" stroke-width="2" stroke-linecap="round"/>
+</g>
+<text x="593.0" y="381.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">median 175 · n 22</text>
+<text x="157.4" y="416.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">10</text>
+<text x="262.8" y="416.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">100</text>
+<text x="368.2" y="416.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">1,000</text>
+<text x="473.6" y="416.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">10,000</text>
+<text x="579.0" y="416.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">100,000</text>
+<line x1="157.4" y1="400.0" x2="579.0" y2="400.0" stroke="#383835" stroke-width="1"/>
+<text x="368.2" y="434.0" font-size="12" fill="#c3c2b7" text-anchor="middle">ms per tool call (log scale)</text>
+</svg>

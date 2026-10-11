@@ -28,10 +28,12 @@ test('the index lists every report, and every report is in the index', () => {
   assert.equal(tb2.suite, 'terminal-bench')
   assert.match(tb2.headline, /Claude Code 81\.5%/)
   // Newest first, the index's own order inside a day; a report the index lacks still lists, from its name.
-  const list = runs([...mds, '2026-10-09-gate-bench-new-one', 'README'], index, new Map([['2026-10-09-gate-bench-new-one', 'A new one']]))
+  // The unindexed one is dated after every real report, so it lists first whatever the newest report is.
+  const list = runs([...mds, '2099-12-31-gate-bench-new-one', 'README'], index, new Map([['2099-12-31-gate-bench-new-one', 'A new one']]))
   assert.equal(list.length, mds.length + 1)
-  assert.deepEqual(list[0], { name: '2026-10-09-gate-bench-new-one', date: '2026-10-09', suite: 'gate-bench', title: 'A new one', indexed: false })
-  assert.equal(list[1].name, index[0].name)
+  assert.deepEqual(list[0], { name: '2099-12-31-gate-bench-new-one', date: '2099-12-31', suite: 'gate-bench', title: 'A new one', indexed: false })
+  const newest = index.reduce((a, r) => (r.date > a.date ? r : a))
+  assert.equal(list[1].name, newest.name)
   for (let i = 1; i < list.length; i++) assert.ok(list[i - 1].date >= list[i].date)
 })
 

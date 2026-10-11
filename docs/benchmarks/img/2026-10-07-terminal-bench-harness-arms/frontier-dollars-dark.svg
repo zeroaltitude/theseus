@@ -1,0 +1,101 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="483" viewBox="0 0 720 483" role="img" aria-labelledby="t-frontier-dollars t-frontier-dollars-d" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
+<title id="t-frontier-dollars">Pass rate against dollars a trial, each arm</title>
+<desc id="t-frontier-dollars-d">Which harnesses are on the frontier of solving more for less?</desc>
+<rect width="720" height="483" rx="8" fill="#1a1a19" stroke="#2c2c2a"/>
+<text x="18.0" y="32.0" font-size="15" fill="#ffffff" font-weight="600">Pass rate against dollars a trial, each arm</text>
+<circle cx="25.0" cy="50.0" r="5" fill="#3987e5"/>
+<text x="40.0" y="54.0" font-size="12" fill="#c3c2b7">Theseus</text>
+<circle cx="115.5" cy="50.0" r="5" fill="#d95926"/>
+<text x="130.5" y="54.0" font-size="12" fill="#c3c2b7">Claude Code</text>
+<circle cx="233.3" cy="50.0" r="5" fill="#898781"/>
+<text x="248.3" y="54.0" font-size="12" fill="#c3c2b7">other arm</text>
+<circle cx="331.8" cy="50.0" r="5" fill="#c98500"/>
+<text x="346.8" y="54.0" font-size="12" fill="#c3c2b7">OpenClaw</text>
+<circle cx="25.0" cy="70.0" r="4.5" fill="#1a1a19" stroke="#c3c2b7" stroke-width="1.6"/>
+<text x="40.0" y="74.0" font-size="12" fill="#c3c2b7">on the Pareto front (none does better on both)</text>
+<line x1="59.1" y1="404.0" x2="692.0" y2="404.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="53.1" y="408.0" font-size="11" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">0%</text>
+<line x1="59.1" y1="344.0" x2="692.0" y2="344.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="53.1" y="348.0" font-size="11" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">20%</text>
+<line x1="59.1" y1="284.0" x2="692.0" y2="284.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="53.1" y="288.0" font-size="11" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">40%</text>
+<line x1="59.1" y1="224.0" x2="692.0" y2="224.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="53.1" y="228.0" font-size="11" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">60%</text>
+<line x1="59.1" y1="164.0" x2="692.0" y2="164.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="53.1" y="168.0" font-size="11" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">80%</text>
+<line x1="59.1" y1="104.0" x2="692.0" y2="104.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="53.1" y="108.0" font-size="11" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">100%</text>
+<text x="59.1" y="96.0" font-size="11" fill="#c3c2b7">share of trials solved</text>
+<line x1="59.1" y1="104.0" x2="59.1" y2="404.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="59.1" y="420.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">$0.00</text>
+<line x1="217.4" y1="104.0" x2="217.4" y2="404.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="217.4" y="420.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">$0.20</text>
+<line x1="375.6" y1="104.0" x2="375.6" y2="404.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="375.6" y="420.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">$0.40</text>
+<line x1="533.8" y1="104.0" x2="533.8" y2="404.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="533.8" y="420.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">$0.60</text>
+<line x1="692.0" y1="104.0" x2="692.0" y2="404.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="692.0" y="420.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">$0.80</text>
+<line x1="59.1" y1="404.0" x2="692.0" y2="404.0" stroke="#383835" stroke-width="1"/>
+<text x="375.6" y="438.0" font-size="12" fill="#c3c2b7" text-anchor="middle">dollars a trial (mean, list prices)</text>
+<path d="M73.1,339.7H179.8V136.1" fill="none" stroke="#c3c2b7" stroke-width="1.25"/>
+<g><title>Theseus: 71.4% at $0.36</title>
+<line x1="212.9" y1="189.7" x2="504.0" y2="189.7" stroke="#3987e5" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="346.7" y1="245.2" x2="346.7" y2="149.8" stroke="#3987e5" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="346.7" cy="189.7" r="12" fill="transparent"/>
+<circle cx="346.7" cy="189.7" r="6" fill="#3987e5" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<g><title>Claude Code 2.1.290: 82.1% at $0.21</title>
+<line x1="157.8" y1="157.6" x2="303.4" y2="157.6" stroke="#d95926" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="226.6" y1="210.8" x2="226.6" y2="127.6" stroke="#d95926" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="226.6" cy="157.6" r="12" fill="transparent"/>
+<circle cx="226.6" cy="157.6" r="6" fill="#d95926" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<g><title>OpenCode 1.18.35: 89.3% at $0.16</title>
+<line x1="123.4" y1="136.1" x2="255.5" y2="136.1" stroke="#898781" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="185.3" y1="185.6" x2="185.3" y2="115.1" stroke="#898781" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="185.3" cy="136.1" r="12" fill="transparent"/>
+<circle cx="185.3" cy="136.1" r="6" fill="#898781" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<g><title>OpenHands 1.53.0: 85.7% at $0.20</title>
+<line x1="159.0" y1="146.9" x2="290.2" y2="146.9" stroke="#898781" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="220.5" y1="198.5" x2="220.5" y2="121.1" stroke="#898781" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="220.5" cy="146.9" r="12" fill="transparent"/>
+<circle cx="220.5" cy="146.9" r="6" fill="#898781" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<g><title>OpenClaw 2026.9.8: 82.1% at $0.45</title>
+<line x1="251.3" y1="157.6" x2="602.8" y2="157.6" stroke="#c98500" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="414.0" y1="210.8" x2="414.0" y2="127.6" stroke="#c98500" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="414.0" cy="157.6" r="12" fill="transparent"/>
+<circle cx="414.0" cy="157.6" r="6" fill="#c98500" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<g><title>Codex CLI 0.161.0: 82.1% at $0.45</title>
+<line x1="325.9" y1="157.6" x2="532.4" y2="157.6" stroke="#898781" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="414.3" y1="210.8" x2="414.3" y2="127.6" stroke="#898781" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="414.3" cy="157.6" r="12" fill="transparent"/>
+<circle cx="414.3" cy="157.6" r="6" fill="#898781" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<g><title>Aider 0.86.2: 21.4% at $0.018</title>
+<line x1="69.0" y1="339.7" x2="78.6" y2="339.7" stroke="#898781" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="73.1" y1="373.4" x2="73.1" y2="285.4" stroke="#898781" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="73.1" cy="339.7" r="12" fill="transparent"/>
+<circle cx="73.1" cy="339.7" r="6" fill="#898781" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<circle cx="73.1" cy="339.7" r="10" fill="none" stroke="#c3c2b7" stroke-width="1.25"/>
+<g><title>Pi 1.0.4: 89.3% at $0.15</title>
+<line x1="119.4" y1="136.1" x2="254.1" y2="136.1" stroke="#898781" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="179.8" y1="185.6" x2="179.8" y2="115.1" stroke="#898781" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="179.8" cy="136.1" r="12" fill="transparent"/>
+<circle cx="179.8" cy="136.1" r="6" fill="#898781" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<circle cx="179.8" cy="136.1" r="10" fill="none" stroke="#c3c2b7" stroke-width="1.25"/>
+<text x="356.7" y="181.7" font-size="11" fill="#ffffff" stroke="#1a1a19" stroke-width="3" stroke-linejoin="round" paint-order="stroke">Theseus</text>
+<text x="236.6" y="149.6" font-size="11" fill="#ffffff" stroke="#1a1a19" stroke-width="3" stroke-linejoin="round" paint-order="stroke">Claude Code 2.1.290</text>
+<text x="195.3" y="128.1" font-size="11" fill="#ffffff" stroke="#1a1a19" stroke-width="3" stroke-linejoin="round" paint-order="stroke">OpenCode 1.18.35</text>
+<text x="230.5" y="138.9" font-size="11" fill="#ffffff" stroke="#1a1a19" stroke-width="3" stroke-linejoin="round" paint-order="stroke">OpenHands 1.53.0</text>
+<text x="424.0" y="149.6" font-size="11" fill="#ffffff" stroke="#1a1a19" stroke-width="3" stroke-linejoin="round" paint-order="stroke">OpenClaw 2026.9.8</text>
+<text x="424.3" y="149.6" font-size="11" fill="#ffffff" stroke="#1a1a19" stroke-width="3" stroke-linejoin="round" paint-order="stroke">Codex CLI 0.161.0</text>
+<text x="83.1" y="331.7" font-size="11" fill="#ffffff" stroke="#1a1a19" stroke-width="3" stroke-linejoin="round" paint-order="stroke">Aider 0.86.2</text>
+<text x="189.8" y="128.1" font-size="11" fill="#ffffff" stroke="#1a1a19" stroke-width="3" stroke-linejoin="round" paint-order="stroke">Pi 1.0.4</text>
+<text x="18.0" y="460.0" font-size="11" fill="#c3c2b7">Means with their 95% intervals (bootstrap; the range under ten trials).</text>
+</svg>
