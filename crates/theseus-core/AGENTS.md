@@ -626,8 +626,12 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     The whole answer wins whenever it arrives within the deadline; past it (or when the vector search fails), the
     words' hits rank and pack as usual, the row's `outcome` is `words_only` (`recall::WORDS_ONLY`) with `why` and
     `skipped.vector`. Never past the deadline. Health's memory block counts the last 50 recalls by outcome and the
-    last whole answer's time (`recall/outcomes.rs`, in memory since the start; `MemoryHealth.recalls`), and
-    `theseus.recall.index_ms` times each recall's wait by outcome. Tests: `tests_recall_words.rs`.
+    last whole answer's time (`recall/outcomes.rs`, in memory since the start; `MemoryHealth.recalls`), and again
+    by what the answer held (theseus-y9a3, `RecallManifest::answered`, read from the row: `vectors`, `words`
+    alone, or `empty`; a `ran` whose vector source the model's load skipped held words alone), and
+    `theseus.recall.index_ms` times each recall's wait by outcome. Tests: `tests_recall_words.rs`,
+    `tests_recall_deadline.rs`. The words answer in time only if the tender answers queries at the daemon's
+    priority, not its background one (`theseus-index`'s `priority.rs`).
     Since theseus-zo1y the vector source embeds the turn's new text alone (`RecallQuery.vector`, from `query_of`),
     a short turn's (`SHORT_WORDS`, 3 words or fewer: "yes") with the previous reply's last lines after it
     (`short_context`, 120 characters), so it is not near noise;
