@@ -11,7 +11,14 @@
 //! `theseus-sim fake-model --rules <file>` (`FakeModel::start_rules_on`, 37b)
 //! serves a scripted stand-in for a scratch daemon's live check: each turn's
 //! last user text is matched against the rules, in order, and the first that
-//! it holds asks for its tool calls or answers its text.
+//! it holds asks for its tool calls or answers its text. A rule with
+//! `repeat` keeps one turn going (theseus-3ki0): while the request still
+//! holds its `when` anywhere (a pinned instruction does), each call that
+//! carries a tool result asks for its calls again, `{n}` in their input's
+//! strings the count so far, until it has asked `repeat` times; then it
+//! answers its text. Its answers count the request's input at a token for
+//! each three bytes, so a long turn's estimate nears the window as a real
+//! one does.
 
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
@@ -59,6 +66,10 @@ pub struct Rule {
     pub text: Option<String>,
     #[serde(default)]
     pub hold_ms: u64,
+    /// Ask for `calls` this many times in one turn (theseus-3ki0): see the
+    /// module's doc. 0, the default: once, and a tool result is `Done.`.
+    #[serde(default)]
+    pub repeat: u64,
 }
 
 /// A tool call a rule asks for: the tool's wire name (`task_create`) and its
@@ -144,14 +155,14 @@ fn answer(mut stream: TcpStream, script: &Script) -> Result<()> {
     let mut body = vec![0; len];
     r.read_exact(&mut body)?;
     let req: Value = serde_json::from_slice(&body).context("request body")?;
-    let events = match (script, carries_tool_result(&req)) {
+    let mut events = match (script, carries_tool_result(&req)) {
         (Script::Job(_), true) => text_turn("Started; it runs in the background."),
         (Script::Mixed(_), true) => text_turn("The tool ran."),
         (Script::Job(argv), false) => tool_turn(argv),
         (Script::Mixed(_), false) if asks_for(&req, BATCH_MARK) => batch_turn(),
         (Script::Mixed(argv), false) if asks_for(&req, TOOL_MARK) => tool_turn(argv),
         (Script::Mixed(_), false) => text_turn("A plain answer from the stand-in model."),
-        (Script::Rules(_), true) => text_turn("Done."),
+        (Script::Rules(rules), true) => repeated_turn(rules, &req),
         (Script::Rules(rules), false) => {
             let text = last_user_text(&req);
             let hold = rules.iter().find(|r| text.contains(&r.when));
@@ -161,6 +172,12 @@ fn answer(mut stream: TcpStream, script: &Script) -> Result<()> {
             ruled_turn(rules, &text)
         }
     };
+    // A ruled stand-in counts its input about as the API would, a token for
+    // each three bytes, so the compiler's estimate, which reads the
+    // provider's count, sees the request's real size (theseus-3ki0).
+    if let (Script::Rules(_), Some(e)) = (script, events.first_mut()) {
+        e["message"]["usage"]["input_tokens"] = json!(len / 3);
+    }
     let mut out = String::from(
         "HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\ncache-control: no-cache\r\nconnection: close\r\n\r\n",
     );
@@ -229,9 +246,67 @@ pub fn last_user_text(req: &Value) -> String {
 /// a plain answer.
 pub fn ruled_turn(rules: &[Rule], text: &str) -> Vec<Value> {
     match rules.iter().find(|r| text.contains(&r.when)) {
+        Some(r) if !r.calls.is_empty() && r.repeat > 0 => ask_again(r),
         Some(r) if !r.calls.is_empty() => calls_turn(&r.calls),
         Some(r) => text_turn(r.text.as_deref().unwrap_or("Done.")),
         None => text_turn("A plain answer from the stand-in model."),
+    }
+}
+
+/// A turn that carries a tool result, under rules: the first `repeat` rule
+/// whose `when` the request holds asks for its calls again, `{n}` its count,
+/// until it has asked `repeat` times, then answers its text; with none,
+/// `Done.`. The count is the stand-in's, kept for its life (one run).
+pub fn repeated_turn(rules: &[Rule], req: &Value) -> Vec<Value> {
+    let whole = req["messages"].to_string();
+    let Some(r) = rules
+        .iter()
+        .find(|r| r.repeat > 0 && !r.calls.is_empty() && whole.contains(&r.when))
+    else {
+        return text_turn("Done.");
+    };
+    ask_again(r)
+}
+
+/// A `repeat` rule's next answer: its calls, numbered by how many times it
+/// has asked, or its text once it has asked `repeat` times.
+fn ask_again(r: &Rule) -> Vec<Value> {
+    static ASKED: std::sync::Mutex<Vec<(String, u64)>> = std::sync::Mutex::new(Vec::new());
+    let n = {
+        let mut asked = ASKED.lock().unwrap_or_else(|e| e.into_inner());
+        let i = match asked.iter().position(|(w, _)| *w == r.when) {
+            Some(i) => i,
+            None => {
+                asked.push((r.when.clone(), 0));
+                asked.len() - 1
+            }
+        };
+        asked[i].1 += 1;
+        asked[i].1 - 1
+    };
+    if n >= r.repeat {
+        return text_turn(r.text.as_deref().unwrap_or("Done."));
+    }
+    let calls: Vec<Call> = r
+        .calls
+        .iter()
+        .map(|c| Call {
+            name: c.name.clone(),
+            input: numbered(&c.input, n),
+        })
+        .collect();
+    calls_turn(&calls)
+}
+
+/// `v` with `{n}` in its strings replaced by `n`, zero-padded to three.
+fn numbered(v: &Value, n: u64) -> Value {
+    match v {
+        Value::String(s) => Value::String(s.replace("{n}", &format!("{n:03}"))),
+        Value::Array(a) => Value::Array(a.iter().map(|x| numbered(x, n)).collect()),
+        Value::Object(o) => {
+            Value::Object(o.iter().map(|(k, x)| (k.clone(), numbered(x, n))).collect())
+        }
+        other => other.clone(),
     }
 }
 
@@ -357,6 +432,35 @@ mod tests {
             "A plain answer from the stand-in model."
         );
         assert!(serde_json::from_value::<Vec<Rule>>(json!([{"when": "x", "cals": []}])).is_err());
+    }
+
+    /// A `repeat` rule keeps its turn going: each tool result asks again,
+    /// numbered, while the request holds its `when`, then its text; a
+    /// request without it is `Done.` (theseus-3ki0).
+    #[test]
+    fn a_repeat_rule_asks_again_until_its_count_then_answers() {
+        let rules: Vec<Rule> = serde_json::from_value(json!([
+            {"when": "read the keeper logs", "repeat": 2, "text": "All read.",
+             "calls": [{"name": "fs_read", "input": {"path": "logs/keeper-{n}.txt"}}]}
+        ]))
+        .unwrap();
+        let req = json!({"messages": [
+            {"role": "user", "content": [{"type": "text", "text": "read the keeper logs"}]},
+            {"role": "assistant", "content": [{"type": "tool_use", "id": "t", "name": "fs_read", "input": {}}]},
+            {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "t", "content": "x"}]},
+        ]});
+        let input = |v: &[Value]| -> Value {
+            serde_json::from_str(v[2]["delta"]["partial_json"].as_str().unwrap()).unwrap()
+        };
+        let first = ruled_turn(&rules, "read the keeper logs");
+        assert_eq!(input(&first)["path"], "logs/keeper-000.txt");
+        assert_eq!(
+            input(&repeated_turn(&rules, &req))["path"],
+            "logs/keeper-001.txt"
+        );
+        assert_eq!(repeated_turn(&rules, &req)[2]["delta"]["text"], "All read.");
+        let other = json!({"messages": [{"role": "user", "content": "hello"}]});
+        assert_eq!(repeated_turn(&rules, &other)[2]["delta"]["text"], "Done.");
     }
 
     /// A rule's `hold_ms` holds its answer that long, and holds no other

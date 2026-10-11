@@ -50,6 +50,10 @@ pub const SUMMARY_MAX_TOKENS: u32 = 4096;
 /// result is cut, and says how much it left out.
 const NODE_CHARS: usize = 6_000;
 
+/// The least a node's cut may be when a long range is read shorter to fit
+/// the summary model's window (theseus-3ki0).
+const MIN_NODE_CHARS: usize = 400;
+
 /// The summary call's instructions.
 const INSTRUCTIONS: &str = "You summarize the earlier part of a conversation between an operator \
 and Theseus, a coding and operations agent, so the agent can go on without it. Keep what the \
@@ -273,12 +277,24 @@ impl TurnRunner {
                 n(limit)
             )));
         }
-        let request = request_for(&target, price.thinking, &range);
-        let est = compiler::estimate(&request, price.bytes_per_token, None);
+        let ask = |cut| request_for((&target.model, max_tokens), price.thinking, &range, cut);
+        let mut request = ask(NODE_CHARS);
+        let mut est = compiler::estimate(&request, price.bytes_per_token, None);
         let room = price
             .context_window
             .saturating_sub(u64::from(max_tokens))
             .saturating_sub(4_096);
+        // A long turn's range can pass the window read at the usual cut
+        // (theseus-3ki0: 284 messages came to 128,249 tokens against 93,904):
+        // each node is cut shorter, in proportion, to a floor.
+        let mut cut = NODE_CHARS;
+        for _ in 0..4 {
+            let Some(c) = shorter_cut(cut, est.upper, room) else {
+                break;
+            };
+            (cut, request) = (c, ask(c));
+            est = compiler::estimate(&request, price.bytes_per_token, None);
+        }
         if est.upper > room {
             return Err(fail(format!(
                 "the range comes to {} tokens, past what {}'s window leaves ({})",
@@ -740,7 +756,12 @@ fn summary_drops(ring: &Compiled, done: &Done) -> Vec<BudgetDrop> {
 /// The summary call's request: the instructions, then the range as text,
 /// a folded summary first. No tools, and no thinking unless the model
 /// cannot turn it off.
-fn request_for(target: &Target, thinking: ThinkingMode, range: &Range<'_>) -> ProviderRequest {
+fn request_for(
+    (model, max_tokens): (&str, u32),
+    thinking: ThinkingMode,
+    range: &Range<'_>,
+    node_chars: usize,
+) -> ProviderRequest {
     let mut text = String::new();
     if let Some(Body::Summary {
         header, text: t, ..
@@ -751,7 +772,7 @@ fn request_for(target: &Target, thinking: ThinkingMode, range: &Range<'_>) -> Pr
         ));
     }
     for (_, n) in &range.nodes {
-        if let Some(line) = line_of(n) {
+        if let Some(line) = line_of(n, node_chars) {
             text.push_str(&line);
             text.push_str("\n\n");
         }
@@ -769,8 +790,8 @@ fn request_for(target: &Target, thinking: ThinkingMode, range: &Range<'_>) -> Pr
         false => INSTRUCTIONS.to_string(),
     };
     ProviderRequest {
-        model: target.model.clone(),
-        max_tokens: target.max_tokens.min(SUMMARY_MAX_TOKENS),
+        model: model.to_string(),
+        max_tokens,
         system: vec![json!({"type": "text", "text": system})],
         messages: vec![json!({"role": "user", "content": [{"type": "text", "text": content}]})],
         tools: Vec::new(),
@@ -784,8 +805,17 @@ fn request_for(target: &Target, thinking: ThinkingMode, range: &Range<'_>) -> Pr
     }
 }
 
-/// One node as the summary call reads it, cut at `NODE_CHARS`.
-fn line_of(n: &Node) -> Option<String> {
+/// The shorter cut a range read at `cut` needs to fit `room`, when its
+/// estimate's bound `upper` passes it: in proportion, with a tenth to spare
+/// (each node's header does not shrink, so a few rounds may be needed);
+/// none under `MIN_NODE_CHARS`, where the ring runs instead.
+fn shorter_cut(cut: usize, upper: u64, room: u64) -> Option<usize> {
+    let next = (cut as u64 * room * 9 / 10 / upper.max(1)) as usize;
+    (upper > room && next >= MIN_NODE_CHARS).then_some(next)
+}
+
+/// One node as the summary call reads it, cut at `cut_at` characters.
+fn line_of(n: &Node, cut_at: usize) -> Option<String> {
     let (who, body) = match &n.body {
         Body::UserMessage { text, attachments } => (
             n.author.clone().unwrap_or_else(|| "operator".into()),
@@ -814,9 +844,9 @@ fn line_of(n: &Node) -> Option<String> {
         _ => return None,
     };
     let chars = body.chars().count();
-    let body = if chars > NODE_CHARS {
-        let cut: String = body.chars().take(NODE_CHARS).collect();
-        format!("{cut}\n[… {} more characters left out]", chars - NODE_CHARS)
+    let body = if chars > cut_at {
+        let cut: String = body.chars().take(cut_at).collect();
+        format!("{cut}\n[… {} more characters left out]", chars - cut_at)
     } else {
         body
     };
@@ -826,6 +856,81 @@ fn line_of(n: &Node) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A long turn's range (theseus-3ki0), read at the usual cut, passes
+    /// the window; read at the shorter cut it fits, every node still in it.
+    #[test]
+    fn a_range_past_the_window_is_read_shorter_to_fit() {
+        let nodes: Vec<Node> = (0..300)
+            .map(|k| {
+                let mut n = Node::user("ses_1", Some("turn_1"), "cli", "x");
+                n.body = Body::ToolResult {
+                    tool_use_id: format!("t{k}"),
+                    tool: "fs.read".into(),
+                    status: crate::node::ResultStatus::Ok,
+                    is_error: false,
+                    content: format!("log {k} ") + &"the tide was logged. ".repeat(250),
+                    correlation_id: None,
+                    bytes_total: 0,
+                    truncated: false,
+                    full_ref: None,
+                    duration_ms: None,
+                    late: false,
+                    meta: json!({}),
+                    image: None,
+                    external: None,
+                };
+                n
+            })
+            .collect();
+        let range = Range {
+            nodes: nodes
+                .iter()
+                .enumerate()
+                .map(|(i, n)| (i as u64 + 2, n))
+                .collect(),
+            recalls: vec![],
+            folded: None,
+        };
+        let rates = crate::catalog::TokenRates::of("claude-sonnet-5-5");
+        let at = |cut| {
+            let q = request_for(
+                ("claude-sonnet-5-5", 4096),
+                ThinkingMode::Adaptive,
+                &range,
+                cut,
+            );
+            (compiler::estimate(&q, rates, None).upper, q)
+        };
+        let room = 93_904;
+        let (whole, mut q) = at(NODE_CHARS);
+        assert!(whole > room, "{whole}");
+        let (mut cut, mut upper, mut rounds) = (NODE_CHARS, whole, 0);
+        while let Some(c) = shorter_cut(cut, upper, room) {
+            (cut, rounds) = (c, rounds + 1);
+            (upper, q) = at(c);
+        }
+        assert!(upper <= room, "{upper} at {cut}");
+        assert!((1..=4).contains(&rounds), "{rounds} rounds");
+        let text = q.messages[0]["content"][0]["text"].as_str().unwrap();
+        assert!(text.contains("log 0 ") && text.contains("log 299 "));
+        assert!(text.contains("more characters left out]"));
+        // The work in progress, told: the range holds no operator message.
+        assert!(q.system[0]["text"]
+            .as_str()
+            .unwrap()
+            .contains("what is left to do"));
+        assert_eq!(
+            shorter_cut(NODE_CHARS, room, room),
+            None,
+            "it fits as it is"
+        );
+        assert_eq!(
+            shorter_cut(NODE_CHARS, room * 100, room),
+            None,
+            "past the floor"
+        );
+    }
 
     /// The range a ring dropped: its messages, to summarize; a recall note
     /// in it, dropped; the floor's summary, folded; nothing kept, nothing

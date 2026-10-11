@@ -70,7 +70,8 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     searched by halves; the instruction (the message and what precedes its first answer) is pinned in every
     candidate, and a summary renders after it (`compaction::summaries_first`, by its range's `first`; `hidden` and
     `outside` keep a node before a summary's range visible). The summary call is told the work in progress
-    (`turn::compaction::IN_TURN`) when its range holds no user message. `[context] working_window_tokens`
+    (`turn::compaction::IN_TURN`) when its range holds no user message, and reads a range past its model's window
+    shorter, each node's cut cut in proportion down to 400 characters (`shorter_cut`), before it gives up for the ring. `[context] working_window_tokens`
     (`config/context.rs`) lowers the window through `window_override` (`TurnRunner::working_window`). The budget
     and its report are `compiler/budget.rs`. Tests:
     `compiler/tests_ring.rs`, `tests_one_turn.rs`.
