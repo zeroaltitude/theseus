@@ -21,13 +21,20 @@
 //! stop behind an input queued for a running turn must not wait for that
 //! turn's model to answer.
 //!
+//! The wait is measured (theseus-klo2's review, finding 7): from the line's
+//! arrival to its lane clearing, as the turn trace root's `lane_us`
+//! (`lane_us()`, read by the turn it starts) and `theseus.rpc.lane.wait` by
+//! method, since a turn's own `arrived` is taken after the lane.
+//!
 //! What it is not: two connections are not ordered against each other (each
 //! has its own lane), requests to two sessions on one connection never wait
 //! for each other (the Discord binding speaks for every channel on one), and
 //! reads never enter it.
 
 use std::collections::VecDeque;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use serde_json::Value;
 use theseus_protocol::method;
@@ -114,6 +121,8 @@ impl Lane {
         Ticket(Applied {
             lane: self.clone(),
             seq,
+            entered: Instant::now(),
+            waited_us: Arc::default(),
         })
     }
 
@@ -159,8 +168,10 @@ pub(super) struct Ticket(Applied);
 
 impl Ticket {
     /// Name the session the request changes, then wait for the earlier ones
-    /// on it. A lone request finds its lane clear and does not yield.
-    pub(super) async fn wait(&self, key: Option<String>) {
+    /// on it. A lone request finds its lane clear and does not yield. How long
+    /// it waited, from its line's arrival (`lane_us()` reads it in the
+    /// request's task).
+    pub(super) async fn wait(&self, key: Option<String>) -> Duration {
         let lane = &self.0.lane;
         let mut moved = lane.moved.subscribe();
         {
@@ -172,9 +183,13 @@ impl Ticket {
         lane.changed();
         while !lane.clear(self.0.seq) {
             if moved.changed().await.is_err() {
-                return;
+                break;
             }
         }
+        let waited = self.0.entered.elapsed();
+        let us = u64::try_from(waited.as_micros()).unwrap_or(u64::MAX);
+        self.0.waited_us.store(us, Ordering::Relaxed);
+        waited
     }
 
     /// The mark the request's own code calls at the point it takes effect.
@@ -195,6 +210,10 @@ impl Drop for Ticket {
 pub(super) struct Applied {
     lane: Arc<Lane>,
     seq: u64,
+    /// When the reader entered it: its line's arrival.
+    entered: Instant,
+    /// Its wait in the lane, once it ended.
+    waited_us: Arc<AtomicU64>,
 }
 
 impl Applied {
@@ -245,6 +264,15 @@ pub(crate) fn reachable() {
 /// written): the next one on its lane may run. Anywhere else, nothing.
 pub(crate) fn applied() {
     let _ = APPLIED.try_with(Applied::mark);
+}
+
+/// How long the ordered request this task serves waited in its lane, in µs,
+/// from its line's arrival; `None` outside one (a driver's continuation, an
+/// unordered method).
+pub(crate) fn lane_us() -> Option<u64> {
+    APPLIED
+        .try_with(|a| a.waited_us.load(Ordering::Relaxed))
+        .ok()
 }
 
 impl Core {

@@ -33,6 +33,8 @@ mod tests_index;
 #[cfg(test)]
 mod tests_judge;
 #[cfg(test)]
+mod tests_lane;
+#[cfg(test)]
 mod tests_recall;
 #[cfg(test)]
 pub(crate) mod tests_resumed;
@@ -254,6 +256,16 @@ impl Telemetry {
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .route_wait(wait, late);
+    }
+
+    /// An ordered request's wait in its connection's lane, from its line's
+    /// arrival (theseus-klo2's review, finding 7), by method.
+    pub fn record_lane_wait(&self, method: &str, wait: Duration) {
+        let Some(s) = self.shared() else { return };
+        s.metrics
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .lane_wait(method, wait);
     }
 
     /// A call a cancel or a stop ended (theseus-qdk5), counted where health

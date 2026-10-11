@@ -270,6 +270,11 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
 - **The protocol server**: `rpc/` (`server.rs` routes each method by name; `methods.rs`; `confirms.rs`), with
   `bus.rs` and `outbound.rs` (one ordered, capped queue per connection; a test may lower the cap a new connection
   takes, `Push::backlog_cap`, so the lag prove overflows it with a few hundred events, theseus-0u6g).
+  `rpc/ordered.rs` (theseus-klo2): one lane per connection, keyed per session, for the methods that change a
+  session (`ORDERED`): each waits for the earlier ones on its session to take effect (`applied()`, at the first
+  frame; a stop at `reachable()`), and reads never wait. The wait, from the line's arrival, is the turn root's
+  `lane_us` (`ordered::lane_us()`) and `theseus.rpc.lane.wait` by method. Tests: `rpc/tests_ordered.rs`,
+  `telemetry/tests_lane.rs`.
 - **Session states** (theseus-emqx): live, quiet or retired, derived when read (`theseus_protocol::sessions::derive`,
   `SessionRecord::state_at`; `session_info` gives every list its state, busy reading live whatever its age), never
   stored as a state: the record keeps only `retired` (superseded or by hand; empty is derived past `[sessions]
