@@ -58,6 +58,8 @@ Key modules: `lib.rs` (the `method`, `notify`, `error_code` tables), `events.rs`
   name becomes a `LedgerKind` on the commit that first writes it (the reader rule), and every such row's data
   carries `what`, `why`, `numbers` and `undo`. `SelfState` is also health's `self_improve` (health's `self` line);
   `BinaryStatus` moved to `health.rs` to make room in lib.rs.
+- `retract.rs` (theseus-2ced): `fact.retract`'s params and result, one `RetractExposure` for each place a node went, and
+  `exposure_kind`, the five kinds in table order.
 - `ts.rs`: the TypeScript export.
 
 ## Invariants

@@ -345,7 +345,7 @@ impl Core {
             // Recall (M6 30a): the pipeline for a query, and a session's recalls.
             method::MEMORY_SEARCH => reply(self.memory_search(parse(params)?).await?),
             method::MEMORY_RECALLS => reply(self.memory_recalls(parse(params)?)?),
-            method::MEMORY_LABEL => route(params, |p| self.rpc_memory_label(p, conn)),
+            method::MEMORY_LABEL | method::FACT_RETRACT => self.rpc_acts(&req.method, params, conn),
             // Jev's judgments (M5 23b): their rows, and one with its state.
             method::JUDGE_LIST | method::JUDGE_GET => self.rpc_reads(&req.method, params),
             // The learning ledger (M5 25c): a label, and the report.

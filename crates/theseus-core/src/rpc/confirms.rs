@@ -821,6 +821,10 @@ pub(crate) enum Act<'a> {
     /// `places::owner_anywhere`), so a job's shell (`from_job`, the
     /// `THESEUS_SESSION` the CLI sends) never counts.
     SelfResume { from_job: Option<&'a str> },
+    /// A node marked wrong (theseus-2ced, `fact.retract`): it labels the node out of
+    /// every recall, writes notes into sessions, and posts a card, so a job's process
+    /// that made it would grade its own memory. `what` names it: `the retraction of msg_…`.
+    Retract { what: &'a str },
 }
 
 impl Act<'_> {
@@ -842,6 +846,7 @@ impl Act<'_> {
             Act::Import { method, .. } => method,
             Act::Session { method, .. } => method,
             Act::SelfResume { .. } => theseus_protocol::method::SELF_RESUME,
+            Act::Retract { .. } => theseus_protocol::method::FACT_RETRACT,
         }
     }
 }

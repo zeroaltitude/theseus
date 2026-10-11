@@ -796,9 +796,10 @@ impl Lane {
                     extra: json!({"place": place}),
                 })
             }
-            // Jev's notices (step 24's notices), the day ceiling's, and the
-            // week's self digest (theseus-pw1q.4): the owner's DM alone.
-            "jev_notice" | "jev_paused" | "spend_ceiling" | "self_digest" => {
+            // Jev's notices (step 24's notices), the day ceiling's, the week's
+            // self digest (theseus-pw1q.4), and a retraction's card of the tasks
+            // to re-run (theseus-2ced): the owner's DM alone.
+            "jev_notice" | "jev_paused" | "spend_ceiling" | "self_digest" | "retraction" => {
                 self.jev_post(a, &body).await
             }
             "jev_labeled" => Ok(self.jev_labeled(&body)),

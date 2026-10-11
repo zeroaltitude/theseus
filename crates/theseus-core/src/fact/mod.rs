@@ -62,6 +62,7 @@ pub mod ontology;
 pub mod people;
 pub mod place;
 pub mod recall;
+pub mod retract;
 pub mod route;
 pub mod rsi;
 pub mod sandbox;
@@ -258,6 +259,8 @@ facts![
     recall::RecallRan<'static>,
     recall::ArmAssigned<'static>,
     recall::Labeled<'static>,
+    retract::Retracted<'static>,
+    retract::Corrected<'static>,
     memory::MemoryLabeled<'static>,
     memory::MemoryGated<'static>,
     memory::MemoryUsed<'static>,

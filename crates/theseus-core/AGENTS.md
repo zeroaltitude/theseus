@@ -758,6 +758,21 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     its writers). The arms' seam: `Memory::science_for(arm)` and `Scene.science`; every arm but `+synthesis`
     leaves the harness session out before the index's top k (`Memory::begin`'s `exclude_sessions`), and the
     pipeline drops a synthesis as `arm` or `unchecked` (`MemoryScience::synthesis`). Tests: `tests_consolidate.rs`.
+- **Retraction** (theseus-2ced; the killer-features plan's R13): `retract.rs`, `fact.retract { node, why }`
+  (`rpc/memory.rs`, `judge_act(Act::Retract)`: the owner, from a private place; `theseus retract`, in the CLI's
+  `OPERATORS`). It writes the `wrong` label through `memory.label`'s own row, then walks `node.reach` to its caps and
+  sorts each exposure (`theseus_protocol::retract::exposure_kind`): a **session** that goes on (a recall copy whose
+  `memory.used` row says used, or says nothing yet: treated as used; a report's relay; the node's own session) gets
+  a correction note, queued in the META record `retract.notes` (`Notes`, on `Memory::corrections`) and written at
+  its next turn by `turn/retract_step.rs` as the harness's own user-role node (`Correction: <gist> was marked wrong
+  on <date>: <why>`), in a frame of its own that also takes it off the queue, so once; a **synthesis** that cites it
+  is labeled `stale` (consolidation leaves a wrong or stale node out of its clusters, so the cluster is proposed
+  again without it); a **task** that used it is named on one `retraction` post to the owner's DM (`jev_post`, never
+  a card per task); a **published copy** is listed and labeled `wrong`; **seen, not used** is listed. All in one
+  frame with the `fact.retracted` row (scope `retract`) that holds the table, so a second retraction answers from
+  it and writes nothing. The answer is shaped for the place the request is run for (`session_id`): a shared place's
+  never shows a private exposure's words. A new ledger row kind and META key, no format bump. Tests:
+  `tests_retract.rs`.
 - **The import** (theseus-0lrr.6, the soul migration): `import/`. An outside pipeline's episode files (JSON Lines,
   format 1: `import/episode.rs`, every field from the format's lists and the hash over Python's canonical JSON, both
   string forms, `py_float`) become **imported sessions**: a `SessionRecord` with `imported` (`ImportedFrom`: tag,
