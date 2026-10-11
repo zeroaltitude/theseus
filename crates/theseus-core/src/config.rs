@@ -295,9 +295,8 @@ pub struct ToolsConfig {
     /// Environment variables `proc.run` passes through from the daemon (nothing else).
     #[serde(default = "default_proc_env")]
     pub proc_env: Vec<String>,
-    /// The most a job's raw output file keeps (theseus-102). Past it the job
-    /// runs on, what it prints is counted and dropped, and its result says
-    /// so. The runtime reads only the file's last 4 MiB.
+    /// The most a job's raw output file keeps (theseus-102). Past it the job runs on, what it prints is counted
+    /// and dropped, and its result says so. The runtime reads only the file's last 4 MiB.
     #[serde(default = "default_job_output_max_bytes")]
     pub job_output_max_bytes: u64,
     /// Each L0 job's cgroup's `pids.max` (theseus-a5nv), where the daemon's
