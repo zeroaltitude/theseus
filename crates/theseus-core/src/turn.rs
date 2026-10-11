@@ -62,6 +62,7 @@ pub(crate) use budget_words::{budget_question, lower_cap, Kept};
 pub(crate) use calls::call_result;
 pub mod compaction;
 mod compile_step;
+mod cut_step;
 mod end_step;
 mod fallback_step;
 mod inbound_step;
@@ -435,6 +436,8 @@ struct Cut {
     out_chars: u64,
     /// The input estimate the call's reservation used.
     est_input: u64,
+    /// What its request held of the provider's cache (theseus-3p36).
+    prefix: cut_step::Prefix,
 }
 
 /// Who stopped the turn `tc` runs, if a `/stop` landed during it (W1): the
@@ -2316,6 +2319,7 @@ impl TurnRunner {
                         sent,
                         out_chars: streamed.load(Ordering::Relaxed),
                         est_input: compiled.est_tokens,
+                        prefix: cut_step::Prefix::of(t.last.as_ref(), compiled),
                     });
                 }
                 if let Some(e) = self.not_sent_for_the_stop().filter(|_| !sent) {
@@ -2823,8 +2827,10 @@ impl TurnRunner {
     /// turn acts on nothing it said, and no answer node is written. The call
     /// is settled as failed at an estimate of what it used, its reservation
     /// released and nothing held unknown: the input estimate its reservation
-    /// used, and its output from the characters streamed (`CHARS_PER_TOKEN`
-    /// to a token), at the model's prices, never more than it reserved. A stop
+    /// used, split as its request was sent (`cut_step`: the previous call's
+    /// cache at the read price, theseus-3p36), and its output from the
+    /// characters streamed (`CHARS_PER_TOKEN` to a token), at the model's
+    /// prices, never more than it reserved. A stop
     /// before anything was sent used nothing. The `provider.cut` row says it is
     /// an estimate; the provider's own usage events, which a dropped stream
     /// loses, would make it exact.
@@ -2838,14 +2844,13 @@ impl TurnRunner {
         i: u32,
     ) -> Called {
         let target = t.target;
-        let usage = if cut.sent {
-            Usage {
-                input_tokens: cut.est_input,
-                output_tokens: cut.out_chars.div_ceil(CHARS_PER_TOKEN),
-                ..Usage::default()
-            }
-        } else {
-            Usage::default()
+        let (usage, split) = match cut.sent {
+            true => cut.prefix.split(cut.est_input),
+            false => (Usage::default(), cut_step::SPLIT_UNCACHED),
+        };
+        let usage = Usage {
+            output_tokens: cut.out_chars.div_ceil(CHARS_PER_TOKEN) * u64::from(cut.sent),
+            ..usage
         };
         let cost = price.cost_micros(&usage).min(action.reserved_micros);
         t.record(&fact::turn::ModelCallFailed {
@@ -2865,7 +2870,9 @@ impl TurnRunner {
             cost_micros: Some(cost),
             detail: Some(json!({"class": "stopped", "by": cut.by, "estimated": true,
                 "input_tokens": usage.input_tokens, "output_tokens": usage.output_tokens,
-                "output_chars": cut.out_chars})),
+                "cache_read_input_tokens": usage.cache_read_input_tokens,
+                "cache_creation_input_tokens": usage.cache_creation_input_tokens,
+                "split": split, "output_chars": cut.out_chars})),
         });
         t.cost = t.cost.map(|c| c + micros_to_usd(cost));
         add_usage(&mut t.usage, &usage);
@@ -2876,6 +2883,7 @@ impl TurnRunner {
             by: &cut.by,
             sent: cut.sent,
             usage: &usage,
+            split,
             output_chars: cut.out_chars,
             cost,
             reserved_micros: action.reserved_micros,

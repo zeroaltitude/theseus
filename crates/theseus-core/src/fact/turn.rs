@@ -1508,6 +1508,9 @@ pub struct ModelCut<'a> {
     pub sent: bool,
     /// The estimated usage, which the settle booked.
     pub usage: &'a theseus_protocol::Usage,
+    /// How its input was split (theseus-3p36): `uncached`, `cache_read`, or
+    /// `cache_read_write` (`turn/cut_step.rs`).
+    pub split: &'a str,
     pub output_chars: u64,
     /// What the settle booked, and what the call reserved.
     pub cost: Micros,
@@ -1532,6 +1535,9 @@ impl Fact for ModelCut<'_> {
             "sent": self.sent,
             "input_tokens": self.usage.input_tokens,
             "output_tokens": self.usage.output_tokens,
+            "cache_read_input_tokens": self.usage.cache_read_input_tokens,
+            "cache_creation_input_tokens": self.usage.cache_creation_input_tokens,
+            "split": self.split,
             "output_chars": self.output_chars,
             "cost_usd": micros_to_usd(self.cost),
             "reserved_usd": micros_to_usd(self.reserved_micros),

@@ -1076,7 +1076,9 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   wake and report nodes. No in-memory field carries it.
 - **A `/stop` cuts the model's stream** (theseus-yey): `Core::stop_execution` signals `TurnRunner::stops`, which only
   wakes `call_model`; the kernel's record of the stop decides. The cut call settles as failed at an estimate (the
-  input its reservation assumed, the output from the characters streamed), never held unknown, and a `provider.cut`
-  row says it is an estimate. A stop that lands after the stream ended keeps the answer and runs none of its calls.
+  input its reservation assumed, split as the request was sent: the turn's previous call's cache at the read price,
+  the rest a write when the request carried the conversation's breakpoint, `turn/cut_step.rs`, theseus-3p36; the
+  output from the characters streamed), capped at its reservation, never held unknown, and a `provider.cut` row says
+  it is an estimate and its `split`. A stop that lands after the stream ended keeps the answer and runs none of its calls.
 - `cargo test -p theseus-core` builds a second copy of every dependency. Use
   `cargo nextest run --workspace -E 'package(theseus-core)'`.
