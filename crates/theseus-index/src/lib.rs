@@ -25,6 +25,7 @@ pub mod engine;
 pub mod entity;
 pub mod extract;
 pub mod fuse;
+pub mod mapped;
 pub mod model;
 pub mod priority;
 pub mod proto;
@@ -94,5 +95,9 @@ mod tests_import;
 mod tests_priority;
 #[cfg(test)]
 mod tests_query;
+#[cfg(test)]
+mod tests_status;
+#[cfg(test)]
+mod tests_weights;
 #[cfg(test)]
 mod vtests;

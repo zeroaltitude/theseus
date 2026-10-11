@@ -24,6 +24,13 @@ stamp?: IndexStamp,
  */
 chunks: number, vectors: number, pending: number, 
 /**
+ * When those counts, and `records`, `dead` and `reembed`, were read
+ * (unix ms). A status that finds the tender's table held (a compaction
+ * rewriting a file, a batch's write) answers the counts it last read,
+ * and never waits for it (theseus-uazd).
+ */
+counted_ms: number, 
+/**
  * Records in the vector files this space answers from, and the dead
  * among them: texts no chunk holds, which answer nothing and go at the
  * next compaction (a quarter of a file dead, a rebuild, a forget).
