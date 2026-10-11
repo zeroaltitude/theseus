@@ -83,11 +83,15 @@ Key modules: `kernel.rs`, `tx.rs`, `locks.rs`, `job.rs`, `cgroup.rs`, `children.
 - `overdraw.rs` (theseus-usei): a spend limit that notifies (`KernelConfig::spend_limit_notify`): a provider
   call's reservation past an unpinned limit (or a task's whose parent's is unpinned) is made, never refused
   (`OverBudget`); every other tool's still is, and so is any call under a pinned limit. `open_task` then carves what
-  the task asked for, up to the parent's whole limit. Tests: `tests_overdraw.rs`.
+  the task asked for, up to the parent's whole limit. At `KernelConfig::spend_hard_multiple` (10) times the limit a
+  provider call whose reservation would pass it is refused anyway, `KernelError::HardStop`, nothing written
+  (theseus-jse4). Tests: `tests_overdraw.rs`.
 - `day_ceiling.rs` (theseus-kp20): the daemon's day ceiling, `[kernel] daily_spend_ceiling_usd` ($200), one counter
   for every model call by the local day of `KernelConfig::zone`, in memory (no store read or write). A provider call's
   reservation holds on it in `plan` and is refused with `KernelError::DayCeiling`, nothing written, past it; its
-  settle spends the real cost (an unknown one its reservation). A settle's change is an `Effect`, applied after its
+  settle spends the real cost (an unknown one its reservation). A refusal stops the day (theseus-l9on): every later
+  hold or fit that day is refused, however small, while the ceiling is no higher than the one it was refused under
+  (`Reached.since` says so). A settle's change is an `Effect`, applied after its
   frame (`day_after`; inside a transaction at its commit, and a failed transaction lets its holds go, `tx.rs`). Only
   `PROVIDER_TOOL` counts: an AWS hand and a task's carve never, and a task's carry to its parent adds nothing. The core
   holds its own calls with `hold_call`/`Hold` (or by amount, `settle_part`), books late costs (`book`), and seeds the

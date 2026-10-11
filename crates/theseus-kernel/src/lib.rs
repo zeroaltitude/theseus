@@ -90,6 +90,7 @@ pub use kernel::{
     TurnEnd, TurnGuard,
 };
 pub use outbox::{Post, Settled, OUTBOX_TOOL};
+pub use overdraw::{default_hard_multiple, HardStop};
 pub use repeat::{Day, Every, Repeat, TimeZone};
 pub use spool::Spool;
 pub use stops::Stop;

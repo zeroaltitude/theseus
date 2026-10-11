@@ -7,6 +7,13 @@
 //! a loop spinning overnight stops. There is no notify mode: at the ceiling a
 //! call is not made.
 //!
+//! **Sticky** (theseus-l9on, settled from a review): once a call is refused
+//! for the day, every later call that day is refused too, even a smaller one
+//! that would fit (a backstop does not let a smaller call slip past), until
+//! local midnight or a higher ceiling (`[kernel] daily_spend_ceiling_usd`,
+//! read at the daemon's next start). A refused turn or task ends; nothing
+//! waits for the day to turn.
+//!
 //! - **One counter, in memory.** Today's day, what today settled and booked
 //!   (`spent`), and what calls in flight hold (`held`), under one small lock,
 //!   read and written by no store. A provider call's reservation holds its
@@ -69,6 +76,9 @@ struct State {
     held_total: Micros,
     /// When the first call was refused today.
     reached_at_ms: Option<u64>,
+    /// The ceiling it was refused under: every call is refused while the
+    /// ceiling is no higher.
+    reached_limit: Micros,
     /// Whether today's notice was taken (or read back at the start).
     noticed: bool,
 }
@@ -85,22 +95,40 @@ pub struct Reached {
     pub turns_at_ms: u64,
     /// Its local time, `2026-10-09 00:00`.
     pub turns_at: String,
+    /// When an earlier call was refused today, which stopped this one
+    /// whatever it needs (the stop is sticky): its local time.
+    pub since: Option<String>,
 }
+
+/// What a refusal says of what comes next, for every refusal's words.
+pub const REFUSAL_ENDS: &str = "a refused turn or task ends, it does not wait for the day to \
+     turn; a higher `[kernel] daily_spend_ceiling_usd` applies at the daemon's next start";
 
 impl std::fmt::Display for Reached {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "today's spend reached the {} daily ceiling ({} spent today, {} held by calls in \
-             flight, and this call needs {}), so the call was not made; the owner can raise \
-             `[kernel] daily_spend_ceiling_usd` or wait until midnight (the day turns at {} \
-             local time)",
-            usd(self.limit),
-            usd(self.spent),
-            usd(self.held),
-            usd(self.needed),
-            self.turns_at
-        )
+        match &self.since {
+            Some(since) => write!(
+                f,
+                "the {} daily ceiling stopped model calls at {} local time today ({} spent \
+                 today), so this call was not made either, and none will be until the day \
+                 turns at {} local time; {REFUSAL_ENDS}",
+                usd(self.limit),
+                since,
+                usd(self.spent),
+                self.turns_at
+            ),
+            None => write!(
+                f,
+                "today's spend reached the {} daily ceiling ({} spent today, {} held by calls \
+                 in flight, and this call needs {}), so the call was not made, and no model \
+                 call will be until the day turns at {} local time; {REFUSAL_ENDS}",
+                usd(self.limit),
+                usd(self.spent),
+                usd(self.held),
+                usd(self.needed),
+                self.turns_at
+            ),
+        }
     }
 }
 
@@ -176,6 +204,7 @@ impl DayCeiling {
         if day != st.day {
             st.spent = 0;
             st.reached_at_ms = None;
+            st.reached_limit = 0;
             st.noticed = false;
             st.day = day;
         }
@@ -183,9 +212,31 @@ impl DayCeiling {
         st.end_ms = end;
     }
 
+    /// Whether the day is stopped under `limit`: a call was refused today
+    /// under a ceiling no lower.
+    fn stopped(st: &State, limit: Micros) -> bool {
+        limit > 0 && st.reached_at_ms.is_some() && limit <= st.reached_limit
+    }
+
+    /// Whether a call of `need` is refused now: the day is stopped, or it
+    /// would pass the ceiling.
+    fn refuses(st: &State, limit: Micros, need: Micros) -> bool {
+        Self::stopped(st, limit)
+            || (limit > 0 && st.spent.saturating_add(st.held_total).saturating_add(need) > limit)
+    }
+
     fn reached(&self, st: &mut State, now_ms: u64, needed: Micros) -> Reached {
-        st.reached_at_ms.get_or_insert(now_ms);
+        let limit = self.limit();
+        let since = match Self::stopped(st, limit) {
+            true => st.reached_at_ms.map(|at| local_time(&self.zone, at)),
+            false => {
+                st.reached_at_ms = Some(now_ms);
+                st.reached_limit = limit;
+                None
+            }
+        };
         Reached {
+            since,
             day: st.day.clone(),
             limit: self.limit(),
             spent: st.spent,
@@ -202,7 +253,7 @@ impl DayCeiling {
         let limit = self.limit();
         let mut st = self.lock();
         self.roll(&mut st, now_ms);
-        if limit > 0 && st.spent.saturating_add(st.held_total).saturating_add(need) > limit {
+        if Self::refuses(&st, limit, need) {
             return Err(self.reached(&mut st, now_ms, need));
         }
         st.held_total = st.held_total.saturating_add(need);
@@ -274,7 +325,7 @@ impl DayCeiling {
         let limit = self.limit();
         let mut st = self.lock();
         self.roll(&mut st, now_ms);
-        if limit > 0 && st.spent.saturating_add(st.held_total).saturating_add(need) > limit {
+        if Self::refuses(&st, limit, need) {
             return Err(self.reached(&mut st, now_ms, need));
         }
         Ok(())
@@ -286,7 +337,9 @@ impl DayCeiling {
         self.roll(&mut st, now_ms);
         st.spent = st.spent.saturating_add(seed.spent);
         if let Some(at) = seed.reached_at_ms {
+            // The start read a row under a ceiling no lower than this one.
             st.reached_at_ms.get_or_insert(at);
+            st.reached_limit = st.reached_limit.max(self.limit());
             st.noticed = true;
         }
     }
@@ -306,12 +359,13 @@ impl DayCeiling {
     pub fn today(&self, now_ms: u64) -> Today {
         let mut st = self.lock();
         self.roll(&mut st, now_ms);
+        let limit = self.limit();
         Today {
             day: st.day.clone(),
-            limit: self.limit(),
+            limit,
             spent: st.spent,
             held: st.held_total,
-            reached_at_ms: st.reached_at_ms,
+            reached_at_ms: st.reached_at_ms.filter(|_| Self::stopped(&st, limit)),
             turns_at_ms: st.end_ms,
             turns_at: local_time(&self.zone, st.end_ms),
         }

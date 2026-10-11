@@ -566,6 +566,10 @@ pub struct KernelSection {
     pub spend_limit_usd: f64,
     #[serde(default, skip_serializing_if = "SpendLimitMode::is_default")]
     pub spend_limit_mode: SpendLimitMode,
+    /// Under notify, the multiple of the limit at which calls stop anyway
+    /// (theseus-jse4); 0 never.
+    #[serde(default = "limits::default_hard_multiple")]
+    pub spend_limit_hard_multiple: u64,
     /// The daemon's day ceiling over every model call (theseus-kp20).
     #[serde(default = "limits::default_daily_ceiling_usd")]
     pub daily_spend_ceiling_usd: f64,
@@ -626,6 +630,7 @@ impl Default for KernelSection {
             admission_stuck_secs: default_admission_stuck_secs(),
             spend_limit_usd: limits::default_spend_limit_usd(),
             spend_limit_mode: SpendLimitMode::default(),
+            spend_limit_hard_multiple: limits::default_hard_multiple(),
             daily_spend_ceiling_usd: limits::default_daily_ceiling_usd(),
             default_budget: None,
             control_reserve: None,
@@ -671,6 +676,7 @@ impl KernelSection {
             fault_after_startup_step: None,
             min_repeat_ms: self.min_repeat_minutes.max(1) * 60_000,
             daily_ceiling_micros: theseus_kernel::usd_to_micros(self.daily_spend_ceiling_usd),
+            spend_hard_multiple: self.spend_limit_hard_multiple,
             // The system's zone.
             ..Default::default()
         }

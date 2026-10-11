@@ -808,6 +808,55 @@ class ClaudeCodeAsyncRun(unittest.TestCase):
 
 
 @unittest.skipIf(not os.environ.get("ASYNC_HARBOR"), "set ASYNC_HARBOR=1 under Harbor's python")
+class TheseusAsyncConfig(unittest.TestCase):
+    def test_the_config_it_uploads_carries_the_day_ceiling(self):
+        """theseus-l9on: the async arm's daemon config, read back as uploaded,
+        sets the day ceiling at twice the trial's limit, or at
+        THESEUS_BENCH_DAY_CEILING's."""
+        import tomllib
+
+        os.environ.setdefault("ANTHROPIC_API_KEY", "sk-invented")
+        import async_agents
+
+        class Uploaded(Exception):
+            pass
+
+        class Env:
+            default_user = None
+
+            async def exec(self, command, **kw):
+                return SimpleNamespace(stdout="/app\n", stderr="", return_code=0)
+
+        def kernel(env):
+            with tempfile.TemporaryDirectory() as d:
+                agent = async_agents.TheseusAsync(logs_dir=Path(d), model_name="anthropic/claude-sonnet-5-5")
+                got = {}
+
+                async def upload(environment, content, remote_path, filename):
+                    got["text"] = content
+                    raise Uploaded
+
+                agent._upload_config_text = upload
+                keys = ("THESEUS_BENCH_SPEND_LIMIT", tb.DAY_CEILING_ENV)
+                saved = {k: os.environ.pop(k, None) for k in keys}
+                os.environ.update(env)
+                try:
+                    with self.assertRaises(Uploaded):
+                        asyncio.run(agent.run("Train the model.", Env(), None))
+                finally:
+                    for k, v in saved.items():
+                        os.environ.pop(k, None)
+                        if v is not None:
+                            os.environ[k] = v
+                return tomllib.loads(got["text"])["kernel"]
+
+        k = kernel({})
+        self.assertEqual((k["spend_limit_usd"], k["daily_spend_ceiling_usd"]), (2.0, 4.0))
+        k = kernel({"THESEUS_BENCH_SPEND_LIMIT": "1.5", tb.DAY_CEILING_ENV: "6"})
+        self.assertEqual((k["spend_limit_usd"], k["daily_spend_ceiling_usd"]), (1.5, 6.0))
+
+
+@unittest.skipIf(not os.environ.get("ASYNC_HARBOR"), "set ASYNC_HARBOR=1 under Harbor's python")
 class Agents(unittest.TestCase):
     def test_both_arms_load_as_harbor_agents(self):
         import async_agents

@@ -57,7 +57,7 @@ pub mod admission;
 mod admit_step;
 #[cfg(test)]
 pub(crate) use admit_step::admit_hook;
-mod budget_step;
+pub(crate) mod budget_step;
 mod budget_words;
 mod calls;
 mod ceiling_step;
@@ -66,6 +66,7 @@ pub(crate) use budget_words::{budget_question, lower_cap, Kept};
 pub(crate) use calls::call_result;
 pub mod compaction;
 mod compile_step;
+mod cut_step;
 mod end_step;
 mod fallback_step;
 mod inbound_step;
@@ -174,6 +175,8 @@ pub struct TurnRunner {
     pub run_compiles: situation::RunCompiles,
     /// Who retries a failed turn: the driver, or a `--stdio` daemon's client.
     pub failed_turns: stdio_step::FailedTurns,
+    /// Each execution's spend at its last check (theseus-jse4).
+    pub(crate) spend_marks: budget_step::SpendMarks,
 }
 
 /// What a `/stop` tells the turn that holds its execution while the model's
@@ -442,6 +445,8 @@ struct Cut {
     out_chars: u64,
     /// The input estimate the call's reservation used.
     est_input: u64,
+    /// What its request held of the provider's cache (theseus-3p36).
+    prefix: cut_step::Prefix,
 }
 
 /// Who stopped the turn `tc` runs, if a `/stop` landed during it (W1): the
@@ -1770,13 +1775,16 @@ impl TurnRunner {
                 retrying = Some(o);
             }
             let said_before = (t.output.len(), t.said.len());
-            let spent_before = Self::spent_before(t);
+            self.spend_checked(t, session)?;
             let on = routed_to.as_deref().unwrap_or(provider);
             let called = self.call_model(t, on, &compiled, i).await;
             if let Some(r) = recall {
                 self.recall_end(t, r).await;
             }
-            let (resp, node) = match called? {
+            let called = called?;
+            // A multiple the call's settle crossed, whatever its outcome (theseus-jse4).
+            self.spend_checked(t, session)?;
+            let (resp, node) = match called {
                 Called::Answered(called) => *called,
                 Called::Failed(failure) => {
                     if self.retry_after(t, &failure, &mut retried).await? {
@@ -1840,7 +1848,6 @@ impl TurnRunner {
                 }
             };
             Self::fallback_answered(t, &resp);
-            self.spend_noticed(t, session, spent_before)?;
             let uses = resp.tool_uses();
             // A call that fit: a later one over the limit asks again.
             t.retry_over_limit = false;
@@ -2246,6 +2253,9 @@ impl TurnRunner {
                 if let Some(KernelError::DayCeiling(r)) = e.downcast_ref::<KernelError>() {
                     return Ok(Called::Failed(self.day_ceiling_failed(t, r)));
                 }
+                if let Some(KernelError::HardStop(h)) = e.downcast_ref::<KernelError>() {
+                    return Ok(Called::Failed(Self::hard_stopped(t, h)));
+                }
                 t.record(&fact::turn::ModelNotPlanned {
                     model: &target.model,
                     error: &e,
@@ -2327,6 +2337,7 @@ impl TurnRunner {
                         sent,
                         out_chars: streamed.load(Ordering::Relaxed),
                         est_input: compiled.est_tokens,
+                        prefix: cut_step::Prefix::of(t.last.as_ref(), compiled),
                     });
                 }
                 if let Some(e) = self.not_sent_for_the_stop().filter(|_| !sent) {
@@ -2835,8 +2846,10 @@ impl TurnRunner {
     /// turn acts on nothing it said, and no answer node is written. The call
     /// is settled as failed at an estimate of what it used, its reservation
     /// released and nothing held unknown: the input estimate its reservation
-    /// used, and its output from the characters streamed (`CHARS_PER_TOKEN`
-    /// to a token), at the model's prices, never more than it reserved. A stop
+    /// used, split as its request was sent (`cut_step`: the previous call's
+    /// cache at the read price, theseus-3p36), and its output from the
+    /// characters streamed (`CHARS_PER_TOKEN` to a token), at the model's
+    /// prices, never more than it reserved. A stop
     /// before anything was sent used nothing. The `provider.cut` row says it is
     /// an estimate; the provider's own usage events, which a dropped stream
     /// loses, would make it exact.
@@ -2850,14 +2863,13 @@ impl TurnRunner {
         i: u32,
     ) -> Called {
         let target = t.target;
-        let usage = if cut.sent {
-            Usage {
-                input_tokens: cut.est_input,
-                output_tokens: cut.out_chars.div_ceil(CHARS_PER_TOKEN),
-                ..Usage::default()
-            }
-        } else {
-            Usage::default()
+        let (usage, split) = match cut.sent {
+            true => cut.prefix.split(cut.est_input),
+            false => (Usage::default(), cut_step::SPLIT_UNCACHED),
+        };
+        let usage = Usage {
+            output_tokens: cut.out_chars.div_ceil(CHARS_PER_TOKEN) * u64::from(cut.sent),
+            ..usage
         };
         let cost = price.cost_micros(&usage).min(action.reserved_micros);
         t.record(&fact::turn::ModelCallFailed {
@@ -2877,7 +2889,9 @@ impl TurnRunner {
             cost_micros: Some(cost),
             detail: Some(json!({"class": "stopped", "by": cut.by, "estimated": true,
                 "input_tokens": usage.input_tokens, "output_tokens": usage.output_tokens,
-                "output_chars": cut.out_chars})),
+                "cache_read_input_tokens": usage.cache_read_input_tokens,
+                "cache_creation_input_tokens": usage.cache_creation_input_tokens,
+                "split": split, "output_chars": cut.out_chars})),
         });
         t.cost = t.cost.map(|c| c + micros_to_usd(cost));
         add_usage(&mut t.usage, &usage);
@@ -2888,6 +2902,7 @@ impl TurnRunner {
             by: &cut.by,
             sent: cut.sent,
             usage: &usage,
+            split,
             output_chars: cut.out_chars,
             cost,
             reserved_micros: action.reserved_micros,

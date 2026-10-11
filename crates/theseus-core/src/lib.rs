@@ -250,6 +250,8 @@ mod tests_memory_arm;
 #[cfg(test)]
 mod tests_memory_lookup;
 #[cfg(test)]
+mod tests_money;
+#[cfg(test)]
 mod tests_notices;
 #[cfg(test)]
 mod tests_one_turn;

@@ -40,8 +40,9 @@ impl TurnRunner {
         // the owner's DM alone, with the day's row.
         let words = match t.tc.class {
             crate::places::PlaceClass::Shared => format!(
-                "the daemon's daily spend ceiling was reached, so the call was not made; \
-                 the day turns at {} local time",
+                "the daemon's daily spend ceiling was reached, so the call was not made, and \
+                 none will be until the day turns at {} local time; this turn ends, it does \
+                 not wait",
                 r.turns_at
             ),
             _ => r.to_string(),

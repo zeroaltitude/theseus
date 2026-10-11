@@ -100,6 +100,12 @@ CC_TOOLS = "Bash,Read,Write,Edit,Glob,Grep"
 # `--thinking` all take.
 EFFORTS = ("low", "medium", "high", "xhigh", "max")
 CC_AUTOCOMPACT_MIN = 100_000
+# The scratch daemon's day ceiling (theseus-l9on), `[kernel]
+# daily_spend_ceiling_usd`: set explicitly, so a run never meets the daemon's
+# default ($200) by surprise, at this many times the run's spend limit unless
+# `--day-ceiling` names one: above the limit, which is what ends a run, and a
+# bound on what the limit does not count (the memory pass, Jev).
+DAY_CEILING_PER_LIMIT = 2.0
 STOP_WAIT = 20.0
 SERVE_WAIT = 60.0
 # A parent Claude Code session's variables, which would make the arm think
@@ -162,10 +168,12 @@ def theseus_config(
     max_loops: int,
     api_base: str | None = None,
     effort: str | None = None,
+    day_ceiling: float | None = None,
 ) -> dict:
     """The scratch daemon's config: the bench profile with the run's lines
     set, then daemon.rs's `config_for` (memory live at the arm; Discord, the
-    web UI and the MCP server off; the index on but for `none`)."""
+    web UI and the MCP server off; the index on but for `none`), and its day
+    ceiling, `day_ceiling` or `DAY_CEILING_PER_LIMIT` times the limit."""
     t = json.loads(json.dumps(base))
     m = model_id(model)
     t.setdefault("model", {}).update({"model": m, "max_loops": max_loops})
@@ -175,6 +183,10 @@ def theseus_config(
         # the one level the run names.
         t["profiles"]["bench"]["effort"] = effort
     t.setdefault("kernel", {})["spend_limit_usd"] = float(spend_limit)
+    ceiling = DAY_CEILING_PER_LIMIT * float(spend_limit) if day_ceiling is None else float(day_ceiling)
+    if not ceiling > 0:
+        raise ValueError(f"the day ceiling must be a dollar amount above zero, not {ceiling}")
+    t["kernel"]["daily_spend_ceiling_usd"] = ceiling
     t.setdefault("tools", {})["projects_dir"] = str(workspace)
     t["memory"] = {**t.get("memory", {}), "mode": "live", "arm": memory_arm}
     t.setdefault("discord", {})["enabled"] = False
@@ -450,6 +462,7 @@ class Theseus:
             max_loops=a.max_loops,
             api_base=a.api_base,
             effort=a.effort,
+            day_ceiling=a.day_ceiling,
         )
         self.cfg.write_text(toml_dumps(cfg))
         self.env = _env_without(("THESEUS_CONFIG", "THESEUS_STATE_DIR", "THESEUS_SOCKET", "THESEUS_SESSION"))
@@ -1028,6 +1041,8 @@ def main(argv: list[str] | None = None) -> int:
     th.add_argument("--bin-dir", default="target/release", help="where theseus, theseusd and theseus-index are")
     th.add_argument("--profile", default=str(PROFILE), help="the base config (the bench profile)")
     th.add_argument("--spend-limit", type=float, default=50.0, help="the run's spend limit, in dollars")
+    th.add_argument("--day-ceiling", type=float, default=None,
+                    help="the daemon's day ceiling, in dollars (default: twice --spend-limit)")
     th.add_argument("--max-loops", type=int, default=40, help="the model calls one turn may make")
     th.add_argument("--api-base", default=None, help="a stand-in model's address (offline checks; pi's too)")
     cc = ap.add_argument_group("claude-code")

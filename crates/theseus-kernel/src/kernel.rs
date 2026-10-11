@@ -69,6 +69,10 @@ pub struct KernelConfig {
     /// The daemon's day ceiling over every model call (theseus-kp20).
     #[serde(default = "default_day_ceiling")]
     pub daily_ceiling_micros: Micros,
+    /// The multiple of a limit that notifies at which its calls stop anyway
+    /// (theseus-jse4, `overdraw.rs`); 0 never.
+    #[serde(default = "crate::overdraw::default_hard_multiple")]
+    pub spend_hard_multiple: u64,
 }
 
 fn default_day_ceiling() -> Micros {
@@ -92,6 +96,7 @@ impl Default for KernelConfig {
             min_repeat_ms: default_min_repeat_ms(),
             zone: jiff::tz::TimeZone::system(),
             daily_ceiling_micros: default_day_ceiling(),
+            spend_hard_multiple: crate::overdraw::default_hard_multiple(),
         }
     }
 }
@@ -171,6 +176,10 @@ pub enum KernelError {
     /// The daemon's day ceiling refused a provider call (theseus-kp20).
     #[error("{0}")]
     DayCeiling(Box<crate::day_ceiling::Reached>),
+    /// A limit that notifies refused a provider call at its hard multiple
+    /// (theseus-jse4): nothing was written.
+    #[error("{0}")]
+    HardStop(Box<crate::overdraw::HardStop>),
 }
 
 /// Refuse a transition that needs the turn `e`'s holder took: `e` must be
@@ -1692,6 +1701,7 @@ impl Kernel {
                 }
                 .into());
             }
+            self.hard_stop(&e, &proposal.tool, reserve_micros)?;
             let id = new_id("rsv");
             if proposal.tool == PROVIDER_TOOL {
                 self.day_hold(&id, reserve_micros)?;

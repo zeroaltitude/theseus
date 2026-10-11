@@ -323,6 +323,10 @@ max_connections = 0
 # (Discord, web UI, or `theseus confirm`) whether to reset its spend to $0 and
 # go on. A limit a place's ceiling or an MCP client names still asks, and so
 # does an AWS hands group. The session's lifetime cost keeps counting either way.
+# spend_limit_hard_multiple bounds a limit that notifies (theseus-jse4): at that
+# many times the limit a session's model call is not made (its reservation would
+# pass it) and the turn ends, saying why; a higher spend_limit_usd or multiple
+# lets it go on from the next start. 0 never stops.
 # daily_spend_ceiling_usd is a backstop, not a budget (theseus-kp20): every
 # model call the daemon makes in a local day (turns, tasks, the judge,
 # consolidation, compaction, learning runs, speech) counts toward it, and once
@@ -333,6 +337,7 @@ admission_ceiling = 8                   # executions that may hold a turn at onc
 admission_stuck_secs = 600              # a waiting turn fails only when no turn was admitted for this long: a queue that moves fails none
 spend_limit_usd = 100.0                 # each session's spend limit in US dollars (theseus-0sg)
 spend_limit_mode = "notify"             # notify | ask: what reaching it does
+spend_limit_hard_multiple = 10          # under notify, calls stop at this many times the limit (0: never)
 daily_spend_ceiling_usd = 200.0         # the whole daemon's model spend per local day: past it no call is made until midnight
 heartbeat_secs = 60                     # reconciler cadence: due wakes, overdue actions, spool drain
 default_deadline_secs = 600             # deadline for an action whose tool declares none

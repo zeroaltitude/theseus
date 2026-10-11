@@ -966,7 +966,11 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   spend past the limit, or a multiple of it (`crossed`), posts one `notice` to the session's place, a
   `budget.reached` row and a narrative line, all in the turn's next frame; `[profiles.*] max_loops_mode = "notify"`
   does the same at `max_loops` and each multiple (`loop.cap_reached`), and the turn goes on. `"ask"` and `"end"`
-  are the old behaviour. Still asking: a pinned limit (a place's ceiling, an MCP client's), an AWS hands group, and
+  are the old behaviour. A multiple is noticed at the check after the settle that crossed it (each loop's start and
+  its call's settle, whatever the call's outcome, against `SpendMarks`, the spend each execution's last check saw, in
+  memory), never skipped to the next. At `[kernel] spend_limit_hard_multiple` (10; 0 never) times the limit the
+  kernel refuses a provider call whose reservation would pass it (`KernelError::HardStop`, `overdraw.rs`), and the
+  turn fails `spend_hard_stop` with the stop's words (theseus-jse4; tests `tests_money.rs`). Still asking: a pinned limit (a place's ceiling, an MCP client's), an AWS hands group, and
   the background day caps. Under notify a task's carve is what it asked for up to the parent's whole limit, and
   speech and transcripts are not refused for the limit. The budget question's words are `turn/budget_words.rs`.
   Tests: `tests_limits_notify.rs`, and the kernel's `tests_overdraw.rs`.
@@ -978,7 +982,10 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   turn's refused call fails it, class `daily_ceiling`, and leaves a harness note the next context reads
   (`turn/ceiling_step.rs`); the judge's day budget holds on it (`ShadowBudget::set_ceiling`), and consolidation, the
   audit, replay, backfill and the learning writer hold through `TurnRunner::day_hold`; compaction's summary is refused
-  through the kernel and the ring runs; speech asks before its call. No mode: it stops. Tests: `tests_day_ceiling.rs`,
+  through the kernel and the ring runs; speech asks before its call. No mode: it stops, and the stop is sticky
+  (theseus-l9on): after a refusal every call that day is refused, however small, until local midnight or a higher
+  ceiling at the next start; the words say a refused turn or task ends (it does not wait). The bench drivers set
+  the ceiling explicitly (bench/harbor's `theseus_bench.day_ceiling`, bench/recall's `--day-ceiling`). Tests: `tests_day_ceiling.rs`,
   and one each in `tests_compaction.rs` and `tests_consolidate.rs`.
 - **The operator's two reads** (step 42a, theseus-ext.7): `rpc/budgets.rs` is `budget.list`, each open execution's
   money from its record (`Kernel::open_executions`), where its limit comes from (`config`, `place`, `carve`, or
@@ -1179,7 +1186,9 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   wake and report nodes. No in-memory field carries it.
 - **A `/stop` cuts the model's stream** (theseus-yey): `Core::stop_execution` signals `TurnRunner::stops`, which only
   wakes `call_model`; the kernel's record of the stop decides. The cut call settles as failed at an estimate (the
-  input its reservation assumed, the output from the characters streamed), never held unknown, and a `provider.cut`
-  row says it is an estimate. A stop that lands after the stream ended keeps the answer and runs none of its calls.
+  input its reservation assumed, split as the request was sent: the turn's previous call's cache at the read price,
+  the rest a write when the request carried the conversation's breakpoint, `turn/cut_step.rs`, theseus-3p36; the
+  output from the characters streamed), capped at its reservation, never held unknown, and a `provider.cut` row says
+  it is an estimate and its `split`. A stop that lands after the stream ended keeps the answer and runs none of its calls.
 - `cargo test -p theseus-core` builds a second copy of every dependency. Use
   `cargo nextest run --workspace -E 'package(theseus-core)'`.

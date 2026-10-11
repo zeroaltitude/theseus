@@ -15,6 +15,7 @@ Standard library only, so the tests (`test_bench.py`) run without Harbor.
 from __future__ import annotations
 
 import json
+import os
 import re
 import shlex
 import tomllib
@@ -56,6 +57,15 @@ RESERVE_STEP_USD = 0.25
 # trial has spent (review of theseus-eo3h; the number is the owner's): one
 # Opus 5.5 call reserves about $2.6 and one Fable 5.1 call about $6.5.
 ROUTED_SPEND_LIMIT_USD = 20.0
+# A trial's daemon's day ceiling (theseus-l9on), `[kernel]
+# daily_spend_ceiling_usd`, set explicitly so a run never meets the daemon's
+# default ($200) by surprise: this many times the trial's spend limit, above
+# it, so the limit (exit 5) is what ends a trial, and the ceiling bounds what
+# the limit does not count (the routed arm's Jev calls) and a daemon whose
+# limit failed. `THESEUS_BENCH_DAY_CEILING` names another; a key of its own,
+# apart from the trial limit.
+DAY_CEILING_PER_LIMIT = 2.0
+DAY_CEILING_ENV = "THESEUS_BENCH_DAY_CEILING"
 
 
 def reservation_usd(model: str) -> float:
@@ -129,15 +139,20 @@ def settings(
     system: str | None = None,
     api_base: str | None = None,
     routed: bool = False,
+    day_ceiling_usd: float | None = None,
 ) -> dict[tuple[str, str], Any]:
     """The `(table, key)` values a trial sets in the profile: the lines it
-    marks "set by the adapter", and the optional system text and API base."""
+    marks "set by the adapter", and the optional system text and API base.
+    The day ceiling is `day_ceiling_usd`, else `day_ceiling`'s."""
     s: dict[tuple[str, str], Any] = {
         ("model", "model"): model,
         ("profiles.bench", "model"): model,
         ("model", "max_loops"): max_loops,
         ("profiles.bench", "max_loops"): max_loops,
         ("kernel", "spend_limit_usd"): float(spend_limit_usd),
+        ("kernel", "daily_spend_ceiling_usd"): float(
+            day_ceiling(spend_limit_usd) if day_ceiling_usd is None else day_ceiling_usd
+        ),
         ("tools", "projects_dir"): workdir,
         ("tools", "proc_sync_secs"): proc_sync_secs,
     }
@@ -150,6 +165,19 @@ def settings(
         for name in ROUTED_PROFILES:
             s[(f"profiles.{name}", "max_loops")] = max_loops
     return s
+
+
+def day_ceiling(spend_limit_usd: float, env: dict[str, str] | None = None) -> float:
+    """A trial's daemon's day ceiling, in dollars: `DAY_CEILING_ENV` from
+    `env` (the process's environment by default) when it names one above
+    zero, else `DAY_CEILING_PER_LIMIT` times the trial's spend limit."""
+    named = (os.environ if env is None else env).get(DAY_CEILING_ENV, "").strip()
+    if named:
+        v = float(named)
+        if not v > 0:
+            raise ValueError(f"{DAY_CEILING_ENV}={named!r} must be a dollar amount above zero")
+        return v
+    return DAY_CEILING_PER_LIMIT * float(spend_limit_usd)
 
 
 def profile_effort(text: str | None = None, path: Path | None = None) -> str | None:
