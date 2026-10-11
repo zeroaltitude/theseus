@@ -305,13 +305,16 @@ class TheRustRule(unittest.TestCase):
         self.assertIn('Value::String(s) => self.json += s.len() as u64', src)
 
     def test_the_margin_the_budget_and_the_ring_are_the_compilers(self):
-        src = self.src("theseus-core/src/compiler.rs")
+        # The compiler's rule lives in compiler.rs and its modules (the request budget in compiler/budget.rs and the
+        # ring's target in compiler/ring.rs since theseus-3ki0): the test reads them all.
+        src = "\n".join(self.src(f"theseus-core/src/{f}")
+                         for f in ("compiler.rs", "compiler/budget.rs", "compiler/ring.rs"))
         m = re.search(r"pub const MARGIN_PERCENT: u64 = (\d+);", src)
         self.assertEqual(int(m.group(1)), tk.MARGIN_PERCENT)
         m = re.search(r"fn request_budget\(w: u64, spec: &RequestSpec\) -> u64 \{\s*w\.saturating_sub\(spec\.max_tokens as "
                       r"u64\)\s*\.saturating_sub\(([\d_]+)\)", src)
         self.assertEqual(int(m.group(1).replace("_", "")), tk.HEADROOM)
-        m = re.search(r"let target = budget \* (\d+) / (\d+);", src)
+        m = re.search(r"let target = (?:r\.)?budget \* (\d+) / (\d+);", src)
         self.assertEqual((int(m.group(1)), int(m.group(2))), tk.RING_TARGET)
         self.assertIn("upper: counted + estimated + (estimated * MARGIN_PERCENT).div_ceil(100),", src)
         self.assertIn("if est.upper > budget || input.overflowed.is_some() {", src)
