@@ -40,10 +40,11 @@ Key modules: `main.rs`, `web.rs`, `install/`. Read by: (a binary).
 - `--one-shot SECS` (with `--stdio`, theseus-mqxk): `theseus --spawn ask` says the daemon serves one run, which
   it follows for at most SECS after its turn; set on the core before serving (`one_shot.rs`). `tests/spawn_follow.rs`
   runs the follow through the real CLI; `tests/continuations.rs` holds the socket daemon unchanged.
-- **Connections** (theseus-7vtp): `serve_socket` raises the soft `RLIMIT_NOFILE` to the hard one before it serves
-  (`theseus_core::conns`, both numbers logged at info), holds socket connections to `[server] max_connections` (0:
-  the limit less 256, at most 8192) by one counter, and tells one past it a protocol error (`-32007`, "the daemon
-  holds N connections, its ceiling; close one and retry") before it closes it. An accept error is logged (one line a
+- **Connections** (theseus-7vtp): `serve_socket` raises the soft `RLIMIT_NOFILE` toward the hard one before it serves
+  (`theseus_core::conns`, at most `SOFT_TARGET`, 65,536, since jobs and terminals inherit it; both numbers logged at
+  info), holds socket connections to `[server] max_connections` (0: the limit less 256, at most 8192) by one counter,
+  and tells one past it a protocol error (`-32007`, "the daemon holds N connections, its ceiling; close one and
+  retry") before it closes it. An accept error is logged (one line a
   second, with a count) and waited 50 ms, never returned: nothing in the loop ends the daemon but a stop. A debug
   build's `THESEUS_TEST_ACCEPT_ERRORS=N` fails the first N accepts. The other accept loops: the web UI's is axum's
   (it logs and sleeps 1 s on an error), the harness's notify socket takes the same rule, and the egress proxy's

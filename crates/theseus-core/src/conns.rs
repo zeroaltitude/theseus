@@ -5,8 +5,8 @@
 //! A connection takes a descriptor, and so does everything else the daemon
 //! holds: the store, a job's pipes, a terminal. Past the soft limit an accept
 //! fails with EMFILE, and a serving loop that returns on that error ends the
-//! daemon (1,017 open connections once did). So the limit is raised to the
-//! hard one at start, a connection past a ceiling below it is answered with
+//! daemon (1,017 open connections once did). So the limit is raised toward
+//! the hard one at start (at most `SOFT_TARGET`), a connection past a ceiling below it is answered with
 //! one protocol error and closed, and an accept error is logged (one line a
 //! second at most) and waited out for 50 ms, never returned.
 
@@ -20,6 +20,12 @@ use theseus_protocol::ConnectionsHealth;
 const RESERVE: u64 = 256;
 /// The derived ceiling never passes this, whatever the limit.
 const DERIVED_CAP: u64 = 8192;
+/// The soft limit is raised no higher than this, however high the hard one
+/// (the owner's is 1,048,576): every job and terminal the daemon starts
+/// inherits it, and a program that walks or `select()`s its descriptors up
+/// to its limit should not meet a million. The unit's `LimitNOFILE` is the
+/// same figure, and the derived ceiling (`DERIVED_CAP`) sits far under it.
+pub const SOFT_TARGET: u64 = 65536;
 /// How long an accept error waits before the next accept.
 pub const ACCEPT_BACKOFF: Duration = Duration::from_millis(50);
 
@@ -47,16 +53,23 @@ pub fn nofile_limits() -> (u64, u64) {
     (r.rlim_cur, r.rlim_max)
 }
 
-/// Raise the soft `RLIMIT_NOFILE` to the hard limit, once, at start. Returns
-/// what it was `(soft, hard)` and what it is now. The kernel caps the soft
-/// limit at `fs.nr_open`, which can sit under an "unlimited" hard one, so a
-/// refused raise tries a step down before it gives up.
+/// What the soft limit is raised to: the hard limit, at most `SOFT_TARGET`;
+/// a soft limit already there or past it stays.
+pub fn raise_target(soft: u64, hard: u64) -> u64 {
+    soft.max(hard.min(SOFT_TARGET))
+}
+
+/// Raise the soft `RLIMIT_NOFILE` toward the hard limit (`raise_target`),
+/// once, at start. Returns what it was `(soft, hard)` and what it is now. The
+/// kernel caps the soft limit at `fs.nr_open`, which can sit under an
+/// "unlimited" hard one, so a refused raise tries a step down before it
+/// gives up.
 pub fn raise_nofile() -> ((u64, u64), u64) {
     let (soft, hard) = nofile_limits();
-    if soft == 0 || soft >= hard {
+    let mut want = raise_target(soft, hard);
+    if soft == 0 || soft >= want {
         return ((soft, hard), soft);
     }
-    let mut want = hard;
     loop {
         let r = libc::rlimit {
             rlim_cur: want,
@@ -293,6 +306,16 @@ mod tests {
         let ((_, _), now) = raise_nofile();
         // Or as far as the kernel allows: never lower than before.
         assert!(now >= 1 && (now == hard || nofile_limits().0 == now));
+    }
+
+    #[test]
+    fn the_raise_stops_at_the_units_figure_however_high_the_hard_limit() {
+        assert_eq!(raise_target(1024, 1_048_576), SOFT_TARGET);
+        assert_eq!(raise_target(1024, u64::MAX), SOFT_TARGET);
+        assert_eq!(raise_target(1024, 4096), 4096);
+        assert_eq!(raise_target(200, 200), 200);
+        // A soft limit set higher by the operator is left as it is.
+        assert_eq!(raise_target(100_000, 1_048_576), 100_000);
     }
 
     #[tokio::test(start_paused = true)]

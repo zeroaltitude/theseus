@@ -1188,7 +1188,7 @@ impl Signals {
     }
 }
 
-/// The soft open-files limit up to the hard one, and the connection ceiling
+/// The soft open-files limit toward the hard one (at most 65,536), and the connection ceiling
 /// under it (theseus-7vtp).
 fn raise_limits(core: &Core) {
     let ((soft, hard), now) = theseus_core::conns::raise_nofile();
