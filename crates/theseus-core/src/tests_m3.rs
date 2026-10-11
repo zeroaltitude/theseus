@@ -1643,6 +1643,7 @@ impl crate::toolrun::JobLauncher for PrintedOnly {
     }
 }
 
+mod earned;
 /// A `/stop` before a turn's admission, and a question's expiry (theseus-hmwv,
 /// theseus-830).
 mod stops_and_expiry;

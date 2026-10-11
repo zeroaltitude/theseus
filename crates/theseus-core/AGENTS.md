@@ -888,6 +888,30 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   - **The layer-1 question's change** (39b): `ConfirmRequest.change` (`tools::change_of`: the task, its title, the
     field, before and after), worded once by `TaskChange::question` for the Discord card, `theseus confirm`, and
     the cockpit.
+- **Earned autonomy** (theseus-uttu, the killer-features plan's row R18): the loosening that comes from the record,
+  proposed and never silent. `policy/earned/find.rs` is a pure function over ledger rows (`tool.confirm_requested`,
+  `action.confirmed`, `action.declined`, `policy.tightened`): `proc.run` approvals go into a trie of their argv's words
+  (the program by base name), and a node is a candidate when the approvals reaching it and no narrower candidate hold at
+  least `[policy.earned] min_approvals` (20) in `window_days` (7), with no decline, no "should have asked", no floor call
+  under it, and each approval asked by the tool's posture alone (`by_posture`: a reason ending `approve (enforcement =`
+  or a `[policy.*]` line; the approve lists, the roots, the hold and a tightening are no evidence); file tools group by
+  tool and workspace root. A prefix is never shorter than the program and one argument, never a shell or a program that
+  runs what it is given, never an interpreter with an inline-code option (`prefix_ok`, asked again of every stored grant).
+  `policy/earned.rs` holds the grants, the groups passed on (90 days; a "should have asked" revoke is for good) and the
+  open card in one META record, `policy.earned`, written with its ledger row in one frame (`policy.earned_proposed`,
+  `_granted`, `_passed`, `_revoked`) as tightenings are, read when the core starts. The gate's step is `earned::gate`
+  in `toolrun/order.rs`, after the call's own policy and before the broker's: a call the tool's posture alone makes wait
+  (`ToolPolicy::posture_only`: nothing the floor, a layer-1 change, the lists or an AWS rule asks), in a private place,
+  with no `env`, for a tool no one tightened, that a grant covers, runs at `notify` (never `open`), its notice's setting
+  `earned grant <id>`; every later layer still raises it. `rpc/earned.rs`: `policy.earned` (the number, the grants, the
+  card; `propose_now` and the answers are `judge_act(Act::Earned)`, the owner from a private place), `policy.earned.answer`,
+  `policy.revoke` (anyone's, as a press is), and the card's tender after serving (`earned_after_serving`, once a day at
+  `[judge] learning_hour`, a card at most every `every_days`, its work on a thread at nice 19). "Should have asked" on a
+  grant's notice (`tighten_by_earned`: the notice's row names the grant) ends the grant and tightens nothing.
+  `policy/earned/measure.rs` is the number: questions per active hour over four weeks, and what the grants would have
+  saved. Not built, with the places they would hook in (beside `earned::gate`): `scoped-grants` (a "don't ask again" from
+  a single answer: a grant with a call's own scope) and M5's Jev decision on the approval ladder (a judgment before the
+  card). Tests: `policy/earned/tests_find.rs`, `tests_measure.rs`, `tests_m3/earned.rs`, the daemon's `tests/earned.rs`.
 - **Parked tasks** (28b; theseus-vug): `parked.rs`, health's `tasks.parked`: each task that cannot progress by itself,
   with its blocker, from the open executions alone (a question counts as progress for 24 hours).
 - **Limits that notify** (theseus-usei; the owner, 2026-10-07: for tasks and tokens, notify, not restrict):

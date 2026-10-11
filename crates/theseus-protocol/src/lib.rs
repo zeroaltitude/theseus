@@ -19,6 +19,7 @@ pub mod check;
 pub mod context;
 mod cost;
 pub mod cred;
+pub mod earned;
 mod events;
 mod explain;
 pub mod extend;
@@ -282,6 +283,8 @@ pub mod method {
         /// Revoke a loaded extension (43b, `extend::ExtensionRevokeParams`). The operator's.
         EXTENSION_REVOKE = "extension.revoke",
         /// Self-improvement (theseus-pw1q; `rsi`): the kill switch, anyone's halt and the owner's resume, the log, the digest.
+        /// Earned autonomy (theseus-uttu, `earned`): the number and the card, the owner's answer, a grant's revoke.
+        POLICY_EARNED = "policy.earned", POLICY_EARNED_ANSWER = "policy.earned.answer", POLICY_REVOKE = "policy.revoke",
         SELF_HALT = "self.halt", SELF_RESUME = "self.resume", SELF_LOG = "self.log", SELF_DIGEST = "self.digest",
     }
 }
@@ -565,6 +568,10 @@ pub struct HealthResult {
     /// (theseus-sgh), oldest first. They are stored, not configured.
     #[serde(default)]
     pub tightenings: Vec<Tightening>,
+    /// Earned grants (theseus-uttu), oldest first: what the owner accepted from the record.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub earned: Option<Vec<earned::EarnedGrant>>,
     /// The wakes conversations set with `wake.at` that have not run yet,
     /// soonest first (DD8).
     #[serde(default)]

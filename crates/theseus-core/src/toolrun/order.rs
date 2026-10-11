@@ -38,6 +38,8 @@ pub(crate) struct At<'a> {
 pub(crate) enum Layer {
     /// The call's own policy: L1's, or L0's floor, lists, and posture.
     Policy,
+    /// An earned grant (theseus-uttu): the owner accepted what the record earned.
+    Earned,
     /// A granted secret's posture (theseus-dcy).
     Grant,
     /// A language server's first start on a root: by an `lsp.*` call (L2),
@@ -78,6 +80,9 @@ impl ToolRuntime {
         let t = tightened.as_ref().map(crate::tighten::as_tightened);
         let (decision, bound) = crate::sandbox::unbrokered(self, tool, plan, input, t);
         seen(Layer::Policy, &decision);
+        let decision =
+            crate::policy::earned::gate(self, at.place.class, tool, plan, input, decision);
+        seen(Layer::Earned, &decision);
         let decision = self.brokered(tool.name(), plan, input, decision);
         seen(Layer::Grant, &decision);
         // A call that starts a language server is a run too (L2).

@@ -30,6 +30,7 @@ mod mcp;
 mod memory;
 mod methods;
 pub(crate) use methods::ledger_tags;
+mod earned;
 mod ontology;
 pub(crate) mod ordered;
 mod packs;
@@ -637,6 +638,10 @@ impl Core {
             .tightened
             .load(&store)
             .context("reading the tool tightenings")?;
+        tools
+            .earned
+            .load(&store)
+            .context("reading the earned grants")?;
         tracing::info!(
             tools = tools.registry.len(),
             not_offered = ?tools.not_offered,

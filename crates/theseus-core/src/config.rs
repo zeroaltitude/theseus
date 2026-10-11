@@ -16,6 +16,7 @@ mod aws;
 pub mod discord;
 mod index;
 pub use index::IndexConfig;
+pub mod earned;
 mod judge;
 mod limits;
 mod lookup;
@@ -529,6 +530,9 @@ pub struct PolicyConfig {
     /// then its class's (`read`), then `enforcement`.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub aws: BTreeMap<String, crate::policy::Posture>,
+    /// `[policy.earned]` (theseus-uttu): the weekly loosening card.
+    #[serde(default)]
+    pub earned: earned::EarnedConfig,
 }
 
 fn argvs(v: &[&[&str]]) -> Vec<Vec<String>> {
@@ -570,6 +574,7 @@ impl Default for PolicyConfig {
             external_text: Default::default(),
             external_programs: default_external_programs(),
             private_addresses: Default::default(),
+            earned: Default::default(),
             aws: BTreeMap::new(),
         }
     }

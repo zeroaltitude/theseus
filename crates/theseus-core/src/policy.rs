@@ -45,6 +45,8 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use theseus_tools::{paths, Access, Plan, Tool};
 
+pub mod earned;
+
 /// What the gate does with a call: `[policy].enforcement` (the posture every
 /// tool and MCP inherits) and each `[policy.tools]` / `[policy.mcp]` override.
 /// A config naming any other value fails to load, and the error lists these.
@@ -414,71 +416,10 @@ impl ToolPolicy {
         tightened: Option<Tightened<'_>>,
     ) -> Decision {
         let name = tool.name();
-        let resources: Vec<PathBuf> = plan
-            .resources
-            .iter()
-            .map(|r| paths::canonical_best_effort(&r.path))
-            .collect();
+        let (resources, nargv, args) = self.view(plan);
         let argv: &[String] = plan.argv.as_deref().unwrap_or(&[]);
-        let nargv = normalized_argv(argv);
-        // A command's resources are only its working directory; its arguments
-        // can name any path, so they are judged too.
-        let args = if argv.is_empty() {
-            vec![]
-        } else {
-            let cwd = plan
-                .resources
-                .iter()
-                .zip(&resources)
-                .find(|(r, _)| r.access == Access::Exec)
-                .map(|(_, p)| p.clone())
-                .or_else(|| self.roots.first().cloned())
-                .unwrap_or_default();
-            path_args(argv, &cwd)
-        };
-
-        // The floor: Theseus's own state and the vault, and an AWS
-        // guardrail (AWS design §3.6), which asks at every posture.
-        let guardrail = plan.aws.as_ref().and_then(|a| a.guardrail.clone());
-        if let Some(what) = self.floor(&resources, &nargv, &args).or(guardrail) {
-            return Decision {
-                floor: true,
-                ..Decision::new(
-                    Posture::Approve,
-                    format!("{}: {name} — approve (floor: {what})", plan.summary),
-                )
-            };
-        }
-        // The operator's authority (39a's layer 1): a task's objective,
-        // acceptance, or abandonment waits for the operator's yes at every
-        // posture, as the floor does.
-        if let Some(what) = &plan.authority {
-            return Decision::new(
-                Posture::Approve,
-                format!("{}: {name} — approve (layer 1: {what})", plan.summary),
-            );
-        }
-        let access: Vec<Access> = plan.resources.iter().map(|r| r.access).collect();
-        if let Some(why) = self.listed(
-            &resources,
-            &access,
-            plan.url.as_deref(),
-            argv,
-            &nargv,
-            &args,
-        ) {
-            return Decision::new(
-                Posture::Approve,
-                format!("{}: {name} — approve ({why})", plan.summary),
-            );
-        }
-        // The approve list's AWS half (§3.9), and an AWS session mint
-        // (theseus-a3s3): whatever `[policy.aws]` or `[policy.tools]` says.
-        if let Some(why) = plan.aws.as_ref().and_then(aws_asks) {
-            return Decision::new(
-                Posture::Approve,
-                format!("{}: {name} — approve ({why})", plan.summary),
-            );
+        if let Some(d) = self.preempted(tool, plan, &resources, &nargv, &args) {
+            return d;
         }
         // The allow list runs a command outright when its path arguments stay
         // inside the roots; otherwise the tool's posture decides.
@@ -518,6 +459,104 @@ impl ToolPolicy {
             },
             Posture::Open => Decision::new(now.posture, reason),
         }
+    }
+
+    /// What the gate reads of a call's plan: its resources made canonical, its
+    /// argv with the program by base name, and the path arguments a command's
+    /// words name (judged as its resources are).
+    fn view(&self, plan: &Plan) -> (Vec<PathBuf>, Vec<String>, Vec<(String, PathBuf)>) {
+        let resources: Vec<PathBuf> = plan
+            .resources
+            .iter()
+            .map(|r| paths::canonical_best_effort(&r.path))
+            .collect();
+        let argv: &[String] = plan.argv.as_deref().unwrap_or(&[]);
+        let nargv = normalized_argv(argv);
+        // A command's resources are only its working directory; its arguments
+        // can name any path, so they are judged too.
+        let args = if argv.is_empty() {
+            vec![]
+        } else {
+            let cwd = plan
+                .resources
+                .iter()
+                .zip(&resources)
+                .find(|(r, _)| r.access == Access::Exec)
+                .map(|(_, p)| p.clone())
+                .or_else(|| self.roots.first().cloned())
+                .unwrap_or_default();
+            path_args(argv, &cwd)
+        };
+
+        (resources, nargv, args)
+    }
+
+    /// The answers that come before the allow list and the posture: the floor,
+    /// a layer-1 change, the approve lists, and an AWS call's own asks. Each
+    /// waits for approval whatever the tool's posture says.
+    fn preempted(
+        &self,
+        tool: &dyn Tool,
+        plan: &Plan,
+        resources: &[PathBuf],
+        nargv: &[String],
+        args: &[(String, PathBuf)],
+    ) -> Option<Decision> {
+        let name = tool.name();
+        let argv: &[String] = plan.argv.as_deref().unwrap_or(&[]);
+        // The floor: Theseus's own state and the vault, and an AWS
+        // guardrail (AWS design §3.6), which asks at every posture.
+        let guardrail = plan.aws.as_ref().and_then(|a| a.guardrail.clone());
+        if let Some(what) = self.floor(resources, nargv, args).or(guardrail) {
+            return Some(Decision {
+                floor: true,
+                ..Decision::new(
+                    Posture::Approve,
+                    format!("{}: {name} — approve (floor: {what})", plan.summary),
+                )
+            });
+        }
+        // The operator's authority (39a's layer 1): a task's objective,
+        // acceptance, or abandonment waits for the operator's yes at every
+        // posture, as the floor does.
+        if let Some(what) = &plan.authority {
+            return Some(Decision::new(
+                Posture::Approve,
+                format!("{}: {name} — approve (layer 1: {what})", plan.summary),
+            ));
+        }
+        let access: Vec<Access> = plan.resources.iter().map(|r| r.access).collect();
+        if let Some(why) = self.listed(resources, &access, plan.url.as_deref(), argv, nargv, args) {
+            return Some(Decision::new(
+                Posture::Approve,
+                format!("{}: {name} — approve ({why})", plan.summary),
+            ));
+        }
+        // The approve list's AWS half (§3.9), and an AWS session mint
+        // (theseus-a3s3): whatever `[policy.aws]` or `[policy.tools]` says.
+        if let Some(why) = plan.aws.as_ref().and_then(aws_asks) {
+            return Some(Decision::new(
+                Posture::Approve,
+                format!("{}: {name} — approve ({why})", plan.summary),
+            ));
+        }
+        None
+    }
+
+    /// Whether only the tool's posture would decide this call: nothing the
+    /// floor, a layer-1 change, the approve lists or an AWS rule asks for
+    /// comes first. An earned grant (`earned`) loosens that alone.
+    pub(crate) fn posture_only(&self, tool: &dyn Tool, plan: &Plan) -> bool {
+        let (resources, nargv, args) = self.view(plan);
+        self.preempted(tool, plan, &resources, &nargv, &args)
+            .is_none()
+    }
+
+    /// Every path argument of a command is inside the roots, as an allow
+    /// entry requires.
+    pub(crate) fn args_within_roots(&self, plan: &Plan) -> bool {
+        let (_, _, args) = self.view(plan);
+        args.iter().all(|(_, p)| self.within_roots(p))
     }
 
     fn within_roots(&self, p: &Path) -> bool {
