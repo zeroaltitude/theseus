@@ -6,7 +6,7 @@
 export type TurnRoute = { 
 /**
  * The mode the route pack answered (`trivial`, `quick` since route.v2,
- * `chat`, `sophisticated`, `deep_coding`, `routine_coding`, `other`),
+ * `chat`, `sophisticated`, `deep_coding`, `routine_coding`, `review`, `other`),
  * when a verdict was read.
  */
 mode?: string, 

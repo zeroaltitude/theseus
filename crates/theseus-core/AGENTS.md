@@ -501,8 +501,8 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     mark's `cut_ms` is where the next run cuts: the run's clock, never past the newest judgment it read, so a clock
     that read ahead closes no open window (theseus-gf8j); a mark without it walks everything once.
     Tests: `tests_learning.rs`, `learning::*::tests`.
-  - **Routing** (step 25e, theseus-0j2.11): the route pack (`judge::inbound::ROUTE_PACK`: `route.v3` since
-    theseus-qe3v, live at once in place of `route.v2` and `route.v1`, which stay embedded) asks at the inbound point in a request of its own, beside
+  - **Routing** (step 25e, theseus-0j2.11): the route pack (`judge::inbound::ROUTE_PACK`: `route.v4` since
+    theseus-p8dy, with a `review` mode, live at once in place of `route.v3`, `route.v2` and `route.v1`, which stay embedded) asks at the inbound point in a request of its own, beside
     the batch of `classify.v1` and `role.v1` (theseus-ddbi: one question answers sooner than the batch), live while
     `[judge]` is on (`[routing]`, `config/routing.rs`, lowers it). Its verdict comes back over a oneshot
     (`RouteWait`, an `Answered` with the time it came) the moment its request answers, and the call waits for a
@@ -531,7 +531,17 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     base is another (the live profile or a place's changed) clears the move (`same_base`). The pane's carried
     profile, when it is the routed one, stands for `from` (`turn_submit`), never a new base. Tests:
     `tests_route.rs`, `tests_route_base.rs`, `routing::tests`, `turn::route_step::tests`.
-    **The effort** (route.v3, theseus-qe3v): `reply_effort` rides the route pack's one request beside `mode`;
+    **Only Jev elevates, and it steps down** (theseus-p8dy): a session Jev moved above its base (`Routed.from`)
+    goes back to it after two verdicts in a row whose mode's first profile is the base or cheaper (`chat`,
+    `routine_coding`, `other`): the first sets a `Hold` of mode `step_down` toward the base, the second makes the
+    switch (`Reason::StepDown`), at any context size; a dearer verdict or one under its bar breaks the row, a detour
+    leaves it, and never below the base (`routing::step_down`). The owner's correction passes no base, so this path
+    never steps it down; a session an owner's correction raised is not told apart from Jev's (no stored field).
+    The dear tier's guard (`[routing] dear_tier_max_tokens`, 200,000): over it, a `sophisticated` or `review`
+    verdict skips a profile whose catalog input price is above the next usable one's (`Reason::ContextGuard`).
+    Tests: `tests_route_down.rs`, `routing::tests`.
+    **The effort** (route.v3, theseus-qe3v; xhigh and max only above `[routing] high_effort_confidence`, 0.70, else
+    `high` with `effort_reason` `held_high`, theseus-p8dy): `reply_effort` rides the route pack's one request beside `mode`;
     `routing/effort.rs` decides, purely: Jev's level over the profile's `effort` unless `effort_fixed`, clamped to
     `[routing] effort_bounds`, only for a model whose catalog row takes effort; below the question's confirm band,
     `unclear`, a pin, shadow, or a late (carried) verdict leave the profile's own. `apply_effort` sets it on the spec

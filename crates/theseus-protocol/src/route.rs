@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 #[cfg_attr(test, derive(ts_rs::TS))]
 pub struct TurnRoute {
     /// The mode the route pack answered (`trivial`, `quick` since route.v2,
-    /// `chat`, `sophisticated`, `deep_coding`, `routine_coding`, `other`),
+    /// `chat`, `sophisticated`, `deep_coding`, `routine_coding`, `review`, `other`),
     /// when a verdict was read.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]

@@ -1,10 +1,10 @@
 //! `[routing]` (M5 step 25e): Jev's model per interaction mode. The route
-//! pack (`route.v3` since theseus-qe3v; `route.v2` and `route.v1` before it)
+//! pack (`route.v4` since theseus-p8dy; `route.v3`, `route.v2` and `route.v1` before it)
 //! asks, at `inbound`, which mode a person's message needs, and the turn runs
 //! on that mode's first usable profile; since route.v3 it also asks the
 //! effort the reply needs, which the turn's model runs at, within
 //! `effort_bounds`. It acts only while `[judge]` is on, and
-//! `mode = "shadow"` (or `[judge.packs."route.v3"] mode = "shadow"`) records
+//! `mode = "shadow"` (or `[judge.packs."route.v4"] mode = "shadow"`) records
 //! the verdict and routes nothing. Every key has a default, so a sparse note
 //! holds only what differs.
 
@@ -122,6 +122,9 @@ pub struct RoutingModes {
     pub deep_coding: ModeProfiles,
     #[serde(default = "routine_coding")]
     pub routine_coding: ModeProfiles,
+    /// route.v4's `review` (theseus-p8dy): verification of work already made.
+    #[serde(default = "review")]
+    pub review: ModeProfiles,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -144,13 +147,14 @@ pub struct ModeProfiles {
 pub const TRIVIAL_CONFIDENCE: f64 = 0.4;
 
 /// The modes, in the pack's order.
-pub const MODES: [&str; 6] = [
+pub const MODES: [&str; 7] = [
     "trivial",
     "quick",
     "chat",
     "sophisticated",
     "deep_coding",
     "routine_coding",
+    "review",
 ];
 
 /// The modes whose turn is a detour (theseus-3okf; `trivial` alone before
@@ -226,6 +230,11 @@ fn deep_coding() -> ModeProfiles {
 fn routine_coding() -> ModeProfiles {
     list(&["haikuhi", "sonnet"])
 }
+/// Opus 5.5 at high effort, then Fable 5.1 (theseus-p8dy): a config without
+/// `opushi` reviews on `fable`, or the session's own.
+fn review() -> ModeProfiles {
+    list(&["opushi", "fable"])
+}
 
 impl Default for RoutingModes {
     fn default() -> Self {
@@ -236,6 +245,7 @@ impl Default for RoutingModes {
             sophisticated: sophisticated(),
             deep_coding: deep_coding(),
             routine_coding: routine_coding(),
+            review: review(),
         }
     }
 }
@@ -249,6 +259,7 @@ impl RoutingModes {
             "sophisticated" => &self.sophisticated,
             "deep_coding" => &self.deep_coding,
             "routine_coding" => &self.routine_coding,
+            "review" => &self.review,
             _ => &self.chat,
         }
     }
@@ -389,6 +400,7 @@ pub(crate) fn the_templates_routing_section(cfg: &crate::Config) {
         ("glm53", "glm-5.3"),
         ("haiku", "claude-haiku-5-5"),
         ("haikuhi", "claude-haiku-5-5"),
+        ("opushi", "claude-opus-5-5"),
     ] {
         assert_eq!(cfg.all_profiles()[p].model, model, "[profiles.{p}]");
     }
@@ -419,6 +431,7 @@ mod tests {
         assert_eq!(d.modes.of("sophisticated"), ["opus", "fable"]);
         assert_eq!(d.modes.of("deep_coding"), ["opus", "sonnet"]);
         assert_eq!(d.modes.of("routine_coding"), ["haikuhi", "sonnet"]);
+        assert_eq!(d.modes.of("review"), ["opushi", "fable"]);
         d.validate(|_| false).unwrap();
         assert_eq!(
             (
@@ -494,6 +507,7 @@ mod tests {
             "sophisticated",
             "deep_coding",
             "routine_coding",
+            "review",
             "other",
         ] {
             assert_eq!(d.confidence_for(m), 0.6, "{m}");

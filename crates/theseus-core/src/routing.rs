@@ -1255,4 +1255,43 @@ mod tests {
             ("opus", Reason::Correction, true)
         );
     }
+
+    /// route.v4's `review` (theseus-p8dy): a verification switches the
+    /// session, at the section's bar, to `opushi`, then `fable` when `opushi`
+    /// is unusable, then the session's own; it is no detour and its late
+    /// verdict carries.
+    #[test]
+    fn a_review_verdict_routes_to_opushi_then_fable() {
+        let cfg = RoutingConfig::default();
+        assert_eq!(cfg.modes.of("review"), ["opushi", "fable"]);
+        let mut ps = five();
+        let c = crate::catalog::Catalog::builtin();
+        let e = c.get("claude-opus-5-5").unwrap();
+        ps.insert(
+            "opushi".into(),
+            p("anthropic", "claude-opus-5-5", short_cost(e), e.vision),
+        );
+        let v = verdict("review", 0.9);
+        let d = decide(&cfg, &ps, &ask(&v, "sonnet", 10));
+        assert_eq!(
+            (d.profile.as_str(), d.reason, d.switch, d.detour),
+            ("opushi", Reason::Verdict, true, false)
+        );
+        ps.get_mut("opushi").unwrap().unusable = Some("key");
+        let d = decide(&cfg, &ps, &ask(&v, "sonnet", 10));
+        assert_eq!(
+            (d.profile.as_str(), d.reason, d.switch),
+            ("fable", Reason::Verdict, true)
+        );
+        ps.get_mut("fable").unwrap().unusable = Some("key");
+        let d = decide(&cfg, &ps, &ask(&v, "sonnet", 10));
+        assert_eq!(
+            (d.profile.as_str(), d.reason, d.switch),
+            ("sonnet", Reason::Fallback, false)
+        );
+        // Its own bar, the section's 0.6, and a late verdict of it carries.
+        let d = decide(&cfg, &five(), &ask(&verdict("review", 0.59), "sonnet", 10));
+        assert_eq!(d.reason, Reason::Unsure);
+        assert!(carries(&v));
+    }
 }

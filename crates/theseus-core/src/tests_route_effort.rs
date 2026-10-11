@@ -1,4 +1,4 @@
-//! route.v3's effort (theseus-qe3v; `routing::effort`, `turn::route_step`):
+//! route.v4's effort (theseus-qe3v; `routing::effort`, `turn::route_step`):
 //! the reply's effort is asked in the route pack's own request beside the
 //! mode, and the turn's requests carry it, over the profile's own, only for a
 //! model that takes effort, within `[routing] effort_bounds`, unless the
@@ -78,11 +78,11 @@ async fn a_sure_effort_reaches_the_request_of_a_model_that_takes_it() {
     let route = jev
         .seen()
         .into_iter()
-        .find(|s| s.body["questions"].get("route.v3/mode").is_some())
+        .find(|s| s.body["questions"].get("route.v4/mode").is_some())
         .expect("the route pack's request");
     assert!(
         route.body["questions"]
-            .get("route.v3/reply_effort")
+            .get("route.v4/reply_effort")
             .is_some(),
         "the effort, in the same request: {}",
         route.body["questions"]

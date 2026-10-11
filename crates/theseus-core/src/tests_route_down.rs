@@ -108,3 +108,23 @@ async fn an_owners_pick_is_not_stepped_down() {
         .iter()
         .all(|d| d["switch"] == json!(false)));
 }
+
+/// route.v4's `review` (theseus-p8dy): a verification runs on `opushi` (Opus
+/// 5.5 at high effort, from the template), and on `fable` when the list's
+/// first profile is not configured (passed over as unusable).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_review_verdict_runs_on_opushi_and_then_fable() {
+    let jev = FakeJev::start().unwrap();
+    mode(&jev, "review", 0.95);
+    let r = rig(Some(&jev), 1, |_| {});
+    let one = turn(&r.core, None, "Check this change before I merge it.", None).await;
+    assert_eq!(one.profile, "opushi");
+    assert_eq!(one.route.unwrap().mode.as_deref(), Some("review"));
+    let jev = FakeJev::start().unwrap();
+    mode(&jev, "review", 0.95);
+    let r = rig(Some(&jev), 1, |c| {
+        c.routing.modes.review.profiles = vec!["nosuch".into(), "fable".into()];
+    });
+    let one = turn(&r.core, None, "Is this right?", None).await;
+    assert_eq!(one.profile, "fable");
+}
