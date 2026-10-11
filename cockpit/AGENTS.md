@@ -11,7 +11,7 @@ build.
 - `src/views/`: the seventeen views. The Ship (`Ship.tsx`, the landing view at `/ship`), then `Bridge`, `Fleet`,
   `SessionDeck`, `Actions`, `Boundaries` (the boundaries board), `Ledger`, `Money` (the money river), `Economics`,
   `Speed` (the speed wall), `Benchmarks` (below), `Policy` (`policy.explain`: each place's tools, layer by layer, and the tightenings with their undo; M7 42b), `Judgment` (Jev's judgments, M5 23b, over `judge.list` and `judge.get`, with
-  `src/lib/judgment.ts`), `Systems`, `Ontology` (the kinds, the category tree, guidance, and topics; people,
+  `src/lib/judgment.ts`), `Systems`, `Ontology` (the kinds, the categories as closed groups one a kind with their trees inside (`groupsOf`; `<unknown>` for a kind the table lacks, theseus-7mow), guidance, and topics; people,
   searchable by handle, a person's page and merge, adding one, and Jev's proposals with select-all accept, in
   `src/components/People.tsx` over `src/lib/people.ts`, theseus-wy7y; it shows the present only; its proposals panel lists people one row per proposed person, each with one accept and one reject, theseus-fvyx), `Context` (the context explorer, theseus-7n3e: what Theseus knows and what a turn sees), and `Books` (the imported episodes by their book, first cut: `books.list`, `books.page`, an episode's messages by `session.history`; its pure parts are `src/lib/books.ts`, theseus-civ0). A session's memberships are in its deck's Context tab (`src/components/Memberships.tsx`), whose pulldown groups topics and people and searches both.
 - The time machine: `src/components/TimeMachine.tsx` (the ship's log, at every page's foot), `src/lib/history.ts`
@@ -27,7 +27,8 @@ build.
   their point, off the instruments; pure), `Tour.tsx`, `tourText.ts` and `news.ts` (the tour, and what's new after an
   update; pure), `sound.ts`, `audio.ts` and `useShipSound.ts` (the three cues: which push sounds which, pure; the
   sounds, made with Web Audio; the toggle, and the cues the Shell hears on every page), `surf.ts` (the ambient sea's
-  voice, fades, ducks, wave shape and noise; pure, theseus-pl0x), `instruments.tsx` (the brass gauges), `Minimap.tsx`, `useShipData.ts` (the reads and
+  voice, fades, ducks, wave shape and noise; pure, theseus-pl0x), `gull.ts` and `gullsound.ts` (the seagull that passes now
+  and then while the sea is heard: its gaps, call and scheduler, pure, and its voice; theseus-7mow), `instruments.tsx` (the brass gauges), `Minimap.tsx`, `useShipData.ts` (the reads and
   pushes it composes), `flares.ts` (a failure flares its ship once, whichever of its push, its execution's change and
   its ledger row tells the page first; pure, theseus-1skt), and `synth.ts` (a seeded 10,000-node fleet for measuring).
 - Session states (theseus-emqx): `src/lib/sessionState.ts` (pure: the daemon's rule line for line, the filter's

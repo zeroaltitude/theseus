@@ -3,7 +3,8 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import type { OntologyCategory, OntologyKind, OntologyMembership } from '@protocol'
-import { ancestorsOf, guidanceInPlay, guidanceWords, nothingPending, parents, pendingOf, recordedOf, shown, treeOrder, withinCounts } from '../src/lib/ontology.ts'
+import { readFileSync } from 'node:fs'
+import { ancestorsOf, groupKeyOf, groupsOf, guidanceInPlay, guidanceWords, nothingPending, parents, pendingOf, recordedOf, shown, treeOrder, UNKNOWN_GROUP, withinCounts } from '../src/lib/ontology.ts'
 
 const cat = (id: string, name: string, parent?: string, guidance?: [number, string], members = 0): OntologyCategory => ({
   id, kind: id.split(':')[0], name, parent, depth: 1, description: '', added_by: 'the operator', members,
@@ -115,4 +116,44 @@ test('a selected category\'s ancestors are named root first, so it shows', () =>
   assert.deepEqual(ancestorsOf(rows, 'topic:harbor-tides-neap'), ['topic:harbor', 'topic:harbor-tides'])
   assert.deepEqual(ancestorsOf(rows, 'topic:zephyr'), [])
   assert.deepEqual(ancestorsOf(rows, null), [])
+})
+
+const kindsAll = [kind('channel', 'intent_line'), kind('person', 'handle'), kind('topic', 'chain')]
+const some = [...cats, cat('person:ada', 'Ada'), cat('person:bo', 'Bo'), cat('person:cy', 'Cy')]
+
+test('the groups: one a kind, in the kinds table’s order, each holding its own categories as a tree, with a count', () => {
+  const g = groupsOf(some, kindsAll)
+  assert.deepEqual(g.map((x) => [x.label, x.count]), [['channel', 1], ['person', 3], ['topic', 4]])
+  assert.deepEqual(g[2].rows.map((r) => [r.category.id, r.depth]), [['topic:harbor', 1], ['topic:harbor-tides', 2], ['topic:harbor-tides-spring', 3], ['topic:zephyr', 1]])
+  assert.deepEqual(g.map((x) => x.key), ['kind:channel', 'kind:person', 'kind:topic'])
+})
+
+test('the people group holds every person, and every category is in exactly one group: nothing is lost', () => {
+  const g = groupsOf(some, kindsAll)
+  assert.deepEqual(g.find((x) => x.label === 'person')!.rows.map((r) => r.category.id).sort(), ['person:ada', 'person:bo', 'person:cy'])
+  const all = g.flatMap((x) => x.rows.map((r) => r.category.id)).sort()
+  assert.deepEqual(all, some.map((c) => c.id).sort())
+  assert.equal(new Set(all).size, some.length)
+  assert.equal(groupKeyOf(g, 'person:bo'), 'kind:person')
+  assert.equal(groupKeyOf(g, 'topic:harbor-tides-spring'), 'kind:topic')
+  assert.equal(groupKeyOf(g, 'topic:nowhere'), null)
+  assert.equal(groupKeyOf(g, null), null)
+})
+
+test('a kind the table does not name goes in `<unknown>`, last; the group is left out when it is empty', () => {
+  assert.equal(groupsOf(some, kindsAll).some((x) => x.label === UNKNOWN_GROUP), false)
+  const odd = [...some, { ...cat('weird:x', 'x'), kind: 'weird' }, { ...cat('none:y', 'y'), kind: '' }]
+  const g = groupsOf(odd, kindsAll)
+  assert.equal(g[g.length - 1].label, '<unknown>')
+  assert.deepEqual(g[g.length - 1].rows.map((r) => r.category.id).sort(), ['none:y', 'weird:x'])
+  assert.equal(g[g.length - 1].count, 2)
+  assert.deepEqual(groupsOf(odd, []).map((x) => x.label), ['<unknown>'], 'with no kinds table, all are unknown, and still shown')
+  assert.deepEqual(groupsOf([], kindsAll), [])
+})
+
+test('the view starts with every group closed, opens a selected category’s group, and shows rows only inside an open group', () => {
+  const v = readFileSync(new URL('../src/views/Ontology.tsx', import.meta.url), 'utf8')
+  assert.match(v, /const \[groupsOpen, setGroupsOpen\] = useState<Set<string>>\(new Set\(\)\)/)
+  assert.match(v, /groupKeyOf\(groups, selected\)/)
+  assert.match(v, /\{gopen\.has\(g\.key\) && visibleOf\(g\)\.map\(/)
 })
