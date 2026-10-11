@@ -145,10 +145,22 @@ class Charts(unittest.TestCase):
         self.assertEqual([charts.arm_color(a, "light") for a in ("theseus", "claude-code", "theseus-batching")],
                          ["#2a78d6", "#eb6834", "#1baf7a"])
         self.assertEqual(charts.arm_color("theseus", "dark"), "#3987e5")
-        slots = sorted(s for s, _ in charts.ARMS.values())
-        self.assertEqual(slots, list(range(1, len(charts.ARMS) + 1)), "each arm its own slot, none skipped")
+        for family in (charts.HARNESS_ARMS, charts.MEMORY_ARMS):
+            slots = sorted(charts.ARMS[a][0] for a in family)
+            self.assertEqual(len(set(slots)), len(slots), f"{family}: each arm its own slot")
+        self.assertEqual(set(charts.HARNESS_ARMS) | set(charts.MEMORY_ARMS), set(charts.ARMS))
+        self.assertEqual(sorted({s for s, _ in charts.ARMS.values()}), list(range(1, 9)), "eight slots, none skipped")
         fills = {c.get("fill") for c in ET.fromstring(charts.render(specs()[0])).iter(SVG + "circle")}
         self.assertTrue({"#2a78d6", "#1baf7a", "#eb6834"} <= fills)
+
+    def test_pi_has_a_slot_and_a_name_of_its_own_among_the_harness_arms(self):
+        self.assertEqual(charts.ARMS["pi"], (5, "Pi"))
+        for mode in charts.MODES:
+            colours = [charts.arm_color(a, mode) for a in charts.HARNESS_ARMS]
+            self.assertEqual(len(set(colours)), len(colours), f"{mode}: no two harness arms share a colour")
+            self.assertEqual(charts.arm_color("pi", mode), charts.SLOTS[mode][4])
+        # `other` (gray) is what an arm outside the registry gets; Pi is inside it now.
+        self.assertNotEqual(charts.arm_color("pi", "light"), charts.arm_color("other", "light"))
 
     def test_a_spec_the_renderer_cannot_draw_honestly_is_refused(self):
         good = specs()[0]

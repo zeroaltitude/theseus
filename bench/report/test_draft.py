@@ -123,6 +123,27 @@ class Draft(unittest.TestCase):
         self.assertEqual(figs, [f"*Figure {i}" for i in range(1, len(data["figures"]) + 1)])
         self.assertIn("3/4 = 75.0% [30.1%, 95.4%]", md)
 
+    def test_a_pi_job_drafts_and_is_charted_in_its_own_colour(self):
+        """`--arm pi=<job>` was refused (no `pi` key in `charts.ARMS`, theseus-3lqk): a Pi job drafts, every figure
+        draws it in Pi's colour and name, and the palette figure lists it."""
+        job = self.root / "jobs-pi"
+        trial(job, "fix-git__1", "fix-git", 1, 0.06, "2026-10-04T10:00:00-07:00", agent="pi")
+        trial(job, "fix-git__2", "fix-git", 0, 0.07, "2026-10-04T11:00:00-07:00", agent="pi")
+        run(["harbor", "--suite", "terminal-bench@2.0", "--date", "2026-10-04", "--slug", "pi",
+             "--arm", f"theseus={self.root / 'jobs-a'}", "--arm", f"pi={job}", "--out", str(self.out)])
+        name = "2026-10-04-terminal-bench-pi"
+        data = json.loads((self.out / f"{name}.json").read_text())
+        self.assertEqual([a["key"] for a in data["arms"]], ["theseus", "pi"])
+        self.assertEqual(data["summary"]["pi"]["label"], "Pi")
+        self.assertEqual(data["summary"]["pi"]["pass"]["k"], 1)
+        svg = (self.out / "img" / name / "pass-rates.svg").read_text()
+        self.assertIn("Pi", svg)
+        self.assertIn(draft.charts.SLOTS["light"][4], svg)
+        self.assertIn(draft.charts.SLOTS["dark"][4], (self.out / "img" / name / "pass-rates-dark.svg").read_text())
+        self.assertEqual(draft.arm_key("pi"), "pi")
+        self.assertEqual(draft.arm_key("pi_agent"), "pi")
+        self.assertEqual(draft.arm_key("pinned-thing"), "other")
+
     def test_a_report_that_stands_is_never_overwritten(self):
         args = ["harbor", "--suite", "swe-bench", "--date", "2026-10-04", "--arm", f"theseus={self.root / 'jobs-a'}",
                 "--out", str(self.out)]
@@ -209,6 +230,99 @@ class Draft(unittest.TestCase):
         summary.write_text(json.dumps({"figures": [fig, fig]}))
         with self.assertRaises(ValueError):
             draft.plot(summary)
+
+
+class Flagged(unittest.TestCase):
+    """What a reader must see apart: the grader's timeouts, the trials past $2.00, and the overlap column."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        self.out = self.root / "docs"
+        job = self.root / "jobs"
+        trial(job, "fix-git__1", "fix-git", 1, 0.04, "2026-10-04T10:00:00-07:00")
+        # A verifier's own timeout: no reward, Harbor's VerifierTimeoutError.
+        trial(job, "fix-git__2", "fix-git", None, 0.05, "2026-10-04T10:01:00-07:00", exc="VerifierTimeoutError")
+        trial(job, "hard-task__1", "hard-task", 0, 2.40, "2026-10-04T12:00:00-07:00")
+        for name, begin, end in (("fix-git__1", "10:00:00", "10:04:00"), ("fix-git__2", "10:01:00", "10:06:00"),
+                                 ("hard-task__1", "12:00:00", "12:03:00")):
+            f = job / name / "result.json"
+            r = json.loads(f.read_text())
+            r["agent_execution"] = {"started_at": f"2026-10-04T{begin}-07:00", "finished_at": f"2026-10-04T{end}-07:00"}
+            r["verifier"] = {"started_at": f"2026-10-04T{end}-07:00", "finished_at": f"2026-10-04T{end}-07:00"}
+            f.write_text(json.dumps(r))
+        self.name = "2026-10-04-terminal-bench"
+        run(["harbor", "--suite", "terminal-bench@2.0", "--date", "2026-10-04", "--arm", f"theseus={job}",
+             "--out", str(self.out)])
+        self.data = json.loads((self.out / f"{self.name}.json").read_text())
+        self.md = (self.out / f"{self.name}.md").read_text()
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_a_verifier_timeout_is_the_graders_and_listed_apart_from_the_agents_failures(self):
+        s = self.data["summary"]["theseus"]
+        self.assertEqual(s["endings"], {"ended by the agent": 2, "grader timeout": 1})
+        self.assertEqual([(g["task"], g["attempt"]) for g in s["grader_timeouts"]], [("fix-git", 2)])
+        self.assertIn("**Grader timeouts**", self.md)
+        self.assertIn("`fix-git` attempt 2 (`fix-git__2`)", self.md)
+        self.assertEqual(draft.ending("VerifierTimeoutError"), "grader timeout")
+        rows = (self.out / f"{self.name}.csv").read_text().splitlines()
+        self.assertIn("grader_timeout", rows[0])
+        cell = next(r for r in rows if "fix-git__2" in r)
+        self.assertIn("grader timeout", cell)
+        self.assertNotIn("VerifierTimeoutError", cell, "not an exception of the agent's")
+        matrix = next(f for f in self.data["figures"] if f["name"] == "outcomes")
+        fix = next(r for r in matrix["rows"] if r["label"] == "fix-git")
+        self.assertEqual(fix["cells"], "P-")
+        self.assertTrue(fix["tips"][1].startswith("grader timeout"))
+
+    def test_every_trial_past_two_dollars_gets_a_line(self):
+        s = self.data["summary"]["theseus"]
+        self.assertEqual([(o["task"], o["cost_usd"]) for o in s["over_budget"]], [("hard-task", 2.4)])
+        self.assertIn("**Trials past $2.00 of real spend**", self.md)
+        self.assertIn("`hard-task` attempt 1 (`hard-task__1`): $2.40", self.md)
+
+    def test_the_overlap_column_is_in_the_data_and_named_in_the_threats(self):
+        rows = (self.out / f"{self.name}.csv").read_text().splitlines()
+        head = rows[0].split(",")
+        i = head.index("overlap")
+        got = {r.split(",")[3]: r.split(",")[i] for r in rows[1:]}
+        self.assertEqual(got, {"fix-git__1": "1", "fix-git__2": "1", "hard-task__1": "0"})
+        self.assertEqual(self.data["summary"]["theseus"]["overlap_max"], 1)
+        threats = self.md.split("## Threats to validity")[1].split("## What it cost")[0]
+        self.assertIn("`overlap`", threats)
+        self.assertIn("Overlap per arm", threats)
+
+    def test_every_report_prints_t4_and_t5_from_the_trials_trajectories(self):
+        """T4 and T5 (theseus-w052 5) in the data file and the skeleton, read from each trial's
+        `agent/trajectory.json`; T5 over the pairs both arms solved."""
+        root = Path(tempfile.mkdtemp())
+        self.addCleanup(lambda: __import__("shutil").rmtree(root, ignore_errors=True))
+        for arm, calls in (("theseus", [("a", "fs.read", "Unknown tool `fs.grep`. Available: x.", {"status": "error"})]),
+                           ("claude-code", [("a", "Bash", "Exit code 1\nfailed", {"tool_result_is_error": True})])):
+            for i, (reward, cost) in enumerate(((1, 0.10), (1, 0.30)), 1):
+                trial(root / arm, f"fix-git__{i}", "fix-git", reward, cost, f"2026-10-04T1{i}:00:00-07:00", agent=arm)
+                d = root / arm / f"fix-git__{i}" / "agent"
+                (d / "trajectory.json").write_text(json.dumps({"steps": [{
+                    "step_id": 1, "source": "agent", "message": "m",
+                    "tool_calls": [{"tool_call_id": c[0], "function_name": c[1], "arguments": {}} for c in calls],
+                    "observation": {"results": [{"source_call_id": c[0], "content": c[2], "extra": c[3]}
+                                                for c in calls]}}]}))
+        out = root / "docs"
+        run(["harbor", "--suite", "terminal-bench@2.0", "--date", "2026-10-04", "--arm", f"theseus={root / 'theseus'}",
+             "--arm", f"claude-code={root / 'claude-code'}", "--out", str(out)])
+        name = "2026-10-04-terminal-bench"
+        data = json.loads((out / f"{name}.json").read_text())
+        th, cc = data["summary"]["theseus"]["t4"], data["summary"]["claude-code"]["t4"]
+        self.assertEqual((th["trials_with_tool_error"], th["invented"]), (2, 2))
+        self.assertEqual((cc["trials_with_tool_error"], cc["tool_errors"]), (0, 0), "an exit code is the command's")
+        self.assertEqual(len(data["t5"]["pairs"]), 2)
+        self.assertAlmostEqual(data["t5"]["arms"]["theseus"]["cost_mean"], 0.20)
+        md = (out / f"{name}.md").read_text()
+        self.assertIn("**T4, tool friction.**", md)
+        self.assertIn("| Invented names, by tool | fs.read 2 | none |", md)
+        self.assertIn("| Dollars per solve, mean | $0.200 | $0.200 |", md)
 
 
 if __name__ == "__main__":

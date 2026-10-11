@@ -7,9 +7,10 @@ with this directory on PYTHONPATH, THESEUS_BENCH_BIN_DIR naming a directory
 that holds static `theseus` and `theseusd` (`bench/build.sh`), and the model's
 key in ANTHROPIC_API_KEY. bench/README.md has the rest.
 
-- **install** uploads the two static binaries to /installed-agent/bin.
-  Nothing is downloaded in the container, so any image runs them, whatever
-  its libc.
+- **install** first adds the packages Harbor's Claude Code installer adds
+  (`SYSTEM_PACKAGES`: curl, bash, nodejs, npm, procps), then uploads the two
+  static binaries to /installed-agent/bin. Nothing of Theseus's is downloaded
+  in the container, so any image runs them, whatever its libc.
 - **run** writes the bench profile (`bench/theseus-bench.toml`) with this
   trial's model, limits, and working directory, then runs one
   `theseus --spawn theseusd --json ask` (theseus-n88g.2): one turn, every
@@ -43,7 +44,7 @@ dollars (`cost_usd`; the model's alone is `model_cost_usd`), and names the model
 (`routing`).
 
 Settings, from the environment of `harbor run`: THESEUS_BENCH_MAX_LOOPS
-(200), THESEUS_BENCH_SPEND_LIMIT (2.0 dollars a trial, 20.0 on the routed arm), THESEUS_BENCH_PROC_SYNC
+(200), THESEUS_BENCH_SPEND_LIMIT ($2.00 plus one maximum reservation at the model: 3.75 for Sonnet 5.5; 20.0 on the routed arm), THESEUS_BENCH_PROC_SYNC
 (900 s a command may keep the turn waiting), and THESEUS_BENCH_SYSTEM_FILE
 (extra system text, for an A/B arm).
 """
@@ -78,6 +79,12 @@ BIN = "/installed-agent/bin"
 STATE = "/installed-agent/state"
 CONFIG = "/installed-agent/theseus.toml"
 SAMPLER = f"{BIN}/sampler.py"
+# The system packages Harbor's Claude Code installer adds to the task's
+# container (`ClaudeCode.install`: `ensure_system_dependencies`), before the
+# agent's clock starts. The Theseus arm gets the same set, in the same phase,
+# so a task that needs `node` or `ps` costs neither arm a detour the other
+# does not pay (theseus-w052).
+SYSTEM_PACKAGES = ("curl", "bash", "nodejs", "npm", "procps")
 
 
 class TheseusTurnEnded(NonZeroAgentExitCodeError):
@@ -143,6 +150,9 @@ class Theseus(BaseInstalledAgent):
 
     @override
     async def install(self, environment: BaseEnvironment) -> None:
+        # Harbor runs `install` in the trial's setup, before the agent's
+        # execution (and its timeout) starts, as it runs Claude Code's.
+        await self.ensure_system_dependencies(environment, SYSTEM_PACKAGES)
         src = Path(os.environ.get("THESEUS_BENCH_BIN_DIR", "")).expanduser()
         for b in ("theseus", "theseusd"):
             if not (src / b).is_file():
@@ -162,6 +172,9 @@ class Theseus(BaseInstalledAgent):
         )
         await measure.record_version(environment, self.get_version_command(),
                                      self.environment_logs_dir.as_posix())
+        # `theseus --version` says 0.0.1 for every build: the commit bench/build.sh wrote beside the binaries
+        # is what tells two builds apart in the record (`build_commit`).
+        await measure.record_build(environment, _build_commit(src), self.environment_logs_dir.as_posix())
 
     @override
     @with_prompt_template
@@ -181,7 +194,7 @@ class Theseus(BaseInstalledAgent):
             spend_limit_usd=float(
                 os.environ.get(
                     "THESEUS_BENCH_SPEND_LIMIT",
-                    str(tb.ROUTED_SPEND_LIMIT_USD if self.routed else tb.SPEND_LIMIT_USD),
+                    str(tb.ROUTED_SPEND_LIMIT_USD if self.routed else tb.spend_limit_usd(model)),
                 )
             ),
             proc_sync_secs=int(os.environ.get("THESEUS_BENCH_PROC_SYNC", "900")),
@@ -312,6 +325,14 @@ class TheseusRouted(Theseus):
     @override
     def name() -> str:
         return "theseus-routed"
+
+
+def _build_commit(src: Path) -> str | None:
+    """The commit `bench/build.sh` wrote beside the binaries (`build-commit`), None where there is none."""
+    try:
+        return (src / "build-commit").read_text().strip() or None
+    except OSError:
+        return None
 
 
 def _json(path: Path) -> dict[str, Any] | None:

@@ -30,18 +30,54 @@ EFFORT = "medium"
 GRACE_S = 3
 # Where the container's version read goes, in the trial's agent directory.
 VERSION_FILE = "version.txt"
+# Where the Theseus arm's build commit goes (`efficiency.BUILD_FILE`).
+BUILD_FILE = "build-commit.txt"
 
 
-def stop_agent_script(names: tuple[str, ...] | list[str], grace_s: int = GRACE_S) -> str:
-    """The POSIX shell that stops an agent: every process whose `comm` is one
-    of `names`, and every descendant of those (found before any signal, so a
-    child the first SIGTERM orphans is still the agent's), gets a SIGTERM; one
-    still running after `grace_s` seconds (a zombie is not running) gets a
-    SIGKILL. This shell and a process of no name given are never signalled. No
-    agent running is no error."""
+# Where the arm keeps the container's process list from before Harbor's run,
+# in its state directory (`snapshot_script`).
+BASELINE_FILE = "pids.before"
+
+
+def snapshot_script(path: str) -> str:
+    """The POSIX shell that records the container's processes into `path`, one
+    `pid:starttime` a line (a recycled pid is another process), before Harbor's
+    run starts the agent. The arm runs it after the sampler's start, so the
+    sampler is in the list and the stop leaves it to its own stop. It never
+    fails: a list that could not be written is no list, and the stop then
+    finds the agent by name."""
+    q = shlex.quote(path)
+    return (
+        f'{{ for d in /proc/[0-9]*; do p=${{d#/proc/}}; st=$(cat "$d/stat" 2>/dev/null) || continue; '
+        'rest=${st##*) }; set -- $rest; shift 19; printf "%s:%s\\n" "$p" "$1"; done; } '
+        f'> {q}.tmp 2>/dev/null && mv -f {q}.tmp {q} 2>/dev/null; true'
+    )
+
+
+def stop_agent_script(names: tuple[str, ...] | list[str], grace_s: int = GRACE_S,
+                      baseline: str | None = None) -> str:
+    """The POSIX shell that stops an agent, by what the run started.
+
+    With `baseline` (the file `snapshot_script` wrote before the run), the
+    agent is whatever runs in the container that the list does not hold, bar
+    this shell, its ancestors and its own children: a command a tool's shell
+    backgrounded through a subshell that exited (reparented to PID 1, so no
+    tree from the agent's name reaches it) is the run's as much as the CLI is,
+    and so is what a SIGTERM-ignoring process forks during the grace
+    (theseus-8xp0). So: SIGSTOP every such process, and read `/proc` again
+    until a pass finds no new one (a stopped process forks no more); SIGTERM
+    them and SIGCONT, so a handler runs; wait up to `grace_s` seconds for them
+    to go (a zombie is gone); then stop what is left again (the SIGCONT let it
+    run) and the new ones it forked meanwhile, to a fixpoint again, and
+    SIGKILL them all. No process of the run is no error.
+
+    With no `baseline`, or one that cannot be read, the old way: every process
+    whose `comm` is one of `names`, and every descendant of those as one read
+    of `/proc` finds them, gets a SIGTERM, and a SIGKILL after the grace.
+    This shell and a process of no name given are never signalled."""
     listed = " ".join(shlex.quote(n) for n in names)
     ticks = max(0, int(grace_s)) * 10
-    return (
+    by_name = (
         f'names="{listed}"; me=$$; pairs=""; roots=""; '
         'for d in /proc/[0-9]*; do p=${d#/proc/}; [ "$p" = "$me" ] && continue; '
         'st=$(cat "$d/stat" 2>/dev/null) || continue; c=$(cat "$d/comm" 2>/dev/null) || continue; '
@@ -58,15 +94,46 @@ def stop_agent_script(names: tuple[str, ...] | list[str], grace_s: int = GRACE_S
         '[ -n "$alive" ] || break; sleep 0.1 2>/dev/null || sleep 1; i=$((i+1)); done; '
         '[ -n "$alive" ] && kill -KILL $alive 2>/dev/null; fi; true'
     )
+    if baseline is None:
+        return by_name
+    b = shlex.quote(baseline)
+    # `scan_new` sets $fresh to the pids of the run's processes not yet stopped: in no baseline line (pid and start
+    # time), not this shell, its ancestors or its descendants, not a zombie, not in $stopped.
+    return (
+        f'names="{listed}"; base={b}; me=$$; '
+        'if [ ! -s "$base" ]; then ' + by_name.split("; ", 1)[1] + "; exit 0; fi; "
+        # this shell's ancestors, kept apart from the run
+        'keep=" $me "; a=$me; while [ "$a" -gt 0 ] 2>/dev/null; do st=$(cat /proc/$a/stat 2>/dev/null) || break; '
+        'rest=${st##*) }; set -- $rest; a=$2; [ "$a" -gt 0 ] 2>/dev/null && keep="$keep$a "; done; '
+        'basetxt=" "; while read -r l; do basetxt="$basetxt$l "; done < "$base"; '
+        'fresh=""; scan_new() { fresh=""; cand=""; '
+        'for d in /proc/[0-9]*; do p=${d#/proc/}; st=$(cat "$d/stat" 2>/dev/null) || continue; '
+        'rest=${st##*) }; set -- $rest; state=$1; pp=$2; shift 19; '
+        'case "$state" in Z*|X*) continue;; esac; '
+        'case "$keep" in *" $p "*) continue;; esac; '
+        'case "$stopped" in *" $p "*) continue;; esac; '
+        'case "$basetxt" in *" $p:$1 "*) continue;; esac; cand="$cand $p:$pp"; done; '
+        # a child of this shell (a command substitution of the scan itself) is not the run's
+        'for q in $cand; do k=${q%%:*}; pp=${q#*:}; [ "$pp" = "$me" ] || fresh="$fresh $k"; done; }; '
+        'settle() { while :; do scan_new; [ -n "$fresh" ] || break; kill -STOP $fresh 2>/dev/null; '
+        'stopped="$stopped$fresh "; done; }; '
+        'stopped=" "; settle; '
+        'if [ "$stopped" != " " ]; then kill -TERM $stopped 2>/dev/null; kill -CONT $stopped 2>/dev/null; i=0; '
+        f"while [ $i -lt {ticks} ]; do alive=\"\"; "
+        'for p in $stopped; do st=$(cat /proc/$p/stat 2>/dev/null) || continue; rest=${st##*) }; '
+        'case "$rest" in Z*) ;; *) alive="$alive $p";; esac; done; '
+        '[ -n "$alive" ] || break; sleep 0.1 2>/dev/null || sleep 1; i=$((i+1)); done; '
+        'kill -STOP $stopped 2>/dev/null; settle; kill -KILL $stopped 2>/dev/null; fi; true'
+    )
 
 
 async def stop_agent(environment: Any, names: tuple[str, ...] | list[str],
-                     grace_s: int = GRACE_S) -> None:
+                     grace_s: int = GRACE_S, baseline: str | None = None) -> None:
     """Run `stop_agent_script` in the task's container, as root (the agent's
     user is not always the one that can signal what it started). Never the
     trial's failure: the timeout it answers is the cause."""
     try:
-        await environment.exec(command=stop_agent_script(names, grace_s), user="root",
+        await environment.exec(command=stop_agent_script(names, grace_s, baseline), user="root",
                                timeout_sec=grace_s + 30)
     except Exception:  # noqa: BLE001
         pass
@@ -77,6 +144,21 @@ def version_script(command: str, logs: str) -> str:
     trial's logs: nothing is written when it fails, and it never fails."""
     return (f"out=$( {command} 2>/dev/null ) && printf '%s\\n' \"$out\" > "
             f"{shlex.quote(logs + '/' + VERSION_FILE)}; true")
+
+
+def build_script(commit: str, logs: str) -> str:
+    """The shell that writes the build's commit to the trial's logs (`efficiency.BUILD_FILE`)."""
+    return f"printf '%s\\n' {shlex.quote(commit)} > {shlex.quote(logs + '/' + BUILD_FILE)}; true"
+
+
+async def record_build(environment: Any, commit: str | None, logs: str) -> None:
+    """Keep the commit the binaries were built from in the logs, where the record names it. Never fails."""
+    if not commit:
+        return
+    try:
+        await environment.exec(command=build_script(commit, logs), timeout_sec=60)
+    except Exception:  # noqa: BLE001
+        pass
 
 
 async def record_version(environment: Any, command: str | None, logs: str) -> None:

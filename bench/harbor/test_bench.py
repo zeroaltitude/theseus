@@ -23,6 +23,7 @@ from pathlib import Path
 
 import sampler as smp
 import theseus_atif as atif
+import efficiency as ef
 import theseus_bench as tb
 from test_sampler import stop_samplers
 
@@ -100,6 +101,23 @@ class Profile(unittest.TestCase):
 class Routed(unittest.TestCase):
     """The routed arm (theseus-eo3h): Theseus as shipped, Jev picking the
     model per message."""
+
+    def test_every_model_the_routed_profile_names_has_a_list_price(self):
+        """The as-shipped arm's dollars are priced on the bench's table, as
+        every other arm's are: a model Jev may send a message to with no row
+        would be priced by Theseus's own table alone."""
+        import tomllib
+
+        parsed = tomllib.loads(tb.PROFILE_ROUTED.read_text())
+        models = {p["model"] for p in parsed["profiles"].values() if "model" in p}
+        models.add(parsed["model"]["model"])
+        self.assertGreaterEqual(len(models), 4, models)
+        for m in sorted(models):
+            self.assertIn(m, ef.LIST_PRICES, f"{m} has no list price row")
+        for m in ("claude-opus-5-5", "claude-fable-5-1", "claude-haiku-5-5"):
+            by = {m: {"input": 1_000_000, "output": 1_000_000}}
+            p = ef.LIST_PRICES[m]
+            self.assertAlmostEqual(ef.list_price(by), p["input"] + p["output"])
 
     def parsed(self, **kw):
         values = tb.settings("claude-sonnet-5-5", "/app", routed=True, **kw)
@@ -261,6 +279,27 @@ class Routed(unittest.TestCase):
             self.assertEqual(theseus_agent.TheseusRouted.name(), "theseus-routed")
 
 
+    def test_the_plain_arms_limit_is_two_dollars_plus_one_maximum_reservation(self):
+        """A trial that has spent $1.99 must not be refused the call that
+        takes it past $2.00 by the reservation alone: the limit is the $2
+        budget plus one worst-case reservation at the arm's model (128,000
+        output tokens at the output price, and as many input tokens at the
+        input price, to a quarter dollar)."""
+        self.assertEqual(tb.TRIAL_BUDGET_USD, 2.0)
+        self.assertEqual(tb.spend_limit_usd("claude-sonnet-5-5"), 3.75)
+        self.assertEqual(tb.spend_limit_usd("anthropic/claude-sonnet-5-5"), 3.75)
+        self.assertEqual(tb.SPEND_LIMIT_USD, 3.75)
+        self.assertEqual(tb.spend_limit_usd("claude-opus-5-5"), 5.25)
+        for m in ("claude-sonnet-5-5", "claude-opus-5-5", "claude-fable-5-1", "claude-haiku-5-5"):
+            p = ef.LIST_PRICES[m]
+            worst = 128_000 * p["output"] / 1e6 + 128_000 * p["input"] / 1e6
+            self.assertGreaterEqual(tb.reservation_usd(m), worst, m)
+            self.assertLess(tb.reservation_usd(m), worst + tb.RESERVE_STEP_USD, m)
+            # Spent just under the budget, the next call's reserve still fits.
+            self.assertGreaterEqual(tb.spend_limit_usd(m), 1.99 + worst, m)
+        with self.assertRaises(ValueError):
+            tb.spend_limit_usd("no-such-model")
+
     def test_the_routed_arm_defaults_to_a_spend_limit_that_clears_an_opus_or_fable_reserve(self):
         """The kernel reserves a call's worst case (128,000 output tokens at
         the model's price) before it runs: $2 refuses the first Opus 5.5 call
@@ -308,7 +347,7 @@ class Routed(unittest.TestCase):
                 return tomllib.loads(got["text"])["kernel"]["spend_limit_usd"]
 
         os.environ.setdefault("ANTHROPIC_API_KEY", "an-invented-key")
-        self.assertEqual(asyncio.run(limit(theseus_agent.Theseus)), 2.0)
+        self.assertEqual(asyncio.run(limit(theseus_agent.Theseus)), 3.75)
         self.assertEqual(asyncio.run(limit(theseus_agent.TheseusRouted)), 20.0)
         self.assertEqual(asyncio.run(limit(theseus_agent.TheseusRouted, "7.5")), 7.5)
         self.assertEqual(asyncio.run(limit(theseus_agent.Theseus, "3")), 3.0)
@@ -662,6 +701,101 @@ class Adapter(unittest.TestCase):
             self.assertEqual((rec["effort"], rec["version"], rec["version_asked"]),
                              ("medium", "theseus 0.83.0", None))
             self.assertEqual(ctx.metadata["efficiency"], rec)
+
+    def test_its_install_adds_claude_codes_packages_before_the_agents_clock(self):
+        """Harbor's Claude Code installer adds curl, bash, nodejs, npm and
+        procps in `install`, which Harbor runs before the agent's timed
+        phase. The Theseus arm's install runs the same install first (before
+        its upload of the binaries), and its `run` installs nothing."""
+        import asyncio
+        import theseus_agent
+        from harbor.agents.installed.claude_code import ClaudeCode
+
+        # The same set as Harbor's own installer asks for.
+        import inspect
+        self.assertIn('("curl", "bash", "nodejs", "npm", "procps")', inspect.getsource(ClaudeCode.install))
+        self.assertEqual(theseus_agent.SYSTEM_PACKAGES, ("curl", "bash", "nodejs", "npm", "procps"))
+
+        events = []
+
+        class Env:
+            default_user = None
+
+            async def exec(self, command, **kw):
+                events.append(("exec", command, kw.get("user")))
+                rc = 1 if command.startswith("command -v") else 0
+                out = "apt-get" if "for manager in" in command else ""
+                return type("R", (), {"stdout": out, "stderr": "", "return_code": rc})()
+
+            async def upload_file(self, source, target):
+                events.append(("upload", str(target), None))
+
+        with tempfile.TemporaryDirectory() as d, tempfile.TemporaryDirectory() as bins:
+            for b in ("theseus", "theseusd"):
+                (Path(bins) / b).write_text("x")
+            os.environ["THESEUS_BENCH_BIN_DIR"] = bins
+            agent = theseus_agent.Theseus(logs_dir=Path(d), model_name="anthropic/claude-sonnet-5-5")
+            asyncio.run(agent.install(Env()))
+        installs = [i for i, e in enumerate(events) if e[0] == "exec" and "apt-get install" in e[1]]
+        self.assertEqual(len(installs), 1, events)
+        cmd = events[installs[0]][1]
+        for pkg in ("curl", "bash", "nodejs", "npm", "procps"):
+            self.assertIn(pkg, cmd.split())
+        self.assertEqual(events[installs[0]][2], "root")
+        first_upload = min(i for i, e in enumerate(events) if e[0] == "upload")
+        self.assertLess(installs[0], first_upload, "the packages go in before the binaries")
+        import inspect as _i
+        self.assertNotIn("ensure_system_dependencies", _i.getsource(theseus_agent.Theseus.run))
+
+    def test_two_builds_tell_apart_in_the_record_by_their_commit(self):
+        """`theseus --version` says 0.0.1 for every build, so the install writes the commit bench/build.sh left
+        beside the binaries to the trial's logs, and the record names it beside the version (theseus-p3jl)."""
+        import asyncio
+        import theseus_agent
+        from harbor.models.agent.context import AgentContext
+
+        commands = []
+
+        class Env:
+            default_user = None
+
+            async def exec(self, command, **kw):
+                commands.append(command)
+                return type("R", (), {"stdout": "", "stderr": "", "return_code": 0})()
+
+            async def upload_file(self, source, target):
+                pass
+
+        recs = []
+        with tempfile.TemporaryDirectory() as d:
+            for commit in ("1111111111111111111111111111111111111111", "2222222222222222222222222222222222222222-dirty"):
+                bins, logs = Path(d) / f"bin-{commit[:4]}", Path(d) / f"logs-{commit[:4]}"
+                bins.mkdir()
+                logs.mkdir()
+                for b in ("theseus", "theseusd"):
+                    (bins / b).write_text("x")
+                (bins / "build-commit").write_text(commit + "\n")
+                os.environ["THESEUS_BENCH_BIN_DIR"] = str(bins)
+                commands.clear()
+                agent = theseus_agent.Theseus(logs_dir=logs, model_name="anthropic/claude-sonnet-5-5",
+                                              environment_logs_dir=logs)
+                asyncio.run(agent.install(Env()))
+                wrote = [c for c in commands if "build-commit.txt" in c]
+                self.assertEqual(wrote, [theseus_agent.measure.build_script(commit, logs.as_posix())])
+                subprocess.run(["sh", "-c", wrote[0]], check=True)
+                (logs / "version.txt").write_text("theseus 0.0.1\n")
+                agent.populate_context_post_run(AgentContext())
+                recs.append(json.loads((logs / "efficiency.json").read_text()))
+            self.assertEqual([r["version"] for r in recs], ["theseus 0.0.1"] * 2, "the version cannot tell them apart")
+            self.assertEqual([r["build_commit"] for r in recs],
+                             ["1111111111111111111111111111111111111111",
+                              "2222222222222222222222222222222222222222-dirty"])
+            # A build with no commit file records none, and the install says nothing.
+            (bins / "build-commit").unlink()
+            commands.clear()
+            asyncio.run(agent.install(Env()))
+            self.assertEqual([c for c in commands if "build-commit.txt" in c], [])
+        self.assertIn("build-commit", (Path(__file__).resolve().parent.parent / "build.sh").read_text())
 
     def test_it_loads_as_an_atif_agent_with_an_error_for_each_end(self):
         import theseus_agent

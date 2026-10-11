@@ -146,7 +146,10 @@ def load_trial(d: Path) -> dict[str, Any] | None:
         "task": result["task_name"],
         "reward": reward,
         "solved": reward is not None and reward >= 1,
-        "error": _error(exc, rec),
+        # A verifier's own timeout is the grader's, never the agent's failure.
+        "grader_timeout": exc.get("exception_type") in ef.GRADER_TIMEOUT_ERRORS,
+        "error": None if exc.get("exception_type") in ef.GRADER_TIMEOUT_ERRORS else _error(exc, rec),
+        "over_budget": ef.over_budget(rec),
         "wall_s": _wall(result.get("agent_execution")),
         "record": rec,
         "record_from": source,

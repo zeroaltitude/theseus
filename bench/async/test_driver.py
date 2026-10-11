@@ -820,6 +820,18 @@ class Agents(unittest.TestCase):
 
         self.assertTrue(issubclass(async_agents.ClaudeCodeAsync, cca.MeasuredClaudeCode))
 
+    def test_the_claude_arm_records_the_effort_it_was_asked_for_not_the_default(self):
+        import async_agents
+        from harbor.models.agent.context import AgentContext
+
+        for asked, want in ((None, "medium"), ("high", "high")):
+            with tempfile.TemporaryDirectory() as d:
+                kw = {} if asked is None else {"reasoning_effort": asked}
+                agent = async_agents.ClaudeCodeAsync(logs_dir=Path(d), model_name="anthropic/claude-sonnet-5-5", **kw)
+                agent.populate_context_post_run(AgentContext())
+                rec = json.loads((Path(d) / ef.RECORD).read_text())
+                self.assertEqual(rec["effort"], want)
+
     def test_theseus_records_its_ledger_not_its_first_turn(self):
         import async_agents
         from harbor.models.agent.context import AgentContext
@@ -1130,7 +1142,7 @@ class AsyncTimeoutStopsTheAgent(unittest.TestCase):
                     self.assertRaises(asyncio.TimeoutError):
                 asyncio.run(asyncio.wait_for(agent.run("Train the model.", env, AgentContext()), 1.0))
             commands = [c for c, _ in env.calls]
-            stop = measure.stop_agent_script(names)
+            stop = measure.stop_agent_script(names, baseline=f"{state}/pids.before")
             sampler_stop = smp.stop_script(str(logs), state)
             self.assertEqual(commands.count(stop), 1, commands)
             self.assertEqual(commands.count(sampler_stop), 1, commands)

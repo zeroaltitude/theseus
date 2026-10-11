@@ -67,13 +67,29 @@ ARMS: dict[str, dict[str, tuple[str, ...]]] = {
 # Claude Sonnet 5.5's are the ones Theseus's and Claude Code's own bills
 # work out to in b5 (a cache read at a tenth of an input); the OpenAI models'
 # are LiteLLM's, the table Harbor prices Codex's tokens from (a cache write at
-# 1.25 times an input, as Codex 0.161 reports writes).
+# 1.25 times an input, as Codex 0.161 reports writes). The other Claude models
+# are the ones the routed arm's Jev may send a message to (theseus-eo3h): their
+# rows are Theseus's model catalog's (`theseus catalog`: crates/theseus-core/src/
+# catalog.rs, `Catalog::builtin`), so the as-shipped arm's dollars are on the
+# same table as every other arm's. Haiku 5.5's are its base tier: the catalog
+# bills 5 times these above a 100,000-token prompt, which this table does not.
 LIST_PRICES: dict[str, dict[str, float]] = {
     "claude-sonnet-5-5": {"input": 2.0, "cache_read": 0.2, "cache_write": 2.5, "output": 10.0},
+    "claude-opus-5-5": {"input": 4.0, "cache_read": 0.2, "cache_write": 5.0, "output": 20.0},
+    "claude-fable-5-1": {"input": 10.0, "cache_read": 0.25, "cache_write": 12.5, "output": 50.0},
+    "claude-haiku-5-5": {"input": 0.1, "cache_read": 0.01, "cache_write": 0.125, "output": 0.5},
     "gpt-6.1-sol": {"input": 2.0, "cache_read": 0.1, "cache_write": 2.5, "output": 10.0},
     "gpt-5.6-sol": {"input": 4.0, "cache_read": 0.4, "cache_write": 5.0, "output": 20.0},
     "gpt-6-astra": {"input": 10.0, "cache_read": 1.0, "cache_write": 12.5, "output": 50.0},
 }
+
+# Harbor's exception types for the verifier's own timeout (harbor.trial.errors):
+# the grader's, never the agent's failure (theseus-w052 3, `quiet.py`).
+GRADER_TIMEOUT_ERRORS = frozenset({"VerifierTimeoutError"})
+# A trial that spent more than this, in real dollars, is named in the report
+# (theseus-w052 2): the spend limit is $2.00 plus one reservation, so a trial
+# can pass it by up to that much, and the arms' budgets are $2.00.
+OVER_BUDGET_USD = 2.0
 
 # Anthropic's usage keys, by class.
 ANTHROPIC = {
@@ -1130,6 +1146,20 @@ def version_read(logs: Path, parse: Any = None) -> str | None:
         return text
 
 
+# Where the Theseus arm's install writes the commit its binaries were built from (bench/build.sh's `build-commit`),
+# in the trial's agent directory: `theseus --version` is 0.0.1 for every build, so this tells two builds apart.
+BUILD_FILE = "build-commit.txt"
+
+
+def build_read(logs: Path) -> str | None:
+    """The build's commit, as the install wrote it; None for an arm with no such file (every arm but Theseus's)."""
+    try:
+        text = (logs / BUILD_FILE).read_text(encoding="utf-8", errors="replace").strip()
+    except OSError:
+        return None
+    return text or None
+
+
 def stamp(logs: Path, rec: dict[str, Any], effort: str | None, version_asked: str | None = None,
           parse: Any = None) -> dict[str, Any]:
     """A trial's record with what its arm asked for and ran, the same keys on
@@ -1137,14 +1167,28 @@ def stamp(logs: Path, rec: dict[str, Any], effort: str | None, version_asked: st
     unless an `--ak` says another); `version`, the agent's version as the
     container read it, None when it could not; `version_asked`, the pin or the
     `--ak version=` the install was given, None for Harbor's own latest. A pin
-    that did not take is a `version` that differs from `version_asked`."""
+    that did not take is a `version` that differs from `version_asked`.
+    `build_commit` is the commit the binaries were built from (Theseus's arm
+    alone), beside the `version`, which is the same for every build."""
     rec["effort"] = effort
     rec["version"] = version_read(logs, parse)
     rec["version_asked"] = version_asked
+    rec["build_commit"] = build_read(logs)
     return rec
 
 
+def over_budget(rec: dict[str, Any]) -> bool | None:
+    """Whether the trial's real spend passed `OVER_BUDGET_USD`: the model's
+    dollars (`model_cost_usd` on the routed arm, which adds Jev's to
+    `cost_usd`), None when the trial is unpriced."""
+    cost = rec.get("model_cost_usd")
+    if cost is None:
+        cost = rec.get("cost_usd")
+    return None if cost is None else cost > OVER_BUDGET_USD
+
+
 def write(logs: Path, rec: dict[str, Any]) -> Path:
+    rec["over_budget"] = over_budget(rec)
     path = logs / RECORD
     path.write_text(json.dumps(rec, indent=2, sort_keys=True) + "\n")
     return path

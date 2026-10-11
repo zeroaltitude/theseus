@@ -300,7 +300,7 @@ class Arms(unittest.TestCase):
                 with mock.patch.object(base, "run", cancelled), self.assertRaises(asyncio.CancelledError):
                     asyncio.run(a.run("Fix it.", env, AgentContext()))
                 self.assertEqual(env.commands[-2:], [
-                    measured.measure.stop_agent_script(ef.ARMS[arm]["names"]),
+                    measured.measure.stop_agent_script(ef.ARMS[arm]["names"], baseline=f"{measured.STATE}/pids.before"),
                     measured.smp.stop_script("/logs/agent", measured.STATE)])
                 self.assertEqual(env.users[-2], "root")
 

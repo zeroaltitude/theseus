@@ -66,6 +66,7 @@ def _load(name: str, path: Path):
 
 charts = _load("bench_report_charts", HERE / "charts.py")
 stats = _load("stats_shim", HERE / "stats.py")
+friction = _load("bench_report_friction", HERE / "friction.py")
 
 
 # ------------------------------------------------------------------ common
@@ -90,6 +91,8 @@ def arm_key(name: str) -> str:
         return n
     if n in ALIASES:
         return ALIASES[n]
+    if n in ("pi", "pi-agent", "pi_agent") or n.startswith(("pi-", "pi_")):
+        return "pi"
     for key in ("theseus-batching", "claude-code", "openclaw", "theseus"):
         if key in n or key.replace("-", "_") in n or key.replace("-", "") in n:
             return key
@@ -249,6 +252,9 @@ def _is_trial(d: Path) -> bool:
 ENDINGS = [
     ("ended by the agent", {None}),
     ("timeout", {"AgentTimeoutError"}),
+    # The verifier's own clock, the grader's failure and not the agent's
+    # (`grader_timeout` of a loaded trial; theseus-w052 3).
+    ("grader timeout", {"VerifierTimeoutError"}),
     ("turn cut", {"TheseusTurnCutError"}),
     ("spend limit", {"TheseusSpendLimitError"}),
     ("refusal", {"AgentSafetyRefusalError"}),
@@ -277,6 +283,36 @@ def _started(t: dict[str, Any], d: Path) -> str:
         return ""
 
 
+def trial_ending(t: dict[str, Any]) -> str:
+    """How a trial ended: the verifier's own timeout is the grader's ending, apart from every agent's."""
+    return "grader timeout" if t.get("grader_timeout") else ending(t["error"])
+
+
+def _window(d: Path) -> tuple[datetime, datetime] | None:
+    """A trial's span on the host: its agent's start to its verifier's end (Harbor's own times)."""
+    try:
+        r = json.loads((d / "result.json").read_text())
+    except (OSError, ValueError):
+        return None
+    start = ((r.get("agent_execution") or {}).get("started_at") or r.get("started_at"))
+    end = ((r.get("verifier") or {}).get("finished_at") or r.get("finished_at"))
+    try:
+        a, b = (datetime.fromisoformat(x.replace("Z", "+00:00")) for x in (start, end))
+    except (AttributeError, ValueError):
+        return None
+    return (a, b) if b >= a else None
+
+
+def overlaps(trials: list[dict[str, Any]]) -> None:
+    """Set `overlap` on each trial: how many other trials of the report (every arm) were on the host during its
+    window. A run beside other trials, builds, or another job stays readable through this column alone: a grader
+    timeout with a high overlap is the host's. None where a trial has no window."""
+    for t in trials:
+        w = t.get("window")
+        t["overlap"] = None if w is None else sum(
+            1 for o in trials if o is not t and o.get("window") and o["window"][0] < w[1] and w[0] < o["window"][1])
+
+
 def harbor(args: argparse.Namespace) -> int:
     eff = _load("efficiency_report", HERE / "efficiency.py")
     labels = dict(x.split("=", 1) for x in args.label or [])
@@ -293,10 +329,13 @@ def harbor(args: argparse.Namespace) -> int:
                 t = eff.load_trial(d)
                 if t is not None:
                     t["started"] = _started(t, d)
+                    t["window"] = _window(d)
+                    t["friction"] = friction.scan_dir(d)
                     trials.append(t)
         arms.setdefault(key, []).extend(trials)
         sources.setdefault(key, []).extend(str(j) for j in jobs)
     keys = list(arms)
+    overlaps([t for k in keys for t in arms[k]])
     name = report_name(args.date, args.suite, args.slug)
     # attempts: per arm and task, in the order the trials started
     by_task: dict[str, dict[str, list[dict[str, Any]]]] = {k: defaultdict(list) for k in keys}
@@ -310,7 +349,7 @@ def harbor(args: argparse.Namespace) -> int:
         ts = arms[k]
         solved = sum(1 for t in ts if t["solved"])
         task_rates = [sum(1 for t in by_task[k][x] if t["solved"]) / len(by_task[k][x]) for x in by_task[k]]
-        ends = Counter(ending(t["error"]) for t in ts)
+        ends = Counter(trial_ending(t) for t in ts)
         s = eff.summarize(k, ts)
         summary[k] = {
             "label": label_of(k, labels), "trials": len(ts), "tasks": len(by_task[k]),
@@ -323,6 +362,11 @@ def harbor(args: argparse.Namespace) -> int:
             "agent_min_per_trial": interval([t["wall_s"] / 60 for t in ts if t["wall_s"] is not None]),
             "model_calls_per_trial": s["model_calls_per_trial"], "tool_calls_per_trial": s["tool_calls_per_trial"],
             "tokens": s["tokens"], "cache_hit_share": s["cache_hit_share"], "endings": dict(ends),
+            "t4": friction.t4([t["friction"] for t in ts]),
+            "grader_timeouts": _listed(by_task[k], lambda t: t["grader_timeout"]),
+            "over_budget": _listed(by_task[k], lambda t: t["over_budget"], cost=True),
+            "overlap": interval([t["overlap"] for t in ts if t.get("overlap") is not None]),
+            "overlap_max": max((t["overlap"] for t in ts if t.get("overlap") is not None), default=None),
             "sampled": s["sampled"], "harness_cpu_ms_per_tool_call": s["harness_cpu_ms_per_tool_call"],
             "peak_harness_rss_mb": s["peak_harness_rss_mb"],
         }
@@ -330,7 +374,9 @@ def harbor(args: argparse.Namespace) -> int:
             for i, t in enumerate(by_task[k][x], 1):
                 rec, tk = t["record"], t["record"].get("tokens") or {}
                 rows_csv.append({"arm": k, "task": x, "attempt": i, "trial": t["trial"], "reward": t["reward"],
-                                 "ending": ending(t["error"]), "exception": t["error"] or "",
+                                 "ending": trial_ending(t), "exception": t["error"] or "",
+                                 "grader_timeout": bool(t["grader_timeout"]), "over_budget": t["over_budget"],
+                                 "overlap": t.get("overlap"),
                                  "agent_s": t["wall_s"], "cost_usd": rec.get("cost_usd"),
                                  "model_calls": rec.get("model_calls"), "tool_calls": rec.get("tool_calls"),
                                  **{c: tk.get(c) for c in ("input", "cache_read", "cache_write", "output")}})
@@ -353,13 +399,22 @@ def harbor(args: argparse.Namespace) -> int:
         paired[k] = {"against": ref, "only_ref": b, "only_arm": c, "both": both, "neither": neither,
                      "p_mcnemar": stats.mcnemar_exact(b, c), "tasks_only_ref": only_ref, "tasks_only_arm": only_k}
     figures = harbor_figures(keys, summary, by_task, tasks, attempts, len(tasks))
-    data = {"report": name, "suite": args.suite, "date": args.date, "model": args.model, "commit": args.commit,
+    t5 = friction.t5({k: [by_task[k][x] for x in sorted(by_task[k])] for k in keys})
+    data = {"report": name, "t5": t5, "suite": args.suite, "date": args.date, "model": args.model, "commit": args.commit,
             "kind": "harbor", "arms": [{"key": k, "label": summary[k]["label"]} for k in keys],
             "summary": summary, "paired": paired, "figures": figures}
-    sk = harbor_skeleton(name, args, keys, summary, paired, figures, attempts, len(tasks), sources)
+    sk = harbor_skeleton(name, args, keys, summary, paired, figures, attempts, len(tasks), sources, t5)
     for p in write_outputs(Path(args.out), name, data, rows_csv, sk, args.force):
         print(p)
     return 0
+
+
+def _listed(by_task: dict[str, list[dict[str, Any]]], keep, cost: bool = False) -> list[dict[str, Any]]:
+    """The trials of one arm that `keep` selects, task by task and attempt by attempt, one entry each."""
+    return [{"task": x, "attempt": i, "trial": t["trial"],
+             **({"cost_usd": (t["record"].get("model_cost_usd") if t["record"].get("model_cost_usd") is not None
+                              else t["record"].get("cost_usd"))} if cost else {})}
+            for x in sorted(by_task) for i, t in enumerate(by_task[x], 1) if keep(t)]
 
 
 def harbor_figures(keys: list[str], summary: dict[str, Any], by_task: dict[str, Any], tasks: list[str],
@@ -417,12 +472,12 @@ def harbor_figures(keys: list[str], summary: dict[str, Any], by_task: dict[str, 
             for i in range(attempts):
                 if i >= len(ts) or ts[i]["reward"] is None and not ts[i]["error"]:
                     cells += "-"
-                    tips.append("no result")
+                    tips.append("grader timeout" if i < len(ts) and ts[i]["grader_timeout"] else "no result")
                     continue
                 t = ts[i]
                 cells += "P" if t["solved"] else ("E" if t["error"] else "F")
                 cost = t["record"].get("cost_usd")
-                tips.append(f'{ending(t["error"])}, {usd(cost) if cost is not None else "cost unknown"}')
+                tips.append(f'{trial_ending(t)}, {usd(cost) if cost is not None else "cost unknown"}')
         solved = cells.count("P")
         rows.append({"label": x, "cells": cells, "note": f"{solved}/{len(cells)}", "tips": tips})
     rows.sort(key=lambda r: (-r["cells"].count("P"), r["label"]))
@@ -433,9 +488,40 @@ def harbor_figures(keys: list[str], summary: dict[str, Any], by_task: dict[str, 
     return figs
 
 
+def flagged_trials(keys: list[str], summary: dict[str, Any], lab: dict[str, str]) -> str:
+    """The trials a reader must see apart (theseus-w052 2 and 3): each verifier timeout, the grader's own (never
+    counted as the agent's failure, and listed apart from every agent's endings), and each trial past $2.00 of real
+    spend (the spend limit is $2.00 plus one reservation, so a trial can pass it), a line per trial."""
+    out = []
+    graders = [(k, g) for k in keys for g in summary[k]["grader_timeouts"]]
+    if graders:
+        out.append("**Grader timeouts** (the verifier's own clock, the grader's and not the agent's; each is a trial "
+                   "with no reward, counted as not solved): " + str(len(graders)) + ".\n")
+        out += [f"- {lab[k]}, `{g['task']}` attempt {g['attempt']} (`{g['trial']}`)" for k, g in graders]
+    over = [(k, o) for k in keys for o in summary[k]["over_budget"]]
+    if over:
+        out.append(("\n" if out else "") + "**Trials past $2.00 of real spend** (the spend limit is $2.00 plus one "
+                    "maximum reservation, so a trial can end past it): " + str(len(over)) + ".\n")
+        out += [f"- {lab[k]}, `{o['task']}` attempt {o['attempt']} (`{o['trial']}`): {usd(o['cost_usd'])}"
+                for k, o in over]
+    return "\n".join(out) + ("\n" if out else "")
+
+
+def overlap_text(keys: list[str], summary: dict[str, Any], lab: dict[str, str]) -> str:
+    """The threat the overlap column answers: trials share the host with each other, with another job and with
+    builds, and a timing result (a grader timeout, agent minutes) is readable only through each trial's overlap."""
+    per = "; ".join(f"{lab[k]} mean {summary[k]['overlap']['mean']:.1f}, most {summary[k]['overlap_max']}"
+                    for k in keys if summary[k]["overlap_max"] is not None)
+    return ("- **Host sharing.** Trials ran beside each other and, where the host was not quiet, beside other builds, "
+            "so wall time and the verifier's timeouts are confounded with the host's load. Each trial's `overlap` "
+            "(the data file's CSV column: how many other trials of this report were on the host between its "
+            "agent's start and its verifier's end) is how to read them: a timeout at a high overlap is the host's."
+            + (f" Overlap per arm: {per}." if per else "") + "\n")
+
+
 def harbor_skeleton(name: str, args: argparse.Namespace, keys: list[str], summary: dict[str, Any],
                     paired: dict[str, Any], figures: list[dict[str, Any]], attempts: int, n_tasks: int,
-                    sources: dict[str, list[str]]) -> str:
+                    sources: dict[str, list[str]], t5: dict[str, Any]) -> str:
     lab = {k: summary[k]["label"] for k in keys}
     figs = figures_md(name, figures)
     total = sum(summary[k]["cost_usd"] for k in keys)
@@ -473,6 +559,16 @@ def harbor_skeleton(name: str, args: argparse.Namespace, keys: list[str], summar
     results = t + "\n" + "\n".join(figs[f["name"]] for f in figures if f["name"] in ("pass-rates", "pareto-dollars"))
     analysis = ((p + "\n") if p else "") + "\n".join(
         figs[f["name"]] for f in figures if f["name"] in ("endings", "cost-per-trial", "outcomes"))
+    analysis += ("\n**T4, tool friction.** Tool-level errors are results the tool flagged as errors, a command's own "
+                 "failure (its exit code) left out; malformed inputs and invented names are kinds of them "
+                 "(`bench/report/friction.py`).\n\n"
+                 + friction.t4_table({k: summary[k]["t4"] for k in keys}, lab)
+                 + "\n**T5, cost and calls per solve**, over the pairs every arm solved (a task's same-numbered "
+                 "attempt).\n\n" + friction.t5_table(t5, lab))
+    apart = flagged_trials(keys, summary, lab)
+    if apart:
+        analysis += "\n" + apart
+    threats = overlap_text(keys, summary, lab)
     setup = "\n".join(
         [f"- **{lab[k]}** (`{k}`): _its harness and version, its options and limits._ Jobs: {len(sources[k])} "
          "Harbor job directories." for k in keys] +
@@ -495,8 +591,8 @@ def harbor_skeleton(name: str, args: argparse.Namespace, keys: list[str], summar
             "dollars, calls and tokens by class. The trials' own files (transcripts included) are not published.")
     cost = "\n".join(f"- {lab[k]}: {usd(summary[k]['cost_usd'])}" for k in keys) + f"\n- **In all: {usd(total)}.**"
     return skeleton(f"{args.suite}: _what the run asked_ ({args.date})", glance,
-                    {"The setup": setup, "Results": results, "Analysis": analysis, "What it cost": cost,
-                     "Reproduction": repro, "Data": data})
+                    {"The setup": setup, "Results": results, "Analysis": analysis,
+                     "Threats to validity": threats, "What it cost": cost, "Reproduction": repro, "Data": data})
 
 
 # ------------------------------------------------------------------ history

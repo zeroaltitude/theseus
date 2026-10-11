@@ -31,5 +31,13 @@ for b in theseus theseusd; do
     exit 1
   fi
 done
-ls -l "$out/theseus" "$out/theseusd"
+# The commit the binaries were built from, which `theseus --version` does not say (it is 0.0.1 for every build):
+# the adapter writes it to each trial's record (`build_commit`), so two builds tell apart. A tree with changes to
+# tracked files says so, since its binaries are not that commit's.
+commit="$(git rev-parse HEAD 2>/dev/null || echo unknown)"
+if [ "$commit" != unknown ] && [ -n "$(git status --porcelain --untracked-files=no 2>/dev/null)" ]; then
+  commit="$commit-dirty"
+fi
+printf '%s\n' "$commit" > "$out/build-commit"
+ls -l "$out/theseus" "$out/theseusd" "$out/build-commit"
 echo "export THESEUS_BENCH_BIN_DIR=$(cd "$out" && pwd)"
