@@ -34,6 +34,11 @@ Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
   each a `judge.label` with the presser's `DiscordOrigin`, which the core judges (the owner, from a private place).
   A refused press tells the presser alone; a counted one comes back as the core's `jev_labeled` post, which edits
   the notice and clears its buttons. `judge.noticed` draws nothing in a place.
+- **`/why`** (`runtime/why.rs`, theseus-ighf): what this place's session's last turn was shown and why, ephemeral
+  (the deferred acknowledgement carries the flag), the short form of `theseus_protocol::why` in a code fence within
+  2,000 characters (each section's top three and a count of the rest, never a second message). A place whose class is
+  not private is told that an imported or another session's note was there, and shown none of its words. A read of
+  the core: no frame, no ledger row (not even `discord.command`'s). Tests: `runtime/tests_why.rs`.
 - **A place's session** (`runtime/succession.rs`, theseus-emqx): a place resumes its stored session when it can take
   turns and is not retired; otherwise it starts fresh, and nothing is opened at the bind, at `/new`, or when its
   session can take no more turns: its next message opens one (`Place::ready`) through `Core::bind_place_to`, which
