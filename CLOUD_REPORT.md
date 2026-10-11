@@ -77,4 +77,5 @@ None from this change.
   - `scripts/shape.sh`: ok;
   - `cargo clippy --workspace --all-targets -D warnings`: clean (after splitting four functions past clippy's limits);
   - `cargo nextest run --workspace`: 3,765 run, 3,732 passed, 33 failed. All 33 are the known L1 failures (root daemon, theseus-pv6i): `theseus-sandbox::contract` (19), `bench spawn_100` and `theseusd::sandbox` (13). No timing test failed.
-- Not run: the gate's cockpit, deny and bench phases. `cargo deny fetch` did not run, because the setup chain was blocked when it started.
+- `cargo deny check` (run by hand after the gate): advisories, bans, licenses and sources ok.
+- Not run: the gate's cockpit phase and the bench phases (the brief says to leave budgets alone).
