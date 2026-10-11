@@ -61,6 +61,16 @@ pub fn index_line(h: &theseus_protocol::index::IndexHealth) -> String {
             fmt_bytes(b.total_bytes)
         ));
     }
+    // The vectors' backlog and the tender's memory (theseus-agqn).
+    if let Some(v) = s.vectors.as_ref().filter(|v| v.model != "off") {
+        line.push_str(&format!(
+            " · {} waiting for a vector",
+            plural(v.pending, "text", "texts")
+        ));
+    }
+    if s.rss_bytes > 0 {
+        line.push_str(&format!(" · tender rss {}", fmt_bytes(s.rss_bytes)));
+    }
     line.push_str(&why);
     line
 }

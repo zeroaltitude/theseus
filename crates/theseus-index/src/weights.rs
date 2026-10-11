@@ -1,10 +1,11 @@
-//! The model's files, read and checked: `model.safetensors` read once, in
-//! order, hashing every byte as it goes and copying each tensor into its own
-//! buffer, and the tensors kept only if the file's SHA-256 is the one pinned
-//! in the crate. Reading instead of mapping keeps a load's RSS from counting
-//! the file beside the copies (about 1.06 GB at the spike's peak, against
-//! the 530 MiB the tensors hold), and hashing while reading costs no second
-//! pass over 547 MB.
+//! The model's files, read and checked: `model.safetensors` mapped, each
+//! tensor copied out of the map into its own buffer a window at a time, in
+//! order, and the tensors kept only if the file's SHA-256 is the one pinned
+//! in the crate. Each window's pages leave the resident set once copied, so
+//! a load's RSS never counts the file beside the copies (about 1.06 GB at the
+//! spike's peak, against the 530 MiB the tensors hold), and the hash is taken
+//! while copying, once per file signature (`mapped`, theseus-agqn): a load
+//! after the idle unload copies, and hashes nothing.
 
 use std::collections::HashMap;
 use std::fs::File;
@@ -16,6 +17,7 @@ use candle_core::{Device, Tensor};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
+use crate::mapped;
 use crate::model::NomicConfig;
 
 /// Why a model's files did not load.
@@ -77,48 +79,87 @@ pub fn sha256_file(path: &Path) -> io::Result<String> {
     Ok(hex(&h.finalize()))
 }
 
-/// How many bytes are read at a time (a multiple of 4: f32s never straddle
-/// two reads).
-const READ: usize = 1 << 20;
-
-/// The f32 tensors of a safetensors file, if its SHA-256 is `want`. A file
-/// that does not even read as a checkpoint is named by its hash too.
+/// The f32 tensors of a safetensors file, if its SHA-256 is `want`: the
+/// file mapped and copied a window at a time, and hashed only when this
+/// process has not hashed it at its signature before (`mapped`,
+/// theseus-agqn). A file that does not even read as a checkpoint is named by
+/// its hash too.
 pub fn read_safetensors(path: &Path, want: &str) -> Result<HashMap<String, Tensor>, LoadError> {
-    let mut f = File::open(path).map_err(|e| LoadError::io(path, e))?;
-    let mut h = Sha256::new();
+    let f = File::open(path).map_err(|e| LoadError::io(path, e))?;
+    let sig = mapped::Sig::of(&f.metadata().map_err(|e| LoadError::io(path, e))?);
     let refused = |got: String| LoadError::Refused {
         file: path.to_path_buf(),
         want: want.to_string(),
         got,
     };
-    match read_tensors(&mut f, &mut h) {
+    let known = mapped::known(path, &sig);
+    if let Some(got) = &known {
+        if got != want {
+            return Err(refused(got.clone()));
+        }
+    }
+    let map = mapped::Map::of(&f).map_err(|e| LoadError::io(path, e))?;
+    let mut h = known.is_none().then(Sha256::new);
+    match read_tensors(&map, h.as_mut()) {
         Ok(tensors) => {
-            let got = hex(&h.finalize());
-            if got != want {
-                return Err(refused(got));
+            if let Some(h) = h {
+                let got = hex(&h.finalize());
+                mapped::remember(path, sig, &got);
+                if got != want {
+                    return Err(refused(got));
+                }
             }
             Ok(tensors)
         }
-        Err(e) => match sha256_file(path) {
-            Ok(got) if got != want => Err(refused(got)),
-            _ => Err(LoadError::Other(
-                e.context(format!("reading {}", path.display())),
-            )),
-        },
+        Err(e) => {
+            let got = known.unwrap_or_else(|| {
+                let mut h = Sha256::new();
+                feed(&map, Some(&mut h), 0, map.bytes().len());
+                let got = hex(&h.finalize());
+                mapped::remember(path, sig, &got);
+                got
+            });
+            if got == want {
+                Err(LoadError::Other(
+                    e.context(format!("reading {}", path.display())),
+                ))
+            } else {
+                Err(refused(got))
+            }
+        }
     }
 }
 
-fn read_tensors(f: &mut File, h: &mut Sha256) -> anyhow::Result<HashMap<String, Tensor>> {
-    let mut len8 = [0u8; 8];
-    f.read_exact(&mut len8)?;
-    h.update(len8);
-    let n = u64::from_le_bytes(len8);
+/// `[at, at + len)` of the map hashed into `h` (when there is one) a window
+/// at a time, each window's pages released after.
+fn feed(map: &mapped::Map, mut h: Option<&mut Sha256>, at: usize, len: usize) {
+    let bytes = map.bytes();
+    let mut i = at;
+    while i < at + len {
+        let n = (at + len - i).min(mapped::WINDOW);
+        if let Some(h) = h.as_deref_mut() {
+            h.update(&bytes[i..i + n]);
+        }
+        map.release(i, n);
+        i += n;
+    }
+}
+
+/// The tensors, in the file's order, each copied out of the map a window at
+/// a time (hashed into `h` as it goes, and every byte between them too).
+fn read_tensors(
+    map: &mapped::Map,
+    mut h: Option<&mut Sha256>,
+) -> anyhow::Result<HashMap<String, Tensor>> {
+    let bytes = map.bytes();
+    ensure!(bytes.len() >= 8, "shorter than its header's length");
+    let n = u64::from_le_bytes(bytes[..8].try_into()?);
     ensure!(n <= 100 << 20, "a header of {n} bytes");
-    let mut header = vec![0u8; n as usize];
-    f.read_exact(&mut header)?;
-    h.update(&header);
+    let base = 8 + n as usize;
+    ensure!(bytes.len() >= base, "shorter than its header");
     let header: serde_json::Map<String, Value> =
-        serde_json::from_slice(&header).context("the header is not JSON")?;
+        serde_json::from_slice(&bytes[8..base]).context("the header is not JSON")?;
+    feed(map, h.as_deref_mut(), 0, base);
     let mut infos = Vec::new();
     for (name, v) in header {
         if name == "__metadata__" {
@@ -147,47 +188,37 @@ fn read_tensors(f: &mut File, h: &mut Sha256) -> anyhow::Result<HashMap<String, 
             end >= begin && (end - begin) as usize == elems * 4,
             "{name}'s bytes do not match its shape"
         );
-        infos.push((begin, end, name, shape));
+        ensure!(
+            base as u64 + end <= bytes.len() as u64,
+            "{name} runs past the file's end"
+        );
+        infos.push((begin as usize, end as usize, name, shape));
     }
     infos.sort();
-    let mut at = 0u64;
-    let mut buf = vec![0u8; READ];
+    let mut at = 0usize;
     let mut out = HashMap::with_capacity(infos.len());
     for (begin, end, name, shape) in infos {
         ensure!(begin >= at, "{name} overlaps the tensor before it");
-        skip(f, h, begin - at, &mut buf)?;
-        let mut data: Vec<f32> = Vec::with_capacity(((end - begin) / 4) as usize);
-        let mut left = (end - begin) as usize;
-        while left > 0 {
-            let take = left.min(READ);
-            f.read_exact(&mut buf[..take])?;
-            h.update(&buf[..take]);
-            let (quads, _) = buf[..take].as_chunks::<4>();
+        feed(map, h.as_deref_mut(), base + at, begin - at);
+        let mut data: Vec<f32> = Vec::with_capacity((end - begin) / 4);
+        let mut i = base + begin;
+        while i < base + end {
+            let n = (base + end - i).min(mapped::WINDOW);
+            let window = &bytes[i..i + n];
+            if let Some(h) = h.as_deref_mut() {
+                h.update(window);
+            }
+            let (quads, _) = window.as_chunks::<4>();
             data.extend(quads.iter().map(|b| f32::from_le_bytes(*b)));
-            left -= take;
+            map.release(i, n);
+            i += n;
         }
         out.insert(name, Tensor::from_vec(data, shape, &Device::Cpu)?);
         at = end;
     }
     // Anything after the last tensor is hashed too.
-    loop {
-        let n = f.read(&mut buf)?;
-        if n == 0 {
-            break;
-        }
-        h.update(&buf[..n]);
-    }
+    feed(map, h, base + at, bytes.len() - base - at);
     Ok(out)
-}
-
-fn skip(f: &mut File, h: &mut Sha256, mut n: u64, buf: &mut [u8]) -> io::Result<()> {
-    while n > 0 {
-        let take = n.min(buf.len() as u64) as usize;
-        f.read_exact(&mut buf[..take])?;
-        h.update(&buf[..take]);
-        n -= take as u64;
-    }
-    Ok(())
 }
 
 /// Write tensors as a safetensors file (tests, and the live check's wrong

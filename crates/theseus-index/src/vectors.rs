@@ -46,6 +46,7 @@ use crate::proto::{
     VectorStatus,
 };
 use crate::weights::LoadError;
+use entries::{Entries, Holders};
 
 /// How many candidates of the int8 scan the 768-d vectors re-score.
 pub const RESCORE: usize = 100;
@@ -137,6 +138,8 @@ pub trait Texts {
     fn all_nodes(&self) -> anyhow::Result<Vec<NodeChunks>>;
 }
 
+mod entries;
+mod heap;
 mod status;
 
 // ---------------------------------------------------------------------------
@@ -155,7 +158,7 @@ pub struct Cache {
     cut: usize,
     full: usize,
     rec: usize,
-    by_hash: HashMap<u128, u32>,
+    by_hash: Entries,
     /// Each entry's text hash.
     hashes: Vec<u128>,
     q: Vec<i8>,
@@ -241,7 +244,7 @@ impl Cache {
             cut,
             full,
             rec,
-            by_hash: HashMap::new(),
+            by_hash: Entries::default(),
             hashes: Vec::new(),
             q: Vec::new(),
             scale: Vec::new(),
@@ -280,6 +283,7 @@ impl Cache {
             }
             c.push_record(&buf);
         }
+        c.shrink();
         let good = HEADER + (c.len() * rec) as u64;
         if good != len {
             tracing::warn!(
@@ -296,8 +300,8 @@ impl Cache {
         let hash = u128::from_le_bytes(b[..16].try_into().unwrap_or_default());
         let scale = f32::from_le_bytes(b[16..20].try_into().unwrap_or_default());
         let entry = self.scale.len() as u32;
-        self.by_hash.insert(hash, entry);
         self.hashes.push(hash);
+        self.by_hash.insert(entry, &self.hashes);
         self.scale.push(scale);
         self.q.extend(b[20..20 + self.cut].iter().map(|&x| x as i8));
         self.dead.push(false);
@@ -312,7 +316,7 @@ impl Cache {
     }
 
     pub fn get(&self, hash: u128) -> Option<u32> {
-        self.by_hash.get(&hash).copied()
+        self.by_hash.get(hash, &self.hashes)
     }
 
     /// Records whose text no chunk holds.
@@ -470,15 +474,15 @@ impl Cache {
             .append(true)
             .open(&path)
             .with_context(|| format!("opening {}", path.display()))?;
-        let mut by_hash = HashMap::with_capacity(kept.len());
+        let mut by_hash = Entries::with_capacity(kept.len());
         let mut hashes = Vec::with_capacity(kept.len());
         let mut q = Vec::with_capacity(kept.len() * self.cut);
         let mut scale = Vec::with_capacity(kept.len());
         let mut dead = Vec::with_capacity(kept.len());
         for (n, &e) in kept.iter().enumerate() {
             let h = self.hashes[e as usize];
-            by_hash.insert(h, n as u32);
             hashes.push(h);
+            by_hash.insert(n as u32, &hashes);
             q.extend_from_slice(self.q(e));
             scale.push(self.scale[e as usize]);
             dead.push(self.dead[e as usize]);
@@ -706,7 +710,7 @@ pub struct Table {
     rows: Vec<Row>,
     by_node: HashMap<Arc<str>, Vec<u32>>,
     /// Alive rows, by their text.
-    by_hash: HashMap<u128, Vec<u32>>,
+    by_hash: HashMap<u128, Holders>,
     sessions: Interner,
     kinds: Interner,
     /// This stamp's vectors first, then older stamps' of the same space.
@@ -1751,7 +1755,8 @@ impl Vectors {
         match cache.append(&items) {
             Ok(entries) => {
                 for ((h, _), e) in items.iter().zip(entries) {
-                    for i in t.by_hash.get(h).cloned().unwrap_or_default() {
+                    let rows = t.by_hash.get(h).map(|r| r.as_slice().to_vec());
+                    for i in rows.unwrap_or_default() {
                         t.rows[i as usize].vec = Some((0, e));
                     }
                 }
@@ -2413,7 +2418,7 @@ mod tests {
             assert_eq!(copy.exists(), !want_new, "{stop:?}");
             let again = Cache::open(tmp.path(), &stamp(16, 48)).unwrap();
             assert!(!copy.exists(), "{stop:?}: the open removes the copy");
-            let mut hashes: Vec<u128> = again.by_hash.keys().copied().collect();
+            let mut hashes: Vec<u128> = again.hashes.clone();
             hashes.sort_unstable();
             let want: Vec<u128> = (0..40).filter(|h| !want_new || even(*h)).collect();
             assert_eq!(hashes, want, "{stop:?}");

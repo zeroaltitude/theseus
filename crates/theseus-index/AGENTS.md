@@ -28,6 +28,17 @@ Key modules: `tender.rs`, `engine.rs`, `vectors.rs`, `server.rs`, `extract.rs`. 
   theseus-0lrr.6): that holds inside one batch too, where the node's first record is indexed but not yet committed
   (`fresh`), as a rebuild meets a node and its tombstone together; `engine.holds` reads only what is committed.
   Test: `tests_import.rs`.
+- **The weights are mapped and hashed once** (`mapped.rs`, `weights.rs`; theseus-agqn). `model.safetensors` is
+  mapped and each tensor copied out a window at a time, each window's pages released after (`Map::release`), so a
+  load holds the f32 tensors (compute stays f32: the owner's D-3) and never the file beside them. Its SHA-256 is
+  taken while the first load copies and kept by the file's (device, inode, size, mtime): a load after the idle
+  unload copies and hashes nothing. Tests: `tests_weights.rs` (the peak resident set through `clear_refs`, and
+  `mapped::hashes_of`, the counting seam).
+- **The heap per chunk** (`vectors/entries.rs`, `vectors/heap.rs`; theseus-agqn): a vector file's entries by hash
+  are an open-addressed table of entry numbers keyed by the hashes the file already holds (`Entries`), a text's rows
+  one inline (`Holders`), and a file's memory is shrunk after its read. About 535 bytes a chunk at 30,000 (665
+  before), of which the int8 cut is 256; the 768-d f16 vectors stay on disk. `heap::tests` holds the bound and the
+  fixture's top-k; `bench_the_heap_at_300k_chunks` prints the measure.
 - **The status never waits on the embedding work** (`vectors/status.rs`, `server.rs`; theseus-uazd). Its table
   counts are read with `try_read` and kept: while a writer holds the table (a compaction's rewrite, a batch's
   append) or waits for it, the status answers the last counts and their time (`counted_ms`). Past

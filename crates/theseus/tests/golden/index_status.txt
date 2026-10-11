@@ -2,7 +2,7 @@ $ theseus index status
 --- requests
 index.status
 --- stdout
-index: ready · hybrid · 100 nodes in 151 chunks · through position 1607 · 0 B behind
+index: ready · hybrid · 100 nodes in 151 chunks · through position 1607 · 0 B behind · 2 texts waiting for a vector · tender rss 24.0 MB
 tender: index tender running (pid 4242, 1 restart) · /opt/theseus/bin/theseus-index
 cursor: segment 0 offset 182340 · 12 commits · 1490 records read · 100 nodes indexed, 11 skipped, 0 undecodable · 0 rebuilds · rss 24.0 MB
 vectors: loaded · 149 of 151 chunks · 2 pending · nomic-embed-text-v1.5@e5cf08a
