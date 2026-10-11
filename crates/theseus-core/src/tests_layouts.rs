@@ -82,7 +82,7 @@ pub(crate) const SESSION_BEFORE_DIR: &str = r#"{"session_id":"ses_00000000000000
 const SAMPLES: &[Sample] = &[
     Sample {
         kind: kinds::SESSION,
-        layout: "a session at format 26 (theseus-wy7y; unchanged since 25): before its directory (27, theseus-aab7)",
+        layout: "a session at format 27 (theseus-wy7y's; unchanged since 25): before its directory (28, theseus-aab7)",
         bytes: SESSION_BEFORE_DIR,
         kept: Kept::All,
     },

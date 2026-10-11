@@ -164,6 +164,12 @@ async fn a_session_started_in_a_directory_works_there() {
         printed.contains(&format!("{}\n", x.display())),
         "pwd ran in X: {printed}"
     );
+    // The result's first line names the session's directory (theseus-9dt2's
+    // `· in DIR`, which reads it).
+    assert!(
+        printed.starts_with(&format!("[exit code 0 · in {}]\n", x.display())),
+        "{printed}"
+    );
     let read = result_of(&r.core, sid, "t2");
     assert!(read.contains("the tide table of harbour-tides"), "{read}");
     assert_eq!(r.fake.requests().len(), 3, "a loop a call, and the answer");

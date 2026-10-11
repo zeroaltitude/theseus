@@ -17,6 +17,7 @@ use super::{CallOutcome, ResultNode, ToolRuntime, TurnCtx};
 use crate::fact;
 use crate::node::ResultStatus;
 use crate::provider::ToolUse;
+use crate::store::Store;
 
 /// Each fitted call's note, by its `tool_use` id, until its result is
 /// written, and the calls per tool whose input was not JSON. In memory: a
@@ -57,11 +58,16 @@ impl Notes {
 }
 
 impl ToolRuntime {
-    /// The directory a call runs in when it names none: the session's. Until
-    /// a session has its own (session-dir) it is the tools' `cwd`; this is
-    /// the one place that says so.
-    pub(super) fn session_dir(&self) -> PathBuf {
-        self.ctx.cwd.clone()
+    /// The directory a call runs in when it names none: its session's own
+    /// (theseus-aab7), else the tools' `cwd`; this is the one place that
+    /// says so for a result's first line.
+    pub(super) fn session_dir(&self, store: &Store, session_id: &str) -> PathBuf {
+        let dir = store
+            .get_session::<crate::session::SessionRecord>(session_id)
+            .ok()
+            .flatten()
+            .and_then(|r| r.dir);
+        self.cwd_for(dir.as_deref())
     }
 
     /// The calls as the model meant them: `bash {command}` as `proc_run`, a
@@ -162,7 +168,12 @@ impl ToolRuntime {
     /// `[exit code 0 · in /dir]`'s tail for a `proc.run` result: where the
     /// call ran, so a model never has to `pwd`. A batch ran its last step
     /// last.
-    pub(super) fn ran_in(&self, tool: &str, input: Option<&Value>) -> String {
+    pub(super) fn ran_in(
+        &self,
+        tool: &str,
+        input: Option<&Value>,
+        (store, session_id): (&Store, &str),
+    ) -> String {
         if tool != "proc.run" {
             return String::new();
         }
@@ -175,7 +186,8 @@ impl ToolRuntime {
             .and_then(|s| s.get("cwd"))
             .or_else(|| input.get("cwd"))
             .and_then(Value::as_str);
-        let dir = cwd.map_or_else(|| self.session_dir(), |p| self.ctx.resolve(p));
+        let base = self.session_dir(store, session_id);
+        let dir = cwd.map_or(base.clone(), |p| theseus_tools::paths::resolve(&base, p));
         format!(" · in {}", dir.display())
     }
 

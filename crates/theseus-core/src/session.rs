@@ -108,7 +108,7 @@ pub struct SessionRecord {
     /// that names it with another. Its tools' default `cwd` and the base of
     /// their relative paths (`ToolRuntime::cwd_for`), and its system
     /// block's `Directory:`. Absent: the daemon's `[tools] cwd`, and in
-    /// records written before it (store format 27).
+    /// records written before it (store format 28).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub dir: Option<String>,
 }

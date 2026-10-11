@@ -779,7 +779,10 @@ impl ToolRuntime {
                 "[outcome unknown: the harness could not establish whether this finished]\n"
                     .to_string()
             }
-            (_, Some(c), _) => format!("[exit code {c}{}]\n", self.ran_in(tool, input)),
+            (_, Some(c), _) => format!(
+                "[exit code {c}{}]\n",
+                self.ran_in(tool, input, (store, &a.session_id))
+            ),
             // Its command never started: why, never an empty result
             // (theseus-f7tz).
             _ => super::not_started::line(&detail, self.registry.get(crate::term::SEND).is_some())
