@@ -80,7 +80,8 @@ Key modules: `lifecycle.rs`, `kernel_sim.rs`, `fake_discord.rs`, `discord_proof.
     gives it a guild for the viewer check (theseus-ck0k).
   - `fake-model --rules <file>` (`src/fake_model.rs`, 37b): a scripted stand-in for the Messages API, for a scratch
     daemon's `api_base`: each turn's last user text takes the first rule (`{when, calls: [{name, input}], text}`) it
-    holds, so a live check can script any tool's calls (`task_create`, `wake_at`, …); a tool's result gets `Done.`.
+    holds, so a live check can script any tool's calls (`task_create`, `wake_at`, …); a tool's result gets the
+    rule's `then`, found by the turn's prompt, else `Done.` (theseus-qy2a).
     A rule's `hold_ms` holds its answer that long, each connection on its own thread, so a live check can find a
     provider call in flight (theseus-f3wr).
   - `discord` (`src/discord_cli.rs`): `proof`, kl8m's steps against a real daemon (`src/discord_proof.rs`); and
