@@ -33,6 +33,14 @@ use crate::walcount::Tail;
 /// The gap between two task turns' submissions: their order is the bench's.
 const GAP: Duration = Duration::from_millis(5);
 
+/// Admissions closer than this are one moment. The bench reads a turn's
+/// admission as its submission by this clock plus the daemon's wait from
+/// the turn's arrival, so each carries its trip to the daemon, a few ms
+/// under the burst's threads; and a wave of released slots is handed on
+/// within a few ms. A turn the queue put behind another is a hold (2 s)
+/// later, so 50 ms tells the two apart.
+const SAME_MOMENT_MS: f64 = 50.0;
+
 #[derive(Args)]
 pub struct ConcurrencyArgs {
     /// The daemon to measure (default: the `theseusd` beside this binary).
@@ -75,6 +83,10 @@ struct Turn {
     ended_ms: f64,
     wall_ms: f64,
     failed: Option<String>,
+    /// Its class and ticket in the daemon's admission queue (its
+    /// `admission.wait` span): the order it reached the queue.
+    class: Option<String>,
+    ticket: Option<u64>,
 }
 
 #[derive(Serialize)]
@@ -84,8 +96,14 @@ struct Run {
     stuck_secs: Option<u64>,
     total_wall_ms: f64,
     task_wall_ms: Summary,
-    /// Pairs of task turns admitted out of their submission order.
+    /// Pairs of task turns admitted out of the order they reached the
+    /// daemon's queue (their tickets), by more than one moment
+    /// (`SAME_MOMENT_MS`): the queue's FIFO, judged.
     admitted_inversions: usize,
+    /// The same against the bench's submission order: a turn that reached
+    /// the queue late (its wait for the memory pass's writer, its secrets)
+    /// shows here and not above. Not judged.
+    submitted_inversions: usize,
     /// Pairs of task turns ended out of their submission order, of all pairs.
     ended_inversions: usize,
     pairs: usize,
@@ -109,26 +127,65 @@ struct Report {
     runs: Vec<Run>,
 }
 
-/// The `admission.wait` span's end, in ms from the turn's arrival.
-fn admission_ms(r: &Value) -> Option<f64> {
-    fn find(span: &Value) -> Option<f64> {
+/// The turn's `admission.wait` span.
+fn admission_span(r: &Value) -> Option<&Value> {
+    fn find(span: &Value) -> Option<&Value> {
         if span["name"] == "admission.wait" {
-            return span["end_us"].as_f64().map(|us| us / 1000.0);
+            return Some(span);
         }
         span["children"].as_array()?.iter().find_map(find)
     }
     find(&r["trace"])
 }
 
-/// Pairs `(i, j)`, i submitted before j, whose `at` runs the other way.
-fn inversions(at: &[f64]) -> usize {
+/// The `admission.wait` span's end, in ms from the turn's arrival.
+fn admission_ms(r: &Value) -> Option<f64> {
+    admission_span(r)?["end_us"].as_f64().map(|us| us / 1000.0)
+}
+
+/// Pairs `(i, j)`, i submitted before j, whose `at` runs the other way by
+/// more than `slack`.
+fn inversions(at: &[f64], slack: f64) -> usize {
     let mut n = 0;
     for i in 0..at.len() {
         for j in i + 1..at.len() {
-            n += usize::from(at[i] > at[j]);
+            n += usize::from(at[i] > at[j] + slack);
         }
     }
     n
+}
+
+/// One turn submitted at `at`, as the bench sees it, its times from `t0`.
+fn submit(t0: Instant, name: String, sid: &str, at: Instant, rig: &Rig) -> Turn {
+    if let Some(wait) = at.checked_duration_since(Instant::now()) {
+        std::thread::sleep(wait);
+    }
+    let sent = Instant::now();
+    let r = rig.call(
+        "turn.submit",
+        json!({"session_id": sid, "input": format!("{name}: one plain turn"),
+               "author": "bench", "attachments": []}),
+    );
+    let ended = Instant::now();
+    let ms = |i: Instant| i.duration_since(t0).as_secs_f64() * 1000.0;
+    let submitted_ms = ms(sent);
+    let (admitted_ms, failed) = match &r {
+        Ok(v) => (admission_ms(v).map(|w| submitted_ms + w), None),
+        Err(e) => (None, Some(format!("{e:#}"))),
+    };
+    let span = r.as_ref().ok().and_then(admission_span);
+    let class = span.and_then(|s| s["attrs"]["class"].as_str().map(String::from));
+    let ticket = span.and_then(|s| s["attrs"]["ticket"].as_u64());
+    Turn {
+        name,
+        submitted_ms,
+        admitted_ms,
+        class,
+        ticket,
+        ended_ms: ms(ended),
+        wall_ms: ended.duration_since(sent).as_secs_f64() * 1000.0,
+        failed,
+    }
 }
 
 fn one_run(theseusd: &std::path::Path, a: &ConcurrencyArgs, tasks: usize) -> Result<Run> {
@@ -176,32 +233,8 @@ fn one_run(theseusd: &std::path::Path, a: &ConcurrencyArgs, tasks: usize) -> Res
     let t0 = Instant::now();
     let person_at = t0 + Duration::from_millis(a.person_after_ms);
     let turns: Vec<Turn> = std::thread::scope(|sc| {
-        let submit = |name: String, sid: String, at: Instant, rig: &Rig| -> Turn {
-            if let Some(wait) = at.checked_duration_since(Instant::now()) {
-                std::thread::sleep(wait);
-            }
-            let sent = Instant::now();
-            let r = rig.call(
-                "turn.submit",
-                json!({"session_id": sid, "input": format!("{name}: one plain turn"),
-                       "author": "bench", "attachments": []}),
-            );
-            let ended = Instant::now();
-            let ms = |i: Instant| i.duration_since(t0).as_secs_f64() * 1000.0;
-            let submitted_ms = ms(sent);
-            let (admitted_ms, failed) = match &r {
-                Ok(v) => (admission_ms(v).map(|w| submitted_ms + w), None),
-                Err(e) => (None, Some(format!("{e:#}"))),
-            };
-            Turn {
-                name,
-                submitted_ms,
-                admitted_ms,
-                ended_ms: ms(ended),
-                wall_ms: ended.duration_since(sent).as_secs_f64() * 1000.0,
-                failed,
-            }
-        };
+        let submit =
+            |name: String, sid: String, at: Instant, rig: &Rig| submit(t0, name, &sid, at, rig);
         let mut each: Vec<_> = sessions
             .iter()
             .enumerate()
@@ -261,11 +294,15 @@ fn summarize(m: Measured, turns: Vec<Turn>) -> Result<Run> {
         .map(|t| t.admitted_ms.unwrap_or(f64::MAX))
         .collect();
     let ended: Vec<f64> = ok_tasks.iter().map(|t| t.ended_ms).collect();
-    let rank = |of: f64, all: &mut dyn Iterator<Item = f64>| 1 + all.filter(|x| *x < of).count();
+    let rank = |of: f64, slack: f64, all: &mut dyn Iterator<Item = f64>| {
+        1 + all.filter(|x| *x + slack < of).count()
+    };
     let person_admitted = me.admitted_ms.unwrap_or(f64::MAX);
-    let person_rank_by_end = rank(me.ended_ms, &mut task_turns.iter().map(|t| t.ended_ms));
+    let person_rank_by_end = rank(me.ended_ms, 0.0, &mut task_turns.iter().map(|t| t.ended_ms));
+    // Admitted in the same moment as the person's turn is not ahead of it.
     let person_rank_by_admission = rank(
         person_admitted,
+        SAME_MOMENT_MS,
         &mut task_turns.iter().filter_map(|t| t.admitted_ms),
     );
     let admitted_before_person_arrived = task_turns
@@ -274,9 +311,23 @@ fn summarize(m: Measured, turns: Vec<Turn>) -> Result<Run> {
         .filter(|at| *at < me.submitted_ms)
         .count();
     let failures = turns.iter().filter(|t| t.failed.is_some()).count();
-    let admitted_inversions = inversions(&admitted);
+    // The queue's own order: by ticket, the order the turns reached it.
+    let mut by_ticket: Vec<&&Turn> = ok_tasks.iter().collect();
+    by_ticket.sort_by_key(|t| t.ticket.unwrap_or(u64::MAX));
+    let queued: Vec<f64> = by_ticket
+        .iter()
+        .map(|t| t.admitted_ms.unwrap_or(f64::MAX))
+        .collect();
+    let admitted_inversions = inversions(&queued, SAME_MOMENT_MS);
+    let submitted_inversions = inversions(&admitted, SAME_MOMENT_MS);
     let walls: Vec<f64> = task_turns.iter().map(|t| t.wall_ms).collect();
+    // Each turn queued in its class: the tasks as tasks, the person's first.
+    let classed = task_turns
+        .iter()
+        .all(|t| t.failed.is_some() || t.class.as_deref() == Some("task"))
+        && me.class.as_deref() == Some("person");
     let ok = failures == 0
+        && classed
         && admitted_inversions == 0
         && person_rank_by_admission <= admitted_before_person_arrived + 1;
     Ok(Run {
@@ -286,7 +337,8 @@ fn summarize(m: Measured, turns: Vec<Turn>) -> Result<Run> {
         total_wall_ms,
         task_wall_ms: Summary::of(&walls).context("no task turns")?,
         admitted_inversions,
-        ended_inversions: inversions(&ended),
+        submitted_inversions,
+        ended_inversions: inversions(&ended, 0.0),
         pairs: ok_tasks.len() * ok_tasks.len().saturating_sub(1) / 2,
         person_rank_by_end,
         person_rank_by_admission,
@@ -313,8 +365,10 @@ fn print_run(r: &Run) {
         r.task_wall_ms.max,
     );
     println!(
-        "  inversions inside the tasks' class: {} admitted, {} ended, of {} pairs ({:.1}% ended out of order)",
+        "  inversions inside the tasks' class: {} admitted against the queue's order ({} against \
+         the submissions'), {} ended, of {} pairs ({:.1}% ended out of order)",
         r.admitted_inversions,
+        r.submitted_inversions,
         r.ended_inversions,
         r.pairs,
         100.0 * r.ended_inversions as f64 / r.pairs.max(1) as f64,
@@ -374,9 +428,12 @@ mod tests {
 
     #[test]
     fn inversions_count_pairs_out_of_order() {
-        assert_eq!(inversions(&[1.0, 2.0, 3.0]), 0);
-        assert_eq!(inversions(&[3.0, 2.0, 1.0]), 3);
-        assert_eq!(inversions(&[1.0, 3.0, 2.0, 4.0]), 1);
+        assert_eq!(inversions(&[1.0, 2.0, 3.0], 0.0), 0);
+        assert_eq!(inversions(&[3.0, 2.0, 1.0], 0.0), 3);
+        assert_eq!(inversions(&[1.0, 3.0, 2.0, 4.0], 0.0), 1);
+        // One moment's jitter is no inversion; a wave's is.
+        assert_eq!(inversions(&[2000.0, 2005.0, 2001.0, 4000.0], 50.0), 0);
+        assert_eq!(inversions(&[4000.0, 2000.0, 2001.0], 50.0), 2);
     }
 
     #[test]

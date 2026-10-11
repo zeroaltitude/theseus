@@ -120,44 +120,61 @@ async fn a_typed_turn_is_admitted_before_queued_task_turns() {
 /// A turn whose foreground job runs past `LEND_AFTER` gives its slot to the
 /// next turn, which runs while the job does, and takes a slot back when the
 /// job ends: its result is read in the same turn. Before, the slot was held
-/// for the whole job, and the next turn waited for it.
+/// for the whole job, and the next turn waited for it. The job runs until
+/// the test lets it go, so no step here leans on a clock but the lend's own.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_foreground_jobs_wait_lends_its_slot_and_takes_it_back() {
+    /// Lets the job go when the test ends, passed or failed, so a failure
+    /// leaves no job behind.
+    struct LetGo(std::path::PathBuf);
+    impl Drop for LetGo {
+        fn drop(&mut self) {
+            let _ = std::fs::write(&self.0, b"");
+        }
+    }
+    let release = tempfile::tempdir().unwrap();
+    let gate = release.path().join("go");
+    let _let_go = LetGo(gate.clone());
+    let script = format!("while [ ! -e {} ]; do sleep 0.05; done", gate.display());
     let r = rig_parts(
         vec![
-            Scripted::tools("", &[("t1", "proc_run", json!({"argv": ["sleep", "4"]}))]),
+            Scripted::tools(
+                "",
+                &[("t1", "proc_run", json!({"argv": ["sh", "-c", script]}))],
+            ),
             Scripted::text("Answered while the job ran."),
             Scripted::text("The job is done."),
         ],
         |cfg| {
             cfg.policy.tools.insert("proc.run".into(), Posture::Open);
-            cfg.tools.proc_sync_secs = 20;
+            cfg.tools.proc_sync_secs = 120;
             cfg.kernel.admission_ceiling = 1;
         },
         |_| {},
     );
-    let t0 = std::time::Instant::now();
     let jobbed = spawn_turn(&r.core, SessionKind::Conversation, "run the long job");
-    // Past the lend: the job runs, and its turn holds no slot.
-    tokio::time::sleep(crate::turn::admission::LEND_AFTER + Duration::from_millis(700)).await;
-    assert_eq!(
-        r.core.tools.admission.load(),
-        (0, 0),
-        "the job's turn lent its slot"
-    );
+    // The job's turn lends its slot once its job has run `LEND_AFTER`.
+    let lent = async {
+        while !(r.core.tools.admission.admitted() >= 1 && r.core.tools.admission.load() == (0, 0)) {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    };
+    tokio::time::timeout(Duration::from_secs(60), lent)
+        .await
+        .expect("the job's turn lent its slot");
     let other = tokio::time::timeout(
-        Duration::from_millis(1200),
+        Duration::from_secs(60),
         turn(&r.core, None, "a quick question"),
     )
     .await
-    .expect("the next turn ran while the job did, on the lent slot");
+    .expect("the next turn ran on the lent slot");
     assert_eq!(other.output, "Answered while the job ran.");
     assert!(
-        t0.elapsed() < Duration::from_secs(4),
-        "it ended before the job: {:?}",
-        t0.elapsed()
+        !jobbed.is_finished(),
+        "it ended while the job still ran, its turn still waiting on it"
     );
-    let jobbed = tokio::time::timeout(Duration::from_secs(20), jobbed)
+    std::fs::write(&gate, b"").unwrap();
+    let jobbed = tokio::time::timeout(Duration::from_secs(60), jobbed)
         .await
         .expect("the job's turn ended")
         .unwrap();

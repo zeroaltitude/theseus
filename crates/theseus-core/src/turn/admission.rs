@@ -90,6 +90,13 @@ impl Class {
     }
 }
 
+/// Where a turn reached the queue: its class and its ticket.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Queued {
+    pub class: Class,
+    pub ticket: u64,
+}
+
 /// Why a wait for a slot failed: no turn was admitted for the whole window.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 #[error(
@@ -118,6 +125,9 @@ struct State {
     in_use: u32,
     queues: [VecDeque<Waiter>; 3],
     next_seq: u64,
+    /// The next turn's ticket: its place in the order turns reached the
+    /// queue, taking a free slot or joining a line.
+    next_ticket: u64,
     /// The next retake's seq, counting down below every arrival's.
     next_front: u64,
     /// When a turn was last admitted, or the queue last emptied.
@@ -144,6 +154,11 @@ impl State {
             }
         }
         best.and_then(|(_, _, i)| self.queues[i].pop_front())
+    }
+
+    fn ticket(&mut self) -> u64 {
+        self.next_ticket += 1;
+        self.next_ticket
     }
 
     fn admit_now(&mut self) {
@@ -203,6 +218,7 @@ impl Drop for Grant {
 pub struct Slot {
     adm: Arc<Admission>,
     class: Class,
+    ticket: u64,
     lent: Arc<AtomicBool>,
     bound: Option<String>,
 }
@@ -220,6 +236,15 @@ impl std::fmt::Debug for Slot {
 impl Slot {
     pub fn class(&self) -> Class {
         self.class
+    }
+
+    /// Where its turn reached the queue: its class, and its ticket, the
+    /// order of arrival at the queue (a turn's trace carries both).
+    pub fn queued(&self) -> Queued {
+        Queued {
+            class: self.class,
+            ticket: self.ticket,
+        }
     }
 
     /// The slot is the turn of `execution_id` now: a job's wait in it may
@@ -274,6 +299,7 @@ impl Admission {
                 in_use: 0,
                 queues: Default::default(),
                 next_seq: 1 << 62,
+                next_ticket: 0,
                 next_front: 1 << 62,
                 moved: Instant::now(),
                 admitted: 0,
@@ -306,10 +332,11 @@ impl Admission {
         self.state.lock().unwrap().admitted
     }
 
-    fn slot(self: &Arc<Self>, class: Class) -> Slot {
+    fn slot(self: &Arc<Self>, class: Class, ticket: u64) -> Slot {
         Slot {
             adm: self.clone(),
             class,
+            ticket,
             lent: Arc::default(),
             bound: None,
         }
@@ -323,16 +350,19 @@ impl Admission {
             return None;
         }
         s.admit_now();
-        Some(self.slot(class))
+        let ticket = s.ticket();
+        Some(self.slot(class, ticket))
     }
 
     /// Join `class`'s queue (`front`: at its head), or take a free slot at
     /// once when none waits: `Ok` is the slot, `Err` the wait for one.
-    fn join(&self, class: Class, front: bool) -> Result<(), oneshot::Receiver<Grant>> {
+    /// Its ticket comes with it.
+    fn join(&self, class: Class, front: bool) -> (u64, Result<(), oneshot::Receiver<Grant>>) {
         let mut s = self.state.lock().unwrap();
+        let ticket = s.ticket();
         if s.in_use < self.ceiling && s.waiting() == 0 {
             s.admit_now();
-            return Ok(());
+            return (ticket, Ok(()));
         }
         let (tx, rx) = oneshot::channel();
         let seq = if front {
@@ -353,7 +383,7 @@ impl Admission {
         } else {
             q.push_back(w);
         }
-        Err(rx)
+        (ticket, Err(rx))
     }
 
     /// Wait for a slot in `class`'s queue (`front`: at its head, for a turn
@@ -361,8 +391,9 @@ impl Admission {
     /// window while it waited.
     pub async fn take(self: &Arc<Self>, class: Class, front: bool) -> Result<Slot, Stuck> {
         let since = Instant::now();
-        let mut rx = match self.join(class, front) {
-            Ok(()) => return Ok(self.slot(class)),
+        let (ticket, joined) = self.join(class, front);
+        let mut rx = match joined {
+            Ok(()) => return Ok(self.slot(class, ticket)),
             Err(rx) => rx,
         };
         loop {
@@ -374,7 +405,7 @@ impl Admission {
                     if let Ok(g) = got {
                         g.keep();
                     }
-                    return Ok(self.slot(class));
+                    return Ok(self.slot(class, ticket));
                 }
                 () = tokio::time::sleep_until(deadline) => {}
             }
@@ -387,7 +418,7 @@ impl Admission {
             if let Ok(g) = rx.try_recv() {
                 drop(s);
                 g.keep();
-                return Ok(self.slot(class));
+                return Ok(self.slot(class, ticket));
             }
             // Leave the queue: closed, this waiter's sender reads closed.
             // Only this failure path searches the queues.
@@ -430,7 +461,7 @@ impl Admission {
         if !lent.load(Ordering::SeqCst) {
             return;
         }
-        if let Err(rx) = self.join(class, true) {
+        if let (_, Err(rx)) = self.join(class, true) {
             // Its sender leaves the queue only by a grant: a retake never
             // fails.
             if let Ok(g) = rx.await {

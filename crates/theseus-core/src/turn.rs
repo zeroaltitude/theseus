@@ -246,6 +246,8 @@ struct Waits {
     lock_us: u64,
     /// Admission and the turn lock alone.
     admit_us: u64,
+    /// Its class and ticket in the admission queue (theseus-4g0l).
+    queued: admission::Queued,
 }
 
 /// A turn's own handles on the store and the kernel (theseus-qa0). A ledger
@@ -511,6 +513,7 @@ impl<'a> Turn<'a> {
             secrets_us: waits.secrets_us,
             lock_us: waits.lock_us,
             admit_us: waits.admit_us,
+            queued: waits.queued,
         };
         self.record(&f);
     }
@@ -1146,6 +1149,7 @@ impl TurnRunner {
             secrets_us: secret_wait_us,
             lock_us: admission_wait_us,
             admit_us,
+            queued: _slot.queued(),
         };
         let store = self.store.for_turn();
         store.count_frames(admission_frames + (frames_written_here() - f0));
