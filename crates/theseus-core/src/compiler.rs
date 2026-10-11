@@ -31,9 +31,10 @@ use crate::catalog::{Catalog, ThinkingMode, TokenRates};
 use crate::config::{CacheTtl, Effort, ThinkingDisplay};
 use crate::node::{Body, Node};
 use crate::provider::{tool_uses_in, Census, ProviderRequest, ID_TOKENS, MESSAGE_TOKENS};
-use theseus_protocol::memory::{BudgetDrop, BudgetOverage, BudgetRange, BudgetReport};
+use theseus_protocol::memory::{BudgetDrop, BudgetOverage, BudgetReport};
 
 pub mod compaction;
+mod ring;
 pub mod situation;
 
 pub const COMPILER_VERSION: u32 = 1;
@@ -784,56 +785,28 @@ fn compile_with(
     let mut est = estimate(&rendered.request, rates, counted);
     let mut ring_drop: Option<BudgetDrop> = None;
 
-    // 2. Overflow: drop leading turns (ring), cutting only before a user
-    // message. It rings on the estimate's upper bound, so a request whose
-    // bytes run denser than the catalog's figures still rings in time; it
-    // keeps turns while the estimate itself is under 60 %, and that
-    // candidate's bound, at most 84 %, does not ring again (theseus-f5hf).
-    // A request the provider said passed the window rings whatever the
-    // estimate says, and its candidates are read at the provider's count:
-    // each estimate is raised by how far the overflowing request's count ran
-    // over its estimate (theseus-9p88).
+    // 2. Overflow: drop leading turns (`ring`).
     if let Some(w) = window {
         let budget = request_budget(w, spec);
         if est.upper > budget || input.overflowed.is_some() {
-            let target = budget * 6 / 10;
-            // A ring is a new compilation: it takes the walk's current
-            // memberships, as any recompile does.
-            let ring_base = match std::ptr::eq(spec, recompiled) {
+            let base = match std::ptr::eq(spec, recompiled) {
                 true => now_manifest,
                 false => manifest_for(recompiled, input.catalog, window, false),
             };
-            // The ring leaves a summary out with its range (30c): from its
-            // first kept message on, it may keep every later one.
-            let seq: Vec<&crate::stub::Stub> = all_renderable
-                .iter()
-                .map(|(_, n)| n)
-                .filter(|n| !compaction::is_summary(n))
-                .collect();
-            let floored = seq.len() < all_renderable.len();
-            let starts: Vec<usize> = seq
-                .iter()
-                .enumerate()
-                .filter(|(_, n)| n.kind == crate::stub::Kind::UserMessage)
-                .map(|(i, _)| i)
-                .collect();
-            for &cut in starts.iter().skip(usize::from(!floored)) {
-                let includes: Vec<String> = seq[cut..].iter().map(|n| n.id.clone()).collect();
-                let candidate = make("overflow".into(), "ring", true, includes, &ring_base);
-                let r = render_request(recompiled, input.catalog, &candidate, input.nodes, media);
-                let e = estimate(&r.request, rates, None);
-                let last = cut == *starts.last().unwrap();
-                let tokens = input.overflowed.map_or(e.tokens, |o| o.scale(e.tokens));
-                if tokens <= target || last {
-                    ring_drop = Some(ring_cut(&seq[..cut], est.tokens.saturating_sub(e.tokens)));
-                    compilation = candidate;
-                    rendered = r;
-                    spec = recompiled;
-                    est = e;
-                    new_compilation = true;
-                    trigger = Some("overflow".into());
-                    break;
-                }
+            let r = ring::Ring {
+                recompiled,
+                base: &base,
+                renderable: &all_renderable,
+                est: &est,
+                budget,
+                rates,
+            };
+            if let Some(rung) = ring::ring(&input, &r, &make) {
+                ring_drop = Some(rung.cut);
+                (compilation, rendered, est) = (rung.compilation, rung.rendered, rung.est);
+                spec = recompiled;
+                new_compilation = true;
+                trigger = Some("overflow".into());
             }
         }
     }
@@ -897,25 +870,6 @@ fn compile_with(
 fn request_budget(w: u64, spec: &RequestSpec) -> u64 {
     w.saturating_sub(spec.max_tokens as u64)
         .saturating_sub(4_096)
-}
-
-/// The ring's cut (M6 30b, §2.11): the leading nodes it left out, as a range,
-/// and the tokens the estimate says that saved.
-fn ring_cut(dropped: &[&crate::stub::Stub], tokens: u64) -> BudgetDrop {
-    BudgetDrop {
-        node_id: None,
-        range: dropped
-            .first()
-            .zip(dropped.last())
-            .map(|(a, b)| BudgetRange {
-                first: a.id.clone(),
-                last: b.id.clone(),
-                nodes: dropped.len() as u64,
-            }),
-        reason: "overflow".into(),
-        tokens,
-        tier: "ring".into(),
-    }
 }
 
 /// A compilation's report: its limit (0 with no window known), what the
