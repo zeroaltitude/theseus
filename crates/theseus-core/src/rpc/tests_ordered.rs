@@ -697,3 +697,35 @@ async fn a_connection_closed_mid_lane_leaves_no_request_waiting() {
     );
     assert_eq!(r.inputs(&sid), ["warm", "hold-frame", "behind it"]);
 }
+
+/// A turn's trace root carries its request's wait in the lane (`lane_us`,
+/// theseus-klo2's review, finding 7): its own `arrived` is taken after the
+/// lane, so without it the time a line queued behind an earlier one on its
+/// session showed nowhere. The input behind a held one waits about as long
+/// as the hold; the held one, first in its lane, does not wait.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_turns_root_carries_its_wait_in_the_lane() {
+    let r = rig(vec![]);
+    let mut wire = Wire::open(&r.core, "one");
+    let sid = warm_session(&mut wire).await;
+    let go = hold_frame(&r.core, "hold-frame");
+    wire.send(&[
+        (3, method::TURN_SUBMIT, submit(&sid, "hold-frame")),
+        (4, method::TURN_SUBMIT, submit(&sid, "behind it")),
+    ])
+    .await;
+    let hold = Duration::from_millis(300);
+    tokio::time::sleep(hold).await;
+    go.send(()).unwrap();
+    let lane_us = |r: &Response| ok(r)["trace"]["attrs"]["lane_us"].as_u64();
+    let held = lane_us(&wire.answered(3, "the held input").await).expect("the held turn's root");
+    let behind = lane_us(&wire.answered(4, "the input behind it").await).expect("its root");
+    assert!(
+        behind >= hold.as_micros() as u64,
+        "the input behind waited for the hold: {behind} µs"
+    );
+    assert!(
+        held < hold.as_micros() as u64 && held < behind,
+        "the held input was first in its lane: {held} µs, behind {behind} µs"
+    );
+}

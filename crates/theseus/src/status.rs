@@ -28,8 +28,12 @@ use theseus_protocol::{
 
 /// How long `theseus status` waits to connect: a prompt cannot afford more.
 const CONNECT_WITHIN: Duration = Duration::from_millis(100);
-/// How long a one-shot `--short` waits for the daemon's answer.
+/// How long a one-shot `status` waits for the daemon's answer.
 const ANSWER_WITHIN: Duration = Duration::from_secs(2);
+/// How long `--short` waits for it: a prompt or a status bar runs it on every
+/// draw, and a wedged daemon must not hold them (theseus-lweh's review: 300 to
+/// 500 ms; a healthy daemon answers in a few).
+const SHORT_ANSWER_WITHIN: Duration = Duration::from_millis(400);
 /// The rows the long form shows before it says how many more there are.
 const MAX_ROWS: usize = 20;
 /// The width of a terminal that says nothing of it.
@@ -38,8 +42,10 @@ const DEFAULT_WIDTH: usize = 100;
 #[derive(Args, Debug)]
 pub struct StatusArgs {
     /// One line for a prompt or a status bar: `●1 ◐3 ✗1 ◆2` (needs you, working, failed, new),
-    /// each count only when it is not zero. It prints nothing when nothing works or waits, and
-    /// nothing, exit 3, within 100 ms when the daemon is down.
+    /// each count only when it is not zero; a failure counts until `theseus status` (or
+    /// `history`, `watch`, the TUI) has shown it. It prints nothing when nothing works or waits,
+    /// nothing, exit 3, within 100 ms when the daemon is down, and nothing, exit 1, when it does
+    /// not answer within 400 ms.
     #[arg(long)]
     short: bool,
     /// Keep the connection and print the line again when a count or the first item that needs
@@ -71,7 +77,12 @@ pub async fn run(socket: &str, spawn: Option<&str>, json: bool, a: &StatusArgs) 
         Err(_) if a.short => std::process::exit(3),
         Err(e) => return Err(e),
     };
-    let answer = tokio::time::timeout(ANSWER_WITHIN, async {
+    let within = if a.short {
+        SHORT_ANSWER_WITHIN
+    } else {
+        ANSWER_WITHIN
+    };
+    let answer = tokio::time::timeout(within, async {
         let mut board = Board::default();
         board.reload(&mut conn).await?;
         let titles = if a.short || json {
@@ -86,10 +97,10 @@ pub async fn run(socket: &str, spawn: Option<&str>, json: bool, a: &StatusArgs) 
         Ok(Ok(b)) => b,
         Ok(Err(_)) | Err(_) if a.short => std::process::exit(1),
         Ok(Err(e)) => return Err(e),
-        Err(_) => bail!("the daemon did not answer within {ANSWER_WITHIN:?}"),
+        Err(_) => bail!("the daemon did not answer within {within:?}"),
     };
     let now = now_ms();
-    let sum = board.summary(now, new_since_seen());
+    let sum = board.summary(now, new_since_seen(), &displayed());
     let mut out = std::io::stdout().lock();
     if json {
         writeln!(out, "{}", serde_json::to_string(&board.json(&sum))?)?;
@@ -194,13 +205,21 @@ impl Board {
         rows
     }
 
-    pub fn summary(&self, now_ms: u64, new: u32) -> Summary {
+    /// The counts as of `now_ms`, with `new` finished since seen; a failure
+    /// whose view `shown` (each execution's position last displayed) has
+    /// reached is `failed_seen`, never `failed`: a failed execution stays on
+    /// the board for good, so ✗ counted it for good (theseus-lweh's review).
+    pub fn summary(&self, now_ms: u64, new: u32, shown: &HashMap<String, u64>) -> Summary {
         let rows = self.ordered();
         let count = |g: u8| rows.iter().filter(|v| group(v) == g).count() as u32;
+        let seen =
+            |v: &&&ExecutionView| shown.get(&v.execution_id).is_some_and(|&d| d >= v.position);
+        let failed_seen = rows.iter().filter(|v| group(v) == 1).filter(seen).count() as u32;
         Summary {
             needs_you: count(0),
             working: count(2),
-            failed: count(1),
+            failed: count(1) - failed_seen,
+            failed_seen,
             new,
             wake_at_ms: rows
                 .iter()
@@ -228,6 +247,17 @@ fn group(v: &ExecutionView) -> u8 {
     }
 }
 
+/// Each execution's position last displayed, from the machine's seen file
+/// (theseus-yus0), which the ✗ count reads. As `new_since_seen`, a unit test's
+/// board is its own.
+fn displayed() -> HashMap<String, u64> {
+    if cfg!(test) {
+        return HashMap::new();
+    }
+    theseus_client::seen::Seen::default_path()
+        .map_or_else(HashMap::new, |p| theseus_client::seen::displayed(&p))
+}
+
 /// What finished since the owner last looked (◆), from the machine's seen file
 /// (theseus-yus0): the TUI's account of the finishes, less what a command
 /// showed since. It asks no daemon, and is 0 with no file. A unit test's board
@@ -244,7 +274,11 @@ fn new_since_seen() -> u32 {
 pub struct Summary {
     pub needs_you: u32,
     pub working: u32,
+    /// Failures not shown since they failed: the ✗.
     pub failed: u32,
+    /// Failures a client has shown since (theseus-lweh's review): still on the
+    /// board and in the long form's rows, never in ✗ or the tab's state.
+    pub failed_seen: u32,
     pub new: u32,
     /// The next wake due, if one is.
     pub wake_at_ms: Option<u64>,
@@ -291,7 +325,10 @@ pub fn header_line(s: &Summary, now_ms: u64, hm: &dyn Fn(u64) -> String) -> Stri
             parts.push(text.replace("{}", &n.to_string()));
         }
     }
-    if s.quiet() && s.new == 0 {
+    if s.failed_seen > 0 {
+        parts.push(format!("{} failed, seen", s.failed_seen));
+    }
+    if s.quiet() && s.new == 0 && s.failed_seen == 0 {
         parts.push("nothing needs you or works".into());
     }
     if let Some(w) = s.wake_at_ms {
@@ -529,7 +566,7 @@ impl<'a> Sink<'a> {
     /// Show the board if what a line says of it changed.
     pub fn show(&mut self, board: &Board) -> Result<()> {
         let now = now_ms();
-        let sum = board.summary(now, new_since_seen());
+        let sum = board.summary(now, new_since_seen(), &displayed());
         // The short line has no wake in it, so a wake alone does not print one.
         let mut key = sum.clone();
         if self.short {

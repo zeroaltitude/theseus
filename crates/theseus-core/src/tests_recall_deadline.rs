@@ -1,5 +1,6 @@
 //! Recall's vector query inside its deadline (theseus-zo1y). The vector
-//! source embeds the turn's new text alone, cut by the tender at `[memory]
+//! source embeds the turn's new text alone (a short turn's with the reply's
+//! last lines), cut by the tender at `[memory]
 //! recall_vector_tokens` word pieces, while the word sources read the longer
 //! query; a recall's two queries (its words' alone, then the whole) go on one
 //! of the tender's connections; and once the recall stops waiting (its
@@ -138,17 +139,20 @@ fn rig(vector: Duration, deadline_ms: u64) -> (Rig, String, Arc<Seen>, tempfile:
 }
 
 /// A recall asks on one connection, its words' query first and then the
-/// whole one, and the whole one's vector text is the turn's new text alone:
-/// "yes" after a reply embeds "yes", cut at the config's 32 word pieces,
-/// while the words' query carries the reply's start too. The whole answer,
-/// in time, wins.
+/// whole one, and the whole one's vector text is the turn's new text alone,
+/// cut at the config's 32 word pieces, while the words' query carries the
+/// reply's start too. A short turn's ("yes") is its word, then the reply's
+/// last lines (theseus-zo1y's review, finding 9): "yes" alone embeds as near
+/// noise. The whole answer, in time, wins.
 #[tokio::test]
 async fn a_recall_asks_on_one_connection_and_embeds_the_new_text_alone() {
     // The deadline at its most, so a starved runtime still answers whole.
     let (r, now, seen, _dir) = rig(Duration::ZERO, 5_000);
     let c = &r.core;
-    turn(c, &now, "Where do the otters den?").await;
+    let reply = turn(c, &now, "Where do the otters den?").await.output;
+    assert!(!reply.trim().is_empty(), "the stand-in model answers");
     turn(c, &now, "yes").await;
+    let yes = format!("yes\n{}", crate::recall::short_context(&reply));
     assert_eq!(
         seen.accepts.load(Ordering::SeqCst),
         2,
@@ -173,7 +177,7 @@ async fn a_recall_asks_on_one_connection_and_embeds_the_new_text_alone() {
             (0, words(), None),
             (0, whole(), Some("Where do the otters den?".into())),
             (1, words(), None),
-            (1, whole(), Some("yes".into())),
+            (1, whole(), Some(yes)),
         ],
         "each recall: its words' query, then its whole one, on one connection"
     );
@@ -253,6 +257,60 @@ async fn a_search_embeds_its_whole_query_and_a_turn_its_cut() {
         [(Some("Where do the otters den?".into()), 32), (None, 0)],
         "the turn's vector text cut at 32; the search's query whole"
     );
+}
+
+/// Short is `SHORT_WORDS` words or fewer: "do it now" embeds with the
+/// reply's last lines, "show me the weir map" alone (theseus-zo1y's review,
+/// finding 9).
+#[tokio::test]
+async fn a_short_turn_embeds_with_the_replys_end_and_a_longer_one_alone() {
+    let (r, now, seen, _dir) = rig(Duration::ZERO, 5_000);
+    let c = &r.core;
+    let reply = turn(c, &now, "Where do the otters den?").await.output;
+    turn(c, &now, "do it now").await;
+    turn(c, &now, "show me the weir map").await;
+    let texts: Vec<Option<String>> = seen
+        .asked
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|(_, p)| p.sources.iter().any(|s| s == "vector"))
+        .map(|(_, p)| p.vector_text.clone())
+        .collect();
+    let context = |r: &str| crate::recall::short_context(r);
+    assert_eq!(
+        texts,
+        [
+            Some("Where do the otters den?".to_string()),
+            Some(format!("do it now\n{}", context(&reply))),
+            Some("show me the weir map".to_string()),
+        ]
+    );
+}
+
+/// A short turn's context is the reply's last lines, whole, within
+/// `SHORT_CONTEXT_CHARS`; a last line longer than that gives its end, from a
+/// word's start; blank lines are skipped.
+#[test]
+fn a_short_turns_context_is_the_replys_last_whole_lines() {
+    use crate::recall::{short_context, SHORT_CONTEXT_CHARS};
+    let reply =
+        "The otters den at the weir.\n\nThe alder roots hide them.\nShall I map the bank?\n";
+    assert_eq!(
+        short_context(reply),
+        "The otters den at the weir.\nThe alder roots hide them.\nShall I map the bank?"
+    );
+    let long_first = format!("{}\nShall I map the bank?", "word ".repeat(40));
+    assert_eq!(short_context(&long_first), "Shall I map the bank?");
+    let one_line = format!("{} Shall I map the bank?", "fen".repeat(60));
+    let end = short_context(&one_line);
+    assert!(end.chars().count() <= SHORT_CONTEXT_CHARS, "{end:?}");
+    assert!(end.ends_with("Shall I map the bank?"), "{end:?}");
+    assert!(
+        !end.starts_with("fen"),
+        "a word cut in half is dropped: {end:?}"
+    );
+    assert_eq!(short_context(""), "");
 }
 
 /// A recall dropped unread (its turn ended first) closes its connection at

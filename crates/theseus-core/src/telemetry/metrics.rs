@@ -253,6 +253,13 @@ const AWS_DURATION: Instrument = Instrument {
     kind: Kind::Histogram,
 };
 
+const LANE_WAIT: Instrument = Instrument {
+    name: "theseus.rpc.lane.wait",
+    description:
+        "An ordered request's wait in its connection's lane, from its line's arrival, by method",
+    unit: "ms",
+    kind: Kind::Histogram,
+};
 const ROUTE_WAIT: Instrument = Instrument {
     name: "theseus.route.wait",
     description: "What each turn route.v1 acts on waited for its verdict after the first compile (M5 25e), by whether the verdict missed the bound",
@@ -321,7 +328,7 @@ const VOICE_RESUMED: Instrument = Instrument {
 };
 
 /// Every instrument, in the order a request lists them.
-const INSTRUMENTS: [&Instrument; 45] = [
+const INSTRUMENTS: [&Instrument; 46] = [
     &TURNS,
     &TOKENS,
     &PROVIDER_ERRORS,
@@ -348,6 +355,7 @@ const INSTRUMENTS: [&Instrument; 45] = [
     &JUDGE_ERRORS,
     &JUDGE_DISAGREEMENTS,
     &ROUTE_WAIT,
+    &LANE_WAIT,
     &TASK_CHANGES,
     &TASKS_OPEN,
     &RETENTION_NODES,
@@ -769,6 +777,13 @@ impl Metrics {
     pub(super) fn route_wait(&mut self, wait: std::time::Duration, late: bool) {
         let attrs = vec![("theseus.route.late", Attr::B(late))];
         self.record(&ROUTE_WAIT, attrs, wait.as_secs_f64() * 1000.0);
+    }
+
+    /// An ordered request's wait in its lane (theseus-klo2's review,
+    /// finding 7), with `theseus.rpc.method`.
+    pub(super) fn lane_wait(&mut self, method: &str, wait: std::time::Duration) {
+        let attrs = vec![("theseus.rpc.method", Attr::S(method.to_string()))];
+        self.record(&LANE_WAIT, attrs, wait.as_secs_f64() * 1000.0);
     }
 
     /// The push (theseus-in3): `n` notifications dropped at a backlog cap.

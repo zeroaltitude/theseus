@@ -450,20 +450,21 @@ fn stopped_by(tc: &TurnCtx<'_>) -> Result<Option<String>> {
 impl<'a> Turn<'a> {
     fn start(tc: TurnCtx<'a>, target: &'a Target, continuation: bool, arrived: Instant) -> Self {
         let started = Instant::now();
-        let trace = Trace::start_at(
-            arrived,
-            "turn",
-            "turn",
-            json!({
-                "turn_id": tc.turn_id,
-                "session_id": tc.session_id,
-                "profile": target.profile,
-                "provider": target.provider,
-                "model": target.model,
-                "continuation": continuation,
-                "started_unix_ms": theseus_protocol::now_unix_ms(),
-            }),
-        );
+        let mut root = json!({
+            "turn_id": tc.turn_id,
+            "session_id": tc.session_id,
+            "profile": target.profile,
+            "provider": target.provider,
+            "model": target.model,
+            "continuation": continuation,
+            "started_unix_ms": theseus_protocol::now_unix_ms(),
+        });
+        // Its request's wait in its connection's lane, before `arrived`
+        // (theseus-klo2's review, finding 7).
+        if let Some(us) = crate::rpc::ordered::lane_us() {
+            root["lane_us"] = json!(us);
+        }
+        let trace = Trace::start_at(arrived, "turn", "turn", root);
         Self {
             tc,
             target,

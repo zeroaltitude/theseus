@@ -105,8 +105,11 @@ not be read, not that nothing was routed.
 1. **install** uploads the two binaries to `/installed-agent/bin`. Nothing is downloaded in the container, so any
    image runs them, and an install takes under a second.
 2. **run** writes the profile, with the trial's model, limits, and working directory, and runs one
-   `theseus --spawn theseusd --json ask -` with the instruction on stdin: one turn, every loop until the model ends
-   it, then a clean stop of the daemon. Then `theseus --json history` reads the session from the store.
+   `theseus --spawn theseusd --json ask --follow-for 0 -` with the instruction on stdin: one turn, every loop until
+   the model ends it, then a clean stop of the daemon. Then `theseus --json history` reads the session from the
+   store. `--follow-for 0` ends the trial with its turn, as every run before `ask` followed late work (theseus-mqxk;
+   the CLI's default is 30 minutes), so a rerun compares with them; `THESEUS_BENCH_FOLLOW_FOR` names a bound instead
+   (the task's agent timeout less a margin: Harbor's SIGTERM at the timeout ends the follow too).
 3. Harbor runs the task's tests and records the reward.
 
 `theseus ask`'s exit code says how the turn ended (`theseus ask --help`), and the adapter records a turn that the

@@ -755,3 +755,38 @@ async fn the_memory_pass_reads_the_tenders_mode() {
     let pass = crate::memory_pass::Tender(t);
     assert_eq!(pass.mode().await.unwrap(), "bm25_only");
 }
+
+/// `[index] query_threads` reaches the tender as `serve --query-threads`
+/// (theseus-zo1y's review, finding 9: the query pool's size was the
+/// binary's flag alone); left at 0, the flag is left off, so a kept tender's
+/// command line is unchanged and the tender sizes the pool itself.
+#[test]
+fn query_threads_reaches_the_tenders_command_line() {
+    let dir = tempfile::tempdir().unwrap();
+    let args = |cfg: IndexConfig| -> Vec<String> {
+        let (t, _) = supervisor(cfg, dir.path(), Arc::new(FakeOs::default()));
+        t.args()
+            .iter()
+            .map(|a| a.to_string_lossy().into_owned())
+            .collect()
+    };
+    let set = args(IndexConfig {
+        query_threads: 3,
+        ..IndexConfig::default()
+    });
+    let at = set.iter().position(|a| a == "--query-threads").unwrap();
+    assert_eq!(set[at + 1], "3");
+    let unset = args(IndexConfig::default());
+    assert!(!unset.iter().any(|a| a == "--query-threads"), "{unset:?}");
+    // The template's key, set.
+    let base = crate::Config::EXAMPLE_TOML;
+    assert!(
+        base.contains("\nquery_threads = 0 "),
+        "the template names the key"
+    );
+    let toml = base.replacen("\nquery_threads = 0 ", "\nquery_threads = 2 ", 1);
+    assert_eq!(
+        crate::Config::parse(&toml).unwrap().0.index.query_threads,
+        2
+    );
+}

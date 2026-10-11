@@ -27,6 +27,10 @@ fn theseus(sock: &Path, args: &[&str]) -> Command {
     c
 }
 
+/// A daemon that connects and never answers: `--short` ends silently with exit
+/// 1 after its 400 ms (theseus-lweh's review: a prompt or a status bar runs it
+/// on every draw; it waited 2 s until then), and the long form, which a person
+/// asked for, after its two seconds, saying so on stderr.
 #[test]
 fn a_daemon_that_never_answers_ends_short_silently_with_exit_1_after_two_seconds() {
     let dir = tempfile::tempdir().unwrap();
@@ -38,12 +42,20 @@ fn a_daemon_that_never_answers_ends_short_silently_with_exit_1_after_two_seconds
     let took = t.elapsed();
     assert_eq!(out.status.code(), Some(1));
     assert!(out.stdout.is_empty() && out.stderr.is_empty(), "{out:?}");
+    // The process's own start and end are inside `took`: the upper bound tells
+    // the 400 ms wait from the old 2 s one, not the wait's precision.
     assert!(
-        took >= Duration::from_millis(1900) && took < Duration::from_secs(5),
+        took >= Duration::from_millis(380) && took < Duration::from_millis(1900),
         "took {took:?}"
     );
-    // The long form says so, on stderr.
+    // The long form waits its two seconds, and says so, on stderr.
+    let t = Instant::now();
     let out = theseus(&sock, &["status"]).output().unwrap();
+    assert!(
+        t.elapsed() >= Duration::from_millis(1900),
+        "took {:?}",
+        t.elapsed()
+    );
     assert_eq!(out.status.code(), Some(1));
     assert!(String::from_utf8_lossy(&out.stderr).contains("did not answer"));
 }

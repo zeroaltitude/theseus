@@ -6,7 +6,8 @@
 //!   `recall.ran`). Each turn's query is recomputed from its transcript as
 //!   the core builds it (`theseus_core::recall::query_of`), and kept only
 //!   when its digest equals the row's (`query_digest`): a turn whose query
-//!   cannot be rebuilt is counted and left out.
+//!   cannot be rebuilt is counted and left out. Its vector text is asked as
+//!   the live turn asks it (`vector_text`, cut at `recall_vector_tokens`).
 //! - **As of the turn.** Each arm asks the index with the turn's `as_of`, and
 //!   the replay never trusts it to: a hit at or after `as_of` is dropped and
 //!   counted as a leak, so no later node answers (the leakage test).
@@ -41,7 +42,7 @@ use theseus_core::ledger::LedgerRow;
 use theseus_core::node::Body;
 use theseus_core::recall::{query_of, text_of};
 use theseus_core::session::SessionRecord;
-use theseus_core::store::Store;
+use theseus_core::store::{Store, Transcript};
 use theseus_memory::recall::{self as pipeline, Asker, Candidate, Place};
 use theseus_memory::Baseline;
 use theseus_store::kinds;
@@ -73,6 +74,10 @@ pub struct Turn {
     pub recall_id: String,
     pub as_of: u64,
     pub query: String,
+    /// What the vector source embeds, as a live turn asks it
+    /// (`RecallQuery.vector`: the turn's new text, a short one's with the
+    /// reply's end), cut at `[memory] recall_vector_tokens`.
+    pub vector: Option<String>,
     /// The turn's operator text.
     pub said: String,
     /// The turn's calls, as `<tool> <input>`.
@@ -159,44 +164,9 @@ pub fn read(store: &Store) -> Result<Record> {
             let Some(turn_id) = row.turn_id.clone() else {
                 continue;
             };
-            let d = &row.data;
-            let why = match query_of(&transcript, &turn_id) {
-                None => Some("the turn brings nothing new".to_string()),
-                Some((q, _)) if Some(digest(&q.words).as_str()) != d["query_digest"].as_str() => {
-                    Some("its query's digest differs from the row's".into())
-                }
-                Some((_, a)) if Some(a) != d["as_of"].as_u64() => {
-                    Some("its as_of differs from the row's".into())
-                }
-                Some((query, as_of)) => {
-                    let mine = transcript
-                        .iter()
-                        .filter(|(_, n)| n.turn_id.as_deref() == Some(turn_id.as_str()));
-                    let mut said = Vec::new();
-                    let mut calls = Vec::new();
-                    for (_, n) in mine {
-                        match &n.body {
-                            Body::UserMessage { text, .. } => said.push(text.clone()),
-                            Body::ToolCall { tool, input, .. } => {
-                                calls.push(format!("{tool} {input}"))
-                            }
-                            _ => {}
-                        }
-                    }
-                    out.turns.push(Turn {
-                        session_id: sid.clone(),
-                        turn_id: turn_id.clone(),
-                        recall_id: d["recall_id"].as_str().unwrap_or("").into(),
-                        as_of,
-                        query: query.words,
-                        said: said.join("\n"),
-                        calls,
-                    });
-                    None
-                }
-            };
-            if let Some(why) = why {
-                out.skipped.push(format!("{sid} {turn_id}: {why}"));
+            match turn_of(&sid, &turn_id, &transcript, &row.data) {
+                Ok(t) => out.turns.push(t),
+                Err(why) => out.skipped.push(format!("{sid} {turn_id}: {why}")),
             }
         }
     }
@@ -217,6 +187,50 @@ pub fn read(store: &Store) -> Result<Record> {
     }
     out.nodes.sort_by_key(|n| n.position);
     Ok(out)
+}
+
+/// A recorded turn as its recall row (`data`) asked: its query rebuilt from
+/// the transcript as the core builds it (`query_of`, the vector text
+/// included), kept only when its digest and `as_of` equal the row's; else
+/// why it is left out.
+pub fn turn_of(
+    sid: &str,
+    turn_id: &str,
+    transcript: &Transcript,
+    d: &Value,
+) -> std::result::Result<Turn, String> {
+    let (query, as_of) = match query_of(transcript, turn_id) {
+        None => return Err("the turn brings nothing new".into()),
+        Some((q, _)) if Some(digest(&q.words).as_str()) != d["query_digest"].as_str() => {
+            return Err("its query's digest differs from the row's".into())
+        }
+        Some((_, a)) if Some(a) != d["as_of"].as_u64() => {
+            return Err("its as_of differs from the row's".into())
+        }
+        Some(q) => q,
+    };
+    let mut said = Vec::new();
+    let mut calls = Vec::new();
+    for (_, n) in transcript
+        .iter()
+        .filter(|(_, n)| n.turn_id.as_deref() == Some(turn_id))
+    {
+        match &n.body {
+            Body::UserMessage { text, .. } => said.push(text.clone()),
+            Body::ToolCall { tool, input, .. } => calls.push(format!("{tool} {input}")),
+            _ => {}
+        }
+    }
+    Ok(Turn {
+        session_id: sid.into(),
+        turn_id: turn_id.into(),
+        recall_id: d["recall_id"].as_str().unwrap_or("").into(),
+        as_of,
+        query: query.words,
+        vector: query.vector,
+        said: said.join("\n"),
+        calls,
+    })
 }
 
 /// The silver labels.
@@ -359,18 +373,33 @@ pub fn silver(turn: &Turn, rec: &Record) -> BTreeMap<Silver, BTreeSet<String>> {
 
 /// Who answers a replay's queries: a running tender, or a test's stand-in.
 pub trait Index {
-    /// `index.query`'s hits, as JSON.
-    fn query(&mut self, text: &str, as_of: u64, sources: &[&str], k: usize) -> Result<Vec<Value>>;
+    /// `index.query`'s hits for `turn`'s query as of the turn, as JSON.
+    fn query(&mut self, turn: &Turn, sources: &[&str], k: usize) -> Result<Vec<Value>>;
 }
 
 /// A tender over its socket.
 pub struct Tender(pub crate::client::Client);
 
+/// `index.query`'s params for `turn`, as the live turn asked: its words for
+/// BM25 and entities, and its vector text cut at the default `[memory]
+/// recall_vector_tokens` (theseus-zo1y's review, finding 9: the replay asked
+/// with the words alone, the old uncut query).
+pub fn params(turn: &Turn, sources: &[&str], k: usize) -> Value {
+    let tokens = theseus_core::config::MemoryConfig::default().recall_vector_tokens;
+    let mut p = json!({"text": turn.query, "k": k, "as_of": turn.as_of, "sources": sources,
+                       "wait_ms": 60_000});
+    if let Some(v) = &turn.vector {
+        p["vector_text"] = json!(v);
+        p["vector_tokens"] = json!(tokens);
+    }
+    p
+}
+
 impl Index for Tender {
-    fn query(&mut self, text: &str, as_of: u64, sources: &[&str], k: usize) -> Result<Vec<Value>> {
+    fn query(&mut self, turn: &Turn, sources: &[&str], k: usize) -> Result<Vec<Value>> {
         let a = self.0.call(
             "index.query",
-            json!({"text": text, "k": k, "as_of": as_of, "sources": sources, "wait_ms": 60_000}),
+            params(turn, sources, k),
             std::time::Duration::from_secs(90),
         )?;
         Ok(a["hits"].as_array().cloned().unwrap_or_default())
@@ -399,7 +428,7 @@ pub fn pack(turn: &Turn, rec: &Record, index: &mut dyn Index, sources: &[&str]) 
     if sources.is_empty() {
         return Ok(Pack::default());
     }
-    let hits = index.query(&turn.query, turn.as_of, sources, K)?;
+    let hits = index.query(turn, sources, K)?;
     let mut leaks = 0;
     let mut cands = Vec::new();
     for (i, h) in hits.iter().enumerate() {
@@ -704,6 +733,7 @@ mod tests {
             recall_id: "rcl_now".into(),
             as_of,
             query: said.into(),
+            vector: Some(said.into()),
             said: said.into(),
             calls: vec![],
         }
@@ -714,7 +744,7 @@ mod tests {
     struct Leaky<'a>(&'a Record);
 
     impl Index for Leaky<'_> {
-        fn query(&mut self, _: &str, _: u64, sources: &[&str], _: usize) -> Result<Vec<Value>> {
+        fn query(&mut self, _: &Turn, sources: &[&str], _: usize) -> Result<Vec<Value>> {
             assert!(!sources.is_empty());
             Ok(self
                 .0
@@ -806,6 +836,52 @@ mod tests {
                 "crates/theseus-exam/src/drive.rs",
                 "theseus-6fn.5"
             ]
+        );
+    }
+
+    /// The replay asks as the live turn asked (theseus-zo1y's review,
+    /// finding 9): a short turn's vector text is its word and the reply's
+    /// end, rebuilt from the transcript by the core's `query_of`, and the
+    /// tender's params carry it, cut at the default 32 word pieces. A turn
+    /// with no vector text asks with its words alone.
+    #[test]
+    fn the_replay_asks_with_the_vector_text_a_live_turn_asks() {
+        use theseus_core::node::Node;
+        let reply = "The otters den under the alder roots.\nShall I map the weir?";
+        let assistant: Body = serde_json::from_value(json!({
+            "kind": "assistant_message", "model": "m", "provider": "p",
+            "blocks": [{"type": "text", "text": reply}],
+        }))
+        .unwrap();
+        let transcript: Transcript = vec![
+            (
+                1,
+                Node::user("ses_now", Some("trn_1"), "cli", "Where do the otters den?").into(),
+            ),
+            (2, Node::assistant("ses_now", "trn_1", 0, assistant).into()),
+            (3, Node::user("ses_now", Some("trn_2"), "cli", "yes").into()),
+        ];
+        let (q, as_of) = query_of(&transcript, "trn_2").unwrap();
+        let d = json!({"query_digest": digest(&q.words), "as_of": as_of, "recall_id": "rcl_2"});
+        let t = turn_of("ses_now", "trn_2", &transcript, &d).unwrap();
+        let yes = format!("yes\n{}", theseus_core::recall::short_context(reply));
+        assert_eq!(t.vector.as_deref(), Some(yes.as_str()));
+        assert_eq!((t.as_of, t.said.as_str()), (3, "yes"));
+        let p = params(&t, &["bm25", "entity", "vector"], K);
+        assert_eq!(p["text"], json!(t.query));
+        assert_eq!(p["vector_text"], json!(yes));
+        assert_eq!(p["vector_tokens"], json!(32));
+        let mut words = t;
+        words.vector = None;
+        let p = params(&words, &["bm25", "entity"], K);
+        assert!(
+            p.get("vector_text").is_none() && p.get("vector_tokens").is_none(),
+            "{p}"
+        );
+        let stale = json!({"query_digest": "00", "as_of": as_of});
+        assert_eq!(
+            turn_of("ses_now", "trn_2", &transcript, &stale).unwrap_err(),
+            "its query's digest differs from the row's"
         );
     }
 

@@ -276,6 +276,64 @@ fn the_diamond_counts_what_finished_since_the_seen_file_last_showed_it() {
     assert_eq!(out.status.code(), Some(0));
 }
 
+/// A failure stays on the board for good, so ✗ counted it for good
+/// (theseus-lweh's review). Now it counts until a client shows it: the long
+/// form lists it, records it as shown in the seen file (each session's view
+/// by `session.wait`), and the next `--short` leaves the ✗ out; the long form
+/// still lists the row, its header naming it "failed, seen".
+#[test]
+fn the_cross_clears_once_the_long_form_has_shown_the_failure() {
+    let dir = tempfile::tempdir().unwrap();
+    let sock = dir.path().join("sock");
+    let failed = view(
+        "5a877c",
+        "failed",
+        "needs_you",
+        "failed: the gauge is gone",
+        ago(60_000),
+        13,
+    );
+    let answers = vec![
+        ("executions.watch", snapshot(std::slice::from_ref(&failed))),
+        ("session.list", titles()),
+        (
+            "session.wait",
+            json!({"reached": "settled", "already": true, "execution": failed, "confirms": []}),
+        ),
+    ];
+    let listener = UnixListener::bind(&sock).unwrap();
+    let daemon = std::thread::spawn(move || {
+        for _ in 0..4 {
+            let (s, _) = listener.accept().unwrap();
+            serve(s, &answers, &[], Duration::ZERO);
+        }
+    });
+    let out = |args: &[&str]| {
+        let o = theseus(&sock, args).output().unwrap();
+        assert_eq!(o.status.code(), Some(0), "{o:?}");
+        String::from_utf8_lossy(&o.stdout).into_owned()
+    };
+    assert_eq!(out(&["status", "--short"]), "✗1\n");
+    let long = out(&["status"]);
+    assert!(
+        long.lines().next().unwrap().ends_with("· ✗ 1 failed"),
+        "{long}"
+    );
+    assert_eq!(
+        out(&["status", "--short"]),
+        "",
+        "shown since it failed: no ✗"
+    );
+    let long = out(&["status"]);
+    let lines: Vec<&str> = long.lines().collect();
+    assert!(lines[0].ends_with("· 1 failed, seen"), "{long}");
+    assert!(
+        lines[1].starts_with("✗ 5a877c  Read the tide gauge"),
+        "{long}"
+    );
+    daemon.join().unwrap();
+}
+
 #[test]
 fn a_daemon_that_is_down_prints_nothing_and_exits_3_at_once() {
     let dir = tempfile::tempdir().unwrap();

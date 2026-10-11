@@ -24,7 +24,8 @@ and `report.rs`, `replay.rs`, `tender.rs` (the retrieval probe). Read by: the ma
   decision per feature, and what could not be measured. It names the
   digest of `docs/m6-ablation-plan.md`, which it embeds.
 - `theseus-exam replay` (instrument 2) reads a copy of a store's recorded turns (their `recall.shadow` and
-  `recall.ran` rows, each query rebuilt to its row's digest), serves another copy with a scratch daemon for its
+  `recall.ran` rows, each query rebuilt to its row's digest and asked with its vector text as the live turn asked
+  it, `replay::turn_of` and `replay::params`), serves another copy with a scratch daemon for its
   tender, recomputes `none`, `bm25` and `baseline` as of each turn through the real pipeline, and scores them against
   the silver labels. It does not replay `+activation`: that needs the adjacency projection folded only up to each
   turn.

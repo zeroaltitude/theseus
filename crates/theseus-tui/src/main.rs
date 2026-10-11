@@ -128,18 +128,7 @@ async fn tui(args: Args) -> Result<()> {
     });
     let mut app = App::new(local_hm);
     app.seen = Seen::open(Seen::default_path());
-    // SIGTERM and SIGHUP end the loop as a quit does, so the terminal is
-    // put back (theseus-8hcg).
-    let (end, signals) = tokio::sync::mpsc::unbounded_channel();
-    let mut sigterm = signal(SignalKind::terminate())?;
-    let mut sighup = signal(SignalKind::hangup())?;
-    tokio::spawn(async move {
-        tokio::select! {
-            _ = sigterm.recv() => {}
-            _ = sighup.recv() => {}
-        }
-        let _ = end.send(());
-    });
+    let signals = ending_signals()?;
     // Raw mode and the alternate screen, put back on exit and on a panic;
     // the loop turns on focus events and bracketed paste, and off again
     // (`term`), and a panic turns them off.
@@ -165,6 +154,29 @@ async fn tui(args: Args) -> Result<()> {
         std::process::exit(i32::from(ran.is_err()));
     }
     ran
+}
+
+/// The signals that end the loop as a quit does, so the terminal is put back:
+/// SIGTERM and SIGHUP (theseus-8hcg), and SIGINT and SIGQUIT (its review,
+/// finding 2). Raw mode reads ctrl-c and ctrl-\\ as keys, so these two come
+/// from `kill` or a parent; by default they end the process with the terminal
+/// still raw, SIGQUIT with a core.
+fn ending_signals() -> std::io::Result<tokio::sync::mpsc::UnboundedReceiver<()>> {
+    let (end, signals) = tokio::sync::mpsc::unbounded_channel();
+    let mut sigterm = signal(SignalKind::terminate())?;
+    let mut sighup = signal(SignalKind::hangup())?;
+    let mut sigint = signal(SignalKind::interrupt())?;
+    let mut sigquit = signal(SignalKind::quit())?;
+    tokio::spawn(async move {
+        tokio::select! {
+            _ = sigterm.recv() => {}
+            _ = sighup.recv() => {}
+            _ = sigint.recv() => {}
+            _ = sigquit.recv() => {}
+        }
+        let _ = end.send(());
+    });
+    Ok(signals)
 }
 
 /// The wall clock, in ms since the epoch.

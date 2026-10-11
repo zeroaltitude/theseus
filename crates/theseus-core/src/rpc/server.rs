@@ -219,7 +219,8 @@ impl Core {
         let Some(t) = ticket else {
             return self.clone().handle(req, tx, client, surface, closed).await;
         };
-        t.wait(self.lane_key(&req.method, &req.params)).await;
+        let waited = t.wait(self.lane_key(&req.method, &req.params)).await;
+        self.telemetry().record_lane_wait(&req.method, waited);
         let work = self.clone().handle(req, tx, client, surface, closed);
         super::ordered::scope(t.applied(), work).await
     }
