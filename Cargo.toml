@@ -109,3 +109,10 @@ panic = "abort"
 inherits = "release"
 lto = "thin"
 codegen-units = 16
+
+# songbird, vendored (theseus-voice-dave): 0.6.1 as published, with one fix to its receive path. A DAVE-decrypted
+# Opus frame is shorter than the frame it replaced, and 0.6.1 stored the packet with the old length, so the Opus
+# decoder was handed the frame followed by DAVE's leftover trailer, and voice heard nothing. vendor/songbird/VENDORED.md
+# says what changed; drop this once a songbird release carries the fix.
+[patch.crates-io]
+songbird = { path = "vendor/songbird" }
