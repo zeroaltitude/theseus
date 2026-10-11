@@ -302,6 +302,16 @@ const SCRUB_PIECES: &[&str] = &[
     " = ",
     "ghp_",
     "sk-ant-",
+    "sk-",
+    "sk_live_",
+    "AIza",
+    "glpat-",
+    "hf_",
+    "SG.",
+    "://",
+    "postgres://u:",
+    "@",
+    ":",
     "%",
     "%2F",
     "%2",
@@ -328,6 +338,9 @@ const SCRUB_PIECES: &[&str] = &[
     "\\e",
     "\\'",
     "\\N",
+    "\\\n",
+    "\\\r\n\t ",
+    "\\\n  \\ ",
 ];
 
 /// An invented board value.
