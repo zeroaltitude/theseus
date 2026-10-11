@@ -13,6 +13,8 @@ use crate::places::PlacesConfig;
 use crate::secrets::{OpReader, SecretRef};
 
 mod aws;
+mod context;
+pub use context::ContextConfig;
 pub mod discord;
 mod index;
 pub use index::IndexConfig;
@@ -919,30 +921,6 @@ impl ProfileConfig {
         self.max_output_tokens
             .or_else(|| catalog.get(&self.model).map(|e| e.max_output_tokens))
             .unwrap_or(16_384)
-    }
-}
-
-/// `[context]` (theseus-c48): context files in two levels. The system
-/// level, `files`, is every session's; the files of the persona in play come
-/// after it. Each is compiled into the system block under a header naming it
-/// and its level (spec §4.4). Paths are `~/` or absolute; nothing is read at
-/// load.
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct ContextConfig {
-    /// The system level: every session's files, before any persona's.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub files: Vec<crate::context_files::ContextEntry>,
-    /// The persona in play, a key of `[personas]`. Until Jev chooses one
-    /// from its ontology of personas (theseus-8kk, theseus-0j2), this is the
-    /// only choice. Absent: no persona, and the system level alone.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub default_persona: Option<String>,
-}
-
-impl ContextConfig {
-    pub fn is_empty(&self) -> bool {
-        self.files.is_empty() && self.default_persona.is_none()
     }
 }
 

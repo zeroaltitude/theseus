@@ -88,6 +88,7 @@ ledger_kinds! {
     ConfigUnreachable = "config.unreachable",
     ContextCompiled = "context.compiled",
     ContextCompacted = "context.compacted",
+    ContextCleared = "context.cleared",
     ContextFileMissing = "context.file_missing",
     ContextOverflow = "context.overflow",
     ContextOverage = "context.overage",

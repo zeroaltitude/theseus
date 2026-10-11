@@ -759,7 +759,7 @@ impl TurnRunner {
             spec: &detour,
             catalog: &self.catalog,
             force: None,
-            window_override: None,
+            window_override: self.working_window(&detour),
             blobs: Some(self.store.blobs()),
             hidden: &session.not_shown,
             strip: None,

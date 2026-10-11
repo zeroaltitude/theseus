@@ -58,6 +58,13 @@ done (files, commands, results, numbers, names), what failed and why, and what i
 Leave out pleasantries and repetition. Write plain prose or short lists, in the past tense, \
 under 600 words. Write only the summary.";
 
+/// What the summary call is also told when its range is inside one long
+/// task (theseus-3ki0): the range holds no message of the operator's, whose
+/// instruction stays above the summary, pinned.
+const IN_TURN: &str = "This part is inside one long task. The operator's instruction stays \
+above your summary word for word, so don't restate it. Say the work in progress: what was \
+tried, what worked, what failed and why, and what is left to do.";
+
 /// What the ring dropped, as a compaction reads it.
 struct Range<'n> {
     /// The messages to summarize, with their positions.
@@ -607,7 +614,9 @@ fn dropped<'n>(
 ) -> Result<Range<'n>, String> {
     let kept: HashSet<&str> = includes.iter().map(String::as_str).collect();
     let floor = compaction::floor(nodes);
-    let after = floor.map_or(0, |(_, last)| last);
+    // A message before the floor's range (a pinned instruction, 3ki0) the
+    // ring left out is summarized with the rest.
+    let hidden = compaction::hidden(nodes);
     let mut range = Range {
         nodes: Vec::new(),
         recalls: Vec::new(),
@@ -615,7 +624,7 @@ fn dropped<'n>(
     };
     for (p, n) in nodes {
         if *p > as_of
-            || (floor.is_some() && *p <= after)
+            || !compaction::outside(hidden, *p, n)
             || kept.contains(n.id.as_str())
             || !compiler::renderable(n)
         {
@@ -664,9 +673,10 @@ fn folded_count(n: &Node) -> u64 {
 /// The positions of a range's first and last node: a folded summary's
 /// first, when there is one.
 fn span_of(range: &Range<'_>) -> (u64, u64) {
+    let node = range.nodes.first().map(|(p, _)| *p);
     let first = match range.folded.map(|n| &n.body) {
-        Some(Body::Summary { first, .. }) => *first,
-        _ => range.nodes.first().map_or(0, |(p, _)| *p),
+        Some(Body::Summary { first, .. }) => node.map_or(*first, |p| p.min(*first)),
+        _ => node.unwrap_or(0),
     };
     (first, range.nodes.last().map_or(first, |(p, _)| *p))
 }
@@ -750,10 +760,18 @@ fn request_for(target: &Target, thinking: ThinkingMode, range: &Range<'_>) -> Pr
         "Summarize this part of the conversation:\n\n<conversation>\n{}</conversation>",
         text
     );
+    let in_turn = !range
+        .nodes
+        .iter()
+        .any(|(_, n)| matches!(n.body, Body::UserMessage { .. }));
+    let system = match in_turn {
+        true => format!("{INSTRUCTIONS} {IN_TURN}"),
+        false => INSTRUCTIONS.to_string(),
+    };
     ProviderRequest {
         model: target.model.clone(),
         max_tokens: target.max_tokens.min(SUMMARY_MAX_TOKENS),
-        system: vec![json!({"type": "text", "text": INSTRUCTIONS})],
+        system: vec![json!({"type": "text", "text": system})],
         messages: vec![json!({"role": "user", "content": [{"type": "text", "text": content}]})],
         tools: Vec::new(),
         thinking: (thinking == ThinkingMode::Always)
