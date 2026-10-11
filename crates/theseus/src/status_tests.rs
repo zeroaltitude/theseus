@@ -71,24 +71,65 @@ fn five() -> Board {
 
 #[test]
 fn the_short_form_counts_what_is_not_zero() {
-    let s = five().summary(T0, 0);
+    let s = five().summary(T0, 0, &HashMap::new());
     assert_eq!(short_line(&s), "●1 ◐2 ✗1");
     let s = Summary { new: 2, ..s };
     assert_eq!(short_line(&s), "●1 ◐2 ✗1 ◆2");
 }
 
+/// A failure counts in ✗ until a client has shown it at its view's position
+/// (the seen file's `displayed`): then it is `failed_seen`, out of the short
+/// line and the tab's state, and the long form's header names it apart. A
+/// display older than the failure's view still counts it (theseus-lweh's
+/// review: ✗ counted every failure for good).
+#[test]
+fn a_failure_shown_since_it_failed_leaves_the_cross() {
+    let b = five();
+    let at = |p: u64| HashMap::from([("exe_5a877c".to_string(), p)]);
+    let shown = b.summary(T0, 0, &at(13));
+    assert_eq!((shown.failed, shown.failed_seen), (0, 1));
+    assert_eq!(short_line(&shown), "●1 ◐2");
+    assert_eq!(
+        header_line(&shown, T0, &hm),
+        "theseus 06:26 · ● 1 needs you · ◐ 2 working · 1 failed, seen"
+    );
+    let before = b.summary(T0, 0, &at(12));
+    assert_eq!((before.failed, before.failed_seen), (1, 0));
+    assert_eq!(short_line(&before), "●1 ◐2 ✗1");
+    // Seen and alone on the board: the short line is empty, the tab idle.
+    let lone = board(vec![view(
+        "5a877c",
+        "failed",
+        "needs_you",
+        "failed: no",
+        T0,
+        13,
+    )]);
+    let s = lone.summary(T0, 0, &at(13));
+    assert_eq!(short_line(&s), "");
+    assert_eq!(TabState::of(&s), TabState::Idle);
+    assert_eq!(header_line(&s, T0, &hm), "theseus 06:26 · 1 failed, seen");
+    assert_eq!(
+        TabState::of(&lone.summary(T0, 0, &HashMap::new())),
+        TabState::NeedsYou
+    );
+}
+
 #[test]
 fn the_short_form_is_empty_when_nothing_works_or_waits() {
     let b = board(vec![view("q1", "waiting", "ready", "ready", T0, 11)]);
-    assert_eq!(short_line(&b.summary(T0, 0)), "");
-    assert_eq!(short_line(&Board::default().summary(T0, 0)), "");
+    assert_eq!(short_line(&b.summary(T0, 0, &HashMap::new())), "");
+    assert_eq!(
+        short_line(&Board::default().summary(T0, 0, &HashMap::new())),
+        ""
+    );
 }
 
 #[test]
 fn the_long_form_has_a_header_and_a_row_for_each_task() {
     let mut b = five();
     b.views.get_mut("exe_87e9c6").unwrap().wake_at_ms = Some(T0 + 240_000);
-    let sum = b.summary(T0, 0);
+    let sum = b.summary(T0, 0, &HashMap::new());
     let titles: HashMap<String, String> = [
         ("ses_2a329e", "Paint the south buoy red and log it."),
         (
@@ -114,7 +155,7 @@ theseus 06:26 · ● 1 needs you · ◐ 2 working · ✗ 1 failed · ⏰ 06:30
 #[test]
 fn the_long_form_fits_a_narrow_terminal_cutting_the_title_first() {
     let b = five();
-    let sum = b.summary(T0, 0);
+    let sum = b.summary(T0, 0, &HashMap::new());
     let titles: HashMap<String, String> = [(
         "ses_87e9c6".to_string(),
         "Fetch Saturday's forecast for the harbour.".to_string(),
@@ -131,7 +172,13 @@ fn the_long_form_fits_a_narrow_terminal_cutting_the_title_first() {
 fn the_long_form_of_nothing_says_so() {
     let b = Board::default();
     assert_eq!(
-        long_lines(&b, &b.summary(T0, 0), &HashMap::new(), (T0, 80), &hm),
+        long_lines(
+            &b,
+            &b.summary(T0, 0, &HashMap::new()),
+            &HashMap::new(),
+            (T0, 80),
+            &hm
+        ),
         ["theseus 06:26 · nothing needs you or works"]
     );
 }
@@ -157,9 +204,9 @@ fn a_change_is_applied_only_if_it_is_newer() {
     // In the snapshot already.
     assert!(!b.apply(view("q1", "waiting", "ready", "ready", T0, 11)));
     assert!(!b.apply(view("zz", "running", "working", "turn 1", T0, 9)));
-    assert_eq!(b.summary(T0, 0).working, 1);
+    assert_eq!(b.summary(T0, 0, &HashMap::new()).working, 1);
     assert!(b.apply(view("q1", "waiting", "ready", "ready", T0, 12)));
-    assert_eq!(b.summary(T0, 0).working, 0);
+    assert_eq!(b.summary(T0, 0, &HashMap::new()).working, 0);
     // A late copy of the working view does not bring it back.
     assert!(!b.apply(view("q1", "running", "working", "turn 1", T0, 11)));
 }
@@ -331,7 +378,13 @@ fn a_long_label_does_not_squeeze_the_title_out_of_its_row() {
         "Paint the south buoy red.".to_string(),
     )]
     .into();
-    let lines = long_lines(&b, &b.summary(T0, 0), &titles, (T0, 100), &hm);
+    let lines = long_lines(
+        &b,
+        &b.summary(T0, 0, &HashMap::new()),
+        &titles,
+        (T0, 100),
+        &hm,
+    );
     assert!(lines[1].contains("Paint the south buoy red."), "{lines:?}");
     assert!(lines[1].chars().count() <= 100, "{lines:?}");
 }

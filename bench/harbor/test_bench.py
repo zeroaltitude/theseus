@@ -348,6 +348,7 @@ case "$*" in
       *) echo '{"rows": [{"kind": "route.decided", "position": 7, "data": {"mode": "quick", "profile": "haiku", "from": "bench"}}], "total": 1}' ;;
     esac ;;
   *" ask "*)
+    echo "$*" > "$STANDIN_DIR/ask-args"
     cat > "$STANDIN_DIR/instruction"
     case "$STANDIN_ASK" in
       done) echo '{"stop_reason": "no_tool_calls"}' ;;
@@ -377,13 +378,13 @@ class Scripts(unittest.TestCase):
         self.addCleanup(stop_samplers, self, self.logs, self.state, d)
 
     def start(self, ask: str, sampler: bool = False, path: str | None = None,
-              routed: bool = False) -> subprocess.Popen:
+              routed: bool = False, follow_for: str = tb.FOLLOW_FOR) -> subprocess.Popen:
         env = dict(os.environ, STANDIN_DIR=self.tmp.name, STANDIN_ASK=ask,
                    THESEUS_BENCH_INSTRUCTION="Fix the repository's history.")
         if path is not None:
             env["PATH"] = path
         script = tb.run_script(str(self.bin), str(self.state), str(self.logs),
-                               str(SAMPLER) if sampler else None, 50, routed)
+                               str(SAMPLER) if sampler else None, 50, routed, follow_for)
         p = subprocess.Popen([BASH, "-c", "set -o pipefail; " + script], env=env,
                              stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         self.addCleanup(self.reap, p)
@@ -411,6 +412,21 @@ class Scripts(unittest.TestCase):
         self.assertTrue((self.logs / tb.DONE).exists())
         instruction = (Path(self.tmp.name) / "instruction").read_text()
         self.assertEqual(instruction, "Fix the repository's history.")
+
+    def test_the_ask_follows_nothing_unless_a_bound_is_given(self):
+        """theseus-mqxk's review, before the bench rerun: `ask` under `--spawn`
+        follows its later work for 30 minutes by default; a trial asks for 0,
+        so it ends with its turn as the runs it compares with did, unless the
+        run names a bound (THESEUS_BENCH_FOLLOW_FOR)."""
+        args = Path(self.tmp.name) / "ask-args"
+        p = self.start("done")
+        _, err = p.communicate(timeout=30)
+        self.assertEqual(p.returncode, 0, err)
+        self.assertEqual(tb.FOLLOW_FOR, "0")
+        self.assertIn(" ask --follow-for 0 -", args.read_text())
+        p = self.start("done", follow_for="25m")
+        p.communicate(timeout=30)
+        self.assertIn(" ask --follow-for 25m -", args.read_text())
 
     def test_only_the_routed_run_reads_the_ledger_for_jevs_calls_and_the_routes(self):
         """theseus-eo3h: the routed arm leaves the `judge.call` and

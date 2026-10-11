@@ -200,6 +200,18 @@ pub fn done_count(path: &Path) -> u32 {
     u32::try_from(n).unwrap_or(u32::MAX)
 }
 
+/// Each execution's position last displayed, as the file holds it: for
+/// `theseus status`'s ✗, which counts a failure only until a client has shown
+/// it (theseus-lweh's review). No file, no marks.
+pub fn displayed(path: &Path) -> HashMap<String, u64> {
+    read_file(path).map_or_else(HashMap::new, |f| {
+        f.executions
+            .into_iter()
+            .map(|(id, m)| (id, m.displayed))
+            .collect()
+    })
+}
+
 /// Record that the operator was shown `views`: each execution is displayed at
 /// its view's position. Another client's write is kept by the merge.
 pub fn record(path: &Path, views: &[ExecutionView]) -> io::Result<()> {

@@ -68,6 +68,13 @@ DONE = "theseus-done"
 # The routed arm's two reads of the ledger, taken after the history: Jev's
 # judgments (`judge.call`, with their cost) and where each turn ran
 # (`route.decided`).
+# How long `ask` follows what its turn left for later (theseus-mqxk; the CLI's
+# default is 30 minutes): 0, so a trial ends with its turn, as every run before
+# the follow did, and a rerun compares with them (theseus-mqxk's review). A run
+# that wants late results back sets THESEUS_BENCH_FOLLOW_FOR to the task's
+# agent timeout less a margin (Harbor's SIGTERM at the timeout ends the follow).
+FOLLOW_FOR = "0"
+FOLLOW_FOR_ENV = "THESEUS_BENCH_FOLLOW_FOR"
 JUDGE = "theseus-judge.json"
 ROUTES = "theseus-routes.json"
 
@@ -155,12 +162,15 @@ def profile(text: str, values: dict[tuple[str, str], Any]) -> str:
 
 
 def run_script(bin_dir: str, state: str, logs: str, sampler: str | None = None,
-               sample_ms: int = smp.INTERVAL_MS, routed: bool = False) -> str:
+               sample_ms: int = smp.INTERVAL_MS, routed: bool = False,
+               follow_for: str = FOLLOW_FOR) -> str:
     """The trial's one command, run as the task's user, with the instruction
     in `THESEUS_BENCH_INSTRUCTION` (unset before anything else starts).
 
-    `theseus --spawn theseusd --json ask -` runs the turn in the background,
-    its pid kept for `stop_script`; then its exit code is written, the
+    `theseus --spawn theseusd --json ask --follow-for <follow_for> -` runs the
+    turn in the background (following what it left for later for at most
+    `follow_for`, `FOLLOW_FOR`'s 0 by default), its pid kept for
+    `stop_script`; then its exit code is written, the
     session's history is read from the store (the trajectory, and the spend
     of a turn cut short), and the done marker is written. A failure's last
     `theseus:` line goes to stderr, where Harbor reads a failed command's
@@ -193,7 +203,8 @@ def run_script(bin_dir: str, state: str, logs: str, sampler: str | None = None,
         'instruction="$THESEUS_BENCH_INSTRUCTION"; unset THESEUS_BENCH_INSTRUCTION; '
         f"rm -f {lg}/{DONE}; "
         f"{start}"
-        f'printf "%s" "$instruction" | {spawn} ask - > {lg}/{TURN} 2> {lg}/{LOG} & '
+        f'printf "%s" "$instruction" | {spawn} ask --follow-for {shlex.quote(follow_for)} - '
+        f"> {lg}/{TURN} 2> {lg}/{LOG} & "
         f"echo $! > {s}/ask.pid; wait $!; rc=$?; "
         f"echo $rc > {lg}/{EXIT}; "
         f"{spawn} history > {lg}/{HISTORY} 2>> {lg}/{LOG}; "

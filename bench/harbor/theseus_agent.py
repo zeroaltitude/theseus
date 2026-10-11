@@ -213,7 +213,9 @@ class Theseus(BaseInstalledAgent):
         try:
             sample_ms = int(os.environ.get("BENCH_SAMPLE_MS", str(smp.INTERVAL_MS)))
             await self.exec_as_agent(
-                environment, command=tb.run_script(BIN, STATE, logs, SAMPLER, sample_ms, self.routed), env=env
+                environment, command=tb.run_script(BIN, STATE, logs, SAMPLER, sample_ms, self.routed,
+                                     os.environ.get(tb.FOLLOW_FOR_ENV, tb.FOLLOW_FOR)),
+                env=env
             )
         except asyncio.CancelledError:
             # Harbor's timeout: stop the turn, and let the run's end read its
