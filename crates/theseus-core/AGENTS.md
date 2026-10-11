@@ -463,7 +463,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     decides as the proposals are read (`people::decide`, `[people] act`/`confirm`; a person the exclusions exclude
     is not listed nor bulk-accepted, counted in `ontology.proposals`' `hidden`): `rpc/proposals.rs` lists them
     beside the topics' (`OntologyProposal.person`), and an accept joins the held person, or declares the new one
-    (unless an exact handle or name finds it by then). Tests: `judge/people/tests.rs`.
+    (unless an exact handle or name finds it by then: any `name:` handle of a live person counts, not only the display name, and two such people refuse the accept with both ids, `name_holders`, theseus-7mow). Tests: `judge/people/tests.rs`, `tests_handles.rs`.
     **Live, gated by Jev** (theseus-u5n8, the owner's "combine, gated by Jev"; `seen.rs`, pack `people_seen.v1`,
     scope `judge:people_seen`): at each due point one Jev call first, over the exchange's lines and the held people
     it may involve (`seen::listed`: the session's own, then those its lines name; never the owner's or one
