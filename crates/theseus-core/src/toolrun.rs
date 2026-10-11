@@ -1103,37 +1103,6 @@ impl ToolRuntime {
         })
     }
 
-    fn unknown_tool(&self, tc: &TurnCtx<'_>, call: &ToolUse) -> Result<CallOutcome> {
-        tc.record(&fact::tool::UnknownTool { name: &call.name });
-        let text = self.unknown_text(&call.name);
-        let r = ResultNode::new(&call.id, &call.name, ResultStatus::Error, text);
-        Ok(CallOutcome::Done {
-            status: self.answer(tc, r)?,
-        })
-    }
-
-    fn invalid_json(
-        &self,
-        tc: &TurnCtx<'_>,
-        call: &ToolUse,
-        tool: &str,
-        raw: &str,
-    ) -> Result<CallOutcome> {
-        let body = Self::invalid_json_text(tool, raw);
-        let node = self.result_node(
-            tc,
-            ResultNode::new(&call.id, tool, ResultStatus::Error, body),
-        );
-        self.fit_notes.count_invalid(tool);
-        tc.record(&fact::tool::InvalidJson {
-            tool,
-            tool_use_id: &call.id,
-        });
-        Ok(CallOutcome::Done {
-            status: self.write_result(tc, &node)?,
-        })
-    }
-
     /// The gate for one call (§3.17). The toollet's own typed parse names the
     /// resources, and an `Err` is invalid input. The policy then runs the
     /// call, notifies, or waits (§3.9); nothing it decides refuses one

@@ -9,10 +9,12 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 use std::sync::Mutex;
 
+use anyhow::Result;
 use serde_json::Value;
 use theseus_tools::fit::{nearest, recover_line, SHELL_SHAPES};
 
-use super::{ResultNode, ToolRuntime};
+use super::{CallOutcome, ResultNode, ToolRuntime, TurnCtx};
+use crate::fact;
 use crate::node::ResultStatus;
 use crate::provider::ToolUse;
 
@@ -175,5 +177,38 @@ impl ToolRuntime {
             .and_then(Value::as_str);
         let dir = cwd.map_or_else(|| self.session_dir(), |p| self.ctx.resolve(p));
         format!(" · in {}", dir.display())
+    }
+
+    /// A call to a tool that does not exist: its words, and its row.
+    pub(super) fn unknown_tool(&self, tc: &TurnCtx<'_>, call: &ToolUse) -> Result<CallOutcome> {
+        tc.record(&fact::tool::UnknownTool { name: &call.name });
+        let text = self.unknown_text(&call.name);
+        let r = ResultNode::new(&call.id, &call.name, ResultStatus::Error, text);
+        Ok(CallOutcome::Done {
+            status: self.answer(tc, r)?,
+        })
+    }
+
+    /// A call whose input did not parse: its words, its count, and its row.
+    pub(super) fn invalid_json(
+        &self,
+        tc: &TurnCtx<'_>,
+        call: &ToolUse,
+        tool: &str,
+        raw: &str,
+    ) -> Result<CallOutcome> {
+        let body = Self::invalid_json_text(tool, raw);
+        let node = self.result_node(
+            tc,
+            ResultNode::new(&call.id, tool, ResultStatus::Error, body),
+        );
+        self.fit_notes.count_invalid(tool);
+        tc.record(&fact::tool::InvalidJson {
+            tool,
+            tool_use_id: &call.id,
+        });
+        Ok(CallOutcome::Done {
+            status: self.write_result(tc, &node)?,
+        })
     }
 }
