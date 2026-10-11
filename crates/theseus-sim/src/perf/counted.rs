@@ -36,10 +36,13 @@ use crate::fake_model::{mono_ns, Entry, Pace, Watch, STREAM_MARK};
 use crate::lifecycle::Verdict;
 use crate::walcount::Tail;
 
-/// Syncs from a warm turn's submit to its first byte: today's count, measured
-/// on 2026-10-10 (the turn's admission, its plan and its call's plan). It
-/// only goes down.
-pub const SYNCS_BEFORE_FIRST_BYTE: f64 = 3.0;
+/// Syncs from a warm turn's submit to its first byte, as the stand-in counts
+/// them: 3 when measured on 2026-10-10 (the turn's admission, its plan and
+/// its call's plan), 2 since theseus-2uby put the admission in its input's
+/// frame, so it is the plain turn's own budget (`PLAIN_SYNCS_BEFORE_CALL`,
+/// read from the turn's trace): the two counts of one thing agree. It only
+/// goes down.
+pub const SYNCS_BEFORE_FIRST_BYTE: f64 = super::PLAIN_SYNCS_BEFORE_CALL;
 
 /// A fresh session's first request, with the bench's tools, in KB (1,024
 /// bytes): the head-to-head's bar.
@@ -257,7 +260,7 @@ impl Counted {
 /// A verdict's unit, for its line: the frames' rows count frames.
 pub fn unit(phase: &str) -> &'static str {
     match phase {
-        "syncs_first_byte" => "sync(s)",
+        p if p.starts_with("syncs_") => "sync(s)",
         "first_request_kb" => "KB",
         p if p.starts_with("deltas_") => "delta(s) missing",
         _ => "frame(s)",

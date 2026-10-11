@@ -63,7 +63,7 @@ Key modules: `lifecycle.rs`, `kernel_sim.rs`, `fake_discord.rs`, `discord_proof.
     frames go to `--record` under columns of their own (`*_jloop`, `*_jpacks`). **The head-to-head's counted rows** (`src/perf/counted.rs`,
     theseus-7gir.13), judged by `--check` beside the frames, counts and not times (the owner's D-6): the syncs a warm
     turn's WAL gains before the stand-in's first byte (counted by the stand-in from the WAL as it is about to send;
-    `SYNCS_BEFORE_FIRST_BYTE`, 3, only goes down), a fresh session's first request with the default tools (a second
+    `SYNCS_BEFORE_FIRST_BYTE`, 2, `PLAIN_SYNCS_BEFORE_CALL` since theseus-2uby, only goes down), a fresh session's first request with the default tools (a second
     scratch daemon of the default config; under `FIRST_REQUEST_KB`, 40; the bench config's is recorded), and no timer
     between a delta and its write (a paced stream of 8 chunks reaches the client as 8 `model.delta`s, and in
     lockstep each chunk reaches it alone). A delta's way to the client is recorded. Each kind's harness overhead
