@@ -936,7 +936,9 @@ impl App {
     /// pasted `q` quits nothing and a pasted `y` answers no question. Typed
     /// into the input line with its line breaks, into the filter as one line,
     /// or into a decline's note; anywhere else it opens the input line with
-    /// the text in it. It sends nothing and answers nothing: enter does.
+    /// the text in it. It sends nothing and answers nothing: enter does. With
+    /// no session open it is dropped, and the footer says so: kept, it went to
+    /// whichever session opened next (theseus-8hcg's review, finding 5).
     pub fn paste(&mut self, text: &str) {
         let text = pasted(text);
         match self.mode {
@@ -952,13 +954,14 @@ impl App {
                     self.flash = Some((Tag::Dim, not.to_string()));
                 }
                 self.mode = Mode::Normal;
-                self.input.push_str(&text);
                 if self.shown().is_some() {
+                    self.input.push_str(&text);
                     self.mode = Mode::Input;
                 } else {
                     self.flash = Some((
                         Tag::Dim,
-                        "pasted into the input line: open a session (enter), then i".to_string(),
+                        "paste dropped: no session is open (enter opens one, then paste)"
+                            .to_string(),
                     ));
                 }
             }

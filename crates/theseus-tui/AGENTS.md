@@ -10,8 +10,8 @@ Key modules: `run.rs` (the loop), `app.rs` (no I/O), `board.rs`, `ui.rs`. Read b
 
 ## What's here
 
-- `src/main.rs`: the arguments (`--socket`, `--notify`), raw mode and the alternate screen, SIGTERM and SIGHUP,
-  and the loop's start.
+- `src/main.rs`: the arguments (`--socket`, `--notify`), raw mode and the alternate screen, the signals that end
+  the loop as a quit does (`ending_signals`: SIGTERM, SIGHUP, SIGINT and SIGQUIT), and the loop's start.
 - `src/term.rs`: the TUI's own terminal modes, focus events and bracketed paste: on when the loop starts, off on
   every way out (a quit, an error, a signal, and a panic's hook) (theseus-8hcg).
 - `src/run.rs`: the loop. One connection, read in one `select!` with the terminal's events (read on a thread of
@@ -52,8 +52,9 @@ Key modules: `run.rs` (the loop), `app.rs` (no I/O), `board.rs`, `ui.rs`. Read b
   session whose first answer lacked its name asked again as its turns grow; the input line's `profile` and
   `carried`; Enter after a filter. The rig pins the CLI's time zone (`render::time::pin_for_tests`).
 - `src/tests_paste.rs`: a paste is one event, never keys: text in the input line, sent on enter; elsewhere it opens
-  the input line and answers, quits, stops, and arms nothing. Enter at start opens the first row. Bracketed paste is
-  off on every way out, read from the bytes the loop wrote (theseus-8hcg).
+  the input line and answers, quits, stops, and arms nothing; with no session open it is dropped, never sent to a
+  later one. Enter at start opens the first row. Bracketed paste is off on every way out, each of the four signals
+  sent to the test's own process among them, read from the bytes the loop wrote (theseus-8hcg).
 - `src/tests_order.rs`: the app alone, its order forced by hand: another surface's message lands in the place its
   `node.written` marked, above a reply that streamed while it was read (theseus-v6yc).
 - The CLI's `tests/tui.rs` holds `theseus tui`: the exec, the socket and the arguments passed through, and exit 2

@@ -1,7 +1,8 @@
 //! A paste is one event, never keys (theseus-8hcg): in the input line it is
-//! text, sent on enter; anywhere else it opens the input line, and quits,
-//! answers, stops, and arms nothing. Bracketed paste is turned on when the
-//! loop starts and off on every way out.
+//! text, sent on enter; anywhere else it opens the input line (with no
+//! session open it is dropped), and quits, answers, stops, and arms nothing.
+//! Bracketed paste is turned on when the loop starts and off on every way
+//! out, each of the four signals that end it among them.
 
 use std::sync::Mutex;
 use std::time::Duration;
@@ -121,9 +122,11 @@ async fn a_paste_on_a_card_answers_nothing_and_quits_nothing() {
     assert!(rig.runner.quitting());
 }
 
-/// A paste in the list, with no session open, quits nothing: it waits in
-/// the input line, and the footer says how to reach it. A paste disarms a
-/// waiting stop, as any other key would.
+/// A paste in the list, with no session open, quits nothing, and is dropped,
+/// the footer saying so (theseus-8hcg's review, finding 5: kept in the input
+/// line, it went to whichever session opened next). Once a session is open a
+/// paste waits in its input line until enter, and disarms a waiting stop, as
+/// any other key would.
 #[tokio::test]
 async fn a_paste_in_the_list_waits_in_the_input_line() {
     let mut rig = harbour_rig(80, 24);
@@ -131,9 +134,9 @@ async fn a_paste_in_the_list_waits_in_the_input_line() {
     paste(&mut rig, "q").await;
     assert!(!rig.runner.quitting());
     assert_eq!(rig.runner.app.mode, Mode::Normal);
-    assert_eq!(rig.runner.app.input, "q");
+    assert_eq!(rig.runner.app.input, "");
     assert!(
-        rig.screen()[23].contains("pasted into the input line"),
+        rig.screen()[23].contains("paste dropped: no session is open"),
         "{:?}",
         rig.screen()
     );
@@ -144,7 +147,26 @@ async fn a_paste_in_the_list_waits_in_the_input_line() {
     rig.settle().await;
     assert!(rig.daemon().asked("execution.stop").is_empty());
     assert_eq!(rig.runner.app.mode, Mode::Input);
-    assert_eq!(rig.runner.app.input, "qs");
+    assert_eq!(rig.runner.app.input, "s");
+}
+
+/// A paste dropped with no session open never reaches the session opened
+/// after it: enter there sends only what was typed (theseus-8hcg's review,
+/// finding 5).
+#[tokio::test]
+async fn a_paste_with_no_session_open_is_never_sent_to_a_later_one() {
+    let mut rig = harbour_rig(80, 24);
+    rig.shows("check the tide tables").await;
+    paste(&mut rig, "rm the harbour log").await;
+    open_dm(&mut rig).await;
+    rig.press(&[KeyCode::Char('i'), KeyCode::Char('h'), KeyCode::Char('i')])
+        .await;
+    rig.press(&[KeyCode::Enter]).await;
+    rig.asked("turn.submit", 1).await;
+    assert_eq!(
+        rig.daemon().asked("turn.submit"),
+        [json!({"session_id": "ses_dm0001", "input": "hi", "author": "the TUI"})]
+    );
 }
 
 /// Enter on a fresh TUI, nothing under the cursor, opens the first row.
@@ -212,6 +234,27 @@ async fn bracketed_paste_is_off_on_every_way_out() {
         end(&mut rig);
         run(&mut rig).await.unwrap();
         on_then_off(&out, way);
+    }
+}
+
+/// SIGINT and SIGQUIT end the loop as SIGTERM and SIGHUP do, so the
+/// terminal is put back (theseus-8hcg's review, finding 2): each, sent to this
+/// process, ends a loop that holds `ending_signals`' receiver, with paste off
+/// (unhandled, SIGQUIT would end the test with a core).
+#[tokio::test]
+async fn sigint_and_sigquit_end_the_loop_as_sigterm_and_sighup_do() {
+    for sig in ["INT", "QUIT", "TERM", "HUP"] {
+        let mut rig = harbour_rig(80, 24);
+        let out = Captured::default();
+        rig.runner.out = Box::new(out.clone());
+        rig.runner.signals = Some(crate::ending_signals().unwrap());
+        let sent = std::process::Command::new("kill")
+            .args(["-s", sig, &std::process::id().to_string()])
+            .status()
+            .unwrap();
+        assert!(sent.success(), "kill -s {sig}");
+        run(&mut rig).await.unwrap();
+        on_then_off(&out, sig);
     }
 }
 
