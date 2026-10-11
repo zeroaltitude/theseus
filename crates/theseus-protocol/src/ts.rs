@@ -115,7 +115,7 @@ fn the_cockpits_types_are_generated_from_the_rust_ones() {
         CacheSummary, EstimateSummary, CensusSummary, ContextCompiled, Situation, ToolStarted, ToolEnded,
         ConfirmResolved, NodeWritten, PolicyNotified, Access, Resource, Plan, Proposal,
         Notice, GateDecision, GateResult, GateRecord, Level, Attention, WaitingOn, PendingConfirm,
-        ExecutionView, ExecutionsWatchParams, ExecutionsWatchResult, SessionListParams, PushStatus,
+        ExecutionView, ExecutionsWatchParams, ExecutionsWatchResult, SessionListParams, PushStatus, ConnectionsHealth,
         WaitUntil, SessionWaitParams, SessionWaitResult, EventsLost, ToolClass, AwsPlan, AwsStatus,
         AwsAccountStatus, TenderStatus, PlaceClass, PlacesHealth, PlaceInfo, PlacePublishParams, PublishResult,
         HandsListParams, HandsGroupInfo, HandsListResult,

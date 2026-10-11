@@ -1070,6 +1070,8 @@ pub struct ServerConfig {
     /// keeps room to write. 0 refuses none.
     #[serde(default = "default_disk_floor_mb")]
     pub disk_floor_mb: u64,
+    #[serde(default)]
+    pub max_connections: u64,
 }
 
 fn default_stop_grace_ms() -> u64 {
@@ -1151,6 +1153,7 @@ impl Default for ServerConfig {
             stop_grace_ms: default_stop_grace_ms(),
             disk_warn_mb: default_disk_warn_mb(),
             disk_floor_mb: default_disk_floor_mb(),
+            max_connections: 0,
         }
     }
 }

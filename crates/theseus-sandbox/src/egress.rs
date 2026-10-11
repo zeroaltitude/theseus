@@ -388,6 +388,11 @@ impl Proxy {
                 }
                 Err(e) if e.kind() == io::ErrorKind::WouldBlock => {}
                 Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
+                // A full descriptor table, or a connection reset in the
+                // queue, passes: wait and accept again (theseus-7vtp).
+                Err(e) if transient_accept_error(&e) => {
+                    std::thread::sleep(std::time::Duration::from_millis(50));
+                }
                 // The job's namespace is gone, or the listener broke.
                 Err(_) => return,
             }
@@ -706,8 +711,45 @@ fn copy(mut from: TcpStream, mut to: TcpStream) -> u64 {
     n
 }
 
+/// An accept error that says the moment is bad, not that the listener is: out
+/// of descriptors (`EMFILE`, `ENFILE`), of buffers or memory (`ENOBUFS`,
+/// `ENOMEM`), or a peer that went before it was taken (`ECONNABORTED`,
+/// `EPROTO`).
+fn transient_accept_error(e: &io::Error) -> bool {
+    matches!(
+        e.raw_os_error(),
+        Some(
+            libc::EMFILE
+                | libc::ENFILE
+                | libc::ENOBUFS
+                | libc::ENOMEM
+                | libc::ECONNABORTED
+                | libc::EPROTO
+        )
+    )
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_full_descriptor_table_is_a_bad_moment_and_a_broken_listener_is_not() {
+        for e in [
+            libc::EMFILE,
+            libc::ENFILE,
+            libc::ENOBUFS,
+            libc::ECONNABORTED,
+        ] {
+            assert!(super::transient_accept_error(
+                &io::Error::from_raw_os_error(e)
+            ));
+        }
+        for e in [libc::EBADF, libc::EINVAL, libc::ENOTSOCK] {
+            assert!(!super::transient_accept_error(
+                &io::Error::from_raw_os_error(e)
+            ));
+        }
+    }
+
     use super::*;
 
     #[test]

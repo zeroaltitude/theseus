@@ -21,6 +21,7 @@ use theseus_protocol::{
 mod aws;
 mod cancel;
 mod catalog;
+mod connections;
 mod failed;
 mod flight;
 pub mod history;
@@ -1751,6 +1752,7 @@ pub fn health_lines(h: &theseus_protocol::HealthResult, now_ms: u64) -> Vec<Line
     }
     if let Some(p) = &h.push {
         push(o, Tag::Plain, &push_line(p));
+        connections::push_health(o, &p.connections);
     }
     push(o, Tag::Plain, &broker_line(&h.broker));
     if let Some(k) = &h.harness_only {

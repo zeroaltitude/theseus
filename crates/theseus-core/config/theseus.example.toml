@@ -299,6 +299,11 @@ stop_grace_ms = 50                      # a clean stop waits up to this long, fr
 # the Windows drive (C:), which can fill first, so check C: itself there.
 disk_warn_mb = 5120                     # health says the disk is low below this many MB free (0: never)
 disk_floor_mb = 1024                    # a job is refused below this many MB free (0: never)
+# Socket connections (theseus-7vtp). The daemon raises its soft open-files limit to the
+# hard one at start; past max_connections a new connection is told why in one protocol
+# error and closed, so the store, jobs and terminals always have descriptors left.
+# 0 derives it from the limit in effect: the limit less 256 (half of it under 512), at most 8192.
+max_connections = 0
 
 # ---------------------------------------------------------------- kernel
 # The durable kernel (M2): one execution per session, actions with correlation
