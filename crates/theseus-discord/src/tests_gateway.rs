@@ -20,7 +20,7 @@ use theseus_sim::fake_discord::{FakeDiscord, Guild, Msg, Pressed, Typed, BOT_ID,
 /// Invented people and places.
 pub(crate) const ANA: u64 = 900_000_000_000_000_101;
 pub(crate) const BEN: u64 = 900_000_000_000_000_202;
-const CY: u64 = 900_000_000_000_000_303;
+pub(crate) const CY: u64 = 900_000_000_000_000_303;
 pub(crate) const LAB: u64 = 900_000_000_000_000_010;
 /// The stand-in's DM channel with `ANA`.
 pub(crate) const ANA_DM: u64 = ANA + 1;

@@ -41,6 +41,8 @@ mod tests_process;
 mod tests_show;
 #[cfg(test)]
 mod tests_silent;
+#[cfg(test)]
+mod tests_typing;
 pub mod viewers;
 
 pub use bindings::{Bindings, EXAMPLE_BINDINGS};

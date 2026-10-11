@@ -18,10 +18,10 @@ use theseus_protocol::{
     method, notify, ConfirmRequest, Event, Id, Message, Notification, Response, SessionListResult,
     SessionWaitResult,
 };
-use tokio::io::{AsyncBufReadExt, BufReader, Lines, Stdin};
 use tokio::signal::unix::{signal, SignalKind};
 
 use crate::herdr::{self, Reporter};
+use crate::keys::{Input, Source};
 use crate::print::{Mode, Printer};
 
 /// What answers and messages sent from the terminal carry as their author: the
@@ -86,6 +86,8 @@ enum Purpose {
     Info,
     /// The view and questions again, after `events.lost`.
     Reread,
+    /// `session.typing`: a notice, whose answer says nothing a person needs.
+    Typing,
 }
 
 /// `theseus watch [SESSION] [--interactive] [--no-herdr]`.
@@ -174,6 +176,7 @@ pub async fn watch(
         profile,
         title_asked_at: 0,
         profile_read_at: turns,
+        typist: Default::default(),
     };
     eprintln!("watching {sid} (Ctrl-C to stop)");
     if let Some(r) = &w.reporter {
@@ -194,7 +197,7 @@ pub async fn watch(
     }
     w.ask();
 
-    let mut stdin = interactive.then(|| BufReader::new(tokio::io::stdin()).lines());
+    let mut stdin = interactive.then(Source::open);
     loop {
         tokio::select! {
             msg = conn.next() => match msg? {
@@ -204,9 +207,10 @@ pub async fn watch(
                 Some(Message::Response(r)) => w.on_response(r),
                 Some(Message::Request(_)) => {}
             },
-            line = next_line(&mut stdin) => match line? {
-                None => break,
-                Some(l) => w.on_line(conn, &l).await?,
+            input = next_input(&mut stdin) => match input? {
+                Input::Eof => break,
+                Input::Typing => w.on_typing(conn).await?,
+                Input::Line(l) => w.on_line(conn, &l).await?,
             },
             _ = reminder(w.reporter.as_ref().and_then(Reporter::next_due)) => {
                 if let Some(r) = &mut w.reporter {
@@ -261,10 +265,10 @@ async fn call(
         .await
 }
 
-/// The next line on stdin; never, without `--interactive`.
-async fn next_line(lines: &mut Option<Lines<BufReader<Stdin>>>) -> std::io::Result<Option<String>> {
-    match lines {
-        Some(l) => l.next_line().await,
+/// The next key or line on stdin; never, without `--interactive`.
+async fn next_input(source: &mut Option<Source>) -> std::io::Result<Input> {
+    match source {
+        Some(s) => s.next().await,
         None => std::future::pending().await,
     }
 }
@@ -291,6 +295,8 @@ struct Watch {
     title_asked_at: u64,
     /// The turns it had when `profile` was last read.
     profile_read_at: u64,
+    /// Whether the daemon has been told someone types (theseus-tnky).
+    typist: theseus_protocol::warm::Typist,
 }
 
 impl Watch {
@@ -405,6 +411,19 @@ impl Watch {
         };
         // A whole line: an event that comes while it waits starts below it.
         eprintln!("  {prompt}");
+    }
+
+    /// The first key of a line: one `session.typing` per idle spell, so the
+    /// daemon warms what the message will wait for. Not while a question
+    /// waits (the line is an answer), and never waited on (theseus-tnky).
+    async fn on_typing(&mut self, conn: &mut Conn) -> Result<()> {
+        if self.asked.is_some() || !self.typist.keystroke(&self.sid, now_ms()) {
+            return Ok(());
+        }
+        let params = json!({"session_id": self.sid, "author": AUTHOR});
+        let id = conn.send(method::SESSION_TYPING, params).await?;
+        self.pending.insert(id, Purpose::Typing);
+        Ok(())
     }
 
     /// A line from the terminal: the answer to the question asked, or a

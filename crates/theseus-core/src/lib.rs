@@ -97,6 +97,7 @@ pub mod trace;
 pub mod turn;
 pub mod voice;
 pub mod wake;
+pub mod warm;
 pub mod web;
 pub mod webui;
 

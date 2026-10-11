@@ -119,6 +119,7 @@ impl Core {
             tasks: Some(self.tasks_health()),
             resident: Some(self.resident_health()),
             self_improve: Some(self.self_state()),
+            warm: Some(self.warmth.health()),
         }
     }
 

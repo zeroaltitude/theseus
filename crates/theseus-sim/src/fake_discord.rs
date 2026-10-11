@@ -713,6 +713,34 @@ impl FakeDiscord {
         Ok(id.to_string())
     }
 
+    /// `user` begins to type, in a guild channel or, with `channel` None, in
+    /// their DM with the bot: the gateway's `TYPING_START` (theseus-tnky).
+    pub fn typing(&self, user: u64, channel: Option<u64>) -> Result<(), String> {
+        let gw = self.gateway.get().ok_or("the fake serves no gateway")?;
+        let at = match channel {
+            Some(c) => Where {
+                channel: c,
+                guild: Some(
+                    self.state
+                        .lock()
+                        .unwrap()
+                        .guild
+                        .as_ref()
+                        .map_or(DEFAULT_GUILD, |g| g.id),
+                ),
+            },
+            None => Where {
+                channel: user + 1,
+                guild: None,
+            },
+        };
+        if gw.dispatch("TYPING_START", fake_gateway::typing_start(at, user)) {
+            Ok(())
+        } else {
+            Err("no client is connected to the gateway".into())
+        }
+    }
+
     /// A press of a button on a message the bot posted, by `p.user`, sent
     /// through the gateway as Discord sends it: the interaction carries the
     /// message, buttons and all. The interaction's id, or why it could not

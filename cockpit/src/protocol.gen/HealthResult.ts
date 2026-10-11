@@ -37,6 +37,7 @@ import type { TerminalLeft } from "./TerminalLeft";
 import type { Tightening } from "./Tightening";
 import type { Usage } from "./Usage";
 import type { WakeInfo } from "./WakeInfo";
+import type { WarmHealth } from "./WarmHealth";
 import type { WebStatus } from "./WebStatus";
 
 export type HealthResult = { name: string, version: string, protocol: string, 
@@ -240,4 +241,8 @@ resident?: ResidentHealth,
 /**
  * Self-improvement's mode, kill switch and gate (theseus-pw1q.2): health's `self` line.
  */
-self_improve?: SelfState, };
+self_improve?: SelfState, 
+/**
+ * What a person's first keystroke warmed, and when (theseus-tnky).
+ */
+warm?: WarmHealth, };

@@ -23,6 +23,7 @@ mod interactive;
 mod judge_correct;
 mod judge_prove;
 mod judge_runs;
+mod keys;
 mod mcp;
 mod ontology;
 mod packs;
