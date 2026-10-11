@@ -231,6 +231,14 @@ impl AwsBinding {
         self.requests.lock().unwrap().push(r);
     }
 
+    /// Say one more thing of the latest request's row: the call knows what
+    /// the request meant (a change set's execute that only drops a tag).
+    pub fn mark_last(&self, key: &str, value: Value) {
+        if let Some(r) = self.requests.lock().unwrap().last_mut() {
+            r.row[key] = value;
+        }
+    }
+
     /// Every request so far, in the order they were made.
     pub fn requests(&self) -> Vec<AwsRequest> {
         self.requests.lock().unwrap().clone()
