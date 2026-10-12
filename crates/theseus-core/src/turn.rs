@@ -67,10 +67,12 @@ pub(crate) use calls::call_result;
 pub mod compaction;
 mod compile_step;
 mod cut_step;
+pub mod effort_step;
 mod end_step;
 mod fallback_step;
 mod inbound_step;
 mod later_step;
+mod noop_step;
 pub mod nudge_step;
 mod prompt_input;
 mod recall_step;
@@ -177,6 +179,8 @@ pub struct TurnRunner {
     pub failed_turns: stdio_step::FailedTurns,
     /// Each execution's spend at its last check (theseus-jse4).
     pub(crate) spend_marks: budget_step::SpendMarks,
+    /// The models found to refuse per-message effort, for this run (theseus-posww).
+    pub effort_refusals: effort_step::EffortRefusals,
 }
 
 /// What a `/stop` tells the turn that holds its execution while the model's
@@ -824,6 +828,7 @@ impl TurnRunner {
             tools: self.tools.definitions_for(place),
             effort: target.effort,
             turn_effort: None,
+            effort_refused: self.effort_refused(),
             thinking_display: target.thinking_display,
             refusal_fallbacks: target.refusal_fallbacks,
             fallback: None,
@@ -1709,6 +1714,7 @@ impl TurnRunner {
         // again with its line, once a turn (theseus-0s4); `strip` asks the
         // next compilation to drop the thinking the change sat under.
         let mut image_retried = false;
+        let mut effort_asked = false;
         // A transient failure's retries in this turn (`[model.retries]`).
         let mut retried = 0;
         let mut strip: Option<&'static str> = None;
@@ -1788,6 +1794,15 @@ impl TurnRunner {
                 Called::Answered(called) => *called,
                 Called::Failed(failure) => {
                     if self.retry_after(t, &failure, &mut retried).await? {
+                        continue;
+                    }
+                    if self.without_message_effort(
+                        t,
+                        &mut spec,
+                        &compiled,
+                        &failure,
+                        &mut effort_asked,
+                    ) {
                         continue;
                     }
                     if !image_retried {
@@ -2157,7 +2172,10 @@ impl TurnRunner {
         let last = nodes
             .iter()
             .rev()
-            .find(|(_, n)| n.kind != crate::stub::Kind::ToolCall);
+            .find(|(_, n)| !crate::stub::Kind::is_note(n.kind));
+        // A recall's note, written by a turn's compile after the message it
+        // fed, is no reply and no input: a message with only one after it
+        // still waits (theseus-posww). Neither is a call, as before.
         // Results the model has not read are its next input (theseus-kol). A
         // continuation that finds them was woken to have them read: the turn
         // that wrote them failed or faulted before its model call returned
@@ -3209,7 +3227,7 @@ impl TurnRunner {
         // when it ends (DD7). A stopped turn posts nothing either (W1): the
         // stop's answer says what stopped.
         if t.tc.task.is_none() && result.stop_reason != "stopped" {
-            if let Err(e) = self.stage_reply(&t, &result) {
+            if let Err(e) = self.stage_turn_post(&t, &result, session.failing.as_ref()) {
                 return Err(Self::fault(t, session, e));
             }
         }

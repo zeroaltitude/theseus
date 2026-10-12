@@ -49,6 +49,13 @@ pub enum Kind {
 }
 
 impl Kind {
+    /// A node no turn reads as a message of the conversation: a call (read
+    /// with its result) or a recall's note, which a compile writes after the
+    /// message it fed (theseus-posww).
+    pub fn is_note(self) -> bool {
+        matches!(self, Kind::ToolCall | Kind::Recall)
+    }
+
     pub fn of(b: &Body) -> Kind {
         match b {
             Body::UserMessage { .. } => Kind::UserMessage,

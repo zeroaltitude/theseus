@@ -141,11 +141,12 @@ async fn every_loop_of_the_turn_carries_the_effort() {
     );
     effort(&jev, "unclear", 0.95);
     turn(&r.core, Some(&res.session_id), "And in winter?", None).await;
-    // The profile leaves effort to the model; after a turn at another level
-    // its own is said as the model's default (theseus-o719).
+    // The profile leaves effort to the model, and Sonnet 5.5 takes no
+    // per-message effort (theseus-posww): the request says none, so the
+    // model's own default holds.
     assert_eq!(
         sent(&r.claude.requests()[2]).as_deref(),
-        Some("high"),
+        None,
         "the profile's own again"
     );
 }

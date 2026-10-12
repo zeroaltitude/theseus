@@ -2,7 +2,7 @@
 //!
 //! Scripted scenarios run through the whole core: a plain turn, tool calls,
 //! a background job and its late result, a confirm approved and one
-//! declined, a stop, a failed turn and its retry, a task and its report, a
+//! declined, a stop, a failed turn that is not retried, a task and its report, a
 //! wake, and a budget question. After each step the transcript takes, in
 //! order, every frame the store committed (each record's kind and key, and
 //! each ledger row and outbox post whole), every notification published (its
@@ -392,8 +392,7 @@ pub(super) async fn conversation(out: &mut String) {
                 )],
             ),
             Scripted::text("Stopped, then."),
-            // a failed turn, and its retry
-            bad_request(),
+            // a failed turn: a 400 parks it, nothing retries it (theseus-posww)
             bad_request(),
             // a task and its report
             Scripted::tools(
@@ -480,7 +479,7 @@ pub(super) async fn conversation(out: &mut String) {
     let r = turn(&core, &a, "Fail, please.").await;
     w.take(out, "a turn the provider refuses", &told(&r));
     let d = drive(&core).await;
-    w.take(out, "the driver: its one retry, refused too", &d);
+    w.take(out, "the driver: a 400 is not retried", &d);
 
     let r = turn(&core, &a, "Start a task that counts to three.").await;
     w.take(out, "a turn that starts a task", &told(&r));

@@ -194,6 +194,16 @@ async fn a_failed_continuation_leaves_the_late_result_for_its_retry() {
         assert_eq!(late_nodes(&r.core, &res.session_id), 1, "{name}");
         assert!(reads_the_late_result(&r.glm.requests()[2]), "{name}");
         let e = r.core.kernel.execution(&exec).unwrap().unwrap();
+        // A 400 fails the same way again, so nothing is queued: the next
+        // message retries it (theseus-posww). Only the 529 queues a retry.
+        if name == "400" {
+            assert_eq!(
+                (e.state.as_str(), e.resume_pending),
+                ("waiting", false),
+                "{name}: parked on input"
+            );
+            continue;
+        }
         assert_eq!(
             (e.state.as_str(), e.resume_pending),
             ("queued", true),

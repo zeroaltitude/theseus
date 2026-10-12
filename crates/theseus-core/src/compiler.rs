@@ -230,14 +230,15 @@ pub struct RequestSpec {
     pub session_text: String,
     /// The context files `context_text` carries, for the manifest.
     pub context_files: Vec<ContextFileRef>,
-    /// The persona in play when the spec was built (theseus-c48), whose
-    /// files follow the system level's in `context_text`.
+    /// The persona in play when the spec was built (theseus-c48).
     pub persona: Option<String>,
     /// Wire tool definitions, sorted by name.
     pub tools: Vec<Value>,
     pub effort: Option<Effort>,
     /// The turn's own, as a per-message effort (`effort`, theseus-o719).
     pub turn_effort: Option<Effort>,
+    /// Models this daemon found to refuse per-message effort (theseus-posww).
+    pub effort_refused: Vec<String>,
     pub thinking_display: ThinkingDisplay,
     pub refusal_fallbacks: bool,
     /// A refusal's fallback for the rest of the turn (theseus-7gir.18): the
@@ -247,10 +248,8 @@ pub struct RequestSpec {
     pub first_party: bool,
     /// The profile's cache TTL, on the system blocks' breakpoints.
     pub cache_ttl: CacheTtl,
-    /// The TTL of the conversation's breakpoint, the top-level automatic one:
-    /// the profile's, or 5 minutes in a task. Never longer than `cache_ttl`,
-    /// so a longer-lived entry never follows a shorter one, as the provider
-    /// requires.
+    /// The conversation breakpoint's TTL: the profile's, or 5 minutes in a task;
+    /// never longer than `cache_ttl` (the provider requires it).
     pub conversation_ttl: CacheTtl,
     /// The ontology's compile walk, fixed for the turn (theseus-8kk.1); none
     /// while the ontology holds no category. `compile` renders its guidance
@@ -1335,6 +1334,7 @@ mod tests {
             ],
             effort: Some(Effort::High),
             turn_effort: None,
+            effort_refused: vec![],
             thinking_display: ThinkingDisplay::Summarized,
             refusal_fallbacks: true,
             fallback: None,

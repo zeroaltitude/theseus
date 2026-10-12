@@ -24,6 +24,7 @@ fn spec() -> RequestSpec {
         ],
         effort: Some(Effort::High),
         turn_effort: None,
+        effort_refused: vec![],
         thinking_display: ThinkingDisplay::Summarized,
         refusal_fallbacks: true,
         fallback: None,
