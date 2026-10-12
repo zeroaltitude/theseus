@@ -79,7 +79,10 @@ pub(crate) use succession::open_at_bind;
 mod tests_held;
 #[cfg(test)]
 mod tests_succession;
+#[cfg(test)]
+mod tests_why;
 mod voice;
+mod why;
 use publish::PublishAsk;
 
 /// The connection label every Discord call carries; authors refine it per message.
@@ -572,6 +575,7 @@ fn commands() -> Vec<twilight_model::application::command::Command> {
     );
     cmds.push(prompt::command());
     cmds.push(extensions::command());
+    cmds.push(why::command());
     cmds.extend(voice::commands());
     cmds
 }
@@ -758,6 +762,8 @@ enum Control {
     Extensions,
     /// Revoke a loaded extension, as the presser.
     Revoke(String, Option<DiscordOrigin>),
+    /// What the last turn was shown, and why (theseus-ighf, `runtime/why.rs`).
+    Why,
     /// "halt self" (theseus-pw1q.2, `runtime/halt.rs`): why, and its author's ids.
     HaltSelf(Option<String>, Option<DiscordOrigin>),
     /// "resume self": its author's ids; the core counts only the owner's.
@@ -1232,15 +1238,9 @@ impl Shared {
         }
         // Who pressed, and where: the ids the core judges an answer by, which
         // only this binding may name (theseus-sgh).
-        let discord = match (&user, channel) {
-            (Some((u, _)), Some(c)) => Some(DiscordOrigin {
-                user_id: u.to_string(),
-                channel_id: c.to_string(),
-                guild_id: i.guild_id.map(|g| g.to_string()),
-            }),
-            _ => None,
-        };
-        // `/extensions` and its Revoke buttons (`runtime/extensions.rs`).
+        let discord = origin_of(user.as_ref().map(|(u, _)| *u), channel, i.guild_id);
+        // `/extensions` and its Revoke buttons (`runtime/extensions.rs`), then `/why`'s (`runtime/why.rs`):
+        // one chain, since `on_interaction` is at clippy's complexity limit.
         if self
             .extensions_interaction(&i, &tx, &who, discord.clone())
             .await
@@ -1544,6 +1544,19 @@ impl Shared {
             self.board.error("interaction response", None, e);
         }
     }
+}
+
+/// Who pressed, and where: the ids the core judges an answer by (theseus-sgh).
+fn origin_of(
+    user: Option<u64>,
+    channel: Option<u64>,
+    guild: Option<Id<GuildMarker>>,
+) -> Option<DiscordOrigin> {
+    Some(DiscordOrigin {
+        user_id: user?.to_string(),
+        channel_id: channel?.to_string(),
+        guild_id: guild.map(|g| g.to_string()),
+    })
 }
 
 /// A message is for Theseus when it @mentions the bot (as a user or through
@@ -2213,6 +2226,7 @@ impl Place {
             Control::Trust(origin) => self.trust(origin, by).await,
             Control::Publish(ask) => self.publish(*ask, by).await,
             Control::Extensions => self.extensions().await,
+            Control::Why => self.why().await,
             Control::Revoke(name, origin) => self.revoke(name, origin, by).await,
             Control::HaltSelf(why, origin) => self.halt_self(why, origin, by).await,
             Control::ResumeSelf(origin) => self.resume_self(origin, by).await,

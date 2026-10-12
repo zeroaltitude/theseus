@@ -61,7 +61,13 @@ unbuilt?: string,
  * node's excerpt filled to a private place), and each recalled
  * session's place.
  */
-recalls: Array<RecallManifest>, sources: { [key in string]: ContextSource }, 
+recalls: Array<RecallManifest>, 
+/**
+ * When each admitted node was written, in unix ms, by node id: a native
+ * node's creation, an imported message's own time. Absent from a
+ * daemon before `theseus why` (theseus-ighf).
+ */
+noted?: Record<string, number>, sources: { [key in string]: ContextSource }, 
 /**
  * Why the text was left out: a place that is not private reads sizes
  * and digests alone. Absent when it was given.

@@ -35,6 +35,7 @@ mod print;
 mod prompt;
 mod self_cmd;
 mod status;
+mod why;
 
 use std::path::PathBuf;
 
@@ -167,6 +168,19 @@ enum Cmd {
         /// Print tool results and long messages in full (default: clipped).
         #[arg(long)]
         full: bool,
+    },
+    /// What a turn's model was shown, and why each piece was there: the model and profile it ran
+    /// on and why routing put it there, each block of the compiled context with its tokens and
+    /// its source, each recalled note with its date, source and the reason it was recalled, what
+    /// the compile left out and why, and the gate's posture for each tool the turn called and
+    /// the layer that set it. TURN is a turn's id, or a unique start or end of one (four
+    /// characters at least); it defaults to the session's last. A read: nothing is recompiled
+    /// or written. --json prints what the daemon answered.
+    Why {
+        turn: Option<String>,
+        /// The session; defaults to the most recently active, as `history` does.
+        #[arg(long, value_name = "SESSION")]
+        session: Option<String>,
     },
     /// Where a node went (node.reach): the compilations and loops of its own session whose
     /// context held it, then its copies in other sessions over derived_from (a task's report in
@@ -976,6 +990,7 @@ async fn run(cli: Cli) -> Result<()> {
             before,
             full,
         } => cmd::history(c, json, session, (n, after, before), full).await,
+        Cmd::Why { turn, session } => why::why(c, json, session, turn).await,
         Cmd::Reach { node, generations } => cmd::reach(c, json, node, generations).await,
         Cmd::Places => cmd::places(c, json).await,
         Cmd::Publish {

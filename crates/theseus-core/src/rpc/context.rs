@@ -140,6 +140,7 @@ impl Core {
         out.compiled = compiled;
         if let Some(t) = out.turn_id.clone() {
             out.recalls = self.turn_recalls(sid, &t, private)?;
+            out.noted = self.noted_times(&out.recalls);
         }
         out.sources = self.sources_of(&out, private);
         out.ms = t0.elapsed().as_secs_f64() * 1e3;
@@ -306,6 +307,18 @@ impl Core {
         Ok(out)
     }
 
+    /// When each admitted node was written: a read of its record (the heat
+    /// cache's, usually), never its text.
+    fn noted_times(&self, recalls: &[RecallManifest]) -> BTreeMap<String, u64> {
+        let mut at = BTreeMap::new();
+        for item in recalls.iter().flat_map(|m| &m.admitted) {
+            if let Ok(Some((_, n))) = self.store.get_node(&item.node_id) {
+                at.insert(item.node_id.clone(), n.created_at_ms);
+            }
+        }
+        at
+    }
+
     /// Each session a recall drew on: its place by name, and an imported
     /// one's episode.
     fn sources_of(
@@ -398,6 +411,7 @@ fn blank(sid: &str, rec: &SessionRecord, private: bool) -> ContextExplainResult 
         unchanged: None,
         unbuilt: None,
         recalls: Vec::new(),
+        noted: BTreeMap::new(),
         sources: BTreeMap::new(),
         withheld: (!private).then(|| WITHHELD.to_string()),
         ms: 0.0,

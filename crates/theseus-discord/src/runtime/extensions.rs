@@ -152,8 +152,8 @@ impl Shared {
             .map_err(|e| e.message)
     }
 
-    /// An interaction of `/extensions` or its Revoke button: true when it was
-    /// one, and answered.
+    /// An interaction of `/extensions` or its Revoke button, or of `/why`:
+    /// true when it was one, and answered.
     pub(super) async fn extensions_interaction(
         &self,
         i: &Interaction,
@@ -197,7 +197,8 @@ impl Shared {
                     .await;
                 true
             }
-            _ => false,
+            // Not one of ours: `/why` is the next in the chain.
+            _ => self.why_interaction(i, tx, who).await,
         }
     }
 

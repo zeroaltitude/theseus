@@ -1324,7 +1324,15 @@ async fn a_turn_s_context_says_what_it_recalled_and_from_which_episode() {
             .expect("an imported session's episode");
         assert_eq!(ep.topics, ["reef/survey"]);
         assert!(src.place.starts_with("the imported "), "{}", src.place);
+        // Each admitted note's own time, an imported message's among them
+        // (`theseus why` dates each note by it; theseus-ighf).
+        let at = x.noted[&a.node_id];
+        let (_, n) = c.store.get_node(&a.node_id).unwrap().unwrap();
+        assert_eq!(at, n.created_at_ms);
+        assert!(at >= ep.start_ms && at <= ep.end_ms, "{at} in {ep:?}");
     }
+    // Away from a private place the times stay: they are no text.
+    assert_eq!(ask(&here, false).noted, x.noted);
     // Away from a private place: no excerpt, no header, no title.
     let away = ask(&here, false);
     assert!(away.recalls[0].admitted.iter().all(|a| a.text.is_none()));

@@ -1,0 +1,21 @@
+turn trn_k3m9x2 · session ses_reef42 (the harbour survey)
+place: CLI (private)
+ran on: deep (glm-x), a window of 200,000 tokens
+routing: deep_coding, by the route pack's verdict, moved from quick to deep
+effort: Jev said high (applied), the request carried high
+context: 7 parts, 11,780 tokens (the system blocks are the bytes this turn saw)
+  conversation conversation · 5,000 tok · the conversation so far
+  tools        tools · 3,000 tok · the tools offered · fs.read, proc.run
+  … and 5 more
+recalled: 2 of 14 candidates
+  1. 2026-03-04 · an imported chat (tide office) from chat export · message · 210 tok
+     why: ranked 1 of 14 hits, fused score 0.93: bm25 #1 (4.20), vector #3 (0.81)
+  2. 2026-03-05 · this conversation (the harbour survey) in CLI · note · 90 tok
+     why: ranked 2 of 14 hits, fused score 0.71: entity #1 (1.00)
+left out:
+  recall: 1 candidate left out for the budget (300 tok)
+  recall: 1 candidate left out by the place rule
+  … and 1 more
+tools called, and the gate's posture for each:
+  proc_run               approve  set by floor: [policy] floor = "approve"
+  fs_read ×2             open     set by posture: open

@@ -64,6 +64,12 @@ Key modules: `main.rs`, `cmd.rs`, `render.rs`, `client.rs`. Read by: (a binary).
   recorded incident; `THESEUS_GOLDEN=write` rewrites `incident.md` and `incident.json`).
 - `src/print.rs`: the `Printer`, which writes the library's lines in one of four modes: `Text` (`ask`), `Quiet`
   (`ask --no-stream`), `Watch` (`watch`), and `Json`.
+- `src/why.rs` (theseus-ighf): `theseus why [TURN] [--session S]`, what a turn's model was shown and why: it asks
+  `context.explain` (a prefix or end of at least four characters names an older turn, resolved from its turn list),
+  `policy.explain`, `node.list` (the turn's `tool_call` nodes, with the gate's own posture) and `ledger.tail` (its
+  `route.decided` row), reads only, and prints the words of `theseus_protocol::why` (the renderer Discord's `/why`
+  and the `/context` command to come call too; it writes plain lines, no colour). `--json` is the four answers as
+  they came. Tests: `tests/why.rs` (a scripted daemon; goldens `why*.txt`; the requests are reads alone).
 - `src/render/history.rs`: `theseus history`'s own lines: each node with its short id, which `theseus reach` takes
   (theseus-glyw), and `page_lines`, where a page ends and the command for the next one either way (theseus-xo0m).
   Its `node_lines` is the history's own; `render.rs`'s, which the terminal UI shares, stays apart.

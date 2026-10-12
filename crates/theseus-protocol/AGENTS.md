@@ -70,6 +70,10 @@ Key modules: `lib.rs` (the `method`, `notify`, `error_code` tables), `events.rs`
 - `window.rs` (theseus-m2tiu): `ledger.window`'s params and result and `POSTMORTEM_KINDS`, the kinds `theseus postmortem`
   reads: one page of a time window, read only, the daemon's answer scrubbed and (for a surface that reads no private
   text) narrowed to the session named.
+- `why.rs` (theseus-ighf): `theseus why`'s and Discord `/why`'s words, pure: `why_lines` (all of it) and `why_short`
+  (each section's top items and a count of the rest, cut to a budget) from a `ContextExplainResult`, the turn's
+  `route.decided` row, `ToolCalled`s (`tools_called` over `node.list`) and `policy.explain`. A shared place's class
+  hides a private or imported source's words (`hide_sources`). No wire type; its goldens are `tests/why/`.
 - `ts.rs`: the TypeScript export.
 
 ## Invariants
