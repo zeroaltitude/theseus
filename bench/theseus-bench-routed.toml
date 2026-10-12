@@ -92,6 +92,12 @@ enabled = false
 [index]
 enabled = false
 
+# Recall is off (theseus-is8t made `live` the default): the index is off, so a
+# trial could recall nothing, and the memory pass after each turn would only
+# add frames and, with the judge on, its judgments to the trial's dollars.
+[memory]
+mode = "off"
+
 # The profiles the routing table names, as the owner runs them. None caps the
 # output (the catalog's maximum, as `bench`), and each has `max_loops` as `bench`
 # (set by the adapter). Each runs at its own effort (haiku low, haikuhi high;

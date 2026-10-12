@@ -20,7 +20,7 @@
 #     to 4 times, after 2, 4, 8 and 16 s: a headless run ends with its turn,
 #     so no later retry comes (theseus-7gir.21);
 #   - the reasoning effort is medium, as it is on the other arms (theseus-n6p5);
-#   - Discord, the web UI, and the index tender are off;
+#   - Discord, the web UI, the index tender and recall are off;
 #   - a trial stays capped (theseus-usei): its spend limit asks and its loop
 #     cap ends the turn, so a headless trial exits 5 at the limit and 8 at the
 #     cap, where the defaults notify and go on;
@@ -95,3 +95,9 @@ enabled = false
 
 [index]
 enabled = false
+
+# Recall is off (theseus-is8t made `live` the default): the index is off, so a
+# trial could recall nothing, and the memory pass after each turn would only
+# add frames and, with the judge on, its judgments to the trial's dollars.
+[memory]
+mode = "off"

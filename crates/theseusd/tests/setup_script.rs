@@ -20,6 +20,18 @@ esac
 exit 0
 "#;
 
+/// python3 as this test finds it on its own PATH: the driver runs in a cleared
+/// environment whose PATH holds only the stand-ins and the system's dirs.
+fn python3() -> PathBuf {
+    std::env::var_os("PATH")
+        .and_then(|p| {
+            std::env::split_paths(&p)
+                .map(|d| d.join("python3"))
+                .find(|f| f.is_file())
+        })
+        .unwrap_or_else(|| PathBuf::from("python3"))
+}
+
 fn script() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../scripts/setup.sh")
 }
@@ -143,7 +155,7 @@ _, status = os.waitpid(pid, 0)
 sys.stdout.write(out.decode(errors="replace"))
 sys.exit(os.waitstatus_to_exitcode(status))
 "#;
-        let out = Command::new("python3")
+        let out = Command::new(python3())
             .args(["-I", "-c", DRIVER, answer])
             .arg(script())
             .arg("--no-build")
@@ -488,7 +500,7 @@ fn jev_key_names_a_reference_or_skips_and_never_takes_a_value() {
 /// so the run is not stopped for it, and the judge stays off), and a typed key is refused, asked for again up to three times, and then taken as a skip.
 #[test]
 fn on_a_terminal_the_jev_key_is_asked_once_and_skipping_leaves_the_judge_off() {
-    let have_python = Command::new("python3").arg("-V").output().is_ok();
+    let have_python = Command::new(python3()).arg("-V").output().is_ok();
     if !have_python {
         eprintln!("skipped: no python3 to drive a terminal");
         return;
