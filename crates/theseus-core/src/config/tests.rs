@@ -789,7 +789,13 @@ fn an_approval_section_is_retired_and_loads_with_a_warning() {
             assert_eq!(w, [APPROVAL_RETIRED], "{section}");
             assert!(cfg.approval.is_some());
             let shown = toml::to_string_pretty(&cfg).unwrap();
-            assert!(!shown.contains("approval"), "{shown}");
+            // The retired section is not written back: no `[approval]` table
+            // and no `approval` key (`[policy.earned] min_approvals` is no such key).
+            assert!(
+                !shown.contains("[approval")
+                    && !shown.lines().any(|l| l.trim_start().starts_with("approval")),
+                "{shown}"
+            );
         }
 }
 

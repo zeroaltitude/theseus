@@ -59,6 +59,9 @@ impl Core {
             }
         };
         self.judge_act(&who, Act::Tighten { tool })?;
+        if let Some(r) = self.tighten_by_earned(tool, call.as_ref(), &who)? {
+            return Ok(r);
+        }
         let before = self.tools.posture_now(tool);
         let t = Tightening {
             tool: tool.into(),
@@ -231,7 +234,7 @@ impl Core {
     }
 }
 
-fn result(
+pub(super) fn result(
     tool: &str,
     by: &str,
     tightening: Tightening,

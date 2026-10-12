@@ -9,6 +9,7 @@ import type { ConfigStatus } from "./ConfigStatus";
 import type { ContextStatus } from "./ContextStatus";
 import type { CrashStatus } from "./CrashStatus";
 import type { DiskStatus } from "./DiskStatus";
+import type { EarnedGrant } from "./EarnedGrant";
 import type { ExtendHealth } from "./ExtendHealth";
 import type { ExternalTextInfo } from "./ExternalTextInfo";
 import type { GrantStatus } from "./GrantStatus";
@@ -131,6 +132,10 @@ context: ContextStatus,
  * (theseus-sgh), oldest first. They are stored, not configured.
  */
 tightenings: Array<Tightening>, 
+/**
+ * Earned grants (theseus-uttu), oldest first: what the owner accepted from the record.
+ */
+earned?: Array<EarnedGrant>, 
 /**
  * The wakes conversations set with `wake.at` that have not run yet,
  * soonest first (DD8).

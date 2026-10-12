@@ -53,6 +53,8 @@ use crate::viewers;
 mod audience;
 mod board;
 pub(crate) use board::accept_buttons;
+mod earned;
+pub(crate) use earned::{buttons as earned_buttons, candidates as earned_candidates};
 mod extensions;
 mod guilds;
 mod halt;
@@ -1247,8 +1249,10 @@ impl Shared {
         }
         match &i.data {
             Some(InteractionData::MessageComponent(c)) => {
-                if let Some(press) = jev::parse(&c.custom_id) {
-                    self.jev_press(&i, press, &who, discord).await;
+                if self
+                    .notice_press(&i, &c.custom_id, &who, discord.clone())
+                    .await
+                {
                     return;
                 }
                 if let Some(asked) = parse_asked_pick(&c.custom_id, &c.values) {

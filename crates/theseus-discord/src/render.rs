@@ -38,14 +38,14 @@ pub enum Buttons {
     Keep,
     /// Approve and Decline for this correlation id.
     Confirm(String),
-    /// Approve, "Approve + trust session", and Decline (theseus-9bp): the
-    /// call waits because its session read external text.
+    /// Approve, "Approve + trust session", and Decline (theseus-9bp): external text.
     ConfirmTrust(String),
-    /// One "Should I have asked?" select menu (theseus-sgh): an option per
-    /// distinct notified tool on the message, at most `MAX_ASKED`.
+    /// A "Should I have asked?" select menu (theseus-sgh): an option per notified tool, `MAX_ASKED`.
     ShouldHaveAsked(Vec<Asked>),
     /// A Jev notice's right / wrong / noise, for this judgment.
     JevLabel(String),
+    /// An earned-autonomy card's candidates `(id, label)`, each with yes, no and the record (theseus-uttu).
+    Earned(Vec<(String, String)>),
     /// Accept and Decline (39b's layer-1 card): Approve's and Decline's ids.
     Accept(String),
     /// Remove every component.

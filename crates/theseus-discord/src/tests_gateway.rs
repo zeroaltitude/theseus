@@ -892,6 +892,8 @@ async fn a_jev_notice_goes_to_the_owners_dm_and_a_press_there_labels_it() {
     );
 }
 
+mod earned;
+
 /// A message with a Jev notice's Noise button for `judgment`, posted in
 /// `channel` as the bot's, as a forged or stale copy would be. Its id.
 async fn forge(r: &Rig, channel: u64, judgment: &str) -> String {

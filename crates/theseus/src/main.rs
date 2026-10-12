@@ -14,6 +14,7 @@
 
 mod budgets;
 mod cmd;
+mod earned;
 mod extend;
 mod follow;
 mod herdr;
@@ -518,6 +519,21 @@ enum PolicyCmd {
         #[arg(value_name = "SESSION")]
         session: String,
     },
+    /// Earned autonomy: what you approved every time, with no decline, offered back once a week
+    /// as a grant (a notice instead of a question). With no subcommand, the number (interrupts
+    /// per active hour over four weeks, and what the grants would have saved), the grants and
+    /// the open card. `--propose-now` posts a card now; `accept ID`, `pass ID` and `show ID`
+    /// answer a candidate or print the record that earned it.
+    Earned {
+        #[command(subcommand)]
+        cmd: Option<earned::EarnedCmd>,
+        /// Post a card to your DM now, whatever the week's limit says. Yours alone to run.
+        #[arg(long)]
+        propose_now: bool,
+    },
+    /// End an earned grant: its command asks first again, and its group is not proposed for 90
+    /// days. Anyone may, as anyone may press "should have asked".
+    Revoke { id: String },
 }
 
 #[derive(Subcommand, Debug, Default)]

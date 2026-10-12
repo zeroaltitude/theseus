@@ -320,7 +320,7 @@ impl Core {
                     Some("[lsp.servers.<name>] start_on_edit, and proc.run's posture".into()),
                 )]
             }
-            Layer::Lsp | Layer::SharedFetch | Layer::Glide => return None,
+            Layer::Lsp | Layer::SharedFetch | Layer::Glide | Layer::Earned => return None,
             Layer::Floor => vec![row(
                 "floor",
                 match s.view.ceiling.and_then(|c| c.floor.map(|f| (c, f))) {

@@ -798,7 +798,7 @@ impl Lane {
             }
             // Jev's notices (step 24's notices), the day ceiling's, and the
             // week's self digest (theseus-pw1q.4): the owner's DM alone.
-            "jev_notice" | "jev_paused" | "spend_ceiling" | "self_digest" => {
+            "jev_notice" | "jev_paused" | "spend_ceiling" | "self_digest" | "earned_card" => {
                 self.jev_post(a, &body).await
             }
             "jev_labeled" => Ok(self.jev_labeled(&body)),
@@ -1190,6 +1190,13 @@ impl Lane {
                     Buttons::JevLabel(judgment.to_string()),
                 )
             }
+            // The week's earned-autonomy card (theseus-uttu): each candidate
+            // with its yes, its no and its record.
+            "earned_card" => (
+                body["text"].as_str().unwrap_or("").to_string(),
+                format!("earned:{}", a.correlation_id),
+                Buttons::Earned(crate::runtime::earned_candidates(body)),
+            ),
             _ => {
                 let t = body["text"].as_str().unwrap_or("").to_string();
                 (t, format!("note:{}", a.correlation_id), Buttons::Keep)
@@ -1392,6 +1399,7 @@ impl Lane {
             Buttons::Accept(corr) => crate::runtime::accept_buttons(corr),
             Buttons::ShouldHaveAsked(options) => asked_menu(options),
             Buttons::JevLabel(judgment) => crate::runtime::jev_buttons(judgment),
+            Buttons::Earned(c) => crate::runtime::earned_buttons(c),
             Buttons::Clear | Buttons::Keep => vec![],
         };
         if !comps.is_empty() {
@@ -1448,6 +1456,7 @@ impl Lane {
             Buttons::Accept(corr) => Some(crate::runtime::accept_buttons(corr)),
             Buttons::ShouldHaveAsked(options) => Some(asked_menu(options)),
             Buttons::JevLabel(judgment) => Some(crate::runtime::jev_buttons(judgment)),
+            Buttons::Earned(c) => Some(crate::runtime::earned_buttons(c)),
             Buttons::Clear => Some(vec![]),
             Buttons::Keep => None,
         };

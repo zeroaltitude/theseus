@@ -181,7 +181,8 @@ impl ActRefused<'_> {
             | Act::Ladder { .. }
             | Act::Import { .. }
             | Act::Session { .. }
-            | Act::SelfResume { .. } => None,
+            | Act::SelfResume { .. }
+            | Act::Earned { .. } => None,
         }
     }
 }
@@ -215,7 +216,8 @@ impl Fact for ActRefused<'_> {
             | Act::JudgeRun { what, .. }
             | Act::Ladder { what, .. }
             | Act::Import { what, .. }
-            | Act::Session { what, .. } => {
+            | Act::Session { what, .. }
+            | Act::Earned { what, .. } => {
                 json!({"act": act.method(), "what": what, "who": r.who, "via": r.via,
                        "why": r.why, "by": self.by})
             }
@@ -277,6 +279,11 @@ impl Fact for ActRefused<'_> {
                 Act::Import { what, .. } => format!(
                     "The import's {what}, from {} through {}, did not count: {}. Nothing was \
                      written.",
+                    r.who, r.via, r.why
+                ),
+                Act::Earned { what, .. } => format!(
+                    "Earned autonomy, {what}, from {} through {}, did not count: {}. Nothing \
+                     changed.",
                     r.who, r.via, r.why
                 ),
                 Act::Session { what, .. } => format!(

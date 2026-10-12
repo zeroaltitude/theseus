@@ -34,6 +34,10 @@ Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
   each a `judge.label` with the presser's `DiscordOrigin`, which the core judges (the owner, from a private place).
   A refused press tells the presser alone; a counted one comes back as the core's `jev_labeled` post, which edits
   the notice and clears its buttons. `judge.noticed` draws nothing in a place.
+  The earned-autonomy card (`runtime/earned.rs`, theseus-uttu): the core's weekly `earned_card` post goes to the owner's
+  DM alone, as a Jev notice does, a row of Yes with a notice / Not this one / Show the record for each candidate
+  (`earned:<yes|no|show>:<id>`); a yes or a no is `policy.earned.answer` as the presser, which the core judges (the
+  owner, from a private place), the record is read and shown to the presser alone. Tests: `tests_gateway/earned.rs`.
 - **A place's session** (`runtime/succession.rs`, theseus-emqx): a place resumes its stored session when it can take
   turns and is not retired; otherwise it starts fresh, and nothing is opened at the bind, at `/new`, or when its
   session can take no more turns: its next message opens one (`Place::ready`) through `Core::bind_place_to`, which

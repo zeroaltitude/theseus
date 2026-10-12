@@ -316,6 +316,8 @@ pub struct ToolRuntime {
     /// "Should have asked" (theseus-sgh): the tools that ask first because
     /// someone pressed it, from the store. The gate reads them per call.
     pub tightened: crate::tighten::Tightenings,
+    /// Earned grants (theseus-uttu): what the owner accepted from the record.
+    pub earned: crate::policy::earned::Earned,
     /// The daemon's cores (theseus-a60): every in-process toollet runs under
     /// one of its permits.
     pub cpu: Arc<crate::cpu::CpuPool>,
@@ -490,6 +492,7 @@ impl ToolRuntime {
             calls: Mutex::new(BTreeMap::new()),
             fit_notes: Default::default(),
             tightened: Default::default(),
+            earned: Default::default(),
             cpu: crate::cpu::CpuPool::for_host(),
             broker: Arc::new(Broker::empty()),
             external_text: Default::default(),
@@ -2311,6 +2314,7 @@ pub fn build_runtime(
         fit_notes: Default::default(),
         // Read from the store when the core starts (`Core::build`).
         tightened: Default::default(),
+        earned: Default::default(),
         cpu,
         broker: Arc::new(broker),
         external_text: cfg.policy.external_text,

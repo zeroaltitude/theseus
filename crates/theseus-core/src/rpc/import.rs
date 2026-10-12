@@ -54,6 +54,7 @@ pub(super) fn prefixed(name: &str) -> bool {
         || super::route_correct::ROUTE.contains(&name)
         || super::people::ROUTE.contains(&name)
         || super::rsi::OWN.contains(&name)
+        || super::earned::OWN.contains(&name)
 }
 
 impl Core {
@@ -85,6 +86,9 @@ impl Core {
         }
         if super::rsi::OWN.contains(&name) {
             return self.rpc_self(name, params, conn);
+        }
+        if super::earned::OWN.contains(&name) {
+            return self.rpc_earned(name, params, conn);
         }
         self.rpc_import(name, params, conn).await
     }
