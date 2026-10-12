@@ -1,0 +1,1285 @@
+{
+ "name": "2026-10-12-head-to-head-speed",
+ "date": "2026-10-12",
+ "issue": "theseus-7gir.13",
+ "machine": {
+  "nproc": 16,
+  "kernel": "6.18.40.1-microsoft-standard-WSL2",
+  "cpu": "12th Gen Intel(R) Core(TM) i5-12600K",
+  "python": "3.14.4",
+  "loadavg": [
+   10.1362,
+   10.7744,
+   11.1621
+  ],
+  "loadavg_before": [
+   10.7788,
+   11.2437,
+   11.4878
+  ],
+  "loadavg_after": [
+   10.1362,
+   10.7744,
+   11.1621
+  ]
+ },
+ "versions": {
+  "theseus": "theseusd 0.0.1",
+  "claude-code": "2.1.296"
+ },
+ "standin": {
+  "ttfb_ms": 300,
+  "chunks": 8,
+  "chunk_ms": 25
+ },
+ "runs": 10,
+ "cells": [
+  {
+   "row": "T1",
+   "kind": "interactive",
+   "title": "Start to a ready prompt",
+   "unit": "ms",
+   "arms": {
+    "theseus": {
+     "n": 10,
+     "median": 38.8785,
+     "lo": 38.1393,
+     "hi": 40.0015,
+     "method": "bootstrap"
+    },
+    "claude-code": {
+     "n": 10,
+     "median": 516.1801,
+     "lo": 471.7121,
+     "hi": 592.3324,
+     "method": "bootstrap"
+    }
+   },
+   "verdict": {
+    "winner": "theseus",
+    "by": 477.3016,
+    "ratio": 13.2767,
+    "clear": true,
+    "missing": []
+   }
+  },
+  {
+   "row": "T2",
+   "kind": "interactive",
+   "title": "Typed prompt to the request leaving",
+   "unit": "ms",
+   "arms": {
+    "theseus": {
+     "n": 10,
+     "median": 26.1228,
+     "lo": 25.4492,
+     "hi": 38.9091,
+     "method": "bootstrap"
+    },
+    "claude-code": {
+     "n": 10,
+     "median": 159.1144,
+     "lo": 141.7933,
+     "hi": 187.7809,
+     "method": "bootstrap"
+    }
+   },
+   "verdict": {
+    "winner": "theseus",
+    "by": 132.9916,
+    "ratio": 6.091,
+    "clear": true,
+    "missing": []
+   }
+  },
+  {
+   "row": "T2",
+   "kind": "one-shot",
+   "title": "Typed prompt to the request leaving",
+   "unit": "ms",
+   "arms": {
+    "theseus": {
+     "n": 10,
+     "median": 31.0117,
+     "lo": 30.1154,
+     "hi": 33.0506,
+     "method": "bootstrap"
+    },
+    "claude-code": {
+     "n": 10,
+     "median": 406.053,
+     "lo": 393.7012,
+     "hi": 447.3256,
+     "method": "bootstrap"
+    }
+   },
+   "verdict": {
+    "winner": "theseus",
+    "by": 375.0412,
+    "ratio": 13.0935,
+    "clear": true,
+    "missing": []
+   }
+  },
+  {
+   "row": "T3",
+   "kind": "interactive",
+   "title": "Model's first byte to the first text on screen",
+   "unit": "ms",
+   "arms": {
+    "theseus": {
+     "n": 10,
+     "median": 0.8621,
+     "lo": 0.7393,
+     "hi": 0.994,
+     "method": "bootstrap"
+    },
+    "claude-code": {
+     "n": 10,
+     "median": 224.3211,
+     "lo": 219.6495,
+     "hi": 237.0058,
+     "method": "bootstrap"
+    }
+   },
+   "verdict": {
+    "winner": "theseus",
+    "by": 223.459,
+    "ratio": 260.2032,
+    "clear": true,
+    "missing": []
+   }
+  },
+  {
+   "row": "T3",
+   "kind": "one-shot",
+   "title": "Model's first byte to the first text on screen",
+   "unit": "ms",
+   "arms": {
+    "theseus": {
+     "n": 10,
+     "median": 175.9129,
+     "lo": 175.8328,
+     "hi": 176.011,
+     "method": "bootstrap"
+    },
+    "claude-code": {
+     "n": 10,
+     "median": 186.2912,
+     "lo": 186.1191,
+     "hi": 186.8733,
+     "method": "bootstrap"
+    }
+   },
+   "verdict": {
+    "winner": "theseus",
+    "by": 10.3783,
+    "ratio": 1.059,
+    "clear": true,
+    "missing": []
+   }
+  },
+  {
+   "row": "T4",
+   "kind": "read",
+   "title": "Per tool call: the response's last byte to the next request",
+   "unit": "ms",
+   "arms": {
+    "theseus": {
+     "n": 10,
+     "median": 36.885,
+     "lo": 32.0587,
+     "hi": 54.1907,
+     "method": "bootstrap"
+    },
+    "claude-code": {
+     "n": 10,
+     "median": 70.782,
+     "lo": 61.5914,
+     "hi": 84.7339,
+     "method": "bootstrap"
+    }
+   },
+   "verdict": {
+    "winner": "theseus",
+    "by": 33.897,
+    "ratio": 1.919,
+    "clear": true,
+    "missing": []
+   }
+  },
+  {
+   "row": "T4",
+   "kind": "shell",
+   "title": "Per tool call: the response's last byte to the next request",
+   "unit": "ms",
+   "arms": {
+    "theseus": {
+     "n": 10,
+     "median": 47.3667,
+     "lo": 42.2934,
+     "hi": 188.6541,
+     "method": "bootstrap"
+    },
+    "claude-code": {
+     "n": 10,
+     "median": 91.9317,
+     "lo": 75.4109,
+     "hi": 121.2294,
+     "method": "bootstrap"
+    }
+   },
+   "verdict": {
+    "winner": "theseus",
+    "by": 44.565,
+    "ratio": 1.9408,
+    "clear": false,
+    "missing": []
+   }
+  },
+  {
+   "row": "T4",
+   "kind": "edit (task3)",
+   "title": "Per tool call: the response's last byte to the next request",
+   "unit": "ms",
+   "arms": {
+    "theseus": {
+     "n": 10,
+     "median": 43.8546,
+     "lo": 38.8669,
+     "hi": 57.6185,
+     "method": "bootstrap"
+    },
+    "claude-code": {
+     "n": 10,
+     "median": 145.4858,
+     "lo": 120.4279,
+     "hi": 204.448,
+     "method": "bootstrap"
+    }
+   },
+   "verdict": {
+    "winner": "theseus",
+    "by": 101.6312,
+    "ratio": 3.3175,
+    "clear": true,
+    "missing": []
+   }
+  },
+  {
+   "row": "T4",
+   "kind": "read (task3)",
+   "title": "Per tool call: the response's last byte to the next request",
+   "unit": "ms",
+   "arms": {
+    "theseus": {
+     "n": 10,
+     "median": 36.0922,
+     "lo": 31.5678,
+     "hi": 42.9764,
+     "method": "bootstrap"
+    },
+    "claude-code": {
+     "n": 10,
+     "median": 63.1742,
+     "lo": 44.5784,
+     "hi": 100.8074,
+     "method": "bootstrap"
+    }
+   },
+   "verdict": {
+    "winner": "theseus",
+    "by": 27.082,
+    "ratio": 1.7504,
+    "clear": true,
+    "missing": []
+   }
+  },
+  {
+   "row": "T4",
+   "kind": "shell (task3)",
+   "title": "Per tool call: the response's last byte to the next request",
+   "unit": "ms",
+   "arms": {
+    "theseus": {
+     "n": 10,
+     "median": 47.7048,
+     "lo": 42.7534,
+     "hi": 65.0997,
+     "method": "bootstrap"
+    },
+    "claude-code": {
+     "n": 10,
+     "median": 64.2648,
+     "lo": 59.7738,
+     "hi": 77.5418,
+     "method": "bootstrap"
+    }
+   },
+   "verdict": {
+    "winner": "theseus",
+    "by": 16.56,
+    "ratio": 1.3471,
+    "clear": false,
+    "missing": []
+   }
+  },
+  {
+   "row": "T5",
+   "kind": "interactive",
+   "title": "Resume of a long session",
+   "unit": "ms",
+   "arms": {
+    "theseus": {
+     "n": 9,
+     "median": 72.3983,
+     "lo": 72.0168,
+     "hi": 72.431,
+     "method": "bootstrap"
+    },
+    "claude-code": {
+     "n": 9,
+     "median": 396.8761,
+     "lo": 384.5215,
+     "hi": 456.0451,
+     "method": "bootstrap"
+    }
+   },
+   "verdict": {
+    "winner": "theseus",
+    "by": 324.4778,
+    "ratio": 5.4818,
+    "clear": true,
+    "missing": []
+   }
+  },
+  {
+   "row": "T5",
+   "kind": "one-shot",
+   "title": "Resume of a long session",
+   "unit": "ms",
+   "arms": {
+    "theseus": {
+     "n": 10,
+     "median": 21.5285,
+     "lo": 20.7957,
+     "hi": 22.1794,
+     "method": "bootstrap"
+    },
+    "claude-code": {
+     "n": 10,
+     "median": 344.3615,
+     "lo": 335.5274,
+     "hi": 359.4696,
+     "method": "bootstrap"
+    }
+   },
+   "verdict": {
+    "winner": "theseus",
+    "by": 322.833,
+    "ratio": 15.9956,
+    "clear": true,
+    "missing": []
+   }
+  },
+  {
+   "row": "T6",
+   "kind": "interactive",
+   "title": "CPU per turn",
+   "unit": "ms",
+   "arms": {
+    "theseus": {
+     "n": 10,
+     "median": 10.0,
+     "lo": 10.0,
+     "hi": 20.0,
+     "method": "bootstrap"
+    },
+    "claude-code": {
+     "n": 10,
+     "median": 1725.0,
+     "lo": 1510.0,
+     "hi": 1825.0,
+     "method": "bootstrap"
+    }
+   },
+   "verdict": {
+    "winner": "theseus",
+    "by": 1715.0,
+    "ratio": 172.5,
+    "clear": true,
+    "missing": []
+   }
+  },
+  {
+   "row": "T6",
+   "kind": "one-shot",
+   "title": "CPU per turn",
+   "unit": "ms",
+   "arms": {
+    "theseus": {
+     "n": 10,
+     "median": 5.319,
+     "lo": 4.9885,
+     "hi": 5.995,
+     "method": "bootstrap"
+    },
+    "claude-code": {
+     "n": 10,
+     "median": 469.8295,
+     "lo": 455.337,
+     "hi": 514.373,
+     "method": "bootstrap"
+    }
+   },
+   "verdict": {
+    "winner": "theseus",
+    "by": 464.5105,
+    "ratio": 88.3304,
+    "clear": true,
+    "missing": []
+   }
+  },
+  {
+   "row": "T7",
+   "kind": "cpu",
+   "title": "Idle, the surface open",
+   "unit": "pct",
+   "arms": {
+    "theseus": {
+     "n": 10,
+     "median": 0.0523,
+     "lo": 0.0,
+     "hi": 0.1046,
+     "method": "bootstrap"
+    },
+    "claude-code": {
+     "n": 10,
+     "median": 2.9265,
+     "lo": -9.1101,
+     "hi": 3.1391,
+     "method": "bootstrap"
+    }
+   },
+   "verdict": {
+    "winner": "theseus",
+    "by": 2.8742,
+    "ratio": 55.956,
+    "clear": false,
+    "missing": []
+   }
+  },
+  {
+   "row": "T7",
+   "kind": "rss",
+   "title": "Idle, the surface open",
+   "unit": "kb",
+   "arms": {
+    "theseus": {
+     "n": 10,
+     "median": 49628.0,
+     "lo": 49256.0,
+     "hi": 50393.6,
+     "method": "bootstrap"
+    },
+    "claude-code": {
+     "n": 10,
+     "median": 345503.8,
+     "lo": 343873.1,
+     "hi": 351066.2,
+     "method": "bootstrap"
+    }
+   },
+   "verdict": {
+    "winner": "theseus",
+    "by": 295875.8,
+    "ratio": 6.9619,
+    "clear": true,
+    "missing": []
+   }
+  },
+  {
+   "row": "T8",
+   "kind": "T1 interactive",
+   "title": "Under neighbour IO (a dd and fsync loop beside)",
+   "unit": "ms",
+   "arms": {
+    "theseus": {
+     "n": 10,
+     "median": 38.9043,
+     "lo": 38.1125,
+     "hi": 39.1359,
+     "method": "bootstrap"
+    },
+    "claude-code": {
+     "n": 10,
+     "median": 519.7905,
+     "lo": 512.8777,
+     "hi": 524.4025,
+     "method": "bootstrap"
+    }
+   },
+   "verdict": {
+    "winner": "theseus",
+    "by": 480.8863,
+    "ratio": 13.3608,
+    "clear": true,
+    "missing": []
+   }
+  },
+  {
+   "row": "T8",
+   "kind": "T2 interactive",
+   "title": "Under neighbour IO (a dd and fsync loop beside)",
+   "unit": "ms",
+   "arms": {
+    "theseus": {
+     "n": 10,
+     "median": 33.0767,
+     "lo": 30.3984,
+     "hi": 36.9724,
+     "method": "bootstrap"
+    },
+    "claude-code": {
+     "n": 10,
+     "median": 149.863,
+     "lo": 142.9425,
+     "hi": 161.6667,
+     "method": "bootstrap"
+    }
+   },
+   "verdict": {
+    "winner": "theseus",
+    "by": 116.7863,
+    "ratio": 4.5308,
+    "clear": true,
+    "missing": []
+   }
+  },
+  {
+   "row": "T8",
+   "kind": "T3 interactive",
+   "title": "Under neighbour IO (a dd and fsync loop beside)",
+   "unit": "ms",
+   "arms": {
+    "theseus": {
+     "n": 10,
+     "median": 0.7517,
+     "lo": 0.7265,
+     "hi": 0.798,
+     "method": "bootstrap"
+    },
+    "claude-code": {
+     "n": 10,
+     "median": 222.6677,
+     "lo": 218.8309,
+     "hi": 226.2985,
+     "method": "bootstrap"
+    }
+   },
+   "verdict": {
+    "winner": "theseus",
+    "by": 221.9159,
+    "ratio": 296.1991,
+    "clear": true,
+    "missing": []
+   }
+  },
+  {
+   "row": "T8",
+   "kind": "T4 read",
+   "title": "Under neighbour IO (a dd and fsync loop beside)",
+   "unit": "ms",
+   "arms": {
+    "theseus": {
+     "n": 10,
+     "median": 42.0068,
+     "lo": 41.1405,
+     "hi": 44.3864,
+     "method": "bootstrap"
+    },
+    "claude-code": {
+     "n": 10,
+     "median": 74.6786,
+     "lo": 67.2492,
+     "hi": 99.1349,
+     "method": "bootstrap"
+    }
+   },
+   "verdict": {
+    "winner": "theseus",
+    "by": 32.6718,
+    "ratio": 1.7778,
+    "clear": true,
+    "missing": []
+   }
+  },
+  {
+   "row": "T8",
+   "kind": "T4 shell",
+   "title": "Under neighbour IO (a dd and fsync loop beside)",
+   "unit": "ms",
+   "arms": {
+    "theseus": {
+     "n": 10,
+     "median": 54.9416,
+     "lo": 54.3325,
+     "hi": 57.6628,
+     "method": "bootstrap"
+    },
+    "claude-code": {
+     "n": 10,
+     "median": 90.2971,
+     "lo": 85.0206,
+     "hi": 107.1232,
+     "method": "bootstrap"
+    }
+   },
+   "verdict": {
+    "winner": "theseus",
+    "by": 35.3555,
+    "ratio": 1.6435,
+    "clear": true,
+    "missing": []
+   }
+  },
+  {
+   "row": "task3",
+   "kind": "interactive",
+   "title": "A three-tool coding task, end to end",
+   "unit": "ms",
+   "arms": {
+    "theseus": {
+     "n": 10,
+     "median": 2083.1246,
+     "lo": 2067.3341,
+     "hi": 2156.0069,
+     "method": "bootstrap"
+    },
+    "claude-code": {
+     "n": 10,
+     "median": 2247.9981,
+     "lo": 2215.8224,
+     "hi": 2344.5248,
+     "method": "bootstrap"
+    }
+   },
+   "verdict": {
+    "winner": "theseus",
+    "by": 164.8735,
+    "ratio": 1.0791,
+    "clear": true,
+    "missing": []
+   }
+  },
+  {
+   "row": "task3",
+   "kind": "one-shot",
+   "title": "A three-tool coding task, end to end",
+   "unit": "ms",
+   "arms": {
+    "theseus": {
+     "n": 10,
+     "median": 2061.4905,
+     "lo": 2056.4045,
+     "hi": 2065.1732,
+     "method": "bootstrap"
+    },
+    "claude-code": {
+     "n": 10,
+     "median": 2377.32,
+     "lo": 2368.3103,
+     "hi": 2387.2712,
+     "method": "bootstrap"
+    }
+   },
+   "verdict": {
+    "winner": "theseus",
+    "by": 315.8295,
+    "ratio": 1.1532,
+    "clear": true,
+    "missing": []
+   }
+  },
+  {
+   "row": "first_request_bytes",
+   "kind": "interactive",
+   "title": "Bytes of the first request",
+   "unit": "bytes",
+   "arms": {
+    "theseus": {
+     "n": 10,
+     "median": 39164.0,
+     "lo": 39164.0,
+     "hi": 39164.0,
+     "method": "bootstrap"
+    },
+    "claude-code": {
+     "n": 10,
+     "median": 78612.0,
+     "lo": 78612.0,
+     "hi": 78612.0,
+     "method": "bootstrap"
+    }
+   },
+   "verdict": {
+    "winner": "theseus",
+    "by": 39448.0,
+    "ratio": 2.0073,
+    "clear": true,
+    "missing": []
+   }
+  },
+  {
+   "row": "first_request_bytes",
+   "kind": "one-shot",
+   "title": "Bytes of the first request",
+   "unit": "bytes",
+   "arms": {
+    "theseus": {
+     "n": 10,
+     "median": 39164.0,
+     "lo": 39164.0,
+     "hi": 39164.0,
+     "method": "bootstrap"
+    },
+    "claude-code": {
+     "n": 10,
+     "median": 66031.0,
+     "lo": 66031.0,
+     "hi": 66031.0,
+     "method": "bootstrap"
+    }
+   },
+   "verdict": {
+    "winner": "theseus",
+    "by": 26867.0,
+    "ratio": 1.686,
+    "clear": true,
+    "missing": []
+   }
+  }
+ ],
+ "figures": [
+  {
+   "name": "latency",
+   "form": "intervals",
+   "title": "Latency, median and 95% interval, per row and arm (lower is faster)",
+   "question": "Which harness takes less on each row: latency?",
+   "x": {
+    "label": "milliseconds (log scale)",
+    "format": "ms",
+    "log": true
+   },
+   "rows": [
+    {
+     "label": "Theseus",
+     "arm": "theseus",
+     "value": 38.8785,
+     "lo": 38.1393,
+     "hi": 40.0015,
+     "group": "T1 · interactive",
+     "tip": "n 10, bootstrap"
+    },
+    {
+     "label": "Claude Code",
+     "arm": "claude-code",
+     "value": 516.1801,
+     "lo": 471.7121,
+     "hi": 592.3324,
+     "group": "T1 · interactive",
+     "tip": "n 10, bootstrap"
+    },
+    {
+     "label": "Theseus",
+     "arm": "theseus",
+     "value": 26.1228,
+     "lo": 25.4492,
+     "hi": 38.9091,
+     "group": "T2 · interactive",
+     "tip": "n 10, bootstrap"
+    },
+    {
+     "label": "Claude Code",
+     "arm": "claude-code",
+     "value": 159.1144,
+     "lo": 141.7933,
+     "hi": 187.7809,
+     "group": "T2 · interactive",
+     "tip": "n 10, bootstrap"
+    },
+    {
+     "label": "Theseus",
+     "arm": "theseus",
+     "value": 31.0117,
+     "lo": 30.1154,
+     "hi": 33.0506,
+     "group": "T2 · one-shot",
+     "tip": "n 10, bootstrap"
+    },
+    {
+     "label": "Claude Code",
+     "arm": "claude-code",
+     "value": 406.053,
+     "lo": 393.7012,
+     "hi": 447.3256,
+     "group": "T2 · one-shot",
+     "tip": "n 10, bootstrap"
+    },
+    {
+     "label": "Theseus",
+     "arm": "theseus",
+     "value": 0.8621,
+     "lo": 0.7393,
+     "hi": 0.994,
+     "group": "T3 · interactive",
+     "tip": "n 10, bootstrap"
+    },
+    {
+     "label": "Claude Code",
+     "arm": "claude-code",
+     "value": 224.3211,
+     "lo": 219.6495,
+     "hi": 237.0058,
+     "group": "T3 · interactive",
+     "tip": "n 10, bootstrap"
+    },
+    {
+     "label": "Theseus",
+     "arm": "theseus",
+     "value": 175.9129,
+     "lo": 175.8328,
+     "hi": 176.011,
+     "group": "T3 · one-shot",
+     "tip": "n 10, bootstrap"
+    },
+    {
+     "label": "Claude Code",
+     "arm": "claude-code",
+     "value": 186.2912,
+     "lo": 186.1191,
+     "hi": 186.8733,
+     "group": "T3 · one-shot",
+     "tip": "n 10, bootstrap"
+    },
+    {
+     "label": "Theseus",
+     "arm": "theseus",
+     "value": 36.885,
+     "lo": 32.0587,
+     "hi": 54.1907,
+     "group": "T4 · read",
+     "tip": "n 10, bootstrap"
+    },
+    {
+     "label": "Claude Code",
+     "arm": "claude-code",
+     "value": 70.782,
+     "lo": 61.5914,
+     "hi": 84.7339,
+     "group": "T4 · read",
+     "tip": "n 10, bootstrap"
+    },
+    {
+     "label": "Theseus",
+     "arm": "theseus",
+     "value": 47.3667,
+     "lo": 42.2934,
+     "hi": 188.6541,
+     "group": "T4 · shell",
+     "tip": "n 10, bootstrap"
+    },
+    {
+     "label": "Claude Code",
+     "arm": "claude-code",
+     "value": 91.9317,
+     "lo": 75.4109,
+     "hi": 121.2294,
+     "group": "T4 · shell",
+     "tip": "n 10, bootstrap"
+    },
+    {
+     "label": "Theseus",
+     "arm": "theseus",
+     "value": 43.8546,
+     "lo": 38.8669,
+     "hi": 57.6185,
+     "group": "T4 · edit (task3)",
+     "tip": "n 10, bootstrap"
+    },
+    {
+     "label": "Claude Code",
+     "arm": "claude-code",
+     "value": 145.4858,
+     "lo": 120.4279,
+     "hi": 204.448,
+     "group": "T4 · edit (task3)",
+     "tip": "n 10, bootstrap"
+    },
+    {
+     "label": "Theseus",
+     "arm": "theseus",
+     "value": 36.0922,
+     "lo": 31.5678,
+     "hi": 42.9764,
+     "group": "T4 · read (task3)",
+     "tip": "n 10, bootstrap"
+    },
+    {
+     "label": "Claude Code",
+     "arm": "claude-code",
+     "value": 63.1742,
+     "lo": 44.5784,
+     "hi": 100.8074,
+     "group": "T4 · read (task3)",
+     "tip": "n 10, bootstrap"
+    },
+    {
+     "label": "Theseus",
+     "arm": "theseus",
+     "value": 47.7048,
+     "lo": 42.7534,
+     "hi": 65.0997,
+     "group": "T4 · shell (task3)",
+     "tip": "n 10, bootstrap"
+    },
+    {
+     "label": "Claude Code",
+     "arm": "claude-code",
+     "value": 64.2648,
+     "lo": 59.7738,
+     "hi": 77.5418,
+     "group": "T4 · shell (task3)",
+     "tip": "n 10, bootstrap"
+    },
+    {
+     "label": "Theseus",
+     "arm": "theseus",
+     "value": 72.3983,
+     "lo": 72.0168,
+     "hi": 72.431,
+     "group": "T5 · interactive",
+     "tip": "n 9, bootstrap"
+    },
+    {
+     "label": "Claude Code",
+     "arm": "claude-code",
+     "value": 396.8761,
+     "lo": 384.5215,
+     "hi": 456.0451,
+     "group": "T5 · interactive",
+     "tip": "n 9, bootstrap"
+    },
+    {
+     "label": "Theseus",
+     "arm": "theseus",
+     "value": 21.5285,
+     "lo": 20.7957,
+     "hi": 22.1794,
+     "group": "T5 · one-shot",
+     "tip": "n 10, bootstrap"
+    },
+    {
+     "label": "Claude Code",
+     "arm": "claude-code",
+     "value": 344.3615,
+     "lo": 335.5274,
+     "hi": 359.4696,
+     "group": "T5 · one-shot",
+     "tip": "n 10, bootstrap"
+    },
+    {
+     "label": "Theseus",
+     "arm": "theseus",
+     "value": 38.9043,
+     "lo": 38.1125,
+     "hi": 39.1359,
+     "group": "T8 · T1 interactive",
+     "tip": "n 10, bootstrap"
+    },
+    {
+     "label": "Claude Code",
+     "arm": "claude-code",
+     "value": 519.7905,
+     "lo": 512.8777,
+     "hi": 524.4025,
+     "group": "T8 · T1 interactive",
+     "tip": "n 10, bootstrap"
+    },
+    {
+     "label": "Theseus",
+     "arm": "theseus",
+     "value": 33.0767,
+     "lo": 30.3984,
+     "hi": 36.9724,
+     "group": "T8 · T2 interactive",
+     "tip": "n 10, bootstrap"
+    },
+    {
+     "label": "Claude Code",
+     "arm": "claude-code",
+     "value": 149.863,
+     "lo": 142.9425,
+     "hi": 161.6667,
+     "group": "T8 · T2 interactive",
+     "tip": "n 10, bootstrap"
+    },
+    {
+     "label": "Theseus",
+     "arm": "theseus",
+     "value": 0.7517,
+     "lo": 0.7265,
+     "hi": 0.798,
+     "group": "T8 · T3 interactive",
+     "tip": "n 10, bootstrap"
+    },
+    {
+     "label": "Claude Code",
+     "arm": "claude-code",
+     "value": 222.6677,
+     "lo": 218.8309,
+     "hi": 226.2985,
+     "group": "T8 · T3 interactive",
+     "tip": "n 10, bootstrap"
+    },
+    {
+     "label": "Theseus",
+     "arm": "theseus",
+     "value": 42.0068,
+     "lo": 41.1405,
+     "hi": 44.3864,
+     "group": "T8 · T4 read",
+     "tip": "n 10, bootstrap"
+    },
+    {
+     "label": "Claude Code",
+     "arm": "claude-code",
+     "value": 74.6786,
+     "lo": 67.2492,
+     "hi": 99.1349,
+     "group": "T8 · T4 read",
+     "tip": "n 10, bootstrap"
+    },
+    {
+     "label": "Theseus",
+     "arm": "theseus",
+     "value": 54.9416,
+     "lo": 54.3325,
+     "hi": 57.6628,
+     "group": "T8 · T4 shell",
+     "tip": "n 10, bootstrap"
+    },
+    {
+     "label": "Claude Code",
+     "arm": "claude-code",
+     "value": 90.2971,
+     "lo": 85.0206,
+     "hi": 107.1232,
+     "group": "T8 · T4 shell",
+     "tip": "n 10, bootstrap"
+    },
+    {
+     "label": "Theseus",
+     "arm": "theseus",
+     "value": 2083.1246,
+     "lo": 2067.3341,
+     "hi": 2156.0069,
+     "group": "task3 · interactive",
+     "tip": "n 10, bootstrap"
+    },
+    {
+     "label": "Claude Code",
+     "arm": "claude-code",
+     "value": 2247.9981,
+     "lo": 2215.8224,
+     "hi": 2344.5248,
+     "group": "task3 · interactive",
+     "tip": "n 10, bootstrap"
+    },
+    {
+     "label": "Theseus",
+     "arm": "theseus",
+     "value": 2061.4905,
+     "lo": 2056.4045,
+     "hi": 2065.1732,
+     "group": "task3 · one-shot",
+     "tip": "n 10, bootstrap"
+    },
+    {
+     "label": "Claude Code",
+     "arm": "claude-code",
+     "value": 2377.32,
+     "lo": 2368.3103,
+     "hi": 2387.2712,
+     "group": "task3 · one-shot",
+     "tip": "n 10, bootstrap"
+    }
+   ],
+   "note": "One stand-in model for both arms; 2026-10-12-head-to-head-speed."
+  },
+  {
+   "name": "cpu-per-turn",
+   "form": "intervals",
+   "title": "CPU per turn, median and 95% interval (lower is lighter)",
+   "question": "Which harness takes less on each row: cpu per turn?",
+   "x": {
+    "label": "CPU milliseconds per turn",
+    "format": "ms",
+    "log": false
+   },
+   "rows": [
+    {
+     "label": "Theseus",
+     "arm": "theseus",
+     "value": 10.0,
+     "lo": 10.0,
+     "hi": 20.0,
+     "group": "T6 · interactive",
+     "tip": "n 10, bootstrap"
+    },
+    {
+     "label": "Claude Code",
+     "arm": "claude-code",
+     "value": 1725.0,
+     "lo": 1510.0,
+     "hi": 1825.0,
+     "group": "T6 · interactive",
+     "tip": "n 10, bootstrap"
+    },
+    {
+     "label": "Theseus",
+     "arm": "theseus",
+     "value": 5.319,
+     "lo": 4.9885,
+     "hi": 5.995,
+     "group": "T6 · one-shot",
+     "tip": "n 10, bootstrap"
+    },
+    {
+     "label": "Claude Code",
+     "arm": "claude-code",
+     "value": 469.8295,
+     "lo": 455.337,
+     "hi": 514.373,
+     "group": "T6 · one-shot",
+     "tip": "n 10, bootstrap"
+    }
+   ],
+   "note": "One stand-in model for both arms; 2026-10-12-head-to-head-speed."
+  },
+  {
+   "name": "first-request-bytes",
+   "form": "intervals",
+   "title": "Bytes of the first request (lower is smaller)",
+   "question": "Which harness takes less on each row: bytes of the first request (lower is smaller)?",
+   "x": {
+    "label": "kilobytes",
+    "format": "kb",
+    "log": false
+   },
+   "rows": [
+    {
+     "label": "Theseus",
+     "arm": "theseus",
+     "value": 38.2461,
+     "lo": 38.2461,
+     "hi": 38.2461,
+     "group": "first_request_bytes · interactive",
+     "tip": "n 10, bootstrap"
+    },
+    {
+     "label": "Claude Code",
+     "arm": "claude-code",
+     "value": 76.7695,
+     "lo": 76.7695,
+     "hi": 76.7695,
+     "group": "first_request_bytes · interactive",
+     "tip": "n 10, bootstrap"
+    },
+    {
+     "label": "Theseus",
+     "arm": "theseus",
+     "value": 38.2461,
+     "lo": 38.2461,
+     "hi": 38.2461,
+     "group": "first_request_bytes · one-shot",
+     "tip": "n 10, bootstrap"
+    },
+    {
+     "label": "Claude Code",
+     "arm": "claude-code",
+     "value": 64.4834,
+     "lo": 64.4834,
+     "hi": 64.4834,
+     "group": "first_request_bytes · one-shot",
+     "tip": "n 10, bootstrap"
+    }
+   ],
+   "note": "One stand-in model for both arms; 2026-10-12-head-to-head-speed."
+  },
+  {
+   "name": "idle-cpu",
+   "form": "intervals",
+   "title": "Idle CPU, the surface open and nothing asked",
+   "question": "Which harness takes less on each row: idle cpu?",
+   "x": {
+    "label": "percent of one core",
+    "format": "num",
+    "log": false
+   },
+   "rows": [
+    {
+     "label": "Theseus",
+     "arm": "theseus",
+     "value": 0.0523,
+     "lo": 0.0,
+     "hi": 0.1046,
+     "group": "T7 · cpu",
+     "tip": "n 10, bootstrap"
+    },
+    {
+     "label": "Claude Code",
+     "arm": "claude-code",
+     "value": 2.9265,
+     "lo": -9.1101,
+     "hi": 3.1391,
+     "group": "T7 · cpu",
+     "tip": "n 10, bootstrap"
+    }
+   ],
+   "note": "One stand-in model for both arms; 2026-10-12-head-to-head-speed."
+  },
+  {
+   "name": "idle-memory",
+   "form": "intervals",
+   "title": "Idle memory (RSS), the surface open and nothing asked",
+   "question": "Which harness takes less on each row: idle memory (rss)?",
+   "x": {
+    "label": "resident memory",
+    "format": "mb",
+    "log": false
+   },
+   "rows": [
+    {
+     "label": "Theseus",
+     "arm": "theseus",
+     "value": 48.4648,
+     "lo": 48.1016,
+     "hi": 49.2125,
+     "group": "T7 · rss",
+     "tip": "n 10, bootstrap"
+    },
+    {
+     "label": "Claude Code",
+     "arm": "claude-code",
+     "value": 337.4061,
+     "lo": 335.8136,
+     "hi": 342.8381,
+     "group": "T7 · rss",
+     "tip": "n 10, bootstrap"
+    }
+   ],
+   "note": "One stand-in model for both arms; 2026-10-12-head-to-head-speed."
+  }
+ ]
+}
