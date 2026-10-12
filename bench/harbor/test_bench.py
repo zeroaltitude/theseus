@@ -82,11 +82,14 @@ class Profile(unittest.TestCase):
         above the limit that ends it, or to THESEUS_BENCH_DAY_CEILING."""
         for path in (tb.PROFILE, tb.PROFILE_ROUTED):
             self.assertIn("daily_spend_ceiling_usd", tomllib.loads(path.read_text())["kernel"])
+            # theseus-9e02: the ceiling stops a trial's calls; the daemon's default only warns.
+            self.assertEqual(tomllib.loads(path.read_text())["kernel"]["daily_spend_ceiling_mode"], "stop")
             for limit in (0.4, 2.0, 20.0):
                 values = tb.settings("claude-sonnet-5-5", "/app", spend_limit_usd=limit)
                 k = tomllib.loads(tb.profile(path.read_text(), values))["kernel"]
                 self.assertEqual(k["daily_spend_ceiling_usd"], 2 * limit)
                 self.assertGreater(k["daily_spend_ceiling_usd"], k["spend_limit_usd"])
+                self.assertEqual(k["daily_spend_ceiling_mode"], "stop")
             values = tb.settings("claude-sonnet-5-5", "/app", spend_limit_usd=2.0, day_ceiling_usd=7.5)
             k = tomllib.loads(tb.profile(path.read_text(), values))["kernel"]
             self.assertEqual((k["spend_limit_usd"], k["daily_spend_ceiling_usd"]), (2.0, 7.5))
@@ -366,6 +369,7 @@ class Routed(unittest.TestCase):
         for cls in (theseus_agent.Theseus, theseus_agent.TheseusRouted):
             k = kernel(cls, {})
             self.assertEqual(k["daily_spend_ceiling_usd"], 2 * k["spend_limit_usd"], cls)
+            self.assertEqual(k["daily_spend_ceiling_mode"], "stop", cls)
             k = kernel(cls, {"THESEUS_BENCH_SPEND_LIMIT": "3", tb.DAY_CEILING_ENV: "9"})
             self.assertEqual((k["spend_limit_usd"], k["daily_spend_ceiling_usd"]), (3.0, 9.0), cls)
 
