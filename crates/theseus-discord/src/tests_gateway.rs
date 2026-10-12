@@ -923,6 +923,7 @@ async fn a_day_ceiling_notice_goes_to_the_owners_dm_alone() {
     let model = move |_: &Path, _| -> Arc<dyn Provider> { fake.clone() };
     let r = Rig::start_tweaked(model, guild(true), &bindings(false), &[], |c| {
         c.kernel.daily_spend_ceiling_usd = 0.000_001;
+        c.kernel.daily_spend_ceiling_mode = theseus_core::config::DailyCeilingMode::Stop;
     })
     .await;
     r.say((ANA, "ana"), Some(LAB), "Hello there.");

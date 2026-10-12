@@ -938,6 +938,8 @@ async fn the_day_ceiling_refuses_the_summary_before_its_call() {
     }
     let d = r.core.kernel.day_ceiling();
     let t = d.today(d.now());
+    // These tests are the stop mode's (theseus-9e02): the ceiling refuses.
+    d.set_rules(false, d.runaway(), d.step(), 0);
     d.set_limit(t.spent + t.held);
     let asked = r.model.requests().len();
     let err = turn(&r.core, &sid, &words(&format!("turn{}", k - 1), 6_000))

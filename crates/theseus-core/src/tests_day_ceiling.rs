@@ -137,6 +137,22 @@ fn the_key_defaults_to_200_and_refuses_what_is_not_a_dollar_amount() {
     let (c, w) = Config::parse("[secrets]\nanthropic_api_key = \"op://v/i/f\"\n").unwrap();
     assert!(w.is_empty(), "{w:?}");
     assert_eq!(c.kernel.daily_spend_ceiling_usd, 200.0);
+    // theseus-9e02: the ceiling warns by default, and the runaway line stops the day.
+    assert_eq!(
+        c.kernel.daily_spend_ceiling_mode,
+        crate::config::DailyCeilingMode::Notify
+    );
+    assert_eq!(
+        (c.kernel.daily_runaway_usd, c.kernel.daily_notice_step_usd),
+        (2000.0, 200.0)
+    );
+    assert_eq!(c.kernel.runaway_usd_per_10min, 200.0);
+    let k = c.kernel.to_kernel_config();
+    assert!(
+        k.daily_notify
+            && k.daily_runaway_micros == 2_000_000_000
+            && k.burn_line_micros == 200_000_000
+    );
     assert_eq!(
         c.kernel.to_kernel_config().daily_ceiling_micros,
         200_000_000

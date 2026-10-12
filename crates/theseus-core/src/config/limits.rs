@@ -44,10 +44,10 @@ pub enum DailyCeilingMode {
     /// Reaching the ceiling warns, at the ceiling and at each
     /// `daily_notice_step_usd` after it, and every call is made; the day
     /// stops at `daily_runaway_usd`.
+    #[default]
     Notify,
     /// Reaching the ceiling refuses every model call until the day turns
     /// (theseus-kp20's behaviour; a benchmark's own budget).
-    #[default]
     Stop,
 }
 
