@@ -50,6 +50,8 @@ pub enum Buttons {
     ShouldHaveAsked(Vec<Asked>),
     /// A Jev notice's right / wrong / noise, for this judgment.
     JevLabel(String),
+    /// A reminder's Done and three snoozes, for this wake (theseus-8ux6x).
+    Reminder(String),
     /// An earned-autonomy card's candidates `(id, label)`, each with yes, no and the record (theseus-uttu).
     Earned(Vec<(String, String)>),
     /// Accept and Decline (39b's layer-1 card): Approve's and Decline's ids.

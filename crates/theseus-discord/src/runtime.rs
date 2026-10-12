@@ -54,7 +54,9 @@ mod audience;
 mod board;
 pub(crate) use board::accept_buttons;
 mod earned;
+mod remind;
 pub(crate) use earned::{buttons as earned_buttons, candidates as earned_candidates};
+pub(crate) use remind::{buttons as remind_buttons, text as remind_text};
 pub(crate) use source::source_buttons;
 mod extensions;
 mod guilds;
@@ -580,6 +582,7 @@ fn commands() -> Vec<twilight_model::application::command::Command> {
     cmds.push(extensions::command());
     cmds.push(why::command());
     cmds.push(orders::command());
+    cmds.push(remind::command());
     cmds.extend(voice::commands());
     cmds
 }
@@ -1239,7 +1242,7 @@ impl Shared {
         }
         // `/prompt`: its autocomplete, its modal, and the modal's submit, which
         // answer in their own ways (`runtime/prompt.rs`).
-        if self.prompt_interaction(&i, &tx, &who).await {
+        if self.prompt_interaction(&i, &tx, &who).await || self.remind_interaction(&i, &who).await {
             return;
         }
         // Who pressed, and where: the ids the core judges an answer by, which

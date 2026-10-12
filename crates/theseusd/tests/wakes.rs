@@ -7,6 +7,11 @@
 //!   clears another, and names the surface that cancelled it;
 //! - a `kill -9` before the due time, and the daemon down across it: the
 //!   wake runs after the restart, marked late, once;
+//! - a reminder (theseus-8ux6x) set with `wake.create` and no session lives in
+//!   the DM's conversation, is posted in the DM at its time with no model call
+//!   and no turn, survives a stop across its time (it fires once after the
+//!   restart, marked late), and a snooze of it, as its button calls it, fires it
+//!   again;
 //! - a repeating wake at the floor (`[kernel] min_repeat_minutes = 1`) runs
 //!   twice on the daemon's clock, a minute apart, each turn's reply under its
 //!   occurrence's line, with its rows (37a).
@@ -40,7 +45,7 @@ const FAKE_OP: &str = "#!/bin/sh\n\
 struct Rig {
     dir: tempfile::TempDir,
     fake: Arc<FakeDiscord>,
-    _model: FakeModel,
+    model: FakeModel,
 }
 
 impl Rig {
@@ -102,11 +107,7 @@ impl Rig {
             ),
         )
         .unwrap();
-        Self {
-            dir,
-            fake,
-            _model: model,
-        }
+        Self { dir, fake, model }
     }
 
     fn path(&self, p: &str) -> PathBuf {
@@ -422,4 +423,80 @@ fn a_repeating_wake_at_the_floor_runs_twice_a_minute_apart() {
     r.call("wake.cancel", json!({"wake": w[0]["short"]}))
         .unwrap();
     assert!(r.wakes().is_empty(), "a cancel ends the series");
+}
+
+/// The DM's messages that are a reminder's post, as the fake keeps them.
+fn reminders(r: &Rig) -> Vec<Msg> {
+    r.fake
+        .messages(DM)
+        .into_iter()
+        .filter(|m| m.content.starts_with("⏰ stretch"))
+        .collect()
+}
+
+/// A reminder set with no session (the CLI's `theseus remind`) lives in the DM's
+/// conversation, the owner's Home. The daemon stops before it is due and starts
+/// after: it is posted once, marked late, with four buttons, and no model was
+/// asked and no turn taken. A snooze of it, as a button calls it (`wake.snooze`
+/// with the whole id and `fired`), sets it again, and it fires again.
+#[test]
+fn a_reminder_survives_a_stop_fires_once_late_with_no_model_call_and_a_snooze_fires_it_again() {
+    let r = Rig::new();
+    let daemon = r.spawn();
+    let sid = r.session();
+    let made = r
+        .call("wake.create", json!({"when": "2s", "note": "stretch"}))
+        .unwrap();
+    assert_eq!(made["home"], true, "{made}");
+    assert_eq!(
+        made["wake"]["session_id"],
+        sid.as_str(),
+        "Home is the DM's session"
+    );
+    assert_eq!(made["wake"]["purpose"], "remind");
+    let id = made["wake"]["wake_id"].as_str().unwrap().to_string();
+    // Stopped within the two seconds, and down across the time.
+    drop(daemon);
+    std::thread::sleep(Duration::from_secs(9));
+    assert!(reminders(&r).is_empty(), "nothing posted while it was down");
+    let _daemon = r.spawn();
+    let got = r.wait("the late reminder in the DM", || {
+        let got = reminders(&r);
+        (!got.is_empty()).then_some(got)
+    });
+    assert!(
+        got[0].content.contains("late, the daemon was down"),
+        "{}",
+        got[0].content
+    );
+    let labels: Vec<&str> = got[0].buttons.iter().map(|b| b.label.as_str()).collect();
+    assert_eq!(
+        labels,
+        ["Done", "Snooze 10 min", "Snooze 1 h", "Tomorrow 9:00"]
+    );
+    std::thread::sleep(Duration::from_millis(700));
+    assert_eq!(reminders(&r).len(), 1, "once: {:?}", reminders(&r));
+    let fired = r.rows("wake.fired");
+    assert_eq!(fired.len(), 1, "{fired:?}");
+    assert_eq!(fired[0]["data"]["notice"], true);
+    assert_eq!(fired[0]["data"]["while_down"], true);
+    assert!(r.wakes().is_empty());
+    assert!(
+        r.model.requests().is_empty(),
+        "no model call: {:?}",
+        r.model.requests().len()
+    );
+    // Snooze it, two seconds, as its button calls it.
+    let again = r
+        .call(
+            "wake.snooze",
+            json!({"wake": id, "when": "2s", "fired": true}),
+        )
+        .unwrap();
+    assert_eq!(again["wake"]["note"], "stretch");
+    r.wait("the second post", || {
+        (reminders(&r).len() >= 2).then_some(())
+    });
+    assert_eq!(r.rows("wake.snoozed").len(), 1);
+    assert!(r.model.requests().is_empty(), "still no model call");
 }
