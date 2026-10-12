@@ -110,6 +110,12 @@ build.
   folded, numbers aside, every line kept); `src/lib/mode.ts` and `src/lib/daylight.ts` (night, daylight, or the
   system's, night by default (theseus-001m), and each night colour's daylight step); `public/mode.js` (the mode's class
   before the first paint, chosen as `daylight.ts` chooses).
+- The owner's 10-11 polish (theseus-onxwh): `src/ship/WatchDock.tsx` (the Ship's watch column as a slide-out, kept
+  mounted and `inert` while folded, a tab on the right edge to bring it back) and the Depth gauge's minimize and
+  maximize, both kept by `src/lib/prefs.ts` (`cockpit.ship.watch`, `cockpit.ship.depth`); `src/lib/navgroups.ts` (the
+  rail's accordion groups; a test holds every rail view to exactly one group, so a new view joins one); `src/lib/cardfit.ts`
+  (`CARD_BODY`: a card's body shrinks and scrolls sideways instead of running past its border); and the "?" on every
+  panel, `src/components/Help.tsx` over `src/lib/explainers.ts` (Goal, How to read it, Why it matters, keyed by panel id).
 - `src/protocol.ts`: the protocol client, imported as `@protocol`. It re-exports the protocol's types,
   `src/protocol.gen/`, which theseus-protocol's test writes from the Rust ones: never edit them by hand.
 - The look is in `index.css`'s tokens and the shared components (`.panel`, `.brass-card`, `.brass-button`,
@@ -121,6 +127,8 @@ build.
   5,000 rows every 3 s with neither open (Item 27).
 - **Every control is confirmed first**, and each is a protocol method, judged by the core as any surface's.
 - **Every view keeps its state in the address**, so any view deep-links.
+- **Every panel says what it shows**: `Panel`'s `help` is required (an explainer id, or `false` only for an error,
+  stopped or loading notice), and `test/explainers.test.ts` fails a panel whose id has no words in `explainers.ts`.
 - **Every chart has a table view**, the same numbers as rows, its toggle in the address (`?table=`).
 - **A colour set outside an ECharts option follows the mode**: `mode.ts` swaps `toneHex` and `TONE_MARK`, and an
   option goes through `daylight()` as `Echart` draws it.
