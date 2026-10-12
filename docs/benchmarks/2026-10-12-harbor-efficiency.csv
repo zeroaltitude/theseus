@@ -1,0 +1,7 @@
+arm,task,attempt,trial,reward,ending,exception,grader_timeout,over_budget,overlap,agent_s,cost_usd,model_calls,tool_calls,input,cache_read,cache_write,output
+theseus,fix-git,1,fix-git__k7E7kgK,1.0,ended by the agent,,False,False,0,25.9569,0.0686,6,5,14,77620,17062,1035
+theseus,fix-git,2,fix-git__uewgYB9,1.0,ended by the agent,,False,False,0,21.9887,0.0335,6,5,14,92578,2005,998
+claude-code,fix-git,1,fix-git__9nd9Jb9,1.0,ended by the agent,,False,False,0,14.9834,0.0472,6,5,12,91963,7623,969
+claude-code,fix-git,2,fix-git__JEf6iDz,1.0,ended by the agent,,False,False,0,14.0198,0.0414,7,6,14,115374,3108,1055
+pi,fix-git,1,fix-git__VLAHs5S,1.0,ended by the agent,,False,False,0,16.2751,0.0194,5,4,12,14356,3245,835
+pi,fix-git,2,fix-git__k8aTFKs,1.0,ended by the agent,,False,False,0,14.3913,0.016,5,4,12,15944,2166,739

@@ -1,0 +1,500 @@
+{
+ "report": "2026-10-12-harbor-efficiency",
+ "t5": {
+  "pairs": [
+   {
+    "task": "fix-git",
+    "attempt": 1
+   },
+   {
+    "task": "fix-git",
+    "attempt": 2
+   }
+  ],
+  "arms": {
+   "theseus": {
+    "pairs": 2,
+    "cost_mean": 0.051,
+    "cost_median": 0.051,
+    "calls_mean": 6.0,
+    "agent_s_mean": 23.9728,
+    "output_per_call": 169.4167
+   },
+   "claude-code": {
+    "pairs": 2,
+    "cost_mean": 0.0443,
+    "cost_median": 0.0443,
+    "calls_mean": 6.5,
+    "agent_s_mean": 14.5016,
+    "output_per_call": 155.6923
+   },
+   "pi": {
+    "pairs": 2,
+    "cost_mean": 0.0177,
+    "cost_median": 0.0177,
+    "calls_mean": 5.0,
+    "agent_s_mean": 15.3332,
+    "output_per_call": 157.4
+   }
+  }
+ },
+ "suite": "harbor",
+ "date": "2026-10-12",
+ "model": "anthropic/claude-sonnet-5-5",
+ "commit": null,
+ "kind": "harbor",
+ "arms": [
+  {
+   "key": "theseus",
+   "label": "Theseus"
+  },
+  {
+   "key": "claude-code",
+   "label": "Claude Code"
+  },
+  {
+   "key": "pi",
+   "label": "Pi"
+  }
+ ],
+ "summary": {
+  "theseus": {
+   "label": "Theseus",
+   "trials": 2,
+   "tasks": 1,
+   "pass": {
+    "k": 2,
+    "n": 2,
+    "rate": 1.0,
+    "lo": 0.3424,
+    "hi": 1.0
+   },
+   "solved_every_attempt": 1,
+   "solved_any_attempt": 1,
+   "task_mean_rate": {
+    "n": 1,
+    "mean": 1.0,
+    "lo": 1.0,
+    "hi": 1.0,
+    "median": 1.0,
+    "method": "range"
+   },
+   "cost_usd": 0.1021,
+   "unpriced": 0,
+   "cost_per_trial": {
+    "n": 2,
+    "mean": 0.051,
+    "lo": 0.0335,
+    "hi": 0.0686,
+    "median": 0.051,
+    "method": "range"
+   },
+   "agent_min_per_trial": {
+    "n": 2,
+    "mean": 0.3995,
+    "lo": 0.3665,
+    "hi": 0.4326,
+    "median": 0.3995,
+    "method": "range"
+   },
+   "model_calls_per_trial": 6.0,
+   "tool_calls_per_trial": 5.0,
+   "tokens": {
+    "input": 28,
+    "cache_read": 170198,
+    "cache_write": 19067,
+    "output": 2033
+   },
+   "cache_hit_share": 0.8991,
+   "endings": {
+    "ended by the agent": 2
+   },
+   "t4": {
+    "trials": 2,
+    "with_trajectory": 2,
+    "trials_with_tool_error": 0,
+    "share_tool_error": 0.0,
+    "tool_errors": 0,
+    "malformed": 0,
+    "malformed_by_tool": {},
+    "trials_with_malformed": 0,
+    "share_malformed": 0.0,
+    "invented": 0,
+    "invented_by_tool": {},
+    "trials_with_invented": 0,
+    "share_invented": 0.0
+   },
+   "grader_timeouts": [],
+   "over_budget": [],
+   "overlap": {
+    "n": 2,
+    "mean": 0.0,
+    "lo": 0.0,
+    "hi": 0.0,
+    "median": 0.0,
+    "method": "range"
+   },
+   "overlap_max": 0,
+   "sampled": 2,
+   "harness_cpu_ms_per_tool_call": 31.0,
+   "peak_harness_rss_mb": 39.8125
+  },
+  "claude-code": {
+   "label": "Claude Code",
+   "trials": 2,
+   "tasks": 1,
+   "pass": {
+    "k": 2,
+    "n": 2,
+    "rate": 1.0,
+    "lo": 0.3424,
+    "hi": 1.0
+   },
+   "solved_every_attempt": 1,
+   "solved_any_attempt": 1,
+   "task_mean_rate": {
+    "n": 1,
+    "mean": 1.0,
+    "lo": 1.0,
+    "hi": 1.0,
+    "median": 1.0,
+    "method": "range"
+   },
+   "cost_usd": 0.0886,
+   "unpriced": 0,
+   "cost_per_trial": {
+    "n": 2,
+    "mean": 0.0443,
+    "lo": 0.0414,
+    "hi": 0.0472,
+    "median": 0.0443,
+    "method": "range"
+   },
+   "agent_min_per_trial": {
+    "n": 2,
+    "mean": 0.2417,
+    "lo": 0.2337,
+    "hi": 0.2497,
+    "median": 0.2417,
+    "method": "range"
+   },
+   "model_calls_per_trial": 6.5,
+   "tool_calls_per_trial": 5.5,
+   "tokens": {
+    "input": 26,
+    "cache_read": 207337,
+    "cache_write": 10731,
+    "output": 2024
+   },
+   "cache_hit_share": 0.9507,
+   "endings": {
+    "ended by the agent": 2
+   },
+   "t4": {
+    "trials": 2,
+    "with_trajectory": 2,
+    "trials_with_tool_error": 0,
+    "share_tool_error": 0.0,
+    "tool_errors": 0,
+    "malformed": 0,
+    "malformed_by_tool": {},
+    "trials_with_malformed": 0,
+    "share_malformed": 0.0,
+    "invented": 0,
+    "invented_by_tool": {},
+    "trials_with_invented": 0,
+    "share_invented": 0.0
+   },
+   "grader_timeouts": [],
+   "over_budget": [],
+   "overlap": {
+    "n": 2,
+    "mean": 0.0,
+    "lo": 0.0,
+    "hi": 0.0,
+    "median": 0.0,
+    "method": "range"
+   },
+   "overlap_max": 0,
+   "sampled": 2,
+   "harness_cpu_ms_per_tool_call": 223.6364,
+   "peak_harness_rss_mb": 265.9062
+  },
+  "pi": {
+   "label": "Pi",
+   "trials": 2,
+   "tasks": 1,
+   "pass": {
+    "k": 2,
+    "n": 2,
+    "rate": 1.0,
+    "lo": 0.3424,
+    "hi": 1.0
+   },
+   "solved_every_attempt": 1,
+   "solved_any_attempt": 1,
+   "task_mean_rate": {
+    "n": 1,
+    "mean": 1.0,
+    "lo": 1.0,
+    "hi": 1.0,
+    "median": 1.0,
+    "method": "range"
+   },
+   "cost_usd": 0.0354,
+   "unpriced": 0,
+   "cost_per_trial": {
+    "n": 2,
+    "mean": 0.0177,
+    "lo": 0.016,
+    "hi": 0.0194,
+    "median": 0.0177,
+    "method": "range"
+   },
+   "agent_min_per_trial": {
+    "n": 2,
+    "mean": 0.2556,
+    "lo": 0.2399,
+    "hi": 0.2713,
+    "median": 0.2556,
+    "method": "range"
+   },
+   "model_calls_per_trial": 5.0,
+   "tool_calls_per_trial": 4.0,
+   "tokens": {
+    "input": 24,
+    "cache_read": 30300,
+    "cache_write": 5411,
+    "output": 1574
+   },
+   "cache_hit_share": 0.8479,
+   "endings": {
+    "ended by the agent": 2
+   },
+   "t4": {
+    "trials": 2,
+    "with_trajectory": 2,
+    "trials_with_tool_error": 0,
+    "share_tool_error": 0.0,
+    "tool_errors": 0,
+    "malformed": 0,
+    "malformed_by_tool": {},
+    "trials_with_malformed": 0,
+    "share_malformed": 0.0,
+    "invented": 0,
+    "invented_by_tool": {},
+    "trials_with_invented": 0,
+    "share_invented": 0.0
+   },
+   "grader_timeouts": [],
+   "over_budget": [],
+   "overlap": {
+    "n": 2,
+    "mean": 0.0,
+    "lo": 0.0,
+    "hi": 0.0,
+    "median": 0.0,
+    "method": "range"
+   },
+   "overlap_max": 0,
+   "sampled": 2,
+   "harness_cpu_ms_per_tool_call": 167.5,
+   "peak_harness_rss_mb": 124.9258
+  },
+  "four_arms": {
+   "theseus": {
+    "cpu_ms_per_call": 31.0,
+    "rss_mb": 39.7,
+    "cost": 0.051,
+    "tool_calls": 5.0,
+    "work_cpu_s": 0.11,
+    "cache_write": 9533.5,
+    "cache_read": 85099.0
+   },
+   "claude-code": {
+    "cpu_ms_per_call": 224.8,
+    "rss_mb": 256.2,
+    "cost": 0.0443,
+    "tool_calls": 5.5,
+    "work_cpu_s": 0.41,
+    "cache_write": 5365.5,
+    "cache_read": 103668.5
+   },
+   "pi": {
+    "cpu_ms_per_call": 167.5,
+    "rss_mb": 124.2,
+    "cost": 0.0177,
+    "tool_calls": 4.0,
+    "work_cpu_s": 0.22,
+    "cache_write": 2705.5,
+    "cache_read": 15150.0
+   },
+   "opencode": {
+    "cpu_ms_per_call": 3994.2,
+    "rss_mb": 823.8,
+    "cost": 0.0367,
+    "tool_calls": 4.5,
+    "work_cpu_s": 0.82,
+    "cache_write": 7480.0,
+    "cache_read": 56163.0
+   }
+  }
+ },
+ "paired": {
+  "claude-code": {
+   "against": "theseus",
+   "only_ref": 0,
+   "only_arm": 0,
+   "both": 2,
+   "neither": 0,
+   "p_mcnemar": 1.0,
+   "tasks_only_ref": [],
+   "tasks_only_arm": []
+  },
+  "pi": {
+   "against": "theseus",
+   "only_ref": 0,
+   "only_arm": 0,
+   "both": 2,
+   "neither": 0,
+   "p_mcnemar": 1.0,
+   "tasks_only_ref": [],
+   "tasks_only_arm": []
+  }
+ },
+ "figures": [
+  {
+   "name": "harness-cpu",
+   "form": "intervals",
+   "title": "Harness CPU per tool call on fix-git, apart from the commands it ran (log scale)",
+   "question": "What does each harness itself cost the machine for each tool call?",
+   "x": {
+    "label": "ms of the harness's own CPU per tool call",
+    "format": "ms",
+    "log": true,
+    "min": 10,
+    "max": 10000
+   },
+   "rows": [
+    {
+     "label": "Theseus",
+     "arm": "theseus",
+     "value": 31.0,
+     "lo": 28.0,
+     "hi": 34.0,
+     "tip": "Theseus: 31.0 ms of harness CPU a tool call (two trials, 28.0 to 34.0)"
+    },
+    {
+     "label": "Claude Code 2.1.290",
+     "arm": "claude-code",
+     "value": 224.8,
+     "lo": 211.7,
+     "hi": 238.0,
+     "tip": "Claude Code 2.1.290: 224.8 ms of harness CPU a tool call (two trials, 211.7 to 238.0)"
+    },
+    {
+     "label": "Pi 1.0.4",
+     "arm": "pi",
+     "value": 167.5,
+     "lo": 152.5,
+     "hi": 182.5,
+     "tip": "Pi 1.0.4: 167.5 ms of harness CPU a tool call (two trials, 152.5 to 182.5)"
+    },
+    {
+     "label": "OpenCode 1.18.35",
+     "arm": "other",
+     "value": 3994.2,
+     "lo": 3346.0,
+     "hi": 4642.5,
+     "tip": "OpenCode 1.18.35: 3994.2 ms of harness CPU a tool call (two trials, 3346.0 to 4642.5)"
+    }
+   ],
+   "note": "Two trials an arm, the range as the interval; each harness's processes sorted from its work by the sampler inside the task's container (bench/harbor/sampler.py). Theseus runs its static musl build here."
+  },
+  {
+   "name": "harness-rss",
+   "form": "intervals",
+   "title": "Peak harness memory on fix-git (log scale)",
+   "question": "How much memory does each harness hold while it works?",
+   "x": {
+    "label": "MB, the largest summed RSS of the harness's processes in one sample",
+    "format": "num",
+    "log": true,
+    "min": 10,
+    "max": 2000
+   },
+   "rows": [
+    {
+     "label": "Theseus",
+     "arm": "theseus",
+     "value": 39.7,
+     "lo": 39.5,
+     "hi": 39.8,
+     "tip": "Theseus: peak harness RSS 39.7 MB"
+    },
+    {
+     "label": "Claude Code 2.1.290",
+     "arm": "claude-code",
+     "value": 256.2,
+     "lo": 246.5,
+     "hi": 265.9,
+     "tip": "Claude Code 2.1.290: peak harness RSS 256.2 MB"
+    },
+    {
+     "label": "Pi 1.0.4",
+     "arm": "pi",
+     "value": 124.2,
+     "lo": 123.4,
+     "hi": 124.9,
+     "tip": "Pi 1.0.4: peak harness RSS 124.2 MB"
+    },
+    {
+     "label": "OpenCode 1.18.35",
+     "arm": "other",
+     "value": 823.8,
+     "lo": 806.7,
+     "hi": 841.0,
+     "tip": "OpenCode 1.18.35: peak harness RSS 823.8 MB"
+    }
+   ],
+   "note": "Two trials an arm, the range as the interval."
+  },
+  {
+   "name": "cost-per-trial",
+   "form": "strip",
+   "title": "Dollars per trial",
+   "question": "How are each arm's dollars spread over its trials, and is the mean carried by a few?",
+   "x": {
+    "label": "dollars per trial (log scale)",
+    "format": "usd",
+    "log": true
+   },
+   "groups": [
+    {
+     "arm": "theseus",
+     "label": "Theseus",
+     "values": [
+      0.0686,
+      0.0335
+     ]
+    },
+    {
+     "arm": "claude-code",
+     "label": "Claude Code",
+     "values": [
+      0.0472,
+      0.0414
+     ]
+    },
+    {
+     "arm": "pi",
+     "label": "Pi",
+     "values": [
+      0.0194,
+      0.016
+     ]
+    }
+   ]
+  }
+ ]
+}

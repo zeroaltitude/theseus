@@ -1,0 +1,62 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="286" viewBox="0 0 720 286" role="img" aria-labelledby="t-harness-cpu t-harness-cpu-d" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
+<title id="t-harness-cpu">Harness CPU per tool call on fix-git, apart from the commands it ran (log scale)</title>
+<desc id="t-harness-cpu-d">What does each harness itself cost the machine for each tool call?</desc>
+<rect width="720" height="286" rx="8" fill="#1a1a19" stroke="#2c2c2a"/>
+<text x="18.0" y="32.0" font-size="15" fill="#ffffff" font-weight="600">Harness CPU per tool call on fix-git, apart from the commands it ran (log scale)</text>
+<circle cx="25.0" cy="50.0" r="5" fill="#3987e5"/>
+<text x="40.0" y="54.0" font-size="12" fill="#c3c2b7">Theseus</text>
+<circle cx="115.5" cy="50.0" r="5" fill="#d95926"/>
+<text x="130.5" y="54.0" font-size="12" fill="#c3c2b7">Claude Code</text>
+<circle cx="233.3" cy="50.0" r="5" fill="#d55181"/>
+<text x="248.3" y="54.0" font-size="12" fill="#c3c2b7">Pi</text>
+<circle cx="285.8" cy="50.0" r="5" fill="#898781"/>
+<text x="300.8" y="54.0" font-size="12" fill="#c3c2b7">other arm</text>
+<line x1="157.4" y1="72.0" x2="157.4" y2="192.0" stroke="#2c2c2a" stroke-width="1"/>
+<line x1="277.6" y1="72.0" x2="277.6" y2="192.0" stroke="#2c2c2a" stroke-width="1"/>
+<line x1="397.8" y1="72.0" x2="397.8" y2="192.0" stroke="#2c2c2a" stroke-width="1"/>
+<line x1="518.0" y1="72.0" x2="518.0" y2="192.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="143.4" y="94.0" font-size="12" fill="#ffffff" text-anchor="end">Theseus</text>
+<g><title>Theseus: 31 ms  [28 ms, 34 ms] (Theseus: 31.0 ms of harness CPU a tool call (two trials, 28.0 to 34.0))</title>
+<line x1="211.1" y1="90.0" x2="221.3" y2="90.0" stroke="#3987e5" stroke-width="2" stroke-linecap="round"/>
+<line x1="211.1" y1="85.0" x2="211.1" y2="95.0" stroke="#3987e5" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="221.3" y1="85.0" x2="221.3" y2="95.0" stroke="#3987e5" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="216.4" cy="90.0" r="12" fill="transparent"/>
+<circle cx="216.4" cy="90.0" r="5" fill="#3987e5" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="532.0" y="94.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">31 ms  [28 ms, 34 ms]</text>
+<text x="143.4" y="122.0" font-size="12" fill="#ffffff" text-anchor="end">Claude Code 2.1.290</text>
+<g><title>Claude Code 2.1.290: 225 ms  [212 ms, 238 ms] (Claude Code 2.1.290: 224.8 ms of harness CPU a tool call (two trials, 211.7 to 238.0))</title>
+<line x1="316.7" y1="118.0" x2="322.8" y2="118.0" stroke="#d95926" stroke-width="2" stroke-linecap="round"/>
+<line x1="316.7" y1="113.0" x2="316.7" y2="123.0" stroke="#d95926" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="322.8" y1="113.0" x2="322.8" y2="123.0" stroke="#d95926" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="319.9" cy="118.0" r="12" fill="transparent"/>
+<circle cx="319.9" cy="118.0" r="5" fill="#d95926" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="532.0" y="122.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">225 ms  [212 ms, 238 ms]</text>
+<text x="143.4" y="150.0" font-size="12" fill="#ffffff" text-anchor="end">Pi 1.0.4</text>
+<g><title>Pi 1.0.4: 168 ms  [152 ms, 182 ms] (Pi 1.0.4: 167.5 ms of harness CPU a tool call (two trials, 152.5 to 182.5))</title>
+<line x1="299.6" y1="146.0" x2="309.0" y2="146.0" stroke="#d55181" stroke-width="2" stroke-linecap="round"/>
+<line x1="299.6" y1="141.0" x2="299.6" y2="151.0" stroke="#d55181" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="309.0" y1="141.0" x2="309.0" y2="151.0" stroke="#d55181" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="304.5" cy="146.0" r="12" fill="transparent"/>
+<circle cx="304.5" cy="146.0" r="5" fill="#d55181" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="532.0" y="150.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">168 ms  [152 ms, 182 ms]</text>
+<text x="143.4" y="178.0" font-size="12" fill="#ffffff" text-anchor="end">OpenCode 1.18.35</text>
+<g><title>OpenCode 1.18.35: 3,994 ms  [3,346 ms, 4,642 ms] (OpenCode 1.18.35: 3994.2 ms of harness CPU a tool call (two trials, 3346.0 to 4642.5))</title>
+<line x1="460.8" y1="174.0" x2="477.9" y2="174.0" stroke="#898781" stroke-width="2" stroke-linecap="round"/>
+<line x1="460.8" y1="169.0" x2="460.8" y2="179.0" stroke="#898781" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="477.9" y1="169.0" x2="477.9" y2="179.0" stroke="#898781" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="470.1" cy="174.0" r="12" fill="transparent"/>
+<circle cx="470.1" cy="174.0" r="5" fill="#898781" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="532.0" y="178.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">3,994 ms  [3,346 ms, 4,642 ms]</text>
+<line x1="157.4" y1="192.0" x2="518.0" y2="192.0" stroke="#383835" stroke-width="1"/>
+<text x="157.4" y="208.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">10</text>
+<text x="277.6" y="208.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">100</text>
+<text x="397.8" y="208.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">1,000</text>
+<text x="518.0" y="208.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">10,000</text>
+<text x="337.7" y="226.0" font-size="12" fill="#c3c2b7" text-anchor="middle">ms of the harness's own CPU per tool call</text>
+<text x="18.0" y="248.0" font-size="11" fill="#c3c2b7">Two trials an arm, the range as the interval; each harness's processes sorted from its work by the sampler inside the task's</text>
+<text x="18.0" y="263.0" font-size="11" fill="#c3c2b7">container (bench/harbor/sampler.py). Theseus runs its static musl build here.</text>
+</svg>
