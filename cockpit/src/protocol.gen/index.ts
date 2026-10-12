@@ -172,6 +172,7 @@ export type * from './IndexNeighbour';
 export type * from './IndexNeighboursParams';
 export type * from './IndexNeighboursResult';
 export type * from './IndexPriority';
+export type * from './IndexQueryGate';
 export type * from './IndexQueryParams';
 export type * from './IndexQueryResult';
 export type * from './IndexRebuildResult';

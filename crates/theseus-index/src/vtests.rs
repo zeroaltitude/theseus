@@ -997,6 +997,8 @@ fn a_query_holds_the_backfill_while_it_embeds() {
     let mut t = v.open();
     settle_all(&mut t);
     let shared = t.shared();
+    // The pool the query waits in is the full one: the gate open.
+    shared.vectors.ahead.gate.force(Some(false));
     let more: Vec<_> = TEXTS[6..].iter().map(|t| user("ses_1", t)).collect();
     v.rig.put(&more);
     settle(&mut t);

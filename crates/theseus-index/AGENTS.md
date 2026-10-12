@@ -25,13 +25,26 @@ Key modules: `tender.rs`, `engine.rs`, `vectors.rs`, `server.rs`, `extract.rs`. 
   `vtests::a_query_holds_the_backfill_while_it_embeds` (a real query takes the hold).
 - **A recall's query fits its deadline** (theseus-zo1y). The vector source embeds `vector_text` (the turn's new text)
   when a query carries one, cut at `vector_tokens` word pieces by the tokenizer (`Embedder::tokenize_query`, one
-  window), while BM25 and entities read `text` whole. The queries' pool has `ahead::query_threads` threads (one since
-  theseus-y9a3: four lost to a busy machine, each matmul waiting on its slowest job; `serve --query-threads`, which the daemon passes from `[index] query_threads` when it is not 0), `RAYON_NUM_THREADS` is the larger of that and `[index] threads` (candle
+  window), while BM25 and entities read `text` whole. The queries' pool has `ahead::query_threads` threads (four, never more than the
+  cores, since theseus-d7fy; `serve --query-threads`, which the daemon passes from `[index] query_threads` when it is not 0; the load gate below runs a query on one while the machine is busy), `RAYON_NUM_THREADS` is the larger of that and `[index] threads` (candle
   splits each matmul by it, in the pool it runs in), and the global pool, the backfill's, is built with `[index]
   threads` from the embedding thread at nice 19 (`ahead::build_backfill_pool`). A query whose caller closed its
   connection stops at the embedder's next layer (`server::closed`, `POLLRDHUP`, asked between layers through
   `NomicBert::forward_while`), so its slot frees within a layer. `VectorConfig::query_step` is a test's slow model.
   Tests: `tests_query.rs`.
+- **A load gate in front of the queries' pool** (`gate.rs`, `ahead::install_in`; theseus-d7fy). Four threads win on an
+  idle machine (75 ms against 90) and lose beside a busy one (theseus-y9a3: each matmul waits for its slowest job).
+  Before a query embeds, `Gate::admit` reads pressure (`theseus_store::pressure::busy`, CPU 20 % or IO 10 %, kept
+  for one second: never a file a query; no PSI reads as calm). Calm: the full pool, any number at once. Busy: a
+  pool of **one** thread (`Lane::One`) and one query at a time, the rest in line in order on their own connections'
+  threads (the daemon's priority), each leaving at its caller's close (`gone`, the recall's deadline) or at
+  `MAX_WAIT` (1 s, for a caller with no deadline) with its words alone (`skipped["vector"]`, never an error); a
+  line whose machine goes calm is let in at once. `RAYON_NUM_THREADS` stays the larger of the two pools' sizes
+  (process-wide, read at each matmul): gemm runs its jobs with `into_par_iter` in the pool its caller is in, so in
+  the one-thread pool a matmul's four jobs run one after another on that thread, and no other thread computes.
+  `index.status`'s `vectors.gate` and health's `query gate` say the pool, whether it is shut now, and the queries
+  that waited and expired. Tests: `tests_gate.rs` (fake PSI in a mount namespace; the threads a lane used, counted
+  by CPU time), `ahead::tests`.
 - **A node written again with nothing to index leaves the index** (`Tender::ingest`'s skip; an import's tombstone,
   theseus-0lrr.6): that holds inside one batch too, where the node's first record is indexed but not yet committed
   (`fresh`), as a rebuild meets a node and its tombstone together; `engine.holds` reads only what is committed.

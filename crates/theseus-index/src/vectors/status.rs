@@ -93,6 +93,16 @@ impl Vectors {
                 std::env::var("RAYON_NUM_THREADS").unwrap_or_else(|_| "unset".into()),
                 std::env::var("CANDLE_NUM_THREADS").unwrap_or_else(|_| "unset".into())
             ),
+            gate: Some({
+                let c = self.ahead.gate.counts();
+                theseus_protocol::index::IndexQueryGate {
+                    threads: crate::ahead::threads() as u32,
+                    shut: c.shut,
+                    waited: c.waited,
+                    expired: c.expired,
+                    one_thread: c.one_thread,
+                }
+            }),
             ..VectorStatus::default()
         };
         if let Model::Refused { why, .. } = &st.model {

@@ -41,6 +41,7 @@ use crate::ahead::Ahead;
 use crate::embedder::{
     self, dot_i8, quantize, stamp_key, Embedder, ModelSpec, QueryMiss, Vector, Windows,
 };
+use crate::gate::Missed;
 use crate::proto::{
     Compactions, EmbedParams, EmbedResult, EmbedStats, Filters, Neighbour, Reembed, Stamp, Task,
     VectorStatus,
@@ -1898,17 +1899,22 @@ impl Vectors {
         gone: &(dyn Fn() -> bool + Sync),
     ) -> Result<(Vec<VectorHit>, f64, f64), String> {
         let emb = self.model(wait)?;
+        // Beside a busy machine, one query at a time on one thread, the
+        // rest in line inside their caller's deadline (`gate`).
+        let turn = self.ahead.gate.admit(gone).map_err(|m| match m {
+            Missed::Gone => GONE.to_string(),
+            Missed::Waited => "the machine is busy: this query waited past its turn".to_string(),
+        })?;
         let t0 = Instant::now();
         // Ahead of the backfill, in a pool of its own (`ahead`).
         let hold = self.ahead.hold(|| self.wake());
-        let v =
-            crate::ahead::install(|| emb.embed_query(text, max_tokens, gone)).map_err(
-                |e| match e {
-                    QueryMiss::Gone => GONE.to_string(),
-                    QueryMiss::Failed(e) => format!("the query would not embed: {e:#}"),
-                },
-            )?;
+        let v = crate::ahead::install_in(turn.lane(), || emb.embed_query(text, max_tokens, gone))
+            .map_err(|e| match e {
+            QueryMiss::Gone => GONE.to_string(),
+            QueryMiss::Failed(e) => format!("the query would not embed: {e:#}"),
+        })?;
         drop(hold);
+        drop(turn);
         let embed_ms = t0.elapsed().as_secs_f64() * 1e3;
         let t1 = Instant::now();
         let t = self.table.read().unwrap();
