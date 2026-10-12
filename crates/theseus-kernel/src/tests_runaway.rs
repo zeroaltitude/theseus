@@ -250,3 +250,46 @@ fn an_approved_burn_question_empties_the_window_and_keeps_the_spend() {
         q.resolution
     );
 }
+
+/// AWS stays cautious (theseus-9e02): with the session limit and the day
+/// ceiling both notifying, a model call past the limit is made, but an AWS
+/// hand's reservation past it is still refused, `OverBudget`, nothing
+/// written, and no AWS reservation is held on the day or counted toward a
+/// burn line.
+#[test]
+fn an_aws_reservation_past_the_limit_is_still_refused_under_the_soft_settings() {
+    let w = world_with(KernelConfig {
+        spend_limit_notify: true,
+        daily_notify: true,
+        burn_line_micros: 1_000,
+        spend_limit_micros: 100_000,
+        ..KernelConfig::default()
+    });
+    let (_, _, g) = crate::tests::following(&w);
+    let frames = w.kernel.store().stats().unwrap().frames_appended;
+    let r = w.kernel.plan_action(
+        &g,
+        &proposal("aws.hand"),
+        RetryClass::SafeToRepeat,
+        None,
+        200_000,
+    );
+    assert!(
+        matches!(
+            r.as_ref()
+                .err()
+                .and_then(|e| e.downcast_ref::<KernelError>()),
+            Some(KernelError::OverBudget { .. })
+        ),
+        "{r:?}"
+    );
+    assert_eq!(w.kernel.store().stats().unwrap().frames_appended, frames);
+    let c = w.kernel.day_ceiling();
+    assert_eq!(
+        c.today(c.now()).held,
+        0,
+        "an AWS reservation never holds the day"
+    );
+    // A model call over the same limit is made: only tokens went soft.
+    plan(&w, &g, 200_000).expect("a model call past the session limit notifies");
+}
