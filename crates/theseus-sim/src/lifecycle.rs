@@ -53,8 +53,11 @@ use serde_json::{json, Value};
 
 use crate::fake_model::FakeModel;
 
-pub const PHASES: [&str; 10] = [
+mod surfaces;
+
+pub const PHASES: [&str; 11] = [
     "cold", "vault", "shutdown", "inflight", "kill", "swap", "restore", "seed", "health", "cancel",
+    "surfaces",
 ];
 
 /// The `health` calls each cold start times after its seed.
@@ -154,6 +157,10 @@ pub fn budget_ms(phase: &str, sessions: u64) -> Option<f64> {
         "shutdown" => Some(100.0),
         "kill" => Some(cold + 100.0),
         "swap" => Some(200.0),
+        // Not §9's: the CLI's and the TUI's first screen on a store of any
+        // size (theseus-7bee). Not in the default phases: `--sessions N
+        // --phases surfaces`.
+        "surfaces" => Some(surfaces::BUDGET_MS),
         // Not §9's: a cancel answers once its job's whole tree is verified
         // gone (theseus-nh1k). 100 ms since cancel-fast (theseus-dwoj,
         // theseus-kq4n), on this machine's debug build: its p95 34 to 62 ms
@@ -1413,6 +1420,14 @@ pub fn run(o: &Opts) -> Result<Report> {
     } else {
         None
     };
+    if want("surfaces") {
+        surfaces::phase(
+            &rig,
+            &o.theseusd.with_file_name("theseus"),
+            o.runs,
+            &mut samples,
+        )?;
+    }
     let cancel_frames = if want("cancel") {
         cancel_phase(&rig, o.runs, &mut samples)?
     } else {
@@ -1802,7 +1817,7 @@ fn restore_phase(
     })
 }
 
-const TITLES: [(&str, &str); 10] = [
+const TITLES: [(&str, &str); 11] = [
     ("cold", "cold start to the first health answer"),
     (
         "vault",
@@ -1826,6 +1841,10 @@ const TITLES: [(&str, &str); 10] = [
     (
         "health",
         "health, after the seed, each call its own connection",
+    ),
+    (
+        "surfaces",
+        "watch --interactive, spawn to its prompt (the TUI's startup reads print beside it)",
     ),
     (
         "cancel",
@@ -2070,6 +2089,9 @@ mod tests {
         assert_eq!(budget_ms("shutdown", 10_000), Some(100.0));
         // A binary upgrade: under 200 ms without an answer, at any size.
         assert_eq!(budget_ms("swap", 0), Some(200.0));
+        // The surfaces' budget is the same at any size (theseus-7bee).
+        assert_eq!(budget_ms("surfaces", 0), Some(50.0));
+        assert_eq!(budget_ms("surfaces", 200_000), Some(50.0));
         assert_eq!(budget_ms("swap", 10_000), Some(200.0));
         // Restore is measured: §9 names no number yet.
         assert_eq!(budget_ms("restore", 0), None);

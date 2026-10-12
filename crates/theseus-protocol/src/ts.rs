@@ -98,7 +98,7 @@ fn the_cockpits_types_are_generated_from_the_rust_ones() {
         TrustResult, DiscordOrigin, BindingStatus, OutboxStatus,
         PlaceStatus, TelemetryStatus, KernelStatus, ChildrenStatus, GrantStatus,
         ExecutionInfo,
-        BudgetInfo, ExecutionListResult, ActionInfo, ActionListParams, ActionListResult,
+        BudgetInfo, ExecutionListResult, ExecutionListParams, ActionInfo, ActionListParams, ActionListResult,
         ExecutionCancelParams, ExecutionCancelResult, ExecutionStopParams, ExecutionStopResult,
         TaskInfo, TaskListParams, TaskListResult, TaskCancelParams, TaskCancelResult, WakeInfo,
         WakeListParams, WakeListResult, WakeCancelParams, WakeCancelResult, TaskRef, SessionKind,

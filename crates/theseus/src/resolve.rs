@@ -7,11 +7,15 @@
 //! execution's at once: that is one thing, not two. An end that matches two
 //! things is refused, naming them; one under four characters is refused; an
 //! unknown one is refused. Each resolution makes at most one read, and none
-//! for an id named whole where the daemon refuses an unknown one itself.
+//! for an id named whole where the daemon refuses an unknown one itself. (A
+//! name that needs the executions reads them a page at a time.)
 
 use anyhow::{anyhow, bail, Result};
 use serde_json::{json, Value};
-use theseus_protocol::{method, ConfirmListResult, ExecutionInfo, SessionListResult};
+use theseus_protocol::{
+    method, ConfirmListResult, ExecutionInfo, ExecutionListParams, ExecutionListResult,
+    SessionListResult,
+};
 
 use crate::client::Conn;
 
@@ -98,12 +102,31 @@ pub fn session_of<'a>(given: &str, execs: &'a [ExecutionInfo]) -> Result<Vec<&'a
     )
 }
 
-/// Every execution, for a name that needs the list: one read.
+/// The executions a name is looked for among, newest first: every one, read a
+/// page at a time (theseus-7bee), so no one read is the size of the store. A
+/// name that is a unique end must be unique among all of them.
 pub async fn executions(conn: &mut Conn) -> Result<Vec<ExecutionInfo>> {
-    let l: theseus_protocol::ExecutionListResult =
-        serde_json::from_value(conn.request(method::EXECUTION_LIST, Value::Null).await?)?;
-    Ok(l.executions)
+    let mut all = Vec::new();
+    let mut before = None;
+    loop {
+        let params = ExecutionListParams {
+            n: Some(PAGE),
+            before,
+            ..Default::default()
+        };
+        let l: ExecutionListResult =
+            serde_json::from_value(conn.request(method::EXECUTION_LIST, params).await?)?;
+        all.extend(l.executions);
+        // A daemon that answers every execution at once gives no cursor.
+        match l.older {
+            Some(o) if before != Some(o) => before = Some(o),
+            _ => return Ok(all),
+        }
+    }
 }
+
+/// An execution's page when a name is looked for.
+const PAGE: usize = 1000;
 
 /// The session id `given` names, for a command whose daemon refuses an
 /// unknown id itself (`history`): a whole session id as it is, with no read;
