@@ -157,6 +157,53 @@ mod tests {
         }
     }
 
+    /// A reminder says so, a held wake says it is paused, and a fired reminder
+    /// shows its note, how late it came, and its four answers as commands
+    /// (theseus-8ux6x).
+    #[test]
+    fn a_reminder_says_remind_a_paused_wake_says_paused_and_a_fired_one_its_answers() {
+        let w = WakeInfo {
+            purpose: Some("remind".into()),
+            paused: true,
+            ..base()
+        };
+        assert_eq!(
+            wake_line(&w, 1_000_000),
+            "3f9a1c\t2026-09-30 13:15:00 -07:00 (in 9m)\tonce (paused)\tsession ses_1 (waiting) → \
+             discord:dm:42\tremind: check the build"
+        );
+        let n = theseus_protocol::WakeNoticed {
+            wake_id: "wak_0199aaaa3f9a1c".into(),
+            short: "3f9a1c".into(),
+            session_id: "ses_1".into(),
+            execution_id: "exe_1".into(),
+            purpose: "remind".into(),
+            note: "stretch".into(),
+            due_at_ms: 1_000_000,
+            late_ms: 125_000,
+            while_down: true,
+            every: None,
+            occurrence: None,
+            posted_to: None,
+            home: true,
+            answers: theseus_protocol::reminder_answers(),
+        };
+        let lines = noticed_lines(&n);
+        assert_eq!(lines.len(), 2);
+        assert!(
+            lines[0].starts_with("  ⏰ stretch (due ")
+                && lines[0].ends_with("2 min late, the daemon was down)"),
+            "{}",
+            lines[0]
+        );
+        assert_eq!(
+            lines[1],
+            "      Done: theseus done wak_0199aaaa3f9a1c · Snooze 10 min: theseus snooze \
+             wak_0199aaaa3f9a1c \"10m\" · Snooze 1 h: theseus snooze wak_0199aaaa3f9a1c \"1h\" · \
+             Tomorrow 9:00: theseus snooze wak_0199aaaa3f9a1c \"tomorrow 9:00\""
+        );
+    }
+
     #[test]
     fn a_wake_lists_its_due_time_session_and_note() {
         let w = base();
