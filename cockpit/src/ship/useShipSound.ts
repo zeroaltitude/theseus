@@ -109,7 +109,7 @@ function useSurf(on: boolean) {
     const next = gullRng((Date.now() ^ (Math.random() * 0x7fffffff)) >>> 0)
     const stop = startGulls(true, next, { after: (f, ms) => setTimeout(f, ms), cancel: (h) => clearTimeout(h as number) }, () => { a.gull(gullCall(next)) })
     // `?gull=now`: one visit three seconds after the sea is heard, to hear what a gull sounds like without waiting the
-    // first gap (2.5 to 7 minutes); the visits after it keep their own gaps (the owner, 2026-10-12).
+    // first gap (2 to 5 minutes); the visits after it keep their own gaps (the owner, 2026-10-12).
     const soon = new URLSearchParams(window.location.search).get('gull') === 'now'
       ? setTimeout(() => { a.gull(gullCall(next)) }, 3000) : null
     return () => { stop(); if (soon !== null) clearTimeout(soon); a.gullStop() }
