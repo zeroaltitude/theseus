@@ -762,6 +762,11 @@ async fn a_fork_costs_the_same_at_1_000_nodes_as_at_100_000() {
             bytes = f.bytes;
         }
         times.sort();
+        eprintln!(
+            "{n} forks: p50 {:?}, p95 {:?}",
+            times[n / 2],
+            times[n * 95 / 100]
+        );
         (reads, bytes, times[times.len() / 2])
     };
     // One real turn gives the session its compilation and execution; the
@@ -795,7 +800,7 @@ async fn a_fork_costs_the_same_at_1_000_nodes_as_at_100_000() {
         .1
         .id
         .clone();
-    let (reads_small, bytes_small, t_small) = measure(&r, &s, &small_at, 15);
+    let (reads_small, bytes_small, t_small) = measure(&r, &s, &small_at, 40);
     grow(&r, &s, 100_000);
     let big_at = r
         .core
@@ -807,7 +812,7 @@ async fn a_fork_costs_the_same_at_1_000_nodes_as_at_100_000() {
         .1
         .id
         .clone();
-    let (reads_big, bytes_big, t_big) = measure(&r, &s, &big_at, 15);
+    let (reads_big, bytes_big, t_big) = measure(&r, &s, &big_at, 40);
     eprintln!(
         "fork at 1,000 nodes: {t_small:?}, {reads_small} reads, {bytes_small} B; at 100,000: \
          {t_big:?}, {reads_big} reads, {bytes_big} B"
