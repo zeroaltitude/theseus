@@ -105,6 +105,8 @@ export interface SonarSite {
   play: (voice: PingVoice) => void
   /** The room (`room`); a test gives its own. */
   room?: Room
+  /** The first ping this many ms away instead of a gap (`?ping=now`); it waits for the room like any other. */
+  first?: number
 }
 
 /**
@@ -128,7 +130,7 @@ export function startSonar(s: SonarSite): () => void {
       arm(sonarGap(s.next) * 1000)
     }, ms)
   }
-  arm(sonarGap(s.next) * 1000)
+  arm(s.first ?? sonarGap(s.next) * 1000)
   return () => {
     live = false
     s.clock.cancel(handle)

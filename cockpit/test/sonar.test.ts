@@ -57,12 +57,12 @@ test('the ping: a bright sine of 1.2 to 1.6 kHz, a sharp attack, a long decay, a
   assert.ok(SONAR_GAIN < SURF_GAIN_ROLL, 'quieter than the waves')
 })
 
-function site(opts: { shown?: () => boolean; room?: Room } = {}) {
+function site(opts: { shown?: () => boolean; room?: Room; first?: number } = {}) {
   const c = fakeClock()
   const played: { at: number; v: PingVoice }[] = []
   const stop = startSonar({
     next: gullRng(1), clock: c.clock, now: c.now, shown: opts.shown ?? (() => true), room: opts.room ?? new Room(),
-    play: (v) => played.push({ at: c.now() / 1000, v }),
+    play: (v) => played.push({ at: c.now() / 1000, v }), first: opts.first,
   })
   return { c, played, stop }
 }
@@ -111,6 +111,26 @@ test('never with a gull: a ping that comes due in a gull’s pass waits for it, 
   assert.ok(room.wait(s.c.now()) > 0, 'the ping holds the room while it rings')
   assert.equal(room.claim(s.c.now() + 1000, 5000), false, 'so a gull is not heard with it')
   assert.ok(GULL_GAP_MIN_S >= 120)
+})
+
+test('`?ping=now` (`first`): the first ping three seconds in, then the normal gaps; it waits for a gull in the room, and a stop cancels it', () => {
+  const s = site({ first: 3000 })
+  assert.equal(s.c.fire(), 3000, 'the first ping three seconds in, not a gap away')
+  assert.equal(s.played.length, 1)
+  const next = s.c.fire()! - 3000
+  assert.ok(next >= SONAR_GAP_MIN_S * 1000 && next <= SONAR_GAP_MAX_S * 1000, `then a normal gap (${next} ms)`)
+  const room = new Room()
+  const busy = site({ first: 3000, room })
+  assert.equal(room.claim(0, 10_000), true, 'a gull in the air for ten seconds')
+  busy.c.fire()
+  assert.equal(busy.played.length, 0, 'due in the pass: not played, and not dropped')
+  busy.c.fire()
+  assert.equal(busy.played.length, 1)
+  assert.ok(busy.played[0].at * 1000 >= 10_000 + ROOM_PAD_MS, `after the pass and its pad (${busy.played[0].at} s)`)
+  const stopped = site({ first: 3000 })
+  stopped.stop()
+  assert.equal(stopped.c.pending(), 0, 'a stop cancels it')
+  assert.equal(stopped.c.fire(), null)
 })
 
 test('what a ping does: the ring in Live, the sound with Sound on, nothing in a hidden tab', () => {
@@ -205,4 +225,11 @@ test('Sound off: the page schedules and plays no sound (the ring alone), and the
   assert.match(hook, /soundOn: useSound\.getState\(\)\.on/)
   assert.match(hook, /useEffect\(\(\) => \{ if \(!on\) audio\?\.pingStop\(\) \}, \[on\]\)/)
   assert.match(readFileSync(new URL('../src/components/Shell.tsx', import.meta.url), 'utf8'), /useSonar\(onShip\)/)
+})
+
+test('the page: `?ping=now` goes through the scheduler, and `?gull=now` waits for a ping in the room', () => {
+  const hook = readFileSync(new URL('../src/ship/useShipSound.ts', import.meta.url), 'utf8')
+  assert.match(hook, /first: new URLSearchParams\(window\.location\.search\)\.get\('ping'\) === 'now' \? 3000 : undefined,/)
+  assert.match(hook, /const gullNow = \(\) => \{\s+const wait = room\.wait\(Date\.now\(\)\)\s+if \(wait > 0\) \{ soon = setTimeout\(gullNow, wait \+ ROOM_PAD_MS\); return \}\s+soon = null\s+visit\(\)/)
+  assert.match(hook, /startGulls\(true, next, \{[^\n]*\}, visit\)/, 'the scheduled visits and the one asked for claim the room alike')
 })

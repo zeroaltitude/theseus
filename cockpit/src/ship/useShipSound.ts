@@ -108,15 +108,23 @@ function useSurf(on: boolean) {
     if (!hearing) return
     const a = theAudio()
     const next = gullRng((Date.now() ^ (Math.random() * 0x7fffffff)) >>> 0)
-    const stop = startGulls(true, next, { after: (f, ms) => setTimeout(f, ms), cancel: (h) => clearTimeout(h as number) }, () => {
-      // One voice at a time: a visit that comes while a ping rings is let pass (the sonar waits for a gull, too).
+    // One voice at a time: a visit that comes while a ping rings is let pass (the sonar waits for a gull, too).
+    const visit = () => {
       const call = gullCall(next)
       if (room.claim(Date.now(), call.secs * 1000 + ROOM_PAD_MS)) a.gull(call)
-    })
+    }
+    const stop = startGulls(true, next, { after: (f, ms) => setTimeout(f, ms), cancel: (h) => clearTimeout(h as number) }, visit)
     // `?gull=now`: one visit three seconds after the sea is heard, to hear what a gull sounds like without waiting the
-    // first gap (2 to 5 minutes); the visits after it keep their own gaps (the owner, 2026-10-12).
-    const soon = new URLSearchParams(window.location.search).get('gull') === 'now'
-      ? setTimeout(() => { a.gull(gullCall(next)) }, 3000) : null
+    // first gap (2 to 5 minutes); the visits after it keep their own gaps (the owner, 2026-10-12). A ping in the room
+    // holds it until the ping and its pad are over, so `?gull=now&ping=now` plays one, then the other.
+    let soon: ReturnType<typeof setTimeout> | null = null
+    const gullNow = () => {
+      const wait = room.wait(Date.now())
+      if (wait > 0) { soon = setTimeout(gullNow, wait + ROOM_PAD_MS); return }
+      soon = null
+      visit()
+    }
+    if (new URLSearchParams(window.location.search).get('gull') === 'now') soon = setTimeout(gullNow, 3000)
     return () => { stop(); if (soon !== null) clearTimeout(soon); a.gullStop() }
   }, [hearing])
   // Dev and bench builds: what the sea plays now, for a live check.
@@ -142,6 +150,10 @@ export function useSonar(onShip: boolean) {
       clock: { after: (f, ms) => setTimeout(f, ms), cancel: (h) => clearTimeout(h as number) },
       now: Date.now,
       shown: () => typeof document === 'undefined' || !document.hidden,
+      // `?ping=now`: the first ping three seconds after the Ship opens (the ring, and the sound with Sound on), to see
+      // and hear one without waiting the first gap (3 to 8 minutes); it waits for the room as any ping does, and the
+      // pings after it keep their own gaps (the owner, 2026-10-12, as `?gull=now`).
+      first: new URLSearchParams(window.location.search).get('ping') === 'now' ? 3000 : undefined,
       play: (voice) => {
         const what = pingWhat({ soundOn: useSound.getState().on, calm: useCalm.getState().calm, hidden: typeof document !== 'undefined' && document.hidden })
         if (what.ring) showRing()

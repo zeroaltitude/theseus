@@ -128,6 +128,7 @@ test('the page: the gull is heard where the sea is heard, and its timers and nod
   const src = readFileSync(new URL('../src/ship/useShipSound.ts', import.meta.url), 'utf8')
   assert.match(src, /const hearing = on && !calm && swell/)
   assert.match(src, /if \(!hearing\) return\s+const a = theAudio\(\)[\s\S]*startGulls\(true[\s\S]*return \(\) => \{ stop\(\); if \(soon !== null\) clearTimeout\(soon\); a\.gullStop\(\) \}\s+\}, \[hearing\]\)/)
-  // `?gull=now` plays one visit three seconds in, and its timer is let go on cleanup too.
-  assert.match(src, /get\('gull'\) === 'now'\s+\? setTimeout\(\(\) => \{ a\.gull\(gullCall\(next\)\) \}, 3000\)/)
+  // `?gull=now` plays one visit three seconds in (through the room the sonar shares), and its timer is let go on
+  // cleanup too.
+  assert.match(src, /if \(new URLSearchParams\(window\.location\.search\)\.get\('gull'\) === 'now'\) soon = setTimeout\(gullNow, 3000\)/)
 })
