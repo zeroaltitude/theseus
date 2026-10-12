@@ -877,7 +877,7 @@ impl Store {
         // never read it.
         #[cfg(debug_assertions)]
         {
-            let stored = self.node_records(session_id)?;
+            let stored = self.transcript_records(session_id)?;
             let kept: Vec<(u64, &str)> = nodes.iter().map(|(p, n)| (*p, n.id.as_str())).collect();
             let stored: Vec<(u64, &str)> = stored
                 .iter()
@@ -922,11 +922,22 @@ impl Store {
         Ok(out)
     }
 
+    /// A session's transcript's records: its own, after the nodes it
+    /// inherits when it is a fork (theseus-2qzx, `fork`).
+    fn transcript_records(&self, session_id: &str) -> Result<Vec<Record>> {
+        let mut out = match crate::fork::origin_of(self, session_id)? {
+            Some(o) => crate::fork::prefix_records(self, &o)?,
+            None => Vec::new(),
+        };
+        out.extend(self.node_records(session_id)?);
+        Ok(out)
+    }
+
     /// A session's nodes as stubs (M6 step 33): what each record gives
     /// without a decode, its node decoded at a reader's first touch, or
     /// served by position from the heat cache when a reader decoded it before.
     fn scan_kept(&self, session_id: &str) -> Result<Transcript> {
-        self.node_records(session_id)?
+        self.transcript_records(session_id)?
             .into_iter()
             .map(|r| {
                 let p = r.position;
@@ -1337,7 +1348,7 @@ pub(crate) mod tests {
         let m: serde_json::Value =
             serde_json::from_slice(&std::fs::read(d.path().join("MANIFEST.json")).unwrap())
                 .unwrap();
-        assert_eq!(m["format"], 29, "the write moved it: {m}");
+        assert_eq!(m["format"], 30, "the write moved it: {m}");
         let store = Store::open(d.path()).unwrap();
         let into = store.scope_after("in:msg_first", 0).unwrap();
         assert_eq!(into.len(), 1);

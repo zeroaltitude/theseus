@@ -26,6 +26,7 @@ mod exec_list;
 mod explain;
 pub mod extend;
 pub mod features;
+pub mod fork;
 mod gate;
 mod hands;
 mod health;
@@ -80,6 +81,7 @@ pub use check::{CheckOverlap, CheckPiece, TaskCheck};
 pub use events::*;
 pub use exec_list::{ExecutionListParams, ExecutionListResult};
 pub use explain::*;
+pub use fork::{ForkOrigin, Inherits, ReachFork, SessionForkParams, SessionForkResult};
 pub use gate::*;
 pub use hands::*;
 pub use health::*;
@@ -160,6 +162,9 @@ pub mod method {
         SESSION_WATCH = "session.watch",
         SESSION_UNWATCH = "session.unwatch",
         SESSION_RECOMPILE = "session.recompile", SESSION_NUDGE = "session.nudge",
+        /// A new conversation from any moment of another, by reference
+        /// (theseus-2qzx, `fork::SessionForkParams`).
+        SESSION_FORK = "session.fork",
         CATALOG_LIST = "catalog.list", COMPILATION_LIST = "compilation.list", NODE_LIST = "node.list",
         /// Where a node went (theseus-n4m, step 12a): the contexts of its own
         /// session that held it, then its copies in other sessions over
@@ -2261,6 +2266,10 @@ pub struct NodeReachResult {
     pub position: u64,
     pub direct: ReachExposure,
     pub descendants: Vec<ReachDescendant>,
+    /// The forks that took it by reference (theseus-2qzx), generation by
+    /// generation; absent when none.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub forks: Vec<ReachFork>,
     pub totals: ReachTotals,
     /// The walk stopped short: a node at `max_generations` has copies of
     /// its own, or the walk reached its cap of copies.

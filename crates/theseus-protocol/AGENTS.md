@@ -84,6 +84,8 @@ Key modules: `lib.rs` (the `method`, `notify`, `error_code` tables), `events.rs`
   mention, a handle with no source left as text), and the wire types `Citation`, `DiscordSource`, `memory.cites`'s
   params and result. `TurnSubmitResult.cites` and `SessionHistoryResult.cites` carry the resolved sources; each is
   absent when empty.
+- `fork.rs` (theseus-2qzx): `session.fork`'s params and result, and the stored `ForkOrigin` (a session record's
+  `forked_from`), `Inherits` (a compilation's inherited run) and `ReachFork` (`node.reach`'s `forks`).
 - `ts.rs`: the TypeScript export.
 
 ## Invariants

@@ -18,13 +18,15 @@ use crate::approval::Refusal;
 use crate::session::SessionRecord;
 
 /// The methods routed here: the list, the owner's two acts, a person's
-/// first keystroke (theseus-tnky), and the stop nudge's switch (theseus-fh0u).
-pub(super) const OWN: [&str; 5] = [
+/// first keystroke (theseus-tnky), the stop nudge's switch (theseus-fh0u),
+/// and a fork (theseus-2qzx).
+pub(super) const OWN: [&str; 6] = [
     method::SESSION_LIST,
     method::SESSION_RETIRE,
     method::SESSION_REOPEN,
     method::SESSION_TYPING,
     method::SESSION_NUDGE,
+    method::SESSION_FORK,
 ];
 
 impl Core {
@@ -40,6 +42,7 @@ impl Core {
             method::SESSION_RETIRE => route(params, |p| self.rpc_session_retire(p, conn)),
             method::SESSION_TYPING => route(params, |p| Ok(self.session_typing(p, conn))),
             method::SESSION_NUDGE => route(params, |p| self.session_nudge(p)),
+            method::SESSION_FORK => route(params, |p| self.session_fork(p, conn.surface)),
             _ => route(params, |p| self.rpc_session_reopen(p, conn)),
         }
     }

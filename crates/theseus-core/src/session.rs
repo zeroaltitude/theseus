@@ -111,6 +111,13 @@ pub struct SessionRecord {
     /// records written before it (store format 28).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub dir: Option<String>,
+    /// The session this one was forked from (theseus-2qzx, `fork`): its
+    /// transcript begins with that session's nodes through the fork point,
+    /// by reference. Written once, by the frame that opens it. Absent in
+    /// every other record, and in records written before it (store format
+    /// 30). Boxed, as `routed`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub forked_from: Option<Box<theseus_protocol::ForkOrigin>>,
 }
 
 /// An image the provider refused (theseus-0s4).
@@ -305,6 +312,7 @@ impl SessionRecord {
             reopened_ms: None,
             title_was: Vec::new(),
             dir: None,
+            forked_from: None,
         }
     }
     /// What a turn writes into the stored record (theseus-xeo): the fields it

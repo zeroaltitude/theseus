@@ -81,7 +81,8 @@ pub const JUDGED: [&str; 7] = [
 /// Whether `Surface::Mcp` may call `name`: the tools' methods, and the
 /// owner's acts, which their judgment refuses.
 pub fn allowed(name: &str) -> bool {
-    ALLOWED.contains(&name) || JUDGED.contains(&name)
+    // A fork of a conversation it opened (`Core::fork_allowed` holds the rest).
+    ALLOWED.contains(&name) || JUDGED.contains(&name) || name == method::SESSION_FORK
 }
 
 /// The authority of a session an MCP client opens.

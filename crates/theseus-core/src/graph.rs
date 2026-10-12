@@ -73,6 +73,10 @@ vocabulary! {
         /// correction close enough to its top neighbour). `baseline`
         /// prefers the newer side.
         Supersedes = "supersedes",
+        /// `from`, a compilation, admits a run of the nodes of the session
+        /// `to` by reference (theseus-2qzx, `fork`): the reverse entry
+        /// `node.reach` reads, one for the whole run. Its `via` is `fork`.
+        Includes = "includes",
     }
 }
 
@@ -115,6 +119,9 @@ pub const VIA_MEMORY: &str = "memory";
 pub const VIA_GLIDE: &str = "glide";
 /// A synthesis, to each source it cites (M6 31b, consolidation).
 pub const VIA_SYNTHESIS: &str = "synthesis";
+/// A fork's first compilation, from the source's compilation that held the
+/// fork point (`derived_from`), and into the source's session (`includes`).
+pub const VIA_FORK: &str = "fork";
 
 impl Edge {
     pub fn new(kind: EdgeKind, from: &str, to: &str, via: &str) -> Self {

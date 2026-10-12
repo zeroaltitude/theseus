@@ -194,7 +194,7 @@ impl Core {
     /// `session.open` on `Surface::Mcp`: principal `mcp`, `[mcp_server]`'s
     /// floor as a ceiling, its spend limit, and the label the server gives
     /// (`mcp <client>`). Narrated as the client's.
-    pub(super) fn mcp_open(
+    pub(crate) fn mcp_open(
         &self,
         p: SessionOpenParams,
     ) -> Result<theseus_protocol::SessionInfo, RpcFailure> {
