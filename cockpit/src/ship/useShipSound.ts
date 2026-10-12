@@ -145,6 +145,8 @@ export function useSonar(onShip: boolean) {
         if (import.meta.env.DEV || import.meta.env.MODE === 'bench') ((window as unknown as { __shipPings?: number }).__shipPings = ((window as unknown as { __shipPings?: number }).__shipPings ?? 0) + 1)
       },
     })
+    // Dev and bench builds: a ping now, for a live check or a screenshot.
+    if (import.meta.env.DEV || import.meta.env.MODE === 'bench') (window as unknown as { __shipPing?: () => void }).__shipPing = () => { showRing() }
     return () => { stop(); hideRing(); a.pingStop() }
   }, [onShip])
 }

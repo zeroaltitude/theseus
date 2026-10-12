@@ -59,7 +59,7 @@ export function pingSecs(v: PingVoice): number {
 
 /** The ring: how long it takes to grow (s), when the second, fainter ring follows (s), its stroke (px; the same at any
  *  size), its first and last opacity, and its colour (the cockpit's live cyan, which reads on the dark sea). */
-export const RING = { secs: 2.2, trailAt: 0.45, trailOpacity: 0.4, stroke: 1.5, from: 0.7, color: 'var(--color-live)' } as const
+export const RING = { secs: 2.2, trailAt: 0.45, trailOpacity: 0.5, stroke: 2, from: 0.7, color: 'var(--color-live)' } as const
 
 /** The diameter that takes a ring from the middle to beyond the corners of a `w` by `h` box. */
 export const ringDiameter = (w: number, h: number): number => Math.ceil(Math.hypot(w, h)) + 2

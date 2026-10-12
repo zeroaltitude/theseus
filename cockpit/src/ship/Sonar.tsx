@@ -21,7 +21,7 @@ export function SonarRing() {
   )
   return (
     <div ref={box} key={id} data-sonar-ring className="sonar-box pointer-events-none absolute inset-0 overflow-hidden" aria-hidden>
-      {ring(0, 0.8)}
+      {ring(0, 0.95)}
       {ring(RING.trailAt, RING.trailOpacity)}
     </div>
   )
