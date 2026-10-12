@@ -1,4 +1,8 @@
-//! `[memory]` (M6 §2.14, step 30a): recall, off by default. `shadow` asks
+//! `[memory]` (M6 §2.14, step 30a): recall, live on `baseline` by default
+//! (theseus-is8t: the memory is what sets Theseus apart, so a fresh install
+//! has it; it needs no Jev, and with no index it answers nothing and costs
+//! nothing; the place rule keeps a shared place to its own sessions).
+//! `off` turns it off. `shadow` asks
 //! the index on a turn's first loop, filters and packs what it answers, and
 //! records what would have been admitted in a `recall.shadow` row: it writes
 //! no frame, and the model's request is the same byte for byte. `canary` and
@@ -15,7 +19,6 @@ use serde::{Deserialize, Serialize};
 #[serde(rename_all = "lowercase")]
 pub enum MemoryMode {
     /// No recall.
-    #[default]
     Off,
     /// Recall runs and is recorded, and nothing reaches the model.
     Shadow,
@@ -23,6 +26,7 @@ pub enum MemoryMode {
     /// run `none`, with `baseline` in shadow.
     Canary,
     /// Every session gets `arm` in front of the model.
+    #[default]
     Live,
 }
 
@@ -253,7 +257,7 @@ pub const MAX_RECALL_ITEMS: usize = 40;
 impl Default for MemoryConfig {
     fn default() -> Self {
         Self {
-            mode: MemoryMode::Off,
+            mode: MemoryMode::default(),
             arm: MemoryArm::default(),
             canary_fraction: default_canary_fraction(),
             experiment: default_experiment(),
@@ -418,19 +422,14 @@ pub fn bucket(session_id: &str, experiment: &str) -> f64 {
 }
 
 /// The template's `[memory]`, un-commented (`config.rs`'s
-/// `example_template_uncommented_still_parses`): shadow, with §2.4's
-/// defaults, and as written, with its lines commented, off.
+/// `example_template_uncommented_still_parses`): live, with §2.4's
+/// defaults, which is what it says as written, with its lines commented
+/// (theseus-is8t).
 #[cfg(test)]
 pub(crate) fn the_templates_memory_section(m: &MemoryConfig) {
-    assert_eq!(m.mode, MemoryMode::Shadow);
-    assert_eq!(
-        MemoryConfig {
-            mode: MemoryMode::Off,
-            ..m.clone()
-        },
-        MemoryConfig::default()
-    );
-    assert!(!crate::Config::example().memory.on());
+    assert_eq!(m.mode, MemoryMode::Live);
+    assert_eq!(*m, MemoryConfig::default());
+    assert_eq!(crate::Config::example().memory, MemoryConfig::default());
 }
 
 #[cfg(test)]
@@ -442,11 +441,17 @@ mod tests {
         Ok(crate::Config::from_toml(&format!("{base}\n{toml}"))?)
     }
 
-    /// Off by default; shadow, canary, and live turn it on; the limits are
-    /// checked.
+    /// Live on `baseline` by default (theseus-is8t); `off` turns it off,
+    /// and shadow, canary, and live each turn it on; the limits are checked.
     #[test]
-    fn memory_is_off_by_default_and_its_modes_turn_it_on() {
-        assert!(!crate::Config::example().memory.on());
+    fn memory_is_live_by_default_and_off_turns_it_off() {
+        let example = crate::Config::example().memory;
+        assert!(example.on());
+        assert_eq!(
+            (example.mode, example.arm),
+            (MemoryMode::Live, MemoryArm::Baseline)
+        );
+        assert!(!parse("[memory]\nmode = \"off\"\n").unwrap().memory.on());
         for mode in ["shadow", "canary", "live"] {
             let cfg = parse(&format!("[memory]\nmode = \"{mode}\"\n")).unwrap();
             assert!(cfg.memory.on(), "{mode}");

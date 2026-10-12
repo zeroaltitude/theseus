@@ -81,6 +81,10 @@ fn world(script: Vec<Scripted>, tweak: impl FnOnce(&mut Config)) -> World {
     cfg.policy.enforcement = Posture::Notify;
     cfg.policy.tools.insert("fs.write".into(), Posture::Approve);
     cfg.tools.proc_sync_secs = 1;
+    // The golden is the fact channels' shapes with the turn's own rows;
+    // recall, on by default (theseus-is8t), has its own tests, and its
+    // rows and ids would move every line of this one.
+    cfg.memory.mode = crate::config::MemoryMode::Off;
     tweak(&mut cfg);
     let store = Store::open(&dir.path().join("store")).unwrap();
     let fake = Arc::new(FakeProvider::scripted(script));

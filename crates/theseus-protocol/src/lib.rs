@@ -24,6 +24,7 @@ mod events;
 mod exec_list;
 mod explain;
 pub mod extend;
+pub mod features;
 mod gate;
 mod hands;
 mod health;
@@ -690,6 +691,10 @@ pub struct HealthResult {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub cache: Option<PromptCacheHealth>,
+    /// Which killer features are on (theseus-is8t): health's first line.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub features: Option<features::Features>,
 }
 
 /// The AWS accounts the config binds (`[aws.accounts.<id>]`).

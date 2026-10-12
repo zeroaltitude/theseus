@@ -672,6 +672,21 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     then `mode_for` that version (capped by the root's config line). A move is `Core::promote_learned` (26a's act,
     citing the proposal). The writer's output is capped (`WRITER_MAX_TOKENS`): the profile's own cap reserves past
     the day's limit. Tests: `tests_learn_loop.rs`, `theseus_judge::propose::tests`.
+- **A fresh install's defaults** (theseus-is8t): `[memory] mode` defaults to `live` on the `baseline` arm (the memory
+  is what sets Theseus apart, and the arm needs no Jev; with no index a recall answers nothing, `unavailable`, and costs
+  nothing; a shared place still draws on its own sessions alone), and `[judge] enabled`, left out, follows the Jev key
+  (`JudgeConfig::resolve`, run as the config loads: `enabled_setting` is the config's word, `enabled` what acts,
+  `auto_why` the reason; neither of the last two is in a note, so a config that says nothing stays sparse). Auto is on
+  when `key_secret` names an entry that can resolve: an `env:` variable that is set, a `file:` that reads, or an
+  `op://` reference that is not a placeholder (the vault is never asked at the start: a reference it cannot answer
+  leaves the judge on with its key unresolved, as `enabled = true` does); off with no entry, an unset variable, an
+  unreadable file or a placeholder. `enabled = false` is off whatever the key, `true` with no entry still refuses to
+  load. `features.rs` words health's first line (`HealthResult.features`: memory, Jev with routing live or shadow or
+  off and why, the scrub, the daily ceiling), which `theseusd check` prints too. Memory on also means the memory pass
+  after each turn and the nightly consolidation (`synth_limit_usd_per_day`, read only by `+synthesis`). Tests:
+  `config/tests_fresh.rs`, `tests_fresh_recall.rs`, `features::tests`. A test that counts Jev's calls, frames or
+  transcript reads sets `memory.mode = Off` (the judge rigs do), and a daemon test's `safe_note` sets
+  `[judge] enabled = false`, so no test daemon turns the judge on from a stand-in key.
 - **Recall** (M6 step 30a, in shadow): `recall.rs` (`Memory`: `[memory]`, the science, and who answers the index's
   query, the tender or a test's stand-in, `Memory::set_ask`; the manifest; `TurnRunner::place_of`, the place rule
   read as `class_of` reads it), `turn/recall_step.rs` (begun as the first loop's model call goes out, read once it

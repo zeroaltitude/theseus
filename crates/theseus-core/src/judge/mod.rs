@@ -836,6 +836,7 @@ impl JudgeService {
         let notices = self.notices_state();
         JudgeHealth {
             enabled: self.cfg.enabled,
+            why: self.cfg.off_why(),
             max_mode: self.cfg.max_mode.as_str().into(),
             packs: self.pack_lines(),
             breaker,

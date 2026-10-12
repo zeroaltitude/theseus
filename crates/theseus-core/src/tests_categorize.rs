@@ -315,6 +315,9 @@ fn rig_topics(
     cfg.tools.roots = vec![];
     cfg.places.owner = Some(vec![format!("discord:{OWNER}")]);
     if let Some(j) = jev {
+        // Recall (on by default, theseus-is8t) brings its own judgments and
+        // frames: these tests count the categorizer's alone.
+        cfg.memory.mode = crate::config::MemoryMode::Off;
         cfg.judge.enabled = true;
         cfg.judge.api_base = j.base();
         cfg.judge.connect_secs = 1;

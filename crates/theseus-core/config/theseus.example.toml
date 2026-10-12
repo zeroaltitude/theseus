@@ -769,7 +769,11 @@ idle_unload_mins = 10.0                   # the model unloads after this long un
 # Recall (M6 step 30a): on a turn's first loop, ask the index what past nodes
 # bear on what the turn brings, filter them (the place rule first: a shared
 # place draws only on its own sessions, a private place only on private ones),
-# and pack what would be admitted. Off by default. In shadow, each recall is a
+# and pack what would be admitted. On by default (theseus-is8t): mode "live"
+# on the baseline arm, which needs no Jev. With no index built, a recall
+# answers nothing and costs nothing, and it never holds a turn past
+# recall_deadline_ms. mode = "off" turns it off, and a config that sets mode
+# keeps its value. In shadow, each recall is a
 # recall.shadow row, a span, and a narrative line, and nothing reaches the
 # model: its request is the same byte for byte. See it with
 # `theseus memory recalled <session>` and `theseus memory search "<query>"`.
@@ -780,7 +784,7 @@ idle_unload_mins = 10.0                   # the model unloads after this long un
 # recall.ran row, and a "🧠 N recalled" footer on Discord. Label a node
 # with `theseus memory label <node> wrong` to keep it out.
 # [memory]
-# mode = "shadow"                         # off (the default) | shadow | canary | live
+# mode = "live"                           # live (the default) | canary | shadow | off
 # arm = "baseline"                        # the arm canary and live sessions get: none | bm25 | baseline | +retention (FSRS-6 in the rank) | +activation (spreading activation as one more ranked source; its adjacency projection is built after serving) | +synthesis (consolidation's checked syntheses as candidates)
 # canary_fraction = 0.5                   # canary: the share of sessions on the arm, sticky by a hash of session and experiment; the rest run none, with baseline in shadow
 # experiment = "m6-1"                     # names the plan; seeds each session's arm
@@ -968,7 +972,7 @@ output_mb = 64                          # the largest file an L1 job may write; 
 
 # ---------------------------------------------------------------- judge
 # Jev's judgments (M5): typed questions about the session's work, asked of
-# TypeSafe's Jev. Off by default. On, every pack this build wires in judges in
+# TypeSafe's Jev. On when the Jev key resolves, off without it (below). On, every pack this build wires in judges in
 # shadow but three: each judgment is made, priced, and recorded in the ledger, and
 # nothing acts on one but the route pack's model and effort for a message ([routing], below), rerank.v1's
 # order of a recall in front of the model, and security.v3's notices (below). A judgment sends its state (your messages, the assistant's final
@@ -1000,8 +1004,18 @@ output_mb = 64                          # the largest file an L1 job may write; 
 # used.
 # `theseus judge log` lists the judgments, and health's judge: line counts
 # them and their spend.
+#
+# On when the Jev key resolves (theseus-is8t): with no `enabled` line, the
+# judge is on exactly when the key_secret entry under [secrets] resolves at
+# the start (an env: variable that is set, a file: that reads, or an op://
+# reference, which the vault answers after serving), and off without it:
+# no entry, an unset variable, or a placeholder. `theseusd check` and health
+# say which and why. `enabled = false` turns it off whatever the key; `true`
+# with no entry refuses to start. Each pack keeps its own mode: routing and
+# rerank act (and security.v3's notices, as above), and every other pack
+# judges in shadow unless a pack line below says otherwise.
 [judge]
-enabled = false                         # true sends judgments to Jev; needs the key_secret entry under [secrets]
+# enabled = false                       # unset: on when the key resolves, off without it; false: off; true: on, and the key_secret entry must exist
 key_secret = "jev_api_key"              # the [secrets] entry holding the Jev key, read after serving
 max_mode = "live"                       # a ceiling on every pack: "shadow" acts on nothing, "off" calls nothing
 shadow_limit_usd_per_day = 1.0          # what shadow judgments may spend in a local day; at it, shadow pauses until midnight

@@ -68,6 +68,8 @@ fn marks(trace: &Option<Span>) -> Vec<Value> {
 /// call is the only one; and `route.v1` (25e) off, so these are 25a's two
 /// packs alone (`tests_route` asks all three).
 pub(crate) fn inbound_only(c: &mut crate::Config) {
+    // Recall (on by default) brings its own judgments (theseus-is8t).
+    c.memory.mode = crate::config::MemoryMode::Off;
     c.judge
         .packs
         .insert(crate::judge::inbound::ROUTE_PACK.into(), off());

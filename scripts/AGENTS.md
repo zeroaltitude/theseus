@@ -450,6 +450,15 @@ to `~/.cache/theseus/flaky.csv` (time, label, test, attempt; `$THESEUS_FLAKY_LOG
   (`theseusd install --user --check`), is active, and answers; it restarts when a binary changed; else it runs
   `user-service.sh install --yes`.
 - **`--unit NAME` needs `--state-dir` and `--socket`** (a usage error without them), for the same reason as above.
+- **The Jev key's question** (theseus-is8t). A new config is written after one question, asked on a terminal and
+  without `--yes` only: the key's reference, `op://<vault>/<item>/<field>` or `env:NAME` (`jev_reference_ok`; anything
+  else, a key typed by mistake included, is refused and asked again, three times, then taken as a skip), written into
+  `[secrets]`'s `jev_api_key`. An empty answer removes the entry (so the judge, which follows its key, stays off, and
+  the run says so); with no question the placeholder stays. `--jev-key REF|skip` answers it in advance; the value is
+  never on the command line or in the config. Its tests drive a pty from `python3` (`run_on_a_terminal` in
+  `crates/theseusd/tests/setup_script.rs`), and like the others they skip as root or without cgroup v2: to run
+  them on a root VM, run the test binary as `nobody` (`setpriv`) with the preflight's cgroup line bypassed in a scratch
+  copy of the script, never in the tree.
 - **Exit status 3** is a stop for the operator (placeholders in `[secrets]`, or no token file), not a failure: an agent
   running it reads the last lines.
 - **Its proof** is a scratch run: `--prefix`, `--config`, `--state-dir`, and `--socket` under one `/tmp` directory,

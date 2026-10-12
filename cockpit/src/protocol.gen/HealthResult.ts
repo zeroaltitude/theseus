@@ -12,6 +12,7 @@ import type { DiskStatus } from "./DiskStatus";
 import type { EarnedGrant } from "./EarnedGrant";
 import type { ExtendHealth } from "./ExtendHealth";
 import type { ExternalTextInfo } from "./ExternalTextInfo";
+import type { Features } from "./Features";
 import type { GrantStatus } from "./GrantStatus";
 import type { HarnessOnly } from "./HarnessOnly";
 import type { HealthImported } from "./HealthImported";
@@ -251,4 +252,8 @@ warm?: WarmHealth,
 /**
  * The prompt cache: each profile's TTL, and the keep-warm (theseus-ezeg).
  */
-cache?: PromptCacheHealth, };
+cache?: PromptCacheHealth, 
+/**
+ * Which killer features are on (theseus-is8t): health's first line.
+ */
+features?: Features, };
