@@ -47,6 +47,7 @@ mod store;
 mod task_graph;
 mod tasks;
 pub mod time;
+mod wakes;
 mod warm;
 mod web;
 pub use aws::{aws_call_line, aws_lines, bootstrap_lines};
@@ -73,6 +74,7 @@ pub use store::{crash_line, node_cache_line, store_lines, store_reads_line};
 pub use task_graph::{task_tree_lines, tree_line};
 pub use tasks::{task_check, task_pieces};
 pub use time::{fmt_date, fmt_time};
+pub use wakes::{wake_line, wakes_line};
 
 /// What a line is, as the CLI's marks have always told one from another. The
 /// CLI prints a line's text alone, so a tag changes nothing it prints; the
@@ -1257,56 +1259,6 @@ pub fn until_due(due_ms: u64, now_ms: u64) -> String {
     }
 }
 
-/// One pending wake, as `theseus wakes` lists it (DD8): its short id, when
-/// it is due, how often (`once`, or a series' span and the occurrence due,
-/// `every 1d #4`; 37a), its session, or the task that set it (`task a1b2c3`;
-/// 37b), and its state, and its note's first line.
-pub fn wake_line(w: &theseus_protocol::WakeInfo, now_ms: u64) -> String {
-    let note = w.note.lines().next().unwrap_or_default();
-    let note: String = note.chars().take(100).collect();
-    let whose = match &w.task {
-        Some(t) => format!("task {t}"),
-        None => format!("session {}", w.session_id),
-    };
-    let every = match (&w.every, w.occurrence) {
-        (Some(e), Some(n)) => format!("every {e} #{n}"),
-        (Some(e), None) => format!("every {e}"),
-        (None, _) => "once".into(),
-    };
-    format!(
-        "{}\t{} ({})\t{every}\t{whose} ({}){}\t{note}",
-        w.short,
-        w.due_local,
-        until_due(w.due_at_ms, now_ms),
-        w.state,
-        w.target
-            .as_deref()
-            .map(|t| format!(" → {t}"))
-            .unwrap_or_default()
-    )
-}
-
-/// `wakes: 2 pending · next 3f9a1c 2026-09-30 13:15:00 -07:00 (in 9m): check
-/// the build`, or nothing when none is pending.
-pub fn wakes_line(wakes: &[theseus_protocol::WakeInfo], now_ms: u64) -> Option<String> {
-    let next = wakes.iter().min_by_key(|w| w.due_at_ms)?;
-    let note: String = next
-        .note
-        .lines()
-        .next()
-        .unwrap_or_default()
-        .chars()
-        .take(60)
-        .collect();
-    Some(format!(
-        "wakes: {} pending · next {} {} ({}): {note} · theseus wakes, theseus cancel <id>",
-        wakes.len(),
-        next.short,
-        next.due_local,
-        until_due(next.due_at_ms, now_ms)
-    ))
-}
-
 /// Where a node went, as `theseus reach` prints it (theseus-n4m, step 12a):
 /// its reach in a line, `seen by 3 contexts in 2 sessions`, with the first
 /// and last exposure of the node and its copies; then the node and each
@@ -2200,65 +2152,6 @@ mod tests {
         assert_eq!(line.tag, Tag::Level(Level::Working));
         assert_eq!(glyph(Level::NeedsYou), '●');
         assert_eq!(glyph(Level::Idle), '·');
-    }
-
-    #[test]
-    fn a_wake_lists_its_due_time_session_and_note() {
-        let w = theseus_protocol::WakeInfo {
-            wake_id: "wak_0199aaaa3f9a1c".into(),
-            short: "3f9a1c".into(),
-            session_id: "ses_1".into(),
-            execution_id: "exe_1".into(),
-            session_title: None,
-            task: None,
-            due_at_ms: 1_000_000 + 540_000,
-            due_local: "2026-09-30 13:15:00 -07:00".into(),
-            note: "check the build\nand the tests".into(),
-            set_at_ms: 1_000_000,
-            target: Some("discord:dm:42".into()),
-            state: "waiting".into(),
-            every: None,
-            occurrence: None,
-            next: None,
-        };
-        assert_eq!(
-            wake_line(&w, 1_000_000),
-            "3f9a1c\t2026-09-30 13:15:00 -07:00 (in 9m)\tonce\tsession ses_1 (waiting) → \
-             discord:dm:42\tcheck the build"
-        );
-        let daily = theseus_protocol::WakeInfo {
-            every: Some("1d".into()),
-            occurrence: Some(4),
-            next: Some("13:15 Wed".into()),
-            ..w.clone()
-        };
-        assert_eq!(
-            wake_line(&daily, 1_000_000),
-            "3f9a1c\t2026-09-30 13:15:00 -07:00 (in 9m)\tevery 1d #4\tsession ses_1 (waiting) → \
-             discord:dm:42\tcheck the build"
-        );
-        // A task's wake names the task (37b).
-        let tasks = theseus_protocol::WakeInfo {
-            task: Some("a1b2c3".into()),
-            ..w.clone()
-        };
-        assert_eq!(
-            wake_line(&tasks, 1_000_000),
-            "3f9a1c\t2026-09-30 13:15:00 -07:00 (in 9m)\tonce\ttask a1b2c3 (waiting) → \
-             discord:dm:42\tcheck the build"
-        );
-        assert_eq!(until_due(1_000, 181_000), "due 3m ago");
-        assert_eq!(wakes_line(&[], 0), None);
-        let later = theseus_protocol::WakeInfo {
-            short: "b4f566".into(),
-            due_at_ms: w.due_at_ms + 3_600_000,
-            ..w.clone()
-        };
-        assert_eq!(
-            wakes_line(&[later, w], 1_000_000).unwrap(),
-            "wakes: 2 pending · next 3f9a1c 2026-09-30 13:15:00 -07:00 (in 9m): check the build · \
-             theseus wakes, theseus cancel <id>"
-        );
     }
 
     /// `theseus health`'s context line (theseus-c48).

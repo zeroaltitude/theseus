@@ -352,6 +352,8 @@ facts![
     task_graph::TaskClaimed<'static>,
     task_graph::TaskLeaseExpired<'static>,
     tool::WakeSet<'static>,
+    tool::WakeCancelled<'static>,
+    tool::WakeMoved<'static>,
     answer::CallAnswered<'static>,
     answer::WokenByAnswer,
     answer::BudgetAnswered<'static>,

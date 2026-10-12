@@ -99,7 +99,8 @@ Key modules: `kernel.rs`, `tx.rs`, `locks.rs`, `job.rs`, `cgroup.rs`, `children.
   Tests: `tests_day_ceiling.rs`.
 - `spool.rs` (completions on disk, one sync each: a start finishes a rename a crash cut short, and takes a
   completion its action settled already as a no-op, theseus-yxiv), `redact.rs` (granted secrets withheld from a
-  job's output), `stops.rs` (the soft stop), `tasks.rs` (task executions and their carve), `wakes.rs`, `repeat.rs` (a repeating wake's series:
+  job's output), `stops.rs` (the soft stop), `tasks.rs` (task executions and their carve), `wakes.rs` (and since theseus-lherl `move_wake`, one frame with a `wake.moved` row, and `take_wakes_listing`, the take
+  and what is still pending from one read), `repeat.rs` (a repeating wake's series:
   its span, days, and `until`, by jiff's zoned arithmetic in `KernelConfig::zone`; 37a), `gate.rs` (a confirmation's proposal and its
   digest), `clock.rs`, and `umask.rs`.
 

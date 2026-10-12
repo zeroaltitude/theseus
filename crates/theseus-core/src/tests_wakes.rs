@@ -73,9 +73,12 @@ impl Provider for Model {
 fn text_of(m: &Value) -> String {
     match &m["content"] {
         Value::String(s) => s.clone(),
+        // The pending-wakes block is the harness's, not the person's words
+        // (theseus-lherl).
         Value::Array(b) => b
             .iter()
             .filter_map(|b| b["text"].as_str())
+            .filter(|t| !crate::task_graph::view::is_head(t))
             .collect::<Vec<_>>()
             .join("\n"),
         _ => String::new(),

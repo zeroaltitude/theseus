@@ -151,7 +151,8 @@ fn example_template_uncommented_still_parses() {
     assert_eq!(cfg.policy.tools["aws.stack.apply"], Posture::Approve);
     assert_eq!(cfg.policy.tools["extend.propose"], Posture::Notify);
     assert_eq!(cfg.policy.tools["channel.post"], Posture::Notify);
-    assert_eq!(cfg.policy.tools.len(), 53);
+    // The two lines the model's wake.move and wake.cancel joined with (theseus-lherl).
+    assert_eq!(cfg.policy.tools.len(), 55);
     // The AWS account's table, and [policy.aws]'s lines (rows 29 and 30, C1 and C2).
     let a = &cfg.aws.accounts["111122223333"];
     assert_eq!(a.credentials, AwsCredentialNames::default());

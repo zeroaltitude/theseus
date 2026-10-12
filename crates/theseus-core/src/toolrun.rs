@@ -135,6 +135,10 @@ pub struct TurnCtx<'a> {
     /// The session's directory, as its client sent it (theseus-aab7):
     /// where its calls work (`ToolRuntime::ctx_in`). None: `[tools] cwd`.
     pub dir: Option<&'a str>,
+    /// The conversation's pending wakes as the turn last knew them: what its
+    /// requests' commitments block shows (theseus-lherl), set by the turn's
+    /// read of its wakes and by each wake tool's frame.
+    pub commitments: &'a crate::commitments::Pending,
 }
 
 impl TurnCtx<'_> {
@@ -1504,6 +1508,8 @@ impl ToolRuntime {
                     .map(|c| edit.take(c))
             }
             crate::wake::AT => crate::wake::set(tc, &call.input, correlation_id),
+            crate::wake_tools::CANCEL => crate::wake_tools::cancel(tc, &call.input),
+            crate::wake_tools::MOVE => crate::wake_tools::move_to(tc, &call.input),
             // Run again after a restart: what the first run proposed.
             crate::extend::PROPOSE => crate::extend::proposed_by_call(tc, correlation_id),
             name if crate::task_graph::tools::is_edit(name) => {
@@ -2218,6 +2224,8 @@ pub fn build_runtime(
         r.register(Arc::new(crate::task_graph::tools::TaskClose));
         r.register(Arc::new(crate::task_graph::lease::TaskClaimTool));
         r.register(Arc::new(crate::wake::WakeAt));
+        r.register(Arc::new(crate::wake_tools::WakeCancel));
+        r.register(Arc::new(crate::wake_tools::WakeMove));
         r.register(Arc::new(crate::extend::Propose));
         r.register(Arc::new(crate::glide::ChannelPost));
         r.register(Arc::new(crate::glide::ChannelRead));

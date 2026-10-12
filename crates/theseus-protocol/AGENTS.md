@@ -63,6 +63,8 @@ Key modules: `lib.rs` (the `method`, `notify`, `error_code` tables), `events.rs`
   name becomes a `LedgerKind` on the commit that first writes it (the reader rule), and every such row's data
   carries `what`, `why`, `numbers` and `undo`. `SelfState` is also health's `self_improve` (health's `self` line);
   `BinaryStatus` moved to `health.rs` to make room in lib.rs.
+- `wakes.rs` (theseus-lherl): `WakeInfo`, moved out of lib.rs and re-exported (the bytes are unchanged; `days`,
+  `until_ms` and `title` are optional). `tests/wakes.rs` holds its bytes.
 - `ts.rs`: the TypeScript export.
 
 ## Invariants

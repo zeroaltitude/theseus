@@ -24,7 +24,9 @@ use theseus_protocol::{ConfirmRequest, Event, TurnSubmitResult};
 mod board;
 mod held;
 pub(crate) mod process;
+mod wakes;
 pub use board::{board, tasks_here, BOARD_HEAD, BOARD_KEY};
+pub use wakes::wakes;
 
 /// Discord's limit is 2000 characters; parts stay under it with room for a fence repair.
 pub const PART_LIMIT: usize = 1900;
@@ -801,46 +803,6 @@ pub fn wake_header(parts: &mut [(String, String)], wakes: &[String]) {
             *first = format!("{head}\n{first}");
         }
     }
-}
-
-/// This place's pending wakes (DD8), as `/wakes` lists them: the soonest
-/// ten, each with its time in the reader's own zone and its note. A series
-/// says its span before its next time: `🔁 every 1d · next 21:00` (37a).
-pub fn wakes(wakes: &[theseus_protocol::WakeInfo]) -> String {
-    if wakes.is_empty() {
-        return "No wakes pending here. Ask for one: \"remind me in 10 minutes to …\".".into();
-    }
-    let mut lines = vec![format!("**Wakes here** ({})", wakes.len())];
-    for w in wakes.iter().take(10) {
-        let at = w.due_at_ms / 1000;
-        let note = w.note.lines().next().unwrap_or_default();
-        let busy = match w.state.as_str() {
-            "running" | "queued" => " · runs when the current turn ends",
-            _ => "",
-        };
-        let series = w
-            .every
-            .as_deref()
-            .map_or(String::new(), |e| format!("🔁 every {e} · next "));
-        // A task's wake names the task (37b).
-        let task = w
-            .task
-            .as_deref()
-            .map_or(String::new(), |t| format!(" · task `{t}`"));
-        lines.push(format!(
-            "• `{}` {series}<t:{at}:t> (<t:{at}:R>){task}{busy} · {}",
-            w.short,
-            clip(note, 120)
-        ));
-    }
-    if wakes.len() > 10 {
-        lines.push(format!(
-            "-# and {} later; `theseus wakes` lists them all",
-            wakes.len() - 10
-        ));
-    }
-    lines.push("-# `/cancel <id>` cancels one.".into());
-    lines.join("\n")
 }
 
 /// A card's text for the route it takes: `elsewhere` is where else it can be
@@ -2805,50 +2767,6 @@ mod tests {
              -# `/cancel <task>` stops one."
         );
         assert!(tasks(&[], 0).starts_with("No tasks here yet"));
-    }
-
-    /// `/wakes` (DD8): each wake by its short id, its time in the reader's
-    /// zone, and its note's first line; one waiting for a busy turn says so.
-    #[test]
-    fn slash_wakes_lists_each_with_its_time_and_note() {
-        let w = |short: &str, state: &str| theseus_protocol::WakeInfo {
-            short: short.into(),
-            due_at_ms: 1_790_798_700_000,
-            note: "check the build\nthen the tests".into(),
-            state: state.into(),
-            ..Default::default()
-        };
-        assert_eq!(
-            wakes(&[w("3f9a1c", "waiting"), w("b4f566", "running")]),
-            "**Wakes here** (2)\n\
-             • `3f9a1c` <t:1790798700:t> (<t:1790798700:R>) · check the build\n\
-             • `b4f566` <t:1790798700:t> (<t:1790798700:R>) · runs when the current turn ends · \
-             check the build\n\
-             -# `/cancel <id>` cancels one."
-        );
-        assert!(wakes(&[]).starts_with("No wakes pending here"));
-        let daily = theseus_protocol::WakeInfo {
-            every: Some("1d".into()),
-            occurrence: Some(4),
-            next: Some("21:00 Thu".into()),
-            ..w("c5d6e7", "waiting")
-        };
-        assert_eq!(
-            wakes(&[daily]),
-            "**Wakes here** (1)\n\
-             • `c5d6e7` 🔁 every 1d · next <t:1790798700:t> (<t:1790798700:R>) · check the build\n\
-             -# `/cancel <id>` cancels one."
-        );
-        let tasks = theseus_protocol::WakeInfo {
-            task: Some("a1b2c3".into()),
-            ..w("d7e8f9", "waiting")
-        };
-        assert_eq!(
-            wakes(&[tasks]),
-            "**Wakes here** (1)\n\
-             • `d7e8f9` <t:1790798700:t> (<t:1790798700:R>) · task `a1b2c3` · check the build\n\
-             -# `/cancel <id>` cancels one."
-        );
     }
 
     /// A wake's turn's reply opens with the wake's line, on its first part;

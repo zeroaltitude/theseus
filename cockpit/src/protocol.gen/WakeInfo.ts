@@ -48,4 +48,18 @@ occurrence?: number,
  * When a series' next occurrence is due, as people read it on the
  * daemon's clock (`21:00 Thu`).
  */
-next?: string, };
+next?: string, 
+/**
+ * A daily series' weekdays (`mon`, `fri`), when it is limited to some;
+ * none for any other wake.
+ */
+days?: Array<string>, 
+/**
+ * When a series ends: no occurrence after it (Unix ms).
+ */
+until_ms?: number, 
+/**
+ * The note's first line, clipped: what people call the wake
+ * (theseus-lherl).
+ */
+title?: string, };

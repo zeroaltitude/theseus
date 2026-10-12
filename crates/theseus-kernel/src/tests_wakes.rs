@@ -454,3 +454,266 @@ fn a_question_answered_while_its_turn_runs_queues_the_turns_end() {
     assert_eq!((end.state, end.wake), (ExecState::Waiting, Some(wake)));
     assert_eq!(exec(&w, &e.id).state, ExecState::Waiting);
 }
+
+/// A conversation with a one-shot wake and a series (every day, Mondays and
+/// Fridays, until 40 days on), set in one turn that is still running.
+struct Moves {
+    w: World,
+    e: Execution,
+    g: TurnGuard,
+    now: u64,
+    one: crate::wakes::WakeSet,
+    ser: crate::wakes::WakeSet,
+    rule: crate::repeat::Repeat,
+}
+
+const HOUR: u64 = 3_600_000;
+
+fn moves() -> Moves {
+    use crate::repeat::{Day, Every, Repeat};
+
+    let w = world();
+    let (_, e, g) = running(&w);
+    let now = w.kernel.now_ms();
+    let rule = Repeat {
+        every: Every::parse("1d").unwrap(),
+        first_ms: now + HOUR,
+        days: vec![Day::Mon, Day::Fri],
+        until_ms: Some(now + 40 * 24 * HOUR),
+    };
+    let set = |at: u64, note: &str, repeat: Option<Repeat>| {
+        w.kernel
+            .set_wake(&g, &new_id("act"), at, note, None, repeat)
+            .unwrap()
+    };
+    let one = set(now + 2 * HOUR, "check PR 123", None);
+    let ser = set(now + HOUR, "evening haiku", Some(rule.clone()));
+    assert_eq!(ser.list.len(), 2, "set hands back the list it left");
+    Moves {
+        w,
+        e,
+        g,
+        now,
+        one,
+        ser,
+        rule,
+    }
+}
+
+/// `move_wake` (theseus-lherl): the wake keeps its id and note, and the move
+/// is one frame, the execution's record and one `wake.moved` row with the
+/// times it moved between; a wake not pending writes nothing.
+#[test]
+fn a_move_keeps_the_id_in_one_frame() {
+    use std::sync::{Arc, Mutex};
+
+    use crate::wakes::MoveTo;
+
+    let Moves {
+        w,
+        e,
+        g,
+        now,
+        one,
+        ser,
+        rule,
+    } = moves();
+    let seen: Arc<Mutex<Vec<Vec<u16>>>> = Arc::default();
+    let into = seen.clone();
+    assert!(w.kernel.observe(Arc::new(move |c: Committed<'_>| {
+        into.lock()
+            .unwrap()
+            .push(c.records.iter().map(|r| r.kind).collect());
+    })));
+    let moved = w
+        .kernel
+        .move_wake(
+            &g,
+            &one.wake.id,
+            MoveTo {
+                due_at_ms: now + 3 * HOUR,
+                repeat: None,
+            },
+            "model",
+        )
+        .unwrap()
+        .expect("it was pending");
+    assert_eq!(moved.wake.id, one.wake.id, "the same id");
+    assert_eq!(
+        (moved.from.due_at_ms, moved.wake.due_at_ms),
+        (now + 2 * HOUR, now + 3 * HOUR)
+    );
+    assert_eq!(moved.wake.note, "check PR 123");
+    assert_eq!(seen.lock().unwrap().len(), 1, "one frame");
+    assert_eq!(
+        seen.lock().unwrap()[0].len(),
+        2,
+        "the execution and the row"
+    );
+    let row = rows(&w, &e.session_id, "wake.moved");
+    assert_eq!(row.len(), 1);
+    assert_eq!(
+        (
+            row[0]["from"].as_u64(),
+            row[0]["to"].as_u64(),
+            row[0]["by"].as_str()
+        ),
+        (Some(now + 2 * HOUR), Some(now + 3 * HOUR), Some("model"))
+    );
+    assert_eq!(row[0]["wake_id"], one.wake.id);
+    // The list is soonest first: the series is now ahead of it.
+    assert_eq!(moved.list[0].id, ser.wake.id);
+
+    // A series' move of a one-shot is refused, writing nothing; a wake that
+    // is not pending is no move.
+    let before = w.kernel.store().last_position();
+    assert!(w
+        .kernel
+        .move_wake(
+            &g,
+            &one.wake.id,
+            MoveTo {
+                due_at_ms: now + HOUR,
+                repeat: Some(rule)
+            },
+            "model"
+        )
+        .is_err());
+    assert!(w
+        .kernel
+        .move_wake(
+            &g,
+            "wak_gone",
+            MoveTo {
+                due_at_ms: now + HOUR,
+                repeat: None
+            },
+            "model"
+        )
+        .unwrap()
+        .is_none());
+    assert_eq!(w.kernel.store().last_position(), before, "nothing written");
+}
+
+/// A series' move: its next occurrence alone leaves the rule; its own time
+/// moves its occurrences and keeps `every`, `days` and `until`.
+#[test]
+fn a_series_move_keeps_every_days_and_until() {
+    use crate::repeat::Repeat;
+    use crate::wakes::MoveTo;
+
+    let Moves {
+        w,
+        e,
+        g,
+        now,
+        ser,
+        rule,
+        ..
+    } = moves();
+    let m = w
+        .kernel
+        .move_wake(
+            &g,
+            &ser.wake.id,
+            MoveTo {
+                due_at_ms: now + 5 * HOUR,
+                repeat: None,
+            },
+            "model",
+        )
+        .unwrap()
+        .unwrap();
+    assert_eq!(m.wake.repeat, Some(rule.clone()));
+    assert_eq!((m.wake.occurrence, m.wake.due_at_ms), (1, now + 5 * HOUR));
+    let later = Repeat {
+        first_ms: now + 7 * HOUR,
+        ..rule
+    };
+    let m = w
+        .kernel
+        .move_wake(
+            &g,
+            &ser.wake.id,
+            MoveTo {
+                due_at_ms: now + 7 * HOUR,
+                repeat: Some(later.clone()),
+            },
+            "model",
+        )
+        .unwrap()
+        .unwrap();
+    assert_eq!(m.wake.repeat, Some(later));
+    assert_eq!(m.wake.id, ser.wake.id);
+    let row = rows(&w, &e.session_id, "wake.moved");
+    assert_eq!(
+        (row[0]["series"].clone(), row[1]["series"].clone()),
+        (false.into(), true.into())
+    );
+}
+
+/// `take_wakes_listing` (theseus-lherl) hands back what is pending after the
+/// take from the one read: with none due, in no frame at all; with one due,
+/// without the one taken, and with a series put back.
+#[test]
+fn a_take_lists_what_is_still_pending_from_the_same_read() {
+    use crate::repeat::{Every, Repeat};
+
+    let w = world();
+    let (_, e, g) = running(&w);
+    let now = w.kernel.now_ms();
+    let rule = Repeat {
+        every: Every::parse("1d").unwrap(),
+        first_ms: now + 1_000,
+        days: vec![],
+        until_ms: None,
+    };
+    w.kernel
+        .set_wake(
+            &g,
+            &new_id("act"),
+            now + 1_000,
+            "the series",
+            None,
+            Some(rule),
+        )
+        .unwrap();
+    let late = w
+        .kernel
+        .set_wake(&g, &new_id("act"), now + 86_400_000, "tomorrow", None, None)
+        .unwrap();
+    w.kernel
+        .end_turn(g, TurnEnd::Wait { wake: Wake::Input })
+        .unwrap();
+
+    // None due: nothing written, both listed.
+    let g = w
+        .kernel
+        .wake_input(&e.id)
+        .and_then(|_| w.kernel.admit(&e.id))
+        .unwrap();
+    let before = w.kernel.store().last_position();
+    let (fired, pending) = w.kernel.take_wakes_listing(&g, |_| Ok(vec![])).unwrap();
+    assert!(fired.is_empty());
+    assert_eq!(pending.len(), 2);
+    assert_eq!(
+        w.kernel.store().last_position(),
+        before,
+        "nothing due, nothing written"
+    );
+    w.kernel
+        .end_turn(g, TurnEnd::Wait { wake: Wake::Input })
+        .unwrap();
+
+    // The series falls due: taken and put back, and the list says so.
+    w.clock.advance(2_000);
+    w.kernel.wake_input(&e.id).unwrap();
+    let g = w.kernel.admit(&e.id).unwrap();
+    let (fired, pending) = w.kernel.take_wakes_listing(&g, |_| Ok(vec![])).unwrap();
+    assert_eq!(fired.len(), 1);
+    assert_eq!(pending.len(), 2, "the series went back");
+    assert_eq!(pending, exec(&w, &e.id).wakes, "what the record holds now");
+    assert!(pending.iter().any(|p| p.id == late.wake.id));
+    let back = pending.iter().find(|p| p.note == "the series").unwrap();
+    assert_eq!(back.occurrence, 2, "the next occurrence's number");
+}
