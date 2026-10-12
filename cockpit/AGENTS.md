@@ -28,7 +28,9 @@ build.
   update; pure), `sound.ts`, `audio.ts` and `useShipSound.ts` (the three cues: which push sounds which, pure; the
   sounds, made with Web Audio; the toggle, and the cues the Shell hears on every page), `surf.ts` (the ambient sea's
   voice, fades, ducks, wave shape and noise; pure, theseus-pl0x), `sonar.ts`, `sonarsound.ts` and `Sonar.tsx` (the sonar ping, theseus-mbulo: every few minutes while the Ship is shown, a film submarine's ping with a soft echo, and a ring growing from the Ship's middle; the ring shows with Sound off and not in Calm, the sound only with Sound on; never with a gull, nothing from a hidden tab; `useSonar` in `useShipSound.ts`, test `test/sonar.test.ts`), `gull.ts` and `gullsound.ts` (the seagull that passes now
-  and then while the sea is heard: its gaps, call and scheduler, pure, and its voice; theseus-7mow), `instruments.tsx` (the brass gauges), `Minimap.tsx`, `useShipData.ts` (the reads and
+  and then while the sea is heard: its gaps, call and scheduler, pure, and its voice; theseus-7mow), `foghorn.ts` and
+  `foghornsound.ts` (rarer still, a ship's foghorn far off, kept 30 s clear of a gull and of a ping, both ways; not the
+  failure `horn` cue; theseus-7mow), `instruments.tsx` (the brass gauges), `Minimap.tsx`, `useShipData.ts` (the reads and
   pushes it composes), `flares.ts` (a failure flares its ship once, whichever of its push, its execution's change and
   its ledger row tells the page first; pure, theseus-1skt), and `synth.ts` (a seeded 10,000-node fleet for measuring).
 - Session states (theseus-emqx): `src/lib/sessionState.ts` (pure: the daemon's rule line for line, the filter's
