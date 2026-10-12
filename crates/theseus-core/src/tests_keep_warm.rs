@@ -275,7 +275,10 @@ async fn none_for_a_task_a_shared_place_or_a_small_prefix() {
 #[tokio::test]
 async fn none_past_the_daily_ceiling_and_said_once() {
     let dir = tempfile::tempdir().unwrap();
-    let (core, fake) = build(dir.path(), one_hour(24));
+    // The ceiling's stop mode (theseus-9e02): under the default, notify, it warns and refuses nothing.
+    let mut c = one_hour(24);
+    c.kernel.daily_spend_ceiling_mode = crate::config::DailyCeilingMode::Stop;
+    let (core, fake) = build(dir.path(), c);
     let sid = session(&core, SessionKind::Conversation, None);
     turn(&core, &sid, "before the ceiling").await;
     core.kernel.day_ceiling().set_limit(1);
