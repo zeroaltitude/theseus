@@ -1,0 +1,9 @@
+$ theseus fork msg·a1b2c3
+--- requests
+node.reach {"max_generations":0,"node_id":"msg·a1b2c3"}
+session.fork {"at":"msg_0198d3a0b1c2d3e4f5a6b7c8d9a1b2c3","session":"ses_0198d3a0b1c2d3e4f5a6b7c8d9e06664"}
+--- stdout
+forked ses_…6664 at msg·a1b2c3 (position 166,201) → ses_…f00d "refactor the writer (fork)" in 3 ms, 1.4 KB
+not restored: files and what programs did after the fork point (they ran in the original)
+--- stderr
+--- exit 0

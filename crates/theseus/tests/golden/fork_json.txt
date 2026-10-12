@@ -1,0 +1,7 @@
+$ theseus --json fork msg·a1b2c3 --session ses_0198d3a0b1c2d3e4f5a6b7c8d9e06664
+--- requests
+session.fork {"at":"msg·a1b2c3","session":"ses_0198d3a0b1c2d3e4f5a6b7c8d9e06664"}
+--- stdout
+{"at_node":"msg_0198d3a0b1c2d3e4f5a6b7c8d9a1b2c3","at_position":166201,"bytes":1433,"compilation_id":"cmp_f1","derived_from":"cmp_a9","ms":3,"not_restored":"files and what programs did after the fork point (they ran in the original)","session_id":"ses_0198d3a0b1c2d3e4f5a6b7c8d9e0f00d","source_session":"ses_0198d3a0b1c2d3e4f5a6b7c8d9e06664","title":"refactor the writer (fork)"}
+--- stderr
+--- exit 0

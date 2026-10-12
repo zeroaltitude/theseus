@@ -28,6 +28,7 @@ mod day;
 mod failed;
 mod features;
 mod flight;
+pub mod fork;
 pub mod history;
 mod imported;
 mod index;
@@ -1271,7 +1272,11 @@ pub fn until_due(due_ms: u64, now_ms: u64) -> String {
 /// copy, a generation to a line, with the compilations that hold it under
 /// it; and a line that says so when the walk stopped short.
 pub fn reach_lines(r: &theseus_protocol::NodeReachResult) -> Vec<Line> {
-    let all = || std::iter::once(&r.direct).chain(r.descendants.iter().map(|d| &d.exposure));
+    let all = || {
+        std::iter::once(&r.direct)
+            .chain(r.descendants.iter().map(|d| &d.exposure))
+            .chain(r.forks.iter().map(|f| &f.exposure))
+    };
     let first = all().filter_map(|e| e.first_ms).min();
     let last = all().filter_map(|e| e.last_ms).max();
     let mut lines = vec![Line::new(
@@ -1302,6 +1307,7 @@ pub fn reach_lines(r: &theseus_protocol::NodeReachResult) -> Vec<Line> {
             &d.exposure,
         );
     }
+    lines.extend(fork::reach_fork_lines(r));
     if r.partial {
         lines.push(Line::new(
             Tag::Warn,

@@ -324,7 +324,12 @@ pub async fn history(
     let shown = output(json, v, |h: SessionHistoryResult| {
         let mut out = io::stdout().lock();
         writeln!(out, "{}", render::session_header(&h.session))?;
-        for node in &h.nodes {
+        // A fork's inherited prefix, marked as the source's (theseus-2qzx).
+        let marks = render::fork::history_marks(&h.session.session_id, &h.nodes);
+        for (i, node) in h.nodes.iter().enumerate() {
+            for (_, mark) in marks.iter().filter(|(at, _)| *at == i) {
+                print::lines(&mut out, std::slice::from_ref(mark))?;
+            }
             match render::cite::cited_node(node, &h.cites) {
                 Some((marked, notes)) => {
                     print::lines(&mut out, &render::history::node_lines(&marked, full))?;
