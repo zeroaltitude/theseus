@@ -78,15 +78,16 @@ class BuildScript(unittest.TestCase):
         for args in (["init", "-q"], ["add", "."], ["commit", "-q", "-m", "scratch"]):
             subprocess.run(["git", "-C", str(self.repo), *args], env=self.env, check=True)
 
-    def run_build(self, file_says=STATIC_PIE, docker_says=HAND_LINE, docker_status=1):
+    def run_build(self, file_says=STATIC_PIE, docker_says=HAND_LINE, docker_status=1, args=(), **extra):
         env = {
             **self.env,
             "FAKE_FILE": file_says,
             "FAKE_DOCKER_OUT": docker_says,
             "FAKE_DOCKER_STATUS": str(docker_status),
+            **extra,
         }
         return subprocess.run(
-            ["bash", str(self.repo / "infra" / "aws" / "hand" / "build.sh")],
+            ["bash", str(self.repo / "infra" / "aws" / "hand" / "build.sh"), *args],
             env=env,
             capture_output=True,
             text=True,
@@ -115,6 +116,11 @@ class BuildScript(unittest.TestCase):
     def test_a_hand_that_exits_zero_with_its_line_passes(self):
         r = self.run_build(docker_status=0)
         self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_rootless_without_crane_is_refused_before_anything_is_built(self):
+        r = self.run_build(args=["--rootless"], CRANE=str(self.tmp / "no-crane"))
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("--rootless needs crane", r.stderr)
 
 
 if __name__ == "__main__":

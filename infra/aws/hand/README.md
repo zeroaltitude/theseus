@@ -25,6 +25,14 @@ The build needs Docker, `musl-gcc` (Debian's `musl-tools`), and the rustup targe
 push needs the AWS CLI with the operator's own credentials, from the operator's shell. The theseus-hands stack's
 `HandImageUri` parameter then takes the printed URI, by digest; the stack makes the Lambda hand once it is set.
 
+**Without Docker** (`--rootless`, the same two forms): `rootless.py` reads this Dockerfile and builds it itself. The RUN
+step runs as root in an unprivileged user namespace, chrooted into the base's filesystem, and its layer is what changed
+against the base. Such a namespace maps one id, so a chown to any other fails (openssh-client's `chgrp _ssh`):
+`rootless-owners.c`, preloaded, records each chown and lets it pass, and the layer gives each file the owner it was set
+to. `crane` (go-containerregistry, or `CRANE`) exports the base, then assembles the image and pushes it. A local build
+is saved as `target/hand/theseus-hand-<commit>.tar`. This path also needs `cc` and `unshare`. It understands only the
+instructions this Dockerfile uses, and refuses any other, so a new instruction here needs a line in `rootless.py`.
+
 ## What it costs
 
 Nothing while idle: an image in ECR (about $0.10 a GB a month), and the Lambda function costs nothing until it runs.

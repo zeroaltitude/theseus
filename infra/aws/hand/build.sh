@@ -6,6 +6,10 @@
 #   infra/aws/hand/build.sh --push <region>      build, then push to this account's
 #                                                repository, and print the image's
 #                                                digest URI for the stack's HandImageUri
+#   infra/aws/hand/build.sh --rootless ...       the same without Docker: rootless.py
+#                                                builds the Dockerfile in a user
+#                                                namespace, and crane assembles and
+#                                                pushes the image (CRANE names crane)
 #
 # The binary is the static musl theseusd of scripts/build.sh's release-thin profile.
 # Pushing reads the account from the AWS CLI's own credentials (the operator's shell,
@@ -17,6 +21,7 @@ here=$(cd "$(dirname "$0")" && pwd)
 root=$(cd "$here/../../.." && pwd)
 target=x86_64-unknown-linux-musl
 push_region=""
+builder=docker
 
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -24,8 +29,12 @@ while [ $# -gt 0 ]; do
             push_region="${2:?--push takes the region}"
             shift 2
             ;;
+        --rootless)
+            builder=rootless
+            shift
+            ;;
         -h|--help)
-            sed -n '2,14p' "$0"
+            sed -n '2,18p' "$0"
             exit 0
             ;;
         *)
@@ -52,10 +61,42 @@ if ! grep -qE 'statically linked|static-pie linked' <<<"$kind"; then
 fi
 
 context=$(mktemp -d)
-trap 'rm -rf "$context"' EXIT
+# The rootless build's tree has read-only directories of the base's.
+trap 'chmod -R u+w "$context" 2>/dev/null; rm -rf "$context"' EXIT
 cp "$here/Dockerfile" "$context/"
 cp "$bin" "$context/theseusd"
 image="theseus/hand:$commit"
+
+if [ "$builder" = rootless ]; then
+    crane="${CRANE:-crane}"
+    if ! command -v "$crane" >/dev/null; then
+        echo "build.sh: --rootless needs crane (go-containerregistry) on PATH, or CRANE" >&2
+        exit 1
+    fi
+    export CRANE="$crane"
+    python3 "$here/rootless.py" build --dockerfile "$here/Dockerfile" --context "$context" --work "$context/work"
+    if [ -z "$push_region" ]; then
+        out="${CARGO_TARGET_DIR:-$root/target}/hand/theseus-hand-$commit.tar"
+        mkdir -p "$(dirname "$out")"
+        python3 "$here/rootless.py" assemble --work "$context/work" --output "$out"
+        echo "$image saved as $out"
+        exit 0
+    fi
+    account=$(aws sts get-caller-identity --query Account --output text)
+    registry="$account.dkr.ecr.$push_region.amazonaws.com"
+    remote="$registry/theseus/hand:$commit"
+    # crane's login lives in a scratch DOCKER_CONFIG, removed with the context.
+    export DOCKER_CONFIG="$context/docker-config"
+    mkdir -m 700 "$DOCKER_CONFIG"
+    aws ecr get-login-password --region "$push_region" \
+        | "$crane" auth login "$registry" --username AWS --password-stdin
+    python3 "$here/rootless.py" assemble --work "$context/work" --tag "$remote"
+    digest=$(aws ecr describe-images --region "$push_region" --repository-name theseus/hand \
+        --image-ids imageTag="$commit" --query 'imageDetails[0].imageDigest' --output text)
+    echo "HandImageUri=$registry/theseus/hand@$digest"
+    exit 0
+fi
+
 docker build --platform linux/amd64 -t "$image" "$context"
 # The image runs its role: a spec that is not there is its own error, not a crash.
 # `theseusd hand` without its spec prints that and exits 1, so the output is taken first:
