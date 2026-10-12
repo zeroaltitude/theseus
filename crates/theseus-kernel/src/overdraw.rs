@@ -47,12 +47,7 @@ impl Kernel {
 
     /// Refuse a reservation of `need` for `tool` that a limit that notifies
     /// lets past `e`'s limit, when it would pass the hard multiple.
-    pub(crate) fn hard_stop(
-        &self,
-        e: &Execution,
-        tool: &str,
-        need: Micros,
-    ) -> Result<(), KernelError> {
+    pub fn hard_stop(&self, e: &Execution, tool: &str, need: Micros) -> Result<(), KernelError> {
         let multiple = self.config().spend_hard_multiple;
         let b = &e.budget;
         if multiple == 0 || b.limit_micros == 0 || !self.overdraws_for(e, tool) {

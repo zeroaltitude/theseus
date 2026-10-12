@@ -296,6 +296,38 @@ async fn none_past_the_daily_ceiling_and_said_once() {
     assert!(core.runner.keep_warm.next_due(interval).is_some());
 }
 
+/// A limit that notifies lets a read go past the session's limit, but not
+/// past its hard multiple (theseus-jse4): a session already at ten times its
+/// limit is refused before any call, and its reads stop.
+#[tokio::test]
+async fn none_past_the_hard_multiple_of_a_notifying_limit() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut c = one_hour(24);
+    c.kernel.spend_limit_usd = 1.0;
+    c.kernel.spend_limit_mode = crate::config::SpendLimitMode::Notify;
+    let (core, fake) = build(dir.path(), c);
+    let sid = session(&core, SessionKind::Conversation, None);
+    turn(&core, &sid, "before the stop").await;
+    let rec: SessionRecord = core.store.get_session(&sid).unwrap().unwrap();
+    let exec = rec.execution_id.unwrap();
+    core.kernel
+        .book_spend(
+            &exec,
+            10_000_000,
+            theseus_protocol::LedgerKind::KeepWarm,
+            serde_json::json!({}),
+        )
+        .unwrap();
+    let live = core.live_profile().0;
+    let got = core.runner.keep_warm_once(&sid, &live).await;
+    assert!(
+        matches!(&got, Outcome::Stopped(why) if why.contains("hard stop")),
+        "{got:?}"
+    );
+    assert!(reads(&fake).is_empty(), "no call past the hard stop");
+    assert_eq!(core.cache_health().stopped, 1);
+}
+
 /// A stopping daemon sends none, and its tender ends.
 #[tokio::test]
 async fn none_from_a_stopping_daemon() {

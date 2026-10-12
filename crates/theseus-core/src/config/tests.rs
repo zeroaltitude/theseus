@@ -920,8 +920,8 @@ fn a_url_that_could_carry_a_credential_is_named() {
 /// none, and serializes none; any other value is refused.
 #[test]
 fn cache_ttl_is_five_minutes_or_an_hour_per_profile() {
-    let on_sonnet = Config::EXAMPLE_TOML
-        .replace("\n[profiles.glm]", "\ncache_ttl = \"1h\"\n\n[profiles.glm]");
+    let on_sonnet =
+        Config::EXAMPLE_TOML.replace("\n[profiles.glm]", "\ncache_ttl = \"1h\"\n\n[profiles.glm]");
     let (cfg, _) = Config::parse(&on_sonnet).unwrap();
     assert_eq!(cfg.profile("sonnet").unwrap().ttl(), CacheTtl::OneHour);
     assert_eq!(cfg.profile("glm").unwrap().ttl(), CacheTtl::FiveMinutes);
@@ -933,8 +933,8 @@ fn cache_ttl_is_five_minutes_or_an_hour_per_profile() {
 
     // A 1-hour `[model]`: the default profile and every profile that
     // says none, sonnet's and glm's, cache for an hour.
-    let on_model = Config::EXAMPLE_TOML
-        .replace("live = \"sonnet\"", "live = \"sonnet\"\ncache_ttl = \"1h\"");
+    let on_model =
+        Config::EXAMPLE_TOML.replace("live = \"sonnet\"", "live = \"sonnet\"\ncache_ttl = \"1h\"");
     let (cfg, _) = Config::parse(&on_model).unwrap();
     assert_eq!(cfg.profile("default").unwrap().ttl(), CacheTtl::OneHour);
     assert_eq!(cfg.profile("sonnet").unwrap().ttl(), CacheTtl::OneHour);

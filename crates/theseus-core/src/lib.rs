@@ -227,9 +227,9 @@ mod tests_judge_reads;
 #[cfg(test)]
 mod tests_judge_surfaces;
 #[cfg(test)]
-mod tests_kept;
-#[cfg(test)]
 mod tests_keep_warm;
+#[cfg(test)]
+mod tests_kept;
 #[cfg(test)]
 mod tests_ladder;
 #[cfg(test)]

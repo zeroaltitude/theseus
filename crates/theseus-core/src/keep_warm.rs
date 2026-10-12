@@ -33,7 +33,8 @@
 //!
 //! **Money**: each read is a model call like any other. Its worst case is
 //! reserved against the session's spend limit (refused past it unless the
-//! limit notifies, `Kernel::overdraws`) and held on the day ceiling
+//! limit notifies, `Kernel::overdraws`, and then only up to its hard multiple,
+//! `Kernel::hard_stop`) and held on the day ceiling
 //! (`TurnRunner::day_hold`, which says the day's refusal once); its cost is
 //! booked to the session in one frame with its `keep_warm` row (provider,
 //! model, usage, cost: `Kernel::book_spend`), which the day ceiling reads back
@@ -501,6 +502,19 @@ impl TurnRunner {
                 return stop(format!(
                     "its read would need {}, past what the session's spend limit leaves",
                     crate::narrative::dollars(need)
+                ));
+            }
+            // A limit that notifies still stops at its hard multiple, for a
+            // read as for a turn's call (theseus-jse4).
+            if self
+                .kernel
+                .hard_stop(e, theseus_protocol::PROVIDER_TOOL, need)
+                .is_err()
+            {
+                return stop(format!(
+                    "its read would take the session past its hard stop, {} times its spend limit \
+                     (`[kernel] spend_limit_hard_multiple`)",
+                    self.kernel.config().spend_hard_multiple
                 ));
             }
         }
