@@ -30,6 +30,7 @@ mod ontology;
 mod packs;
 mod pages;
 mod policy_explain;
+mod postmortem;
 mod print;
 mod prompt;
 mod self_cmd;
@@ -314,6 +315,11 @@ enum Cmd {
     /// prompt or a status bar, `--watch` keeps it current from the push (`--tab`: the terminal
     /// tab's progress as well). One read, within 100 ms of connecting.
     Status(status::StatusArgs),
+    /// An incident's timeline, from the ledger: what ran, waited, failed and cost, what was asked
+    /// of the owner and answered, and every restart of the daemon, as markdown (`--json`: the
+    /// same facts as data). Read only. The default window is the last 12 hours; `--session` or
+    /// `--task` narrow it to one conversation or task and what it started.
+    Postmortem(postmortem::PostmortemArgs),
     /// Wait until a session needs you, settles, or ends, then print its state and its questions
     /// (session.wait). The daemon owns the wait, so nothing polls, and a wait already satisfied
     /// answers at once. SESSION is its id, or at least its last four characters. Exit codes: 0
@@ -933,6 +939,12 @@ async fn main() {
     std::process::exit(code);
 }
 
+/// `theseus wait --any`, its timeout read as a duration.
+async fn wait_any(c: &mut Conn, json: bool, until: &str, timeout: Option<&str>) -> Result<()> {
+    let ms = timeout.map(cmd::parse_duration_ms).transpose()?;
+    status::wait_any(c, json, until, ms).await
+}
+
 #[expect(clippy::cognitive_complexity, reason = "shape budget: split it")]
 async fn run(cli: Cli) -> Result<()> {
     // `theseus tui` connects nothing itself: it becomes `theseus-tui` (10f).
@@ -942,6 +954,10 @@ async fn run(cli: Cli) -> Result<()> {
     // `theseus status` connects within 100 ms, and `--short` stays silent when it cannot.
     if let Cmd::Status(a) = &cli.cmd {
         return status::run(&cli.socket, cli.spawn.as_deref(), cli.json, a).await;
+    }
+    // `theseus postmortem --from-rows FILE` reports from kept rows and asks no daemon.
+    if let Cmd::Postmortem(a) = cli.cmd {
+        return postmortem::go(&cli.socket, cli.spawn.as_deref(), cli.json, a).await;
     }
     let mut conn = match (&cli.spawn, &cli.cmd) {
         // One run's daemon, followed for its bound (theseus-mqxk).
@@ -997,11 +1013,8 @@ async fn run(cli: Cli) -> Result<()> {
             timeout,
             ..
         } => cmd::wait(c, json, session, until, after, timeout).await,
-        Cmd::Wait { until, timeout, .. } => {
-            let ms = timeout.as_deref().map(cmd::parse_duration_ms).transpose()?;
-            status::wait_any(c, json, &until, ms).await
-        }
-        Cmd::Status(_) => unreachable!("`theseus status` connects for itself"),
+        Cmd::Wait { until, timeout, .. } => wait_any(c, json, &until, timeout.as_deref()).await,
+        Cmd::Status(_) | Cmd::Postmortem(_) => unreachable!("they connect for themselves"),
         Cmd::Profile { cmd } => cmd::profile(c, json, cmd.unwrap_or(ProfileCmd::List)).await,
         Cmd::Ledger { n, kind, session } => cmd::ledger(c, json, n, kind, session).await,
         Cmd::Herdr { cmd } => {

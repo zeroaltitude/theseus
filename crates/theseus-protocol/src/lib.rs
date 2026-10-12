@@ -61,6 +61,7 @@ mod toolinfo;
 mod ts;
 pub mod voice;
 pub mod warm;
+mod window;
 pub mod work;
 
 pub use actions::{ActionInfo, ActionListParams, ActionListResult};
@@ -86,6 +87,7 @@ pub use sessions::{RetiredReason, SessionLink, SessionRetired, SessionState};
 pub use submit::{SessionOpenParams, TurnSubmitParams};
 pub use term::{TerminalInfo, TerminalLeft};
 pub use toolinfo::{ToolInfo, ToolListResult};
+pub use window::*;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -133,7 +135,7 @@ pub mod method {
         /// message will wait for (theseus-tnky).
         SESSION_TYPING = "session.typing",
         TURN_SUBMIT = "turn.submit",
-        LEDGER_TAIL = "ledger.tail",
+        LEDGER_TAIL = "ledger.tail", LEDGER_WINDOW = "ledger.window",
         PROFILE_LIST = "profile.list", PROFILE_USE = "profile.use",
         EXECUTION_LIST = "execution.list", EXECUTION_CANCEL = "execution.cancel",
         /// `/stop` (W1): halt a conversation's work, and keep the conversation.

@@ -325,7 +325,7 @@ impl Core {
             // Its filters are optional: no params lists every wake.
             method::WAKE_LIST => route(or_empty(params), |p| self.wake_list(p)),
             method::WAKE_CANCEL => route(params, |p| self.wake_cancel(p, conn)),
-            method::LEDGER_TAIL => route(params, |p| self.ledger_tail(p)),
+            m @ (method::LEDGER_TAIL | method::LEDGER_WINDOW) => self.ledger_reads(m, params, conn),
             method::NARRATIVE_WATCH | method::NARRATIVE_UNWATCH if !self.narrator.on() => {
                 Err(narration_off())
             }
@@ -536,6 +536,6 @@ pub(super) fn route<P: DeserializeOwned, R: Serialize>(
 }
 
 /// A method's result, serialized.
-fn reply<R: Serialize>(r: R) -> Result<Value, RpcFailure> {
+pub(super) fn reply<R: Serialize>(r: R) -> Result<Value, RpcFailure> {
     Ok(serde_json::to_value(r).unwrap())
 }

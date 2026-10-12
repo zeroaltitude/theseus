@@ -75,8 +75,11 @@ mod tests_self;
 mod tests_session_states;
 #[cfg(test)]
 mod tests_typing;
+#[cfg(test)]
+mod tests_window;
 mod trust;
 mod typing;
+mod window;
 
 pub use bindings::BindingBoard;
 

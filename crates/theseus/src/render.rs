@@ -40,6 +40,8 @@ mod memory;
 mod ontology;
 mod parked;
 mod places;
+pub mod postmortem;
+pub mod postmortem_facts;
 mod resident;
 mod rsi;
 mod sandbox;

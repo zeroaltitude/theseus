@@ -101,6 +101,16 @@ pub fn fmt_hm(unix_ms: u64) -> String {
     at(unix_ms, "%H:%M")
 }
 
+/// A time of day to the second: `18:16:01`.
+pub fn fmt_hms(unix_ms: u64) -> String {
+    at(unix_ms, "%H:%M:%S")
+}
+
+/// A calendar day: `2026-03-14`.
+pub fn fmt_day(unix_ms: u64) -> String {
+    at(unix_ms, "%Y-%m-%d")
+}
+
 /// A date and a time to the minute: `2026-03-14 02:12`.
 pub fn fmt_date(unix_ms: u64) -> String {
     at(unix_ms, "%Y-%m-%d %H:%M")
@@ -109,6 +119,20 @@ pub fn fmt_date(unix_ms: u64) -> String {
 /// A date and a time to the second: `2026-03-14 02:12:05`.
 pub fn fmt_stamp(unix_ms: u64) -> String {
     at(unix_ms, "%Y-%m-%d %H:%M:%S")
+}
+
+/// The unix ms of `hour:minute` on this machine's calendar day `days_ago`
+/// days before the one `now_ms` falls on (theseus-m2tiu: `yesterday 22:00`).
+pub fn local_day_at(now_ms: u64, days_ago: i64, hour: i8, minute: i8) -> Option<u64> {
+    let now = Timestamp::from_millisecond(i64::try_from(now_ms).ok()?)
+        .ok()?
+        .to_zoned(zone().clone());
+    let day = now
+        .date()
+        .checked_sub(jiff::Span::new().days(days_ago))
+        .ok()?;
+    let at = day.at(hour, minute, 0, 0).to_zoned(zone().clone()).ok()?;
+    u64::try_from(at.timestamp().as_millisecond()).ok()
 }
 
 #[cfg(test)]

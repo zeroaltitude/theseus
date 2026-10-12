@@ -67,6 +67,9 @@ Key modules: `lib.rs` (the `method`, `notify`, `error_code` tables), `events.rs`
   `BinaryStatus` moved to `health.rs` to make room in lib.rs.
 - `earned.rs` (theseus-uttu): earned autonomy's wire types (`policy.earned`, `policy.earned.answer`, `policy.revoke`):
   a group of approvals with its record, a grant, a card, and the number's weeks. Each name carries `Earned`.
+- `window.rs` (theseus-m2tiu): `ledger.window`'s params and result and `POSTMORTEM_KINDS`, the kinds `theseus postmortem`
+  reads: one page of a time window, read only, the daemon's answer scrubbed and (for a surface that reads no private
+  text) narrowed to the session named.
 - `ts.rs`: the TypeScript export.
 
 ## Invariants

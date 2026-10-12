@@ -107,6 +107,12 @@ Key modules: `main.rs`, `web.rs`, `install/`. Read by: (a binary).
   dropped: use it for every spawned daemon (an explicit stop alone once leaked one for 45 minutes).
 - `tests/common/model.rs` is a stand-in Messages API: tool calls per prompt, and `FakeModel::requests()` keeps
   every request, so a test reads which model each turn asked for.
+- `tests/postmortem_incident.rs` (theseus-m2tiu) scripts an incident on a real daemon (a task with a 33 s command, a
+  failing tool, a question answered and one left to expire, a `kill -9` mid-turn and the restart, a wake that comes due
+  while it is down), asks the real `theseus postmortem` for the report, and, with `THESEUS_RECORD_POSTMORTEM=<dir>`
+  set (it takes about 40 s, so it runs only then), writes the incident's ledger rows there as the fixture
+  `crates/theseus/tests/fixtures/postmortem/incident.jsonl`. A real incident: `theseus postmortem --since 6h
+  --rows-out incident.jsonl`, then read the file for names and paths before it is committed.
 - `tests/user_service_script.rs` runs `scripts/user-service.sh` and the real `theseusd install --user` against stand-in
   `systemctl`, `loginctl`, `journalctl`, `theseus`, and `op` in a scratch `HOME` (the config tests also stand in for
   `theseusd`'s plan). It touches no real unit or daemon.

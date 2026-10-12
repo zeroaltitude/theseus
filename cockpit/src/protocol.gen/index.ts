@@ -216,6 +216,8 @@ export type * from './LearningReportParams';
 export type * from './LedgerEntry';
 export type * from './LedgerTailParams';
 export type * from './LedgerTailResult';
+export type * from './LedgerWindowParams';
+export type * from './LedgerWindowResult';
 export type * from './Level';
 export type * from './LoopEnded';
 export type * from './LoopStarted';
