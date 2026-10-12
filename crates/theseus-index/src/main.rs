@@ -60,9 +60,10 @@ enum Cmd {
         /// `CANDLE_NUM_THREADS`, set for this process before anything starts.
         #[arg(long, default_value_t = 1)]
         threads: usize,
-        /// A query's embedding's threads (theseus-zo1y); 0: one, the
-        /// steadiest beside a busy machine (`ahead::query_threads`,
-        /// theseus-y9a3).
+        /// A query's embedding's threads (theseus-zo1y); 0: four, never more
+        /// than the cores (`ahead::query_threads`); beside a busy machine the
+        /// load gate runs a query on one thread, one at a time (`gate`,
+        /// theseus-d7fy).
         #[arg(long, default_value_t = 0)]
         query_threads: usize,
         /// The fusion's default weights, over the built-in ones

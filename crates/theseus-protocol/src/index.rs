@@ -640,11 +640,36 @@ pub struct IndexVectorStatus {
     /// What candle's pools run with (`RAYON_NUM_THREADS`,
     /// `CANDLE_NUM_THREADS`): the tender's own, or the core's.
     pub threads: String,
+    /// The load gate a recall's query passes before it embeds (theseus-d7fy).
+    /// Absent from a tender of an older build.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub gate: Option<IndexQueryGate>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub last_error: Option<String>,
     #[serde(default)]
     pub last_error_ms: u64,
+}
+
+/// A recall's query's load gate (theseus-d7fy): the full pool while the
+/// machine is calm; while CPU or IO pressure is at or over the background
+/// passes' thresholds, one thread and one query at a time, the rest waiting in
+/// order inside their own deadline.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct IndexQueryGate {
+    /// The threads of the queries' pool, which a calm machine's query uses.
+    pub threads: u32,
+    /// Whether pressure holds the gate shut now.
+    pub shut: bool,
+    /// Queries that waited for their turn since the tender started.
+    pub waited: u64,
+    /// Of those, the ones that left without it: their caller's deadline
+    /// passed, or they waited a second, and the recall answered with words.
+    pub expired: u64,
+    /// Queries that embedded on one thread because the gate was shut.
+    pub one_thread: u64,
 }
 
 /// The vector files' compactions since the tender started (theseus-64x).

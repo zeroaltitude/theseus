@@ -21,7 +21,9 @@ pub struct IndexConfig {
     pub threads: u32,
     /// A recall query's embedding's threads, a pool of their own ahead of the
     /// backfill (theseus-zo1y): `serve --query-threads`. 0: the tender's
-    /// default, one thread (theseus-y9a3).
+    /// default, four (never more than the cores). Beside a busy machine the
+    /// tender's load gate runs a query on one thread, one at a time
+    /// (theseus-d7fy).
     #[serde(default)]
     pub query_threads: u32,
     /// The model unloads after this many minutes unused, and loads again on
