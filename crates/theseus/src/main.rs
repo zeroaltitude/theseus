@@ -1063,10 +1063,15 @@ async fn run(cli: Cli) -> Result<()> {
         Cmd::Shutdown => cmd::shutdown(c, json).await,
         Cmd::Tui { .. } => unreachable!("`theseus tui` execs theseus-tui before connecting"),
     };
-    // A spawned daemon stops cleanly, not by a kill, so the next open of its
-    // store replays nothing (theseus-n88g.2). A daemon that exits as its stop
-    // is written breaks the pipe: that write fails instead of ending this
-    // process, and the default comes back for what is printed after.
+    close(conn).await;
+    result
+}
+
+/// A spawned daemon stops cleanly, not by a kill, so the next open of its
+/// store replays nothing (theseus-n88g.2). A daemon that exits as its stop
+/// is written breaks the pipe: that write fails instead of ending this
+/// process, and the default comes back for what is printed after.
+async fn close(conn: Conn) {
     #[cfg(unix)]
     // SAFETY: as in `main`: nothing else changes the disposition, and no
     // other thread writes to a pipe meanwhile.
@@ -1082,5 +1087,4 @@ async fn run(cli: Cli) -> Result<()> {
     if let Err(e) = closed {
         eprintln!("theseus: {e:#}");
     }
-    result
 }
