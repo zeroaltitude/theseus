@@ -28,6 +28,9 @@ Key modules: `main.rs`, `cmd.rs`, `render.rs`, `client.rs`. Read by: (a binary).
   failed execution stays on the board for good, so it would end every call); one that happens while waiting answers.
   `tests/status_edges.rs`: a daemon that connects and never answers (`--short` exit 1, silent, after 2 s), a dead
   daemon's socket file (exit 3), and a signal's clearing of the tab on a pseudo-terminal.
+- `src/remind.rs` (theseus-8ux6x): `theseus remind WHEN NOTE` (`--every`, `--days`, `--until`, `--session`), `snooze`, `pause`, `resume` and
+  `done`: the owner's verbs on wakes, one call each (`wake.create`, …), no model turn. With no `--session` a reminder lives in the owner's
+  Home. A watching terminal says a fired reminder with its four answers as commands (`render/wakes.rs::noticed_lines`).
 - `src/standing_cmd.rs` (theseus-a7vi): `theseus standing` (the live records: id, kind, scope, since, source, text,
   and a last line "in every compile of their scope since they began: N compiles, M missing" from the manifests;
   `--all` adds the ended), `standing add [--kind order|preference|fact] [--scope everywhere|place:T|session:ID]

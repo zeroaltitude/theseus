@@ -35,6 +35,7 @@ mod policy_explain;
 mod postmortem;
 mod print;
 mod prompt;
+mod remind;
 mod retract;
 mod self_cmd;
 mod standing_cmd;
@@ -340,6 +341,37 @@ enum Cmd {
     Cancel {
         #[arg(value_name = "ID")]
         name: String,
+    },
+    /// Remind the owner: WHEN and what to say, with no model turn. It is posted as it is when it
+    /// is due, in the Discord DM when one is bound and to every surface that watches, with Done
+    /// and Snooze (`theseus snooze`). With no `--session` it lives in your Home conversation.
+    Remind(remind::RemindArgs),
+    /// Move a wake or a reminder that fired to WHEN (10 minutes by default): `theseus snooze
+    /// 3f9a1c 1h`, `theseus snooze wak_… tomorrow 9:00` (a reminder that fired is named by its
+    /// whole id, as its notice carries it).
+    Snooze {
+        #[arg(value_name = "ID")]
+        wake: String,
+        /// `10m`, `1h`, `tomorrow 9:00`, `fri 9:00`.
+        when: Option<String>,
+    },
+    /// Hold a wake: a series keeps its place and passes its occurrences over (`--until WHEN`
+    /// moves it past that time instead). `theseus resume` lets it go on.
+    Pause {
+        #[arg(value_name = "ID")]
+        wake: String,
+        #[arg(long)]
+        until: Option<String>,
+    },
+    /// Let a paused wake go on: a series at its next occurrence, numbered by its place.
+    Resume {
+        #[arg(value_name = "ID")]
+        wake: String,
+    },
+    /// A reminder that fired was seen and is settled.
+    Done {
+        #[arg(value_name = "ID")]
+        wake: String,
     },
     /// What needs you, what works, and what failed, in one screen: a header of counts and a row
     /// for each task (what it asks, and the command that answers). `--short` is a line for a
@@ -1046,6 +1078,11 @@ async fn run(cli: Cli) -> Result<()> {
         Cmd::Tasks { session } => cmd::tasks(c, json, session).await,
         Cmd::Wakes { session } => cmd::wakes(c, json, session).await,
         Cmd::Cancel { name } => cmd::cancel(c, json, name).await,
+        Cmd::Remind(a) => remind::remind(c, json, a).await,
+        Cmd::Snooze { wake, when } => remind::snooze(c, json, wake, when).await,
+        Cmd::Pause { wake, until } => remind::pause(c, json, wake, until).await,
+        Cmd::Resume { wake } => remind::resume(c, json, wake).await,
+        Cmd::Done { wake } => remind::done(c, json, wake).await,
         Cmd::Stop { session } => cmd::stop(c, json, session).await,
         Cmd::Wait {
             session: Some(session),
