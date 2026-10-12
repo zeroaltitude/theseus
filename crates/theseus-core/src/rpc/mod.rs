@@ -23,6 +23,7 @@ mod driver;
 mod exec_list;
 mod explain;
 mod import;
+mod import_sync;
 mod info;
 pub(crate) mod judge;
 mod judge_prove;

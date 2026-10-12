@@ -22,6 +22,7 @@ mod harness;
 mod herdr;
 mod herdr_sync;
 mod import;
+mod import_sync;
 mod interactive;
 mod judge_correct;
 mod judge_prove;

@@ -53,6 +53,7 @@ pub mod live;
 pub mod run;
 pub mod seen;
 pub mod sweep;
+pub mod sync;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
@@ -65,6 +66,8 @@ mod tests_handles;
 mod tests_seen;
 #[cfg(test)]
 mod tests_sweep;
+#[cfg(test)]
+mod tests_sync;
 
 /// The pack.
 pub const PACK: &str = "people.v1";

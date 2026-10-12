@@ -425,6 +425,7 @@ facts![
     synthesis::SynthesisScored<'static>,
     import::ImportBatch<'static>,
     import::ImportErased<'static>,
+    import::ImportSynced<'static>,
     import::ImportTopics<'static>,
     import::ImportPeople<'static>,
     people::PeopleExtracted<'static>,

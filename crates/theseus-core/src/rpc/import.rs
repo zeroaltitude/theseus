@@ -203,6 +203,9 @@ impl Core {
             }
             method::IMPORT_TOPICS => return self.import_topics(params, conn).await,
             method::IMPORT_PEOPLE => return self.import_people(params, conn).await,
+            method::IMPORT_SYNC_PLAN | method::IMPORT_SYNC_RECORD => {
+                return self.import_sync(name, params, conn).await
+            }
             other => {
                 return Err(RpcFailure::new(
                     error_code::METHOD_NOT_FOUND,
@@ -336,7 +339,7 @@ impl Core {
     }
 
     /// The owner's act, from a private place, or its refusal: who it is.
-    fn import_judged(
+    pub(super) fn import_judged(
         &self,
         conn: Conn<'_>,
         method: &'static str,
@@ -405,7 +408,7 @@ impl Core {
 /// a rerun finishes it; `data` is the result for what was written. At a
 /// stop the runtime's end usually cancels the connection's writer first,
 /// and then no client hears it at all: the rerun is the same.
-fn stopped(message: String, result: &impl serde::Serialize) -> RpcFailure {
+pub(super) fn stopped(message: String, result: &impl serde::Serialize) -> RpcFailure {
     RpcFailure {
         code: error_code::INTERNAL,
         message,
@@ -414,7 +417,7 @@ fn stopped(message: String, result: &impl serde::Serialize) -> RpcFailure {
 }
 
 /// Run `f` on the blocking pool; its error is the method's.
-async fn blocking<T: Send + 'static>(
+pub(super) async fn blocking<T: Send + 'static>(
     f: impl FnOnce() -> anyhow::Result<T> + Send + 'static,
 ) -> Result<T, RpcFailure> {
     tokio::task::spawn_blocking(f)

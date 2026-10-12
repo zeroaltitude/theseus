@@ -284,7 +284,7 @@ pub fn job_session() -> Option<String> {
 /// a correction of routing (theseus-q31l: it labels the route judgment
 /// and picks the session's model), and a session's retirement and its
 /// reopening (theseus-emqx: a retired session leaves the default view).
-pub const OPERATORS: [(&str, &str); 35] = [
+pub const OPERATORS: [(&str, &str); 37] = [
     (method::ACTION_CONFIRM, "theseus confirm"),
     (method::POLICY_EARNED_ANSWER, "theseus policy earned accept"),
     (method::POLICY_UNTIGHTEN, "theseus policy untighten"),
@@ -325,6 +325,8 @@ pub const OPERATORS: [(&str, &str); 35] = [
     (method::IMPORT_ERASE, "theseus import erase"),
     (method::IMPORT_TOPICS, "theseus import topics"),
     (method::IMPORT_PEOPLE, "theseus import people"),
+    (method::IMPORT_SYNC_PLAN, "theseus import sync"),
+    (method::IMPORT_SYNC_RECORD, "theseus import sync"),
     (method::SESSION_RETIRE, "theseus sessions retire"),
     (method::SESSION_REOPEN, "theseus sessions reopen"),
     (method::STANDING_ADD, "theseus standing add"),

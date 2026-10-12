@@ -16,22 +16,36 @@ pub struct ImportBatch<'a> {
     pub by: &'a str,
     pub imported: u64,
     pub nodes: u64,
+    /// Episodes whose messages grew: only the new ones were written.
+    pub appended: u64,
 }
 
 impl Fact for ImportBatch<'_> {
     const KIND: Option<LedgerKind> = Some(LedgerKind::ImportBatch);
 
     fn row(&self) -> Value {
-        json!({"tag": self.tag, "file": self.file, "by": self.by,
-               "imported": self.imported, "nodes": self.nodes})
+        let mut row = json!({"tag": self.tag, "file": self.file, "by": self.by,
+               "imported": self.imported, "nodes": self.nodes});
+        if self.appended > 0 {
+            row["appended"] = json!(self.appended);
+        }
+        row
     }
 
     fn narrate(&self, say: &mut Say<'_>) {
         say.line(
             NarrativePart::Session,
             format!(
-                "Imported {} from {} into {} ({}).",
+                "Imported {}{} from {} into {} ({}).",
                 crate::narrative::count(self.imported, "episode", "episodes"),
+                if self.appended > 0 {
+                    format!(
+                        " and appended to {}",
+                        crate::narrative::count(self.appended, "episode", "episodes")
+                    )
+                } else {
+                    String::new()
+                },
                 self.file,
                 self.tag,
                 crate::narrative::count(self.nodes, "node", "nodes"),
@@ -159,4 +173,50 @@ impl Fact for ImportPeople<'_> {
 /// A tag's rows' scope.
 pub fn scope(tag: &str) -> String {
     format!("import.ledger:{tag}")
+}
+
+/// The OpenClaw sync's rows' scope: one a run.
+pub fn sync_scope() -> String {
+    "import.sync".to_string()
+}
+
+/// A sync run's end (theseus-pjmj7, `import.sync.record`): what it read,
+/// wrote and was refused, and why it failed when it did. In the frame with
+/// the cursor and the counts health shows.
+pub struct ImportSynced<'a> {
+    pub by: &'a str,
+    pub started_ms: u64,
+    pub episodes: u64,
+    pub messages: u64,
+    pub imported: u64,
+    pub appended: u64,
+    pub skipped: u64,
+    pub rejected: u64,
+    pub error: Option<&'a str>,
+}
+
+impl Fact for ImportSynced<'_> {
+    const KIND: Option<LedgerKind> = Some(LedgerKind::ImportSynced);
+
+    fn row(&self) -> Value {
+        json!({"by": self.by, "started_ms": self.started_ms, "episodes": self.episodes,
+               "messages": self.messages, "imported": self.imported, "appended": self.appended,
+               "skipped": self.skipped, "rejected": self.rejected, "error": self.error})
+    }
+
+    fn narrate(&self, say: &mut Say<'_>) {
+        let line = match self.error {
+            Some(e) => format!("The OpenClaw sync failed: {e}."),
+            None => format!(
+                "The OpenClaw sync read {} ({}): {} new, {} appended to, {} already held, {} refused.",
+                crate::narrative::count(self.episodes, "session", "sessions"),
+                crate::narrative::count(self.messages, "message", "messages"),
+                self.imported,
+                self.appended,
+                self.skipped,
+                self.rejected,
+            ),
+        };
+        say.line(NarrativePart::Session, line);
+    }
 }

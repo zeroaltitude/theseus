@@ -1223,3 +1223,110 @@ fn usage_errors_exit_2_and_help_exits_0() {
         "{out}"
     );
 }
+
+/// The nightly OpenClaw sync's timer (theseus-pjmj7): a oneshot service that runs `theseus import sync` and a
+/// timer at the hour's `:40` that catches a missed night up (`Persistent`), written beside the daemon's unit,
+/// enabled, and taken away again; a unit someone else wrote is kept; a dry run writes nothing. It needs no check
+/// of the machine, so it runs as root too.
+#[test]
+fn the_sync_timer_is_installed_beside_the_daemons_unit_and_removed_again() {
+    let r = Rig::new();
+    let dir = r.home().join(".config/systemd/user");
+    // A dry run says what it would write and writes none of it.
+    let (code, out) = r.run(&["--dry-run", "--hour", "4", "sync-timer", "install"]);
+    assert_eq!(code, 0, "{out}");
+    assert!(out.contains("OnCalendar=*-*-* 04:40:00"), "{out}");
+    assert!(
+        out.contains("ExecStart=") && out.contains("import sync"),
+        "{out}"
+    );
+    assert!(!dir.join("theseusd-sync.timer").exists());
+    assert!(r.at("systemctl --user enable").is_none(), "{:?}", r.calls());
+
+    let (code, out) = r.run(&["sync-timer", "install"]);
+    assert_eq!(code, 0, "{out}");
+    let svc = std::fs::read_to_string(dir.join("theseusd-sync.service")).unwrap();
+    let tim = std::fs::read_to_string(dir.join("theseusd-sync.timer")).unwrap();
+    assert!(
+        svc.contains("Type=oneshot") && svc.contains("Nice=19"),
+        "{svc}"
+    );
+    assert!(
+        svc.contains(&format!(
+            "Environment=THESEUS_SOCKET={}",
+            r.socket().display()
+        )),
+        "{svc}"
+    );
+    assert!(
+        svc.contains(&format!(
+            "ExecStart={}/bin/theseus import sync",
+            r.home().display()
+        )),
+        "{svc}"
+    );
+    assert!(
+        tim.contains("OnCalendar=*-*-* 03:40:00") && tim.contains("Persistent=true"),
+        "{tim}"
+    );
+    let reload = r.at("systemctl --user daemon-reload").expect("reload");
+    let enable = r
+        .at("systemctl --user enable --now theseusd-sync.timer")
+        .expect("enable");
+    assert!(reload < enable, "{:?}", r.calls());
+    assert!(out.contains("every night at 03:40"), "{out}");
+
+    // A second daemon's unit gets its own timer.
+    let (code, out) = r.run(&["--unit", "scratch", "sync-timer", "install"]);
+    assert_eq!(code, 0, "{out}");
+    assert!(dir.join("scratch-sync.timer").exists());
+
+    // The status asks systemd; the removal takes both files and the enable.
+    let (code, _) = r.run(&["sync-timer", "status"]);
+    assert_eq!(code, 0);
+    assert!(r
+        .at("systemctl --user list-timers theseusd-sync.timer")
+        .is_some());
+    let (code, out) = r.run(&["sync-timer", "uninstall"]);
+    assert_eq!(code, 0, "{out}");
+    assert!(
+        !dir.join("theseusd-sync.timer").exists() && !dir.join("theseusd-sync.service").exists()
+    );
+    assert!(r
+        .at("systemctl --user disable --now theseusd-sync.timer")
+        .is_some());
+    assert!(
+        dir.join("scratch-sync.timer").exists(),
+        "the other unit stays"
+    );
+
+    // A timer someone else wrote is kept.
+    std::fs::write(
+        dir.join("theseusd-sync.timer"),
+        "[Timer]\nOnCalendar=daily\n",
+    )
+    .unwrap();
+    let (code, out) = r.run(&["sync-timer", "uninstall"]);
+    assert_eq!(code, 0, "{out}");
+    assert!(out.contains("was not written by this script"), "{out}");
+    assert!(dir.join("theseusd-sync.timer").exists());
+}
+
+#[test]
+fn the_sync_timer_refuses_a_bad_word_and_a_bad_hour() {
+    let r = Rig::new();
+    for args in [
+        &["sync-timer"][..],
+        &["sync-timer", "frob"],
+        &["sync-timer", "install", "extra"],
+        &["--hour", "24", "sync-timer", "install"],
+        &["--hour", "soon", "sync-timer", "install"],
+    ] {
+        let (code, out) = r.run(args);
+        assert_eq!(code, 2, "{args:?}:\n{out}");
+    }
+    assert!(r
+        .run(&["--help"])
+        .1
+        .contains("sync-timer install|uninstall|status"));
+}

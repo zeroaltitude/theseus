@@ -21,6 +21,7 @@ pub mod discord;
 mod index;
 pub use index::IndexConfig;
 pub mod earned;
+pub(crate) mod import;
 mod judge;
 mod limits;
 mod lookup;
@@ -150,6 +151,10 @@ pub struct Config {
     /// `[people]`: people proposed from text (theseus-wy7y), `config/people.rs`.
     #[serde(default, skip_serializing_if = "people::PeopleConfig::is_default")]
     pub people: people::PeopleConfig,
+    /// `[import]`: the nightly OpenClaw sync (theseus-pjmj7), off until `[import.openclaw] state_dir` is set,
+    /// in `config/import.rs`.
+    #[serde(default, skip_serializing_if = "import::ImportConfig::is_default")]
+    pub import: import::ImportConfig,
     /// `[self]`: self-improvement, off by default (theseus-pw1q), in `config/rsi.rs`.
     #[serde(default, rename = "self")]
     #[serde(skip_serializing_if = "rsi::SelfConfig::is_default")]
@@ -1330,6 +1335,7 @@ impl Config {
         self.sessions.validate()?;
         self.cache.validate(self)?;
         self.people.validate()?;
+        self.import.validate()?;
         self.validate_voice()?;
         self.validate_mcp_server()?;
         if let Some(name) = &self.context.default_persona {
