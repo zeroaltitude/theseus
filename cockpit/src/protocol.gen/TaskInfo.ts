@@ -51,6 +51,12 @@ target?: string, ended_reason?: string, created_at_ms: number, updated_at_ms: nu
  */
 wake_parent?: boolean, 
 /**
+ * When a deferred task starts (theseus-rcgph): it is asleep until
+ * then, with no turn taken. Absent for a task that has started, and
+ * from a daemon before it.
+ */
+starts_at_ms?: number, 
+/**
  * What it needs from people, by `attention()` (theseus-in3).
  */
 attention?: Attention, 

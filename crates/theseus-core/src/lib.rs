@@ -88,6 +88,7 @@ pub mod succession;
 pub mod sweep;
 pub mod task;
 pub mod task_graph;
+pub mod task_start;
 pub mod telemetry;
 pub mod tender;
 pub mod term;
@@ -365,6 +366,8 @@ mod tests_task_layers;
 mod tests_task_wakes;
 #[cfg(test)]
 mod tests_tasks;
+#[cfg(test)]
+mod tests_tasks_deferred;
 #[cfg(test)]
 mod tests_tender;
 #[cfg(test)]

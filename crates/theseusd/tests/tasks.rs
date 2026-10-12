@@ -690,3 +690,76 @@ fn a_stopped_jobs_raw_output_goes_with_its_cancelled_result() {
     );
     assert!(!text.contains("its end was lost"), "{text}");
 }
+
+/// A deferred task (theseus-rcgph) with the real daemon: opened asleep, it is
+/// listed with its start and takes no turn; a `kill -9` and a restart keep it,
+/// and it starts once, with the note that says so, and reports once.
+#[test]
+fn a_deferred_task_survives_a_kill_and_a_restart_and_starts_once() {
+    let r = Rig::new(vec![(
+        "Defer the notes",
+        vec![(
+            "task_create",
+            json!({"brief": "Draft the release notes and report.", "start_after": "6s",
+                   "arrangement": {"pieces": [{"quote": "Defer the notes as a task", "role": "objective"}]}}),
+        )],
+    )]);
+    let daemon = r.spawn();
+    let sid = r.session();
+    let first = r.ask(&sid, "Defer the notes as a task");
+    assert_eq!(first["output"], "Done.", "{first}");
+    let task = r.wait("the sleeping task", || {
+        r.tasks().into_iter().find(|t| t["starts_at_ms"].is_u64())
+    });
+    assert_eq!(task["state"], "waiting", "{task}");
+    assert_eq!(task["turns"], 0, "no turn before it is due: {task}");
+    assert!(
+        task["attention"]["label"]
+            .as_str()
+            .unwrap()
+            .starts_with("▷ starts "),
+        "{task}"
+    );
+    // The daemon goes while it sleeps, and comes back.
+    drop(daemon);
+    assert!(r.reports().is_empty(), "no report before it started");
+    let _daemon = r.spawn();
+    let kept = r
+        .tasks()
+        .into_iter()
+        .find(|t| t["task_id"] == task["task_id"]);
+    assert_eq!(
+        kept.as_ref().map(|t| &t["starts_at_ms"]),
+        Some(&task["starts_at_ms"]),
+        "the restart kept its start"
+    );
+    r.wait("the task complete", || {
+        r.tasks()
+            .into_iter()
+            .find(|t| t["task_id"] == task["task_id"] && t["state"] == "complete")
+    });
+    r.wait("the report delivered", || {
+        let got = r.reports();
+        (!got.is_empty()).then_some(got)
+    });
+    std::thread::sleep(Duration::from_millis(500));
+    assert_eq!(r.reports().len(), 1, "one report");
+    let h = r
+        .call(
+            "session.history",
+            json!({"session_id": task["task_id"].as_str().unwrap()}),
+        )
+        .unwrap();
+    let notes: Vec<&Value> = h["nodes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|n| n["author"] == "harness:deferred")
+        .collect();
+    assert_eq!(notes.len(), 1, "the start's note, once: {h}");
+    assert!(
+        notes[0].to_string().contains("Deferred task, set "),
+        "{}",
+        notes[0]
+    );
+}

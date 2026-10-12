@@ -1407,11 +1407,7 @@ pub fn task_line(t: &theseus_protocol::TaskInfo, now_ms: u64) -> Line {
         3600..=86_399 => format!("{}h", age / 3600),
         _ => format!("{}d", age / 86_400),
     };
-    let state = match (&t.attention, &t.waiting_on) {
-        (Some(a), _) => pill(a),
-        (None, Some(w)) => format!("{} on {w}", t.state),
-        (None, None) => t.state.clone(),
-    };
+    let state = tasks::state_word(t, now_ms);
     let mut asks = match t.pending_confirms {
         0 => String::new(),
         n => format!(" · {n} waiting for you (theseus confirm)"),

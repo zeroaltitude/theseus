@@ -449,6 +449,11 @@ fn waiting(view: &ExecutionView, hm: &dyn Fn(u64) -> String) -> (Level, String) 
             Level::Working,
             format!("waiting on task {}", tail(execution_id)),
         ),
+        // A task that has taken no turn is a deferred one, not asleep
+        // between turns (theseus-rcgph).
+        Some(WaitingOn::DueAt { at_ms }) if view.kind == SessionKind::Task && view.turns == 0 => {
+            (Level::Working, format!("▷ starts {}", hm(*at_ms)))
+        }
         Some(WaitingOn::DueAt { at_ms }) => {
             (Level::Working, format!("sleeping until {}", hm(*at_ms)))
         }
@@ -559,6 +564,30 @@ mod tests {
                 since_ms: 0,
             },
         }
+    }
+
+    /// A task that has taken no turn is a deferred one (theseus-rcgph): it
+    /// starts, and is not asleep between turns; a task between turns, and a
+    /// conversation with a due time, still sleep.
+    #[test]
+    fn a_deferred_task_starts_and_a_sleeping_one_sleeps() {
+        let mut v = view(
+            "waiting",
+            Some(WaitingOn::DueAt {
+                at_ms: 1_789_999_200_000,
+            }),
+            vec![],
+        );
+        assert_eq!(attention(&v, &utc_hm).label, "sleeping until 14:00");
+        v.kind = SessionKind::Task;
+        v.turns = 0;
+        assert_eq!(attention(&v, &utc_hm).label, "▷ starts 14:00");
+        assert_eq!(
+            attention(&v, &|_| "Fri 09:00".into()).label,
+            "▷ starts Fri 09:00"
+        );
+        v.turns = 2;
+        assert_eq!(attention(&v, &utc_hm).label, "sleeping until 14:00");
     }
 
     fn ask(tool: &str, reason: &str) -> PendingConfirm {

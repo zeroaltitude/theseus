@@ -802,14 +802,25 @@ pub struct TaskStarted<'a> {
     pub target: Option<&'a str>,
     /// Its arrangement's pieces (M5 27).
     pub pieces: usize,
+    /// When it starts, for a deferred task (theseus-rcgph): it is opened
+    /// asleep.
+    pub starts_at_ms: Option<u64>,
 }
 
 impl Fact for TaskStarted<'_> {
     fn narrate(&self, say: &mut Say<'_>) {
+        let verb = match self.starts_at_ms {
+            Some(at) => format!("scheduled to start {}", crate::task_start::day_hm(at)),
+            None => "started".to_string(),
+        };
+        let runs = match self.starts_at_ms {
+            Some(_) => "sleeps until then, and then runs on its own",
+            None => "runs on its own",
+        };
         say.line(
             theseus_protocol::NarrativePart::Session,
             format!(
-                "Task {} started (\"{}\", {}): its session {} runs on its own with {} carved \
+                "Task {} {verb} (\"{}\", {}): its session {} {runs} with {} carved \
                  from the {} this session had left, and reports {}.",
                 self.short,
                 self.title,

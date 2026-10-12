@@ -53,6 +53,8 @@ pub mod signals;
 mod submit;
 pub mod tasks;
 pub mod term;
+#[cfg(test)]
+mod tests_task_info;
 mod toolinfo;
 #[cfg(test)]
 mod ts;
@@ -1634,6 +1636,12 @@ pub struct TaskInfo {
     /// Its report starts its parent's next turn (W1, `wake_parent`).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub wake_parent: bool,
+    /// When a deferred task starts (theseus-rcgph): it is asleep until
+    /// then, with no turn taken. Absent for a task that has started, and
+    /// from a daemon before it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub starts_at_ms: Option<u64>,
     /// What it needs from people, by `attention()` (theseus-in3).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]

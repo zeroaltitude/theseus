@@ -644,6 +644,12 @@ impl Kernel {
     pub fn now_ms(&self) -> u64 {
         self.clock.now_ms()
     }
+    /// When this process's startup began, 0 before it: a time that passed
+    /// before it passed while the daemon was down (DD8).
+    pub fn process_started_ms(&self) -> u64 {
+        self.started_at_ms
+            .load(std::sync::atomic::Ordering::Relaxed)
+    }
     /// Is a turn held on this execution in this process?
     pub fn is_held(&self, execution_id: &str) -> bool {
         self.held.lock().unwrap().contains(execution_id)
