@@ -15,8 +15,9 @@
 //! whose MLS welcome never came hears nothing and says nothing. What it
 //! does show: RTCP sender reports, which DAVE never encrypts, per SSRC. A
 //! sender report from an SSRC is a packet that arrived; a tick with its
-//! decoded audio is one that decrypted. [`Link`] reads both, and rejoins
-//! the call in place.
+//! packet and decoded audio is one that decrypted (a tick with audio and no
+//! packet is songbird concealing a loss, and is neither). [`Link`] reads
+//! both, and rejoins the call in place.
 
 use std::collections::{BTreeMap, HashMap};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -99,20 +100,28 @@ impl Ssrcs {
         self.counts.entry(ssrc).or_default().user = Some(user);
     }
 
-    /// One tick's packets, each SSRC with its decoded audio if any: a frame
-    /// for each SSRC mapped to a user, in speaker order. Every packet is
-    /// counted; one from an SSRC with no user yet goes no further.
+    /// One tick's packets, each SSRC with its decoded audio if any, and
+    /// whether a packet arrived for it: a frame for each SSRC mapped to a
+    /// user, in speaker order. Every packet is counted; one from an SSRC with
+    /// no user yet goes no further. A tick with no packet is songbird
+    /// concealing a lost one (theseus-voice-dave): its audio is passed on, but
+    /// it is neither a packet nor a decrypted one, or the deaf check would
+    /// take a call whose every packet fails for a call that hears.
     fn tick<'a>(
         &mut self,
-        packets: impl IntoIterator<Item = (u32, Option<&'a [i16]>)>,
+        packets: impl IntoIterator<Item = (u32, Option<&'a [i16]>, bool)>,
     ) -> Vec<Frame> {
         let mut frames = Vec::new();
-        for (ssrc, pcm) in packets {
+        for (ssrc, pcm, arrived) in packets {
             let user = self.users.get(&ssrc).copied();
             let count = self.counts.entry(ssrc).or_default();
-            count.frames += 1;
+            if arrived {
+                count.frames += 1;
+            }
             if let Some(pcm) = pcm {
-                count.decoded += 1;
+                if arrived {
+                    count.decoded += 1;
+                }
                 if let Some(speaker) = user {
                     frames.push(Frame {
                         speaker,
@@ -359,10 +368,10 @@ impl EventHandler for Receive {
                 }
             }
             EventContext::VoiceTick(tick) => {
-                let packets = tick
-                    .speaking
-                    .iter()
-                    .map(|(ssrc, data)| (*ssrc, data.decoded_voice.as_deref()));
+                let packets = tick.speaking.iter().map(|(ssrc, data)| {
+                    let arrived = data.packet.is_some();
+                    (*ssrc, data.decoded_voice.as_deref(), arrived)
+                });
                 let frames = self
                     .ssrcs
                     .lock()
@@ -468,17 +477,17 @@ mod tests {
         let pcm = vec![7i16; FRAME_SAMPLES];
         let pcm = Some(pcm.as_slice());
         // Before any speaking event (DAVE's silent start): counted, not passed on.
-        assert!(ssrcs.tick([(11, pcm), (22, None)]).is_empty());
+        assert!(ssrcs.tick([(11, pcm, true), (22, None, true)]).is_empty());
         ssrcs.speaking(11, Speaker(101));
         ssrcs.speaking(22, Speaker(202));
-        let frames = ssrcs.tick([(22, pcm), (11, pcm), (33, pcm)]);
+        let frames = ssrcs.tick([(22, pcm, true), (11, pcm, true), (33, pcm, true)]);
         let who: Vec<_> = frames.iter().map(|f| f.speaker).collect();
         assert_eq!(who, [Speaker(101), Speaker(202)]);
         // A packet that didn't decode is a frame received, but not decoded audio.
-        assert!(ssrcs.tick([(22, None)]).is_empty());
+        assert!(ssrcs.tick([(22, None, true)]).is_empty());
         // Once its user leaves, an SSRC's audio goes no further.
         ssrcs.left(Speaker(202));
-        assert!(ssrcs.tick([(22, pcm)]).is_empty());
+        assert!(ssrcs.tick([(22, pcm, true)]).is_empty());
         let count = |user, frames, decoded| SsrcCount {
             user,
             frames,
@@ -488,6 +497,29 @@ mod tests {
         assert_eq!(ssrcs.counts[&11], count(Some(Speaker(101)), 2, 2));
         assert_eq!(ssrcs.counts[&22], count(Some(Speaker(202)), 4, 2));
         assert_eq!(ssrcs.counts[&33], count(None, 1, 1));
+    }
+
+    /// A lost packet's concealment (theseus-voice-dave): songbird's tick
+    /// carries audio for an SSRC with no packet. Its audio goes on to the
+    /// engine, but it is no packet and no decrypted one: a call whose packets
+    /// all fail to decode, with a lost one among them, is not a call that
+    /// hears.
+    #[test]
+    fn a_concealed_loss_is_audio_but_neither_a_packet_nor_a_decrypted_one() {
+        let mut ssrcs = Ssrcs::default();
+        ssrcs.speaking(11, Speaker(101));
+        let pcm = vec![7i16; FRAME_SAMPLES];
+        let frames = ssrcs.tick([(11, Some(pcm.as_slice()), false)]);
+        assert_eq!(frames.len(), 1, "the concealment is passed on");
+        assert_eq!(
+            (ssrcs.counts[&11].frames, ssrcs.counts[&11].decoded),
+            (0, 0)
+        );
+        assert!(ssrcs.tick([(11, None, true)]).is_empty());
+        assert_eq!(
+            (ssrcs.counts[&11].frames, ssrcs.counts[&11].decoded),
+            (1, 0)
+        );
     }
 
     /// A sender report counts as a packet from its SSRC, with no audio; a
@@ -515,7 +547,7 @@ mod tests {
         );
         let pcm = vec![7i16; FRAME_SAMPLES];
         assert_eq!(
-            ssrcs.tick([(11, Some(pcm.as_slice()))]).len(),
+            ssrcs.tick([(11, Some(pcm.as_slice()), true)]).len(),
             1,
             "still mapped"
         );
