@@ -32,6 +32,9 @@ which it reads and never requires. Writes
   call**: over the trajectory's agent steps that call a tool (each step one
   model response, in every arm's ATIF: Theseus's, Pi's from its converter,
   Claude Code's and OpenCode's from Harbor's), else OpenCode's own stream;
+- **the kill family** (theseus-7ajc): per arm, from the ledger's `kill` and `restart`
+  lines and the verifier's `kill.json`: completed (reward 1 after the kill), duplicated
+  effects, orphans, time to resume, and lost work, each rate with its Wilson interval;
 - **order violations**: in a family with order rules (`layer2.DEPS`: the
   controls, link and bisect), each dependent step that started before its
   prerequisite's end.
@@ -68,8 +71,8 @@ SLOW = {"parallel": "digest", "wait-tax": "build-index", "interrupt": "train-mod
 def slow_tools(family: str) -> set[str]:
     """The tools whose steps are the family's slow work: Layer 1's one slow
     job, Layer 2's every tool (theseus-2wxa)."""
-    if family in l2f.BY_NAME:
-        return set(l2f.BY_NAME[family].tools)
+    if family in l2f.ALL_BY_NAME:
+        return set(l2f.ALL_BY_NAME[family].tools)
     return {SLOW[family]} if family in SLOW else set()
 
 
@@ -138,7 +141,7 @@ def ideal(family: str, rec: list[dict[str, Any]], agent_start: float | None) -> 
         for r in d:
             per[r["step"]] = per.get(r["step"], 0.0) + r["duration"]
         return max(sum(r["duration"] for r in d) / ab.DEPOSITS_AT_ONCE, max(per.values()))
-    if family in l2.CHECKS:
+    if l2.base(family) in l2.CHECKS:
         return l2.ideal(family, rec)
     return None
 
@@ -334,7 +337,13 @@ def score(trial: Path, arm: str | None = None) -> dict[str, Any]:
     rewards = ((result.get("verifier_result") or {}).get("rewards") or {})
     reward = rewards.get("reward")
     inj = report.get("injection")
-    measurable = family not in INJECTED or arm == "oracle" or bool(inj and not inj.get("error"))
+    killed = any(r["kind"] == "kill" for r in rec)
+    if family in l2f.KILL_BY_NAME:
+        # The kill is the injection: a trial it never reached (nothing to
+        # kill) is not measurable, never a failure.
+        measurable = arm == "oracle" or killed
+    else:
+        measurable = family not in INJECTED or arm == "oracle" or bool(inj and not inj.get("error"))
     best = ideal(family, rec, t0)
     agent = result.get("agent_result") or {}
     alive = sum(1 for p in problems.get("problems", []) if "still run" in p)
@@ -361,15 +370,121 @@ def score(trial: Path, arm: str | None = None) -> dict[str, Any]:
         "tokens": (agent.get("n_input_tokens") or 0) + (agent.get("n_output_tokens") or 0),
         "exception": (result.get("exception_info") or {}).get("exception_type"),
         **efficiency(trial, result),
-        "layer": 2 if family in l2f.BY_NAME else 1,
-        "shape": l2f.BY_NAME[family].shape if family in l2f.BY_NAME else None,
+        "layer": 2 if family in l2f.ALL_BY_NAME else 1,
+        "shape": l2f.ALL_BY_NAME[family].shape if family in l2f.ALL_BY_NAME else None,
         "overlap": ov["overlap"] if ov else None,
         "slow_busy_s": ov["busy_s"] if ov else None,
         "slow_phase_s": ov["phase_s"] if ov else None,
         "model_calls": len(model_calls) or None,
         **batching(responses(trial)),
-        "order_violations": len(l2.order_violations(family, rec)) if family in l2.DEPS else None,
+        "order_violations": len(l2.order_violations(family, rec)) if l2.base(family) in l2.DEPS else None,
+        **kill_row(trial, family, rec, reward),
     }
+
+
+# ---------------------------------------------------------------- the kill family (theseus-7ajc)
+
+
+def wilson(k: int, n: int, z: float = 1.96) -> tuple[float, float] | None:
+    """The Wilson score interval of k of n, 95% by default; None for n = 0."""
+    if n <= 0:
+        return None
+    p = k / n
+    d = 1 + z * z / n
+    centre = (p + z * z / (2 * n)) / d
+    half = z * ((p * (1 - p) / n + z * z / (4 * n * n)) ** 0.5) / d
+    return max(0.0, centre - half), min(1.0, centre + half)
+
+
+def kill_row(trial: Path, family: str, rec: list[dict[str, Any]], reward: Any) -> dict[str, Any]:
+    """A kill-family trial's columns, from the ledger and the verifier's
+    `kill.json` (the processes it found running at its check): completed
+    (reward 1 after the kill), duplicated effects, orphans, time to resume,
+    lost work, and whether the arm could continue a session at all. None
+    for any other family."""
+    none = {"kill_completed": None, "kill_duplicated": None, "kill_orphans": None, "kill_lost_work": None,
+            "kill_resume_s": None, "kill_resumed": None, "kill_resumable": None}
+    if family not in l2f.KILL_BY_NAME:
+        return none
+    held = _json(trial / "verifier/kill.json") or {}
+    alive = {(p[0], p[1]) for p in held.get("alive", [])}
+    cols = ab.kill_columns(rec, alive, l2.KILL_REPEATS.get(l2.base(family)))
+    restart = [r for r in rec if r["kind"] == "restart"]
+    return {"kill_completed": bool(cols["killed"] and reward == 1),
+            "kill_duplicated": cols["duplicated_effects"] if cols["killed"] else None,
+            "kill_orphans": cols["orphans"], "kill_lost_work": cols["lost_work"],
+            "kill_resume_s": cols["time_to_resume_s"], "kill_resumed": cols["resumed"],
+            "kill_resumable": restart[0].get("resumable") if restart else None}
+
+
+def _rate(k: int, n: int) -> str:
+    w = wilson(k, n)
+    return "–" if w is None else f"{k}/{n} ({w[0] * 100:.0f}–{w[1] * 100:.0f}%)"
+
+
+def kill_rows(scores: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """One row per arm over its measurable kill-family trials. Rates are of
+    trials, each with its Wilson interval: completed, trials with a
+    duplicated effect, trials with an orphan, trials that lost work; time to
+    resume is the median over the trials that resumed."""
+    groups: dict[str, list[dict[str, Any]]] = {}
+    for s in scores:
+        if s["family"] in l2f.KILL_BY_NAME and s["measurable"]:
+            groups.setdefault(s["arm"], []).append(s)
+    out = []
+    for arm, g in sorted(groups.items()):
+        n = len(g)
+        out.append({
+            "arm": arm,
+            "trials": n,
+            "completed": sum(1 for s in g if s["kill_completed"]),
+            "duplicated_trials": sum(1 for s in g if (s["kill_duplicated"] or 0) > 0),
+            "duplicated_effects": sum(s["kill_duplicated"] or 0 for s in g),
+            "orphan_trials": sum(1 for s in g if (s["kill_orphans"] or 0) > 0),
+            "orphans": sum(s["kill_orphans"] or 0 for s in g),
+            "lost_work_trials": sum(1 for s in g if (s["kill_lost_work"] or 0) > 0),
+            "lost_work": sum(s["kill_lost_work"] or 0 for s in g),
+            "resume_s": _median([s["kill_resume_s"] for s in g if s["kill_resumed"]]),
+            "resumed": sum(1 for s in g if s["kill_resumed"]),
+            "not_resumable": sum(1 for s in g if s["kill_resumable"] is False),
+        })
+    return out
+
+
+KILL_COLUMNS = [
+    ("arm", "Arm"), ("trials", "Trials"), ("completed", "Completed"),
+    ("duplicated_trials", "Duplicated effects (trials with)"), ("orphan_trials", "Orphans (trials with)"),
+    ("lost_work_trials", "Lost work (trials with)"), ("resume_s", "Time to resume s (median)"),
+    ("not_resumable", "Not resumable"),
+]
+
+
+def kill_markdown(table: list[dict[str, Any]]) -> str:
+    """The kill family's table: per arm, each rate with its 95% Wilson
+    interval; the totals (effects, orphans, steps redone) beside."""
+    if not table:
+        return ""
+    lines = [
+        "", "## The kill family", "",
+        "The harness is killed (SIGKILL) once mid-task and restarted as its documentation says to continue a "
+        "session. **Completed**: reward 1 after the kill. **Duplicated effects**: an effect line for the same "
+        "step twice. **Orphans**: a process from before the kill still running at the end, or still writing "
+        "after the restarted harness started the same step. **Lost work**: steps done before the kill and done "
+        "again. **Time to resume**: the `kill` line to the next ledger line of a process the restarted harness "
+        "started. Rates are of trials, with 95% Wilson intervals; a trial the kill never reached is not "
+        "counted.", "",
+        "| " + " | ".join(h for _, h in KILL_COLUMNS) + " | Totals |",
+        "|" + "|".join("---" for _ in KILL_COLUMNS) + "|---|",
+    ]
+    for r in table:
+        n = r["trials"]
+        cells = [r["arm"], str(n), _rate(r["completed"], n), _rate(r["duplicated_trials"], n),
+                 _rate(r["orphan_trials"], n), _rate(r["lost_work_trials"], n), _cell(r["resume_s"]),
+                 str(r["not_resumable"])]
+        totals = (f"{r['duplicated_effects']} duplicated effects, {r['orphans']} orphans, "
+                  f"{r['lost_work']} steps redone, {r['resumed']}/{n} resumed")
+        lines.append("| " + " | ".join(cells) + f" | {totals} |")
+    return "\n".join(lines) + "\n"
 
 
 # ---------------------------------------------------------------- the report
@@ -418,7 +533,7 @@ def rows(scores: list[dict[str, Any]]) -> list[dict[str, Any]]:
             "overlap": _median([s["overlap"] for s in m]),
             **_pooled(m),
             "order_violations": (sum(s["order_violations"] or 0 for s in m)
-                                 if family in l2.DEPS else None),
+                                 if l2.base(family) in l2.DEPS else None),
         })
     return out
 
@@ -445,7 +560,7 @@ COLUMNS = [
 ]
 
 
-def markdown(table: list[dict[str, Any]], jobs: list[str]) -> str:
+def markdown(table: list[dict[str, Any]], jobs: list[str], kill: list[dict[str, Any]] | None = None) -> str:
     lines = [
         "# The async bench",
         "",
@@ -459,7 +574,7 @@ def markdown(table: list[dict[str, Any]], jobs: list[str]) -> str:
     ]
     for r in table:
         lines.append("| " + " | ".join(_cell(r[k]) for k, _ in COLUMNS) + " |")
-    return "\n".join(lines) + "\n"
+    return "\n".join(lines) + "\n" + kill_markdown(kill or [])
 
 
 def labelled(jobs: list[str]) -> list[tuple[str | None, Path]]:
@@ -482,7 +597,7 @@ def main(argv: list[str] | None = None) -> int:
     a.out.mkdir(parents=True, exist_ok=True)
     (a.out / "scores.json").write_text(json.dumps(scores, indent=2))
     table = rows(scores)
-    (a.out / "report.md").write_text(markdown(table, [j.name for _, j in jobs]))
+    (a.out / "report.md").write_text(markdown(table, [j.name for _, j in jobs], kill_rows(scores)))
     print(f"{len(scores)} trials, {len(table)} rows: {a.out / 'report.md'}")
     return 0
 

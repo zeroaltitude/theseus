@@ -333,6 +333,7 @@ def tool_convert_export(args: list[str]) -> int:
     (out / f"{name}.csv").write_text("id,amount\n" + "\n".join(rows) + "\n")
     print(f"converted {name}: exports/{name}.csv, {len(rows)} rows")
     s.end(rows=rows)
+    ab.effect("convert-export", name)
     return 0
 
 
@@ -536,6 +537,7 @@ def tool_build(args: list[str]) -> int:
         st["data"]["app"] = bid
     print(f"built bin/app ({bid})")
     s.end(build=bid)
+    ab.effect("build", "build")
     return 0
 
 
@@ -552,6 +554,7 @@ def tool_run_app(args: list[str]) -> int:
         st["data"]["output"] = out
     print(f"bin/app ({bid}) wrote out/result.dat: {out}")
     s.end(output=out, build=bid)
+    ab.effect("run-app", "run")
     return 0
 
 
@@ -580,6 +583,7 @@ def tool_start_service(args: list[str]) -> int:
         st["data"]["up"] = True
     print("inventory service ready on 127.0.0.1:7070")
     s.end(stock=stock)
+    ab.effect("start-service", "inventory")
     return 0
 
 
@@ -617,6 +621,7 @@ def tool_migrate_db(args: list[str]) -> int:
         st["data"]["sum"] = new
     print(f"applied {step}; schema checksum {new}")
     s.end(checksum=new)
+    ab.effect("migrate-db", step)
     return 0
 
 
@@ -705,6 +710,7 @@ def tool_make_worktree(args: list[str]) -> int:
         st["data"][c] = True
     print(f"worktree at /tmp/wt-{c} on {c}")
     s.end()
+    ab.effect("make-worktree", c)
     return 0
 
 
@@ -774,11 +780,26 @@ DEPS: dict[str, list[tuple[str, str | None, str, str | None]]] = {
 }
 CONTROLS = ["pipeline", "service", "migrations", "edit-test"]
 
+# The kill family (theseus-7ajc): `kill-<family>` is a plain family with the
+# kill injection, on an image whose tools write an `effect` record for each
+# step whose effect must not repeat (`asyncbench.effect`). Its rules, ideal and
+# outcome are the plain family's.
+KILL_BASES = ["health-restart", "migrations", "csv-merge", "bisect", "pipeline", "service"]
+KILL_PREFIX = "kill-"
+# A repeat the chore itself asks for, not lost work: health-restart checks the
+# restarted service again (tool: the tool whose end it follows).
+KILL_REPEATS = {"health-restart": {"health": "restart"}}
+
+
+def base(family: str) -> str:
+    """The plain family a `kill-<family>` is the injection's variant of."""
+    return family[len(KILL_PREFIX):] if family.startswith(KILL_PREFIX) else family
+
 
 def order_violations(family: str, rec: list[dict[str, Any]]) -> list[str]:
     """Each dependent start that came before its prerequisite's end."""
     out = []
-    for dtool, dstep, ptool, pstep in DEPS.get(family, []):
+    for dtool, dstep, ptool, pstep in DEPS.get(base(family), []):
         for r in rec:
             if r["kind"] != "start" or r["tool"] != dtool or (dstep is not None and r["step"] != dstep):
                 continue
@@ -836,6 +857,7 @@ STAGES: dict[str, list[list[str]]] = {
 def ideal(family: str, rec: list[dict[str, Any]]) -> float | None:
     """The family's ideal wall, in seconds, from the ledger's drawn
     durations: its critical path, each step's first run."""
+    family = base(family)
     if not any(r["kind"] == "start" for r in rec):
         return None
     if family in STAGES:
@@ -1190,15 +1212,19 @@ def _checked(family: str) -> Callable[[list[dict[str, Any]]], list[str]]:
     """The family's outcome, after its order rules: a violation is reward 0
     whatever the outcome."""
     def run(rec: list[dict[str, Any]]) -> list[str]:
-        return [f"order violation: {v}" for v in order_violations(family, rec)] + CHECKS[family](rec)
+        return [f"order violation: {v}" for v in order_violations(family, rec)] + CHECKS[base(family)](rec)
     return run
+
+
+KILL_NAMES = [KILL_PREFIX + b for b in KILL_BASES]
 
 
 def main(argv: list[str]) -> int:
     if len(argv) >= 2 and argv[0] == "tool" and argv[1] in TOOLS:
         return TOOLS[argv[1]](argv[2:])
-    if len(argv) == 2 and argv[0] == "check" and argv[1] in CHECKS:
-        return 0 if ab.check(argv[1], {argv[1]: _checked(argv[1])})["reward"] == 1 else 1
+    if len(argv) == 2 and argv[0] == "check" and (argv[1] in CHECKS or argv[1] in KILL_NAMES):
+        return 0 if ab.check(argv[1], {argv[1]: _checked(argv[1])},
+                             KILL_REPEATS.get(base(argv[1])))["reward"] == 1 else 1
     print(__doc__, file=sys.stderr)
     return 2
 
