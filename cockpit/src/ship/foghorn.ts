@@ -126,7 +126,8 @@ export function startFoghorns(on: boolean, next: () => number, clock: GullClock,
     handle = clock.after(() => {
       if (!live) return
       const wait = opts.clear?.() ?? 0
-      if (wait > 0) { arm(wait); return }
+      // Whole ms up: a wait of a hair (float noise at the 30 s edge) must still move the clock on.
+      if (wait > 0) { arm(Math.ceil(wait)); return }
       play()
       arm(hornGap(next) * 1000)
     }, ms)

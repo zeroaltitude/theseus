@@ -11,6 +11,7 @@ import {
 import { GULL_GAIN, GULL_GAP_MAX_S, gullCall, gullRng, type GullClock } from '../src/ship/gull.ts'
 import { SURF_GAIN_ROLL } from '../src/ship/surf.ts'
 import { ShipAudio } from '../src/ship/audio.ts'
+import { pingSecs, pingVoice, Room, ROOM_PAD_MS, startSonar } from '../src/ship/sonar.ts'
 import { FakeContext, FakeSource, installFakeAudio, made, type FakeNode, type FakeParam } from './fakeaudio.ts'
 
 /** A clock that runs on demand: `after` queues, `fire` runs the earliest. */
@@ -263,13 +264,110 @@ test('a horn and a gull keep 30 s apart, on the audio side too', () => {
   })
 })
 
+test('a horn and a ping keep 30 s apart, on the audio side too', () => {
+  FakeContext.held = false
+  FakeContext.slow = null
+  installFakeAudio()
+  made.length = 0
+  const a = new ShipAudio()
+  return a.start().then(() => {
+    const ctx = made[0]
+    assert.equal(a.hornClear(), 0, 'no ping yet: clear')
+    assert.equal(a.ping(pingVoice(gullRng(1))), true)
+    assert.equal(a.hornClear(), HORN_CLEAR_S * 1000, 'a ping just now: wait 30 s')
+    ctx.currentTime = 25
+    assert.equal(a.hornClear(), 5_000)
+    ctx.currentTime = 31
+    assert.equal(a.hornClear(), 0)
+    assert.equal(a.foghorn(hornCall(gullRng(1))), true)
+    ctx.currentTime = 50
+    assert.equal(a.ping(pingVoice(gullRng(2))), false, 'a ping 19 s after a horn is not heard')
+    ctx.currentTime = 62
+    assert.equal(a.ping(pingVoice(gullRng(2))), true, 'and one 31 s after is')
+    a.dispose()
+  })
+})
+
+test('the spacing with the sonar: a horn and a ping are never within 30 s of each other, either way, over many seeds', () => {
+  let waited = 0
+  for (let seed = 1; seed <= 20; seed++) {
+    const c = fakeClock()
+    const r = new Room()
+    const pings: number[] = []
+    const horns: number[] = []
+    // The page's wiring (`useShipSound.ts`): the sonar on the room; the horn asks the ping's 30 s and the room, and
+    // holds the room for its 30 s once it sounds.
+    const stopPings = startSonar({
+      next: gullRng(seed), clock: c.clock, now: () => c.now() * 1000, shown: () => true, room: r,
+      play: () => { pings.push(c.now()) },
+    })
+    const clear = () => {
+      const w = Math.max(hornClearMs(c.now(), pings.at(-1) ?? -Infinity), r.wait(c.now() * 1000))
+      if (w > 0) waited++
+      return w
+    }
+    const stopHorns = startFoghorns(true, gullRng(seed + 100), c.clock,
+      () => { if (r.claim(c.now() * 1000, HORN_CLEAR_S * 1000)) horns.push(c.now()) }, { first: 5000, clear })
+    while (c.now() < 6 * 3600) c.fire()
+    stopPings()
+    stopHorns()
+    assert.ok(horns.length >= 15 && pings.length >= 40, `seed ${seed}: ${horns.length} horns, ${pings.length} pings`)
+    for (const h of horns) for (const p of pings) {
+      assert.ok(Math.abs(h - p) >= HORN_CLEAR_S, `seed ${seed}: a horn at ${h.toFixed(1)} s and a ping at ${p.toFixed(1)} s`)
+    }
+  }
+  assert.ok(waited > 0, 'some horns came due near a ping and waited')
+})
+
+test('?gull=now&ping=now&horn=now: the three take turns, ping, then gull, then horn, none over another', () => {
+  // The page's wiring (`useShipSound.ts`): the Ship opens at 0 and its sonar's `?ping=now` is 3 s in; Sound is pressed
+  // at `on` s, so the sea is heard then, `?gull=now` is 3 s after it (waiting for the room) and `?horn=now` 5 s after it.
+  for (const on of [0, 1, 2.5]) for (let seed = 1; seed <= 10; seed++) {
+    const c = fakeClock()
+    const r = new Room()
+    const heard: { who: string; at: number; secs: number }[] = []
+    const last = (who: string) => heard.filter((h) => h.who === who).at(-1)?.at ?? -Infinity
+    const next = gullRng(seed)
+    const stops = [startSonar({
+      next, clock: c.clock, now: () => c.now() * 1000, shown: () => true, room: r, first: 3000,
+      play: (v) => { heard.push({ who: 'ping', at: c.now(), secs: pingSecs(v) }) },
+    })]
+    const visit = () => {
+      const call = gullCall(next)
+      if (r.claim(c.now() * 1000, call.secs * 1000 + ROOM_PAD_MS)) heard.push({ who: 'gull', at: c.now(), secs: call.secs })
+    }
+    const gullNow = () => {
+      const wait = r.wait(c.now() * 1000)
+      if (wait > 0) { c.clock.after(gullNow, wait + ROOM_PAD_MS); return }
+      visit()
+    }
+    c.clock.after(() => {
+      c.clock.after(gullNow, 3000)
+      stops.push(startFoghorns(true, next, c.clock, () => {
+        if (r.claim(c.now() * 1000, HORN_CLEAR_S * 1000)) heard.push({ who: 'horn', at: c.now(), secs: hornCall(next).secs })
+      }, { first: 5000, clear: () => Math.max(hornClearMs(c.now(), Math.max(last('ping'), last('gull'))), r.wait(c.now() * 1000)) }))
+    }, on * 1000)
+    // A wait that never moves the clock on (a hair of float at the 30 s edge) would spin here: the step cap ends it.
+    for (let steps = 0; heard.length < 3 && c.now() < 3600 && steps < 10_000 && c.fire() !== null; steps++) { /* run the clock */ }
+    for (const s of stops) s()
+    assert.deepEqual(heard.map((h) => h.who), ['ping', 'gull', 'horn'], `Sound at ${on} s, seed ${seed}: ${JSON.stringify(heard)}`)
+    const [ping, gull, horn] = heard
+    assert.equal(ping.at, 3)
+    assert.ok(gull.at >= ping.at + ping.secs + ROOM_PAD_MS / 1000, `the gull waits out the ping: ${gull.at} s`)
+    assert.ok(gull.at < 20, `and comes soon after it: ${gull.at} s`)
+    assert.ok(horn.at >= gull.at + HORN_CLEAR_S && horn.at - gull.at < HORN_CLEAR_S + 1, `the horn 30 s after the gull: ${horn.at} s`)
+  }
+})
+
 test('the page: the foghorn is heard where the gull is heard, and its timers, ?horn=now’s too, and nodes are let go on cleanup', () => {
   const src = readFileSync(new URL('../src/ship/useShipSound.ts', import.meta.url), 'utf8')
   assert.match(src, /const hearing = on && !calm && swell/)
   const fx = src.slice(src.indexOf('// The foghorn'))
-  assert.match(fx, /^[^\n]*\n\s+useEffect\(\(\) => \{\s+if \(!hearing\) return\s+const a = theAudio\(\)/)
+  assert.match(fx, /^[^\n]*\n(?:\s+\/\/[^\n]*\n)*\s+useEffect\(\(\) => \{\s+if \(!hearing\) return\s+const a = theAudio\(\)/)
   assert.match(fx, /startFoghorns\(true, next, \{ after: \(f, ms\) => setTimeout\(f, ms\), cancel: \(h\) => clearTimeout\(h as number\) \}/)
-  assert.match(fx, /\{ first, clear: \(\) => a\.hornClear\(\) \}\)\s+return \(\) => \{ stop\(\); a\.hornStop\(\) \}\s+\}, \[hearing\]\)/)
+  // A horn waits for the gull and the ping (`hornClear`) and for the room, and holds the room for the 30 s it keeps.
+  assert.match(fx, /\(\) => \{ if \(room\.claim\(Date\.now\(\), HORN_CLEAR_S \* 1000\)\) a\.foghorn\(hornCall\(next\)\) \},/)
+  assert.match(fx, /\{ first, clear: \(\) => Math\.max\(a\.hornClear\(\), room\.wait\(Date\.now\(\)\)\) \}\)\s+return \(\) => \{ stop\(\); a\.hornStop\(\) \}\s+\}, \[hearing\]\)/)
   // `?horn=now`: the first horn five seconds in, on the scheduler's own timer, so the stop cancels it.
   assert.match(fx, /get\('horn'\) === 'now' \? 5000 : undefined/)
   const c = fakeClock()

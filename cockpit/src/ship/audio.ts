@@ -61,10 +61,11 @@ export class ShipAudio {
   private gulls = new Set<GullVoice>()
   /** The sonar pings sounding now (theseus-mbulo): a stop must end them all, echoes and return too. */
   private pings = new Set<PingNodes>()
-  /** The foghorns sounding now, echo and all (theseus-7mow), and when (the context's seconds) the last gull and the last
-   *  horn began, so each keeps `HORN_CLEAR_S` from the other. */
+  /** The foghorns sounding now, echo and all (theseus-7mow), and when (the context's seconds) the last gull, the last
+   *  ping and the last horn began, so the horn keeps `HORN_CLEAR_S` from the gull and the ping, either way. */
   private horns = new Set<HornVoice>()
   private gullAt = -Infinity
+  private pingAt = -Infinity
   private hornAt = -Infinity
 
   /** Whether sound can play now (its context runs). */
@@ -75,7 +76,7 @@ export class ShipAudio {
   /** The master gain, its gentle low-pass and the noise, on a context. */
   private attach(ctx: BaseAudioContext) {
     this.ctx = ctx
-    this.gullAt = this.hornAt = -Infinity
+    this.gullAt = this.pingAt = this.hornAt = -Infinity
     this.master = ctx.createGain()
     this.master.gain.value = 0.28
     // A gentle low-pass on everything: no sound of the Ship is sharp.
@@ -171,10 +172,13 @@ export class ShipAudio {
     this.gulls.clear()
   }
 
-  /** A sonar ping (`sonar.ts`), where the sound runs; false when it can't (no context, or the browser holds it). */
+  /** A sonar ping (`sonar.ts`), where the sound runs; false when it can't (no context, or the browser holds it), or
+   *  when a foghorn began within `HORN_CLEAR_S` (the room keeps a ping's scheduler that far from a horn already). */
   ping(voice: PingVoice): boolean {
     const c = this.ctx
     if (!c || !this.master || (this.live && this.live.state !== 'running')) return false
+    if (c.currentTime - this.hornAt < HORN_CLEAR_S) return false
+    this.pingAt = c.currentTime
     const p: PingNodes = pingBuild(c, this.master, c.currentTime + 0.02, voice, () => this.pings.delete(p))
     this.pings.add(p)
     return true
@@ -193,7 +197,7 @@ export class ShipAudio {
   }
 
   /** A foghorn far off (`foghorn.ts`), where the sound runs; false when it can't (no context, or the browser holds
-   *  it). Its scheduler asks `hornClear` first, so it keeps clear of a gull. */
+   *  it). Its scheduler asks `hornClear` and the room first, so it keeps clear of a gull and a ping. */
   foghorn(call: HornCall): boolean {
     const c = this.ctx
     if (!c || !this.master || (this.live && this.live.state !== 'running')) return false
@@ -204,9 +208,10 @@ export class ShipAudio {
     return true
   }
 
-  /** The ms until a foghorn is clear of the last gull: 0 when it is (or there is no context to hear either). */
+  /** The ms until a foghorn is clear of the last gull and the last ping: 0 when it is (or there is no context to hear
+   *  any of them). */
   hornClear(): number {
-    return this.ctx ? hornClearMs(this.ctx.currentTime, this.gullAt) : 0
+    return this.ctx ? hornClearMs(this.ctx.currentTime, Math.max(this.gullAt, this.pingAt)) : 0
   }
 
   /** How many foghorns are sounding (their echoes too), for the tests. */
