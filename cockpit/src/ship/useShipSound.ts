@@ -16,6 +16,7 @@ import { ShipAudio } from './audio'
 import { tpmOf } from './sea.ts'
 import { cueHere, cueOf, cueOfRow, newEar, type Cue } from './sound'
 import { gullCall, gullRng, startGulls } from './gull.ts'
+import { hornCall, startFoghorns } from './foghorn.ts'
 import { surfHeight } from './surf.ts'
 
 export interface ShipSound {
@@ -113,6 +114,18 @@ function useSurf(on: boolean) {
     const soon = new URLSearchParams(window.location.search).get('gull') === 'now'
       ? setTimeout(() => { a.gull(gullCall(next)) }, 3000) : null
     return () => { stop(); if (soon !== null) clearTimeout(soon); a.gullStop() }
+  }, [hearing])
+  // The foghorn (theseus-7mow): rarer still, a ship's horn far off, where the gull is heard; never within 30 s of a gull.
+  useEffect(() => {
+    if (!hearing) return
+    const a = theAudio()
+    const next = gullRng((Date.now() ^ (Math.random() * 0x7fffffff)) >>> 0)
+    // `?horn=now`: the first horn five seconds after the sea is heard, not a gap (8 to 20 minutes) away; the horns after
+    // it keep their own gaps. Its timer is the scheduler's own, so the stop cancels it (the owner, 2026-10-12).
+    const first = new URLSearchParams(window.location.search).get('horn') === 'now' ? 5000 : undefined
+    const stop = startFoghorns(true, next, { after: (f, ms) => setTimeout(f, ms), cancel: (h) => clearTimeout(h as number) },
+      () => { a.foghorn(hornCall(next)) }, { first, clear: () => a.hornClear() })
+    return () => { stop(); a.hornStop() }
   }, [hearing])
   // Dev and bench builds: what the sea plays now, for a live check.
   useEffect(() => {

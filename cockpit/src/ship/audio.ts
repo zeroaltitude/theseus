@@ -9,6 +9,8 @@
 //         vibrato, and a sag in pitch as it ends
 //
 //   the sea (theseus-pl0x): the ambient waves while sound is on, at the sea's height (`surf.ts`), ducked under a cue
+//   the gull and the foghorn (theseus-7mow): now and then, far off, where the sea is heard (`gull.ts`, `foghorn.ts`);
+//         the foghorn is not the `horn` cue above: it is longer, lower, quieter and far away (`foghorn.ts` says how)
 //
 // Browsers start audio only from a gesture: the one place a context is made or resumed is the Sound button's click
 // (`turnOn`), and sound is off on every page load (the owner's call, 2026-10-07), so the page never asks for audio
@@ -17,6 +19,8 @@
 import type { Cue } from './sound'
 import { gullBuild, type GullVoice } from './gullsound.ts'
 import type { GullCall } from './gull.ts'
+import { hornBuild, type HornVoice } from './foghornsound.ts'
+import { HORN_CLEAR_S, hornClearMs, type HornCall } from './foghorn.ts'
 import {
   DUCK, DUCK_ATTACK_S, DUCK_RELEASE_S, fadeTo, NOISE_S, pinkNoise, SURF_BACKWASH_S, SURF_BODY_HZ, SURF_FADE_IN_S,
   SURF_FADE_OUT_S, SURF_FOAM, SURF_HISS, SURF_HISS_HZ, SURF_RUMBLE_HZ, SURF_WASH_HZ, surfTau, surfVoice, surfWaves, WAVES_RATE,
@@ -53,6 +57,11 @@ export class ShipAudio {
   private surfBufs: { noise: AudioBuffer[]; waves: AudioBuffer } | null = null
   /** The gulls passing now (theseus-7mow): one visit is never two close together, but a stop must end them all. */
   private gulls = new Set<GullVoice>()
+  /** The foghorns sounding now, echo and all (theseus-7mow), and when (the context's seconds) the last gull and the last
+   *  horn began, so each keeps `HORN_CLEAR_S` from the other. */
+  private horns = new Set<HornVoice>()
+  private gullAt = -Infinity
+  private hornAt = -Infinity
 
   /** Whether sound can play now (its context runs). */
   get running(): boolean {
@@ -62,6 +71,7 @@ export class ShipAudio {
   /** The master gain, its gentle low-pass and the noise, on a context. */
   private attach(ctx: BaseAudioContext) {
     this.ctx = ctx
+    this.gullAt = this.hornAt = -Infinity
     this.master = ctx.createGain()
     this.master.gain.value = 0.28
     // A gentle low-pass on everything: no sound of the Ship is sharp.
@@ -132,10 +142,13 @@ export class ShipAudio {
     return this.surfNow && { height: this.surfNow.height, voice: this.surfNow.voice }
   }
 
-  /** A gull passing (`gull.ts`), where the sound runs; false when it can't (no context, or the browser holds it). */
+  /** A gull passing (`gull.ts`), where the sound runs; false when it can't (no context, or the browser holds it), or
+   *  when a foghorn began within `HORN_CLEAR_S`: that visit is let pass. */
   gull(call: GullCall): boolean {
     const c = this.ctx
     if (!c || !this.master || (this.live && this.live.state !== 'running')) return false
+    if (c.currentTime - this.hornAt < HORN_CLEAR_S) return false
+    this.gullAt = c.currentTime
     const v = gullBuild(c, this.master, c.currentTime + 0.05, call)
     this.gulls.add(v)
     v.sources[v.sources.length - 1].onended = () => { v.out.disconnect(); this.gulls.delete(v) }
@@ -154,8 +167,38 @@ export class ShipAudio {
     this.gulls.clear()
   }
 
+  /** A foghorn far off (`foghorn.ts`), where the sound runs; false when it can't (no context, or the browser holds
+   *  it). Its scheduler asks `hornClear` first, so it keeps clear of a gull. */
+  foghorn(call: HornCall): boolean {
+    const c = this.ctx
+    if (!c || !this.master || (this.live && this.live.state !== 'running')) return false
+    this.hornAt = c.currentTime
+    const v = hornBuild(c, this.master, c.currentTime + 0.05, call)
+    this.horns.add(v)
+    v.sources[v.sources.length - 1].onended = () => { for (const n of v.ends) n.disconnect(); this.horns.delete(v) }
+    return true
+  }
+
+  /** The ms until a foghorn is clear of the last gull: 0 when it is (or there is no context to hear either). */
+  hornClear(): number {
+    return this.ctx ? hornClearMs(this.ctx.currentTime, this.gullAt) : 0
+  }
+
+  /** How many foghorns are sounding (their echoes too), for the tests. */
+  get hornsHeard(): number {
+    return this.horns.size
+  }
+
+  /** Every foghorn ends at once, echo and all: sound off, Calm, or the page leaving. */
+  hornStop() {
+    const t = this.ctx?.currentTime ?? 0
+    for (const v of this.horns) v.stop(t)
+    this.horns.clear()
+  }
+
   dispose() {
     this.gullStop()
+    this.hornStop()
     void this.live?.close().catch(() => {})
     this.live = null
     this.ctx = null
