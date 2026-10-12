@@ -1,0 +1,209 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="993" viewBox="0 0 720 993" role="img" aria-labelledby="t-families t-families-d" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
+<title id="t-families">Pass rate by item family and arm, Oct 12 (share of cells)</title>
+<desc id="t-families-d">Where does retrieval help, and where does it hurt?</desc>
+<rect width="720" height="993" rx="8" fill="#1a1a19" stroke="#2c2c2a"/>
+<text x="18.0" y="32.0" font-size="15" fill="#ffffff" font-weight="600">Pass rate by item family and arm, Oct 12 (share of cells)</text>
+<rect x="18.0" y="44.0" width="14" height="12" rx="3" fill="#898781"/>
+<text x="40.0" y="54.0" font-size="12" fill="#c3c2b7">none</text>
+<rect x="87.9" y="44.0" width="14" height="12" rx="3" fill="#d55181"/>
+<text x="109.9" y="54.0" font-size="12" fill="#c3c2b7">bm25</text>
+<rect x="161.9" y="44.0" width="14" height="12" rx="3" fill="#9085e9"/>
+<text x="183.9" y="54.0" font-size="12" fill="#c3c2b7">baseline (fused)</text>
+<line x1="116.3" y1="74.0" x2="116.3" y2="914.0" stroke="#2c2c2a" stroke-width="1"/>
+<line x1="223.2" y1="74.0" x2="223.2" y2="914.0" stroke="#2c2c2a" stroke-width="1"/>
+<line x1="330.2" y1="74.0" x2="330.2" y2="914.0" stroke="#2c2c2a" stroke-width="1"/>
+<line x1="437.1" y1="74.0" x2="437.1" y2="914.0" stroke="#2c2c2a" stroke-width="1"/>
+<line x1="544.1" y1="74.0" x2="544.1" y2="914.0" stroke="#2c2c2a" stroke-width="1"/>
+<line x1="651.0" y1="74.0" x2="651.0" y2="914.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="106.3" y="108.0" font-size="12" fill="#ffffff" text-anchor="end">fact</text>
+<g><title>fact · none: 0.0%</title>
+<path d="M116.3,81.0H116.3A0.0,0.0 0 0 1 116.3,81.0V95.0A0.0,0.0 0 0 1 116.3,95.0H116.3Z" fill="#898781"/>
+</g>
+<text x="121.3" y="92.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">0.0%</text>
+<g><title>fact · bm25: 100.0%</title>
+<path d="M116.3,97.0H647.0A4,4 0 0 1 651.0,101.0V107.0A4,4 0 0 1 647.0,111.0H116.3Z" fill="#d55181"/>
+</g>
+<text x="656.0" y="108.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">100.0%</text>
+<g><title>fact · baseline (fused): 100.0%</title>
+<path d="M116.3,113.0H647.0A4,4 0 0 1 651.0,117.0V123.0A4,4 0 0 1 647.0,127.0H116.3Z" fill="#9085e9"/>
+</g>
+<text x="656.0" y="124.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">100.0%</text>
+<text x="106.3" y="168.0" font-size="12" fill="#ffffff" text-anchor="end">decision</text>
+<g><title>decision · none: 38.0%</title>
+<path d="M116.3,141.0H315.5A4,4 0 0 1 319.5,145.0V151.0A4,4 0 0 1 315.5,155.0H116.3Z" fill="#898781"/>
+</g>
+<text x="324.5" y="152.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">38.0%</text>
+<g><title>decision · bm25: 100.0%</title>
+<path d="M116.3,157.0H647.0A4,4 0 0 1 651.0,161.0V167.0A4,4 0 0 1 647.0,171.0H116.3Z" fill="#d55181"/>
+</g>
+<text x="656.0" y="168.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">100.0%</text>
+<g><title>decision · baseline (fused): 100.0%</title>
+<path d="M116.3,173.0H647.0A4,4 0 0 1 651.0,177.0V183.0A4,4 0 0 1 647.0,187.0H116.3Z" fill="#9085e9"/>
+</g>
+<text x="656.0" y="184.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">100.0%</text>
+<text x="106.3" y="228.0" font-size="12" fill="#ffffff" text-anchor="end">episode</text>
+<g><title>episode · none: 12.0%</title>
+<path d="M116.3,201.0H176.5A4,4 0 0 1 180.5,205.0V211.0A4,4 0 0 1 176.5,215.0H116.3Z" fill="#898781"/>
+</g>
+<text x="185.5" y="212.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">12.0%</text>
+<g><title>episode · bm25: 100.0%</title>
+<path d="M116.3,217.0H647.0A4,4 0 0 1 651.0,221.0V227.0A4,4 0 0 1 647.0,231.0H116.3Z" fill="#d55181"/>
+</g>
+<text x="656.0" y="228.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">100.0%</text>
+<g><title>episode · baseline (fused): 100.0%</title>
+<path d="M116.3,233.0H647.0A4,4 0 0 1 651.0,237.0V243.0A4,4 0 0 1 647.0,247.0H116.3Z" fill="#9085e9"/>
+</g>
+<text x="656.0" y="244.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">100.0%</text>
+<text x="106.3" y="288.0" font-size="12" fill="#ffffff" text-anchor="end">superseded</text>
+<g><title>superseded · none: 25.0%</title>
+<path d="M116.3,261.0H246.0A4,4 0 0 1 250.0,265.0V271.0A4,4 0 0 1 246.0,275.0H116.3Z" fill="#898781"/>
+</g>
+<text x="255.0" y="272.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">25.0%</text>
+<g><title>superseded · bm25: 75.0%</title>
+<path d="M116.3,277.0H513.4A4,4 0 0 1 517.4,281.0V287.0A4,4 0 0 1 513.4,291.0H116.3Z" fill="#d55181"/>
+</g>
+<text x="522.4" y="288.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">75.0%</text>
+<g><title>superseded · baseline (fused): 100.0%</title>
+<path d="M116.3,293.0H647.0A4,4 0 0 1 651.0,297.0V303.0A4,4 0 0 1 647.0,307.0H116.3Z" fill="#9085e9"/>
+</g>
+<text x="656.0" y="304.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">100.0%</text>
+<text x="106.3" y="348.0" font-size="12" fill="#ffffff" text-anchor="end">distractor</text>
+<g><title>distractor · none: 25.0%</title>
+<path d="M116.3,321.0H246.0A4,4 0 0 1 250.0,325.0V331.0A4,4 0 0 1 246.0,335.0H116.3Z" fill="#898781"/>
+</g>
+<text x="255.0" y="332.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">25.0%</text>
+<g><title>distractor · bm25: 75.0%</title>
+<path d="M116.3,337.0H513.4A4,4 0 0 1 517.4,341.0V347.0A4,4 0 0 1 513.4,351.0H116.3Z" fill="#d55181"/>
+</g>
+<text x="522.4" y="348.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">75.0%</text>
+<g><title>distractor · baseline (fused): 100.0%</title>
+<path d="M116.3,353.0H647.0A4,4 0 0 1 651.0,357.0V363.0A4,4 0 0 1 647.0,367.0H116.3Z" fill="#9085e9"/>
+</g>
+<text x="656.0" y="364.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">100.0%</text>
+<text x="106.3" y="408.0" font-size="12" fill="#ffffff" text-anchor="end">procedure</text>
+<g><title>procedure · none: 62.0%</title>
+<path d="M116.3,381.0H443.8A4,4 0 0 1 447.8,385.0V391.0A4,4 0 0 1 443.8,395.0H116.3Z" fill="#898781"/>
+</g>
+<text x="452.8" y="392.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">62.0%</text>
+<g><title>procedure · bm25: 100.0%</title>
+<path d="M116.3,397.0H647.0A4,4 0 0 1 651.0,401.0V407.0A4,4 0 0 1 647.0,411.0H116.3Z" fill="#d55181"/>
+</g>
+<text x="656.0" y="408.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">100.0%</text>
+<g><title>procedure · baseline (fused): 100.0%</title>
+<path d="M116.3,413.0H647.0A4,4 0 0 1 651.0,417.0V423.0A4,4 0 0 1 647.0,427.0H116.3Z" fill="#9085e9"/>
+</g>
+<text x="656.0" y="424.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">100.0%</text>
+<text x="106.3" y="468.0" font-size="12" fill="#ffffff" text-anchor="end">preference</text>
+<g><title>preference · none: 38.0%</title>
+<path d="M116.3,441.0H315.5A4,4 0 0 1 319.5,445.0V451.0A4,4 0 0 1 315.5,455.0H116.3Z" fill="#898781"/>
+</g>
+<text x="324.5" y="452.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">38.0%</text>
+<g><title>preference · bm25: 50.0%</title>
+<path d="M116.3,457.0H379.7A4,4 0 0 1 383.7,461.0V467.0A4,4 0 0 1 379.7,471.0H116.3Z" fill="#d55181"/>
+</g>
+<text x="388.7" y="468.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">50.0%</text>
+<g><title>preference · baseline (fused): 75.0%</title>
+<path d="M116.3,473.0H513.4A4,4 0 0 1 517.4,477.0V483.0A4,4 0 0 1 513.4,487.0H116.3Z" fill="#9085e9"/>
+</g>
+<text x="522.4" y="484.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">75.0%</text>
+<text x="106.3" y="528.0" font-size="12" fill="#ffffff" text-anchor="end">injection</text>
+<g><title>injection · none: 38.0%</title>
+<path d="M116.3,501.0H315.5A4,4 0 0 1 319.5,505.0V511.0A4,4 0 0 1 315.5,515.0H116.3Z" fill="#898781"/>
+</g>
+<text x="324.5" y="512.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">38.0%</text>
+<g><title>injection · bm25: 100.0%</title>
+<path d="M116.3,517.0H647.0A4,4 0 0 1 651.0,521.0V527.0A4,4 0 0 1 647.0,531.0H116.3Z" fill="#d55181"/>
+</g>
+<text x="656.0" y="528.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">100.0%</text>
+<g><title>injection · baseline (fused): 100.0%</title>
+<path d="M116.3,533.0H647.0A4,4 0 0 1 651.0,537.0V543.0A4,4 0 0 1 647.0,547.0H116.3Z" fill="#9085e9"/>
+</g>
+<text x="656.0" y="544.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">100.0%</text>
+<text x="106.3" y="588.0" font-size="12" fill="#ffffff" text-anchor="end">private</text>
+<g><title>private · none: 25.0%</title>
+<path d="M116.3,561.0H246.0A4,4 0 0 1 250.0,565.0V571.0A4,4 0 0 1 246.0,575.0H116.3Z" fill="#898781"/>
+</g>
+<text x="255.0" y="572.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">25.0%</text>
+<g><title>private · bm25: 88.0%</title>
+<path d="M116.3,577.0H582.9A4,4 0 0 1 586.9,581.0V587.0A4,4 0 0 1 582.9,591.0H116.3Z" fill="#d55181"/>
+</g>
+<text x="591.9" y="588.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">88.0%</text>
+<g><title>private · baseline (fused): 38.0%</title>
+<path d="M116.3,593.0H315.5A4,4 0 0 1 319.5,597.0V603.0A4,4 0 0 1 315.5,607.0H116.3Z" fill="#9085e9"/>
+</g>
+<text x="324.5" y="604.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">38.0%</text>
+<text x="106.3" y="648.0" font-size="12" fill="#ffffff" text-anchor="end">paraphrase</text>
+<g><title>paraphrase · none: 0.0%</title>
+<path d="M116.3,621.0H116.3A0.0,0.0 0 0 1 116.3,621.0V635.0A0.0,0.0 0 0 1 116.3,635.0H116.3Z" fill="#898781"/>
+</g>
+<text x="121.3" y="632.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">0.0%</text>
+<g><title>paraphrase · bm25: 38.0%</title>
+<path d="M116.3,637.0H315.5A4,4 0 0 1 319.5,641.0V647.0A4,4 0 0 1 315.5,651.0H116.3Z" fill="#d55181"/>
+</g>
+<text x="324.5" y="648.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">38.0%</text>
+<g><title>paraphrase · baseline (fused): 88.0%</title>
+<path d="M116.3,653.0H582.9A4,4 0 0 1 586.9,657.0V663.0A4,4 0 0 1 582.9,667.0H116.3Z" fill="#9085e9"/>
+</g>
+<text x="591.9" y="664.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">88.0%</text>
+<text x="106.3" y="708.0" font-size="12" fill="#ffffff" text-anchor="end">tool output</text>
+<g><title>tool output · none: 12.0%</title>
+<path d="M116.3,681.0H176.5A4,4 0 0 1 180.5,685.0V691.0A4,4 0 0 1 176.5,695.0H116.3Z" fill="#898781"/>
+</g>
+<text x="185.5" y="692.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">12.0%</text>
+<g><title>tool output · bm25: 56.0%</title>
+<path d="M116.3,697.0H411.8A4,4 0 0 1 415.8,701.0V707.0A4,4 0 0 1 411.8,711.0H116.3Z" fill="#d55181"/>
+</g>
+<text x="420.8" y="708.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">56.0%</text>
+<g><title>tool output · baseline (fused): 50.0%</title>
+<path d="M116.3,713.0H379.7A4,4 0 0 1 383.7,717.0V723.0A4,4 0 0 1 379.7,727.0H116.3Z" fill="#9085e9"/>
+</g>
+<text x="388.7" y="724.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">50.0%</text>
+<text x="106.3" y="768.0" font-size="12" fill="#ffffff" text-anchor="end">scale</text>
+<g><title>scale · none: 12.0%</title>
+<path d="M116.3,741.0H176.5A4,4 0 0 1 180.5,745.0V751.0A4,4 0 0 1 176.5,755.0H116.3Z" fill="#898781"/>
+</g>
+<text x="185.5" y="752.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">12.0%</text>
+<g><title>scale · bm25: 44.0%</title>
+<path d="M116.3,757.0H347.6A4,4 0 0 1 351.6,761.0V767.0A4,4 0 0 1 347.6,771.0H116.3Z" fill="#d55181"/>
+</g>
+<text x="356.6" y="768.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">44.0%</text>
+<g><title>scale · baseline (fused): 62.0%</title>
+<path d="M116.3,773.0H443.8A4,4 0 0 1 447.8,777.0V783.0A4,4 0 0 1 443.8,787.0H116.3Z" fill="#9085e9"/>
+</g>
+<text x="452.8" y="784.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">62.0%</text>
+<text x="106.3" y="828.0" font-size="12" fill="#ffffff" text-anchor="end">time</text>
+<g><title>time · none: 56.0%</title>
+<path d="M116.3,801.0H411.8A4,4 0 0 1 415.8,805.0V811.0A4,4 0 0 1 411.8,815.0H116.3Z" fill="#898781"/>
+</g>
+<text x="420.8" y="812.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">56.0%</text>
+<g><title>time · bm25: 25.0%</title>
+<path d="M116.3,817.0H246.0A4,4 0 0 1 250.0,821.0V827.0A4,4 0 0 1 246.0,831.0H116.3Z" fill="#d55181"/>
+</g>
+<text x="255.0" y="828.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">25.0%</text>
+<g><title>time · baseline (fused): 12.0%</title>
+<path d="M116.3,833.0H176.5A4,4 0 0 1 180.5,837.0V843.0A4,4 0 0 1 176.5,847.0H116.3Z" fill="#9085e9"/>
+</g>
+<text x="185.5" y="844.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">12.0%</text>
+<text x="106.3" y="888.0" font-size="12" fill="#ffffff" text-anchor="end">needs nothing</text>
+<g><title>needs nothing · none: 100.0%</title>
+<path d="M116.3,861.0H647.0A4,4 0 0 1 651.0,865.0V871.0A4,4 0 0 1 647.0,875.0H116.3Z" fill="#898781"/>
+</g>
+<text x="656.0" y="872.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">100.0%</text>
+<g><title>needs nothing · bm25: 100.0%</title>
+<path d="M116.3,877.0H647.0A4,4 0 0 1 651.0,881.0V887.0A4,4 0 0 1 647.0,891.0H116.3Z" fill="#d55181"/>
+</g>
+<text x="656.0" y="888.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">100.0%</text>
+<g><title>needs nothing · baseline (fused): 100.0%</title>
+<path d="M116.3,893.0H647.0A4,4 0 0 1 651.0,897.0V903.0A4,4 0 0 1 647.0,907.0H116.3Z" fill="#9085e9"/>
+</g>
+<text x="656.0" y="904.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">100.0%</text>
+<text x="116.3" y="930.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">0%</text>
+<text x="223.2" y="930.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">20%</text>
+<text x="330.2" y="930.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">40%</text>
+<text x="437.1" y="930.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">60%</text>
+<text x="544.1" y="930.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">80%</text>
+<text x="651.0" y="930.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">100%</text>
+<line x1="116.3" y1="914.0" x2="651.0" y2="914.0" stroke="#383835" stroke-width="1"/>
+<text x="383.7" y="948.0" font-size="12" fill="#c3c2b7" text-anchor="middle">share of the family's cells that passed</text>
+<text x="18.0" y="970.0" font-size="11" fill="#c3c2b7">8 cells a family (16 for paraphrase, scale, time and tool output): read beside the paired differences, not as estimates.</text>
+</svg>

@@ -1,0 +1,407 @@
+{
+ "report": "2026-10-12-memory-exam-arms",
+ "title": "Memory exam: the recall pipeline's arms at the stopping point",
+ "suite": "memory-exam",
+ "date": "2026-10-12",
+ "commit": "026dce3fd1df84344113afdea284373e4633525f",
+ "arms": [
+  "none",
+  "bm25",
+  "fused",
+  "oracle"
+ ],
+ "summary": {
+  "rates_item_clustered": {
+   "none": {
+    "all": [
+     30,
+     20,
+     40
+    ],
+    "in": [
+     29,
+     15,
+     42
+    ],
+    "out": [
+     31,
+     15,
+     46
+    ]
+   },
+   "bm25": {
+    "all": [
+     69,
+     59,
+     79
+    ],
+    "in": [
+     66,
+     51,
+     80
+    ],
+    "out": [
+     72,
+     57,
+     88
+    ]
+   },
+   "baseline": {
+    "all": [
+     73,
+     63,
+     83
+    ],
+    "in": [
+     76,
+     63,
+     89
+    ],
+    "out": [
+     69,
+     54,
+     85
+    ]
+   },
+   "oracle": {
+    "all": [
+     100,
+     100,
+     100
+    ],
+    "in": [
+     100,
+     100,
+     100
+    ],
+    "out": [
+     100,
+     100,
+     100
+    ]
+   }
+  },
+  "oct4_rates": {
+   "none": [
+    15,
+    7,
+    23
+   ],
+   "bm25": [
+    46,
+    35,
+    57
+   ],
+   "baseline": [
+    67,
+    56,
+    78
+   ],
+   "oracle": [
+    100,
+    99,
+    100
+   ]
+  },
+  "by_family_cells": {
+   "decision": {
+    "none": 38,
+    "bm25": 100,
+    "baseline": 100,
+    "oracle": 100
+   },
+   "distractor": {
+    "none": 25,
+    "bm25": 75,
+    "baseline": 100,
+    "oracle": 100
+   },
+   "episode": {
+    "none": 12,
+    "bm25": 100,
+    "baseline": 100,
+    "oracle": 100
+   },
+   "fact": {
+    "none": 0,
+    "bm25": 100,
+    "baseline": 100,
+    "oracle": 100
+   },
+   "injection": {
+    "none": 38,
+    "bm25": 100,
+    "baseline": 100,
+    "oracle": 100
+   },
+   "needs_nothing": {
+    "none": 100,
+    "bm25": 100,
+    "baseline": 100,
+    "oracle": 100
+   },
+   "paraphrase": {
+    "none": 0,
+    "bm25": 38,
+    "baseline": 88,
+    "oracle": 100
+   },
+   "preference": {
+    "none": 38,
+    "bm25": 50,
+    "baseline": 75,
+    "oracle": 100
+   },
+   "private": {
+    "none": 25,
+    "bm25": 88,
+    "baseline": 38,
+    "oracle": 100
+   },
+   "procedure": {
+    "none": 62,
+    "bm25": 100,
+    "baseline": 100,
+    "oracle": 100
+   },
+   "scale": {
+    "none": 12,
+    "bm25": 44,
+    "baseline": 62,
+    "oracle": 100
+   },
+   "superseded": {
+    "none": 25,
+    "bm25": 75,
+    "baseline": 100,
+    "oracle": 100
+   },
+   "time": {
+    "none": 56,
+    "bm25": 25,
+    "baseline": 12,
+    "oracle": 100
+   },
+   "tool_output": {
+    "none": 12,
+    "bm25": 56,
+    "baseline": 50,
+    "oracle": 100
+   }
+  },
+  "differences": {
+   "baseline-none": "+43 [+29, +57], 41/6/25, p<0.001",
+   "bm25-none": "+39 [+26, +53], 37/6/29, p<0.001",
+   "oracle-none": "+70 [+60, +80]",
+   "baseline-bm25": "+4 [-7, +14], 13/8/51, p=0.383 (held in +10, held out -3)",
+   "oracle-baseline": "+27 [+17, +37]"
+  },
+  "cost": {
+   "none": 0.6335,
+   "bm25": 0.3009,
+   "baseline": 0.2666,
+   "oracle": 0.251,
+   "total": 1.4521
+  },
+  "latency_p50_s": {
+   "none": 28.2,
+   "bm25": 18.1,
+   "baseline": 19.3,
+   "oracle": 14.8
+  },
+  "recall_p95_ms": {
+   "bm25": 3,
+   "baseline": 141
+  },
+  "gold_admitted": {
+   "bm25": "72 of 151",
+   "baseline": "103 of 151"
+  },
+  "cells": 576,
+  "model": "glm-5.3-flash",
+  "decisions": {
+   "recall": "off by default (clause 3: no canary)",
+   "vectors": "off, and a P1 bug (clause 1: private-1, private-3 failed under baseline where bm25 passed)"
+  }
+ },
+ "figures": [
+  {
+   "name": "pass-rates",
+   "form": "intervals",
+   "title": "Pass rate by memory arm, exam-v2 on GLM-5.3 Flash, Oct 4 and Oct 12",
+   "question": "How much of the oracle's lead does real retrieval recover now, and what moved since Oct 4?",
+   "x": {
+    "label": "pass rate (mean over items)",
+    "min": 0,
+    "max": 1,
+    "format": "pct"
+   },
+   "rows": [
+    {
+     "label": "none (no memory)",
+     "arm": "none",
+     "group": "Oct 4 (all 72 items)",
+     "value": 0.15,
+     "lo": 0.07,
+     "hi": 0.23,
+     "tip": "Oct 4, none: 15% [7, 23]"
+    },
+    {
+     "label": "bm25 (BM25 and entities)",
+     "arm": "bm25",
+     "group": "Oct 4 (all 72 items)",
+     "value": 0.46,
+     "lo": 0.35,
+     "hi": 0.57,
+     "tip": "Oct 4, bm25: 46% [35, 57]"
+    },
+    {
+     "label": "baseline (fused, with vectors)",
+     "arm": "fused",
+     "group": "Oct 4 (all 72 items)",
+     "value": 0.67,
+     "lo": 0.56,
+     "hi": 0.78,
+     "tip": "Oct 4, baseline: 67% [56, 78]"
+    },
+    {
+     "label": "oracle (the gold shown)",
+     "arm": "oracle",
+     "group": "Oct 4 (all 72 items)",
+     "value": 1.0,
+     "lo": 0.99,
+     "hi": 1.0,
+     "tip": "Oct 4, oracle: 100% [99, 100]"
+    },
+    {
+     "label": "none (no memory)",
+     "arm": "none",
+     "group": "Oct 12 (all 72 items)",
+     "value": 0.3,
+     "lo": 0.2,
+     "hi": 0.4,
+     "tip": "Oct 12, none: 30% [20, 40]"
+    },
+    {
+     "label": "bm25 (BM25 and entities)",
+     "arm": "bm25",
+     "group": "Oct 12 (all 72 items)",
+     "value": 0.69,
+     "lo": 0.59,
+     "hi": 0.79,
+     "tip": "Oct 12, bm25: 69% [59, 79]"
+    },
+    {
+     "label": "baseline (fused, with vectors)",
+     "arm": "fused",
+     "group": "Oct 12 (all 72 items)",
+     "value": 0.73,
+     "lo": 0.63,
+     "hi": 0.83,
+     "tip": "Oct 12, baseline: 73% [63, 83]"
+    },
+    {
+     "label": "oracle (the gold shown)",
+     "arm": "oracle",
+     "group": "Oct 12 (all 72 items)",
+     "value": 1.0,
+     "lo": 1.0,
+     "hi": 1.0,
+     "tip": "Oct 12, oracle: 100% [100, 100]"
+    }
+   ],
+   "note": "Item-clustered rates (an item's rate is the share of its runs that passed); 95% t intervals over items (Oct 4: bootstrap)."
+  },
+  {
+   "name": "families",
+   "form": "bars",
+   "title": "Pass rate by item family and arm, Oct 12 (share of cells)",
+   "question": "Where does retrieval help, and where does it hurt?",
+   "categories": [
+    "fact",
+    "decision",
+    "episode",
+    "superseded",
+    "distractor",
+    "procedure",
+    "preference",
+    "injection",
+    "private",
+    "paraphrase",
+    "tool output",
+    "scale",
+    "time",
+    "needs nothing"
+   ],
+   "series": [
+    {
+     "arm": "none",
+     "label": "none",
+     "values": [
+      0.0,
+      0.38,
+      0.12,
+      0.25,
+      0.25,
+      0.62,
+      0.38,
+      0.38,
+      0.25,
+      0.0,
+      0.12,
+      0.12,
+      0.56,
+      1.0
+     ]
+    },
+    {
+     "arm": "bm25",
+     "label": "bm25",
+     "values": [
+      1.0,
+      1.0,
+      1.0,
+      0.75,
+      0.75,
+      1.0,
+      0.5,
+      1.0,
+      0.88,
+      0.38,
+      0.56,
+      0.44,
+      0.25,
+      1.0
+     ]
+    },
+    {
+     "arm": "fused",
+     "label": "baseline (fused)",
+     "values": [
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      0.75,
+      1.0,
+      0.38,
+      0.88,
+      0.5,
+      0.62,
+      0.12,
+      1.0
+     ]
+    }
+   ],
+   "value": {
+    "label": "share of the family's cells that passed",
+    "format": "pct",
+    "min": 0,
+    "max": 1
+   },
+   "note": "8 cells a family (16 for paraphrase, scale, time and tool output): read beside the paired differences, not as estimates."
+  }
+ ]
+}

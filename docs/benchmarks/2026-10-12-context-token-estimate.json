@@ -1,0 +1,205 @@
+{
+ "report": "2026-10-12-context-token-estimate",
+ "title": "Context: the token estimate against the provider's count, at the stopping point",
+ "suite": "context",
+ "date": "2026-10-12",
+ "commit": "026dce3fd1df84344113afdea284373e4633525f",
+ "arms": [
+  "theseus"
+ ],
+ "summary": {
+  "requests": [
+   {
+    "model": "claude-sonnet-5-5",
+    "loop": 0,
+    "actual": 14790,
+    "estimate": 15885,
+    "est_pct": 7.4,
+    "chars4": 9765,
+    "chars4_pct": 66.0,
+    "tools": 32
+   },
+   {
+    "model": "claude-sonnet-5-5",
+    "loop": 0,
+    "actual": 14820,
+    "estimate": 15906,
+    "est_pct": 7.3,
+    "chars4": 9782,
+    "chars4_pct": 66.0,
+    "tools": 32
+   },
+   {
+    "model": "claude-sonnet-5-5",
+    "loop": 1,
+    "actual": 15671,
+    "estimate": 15723,
+    "est_pct": 0.3,
+    "chars4": 10396,
+    "chars4_pct": 66.3,
+    "tools": 32
+   },
+   {
+    "model": "glm-5.3-flash",
+    "loop": 0,
+    "actual": 10467,
+    "estimate": 10385,
+    "est_pct": -0.8,
+    "chars4": 9765,
+    "chars4_pct": 93.3,
+    "tools": 32
+   },
+   {
+    "model": "glm-5.3-flash",
+    "loop": 0,
+    "actual": 10486,
+    "estimate": 10401,
+    "est_pct": -0.8,
+    "chars4": 9782,
+    "chars4_pct": 93.3,
+    "tools": 32
+   },
+   {
+    "model": "glm-5.3-flash",
+    "loop": 1,
+    "actual": 11132,
+    "estimate": 11084,
+    "est_pct": -0.4,
+    "chars4": 10428,
+    "chars4_pct": 93.7,
+    "tools": 32
+   }
+  ]
+ },
+ "figures": [
+  {
+   "name": "estimate-error",
+   "form": "intervals",
+   "title": "The request's token estimate against the provider's own count",
+   "question": "How far off is the compiler's estimate of a request's size, and chars/4's?",
+   "x": {
+    "label": "error against the provider's count",
+    "min": -0.4,
+    "max": 0.15,
+    "format": "pct"
+   },
+   "reference": [
+    {
+     "value": 0,
+     "label": "exact"
+    }
+   ],
+   "rows": [
+    {
+     "label": "Sonnet 5.5, loop 0",
+     "arm": "theseus",
+     "group": "the shipped estimate",
+     "value": 0.07403651115618662,
+     "lo": 0.07403651115618662,
+     "hi": 0.07403651115618662,
+     "tip": "claude-sonnet-5-5: estimate 15885 against 14790 counted"
+    },
+    {
+     "label": "Sonnet 5.5, loop 0",
+     "arm": "theseus",
+     "group": "the shipped estimate",
+     "value": 0.07327935222672065,
+     "lo": 0.07327935222672065,
+     "hi": 0.07327935222672065,
+     "tip": "claude-sonnet-5-5: estimate 15906 against 14820 counted"
+    },
+    {
+     "label": "Sonnet 5.5, loop 1",
+     "arm": "theseus",
+     "group": "the shipped estimate",
+     "value": 0.003318231127560462,
+     "lo": 0.003318231127560462,
+     "hi": 0.003318231127560462,
+     "tip": "claude-sonnet-5-5: estimate 15723 against 15671 counted"
+    },
+    {
+     "label": "GLM-5.3 Flash, loop 0",
+     "arm": "theseus",
+     "group": "the shipped estimate",
+     "value": -0.007834145409381868,
+     "lo": -0.007834145409381868,
+     "hi": -0.007834145409381868,
+     "tip": "glm-5.3-flash: estimate 10385 against 10467 counted"
+    },
+    {
+     "label": "GLM-5.3 Flash, loop 0",
+     "arm": "theseus",
+     "group": "the shipped estimate",
+     "value": -0.00810604615678047,
+     "lo": -0.00810604615678047,
+     "hi": -0.00810604615678047,
+     "tip": "glm-5.3-flash: estimate 10401 against 10486 counted"
+    },
+    {
+     "label": "GLM-5.3 Flash, loop 1",
+     "arm": "theseus",
+     "group": "the shipped estimate",
+     "value": -0.004311893639956881,
+     "lo": -0.004311893639956881,
+     "hi": -0.004311893639956881,
+     "tip": "glm-5.3-flash: estimate 11084 against 11132 counted"
+    },
+    {
+     "label": "Sonnet 5.5, loop 0",
+     "arm": "context",
+     "group": "chars / 4",
+     "value": -0.33975659229208927,
+     "lo": -0.33975659229208927,
+     "hi": -0.33975659229208927,
+     "tip": "claude-sonnet-5-5: chars/4 9765 against 14790"
+    },
+    {
+     "label": "Sonnet 5.5, loop 0",
+     "arm": "context",
+     "group": "chars / 4",
+     "value": -0.3399460188933873,
+     "lo": -0.3399460188933873,
+     "hi": -0.3399460188933873,
+     "tip": "claude-sonnet-5-5: chars/4 9782 against 14820"
+    },
+    {
+     "label": "Sonnet 5.5, loop 1",
+     "arm": "context",
+     "group": "chars / 4",
+     "value": -0.3366090230361815,
+     "lo": -0.3366090230361815,
+     "hi": -0.3366090230361815,
+     "tip": "claude-sonnet-5-5: chars/4 10396 against 15671"
+    },
+    {
+     "label": "GLM-5.3 Flash, loop 0",
+     "arm": "context",
+     "group": "chars / 4",
+     "value": -0.06706792777300086,
+     "lo": -0.06706792777300086,
+     "hi": -0.06706792777300086,
+     "tip": "glm-5.3-flash: chars/4 9765 against 10467"
+    },
+    {
+     "label": "GLM-5.3 Flash, loop 0",
+     "arm": "context",
+     "group": "chars / 4",
+     "value": -0.06713713522792294,
+     "lo": -0.06713713522792294,
+     "hi": -0.06713713522792294,
+     "tip": "glm-5.3-flash: chars/4 9782 against 10486"
+    },
+    {
+     "label": "GLM-5.3 Flash, loop 1",
+     "arm": "context",
+     "group": "chars / 4",
+     "value": -0.06324110671936758,
+     "lo": -0.06324110671936758,
+     "hi": -0.06324110671936758,
+     "tip": "glm-5.3-flash: chars/4 10428 against 11132"
+    }
+   ],
+   "note": "Six requests: two first requests and a tool loop's second per model; each the compiler's `context.compiled` against `provider.call`'s usage (input, cache write and cache read)."
+  }
+ ]
+}

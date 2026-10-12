@@ -1,0 +1,226 @@
+{
+ "report": "2026-10-12-retrieval-fusion",
+ "title": "Retrieval: BM25, entities, vectors and their fusion on the exam's items, at the stopping point",
+ "suite": "retrieval",
+ "date": "2026-10-12",
+ "commit": "026dce3fd1df84344113afdea284373e4633525f",
+ "arms": [
+  "bm25",
+  "vector",
+  "fused"
+ ],
+ "summary": {
+  "held_in_at6": [
+   {
+    "arm": "bm25 + entity",
+    "n": 34,
+    "at6": 13
+   },
+   {
+    "arm": "vector",
+    "n": 34,
+    "at6": 22
+   },
+   {
+    "arm": "bm25\u00d71 + entity\u00d71 + vector\u00d71",
+    "n": 34,
+    "at6": 19
+   },
+   {
+    "arm": "bm25\u00d71 + entity\u00d71 + vector\u00d71.5",
+    "n": 34,
+    "at6": 21
+   },
+   {
+    "arm": "bm25\u00d71 + entity\u00d71 + vector\u00d72",
+    "n": 34,
+    "at6": 22
+   },
+   {
+    "arm": "bm25\u00d71 + entity\u00d71 + vector\u00d73",
+    "n": 34,
+    "at6": 22
+   },
+   {
+    "arm": "bm25\u00d71 + entity\u00d71 + vector\u00d74",
+    "n": 34,
+    "at6": 22
+   },
+   {
+    "arm": "bm25\u00d71 + entity\u00d71 + vector\u00d76",
+    "n": 34,
+    "at6": 23
+   }
+  ],
+  "held_out_at6": [
+   {
+    "arm": "bm25 + entity",
+    "n": 34,
+    "at6": 14
+   },
+   {
+    "arm": "vector",
+    "n": 34,
+    "at6": 22
+   },
+   {
+    "arm": "bm25\u00d71 + entity\u00d71 + vector\u00d71",
+    "n": 34,
+    "at6": 16
+   },
+   {
+    "arm": "bm25 + entity + vector",
+    "n": 34,
+    "at6": 22
+   }
+  ],
+  "timing_ms": {
+   "embed_query": {
+    "n": 20,
+    "p50_ms": 183.4,
+    "p90_ms": 207.4,
+    "min_ms": 136.6,
+    "max_ms": 218.3
+   },
+   "query_k40": {
+    "n": 20,
+    "p50_ms": 100.0,
+    "p90_ms": 108.8,
+    "min_ms": 79.3,
+    "max_ms": 113.6,
+    "answer_timing": null
+   }
+  },
+  "oct1_held_out_at6": {
+   "bm25 + entity": 14,
+   "vector": 22,
+   "equal fusion": 16,
+   "vector weight 6 (defaults)": 22
+  }
+ },
+ "figures": [
+  {
+   "name": "top6",
+   "form": "intervals",
+   "title": "Items with all their gold in the top 6, by retrieval arm (exam-v2's items, a tender over its store)",
+   "question": "Which retrieval arm finds the gold, and did anything move since Oct 1?",
+   "x": {
+    "label": "share of items, Wilson 95%",
+    "min": 0,
+    "max": 1,
+    "format": "pct"
+   },
+   "rows": [
+    {
+     "label": "bm25 + entity",
+     "arm": "bm25",
+     "group": "held in (34 items), the grid",
+     "value": 0.38235294117647056,
+     "lo": 0.23900183324508897,
+     "hi": 0.549589826555693,
+     "tip": "bm25 + entity: all gold in the top 6 for 13 of 34 items"
+    },
+    {
+     "label": "vector",
+     "arm": "vector",
+     "group": "held in (34 items), the grid",
+     "value": 0.6470588235294118,
+     "lo": 0.47913963119781733,
+     "hi": 0.785120794051205,
+     "tip": "vector: all gold in the top 6 for 22 of 34 items"
+    },
+    {
+     "label": "bm25\u00d71 + entity\u00d71 + vector\u00d71",
+     "arm": "fused",
+     "group": "held in (34 items), the grid",
+     "value": 0.5588235294117647,
+     "lo": 0.3945389925620307,
+     "hi": 0.7111651775375785,
+     "tip": "bm25\u00d71 + entity\u00d71 + vector\u00d71: all gold in the top 6 for 19 of 34 items"
+    },
+    {
+     "label": "bm25\u00d71 + entity\u00d71 + vector\u00d71.5",
+     "arm": "fused",
+     "group": "held in (34 items), the grid",
+     "value": 0.6176470588235294,
+     "lo": 0.450410173444307,
+     "hi": 0.7609981667549109,
+     "tip": "bm25\u00d71 + entity\u00d71 + vector\u00d71.5: all gold in the top 6 for 21 of 34 items"
+    },
+    {
+     "label": "bm25\u00d71 + entity\u00d71 + vector\u00d72",
+     "arm": "fused",
+     "group": "held in (34 items), the grid",
+     "value": 0.6470588235294118,
+     "lo": 0.47913963119781733,
+     "hi": 0.785120794051205,
+     "tip": "bm25\u00d71 + entity\u00d71 + vector\u00d72: all gold in the top 6 for 22 of 34 items"
+    },
+    {
+     "label": "bm25\u00d71 + entity\u00d71 + vector\u00d73",
+     "arm": "fused",
+     "group": "held in (34 items), the grid",
+     "value": 0.6470588235294118,
+     "lo": 0.47913963119781733,
+     "hi": 0.785120794051205,
+     "tip": "bm25\u00d71 + entity\u00d71 + vector\u00d73: all gold in the top 6 for 22 of 34 items"
+    },
+    {
+     "label": "bm25\u00d71 + entity\u00d71 + vector\u00d74",
+     "arm": "fused",
+     "group": "held in (34 items), the grid",
+     "value": 0.6470588235294118,
+     "lo": 0.47913963119781733,
+     "hi": 0.785120794051205,
+     "tip": "bm25\u00d71 + entity\u00d71 + vector\u00d74: all gold in the top 6 for 22 of 34 items"
+    },
+    {
+     "label": "bm25\u00d71 + entity\u00d71 + vector\u00d76",
+     "arm": "fused",
+     "group": "held in (34 items), the grid",
+     "value": 0.6764705882352942,
+     "lo": 0.508428945939082,
+     "hi": 0.808683564359745,
+     "tip": "bm25\u00d71 + entity\u00d71 + vector\u00d76: all gold in the top 6 for 23 of 34 items"
+    },
+    {
+     "label": "bm25 + entity",
+     "arm": "bm25",
+     "group": "held out (34 items), judged once",
+     "value": 0.4117647058823529,
+     "lo": 0.2636596836387115,
+     "hi": 0.5777840612118749,
+     "tip": "bm25 + entity: all gold in the top 6 for 14 of 34 items"
+    },
+    {
+     "label": "vector",
+     "arm": "vector",
+     "group": "held out (34 items), judged once",
+     "value": 0.6470588235294118,
+     "lo": 0.47913963119781733,
+     "hi": 0.785120794051205,
+     "tip": "vector: all gold in the top 6 for 22 of 34 items"
+    },
+    {
+     "label": "bm25\u00d71 + entity\u00d71 + vector\u00d71",
+     "arm": "fused",
+     "group": "held out (34 items), judged once",
+     "value": 0.47058823529411764,
+     "lo": 0.3145150447508847,
+     "hi": 0.6326328701993107,
+     "tip": "bm25\u00d71 + entity\u00d71 + vector\u00d71: all gold in the top 6 for 16 of 34 items"
+    },
+    {
+     "label": "bm25 + entity + vector",
+     "arm": "fused",
+     "group": "held out (34 items), judged once",
+     "value": 0.6470588235294118,
+     "lo": 0.47913963119781733,
+     "hi": 0.785120794051205,
+     "tip": "bm25 + entity + vector: all gold in the top 6 for 22 of 34 items"
+    }
+   ],
+   "note": "Held in: every weight named, so the tender's defaults do not enter. Held out: the tender's own defaults as the last arm. Oct 1 held out: 14, 22, 16 and 22 of 34."
+  }
+ ]
+}
