@@ -101,12 +101,20 @@ mode = "off"
 
 # The profiles the routing table names, as the owner runs them. None caps the
 # output (the catalog's maximum, as `bench`), and each has `max_loops` as `bench`
-# (set by the adapter). Each runs at its own effort (haiku low, haikuhi high;
-# sonnet, opus and fable name none: their model's default) unless route.v4's
-# effort answer is sure, which wins: none sets `effort_fixed`, as shipped.
+# (set by the adapter). Each runs at its own effort (haiku low, haikuhi high,
+# sonnethi high; sonnet, opus and fable name none: their model's default) unless
+# route.v4's effort answer is sure, which wins: none sets `effort_fixed`, as shipped.
 [profiles.sonnet]
 provider = "anthropic"
 model = "claude-sonnet-5-5"
+max_loops = 200                         # set by the adapter
+max_loops_mode = "end"
+
+# Deep coding's first profile since the owner's decision of 2026-10-10: Sonnet 5.5 at high effort, Opus after it.
+[profiles.sonnethi]
+provider = "anthropic"
+model = "claude-sonnet-5-5"
+effort = "high"
 max_loops = 200                         # set by the adapter
 max_loops_mode = "end"
 
@@ -152,8 +160,8 @@ profiles = ["haiku"]
 [routing.modes.chat]
 profiles = []
 [routing.modes.sophisticated]
-profiles = ["fable", "opus"]
-[routing.modes.deep_coding]
 profiles = ["opus", "fable"]
+[routing.modes.deep_coding]
+profiles = ["sonnethi", "opus"]
 [routing.modes.routine_coding]
 profiles = ["haikuhi", "sonnet"]
