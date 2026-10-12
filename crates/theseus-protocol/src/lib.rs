@@ -237,6 +237,8 @@ pub mod method {
         MEMORY_LABEL = "memory.label",
         /// Consolidation now (M6 31b; `memory::MemoryConsolidateParams`). Acting.
         MEMORY_CONSOLIDATE = "memory.consolidate",
+        /// What an MCP client asks of private memory (`memory::MemoryLookupParams`; theseus-02i1h). A read.
+        MEMORY_LOOKUP = "memory.lookup",
         /// Jev's judgments (M5 23b; `judge::JudgeListParams`): the newest
         /// `judge.call` rows, by pack, session, and time, without their
         /// states. A read.

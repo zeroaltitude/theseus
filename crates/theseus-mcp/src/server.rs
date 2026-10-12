@@ -36,7 +36,8 @@
 //! rule for `Surface::Mcp`.
 //!
 //! **Tools.** `conversation_open`, `conversation_send`,
-//! `conversation_status`, `task_list`, and `wake_list`, named with `_` for
+//! `conversation_status`, `task_list`, `wake_list`, and (theseus-02i1h,
+//! `memory_tools`) `memory_search` and `memory_get`, named with `_` for
 //! clients whose tool names cannot carry dots. Each answer is JSON, as
 //! `structuredContent` and as text; a core's refusal is an `isError`
 //! result the client's model reads.
@@ -285,6 +286,14 @@ pub trait CoreClient: Send + Sync + 'static {
         &self,
         caller: Caller,
         session_id: Option<String>,
+    ) -> impl Future<Output = Result<Value, CoreError>> + Send;
+
+    /// `memory.lookup`'s answer, as JSON, for `params` the tool's mapping made
+    /// (`memory_tools::params`).
+    fn memory(
+        &self,
+        caller: Caller,
+        params: Value,
     ) -> impl Future<Output = Result<Value, CoreError>> + Send;
 
     /// A call was answered.
@@ -840,11 +849,11 @@ fn initialize<C: CoreClient>(s: &Arc<Shared<C>>, id: Value, params: &Value) -> R
     json_answer(jsonrpc::response(id, result), Some(&session))
 }
 
-/// The five tools.
+/// The seven tools.
 fn tools() -> Value {
     let session_id =
         json!({ "type": "string", "description": "A session id from conversation_open (ses_…)." });
-    json!([
+    let mut tools = json!([
         {
             "name": "conversation_open",
             "title": "Open a Theseus conversation",
@@ -895,7 +904,11 @@ fn tools() -> Value {
             "inputSchema": { "type": "object", "properties": { "session_id": session_id } },
             "annotations": { "readOnlyHint": true, "openWorldHint": false }
         }
-    ])
+    ]);
+    if let Some(list) = tools.as_array_mut() {
+        list.extend(crate::memory_tools::definitions());
+    }
+    tools
 }
 
 /// What a tool answered: JSON for the client, or the core's refusal.
@@ -951,13 +964,16 @@ async fn call<C: CoreClient>(
             let sid = text("session_id");
             (sid.clone(), core.wakes(caller, sid).await)
         }
-        _ => {
-            return jsonrpc::error_response(
-                id,
-                code::INVALID_PARAMS,
-                &format!("Unknown tool: {}", clip(name, 80)),
-            )
-        }
+        _ => match crate::memory_tools::params(name, &args, &client_name) {
+            Some(p) => (None, core.memory(caller, p).await),
+            None => {
+                return jsonrpc::error_response(
+                    id,
+                    code::INVALID_PARAMS,
+                    &format!("Unknown tool: {}", clip(name, 80)),
+                )
+            }
+        },
     };
     let ok = answered.is_ok();
     s.calls.fetch_add(1, Ordering::Relaxed);
@@ -1174,6 +1190,14 @@ impl CoreClient for FakeCore {
     async fn wakes(&self, caller: Caller, session_id: Option<String>) -> Result<Value, CoreError> {
         self.seen(caller);
         Ok(json!({ "wakes": [], "session_id": session_id }))
+    }
+
+    async fn memory(&self, caller: Caller, params: Value) -> Result<Value, CoreError> {
+        self.seen(caller);
+        if params["op"] == "search" && params["words"].as_str().is_none_or(str::is_empty) {
+            return Err(CoreError("memory_search needs words".into()));
+        }
+        Ok(json!({ "hits": [], "total": 0, "params": params }))
     }
 
     fn called(&self, record: &CallRecord) {

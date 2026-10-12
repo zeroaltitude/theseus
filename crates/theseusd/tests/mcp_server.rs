@@ -366,6 +366,8 @@ fn a_client_opens_a_conversation_sends_it_text_and_gets_the_reply() {
             "conversation_open",
             "conversation_send",
             "conversation_status",
+            "memory_get",
+            "memory_search",
             "task_list",
             "wake_list"
         ]

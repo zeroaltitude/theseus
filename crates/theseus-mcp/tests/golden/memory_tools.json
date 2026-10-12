@@ -1,0 +1,91 @@
+[
+  {
+    "name": "memory_search",
+    "title": "Search what the owner did",
+    "description": "Search Theseus's memory of the owner's past conversations and imported history by words, with an optional span (since, until), book or topic. Use it for a past decision, what was done when, or what a session held; quote each hit's citation (node_id, position, session_id, as_of) back when you rely on it.",
+    "inputSchema": {
+      "properties": {
+        "book": {
+          "description": "An imported book.",
+          "type": "string"
+        },
+        "cursor": {
+          "description": "Where the next page begins, as the last answer's next said.",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "limit": {
+          "description": "Hits a page, 8 by default.",
+          "maximum": 25,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "since": {
+          "description": "First day or month of a span: \"2026-03-01\", \"March 2026\".",
+          "type": "string"
+        },
+        "topic": {
+          "description": "An imported topic label.",
+          "type": "string"
+        },
+        "until": {
+          "description": "Last day or month of a span.",
+          "type": "string"
+        },
+        "words": {
+          "description": "What to find, as you would say it.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "words"
+      ],
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "idempotentHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "memory_get",
+    "title": "Read a remembered message in place",
+    "description": "Read one remembered node by a citation's id with a few messages of its session before and after it, or one session's messages in order. Use it to see what surrounded a hit or what a whole session held; quote the citations it returns back.",
+    "inputSchema": {
+      "properties": {
+        "after": {
+          "description": "Messages after it, 2 by default.",
+          "maximum": 10,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "before": {
+          "description": "Messages before it, 2 by default.",
+          "maximum": 10,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "cursor": {
+          "description": "With session: where the next page begins.",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "id": {
+          "description": "A citation's node_id.",
+          "type": "string"
+        },
+        "session": {
+          "description": "A citation's session_id: read its messages in order instead of one node.",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "idempotentHint": true,
+      "openWorldHint": false
+    }
+  }
+]

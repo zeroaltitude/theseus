@@ -47,6 +47,7 @@ use crate::config::memory::MemoryArm;
 use crate::recall::when::When;
 use crate::Core;
 
+pub(crate) mod mcp;
 mod read;
 
 /// The tool's name, and its family.
@@ -305,6 +306,7 @@ pub(crate) async fn rendered(
 }
 
 /// One item of a page, as the answer says it.
+#[derive(Default)]
 struct Item {
     when: String,
     session_id: String,
@@ -312,6 +314,13 @@ struct Item {
     sensitivity: Option<String>,
     book: Option<String>,
     text: String,
+    /// A hit's node, its WAL position and its own time (unix ms), for the
+    /// citation the MCP tools give; a catalog's episode has none.
+    node_id: String,
+    position: u64,
+    at_ms: u64,
+    /// The harness that held it: `theseus`, or an imported episode's source.
+    harness: String,
 }
 
 async fn lookup(core: Arc<Core>, session: String, a: Args) -> Result<ToolOutput, String> {
@@ -330,7 +339,15 @@ async fn lookup(core: Arc<Core>, session: String, a: Args) -> Result<ToolOutput,
     let (head, items, total) = match some(&a.words) {
         Some(words) => {
             let k = offset + limit + 1;
-            by_words(&core, &session, words.to_string(), &a, when.as_ref(), k).await?
+            by_words(
+                &core,
+                Some(&session),
+                words.to_string(),
+                &a,
+                when.as_ref(),
+                (k, false),
+            )
+            .await?
         }
         None => by_catalog(&core, &a, when.as_ref(), offset, limit).await?,
     };
@@ -512,6 +529,7 @@ fn episode_item(e: &ImportedEpisode, text: Option<String>) -> Item {
     Item {
         when: span_words(e.start_ms, e.end_ms),
         session_id: e.session_id.clone(),
+        harness: e.source.clone(),
         source: format!("imported from {}", e.source),
         sensitivity: Some(e.sensitivity.clone()),
         book: e.book.clone(),
@@ -519,6 +537,7 @@ fn episode_item(e: &ImportedEpisode, text: Option<String>) -> Item {
             .or_else(|| e.summary_text.clone())
             .or_else(|| e.title.clone())
             .unwrap_or_default(),
+        ..Item::default()
     }
 }
 
@@ -527,11 +546,11 @@ fn episode_item(e: &ImportedEpisode, text: Option<String>) -> Item {
 /// sessions: the first `k` it admits.
 async fn by_words(
     core: &Arc<Core>,
-    session: &str,
+    session: Option<&str>,
     words: String,
     a: &Args,
     when: Option<&When>,
-    k: u64,
+    (k, private_only): (u64, bool),
 ) -> Result<(String, Vec<Item>, u64), String> {
     // A book or a topic: its sessions, from the catalog.
     let (sessions, narrowed) = match narrowed_to(core, a).await? {
@@ -545,13 +564,16 @@ async fn by_words(
         }
     };
     let memory = &core.runner.memory;
-    let in_context = core
-        .store
-        .session_nodes(session)
-        .map_err(|e| format!("this session could not be read: {e:#}"))?
-        .into_iter()
-        .map(|(_, n)| n.id)
-        .collect();
+    let in_context = match session {
+        Some(session) => core
+            .store
+            .session_nodes(session)
+            .map_err(|e| format!("this session could not be read: {e:#}"))?
+            .into_iter()
+            .map(|(_, n)| n.id)
+            .collect(),
+        None => Default::default(),
+    };
     let deadline = Duration::from_millis(memory.cfg().recall_deadline_ms).max(DEADLINE);
     let k = (k as usize).clamp(1, 100);
     let mut begun = memory.begin_within(
@@ -567,7 +589,7 @@ async fn by_words(
     let answer = begun.answer().await;
     let scene = crate::recall::Scene {
         mode: "lookup",
-        session_id: Some(session),
+        session_id: session,
         turn_id: None,
         place: Place::Private,
         in_context,
@@ -593,7 +615,16 @@ async fn by_words(
             m.why.as_deref().map(|w| format!(": {w}")).unwrap_or_default()
         ));
     }
-    let items = items_of(core, &m.admitted).await?;
+    // A private asker is let draw on a shared place's sessions; the MCP
+    // tools never show one (theseus-02i1h): checked here, as the place
+    // rule reads each hit's session.
+    let admitted: Vec<_> = m
+        .admitted
+        .iter()
+        .filter(|i| !private_only || core.runner.place_of(&i.session_id) == Place::Private)
+        .cloned()
+        .collect();
+    let items = items_of(core, &admitted).await?;
     let total = items.len() as u64;
     let head = format!(
         "memory.lookup: recall's items for {words:?}{}{narrowed}, best first.",
@@ -686,6 +717,7 @@ async fn items_of(
                 let mut it = episode_item(e, Some(text));
                 // The message's own date, inside its episode's span.
                 if let Ok(Some((_, n))) = core.store.get_node(&i.node_id) {
+                    it.at_ms = n.created_at_ms;
                     it.when = format!(
                         "{} (episode {})",
                         day(n.created_at_ms),
@@ -700,9 +732,11 @@ async fn items_of(
                 when: String::new(),
                 session_id: i.session_id.clone(),
                 source: "imported".into(),
+                harness: "imported".into(),
                 sensitivity: Some(UNREAD.into()),
                 book: None,
                 text,
+                ..Item::default()
             },
             None => {
                 let at = core
@@ -715,13 +749,28 @@ async fn items_of(
                     when: at,
                     session_id: i.session_id.clone(),
                     source: format!("this harness ({})", i.kind),
+                    harness: "theseus".into(),
                     sensitivity: None,
                     book: None,
                     text,
+                    ..Item::default()
                 }
             }
         };
-        items.push(item);
+        items.push(Item {
+            node_id: i.node_id.clone(),
+            position: i.position,
+            at_ms: match item.at_ms {
+                0 => core
+                    .store
+                    .get_node(&i.node_id)
+                    .ok()
+                    .flatten()
+                    .map_or(0, |(_, n)| n.created_at_ms),
+                at => at,
+            },
+            ..item
+        });
     }
     Ok(items)
 }
