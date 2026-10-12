@@ -120,6 +120,7 @@ impl Core {
             resident: Some(self.resident_health()),
             self_improve: Some(self.self_state()),
             warm: Some(self.warmth.health()),
+            cache: Some(self.cache_health()),
         }
     }
 
@@ -908,6 +909,13 @@ impl Core {
         let outside = crate::rpc::session_dir::moved(&self.tools, &mut session, dir);
         // The owner's words, read as a correction for the turn (theseus-q31l).
         self.expect_correction(&p, conn, &session.session_id);
+        // A person's message starts its keep-warm window again (theseus-ezeg).
+        let person = p.opened_from.is_none()
+            && !matches!(
+                conn.surface,
+                crate::approval::Surface::Mcp | crate::approval::Surface::Unnamed
+            );
+        self.runner.keep_warm.message(&session.session_id, person);
         // A one-run daemon's client follows the session's later turns, so
         // its connection hears them from the start (theseus-mqxk).
         if self.outbox.one_shot.follow_ms().is_some() {

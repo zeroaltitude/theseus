@@ -29,6 +29,10 @@ impl TurnRunner {
             None => None,
         };
         let (nodes, sources) = self.recall_view(t, nodes);
+        // A big old attachment is a stub at a cold rewrite, and in the warm
+        // window after it (theseus-ezeg): decided at the turn's first compile.
+        let cold = (i == 0).then(|| self.cold_now(sid, session, spec));
+        let (nodes, stubbed) = self.stubbed_view(sid, &spec.model, &session.not_shown, nodes, cold);
         let read_before = crate::stub::read(&nodes);
         let assembled = t.recall.assembled_id().map(str::to_string);
         let given = self.situation_of(t, &nodes, current.is_none(), session);
@@ -82,7 +86,9 @@ impl TurnRunner {
             Self::persist_compilation(t.tc.store, &compiled, session, t.tc.turn_id)?;
         }
         let c1 = t.trace.now_us();
-        let summary = Self::compiled_summary(t, &compiled, spec, (&nodes, read_before, i), tasks);
+        let mut summary =
+            Self::compiled_summary(t, &compiled, spec, (&nodes, read_before, i), tasks);
+        summary.cache.stubbed = stubbed;
         // While routing decides, the rows wait for the compile the call uses
         // (`route_step`, theseus-d13v): one `context.compiled` and one
         // `loop.started` a loop, each naming a stored compilation.
@@ -96,7 +102,7 @@ impl TurnRunner {
 
     /// The window a request on `spec`'s model compiles against, when
     /// `[context] working_window_tokens` lowers the catalog's.
-    pub(super) fn working_window(&self, spec: &RequestSpec) -> Option<u64> {
+    pub(crate) fn working_window(&self, spec: &RequestSpec) -> Option<u64> {
         let model = self.catalog.get(&spec.model).map(|e| e.context_window);
         self.cfg.context.working_window(model)
     }
@@ -183,6 +189,7 @@ impl TurnRunner {
                     .collect(),
                 ttl: spec.cache_ttl.as_str().into(),
                 conversation_ttl: spec.conversation_ttl.min(spec.cache_ttl).as_str().into(),
+                stubbed: Vec::new(),
             },
             // The class of the place it speaks in, and the context files
             // that class left out (the place rule).

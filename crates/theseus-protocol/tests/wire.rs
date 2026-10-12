@@ -822,6 +822,7 @@ fn summary(recompile: bool) -> ContextCompiled {
             },
             ttl: "1h".into(),
             conversation_ttl: "5m".into(),
+            stubbed: vec![],
         },
         // The place rule: a shared place's compile, which withheld one file;
         // an append from a daemon before it has neither.

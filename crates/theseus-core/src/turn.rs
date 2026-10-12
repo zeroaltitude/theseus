@@ -181,6 +181,10 @@ pub struct TurnRunner {
     pub(crate) spend_marks: budget_step::SpendMarks,
     /// The models found to refuse per-message effort, for this run (theseus-posww).
     pub effort_refusals: effort_step::EffortRefusals,
+    /// The conversations kept warm after their turns, and the stubs their
+    /// cold rewrites decided (theseus-ezeg).
+    pub keep_warm: crate::keep_warm::KeepWarm,
+    pub stubs: crate::compiler::stubs::InForce,
 }
 
 /// What a `/stop` tells the turn that holds its execution while the model's
@@ -722,7 +726,7 @@ impl TurnRunner {
             max_loops: prof.max_loops,
             max_loops_mode: prof.max_loops_mode,
             refusal_fallbacks: prof.refusal_fallbacks,
-            cache_ttl: prof.cache_ttl,
+            cache_ttl: prof.ttl(),
             chosen: None,
         })
     }
@@ -1284,6 +1288,7 @@ impl TurnRunner {
             Err(e) => tracing::warn!(error = %e, "ledger append failed"),
         }
         drop(session_hold);
+        self.keep_warm.turn_ended(&failure_sink.session_id);
         if let Ok((res, _, _)) = &r {
             self.judge.after_turn(res, task_of.is_some());
             self.pass.after_turn(res);

@@ -718,6 +718,8 @@ impl Core {
             failed_turns: Default::default(),
             spend_marks: Default::default(),
             effort_refusals: Default::default(),
+            keep_warm: Default::default(),
+            stubs: Default::default(),
             judge,
             // Read at a routed session's first turn, never on the start path.
             live_switched: Default::default(),
@@ -731,6 +733,7 @@ impl Core {
             runner.judge.export_to(t.clone());
             runner.memory.export_to(t.clone());
             runner.tools.stops.export_to(t.clone());
+            let _ = runner.keep_warm.telemetry.set(t.clone());
             let _ = telemetry_cell.set(t);
         }
         // A persisted runtime switch wins over config, if it still names a profile.

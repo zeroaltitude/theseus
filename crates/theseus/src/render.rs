@@ -19,6 +19,7 @@ use theseus_protocol::{
 };
 
 mod aws;
+mod cache;
 mod cancel;
 mod catalog;
 mod connections;
@@ -1797,6 +1798,7 @@ pub fn health_lines(h: &theseus_protocol::HealthResult, now_ms: u64) -> Vec<Line
         .into_iter()
         .chain(resident::resident_lines(h.resident.as_ref()))
         .chain(warm::warm_lines(h.warm.as_ref(), now_ms))
+        .chain(cache::cache_lines(h.cache.as_ref()))
     {
         push(o, tag, &line);
     }

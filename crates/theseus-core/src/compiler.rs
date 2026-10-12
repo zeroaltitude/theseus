@@ -45,6 +45,7 @@ mod tests_ring;
 pub use clearing::Pass;
 pub mod situation;
 pub use effort::{output_config, BETA_TURN_EFFORT};
+pub mod stubs;
 
 pub const COMPILER_VERSION: u32 = 1;
 /// 2 since 13c (theseus-ev1): the system goes out as two blocks, and a block

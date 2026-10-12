@@ -15,6 +15,8 @@ use crate::secrets::{OpReader, SecretRef};
 mod aws;
 mod context;
 pub use context::ContextConfig;
+mod cache;
+pub use cache::{CacheConfig, CacheTtl};
 pub mod discord;
 mod index;
 pub use index::IndexConfig;
@@ -141,6 +143,9 @@ pub struct Config {
     /// `[sessions]`: the state windows and the re-title (theseus-emqx).
     #[serde(default, skip_serializing_if = "SessionsConfig::is_default")]
     pub sessions: SessionsConfig,
+    /// `[cache]`: the keep-warm read and the cold rewrite's stubs (theseus-ezeg).
+    #[serde(default, skip_serializing_if = "CacheConfig::is_default")]
+    pub cache: CacheConfig,
     /// `[people]`: people proposed from text (theseus-wy7y), `config/people.rs`.
     #[serde(default, skip_serializing_if = "people::PeopleConfig::is_default")]
     pub people: people::PeopleConfig,
@@ -840,46 +845,12 @@ pub struct ProfileConfig {
     /// Server-side refusal fallbacks where the model supports them.
     #[serde(default = "default_true")]
     pub refusal_fallbacks: bool,
-    /// How long the provider keeps the profile's cached prefixes (theseus-ev1).
-    #[serde(default, skip_serializing_if = "CacheTtl::is_default")]
-    pub cache_ttl: CacheTtl,
-}
-
-/// A prompt cache entry's lifetime (theseus-ev1). Each read restarts it.
-/// `1h` writes cost 2 × input against 1.25 × for `5m`, and pay when the
-/// prefix is read again after a pause of 5 to 60 minutes. It applies to
-/// every breakpoint of a conversation's requests, the automatic one
-/// included; a task's own conversation keeps `5m` (its loops run seconds
-/// apart), after the header's `1h` entries, as the order rule asks.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
-pub enum CacheTtl {
-    #[default]
-    #[serde(rename = "5m")]
-    FiveMinutes,
-    #[serde(rename = "1h")]
-    OneHour,
-}
-
-impl CacheTtl {
-    pub fn is_default(&self) -> bool {
-        *self == Self::default()
-    }
-
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::FiveMinutes => "5m",
-            Self::OneHour => "1h",
-        }
-    }
-
-    /// The `cache_control` marker. Five minutes is the API's default, so its
-    /// marker names no `ttl`: the bytes every request carried before 13c.
-    pub fn marker(self) -> serde_json::Value {
-        match self {
-            Self::FiveMinutes => serde_json::json!({"type": "ephemeral"}),
-            Self::OneHour => serde_json::json!({"type": "ephemeral", "ttl": "1h"}),
-        }
-    }
+    /// How long the provider keeps the profile's cached prefixes (theseus-ev1);
+    /// none: `[model]`'s, as `keep_warm_hours` (theseus-ezeg, `config/cache.rs`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cache_ttl: Option<CacheTtl>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub keep_warm_hours: Option<f64>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -954,6 +925,11 @@ pub struct ModelConfig {
     pub refusal_fallbacks: bool,
     #[serde(default, skip_serializing_if = "CacheTtl::is_default")]
     pub cache_ttl: CacheTtl,
+    #[serde(
+        default = "cache::default_keep_warm_hours",
+        skip_serializing_if = "cache::is_default_keep_warm_hours"
+    )]
+    pub keep_warm_hours: f64,
     #[serde(default = "default_api_base")]
     pub api_base: String,
     /// Name of the entry in `[secrets]` holding the Anthropic key.
@@ -1105,6 +1081,7 @@ impl Default for ModelConfig {
             max_loops_mode: MaxLoopsMode::default(),
             refusal_fallbacks: true,
             cache_ttl: CacheTtl::default(),
+            keep_warm_hours: cache::default_keep_warm_hours(),
             api_base: default_api_base(),
             api_key_secret: default_key_name(),
             timeouts: Default::default(),
@@ -1325,6 +1302,7 @@ impl Config {
             .validate(|p| self.all_profiles().contains_key(p))?;
         self.lsp.validate()?;
         self.sessions.validate()?;
+        self.cache.validate(self)?;
         self.people.validate()?;
         self.validate_voice()?;
         self.validate_mcp_server()?;
@@ -1543,8 +1521,10 @@ impl Config {
                 max_loops: m.max_loops,
                 max_loops_mode: m.max_loops_mode,
                 refusal_fallbacks: m.refusal_fallbacks,
-                cache_ttl: m.cache_ttl,
+                cache_ttl: Some(m.cache_ttl),
+                keep_warm_hours: Some(m.keep_warm_hours),
             });
+        cache::inherit(&mut profiles, m);
         let mut providers = cfg.providers.clone();
         providers
             .entry("anthropic".into())
