@@ -86,7 +86,8 @@ test('a call: two or three falling notes, each below the last, crossing the ster
     assert.ok(gullLevel(c, c.fade / 2) < gullLevel(c, c.fade), 'it fades in')
     assert.ok(gullLevel(c, c.secs - c.fade / 2) < GULL_GAIN, 'and out')
   }
-  assert.ok(GULL_GAIN < SURF_GAIN_ROLL / 2, 'quieter than the waves')
+  // The owner, 2026-10-12: "slightly louder" (0.07 -> 0.1): still well under the idle roll.
+  assert.ok(GULL_GAIN < SURF_GAIN_ROLL * 0.75, 'quieter than the waves')
 })
 
 test('the graph: a call makes sources and a panner on the master, and stopping lets go of every one', () => {

@@ -12,11 +12,11 @@ export const GULL = {
 } as const
 
 /** The shortest and longest gap between visits (s): never two close together, never on a fixed beat. */
-export const GULL_GAP_MIN_S = 150
-export const GULL_GAP_MAX_S = 420
+export const GULL_GAP_MIN_S = 120 // the owner, 2026-10-12: "slightly more frequent" (was 150)
+export const GULL_GAP_MAX_S = 300 // (was 420)
 
 /** The gull's peak gain on the master the cues and the sea share: under the idle roll's (`SURF_GAIN_ROLL`, 0.15). */
-export const GULL_GAIN = 0.07
+export const GULL_GAIN = 0.1 // the owner, 2026-10-12: "slightly louder" (was 0.07); still under the roll (0.15)
 
 /** The seconds to the next visit, from a generator giving 0 to 1. */
 export const gullGap = (next: () => number): number => GULL_GAP_MIN_S + (GULL_GAP_MAX_S - GULL_GAP_MIN_S) * next()
