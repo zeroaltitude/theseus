@@ -78,15 +78,13 @@ test('the spacing: never two horns within 8 minutes, never on a beat, never with
     // Gulls come every 2 to 5 minutes on their own; the horn asks how long until it is clear of the last.
     const gulls = gullRng(seed + 1000)
     const gullTimes: number[] = []
-    let gullNext = 120 + 180 * gulls()
-    const clear = () => {
-      while (gullNext <= c.now()) { gullTimes.push(gullNext); gullNext += 120 + 180 * gulls() }
-      return hornClearMs(c.now(), gullTimes.at(-1) ?? -Infinity)
-    }
+    for (let g = 120 + 180 * gulls(); g < 40 * HORN_GAP_MAX_S + 3600; g += 120 + 180 * gulls()) gullTimes.push(g)
+    const clear = () => hornClearMs(c.now(), gullTimes.filter((g) => g <= c.now()).at(-1) ?? -Infinity)
     // `?horn=now` on half of them: the horn five seconds in, then the ordinary gaps.
     const stop = startFoghorns(true, gullRng(seed), c.clock, () => { times.push(c.now()) }, { first: seed % 2 ? 5000 : undefined, clear })
-    while (times.length < 40) c.fire()
+    for (let i = 0; i < 400 && times.length < 40; i++) c.fire()
     stop()
+    assert.equal(times.length, 40, 'a horn that waits for a gull still sounds')
     if (seed % 2) assert.equal(times[0], 5, '?horn=now: the first horn five seconds in')
     const gaps = times.slice(1).map((t, i) => t - times[i])
     for (const g of gaps) assert.ok(g >= HORN_GAP_MIN_S, `two horns ${g} s apart`)
@@ -97,6 +95,16 @@ test('the spacing: never two horns within 8 minutes, never on a beat, never with
       if (before !== undefined) assert.ok(t - before >= HORN_CLEAR_S - 1e-9, `a horn ${t - before} s after a gull`)
     }
   }
+  // A horn due too near a gull waits just that long, not a new gap.
+  const c = fakeClock()
+  const waits = [7000, 0]
+  let at = 0
+  const stop = startFoghorns(true, gullRng(2), c.clock, () => { at = c.now() }, { clear: () => waits.shift() ?? 0 })
+  const due = c.fire()!
+  assert.equal(at, 0, 'not yet: a gull was near')
+  c.fire()
+  assert.equal(at, due + 7, 'seven seconds later')
+  stop()
   assert.equal(hornClearMs(100, 90), 20_000)
   assert.equal(hornClearMs(100, 70), 0)
   assert.equal(hornClearMs(100, -Infinity), 0)
