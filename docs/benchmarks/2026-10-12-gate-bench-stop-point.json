@@ -1,0 +1,673 @@
+{
+ "report": "2026-10-12-gate-bench-stop-point",
+ "title": "Gate bench: the stopping point's release build, every speed bench once more",
+ "suite": "gate-bench",
+ "date": "2026-10-12",
+ "commit": "026dce3fd1df84344113afdea284373e4633525f",
+ "arms": [
+  "theseus"
+ ],
+ "summary": {
+  "lifecycle_release": {
+   "cold": {
+    "runs": 4,
+    "p50_median": 18.09,
+    "p50_range": [
+     17.41,
+     19.28
+    ],
+    "p95_median": 32.9,
+    "p95_max": 49.2
+   },
+   "vault": {
+    "runs": 4,
+    "p50_median": 18.22,
+    "p50_range": [
+     17.77,
+     18.61
+    ],
+    "p95_median": 19.94,
+    "p95_max": 24.47
+   },
+   "shutdown": {
+    "runs": 4,
+    "p50_median": 37.04,
+    "p50_range": [
+     35.32,
+     37.57
+    ],
+    "p95_median": 45.24,
+    "p95_max": 87.16
+   },
+   "inflight": {
+    "runs": 4,
+    "p50_median": 82.16,
+    "p50_range": [
+     77.32,
+     83.12
+    ],
+    "p95_median": 90.07,
+    "p95_max": 90.77
+   },
+   "kill": {
+    "runs": 4,
+    "p50_median": 22.22,
+    "p50_range": [
+     21.22,
+     23.28
+    ],
+    "p95_median": 31.58,
+    "p95_max": 36.76
+   },
+   "swap": {
+    "runs": 4,
+    "p50_median": 48.21,
+    "p50_range": [
+     47.39,
+     53.96
+    ],
+    "p95_median": 63.66,
+    "p95_max": 120.48
+   },
+   "restore": {
+    "runs": 4,
+    "p50_median": 146.1,
+    "p50_range": [
+     139.64,
+     156.84
+    ],
+    "p95_median": 187.43,
+    "p95_max": 245.36
+   },
+   "seed": {
+    "runs": 4,
+    "p50_median": 0.32,
+    "p50_range": [
+     0.27,
+     0.41
+    ],
+    "p95_median": 0.55,
+    "p95_max": 0.64
+   },
+   "health": {
+    "runs": 4,
+    "p50_median": 0.81,
+    "p50_range": [
+     0.74,
+     0.95
+    ],
+    "p95_median": 1.32,
+    "p95_max": 2.21
+   },
+   "cancel": {
+    "runs": 4,
+    "p50_median": 26.67,
+    "p50_range": [
+     24.91,
+     27.19
+    ],
+    "p95_median": 35.09,
+    "p95_max": 69.09
+   }
+  },
+  "lifecycle_10k_release": {
+   "cold": {
+    "runs": 4,
+    "p50_median": 18.34,
+    "p50_range": [
+     18.04,
+     19.24
+    ],
+    "p95_median": 29.23,
+    "p95_max": 43.37
+   },
+   "shutdown": {
+    "runs": 4,
+    "p50_median": 32.76,
+    "p50_range": [
+     32.53,
+     35.29
+    ],
+    "p95_median": 51.07,
+    "p95_max": 52.44
+   },
+   "kill": {
+    "runs": 4,
+    "p50_median": 23.68,
+    "p50_range": [
+     20.86,
+     24.04
+    ],
+    "p95_median": 26.43,
+    "p95_max": 32.09
+   },
+   "swap": {
+    "runs": 4,
+    "p50_median": 49.36,
+    "p50_range": [
+     44.54,
+     51.04
+    ],
+    "p95_median": 55.52,
+    "p95_max": 139.38
+   },
+   "seed": {
+    "runs": 4,
+    "p50_median": 2.62,
+    "p50_range": [
+     2.5,
+     2.79
+    ],
+    "p95_median": 4.34,
+    "p95_max": 7.36
+   },
+   "health": {
+    "runs": 4,
+    "p50_median": 0.87,
+    "p50_range": [
+     0.8,
+     0.91
+    ],
+    "p95_median": 1.68,
+    "p95_max": 2.49
+   }
+  },
+  "turn": {
+   "plain": {
+    "turns": 40,
+    "wall_p50": 57.38,
+    "wall_p90": 94.69,
+    "wall_max": 153.42,
+    "daemon_p50_median": 43.5,
+    "frames": [
+     4
+    ]
+   },
+   "tool": {
+    "turns": 40,
+    "wall_p50": 134.14,
+    "wall_p90": 223.35,
+    "wall_max": 279.13,
+    "daemon_p50_median": 129.0,
+    "frames": [
+     8
+    ]
+   },
+   "batch": {
+    "turns": 6,
+    "wall_p50": 2189.0,
+    "wall_p90": 2247.4,
+    "wall_max": 2265.39,
+    "daemon_p50_median": 2186.5,
+    "frames": [
+     14
+    ]
+   }
+  },
+  "fsync_p50_ms": [
+   6.78,
+   6.65
+  ],
+  "rss_kb": {
+   "start": 40400,
+   "after_burst_30": 68084
+  },
+  "idle": {
+   "empty_cpu_percent": 0.0091,
+   "empty_wakeups_s": 1.7,
+   "empty_rss_kb": 40984,
+   "s10k_cpu_percent": 0.454,
+   "s10k_rss_kb": 112440,
+   "s10k_tender_kb": 71604
+  },
+  "status": {
+   "sessions": 1000,
+   "runs": 300,
+   "p50_ms": 5.3969309999999995,
+   "p90_ms": 8.36973,
+   "min_ms": 3.503273,
+   "max_ms": 34.495036,
+   "limit_ms": 5.0,
+   "ok": false
+  },
+  "size": [
+   {
+    "binary": "theseusd",
+    "bytes": 77847928,
+    "mb": 77.847928
+   },
+   {
+    "binary": "theseus",
+    "bytes": 8447712,
+    "mb": 8.447712
+   },
+   {
+    "binary": "theseus-tui",
+    "bytes": 3068704,
+    "mb": 3.068704
+   },
+   {
+    "binary": "theseus-sim",
+    "bytes": 8879704,
+    "mb": 8.879704
+   }
+  ],
+  "jobs": {
+   "l0": [
+    "total p50 10.70 ms, p95 12.29 ms; notified p50 10.79 ms, p95 12.47 ms",
+    "total p50 14.86 ms, p95 26.45 ms; notified p50 14.87 ms, p95 26.72 ms"
+   ],
+   "l1": [
+    "start p50 5.19 ms, p95 5.81 ms (target under 25 ms: ok); total p50 15.84 ms, p95 17.80 ms; notified p50 15.93 ms, p95 17.84 ms",
+    "start p50 7.38 ms, p95 28.69 ms (target under 25 ms: MISSED); total p50 20.15 ms, p95 48.16 ms; notified p50 20.30 ms, p95 48.71 ms"
+   ]
+  },
+  "ledger_reads": {
+   "synth_s": 24.5,
+   "store_bytes": 424232799,
+   "first_answer_s": 0.209,
+   "daemon_rss_kb_after": 125516,
+   "reads": {
+    "ledger -n 20": {
+     "ok": 12,
+     "n": 12,
+     "p50_ms": 3.61,
+     "p90_ms": 3.98,
+     "min_ms": 2.72,
+     "max_ms": 4.28,
+     "out_bytes": 2909
+    },
+    "ledger -n 200 --json": {
+     "ok": 12,
+     "n": 12,
+     "p50_ms": 4.05,
+     "p90_ms": 4.59,
+     "min_ms": 3.6,
+     "max_ms": 4.68,
+     "out_bytes": 39756
+    },
+    "ledger -n 1000 --json": {
+     "ok": 12,
+     "n": 12,
+     "p50_ms": 9.32,
+     "p90_ms": 10.19,
+     "min_ms": 8.24,
+     "max_ms": 10.53,
+     "out_bytes": 186556
+    },
+    "ledger -k turn.ended -n 50": {
+     "ok": 12,
+     "n": 12,
+     "p50_ms": 3.25,
+     "p90_ms": 3.77,
+     "min_ms": 3.02,
+     "max_ms": 4.31,
+     "out_bytes": 9000
+    },
+    "sessions": {
+     "ok": 12,
+     "n": 12,
+     "p50_ms": 3.87,
+     "p90_ms": 4.07,
+     "min_ms": 3.64,
+     "max_ms": 4.15,
+     "out_bytes": 5750
+    },
+    "executions": {
+     "ok": 12,
+     "n": 12,
+     "p50_ms": 3.62,
+     "p90_ms": 3.88,
+     "min_ms": 3.25,
+     "max_ms": 4.37,
+     "out_bytes": 10954
+    },
+    "status --short": {
+     "ok": 12,
+     "n": 12,
+     "p50_ms": 3.73,
+     "p90_ms": 4.1,
+     "min_ms": 3.03,
+     "max_ms": 5.71,
+     "out_bytes": 5
+    },
+    "health": {
+     "ok": 12,
+     "n": 12,
+     "p50_ms": 3.59,
+     "p90_ms": 3.95,
+     "min_ms": 3.13,
+     "max_ms": 4.13,
+     "out_bytes": 4732
+    }
+   },
+   "build": "026dce3fd1df84344113afdea284373e4633525f"
+  },
+  "io_stall": {
+   "quiet": {
+    "start": {
+     "median": 19.0,
+     "min": 15.0,
+     "max": 82.0
+    },
+    "call": {
+     "median": 180.0,
+     "min": 155.0,
+     "max": 280.0
+    },
+    "tok": {
+     "median": 988.0,
+     "min": 956.0,
+     "max": 1097.0
+    },
+    "first": {
+     "median": 1.0,
+     "min": 1.0,
+     "max": 2.0
+    },
+    "whole": {
+     "median": 3.0,
+     "min": 1.0,
+     "max": 12.0
+    },
+    "footer": {
+     "median": 1622.0,
+     "min": 1565.0,
+     "max": 1677.0
+    },
+    "settle": {
+     "median": 13.0,
+     "min": 11.0,
+     "max": 20.0
+    },
+    "n": 7,
+    "routes": [
+     "detour (trivial 1.0), waited 124",
+     "detour (trivial 0.83), waited 0",
+     "detour (trivial 0.77), waited 0",
+     "detour (trivial 0.89), waited 0",
+     "detour (trivial 0.92), waited 0",
+     "detour (trivial 0.82), waited 2",
+     "detour (trivial 0.85), waited 0"
+    ]
+   },
+   "slow": {
+    "start": {
+     "median": 2513.5,
+     "min": 1463.0,
+     "max": 7185.0
+    },
+    "call": {
+     "median": 8273.0,
+     "min": 7223.0,
+     "max": 15830.0
+    },
+    "tok": {
+     "median": 9074.5,
+     "min": 8023.0,
+     "max": 16632.0
+    },
+    "first": {
+     "median": 1.0,
+     "min": 1.0,
+     "max": 3.0
+    },
+    "whole": {
+     "median": 2.0,
+     "min": 1.0,
+     "max": 3.0
+    },
+    "footer": {
+     "median": 19797.5,
+     "min": 18743.0,
+     "max": 33109.0
+    },
+    "settle": {
+     "median": 4500.5,
+     "min": 4497.0,
+     "max": 4513.0
+    },
+    "n": 6,
+    "routes": [
+     "detour (trivial 0.95), waited 122",
+     "detour (trivial 0.75), waited 8",
+     "detour (trivial 0.87), waited 0",
+     "detour (trivial 0.91), waited 0",
+     "detour (trivial 0.86), waited 47",
+     "detour (trivial 0.82), waited 16"
+    ]
+   }
+  },
+  "status_quiet": {
+   "sessions": 1000,
+   "runs": 300,
+   "p50_ms": 5.318071,
+   "p90_ms": 8.061421,
+   "min_ms": 3.2803620000000002,
+   "max_ms": 12.749284,
+   "limit_ms": 5.0,
+   "ok": false
+  },
+  "glibc_vs_musl_lifecycle_p50s": {
+   "glibc": {
+    "cold": [
+     24.24,
+     27.99,
+     35.48,
+     29.59
+    ],
+    "shutdown": [
+     53.11,
+     103.6,
+     95.04,
+     86.13
+    ],
+    "kill": [
+     44.57,
+     39.35,
+     44.51,
+     41.67
+    ],
+    "swap": [
+     116.25,
+     119.1,
+     127.4,
+     101.55
+    ],
+    "seed": [
+     0.6,
+     0.3,
+     0.42,
+     0.39
+    ],
+    "health": [
+     1.66,
+     0.73,
+     1.0,
+     0.93
+    ]
+   },
+   "musl": {
+    "cold": [
+     22.75,
+     32.63,
+     35.27,
+     29.97
+    ],
+    "shutdown": [
+     55.66,
+     89.48,
+     94.5,
+     105.95
+    ],
+    "kill": [
+     78.06,
+     34.19,
+     44.07,
+     44.99
+    ],
+    "swap": [
+     57.43,
+     118.51,
+     133.63,
+     130.13
+    ],
+    "seed": [
+     0.5,
+     0.41,
+     0.37,
+     0.34
+    ],
+    "health": [
+     1.78,
+     1.13,
+     1.11,
+     1.02
+    ]
+   }
+  }
+ },
+ "figures": [
+  {
+   "name": "start-path-10k",
+   "form": "dumbbell",
+   "arm": "theseus",
+   "title": "Each lifecycle phase at 10,000 parked sessions, Oct 2 (after perf1) and Oct 12 (p50, release)",
+   "question": "Has the start path at 10,000 sessions held what lane perf1 won, ten days and about 300 joins later?",
+   "x": {
+    "label": "ms, p50 of 10 runs (log scale)",
+    "format": "ms",
+    "log": true,
+    "min": 1,
+    "max": 100
+   },
+   "from_label": "Oct 2, after perf1",
+   "to_label": "Oct 12, 026dce3f",
+   "rows": [
+    {
+     "label": "cold start",
+     "from": 21.5,
+     "to": 18.34,
+     "tip": "p95 32.8 then 29.23 ms; budget 250 ms"
+    },
+    {
+     "label": "clean shutdown, a job running",
+     "from": 27.8,
+     "to": 32.76,
+     "tip": "p95 33.6 then 51.07 ms; budget 100 ms"
+    },
+    {
+     "label": "SIGKILL, then restart",
+     "from": 48.0,
+     "to": 23.68,
+     "tip": "p95 89.2 then 26.43 ms; budget 350 ms"
+    },
+    {
+     "label": "binary swap",
+     "from": 45.6,
+     "to": 49.36,
+     "tip": "p95 47.5 then 55.52 ms; budget 200 ms"
+    },
+    {
+     "label": "the push's seed",
+     "from": 45.5,
+     "to": 2.62,
+     "tip": "p95 49.2 then 4.34 ms; budget 250 ms"
+    }
+   ],
+   "note": "Oct 2: the perf1 lane's after-arm (docs/benchmarks/2026-10-02-gate-bench-start-path-10k.md); Oct 12: four runs of 10, the median of their p50s."
+  },
+  {
+   "name": "io-stall",
+   "form": "dumbbell",
+   "arm": "theseus",
+   "title": "A greeting on a disk whose every flush stalls 1.4 s: Oct 5 (lane speed's final build) and Oct 12 (median, ms after typing)",
+   "question": "How long does a person wait for a greeting's reply when the disk stalls, and what moved since Oct 5?",
+   "x": {
+    "label": "ms after the message was typed (log scale)",
+    "format": "ms",
+    "log": true,
+    "min": 1,
+    "max": 40000
+   },
+   "from_label": "Oct 5 (2 greetings, debug)",
+   "to_label": "Oct 12 (6 greetings, release)",
+   "rows": [
+    {
+     "label": "the model call starts",
+     "from": 10960.5,
+     "to": 8273.0,
+     "tip": "Oct 12: 7223 to 15830 ms"
+    },
+    {
+     "label": "the model's first token",
+     "from": 11763.5,
+     "to": 9074.5,
+     "tip": "the stand-in answers 800 ms after the request"
+    },
+    {
+     "label": "the durable footer post",
+     "from": 24030.0,
+     "to": 19797.5,
+     "tip": "Oct 12: 18743 to 33109 ms"
+    },
+    {
+     "label": "the settle's frame, ms",
+     "from": 4553.5,
+     "to": 4500.5,
+     "tip": "three syncs of 1.4 s"
+    },
+    {
+     "label": "whole text after the stream's end",
+     "from": 2.5,
+     "to": 2.0,
+     "tip": "Oct 12: 1 to 3 ms"
+    }
+   ],
+   "note": "Lane speed's rig (fake Discord, a paced stand-in model, the real Jev); the Oct 5 numbers are its after-arm on the stalled disk."
+  },
+  {
+   "name": "binary-size",
+   "form": "dumbbell",
+   "arm": "theseus",
+   "title": "The shipped binaries' size, Oct 2 and Oct 12 (release-thin, glibc), against \u00a79's 60 MB",
+   "question": "Do the shipped binaries still fit \u00a79's 60 MB each?",
+   "x": {
+    "label": "MB",
+    "format": "num",
+    "log": false,
+    "min": 0,
+    "max": 90
+   },
+   "from_label": "Oct 2",
+   "to_label": "Oct 12, 026dce3f",
+   "rows": [
+    {
+     "label": "theseusd",
+     "from": 28.86,
+     "to": 77.85,
+     "tip": "\u00a79: 60 MB; over by 17.8 MB"
+    },
+    {
+     "label": "theseus",
+     "from": 3.53,
+     "to": 8.45,
+     "tip": "\u00a79: 60 MB"
+    },
+    {
+     "label": "theseus-tui",
+     "from": 2.48,
+     "to": 3.07,
+     "tip": "\u00a79: 60 MB"
+    },
+    {
+     "label": "theseus-sim",
+     "from": 4.64,
+     "to": 8.88,
+     "tip": "\u00a79: 60 MB"
+    }
+   ],
+   "note": "Oct 2: docs/benchmarks/2026-10-02-gate-bench-install-builds.md; Oct 12: theseus-sim bench size on the install's build."
+  }
+ ]
+}

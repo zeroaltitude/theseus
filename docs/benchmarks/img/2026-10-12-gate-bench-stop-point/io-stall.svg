@@ -1,0 +1,65 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="334" viewBox="0 0 720 334" role="img" aria-labelledby="t-io-stall t-io-stall-d" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
+<title id="t-io-stall">A greeting on a disk whose every flush stalls 1.4 s: Oct 5 (lane speed's final build) and Oct 12 (median, ms after typing)</title>
+<desc id="t-io-stall-d">How long does a person wait for a greeting's reply when the disk stalls, and what moved since Oct 5?</desc>
+<rect width="720" height="334" rx="8" fill="#fcfcfb" stroke="#e6e5df"/>
+<text x="18.0" y="32.0" font-size="15" fill="#0b0b0b" font-weight="600">A greeting on a disk whose every flush stalls 1.4 s: Oct 5 (lane speed's final build)</text>
+<text x="18.0" y="52.0" font-size="15" fill="#0b0b0b" font-weight="600">and Oct 12 (median, ms after typing)</text>
+<circle cx="25.0" cy="70.0" r="5" fill="#88b3e7"/>
+<text x="40.0" y="74.0" font-size="12" fill="#52514e">Oct 5 (2 greetings, debug)</text>
+<circle cx="220.6" cy="70.0" r="5" fill="#2a78d6"/>
+<text x="235.6" y="74.0" font-size="12" fill="#52514e">Oct 12 (6 greetings, release)</text>
+<line x1="232.8" y1="96.0" x2="232.8" y2="240.0" stroke="#e1e0d9" stroke-width="1"/>
+<line x1="303.3" y1="96.0" x2="303.3" y2="240.0" stroke="#e1e0d9" stroke-width="1"/>
+<line x1="373.8" y1="96.0" x2="373.8" y2="240.0" stroke="#e1e0d9" stroke-width="1"/>
+<line x1="444.3" y1="96.0" x2="444.3" y2="240.0" stroke="#e1e0d9" stroke-width="1"/>
+<line x1="514.8" y1="96.0" x2="514.8" y2="240.0" stroke="#e1e0d9" stroke-width="1"/>
+<text x="218.8" y="114.0" font-size="12" fill="#0b0b0b" text-anchor="end">the model call starts</text>
+<g><title>the model call starts: 10,960 ms → 8,273 ms (Oct 12: 7223 to 15830 ms)</title>
+<line x1="517.6" y1="110.0" x2="509.0" y2="110.0" stroke="#88b3e7" stroke-width="3" stroke-linecap="round"/>
+<circle cx="517.6" cy="110.0" r="5" fill="#88b3e7" stroke="#fcfcfb" stroke-width="2"/>
+<circle cx="509.0" cy="110.0" r="12" fill="transparent"/>
+<circle cx="509.0" cy="110.0" r="5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<text x="571.3" y="114.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">10,960 ms → 8,273 ms</text>
+<text x="218.8" y="142.0" font-size="12" fill="#0b0b0b" text-anchor="end">the model's first token</text>
+<g><title>the model's first token: 11,764 ms → 9,074 ms (the stand-in answers 800 ms after the request)</title>
+<line x1="519.8" y1="138.0" x2="511.8" y2="138.0" stroke="#88b3e7" stroke-width="3" stroke-linecap="round"/>
+<circle cx="519.8" cy="138.0" r="5" fill="#88b3e7" stroke="#fcfcfb" stroke-width="2"/>
+<circle cx="511.8" cy="138.0" r="12" fill="transparent"/>
+<circle cx="511.8" cy="138.0" r="5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<text x="571.3" y="142.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">11,764 ms → 9,074 ms</text>
+<text x="218.8" y="170.0" font-size="12" fill="#0b0b0b" text-anchor="end">the durable footer post</text>
+<g><title>the durable footer post: 24,030 ms → 19,798 ms (Oct 12: 18743 to 33109 ms)</title>
+<line x1="541.7" y1="166.0" x2="535.7" y2="166.0" stroke="#88b3e7" stroke-width="3" stroke-linecap="round"/>
+<circle cx="541.7" cy="166.0" r="5" fill="#88b3e7" stroke="#fcfcfb" stroke-width="2"/>
+<circle cx="535.7" cy="166.0" r="12" fill="transparent"/>
+<circle cx="535.7" cy="166.0" r="5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<text x="571.3" y="170.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">24,030 ms → 19,798 ms</text>
+<text x="218.8" y="198.0" font-size="12" fill="#0b0b0b" text-anchor="end">the settle's frame, ms</text>
+<g><title>the settle's frame, ms: 4,554 ms → 4,500 ms (three syncs of 1.4 s)</title>
+<line x1="490.7" y1="194.0" x2="490.4" y2="194.0" stroke="#88b3e7" stroke-width="3" stroke-linecap="round"/>
+<circle cx="490.7" cy="194.0" r="5" fill="#88b3e7" stroke="#fcfcfb" stroke-width="2"/>
+<circle cx="490.4" cy="194.0" r="12" fill="transparent"/>
+<circle cx="490.4" cy="194.0" r="5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<text x="571.3" y="198.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">4,554 ms → 4,500 ms</text>
+<text x="218.8" y="226.0" font-size="12" fill="#0b0b0b" text-anchor="end">whole text after the stream's end</text>
+<g><title>whole text after the stream's end: 2.50 ms → 2 ms (Oct 12: 1 to 3 ms)</title>
+<line x1="260.9" y1="222.0" x2="254.1" y2="222.0" stroke="#88b3e7" stroke-width="3" stroke-linecap="round"/>
+<circle cx="260.9" cy="222.0" r="5" fill="#88b3e7" stroke="#fcfcfb" stroke-width="2"/>
+<circle cx="254.1" cy="222.0" r="12" fill="transparent"/>
+<circle cx="254.1" cy="222.0" r="5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<text x="571.3" y="226.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">2.50 ms → 2 ms</text>
+<text x="232.8" y="256.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">1</text>
+<text x="303.3" y="256.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">10</text>
+<text x="373.8" y="256.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">100</text>
+<text x="444.3" y="256.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">1,000</text>
+<text x="514.8" y="256.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">10,000</text>
+<line x1="232.8" y1="240.0" x2="557.3" y2="240.0" stroke="#c3c2b7" stroke-width="1"/>
+<text x="395.1" y="274.0" font-size="12" fill="#52514e" text-anchor="middle">ms after the message was typed (log scale)</text>
+<text x="18.0" y="296.0" font-size="11" fill="#52514e">Lane speed's rig (fake Discord, a paced stand-in model, the real Jev); the Oct 5 numbers are its after-arm on the stalled</text>
+<text x="18.0" y="311.0" font-size="11" fill="#52514e">disk.</text>
+</svg>

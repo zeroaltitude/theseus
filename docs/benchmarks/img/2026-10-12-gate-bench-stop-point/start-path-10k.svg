@@ -1,0 +1,69 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="334" viewBox="0 0 720 334" role="img" aria-labelledby="t-start-path-10k t-start-path-10k-d" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
+<title id="t-start-path-10k">Each lifecycle phase at 10,000 parked sessions, Oct 2 (after perf1) and Oct 12 (p50, release)</title>
+<desc id="t-start-path-10k-d">Has the start path at 10,000 sessions held what lane perf1 won, ten days and about 300 joins later?</desc>
+<rect width="720" height="334" rx="8" fill="#fcfcfb" stroke="#e6e5df"/>
+<text x="18.0" y="32.0" font-size="15" fill="#0b0b0b" font-weight="600">Each lifecycle phase at 10,000 parked sessions, Oct 2 (after perf1) and Oct 12</text>
+<text x="18.0" y="52.0" font-size="15" fill="#0b0b0b" font-weight="600">(p50, release)</text>
+<circle cx="25.0" cy="70.0" r="5" fill="#88b3e7"/>
+<text x="40.0" y="74.0" font-size="12" fill="#52514e">Oct 2, after perf1</text>
+<circle cx="170.0" cy="70.0" r="5" fill="#2a78d6"/>
+<text x="185.0" y="74.0" font-size="12" fill="#52514e">Oct 12, 026dce3f</text>
+<line x1="213.0" y1="96.0" x2="213.0" y2="240.0" stroke="#e1e0d9" stroke-width="1"/>
+<line x1="268.9" y1="96.0" x2="268.9" y2="240.0" stroke="#e1e0d9" stroke-width="1"/>
+<line x1="342.9" y1="96.0" x2="342.9" y2="240.0" stroke="#e1e0d9" stroke-width="1"/>
+<line x1="398.8" y1="96.0" x2="398.8" y2="240.0" stroke="#e1e0d9" stroke-width="1"/>
+<line x1="454.8" y1="96.0" x2="454.8" y2="240.0" stroke="#e1e0d9" stroke-width="1"/>
+<line x1="528.7" y1="96.0" x2="528.7" y2="240.0" stroke="#e1e0d9" stroke-width="1"/>
+<line x1="584.7" y1="96.0" x2="584.7" y2="240.0" stroke="#e1e0d9" stroke-width="1"/>
+<text x="199.0" y="114.0" font-size="12" fill="#0b0b0b" text-anchor="end">cold start</text>
+<g><title>cold start: 21.5 ms → 18.3 ms (p95 32.8 then 29.23 ms; budget 250 ms)</title>
+<line x1="460.6" y1="110.0" x2="447.8" y2="110.0" stroke="#88b3e7" stroke-width="3" stroke-linecap="round"/>
+<circle cx="460.6" cy="110.0" r="5" fill="#88b3e7" stroke="#fcfcfb" stroke-width="2"/>
+<circle cx="447.8" cy="110.0" r="12" fill="transparent"/>
+<circle cx="447.8" cy="110.0" r="5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<text x="598.7" y="114.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">21.5 ms → 18.3 ms</text>
+<text x="199.0" y="142.0" font-size="12" fill="#0b0b0b" text-anchor="end">clean shutdown, a job running</text>
+<g><title>clean shutdown, a job running: 27.8 ms → 32.8 ms (p95 33.6 then 51.07 ms; budget 100 ms)</title>
+<line x1="481.3" y1="138.0" x2="494.6" y2="138.0" stroke="#88b3e7" stroke-width="3" stroke-linecap="round"/>
+<circle cx="481.3" cy="138.0" r="5" fill="#88b3e7" stroke="#fcfcfb" stroke-width="2"/>
+<circle cx="494.6" cy="138.0" r="12" fill="transparent"/>
+<circle cx="494.6" cy="138.0" r="5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<text x="598.7" y="142.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">27.8 ms → 32.8 ms</text>
+<text x="199.0" y="170.0" font-size="12" fill="#0b0b0b" text-anchor="end">SIGKILL, then restart</text>
+<g><title>SIGKILL, then restart: 48 ms → 23.7 ms (p95 89.2 then 26.43 ms; budget 350 ms)</title>
+<line x1="525.4" y1="166.0" x2="468.4" y2="166.0" stroke="#88b3e7" stroke-width="3" stroke-linecap="round"/>
+<circle cx="525.4" cy="166.0" r="5" fill="#88b3e7" stroke="#fcfcfb" stroke-width="2"/>
+<circle cx="468.4" cy="166.0" r="12" fill="transparent"/>
+<circle cx="468.4" cy="166.0" r="5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<text x="598.7" y="170.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">48 ms → 23.7 ms</text>
+<text x="199.0" y="198.0" font-size="12" fill="#0b0b0b" text-anchor="end">binary swap</text>
+<g><title>binary swap: 45.6 ms → 49.4 ms (p95 47.5 then 55.52 ms; budget 200 ms)</title>
+<line x1="521.3" y1="194.0" x2="527.7" y2="194.0" stroke="#88b3e7" stroke-width="3" stroke-linecap="round"/>
+<circle cx="521.3" cy="194.0" r="5" fill="#88b3e7" stroke="#fcfcfb" stroke-width="2"/>
+<circle cx="527.7" cy="194.0" r="12" fill="transparent"/>
+<circle cx="527.7" cy="194.0" r="5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<text x="598.7" y="198.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">45.6 ms → 49.4 ms</text>
+<text x="199.0" y="226.0" font-size="12" fill="#0b0b0b" text-anchor="end">the push's seed</text>
+<g><title>the push's seed: 45.5 ms → 2.62 ms (p95 49.2 then 4.34 ms; budget 250 ms)</title>
+<line x1="521.1" y1="222.0" x2="290.7" y2="222.0" stroke="#88b3e7" stroke-width="3" stroke-linecap="round"/>
+<circle cx="521.1" cy="222.0" r="5" fill="#88b3e7" stroke="#fcfcfb" stroke-width="2"/>
+<circle cx="290.7" cy="222.0" r="12" fill="transparent"/>
+<circle cx="290.7" cy="222.0" r="5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<text x="598.7" y="226.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">45.5 ms → 2.62 ms</text>
+<text x="213.0" y="256.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">1</text>
+<text x="268.9" y="256.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">2</text>
+<text x="342.9" y="256.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">5</text>
+<text x="398.8" y="256.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">10</text>
+<text x="454.8" y="256.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">20</text>
+<text x="528.7" y="256.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">50</text>
+<text x="584.7" y="256.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">100</text>
+<line x1="213.0" y1="240.0" x2="584.7" y2="240.0" stroke="#c3c2b7" stroke-width="1"/>
+<text x="398.8" y="274.0" font-size="12" fill="#52514e" text-anchor="middle">ms, p50 of 10 runs (log scale)</text>
+<text x="18.0" y="296.0" font-size="11" fill="#52514e">Oct 2: the perf1 lane's after-arm (docs/benchmarks/2026-10-02-gate-bench-start-path-10k.md); Oct 12: four runs of 10, the</text>
+<text x="18.0" y="311.0" font-size="11" fill="#52514e">median of their p50s.</text>
+</svg>
