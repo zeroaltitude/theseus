@@ -93,6 +93,36 @@ impl Core {
         self.rpc_import(name, params, conn).await
     }
 
+    /// `import.episodes`: one batch, scrubbed as it is written (theseus-o73y).
+    async fn import_episodes(
+        self: Arc<Self>,
+        params: Value,
+        conn: Conn<'_>,
+    ) -> Result<Value, RpcFailure> {
+        let p: ImportEpisodesParams = parse(params)?;
+        let what = format!("a batch of {} lines of {}", p.lines.len(), p.file);
+        let by = self.import_judged(conn, method::IMPORT_EPISODES, &what)?;
+        let core = self.clone();
+        let b = blocking(move || {
+            let stopping = || core.outbox.stopping();
+            write::import_batch_scrubbed(&core.store, &p, &by, stopping, &core.tools.scrubber)
+        })
+        .await?;
+        if b.stopped {
+            let r = &b.result;
+            return Err(stopped(
+                        format!(
+                            "the daemon stopped this batch between two frames: {} of its lines were \
+                             read and {} episodes imported ({} frames written); send the batch again \
+                             to finish it (what was written is skipped)",
+                            r.read, r.imported, r.frames
+                        ),
+                        &b.result,
+                    ));
+        }
+        serde_json::to_value(b.result).map_err(|e| RpcFailure::invalid(e.into()))
+    }
+
     async fn rpc_import(
         self: Arc<Self>,
         name: &str,
@@ -105,30 +135,7 @@ impl Core {
                 let r = blocking(move || write::list(&core.store)).await?;
                 serde_json::to_value(r)
             }
-            method::IMPORT_EPISODES => {
-                let p: ImportEpisodesParams = parse(params)?;
-                let what = format!("a batch of {} lines of {}", p.lines.len(), p.file);
-                let by = self.import_judged(conn, method::IMPORT_EPISODES, &what)?;
-                let core = self.clone();
-                let b = blocking(move || {
-                    let stopping = || core.outbox.stopping();
-                    write::import_batch_unless(&core.store, &p, &by, stopping)
-                })
-                .await?;
-                if b.stopped {
-                    let r = &b.result;
-                    return Err(stopped(
-                        format!(
-                            "the daemon stopped this batch between two frames: {} of its lines were \
-                             read and {} episodes imported ({} frames written); send the batch again \
-                             to finish it (what was written is skipped)",
-                            r.read, r.imported, r.frames
-                        ),
-                        &b.result,
-                    ));
-                }
-                serde_json::to_value(b.result)
-            }
+            method::IMPORT_EPISODES => return self.import_episodes(params, conn).await,
             method::IMPORT_ERASE => {
                 let p: ImportEraseParams = parse(params)?;
                 let what = format!("the erase of {}", p.tag);

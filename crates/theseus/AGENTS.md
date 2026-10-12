@@ -1,7 +1,7 @@
 # theseus (the CLI)
 
 `theseus`: a thin client of `theseusd` for shells and pipelines, over the daemon's Unix socket or a spawned
-`theseusd --stdio`. It links theseus-protocol and nothing else of Theseus. Its library, `theseus_client`, is shared
+`theseusd --stdio`. It links theseus-protocol and nothing else of Theseus (and sha2, for an episode's digests). Its library, `theseus_client`, is shared
 with the terminal UI.
 
 Key modules: `main.rs`, `cmd.rs`, `render.rs`, `client.rs`. Read by: (a binary).
@@ -62,6 +62,15 @@ Key modules: `main.rs`, `cmd.rs`, `render.rs`, `client.rs`. Read by: (a binary).
   `tests/postmortem_incident.rs`). Tests: `postmortem_tests.rs` (the times), `render/postmortem_facts_tests.rs` (each
   section on small row sets), `tests/postmortem.rs` (a scripted daemon, and the golden and the facts-in-order of the
   recorded incident; `THESEUS_GOLDEN=write` rewrites `incident.md` and `incident.json`).
+- `src/harness/` (theseus-o73y): `theseus import claude-code|codex [DIR]`. `mod.rs` turns one session file into one
+  episode of the import's format (its module comment says what a message is, what is left out and counted, what
+  is rejected with its line number, and why a grown file is reported and not imported again); `claude_code.rs` and
+  `codex.rs` read each source's lines; `run.rs` walks the directory (a subagent's file left out), sends the episodes
+  to `import.episodes` a batch at a time, and prints each file's counts. The CLI scrubs nothing (it holds no vault
+  value): the daemon scrubs every message of a harness source as it writes it (`import::write::scrubbed`). The
+  default tag is the live tag already holding the source, else `<source>-<today>`, since an episode's hash covers its
+  tag and a second run on another day would otherwise be refused. Tests: `harness/tests.rs`, and theseusd's
+  `tests/import_harness.rs` (the real CLI against a real daemon).
 - `src/print.rs`: the `Printer`, which writes the library's lines in one of four modes: `Text` (`ask`), `Quiet`
   (`ask --no-stream`), `Watch` (`watch`), and `Json`.
 - `src/why.rs` (theseus-ighf): `theseus why [TURN] [--session S]`, what a turn's model was shown and why: it asks

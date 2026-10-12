@@ -894,6 +894,13 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   (`import::shown`), so an erased one is its tombstone. The WAL's earlier frames still hold the payloads: §5.6's
   erasure in place is not built. `import.list` reads the tags' META records. The owner's acts (`judge_act(Act::Import)`; the CLI's
   `OPERATORS`). `theseus import openclaw|erase|list|topics`. Tests: `import/tests.rs`, theseus-index's `tests_import.rs`.
+  **Harness history** (theseus-o73y): `theseus import claude-code|codex` (the CLI's `harness/`) makes the episodes of
+  those tools' session files, sources `claude-code` and `codex` (`episode::HARNESS_SOURCES`, apart from the
+  pipeline's `SOURCES`), a `cli` place named by the project directory and its id the git branch, the tool results
+  outside text. `write::import_batch_scrubbed` scrubs every message, summary and place name of a harness episode
+  with the daemon's own scrubber as it writes (`write::scrubbed`; the CLI holds no vault value), after the episode's
+  hash was checked over what the CLI sent, so the hash stays the idempotency key and the stored `sha256` is the
+  stored text's. Tests: `import/tests_harness.rs`.
   **Its topics** (theseus-anh3): `import.topics` (`import/topics.rs`, the owner's act, never at a start) reads a tag's
   sessions' stored `labels.topic` (slash paths) and writes, through the ontology's `Board::write` a frame at a time
   (cut past 4,000 records, quiet waited for between, the stop looked for there): a topic for each label and each

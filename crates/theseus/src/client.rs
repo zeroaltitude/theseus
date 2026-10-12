@@ -320,7 +320,7 @@ pub const OPERATORS: [(&str, &str); 32] = [
     (method::JUDGE_LEARN, "theseus judge learn"),
     (method::PACK_PROMOTE, "theseus packs promote"),
     (method::PACK_ROLLBACK, "theseus packs rollback"),
-    (method::IMPORT_EPISODES, "theseus import openclaw"),
+    (method::IMPORT_EPISODES, "theseus import"),
     (method::IMPORT_ERASE, "theseus import erase"),
     (method::IMPORT_TOPICS, "theseus import topics"),
     (method::IMPORT_PEOPLE, "theseus import people"),

@@ -33,13 +33,14 @@ use theseus_protocol::method;
 use tokio::io::{AsyncBufReadExt, BufReader};
 
 use crate::cmd::output;
+use crate::harness;
 
 /// A batch's lines at most.
 pub const BATCH_LINES: usize = 256;
 /// A batch's bytes past which it is sent (a longer line goes alone).
 pub const BATCH_BYTES: usize = 4 << 20;
 /// The pause between two batches.
-const PAUSE: Duration = Duration::from_millis(20);
+pub(crate) const PAUSE: Duration = Duration::from_millis(20);
 
 #[derive(Subcommand, Debug)]
 pub enum ImportCmd {
@@ -49,6 +50,27 @@ pub enum ImportCmd {
     Openclaw {
         #[arg(required = true)]
         files: Vec<PathBuf>,
+    },
+    /// Import Claude Code's sessions (theseus-o73y): each session file under DIR (default
+    /// ~/.claude/projects) an imported session, closed and private, its text scrubbed of secrets
+    /// by the daemon as it is written. Thinking, bookkeeping lines and subagent files are left
+    /// out and counted; a tool result is cut at 2,000 characters, saying so. A second run writes
+    /// nothing new; a session file that grew since is reported and not imported again. TAG
+    /// defaults to the tag an earlier run made, else claude-code-<today>; `import erase --tag`
+    /// takes it all back.
+    #[command(name = "claude-code")]
+    ClaudeCode {
+        dir: Option<PathBuf>,
+        #[arg(long)]
+        tag: Option<String>,
+    },
+    /// Import Codex's sessions (theseus-o73y): each rollout under DIR (default ~/.codex/sessions)
+    /// as `import claude-code` imports Claude Code's. TAG defaults to the tag an earlier run
+    /// made, else codex-<today>.
+    Codex {
+        dir: Option<PathBuf>,
+        #[arg(long)]
+        tag: Option<String>,
     },
     /// Erase every session and node of a tag: each tombstoned, and the index told to forget it.
     Erase {
@@ -95,17 +117,12 @@ pub enum ImportCmd {
 
 pub async fn run(conn: &mut Conn, json: bool, cmd: ImportCmd) -> Result<()> {
     match cmd {
-        ImportCmd::Openclaw { files } => {
-            for f in files {
-                let r = file(conn, &f).await?;
-                let v = serde_json::to_value(&r)?;
-                let name = f.display().to_string();
-                output(json, v, |r: ImportEpisodesResult| {
-                    print!("{}", lines(&name, &r));
-                    Ok(())
-                })?;
-            }
-            Ok(())
+        ImportCmd::Openclaw { files } => openclaw(conn, json, files).await,
+        ImportCmd::ClaudeCode { dir, tag } => {
+            harness::run::run(conn, json, harness::Source::ClaudeCode, dir, tag).await
+        }
+        ImportCmd::Codex { dir, tag } => {
+            harness::run::run(conn, json, harness::Source::Codex, dir, tag).await
         }
         ImportCmd::Erase { tag, why } => {
             let v = conn
@@ -192,6 +209,20 @@ pub async fn run(conn: &mut Conn, json: bool, cmd: ImportCmd) -> Result<()> {
             })
         }
     }
+}
+
+/// `import openclaw`: each file's counts, and its rejected lines.
+async fn openclaw(conn: &mut Conn, json: bool, files: Vec<PathBuf>) -> Result<()> {
+    for f in files {
+        let r = file(conn, &f).await?;
+        let v = serde_json::to_value(&r)?;
+        let name = f.display().to_string();
+        output(json, v, |r: ImportEpisodesResult| {
+            print!("{}", lines(&name, &r));
+            Ok(())
+        })?;
+    }
+    Ok(())
 }
 
 /// One file, streamed a batch at a time: the batches' counts summed.
