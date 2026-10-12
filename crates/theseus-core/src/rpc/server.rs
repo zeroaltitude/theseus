@@ -343,7 +343,7 @@ impl Core {
             method::INDEX_STATUS => reply(self.index.health(crate::tender::STATUS_DEADLINE).await),
             method::INDEX_QUERY => reply(self.index_query(parse(params)?).await?),
             m @ (method::MEMORY_SEARCH | method::MEMORY_LOOKUP) => self.mem(m, params, conn).await,
-            method::MEMORY_RECALLS => reply(self.memory_recalls(parse(params)?)?),
+            m @ (method::MEMORY_RECALLS | method::MEMORY_CITES) => self.memory_reads(m, params),
             method::MEMORY_LABEL | method::FACT_RETRACT => self.rpc_acts(&req.method, params, conn),
             // Jev's judgments (M5 23b): their rows, and one with its state.
             method::JUDGE_LIST | method::JUDGE_GET => self.rpc_reads(&req.method, params),

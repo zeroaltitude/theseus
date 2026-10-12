@@ -88,6 +88,12 @@ Key modules: `main.rs`, `cmd.rs`, `render.rs`, `client.rs`. Read by: (a binary).
   --interactive`, `history` with no session) and `{ids}` where it wants one by id; it never asks for every session
   but under `--all` and `herdr sync`, which reconciles every pane. `history` reads the newest 200 nodes (`-n`).
   `resolve::executions` reads the executions a page at a time. `tests/pages.rs` records each request's params.
+- `src/render/cite.rs`, `src/cite.rs` (theseus-ejdk): a reply's citations. `ask` shows each handle in the streamed reply
+  as a numbered mark as it completes (`Marker`, which holds a handle split across pieces) and a footnote block under it
+  (the source's header and `theseus history <handle>`); a handle that was no source of the turn is marked too, and its
+  footnote says so. `--no-stream` and `history` mark only what has a source (`mark`, `footnotes`, `cited_node`; the
+  builders are plain functions a renderer can call). `theseus history m:a1b2c3` shows the cited message whole
+  (`node.reach` names the node, `session.history` reads its page). Tests: `tests/cite.rs`.
 - `src/names.rs`: what a session is called in every client (theseus-0n1v): a task's title (the store labels every
   task `task`), a conversation's label else its title, else its kind and the end of its id. The CLI, the terminal
   UI and herdr's reporter all call it; never read `label` before `title` at a site.

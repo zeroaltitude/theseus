@@ -13,6 +13,7 @@
 //! `print.rs` writes the lines they return.
 
 mod budgets;
+mod cite;
 mod cmd;
 mod earned;
 mod extend;
@@ -154,7 +155,8 @@ enum Cmd {
     Prompt(prompt::PromptArgs),
     /// A session's transcript: messages, tool calls with their gate decisions, results, and
     /// anything waiting for your confirmation. SESSION defaults to the most recently active; it is
-    /// an id, or a unique end of one (four characters at least).
+    /// an id, or a unique end of one (four characters at least). A handle a reply cited
+    /// (`m:a1b2c3`, the footnote's command) shows that message whole instead.
     History {
         session: Option<String>,
         /// Only the newest N nodes (default 200); with --after or --before, a page's size.

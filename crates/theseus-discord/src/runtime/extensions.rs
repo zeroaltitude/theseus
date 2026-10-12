@@ -182,7 +182,8 @@ impl Shared {
             }
             Some(InteractionData::MessageComponent(c)) => {
                 let Some(name) = revoke_of(&c.custom_id) else {
-                    return false;
+                    // A cited source's "Show source" (`runtime/source.rs`).
+                    return self.source_interaction(i).await;
                 };
                 // The press goes through the place, as the presser.
                 let said =

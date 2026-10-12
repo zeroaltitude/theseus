@@ -181,6 +181,8 @@ mod tests_check;
 #[cfg(test)]
 mod tests_check_view;
 #[cfg(test)]
+mod tests_cite;
+#[cfg(test)]
 mod tests_commitments;
 #[cfg(test)]
 mod tests_compaction;

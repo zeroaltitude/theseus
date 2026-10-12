@@ -124,6 +124,9 @@ Key modules: `lifecycle.rs`, `kernel_sim.rs`, `fake_discord.rs`, `discord_proof.
     HTTP/1.1 keep-alive, chunked; a request with no tools is a side request; `"stream": false` gets the message
     whole. `--log` writes one JSON line a request, its times on `CLOCK_MONOTONIC` (`serve::Entry`). `bench/h2h/`
     drives it.
+    provider call in flight (theseus-f3wr).
+    A rule's text may hold `{handle}`, the first recalled handle in the turn (`m:a1b2c3`), so a live check has the
+    model cite what its recall gave it (theseus-ejdk).
   - `discord` (`src/discord_cli.rs`): `proof`, kl8m's steps against a real daemon (`src/discord_proof.rs`); and
     for a live check across processes, `rig` (a scratch daemon's config, fake `op`, and bindings), `model` (the
     proof's scripted model), and `say`, `press`, `read` against a running `fake-discord`.

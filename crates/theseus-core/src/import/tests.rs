@@ -528,9 +528,15 @@ async fn a_shared_place_recalls_no_import_and_a_private_place_recalls_it_with_it
         .iter()
         .find(|i| i.session_id == imported[0] && i.node_id.ends_with("_0"))
         .expect("the first episode's decision is recalled");
+    let (_, header) = theseus_protocol::cite::split_header(&first.header).expect("a handle");
     assert!(
-        first.header.starts_with("an imported message from wren (operator, from openclaw-store) in the imported dm place-0 (reef-2026-05, openclaw-store), 2026-05-02 14:03 UTC (as of @"),
+        header.starts_with("an imported message from wren (operator, from openclaw-store) in the imported dm place-0 (reef-2026-05, openclaw-store), 2026-05-02 14:03 UTC (as of @"),
         "{}",
+        first.header
+    );
+    assert!(
+        first.header.starts_with("[m:") && first.header.contains("_0] an imported"),
+        "an imported id ends _<index>: {}",
         first.header
     );
     let (_, source) = c.store.get_node(&first.node_id).unwrap().unwrap();
@@ -1299,7 +1305,7 @@ async fn a_turn_s_context_says_what_it_recalled_and_from_which_episode() {
     let first = recall
         .iter()
         .find(|p| {
-            p.name.starts_with("an imported message from wren")
+            p.name.contains("an imported message from wren")
                 && p.text
                     .as_deref()
                     .is_some_and(|t| t.contains("boathouse ledger"))

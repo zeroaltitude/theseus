@@ -22,6 +22,7 @@ mod aws;
 mod cache;
 mod cancel;
 mod catalog;
+pub mod cite;
 mod connections;
 mod day;
 mod failed;
@@ -2104,21 +2105,6 @@ pub fn execution_row(e: &theseus_protocol::ExecutionInfo) -> Line {
                 .unwrap_or_default()
         ),
     )
-}
-
-/// One ledger row, as `theseus ledger` lists it: its data cut at 160
-/// characters.
-pub fn ledger_row(r: &theseus_protocol::LedgerEntry) -> serde_json::Result<String> {
-    let data = serde_json::to_string(&r.data)?;
-    let data: String = data.chars().take(160).collect();
-    Ok(format!(
-        "{:>6}  {}  {:<16} {:<36} {}",
-        r.position,
-        fmt_time(r.at_unix_ms),
-        r.kind,
-        r.turn_id.as_deref().unwrap_or_default(),
-        data
-    ))
 }
 
 #[cfg(test)]

@@ -61,6 +61,7 @@ pub(crate) mod budget_step;
 mod budget_words;
 mod calls;
 mod ceiling_step;
+mod cite_step;
 pub(crate) use budget_words::{budget_question, lower_cap, Kept};
 #[cfg(test)]
 pub(crate) use calls::call_result;
@@ -95,7 +96,7 @@ pub const PERSONA: &str = "You are Theseus, a coding and operations agent workin
 /// request, so the model never takes what the harness added (a recalled
 /// note, a wake, a report) for something the person sent (theseus-fpm2).
 /// Frozen text in the shared header, as the persona is.
-pub const ASSEMBLY: &str = "Context. The harness assembles each request: the conversation, its older part perhaps summarized; notes it recalled from earlier sessions, marked as recalled; files the person attached; tool results; and its own notices, such as wakes, task reports, and late results. A recalled note is background the harness chose, not something the person sent. The person sees their own messages and your replies, not the rest of the request, so use a recalled note when it helps, and otherwise don't mention it.";
+pub const ASSEMBLY: &str = "Context. The harness assembles each request: the conversation, its older part perhaps summarized; notes it recalled from earlier sessions, marked as recalled; files the person attached; tool results; and its own notices, such as wakes, task reports, and late results. A recalled note is background the harness chose, not something the person sent. The person sees their own messages and your replies, not the rest of the request, so use a recalled note when it helps, and otherwise don't mention it. When you state something from recalled testimony, cite its handle.";
 
 /// What a turn runs against, resolved from a profile plus any raw overrides.
 #[derive(Debug, Clone)]
@@ -1671,17 +1672,27 @@ impl TurnRunner {
             // The turn's admission rides in the input's frame (theseus-2uby),
             // and so does a new target, under the record's lock; the same one
             // writes nothing more.
+            // A Discord message's id rides in the node's frame (theseus-ejdk),
+            // so a reply that cites the message can link to it.
+            let origin = t
+                .reply_to
+                .as_deref()
+                .and_then(|m| crate::recall::cite::origin_record(&node.id, "discord", m));
             let written = match &moved {
                 Some(runs_on) => t.tc.store.with_session(sid, |mut r| {
                     r.last_target = Some(runs_on.clone());
                     let rec = NewRecord::json(theseus_store::kinds::SESSION, Some(sid), &r)?;
-                    Ok(self.admit_with(t, vec![node.record()?, rec]))
+                    let recs = [node.record()?]
+                        .into_iter()
+                        .chain(origin.clone())
+                        .chain([rec]);
+                    Ok(self.admit_with(t, recs.collect()))
                 })?,
                 None => None,
             };
             let written = match written {
                 Some(w) => w,
-                None => self.admit_with(t, vec![node.record()?]),
+                None => self.admit_with(t, [node.record()?].into_iter().chain(origin).collect()),
             };
             if let Err(e) = written {
                 return Ok(Next::Fail(Self::not_admitted(t, &author, e)?));
@@ -3184,18 +3195,9 @@ impl TurnRunner {
             Ok(late) => late,
             Err(e) => return Err(Self::fault(t, session, e)),
         };
-        // Where the execution waits: only reads, so it is decided before
-        // anything is booked, and a fault here leaves nothing half done.
-        let end = match &t.budget_question {
-            Some(q) => TurnEnd::Wait {
-                wake: Wake::Budget {
-                    correlation_id: q.clone(),
-                },
-            },
-            None => match self.park(t.tc.execution_id, t.awaiting.clone(), &t.background) {
-                Ok(end) => end,
-                Err(e) => return Err(Self::fault(t, session, e)),
-            },
+        let end = match self.end_of(&t) {
+            Ok(end) => end,
+            Err(e) => return Err(Self::fault(t, session, e)),
         };
         t.close_books(session);
         session.last_target = Some(Self::ran_on(&t));
@@ -3215,6 +3217,7 @@ impl TurnRunner {
         };
         t.deferred = true;
 
+        let cites = self.cite_reply(&mut t);
         let last = t.last.as_ref();
         let mut result = TurnSubmitResult {
             session_id: t.tc.session_id.into(),
@@ -3250,6 +3253,7 @@ impl TurnRunner {
             later: self.later_of(&t, jobs, late > 0 && t.stop_reason != "stopped"),
             outside_roots: None,
             nudged: t.nudge.result(t.tool_calls),
+            cites,
         };
         t.record(&fact::turn::TurnBooked {
             result: &result,
@@ -3400,43 +3404,6 @@ impl TurnRunner {
         wakes.reverse();
         reports.reverse();
         Ok((wakes, reports))
-    }
-
-    /// Where the execution waits: on the confirm, on outstanding jobs, or on
-    /// the next input. (A turn over its budget waits on the budget question.)
-    fn park(
-        &self,
-        exec_id: &str,
-        awaiting: Option<String>,
-        background: &[String],
-    ) -> Result<TurnEnd> {
-        let outstanding: Vec<String> = self
-            .kernel
-            .execution(exec_id)?
-            .map(|e| e.outstanding)
-            .unwrap_or_default()
-            .into_iter()
-            .filter(|c| {
-                background.contains(c)
-                    || self
-                        .kernel
-                        .action(c)
-                        .ok()
-                        .flatten()
-                        .map(|a| a.tool != PROVIDER_TOOL)
-                        .unwrap_or(false)
-            })
-            .collect();
-        let wake = if let Some(c) = awaiting {
-            Wake::Confirm { confirm_id: c }
-        } else if !outstanding.is_empty() {
-            Wake::Actions {
-                correlation_ids: outstanding,
-            }
-        } else {
-            Wake::Input
-        };
-        Ok(TurnEnd::Wait { wake })
     }
 
     /// A new compilation (it carries its own `derived_from`) and the

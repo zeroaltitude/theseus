@@ -538,7 +538,15 @@ impl App {
                 }
             }
             // A turn's answer comes at its end; its events said the rest.
-            Purpose::Submit(_) | Purpose::Watch | Purpose::Typing => {}
+            // The turn's sources, when its reply cited any (theseus-ejdk).
+            Purpose::Submit(sid) => {
+                if let Ok(r) = serde_json::from_value::<theseus_protocol::TurnSubmitResult>(v) {
+                    if let Some(d) = self.detail.as_mut().filter(|d| d.session_id == sid) {
+                        d.cited(&r.cites);
+                    }
+                }
+            }
+            Purpose::Watch | Purpose::Typing => {}
         }
         Vec::new()
     }

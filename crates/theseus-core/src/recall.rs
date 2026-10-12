@@ -31,6 +31,7 @@
 
 pub mod activation;
 pub mod adjacency;
+pub mod cite;
 pub mod labels;
 pub mod outcomes;
 pub mod render;

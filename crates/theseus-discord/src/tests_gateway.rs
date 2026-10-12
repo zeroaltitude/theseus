@@ -181,7 +181,7 @@ impl Rig {
             .unwrap()
     }
 
-    fn press(&self, message: &str, button: &str, user: (u64, &str)) -> String {
+    pub(crate) fn press(&self, message: &str, button: &str, user: (u64, &str)) -> String {
         self.fake
             .press(&Pressed {
                 message,

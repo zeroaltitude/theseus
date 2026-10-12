@@ -7,6 +7,7 @@
 use std::collections::HashMap;
 
 use theseus_client::render::{self, Show, Tag};
+use theseus_protocol::cite::{mark_into, Citation};
 use theseus_protocol::{Event, NodeInfo, SessionHistoryResult};
 
 /// The most lines the pane keeps; the oldest go first.
@@ -66,7 +67,43 @@ impl Detail {
         self.open = false;
         self.loaded = true;
         for n in &h.nodes {
-            self.node(n);
+            match render::cite::cited_node(n, &h.cites) {
+                Some((marked, notes)) => {
+                    self.node(&marked);
+                    for l in notes {
+                        self.push(l.tag, l.text);
+                    }
+                }
+                None => self.node(n),
+            }
+        }
+    }
+
+    /// A turn this TUI sent has answered with the sources its reply cites
+    /// (theseus-ejdk): the handles in the reply's lines since the last message
+    /// of the operator's become numbered marks, and the footnotes follow the
+    /// reply, as `theseus history` draws them.
+    pub fn cited(&mut self, cites: &[Citation]) {
+        if cites.is_empty() {
+            return;
+        }
+        let from = self
+            .lines
+            .iter()
+            .rposition(|(tag, _)| *tag == Tag::Plain)
+            .map_or(0, |i| i + 1);
+        let mut order = Vec::new();
+        for (tag, text) in &mut self.lines[from..] {
+            if *tag == Tag::Reply {
+                *text = mark_into(text, cites, &mut order);
+            }
+        }
+        if order.is_empty() {
+            return;
+        }
+        self.close();
+        for l in render::cite::footnotes(&order) {
+            self.push(l.tag, l.text);
         }
     }
 

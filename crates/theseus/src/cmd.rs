@@ -130,6 +130,9 @@ pub(crate) async fn stream_turn(
         (false, false) => Mode::Quiet,
     };
     let mut printer = Printer::new(mode, thinking);
+    if stream {
+        printer.mark_cites();
+    }
     let mut signalled = false;
     // Under --spawn, one listener for the turn and its follow, so no signal
     // falls between them.
@@ -171,8 +174,12 @@ pub(crate) async fn stream_turn(
     if json {
         println!("{}", serde_json::to_string(&result)?);
     } else {
-        if !stream {
-            println!("{}", r.output);
+        if stream {
+            printer.footnotes(&r.cites);
+        } else {
+            let (text, order) = render::cite::mark(&r.output, &r.cites);
+            println!("{text}");
+            print::lines(&mut io::stdout(), &render::cite::footnotes(&order))?;
         }
         // A refusal's fallback and a nudge say so in lines of their own
         // (theseus-7gir.18, theseus-fh0u).
@@ -294,6 +301,9 @@ pub async fn history(
     (n, after, before): (Option<usize>, Option<u64>, Option<u64>),
     full: bool,
 ) -> Result<()> {
+    if let Some(handle) = session.as_deref().and_then(crate::cite::handle_of) {
+        return crate::cite::open(conn, json, handle).await;
+    }
     let session_id = match session {
         Some(s) => resolve::session(conn, &s).await?,
         None => latest_session(conn).await?,
@@ -315,7 +325,13 @@ pub async fn history(
         let mut out = io::stdout().lock();
         writeln!(out, "{}", render::session_header(&h.session))?;
         for node in &h.nodes {
-            print::lines(&mut out, &render::history::node_lines(node, full))?;
+            match render::cite::cited_node(node, &h.cites) {
+                Some((marked, notes)) => {
+                    print::lines(&mut out, &render::history::node_lines(&marked, full))?;
+                    print::lines(&mut out, &notes)?;
+                }
+                None => print::lines(&mut out, &render::history::node_lines(node, full))?,
+            }
         }
         for c in &h.pending_confirms {
             print::lines(&mut out, &render::confirm_lines(c))?;
@@ -1235,7 +1251,7 @@ async fn explain(conn: &mut Conn, json: bool, id: &str) -> Result<()> {
     }
     writeln!(out, "last rows of its session:")?;
     for r in &rows.rows {
-        writeln!(out, "  {}", render::ledger_row(r)?)?;
+        writeln!(out, "  {}", ledger_row(r)?)?;
     }
     Ok(())
 }
@@ -1698,7 +1714,7 @@ pub async fn ledger(
         .await?;
     output(json, v, |t: LedgerTailResult| {
         for r in t.rows {
-            println!("{}", render::ledger_row(&r)?);
+            println!("{}", ledger_row(&r)?);
         }
         eprintln!("[{} rows total]", t.total);
         Ok(())
@@ -1913,6 +1929,21 @@ fn read_stdin_prompt() -> Result<String> {
         std::process::exit(2);
     }
     Ok(s)
+}
+
+/// One ledger row, as `theseus ledger` lists it: its data cut at 160
+/// characters.
+fn ledger_row(r: &theseus_protocol::LedgerEntry) -> serde_json::Result<String> {
+    let data = serde_json::to_string(&r.data)?;
+    let data: String = data.chars().take(160).collect();
+    Ok(format!(
+        "{:>6}  {}  {:<16} {:<36} {}",
+        r.position,
+        render::fmt_time(r.at_unix_ms),
+        r.kind,
+        r.turn_id.as_deref().unwrap_or_default(),
+        data
+    ))
 }
 
 #[cfg(test)]

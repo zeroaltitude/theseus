@@ -49,6 +49,58 @@ pub(super) fn end_and_wake(
     })
 }
 
+impl TurnRunner {
+    /// Where the execution waits: only reads, so it is decided before
+    /// anything is booked, and a fault here leaves nothing half done.
+    pub(super) fn end_of(&self, t: &Turn<'_>) -> Result<TurnEnd> {
+        match &t.budget_question {
+            Some(q) => Ok(TurnEnd::Wait {
+                wake: Wake::Budget {
+                    correlation_id: q.clone(),
+                },
+            }),
+            None => self.park(t.tc.execution_id, t.awaiting.clone(), &t.background),
+        }
+    }
+
+    /// Where the execution waits: on the confirm, on outstanding jobs, or on
+    /// the next input. (A turn over its budget waits on the budget question.)
+    fn park(
+        &self,
+        exec_id: &str,
+        awaiting: Option<String>,
+        background: &[String],
+    ) -> Result<TurnEnd> {
+        let outstanding: Vec<String> = self
+            .kernel
+            .execution(exec_id)?
+            .map(|e| e.outstanding)
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|c| {
+                background.contains(c)
+                    || self
+                        .kernel
+                        .action(c)
+                        .ok()
+                        .flatten()
+                        .map(|a| a.tool != PROVIDER_TOOL)
+                        .unwrap_or(false)
+            })
+            .collect();
+        let wake = if let Some(c) = awaiting {
+            Wake::Confirm { confirm_id: c }
+        } else if !outstanding.is_empty() {
+            Wake::Actions {
+                correlation_ids: outstanding,
+            }
+        } else {
+            Wake::Input
+        };
+        Ok(TurnEnd::Wait { wake })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

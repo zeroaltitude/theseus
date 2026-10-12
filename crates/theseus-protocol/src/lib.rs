@@ -16,6 +16,7 @@ pub mod books;
 mod budgets;
 pub mod cancel;
 pub mod check;
+pub mod cite;
 pub mod context;
 mod cost;
 pub mod cred;
@@ -234,6 +235,9 @@ pub mod method {
         /// A session's recalls (`memory::MemoryRecallsParams`): each turn's
         /// `recall.shadow` manifest, newest last. A read.
         MEMORY_RECALLS = "memory.recalls",
+        /// The sources of the handles a session's replies cite
+        /// (`cite::MemoryCitesParams`; theseus-ejdk). A read.
+        MEMORY_CITES = "memory.cites",
         /// An operator's label on a node recall offered or should have
         /// (`memory::MemoryLabelParams`; M6 step 30b): `wrong` and `stale`
         /// keep it out of recall. Acting: the owner, from a private place.
@@ -2084,6 +2088,11 @@ pub struct TurnSubmitResult {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub nudged: Option<nudge::TurnNudge>,
+    /// The sources of the handles the reply cites, resolved against this
+    /// turn's recall (theseus-ejdk); none when it cited none, and none a
+    /// shared place may not show.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub cites: Vec<cite::Citation>,
 }
 
 fn is_zero_u32(n: &u32) -> bool {

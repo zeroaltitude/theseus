@@ -78,6 +78,12 @@ Key modules: `lib.rs` (the `method`, `notify`, `error_code` tables), `events.rs`
   `exposure_kind`, the five kinds in table order.
 - `wakes.rs` (theseus-lherl): `WakeInfo`, moved out of lib.rs and re-exported (the bytes are unchanged; `days`,
   `until_ms` and `title` are optional). `tests/wakes.rs` holds its bytes.
+- `cite.rs` (theseus-ejdk): a reply's citations. The handle a recalled item's header carries (`[m:a1b2c3]`:
+  `handles_for` makes them unique in a pack, `header_with` and `split_header` write and read one), the handles a text
+  holds (`handles_in`), the marks every surface draws (`mark_handles`, `mark_into`: `[1]`, numbered by first
+  mention, a handle with no source left as text), and the wire types `Citation`, `DiscordSource`, `memory.cites`'s
+  params and result. `TurnSubmitResult.cites` and `SessionHistoryResult.cites` carry the resolved sources; each is
+  absent when empty.
 - `ts.rs`: the TypeScript export.
 
 ## Invariants

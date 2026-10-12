@@ -48,6 +48,10 @@ pub struct SessionHistoryResult {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub older: Option<u64>,
+    /// The sources of the handles the page's replies cite (theseus-ejdk), as
+    /// `memory.cites` resolves them; absent when none do.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub cites: Vec<crate::cite::Citation>,
 }
 
 /// An id as people name it (theseus-glyw), as the cockpit's `short` writes

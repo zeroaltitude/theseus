@@ -266,6 +266,7 @@ facts![
     memory::MemoryGated<'static>,
     memory::MemoryUsed<'static>,
     memory::MemoryRead<'static>,
+    memory::MemoryCited<'static>,
     place::PlaceViewed<'static>,
     place::PlaceWarned<'static>,
     place::Published<'static>,
