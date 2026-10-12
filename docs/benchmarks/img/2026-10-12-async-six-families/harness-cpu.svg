@@ -1,0 +1,75 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="441" viewBox="0 0 720 441" role="img" aria-labelledby="t-harness-cpu t-harness-cpu-d" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
+<title id="t-harness-cpu">The harness's own CPU per trial, median of two (lower is lighter)</title>
+<desc id="t-harness-cpu-d">What does each harness cost the machine while the work runs?</desc>
+<rect width="720" height="441" rx="8" fill="#fcfcfb" stroke="#e6e5df"/>
+<text x="18.0" y="32.0" font-size="15" fill="#0b0b0b" font-weight="600">The harness's own CPU per trial, median of two (lower is lighter)</text>
+<rect x="18.0" y="44.0" width="14" height="12" rx="3" fill="#2a78d6"/>
+<text x="40.0" y="54.0" font-size="12" fill="#52514e">Theseus</text>
+<rect x="108.5" y="44.0" width="14" height="12" rx="3" fill="#eb6834"/>
+<text x="130.5" y="54.0" font-size="12" fill="#52514e">Claude Code 2.1.290</text>
+<line x1="96.4" y1="74.0" x2="96.4" y2="362.0" stroke="#e1e0d9" stroke-width="1"/>
+<line x1="287.1" y1="74.0" x2="287.1" y2="362.0" stroke="#e1e0d9" stroke-width="1"/>
+<line x1="477.8" y1="74.0" x2="477.8" y2="362.0" stroke="#e1e0d9" stroke-width="1"/>
+<line x1="668.5" y1="74.0" x2="668.5" y2="362.0" stroke="#e1e0d9" stroke-width="1"/>
+<text x="86.4" y="102.0" font-size="12" fill="#0b0b0b" text-anchor="end">parallel</text>
+<g><title>parallel · Theseus: 0.12</title>
+<path d="M96.4,81.0H115.3A4,4 0 0 1 119.3,85.0V93.0A4,4 0 0 1 115.3,97.0H96.4Z" fill="#2a78d6"/>
+</g>
+<text x="124.3" y="93.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">0.12</text>
+<g><title>parallel · Claude Code 2.1.290: 2.12</title>
+<path d="M96.4,99.0H496.7A4,4 0 0 1 500.7,103.0V111.0A4,4 0 0 1 496.7,115.0H96.4Z" fill="#eb6834"/>
+</g>
+<text x="505.7" y="111.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">2.12</text>
+<text x="86.4" y="150.0" font-size="12" fill="#0b0b0b" text-anchor="end">wait-tax</text>
+<g><title>wait-tax · Theseus: 0.17</title>
+<path d="M96.4,129.0H124.8A4,4 0 0 1 128.8,133.0V141.0A4,4 0 0 1 124.8,145.0H96.4Z" fill="#2a78d6"/>
+</g>
+<text x="133.8" y="141.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">0.17</text>
+<g><title>wait-tax · Claude Code 2.1.290: 2.35</title>
+<path d="M96.4,147.0H540.5A4,4 0 0 1 544.5,151.0V159.0A4,4 0 0 1 540.5,163.0H96.4Z" fill="#eb6834"/>
+</g>
+<text x="549.5" y="159.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">2.35</text>
+<text x="86.4" y="198.0" font-size="12" fill="#0b0b0b" text-anchor="end">interrupt</text>
+<g><title>interrupt · Theseus: 0.25</title>
+<path d="M96.4,177.0H140.1A4,4 0 0 1 144.1,181.0V189.0A4,4 0 0 1 140.1,193.0H96.4Z" fill="#2a78d6"/>
+</g>
+<text x="149.1" y="189.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">0.25</text>
+<g><title>interrupt · Claude Code 2.1.290: 2.68</title>
+<path d="M96.4,195.0H603.5A4,4 0 0 1 607.5,199.0V207.0A4,4 0 0 1 603.5,211.0H96.4Z" fill="#eb6834"/>
+</g>
+<text x="612.5" y="207.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">2.68</text>
+<text x="86.4" y="246.0" font-size="12" fill="#0b0b0b" text-anchor="end">fanout</text>
+<g><title>fanout · Theseus: 0.23</title>
+<path d="M96.4,225.0H136.3A4,4 0 0 1 140.3,229.0V237.0A4,4 0 0 1 136.3,241.0H96.4Z" fill="#2a78d6"/>
+</g>
+<text x="145.3" y="237.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">0.23</text>
+<g><title>fanout · Claude Code 2.1.290: 2.95</title>
+<path d="M96.4,243.0H655.0A4,4 0 0 1 659.0,247.0V255.0A4,4 0 0 1 655.0,259.0H96.4Z" fill="#eb6834"/>
+</g>
+<text x="664.0" y="255.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">2.95</text>
+<text x="86.4" y="294.0" font-size="12" fill="#0b0b0b" text-anchor="end">cancel</text>
+<g><title>cancel · Theseus: 0.34</title>
+<path d="M96.4,273.0H157.2A4,4 0 0 1 161.2,277.0V285.0A4,4 0 0 1 157.2,289.0H96.4Z" fill="#2a78d6"/>
+</g>
+<text x="166.2" y="285.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">0.34</text>
+<g><title>cancel · Claude Code 2.1.290: 2.16</title>
+<path d="M96.4,291.0H504.3A4,4 0 0 1 508.3,295.0V303.0A4,4 0 0 1 504.3,307.0H96.4Z" fill="#eb6834"/>
+</g>
+<text x="513.3" y="303.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">2.16</text>
+<text x="86.4" y="342.0" font-size="12" fill="#0b0b0b" text-anchor="end">contention</text>
+<g><title>contention · Theseus: 0.12</title>
+<path d="M96.4,321.0H114.3A4,4 0 0 1 118.3,325.0V333.0A4,4 0 0 1 114.3,337.0H96.4Z" fill="#2a78d6"/>
+</g>
+<text x="123.3" y="333.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">0.12</text>
+<g><title>contention · Claude Code 2.1.290: 1.90</title>
+<path d="M96.4,339.0H454.7A4,4 0 0 1 458.7,343.0V351.0A4,4 0 0 1 454.7,355.0H96.4Z" fill="#eb6834"/>
+</g>
+<text x="463.7" y="351.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">1.90</text>
+<text x="96.4" y="378.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">0</text>
+<text x="287.1" y="378.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">1</text>
+<text x="477.8" y="378.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">2</text>
+<text x="668.5" y="378.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">3</text>
+<line x1="96.4" y1="362.0" x2="668.5" y2="362.0" stroke="#c3c2b7" stroke-width="1"/>
+<text x="382.4" y="396.0" font-size="12" fill="#52514e" text-anchor="middle">seconds of harness CPU a trial</text>
+<text x="18.0" y="418.0" font-size="11" fill="#52514e">Sampled inside each task's container (bench/harbor/sampler.py); the work's own CPU is apart.</text>
+</svg>
