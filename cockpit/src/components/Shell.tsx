@@ -194,7 +194,7 @@ function NavRail({ onPalette }: { onPalette: () => void }) {
             <div key={g.id} className="flex w-full flex-col items-center" role="group" aria-label={g.label}>
               <button type="button" onClick={() => press(g.id)} aria-expanded={open} aria-controls={`nav-group-${g.id}`}
                 title={`${g.label}: ${items.map((n) => n.label).join(', ')}`}
-                className={cn('relative flex w-[62px] items-center justify-between gap-0.5 rounded px-1 py-0.5 font-display text-[7.5px] font-bold uppercase tracking-[0.06em] hover:bg-gold/10 hover:text-ink',
+                className={cn('relative mb-1 flex w-[62px] items-center justify-between gap-0.5 rounded px-1 py-0.5 font-display text-[8.5px] font-bold uppercase tracking-[0.06em] hover:bg-gold/10 hover:text-ink',
                   here ? 'text-gold' : 'text-ink-faint')}>
                 <span className="truncate">{g.label}</span>
                 <ChevronDown size={9} className={cn('shrink-0 transition-transform', !open && '-rotate-90')} aria-hidden />
@@ -211,7 +211,7 @@ function NavRail({ onPalette }: { onPalette: () => void }) {
                     className={({ isActive }) => cn(
                       // The items and the rail's foot fit a short screen only with less air between them, measured with fifteen items
                       // down to 1366×768 (the rail held thirteen at py-1 below 860 px).
-                      'group relative flex w-[62px] flex-col items-center gap-0.5 rounded-lg py-1.5 font-display text-[8.5px] font-bold uppercase tracking-[0.03em] transition-colors [@media(max-height:1000px)]:py-1 [@media(max-height:880px)]:py-0.5 [@media(max-height:820px)]:py-0',
+                      'group relative flex w-[62px] flex-col items-center gap-0.5 rounded-lg py-1.5 font-display text-[9.5px] font-bold uppercase tracking-[0.03em] transition-colors [@media(max-height:1000px)]:py-1 [@media(max-height:880px)]:py-0.5 [@media(max-height:820px)]:py-0',
                       isActive ? 'text-live' : 'text-ink-faint hover:bg-gold/10 hover:text-ink',
                     )}
                   >
@@ -220,7 +220,7 @@ function NavRail({ onPalette }: { onPalette: () => void }) {
                         {isActive && (
                           <motion.span layoutId="nav-active" className="absolute inset-0 rounded-lg bg-live/10 shadow-[0_0_14px_-2px_rgba(34,211,238,0.45),inset_0_0_0_1px_rgba(34,211,238,0.35)]" transition={{ type: 'spring', stiffness: 400, damping: 32 }} />
                         )}
-                        <Icon size={18} className={cn('relative', isActive && 'drop-shadow-[0_0_6px_rgba(34,211,238,0.8)]')} />
+                        <Icon size={15} className={cn('relative', isActive && 'drop-shadow-[0_0_6px_rgba(34,211,238,0.8)]')} />
                         <span className="relative">{label}</span>
                         {to === '/actions' && waiting > 0 && (
                           <span className="absolute right-1.5 top-1 grid h-4 min-w-4 place-items-center rounded-full bg-wait px-1 text-[9.5px] font-bold text-void shadow-[0_0_10px_#fbbf24] animate-pulse-soft">{waiting}</span>
