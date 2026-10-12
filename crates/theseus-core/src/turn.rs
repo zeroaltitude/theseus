@@ -276,6 +276,8 @@ struct Frames {
     /// question's card): indexed once the turn's last frame is written
     /// (theseus-q4v).
     posts: std::sync::Mutex<Vec<theseus_kernel::Action>>,
+    /// The session's pending wakes, as the turn knows them (theseus-lherl).
+    commitments: crate::commitments::Pending,
 }
 
 /// Why a turn did not run: a secret it needs is not there.
@@ -1202,6 +1204,7 @@ impl TurnRunner {
                 .turn_of(&guard.execution_id),
             store,
             posts: Default::default(),
+            commitments: Default::default(),
         };
         // A task (DD7): where it reports, and its title, for its report.
         let task_of = req.session.task.clone();
@@ -1581,6 +1584,7 @@ impl TurnRunner {
                 cfg: &self.cfg,
             },
             dir: dir.as_deref(),
+            commitments: &frames.commitments,
         };
         if self.narrator.on() && self.narrator.first_sight(&sid) && session.turns > 0 {
             tc.rec().in_turn(None).record(&fact::turn::SessionResumed {
@@ -2029,7 +2033,7 @@ impl TurnRunner {
     fn read_wakes(t: &mut Turn<'_>) -> Result<u32> {
         let tc = &t.tc;
         let mut nodes = Vec::new();
-        let fired = tc.kernel.take_wakes(tc.guard, |due| {
+        let (fired, pending) = tc.kernel.take_wakes_listing(tc.guard, |due| {
             let mut records = Vec::new();
             for f in due {
                 let n = Node::relayed(
@@ -2050,6 +2054,8 @@ impl TurnRunner {
             }
             Ok(records)
         })?;
+        // The commitments block's list, from this read (theseus-lherl).
+        tc.commitments.set(pending);
         for n in &nodes {
             tc.node_written(n);
         }

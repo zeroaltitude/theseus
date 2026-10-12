@@ -94,6 +94,8 @@ Key modules: `main.rs`, `cmd.rs`, `render.rs`, `client.rs`. Read by: (a binary).
 - `src/resolve.rs`: the one id resolver (theseus-0n1v) for `confirm`, `history`, `watch`, `stop`, `cancel`, `wait`
   and `explain`: a whole id, or a unique end of at least four characters; ambiguous, short and unknown names are
   refused, and `watch` of an unknown one exits 1. One read a resolution at most.
+- `src/render/wakes.rs` (theseus-lherl): `theseus wakes`' line (a wake's title, a series' weekdays and end) and health's
+  `wakes:` line.
 - `src/render/time.rs`: every time in human output, on this machine's clock, its zone read at the first time printed
   (TZ, else `/etc/localtime` alone: jiff's `system()` lists the tz database); `--json` prints the daemon's numbers.
 

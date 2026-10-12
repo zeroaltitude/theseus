@@ -876,6 +876,54 @@ impl Fact for WakeSet<'_> {
     }
 }
 
+/// The model cancelled one of its wakes (`wake.cancel`, theseus-lherl). The
+/// kernel's frame wrote the `wake.cancelled` row (`by: "model"`).
+pub struct WakeCancelled<'a> {
+    pub short: &'a str,
+    pub note: &'a str,
+    pub pending: usize,
+}
+
+impl Fact for WakeCancelled<'_> {
+    fn narrate(&self, say: &mut Say<'_>) {
+        say.line(
+            theseus_protocol::NarrativePart::Session,
+            format!(
+                "Wake {} cancelled by the model: \"{}\" will not run; {} of {} pending.",
+                self.short,
+                crate::session::title_from(self.note),
+                self.pending,
+                theseus_kernel::MAX_PENDING
+            ),
+        );
+    }
+}
+
+/// The model moved one of its wakes (`wake.move`, theseus-lherl). The
+/// kernel's frame wrote the `wake.moved` row.
+pub struct WakeMoved<'a> {
+    pub short: &'a str,
+    pub from: &'a str,
+    pub to: &'a str,
+    /// The series, when it is one (`, every 1d`).
+    pub series: Option<&'a str>,
+}
+
+impl Fact for WakeMoved<'_> {
+    fn narrate(&self, say: &mut Say<'_>) {
+        say.line(
+            theseus_protocol::NarrativePart::Session,
+            format!(
+                "Wake {} moved by the model from {} to {}{}.",
+                self.short,
+                self.from,
+                self.to,
+                self.series.unwrap_or("")
+            ),
+        );
+    }
+}
+
 /// A file read for a model (theseus-c9l6): an attachment kept when it
 /// arrived, or a PDF a tool read (`file.read`), with its conversion's time
 /// and whether it ran in the capped child.

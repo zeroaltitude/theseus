@@ -101,4 +101,4 @@ pub use spool::Spool;
 pub use stops::Stop;
 pub use tasks::{carve_key, task_ids, TakenReports, TaskOpen};
 pub use types::*;
-pub use wakes::{wake_id, FiredWake, WakeSet, MAX_PENDING};
+pub use wakes::{wake_id, FiredWake, MoveTo, WakeMoved, WakeSet, MAX_PENDING};

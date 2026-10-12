@@ -22,6 +22,7 @@ pub mod catalog;
 pub mod ceiling;
 pub mod cgroup;
 pub mod check;
+pub mod commitments;
 pub mod compiler;
 pub mod config;
 pub mod config_copy;
@@ -100,6 +101,7 @@ pub mod trace;
 pub mod turn;
 pub mod voice;
 pub mod wake;
+pub mod wake_tools;
 pub mod warm;
 pub mod web;
 pub mod webui;
@@ -178,6 +180,8 @@ mod tests_ceilings;
 mod tests_check;
 #[cfg(test)]
 mod tests_check_view;
+#[cfg(test)]
+mod tests_commitments;
 #[cfg(test)]
 mod tests_compaction;
 #[cfg(test)]

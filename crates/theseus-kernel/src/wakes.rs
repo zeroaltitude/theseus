@@ -105,6 +105,31 @@ pub struct WakeSet {
     pub set: bool,
     /// The execution's pending wakes, this one included.
     pub pending: usize,
+    /// They, soonest first: what the turn's commitments block shows next
+    /// (theseus-lherl), read in the same frame's execution, never again.
+    pub list: Vec<PendingWake>,
+}
+
+/// Where `move_wake` puts a wake.
+#[derive(Debug, Clone)]
+pub struct MoveTo {
+    /// Its next due time.
+    pub due_at_ms: u64,
+    /// A series' new rule, when the move is the series' own (`wake.move`'s
+    /// `series`): its occurrences then fall on the new time. None moves the
+    /// next occurrence alone, and the series goes on from where it was.
+    pub repeat: Option<Repeat>,
+}
+
+/// What `move_wake` did (theseus-lherl).
+#[derive(Debug, Clone)]
+pub struct WakeMoved {
+    /// The wake before the move.
+    pub from: PendingWake,
+    /// And after it: the same id.
+    pub wake: PendingWake,
+    /// The execution's pending wakes now, soonest first.
+    pub list: Vec<PendingWake>,
 }
 
 /// A wake a turn took (`take_wakes`).
@@ -157,6 +182,7 @@ impl Kernel {
                 wake: w.clone(),
                 set: false,
                 pending: e.wakes.len(),
+                list: e.wakes.clone(),
             });
         }
         crate::kernel::require_turn(&e)?;
@@ -206,6 +232,7 @@ impl Kernel {
             wake,
             set: true,
             pending: e.wakes.len(),
+            list: e.wakes,
         })
     }
 
@@ -222,13 +249,25 @@ impl Kernel {
         guard: &TurnGuard,
         extra: impl FnOnce(&[FiredWake]) -> Result<Vec<NewRecord>>,
     ) -> Result<Vec<FiredWake>> {
+        Ok(self.take_wakes_listing(guard, extra)?.0)
+    }
+
+    /// `take_wakes`, and with what it took the execution's wakes still
+    /// pending after it, soonest first, from the same read: the turn's
+    /// commitments block (theseus-lherl) is built from them, and reads
+    /// nothing more.
+    pub fn take_wakes_listing(
+        &self,
+        guard: &TurnGuard,
+        extra: impl FnOnce(&[FiredWake]) -> Result<Vec<NewRecord>>,
+    ) -> Result<(Vec<FiredWake>, Vec<PendingWake>)> {
         let _w = self.lock(&[&guard.execution_id]);
         let mut e = self
             .execution(&guard.execution_id)?
             .ok_or_else(|| KernelError::UnknownExecution(guard.execution_id.clone()))?;
         let now = self.now_ms();
         if !wake_due(&e, now) {
-            return Ok(vec![]);
+            return Ok((vec![], e.wakes));
         }
         let started = self.started_at_ms.load(Ordering::Relaxed);
         let (due, later): (Vec<PendingWake>, Vec<PendingWake>) = std::mem::take(&mut e.wakes)
@@ -290,7 +329,7 @@ impl Kernel {
             }
         }
         self.commit(&frame)?;
-        Ok(fired)
+        Ok((fired, e.wakes))
     }
 
     /// Cancel the wake `wake_id` of `execution_id`, for `by`, in one frame
@@ -331,6 +370,54 @@ impl Kernel {
         frame.extend(rows);
         self.commit(&frame)?;
         Ok(Some((e, wake)))
+    }
+
+    /// Move the wake `wake_id` of the turn `guard` holds, for `by`, in one
+    /// frame with the row `wake.moved` (`from`, `to`; theseus-lherl). The
+    /// wake keeps its id, its note and its series: `to.due_at_ms` is its
+    /// next due time, and `to.repeat` (a series' own move) puts its
+    /// occurrences on the new time. `None` when it is not pending: nothing
+    /// is written.
+    pub fn move_wake(
+        &self,
+        guard: &TurnGuard,
+        wake_id: &str,
+        to: MoveTo,
+        by: &str,
+    ) -> Result<Option<WakeMoved>> {
+        self.require_accepting()?;
+        let _w = self.lock(&[&guard.execution_id]);
+        let mut e = self
+            .execution(&guard.execution_id)?
+            .ok_or_else(|| KernelError::UnknownExecution(guard.execution_id.clone()))?;
+        let Some(i) = e.wakes.iter().position(|w| w.id == wake_id) else {
+            return Ok(None);
+        };
+        let from = e.wakes[i].clone();
+        anyhow::ensure!(
+            to.repeat.is_none() || from.repeat.is_some(),
+            "wake {wake_id} does not repeat: it has no series to move"
+        );
+        let wake = &mut e.wakes[i];
+        wake.due_at_ms = to.due_at_ms;
+        if let Some(r) = to.repeat {
+            wake.repeat = Some(r);
+        }
+        let wake = wake.clone();
+        sort(&mut e.wakes);
+        e.updated_at_ms = self.now_ms();
+        let row = self.ledger(
+            LedgerKind::WakeMoved,
+            Some(&e.session_id),
+            json!({"execution_id": e.id, "wake_id": wake.id, "from": from.due_at_ms,
+                   "to": wake.due_at_ms, "by": by, "series": from.repeat != wake.repeat}),
+        )?;
+        self.commit(&[exec_record(&e)?, row])?;
+        Ok(Some(WakeMoved {
+            from,
+            wake,
+            list: e.wakes,
+        }))
     }
 
     /// Queue `execution_id` for the driver if the due scan says so

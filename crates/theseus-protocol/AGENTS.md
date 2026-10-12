@@ -76,6 +76,8 @@ Key modules: `lib.rs` (the `method`, `notify`, `error_code` tables), `events.rs`
   hides a private or imported source's words (`hide_sources`). No wire type; its goldens are `tests/why/`.
 - `retract.rs` (theseus-2ced): `fact.retract`'s params and result, one `RetractExposure` for each place a node went, and
   `exposure_kind`, the five kinds in table order.
+- `wakes.rs` (theseus-lherl): `WakeInfo`, moved out of lib.rs and re-exported (the bytes are unchanged; `days`,
+  `until_ms` and `title` are optional). `tests/wakes.rs` holds its bytes.
 - `ts.rs`: the TypeScript export.
 
 ## Invariants

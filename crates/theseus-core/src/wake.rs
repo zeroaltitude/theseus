@@ -32,6 +32,10 @@
 //! - **Seeing and stopping.** `wake.list` and `wake.cancel`, `theseus wakes`
 //!   and `theseus cancel`, Discord's `/wakes` and `/cancel`, health, and the
 //!   Observatory.
+//! - **The model's own** (theseus-lherl). Its pending wakes are the commitments
+//!   block in the last block of every request (`commitments.rs`), and
+//!   `wake.cancel` and `wake.move` (`wake_tools.rs`) change them by the id it
+//!   shows, in a private place, its own alone.
 
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -44,7 +48,7 @@ use crate::toolrun::TurnCtx;
 
 pub const AT: &str = "wake.at";
 /// The tools this module adds, for the template's `[policy.tools]` list.
-pub const NAMES: [&str; 1] = [AT];
+pub const NAMES: [&str; 3] = [AT, crate::wake_tools::CANCEL, crate::wake_tools::MOVE];
 /// The longest note a wake takes, in characters.
 pub const MAX_NOTE_CHARS: usize = 2_000;
 /// The soonest and the latest a wake may be set for, from now.
@@ -197,7 +201,13 @@ fn plan_of(
 
 /// The due time `i` asks for, from `now_ms`, or why it cannot be.
 fn due_of(i: &Input, now_ms: u64) -> Result<u64, String> {
-    let due = match (&i.at, &i.after) {
+    due_from(i.at.as_deref(), i.after.as_deref(), now_ms)
+}
+
+/// The due time `at` or `after` asks for (`after` wins), from `now_ms`, in
+/// `wake.at`'s bounds, or why it cannot be (`wake.move` asks it too).
+pub fn due_from(at: Option<&str>, after: Option<&str>, now_ms: u64) -> Result<u64, String> {
+    let due = match (at, after) {
         (_, Some(a)) => now_ms.saturating_add(parse_after(a)?),
         (Some(at), None) => {
             let due = parse_at(at)?;
@@ -249,7 +259,9 @@ impl Tool for WakeAt {
          to weekdays (`[\"mon\", \"fri\"]`), and `until` (RFC 3339) ends it. A series counts \
          as one wake, and a cancel ends it. In a task, a one-shot wake keeps the task waiting \
          for it instead of reporting, its turn continues the task, and the task reports once \
-         it has no wake left; a task cannot set a repeating one."
+         it has no wake left; a task cannot set a repeating one. Your pending wakes are listed \
+         in the last block: to change one, move it (`wake.move`) or cancel it (`wake.cancel`), \
+         never set a second."
     }
 
     fn input_schema(&self) -> Value {
@@ -363,6 +375,8 @@ pub fn set(
         }
     };
     let w = &set.wake;
+    // The next loop's commitments block (theseus-lherl).
+    tc.commitments.set(set.list.clone());
     let s = crate::task::short(&w.id);
     let when = format!(
         "{} (in {})",
@@ -556,6 +570,13 @@ pub fn info(e: &Execution, w: &PendingWake, title: Option<String>) -> theseus_pr
         every: w.repeat.as_ref().map(|r| r.every.to_string()),
         occurrence: w.repeat.as_ref().map(|_| w.occurrence),
         next: w.repeat.as_ref().map(|_| next_of(w.due_at_ms)),
+        days: w
+            .repeat
+            .as_ref()
+            .map(|r| r.days.iter().map(|d| d.as_str().to_string()).collect())
+            .unwrap_or_default(),
+        until_ms: w.repeat.as_ref().and_then(|r| r.until_ms),
+        title: Some(crate::session::title_from(&w.note)).filter(|t| !t.is_empty()),
     }
 }
 

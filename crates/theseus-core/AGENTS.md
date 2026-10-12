@@ -1040,6 +1040,19 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   saved. Not built, with the places they would hook in (beside `earned::gate`): `scoped-grants` (a "don't ask again" from
   a single answer: a grant with a call's own scope) and M5's Jev decision on the approval ladder (a judgment before the
   card). Tests: `policy/earned/tests_find.rs`, `tests_measure.rs`, `tests_m3/earned.rs`, the daemon's `tests/earned.rs`.
+- **The model's commitments** (theseus-lherl; horizon row HZ1): `commitments.rs`, `wake_tools.rs`. The conversation's
+  pending wakes ride in the last block of every request, beside the task view (`view::attach_text`, no breakpoint of
+  its own; a stand-in model that reads the last user text skips both: `view::is_head`): at most `MAX_LINES` (10) lines
+  and `MAX_TOKENS` (300), then `and N more`, nothing at all while none is pending, `⏰ a8cebb Fri 09:00 note` and a
+  series `🔁 a41d04 every 1d 21:00 (next Fri) note`. Built from `Kernel::take_wakes_listing`'s one read, held in the
+  turn (`Frames.commitments`, lent as `TurnCtx::commitments`) and replaced by what each wake tool's frame returns,
+  never read from the store again; an operator's cancel mid-turn shows at the next turn. `wake.cancel {id}` and
+  `wake.move {id, at | after, series?}` act on this conversation's own wakes (a name is resolved among them, another
+  conversation's is not found), only in a private place (not `public_tool`, so a shared place is not offered them
+  and the gate refuses them; each tool asks `places::refusal` again), one frame each with its row
+  (`wake.cancelled { by: "model" }`, `wake.moved { from, to }`); a move keeps the id, a series' next occurrence moves
+  alone unless `series: true` moves its time (`every`, `days`, `until` kept). A routine, a watch or a deferred task
+  joins as another line with its own icon. Tests: `tests_commitments.rs` (the stand-in model reads the block's ids).
 - **Parked tasks** (28b; theseus-vug): `parked.rs`, health's `tasks.parked`: each task that cannot progress by itself,
   with its blocker, from the open executions alone (a question counts as progress for 24 hours).
 - **Limits that notify** (theseus-usei; the owner, 2026-10-07: for tasks and tokens, notify, not restrict):

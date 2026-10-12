@@ -10,6 +10,7 @@ Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
 - `src/runtime.rs`: the gateway loop and the places (a text channel or a DM, each backed by one session), with the
   slash commands and the confirm buttons. `Routes::resolve` finds a message's or an interaction's place.
 - `src/courier.rs`: durable delivery, the binding's side: one lane per place, and one for the operator's notices.
+- `src/render/wakes.rs` (theseus-lherl): `/wakes`, each wake's title, a series' weekdays and end.
 - `src/render.rs`: a session's events as Discord messages. Pure: events in, messages out. A reply's footer gives
   the session's total beside the reply's own cost (`TurnSubmitResult::cost_words`, theseus-c0bb).
 - `src/bindings.rs` (the bindings file; `bindings.example.toml` is its format), `src/files.rs` (attachments: a

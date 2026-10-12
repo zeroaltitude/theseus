@@ -48,9 +48,9 @@ use crate::{Config, Core};
 const WINDOW: u64 = 48_000;
 const OUTPUT: u32 = 2_000;
 
-struct Rig {
-    core: Arc<Core>,
-    model: Arc<FakeProvider>,
+pub(crate) struct Rig {
+    pub(crate) core: Arc<Core>,
+    pub(crate) model: Arc<FakeProvider>,
     glm: Arc<FakeProvider>,
     dir: tempfile::TempDir,
 }
@@ -95,17 +95,21 @@ fn rig_with(summary: &str, model: Vec<Scripted>, glm: Vec<Scripted>) -> Rig {
     }
 }
 
-fn rig(model: Vec<Scripted>, glm: Vec<Scripted>) -> Rig {
+pub(crate) fn rig(model: Vec<Scripted>, glm: Vec<Scripted>) -> Rig {
     rig_with("glm", model, glm)
 }
 
-fn session(core: &Core) -> String {
+pub(crate) fn session(core: &Core) -> String {
     let rec = SessionRecord::new(SessionKind::Conversation, None);
     core.store.put_session(&rec.session_id, &rec).unwrap();
     rec.session_id
 }
 
-async fn turn(core: &Arc<Core>, sid: &str, input: &str) -> anyhow::Result<TurnSubmitResult> {
+pub(crate) async fn turn(
+    core: &Arc<Core>,
+    sid: &str,
+    input: &str,
+) -> anyhow::Result<TurnSubmitResult> {
     turn_on(core, sid, input, None).await
 }
 
@@ -139,7 +143,7 @@ async fn turn_on(
 }
 
 /// The ledger rows of `kind`, oldest first.
-fn rows(core: &Core, kind: &str) -> Vec<Value> {
+pub(crate) fn rows(core: &Core, kind: &str) -> Vec<Value> {
     let rows: Vec<(u64, crate::ledger::LedgerRow)> = core.store.ledger_tail(2000).unwrap();
     rows.into_iter()
         .filter(|(_, r)| r.kind == kind)
@@ -157,7 +161,7 @@ fn words(tag: &str, tokens: usize) -> String {
 }
 
 /// A summary's answer, billed at these tokens.
-fn summary(text: &str, input: u64, output: u64) -> Scripted {
+pub(crate) fn summary(text: &str, input: u64, output: u64) -> Scripted {
     Scripted::Billed {
         usage: Usage {
             input_tokens: input,
@@ -182,7 +186,7 @@ fn text_of(q: &ProviderRequest) -> String {
 
 /// Drive turns of about `tokens` each until a compilation is not the
 /// transcript; returns how many turns that took.
-async fn until_recompiled(r: &Rig, sid: &str, tokens: usize) -> usize {
+pub(crate) async fn until_recompiled(r: &Rig, sid: &str, tokens: usize) -> usize {
     for k in 0..12 {
         turn(&r.core, sid, &words(&format!("turn{k}"), tokens))
             .await

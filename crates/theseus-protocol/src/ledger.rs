@@ -286,6 +286,7 @@ ledger_kinds! {
     WakeCancelled = "wake.cancelled",
     WakeEnded = "wake.ended",
     WakeFired = "wake.fired",
+    WakeMoved = "wake.moved",
     WakeSet = "wake.set",
     WebDevOrigin = "web.dev_origin",
     WebRefused = "web.refused",

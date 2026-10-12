@@ -30,12 +30,14 @@ use crate::tests_route::{mode, rig, turn};
 
 /// The window the turn's models get, and their output cap: a request budget of
 /// 35,904 tokens (40,000 and 34,500 before the job tools joined the request's
-/// tools, theseus-n8gk, whose first compile then rang).
-const WINDOW: u64 = 41_000;
+/// tools, theseus-n8gk, whose first compile then rang), and 41,000 and 35,500
+/// before `wake.cancel` and `wake.move` and `wake.at`'s sentence about them joined
+/// the tools block (theseus-lherl: 700 more of window; 41,300 rang again).
+const WINDOW: u64 = 41_700;
 const OUTPUT: u32 = 1_000;
 
 /// The input the first answer is billed at, past the request budget.
-const BILLED: u64 = 35_500;
+const BILLED: u64 = 36_200;
 
 /// The tiers of what a compilation's budget report dropped.
 fn tiers(c: &Compilation) -> Vec<String> {

@@ -13,8 +13,7 @@ use serde_json::Value;
 
 /// A text block a harness adds, not the person's words.
 fn harness_text(t: &str) -> bool {
-    t.trim_start().starts_with("<system-reminder>")
-        || t.starts_with(theseus_core::task_graph::view::HEAD)
+    t.trim_start().starts_with("<system-reminder>") || theseus_core::task_graph::view::is_head(t)
 }
 
 /// A message's plain text: a string, or its last text block but the
