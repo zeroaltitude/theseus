@@ -44,6 +44,7 @@ use theseus_protocol::{AwsBootstrapParams, AwsBootstrapResult, AwsBootstrapStack
 
 use super::session::{self, Kind};
 use super::stack::{resource_changes, role_arn, Cfn, ChangeSetSpec, Param, Ready, DEPLOYER};
+use super::stack_tags;
 use super::tend::FOUNDATION;
 use super::{Account, Failure, Request, Signer};
 
@@ -727,6 +728,13 @@ async fn apply_stack(
         binding: None,
         signer,
     };
+    // The stack's own tags, which no execution moves (theseus-mpk2s).
+    let held = if s.action == "create" {
+        None
+    } else {
+        cfn.stack(s.stack).await.map_err(|f| said(&f))?
+    };
+    let tags = stack_tags::stable_tags(held.as_ref(), s.stack, account.cfg.deployment());
     let spec = ChangeSetSpec {
         stack: s.stack,
         name: format!("theseus-{execution}"),
@@ -743,12 +751,7 @@ async fn apply_stack(
             .map(|(k, v)| (k.clone(), Param::Value(v.clone())))
             .collect(),
         role: deployer.then(|| role_arn(&account.id, DEPLOYER)),
-        tags: vec![
-            ("theseus:owner".into(), "theseus".into()),
-            ("theseus:stack".into(), s.stack.into()),
-            ("theseus:deployment".into(), account.cfg.deployment().into()),
-            ("theseus:execution".into(), execution.into()),
-        ],
+        tags: tags.clone(),
         description: format!("theseus aws bootstrap ({execution})"),
     };
     let id = cfn.create_change_set(&spec).await.map_err(|f| said(&f))?;
@@ -762,7 +765,8 @@ async fn apply_stack(
             return Err(format!("{}'s change set failed: {reason}", s.stack))
         }
     };
-    if let Some(why) = differs(s, &changes) {
+    let migrating = stack_tags::migration(held.as_ref(), &tags) && stack_tags::tag_only(&changes);
+    if let Some(why) = differs(s, &changes, migrating) {
         let _ = cfn.delete_change_set(s.stack, &id).await;
         return Err(format!(
             "{}'s change set is not the plan, so nothing was applied: {why}",
@@ -802,7 +806,10 @@ async fn apply_stack(
 /// Why a change set is not the stack's plan: a create adds other resources
 /// than planned; an update replaces or removes what holds state, or touches a
 /// guardrail (those go through aws.stack.plan and .apply instead).
-fn differs(s: &Planned, changes: &[Value]) -> Option<String> {
+///
+/// A change set that only drops the stack's `theseus:execution` tag
+/// (`migrating`: see `stack_tags`) changes no guardrail and is the plan.
+fn differs(s: &Planned, changes: &[Value], migrating: bool) -> Option<String> {
     let rc = resource_changes(changes);
     if s.action == "create" {
         let mut added: Vec<&str> = rc.iter().map(|c| c.logical_id.as_str()).collect();
@@ -821,6 +828,7 @@ fn differs(s: &Planned, changes: &[Value]) -> Option<String> {
     let lines: Vec<String> = v
         .floor
         .iter()
+        .filter(|_| !migrating)
         .chain(&v.destructive)
         .map(|h| h.why.clone())
         .collect();

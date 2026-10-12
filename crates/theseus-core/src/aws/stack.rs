@@ -32,6 +32,7 @@ use theseus_tools::{
 };
 
 use super::session::Kind;
+use super::stack_tags;
 use super::tools::failure;
 use super::{Account, Aws, Failure, Request, Signer};
 
@@ -66,6 +67,10 @@ pub struct Shown {
     pub floor: Vec<String>,
     /// Stateful resources replaced or removed.
     pub destructive: Vec<String>,
+    /// The change set is the drop of `theseus:execution` from the stack's
+    /// tags and nothing else (theseus-mpk2s): the change set's own guard and
+    /// budget lines are not in `floor`.
+    pub tag_migration: bool,
 }
 
 /// The change sets plans showed in this daemon's life.
@@ -612,7 +617,8 @@ async fn run_plan(
     };
     let what = format!("planning stack {} in {}", p.stack, p.region);
     let exists = cfn.stack(&p.stack).await.map_err(|f| failure(&what, f))?;
-    let id = make_change_set(&cfn, p, exists.is_some(), binding).await?;
+    let tags = stack_tags::stable_tags(exists.as_ref(), &p.stack, p.account.cfg.deployment());
+    let id = make_change_set(&cfn, p, exists.is_some(), tags.clone(), binding).await?;
     let (id, changes) = match cfn
         .ready(&p.stack, &id)
         .await
@@ -640,8 +646,16 @@ async fn run_plan(
         }
     };
     let verdict = theseus_aws_guard::embedded().check_change_set(&resource_changes(&changes));
+    // The first change set after the tags became stable drops the old
+    // execution tag from every resource: nothing in it changes a permission
+    // or an amount, so its guard and budget lines are not asked. Anything
+    // else in the change set keeps the floor whole.
+    let tag_migration =
+        stack_tags::migration(exists.as_ref(), &tags) && stack_tags::tag_only(&changes);
     let mut floor = p.scan.clone();
-    floor.extend(verdict.floor.iter().map(|h| h.why.clone()));
+    if !tag_migration {
+        floor.extend(verdict.floor.iter().map(|h| h.why.clone()));
+    }
     let destructive: Vec<String> = verdict.destructive.iter().map(|h| h.why.clone()).collect();
     let digest = digest(&p.stack, &id, &changes);
     let shown = Shown {
@@ -651,6 +665,7 @@ async fn run_plan(
         change_set: id,
         floor,
         destructive,
+        tag_migration,
     };
     let out = plan_output(p, exists.is_some(), &changes, &digest, &shown);
     aws.shows.put(&digest, shown);
@@ -663,6 +678,7 @@ async fn make_change_set(
     cfn: &Cfn<'_>,
     p: &Planning,
     exists: bool,
+    tags: Vec<(String, String)>,
     binding: Option<&AwsBinding>,
 ) -> Result<String, ToolFailure> {
     let url = if p.body.len() > BODY_LIMIT {
@@ -688,11 +704,7 @@ async fn make_change_set(
             .map(|(k, v)| (k.clone(), Param::Value(v.clone())))
             .collect(),
         role: Some(role_arn(&p.account.id, DEPLOYER)),
-        tags: vec![
-            ("theseus:owner".into(), "theseus".into()),
-            ("theseus:stack".into(), p.stack.clone()),
-            ("theseus:execution".into(), execution.into()),
-        ],
+        tags,
         description: format!("theseus {execution} from {}", p.path.display()),
     };
     cfn.create_change_set(&spec)
@@ -722,6 +734,13 @@ fn plan_output(
         },
         s.change_set,
     );
+    if s.tag_migration {
+        text.push_str(
+            "A tag-only migration: it drops the stack tag theseus:execution, which every \
+             resource carried and no longer should, and changes no permission and no amount, so \
+             the guard and budget lines below are not asked for it.\n",
+        );
+    }
     for line in changes.iter().filter_map(change_line) {
         text.push_str(&format!("  {line}\n"));
     }
@@ -746,6 +765,7 @@ fn plan_output(
         meta: json!({
             "stack": p.stack, "region": p.region, "change_set": s.change_set, "digest": digest,
             "changes": changes.len(), "floor": s.floor.len(), "destructive": s.destructive.len(),
+            "tag_migration": s.tag_migration,
         }),
     }
 }
@@ -895,9 +915,15 @@ impl Tool for ApplyTool {
                     if now.is_empty() { "gone" } else { &now }
                 )));
             }
-            cfn.execute(&s.stack, &s.change_set)
-                .await
-                .map_err(|f| failure(&what, f))?;
+            let executed = cfn.execute(&s.stack, &s.change_set).await;
+            if s.tag_migration {
+                // The migration's own row: this execute dropped a tag and
+                // changed no permission and no amount.
+                if let Some(b) = &binding {
+                    b.mark_last("tag_migration", json!(stack_tags::VOLATILE));
+                }
+            }
+            executed.map_err(|f| failure(&what, f))?;
             let settled = cfn
                 .settle(&s.stack, SETTLE)
                 .await
