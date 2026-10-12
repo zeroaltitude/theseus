@@ -8,6 +8,7 @@ import type { ChildrenStatus } from "./ChildrenStatus";
 import type { ConfigStatus } from "./ConfigStatus";
 import type { ContextStatus } from "./ContextStatus";
 import type { CrashStatus } from "./CrashStatus";
+import type { DayCeilingBudget } from "./DayCeilingBudget";
 import type { DiskStatus } from "./DiskStatus";
 import type { ExtendHealth } from "./ExtendHealth";
 import type { ExternalTextInfo } from "./ExternalTextInfo";
@@ -245,4 +246,10 @@ self_improve?: SelfState,
 /**
  * What a person's first keystroke warmed, and when (theseus-tnky).
  */
-warm?: WarmHealth, };
+warm?: WarmHealth, 
+/**
+ * Today's model spend against the daily ceiling (theseus-9e02): set
+ * while the day is at or past its ceiling, so health's first line says
+ * so.
+ */
+day_spend?: DayCeilingBudget, };

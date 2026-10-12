@@ -683,6 +683,10 @@ impl Core {
                 by,
                 before,
                 limit: e.budget.limit_micros,
+                resumed: q
+                    .proposal
+                    .as_ref()
+                    .is_some_and(|p| !p.args["call"]["brake"].is_null()),
             }),
             None => rec.record(&fact::answer::ResetDeclined { by }),
         }

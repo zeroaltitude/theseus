@@ -484,7 +484,12 @@ impl crate::Core {
                         return;
                     }
                     match read_budget(&account).await {
-                        Ok(b) => account.tended.lock().unwrap().budget = Some(b),
+                        Ok(b) => {
+                            if let Some(c) = core.upgrade() {
+                                c.aws_month_warned(&account, &b);
+                            }
+                            account.tended.lock().unwrap().budget = Some(b)
+                        }
                         Err(e) => {
                             tracing::warn!(account = %account.id, error = %e, "aws: the budget's read failed")
                         }

@@ -117,3 +117,19 @@ impl std::fmt::Display for HardStop {
         )
     }
 }
+
+impl Kernel {
+    /// Refuse a provider call of `e`'s when its settled spend in the last ten
+    /// minutes has reached the burn-rate line (theseus-9e02, `[kernel]
+    /// runaway_usd_per_10min`): one comparison over a small in-memory ring,
+    /// nothing written. The core asks the owner to resume.
+    pub(crate) fn burn_stopped(&self, e: &Execution, tool: &str) -> Result<(), KernelError> {
+        if tool != PROVIDER_TOOL {
+            return Ok(());
+        }
+        match self.ceiling.burn_stop(self.now_ms(), &e.id) {
+            Some(b) => Err(KernelError::BurnRate(Box::new(b))),
+            None => Ok(()),
+        }
+    }
+}

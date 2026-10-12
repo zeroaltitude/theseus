@@ -35,6 +35,35 @@ impl SpendLimitMode {
     }
 }
 
+/// `[kernel] daily_spend_ceiling_mode` (theseus-9e02). The owner, 2026-10-11:
+/// "unless we're in runaway territory, we should default to flag, not stop
+/// [...] tokens = less cautious, aws = more cautious."
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DailyCeilingMode {
+    /// Reaching the ceiling warns, at the ceiling and at each
+    /// `daily_notice_step_usd` after it, and every call is made; the day
+    /// stops at `daily_runaway_usd`.
+    Notify,
+    /// Reaching the ceiling refuses every model call until the day turns
+    /// (theseus-kp20's behaviour; a benchmark's own budget).
+    #[default]
+    Stop,
+}
+
+impl DailyCeilingMode {
+    pub fn is_default(&self) -> bool {
+        *self == Self::default()
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Notify => "notify",
+            Self::Stop => "stop",
+        }
+    }
+}
+
 /// `[profiles.*] max_loops_mode` (and `[model] max_loops_mode`, the default
 /// profile's).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -67,10 +96,30 @@ pub(super) fn default_hard_multiple() -> u64 {
 
 /// `[kernel] daily_spend_ceiling_usd` (theseus-kp20): the daemon's backstop
 /// over every model call it makes in a local day, $200 (the owner,
-/// 2026-10-08: "It's OK as long as it's high -- like 200 per day"). No mode:
-/// at the ceiling a call is not made, until midnight or a higher ceiling.
+/// 2026-10-08: "It's OK as long as it's high -- like 200 per day"). Under
+/// `daily_spend_ceiling_mode = "notify"` (theseus-9e02) it warns; under
+/// `"stop"` a call past it is not made, until midnight or a higher ceiling.
 pub(super) fn default_daily_ceiling_usd() -> f64 {
     200.0
+}
+
+/// `[kernel] daily_runaway_usd` (theseus-9e02): where a notifying day stops,
+/// $2,000 (the owner, 2026-10-11: "we've occasionally spent upwards of 1k in
+/// a day on purpose"). 0 never stops it.
+pub(super) fn default_daily_runaway_usd() -> f64 {
+    theseus_kernel::micros_to_usd(theseus_kernel::DEFAULT_RUNAWAY_MICROS)
+}
+
+/// `[kernel] daily_notice_step_usd`: a warning at the ceiling and every $200
+/// after it. 0 warns at the ceiling alone.
+pub(super) fn default_daily_notice_step_usd() -> f64 {
+    theseus_kernel::micros_to_usd(theseus_kernel::DEFAULT_STEP_MICROS)
+}
+
+/// `[kernel] runaway_usd_per_10min`: a session's burn-rate line, $200 in ten
+/// minutes, sized so a deliberate $1,000 day never trips it. 0 never.
+pub(super) fn default_runaway_per_10min_usd() -> f64 {
+    theseus_kernel::micros_to_usd(theseus_kernel::DEFAULT_BURN_MICROS)
 }
 
 /// `[kernel]`'s dollar amounts: each above zero and finite.
@@ -81,6 +130,15 @@ pub(super) fn check_dollars(k: &super::KernelSection) -> anyhow::Result<()> {
     ] {
         if !v.is_finite() || v <= 0.0 {
             anyhow::bail!("kernel.{key} = {v} must be a dollar amount above zero");
+        }
+    }
+    for (key, v) in [
+        ("daily_runaway_usd", k.daily_runaway_usd),
+        ("daily_notice_step_usd", k.daily_notice_step_usd),
+        ("runaway_usd_per_10min", k.runaway_usd_per_10min),
+    ] {
+        if !v.is_finite() || v < 0.0 {
+            anyhow::bail!("kernel.{key} = {v} must be a dollar amount, or 0");
         }
     }
     Ok(())

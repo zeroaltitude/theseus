@@ -51,6 +51,7 @@ impl TurnRunner {
     /// one per call: a check that crosses no multiple says nothing, and one
     /// comparison is all it adds.
     pub(super) fn spend_checked(&self, t: &mut Turn<'_>, session: &SessionRecord) -> Result<()> {
+        self.day_warned(t)?;
         let Some(e) = t.tc.kernel.execution(t.tc.execution_id)? else {
             return Ok(());
         };
@@ -96,6 +97,22 @@ impl TurnRunner {
             text: &text,
         });
         Ok(())
+    }
+
+    /// What a budget question keeps of the call that asked it (`args.call`):
+    /// its profile, model and output cap; and, for a burn-rate pause
+    /// (theseus-9e02), the `brake` that makes it one: the window's spend, the
+    /// line, and the window's length.
+    pub(super) fn budget_call(t: &mut Turn<'_>) -> Value {
+        let mut call = json!({"profile": t.target.profile, "model": t.target.model, "max_output_tokens": t.target.max_tokens});
+        if let Some(b) = t.braked.take() {
+            call["brake"] = json!({
+                "spent_usd": micros_to_usd(b.spent),
+                "line_usd": micros_to_usd(b.line),
+                "window_minutes": theseus_kernel::day_ceiling::BURN_WINDOW_MS / 60_000,
+            });
+        }
+        call
     }
 
     /// A loop's call the hard multiple refused (theseus-jse4): nothing was
@@ -189,7 +206,7 @@ pub(crate) fn crossed(before: Micros, after: Micros, limit: Micros) -> Option<u6
 }
 
 /// How the owner stops the work: the CLI, Discord, or the cockpit.
-fn stop_how(session_id: &str) -> String {
+pub(super) fn stop_how(session_id: &str) -> String {
     format!("`theseus stop {session_id}`, `/stop` in its place, or Stop in the cockpit")
 }
 

@@ -354,6 +354,8 @@ fn cfg(p: &SimParams, spend_limit_micros: Micros) -> KernelConfig {
         // The day ceiling's default: far above what a run spends.
         daily_ceiling_micros: theseus_kernel::day_ceiling::DEFAULT_CEILING_MICROS,
         spend_hard_multiple: theseus_kernel::default_hard_multiple(),
+        // The stop mode, no burn-rate line: the run's spends are small.
+        ..KernelConfig::default()
     }
 }
 

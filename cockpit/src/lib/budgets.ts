@@ -103,11 +103,36 @@ export function handsLines(h: AwsHandsStatus, now: number): { text: string; tone
 /** The daemon's day ceiling (`[kernel] daily_spend_ceiling_usd`, theseus-kp20) as the Budgets panel shows it: today's
  *  model spend against the ceiling, a quiet bar while under it, and a clear stop once reached, since no model call is
  *  made until the day turns. `share` is the bar's fill, 0 to 1 (what calls in flight hold counts toward it). */
-export function dayCeilingView(d: DayCeilingBudget): { text: string; detail: string; share: number; tone: 'ok' | 'wait' | 'fault'; stopped: boolean } {
+export function dayCeilingView(d: DayCeilingBudget): { text: string; detail: string; share: number; tone: 'ok' | 'wait' | 'fault'; stopped: boolean; warning: boolean } {
   const usd = (n: number) => `$${n.toFixed(2)}`
   const used = d.spent_usd + d.held_usd
   const share = d.ceiling_usd > 0 ? Math.min(1, Math.max(0, used / d.ceiling_usd)) : 0
   const held = d.held_usd > 0 ? `, ${usd(d.held_usd)} held by calls in flight` : ''
+  // Under notify (theseus-9e02) the ceiling warns and the day stops at the runaway line.
+  const notify = d.mode === 'notify'
+  const runaway = d.runaway_usd ?? 0
+  if (d.reached && notify) {
+    return {
+      text: `stopped: today’s model spend reached the ${usd(runaway)} daily runaway line`,
+      detail: `${usd(d.spent_usd)} spent on ${d.day}${held} · no model call until ${d.turns_at} local time · raise [kernel] daily_runaway_usd to go on sooner`,
+      share: 1,
+      tone: 'fault',
+      stopped: true,
+      warning: false,
+    }
+  }
+  if (notify && d.past) {
+    const times = d.ceiling_usd > 0 ? d.spent_usd / d.ceiling_usd : 0
+    const stop = runaway > 0 ? `model calls stop at the ${usd(runaway)} runaway line` : 'no runaway line is set'
+    return {
+      text: `warning: ${usd(d.spent_usd)} today, ${times.toFixed(1)}× the ${usd(d.ceiling_usd)} daily ceiling · the work goes on`,
+      detail: `${d.day}${held} · ${stop} · stop now with \`theseus stop\` · the day turns at ${d.turns_at} local time`,
+      share: 1,
+      tone: 'wait',
+      stopped: false,
+      warning: true,
+    }
+  }
   if (d.reached) {
     return {
       text: `stopped: today’s model spend reached the ${usd(d.ceiling_usd)} daily ceiling`,
@@ -115,6 +140,7 @@ export function dayCeilingView(d: DayCeilingBudget): { text: string; detail: str
       share: 1,
       tone: 'fault',
       stopped: true,
+      warning: false,
     }
   }
   return {
@@ -123,5 +149,6 @@ export function dayCeilingView(d: DayCeilingBudget): { text: string; detail: str
     share,
     tone: share >= 0.8 ? 'wait' : 'ok',
     stopped: false,
+    warning: false,
   }
 }

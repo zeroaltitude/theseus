@@ -158,6 +158,7 @@ fn print_the_durability_policies() {
         owner_role: Some("theseus-owner".into()),
         deployment: Some(deployment.clone()),
         monthly_budget_usd: None,
+        monthly_warn_usd: None,
         daily_budget_usd: None,
         hourly_alert_usd: crate::config::default_hourly_alert_usd(),
         runaway_factor: crate::config::default_runaway_factor(),

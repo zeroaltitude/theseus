@@ -329,16 +329,29 @@ max_connections = 0
 # lets it go on from the next start. 0 never stops.
 # daily_spend_ceiling_usd is a backstop, not a budget (theseus-kp20): every
 # model call the daemon makes in a local day (turns, tasks, the judge,
-# consolidation, compaction, learning runs, speech) counts toward it, and once
-# a call would pass it, no call is made until local midnight; the owner hears
-# once that day, in a DM. It has no mode and sits above every limit here.
+# consolidation, compaction, learning runs, speech) counts toward it, and it
+# sits above every limit here. Its mode (theseus-9e02) says what reaching it
+# does: "notify" warns and refuses nothing (the owner's DM, the
+# push, health's first line, and the cockpit's Money view say what was spent,
+# that the work goes on, and where it stops), at the ceiling and again at each
+# daily_notice_step_usd after it, once each a day; the day stops only at
+# daily_runaway_usd ($2,000 by default; 0 never), and a stop then holds every
+# later call until local midnight. "stop", the default, refuses every call past
+# the ceiling until local midnight. runaway_usd_per_10min is a burn-rate brake
+# on each session: one whose settled spend in the last ten minutes reaches it
+# pauses and asks you to resume (Discord, web UI, or `theseus confirm`); 0
+# never. AWS spend is managed apart and still stops at its lines.
 [kernel]
 admission_ceiling = 8                   # executions that may hold a turn at once (§3.2a)
 admission_stuck_secs = 600              # a waiting turn fails only when no turn was admitted for this long: a queue that moves fails none
 spend_limit_usd = 100.0                 # each session's spend limit in US dollars (theseus-0sg)
 spend_limit_mode = "notify"             # notify | ask: what reaching it does
 spend_limit_hard_multiple = 10          # under notify, calls stop at this many times the limit (0: never)
-daily_spend_ceiling_usd = 200.0         # the whole daemon's model spend per local day: past it no call is made until midnight
+daily_spend_ceiling_usd = 200.0         # the whole daemon's model spend per local day: past it, a warning (notify) or no call until midnight (stop)
+daily_spend_ceiling_mode = "stop"       # notify | stop: what reaching it does
+daily_runaway_usd = 2000.0              # under notify, the day's model calls stop here until midnight (0: never)
+daily_notice_step_usd = 200.0           # under notify, one warning at the ceiling and one each this much after it (0: at the ceiling alone)
+runaway_usd_per_10min = 200.0           # a session whose settled spend in ten minutes reaches this pauses and asks you to resume (0: never)
 heartbeat_secs = 60                     # reconciler cadence: due wakes, overdue actions, spool drain
 default_deadline_secs = 600             # deadline for an action whose tool declares none
 confirm_ttl_secs = 900                  # how long a call waits for your answer: then it expires, not run, and its card says so; and how long an approval stays valid
@@ -428,6 +441,7 @@ keep_background = true                  # false: every close ends everything the
 # owner_role = "theseus-owner"          # after `theseus aws bootstrap`: calls sign in role sessions under the guards, and the key signs only STS
 # deployment = "theseus-desktop"        # every session's source identity: which Theseus this is (default "theseus")
 # monthly_budget_usd = 50               # the month's budget: the bootstrap's, and reconciled into its stack after serving
+# monthly_warn_usd = 25                 # Theseus warns once a month when AWS's actual spend passes this (default half of monthly_budget_usd); it warns only, and the month's stop stays where it is
 # daily_budget_usd = 10                 # the day's budget, which only alerts: reconciled into the foundation stack's DailyBudgetUsd as the month's is
 # hourly_alert_usd = 1.0                # the hour's line: past what AWS actions reserved and spent this hour, Theseus alerts once that hour (default 1.0)
 # runaway_factor = 10.0                 # "let the budget notify be the authority unless 'runaway train' mode is triggered, which is,

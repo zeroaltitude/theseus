@@ -192,6 +192,8 @@ mod tests_continue_slow;
 #[cfg(test)]
 mod tests_day_ceiling;
 #[cfg(test)]
+mod tests_day_notify;
+#[cfg(test)]
 mod tests_disk_watch;
 #[cfg(test)]
 mod tests_egress;

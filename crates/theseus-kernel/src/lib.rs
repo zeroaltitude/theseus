@@ -68,6 +68,8 @@ mod tests_place_limit;
 #[cfg(test)]
 mod tests_repeat;
 #[cfg(test)]
+mod tests_runaway;
+#[cfg(test)]
 mod tests_spool;
 #[cfg(test)]
 mod tests_stops;
@@ -81,7 +83,10 @@ mod tests_tx;
 mod tests_wakes;
 
 pub use clock::{Clock, RealClock, VirtualClock};
-pub use day_ceiling::{DayCeiling, Hold, Reached, Seed, Today};
+pub use day_ceiling::{
+    BurnStop, DayCeiling, Hold, Reached, Seed, Today, Warning, DEFAULT_BURN_MICROS,
+    DEFAULT_RUNAWAY_MICROS, DEFAULT_STEP_MICROS,
+};
 pub use earlier::EARLIER_PROCESS;
 pub use gate::{digest_json, digest_proposal, Proposal};
 pub use kernel::{

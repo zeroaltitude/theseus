@@ -120,10 +120,25 @@ pub struct SpendReset<'a> {
     /// What it had spent, and its limit.
     pub before: Micros,
     pub limit: Micros,
+    /// The question was a burn-rate pause's (theseus-9e02): the session is
+    /// resumed and its spend stays.
+    pub resumed: bool,
 }
 
 impl Fact for SpendReset<'_> {
     fn narrate(&self, say: &mut Say<'_>) {
+        if self.resumed {
+            say.line(
+                Approval,
+                format!(
+                    "Resumed by {} after the burn-rate pause; its ten-minute window starts \
+                     empty and its spend stays at {}; continuing.",
+                    self.by,
+                    narrative::dollars(self.before)
+                ),
+            );
+            return;
+        }
         say.line(
             Approval,
             format!(

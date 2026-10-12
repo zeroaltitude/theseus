@@ -73,6 +73,27 @@ pub struct KernelConfig {
     /// (theseus-jse4, `overdraw.rs`); 0 never.
     #[serde(default = "crate::overdraw::default_hard_multiple")]
     pub spend_hard_multiple: u64,
+    /// The day ceiling only warns (`[kernel] daily_spend_ceiling_mode =
+    /// "notify"`, theseus-9e02); the kernel's own default is the stop.
+    #[serde(default)]
+    pub daily_notify: bool,
+    /// Under notify, where the day stops (0 never).
+    #[serde(default = "default_runaway")]
+    pub daily_runaway_micros: Micros,
+    /// The warning's step past the ceiling.
+    #[serde(default = "default_step")]
+    pub daily_step_micros: Micros,
+    /// A session's burn-rate line over ten minutes (0 never).
+    #[serde(default)]
+    pub burn_line_micros: Micros,
+}
+
+fn default_runaway() -> Micros {
+    crate::day_ceiling::DEFAULT_RUNAWAY_MICROS
+}
+
+fn default_step() -> Micros {
+    crate::day_ceiling::DEFAULT_STEP_MICROS
 }
 
 fn default_day_ceiling() -> Micros {
@@ -97,6 +118,10 @@ impl Default for KernelConfig {
             zone: jiff::tz::TimeZone::system(),
             daily_ceiling_micros: default_day_ceiling(),
             spend_hard_multiple: crate::overdraw::default_hard_multiple(),
+            daily_notify: false,
+            daily_runaway_micros: default_runaway(),
+            daily_step_micros: default_step(),
+            burn_line_micros: 0,
         }
     }
 }
@@ -180,6 +205,10 @@ pub enum KernelError {
     /// (theseus-jse4): nothing was written.
     #[error("{0}")]
     HardStop(Box<crate::overdraw::HardStop>),
+    /// A session's burn-rate line stopped a provider call (theseus-9e02):
+    /// nothing was written; the core asks the owner to resume.
+    #[error("{0}")]
+    BurnRate(Box<crate::day_ceiling::BurnStop>),
 }
 
 /// Refuse a transition that needs the turn `e`'s holder took: `e` must be
@@ -505,6 +534,17 @@ impl Kernel {
     /// Wrap an opened store. The kernel is not accepting events until
     /// `startup` has run; `open_session`/`admit` etc. refuse before that.
     pub fn new(store: Arc<dyn Store>, clock: Arc<dyn Clock>, cfg: KernelConfig) -> Self {
+        let ceiling = crate::day_ceiling::DayCeiling::new(
+            cfg.daily_ceiling_micros,
+            cfg.zone.clone(),
+            clock.clone(),
+        );
+        ceiling.set_rules(
+            cfg.daily_notify,
+            cfg.daily_runaway_micros,
+            cfg.daily_step_micros,
+            cfg.burn_line_micros,
+        );
         Self {
             store,
             clock: clock.clone(),
@@ -517,11 +557,7 @@ impl Kernel {
             observer: Arc::default(),
             tx: None,
             earlier: Arc::default(),
-            ceiling: Arc::new(crate::day_ceiling::DayCeiling::new(
-                cfg.daily_ceiling_micros,
-                cfg.zone.clone(),
-                clock.clone(),
-            )),
+            ceiling: Arc::new(ceiling),
             cfg,
         }
     }
@@ -1702,6 +1738,7 @@ impl Kernel {
                 .into());
             }
             self.hard_stop(&e, &proposal.tool, reserve_micros)?;
+            self.burn_stopped(&e, &proposal.tool)?;
             let id = new_id("rsv");
             if proposal.tool == PROVIDER_TOOL {
                 self.day_hold(&id, reserve_micros)?;
