@@ -201,9 +201,11 @@ async fn a_vault_value_is_scrubbed_in_every_encoding() {
 }
 
 /// A session file that grew since it was imported is the same episode with
-/// another hash: rejected and named, never overwritten, nothing written.
+/// another hash whose stored messages are a prefix: only the new message is
+/// appended (theseus-pjmj7; it was refused before), and the new text is
+/// scrubbed as the first was.
 #[tokio::test]
-async fn a_grown_file_is_refused_not_overwritten() {
+async fn a_grown_file_is_appended_to_not_overwritten() {
     let r = live();
     let c = &r.core;
     import(c, lines(&[harness("claude-code", 4, &[])])).await;
@@ -214,17 +216,29 @@ async fn a_grown_file_is_refused_not_overwritten() {
     );
     let before = c.store.stats().unwrap().frames_appended;
     let got = import(c, lines(std::slice::from_ref(&grown))).await;
-    assert_eq!((got.imported, got.skipped), (0, 0));
-    assert!(
-        got.rejected[0]
-            .why
-            .starts_with("imported before with another hash"),
-        "{got:?}"
+    assert_eq!(
+        (got.imported, got.appended, got.skipped, got.nodes),
+        (0, 1, 0, 1)
     );
-    assert!(got.rejected[0].why.ends_with("not overwritten"));
-    assert_eq!(c.store.stats().unwrap().frames_appended, before);
+    assert!(got.rejected.is_empty(), "{:?}", got.rejected);
+    assert_eq!(c.store.stats().unwrap().frames_appended, before + 1);
     let sid = session_id_of(grown["episode_id"].as_str().unwrap());
-    assert_eq!(c.store.session_nodes(&sid).unwrap().len(), 3);
+    let nodes = c.store.session_nodes(&sid).unwrap();
+    assert_eq!(nodes.len(), 4);
+    let Body::Imported { text, .. } = &nodes[3].1.body else {
+        panic!("{:?}", nodes[3])
+    };
+    assert_eq!(
+        text, "And the ledger's key?",
+        "the appended one is the new message"
+    );
+    let got = import(c, lines(std::slice::from_ref(&grown))).await;
+    assert_eq!((got.skipped, got.appended), (1, 0));
+    assert_eq!(
+        c.store.stats().unwrap().frames_appended,
+        before + 1,
+        "the repeat writes nothing"
+    );
 }
 
 /// The tag's erase takes every node and session; its tags list shows the

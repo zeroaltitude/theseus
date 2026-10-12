@@ -81,11 +81,11 @@ fn episode(i: usize) -> Value {
     v
 }
 
-fn fixture() -> Vec<Value> {
+pub(crate) fn fixture() -> Vec<Value> {
     (0..SOURCES.len()).map(episode).collect()
 }
 
-pub(super) fn lines(episodes: &[Value]) -> Vec<ImportLine> {
+pub(crate) fn lines(episodes: &[Value]) -> Vec<ImportLine> {
     episodes
         .iter()
         .enumerate()

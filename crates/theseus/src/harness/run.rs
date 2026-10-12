@@ -46,8 +46,12 @@ pub struct Report {
     pub sidechain_files: u64,
     pub unreadable: Vec<String>,
     pub imported: u64,
+    /// Files that grew since they were imported: only their new messages were
+    /// written (theseus-pjmj7).
+    pub appended: u64,
     pub skipped: u64,
-    /// Files that grew or changed since they were imported: not imported again.
+    /// Files that changed since they were imported in a way an append cannot
+    /// take (a stored message differs): not imported again.
     pub changed: Vec<String>,
     pub rejected: Vec<String>,
     pub nodes: u64,
@@ -321,6 +325,7 @@ async fn send(
         .await?;
     let r: ImportEpisodesResult = serde_json::from_value(v)?;
     report.imported += r.imported;
+    report.appended += r.appended;
     report.skipped += r.skipped;
     report.nodes += r.nodes;
     report.frames += r.frames;
@@ -341,9 +346,14 @@ async fn send(
 
 /// What the run did, in lines.
 pub fn summary(r: &Report) -> String {
+    let appended = if r.appended > 0 {
+        format!(", {} appended", r.appended)
+    } else {
+        String::new()
+    };
     let mut out = format!(
-        "{} of {} into tag {}: {} files, {} imported, {} skipped (imported before), {} nodes in \
-         {} frames ({:.0} ms)\n",
+        "{} of {} into tag {}: {} files, {} imported{appended}, {} skipped (imported before), \
+         {} nodes in {} frames ({:.0} ms)\n",
         r.dir, r.source, r.tag, r.files, r.imported, r.skipped, r.nodes, r.frames, r.ms
     );
     if r.empty_files > 0 {
@@ -360,8 +370,9 @@ pub fn summary(r: &Report) -> String {
     }
     if !r.changed.is_empty() {
         out.push_str(&format!(
-            "  {} files changed since they were imported, and were not imported again (erase the \
-             tag and import again to take their newer text):\n",
+            "  {} files changed since they were imported in a way an append cannot take (a stored \
+             message differs), and were not imported again (erase the tag and import again to \
+             take their newer text):\n",
             r.changed.len()
         ));
         for c in &r.changed {

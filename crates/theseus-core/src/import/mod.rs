@@ -36,20 +36,26 @@
 //!   person authors and DM parties as the ontology's people, with their
 //!   handles, and their memberships, by the owner's `import.people`.
 
+pub(crate) mod append;
 pub mod catalog;
 pub mod episode;
 pub mod people;
+pub mod sync;
 pub mod topics;
 pub mod write;
 
 #[cfg(test)]
 pub(crate) mod tests;
 #[cfg(test)]
+pub(crate) mod tests_append;
+#[cfg(test)]
 mod tests_catalog;
 #[cfg(test)]
 mod tests_harness;
 #[cfg(test)]
 mod tests_people;
+#[cfg(test)]
+mod tests_sync;
 #[cfg(test)]
 mod tests_topics;
 

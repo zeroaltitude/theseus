@@ -31,9 +31,11 @@
 //!   source and the file's stem, so the same file is the same episode in any
 //!   tag, and its hash is over the episode's own content, so a file that is
 //!   unchanged is skipped, and one that has grown since it was imported
-//!   (Claude Code appends to an open session) has another hash and is
-//!   reported, never imported twice and never overwritten. To take the
-//!   longer one, erase the tag and import again.
+//!   (Claude Code appends to an open session) has another hash: the daemon
+//!   appends its new messages when the stored ones are an exact prefix
+//!   (theseus-pjmj7), and reports a file whose stored messages differ,
+//!   never overwriting it. To take such a file's newer text, erase the tag
+//!   and import again.
 //!
 //! The text is not scrubbed here: the CLI holds no vault value. The daemon
 //! scrubs every message as it writes the episode (`import::write::scrubbed`).

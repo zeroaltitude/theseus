@@ -37,9 +37,11 @@ use theseus_protocol::import::{
     ImportEpisodesParams, ImportEpisodesResult, ImportEraseResult, ImportListResult,
     ImportRejected, ImportTagInfo,
 };
+use theseus_protocol::import_sync::ImportTouched;
 use theseus_protocol::SessionKind;
 use theseus_store::{kinds, NewRecord, Store as _};
 
+use super::append;
 use super::episode::{self, Episode};
 use super::{
     is_imported, node_id_of, session_id_of, summary_id_of, tag_key, tag_scope, Erased,
@@ -62,10 +64,11 @@ pub(super) static ONE: Mutex<()> = Mutex::new(());
 /// A frame being built: its records, their bytes, the tags' counts it
 /// moves, and the records past which it is cut (`FRAME_RECORDS`).
 #[derive(Default)]
-struct Frame {
+pub(super) struct Frame {
     records: Vec<NewRecord>,
     bytes: usize,
-    imported: BTreeMap<String, (u64, u64)>,
+    /// Per tag: episodes imported, nodes written, episodes appended to.
+    imported: BTreeMap<String, (u64, u64, u64)>,
     cap: usize,
 }
 
@@ -77,7 +80,7 @@ impl Frame {
         }
     }
 
-    fn push(&mut self, r: NewRecord) {
+    pub(super) fn push(&mut self, r: NewRecord) {
         self.bytes += r.payload.len();
         self.records.push(r);
     }
@@ -143,7 +146,7 @@ pub fn import_batch_unless(
     import_batch_scrubbed(store, p, by, stopping, &Scrubber::default())
 }
 
-/// [`import_batch_unless`], an episode of a harness source (`HARNESS_SOURCES`)
+/// [`import_batch_unless`], an episode of a scrubbed source (`SCRUBBED_SOURCES`)
 /// scrubbed by `scrubber` as it is written, so the store never holds a
 /// secret from an import (theseus-o73y). The RPC passes the daemon's own,
 /// which holds the vault's resolved values.
@@ -207,50 +210,48 @@ fn import_batch_cut(
                 continue;
             }
         };
-        let reject = |why: String| ImportRejected {
-            line: l.line,
-            episode_id: Some(e.episode_id.clone()),
-            why,
-        };
         let sid = session_id_of(&e.episode_id);
-        let before = match seen.get(&e.episode_id) {
-            Some(h) => Some((h.clone(), None)),
-            None => store
-                .get_session::<SessionRecord>(&sid)?
-                .and_then(|r| r.imported)
-                .map(|i| (i.hash.clone(), i.erased.clone())),
+        let eid = e.episode_id.clone();
+        let at = Place {
+            file: &p.file,
+            line: l.line,
         };
-        match before {
-            Some((h, None)) if h == e.hash => {
+        match take(
+            store,
+            e,
+            &at,
+            (&mut frame, &mut counts, &mut seen),
+            scrubber,
+        )? {
+            Took::Skipped => {
                 out.skipped += 1;
                 continue;
             }
-            Some((h, None)) => {
-                out.rejected.push(reject(format!(
-                    "imported before with another hash ({}…, this line's {}…): not overwritten",
-                    &h[..12],
-                    &e.hash[..12]
-                )));
+            Took::Refused(why) => {
+                out.rejected.push(ImportRejected {
+                    line: l.line,
+                    episode_id: Some(eid),
+                    why,
+                });
                 continue;
             }
-            Some((_, Some(erased))) => {
-                out.rejected.push(reject(format!(
-                    "erased by import.erase (by {}): an erased episode is not imported again",
-                    erased.by
-                )));
-                continue;
+            Took::Wrote { tag, nodes, grew } => {
+                out.touched.push(ImportTouched {
+                    session_id: sid,
+                    tag: tag.clone(),
+                });
+                let t = frame.imported.entry(tag).or_default();
+                t.1 += nodes;
+                out.nodes += nodes;
+                if grew {
+                    t.2 += 1;
+                    out.appended += 1;
+                } else {
+                    t.0 += 1;
+                    out.imported += 1;
+                }
             }
-            None => {}
         }
-        seen.insert(e.episode_id.clone(), e.hash.clone());
-        let e = scrubbed(e, scrubber);
-        let n = records_of(&e, &p.file, l.line, &mut frame)?;
-        count(counts.get(&e.import_tag)?, &e, n);
-        let t = frame.imported.entry(e.import_tag.clone()).or_default();
-        t.0 += 1;
-        t.1 += n;
-        out.imported += 1;
-        out.nodes += n;
         if frame.full() {
             write_frame(store, &mut frame, &mut counts, &p.file, by)?;
             out.frames += 1;
@@ -276,14 +277,101 @@ fn import_batch_cut(
     })
 }
 
-/// A harness episode's text with every secret scrubbed (theseus-o73y): each
+/// Where an episode's line is: its file and its number in it.
+struct Place<'a> {
+    file: &'a str,
+    line: u64,
+}
+
+/// What one episode came to in a batch.
+enum Took {
+    /// Held already with this hash, or taken earlier in the batch.
+    Skipped,
+    /// Not written, and why (named in the result).
+    Refused(String),
+    /// New, or appended to: the tag that holds its session, and its nodes.
+    Wrote { tag: String, nodes: u64, grew: bool },
+}
+
+/// One episode of a batch: skipped when held with the same hash, refused when
+/// erased or when its stored messages are not a prefix of its own (`append`),
+/// else its records added to `frame` and its tag's counts moved. `seen` is
+/// the batch's episodes by id and hash: their records are not written yet.
+fn take(
+    store: &Store,
+    e: Episode,
+    at: &Place<'_>,
+    (frame, counts, seen): (&mut Frame, &mut Counts<'_>, &mut BTreeMap<String, String>),
+    scrubber: &Scrubber,
+) -> Result<Took> {
+    let sid = session_id_of(&e.episode_id);
+    // The hash is the idempotency key, and the scrub leaves it: read it once.
+    let this = e.hash.clone();
+    let another = |h: &str, why: &str| {
+        Took::Refused(format!(
+            "imported before with another hash ({}…, this line's {}…): {why}",
+            &h[..12],
+            &this[..12]
+        ))
+    };
+    if let Some(h) = seen.get(&e.episode_id) {
+        return Ok(match *h == e.hash {
+            true => Took::Skipped,
+            false => another(h, "not overwritten"),
+        });
+    }
+    let stored = store
+        .get_session::<SessionRecord>(&sid)?
+        .filter(|r| r.imported.is_some());
+    if let Some(i) = stored.as_ref().and_then(|r| r.imported.as_ref()) {
+        if let Some(erased) = &i.erased {
+            return Ok(Took::Refused(format!(
+                "erased by import.erase (by {}): an erased episode is not imported again",
+                erased.by
+            )));
+        }
+        if i.hash == e.hash {
+            return Ok(Took::Skipped);
+        }
+    }
+    let e = scrubbed(e, scrubber);
+    let Some(mut rec) = stored else {
+        seen.insert(e.episode_id.clone(), e.hash.clone());
+        let tag = e.import_tag.clone();
+        let nodes = records_of(&e, at.file, at.line, frame)?;
+        count(counts.get(&tag)?, &e, nodes);
+        return Ok(Took::Wrote {
+            tag,
+            nodes,
+            grew: false,
+        });
+    };
+    let held = rec.imported.as_ref().expect("filtered");
+    let (tag, was) = (held.tag.clone(), held.hash.clone());
+    let plan = match append::plan(store, &rec, &e)? {
+        Ok(plan) => plan,
+        Err(why) => return Ok(another(&was, &why)),
+    };
+    seen.insert(e.episode_id.clone(), e.hash.clone());
+    let nodes = append::records(&e, &mut rec, &plan, frame)?;
+    let c = counts.get(&tag)?;
+    c.nodes += nodes;
+    c.last_ms = Some(c.last_ms.map_or(e.as_of.end_ms, |f| f.max(e.as_of.end_ms)));
+    Ok(Took::Wrote {
+        tag,
+        nodes,
+        grew: true,
+    })
+}
+
+/// A harness or sync episode's text with every secret scrubbed (theseus-o73y): each
 /// message's, a summary's, and the place's name, since the CLI built them
 /// from raw files. The message's `sha256` is then the stored text's. The
 /// episode's `hash`, which the check took over what the CLI sent, stays: it
 /// is the idempotency key, a digest and no text. Any other source is as it
 /// came, its pipeline having removed credentials already.
 fn scrubbed(mut e: Episode, scrubber: &Scrubber) -> Episode {
-    if !episode::HARNESS_SOURCES.contains(&e.source.as_str()) {
+    if !episode::SCRUBBED_SOURCES.contains(&e.source.as_str()) {
         return e;
     }
     for m in &mut e.messages {
@@ -393,7 +481,7 @@ fn write_frame(
     by: &str,
 ) -> Result<()> {
     let now = theseus_protocol::now_unix_ms();
-    for (tag, (imported, nodes)) in std::mem::take(&mut frame.imported) {
+    for (tag, (imported, nodes, appended)) in std::mem::take(&mut frame.imported) {
         let c = counts.get(&tag)?;
         c.updated_ms = now;
         frame.push(NewRecord::json(kinds::META, Some(&tag_key(&tag)), &*c)?);
@@ -403,6 +491,7 @@ fn write_frame(
             by,
             imported,
             nodes,
+            appended,
         };
         frame.push(fact::row(&row, None, None)?.scoped(&fact::import::scope(&tag)));
     }
