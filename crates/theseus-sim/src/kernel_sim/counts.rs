@@ -52,6 +52,9 @@ pub struct Sim2Counts {
     pub held_cancelled: u64,
     pub held_stopped: u64,
     pub held_admitted: u64,
+    /// Wakes a turn moved (theseus-lherl): the next occurrence alone, or a
+    /// series' own time.
+    pub wakes_moved: u64,
 }
 
 impl Sim2Counts {
@@ -83,6 +86,7 @@ impl Sim2Counts {
         self.held_cancelled += o.held_cancelled;
         self.held_stopped += o.held_stopped;
         self.held_admitted += o.held_admitted;
+        self.wakes_moved += o.wakes_moved;
     }
 }
 
@@ -90,7 +94,7 @@ impl fmt::Display for Sim2Counts {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "sim2: {} stops: {} while a turn ran, {} calls told to stop, {} unsent declined, {} next inputs ran a turn; {} calls stopped alone, {} task stops refused · {} tasks opened: {} waking their parent, {} found again, {} refused at depth one; {} reports read: {} woke their parent, {} read together · {} wakes due in a turn queued by its end · {} posts staged in a turn's end, {} planned outside one; {} sent, {} sent again, {} refused, {} settled, {} second settles, {} crashes around a post · {} input turns held: {} cancelled before their admission, {} stopped, {} admitted to run",
+            "sim2: {} stops: {} while a turn ran, {} calls told to stop, {} unsent declined, {} next inputs ran a turn; {} calls stopped alone, {} task stops refused · {} tasks opened: {} waking their parent, {} found again, {} refused at depth one; {} reports read: {} woke their parent, {} read together · {} wakes due in a turn queued by its end · {} posts staged in a turn's end, {} planned outside one; {} sent, {} sent again, {} refused, {} settled, {} second settles, {} crashes around a post · {} input turns held: {} cancelled before their admission, {} stopped, {} admitted to run · {} wakes moved by a turn",
             self.stops,
             self.stops_in_turn,
             self.stopped_calls,
@@ -118,6 +122,7 @@ impl fmt::Display for Sim2Counts {
             self.held_cancelled,
             self.held_stopped,
             self.held_admitted,
+            self.wakes_moved,
         )
     }
 }
@@ -141,6 +146,11 @@ pub(super) struct Sim2 {
     pub reports_taken: HashSet<String>,
     /// Parents queued for a report's wake, and not run since.
     pub report_queued: HashSet<String>,
+    /// Series whose pending occurrence a turn moved off its grid
+    /// (theseus-lherl: `wake.move` of the next one): until it is taken, its
+    /// due time is no occurrence of the series, and the take puts the next
+    /// back on the grid.
+    pub moved_off_grid: HashSet<String>,
     /// Every post the sim wrote, as the binding last left it.
     pub posts: BTreeMap<String, Action>,
     /// Each post record the binding wrote and the WAL scan has not yet

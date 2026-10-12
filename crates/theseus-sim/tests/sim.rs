@@ -148,6 +148,7 @@ fn the_kernel_holds_its_invariants_under_seeded_faults() {
         " reports read:",
         " woke their parent,",
         " wakes due in a turn queued by its end",
+        " wakes moved by a turn",
         " posts staged in a turn's end",
         " planned outside one;",
         " sent again,",

@@ -13,7 +13,7 @@ Key modules: `lifecycle.rs`, `kernel_sim.rs`, `fake_discord.rs`, `discord_proof.
     restarts within an iteration.
   - `kernel-sim` (the M2 exit test): the kernel under a virtual clock with seeded faults (a crash between any two
     frames or inside a startup step, lost, duplicate, and late completions, cancels; wakes, one-shot and repeating,
-    in `kernel_sim/wakes.rs`, and crashes that keep the daemon down for minutes) and invariants checked at every
+    in `kernel_sim/wakes.rs`, a turn's moves of them (`wake.move`, theseus-lherl: a series' next occurrence moved off its grid until it is taken), and crashes that keep the daemon down for minutes) and invariants checked at every
     step. `--p-race` races a second thread against turns; 0 is fully deterministic. sim2 (theseus-celu.35):
     `/stop` between turns, in one, beside a raced one, and of one call (`kernel_sim/stops.rs`); tasks under a
     parent, their carve and reports (`kernel_sim/tasks.rs`); and the outbox's posts, sent by a fake binding to a

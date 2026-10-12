@@ -806,6 +806,13 @@ impl World {
                 return Ok(());
             }
         }
+        // A turn moves one of its wakes now and then (theseus-lherl).
+        if self.chance(0.2) {
+            self.move_a_wake(&exec_id)?;
+            if self.maybe_crash("after move_wake")? {
+                return Ok(());
+            }
+        }
         // Now and then the operator stops a conversation while its turn runs
         // (W1), and a turn opens a task (DD7).
         let conversation = self
