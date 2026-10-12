@@ -221,15 +221,22 @@ pub fn day(ms: u64) -> String {
 /// before the secret broker's: a call the tool's posture alone makes wait,
 /// in a private place, that a grant covers, runs at `notify` instead. Any
 /// other decision returns as it came. Every later layer still raises it.
+///
+/// An L1 job (`l1`) keeps its decision: L1's asks are its own (its posture,
+/// and hosts beyond `[sandbox] egress`, which a call may name with `sandbox:
+/// { egress: [...] }`), not the L0 posture a grant loosens, and the finder
+/// counts none of them as evidence.
 pub(crate) fn gate(
     rt: &ToolRuntime,
     class: PlaceClass,
     tool: &dyn Tool,
     plan: &Plan,
     input: &Value,
+    l1: bool,
     d: Decision,
 ) -> Decision {
     if d.posture != Posture::Approve
+        || l1
         || d.floor
         || class != PlaceClass::Private
         || !rt.earned.any()

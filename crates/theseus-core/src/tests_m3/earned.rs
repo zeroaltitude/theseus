@@ -461,8 +461,9 @@ fn gated(
     let rt = &r.core.tools;
     let tool = rt.registry.get("proc.run").unwrap().clone();
     let plan = tool.plan(&input, &rt.ctx).unwrap();
-    let d = rt.policy.decide_with(&*tool, &plan, None);
-    let after = crate::policy::earned::gate(rt, class, &*tool, &plan, &input, d.clone());
+    let (d, bound) = crate::sandbox::unbrokered(rt, &*tool, &plan, &input, None);
+    let after =
+        crate::policy::earned::gate(rt, class, &*tool, &plan, &input, bound.l1(), d.clone());
     (d, after)
 }
 
@@ -531,6 +532,26 @@ fn the_gate_applies_a_grant_in_a_private_place_to_a_covered_call_alone() {
             "{why}"
         );
     }
+}
+
+/// A grant never loosens an L1 job's ask: hosts beyond `[sandbox] egress`
+/// that the call names still wait for a yes, as L1's own posture does.
+#[test]
+fn the_gate_leaves_an_l1_jobs_ask_alone() {
+    use theseus_protocol::PlaceClass::Private;
+    let r = gate_rig();
+    let beyond = json!({
+        "argv": ["echo", "hello", "x"],
+        "cwd": r.root,
+        "sandbox": {"egress": ["exfil.example:443"]}
+    });
+    let (asked, after) = gated(&r, beyond, Private);
+    assert_eq!(asked.posture, Posture::Approve, "{}", asked.reason);
+    assert!(asked.reason.contains("egress"), "{}", asked.reason);
+    assert_eq!(after.posture, Posture::Approve, "{}", after.reason);
+    assert!(after.notify.is_none());
+    let hello = json!({"argv": ["echo", "hello", "x"], "cwd": r.root});
+    assert_eq!(gated(&r, hello, Private).1.posture, Posture::Notify);
 }
 
 /// A grant never passes what asks for another reason: the approve list, the

@@ -100,8 +100,15 @@ impl ToolRuntime {
         let t = tightened.as_ref().map(crate::tighten::as_tightened);
         let (decision, bound) = crate::sandbox::unbrokered(self, tool, plan, input, t);
         seen(Layer::Policy, &decision);
-        let decision =
-            crate::policy::earned::gate(self, at.place.class, tool, plan, input, decision);
+        let decision = crate::policy::earned::gate(
+            self,
+            at.place.class,
+            tool,
+            plan,
+            input,
+            bound.l1(),
+            decision,
+        );
         seen(Layer::Earned, &decision);
         let decision = self.brokered(tool.name(), plan, input, decision);
         seen(Layer::Grant, &decision);
