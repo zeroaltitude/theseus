@@ -86,7 +86,8 @@ test('a call: two or three falling notes, each below the last, crossing the ster
     assert.ok(gullLevel(c, c.fade / 2) < gullLevel(c, c.fade), 'it fades in')
     assert.ok(gullLevel(c, c.secs - c.fade / 2) < GULL_GAIN, 'and out')
   }
-  assert.ok(GULL_GAIN < SURF_GAIN_ROLL / 2, 'quieter than the waves')
+  // The owner, 2026-10-12: "slightly louder" (0.07 -> 0.1): still well under the idle roll.
+  assert.ok(GULL_GAIN < SURF_GAIN_ROLL * 0.75, 'quieter than the waves')
 })
 
 test('the graph: a call makes sources and a panner on the master, and stopping lets go of every one', () => {
@@ -126,5 +127,7 @@ test('a gull plays only where the sound runs: no context, nothing', () => {
 test('the page: the gull is heard where the sea is heard, and its timers and nodes are let go on cleanup', () => {
   const src = readFileSync(new URL('../src/ship/useShipSound.ts', import.meta.url), 'utf8')
   assert.match(src, /const hearing = on && !calm && swell/)
-  assert.match(src, /if \(!hearing\) return\s+const a = theAudio\(\)[\s\S]*startGulls\(true[\s\S]*return \(\) => \{ stop\(\); a\.gullStop\(\) \}\s+\}, \[hearing\]\)/)
+  assert.match(src, /if \(!hearing\) return\s+const a = theAudio\(\)[\s\S]*startGulls\(true[\s\S]*return \(\) => \{ stop\(\); if \(soon !== null\) clearTimeout\(soon\); a\.gullStop\(\) \}\s+\}, \[hearing\]\)/)
+  // `?gull=now` plays one visit three seconds in, and its timer is let go on cleanup too.
+  assert.match(src, /get\('gull'\) === 'now'\s+\? setTimeout\(\(\) => \{ a\.gull\(gullCall\(next\)\) \}, 3000\)/)
 })
