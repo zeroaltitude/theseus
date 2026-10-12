@@ -2174,8 +2174,9 @@ impl TurnRunner {
             .rev()
             .find(|(_, n)| !crate::stub::Kind::is_note(n.kind));
         // A recall's note, written by a turn's compile after the message it
-        // fed, is no reply and no input: a message with only one after it
-        // still waits (theseus-posww). Neither is a call, as before.
+        // fed, is no reply and no input, nor is a summary its compaction
+        // wrote: a message with only those after it still waits
+        // (theseus-posww). Neither is a call, as before.
         // Results the model has not read are its next input (theseus-kol). A
         // continuation that finds them was woken to have them read: the turn
         // that wrote them failed or faulted before its model call returned

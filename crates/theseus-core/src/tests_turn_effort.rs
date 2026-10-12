@@ -173,6 +173,8 @@ async fn the_historys_messages_follow_the_records() {
         assert!(!req.betas.iter().any(|b| b == BETA_TURN_EFFORT), "{name}");
     }
     let reqs = r.claude.requests();
+    let haiku = reqs.last().unwrap();
+    assert_eq!(effective(haiku), Some(Effort::Low), "Haiku's profile's own");
     let fable = &reqs[1];
     assert_eq!(fable.model, "claude-fable-5-1");
     assert_eq!(

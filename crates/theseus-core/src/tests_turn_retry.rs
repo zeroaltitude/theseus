@@ -1,8 +1,8 @@
 //! A retried turn answers the message that waits, and a continuation that made
 //! no model call posts no reply (theseus-posww):
-//! - a message with only a recall's note after it still waits (the note is
-//!   written by the compile of the turn that failed), so its retry calls the
-//!   model and answers;
+//! - a message with only a recall's note or a compaction's summary after it
+//!   still waits (each is written by the turn that failed, before its call),
+//!   so its retry calls the model and answers;
 //! - a continuation that finds nothing new posts nothing to the place, unless
 //!   a person waits on it (the session is in a run of failed turns): then one
 //!   line says why nothing was done.
@@ -131,6 +131,55 @@ async fn a_retry_answers_the_message_a_recall_note_follows() {
     assert_eq!(
         (retry.loops, retry.output.as_str()),
         (1, "By the old weir.")
+    );
+    assert_eq!(model.requests().len(), 2, "the retry called the model");
+}
+
+/// A compaction inside the turn that failed (theseus-3ki0) writes its summary
+/// after the message: the summary is no reply either, and the retry answers.
+#[tokio::test]
+async fn a_retry_answers_the_message_a_summary_follows() {
+    let dir = tempfile::tempdir().unwrap();
+    let model = Arc::new(FakeProvider::scripted(vec![
+        overloaded(),
+        Scripted::text("By the old weir."),
+    ]));
+    let core = build(dir.path(), model.clone());
+    let sid = session(&core, &["The herons came back in March."], true);
+    run(&core, &sid, Some("Where does the grey heron nest?"))
+        .await
+        .expect_err("the call fails");
+    let first = core.store.session_nodes(&sid).unwrap()[0].0;
+    let summary = Node::summary(
+        &sid,
+        "t-compaction",
+        Body::Summary {
+            first,
+            last: first,
+            nodes: 1,
+            text: "The herons came back in March.".into(),
+            profile: "session".into(),
+            model: "fake".into(),
+            cost_usd: None,
+            header: "[Summary of 1 earlier message]".into(),
+        },
+    );
+    core.store.append(&[summary.record().unwrap()]).unwrap();
+    let nodes = core.store.session_nodes(&sid).unwrap();
+    assert!(
+        matches!(nodes.last().unwrap().1.body, Body::Summary { .. }),
+        "the summary is the last node"
+    );
+    let rec: SessionRecord = core.store.get_session(&sid).unwrap().unwrap();
+    let exec = rec.execution_id.clone().unwrap();
+    let retry = core.continue_execution(&exec).await.unwrap().unwrap();
+    assert_eq!(
+        (
+            retry.stop_reason.as_str(),
+            retry.loops,
+            retry.output.as_str()
+        ),
+        ("no_tool_calls", 1, "By the old weir.")
     );
     assert_eq!(model.requests().len(), 2, "the retry called the model");
 }
