@@ -1,0 +1,143 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="792" viewBox="0 0 720 792" role="img" aria-labelledby="t-steps t-steps-d" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
+<title id="t-steps">F10's checks passed, by step, at 120x40</title>
+<desc id="t-steps-d">Which of the first ten minutes' steps does each client get right?</desc>
+<rect width="720" height="792" rx="8" fill="#fcfcfb" stroke="#e6e5df"/>
+<text x="18.0" y="32.0" font-size="15" fill="#0b0b0b" font-weight="600">F10's checks passed, by step, at 120x40</text>
+<rect x="18.0" y="44.0" width="14" height="12" rx="3" fill="#2a78d6"/>
+<text x="40.0" y="54.0" font-size="12" fill="#52514e">Theseus (120x40)</text>
+<rect x="165.9" y="44.0" width="14" height="12" rx="3" fill="#eb6834"/>
+<text x="187.9" y="54.0" font-size="12" fill="#52514e">Claude Code (120x40)</text>
+<line x1="58.9" y1="74.0" x2="58.9" y2="698.0" stroke="#e1e0d9" stroke-width="1"/>
+<line x1="177.3" y1="74.0" x2="177.3" y2="698.0" stroke="#e1e0d9" stroke-width="1"/>
+<line x1="295.7" y1="74.0" x2="295.7" y2="698.0" stroke="#e1e0d9" stroke-width="1"/>
+<line x1="414.2" y1="74.0" x2="414.2" y2="698.0" stroke="#e1e0d9" stroke-width="1"/>
+<line x1="532.6" y1="74.0" x2="532.6" y2="698.0" stroke="#e1e0d9" stroke-width="1"/>
+<line x1="651.0" y1="74.0" x2="651.0" y2="698.0" stroke="#e1e0d9" stroke-width="1"/>
+<text x="48.9" y="102.0" font-size="12" fill="#0b0b0b" text-anchor="end">S1</text>
+<g><title>S1 · Theseus (120x40): 25.0%</title>
+<path d="M58.9,81.0H202.9A4,4 0 0 1 206.9,85.0V93.0A4,4 0 0 1 202.9,97.0H58.9Z" fill="#2a78d6"/>
+</g>
+<text x="211.9" y="93.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">25.0%</text>
+<g><title>S1 · Claude Code (120x40): 100.0%</title>
+<path d="M58.9,99.0H647.0A4,4 0 0 1 651.0,103.0V111.0A4,4 0 0 1 647.0,115.0H58.9Z" fill="#eb6834"/>
+</g>
+<text x="656.0" y="111.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">100.0%</text>
+<text x="48.9" y="150.0" font-size="12" fill="#0b0b0b" text-anchor="end">S2</text>
+<g><title>S2 · Theseus (120x40): 0.0%</title>
+<path d="M58.9,129.0H58.9A0.0,0.0 0 0 1 58.9,129.0V145.0A0.0,0.0 0 0 1 58.9,145.0H58.9Z" fill="#2a78d6"/>
+</g>
+<text x="63.9" y="141.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">0.0%</text>
+<g><title>S2 · Claude Code (120x40): 100.0%</title>
+<path d="M58.9,147.0H647.0A4,4 0 0 1 651.0,151.0V159.0A4,4 0 0 1 647.0,163.0H58.9Z" fill="#eb6834"/>
+</g>
+<text x="656.0" y="159.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">100.0%</text>
+<text x="48.9" y="198.0" font-size="12" fill="#0b0b0b" text-anchor="end">S3</text>
+<g><title>S3 · Theseus (120x40): 75.0%</title>
+<path d="M58.9,177.0H499.0A4,4 0 0 1 503.0,181.0V189.0A4,4 0 0 1 499.0,193.0H58.9Z" fill="#2a78d6"/>
+</g>
+<text x="508.0" y="189.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">75.0%</text>
+<g><title>S3 · Claude Code (120x40): 100.0%</title>
+<path d="M58.9,195.0H647.0A4,4 0 0 1 651.0,199.0V207.0A4,4 0 0 1 647.0,211.0H58.9Z" fill="#eb6834"/>
+</g>
+<text x="656.0" y="207.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">100.0%</text>
+<text x="48.9" y="246.0" font-size="12" fill="#0b0b0b" text-anchor="end">S4</text>
+<g><title>S4 · Theseus (120x40): 0.0%</title>
+<path d="M58.9,225.0H58.9A0.0,0.0 0 0 1 58.9,225.0V241.0A0.0,0.0 0 0 1 58.9,241.0H58.9Z" fill="#2a78d6"/>
+</g>
+<text x="63.9" y="237.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">0.0%</text>
+<g><title>S4 · Claude Code (120x40): 100.0%</title>
+<path d="M58.9,243.0H647.0A4,4 0 0 1 651.0,247.0V255.0A4,4 0 0 1 647.0,259.0H58.9Z" fill="#eb6834"/>
+</g>
+<text x="656.0" y="255.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">100.0%</text>
+<text x="48.9" y="294.0" font-size="12" fill="#0b0b0b" text-anchor="end">S5</text>
+<g><title>S5 · Theseus (120x40): 0.0%</title>
+<path d="M58.9,273.0H58.9A0.0,0.0 0 0 1 58.9,273.0V289.0A0.0,0.0 0 0 1 58.9,289.0H58.9Z" fill="#2a78d6"/>
+</g>
+<text x="63.9" y="285.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">0.0%</text>
+<g><title>S5 · Claude Code (120x40): 0.0%</title>
+<path d="M58.9,291.0H58.9A0.0,0.0 0 0 1 58.9,291.0V307.0A0.0,0.0 0 0 1 58.9,307.0H58.9Z" fill="#eb6834"/>
+</g>
+<text x="63.9" y="303.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">0.0%</text>
+<text x="48.9" y="342.0" font-size="12" fill="#0b0b0b" text-anchor="end">S6</text>
+<g><title>S6 · Theseus (120x40): 50.0%</title>
+<path d="M58.9,321.0H351.0A4,4 0 0 1 355.0,325.0V333.0A4,4 0 0 1 351.0,337.0H58.9Z" fill="#2a78d6"/>
+</g>
+<text x="360.0" y="333.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">50.0%</text>
+<g><title>S6 · Claude Code (120x40): 25.0%</title>
+<path d="M58.9,339.0H202.9A4,4 0 0 1 206.9,343.0V351.0A4,4 0 0 1 202.9,355.0H58.9Z" fill="#eb6834"/>
+</g>
+<text x="211.9" y="351.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">25.0%</text>
+<text x="48.9" y="390.0" font-size="12" fill="#0b0b0b" text-anchor="end">S7</text>
+<g><title>S7 · Theseus (120x40): 33.3%</title>
+<path d="M58.9,369.0H252.1A4,4 0 0 1 256.1,373.0V381.0A4,4 0 0 1 252.1,385.0H58.9Z" fill="#2a78d6"/>
+</g>
+<text x="261.1" y="381.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">33.3%</text>
+<g><title>S7 · Claude Code (120x40): 33.3%</title>
+<path d="M58.9,387.0H252.1A4,4 0 0 1 256.1,391.0V399.0A4,4 0 0 1 252.1,403.0H58.9Z" fill="#eb6834"/>
+</g>
+<text x="261.1" y="399.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">33.3%</text>
+<text x="48.9" y="438.0" font-size="12" fill="#0b0b0b" text-anchor="end">S8</text>
+<g><title>S8 · Theseus (120x40): 66.7%</title>
+<path d="M58.9,417.0H449.8A4,4 0 0 1 453.8,421.0V429.0A4,4 0 0 1 449.8,433.0H58.9Z" fill="#2a78d6"/>
+</g>
+<text x="458.8" y="429.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">66.7%</text>
+<g><title>S8 · Claude Code (120x40): 100.0%</title>
+<path d="M58.9,435.0H647.0A4,4 0 0 1 651.0,439.0V447.0A4,4 0 0 1 647.0,451.0H58.9Z" fill="#eb6834"/>
+</g>
+<text x="656.0" y="447.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">100.0%</text>
+<text x="48.9" y="486.0" font-size="12" fill="#0b0b0b" text-anchor="end">S9</text>
+<g><title>S9 · Theseus (120x40): 0.0%</title>
+<path d="M58.9,465.0H58.9A0.0,0.0 0 0 1 58.9,465.0V481.0A0.0,0.0 0 0 1 58.9,481.0H58.9Z" fill="#2a78d6"/>
+</g>
+<text x="63.9" y="477.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">0.0%</text>
+<g><title>S9 · Claude Code (120x40): 0.0%</title>
+<path d="M58.9,483.0H58.9A0.0,0.0 0 0 1 58.9,483.0V499.0A0.0,0.0 0 0 1 58.9,499.0H58.9Z" fill="#eb6834"/>
+</g>
+<text x="63.9" y="495.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">0.0%</text>
+<text x="48.9" y="534.0" font-size="12" fill="#0b0b0b" text-anchor="end">S10</text>
+<g><title>S10 · Theseus (120x40): 33.3%</title>
+<path d="M58.9,513.0H252.1A4,4 0 0 1 256.1,517.0V525.0A4,4 0 0 1 252.1,529.0H58.9Z" fill="#2a78d6"/>
+</g>
+<text x="261.1" y="525.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">33.3%</text>
+<g><title>S10 · Claude Code (120x40): 100.0%</title>
+<path d="M58.9,531.0H647.0A4,4 0 0 1 651.0,535.0V543.0A4,4 0 0 1 647.0,547.0H58.9Z" fill="#eb6834"/>
+</g>
+<text x="656.0" y="543.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">100.0%</text>
+<text x="48.9" y="582.0" font-size="12" fill="#0b0b0b" text-anchor="end">S11</text>
+<g><title>S11 · Theseus (120x40): 25.0%</title>
+<path d="M58.9,561.0H202.9A4,4 0 0 1 206.9,565.0V573.0A4,4 0 0 1 202.9,577.0H58.9Z" fill="#2a78d6"/>
+</g>
+<text x="211.9" y="573.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">25.0%</text>
+<g><title>S11 · Claude Code (120x40): 0.0%</title>
+<path d="M58.9,579.0H58.9A0.0,0.0 0 0 1 58.9,579.0V595.0A0.0,0.0 0 0 1 58.9,595.0H58.9Z" fill="#eb6834"/>
+</g>
+<text x="63.9" y="591.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">0.0%</text>
+<text x="48.9" y="630.0" font-size="12" fill="#0b0b0b" text-anchor="end">S12</text>
+<g><title>S12 · Theseus (120x40): 0.0%</title>
+<path d="M58.9,609.0H58.9A0.0,0.0 0 0 1 58.9,609.0V625.0A0.0,0.0 0 0 1 58.9,625.0H58.9Z" fill="#2a78d6"/>
+</g>
+<text x="63.9" y="621.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">0.0%</text>
+<g><title>S12 · Claude Code (120x40): 33.3%</title>
+<path d="M58.9,627.0H252.1A4,4 0 0 1 256.1,631.0V639.0A4,4 0 0 1 252.1,643.0H58.9Z" fill="#eb6834"/>
+</g>
+<text x="261.1" y="639.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">33.3%</text>
+<text x="48.9" y="678.0" font-size="12" fill="#0b0b0b" text-anchor="end">beat</text>
+<g><title>beat · Theseus (120x40): 100.0%</title>
+<path d="M58.9,657.0H647.0A4,4 0 0 1 651.0,661.0V669.0A4,4 0 0 1 647.0,673.0H58.9Z" fill="#2a78d6"/>
+</g>
+<text x="656.0" y="669.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">100.0%</text>
+<g><title>beat · Claude Code (120x40): 0.0%</title>
+<path d="M58.9,675.0H58.9A0.0,0.0 0 0 1 58.9,675.0V691.0A0.0,0.0 0 0 1 58.9,691.0H58.9Z" fill="#eb6834"/>
+</g>
+<text x="63.9" y="687.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">0.0%</text>
+<text x="58.9" y="714.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">0%</text>
+<text x="177.3" y="714.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">20%</text>
+<text x="295.7" y="714.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">40%</text>
+<text x="414.2" y="714.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">60%</text>
+<text x="532.6" y="714.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">80%</text>
+<text x="651.0" y="714.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">100%</text>
+<line x1="58.9" y1="698.0" x2="651.0" y2="698.0" stroke="#c3c2b7" stroke-width="1"/>
+<text x="355.0" y="732.0" font-size="12" fill="#52514e" text-anchor="middle">share of the step's checks passed</text>
+<text x="18.0" y="754.0" font-size="11" fill="#52514e">42 match checks in 12 steps, and 5 beat checks; each check reads the captured screens or a record the driver measured</text>
+<text x="18.0" y="769.0" font-size="11" fill="#52514e">(scripts/f10/checks.py).</text>
+</svg>

@@ -1,0 +1,959 @@
+{
+ "report": "2026-10-12-f10-first-live-run",
+ "title": "F10: the first ten minutes, Theseus against Claude Code, the first live run",
+ "suite": "f10",
+ "date": "2026-10-12",
+ "commit": "026dce3fd1df84344113afdea284373e4633525f",
+ "arms": [
+  "theseus",
+  "claude-code"
+ ],
+ "summary": {
+  "totals": {
+   "theseus 120x40": {
+    "match": 11,
+    "beat": 5
+   },
+   "claude-code 120x40": {
+    "match": 25,
+    "beat": 0
+   },
+   "theseus 80x24": {
+    "match": 11,
+    "beat": 5
+   },
+   "claude-code 80x24": {
+    "match": 20,
+    "beat": 0
+   }
+  },
+  "scorecard": [
+   {
+    "arm": "theseus",
+    "size": "120x40",
+    "version": "theseus 0.0.1",
+    "model": "claude-sonnet-5-5",
+    "results": {
+     "S1a": [
+      false,
+      "`theseus` returned to the shell: '$'"
+     ],
+     "S1b": [
+      false,
+      "`theseus` never showed a prompt to type into"
+     ],
+     "S1c": [
+      false,
+      "the first screen lacks the model and the directory"
+     ],
+     "S1d": [
+      true,
+      "For more information, try '--help'."
+     ],
+     "S2a": [
+      false,
+      "raw markdown: '# Port Wenlow tides'"
+     ],
+     "S2b": [
+      false,
+      "a call shows only its tool: '\u2192 fs.read'"
+     ],
+     "S2c": [
+      false,
+      "nothing moved in a second of waiting; the screen ends '\u27f3 context recompile (new_session, transcript) \u00b7 1 message(s) \u00b7 ~15875 tokens'"
+     ],
+     "S2d": [
+      false,
+      "cut: 'he high and low waters b' / 'etween their neighbours,'"
+     ],
+     "S3a": [
+      true,
+      "out 12 \u00b7 $0.0283 \u2502 you: run the tests: python3 -m unittest -v test_tides \u2502 \u2500\u2500 turn turn_"
+     ],
+     "S3b": [
+      true,
+      "one key: y"
+     ],
+     "S3c": [
+      false,
+      "the test's own failure output is not on the screen"
+     ],
+     "S3d": [
+      true,
+      "no id typed"
+     ],
+     "S4a": [
+      false,
+      "no diff before approving"
+     ],
+     "S4b": [
+      false,
+      "no diff lines to colour"
+     ],
+     "S4c": [
+      false,
+      "the diff is not in the conversation after the edit"
+     ],
+     "S4d": [
+      false,
+      "no line number beside the file's name"
+     ],
+     "S5a": [
+      false,
+      "no offer to stop asking"
+     ],
+     "S5b": [
+      false,
+      "no offer to scope"
+     ],
+     "S5c": [
+      false,
+      "the arm has no key that accepts edits"
+     ],
+     "S6a": [
+      false,
+      "no elapsed time moves while it runs"
+     ],
+     "S6b": [
+      false,
+      "none of its output so far is shown"
+     ],
+     "S6c": [
+      true,
+      "answered while it ran: The low water is the 12:00 reading, at 0.60 m."
+     ],
+     "S6d": [
+      true,
+      "\u2502 \u2190 proc.run ok \u00b7 exit 0 \u00b7 90026 ms \u00b7 830 B \u00b7 late"
+     ],
+     "S7a": [
+      false,
+      "C-c did not stop the turn"
+     ],
+     "S7b": [
+      false,
+      "the key left the conversation for the shell: '$'"
+     ],
+     "S7c": [
+      true,
+      "the earlier survey still runs"
+     ],
+     "S8a": [
+      true,
+      "one message: question and log"
+     ],
+     "S8b": [
+      false,
+      "no fold and no log on screen"
+     ],
+     "S8c": [
+      true,
+      "all 60 lines, in order"
+     ],
+     "S9a": [
+      false,
+      "the arm has no undo"
+     ],
+     "S9b": [
+      false,
+      "the arm has no undo"
+     ],
+     "S9c": [
+      false,
+      "the arm has no undo"
+     ],
+     "S10a": [
+      false,
+      "only '\u2502 \u27f3 context append \u00b7 29 message(s) \u00b7 ~17245 tokens'"
+     ],
+     "S10b": [
+      true,
+      "\u25cb ready what does this proj $0.56 \u2502 ses \u20265cff46 \u00b7 what does this project do? \u00b7 claude-sonnet-5-5 \u00b7 \u25cb ready"
+     ],
+     "S10c": [
+      false,
+      "parts: tools?, messages?"
+     ],
+     "S11a": [
+      true,
+      "the survey still runs after leaving"
+     ],
+     "S11b": [
+      false,
+      "no command reopens the last conversation here"
+     ],
+     "S11c": [
+      false,
+      "nothing reopened"
+     ],
+     "S11d": [
+      false,
+      "no picker of past conversations"
+     ],
+     "S12a": [
+      false,
+      "the arm has no planning mode"
+     ],
+     "S12b": [
+      false,
+      "the arm has no planning mode"
+     ],
+     "S12c": [
+      false,
+      "the arm has no planning mode"
+     ],
+     "B1": [
+      true,
+      "a prompt after 55 ms (`theseus tui`)"
+     ],
+     "B2": [
+      true,
+      "\u25cb ready what does this proj $0.17 \u2502 ses \u20265cff46 \u00b7 what does this project do? \u00b7 claude-sonnet-5-5 \u00b7 \u25cb ready"
+     ],
+     "B3": [
+      true,
+      "\u2502 \u2190 proc.run stopped by the TUI \u00b7 315 B \u00b7 late \u00b7 verified: process tree, 1 process"
+     ],
+     "B4": [
+      true,
+      "the survey ran on through theseusd's stop and start"
+     ],
+     "B5": [
+      true,
+      "5.4 MB (theseus-tui (pid 3932570))"
+     ]
+    },
+    "totals": {
+     "match": 11,
+     "beat": 5,
+     "by_step": {
+      "S1": 1,
+      "S2": 0,
+      "S3": 3,
+      "S4": 0,
+      "S5": 0,
+      "S6": 2,
+      "S7": 1,
+      "S8": 2,
+      "S9": 0,
+      "S10": 1,
+      "S11": 1,
+      "S12": 0
+     }
+    }
+   },
+   {
+    "arm": "claude-code",
+    "size": "120x40",
+    "version": "2.1.296 (Claude Code)",
+    "model": "claude-sonnet-5-5",
+    "results": {
+     "S1a": [
+      true,
+      "`claude` left claude in front, taking input"
+     ],
+     "S1b": [
+      true,
+      "a prompt after 416 ms (`claude`)"
+     ],
+     "S1c": [
+      true,
+      "\u259d\u259c\u2588\u2588\u2588\u2588\u2588\u2588\u2580 Sonnet 5.5 \u00b7 API Usage Billing"
+     ],
+     "S1d": [
+      true,
+      "\u259d\u259c\u2588\u2588\u2588\u2588\u2588\u2588\u2580 Sonnet 5.5 \u00b7 API Usage Billing"
+     ],
+     "S2a": [
+      true,
+      "Listed 1 directory (ctrl+o to expand)"
+     ],
+     "S2b": [
+      true,
+      "- tides.py reads a table of HH:MM height lines. It finds the high and low waters and works out the tidal range."
+     ],
+     "S2c": [
+      true,
+      "\u25cf Listing 1 directory\u2026 (ctrl+o to expand)"
+     ],
+     "S2d": [
+      true,
+      "no word is cut at 120 columns"
+     ],
+     "S3a": [
+      true,
+      ".py holds the unit tests. Run them with python3 -m unittest -v test_tides. - slow_survey."
+     ],
+     "S3b": [
+      true,
+      "one key: Enter"
+     ],
+     "S3c": [
+      true,
+      "FAIL: test_tidal_range (test_tides.TidesTest.test_tidal_range)"
+     ],
+     "S3d": [
+      true,
+      "no id typed"
+     ],
+     "S4a": [
+      true,
+      "50 - return round(lowest - highest, 2) \u2192 50 + return round(highest - lowest, 2)"
+     ],
+     "S4b": [
+      true,
+      "removed ['38;5;167', '38;5;231', '48;5;52'], added ['38;5;141', '38;5;148', '38;5;197', '38;5;231', '38;5;77', '48;5;22', '48;5;28']"
+     ],
+     "S4c": [
+      true,
+      "50 - return round(lowest - highest, 2) \u2192 50 + return round(highest - lowest, 2)"
+     ],
+     "S4d": [
+      true,
+      "50 - return round(lowest - highest, 2)"
+     ],
+     "S5a": [
+      false,
+      "no offer to stop asking"
+     ],
+     "S5b": [
+      false,
+      "no offer to scope"
+     ],
+     "S5c": [
+      false,
+      "the screen does not say edits are accepted"
+     ],
+     "S6a": [
+      false,
+      "no elapsed time moves while it runs"
+     ],
+     "S6b": [
+      false,
+      "none of its output so far is shown"
+     ],
+     "S6c": [
+      true,
+      "answered while it ran: The low water is the 12:00 reading, at 0.60 m."
+     ],
+     "S6d": [
+      false,
+      "the agent did not go on by itself"
+     ],
+     "S7a": [
+      false,
+      "Escape did not stop the turn"
+     ],
+     "S7b": [
+      true,
+      "claude still in front"
+     ],
+     "S7c": [
+      false,
+      "the earlier survey was stopped too"
+     ],
+     "S8a": [
+      true,
+      "one message: question and log"
+     ],
+     "S8b": [
+      true,
+      "\u276f [Pasted text #1 +60 lines]what do these log lines say went wrong?"
+     ],
+     "S8c": [
+      true,
+      "all 60 lines, in order"
+     ],
+     "S9a": [
+      false,
+      "tides.py still holds the edit"
+     ],
+     "S9b": [
+      false,
+      "the conversation was not taken back"
+     ],
+     "S9c": [
+      false,
+      "4 keys: Escape Escape Enter Enter"
+     ],
+     "S10a": [
+      true,
+      "\u26f6 \u26f6 \u26f6 \u26f6 \u26f6 \u26f6 \u26f6 \u26f6 \u26f6 \u26f6 \u26f6 \u26f6 \u26f6 \u26f6 \u26f6 \u26f6 \u26f6 \u26f6 \u26f6 \u26f6 44k/1m tokens (4%)"
+     ],
+     "S10b": [
+      true,
+      "Total cost: $0.1964"
+     ],
+     "S10c": [
+      true,
+      "parts: system, tools?, messages?, free"
+     ],
+     "S11a": [
+      false,
+      "leaving stopped the survey"
+     ],
+     "S11b": [
+      false,
+      "`claude -c` did not reopen it"
+     ],
+     "S11c": [
+      false,
+      "no transcript"
+     ],
+     "S11d": [
+      false,
+      "`claude --resume` listed nothing found"
+     ],
+     "S12a": [
+      false,
+      "the screen does not show a planning mode"
+     ],
+     "S12b": [
+      true,
+      "Claude has written up a plan and is ready to execute. Would you like to proceed?"
+     ],
+     "S12c": [
+      false,
+      "no progress through the plan's steps"
+     ],
+     "B1": [
+      false,
+      "a prompt after 416 ms (`claude`)"
+     ],
+     "B2": [
+      false,
+      "no cost on S2.reply, S3.after, S4.after"
+     ],
+     "B3": [
+      false,
+      "gone, but the screen does not say it was verified"
+     ],
+     "B4": [
+      false,
+      "claude's exit stopped the survey"
+     ],
+     "B5": [
+      false,
+      "343.1 MB (claude (pid 4109727))"
+     ]
+    },
+    "totals": {
+     "match": 25,
+     "beat": 0,
+     "by_step": {
+      "S1": 4,
+      "S2": 4,
+      "S3": 4,
+      "S4": 4,
+      "S5": 0,
+      "S6": 1,
+      "S7": 1,
+      "S8": 3,
+      "S9": 0,
+      "S10": 3,
+      "S11": 0,
+      "S12": 1
+     }
+    }
+   },
+   {
+    "arm": "theseus",
+    "size": "80x24",
+    "version": "theseus 0.0.1",
+    "model": "claude-sonnet-5-5",
+    "results": {
+     "S1a": [
+      false,
+      "`theseus` returned to the shell: '$'"
+     ],
+     "S1b": [
+      false,
+      "`theseus` never showed a prompt to type into"
+     ],
+     "S1c": [
+      false,
+      "the first screen lacks the model and the directory"
+     ],
+     "S1d": [
+      true,
+      "For more information, try '--help'."
+     ],
+     "S2a": [
+      false,
+      "raw markdown: '# Port Wenlow tides'"
+     ],
+     "S2b": [
+      false,
+      "a call shows only its tool: '\u2192 fs.read'"
+     ],
+     "S2c": [
+      false,
+      "nothing moved in a second of waiting; the screen ends '\u27f3 context recompile (new_session, transcript) \u00b7 1 message(s) \u00b7 ~15874 tokens'"
+     ],
+     "S2d": [
+      false,
+      "cut: 'ghbours, and works out t' / 'he tidal range between t'"
+     ],
+     "S3a": [
+      true,
+      "64 out 12 \u00b7 $0.0282 you: run the tests: python3 -m unittest -v test_tides \u2500\u2500 turn turn_01"
+     ],
+     "S3b": [
+      true,
+      "one key: y"
+     ],
+     "S3c": [
+      false,
+      "the test's own failure output is not on the screen"
+     ],
+     "S3d": [
+      true,
+      "no id typed"
+     ],
+     "S4a": [
+      false,
+      "no diff before approving"
+     ],
+     "S4b": [
+      false,
+      "no diff lines to colour"
+     ],
+     "S4c": [
+      false,
+      "the diff is not in the conversation after the edit"
+     ],
+     "S4d": [
+      false,
+      "no line number beside the file's name"
+     ],
+     "S5a": [
+      false,
+      "no offer to stop asking"
+     ],
+     "S5b": [
+      false,
+      "no offer to scope"
+     ],
+     "S5c": [
+      false,
+      "the arm has no key that accepts edits"
+     ],
+     "S6a": [
+      false,
+      "no elapsed time moves while it runs"
+     ],
+     "S6b": [
+      false,
+      "none of its output so far is shown"
+     ],
+     "S6c": [
+      true,
+      "answered while it ran: The low water is the 12:00 reading, at 0.60 m."
+     ],
+     "S6d": [
+      true,
+      "\u2190 proc.run ok \u00b7 exit 0 \u00b7 90033 ms \u00b7 830 B \u00b7 late"
+     ],
+     "S7a": [
+      false,
+      "C-c did not stop the turn"
+     ],
+     "S7b": [
+      false,
+      "the key left the conversation for the shell: '$'"
+     ],
+     "S7c": [
+      true,
+      "the earlier survey still runs"
+     ],
+     "S8a": [
+      true,
+      "one message: question and log"
+     ],
+     "S8b": [
+      false,
+      "no fold and no log on screen"
+     ],
+     "S8c": [
+      true,
+      "all 60 lines, in order"
+     ],
+     "S9a": [
+      false,
+      "the arm has no undo"
+     ],
+     "S9b": [
+      false,
+      "the arm has no undo"
+     ],
+     "S9c": [
+      false,
+      "the arm has no undo"
+     ],
+     "S10a": [
+      false,
+      "only '\u27f3 context append \u00b7 31 message(s) \u00b7 ~17435 tokens'"
+     ],
+     "S10b": [
+      true,
+      "17403 out 12 \u00b7 $0.4929 total ($0.0349 this reply) \u00b7 28 ms (first token 2 ms) \u00b7"
+     ],
+     "S10c": [
+      false,
+      "parts: messages?"
+     ],
+     "S11a": [
+      true,
+      "the survey still runs after leaving"
+     ],
+     "S11b": [
+      false,
+      "no command reopens the last conversation here"
+     ],
+     "S11c": [
+      false,
+      "nothing reopened"
+     ],
+     "S11d": [
+      false,
+      "no picker of past conversations"
+     ],
+     "S12a": [
+      false,
+      "the arm has no planning mode"
+     ],
+     "S12b": [
+      false,
+      "the arm has no planning mode"
+     ],
+     "S12c": [
+      false,
+      "the arm has no planning mode"
+     ],
+     "B1": [
+      true,
+      "a prompt after 56 ms (`theseus tui`)"
+     ],
+     "B2": [
+      true,
+      "tokens in 14724 out 12 \u00b7 $0.1127 total ($0.0296 this reply) \u00b7 92 ms (first"
+     ],
+     "B3": [
+      true,
+      "\u2190 proc.run stopped by the TUI \u00b7 315 B \u00b7 late \u00b7 verified: process tree, 1"
+     ],
+     "B4": [
+      true,
+      "the survey ran on through theseusd's stop and start"
+     ],
+     "B5": [
+      true,
+      "5.2 MB (theseus-tui (pid 3965514))"
+     ]
+    },
+    "totals": {
+     "match": 11,
+     "beat": 5,
+     "by_step": {
+      "S1": 1,
+      "S2": 0,
+      "S3": 3,
+      "S4": 0,
+      "S5": 0,
+      "S6": 2,
+      "S7": 1,
+      "S8": 2,
+      "S9": 0,
+      "S10": 1,
+      "S11": 1,
+      "S12": 0
+     }
+    }
+   },
+   {
+    "arm": "claude-code",
+    "size": "80x24",
+    "version": "2.1.296 (Claude Code)",
+    "model": "claude-sonnet-5-5",
+    "results": {
+     "S1a": [
+      true,
+      "`claude` left claude in front, taking input"
+     ],
+     "S1b": [
+      true,
+      "a prompt after 280 ms (`claude`)"
+     ],
+     "S1c": [
+      true,
+      "\u259d\u259c\u2588\u2588\u2588\u2588\u2588\u2588\u2580 Sonnet 5.5 \u00b7 API Usage Billing"
+     ],
+     "S1d": [
+      true,
+      "\u259d\u259c\u2588\u2588\u2588\u2588\u2588\u2588\u2580 Sonnet 5.5 \u00b7 API Usage Billing"
+     ],
+     "S2a": [
+      true,
+      "Listed 1 directory (ctrl+o to expand)"
+     ],
+     "S2b": [
+      true,
+      "- tides.py reads a table of HH:MM height lines. It finds the high and low"
+     ],
+     "S2c": [
+      true,
+      "\u25cf Listing 1 directory\u2026 (ctrl+o to expand)"
+     ],
+     "S2d": [
+      true,
+      "no word is cut at 80 columns"
+     ],
+     "S3a": [
+      false,
+      "the command is not on the question's screen"
+     ],
+     "S3b": [
+      true,
+      "one key: Enter"
+     ],
+     "S3c": [
+      true,
+      "FAIL: test_tidal_range (test_tides.TidesTest.test_tidal_range)"
+     ],
+     "S3d": [
+      true,
+      "no id typed"
+     ],
+     "S4a": [
+      true,
+      "The bug was in tides.py:50, where tidal_range computed lowest - highest. The \u2192 docstring says \"highest less lowest\", so I changed it to highest - lowest. I"
+     ],
+     "S4b": [
+      false,
+      "the diff's lines are not coloured apart"
+     ],
+     "S4c": [
+      true,
+      "The bug was in tides.py:50, where tidal_range computed lowest - highest. The \u2192 docstring says \"highest less lowest\", so I changed it to highest - lowest. I"
+     ],
+     "S4d": [
+      true,
+      "The bug was in tides.py:50, where tidal_range computed lowest - highest. The"
+     ],
+     "S5a": [
+      false,
+      "no offer to stop asking"
+     ],
+     "S5b": [
+      false,
+      "no offer to scope"
+     ],
+     "S5c": [
+      false,
+      "the screen does not say edits are accepted"
+     ],
+     "S6a": [
+      false,
+      "no elapsed time moves while it runs"
+     ],
+     "S6b": [
+      false,
+      "none of its output so far is shown"
+     ],
+     "S6c": [
+      false,
+      "no answer while it ran"
+     ],
+     "S6d": [
+      false,
+      "the agent did not go on by itself"
+     ],
+     "S7a": [
+      false,
+      "Escape did not stop the turn"
+     ],
+     "S7b": [
+      true,
+      "claude still in front"
+     ],
+     "S7c": [
+      false,
+      "the earlier survey was stopped too"
+     ],
+     "S8a": [
+      true,
+      "one message: question and log"
+     ],
+     "S8b": [
+      true,
+      "\u276f [Pasted text #1 +60 lines]what do these log lines say went wrong?"
+     ],
+     "S8c": [
+      true,
+      "all 60 lines, in order"
+     ],
+     "S9a": [
+      false,
+      "tides.py still holds the edit"
+     ],
+     "S9b": [
+      false,
+      "the conversation was not taken back"
+     ],
+     "S9c": [
+      false,
+      "4 keys: Escape Escape Enter Enter"
+     ],
+     "S10a": [
+      false,
+      "only '\u251c dataviz: ~480 tokens'"
+     ],
+     "S10b": [
+      true,
+      "Total cost: $0.2748"
+     ],
+     "S10c": [
+      false,
+      "no parts named"
+     ],
+     "S11a": [
+      false,
+      "leaving stopped the survey"
+     ],
+     "S11b": [
+      false,
+      "`claude -c` did not reopen it"
+     ],
+     "S11c": [
+      false,
+      "no transcript"
+     ],
+     "S11d": [
+      false,
+      "`claude --resume` listed nothing found"
+     ],
+     "S12a": [
+      false,
+      "the screen does not show a planning mode"
+     ],
+     "S12b": [
+      true,
+      "Claude has written up a plan and is ready to execute. Would you like to"
+     ],
+     "S12c": [
+      false,
+      "no progress through the plan's steps"
+     ],
+     "B1": [
+      false,
+      "a prompt after 280 ms (`claude`)"
+     ],
+     "B2": [
+      false,
+      "no cost on S2.reply, S3.after, S4.after"
+     ],
+     "B3": [
+      false,
+      "gone, but the screen does not say it was verified"
+     ],
+     "B4": [
+      false,
+      "claude's exit stopped the survey"
+     ],
+     "B5": [
+      false,
+      "338.8 MB (claude (pid 219791))"
+     ]
+    },
+    "totals": {
+     "match": 20,
+     "beat": 0,
+     "by_step": {
+      "S1": 4,
+      "S2": 4,
+      "S3": 3,
+      "S4": 3,
+      "S5": 0,
+      "S6": 0,
+      "S7": 1,
+      "S8": 3,
+      "S9": 0,
+      "S10": 1,
+      "S11": 0,
+      "S12": 1
+     }
+    }
+   }
+  ]
+ },
+ "figures": [
+  {
+   "name": "steps",
+   "form": "bars",
+   "title": "F10's checks passed, by step, at 120x40",
+   "question": "Which of the first ten minutes' steps does each client get right?",
+   "categories": [
+    "S1",
+    "S2",
+    "S3",
+    "S4",
+    "S5",
+    "S6",
+    "S7",
+    "S8",
+    "S9",
+    "S10",
+    "S11",
+    "S12",
+    "beat"
+   ],
+   "series": [
+    {
+     "arm": "theseus",
+     "label": "Theseus (120x40)",
+     "values": [
+      0.25,
+      0.0,
+      0.75,
+      0.0,
+      0.0,
+      0.5,
+      0.333,
+      0.667,
+      0.0,
+      0.333,
+      0.25,
+      0.0,
+      1.0
+     ]
+    },
+    {
+     "arm": "claude-code",
+     "label": "Claude Code (120x40)",
+     "values": [
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      0.0,
+      0.25,
+      0.333,
+      1.0,
+      0.0,
+      1.0,
+      0.0,
+      0.333,
+      0.0
+     ]
+    }
+   ],
+   "value": {
+    "label": "share of the step's checks passed",
+    "format": "pct",
+    "min": 0,
+    "max": 1
+   },
+   "note": "42 match checks in 12 steps, and 5 beat checks; each check reads the captured screens or a record the driver measured (scripts/f10/checks.py)."
+  }
+ ]
+}
