@@ -301,6 +301,7 @@ impl TurnRunner {
                         model: p.model.clone(),
                         unusable,
                         short_cost: entry.map(routing::short_cost),
+                        input_per_mtok: entry.map(|e| e.input_per_mtok),
                         vision: entry.is_some_and(|e| e.vision),
                     },
                 )
@@ -392,8 +393,16 @@ impl TurnRunner {
             takes: self.catalog.get(model).is_some_and(|e| e.effort),
         };
         let carried = v.turn != t.tc.turn_id;
-        let bounds = self.cfg.routing.effort_bounds;
-        Some(effort::decide(bounds, answer, runs, acts, carried))
+        let r = &self.cfg.routing;
+        let bounds = r.effort_bounds;
+        Some(effort::decide(
+            bounds,
+            r.high_effort_confidence,
+            answer,
+            runs,
+            acts,
+            carried,
+        ))
     }
 
     /// The first loop's compile, the wait for the verdict beside it, and the
@@ -585,6 +594,12 @@ impl TurnRunner {
                 .and_then(|p| profiles.get(p))
                 .and_then(|p| p.short_cost);
         let hold = session.routed.as_ref().and_then(|r| r.hold.clone());
+        // Jev's own move up from the base is what a step back down undoes.
+        let from = session
+            .routed
+            .as_ref()
+            .filter(|r| r.profile.is_some())
+            .and_then(|r| r.from.as_deref());
         routing::decide(
             &self.cfg.routing,
             &profiles,
@@ -593,6 +608,7 @@ impl TurnRunner {
                 base: &t.target.profile,
                 est_tokens,
                 hold: hold.as_ref(),
+                from,
                 images: t.route.images,
                 cap,
             },

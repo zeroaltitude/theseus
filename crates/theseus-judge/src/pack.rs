@@ -39,8 +39,9 @@ use crate::learn::RollbackRule;
 /// §2.4's six, `security.v2` and `security.v3`, candidates beside `security.v1`,
 /// `rerank.v1`, recall's `+rerank` arm (M6 step 32c), and `route.v1`, the
 /// model per interaction mode (M5 step 25e), with `route.v2`, its successor
-/// with a `quick` mode (theseus-3okf), and `route.v3`, which asks the reply's
-/// effort beside v2's mode (theseus-qe3v).
+/// with a `quick` mode (theseus-3okf), `route.v3`, which asks the reply's
+/// effort beside v2's mode (theseus-qe3v), and `route.v4`, which adds a
+/// `review` mode to v3's (theseus-p8dy).
 pub const EMBEDDED: &[(&str, &str)] = &[
     ("probe.v1", include_str!("../packs/probe.v1.toml")),
     ("loop.v1", include_str!("../packs/loop.v1.toml")),
@@ -60,6 +61,7 @@ pub const EMBEDDED: &[(&str, &str)] = &[
     ("route.v1", include_str!("../packs/route.v1.toml")),
     ("route.v2", include_str!("../packs/route.v2.toml")),
     ("route.v3", include_str!("../packs/route.v3.toml")),
+    ("route.v4", include_str!("../packs/route.v4.toml")),
     ("citation.v1", include_str!("../packs/citation.v1.toml")),
     ("people.v1", include_str!("../packs/people.v1.toml")),
     (
@@ -1235,6 +1237,15 @@ mod tests {
                     "rollback [labels_per_day on_path_p95]",
                 ],
             ),
+            (
+                "route.v4",
+                &[
+                    "Inbound Inbound SessionProfile Route",
+                    "mode Choice decides [trivial quick chat sophisticated deep_coding routine_coding review other]",
+                    "reply_effort Choice decides [low medium high xhigh max unclear]",
+                    "rollback [labels_per_day on_path_p95]",
+                ],
+            ),
         ];
         for (name, lines) in want {
             let p = by_name(name).unwrap_or_else(|| panic!("{name} is embedded"));
@@ -1300,6 +1311,11 @@ mod tests {
             "route.v3 keeps v1's rules"
         );
         assert_eq!(
+            rules("route.v4"),
+            rules("route.v1"),
+            "route.v4 keeps v1's rules"
+        );
+        assert_eq!(
             rules("role.v1"),
             vec![
                 RollbackRule::SwitchesPerExchange { max: 2 },
@@ -1317,9 +1333,9 @@ mod tests {
         let six: Vec<&(&str, &str)> = EMBEDDED.iter().filter(|(f, _)| *f != "probe.v1").collect();
         assert_eq!(
             six.len(),
-            17,
-            "§2.4's six, security.v2 and v3, rerank.v1, memory.v1, attribution.v1, route.v1, v2 \
-             and v3, citation.v1, people.v1 and people_seen.v1"
+            18,
+            "§2.4's six, security.v2 and v3, rerank.v1, memory.v1, attribution.v1, route.v1, v2, \
+             v3 and v4, citation.v1, people.v1 and people_seen.v1"
         );
         for (file, text) in six {
             let p = Pack::parse(text).unwrap_or_else(|e| panic!("{file}: {e}"));
@@ -1439,6 +1455,42 @@ mod tests {
         assert_eq!(effort.no_match.as_deref(), Some("unclear"));
         assert!(effort.decides && effort.kind == Kind::Choice);
         let order: Vec<&str> = v3.questions.iter().map(|q| q.id.as_str()).collect();
+        assert_eq!(order, ["mode", "reply_effort"]);
+    }
+
+    /// route.v4 (theseus-p8dy) is route.v3 with one more option of `mode`,
+    /// `review`, before `other`; every other option's words and the effort
+    /// question are v3's, byte for byte, so a label on either version reads
+    /// the same.
+    #[test]
+    fn route_v4_adds_a_review_mode_to_v3s_and_changes_nothing_else() {
+        let (v3, v4) = (by_name("route.v3").unwrap(), by_name("route.v4").unwrap());
+        assert_eq!(v4.question("reply_effort"), v3.question("reply_effort"));
+        let (m3, m4) = (v3.question("mode").unwrap(), v4.question("mode").unwrap());
+        let ids: Vec<&str> = m4.options.iter().map(|o| o.id.as_str()).collect();
+        assert_eq!(
+            ids,
+            [
+                "trivial",
+                "quick",
+                "chat",
+                "sophisticated",
+                "deep_coding",
+                "routine_coding",
+                "review",
+                "other"
+            ]
+        );
+        let kept: Vec<_> = m4.options.iter().filter(|o| o.id != "review").collect();
+        assert_eq!(
+            kept,
+            m3.options.iter().collect::<Vec<_>>(),
+            "v3's options, word for word"
+        );
+        assert_eq!(m4.instructions, m3.instructions);
+        assert_eq!(m4.thresholds, m3.thresholds, "the same bars");
+        assert_eq!(m4.no_match, m3.no_match);
+        let order: Vec<&str> = v4.questions.iter().map(|q| q.id.as_str()).collect();
         assert_eq!(order, ["mode", "reply_effort"]);
     }
 }

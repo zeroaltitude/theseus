@@ -358,6 +358,7 @@ impl TurnRunner {
             base: &t.target.profile,
             est_tokens: if at_once { 0 } else { est_tokens },
             hold: hold.as_ref(),
+            from: None,
             images: t.route.images,
             cap,
         };
