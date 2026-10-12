@@ -261,6 +261,8 @@ fn a_busy_days_window_pages_in_under_two_seconds() {
     let s = open(&c);
     let t = theseus_protocol::now_unix_ms();
     let mut wanted = 0;
+    let setup = std::time::Instant::now();
+    let mut batch = Vec::new();
     for i in 0..12_000u64 {
         let (kind, data) = match i % 4 {
             0 => ("turn.started", json!({"author": "owner"})),
@@ -272,8 +274,21 @@ fn a_busy_days_window_pages_in_under_two_seconds() {
             ),
         };
         wanted += usize::from(i % 4 == 0 || i % 4 == 3);
-        put(&c, t - 3_600_000 + i, kind, Some(&s), data);
+        let row =
+            json!({"at_unix_ms": t - 3_600_000 + i, "kind": kind, "data": data, "session_id": s});
+        batch.push(
+            theseus_store::NewRecord::json(theseus_store::kinds::LEDGER, None, &row).unwrap(),
+        );
+        // A frame a thousand rows: the window's read is what is timed, not 12,000 synced appends.
+        if batch.len() == 1000 {
+            c.store.append(&std::mem::take(&mut batch)).unwrap();
+        }
     }
+    c.store.append(&batch).unwrap();
+    eprintln!(
+        "ledger.window: the day's rows written in {:?}",
+        setup.elapsed()
+    );
     let started = std::time::Instant::now();
     let (mut rows, mut pages, mut after) = (0, 0, None);
     loop {
