@@ -71,6 +71,7 @@ impl TurnRunner {
                 loop_index: i,
             });
         }
+        Self::standing_listed(t, &mut compiled);
         // A check sees the task it checks by title and state (theseus-w8ys).
         let tasks =
             crate::task_graph::view::attach(&self.store, &self.kernel, session, &mut compiled);

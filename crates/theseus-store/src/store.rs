@@ -593,7 +593,9 @@ const BULK: usize = 4096;
 /// 27 = an answer's `effort`, the per-message effort its request placed
 /// before its turn's message (theseus-o719).
 /// 28 = a session's directory (theseus-aab7): its `dir`.
-const MANIFEST_FORMAT: u32 = 28;
+/// 29 = the owner's standing records, META keys `standing:<id>`, and a
+/// compilation manifest's `standing` list (theseus-a7vi).
+const MANIFEST_FORMAT: u32 = 29;
 /// The oldest format this build reads. A format-3 manifest's per-kind marks
 /// are left unread.
 const MANIFEST_OLDEST: u32 = 2;

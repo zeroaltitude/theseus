@@ -85,6 +85,7 @@ pub mod scrub;
 pub mod secrets;
 pub mod session;
 pub mod signals;
+pub mod standing;
 pub mod startup;
 pub mod store;
 pub mod stub;
@@ -366,6 +367,10 @@ mod tests_sink_off_turn;
 mod tests_situation;
 #[cfg(test)]
 mod tests_stack;
+#[cfg(test)]
+mod tests_standing;
+#[cfg(test)]
+mod tests_standing_ring;
 #[cfg(test)]
 mod tests_status_cache;
 #[cfg(test)]

@@ -56,6 +56,9 @@ impl TurnRunner {
         if let Some(f) = Self::unadmitted(t, compiled, checked, last, task_view, i) {
             return Ok(Some(f));
         }
+        if let Some(f) = Self::standing_dropped(t, compiled, i) {
+            return Ok(Some(f));
+        }
         self.run_compiles.mark(sid);
         Ok(None)
     }
@@ -80,6 +83,31 @@ impl TurnRunner {
         });
         tracing::error!(piece = %why.piece, situation = compiled.situation.kind(),
             "a compiled request was not sent: {message}");
+        Some(Failure {
+            class: UNADMITTED_CLASS.into(),
+            transient: false,
+            usage_unknown: false,
+            reason: format!("{UNADMITTED_CLASS}: {}", why.piece),
+            source: anyhow::anyhow!("{message}"),
+        })
+    }
+
+    /// The standing check (theseus-a7vi): a compile that lacks a record of
+    /// the turn's scope is not sent, and its row says which.
+    pub(super) fn standing_dropped(
+        t: &mut Turn<'_>,
+        compiled: &Compiled,
+        i: u32,
+    ) -> Option<Failure> {
+        let why = crate::standing::missing(compiled, t.standing.as_ref()).err()?;
+        let message = words(&why);
+        t.record(&Unadmitted {
+            situation: &compiled.situation,
+            why: &why,
+            compilation_id: &compiled.compilation.id,
+            loop_index: i,
+        });
+        tracing::error!(piece = %why.piece, "a compiled request was not sent: {message}");
         Some(Failure {
             class: UNADMITTED_CLASS.into(),
             transient: false,

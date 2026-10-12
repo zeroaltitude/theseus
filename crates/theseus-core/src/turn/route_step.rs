@@ -727,6 +727,7 @@ impl TurnRunner {
         let (mut s, _) = self.request_spec(target, session.kind, t.tc.place());
         s.session_text = self.session_block(t.tc.dir, t.tc.place());
         s.walk = self.walk(t.tc.session_id, t.tc.class);
+        self.stand(t, &mut s);
         *spec = s;
         if d.switch {
             session.last_target = Some(TargetRef::from(target));
@@ -774,7 +775,13 @@ impl TurnRunner {
             .collect();
         let sources = crate::recall::render::Sources::default();
         let mut detour = spec.clone();
-        detour.context_text = String::new();
+        // The owner's standing records ride a detour too (theseus-a7vi): they
+        // hold in every prompt of their scope, a cheap turn's included.
+        detour.context_text = t
+            .standing
+            .as_ref()
+            .map(|b| b.text.clone())
+            .unwrap_or_default();
         detour.context_files = Vec::new();
         detour.walk = None;
         let compiled = compile(CompileInput {
@@ -797,6 +804,9 @@ impl TurnRunner {
         });
         let last = self.store.last_position();
         if let Some(f) = Self::unadmitted(t, &compiled, &nodes, last, false, i) {
+            return Ok(Err(f));
+        }
+        if let Some(f) = Self::standing_dropped(t, &compiled, i) {
             return Ok(Err(f));
         }
         t.record(&fact::turn::LoopStarted {

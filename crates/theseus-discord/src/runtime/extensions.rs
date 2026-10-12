@@ -204,7 +204,11 @@ impl Shared {
     }
 
     /// A control through the place's own line, and what it said.
-    async fn ask_place(tx: &mpsc::UnboundedSender<PlaceMsg>, cmd: Control, who: &str) -> String {
+    pub(super) async fn ask_place(
+        tx: &mpsc::UnboundedSender<PlaceMsg>,
+        cmd: Control,
+        who: &str,
+    ) -> String {
         let (rtx, rrx) = oneshot::channel();
         let _ = tx.send(PlaceMsg::Control {
             cmd,

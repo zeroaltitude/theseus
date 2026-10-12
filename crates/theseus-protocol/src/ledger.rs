@@ -235,6 +235,8 @@ ledger_kinds! {
     SpendCeiling = "spend.ceiling",
     SpendDayWarning = "spend.day_warning",
     SpoolSwept = "spool.swept",
+    StandingAdded = "standing.added",
+    StandingRevoked = "standing.revoked",
     StartupStep = "startup.step",
     SynthesisChecked = "synthesis.checked",
     SynthesisProposed = "synthesis.proposed",

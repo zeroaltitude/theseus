@@ -37,6 +37,7 @@ mod print;
 mod prompt;
 mod retract;
 mod self_cmd;
+mod standing_cmd;
 mod status;
 mod why;
 
@@ -455,6 +456,14 @@ enum Cmd {
     SelfImprove {
         #[command(subcommand)]
         cmd: self_cmd::SelfCmd,
+    },
+    /// The owner's standing orders, preferences and facts (theseus-a7vi): kept in every prompt of
+    /// their scope until you revoke them. `standing` lists them; `standing add [--kind order|
+    /// preference|fact] [--scope everywhere|place:T|session:ID] TEXT` and `standing revoke ID` are
+    /// yours alone (refused inside a job).
+    Standing {
+        #[command(subcommand)]
+        cmd: Option<standing_cmd::StandingCmd>,
     },
     /// Send a raw JSON-RPC request (e.g. `rpc health`, `rpc turn.submit '{"input":"hi"}'`); notifications echo to stderr.
     Rpc {
@@ -1061,6 +1070,7 @@ async fn run(cli: Cli) -> Result<()> {
         Cmd::Mcp { cmd } => mcp::run(c, json, cmd).await,
         Cmd::Extend { cmd } => extend::run(c, json, cmd).await,
         Cmd::SelfImprove { cmd } => self_cmd::run(c, json, cmd).await,
+        Cmd::Standing { cmd } => standing_cmd::run(c, json, cmd.unwrap_or_default()).await,
         Cmd::Rpc { method, params } => cmd::rpc(c, json, method, params).await,
         Cmd::Shutdown => cmd::shutdown(c, json).await,
         Cmd::Tui { .. } => unreachable!("`theseus tui` execs theseus-tui before connecting"),

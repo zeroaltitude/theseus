@@ -55,6 +55,7 @@ pub(super) fn prefixed(name: &str) -> bool {
         || super::people::ROUTE.contains(&name)
         || super::rsi::OWN.contains(&name)
         || super::earned::OWN.contains(&name)
+        || name.starts_with("standing.")
 }
 
 impl Core {
@@ -89,6 +90,9 @@ impl Core {
         }
         if super::earned::OWN.contains(&name) {
             return self.rpc_earned(name, params, conn);
+        }
+        if name.starts_with("standing.") {
+            return self.rpc_standing(name, params, conn);
         }
         self.rpc_import(name, params, conn).await
     }

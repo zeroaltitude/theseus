@@ -991,6 +991,7 @@ fn warm_after_serving(core: &Arc<Core>) {
     // The ontology's snapshot, by one META prefix scan (theseus-8kk.1): a
     // compile reads it from memory.
     core.warm_ontology();
+    core.warm_standing();
     // The daemon's memory (theseus-9lxe): a trim after work and a quiet
     // stretch, and the import's catalog dropped after an idle one.
     core.tend_memory_after_serving();

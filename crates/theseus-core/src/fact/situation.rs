@@ -35,6 +35,7 @@ impl Fact for Unadmitted<'_> {
 pub fn words(w: &Why) -> String {
     let what = match w.why {
         "unclosed" => "does not close",
+        "standing_missing" => "drops the owner's standing record",
         _ => "admits a piece it may not",
     };
     format!(

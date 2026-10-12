@@ -61,6 +61,7 @@ mod guilds;
 mod halt;
 mod jev;
 mod live;
+mod orders;
 mod source;
 pub(crate) use jev::{
     buttons as jev_buttons, labeled_text as jev_labeled_text, notice_text as jev_notice_text,
@@ -578,6 +579,7 @@ fn commands() -> Vec<twilight_model::application::command::Command> {
     cmds.push(prompt::command());
     cmds.push(extensions::command());
     cmds.push(why::command());
+    cmds.push(orders::command());
     cmds.extend(voice::commands());
     cmds
 }
@@ -766,6 +768,8 @@ enum Control {
     Revoke(String, Option<DiscordOrigin>),
     /// What the last turn was shown, and why (theseus-ighf, `runtime/why.rs`).
     Why,
+    /// Revoke a standing record, as the presser (theseus-a7vi, `runtime/orders.rs`).
+    Unorder(String, Option<DiscordOrigin>),
     /// "halt self" (theseus-pw1q.2, `runtime/halt.rs`): why, and its author's ids.
     HaltSelf(Option<String>, Option<DiscordOrigin>),
     /// "resume self": its author's ids; the core counts only the owner's.
@@ -1241,10 +1245,11 @@ impl Shared {
         // Who pressed, and where: the ids the core judges an answer by, which
         // only this binding may name (theseus-sgh).
         let discord = origin_of(user.as_ref().map(|(u, _)| *u), channel, i.guild_id);
-        // `/extensions` and its Revoke buttons (`runtime/extensions.rs`), then `/why`'s (`runtime/why.rs`):
-        // one chain, since `on_interaction` is at clippy's complexity limit.
+        // `/orders` and `/extensions`, each with its Revoke buttons, then a "Show source" press and
+        // `/why` (`runtime/orders.rs`, `runtime/extensions.rs`): one chain, since `on_interaction` is at
+        // clippy's complexity limit.
         if self
-            .extensions_interaction(&i, &tx, &who, discord.clone())
+            .revokable_interaction(&i, &tx, &who, discord.clone())
             .await
         {
             return;
@@ -2230,6 +2235,7 @@ impl Place {
             Control::Extensions => self.extensions().await,
             Control::Why => self.why().await,
             Control::Revoke(name, origin) => self.revoke(name, origin, by).await,
+            Control::Unorder(id, origin) => self.unorder(id, origin, by).await,
             Control::HaltSelf(why, origin) => self.halt_self(why, origin, by).await,
             Control::ResumeSelf(origin) => self.resume_self(origin, by).await,
             Control::Join(named, origin) => self.join(named, origin, by).await,

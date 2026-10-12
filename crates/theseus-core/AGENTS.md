@@ -163,6 +163,25 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   place composes only its own place's given memberships, and the place rule's admissions never read a membership.
   The methods are `rpc/ontology.rs` (`ontology.list`; the writes are `judge_act(Act::Ontology)`, the owner from a
   private place); the rows `fact/ontology.rs`. Tests: `tests_ontology.rs`.
+- **Standing** (theseus-a7vi; `standing.rs`, `rpc/standing.rs`, `turn/standing_step.rs`, `fact/standing.rs`): the owner's
+  standing orders, preferences and facts, one `protocol::StandingRecord` each as a META key `standing:<id>` (store
+  format 29), append-only (a revoke, with empty text, or an edit is a new record whose `ends` names the one it ends).
+  `standing::Board` holds them in memory (one META scan after serving, `Core::warm_standing`, or by the first turn),
+  so a compile reads memory and a plain turn writes no frame for them. `TurnRunner::stand` renders the turn's scope
+  (this session, this place, everywhere) as `standing::Block` first in the system's *second* block (before the
+  context files; no block of its own, so no new cache breakpoint, and never the shared header), beside the walk in
+  `turn.rs` and `route_step.rs`. A change of the records is a `system_changed` recompile; otherwise the prefix is
+  byte-identical. It is system, outside the ring, so no compaction drops it. A shared place gets the orders' text and
+  one line (`standing::WITHHELD`) for preferences and facts, never their text; `standing.list` gives their text to
+  the owner in a private place alone. The compile's manifest lists each record (`Manifest.standing`: id, shown), and
+  `standing::missing`, run by the situation step after `situation::check`, fails a compile whose system lacks one it
+  should show as `context_unadmitted` (`standing <id> missing`, why `standing_missing`). `standing.add` and `.revoke`
+  are `judge_act(Act::Standing)`: the owner, from a private place; the CLI refuses them inside a job
+  (`client::OPERATORS`). `standing.list` tallies the manifests (compilations of each live record's scope since it
+  began, and those lacking it), a scan of the sessions' compilations: a read for a person, never a turn's path. Tests:
+  `tests_standing.rs`, `tests_standing_ring.rs` (three compactions), `standing::tests`, and the layouts sample and
+  format-27 store test in `tests_layouts.rs`. Not yet: the context explorer's totals (`context.explain`) do not count
+  the block.
 - **Tool calls**: `toolrun.rs` (every call the model makes becomes a kernel action: the gate and the dispatch), with
   a job's call in `toolrun/job.rs` (its turn waits on the job's wake, `toolrun/waits.rs`, and takes the job's
   completion with its result in one frame; Tier 7.1; a command that never started says why, `toolrun/not_started.rs`,

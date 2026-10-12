@@ -198,7 +198,8 @@ impl ActRefused<'_> {
             | Act::Session { .. }
             | Act::SelfResume { .. }
             | Act::Earned { .. }
-            | Act::Retract { .. } => None,
+            | Act::Retract { .. }
+            | Act::Standing { .. } => None,
         }
     }
 }
@@ -234,7 +235,8 @@ impl Fact for ActRefused<'_> {
             | Act::Ladder { what, .. }
             | Act::Import { what, .. }
             | Act::Session { what, .. }
-            | Act::Earned { what, .. } => {
+            | Act::Earned { what, .. }
+            | Act::Standing { what, .. } => {
                 json!({"act": act.method(), "what": what, "who": r.who, "via": r.via,
                        "why": r.why, "by": self.by})
             }
@@ -310,6 +312,11 @@ impl Fact for ActRefused<'_> {
                 Act::Retract { what } => format!(
                     "{what}, from {} through {}, did not count: {}. Nothing was labeled or \
                      written, and no session was told.",
+                    r.who, r.via, r.why
+                ),
+                Act::Standing { what, .. } => format!(
+                    "{what}, from {} through {}, did not count: {}. The owner's standing records \
+                     are as they were.",
                     r.who, r.via, r.why
                 ),
                 Act::JudgeLabel { what } => format!(
