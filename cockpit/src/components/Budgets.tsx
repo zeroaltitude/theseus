@@ -227,7 +227,9 @@ function DayCeilingBlock({ d }: { d: DayCeilingBudget }) {
     <div className="num text-[12px] text-ink-dim" title={v.detail}>
       {v.stopped
         ? <Pill tone="fault"><AlertTriangle size={11} />{v.text}</Pill>
-        : <span>{v.text}</span>}
+        : v.warning
+          ? <Pill tone="wait"><AlertTriangle size={11} />{v.text}</Pill>
+          : <span>{v.text}</span>}
       <div className="mt-1 h-1.5 w-full overflow-hidden rounded bg-white/5" role="meter" aria-valuemin={0} aria-valuemax={1} aria-valuenow={v.share} aria-label="today’s spend against the day ceiling">
         <div className={cn('h-full', v.tone === 'fault' ? 'bg-fault' : v.tone === 'wait' ? 'bg-wait' : 'bg-ok/60')} style={{ width: `${(v.share * 100).toFixed(1)}%` }} />
       </div>

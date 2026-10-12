@@ -119,6 +119,8 @@ impl Core {
             mcp_server: self.mcp_server.health(self.cfg.mcp_server.enabled),
             lsp: self.tools.lsp.as_ref().map(|b| b.health()),
             memory: self.runner.memory.on().then(|| self.memory_health()),
+            day_spend: Some(super::budgets::day_ceiling(&self.kernel))
+                .filter(|d| d.past || d.reached),
             tasks: Some(self.tasks_health()),
             resident: Some(self.resident_health()),
             self_improve: Some(self.self_state()),

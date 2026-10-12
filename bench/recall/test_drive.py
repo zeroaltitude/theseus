@@ -608,6 +608,8 @@ class TheseusConfig(unittest.TestCase):
         # limit, or the one named; it reads back from the TOML the driver writes.
         back = tomllib.loads(drive.toml_dumps(drive.theseus_config(base, **kw)))
         self.assertEqual(back["kernel"]["daily_spend_ceiling_usd"], 6.0)
+        # theseus-9e02: it stops at the ceiling; the daemon's default only warns.
+        self.assertEqual(back["kernel"]["daily_spend_ceiling_mode"], "stop")
         back = tomllib.loads(drive.toml_dumps(drive.theseus_config(base, day_ceiling=4.5, **kw)))
         self.assertEqual((back["kernel"]["spend_limit_usd"], back["kernel"]["daily_spend_ceiling_usd"]), (3.0, 4.5))
         with self.assertRaises(ValueError):

@@ -187,6 +187,8 @@ def theseus_config(
     if not ceiling > 0:
         raise ValueError(f"the day ceiling must be a dollar amount above zero, not {ceiling}")
     t["kernel"]["daily_spend_ceiling_usd"] = ceiling
+    # The daemon's default only warns at the ceiling (theseus-9e02): a run stops at its own.
+    t["kernel"]["daily_spend_ceiling_mode"] = "stop"
     t.setdefault("tools", {})["projects_dir"] = str(workspace)
     t["memory"] = {**t.get("memory", {}), "mode": "live", "arm": memory_arm}
     t.setdefault("discord", {})["enabled"] = False

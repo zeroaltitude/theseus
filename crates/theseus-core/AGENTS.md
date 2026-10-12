@@ -1041,19 +1041,35 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   the background day caps. Under notify a task's carve is what it asked for up to the parent's whole limit, and
   speech and transcripts are not refused for the limit. The budget question's words are `turn/budget_words.rs`.
   Tests: `tests_limits_notify.rs`, and the kernel's `tests_overdraw.rs`.
-- **The day ceiling** (theseus-kp20; the kernel's `day_ceiling.rs` is the counter): `day_ceiling.rs` reads today's
-  model spend back before serving (`read_today`: the ledger's pages by kind from local midnight, provider settles,
-  booked reservations, speech, synthesis, the learning runs, the judge's day record), and says a refusal
-  (`TurnRunner::day_refused`: the day's first writes one `spend.ceiling` row and, with a DM bound, one
-  `spend_ceiling` post to the owner's DM, which the courier sends nowhere else; the start reads the row back). A
-  turn's refused call fails it, class `daily_ceiling`, and leaves a harness note the next context reads
-  (`turn/ceiling_step.rs`); the judge's day budget holds on it (`ShadowBudget::set_ceiling`), and consolidation, the
-  audit, replay, backfill and the learning writer hold through `TurnRunner::day_hold`; compaction's summary is refused
-  through the kernel and the ring runs; speech asks before its call. No mode: it stops, and the stop is sticky
-  (theseus-l9on): after a refusal every call that day is refused, however small, until local midnight or a higher
-  ceiling at the next start; the words say a refused turn or task ends (it does not wait). The bench drivers set
-  the ceiling explicitly (bench/harbor's `theseus_bench.day_ceiling`, bench/recall's `--day-ceiling`). Tests: `tests_day_ceiling.rs`,
-  and one each in `tests_compaction.rs` and `tests_consolidate.rs`.
+- **The day ceiling** (theseus-kp20, softened by theseus-9e02; the kernel's `day_ceiling.rs` is the counter):
+  `day_ceiling.rs` reads today's model spend back before serving (`read_today`: the ledger's pages by kind from local
+  midnight, provider settles, booked reservations, speech, synthesis, the learning runs, the judge's day record, and
+  today's `spend.ceiling` and `spend.day_warning` rows), and says a refusal (`TurnRunner::day_refused`: the day's first
+  writes one `spend.ceiling` row and, with a DM bound, one `spend_ceiling` post to the owner's DM, which the courier
+  sends nowhere else; the start reads the row back). `[kernel] daily_spend_ceiling_mode` says what reaching the ceiling
+  does: **`notify`** (the default; the owner, 2026-10-11: tokens less cautious, AWS more) refuses nothing: the check
+  after each loop's settle (`spend_checked`, one comparison) takes the day's warning (`DayCeiling::take_warning`, once at
+  the ceiling and once at each `daily_notice_step_usd` after it, a level a day) and writes one `spend.day_warning` row, one
+  `spend_ceiling` post to the DM and one narrative line, all in the turn's next frame (`TurnRunner::day_warned`,
+  `turn/ceiling_step.rs`); health's first line and the cockpit's Money view show the day past its ceiling
+  (`HealthResult.day_spend`, `DayCeilingBudget.mode/past/runaway_usd`). The day stops only at `daily_runaway_usd`
+  ($2,000; 0 never): the refusal and its sticky rule below are then the runaway line's (`Reached.runaway`, its own words
+  and class `daily_runaway`). **`stop`** is the money row's: the ceiling refuses. A turn's refused call fails it, class
+  `daily_ceiling` (or `daily_runaway`), and leaves a harness note the next context reads (`turn/ceiling_step.rs`); the
+  judge's day budget holds on it (`ShadowBudget::set_ceiling`), and consolidation, the audit, replay, backfill and the
+  learning writer hold through `TurnRunner::day_hold`; compaction's summary is refused through the kernel and the ring
+  runs; speech asks before its call. The stop is sticky (theseus-l9on): after a refusal every call that day is refused,
+  however small, until local midnight or a higher bar at the next start; the words say a refused turn or task ends (it
+  does not wait). **The burn-rate brake** (`[kernel] runaway_usd_per_10min`, $200; 0 never): a settled provider call
+  fills a small in-memory ring per execution (`DayCeiling::burn_record`, at the settle); a call planned while the last
+  ten minutes' spend has reached the line is refused (`KernelError::BurnRate`, `Kernel::burn_stopped`, nothing written),
+  and the turn asks the owner to resume as the budget question does (`Called::Braked`; the question's `args.call.brake`
+  makes its words, `budget_words.rs`); approving it (`reset_budget`) keeps the spend and empties the window. The bench
+  drivers set the ceiling and `daily_spend_ceiling_mode = "stop"` explicitly (bench/harbor's `theseus_bench.day_ceiling`,
+  bench/recall's `--day-ceiling`), so a run never spends past its own budget. AWS keeps its stops: only model tokens went
+  soft, and `[aws.accounts.<id>] monthly_warn_usd` (default half the month's budget) adds one warning once a month
+  (`aws/month_warn.rs`, from the budget's six-hourly read). Tests: `tests_day_ceiling.rs` (the stop mode, which names
+  it), `tests_day_notify.rs`, and one each in `tests_compaction.rs` and `tests_consolidate.rs`.
 - **`ledger.window`** (theseus-m2tiu, `rpc/window.rs`): the postmortem's read. One page by the kinds' own postings
   (`POSTMORTEM_KINDS`, or a session's tag when narrowed to it and the tasks below it, found from `Kernel::tasks`),
   oldest first, `next` the cursor; each row's strings pass the scrubber. A surface that reads no private text

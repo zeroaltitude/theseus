@@ -24,6 +24,9 @@ pub(crate) fn budget_question(
     kept: Kept,
     call: &Value,
 ) -> String {
+    if !call["brake"].is_null() {
+        return brake_question(who, call);
+    }
     if needed <= limit.saturating_sub(kept.total()) {
         return format!(
             "{who} has spent {} of its {} limit. Reset its spend to $0 and continue?",
@@ -115,5 +118,25 @@ pub(crate) fn lower_cap(profile: &str, max_output_tokens: u64) -> String {
     format!(
         "lower `max_output_tokens` under `[profiles.{profile}]` (now {})",
         narrative::thousands(max_output_tokens)
+    )
+}
+
+/// What a burn-rate pause asks (theseus-9e02): `call["brake"]` names the
+/// session's settled spend in the window, the line, and the window. Approving
+/// resumes the session, its spend untouched and its window empty.
+fn brake_question(who: &str, call: &Value) -> String {
+    let usd = |k: &str| {
+        narrative::dollars(theseus_kernel::usd_to_micros(
+            call["brake"][k].as_f64().unwrap_or(0.0),
+        ))
+    };
+    format!(
+        "{who} spent {} in the last {} minutes, its {} burn-rate line (`[kernel] \
+         runaway_usd_per_10min`), so it is paused. Resume it? Its spend and limit stay as they \
+         are and its ten-minute window starts empty; `runaway_usd_per_10min = 0` turns the \
+         brake off from the daemon's next start.",
+        usd("spent_usd"),
+        call["brake"]["window_minutes"].as_u64().unwrap_or(10),
+        usd("line_usd"),
     )
 }

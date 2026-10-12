@@ -238,6 +238,7 @@ fn totals(open: &[Execution], top: &[BudgetRow]) -> BudgetTotals {
 pub(crate) fn day_ceiling(kernel: &theseus_kernel::Kernel) -> theseus_protocol::DayCeilingBudget {
     let c = kernel.day_ceiling();
     let t = c.today(c.now());
+    let past = t.past();
     theseus_protocol::DayCeilingBudget {
         reached: t.reached(),
         day: t.day,
@@ -247,5 +248,9 @@ pub(crate) fn day_ceiling(kernel: &theseus_kernel::Kernel) -> theseus_protocol::
         reached_at_ms: t.reached_at_ms,
         turns_at_ms: t.turns_at_ms,
         turns_at: t.turns_at,
+        mode: if t.notify { "notify" } else { "stop" }.into(),
+        runaway_usd: usd(t.runaway),
+        step_usd: if t.notify { usd(t.step) } else { 0.0 },
+        past,
     }
 }

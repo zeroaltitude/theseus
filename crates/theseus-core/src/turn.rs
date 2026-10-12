@@ -362,6 +362,8 @@ struct Turn<'a> {
     /// call still does not fit the limit, the turn ends instead of asking the
     /// same question again.
     retry_over_limit: bool,
+    /// The burn-rate stop whose question is being asked (theseus-9e02).
+    braked: Option<theseus_kernel::BurnStop>,
     /// Jobs this turn started or resumed in the background.
     background: Vec<String>,
     stop_reason: String,
@@ -435,6 +437,9 @@ enum Called {
         spent: Micros,
         limit: Micros,
     },
+    /// The session's burn-rate line stopped the call (theseus-9e02): the
+    /// owner is asked to resume it.
+    Braked(theseus_kernel::BurnStop),
     /// A `/stop` landed (W1): the kernel planned no call, or the call's stream
     /// was cut (theseus-yey), and the turn ends.
     Stopped {
@@ -501,6 +506,7 @@ impl<'a> Turn<'a> {
             awaiting: None,
             budget_question: None,
             retry_over_limit: false,
+            braked: None,
             background: Vec::new(),
             stop_reason: String::new(),
             said: Vec::new(),
@@ -1859,6 +1865,17 @@ impl TurnRunner {
                     t.record(&fact::turn::LoopCut { decision: "budget" });
                     break;
                 }
+                Called::Braked(b) => {
+                    let (spent, line) = (b.spent, b.line);
+                    t.braked = Some(b);
+                    self.ask_budget(t, session, 0, 0, spent, line)?;
+                    t.record(&fact::turn::LoopEndedOnBudget {
+                        turn_id: t.tc.turn_id,
+                        index: i,
+                    });
+                    t.record(&fact::turn::LoopCut { decision: "brake" });
+                    break;
+                }
                 Called::Stopped { by } => {
                     t.record(&fact::turn::LoopCut {
                         decision: "stopped",
@@ -2280,6 +2297,9 @@ impl TurnRunner {
                 if let Some(KernelError::HardStop(h)) = e.downcast_ref::<KernelError>() {
                     return Ok(Called::Failed(Self::hard_stopped(t, h)));
                 }
+                if let Some(KernelError::BurnRate(b)) = e.downcast_ref::<KernelError>() {
+                    return Ok(Called::Braked(*b.clone()));
+                }
                 t.record(&fact::turn::ModelNotPlanned {
                     model: &target.model,
                     error: &e,
@@ -2420,7 +2440,7 @@ impl TurnRunner {
         spent: Micros,
         limit: Micros,
     ) -> Result<()> {
-        let call = json!({"profile": t.target.profile, "model": t.target.model, "max_output_tokens": t.target.max_tokens});
+        let call = Self::budget_call(t);
         let q =
             t.tc.kernel
                 .ask_budget_for(t.tc.guard, needed, call.clone())?;

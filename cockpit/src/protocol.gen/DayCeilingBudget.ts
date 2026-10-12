@@ -29,4 +29,23 @@ reached_at_ms?: number,
  * When the day turns: the next local midnight (unix ms), and its local
  * time, `2026-10-09 00:00`.
  */
-turns_at_ms: number, turns_at: string, };
+turns_at_ms: number, turns_at: string, 
+/**
+ * What reaching the ceiling does (theseus-9e02): `notify` warns and the
+ * day stops at `runaway_usd`; `stop` refuses calls at the ceiling.
+ * Empty from a build before it.
+ */
+mode?: string, 
+/**
+ * Under notify, where the day stops (0: never); 0 under stop.
+ */
+runaway_usd?: number, 
+/**
+ * Under notify, the warning's step past the ceiling.
+ */
+step_usd?: number, 
+/**
+ * Today's spend is at or past the ceiling, whatever the mode: under
+ * notify, the warning is on and calls go on.
+ */
+past?: boolean, };

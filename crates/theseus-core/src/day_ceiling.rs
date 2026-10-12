@@ -14,6 +14,11 @@
 //! - **A refusal** (`TurnRunner::day_refused`): the day's first writes one
 //!   `spend.ceiling` row and, when a DM with the owner is bound, one post
 //!   there (never a shared place), in one frame. Every refusal is logged.
+//!   Under `daily_spend_ceiling_mode = "notify"` (theseus-9e02) the ceiling
+//!   refuses nothing: the refusal is the runaway line's, with its own words,
+//!   and the ceiling's own mark is a warning (`TurnRunner::day_warned`, in
+//!   `turn/ceiling_step.rs`): a `spend.day_warning` row, the owner's DM and a
+//!   narrative line, once at the ceiling and once at each step after it.
 //!
 //! What counts, by source, read back at the start from:
 //! - a turn's and a task's provider calls, compaction's summary among them
@@ -61,6 +66,9 @@ pub const SPEND_KINDS: [&str; 12] = [
 /// The once-a-day row's kind.
 pub const CEILING_KIND: &str = "spend.ceiling";
 
+/// The warning's row kind (theseus-9e02): one a level a day.
+pub const WARNING_KIND: &str = "spend.day_warning";
+
 /// What the start's read found.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Seeded {
@@ -103,6 +111,7 @@ pub fn read_today(
 ) -> anyhow::Result<Option<Seeded>> {
     let mut tags: Vec<String> = SPEND_KINDS.iter().map(|k| ledger_kind(k)).collect();
     tags.push(ledger_kind(CEILING_KIND));
+    tags.push(ledger_kind(WARNING_KIND));
     let mut out = Seeded::default();
     let mut before = None;
     loop {
@@ -125,6 +134,13 @@ pub fn read_today(
             out.rows += 1;
             // The kind's clock may hold a row a minute early: its own time decides.
             if row.at_unix_ms < since_ms {
+                continue;
+            }
+            if row.kind == WARNING_KIND {
+                if row.data["day"] == day {
+                    let level = row.data["level"].as_u64().unwrap_or(1);
+                    out.seed.warned = out.seed.warned.max(level);
+                }
                 continue;
             }
             if row.kind == CEILING_KIND {
@@ -165,7 +181,7 @@ impl TurnRunner {
         let now = c.now();
         let (day, since, _) = c.day_of(now);
         let t = Instant::now();
-        match read_today(&self.store, since, &day, c.limit()) {
+        match read_today(&self.store, since, &day, c.bar()) {
             Ok(Some(s)) => {
                 c.seed(now, &s.seed);
                 tracing::info!(day = %day, spent_usd = theseus_kernel::micros_to_usd(s.seed.spent),
@@ -218,7 +234,10 @@ impl TurnRunner {
         if !c.take_notice(c.now()) {
             return;
         }
-        let text = notice_text(r, what);
+        let text = match r.runaway {
+            true => runaway_text(r, what),
+            false => notice_text(r, what),
+        };
         let dm = self.place_rule.owner_dm_bound();
         let written = (|| -> anyhow::Result<()> {
             let mut frame = Vec::new();
@@ -262,6 +281,54 @@ pub fn notice_text(r: &Reached, what: &str) -> String {
         crate::narrative::dollars(r.limit),
         crate::narrative::dollars(r.spent.saturating_add(r.held)),
         r.turns_at,
+    )
+}
+
+/// The owner's post when the runaway line stopped a call (theseus-9e02): the
+/// day's total, the line, when the day turns, and that a higher line applies
+/// at the next start.
+pub fn runaway_text(r: &Reached, what: &str) -> String {
+    format!(
+        "⛔ Today's model spend reached the {} daily runaway line ({} spent): a {what}'s call \
+         was not made, and no model call will be, however small, until the day turns at {} \
+         local time. A refused turn or task ends; it does not wait for the day to turn. A \
+         higher `[kernel] daily_runaway_usd` applies at the daemon's next start.",
+        crate::narrative::dollars(r.limit),
+        crate::narrative::dollars(r.spent.saturating_add(r.held)),
+        r.turns_at,
+    )
+}
+
+/// The owner's warning (theseus-9e02): what was spent today, the ceiling and
+/// the multiple, that the work goes on, where the stop is, and how to stop now.
+pub fn warning_text(w: &theseus_kernel::Warning, stop_now: &str) -> String {
+    use crate::narrative::dollars;
+    let times = w.spent as f64 / w.limit.max(1) as f64;
+    let next = match w.step {
+        0 => String::new(),
+        step => {
+            let at = w.limit.saturating_add(step.saturating_mul(w.level));
+            match w.runaway > 0 && at >= w.runaway {
+                true => String::new(),
+                false => format!(" The next warning comes at {}.", dollars(at)),
+            }
+        }
+    };
+    let stop = match w.runaway {
+        0 => " No runaway line is set (`[kernel] daily_runaway_usd = 0`).".to_string(),
+        line => format!(
+            " Model calls stop at the {} runaway line (`[kernel] daily_runaway_usd`), and not \
+             before, until the day turns at {} local time.",
+            dollars(line),
+            w.turns_at
+        ),
+    };
+    format!(
+        "⚠️ Today's model spend is {}, {times:.1}× the {} daily ceiling, and the work goes on: \
+         the ceiling warns (`[kernel] daily_spend_ceiling_mode = \"notify\"`).{stop}{next} To \
+         stop now: {stop_now}.",
+        dollars(w.spent),
+        dollars(w.limit),
     )
 }
 

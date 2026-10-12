@@ -852,6 +852,8 @@ class TheseusAsyncConfig(unittest.TestCase):
 
         k = kernel({})
         self.assertEqual((k["spend_limit_usd"], k["daily_spend_ceiling_usd"]), (2.0, 4.0))
+        # theseus-9e02: the arm's ceiling stops its calls; the daemon's default only warns.
+        self.assertEqual(k["daily_spend_ceiling_mode"], "stop")
         k = kernel({"THESEUS_BENCH_SPEND_LIMIT": "1.5", tb.DAY_CEILING_ENV: "6"})
         self.assertEqual((k["spend_limit_usd"], k["daily_spend_ceiling_usd"]), (1.5, 6.0))
 

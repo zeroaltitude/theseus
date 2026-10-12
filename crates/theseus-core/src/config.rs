@@ -40,7 +40,7 @@ pub use aws::{
     AwsCredentialNames, HandsNetwork,
 };
 pub use judge::{JudgeConfig, JudgePackConfig, PackMode, SignalsConfig};
-pub use limits::{default_parallel_runs, MaxLoopsMode, SpendLimitMode};
+pub use limits::{default_parallel_runs, DailyCeilingMode, MaxLoopsMode, SpendLimitMode};
 pub use web::{WebToolsConfig, WEB_TIMEOUT_MAX_SECS};
 // Where the config comes from when nothing names one (theseus-5aqz).
 pub use lookup::{find_config, Lookup, DEFAULT_CONFIG, NO_CONFIG, SYSTEM_CONFIG};
@@ -583,6 +583,19 @@ pub struct KernelSection {
     /// The daemon's day ceiling over every model call (theseus-kp20).
     #[serde(default = "limits::default_daily_ceiling_usd")]
     pub daily_spend_ceiling_usd: f64,
+    /// What reaching it does (theseus-9e02): a warning, or the stop.
+    #[serde(default, skip_serializing_if = "DailyCeilingMode::is_default")]
+    pub daily_spend_ceiling_mode: DailyCeilingMode,
+    /// Under notify, where the day stops (theseus-9e02); 0 never.
+    #[serde(default = "limits::default_daily_runaway_usd")]
+    pub daily_runaway_usd: f64,
+    /// Under notify, a warning at the ceiling and every this much after it.
+    #[serde(default = "limits::default_daily_notice_step_usd")]
+    pub daily_notice_step_usd: f64,
+    /// A session pauses, and asks to resume, when its settled spend in ten
+    /// minutes reaches this; 0 never.
+    #[serde(default = "limits::default_runaway_per_10min_usd")]
+    pub runaway_usd_per_10min: f64,
     /// Retired (theseus-0sg): budget units, and the units kept back as a
     /// control reserve. Both still load, so an older config starts, and are
     /// never honored: budgets are dollars, and nothing reserves for control
@@ -642,6 +655,10 @@ impl Default for KernelSection {
             spend_limit_mode: SpendLimitMode::default(),
             spend_limit_hard_multiple: limits::default_hard_multiple(),
             daily_spend_ceiling_usd: limits::default_daily_ceiling_usd(),
+            daily_spend_ceiling_mode: DailyCeilingMode::default(),
+            daily_runaway_usd: limits::default_daily_runaway_usd(),
+            daily_notice_step_usd: limits::default_daily_notice_step_usd(),
+            runaway_usd_per_10min: limits::default_runaway_per_10min_usd(),
             default_budget: None,
             control_reserve: None,
             heartbeat_secs: default_heartbeat_secs(),
@@ -687,6 +704,10 @@ impl KernelSection {
             min_repeat_ms: self.min_repeat_minutes.max(1) * 60_000,
             daily_ceiling_micros: theseus_kernel::usd_to_micros(self.daily_spend_ceiling_usd),
             spend_hard_multiple: self.spend_limit_hard_multiple,
+            daily_notify: self.daily_spend_ceiling_mode == DailyCeilingMode::Notify,
+            daily_runaway_micros: theseus_kernel::usd_to_micros(self.daily_runaway_usd),
+            daily_step_micros: theseus_kernel::usd_to_micros(self.daily_notice_step_usd),
+            burn_line_micros: theseus_kernel::usd_to_micros(self.runaway_usd_per_10min),
             // The system's zone.
             ..Default::default()
         }

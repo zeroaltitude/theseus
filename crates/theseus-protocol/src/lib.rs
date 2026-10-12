@@ -700,6 +700,12 @@ pub struct HealthResult {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub features: Option<features::Features>,
+    /// Today's model spend against the daily ceiling (theseus-9e02): set
+    /// while the day is at or past its ceiling, so health's first line says
+    /// so.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub day_spend: Option<DayCeilingBudget>,
 }
 
 /// The AWS accounts the config binds (`[aws.accounts.<id>]`).

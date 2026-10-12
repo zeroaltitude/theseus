@@ -65,6 +65,10 @@ ROUTED_SPEND_LIMIT_USD = 20.0
 # limit failed. `THESEUS_BENCH_DAY_CEILING` names another; a key of its own,
 # apart from the trial limit.
 DAY_CEILING_PER_LIMIT = 2.0
+# The ceiling's mode (theseus-9e02): the daemon's default only warns at the
+# ceiling, so a trial sets `stop` beside it, and a benchmark run never spends
+# past its own budget.
+DAY_CEILING_MODE = "stop"
 DAY_CEILING_ENV = "THESEUS_BENCH_DAY_CEILING"
 
 
@@ -153,6 +157,7 @@ def settings(
         ("kernel", "daily_spend_ceiling_usd"): float(
             day_ceiling(spend_limit_usd) if day_ceiling_usd is None else day_ceiling_usd
         ),
+        ("kernel", "daily_spend_ceiling_mode"): DAY_CEILING_MODE,
         ("tools", "projects_dir"): workdir,
         ("tools", "proc_sync_secs"): proc_sync_secs,
     }

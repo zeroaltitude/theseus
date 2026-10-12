@@ -266,6 +266,7 @@ fn a_seed_keeps_the_days_spend_and_its_notice_across_a_restart() {
         &Seed {
             spent: 950,
             reached_at_ms: None,
+            ..Seed::default()
         },
     );
     assert!(refused(&plan(&w, &g, PROVIDER_TOOL, 51)).is_some());
@@ -278,6 +279,7 @@ fn a_seed_keeps_the_days_spend_and_its_notice_across_a_restart() {
         &Seed {
             spent: 1_000,
             reached_at_ms: Some(c2.now()),
+            ..Seed::default()
         },
     );
     let (_, _, g2) = running(&w2);
@@ -351,6 +353,7 @@ fn a_refusal_stops_the_day_until_midnight_or_a_higher_ceiling() {
         &Seed {
             spent: 100,
             reached_at_ms: Some(c2.now()),
+            ..Seed::default()
         },
     );
     let (_, _, g2) = running(&w2);

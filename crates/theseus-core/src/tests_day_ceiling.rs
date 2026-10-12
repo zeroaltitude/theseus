@@ -22,7 +22,7 @@ use crate::{Config, Core};
 const PLACE: &str = "dm:5150";
 const OWNER_DM: &str = "discord:dm:5150";
 
-fn billed(text: &str) -> Scripted {
+pub(crate) fn billed(text: &str) -> Scripted {
     Scripted::Billed {
         usage: Usage {
             input_tokens: 2_000,
@@ -33,19 +33,19 @@ fn billed(text: &str) -> Scripted {
     }
 }
 
-struct Rig {
-    core: Arc<Core>,
-    fake: Arc<FakeProvider>,
+pub(crate) struct Rig {
+    pub(crate) core: Arc<Core>,
+    pub(crate) fake: Arc<FakeProvider>,
     dir: tempfile::TempDir,
 }
 
-fn rig(script: Vec<Scripted>, cfg: impl FnOnce(&mut Config)) -> Rig {
+pub(crate) fn rig(script: Vec<Scripted>, cfg: impl FnOnce(&mut Config)) -> Rig {
     let dir = tempfile::tempdir().unwrap();
     let (core, fake) = build(dir.path(), script, cfg);
     Rig { core, fake, dir }
 }
 
-fn build(
+pub(crate) fn build(
     dir: &std::path::Path,
     script: Vec<Scripted>,
     cfg: impl FnOnce(&mut Config),
@@ -53,6 +53,9 @@ fn build(
     let mut c = Config::example();
     c.server.state_dir = dir.to_string_lossy().into_owned();
     c.tools.roots = vec![];
+    // These tests are the stop mode's (the money row's): the new tests of the
+    // notify mode are `tests_day_notify.rs`, which names it.
+    c.kernel.daily_spend_ceiling_mode = crate::config::DailyCeilingMode::Stop;
     cfg(&mut c);
     let store = Store::open(&dir.join("store")).unwrap();
     let fake = Arc::new(FakeProvider::scripted(script));
@@ -61,7 +64,7 @@ fn build(
 }
 
 /// A DM with the owner bound, as the binding's start tells it.
-fn bind_dm(core: &Core) {
+pub(crate) fn bind_dm(core: &Core) {
     core.runner.place_rule.bind(vec![BoundPlace {
         target: OWNER_DM.into(),
         name: "DM @owner".into(),
@@ -71,7 +74,7 @@ fn bind_dm(core: &Core) {
     }]);
 }
 
-async fn turn(
+pub(crate) async fn turn(
     core: &Arc<Core>,
     input: &str,
 ) -> (String, anyhow::Result<theseus_protocol::TurnSubmitResult>) {
@@ -84,7 +87,7 @@ async fn turn(
 }
 
 /// A turn in the session `sid`.
-async fn turn_in(
+pub(crate) async fn turn_in(
     core: &Arc<Core>,
     sid: &str,
     input: &str,
@@ -108,7 +111,7 @@ async fn turn_in(
         .await
 }
 
-fn rows(core: &Core, kind: &str) -> Vec<crate::ledger::LedgerRow> {
+pub(crate) fn rows(core: &Core, kind: &str) -> Vec<crate::ledger::LedgerRow> {
     let rows: Vec<(u64, crate::ledger::LedgerRow)> = core.store.ledger_tail(5000).unwrap();
     rows.into_iter()
         .map(|(_, r)| r)
@@ -117,7 +120,7 @@ fn rows(core: &Core, kind: &str) -> Vec<crate::ledger::LedgerRow> {
 }
 
 /// The posts of `kind` waiting in the outbox for the owner.
-fn posts(core: &Core, kind: &str) -> Vec<serde_json::Value> {
+pub(crate) fn posts(core: &Core, kind: &str) -> Vec<serde_json::Value> {
     core.outbox
         .open_for(crate::outbox::OPERATOR_TARGET)
         .iter()
@@ -134,6 +137,22 @@ fn the_key_defaults_to_200_and_refuses_what_is_not_a_dollar_amount() {
     let (c, w) = Config::parse("[secrets]\nanthropic_api_key = \"op://v/i/f\"\n").unwrap();
     assert!(w.is_empty(), "{w:?}");
     assert_eq!(c.kernel.daily_spend_ceiling_usd, 200.0);
+    // theseus-9e02: the ceiling warns by default, and the runaway line stops the day.
+    assert_eq!(
+        c.kernel.daily_spend_ceiling_mode,
+        crate::config::DailyCeilingMode::Notify
+    );
+    assert_eq!(
+        (c.kernel.daily_runaway_usd, c.kernel.daily_notice_step_usd),
+        (2000.0, 200.0)
+    );
+    assert_eq!(c.kernel.runaway_usd_per_10min, 200.0);
+    let k = c.kernel.to_kernel_config();
+    assert!(
+        k.daily_notify
+            && k.daily_runaway_micros == 2_000_000_000
+            && k.burn_line_micros == 200_000_000
+    );
     assert_eq!(
         c.kernel.to_kernel_config().daily_ceiling_micros,
         200_000_000

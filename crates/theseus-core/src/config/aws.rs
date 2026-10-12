@@ -56,6 +56,13 @@ pub struct AwsAccountConfig {
     /// the foundation stack's budget after serving when they differ.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub monthly_budget_usd: Option<u32>,
+    /// Where Theseus warns of the month's AWS spend (theseus-9e02): once a
+    /// month, when AWS Budgets' actual spend passes it, on the surfaces the
+    /// day ceiling's warning uses. It warns only: the month's stop stays at
+    /// `monthly_budget_usd`. Default half of it (of the stack's budget, when
+    /// the config names none).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub monthly_warn_usd: Option<f64>,
     /// The day's budget in USD (step 40 part 2): a second AWS Budget that
     /// only alerts, reconciled into the foundation stack's
     /// `DailyBudgetUsd` as the month's is. Unset: the stack's stands.
@@ -165,8 +172,25 @@ pub fn default_runaway_factor() -> f64 {
 }
 
 impl AwsAccountConfig {
-    /// `runaway_factor` is at least 2.
+    /// The month's warning line in cents: `monthly_warn_usd`, else half the
+    /// month's budget, the config's or (`stack_limit_cents`) the stack's.
+    pub fn monthly_warn_cents(&self, stack_limit_cents: u64) -> u64 {
+        match (self.monthly_warn_usd, self.monthly_budget_usd) {
+            (Some(w), _) => (w * 100.0).round() as u64,
+            (None, Some(b)) => u64::from(b) * 50,
+            (None, None) => stack_limit_cents / 2,
+        }
+    }
+
+    /// `runaway_factor` is at least 2, and `monthly_warn_usd`, when named, a
+    /// dollar amount above zero.
     fn check_runaway_factor(&self, id: &str) -> Result<()> {
+        if self
+            .monthly_warn_usd
+            .is_some_and(|w| !w.is_finite() || w <= 0.0)
+        {
+            anyhow::bail!("aws.accounts.{id}.monthly_warn_usd must be a dollar amount above zero");
+        }
         if !(self.runaway_factor.is_finite() && self.runaway_factor >= 2.0) {
             anyhow::bail!(
                 "aws.accounts.{id}.runaway_factor is {}: name a factor of 2 or more (default 10)",

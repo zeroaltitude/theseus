@@ -8,6 +8,7 @@ import type { ChildrenStatus } from "./ChildrenStatus";
 import type { ConfigStatus } from "./ConfigStatus";
 import type { ContextStatus } from "./ContextStatus";
 import type { CrashStatus } from "./CrashStatus";
+import type { DayCeilingBudget } from "./DayCeilingBudget";
 import type { DiskStatus } from "./DiskStatus";
 import type { EarnedGrant } from "./EarnedGrant";
 import type { ExtendHealth } from "./ExtendHealth";
@@ -256,4 +257,10 @@ cache?: PromptCacheHealth,
 /**
  * Which killer features are on (theseus-is8t): health's first line.
  */
-features?: Features, };
+features?: Features, 
+/**
+ * Today's model spend against the daily ceiling (theseus-9e02): set
+ * while the day is at or past its ceiling, so health's first line says
+ * so.
+ */
+day_spend?: DayCeilingBudget, };

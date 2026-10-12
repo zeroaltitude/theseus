@@ -108,3 +108,21 @@ test('the day ceiling is a quiet bar under it and a stop once reached', () => {
   assert.match(stopped.text, /^stopped: today’s model spend reached the \$200\.00 daily ceiling/)
   assert.match(stopped.detail, /no model call until 2026-10-09 00:00 local time · raise \[kernel\] daily_spend_ceiling_usd/)
 })
+
+// theseus-9e02: under notify the ceiling is a warning, and the stop is the runaway line.
+test('under notify the ceiling is a warning that says the work goes on, and the runaway line is the stop', () => {
+  const day = { day: '2026-10-08', ceiling_usd: 200, spent_usd: 412.5, held_usd: 0, reached: false, turns_at_ms: 1, turns_at: '2026-10-09 00:00', mode: 'notify', runaway_usd: 2000, step_usd: 200, past: true }
+  const warned = dayCeilingView(day)
+  assert.equal(warned.warning, true)
+  assert.equal(warned.stopped, false)
+  assert.equal(warned.tone, 'wait')
+  assert.match(warned.text, /^warning: \$412\.50 today, 2\.1× the \$200\.00 daily ceiling · the work goes on$/)
+  assert.match(warned.detail, /model calls stop at the \$2000\.00 runaway line · stop now with `theseus stop`/)
+  const quiet = dayCeilingView({ ...day, spent_usd: 50, past: false })
+  assert.equal(quiet.warning, false)
+  assert.equal(quiet.text, '$50.00 of $200.00 today')
+  const stopped = dayCeilingView({ ...day, spent_usd: 2000, reached: true, reached_at_ms: 5 })
+  assert.equal(stopped.stopped, true)
+  assert.match(stopped.text, /^stopped: today’s model spend reached the \$2000\.00 daily runaway line/)
+  assert.match(stopped.detail, /raise \[kernel\] daily_runaway_usd/)
+})

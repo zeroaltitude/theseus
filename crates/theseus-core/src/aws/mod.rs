@@ -54,6 +54,7 @@ pub mod external;
 pub mod hands;
 pub mod inventory;
 pub mod logs;
+pub mod month_warn;
 pub mod policy_keys;
 pub mod s3;
 pub mod secret;
