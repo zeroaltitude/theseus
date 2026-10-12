@@ -68,6 +68,7 @@ pub(crate) use calls::call_result;
 pub mod compaction;
 mod compile_step;
 mod cut_step;
+mod deferred_step;
 pub mod effort_step;
 mod end_step;
 mod fallback_step;
@@ -2011,6 +2012,7 @@ impl TurnRunner {
         let woke = Self::read_wakes(t)?;
         // A retraction's correction notes (theseus-2ced), none usually.
         self.read_corrections(t)?;
+        let deferred = deferred_step::start_node(t)?;
         // Each call answered here is traced under the continuation's span,
         // in this turn, as `run_tools` traces its own (theseus-8pei).
         let mut calls = calls::late_spans(&t.trace, &self.tools, &late);
@@ -2033,7 +2035,7 @@ impl TurnRunner {
         });
         t.awaiting = resumed.awaiting;
         t.background = resumed.background;
-        Ok(absorbed + resumed.wrote + u32::from(reset || raised) + reported + woke)
+        Ok(absorbed + resumed.wrote + u32::from(reset || raised) + reported + woke + deferred)
     }
 
     /// A `/stop` by `by` ended the turn's loops (W1): its stop reason says so,

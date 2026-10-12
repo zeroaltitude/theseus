@@ -111,6 +111,16 @@ pub fn fmt_day(unix_ms: u64) -> String {
     at(unix_ms, "%Y-%m-%d")
 }
 
+/// When a deferred task starts (theseus-rcgph), `Fri 09:00`; past a week
+/// ahead, with its date, `Oct 23 09:00`.
+pub fn fmt_starts(unix_ms: u64, now_ms: u64) -> String {
+    if unix_ms.saturating_sub(now_ms) > 6 * 86_400_000 {
+        at(unix_ms, "%b %-d %H:%M")
+    } else {
+        at(unix_ms, "%a %H:%M")
+    }
+}
+
 /// A date and a time to the minute: `2026-03-14 02:12`.
 pub fn fmt_date(unix_ms: u64) -> String {
     at(unix_ms, "%Y-%m-%d %H:%M")
@@ -148,6 +158,14 @@ mod tests {
         assert_eq!(fmt_date(ms), "2026-03-14 02:12");
         assert_eq!(fmt_stamp(ms), "2026-03-14 02:12:05");
         assert_eq!(fmt_time(0), "17:00:00.000");
+    }
+
+    #[test]
+    fn a_start_names_its_day() {
+        // 2026-03-14 09:12 UTC is Saturday 02:12 at UTC−7.
+        let ms = 1_773_479_525_042;
+        assert_eq!(fmt_starts(ms, ms - 3_600_000), "Sat 02:12");
+        assert_eq!(fmt_starts(ms, ms - 7 * 86_400_000), "Mar 14 02:12");
     }
 
     /// Each `TZ` and `/etc/localtime` as the C library reads them, and never

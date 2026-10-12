@@ -114,6 +114,11 @@ struct Input {
     /// A check's model: a profile's name (M5 28a). Only a check takes one.
     #[serde(default)]
     profile: Option<String>,
+    /// A deferred task (theseus-rcgph): it opens asleep and starts then.
+    #[serde(default)]
+    start_at: Option<String>,
+    #[serde(default)]
+    start_after: Option<String>,
 }
 
 fn input_of(input: &Value) -> Result<Input, String> {
@@ -121,6 +126,11 @@ fn input_of(input: &Value) -> Result<Input, String> {
     let Some(brief) = &i.brief else {
         if i.check_of.is_some() || i.profile.is_some() {
             return Err("a check (`check_of`) is a task session: give it a `brief`".into());
+        }
+        if i.start_at.is_some() || i.start_after.is_some() {
+            return Err(
+                "`start_at` and `start_after` defer a task session: give it a `brief`".into(),
+            );
         }
         if i.title.as_deref().is_none_or(|t| t.trim().is_empty()) {
             return Err("give a `brief` to start a task session, or a `title` to record a plan                         item"
@@ -172,7 +182,10 @@ impl Tool for TaskCreate {
          `wake_parent: true`, the report starts that turn by itself, so you can review the result \
          and act on it without waiting for the person: use it for a chain, where you review each \
          task's result and start the next. Leave it off for work the person will ask about. A \
-         task cannot start tasks.\n\n\
+         task cannot start tasks. For work on a day that needs judgment (\"on Friday, read the \
+         PR's review and draft a reply\"), give `start_after` or `start_at`: the task sleeps, its \
+         budget is carved now, and it starts then; a reminder to the owner is a `wake.at` \
+         instead.\n\n\
          Every task needs an `arrangement`: quote the messages of this conversation that define \
          the work, rather than paraphrasing them into the brief. Each piece is an exact quote \
          (copied character for character, at least 20 characters, from one message: the \
@@ -267,7 +280,9 @@ impl Tool for TaskCreate {
                 "parent": {"type": "string", "description": "The task it goes under (tsk_…)."},
                 "deps": {"type": "array", "items": {"type": "string"}, "description": "The tasks it waits on (tsk_…)."},
                 "check_of": {"type": "string", "description": "Start a check of this task (its id, or the end of it): one this conversation started, which has reported."},
-                "profile": {"type": "string", "description": "A check's model: a configured profile's name (default: this conversation's). Only for `check_of`."}
+                "profile": {"type": "string", "description": "A check's model: a configured profile's name (default: this conversation's). Only for `check_of`."},
+                "start_after": {"type": "string", "description": "Defer the task: it sleeps and starts this long from now, a duration such as 2h or 1d (1 second to 30 days). Its budget is carved now."},
+                "start_at": {"type": "string", "description": "Defer the task: it starts at this RFC 3339 time with its offset, such as 2026-10-16T09:00:00-07:00 (1 second to 30 days ahead)."}
             },
             "additionalProperties": false
         })
@@ -440,6 +455,14 @@ pub fn create<'a>(
         Some(b) => usd_to_micros(b),
         None => share_of / DEFAULT_SHARE.1 * DEFAULT_SHARE.0,
     };
+    let now = tc.kernel.now_ms();
+    let start = match (&i.start_at, &i.start_after) {
+        (None, None) => None,
+        (at, after) => Some(
+            crate::task_start::due(at.as_deref(), after.as_deref(), now)
+                .map_err(|e| format!("Not started: {e}"))?,
+        ),
+    };
     let target = tc.outbox.target(tc.session_id);
     let title = i.title.clone().unwrap_or_else(|| title_from(brief));
     let (_, task_session) = task_ids(correlation_id);
@@ -458,13 +481,14 @@ pub fn create<'a>(
         .get_session::<SessionRecord>(tc.session_id)
         .map_err(|e| format!("Not started: {e:#}"))?
         .and_then(|r| r.external);
-    let opened = tc.kernel.open_task(
-        tc.guard,
-        correlation_id,
-        want,
-        target.clone(),
-        i.wake_parent,
-        |task| {
+    let opening = theseus_kernel::Opening {
+        reports_to: target.clone(),
+        wake_parent: i.wake_parent,
+        start_at_ms: start,
+    };
+    let opened = tc
+        .kernel
+        .open_task_at(tc.guard, correlation_id, want, opening, |task| {
             let mut rec = SessionRecord::with_id(
                 task.session_id.clone(),
                 SessionKind::Task,
@@ -559,9 +583,16 @@ pub fn create<'a>(
             }
             records.push(crate::task_graph::record(&graph)?);
             records.push(created_row.clone());
+            if let Some(due) = start {
+                let d = crate::task_start::Deferred {
+                    set_at_ms: now,
+                    due_at_ms: due,
+                    started_ms: None,
+                };
+                records.push(crate::task_start::record(&task.session_id, &d)?);
+            }
             Ok(records)
-        },
-    );
+        });
     let opened = match opened {
         Ok(o) => o,
         Err(e) => {
@@ -589,6 +620,7 @@ pub fn create<'a>(
             available_before: opened.available_before,
             target: target.as_deref(),
             pieces: pieces.len(),
+            starts_at_ms: start,
         });
         tc.record(&crate::fact::arrangement::TaskArranged {
             short: &s,
@@ -629,7 +661,21 @@ pub fn create<'a>(
     } else {
         usd(limit)
     };
-    let text = if opened.opened && task.wake_parent {
+    let text = if let (true, Some(at)) = (opened.opened, start) {
+        format!(
+            "Scheduled task {s} (\"{title}\") to start {} with a budget of {budget}, carved \
+             from this session now. It sleeps until then, takes no turn before, and reports \
+             here when it finishes{}. Cancel it before then with task.close, and the budget \
+             comes back. Its id is {}.",
+            crate::task_start::day_hm(at),
+            if task.wake_parent {
+                ", and its report starts this conversation's next turn"
+            } else {
+                "; its report reaches a later turn of this conversation"
+            },
+            task.session_id
+        )
+    } else if opened.opened && task.wake_parent {
         format!(
             "Started task {s} (\"{title}\") with a budget of {budget}. It works on its own and \
              reports here when it finishes, and its report starts this conversation's next turn, \
@@ -670,6 +716,7 @@ pub fn create<'a>(
         "capped": capped,
         "opened": opened.opened,
         "wake_parent": task.wake_parent,
+        "starts_at_ms": start,
         "arrangement": crate::arrangement::meta(&pieces),
         "fidelity_ack": i.fidelity_ack,
         "record": graph.id,
@@ -1030,6 +1077,7 @@ pub fn info(
         created_at_ms: e.created_at_ms,
         updated_at_ms: e.updated_at_ms,
         wake_parent: e.wake_parent,
+        starts_at_ms: crate::task_start::starts_at(e),
         attention: None,
         arrangement: None,
         check: task_of.and_then(|t| t.check.clone()),

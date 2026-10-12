@@ -4,6 +4,20 @@
 
 use theseus_protocol::{TaskArrangement, TaskInfo};
 
+use super::{pill, time::fmt_starts};
+
+/// A task's state on its line: a deferred one says when it starts, asleep
+/// until then (theseus-rcgph); else its pill, or its state and what it waits
+/// on.
+pub fn state_word(t: &TaskInfo, now_ms: u64) -> String {
+    match (&t.attention, &t.waiting_on, t.starts_at_ms) {
+        (_, _, Some(at)) => format!("▷ starts {}", fmt_starts(at, now_ms)),
+        (Some(a), _, _) => pill(a),
+        (None, Some(w), _) => format!("{} on {w}", t.state),
+        (None, None, _) => t.state.clone(),
+    }
+}
+
 /// The mark on a task's line: `📎 3 pieces`, and the fidelity check's ack.
 pub fn clip(a: &TaskArrangement) -> String {
     let n = a.pieces.len();
@@ -67,6 +81,36 @@ pub fn task_check(t: &TaskInfo) -> Vec<String> {
 mod tests {
     use super::*;
     use theseus_protocol::ArrangementPiece;
+
+    /// A deferred task says when it starts, in place of what it waits on
+    /// (theseus-rcgph).
+    #[test]
+    fn a_deferred_task_line_says_when_it_starts() {
+        use crate::render::task_line;
+        // 2026-03-14 09:12 UTC is Saturday 02:12 at the tests' UTC−7.
+        let at = 1_773_479_525_042;
+        let t = TaskInfo {
+            short: "a1b2c3".into(),
+            state: "waiting".into(),
+            waiting_on: Some("a due time".into()),
+            starts_at_ms: Some(at),
+            attention: Some(theseus_protocol::Attention {
+                level: theseus_protocol::Level::Working,
+                label: "▷ starts Sat 02:12".into(),
+                since_ms: 0,
+            }),
+            limit_usd: 2.0,
+            created_at_ms: at - 3_600_000,
+            ..Default::default()
+        };
+        let line = task_line(&t, at - 3_000_000);
+        assert!(
+            line.text
+                .starts_with("a1b2c3\t▷ starts Sat 02:12\t$0.0000 of $2.00\t0 turns"),
+            "{}",
+            line.text
+        );
+    }
 
     #[test]
     fn a_checks_basis_is_shown_under_it() {

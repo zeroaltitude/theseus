@@ -52,6 +52,8 @@ mod tests_budgets;
 #[cfg(test)]
 mod tests_day_ceiling;
 #[cfg(test)]
+mod tests_deferred;
+#[cfg(test)]
 mod tests_earlier;
 #[cfg(test)]
 mod tests_enosys;
@@ -99,6 +101,6 @@ pub use overdraw::{default_hard_multiple, HardStop};
 pub use repeat::{Day, Every, Repeat, TimeZone};
 pub use spool::Spool;
 pub use stops::Stop;
-pub use tasks::{carve_key, task_ids, TakenReports, TaskOpen};
+pub use tasks::{carve_key, task_ids, Opening, TakenReports, TaskOpen};
 pub use types::*;
 pub use wakes::{wake_id, FiredWake, MoveTo, WakeMoved, WakeSet, MAX_PENDING};

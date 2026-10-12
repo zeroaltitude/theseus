@@ -1090,6 +1090,14 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   (`wake.cancelled { by: "model" }`, `wake.moved { from, to }`); a move keeps the id, a series' next occurrence moves
   alone unless `series: true` moves its time (`every`, `days`, `until` kept). A routine, a watch or a deferred task
   joins as another line with its own icon. Tests: `tests_commitments.rs` (the stand-in model reads the block's ids).
+- **Deferred tasks** (theseus-rcgph): `task.create { start_at | start_after }` opens a task asleep (`task_start.rs`):
+  `Kernel::open_task_at` writes it `Waiting{DueAt}` in the open's one frame with its carve held (the parent's
+  remaining shows it), the due scan queues it, and its first turn's catch-up writes the node `Deferred task, set <when>
+  for <when>; started <now>` (late, and whether the daemon was down, as a wake's; `turn/deferred_step.rs`), once, by
+  its META record `task.deferred.<session>` (no store format change). The time is `wake.at`'s parse and bounds
+  (`MIN_AHEAD_MS`, `MAX_AHEAD_MS`). `TaskInfo.starts_at_ms` is derived from the execution while it sleeps
+  (`task_start::starts_at`), and the board, `theseus tasks` and `/tasks` say `▷ starts Fri 09:00`. A cancel before
+  the start ends it and releases the carve. Tests: `tests_tasks_deferred.rs`, the kernel's `tests_deferred.rs`.
 - **Parked tasks** (28b; theseus-vug): `parked.rs`, health's `tasks.parked`: each task that cannot progress by itself,
   with its blocker, from the open executions alone (a question counts as progress for 24 hours).
 - **Limits that notify** (theseus-usei; the owner, 2026-10-07: for tasks and tokens, notify, not restrict):

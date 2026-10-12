@@ -29,9 +29,15 @@ use crate::Core;
 
 mod hot;
 
-/// A time of day on the daemon's clock, `14:00`: how a label says a due time.
+/// A time on the daemon's clock, `14:00`: how a label says a due time. One
+/// a day or more ahead names its weekday, `Fri 09:00`, so a deferred task's
+/// start (theseus-rcgph) reads as a day, not as a time of day it may not be.
 pub fn hm(unix_ms: u64) -> String {
-    crate::wake::local(unix_ms).hm()
+    let l = crate::wake::local(unix_ms);
+    match unix_ms.saturating_sub(theseus_protocol::now_unix_ms()) {
+        d if d >= 20 * 3_600_000 => format!("{} {}", l.weekday(), l.hm()),
+        _ => l.hm(),
+    }
 }
 
 /// The kernel's wake, typed for the wire.

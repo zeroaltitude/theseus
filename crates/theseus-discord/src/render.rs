@@ -23,6 +23,7 @@ use theseus_core::outbox::Closed;
 use theseus_protocol::{ConfirmRequest, Event, TurnSubmitResult};
 mod board;
 pub(crate) mod cite;
+mod deferred;
 mod held;
 pub(crate) mod process;
 mod reply;
@@ -935,10 +936,7 @@ pub fn tasks(tasks: &[theseus_protocol::TaskInfo], now_ms: u64) -> String {
             3600..=86_399 => format!("{} h", age / 3600),
             _ => format!("{} d", age / 86_400),
         };
-        let state = match &t.waiting_on {
-            Some(w) => format!("{} on {w}", t.state),
-            None => t.state.clone(),
-        };
+        let state = deferred::state_word(t);
         let asks = if t.pending_confirms > 0 {
             " · **needs you**"
         } else {
