@@ -83,13 +83,13 @@ The adapter's settings come from the environment of `harbor run`:
 
 ## The routed arm
 
-`-a theseus_agent:TheseusRouted` runs Theseus as the owner runs it (theseus-eo3h): `[judge]` on, `route.v3` live,
+`-a theseus_agent:TheseusRouted` runs Theseus as the owner runs it (theseus-eo3h): `[judge]` on, `route.v4` live,
 and the owner's routing table over `haiku` (Haiku 5.5, effort low), `haikuhi` (high), `sonnet`, `opus`, and `fable`,
 so each message's turn runs on the model Jev picks. The conditions of the plain arm hold (the same limits, the same
 output cap, `bench` as the session's own profile at medium effort), and these do not, so a report marks the arm as
 having conditions its peers did not share:
 
-- the model and its effort vary by message: route.v3 asks the reply's effort beside the mode, and a sure answer wins
+- the model and its effort vary by message: route.v4 asks the reply's effort beside the mode, and a sure answer wins
   over the profile's own (none sets `effort_fixed`); else `haiku` runs low, `haikuhi` high, and `sonnet`, `opus` and
   `fable`, which ask for none, at each model's default;
 - the Z.ai profile `glm` is left out (the bench has no Z.ai key), so `trivial` is `["haiku"]`;

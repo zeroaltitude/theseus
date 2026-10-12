@@ -1,7 +1,9 @@
 //! Only Jev elevates, and a raised session steps back down (theseus-p8dy), on
-//! real daemons: one session on the routed bench profile, one message per
-//! `theseus --spawn ask` (each its own daemon on the one state directory),
-//! with the stand-in model and a scripted fake Jev. Jev answers `max` at
+//! a real daemon: one session on the routed bench profile, one `theseus ask`
+//! a message, with the stand-in model and a scripted fake Jev. One daemon
+//! serves them all, as the owner's does, and the first message waits for its
+//! ladder's first read: before it route.v4 judges in shadow (theseus-289c), so
+//! a daemon a message (`--spawn`) would race it. Jev answers `max` at
 //! 0.65 and then 0.9, then `sophisticated`, then `chat` twice; the ledger's
 //! `route.decided` rows say what each turn ran on and why.
 
@@ -9,6 +11,7 @@ mod common;
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::time::{Duration, Instant};
 
 use common::model::FakeModel;
 use serde_json::Value;
@@ -40,6 +43,7 @@ fn trial(model: &FakeModel, jev: &FakeJev) -> tempfile::TempDir {
     set(&mut t, &["model", "api_base"], model.base.clone().into());
     set(&mut t, &["judge", "api_base"], jev.base().into());
     set(&mut t, &["kernel", "spend_limit_usd"], 10.0.into());
+    set(&mut t, &["kernel", "daily_spend_ceiling_usd"], 20.0.into());
     // Every message is its own daemon's first: a cache hold above the cold
     // line would wait for a second agreeing turn, so keep the line high.
     set(&mut t, &["routing", "cold_switch_tokens"], 1_000_000.into());
@@ -55,8 +59,8 @@ fn trial(model: &FakeModel, jev: &FakeJev) -> tempfile::TempDir {
 fn theseus(dir: &Path, args: &[&str]) -> (i32, String, String) {
     let theseusd = PathBuf::from(env!("CARGO_BIN_EXE_theseusd"));
     let out = Command::new(theseusd.with_file_name("theseus"))
-        .arg("--spawn")
-        .arg(&theseusd)
+        .arg("--socket")
+        .arg(dir.join("sock"))
         .arg("--json")
         .args(args)
         .env("THESEUS_CONFIG", dir.join("config.toml"))
@@ -76,6 +80,46 @@ fn theseus(dir: &Path, args: &[&str]) -> (i32, String, String) {
     )
 }
 
+/// The conversation's daemon, once its ladder has read route.v4 live.
+fn daemon(dir: &Path) -> common::Daemon {
+    let theseusd = PathBuf::from(env!("CARGO_BIN_EXE_theseusd"));
+    let d = common::Daemon::spawn(
+        Command::new(&theseusd)
+            .arg("--config")
+            .arg(dir.join("config.toml"))
+            .arg("--state-dir")
+            .arg(dir.join("state"))
+            .arg("--socket")
+            .arg(dir.join("sock"))
+            .env("XDG_STATE_HOME", dir.join("xdg-state"))
+            .env("ANTHROPIC_API_KEY", KEY)
+            .env("TYPESAFE_API_KEY", JEV)
+            .env_remove("OP_SERVICE_ACCOUNT_TOKEN")
+            .env_remove("THESEUS_OP_TOKEN_FILE"),
+    );
+    let t0 = Instant::now();
+    loop {
+        let (code, out, _) = theseus(dir, &["health"]);
+        let packs = serde_json::from_str::<Value>(&out).map(|h| h["judge"]["packs"].clone());
+        let live = packs
+            .as_ref()
+            .ok()
+            .and_then(Value::as_array)
+            .is_some_and(|p| {
+                p.iter()
+                    .any(|l| l.as_str().is_some_and(|l| l.starts_with("route.v4: live")))
+            });
+        if code == 0 && live {
+            return d;
+        }
+        assert!(
+            t0.elapsed() < Duration::from_secs(60),
+            "the ladder never read route.v4 live: {out}"
+        );
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
 fn script(jev: &FakeJev, mode: &str, effort: &str, confidence: f64) {
     for (q, option) in [("mode", mode), ("reply_effort", effort)] {
         jev.script(
@@ -93,6 +137,7 @@ fn jev_raises_a_session_and_two_chats_bring_it_back() {
     let model = FakeModel::start(|_| vec![]);
     let jev = FakeJev::start().unwrap();
     let dir = trial(&model, &jev);
+    let _daemon = daemon(dir.path());
     let mut session: Option<String> = None;
     let steps = [
         ("chat", "max", 0.65),

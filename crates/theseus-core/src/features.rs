@@ -97,8 +97,9 @@ mod tests {
         assert_eq!(off.jev, "Jev off ([judge] enabled = false)");
         let shadow = of(&cfg(SET, "[routing]\nmode = \"shadow\""), None);
         assert_eq!(shadow.jev, "Jev on, routing shadow");
+        let pack = crate::judge::inbound::ROUTE_PACK;
         let packed = of(
-            &cfg(SET, "[judge.packs.\"route.v3\"]\nmode = \"shadow\""),
+            &cfg(SET, &format!("[judge.packs.\"{pack}\"]\nmode = \"shadow\"")),
             None,
         );
         assert_eq!(packed.jev, "Jev on, routing shadow");

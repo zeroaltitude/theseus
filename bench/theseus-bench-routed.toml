@@ -3,8 +3,8 @@
 # (`theseus-bench.toml`: no vault, every tool open, L0, the same caps, retries
 # and output cap) holds, and these differ, which makes this arm a
 # diamond on the Benchmarks tab ("conditions its peers did not share"):
-#   - `[judge]` is on, and route.v3 (the acting route pack on main since
-#     theseus-qe3v) asks at the message which mode it needs and the effort
+#   - `[judge]` is on, and route.v4 (the acting route pack on main since
+#     theseus-p8dy; route.v3 with a `review` mode) asks at the message which mode it needs and the effort
 #     its reply needs; the turn runs on that mode's first usable profile
 #     (`[routing.modes.*]`, the owner's table), at Jev's effort where Jev
 #     is sure (within `[routing] effort_bounds`, the full range here);
@@ -101,7 +101,7 @@ mode = "off"
 # The profiles the routing table names, as the owner runs them. None caps the
 # output (the catalog's maximum, as `bench`), and each has `max_loops` as `bench`
 # (set by the adapter). Each runs at its own effort (haiku low, haikuhi high;
-# sonnet, opus and fable name none: their model's default) unless route.v3's
+# sonnet, opus and fable name none: their model's default) unless route.v4's
 # effort answer is sure, which wins: none sets `effort_fixed`, as shipped.
 [profiles.sonnet]
 provider = "anthropic"
