@@ -11,7 +11,7 @@ import type { ConfirmRequest, ExecutionInfo, NodeInfo, SessionInfo } from '@prot
 import { call, client, useConn, useRpc, usePush } from '@/lib/rpc'
 import { onNewRows } from '@/lib/history'
 import { Stir, STIR_CLASS } from '@/lib/stir'
-import { useSoundCues } from '@/ship/useShipSound'
+import { useSonar, useSoundCues } from '@/ship/useShipSound'
 import { useLedger } from '@/lib/derive'
 import { summarize } from '@/lib/summary'
 import { cn, short, usd, clock, stamp } from '@/lib/format'
@@ -67,6 +67,7 @@ export function Shell() {
   const onShip = !!shipRoute || !!indexRoute
   // The sound cues play on every page, still off until the operator turns them on (the Ship's Sound button).
   useSoundCues(onShip)
+  useSonar(onShip)
   // The activity strip starts folded, on the Ship and the data pages alike, and stays as this browser left it
   // (theseus-hnof.5): open by default, it took the foot of every data view at 1080 px, and it forgot a fold.
   const [river, setRiver] = useState(() => stripOpen(kept(STRIP_KEY)))
