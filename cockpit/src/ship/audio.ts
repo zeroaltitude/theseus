@@ -17,6 +17,8 @@
 import type { Cue } from './sound'
 import { gullBuild, type GullVoice } from './gullsound.ts'
 import type { GullCall } from './gull.ts'
+import { pingBuild, type PingNodes } from './sonarsound.ts'
+import type { PingVoice } from './sonar.ts'
 import {
   DUCK, DUCK_ATTACK_S, DUCK_RELEASE_S, fadeTo, NOISE_S, pinkNoise, SURF_BACKWASH_S, SURF_BODY_HZ, SURF_FADE_IN_S,
   SURF_FADE_OUT_S, SURF_FOAM, SURF_HISS, SURF_HISS_HZ, SURF_RUMBLE_HZ, SURF_WASH_HZ, surfTau, surfVoice, surfWaves, WAVES_RATE,
@@ -53,6 +55,8 @@ export class ShipAudio {
   private surfBufs: { noise: AudioBuffer[]; waves: AudioBuffer } | null = null
   /** The gulls passing now (theseus-7mow): one visit is never two close together, but a stop must end them all. */
   private gulls = new Set<GullVoice>()
+  /** The sonar pings sounding now (theseus-mbulo): a stop must end them all, echoes and return too. */
+  private pings = new Set<PingNodes>()
 
   /** Whether sound can play now (its context runs). */
   get running(): boolean {
@@ -154,8 +158,30 @@ export class ShipAudio {
     this.gulls.clear()
   }
 
+  /** A sonar ping (`sonar.ts`), where the sound runs; false when it can't (no context, or the browser holds it). */
+  ping(voice: PingVoice): boolean {
+    const c = this.ctx
+    if (!c || !this.master || (this.live && this.live.state !== 'running')) return false
+    const p: PingNodes = pingBuild(c, this.master, c.currentTime + 0.02, voice, () => this.pings.delete(p))
+    this.pings.add(p)
+    return true
+  }
+
+  /** How many pings are sounding, for the tests. */
+  get pingsHeard(): number {
+    return this.pings.size
+  }
+
+  /** Every ping ends at once: sound off, or the page leaving. */
+  pingStop() {
+    const t = this.ctx?.currentTime ?? 0
+    for (const p of this.pings) p.stop(t)
+    this.pings.clear()
+  }
+
   dispose() {
     this.gullStop()
+    this.pingStop()
     void this.live?.close().catch(() => {})
     this.live = null
     this.ctx = null

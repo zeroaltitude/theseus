@@ -33,6 +33,7 @@ import { CallInspector } from '@/components/CallInspector'
 import { ModelInspector } from '@/components/ModelInspector'
 import { PlankStrip } from '@/components/brass'
 import { useCalm } from '@/lib/calm'
+import { SonarRing } from '@/ship/Sonar'
 import { useConn } from '@/lib/rpc'
 import { useWorld } from '@/lib/world'
 import { ago, cn, short, stamp } from '@/lib/format'
@@ -387,6 +388,7 @@ function ShipView({ data, onFail }: { data: ShipData; onFail: OnFail }) {
     <div ref={setRoot} className="ship-root relative h-full w-full overflow-hidden" data-calm={calm ? '1' : ''}>
       <div ref={host} className="absolute inset-0" />
       <div ref={labelsRoot} className="ship-labels pointer-events-none absolute inset-0 overflow-hidden" />
+      <SonarRing />
       {data.progress < 1 && <div className="pointer-events-none absolute inset-x-0 top-0" title="Reading the graph"><PlankStrip progress={data.progress} height={6} /></div>}
 
       <Cartouche model={model} synthetic={data.synthetic} live={status === 'open'} error={data.error} asOf={data.past?.t} hidden={hidden} filter={filter} />

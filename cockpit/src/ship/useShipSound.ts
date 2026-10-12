@@ -16,6 +16,7 @@ import { ShipAudio } from './audio'
 import { tpmOf } from './sea.ts'
 import { cueHere, cueOf, cueOfRow, newEar, type Cue } from './sound'
 import { gullCall, gullRng, startGulls } from './gull.ts'
+import { pingWhat, room, ROOM_PAD_MS, showRing, hideRing, startSonar } from './sonar.ts'
 import { surfHeight } from './surf.ts'
 
 export interface ShipSound {
@@ -107,7 +108,11 @@ function useSurf(on: boolean) {
     if (!hearing) return
     const a = theAudio()
     const next = gullRng((Date.now() ^ (Math.random() * 0x7fffffff)) >>> 0)
-    const stop = startGulls(true, next, { after: (f, ms) => setTimeout(f, ms), cancel: (h) => clearTimeout(h as number) }, () => { a.gull(gullCall(next)) })
+    const stop = startGulls(true, next, { after: (f, ms) => setTimeout(f, ms), cancel: (h) => clearTimeout(h as number) }, () => {
+      // One voice at a time: a visit that comes while a ping rings is let pass (the sonar waits for a gull, too).
+      const call = gullCall(next)
+      if (room.claim(Date.now(), call.secs * 1000 + ROOM_PAD_MS)) a.gull(call)
+    })
     // `?gull=now`: one visit three seconds after the sea is heard, to hear what a gull sounds like without waiting the
     // first gap (2 to 5 minutes); the visits after it keep their own gaps (the owner, 2026-10-12).
     const soon = new URLSearchParams(window.location.search).get('gull') === 'now'
@@ -118,4 +123,34 @@ function useSurf(on: boolean) {
   useEffect(() => {
     if (import.meta.env.DEV || import.meta.env.MODE === 'bench') window.__shipSurf = () => theAudio().surfing
   }, [])
+}
+
+/** The sonar ping (theseus-mbulo): while the Ship is the page shown, now and then a ring from its middle, and with Sound
+ *  on the ping itself. Mounted once, in the Shell. The ring shows with Sound off and not in Calm; the sound plays in Calm
+ *  too, only with Sound on; a hidden tab has neither. The scheduler runs on the Ship alone and lives across Sound
+ *  and Calm changes (each ping reads them as it comes due). */
+export function useSonar(onShip: boolean) {
+  const on = useSound((s) => s.on)
+  // Sound turned off: a ping still ringing ends at once.
+  useEffect(() => { if (!on) audio?.pingStop() }, [on])
+  useEffect(() => {
+    if (!onShip) return
+    const a = theAudio()
+    const next = gullRng((Date.now() ^ (Math.random() * 0x7fffffff)) >>> 0)
+    const stop = startSonar({
+      next,
+      clock: { after: (f, ms) => setTimeout(f, ms), cancel: (h) => clearTimeout(h as number) },
+      now: Date.now,
+      shown: () => typeof document === 'undefined' || !document.hidden,
+      play: (voice) => {
+        const what = pingWhat({ soundOn: useSound.getState().on, calm: useCalm.getState().calm, hidden: typeof document !== 'undefined' && document.hidden })
+        if (what.ring) showRing()
+        if (what.sound) a.ping(voice)
+        if (import.meta.env.DEV || import.meta.env.MODE === 'bench') ((window as unknown as { __shipPings?: number }).__shipPings = ((window as unknown as { __shipPings?: number }).__shipPings ?? 0) + 1)
+      },
+    })
+    // Dev and bench builds: a ping now, for a live check or a screenshot.
+    if (import.meta.env.DEV || import.meta.env.MODE === 'bench') (window as unknown as { __shipPing?: () => void }).__shipPing = () => { showRing() }
+    return () => { stop(); hideRing(); a.pingStop() }
+  }, [onShip])
 }
