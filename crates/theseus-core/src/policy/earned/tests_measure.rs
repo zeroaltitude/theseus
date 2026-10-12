@@ -188,7 +188,7 @@ fn a_grant_is_stored_with_its_row_in_one_frame_and_read_back_after_a_reopen() {
         .into_iter()
         .map(|(_, r)| r.kind)
         .collect();
-    assert_eq!(kinds, ["policy.earned_granted"]);
+    assert_eq!(kinds, ["ledger.chain_started", "policy.earned_granted"]);
     assert!(
         again.skips("ern_00000009", NOW, WEEK_MS),
         "a grant is not proposed again"

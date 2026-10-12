@@ -288,7 +288,8 @@ fn a_filtered_page_equals_the_scans_answer() {
 #[test]
 fn a_window_keeps_its_bounds_and_a_clock_that_steps_back_does_not_split_it() {
     let dir = tempfile::tempdir().unwrap();
-    let s = open(dir.path());
+    // Its positions are its own arithmetic: no chain's start row among them.
+    let s = open(dir.path()).without_chain();
     let wal = dir.path().join("wal");
     let t0 = 1_800_000_000_000u64; // a minute's start
                                    // Rows every 10 s for 5 minutes: positions 1..=30 at t0 + 10 s × (p - 1).
@@ -477,7 +478,8 @@ fn cursor_pages_under_concurrent_writes_have_no_duplicate_or_gap() {
 #[test]
 fn an_index_of_another_shape_is_built_after_serving_and_then_answers_whole() {
     let dir = tempfile::tempdir().unwrap();
-    let s = open(dir.path());
+    // Its counts are its own arithmetic: no chain's start row among them.
+    let s = open(dir.path()).without_chain();
     for i in 0..60u64 {
         s.append(&[
             row(KINDS[(i % 4) as usize], Some(SESSIONS[(i % 3) as usize]), i),
@@ -501,7 +503,7 @@ fn an_index_of_another_shape_is_built_after_serving_and_then_answers_whole() {
         }
         txn.commit().unwrap();
     }
-    let s = open(dir.path());
+    let s = open(dir.path()).without_chain();
     let st = s.stats().unwrap();
     assert_eq!(st.replayed_into_index, 0, "the open reads only the tail");
     assert!(st.shape_pending && !s.shaped());

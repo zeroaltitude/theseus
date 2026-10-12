@@ -267,7 +267,8 @@ fn an_open_beside_a_holder_that_stays_fails_after_the_wait() {
 #[test]
 fn redb_store() {
     let dir = tempfile::tempdir().unwrap();
-    let s = open(dir.path());
+    // Its positions are its own arithmetic: no chain's start row among them.
+    let s = open(dir.path()).without_chain();
     let p = s
         .append(&[
             NewRecord::json(kinds::SESSION, Some("s1"), &serde_json::json!({"turns": 0})).unwrap(),

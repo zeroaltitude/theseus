@@ -1097,7 +1097,12 @@ pub(crate) mod tests {
         assert_eq!(frames(&store), f0 + 1);
         assert_eq!(
             labels(&store, p0),
-            ["turn.started", "context.compiled", "session"]
+            [
+                "ledger.chain_started",
+                "turn.started",
+                "context.compiled",
+                "session"
+            ]
         );
         let p1 = store.last_position();
         t.defer(row("loop.started")).unwrap();
@@ -1209,7 +1214,10 @@ pub(crate) mod tests {
         let p0 = store.last_position();
         t.flush().unwrap();
         assert_eq!(store.stats().unwrap().frames_appended, f0 + 1);
-        assert_eq!(labels(&store, p0), ["turn.ended", "turn.trace"]);
+        assert_eq!(
+            labels(&store, p0),
+            ["ledger.chain_started", "turn.ended", "turn.trace"]
+        );
 
         // A WAL with room for one small frame only: the second append fails.
         let full = tempfile::tempdir().unwrap();
@@ -1337,7 +1345,7 @@ pub(crate) mod tests {
         let m: serde_json::Value =
             serde_json::from_slice(&std::fs::read(d.path().join("MANIFEST.json")).unwrap())
                 .unwrap();
-        assert_eq!(m["format"], 29, "the write moved it: {m}");
+        assert_eq!(m["format"], 30, "the write moved it: {m}");
         let store = Store::open(d.path()).unwrap();
         let into = store.scope_after("in:msg_first", 0).unwrap();
         assert_eq!(into.len(), 1);
@@ -1387,8 +1395,9 @@ pub(crate) mod tests {
         assert_eq!(Layout::at(&bytes, 59_770), Some(Layout::Unmarked));
         assert_eq!(Layout::at(&bytes, 59_867), Some(Layout::Marked));
         let s = open(d.path()).unwrap();
-        assert_eq!(s.last_position(), 123);
-        assert_eq!(s.scan(1, None, usize::MAX).unwrap().len(), 123);
+        // The old frames, the chain's start row, and the two rows.
+        assert_eq!(s.last_position(), 124);
+        assert_eq!(s.scan(1, None, usize::MAX).unwrap().len(), 124);
         drop(s);
 
         // Rot in the last old frame's body (position 121), with no index.

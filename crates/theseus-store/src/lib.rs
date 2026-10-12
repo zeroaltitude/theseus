@@ -26,6 +26,8 @@
 //! record bumps the format, and lands with the reader for the layout it
 //! replaces.
 
+pub mod chain;
+pub mod chain_walk;
 pub mod frame_times;
 pub mod index;
 pub mod pages;

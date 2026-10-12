@@ -127,6 +127,12 @@ pub trait Store: Send + Sync {
     /// Make the index durable and record how far it is good.
     fn checkpoint(&self) -> Result<u64>;
     fn stats(&self) -> Result<StoreStats>;
+    /// The ledger chain's head (theseus-bmkxk): its last link, as the writer
+    /// last committed it. `None` where the chain has not started, or the store
+    /// keeps none. A claim, never proof: `chain_walk::verify` recomputes.
+    fn ledger_head(&self) -> Result<Option<crate::chain::Head>> {
+        Ok(None)
+    }
 
     /// The latest record of each key of `kind` whose terms in the store's
     /// projection include one in `lo..hi`, each key once, in key order
@@ -341,6 +347,12 @@ struct Inner {
     /// The positions list reads skipped because their reads are refused
     /// (R4), and how many there were past the ones kept.
     refused: Mutex<(BTreeSet<u64>, u64)>,
+    /// The ledger chain's head, as the writer last committed it (theseus-bmkxk).
+    chain: Mutex<chain_writer::ChainState>,
+    /// A test's way to write ledger rows as they came, for tests whose own
+    /// arithmetic counts positions (the chain has its own tests).
+    #[cfg(test)]
+    chain_off: std::sync::atomic::AtomicBool,
 }
 
 /// Where a build of the index's shape is (`WalStore::build_shape`).
@@ -367,6 +379,9 @@ struct Job {
     projected: Vec<(Option<Vec<String>>, Option<Sums>)>,
     /// Each record's tags (`pages::tags_of`).
     tags: Vec<Vec<String>>,
+    /// The record the writer added to this frame (the chain's start): its
+    /// position is no one's answer.
+    hidden: Option<usize>,
     answer: mpsc::SyncSender<Result<Vec<u64>>>,
 }
 
@@ -595,7 +610,10 @@ const BULK: usize = 4096;
 /// 28 = a session's directory (theseus-aab7): its `dir`.
 /// 29 = the owner's standing records, META keys `standing:<id>`, and a
 /// compilation manifest's `standing` list (theseus-a7vi).
-const MANIFEST_FORMAT: u32 = 29;
+/// 30 = the ledger's hash chain (theseus-bmkxk): each ledger row's `chain`
+/// field, `<seq>.<digest>`, spliced in by the writer, and the
+/// `ledger.chain_started` row that begins it.
+const MANIFEST_FORMAT: u32 = 30;
 /// The oldest format this build reads. A format-3 manifest's per-kind marks
 /// are left unread.
 const MANIFEST_OLDEST: u32 = 2;
@@ -819,6 +837,13 @@ impl WalStore {
             queue: Some(queue),
             writer: Some(writer),
         })
+    }
+
+    /// A test's store that chains no ledger row.
+    #[cfg(test)]
+    pub(crate) fn without_chain(self) -> Self {
+        self.inner.chain_off.store(true, Ordering::Relaxed);
+        self
     }
 
     pub fn with_checkpoint_every(self, n: u64) -> Self {
@@ -1208,6 +1233,9 @@ impl Inner {
             #[cfg(test)]
             checkpoint_hold: std::sync::Mutex::default(),
             refused: Mutex::new((BTreeSet::new(), 0)),
+            chain: Mutex::new(chain_writer::ChainState::default()),
+            #[cfg(test)]
+            chain_off: std::sync::atomic::AtomicBool::new(false),
         };
         store.verified = match store.index.meta(&VERIFIED_KEYS)?[..] {
             [Some(segment), Some(offset), Some(first), Some(position), Some(full_at)] => {
@@ -1397,7 +1425,7 @@ impl Inner {
     }
 
     /// Write, sync, index, and answer one batch.
-    fn commit(&self, batch: Vec<Job>) {
+    fn commit(&self, mut batch: Vec<Job>) {
         let began = std::time::Instant::now();
         if let Err(e) = self.upgrade_manifest() {
             // Nothing is written under a manifest an older build opens.
@@ -1407,13 +1435,28 @@ impl Inner {
             }
             return;
         }
-        // Each frame, unsynced: a frame the log refuses fails alone.
+        // Each frame, unsynced: a frame the log refuses fails alone. A frame's
+        // ledger rows are chained first, on the head this batch's earlier
+        // frames left; a frame that fails gives its links back, and the head
+        // moves for good only once the batch is durable and indexed.
+        let mut chained = self.chain.lock().unwrap().clone();
         let written: Vec<Result<Placed>> = batch
-            .iter()
+            .iter_mut()
             .map(|j| {
-                self.wal
+                let saved = chained.clone();
+                if let Err(e) = self.chain_job(&mut chained, j) {
+                    chained = saved;
+                    return Err(e);
+                }
+                let w = self
+                    .wal
                     .write_timed(&j.records)
-                    .map_err(anyhow::Error::from)
+                    .map_err(anyhow::Error::from);
+                match &w {
+                    Ok((placed, _)) => Inner::chain_placed(&mut chained, j, placed),
+                    Err(_) => chained = saved,
+                }
+                w
             })
             .collect();
         let wrote = written
@@ -1460,6 +1503,7 @@ impl Inner {
         });
         if indexed.is_ok() {
             self.since_checkpoint.fetch_add(records, Ordering::Relaxed);
+            *self.chain.lock().unwrap() = chained;
         }
         #[cfg(test)]
         {
@@ -1479,7 +1523,12 @@ impl Inner {
             }
             let answer = match (placed, &indexed) {
                 (Err(e), _) => Err(e),
-                (Ok((placed, _)), Ok(())) => Ok(placed.into_iter().map(|(p, _)| p).collect()),
+                (Ok((placed, _)), Ok(())) => Ok(placed
+                    .into_iter()
+                    .enumerate()
+                    .filter(|(i, _)| Some(*i) != job.hidden)
+                    .map(|(_, (p, _))| p)
+                    .collect()),
                 // A sync or an index write that failed fails every frame it
                 // covered, as a failed group sync failed each one it led.
                 (Ok(_), Err(e)) => Err(anyhow::anyhow!("{e:#}")),
@@ -1647,6 +1696,7 @@ impl Store for WalStore {
                 records: batch.to_vec(),
                 projected,
                 tags,
+                hidden: None,
                 answer,
             };
             if queue.send(job).is_err() {
@@ -1731,6 +1781,16 @@ impl Store for WalStore {
 
     fn checkpoint(&self) -> Result<u64> {
         blocking(|| self.inner.checkpoint_as(true))
+    }
+
+    fn ledger_head(&self) -> Result<Option<crate::chain::Head>> {
+        {
+            let st = self.inner.chain.lock().unwrap();
+            if st.loaded {
+                return Ok(st.head);
+            }
+        }
+        self.inner.read_chain_head()
     }
 
     fn stats(&self) -> Result<StoreStats> {
@@ -1858,10 +1918,13 @@ impl Store for WalStore {
     }
 }
 
+mod chain_writer;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
 mod tests_blocking;
+#[cfg(test)]
+mod tests_chain;
 #[cfg(test)]
 mod tests_frame_times;
 #[cfg(test)]

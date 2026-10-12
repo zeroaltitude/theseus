@@ -51,6 +51,7 @@ pub mod judge;
 pub mod keep_warm;
 pub mod learning;
 pub mod ledger;
+pub mod ledger_pin;
 pub mod lsp;
 pub mod mcp;
 pub mod mcp_server;

@@ -825,6 +825,50 @@ async fn a_sealed_segment_is_shipped_once_with_its_checksum() {
         .any(|m| matches!(m, Measure::CaughtUp { .. })));
 }
 
+/// The ledger chain's head goes with each segment and tail's index row and in
+/// the `durability.shipped` row (theseus-bmkxk), so a chain rewritten from some
+/// row onward is caught against a head shipped before it; with no head to
+/// give, the rows are as they were.
+#[tokio::test]
+async fn the_ledger_head_rides_each_segments_row() {
+    let fake = Fake::start();
+    let rig = Rig::new(&fake);
+    rig.write(0, 30);
+    let segs = rig.segments();
+    let head = format!("12:{}", "ab".repeat(32));
+    let (shipped, rows) = (rig.shipped.clone(), rig.rows.clone());
+    let given = head.clone();
+    let hooks = Hooks {
+        ledger: Some(Arc::new(move |r| rows.lock().unwrap().push(r))),
+        measure: Some(Arc::new(move |m| shipped.lock().unwrap().push(m))),
+        ledger_head: Some(Arc::new(move || Some(given.clone()))),
+        ..Hooks::default()
+    };
+    let account = rig.aws.accounts().next().unwrap().clone();
+    let mut s = Shipper::open(account, Paths::for_store(&rig.store), tuning(), hooks).unwrap();
+    s.pass().await.unwrap();
+    let items = fake.state.lock().unwrap().items.clone();
+    for &n in &segs[..segs.len() - 1] {
+        let row = &items[&("theseus-lab#wal".to_string(), format!("{n:09}"))];
+        assert_eq!(row["ledger_head"]["S"], head, "sealed segment {n}'s row");
+    }
+    let tails: Vec<_> = items
+        .iter()
+        .filter(|((pk, sk), _)| pk == "theseus-lab#wal" && sk.contains(".tail."))
+        .collect();
+    assert!(!tails.is_empty(), "the open segment shipped as a tail");
+    assert!(tails.iter().all(|(_, r)| r["ledger_head"]["S"] == head));
+    let ledger = rig.rows.lock().unwrap().clone();
+    assert_eq!(ledger[0].data["ledger_head"], head);
+    // Without a head to give, no row names one.
+    let fake2 = Fake::start();
+    let rig2 = Rig::new(&fake2);
+    rig2.write(0, 30);
+    rig2.shipper().pass().await.unwrap();
+    let items = fake2.state.lock().unwrap().items.clone();
+    assert!(items.values().all(|r| r.get("ledger_head").is_none()));
+}
+
 /// A crash in the middle of a multipart upload, after S3 took a part and
 /// before the cursor said so: the restart asks S3 for the upload's parts,
 /// sends only the rest, and completes it once. And a crash just after a

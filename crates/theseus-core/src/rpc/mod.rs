@@ -28,6 +28,7 @@ pub(crate) mod judge;
 mod judge_prove;
 mod judge_runs;
 pub(crate) mod learning;
+mod ledger_verify;
 mod mcp;
 mod memory;
 mod methods;
@@ -66,6 +67,8 @@ mod tests_history;
 mod tests_imported;
 #[cfg(test)]
 mod tests_ledger;
+#[cfg(test)]
+mod tests_ledger_verify;
 #[cfg(test)]
 mod tests_lists;
 #[cfg(test)]

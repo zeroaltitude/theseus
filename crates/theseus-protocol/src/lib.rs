@@ -37,6 +37,7 @@ pub mod judge_runs;
 pub mod later;
 pub mod learning;
 mod ledger;
+mod ledger_verify;
 pub mod lsp;
 pub mod mcp;
 pub mod mcp_server;
@@ -86,6 +87,7 @@ pub use health::*;
 pub use history::*;
 pub use index::TenderStatus;
 pub use ledger::*;
+pub use ledger_verify::*;
 pub use ontology::*;
 pub use outbox::OutboxStatus;
 pub use places::*;
@@ -148,6 +150,8 @@ pub mod method {
         SESSION_TYPING = "session.typing",
         TURN_SUBMIT = "turn.submit",
         LEDGER_TAIL = "ledger.tail", LEDGER_WINDOW = "ledger.window",
+        /// The ledger's hash chain, walked (theseus-bmkxk).
+        LEDGER_VERIFY = "ledger.verify",
         PROFILE_LIST = "profile.list", PROFILE_USE = "profile.use",
         EXECUTION_LIST = "execution.list", EXECUTION_CANCEL = "execution.cancel",
         /// `/stop` (W1): halt a conversation's work, and keep the conversation.
@@ -568,6 +572,10 @@ pub struct HealthResult {
     pub usage_total: Usage,
     pub provider_errors: u64,
     pub ledger_rows: u64,
+    /// The ledger chain's head as the writer last committed it, short
+    /// (`3fa1c09e…#1204`); absent before the chain starts (theseus-bmkxk).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ledger_head: Option<String>,
     #[serde(default)]
     pub telemetry: TelemetryStatus,
     /// The durable kernel (M2): executions, actions, admission.

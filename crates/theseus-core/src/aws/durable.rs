@@ -204,6 +204,11 @@ pub struct Hooks {
     /// The last position known synced: no frame past it ships. None ships
     /// every whole frame (a test's log that is never synced).
     pub synced_to: Option<Arc<dyn Fn() -> u64 + Send + Sync>>,
+    /// The ledger chain's head, `SEQ:DIGEST` (theseus-bmkxk): it goes with
+    /// each segment and tail's index row, so an edit that rewrites the chain
+    /// from some row onward is caught against a head shipped before it
+    /// (`theseus ledger verify --anchor`). None records none.
+    pub ledger_head: Option<Arc<dyn Fn() -> Option<String> + Send + Sync>>,
 }
 
 /// Why a pass stopped.
@@ -356,6 +361,15 @@ impl Shipper {
     /// pass comes a settle later, not at the next change.
     pub fn held(&self) -> bool {
         self.held.is_some()
+    }
+
+    /// The ledger chain's head as of now, to ride with what ships.
+    fn head(&self) -> Option<String> {
+        self.hooks.ledger_head.as_ref().and_then(|f| f())
+    }
+
+    fn head_attr(&self) -> Option<(&'static str, Value)> {
+        self.head().map(|h| ("ledger_head", json!(h)))
     }
 
     fn synced_to(&self) -> u64 {
@@ -741,16 +755,18 @@ impl Shipper {
         let sha = s3::b64(&s3::sha256(&bytes));
         let key = format!("{}wal/{seg:09}.seg.tail/{from:012}-{to:012}", self.prefix);
         self.put_once(&key, &bytes, &sha).await?;
+        let mut attrs = vec![
+            ("key", json!(key)),
+            ("from", json!(from)),
+            ("to", json!(to)),
+            ("last_position", json!(last)),
+            ("sha256", json!(sha)),
+        ];
+        attrs.extend(self.head_attr());
         self.saved.pending.push(rows::item(
             format!("{}#wal", self.deployment),
             rows::wal_sk(seg, Some(from)),
-            &[
-                ("key", json!(key)),
-                ("from", json!(from)),
-                ("to", json!(to)),
-                ("last_position", json!(last)),
-                ("sha256", json!(sha)),
-            ],
+            &attrs,
         ));
         self.saved.tail = Some((seg, to));
         self.saved.done(&key);
@@ -776,16 +792,19 @@ impl Shipper {
         } else {
             self.put_large(&key, &path, len, &sha).await?
         };
+        let head = self.head();
+        let mut attrs = vec![
+            ("key", json!(key)),
+            ("bytes", json!(len)),
+            ("sha256", json!(hex)),
+            ("last_position", json!(last)),
+            ("parts", json!(parts)),
+        ];
+        attrs.extend(head.as_ref().map(|h| ("ledger_head", json!(h))));
         self.saved.pending.push(rows::item(
             format!("{}#wal", self.deployment),
             rows::wal_sk(seg, None),
-            &[
-                ("key", json!(key)),
-                ("bytes", json!(len)),
-                ("sha256", json!(hex)),
-                ("last_position", json!(last)),
-                ("parts", json!(parts)),
-            ],
+            &attrs,
         ));
         self.saved.sealed_to = seg;
         if matches!(self.saved.tail, Some((s, _)) if s <= seg) {
@@ -803,6 +822,7 @@ impl Shipper {
             last_position: last,
             parts,
             took_ms: t0.elapsed().as_millis() as u64,
+            ledger_head: head.as_deref(),
         };
         if let (Some(ledger), Some(kind)) = (&self.hooks.ledger, SegmentShipped::KIND) {
             ledger(LedgerRow::new(kind, None, None, fact.row()));
@@ -1052,10 +1072,25 @@ impl crate::Core {
             Arc::new(move || core.upgrade().map_or(0, |c| c.store.synced_to()))
                 as Arc<dyn Fn() -> u64 + Send + Sync>
         };
+        let ledger_head = {
+            let core = weak.clone();
+            Arc::new(move || {
+                let c = core.upgrade()?;
+                let h = theseus_store::Store::ledger_head(c.store.inner().as_ref())
+                    .ok()
+                    .flatten()?;
+                Some(format!(
+                    "{}:{}",
+                    h.link.seq,
+                    theseus_store::chain::hex(&h.link.digest)
+                ))
+            }) as Arc<dyn Fn() -> Option<String> + Send + Sync>
+        };
         let hooks = Hooks {
             ledger: Some(ledger),
             measure: Some(measure),
             synced_to: Some(synced_to),
+            ledger_head: Some(ledger_head),
         };
         let alive = move || weak.strong_count() > 0;
         tokio::spawn(run(account, paths, Tuning::default(), hooks, alive));

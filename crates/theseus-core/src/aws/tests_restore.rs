@@ -251,7 +251,8 @@ async fn a_shipped_store_restores_from_s3_equal_to_the_original() {
 
     let restored = records(&into.join("store/wal"));
     assert_eq!(&restored[..original.len()], &original[..]);
-    assert_eq!(restored.len(), original.len() + 1);
+    // The restore's row, and the chain's start row ahead of it in its frame.
+    assert_eq!(restored.len(), original.len() + 2);
     let last = original.last().unwrap().position;
     assert_eq!(r.restore.last_position, last);
     let back = Store::open(&into.join("store")).unwrap();
@@ -321,7 +322,7 @@ async fn the_restored_stores_next_start_ships_nothing_again() {
     // And a second restore takes that tail too: the join goes on.
     let again = lab.target("again");
     let r2 = lab.restore(&again).await.unwrap();
-    assert_eq!(r2.restore.last_position, r.restore.last_position + 1);
+    assert_eq!(r2.restore.last_position, r.restore.last_position + 2);
     let back = Store::open(&again.join("store")).unwrap();
     let rows = back.ledger_tail::<LedgerRow>(2).unwrap();
     assert_eq!(
@@ -757,7 +758,7 @@ async fn tails_after_a_sealed_object_are_joined_by_the_next_restore() {
     let seg = r2.fetch.segments.last().unwrap();
     assert_eq!(seg.source, Source::ObjectAndTails { count: 1 });
     assert!(seg.unjoined.is_none(), "{seg:?}");
-    assert_eq!(r2.restore.last_position, r.restore.last_position + 1);
+    assert_eq!(r2.restore.last_position, r.restore.last_position + 2);
     assert!(restore::lines(&r2).contains("from its object and 1 tail(s) after it"));
     let back = Store::open(&again.join("store")).unwrap();
     let rows = back.ledger_tail::<LedgerRow>(2).unwrap();

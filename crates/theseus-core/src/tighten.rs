@@ -196,7 +196,12 @@ mod tests {
             .collect();
         assert_eq!(
             kinds,
-            ["policy.tightened", "policy.tightened", "policy.untightened"]
+            [
+                "ledger.chain_started",
+                "policy.tightened",
+                "policy.tightened",
+                "policy.untightened"
+            ]
         );
         let unknown = Tightening {
             posture: "someday".into(),

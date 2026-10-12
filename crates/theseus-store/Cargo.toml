@@ -14,6 +14,9 @@ serde.workspace = true
 serde_json.workspace = true
 tracing.workspace = true
 crc32fast = "1"
+theseus-protocol.workspace = true
+# The ledger's hash chain (theseus-bmkxk).
+sha2 = "0.10"
 redb.workspace = true
 # `blocking`: an append's wait holds no runtime worker (theseus-vni9).
 tokio.workspace = true

@@ -67,6 +67,7 @@ impl Core {
             usage_total: totals.usage,
             provider_errors: self.provider_errors.load(Ordering::Relaxed),
             ledger_rows: self.store.ledger_len().unwrap_or(0),
+            ledger_head: self.ledger_head_short(),
             telemetry: self.telemetry_status(),
             kernel: self.kernel_status(),
             children: self.children_status(),
