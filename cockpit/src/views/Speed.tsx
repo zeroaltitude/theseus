@@ -2,7 +2,8 @@
 // dial with its red line, read from the daemon's own record:
 //
 // - the start: health's phases for the last one, and every start since from its `server.serving` row;
-// - each turn's harness overhead, from its trace (the turn's time less its model and tool time), split into the
+// - each turn's harness overhead, from its trace: the turn's time less its model's calls and its tools' runs, the
+//   disk's commits included (theseus-4w1h: the README's definition, and `theseus-sim bench turn`'s), split into the
 //   disk's commits (the write path, one fsync a frame) and the rest;
 // - the stops, restarts, swaps, and frames per turn: the gates' benches, from the history they append
 //   (`bench.history`), with every gate's numbers over time;
@@ -117,7 +118,7 @@ export default function Speed() {
       const disk = p(recent.map((t) => t.commits), 0.5)
       const rest = p(recent.map((t) => t.rest + t.compile + t.admission), 0.5)
       return {
-        value: p(recent.map((t) => t.harness), 0.5), gate: rest, source: 'the median of the last 50 turns’ traces; the pointer leaves out the disk’s commits',
+        value: p(recent.map((t) => t.harness), 0.5), gate: rest, source: 'the median of the last 50 turns’ traces, each the turn less its model and tools, the disk’s commits included; the pointer leaves the commits out',
         note: disk !== undefined ? `the disk ${ms(disk)} · the rest ${ms(rest)}` : 'no traced turns', spark: recent.map((t) => t.harness),
       }
     }
@@ -161,12 +162,12 @@ export default function Speed() {
       </div>
 
       <div className="grid grid-cols-1 gap-3 2xl:grid-cols-[1fr_1fr]">
-        <ChartPanel id="start" title="The last start · phases from process start" icon={<Rocket size={13} />} height={300}
+        <ChartPanel id="start" help="speed.start" title="The last start · phases from process start" icon={<Rocket size={13} />} height={300}
           actions={<span className="num text-[11px] text-ink-faint">serving at {serving ? ms(serving / 1000) : '—'} · budget 50 ms</span>}
           legend={STARTUP_LEGEND} empty={h ? undefined : 'reading health…'} table={startupTable(h?.startup ?? [])}>
           {h && <Startup phases={h.startup} />}
         </ChartPanel>
-        <ChartPanel id="starts" title={`Every start · serving time, ${starts.length} in the record`} icon={<History size={13} />} height={300}
+        <ChartPanel id="starts" help="speed.starts" title={`Every start · serving time, ${starts.length} in the record`} icon={<History size={13} />} height={300}
           legend={[{ key: 'in', label: 'within the 50 ms budget', color: TONE_MARK.ok, mark: 'dot' }, { key: 'over', label: 'over the budget', color: TONE_MARK.fault, mark: 'triangle' }]}
           empty={starts.length ? undefined : 'no start rows in the record'} table={startsTable(starts)}>
           <Starts starts={starts} />
@@ -174,12 +175,12 @@ export default function Speed() {
       </div>
 
       <div className="grid grid-cols-1 gap-3 2xl:grid-cols-[1.4fr_1fr]">
-        <ChartPanel id="overhead" title={`Each turn · harness overhead, the turn less its model and tools · ${turns.length} traced`} icon={<Timer size={13} />} height={320}
+        <ChartPanel id="overhead" help="speed.overhead" title={`Each turn · harness overhead, the turn less its model and tools · ${turns.length} traced`} icon={<Timer size={13} />} height={320}
           legend={PARTS.map((pt) => ({ key: pt, label: PART_WORDS[pt], color: PART_COLORS[pt], mark: 'rect' as const }))}
           empty={turns.length ? undefined : 'no turn traces in the record'} table={overheadTable(turns, title)}>
           <Overheads turns={turns} title={title} onPick={(sid) => nav(`/session/${sid}`)} />
         </ChartPanel>
-        <ChartPanel id="commits" title="The write path · commit latency, one fsync a frame" icon={<HardDrive size={13} />} height={320}
+        <ChartPanel id="commits" help="speed.commits" title="The write path · commit latency, one fsync a frame" icon={<HardDrive size={13} />} height={320}
           empty={turns.length ? undefined : 'no commits traced'} table={commitsTable(turns)}>
           <div className="flex h-full flex-col">
             <div className="num px-2 pt-0.5 text-[11px] text-ink-dim">{commitLine(turns)}</div>
@@ -188,7 +189,7 @@ export default function Speed() {
         </ChartPanel>
       </div>
 
-      <ChartPanel id="benches" title={<>The gates&rsquo; benches · every run&rsquo;s p95 against its limit</>} icon={<GaugeIcon size={13} />}
+      <ChartPanel id="benches" help="speed.benches" title={<>The gates&rsquo; benches · every run&rsquo;s p95 against its limit</>} icon={<GaugeIcon size={13} />}
         actions={<Segmented value={onlyMain} options={['main', 'every branch'] as const} onChange={setOnlyMain} />}
         legend={BENCH_LEGEND} table={benchTable(runs)}
         empty={bh?.exists && runs.length ? undefined : bh?.exists ? 'no run on this filter' : 'No bench history on this machine (the gate appends ~/.cache/theseus/bench-history.csv): the wall shows the live numbers alone.'}>

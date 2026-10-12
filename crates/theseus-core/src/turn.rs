@@ -53,25 +53,37 @@ use crate::toolrun::{Call, CallOutcome, ToolRuntime, TurnCtx};
 use crate::trace::Trace;
 use crate::Config;
 
-mod budget_step;
+pub mod admission;
+mod admit_step;
+#[cfg(test)]
+pub(crate) use admit_step::admit_hook;
+pub(crate) mod budget_step;
 mod budget_words;
 mod calls;
 mod ceiling_step;
+mod cite_step;
 pub(crate) use budget_words::{budget_question, lower_cap, Kept};
 #[cfg(test)]
 pub(crate) use calls::call_result;
 pub mod compaction;
 mod compile_step;
+mod cut_step;
+mod deferred_step;
+pub mod effort_step;
 mod end_step;
 mod fallback_step;
 mod inbound_step;
 mod later_step;
+mod noop_step;
+pub mod nudge_step;
 mod prompt_input;
 mod recall_step;
 mod rerank_step;
+mod retract_step;
 mod retry_step;
 mod route_step;
 pub(crate) mod situation_step;
+mod standing_step;
 pub mod stdio_step;
 mod stopping_step;
 mod title_step;
@@ -86,7 +98,7 @@ pub const PERSONA: &str = "You are Theseus, a coding and operations agent workin
 /// request, so the model never takes what the harness added (a recalled
 /// note, a wake, a report) for something the person sent (theseus-fpm2).
 /// Frozen text in the shared header, as the persona is.
-pub const ASSEMBLY: &str = "Context. The harness assembles each request: the conversation, its older part perhaps summarized; notes it recalled from earlier sessions, marked as recalled; files the person attached; tool results; and its own notices, such as wakes, task reports, and late results. A recalled note is background the harness chose, not something the person sent. The person sees their own messages and your replies, not the rest of the request, so use a recalled note when it helps, and otherwise don't mention it.";
+pub const ASSEMBLY: &str = "Context. The harness assembles each request: the conversation, its older part perhaps summarized; notes it recalled from earlier sessions, marked as recalled; files the person attached; tool results; and its own notices, such as wakes, task reports, and late results. A recalled note is background the harness chose, not something the person sent. The person sees their own messages and your replies, not the rest of the request, so use a recalled note when it helps, and otherwise don't mention it. When you state something from recalled testimony, cite its handle.";
 
 /// What a turn runs against, resolved from a profile plus any raw overrides.
 #[derive(Debug, Clone)]
@@ -159,6 +171,8 @@ pub struct TurnRunner {
     pub pass: Arc<crate::memory_pass::MemoryPass>,
     /// The ontology's snapshot (theseus-8kk.1), built after serving.
     pub ontology: crate::ontology::Board,
+    /// The owner's standing records (theseus-a7vi), in memory.
+    pub standing: crate::standing::Board,
     /// Jev's judgments (M5 23a): each turn's end is handed to it, and it
     /// judges in a task of its own; the turn never waits on it.
     pub judge: Arc<crate::judge::JudgeService>,
@@ -169,6 +183,14 @@ pub struct TurnRunner {
     pub run_compiles: situation::RunCompiles,
     /// Who retries a failed turn: the driver, or a `--stdio` daemon's client.
     pub failed_turns: stdio_step::FailedTurns,
+    /// Each execution's spend at its last check (theseus-jse4).
+    pub(crate) spend_marks: budget_step::SpendMarks,
+    /// The models found to refuse per-message effort, for this run (theseus-posww).
+    pub effort_refusals: effort_step::EffortRefusals,
+    /// The conversations kept warm after their turns, and the stubs their
+    /// cold rewrites decided (theseus-ezeg).
+    pub keep_warm: crate::keep_warm::KeepWarm,
+    pub stubs: crate::compiler::stubs::InForce,
 }
 
 /// What a `/stop` tells the turn that holds its execution while the model's
@@ -245,6 +267,8 @@ struct Waits {
     lock_us: u64,
     /// Admission and the turn lock alone.
     admit_us: u64,
+    /// Its class and ticket in the admission queue (theseus-4g0l).
+    queued: admission::Queued,
 }
 
 /// A turn's own handles on the store and the kernel (theseus-qa0). A ledger
@@ -257,6 +281,8 @@ struct Frames {
     /// question's card): indexed once the turn's last frame is written
     /// (theseus-q4v).
     posts: std::sync::Mutex<Vec<theseus_kernel::Action>>,
+    /// The session's pending wakes, as the turn knows them (theseus-lherl).
+    commitments: crate::commitments::Pending,
 }
 
 /// Why a turn did not run: a secret it needs is not there.
@@ -289,8 +315,6 @@ pub struct TurnRequest {
     pub prompt: Option<crate::mcp::prompts::PromptInput>,
 }
 
-/// How long a turn may wait for admission before the client gets an error.
-const ADMISSION_WAIT_MAX: Duration = Duration::from_secs(600);
 /// The principal of every local protocol client (file permissions are the auth).
 pub const OPERATOR: &str = "operator";
 
@@ -346,6 +370,8 @@ struct Turn<'a> {
     /// call still does not fit the limit, the turn ends instead of asking the
     /// same question again.
     retry_over_limit: bool,
+    /// The burn-rate stop whose question is being asked (theseus-9e02).
+    braked: Option<theseus_kernel::BurnStop>,
     /// Jobs this turn started or resumed in the background.
     background: Vec<String>,
     stop_reason: String,
@@ -378,6 +404,10 @@ struct Turn<'a> {
     route: route_step::RouteState,
     /// A refusal moved the turn to its model's fallback (theseus-7gir.18).
     fallback: Option<fallback_step::FellBack>,
+    /// The stop judged live, and the one nudge (theseus-fh0u).
+    nudge: nudge_step::Nudge,
+    /// The standing block the turn's spec carries (theseus-a7vi).
+    standing: Option<crate::standing::Block>,
 }
 
 /// The class of a turn that faulted (R1): an error the turn did not report
@@ -417,6 +447,9 @@ enum Called {
         spent: Micros,
         limit: Micros,
     },
+    /// The session's burn-rate line stopped the call (theseus-9e02): the
+    /// owner is asked to resume it.
+    Braked(theseus_kernel::BurnStop),
     /// A `/stop` landed (W1): the kernel planned no call, or the call's stream
     /// was cut (theseus-yey), and the turn ends.
     Stopped {
@@ -435,6 +468,8 @@ struct Cut {
     out_chars: u64,
     /// The input estimate the call's reservation used.
     est_input: u64,
+    /// What its request held of the provider's cache (theseus-3p36).
+    prefix: cut_step::Prefix,
 }
 
 /// Who stopped the turn `tc` runs, if a `/stop` landed during it (W1): the
@@ -481,6 +516,7 @@ impl<'a> Turn<'a> {
             awaiting: None,
             budget_question: None,
             retry_over_limit: false,
+            braked: None,
             background: Vec::new(),
             stop_reason: String::new(),
             said: Vec::new(),
@@ -494,6 +530,8 @@ impl<'a> Turn<'a> {
             recall: recall_step::Recalled::default(),
             route: route_step::RouteState::default(),
             fallback: None,
+            nudge: nudge_step::Nudge::default(),
+            standing: None,
         }
     }
 
@@ -512,6 +550,7 @@ impl<'a> Turn<'a> {
             secrets_us: waits.secrets_us,
             lock_us: waits.lock_us,
             admit_us: waits.admit_us,
+            queued: waits.queued,
         };
         self.record(&f);
     }
@@ -704,7 +743,7 @@ impl TurnRunner {
             max_loops: prof.max_loops,
             max_loops_mode: prof.max_loops_mode,
             refusal_fallbacks: prof.refusal_fallbacks,
-            cache_ttl: prof.cache_ttl,
+            cache_ttl: prof.ttl(),
             chosen: None,
         })
     }
@@ -803,11 +842,14 @@ impl TurnRunner {
             max_tokens: target.max_tokens,
             system_text,
             context_text,
+            // The session's block is its caller's (`session_block`).
+            session_text: String::new(),
             context_files: files.iter().map(|f| f.file.clone()).collect(),
             persona: target.persona.clone(),
             tools: self.tools.definitions_for(place),
             effort: target.effort,
             turn_effort: None,
+            effort_refused: self.effort_refused(),
             thinking_display: target.thinking_display,
             refusal_fallbacks: target.refusal_fallbacks,
             fallback: None,
@@ -911,74 +953,6 @@ impl TurnRunner {
             Err(e) => {
                 tracing::warn!(error = %e, correlation_id = q, "superseding a budget question failed")
             }
-        }
-    }
-
-    /// Take the kernel turn. With `wait` (an input's turn), wait for
-    /// admission (ceiling, or another turn on the same execution), waking the
-    /// execution in the same frame when it has parked meanwhile
-    /// (theseus-l6y); without it (continuations), give up at once and let the
-    /// driver try again.
-    ///
-    /// `frames` counts the frames it writes (theseus-wz4y): each try is one
-    /// call, with no `.await` in it, so this thread's count is its own.
-    async fn admit(
-        &self,
-        exec_id: &str,
-        arrived: Instant,
-        wait: bool,
-        frames: &mut u64,
-    ) -> Result<Option<TurnGuard>> {
-        loop {
-            let f0 = frames_written_here();
-            let tried = if wait {
-                self.kernel.admit_input(exec_id)
-            } else {
-                self.kernel.admit(exec_id)
-            };
-            *frames += frames_written_here() - f0;
-            match tried {
-                Ok(g) => return Ok(Some(g)),
-                Err(e) => match e.downcast_ref::<KernelError>() {
-                    Some(KernelError::AdmissionFull { .. })
-                    | Some(KernelError::TurnHeld { .. })
-                    | Some(KernelError::NotRunnable {
-                        state: "running", ..
-                    }) => {
-                        if !wait {
-                            return Ok(None);
-                        }
-                    }
-                    Some(KernelError::NotRunnable {
-                        state: "waiting" | "blocked",
-                        ..
-                    }) => {
-                        if !wait {
-                            return Ok(None);
-                        }
-                        let f0 = frames_written_here();
-                        let woke = self.kernel.wake_input(exec_id);
-                        *frames += frames_written_here() - f0;
-                        woke?;
-                        continue;
-                    }
-                    Some(KernelError::NotRunnable { state, .. }) => {
-                        return Err(turn_error(
-                            &format!("execution_{state}"),
-                            "",
-                            "",
-                            arrived.elapsed().as_millis() as u64,
-                            e,
-                        ));
-                    }
-                    _ => return Err(e),
-                },
-            }
-            if arrived.elapsed() > ADMISSION_WAIT_MAX {
-                anyhow::bail!("admission wait exceeded {:?}", ADMISSION_WAIT_MAX);
-            }
-            let _ =
-                tokio::time::timeout(Duration::from_millis(50), self.admission.notified()).await;
         }
     }
 
@@ -1130,14 +1104,26 @@ impl TurnRunner {
         let f0 = frames_written_here();
         // The narrative's clock, taken only when it is on.
         let admitting = self.narrator.on().then(Instant::now);
-        // An input wakes its execution and takes the turn in one frame
-        // (theseus-l6y). When admission must wait, the wake is written alone,
-        // and the wait below takes the turn.
+        // An input holds its execution's turn, writing nothing: its wake and
+        // admission ride its input's frame (theseus-2uby, `admit_step`). When
+        // admission must wait, the wait below writes the wake alone and takes
+        // the turn, as `admit_input` did (theseus-l6y).
         let mut admitted = None;
+        // Its place in the queue (theseus-4g0l): a slot now only when one is
+        // free and no turn waits.
+        let class = admission::Class::of(req.session.kind, !continuation);
         if !continuation {
             self.supersede_budget_question(&exec, &req.sink, &req.author);
-            match self.kernel.admit_input(&exec.id) {
-                Ok(g) => admitted = Some(g),
+            // A slot from the queue first (theseus-4g0l), then the turn held
+            // without the kernel's count, the queue keeps the ceiling; with none
+            // free, the wake alone, and the queue's wait below admits.
+            let slot = self.tools.admission.try_take(class);
+            let held = match &slot {
+                Some(_) => self.kernel.hold_turn_queued(&exec.id),
+                None => self.kernel.admit_input_queued(&exec.id, false),
+            };
+            match held {
+                Ok(g) => admitted = slot.map(|s| (g, s)),
                 Err(e) => match e.downcast_ref::<KernelError>() {
                     Some(KernelError::AdmissionFull { .. } | KernelError::TurnHeld { .. })
                     | Some(KernelError::NotRunnable {
@@ -1170,13 +1156,23 @@ impl TurnRunner {
         admission_frames += frames_written_here() - f0;
         // Held or waited for: a stop behind it on its lane reaches it (theseus-klo2).
         crate::rpc::ordered::reachable();
-        let guard = match admitted {
-            Some(g) => g,
+        // The slot is the turn's until it returns, after its last frame.
+        let (guard, _slot) = match admitted {
+            Some((g, mut slot)) => {
+                slot.bind(&g.execution_id);
+                (g, slot)
+            }
             None => match self
-                .admit(&exec.id, arrived, !continuation, &mut admission_frames)
+                .admit(
+                    &exec.id,
+                    arrived,
+                    !continuation,
+                    class,
+                    &mut admission_frames,
+                )
                 .await?
             {
-                Some(g) => g,
+                Some(held) => held,
                 None => {
                     anyhow::bail!("execution {} is not ready for a continuation turn", exec.id)
                 }
@@ -1188,7 +1184,8 @@ impl TurnRunner {
         // on its secrets, or for admission. The operator said "do this",
         // then "stop", so it stops this turn now, as a stop during a turn
         // does: the kernel marks it, and its first step plans nothing.
-        if !continuation {
+        // A held turn reads it in its admission's frame (`admit_step`).
+        if !continuation && self.kernel.admitted(&guard).unwrap_or(true) {
             if let Some(by) = self.stopped_since(&guard.execution_id, arrived) {
                 if let Err(e) = self.kernel.stop_execution(&guard.execution_id, &by) {
                     tracing::warn!(execution_id = %guard.execution_id, error = %format!("{e:#}"), "a stop before admission could not mark the turn");
@@ -1202,6 +1199,7 @@ impl TurnRunner {
             secrets_us: secret_wait_us,
             lock_us: admission_wait_us,
             admit_us,
+            queued: _slot.queued(),
         };
         let store = self.store.for_turn();
         store.count_frames(admission_frames + (frames_written_here() - f0));
@@ -1214,6 +1212,7 @@ impl TurnRunner {
                 .turn_of(&guard.execution_id),
             store,
             posts: Default::default(),
+            commitments: Default::default(),
         };
         // A task (DD7): where it reports, and its title, for its report.
         let task_of = req.session.task.clone();
@@ -1307,6 +1306,7 @@ impl TurnRunner {
             Err(e) => tracing::warn!(error = %e, "ledger append failed"),
         }
         drop(session_hold);
+        self.keep_warm.turn_ended(&failure_sink.session_id);
         if let Ok((res, _, _)) = &r {
             self.judge.after_turn(res, task_of.is_some());
             self.pass.after_turn(res);
@@ -1529,12 +1529,16 @@ impl TurnRunner {
             prompt,
             ..
         } = req;
-        // The caller's copy may be stale: re-read under the lock.
+        // The caller's copy may be stale: re-read under the lock. Its
+        // directory is the one `turn.submit` moved it to (theseus-aab7).
         if let Some(fresh) = self
             .store
             .get_session::<SessionRecord>(&session.session_id)?
         {
-            session = fresh;
+            session = SessionRecord {
+                dir: session.dir.or(fresh.dir.clone()),
+                ..fresh
+            };
         }
         let read;
         (target, read) = self.route_base(&mut session, target, input.is_some());
@@ -1564,6 +1568,7 @@ impl TurnRunner {
         let turn_id = crate::new_id("turn");
         let task_of = session.task.clone();
         let place = self.view_of(&sid);
+        let dir = session.dir.clone();
         let tc = TurnCtx {
             kernel: &frames.kernel,
             store: &frames.store,
@@ -1586,6 +1591,8 @@ impl TurnRunner {
                 rule: &self.place_rule,
                 cfg: &self.cfg,
             },
+            dir: dir.as_deref(),
+            commitments: &frames.commitments,
         };
         if self.narrator.on() && self.narrator.first_sight(&sid) && session.turns > 0 {
             tc.rec().in_turn(None).record(&fact::turn::SessionResumed {
@@ -1646,7 +1653,11 @@ impl TurnRunner {
         } = asked;
         let (sid, turn_id, target) = (t.tc.session_id, t.tc.turn_id, t.target);
 
-        // 1. What happened while no turn was running.
+        // 1. What happened while no turn was running. A held turn that has
+        // anything to take is admitted first (theseus-2uby).
+        if let Err(e) = self.admit_before_catch_up(t) {
+            return Ok(Next::Fail(Self::not_admitted(t, &author, e)?));
+        }
         let caught_up = boxed(|| self.catch_up(t, input.is_some())).await?;
         // Where the turn's words go, now that it has taken its wakes and
         // reports: their place, when the session's own has moved on.
@@ -1655,6 +1666,9 @@ impl TurnRunner {
 
         // 2. The new input, with its files in the same node and frame.
         if let Some(p) = prompt {
+            if let Err(e) = self.admit_alone(t) {
+                return Ok(Next::Fail(Self::not_admitted(t, &author, e)?));
+            }
             self.write_prompt_input(t, session, p, moved.as_ref())?;
             crate::rpc::ordered::applied();
         } else if let Some(text) = &input {
@@ -1662,17 +1676,33 @@ impl TurnRunner {
             let first_file = files.first().map(|a| a.name.clone());
             let node = Node::user_with(sid, Some(turn_id), &author, text, files);
             self.title_input(session, text, first_file.as_deref());
-            // A new target rides in the input's frame, under the record's
-            // lock; the same one writes nothing more.
+            // The turn's admission rides in the input's frame (theseus-2uby),
+            // and so does a new target, under the record's lock; the same one
+            // writes nothing more.
+            // A Discord message's id rides in the node's frame (theseus-ejdk),
+            // so a reply that cites the message can link to it.
+            let origin = t
+                .reply_to
+                .as_deref()
+                .and_then(|m| crate::recall::cite::origin_record(&node.id, "discord", m));
             let written = match &moved {
-                Some(runs_on) => t.tc.store.update_session(sid, |r| {
+                Some(runs_on) => t.tc.store.with_session(sid, |mut r| {
                     r.last_target = Some(runs_on.clone());
-                    Ok(vec![node.record()?])
+                    let rec = NewRecord::json(theseus_store::kinds::SESSION, Some(sid), &r)?;
+                    let recs = [node.record()?]
+                        .into_iter()
+                        .chain(origin.clone())
+                        .chain([rec]);
+                    Ok(self.admit_with(t, recs.collect()))
                 })?,
                 None => None,
             };
-            if written.is_none() {
-                t.tc.store.append(&[node.record()?])?;
+            let written = match written {
+                Some(w) => w,
+                None => self.admit_with(t, [node.record()?].into_iter().chain(origin).collect()),
+            };
+            if let Err(e) = written {
+                return Ok(Next::Fail(Self::not_admitted(t, &author, e)?));
             }
             // Stored: the next request on its client's lane may run (theseus-klo2).
             crate::rpc::ordered::applied();
@@ -1687,7 +1717,9 @@ impl TurnRunner {
         // So is the place's class (the place rule): a class that changes
         // mid-turn applies at the next turn's first loop.
         let (mut spec, unreadable) = self.request_spec(target, session.kind, t.tc.place());
+        spec.session_text = self.session_block(t.tc.dir, t.tc.place());
         spec.walk = self.walk(sid, t.tc.class);
+        self.stand(t, &mut spec);
         for u in &unreadable {
             tracing::warn!(path = %u.path, error = %u.error, session_id = %sid,
                 "context file unreadable: the system block says it is missing (warned once per daemon run)");
@@ -1717,6 +1749,7 @@ impl TurnRunner {
         // again with its line, once a turn (theseus-0s4); `strip` asks the
         // next compilation to drop the thinking the change sat under.
         let mut image_retried = false;
+        let mut effort_asked = false;
         // A transient failure's retries in this turn (`[model.retries]`).
         let mut retried = 0;
         let mut strip: Option<&'static str> = None;
@@ -1738,6 +1771,11 @@ impl TurnRunner {
             if let Some(o) = self.tools.hands_over_budget(t.tc.execution_id) {
                 self.ask_budget(t, session, o.needed, o.available, o.spent, o.limit)?;
                 break;
+            }
+            // A job that ended since the last loop: its result, before the
+            // next request (theseus-n8gk).
+            if t.loops > 0 {
+                self.take_late(t)?;
             }
             let i = t.loops;
             t.loops += 1;
@@ -1778,16 +1816,28 @@ impl TurnRunner {
                 retrying = Some(o);
             }
             let said_before = (t.output.len(), t.said.len());
-            let spent_before = Self::spent_before(t);
+            self.spend_checked(t, session)?;
             let on = routed_to.as_deref().unwrap_or(provider);
             let called = self.call_model(t, on, &compiled, i).await;
             if let Some(r) = recall {
                 self.recall_end(t, r).await;
             }
-            let (resp, node) = match called? {
+            let called = called?;
+            // A multiple the call's settle crossed, whatever its outcome (theseus-jse4).
+            self.spend_checked(t, session)?;
+            let (resp, node) = match called {
                 Called::Answered(called) => *called,
                 Called::Failed(failure) => {
                     if self.retry_after(t, &failure, &mut retried).await? {
+                        continue;
+                    }
+                    if self.without_message_effort(
+                        t,
+                        &mut spec,
+                        &compiled,
+                        &failure,
+                        &mut effort_asked,
+                    ) {
                         continue;
                     }
                     if !image_retried {
@@ -1839,6 +1889,17 @@ impl TurnRunner {
                     t.record(&fact::turn::LoopCut { decision: "budget" });
                     break;
                 }
+                Called::Braked(b) => {
+                    let (spent, line) = (b.spent, b.line);
+                    t.braked = Some(b);
+                    self.ask_budget(t, session, 0, 0, spent, line)?;
+                    t.record(&fact::turn::LoopEndedOnBudget {
+                        turn_id: t.tc.turn_id,
+                        index: i,
+                    });
+                    t.record(&fact::turn::LoopCut { decision: "brake" });
+                    break;
+                }
                 Called::Stopped { by } => {
                     t.record(&fact::turn::LoopCut {
                         decision: "stopped",
@@ -1848,7 +1909,6 @@ impl TurnRunner {
                 }
             };
             Self::fallback_answered(t, &resp);
-            self.spend_noticed(t, session, spent_before)?;
             let uses = resp.tool_uses();
             // A call that fit: a later one over the limit asks again.
             t.retry_over_limit = false;
@@ -1898,6 +1958,8 @@ impl TurnRunner {
             run_model = Self::advance(t, &resp, uses.len(), answered, i, window_retry || fell);
             self.loops_noticed(t, i, run_model)?;
             t.last = Some(resp);
+            // A stop that announced more work goes on once (theseus-fh0u).
+            run_model = run_model || (window_failed.is_none() && self.stop_nudge(t, i).await?);
             if let Some(f) = window_failed {
                 return Ok(Next::Fail(f));
             }
@@ -1948,6 +2010,9 @@ impl TurnRunner {
         // Its wakes that are due (DD8), last: each is this turn's input, or
         // comes before the input that arrived with it.
         let woke = Self::read_wakes(t)?;
+        // A retraction's correction notes (theseus-2ced), none usually.
+        self.read_corrections(t)?;
+        let deferred = deferred_step::start_node(t)?;
         // Each call answered here is traced under the continuation's span,
         // in this turn, as `run_tools` traces its own (theseus-8pei).
         let mut calls = calls::late_spans(&t.trace, &self.tools, &late);
@@ -1970,7 +2035,7 @@ impl TurnRunner {
         });
         t.awaiting = resumed.awaiting;
         t.background = resumed.background;
-        Ok(absorbed + resumed.wrote + u32::from(reset || raised) + reported + woke)
+        Ok(absorbed + resumed.wrote + u32::from(reset || raised) + reported + woke + deferred)
     }
 
     /// A `/stop` by `by` ended the turn's loops (W1): its stop reason says so,
@@ -1988,7 +2053,7 @@ impl TurnRunner {
     fn read_wakes(t: &mut Turn<'_>) -> Result<u32> {
         let tc = &t.tc;
         let mut nodes = Vec::new();
-        let fired = tc.kernel.take_wakes(tc.guard, |due| {
+        let (fired, pending) = tc.kernel.take_wakes_listing(tc.guard, |due| {
             let mut records = Vec::new();
             for f in due {
                 let n = Node::relayed(
@@ -2009,6 +2074,8 @@ impl TurnRunner {
             }
             Ok(records)
         })?;
+        // The commitments block's list, from this read (theseus-lherl).
+        tc.commitments.set(pending);
         for n in &nodes {
             tc.node_written(n);
         }
@@ -2039,63 +2106,73 @@ impl TurnRunner {
         // this session, in the frame that writes the report, under the
         // session record's lock (theseus-9bp): the report may carry what the
         // task read.
+        // A held turn's admission rides the frame that takes them, when there
+        // are any (theseus-2uby).
+        let turn = &*t;
         let mut take = |rec: Option<SessionRecord>| {
-            tc.kernel.take_reports(tc.guard, |ids| {
-                let mut records = Vec::new();
-                let mut rec = rec;
-                for id in ids {
-                    let Some(r) = crate::task::load_report(&self.store, &self.kernel, id)? else {
-                        continue;
-                    };
-                    let n = Node::relayed(
-                        tc.session_id,
-                        Some(tc.turn_id),
-                        crate::node::Origin::Harness,
-                        &format!("task:{}", r.short),
-                        &r.node_text(),
-                    );
-                    records.push(n.record()?);
-                    // The first transmission edge (12a, theseus-n4m): the
-                    // relayed node copies the task's last message, so
-                    // `node.reach` follows it from there. A task that did
-                    // not finish relays no message, and has no edge.
-                    if let Some(last) = &r.node {
-                        records.push(
-                            crate::graph::Edge::new(
-                                crate::graph::EdgeKind::DerivedFrom,
-                                &n.id,
-                                last,
-                                crate::graph::VIA_REPORT,
-                            )
-                            .record()?,
+            tc.kernel.frame(&[tc.execution_id], |k| {
+                let e = k.execution(tc.execution_id)?;
+                if e.is_some_and(|e| !(e.reports.is_empty() && e.report_wakes.is_empty())) {
+                    self.admit_in(k, turn)?;
+                }
+                k.take_reports(tc.guard, |ids| {
+                    let mut records = Vec::new();
+                    let mut rec = rec;
+                    for id in ids {
+                        let Some(r) = crate::task::load_report(&self.store, &self.kernel, id)?
+                        else {
+                            continue;
+                        };
+                        let n = Node::relayed(
+                            tc.session_id,
+                            Some(tc.turn_id),
+                            crate::node::Origin::Harness,
+                            &format!("task:{}", r.short),
+                            &r.node_text(),
                         );
-                    }
-                    if let Some(h) = &r.external {
-                        if let Some(before) = rec.take() {
-                            let h = crate::external::taken(
-                                h,
-                                &r.task,
-                                crate::external::VIA_REPORT,
-                                &n.id,
-                                theseus_protocol::now_unix_ms(),
+                        records.push(n.record()?);
+                        // The first transmission edge (12a, theseus-n4m): the
+                        // relayed node copies the task's last message, so
+                        // `node.reach` follows it from there. A task that did
+                        // not finish relays no message, and has no edge.
+                        if let Some(last) = &r.node {
+                            records.push(
+                                crate::graph::Edge::new(
+                                    crate::graph::EdgeKind::DerivedFrom,
+                                    &n.id,
+                                    last,
+                                    crate::graph::VIA_REPORT,
+                                )
+                                .record()?,
                             );
-                            if let Some(more) =
-                                crate::external::hold(before, h.clone(), Some(tc.turn_id))?
-                            {
-                                records.extend(more);
-                                held = Some(h);
+                        }
+                        if let Some(h) = &r.external {
+                            if let Some(before) = rec.take() {
+                                let h = crate::external::taken(
+                                    h,
+                                    &r.task,
+                                    crate::external::VIA_REPORT,
+                                    &n.id,
+                                    theseus_protocol::now_unix_ms(),
+                                );
+                                if let Some(more) =
+                                    crate::external::hold(before, h.clone(), Some(tc.turn_id))?
+                                {
+                                    records.extend(more);
+                                    held = Some(h);
+                                }
                             }
                         }
+                        nodes.push(n);
+                        reports.push(r);
                     }
-                    nodes.push(n);
-                    reports.push(r);
-                }
-                // Where the reply to them goes if the session posts nowhere
-                // by then, kept past this turn (theseus-4lx).
-                if let Some(target) = reports.iter().find_map(|r| r.target.as_deref()) {
-                    records.push(tc.outbox.wake_target_record(tc.session_id, target)?);
-                }
-                Ok(records)
+                    // Where the reply to them goes if the session posts nowhere
+                    // by then, kept past this turn (theseus-4lx).
+                    if let Some(target) = reports.iter().find_map(|r| r.target.as_deref()) {
+                        records.push(tc.outbox.wake_target_record(tc.session_id, target)?);
+                    }
+                    Ok(records)
+                })
             })
         };
         let taken = match tc
@@ -2146,7 +2223,11 @@ impl TurnRunner {
         let last = nodes
             .iter()
             .rev()
-            .find(|(_, n)| n.kind != crate::stub::Kind::ToolCall);
+            .find(|(_, n)| !crate::stub::Kind::is_note(n.kind));
+        // A recall's note, written by a turn's compile after the message it
+        // fed, is no reply and no input, nor is a summary its compaction
+        // wrote: a message with only those after it still waits
+        // (theseus-posww). Neither is a call, as before.
         // Results the model has not read are its next input (theseus-kol). A
         // continuation that finds them was woken to have them read: the turn
         // that wrote them failed or faulted before its model call returned
@@ -2242,6 +2323,12 @@ impl TurnRunner {
                 if let Some(KernelError::DayCeiling(r)) = e.downcast_ref::<KernelError>() {
                     return Ok(Called::Failed(self.day_ceiling_failed(t, r)));
                 }
+                if let Some(KernelError::HardStop(h)) = e.downcast_ref::<KernelError>() {
+                    return Ok(Called::Failed(Self::hard_stopped(t, h)));
+                }
+                if let Some(KernelError::BurnRate(b)) = e.downcast_ref::<KernelError>() {
+                    return Ok(Called::Braked(*b.clone()));
+                }
                 t.record(&fact::turn::ModelNotPlanned {
                     model: &target.model,
                     error: &e,
@@ -2256,6 +2343,12 @@ impl TurnRunner {
             }
         };
         let started_ms = theseus_protocol::now_unix_ms();
+        // The syncs before the model's first byte (theseus-2uby): every frame
+        // the turn wrote up to its first call's dispatch, that one included.
+        if i == 0 {
+            let syncs = t.tc.store.turn_frames();
+            t.trace.set_root(json!({ "syncs_before_call": syncs }));
+        }
 
         let (sink, tid) = (t.tc.sink.clone(), t.tc.turn_id.to_string());
         // The characters streamed so far, thinking included (it is billed as
@@ -2317,6 +2410,7 @@ impl TurnRunner {
                         sent,
                         out_chars: streamed.load(Ordering::Relaxed),
                         est_input: compiled.est_tokens,
+                        prefix: cut_step::Prefix::of(t.last.as_ref(), compiled),
                     });
                 }
                 if let Some(e) = self.not_sent_for_the_stop().filter(|_| !sent) {
@@ -2375,7 +2469,7 @@ impl TurnRunner {
         spent: Micros,
         limit: Micros,
     ) -> Result<()> {
-        let call = json!({"profile": t.target.profile, "model": t.target.model, "max_output_tokens": t.target.max_tokens});
+        let call = Self::budget_call(t);
         let q =
             t.tc.kernel
                 .ask_budget_for(t.tc.guard, needed, call.clone())?;
@@ -2825,8 +2919,10 @@ impl TurnRunner {
     /// turn acts on nothing it said, and no answer node is written. The call
     /// is settled as failed at an estimate of what it used, its reservation
     /// released and nothing held unknown: the input estimate its reservation
-    /// used, and its output from the characters streamed (`CHARS_PER_TOKEN`
-    /// to a token), at the model's prices, never more than it reserved. A stop
+    /// used, split as its request was sent (`cut_step`: the previous call's
+    /// cache at the read price, theseus-3p36), and its output from the
+    /// characters streamed (`CHARS_PER_TOKEN` to a token), at the model's
+    /// prices, never more than it reserved. A stop
     /// before anything was sent used nothing. The `provider.cut` row says it is
     /// an estimate; the provider's own usage events, which a dropped stream
     /// loses, would make it exact.
@@ -2840,14 +2936,13 @@ impl TurnRunner {
         i: u32,
     ) -> Called {
         let target = t.target;
-        let usage = if cut.sent {
-            Usage {
-                input_tokens: cut.est_input,
-                output_tokens: cut.out_chars.div_ceil(CHARS_PER_TOKEN),
-                ..Usage::default()
-            }
-        } else {
-            Usage::default()
+        let (usage, split) = match cut.sent {
+            true => cut.prefix.split(cut.est_input),
+            false => (Usage::default(), cut_step::SPLIT_UNCACHED),
+        };
+        let usage = Usage {
+            output_tokens: cut.out_chars.div_ceil(CHARS_PER_TOKEN) * u64::from(cut.sent),
+            ..usage
         };
         let cost = price.cost_micros(&usage).min(action.reserved_micros);
         t.record(&fact::turn::ModelCallFailed {
@@ -2867,7 +2962,9 @@ impl TurnRunner {
             cost_micros: Some(cost),
             detail: Some(json!({"class": "stopped", "by": cut.by, "estimated": true,
                 "input_tokens": usage.input_tokens, "output_tokens": usage.output_tokens,
-                "output_chars": cut.out_chars})),
+                "cache_read_input_tokens": usage.cache_read_input_tokens,
+                "cache_creation_input_tokens": usage.cache_creation_input_tokens,
+                "split": split, "output_chars": cut.out_chars})),
         });
         t.cost = t.cost.map(|c| c + micros_to_usd(cost));
         add_usage(&mut t.usage, &usage);
@@ -2878,6 +2975,7 @@ impl TurnRunner {
             by: &cut.by,
             sent: cut.sent,
             usage: &usage,
+            split,
             output_chars: cut.out_chars,
             cost,
             reserved_micros: action.reserved_micros,
@@ -2918,11 +3016,16 @@ impl TurnRunner {
             }
             return Ok(0);
         }
+        // The calls as the model meant them (theseus-9dt2).
+        let (uses, recovered) = self.tools.fit_uses(uses, &resp.invalid_tool_inputs);
+        let uses = uses.as_slice();
         let calls: Vec<Call<'_>> = uses
             .iter()
             .map(|call| Call {
                 call,
-                invalid: resp.invalid_tool_inputs.get(&call.id).map(String::as_str),
+                invalid: (!recovered.contains(&call.id))
+                    .then(|| resp.invalid_tool_inputs.get(&call.id).map(String::as_str))
+                    .flatten(),
             })
             .collect();
         let batch = self.tools.run_calls(&tc, &node.id, &calls).await?;
@@ -3101,18 +3204,9 @@ impl TurnRunner {
             Ok(late) => late,
             Err(e) => return Err(Self::fault(t, session, e)),
         };
-        // Where the execution waits: only reads, so it is decided before
-        // anything is booked, and a fault here leaves nothing half done.
-        let end = match &t.budget_question {
-            Some(q) => TurnEnd::Wait {
-                wake: Wake::Budget {
-                    correlation_id: q.clone(),
-                },
-            },
-            None => match self.park(t.tc.execution_id, t.awaiting.clone(), &t.background) {
-                Ok(end) => end,
-                Err(e) => return Err(Self::fault(t, session, e)),
-            },
+        let end = match self.end_of(&t) {
+            Ok(end) => end,
+            Err(e) => return Err(Self::fault(t, session, e)),
         };
         t.close_books(session);
         session.last_target = Some(Self::ran_on(&t));
@@ -3132,6 +3226,7 @@ impl TurnRunner {
         };
         t.deferred = true;
 
+        let cites = self.cite_reply(&mut t);
         let last = t.last.as_ref();
         let mut result = TurnSubmitResult {
             session_id: t.tc.session_id.into(),
@@ -3165,6 +3260,9 @@ impl TurnRunner {
             route: t.route.result.take(),
             fallback: t.fallback.as_ref().map(|f| f.fallback.clone()),
             later: self.later_of(&t, jobs, late > 0 && t.stop_reason != "stopped"),
+            outside_roots: None,
+            nudged: t.nudge.result(t.tool_calls),
+            cites,
         };
         t.record(&fact::turn::TurnBooked {
             result: &result,
@@ -3177,7 +3275,7 @@ impl TurnRunner {
         // when it ends (DD7). A stopped turn posts nothing either (W1): the
         // stop's answer says what stopped.
         if t.tc.task.is_none() && result.stop_reason != "stopped" {
-            if let Err(e) = self.stage_reply(&t, &result) {
+            if let Err(e) = self.stage_turn_post(&t, &result, session.failing.as_ref()) {
                 return Err(Self::fault(t, session, e));
             }
         }
@@ -3186,8 +3284,7 @@ impl TurnRunner {
         // same turn's from the WAL (`theseus-sim bench turn`).
         let frames = t.tc.store.turn_frames().map(|n| n + 1);
         // A judgment of this turn's end is marked before its last frame (23b).
-        self.judge
-            .mark_turn_end(&mut t.trace, &result, t.tc.task.is_some());
+        self.mark_end(&mut t, &result);
         let attrs = Self::end_attrs(&t, &result, frames);
         result.trace = Some(t.trace.finish(attrs));
         // The trace is finished: the fact draws no span.
@@ -3316,43 +3413,6 @@ impl TurnRunner {
         wakes.reverse();
         reports.reverse();
         Ok((wakes, reports))
-    }
-
-    /// Where the execution waits: on the confirm, on outstanding jobs, or on
-    /// the next input. (A turn over its budget waits on the budget question.)
-    fn park(
-        &self,
-        exec_id: &str,
-        awaiting: Option<String>,
-        background: &[String],
-    ) -> Result<TurnEnd> {
-        let outstanding: Vec<String> = self
-            .kernel
-            .execution(exec_id)?
-            .map(|e| e.outstanding)
-            .unwrap_or_default()
-            .into_iter()
-            .filter(|c| {
-                background.contains(c)
-                    || self
-                        .kernel
-                        .action(c)
-                        .ok()
-                        .flatten()
-                        .map(|a| a.tool != PROVIDER_TOOL)
-                        .unwrap_or(false)
-            })
-            .collect();
-        let wake = if let Some(c) = awaiting {
-            Wake::Confirm { confirm_id: c }
-        } else if !outstanding.is_empty() {
-            Wake::Actions {
-                correlation_ids: outstanding,
-            }
-        } else {
-            Wake::Input
-        };
-        Ok(TurnEnd::Wait { wake })
     }
 
     /// A new compilation (it carries its own `derived_from`) and the

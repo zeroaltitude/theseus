@@ -397,9 +397,7 @@ pub fn owner_in_private(
 /// The tools whose results are public by nature, which a shared place is
 /// offered whatever its config.
 pub fn public_tool(name: &str) -> bool {
-    matches!(name, "web.search" | "http.fetch")
-        || name.starts_with("wake.")
-        || name.starts_with("task.")
+    matches!(name, "web.search" | "http.fetch") || name == "wake.at" || name.starts_with("task.")
 }
 
 /// The tools that read or write files: a shared place gets them only under
@@ -839,6 +837,10 @@ mod tests {
             "fs.read",
             "git.diff",
             "text.diff",
+            // The model changing its own wakes is a private place's alone
+            // (theseus-lherl); setting one is public.
+            "wake.cancel",
+            "wake.move",
         ] {
             assert!(!offered(PlaceClass::Shared, name, &[]), "{name}");
             assert!(offered(PlaceClass::Private, name, &[]), "{name}");

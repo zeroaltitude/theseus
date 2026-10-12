@@ -10,8 +10,16 @@
 //! limit its opener or a place named (`Budget::pinned`: an MCP client's
 //! session, a place's ceiling). A task notifies when its parent does: its
 //! carve is pinned, but it is the parent's limit, divided.
+//!
+//! **The hard multiple** (theseus-jse4): a limit that notifies still stops a
+//! stuck loop. At `KernelConfig::spend_hard_multiple` times it (`[kernel]
+//! spend_limit_hard_multiple`, 10 by default; 0 never) a provider call whose
+//! reservation would take the spend, with what calls in flight hold, past
+//! that multiple is refused with `KernelError::HardStop`, nothing written, as
+//! a reservation over a limit that asks is: money is a gate, so the spend
+//! never passes it. The core ends the turn and says why.
 
-use crate::kernel::Kernel;
+use crate::kernel::{Kernel, KernelError};
 use crate::types::*;
 
 impl Kernel {
@@ -35,5 +43,88 @@ impl Kernel {
     /// call's, under a limit that notifies.
     pub(crate) fn overdraws_for(&self, e: &Execution, tool: &str) -> bool {
         tool == PROVIDER_TOOL && self.overdraws(e)
+    }
+
+    /// Refuse a reservation of `need` for `tool` that a limit that notifies
+    /// lets past `e`'s limit, when it would pass the hard multiple.
+    pub fn hard_stop(&self, e: &Execution, tool: &str, need: Micros) -> Result<(), KernelError> {
+        let multiple = self.config().spend_hard_multiple;
+        let b = &e.budget;
+        if multiple == 0 || b.limit_micros == 0 || !self.overdraws_for(e, tool) {
+            return Ok(());
+        }
+        let cap = b.limit_micros.saturating_mul(multiple);
+        let after = b
+            .spent_micros
+            .saturating_add(b.reserved_micros)
+            .saturating_add(need);
+        if after <= cap {
+            return Ok(());
+        }
+        Err(KernelError::HardStop(Box::new(HardStop {
+            multiple,
+            limit: b.limit_micros,
+            spent: b.spent_micros,
+            held: b.reserved_micros,
+            needed: need,
+        })))
+    }
+}
+
+/// `[kernel] spend_limit_hard_multiple`'s default: 10 times the limit.
+pub fn default_hard_multiple() -> u64 {
+    10
+}
+
+/// A provider call the hard multiple refused (theseus-jse4).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HardStop {
+    pub multiple: u64,
+    pub limit: Micros,
+    pub spent: Micros,
+    /// What its other calls in flight hold.
+    pub held: Micros,
+    pub needed: Micros,
+}
+
+impl HardStop {
+    /// The hard stop's amount: the multiple of the limit.
+    pub fn cap(&self) -> Micros {
+        self.limit.saturating_mul(self.multiple)
+    }
+}
+
+impl std::fmt::Display for HardStop {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "the session's spend reached its hard stop, {} times its {} limit ({}): {} spent, {} \
+             held by calls in flight, and this call needs {}, so the call was not made and \
+             the turn ends; below the stop the limit only notifies, and a higher `[kernel] \
+             spend_limit_usd` or `spend_limit_hard_multiple` lets the session go on from the \
+             daemon's next start",
+            self.multiple,
+            usd(self.limit),
+            usd(self.cap()),
+            usd(self.spent),
+            usd(self.held),
+            usd(self.needed),
+        )
+    }
+}
+
+impl Kernel {
+    /// Refuse a provider call of `e`'s when its settled spend in the last ten
+    /// minutes has reached the burn-rate line (theseus-9e02, `[kernel]
+    /// runaway_usd_per_10min`): one comparison over a small in-memory ring,
+    /// nothing written. The core asks the owner to resume.
+    pub(crate) fn burn_stopped(&self, e: &Execution, tool: &str) -> Result<(), KernelError> {
+        if tool != PROVIDER_TOOL {
+            return Ok(());
+        }
+        match self.ceiling.burn_stop(self.now_ms(), &e.id) {
+            Some(b) => Err(KernelError::BurnRate(Box::new(b))),
+            None => Ok(()),
+        }
     }
 }

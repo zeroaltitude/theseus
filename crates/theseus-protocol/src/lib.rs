@@ -16,12 +16,16 @@ pub mod books;
 mod budgets;
 pub mod cancel;
 pub mod check;
+pub mod cite;
 pub mod context;
 mod cost;
 pub mod cred;
+pub mod earned;
 mod events;
+mod exec_list;
 mod explain;
 pub mod extend;
+pub mod features;
 mod gate;
 mod hands;
 mod health;
@@ -38,21 +42,33 @@ pub mod mcp;
 pub mod mcp_server;
 pub mod memory;
 pub mod notices;
+pub mod nudge;
 mod ontology;
+mod outbox;
 pub mod packs;
 mod places;
 mod push;
 pub mod resident;
+pub mod retract;
 pub mod route;
 pub mod rsi;
 pub mod sandbox;
 pub mod sessions;
 pub mod signals;
+pub mod standing;
+mod submit;
 pub mod tasks;
 pub mod term;
 #[cfg(test)]
+mod tests_task_info;
+mod toolinfo;
+#[cfg(test)]
 mod ts;
 pub mod voice;
+pub mod wakes;
+pub mod warm;
+pub mod why;
+mod window;
 pub mod work;
 
 pub use actions::{ActionInfo, ActionListParams, ActionListResult};
@@ -62,6 +78,7 @@ pub use budgets::*;
 pub use cancel::{CancelCount, CancelVerdict};
 pub use check::{CheckOverlap, CheckPiece, TaskCheck};
 pub use events::*;
+pub use exec_list::{ExecutionListParams, ExecutionListResult};
 pub use explain::*;
 pub use gate::*;
 pub use hands::*;
@@ -70,10 +87,19 @@ pub use history::*;
 pub use index::TenderStatus;
 pub use ledger::*;
 pub use ontology::*;
+pub use outbox::OutboxStatus;
 pub use places::*;
 pub use push::*;
 pub use sessions::{RetiredReason, SessionLink, SessionRetired, SessionState};
+pub use standing::{
+    StandingAddParams, StandingChanged, StandingInfo, StandingKind, StandingListParams,
+    StandingListResult, StandingRecord, StandingRevokeParams, StandingScope,
+};
+pub use submit::{SessionOpenParams, TurnSubmitParams};
 pub use term::{TerminalInfo, TerminalLeft};
+pub use toolinfo::{ToolInfo, ToolListResult};
+pub use wakes::WakeInfo;
+pub use window::*;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -117,8 +143,11 @@ pub mod method {
         SESSION_OPEN = "session.open", SESSION_LIST = "session.list",
         /// A session's retirement by the owner, and its undo (theseus-emqx).
         SESSION_RETIRE = "session.retire", SESSION_REOPEN = "session.reopen",
+        /// Someone began to type into a session: the daemon warms what the
+        /// message will wait for (theseus-tnky).
+        SESSION_TYPING = "session.typing",
         TURN_SUBMIT = "turn.submit",
-        LEDGER_TAIL = "ledger.tail",
+        LEDGER_TAIL = "ledger.tail", LEDGER_WINDOW = "ledger.window",
         PROFILE_LIST = "profile.list", PROFILE_USE = "profile.use",
         EXECUTION_LIST = "execution.list", EXECUTION_CANCEL = "execution.cancel",
         /// `/stop` (W1): halt a conversation's work, and keep the conversation.
@@ -130,7 +159,7 @@ pub mod method {
         SESSION_HISTORY = "session.history",
         SESSION_WATCH = "session.watch",
         SESSION_UNWATCH = "session.unwatch",
-        SESSION_RECOMPILE = "session.recompile",
+        SESSION_RECOMPILE = "session.recompile", SESSION_NUDGE = "session.nudge",
         CATALOG_LIST = "catalog.list", COMPILATION_LIST = "compilation.list", NODE_LIST = "node.list",
         /// Where a node went (theseus-n4m, step 12a): the contexts of its own
         /// session that held it, then its copies in other sessions over
@@ -175,6 +204,9 @@ pub mod method {
         /// operator's answers to one, judged as the ontology's writes are.
         ONTOLOGY_PROPOSALS = "ontology.proposals",
         ONTOLOGY_PROPOSAL_ACCEPT = "ontology.proposal.accept",
+        /// The owner's standing orders, preferences and facts (theseus-a7vi,
+        /// `standing::StandingListParams`): a read, and the owner's two writes.
+        STANDING_LIST = "standing.list", STANDING_ADD = "standing.add", STANDING_REVOKE = "standing.revoke",
         ONTOLOGY_PROPOSAL_REJECT = "ontology.proposal.reject", ONTOLOGY_PROPOSAL_ACCEPT_ALL = "ontology.proposal.accept_all", ONTOLOGY_PERSON_MERGE = "ontology.person.merge", ONTOLOGY_PROPOSAL_REJECT_ALL = "ontology.proposal.reject_all",
         /// Tasks (DD7): the child sessions conversations started, with state and
         /// spend.
@@ -213,12 +245,22 @@ pub mod method {
         /// A session's recalls (`memory::MemoryRecallsParams`): each turn's
         /// `recall.shadow` manifest, newest last. A read.
         MEMORY_RECALLS = "memory.recalls",
+        /// The sources of the handles a session's replies cite
+        /// (`cite::MemoryCitesParams`; theseus-ejdk). A read.
+        MEMORY_CITES = "memory.cites",
         /// An operator's label on a node recall offered or should have
         /// (`memory::MemoryLabelParams`; M6 step 30b): `wrong` and `stale`
         /// keep it out of recall. Acting: the owner, from a private place.
         MEMORY_LABEL = "memory.label",
         /// Consolidation now (M6 31b; `memory::MemoryConsolidateParams`). Acting.
         MEMORY_CONSOLIDATE = "memory.consolidate",
+        /// What an MCP client asks of private memory (`memory::MemoryLookupParams`; theseus-02i1h). A read.
+        MEMORY_LOOKUP = "memory.lookup",
+        /// Mark a node wrong and find where it went (`retract::FactRetractParams`;
+        /// theseus-2ced): the `wrong` label, a correction note for each live session
+        /// that used it, its syntheses stale, one card for the tasks to re-run.
+        /// Acting: the owner, from a private place.
+        FACT_RETRACT = "fact.retract",
         /// Jev's judgments (M5 23b; `judge::JudgeListParams`): the newest
         /// `judge.call` rows, by pack, session, and time, without their
         /// states. A read.
@@ -282,6 +324,8 @@ pub mod method {
         /// Revoke a loaded extension (43b, `extend::ExtensionRevokeParams`). The operator's.
         EXTENSION_REVOKE = "extension.revoke",
         /// Self-improvement (theseus-pw1q; `rsi`): the kill switch, anyone's halt and the owner's resume, the log, the digest.
+        /// Earned autonomy (theseus-uttu, `earned`): the number and the card, the owner's answer, a grant's revoke.
+        POLICY_EARNED = "policy.earned", POLICY_EARNED_ANSWER = "policy.earned.answer", POLICY_REVOKE = "policy.revoke",
         SELF_HALT = "self.halt", SELF_RESUME = "self.resume", SELF_LOG = "self.log", SELF_DIGEST = "self.digest",
     }
 }
@@ -427,8 +471,8 @@ pub mod error_code {
     pub const REFUSED: i64 = -32005;
     // -32006 was `CONFIG_UNCONFIRMED`, the act-gate's refusal (theseus-2fo),
     // retired when the daemon began acting on its config copy (theseus-zmgb).
-    /// A bound on what one connection may hold was reached (theseus-in3):
-    /// 64 parked `session.wait`s.
+    /// A bound was reached (theseus-in3): what one connection may hold, 64
+    /// parked `session.wait`s, or the daemon's connections (theseus-7vtp).
     pub const LIMIT: i64 = -32007;
 }
 
@@ -565,6 +609,10 @@ pub struct HealthResult {
     /// (theseus-sgh), oldest first. They are stored, not configured.
     #[serde(default)]
     pub tightenings: Vec<Tightening>,
+    /// Earned grants (theseus-uttu), oldest first: what the owner accepted from the record.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub earned: Option<Vec<earned::EarnedGrant>>,
     /// The wakes conversations set with `wake.at` that have not run yet,
     /// soonest first (DD8).
     #[serde(default)]
@@ -588,19 +636,16 @@ pub struct HealthResult {
     /// The spool's sweeps of raw job output (theseus-2ij).
     #[serde(default)]
     pub spool: SpoolStatus,
-    /// The push (theseus-in3): its board, its watchers, and its seed. Absent
-    /// from a daemon before it.
+    /// The push (theseus-in3): its board, its watchers, and its seed. Absent from a daemon before it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub push: Option<PushStatus>,
-    /// The AWS accounts the config binds (AWS design §3.10), each as its
-    /// check left it. Absent when it binds none.
+    /// The AWS accounts the config binds (AWS design §3.10), each as its check left it; or none.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub aws: Option<AwsStatus>,
     /// The index tender (M6 §2.2, roadmap row 51): the tender as the core
-    /// supervises it, and its own status when it answers. Absent from a
-    /// daemon before it.
+    /// supervises it, and its own status when it answers; or none.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub index: Option<index::IndexHealth>,
@@ -614,8 +659,7 @@ pub struct HealthResult {
     /// The store's refused reads (R4, theseus-15g); zero from a daemon before it.
     #[serde(default)]
     pub store: StoreStatus,
-    /// The newest crash a start found (Review 2's consideration 1): what
-    /// panicked when the daemon last died. Absent when it never has.
+    /// The newest crash a start found (Review 2's consideration 1); or none.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub crash: Option<CrashStatus>,
@@ -666,6 +710,24 @@ pub struct HealthResult {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub self_improve: Option<rsi::SelfState>,
+    /// What a person's first keystroke warmed, and when (theseus-tnky).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub warm: Option<warm::WarmHealth>,
+    /// The prompt cache: each profile's TTL, and the keep-warm (theseus-ezeg).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub cache: Option<PromptCacheHealth>,
+    /// Which killer features are on (theseus-is8t): health's first line.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub features: Option<features::Features>,
+    /// Today's model spend against the daily ceiling (theseus-9e02): set
+    /// while the day is at or past its ceiling, so health's first line says
+    /// so.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub day_spend: Option<DayCeilingBudget>,
 }
 
 /// The AWS accounts the config binds (`[aws.accounts.<id>]`).
@@ -1241,27 +1303,6 @@ pub struct BindingStatus {
     pub voice: Option<voice::VoiceStatus>,
 }
 
-/// A binding's outbox (theseus-q4v): what waits to reach its channels.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[cfg_attr(test, derive(ts_rs::TS))]
-pub struct OutboxStatus {
-    /// Posts written and not yet delivered.
-    pub pending: u64,
-    /// Posts delivered, in this store's life.
-    pub sent: u64,
-    /// Posts the channel refused for good (a deleted channel, lost access).
-    pub failed: u64,
-    /// When the oldest pending post was written (unix ms); 0 with none.
-    #[serde(default)]
-    pub oldest_pending_ms: u64,
-    /// The last delivery error, and when (unix ms).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[cfg_attr(test, ts(optional))]
-    pub last_error: Option<String>,
-    #[serde(default)]
-    pub last_error_ms: u64,
-}
-
 /// A place Theseus lives in: a text channel or a DM, and the session behind it.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
@@ -1533,12 +1574,6 @@ pub struct BudgetInfo {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
-pub struct ExecutionListResult {
-    pub executions: Vec<ExecutionInfo>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct ExecutionCancelParams {
     pub execution_id: String,
     /// Who asked, as a label in the ledger (e.g. `discord:zeroaltitude`). Default: the connection.
@@ -1640,6 +1675,12 @@ pub struct TaskInfo {
     /// Its report starts its parent's next turn (W1, `wake_parent`).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub wake_parent: bool,
+    /// When a deferred task starts (theseus-rcgph): it is asleep until
+    /// then, with no turn taken. Absent for a task that has started, and
+    /// from a daemon before it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub starts_at_ms: Option<u64>,
     /// What it needs from people, by `attention()` (theseus-in3).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
@@ -1704,54 +1745,6 @@ pub struct TaskCancelResult {
     /// How each of them stopped, and how that is known (M4 18a).
     #[serde(default)]
     pub verdicts: Vec<CancelVerdict>,
-}
-
-/// A pending wake (DD8, theseus-cff): a conversation asked, with `wake.at`,
-/// for a turn at a time, whose input is its note. It has not run yet.
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
-#[cfg_attr(test, derive(ts_rs::TS))]
-pub struct WakeInfo {
-    /// `wak_…`.
-    pub wake_id: String,
-    /// The last six characters of its id, which is how people name it
-    /// (`/cancel a1b2c3`).
-    pub short: String,
-    pub session_id: String,
-    pub execution_id: String,
-    /// The session's title, when it has one.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[cfg_attr(test, ts(optional))]
-    pub session_title: Option<String>,
-    /// The task that set it, by its short id (`a1b2c3`), when its session is a task (37b).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[cfg_attr(test, ts(optional))]
-    pub task: Option<String>,
-    pub due_at_ms: u64,
-    /// The due time on the daemon's clock, as people read it
-    /// (`2026-09-30 13:15:00 -07:00`).
-    pub due_local: String,
-    pub note: String,
-    pub set_at_ms: u64,
-    /// The place it was set from (`discord:dm:<user>`), where its turn's
-    /// reply goes, if anywhere.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[cfg_attr(test, ts(optional))]
-    pub target: Option<String>,
-    /// Its session's execution state now: a wake waits for a busy session.
-    pub state: String,
-    /// A repeating wake's span (`1d`, `30m`; 37a); none for a one-shot wake.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[cfg_attr(test, ts(optional))]
-    pub every: Option<String>,
-    /// Which occurrence of its series is due next, from 1.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[cfg_attr(test, ts(optional))]
-    pub occurrence: Option<u32>,
-    /// When a series' next occurrence is due, as people read it on the
-    /// daemon's clock (`21:00 Thu`).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[cfg_attr(test, ts(optional))]
-    pub next: Option<String>,
 }
 
 /// `wake.list`: every pending wake, soonest first, or only one session's, or
@@ -1821,20 +1814,6 @@ impl SessionKind {
             SessionKind::Task => "task",
         }
     }
-}
-
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[cfg_attr(test, derive(ts_rs::TS))]
-pub struct SessionOpenParams {
-    #[serde(default)]
-    pub kind: Option<SessionKind>,
-    #[serde(default)]
-    pub label: Option<String>,
-    /// The session whose job opened this one (`JOB_SESSION_ENV`, theseus-b5cl):
-    /// one opened from a session that holds external text holds it too.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[cfg_attr(test, ts(optional))]
-    pub opened_from: Option<String>,
 }
 
 /// Every job's variable, L0 and L1, naming its session (theseus-b5cl): the
@@ -1920,6 +1899,10 @@ pub struct SessionInfo {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub title_was: Option<Vec<String>>,
+    /// The directory it works in, as its client sent it (theseus-aab7).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub dir: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1939,54 +1922,6 @@ pub struct SessionListResult {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub empty_grace_ms: Option<u64>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[cfg_attr(test, derive(ts_rs::TS))]
-pub struct TurnSubmitParams {
-    /// Omit to open a fresh conversation session for this turn.
-    #[serde(default)]
-    pub session_id: Option<String>,
-    pub input: String,
-    /// Profile for this turn (a configured profile name); default is the live profile.
-    #[serde(default)]
-    pub profile: Option<String>,
-    /// Raw override of the profile's provider for this turn.
-    #[serde(default)]
-    pub provider: Option<String>,
-    /// Raw override of the profile's model for this turn.
-    #[serde(default)]
-    pub model: Option<String>,
-    /// `profile` is carried from the session's last turn (the CLI's pane),
-    /// not the owner's choice: routing may still move the turn (M5 25e).
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub carried: bool,
-    /// Who wrote the input, as a label on the message node (e.g. `discord:zeroaltitude`).
-    /// Default: the connection's own label. A label, not an authority: every
-    /// local protocol client acts as the operator.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[cfg_attr(test, ts(optional))]
-    pub author: Option<String>,
-    /// Files that came with the input, in order (theseus-9g2). With any, the
-    /// input may be empty.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub attachments: Vec<Attachment>,
-    /// The surface's message this turn answers (a Discord message id): the
-    /// reply's first message is posted as a reply to it (theseus-q4v).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[cfg_attr(test, ts(optional))]
-    pub reply_to: Option<String>,
-    /// The session whose job sent this turn (theseus-b5cl): the session the
-    /// turn opens or names takes its hold of external text.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[cfg_attr(test, ts(optional))]
-    pub opened_from: Option<String>,
-    /// An MCP server's prompt as the turn's input (M7 36c): the core asks
-    /// the server for it, and `input` stays empty. Only a private place's
-    /// session may run one.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[cfg_attr(test, ts(optional))]
-    pub prompt: Option<crate::mcp::McpPromptRef>,
 }
 
 /// A file sent with a turn's input (theseus-9g2): a Discord attachment, or
@@ -2161,6 +2096,19 @@ pub struct TurnSubmitResult {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub later: Option<later::Later>,
+    /// The roots, when this turn put its session in a directory outside every one (theseus-aab7): the CLI says so once.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub outside_roots: Option<Vec<String>>,
+    /// The harness nudged the turn once after an announced stop (theseus-fh0u); absent when it did not.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub nudged: Option<nudge::TurnNudge>,
+    /// The sources of the handles the reply cites, resolved against this
+    /// turn's recall (theseus-ejdk); none when it cited none, and none a
+    /// shared place may not show.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub cites: Vec<cite::Citation>,
 }
 
 fn is_zero_u32(n: &u32) -> bool {
@@ -2496,54 +2444,6 @@ pub struct ActionConfirmResult {
 
 fn yes() -> bool {
     true
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[cfg_attr(test, derive(ts_rs::TS))]
-pub struct ToolInfo {
-    /// Canonical name (`fs.read`).
-    pub name: String,
-    /// Name on the wire (`fs_read`).
-    pub wire_name: String,
-    pub family: String,
-    pub description: String,
-    /// `read`, `write`, or `run`.
-    pub class: String,
-    /// `inproc` or `job`.
-    pub backend: String,
-    /// The posture the gate applies now: `open`, `notify`, or `approve`.
-    pub policy: String,
-    /// What chose it: a config setting (`enforcement = notify`), or a
-    /// tightening (`tightened by discord:zeroaltitude`).
-    #[serde(default)]
-    pub setting: String,
-    /// What the config alone says (theseus-sgh). It differs from `policy`
-    /// only while a tightening is stricter.
-    #[serde(default)]
-    pub config_posture: String,
-    #[serde(default)]
-    pub config_setting: String,
-    /// Someone pressed "should have asked" for this tool.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[cfg_attr(test, ts(optional))]
-    pub tightened: Option<Tightening>,
-    #[cfg_attr(test, ts(type = "unknown"))]
-    pub input_schema: Value,
-    /// Calls since the daemon started.
-    #[serde(default)]
-    pub calls: u64,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[cfg_attr(test, derive(ts_rs::TS))]
-pub struct ToolListResult {
-    pub tools: Vec<ToolInfo>,
-    /// Workspace roots tools may touch.
-    pub roots: Vec<String>,
-    /// `proc.run` calls over all tool calls (spec §3.23 shell-fallback ratio).
-    pub shell_fallback_ratio: f64,
-    /// Calls since the daemon started.
-    pub calls_total: u64,
 }
 
 /// `error.data` on a provider failure.

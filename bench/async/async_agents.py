@@ -54,6 +54,7 @@ from harbor.models.agent.context import AgentContext
 import claude_code_agent as cca
 import driver
 import efficiency as ef
+import opencode_agent as oc
 import pi_agent as pa
 import sampler as smp
 import theseus_agent as ta
@@ -62,6 +63,23 @@ import theseus_bench as tb
 
 def _task_dir(environment: BaseEnvironment) -> Path:
     return Path(environment.environment_dir).parent
+
+
+async def _killed(killer: asyncio.Task | None, report: dict[str, Any]) -> bool:
+    """After the harness's own run failed: whether the kill injection
+    (`driver.fire_kill`) is why, its report kept in the driver's. A harness
+    that ended before the kill's trigger is not measurable; the kill is given
+    a minute to finish if it had begun."""
+    if killer is None:
+        return False
+    try:
+        got = await asyncio.wait_for(asyncio.shield(killer), 60)
+    except asyncio.TimeoutError:
+        killer.cancel()
+        report["kill"] = {"error": "the harness ended before the kill: not measurable"}
+        return False
+    report["kill"] = got
+    return bool(got.get("killed"))
 
 
 def _write(logs_dir: Path, report: dict[str, Any]) -> None:
@@ -110,6 +128,7 @@ class TheseusAsync(ta.Theseus):
         trial = driver.Theseus(ta.BIN, ta.STATE, logs)
         meta = driver.task_of(_task_dir(environment))
         inj = driver.injection_of(_task_dir(environment))
+        kill = driver.kill_of(_task_dir(environment))
         timeout = float(self._task_timeout(environment))
         report: dict[str, Any] = {"arm": self.name(), "family": meta.get("family"),
                                   "proc_sync_secs": values[("tools", "proc_sync_secs")]}
@@ -118,7 +137,7 @@ class TheseusAsync(ta.Theseus):
             environment, command=tb.daemon_script(ta.BIN, ta.STATE, logs, ta.SAMPLER, sample_ms),
             env={**env, "THESEUS_BENCH_INSTRUCTION": instruction},
         ))
-        session = injected = None
+        session = injected = killer = None
         try:
             session = (await environment.exec(command=trial.session_command())).stdout.strip() or None
             sent = 0
@@ -132,11 +151,19 @@ class TheseusAsync(ta.Theseus):
 
             if inj and session:
                 injected = asyncio.create_task(driver.fire(inj, environment, deliver, started=started))
+            if kill and session:
+                # SIGKILL to `theseusd` and the CLI, then the daemon started again and the CLI reattached
+                # (`driver.theseus_arm`); the trial then settles on the restarted daemon as any other.
+                killer = asyncio.create_task(driver.fire_kill(
+                    kill, driver.theseus_arm(ta.BIN, ta.STATE, logs, session), environment,
+                    started=started, restart_env=env))
             failure: BaseException | None = None
             try:
                 await first
             except NonZeroAgentExitCodeError as e:
                 failure = e
+            if killer and await _killed(killer, report):
+                failure = None  # the ask died by the kill, by design
             if injected:
                 report["injection"] = await injected
             report["ended"] = (await trial.settle(environment, started + timeout - 30)
@@ -154,6 +181,8 @@ class TheseusAsync(ta.Theseus):
             first.cancel()
             if injected:
                 injected.cancel()
+            if killer:
+                killer.cancel()
             # The finish stops the sampler after the daemon; with no
             # session there is no finish, and the sampler stops alone.
             end = trial.finish_script(session, ta.SAMPLER) if session else trial.stop_sampler_script()
@@ -207,6 +236,9 @@ class ClaudeCodeAsync(cca.MeasuredClaudeCode):
     def name() -> str:
         return "claude-code-async"
 
+    # (the run's prefix and flags, its environment) as the kill family's restart keeps them.
+    resume: tuple[Any, dict[str, str]] | None = None
+
     def fifo_path(self) -> str:
         """Where the CLI's stdin is: one FIFO in the container."""
         return "/tmp/async-claude-stdin"
@@ -217,6 +249,10 @@ class ClaudeCodeAsync(cca.MeasuredClaudeCode):
                             timeout_sec: int | None = None) -> Any:
         rewritten = driver.claude_stdin(command, env, self.fifo_path())
         if rewritten is not None:
+            # What the kill family's restart keeps of this run: its flags, and its environment
+            # without the instruction (the continuation is told to continue, not what the task is).
+            self.resume = (driver.claude_parts(command), {
+                k: v for k, v in (env or {}).items() if not k.startswith("HARBOR_CLAUDE_CODE_INSTRUCTION_")})
             command, env = rewritten
         return await super().exec_as_agent(environment, command, env=env, cwd=cwd,
                                            timeout_sec=timeout_sec)
@@ -227,8 +263,17 @@ class ClaudeCodeAsync(cca.MeasuredClaudeCode):
         fifo = self.fifo_path()
         log = (self.environment_logs_dir / "claude-code.txt").as_posix()
         inj = driver.injection_of(_task_dir(environment))
+        kill = driver.kill_of(_task_dir(environment))
         report: dict[str, Any] = {"arm": self.name(),
                                   "family": driver.task_of(_task_dir(environment)).get("family")}
+        killer = None
+        if kill:
+            def arm() -> driver.Arm:
+                (prefix, flags), _ = self.resume
+                return driver.claude_arm(flags, log, prefix)
+
+            killer = asyncio.create_task(driver.fire_kill(
+                kill, arm, environment, started=started, restart_env=lambda: self.resume[1]))
         run = asyncio.create_task(super().run(instruction, environment, context))
         # The stream's line count when the last message was sent: the
         # instruction's is 0.
@@ -255,13 +300,21 @@ class ClaudeCodeAsync(cca.MeasuredClaudeCode):
 
         closer = asyncio.create_task(close_when_answered())
         try:
-            await run
+            try:
+                await run
+            except NonZeroAgentExitCodeError:
+                # The CLI's non-zero exit is the kill's, by design: wait for the restarted one.
+                if not await _killed(killer, report):
+                    raise
+                await driver.wait_restarted(environment, report["kill"], time.monotonic() + 3600)
             report["ended"] = "settled"
         except asyncio.CancelledError:
             report["ended"] = "timeout"
             raise
         finally:
             closer.cancel()
+            if killer:
+                killer.cancel()
             await asyncio.shield(environment.exec(command=driver.close_command(fifo)))
             report["wall_s"] = round(time.monotonic() - started, 3)
             _write(self.logs_dir, report)
@@ -294,6 +347,8 @@ class PiAsync(pa.MeasuredPi):
     def name() -> str:
         return "pi-async"
 
+    resume: tuple[Any, dict[str, str]] | None = None
+
     def fifo_path(self) -> str:
         """Where Pi's stdin is: one FIFO in the container."""
         return "/tmp/async-pi-stdin"
@@ -304,6 +359,7 @@ class PiAsync(pa.MeasuredPi):
                             timeout_sec: int | None = None) -> Any:
         rewritten = driver.pi_stdin(command, env, self.fifo_path())
         if rewritten is not None:
+            self.resume = (driver.pi_parts(command), dict(env or {}))
             command, env = rewritten
         return await super().exec_as_agent(environment, command, env=env, cwd=cwd,
                                            timeout_sec=timeout_sec)
@@ -314,8 +370,17 @@ class PiAsync(pa.MeasuredPi):
         fifo = self.fifo_path()
         log = (self.environment_logs_dir / "pi.txt").as_posix()
         inj = driver.injection_of(_task_dir(environment))
+        kill = driver.kill_of(_task_dir(environment))
         report: dict[str, Any] = {"arm": self.name(),
                                   "family": driver.task_of(_task_dir(environment)).get("family")}
+        killer = None
+        if kill:
+            def arm() -> driver.Arm:
+                (prefix, flags), _ = self.resume
+                return driver.pi_arm(flags, log, prefix)
+
+            killer = asyncio.create_task(driver.fire_kill(
+                kill, arm, environment, started=started, restart_env=lambda: self.resume[1]))
         run = asyncio.create_task(super().run(instruction, environment, context))
         # The stream's line count when the last message was sent: the
         # instruction's is 0.
@@ -342,13 +407,21 @@ class PiAsync(pa.MeasuredPi):
 
         closer = asyncio.create_task(close_when_answered())
         try:
-            await run
+            try:
+                await run
+            except NonZeroAgentExitCodeError:
+                # The CLI's non-zero exit is the kill's, by design: wait for the restarted one.
+                if not await _killed(killer, report):
+                    raise
+                await driver.wait_restarted(environment, report["kill"], time.monotonic() + 3600)
             report["ended"] = "settled"
         except asyncio.CancelledError:
             report["ended"] = "timeout"
             raise
         finally:
             closer.cancel()
+            if killer:
+                killer.cancel()
             await asyncio.shield(environment.exec(command=driver.close_command(fifo)))
             report["wall_s"] = round(time.monotonic() - started, 3)
             _write(self.logs_dir, report)
@@ -367,3 +440,64 @@ class PiAsync(pa.MeasuredPi):
             rec["settled_runs"] = sum(1 for e in ef.read_jsonl_text(stream) if e.get("type") == "agent_settled")
             ef.write(self.logs_dir, rec)
             context.metadata = ef.metadata(context.metadata, rec)
+
+
+class OpenCodeAsync(oc.MeasuredOpenCode):
+    """OpenCode, bench/harbor's measured arm as it is, plus the kill family's
+    injection (theseus-7ajc): `opencode run` has no way to take a second
+    message mid-run, so the plain families' injections stay "not measurable"
+    for it, but a kill needs none: SIGKILL to the `opencode run` process, and
+    the continuation is `opencode run --continue` (`driver.opencode_arm`)."""
+
+    resume: tuple[Any, dict[str, str]] | None = None
+
+    @staticmethod
+    @override
+    def name() -> str:
+        return "opencode-async"
+
+    @override
+    def rewrite(self, command: str, env: dict[str, str] | None) -> tuple[str, dict[str, str] | None]:
+        command, env = super().rewrite(command, env)
+        parts = driver.opencode_parts(command)
+        if parts is not None:
+            self.resume = (parts, dict(env or {}))
+        return command, env
+
+    @override
+    async def run(self, instruction: str, environment: BaseEnvironment, context: AgentContext) -> None:
+        started = time.monotonic()
+        kill = driver.kill_of(_task_dir(environment))
+        report: dict[str, Any] = {"arm": self.name(),
+                                  "family": driver.task_of(_task_dir(environment)).get("family")}
+        if kill is None:
+            try:
+                await super().run(instruction, environment, context)
+                report["ended"] = "settled"
+            finally:
+                report["wall_s"] = round(time.monotonic() - started, 3)
+                _write(self.logs_dir, report)
+            return
+        log = (self.environment_logs_dir / "opencode.txt").as_posix()
+
+        def arm() -> driver.Arm:
+            (prefix, model, flags), _ = self.resume
+            return driver.opencode_arm(model, flags, log, prefix)
+
+        killer = asyncio.create_task(driver.fire_kill(
+            kill, arm, environment, started=started, restart_env=lambda: self.resume[1]))
+        try:
+            try:
+                await super().run(instruction, environment, context)
+            except NonZeroAgentExitCodeError:
+                if not await _killed(killer, report):
+                    raise
+                await driver.wait_restarted(environment, report["kill"], time.monotonic() + 3600)
+            report["ended"] = "settled"
+        except asyncio.CancelledError:
+            report["ended"] = "timeout"
+            raise
+        finally:
+            killer.cancel()
+            report["wall_s"] = round(time.monotonic() - started, 3)
+            _write(self.logs_dir, report)

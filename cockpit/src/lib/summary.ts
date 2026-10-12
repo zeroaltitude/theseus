@@ -23,6 +23,8 @@ export function summarize(r: LedgerEntry): string {
     case 'route.decided': return routeLine(r)
     case 'provider.fallback':
       return `${s('from')} refused${d.category ? ` (${s('category')})` : ''} · the request goes to ${s('to')}, once`
+    case 'turn.nudged':
+      return `nudged once: the reply said more work would follow (${s('by')} ${Number(d.p ?? 0).toFixed(2)}) · ${s('judgment')}`
     case 'loop.ended':
       return `loop ${d.loop} ended: ${d.outcome?.provider_stop_reason ?? ''}, ${d.outcome?.tool_calls ?? 0} tool calls → ${d.decision?.decision ?? ''}`
     case 'loop.started': return `loop ${d.loop ?? ''} started`

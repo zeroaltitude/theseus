@@ -147,7 +147,7 @@ export default function Money() {
       </div>
 
       <div className="grid grid-cols-1 gap-3 2xl:grid-cols-[1fr_360px]">
-        <ChartPanel id="river" title={<>The money river · sessions → profiles and models → token kinds → the sea</>} icon={<Waves size={13} />} height={560}
+        <ChartPanel id="river" help="money.river" title={<>The money river · sessions → profiles and models → token kinds → the sea</>} icon={<Waves size={13} />} height={560}
           actions={<>
             <Segmented value={measure} options={MEASURES} onChange={setMeasure} />
             <Segmented value={range} options={RANGES} onChange={setRange} />
@@ -156,7 +156,7 @@ export default function Money() {
           empty={parts.length ? undefined : rows.length ? 'no model calls in this range' : 'reading the ledger…'}>
           <River parts={parts} title={title} measure={measure} slot={modelSlot} onPick={(sid) => nav(`/session/${sid}`)} />
         </ChartPanel>
-        <ChartPanel id="pace" title="The pace" icon={<Timer size={13} />} height={560} table={lastHourTable(calls, end)}>
+        <ChartPanel id="pace" help="money.pace" title="The pace" icon={<Timer size={13} />} height={560} table={lastHourTable(calls, end)}>
           <div className="speed-wall flex h-full flex-col items-center justify-center gap-2 px-3 py-4">
             <PaceDial perHour={pace.perHour} />
             <div className="max-w-[34ch] text-center text-[12px] leading-snug text-ink-dim">

@@ -1,5 +1,6 @@
 //! `[judge]` (M5, step 23a; design `m5-judgment.md` §2.15): Jev's judgments,
-//! off by default. Enabled, every pack this build wires in judges in shadow:
+//! on when the Jev key resolves at the start (theseus-is8t), off without it;
+//! `enabled` says it either way. Enabled, every pack this build wires in judges in shadow:
 //! each judgment is made, priced, recorded, and acted on by nothing. The
 //! config is a ceiling an agent cannot raise: `max_mode` and a pack's own
 //! `mode` lower what a pack may do, and never raise it above what the ladder
@@ -39,9 +40,20 @@ impl PackMode {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct JudgeConfig {
-    /// Off by default: nothing is judged, and nothing reaches Jev.
-    #[serde(default)]
+    /// What the config says: `true`, `false`, or nothing (theseus-is8t).
+    /// Nothing is auto: [`Self::resolve`] turns the judge on when its key's
+    /// entry resolves at the start, and leaves it off without. Read
+    /// `enabled`, never this.
+    #[serde(rename = "enabled", default, skip_serializing_if = "Option::is_none")]
+    pub enabled_setting: Option<bool>,
+    /// Whether the judge is on: the setting, or what auto made of it. Off
+    /// means nothing is judged and nothing reaches Jev. Never in a note.
+    #[serde(skip)]
     pub enabled: bool,
+    /// Why auto decided as it did, for `theseusd check` and health; empty
+    /// when the config said `enabled` itself.
+    #[serde(skip)]
+    pub auto_why: String,
     /// The ceiling of every pack: `off` calls nothing, `shadow` acts on
     /// nothing.
     #[serde(default = "live")]
@@ -92,6 +104,12 @@ pub struct JudgeConfig {
     /// rewrite a pack's text.
     #[serde(default)]
     pub learn: LearnConfig,
+    /// The stop nudge (theseus-fh0u, the owner's D8): `loop.v1` live at a
+    /// turn's stop, so a private turn whose last message announced work still
+    /// to come goes on once more. `false` keeps `loop.v1` in shadow, judging
+    /// and acting on nothing; `theseus nudge off` lowers it for one session.
+    #[serde(default = "yes")]
+    pub stop_nudge: bool,
     /// `[judge.packs."<pack>"]`, by the pack's name (`loop.v1`).
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub packs: BTreeMap<String, JudgePackConfig>,
@@ -226,6 +244,10 @@ pub struct JudgePackConfig {
 /// The one pack whose line may say `notices`.
 pub const NOTICES_PACK: &str = "security.v3";
 
+/// The pack `stop_nudge` switches: `loop.v1`, whose learned versions its
+/// line binds too (`JudgeService::capped_by_root`).
+pub const STOP_PACK: &str = "loop.v1";
+
 fn live() -> PackMode {
     PackMode::Live
 }
@@ -260,7 +282,9 @@ fn audit_limit() -> f64 {
 impl Default for JudgeConfig {
     fn default() -> Self {
         Self {
+            enabled_setting: None,
             enabled: false,
+            auto_why: String::new(),
             max_mode: live(),
             key_secret: key_secret(),
             api_base: api_base(),
@@ -272,6 +296,7 @@ impl Default for JudgeConfig {
             replay_limit_usd: replay_limit(),
             audit_limit_usd: audit_limit(),
             backfill_consent: false,
+            stop_nudge: true,
             holdout_days: holdout_days(),
             learn: LearnConfig::default(),
             packs: BTreeMap::new(),
@@ -281,6 +306,38 @@ impl Default for JudgeConfig {
 }
 
 impl JudgeConfig {
+    /// Settles `enabled` as the config loads (theseus-is8t). The config's
+    /// own word stands. With none, the judge is on exactly when its key's
+    /// entry is one that can resolve: an `env:` variable that is set, a
+    /// `file:` that reads, or an `op://` reference that is not still a
+    /// placeholder. The vault is never asked here (the start does not wait
+    /// for it): a reference it cannot answer leaves the judge on with its
+    /// key unresolved, which health says, as `enabled = true` does.
+    pub fn resolve(&mut self, secrets: &BTreeMap<String, String>) {
+        if let Some(on) = self.enabled_setting {
+            self.enabled = on;
+            self.auto_why.clear();
+            return;
+        }
+        let (on, why) = auto(&self.key_secret, secrets);
+        self.enabled = on;
+        self.auto_why = why;
+    }
+
+    /// Why the judge is off, for health and `theseusd check`; empty when it
+    /// is on.
+    pub fn off_why(&self) -> String {
+        if self.enabled {
+            String::new()
+        } else if self.enabled_setting == Some(false) {
+            "[judge] enabled = false".into()
+        } else if self.auto_why.is_empty() {
+            "off".into()
+        } else {
+            self.auto_why.trim_start_matches("off: ").into()
+        }
+    }
+
     /// The checks as the config loads. Pack names and figures are checked
     /// whether or not the judge is enabled; the key's entry only when it is.
     pub fn validate(&self, secrets: &BTreeMap<String, String>) -> Result<()> {
@@ -367,7 +424,12 @@ impl JudgeConfig {
             Some(false) => PackMode::Shadow,
             _ => PackMode::Live,
         };
-        given.min(self.max_mode).min(own).min(notices)
+        // loop.v1's one action is the stop nudge (theseus-fh0u): its switch.
+        let nudge = match (pack, self.stop_nudge) {
+            (STOP_PACK, false) => PackMode::Shadow,
+            _ => PackMode::Live,
+        };
+        given.min(self.max_mode).min(own).min(notices).min(nudge)
     }
 
     /// Whether `security.v3`'s notices are switched on: its line's
@@ -390,13 +452,32 @@ impl JudgeConfig {
     }
 }
 
+/// What the judge does with no `enabled` line, and why: the key's entry
+/// decides ([`JudgeConfig::resolve`]).
+fn auto(key: &str, secrets: &BTreeMap<String, String>) -> (bool, String) {
+    let Some(reference) = secrets.get(key) else {
+        return (false, format!("off: no {key} entry under [secrets]"));
+    };
+    if reference.contains('<') && reference.contains('>') {
+        return (false, format!("off: {key} is still a placeholder"));
+    }
+    if crate::secrets::is_local(reference) {
+        return match crate::secrets::local_value(reference) {
+            Some(Ok(_)) => (true, format!("on: {key} resolves ({reference})")),
+            Some(Err(e)) => (false, format!("off: {key} does not resolve: {e}")),
+            None => (false, format!("off: {key} is no local reference")),
+        };
+    }
+    (true, format!("on: {key} is a vault reference"))
+}
+
 /// The template's `[judge]`, un-commented (`config.rs`'s
 /// `example_template_uncommented_still_parses`): off, with its key's entry
 /// in `[secrets]`, and the commented pack lines real.
 #[cfg(test)]
 pub(crate) fn the_templates_judge_section(cfg: &crate::Config) {
     let j = &cfg.judge;
-    assert!(!j.enabled, "the judge is off by default");
+    assert!(!j.enabled, "the template's judge line says off");
     assert!(cfg.secrets.contains_key(&j.key_secret));
     assert_eq!(j.packs["loop.v1"].mode, Some(PackMode::Off));
     assert_eq!(j.packs["loop.v1"].sample, Some(0.5));
@@ -405,6 +486,10 @@ pub(crate) fn the_templates_judge_section(cfg: &crate::Config) {
     assert_eq!(j.packs[NOTICES_PACK].notices, Some(true));
     assert_eq!(j.learning_hour, 3);
     assert_eq!(j.holdout_days, 14);
+    assert!(
+        j.stop_nudge,
+        "the stop nudge is on by default (theseus-fh0u)"
+    );
     assert_eq!(j.learn, LearnConfig::default());
     j.validate(&cfg.secrets).unwrap();
 }
@@ -413,18 +498,29 @@ pub(crate) fn the_templates_judge_section(cfg: &crate::Config) {
 mod tests {
     use super::*;
 
+    /// The table as the loader reads it: parsed, then settled
+    /// ([`JudgeConfig::resolve`], with no `[secrets]`: only an `enabled` line
+    /// turns it on here).
     fn cfg(text: &str) -> Result<JudgeConfig> {
-        Ok(toml::from_str::<JudgeConfig>(text)?)
+        let mut j = toml::from_str::<JudgeConfig>(text)?;
+        j.resolve(&BTreeMap::new());
+        Ok(j)
     }
 
-    /// Off by default, and the template's defaults are these.
+    /// Without a key's entry the judge is off, and the template's defaults
+    /// are these: its placeholder key leaves it off too.
     #[test]
-    fn the_judge_is_off_by_default_and_the_template_says_so() {
+    fn the_judge_is_off_without_a_key_and_the_template_says_so() {
         let d = JudgeConfig::default();
-        assert!(!d.enabled);
+        assert!(!d.enabled && d.enabled_setting.is_none());
         assert_eq!(d.mode_of("loop.v1", PackMode::Shadow), PackMode::Off);
         let example = crate::Config::example().judge;
         assert!(!example.enabled);
+        assert!(
+            example.off_why().contains("still a placeholder"),
+            "{}",
+            example.off_why()
+        );
         assert_eq!(example.shadow_limit_usd_per_day, 1.0);
         assert_eq!(example.key_secret, "jev_api_key");
         assert_eq!(
@@ -458,6 +554,26 @@ mod tests {
         assert_eq!(capped.mode_of("loop.v1", PackMode::Live), shadow);
         let none = on("max_mode = \"off\"");
         assert_eq!(none.mode_of("loop.v1", shadow), PackMode::Off);
+    }
+
+    /// `stop_nudge` (theseus-fh0u): on by default, so loop.v1 acts as the
+    /// ladder gives it; off, it is held in shadow, its learned versions with
+    /// it, and every other pack is as it was.
+    #[test]
+    fn the_stop_nudges_switch_holds_loop_v1_in_shadow() {
+        let on = |extra: &str| cfg(&format!("enabled = true\n{extra}")).unwrap();
+        assert!(JudgeConfig::default().stop_nudge);
+        let live = PackMode::Live;
+        assert_eq!(on("").mode_of(STOP_PACK, live), live);
+        let off = on("stop_nudge = false");
+        assert_eq!(off.mode_of(STOP_PACK, live), PackMode::Shadow);
+        assert_eq!(
+            off.mode_of("route.v3", live),
+            live,
+            "loop.v1's switch alone"
+        );
+        let quiet = on("stop_nudge = false\n[packs.\"loop.v1\"]\nmode = \"off\"");
+        assert_eq!(quiet.mode_of(STOP_PACK, live), PackMode::Off);
     }
 
     /// The loader's checks: an unknown key, a pack this build lacks, a

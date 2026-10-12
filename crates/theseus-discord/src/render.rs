@@ -22,9 +22,15 @@ use serde_json::Value;
 use theseus_core::outbox::Closed;
 use theseus_protocol::{ConfirmRequest, Event, TurnSubmitResult};
 mod board;
+pub(crate) mod cite;
+mod deferred;
 mod held;
 pub(crate) mod process;
+mod reply;
+mod wakes;
 pub use board::{board, tasks_here, BOARD_HEAD, BOARD_KEY};
+pub use reply::{reply_parts, wake_header};
+pub use wakes::wakes;
 
 /// Discord's limit is 2000 characters; parts stay under it with room for a fence repair.
 pub const PART_LIMIT: usize = 1900;
@@ -38,16 +44,18 @@ pub enum Buttons {
     Keep,
     /// Approve and Decline for this correlation id.
     Confirm(String),
-    /// Approve, "Approve + trust session", and Decline (theseus-9bp): the
-    /// call waits because its session read external text.
+    /// Approve, "Approve + trust session", and Decline (theseus-9bp): external text.
     ConfirmTrust(String),
-    /// One "Should I have asked?" select menu (theseus-sgh): an option per
-    /// distinct notified tool on the message, at most `MAX_ASKED`.
+    /// A "Should I have asked?" select menu (theseus-sgh): an option per notified tool, `MAX_ASKED`.
     ShouldHaveAsked(Vec<Asked>),
     /// A Jev notice's right / wrong / noise, for this judgment.
     JevLabel(String),
+    /// An earned-autonomy card's candidates `(id, label)`, each with yes, no and the record (theseus-uttu).
+    Earned(Vec<(String, String)>),
     /// Accept and Decline (39b's layer-1 card): Approve's and Decline's ids.
     Accept(String),
+    /// A reply's cited sources, for the session whose recall gave them.
+    Sources(String, Vec<cite::Source>),
     /// Remove every component.
     Clear,
 }
@@ -757,92 +765,6 @@ fn render_turn(t: &TurnView, tightened: &BTreeMap<String, String>, menus: bool) 
 
 // ---------------------------------------------------------------- posts
 
-/// A reply's messages, in order: each loop's text in its final form, under
-/// the keys the stream used, and the footer riding on the last part when it
-/// fits, else standing alone (theseus-q4v).
-pub fn reply_parts(
-    turn_id: &str,
-    texts: &[(u32, String)],
-    result: Option<&TurnSubmitResult>,
-) -> Vec<(String, String)> {
-    let mut out: Vec<(String, String)> = Vec::new();
-    for (li, text) in texts {
-        for (i, part) in split_text(text, PART_LIMIT).into_iter().enumerate() {
-            out.push((format!("{turn_id}:L{li}:p{i}"), part));
-        }
-    }
-    if let Some(f) = result.map(footer) {
-        match out.last_mut() {
-            Some((_, c)) if c.len() + f.len() < DISCORD_LIMIT => {
-                c.push('\n');
-                c.push_str(&f);
-            }
-            _ => out.push((format!("{turn_id}:footer"), f)),
-        }
-    }
-    out
-}
-
-/// A wake's turn (DD8): its reply opens with each wake's line, so the place
-/// sees why Theseus spoke unasked, and so does a turn a task's report started
-/// (W1: `📋 task a1b2c3 reported`). The lines ride on the first part when
-/// they fit; the session's history has them either way.
-pub fn wake_header(parts: &mut [(String, String)], wakes: &[String]) {
-    if wakes.is_empty() {
-        return;
-    }
-    let head = wakes
-        .iter()
-        .map(|w| format!("-# {}", clip(w, 300)))
-        .collect::<Vec<_>>()
-        .join("\n");
-    if let Some((_, first)) = parts.first_mut() {
-        if first.len() + head.len() < DISCORD_LIMIT {
-            *first = format!("{head}\n{first}");
-        }
-    }
-}
-
-/// This place's pending wakes (DD8), as `/wakes` lists them: the soonest
-/// ten, each with its time in the reader's own zone and its note. A series
-/// says its span before its next time: `🔁 every 1d · next 21:00` (37a).
-pub fn wakes(wakes: &[theseus_protocol::WakeInfo]) -> String {
-    if wakes.is_empty() {
-        return "No wakes pending here. Ask for one: \"remind me in 10 minutes to …\".".into();
-    }
-    let mut lines = vec![format!("**Wakes here** ({})", wakes.len())];
-    for w in wakes.iter().take(10) {
-        let at = w.due_at_ms / 1000;
-        let note = w.note.lines().next().unwrap_or_default();
-        let busy = match w.state.as_str() {
-            "running" | "queued" => " · runs when the current turn ends",
-            _ => "",
-        };
-        let series = w
-            .every
-            .as_deref()
-            .map_or(String::new(), |e| format!("🔁 every {e} · next "));
-        // A task's wake names the task (37b).
-        let task = w
-            .task
-            .as_deref()
-            .map_or(String::new(), |t| format!(" · task `{t}`"));
-        lines.push(format!(
-            "• `{}` {series}<t:{at}:t> (<t:{at}:R>){task}{busy} · {}",
-            w.short,
-            clip(note, 120)
-        ));
-    }
-    if wakes.len() > 10 {
-        lines.push(format!(
-            "-# and {} later; `theseus wakes` lists them all",
-            wakes.len() - 10
-        ));
-    }
-    lines.push("-# `/cancel <id>` cancels one.".into());
-    lines.join("\n")
-}
-
 /// A card's text for the route it takes: `elsewhere` is where else it can be
 /// answered ("" for nowhere).
 pub fn card(req: &ConfirmRequest, route: &Route, elsewhere: &str) -> CardText {
@@ -1014,10 +936,7 @@ pub fn tasks(tasks: &[theseus_protocol::TaskInfo], now_ms: u64) -> String {
             3600..=86_399 => format!("{} h", age / 3600),
             _ => format!("{} d", age / 86_400),
         };
-        let state = match &t.waiting_on {
-            Some(w) => format!("{} on {w}", t.state),
-            None => t.state.clone(),
-        };
+        let state = deferred::state_word(t);
         let asks = if t.pending_confirms > 0 {
             " · **needs you**"
         } else {
@@ -1284,8 +1203,8 @@ fn footer(r: &TurnSubmitResult) -> String {
     } else if !matches!(r.stop_reason.as_str(), "" | "no_tool_calls" | "end_turn") {
         bits.push(format!("stopped: {}", r.stop_reason));
     }
-    let fell = r.fallback.as_ref().map(|f| f.line(&r.stop_reason));
-    let fell = fell.map_or(String::new(), |line| format!("-# {line}\n")); // theseus-7gir.18
+    let lines = r.harness_lines(); // a refusal's fallback, a nudge (theseus-7gir.18, theseus-fh0u)
+    let fell: String = lines.iter().map(|l| format!("-# {l}\n")).collect();
     format!("{fell}-# {}", bits.join(" · "))
 }
 
@@ -2805,50 +2724,6 @@ mod tests {
              -# `/cancel <task>` stops one."
         );
         assert!(tasks(&[], 0).starts_with("No tasks here yet"));
-    }
-
-    /// `/wakes` (DD8): each wake by its short id, its time in the reader's
-    /// zone, and its note's first line; one waiting for a busy turn says so.
-    #[test]
-    fn slash_wakes_lists_each_with_its_time_and_note() {
-        let w = |short: &str, state: &str| theseus_protocol::WakeInfo {
-            short: short.into(),
-            due_at_ms: 1_790_798_700_000,
-            note: "check the build\nthen the tests".into(),
-            state: state.into(),
-            ..Default::default()
-        };
-        assert_eq!(
-            wakes(&[w("3f9a1c", "waiting"), w("b4f566", "running")]),
-            "**Wakes here** (2)\n\
-             • `3f9a1c` <t:1790798700:t> (<t:1790798700:R>) · check the build\n\
-             • `b4f566` <t:1790798700:t> (<t:1790798700:R>) · runs when the current turn ends · \
-             check the build\n\
-             -# `/cancel <id>` cancels one."
-        );
-        assert!(wakes(&[]).starts_with("No wakes pending here"));
-        let daily = theseus_protocol::WakeInfo {
-            every: Some("1d".into()),
-            occurrence: Some(4),
-            next: Some("21:00 Thu".into()),
-            ..w("c5d6e7", "waiting")
-        };
-        assert_eq!(
-            wakes(&[daily]),
-            "**Wakes here** (1)\n\
-             • `c5d6e7` 🔁 every 1d · next <t:1790798700:t> (<t:1790798700:R>) · check the build\n\
-             -# `/cancel <id>` cancels one."
-        );
-        let tasks = theseus_protocol::WakeInfo {
-            task: Some("a1b2c3".into()),
-            ..w("d7e8f9", "waiting")
-        };
-        assert_eq!(
-            wakes(&[tasks]),
-            "**Wakes here** (1)\n\
-             • `d7e8f9` <t:1790798700:t> (<t:1790798700:R>) · task `a1b2c3` · check the build\n\
-             -# `/cancel <id>` cancels one."
-        );
     }
 
     /// A wake's turn's reply opens with the wake's line, on its first part;

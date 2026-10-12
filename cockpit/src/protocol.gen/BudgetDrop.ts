@@ -14,10 +14,11 @@ node_id?: string,
  */
 range?: BudgetRange, 
 /**
- * `budget` (a recall's), `overflow` (the ring's).
+ * `budget` (a recall's), `overflow` (the ring's), `cleared` (an old
+ * tool result stubbed to save context, theseus-3ki0).
  */
 reason: string, tokens: number, 
 /**
- * `recall`, `ring`, or (30c) `compaction`.
+ * `recall`, `ring`, (30c) `compaction`, or (theseus-3ki0) `cleared`.
  */
 tier: string, };

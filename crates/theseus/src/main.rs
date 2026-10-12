@@ -13,9 +13,12 @@
 //! `print.rs` writes the lines they return.
 
 mod budgets;
+mod cite;
 mod cmd;
+mod earned;
 mod extend;
 mod follow;
+mod harness;
 mod herdr;
 mod herdr_sync;
 mod import;
@@ -23,14 +26,20 @@ mod interactive;
 mod judge_correct;
 mod judge_prove;
 mod judge_runs;
+mod keys;
 mod mcp;
 mod ontology;
 mod packs;
+mod pages;
 mod policy_explain;
+mod postmortem;
 mod print;
 mod prompt;
+mod retract;
 mod self_cmd;
+mod standing_cmd;
 mod status;
+mod why;
 
 use std::path::PathBuf;
 
@@ -147,10 +156,11 @@ enum Cmd {
     Prompt(prompt::PromptArgs),
     /// A session's transcript: messages, tool calls with their gate decisions, results, and
     /// anything waiting for your confirmation. SESSION defaults to the most recently active; it is
-    /// an id, or a unique end of one (four characters at least).
+    /// an id, or a unique end of one (four characters at least). A handle a reply cited
+    /// (`m:a1b2c3`, the footnote's command) shows that message whole instead.
     History {
         session: Option<String>,
-        /// Only the newest N nodes; with --after or --before, a page's size (default 200).
+        /// Only the newest N nodes (default 200); with --after or --before, a page's size.
         #[arg(short, long)]
         n: Option<usize>,
         /// Only nodes after this position, oldest first: 0 for the first page, then the
@@ -163,6 +173,19 @@ enum Cmd {
         /// Print tool results and long messages in full (default: clipped).
         #[arg(long)]
         full: bool,
+    },
+    /// What a turn's model was shown, and why each piece was there: the model and profile it ran
+    /// on and why routing put it there, each block of the compiled context with its tokens and
+    /// its source, each recalled note with its date, source and the reason it was recalled, what
+    /// the compile left out and why, and the gate's posture for each tool the turn called and
+    /// the layer that set it. TURN is a turn's id, or a unique start or end of one (four
+    /// characters at least); it defaults to the session's last. A read: nothing is recompiled
+    /// or written. --json prints what the daemon answered.
+    Why {
+        turn: Option<String>,
+        /// The session; defaults to the most recently active, as `history` does.
+        #[arg(long, value_name = "SESSION")]
+        session: Option<String>,
     },
     /// Where a node went (node.reach): the compilations and loops of its own session whose
     /// context held it, then its copies in other sessions over derived_from (a task's report in
@@ -196,6 +219,18 @@ enum Cmd {
         /// Your words above it.
         #[arg(long, value_name = "NOTE")]
         note: Option<String>,
+    },
+    /// Mark one node wrong (theseus-2ced): recall never serves it again, each live session that
+    /// used it gets a correction note at its next turn, the syntheses that cite it go stale, one
+    /// card names the tasks to re-run, and the table says every place it went. NODE is a node's
+    /// id, the last six or more characters of one, or a recalled item's handle. Only you, from a
+    /// private place; refused inside a job. A second retraction writes nothing.
+    Retract {
+        #[arg(value_name = "NODE|HANDLE")]
+        node: String,
+        /// Why it is wrong, in a sentence.
+        #[arg(value_name = "WHY", required = true)]
+        why: Vec<String>,
     },
     /// The ontology: the kinds of context, the categories (a bound place's channel or person,
     /// and the topics you declare) with their guidance, and sessions' memberships. A session's
@@ -269,6 +304,8 @@ enum Cmd {
     Health,
     /// Sessions: list them with per-session token totals, or open one to continue across turns.
     Sessions {
+        #[command(flatten)]
+        page: pages::PageArgs,
         #[command(subcommand)]
         cmd: Option<SessionsCmd>,
     },
@@ -278,6 +315,8 @@ enum Cmd {
     Budgets,
     /// Executions (one per session): state, turns, outstanding actions, budget; `executions cancel <id>`.
     Executions {
+        #[command(flatten)]
+        page: pages::PageArgs,
         #[command(subcommand)]
         cmd: Option<ExecutionsCmd>,
     },
@@ -307,6 +346,11 @@ enum Cmd {
     /// prompt or a status bar, `--watch` keeps it current from the push (`--tab`: the terminal
     /// tab's progress as well). One read, within 100 ms of connecting.
     Status(status::StatusArgs),
+    /// An incident's timeline, from the ledger: what ran, waited, failed and cost, what was asked
+    /// of the owner and answered, and every restart of the daemon, as markdown (`--json`: the
+    /// same facts as data). Read only. The default window is the last 12 hours; `--session` or
+    /// `--task` narrow it to one conversation or task and what it started.
+    Postmortem(postmortem::PostmortemArgs),
     /// Wait until a session needs you, settles, or ends, then print its state and its questions
     /// (session.wait). The daemon owns the wait, so nothing polls, and a wait already satisfied
     /// answers at once. SESSION is its id, or at least its last four characters. Exit codes: 0
@@ -413,6 +457,14 @@ enum Cmd {
         #[command(subcommand)]
         cmd: self_cmd::SelfCmd,
     },
+    /// The owner's standing orders, preferences and facts (theseus-a7vi): kept in every prompt of
+    /// their scope until you revoke them. `standing` lists them; `standing add [--kind order|
+    /// preference|fact] [--scope everywhere|place:T|session:ID] TEXT` and `standing revoke ID` are
+    /// yours alone (refused inside a job).
+    Standing {
+        #[command(subcommand)]
+        cmd: Option<standing_cmd::StandingCmd>,
+    },
     /// Send a raw JSON-RPC request (e.g. `rpc health`, `rpc turn.submit '{"input":"hi"}'`); notifications echo to stderr.
     Rpc {
         method: String,
@@ -448,6 +500,11 @@ struct AskArgs {
     /// model reads page by page; or any other file up to 32 MiB, kept for the model.
     #[arg(long = "attach", value_name = "FILE")]
     attach: Vec<PathBuf>,
+    /// The directory the session works in: its tools' default directory and the base of their
+    /// relative paths (default: this shell's current directory, for a new session). With
+    /// --session, moves that session there; without, the session keeps its own.
+    #[arg(long, value_name = "DIR")]
+    dir: Option<PathBuf>,
     /// Under --spawn: after the turn, keep the daemon up while what it left for later can still
     /// come back (a job's late result, a wake due within the bound) and print each turn that
     /// comes, for at most this long (30m, 90s, 2h). 0 follows nothing.
@@ -512,6 +569,21 @@ enum PolicyCmd {
         #[arg(value_name = "SESSION")]
         session: String,
     },
+    /// Earned autonomy: what you approved every time, with no decline, offered back once a week
+    /// as a grant (a notice instead of a question). With no subcommand, the number (interrupts
+    /// per active hour over four weeks, and what the grants would have saved), the grants and
+    /// the open card. `--propose-now` posts a card now; `accept ID`, `pass ID` and `show ID`
+    /// answer a candidate or print the record that earned it.
+    Earned {
+        #[command(subcommand)]
+        cmd: Option<earned::EarnedCmd>,
+        /// Post a card to your DM now, whatever the week's limit says. Yours alone to run.
+        #[arg(long)]
+        propose_now: bool,
+    },
+    /// End an earned grant: its command asks first again, and its group is not proposed for 90
+    /// days. Anyone may, as anyone may press "should have asked".
+    Revoke { id: String },
 }
 
 #[derive(Subcommand, Debug, Default)]
@@ -683,8 +755,9 @@ enum AwsCmd {
 
 #[derive(Subcommand, Debug)]
 enum ExecutionsCmd {
-    /// List every execution with state, turns, outstanding actions, and budget.
-    List,
+    /// List the newest 50 executions with state, turns, outstanding actions, and budget
+    /// (default); `--before` pages back, `--all` lists every one.
+    List(pages::PageArgs),
     /// Cancel an execution: deterministic control path, terminates its jobs.
     Cancel { execution_id: String },
     /// One execution in full: what it needs from you, what it waits on, its questions, its
@@ -854,8 +927,9 @@ enum ProfileCmd {
 
 #[derive(Subcommand, Debug)]
 enum SessionsCmd {
-    /// List sessions with turns and tokens in/out (default).
-    List,
+    /// List the newest 50 sessions with turns and tokens in/out (default); `--before` pages
+    /// back, `--all` lists every one.
+    List(pages::PageArgs),
     /// Open a session and print its id; pass it to `ask -s` to keep turns together.
     Open {
         /// Human label shown in listings.
@@ -875,6 +949,13 @@ enum SessionsCmd {
     /// Reopen a retired session (by hand, superseded, or empty). A superseded one keeps its links,
     /// and its place stays on its successor. The operator's own.
     Reopen { session: String },
+    /// The stop nudge for one session: `off` keeps its turns from being nudged on after a reply that
+    /// says more work follows; `on` gives it back to `[judge] stop_nudge`.
+    Nudge {
+        session: String,
+        #[arg(value_parser = ["on", "off"])]
+        state: String,
+    },
 }
 
 #[tokio::main]
@@ -897,6 +978,12 @@ async fn main() {
     std::process::exit(code);
 }
 
+/// `theseus wait --any`, its timeout read as a duration.
+async fn wait_any(c: &mut Conn, json: bool, until: &str, timeout: Option<&str>) -> Result<()> {
+    let ms = timeout.map(cmd::parse_duration_ms).transpose()?;
+    status::wait_any(c, json, until, ms).await
+}
+
 #[expect(clippy::cognitive_complexity, reason = "shape budget: split it")]
 async fn run(cli: Cli) -> Result<()> {
     // `theseus tui` connects nothing itself: it becomes `theseus-tui` (10f).
@@ -906,6 +993,10 @@ async fn run(cli: Cli) -> Result<()> {
     // `theseus status` connects within 100 ms, and `--short` stays silent when it cannot.
     if let Cmd::Status(a) = &cli.cmd {
         return status::run(&cli.socket, cli.spawn.as_deref(), cli.json, a).await;
+    }
+    // `theseus postmortem --from-rows FILE` reports from kept rows and asks no daemon.
+    if let Cmd::Postmortem(a) = cli.cmd {
+        return postmortem::go(&cli.socket, cli.spawn.as_deref(), cli.json, a).await;
     }
     let mut conn = match (&cli.spawn, &cli.cmd) {
         // One run's daemon, followed for its bound (theseus-mqxk).
@@ -924,8 +1015,10 @@ async fn run(cli: Cli) -> Result<()> {
             before,
             full,
         } => cmd::history(c, json, session, (n, after, before), full).await,
+        Cmd::Why { turn, session } => why::why(c, json, session, turn).await,
         Cmd::Reach { node, generations } => cmd::reach(c, json, node, generations).await,
         Cmd::Places => cmd::places(c, json).await,
+        Cmd::Retract { node, why } => retract::run(c, json, node, why).await,
         Cmd::Publish {
             what,
             to,
@@ -947,11 +1040,9 @@ async fn run(cli: Cli) -> Result<()> {
         Cmd::Ontology { cmd } => ontology::ontology(c, json, cmd.unwrap_or_default()).await,
         Cmd::Catalog => cmd::catalog(c, json).await,
         Cmd::Health => cmd::health(c, json).await,
-        Cmd::Sessions { cmd } => cmd::sessions(c, json, cmd.unwrap_or(SessionsCmd::List)).await,
+        Cmd::Sessions { page, cmd } => cmd::sessions(c, json, page, cmd).await,
         Cmd::Budgets => budgets::budgets(c, json).await,
-        Cmd::Executions { cmd } => {
-            cmd::executions(c, json, cmd.unwrap_or(ExecutionsCmd::List)).await
-        }
+        Cmd::Executions { page, cmd } => cmd::executions(c, json, page, cmd).await,
         Cmd::Tasks { session } => cmd::tasks(c, json, session).await,
         Cmd::Wakes { session } => cmd::wakes(c, json, session).await,
         Cmd::Cancel { name } => cmd::cancel(c, json, name).await,
@@ -963,11 +1054,8 @@ async fn run(cli: Cli) -> Result<()> {
             timeout,
             ..
         } => cmd::wait(c, json, session, until, after, timeout).await,
-        Cmd::Wait { until, timeout, .. } => {
-            let ms = timeout.as_deref().map(cmd::parse_duration_ms).transpose()?;
-            status::wait_any(c, json, &until, ms).await
-        }
-        Cmd::Status(_) => unreachable!("`theseus status` connects for itself"),
+        Cmd::Wait { until, timeout, .. } => wait_any(c, json, &until, timeout.as_deref()).await,
+        Cmd::Status(_) | Cmd::Postmortem(_) => unreachable!("they connect for themselves"),
         Cmd::Profile { cmd } => cmd::profile(c, json, cmd.unwrap_or(ProfileCmd::List)).await,
         Cmd::Ledger { n, kind, session } => cmd::ledger(c, json, n, kind, session).await,
         Cmd::Herdr { cmd } => {
@@ -982,14 +1070,20 @@ async fn run(cli: Cli) -> Result<()> {
         Cmd::Mcp { cmd } => mcp::run(c, json, cmd).await,
         Cmd::Extend { cmd } => extend::run(c, json, cmd).await,
         Cmd::SelfImprove { cmd } => self_cmd::run(c, json, cmd).await,
+        Cmd::Standing { cmd } => standing_cmd::run(c, json, cmd.unwrap_or_default()).await,
         Cmd::Rpc { method, params } => cmd::rpc(c, json, method, params).await,
         Cmd::Shutdown => cmd::shutdown(c, json).await,
         Cmd::Tui { .. } => unreachable!("`theseus tui` execs theseus-tui before connecting"),
     };
-    // A spawned daemon stops cleanly, not by a kill, so the next open of its
-    // store replays nothing (theseus-n88g.2). A daemon that exits as its stop
-    // is written breaks the pipe: that write fails instead of ending this
-    // process, and the default comes back for what is printed after.
+    close(conn).await;
+    result
+}
+
+/// A spawned daemon stops cleanly, not by a kill, so the next open of its
+/// store replays nothing (theseus-n88g.2). A daemon that exits as its stop
+/// is written breaks the pipe: that write fails instead of ending this
+/// process, and the default comes back for what is printed after.
+async fn close(conn: Conn) {
     #[cfg(unix)]
     // SAFETY: as in `main`: nothing else changes the disposition, and no
     // other thread writes to a pipe meanwhile.
@@ -1005,5 +1099,4 @@ async fn run(cli: Cli) -> Result<()> {
     if let Err(e) = closed {
         eprintln!("theseus: {e:#}");
     }
-    result
 }

@@ -93,7 +93,8 @@ fn refusal(e: &anyhow::Error) -> bool {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_config_lowers_the_ladders_mode_and_never_raises_it() {
     let dir = tempfile::tempdir().unwrap();
-    let c = core_at(dir.path(), None, |_| {});
+    // The stop nudge's switch on (theseus-fh0u): off, it is a ceiling too.
+    let c = core_at(dir.path(), None, |cfg| cfg.judge.stop_nudge = true);
     let j = &c.runner.judge;
     c.pack_promote(&promote("loop.v1", "live", None), "cli")
         .unwrap();
@@ -165,7 +166,8 @@ async fn short_of_the_bar_the_system_is_refused_and_the_owner_forces() {
             row.share,
             row.who.as_str()
         ),
-        ("canary", "shadow", Some(0.2), "owner")
+        // From loop.v1's wired line: live since the stop nudge (theseus-fh0u).
+        ("canary", "live", Some(0.2), "owner")
     );
     assert!(row
         .numbers
@@ -368,10 +370,13 @@ async fn a_rules_trigger_rolls_a_pack_back() {
         final_before: "I will run the tests next.".into(),
         final_after: "I will run the tests next.".into(),
     };
+    // Wired live since the stop nudge (theseus-fh0u): its file's rule fires
+    // on the first nudge loop, before any row of its own.
     j.land("loop.v1", nudge());
-    assert!(
-        rows(&c, "loop.v1").is_empty(),
-        "shadow: nothing to roll back"
+    assert_eq!(
+        rows(&c, "loop.v1").pop().map(|r| r.mode),
+        Some("rolled_back".to_string()),
+        "live: its rule rolls it back"
     );
     c.pack_promote(&promote("loop.v1", "canary", Some(0.5)), "cli")
         .unwrap();
@@ -464,7 +469,7 @@ async fn each_adopted_rule_fires_on_its_events_and_not_on_a_near_miss() {
     type Event = fn(String) -> CanaryEvent;
     let cases: [(&str, usize, Event, &str); 3] = [
         (
-            "route.v3",
+            "route.v4",
             3,
             |day| CanaryEvent::Pinned { day },
             "pins_per_day",
@@ -688,7 +693,9 @@ async fn a_canary_judgment_records_its_arm() {
         },
     );
     let dir = tempfile::tempdir().unwrap();
+    // The canary's arm judges at the stop, live in its arm (theseus-fh0u).
     let c = core_at(dir.path(), Some(&jev), |cfg| {
+        cfg.judge.stop_nudge = true;
         for p in crate::judge::inbound::PACKS {
             cfg.judge.packs.insert(p.into(), crate::tests_judge::off());
         }
@@ -710,15 +717,15 @@ async fn a_canary_judgment_records_its_arm() {
 /// The three packs the owner put live before the ladder (the route pack,
 /// rerank.v1, and security.v3's notices: this build wires each live) are
 /// adopted at the ladder's first read after serving, one row each, `live`,
-/// `who: owner`, "decision of 2026-10-04" (route.v2's and route.v3's "of 2026-10-07",
+/// `who: owner`, "decision of 2026-10-04" (route.v2's and route.v4's "of 2026-10-07",
 /// theseus-3okf, theseus-qe3v), through adoption, and health says so; a restart writes none
 /// again (batch 5's join, theseus-9j7x).
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_three_live_packs_are_adopted_once_after_serving() {
     let dir = tempfile::tempdir().unwrap();
-    let live = ["route.v3", "rerank.v1", "security.v3"];
+    let live = ["route.v4", "rerank.v1", "security.v3"];
     let why = |p: &str| match p {
-        "route.v3" => "decision of 2026-10-07",
+        "route.v4" => "decision of 2026-10-11",
         _ => "decision of 2026-10-04",
     };
     let c = core_at(dir.path(), None, |_| {});

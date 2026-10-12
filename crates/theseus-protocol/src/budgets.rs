@@ -169,6 +169,25 @@ pub struct DayCeilingBudget {
     /// time, `2026-10-09 00:00`.
     pub turns_at_ms: u64,
     pub turns_at: String,
+    /// What reaching the ceiling does (theseus-9e02): `notify` warns and the
+    /// day stops at `runaway_usd`; `stop` refuses calls at the ceiling.
+    /// Empty from a build before it.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub mode: String,
+    /// Under notify, where the day stops (0: never); 0 under stop.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub runaway_usd: f64,
+    /// Under notify, the warning's step past the ceiling.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub step_usd: f64,
+    /// Today's spend is at or past the ceiling, whatever the mode: under
+    /// notify, the warning is on and calls go on.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub past: bool,
+}
+
+fn is_zero(v: &f64) -> bool {
+    *v == 0.0
 }
 
 #[cfg(test)]

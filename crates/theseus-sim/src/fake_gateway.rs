@@ -272,6 +272,16 @@ pub fn message_create(
     d
 }
 
+/// `TYPING_START`: `user` began to type in `at` (theseus-tnky).
+pub fn typing_start(at: Where, user: u64) -> Value {
+    let mut d = json!({"channel_id": at.channel.to_string(), "user_id": user.to_string(),
+        "timestamp": 1_790_000_000});
+    if let Some(g) = at.guild {
+        d["guild_id"] = json!(g.to_string());
+    }
+    d
+}
+
 /// One interaction, as the gateway's payload names it.
 pub struct Interaction<'a> {
     pub id: u64,

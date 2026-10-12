@@ -16,16 +16,21 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 pub mod docs;
+pub mod fit;
 pub mod fs;
+pub mod fs_read_cap;
 mod fs_window;
 pub mod git;
 pub mod image;
+pub mod jobs;
 pub mod net;
 pub mod paths;
 pub mod proc;
 mod recount;
 #[cfg(test)]
 mod tests_patch;
+#[cfg(test)]
+mod tests_read_cap;
 #[cfg(test)]
 mod tests_window;
 pub mod text;
@@ -231,6 +236,14 @@ impl AwsBinding {
         self.requests.lock().unwrap().push(r);
     }
 
+    /// Say one more thing of the latest request's row: the call knows what
+    /// the request meant (a change set's execute that only drops a tag).
+    pub fn mark_last(&self, key: &str, value: Value) {
+        if let Some(r) = self.requests.lock().unwrap().last_mut() {
+            r.row[key] = value;
+        }
+    }
+
     /// Every request so far, in the order they were made.
     pub fn requests(&self) -> Vec<AwsRequest> {
         self.requests.lock().unwrap().clone()
@@ -391,10 +404,17 @@ pub trait Tool: Send + Sync {
     fn deadline(&self) -> Option<std::time::Duration> {
         None
     }
+    /// The characters of a result past which the runtime cuts it, when the
+    /// tool has a cap of its own: kept as a contiguous head, never head and
+    /// tail (`fs.read`, theseus-v73m). None: the runtime's `[tools]
+    /// result_max_chars`, head and tail.
+    fn result_max_chars(&self) -> Option<usize> {
+        None
+    }
     /// How the model gets what the runtime cut from the middle of a result
-    /// too long to show whole, `left_out` (theseus-46v). Nothing keeps a
-    /// result whole, so the answer is always another call: a range where the
-    /// tool takes one, else a narrower call.
+    /// too long to show whole, `left_out` (theseus-46v): a range where the
+    /// tool takes one, else a narrower call. A job's whole output is kept,
+    /// and the runtime names its file instead (theseus-v73m).
     fn rest(&self, _left_out: &str) -> String {
         REST_NARROWER.into()
     }
@@ -402,6 +422,12 @@ pub trait Tool: Send + Sync {
 
 /// `Tool::rest`'s default, and the answer for a tool the runtime does not know.
 pub const REST_NARROWER: &str = "a narrower call returns them";
+
+/// The tools whose input is large, the content a model writes: only these
+/// ask the provider to stream it as it is generated (theseus-9dt2).
+pub fn streams_input(name: &str) -> bool {
+    matches!(name, "fs.write" | "fs.edit" | "fs.patch")
+}
 
 pub fn wire_name(name: &str) -> String {
     name.replace('.', "_")
@@ -448,7 +474,9 @@ impl Registry {
 
     /// Wire definitions sorted by wire name, deterministic byte for byte (the
     /// tool list sits at the front of the cached prefix). `eager` sets
-    /// `eager_input_streaming` so large inputs stream as they are generated.
+    /// `eager_input_streaming` on the tools whose input is large
+    /// (`streams_input`), so it streams as it is generated: on any other tool
+    /// it cost invalid JSON (theseus-9dt2).
     pub fn definitions(&self, eager: bool) -> Vec<Value> {
         self.definitions_of(eager, |_| true)
     }
@@ -465,7 +493,7 @@ impl Registry {
                     "description": t.description(),
                     "input_schema": t.input_schema(),
                 });
-                if eager {
+                if eager && streams_input(t.name()) {
                     d["eager_input_streaming"] = Value::Bool(true);
                 }
                 (t.wire_name(), d)
@@ -490,5 +518,8 @@ pub fn default_registry() -> Registry {
     r.register(Arc::new(git::Diff));
     r.register(Arc::new(git::Log));
     r.register(Arc::new(proc::Run));
+    for t in jobs::all() {
+        r.register(t);
+    }
     r
 }

@@ -1,7 +1,7 @@
 # theseus (the CLI)
 
 `theseus`: a thin client of `theseusd` for shells and pipelines, over the daemon's Unix socket or a spawned
-`theseusd --stdio`. It links theseus-protocol and nothing else of Theseus. Its library, `theseus_client`, is shared
+`theseusd --stdio`. It links theseus-protocol and nothing else of Theseus (and sha2, for an episode's digests). Its library, `theseus_client`, is shared
 with the terminal UI.
 
 Key modules: `main.rs`, `cmd.rs`, `render.rs`, `client.rs`. Read by: (a binary).
@@ -28,6 +28,11 @@ Key modules: `main.rs`, `cmd.rs`, `render.rs`, `client.rs`. Read by: (a binary).
   failed execution stays on the board for good, so it would end every call); one that happens while waiting answers.
   `tests/status_edges.rs`: a daemon that connects and never answers (`--short` exit 1, silent, after 2 s), a dead
   daemon's socket file (exit 3), and a signal's clearing of the tab on a pseudo-terminal.
+- `src/standing_cmd.rs` (theseus-a7vi): `theseus standing` (the live records: id, kind, scope, since, source, text,
+  and a last line "in every compile of their scope since they began: N compiles, M missing" from the manifests;
+  `--all` adds the ended), `standing add [--kind order|preference|fact] [--scope everywhere|place:T|session:ID]
+  [--until AGE] [--replaces ID] TEXT`, and `standing revoke ID`. The writes are in `client::OPERATORS`, so a job's shell
+  is refused. The rows' words are `list_lines` (goldens in its tests).
 - `src/seen.rs` and `src/shown.rs` (theseus-yus0): the machine's seen file (`$XDG_STATE_HOME/theseus/seen.json`) and
   the one call, `shown::shown(conn, sessions)`, by which a command records what it displayed: after its output,
   at the position `session.wait` gives (one answered at once per session, 450 bytes; a snapshot is 70 KB and misses a session past its 200), never failing the command (one line on stderr). `history` (to the end of
@@ -47,17 +52,61 @@ Key modules: `main.rs`, `cmd.rs`, `render.rs`, `client.rs`. Read by: (a binary).
   (sends the shell's `THESEUS_SESSION` as `from_job`, so the daemon refuses a job's resume and ledgers it, rather
   than the CLI refusing it unseen), and `self digest`. The state's words are the library's `render/rsi.rs`
   (`self_state_line`), which health's `self` line uses too (`HealthResult.self_improve`).
+- `src/keys.rs` (theseus-tnky): `watch --interactive`'s input. On a terminal it reads bytes (out of canonical mode and
+  echo, signals on, restored on every way out, a panic's hook too) and keeps the line itself (text, backspace, Ctrl-U,
+  Ctrl-W, Enter, Ctrl-D on an empty line), since a terminal's own line mode shows nothing until Enter, and the first
+  key of a line is the `session.typing` notice's moment; a pipe is read by lines as before. `render/warm.rs` is
+  health's `warm:` line.
+- `src/postmortem.rs` (theseus-m2tiu): `theseus postmortem [--since T] [--until T] [--session S | --task T] [--out FILE]`
+  (`--json` the same facts as data; default window the last 12 hours; `T` is an age, a time of day, `yesterday 22:00`
+  or an RFC 3339 time). It reads `ledger.window` a page at a time (read only: no frame, no lock) and hands the rows to
+  the library's `render/postmortem_facts.rs` (`analyze`: a pure walk, the window's end the caller's) whose `Report`
+  `render/postmortem.rs` words as markdown: Summary, Restarts, Timeline (quiet turns fold), Cost, Asked and answered,
+  Open at the end. `--rows-out FILE` keeps the rows read as JSON Lines and `--from-rows FILE` reports from them with no
+  daemon: how a real incident becomes a fixture (`tests/fixtures/postmortem/`, recorded by theseusd's
+  `tests/postmortem_incident.rs`). Tests: `postmortem_tests.rs` (the times), `render/postmortem_facts_tests.rs` (each
+  section on small row sets), `tests/postmortem.rs` (a scripted daemon, and the golden and the facts-in-order of the
+  recorded incident; `THESEUS_GOLDEN=write` rewrites `incident.md` and `incident.json`).
+- `src/harness/` (theseus-o73y): `theseus import claude-code|codex [DIR]`. `mod.rs` turns one session file into one
+  episode of the import's format (its module comment says what a message is, what is left out and counted, what
+  is rejected with its line number, and why a grown file is reported and not imported again); `claude_code.rs` and
+  `codex.rs` read each source's lines; `run.rs` walks the directory (a subagent's file left out), sends the episodes
+  to `import.episodes` a batch at a time, and prints each file's counts. The CLI scrubs nothing (it holds no vault
+  value): the daemon scrubs every message of a harness source as it writes it (`import::write::scrubbed`). The
+  default tag is the live tag already holding the source, else `<source>-<today>`, since an episode's hash covers its
+  tag and a second run on another day would otherwise be refused. Tests: `harness/tests.rs`, and theseusd's
+  `tests/import_harness.rs` (the real CLI against a real daemon).
 - `src/print.rs`: the `Printer`, which writes the library's lines in one of four modes: `Text` (`ask`), `Quiet`
   (`ask --no-stream`), `Watch` (`watch`), and `Json`.
+- `src/why.rs` (theseus-ighf): `theseus why [TURN] [--session S]`, what a turn's model was shown and why: it asks
+  `context.explain` (a prefix or end of at least four characters names an older turn, resolved from its turn list),
+  `policy.explain`, `node.list` (the turn's `tool_call` nodes, with the gate's own posture) and `ledger.tail` (its
+  `route.decided` row), reads only, and prints the words of `theseus_protocol::why` (the renderer Discord's `/why`
+  and the `/context` command to come call too; it writes plain lines, no colour). `--json` is the four answers as
+  they came. Tests: `tests/why.rs` (a scripted daemon; goldens `why*.txt`; the requests are reads alone).
 - `src/render/history.rs`: `theseus history`'s own lines: each node with its short id, which `theseus reach` takes
   (theseus-glyw), and `page_lines`, where a page ends and the command for the next one either way (theseus-xo0m).
   Its `node_lines` is the history's own; `render.rs`'s, which the terminal UI shares, stays apart.
+- `src/pages.rs` (theseus-7bee): `theseus sessions` and `theseus executions` print the newest 50 (`session.list
+  {n}`, `execution.list {n}`), a footer (`render/sessions.rs`'s `page_footer`) naming `--before CURSOR` and `--all`, which
+  keeps the bare list. The CLI asks `session.list {n: 1}` where it wants the newest session (`cmd::NEWEST`, `watch
+  --interactive`, `history` with no session) and `{ids}` where it wants one by id; it never asks for every session
+  but under `--all` and `herdr sync`, which reconciles every pane. `history` reads the newest 200 nodes (`-n`).
+  `resolve::executions` reads the executions a page at a time. `tests/pages.rs` records each request's params.
+- `src/render/cite.rs`, `src/cite.rs` (theseus-ejdk): a reply's citations. `ask` shows each handle in the streamed reply
+  as a numbered mark as it completes (`Marker`, which holds a handle split across pieces) and a footnote block under it
+  (the source's header and `theseus history <handle>`); a handle that was no source of the turn is marked too, and its
+  footnote says so. `--no-stream` and `history` mark only what has a source (`mark`, `footnotes`, `cited_node`; the
+  builders are plain functions a renderer can call). `theseus history m:a1b2c3` shows the cited message whole
+  (`node.reach` names the node, `session.history` reads its page). Tests: `tests/cite.rs`.
 - `src/names.rs`: what a session is called in every client (theseus-0n1v): a task's title (the store labels every
   task `task`), a conversation's label else its title, else its kind and the end of its id. The CLI, the terminal
   UI and herdr's reporter all call it; never read `label` before `title` at a site.
 - `src/resolve.rs`: the one id resolver (theseus-0n1v) for `confirm`, `history`, `watch`, `stop`, `cancel`, `wait`
   and `explain`: a whole id, or a unique end of at least four characters; ambiguous, short and unknown names are
   refused, and `watch` of an unknown one exits 1. One read a resolution at most.
+- `src/render/wakes.rs` (theseus-lherl): `theseus wakes`' line (a wake's title, a series' weekdays and end) and health's
+  `wakes:` line.
 - `src/render/time.rs`: every time in human output, on this machine's clock, its zone read at the first time printed
   (TZ, else `/etc/localtime` alone: jiff's `system()` lists the tz database); `--json` prints the daemon's numbers.
 

@@ -1,0 +1,39 @@
+schema_version = "1.4"
+
+[metadata]
+category = "async"
+description = "Build, then run, then check the output. The harness is killed once, mid-task."
+
+[metadata.async]
+family = "kill-pipeline"
+layer = 2
+shape = "control"
+base = "pipeline"
+
+# The driver's kill (bench/async/driver.py, theseus-7ajc): SIGKILL to the harness's own
+# process(es) in this container, `kill` in the ledger first, a settle, then the harness
+# restarted as its documentation says to continue a session. `random`: a time drawn from
+# `seed` in the window (seconds after the agent started); `mid-step`: `delay_s` after the
+# ledger's first `after_kind` of `after_tool`, else `at_s`.
+[metadata.async.injection]
+kind = "kill"
+mode = "mid-step"
+seed = 7105
+window_lo_s = 13.1
+window_hi_s = 39.4
+after_tool = "run-app"
+after_kind = "start"
+delay_s = 3.0
+at_s = 79
+settle_s = 2
+
+[verifier]
+timeout_sec = 120.0
+
+[agent]
+timeout_sec = 900.0
+
+[environment]
+build_timeout_sec = 600.0
+cpus = 2
+memory_mb = 2048

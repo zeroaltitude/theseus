@@ -20,7 +20,7 @@ use theseus_sim::fake_discord::{FakeDiscord, Guild, Msg, Pressed, Typed, BOT_ID,
 /// Invented people and places.
 pub(crate) const ANA: u64 = 900_000_000_000_000_101;
 pub(crate) const BEN: u64 = 900_000_000_000_000_202;
-const CY: u64 = 900_000_000_000_000_303;
+pub(crate) const CY: u64 = 900_000_000_000_000_303;
 pub(crate) const LAB: u64 = 900_000_000_000_000_010;
 /// The stand-in's DM channel with `ANA`.
 pub(crate) const ANA_DM: u64 = ANA + 1;
@@ -181,7 +181,7 @@ impl Rig {
             .unwrap()
     }
 
-    fn press(&self, message: &str, button: &str, user: (u64, &str)) -> String {
+    pub(crate) fn press(&self, message: &str, button: &str, user: (u64, &str)) -> String {
         self.fake
             .press(&Pressed {
                 message,
@@ -892,6 +892,8 @@ async fn a_jev_notice_goes_to_the_owners_dm_and_a_press_there_labels_it() {
     );
 }
 
+mod earned;
+
 /// A message with a Jev notice's Noise button for `judgment`, posted in
 /// `channel` as the bot's, as a forged or stale copy would be. Its id.
 async fn forge(r: &Rig, channel: u64, judgment: &str) -> String {
@@ -923,6 +925,7 @@ async fn a_day_ceiling_notice_goes_to_the_owners_dm_alone() {
     let model = move |_: &Path, _| -> Arc<dyn Provider> { fake.clone() };
     let r = Rig::start_tweaked(model, guild(true), &bindings(false), &[], |c| {
         c.kernel.daily_spend_ceiling_usd = 0.000_001;
+        c.kernel.daily_spend_ceiling_mode = theseus_core::config::DailyCeilingMode::Stop;
     })
     .await;
     r.say((ANA, "ana"), Some(LAB), "Hello there.");

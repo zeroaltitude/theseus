@@ -1,0 +1,1471 @@
+{
+ "bench": "head-to-head-speed",
+ "issue": "theseus-7gir.13",
+ "date": "2026-10-09",
+ "started": "2026-10-09T21:00:00-07:00",
+ "finished": "2026-10-09T21:40:00-07:00",
+ "rows": [
+  "T1",
+  "T2",
+  "T3",
+  "T4",
+  "T5",
+  "T6",
+  "T7",
+  "T8",
+  "task3",
+  "first_request_bytes"
+ ],
+ "runs": 6,
+ "arms": {
+  "theseus": {
+   "available": true,
+   "requests": 300
+  },
+  "claude-code": {
+   "available": true,
+   "version": "2.1.296",
+   "requests": 420
+  }
+ },
+ "theseus_only": false,
+ "machine": {
+  "nproc": 16,
+  "kernel": "6.6.0-fixture",
+  "cpu": "a fixture CPU",
+  "python": "3.11.0",
+  "loadavg_before": [
+   0.5,
+   0.6,
+   0.7
+  ],
+  "loadavg_after": [
+   1.1,
+   0.9,
+   0.8
+  ]
+ },
+ "versions": {
+  "theseus": "theseusd 0.0.0-fixture",
+  "claude-code": "2.1.296"
+ },
+ "standin": {
+  "ttfb_ms": 300,
+  "chunks": 8,
+  "chunk_ms": 25
+ },
+ "long_turns": 50,
+ "idle_secs": 10,
+ "command": "python3 bench/h2h/run.py --bin-dir target/release-thin --runs 6 --out /tmp/h2h",
+ "samples": [
+  {
+   "row": "T1",
+   "arm": "theseus",
+   "run": 0,
+   "kind": "interactive",
+   "value": 37.904,
+   "unit": "ms"
+  },
+  {
+   "row": "T1",
+   "arm": "claude-code",
+   "run": 0,
+   "kind": "interactive",
+   "value": 766.723,
+   "unit": "ms"
+  },
+  {
+   "row": "T1",
+   "arm": "theseus",
+   "run": 1,
+   "kind": "interactive",
+   "value": 38.96,
+   "unit": "ms"
+  },
+  {
+   "row": "T1",
+   "arm": "claude-code",
+   "run": 1,
+   "kind": "interactive",
+   "value": 775.796,
+   "unit": "ms"
+  },
+  {
+   "row": "T1",
+   "arm": "theseus",
+   "run": 2,
+   "kind": "interactive",
+   "value": 41.006,
+   "unit": "ms"
+  },
+  {
+   "row": "T1",
+   "arm": "claude-code",
+   "run": 2,
+   "kind": "interactive",
+   "value": 693.96,
+   "unit": "ms"
+  },
+  {
+   "row": "T1",
+   "arm": "theseus",
+   "run": 3,
+   "kind": "interactive",
+   "value": 36.105,
+   "unit": "ms"
+  },
+  {
+   "row": "T1",
+   "arm": "claude-code",
+   "run": 3,
+   "kind": "interactive",
+   "value": 811.295,
+   "unit": "ms"
+  },
+  {
+   "row": "T1",
+   "arm": "theseus",
+   "run": 4,
+   "kind": "interactive",
+   "value": 38.075,
+   "unit": "ms"
+  },
+  {
+   "row": "T1",
+   "arm": "claude-code",
+   "run": 4,
+   "kind": "interactive",
+   "value": 719.618,
+   "unit": "ms"
+  },
+  {
+   "row": "T1",
+   "arm": "theseus",
+   "run": 5,
+   "kind": "interactive",
+   "value": 43.965,
+   "unit": "ms"
+  },
+  {
+   "row": "T1",
+   "arm": "claude-code",
+   "run": 5,
+   "kind": "interactive",
+   "value": 755.48,
+   "unit": "ms"
+  },
+  {
+   "row": "T2",
+   "arm": "theseus",
+   "run": 0,
+   "kind": "interactive",
+   "value": 9.606,
+   "unit": "ms"
+  },
+  {
+   "row": "T2",
+   "arm": "claude-code",
+   "run": 0,
+   "kind": "interactive",
+   "value": 24.882,
+   "unit": "ms"
+  },
+  {
+   "row": "T2",
+   "arm": "theseus",
+   "run": 1,
+   "kind": "interactive",
+   "value": 9.25,
+   "unit": "ms"
+  },
+  {
+   "row": "T2",
+   "arm": "claude-code",
+   "run": 1,
+   "kind": "interactive",
+   "value": 23.253,
+   "unit": "ms"
+  },
+  {
+   "row": "T2",
+   "arm": "theseus",
+   "run": 2,
+   "kind": "interactive",
+   "value": 9.243,
+   "unit": "ms"
+  },
+  {
+   "row": "T2",
+   "arm": "claude-code",
+   "run": 2,
+   "kind": "interactive",
+   "value": 26.84,
+   "unit": "ms"
+  },
+  {
+   "row": "T2",
+   "arm": "theseus",
+   "run": 3,
+   "kind": "interactive",
+   "value": 9.042,
+   "unit": "ms"
+  },
+  {
+   "row": "T2",
+   "arm": "claude-code",
+   "run": 3,
+   "kind": "interactive",
+   "value": 26.206,
+   "unit": "ms"
+  },
+  {
+   "row": "T2",
+   "arm": "theseus",
+   "run": 4,
+   "kind": "interactive",
+   "value": 9.309,
+   "unit": "ms"
+  },
+  {
+   "row": "T2",
+   "arm": "claude-code",
+   "run": 4,
+   "kind": "interactive",
+   "value": 22.82,
+   "unit": "ms"
+  },
+  {
+   "row": "T2",
+   "arm": "theseus",
+   "run": 5,
+   "kind": "interactive",
+   "value": 9.465,
+   "unit": "ms"
+  },
+  {
+   "row": "T2",
+   "arm": "claude-code",
+   "run": 5,
+   "kind": "interactive",
+   "value": 25.455,
+   "unit": "ms"
+  },
+  {
+   "row": "T2",
+   "arm": "theseus",
+   "run": 0,
+   "kind": "one-shot",
+   "value": 57.615,
+   "unit": "ms"
+  },
+  {
+   "row": "T2",
+   "arm": "claude-code",
+   "run": 0,
+   "kind": "one-shot",
+   "value": 815.582,
+   "unit": "ms"
+  },
+  {
+   "row": "T2",
+   "arm": "theseus",
+   "run": 1,
+   "kind": "one-shot",
+   "value": 64.386,
+   "unit": "ms"
+  },
+  {
+   "row": "T2",
+   "arm": "claude-code",
+   "run": 1,
+   "kind": "one-shot",
+   "value": 895.095,
+   "unit": "ms"
+  },
+  {
+   "row": "T2",
+   "arm": "theseus",
+   "run": 2,
+   "kind": "one-shot",
+   "value": 62.626,
+   "unit": "ms"
+  },
+  {
+   "row": "T2",
+   "arm": "claude-code",
+   "run": 2,
+   "kind": "one-shot",
+   "value": 968.186,
+   "unit": "ms"
+  },
+  {
+   "row": "T2",
+   "arm": "theseus",
+   "run": 3,
+   "kind": "one-shot",
+   "value": 62.57,
+   "unit": "ms"
+  },
+  {
+   "row": "T2",
+   "arm": "claude-code",
+   "run": 3,
+   "kind": "one-shot",
+   "value": 975.798,
+   "unit": "ms"
+  },
+  {
+   "row": "T2",
+   "arm": "theseus",
+   "run": 4,
+   "kind": "one-shot",
+   "value": 58.74,
+   "unit": "ms"
+  },
+  {
+   "row": "T2",
+   "arm": "claude-code",
+   "run": 4,
+   "kind": "one-shot",
+   "value": 954.164,
+   "unit": "ms"
+  },
+  {
+   "row": "T2",
+   "arm": "theseus",
+   "run": 5,
+   "kind": "one-shot",
+   "value": 59.335,
+   "unit": "ms"
+  },
+  {
+   "row": "T2",
+   "arm": "claude-code",
+   "run": 5,
+   "kind": "one-shot",
+   "value": 978.406,
+   "unit": "ms"
+  },
+  {
+   "row": "T3",
+   "arm": "theseus",
+   "run": 0,
+   "kind": "interactive",
+   "value": 15.061,
+   "unit": "ms"
+  },
+  {
+   "row": "T3",
+   "arm": "claude-code",
+   "run": 0,
+   "kind": "interactive",
+   "value": 27.585,
+   "unit": "ms"
+  },
+  {
+   "row": "T3",
+   "arm": "theseus",
+   "run": 1,
+   "kind": "interactive",
+   "value": 12.981,
+   "unit": "ms"
+  },
+  {
+   "row": "T3",
+   "arm": "claude-code",
+   "run": 1,
+   "kind": "interactive",
+   "value": 28.302,
+   "unit": "ms"
+  },
+  {
+   "row": "T3",
+   "arm": "theseus",
+   "run": 2,
+   "kind": "interactive",
+   "value": 15.303,
+   "unit": "ms"
+  },
+  {
+   "row": "T3",
+   "arm": "claude-code",
+   "run": 2,
+   "kind": "interactive",
+   "value": 29.617,
+   "unit": "ms"
+  },
+  {
+   "row": "T3",
+   "arm": "theseus",
+   "run": 3,
+   "kind": "interactive",
+   "value": 14.355,
+   "unit": "ms"
+  },
+  {
+   "row": "T3",
+   "arm": "claude-code",
+   "run": 3,
+   "kind": "interactive",
+   "value": 28.806,
+   "unit": "ms"
+  },
+  {
+   "row": "T3",
+   "arm": "theseus",
+   "run": 4,
+   "kind": "interactive",
+   "value": 14.02,
+   "unit": "ms"
+  },
+  {
+   "row": "T3",
+   "arm": "claude-code",
+   "run": 4,
+   "kind": "interactive",
+   "value": 29.315,
+   "unit": "ms"
+  },
+  {
+   "row": "T3",
+   "arm": "theseus",
+   "run": 5,
+   "kind": "interactive",
+   "value": 13.583,
+   "unit": "ms"
+  },
+  {
+   "row": "T3",
+   "arm": "claude-code",
+   "run": 5,
+   "kind": "interactive",
+   "value": 30.51,
+   "unit": "ms"
+  },
+  {
+   "row": "T3",
+   "arm": "theseus",
+   "run": 0,
+   "kind": "one-shot",
+   "value": 3.051,
+   "unit": "ms"
+  },
+  {
+   "row": "T3",
+   "arm": "claude-code",
+   "run": 0,
+   "kind": "one-shot",
+   "value": 6.485,
+   "unit": "ms"
+  },
+  {
+   "row": "T3",
+   "arm": "theseus",
+   "run": 1,
+   "kind": "one-shot",
+   "value": 3.109,
+   "unit": "ms"
+  },
+  {
+   "row": "T3",
+   "arm": "claude-code",
+   "run": 1,
+   "kind": "one-shot",
+   "value": 6.515,
+   "unit": "ms"
+  },
+  {
+   "row": "T3",
+   "arm": "theseus",
+   "run": 2,
+   "kind": "one-shot",
+   "value": 3.214,
+   "unit": "ms"
+  },
+  {
+   "row": "T3",
+   "arm": "claude-code",
+   "run": 2,
+   "kind": "one-shot",
+   "value": 6.589,
+   "unit": "ms"
+  },
+  {
+   "row": "T3",
+   "arm": "theseus",
+   "run": 3,
+   "kind": "one-shot",
+   "value": 3.103,
+   "unit": "ms"
+  },
+  {
+   "row": "T3",
+   "arm": "claude-code",
+   "run": 3,
+   "kind": "one-shot",
+   "value": 5.596,
+   "unit": "ms"
+  },
+  {
+   "row": "T3",
+   "arm": "theseus",
+   "run": 4,
+   "kind": "one-shot",
+   "value": 3.216,
+   "unit": "ms"
+  },
+  {
+   "row": "T3",
+   "arm": "claude-code",
+   "run": 4,
+   "kind": "one-shot",
+   "value": 6.558,
+   "unit": "ms"
+  },
+  {
+   "row": "T3",
+   "arm": "theseus",
+   "run": 5,
+   "kind": "one-shot",
+   "value": 3.243,
+   "unit": "ms"
+  },
+  {
+   "row": "T3",
+   "arm": "claude-code",
+   "run": 5,
+   "kind": "one-shot",
+   "value": 6.083,
+   "unit": "ms"
+  },
+  {
+   "row": "T4",
+   "arm": "theseus",
+   "run": 0,
+   "kind": "read",
+   "value": 8.342,
+   "unit": "ms"
+  },
+  {
+   "row": "T4",
+   "arm": "claude-code",
+   "run": 0,
+   "kind": "read",
+   "value": 37.689,
+   "unit": "ms"
+  },
+  {
+   "row": "T4",
+   "arm": "theseus",
+   "run": 1,
+   "kind": "read",
+   "value": 8.531,
+   "unit": "ms"
+  },
+  {
+   "row": "T4",
+   "arm": "claude-code",
+   "run": 1,
+   "kind": "read",
+   "value": 40.588,
+   "unit": "ms"
+  },
+  {
+   "row": "T4",
+   "arm": "theseus",
+   "run": 2,
+   "kind": "read",
+   "value": 7.656,
+   "unit": "ms"
+  },
+  {
+   "row": "T4",
+   "arm": "claude-code",
+   "run": 2,
+   "kind": "read",
+   "value": 36.508,
+   "unit": "ms"
+  },
+  {
+   "row": "T4",
+   "arm": "theseus",
+   "run": 3,
+   "kind": "read",
+   "value": 8.566,
+   "unit": "ms"
+  },
+  {
+   "row": "T4",
+   "arm": "claude-code",
+   "run": 3,
+   "kind": "read",
+   "value": 43.918,
+   "unit": "ms"
+  },
+  {
+   "row": "T4",
+   "arm": "theseus",
+   "run": 4,
+   "kind": "read",
+   "value": 7.342,
+   "unit": "ms"
+  },
+  {
+   "row": "T4",
+   "arm": "claude-code",
+   "run": 4,
+   "kind": "read",
+   "value": 42.405,
+   "unit": "ms"
+  },
+  {
+   "row": "T4",
+   "arm": "theseus",
+   "run": 5,
+   "kind": "read",
+   "value": 7.857,
+   "unit": "ms"
+  },
+  {
+   "row": "T4",
+   "arm": "claude-code",
+   "run": 5,
+   "kind": "read",
+   "value": 37.206,
+   "unit": "ms"
+  },
+  {
+   "row": "T4",
+   "arm": "theseus",
+   "run": 0,
+   "kind": "shell",
+   "value": 14.382,
+   "unit": "ms"
+  },
+  {
+   "row": "T4",
+   "arm": "claude-code",
+   "run": 0,
+   "kind": "shell",
+   "value": 126.451,
+   "unit": "ms"
+  },
+  {
+   "row": "T4",
+   "arm": "theseus",
+   "run": 1,
+   "kind": "shell",
+   "value": 16.118,
+   "unit": "ms"
+  },
+  {
+   "row": "T4",
+   "arm": "claude-code",
+   "run": 1,
+   "kind": "shell",
+   "value": 109.061,
+   "unit": "ms"
+  },
+  {
+   "row": "T4",
+   "arm": "theseus",
+   "run": 2,
+   "kind": "shell",
+   "value": 15.344,
+   "unit": "ms"
+  },
+  {
+   "row": "T4",
+   "arm": "claude-code",
+   "run": 2,
+   "kind": "shell",
+   "value": 109.079,
+   "unit": "ms"
+  },
+  {
+   "row": "T4",
+   "arm": "theseus",
+   "run": 3,
+   "kind": "shell",
+   "value": 15.655,
+   "unit": "ms"
+  },
+  {
+   "row": "T4",
+   "arm": "claude-code",
+   "run": 3,
+   "kind": "shell",
+   "value": 115.943,
+   "unit": "ms"
+  },
+  {
+   "row": "T4",
+   "arm": "theseus",
+   "run": 4,
+   "kind": "shell",
+   "value": 16.143,
+   "unit": "ms"
+  },
+  {
+   "row": "T4",
+   "arm": "claude-code",
+   "run": 4,
+   "kind": "shell",
+   "value": 131.535,
+   "unit": "ms"
+  },
+  {
+   "row": "T4",
+   "arm": "theseus",
+   "run": 5,
+   "kind": "shell",
+   "value": 15.016,
+   "unit": "ms"
+  },
+  {
+   "row": "T4",
+   "arm": "claude-code",
+   "run": 5,
+   "kind": "shell",
+   "value": 131.964,
+   "unit": "ms"
+  },
+  {
+   "row": "T6",
+   "arm": "theseus",
+   "run": 0,
+   "kind": "interactive",
+   "value": 19.239,
+   "unit": "ms"
+  },
+  {
+   "row": "T6",
+   "arm": "claude-code",
+   "run": 0,
+   "kind": "interactive",
+   "value": 164.771,
+   "unit": "ms"
+  },
+  {
+   "row": "T6",
+   "arm": "theseus",
+   "run": 1,
+   "kind": "interactive",
+   "value": 20.399,
+   "unit": "ms"
+  },
+  {
+   "row": "T6",
+   "arm": "claude-code",
+   "run": 1,
+   "kind": "interactive",
+   "value": 163.13,
+   "unit": "ms"
+  },
+  {
+   "row": "T6",
+   "arm": "theseus",
+   "run": 2,
+   "kind": "interactive",
+   "value": 18.79,
+   "unit": "ms"
+  },
+  {
+   "row": "T6",
+   "arm": "claude-code",
+   "run": 2,
+   "kind": "interactive",
+   "value": 176.686,
+   "unit": "ms"
+  },
+  {
+   "row": "T6",
+   "arm": "theseus",
+   "run": 3,
+   "kind": "interactive",
+   "value": 20.442,
+   "unit": "ms"
+  },
+  {
+   "row": "T6",
+   "arm": "claude-code",
+   "run": 3,
+   "kind": "interactive",
+   "value": 167.623,
+   "unit": "ms"
+  },
+  {
+   "row": "T6",
+   "arm": "theseus",
+   "run": 4,
+   "kind": "interactive",
+   "value": 18.17,
+   "unit": "ms"
+  },
+  {
+   "row": "T6",
+   "arm": "claude-code",
+   "run": 4,
+   "kind": "interactive",
+   "value": 193.24,
+   "unit": "ms"
+  },
+  {
+   "row": "T6",
+   "arm": "theseus",
+   "run": 5,
+   "kind": "interactive",
+   "value": 19.255,
+   "unit": "ms"
+  },
+  {
+   "row": "T6",
+   "arm": "claude-code",
+   "run": 5,
+   "kind": "interactive",
+   "value": 196.512,
+   "unit": "ms"
+  },
+  {
+   "row": "T6",
+   "arm": "theseus",
+   "run": 0,
+   "kind": "one-shot",
+   "value": 37.777,
+   "unit": "ms"
+  },
+  {
+   "row": "T6",
+   "arm": "claude-code",
+   "run": 0,
+   "kind": "one-shot",
+   "value": 1463.337,
+   "unit": "ms"
+  },
+  {
+   "row": "T6",
+   "arm": "theseus",
+   "run": 1,
+   "kind": "one-shot",
+   "value": 34.723,
+   "unit": "ms"
+  },
+  {
+   "row": "T6",
+   "arm": "claude-code",
+   "run": 1,
+   "kind": "one-shot",
+   "value": 1506.022,
+   "unit": "ms"
+  },
+  {
+   "row": "T6",
+   "arm": "theseus",
+   "run": 2,
+   "kind": "one-shot",
+   "value": 36.007,
+   "unit": "ms"
+  },
+  {
+   "row": "T6",
+   "arm": "claude-code",
+   "run": 2,
+   "kind": "one-shot",
+   "value": 1528.695,
+   "unit": "ms"
+  },
+  {
+   "row": "T6",
+   "arm": "theseus",
+   "run": 3,
+   "kind": "one-shot",
+   "value": 35.415,
+   "unit": "ms"
+  },
+  {
+   "row": "T6",
+   "arm": "claude-code",
+   "run": 3,
+   "kind": "one-shot",
+   "value": 1536.038,
+   "unit": "ms"
+  },
+  {
+   "row": "T6",
+   "arm": "theseus",
+   "run": 4,
+   "kind": "one-shot",
+   "value": 38.084,
+   "unit": "ms"
+  },
+  {
+   "row": "T6",
+   "arm": "claude-code",
+   "run": 4,
+   "kind": "one-shot",
+   "value": 1502.108,
+   "unit": "ms"
+  },
+  {
+   "row": "T6",
+   "arm": "theseus",
+   "run": 5,
+   "kind": "one-shot",
+   "value": 34.518,
+   "unit": "ms"
+  },
+  {
+   "row": "T6",
+   "arm": "claude-code",
+   "run": 5,
+   "kind": "one-shot",
+   "value": 1566.093,
+   "unit": "ms"
+  },
+  {
+   "row": "task3",
+   "arm": "theseus",
+   "run": 0,
+   "kind": "interactive",
+   "value": 1989.807,
+   "unit": "ms"
+  },
+  {
+   "row": "task3",
+   "arm": "claude-code",
+   "run": 0,
+   "kind": "interactive",
+   "value": 2496.565,
+   "unit": "ms"
+  },
+  {
+   "row": "task3",
+   "arm": "theseus",
+   "run": 1,
+   "kind": "interactive",
+   "value": 2300.675,
+   "unit": "ms"
+  },
+  {
+   "row": "task3",
+   "arm": "claude-code",
+   "run": 1,
+   "kind": "interactive",
+   "value": 2610.986,
+   "unit": "ms"
+  },
+  {
+   "row": "task3",
+   "arm": "theseus",
+   "run": 2,
+   "kind": "interactive",
+   "value": 2120.341,
+   "unit": "ms"
+  },
+  {
+   "row": "task3",
+   "arm": "claude-code",
+   "run": 2,
+   "kind": "interactive",
+   "value": 2345.958,
+   "unit": "ms"
+  },
+  {
+   "row": "task3",
+   "arm": "theseus",
+   "run": 3,
+   "kind": "interactive",
+   "value": 2064.388,
+   "unit": "ms"
+  },
+  {
+   "row": "task3",
+   "arm": "claude-code",
+   "run": 3,
+   "kind": "interactive",
+   "value": 2641.582,
+   "unit": "ms"
+  },
+  {
+   "row": "task3",
+   "arm": "theseus",
+   "run": 4,
+   "kind": "interactive",
+   "value": 1898.422,
+   "unit": "ms"
+  },
+  {
+   "row": "task3",
+   "arm": "claude-code",
+   "run": 4,
+   "kind": "interactive",
+   "value": 2660.215,
+   "unit": "ms"
+  },
+  {
+   "row": "task3",
+   "arm": "theseus",
+   "run": 5,
+   "kind": "interactive",
+   "value": 2155.516,
+   "unit": "ms"
+  },
+  {
+   "row": "task3",
+   "arm": "claude-code",
+   "run": 5,
+   "kind": "interactive",
+   "value": 2371.242,
+   "unit": "ms"
+  },
+  {
+   "row": "T8",
+   "arm": "theseus",
+   "run": 0,
+   "kind": "T2 interactive",
+   "value": 14.357,
+   "unit": "ms"
+  },
+  {
+   "row": "T8",
+   "arm": "claude-code",
+   "run": 0,
+   "kind": "T2 interactive",
+   "value": 39.73,
+   "unit": "ms"
+  },
+  {
+   "row": "T8",
+   "arm": "theseus",
+   "run": 1,
+   "kind": "T2 interactive",
+   "value": 14.502,
+   "unit": "ms"
+  },
+  {
+   "row": "T8",
+   "arm": "claude-code",
+   "run": 1,
+   "kind": "T2 interactive",
+   "value": 38.821,
+   "unit": "ms"
+  },
+  {
+   "row": "T8",
+   "arm": "theseus",
+   "run": 2,
+   "kind": "T2 interactive",
+   "value": 14.579,
+   "unit": "ms"
+  },
+  {
+   "row": "T8",
+   "arm": "claude-code",
+   "run": 2,
+   "kind": "T2 interactive",
+   "value": 41.904,
+   "unit": "ms"
+  },
+  {
+   "row": "T8",
+   "arm": "theseus",
+   "run": 3,
+   "kind": "T2 interactive",
+   "value": 12.662,
+   "unit": "ms"
+  },
+  {
+   "row": "T8",
+   "arm": "claude-code",
+   "run": 3,
+   "kind": "T2 interactive",
+   "value": 36.485,
+   "unit": "ms"
+  },
+  {
+   "row": "T8",
+   "arm": "theseus",
+   "run": 4,
+   "kind": "T2 interactive",
+   "value": 14.493,
+   "unit": "ms"
+  },
+  {
+   "row": "T8",
+   "arm": "claude-code",
+   "run": 4,
+   "kind": "T2 interactive",
+   "value": 43.706,
+   "unit": "ms"
+  },
+  {
+   "row": "T8",
+   "arm": "theseus",
+   "run": 5,
+   "kind": "T2 interactive",
+   "value": 13.303,
+   "unit": "ms"
+  },
+  {
+   "row": "T8",
+   "arm": "claude-code",
+   "run": 5,
+   "kind": "T2 interactive",
+   "value": 39.65,
+   "unit": "ms"
+  },
+  {
+   "row": "T5",
+   "arm": "theseus",
+   "run": 0,
+   "kind": "interactive",
+   "value": 122.224,
+   "unit": "ms"
+  },
+  {
+   "row": "first_request_bytes",
+   "arm": "theseus",
+   "run": 0,
+   "kind": "interactive",
+   "value": 31234,
+   "unit": "bytes"
+  },
+  {
+   "row": "first_request_bytes",
+   "arm": "claude-code",
+   "run": 0,
+   "kind": "interactive",
+   "value": 64000,
+   "unit": "bytes"
+  },
+  {
+   "row": "T7",
+   "arm": "theseus",
+   "run": 0,
+   "kind": "cpu",
+   "value": 0.1,
+   "unit": "pct"
+  },
+  {
+   "row": "T7",
+   "arm": "claude-code",
+   "run": 0,
+   "kind": "cpu",
+   "value": 1.5,
+   "unit": "pct"
+  },
+  {
+   "row": "T7",
+   "arm": "theseus",
+   "run": 0,
+   "kind": "rss",
+   "value": 30000,
+   "unit": "kb"
+  },
+  {
+   "row": "T7",
+   "arm": "claude-code",
+   "run": 0,
+   "kind": "rss",
+   "value": 300000,
+   "unit": "kb"
+  },
+  {
+   "row": "T5",
+   "arm": "theseus",
+   "run": 1,
+   "kind": "interactive",
+   "value": 115.681,
+   "unit": "ms"
+  },
+  {
+   "row": "first_request_bytes",
+   "arm": "theseus",
+   "run": 1,
+   "kind": "interactive",
+   "value": 31235,
+   "unit": "bytes"
+  },
+  {
+   "row": "first_request_bytes",
+   "arm": "claude-code",
+   "run": 1,
+   "kind": "interactive",
+   "value": 64001,
+   "unit": "bytes"
+  },
+  {
+   "row": "T7",
+   "arm": "theseus",
+   "run": 1,
+   "kind": "cpu",
+   "value": 0.11,
+   "unit": "pct"
+  },
+  {
+   "row": "T7",
+   "arm": "claude-code",
+   "run": 1,
+   "kind": "cpu",
+   "value": 1.51,
+   "unit": "pct"
+  },
+  {
+   "row": "T7",
+   "arm": "theseus",
+   "run": 1,
+   "kind": "rss",
+   "value": 30001,
+   "unit": "kb"
+  },
+  {
+   "row": "T7",
+   "arm": "claude-code",
+   "run": 1,
+   "kind": "rss",
+   "value": 300001,
+   "unit": "kb"
+  },
+  {
+   "row": "T5",
+   "arm": "theseus",
+   "run": 2,
+   "kind": "interactive",
+   "value": 116.735,
+   "unit": "ms"
+  },
+  {
+   "row": "first_request_bytes",
+   "arm": "theseus",
+   "run": 2,
+   "kind": "interactive",
+   "value": 31236,
+   "unit": "bytes"
+  },
+  {
+   "row": "first_request_bytes",
+   "arm": "claude-code",
+   "run": 2,
+   "kind": "interactive",
+   "value": 64002,
+   "unit": "bytes"
+  },
+  {
+   "row": "T7",
+   "arm": "theseus",
+   "run": 2,
+   "kind": "cpu",
+   "value": 0.12000000000000001,
+   "unit": "pct"
+  },
+  {
+   "row": "T7",
+   "arm": "claude-code",
+   "run": 2,
+   "kind": "cpu",
+   "value": 1.52,
+   "unit": "pct"
+  },
+  {
+   "row": "T7",
+   "arm": "theseus",
+   "run": 2,
+   "kind": "rss",
+   "value": 30002,
+   "unit": "kb"
+  },
+  {
+   "row": "T7",
+   "arm": "claude-code",
+   "run": 2,
+   "kind": "rss",
+   "value": 300002,
+   "unit": "kb"
+  },
+  {
+   "row": "T5",
+   "arm": "theseus",
+   "run": 3,
+   "kind": "interactive",
+   "value": 115.504,
+   "unit": "ms"
+  },
+  {
+   "row": "first_request_bytes",
+   "arm": "theseus",
+   "run": 3,
+   "kind": "interactive",
+   "value": 31237,
+   "unit": "bytes"
+  },
+  {
+   "row": "first_request_bytes",
+   "arm": "claude-code",
+   "run": 3,
+   "kind": "interactive",
+   "value": 64003,
+   "unit": "bytes"
+  },
+  {
+   "row": "T7",
+   "arm": "theseus",
+   "run": 3,
+   "kind": "cpu",
+   "value": 0.13,
+   "unit": "pct"
+  },
+  {
+   "row": "T7",
+   "arm": "claude-code",
+   "run": 3,
+   "kind": "cpu",
+   "value": 1.53,
+   "unit": "pct"
+  },
+  {
+   "row": "T7",
+   "arm": "theseus",
+   "run": 3,
+   "kind": "rss",
+   "value": 30003,
+   "unit": "kb"
+  },
+  {
+   "row": "T7",
+   "arm": "claude-code",
+   "run": 3,
+   "kind": "rss",
+   "value": 300003,
+   "unit": "kb"
+  },
+  {
+   "row": "T5",
+   "arm": "theseus",
+   "run": 4,
+   "kind": "interactive",
+   "value": 116.86,
+   "unit": "ms"
+  },
+  {
+   "row": "first_request_bytes",
+   "arm": "theseus",
+   "run": 4,
+   "kind": "interactive",
+   "value": 31238,
+   "unit": "bytes"
+  },
+  {
+   "row": "first_request_bytes",
+   "arm": "claude-code",
+   "run": 4,
+   "kind": "interactive",
+   "value": 64004,
+   "unit": "bytes"
+  },
+  {
+   "row": "T7",
+   "arm": "theseus",
+   "run": 4,
+   "kind": "cpu",
+   "value": 0.14,
+   "unit": "pct"
+  },
+  {
+   "row": "T7",
+   "arm": "claude-code",
+   "run": 4,
+   "kind": "cpu",
+   "value": 1.54,
+   "unit": "pct"
+  },
+  {
+   "row": "T7",
+   "arm": "theseus",
+   "run": 4,
+   "kind": "rss",
+   "value": 30004,
+   "unit": "kb"
+  },
+  {
+   "row": "T7",
+   "arm": "claude-code",
+   "run": 4,
+   "kind": "rss",
+   "value": 300004,
+   "unit": "kb"
+  },
+  {
+   "row": "T5",
+   "arm": "theseus",
+   "run": 5,
+   "kind": "interactive",
+   "value": 122.295,
+   "unit": "ms"
+  },
+  {
+   "row": "first_request_bytes",
+   "arm": "theseus",
+   "run": 5,
+   "kind": "interactive",
+   "value": 31239,
+   "unit": "bytes"
+  },
+  {
+   "row": "first_request_bytes",
+   "arm": "claude-code",
+   "run": 5,
+   "kind": "interactive",
+   "value": 64005,
+   "unit": "bytes"
+  },
+  {
+   "row": "T7",
+   "arm": "theseus",
+   "run": 5,
+   "kind": "cpu",
+   "value": 0.15000000000000002,
+   "unit": "pct"
+  },
+  {
+   "row": "T7",
+   "arm": "claude-code",
+   "run": 5,
+   "kind": "cpu",
+   "value": 1.55,
+   "unit": "pct"
+  },
+  {
+   "row": "T7",
+   "arm": "theseus",
+   "run": 5,
+   "kind": "rss",
+   "value": 30005,
+   "unit": "kb"
+  },
+  {
+   "row": "T7",
+   "arm": "claude-code",
+   "run": 5,
+   "kind": "rss",
+   "value": 300005,
+   "unit": "kb"
+  }
+ ],
+ "failures": [
+  {
+   "row": "T5",
+   "arm": "claude-code",
+   "run": 0,
+   "kind": "interactive",
+   "why": "no value"
+  }
+ ],
+ "daemon_start_ms": [
+  21.4,
+  19.8,
+  22.9,
+  20.5,
+  21.0,
+  20.2
+ ]
+}

@@ -68,14 +68,16 @@ use crate::tests_recall::{index_of, Rig};
 const HERON: &str = "Remember: the grey heron nests by the old weir at Millbrook.";
 
 /// The session's model's window in these tests, and its output cap: a few
-/// long turns pass it, so the session rings or compacts.
+/// long turns pass it, so the session rings or compacts. 40,000 until
+/// `wake.cancel` and `wake.move` joined the tools block (theseus-lherl: 40,400
+/// rings too early for these two, which need the first compile to fit).
 fn small_window(c: &mut crate::Config, mb: u64, summary: &str) {
     c.memory.node_cache_mb = mb;
     c.memory.summary_profile = summary.into();
     c.catalog.insert(
         "claude-sonnet-5-5".into(),
         CatalogRow {
-            context_window: Some(40_000),
+            context_window: Some(40_800),
             max_output_tokens: Some(2_000),
             ..Default::default()
         },
@@ -126,6 +128,8 @@ async fn turn_with(core: &Arc<Core>, sid: &str, input: &str, recompile: Option<R
 /// Ids (`ses_` and 32 hex digits) as the order they first appear in, and
 /// clock times as `<time>`: two cores' runs of one script then compare.
 fn normalized(s: &str) -> String {
+    // A handle is its node's id's end (theseus-ejdk): another run's.
+    let s = &theseus_protocol::cite::rewrite(s, |_| Some("[m:H]".into()));
     let b = s.as_bytes();
     let (mut out, mut seen) = (String::new(), Vec::<String>::new());
     let mut i = 0;
@@ -275,11 +279,13 @@ fn renders_the_same_from_stubs(core: &Arc<Core>, sid: &str) {
         max_tokens: 1000,
         system_text: "s".into(),
         context_text: String::new(),
+        session_text: String::new(),
         context_files: vec![],
         persona: None,
         tools: vec![],
         effort: None,
         turn_effort: None,
+        effort_refused: vec![],
         thinking_display: Default::default(),
         refusal_fallbacks: false,
         fallback: None,

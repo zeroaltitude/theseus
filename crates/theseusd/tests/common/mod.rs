@@ -84,6 +84,11 @@ pub fn safe_note(theseusd: &Path, projects: &Path, spend_limit_usd: f64) -> Stri
     table(&mut t, "discord").insert("enabled".into(), false.into());
     table(&mut t, "web").insert("enabled".into(), false.into());
     table(&mut t, "index").insert("enabled".into(), false.into());
+    // The judge follows its key (theseus-is8t), and every stand-in secret
+    // here resolves as far as the config can tell: off, so no test daemon
+    // is ever on its way to Jev's real endpoint. A test that judges turns
+    // on its own.
+    table(&mut t, "judge").insert("enabled".into(), false.into());
     table(&mut t, "tools").insert("projects_dir".into(), projects.display().to_string().into());
     table(&mut t, "kernel").insert("spend_limit_usd".into(), spend_limit_usd.into());
     toml::to_string(&t).unwrap()
@@ -102,6 +107,16 @@ impl Served {
     /// `prepare` runs on the temp dir first (to lay out an old state dir),
     /// and `tweak` edits the config.
     pub fn start(prepare: impl FnOnce(&Path), tweak: impl FnOnce(&mut toml::Table)) -> Self {
+        Self::start_with(prepare, tweak, |_| {})
+    }
+
+    /// `start`, with `hook` on the daemon's command before it spawns (an
+    /// environment variable, or a limit set in a `pre_exec`).
+    pub fn start_with(
+        prepare: impl FnOnce(&Path),
+        tweak: impl FnOnce(&mut toml::Table),
+        hook: impl FnOnce(&mut Command),
+    ) -> Self {
         use std::os::unix::fs::PermissionsExt;
         let theseusd = std::path::PathBuf::from(env!("CARGO_BIN_EXE_theseusd"));
         let dir = tempfile::tempdir().unwrap();
@@ -117,32 +132,32 @@ impl Served {
         tweak(&mut t);
         std::fs::write(path("config.toml"), toml::to_string(&t).unwrap()).unwrap();
         let log = std::fs::File::create(path("theseusd.log")).unwrap();
-        let daemon = Daemon::spawn(
-            Command::new(&theseusd)
-                .arg("--config")
-                .arg(path("config.toml"))
-                .arg("--state-dir")
-                .arg(path("state"))
-                .arg("--socket")
-                .arg(path("sock"))
-                .env(
-                    "PATH",
-                    format!(
-                        "{}:{}",
-                        path("bin").display(),
-                        std::env::var("PATH").unwrap_or_default()
-                    ),
-                )
-                .env("OP_SERVICE_ACCOUNT_TOKEN", "test-not-a-token")
-                .env_remove("THESEUS_OP_TOKEN_FILE")
-                .env_remove("THESEUS_CONFIG")
-                .env_remove("THESEUS_STATE_DIR")
-                .env_remove("THESEUS_SOCKET")
-                .env_remove("THESEUS_OPERATOR_UMASK")
-                .stdin(std::process::Stdio::null())
-                .stdout(std::process::Stdio::null())
-                .stderr(log),
-        );
+        let mut cmd = Command::new(&theseusd);
+        cmd.arg("--config")
+            .arg(path("config.toml"))
+            .arg("--state-dir")
+            .arg(path("state"))
+            .arg("--socket")
+            .arg(path("sock"))
+            .env(
+                "PATH",
+                format!(
+                    "{}:{}",
+                    path("bin").display(),
+                    std::env::var("PATH").unwrap_or_default()
+                ),
+            )
+            .env("OP_SERVICE_ACCOUNT_TOKEN", "test-not-a-token")
+            .env_remove("THESEUS_OP_TOKEN_FILE")
+            .env_remove("THESEUS_CONFIG")
+            .env_remove("THESEUS_STATE_DIR")
+            .env_remove("THESEUS_SOCKET")
+            .env_remove("THESEUS_OPERATOR_UMASK")
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(log);
+        hook(&mut cmd);
+        let daemon = Daemon::spawn(&mut cmd);
         let mut s = Self { dir, daemon };
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
         while s.call("health", serde_json::Value::Null).is_err() {

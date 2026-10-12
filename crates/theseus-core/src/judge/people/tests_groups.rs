@@ -26,16 +26,16 @@ use crate::tests_categorize::{session, Rig};
 
 /// One planted proposal: its session, the candidate's name, its least
 /// probability, and whom Jev matched (`new_person` or a held local id).
-struct Plant {
-    sid: String,
-    name: String,
-    confidence: f64,
-    whom: &'static str,
+pub(super) struct Plant {
+    pub(super) sid: String,
+    pub(super) name: String,
+    pub(super) confidence: f64,
+    pub(super) whom: &'static str,
 }
 
 /// `people.v1` judgments made from `template` (a real one), one each,
 /// written as the sink writes them: keyed by id, in the pack's scope.
-fn plant(r: &Rig, template: &LedgerRow, ps: &[Plant]) {
+pub(super) fn plant(r: &Rig, template: &LedgerRow, ps: &[Plant]) {
     let mut at = template.at_unix_ms;
     for chunk in ps.chunks(100) {
         let mut recs = Vec::new();

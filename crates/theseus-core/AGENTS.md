@@ -10,7 +10,14 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
 - **The turn**: `turn.rs` (the turn runner: one turn under a session's turn lock, its loops, its frames), `advancer.rs`
   (continue or end the turn), `harness.rs` (the harness loop, parked on its events and the heartbeat), and
   `rpc/driver.rs` (what that loop drives: the heartbeat's spool drain and reconcile, continuation turns, due wakes,
-  and the cancel path). A turn's end and a late result's wake are one frame (`turn/end_step.rs`, theseus-6qwr): the
+  and the cancel path). A turn waits for its slot in `turn/admission.rs`'s queue (theseus-4g0l): three classes (a
+  person's typed input, then a conversation's wakes and continuations, then a task session's turns), first come first
+  served inside one, a class higher for each `AGE_STEP` (30 s) waited; a slot given back goes to exactly the next turn,
+  and the kernel counts no ceiling for a queued turn (`Kernel::admit_queued`, `admit_input_queued`). A foreground job's
+  wait lends its slot after `LEND_AFTER` (2 s; `toolrun/job.rs`) and retakes one at its class's head; a wait fails
+  only when no turn was admitted for `[kernel] admission_stuck_secs` (600), class `admission_stuck`. The queue is
+  `ToolRuntime::admission`. Tests: `turn/tests_admission.rs`, `tests_m3/admission.rs`. A turn's end and a late
+  result's wake are one frame (`turn/end_step.rs`, theseus-6qwr): the
   stop read under the frame's lock, the wake nested so its failure takes back only itself. A failed turn's retry is
   the driver's (theseus-ljr), but not a `--stdio` daemon's: its run parks the turn on input for its one client
   (`turn/stdio_step.rs`, set by theseusd before serving, theseus-zqxv); `[model.retries]` can make a transient
@@ -31,6 +38,17 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   (`RequestSpec::fallback`), carry both models' thinking, and leave the refused answer out (`replaced_answers`, as a
   cut one); the session's target stays. A `provider.fallback` row, and the result's `fallback`, whose `line` every
   surface shows. Tests: `tests_fallback.rs`.
+  **The stop nudge** (theseus-fh0u, the owner's D8; `turn/nudge_step.rs`, `judge/stop.rs`): a loop the baseline ends
+  with no tool calls asks `loop.v1` at the stop, live (it is wired live while `[judge] stop_nudge`, on by default, is
+  on; off, the switch holds it in shadow), and waits at most `judge::stop::WAIT` (1 s, the pack's own on-path bar).
+  When `announced_unfinished` acts true, one harness node (`harness:stop_nudge`, the model reads it as the user's) and
+  its `turn.nudged` row ride one frame, and the turn calls the model once more; at most once a turn, and the nudged
+  turn's end lands `nudge_loop`'s event. Never in a shared place, with the session's own switch off
+  (`session.nudge`, META `stop_nudge.<session>`), while a job of the turn runs, at a strict loop cap, or with Jev
+  unreachable. A stop judged live is marked with point `stop` and not judged again after the turn; every judgment
+  after a turn is recorded in shadow. The result's `nudged` (with `acted`) is on `turn.ended`'s row, which the prove
+  counts. Tests: `tests_stop_nudge.rs`, theseusd's `tests/stop_nudge.rs`; the judge's other tests run loop.v1 in
+  shadow (`tests_judge::judge_config` turns the switch off).
 - **Context**: `compiler.rs` (manifests, recompiles, the cache layout, the token estimate), `context_files.rs`, and
   `catalog.rs` (each model's window, prices, and caching). A model may have a second price tier, `LongPrompt`
   (Haiku 5.5's: 5x past a 100,000-token prompt, theseus-3okf): `terms` prices a usage at the tier its prompt
@@ -59,6 +77,22 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     (ffmpeg), OCR (tesseract), or `save`. In a shared place its result is outside text. Tests: `attach.rs`'s, and
     theseusd's `tests/files.rs`, which run the real converter, a turn per model, and `file.read` with a stand-in
     Deepgram.
+  - **One long instruction** (theseus-3ki0): `compiler/clearing.rs` and `compiler/ring.rs`. Past half the budget
+    (`clearing::CLEAR_AT`), a pass stubs results older than the newest 20 answers and over 2,000 characters, oldest
+    first, until 35 %: one recompile, the cleared results kept as its report's drops of tier `cleared` (no store
+    format: the report is stored already), which the render reads, so appends render the same stubs; a pass that
+    would save under half the gap between the lines does not run, so passes stay rare. Each pass is one
+    `context.cleared` row (`fact::compaction::Cleared`, from the compile step). The stub names the call and how to
+    get the result back (a kept output's `full_ref` when there is one). The ring's range holding one user message
+    cuts inside its turn too: at an answer whose earlier calls all have their results before it (`ring::in_turn`),
+    searched by halves; the instruction (the message and what precedes its first answer) is pinned in every
+    candidate, and a summary renders after it (`compaction::summaries_first`, by its range's `first`; `hidden` and
+    `outside` keep a node before a summary's range visible). The summary call is told the work in progress
+    (`turn::compaction::IN_TURN`) when its range holds no user message, and reads a range past its model's window
+    shorter, each node's cut cut in proportion down to 400 characters (`shorter_cut`), before it gives up for the ring. `[context] working_window_tokens`
+    (`config/context.rs`) lowers the window through `window_override` (`TurnRunner::working_window`). The budget
+    and its report are `compiler/budget.rs`. Tests:
+    `compiler/tests_ring.rs`, `tests_one_turn.rs`.
   - **CONTINUE's candidate signals** (M5 25b): `signals.rs`, read inside `compile()` from what it is given (the
     clock passed in as `CompileInput.signals`, never read there): a dormancy gap, the tail crossing its soft band,
     a task report or a wake arriving, and a provider cache miss, each against what was written since the model's
@@ -129,6 +163,25 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   place composes only its own place's given memberships, and the place rule's admissions never read a membership.
   The methods are `rpc/ontology.rs` (`ontology.list`; the writes are `judge_act(Act::Ontology)`, the owner from a
   private place); the rows `fact/ontology.rs`. Tests: `tests_ontology.rs`.
+- **Standing** (theseus-a7vi; `standing.rs`, `rpc/standing.rs`, `turn/standing_step.rs`, `fact/standing.rs`): the owner's
+  standing orders, preferences and facts, one `protocol::StandingRecord` each as a META key `standing:<id>` (store
+  format 29), append-only (a revoke, with empty text, or an edit is a new record whose `ends` names the one it ends).
+  `standing::Board` holds them in memory (one META scan after serving, `Core::warm_standing`, or by the first turn),
+  so a compile reads memory and a plain turn writes no frame for them. `TurnRunner::stand` renders the turn's scope
+  (this session, this place, everywhere) as `standing::Block` first in the system's *second* block (before the
+  context files; no block of its own, so no new cache breakpoint, and never the shared header), beside the walk in
+  `turn.rs` and `route_step.rs`. A change of the records is a `system_changed` recompile; otherwise the prefix is
+  byte-identical. It is system, outside the ring, so no compaction drops it. A shared place gets the orders' text and
+  one line (`standing::WITHHELD`) for preferences and facts, never their text; `standing.list` gives their text to
+  the owner in a private place alone. The compile's manifest lists each record (`Manifest.standing`: id, shown), and
+  `standing::missing`, run by the situation step after `situation::check`, fails a compile whose system lacks one it
+  should show as `context_unadmitted` (`standing <id> missing`, why `standing_missing`). `standing.add` and `.revoke`
+  are `judge_act(Act::Standing)`: the owner, from a private place; the CLI refuses them inside a job
+  (`client::OPERATORS`). `standing.list` tallies the manifests (compilations of each live record's scope since it
+  began, and those lacking it), a scan of the sessions' compilations: a read for a person, never a turn's path. Tests:
+  `tests_standing.rs`, `tests_standing_ring.rs` (three compactions), `standing::tests`, and the layouts sample and
+  format-27 store test in `tests_layouts.rs`. Not yet: the context explorer's totals (`context.explain`) do not count
+  the block.
 - **Tool calls**: `toolrun.rs` (every call the model makes becomes a kernel action: the gate and the dispatch), with
   a job's call in `toolrun/job.rs` (its turn waits on the job's wake, `toolrun/waits.rs`, and takes the job's
   completion with its result in one frame; Tier 7.1; a command that never started says why, `toolrun/not_started.rs`,
@@ -143,7 +196,15 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   no call's own run writes (late ones, and a cancel's) in `toolrun/late.rs` (theseus-5gw9). A call's span is
   built in the turn that answers it (`turn/calls.rs`, theseus-8pei): `run_tools`'s calls in their loop, and the
   calls `resume` answered (`ResumeOutcome.ran`) and the late results `absorb` took (`LateCall`, a point with the
-  job's `run_ms`) under the continuation's span; the tool metrics count each call once, at its answer. The gate's parts are
+  job's `run_ms`) under the continuation's span; the tool metrics count each call once, at its answer. A result the
+  cap cuts keeps its whole output (theseus-v73m; `toolrun/kept.rs`, `outputs.rs`): a job's (`proc.run`, a batch's
+  step: its raw file scrubbed again in a streaming pass, to its 64 MiB, never the tail alone) and a `term.read`'s,
+  0600 at `<state>/outputs/<session>/<call>.out`, named in the node's `full_ref` and in the cut line with the lines
+  left out, counted in the whole output, and the `fs_read` that reads them; that read is judged as one inside the
+  roots (`Outputs::own_read`, in `order.rs`, the session's own folder alone). The raw file is still deleted. The
+  sweep (`Core::sweep_outputs`, with the spool's hourly sweep) deletes a retired session's copies, any past
+  `[tools] outputs_keep_days`, and the oldest past `outputs_max_bytes`. `fs.read` has its own cap
+  (`Tool::result_max_chars`, 100,000), cut as a contiguous head, never head and tail. Tests: `tests_kept.rs`. The gate's parts are
   `policy.rs` (postures and the floor), `external.rs` (the hold after external text), `broker.rs` (granted
   secrets), `approval.rs` (who answers, and from where), and `peer.rs` (the web UI's other-uid check at accept).
   A URL whose host is a private address waits for approval (`listed`) and only an approved fetch reaches it,
@@ -166,6 +227,20 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   under `StringLike`: each session lists only its own prefix, theseus-bfk9), `aws/tests_synced.rs`
   (only frames the writer synced ship: `Hooks::synced_to`, `Store::synced_to`, theseus-mgw.12), and
   `aws/tests_restore.rs`; `config/aws.rs` holds `[aws]`'s types and checks.
+- **A job's handle** (theseus-n8gk): a job that goes on in the background, past `proc_sync_secs` or at once with
+  `proc.run {background: true}`, gets a short id in its session (`j1`, `j2`, …; `toolrun/handles.rs`), which its
+  placeholder's meta names (`job`), so a restart reads the map again from the transcript; the long id still works.
+  `job.read`, `job.wait` and `job.stop` (schemas in theseus-tools' `jobs.rs`) run in `toolrun/jobs_tools.rs`, through
+  the core (`Board`, attached as `memory.lookup`'s is): a read is the one tail reader, `toolrun/peek.rs`
+  (`crate::toolrun::peek`, bounded: 64 KiB by seek, lines counted only up to 8 MiB), which the work board's
+  `work.peek` is to call too; a wait wakes on `JobWaits::settled` (the drain's take, a stop's and the reconciler's
+  wakes) and takes nothing; a stop is `Kernel::stop_call` and `terminate_all`. The gate finds the job in the calling
+  session (`job_planned`: another session's is refused by name) and judges `job.stop` as a run of the job's own
+  argv and directory. A wait's or a stop's result that gives the job's end names it (`delivers`), and the late result
+  the end still writes says only that, and asks for no turn of its own (`LateCall.delivered`). A job that ends
+  while its turn runs reaches the model at the turn's next loop: `take_late` runs at the top of each loop after the
+  first, writing nothing when nothing settled. Tests: `tests_job_handles.rs`, and theseusd's `tests/job_handles.rs`
+  (real wrappers: a wait, and a stop that leaves no process).
 - **Hands** (step 40, theseus-mgw.6 and .11): `aws/hands/`. `aws.hands.run` (`tool.rs`, `launch.rs`: the request, the
   backend Lambda or Fargate as §3.3 chooses, the stacks' outputs read once per account, each launch and its tags) runs
   through `toolrun/hands.rs`, not `run_inproc`: its call answers `background`, and the group's aggregate is its late
@@ -285,7 +360,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   empty_grace_minutes`), the `superseded_by`/`supersedes` links, `reopened_ms` and `title_was` (store format 25).
   `succession.rs`: a place's move (`Core::bind_place_to`: the place's record, both links and `session.superseded` in
   one frame, the old session's lock then the new one's), and the owner's `session.retire`/`session.reopen`
-  (`judge_act(Act::Session)`, `rpc/sessions.rs`). `session.list` with no params is every session as before; `state`
+  (`judge_act(Act::Session)`, `rpc/sessions.rs`). `execution.list` pages the same way (`rpc/exec_list.rs`: `{n, before}` newest-born first, `{ids}`; none is every one as before); `session.list` with no params is every session as before; `state`
   filters, and the answer names its windows. The re-title is `turn/title_step.rs` (in the turn's own session write,
   once, never a task's). Tests: `rpc/tests_session_states.rs`.
 - **Surfaces of the record**: `push.rs` (the board), `outbox.rs`, `narrative.rs`, `ledger.rs`, `trace.rs`, and
@@ -372,7 +447,8 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
 - **The index tender's supervisor**: `tender.rs` (row 51): it starts `theseus-index` 2 s after serving
   (`START_AFTER`, so a start's aftermath stays quiet), restarts it with backoff, takes over the one an exec kept
   at once, and asks it for health and `index.query`, each call bounded (health asks only a tender that runs, and
-  never past 100 ms). Its rows are facts (`fact/index.rs`). Its tests, `tests_tender.rs`, run on tokio's paused
+  never past 100 ms; one status read a second serves every caller, `tender/status_cache.rs`, and a status older than
+  3 min says `stale`, theseus-id8d). Its rows are facts (`fact/index.rs`). Its tests, `tests_tender.rs`, run on tokio's paused
   clock with a stand-in `Os`. Its gauges (`theseus.index.*`: lag, documents, RSS, and restarts by their rise) are
   sampled from health's block each metrics interval after serving, only while telemetry has an endpoint
   (`tender/sample.rs`, theseus-gfi4; tests `telemetry/tests_index.rs`).
@@ -463,7 +539,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     decides as the proposals are read (`people::decide`, `[people] act`/`confirm`; a person the exclusions exclude
     is not listed nor bulk-accepted, counted in `ontology.proposals`' `hidden`): `rpc/proposals.rs` lists them
     beside the topics' (`OntologyProposal.person`), and an accept joins the held person, or declares the new one
-    (unless an exact handle or name finds it by then). Tests: `judge/people/tests.rs`.
+    (unless an exact handle or name finds it by then: any `name:` handle of a live person counts, not only the display name, and two such people refuse the accept with both ids, `name_holders`, theseus-7mow). Tests: `judge/people/tests.rs`, `tests_handles.rs`.
     **Live, gated by Jev** (theseus-u5n8, the owner's "combine, gated by Jev"; `seen.rs`, pack `people_seen.v1`,
     scope `judge:people_seen`): at each due point one Jev call first, over the exchange's lines and the held people
     it may involve (`seen::listed`: the session's own, then those its lines name; never the owner's or one
@@ -501,8 +577,8 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     mark's `cut_ms` is where the next run cuts: the run's clock, never past the newest judgment it read, so a clock
     that read ahead closes no open window (theseus-gf8j); a mark without it walks everything once.
     Tests: `tests_learning.rs`, `learning::*::tests`.
-  - **Routing** (step 25e, theseus-0j2.11): the route pack (`judge::inbound::ROUTE_PACK`: `route.v3` since
-    theseus-qe3v, live at once in place of `route.v2` and `route.v1`, which stay embedded) asks at the inbound point in a request of its own, beside
+  - **Routing** (step 25e, theseus-0j2.11): the route pack (`judge::inbound::ROUTE_PACK`: `route.v4` since
+    theseus-p8dy, with a `review` mode, live at once in place of `route.v3`, `route.v2` and `route.v1`, which stay embedded) asks at the inbound point in a request of its own, beside
     the batch of `classify.v1` and `role.v1` (theseus-ddbi: one question answers sooner than the batch), live while
     `[judge]` is on (`[routing]`, `config/routing.rs`, lowers it). Its verdict comes back over a oneshot
     (`RouteWait`, an `Answered` with the time it came) the moment its request answers, and the call waits for a
@@ -531,7 +607,17 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     base is another (the live profile or a place's changed) clears the move (`same_base`). The pane's carried
     profile, when it is the routed one, stands for `from` (`turn_submit`), never a new base. Tests:
     `tests_route.rs`, `tests_route_base.rs`, `routing::tests`, `turn::route_step::tests`.
-    **The effort** (route.v3, theseus-qe3v): `reply_effort` rides the route pack's one request beside `mode`;
+    **Only Jev elevates, and it steps down** (theseus-p8dy): a session Jev moved above its base (`Routed.from`)
+    goes back to it after two verdicts in a row whose mode's first profile is the base or cheaper (`chat`,
+    `routine_coding`, `other`): the first sets a `Hold` of mode `step_down` toward the base, the second makes the
+    switch (`Reason::StepDown`), at any context size; a dearer verdict or one under its bar breaks the row, a detour
+    leaves it, and never below the base (`routing::step_down`). The owner's correction passes no base, so this path
+    never steps it down; a session an owner's correction raised is not told apart from Jev's (no stored field).
+    The dear tier's guard (`[routing] dear_tier_max_tokens`, 200,000): over it, a `sophisticated` or `review`
+    verdict skips a profile whose catalog input price is above the next usable one's (`Reason::ContextGuard`).
+    Tests: `tests_route_down.rs`, `routing::tests`.
+    **The effort** (route.v3, theseus-qe3v; xhigh and max only above `[routing] high_effort_confidence`, 0.70, else
+    `high` with `effort_reason` `held_high`, theseus-p8dy): `reply_effort` rides the route pack's one request beside `mode`;
     `routing/effort.rs` decides, purely: Jev's level over the profile's `effort` unless `effort_fixed`, clamped to
     `[routing] effort_bounds`, only for a model whose catalog row takes effort; below the question's confirm band,
     `unclear`, a pin, shadow, or a late (carried) verdict leave the profile's own. `apply_effort` sets it on the spec
@@ -541,11 +627,14 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     **A turn's effort keeps the cache** (theseus-o719, `compiler/effort.rs`): a change of the top-level
     `output_config.effort` restarts the provider's cache of the messages (only tools and system stay: a 625k DM on
     Fable 5.1 wrote 612k again for one `low` turn). On a model that takes per-message effort (`effort::default_of`:
-    Fable 5.1, Opus 5.5, Opus 5, Sonnet 5.5; Anthropic's API only) the top-level effort stays the profile's own, and
+    Fable 5.1 alone, the one seen to take it live; Sonnet 5.5 answered it with a 400 on 2026-10-11, theseus-posww;
+    Anthropic's API only) the top-level effort stays the profile's own, and
     a turn at another level gets an effort-only system message before its user message
     (`mid-conversation-output-config-2026-07-01`). Its first answer records the level (`effort`, store format 27);
     the render puts each record's message back before the user message its answer follows, so later requests repeat
     the bytes. Never derive these messages from the spec: a history edit breaks the cache and preserved thinking.
+    A 400 naming `output_config` on a request that carries one is asked again once without them, the level at the
+    top, and the model takes none for the daemon's life (`turn/effort_step.rs`, `provider.effort_refused`).
     Tests: `tests_turn_effort.rs`.
   - **The owner's corrections** (theseus-q31l; `correction/`, `turn/route_step/correct.rs`,
     `rpc/route_correct.rs`): words (`correction::words`, deterministic and narrow, read by `turn.submit`
@@ -612,6 +701,21 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     then `mode_for` that version (capped by the root's config line). A move is `Core::promote_learned` (26a's act,
     citing the proposal). The writer's output is capped (`WRITER_MAX_TOKENS`): the profile's own cap reserves past
     the day's limit. Tests: `tests_learn_loop.rs`, `theseus_judge::propose::tests`.
+- **A fresh install's defaults** (theseus-is8t): `[memory] mode` defaults to `live` on the `baseline` arm (the memory
+  is what sets Theseus apart, and the arm needs no Jev; with no index a recall answers nothing, `unavailable`, and costs
+  nothing; a shared place still draws on its own sessions alone), and `[judge] enabled`, left out, follows the Jev key
+  (`JudgeConfig::resolve`, run as the config loads: `enabled_setting` is the config's word, `enabled` what acts,
+  `auto_why` the reason; neither of the last two is in a note, so a config that says nothing stays sparse). Auto is on
+  when `key_secret` names an entry that can resolve: an `env:` variable that is set, a `file:` that reads, or an
+  `op://` reference that is not a placeholder (the vault is never asked at the start: a reference it cannot answer
+  leaves the judge on with its key unresolved, as `enabled = true` does); off with no entry, an unset variable, an
+  unreadable file or a placeholder. `enabled = false` is off whatever the key, `true` with no entry still refuses to
+  load. `features.rs` words health's first line (`HealthResult.features`: memory, Jev with routing live or shadow or
+  off and why, the scrub, the daily ceiling), which `theseusd check` prints too. Memory on also means the memory pass
+  after each turn and the nightly consolidation (`synth_limit_usd_per_day`, read only by `+synthesis`). Tests:
+  `config/tests_fresh.rs`, `tests_fresh_recall.rs`, `features::tests`. A test that counts Jev's calls, frames or
+  transcript reads sets `memory.mode = Off` (the judge rigs do), and a daemon test's `safe_note` sets
+  `[judge] enabled = false`, so no test daemon turns the judge on from a stand-in key.
 - **Recall** (M6 step 30a, in shadow): `recall.rs` (`Memory`: `[memory]`, the science, and who answers the index's
   query, the tender or a test's stand-in, `Memory::set_ask`; the manifest; `TurnRunner::place_of`, the place rule
   read as `class_of` reads it), `turn/recall_step.rs` (begun as the first loop's model call goes out, read once it
@@ -650,6 +754,14 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     CLI for what it answers ends with a `[native: memory_lookup {…} …]` line, after the cap (`native.rs`,
     `ResultNode.hint`); the CLI still runs, since running it may be the work. Tests: `tests_memory_lookup.rs`,
     `native::tests`.
+  - **The MCP server's memory tools** (theseus-02i1h; `memory_lookup/mcp.rs`, `rpc/memory_read.rs`): `memory_search` and
+    `memory_get` are one read-only method, `memory.lookup`, in `mcp_server::ALLOWED`, served by `memory_lookup`'s own
+    `by_words` (no second pipeline), with `private_only` dropping each hit whose session `place_of` does not read as
+    private (a private asker may draw on a shared place's sessions; these tools never show one). Only `Surface::Mcp`,
+    and only while `[mcp_server] memory` is on (default off). A hit is typed (`MemoryHit`: citation = node id, WAL
+    position, session, as-of minute; origin, harness, sensitivity; veiled text is never in it). Each read is a
+    `memory.read` row (`fact::memory::MemoryRead`: principal, tool, client, a digest of the words, hits). Tests:
+    `tests_mcp_memory.rs`; the tools' golden is theseus-mcp's `tests/golden/memory_tools.json`.
   - **In front of the model** (step 30b, theseus-6fn.2): `[memory] mode = "canary"` (a sticky share,
     `canary_fraction`, by a hash of session and `experiment`: `MemoryConfig::assign`, recorded once as a `memory.arm`
     row; the control runs `none` live with `baseline` in shadow) or `"live"`. The read finishes before the first
@@ -758,6 +870,52 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     its writers). The arms' seam: `Memory::science_for(arm)` and `Scene.science`; every arm but `+synthesis`
     leaves the harness session out before the index's top k (`Memory::begin`'s `exclude_sessions`), and the
     pipeline drops a synthesis as `arm` or `unchecked` (`MemoryScience::synthesis`). Tests: `tests_consolidate.rs`.
+- **A first keystroke warms what the message will wait for** (theseus-tnky): `warm.rs` and `rpc/typing.rs`. Every
+  surface sends `session.typing` (the TUI's input line, `watch --interactive`, Discord's typing event) once per idle
+  spell (`theseus_protocol::warm::SPELL_SECS`, 120 s; the client's `Typist` and the core's `Warmth::admit` keep the same
+  rule), and the core answers at once and spawns two warm-ups beside it, writing nothing (no frame, no row): the
+  session's provider connection (`Provider::warm`: a keyless `HEAD` of `/v1/messages`, never a model call and
+  nothing billed, sent only when no answer came within the pool's idle time; the provider is the session's last
+  target's, else the live profile's) and the tender's model (`IndexTender::warm`: `index.warm`, to a tender that
+  runs). The client's pool keeps an idle connection `provider::POOL_IDLE` (300 s; reqwest's default is 90). Only an
+  owner's typing counts on Discord (`Core::typist_refused`: another person in a shared place warms nothing), and the
+  MCP surface is refused by its allow-list. Health's `warm` block (`WarmHealth`) says when each was last warmed; the
+  metric is `theseus.warm` by target and outcome. Nothing on a turn's path waits for it. Tests: `warm::tests`,
+  `rpc/tests_typing.rs` (a stand-in provider that counts warm-ups apart from requests, a stand-in tender socket,
+  a provider whose warm-up never ends), `provider/tests_warm.rs` (a loopback server that counts connections).
+- **Retraction** (theseus-2ced; the killer-features plan's R13): `retract.rs`, `fact.retract { node, why }`
+  (`rpc/memory.rs`, `judge_act(Act::Retract)`: the owner, from a private place; `theseus retract`, in the CLI's
+  `OPERATORS`). It writes the `wrong` label through `memory.label`'s own row, then walks `node.reach` to its caps and
+  sorts each exposure (`theseus_protocol::retract::exposure_kind`): a **session** that goes on (a recall copy whose
+  `memory.used` row says used, or says nothing yet: treated as used; a report's relay; the node's own session) gets
+  a correction note, queued in the META record `retract.notes` (`Notes`, on `Memory::corrections`) and written at
+  its next turn by `turn/retract_step.rs` as the harness's own user-role node (`Correction: <gist> was marked wrong
+  on <date>: <why>`), in a frame of its own that also takes it off the queue, so once; a **synthesis** that cites it
+  is labeled `stale` (consolidation leaves a wrong or stale node out of its clusters, so the cluster is proposed
+  again without it); a **task** that used it is named on one `retraction` post to the owner's DM (`jev_post`, never
+  a card per task); a **published copy** is listed and labeled `wrong`; **seen, not used** is listed. All in one
+  frame with the `fact.retracted` row (scope `retract`) that holds the table, so a second retraction answers from
+  it and writes nothing. The answer is shaped for the place the request is run for (`session_id`): a shared place's
+  never shows a private exposure's words. A new ledger row kind and META key, no format bump. Tests:
+  `tests_retract.rs`.
+- **Replies that cite what they remember** (theseus-ejdk, provable-memory-a): `recall/cite.rs`, `turn/cite_step.rs`,
+  `rpc/cites.rs`; the pure parts are `theseus_protocol::cite`. Each recalled item's frozen header begins with a
+  handle, `[m:a1b2c3]`: the last six characters of its node's id (what `theseus history` prints after the prefix),
+  grown by the fewest characters that make every id of the pack distinct (`cite::handles_for`; an imported id ends
+  `_<index>`, so a handle's characters are letters, digits and `_`). A header recalled before handles has none and is
+  never cited. The system header's assembly note ends "When you state something from recalled testimony, cite its
+  handle." (one sentence, no new breakpoint). At the turn's end `cite_reply` reads the handles in the reply
+  (`handles_in`) against the turn's own `Recall` items (`Recalled.items`, kept while `count` is above zero: a detour
+  or an unassembled section clears it): a handle the turn was not given is text, and each one it was given is a
+  `memory.cited` row (scope `recall:<session>`, beside `memory.used`: recall id, handle, node, source session) in the
+  turn's next frame, and a `Citation` in the result's `cites` (the reply's post carries it in its footer's `result`).
+  `TurnRunner::citation` builds one: the frozen header, the source's excerpt over the range recall showed (600
+  characters), and, for a person's Discord message, where it was said: the turn's `reply_to` rides in the input's
+  own frame as the META record `msg.origin.<node id>` (no store format change; no row of its own). **A shared place
+  never cites a private or imported source**: `citation(item, shared)` returns none for one, and a shared session's
+  `memory.cites` and `session.history` leave it out; the handle stays text. `memory.cites` (`rpc/cites.rs`) resolves
+  handles in a session's own `Recall` nodes, newest first; `session.history`'s `cites` does the same for the
+  replies on its page. Citations only show: no Jev call, no frame, no ping. Tests: `tests_cite.rs`.
 - **The import** (theseus-0lrr.6, the soul migration): `import/`. An outside pipeline's episode files (JSON Lines,
   format 1: `import/episode.rs`, every field from the format's lists and the hash over Python's canonical JSON, both
   string forms, `py_float`) become **imported sessions**: a `SessionRecord` with `imported` (`ImportedFrom`: tag,
@@ -788,6 +946,13 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   (`import::shown`), so an erased one is its tombstone. The WAL's earlier frames still hold the payloads: §5.6's
   erasure in place is not built. `import.list` reads the tags' META records. The owner's acts (`judge_act(Act::Import)`; the CLI's
   `OPERATORS`). `theseus import openclaw|erase|list|topics`. Tests: `import/tests.rs`, theseus-index's `tests_import.rs`.
+  **Harness history** (theseus-o73y): `theseus import claude-code|codex` (the CLI's `harness/`) makes the episodes of
+  those tools' session files, sources `claude-code` and `codex` (`episode::HARNESS_SOURCES`, apart from the
+  pipeline's `SOURCES`), a `cli` place named by the project directory and its id the git branch, the tool results
+  outside text. `write::import_batch_scrubbed` scrubs every message, summary and place name of a harness episode
+  with the daemon's own scrubber as it writes (`write::scrubbed`; the CLI holds no vault value), after the episode's
+  hash was checked over what the CLI sent, so the hash stays the idempotency key and the stored `sha256` is the
+  stored text's. Tests: `import/tests_harness.rs`.
   **Its topics** (theseus-anh3): `import.topics` (`import/topics.rs`, the owner's act, never at a start) reads a tag's
   sessions' stored `labels.topic` (slash paths) and writes, through the ontology's `Board::write` a frame at a time
   (cut past 4,000 records, quiet waited for between, the stop looked for there): a topic for each label and each
@@ -888,6 +1053,51 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   - **The layer-1 question's change** (39b): `ConfirmRequest.change` (`tools::change_of`: the task, its title, the
     field, before and after), worded once by `TaskChange::question` for the Discord card, `theseus confirm`, and
     the cockpit.
+- **Earned autonomy** (theseus-uttu, the killer-features plan's row R18): the loosening that comes from the record,
+  proposed and never silent. `policy/earned/find.rs` is a pure function over ledger rows (`tool.confirm_requested`,
+  `action.confirmed`, `action.declined`, `policy.tightened`): `proc.run` approvals go into a trie of their argv's words
+  (the program by base name), and a node is a candidate when the approvals reaching it and no narrower candidate hold at
+  least `[policy.earned] min_approvals` (20) in `window_days` (7), with no decline, no "should have asked", no floor call
+  under it, and each approval asked by the tool's posture alone (`by_posture`: a reason ending `approve (enforcement =`
+  or a `[policy.*]` line; the approve lists, the roots, the hold and a tightening are no evidence); file tools group by
+  tool and workspace root. A prefix is never shorter than the program and one argument, never a shell or a program that
+  runs what it is given, never an interpreter with an inline-code option (`prefix_ok`, asked again of every stored grant).
+  `policy/earned.rs` holds the grants, the groups passed on (90 days; a "should have asked" revoke is for good) and the
+  open card in one META record, `policy.earned`, written with its ledger row in one frame (`policy.earned_proposed`,
+  `_granted`, `_passed`, `_revoked`) as tightenings are, read when the core starts. The gate's step is `earned::gate`
+  in `toolrun/order.rs`, after the call's own policy and before the broker's: a call the tool's posture alone makes wait
+  (`ToolPolicy::posture_only`: nothing the floor, a layer-1 change, the lists or an AWS rule asks), in a private place,
+  with no `env`, for a tool no one tightened, that a grant covers, runs at `notify` (never `open`), its notice's setting
+  `earned grant <id>`; every later layer still raises it. `rpc/earned.rs`: `policy.earned` (the number, the grants, the
+  card; `propose_now` and the answers are `judge_act(Act::Earned)`, the owner from a private place), `policy.earned.answer`,
+  `policy.revoke` (anyone's, as a press is), and the card's tender after serving (`earned_after_serving`, once a day at
+  `[judge] learning_hour`, a card at most every `every_days`, its work on a thread at nice 19). "Should have asked" on a
+  grant's notice (`tighten_by_earned`: the notice's row names the grant) ends the grant and tightens nothing.
+  `policy/earned/measure.rs` is the number: questions per active hour over four weeks, and what the grants would have
+  saved. Not built, with the places they would hook in (beside `earned::gate`): `scoped-grants` (a "don't ask again" from
+  a single answer: a grant with a call's own scope) and M5's Jev decision on the approval ladder (a judgment before the
+  card). Tests: `policy/earned/tests_find.rs`, `tests_measure.rs`, `tests_m3/earned.rs`, the daemon's `tests/earned.rs`.
+- **The model's commitments** (theseus-lherl; horizon row HZ1): `commitments.rs`, `wake_tools.rs`. The conversation's
+  pending wakes ride in the last block of every request, beside the task view (`view::attach_text`, no breakpoint of
+  its own; a stand-in model that reads the last user text skips both: `view::is_head`): at most `MAX_LINES` (10) lines
+  and `MAX_TOKENS` (300), then `and N more`, nothing at all while none is pending, `⏰ a8cebb Fri 09:00 note` and a
+  series `🔁 a41d04 every 1d 21:00 (next Fri) note`. Built from `Kernel::take_wakes_listing`'s one read, held in the
+  turn (`Frames.commitments`, lent as `TurnCtx::commitments`) and replaced by what each wake tool's frame returns,
+  never read from the store again; an operator's cancel mid-turn shows at the next turn. `wake.cancel {id}` and
+  `wake.move {id, at | after, series?}` act on this conversation's own wakes (a name is resolved among them, another
+  conversation's is not found), only in a private place (not `public_tool`, so a shared place is not offered them
+  and the gate refuses them; each tool asks `places::refusal` again), one frame each with its row
+  (`wake.cancelled { by: "model" }`, `wake.moved { from, to }`); a move keeps the id, a series' next occurrence moves
+  alone unless `series: true` moves its time (`every`, `days`, `until` kept). A routine, a watch or a deferred task
+  joins as another line with its own icon. Tests: `tests_commitments.rs` (the stand-in model reads the block's ids).
+- **Deferred tasks** (theseus-rcgph): `task.create { start_at | start_after }` opens a task asleep (`task_start.rs`):
+  `Kernel::open_task_at` writes it `Waiting{DueAt}` in the open's one frame with its carve held (the parent's
+  remaining shows it), the due scan queues it, and its first turn's catch-up writes the node `Deferred task, set <when>
+  for <when>; started <now>` (late, and whether the daemon was down, as a wake's; `turn/deferred_step.rs`), once, by
+  its META record `task.deferred.<session>` (no store format change). The time is `wake.at`'s parse and bounds
+  (`MIN_AHEAD_MS`, `MAX_AHEAD_MS`). `TaskInfo.starts_at_ms` is derived from the execution while it sleeps
+  (`task_start::starts_at`), and the board, `theseus tasks` and `/tasks` say `▷ starts Fri 09:00`. A cancel before
+  the start ends it and releases the carve. Tests: `tests_tasks_deferred.rs`, the kernel's `tests_deferred.rs`.
 - **Parked tasks** (28b; theseus-vug): `parked.rs`, health's `tasks.parked`: each task that cannot progress by itself,
   with its blocker, from the open executions alone (a question counts as progress for 24 hours).
 - **Limits that notify** (theseus-usei; the owner, 2026-10-07: for tasks and tokens, notify, not restrict):
@@ -896,20 +1106,50 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   spend past the limit, or a multiple of it (`crossed`), posts one `notice` to the session's place, a
   `budget.reached` row and a narrative line, all in the turn's next frame; `[profiles.*] max_loops_mode = "notify"`
   does the same at `max_loops` and each multiple (`loop.cap_reached`), and the turn goes on. `"ask"` and `"end"`
-  are the old behaviour. Still asking: a pinned limit (a place's ceiling, an MCP client's), an AWS hands group, and
+  are the old behaviour. A multiple is noticed at the check after the settle that crossed it (each loop's start and
+  its call's settle, whatever the call's outcome, against `SpendMarks`, the spend each execution's last check saw, in
+  memory), never skipped to the next. At `[kernel] spend_limit_hard_multiple` (10; 0 never) times the limit the
+  kernel refuses a provider call whose reservation would pass it (`KernelError::HardStop`, `overdraw.rs`), and the
+  turn fails `spend_hard_stop` with the stop's words (theseus-jse4; tests `tests_money.rs`). Still asking: a pinned limit (a place's ceiling, an MCP client's), an AWS hands group, and
   the background day caps. Under notify a task's carve is what it asked for up to the parent's whole limit, and
   speech and transcripts are not refused for the limit. The budget question's words are `turn/budget_words.rs`.
   Tests: `tests_limits_notify.rs`, and the kernel's `tests_overdraw.rs`.
-- **The day ceiling** (theseus-kp20; the kernel's `day_ceiling.rs` is the counter): `day_ceiling.rs` reads today's
-  model spend back before serving (`read_today`: the ledger's pages by kind from local midnight, provider settles,
-  booked reservations, speech, synthesis, the learning runs, the judge's day record), and says a refusal
-  (`TurnRunner::day_refused`: the day's first writes one `spend.ceiling` row and, with a DM bound, one
-  `spend_ceiling` post to the owner's DM, which the courier sends nowhere else; the start reads the row back). A
-  turn's refused call fails it, class `daily_ceiling`, and leaves a harness note the next context reads
-  (`turn/ceiling_step.rs`); the judge's day budget holds on it (`ShadowBudget::set_ceiling`), and consolidation, the
-  audit, replay, backfill and the learning writer hold through `TurnRunner::day_hold`; compaction's summary is refused
-  through the kernel and the ring runs; speech asks before its call. No mode: it stops. Tests: `tests_day_ceiling.rs`,
-  and one each in `tests_compaction.rs` and `tests_consolidate.rs`.
+- **The day ceiling** (theseus-kp20, softened by theseus-9e02; the kernel's `day_ceiling.rs` is the counter):
+  `day_ceiling.rs` reads today's model spend back before serving (`read_today`: the ledger's pages by kind from local
+  midnight, provider settles, booked reservations, speech, synthesis, the learning runs, the judge's day record, and
+  today's `spend.ceiling` and `spend.day_warning` rows), and says a refusal (`TurnRunner::day_refused`: the day's first
+  writes one `spend.ceiling` row and, with a DM bound, one `spend_ceiling` post to the owner's DM, which the courier
+  sends nowhere else; the start reads the row back). `[kernel] daily_spend_ceiling_mode` says what reaching the ceiling
+  does: **`notify`** (the default; the owner, 2026-10-11: tokens less cautious, AWS more) refuses nothing: the check
+  after each loop's settle (`spend_checked`, one comparison) takes the day's warning (`DayCeiling::take_warning`, once at
+  the ceiling and once at each `daily_notice_step_usd` after it, a level a day) and writes one `spend.day_warning` row, one
+  `spend_ceiling` post to the DM and one narrative line, all in the turn's next frame (`TurnRunner::day_warned`,
+  `turn/ceiling_step.rs`); health's first line and the cockpit's Money view show the day past its ceiling
+  (`HealthResult.day_spend`, `DayCeilingBudget.mode/past/runaway_usd`). The day stops only at `daily_runaway_usd`
+  ($2,000; 0 never): the refusal and its sticky rule below are then the runaway line's (`Reached.runaway`, its own words
+  and class `daily_runaway`). **`stop`** is the money row's: the ceiling refuses. A turn's refused call fails it, class
+  `daily_ceiling` (or `daily_runaway`), and leaves a harness note the next context reads (`turn/ceiling_step.rs`); the
+  judge's day budget holds on it (`ShadowBudget::set_ceiling`), and consolidation, the audit, replay, backfill and the
+  learning writer hold through `TurnRunner::day_hold`; compaction's summary is refused through the kernel and the ring
+  runs; speech asks before its call. The stop is sticky (theseus-l9on): after a refusal every call that day is refused,
+  however small, until local midnight or a higher bar at the next start; the words say a refused turn or task ends (it
+  does not wait). **The burn-rate brake** (`[kernel] runaway_usd_per_10min`, $200; 0 never): a settled provider call
+  fills a small in-memory ring per execution (`DayCeiling::burn_record`, at the settle); a call planned while the last
+  ten minutes' spend has reached the line is refused (`KernelError::BurnRate`, `Kernel::burn_stopped`, nothing written),
+  and the turn asks the owner to resume as the budget question does (`Called::Braked`; the question's `args.call.brake`
+  makes its words, `budget_words.rs`); approving it (`reset_budget`) keeps the spend and empties the window. The bench
+  drivers set the ceiling and `daily_spend_ceiling_mode = "stop"` explicitly (bench/harbor's `theseus_bench.day_ceiling`,
+  bench/recall's `--day-ceiling`), so a run never spends past its own budget. AWS keeps its stops: only model tokens went
+  soft, and `[aws.accounts.<id>] monthly_warn_usd` (default half the month's budget) adds one warning once a month
+  (`aws/month_warn.rs`, from the budget's six-hourly read). Tests: `tests_day_ceiling.rs` (the stop mode, which names
+  it), `tests_day_notify.rs`, and one each in `tests_compaction.rs` and `tests_consolidate.rs`.
+- **`ledger.window`** (theseus-m2tiu, `rpc/window.rs`): the postmortem's read. One page by the kinds' own postings
+  (`POSTMORTEM_KINDS`, or a session's tag when narrowed to it and the tasks below it, found from `Kernel::tasks`),
+  oldest first, `next` the cursor; each row's strings pass the scrubber. A surface that reads no private text
+  (`Surface::reads_private`) must name a session and gets that session's rows and the daemon's, never another's. It
+  writes no frame and takes no session or execution lock. The index counts a row at the time it was written, so the
+  window's own times then decide by each row's `at_unix_ms`. Tests: `rpc/tests_window.rs` (a busy day's window, 6,000
+  report rows in 13 pages, read in 0.14 s in a debug build).
 - **The operator's two reads** (step 42a, theseus-ext.7): `rpc/budgets.rs` is `budget.list`, each open execution's
   money from its record (`Kernel::open_executions`), where its limit comes from (`config`, `place`, `carve`, or
   `pinned`), its session's lifetime cost, and its last reset from one small ledger page by kind and session tag,
@@ -953,6 +1193,10 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   `crates/theseus-protocol/src/push.rs`. A view's `outstanding` counts tool calls only, never the model's own
   (`tool_calls`, as `park` counts them), and `same()` compares it; a queued view keeps its `why` until it leaves
   `queued`; `confirm.list` lists a question from its plan on (theseus-q5af).
+  Its seed reads by the store's terms, never every action or execution (`push/hot.rs`, theseus-id8d): the actions
+  not settled, the executions that need you or work, their parents, and the 1,000 written last. The rest stay cold
+  until a frame touches one or `session.wait` asks (`Push::view_or_load`); the board keeps its counts as entries
+  change, so health counts nothing. `push/tests/seed.rs` holds the seed to the full read over mixed stores.
 - **The outbox**: `crates/theseus-kernel/src/outbox.rs`, `crates/theseus-core/src/outbox.rs`, and
   `crates/theseus-discord/src/courier.rs`.
 - **The config**: `crates/theseus-core/src/config.rs`, and the template `crates/theseus-core/config/theseus.example.toml`
@@ -965,7 +1209,10 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
 
 ## Invariants
 
-- **The frame budget.** A plain one-loop turn writes 5 frames, and each loop with one in-process tool adds 4.
+- **The frame budget.** A plain one-loop turn writes 4 frames, and each loop with one in-process tool adds 4.
+  An input's turn holds its execution (`Kernel::hold_turn`, nothing written) and is admitted in its input's frame
+  (`turn/admit_step.rs`, theseus-2uby), so it pays 2 syncs before its model's first byte (`syncs_before_call` on its
+  trace); a turn that writes before its input (`catch_up` with anything to take) is admitted alone first.
   Observability rows ride in the turn's next frame; the session's write rides in `end_turn`'s
   (`Store::defer_session`). `tests_m3::a_plain_turn_stays_within_its_frame_budget` fails a sixth frame.
   Each turn counts its own (theseus-wz4y), as `frames` on its trace's root span: its admission's frames, read from
@@ -1001,7 +1248,9 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   `[policy].enforcement` never does. Its proposal names its class, so a confirm binds it, and a confirmed call runs in the class its
   proposal names. Nothing falls back from L1 to L0.
 - **Results tell the truth.** `toolrun::cap` cuts on line edges and says what it left out, with the tool's own way
-  to get the rest (`Tool::rest`). A listing names its scope.
+  to get the rest (`Tool::rest`), or the kept file and its lines (`toolrun/kept.rs`). A listing names its scope.
+- **A kept output is scrubbed, never raw.** What a job printed before the scrubber saw it stays in the spool only
+  until its result is written; a copy anywhere else goes through the scrubber first.
 - **Thinking goes back only to the provider that wrote it**, and every recompile strips the prefix's thinking.
 - **A shared place never receives the owner's material** (the place rule). Its model is offered only the public
   tools, the gate refuses anything else, and its system block carries only public context files. A task takes its
@@ -1029,7 +1278,13 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   for JSON inside a JSON string, YAML's and Python repr's escapes among them (a run of `\xNN` that is one character's
   UTF-8 read as that character; theseus-nlvx), and base64 in a decoded text where an escape joins it (`\n` every 60
   characters in a JSON string; theseus-cjyt), and
-  the shapes of secrets never resolved here (token prefixes, AWS keys, private-key blocks, JWTs). The broker hands a value only to the program it is granted to, run by its
+  the shapes of secrets never resolved here (`scrub/shapes.rs`: token prefixes, OpenAI, Stripe and Google keys among
+  them, AWS keys, private-key blocks, JWTs, and a URL's password, the password alone), as written and inside base64,
+  percent-escapes, and the escapes (`scrub/decoded.rs`, theseus-oyrt); YAML's folded line break is an escape that decodes
+  to nothing (theseus-d80h). A new shape lands with its row in `scrub/corpus.rs`, the planted-secret corpus that
+  `scrub/tests_corpus.rs` and theseusd's `tests/planted_secrets.rs` (a daemon, every sink grepped) hold to zero leaks,
+  and the clean corpus to zero false positives. Build test secrets from parts: GitHub refuses a push holding one
+  whole. The broker hands a value only to the program it is granted to, run by its
   own argv, and never to one the call could make it run (`broker::launches`: the call's own environment, gh's
   aliases and extensions, git's aliases, `-c`, and the programs its options and URLs name), in L1 as at L0.
 - **The AWS keys and the providers' keys are harness-only** (theseus-gh7): Theseus's own tools read them from the
@@ -1100,7 +1355,9 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   wake and report nodes. No in-memory field carries it.
 - **A `/stop` cuts the model's stream** (theseus-yey): `Core::stop_execution` signals `TurnRunner::stops`, which only
   wakes `call_model`; the kernel's record of the stop decides. The cut call settles as failed at an estimate (the
-  input its reservation assumed, the output from the characters streamed), never held unknown, and a `provider.cut`
-  row says it is an estimate. A stop that lands after the stream ended keeps the answer and runs none of its calls.
+  input its reservation assumed, split as the request was sent: the turn's previous call's cache at the read price,
+  the rest a write when the request carried the conversation's breakpoint, `turn/cut_step.rs`, theseus-3p36; the
+  output from the characters streamed), capped at its reservation, never held unknown, and a `provider.cut` row says
+  it is an estimate and its `split`. A stop that lands after the stream ended keeps the answer and runs none of its calls.
 - `cargo test -p theseus-core` builds a second copy of every dependency. Use
   `cargo nextest run --workspace -E 'package(theseus-core)'`.

@@ -14,11 +14,13 @@ mod aws;
 mod bindings;
 mod books;
 mod budgets;
+mod cites;
 mod confirms;
 mod context;
 pub(crate) use confirms::{expired_answer, Act, EXPIRY};
 mod disk_watch;
 mod driver;
+mod exec_list;
 mod explain;
 mod import;
 mod info;
@@ -30,6 +32,8 @@ mod mcp;
 mod memory;
 mod methods;
 pub(crate) use methods::ledger_tags;
+mod earned;
+mod memory_read;
 mod ontology;
 pub(crate) mod ordered;
 mod packs;
@@ -43,11 +47,17 @@ mod publish;
 mod route_correct;
 mod rsi;
 mod server;
+mod session_dir;
 mod sessions;
+mod standing;
 #[cfg(test)]
 pub(crate) use server::write_item;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_exec_list;
+#[cfg(test)]
+mod tests_health_counts;
 #[cfg(test)]
 mod tests_health_imported;
 #[cfg(test)]
@@ -66,7 +76,13 @@ mod tests_ordered;
 mod tests_self;
 #[cfg(test)]
 mod tests_session_states;
+#[cfg(test)]
+mod tests_typing;
+#[cfg(test)]
+mod tests_window;
 mod trust;
+mod typing;
+mod window;
 
 pub use bindings::BindingBoard;
 
@@ -141,6 +157,8 @@ pub struct Core {
     restart: tokio::sync::watch::Sender<Option<ConfigRestart>>,
     /// What the web UI refused: not its own page or address (theseus-70f).
     web_refusals: Arc<crate::webui::Refusals>,
+    /// The socket's connections and the descriptor limits (theseus-7vtp).
+    pub conns: Arc<crate::conns::Connections>,
     /// The spool's last sweep since the daemon started (theseus-2ij).
     last_sweep: std::sync::Mutex<Option<theseus_protocol::SpoolSweep>>,
     /// The push (theseus-in3): one view per execution, seeded on first need.
@@ -169,6 +187,9 @@ pub struct Core {
     pub resident: crate::resident::Resident,
     /// Self-improvement's kill switch, cached (theseus-pw1q.2; `crate::rsi`).
     pub rsi: crate::rsi::Switch,
+    /// What a first keystroke warmed, and the sessions' idle spells
+    /// (theseus-tnky).
+    pub warmth: crate::warm::Warmth,
 }
 
 /// Where the index tender's supervisor writes its facts' rows
@@ -637,6 +658,10 @@ impl Core {
             .tightened
             .load(&store)
             .context("reading the tool tightenings")?;
+        tools
+            .earned
+            .load(&store)
+            .context("reading the earned grants")?;
         tracing::info!(
             tools = tools.registry.len(),
             not_offered = ?tools.not_offered,
@@ -703,8 +728,13 @@ impl Core {
             place_rule: Default::default(),
             // Built after serving, by one META scan (theseus-8kk.1).
             ontology: Default::default(),
+            standing: Default::default(),
             run_compiles: Default::default(),
             failed_turns: Default::default(),
+            spend_marks: Default::default(),
+            effort_refusals: Default::default(),
+            keep_warm: Default::default(),
+            stubs: Default::default(),
             judge,
             // Read at a routed session's first turn, never on the start path.
             live_switched: Default::default(),
@@ -718,6 +748,7 @@ impl Core {
             runner.judge.export_to(t.clone());
             runner.memory.export_to(t.clone());
             runner.tools.stops.export_to(t.clone());
+            let _ = runner.keep_warm.telemetry.set(t.clone());
             let _ = telemetry_cell.set(t);
         }
         // A persisted runtime switch wins over config, if it still names a profile.
@@ -756,6 +787,7 @@ impl Core {
             config_gate,
             restart: tokio::sync::watch::Sender::new(None),
             web_refusals: Arc::default(),
+            conns: Arc::default(),
             last_sweep: Default::default(),
             push: crate::push::Push::default(),
             index,
@@ -766,6 +798,7 @@ impl Core {
             episodes: Default::default(),
             resident: Default::default(),
             rsi: Default::default(),
+            warmth: Default::default(),
         });
         core.index.set_ledger(index_ledger(&core));
         core.mcp.attach(Arc::downgrade(&core));
@@ -775,6 +808,7 @@ impl Core {
         }
         core.tools.extend.attach(&core.mcp);
         core.tools.lookup.attach(&core);
+        core.tools.jobs.attach(&core);
         core.runner.judge.attach(&core);
         // The judge's sink writes between turns, as the pass does.
         core.runner
@@ -1168,7 +1202,10 @@ impl Core {
                 let Some(c) = core.upgrade() else {
                     return;
                 };
-                let _ = tokio::task::spawn_blocking(move || c.sweep_spool(first)).await;
+                // And the kept outputs past their keep (theseus-v73m).
+                let _ =
+                    tokio::task::spawn_blocking(move || (c.sweep_spool(first), c.sweep_outputs()))
+                        .await;
                 first = false;
                 tokio::time::sleep(crate::sweep::EVERY).await;
             }

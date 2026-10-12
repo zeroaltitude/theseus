@@ -47,12 +47,14 @@ const NEAR_PERCENT: i64 = 10;
 /// unit (theseus-goa8). Each is read as a phase is: a p50, a p95, and a limit
 /// when the bench has a budget for it. A single reading (a size, a memory) is
 /// its own p50 and p95.
-pub const OTHER: [(&str, &str); 27] = [
+pub const OTHER: [(&str, &str); 28] = [
     // `bench turn`
     ("turn_plain", "ms"),
     ("frames_plain", "frames"),
     ("turn_tool", "ms"),
     ("frames_tool", "frames"),
+    // its syncs before the model's first byte (theseus-2uby)
+    ("syncs_plain", "frames"),
     ("rss_start", "MB"),
     ("rss_burst", "MB"),
     // `bench turn --judge` (theseus-0j2.8): the judge on, the inbound
@@ -489,6 +491,7 @@ fn name(phase: &str) -> &str {
         "restore" => "restore from a local WAL",
         "turn_plain" => "a plain turn's wall time",
         "frames_plain" => "a plain turn's frames",
+        "syncs_plain" => "a plain turn's syncs before its model's first byte",
         "turn_tool" => "a tool-call turn's wall time",
         "frames_tool" => "a tool-call turn's frames",
         "turn_batch" => "a turn of four programs in one response, its wall time",
@@ -543,9 +546,14 @@ pub fn near_limits_of(bench: &str, verdicts: &[Verdict]) -> Vec<String> {
 }
 
 /// Whether a column's nearness to its limit is drift worth a word: not a
-/// count of frames, which a budget holds exactly.
+/// count of frames, which a budget holds exactly, nor the turn bench's
+/// counted rows (theseus-7gir.13: syncs, deltas, and the first request's KB,
+/// each said with its own unit as it is measured).
 fn warns_near(column: &str) -> bool {
     unit(column) != "frames"
+        && !column.starts_with("syncs_")
+        && !column.starts_with("deltas_")
+        && column != "first_request_kb"
 }
 
 /// Append a bench's row to the history at `path`, and say where. A failure to
@@ -751,19 +759,20 @@ mod tests {
                 Some(175.0),
                 Some(202.0),
                 None,
-                None,
+                Some(250.0),
                 Some(100.0)
             ],
-            "each limit is the budget plus the margin; restore and the seed have none"
+            "each limit is the budget plus the margin; restore has none"
         );
         let line = r.to_csv();
         assert_eq!(
             line,
             format!(
                 "2026-10-01T10:20:11-07:00,lane/fastgate ecfc574-dirty,3.25,\
-             23.8,33.5,57,23.8,35.3,57,41.6,51.9,104,,,,42.4,49.9,175,58.2,71,202,115.9,125.2,,1.2,1.9,,\
-             41.1,43.2,100{},true,",
-                // The other benches' columns, empty: three cells for each.
+             23.8,33.5,57,23.8,35.3,57,41.6,51.9,104,,,,42.4,49.9,175,58.2,71,202,115.9,125.2,,1.2,1.9,250,,,,\
+             41.1,43.2,100,,,{},true,",
+                // The surfaces phase's three cells, empty: a gate run has none
+                // (it runs on `--sessions`, theseus-7bee). The other benches' columns, empty: three cells for each.
                 // The last cell, the allowance, is empty: the run passed strictly.
                 ",".repeat(3 * OTHER.len())
             )
@@ -841,8 +850,9 @@ mod tests {
             h.rows[0].allowance, None,
             "no allowance column, no allowance"
         );
-        // Every phase the row measured: all but `inflight` (theseus-ndw).
-        assert_eq!(h.rows[1].phases.len(), PHASES.len() - 1);
+        // Every phase the row measured: all but `inflight` (theseus-ndw),
+        // `health` (theseus-id8d) and `surfaces` (theseus-7bee).
+        assert_eq!(h.rows[1].phases.len(), PHASES.len() - 3);
     }
 
     #[test]
@@ -1049,5 +1059,28 @@ mod tests {
             line("main busy", "(the run passed on the busy allowance)"),
             "{out}"
         );
+    }
+
+    /// The turn bench's counted rows (theseus-7gir.13) are held exactly, or
+    /// said in their own unit as measured: at their budget, no warning.
+    #[test]
+    fn the_counted_rows_never_warn_at_their_budget() {
+        let at = |phase: &str, x: f64| Verdict {
+            phase: phase.to_string(),
+            p95: x,
+            budget: x,
+            margin: 0.0,
+            ok: true,
+        };
+        let v = [
+            at("syncs_first_byte", 3.0),
+            at("first_request_kb", 39.9),
+            at("deltas_gathered", 0.0),
+            at("deltas_held", 0.0),
+            at("turn_plain", 50.0),
+        ];
+        let lines = near_limits_of("turn", &v);
+        assert_eq!(lines.len(), 1, "{lines:?}");
+        assert!(lines[0].contains("a plain turn's wall time"), "{lines:?}");
     }
 }

@@ -65,7 +65,9 @@ async fn pane_moved_to_opus(jev: &FakeJev) -> (Rig, String) {
     let two = submit(&r, pane(&sid, ask, "glm")).await;
     assert_eq!(two.profile, "opus");
     assert_eq!(routed(&r, &sid), moved("opus", "glm"));
-    mode(jev, "chat", 0.95);
+    // A verdict whose first profile is the one it is on: the move stays (a
+    // chat would start the step back down to the base, theseus-p8dy).
+    mode(jev, "deep_coding", 0.95);
     let three = submit(&r, pane(&sid, "What is a frame?", "opus")).await;
     assert_eq!(
         three.profile, "opus",
@@ -122,7 +124,7 @@ async fn a_routed_panes_p_profile_comes_back_once_routing_stops() {
     r.core
         .pack_rollback(
             &theseus_protocol::packs::PackRollbackParams {
-                pack: "route.v3".into(),
+                pack: "route.v4".into(),
                 why: None,
                 off: false,
             },
@@ -185,6 +187,7 @@ async fn a_changed_live_profile_clears_the_move_of_a_session_that_follows_it() {
     );
     assert_eq!(r.claude.requests()[0].model, "claude-fable-5-1");
     assert_eq!(routed(&r, &follows), None);
+    mode(&jev, "deep_coding", 0.95);
     let p = submit(&r, pane(&pane_sid, "What is a segment?", "opus")).await;
     assert_eq!(p.profile, "opus", "the pane's base, glm, did not change");
     assert_eq!(routed(&r, &pane_sid), moved("opus", "glm"));
@@ -246,7 +249,7 @@ async fn a_changed_place_profile_clears_the_move() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_routed_record_without_its_base_reads_as_before() {
     let jev = FakeJev::start().unwrap();
-    mode(&jev, "chat", 0.95);
+    mode(&jev, "deep_coding", 0.95);
     let r = rig(Some(&jev), 3, |c| {
         c.routing.max_wait_ms = 5_000;
         crate::tests_route::glm_placements(c);
@@ -273,27 +276,32 @@ async fn a_routed_record_without_its_base_reads_as_before() {
 // ------------------------------------------- a second switch, and a switch back (theseus-zvpl)
 
 /// A session that follows the live profile, moved to Opus, then switched a
-/// second time, to GLM 5.3: the move keeps its first base, `sonnet`, never
+/// second time, to Fable: the move keeps its first base, `sonnet`, never
 /// the profile the second switch left. Its next message with no verdict runs
-/// on GLM 5.3.
+/// on Fable.
 async fn switched_twice(jev: &FakeJev) -> (Rig, String) {
-    let (r, sid) = moved_to_opus(jev, 3).await;
-    mode(jev, "routine_coding", 0.95);
+    // The second switch goes to a profile dearer than the base: one cheaper
+    // is a step back down, which waits for two turns (theseus-p8dy).
+    let (r, sid) = crate::tests_route::moved_to_opus_with(jev, 3, |c| {
+        c.routing.modes.deep_coding.profiles = vec!["fable".into()];
+    })
+    .await;
+    mode(jev, "deep_coding", 0.95);
     let ask = "Rename these twelve call sites the same way.";
     let two = turn(&r.core, Some(&sid), ask, None).await;
     assert_eq!(
         (two.profile.as_str(), two.route.unwrap().reason.as_str()),
-        ("glm53", "verdict")
+        ("fable", "verdict")
     );
-    assert_eq!(routed(&r, &sid), moved("glm53", "sonnet"));
+    assert_eq!(routed(&r, &sid), moved("fable", "sonnet"));
     jev.set_mode(FakeMode::Malformed);
     let three = turn(&r.core, Some(&sid), "And the tests next to them?", None).await;
     jev.set_mode(FakeMode::Up);
     assert_eq!(
         (three.profile.as_str(), three.route.unwrap().reason.as_str()),
-        ("glm53", "no_verdict")
+        ("fable", "no_verdict")
     );
-    assert_eq!(routed(&r, &sid), moved("glm53", "sonnet"));
+    assert_eq!(routed(&r, &sid), moved("fable", "sonnet"));
     until_route_rows(&r.core.store, 3).await;
     (r, sid)
 }
@@ -346,7 +354,7 @@ async fn after_two_switches_routing_off_runs_on_the_first_base() {
 async fn a_switch_back_to_the_base_ends_the_move() {
     let jev = FakeJev::start().unwrap();
     mode(&jev, "chat", 0.95);
-    let r = rig(Some(&jev), 3, crate::tests_route::glm_placements);
+    let r = rig(Some(&jev), 4, crate::tests_route::glm_placements);
     let one = submit(
         &r,
         json!({"input": "Name the tide tables.", "profile": "glm53"}),
@@ -359,16 +367,20 @@ async fn a_switch_back_to_the_base_ends_the_move() {
     let two = submit(&r, pane(&sid, ask, "glm53")).await;
     assert_eq!(two.profile, "opus");
     assert_eq!(routed(&r, &sid), moved("opus", "glm53"));
+    // Two verdicts in a row whose mode is the base or cheaper step the
+    // session back down to it (theseus-p8dy).
     mode(&jev, "routine_coding", 0.95);
     let ask = "Rename these twelve call sites the same way.";
-    let three = submit(&r, pane(&sid, ask, "opus")).await;
+    let held = submit(&r, pane(&sid, ask, "opus")).await;
+    assert_eq!(held.profile, "opus", "the first turn holds");
+    let three = submit(&r, pane(&sid, "And the next twelve.", "opus")).await;
     assert_eq!(
         (three.profile.as_str(), three.route.unwrap().reason.as_str()),
-        ("glm53", "verdict")
+        ("glm53", "step_down")
     );
     assert_eq!(routed(&r, &sid), None, "the switch back ends the move");
     assert_eq!(session(&r.core, &sid).last_target.unwrap().profile, "glm53");
-    until_route_rows(&r.core.store, 3).await;
+    until_route_rows(&r.core.store, 4).await;
     let dir = r.dir.clone();
     drop(r);
     let r = rig_on(dir, Some(&jev), 1, |c| c.routing.enabled = false, board());

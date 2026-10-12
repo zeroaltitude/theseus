@@ -11,8 +11,13 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
 pub struct JudgeHealth {
-    /// `[judge] enabled`. Off: nothing below is counted.
+    /// Whether the judge is on. Off: nothing below is counted.
     pub enabled: bool,
+    /// Why it is off (theseus-is8t): `[judge] enabled = false`, or what auto
+    /// found (`no jev_api_key entry under [secrets]`). Empty when on, and
+    /// from a daemon before it.
+    #[serde(default)]
+    pub why: String,
     /// `[judge] max_mode`: the ceiling on every pack.
     pub max_mode: String,
     /// Each wired pack and the mode it runs in now (`loop.v1: shadow`).

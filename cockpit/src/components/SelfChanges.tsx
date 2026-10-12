@@ -2,6 +2,7 @@
 // today's self-changes: pack moves, learned packs, extensions, routing corrections, syntheses), each with what, why,
 // its numbers and its undo, and the kill switch's state with a Halt button (`self.halt`, anyone's, confirmed first).
 // The resume is the owner's alone: `theseus self resume` (or "resume self" from the owner's Discord account), which the card names and never sends.
+import { CARD_BODY } from '@/lib/cardfit'
 import { useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router'
@@ -17,7 +18,7 @@ export function SelfChangesCard({ now }: { now: number }) {
   const s = data?.state
   const w = s ? stateWords(s) : undefined
   return (
-    <Panel title="What Theseus changed about itself" icon={<OctagonX size={13} />} bodyClassName="px-3.5 py-2.5">
+    <Panel help="systems.selfchanges" title="What Theseus changed about itself" icon={<OctagonX size={13} />} bodyClassName={CARD_BODY}>
       {!data && <Empty>reading the self log…</Empty>}
       {s && w && (
         <div className="mb-2 flex items-center gap-2">

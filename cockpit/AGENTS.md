@@ -11,7 +11,7 @@ build.
 - `src/views/`: the seventeen views. The Ship (`Ship.tsx`, the landing view at `/ship`), then `Bridge`, `Fleet`,
   `SessionDeck`, `Actions`, `Boundaries` (the boundaries board), `Ledger`, `Money` (the money river), `Economics`,
   `Speed` (the speed wall), `Benchmarks` (below), `Policy` (`policy.explain`: each place's tools, layer by layer, and the tightenings with their undo; M7 42b), `Judgment` (Jev's judgments, M5 23b, over `judge.list` and `judge.get`, with
-  `src/lib/judgment.ts`), `Systems`, `Ontology` (the kinds, the category tree, guidance, and topics; people,
+  `src/lib/judgment.ts`), `Systems`, `Ontology` (the kinds, the categories as closed groups one a kind with their trees inside (`groupsOf`; `<unknown>` for a kind the table lacks, theseus-7mow), guidance, and topics; people,
   searchable by handle, a person's page and merge, adding one, and Jev's proposals with select-all accept, in
   `src/components/People.tsx` over `src/lib/people.ts`, theseus-wy7y; it shows the present only; its proposals panel lists people one row per proposed person, each with one accept and one reject, theseus-fvyx), `Context` (the context explorer, theseus-7n3e: what Theseus knows and what a turn sees), and `Books` (the imported episodes by their book, first cut: `books.list`, `books.page`, an episode's messages by `session.history`; its pure parts are `src/lib/books.ts`, theseus-civ0). A session's memberships are in its deck's Context tab (`src/components/Memberships.tsx`), whose pulldown groups topics and people and searches both.
 - The time machine: `src/components/TimeMachine.tsx` (the ship's log, at every page's foot), `src/lib/history.ts`
@@ -27,7 +27,8 @@ build.
   their point, off the instruments; pure), `Tour.tsx`, `tourText.ts` and `news.ts` (the tour, and what's new after an
   update; pure), `sound.ts`, `audio.ts` and `useShipSound.ts` (the three cues: which push sounds which, pure; the
   sounds, made with Web Audio; the toggle, and the cues the Shell hears on every page), `surf.ts` (the ambient sea's
-  voice, fades, ducks, wave shape and noise; pure, theseus-pl0x), `instruments.tsx` (the brass gauges), `Minimap.tsx`, `useShipData.ts` (the reads and
+  voice, fades, ducks, wave shape and noise; pure, theseus-pl0x), `gull.ts` and `gullsound.ts` (the seagull that passes now
+  and then while the sea is heard: its gaps, call and scheduler, pure, and its voice; theseus-7mow), `instruments.tsx` (the brass gauges), `Minimap.tsx`, `useShipData.ts` (the reads and
   pushes it composes), `flares.ts` (a failure flares its ship once, whichever of its push, its execution's change and
   its ledger row tells the page first; pure, theseus-1skt), and `synth.ts` (a seeded 10,000-node fleet for measuring).
 - Session states (theseus-emqx): `src/lib/sessionState.ts` (pure: the daemon's rule line for line, the filter's
@@ -66,6 +67,10 @@ build.
   pure parts are `src/lib/explorer.ts`, tested by `test/explorer.test.ts`. The Ship's vessel panel and the session
   deck's Context tab link to it (`contextHref`). Personal and partner-confidential text is veiled on screen until
   opened (`?veil=off` lifts it); the daemon gives imported text only to a private place.
+- A reply's citations (theseus-ejdk): `src/lib/cites.ts` (pure: the handles in a reply, the numbered marks, the card's words; `test/cites.test.ts`) and `src/components/Cites.tsx`
+  (`ReplyMarkdown`: the reply as markdown with each cited handle a mark linking to its source's session, with a hover card of
+  the source's header, excerpt and the command that opens it). The sources are `session.history`'s `cites`; a handle with no
+  source (a shared place's private one, or one the turn was not given) stays text.
 - The route footer (theseus-q31l): `src/components/RouteFooter.tsx`, under the composer after a turn it sent,
   `routed: quick · haiku` and the owner's one-tap correction (⬆ stronger, ⬇ cheaper, or a profile), each confirmed and
   `route.correct`; the live correction layer is Judgment's Corrections panel (`src/components/Corrections.tsx`, over
@@ -109,6 +114,12 @@ build.
   folded, numbers aside, every line kept); `src/lib/mode.ts` and `src/lib/daylight.ts` (night, daylight, or the
   system's, night by default (theseus-001m), and each night colour's daylight step); `public/mode.js` (the mode's class
   before the first paint, chosen as `daylight.ts` chooses).
+- The owner's 10-11 polish (theseus-onxwh): `src/ship/WatchDock.tsx` (the Ship's watch column as a slide-out, kept
+  mounted and `inert` while folded, a tab on the right edge to bring it back) and the Depth gauge's minimize and
+  maximize, both kept by `src/lib/prefs.ts` (`cockpit.ship.watch`, `cockpit.ship.depth`); `src/lib/navgroups.ts` (the
+  rail's accordion groups; a test holds every rail view to exactly one group, so a new view joins one); `src/lib/cardfit.ts`
+  (`CARD_BODY`: a card's body shrinks and scrolls sideways instead of running past its border); and the "?" on every
+  panel, `src/components/Help.tsx` over `src/lib/explainers.ts` (Goal, How to read it, Why it matters, keyed by panel id).
 - `src/protocol.ts`: the protocol client, imported as `@protocol`. It re-exports the protocol's types,
   `src/protocol.gen/`, which theseus-protocol's test writes from the Rust ones: never edit them by hand.
 - The look is in `index.css`'s tokens and the shared components (`.panel`, `.brass-card`, `.brass-button`,
@@ -120,6 +131,8 @@ build.
   5,000 rows every 3 s with neither open (Item 27).
 - **Every control is confirmed first**, and each is a protocol method, judged by the core as any surface's.
 - **Every view keeps its state in the address**, so any view deep-links.
+- **Every panel says what it shows**: `Panel`'s `help` is required (an explainer id, or `false` only for an error,
+  stopped or loading notice), and `test/explainers.test.ts` fails a panel whose id has no words in `explainers.ts`.
 - **Every chart has a table view**, the same numbers as rows, its toggle in the address (`?table=`).
 - **A colour set outside an ECharts option follows the mode**: `mode.ts` swaps `toneHex` and `TONE_MARK`, and an
   option goes through `daylight()` as `Echart` draws it.

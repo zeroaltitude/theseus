@@ -5,7 +5,7 @@
 //! after the end, and between the two every surface read the execution
 //! waiting on input, which is settled: a `session.wait` until settled
 //! returned there, before the late result was read (theseus-jj9f's second
-//! shape).
+//! shape). A turn held and never admitted (theseus-2uby) is admitted first.
 
 use super::*;
 
@@ -28,6 +28,12 @@ pub(super) fn end_and_wake(
 ) -> Result<(Execution, bool)> {
     let id = guard.execution_id.clone();
     kernel.frame(&[&id], |k| {
+        // A held turn that ended before its input's frame (theseus-2uby) is
+        // admitted here, so its end reads as a turn's. One a cancel ended
+        // since is not: its end writes nothing, as after any cancel.
+        if let Err(e) = k.admit_held(&guard) {
+            tracing::debug!(error = %format!("{e:#}"), execution_id = %id, "a held turn was not admitted at its end");
+        }
         let stopped = k.execution(&id)?.is_some_and(|e| e.stopped.is_some());
         let ended = k.end_turn_with(guard, end, extra)?;
         if !rewake || stopped {
@@ -41,6 +47,58 @@ pub(super) fn end_and_wake(
             }
         }
     })
+}
+
+impl TurnRunner {
+    /// Where the execution waits: only reads, so it is decided before
+    /// anything is booked, and a fault here leaves nothing half done.
+    pub(super) fn end_of(&self, t: &Turn<'_>) -> Result<TurnEnd> {
+        match &t.budget_question {
+            Some(q) => Ok(TurnEnd::Wait {
+                wake: Wake::Budget {
+                    correlation_id: q.clone(),
+                },
+            }),
+            None => self.park(t.tc.execution_id, t.awaiting.clone(), &t.background),
+        }
+    }
+
+    /// Where the execution waits: on the confirm, on outstanding jobs, or on
+    /// the next input. (A turn over its budget waits on the budget question.)
+    fn park(
+        &self,
+        exec_id: &str,
+        awaiting: Option<String>,
+        background: &[String],
+    ) -> Result<TurnEnd> {
+        let outstanding: Vec<String> = self
+            .kernel
+            .execution(exec_id)?
+            .map(|e| e.outstanding)
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|c| {
+                background.contains(c)
+                    || self
+                        .kernel
+                        .action(c)
+                        .ok()
+                        .flatten()
+                        .map(|a| a.tool != PROVIDER_TOOL)
+                        .unwrap_or(false)
+            })
+            .collect();
+        let wake = if let Some(c) = awaiting {
+            Wake::Confirm { confirm_id: c }
+        } else if !outstanding.is_empty() {
+            Wake::Actions {
+                correlation_ids: outstanding,
+            }
+        } else {
+            Wake::Input
+        };
+        Ok(TurnEnd::Wait { wake })
+    }
 }
 
 #[cfg(test)]

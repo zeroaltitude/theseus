@@ -78,13 +78,36 @@ pub fn floor(nodes: &[(u64, Stub)]) -> Option<(&(u64, Stub), u64)> {
         .find_map(|e| e.1.summary_last.map(|last| (e, last)))
 }
 
+/// The positions the session's latest summary stands for, first to last:
+/// its body's range (it decodes that one node). A node before `first` that
+/// it does not stand for, the instruction a summary inside a turn pins
+/// (theseus-3ki0), stays visible.
+pub(crate) fn hidden(nodes: &[(u64, Stub)]) -> Option<(u64, u64)> {
+    let ((_, n), last) = floor(nodes)?;
+    let first = match &n.body {
+        crate::node::Body::Summary { first, .. } => *first,
+        _ => 0,
+    };
+    Some((first, last))
+}
+
+/// Whether the latest summary (`hidden`) leaves the node at `p` visible:
+/// after its range, or a message before it (a pinned instruction; never a
+/// recall note, which a range before it never held).
+pub(crate) fn outside(hidden: Option<(u64, u64)>, p: u64, n: &Stub) -> bool {
+    match hidden {
+        None => true,
+        Some((first, last)) => p > last || (p < first && n.kind != Kind::Recall),
+    }
+}
+
 /// The nodes a recompile selects from, in position order: the latest
-/// summary (rendered first all the same), and every renderable node after
-/// its range but other summaries. With no summary, every renderable node.
+/// summary (rendered first all the same), and every renderable node it
+/// does not stand for but other summaries. With no summary, every
+/// renderable node.
 pub(super) fn visible(nodes: &[(u64, Stub)]) -> Vec<&(u64, Stub)> {
-    let floor = floor(nodes);
-    let after = floor.map_or(0, |(_, last)| last);
-    let id = floor.map(|(e, _)| e.1.id.as_str());
+    let id = floor(nodes).map(|(e, _)| e.1.id.as_str());
+    let hidden = hidden(nodes);
     nodes
         .iter()
         .filter(|(p, n)| {
@@ -92,23 +115,40 @@ pub(super) fn visible(nodes: &[(u64, Stub)]) -> Vec<&(u64, Stub)> {
                 && if is_summary(n) {
                     Some(n.id.as_str()) == id
                 } else {
-                    floor.is_none() || *p > after
+                    outside(hidden, *p, n)
                 }
         })
         .collect()
 }
 
 /// A prefix's nodes in the assembled order (30c): its recall section
-/// (`recall`, the compilation's `recall_id`), its summaries in the order
-/// they were written, and the rest in position order.
-pub(super) fn summaries_first<'n>(prefix: Vec<&'n Node>, recall: Option<&str>) -> Vec<&'n Node> {
-    let (mut first, rest): (Vec<&Node>, Vec<&Node>) = prefix
+/// (`recall`, the compilation's `recall_id`), what precedes its earliest
+/// summary's range (an instruction a summary inside a turn pins,
+/// theseus-3ki0), its summaries in the order they were written, and the
+/// rest in position order.
+pub(super) fn summaries_first<'n>(
+    prefix: Vec<(u64, &'n Node)>,
+    recall: Option<&str>,
+) -> Vec<&'n Node> {
+    let (first, rest): (Vec<_>, Vec<_>) = prefix
         .into_iter()
-        .partition(|n| Some(n.id.as_str()) == recall);
-    let (summaries, rest): (Vec<&Node>, Vec<&Node>) = rest.into_iter().partition(is_summary);
-    first.extend(summaries);
-    first.extend(rest);
-    first
+        .partition(|(_, n)| Some(n.id.as_str()) == recall);
+    let (summaries, rest): (Vec<_>, Vec<_>) = rest.into_iter().partition(|(_, n)| is_summary(n));
+    let from = summaries
+        .iter()
+        .filter_map(|(_, n)| match &n.body {
+            crate::node::Body::Summary { first, .. } => Some(*first),
+            _ => None,
+        })
+        .min();
+    let (pinned, rest): (Vec<_>, Vec<_>) = rest
+        .into_iter()
+        .partition(|(p, _)| from.is_some_and(|f| *p < f));
+    [first, pinned, summaries, rest]
+        .into_iter()
+        .flatten()
+        .map(|(_, n)| n)
+        .collect()
 }
 
 /// The compaction's compilation: `summary` (written, so among `input.nodes`
@@ -171,6 +211,7 @@ pub fn compact(
         withheld: ring.withheld,
         signals: ring.signals.clone(),
         situation: ring.situation.clone(),
+        cleared: ring.cleared,
         request,
     }
 }
@@ -248,14 +289,12 @@ mod tests {
         let none: Vec<(u64, crate::stub::Stub)> = vec![(1, user("a")), (2, user("b"))];
         assert_eq!(visible(&none).len(), 2);
         // In the prefix, a summary renders first whatever its position.
-        let ordered = summaries_first(vec![&*nodes[4].1, &*nodes[5].1, &*nodes[6].1], None);
+        let three = || nodes[4..7].iter().map(|(p, n)| (*p, &**n)).collect();
+        let ordered = summaries_first(three(), None);
         assert!(is_summary(ordered[0]));
         // An assembled prefix's recall section comes before it.
         let section = nodes[6].1.id.as_str();
-        let ordered = summaries_first(
-            vec![&*nodes[4].1, &*nodes[5].1, &*nodes[6].1],
-            Some(section),
-        );
+        let ordered = summaries_first(three(), Some(section));
         assert_eq!(ordered[0].id, section);
         assert!(is_summary(ordered[1]));
     }

@@ -13,7 +13,7 @@ Key modules: `lifecycle.rs`, `kernel_sim.rs`, `fake_discord.rs`, `discord_proof.
     restarts within an iteration.
   - `kernel-sim` (the M2 exit test): the kernel under a virtual clock with seeded faults (a crash between any two
     frames or inside a startup step, lost, duplicate, and late completions, cancels; wakes, one-shot and repeating,
-    in `kernel_sim/wakes.rs`, and crashes that keep the daemon down for minutes) and invariants checked at every
+    in `kernel_sim/wakes.rs`, a turn's moves of them (`wake.move`, theseus-lherl: a series' next occurrence moved off its grid until it is taken), and crashes that keep the daemon down for minutes) and invariants checked at every
     step. `--p-race` races a second thread against turns; 0 is fully deterministic. sim2 (theseus-celu.35):
     `/stop` between turns, in one, beside a raced one, and of one call (`kernel_sim/stops.rs`); tasks under a
     parent, their carve and reports (`kernel_sim/tasks.rs`); and the outbox's posts, sent by a fake binding to a
@@ -31,18 +31,26 @@ Key modules: `lifecycle.rs`, `kernel_sim.rs`, `fake_discord.rs`, `discord_proof.
     p95 over its budget plus the phase's margin (`lifecycle::margin_ms`, measured on the build machine), and a run
     whose fewest frames a cancel are over `lifecycle::CANCEL_FRAMES` (2; its most is printed, not judged, since under
     load it picks up other work's frames; theseus-kq4n). The cancel's budget is 100 ms since cancel-fast.
+  - `bench lifecycle --sessions N --phases surfaces` (`src/lifecycle/surfaces.rs`, theseus-7bee): what a prompt waits
+    for on a store with a great many sessions: `theseus watch --interactive` from its spawn to its prompt line, against 50 ms
+    at any size. The TUI's startup reads (`executions.watch`, `confirm.list`) print beside it with no budget: at 200,000
+    sessions they took p50 330 ms (the push's seed, health-o1's), to be budgeted once it is O(1).
+    Not in the default phases (the gate's run is on an empty store). It waits first for the index's shape, since until
+    it is built `session.list {n: 1}` reads every session.
   - `bench turn` (`src/perf.rs`, theseus-goa8): a plain turn and a tool-call turn on the stand-in model, each run N
     times on one warm session: wall time by the bench's clock and the daemon's, and **frames per turn**, counted from
     the daemon's WAL by `src/walcount.rs` (a read-only tail; the daemon reports no frame count, and the core is not
     changed for a bench). A frame is one `fdatasync`, so frames are §9's per-turn overhead in a unit that does not
-    depend on the disk. `--check` fails a plain turn that writes more than `perf::PLAIN_TURN_FRAMES` (5; the floor is
-    2). A third kind, `batch` (theseus-d1hi), is one response of four `proc.run`s of `sleep 2` (the stand-in's
-    `bench-batch` mark), three runs: `--check` holds its frames to `perf::BATCH_TURN_FRAMES` (15: the tool turn's 9 and
-    two for each call past the first) and its wall time at the p50 to `perf::batch_wall_budget`: one sleep, the
-    tool-call turn's own p50 (measured beside it, so the load is in both), and `BATCH_OVER_ONE_CALL_MS` (300), which
-    four programs run one at a time miss by six seconds. Its daemon answers jobs in their turn for 10 s
-    (`proc_sync_secs`; the lifecycle bench's 1 s would put the sleeps in the background). Beside them: this disk's `fdatasync`, probed before the daemon starts and after it stops (the quieter is used,
-    so the harness's own share of a turn reads off as an upper bound), and the daemon's resident memory after the start
+    depend on the disk. `--check` fails a plain turn that writes more than `perf::PLAIN_TURN_FRAMES` (4; the floor is
+    2), or whose trace counts more syncs before its model's first byte than `perf::PLAIN_SYNCS_BEFORE_CALL` (2,
+    `syncs_plain`; theseus-2uby). A third kind, `batch` (theseus-d1hi), is one response of four `proc.run`s of `sleep 2`
+    (the stand-in's `bench-batch` mark), three runs: `--check` holds its frames to `perf::BATCH_TURN_FRAMES` (14: the
+    tool turn's 8 and two for each call past the first) and its wall time at the p50 to `perf::batch_wall_budget`: one
+    sleep, the tool-call turn's own p50 (measured beside it, so the load is in both), and `BATCH_OVER_ONE_CALL_MS`
+    (300), which four programs run one at a time miss by six seconds. Its daemon answers jobs in their turn for 10 s
+    (`proc_sync_secs`; the lifecycle bench's 1 s would put the sleeps in the background). Beside them: this disk's
+    `fdatasync`, probed before the daemon starts and after it stops (the quieter is used, so the harness's own share of
+    a turn reads off as an upper bound), and the daemon's resident memory after the start
     and after a burst. Each run also gets a line (`src/perf/runs.rs`, theseus-w7dk): its wall, the daemon's time, its
     frames, and the slowest frame the store answered since its input arrived, with that frame's time and records (the
     turn's trace carries it as `attrs.slowest_frame`); a run over twice its kind's p50 is flagged. The turn's last
@@ -58,7 +66,15 @@ Key modules: `lifecycle.rs`, `kernel_sim.rs`, `fake_discord.rs`, `discord_proof.
     wait between turns). Each run of every arm gets the per-run line too (theseus-v2ru): the turn's own frames, where
     the judge's fell (before its answer · after · between it and the run before), and its slowest frame, named the
     judge's or the turn's. Nothing new is gated: `--check` judges the judge-off arm, and the judged arms' wall times and
-    frames go to `--record` under columns of their own (`*_jloop`, `*_jpacks`). `--session-nodes N` (step 33,
+    frames go to `--record` under columns of their own (`*_jloop`, `*_jpacks`). **The head-to-head's counted rows** (`src/perf/counted.rs`,
+    theseus-7gir.13), judged by `--check` beside the frames, counts and not times (the owner's D-6): the syncs a warm
+    turn's WAL gains before the stand-in's first byte (counted by the stand-in from the WAL as it is about to send;
+    `SYNCS_BEFORE_FIRST_BYTE`, 2, `PLAIN_SYNCS_BEFORE_CALL` since theseus-2uby, only goes down), a fresh session's first request with the default tools (a second
+    scratch daemon of the default config; under `FIRST_REQUEST_KB`, 40; the bench config's is recorded), and no timer
+    between a delta and its write (a paced stream of 8 chunks reaches the client as 8 `model.delta`s, and in
+    lockstep each chunk reaches it alone). A delta's way to the client is recorded. Each kind's harness overhead
+    (`src/perf/overhead.rs`, theseus-4w1h: the turn less its model and its tools, the commits included, split into
+    the commits, the compiles, the admission and the rest, the speed wall's split) is printed and in `--json`. `--session-nodes N` (step 33,
     `src/perf/long.rs`) measures turns in one session of N nodes instead, written before the daemon starts
     (`synth::long_session`: five-node exchanges whose tool results are `--result-bytes`, 8192 by default): each turn's
     wall time, frames, and the nodes the daemon decoded for it (health's `store.node_cache` `decodes`, read around the
@@ -78,6 +94,12 @@ Key modules: `lifecycle.rs`, `kernel_sim.rs`, `fake_discord.rs`, `discord_proof.
     `--check` holds p90 to 5 ms: meant for a release-thin build on the owner's machine (a debug build on a 4-core VM
     reads p90 about 6 ms at 1,000 sessions, 4.9 at 10, where the process's own start is about 3.7). Outside lifecycle's
     gated phases; `--record` writes the `status_short` column.
+  - `bench concurrency` (`src/perf/concurrency.rs`, theseus-4g0l): M task turns (`--turns 8,16,32,80`) submitted 5 ms
+    apart, then a person's turn 0.5 s after the first, on a stand-in that holds each call `--hold-ms` (2000): total
+    wall, each turn's wall and admission (its `admission.wait` span), inversions inside the tasks' class (admitted and
+    ended), the person's rank by admission and by end, failures, and the daemon's peak RSS and CPU. `--stuck-secs`
+    sets `[kernel] admission_stuck_secs` below the queue's length. `--check` fails an admission inversion, a person's
+    turn admitted behind more than the turns admitted before it arrived, or any failure. No history column.
   - `bench history` (`src/history.rs`): each phase's recent runs and headroom, from the CSV every gate appends. The
     other benches' columns (`history::OTHER`) are in the same file, each with its unit.
   - `synth-store` (`src/synth.rs`): a store of parked sessions, for `bench lifecycle --sessions N`.
@@ -85,9 +107,26 @@ Key modules: `lifecycle.rs`, `kernel_sim.rs`, `fake_discord.rs`, `discord_proof.
     gives it a guild for the viewer check (theseus-ck0k).
   - `fake-model --rules <file>` (`src/fake_model.rs`, 37b): a scripted stand-in for the Messages API, for a scratch
     daemon's `api_base`: each turn's last user text takes the first rule (`{when, calls: [{name, input}], text}`) it
-    holds, so a live check can script any tool's calls (`task_create`, `wake_at`, …); a tool's result gets `Done.`.
+    holds, so a live check can script any tool's calls (`task_create`, `wake_at`, …); a tool's result gets the
+    rule's `then`, found by the turn's prompt, else `Done.` (theseus-qy2a).
     A rule's `hold_ms` holds its answer that long, each connection on its own thread, so a live check can find a
+    provider call in flight (theseus-f3wr). A rule's `repeat` (theseus-3ki0) keeps one turn going: while the request
+    holds its `when` (a pinned instruction does), each tool result asks for its calls again, `{n}` in their input's
+    strings the count so far (three digits), until it has asked `repeat` times; then its text.
+    The head-to-head's stand-in (theseus-7gir.13, `src/fake_model/`): one
+    model for both harnesses. A rule's `steps` script a whole turn, matched on the turn's opening user text (the last
+    user message with a plain text block: Claude Code sends
+    `<system-reminder>` blocks, which never open a turn); step k is the k-th request the rule answers for the run's
+    marker (Claude Code merges its messages by role, so a turn's results can sit before its prompt), or, with no
+    marker, the request after k user messages of tool results;
+    `{marker}` is the word after `marker=`. `--ttfb-ms`, `--chunks`, `--chunk-ms` (or a rule's own) pace every
+    answer: its first byte that long after the request, then its deltas one write each, apart, with `TCP_NODELAY`;
+    HTTP/1.1 keep-alive, chunked; a request with no tools is a side request; `"stream": false` gets the message
+    whole. `--log` writes one JSON line a request, its times on `CLOCK_MONOTONIC` (`serve::Entry`). `bench/h2h/`
+    drives it.
     provider call in flight (theseus-f3wr).
+    A rule's text may hold `{handle}`, the first recalled handle in the turn (`m:a1b2c3`), so a live check has the
+    model cite what its recall gave it (theseus-ejdk).
   - `discord` (`src/discord_cli.rs`): `proof`, kl8m's steps against a real daemon (`src/discord_proof.rs`); and
     for a live check across processes, `rig` (a scratch daemon's config, fake `op`, and bindings), `model` (the
     proof's scripted model), and `say`, `press`, `read` against a running `fake-discord`.
@@ -129,8 +168,8 @@ Key modules: `lifecycle.rs`, `kernel_sim.rs`, `fake_discord.rs`, `discord_proof.
 - `bench turn` counts every frame the WAL gains from just before a turn until it has been still for 50 ms, so a frame
   another writer put in that window counts as the turn's. The gate reruns a miss once; a regression writes its frame
   every time, and the output names each frame by what it holds.
-- A tool-call turn writes 9 frames since Tier 7.1 (theseus-kpfv), held by `--check` as the plain turn's 5 is: the
-  turn takes its job's completion itself, with its result, in one frame. It wrote 10 to 12 before, as the drain
+- A tool-call turn writes 8 frames since theseus-2uby (9 since Tier 7.1, theseus-kpfv), held by `--check` as the
+  plain turn's 4 is: the turn takes its job's completion itself, with its result, in one frame. It wrote 10 to 12 before, as the drain
   usually took the completion first.
 - The stand-in model (`fake_model::FakeModel::start_mixed`) asks for its tool only when a turn's input holds
   `fake_model::TOOL_MARK`; the lifecycle bench's `start` asks on every call.

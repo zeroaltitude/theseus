@@ -63,6 +63,16 @@ pub struct TaskOpen {
     pub available_before: Micros,
 }
 
+/// How a task opens: where it reports, whether its report wakes the parent,
+/// and, for a deferred task, when it starts (theseus-rcgph).
+#[derive(Debug, Clone, Default)]
+pub struct Opening {
+    pub reports_to: Option<String>,
+    pub wake_parent: bool,
+    /// Asleep until then: `Waiting{DueAt}`, queued by the due scan.
+    pub start_at_ms: Option<u64>,
+}
+
 /// What `take_reports` took.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct TakenReports {
@@ -96,7 +106,35 @@ impl Kernel {
         wake_parent: bool,
         extra: impl FnOnce(&Execution) -> Result<Vec<NewRecord>>,
     ) -> Result<TaskOpen> {
+        let how = Opening {
+            reports_to,
+            wake_parent,
+            start_at_ms: None,
+        };
+        self.open_task_at(guard, correlation_id, want_micros, how, extra)
+    }
+
+    /// `open_task`, asleep when `start_at_ms` is given (theseus-rcgph): the
+    /// task and its carve are written as they are for any task, in the same
+    /// one frame, but the execution is `Waiting{DueAt}` instead of queued and
+    /// asks the driver for nothing. The due scan queues it when the time
+    /// comes (`wakes::due_now`), and its first turn is its ordinary first
+    /// turn. The carve is held from now, so the parent cannot spend it
+    /// meanwhile; a cancel before the start releases it as any task's does.
+    pub fn open_task_at(
+        &self,
+        guard: &TurnGuard,
+        correlation_id: &str,
+        want_micros: Micros,
+        how: Opening,
+        extra: impl FnOnce(&Execution) -> Result<Vec<NewRecord>>,
+    ) -> Result<TaskOpen> {
         self.require_accepting()?;
+        let Opening {
+            reports_to,
+            wake_parent,
+            start_at_ms,
+        } = how;
         let (task_id, session_id) = task_ids(correlation_id);
         let _w = self.lock(&[&guard.execution_id, &task_id]);
         let mut parent = self
@@ -136,13 +174,17 @@ impl Kernel {
             session_id,
             kind: SessionKind::Task,
             // The driver takes its first turn: its brief is waiting for it.
-            state: ExecState::Queued,
+            // A deferred task sleeps until its start (the due scan).
+            state: match start_at_ms {
+                Some(_) => ExecState::Waiting,
+                None => ExecState::Queued,
+            },
             authority: parent.authority.clone(),
             budget: Budget {
                 pinned: true,
                 ..Budget::new(limit)
             },
-            wake: None,
+            wake: start_at_ms.map(|at_ms| Wake::DueAt { at_ms }),
             outstanding: vec![],
             queued_results: vec![],
             parent: Some(parent.id.clone()),
@@ -154,7 +196,7 @@ impl Kernel {
             stopped: None,
             turns: 0,
             interrupted: 0,
-            resume_pending: true,
+            resume_pending: start_at_ms.is_none(),
             cancel: None,
             ended_reason: None,
             created_at_ms: now,
@@ -168,13 +210,7 @@ impl Kernel {
         parent.updated_at_ms = now;
         let mut frame = vec![exec_record(&parent)?, exec_record(&task)?];
         frame.extend(extra(&task)?);
-        frame.push(self.ledger(
-            LedgerKind::ExecutionOpened,
-            Some(&task.session_id),
-            json!({"execution_id": task.id, "kind": task.kind, "limit_usd": micros_to_usd(limit),
-                   "parent": parent.id, "reports_to": task.reports_to, "by": correlation_id,
-                   "wake_parent": wake_parent}),
-        )?);
+        frame.push(self.opened_row(&task, &parent.id, limit, correlation_id)?);
         frame.push(self.ledger(
             LedgerKind::BudgetCarved,
             Some(&parent.session_id),
@@ -183,17 +219,48 @@ impl Kernel {
                    "available_before_usd": micros_to_usd(available_before),
                    "available_after_usd": micros_to_usd(parent.budget.available())}),
         )?);
-        frame.push(self.ledger(
-            LedgerKind::ExecutionQueued,
-            Some(&task.session_id),
-            json!({"execution_id": task.id, "why": "task"}),
-        )?);
+        frame.push(self.start_row(&task, start_at_ms)?);
         self.commit(&frame)?;
         Ok(TaskOpen {
             task,
             opened: true,
             available_before,
         })
+    }
+
+    /// The row `execution.opened` of a new task.
+    fn opened_row(
+        &self,
+        task: &Execution,
+        parent: &str,
+        limit: Micros,
+        by: &str,
+    ) -> Result<NewRecord> {
+        let mut row = json!({"execution_id": task.id, "kind": task.kind,
+            "limit_usd": micros_to_usd(limit), "parent": parent, "reports_to": task.reports_to,
+            "by": by, "wake_parent": task.wake_parent});
+        if let Some(Wake::DueAt { at_ms }) = task.wake {
+            row["starts_at_ms"] = json!(at_ms);
+        }
+        self.ledger(LedgerKind::ExecutionOpened, Some(&task.session_id), row)
+    }
+
+    /// The row that says how a new task begins: queued for the driver, or,
+    /// deferred, waiting for its start (theseus-rcgph).
+    fn start_row(&self, task: &Execution, start_at_ms: Option<u64>) -> Result<NewRecord> {
+        match start_at_ms {
+            Some(at) => self.ledger(
+                LedgerKind::ExecutionWaiting,
+                Some(&task.session_id),
+                json!({"execution_id": task.id, "why": "deferred", "wake": task.wake,
+                       "starts_at_ms": at}),
+            ),
+            None => self.ledger(
+                LedgerKind::ExecutionQueued,
+                Some(&task.session_id),
+                json!({"execution_id": task.id, "why": "task"}),
+            ),
+        }
     }
 
     /// The reports of the tasks that ended since the turn `guard` holds last
@@ -289,6 +356,17 @@ impl Kernel {
         )?);
         frame.extend(woke);
         Ok(())
+    }
+
+    /// The tasks that have not ended, in id order, by their `ot` term
+    /// (theseus-id8d): health's parked tasks read these, never every open
+    /// execution.
+    pub fn open_tasks(&self) -> Result<Vec<Execution>> {
+        Ok(self
+            .executions_by(&[crate::terms::one(crate::terms::OPEN_TASK)])?
+            .into_iter()
+            .filter(|e| e.kind == SessionKind::Task && !e.state.is_terminal())
+            .collect())
     }
 
     /// Every task execution, oldest first; only `parent`'s when it is given.

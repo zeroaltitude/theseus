@@ -61,8 +61,38 @@ pub fn index_line(h: &theseus_protocol::index::IndexHealth) -> String {
             fmt_bytes(b.total_bytes)
         ));
     }
+    // The vectors' backlog and the tender's memory (theseus-agqn).
+    if let Some(v) = s.vectors.as_ref().filter(|v| v.model != "off") {
+        line.push_str(&format!(
+            " · {} waiting for a vector",
+            plural(v.pending, "text", "texts")
+        ));
+    }
+    if let Some(g) = s.vectors.as_ref().and_then(|v| v.gate.as_ref()) {
+        line.push_str(&gate_words(g));
+    }
+    if s.rss_bytes > 0 {
+        line.push_str(&format!(" · tender rss {}", fmt_bytes(s.rss_bytes)));
+    }
     line.push_str(&why);
     line
+}
+
+/// A recall's query gate (theseus-d7fy): the pool's size, whether pressure
+/// holds it shut now (one thread, one query at a time), and how many queries
+/// have waited for it and how many left without their turn.
+fn gate_words(g: &theseus_protocol::index::IndexQueryGate) -> String {
+    format!(
+        " · query gate {} ({}), {} waited, {} expired",
+        if g.shut { "shut" } else { "open" },
+        if g.shut {
+            "1 thread, one at a time".to_string()
+        } else {
+            plural(u64::from(g.threads), "thread", "threads")
+        },
+        g.waited,
+        g.expired
+    )
 }
 
 /// `theseus index status` (roadmap row 51): the index, its tender, its
@@ -256,6 +286,29 @@ mod tests {
         assert!(
             head.starts_with(" 1. 2026-03-14 02:12 · imported · ses_ep00 @42"),
             "{head}"
+        );
+    }
+
+    /// Health's line names the query gate (theseus-d7fy): the pool's size
+    /// while it is open, one thread and one at a time while it is shut, and
+    /// the queries that waited and expired.
+    #[test]
+    fn the_index_line_names_the_query_gate() {
+        use theseus_protocol::index::IndexQueryGate;
+        let g = |shut| IndexQueryGate {
+            threads: 4,
+            shut,
+            waited: 7,
+            expired: 2,
+            one_thread: 9,
+        };
+        assert_eq!(
+            gate_words(&g(false)),
+            " · query gate open (4 threads), 7 waited, 2 expired"
+        );
+        assert_eq!(
+            gate_words(&g(true)),
+            " · query gate shut (1 thread, one at a time), 7 waited, 2 expired"
         );
     }
 }

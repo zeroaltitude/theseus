@@ -91,6 +91,27 @@ pub fn day_ceiling_line(d: &theseus_protocol::DayCeilingBudget) -> String {
         true => format!(" (${:.4} held by calls in flight)", d.held_usd),
         false => String::new(),
     };
+    if d.mode == "notify" {
+        let line = match d.runaway_usd > 0.0 {
+            true => format!("the day stops at ${:.2}", d.runaway_usd),
+            false => "no runaway line".to_string(),
+        };
+        return match (d.reached, d.past) {
+            (true, _) => format!(
+                "day: RUNAWAY STOP: ${:.4} of the ${:.2} runaway line on {}{held} · no model call until {} \
+                 local time\n",
+                d.spent_usd, d.runaway_usd, d.day, d.turns_at
+            ),
+            (_, true) => format!(
+                "day ceiling: PAST: ${:.4} of ${:.2} on {}{held} · warns, calls go on · {line}\n",
+                d.spent_usd, d.ceiling_usd, d.day
+            ),
+            _ => format!(
+                "day ceiling: ${:.4} of ${:.2} on {}{held} · warns at it, {line} · the day turns at {} local time\n",
+                d.spent_usd, d.ceiling_usd, d.day, d.turns_at
+            ),
+        };
+    }
     match d.reached {
         true => format!(
             "day ceiling: REACHED: ${:.4} of ${:.2} on {}{held} · no model call until {} \
@@ -186,6 +207,7 @@ mod tests {
             reached_at_ms: None,
             turns_at_ms: 1,
             turns_at: "2026-10-09 00:00".into(),
+            ..DayCeilingBudget::default()
         };
         assert_eq!(
             day_ceiling_line(&d),
@@ -196,7 +218,7 @@ mod tests {
             held_usd: 0.25,
             reached: true,
             reached_at_ms: Some(5),
-            ..d
+            ..d.clone()
         };
         assert_eq!(
             day_ceiling_line(&stopped),
@@ -204,5 +226,23 @@ mod tests {
              model call until 2026-10-09 00:00 local time · raise [kernel] daily_spend_ceiling_usd to go on \
              sooner\n"
         );
+        // theseus-9e02: under notify the ceiling warns and the runaway line is the stop.
+        let past = DayCeilingBudget {
+            spent_usd: 412.5,
+            mode: "notify".into(),
+            runaway_usd: 2000.0,
+            past: true,
+            ..d
+        };
+        assert_eq!(
+            day_ceiling_line(&past),
+            "day ceiling: PAST: $412.5000 of $200.00 on 2026-10-08 · warns, calls go on · the day stops at $2000.00\n"
+        );
+        let runaway = DayCeilingBudget {
+            reached: true,
+            ..past
+        };
+        assert!(day_ceiling_line(&runaway)
+            .starts_with("day: RUNAWAY STOP: $412.5000 of the $2000.00 runaway line"));
     }
 }

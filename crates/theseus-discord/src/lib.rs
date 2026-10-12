@@ -30,6 +30,8 @@ pub mod render;
 pub mod rpc_client;
 mod runtime;
 #[cfg(test)]
+mod tests_cite;
+#[cfg(test)]
 mod tests_gateway;
 #[cfg(test)]
 mod tests_live;
@@ -41,6 +43,8 @@ mod tests_process;
 mod tests_show;
 #[cfg(test)]
 mod tests_silent;
+#[cfg(test)]
+mod tests_typing;
 pub mod viewers;
 
 pub use bindings::{Bindings, EXAMPLE_BINDINGS};

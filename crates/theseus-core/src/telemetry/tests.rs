@@ -2002,6 +2002,7 @@ async fn submit(core: &Arc<crate::Core>, input: &str) -> theseus_protocol::Respo
     let srv = tokio::spawn(core.clone().serve_connection(sr, sw, "test".into()));
     let (cr, mut cw) = tokio::io::split(client);
     let params = TurnSubmitParams {
+        dir: None,
         carried: false,
         prompt: None,
         session_id: None,

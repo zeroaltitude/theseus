@@ -28,6 +28,7 @@ use crate::ledger::LedgerRow;
 
 use super::session::Kind;
 use super::stack::{role_arn, Cfn, ChangeSetSpec, Param, Ready, DEPLOYER};
+use super::stack_tags;
 use super::tools::to_cents;
 use super::{Account, Failure, Request, Signer};
 
@@ -114,6 +115,12 @@ pub enum Reconciled {
         from: u32,
         to: u32,
     },
+    /// The same, with the drop of the stack's old `theseus:execution` tag
+    /// riding in its change set (theseus-mpk2s).
+    Migrated {
+        from: u32,
+        to: u32,
+    },
     /// It stopped, and why: no foundation, a diff beyond the budget, a failure.
     Stopped(String),
 }
@@ -136,6 +143,10 @@ impl Reconciled {
             Reconciled::Changed { from, to } => {
                 format!("changed the budget from ${from} to ${to} {per}")
             }
+            Reconciled::Migrated { from, to } => format!(
+                "changed the budget from ${from} to ${to} {per}, and dropped the stack's \
+                 theseus:execution tag"
+            ),
             Reconciled::Stopped(why) => format!("STOPPED: {why}"),
         }
     }
@@ -229,18 +240,25 @@ pub async fn reconcile_budget(account: &Arc<Account>, which: Which) -> Reconcile
     if had == want {
         return Reconciled::Equal(want);
     }
-    change_budget(&cfn, &params, which, had, want).await
+    change_budget(&cfn, &stack, &params, which, had, want).await
 }
 
 /// The change set of the old template with the new amount, applied only if
 /// it changes the budget and nothing else.
+///
+/// The stack's tags go on as they are, less `theseus:execution` (theseus-mpk2s):
+/// a stack made before the tags were stable holds it, and its removal from every
+/// resource rides in this change set as long as it is that and nothing more.
 async fn change_budget(
     cfn: &Cfn<'_>,
+    stack: &Value,
     params: &[(String, String)],
     which: Which,
     had: u32,
     want: u32,
 ) -> Reconciled {
+    let tags = stack_tags::stable_tags(Some(stack), FOUNDATION, cfn.account.cfg.deployment());
+    let migrating = stack_tags::migration(Some(stack), &tags);
     let spec = ChangeSetSpec {
         stack: FOUNDATION,
         name: format!(
@@ -263,7 +281,7 @@ async fn change_budget(
             })
             .collect(),
         role: Some(role_arn(&cfn.account.id, DEPLOYER)),
-        tags: Vec::new(),
+        tags,
         description: format!(
             "theseus: the {} budget's reconcile, ${had} to ${want}",
             which.word()
@@ -284,23 +302,8 @@ async fn change_budget(
         }
         Err(f) => return Reconciled::Stopped(format!("DescribeChangeSet failed: {}", said(&f))),
     };
-    let beyond: Vec<String> = changes
-        .iter()
-        .filter_map(|c| {
-            let r = &c["ResourceChange"];
-            let id = r["LogicalResourceId"].as_str().unwrap_or("?");
-            let action = r["Action"].as_str();
-            // The month's is modified in place; the day's may also be made
-            // or removed, since an amount of 0 makes none.
-            let only_budget = id == which.resource()
-                && match action {
-                    Some("Modify") => r["Replacement"].as_str() == Some("False"),
-                    Some("Add" | "Remove") => which == Which::Daily,
-                    _ => false,
-                };
-            (!only_budget).then(|| format!("{} {id}", action.unwrap_or("?")))
-        })
-        .collect();
+    let (beyond, only_tags) = beyond_the_budget(&changes, which, migrating);
+    let migrated = migrating && only_tags && beyond.is_empty();
     if !beyond.is_empty() || changes.is_empty() {
         let _ = cfn.delete_change_set(FOUNDATION, &id).await;
         return Reconciled::Stopped(format!(
@@ -316,6 +319,10 @@ async fn change_budget(
         return Reconciled::Stopped(format!("ExecuteChangeSet failed: {}", said(&f)));
     }
     match cfn.settle(FOUNDATION, Duration::from_secs(10 * 60)).await {
+        Ok(s) if s.status == "UPDATE_COMPLETE" && migrated => Reconciled::Migrated {
+            from: had,
+            to: want,
+        },
         Ok(s) if s.status == "UPDATE_COMPLETE" => Reconciled::Changed {
             from: had,
             to: want,
@@ -330,6 +337,36 @@ async fn change_budget(
         )),
         Err(f) => Reconciled::Stopped(format!("waiting for {FOUNDATION} failed: {}", said(&f))),
     }
+}
+
+/// What a change set holds beside the budget's own change: the changes that
+/// are not the tag migration (all of them, unless the stack is migrating), and
+/// whether the migration rides in it. A migration with no change to the budget
+/// is no reconcile.
+fn beyond_the_budget(changes: &[Value], which: Which, migrating: bool) -> (Vec<String>, bool) {
+    let own = |c: &Value| {
+        let r = &c["ResourceChange"];
+        let id = r["LogicalResourceId"].as_str().unwrap_or("?");
+        // The month's is modified in place; the day's may also be made
+        // or removed, since an amount of 0 makes none.
+        id == which.resource()
+            && match r["Action"].as_str() {
+                Some("Modify") => r["Replacement"].as_str() == Some("False"),
+                Some("Add" | "Remove") => which == Which::Daily,
+                _ => false,
+            }
+    };
+    let (budget, rest): (Vec<Value>, Vec<Value>) = changes.iter().cloned().partition(own);
+    // What is not the budget's own must be the tag migration and nothing else.
+    let mut beyond: Vec<String> = if migrating {
+        stack_tags::tag_only_gaps(&rest)
+    } else {
+        rest.iter().map(stack_tags::named).collect()
+    };
+    if budget.is_empty() && beyond.is_empty() && !rest.is_empty() {
+        beyond.push("no change to the budget".into());
+    }
+    (beyond, !rest.is_empty())
 }
 
 /// The budget's line: `DescribeBudget`, which is free.
@@ -460,9 +497,17 @@ impl crate::Core {
                         continue;
                     }
                     tracing::info!(account = %account.id, budget = which.word(), reconcile = %r.line_for(which), "aws: the budget's reconcile");
-                    if let (Reconciled::Changed { from, to }, Some(c)) = (&r, core.upgrade()) {
+                    let moved = match &r {
+                        Reconciled::Changed { from, to } => Some((from, to, false)),
+                        Reconciled::Migrated { from, to } => Some((from, to, true)),
+                        _ => None,
+                    };
+                    if let (Some((from, to, migrated)), Some(c)) = (moved, core.upgrade()) {
                         let mut row =
                             json!({"account": account.id, "from_usd": from, "to_usd": to});
+                        if migrated {
+                            row["tag_migration"] = json!(stack_tags::VOLATILE);
+                        }
                         if which == Which::Daily {
                             row["budget"] = json!("daily");
                         }
@@ -484,7 +529,12 @@ impl crate::Core {
                         return;
                     }
                     match read_budget(&account).await {
-                        Ok(b) => account.tended.lock().unwrap().budget = Some(b),
+                        Ok(b) => {
+                            if let Some(c) = core.upgrade() {
+                                c.aws_month_warned(&account, &b);
+                            }
+                            account.tended.lock().unwrap().budget = Some(b)
+                        }
                         Err(e) => {
                             tracing::warn!(account = %account.id, error = %e, "aws: the budget's read failed")
                         }

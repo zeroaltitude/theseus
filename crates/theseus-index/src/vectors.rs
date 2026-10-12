@@ -41,11 +41,13 @@ use crate::ahead::Ahead;
 use crate::embedder::{
     self, dot_i8, quantize, stamp_key, Embedder, ModelSpec, QueryMiss, Vector, Windows,
 };
+use crate::gate::Missed;
 use crate::proto::{
     Compactions, EmbedParams, EmbedResult, EmbedStats, Filters, Neighbour, Reembed, Stamp, Task,
     VectorStatus,
 };
 use crate::weights::LoadError;
+use entries::{Entries, Holders};
 
 /// How many candidates of the int8 scan the 768-d vectors re-score.
 pub const RESCORE: usize = 100;
@@ -137,6 +139,10 @@ pub trait Texts {
     fn all_nodes(&self) -> anyhow::Result<Vec<NodeChunks>>;
 }
 
+mod entries;
+mod heap;
+mod status;
+
 // ---------------------------------------------------------------------------
 // One stamp's vectors on disk.
 
@@ -153,7 +159,7 @@ pub struct Cache {
     cut: usize,
     full: usize,
     rec: usize,
-    by_hash: HashMap<u128, u32>,
+    by_hash: Entries,
     /// Each entry's text hash.
     hashes: Vec<u128>,
     q: Vec<i8>,
@@ -239,7 +245,7 @@ impl Cache {
             cut,
             full,
             rec,
-            by_hash: HashMap::new(),
+            by_hash: Entries::default(),
             hashes: Vec::new(),
             q: Vec::new(),
             scale: Vec::new(),
@@ -278,6 +284,7 @@ impl Cache {
             }
             c.push_record(&buf);
         }
+        c.shrink();
         let good = HEADER + (c.len() * rec) as u64;
         if good != len {
             tracing::warn!(
@@ -294,8 +301,8 @@ impl Cache {
         let hash = u128::from_le_bytes(b[..16].try_into().unwrap_or_default());
         let scale = f32::from_le_bytes(b[16..20].try_into().unwrap_or_default());
         let entry = self.scale.len() as u32;
-        self.by_hash.insert(hash, entry);
         self.hashes.push(hash);
+        self.by_hash.insert(entry, &self.hashes);
         self.scale.push(scale);
         self.q.extend(b[20..20 + self.cut].iter().map(|&x| x as i8));
         self.dead.push(false);
@@ -310,7 +317,7 @@ impl Cache {
     }
 
     pub fn get(&self, hash: u128) -> Option<u32> {
-        self.by_hash.get(&hash).copied()
+        self.by_hash.get(hash, &self.hashes)
     }
 
     /// Records whose text no chunk holds.
@@ -468,15 +475,15 @@ impl Cache {
             .append(true)
             .open(&path)
             .with_context(|| format!("opening {}", path.display()))?;
-        let mut by_hash = HashMap::with_capacity(kept.len());
+        let mut by_hash = Entries::with_capacity(kept.len());
         let mut hashes = Vec::with_capacity(kept.len());
         let mut q = Vec::with_capacity(kept.len() * self.cut);
         let mut scale = Vec::with_capacity(kept.len());
         let mut dead = Vec::with_capacity(kept.len());
         for (n, &e) in kept.iter().enumerate() {
             let h = self.hashes[e as usize];
-            by_hash.insert(h, n as u32);
             hashes.push(h);
+            by_hash.insert(n as u32, &hashes);
             q.extend_from_slice(self.q(e));
             scale.push(self.scale[e as usize]);
             dead.push(self.dead[e as usize]);
@@ -704,7 +711,7 @@ pub struct Table {
     rows: Vec<Row>,
     by_node: HashMap<Arc<str>, Vec<u32>>,
     /// Alive rows, by their text.
-    by_hash: HashMap<u128, Vec<u32>>,
+    by_hash: HashMap<u128, Holders>,
     sessions: Interner,
     kinds: Interner,
     /// This stamp's vectors first, then older stamps' of the same space.
@@ -1074,6 +1081,8 @@ pub struct Vectors {
     opening: Mutex<()>,
     /// Queries embedding now, ahead of the backfill (theseus-w9qv).
     pub(crate) ahead: Ahead,
+    /// The table's counts as the status last read them (`status`).
+    counts: Mutex<status::Counts>,
 }
 
 /// The compactions so far, and when a failed one may be tried again.
@@ -1163,6 +1172,7 @@ impl Vectors {
             compactions: Mutex::new(CompactState::default()),
             opening: Mutex::new(()),
             ahead: Ahead::default(),
+            counts: Mutex::default(),
             cfg,
         }
     }
@@ -1746,7 +1756,8 @@ impl Vectors {
         match cache.append(&items) {
             Ok(entries) => {
                 for ((h, _), e) in items.iter().zip(entries) {
-                    for i in t.by_hash.get(h).cloned().unwrap_or_default() {
+                    let rows = t.by_hash.get(h).map(|r| r.as_slice().to_vec());
+                    for i in rows.unwrap_or_default() {
                         t.rows[i as usize].vec = Some((0, e));
                     }
                 }
@@ -1888,17 +1899,22 @@ impl Vectors {
         gone: &(dyn Fn() -> bool + Sync),
     ) -> Result<(Vec<VectorHit>, f64, f64), String> {
         let emb = self.model(wait)?;
+        // Beside a busy machine, one query at a time on one thread, the
+        // rest in line inside their caller's deadline (`gate`).
+        let turn = self.ahead.gate.admit(gone).map_err(|m| match m {
+            Missed::Gone => GONE.to_string(),
+            Missed::Waited => "the machine is busy: this query waited past its turn".to_string(),
+        })?;
         let t0 = Instant::now();
         // Ahead of the backfill, in a pool of its own (`ahead`).
         let hold = self.ahead.hold(|| self.wake());
-        let v =
-            crate::ahead::install(|| emb.embed_query(text, max_tokens, gone)).map_err(
-                |e| match e {
-                    QueryMiss::Gone => GONE.to_string(),
-                    QueryMiss::Failed(e) => format!("the query would not embed: {e:#}"),
-                },
-            )?;
+        let v = crate::ahead::install_in(turn.lane(), || emb.embed_query(text, max_tokens, gone))
+            .map_err(|e| match e {
+            QueryMiss::Gone => GONE.to_string(),
+            QueryMiss::Failed(e) => format!("the query would not embed: {e:#}"),
+        })?;
         drop(hold);
+        drop(turn);
         let embed_ms = t0.elapsed().as_secs_f64() * 1e3;
         let t1 = Instant::now();
         let t = self.table.read().unwrap();
@@ -2017,75 +2033,6 @@ impl Vectors {
             tokens: lens,
             embed_ms: t0.elapsed().as_secs_f64() * 1e3,
         })
-    }
-
-    pub fn status(&self) -> VectorStatus {
-        let st = self.state.lock().unwrap();
-        let model = st.model.name().to_string();
-        let since = |i: Instant| now_ms().saturating_sub(i.elapsed().as_millis() as u64);
-        let mut s = VectorStatus {
-            model,
-            weights_dir: self
-                .cfg
-                .weights_dir
-                .as_ref()
-                .map(|d| d.display().to_string()),
-            stamp: self.enabled().then(|| self.stamp.clone()),
-            loads: st.loads,
-            unloads: st.unloads,
-            load_ms: st.load_ms,
-            loaded_at_ms: st.loaded_at_ms,
-            last_used_ms: since(st.last_used),
-            idle_unload_secs: self.cfg.idle_unload.as_secs(),
-            threads: format!(
-                "RAYON_NUM_THREADS={} CANDLE_NUM_THREADS={}",
-                std::env::var("RAYON_NUM_THREADS").unwrap_or_else(|_| "unset".into()),
-                std::env::var("CANDLE_NUM_THREADS").unwrap_or_else(|_| "unset".into())
-            ),
-            ..VectorStatus::default()
-        };
-        if let Model::Refused { why, .. } = &st.model {
-            s.last_error = Some(why.clone());
-        }
-        drop(st);
-        {
-            let t = self.table.read().unwrap();
-            let mut done = 0u64;
-            for r in t.alive() {
-                s.chunks += 1;
-                if r.vec.is_some() {
-                    s.vectors += 1;
-                }
-                if matches!(r.vec, Some((0, _))) {
-                    done += 1;
-                }
-            }
-            s.pending = t.backlog.len() as u64;
-            let (records, dead) = t.records();
-            (s.records, s.dead) = (records as u64, dead as u64);
-            if t.caches.len() > 1 || !t.others.is_empty() {
-                s.reembed = Some(Reembed {
-                    from: t
-                        .caches
-                        .iter()
-                        .skip(1)
-                        .map(|c| c.stamp.clone())
-                        .chain(t.others.iter().map(|o| o.0.clone()))
-                        .collect(),
-                    done,
-                    total: s.chunks,
-                });
-            }
-        }
-        let stats = self.stats.lock().unwrap();
-        s.backfill = stats.0.clone();
-        if s.last_error.is_none() {
-            s.last_error = stats.1.clone();
-        }
-        s.last_error_ms = stats.2;
-        drop(stats);
-        s.compactions = self.compactions.lock().unwrap().stats.clone();
-        s
     }
 }
 
@@ -2477,7 +2424,7 @@ mod tests {
             assert_eq!(copy.exists(), !want_new, "{stop:?}");
             let again = Cache::open(tmp.path(), &stamp(16, 48)).unwrap();
             assert!(!copy.exists(), "{stop:?}: the open removes the copy");
-            let mut hashes: Vec<u128> = again.by_hash.keys().copied().collect();
+            let mut hashes: Vec<u128> = again.hashes.clone();
             hashes.sort_unstable();
             let want: Vec<u128> = (0..40).filter(|h| !want_new || even(*h)).collect();
             assert_eq!(hashes, want, "{stop:?}");

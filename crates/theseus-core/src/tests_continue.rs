@@ -38,6 +38,7 @@ fn spec() -> RequestSpec {
         max_tokens: 1000,
         system_text: "You are Theseus.".into(),
         context_text: String::new(),
+        session_text: String::new(),
         context_files: vec![],
         persona: None,
         tools: vec![
@@ -45,6 +46,7 @@ fn spec() -> RequestSpec {
         ],
         effort: Some(Effort::High),
         turn_effort: None,
+        effort_refused: vec![],
         thinking_display: ThinkingDisplay::Summarized,
         refusal_fallbacks: true,
         fallback: None,
@@ -480,7 +482,7 @@ async fn a_signal_and_no_trigger_asks_continue_in_shadow_once() {
             "security.v3: live (owner: decision of 2026-10-04)",
             "classify.v1: off",
             "role.v1: off",
-            "route.v3: off (the config's ceiling; on the ladder: live (owner: decision of 2026-10-07))",
+            "route.v4: off (the config's ceiling; on the ladder: live (owner: decision of 2026-10-11))",
             "continue.v1: shadow",
             "categorize.v1: shadow",
             "rerank.v1: live (owner: decision of 2026-10-04)",
@@ -611,7 +613,7 @@ async fn a_turn_judged_at_its_compile_keeps_its_frame_budget() {
         "judged at its compile"
     );
     assert!(
-        frames <= 5,
+        frames <= 4,
         "a plain turn judged at its compile wrote {frames} frames"
     );
     until(&r.core.store, "judge:continue", 2).await;

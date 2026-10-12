@@ -15,15 +15,28 @@ use theseus_protocol::judge::{JudgeGetParams, JudgeGetResult, JudgeListParams, J
 use theseus_protocol::{
     method, notify, ActionConfirmParams, ActionConfirmResult, CatalogListResult, ConfirmListResult,
     Event, HealthResult, LedgerTailParams, LedgerTailResult, Message, ProfileListResult,
-    ProfileUseParams, SessionHistoryParams, SessionHistoryResult, SessionListResult,
-    SessionOpenParams, SessionRecompileParams, SessionRef, ToolListResult, TurnSubmitParams,
-    TurnSubmitResult,
+    ProfileUseParams, SessionHistoryParams, SessionHistoryResult, SessionListParams,
+    SessionListResult, SessionOpenParams, SessionRecompileParams, SessionRef, ToolListResult,
+    TurnSubmitParams, TurnSubmitResult,
 };
 
+use crate::pages::PageArgs;
 use crate::print::{self, Mode, Printer};
 use crate::{
     AskArgs, AwsCmd, ConfirmArgs, ExecutionsCmd, IndexCmd, JudgeCmd, MemoryCmd, PolicyCmd,
     ProfileCmd, SessionsCmd,
+};
+
+/// The nodes `theseus history` reads without `-n`, the newest of them: the
+/// daemon's own page past a cursor (theseus-7bee).
+const HISTORY_PAGE: usize = 200;
+
+/// `session.list`'s params for the newest session alone.
+pub(crate) const NEWEST: SessionListParams = SessionListParams {
+    ids: None,
+    n: Some(1),
+    before: None,
+    state: None,
 };
 
 /// The answer as the daemon sent it under `--json`; else `lines`, given it
@@ -61,7 +74,9 @@ pub async fn ask(
         None | Some("-") => read_stdin_prompt()?,
         Some(p) => p.to_string(),
     };
+    let dir = ask_dir(a.dir.as_deref(), a.session.is_some())?;
     let params = serde_json::to_value(TurnSubmitParams {
+        dir,
         carried: false,
         prompt: None,
         session_id: a.session,
@@ -80,6 +95,18 @@ pub async fn ask(
     stream_turn(conn, json, no_stream, params, shown, spawned, follow_for).await
 }
 
+/// The directory `ask` sends (theseus-aab7): `--dir`, made absolute, else
+/// this process's own when it starts a session; a session it continues
+/// keeps its own.
+fn ask_dir(dir: Option<&std::path::Path>, continues: bool) -> Result<Option<String>> {
+    let dir = match dir {
+        Some(d) => std::path::absolute(d)?,
+        None if continues => return Ok(None),
+        None => std::env::current_dir()?,
+    };
+    Ok(Some(dir.display().to_string()))
+}
+
 /// One `turn.submit`, streamed as `ask` prints it: the reply as it comes (or
 /// as JSON, or quiet), the status line, the trace, and the exit code that
 /// says how the turn ended. `theseus prompt` shares it.
@@ -93,12 +120,19 @@ pub(crate) async fn stream_turn(
     follow_for: Option<std::time::Duration>,
 ) -> Result<()> {
     let stream = !no_stream && !json;
+    let dir = params
+        .get("dir")
+        .and_then(Value::as_str)
+        .map(str::to_string);
     let mode = match (json, stream) {
         (true, _) => Mode::Json,
         (false, true) => Mode::Text,
         (false, false) => Mode::Quiet,
     };
     let mut printer = Printer::new(mode, thinking);
+    if stream {
+        printer.mark_cites();
+    }
     let mut signalled = false;
     // Under --spawn, one listener for the turn and its follow, so no signal
     // falls between them.
@@ -121,6 +155,10 @@ pub(crate) async fn stream_turn(
         }
     };
     let r: TurnSubmitResult = serde_json::from_value(result.clone())?;
+    // Started outside the workspace roots: said once (theseus-aab7).
+    if let (Some(roots), Some(dir), false) = (&r.outside_roots, &dir, json) {
+        eprintln!("{}", render::session_dir::outside_line(dir, roots));
+    }
     // What the turn left for later, under `--spawn` (theseus-mqxk).
     let modes = (json, stream);
     let first = (result, r);
@@ -136,11 +174,16 @@ pub(crate) async fn stream_turn(
     if json {
         println!("{}", serde_json::to_string(&result)?);
     } else {
-        if !stream {
-            println!("{}", r.output);
+        if stream {
+            printer.footnotes(&r.cites);
+        } else {
+            let (text, order) = render::cite::mark(&r.output, &r.cites);
+            println!("{text}");
+            print::lines(&mut io::stdout(), &render::cite::footnotes(&order))?;
         }
-        // A refusal's fallback says so in a line of its own (theseus-7gir.18).
-        if let Some(line) = render::fallback_line(&r) {
+        // A refusal's fallback and a nudge say so in lines of their own
+        // (theseus-7gir.18, theseus-fh0u).
+        for line in r.harness_lines() {
             eprintln!("{line}");
         }
         eprintln!("{}", render::status_line(&r));
@@ -258,6 +301,9 @@ pub async fn history(
     (n, after, before): (Option<usize>, Option<u64>, Option<u64>),
     full: bool,
 ) -> Result<()> {
+    if let Some(handle) = session.as_deref().and_then(crate::cite::handle_of) {
+        return crate::cite::open(conn, json, handle).await;
+    }
     let session_id = match session {
         Some(s) => resolve::session(conn, &s).await?,
         None => latest_session(conn).await?,
@@ -267,7 +313,7 @@ pub async fn history(
             method::SESSION_HISTORY,
             SessionHistoryParams {
                 session_id: session_id.clone(),
-                n,
+                n: Some(n.unwrap_or(HISTORY_PAGE)),
                 after,
                 before,
             },
@@ -279,7 +325,13 @@ pub async fn history(
         let mut out = io::stdout().lock();
         writeln!(out, "{}", render::session_header(&h.session))?;
         for node in &h.nodes {
-            print::lines(&mut out, &render::history::node_lines(node, full))?;
+            match render::cite::cited_node(node, &h.cites) {
+                Some((marked, notes)) => {
+                    print::lines(&mut out, &render::history::node_lines(&marked, full))?;
+                    print::lines(&mut out, &notes)?;
+                }
+                None => print::lines(&mut out, &render::history::node_lines(node, full))?,
+            }
         }
         for c in &h.pending_confirms {
             print::lines(&mut out, &render::confirm_lines(c))?;
@@ -588,7 +640,7 @@ async fn follow_resumed(
                 if json {
                     println!("{}", serde_json::to_string(&t)?);
                 } else {
-                    if let Some(line) = render::fallback_line(&t) {
+                    for line in t.harness_lines() {
                         eprintln!("{line}");
                     }
                     eprintln!("{}", render::status_line(&t));
@@ -634,6 +686,12 @@ pub async fn tools(conn: &mut Conn, json: bool, verbose: bool) -> Result<()> {
                 "{:<12} {:<12} {:<6} {:<7} {:<8} {:>6}",
                 t.name, t.wire_name, t.class, t.backend, posture, t.calls
             );
+            if t.invalid_json > 0 {
+                println!(
+                    "    {} call(s) whose input was not valid JSON",
+                    t.invalid_json
+                );
+            }
             if verbose {
                 println!("    {}", t.description);
                 println!("    input: {}", serde_json::to_string(&t.input_schema)?);
@@ -803,6 +861,10 @@ pub async fn policy(conn: &mut Conn, json: bool, cmd: PolicyCmd) -> Result<()> {
                 Ok(())
             })
         }
+        PolicyCmd::Earned { cmd, propose_now } => {
+            crate::earned::earned(conn, json, cmd, propose_now).await
+        }
+        PolicyCmd::Revoke { id } => crate::earned::revoke(conn, json, id).await,
         PolicyCmd::Trust { session } => {
             // A short name is looked for among the sessions that hold
             // external text (theseus-9bp), which health lists.
@@ -833,15 +895,20 @@ async fn policy_list(conn: &mut Conn, json: bool) -> Result<()> {
     let tools = conn.request(method::TOOL_LIST, Value::Null).await?;
     let health = conn.request(method::HEALTH, Value::Null).await?;
     if json {
-        println!(
-            "{}",
-            serde_json::json!({"tools": tools["tools"], "tightenings": health["tightenings"]})
-        );
+        let mut out =
+            serde_json::json!({"tools": tools["tools"], "tightenings": health["tightenings"]});
+        if !health["earned"].is_null() {
+            out["earned"] = health["earned"].clone();
+        }
+        println!("{out}");
         return Ok(());
     }
     let l: ToolListResult = serde_json::from_value(tools)?;
     let h: HealthResult = serde_json::from_value(health)?;
     print!("{}", render::policy_list(&l, &h.tightenings));
+    for g in h.earned.iter().flatten() {
+        println!("earned grant: {}", crate::earned::grant_line(g));
+    }
     for why in &h.tools_not_offered {
         println!("{why}");
     }
@@ -1004,22 +1071,20 @@ pub async fn memory(conn: &mut Conn, json: bool, cmd: MemoryCmd) -> Result<()> {
 }
 
 /// `theseus sessions`: list, open, or recompile.
-pub async fn sessions(conn: &mut Conn, json: bool, cmd: SessionsCmd) -> Result<()> {
-    match cmd {
-        SessionsCmd::List => {
-            let v = conn.request(method::SESSION_LIST, Value::Null).await?;
-            output(json, v, |l: SessionListResult| {
-                for s in l.sessions {
-                    println!("{}", render::session_row(&s).text);
-                }
-                Ok(())
-            })
-        }
+pub async fn sessions(
+    conn: &mut Conn,
+    json: bool,
+    page: PageArgs,
+    cmd: Option<SessionsCmd>,
+) -> Result<()> {
+    match cmd.unwrap_or(SessionsCmd::List(page)) {
+        SessionsCmd::List(page) => crate::pages::sessions(conn, json, &page).await,
         SessionsCmd::Open { label } => {
             let v = conn
                 .request(
                     method::SESSION_OPEN,
                     SessionOpenParams {
+                        dir: None,
                         kind: None,
                         label,
                         opened_from: theseus_client::client::job_session(),
@@ -1069,24 +1134,29 @@ pub async fn sessions(conn: &mut Conn, json: bool, cmd: SessionsCmd) -> Result<(
                 Ok(())
             })
         }
+        SessionsCmd::Nudge { session, state } => {
+            let p = theseus_protocol::nudge::SessionNudgeParams {
+                session_id: session,
+                on: state == "on",
+            };
+            let v = conn.request(method::SESSION_NUDGE, p).await?;
+            output(json, v, |r: theseus_protocol::nudge::SessionNudgeResult| {
+                println!("{}", render::sessions::nudge_line(&r));
+                Ok(())
+            })
+        }
     }
 }
 
 /// `theseus executions`: list, or cancel one.
-pub async fn executions(conn: &mut Conn, json: bool, cmd: ExecutionsCmd) -> Result<()> {
-    match cmd {
-        ExecutionsCmd::List => {
-            let v = conn.request(method::EXECUTION_LIST, Value::Null).await?;
-            output(json, v, |l: theseus_protocol::ExecutionListResult| {
-                if l.executions.is_empty() {
-                    println!("no executions");
-                }
-                for e in l.executions {
-                    println!("{}", render::execution_row(&e).text);
-                }
-                Ok(())
-            })
-        }
+pub async fn executions(
+    conn: &mut Conn,
+    json: bool,
+    page: PageArgs,
+    cmd: Option<ExecutionsCmd>,
+) -> Result<()> {
+    match cmd.unwrap_or(ExecutionsCmd::List(page)) {
+        ExecutionsCmd::List(page) => crate::pages::executions(conn, json, &page).await,
         ExecutionsCmd::Explain { id } => explain(conn, json, &id).await,
         ExecutionsCmd::Cancel { execution_id } => {
             let v = conn
@@ -1181,7 +1251,7 @@ async fn explain(conn: &mut Conn, json: bool, id: &str) -> Result<()> {
     }
     writeln!(out, "last rows of its session:")?;
     for r in &rows.rows {
-        writeln!(out, "  {}", render::ledger_row(r)?)?;
+        writeln!(out, "  {}", ledger_row(r)?)?;
     }
     Ok(())
 }
@@ -1644,7 +1714,7 @@ pub async fn ledger(
         .await?;
     output(json, v, |t: LedgerTailResult| {
         for r in t.rows {
-            println!("{}", render::ledger_row(&r)?);
+            println!("{}", ledger_row(&r)?);
         }
         eprintln!("[{} rows total]", t.total);
         Ok(())
@@ -1731,11 +1801,11 @@ pub fn tui(socket: &str, spawn: bool, args: &[String]) -> Result<()> {
     Err(err).with_context(|| format!("running {}", program.display()))
 }
 
-/// The session a command means when it names none: the most recently
-/// active.
+/// The session a command means when it names none: the newest opened. One
+/// page of one: the daemon reads that session, not every one (theseus-7bee).
 async fn latest_session(conn: &mut Conn) -> Result<String> {
     let l: SessionListResult =
-        serde_json::from_value(conn.request(method::SESSION_LIST, Value::Null).await?)?;
+        serde_json::from_value(conn.request(method::SESSION_LIST, NEWEST).await?)?;
     l.sessions
         .first()
         .map(|s| s.session_id.clone())
@@ -1859,6 +1929,21 @@ fn read_stdin_prompt() -> Result<String> {
         std::process::exit(2);
     }
     Ok(s)
+}
+
+/// One ledger row, as `theseus ledger` lists it: its data cut at 160
+/// characters.
+fn ledger_row(r: &theseus_protocol::LedgerEntry) -> serde_json::Result<String> {
+    let data = serde_json::to_string(&r.data)?;
+    let data: String = data.chars().take(160).collect();
+    Ok(format!(
+        "{:>6}  {}  {:<16} {:<36} {}",
+        r.position,
+        render::fmt_time(r.at_unix_ms),
+        r.kind,
+        r.turn_id.as_deref().unwrap_or_default(),
+        data
+    ))
 }
 
 #[cfg(test)]

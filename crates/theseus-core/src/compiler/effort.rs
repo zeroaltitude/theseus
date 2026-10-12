@@ -28,7 +28,9 @@
 //!   one that opens with tool results stays next to its calls, and the turn
 //!   runs at the level in force.
 //! - **Any other model** gets no such message: the top-level effort, as
-//!   before, and the history's messages are left out.
+//!   before, and the history's messages are left out. Only Fable 5.1 is
+//!   named ([`default_of`]); a 400 that names `output_config` marks any other
+//!   model refusing for the daemon's life (theseus-posww).
 
 use serde_json::{json, Value};
 
@@ -40,23 +42,44 @@ use crate::provider::ProviderRequest;
 /// Per-message effort's beta.
 pub const BETA_TURN_EFFORT: &str = "mid-conversation-output-config-2026-07-01";
 
-/// The level a model that takes per-message effort runs at without one, from
-/// the Claude API's model notes (2026-10-06): Claude Opus 5.5's default is
-/// `medium`, every other's `high`. Their thinking is adaptive, which per-message
-/// effort needs. None for any other model: Claude Fable 5 refuses the message
-/// (400), and Claude Haiku 5.5's support is not confirmed.
+/// The level a model that takes per-message effort runs at without one.
+/// Only a model seen to accept the message live is named: Claude Fable 5.1,
+/// whose default is `high`. On 2026-10-11 Claude Sonnet 5.5 answered the
+/// message with a 400 (`messages.190.output_config: Extra inputs are not
+/// permitted`) and every request of a conversation that held one failed; Opus
+/// 5.5 and Opus 5 are unproven, and a model added here needs a live check
+/// first (theseus-posww). A model named here that still refuses it is
+/// found out at run time ([`refused_by`]).
 pub fn default_of(model: &str) -> Option<Effort> {
     match model {
-        "claude-opus-5-5" => Some(Effort::Medium),
-        "claude-fable-5-1" | "claude-opus-5" | "claude-sonnet-5-5" => Some(Effort::High),
+        "claude-fable-5-1" => Some(Effort::High),
         _ => None,
     }
 }
 
 /// The request's model takes per-message effort: Anthropic's own API (the beta
-/// is not confirmed elsewhere) and a model [`default_of`] knows.
+/// is not confirmed elsewhere), a model [`default_of`] knows, and one this
+/// daemon has not found to refuse it (`spec.effort_refused`).
 pub fn takes(spec: &RequestSpec, model: &str) -> bool {
-    spec.first_party && default_of(model).is_some()
+    spec.first_party
+        && default_of(model).is_some()
+        && !spec.effort_refused.iter().any(|m| m == model)
+}
+
+/// Whether a failed call is the provider refusing the effort-only messages:
+/// a 400 that names `output_config`, on a request that carries one. Then the
+/// turn asks again without them (theseus-posww).
+pub fn refused_by(req: &ProviderRequest, class: &str, error: &str) -> bool {
+    class == "invalid_request"
+        && error.contains("output_config")
+        && req.messages.iter().any(|m| level_of(m).is_some())
+}
+
+/// The request without its effort-only messages and their beta: what a model
+/// that refuses them is sent, its level the top-level one.
+pub fn without_messages(req: &mut ProviderRequest) {
+    req.messages.retain(|m| level_of(m).is_none());
+    sync_beta(req);
 }
 
 /// A request's `output_config`: its effort, for a model whose catalog row
@@ -132,7 +155,7 @@ pub fn place(
 /// compile); none for any other model, or after the turn's first answer.
 /// Where a message went in.
 pub fn retarget(req: &mut ProviderRequest, spec: &RequestSpec) -> Option<usize> {
-    let default = default_of(&req.model).filter(|_| spec.first_party)?;
+    let default = default_of(&req.model).filter(|_| takes(spec, &req.model))?;
     let mut at = req.messages.len().checked_sub(1)?;
     if !opens_turn(&req.messages[at]) {
         return None;

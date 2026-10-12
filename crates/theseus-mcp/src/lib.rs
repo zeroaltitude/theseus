@@ -22,6 +22,8 @@
 pub mod client;
 pub mod fake;
 pub mod jsonrpc;
+#[cfg(feature = "server")]
+mod memory_tools;
 pub mod names;
 #[cfg(feature = "server")]
 pub mod server;

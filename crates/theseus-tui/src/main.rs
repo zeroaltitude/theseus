@@ -19,6 +19,8 @@ mod ui;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
+mod tests_cite;
+#[cfg(test)]
 mod tests_names;
 #[cfg(test)]
 mod tests_notice;
@@ -26,6 +28,8 @@ mod tests_notice;
 mod tests_order;
 #[cfg(test)]
 mod tests_paste;
+#[cfg(test)]
+mod tests_typing;
 
 use std::io::Write;
 use std::time::{SystemTime, UNIX_EPOCH};

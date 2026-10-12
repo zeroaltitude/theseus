@@ -357,25 +357,42 @@ impl World {
             if row.data["turn_running"].as_bool() == Some(true) {
                 let turn = row.data["turn"].as_u64().unwrap_or(0);
                 self.s2.stopped_turn.entry(id.to_string()).or_insert(turn);
+                if row.data["state_before"] != "running" {
+                    self.s2.stopped_held.insert(id.to_string());
+                }
             }
             return Ok(());
         }
         let Some(&turn) = self.s2.stopped_turn.get(id) else {
             return Ok(());
         };
+        // A held turn's admission, after the stop that marked it.
+        if self.s2.stopped_held.contains(id) {
+            match kind {
+                "execution.queued" if row.data["why"] == "input" => return Ok(()),
+                "execution.running" => {
+                    self.s2.stopped_held.remove(id);
+                    return Ok(());
+                }
+                _ => {}
+            }
+        }
         match kind {
             "action.planned" if row.data["tool"] != OUTBOX_TOOL => {}
             "wake.set" | "budget.carved" => {}
             "execution.waiting" if row.data["why"] == "stopped" => {
                 self.s2.stopped_turn.remove(id);
+                self.s2.stopped_held.remove(id);
                 return Ok(());
             }
             "execution.interrupted" if !row.data["stopped_by"].is_null() => {
                 self.s2.stopped_turn.remove(id);
+                self.s2.stopped_held.remove(id);
                 return Ok(());
             }
             "execution.cancelled" => {
                 self.s2.stopped_turn.remove(id);
+                self.s2.stopped_held.remove(id);
                 return Ok(());
             }
             "execution.waiting"

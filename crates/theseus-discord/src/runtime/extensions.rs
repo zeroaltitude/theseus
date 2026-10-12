@@ -152,8 +152,8 @@ impl Shared {
             .map_err(|e| e.message)
     }
 
-    /// An interaction of `/extensions` or its Revoke button: true when it was
-    /// one, and answered.
+    /// An interaction of `/extensions` or its Revoke button, or of `/why`:
+    /// true when it was one, and answered.
     pub(super) async fn extensions_interaction(
         &self,
         i: &Interaction,
@@ -182,7 +182,8 @@ impl Shared {
             }
             Some(InteractionData::MessageComponent(c)) => {
                 let Some(name) = revoke_of(&c.custom_id) else {
-                    return false;
+                    // A cited source's "Show source" (`runtime/source.rs`).
+                    return self.source_interaction(i).await;
                 };
                 // The press goes through the place, as the presser.
                 let said =
@@ -197,12 +198,17 @@ impl Shared {
                     .await;
                 true
             }
-            _ => false,
+            // Not one of ours: `/why` is the next in the chain.
+            _ => self.why_interaction(i, tx, who).await,
         }
     }
 
     /// A control through the place's own line, and what it said.
-    async fn ask_place(tx: &mpsc::UnboundedSender<PlaceMsg>, cmd: Control, who: &str) -> String {
+    pub(super) async fn ask_place(
+        tx: &mpsc::UnboundedSender<PlaceMsg>,
+        cmd: Control,
+        who: &str,
+    ) -> String {
         let (rtx, rrx) = oneshot::channel();
         let _ = tx.send(PlaceMsg::Control {
             cmd,

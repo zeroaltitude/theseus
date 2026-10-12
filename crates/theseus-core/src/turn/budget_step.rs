@@ -10,38 +10,58 @@
 //! row ride in the turn's next frame, so a notice adds no frame, and a loop
 //! that reaches nothing reads the execution twice and writes nothing more.
 //!
-//! What still bounds a stuck loop under notify is the owner: each multiple's
-//! notice, `/stop` or `theseus stop`, and the cockpit's Stop.
+//! What bounds a stuck loop under notify is the owner (each multiple's
+//! notice, `/stop` or `theseus stop`, and the cockpit's Stop), and the hard
+//! multiple (`[kernel] spend_limit_hard_multiple`, 10: the kernel refuses a
+//! call whose reservation would pass it, theseus-jse4), which ends the turn.
+//! A multiple is noticed at the check after the settle that crossed it: each
+//! loop's start and its call's settle, whatever the call's outcome, against
+//! the spend the last check saw (`SpendMarks`).
 
 use super::*;
 use crate::config::MaxLoopsMode;
 use crate::fact::limits::{LoopsReached, SpendReached};
 
-impl TurnRunner {
-    /// What the execution has spent before a loop's call, when its limit
-    /// notifies; `None` when it asks, or cannot be read.
-    pub(super) fn spent_before(t: &Turn<'_>) -> Option<Micros> {
-        let e = t.tc.kernel.execution(t.tc.execution_id).ok().flatten()?;
-        t.tc.kernel.overdraws(&e).then_some(e.budget.spent_micros)
-    }
+/// The failure's class when the hard multiple refused a call (theseus-jse4).
+pub const HARD_STOP_CLASS: &str = "spend_hard_stop";
 
-    /// After a loop's call settled: when the spend passed the limit, or a
-    /// multiple of it, since `before`, one notice for the highest multiple
-    /// reached. Never one per call: a call that crosses no multiple says
-    /// nothing.
-    pub(super) fn spend_noticed(
-        &self,
-        t: &mut Turn<'_>,
-        session: &SessionRecord,
-        before: Option<Micros>,
-    ) -> Result<()> {
-        let Some(before) = before else {
-            return Ok(());
-        };
+/// Each execution's spend at its last check, in memory (theseus-jse4): a
+/// multiple crossed by a settle outside a loop's own call (a task's carry, a
+/// call between two checks) is noticed at the next check, never skipped to
+/// the next multiple. A start begins with none: an execution's first check
+/// marks it.
+#[derive(Debug, Default)]
+pub struct SpendMarks(std::sync::Mutex<std::collections::HashMap<String, Micros>>);
+
+impl SpendMarks {
+    /// Mark `id` at `spent`: what it was marked at before, if it was.
+    fn swap(&self, id: &str, spent: Micros) -> Option<Micros> {
+        let mut m = self
+            .0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        m.insert(id.to_string(), spent)
+    }
+}
+
+impl TurnRunner {
+    /// Before a loop's call and at each settle, when the execution's limit
+    /// notifies: when the spend passed the limit, or a multiple of it, since
+    /// the last check, one notice for the highest multiple reached. Never
+    /// one per call: a check that crosses no multiple says nothing, and one
+    /// comparison is all it adds.
+    pub(super) fn spend_checked(&self, t: &mut Turn<'_>, session: &SessionRecord) -> Result<()> {
+        self.day_warned(t)?;
         let Some(e) = t.tc.kernel.execution(t.tc.execution_id)? else {
             return Ok(());
         };
+        if !t.tc.kernel.overdraws(&e) {
+            return Ok(());
+        }
         let (spent, limit) = (e.budget.spent_micros, e.budget.limit_micros);
+        let Some(before) = self.spend_marks.swap(&e.id, spent) else {
+            return Ok(());
+        };
         let Some(multiple) = crossed(before, spent, limit) else {
             return Ok(());
         };
@@ -50,10 +70,19 @@ impl TurnRunner {
             1 => format!("its {} limit", narrative::dollars(limit)),
             n => format!("{n} times its {} limit", narrative::dollars(limit)),
         };
+        let hard = t.tc.kernel.config().spend_hard_multiple;
+        let next = match hard {
+            0 => String::new(),
+            h => format!(
+                " At {} times the limit, {}, its calls stop (`[kernel] spend_limit_hard_multiple`).",
+                h,
+                narrative::dollars(limit.saturating_mul(h))
+            ),
+        };
         let text = format!(
             "{who} has spent {}, past {past}, and goes on: the limit notifies \
              (`[kernel] spend_limit_mode = \"notify\"`). To stop the work: {}. \
-             The next notice comes at {}.",
+             The next notice comes at {}.{next}",
             narrative::dollars(spent),
             stop_how(t.tc.session_id),
             narrative::dollars(limit.saturating_mul(multiple + 1)),
@@ -68,6 +97,40 @@ impl TurnRunner {
             text: &text,
         });
         Ok(())
+    }
+
+    /// What a budget question keeps of the call that asked it (`args.call`):
+    /// its profile, model and output cap; and, for a burn-rate pause
+    /// (theseus-9e02), the `brake` that makes it one: the window's spend, the
+    /// line, and the window's length.
+    pub(super) fn budget_call(t: &mut Turn<'_>) -> Value {
+        let mut call = json!({"profile": t.target.profile, "model": t.target.model, "max_output_tokens": t.target.max_tokens});
+        if let Some(b) = t.braked.take() {
+            call["brake"] = json!({
+                "spent_usd": micros_to_usd(b.spent),
+                "line_usd": micros_to_usd(b.line),
+                "window_minutes": theseus_kernel::day_ceiling::BURN_WINDOW_MS / 60_000,
+            });
+        }
+        call
+    }
+
+    /// A loop's call the hard multiple refused (theseus-jse4): nothing was
+    /// planned or sent, and the turn ends failed, class `spend_hard_stop`,
+    /// which is lasting, so the driver retries nothing; its failure's notice
+    /// carries the words to the session's place.
+    pub(super) fn hard_stopped(t: &mut Turn<'_>, h: &theseus_kernel::HardStop) -> Failure {
+        t.record(&fact::turn::LoopCut {
+            decision: HARD_STOP_CLASS,
+        });
+        let words = format!("{}: {h}", Self::who(t));
+        Failure {
+            class: HARD_STOP_CLASS.into(),
+            transient: false,
+            usage_unknown: false,
+            reason: HARD_STOP_CLASS.into(),
+            source: anyhow::anyhow!("{words}"),
+        }
     }
 
     /// After loop `i` ended and its turn goes on: at `max_loops` loops, and
@@ -143,7 +206,7 @@ pub(crate) fn crossed(before: Micros, after: Micros, limit: Micros) -> Option<u6
 }
 
 /// How the owner stops the work: the CLI, Discord, or the cockpit.
-fn stop_how(session_id: &str) -> String {
+pub(super) fn stop_how(session_id: &str) -> String {
     format!("`theseus stop {session_id}`, `/stop` in its place, or Stop in the cockpit")
 }
 

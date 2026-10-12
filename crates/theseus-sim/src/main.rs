@@ -179,15 +179,44 @@ enum Cmd {
     },
     /// A scripted stand-in for the Messages API (37b), for a scratch daemon's
     /// `[model] api_base` and its providers': `--rules` is a JSON array of
-    /// `{when, calls: [{name, input}], text, hold_ms}`, and each turn's last
-    /// user text takes the first rule it holds, answered after `hold_ms`; a
-    /// call that answers a tool call gets `Done.`. Serves until killed.
+    /// `{when, calls: [{name, input}], text, hold_ms, then}`, and each turn's
+    /// last user text takes the first rule it holds, answered after `hold_ms`;
+    /// a call that answers a tool call gets its prompt's rule's `then`, else
+    /// `Done.`. Serves until killed.
     FakeModel {
         /// Where to listen.
         #[arg(long, default_value = "127.0.0.1:9448")]
         addr: String,
         #[arg(long)]
         rules: PathBuf,
+        /// Write each request's body to this directory as it comes,
+        /// `request-000.json` on, so a live check reads what the daemon
+        /// sent (its system blocks and their breakpoints: theseus-aab7).
+        #[arg(long)]
+        dump: Option<PathBuf>,
+        /// Log every request here, one JSON line each, its times on
+        /// CLOCK_MONOTONIC (theseus-7gir.13).
+        #[arg(long)]
+        log: Option<PathBuf>,
+        /// Pace every answer: its first byte this long after the request
+        /// (any of the three paces it; the others take their defaults,
+        /// 300 ms, 8 chunks, 25 ms).
+        #[arg(long)]
+        ttfb_ms: Option<u64>,
+        /// The answer's deltas, one write each.
+        #[arg(long)]
+        chunks: Option<usize>,
+        /// Between one chunk and the next.
+        #[arg(long)]
+        chunk_ms: Option<u64>,
+    },
+    /// The fake Jev (theseus-judge's stand-in), for a scratch daemon's
+    /// `[judge] api_base` (theseus-fh0u's live check): each `--say
+    /// QUESTION=P` answers that Noul question with P (`announced_unfinished=0.97`);
+    /// every other answer is the fake's own. Prints its base; serves until killed.
+    FakeJev {
+        #[arg(long = "say")]
+        say: Vec<String>,
     },
     /// The fake MCP server (M7 36b), for a scratch daemon's `[mcp.servers]`:
     /// stdio by default, as a daemon starts it, or `--http`.
@@ -232,7 +261,7 @@ enum BenchCmd {
         #[arg(
             long,
             value_delimiter = ',',
-            default_value = "cold,vault,shutdown,inflight,kill,swap,restore,seed,cancel"
+            default_value = "cold,vault,shutdown,inflight,kill,swap,restore,seed,health,cancel"
         )]
         phases: Vec<String>,
         /// Compare each p95 with §9 plus the margin, and exit 1 on a miss.
@@ -295,6 +324,9 @@ enum BenchCmd {
     /// What a job's start costs, by class (M4 17b): `/bin/true` through the
     /// real job wrapper, at L0 and in L1; an L1 start's p95 against 25 ms.
     Jobs(jobs::JobsArgs),
+    /// Admission under a burst (theseus-4g0l): M task turns at once, then a
+    /// person's turn 0.5 s later, on a stand-in that holds each call 2 s.
+    Concurrency(perf::ConcurrencyArgs),
     /// The lifecycle bench's history: each phase's last runs, with the
     /// headroom left under its limit.
     History {
@@ -336,13 +368,52 @@ fn main() -> Result<()> {
                 std::thread::park();
             }
         }
-        Cmd::FakeModel { addr, rules } => {
+        Cmd::FakeModel {
+            addr,
+            rules,
+            dump,
+            log,
+            ttfb_ms,
+            chunks,
+            chunk_ms,
+        } => {
+            if let Some(d) = dump {
+                fake_model::dump_to(d)?;
+            }
             let text = std::fs::read_to_string(&rules)
                 .with_context(|| format!("reading {}", rules.display()))?;
             let rules: Vec<fake_model::Rule> = serde_json::from_str(&text)
                 .with_context(|| format!("parsing the rules in {}", rules.display()))?;
-            let fake = fake_model::FakeModel::start_rules_on(&addr, rules)?;
+            let d = fake_model::Pace::default();
+            let paced = ttfb_ms.is_some() || chunks.is_some() || chunk_ms.is_some();
+            let serving = fake_model::Serving {
+                pace: paced.then(|| fake_model::Pace {
+                    ttfb_ms: ttfb_ms.unwrap_or(d.ttfb_ms),
+                    chunks: chunks.unwrap_or(d.chunks),
+                    chunk_ms: chunk_ms.unwrap_or(d.chunk_ms),
+                }),
+                log: match &log {
+                    Some(p) => fake_model::Log::to_file(p)?,
+                    None => fake_model::Log::default(),
+                },
+                watch: None,
+            };
+            let fake = fake_model::FakeModel::start_rules_with(&addr, rules, serving)?;
             println!("fake model on {}", fake.base());
+            loop {
+                std::thread::park();
+            }
+        }
+        Cmd::FakeJev { say } => {
+            let jev = theseus_judge::fake::FakeJev::start()?;
+            for s in &say {
+                let (q, p) = s
+                    .split_once('=')
+                    .context("--say takes QUESTION=P, as announced_unfinished=0.97")?;
+                let p: f64 = p.parse().context("--say's P is a probability")?;
+                jev.script(q, theseus_judge::fake::Scripted::Noul(p));
+            }
+            println!("fake jev on {}", jev.base());
             loop {
                 std::thread::park();
             }
@@ -439,6 +510,9 @@ fn main() -> Result<()> {
         Cmd::Bench {
             bench: BenchCmd::Jobs(args),
         } => jobs::jobs_cmd(args),
+        Cmd::Bench {
+            bench: BenchCmd::Concurrency(args),
+        } => perf::concurrency_cmd(args),
         Cmd::Bench {
             bench: BenchCmd::History { last, file },
         } => {

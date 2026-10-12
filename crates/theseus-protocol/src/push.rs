@@ -346,6 +346,28 @@ pub struct PushStatus {
     /// The board's position: the last frame it applied.
     #[serde(default)]
     pub position: u64,
+    /// The socket's connections and the descriptor limits they sit under
+    /// (theseus-7vtp).
+    #[serde(default)]
+    pub connections: ConnectionsHealth,
+}
+
+/// The socket's connections for health (theseus-7vtp): `connections: 3 of
+/// 768 · 0 refused · open files 65536 of 1048576`. Past the ceiling, which
+/// sits under the open-files limit, a new connection is told why and closed.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct ConnectionsHealth {
+    /// Socket connections held now.
+    pub held: u64,
+    /// The most it holds (`[server] max_connections`, or derived from the limit).
+    pub ceiling: u64,
+    /// Connections refused at the ceiling since the daemon started.
+    pub refused: u64,
+    /// The soft open-files limit in effect, after the raise at start.
+    pub fd_soft: u64,
+    /// The hard open-files limit.
+    pub fd_hard: u64,
 }
 
 /// The longest reason a label carries before it is cut with `…`.
@@ -427,6 +449,11 @@ fn waiting(view: &ExecutionView, hm: &dyn Fn(u64) -> String) -> (Level, String) 
             Level::Working,
             format!("waiting on task {}", tail(execution_id)),
         ),
+        // A task that has taken no turn is a deferred one, not asleep
+        // between turns (theseus-rcgph).
+        Some(WaitingOn::DueAt { at_ms }) if view.kind == SessionKind::Task && view.turns == 0 => {
+            (Level::Working, format!("▷ starts {}", hm(*at_ms)))
+        }
         Some(WaitingOn::DueAt { at_ms }) => {
             (Level::Working, format!("sleeping until {}", hm(*at_ms)))
         }
@@ -537,6 +564,30 @@ mod tests {
                 since_ms: 0,
             },
         }
+    }
+
+    /// A task that has taken no turn is a deferred one (theseus-rcgph): it
+    /// starts, and is not asleep between turns; a task between turns, and a
+    /// conversation with a due time, still sleep.
+    #[test]
+    fn a_deferred_task_starts_and_a_sleeping_one_sleeps() {
+        let mut v = view(
+            "waiting",
+            Some(WaitingOn::DueAt {
+                at_ms: 1_789_999_200_000,
+            }),
+            vec![],
+        );
+        assert_eq!(attention(&v, &utc_hm).label, "sleeping until 14:00");
+        v.kind = SessionKind::Task;
+        v.turns = 0;
+        assert_eq!(attention(&v, &utc_hm).label, "▷ starts 14:00");
+        assert_eq!(
+            attention(&v, &|_| "Fri 09:00".into()).label,
+            "▷ starts Fri 09:00"
+        );
+        v.turns = 2;
+        assert_eq!(attention(&v, &utc_hm).label, "sleeping until 14:00");
     }
 
     fn ask(tool: &str, reason: &str) -> PendingConfirm {

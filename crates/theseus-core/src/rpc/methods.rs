@@ -46,6 +46,7 @@ impl Core {
         let (profile, _) = self.live_profile();
         let prof = self.cfg.all_profiles().get(&profile).cloned();
         let totals = self.session_totals();
+        let judge = self.runner.judge.health();
         HealthResult {
             name: crate::NAME.into(),
             version: crate::VERSION.into(),
@@ -86,6 +87,7 @@ impl Core {
             narrative: self.narrator.on(),
             context: self.context_status(),
             tightenings: self.tools.tightened.all(),
+            earned: Some(self.tools.earned.grants()).filter(|g| !g.is_empty()),
             wakes: self.wakes(None, None).unwrap_or_default(),
             external_text: crate::external::listed(
                 &totals.holding,
@@ -95,7 +97,10 @@ impl Core {
             disk: self.tools.disk.status(),
             binary: crate::binary::status(),
             spool: self.spool_status(),
-            push: Some(self.push.status(self.bus.all_watchers())),
+            push: Some(theseus_protocol::PushStatus {
+                connections: self.conns.status(),
+                ..self.push.status(self.bus.all_watchers())
+            }),
             aws: self.tools.aws.as_ref().map(|a| a.status()),
             // Asked of the tender by `health_now`, never here: this answers
             // at once.
@@ -107,15 +112,20 @@ impl Core {
             sandbox: self.tools.enabled().then(|| self.tools.sandbox.health()),
             cancels: self.tools.stops.counts(),
             places: Some(self.runner.place_rule.health(&self.cfg)),
-            judge: Some(self.runner.judge.health()),
+            features: Some(crate::features::of(&self.cfg, Some(&judge.key))),
+            judge: Some(judge),
             terminals: self.tools.terms.all().iter().map(|t| t.info()).collect(),
             terminals_left: self.tools.terms.left_info(),
             mcp_server: self.mcp_server.health(self.cfg.mcp_server.enabled),
             lsp: self.tools.lsp.as_ref().map(|b| b.health()),
             memory: self.runner.memory.on().then(|| self.memory_health()),
+            day_spend: Some(super::budgets::day_ceiling(&self.kernel))
+                .filter(|d| d.past || d.reached),
             tasks: Some(self.tasks_health()),
             resident: Some(self.resident_health()),
             self_improve: Some(self.self_state()),
+            warm: Some(self.warmth.health()),
+            cache: Some(self.cache_health()),
         }
     }
 
@@ -290,6 +300,9 @@ impl Core {
         let now = theseus_protocol::now_unix_ms();
         let inherited = crate::external::from_job(&self.store, p.opened_from.as_deref(), now)?;
         let mut rec = SessionRecord::new(p.kind.unwrap_or(SessionKind::Conversation), p.label);
+        // Its directory rides in the frame that creates it (theseus-aab7).
+        rec.dir =
+            crate::toolrun::session_dir::checked(p.dir.as_deref()).map_err(anyhow::Error::msg)?;
         // The execution, its row, the session's record, and `session.opened`
         // in one frame (theseus-q5af), with the hold's row and record on the
         // hold's path: a watcher that hears the execution's first view and
@@ -501,7 +514,8 @@ impl Core {
     ) -> Result<theseus_protocol::ExecutionsWatchResult, RpcFailure> {
         self.push.ensure(self).await?;
         self.bus.watch_all(conn.client, conn.tx.clone());
-        let (position, executions, total) = self.push.snapshot(p.limit.unwrap_or(200) as usize);
+        let (position, executions, held) = self.push.snapshot(p.limit.unwrap_or(200) as usize);
+        let total = held.max(self.kernel.count_executions().unwrap_or(0));
         Ok(theseus_protocol::ExecutionsWatchResult {
             position,
             executions,
@@ -549,7 +563,7 @@ impl Core {
         let mut first = true;
         loop {
             feed.borrow_and_update();
-            let view = self.push.view_of_session(&p.session_id);
+            let view = self.push.view_or_load(self, &p.session_id);
             if let Some(v) = view.as_ref().filter(|v| {
                 p.until.reached_by(v) && p.after_position.is_none_or(|a| v.position > a)
             }) {
@@ -883,18 +897,30 @@ impl Core {
         };
         // A turn from a holding session's job holds what that one holds, in
         // the session it opens or the one it names (theseus-b5cl).
-        let session = match &p.session_id {
+        let dir = super::session_dir::check(p.dir.as_deref())?;
+        let mut session = match &p.session_id {
             Some(id) => {
                 self.take_from_job(id, p.opened_from.as_deref())?;
                 self.session(id)?
             }
             None => self.open_session(SessionOpenParams {
                 opened_from: p.opened_from.clone(),
+                dir: dir.clone(),
                 ..SessionOpenParams::default()
             })?,
         };
+        // A directory it names moves the session there: the turn's session
+        // write keeps it (theseus-aab7). Outside the roots, the CLI says so.
+        let outside = crate::rpc::session_dir::moved(&self.tools, &mut session, dir);
         // The owner's words, read as a correction for the turn (theseus-q31l).
         self.expect_correction(&p, conn, &session.session_id);
+        // A person's message starts its keep-warm window again (theseus-ezeg).
+        let person = p.opened_from.is_none()
+            && !matches!(
+                conn.surface,
+                crate::approval::Surface::Mcp | crate::approval::Surface::Unnamed
+            );
+        self.runner.keep_warm.message(&session.session_id, person);
         // A one-run daemon's client follows the session's later turns, so
         // its connection hears them from the start (theseus-mqxk).
         if self.outbox.one_shot.follow_ms().is_some() {
@@ -953,7 +979,8 @@ impl Core {
             })
             .await;
         match result {
-            Ok(r) => {
+            Ok(mut r) => {
+                r.outside_roots = outside;
                 self.telemetry().record_turn(&r);
                 self.telemetry()
                     .record_node_cache(&self.store.node_cache().health());
@@ -1137,6 +1164,7 @@ impl Core {
         page.nodes = crate::import::shown(&self.store, std::mem::take(&mut page.nodes))?;
         let known = cards.as_deref().unwrap_or(&page.nodes);
         let asks = self.pending_by_execution(&mine, Some((&p.session_id, known)));
+        let cites = self.page_cites(&p.session_id, &page.nodes)?;
         Ok(theseus_protocol::SessionHistoryResult {
             session: self.session_info(&rec, &asks),
             pending_confirms: self.confirms_of(&pending, &rec, known),
@@ -1147,6 +1175,7 @@ impl Core {
                 .collect(),
             next: page.next,
             older: page.older,
+            cites,
         })
     }
 
@@ -1382,8 +1411,9 @@ impl Core {
         })
     }
 
-    pub(super) fn tool_list(&self) -> theseus_protocol::ToolListResult {
+    pub(crate) fn tool_list(&self) -> theseus_protocol::ToolListResult {
         let calls = self.tools.calls.lock().unwrap().clone();
+        let invalid = self.tools.fit_notes.invalid_json();
         let total: u64 = calls.values().sum();
         let proc_calls = calls.get("proc.run").copied().unwrap_or(0);
         // The built-ins, then the MCP servers' tools (M7 36b).
@@ -1414,6 +1444,7 @@ impl Core {
                     tightened: self.tools.tightened.get(t.name()),
                     input_schema: t.input_schema(),
                     calls: calls.get(t.name()).copied().unwrap_or(0),
+                    invalid_json: invalid.get(t.name()).copied().unwrap_or(0),
                 }
             })
             .collect();
@@ -1433,36 +1464,6 @@ impl Core {
             },
             calls_total: total,
         }
-    }
-
-    /// Every execution, with its attention (theseus-in3): a task's parent
-    /// session is its parent execution's.
-    pub(crate) fn execution_list(
-        &self,
-    ) -> Result<theseus_protocol::ExecutionListResult, RpcFailure> {
-        let execs = self.kernel.executions()?;
-        let pending = self.pending_by_execution(&self.kernel.pending_confirms()?, None);
-        let session_of: std::collections::HashMap<&str, &str> = execs
-            .iter()
-            .map(|e| (e.id.as_str(), e.session_id.as_str()))
-            .collect();
-        Ok(theseus_protocol::ExecutionListResult {
-            executions: execs
-                .iter()
-                .map(|e| {
-                    let parent = e
-                        .parent
-                        .as_deref()
-                        .and_then(|p| session_of.get(p))
-                        .map(|s| s.to_string());
-                    let asks = pending.get(&e.id).cloned().unwrap_or_default();
-                    let mut info = Self::execution_info(e);
-                    info.attention =
-                        Some(crate::push::view(e, asks, parent, 0, e.updated_at_ms).attention);
-                    info
-                })
-                .collect(),
-        })
     }
 
     pub(super) fn action_list(

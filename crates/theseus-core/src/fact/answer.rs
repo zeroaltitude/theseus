@@ -120,10 +120,25 @@ pub struct SpendReset<'a> {
     /// What it had spent, and its limit.
     pub before: Micros,
     pub limit: Micros,
+    /// The question was a burn-rate pause's (theseus-9e02): the session is
+    /// resumed and its spend stays.
+    pub resumed: bool,
 }
 
 impl Fact for SpendReset<'_> {
     fn narrate(&self, say: &mut Say<'_>) {
+        if self.resumed {
+            say.line(
+                Approval,
+                format!(
+                    "Resumed by {} after the burn-rate pause; its ten-minute window starts \
+                     empty and its spend stays at {}; continuing.",
+                    self.by,
+                    narrative::dollars(self.before)
+                ),
+            );
+            return;
+        }
         say.line(
             Approval,
             format!(
@@ -181,7 +196,10 @@ impl ActRefused<'_> {
             | Act::Ladder { .. }
             | Act::Import { .. }
             | Act::Session { .. }
-            | Act::SelfResume { .. } => None,
+            | Act::SelfResume { .. }
+            | Act::Earned { .. }
+            | Act::Retract { .. }
+            | Act::Standing { .. } => None,
         }
     }
 }
@@ -210,12 +228,15 @@ impl Fact for ActRefused<'_> {
             }
             Act::Ontology { what, .. }
             | Act::Label { what }
+            | Act::Retract { what }
             | Act::JudgeLabel { what }
             | Act::RouteCorrect { what }
             | Act::JudgeRun { what, .. }
             | Act::Ladder { what, .. }
             | Act::Import { what, .. }
-            | Act::Session { what, .. } => {
+            | Act::Session { what, .. }
+            | Act::Earned { what, .. }
+            | Act::Standing { what, .. } => {
                 json!({"act": act.method(), "what": what, "who": r.who, "via": r.via,
                        "why": r.why, "by": self.by})
             }
@@ -279,8 +300,23 @@ impl Fact for ActRefused<'_> {
                      written.",
                     r.who, r.via, r.why
                 ),
+                Act::Earned { what, .. } => format!(
+                    "Earned autonomy, {what}, from {} through {}, did not count: {}. Nothing \
+                     changed.",
+                    r.who, r.via, r.why
+                ),
                 Act::Session { what, .. } => format!(
                     "{what}, from {} through {}, did not count: {}. The session is as it was.",
+                    r.who, r.via, r.why
+                ),
+                Act::Retract { what } => format!(
+                    "{what}, from {} through {}, did not count: {}. Nothing was labeled or \
+                     written, and no session was told.",
+                    r.who, r.via, r.why
+                ),
+                Act::Standing { what, .. } => format!(
+                    "{what}, from {} through {}, did not count: {}. The owner's standing records \
+                     are as they were.",
                     r.who, r.via, r.why
                 ),
                 Act::JudgeLabel { what } => format!(

@@ -51,6 +51,12 @@ pub(crate) struct Recalled {
     pub drops: Vec<BudgetDrop>,
     /// The notes it admitted: the reply's footer says them.
     pub count: u32,
+    /// What the notes cite, for the reply's citations (theseus-ejdk): the
+    /// admitted items as the node holds them, handles in their headers.
+    /// Read only while `count` is above zero.
+    pub items: Vec<RecalledRef>,
+    /// The node's id, for `memory.cited`'s rows.
+    pub recall_id: String,
     /// It is an assembled prefix's recall section (30c): a task's first
     /// compile, or a compaction. Its pack takes `assembled_budget_tokens`,
     /// and the new compilation renders it first in its prefix.
@@ -458,7 +464,9 @@ impl TurnRunner {
     /// source; held in the turn for the compile and the plan frame.
     fn hold_node(&self, t: &mut Turn<'_>, m: &RecallManifest, a: Assigned) {
         let mut items = Vec::new();
-        for item in &m.admitted {
+        let ids: Vec<&str> = m.admitted.iter().map(|i| i.node_id.as_str()).collect();
+        let handles = theseus_protocol::cite::handles_for(&ids);
+        for (item, handle) in m.admitted.iter().zip(&handles) {
             let probe = RecalledRef {
                 node_id: item.node_id.clone(),
                 session_id: item.session_id.clone(),
@@ -476,7 +484,10 @@ impl TurnRunner {
             let place = self.place_name(&item.session_id);
             items.push(RecalledRef {
                 chunk,
-                header: render::item_header(&source, item.position, &place, chunk),
+                header: theseus_protocol::cite::header_with(
+                    handle,
+                    &render::item_header(&source, item.position, &place, chunk),
+                ),
                 ..probe
             });
         }
@@ -510,6 +521,8 @@ impl TurnRunner {
             return;
         };
         t.recall.count = items.len() as u32;
+        t.recall.items = items.clone();
+        t.recall.recall_id = node.id.clone();
         t.recall.drops = m
             .budget
             .as_ref()
@@ -566,7 +579,7 @@ impl TurnRunner {
 
 /// A recall's row, scoped to the session's recalls, for the turn's next
 /// frame.
-fn defer_row<F: crate::fact::Fact>(t: &mut Turn<'_>, f: &F) {
+pub(super) fn defer_row<F: crate::fact::Fact>(t: &mut Turn<'_>, f: &F) {
     match t.tc.rec().row(f) {
         Ok(r) => {
             if let Err(e) = t.tc.store.defer(r.scoped(&scope(t.tc.session_id))) {

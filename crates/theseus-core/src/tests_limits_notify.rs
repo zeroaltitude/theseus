@@ -291,6 +291,9 @@ async fn speech_past_a_notifying_limit_fits_and_past_an_asking_one_does_not() {
         let ran = turn_on(Config::example(), vec![Scripted::text("Hello.")], |c| {
             c.kernel.spend_limit_usd = 0.001;
             c.kernel.spend_limit_mode = mode;
+            // The turn's own call reserves past the hard stop at this limit
+            // (theseus-jse4): what is asked here is speech's check alone.
+            c.kernel.spend_limit_hard_multiple = 0;
         })
         .await;
         assert_eq!(

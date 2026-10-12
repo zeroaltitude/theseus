@@ -69,6 +69,31 @@ pub struct KernelConfig {
     /// The daemon's day ceiling over every model call (theseus-kp20).
     #[serde(default = "default_day_ceiling")]
     pub daily_ceiling_micros: Micros,
+    /// The multiple of a limit that notifies at which its calls stop anyway
+    /// (theseus-jse4, `overdraw.rs`); 0 never.
+    #[serde(default = "crate::overdraw::default_hard_multiple")]
+    pub spend_hard_multiple: u64,
+    /// The day ceiling only warns (`[kernel] daily_spend_ceiling_mode =
+    /// "notify"`, theseus-9e02); the kernel's own default is the stop.
+    #[serde(default)]
+    pub daily_notify: bool,
+    /// Under notify, where the day stops (0 never).
+    #[serde(default = "default_runaway")]
+    pub daily_runaway_micros: Micros,
+    /// The warning's step past the ceiling.
+    #[serde(default = "default_step")]
+    pub daily_step_micros: Micros,
+    /// A session's burn-rate line over ten minutes (0 never).
+    #[serde(default)]
+    pub burn_line_micros: Micros,
+}
+
+fn default_runaway() -> Micros {
+    crate::day_ceiling::DEFAULT_RUNAWAY_MICROS
+}
+
+fn default_step() -> Micros {
+    crate::day_ceiling::DEFAULT_STEP_MICROS
 }
 
 fn default_day_ceiling() -> Micros {
@@ -92,6 +117,11 @@ impl Default for KernelConfig {
             min_repeat_ms: default_min_repeat_ms(),
             zone: jiff::tz::TimeZone::system(),
             daily_ceiling_micros: default_day_ceiling(),
+            spend_hard_multiple: crate::overdraw::default_hard_multiple(),
+            daily_notify: false,
+            daily_runaway_micros: default_runaway(),
+            daily_step_micros: default_step(),
+            burn_line_micros: 0,
         }
     }
 }
@@ -171,6 +201,14 @@ pub enum KernelError {
     /// The daemon's day ceiling refused a provider call (theseus-kp20).
     #[error("{0}")]
     DayCeiling(Box<crate::day_ceiling::Reached>),
+    /// A limit that notifies refused a provider call at its hard multiple
+    /// (theseus-jse4): nothing was written.
+    #[error("{0}")]
+    HardStop(Box<crate::overdraw::HardStop>),
+    /// A session's burn-rate line stopped a provider call (theseus-9e02):
+    /// nothing was written; the core asks the owner to resume.
+    #[error("{0}")]
+    BurnRate(Box<crate::day_ceiling::BurnStop>),
 }
 
 /// Refuse a transition that needs the turn `e`'s holder took: `e` must be
@@ -496,6 +534,17 @@ impl Kernel {
     /// Wrap an opened store. The kernel is not accepting events until
     /// `startup` has run; `open_session`/`admit` etc. refuse before that.
     pub fn new(store: Arc<dyn Store>, clock: Arc<dyn Clock>, cfg: KernelConfig) -> Self {
+        let ceiling = crate::day_ceiling::DayCeiling::new(
+            cfg.daily_ceiling_micros,
+            cfg.zone.clone(),
+            clock.clone(),
+        );
+        ceiling.set_rules(
+            cfg.daily_notify,
+            cfg.daily_runaway_micros,
+            cfg.daily_step_micros,
+            cfg.burn_line_micros,
+        );
         Self {
             store,
             clock: clock.clone(),
@@ -508,11 +557,7 @@ impl Kernel {
             observer: Arc::default(),
             tx: None,
             earlier: Arc::default(),
-            ceiling: Arc::new(crate::day_ceiling::DayCeiling::new(
-                cfg.daily_ceiling_micros,
-                cfg.zone.clone(),
-                clock.clone(),
-            )),
+            ceiling: Arc::new(ceiling),
             cfg,
         }
     }
@@ -634,6 +679,12 @@ impl Kernel {
     }
     pub fn now_ms(&self) -> u64 {
         self.clock.now_ms()
+    }
+    /// When this process's startup began, 0 before it: a time that passed
+    /// before it passed while the daemon was down (DD8).
+    pub fn process_started_ms(&self) -> u64 {
+        self.started_at_ms
+            .load(std::sync::atomic::Ordering::Relaxed)
     }
     /// Is a turn held on this execution in this process?
     pub fn is_held(&self, execution_id: &str) -> bool {
@@ -853,6 +904,50 @@ impl Kernel {
         Ok(self.counts_by(kinds::EXECUTION, &wanted)?.iter().sum())
     }
 
+    /// How many executions there are, every state counted, an unreadable
+    /// record's too (theseus-id8d): the push's total, from the store's terms.
+    pub fn count_executions(&self) -> Result<u64> {
+        let mut wanted: Vec<String> = EXEC_STATES.map(terms::state).to_vec();
+        wanted.push(terms::UNREADABLE.to_string());
+        Ok(self.counts_by(kinds::EXECUTION, &wanted)?.iter().sum())
+    }
+
+    /// The executions with a term in any of `ranges`, with the WAL position
+    /// of each record, in id order (theseus-id8d: the push's seed).
+    pub fn executions_by_at(&self, ranges: &[(String, String)]) -> Result<Vec<(u64, Execution)>> {
+        self.records_by(kinds::EXECUTION, ranges)?
+            .iter()
+            .map(|r| Ok((r.position, self.read_execution(r)?)))
+            .collect()
+    }
+
+    /// An execution with the WAL position of its record.
+    pub fn execution_at(&self, id: &str) -> Result<Option<(u64, Execution)>> {
+        match self.store.latest_by_key(kinds::EXECUTION, id)? {
+            Some(r) => Ok(Some((r.position, self.read_execution(&r)?))),
+            None => Ok(None),
+        }
+    }
+
+    /// The newest `n` execution records, settled into their latest: each
+    /// execution once, by its newest record among them, newest first, with
+    /// its position (theseus-id8d: the push's seed reads the recent ones);
+    /// and how many records were read, fewer than `n` once the kind is read
+    /// whole.
+    pub fn newest_executions_at(&self, n: usize) -> Result<(usize, Vec<(u64, Execution)>)> {
+        let mut seen = std::collections::HashSet::new();
+        let mut out = Vec::new();
+        let tail = self.store.tail_of_kind(kinds::EXECUTION, n)?;
+        for r in tail.iter().rev() {
+            if let Some(k) = &r.key {
+                if seen.insert(k.clone()) {
+                    out.push((r.position, self.read_execution(r)?));
+                }
+            }
+        }
+        Ok((tail.len(), out))
+    }
+
     /// How many actions are not settled, counted by state.
     pub fn count_open_actions(&self) -> Result<u64> {
         let wanted = OPEN_ACTIONS.map(terms::action_state);
@@ -974,6 +1069,26 @@ impl Kernel {
             .iter()
             .map(|r| Ok((r.position, r.decode()?)))
             .collect()
+    }
+
+    /// Every action not settled, with the WAL position of its record, from
+    /// the store's terms (theseus-id8d): the push's seed, which reads no
+    /// settled action.
+    pub fn open_actions_at(&self) -> Result<Vec<(u64, Action)>> {
+        let open = OPEN_ACTIONS.map(|s| terms::one(&terms::action_state(s)));
+        self.records_by(kinds::ACTION, &open)?
+            .iter()
+            .map(|r| Ok((r.position, r.decode()?)))
+            .collect()
+    }
+
+    /// The position of the newest action record, settled or not; 0 with none.
+    pub fn newest_action_position(&self) -> Result<u64> {
+        Ok(self
+            .store
+            .tail_of_kind(kinds::ACTION, 1)?
+            .first()
+            .map_or(0, |r| r.position))
     }
 
     /// An execution as stored, decoded as `executions` decodes it (a unit
@@ -1159,9 +1274,21 @@ impl Kernel {
     /// The guard frees the turn when dropped, so a caller whose frame fails
     /// lets it go.
     pub fn admit(&self, execution_id: &str) -> Result<TurnGuard> {
+        self.admit_counted(execution_id, true)
+    }
+
+    /// `admit` for a turn the core's admission queue gave a slot
+    /// (theseus-4g0l): the queue keeps the ceiling, so it is not counted
+    /// here, where a turn that lent its slot while it waits on a job still
+    /// holds its turn.
+    pub fn admit_queued(&self, execution_id: &str) -> Result<TurnGuard> {
+        self.admit_counted(execution_id, false)
+    }
+
+    fn admit_counted(&self, execution_id: &str, count: bool) -> Result<TurnGuard> {
         self.require_accepting()?;
         let _w = self.lock(&[execution_id]);
-        let mut e = self
+        let e = self
             .execution(execution_id)?
             .ok_or_else(|| KernelError::UnknownExecution(execution_id.into()))?;
         if e.state != ExecState::Queued {
@@ -1171,12 +1298,23 @@ impl Kernel {
             }
             .into());
         }
+        let guard = self.hold(&e, count)?;
+        // A frame that fails drops the guard, which frees the turn.
+        self.write_running(e, &guard)?;
+        Ok(guard)
+    }
+
+    /// The turn's slot in this process, and nothing written: no other turn
+    /// may be held on `e`, and, with `count`, the ceiling must have room
+    /// (`held.rs`); without it the core's admission queue keeps the ceiling
+    /// (theseus-4g0l).
+    pub(crate) fn hold(&self, e: &Execution, count: bool) -> Result<TurnGuard> {
         {
             let mut held = self.held.lock().unwrap();
             if held.contains(&e.id) {
                 return Err(KernelError::TurnHeld { id: e.id.clone() }.into());
             }
-            if held.len() as u32 >= self.cfg.admission_ceiling {
+            if count && held.len() as u32 >= self.cfg.admission_ceiling {
                 return Err(KernelError::AdmissionFull {
                     ceiling: self.cfg.admission_ceiling,
                 }
@@ -1184,19 +1322,22 @@ impl Kernel {
             }
             held.insert(e.id.clone());
         }
-        let now = self.now_ms();
-        let guard = TurnGuard {
+        Ok(TurnGuard {
             execution_id: e.id.clone(),
             turn: e.turns + 1,
-            started_at_ms: now,
+            started_at_ms: self.now_ms(),
             held: self.held.clone(),
-        };
+        })
+    }
+
+    /// Write `e`, queued, as running the turn `guard` holds: the admission's
+    /// record and row. The caller holds the execution's lock.
+    pub(crate) fn write_running(&self, mut e: Execution, guard: &TurnGuard) -> Result<()> {
         e.state = ExecState::Running;
-        e.turns += 1;
+        e.turns = guard.turn;
         e.wake = None;
         let resumed = std::mem::take(&mut e.resume_pending);
-        e.updated_at_ms = now;
-        // A frame that fails drops the guard, which frees the turn.
+        e.updated_at_ms = self.now_ms();
         self.commit(&[
             exec_record(&e)?,
             self.ledger(
@@ -1205,7 +1346,7 @@ impl Kernel {
                 json!({"execution_id": e.id, "turn": e.turns, "queued_results": e.queued_results.len(), "resumed": resumed}),
             )?,
         ])?;
-        Ok(guard)
+        Ok(())
     }
 
     /// Human input arrived, and its turn starts (theseus-l6y): `wake_input`
@@ -1218,6 +1359,28 @@ impl Kernel {
         self.frame(&[execution_id], |k| {
             k.wake_input(execution_id)?;
             Ok(k.admit(execution_id))
+        })?
+    }
+
+    /// `admit_input` for the core's admission queue (theseus-4g0l): with a
+    /// slot (`slotted`), as `admit_queued`; without one, only the wake is
+    /// written, and admission's error returned, as a full ceiling's.
+    pub fn admit_input_queued(&self, execution_id: &str, slotted: bool) -> Result<TurnGuard> {
+        let ceiling = self.cfg.admission_ceiling;
+        self.frame(&[execution_id], |k| {
+            k.wake_input(execution_id)?;
+            if slotted {
+                return Ok(k.admit_queued(execution_id));
+            }
+            // What `admit` would say first: a state that takes no turn.
+            Ok(match k.execution(execution_id)? {
+                Some(e) if e.state != ExecState::Queued => Err(KernelError::NotRunnable {
+                    id: e.id.clone(),
+                    state: e.state.as_str(),
+                }
+                .into()),
+                _ => Err(KernelError::AdmissionFull { ceiling }.into()),
+            })
         })?
     }
 
@@ -1580,6 +1743,8 @@ impl Kernel {
                 }
                 .into());
             }
+            self.hard_stop(&e, &proposal.tool, reserve_micros)?;
+            self.burn_stopped(&e, &proposal.tool)?;
             let id = new_id("rsv");
             if proposal.tool == PROVIDER_TOOL {
                 self.day_hold(&id, reserve_micros)?;
@@ -2430,7 +2595,8 @@ impl Kernel {
             return Ok(None);
         }
         let now = self.now_ms();
-        let turn_running = e.state == ExecState::Running;
+        // A turn held and not yet admitted (theseus-2uby) holds it too.
+        let turn_running = e.state == ExecState::Running || self.holds_turn(&e.id);
         e.state = ExecState::Cancelled;
         e.cancel = Some(CancelState::Requested);
         e.ended_reason = Some(format!("cancelled by {by}"));

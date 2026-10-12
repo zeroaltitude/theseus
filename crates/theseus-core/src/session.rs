@@ -103,6 +103,14 @@ pub struct SessionRecord {
     /// one at most, since a session is re-titled once.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub title_was: Vec<String>,
+    /// The directory it works in (theseus-aab7), as its client sent it:
+    /// written by the frame that creates it, moved only by a `turn.submit`
+    /// that names it with another. Its tools' default `cwd` and the base of
+    /// their relative paths (`ToolRuntime::cwd_for`), and its system
+    /// block's `Directory:`. Absent: the daemon's `[tools] cwd`, and in
+    /// records written before it (store format 28).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dir: Option<String>,
 }
 
 /// An image the provider refused (theseus-0s4).
@@ -143,12 +151,13 @@ pub enum Then {
     /// error, a timeout, the network, a broken or cut stream): the driver
     /// retries it with its backoff for as long as it fails.
     Backoff,
-    /// The first failure of the run whose class will not pass by waiting (a
-    /// 400, a 401, a model the provider does not serve, an internal error):
-    /// one retry, since a config or profile change may have cured it.
+    /// The first failure of the run that is a fault of the harness's own
+    /// (`internal`): one retry, since it may not repeat. A class the provider
+    /// gave parks at once (theseus-posww).
     Retry,
-    /// Tried twice, or nothing a retry could change: the execution waits on
-    /// its input, and the next message retries.
+    /// Nothing a retry could change (a class that will not pass by waiting: a
+    /// 400, a 401, a model the provider does not serve, an internal error): the
+    /// execution waits on its input, and the next message retries.
     Park,
 }
 
@@ -167,8 +176,11 @@ impl Failing {
     /// execution does next, and whether it posts the run's notice.
     /// - A transient class keeps the driver's backoff, and only the run's
     ///   first failure posts the notice.
-    /// - A lasting class gets one retry, silently; its second failure in the
-    ///   run parks the execution on input, with the notice that says so.
+    /// - A lasting class the provider gave (a 400, a 401) parks the execution
+    ///   on input at its first failure, with the notice that says so: an
+    ///   identical request fails the same way, so no retry is scheduled
+    ///   (theseus-posww). A fault of the harness's own (`internal`) gets one
+    ///   retry, silently; its second failure parks it with the notice.
     /// - A turn that settled nothing of its own (`settled` false) failed
     ///   before any provider call returned (`over_limit`, an unpriced model,
     ///   the kernel's refusal to plan the call): a retry would change
@@ -212,11 +224,11 @@ impl Failing {
             Then::Backoff
         } else {
             run.lasting += 1;
-            let refit = [
-                crate::turn::WINDOW_CLASS,
-                crate::turn::compaction::OVERAGE_CLASS,
-            ];
-            if run.lasting == 1 && !refit.contains(&class) {
+            // A fault of the harness's own may not repeat, so it gets one
+            // retry. A class the provider gave (a 400, a 401, a model it does
+            // not serve) fails the same way again: it parks at once, and the
+            // next message retries (theseus-posww).
+            if run.lasting == 1 && class == "internal" {
                 Then::Retry
             } else {
                 Then::Park
@@ -292,6 +304,7 @@ impl SessionRecord {
             supersedes: None,
             reopened_ms: None,
             title_was: Vec::new(),
+            dir: None,
         }
     }
     /// What a turn writes into the stored record (theseus-xeo): the fields it
@@ -313,6 +326,11 @@ impl SessionRecord {
         self.execution_id.clone_from(&turn.execution_id);
         self.failing.clone_from(&turn.failing);
         self.routed.clone_from(&turn.routed);
+        // A `turn.submit` that names another directory moves the session
+        // there (theseus-aab7); no turn clears one.
+        if turn.dir.is_some() {
+            self.dir.clone_from(&turn.dir);
+        }
         for n in &turn.not_shown {
             if !self.not_shown.iter().any(|m| m.digest == n.digest) {
                 self.not_shown.push(n.clone());
@@ -382,6 +400,7 @@ impl SessionRecord {
             superseded_by: self.superseded_by.clone(),
             supersedes: self.supersedes.clone(),
             title_was: Some(self.title_was.clone()).filter(|t| !t.is_empty()),
+            dir: self.dir.clone(),
         }
     }
 }
@@ -516,9 +535,9 @@ mod tests {
     }
 
     #[test]
-    fn a_lasting_failure_is_retried_once_then_parks_with_one_notice() {
+    fn a_lasting_failure_parks_at_once_with_one_notice() {
         let (run, out) = run_of(&[("invalid_request", false, true); 2]);
-        assert_eq!(out, [(Then::Retry, false), (Then::Park, true)]);
+        assert_eq!(out, [(Then::Park, true), (Then::Park, false)]);
         assert_eq!((run.turns, run.lasting, run.parked), (2, 2, true));
         // A wake's turn that fails the same way later says nothing more.
         let (_, then, notice) = Failing::after(Some(run), "invalid_request", false, true, 9, true);
@@ -536,8 +555,17 @@ mod tests {
         assert_eq!((run.turns, run.lasting, run.since_ms), (4, 0, 7));
     }
 
+    /// A fault of the harness's own may not repeat: one silent retry, then it
+    /// parks with the run's notice.
     #[test]
-    fn a_run_that_turns_lasting_retries_once_and_parks_with_its_second_notice() {
+    fn a_harness_fault_is_retried_once_then_parks_with_one_notice() {
+        let (run, out) = run_of(&[("internal", false, true); 2]);
+        assert_eq!(out, [(Then::Retry, false), (Then::Park, true)]);
+        assert_eq!((run.turns, run.lasting, run.parked), (2, 2, true));
+    }
+
+    #[test]
+    fn a_run_that_turns_lasting_parks_with_its_second_notice() {
         let (run, out) = run_of(&[
             ("overloaded", true, true),
             ("rate_limited", true, true),
@@ -549,8 +577,8 @@ mod tests {
             [
                 (Then::Backoff, true),
                 (Then::Backoff, false),
-                (Then::Retry, false),
-                (Then::Park, true)
+                (Then::Park, true),
+                (Then::Park, false)
             ]
         );
         assert_eq!(run.class, "auth");

@@ -29,6 +29,8 @@ instruction, and runs the task's tests for a reward. **Every benchmark run ends 
 | `report/draft.py` | The report's drafting tool: a run's outputs (Harbor jobs, the bench history, the recall and async scorers' outputs) in; its data file, CSV, figures and skeleton out ("Every run gets its report"). |
 | `report/charts.py` | The house charts: SVG from declarative specs, in the house palette, each in a light and a dark file, every mark with its hover text. The standard library only. |
 | `report/friction.py` | T4 (tool friction per arm) and T5 (cost and calls per solve), read from the trials' ATIF trajectories; `draft.py` prints both in every report. |
+| `report/parallel.py` | The parallel-calls report's generator (theseus-2wxa): bench/async's Layer 1 and Layer 2 runs in, `docs/benchmarks/<date>-asyncbench-parallel-calls.md` with its data, CSV and figures out (bench/async/README.md, "The parallel-calls run"). |
+| `async/layer1.py` | Layer 1's drivers: one stand-in model (`theseus-sim fake-model --rules`) asks for N calls of `sleep 2` in one response, in each harness's own tool names, and the wall is timed around each CLI (bench/async/README.md, "Layer 1"). |
 | `report/stats.py` | The statistics every report uses: Wilson intervals, a seeded bootstrap, the exact McNemar test, quantiles. |
 
 ## What you need
@@ -72,6 +74,7 @@ The adapter's settings come from the environment of `harbor run`:
 |---|---|---|
 | `THESEUS_BENCH_BIN_DIR` | (required) | Where `theseus` and `theseusd` are, static. |
 | `THESEUS_BENCH_SPEND_LIMIT` | $2.00 plus one maximum reservation at the arm's model: `3.75` for Sonnet 5.5 (`theseus_bench.spend_limit_usd`; `20.0` on the routed arm) | What stops a trial, in dollars (`[kernel] spend_limit_usd`). The other arms' budget is $2.00. The kernel reserves a call's worst case first (the output cap at the output price, plus the input estimate), and no profile caps its output, so a trial that has spent $1.99 would be refused the call that takes it past $2.00 by the reservation alone: the limit is the budget plus one reservation (128,000 output and as many input tokens at the model's list price, to a quarter dollar: Opus 5.5 gets `5.25`). A trial can therefore end past $2.00 of real spend, and the report names each one. One Opus 5.5 call reserves about $2.6 and one Fable 5.1 call about $6.5, so the routed arm's `20.0` clears either. |
+| `THESEUS_BENCH_DAY_CEILING` | twice the trial's spend limit (`theseus_bench.DAY_CEILING_PER_LIMIT`) | The daemon's daily spend ceiling (`[kernel] daily_spend_ceiling_usd`, theseus-l9on), set by the adapter for every trial so a run never meets the owner's $200 by surprise; above the trial's limit, so the spend limit is still what ends a trial. It bounds what the limit does not count (the routed arm's Jev calls). bench/async's arm sets it the same way, and bench/recall's driver takes `--day-ceiling`. |
 | `THESEUS_BENCH_MAX_LOOPS` | `200` | The model calls one turn may make. |
 | `THESEUS_BENCH_PROC_SYNC` | `900` | How long a command may keep the turn waiting, in seconds. A headless run ends with its turn, so a command left running in the background is never read. |
 | `THESEUS_BENCH_SYSTEM_FILE` | (none) | Extra system text, for an A/B arm. |
@@ -80,13 +83,13 @@ The adapter's settings come from the environment of `harbor run`:
 
 ## The routed arm
 
-`-a theseus_agent:TheseusRouted` runs Theseus as the owner runs it (theseus-eo3h): `[judge]` on, `route.v3` live,
+`-a theseus_agent:TheseusRouted` runs Theseus as the owner runs it (theseus-eo3h): `[judge]` on, `route.v4` live,
 and the owner's routing table over `haiku` (Haiku 5.5, effort low), `haikuhi` (high), `sonnet`, `opus`, and `fable`,
 so each message's turn runs on the model Jev picks. The conditions of the plain arm hold (the same limits, the same
 output cap, `bench` as the session's own profile at medium effort), and these do not, so a report marks the arm as
 having conditions its peers did not share:
 
-- the model and its effort vary by message: route.v3 asks the reply's effort beside the mode, and a sure answer wins
+- the model and its effort vary by message: route.v4 asks the reply's effort beside the mode, and a sure answer wins
   over the profile's own (none sets `effort_fixed`); else `haiku` runs low, `haikuhi` high, and `sonnet`, `opus` and
   `fable`, which ask for none, at each model's default;
 - the Z.ai profile `glm` is left out (the bench has no Z.ai key), so `trivial` is `["haiku"]`;

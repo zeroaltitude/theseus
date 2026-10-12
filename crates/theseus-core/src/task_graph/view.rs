@@ -34,9 +34,17 @@ pub const BYTES_PER_TOKEN: u64 = 3;
 /// model) can tell its block from the conversation's.
 pub const HEAD: &str = "[The task graph in this conversation's scope:";
 
-/// Whether a request's content block is the view.
+/// Whether a request's content block is the view, or the commitments block
+/// beside it (theseus-lherl): both are the harness's, never the person's.
 pub fn is_view(block: &Value) -> bool {
-    block["text"].as_str().is_some_and(|t| t.starts_with(HEAD))
+    block["text"].as_str().is_some_and(is_head)
+}
+
+/// Whether a text is the start of one of the harness's tail blocks: the
+/// view's, or the commitments'. A stand-in model that reads the last user
+/// text skips these.
+pub fn is_head(text: &str) -> bool {
+    text.starts_with(HEAD) || text.starts_with(crate::commitments::HEAD)
 }
 
 /// The view's text and what it showed.
@@ -196,9 +204,16 @@ pub fn render_for(
 }
 
 /// Add `view` to the request: the last block of its last message, with the
-/// conversation's breakpoint moved to the block before it.
+/// conversation's breakpoint moved to the block before it: moved, not
+/// copied, since the top-level one takes a slot of the provider's four too,
+/// and the session's block took the last free one (theseus-aab7).
 pub fn attach_to(request: &mut crate::provider::ProviderRequest, view: &View) {
-    let marker = request.cache_control.clone();
+    attach_text(request, &view.text);
+}
+
+/// `attach_to`, for any tail block's text: the commitments' (theseus-lherl)
+/// goes after the view's, with no breakpoint moved a second time.
+pub fn attach_text(request: &mut crate::provider::ProviderRequest, text: &str) {
     let Some(last) = request.messages.last_mut() else {
         return;
     };
@@ -209,10 +224,12 @@ pub fn attach_to(request: &mut crate::provider::ProviderRequest, view: &View) {
     let Some(blocks) = content.as_array_mut() else {
         return;
     };
-    if let (Some(m), Some(Value::Object(b))) = (marker, blocks.last_mut()) {
-        b.entry("cache_control").or_insert(m);
+    if let Some(Value::Object(b)) = blocks.last_mut() {
+        if let Some(m) = request.cache_control.take() {
+            b.entry("cache_control").or_insert(m);
+        }
     }
-    blocks.push(json!({"type": "text", "text": view.text}));
+    blocks.push(json!({"type": "text", "text": text}));
 }
 
 /// The turn's side (`compile_step`): the session's view, attached to the

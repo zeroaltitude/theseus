@@ -20,6 +20,7 @@
 use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 /// The episode format this build reads.
 pub const EPISODE_FORMAT: u64 = 1;
@@ -524,4 +525,111 @@ pub struct ImportSessionsResult {
     #[cfg_attr(test, ts(optional))]
     pub built_ms: Option<f64>,
     pub ms: f64,
+}
+
+// Python's canonical JSON, as the episode format's hash is taken over it: keys
+// sorted, no spaces, either string form. Pure, so the daemon's check of an
+// episode (theseus-core's `import::episode`) and the CLI's making of one
+// (`theseus import claude-code`, theseus-o73y) share one writer.
+
+/// `v` as Python's `json.dumps(v, sort_keys=True, separators=(",", ":"),
+/// ensure_ascii=ascii)` writes it.
+pub fn canonical(v: &Value, ascii: bool, out: &mut String) {
+    match v {
+        Value::Null => out.push_str("null"),
+        Value::Bool(b) => out.push_str(if *b { "true" } else { "false" }),
+        Value::Number(n) => match (n.as_i64(), n.as_u64(), n.as_f64()) {
+            (Some(i), _, _) => out.push_str(&i.to_string()),
+            (_, Some(u), _) => out.push_str(&u.to_string()),
+            (_, _, Some(f)) => out.push_str(&py_float(f)),
+            _ => out.push_str(&n.to_string()),
+        },
+        Value::String(s) => string(s, ascii, out),
+        Value::Array(a) => {
+            out.push('[');
+            for (i, x) in a.iter().enumerate() {
+                if i > 0 {
+                    out.push(',');
+                }
+                canonical(x, ascii, out);
+            }
+            out.push(']');
+        }
+        Value::Object(o) => {
+            let mut keys: Vec<&String> = o.keys().collect();
+            keys.sort();
+            out.push('{');
+            for (i, k) in keys.into_iter().enumerate() {
+                if i > 0 {
+                    out.push(',');
+                }
+                string(k, ascii, out);
+                out.push(':');
+                canonical(&o[k], ascii, out);
+            }
+            out.push('}');
+        }
+    }
+}
+
+fn string(s: &str, ascii: bool, out: &mut String) {
+    out.push('"');
+    for c in s.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            '\u{8}' => out.push_str("\\b"),
+            '\u{c}' => out.push_str("\\f"),
+            c if (c as u32) < 0x20 || (ascii && (c as u32) == 0x7f) => {
+                out.push_str(&format!("\\u{:04x}", c as u32));
+            }
+            c if ascii && !c.is_ascii() => {
+                let mut units = [0u16; 2];
+                for u in c.encode_utf16(&mut units) {
+                    out.push_str(&format!("\\u{u:04x}"));
+                }
+            }
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+}
+
+/// A float as Python's `repr` writes it: the shortest digits that read
+/// back, positional from 1e-4 to below 1e16, else `1e-05`, `1.5e+16`.
+pub fn py_float(f: f64) -> String {
+    if f == 0.0 {
+        return if f.is_sign_negative() { "-0.0" } else { "0.0" }.into();
+    }
+    // Rust's `{:e}` writes the shortest digits that read back.
+    let e = format!("{:e}", f.abs());
+    let (mant, exp) = e.split_once('e').unwrap_or((&e, "0"));
+    let digits: String = mant.chars().filter(char::is_ascii_digit).collect();
+    let exp: i64 = exp.parse().unwrap_or(0);
+    let decpt = exp + 1;
+    let sign = if f < 0.0 { "-" } else { "" };
+    let n = digits.len() as i64;
+    if -4 < decpt && decpt <= 16 {
+        let body = if decpt <= 0 {
+            format!("0.{}{digits}", "0".repeat((-decpt) as usize))
+        } else if decpt >= n {
+            format!("{digits}{}.0", "0".repeat((decpt - n) as usize))
+        } else {
+            let (a, b) = digits.split_at(decpt as usize);
+            format!("{a}.{b}")
+        };
+        format!("{sign}{body}")
+    } else {
+        let (first, rest) = digits.split_at(1);
+        let frac = if rest.is_empty() {
+            String::new()
+        } else {
+            format!(".{rest}")
+        };
+        let es = if exp < 0 { "-" } else { "+" };
+        format!("{sign}{first}{frac}e{es}{:02}", exp.abs())
+    }
 }

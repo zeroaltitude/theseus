@@ -111,3 +111,52 @@ impl Fact for MemoryUsed<'_> {
         })
     }
 }
+
+/// One memory read by an MCP client (theseus-02i1h): who asked, with which
+/// tool, a digest of the words (never the words), and how many hits answered.
+/// Scoped `memory.read`; the principal is `mcp`.
+pub struct MemoryRead<'a> {
+    pub principal: &'a str,
+    pub client: Option<&'a str>,
+    /// `memory_search` or `memory_get`.
+    pub tool: &'a str,
+    /// The first 16 hex digits of the SHA-256 of the words, the id or the
+    /// session asked for.
+    pub digest: &'a str,
+    pub hits: u64,
+    pub ok: bool,
+}
+
+impl Fact for MemoryRead<'_> {
+    const KIND: Option<LedgerKind> = Some(LedgerKind::MemoryRead);
+
+    fn row(&self) -> Value {
+        json!({
+            "principal": self.principal, "client": self.client, "tool": self.tool,
+            "digest": self.digest, "hits": self.hits, "ok": self.ok,
+        })
+    }
+}
+
+/// A reply's citation (theseus-ejdk): a handle the reply wrote that the
+/// turn's recall gave, resolved to the node it names. One row a handle,
+/// scoped `recall:<session>` beside the turn's `memory.used` rows. A handle
+/// the turn was not given is no citation and has no row.
+pub struct MemoryCited<'a> {
+    pub recall_id: &'a str,
+    /// `m:a1b2c3`, as the reply wrote it between brackets.
+    pub handle: &'a str,
+    pub node_id: &'a str,
+    pub source_session: &'a str,
+}
+
+impl Fact for MemoryCited<'_> {
+    const KIND: Option<LedgerKind> = Some(LedgerKind::MemoryCited);
+
+    fn row(&self) -> Value {
+        json!({
+            "recall_id": self.recall_id, "handle": self.handle, "node_id": self.node_id,
+            "source_session": self.source_session,
+        })
+    }
+}

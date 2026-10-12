@@ -141,17 +141,14 @@ fn overloaded() -> Scripted {
     })
 }
 
-/// A 400 every time. The input turn's failure gets one retry, which fails
-/// too: the execution then waits on input, and the place gets one notice,
-/// which says the next message retries. Before theseus-ljr the driver
-/// retried it every few minutes forever, with a notice each time.
+/// A 400 every time. The failure parks the execution on input at once, with
+/// one notice that says the next message retries: an identical request can
+/// only fail the same way, so nothing is retried (theseus-posww; before it,
+/// one retry went out first, and before theseus-ljr the driver retried it
+/// every few minutes forever, with a notice each time).
 #[tokio::test]
-async fn a_failure_that_will_not_pass_is_retried_once_then_waits_on_the_next_message() {
-    let r = rig(vec![
-        bad_request(),
-        bad_request(),
-        Scripted::text("Back on course."),
-    ]);
+async fn a_failure_that_will_not_pass_waits_on_the_next_message_at_once() {
+    let r = rig(vec![bad_request(), Scripted::text("Back on course.")]);
     let sid = bound_session(&r.core);
     let err = turn(&r.core, &sid, "plot the harbor tides")
         .await
@@ -164,16 +161,6 @@ async fn a_failure_that_will_not_pass_is_retried_once_then_waits_on_the_next_mes
     let exec = rec.execution_id.clone().unwrap();
     let e = r.core.kernel.execution(&exec).unwrap().unwrap();
     assert_eq!(
-        (e.state, e.resume_pending),
-        (ExecState::Queued, true),
-        "one retry is queued"
-    );
-    assert!(notices(&r.core).is_empty(), "the retry is silent");
-
-    let retry = r.core.continue_execution(&exec).await;
-    assert!(retry.is_err(), "the retry fails the same way");
-    let e = r.core.kernel.execution(&exec).unwrap().unwrap();
-    assert_eq!(
         (e.state, e.wake.clone(), e.resume_pending),
         (ExecState::Waiting, Some(Wake::Input), false),
         "parked on input: nothing for the driver"
@@ -182,7 +169,7 @@ async fn a_failure_that_will_not_pass_is_retried_once_then_waits_on_the_next_mes
     assert_eq!(n.len(), 1, "one notice for the run: {n:?}");
     assert_eq!(
         (&n[0]["class"], &n[0]["then"], &n[0]["turns"]),
-        (&json!("invalid_request"), &json!("park"), &json!(2))
+        (&json!("invalid_request"), &json!("park"), &json!(1))
     );
     assert!(
         n[0]["error"]
@@ -192,22 +179,28 @@ async fn a_failure_that_will_not_pass_is_retried_once_then_waits_on_the_next_mes
         "it says what failed: {}",
         n[0]
     );
-    assert_eq!(thens(&r.core), ["retry", "park"]);
-    assert_eq!(rows(&r.core, "turn.failed").len(), 2);
-    assert_eq!(r.fake.requests().len(), 2);
+    assert_eq!(thens(&r.core), ["park"]);
+    assert_eq!(rows(&r.core, "turn.failed").len(), 1);
+    assert_eq!(r.fake.requests().len(), 1);
     let run = failing(&r.core, &sid).unwrap();
-    assert_eq!((run.turns, run.lasting, run.parked), (2, 2, true));
+    assert_eq!((run.turns, run.lasting, run.parked), (1, 1, true));
+    assert_eq!(run.class, "invalid_request");
+    assert!(run.noticed, "the park's notice is the run's one");
+    assert!(
+        notices(&r.core).iter().all(|n| n["then"] != "retry"),
+        "no retry is announced"
+    );
     let not_ready = r.core.continue_execution(&exec).await.unwrap_err();
     assert!(
         format!("{not_ready:#}").contains("not ready for a continuation turn"),
         "a parked execution is not the driver's: {not_ready:#}"
     );
-    assert_eq!(r.fake.requests().len(), 2);
+    assert_eq!(r.fake.requests().len(), 1);
 
     // The next message retries it.
     let res = turn(&r.core, &sid, "try the tides again").await.unwrap();
     assert_eq!(res.output, "Back on course.");
-    assert_eq!(r.fake.requests().len(), 3);
+    assert_eq!(r.fake.requests().len(), 2);
     assert_eq!(failing(&r.core, &sid), None, "the answer ended the run");
     assert_eq!(notices(&r.core).len(), 1);
 }

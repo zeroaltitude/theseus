@@ -21,9 +21,9 @@ use crate::tests_places::{
 use crate::Core;
 
 /// What the veiled episodes say: no answer may carry it.
-const HIDDEN: &str = "the lighthouse keeper's letters";
+pub(crate) const HIDDEN: &str = "the lighthouse keeper's letters";
 /// What the episodes the veil leaves alone say.
-const SHOWN: &str = "the tide-table parser";
+pub(crate) const SHOWN: &str = "the tide-table parser";
 
 /// An episode of `sensitivity`, its one message at `at` (RFC 3339), its
 /// summary saying `says`.
@@ -45,7 +45,7 @@ fn episode(n: usize, sensitivity: &str, at: &str, says: &str) -> Value {
 
 /// Five episodes: four in March 2026 (one of each sensitivity, the veiled
 /// ones saying `HIDDEN`), one in September 2026.
-fn episodes() -> Vec<Value> {
+pub(crate) fn episodes() -> Vec<Value> {
     vec![
         episode(0, "personal", "2026-03-03T18:00:00Z", HIDDEN),
         episode(1, "company-confidential", "2026-03-10T18:00:00Z", SHOWN),
@@ -60,7 +60,7 @@ fn episodes() -> Vec<Value> {
     ]
 }
 
-fn import(core: &Core, episodes: &[Value]) -> Vec<String> {
+pub(crate) fn import(core: &Core, episodes: &[Value]) -> Vec<String> {
     let p = ImportEpisodesParams {
         file: "kelp.jsonl".into(),
         lines: episodes
@@ -81,7 +81,7 @@ fn import(core: &Core, episodes: &[Value]) -> Vec<String> {
 }
 
 /// The model calls `memory_lookup` with the JSON after `LOOKUP `.
-fn script(req: &ProviderRequest) -> Scripted {
+pub(crate) fn script(req: &ProviderRequest) -> Scripted {
     if answers_a_call(req) {
         return Scripted::text("Done.");
     }
@@ -324,7 +324,7 @@ async fn a_small_budget_ends_the_page_early() {
 
 /// A stand-in index over every imported node: each with its own time,
 /// whatever the span (the core keeps to it).
-fn index_over(core: &Arc<Core>, sessions: Vec<String>) -> Ask {
+pub(crate) fn index_over(core: &Arc<Core>, sessions: Vec<String>) -> Ask {
     let store = core.store.clone();
     Arc::new(move |_p| -> AskFuture {
         let nodes: Vec<(u64, Node)> = sessions

@@ -40,20 +40,27 @@ use crate::store::Store;
 
 mod batch;
 mod calls;
+pub mod fit;
 mod glide;
+pub(crate) mod handles;
 mod hands;
 mod job;
+pub mod jobs_tools;
+mod kept;
 mod late;
 mod not_started;
 pub(crate) mod order;
 mod parallel;
+mod peek;
 mod resume;
+pub(crate) mod session_dir;
 mod steps;
 mod waits;
 
 pub(crate) use batch::Turned;
 pub use late::LateCall;
 pub(crate) use late::{announce_cancelled, not_run_results};
+pub use peek::{peek, Peek};
 pub use waits::{JobDone, JobWaits, Waiting};
 
 /// Starts a job. The real one spawns `theseusd job-wrapper` detached, whose
@@ -125,6 +132,13 @@ pub struct TurnCtx<'a> {
     pub ceiling: Option<&'static crate::ceiling::Ceiling>,
     /// The bound places, as a glide names them (38b).
     pub places: crate::places::Places<'a>,
+    /// The session's directory, as its client sent it (theseus-aab7):
+    /// where its calls work (`ToolRuntime::ctx_in`). None: `[tools] cwd`.
+    pub dir: Option<&'a str>,
+    /// The conversation's pending wakes as the turn last knew them: what its
+    /// requests' commitments block shows (theseus-lherl), set by the turn's
+    /// read of its wakes and by each wake tool's frame.
+    pub commitments: &'a crate::commitments::Pending,
 }
 
 impl TurnCtx<'_> {
@@ -301,9 +315,13 @@ pub struct ToolRuntime {
     /// Calls per tool since the daemon started. Counting the store's history
     /// instead would put a scan of every node on the start path (§9).
     pub calls: Mutex<BTreeMap<String, u64>>,
+    /// The notes fitted calls' results start with (theseus-9dt2).
+    pub fit_notes: fit::Notes,
     /// "Should have asked" (theseus-sgh): the tools that ask first because
     /// someone pressed it, from the store. The gate reads them per call.
     pub tightened: crate::tighten::Tightenings,
+    /// Earned grants (theseus-uttu): what the owner accepted from the record.
+    pub earned: crate::policy::earned::Earned,
     /// The daemon's cores (theseus-a60): every in-process toollet runs under
     /// one of its permits.
     pub cpu: Arc<crate::cpu::CpuPool>,
@@ -346,6 +364,10 @@ pub struct ToolRuntime {
     /// The jobs turns wait on (Tier 7.1): the drain leaves each one's
     /// completion to its turn, and wakes it.
     pub job_waits: Arc<JobWaits>,
+    /// Where a capped result's whole output is kept (theseus-v73m).
+    pub outputs: crate::outputs::Outputs,
+    /// The admission queue (theseus-4g0l): the turn waits in it, and a job's wait lends its slot.
+    pub admission: Arc<crate::turn::admission::Admission>,
     /// The MCP servers' tools offered now (M7 36b), which the board fills;
     /// offered after the built-ins, in private places only.
     pub mcp: Arc<crate::mcp::McpCatalog>,
@@ -361,6 +383,8 @@ pub struct ToolRuntime {
     pub judge: std::sync::OnceLock<Arc<crate::judge::JudgeService>>,
     /// What `memory.lookup` reads (theseus-w9qv): the core, once built.
     pub lookup: crate::memory_lookup::Board,
+    /// The job tools' core and the sessions' short job ids (theseus-n8gk).
+    pub jobs: jobs_tools::Board,
     /// The configured profiles, each what it runs on: a check's `profile`
     /// names one (M5 28a).
     pub profiles: BTreeMap<String, crate::session::TargetRef>,
@@ -393,9 +417,8 @@ fn forbidden_env(name: &str) -> bool {
 /// tail, each on a line's edge where the text has one near the cut, and
 /// between them one line that says how much is not shown, and how to get it
 /// as `rest` says from what was left out (theseus-46v; empty: only how
-/// much). Nothing keeps a tool's whole result: a job's raw output is deleted
-/// once its result is written (theseus-wz2), and an in-process result was
-/// never kept. So a tool's `rest` names another call, never a stored copy.
+/// much). A job's or a terminal's whole output is kept, and `kept.rs`'s
+/// `rest` names the file (theseus-v73m); a tool's own `rest` names a call.
 pub fn cap(text: &str, max: usize, rest: impl FnOnce(&str) -> String) -> (String, bool) {
     let n = text.chars().count();
     if n <= max || max < 64 {
@@ -471,7 +494,9 @@ impl ToolRuntime {
             parallel_runs: crate::config::default_parallel_runs(),
             proc_env: vec![],
             calls: Mutex::new(BTreeMap::new()),
+            fit_notes: Default::default(),
             tightened: Default::default(),
+            earned: Default::default(),
             cpu: crate::cpu::CpuPool::for_host(),
             broker: Arc::new(Broker::empty()),
             external_text: Default::default(),
@@ -487,11 +512,14 @@ impl ToolRuntime {
             stops: Default::default(),
             public_roots: Vec::new(),
             job_waits: Arc::default(),
+            outputs: crate::outputs::Outputs::off(),
+            admission: crate::turn::admission::Admission::new(8, Duration::from_secs(600)),
             mcp: Default::default(),
             terms: Arc::new(crate::term::Terms::new(Vec::new(), Vec::new())),
             lsp: None,
             judge: Default::default(),
             lookup: Default::default(),
+            jobs: Default::default(),
             extend: Arc::new(crate::extend::Extensions::new(
                 tmp.join("extensions"),
                 vec![],
@@ -606,7 +634,6 @@ impl ToolRuntime {
                             "name": t.wire,
                             "description": t.description,
                             "input_schema": Tool::input_schema(t.as_ref()),
-                            "eager_input_streaming": true,
                         })
                     }),
             );
@@ -672,14 +699,13 @@ impl ToolRuntime {
         format!(
             "Tools. You act through tools; every call is recorded, checked against policy, and may wait for the operator's confirmation.\n\
              - Workspace roots: {}. Reading or running a program outside them, or touching a path on the operator's approve list, waits for the operator's approval; a write outside them takes its tool's posture, as inside.\n\
-             - Relative paths resolve against {}.\n\
+             - Relative paths resolve against the session's directory, which its own block names.\n\
              - Postures (open runs; notify runs and tells the operator; approve waits for the operator's approval): {}.{}\n\
-             - Prefer fs_read, fs_edit, fs_grep, fs_glob, fs_list, git_diff, and git_log over proc_run. proc_run runs one program with a typed argv and no shell; pass [\"bash\", \"-c\", \"...\"] explicitly only when a shell is truly needed.\n\
+             - Prefer fs_read, fs_edit, fs_grep, fs_glob, fs_list, git_diff, and git_log over proc_run.\n\
              - Read a file before editing it; keep edits exact and minimal.\n\
              - A declined call is final for that request: tell the operator and do not route around it.\n\
              - proc_run calls that take longer than {} seconds continue in the background; their result arrives in a later message.{}",
             roots.join(", "),
-            self.ctx.cwd.display(),
             postures.join("; "),
             if allowed.is_empty() { String::new() } else { format!(" proc_run runs these as open: {}.", allowed.join("; ")) },
             self.proc_sync_secs,
@@ -730,12 +756,10 @@ impl ToolRuntime {
         loop_index: Option<u32>,
         r: ResultNode<'_>,
     ) -> Node {
+        let r = self.fit_noted(r);
         let (scrubbed, redactions) = self.scrubber.scrub(&r.text);
-        // How to get what the cap leaves out is the tool's to say (theseus-46v).
-        let tool = self.tool(r.tool);
-        let (content, truncated) = cap(&scrubbed, self.result_max_chars, |left| {
-            tool.map_or_else(|| theseus_tools::REST_NARROWER.into(), |t| t.rest(left))
-        });
+        // What the cap leaves out: kept, or the tool's to say (theseus-v73m).
+        let (content, truncated, full_ref) = self.capped(session_id, &r, &scrubbed);
         // A job of the daemon's own CLI names the native call that does it,
         // after the cap so no cut takes it (theseus-8c8s).
         let content = match &r.hint {
@@ -771,14 +795,13 @@ impl ToolRuntime {
                 correlation_id: r.correlation_id.map(str::to_string),
                 bytes_total: r.bytes_total.unwrap_or(r.text.len() as u64),
                 truncated,
-                // A job's raw output is deleted once its result is written
-                // (theseus-wz2), so no node names a file any more.
-                full_ref: None,
+                // The scrubbed whole output a cut result keeps (theseus-v73m).
+                full_ref,
                 duration_ms: r.duration_ms,
                 late: r.late,
                 meta,
                 image: r.image,
-                external: r.external.clone(),
+                external: r.external,
             },
         )
     }
@@ -878,12 +901,12 @@ impl ToolRuntime {
         Ok(())
     }
 
-    fn proposal_for(&self, tool: &dyn Tool, input: &Value) -> Proposal {
+    fn proposal_for(tool: &dyn Tool, input: &Value, ctx: &ToolCtx) -> Proposal {
         Proposal {
             tool: tool.name().into(),
             args: input.clone(),
             resource: None,
-            policy_context: json!({"roots": self.ctx.roots, "cwd": self.ctx.cwd}),
+            policy_context: json!({"roots": ctx.roots, "cwd": ctx.cwd}),
         }
     }
 
@@ -1093,57 +1116,21 @@ impl ToolRuntime {
         })
     }
 
-    fn unknown_tool(&self, tc: &TurnCtx<'_>, call: &ToolUse) -> Result<CallOutcome> {
-        tc.record(&fact::tool::UnknownTool { name: &call.name });
-        let text = format!(
-            "Unknown tool `{}`. Available: {}.",
-            call.name,
-            self.registry
-                .all()
-                .map(|t| t.wire_name())
-                .chain(self.mcp.all().iter().map(|t| t.wire.clone()))
-                .collect::<Vec<_>>()
-                .join(", ")
-        );
-        let r = ResultNode::new(&call.id, &call.name, ResultStatus::Error, text);
-        Ok(CallOutcome::Done {
-            status: self.answer(tc, r)?,
-        })
-    }
-
-    fn invalid_json(
-        &self,
-        tc: &TurnCtx<'_>,
-        call: &ToolUse,
-        tool: &str,
-        raw: &str,
-    ) -> Result<CallOutcome> {
-        let body = json!({"INVALID_JSON": raw}).to_string();
-        let node = self.result_node(
-            tc,
-            ResultNode::new(&call.id, tool, ResultStatus::Error, body),
-        );
-        tc.record(&fact::tool::InvalidJson {
-            tool,
-            tool_use_id: &call.id,
-        });
-        Ok(CallOutcome::Done {
-            status: self.write_result(tc, &node)?,
-        })
-    }
-
     /// The gate for one call (§3.17). The toollet's own typed parse names the
     /// resources, and an `Err` is invalid input. The policy then runs the
     /// call, notifies, or waits (§3.9); nothing it decides refuses one
     /// (theseus-8az). The record keeps the keys stored tool-call nodes carry,
     /// and `tool.proposed` shows it to the session's clients.
     fn gate(&self, tc: &TurnCtx<'_>, tool: &dyn Tool, call: &ToolUse) -> Result<Gated, Invalid> {
-        let mut proposal = self.proposal_for(tool, &call.input);
-        let planned = tool.plan(&call.input, &self.ctx);
+        let ctx = self.ctx_in(tc);
+        let mut proposal = Self::proposal_for(tool, &call.input, &ctx);
+        let planned = tool.plan(&call.input, &ctx);
         // Layer 1 guards only the owner's tasks (theseus-ext.10).
         let planned = planned.map(|p| {
             crate::task_graph::tools::authority_for(tc.store, tool.name(), &call.input, p)
         });
+        // A job tool's job is its session's; a stop runs its program (theseus-n8gk).
+        let planned = planned.and_then(|p| self.job_planned(tc, tool.name(), &call.input, p));
         // A glide's places (38b): the one it names must be bound here.
         let glide = (planned.is_ok() && crate::glide::is_glide(tool.name()))
             .then(|| crate::glide::resolve(tc, tool.name(), &call.input));
@@ -1155,6 +1142,8 @@ impl ToolRuntime {
             held: &held,
             mcp: &mcp,
             glide: glide.as_ref().and_then(|g| g.as_ref().ok()),
+            session: Some(tc.session_id),
+            ctx: &ctx,
         };
         // A shared place's call reaches only what the place may (the place
         // rule): the catalog offers nothing else, and this refuses it, in case.
@@ -1242,7 +1231,7 @@ impl ToolRuntime {
             ),
             false => (
                 format!("validation: {}", bad.error),
-                format!("Invalid input: {}", bad.error),
+                format!("Invalid input: {}", self.field_hinted(tool, &bad.error)),
             ),
         };
         let call_node = Self::tool_call_node(tc, assistant_node, call, tool, None, *bad.record);
@@ -1522,6 +1511,8 @@ impl ToolRuntime {
                     .map(|c| edit.take(c))
             }
             crate::wake::AT => crate::wake::set(tc, &call.input, correlation_id),
+            crate::wake_tools::CANCEL => crate::wake_tools::cancel(tc, &call.input),
+            crate::wake_tools::MOVE => crate::wake_tools::move_to(tc, &call.input),
             // Run again after a restart: what the first run proposed.
             crate::extend::PROPOSE => crate::extend::proposed_by_call(tc, correlation_id),
             name if crate::task_graph::tools::is_edit(name) => {
@@ -1623,7 +1614,8 @@ impl ToolRuntime {
             correlation_id,
             backend: tool.backend().as_str(),
         });
-        let (t, input, mut ctx) = (tool.clone(), call.input.clone(), self.ctx.clone());
+        let (t, input) = (tool.clone(), call.input.clone());
+        let mut ctx = self.ctx_in(tc).into_owned();
         // A toollet granted a secret reads it through the broker, bound to
         // this call (theseus-dcy). Its secrets settle first, as a turn's do,
         // since a toollet runs on a core and cannot wait.
@@ -1671,6 +1663,8 @@ impl ToolRuntime {
                 crate::file_read::FAMILY => self.read_file(tc, &input, &ctx),
                 // The owner's memory, read for this session (theseus-w9qv).
                 crate::memory_lookup::FAMILY => self.lookup.run(tc, &input),
+                // A job's handle needs its session (theseus-n8gk).
+                theseus_tools::jobs::FAMILY => self.run_job_tool(tc, tool.name(), &input),
                 _ => t.run_async_with_media(&input, &ctx),
             };
             let mut task = tokio::spawn(run);
@@ -2020,6 +2014,8 @@ struct ResultNode<'a> {
     /// The line its text ends with, past the cap: the native call a job of
     /// the daemon's own CLI stands in for (`native::hint`, theseus-8c8s).
     hint: Option<String>,
+    /// Where the output in its text is, kept whole when cut (theseus-v73m).
+    kept: Option<kept::Source>,
 }
 
 impl<'a> ResultNode<'a> {
@@ -2042,6 +2038,7 @@ impl<'a> ResultNode<'a> {
             image: None,
             external: None,
             hint: None,
+            kept: None,
         }
     }
 }
@@ -2230,6 +2227,8 @@ pub fn build_runtime(
         r.register(Arc::new(crate::task_graph::tools::TaskClose));
         r.register(Arc::new(crate::task_graph::lease::TaskClaimTool));
         r.register(Arc::new(crate::wake::WakeAt));
+        r.register(Arc::new(crate::wake_tools::WakeCancel));
+        r.register(Arc::new(crate::wake_tools::WakeMove));
         r.register(Arc::new(crate::extend::Propose));
         r.register(Arc::new(crate::glide::ChannelPost));
         r.register(Arc::new(crate::glide::ChannelRead));
@@ -2320,13 +2319,20 @@ pub fn build_runtime(
         parallel_runs: t.parallel_runs.max(1),
         proc_env,
         calls: Mutex::new(BTreeMap::new()),
+        fit_notes: Default::default(),
         // Read from the store when the core starts (`Core::build`).
         tightened: Default::default(),
+        earned: Default::default(),
         cpu,
         broker: Arc::new(broker),
         external_text: cfg.policy.external_text,
         external_programs: cfg.policy.external_programs.clone(),
         output_max_bytes: t.job_output_max_bytes,
+        outputs: crate::outputs::Outputs::new(
+            state.join("outputs"),
+            t.outputs_keep_days,
+            t.outputs_max_bytes,
+        ),
         disk: Arc::new(crate::disk::Disk::new(
             state,
             cfg.server.disk_warn_mb,
@@ -2341,12 +2347,17 @@ pub fn build_runtime(
         stops: Default::default(),
         public_roots: crate::places::public_roots(cfg),
         job_waits: Arc::default(),
+        admission: crate::turn::admission::Admission::new(
+            cfg.kernel.admission_ceiling,
+            cfg.kernel.admission_stuck(),
+        ),
         mcp: Default::default(),
         terms,
         lsp,
         extend,
         judge: Default::default(),
         lookup: Default::default(),
+        jobs: Default::default(),
         profiles: cfg
             .all_profiles()
             .iter()

@@ -35,6 +35,11 @@ pub struct McpServerConfig {
     /// budget); past it, 429 with `Retry-After`.
     #[serde(default = "default_rpm")]
     pub requests_per_minute: u32,
+    /// Turns on the `memory_search` and `memory_get` tools: an MCP client
+    /// reads the owner's private memory, with no model call (theseus-02i1h).
+    /// Off by default.
+    #[serde(default)]
+    pub memory: bool,
 }
 
 fn default_port() -> u16 {
@@ -62,6 +67,7 @@ impl Default for McpServerConfig {
             posture_floor: default_floor(),
             spend_limit_usd: default_spend_limit(),
             requests_per_minute: default_rpm(),
+            memory: false,
         }
     }
 }

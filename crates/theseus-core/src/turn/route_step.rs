@@ -301,6 +301,7 @@ impl TurnRunner {
                         model: p.model.clone(),
                         unusable,
                         short_cost: entry.map(routing::short_cost),
+                        input_per_mtok: entry.map(|e| e.input_per_mtok),
                         vision: entry.is_some_and(|e| e.vision),
                     },
                 )
@@ -392,8 +393,16 @@ impl TurnRunner {
             takes: self.catalog.get(model).is_some_and(|e| e.effort),
         };
         let carried = v.turn != t.tc.turn_id;
-        let bounds = self.cfg.routing.effort_bounds;
-        Some(effort::decide(bounds, answer, runs, acts, carried))
+        let r = &self.cfg.routing;
+        let bounds = r.effort_bounds;
+        Some(effort::decide(
+            bounds,
+            r.high_effort_confidence,
+            answer,
+            runs,
+            acts,
+            carried,
+        ))
     }
 
     /// The first loop's compile, the wait for the verdict beside it, and the
@@ -585,6 +594,12 @@ impl TurnRunner {
                 .and_then(|p| profiles.get(p))
                 .and_then(|p| p.short_cost);
         let hold = session.routed.as_ref().and_then(|r| r.hold.clone());
+        // Jev's own move up from the base is what a step back down undoes.
+        let from = session
+            .routed
+            .as_ref()
+            .filter(|r| r.profile.is_some())
+            .and_then(|r| r.from.as_deref());
         routing::decide(
             &self.cfg.routing,
             &profiles,
@@ -593,6 +608,7 @@ impl TurnRunner {
                 base: &t.target.profile,
                 est_tokens,
                 hold: hold.as_ref(),
+                from,
                 images: t.route.images,
                 cap,
             },
@@ -709,7 +725,9 @@ impl TurnRunner {
             "model": target.model,
         }));
         let (mut s, _) = self.request_spec(target, session.kind, t.tc.place());
+        s.session_text = self.session_block(t.tc.dir, t.tc.place());
         s.walk = self.walk(t.tc.session_id, t.tc.class);
+        self.stand(t, &mut s);
         *spec = s;
         if d.switch {
             session.last_target = Some(TargetRef::from(target));
@@ -757,7 +775,13 @@ impl TurnRunner {
             .collect();
         let sources = crate::recall::render::Sources::default();
         let mut detour = spec.clone();
-        detour.context_text = String::new();
+        // The owner's standing records ride a detour too (theseus-a7vi): they
+        // hold in every prompt of their scope, a cheap turn's included.
+        detour.context_text = t
+            .standing
+            .as_ref()
+            .map(|b| b.text.clone())
+            .unwrap_or_default();
         detour.context_files = Vec::new();
         detour.walk = None;
         let compiled = compile(CompileInput {
@@ -768,7 +792,7 @@ impl TurnRunner {
             spec: &detour,
             catalog: &self.catalog,
             force: None,
-            window_override: None,
+            window_override: self.working_window(&detour),
             blobs: Some(self.store.blobs()),
             hidden: &session.not_shown,
             strip: None,
@@ -780,6 +804,9 @@ impl TurnRunner {
         });
         let last = self.store.last_position();
         if let Some(f) = Self::unadmitted(t, &compiled, &nodes, last, false, i) {
+            return Ok(Err(f));
+        }
+        if let Some(f) = Self::standing_dropped(t, &compiled, i) {
             return Ok(Err(f));
         }
         t.record(&fact::turn::LoopStarted {

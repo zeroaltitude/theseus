@@ -16,7 +16,9 @@
 //! - `l:<limit>`, open, and its limit follows the config's
 //!   (`follows_limit`), the limit in 16 hex digits, so a changed config finds
 //!   the executions with another limit in two ranges;
-//! - `t:<parent>`, a task, under its parent (`tasks`).
+//! - `t:<parent>`, a task, under its parent (`tasks`);
+//! - `ot`, a task that has not ended (`open_tasks`): health's parked tasks
+//!   read these alone, never every open execution (theseus-id8d).
 //!
 //! An action's: `s:<state>`, and `x:<execution>` while it is not settled,
 //! so a stop, a cancel, or a task's end finds its execution's unsettled
@@ -30,12 +32,12 @@
 use serde::Deserialize;
 use theseus_store::{kinds, Projection, RecordKind};
 
-use crate::types::{ActionState, ExecState, Wake, SCHEMA};
+use crate::types::{ActionState, ExecState, SessionKind, Wake, SCHEMA};
 
 /// The kernel's projection: the store keeps these terms with every
 /// execution and action it appends.
 pub static PROJECTION: Projection = Projection {
-    name: "terms.kernel.1",
+    name: "terms.kernel.2",
     kinds: &[kinds::EXECUTION, kinds::ACTION],
     terms: of,
     sums: no_sums,
@@ -111,6 +113,9 @@ pub fn tasks_of(parent: &str) -> String {
     format!("t:{parent}")
 }
 
+/// The term of a task that has not ended.
+pub const OPEN_TASK: &str = "ot";
+
 /// An unsettled action's term under its execution.
 pub fn unsettled_of(execution_id: &str) -> String {
     format!("x:{execution_id}")
@@ -133,6 +138,8 @@ struct ExecutionTerms {
     budget: BudgetTerms,
     #[serde(default)]
     parent: Option<String>,
+    #[serde(default)]
+    kind: Option<SessionKind>,
 }
 
 #[derive(Deserialize, Default)]
@@ -167,6 +174,9 @@ fn execution(payload: &[u8]) -> Option<Vec<String>> {
     }
     if let Some(p) = e.parent {
         t.push(tasks_of(&p));
+    }
+    if e.kind == Some(SessionKind::Task) && !e.state.is_terminal() {
+        t.push(OPEN_TASK.into());
     }
     Some(t)
 }

@@ -30,6 +30,12 @@ pub(crate) struct At<'a> {
     pub held: &'a dyn Fn() -> Result<Option<ExternalText>, String>,
     pub mcp: &'a dyn Fn() -> Option<Posture>,
     pub glide: Option<&'a crate::glide::Resolved>,
+    /// The call's session: a read of its own kept outputs reads as one
+    /// inside the roots (theseus-v73m). None for `policy.explain`'s probe.
+    pub session: Option<&'a str>,
+    /// What the call's plan was made with: its session's directory
+    /// (theseus-aab7), which a batch's steps are planned in too.
+    pub ctx: &'a theseus_tools::ToolCtx,
 }
 
 /// A layer of the order after the place's refusal, as `order` hands each
@@ -38,6 +44,8 @@ pub(crate) struct At<'a> {
 pub(crate) enum Layer {
     /// The call's own policy: L1's, or L0's floor, lists, and posture.
     Policy,
+    /// An earned grant (theseus-uttu): the owner accepted what the record earned.
+    Earned,
     /// A granted secret's posture (theseus-dcy).
     Grant,
     /// A language server's first start on a root: by an `lsp.*` call (L2),
@@ -74,10 +82,34 @@ impl ToolRuntime {
         input: &Value,
         seen: &mut dyn FnMut(Layer, &Decision),
     ) -> (Decision, Bound) {
+        // A read of the session's own kept outputs (theseus-v73m) is judged
+        // as one inside the roots: its paths are not listed, nor is any
+        // other of the state dir's.
+        let own;
+        let plan = match at.session {
+            Some(s) if self.outputs.own_read(s, tool.name(), plan) => {
+                own = Plan {
+                    resources: vec![],
+                    ..plan.clone()
+                };
+                &own
+            }
+            _ => plan,
+        };
         let tightened = self.tightened.get(tool.name());
         let t = tightened.as_ref().map(crate::tighten::as_tightened);
         let (decision, bound) = crate::sandbox::unbrokered(self, tool, plan, input, t);
         seen(Layer::Policy, &decision);
+        let decision = crate::policy::earned::gate(
+            self,
+            at.place.class,
+            tool,
+            plan,
+            input,
+            bound.l1(),
+            decision,
+        );
+        seen(Layer::Earned, &decision);
         let decision = self.brokered(tool.name(), plan, input, decision);
         seen(Layer::Grant, &decision);
         // A call that starts a language server is a run too (L2).

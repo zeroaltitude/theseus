@@ -17,6 +17,7 @@ pub mod day_ceiling;
 mod earlier;
 pub mod gate;
 pub mod gone;
+mod held;
 pub mod job;
 mod job_egress;
 mod job_l1;
@@ -51,6 +52,8 @@ mod tests_budgets;
 #[cfg(test)]
 mod tests_day_ceiling;
 #[cfg(test)]
+mod tests_deferred;
+#[cfg(test)]
 mod tests_earlier;
 #[cfg(test)]
 mod tests_enosys;
@@ -59,11 +62,15 @@ mod tests_frames;
 #[cfg(test)]
 mod tests_gone;
 #[cfg(test)]
+mod tests_held;
+#[cfg(test)]
 mod tests_overdraw;
 #[cfg(test)]
 mod tests_place_limit;
 #[cfg(test)]
 mod tests_repeat;
+#[cfg(test)]
+mod tests_runaway;
 #[cfg(test)]
 mod tests_spool;
 #[cfg(test)]
@@ -78,7 +85,10 @@ mod tests_tx;
 mod tests_wakes;
 
 pub use clock::{Clock, RealClock, VirtualClock};
-pub use day_ceiling::{DayCeiling, Hold, Reached, Seed, Today};
+pub use day_ceiling::{
+    BurnStop, DayCeiling, Hold, Reached, Seed, Today, Warning, DEFAULT_BURN_MICROS,
+    DEFAULT_RUNAWAY_MICROS, DEFAULT_STEP_MICROS,
+};
 pub use earlier::EARLIER_PROCESS;
 pub use gate::{digest_json, digest_proposal, Proposal};
 pub use kernel::{
@@ -87,9 +97,10 @@ pub use kernel::{
     TurnEnd, TurnGuard,
 };
 pub use outbox::{Post, Settled, OUTBOX_TOOL};
+pub use overdraw::{default_hard_multiple, HardStop};
 pub use repeat::{Day, Every, Repeat, TimeZone};
 pub use spool::Spool;
 pub use stops::Stop;
-pub use tasks::{carve_key, task_ids, TakenReports, TaskOpen};
+pub use tasks::{carve_key, task_ids, Opening, TakenReports, TaskOpen};
 pub use types::*;
-pub use wakes::{wake_id, FiredWake, WakeSet, MAX_PENDING};
+pub use wakes::{wake_id, FiredWake, MoveTo, WakeMoved, WakeSet, MAX_PENDING};

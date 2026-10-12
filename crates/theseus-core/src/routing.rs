@@ -25,6 +25,18 @@
 //!   (`RoutingConfig::confidence_for`, theseus-6n5j).
 //! - **A late verdict** (one that came after its message's wait) applies to
 //!   the session's next message alone, and a detour's to none ([`carries`]).
+//! - **The dear tier's guard** (theseus-p8dy): at a compile over
+//!   `dear_tier_max_tokens`, a `sophisticated` or `review` verdict skips a
+//!   profile in the mode's list whose catalog input price is above the next
+//!   usable one's, and the turn says `context_guard`.
+//! - **A step back down** (theseus-p8dy): only Jev elevates. A session Jev
+//!   moved above its base (`Routed.from`) goes back to it once Jev's verdicts
+//!   for two turns in a row name a mode whose first profile is the base or
+//!   cheaper (`chat`, `routine_coding`, `other`): the first sets a [`Hold`]
+//!   named [`STEP_DOWN`] toward the base, the second makes the switch, at any
+//!   estimate, and a verdict of another mode, or one under its bar, breaks
+//!   the row (a detour leaves it, as for any hold). Never below the base.
+//!   An owner's correction (`steer_to`) never steps down.
 //! - **The cap.** A place's profile is its default and its cap: a profile
 //!   dearer than it at catalog prices is passed over, and the turn says
 //!   `capped`.
@@ -109,6 +121,12 @@ pub enum Reason {
     /// The owner's correction, or the layer's entry close to the message,
     /// placed the turn ahead of the verdict (theseus-q31l).
     Correction,
+    /// The context was over `dear_tier_max_tokens`, so a dearer first
+    /// profile of the mode's list was skipped for the next (theseus-p8dy).
+    ContextGuard,
+    /// Two agreeing verdicts moved the session back down to its base
+    /// (theseus-p8dy).
+    StepDown,
 }
 
 impl Reason {
@@ -126,6 +144,8 @@ impl Reason {
             Reason::Pinned => "pinned",
             Reason::Shadow => "shadow",
             Reason::Correction => "correction",
+            Reason::ContextGuard => "context_guard",
+            Reason::StepDown => "step_down",
         }
     }
 }
@@ -153,6 +173,8 @@ pub struct Profile {
     pub unusable: Option<&'static str>,
     /// A short turn's cost at catalog prices, in dollars (none: unpriced).
     pub short_cost: Option<f64>,
+    /// The catalog's input price per million tokens (none: unpriced).
+    pub input_per_mtok: Option<f64>,
     pub vision: bool,
 }
 
@@ -262,6 +284,44 @@ pub fn pick(list: &[String], profiles: &Profiles, images: bool, cap: Option<f64>
     }
 }
 
+/// The modes the dear tier's context guard applies to (theseus-p8dy).
+pub const GUARDED: [&str; 2] = ["sophisticated", "review"];
+
+/// A mode's list without the profiles the guard skips: each usable one
+/// whose input price is above the next usable one's. None when it skips
+/// none. The last usable profile is never skipped.
+fn dear_guard(list: &[String], profiles: &Profiles, images: bool) -> Option<Vec<String>> {
+    let usable: Vec<(usize, &Profile)> = list
+        .iter()
+        .enumerate()
+        .filter_map(|(i, name)| {
+            let found = match name == CHEAPEST {
+                true => cheapest(profiles, images, None),
+                false => Some(name.clone()),
+            }?;
+            profiles
+                .get(&found)
+                .filter(|p| p.runs(images))
+                .map(|p| (i, p))
+        })
+        .collect();
+    let skip: Vec<usize> = usable
+        .windows(2)
+        .filter(|w| {
+            matches!((w[0].1.input_per_mtok, w[1].1.input_per_mtok), (Some(a), Some(b)) if a > b)
+        })
+        .map(|w| w[0].0)
+        .collect();
+    (!skip.is_empty()).then(|| {
+        let keep = |(i, _): &(usize, &String)| !skip.contains(i);
+        list.iter()
+            .enumerate()
+            .filter(keep)
+            .map(|(_, n)| n.clone())
+            .collect()
+    })
+}
+
 /// What a turn asks the rule.
 #[derive(Debug, Clone)]
 pub struct Ask<'a> {
@@ -271,10 +331,17 @@ pub struct Ask<'a> {
     /// The first compile's estimate.
     pub est_tokens: u64,
     pub hold: Option<&'a Hold>,
+    /// The session's base when Jev moved it up from there (`Routed.from`
+    /// while `Routed.profile` is set); none for an owner's correction, which
+    /// is never stepped down.
+    pub from: Option<&'a str>,
     pub images: bool,
     /// The place's profile's short-turn cost, when a place caps it.
     pub cap: Option<f64>,
 }
+
+/// The `mode` of the [`Hold`] a step back down sets (theseus-p8dy).
+pub const STEP_DOWN: &str = "step_down";
 
 /// What the hold becomes.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -297,6 +364,54 @@ pub struct Decision {
     pub hold: HoldNext,
 }
 
+/// The step back down to the session's base (theseus-p8dy), for a verdict
+/// whose mode would pick `picked`: only when Jev moved the session above its
+/// base (`a.from`, dearer than it), the mode's pick is the session's own or a
+/// profile no dearer than the base, and the base is usable. The first such
+/// turn holds toward the base; the second, which finds that hold, switches.
+fn step_down(profiles: &Profiles, a: &Ask<'_>, picked: &Picked) -> Option<Decision> {
+    let from = a.from.filter(|f| *f != a.base)?;
+    let base = profiles.get(from).filter(|p| p.runs(a.images))?;
+    let (cur, base_cost) = (profiles.get(a.base)?.short_cost?, base.short_cost?);
+    if cur <= base_cost + 1e-12 {
+        return None;
+    }
+    let eligible = match picked {
+        Picked::Own => true,
+        Picked::Profile(p) | Picked::Capped(Some(p)) => profiles
+            .get(p)
+            .and_then(|p| p.short_cost)
+            .is_some_and(|c| c <= base_cost + 1e-12),
+        Picked::Capped(None) | Picked::Fallback => false,
+    };
+    if !eligible {
+        return None;
+    }
+    let held = a
+        .hold
+        .is_some_and(|h| h.mode == STEP_DOWN && h.profile == from);
+    Some(match held {
+        true => Decision {
+            profile: from.to_string(),
+            reason: Reason::StepDown,
+            detour: false,
+            switch: true,
+            hold: HoldNext::Clear,
+        },
+        false => Decision {
+            profile: a.base.to_string(),
+            reason: Reason::CacheHold,
+            detour: false,
+            switch: false,
+            hold: HoldNext::Set(Hold {
+                mode: STEP_DOWN.into(),
+                profile: from.to_string(),
+                turn: a.verdict.turn.clone(),
+            }),
+        },
+    })
+}
+
 /// The switch rule.
 pub fn decide(cfg: &RoutingConfig, profiles: &Profiles, a: &Ask<'_>) -> Decision {
     let detour = is_detour(&a.verdict.mode);
@@ -315,9 +430,29 @@ pub fn decide(cfg: &RoutingConfig, profiles: &Profiles, a: &Ask<'_>) -> Decision
     if a.verdict.confidence < cfg.confidence_for(&a.verdict.mode) {
         return stay(Reason::Unsure, keep_or_clear);
     }
-    let picked = pick(cfg.modes.of(&a.verdict.mode), profiles, a.images, a.cap);
+    let list = cfg.modes.of(&a.verdict.mode);
+    let kept = (GUARDED.contains(&a.verdict.mode.as_str())
+        && a.est_tokens > cfg.dear_tier_max_tokens)
+        .then(|| dear_guard(list, profiles, a.images))
+        .flatten();
+    let picked = pick(list, profiles, a.images, a.cap);
+    let guarded = kept
+        .map(|k| pick(&k, profiles, a.images, a.cap))
+        .filter(|g| *g != picked);
+    let (picked, guard) = match guarded {
+        Some(g) => (g, true),
+        None => (picked, false),
+    };
+    let stepped = match detour {
+        true => None,
+        false => step_down(profiles, a, &picked),
+    };
+    if let Some(d) = stepped {
+        return d;
+    }
     let (target, reason) = match picked {
         Picked::Own => (a.base.to_string(), Reason::Verdict),
+        Picked::Profile(p) if guard => (p, Reason::ContextGuard),
         Picked::Profile(p) => (p, Reason::Verdict),
         Picked::Capped(Some(p)) => (p, Reason::Capped),
         Picked::Capped(None) => (a.base.to_string(), Reason::Capped),
@@ -443,6 +578,7 @@ mod tests {
             model: model.into(),
             unusable: None,
             short_cost: Some(cost),
+            input_per_mtok: None,
             vision,
         }
     }
@@ -459,7 +595,11 @@ mod tests {
             ("glm53", "zai", "glm-5.3"),
         ] {
             let e = c.get(model).unwrap();
-            out.insert(name.into(), p(provider, model, short_cost(e), e.vision));
+            let priced = Profile {
+                input_per_mtok: Some(e.input_per_mtok),
+                ..p(provider, model, short_cost(e), e.vision)
+            };
+            out.insert(name.into(), priced);
         }
         out
     }
@@ -480,6 +620,7 @@ mod tests {
             base,
             est_tokens: est,
             hold: None,
+            from: None,
             images: false,
             cap: None,
         }
@@ -624,7 +765,10 @@ mod tests {
         let e = c.get("claude-haiku-5-5").unwrap();
         let mut out = five();
         for name in ["haiku", "haikuhi"] {
-            let h = p("anthropic", "claude-haiku-5-5", short_cost(e), e.vision);
+            let h = Profile {
+                input_per_mtok: Some(e.input_per_mtok),
+                ..p("anthropic", "claude-haiku-5-5", short_cost(e), e.vision)
+            };
             out.insert(name.into(), h);
         }
         out
@@ -911,5 +1055,243 @@ mod tests {
         // From Opus to GLM 5.3, output pays for it in about three turns.
         let n = break_even_turns(opus, glm53, 30_000, 1_000).unwrap();
         assert!((2.5..3.5).contains(&n), "{n}");
+    }
+
+    /// The dear tier's context guard (theseus-p8dy): over
+    /// `dear_tier_max_tokens`, a `sophisticated` verdict skips a first
+    /// profile whose input price is above the next usable one's; at the
+    /// threshold and under it nothing changes; nothing is skipped when the
+    /// first is the cheaper, and the last usable profile is never skipped.
+    #[test]
+    fn over_the_dear_tiers_threshold_a_dearer_first_profile_is_skipped() {
+        // Every switch is at once, so the cache rule is out of the way.
+        let mut cfg = RoutingConfig {
+            cold_switch_tokens: u64::MAX,
+            ..RoutingConfig::default()
+        };
+        let mut ps = five();
+        let (dear, cheap) = ("opus", "fable");
+        ps.get_mut(dear).unwrap().input_per_mtok = Some(10.0);
+        ps.get_mut(cheap).unwrap().input_per_mtok = Some(5.0);
+        cfg.modes.sophisticated.profiles = vec![dear.into(), cheap.into()];
+        let v = verdict("sophisticated", 0.9);
+        let at =
+            |est: u64, ps: &Profiles, cfg: &RoutingConfig| decide(cfg, ps, &ask(&v, "sonnet", est));
+        let d = at(200_000, &ps, &cfg);
+        assert_eq!(
+            (d.profile.as_str(), d.reason),
+            (dear, Reason::Verdict),
+            "at the threshold, not over it"
+        );
+        let d = at(200_001, &ps, &cfg);
+        assert_eq!(
+            (d.profile.as_str(), d.reason, d.switch),
+            (cheap, Reason::ContextGuard, true),
+            "over it"
+        );
+        // The threshold is the config's.
+        cfg.dear_tier_max_tokens = 300_000;
+        assert_eq!(at(250_000, &ps, &cfg).profile, dear);
+        cfg.dear_tier_max_tokens = 200_000;
+        // Cheaper first: nothing skipped.
+        cfg.modes.sophisticated.profiles = vec![cheap.into(), dear.into()];
+        let d = at(300_000, &ps, &cfg);
+        assert_eq!((d.profile.as_str(), d.reason), (cheap, Reason::Verdict));
+        // The cheaper unusable: the dear one is the last usable, kept.
+        cfg.modes.sophisticated.profiles = vec![dear.into(), cheap.into()];
+        ps.get_mut(cheap).unwrap().unusable = Some("key");
+        let d = at(300_000, &ps, &cfg);
+        assert_eq!((d.profile.as_str(), d.reason), (dear, Reason::Verdict));
+        // Another mode is not guarded.
+        let v2 = verdict("deep_coding", 0.9);
+        let d = decide(&cfg, &five(), &ask(&v2, "sonnet", 400_000));
+        assert_eq!((d.profile.as_str(), d.reason), ("opus", Reason::Verdict));
+        assert_eq!(Reason::ContextGuard.as_str(), "context_guard");
+    }
+
+    /// The reason is the guard's only where it moved the pick.
+    #[test]
+    fn the_guard_says_so_only_where_it_moved_the_pick() {
+        let mut cfg = RoutingConfig {
+            cold_switch_tokens: u64::MAX,
+            ..RoutingConfig::default()
+        };
+        let mut ps = five();
+        ps.get_mut("opus").unwrap().input_per_mtok = Some(10.0);
+        ps.get_mut("fable").unwrap().input_per_mtok = Some(5.0);
+        cfg.modes.sophisticated.profiles = vec!["fable".into(), "opus".into()];
+        let v = verdict("sophisticated", 0.9);
+        let d = decide(&cfg, &ps, &ask(&v, "sonnet", 500_000));
+        assert_eq!(
+            (d.profile.as_str(), d.reason, d.switch),
+            ("fable", Reason::Verdict, true),
+            "the first was already the cheaper"
+        );
+        cfg.modes.sophisticated.profiles = vec!["opus".into(), "fable".into()];
+        let d = decide(&cfg, &ps, &ask(&v, "sonnet", 500_000));
+        assert_eq!(
+            (d.profile.as_str(), d.reason, d.switch),
+            ("fable", Reason::ContextGuard, true)
+        );
+    }
+
+    /// The step back down (theseus-p8dy): a session Jev moved up from its
+    /// base goes back after two verdicts in a row whose mode's first profile
+    /// is the base or cheaper; one is not enough, a verdict of a dearer mode
+    /// or under its bar breaks the row, a detour leaves it, and it never goes
+    /// below the base. The hold governs at any size of context.
+    #[test]
+    fn a_session_jev_moved_up_steps_back_down_after_two_agreeing_turns() {
+        let cfg = RoutingConfig::default();
+        let ps = seven();
+        let chat = verdict("chat", 0.9);
+        fn up<'a>(v: &'a Verdict, est: u64, hold: Option<&'a Hold>) -> Ask<'a> {
+            Ask {
+                from: Some("sonnet"),
+                hold,
+                ..ask(v, "opus", est)
+            }
+        }
+        // The first turn holds toward the base and stays where it is.
+        let d = decide(&cfg, &ps, &up(&chat, 10, None));
+        assert_eq!(
+            (d.profile.as_str(), d.reason, d.switch),
+            ("opus", Reason::CacheHold, false)
+        );
+        let HoldNext::Set(h) = d.hold else {
+            panic!("{:?}", d.hold)
+        };
+        assert_eq!((h.mode.as_str(), h.profile.as_str()), (STEP_DOWN, "sonnet"));
+        // The second makes the switch, small context or large.
+        for est in [10, 29_999, 30_000, 900_000] {
+            let d = decide(&cfg, &ps, &up(&chat, est, Some(&h)));
+            assert_eq!(
+                (d.profile.as_str(), d.reason, d.switch, &d.hold),
+                ("sonnet", Reason::StepDown, true, &HoldNext::Clear),
+                "{est}"
+            );
+        }
+        // routine_coding's first profile is dearer-or-equal never: it is
+        // cheaper than the base, so it counts, and goes to the base, never
+        // below it.
+        let rc = verdict("routine_coding", 0.9);
+        let d = decide(&cfg, &ps, &up(&rc, 10, Some(&h)));
+        assert_eq!((d.profile.as_str(), d.reason), ("sonnet", Reason::StepDown));
+        let d = decide(&cfg, &ps, &up(&rc, 10, None));
+        assert_eq!((d.reason, d.switch), (Reason::CacheHold, false));
+        // A dearer mode breaks the row: the hold clears, and the next chat
+        // holds again instead of switching.
+        let hard = verdict("sophisticated", 0.9);
+        let d = decide(&cfg, &ps, &up(&hard, 10, Some(&h)));
+        assert_eq!(
+            (d.profile.as_str(), d.reason, &d.hold),
+            ("opus", Reason::Verdict, &HoldNext::Clear)
+        );
+        // So does a verdict under its bar.
+        let unsure = verdict("chat", 0.5);
+        let d = decide(&cfg, &ps, &up(&unsure, 10, Some(&h)));
+        assert_eq!((d.reason, &d.hold), (Reason::Unsure, &HoldNext::Clear));
+        // A detour leaves the row as it is.
+        let tr = verdict("trivial", 0.9);
+        let d = decide(&cfg, &ps, &up(&tr, 10, Some(&h)));
+        assert_eq!((d.detour, &d.hold), (true, &HoldNext::Keep));
+        // deep_coding leads with opus, which is not the base or cheaper.
+        let dc = verdict("deep_coding", 0.9);
+        let d = decide(&cfg, &ps, &up(&dc, 10, None));
+        assert_eq!((d.profile.as_str(), d.reason), ("opus", Reason::Verdict));
+    }
+
+    /// Nothing steps down that Jev did not raise, or that is already at or
+    /// below the base: no `from`, the session on its base, a cheaper profile,
+    /// an unusable base, and the owner's correction (`steer_to`).
+    #[test]
+    fn nothing_steps_down_that_jev_did_not_raise() {
+        let cfg = RoutingConfig::default();
+        let mut ps = seven();
+        let chat = verdict("chat", 0.9);
+        let d = decide(&cfg, &ps, &ask(&chat, "opus", 10));
+        assert_eq!(
+            (d.reason, d.hold),
+            (Reason::Verdict, HoldNext::Clear),
+            "no base known"
+        );
+        let on_base = Ask {
+            from: Some("opus"),
+            ..ask(&chat, "opus", 10)
+        };
+        assert_eq!(decide(&cfg, &ps, &on_base).reason, Reason::Verdict);
+        let below = Ask {
+            from: Some("opus"),
+            ..ask(&chat, "haikuhi", 10)
+        };
+        let d = decide(&cfg, &ps, &below);
+        assert_eq!((d.profile.as_str(), d.reason), ("haikuhi", Reason::Verdict));
+        let up = Ask {
+            from: Some("sonnet"),
+            ..ask(&chat, "opus", 10)
+        };
+        ps.get_mut("sonnet").unwrap().unusable = Some("key");
+        let d = decide(&cfg, &ps, &up);
+        assert_eq!((d.profile.as_str(), d.reason), ("opus", Reason::Verdict));
+        // The owner's pick or correction, at once, is the owner's.
+        let ps = seven();
+        let d = steer_to(&cfg, &ps, &Ask { from: None, ..up }, "opus", true);
+        assert_eq!(
+            (d.profile.as_str(), d.reason, d.switch),
+            ("opus", Reason::Correction, false)
+        );
+        let d = steer_to(
+            &cfg,
+            &ps,
+            &Ask {
+                from: Some("sonnet"),
+                ..ask(&chat, "sonnet", 10)
+            },
+            "opus",
+            true,
+        );
+        assert_eq!(
+            (d.profile.as_str(), d.reason, d.switch),
+            ("opus", Reason::Correction, true)
+        );
+    }
+
+    /// route.v4's `review` (theseus-p8dy): a verification switches the
+    /// session, at the section's bar, to `opushi`, then `fable` when `opushi`
+    /// is unusable, then the session's own; it is no detour and its late
+    /// verdict carries.
+    #[test]
+    fn a_review_verdict_routes_to_opushi_then_fable() {
+        let cfg = RoutingConfig::default();
+        assert_eq!(cfg.modes.of("review"), ["opushi", "fable"]);
+        let mut ps = five();
+        let c = crate::catalog::Catalog::builtin();
+        let e = c.get("claude-opus-5-5").unwrap();
+        ps.insert(
+            "opushi".into(),
+            p("anthropic", "claude-opus-5-5", short_cost(e), e.vision),
+        );
+        let v = verdict("review", 0.9);
+        let d = decide(&cfg, &ps, &ask(&v, "sonnet", 10));
+        assert_eq!(
+            (d.profile.as_str(), d.reason, d.switch, d.detour),
+            ("opushi", Reason::Verdict, true, false)
+        );
+        ps.get_mut("opushi").unwrap().unusable = Some("key");
+        let d = decide(&cfg, &ps, &ask(&v, "sonnet", 10));
+        assert_eq!(
+            (d.profile.as_str(), d.reason, d.switch),
+            ("fable", Reason::Verdict, true)
+        );
+        ps.get_mut("fable").unwrap().unusable = Some("key");
+        let d = decide(&cfg, &ps, &ask(&v, "sonnet", 10));
+        assert_eq!(
+            (d.profile.as_str(), d.reason, d.switch),
+            ("sonnet", Reason::Fallback, false)
+        );
+        // Its own bar, the section's 0.6, and a late verdict of it carries.
+        let d = decide(&cfg, &five(), &ask(&verdict("review", 0.59), "sonnet", 10));
+        assert_eq!(d.reason, Reason::Unsure);
+        assert!(carries(&v));
     }
 }

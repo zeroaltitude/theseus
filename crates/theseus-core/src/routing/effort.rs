@@ -11,6 +11,13 @@
 //! - **Within `[routing] effort_bounds`** (the full range by default): an
 //!   answer outside them is clamped to the nearer bound, and the row says
 //!   `clamped`.
+//! - **`xhigh` and `max` need confidence** (theseus-p8dy, the owner's decision
+//!   of 2026-10-11: Jev may go all the way to max, but only on high evidence):
+//!   an answer of either applies only when its confidence is strictly above
+//!   `[routing] high_effort_confidence` (0.70); at or below, the turn runs at
+//!   `high` and the row says `held_high`, the answered level still recorded.
+//!   The gate applies first and the bounds clamp after; where both lower an
+//!   answer, the reason is the gate's.
 //! - **Only a model that takes effort** (its catalog row's `effort`): for any
 //!   other the answer is recorded and the request carries none, as before.
 //! - **The confidence rules are route.v2's**: below the question's `confirm`
@@ -42,6 +49,9 @@ pub enum EffortReason {
     Applied,
     /// Jev's level, clamped to the nearer bound.
     Clamped,
+    /// Jev answered `xhigh` or `max` at or under `high_effort_confidence`:
+    /// the turn runs at `high` (theseus-p8dy).
+    HeldHigh,
     /// Under the question's confirm bar.
     Unsure,
     /// Jev answered `unclear`.
@@ -62,6 +72,7 @@ impl EffortReason {
         match self {
             EffortReason::Applied => "applied",
             EffortReason::Clamped => "clamped",
+            EffortReason::HeldHigh => "held_high",
             EffortReason::Unsure => "unsure",
             EffortReason::Unclear => "unclear",
             EffortReason::Fixed => "fixed",
@@ -95,7 +106,10 @@ pub struct EffortDecision {
 impl EffortDecision {
     /// Jev's answer set the turn's effort.
     pub fn applied(&self) -> bool {
-        matches!(self.reason, EffortReason::Applied | EffortReason::Clamped)
+        matches!(
+            self.reason,
+            EffortReason::Applied | EffortReason::Clamped | EffortReason::HeldHigh
+        )
     }
 }
 
@@ -125,9 +139,11 @@ pub fn parse(level: &str) -> Option<Effort> {
 
 /// The effort rule. `acts` is whether the verdict acts on this turn: live,
 /// unpinned, and asked for this turn's own message (`carried` when it is a
-/// late verdict of the last one).
+/// late verdict of the last one). `high_confidence` is `[routing]
+/// high_effort_confidence`: `xhigh` and `max` apply only above it.
 pub fn decide(
     bounds: [Effort; 2],
+    high_confidence: f64,
     answer: &EffortAnswer,
     runs: Runs,
     acts: bool,
@@ -154,11 +170,18 @@ pub fn decide(
         return stand(EffortReason::Fixed);
     }
     let [lo, hi] = bounds;
-    let ran = level.clamp(lo, hi);
+    // The gate first: an unsure xhigh or max is a high.
+    let held = level >= Effort::Xhigh && answer.confidence <= high_confidence;
+    let ran = match held {
+        true => Effort::High,
+        false => level,
+    }
+    .clamp(lo, hi);
     EffortDecision {
-        reason: match ran == level {
-            true => EffortReason::Applied,
-            false => EffortReason::Clamped,
+        reason: match (ran == level, held && ran < level) {
+            (true, _) => EffortReason::Applied,
+            (false, true) => EffortReason::HeldHigh,
+            (false, false) => EffortReason::Clamped,
         },
         ran: Some(ran),
     }
@@ -169,11 +192,16 @@ mod tests {
     use super::*;
 
     const FULL: [Effort; 2] = [Effort::Low, Effort::Max];
+    const BAR: f64 = 0.70;
 
     fn a(level: &str, sure: bool) -> EffortAnswer {
+        at(level, if sure { 0.9 } else { 0.5 }, sure)
+    }
+
+    fn at(level: &str, confidence: f64, sure: bool) -> EffortAnswer {
         EffortAnswer {
             level: level.into(),
-            confidence: if sure { 0.9 } else { 0.5 },
+            confidence,
             sure,
         }
     }
@@ -196,6 +224,7 @@ mod tests {
             assert_eq!(parse(name(e)), Some(e));
             let d = decide(
                 FULL,
+                BAR,
                 &a(name(e), true),
                 runs(Some(Effort::Low), false, true),
                 true,
@@ -204,7 +233,14 @@ mod tests {
             assert_eq!((d.reason, d.ran), (EffortReason::Applied, Some(e)), "{e:?}");
             assert!(d.applied());
         }
-        let d = decide(FULL, &a("high", true), runs(None, false, true), true, false);
+        let d = decide(
+            FULL,
+            BAR,
+            &a("high", true),
+            runs(None, false, true),
+            true,
+            false,
+        );
         assert_eq!(d.ran, Some(Effort::High), "over the model's default");
         assert_eq!(parse("unclear"), None);
     }
@@ -221,7 +257,7 @@ mod tests {
             ("xhigh", Effort::High, EffortReason::Clamped),
             ("max", Effort::High, EffortReason::Clamped),
         ] {
-            let d = decide(b, &a(level, true), r, true, false);
+            let d = decide(b, BAR, &a(level, true), r, true, false);
             assert_eq!((d.reason, d.ran), (reason, Some(ran)), "{level}");
             assert!(d.applied());
         }
@@ -284,9 +320,76 @@ mod tests {
             ),
         ];
         for (answer, r, acts, carried, reason, ran) in cases {
-            let d = decide(FULL, &answer, r, acts, carried);
+            let d = decide(FULL, BAR, &answer, r, acts, carried);
             assert_eq!((d.reason, d.ran), (reason, ran), "{answer:?} {r:?}");
             assert!(!d.applied());
         }
+    }
+
+    /// `xhigh` and `max` need confidence strictly above the bar: at it they
+    /// run `high`, and the row says `held_high` with the answer kept; under
+    /// `max` nothing is gated (theseus-p8dy).
+    #[test]
+    fn xhigh_and_max_apply_only_above_the_confidence_bar() {
+        let r = runs(None, false, true);
+        for (level, c, ran, reason) in [
+            ("xhigh", 0.70, Effort::High, EffortReason::HeldHigh),
+            ("xhigh", 0.71, Effort::Xhigh, EffortReason::Applied),
+            ("max", 0.70, Effort::High, EffortReason::HeldHigh),
+            ("max", 0.65, Effort::High, EffortReason::HeldHigh),
+            ("max", 0.71, Effort::Max, EffortReason::Applied),
+            ("high", 0.61, Effort::High, EffortReason::Applied),
+            ("medium", 0.61, Effort::Medium, EffortReason::Applied),
+            ("low", 0.61, Effort::Low, EffortReason::Applied),
+        ] {
+            let d = decide(FULL, BAR, &at(level, c, true), r, true, false);
+            assert_eq!((d.reason, d.ran), (reason, Some(ran)), "{level} at {c}");
+            assert!(d.applied(), "{level} at {c}");
+        }
+        assert_eq!(EffortReason::HeldHigh.as_str(), "held_high");
+        // A raised bar moves the line; a bar of 1.0 holds every max.
+        let d = decide(FULL, 0.9, &at("max", 0.85, true), r, true, false);
+        assert_eq!(d.reason, EffortReason::HeldHigh);
+        // Not sure at all (under the question's confirm bar): the gate is
+        // not reached, the profile's own stands.
+        let d = decide(FULL, BAR, &at("max", 0.5, false), r, true, false);
+        assert_eq!(d.reason, EffortReason::Unsure);
+    }
+
+    /// The gate applies first and the bounds clamp after: where both lower an
+    /// answer the reason is the gate's, where only the bounds do it is
+    /// `clamped`, and a bound above `high` raises a held answer back.
+    #[test]
+    fn the_gate_runs_before_the_bounds_and_names_the_reason_when_both_lower() {
+        let r = runs(None, false, true);
+        let b = [Effort::Low, Effort::Medium];
+        let d = decide(b, BAR, &at("max", 0.65, true), r, true, false);
+        assert_eq!(
+            (d.reason, d.ran),
+            (EffortReason::HeldHigh, Some(Effort::Medium))
+        );
+        let d = decide(b, BAR, &at("max", 0.9, true), r, true, false);
+        assert_eq!(
+            (d.reason, d.ran),
+            (EffortReason::Clamped, Some(Effort::Medium))
+        );
+        let d = decide(b, BAR, &at("high", 0.9, true), r, true, false);
+        assert_eq!(
+            (d.reason, d.ran),
+            (EffortReason::Clamped, Some(Effort::Medium))
+        );
+        // A floor at xhigh lifts the held `high` back to the answered level.
+        let up = [Effort::Xhigh, Effort::Max];
+        let d = decide(up, BAR, &at("xhigh", 0.65, true), r, true, false);
+        assert_eq!(
+            (d.reason, d.ran),
+            (EffortReason::Applied, Some(Effort::Xhigh))
+        );
+        // The gate lowered a max, and the floor lifted it only to xhigh.
+        let d = decide(up, BAR, &at("max", 0.65, true), r, true, false);
+        assert_eq!(
+            (d.reason, d.ran),
+            (EffortReason::HeldHigh, Some(Effort::Xhigh))
+        );
     }
 }

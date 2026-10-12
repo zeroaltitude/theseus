@@ -152,11 +152,13 @@ fn one_line_with_no_newline_costs_the_scan_bound_not_the_file() {
 fn a_window_that_runs_into_the_scan_bound_says_where_it_stopped() {
     let d = tempfile::tempdir().unwrap();
     let p = numbered(&d, "big", 17 * MIB);
-    let r = super::fs_window::read_bounded(&p, 1, 1_000_000, MIB, 64 * 1024)
+    // A bound whose rows stay under fs_read's own cap (theseus-v73m).
+    let r = super::fs_window::read_bounded(&p, 1, 1_000_000, MIB, 32 * 1024)
         .unwrap()
         .unwrap();
     let scanned = r.meta["scanned"].as_u64().unwrap();
-    assert!(scanned < 64 * 1024 + 64, "{scanned}");
+    // The bound holds at a line's end, not the reader's buffer's edge.
+    assert!((32 * 1024..32 * 1024 + 16).contains(&scanned), "{scanned}");
     assert!(
         r.text.contains("scan stopped"),
         "{}",

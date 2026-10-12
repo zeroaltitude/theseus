@@ -30,9 +30,9 @@ const TARGET: &str = "discord:dm:42";
 /// A stand-in model for task scenarios. `script` answers each request from
 /// the request itself. A call whose first user message contains `hold` says
 /// it began and waits at the gate, once per permit.
-struct Model {
+pub(crate) struct Model {
     script: Box<dyn Fn(&ProviderRequest) -> Scripted + Send + Sync>,
-    requests: Mutex<Vec<ProviderRequest>>,
+    pub(crate) requests: Mutex<Vec<ProviderRequest>>,
     hold: Mutex<Option<String>>,
     entered: tokio::sync::mpsc::UnboundedSender<String>,
     gate: tokio::sync::Semaphore,
@@ -77,7 +77,7 @@ fn text_of(m: &Value) -> String {
 
 /// The first user message's first text block: a task's brief, without the
 /// arrangement that follows it (M5 27).
-fn first_user(req: &ProviderRequest) -> String {
+pub(crate) fn first_user(req: &ProviderRequest) -> String {
     req.messages
         .iter()
         .find(|m| m["role"] == "user")
@@ -91,7 +91,7 @@ fn first_user(req: &ProviderRequest) -> String {
         .unwrap_or_default()
 }
 
-fn last_user(req: &ProviderRequest) -> String {
+pub(crate) fn last_user(req: &ProviderRequest) -> String {
     req.messages
         .iter()
         .rev()
@@ -101,21 +101,21 @@ fn last_user(req: &ProviderRequest) -> String {
 }
 
 /// Whether the request's last message answers a tool call.
-fn answers_a_call(req: &ProviderRequest) -> bool {
+pub(crate) fn answers_a_call(req: &ProviderRequest) -> bool {
     req.messages
         .last()
         .and_then(|m| m["content"].as_array())
         .is_some_and(|c| c.iter().any(|b| b["type"] == "tool_result"))
 }
 
-struct Rig {
-    core: Arc<Core>,
-    model: Arc<Model>,
-    entered: tokio::sync::mpsc::UnboundedReceiver<String>,
+pub(crate) struct Rig {
+    pub(crate) core: Arc<Core>,
+    pub(crate) model: Arc<Model>,
+    pub(crate) entered: tokio::sync::mpsc::UnboundedReceiver<String>,
     _dir: tempfile::TempDir,
 }
 
-fn rig(
+pub(crate) fn rig(
     script: impl Fn(&ProviderRequest) -> Scripted + Send + Sync + 'static,
     tweak: impl FnOnce(&mut Config),
 ) -> Rig {
@@ -154,7 +154,7 @@ fn config(root: &Path, state: &Path) -> Config {
 }
 
 /// A conversation session that posts to `PLACE`.
-fn parent_session(core: &Arc<Core>) -> String {
+pub(crate) fn parent_session(core: &Arc<Core>) -> String {
     let rec = SessionRecord::new(SessionKind::Conversation, None);
     core.store.put_session(&rec.session_id, &rec).unwrap();
     core.outbox.bind_place(PLACE, &rec.session_id).unwrap();
@@ -168,7 +168,7 @@ fn parent_session(core: &Arc<Core>) -> String {
     rec.session_id
 }
 
-async fn turn(core: &Arc<Core>, sid: &str, input: &str) -> TurnSubmitResult {
+pub(crate) async fn turn(core: &Arc<Core>, sid: &str, input: &str) -> TurnSubmitResult {
     let rec: SessionRecord = core.store.get_session(sid).unwrap().unwrap();
     let (live, _) = core.live_profile();
     let target = core.runner.resolve_target(&live, None, None, None).unwrap();
@@ -192,11 +192,11 @@ async fn turn(core: &Arc<Core>, sid: &str, input: &str) -> TurnSubmitResult {
 
 /// What the operator says to start a task, and the quote of it every
 /// scripted `task.create` makes (M5 27).
-const ASK: &str = "START: run this as a background task, please";
-const QUOTE: &str = "run this as a background task, please";
+pub(crate) const ASK: &str = "START: run this as a background task, please";
+pub(crate) const QUOTE: &str = "run this as a background task, please";
 
 /// An arrangement of one piece: `QUOTE`, the objective.
-fn arranged() -> Value {
+pub(crate) fn arranged() -> Value {
     json!({"pieces": [{"quote": QUOTE, "role": "objective"}]})
 }
 
@@ -230,20 +230,20 @@ fn start_waking(briefs: &[&str], budget_usd: f64) -> Scripted {
 }
 
 /// The parent's execution, by its session.
-fn parent_exec(core: &Core, sid: &str) -> Execution {
+pub(crate) fn parent_exec(core: &Core, sid: &str) -> Execution {
     let rec: SessionRecord = core.store.get_session(sid).unwrap().unwrap();
     exec(core, rec.execution_id.as_deref().unwrap())
 }
 
 /// The one task of `parent`'s execution.
-fn only_task(core: &Core, parent_sid: &str) -> Execution {
+pub(crate) fn only_task(core: &Core, parent_sid: &str) -> Execution {
     let rec: SessionRecord = core.store.get_session(parent_sid).unwrap().unwrap();
     let tasks = core.kernel.tasks(rec.execution_id.as_deref()).unwrap();
     assert_eq!(tasks.len(), 1, "{tasks:?}");
     tasks.into_iter().next().unwrap()
 }
 
-async fn until(what: &str, mut f: impl FnMut() -> bool) {
+pub(crate) async fn until(what: &str, mut f: impl FnMut() -> bool) {
     let t0 = Instant::now();
     while !f() {
         assert!(t0.elapsed() < Duration::from_secs(20), "no {what} in 20 s");
@@ -251,12 +251,12 @@ async fn until(what: &str, mut f: impl FnMut() -> bool) {
     }
 }
 
-fn exec(core: &Core, id: &str) -> Execution {
+pub(crate) fn exec(core: &Core, id: &str) -> Execution {
     core.kernel.execution(id).unwrap().unwrap()
 }
 
 /// The outbox's posts of one kind.
-fn posts(core: &Core, kind: &str) -> Vec<theseus_kernel::Action> {
+pub(crate) fn posts(core: &Core, kind: &str) -> Vec<theseus_kernel::Action> {
     core.kernel
         .outbox_actions()
         .unwrap()

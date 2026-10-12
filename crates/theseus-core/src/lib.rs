@@ -22,10 +22,12 @@ pub mod catalog;
 pub mod ceiling;
 pub mod cgroup;
 pub mod check;
+pub mod commitments;
 pub mod compiler;
 pub mod config;
 pub mod config_copy;
 pub mod config_gate;
+pub mod conns;
 pub mod consolidate;
 pub mod context_files;
 pub mod context_parts;
@@ -38,6 +40,7 @@ pub mod egress;
 pub mod extend;
 pub mod external;
 pub mod fact;
+pub mod features;
 pub mod file_read;
 pub mod github;
 pub mod glide;
@@ -45,6 +48,7 @@ pub mod graph;
 pub mod harness;
 pub mod import;
 pub mod judge;
+pub mod keep_warm;
 pub mod learning;
 pub mod ledger;
 pub mod lsp;
@@ -60,6 +64,7 @@ pub mod one_shot;
 pub mod ontology;
 pub mod outbound;
 pub mod outbox;
+pub mod outputs;
 pub mod parked;
 pub mod peer;
 pub mod place_warnings;
@@ -71,6 +76,7 @@ pub mod reach;
 pub mod recall;
 pub mod resident;
 pub mod restore;
+pub mod retract;
 pub mod routing;
 pub mod rpc;
 pub mod rsi;
@@ -79,6 +85,7 @@ pub mod scrub;
 pub mod secrets;
 pub mod session;
 pub mod signals;
+pub mod standing;
 pub mod startup;
 pub mod store;
 pub mod stub;
@@ -86,6 +93,7 @@ pub mod succession;
 pub mod sweep;
 pub mod task;
 pub mod task_graph;
+pub mod task_start;
 pub mod telemetry;
 pub mod tender;
 pub mod term;
@@ -95,6 +103,8 @@ pub mod trace;
 pub mod turn;
 pub mod voice;
 pub mod wake;
+pub mod wake_tools;
+pub mod warm;
 pub mod web;
 pub mod webui;
 
@@ -173,6 +183,10 @@ mod tests_check;
 #[cfg(test)]
 mod tests_check_view;
 #[cfg(test)]
+mod tests_cite;
+#[cfg(test)]
+mod tests_commitments;
+#[cfg(test)]
 mod tests_compaction;
 #[cfg(test)]
 mod tests_config;
@@ -189,6 +203,8 @@ mod tests_continue_slow;
 #[cfg(test)]
 mod tests_day_ceiling;
 #[cfg(test)]
+mod tests_day_notify;
+#[cfg(test)]
 mod tests_disk_watch;
 #[cfg(test)]
 mod tests_egress;
@@ -201,6 +217,10 @@ mod tests_failures;
 #[cfg(test)]
 mod tests_fallback;
 #[cfg(test)]
+mod tests_fit;
+#[cfg(test)]
+mod tests_fresh_recall;
+#[cfg(test)]
 mod tests_gate_layers;
 #[cfg(test)]
 mod tests_glide;
@@ -211,6 +231,8 @@ mod tests_harness;
 #[cfg(test)]
 mod tests_inbound;
 #[cfg(test)]
+mod tests_job_handles;
+#[cfg(test)]
 mod tests_jobs;
 #[cfg(test)]
 mod tests_judge;
@@ -218,6 +240,10 @@ mod tests_judge;
 mod tests_judge_reads;
 #[cfg(test)]
 mod tests_judge_surfaces;
+#[cfg(test)]
+mod tests_keep_warm;
+#[cfg(test)]
+mod tests_kept;
 #[cfg(test)]
 mod tests_ladder;
 #[cfg(test)]
@@ -237,11 +263,17 @@ mod tests_lsp_edits;
 #[cfg(test)]
 mod tests_m3;
 #[cfg(test)]
+mod tests_mcp_memory;
+#[cfg(test)]
 mod tests_memory_arm;
 #[cfg(test)]
 mod tests_memory_lookup;
 #[cfg(test)]
+mod tests_money;
+#[cfg(test)]
 mod tests_notices;
+#[cfg(test)]
+mod tests_one_turn;
 #[cfg(test)]
 mod tests_ontology;
 #[cfg(test)]
@@ -289,6 +321,8 @@ mod tests_rerank_live;
 #[cfg(test)]
 mod tests_retention;
 #[cfg(test)]
+mod tests_retract;
+#[cfg(test)]
 mod tests_route;
 #[cfg(test)]
 mod tests_route_base;
@@ -296,6 +330,8 @@ mod tests_route_base;
 mod tests_route_cap;
 #[cfg(test)]
 mod tests_route_correct;
+#[cfg(test)]
+mod tests_route_down;
 #[cfg(test)]
 mod tests_route_effort;
 #[cfg(test)]
@@ -315,6 +351,8 @@ mod tests_sandbox;
 #[cfg(test)]
 mod tests_security;
 #[cfg(test)]
+mod tests_session_dir;
+#[cfg(test)]
 mod tests_sink_backlog;
 #[cfg(test)]
 mod tests_sink_between;
@@ -331,11 +369,21 @@ mod tests_situation;
 #[cfg(test)]
 mod tests_stack;
 #[cfg(test)]
+mod tests_standing;
+#[cfg(test)]
+mod tests_standing_ring;
+#[cfg(test)]
+mod tests_status_cache;
+#[cfg(test)]
 mod tests_steps;
+#[cfg(test)]
+mod tests_stop_nudge;
 #[cfg(test)]
 mod tests_stopping;
 #[cfg(test)]
 mod tests_stub_kinds;
+#[cfg(test)]
+mod tests_stubs;
 #[cfg(test)]
 mod tests_task_claims;
 #[cfg(test)]
@@ -346,6 +394,8 @@ mod tests_task_layers;
 mod tests_task_wakes;
 #[cfg(test)]
 mod tests_tasks;
+#[cfg(test)]
+mod tests_tasks_deferred;
 #[cfg(test)]
 mod tests_tender;
 #[cfg(test)]
@@ -358,6 +408,8 @@ mod tests_tiering;
 mod tests_turn_effort;
 #[cfg(test)]
 mod tests_turn_reserve;
+#[cfg(test)]
+mod tests_turn_retry;
 #[cfg(test)]
 mod tests_wakes;
 #[cfg(test)]

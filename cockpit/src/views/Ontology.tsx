@@ -1,4 +1,4 @@
-// The ontology (step 21c, theseus-8kk.2; M4 design §2.8): the kinds table, the category tree with each category's guidance, a
+// The ontology (step 21c, theseus-8kk.2; M4 design §2.8): the kinds table, the category tree with each category's guidance, as closed groups one a kind (people one of them; `<unknown>` for a kind the table does not name, theseus-7mow), a
 // guidance editor, and "add a topic". A view only: every write is a protocol method, confirmed first with the text it
 // sends, and judged by the core. It reads the present (`ontology.list`); the time machine keeps no past of it, so while
 // it shows a moment the view says so and its controls are off. The selected category is in the address (`?category=`).
@@ -6,11 +6,11 @@
 // alone, each category with its count of sessions, and past `FOLD_AT` categories the tree starts folded at its roots.
 // People (theseus-wy7y) are listed beside the tree, searchable by handle, each with a page of their sessions and a merge;
 // Jev's proposals for topics and people sit beside them, with select-all accept (`components/People.tsx`).
-import { useMemo, useState } from 'react'
+import { Fragment, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router'
 import { ChevronDown, ChevronRight, Compass, ListTree, Pencil, Plus, Shapes } from 'lucide-react'
 import type { OntologyCategory, OntologyCategoryAddParams, OntologyGuidance, OntologyGuidanceSetParams } from '@protocol'
-import { ancestorsOf, FOLD_AT, parents, shown, treeOrder, withinCounts } from '@/lib/ontology'
+import { ancestorsOf, FOLD_AT, groupKeyOf, groupsOf, parents, shown, treeOrder, withinCounts, type KindGroup } from '@/lib/ontology'
 import { cn, clock } from '@/lib/format'
 import { useAsOf } from '@/lib/timemachine'
 import { Empty, Panel, Pill } from '@/components/ui'
@@ -26,8 +26,10 @@ export default function Ontology() {
   const [params, setParams] = useSearchParams()
   const selected = params.get('category')
   const rows = useMemo(() => treeOrder(data?.categories ?? []), [data])
-  const within = useMemo(() => withinCounts(rows), [rows])
-  const branches = useMemo(() => parents(rows), [rows])
+  const groups = useMemo(() => groupsOf(data?.categories ?? [], data?.kinds ?? []), [data])
+  // The tree's branches and counts are each group's own: a group is a closed tree of one kind.
+  const within = useMemo(() => new Map(groups.flatMap((g) => [...withinCounts(g.rows)])), [groups])
+  const branches = useMemo(() => new Set(groups.flatMap((g) => [...parents(g.rows)])), [groups])
   // The open rows: null until the reader folds or opens one, and then by default every branch open, or none past FOLD_AT.
   const [opened, setOpened] = useState<Set<string> | null>(null)
   const open = useMemo(() => {
@@ -35,16 +37,20 @@ export default function Ontology() {
     for (const a of ancestorsOf(rows, selected)) s.add(a)
     return s
   }, [opened, rows, branches, selected])
-  const visible = useMemo(() => shown(rows, open), [rows, open])
+  // The groups start closed (theseus-7mow); a selected category's is open so it shows.
+  const [groupsOpen, setGroupsOpen] = useState<Set<string>>(new Set())
+  const gopen = useMemo(() => { const s = new Set(groupsOpen); const k = groupKeyOf(groups, selected); if (k) s.add(k); return s }, [groupsOpen, groups, selected])
+  const toggleGroup = (key: string) => setGroupsOpen(() => { const s = new Set(gopen); if (s.has(key)) s.delete(key); else s.add(key); return s })
+  const visibleOf = (g: KindGroup) => shown(g.rows, open)
   const toggle = (id: string) => setOpened(() => { const s = new Set(open); if (s.has(id)) s.delete(id); else s.add(id); return s })
   const picked = rows.find((r) => r.category.id === selected)?.category ?? null
   const select = (id: string | null) => setParams((p) => { if (id) p.set('category', id); else p.delete('category'); return p }, { replace: true })
 
-  if (!data) return <Panel title="ontology" bodyClassName="h-64"><Empty>{error ? `the daemon refused the read: ${(error as Error).message}` : isLoading ? 'reading the ontology…' : 'no ontology'}</Empty></Panel>
+  if (!data) return <Panel help={false} title="ontology" bodyClassName="h-64"><Empty>{error ? `the daemon refused the read: ${(error as Error).message}` : isLoading ? 'reading the ontology…' : 'no ontology'}</Empty></Panel>
   return (
     <div className="flex flex-col gap-3">
       {past && <div className="num px-1 text-[11.5px] text-wait">the ship’s log is at {clock(asOf ?? 0)}; the ontology keeps no past, so this is the present, and its controls are off until you return to LIVE</div>}
-      <Panel title={<>kinds · {data.kinds.length}</>} icon={<Shapes size={13} />}>
+      <Panel help="ontology.kinds" title={<>kinds · {data.kinds.length}</>} icon={<Shapes size={13} />}>
         <div className="overflow-x-auto p-2"><table className="w-full whitespace-nowrap text-[11.5px]">
           <thead className="text-[10px] uppercase tracking-wider text-ink-faint">
             <tr><th className="py-1 text-left">kind</th><th className="px-1 text-left">basis</th><th className="px-1 text-left">assigned by</th><th className="px-1 text-left">per session</th><th className="px-1 text-left">parent</th><th className="px-1 text-right">precedence</th><th className="px-1 text-left">rule</th><th className="px-1 text-right">v</th><th className="px-1 text-left">added by</th><th className="pl-1 text-left">what it is</th></tr>
@@ -68,11 +74,11 @@ export default function Ontology() {
         </table></div>
       </Panel>
       <div className="grid grid-cols-1 gap-3 xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
-        <Panel title={<>categories · {rows.length}{branches.size > 0 && (
+        <Panel help="ontology.categories" title={<>categories · {rows.length}{(branches.size > 0 || groups.length > 0) && (
           <span className="ml-2 normal-case tracking-normal">
-            <button type="button" className="text-ink-faint hover:text-live" onClick={() => setOpened(new Set(branches))}>open all</button>
+            <button type="button" className="text-ink-faint hover:text-live" onClick={() => { setOpened(new Set(branches)); setGroupsOpen(new Set(groups.map((g) => g.key))) }}>open all</button>
             <span className="text-ink-faint"> · </span>
-            <button type="button" className="text-ink-faint hover:text-live" onClick={() => setOpened(new Set())}>fold all</button>
+            <button type="button" className="text-ink-faint hover:text-live" onClick={() => { setOpened(new Set()); setGroupsOpen(new Set()) }}>fold all</button>
           </span>
         )}</>} icon={<ListTree size={13} />}>
           {rows.length === 0 ? <Empty>no categories yet: a place’s are made when it binds, and a topic is added here</Empty> : (
@@ -81,13 +87,25 @@ export default function Ontology() {
                 <tr><th className="py-1 text-left">category</th><th className="px-1 text-left">kind</th><th className="px-1 text-right" title="sessions whose memberships hold it; folded, with those below it">sessions</th><th className="px-1 text-left">added by</th><th className="px-1 text-left">description</th><th className="pl-1 text-left">guidance</th></tr>
               </thead>
               <tbody>
-                {visible.map(({ category: c, depth }) => {
+                {groups.map((g) => (
+                  <Fragment key={g.key}>
+                    <tr className="border-t border-line/50 bg-white/[0.02]">
+                      <td colSpan={6} className="py-1">
+                        <button type="button" aria-label={`${gopen.has(g.key) ? 'fold' : 'open'} ${g.label}`} aria-expanded={gopen.has(g.key)} onClick={() => toggleGroup(g.key)}
+                          className="inline-flex items-center gap-1 rounded text-ink hover:text-live">
+                          {gopen.has(g.key) ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+                          <span>{g.label}</span>
+                          <span className="num text-[10px] text-ink-faint">· {g.count.toLocaleString()}</span>
+                        </button>
+                      </td>
+                    </tr>
+                    {gopen.has(g.key) && visibleOf(g).map(({ category: c, depth }) => {
                   const branch = branches.has(c.id)
                   const folded = branch && !open.has(c.id)
                   return (
                   <tr key={c.id} onClick={() => select(c.id)} aria-selected={c.id === selected}
                     className={cn('cursor-pointer border-t border-line/50 hover:bg-white/[0.03]', c.id === selected && 'bg-live/10')}>
-                    <td className="py-1" style={{ paddingLeft: (depth - 1) * 16 }}>
+                    <td className="py-1" style={{ paddingLeft: depth * 16 }}>
                       <span className="inline-flex items-center gap-1">
                         {branch
                           ? <button type="button" aria-label={folded ? `open ${c.id}` : `fold ${c.id}`} aria-expanded={!folded}
@@ -109,7 +127,9 @@ export default function Ontology() {
                     <td className="num pl-1 text-ink-dim">{c.guidance && c.guidance.text !== '' ? <span title={`digest ${c.guidance.digest}`}>v{c.guidance.version} · {c.guidance.digest}</span> : <span className="text-ink-faint">—</span>}</td>
                   </tr>
                   )
-                })}
+                    })}
+                  </Fragment>
+                ))}
               </tbody>
             </table></div>
           )}
@@ -134,7 +154,7 @@ function GuidanceEditor({ category, disabled }: { category: OntologyCategory | n
   // The parent keys this on the category and its guidance, so a new selection, or a change from another surface, starts
   // the draft over from what is stored.
   const [text, setText] = useState(current)
-  if (!category) return <Panel title="guidance" icon={<Pencil size={13} />}><Empty>pick a category to read or edit its guidance</Empty></Panel>
+  if (!category) return <Panel help="ontology.guidance" title="guidance" icon={<Pencil size={13} />}><Empty>pick a category to read or edit its guidance</Empty></Panel>
   const g = category.guidance
   const dirty = text !== current
   const save = async () => {
@@ -145,7 +165,7 @@ function GuidanceEditor({ category, disabled }: { category: OntologyCategory | n
     await write<OntologyGuidance>(what, 'ontology.guidance.set', p)
   }
   return (
-    <Panel title={<>guidance · {category.name}</>} icon={<Pencil size={13} />}>
+    <Panel help="ontology.guidance" title={<>guidance · {category.name}</>} icon={<Pencil size={13} />}>
       <div className="flex flex-col gap-2 p-3">
         <div className="num text-[11px] text-ink-faint">{category.id} · {g && g.text !== '' ? `v${g.version} · ${g.digest} · by ${g.added_by}` : 'none yet'}</div>
         <textarea value={text} onChange={(e) => setText(e.target.value)} rows={8} disabled={disabled} aria-label={`guidance of ${category.id}`}
@@ -181,7 +201,7 @@ function AddTopic({ rows, disabled, parentDefault }: { rows: OntologyCategory[];
     if (out) { setName(''); setDescription('') }
   }
   return (
-    <Panel title="add a topic" icon={<Plus size={13} />}>
+    <Panel help="ontology.topicadd" title="add a topic" icon={<Plus size={13} />}>
       <form className="flex flex-col gap-2 p-3" onSubmit={(e) => { e.preventDefault(); if (name.trim()) void add() }}>
         <input value={name} onChange={(e) => setName(e.target.value)} placeholder="name" aria-label="topic name" disabled={disabled} className={field} />
         <input value={description} onChange={(e) => setDescription(e.target.value)} placeholder="description (optional)" aria-label="topic description" disabled={disabled} className={field} />

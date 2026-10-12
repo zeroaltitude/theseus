@@ -295,8 +295,10 @@ async fn a_recalled_items_header_names_its_place() {
             _ => None,
         })
         .expect("a Recall node");
+    // The handle first (theseus-ejdk), then the frozen header as before.
+    let (_, rest) = theseus_protocol::cite::split_header(&header).expect("a handle");
     assert!(
-        header.starts_with("a message from test in #harbor, "),
+        rest.starts_with("a message from test in #harbor, "),
         "{header}"
     );
     assert!(header.contains(" UTC (as of @"), "{header}");
@@ -352,9 +354,12 @@ async fn a_volatile_item_is_as_of_and_unverified() {
         "{gh}"
     );
     assert!(
-        gh.starts_with(&format!(
-            "a message from test in {gauge} on the CLI or the web UI, "
-        )),
+        theseus_protocol::cite::split_header(&gh)
+            .unwrap()
+            .1
+            .starts_with(&format!(
+                "a message from test in {gauge} on the CLI or the web UI, "
+            )),
         "{gh}"
     );
     assert!(!of(&h.id).contains("volatile"), "{}", of(&h.id));

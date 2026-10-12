@@ -10,6 +10,7 @@ Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
 - `src/runtime.rs`: the gateway loop and the places (a text channel or a DM, each backed by one session), with the
   slash commands and the confirm buttons. `Routes::resolve` finds a message's or an interaction's place.
 - `src/courier.rs`: durable delivery, the binding's side: one lane per place, and one for the operator's notices.
+- `src/render/wakes.rs` (theseus-lherl): `/wakes`, each wake's title, a series' weekdays and end.
 - `src/render.rs`: a session's events as Discord messages. Pure: events in, messages out. A reply's footer gives
   the session's total beside the reply's own cost (`TurnSubmitResult::cost_words`, theseus-c0bb).
 - `src/bindings.rs` (the bindings file; `bindings.example.toml` is its format), `src/files.rs` (attachments: a
@@ -29,11 +30,24 @@ Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
   `/extensions` (`runtime/extensions.rs`, M7 43b): the loaded extensions from `extend.list`, ephemeral, each with a
   Revoke button (`ext-revoke:<name>`); the text and a press go through the place (`Control::Extensions`,
   `Control::Revoke`), a press as `extension.revoke` with the presser's ids, which the core judges.
+  `/orders` (`runtime/orders.rs`, theseus-a7vi): the owner's standing records from `standing.list` as the presser
+  (the core gives the text of a preference or a fact only to the owner in a private place), ephemeral, each with a
+  Revoke button (`orders-revoke:<id>`); a press goes through the place (`Control::Unorder`) as `standing.revoke` with
+  the presser's ids, which the core judges. The command is registered after `/extensions`, before the voice ones.
   Jev's live notices (`runtime/jev.rs`, theseus-0j2.13): the operator lane posts a `jev_notice` to the owner's DM
   alone (`Lane::owner_dm`: never `to_operator`'s fallback, which may be a shared place) with right / wrong / noise,
   each a `judge.label` with the presser's `DiscordOrigin`, which the core judges (the owner, from a private place).
   A refused press tells the presser alone; a counted one comes back as the core's `jev_labeled` post, which edits
   the notice and clears its buttons. `judge.noticed` draws nothing in a place.
+  The earned-autonomy card (`runtime/earned.rs`, theseus-uttu): the core's weekly `earned_card` post goes to the owner's
+  DM alone, as a Jev notice does, a row of Yes with a notice / Not this one / Show the record for each candidate
+  (`earned:<yes|no|show>:<id>`); a yes or a no is `policy.earned.answer` as the presser, which the core judges (the
+  owner, from a private place), the record is read and shown to the presser alone. Tests: `tests_gateway/earned.rs`.
+- **`/why`** (`runtime/why.rs`, theseus-ighf): what this place's session's last turn was shown and why, ephemeral
+  (the deferred acknowledgement carries the flag), the short form of `theseus_protocol::why` in a code fence within
+  2,000 characters (each section's top three and a count of the rest, never a second message). A place whose class is
+  not private is told that an imported or another session's note was there, and shown none of its words. A read of
+  the core: no frame, no ledger row (not even `discord.command`'s). Tests: `runtime/tests_why.rs`.
 - **A place's session** (`runtime/succession.rs`, theseus-emqx): a place resumes its stored session when it can take
   turns and is not retired; otherwise it starts fresh, and nothing is opened at the bind, at `/new`, or when its
   session can take no more turns: its next message opens one (`Place::ready`) through `Core::bind_place_to`, which
@@ -74,12 +88,25 @@ Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
   owner handle (`places::owner_anywhere`); anyone else's is refused and ledgered there. The week's self digest is a `self_digest` post, to the
   owner's DM alone (`jev_post`).
 
+- **A reply's cited sources** (theseus-ejdk, `render/cite.rs`, `render/reply.rs`, `runtime/source.rs`): the reply's
+  `result.cites` (the core leaves out what a shared place may not show) become numbered marks in its text, `-#`
+  footnotes under its last text part (above the footer), and one row of buttons on its last message: `Open [n]`, a
+  link to the original message when the source was a Discord message in a bound channel (or this lane's own DM), else
+  `Show source [n]` (`src:<session>:<handle>`), whose press asks `memory.cites` and answers the presser alone,
+  ephemerally, with the excerpt. This binding uses classic components, not Components V2, so `-#` text and an action
+  row are the closest equivalent. A reply with no sources is byte-identical to before. Tests: `tests_cite.rs`.
 - **A reaction corrects routing** (theseus-q31l, `runtime/route.rs`): ⬆️ or ⬇️ on one of this process's replies
   (found by message in `Shared.replies`, which the courier fills as a turn's key lands, bounded) is `route.correct` on
   that turn, `stronger` or `cheaper`, with the reactor's place, so the core judges it (the owner, from a private
   place); a counted one gets ✅. The reply's footer says `routed: <mode>` (or `correction`). There are no footer buttons
   on Discord: a reaction does the same without a button row under every reply. The gateway asks for both reaction
   intents (not privileged).
+
+- **Typing** (theseus-tnky, `runtime/typing.rs`): the gateway asks for both typing intents (not privileged). A typing
+  event of a person the place lets drive it (never in a channel that wants an @mention, never the bot) is told to the
+  place's actor once per person per channel per idle spell, which sends `session.typing` with its session's id and
+  the typist's `DiscordOrigin`; the core warms only for an owner's typing (another person's in a shared place warms
+  nothing). Tests: `tests_typing.rs`, through the stand-in's `TYPING_START` (`FakeDiscord::typing`).
 
 ## Invariants
 

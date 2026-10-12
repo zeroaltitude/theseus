@@ -13,6 +13,8 @@ Key modules: `lib.rs` (the `method`, `notify`, `error_code` tables), `events.rs`
 - `actions.rs`: `action.list`'s params and result, and `ActionInfo`: the newest `n`, an execution's, or with
   `unsettled` every action not settled however old (theseus-hnof.3), which the cockpit's Ship and watch read beside
   the newest page so a job that runs for hours keeps its place.
+- `exec_list.rs` (theseus-0jet): `execution.list`'s params and result: no params is every execution as before; `{n,
+  before}` the newest `n` by birth with the result's `older` cursor; `{ids}` only those.
 - `cancel.rs` (M4 18a): a cancel's verdict on the wire (`CancelVerdict`), health's `CancelCount`, and `words`, the
   one wording of a verdict every surface shows.
 - `gate.rs`: the gate's record of a tool call (`GateRecord`), written through `canonical` (sorted keys), so stored
@@ -49,15 +51,39 @@ Key modules: `lib.rs` (the `method`, `notify`, `error_code` tables), `events.rs`
   wording every surface shows (`cockpit/src/lib/check.ts` mirrors it).
 - `route.rs`: how routing placed a turn (`TurnRoute`), and a refusal's fallback (`TurnFallback`, theseus-7gir.18) with
   `TurnFallback::line`, the one wording every surface shows (`cockpit/src/lib/fallback.ts` mirrors it).
+- `nudge.rs` (theseus-fh0u): the stop nudge on the wire: the result's `TurnNudge` with `line`, the one wording every
+  surface shows (`cockpit/src/lib/nudge.ts` mirrors it), `TurnSubmitResult::harness_lines` (a fallback's line, then a
+  nudge's), and `session.nudge`'s params and result.
 - `cost.rs` (theseus-c0bb): `TurnSubmitResult::cost_words`, the one wording of a turn's cost that the Discord
   footer and the CLI's status line show: the session's total with this reply's cost, `$47.52 total ($7.86 this
   reply)`, four decimals under a dollar; the turn's cost alone from a daemon that sends no `session_cost_usd`.
+- `warm.rs` (theseus-tnky): `session.typing`'s params and result, health's `warm` block (`WarmHealth`, `WarmStamp`), and
+  `Typist` (a client's memory of whom it told: one notice per session per `SPELL_SECS`, the caller passing the time).
 - `books.rs` (theseus-civ0): `books.list` and `books.page`'s params and results, `BOOKS` and `UNSORTED`.
 - `rsi.rs` (theseus-pw1q): self-improvement's wire types (`self.halt`, `self.resume`, `self.log`, `self.digest`),
   and `SELF_ROWS`, the `self.*` rows later self steps write, declared with their fields before their writers: a
   name becomes a `LedgerKind` on the commit that first writes it (the reader rule), and every such row's data
   carries `what`, `why`, `numbers` and `undo`. `SelfState` is also health's `self_improve` (health's `self` line);
   `BinaryStatus` moved to `health.rs` to make room in lib.rs.
+- `earned.rs` (theseus-uttu): earned autonomy's wire types (`policy.earned`, `policy.earned.answer`, `policy.revoke`):
+  a group of approvals with its record, a grant, a card, and the number's weeks. Each name carries `Earned`.
+- `window.rs` (theseus-m2tiu): `ledger.window`'s params and result and `POSTMORTEM_KINDS`, the kinds `theseus postmortem`
+  reads: one page of a time window, read only, the daemon's answer scrubbed and (for a surface that reads no private
+  text) narrowed to the session named.
+- `why.rs` (theseus-ighf): `theseus why`'s and Discord `/why`'s words, pure: `why_lines` (all of it) and `why_short`
+  (each section's top items and a count of the rest, cut to a budget) from a `ContextExplainResult`, the turn's
+  `route.decided` row, `ToolCalled`s (`tools_called` over `node.list`) and `policy.explain`. A shared place's class
+  hides a private or imported source's words (`hide_sources`). No wire type; its goldens are `tests/why/`.
+- `retract.rs` (theseus-2ced): `fact.retract`'s params and result, one `RetractExposure` for each place a node went, and
+  `exposure_kind`, the five kinds in table order.
+- `wakes.rs` (theseus-lherl): `WakeInfo`, moved out of lib.rs and re-exported (the bytes are unchanged; `days`,
+  `until_ms` and `title` are optional). `tests/wakes.rs` holds its bytes.
+- `cite.rs` (theseus-ejdk): a reply's citations. The handle a recalled item's header carries (`[m:a1b2c3]`:
+  `handles_for` makes them unique in a pack, `header_with` and `split_header` write and read one), the handles a text
+  holds (`handles_in`), the marks every surface draws (`mark_handles`, `mark_into`: `[1]`, numbered by first
+  mention, a handle with no source left as text), and the wire types `Citation`, `DiscordSource`, `memory.cites`'s
+  params and result. `TurnSubmitResult.cites` and `SessionHistoryResult.cites` carry the resolved sources; each is
+  absent when empty.
 - `ts.rs`: the TypeScript export.
 
 ## Invariants

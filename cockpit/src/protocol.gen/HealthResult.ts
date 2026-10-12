@@ -8,9 +8,12 @@ import type { ChildrenStatus } from "./ChildrenStatus";
 import type { ConfigStatus } from "./ConfigStatus";
 import type { ContextStatus } from "./ContextStatus";
 import type { CrashStatus } from "./CrashStatus";
+import type { DayCeilingBudget } from "./DayCeilingBudget";
 import type { DiskStatus } from "./DiskStatus";
+import type { EarnedGrant } from "./EarnedGrant";
 import type { ExtendHealth } from "./ExtendHealth";
 import type { ExternalTextInfo } from "./ExternalTextInfo";
+import type { Features } from "./Features";
 import type { GrantStatus } from "./GrantStatus";
 import type { HarnessOnly } from "./HarnessOnly";
 import type { HealthImported } from "./HealthImported";
@@ -22,6 +25,7 @@ import type { McpServerHealth } from "./McpServerHealth";
 import type { McpServerStatus } from "./McpServerStatus";
 import type { MemoryHealth } from "./MemoryHealth";
 import type { PlacesHealth } from "./PlacesHealth";
+import type { PromptCacheHealth } from "./PromptCacheHealth";
 import type { PushStatus } from "./PushStatus";
 import type { ResidentHealth } from "./ResidentHealth";
 import type { SandboxHealth } from "./SandboxHealth";
@@ -37,6 +41,7 @@ import type { TerminalLeft } from "./TerminalLeft";
 import type { Tightening } from "./Tightening";
 import type { Usage } from "./Usage";
 import type { WakeInfo } from "./WakeInfo";
+import type { WarmHealth } from "./WarmHealth";
 import type { WebStatus } from "./WebStatus";
 
 export type HealthResult = { name: string, version: string, protocol: string, 
@@ -130,6 +135,10 @@ context: ContextStatus,
  */
 tightenings: Array<Tightening>, 
 /**
+ * Earned grants (theseus-uttu), oldest first: what the owner accepted from the record.
+ */
+earned?: Array<EarnedGrant>, 
+/**
  * The wakes conversations set with `wake.at` that have not run yet,
  * soonest first (DD8).
  */
@@ -159,19 +168,16 @@ binary: BinaryStatus,
  */
 spool: SpoolStatus, 
 /**
- * The push (theseus-in3): its board, its watchers, and its seed. Absent
- * from a daemon before it.
+ * The push (theseus-in3): its board, its watchers, and its seed. Absent from a daemon before it.
  */
 push?: PushStatus, 
 /**
- * The AWS accounts the config binds (AWS design §3.10), each as its
- * check left it. Absent when it binds none.
+ * The AWS accounts the config binds (AWS design §3.10), each as its check left it; or none.
  */
 aws?: AwsStatus, 
 /**
  * The index tender (M6 §2.2, roadmap row 51): the tender as the core
- * supervises it, and its own status when it answers. Absent from a
- * daemon before it.
+ * supervises it, and its own status when it answers; or none.
  */
 index?: IndexHealth, 
 /**
@@ -187,8 +193,7 @@ extensions?: ExtendHealth,
  */
 store: StoreStatus, 
 /**
- * The newest crash a start found (Review 2's consideration 1): what
- * panicked when the daemon last died. Absent when it never has.
+ * The newest crash a start found (Review 2's consideration 1); or none.
  */
 crash?: CrashStatus, 
 /**
@@ -240,4 +245,22 @@ resident?: ResidentHealth,
 /**
  * Self-improvement's mode, kill switch and gate (theseus-pw1q.2): health's `self` line.
  */
-self_improve?: SelfState, };
+self_improve?: SelfState, 
+/**
+ * What a person's first keystroke warmed, and when (theseus-tnky).
+ */
+warm?: WarmHealth, 
+/**
+ * The prompt cache: each profile's TTL, and the keep-warm (theseus-ezeg).
+ */
+cache?: PromptCacheHealth, 
+/**
+ * Which killer features are on (theseus-is8t): health's first line.
+ */
+features?: Features, 
+/**
+ * Today's model spend against the daily ceiling (theseus-9e02): set
+ * while the day is at or past its ceiling, so health's first line says
+ * so.
+ */
+day_spend?: DayCeilingBudget, };

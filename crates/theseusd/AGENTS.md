@@ -40,6 +40,16 @@ Key modules: `main.rs`, `web.rs`, `install/`. Read by: (a binary).
 - `--one-shot SECS` (with `--stdio`, theseus-mqxk): `theseus --spawn ask` says the daemon serves one run, which
   it follows for at most SECS after its turn; set on the core before serving (`one_shot.rs`). `tests/spawn_follow.rs`
   runs the follow through the real CLI; `tests/continuations.rs` holds the socket daemon unchanged.
+- **Connections** (theseus-7vtp): `serve_socket` raises the soft `RLIMIT_NOFILE` toward the hard one before it serves
+  (`theseus_core::conns`, at most `SOFT_TARGET`, 65,536, since jobs and terminals inherit it; both numbers logged at
+  info), holds socket connections to `[server] max_connections` (0: the limit less 256, at most 8192) by one counter,
+  and tells one past it a protocol error (`-32007`, "the daemon holds N connections, its ceiling; close one and
+  retry") before it closes it. An accept error is logged (one line a
+  second, with a count) and waited 50 ms, never returned: nothing in the loop ends the daemon but a stop. A debug
+  build's `THESEUS_TEST_ACCEPT_ERRORS=N` fails the first N accepts. The other accept loops: the web UI's is axum's
+  (it logs and sleeps 1 s on an error), the harness's notify socket takes the same rule, and the egress proxy's
+  waits out EMFILE and its kin. The units carry `LimitNOFILE=65536` and `TasksMax=49152`. `tests/connections.rs`;
+  `scripts/conn-watchers.py` is the live check (watchers past 1,100).
 - `src/web.rs`: the web server for the cockpit, at `/`. It embeds `cockpit/dist` (with `allow_missing`), redirects
   the cockpit's old `/cockpit/…` to the same route at `/…`, and refuses a wrong `Host` or `Origin` and any uid but
   the daemon's own.
@@ -97,6 +107,12 @@ Key modules: `main.rs`, `web.rs`, `install/`. Read by: (a binary).
   dropped: use it for every spawned daemon (an explicit stop alone once leaked one for 45 minutes).
 - `tests/common/model.rs` is a stand-in Messages API: tool calls per prompt, and `FakeModel::requests()` keeps
   every request, so a test reads which model each turn asked for.
+- `tests/postmortem_incident.rs` (theseus-m2tiu) scripts an incident on a real daemon (a task with a 33 s command, a
+  failing tool, a question answered and one left to expire, a `kill -9` mid-turn and the restart, a wake that comes due
+  while it is down), asks the real `theseus postmortem` for the report, and, with `THESEUS_RECORD_POSTMORTEM=<dir>`
+  set (it takes about 40 s, so it runs only then), writes the incident's ledger rows there as the fixture
+  `crates/theseus/tests/fixtures/postmortem/incident.jsonl`. A real incident: `theseus postmortem --since 6h
+  --rows-out incident.jsonl`, then read the file for names and paths before it is committed.
 - `tests/user_service_script.rs` runs `scripts/user-service.sh` and the real `theseusd install --user` against stand-in
   `systemctl`, `loginctl`, `journalctl`, `theseus`, and `op` in a scratch `HOME` (the config tests also stand in for
   `theseusd`'s plan). It touches no real unit or daemon.

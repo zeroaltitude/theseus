@@ -60,7 +60,11 @@ max_loops = 40                          # tool loops per turn before a notice (o
 # profile has its own; this is the default profile's.
 max_loops_mode = "notify"               # notify | end
 refusal_fallbacks = true                # server-side refusal fallbacks where the model supports them
-# cache_ttl = "1h"                      # 5m (the default) | 1h; see [profiles.sonnet]
+# cache_ttl = "1h"                      # 5m (the default) | 1h; every profile that says none inherits it; see [profiles.sonnet]
+# A conversation whose profile caches for 1h is kept warm after its turns end: one read of
+# its prefix every [cache] keep_warm_minutes, for this many hours after its last message
+# (a new message starts the window again); 0 turns it off. Inherited as cache_ttl is.
+keep_warm_hours = 24
 api_base = "https://api.anthropic.com"  # the implicit anthropic provider's endpoint
 api_key_secret = "anthropic_api_key"    # name of the [secrets] entry holding its key
 
@@ -98,7 +102,7 @@ model = "claude-sonnet-5-5"
 # max_output_tokens = 64000             # omitted: the catalog ceiling (128000 for Sonnet 5.5)
 # system = ""
 # effort = "xhigh"                      # the recommended level for coding and agentic work
-# effort_fixed = false                  # true: effort stands whatever route.v3 answers ([routing])
+# effort_fixed = false                  # true: effort stands whatever route.v4 answers ([routing])
 thinking_display = "summarized"
 max_loops = 40
 refusal_fallbacks = true
@@ -106,8 +110,11 @@ refusal_fallbacks = true
 # or 1h. A 1-hour entry costs 2x input to write instead of 1.25x, and pays when a
 # conversation pauses 5 to 60 minutes after most of its prefix is written: then the
 # next call reads the prefix instead of writing it again. It applies to every cache
-# breakpoint, the conversation's included; a task's own conversation stays 5m.
+# breakpoint, the conversation's included; a task's own conversation stays 5m. A profile
+# that says none takes [model]'s; one that must stay at 5 minutes under a 1-hour [model]
+# says cache_ttl = "5m".
 # cache_ttl = "1h"
+# keep_warm_hours = 24                  # none: [model]'s
 
 [profiles.glm]
 provider = "zai"
@@ -129,6 +136,15 @@ max_loops = 40
 [profiles.fable]
 provider = "anthropic"
 model = "claude-fable-5-1"
+thinking_display = "summarized"
+max_loops = 40
+
+# Opus 5.5 at high effort: a review's first profile (theseus-p8dy), so a check of
+# something already made runs where careful reading is the strength.
+[profiles.opushi]
+provider = "anthropic"
+model = "claude-opus-5-5"
+effort = "high"
 thinking_display = "summarized"
 max_loops = 40
 
@@ -156,6 +172,25 @@ thinking_display = "summarized"
 cache_ttl = "1h"
 max_loops = 40
 
+# ---------------------------------------------------------------- the prompt cache
+# A long conversation's prompt is mostly its cached prefix. On a 1-hour profile, after a
+# conversation a person talks in (the CLI, the TUI, the web UI, the owner's DM; never a
+# task, a job, the judge or Jev) goes quiet, the daemon reads its prefix once every
+# keep_warm_minutes, with the smallest answer the provider allows and nothing stored but
+# its keep_warm ledger row, so the next message reads the cache (0.025x of input on Fable
+# 5.1) instead of writing it again (2x). Each read is a model call under the spend limit
+# and the daily ceiling; a refused or failed one stops that session's reads until its
+# next message. A prefix under keep_warm_min_tokens is not kept warm.
+[cache]
+keep_warm_minutes = 55                  # under the 1-hour cache's life by a margin; 0 < it < 60
+keep_warm_min_tokens = 20000            # the smallest prefix kept warm, estimated
+# When a request will write the cache anyway (the session's last call is older than its
+# TTL, and no keep-warm kept it), an attachment's text over stub_min_tokens from before
+# the last stub_after_turns turns is sent as a one-line stub: its name, its size, and
+# file.read to read it again. The stored history is unchanged; 0 turns it off.
+stub_min_tokens = 20000
+stub_after_turns = 3
+
 # ---------------------------------------------------------------- context files
 # Files (~/ or absolute paths) compiled into every session's system block, after the
 # built-in persona, the assembly note (how a request is built), the precedence line (which
@@ -170,6 +205,10 @@ files = []                              # the system level, e.g. ["~/.openclaw/w
 # The persona in play: a key of [personas]. Until Jev chooses a persona from its ontology,
 # this is the only choice. Omitted: no persona, and the system level alone.
 # default_persona = "theseus"
+# The working window: the most tokens a request may take, below the model's own window.
+# Omitted: the model's full window from the catalog. Past half of it, a long turn's old
+# tool results become stubs; past it, the turn compacts its earlier loops.
+# working_window_tokens = 200000
 
 # A persona's files, compiled after the system level's while it is in play. A file is
 # yours alone ([places] below); a table entry with readers = "public" lets a shared place
@@ -299,6 +338,12 @@ stop_grace_ms = 50                      # a clean stop waits up to this long, fr
 # the Windows drive (C:), which can fill first, so check C: itself there.
 disk_warn_mb = 5120                     # health says the disk is low below this many MB free (0: never)
 disk_floor_mb = 1024                    # a job is refused below this many MB free (0: never)
+# Socket connections (theseus-7vtp). The daemon raises its soft open-files limit toward the
+# hard one at start (at most 65536, which its jobs inherit); past max_connections a new
+# connection is told why in one protocol error and closed, so the store, jobs and terminals
+# always have descriptors left.
+# 0 derives it from the limit in effect: the limit less 256 (half of it under 512), at most 8192.
+max_connections = 0
 
 # ---------------------------------------------------------------- kernel
 # The durable kernel (M2): one execution per session, actions with correlation
@@ -313,16 +358,35 @@ disk_floor_mb = 1024                    # a job is refused below this many MB fr
 # (Discord, web UI, or `theseus confirm`) whether to reset its spend to $0 and
 # go on. A limit a place's ceiling or an MCP client names still asks, and so
 # does an AWS hands group. The session's lifetime cost keeps counting either way.
+# spend_limit_hard_multiple bounds a limit that notifies (theseus-jse4): at that
+# many times the limit a session's model call is not made (its reservation would
+# pass it) and the turn ends, saying why; a higher spend_limit_usd or multiple
+# lets it go on from the next start. 0 never stops.
 # daily_spend_ceiling_usd is a backstop, not a budget (theseus-kp20): every
 # model call the daemon makes in a local day (turns, tasks, the judge,
-# consolidation, compaction, learning runs, speech) counts toward it, and once
-# a call would pass it, no call is made until local midnight; the owner hears
-# once that day, in a DM. It has no mode and sits above every limit here.
+# consolidation, compaction, learning runs, speech) counts toward it, and it
+# sits above every limit here. Its mode (theseus-9e02) says what reaching it
+# does: "notify", the default, warns and refuses nothing (the owner's DM, the
+# push, health's first line, and the cockpit's Money view say what was spent,
+# that the work goes on, and where it stops), at the ceiling and again at each
+# daily_notice_step_usd after it, once each a day; the day stops only at
+# daily_runaway_usd ($2,000 by default; 0 never), and a stop then holds every
+# later call until local midnight. "stop" refuses every call past the
+# ceiling until local midnight. runaway_usd_per_10min is a burn-rate brake
+# on each session: one whose settled spend in the last ten minutes reaches it
+# pauses and asks you to resume (Discord, web UI, or `theseus confirm`); 0
+# never. AWS spend is managed apart and still stops at its lines.
 [kernel]
 admission_ceiling = 8                   # executions that may hold a turn at once (§3.2a)
+admission_stuck_secs = 600              # a waiting turn fails only when no turn was admitted for this long: a queue that moves fails none
 spend_limit_usd = 100.0                 # each session's spend limit in US dollars (theseus-0sg)
 spend_limit_mode = "notify"             # notify | ask: what reaching it does
-daily_spend_ceiling_usd = 200.0         # the whole daemon's model spend per local day: past it no call is made until midnight
+spend_limit_hard_multiple = 10          # under notify, calls stop at this many times the limit (0: never)
+daily_spend_ceiling_usd = 200.0         # the whole daemon's model spend per local day: past it, a warning (notify) or no call until midnight (stop)
+daily_spend_ceiling_mode = "notify"     # notify | stop: what reaching it does
+daily_runaway_usd = 2000.0              # under notify, the day's model calls stop here until midnight (0: never)
+daily_notice_step_usd = 200.0           # under notify, one warning at the ceiling and one each this much after it (0: at the ceiling alone)
+runaway_usd_per_10min = 200.0           # a session whose settled spend in ten minutes reaches this pauses and asks you to resume (0: never)
 heartbeat_secs = 60                     # reconciler cadence: due wakes, overdue actions, spool drain
 default_deadline_secs = 600             # deadline for an action whose tool declares none
 confirm_ttl_secs = 900                  # how long a call waits for your answer: then it expires, not run, and its card says so; and how long an approval stays valid
@@ -344,7 +408,7 @@ projects_dir = "/home/zeroaltitude/projects"   # the operator's projects directo
 # roots = ["/home/zeroaltitude/reports"]   # more workspace roots beside projects_dir (default none)
 # cwd = "/home/zeroaltitude/projects/theseus"   # where relative paths resolve and programs run (default: projects_dir)
 approve_paths = ["~/.ssh", "~/.gnupg", "~/.aws", "~/.config/op", "~/.openclaw-1password-service-token", "~/.theseus"]
-result_max_chars = 30000                # characters of a result the model sees (head and tail kept)
+result_max_chars = 30000                # characters of a result the model sees (head and tail kept; fs_read has its own 100,000, a contiguous head)
 max_read_bytes = 262144                 # cap on one fs.read
 max_attachment_bytes = 33554432         # the largest attached file kept whole (a PDF is read for the model; 32 MiB)
 transcribe_max_minutes = 60             # the most of one recording file_read hears (Deepgram, about $0.26 an hour)
@@ -356,6 +420,13 @@ proc_timeout_max_secs = 3600            # ceiling a call may ask for
 proc_env = ["PATH", "HOME", "USER", "LANG", "LC_ALL", "TERM", "TZ", "CARGO_HOME", "RUSTUP_HOME"]  # the ONLY variables a job sees
 job_output_max_bytes = 67108864         # a job's raw output file keeps at most this much (64 MiB); past it the job runs on, and its result says how much was dropped
 job_pids_max = 4096                     # the most processes and threads one L0 job may have at once, where the daemon's cgroup is delegated (its unit's Delegate=yes); past it a fork fails, and its result says so; 0: no cap
+# A result the cap cuts (result_max_chars) keeps its whole output, scrubbed, in
+# <state>/outputs/<session>/<call>.out, and its cut line names the file and
+# the lines left out, which fs_read reads: a proc_run's (to its job file's
+# job_output_max_bytes) and a term_read's. A copy goes when its session retires,
+# or past either line below.
+outputs_keep_days = 7                   # a kept output is deleted after this many days
+outputs_max_bytes = 2147483648          # past this many bytes in all (2 GiB), the oldest kept outputs are deleted first
 
 # The web tools (DD5): http.fetch GETs a URL, follows up to 5 redirects, and
 # returns an HTML page as text (text, JSON, and XML as they are; other types
@@ -405,6 +476,7 @@ keep_background = true                  # false: every close ends everything the
 # owner_role = "theseus-owner"          # after `theseus aws bootstrap`: calls sign in role sessions under the guards, and the key signs only STS
 # deployment = "theseus-desktop"        # every session's source identity: which Theseus this is (default "theseus")
 # monthly_budget_usd = 50               # the month's budget: the bootstrap's, and reconciled into its stack after serving
+# monthly_warn_usd = 25                 # Theseus warns once a month when AWS's actual spend passes this (default half of monthly_budget_usd); it warns only, and the month's stop stays where it is
 # daily_budget_usd = 10                 # the day's budget, which only alerts: reconciled into the foundation stack's DailyBudgetUsd as the month's is
 # hourly_alert_usd = 1.0                # the hour's line: past what AWS actions reserved and spent this hour, Theseus alerts once that hour (default 1.0)
 # runaway_factor = 10.0                 # "let the budget notify be the authority unless 'runaway train' mode is triggered, which is,
@@ -459,6 +531,20 @@ external_programs = ["gh"]              # program names, matched by file name (b
 # included: only for a run with no one to approve, such as the bench profile.
 # private_addresses = "ask"             # ask | open
 
+# Earned autonomy: it asks you less every week, and shows the record that earned
+# each "don't ask". Once a week a card in your DM offers what you approved every
+# time, and never declined, as a grant: the command (a prefix of its argv, such as
+# `cargo nextest run -p theseus-store`, or a file tool in a workspace root) then
+# runs with a notice instead of asking. Never silently: a grant is your yes, from
+# a private place. It never passes the floor, the approve lists, the roots, a
+# shared place, or the external-text hold. "Should have asked" on its notice, or
+# `theseus policy revoke <id>`, ends it. `theseus policy earned` shows the number.
+[policy.earned]
+enabled = true                          # propose grants from the record (built-in default: true)
+every_days = 7                          # at most one card in this many days
+min_approvals = 20                      # approved at least this often in the window, with no decline
+window_days = 7                         # the window the approvals are counted in
+
 # Per-tool postures, one line for every tool (keep it that way as tools are
 # added). A set line overrides enforcement; a commented one inherits it.
 [policy.tools]
@@ -493,6 +579,9 @@ external_programs = ["gh"]              # program names, matched by file name (b
 # a wake into this conversation later (DD8): inherits enforcement, so each one
 # set is a notice with its time; its turn spends from this session's limit
 # "wake.at" = "notify"
+# the model changing a wake it set (its own, from a private place): move it, or cancel it
+# "wake.move" = "notify"
+# "wake.cancel" = "notify"
 # gliding (38b): a post into another bound place, and a read of one's recent
 # conversation. Both inherit enforcement; the place rule decides the rest:
 # into a private place a glide keeps its posture, and what a read brings from
@@ -509,6 +598,12 @@ external_programs = ["gh"]              # program names, matched by file name (b
 # "term.send" = "notify"
 "term.read" = "open"
 "term.close" = "open"
+# a job proc_run left in the background (theseus-n8gk): job.read shows its
+# latest output and job.wait its end, reads of this session's own job;
+# job.stop is judged as a run of the job's own program, as term.send is
+"job.read" = "open"
+"job.wait" = "open"
+# "job.stop" = "notify"
 # a proposed extension (M7 43a): its directory frozen, started in L1, and tested;
 # nothing loads until you ack its card. Inherits enforcement, so each proposal is
 # a notice
@@ -680,6 +775,7 @@ port = 7433
 # posture_floor = "approve"             # an MCP-opened session's acting calls take at least this posture
 # spend_limit_usd = 5.0                 # each MCP-opened session's spend limit
 # requests_per_minute = 60              # over every client; past it, 429
+# memory = false                        # true: the memory_search and memory_get tools read your private memory (never a shared place's), no model call; each call is a memory.read row
 
 # ---------------------------------------------------------------- index
 # The index tender (M6): `theseus-index`, installed beside theseusd. It starts
@@ -693,14 +789,18 @@ port = 7433
 enabled = true
 weights_dir = "~/.cache/theseus/models"   # the embedding model's files; nothing is fetched, and without them BM25 and entities answer alone
 threads = 1                               # the embedding model's threads
-query_threads = 0                         # a recall query's embedding's own pool, ahead of the backfill; 0: one thread, the steadiest beside a busy machine
+query_threads = 0                         # a recall query's embedding's own pool, ahead of the backfill; 0: four (never more than the cores), and one thread, one query at a time, while the machine is busy
 idle_unload_mins = 10.0                   # the model unloads after this long unused (about 500 MB), and loads again on the next use
 
 # ---------------------------------------------------------------- memory
 # Recall (M6 step 30a): on a turn's first loop, ask the index what past nodes
 # bear on what the turn brings, filter them (the place rule first: a shared
 # place draws only on its own sessions, a private place only on private ones),
-# and pack what would be admitted. Off by default. In shadow, each recall is a
+# and pack what would be admitted. On by default (theseus-is8t): mode "live"
+# on the baseline arm, which needs no Jev. With no index built, a recall
+# answers nothing and costs nothing, and it never holds a turn past
+# recall_deadline_ms. mode = "off" turns it off, and a config that sets mode
+# keeps its value. In shadow, each recall is a
 # recall.shadow row, a span, and a narrative line, and nothing reaches the
 # model: its request is the same byte for byte. See it with
 # `theseus memory recalled <session>` and `theseus memory search "<query>"`.
@@ -711,7 +811,7 @@ idle_unload_mins = 10.0                   # the model unloads after this long un
 # recall.ran row, and a "🧠 N recalled" footer on Discord. Label a node
 # with `theseus memory label <node> wrong` to keep it out.
 # [memory]
-# mode = "shadow"                         # off (the default) | shadow | canary | live
+# mode = "live"                           # live (the default) | canary | shadow | off
 # arm = "baseline"                        # the arm canary and live sessions get: none | bm25 | baseline | +retention (FSRS-6 in the rank) | +activation (spreading activation as one more ranked source; its adjacency projection is built after serving) | +synthesis (consolidation's checked syntheses as candidates)
 # canary_fraction = 0.5                   # canary: the share of sessions on the arm, sticky by a hash of session and experiment; the rest run none, with baseline in shadow
 # experiment = "m6-1"                     # names the plan; seeds each session's arm
@@ -899,7 +999,7 @@ output_mb = 64                          # the largest file an L1 job may write; 
 
 # ---------------------------------------------------------------- judge
 # Jev's judgments (M5): typed questions about the session's work, asked of
-# TypeSafe's Jev. Off by default. On, every pack this build wires in judges in
+# TypeSafe's Jev. On when the Jev key resolves, off without it (below). On, every pack this build wires in judges in
 # shadow but three: each judgment is made, priced, and recorded in the ledger, and
 # nothing acts on one but the route pack's model and effort for a message ([routing], below), rerank.v1's
 # order of a recall in front of the model, and security.v3's notices (below). A judgment sends its state (your messages, the assistant's final
@@ -931,8 +1031,18 @@ output_mb = 64                          # the largest file an L1 job may write; 
 # used.
 # `theseus judge log` lists the judgments, and health's judge: line counts
 # them and their spend.
+#
+# On when the Jev key resolves (theseus-is8t): with no `enabled` line, the
+# judge is on exactly when the key_secret entry under [secrets] resolves at
+# the start (an env: variable that is set, a file: that reads, or an op://
+# reference, which the vault answers after serving), and off without it:
+# no entry, an unset variable, or a placeholder. `theseusd check` and health
+# say which and why. `enabled = false` turns it off whatever the key; `true`
+# with no entry refuses to start. Each pack keeps its own mode: routing and
+# rerank act (and security.v3's notices, as above), and every other pack
+# judges in shadow unless a pack line below says otherwise.
 [judge]
-enabled = false                         # true sends judgments to Jev; needs the key_secret entry under [secrets]
+# enabled = false                       # unset: on when the key resolves, off without it; false: off; true: on, and the key_secret entry must exist
 key_secret = "jev_api_key"              # the [secrets] entry holding the Jev key, read after serving
 max_mode = "live"                       # a ceiling on every pack: "shadow" acts on nothing, "off" calls nothing
 shadow_limit_usd_per_day = 1.0          # what shadow judgments may spend in a local day; at it, shadow pauses until midnight
@@ -944,6 +1054,7 @@ replay_limit_usd = 0.5                  # what one `theseus judge replay` (or ba
 audit_limit_usd = 5.0                   # what one `theseus judge audit` may spend on its model; the run stops before it would pass it
 backfill_consent = false                # true is the owner's consent that `theseus judge backfill` sends recorded history to Jev; agents can't write it
 holdout_days = 14                       # the holdout's days before the report's midnight; the learning loop's split from 200 labeled in it
+stop_nudge = true                       # a private turn whose last message says more work follows (loop.v1, live) goes on once more; false keeps loop.v1 in shadow; `theseus nudge off` for one session
 # api_base = "https://api.typesafe.ai"  # Jev's endpoint (tests point it at a fake)
 # A pack's own lines, by its name. The config can lower a pack's mode, never raise it.
 # [judge.packs."loop.v1"]
@@ -978,7 +1089,7 @@ margin = 0.02                           # at the minimum sample, precision and r
 # tail_band = 0.5                       # the tail passing this share of the window, then each further quarter
 
 # ---------------------------------------------------------------- routing
-# Jev's model per interaction mode (M5 25e). While [judge] is on, route.v3 asks at each
+# Jev's model per interaction mode (M5 25e). While [judge] is on, route.v4 asks at each
 # message you send which mode it needs (beside classify.v1 and role.v1), and
 # the turn runs on that mode's first usable profile: configured, its key settled, its
 # model priced, and able to read the turn's images; else the next; else the session's
@@ -989,11 +1100,13 @@ margin = 0.02                           # at the minimum sample, precision and r
 # messages in a row agree (a switch leaves the cache cold). A turn whose profile, provider
 # or model you chose (`theseus ask -P/-p/-m`, the cockpit's picker) is never routed, and
 # a place's profile (its ceiling) is its cap: nothing routes to a dearer model there.
-# In the same request route.v3 asks the effort the reply needs (low, medium, high, xhigh,
+# In the same request route.v4 asks the effort the reply needs (low, medium, high, xhigh,
 # max), and the turn's model runs at it when its catalog row takes effort, over the
 # profile's own effort unless the profile sets effort_fixed = true, and clamped to
 # effort_bounds. Below the answer's confirm bar, when Jev finds it unclear, on a pinned
-# turn, in shadow, and for a late verdict, the profile's own effort stands.
+# turn, in shadow, and for a late verdict, the profile's own effort stands. An answer of
+# xhigh or max applies only when its confidence is above high_effort_confidence; at or
+# below, the turn runs at high (the row says held_high), before the bounds clamp it.
 [routing]
 enabled = true                          # acts only while [judge] is on
 mode = "live"                           # "shadow" records each verdict and routes nothing
@@ -1002,11 +1115,15 @@ trivial_context_turns = 2               # the exchanges a detour (trivial, quick
 cold_switch_tokens = 30000              # at this much context, a switch waits for a second agreeing message
 switch_confidence = 0.6                 # a verdict routes only at this confidence or more
 effort_bounds = ["low", "max"]          # the lowest and highest effort Jev's answer may set
+high_effort_confidence = 0.70           # an xhigh or max answer applies only above this confidence; else the turn runs high
+dear_tier_max_tokens = 200000           # over this much context, sophisticated and review skip a profile dearer (per input token) than the next usable one
 # Each mode's profiles, in order: the first usable wins. Empty: the session's own. A
 # mode's switch_confidence is its own bar; unset, it is the one above, except trivial's,
 # 0.4: a wrong trivial call is cheap, since its detour carries a few exchanges for one turn.
 # A verdict that comes after the wait applies to the next message alone, and a trivial
-# or quick one to none. A profile a mode names that this config lacks is passed over.
+# or quick one to none. A profile a mode names that this config lacks is passed over. A
+# session Jev moved up from its own profile goes back to it after two verdicts in a row
+# whose mode is its own profile or cheaper (chat, routine_coding); you moving it is yours.
 # [routing.modes.trivial]
 # profiles = ["haiku", "glm", "cheapest"]
 # switch_confidence = 0.4
@@ -1020,6 +1137,8 @@ effort_bounds = ["low", "max"]          # the lowest and highest effort Jev's an
 # profiles = ["opus", "sonnet"]
 # [routing.modes.routine_coding]
 # profiles = ["haikuhi", "sonnet"]
+# [routing.modes.review]                # verification: "check this", a pre-merge review, "is this right?"
+# profiles = ["opushi", "fable"]
 # Your corrections (theseus-q31l): in a private place, "that should have been on fable",
 # "use opus for that", "that needed more effort" or "rerun that on opus" labels the last
 # turn's route judgment as yours and moves the session there at once; so does a reaction

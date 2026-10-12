@@ -1,0 +1,9 @@
+[38;5;2m●[39m [1mPlan[22m
+  1. Add mean_height(readings) to tides.py
+  2. Test it in test_tides.py
+  3. Run the tests
+
+Would you like to proceed?
+[38;5;75m❯ [39m1. Yes, and auto-accept edits
+  2. Yes, and manually approve edits
+  3. No, keep planning

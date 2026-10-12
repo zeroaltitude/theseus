@@ -613,7 +613,7 @@ fn topic_of(
         // name beside its full name.
         let held = match as_person {
             Some(name) => person_named(o, name)?,
-            None => new_person_held(o, pr),
+            None => held_checked(o, &d.candidate.name, &d.candidate.handles)?,
         };
         return Ok(match held {
             Some(id) => (id, None),
@@ -696,20 +696,59 @@ fn new_person_held(o: &Ontology, pr: &Proposed) -> Option<CategoryId> {
 }
 
 /// The held person a name and its handles are by now: an exact handle, then
-/// the name folded.
+/// a `name:` handle holding the name folded, then the display name folded.
+/// Two people holding the name are no one here (a listing stands the name
+/// as new); an accept refuses them by id (`held_checked`).
 pub(super) fn held_for(o: &Ontology, name: &str, handles: &[String]) -> Option<CategoryId> {
-    let by_handle = handles
-        .iter()
-        .find_map(|h| o.person_by_handle(h))
-        .or_else(|| o.person_by_handle(&format!("name:{name}")));
-    let name = people::fold(name);
-    by_handle
-        .or_else(|| {
-            o.categories().find(|c| {
-                c.kind() == theseus_ontology::person::KIND && people::fold(&c.name) == name
+    held_checked(o, name, handles).unwrap_or(None)
+}
+
+/// The live people holding a `name:` handle whose value folds to `name`
+/// (theseus-7mow): any of a person's name handles counts, not only the
+/// display name. A merged or retired person holds nothing.
+pub(super) fn name_holders(o: &Ontology, name: &str) -> Vec<CategoryId> {
+    let folded = people::fold(name);
+    if folded.is_empty() {
+        return Vec::new();
+    }
+    o.categories()
+        .filter(|c| {
+            c.kind() == theseus_ontology::person::KIND
+                && c.merged_into.is_none()
+                && c.retired_ms.is_none()
+        })
+        .filter(|c| {
+            theseus_ontology::person::handles_of(c).iter().any(|h| {
+                h.strip_prefix("name:")
+                    .is_some_and(|v| people::fold(v) == folded)
             })
         })
         .map(|c| c.id.clone())
+        .collect()
+}
+
+/// `held_for`, refusing (with their ids) when two live people hold the name
+/// as a `name:` handle and no exact handle decides: never one picked.
+fn held_checked(o: &Ontology, name: &str, handles: &[String]) -> Result<Option<CategoryId>> {
+    if let Some(c) = handles.iter().find_map(|h| o.person_by_handle(h)) {
+        return Ok(Some(c.id.clone()));
+    }
+    match name_holders(o, name).as_slice() {
+        [] => {}
+        [one] => return Ok(Some(one.clone())),
+        many => bail!(
+            "{} people hold the name {name:?} as a handle ({}): name one by its id",
+            many.len(),
+            many.iter()
+                .map(|c| c.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+    }
+    let name = people::fold(name);
+    Ok(o.categories()
+        .find(|c| c.kind() == theseus_ontology::person::KIND && people::fold(&c.name) == name)
+        .map(|c| c.id.clone()))
 }
 
 /// The person an accept's `as_person` names (theseus-fvyx): a held person by
@@ -729,7 +768,14 @@ fn person_named(o: &Ontology, name: &str) -> Result<Option<CategoryId>> {
     let found: Vec<&Category> = o
         .categories()
         .filter(|c| c.kind() == kind && c.merged_into.is_none() && c.retired_ms.is_none())
-        .filter(|c| people::fold(&c.name) == folded || c.id.local() == name)
+        .filter(|c| {
+            people::fold(&c.name) == folded
+                || c.id.local() == name
+                || theseus_ontology::person::handles_of(c).iter().any(|h| {
+                    h.strip_prefix("name:")
+                        .is_some_and(|v| people::fold(v) == folded)
+                })
+        })
         .collect();
     match found.as_slice() {
         [] => Ok(None),

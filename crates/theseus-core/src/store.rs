@@ -45,9 +45,10 @@ use crate::node_cache::NodeCache;
 /// health adds up (sessions, turns, the five token counts, the cost), the
 /// term `e` while it holds external text, and an imported session's book
 /// terms (`books::session_terms`, theseus-civ0). A change to what these say
-/// renames it, and every store builds them again once, after serving.
+/// renames it, and every store builds them again once, after serving
+/// (`projection.core.3`: the kernel's `ot`, a task not ended, theseus-id8d).
 pub static PROJECTION: Projection = Projection {
-    name: "projection.core.2",
+    name: "projection.core.3",
     kinds: &[kinds::EXECUTION, kinds::ACTION, kinds::SESSION],
     terms: terms_of,
     sums: sums_of,
@@ -578,6 +579,17 @@ impl Store {
             }
             None => self.inner.append(&[record]).map(|_| ()),
         }
+    }
+
+    /// Take the rows waiting for the turn's next frame, for a frame that
+    /// places them itself (theseus-2uby: after the admission it carries).
+    /// A frame that fails gives them back with `defer`. None on a handle
+    /// that is not a turn's.
+    pub fn take_waiting(&self) -> Vec<NewRecord> {
+        self.turn
+            .as_ref()
+            .map(|t| std::mem::take(&mut *t.waiting.lock().unwrap()))
+            .unwrap_or_default()
     }
 
     /// The frames this turn has written so far (theseus-wz4y): those its
@@ -1325,7 +1337,7 @@ pub(crate) mod tests {
         let m: serde_json::Value =
             serde_json::from_slice(&std::fs::read(d.path().join("MANIFEST.json")).unwrap())
                 .unwrap();
-        assert_eq!(m["format"], 27, "the write moved it: {m}");
+        assert_eq!(m["format"], 29, "the write moved it: {m}");
         let store = Store::open(d.path()).unwrap();
         let into = store.scope_after("in:msg_first", 0).unwrap();
         assert_eq!(into.len(), 1);

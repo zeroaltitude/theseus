@@ -43,6 +43,7 @@ pub mod people;
 pub mod rerank;
 pub mod sink;
 pub mod spend;
+pub mod stop;
 #[cfg(test)]
 mod tests_ahead;
 #[cfg(test)]
@@ -76,12 +77,15 @@ use spend::{Reserve, ShadowBudget};
 /// ladder before a `pack.mode` row of its own (26a): every pack in shadow
 /// but the three the owner put live on 2026-10-04, which the ladder adopts
 /// as his promotions (`ladder::adopt`): the route pack (`route.v1` then,
-/// `route.v2` from 2026-10-07, theseus-3okf, and `route.v3` since that
-/// evening, theseus-qe3v), `rerank.v1`, and
+/// `route.v2` from 2026-10-07, theseus-3okf, `route.v3` since that
+/// evening, theseus-qe3v, and `route.v4` since 2026-10-11, theseus-p8dy),
+/// `rerank.v1`, and
 /// `security.v3` as notices while `[judge.packs."security.v3"] notices` is
-/// on ([`crate::config::JudgeConfig::mode_of`]).
+/// on ([`crate::config::JudgeConfig::mode_of`]); and `loop.v1`, live at a
+/// turn's stop while `[judge] stop_nudge` is on (`stop`, theseus-fh0u, the
+/// owner's D8 of 2026-10-10: live, not shadow).
 pub const WIRED: &[(&str, PackMode)] = &[
-    (LOOP_PACK, PackMode::Shadow),
+    (LOOP_PACK, PackMode::Live),
     (gate::SECURITY_PACK, PackMode::Shadow),
     (gate::SECURITY_CANDIDATE, PackMode::Live),
     (inbound::CLASSIFY_PACK, PackMode::Shadow),
@@ -481,13 +485,18 @@ impl JudgeService {
     /// Mark the turn's trace with `loop.v1`'s dispatch, when it judges the
     /// turn: at its end, before its last frame, which carries the trace. The
     /// judgment is spawned after that frame (`after_turn`), with this id.
+    /// A stop the turn judged live (`judged`, `stop`) is not judged again;
+    /// after the turn nothing acts, so the mark says shadow.
     pub fn mark_turn_end(
         &self,
         trace: &mut crate::trace::Trace,
         res: &theseus_protocol::TurnSubmitResult,
         task: bool,
+        judged: bool,
     ) {
-        if let Some(d) = self.plan_loop_end(&res.stop_reason, &res.turn_id, &res.session_id) {
+        let planned = self.plan_loop_end(&res.stop_reason, &res.turn_id, &res.session_id);
+        if let Some(mut d) = planned.filter(|_| !judged) {
+            d.mode = Mode::Shadow;
             let class = loop_end::class(task, res.tool_calls);
             d.mark(
                 trace,
@@ -512,14 +521,19 @@ impl JudgeService {
             },
             task,
         );
-        let marked = res
+        // The last stop's mark: one judged live at the stop (`stop::POINT`)
+        // is not judged again.
+        let last = res
             .trace
             .as_ref()
             .map(mark::marks)
             .unwrap_or_default()
             .into_iter()
-            .find(|d| d.pack == LOOP_PACK)
-            .map(|d| d.id);
+            .rfind(|d| d.point == "loop_end" || d.point == stop::POINT);
+        if last.as_ref().is_some_and(|d| d.point == stop::POINT) {
+            return;
+        }
+        let marked = last.filter(|d| d.pack == LOOP_PACK).map(|d| d.id);
         self.at_loop_end(
             LoopEnd {
                 session_id: res.session_id.clone(),
@@ -583,8 +597,9 @@ impl JudgeService {
             "loops": end.loops, "baseline": "until_no_tool_calls", "decision": "no_tool_calls",
             "class": end.class(), "blob": blob, "on_path_ms": 0,
         });
-        let mode = self.ask_mode(&pack.name(), &mut context);
-        let mut ask = Ask::new(pack, &state, mode, context);
+        // The arm in its context; after the turn nothing acts (theseus-fh0u).
+        let _ = self.ask_mode(&pack.name(), &mut context);
+        let mut ask = Ask::new(pack, &state, Mode::Shadow, context);
         ask.id = Some(id);
         let need = built
             .judge
@@ -822,6 +837,7 @@ impl JudgeService {
         let notices = self.notices_state();
         JudgeHealth {
             enabled: self.cfg.enabled,
+            why: self.cfg.off_why(),
             max_mode: self.cfg.max_mode.as_str().into(),
             packs: self.pack_lines(),
             breaker,

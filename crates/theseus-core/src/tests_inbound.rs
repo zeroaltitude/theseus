@@ -68,6 +68,8 @@ fn marks(trace: &Option<Span>) -> Vec<Value> {
 /// call is the only one; and `route.v1` (25e) off, so these are 25a's two
 /// packs alone (`tests_route` asks all three).
 pub(crate) fn inbound_only(c: &mut crate::Config) {
+    // Recall (on by default) brings its own judgments (theseus-is8t).
+    c.memory.mode = crate::config::MemoryMode::Off;
     c.judge
         .packs
         .insert(crate::judge::inbound::ROUTE_PACK.into(), off());
@@ -102,7 +104,7 @@ const INBOUND_ALONE: [&str; 14] = [
     "security.v3: off (the config's ceiling; on the ladder: live (owner: decision of 2026-10-04))",
     "classify.v1: shadow",
     "role.v1: shadow",
-    "route.v3: off (the config's ceiling; on the ladder: live (owner: decision of 2026-10-07))",
+    "route.v4: off (the config's ceiling; on the ladder: live (owner: decision of 2026-10-11))",
     "continue.v1: off",
     "categorize.v1: off",
     "rerank.v1: off (the config's ceiling; on the ladder: live (owner: decision of 2026-10-04))",
@@ -334,11 +336,11 @@ async fn a_judged_turn_keeps_its_frame_budget() {
     assert_eq!(
         marks(&res.trace).len(),
         4,
-        "judged: the inbound point's three marks (route.v3's, 25e), and loop.v1's at the turn's end (23b)"
+        "judged: the inbound point's three marks (route.v4's, 25e), and loop.v1's at the turn's end (23b)"
     );
     let own = res.trace.as_ref().unwrap().attrs["frames"].as_u64();
-    assert_eq!(own, Some(5), "the turn's own frames");
-    assert!(frames <= 5, "a judged plain turn wrote {frames} frames");
+    assert_eq!(own, Some(4), "the turn's own frames");
+    assert!(frames <= 4, "a judged plain turn wrote {frames} frames");
     until_inbound(&r.core.store, 2).await;
 }
 

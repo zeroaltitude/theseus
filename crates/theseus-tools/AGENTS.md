@@ -23,11 +23,17 @@ Key modules: `fs.rs`, `git.rs`, `proc.rs`, `paths.rs`. Read by: core.
   (`MAX_SCAN_BYTES`, about 0.2 s warm), the window's bytes at `max_read_bytes`, each line kept to 8 KB while it is
   scanned. The scan bound ends a line too, so a file of one huge line costs the bound, not the file. A head with a
   NUL, an image, or a kind `theseus_files::kind::sniff` names (archive, document, notebook, RTF) gets the old
-  refusal, worded for whether the call asked for a window. The runtime stores what a tool returns in the blobs (`run_with_media`, and
+  refusal, worded for whether the call asked for a window. A read returns at most `FS_READ_MAX_CHARS` (100,000,
+  `src/fs_read_cap.rs`, theseus-v73m): its window stops at the last whole line that fits, with the footer that names
+  the next offset, never a hole; the runtime cuts it at the same cap the same way (`Tool::result_max_chars`). The
+  window's scan bound holds at a line's end, not at the reader's buffer's edge. The runtime stores what a tool returns in the blobs (`run_with_media`, and
   `run_async_with_media` for an async tool).
 - **`proc.run`'s `steps`** (theseus-7gir.3): a batch in place of `argv`, exactly one of the two, at most
   `MAX_STEPS` (16). `Tool::steps` gives each step as the call it would be alone (the gate judges each), and
   `Tool::jobs` each step's job, every directory checked before the first starts; the plan's `steps` holds each argv.
+- **A job's handle** (theseus-n8gk): `proc.run`'s `background: true` (one program, never `steps`), and `src/jobs.rs`,
+  the schemas and plans of `job.read`, `job.wait` (reads) and `job.stop` (a run). Their plans read the input alone;
+  the core finds the job in the calling session, makes `job.stop`'s plan the job's own run, and runs all three.
 - `src/recount.rs`: `fs.patch` rewrites each hunk header's lengths from its body before diffy parses it
   (theseus-inw), keeping its starts, so diffy still checks the context; an empty line inside a hunk is blank context,
   and the empty lines that end it are its end unless its header counts them.

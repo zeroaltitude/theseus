@@ -159,14 +159,22 @@ impl Kernel {
         }
         let now = self.now_ms();
         let before = e.budget.spent_micros;
+        // A burn-rate brake's question (theseus-9e02) resumes the session:
+        // its spend stays, and its ten-minute window starts empty.
+        let brake = q
+            .proposal
+            .as_ref()
+            .is_some_and(|p| !p.args["call"]["brake"].is_null());
         q.state = ActionState::Succeeded;
         q.settled_at_ms = Some(now);
-        q.resolution = Some(format!(
-            "approved by {by}: spend reset from {} to $0",
-            usd(before)
-        ));
-        e.budget.spent_micros = 0;
-        e.budget.resets += 1;
+        q.resolution = Some(match brake {
+            true => format!("approved by {by}: resumed, its burn window cleared"),
+            false => format!("approved by {by}: spend reset from {} to $0", usd(before)),
+        });
+        if !brake {
+            e.budget.spent_micros = 0;
+            e.budget.resets += 1;
+        }
         e.budget.question = None;
         e.budget.question_needs_micros = 0;
         if !e.queued_results.contains(&q.correlation_id) {
@@ -182,24 +190,25 @@ impl Kernel {
             e.resume_pending = true;
         }
         e.updated_at_ms = now;
+        let mut reset_row = json!({
+            "execution_id": e.id,
+            "correlation_id": q.correlation_id,
+            "by": by,
+            "spent_before_usd": micros_to_usd(before),
+            "limit_usd": micros_to_usd(e.budget.limit_micros),
+            "reserved_usd": micros_to_usd(e.budget.reserved_micros),
+            "held_unknown_usd": micros_to_usd(e.budget.held_unknown_micros),
+            "resets": e.budget.resets,
+        });
+        if brake {
+            reset_row["brake"] = json!(true);
+        }
         let mut frame = vec![
             action_record(&q)?,
             exec_record(&e)?,
-            self.ledger(
-                LedgerKind::BudgetReset,
-                Some(&e.session_id),
-                json!({
-                    "execution_id": e.id,
-                    "correlation_id": q.correlation_id,
-                    "by": by,
-                    "spent_before_usd": micros_to_usd(before),
-                    "limit_usd": micros_to_usd(e.budget.limit_micros),
-                    "reserved_usd": micros_to_usd(e.budget.reserved_micros),
-                    "held_unknown_usd": micros_to_usd(e.budget.held_unknown_micros),
-                    "resets": e.budget.resets,
-                }),
-            )?,
+            self.ledger(LedgerKind::BudgetReset, Some(&e.session_id), reset_row)?,
         ];
+
         if woke {
             frame.push(self.ledger(
                 LedgerKind::ExecutionQueued,
@@ -208,6 +217,9 @@ impl Kernel {
             )?);
         }
         self.commit(&frame)?;
+        if brake {
+            self.ceiling.burn_clear(&e.id);
+        }
         Ok((e, before))
     }
 }

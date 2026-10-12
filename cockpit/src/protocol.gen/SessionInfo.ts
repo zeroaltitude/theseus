@@ -61,4 +61,8 @@ superseded_by?: SessionLink, supersedes?: SessionLink,
 /**
  * Its earlier titles, oldest first, once it was re-titled.
  */
-title_was?: Array<string>, };
+title_was?: Array<string>, 
+/**
+ * The directory it works in, as its client sent it (theseus-aab7).
+ */
+dir?: string, };

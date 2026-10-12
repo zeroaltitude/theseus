@@ -802,14 +802,25 @@ pub struct TaskStarted<'a> {
     pub target: Option<&'a str>,
     /// Its arrangement's pieces (M5 27).
     pub pieces: usize,
+    /// When it starts, for a deferred task (theseus-rcgph): it is opened
+    /// asleep.
+    pub starts_at_ms: Option<u64>,
 }
 
 impl Fact for TaskStarted<'_> {
     fn narrate(&self, say: &mut Say<'_>) {
+        let verb = match self.starts_at_ms {
+            Some(at) => format!("scheduled to start {}", crate::task_start::day_hm(at)),
+            None => "started".to_string(),
+        };
+        let runs = match self.starts_at_ms {
+            Some(_) => "sleeps until then, and then runs on its own",
+            None => "runs on its own",
+        };
         say.line(
             theseus_protocol::NarrativePart::Session,
             format!(
-                "Task {} started (\"{}\", {}): its session {} runs on its own with {} carved \
+                "Task {} {verb} (\"{}\", {}): its session {} {runs} with {} carved \
                  from the {} this session had left, and reports {}.",
                 self.short,
                 self.title,
@@ -871,6 +882,54 @@ impl Fact for WakeSet<'_> {
                 crate::session::title_from(self.note),
                 self.pending,
                 theseus_kernel::MAX_PENDING
+            ),
+        );
+    }
+}
+
+/// The model cancelled one of its wakes (`wake.cancel`, theseus-lherl). The
+/// kernel's frame wrote the `wake.cancelled` row (`by: "model"`).
+pub struct WakeCancelled<'a> {
+    pub short: &'a str,
+    pub note: &'a str,
+    pub pending: usize,
+}
+
+impl Fact for WakeCancelled<'_> {
+    fn narrate(&self, say: &mut Say<'_>) {
+        say.line(
+            theseus_protocol::NarrativePart::Session,
+            format!(
+                "Wake {} cancelled by the model: \"{}\" will not run; {} of {} pending.",
+                self.short,
+                crate::session::title_from(self.note),
+                self.pending,
+                theseus_kernel::MAX_PENDING
+            ),
+        );
+    }
+}
+
+/// The model moved one of its wakes (`wake.move`, theseus-lherl). The
+/// kernel's frame wrote the `wake.moved` row.
+pub struct WakeMoved<'a> {
+    pub short: &'a str,
+    pub from: &'a str,
+    pub to: &'a str,
+    /// The series, when it is one (`, every 1d`).
+    pub series: Option<&'a str>,
+}
+
+impl Fact for WakeMoved<'_> {
+    fn narrate(&self, say: &mut Say<'_>) {
+        say.line(
+            theseus_protocol::NarrativePart::Session,
+            format!(
+                "Wake {} moved by the model from {} to {}{}.",
+                self.short,
+                self.from,
+                self.to,
+                self.series.unwrap_or("")
             ),
         );
     }

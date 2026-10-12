@@ -21,8 +21,12 @@ pub const MAX_STEPS: usize = 16;
 struct RunArgs {
     #[serde(default)]
     argv: Option<Vec<String>>,
+    /// A line run as `["bash", "-c", command]` (theseus-9dt2): exactly one
+    /// of `argv`, `steps` and `command`.
+    #[serde(default)]
+    command: Option<String>,
     /// Programs run in turn, stopping at the first that fails
-    /// (theseus-7gir.3): exactly one of `argv` and `steps`.
+    /// (theseus-7gir.3): exactly one of `argv`, `steps` and `command`.
     #[serde(default)]
     steps: Option<Vec<StepArgs>>,
     #[serde(default)]
@@ -35,6 +39,10 @@ struct RunArgs {
     /// call's class; here its egress hosts are checked (18c).
     #[serde(default)]
     sandbox: Option<Sandbox>,
+    /// Answer at once with the job's handle, and leave it running
+    /// (theseus-n8gk): one program, not a batch.
+    #[serde(default)]
+    background: bool,
 }
 
 /// One step of a batch: its own program, and its own directory and timeout,
@@ -54,29 +62,60 @@ struct StepArgs {
 }
 
 impl RunArgs {
-    /// The one program, or the steps: exactly one, each naming a program.
+    /// The one program, the line, or the steps: exactly one, each naming a
+    /// program.
     fn checked(&self) -> Result<(), String> {
-        match (&self.argv, &self.steps) {
-            (Some(_), Some(_)) => {
-                Err("give argv (one program) or steps (programs run in turn), not both".into())
-            }
-            (None, None) => Err("argv must name a program (or steps, programs run in turn)".into()),
-            (Some(argv), None) => named(argv)
+        let given = [
+            self.argv.is_some(),
+            self.steps.is_some(),
+            self.command.is_some(),
+        ];
+        if given.iter().filter(|g| **g).count() > 1 {
+            return Err(ONE_OF.into());
+        }
+        match (&self.argv, &self.steps, &self.command) {
+            (None, None, None) => Err(format!("name a program: {ONE_OF}")),
+            (_, Some(_), _) if self.background => Err(
+                "background runs one program (argv or command); a batch's steps run in turn and are waited for"
+                    .into(),
+            ),
+            (Some(argv), _, _) => named(argv)
                 .then_some(())
                 .ok_or_else(|| "argv must name a program".into()),
-            (None, Some(steps)) if steps.is_empty() => {
+            (_, _, Some(line)) => (!line.trim().is_empty())
+                .then_some(())
+                .ok_or_else(|| "command must not be empty".into()),
+            (_, Some(steps), _) if steps.is_empty() => {
                 Err("steps must hold at least one step".into())
             }
-            (None, Some(steps)) if steps.len() > MAX_STEPS => Err(format!(
+            (_, Some(steps), _) if steps.len() > MAX_STEPS => Err(format!(
                 "steps holds {} steps, more than {MAX_STEPS}: split the batch",
                 steps.len()
             )),
-            (None, Some(steps)) => match steps.iter().position(|s| !named(&s.argv)) {
+            (_, Some(steps), _) => match steps.iter().position(|s| !named(&s.argv)) {
                 Some(i) => Err(format!("step {}'s argv must name a program", i + 1)),
                 None => Ok(()),
             },
         }
     }
+
+    /// `command` as the argv it runs as, the call's own `argv` otherwise.
+    fn program(&mut self) -> Option<Vec<String>> {
+        match self.command.take() {
+            Some(line) => Some(shell_argv(&line)),
+            None => self.argv.take(),
+        }
+    }
+}
+
+/// A call gives exactly one of these.
+const ONE_OF: &str = "give exactly one of argv (one program, no shell), steps (programs run in \
+    turn) and command (a line run in bash)";
+
+/// What `command` runs as (theseus-9dt2): the gate judges this argv, as it
+/// judges a `bash -c` call.
+pub fn shell_argv(line: &str) -> Vec<String> {
+    vec!["bash".into(), "-c".into(), line.into()]
 }
 
 fn named(argv: &[String]) -> bool {
@@ -105,16 +144,18 @@ impl Tool for Run {
         "proc.run"
     }
     fn description(&self) -> &'static str {
-        "Run one program with a typed argv (no shell): builds, tests, linters, git commands the git tools do not cover. Returns combined stdout and stderr with the exit code. The proc_run calls of one response run at once, each its own job, except that one naming a file an earlier one names waits for it; programs that must run in order go in one call as `steps`. Prefer the fs, text, and git tools when they can do the job. Long runs continue in the background and report back later."
+        "Run a program: builds, tests, linters, git commands the git tools do not cover. `argv` runs one program with no shell; `command` runs a line in bash. Returns combined stdout and stderr with the exit code and the directory it ran in. The proc_run calls of one response run at once, each its own job, except that one naming a file an earlier one names waits for it; programs that must run in order go in one call as `steps`. Prefer the fs, text, and git tools when they can do the job. A run past its time limit goes on as a background job that job_read, job_wait and job_stop take, and its result arrives by itself when it ends; `background` starts one so at once."
     }
     fn input_schema(&self) -> Value {
         json!({
             "type": "object",
             "properties": {
-                "argv": {"type": "array", "items": {"type": "string"}, "minItems": 1, "description": "Program and arguments, e.g. [\"cargo\", \"test\", \"-p\", \"core\"]. Pass [\"bash\", \"-c\", \"...\"] only when a shell is truly needed. Give argv or steps, not both."},
-                "steps": {"type": "array", "minItems": 1, "maxItems": MAX_STEPS, "items": {"type": "object", "properties": {"argv": {"type": "array", "items": {"type": "string"}, "minItems": 1}, "cwd": {"type": "string"}, "timeout_secs": {"type": "integer", "minimum": 1}}, "required": ["argv"], "additionalProperties": false}, "description": "Programs run in order, in place of argv, each with its own argv and optional cwd and timeout_secs (the call's are the default; env and sandbox apply to every step). The run stops at the first step that exits non-zero, and one result gives each step's exit code, output tail, and time, and names the steps not run."},
+                "argv": {"type": "array", "items": {"type": "string"}, "minItems": 1, "description": "One program and its arguments, run with no shell, e.g. [\"cargo\", \"test\", \"-p\", \"core\"]. Give exactly one of argv, command and steps."},
+                "command": {"type": "string", "minLength": 1, "description": "A line run in bash (bash -c), with its pipes, redirects and variables. Give exactly one of argv, command and steps."},
+                "steps": {"type": "array", "minItems": 1, "maxItems": MAX_STEPS, "items": {"type": "object", "properties": {"argv": {"type": "array", "items": {"type": "string"}, "minItems": 1}, "cwd": {"type": "string"}, "timeout_secs": {"type": "integer", "minimum": 1}}, "required": ["argv"], "additionalProperties": false}, "description": "Programs run in order, in place of argv or command, each with its own argv and optional cwd and timeout_secs (the call's are the default; env and sandbox apply to every step). The run stops at the first step that exits non-zero, and one result gives each step's exit code, output tail, and time, and names the steps not run."},
                 "cwd": {"type": "string", "description": "Working directory. Default: the working directory."},
                 "timeout_secs": {"type": "integer", "minimum": 1, "description": "Kill the program after this many seconds."},
+                "background": {"type": "boolean", "description": "Answer at once with the job's id and leave it running (a server, a long build): job_read shows its latest output, job_wait waits for its end, job_stop stops it. Not with steps."},
                 "env": {"type": "object", "additionalProperties": {"type": "string"}, "description": "Extra environment variables (no secrets; token/key names are refused)."},
                 "sandbox": {"anyOf": [{"type": "boolean"}, {"type": "object", "properties": {"egress": {"type": "array", "items": {"type": "string"}}}}], "description": "Run it in the sandbox (L1): no network, an empty HOME, and its writes discarded afterwards. For untrusted code, builds, and tests. {\"egress\": [\"host:port\"]} lets it reach those hosts through the proxy HTTPS_PROXY names, once approved if the operator has not listed them; what it brings back is outside text."}
             },
@@ -131,7 +172,7 @@ impl Tool for Run {
         Retry::NonRepeatable
     }
     fn plan(&self, input: &Value, ctx: &ToolCtx) -> Result<Plan, String> {
-        let a: RunArgs = parse(input)?;
+        let mut a: RunArgs = parse(input)?;
         a.checked()?;
         if let Some(Sandbox::With(w)) = &a.sandbox {
             for e in &w.egress {
@@ -139,6 +180,7 @@ impl Tool for Run {
                     .map_err(|why| format!("sandbox.egress: {why}"))?;
             }
         }
+        let program = a.program();
         let dir = |cwd: Option<&str>| {
             cwd.or(a.cwd.as_deref())
                 .map(|p| ctx.resolve(p))
@@ -146,7 +188,7 @@ impl Tool for Run {
         };
         let Some(steps) = &a.steps else {
             let cwd = dir(None);
-            let argv = a.argv.unwrap_or_default();
+            let argv = program.unwrap_or_default();
             return Ok(Plan {
                 summary: format!("run `{}` in {}", argv.join(" "), cwd.display()),
                 resources: vec![Resource {
@@ -188,7 +230,7 @@ impl Tool for Run {
         })
     }
     fn job(&self, input: &Value, ctx: &ToolCtx) -> Result<JobSpec, String> {
-        let a: RunArgs = parse(input)?;
+        let mut a: RunArgs = parse(input)?;
         let cwd = a
             .cwd
             .as_deref()
@@ -201,7 +243,7 @@ impl Tool for Run {
             ));
         }
         Ok(JobSpec {
-            argv: a.argv.ok_or("a batch's jobs are its steps'")?,
+            argv: a.program().ok_or("a batch's jobs are its steps'")?,
             cwd,
             timeout_secs: a
                 .timeout_secs
@@ -242,11 +284,11 @@ impl Tool for Run {
                 .collect(),
         )
     }
-    /// A job's raw output is deleted once its result is written
-    /// (theseus-wz2): only a run that prints less, or keeps its output in a
-    /// file, gets the rest.
+    /// What its output cap dropped is gone: only a run that prints less, or
+    /// keeps its output in a file, gets it. What the result's cap leaves out
+    /// is kept, and the runtime names its file (theseus-v73m).
     fn rest(&self, _left_out: &str) -> String {
-        "its output is not kept: run it again printing less, or with its output sent to a file \
+        "what was dropped is gone: run it again printing less, or with its output sent to a file \
          that fs_read then reads in ranges"
             .into()
     }
@@ -282,8 +324,10 @@ mod tests {
         std::fs::create_dir(d.path().join("sub")).unwrap();
         let c = ToolCtx::for_tests(d.path());
         let err = |i: Value| Run.plan(&i, &c).unwrap_err();
-        assert!(err(json!({"argv": ["a"], "steps": [{"argv": ["b"]}]})).contains("not both"));
-        assert!(err(json!({})).contains("argv must name a program"));
+        assert!(
+            err(json!({"argv": ["a"], "steps": [{"argv": ["b"]}]})).contains("exactly one of argv")
+        );
+        assert!(err(json!({})).contains("name a program"));
         assert!(err(json!({"steps": []})).contains("at least one step"));
         assert!(err(json!({"steps": [{"argv": ["a"]}, {"argv": []}]})).contains("step 2's argv"));
         assert!(err(json!({"steps": [{"argv": ["a"], "env": {}}]})).contains("unknown field"));
@@ -320,6 +364,54 @@ mod tests {
         assert!(Run.steps(&json!({"argv": ["ls"]})).is_none());
     }
 
+    /// `command` is a line run as `["bash", "-c", line]` in the call's
+    /// directory, the plan's argv for the gate; exactly one of `argv`,
+    /// `steps` and `command`, and an error that names the three
+    /// (theseus-9dt2).
+    #[test]
+    fn command_runs_as_bash_c_and_a_call_gives_exactly_one_of_the_three() {
+        let d = tempfile::tempdir().unwrap();
+        std::fs::create_dir(d.path().join("sub")).unwrap();
+        let c = ToolCtx::for_tests(d.path());
+        let p = Run
+            .plan(&json!({"command": "echo $((1+1)) | cat"}), &c)
+            .unwrap();
+        assert_eq!(
+            p.argv.unwrap(),
+            vec!["bash", "-c", "echo $((1+1)) | cat"],
+            "the gate judges the argv it runs as"
+        );
+        let j = Run
+            .job(&json!({"command": "pwd", "cwd": "sub"}), &c)
+            .unwrap();
+        assert_eq!(j.argv, vec!["bash", "-c", "pwd"]);
+        assert!(j.cwd.ends_with("sub"));
+        assert_eq!(Run.job(&json!({"command": "pwd"}), &c).unwrap().cwd, c.cwd);
+        for input in [
+            json!({"command": "ls", "argv": ["ls"]}),
+            json!({"command": "ls", "steps": [{"argv": ["ls"]}]}),
+            json!({"argv": ["ls"], "steps": [{"argv": ["ls"]}]}),
+            json!({}),
+            json!({"cwd": "sub"}),
+        ] {
+            let e = Run.plan(&input, &c).unwrap_err();
+            assert!(
+                ["argv", "steps", "command"].iter().all(|f| e.contains(f)),
+                "{input}: {e}"
+            );
+        }
+        assert!(Run.plan(&json!({"command": "  "}), &c).is_err());
+        let schema = Run.input_schema();
+        assert!(schema["properties"]["command"].is_object());
+        assert!(
+            Run.description()
+                .contains("`argv` runs one program with no shell")
+                && Run.description().contains("`command` runs a line in bash"),
+            "{}",
+            Run.description()
+        );
+    }
+
     /// `sandbox` is `true`, or `{ egress: [...] }` whose every entry is
     /// `host:port` (18c): a bad entry, or another key, is invalid input.
     #[test]
@@ -335,5 +427,32 @@ mod tests {
         assert!(plan(json!({"egress": ["https://pypi.org/"]})).is_err());
         assert!(plan(json!({"hosts": ["a.test:443"]})).is_err());
         assert!(plan(json!("yes")).is_err());
+    }
+
+    /// `background: true` (theseus-n8gk) starts one program as a job and
+    /// plans as the same run; a batch's steps are waited for, so a batch
+    /// with it is invalid input.
+    #[test]
+    fn background_takes_one_program_and_never_a_batch() {
+        let d = tempfile::tempdir().unwrap();
+        let c = ToolCtx::for_tests(d.path());
+        let p = Run
+            .plan(&json!({"argv": ["sleep", "20"], "background": true}), &c)
+            .unwrap();
+        assert_eq!(p.argv.unwrap(), vec!["sleep", "20"]);
+        let j = Run
+            .job(&json!({"argv": ["sleep", "20"], "background": true}), &c)
+            .unwrap();
+        assert_eq!(j.argv, vec!["sleep", "20"]);
+        let bad = Run
+            .plan(
+                &json!({"steps": [{"argv": ["ls"]}], "background": true}),
+                &c,
+            )
+            .unwrap_err();
+        assert!(bad.starts_with("background runs one program"), "{bad}");
+        assert!(Run
+            .plan(&json!({"argv": ["ls"], "background": "yes"}), &c)
+            .is_err());
     }
 }

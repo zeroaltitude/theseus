@@ -158,9 +158,11 @@ fn writer_reply() -> Scripted {
 }
 
 /// A core with the judge on against `jev` and the writer scripted; every
-/// wired pack but loop.v1 off (the tests write loop.v1's judgments).
+/// wired pack but loop.v1 off (the tests write loop.v1's judgments), and
+/// loop.v1 a shadow parent: wired live since the stop nudge (theseus-fh0u),
+/// the owner's rollback leaves it acting nowhere, as it stood before.
 fn rig(script: Vec<Scripted>, jev: &FakeJev, tweak: impl FnOnce(&mut crate::Config)) -> Rig {
-    rig_on(script, Some(jev), |c| {
+    let r = rig_on(script, Some(jev), |c| {
         for (p, _) in crate::judge::WIRED {
             if *p != "loop.v1" {
                 c.judge.packs.insert((*p).into(), crate::tests_judge::off());
@@ -170,7 +172,14 @@ fn rig(script: Vec<Scripted>, jev: &FakeJev, tweak: impl FnOnce(&mut crate::Conf
         // The seed's holdout is two judgments (R7's join fix 2).
         c.judge.learn.min_holdout = 2;
         tweak(c);
-    })
+    });
+    let back = PackRollbackParams {
+        pack: "loop.v1".into(),
+        why: Some("a shadow parent".into()),
+        off: false,
+    };
+    r.core.pack_rollback(&back, "cli").unwrap();
+    r
 }
 
 async fn learn(c: &Arc<Core>, split: u64) -> JudgeProposal {

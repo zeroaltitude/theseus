@@ -85,7 +85,7 @@ fn fixture() -> Vec<Value> {
     (0..SOURCES.len()).map(episode).collect()
 }
 
-fn lines(episodes: &[Value]) -> Vec<ImportLine> {
+pub(super) fn lines(episodes: &[Value]) -> Vec<ImportLine> {
     episodes
         .iter()
         .enumerate()
@@ -142,7 +142,7 @@ pub(super) async fn call_as(
     }
 }
 
-async fn import(core: &Arc<Core>, lines: Vec<ImportLine>) -> ImportEpisodesResult {
+pub(super) async fn import(core: &Arc<Core>, lines: Vec<ImportLine>) -> ImportEpisodesResult {
     serde_json::from_value(
         call(core, method::IMPORT_EPISODES, params(lines))
             .await
@@ -154,7 +154,7 @@ async fn import(core: &Arc<Core>, lines: Vec<ImportLine>) -> ImportEpisodesResul
 /// A stand-in index over `sessions`, as the tender's follower would hold
 /// them: each node's newest record (a tombstone holds nothing), its kind
 /// and origin, outside text external.
-fn index_of(core: &Arc<Core>, sessions: Vec<String>) -> Ask {
+pub(super) fn index_of(core: &Arc<Core>, sessions: Vec<String>) -> Ask {
     let store = core.store.clone();
     Arc::new(move |p| -> AskFuture {
         let mut hits = Vec::new();
@@ -228,14 +228,14 @@ fn index_of(core: &Arc<Core>, sessions: Vec<String>) -> Ask {
     })
 }
 
-fn sessions_of(episodes: &[Value]) -> Vec<String> {
+pub(super) fn sessions_of(episodes: &[Value]) -> Vec<String> {
     episodes
         .iter()
         .map(|e| session_id_of(e["episode_id"].as_str().unwrap()))
         .collect()
 }
 
-fn live() -> Rig {
+pub(super) fn live() -> Rig {
     rig_with(MemoryMode::Canary, |c| c.memory.canary_fraction = 1.0)
 }
 
@@ -528,9 +528,15 @@ async fn a_shared_place_recalls_no_import_and_a_private_place_recalls_it_with_it
         .iter()
         .find(|i| i.session_id == imported[0] && i.node_id.ends_with("_0"))
         .expect("the first episode's decision is recalled");
+    let (_, header) = theseus_protocol::cite::split_header(&first.header).expect("a handle");
     assert!(
-        first.header.starts_with("an imported message from wren (operator, from openclaw-store) in the imported dm place-0 (reef-2026-05, openclaw-store), 2026-05-02 14:03 UTC (as of @"),
+        header.starts_with("an imported message from wren (operator, from openclaw-store) in the imported dm place-0 (reef-2026-05, openclaw-store), 2026-05-02 14:03 UTC (as of @"),
         "{}",
+        first.header
+    );
+    assert!(
+        first.header.starts_with("[m:") && first.header.contains("_0] an imported"),
+        "an imported id ends _<index>: {}",
         first.header
     );
     let (_, source) = c.store.get_node(&first.node_id).unwrap().unwrap();
@@ -1299,7 +1305,7 @@ async fn a_turn_s_context_says_what_it_recalled_and_from_which_episode() {
     let first = recall
         .iter()
         .find(|p| {
-            p.name.starts_with("an imported message from wren")
+            p.name.contains("an imported message from wren")
                 && p.text
                     .as_deref()
                     .is_some_and(|t| t.contains("boathouse ledger"))
@@ -1324,7 +1330,15 @@ async fn a_turn_s_context_says_what_it_recalled_and_from_which_episode() {
             .expect("an imported session's episode");
         assert_eq!(ep.topics, ["reef/survey"]);
         assert!(src.place.starts_with("the imported "), "{}", src.place);
+        // Each admitted note's own time, an imported message's among them
+        // (`theseus why` dates each note by it; theseus-ighf).
+        let at = x.noted[&a.node_id];
+        let (_, n) = c.store.get_node(&a.node_id).unwrap().unwrap();
+        assert_eq!(at, n.created_at_ms);
+        assert!(at >= ep.start_ms && at <= ep.end_ms, "{at} in {ep:?}");
     }
+    // Away from a private place the times stay: they are no text.
+    assert_eq!(ask(&here, false).noted, x.noted);
     // Away from a private place: no excerpt, no header, no title.
     let away = ask(&here, false);
     assert!(away.recalls[0].admitted.iter().all(|a| a.text.is_none()));

@@ -224,6 +224,7 @@ pub struct Read;
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ReadArgs {
+    #[serde(alias = "file", alias = "filename", alias = "file_path")]
     path: String,
     #[serde(default)]
     offset: Option<usize>,
@@ -385,7 +386,7 @@ impl Tool for Read {
         let from = a.offset.unwrap_or(1).max(1);
         let limit = a.limit.unwrap_or(DEFAULT_READ_LINES);
         let mut out = String::new();
-        let mut shown_bytes = 0usize;
+        let mut room = crate::fs_read_cap::Room::new(ctx.max_read_bytes);
         let mut last = from.saturating_sub(1);
         for (i, line) in lines.iter().enumerate().skip(from - 1).take(limit) {
             let l = if line.chars().count() > MAX_LINE_CHARS {
@@ -397,10 +398,9 @@ impl Tool for Read {
                 line.to_string()
             };
             let row = format!("{:>6}\t{}\n", i + 1, l);
-            if shown_bytes + row.len() > ctx.max_read_bytes {
+            if !room.takes(&row) {
                 break;
             }
-            shown_bytes += row.len();
             out.push_str(&row);
             last = i + 1;
         }
@@ -421,6 +421,9 @@ impl Tool for Read {
             },
             None,
         ))
+    }
+    fn result_max_chars(&self) -> Option<usize> {
+        Some(crate::fs_read_cap::FS_READ_MAX_CHARS)
     }
     /// The rows a cut left out, by their numbers (theseus-46v): an `fs_read`
     /// with that offset and limit returns them.
@@ -460,7 +463,9 @@ pub struct WriteFile;
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct WriteArgs {
+    #[serde(alias = "file", alias = "filename", alias = "file_path")]
     path: String,
+    #[serde(alias = "file_text", alias = "contents")]
     content: String,
 }
 
@@ -536,8 +541,11 @@ pub struct Edit;
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct EditArgs {
+    #[serde(alias = "file", alias = "filename", alias = "file_path")]
     path: String,
+    #[serde(alias = "old_str", alias = "old_text")]
     old_string: String,
+    #[serde(alias = "new_str", alias = "new_text")]
     new_string: String,
     #[serde(default)]
     replace_all: bool,
@@ -639,6 +647,7 @@ pub struct Patch;
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct PatchArgs {
+    #[serde(alias = "diff")]
     patch: String,
 }
 
@@ -829,7 +838,7 @@ pub struct Glob;
 #[serde(deny_unknown_fields)]
 struct GlobArgs {
     pattern: String,
-    #[serde(default)]
+    #[serde(default, alias = "file", alias = "filename", alias = "file_path")]
     path: Option<String>,
 }
 
@@ -955,7 +964,7 @@ pub struct Grep;
 #[serde(deny_unknown_fields)]
 struct GrepArgs {
     pattern: String,
-    #[serde(default)]
+    #[serde(default, alias = "file", alias = "filename", alias = "file_path")]
     path: Option<String>,
     #[serde(default)]
     glob: Option<String>,
@@ -1435,7 +1444,7 @@ pub struct List;
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ListArgs {
-    #[serde(default)]
+    #[serde(default, alias = "file", alias = "filename", alias = "file_path")]
     path: Option<String>,
     #[serde(default)]
     depth: Option<usize>,

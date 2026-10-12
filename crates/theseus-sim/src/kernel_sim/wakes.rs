@@ -83,6 +83,8 @@ impl World {
                 }
             }
             self.rep.wakes_missed += f.missed;
+            // Taken: the next occurrence is back on the series' grid.
+            self.s2.moved_off_grid.remove(&w.id);
         }
         Ok(())
     }
@@ -134,6 +136,65 @@ impl World {
         }
     }
 
+    /// The turn holding `exec_id` moves one of its pending wakes (the model's
+    /// `wake.move`, theseus-lherl): a one-shot's time, or a series' next
+    /// occurrence alone, or the series' own time. The wake keeps its id, and
+    /// the checks' rules for a taken wake hold of it as before.
+    pub(super) fn move_a_wake(&mut self, exec_id: &str) -> Result<()> {
+        let Some(e) = self.kernel.execution(exec_id)? else {
+            return Ok(());
+        };
+        if e.wakes.is_empty() {
+            return Ok(());
+        }
+        let w = e.wakes[self.rng.random_range(0..e.wakes.len())].clone();
+        let due = self.now() + self.rng.random_range(1_000..120_000);
+        let zone = self.kernel.config().zone.clone();
+        let to = match &w.repeat {
+            Some(r) if self.chance(0.3) => {
+                let moved = Repeat {
+                    first_ms: due,
+                    ..r.clone()
+                };
+                match moved.first(&zone) {
+                    Some(first) => MoveTo {
+                        due_at_ms: first,
+                        repeat: Some(moved),
+                    },
+                    None => return Ok(()),
+                }
+            }
+            Some(r) if r.until_ms.is_some_and(|u| due > u) => return Ok(()),
+            _ => MoveTo {
+                due_at_ms: due,
+                repeat: None,
+            },
+        };
+        let g = self.guards.get(exec_id).unwrap();
+        let moved = self.kernel.move_wake(g, &w.id, to, "sim")?;
+        if let Some(m) = moved {
+            if m.wake.id != w.id || m.wake.note != w.note || m.list.len() != e.wakes.len() {
+                bail!(
+                    "{exec_id}: a moved wake {} changed what it is: {:?}",
+                    w.id,
+                    m.wake
+                );
+            }
+            self.rep.sim2.wakes_moved += 1;
+            // The next occurrence alone leaves the grid; the series' own
+            // move puts it back on a new one.
+            match (&w.repeat, &m.wake.repeat) {
+                (Some(_), Some(now)) if Some(now) == w.repeat.as_ref() => {
+                    self.s2.moved_off_grid.insert(w.id.clone());
+                }
+                _ => {
+                    self.s2.moved_off_grid.remove(&w.id);
+                }
+            }
+        }
+        Ok(())
+    }
+
     /// The operator cancels a pending wake, one-shot or a series.
     pub(super) fn cancel_a_wake(&mut self) -> Result<()> {
         let pending = self.kernel.pending_wakes()?;
@@ -144,6 +205,7 @@ impl World {
         if self.kernel.cancel_wake(&e.id, &w.id, "sim")?.is_some() {
             self.rep.wakes_cancelled += 1;
             self.occurrences.remove(&w.id);
+            self.s2.moved_off_grid.remove(&w.id);
         }
         self.maybe_crash("after cancel_wake")?;
         Ok(())
@@ -180,9 +242,9 @@ impl World {
             }
             for w in &e.wakes {
                 if let Some(r) = &w.repeat {
-                    if w.occurrence == 0
-                        || r.next_after(&zone, w.due_at_ms.saturating_sub(1)) != Some(w.due_at_ms)
-                    {
+                    let on_grid = self.s2.moved_off_grid.contains(&w.id)
+                        || r.next_after(&zone, w.due_at_ms.saturating_sub(1)) == Some(w.due_at_ms);
+                    if w.occurrence == 0 || !on_grid {
                         bail!(
                             "{at}: series {} due at {} (#{}) is not one of its occurrences",
                             w.id,

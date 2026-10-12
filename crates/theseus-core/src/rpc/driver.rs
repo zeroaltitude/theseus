@@ -151,6 +151,8 @@ impl Core {
                             if let Err(e) = self.spool.remove(&path) {
                                 tracing::warn!(error = %e, "spool remove failed");
                             }
+                            // A `job.wait` on it hears (theseus-n8gk).
+                            self.tools.job_waits.settled();
                             n += 1;
                         }
                         Err(e) => {

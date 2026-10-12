@@ -1,0 +1,39 @@
+schema_version = "1.4"
+
+[metadata]
+category = "async"
+description = "Four commits tested in their own worktrees, then the first bad one named. The harness is killed once, mid-task."
+
+[metadata.async]
+family = "kill-bisect"
+layer = 2
+shape = "mixed"
+base = "bisect"
+
+# The driver's kill (bench/async/driver.py, theseus-7ajc): SIGKILL to the harness's own
+# process(es) in this container, `kill` in the ledger first, a settle, then the harness
+# restarted as its documentation says to continue a session. `random`: a time drawn from
+# `seed` in the window (seconds after the agent started); `mid-step`: `delay_s` after the
+# ledger's first `after_kind` of `after_tool`, else `at_s`.
+[metadata.async.injection]
+kind = "kill"
+mode = "random"
+seed = 7104
+window_lo_s = 9.4
+window_hi_s = 28.1
+after_tool = "make-worktree"
+after_kind = "start"
+delay_s = 6.0
+at_s = 56
+settle_s = 2
+
+[verifier]
+timeout_sec = 120.0
+
+[agent]
+timeout_sec = 900.0
+
+[environment]
+build_timeout_sec = 600.0
+cpus = 2
+memory_mb = 2048

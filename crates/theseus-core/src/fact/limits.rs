@@ -91,3 +91,30 @@ impl Fact for DayCeilingReached<'_> {
         say.line(Session, self.text.to_string());
     }
 }
+
+/// `spend.day_warning` (theseus-9e02): the daemon's day ceiling, under notify,
+/// was reached (`level` 1), or a `daily_notice_step_usd` step past it (2, 3,
+/// ...). Written once a level a day with the owner's post when a DM with the
+/// owner is bound; the start reads today's levels back, so a restart warns
+/// of nothing twice. No call was refused.
+pub struct DayCeilingWarned<'a> {
+    pub warning: &'a theseus_kernel::Warning,
+    pub posted: bool,
+    pub text: &'a str,
+}
+
+impl Fact for DayCeilingWarned<'_> {
+    const KIND: Option<LedgerKind> = Some(LedgerKind::SpendDayWarning);
+
+    fn row(&self) -> Value {
+        let w = self.warning;
+        json!({"day": w.day, "level": w.level, "ceiling_usd": micros_to_usd(w.limit),
+               "step_usd": micros_to_usd(w.step), "spent_usd": micros_to_usd(w.spent),
+               "runaway_usd": micros_to_usd(w.runaway), "turns_at": w.turns_at,
+               "posted": self.posted})
+    }
+
+    fn narrate(&self, say: &mut Say<'_>) {
+        say.line(Session, self.text.to_string());
+    }
+}

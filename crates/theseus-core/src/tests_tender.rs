@@ -90,7 +90,9 @@ impl FakeOs {
 }
 
 /// A supervisor of the store at `<state>/store`, with its rows kept, whose
-/// fresh start waits nothing (the wait after serving has its own test).
+/// fresh start waits nothing (the wait after serving has its own test), and
+/// whose every health call asks the tender (the shared read has its own
+/// tests, `tests_status_cache`).
 pub(crate) fn supervisor(
     cfg: IndexConfig,
     state: &Path,
@@ -106,6 +108,17 @@ fn supervisor_waiting(
     os: Arc<FakeOs>,
     wait: Duration,
 ) -> (Arc<IndexTender>, Arc<Mutex<Vec<Value>>>) {
+    supervisor_with(cfg, state, os, wait, Duration::ZERO)
+}
+
+/// The same, whose one status read serves every caller for `every`.
+pub(crate) fn supervisor_with(
+    cfg: IndexConfig,
+    state: &Path,
+    os: Arc<FakeOs>,
+    wait: Duration,
+    every: Duration,
+) -> (Arc<IndexTender>, Arc<Mutex<Vec<Value>>>) {
     let t = Arc::new(
         IndexTender::new(
             cfg,
@@ -113,7 +126,8 @@ fn supervisor_waiting(
             Some(PathBuf::from("/opt/theseus/theseus-index")),
             os,
         )
-        .with_start_after(wait),
+        .with_start_after(wait)
+        .with_status_every(every),
     );
     let rows = Arc::new(Mutex::new(Vec::new()));
     let kept = rows.clone();

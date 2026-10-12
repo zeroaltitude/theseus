@@ -53,11 +53,16 @@ use crate::viewers;
 mod audience;
 mod board;
 pub(crate) use board::accept_buttons;
+mod earned;
+pub(crate) use earned::{buttons as earned_buttons, candidates as earned_candidates};
+pub(crate) use source::source_buttons;
 mod extensions;
 mod guilds;
 mod halt;
 mod jev;
 mod live;
+mod orders;
+mod source;
 pub(crate) use jev::{
     buttons as jev_buttons, labeled_text as jev_labeled_text, notice_text as jev_notice_text,
 };
@@ -70,13 +75,17 @@ mod publish;
 pub(crate) mod route;
 mod show;
 mod succession;
+mod typing;
 #[cfg(test)]
 pub(crate) use succession::open_at_bind;
 #[cfg(test)]
 mod tests_held;
 #[cfg(test)]
 mod tests_succession;
+#[cfg(test)]
+mod tests_why;
 mod voice;
+mod why;
 use publish::PublishAsk;
 
 /// The connection label every Discord call carries; authors refine it per message.
@@ -395,6 +404,8 @@ async fn event_loop(
         | Intents::GUILD_MESSAGES
         | Intents::DIRECT_MESSAGES
         | Intents::MESSAGE_CONTENT
+        | Intents::GUILD_MESSAGE_TYPING
+        | Intents::DIRECT_MESSAGE_TYPING
         | Intents::DIRECT_MESSAGE_REACTIONS
         | Intents::GUILD_MESSAGE_REACTIONS
         | shared.voice.intents();
@@ -472,6 +483,7 @@ async fn event_loop(
                 board.state("resuming", Some(why));
             }
             Event::MessageCreate(m) => shared.clone().on_message(&m.0),
+            Event::TypingStart(t) => shared.on_typing(&t),
             Event::InteractionCreate(i) => {
                 let s = shared.clone();
                 let i = i.0;
@@ -566,6 +578,8 @@ fn commands() -> Vec<twilight_model::application::command::Command> {
     );
     cmds.push(prompt::command());
     cmds.push(extensions::command());
+    cmds.push(why::command());
+    cmds.push(orders::command());
     cmds.extend(voice::commands());
     cmds
 }
@@ -596,7 +610,7 @@ pub(crate) struct Shared {
     retired: Mutex<std::collections::HashSet<String>>,
     voice: voice::Voice,
     /// Each place's guild and ceiling (step 38a).
-    place_bits: guilds::PlaceBits,
+    pub(crate) place_bits: guilds::PlaceBits,
     /// The replies posted, by message, for a reaction to find (theseus-q31l).
     pub(crate) replies: route::Replies,
     /// Each place's ping words, and its window's last pings (theseus-l1y1).
@@ -666,6 +680,8 @@ struct Routes {
     bot_roles: Vec<u64>,
     /// turn id → session id (deltas name only the turn)
     turns: HashMap<String, String>,
+    /// The people told to the core as typing, by channel (theseus-tnky).
+    typist: theseus_protocol::warm::Typist,
 }
 
 /// The place a message or an interaction belongs to (`Routes::resolve`).
@@ -719,6 +735,9 @@ enum PlaceMsg {
     Rebound(Box<live::Rebound>),
     /// The bindings file no longer names this place: its actor ends.
     Unbind,
+    /// Someone is typing here: the core is told, with this session's id
+    /// (theseus-tnky).
+    Typing(DiscordOrigin),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -747,6 +766,10 @@ enum Control {
     Extensions,
     /// Revoke a loaded extension, as the presser.
     Revoke(String, Option<DiscordOrigin>),
+    /// What the last turn was shown, and why (theseus-ighf, `runtime/why.rs`).
+    Why,
+    /// Revoke a standing record, as the presser (theseus-a7vi, `runtime/orders.rs`).
+    Unorder(String, Option<DiscordOrigin>),
     /// "halt self" (theseus-pw1q.2, `runtime/halt.rs`): why, and its author's ids.
     HaltSelf(Option<String>, Option<DiscordOrigin>),
     /// "resume self": its author's ids; the core counts only the owner's.
@@ -1221,25 +1244,22 @@ impl Shared {
         }
         // Who pressed, and where: the ids the core judges an answer by, which
         // only this binding may name (theseus-sgh).
-        let discord = match (&user, channel) {
-            (Some((u, _)), Some(c)) => Some(DiscordOrigin {
-                user_id: u.to_string(),
-                channel_id: c.to_string(),
-                guild_id: i.guild_id.map(|g| g.to_string()),
-            }),
-            _ => None,
-        };
-        // `/extensions` and its Revoke buttons (`runtime/extensions.rs`).
+        let discord = origin_of(user.as_ref().map(|(u, _)| *u), channel, i.guild_id);
+        // `/orders` and `/extensions`, each with its Revoke buttons, then a "Show source" press and
+        // `/why` (`runtime/orders.rs`, `runtime/extensions.rs`): one chain, since `on_interaction` is at
+        // clippy's complexity limit.
         if self
-            .extensions_interaction(&i, &tx, &who, discord.clone())
+            .revokable_interaction(&i, &tx, &who, discord.clone())
             .await
         {
             return;
         }
         match &i.data {
             Some(InteractionData::MessageComponent(c)) => {
-                if let Some(press) = jev::parse(&c.custom_id) {
-                    self.jev_press(&i, press, &who, discord).await;
+                if self
+                    .notice_press(&i, &c.custom_id, &who, discord.clone())
+                    .await
+                {
                     return;
                 }
                 if let Some(asked) = parse_asked_pick(&c.custom_id, &c.values) {
@@ -1531,6 +1551,19 @@ impl Shared {
             self.board.error("interaction response", None, e);
         }
     }
+}
+
+/// Who pressed, and where: the ids the core judges an answer by (theseus-sgh).
+fn origin_of(
+    user: Option<u64>,
+    channel: Option<u64>,
+    guild: Option<Id<GuildMarker>>,
+) -> Option<DiscordOrigin> {
+    Some(DiscordOrigin {
+        user_id: user?.to_string(),
+        channel_id: channel?.to_string(),
+        guild_id: guild.map(|g| g.to_string()),
+    })
 }
 
 /// A message is for Theseus when it @mentions the bot (as a user or through
@@ -1990,6 +2023,7 @@ impl Place {
             PlaceMsg::Board => self.board(),
             PlaceMsg::Rebound(r) => self.rebound(*r),
             PlaceMsg::Unbind => {}
+            PlaceMsg::Typing(origin) => typing::notice(&self.shared.rpc, &self.session_id, origin),
             PlaceMsg::Control { cmd, by, reply } => {
                 let text = self.control(cmd, &by).await;
                 let _ = reply.send(text);
@@ -2055,6 +2089,7 @@ impl Place {
                 .call::<_, TurnSubmitResult>(
                     theseus_protocol::method::TURN_SUBMIT,
                     TurnSubmitParams {
+                        dir: None,
                         carried: false,
                         prompt: None,
                         session_id: Some(sid),
@@ -2198,7 +2233,9 @@ impl Place {
             Control::Trust(origin) => self.trust(origin, by).await,
             Control::Publish(ask) => self.publish(*ask, by).await,
             Control::Extensions => self.extensions().await,
+            Control::Why => self.why().await,
             Control::Revoke(name, origin) => self.revoke(name, origin, by).await,
+            Control::Unorder(id, origin) => self.unorder(id, origin, by).await,
             Control::HaltSelf(why, origin) => self.halt_self(why, origin, by).await,
             Control::ResumeSelf(origin) => self.resume_self(origin, by).await,
             Control::Join(named, origin) => self.join(named, origin, by).await,
@@ -2924,6 +2961,7 @@ pub(crate) mod tests {
             .call(
                 theseus_protocol::method::TURN_SUBMIT,
                 TurnSubmitParams {
+                    dir: None,
                     carried: false,
                     prompt: None,
                     session_id: Some(sid.clone()),

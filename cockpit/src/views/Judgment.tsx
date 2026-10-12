@@ -83,7 +83,7 @@ export default function Judgment() {
     // at 1080 px tall (theseus-hnof). Narrower, one column, and the page scrolls.
     <div className="grid h-full min-h-0 grid-cols-1 content-start gap-3 overflow-auto p-3 xl:grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)] xl:content-stretch">
       <div className="flex min-h-0 flex-col gap-3">
-        <Panel className="shrink-0" title="Judgment" icon={<Scale size={14} />} actions={
+        <Panel help="judgment.main" className="shrink-0" title="Judgment" icon={<Scale size={14} />} actions={
           world
             ? <Pill tone="wait">as of {stamp(world.t)}: {world.judge.calls} calls · {money(world.judge.costMicros)}{world.judge.paused ? ' · paused' : ''}</Pill>
             : h && <Pill tone={h.enabled ? (h.paused ? 'wait' : 'ok') : 'idle'}>{h.enabled ? `breaker ${h.breaker}${(h.breakers ?? []).map((b) => ` · ${b.replace(': ', ' breaker ')}`).join('')} · key ${h.key || '?'}` : 'off'}</Pill>
@@ -124,7 +124,7 @@ export default function Judgment() {
           )}
         </Panel>
 
-        <Panel className="h-[560px] shrink-0 xl:h-auto xl:min-h-[300px] xl:flex-1" bodyClassName="flex flex-col" title="Judgment log" icon={<ListFilter size={14} />} actions={
+        <Panel help="judgment.log" className="h-[560px] shrink-0 xl:h-auto xl:min-h-[300px] xl:flex-1" bodyClassName="flex flex-col" title="Judgment log" icon={<ListFilter size={14} />} actions={
           <Segmented value={since} options={SINCE} onChange={(v) => set('since', v === 'all' ? null : v)} />
         }>
           <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-line px-3 py-1.5 text-[11px] text-ink-faint">
@@ -150,25 +150,25 @@ export default function Judgment() {
       </div>
 
       <div className="flex min-h-0 flex-col gap-3 xl:overflow-auto xl:pr-0.5">
-        <Panel className="shrink-0" title={id ? `Judgment ${short(id)}` : 'One judgment'} icon={<Gavel size={14} />} actions={
+        <Panel help="judgment.one" className="shrink-0" title={id ? `Judgment ${short(id)}` : 'One judgment'} icon={<Gavel size={14} />} actions={
           id && <button className="text-[11px] text-ink-faint hover:text-live" onClick={() => set('id', null)}>close</button>
         }>
           {id ? <Detail id={id} /> : <Empty>pick a judgment in the log for its state and answers</Empty>}
         </Panel>
 
         {h?.enabled && !world && <Notices state={h.notices} onSession={(s) => nav(`/session/${s}?tab=timeline`)} />}
-        <Panel className="shrink-0" title="Ladder" icon={<TrendingUp size={14} />}>
+        <Panel help="judgment.ladder" className="shrink-0" title="Ladder" icon={<TrendingUp size={14} />}>
           <PackLadder readOnly={!!world} />
         </Panel>
 
-        <Panel className="shrink-0" title="Corrections" icon={<Undo2 size={14} />} bodyClassName="max-h-[300px] overflow-auto">
+        <Panel help="judgment.corrections" className="shrink-0" title="Corrections" icon={<Undo2 size={14} />} bodyClassName="max-h-[300px] overflow-auto">
           <Corrections />
         </Panel>
-        <Panel className="shrink-0" title="Versions" icon={<GitCompare size={14} />} bodyClassName="max-h-[360px] overflow-auto">
+        <Panel help="judgment.versions" className="shrink-0" title="Versions" icon={<GitCompare size={14} />} bodyClassName="max-h-[360px] overflow-auto">
           <PackVersions readOnly={!!world} />
         </Panel>
 
-        <Panel className="shrink-0" title="Learning" icon={<GraduationCap size={14} />} actions={
+        <Panel help="judgment.learning" className="shrink-0" title="Learning" icon={<GraduationCap size={14} />} actions={
           <button className="text-[11px] text-ink-faint hover:text-live" onClick={() => set('report', params.get('report') ? null : localDay(new Date()))}>
             {params.get('report') ? 'hide' : 'show the report'}
           </button>
@@ -185,7 +185,7 @@ function Notices({ state, onSession }: { state: string; onSession: (s: string) =
   const { data } = useRpc<{ rows: LedgerEntry[] }>('ledger.tail', { n: 200, kind: 'tool.notified', session_id: null }, 6000)
   const rows = useMemo(() => (data?.rows ?? []).filter((r) => (r.data as D)?.by === 'judge').reverse().slice(0, 20), [data])
   return (
-    <Panel className="shrink-0" title="Notices" icon={<BellRing size={14} />} actions={
+    <Panel help="judgment.notices" className="shrink-0" title="Notices" icon={<BellRing size={14} />} actions={
       <Pill tone={state === 'on' ? 'live' : state.startsWith('paused') ? 'wait' : 'idle'} title="security.v3's notices after an open call it is sure was risky">{state || 'not reported'}</Pill>
     }>
       {!rows.length ? <Empty>no notice yet</Empty> : rows.map((r) => {

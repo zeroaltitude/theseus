@@ -29,7 +29,7 @@ use crate::session::SessionRecord;
 use crate::Core;
 
 /// A message's text at most, in tokens, before it is cut.
-const MESSAGE_MAX: u64 = 1_500;
+pub(super) const MESSAGE_MAX: u64 = 1_500;
 
 /// One session's messages, a page of them: what `session` asks.
 pub(super) async fn session(
@@ -128,12 +128,21 @@ pub(super) async fn session(
 /// what it leaves out, said: tool calls and results, and an imported message
 /// of outside text.
 fn readable<'n>(nodes: &'n [(u64, Node)], when: Option<&When>) -> (Vec<&'n Node>, Option<String>) {
+    let (messages, left) = readable_at(nodes, when);
+    (messages.into_iter().map(|(_, n)| n).collect(), left)
+}
+
+/// `readable`, each message with its WAL position (the MCP tools cite it).
+pub(super) fn readable_at<'n>(
+    nodes: &'n [(u64, Node)],
+    when: Option<&When>,
+) -> (Vec<(u64, &'n Node)>, Option<String>) {
     let (mut calls, mut outside) = (0u64, 0u64);
     let messages = nodes
         .iter()
-        .map(|(_, n)| n)
-        .filter(|n| when.is_none_or(|w| w.holds(n.created_at_ms)))
-        .filter(|n| match &n.body {
+        .map(|(p, n)| (*p, n))
+        .filter(|(_, n)| when.is_none_or(|w| w.holds(n.created_at_ms)))
+        .filter(|(_, n)| match &n.body {
             Body::UserMessage { .. } | Body::AssistantMessage { .. } => true,
             Body::Imported { integrity, .. } => {
                 let out = *integrity == crate::import::Integrity::Outside;
@@ -146,7 +155,7 @@ fn readable<'n>(nodes: &'n [(u64, Node)], when: Option<&When>) -> (Vec<&'n Node>
             }
             _ => false,
         })
-        .filter(|n| !crate::recall::text_of(n).trim().is_empty())
+        .filter(|(_, n)| !crate::recall::text_of(n).trim().is_empty())
         .collect();
     let mut left = Vec::new();
     if calls > 0 {
@@ -240,24 +249,25 @@ pub(super) async fn own_sessions(core: &Arc<Core>, span: &When) -> Result<Vec<It
             sensitivity: None,
             book: None,
             text: r.title.unwrap_or_default(),
+            ..Item::default()
         })
         .collect())
 }
 
 /// A time as a page says it: `2026-03-14 09:30`, in the daemon's zone.
-fn moment(ms: u64) -> String {
+pub(super) fn moment(ms: u64) -> String {
     let off = crate::wake::local(ms).offset_secs;
     let secs = (ms / 1000) as i64 + off;
     let (h, m) = (secs.rem_euclid(86_400) / 3600, secs.rem_euclid(3600) / 60);
     format!("{} {h:02}:{m:02}", day(ms))
 }
 
-fn one_line(s: &str) -> String {
+pub(super) fn one_line(s: &str) -> String {
     s.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
 /// `s` cut to `max` bytes at a char's edge, saying how much more it held.
-fn clipped(s: &str, max: usize) -> String {
+pub(super) fn clipped(s: &str, max: usize) -> String {
     if s.len() <= max {
         return s.to_string();
     }

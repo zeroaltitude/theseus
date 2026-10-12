@@ -18,7 +18,7 @@ export function ShipFallback({ reason }: { reason: string }) {
   const webgl = isWebGLFailure(reason)
   return (
     <div data-ship-fallback={webgl ? 'webgl' : 'error'} className="h-full overflow-auto p-6">
-      <Panel title={webgl ? 'The Ship needs WebGL' : 'The Ship stopped'} icon={<TriangleAlert size={13} className="text-wait" />}
+      <Panel help={false} title={webgl ? 'The Ship needs WebGL' : 'The Ship stopped'} icon={<TriangleAlert size={13} className="text-wait" />}
         className="mx-auto max-w-[760px]" bodyClassName="space-y-3 p-5 text-[13px] leading-relaxed text-ink-dim">
         {webgl ? (
           <>

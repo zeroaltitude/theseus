@@ -39,6 +39,7 @@ pub const ACTING: &[(&str, &str, &[&str])] = &[
             "sophisticated",
             "deep_coding",
             "routine_coding",
+            "review",
         ],
     ),
 ];

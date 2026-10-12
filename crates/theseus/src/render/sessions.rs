@@ -48,3 +48,33 @@ pub(super) fn name_column(s: &SessionInfo) -> String {
         .map(|_| crate::names::of(s))
         .unwrap_or_default()
 }
+
+/// `theseus sessions nudge`'s answer (theseus-fh0u).
+pub fn nudge_line(r: &theseus_protocol::nudge::SessionNudgeResult) -> String {
+    let daemon = match r.daemon_on {
+        true => "",
+        false => " (the daemon's is off: [judge] stop_nudge, or the judge itself)",
+    };
+    let on = if r.on { "on" } else { "off" };
+    format!(
+        "{}: the stop nudge is {on} for this session{daemon}",
+        r.session_id
+    )
+}
+
+/// What ends a page of `theseus sessions` or `theseus executions` while older
+/// ones remain: the command for the next page, and for the whole list.
+pub fn page_footer(noun: &str, older: Option<u64>) -> Vec<super::Line> {
+    let Some(p) = older else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    super::push(
+        &mut out,
+        super::Tag::Dim,
+        &format!(
+            "── older {noun} before cursor {p}: theseus {noun} --before {p}  (--all lists every one)"
+        ),
+    );
+    out
+}

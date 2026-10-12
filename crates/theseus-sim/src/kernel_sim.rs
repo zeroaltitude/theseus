@@ -88,6 +88,7 @@ use theseus_kernel::*;
 use theseus_store::{Store, WalConfig, WalStore};
 
 mod counts;
+mod held;
 mod outbox;
 mod queues;
 mod stops;
@@ -352,6 +353,9 @@ fn cfg(p: &SimParams, spend_limit_micros: Micros) -> KernelConfig {
         zone: theseus_kernel::TimeZone::UTC,
         // The day ceiling's default: far above what a run spends.
         daily_ceiling_micros: theseus_kernel::day_ceiling::DEFAULT_CEILING_MICROS,
+        spend_hard_multiple: theseus_kernel::default_hard_multiple(),
+        // The stop mode, no burn-rate line: the run's spends are small.
+        ..KernelConfig::default()
     }
 }
 
@@ -755,7 +759,11 @@ impl World {
             return self.race_a_turn(&exec_id);
         }
         let admitted = if by_input {
-            self.kernel.admit_input(&exec_id)
+            // Held first half the time (theseus-2uby, `held.rs`).
+            match self.admit_by_input(&exec_id)? {
+                Some(g) => Ok(g),
+                None => return Ok(()),
+            }
         } else {
             self.kernel.admit(&exec_id)
         };
@@ -797,6 +805,13 @@ impl World {
         if self.chance(0.5) {
             self.set_a_wake(&exec_id)?;
             if self.maybe_crash("after set_wake")? {
+                return Ok(());
+            }
+        }
+        // A turn moves one of its wakes now and then (theseus-lherl).
+        if self.chance(0.2) {
+            self.move_a_wake(&exec_id)?;
+            if self.maybe_crash("after move_wake")? {
                 return Ok(());
             }
         }

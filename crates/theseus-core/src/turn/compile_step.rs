@@ -29,6 +29,10 @@ impl TurnRunner {
             None => None,
         };
         let (nodes, sources) = self.recall_view(t, nodes);
+        // A big old attachment is a stub at a cold rewrite, and in the warm
+        // window after it (theseus-ezeg): decided at the turn's first compile.
+        let cold = (i == 0).then(|| self.cold_now(sid, session, spec));
+        let (nodes, stubbed) = self.stubbed_view(sid, &spec.model, &session.not_shown, nodes, cold);
         let read_before = crate::stub::read(&nodes);
         let assembled = t.recall.assembled_id().map(str::to_string);
         let given = self.situation_of(t, &nodes, current.is_none(), session);
@@ -40,7 +44,8 @@ impl TurnRunner {
             spec,
             catalog: &self.catalog,
             force,
-            window_override: None,
+            // `[context] working_window_tokens` lowers the window (theseus-3ki0).
+            window_override: self.working_window(spec),
             blobs: Some(self.store.blobs()),
             hidden: &session.not_shown,
             strip,
@@ -57,9 +62,22 @@ impl TurnRunner {
         // with nothing left to drop, the turn fails before any call.
         let mut compiled = Box::pin(self.compact(t, compile(input), input, i)).await?;
         Self::recall_compiled(t, &mut compiled);
+        // A clearing pass (theseus-3ki0): one row a pass.
+        if let Some(pass) = compiled.cleared {
+            t.record(&fact::compaction::Cleared {
+                compilation_id: &compiled.compilation.id,
+                pass,
+                limit: compiled.budget.limit_tokens,
+                loop_index: i,
+            });
+        }
+        Self::standing_listed(t, &mut compiled);
         // A check sees the task it checks by title and state (theseus-w8ys).
         let tasks =
             crate::task_graph::view::attach(&self.store, &self.kernel, session, &mut compiled);
+        // The wakes this conversation has pending, in the same last block
+        // (theseus-lherl): from the turn's list, never a read of its own.
+        crate::commitments::attach(t.tc.commitments, self.kernel.now_ms(), &mut compiled);
         if let Some(f) = Self::overage(t, &compiled, i) {
             return Ok(Err(f));
         }
@@ -72,7 +90,9 @@ impl TurnRunner {
             Self::persist_compilation(t.tc.store, &compiled, session, t.tc.turn_id)?;
         }
         let c1 = t.trace.now_us();
-        let summary = Self::compiled_summary(t, &compiled, spec, (&nodes, read_before, i), tasks);
+        let mut summary =
+            Self::compiled_summary(t, &compiled, spec, (&nodes, read_before, i), tasks);
+        summary.cache.stubbed = stubbed;
         // While routing decides, the rows wait for the compile the call uses
         // (`route_step`, theseus-d13v): one `context.compiled` and one
         // `loop.started` a loop, each naming a stored compilation.
@@ -82,6 +102,13 @@ impl TurnRunner {
         }
         self.compiled_rows(t, &summary, &compiled, spec, (c0, c1), i);
         Ok(Ok(compiled))
+    }
+
+    /// The window a request on `spec`'s model compiles against, when
+    /// `[context] working_window_tokens` lowers the catalog's.
+    pub(crate) fn working_window(&self, spec: &RequestSpec) -> Option<u64> {
+        let model = self.catalog.get(&spec.model).map(|e| e.context_window);
+        self.cfg.context.working_window(model)
     }
 
     /// The loop's compile, recorded: its `context.compiled` row, the judge's
@@ -166,6 +193,7 @@ impl TurnRunner {
                     .collect(),
                 ttl: spec.cache_ttl.as_str().into(),
                 conversation_ttl: spec.conversation_ttl.min(spec.cache_ttl).as_str().into(),
+                stubbed: Vec::new(),
             },
             // The class of the place it speaks in, and the context files
             // that class left out (the place rule).

@@ -61,7 +61,7 @@ questions, and the other tools answer them softly, or not at all:
 | **What exactly did it do, and why?** After an hour of autonomous work, the reasons, tool calls, retries, and costs are scattered across logs, when they are kept at all. | Every turn, call, approval, and dollar goes into an append-only ledger, and every prompt has a manifest of what went into it. |
 | **What happens when something breaks mid-task?** Is the work lost? Is it done twice? | Every action is written to disk before it is attempted, and its result when it settles. Kill it at any moment, and it picks up exactly where it was. |
 | **How do I stay in control without babysitting it?** | Each tool runs open, with a notice, or after your approval, as you choose, and an approval is bound to the exact command. Work that needs nothing from outside runs in a sandbox. |
-| **What did that cost?** Usually you find out from the monthly bill. | Money is a gate: every model call reserves its worst case before it runs, and at the limit Theseus stops and asks you. |
+| **What did that cost?** Usually you find out from the monthly bill. | Money is a gate: every model call reserves its worst case before it runs; the limits warn you, a runaway stops, and AWS spend stops at its lines. |
 | **What was the model actually shown** when it made that choice? | Context is compiled, and the manifest names every node, file, and summary that went in, and why. |
 | **Why is it so slow,** and why does it get slower as it does more? | Speed has written budgets, and every commit's test gate fails the commit if one slips. |
 
@@ -207,7 +207,7 @@ These hold whether or not the model behaves:
 
 | | Promise | What it means |
 |---|---|---|
-| 💵 | **Money is a gate, not a report.** | Every model call reserves its worst-case cost against the session's budget before it runs. At the limit, Theseus stops and asks you, and only you can reset it. |
+| 💵 | **Money is a gate, not a report.** | Every model call reserves its worst-case cost against the session's budget before it runs. The session's limit and the day's ceiling warn you and the work goes on; a runaway stops it (the day at $2,000, a session at $200 in ten minutes) until you say so, and AWS spend still stops at its own lines. |
 | 🌐 | **Reading the web stops the hands.** | Once a session has read text from the internet, anything it does next that acts on the world waits for your approval, until you say you trust it again. A web page can't talk your agent into deleting your files. |
 | 💾 | **Nothing is ever lost or done twice.** | Every action is written to disk before it is attempted, and its result when it settles, the way a bank treats a payment. Kill Theseus at any moment, and it picks up exactly where it was. A stop is verified: a job that ignores the stop signal still ends, and nothing is left running. |
 | 🧪 | **Memory has to pass an exam before it ships.** | Theseus has a memory exam with held-out questions, and each part of recall goes live only where it measurably helps. |

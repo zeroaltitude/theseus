@@ -72,11 +72,19 @@ pub(crate) fn judge_config(state: &Path, jev: Option<&FakeJev>) -> Config {
     cfg.server.state_dir = state.to_string_lossy().into_owned();
     cfg.tools.roots = vec![];
     if let Some(j) = jev {
+        // These tests count Jev's calls: recall (on by default) brings its
+        // own rerank and memory-pass judgments (theseus-is8t).
+        cfg.memory.mode = crate::config::MemoryMode::Off;
         cfg.judge.enabled = true;
         cfg.judge.api_base = j.base();
         cfg.judge.connect_secs = 1;
         cfg.judge.total_secs = 1;
     }
+    // loop.v1 in shadow, judged after the turn: the judge's own machinery
+    // (the sink, the budget, the ladder, the learning loop) is tested on it
+    // here. Its live use at a turn's stop, the default, is
+    // `tests_stop_nudge`'s (theseus-fh0u).
+    cfg.judge.stop_nudge = false;
     cfg
 }
 
@@ -276,7 +284,7 @@ async fn a_turn_that_ends_with_no_tool_calls_is_judged_once_in_shadow() {
             "security.v3: live (owner: decision of 2026-10-04)",
             "classify.v1: off",
             "role.v1: off",
-            "route.v3: off (the config's ceiling; on the ladder: live (owner: decision of 2026-10-07))",
+            "route.v4: off (the config's ceiling; on the ladder: live (owner: decision of 2026-10-11))",
             "continue.v1: shadow",
             "categorize.v1: shadow",
             "rerank.v1: live (owner: decision of 2026-10-04)",
@@ -304,7 +312,7 @@ async fn a_judged_turn_keeps_its_frame_budget() {
     let res = turn(&r.core, Some(&first.session_id), "hi").await;
     let frames = r.core.store.stats().unwrap().frames_appended - before;
     assert_eq!(res.loops, 1);
-    assert!(frames <= 5, "a judged plain turn wrote {frames} frames");
+    assert!(frames <= 4, "a judged plain turn wrote {frames} frames");
     until_judged(&r.core.store, 2).await;
 }
 
@@ -467,7 +475,7 @@ async fn an_off_judge_or_pack_calls_nothing() {
             "security.v3: live (owner: decision of 2026-10-04)",
             "classify.v1: off",
             "role.v1: off",
-            "route.v3: off (the config's ceiling; on the ladder: live (owner: decision of 2026-10-07))",
+            "route.v4: off (the config's ceiling; on the ladder: live (owner: decision of 2026-10-11))",
             "continue.v1: shadow",
             "categorize.v1: shadow",
             "rerank.v1: live (owner: decision of 2026-10-04)",

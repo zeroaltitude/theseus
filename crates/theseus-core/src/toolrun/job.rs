@@ -25,6 +25,7 @@ use crate::policy::Posture;
 use crate::provider::ToolUse;
 use crate::sandbox;
 use crate::store::Store;
+use crate::turn::admission::LEND_AFTER;
 
 const MAX_RESULT_READ: usize = 4 * 1024 * 1024;
 
@@ -46,7 +47,7 @@ pub(super) struct Tail {
     /// The file's whole length.
     pub total: u64,
     /// The bytes before what was read.
-    unread: u64,
+    pub unread: u64,
 }
 
 /// What the turn's look at its job needs (7.1).
@@ -77,6 +78,10 @@ impl Look<'_> {
         }
         if let Some(steps) = self.steps {
             r.text = format!("{}{}{}", self.before, r.text, self.after);
+            if let Some(k) = r.kept.as_mut() {
+                k.from_end += self.after.len();
+                k.after += self.after.len();
+            }
             if let Some(m) = r.meta.as_object_mut() {
                 m.insert("steps".into(), steps.clone());
             }
@@ -132,7 +137,7 @@ pub(super) fn read_result_file(path: Option<&str>) -> Tail {
 }
 
 /// `read_result_file` over any reader that seeks.
-fn read_tail<R: Read + Seek>(r: &mut R, max: u64) -> std::io::Result<Tail> {
+pub(super) fn read_tail<R: Read + Seek>(r: &mut R, max: u64) -> std::io::Result<Tail> {
     let total = r.seek(SeekFrom::End(0))?;
     let mut unread = total.saturating_sub(max);
     r.seek(SeekFrom::Start(unread))?;
@@ -165,7 +170,7 @@ impl ToolRuntime {
         ran_at: Posture,
         class: &sandbox::Bound,
     ) -> Result<CallOutcome> {
-        let specs: Vec<JobSpec> = match tool.jobs(&call.input, &self.ctx) {
+        let specs: Vec<JobSpec> = match tool.jobs(&call.input, &self.ctx_in(tc)) {
             Ok(s) => s,
             Err(e) => return self.settle_job_failure(tc, correlation_id, tool.name(), call, &e),
         };
@@ -196,7 +201,12 @@ impl ToolRuntime {
                 specs.len()
             ));
         };
-        let bound = Duration::from_secs(self.proc_sync_secs.min(spec.timeout_secs + 5));
+        // `background: true` (theseus-n8gk): no wait, the handle at once.
+        let background = call.input.get("background").and_then(Value::as_bool) == Some(true);
+        let bound = match background {
+            true => Duration::ZERO,
+            false => Duration::from_secs(self.proc_sync_secs.min(spec.timeout_secs + 5)),
+        };
         // The turn waits on its job from before the launch, so the drain
         // leaves the job's completion to it, and wakes it (7.1).
         let waiting = self.job_waits.wait(correlation_id);
@@ -217,28 +227,34 @@ impl ToolRuntime {
             after: "",
             steps: None,
         };
-        loop {
-            if let Some(status) = self.look_at_job(tc, &look)? {
+        if !background {
+            if let Some(status) = self.wait_in_turn(tc, &look, &waiting, bound, t0).await? {
                 return Ok(CallOutcome::Done { status });
             }
-            let left = bound.saturating_sub(t0.elapsed());
-            if left.is_zero() {
-                break;
-            }
-            // The drain's word, a stop's, or the backstop's look (7.1).
-            waiting.woken(left.min(super::waits::LOOK)).await;
         }
         // Past its bound the job goes on in the background, and its
         // completion is the drain's to take: one the drain left to this turn
         // as the wait ended is taken here.
         drop(waiting);
-        if let Some(status) = self.look_at_job(tc, &look)? {
-            return Ok(CallOutcome::Done { status });
+        if !background {
+            if let Some(status) = self.look_at_job(tc, &look)? {
+                return Ok(CallOutcome::Done { status });
+            }
         }
-        let mut text = format!(
-            "Still running as background job {correlation_id} after {} seconds (timeout {} seconds). Its result will arrive in a later message; you can keep working or tell the operator you are waiting.",
-            self.proc_sync_secs, spec.timeout_secs
-        );
+        // Its handle (theseus-n8gk): a short id in its session, which the job
+        // tools take, named in the placeholder's meta.
+        let name = self
+            .jobs
+            .handles
+            .assign(tc.store, tc.session_id, correlation_id, &spec.argv);
+        let mut text = match background {
+            true => super::jobs_tools::started(&name, spec, &spool.result_path(correlation_id)),
+            false => format!(
+                "Still running as job {name} after {} s (timeout {} s). job_read, job_wait or \
+                 job_stop it; its result also arrives by itself when it ends.",
+                self.proc_sync_secs, spec.timeout_secs
+            ),
+        };
         if let Some(n) = &note {
             text.push_str(&format!("\n{n}"));
         }
@@ -246,13 +262,51 @@ impl ToolRuntime {
             tc,
             ResultNode {
                 correlation_id: Some(correlation_id),
-                meta: json!({"pid": pid}),
+                meta: json!({"pid": pid, super::handles::KEY: name}),
                 ..ResultNode::new(&call.id, tool.name(), ResultStatus::Background, text)
             },
         )?;
         Ok(CallOutcome::Background {
             correlation_id: correlation_id.into(),
         })
+    }
+
+    /// The turn's own wait on its job (7.1), up to `bound`: its result, or
+    /// `None` once the bound passes and the job goes on in the background.
+    /// Past `LEND_AFTER` the turn waits on its job alone, and its admission
+    /// slot goes to the next waiting turn; it takes one again, at its class's
+    /// head, before it goes on (theseus-4g0l).
+    async fn wait_in_turn(
+        &self,
+        tc: &TurnCtx<'_>,
+        look: &Look<'_>,
+        waiting: &super::waits::Waiting,
+        bound: Duration,
+        t0: Instant,
+    ) -> Result<Option<ResultStatus>> {
+        let exec = &tc.guard.execution_id;
+        let mut lend_tried = false;
+        let done = loop {
+            if let Some(status) = self.look_at_job(tc, look)? {
+                break Some(status);
+            }
+            let left = bound.saturating_sub(t0.elapsed());
+            if left.is_zero() {
+                break None;
+            }
+            let lend_in = LEND_AFTER.saturating_sub(t0.elapsed());
+            if !lend_tried && lend_in.is_zero() {
+                lend_tried = true;
+                self.admission.lend(exec);
+            }
+            let nap = left.min(super::waits::LOOK);
+            // The drain's word, a stop's, or the backstop's look (7.1).
+            waiting
+                .woken(if lend_tried { nap } else { nap.min(lend_in) })
+                .await;
+        };
+        self.admission.retake(exec).await;
+        Ok(done)
     }
 
     /// One job's launch through the wrapper, with its `tool.job_started`
@@ -756,7 +810,10 @@ impl ToolRuntime {
                 "[outcome unknown: the harness could not establish whether this finished]\n"
                     .to_string()
             }
-            (_, Some(c), _) => format!("[exit code {c}]\n"),
+            (_, Some(c), _) => format!(
+                "[exit code {c}{}]\n",
+                self.ran_in(tool, input, (store, &a.session_id))
+            ),
             // Its command never started: why, never an empty result
             // (theseus-f7tz).
             _ => super::not_started::line(&detail, self.registry.get(crate::term::SEND).is_some())
@@ -879,6 +936,13 @@ impl ToolRuntime {
                 .as_ref()
                 .map_or_else(String::new, crate::external::Listed::line)
         );
+        // Where its output is, kept whole should the cap cut it (theseus-v73m).
+        let kept = (!out.is_empty()).then(|| super::kept::Source {
+            raw: self.raw_output(a),
+            unread,
+            from_end: out.len(),
+            after: 0,
+        });
         let raw = if out.is_empty() && detail.get("spawn_error").is_some() {
             header
         } else if out.is_empty() {
@@ -899,6 +963,7 @@ impl ToolRuntime {
             external: egress.or_else(|| listed.as_ref().map(crate::external::Listed::marker)),
             meta,
             hint: self.native_hint(input),
+            kept,
             ..ResultNode::new(tool_use_id, tool, status, raw)
         }
     }
@@ -925,7 +990,7 @@ impl ToolRuntime {
     /// job killed before its completion (a stop, a cancel), the spool's file
     /// for its id, when there is one (theseus-ewev). A stopped job's result
     /// reads it too, so it shows what the job printed before the stop.
-    fn raw_output(&self, a: &Action) -> Option<String> {
+    pub(super) fn raw_output(&self, a: &Action) -> Option<String> {
         a.result_ref.clone().or_else(|| {
             let path = self.spool.as_ref()?.result_path(&a.correlation_id);
             path.exists().then(|| path.to_string_lossy().into_owned())

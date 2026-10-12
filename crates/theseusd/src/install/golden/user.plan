@@ -32,6 +32,14 @@ theseusd install --user: the plan. Nothing is changed: --apply performs it.
                  | # The unit's cgroup is the daemon's own: each L0 job gets a cgroup of its
                  | # own inside it, with a process cap and an exact stop.
                  | Delegate=yes
+                 | # Open files (theseus-7vtp): systemd's soft limit of 1,024 ended the daemon at
+                 | # about a thousand connections. The daemon raises its own soft limit to this
+                 | # at start and holds its connections to a ceiling under it.
+                 | LimitNOFILE=65536
+                 | # The tasks the unit may hold: the daemon's threads and children (under 2,000),
+                 | # and the admission ceiling's 8 executions at a job's cap of 4,096 each, with
+                 | # room above, so a fork bomb in one job meets its own cap first.
+                 | TasksMax=49152
                  |
                  | [Install]
                  | WantedBy=default.target

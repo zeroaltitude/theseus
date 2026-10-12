@@ -959,9 +959,11 @@ async fn check(source: &str, cfg: &Config, secrets: &Arc<SecretBoard>, state: &P
         .map(|w| format!("{w}; the vault is the recommended source\n"))
         .unwrap_or_default();
     out(&format!(
-        "ok: config loaded from {source}; {}\n{outside}{}\nL1: the self-test {}\n{}\n",
+        "ok: config loaded from {source}; {}\n{outside}{}\n{}\nL1: the self-test {}\n{}\n",
         resolved_words(&st),
         kept.line(),
+        // Which killer features are on, and why the judge is off if it is.
+        theseus_core::features::of(cfg, None).line,
         theseus_protocol::sandbox::launch_words(&l1),
         theseus_store::pressure::words(state)
     ))
@@ -989,9 +991,11 @@ fn warm_after_serving(core: &Arc<Core>) {
     // The ontology's snapshot, by one META prefix scan (theseus-8kk.1): a
     // compile reads it from memory.
     core.warm_ontology();
+    core.warm_standing();
     // The daemon's memory (theseus-9lxe): a trim after work and a quiet
     // stretch, and the import's catalog dropped after an idle one.
     core.tend_memory_after_serving();
+    core.tend_keep_warm_after_serving();
     // Recall's labels (M6 30b), by one scan of their scope, so a turn's
     // recall reads them from memory.
     core.warm_labels();
@@ -1057,6 +1061,8 @@ async fn after_serving(
     // minutes of this start, and nothing with the judge off.
     core.learn_after_serving();
     core.consolidate_after_serving();
+    // The weekly earned-autonomy card (theseus-uttu), at the same hour.
+    core.earned_after_serving();
     // People's nightly sweep (theseus-j8qb), at the same hour.
     core.people_sweep_after_serving();
     if let Some(text) = keep {
@@ -1188,6 +1194,58 @@ impl Signals {
     }
 }
 
+/// The soft open-files limit toward the hard one (at most 65,536), and the connection ceiling
+/// under it (theseus-7vtp).
+fn raise_limits(core: &Core) {
+    let ((soft, hard), now) = theseus_core::conns::raise_nofile();
+    let ceiling = theseus_core::conns::ceiling_for(core.cfg.server.max_connections, now);
+    core.conns.set(ceiling, now, hard);
+    tracing::info!(
+        soft_before = soft,
+        soft = now,
+        hard,
+        ceiling,
+        "open files limit; connection ceiling"
+    );
+}
+
+/// A debug build's plant, `THESEUS_TEST_ACCEPT_ERRORS=N`: each of the first
+/// N accepts fails as a full descriptor table does.
+#[cfg(debug_assertions)]
+fn planted_accept_error(left: &std::sync::atomic::AtomicU64) -> Option<std::io::Error> {
+    use std::sync::atomic::Ordering::Relaxed;
+    left.fetch_update(Relaxed, Relaxed, |n| n.checked_sub(1))
+        .ok()
+        .map(|_| std::io::Error::from_raw_os_error(libc::EMFILE))
+}
+
+/// Serve one accepted client on its own task, its place under the ceiling
+/// held until it ends.
+fn serve_client(
+    core: &Arc<Core>,
+    stream: tokio::net::UnixStream,
+    held: theseus_core::conns::Held,
+    conn_id: u64,
+) {
+    // Who connected, for the log: the peer's pid, as the socket says it
+    // (`SO_PEERCRED`).
+    let pid = stream.peer_cred().ok().and_then(|c| c.pid());
+    let (r, w) = stream.into_split();
+    let core = core.clone();
+    let client = format!("sock#{conn_id}");
+    tracing::info!(client = %client, pid = ?pid, "client connected");
+    tokio::spawn(async move {
+        let _held = held;
+        // The socket is mode 0600: whoever connects is the CLI.
+        let cli = Client::new(client.clone(), Surface::Cli);
+        if let Err(e) = core.serve_connection(r, w, cli).await {
+            tracing::warn!(client = %client, error = %e, "connection ended with error");
+        } else {
+            tracing::info!(client = %client, "client disconnected");
+        }
+    });
+}
+
 /// Serve the protocol socket; `after_bind` starts once the socket answers.
 #[expect(clippy::cognitive_complexity, reason = "shape budget: split it")]
 async fn serve_socket(
@@ -1222,6 +1280,16 @@ async fn serve_socket(
     tracing::info!(socket = %path.display(), secrets = %core.secrets.status().summary(), "serving protocol; localhost only, file permissions are the auth");
     tokio::spawn(after_bind);
 
+    raise_limits(&core);
+    let accept_errors = theseus_core::conns::AcceptErrors::new("socket");
+    #[cfg(debug_assertions)]
+    let planted = std::sync::atomic::AtomicU64::new(
+        std::env::var("THESEUS_TEST_ACCEPT_ERRORS")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(0),
+    );
+
     let mut conn_id: u64 = 0;
     // Registered once, before the loop: `notify_waiters` wakes only the
     // waiters registered when it is called, so a stop that lands while the
@@ -1240,25 +1308,24 @@ async fn serve_socket(
     } = signals;
     loop {
         tokio::select! {
-            accepted = listener.accept() => {
-                let (stream, _) = accepted?;
-                conn_id += 1;
-                // Who connected, for the log: the peer's pid, as the socket
-                // says it (`SO_PEERCRED`).
-                let pid = stream.peer_cred().ok().and_then(|c| c.pid());
-                let (r, w) = stream.into_split();
-                let core = core.clone();
-                let client = format!("sock#{conn_id}");
-                tracing::info!(client = %client, pid = ?pid, "client connected");
-                tokio::spawn(async move {
-                    // The socket is mode 0600: whoever connects is the CLI.
-                    let cli = Client::new(client.clone(), Surface::Cli);
-                    if let Err(e) = core.serve_connection(r, w, cli).await {
-                        tracing::warn!(client = %client, error = %e, "connection ended with error");
-                    } else {
-                        tracing::info!(client = %client, "client disconnected");
+            (stream, _) = theseus_core::conns::accept_until_ok(&accept_errors, || async {
+                // A debug build's plant: its first N accepts fail as a full table does.
+                #[cfg(debug_assertions)]
+                if let Some(e) = planted_accept_error(&planted) {
+                    return Err(e);
+                }
+                listener.accept().await
+            }) => {
+                let held = match core.conns.admit() {
+                    Ok(held) => held,
+                    Err(ceiling) => {
+                        tracing::debug!(ceiling, "connection refused at the ceiling");
+                        theseus_core::conns::turn_away(stream, ceiling);
+                        continue;
                     }
-                });
+                };
+                conn_id += 1;
+                serve_client(&core, stream, held, conn_id);
             }
             _ = &mut stop => {
                 tracing::info!("shutdown requested over protocol");

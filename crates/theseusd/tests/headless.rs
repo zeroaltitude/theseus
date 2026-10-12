@@ -71,7 +71,9 @@ fn spawn_cli(dir: &Path, args: &[&str]) -> Command {
 fn spawn_bare(dir: &Path) -> Command {
     let theseusd = PathBuf::from(env!("CARGO_BIN_EXE_theseusd"));
     let mut c = Command::new(theseusd.with_file_name("theseus"));
-    c.arg("--spawn")
+    // Run where the operator works: the session's directory (theseus-aab7).
+    c.current_dir(dir.join("projects"))
+        .arg("--spawn")
         .arg(&theseusd)
         .env("THESEUS_CONFIG", dir.join("config.toml"))
         .env("THESEUS_STATE_DIR", dir.join("state"))
@@ -274,6 +276,9 @@ fn a_turn_past_a_limit_and_a_cap_that_notify_goes_on_and_exits_0() {
     let model = FakeModel::start(reads_notes);
     let dir = rig(&model, |t| {
         set(t, &["kernel", "spend_limit_usd"], 0.002.into());
+        // A call reserves past ten times this limit: the hard stop is off, so
+        // what is shown is the limit's notice alone (theseus-jse4).
+        set(t, &["kernel", "spend_limit_hard_multiple"], 0.into());
         set(t, &["model", "max_loops"], 1.into());
         set(t, &["profiles", "sonnet", "max_loops"], 1.into());
     });

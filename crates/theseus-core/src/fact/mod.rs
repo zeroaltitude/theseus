@@ -62,10 +62,12 @@ pub mod ontology;
 pub mod people;
 pub mod place;
 pub mod recall;
+pub mod retract;
 pub mod route;
 pub mod rsi;
 pub mod sandbox;
 pub mod situation;
+pub mod standing;
 pub mod start;
 pub mod synthesis;
 pub mod task_graph;
@@ -254,13 +256,18 @@ facts![
     turn::ContextCompiled<'static>,
     compaction::Compacted<'static>,
     compaction::Overage<'static>,
+    compaction::Cleared<'static>,
     recall::RecallShadow<'static>,
     recall::RecallRan<'static>,
     recall::ArmAssigned<'static>,
     recall::Labeled<'static>,
+    retract::Retracted<'static>,
+    retract::Corrected<'static>,
     memory::MemoryLabeled<'static>,
     memory::MemoryGated<'static>,
     memory::MemoryUsed<'static>,
+    memory::MemoryRead<'static>,
+    memory::MemoryCited<'static>,
     place::PlaceViewed<'static>,
     place::PlaceWarned<'static>,
     place::Published<'static>,
@@ -280,11 +287,14 @@ facts![
     turn::ProviderCall<'static>,
     turn::ProviderRefused<'static>,
     turn::FellBack<'static>,
+    turn::TurnNudged<'static>,
+    turn::EffortRefused<'static>,
     turn::BudgetAsked<'static>,
     turn::LoopEndedOnBudget<'static>,
     limits::SpendReached<'static>,
     limits::LoopsReached<'static>,
     limits::DayCeilingReached<'static>,
+    limits::DayCeilingWarned<'static>,
     turn::OverLimit<'static>,
     turn::ImageNotShown<'static>,
     turn::ImagesHidden<'static>,
@@ -350,6 +360,8 @@ facts![
     task_graph::TaskClaimed<'static>,
     task_graph::TaskLeaseExpired<'static>,
     tool::WakeSet<'static>,
+    tool::WakeCancelled<'static>,
+    tool::WakeMoved<'static>,
     answer::CallAnswered<'static>,
     answer::WokenByAnswer,
     answer::BudgetAnswered<'static>,
@@ -433,6 +445,7 @@ facts![
     term::TermLeft<'static>,
     mcp::McpPromptChanged,
     crate::aws::hands::watch::HourAlert<'static>,
+    crate::aws::month_warn::MonthWarned<'static>,
     crate::aws::hands::watch::ReaperFailed<'static>,
     extend::ExtendProposed<'static>,
     extend::ExtendTested<'static>,
@@ -442,6 +455,8 @@ facts![
     extend::ExtendRevoked<'static>,
     rsi::SelfHalted<'static>,
     rsi::SelfResumed<'static>,
+    standing::StandingAdded<'static>,
+    standing::StandingRevoked<'static>,
 ];
 
 #[cfg(test)]

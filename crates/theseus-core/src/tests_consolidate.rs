@@ -490,6 +490,8 @@ async fn the_day_ceiling_stops_a_synthesis_before_its_call() {
     kestrel(c).await;
     let d = c.kernel.day_ceiling();
     let t = d.today(d.now());
+    // These tests are the stop mode's (theseus-9e02): the ceiling refuses.
+    d.set_rules(false, d.runaway(), d.step(), 0);
     d.set_limit(t.spent + t.held + 1);
     let calls = r.model.requests().len();
     let out = consolidate(c, false).await;

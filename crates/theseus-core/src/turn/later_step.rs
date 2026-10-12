@@ -73,7 +73,11 @@ impl TurnRunner {
     /// The execution's calls dispatched and not settled that are jobs, as
     /// `park` counts them: the turn's background jobs, and any call but a
     /// provider's.
-    fn jobs_outstanding(&self, exec_id: &str, background: &[String]) -> anyhow::Result<usize> {
+    pub(super) fn jobs_outstanding(
+        &self,
+        exec_id: &str,
+        background: &[String],
+    ) -> anyhow::Result<usize> {
         let outstanding = self
             .kernel
             .execution(exec_id)?

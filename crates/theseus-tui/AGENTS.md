@@ -24,6 +24,10 @@ Key modules: `run.rs` (the loop), `app.rs` (no I/O), `board.rs`, `ui.rs`. Read b
 - `src/detail.rs` (the focused session's history and events, as the CLI's `render` lines), `src/card.rs` (a
   question's card), `src/notice.rs` (notices by the protocol's one policy, `theseus_protocol::notices`, delivered by
   the bell, OSC 9, OSC 777). Done until seen is `theseus_client::seen`, shared with the CLI.
+- A reply's citations (theseus-ejdk): `Detail::history` draws a page's cited replies with numbered marks and the
+  footnote block under them (`session.history`'s `cites`, the CLI's `render::cite`), and `Detail::cited` does the same
+  for a turn this TUI sent, from its `turn.submit` answer's `cites`; a reply another surface's turn streams in stays
+  raw until the history is read again. Tests: `src/tests_cite.rs`.
 
 ## Invariants
 
@@ -57,6 +61,8 @@ Key modules: `run.rs` (the loop), `app.rs` (no I/O), `board.rs`, `ui.rs`. Read b
   sent to the test's own process among them, read from the bytes the loop wrote (theseus-8hcg).
 - `src/tests_order.rs`: the app alone, its order forced by hand: another surface's message lands in the place its
   `node.written` marked, above a reply that streamed while it was read (theseus-v6yc).
+- `src/tests_typing.rs` (theseus-tnky): the input line's first key sends one `session.typing` per idle spell (not
+  one a key, none from the filter's keys), and an older daemon's refusal says nothing.
 - The CLI's `tests/tui.rs` holds `theseus tui`: the exec, the socket and the arguments passed through, and exit 2
   when `theseus-tui` is found nowhere.
 

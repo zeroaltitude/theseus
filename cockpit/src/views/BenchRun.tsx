@@ -44,7 +44,7 @@ export default function BenchRun() {
 
   if (!known) {
     return (
-      <Panel title="No such run">
+      <Panel help={false} title="No such run">
         <div className="p-4 text-[13px] text-ink-dim">This build has no report named <span className="font-mono">{run}</span>. <Link to="/benchmarks" className="text-live">Every run</Link>.</div>
       </Panel>
     )
@@ -60,7 +60,7 @@ export default function BenchRun() {
           {has(run, 'json') && <a href="#data-json" className="flex items-center gap-1 hover:text-live"><FileText size={12} /> data file</a>}
         </div>
       </div>
-      <Panel bodyClassName="px-5 py-4">
+      <Panel help="benchrun.report" bodyClassName="px-5 py-4">
         {md.isLoading ? <div className="text-ink-faint">Reading the report…</div> : (
           <div className="flex gap-8">
             <article className="bench-prose min-w-0 flex-1">
@@ -82,7 +82,7 @@ export default function BenchRun() {
       </Panel>
       {has(run, 'csv') && <TrialTable run={run} />}
       {has(run, 'json') && (
-        <Panel title={<span id="data-json">The data file</span>} icon={<FileText size={14} />} bodyClassName="p-3">
+        <Panel help="benchrun.data" title={<span id="data-json">The data file</span>} icon={<FileText size={14} />} bodyClassName="p-3">
           <p className="mb-2 text-[12px] text-ink-dim">The run’s summary: its numbers, task ids and the specs every figure is drawn from (<span className="font-mono">{run}.json</span>).</p>
           {json.data && <Suspense fallback={<div className="text-ink-faint">…</div>}><JsonView value={json.data} maxHeight="420px" /></Suspense>}
         </Panel>
@@ -159,7 +159,7 @@ function TrialTable({ run }: { run: string }) {
     })
   }, [rows, sort, numeric])
   return (
-    <Panel title={<span id="data-csv">The trials, one row each</span>} icon={<Database size={14} />} bodyClassName="p-0"
+    <Panel help="benchrun.trials" title={<span id="data-csv">The trials, one row each</span>} icon={<Database size={14} />} bodyClassName="p-0"
       actions={<span className="text-[11px] text-ink-faint">{rows.length} rows · {run}.csv · click a column to sort</span>}>
       <div className="max-h-[560px] overflow-auto">
         <table className="viz-table w-full text-[12px]">

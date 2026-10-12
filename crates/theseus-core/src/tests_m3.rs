@@ -203,10 +203,18 @@ async fn a_tool_loop_reads_a_file_and_the_prefix_never_changes() {
     assert_eq!(reqs[1].system, reqs[0].system);
     assert_eq!(reqs[1].tools, reqs[0].tools);
     assert_eq!(reqs[1].messages[2]["content"][0]["type"], "tool_result");
-    assert!(reqs[0]
-        .tools
-        .iter()
-        .any(|t| t["name"] == "fs_read" && t["eager_input_streaming"] == true));
+    // Eager streaming is for the content a model writes, and only that
+    // (theseus-9dt2): a call that streamed `proc_run` broke its JSON.
+    assert!(
+        reqs[0].tools.iter().any(|t| t["name"] == "fs_write")
+            && reqs[0].tools.iter().all(|t| {
+                (t["eager_input_streaming"] == true)
+                    == matches!(
+                        t["name"].as_str(),
+                        Some("fs_write" | "fs_edit" | "fs_patch")
+                    )
+            })
+    );
     assert!(
         reqs[0].system[0]["text"]
             .as_str()
@@ -710,7 +718,7 @@ async fn proc_run_returns_in_turn_and_a_slow_one_comes_back_later_as_a_late_resu
     let rs = results(&r.core, &res.session_id);
     assert_eq!(rs[0].0, ResultStatus::Ok);
     assert!(
-        rs[0].1.contains("hello from a job") && rs[0].1.contains("[exit code 0]"),
+        rs[0].1.contains("hello from a job") && rs[0].1.contains("[exit code 0 · in "),
         "{}",
         rs[0].1
     );
@@ -892,13 +900,14 @@ async fn a_job_past_its_output_cap_keeps_its_end_and_names_the_dropped_middle() 
     let (status, text) = results(&r.core, &res.session_id).remove(0);
     assert_eq!(status, ResultStatus::Ok);
     assert!(
-        text.starts_with(
-            "[exit code 0]\n[truncated: it printed 420,022 bytes, more than its output cap of \
+        text.starts_with(&format!(
+            "[exit code 0 · in {}]\n[truncated: it printed 420,022 bytes, more than its output cap of \
              65,536 bytes: its first 32,640 bytes and its last 32,768 bytes are kept, and the \
-             354,614 bytes between them were dropped; its output is not kept: run it again \
+             354,614 bytes between them were dropped; what was dropped is gone: run it again \
              printing less, or with its output sent to a file that fs_read then reads in ranges]\n\
-             a line of the roster\n"
-        ),
+             a line of the roster\n",
+            r.core.tools.ctx.cwd.display()
+        )),
         "{text}"
     );
     assert!(
@@ -1643,6 +1652,9 @@ impl crate::toolrun::JobLauncher for PrintedOnly {
     }
 }
 
+/// Admission's queue through the whole core (theseus-4g0l).
+mod admission;
+mod earned;
 /// A `/stop` before a turn's admission, and a question's expiry (theseus-hmwv,
 /// theseus-830).
 mod stops_and_expiry;
@@ -1915,11 +1927,11 @@ async fn a_job_whose_child_holds_its_output_says_its_end_was_held() {
     assert_eq!(
         lines,
         [
-            "[exit code 0]".to_string(),
+            format!("[exit code 0 · in {}]", r.core.tools.ctx.cwd.display()),
             format!(
                 "[truncated: it printed {}, more than its output cap of 65,536 bytes: its first {} \
-                 and its last {} are kept, and the {} between them were dropped; its output is not \
-                 kept: run it again printing less, or with its output sent to a file that fs_read \
+                 and its last {} are kept, and the {} between them were dropped; what was dropped is \
+                 gone: run it again printing less, or with its output sent to a file that fs_read \
                  then reads in ranges]",
                 n(head + dropped + held),
                 n(head),
@@ -2258,6 +2270,8 @@ async fn a_cancel_ends_a_call_waiting_for_approval_and_nothing_counts_it_waiting
     assert_eq!(results(&r.core, &res.session_id).len(), 1);
 }
 
+/// An input's admission in its input's frame (theseus-2uby).
+mod admit_frames;
 /// The calls a cancel or a turn's end must answer (theseus-0o8, theseus-ni5).
 mod every_call_answered;
 mod frames_counted;
@@ -2505,7 +2519,11 @@ async fn the_lists_carry_attention_for_a_session_parked_on_a_confirm() {
     assert_eq!(att(&list, &plain.session_id).label, "ready");
     assert_eq!(att(&list, &plain.session_id).level, Level::Ready);
 
-    let execs = r.core.execution_list().unwrap().executions;
+    let execs = r
+        .core
+        .execution_list(Default::default())
+        .unwrap()
+        .executions;
     let e = execs.iter().find(|e| e.session_id == a.session_id).unwrap();
     assert_eq!(
         e.attention.as_ref().unwrap(),
@@ -2546,7 +2564,8 @@ fn ledger_after(core: &Core, after: u64) -> Vec<String> {
 }
 
 /// Every WAL frame is its own fsync, so each frame on the turn path costs
-/// every turn. A plain one-loop turn writes 5: 27 before theseus-hco removed
+/// every turn. A plain one-loop turn writes 4 since theseus-2uby (its
+/// admission rides its input's frame), 5 before it: 27 before theseus-hco removed
 /// the hook rows, 17 before theseus-qa0 let the rows that are no state
 /// transition ride in the next frame and planned, authorized, and dispatched
 /// the provider call in one, and 8 before theseus-l6y. That step woke and
@@ -2571,13 +2590,16 @@ async fn a_plain_turn_stays_within_its_frame_budget() {
     let res = turn(&r.core, Some(&first.session_id), "hi").await;
     assert_eq!(res.loops, 1);
     let frames = r.core.store.stats().unwrap().frames_appended - before;
-    assert!(frames <= 5, "a plain turn wrote {frames} frames");
+    assert!(frames <= 4, "a plain turn wrote {frames} frames");
     assert_eq!(
         ledger_after(&r.core, from),
         [
             "execution.queued",
             "execution.running",
             "turn.started",
+            // Recall is on by default (theseus-is8t): its row rides in a
+            // frame the turn already writes.
+            "recall.ran",
             "context.compiled",
             "loop.started",
             "action.planned",
@@ -2797,12 +2819,17 @@ async fn a_turn_that_faults_with_a_call_unanswered_resumes_it_after_a_restart() 
 async fn a_turn_reads_its_transcript_once() {
     let read =
         |id: &str, path: &str| Scripted::tools("", &[(id, "fs_read", json!({ "path": path }))]);
-    let r = rig(vec![
-        Scripted::text("first"),
-        read("t1", "a.txt"),
-        read("t2", "b.txt"),
-        Scripted::text("Both read."),
-    ]);
+    // The memory pass (on by default, theseus-is8t) reads the transcript
+    // after each turn on its own: this counts the turn's reads alone.
+    let r = rig_with(
+        vec![
+            Scripted::text("first"),
+            read("t1", "a.txt"),
+            read("t2", "b.txt"),
+            Scripted::text("Both read."),
+        ],
+        |c| c.memory.mode = crate::config::MemoryMode::Off,
+    );
     std::fs::write(r.root.join("a.txt"), "alpha\n").unwrap();
     std::fs::write(r.root.join("b.txt"), "beta\n").unwrap();
     let sid = turn(&r.core, None, "warm up").await.session_id;
@@ -3832,7 +3859,11 @@ async fn a_header_under_the_models_cache_minimum_gets_no_breakpoint() {
     assert_eq!(header.block, "header");
     assert!(header.prefix_bytes >= 8_192 && header.marked, "{layout:?}");
     let sent = r.fake.requests().pop().unwrap();
-    assert_eq!(sent.system.len(), 1, "no context files: one block");
+    assert_eq!(
+        sent.system.len(),
+        2,
+        "no context files: the header, the session's"
+    );
     assert_eq!(
         sent.system[0]["cache_control"],
         json!({"type": "ephemeral"})
@@ -4001,6 +4032,8 @@ fn system_of(r: &Rig, i: usize) -> String {
         .system
         .iter()
         .map(|b| b["text"].as_str().unwrap())
+        // Block 3, the session's directory: `tests_session_dir`'s (aab7).
+        .filter(|t| !t.starts_with("Directory: "))
         .collect::<Vec<_>>()
         .join("\n\n")
 }
@@ -4046,7 +4079,11 @@ async fn a_context_file_puts_its_rule_in_the_system_block_and_its_digest_in_the_
     );
     // The file is the system's second block, after the header (theseus-ev1).
     let sent = &r.fake.requests()[0].system;
-    assert_eq!(sent.len(), 2);
+    assert_eq!(
+        sent.len(),
+        3,
+        "the header, the context, the session's (aab7)"
+    );
     assert!(sent[1]["text"].as_str().unwrap().starts_with(&header));
     assert!(!sent[0]["text"].as_str().unwrap().contains("Context file"));
     let want = crate::compiler::ContextFileRef {
@@ -4462,6 +4499,7 @@ fn submit_params(
     attachments: Vec<theseus_protocol::Attachment>,
 ) -> theseus_protocol::TurnSubmitParams {
     theseus_protocol::TurnSubmitParams {
+        dir: None,
         carried: false,
         prompt: None,
         session_id: session.map(str::to_string),
@@ -6407,9 +6445,11 @@ mod parallel {
         let seven: Vec<_> = (1..=7)
             .map(|i| read(&format!("q{i}"), "hello.txt"))
             .collect();
+        // Recall (on by default, theseus-is8t) puts awaits of its own on the
+        // test's one thread, where the stall can land inside a read's run.
         let r = rig_full(
             vec![calls(&seven), Scripted::text("Read seven times.")],
-            |_| {},
+            |c| c.memory.mode = crate::config::MemoryMode::Off,
             vec![slowed(
                 "fs.read",
                 ToolClass::Read,
@@ -7818,9 +7858,11 @@ fn result_of(core: &Core, sid: &str, tool: &str) -> String {
 }
 
 /// A result too long to show whole says how much the cut left out and the
-/// call that returns it, and never that the whole is stored: nothing keeps it
-/// (theseus-46v). A read names its rows by number, with the range that
-/// returns them; a search, which takes no range, names a narrower one.
+/// call that returns it, and never that the whole is stored (theseus-46v). A
+/// read stops at its own cap (100,000 characters, past the runtime's
+/// `result_max_chars`) at a whole row, and names the offset that reads on
+/// (theseus-v73m: never a hole); a search, which takes no range, names a
+/// narrower one.
 #[tokio::test]
 async fn a_capped_result_says_what_was_cut_and_the_call_that_returns_it() {
     let r = rig_with(
@@ -7840,8 +7882,14 @@ async fn a_capped_result_says_what_was_cut_and_the_call_that_returns_it() {
         ],
         |c| c.tools.result_max_chars = 2_000,
     );
-    let body: String = (1..=300)
-        .map(|i| format!("crate {i:03} of the inventory\n"))
+    let body: String = (1..=3_000)
+        .map(|i| {
+            format!(
+                "crate {i:04} of the inventory, its manifest {}
+",
+                "-".repeat(20)
+            )
+        })
         .collect();
     std::fs::write(r.root.join("inventory.txt"), &body).unwrap();
     let res = turn(&r.core, None, "read the inventory").await;
@@ -7852,30 +7900,26 @@ async fn a_capped_result_says_what_was_cut_and_the_call_that_returns_it() {
         rest.split_once("]…\n").unwrap().0.to_string()
     };
 
-    // The read: the rows left out, by number, are exactly those between
-    // the last row shown before the cut and the first after it.
+    // The read: contiguous rows from the first, up to its own cap, then the
+    // offset that returns the rest.
     let read = result_of(&r.core, &res.session_id, "fs.read");
-    assert!(read.chars().count() < 2_200, "capped: {read}");
+    assert!(
+        read.chars().count() <= 100_000,
+        "capped: {}",
+        read.chars().count()
+    );
     assert!(!read.contains("stored"), "{read}");
-    let m = marker(&read);
-    let (head, tail) = read.split_once("\n…[").unwrap();
-    let row = |line: &str| -> usize { line.split('\t').next().unwrap().trim().parse().unwrap() };
-    let before = row(head.lines().last().unwrap());
-    let after = row(tail.split_once("]…\n").unwrap().1.lines().next().unwrap());
+    let row = |line: &str| -> Option<usize> { line.split('\t').next()?.trim().parse().ok() };
+    let rows: Vec<usize> = read.lines().filter_map(row).collect();
+    let before = *rows.last().unwrap();
+    assert_eq!(rows, (1..=before).collect::<Vec<_>>(), "no hole");
     let range = format!(
-        "lines {}-{}; fs_read with offset={} and limit={} returns them",
-        before + 1,
-        after - 1,
-        before + 1,
-        after - 1 - before
+        "[showing lines 1-{before} of 3000; pass offset={} to read on]",
+        before + 1
     );
     assert!(
-        m.ends_with(&format!(" not shown: {range}")),
-        "{m:?} should end with {range:?}"
-    );
-    assert!(
-        m.starts_with(&format!("{} lines (", after - 1 - before)),
-        "{m}"
+        read.ends_with(&format!("{range}\n")),
+        "{read:?} should end with {range:?}"
     );
 
     // The search: no range to name, so a narrower call.

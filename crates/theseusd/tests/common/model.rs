@@ -246,7 +246,7 @@ fn prompt(req: &Value) -> String {
             .iter()
             .filter_map(|b| b["text"].as_str())
             // The task graph's view (39a) is the harness's, not the prompt.
-            .filter(|t| !t.starts_with(theseus_core::task_graph::view::HEAD))
+            .filter(|t| !theseus_core::task_graph::view::is_head(t))
             .collect::<Vec<_>>()
             .join("\n"),
         _ => String::new(),

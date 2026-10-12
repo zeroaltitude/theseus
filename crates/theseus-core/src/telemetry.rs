@@ -248,6 +248,16 @@ impl Telemetry {
             .push_lost(n);
     }
 
+    /// A warm-up a person's first keystroke started (theseus-tnky): `target`
+    /// is `provider` or `tender`, `outcome` what it found.
+    pub fn record_warm(&self, target: &str, outcome: &str) {
+        let Some(s) = self.shared() else { return };
+        s.metrics
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .warmed(target, outcome);
+    }
+
     /// A turn route.v1 acts on (theseus-ddbi): its wait for the verdict
     /// after the first compile, and whether the verdict missed it.
     pub fn record_route_wait(&self, wait: Duration, late: bool) {
@@ -276,6 +286,15 @@ impl Telemetry {
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .cancel(backend, state);
+    }
+
+    /// A keep-warm read (theseus-ezeg), by outcome: read, refused, failed.
+    pub fn record_keep_warm(&self, outcome: &str) {
+        let Some(s) = self.shared() else { return };
+        s.metrics
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .keep_warm(outcome);
     }
 
     /// A voice call's reply or report cut short (`voice.cut`), by why:

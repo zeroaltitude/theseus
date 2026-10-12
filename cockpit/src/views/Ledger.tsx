@@ -90,11 +90,11 @@ export default function Ledger() {
   return (
     <div className="flex h-full min-h-0 flex-col gap-3">
       <div className="grid grid-cols-1 gap-3 xl:grid-cols-[1fr_1.4fr]">
-        <ChartPanel id="kinds" title={<>Kinds · {new Set(rows.map((r) => r.kind)).size}</>} icon={<Layers size={13} />} height={212}
+        <ChartPanel id="kinds" help="ledger.kinds" title={<>Kinds · {new Set(rows.map((r) => r.kind)).size}</>} icon={<Layers size={13} />} height={212}
           empty={rows.length ? undefined : 'no rows'} table={kindsTable(rows)}>
           <KindMap rows={rows} selected={kinds} family={family} onToggle={toggle} onFamily={(f) => setFamily(family === f ? null : f)} />
         </ChartPanel>
-        <ChartPanel id="overtime" title="Over time · drag the brush to filter" icon={<ScrollText size={13} />} height={212}
+        <ChartPanel id="overtime" help="ledger.overtime" title="Over time · drag the brush to filter" icon={<ScrollText size={13} />} height={212}
           actions={range ? <button onClick={() => setRange(null)} className="flex items-center gap-1 text-[11px] text-live"><X size={11} /> clear range</button> : null}
           legend={bins.counts.fault.some((n) => n > 0) ? OVER_TIME_LEGEND : undefined}
           empty={histRows.length ? undefined : 'no rows'} table={overTimeTable(bins)}>
@@ -134,14 +134,14 @@ export default function Ledger() {
 
       <Group orientation="horizontal" className="min-h-[360px] flex-1">
         <RPanel defaultSize="60" minSize={420} className="min-h-0">
-          <Panel title="Rows" icon={<ScrollText size={13} />} className="h-full" bodyClassName="min-h-0"
+          <Panel help="ledger.rows" title="Rows" icon={<ScrollText size={13} />} className="h-full" bodyClassName="min-h-0"
             actions={<Segmented value={view} options={['rows', 'nodes'] as const} onChange={setView} />}>
             <RowList rows={filtered} pick={pick} onPick={setPick} follow={follow} onFollow={setFollow} />
           </Panel>
         </RPanel>
         <Separator className="mx-1.5 w-1 rounded-full bg-transparent transition-colors hover:bg-live/30" />
         <RPanel defaultSize="40" minSize={300} className="min-h-0">
-          <Panel title={pick ? <>row {pick.position} · {pick.kind}</> : 'Row'} className="h-full" bodyClassName="min-h-0 overflow-auto p-3">
+          <Panel help="ledger.row" title={pick ? <>row {pick.position} · {pick.kind}</> : 'Row'} className="h-full" bodyClassName="min-h-0 overflow-auto p-3">
             {pick ? (
               <div className="flex flex-col gap-2">
                 <div className="text-[12.5px] text-ink">{summarize(pick)}</div>
@@ -295,7 +295,7 @@ function Nodes({ session, onClearSession, onView }: { session: string | null; on
       </div>
       <Group orientation="horizontal" className="min-h-[360px] flex-1">
         <RPanel defaultSize="60" minSize={420} className="min-h-0">
-          <Panel title="Nodes · the newest first" icon={<Boxes size={13} />} className="h-full" bodyClassName="min-h-0 overflow-auto"
+          <Panel help="ledger.nodes" title="Nodes · the newest first" icon={<Boxes size={13} />} className="h-full" bodyClassName="min-h-0 overflow-auto"
             actions={<Segmented value="nodes" options={['rows', 'nodes'] as const} onChange={onView} />}>
             {!nodes.length && <Empty>{data ? 'no nodes match' : 'reading the nodes…'}</Empty>}
             {nodes.map((n) => (
@@ -314,7 +314,7 @@ function Nodes({ session, onClearSession, onView }: { session: string | null; on
         </RPanel>
         <Separator className="mx-1.5 w-1 rounded-full bg-transparent transition-colors hover:bg-live/30" />
         <RPanel defaultSize="40" minSize={300} className="min-h-0">
-          <Panel title={pick ? <>node {pick.position} · {pick.kind}</> : 'Node'} className="h-full" bodyClassName="min-h-0 overflow-auto p-3">
+          <Panel help="ledger.node" title={pick ? <>node {pick.position} · {pick.kind}</> : 'Node'} className="h-full" bodyClassName="min-h-0 overflow-auto p-3">
             {pick ? (
               <div className="flex flex-col gap-2">
                 <div className="text-[12.5px] text-ink">{nodeSummary(pick)}</div>

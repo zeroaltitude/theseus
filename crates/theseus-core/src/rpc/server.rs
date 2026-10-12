@@ -312,7 +312,7 @@ impl Core {
                 confirms: self.confirm_list()?,
             }),
             method::TOOL_LIST => reply(self.tool_list()),
-            method::EXECUTION_LIST => reply(self.execution_list()?),
+            method::EXECUTION_LIST => route(or_empty(params), |p| self.execution_list(p)),
             method::ACTION_LIST => route(params, |p| self.action_list(p)),
             // A cancel and a stop wait for the jobs they end on the runtime's
             // timer, never holding a worker (theseus-bzq).
@@ -325,7 +325,7 @@ impl Core {
             // Its filters are optional: no params lists every wake.
             method::WAKE_LIST => route(or_empty(params), |p| self.wake_list(p)),
             method::WAKE_CANCEL => route(params, |p| self.wake_cancel(p, conn)),
-            method::LEDGER_TAIL => route(params, |p| self.ledger_tail(p)),
+            m @ (method::LEDGER_TAIL | method::LEDGER_WINDOW) => self.ledger_reads(m, params, conn),
             method::NARRATIVE_WATCH | method::NARRATIVE_UNWATCH if !self.narrator.on() => {
                 Err(narration_off())
             }
@@ -342,10 +342,9 @@ impl Core {
             // The index tender (roadmap row 51), asked on its socket, bounded.
             method::INDEX_STATUS => reply(self.index.health(crate::tender::STATUS_DEADLINE).await),
             method::INDEX_QUERY => reply(self.index_query(parse(params)?).await?),
-            // Recall (M6 30a): the pipeline for a query, and a session's recalls.
-            method::MEMORY_SEARCH => reply(self.memory_search(parse(params)?).await?),
-            method::MEMORY_RECALLS => reply(self.memory_recalls(parse(params)?)?),
-            method::MEMORY_LABEL => route(params, |p| self.rpc_memory_label(p, conn)),
+            m @ (method::MEMORY_SEARCH | method::MEMORY_LOOKUP) => self.mem(m, params, conn).await,
+            m @ (method::MEMORY_RECALLS | method::MEMORY_CITES) => self.memory_reads(m, params),
+            method::MEMORY_LABEL | method::FACT_RETRACT => self.rpc_acts(&req.method, params, conn),
             // Jev's judgments (M5 23b): their rows, and one with its state.
             method::JUDGE_LIST | method::JUDGE_GET => self.rpc_reads(&req.method, params),
             // The learning ledger (M5 25c): a label, and the report.
@@ -536,6 +535,6 @@ pub(super) fn route<P: DeserializeOwned, R: Serialize>(
 }
 
 /// A method's result, serialized.
-fn reply<R: Serialize>(r: R) -> Result<Value, RpcFailure> {
+pub(super) fn reply<R: Serialize>(r: R) -> Result<Value, RpcFailure> {
     Ok(serde_json::to_value(r).unwrap())
 }

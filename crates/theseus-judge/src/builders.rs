@@ -1019,10 +1019,11 @@ mod tests {
         let (_, r) = prepared("role.v1");
         assert_eq!(c.state.json, r.state.json);
         assert_eq!(c.state.sha256, r.state.sha256);
-        // route.v1 (25e), route.v2 (theseus-3okf) and route.v3 (theseus-qe3v)
-        // ride the same request: the same state, byte for byte.
+        // route.v1 (25e), route.v2 (theseus-3okf), route.v3 (theseus-qe3v)
+        // and route.v4 (theseus-p8dy) ride the same request: the same state,
+        // byte for byte.
         let cp = crate::pack::by_name("classify.v1").unwrap();
-        for route in ["route.v1", "route.v2", "route.v3"] {
+        for route in ["route.v1", "route.v2", "route.v3", "route.v4"] {
             let (rp, ro) = prepared(route);
             assert_eq!(c.state.json, ro.state.json, "{route}");
             assert_eq!(

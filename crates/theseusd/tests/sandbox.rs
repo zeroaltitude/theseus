@@ -668,7 +668,7 @@ fn a_cancel_of_an_l1_job_is_verified_by_its_pid_namespace() {
             json!({"argv": ["sh", "-c", script], "sandbox": true}),
         )],
     );
-    assert!(out[0].contains("background job"), "{}", out[0]);
+    assert!(out[0].contains("Still running as job j1 "), "{}", out[0]);
     let t0 = Instant::now();
     while with_marker(marker).len() < 2 {
         assert!(

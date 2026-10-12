@@ -25,8 +25,9 @@
 //! **Sized for one query** (theseus-zo1y). A recall's query is one short
 //! text, and its embedding is a chain of matmuls: candle splits each across
 //! `RAYON_NUM_THREADS` jobs, read at every matmul, run in the pool the caller
-//! is in. So the queries' pool has [`query_threads`] threads (one unless the
-//! config names more: theseus-y9a3), `RAYON_NUM_THREADS` is the larger of that and
+//! is in. So the queries' pool has [`query_threads`] threads (four unless the
+//! config names more or fewer, theseus-d7fy; one while the load gate is shut, `gate`),
+//! `RAYON_NUM_THREADS` is the larger of that and
 //! `[index] threads`, and the global pool, the backfill's, is built with
 //! `[index] threads` alone ([`build_backfill_pool`]), from the embedding
 //! thread at nice 19: a backfill's matmuls are split as a query's, and run
@@ -35,25 +36,30 @@
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::OnceLock;
 
-/// The threads a query's embedding takes unless `[index] query_threads`
-/// names a number (theseus-y9a3): one. A recall's query is cut at 32 word
-/// pieces (theseus-zo1y): about 90 ms on one thread, 75 on four, on an idle
-/// machine. Beside a busy one, four lose: each matmul is split across them
-/// and waits for its slowest job, and a preempted thread stalls the layer.
-/// With 1.5 times the cores in runnable threads at nice 0, one thread had a
-/// recall's vectors within its 250 ms deadline 10 times in 12, four threads 1
-/// in 16 (3 times the cores: 9 in 16 against 1 in 16). Four were chosen when
-/// a query embedded 128 tokens: 214 to 224 ms on four, about 350 on one.
-pub const DEFAULT_QUERY_THREADS: usize = 1;
+use crate::gate::{Gate, Lane};
+
+/// The threads a query's embedding takes on a calm machine unless `[index]
+/// query_threads` names a number: four (theseus-d7fy). A recall's query is cut
+/// at 32 word pieces (theseus-zo1y): about 90 ms on one thread, 75 on four,
+/// on an idle machine. Beside a busy one, four lose: each matmul is split
+/// across them and waits for its slowest job, and a preempted thread stalls
+/// the layer. With 1.5 times the cores in runnable threads at nice 0, one
+/// thread had a recall's vectors within its 250 ms deadline 10 times in 12,
+/// four threads 1 in 16 (theseus-y9a3). So the default went to one thread, and
+/// the owner's call (2026-10-11) was several threads with a load gate: under
+/// pressure a query embeds on one thread, one at a time (`gate`).
+pub const DEFAULT_QUERY_THREADS: usize = 4;
 
 /// The pool queries embed in, of [`threads`] threads.
 static QUERY_POOL: OnceLock<Option<rayon::ThreadPool>> = OnceLock::new();
+/// The pool a query embeds in while the gate is shut: one thread.
+static ONE_POOL: OnceLock<Option<rayon::ThreadPool>> = OnceLock::new();
 /// The queries' threads, when the binary set them (`--query-threads`).
 static QUERY_THREADS: OnceLock<usize> = OnceLock::new();
 /// The backfill's threads (`[index] threads`), when the binary set them.
 static BACKFILL_THREADS: OnceLock<usize> = OnceLock::new();
 
-/// A query's threads on a machine of `cores` when the config names none:
+/// A query's threads on a calm machine of `cores` when the config names none:
 /// [`DEFAULT_QUERY_THREADS`], and never more than the cores.
 pub fn query_threads(cores: usize) -> usize {
     DEFAULT_QUERY_THREADS.min(cores.max(1))
@@ -119,10 +125,23 @@ pub fn on_backfill<T: Send>(f: impl FnOnce() -> T + Send) -> T {
 /// parallel parts never wait behind the backfill's in the global pool. Where
 /// the pool cannot be built (no thread to spare), on the global one, as before.
 pub fn install<T: Send>(f: impl FnOnce() -> T + Send) -> T {
-    let pool = QUERY_POOL.get_or_init(|| {
+    install_in(Lane::Full, f)
+}
+
+/// [`install`] for the lane the gate gave the query (theseus-d7fy): the full
+/// pool when calm, a pool of one thread when the machine is busy. candle
+/// splits each matmul by `RAYON_NUM_THREADS` jobs and runs them in the pool
+/// its caller is in, so in a pool of one the jobs run one after another on
+/// that thread: the layer has no slowest job to wait for.
+pub fn install_in<T: Send>(lane: Lane, f: impl FnOnce() -> T + Send) -> T {
+    let (cell, n, name): (_, _, fn(usize) -> String) = match lane {
+        Lane::Full => (&QUERY_POOL, threads(), |i| format!("index-query-{i}")),
+        Lane::One => (&ONE_POOL, 1, |i| format!("index-query-one-{i}")),
+    };
+    let pool = cell.get_or_init(|| {
         match rayon::ThreadPoolBuilder::new()
-            .num_threads(threads())
-            .thread_name(|i| format!("index-query-{i}"))
+            .num_threads(n)
+            .thread_name(name)
             .build()
         {
             Ok(p) => Some(p),
@@ -143,6 +162,8 @@ pub fn install<T: Send>(f: impl FnOnce() -> T + Send) -> T {
 pub struct Ahead {
     queries: AtomicUsize,
     deferred: AtomicU64,
+    /// The load gate queries pass before they embed (theseus-d7fy).
+    pub gate: Gate,
 }
 
 /// A query's embedding in progress: the backfill starts no batch until it
@@ -191,9 +212,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_query_takes_one_thread_unless_the_config_names_more() {
+    fn a_query_takes_four_threads_never_more_than_the_cores() {
         let sizes: Vec<usize> = [0, 1, 2, 3, 4, 8, 16, 64].map(query_threads).to_vec();
-        assert_eq!(sizes, [1, 1, 1, 1, 1, 1, 1, 1]);
+        assert_eq!(sizes, [1, 1, 2, 3, 4, 4, 4, 4]);
         assert_eq!(
             install(rayon::current_num_threads),
             query_threads(cores()),

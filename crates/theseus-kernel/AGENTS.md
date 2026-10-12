@@ -83,19 +83,31 @@ Key modules: `kernel.rs`, `tx.rs`, `locks.rs`, `job.rs`, `cgroup.rs`, `children.
 - `overdraw.rs` (theseus-usei): a spend limit that notifies (`KernelConfig::spend_limit_notify`): a provider
   call's reservation past an unpinned limit (or a task's whose parent's is unpinned) is made, never refused
   (`OverBudget`); every other tool's still is, and so is any call under a pinned limit. `open_task` then carves what
-  the task asked for, up to the parent's whole limit. Tests: `tests_overdraw.rs`.
-- `day_ceiling.rs` (theseus-kp20): the daemon's day ceiling, `[kernel] daily_spend_ceiling_usd` ($200), one counter
-  for every model call by the local day of `KernelConfig::zone`, in memory (no store read or write). A provider call's
-  reservation holds on it in `plan` and is refused with `KernelError::DayCeiling`, nothing written, past it; its
-  settle spends the real cost (an unknown one its reservation). A settle's change is an `Effect`, applied after its
-  frame (`day_after`; inside a transaction at its commit, and a failed transaction lets its holds go, `tx.rs`). Only
-  `PROVIDER_TOOL` counts: an AWS hand and a task's carve never, and a task's carry to its parent adds nothing. The core
-  holds its own calls with `hold_call`/`Hold` (or by amount, `settle_part`), books late costs (`book`), and seeds the
-  day at the start (`seed`). `budget_question.rs` is the budget question, moved out of kernel.rs whole.
-  Tests: `tests_day_ceiling.rs`.
+  the task asked for, up to the parent's whole limit. At `KernelConfig::spend_hard_multiple` (10) times the limit a
+  provider call whose reservation would pass it is refused anyway, `KernelError::HardStop`, nothing written
+  (theseus-jse4). Tests: `tests_overdraw.rs`.
+- `day_ceiling.rs` (theseus-kp20, softened by theseus-9e02): the daemon's day ceiling, `[kernel] daily_spend_ceiling_usd`
+  ($200), one counter for every model call by the local day of `KernelConfig::zone`, in memory (no store read or write).
+  A provider call's reservation holds on it in `plan` and is refused with `KernelError::DayCeiling`, nothing written, past
+  the day's **bar** (`DayCeiling::bar`): the ceiling under `daily_notify = false` (`[kernel] daily_spend_ceiling_mode =
+  "stop"`, the kernel's own default), the runaway line (`daily_runaway_micros`, 0 never) under notify, where the ceiling
+  only warns (`take_warning`: the highest unannounced level, 1 at the ceiling and one more a `daily_step_micros` after
+  it). Its settle spends the real cost (an unknown one its reservation). A refusal stops the day (theseus-l9on): every
+  later hold or fit that day is refused, however small, while the bar is no higher than the one it was refused under
+  (`Reached.since` says so; under notify the ceiling is never sticky, only the runaway line). A settle's change is an
+  `Effect`, applied after its frame (`day_after`; inside a transaction at its commit, and a failed transaction lets its
+  holds go, `tx.rs`); a provider settle also fills the execution's burn ring (`burn_record`, ten minutes,
+  `KernelConfig::burn_line_micros`), and a provider plan whose execution has reached the line is refused with
+  `KernelError::BurnRate` (`overdraw.rs::burn_stopped`); an approved budget question that carries `args.call.brake`
+  (`reset_budget`) resumes it, spend kept and window empty. Only `PROVIDER_TOOL` counts: an AWS hand and a task's carve
+  never, and a task's carry to its parent adds nothing. The core holds its own calls with `hold_call`/`Hold` (or by
+  amount, `settle_part`), books late costs (`book`), and seeds the day at the start (`seed`: spend, the refusal's time,
+  the warned level). `budget_question.rs` is the budget question, moved out of kernel.rs whole. Tests:
+  `tests_day_ceiling.rs` (stop), `tests_runaway.rs` (notify, the runaway line, the brake).
 - `spool.rs` (completions on disk, one sync each: a start finishes a rename a crash cut short, and takes a
   completion its action settled already as a no-op, theseus-yxiv), `redact.rs` (granted secrets withheld from a
-  job's output), `stops.rs` (the soft stop), `tasks.rs` (task executions and their carve), `wakes.rs`, `repeat.rs` (a repeating wake's series:
+  job's output), `stops.rs` (the soft stop), `tasks.rs` (task executions and their carve; `open_task_at` opens one asleep, `Waiting{DueAt}`, for a deferred task: theseus-rcgph), `wakes.rs` (and since theseus-lherl `move_wake`, one frame with a `wake.moved` row, and `take_wakes_listing`, the take
+  and what is still pending from one read), `repeat.rs` (a repeating wake's series:
   its span, days, and `until`, by jiff's zoned arithmetic in `KernelConfig::zone`; 37a), `gate.rs` (a confirmation's proposal and its
   digest), `clock.rs`, and `umask.rs`.
 

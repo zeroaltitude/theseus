@@ -59,8 +59,10 @@
 //!   `cost_micros` of every `judge.call` whose context names its session,
 //!   every pack's.
 //! - **`turns`**: its session's `turn.ended` rows.
-//! - **`nudges`**, **`unnecessary_nudges`**: 0. The canary's nudge is 26b's,
-//!   and nothing records one yet.
+//! - **`nudges`**, **`unnecessary_nudges`**: the stop nudges its session's
+//!   turns took (theseus-fh0u: a `turn.ended` row's `nudged`), and those the
+//!   model answered without acting (`acted` false: it said it was done, or
+//!   said again what it had, and called no tool).
 //!
 //! A cancelled task (a cancel, a `/stop`) is left out (`cancelled`): it was
 //! stopped from outside, so it has no outcome of its own.
@@ -116,6 +118,9 @@ pub struct Input {
     pub judge_spend: HashMap<String, Vec<JudgeSpend>>,
     /// `turn.ended` rows, by session.
     pub turns: HashMap<String, u32>,
+    /// The stop nudges of each session's turns: how many, and how many the
+    /// model answered without acting (`turn.ended`'s `nudged`).
+    pub nudges: HashMap<String, (u32, u32)>,
     /// The last learning run's time: the system labels are written up to it.
     pub settled_ms: Option<u64>,
 }
@@ -256,11 +261,20 @@ fn record(input: &Input, t: &Ended, judged: &[&Seen], arm: ArmName) -> TaskRecor
         spend_micros: t.spent_micros.saturating_add(outside).max(judge_micros),
         judge_micros,
         turns: input.turns.get(&t.session).copied().unwrap_or(0),
-        nudges: 0,
-        unnecessary_nudges: 0,
+        nudges: input.nudges.get(&t.session).map_or(0, |n| n.0),
+        unnecessary_nudges: input.nudges.get(&t.session).map_or(0, |n| n.1),
         false_completion,
         stops,
     }
+}
+
+/// The stop nudges `turn.ended` rows say (theseus-fh0u): how many, and how
+/// many the model answered without acting.
+pub fn nudges_of(ended: &[LedgerRow]) -> (u32, u32) {
+    let nudged = ended.iter().filter_map(|r| r.data.get("nudged"));
+    nudged.fold((0, 0), |(n, idle), v| {
+        (n + 1, idle + u32::from(v["acted"] != true))
+    })
 }
 
 fn count(out: &mut Built, why: &str) {
@@ -469,12 +483,12 @@ impl Core {
                 });
             }
             input.judge_spend.insert(t.session.clone(), spend);
-            let turns = self
-                .ledger_rows(LedgerKind::TurnEnded, Some(&t.session), None, None)?
-                .len();
-            input
-                .turns
-                .insert(t.session.clone(), u32::try_from(turns).unwrap_or(u32::MAX));
+            let ended = self.ledger_rows(LedgerKind::TurnEnded, Some(&t.session), None, None)?;
+            input.nudges.insert(t.session.clone(), nudges_of(&ended));
+            input.turns.insert(
+                t.session.clone(),
+                u32::try_from(ended.len()).unwrap_or(u32::MAX),
+            );
         }
         input.settled_ms = self
             .store

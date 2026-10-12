@@ -1085,3 +1085,55 @@ async fn the_days_line_trips_runaway_mode_the_same_way() {
     let e = cfg.validate().unwrap_err().to_string();
     assert!(e.contains("runaway_factor is 1.5"), "{e}");
 }
+
+// ------------------------------------------------ the soft money defaults
+
+/// theseus-9e02 (the owner, 2026-10-11: tokens = less cautious, AWS = more
+/// cautious): with the ceiling and the session limit both notifying, an AWS
+/// group past the session's budget is still not run and still asks, and a
+/// group at ten times the hour's line is still refused by runaway mode. Only
+/// model-token spend went soft.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn aws_still_stops_at_its_lines_under_the_soft_money_settings() {
+    use crate::config::{DailyCeilingMode, SpendLimitMode};
+    let soft = |c: &mut crate::Config| {
+        c.kernel.daily_spend_ceiling_mode = DailyCeilingMode::Notify;
+        c.kernel.spend_limit_mode = SpendLimitMode::Notify;
+    };
+    let r = rig_with(
+        calls(json!({"argv": ["true"], "count": 20, "backend": "fargate",
+            "vcpu": 4, "memory_mb": 8192, "ttl_secs": 3600})),
+        |c| {
+            soft(c);
+            c.kernel.spend_limit_usd = 1.40;
+        },
+    );
+    r.state.nat.store(true, Ordering::SeqCst);
+    let res = turn(&r.core, "run twenty big ones").await;
+    assert!(r.state.ran.lock().unwrap().is_empty(), "nothing launched");
+    let text = result_text(&r.core, &res);
+    assert!(text.contains("over the session's budget"), "{text}");
+    let e = r
+        .core
+        .kernel
+        .execution(res.execution_id.as_deref().unwrap())
+        .unwrap()
+        .unwrap();
+    assert!(e.budget.question.is_some(), "the budget question was asked");
+
+    let group = two_hands_reserve().await;
+    let input = json!({"argv": ["true"], "count": 2});
+    let script = vec![
+        crate::provider::Scripted::tools("", &[("t0", "aws_hands_run", input)]),
+        crate::provider::Scripted::text("Noted."),
+    ];
+    let r = rig_with(script, move |c| {
+        soft(c);
+        for a in c.aws.accounts.values_mut() {
+            a.hourly_alert_usd = (group as f64 / 10.0).floor() / 1e6;
+        }
+    });
+    let res = turn(&r.core, "run two").await;
+    assert!(result_text(&r.core, &res).contains("Not run: AWS runaway mode"));
+    assert!(r.state.invoked().is_empty(), "nothing launched");
+}

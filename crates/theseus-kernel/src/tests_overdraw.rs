@@ -121,3 +121,76 @@ fn a_tasks_carve_under_a_notifying_limit_is_what_it_asked_for() {
     assert_eq!(t.task.budget.limit_micros, 100_000, "capped, as before");
     assert!(!w.kernel.overdraws(&t.task));
 }
+
+fn hard_stopped(r: anyhow::Result<Action>) -> Option<crate::overdraw::HardStop> {
+    match r.err()?.downcast_ref::<KernelError>()? {
+        KernelError::HardStop(h) => Some((**h).clone()),
+        _ => None,
+    }
+}
+
+/// The hard multiple (theseus-jse4): a limit that notifies still refuses a
+/// provider call whose reservation would take the spend, with what is held,
+/// past ten times it; one that fits it exactly goes; nothing is written for
+/// the refusal; at multiple 0 nothing stops; a limit that asks asks first.
+#[test]
+fn a_notifying_limit_stops_at_its_hard_multiple() {
+    let w = world_with(notifying(1_000_000));
+    let (s, e, g) = following(&w);
+    let a = plan(&w, &g, PROVIDER_TOOL, 9_000_000).unwrap();
+    w.kernel
+        .authorize(&a.correlation_id, &proposal(PROVIDER_TOOL), None)
+        .unwrap();
+    w.kernel.dispatch(&a.correlation_id, None).unwrap();
+    w.kernel
+        .accept_completion(&completion(
+            &a.correlation_id,
+            Outcome::Succeeded,
+            Some(8_500_000),
+        ))
+        .unwrap();
+    // A second call in flight holds 1,000,000: $8.50 spent and $1.00 held.
+    let held = plan(&w, &g, PROVIDER_TOOL, 1_000_000).unwrap();
+    let planned = rows(&w, &s, "action.planned").len();
+    let stop = hard_stopped(plan(&w, &g, PROVIDER_TOOL, 600_000)).expect("the hard stop");
+    assert_eq!(
+        stop,
+        crate::overdraw::HardStop {
+            multiple: 10,
+            limit: 1_000_000,
+            spent: 8_500_000,
+            held: 1_000_000,
+            needed: 600_000,
+        }
+    );
+    assert_eq!(stop.cap(), 10_000_000);
+    let words = stop.to_string();
+    assert!(words.contains("10 times its $1 limit ($10)"), "{words}");
+    assert!(words.contains("spend_limit_hard_multiple"), "{words}");
+    assert_eq!(
+        rows(&w, &s, "action.planned").len(),
+        planned,
+        "nothing written"
+    );
+    let b = w.kernel.execution(&e.id).unwrap().unwrap().budget;
+    assert_eq!(b.reserved_micros, held.reserved_micros);
+    // Exactly to the stop fits.
+    plan(&w, &g, PROVIDER_TOOL, 500_000).unwrap();
+    // Another tool asks as before, never the hard stop.
+    assert!(over_budget(plan(&w, &g, "aws.hand", 10)));
+
+    // Multiple 0: nothing stops a limit that notifies.
+    let w = world_with(KernelConfig {
+        spend_hard_multiple: 0,
+        ..notifying(1_000_000)
+    });
+    let (_, _, g) = following(&w);
+    plan(&w, &g, PROVIDER_TOOL, 50_000_000).unwrap();
+
+    // A limit that asks refuses at the limit, never at the multiple.
+    let w = world_with(limited(1_000_000));
+    let (_, _, g) = following(&w);
+    let r = plan(&w, &g, PROVIDER_TOOL, 20_000_000);
+    assert!(hard_stopped(plan(&w, &g, PROVIDER_TOOL, 20_000_000)).is_none());
+    assert!(over_budget(r));
+}

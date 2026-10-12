@@ -21,6 +21,8 @@ use crate::policy::{Posture, ToolPolicy};
 pub(super) const SESSION_KEY: &str = "ASIATESTSESSION0001";
 pub(super) const SESSION_SECRET: &str = "test-session-secret-0001";
 
+mod stack_tags;
+
 // ------------------------------------------------------------------ the rig
 
 fn config(endpoint: &str, owner: bool, budget: Option<u32>) -> AwsConfig {
@@ -35,6 +37,7 @@ fn config(endpoint: &str, owner: bool, budget: Option<u32>) -> AwsConfig {
                 owner_role: owner.then(|| "theseus-owner".into()),
                 deployment: None,
                 monthly_budget_usd: budget,
+                monthly_warn_usd: None,
                 daily_budget_usd: None,
                 hourly_alert_usd: crate::config::default_hourly_alert_usd(),
                 runaway_factor: crate::config::default_runaway_factor(),
@@ -186,6 +189,8 @@ struct Stack {
     template: String,
     policy: Option<String>,
     protected: bool,
+    /// The stack's tags (`Tags`), as the last change set left them.
+    tags: Vec<(String, String)>,
 }
 
 /// A stack the fake holds already, made from `template` under `params`.
@@ -221,6 +226,12 @@ struct ChangeSet {
     params: BTreeMap<String, String>,
     template: Option<String>,
     changes: Vec<(String, String, String)>,
+    /// The tags the change set sets.
+    tags: Vec<(String, String)>,
+    /// How CloudFormation describes a change's scope, by logical id: `tags`
+    /// (a tag change alone), `knock:<resource>` (a dynamic evaluation of that
+    /// resource's attribute), or `static` (a property edited directly).
+    scopes: BTreeMap<String, String>,
 }
 
 /// CloudFormation, STS, and the singletons' reads, as the reconcile and the
@@ -232,6 +243,12 @@ struct Cloud {
     owner_role: bool,
     /// The reconcile's change set touches more than the budget.
     beyond_budget: bool,
+    /// A change set that sets other tags than the stack holds changes every
+    /// resource's tags; these say what else CloudFormation lists then:
+    /// a resource whose dynamic evaluation names another's attribute
+    /// (`id`, `cause`), and a resource whose property is edited besides.
+    knock_on: Option<(String, String)>,
+    edited_with_tags: Option<String>,
 }
 
 /// A query request's parameters (`Parameters.member.N.*`).
@@ -267,11 +284,21 @@ fn stack_xml(name: &str, s: &Stack) -> String {
             )
         })
         .collect();
+    let tags: String = s
+        .tags
+        .iter()
+        .map(|(k, v)| {
+            format!(
+                "<member><Key>{k}</Key><Value>{}</Value></member>",
+                xml_escape(v)
+            )
+        })
+        .collect();
     format!(
         "<member><StackName>{name}</StackName><StackId>arn:aws:cloudformation:us-west-2:{ACCOUNT}:stack/{name}/1</StackId>\
          <CreationTime>2026-10-03T12:00:00Z</CreationTime><StackStatus>{}</StackStatus>\
          <EnableTerminationProtection>{}</EnableTerminationProtection>\
-         <Parameters>{params}</Parameters></member>",
+         <Parameters>{params}</Parameters><Tags>{tags}</Tags></member>",
         s.status, s.protected
     )
 }
@@ -446,6 +473,7 @@ impl Cloud {
         let cs = self.change_sets.get(&id).cloned().unwrap_or_default();
         let stack = self.stacks.entry(cs.stack.clone()).or_default();
         stack.params = cs.params.clone();
+        stack.tags = cs.tags.clone();
         if let Some(t) = cs.template {
             stack.template = t;
         }
@@ -458,6 +486,41 @@ impl Cloud {
         if cs.stack == "theseus-foundation" {
             self.owner_role = true;
         }
+    }
+
+    /// Other tags on the stack than it holds: every resource the template
+    /// makes has its tags changed, and what CloudFormation lists besides. A
+    /// change another branch made keeps its plain description.
+    fn tag_changes(
+        &self,
+        body: &str,
+        params: &BTreeMap<String, String>,
+        made: &[(String, String, String)],
+        scopes: &mut BTreeMap<String, String>,
+        s: &Seen,
+    ) -> Vec<(String, String, String)> {
+        let t = theseus_aws_guard::parse_template(body).unwrap();
+        let ctx = Context {
+            account: ACCOUNT.into(),
+            region: s.region().unwrap_or("us-west-2").into(),
+        };
+        let mut out = Vec::new();
+        for r in theseus_aws_guard::planned_resources(&t, &ctx, params).unwrap() {
+            if made.iter().any(|(_, id, _)| *id == r.logical_id) {
+                continue;
+            }
+            let knock = self.knock_on.as_ref().filter(|(id, _)| *id == r.logical_id);
+            let scope = if let Some((_, cause)) = knock {
+                format!("knock:{cause}")
+            } else if self.edited_with_tags.as_deref() == Some(&r.logical_id) {
+                "static".to_string()
+            } else {
+                "tags".to_string()
+            };
+            scopes.insert(r.logical_id.clone(), scope);
+            out.push(("Modify".into(), r.logical_id, r.resource_type));
+        }
+        out
     }
 
     fn create_change_set(
@@ -479,6 +542,16 @@ impl Cloud {
             .unwrap_or_default();
         let params = parameters(f, &previous);
         let template = f.get("TemplateBody").cloned();
+        let tags: Vec<(String, String)> = (1..)
+            .map_while(|n| {
+                Some((
+                    f.get(&format!("Tags.member.{n}.Key"))?.clone(),
+                    f.get(&format!("Tags.member.{n}.Value"))?.clone(),
+                ))
+            })
+            .collect();
+        let held = self.stacks.get(stack).cloned().unwrap_or_default();
+        let mut scopes = BTreeMap::new();
         let changes = if kind == "CREATE" {
             let t =
                 theseus_aws_guard::parse_template(template.as_deref().unwrap_or_default()).unwrap();
@@ -523,6 +596,15 @@ impl Cloud {
                     ));
                 }
             }
+            if tags != held.tags {
+                c.extend(self.tag_changes(
+                    &template.clone().unwrap_or(held.template),
+                    &params,
+                    &c,
+                    &mut scopes,
+                    s,
+                ));
+            }
             c
         };
         self.change_sets.insert(
@@ -533,6 +615,8 @@ impl Cloud {
                 params,
                 template,
                 changes,
+                tags,
+                scopes,
             },
         );
         ok(
@@ -559,10 +643,43 @@ impl Cloud {
             .changes
             .iter()
             .map(|(a, id, ty)| {
+                // How CloudFormation describes the scope of a change of tags.
+                let (scope, details, replacement) = match cs.scopes.get(id).map(String::as_str) {
+                    Some("tags") => (
+                        "<Scope><member>Tags</member></Scope>",
+                        "<Details><member><Target><Attribute>Tags</Attribute>\
+                         <RequiresRecreation>Never</RequiresRecreation></Target>\
+                         <Evaluation>Static</Evaluation><ChangeSource>DirectModification</ChangeSource>\
+                         </member></Details>"
+                            .to_string(),
+                        "False",
+                    ),
+                    Some("static") => (
+                        "<Scope><member>Properties</member><member>Tags</member></Scope>",
+                        "<Details><member><Target><Attribute>Properties</Attribute><Name>Policies</Name>\
+                         <RequiresRecreation>Never</RequiresRecreation></Target>\
+                         <Evaluation>Static</Evaluation><ChangeSource>DirectModification</ChangeSource>\
+                         </member></Details>"
+                            .to_string(),
+                        "False",
+                    ),
+                    Some(k) if k.starts_with("knock:") => (
+                        "<Scope><member>Properties</member></Scope>",
+                        format!(
+                            "<Details><member><Target><Attribute>Properties</Attribute><Name>SourceArn</Name>\
+                             <RequiresRecreation>Always</RequiresRecreation></Target>\
+                             <Evaluation>Dynamic</Evaluation><ChangeSource>ResourceAttribute</ChangeSource>\
+                             <CausingEntity>{}.Arn</CausingEntity></member></Details>",
+                            &k["knock:".len()..]
+                        ),
+                        "Conditional",
+                    ),
+                    _ => ("", String::new(), "False"),
+                };
                 format!(
                     "<member><Type>Resource</Type><ResourceChange><Action>{a}</Action>\
                      <LogicalResourceId>{id}</LogicalResourceId><ResourceType>{ty}</ResourceType>\
-                     <Replacement>False</Replacement></ResourceChange></member>"
+                     <Replacement>{replacement}</Replacement>{scope}{details}</ResourceChange></member>"
                 )
             })
             .collect();

@@ -305,7 +305,8 @@ async fn a_slow_jev_leaves_the_request_as_judge_offs_and_its_late_row_lands() {
 fn normalized(reqs: &[String], ids: &[&str]) -> Vec<String> {
     reqs.iter()
         .map(|r| {
-            let mut r = r.clone();
+            // A handle is its node's id's end (theseus-ejdk): another run's.
+            let mut r = theseus_protocol::cite::rewrite(r, |_| Some("[m:H]".into()));
             for (i, id) in ids.iter().enumerate() {
                 r = r.replace(id, &format!("<session {i}>"));
             }

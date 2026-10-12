@@ -133,10 +133,10 @@ fn example_template_uncommented_still_parses() {
         "file:~/.config/theseus/deploy-key"
     );
     // The 1-hour cache TTL (theseus-ev1), on the implicit profile and on
-    // the Sonnet one; the GLM one keeps the default.
+    // the Sonnet one; the GLM one says none, so inherits it (theseus-ezeg).
     assert_eq!(cfg.model.cache_ttl, CacheTtl::OneHour);
-    assert_eq!(cfg.profiles["sonnet"].cache_ttl, CacheTtl::OneHour);
-    assert_eq!(cfg.profiles["glm"].cache_ttl, CacheTtl::FiveMinutes);
+    assert_eq!(cfg.profiles["sonnet"].cache_ttl, Some(CacheTtl::OneHour));
+    assert_eq!(cfg.profile("glm").unwrap().ttl(), CacheTtl::OneHour);
     let new = &cfg.catalog["some-new-model"];
     assert_eq!(
         (new.cache_write_1h_per_mtok, new.caches),
@@ -151,7 +151,8 @@ fn example_template_uncommented_still_parses() {
     assert_eq!(cfg.policy.tools["aws.stack.apply"], Posture::Approve);
     assert_eq!(cfg.policy.tools["extend.propose"], Posture::Notify);
     assert_eq!(cfg.policy.tools["channel.post"], Posture::Notify);
-    assert_eq!(cfg.policy.tools.len(), 50);
+    // The two lines the model's wake.move and wake.cancel joined with (theseus-lherl).
+    assert_eq!(cfg.policy.tools.len(), 55);
     // The AWS account's table, and [policy.aws]'s lines (rows 29 and 30, C1 and C2).
     let a = &cfg.aws.accounts["111122223333"];
     assert_eq!(a.credentials, AwsCredentialNames::default());
@@ -283,6 +284,8 @@ fn example_template_lists_every_tool_under_policy_tools() {
         "aws.describe",
         "term.read",
         "term.close",
+        "job.read",
+        "job.wait",
         "memory.lookup",
     ];
     for r in reads {
@@ -787,7 +790,13 @@ fn an_approval_section_is_retired_and_loads_with_a_warning() {
             assert_eq!(w, [APPROVAL_RETIRED], "{section}");
             assert!(cfg.approval.is_some());
             let shown = toml::to_string_pretty(&cfg).unwrap();
-            assert!(!shown.contains("approval"), "{shown}");
+            // The retired section is not written back: no `[approval]` table
+            // and no `approval` key (`[policy.earned] min_approvals` is no such key).
+            assert!(
+                !shown.contains("[approval")
+                    && !shown.lines().any(|l| l.trim_start().starts_with("approval")),
+                "{shown}"
+            );
         }
 }
 
@@ -913,33 +922,30 @@ fn a_url_that_could_carry_a_credential_is_named() {
 }
 
 /// `cache_ttl` (theseus-ev1) is "5m" or "1h", on a profile and on
-/// `[model]`, whose implicit profile carries it. The default, 5 minutes,
-/// serializes as nothing, and any other value is refused.
+/// `[model]`, whose implicit profile carries it. A profile that says
+/// none inherits `[model]`'s (theseus-ezeg): the raw profile keeps
+/// none, and serializes none; any other value is refused.
 #[test]
 fn cache_ttl_is_five_minutes_or_an_hour_per_profile() {
     let on_sonnet =
         Config::EXAMPLE_TOML.replace("\n[profiles.glm]", "\ncache_ttl = \"1h\"\n\n[profiles.glm]");
     let (cfg, _) = Config::parse(&on_sonnet).unwrap();
-    assert_eq!(cfg.profile("sonnet").unwrap().cache_ttl, CacheTtl::OneHour);
-    assert_eq!(cfg.profile("glm").unwrap().cache_ttl, CacheTtl::FiveMinutes);
-    assert_eq!(
-        cfg.profile("default").unwrap().cache_ttl,
-        CacheTtl::FiveMinutes
-    );
-    let text = toml::to_string(cfg.profile("glm").unwrap()).unwrap();
+    assert_eq!(cfg.profile("sonnet").unwrap().ttl(), CacheTtl::OneHour);
+    assert_eq!(cfg.profile("glm").unwrap().ttl(), CacheTtl::FiveMinutes);
+    assert_eq!(cfg.profile("default").unwrap().ttl(), CacheTtl::FiveMinutes);
+    let text = toml::to_string(&cfg.profiles["glm"]).unwrap();
     assert!(!text.contains("cache_ttl"), "{text}");
-    let text = toml::to_string(cfg.profile("sonnet").unwrap()).unwrap();
+    let text = toml::to_string(&cfg.profiles["sonnet"]).unwrap();
     assert!(text.contains("cache_ttl = \"1h\""), "{text}");
 
+    // A 1-hour `[model]`: the default profile and every profile that
+    // says none, sonnet's and glm's, cache for an hour.
     let on_model =
         Config::EXAMPLE_TOML.replace("live = \"sonnet\"", "live = \"sonnet\"\ncache_ttl = \"1h\"");
     let (cfg, _) = Config::parse(&on_model).unwrap();
-    assert_eq!(cfg.profile("default").unwrap().cache_ttl, CacheTtl::OneHour);
-    assert_eq!(
-        cfg.profile("sonnet").unwrap().cache_ttl,
-        CacheTtl::FiveMinutes
-    );
-
+    assert_eq!(cfg.profile("default").unwrap().ttl(), CacheTtl::OneHour);
+    assert_eq!(cfg.profile("sonnet").unwrap().ttl(), CacheTtl::OneHour);
+    assert_eq!(cfg.ttl_of("glm"), Some((CacheTtl::OneHour, "model")));
     let wrong = Config::EXAMPLE_TOML.replace(
         "\n[profiles.glm]",
         "\ncache_ttl = \"10m\"\n\n[profiles.glm]",

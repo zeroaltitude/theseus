@@ -15,6 +15,8 @@
 // before a click. The click's bell and the sea wait for the browser's answer: `surf` asks for a height, and nothing of
 // the sea is made until the context runs.
 import type { Cue } from './sound'
+import { gullBuild, type GullVoice } from './gullsound.ts'
+import type { GullCall } from './gull.ts'
 import {
   DUCK, DUCK_ATTACK_S, DUCK_RELEASE_S, fadeTo, NOISE_S, pinkNoise, SURF_BACKWASH_S, SURF_BODY_HZ, SURF_FADE_IN_S,
   SURF_FADE_OUT_S, SURF_FOAM, SURF_HISS, SURF_HISS_HZ, SURF_RUMBLE_HZ, SURF_WASH_HZ, surfTau, surfVoice, surfWaves, WAVES_RATE,
@@ -49,6 +51,8 @@ export class ShipAudio {
   private surfWant = 0
   private surfNow: Surf | null = null
   private surfBufs: { noise: AudioBuffer[]; waves: AudioBuffer } | null = null
+  /** The gulls passing now (theseus-7mow): one visit is never two close together, but a stop must end them all. */
+  private gulls = new Set<GullVoice>()
 
   /** Whether sound can play now (its context runs). */
   get running(): boolean {
@@ -128,7 +132,30 @@ export class ShipAudio {
     return this.surfNow && { height: this.surfNow.height, voice: this.surfNow.voice }
   }
 
+  /** A gull passing (`gull.ts`), where the sound runs; false when it can't (no context, or the browser holds it). */
+  gull(call: GullCall): boolean {
+    const c = this.ctx
+    if (!c || !this.master || (this.live && this.live.state !== 'running')) return false
+    const v = gullBuild(c, this.master, c.currentTime + 0.05, call)
+    this.gulls.add(v)
+    v.sources[v.sources.length - 1].onended = () => { v.out.disconnect(); this.gulls.delete(v) }
+    return true
+  }
+
+  /** How many gulls are in the air, for the tests. */
+  get gullsHeard(): number {
+    return this.gulls.size
+  }
+
+  /** Every gull ends at once: sound off, Calm, or the page leaving. */
+  gullStop() {
+    const t = this.ctx?.currentTime ?? 0
+    for (const v of this.gulls) v.stop(t)
+    this.gulls.clear()
+  }
+
   dispose() {
+    this.gullStop()
     void this.live?.close().catch(() => {})
     this.live = null
     this.ctx = null

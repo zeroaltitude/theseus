@@ -2,6 +2,7 @@
 // frozen copy, with its manifest, digest, files, tests, who acked it, its calls and errors, and Revoke; then the
 // proposals that are not loaded. A read of `extend.list`, only while it is on screen; Revoke is `extension.revoke`,
 // confirmed first, which the core judges as the operator's.
+import { CARD_BODY } from '@/lib/cardfit'
 import { useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router'
@@ -18,7 +19,7 @@ export function ExtensionsCard({ now }: { now: number }) {
   const loaded = data?.loaded ?? []
   const proposals = data ? proposalsNotLoaded(data) : []
   return (
-    <Panel title="Extensions" icon={<Puzzle size={13} />} bodyClassName="px-3.5 py-2.5">
+    <Panel help="systems.extensions" title="Extensions" icon={<Puzzle size={13} />} bodyClassName={CARD_BODY}>
       {!data && <Empty>reading extensions…</Empty>}
       {data && !loaded.length && !proposals.length && <Empty>No extension has been proposed.</Empty>}
       {loaded.map((l) => <Loaded key={l.name} l={l} now={now} manifest={data?.extensions.find((e) => e.name === l.name && e.digest === l.digest)} />)}

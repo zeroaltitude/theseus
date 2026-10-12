@@ -1,0 +1,459 @@
+{
+  "since_ms": 1791748494560,
+  "until_ms": 1791748532196,
+  "scope": [],
+  "rows": 184,
+  "summary": {
+    "sessions": [
+      "ses_01a12c88550275d8968b8ba7f7b95695",
+      "ses_01a12c8855347063817590df7f915185",
+      "ses_01a12c88557b7654b1210a7b398d6b62",
+      "ses_01a12c8855b0729ea92e6e929fa16164",
+      "ses_01a12c88561e74aa87e8336dfc1810dd",
+      "ses_01a12c88565a77b78d50a5217d81c28e",
+      "ses_01a12c88664870f5b2511fa7f44730ca",
+      "ses_01a12c88664870f5b2511fa9c7109687",
+      "ses_01a12c886679726ba0f63d06c431537e",
+      "ses_01a12c8866df765ea662896cd82adbe1"
+    ],
+    "tasks": [
+      "ses_01a12c886679726ba0f63d06c431537e"
+    ],
+    "turns": 17,
+    "turns_failed": 0,
+    "spent_usd": 0.0045200000000000014,
+    "top_spenders": [
+      {
+        "key": "ses_01a12c88664870f5b2511fa9c7109687",
+        "usd": 0.00068,
+        "calls": 3
+      },
+      {
+        "key": "ses_01a12c886679726ba0f63d06c431537e",
+        "usd": 0.00068,
+        "calls": 3
+      },
+      {
+        "key": "ses_01a12c8866df765ea662896cd82adbe1",
+        "usd": 0.00068,
+        "calls": 3
+      }
+    ],
+    "restarts": 1,
+    "asked": 2,
+    "answered": 1,
+    "expired": 1,
+    "first_failure": {
+      "at_ms": 1791748494830,
+      "position": 141,
+      "session": "ses_01a12c8855b0729ea92e6e929fa16164",
+      "kind": "call",
+      "text": "tool call `fs.read` failed (inproc:fs.read) after 1 ms"
+    }
+  },
+  "restarts": [
+    {
+      "position": 472,
+      "stopped_at_ms": null,
+      "crashed": false,
+      "crash": null,
+      "started_at_ms": 1791748513304,
+      "serving_at_ms": 1791748513304,
+      "down_ms": 14054,
+      "requeued": [
+        {
+          "session": "ses_01a12c88664870f5b2511fa9c7109687",
+          "execution": "exe_01a12c88664870f5b2511faa1a1e91a0",
+          "turn": "turn_01a12c88664e76a6a498e439fdefedff"
+        },
+        {
+          "session": "ses_01a12c886679726ba0f63d06c431537e",
+          "execution": "exe_01a12c886679726ba0f63d06c431537e",
+          "turn": "turn_01a12c8866877351b81b38c3d2dc5194"
+        }
+      ],
+      "spool_drained": 0,
+      "unknown": [],
+      "wakes_late": [
+        {
+          "position": 488,
+          "at_ms": 1791748513318,
+          "session": "ses_01a12c8866df765ea662896cd82adbe1",
+          "wake": "wak_01a12c8867067431b8140c7a98f15494",
+          "late_ms": 4107
+        }
+      ]
+    }
+  ],
+  "timeline": [
+    {
+      "at_ms": 1791748494639,
+      "position": 102,
+      "session": "ses_01a12c88550275d8968b8ba7f7b95695",
+      "kind": "quiet",
+      "text": "… 3 turns, $0.0007, nothing notable …",
+      "folded": 3,
+      "usd": 0.00072
+    },
+    {
+      "at_ms": 1791748494773,
+      "position": 113,
+      "session": "ses_01a12c8855b0729ea92e6e929fa16164",
+      "kind": "turn",
+      "text": "turn turn_01a12c8855b5729b853669059f05b4c7 started (owner)"
+    },
+    {
+      "at_ms": 1791748494830,
+      "position": 141,
+      "session": "ses_01a12c8855b0729ea92e6e929fa16164",
+      "kind": "call",
+      "text": "tool call `fs.read` failed (inproc:fs.read) after 1 ms"
+    },
+    {
+      "at_ms": 1791748494870,
+      "position": 159,
+      "session": "ses_01a12c8855b0729ea92e6e929fa16164",
+      "kind": "turn",
+      "text": "turn turn_01a12c8855b5729b853669059f05b4c7 ended in 97 ms, $0.0004; 2 loops, 1 tool calls, stopped: no_tool_calls",
+      "usd": 0.00044
+    },
+    {
+      "at_ms": 1791748494883,
+      "position": 170,
+      "session": "ses_01a12c88561e74aa87e8336dfc1810dd",
+      "kind": "turn",
+      "text": "turn turn_01a12c88562372a5b7368410657f8295 started (owner)"
+    },
+    {
+      "at_ms": 1791748494929,
+      "position": 192,
+      "session": "ses_01a12c88561e74aa87e8336dfc1810dd",
+      "kind": "ask",
+      "text": "asked to approve `fs.write`: create /srv/theseus/projects/notes.txt (6 bytes): fs.write — approve ([policy.tools] \"fs.write\" = approve)"
+    },
+    {
+      "at_ms": 1791748494931,
+      "position": 195,
+      "session": "ses_01a12c88561e74aa87e8336dfc1810dd",
+      "kind": "turn",
+      "text": "turn turn_01a12c88562372a5b7368410657f8295 ended in 48 ms, $0.0002; 1 loops, 1 tool calls, stopped: awaiting_confirm",
+      "usd": 0.0002
+    },
+    {
+      "at_ms": 1791748494942,
+      "position": 206,
+      "session": "ses_01a12c88565a77b78d50a5217d81c28e",
+      "kind": "turn",
+      "text": "turn turn_01a12c88565e7469882251a6cfb0c8d6 started (owner)"
+    },
+    {
+      "at_ms": 1791748494986,
+      "position": 228,
+      "session": "ses_01a12c88565a77b78d50a5217d81c28e",
+      "kind": "ask",
+      "text": "asked to approve `fs.write`: create /srv/theseus/projects/notes.txt (7 bytes): fs.write — approve ([policy.tools] \"fs.write\" = approve)"
+    },
+    {
+      "at_ms": 1791748494988,
+      "position": 231,
+      "session": "ses_01a12c88565a77b78d50a5217d81c28e",
+      "kind": "turn",
+      "text": "turn turn_01a12c88565e7469882251a6cfb0c8d6 ended in 46 ms, $0.0002; 1 loops, 1 tool calls, stopped: awaiting_confirm",
+      "usd": 0.0002
+    },
+    {
+      "at_ms": 1791748499004,
+      "position": 237,
+      "session": "ses_01a12c88565a77b78d50a5217d81c28e",
+      "kind": "ask",
+      "text": "`fs.write` approved by the CLI from cli after 4.0 s"
+    },
+    {
+      "at_ms": 1791748499021,
+      "position": 266,
+      "session": "ses_01a12c88664870f5b2511fa7f44730ca",
+      "kind": "turn",
+      "text": "turn turn_01a12c88664d76b5be481e392f8dcf42 started (owner)"
+    },
+    {
+      "at_ms": 1791748499022,
+      "position": 269,
+      "session": "ses_01a12c88664870f5b2511fa9c7109687",
+      "kind": "turn",
+      "text": "turn turn_01a12c88664e76a6a498e439fdefedff started (owner)"
+    },
+    {
+      "at_ms": 1791748499070,
+      "position": 345,
+      "session": "ses_01a12c88565a77b78d50a5217d81c28e",
+      "kind": "quiet",
+      "text": "turn turn_01a12c886642706aafb4aa8c9481eadc (harness) ended in 60 ms, $0.0002; 1 loops, 0 tool calls, stopped: no_tool_calls",
+      "usd": 0.00024
+    },
+    {
+      "at_ms": 1791748499071,
+      "position": 339,
+      "session": "ses_01a12c88664870f5b2511fa7f44730ca",
+      "kind": "task",
+      "text": "task tsk_01a12c886679726ba0f63d06c431537e created: Run the long job and report."
+    },
+    {
+      "at_ms": 1791748499071,
+      "position": 340,
+      "session": "ses_01a12c886679726ba0f63d06c431537e",
+      "kind": "task",
+      "text": "task opened, limit $25.00"
+    },
+    {
+      "at_ms": 1791748499079,
+      "position": 357,
+      "session": "ses_01a12c886679726ba0f63d06c431537e",
+      "kind": "turn",
+      "text": "turn turn_01a12c8866877351b81b38c3d2dc5194 started (task start)"
+    },
+    {
+      "at_ms": 1791748499124,
+      "position": 398,
+      "session": "ses_01a12c88664870f5b2511fa7f44730ca",
+      "kind": "turn",
+      "text": "turn turn_01a12c88664d76b5be481e392f8dcf42 ended in 103 ms, $0.0004; 2 loops, 1 tool calls, stopped: no_tool_calls",
+      "usd": 0.00044
+    },
+    {
+      "at_ms": 1791748499250,
+      "position": 458,
+      "session": "ses_01a12c8866df765ea662896cd82adbe1",
+      "kind": "quiet",
+      "text": "turn turn_01a12c8866e37399aa992f2ae2783e4e (owner) ended in 79 ms, $0.0004; 2 loops, 1 tool calls, stopped: no_tool_calls",
+      "usd": 0.00044
+    },
+    {
+      "at_ms": 1791748513295,
+      "position": 463,
+      "session": "ses_01a12c88664870f5b2511fa9c7109687",
+      "kind": "turn",
+      "text": "turn turn_01a12c88664e76a6a498e439fdefedff interrupted by a restart of the daemon",
+      "usd": 0.0
+    },
+    {
+      "at_ms": 1791748513297,
+      "position": 465,
+      "session": "ses_01a12c886679726ba0f63d06c431537e",
+      "kind": "turn",
+      "text": "turn turn_01a12c8866877351b81b38c3d2dc5194 interrupted by a restart of the daemon",
+      "usd": 0.0
+    },
+    {
+      "at_ms": 1791748513304,
+      "position": 473,
+      "session": null,
+      "kind": "daemon",
+      "text": "daemon started again after it was killed"
+    },
+    {
+      "at_ms": 1791748513315,
+      "position": 485,
+      "session": "ses_01a12c8866df765ea662896cd82adbe1",
+      "kind": "turn",
+      "text": "turn turn_01a12c889e237094b137914a607e9d45 started (wake)"
+    },
+    {
+      "at_ms": 1791748513315,
+      "position": 489,
+      "session": "ses_01a12c88664870f5b2511fa9c7109687",
+      "kind": "turn",
+      "text": "turn turn_01a12c889e237094b13791499b9fc8e8 started (resumed after a restart)"
+    },
+    {
+      "at_ms": 1791748513317,
+      "position": 491,
+      "session": "ses_01a12c886679726ba0f63d06c431537e",
+      "kind": "turn",
+      "text": "turn turn_01a12c889e25700da680e87c61e1b316 started (resumed after a restart)"
+    },
+    {
+      "at_ms": 1791748513318,
+      "position": 488,
+      "session": "ses_01a12c8866df765ea662896cd82adbe1",
+      "kind": "wake",
+      "text": "wake wak_01a12c8867067431b8140c7a98f15494 fired 4.1 s late (it came due while the daemon was down)"
+    },
+    {
+      "at_ms": 1791748513366,
+      "position": 529,
+      "session": "ses_01a12c886679726ba0f63d06c431537e",
+      "kind": "turn",
+      "text": "turn turn_01a12c889e25700da680e87c61e1b316 ended in 49 ms, $0.0002; 1 loops, 0 tool calls, stopped: no_tool_calls",
+      "usd": 0.00024
+    },
+    {
+      "at_ms": 1791748513373,
+      "position": 541,
+      "session": "ses_01a12c8866df765ea662896cd82adbe1",
+      "kind": "turn",
+      "text": "turn turn_01a12c889e237094b137914a607e9d45 ended in 58 ms, $0.0002; 1 loops, 0 tool calls, stopped: no_tool_calls",
+      "usd": 0.00024
+    },
+    {
+      "at_ms": 1791748513374,
+      "position": 547,
+      "session": "ses_01a12c88664870f5b2511fa9c7109687",
+      "kind": "turn",
+      "text": "turn turn_01a12c889e237094b13791499b9fc8e8 ended in 59 ms, $0.0002; 1 loops, 0 tool calls, stopped: no_tool_calls",
+      "usd": 0.00024
+    },
+    {
+      "at_ms": 1791748520312,
+      "position": 553,
+      "session": "ses_01a12c88561e74aa87e8336dfc1810dd",
+      "kind": "ask",
+      "text": "question about `fs.write` expired unanswered after 25.0 s"
+    },
+    {
+      "at_ms": 1791748520598,
+      "position": 575,
+      "session": "ses_01a12c88561e74aa87e8336dfc1810dd",
+      "kind": "quiet",
+      "text": "turn turn_01a12c88ba6773e592ae554d9ce0a3b6 (harness) ended in 47 ms, $0.0002; 1 loops, 0 tool calls, stopped: no_tool_calls",
+      "usd": 0.00024
+    },
+    {
+      "at_ms": 1791748521135,
+      "position": 606,
+      "session": "ses_01a12c88664870f5b2511fa9c7109687",
+      "kind": "quiet",
+      "text": "turn turn_01a12c88bc887419bd4ddb79d559412d (job result) ended in 39 ms, $0.0002; 1 loops, 0 tool calls, stopped: no_tool_calls",
+      "usd": 0.00024
+    },
+    {
+      "at_ms": 1791748532142,
+      "position": 613,
+      "session": "ses_01a12c886679726ba0f63d06c431537e",
+      "kind": "call",
+      "text": "tool call `proc.run` ran 33.0 s"
+    },
+    {
+      "at_ms": 1791748532194,
+      "position": 638,
+      "session": "ses_01a12c886679726ba0f63d06c431537e",
+      "kind": "quiet",
+      "text": "turn turn_01a12c88e7b6741884e1db9ea93573c3 (job result) ended in 44 ms, $0.0002; 1 loops, 0 tool calls, stopped: no_tool_calls",
+      "usd": 0.00024
+    },
+    {
+      "at_ms": 1791748532196,
+      "position": 643,
+      "session": "ses_01a12c88664870f5b2511fa7f44730ca",
+      "kind": "task",
+      "text": "task exe_01a12c886679726ba0f63d06c431537e ended complete (reported), spent $0.0007 of $25.00"
+    },
+    {
+      "at_ms": 1791748532196,
+      "position": 645,
+      "session": "ses_01a12c886679726ba0f63d06c431537e",
+      "kind": "task",
+      "text": "task tsk_01a12c886679726ba0f63d06c431537e closed done"
+    }
+  ],
+  "cost": {
+    "total_usd": 0.0045200000000000014,
+    "by_session": [
+      {
+        "key": "ses_01a12c88664870f5b2511fa9c7109687",
+        "usd": 0.00068,
+        "calls": 3
+      },
+      {
+        "key": "ses_01a12c886679726ba0f63d06c431537e",
+        "usd": 0.00068,
+        "calls": 3
+      },
+      {
+        "key": "ses_01a12c8866df765ea662896cd82adbe1",
+        "usd": 0.00068,
+        "calls": 3
+      },
+      {
+        "key": "ses_01a12c8855b0729ea92e6e929fa16164",
+        "usd": 0.00044,
+        "calls": 2
+      },
+      {
+        "key": "ses_01a12c88561e74aa87e8336dfc1810dd",
+        "usd": 0.00044,
+        "calls": 2
+      },
+      {
+        "key": "ses_01a12c88565a77b78d50a5217d81c28e",
+        "usd": 0.00044,
+        "calls": 2
+      },
+      {
+        "key": "ses_01a12c88664870f5b2511fa7f44730ca",
+        "usd": 0.00044,
+        "calls": 2
+      },
+      {
+        "key": "ses_01a12c88550275d8968b8ba7f7b95695",
+        "usd": 0.00024,
+        "calls": 1
+      },
+      {
+        "key": "ses_01a12c8855347063817590df7f915185",
+        "usd": 0.00024,
+        "calls": 1
+      },
+      {
+        "key": "ses_01a12c88557b7654b1210a7b398d6b62",
+        "usd": 0.00024,
+        "calls": 1
+      }
+    ],
+    "by_model": [
+      {
+        "key": "claude-sonnet-5-5",
+        "usd": 0.0045200000000000014,
+        "calls": 20
+      }
+    ],
+    "held": [],
+    "held_usd": -0.0
+  },
+  "asked": [
+    {
+      "position": 192,
+      "session": "ses_01a12c88561e74aa87e8336dfc1810dd",
+      "correlation_id": "act_01a12c88564e75aca6000e4e1429f8f9",
+      "tool": "fs.write",
+      "reason": "create /srv/theseus/projects/notes.txt (6 bytes): fs.write — approve ([policy.tools] \"fs.write\" = approve)",
+      "asked_at_ms": 1791748494929,
+      "outcome": "expired",
+      "answered_at_ms": 1791748520312,
+      "answered_position": 553,
+      "by": null,
+      "via": null,
+      "latency_ms": 25000
+    },
+    {
+      "position": 228,
+      "session": "ses_01a12c88565a77b78d50a5217d81c28e",
+      "correlation_id": "act_01a12c88568670899725f1962ed69c59",
+      "tool": "fs.write",
+      "reason": "create /srv/theseus/projects/notes.txt (7 bytes): fs.write — approve ([policy.tools] \"fs.write\" = approve)",
+      "asked_at_ms": 1791748494986,
+      "outcome": "approved",
+      "answered_at_ms": 1791748499004,
+      "answered_position": 237,
+      "by": "the CLI",
+      "via": "cli",
+      "latency_ms": 4018
+    }
+  ],
+  "open": {
+    "turns": [],
+    "questions": [],
+    "wakes": [],
+    "reservations": [],
+    "reserved_usd": -0.0
+  }
+}

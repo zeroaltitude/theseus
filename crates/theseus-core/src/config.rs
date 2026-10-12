@@ -13,14 +13,20 @@ use crate::places::PlacesConfig;
 use crate::secrets::{OpReader, SecretRef};
 
 mod aws;
+mod context;
+pub use context::ContextConfig;
+mod cache;
+pub use cache::{CacheConfig, CacheTtl};
 pub mod discord;
 mod index;
 pub use index::IndexConfig;
+pub mod earned;
 mod judge;
 mod limits;
 mod lookup;
 pub(crate) mod lsp;
 pub(crate) mod memory;
+mod outputs;
 pub(crate) mod people;
 pub(crate) mod routing;
 pub mod rsi;
@@ -28,12 +34,14 @@ mod sessions;
 pub use sessions::SessionsConfig;
 mod sparse;
 pub mod term;
+mod web;
 pub use aws::{
     default_hourly_alert_usd, default_runaway_factor, AwsAccountConfig, AwsConfig,
     AwsCredentialNames, HandsNetwork,
 };
 pub use judge::{JudgeConfig, JudgePackConfig, PackMode, SignalsConfig};
-pub use limits::{default_parallel_runs, MaxLoopsMode, SpendLimitMode};
+pub use limits::{default_parallel_runs, DailyCeilingMode, MaxLoopsMode, SpendLimitMode};
+pub use web::{WebToolsConfig, WEB_TIMEOUT_MAX_SECS};
 // Where the config comes from when nothing names one (theseus-5aqz).
 pub use lookup::{find_config, Lookup, DEFAULT_CONFIG, NO_CONFIG, SYSTEM_CONFIG};
 pub use lsp::{LspConfig, LspServerConfig};
@@ -136,6 +144,9 @@ pub struct Config {
     /// `[sessions]`: the state windows and the re-title (theseus-emqx).
     #[serde(default, skip_serializing_if = "SessionsConfig::is_default")]
     pub sessions: SessionsConfig,
+    /// `[cache]`: the keep-warm read and the cold rewrite's stubs (theseus-ezeg).
+    #[serde(default, skip_serializing_if = "CacheConfig::is_default")]
+    pub cache: CacheConfig,
     /// `[people]`: people proposed from text (theseus-wy7y), `config/people.rs`.
     #[serde(default, skip_serializing_if = "people::PeopleConfig::is_default")]
     pub people: people::PeopleConfig,
@@ -302,6 +313,13 @@ pub struct ToolsConfig {
     /// and dropped, and its result says so. The runtime reads only the file's last 4 MiB.
     #[serde(default = "default_job_output_max_bytes")]
     pub job_output_max_bytes: u64,
+    /// A capped result's whole output, kept in `<state>/outputs/` (theseus-v73m),
+    /// is deleted after this many days, at its session's retirement, or,
+    /// oldest first, while all of them pass `outputs_max_bytes`.
+    #[serde(default = "outputs::keep_days")]
+    pub outputs_keep_days: u64,
+    #[serde(default = "outputs::max_bytes")]
+    pub outputs_max_bytes: u64,
     /// Each L0 job's cgroup's `pids.max` (theseus-a5nv), where the daemon's
     /// cgroup is delegated: its processes and threads at once. 0: no cap.
     #[serde(default = "default_job_pids_max")]
@@ -312,46 +330,6 @@ pub struct ToolsConfig {
     #[serde(default)]
     pub term: term::TermToolsConfig,
 }
-
-/// `[tools.web]`: the limits of `http.fetch` and `web.search`, and the secret
-/// that holds the search key (DD5).
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct WebToolsConfig {
-    /// A fetch's or a search's whole time, redirects included.
-    #[serde(default = "default_web_timeout_secs")]
-    pub timeout_secs: u64,
-    /// The most bytes of a body a fetch reads; a call may ask for fewer.
-    #[serde(default = "default_web_max_bytes")]
-    pub max_bytes: usize,
-    /// The `[secrets]` entry that holds the Brave Search API key.
-    #[serde(default = "default_search_key_secret")]
-    pub search_key_secret: String,
-}
-
-fn default_web_timeout_secs() -> u64 {
-    30
-}
-fn default_web_max_bytes() -> usize {
-    2 * 1024 * 1024
-}
-fn default_search_key_secret() -> String {
-    "brave_api_key".into()
-}
-
-impl Default for WebToolsConfig {
-    fn default() -> Self {
-        Self {
-            timeout_secs: default_web_timeout_secs(),
-            max_bytes: default_web_max_bytes(),
-            search_key_secret: default_search_key_secret(),
-        }
-    }
-}
-
-/// The longest a web call may take: every in-process call ends by the
-/// runtime's deadline (120 s), so a web call's own timeout must come first.
-pub const WEB_TIMEOUT_MAX_SECS: u64 = 110;
 
 fn default_approve_paths() -> Vec<String> {
     [
@@ -435,6 +413,8 @@ impl Default for ToolsConfig {
             proc_env: default_proc_env(),
             job_output_max_bytes: default_job_output_max_bytes(),
             job_pids_max: default_job_pids_max(),
+            outputs_keep_days: outputs::keep_days(),
+            outputs_max_bytes: outputs::max_bytes(),
             web: WebToolsConfig::default(),
             term: term::TermToolsConfig::default(),
         }
@@ -529,6 +509,9 @@ pub struct PolicyConfig {
     /// then its class's (`read`), then `enforcement`.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub aws: BTreeMap<String, crate::policy::Posture>,
+    /// `[policy.earned]` (theseus-uttu): the weekly loosening card.
+    #[serde(default)]
+    pub earned: earned::EarnedConfig,
 }
 
 fn argvs(v: &[&[&str]]) -> Vec<Vec<String>> {
@@ -570,6 +553,7 @@ impl Default for PolicyConfig {
             external_text: Default::default(),
             external_programs: default_external_programs(),
             private_addresses: Default::default(),
+            earned: Default::default(),
             aws: BTreeMap::new(),
         }
     }
@@ -582,15 +566,36 @@ pub struct KernelSection {
     /// How many executions may hold a turn at once.
     #[serde(default = "default_admission_ceiling")]
     pub admission_ceiling: u32,
+    /// How long admission may go without admitting any turn before a
+    /// waiting turn fails (theseus-4g0l): a queue that moves fails none.
+    #[serde(default = "default_admission_stuck_secs")]
+    pub admission_stuck_secs: u64,
     /// Each session's spend limit in US dollars (theseus-0sg). What reaching
     /// it does is `spend_limit_mode`: a notice, or the question (theseus-usei).
     #[serde(default = "limits::default_spend_limit_usd")]
     pub spend_limit_usd: f64,
     #[serde(default, skip_serializing_if = "SpendLimitMode::is_default")]
     pub spend_limit_mode: SpendLimitMode,
+    /// Under notify, the multiple of the limit at which calls stop anyway
+    /// (theseus-jse4); 0 never.
+    #[serde(default = "limits::default_hard_multiple")]
+    pub spend_limit_hard_multiple: u64,
     /// The daemon's day ceiling over every model call (theseus-kp20).
     #[serde(default = "limits::default_daily_ceiling_usd")]
     pub daily_spend_ceiling_usd: f64,
+    /// What reaching it does (theseus-9e02): a warning, or the stop.
+    #[serde(default, skip_serializing_if = "DailyCeilingMode::is_default")]
+    pub daily_spend_ceiling_mode: DailyCeilingMode,
+    /// Under notify, where the day stops (theseus-9e02); 0 never.
+    #[serde(default = "limits::default_daily_runaway_usd")]
+    pub daily_runaway_usd: f64,
+    /// Under notify, a warning at the ceiling and every this much after it.
+    #[serde(default = "limits::default_daily_notice_step_usd")]
+    pub daily_notice_step_usd: f64,
+    /// A session pauses, and asks to resume, when its settled spend in ten
+    /// minutes reaches this; 0 never.
+    #[serde(default = "limits::default_runaway_per_10min_usd")]
+    pub runaway_usd_per_10min: f64,
     /// Retired (theseus-0sg): budget units, and the units kept back as a
     /// control reserve. Both still load, so an older config starts, and are
     /// never honored: budgets are dollars, and nothing reserves for control
@@ -622,6 +627,9 @@ pub struct KernelSection {
 fn default_admission_ceiling() -> u32 {
     8
 }
+fn default_admission_stuck_secs() -> u64 {
+    600
+}
 fn default_heartbeat_secs() -> u64 {
     60
 }
@@ -642,9 +650,15 @@ impl Default for KernelSection {
     fn default() -> Self {
         Self {
             admission_ceiling: default_admission_ceiling(),
+            admission_stuck_secs: default_admission_stuck_secs(),
             spend_limit_usd: limits::default_spend_limit_usd(),
             spend_limit_mode: SpendLimitMode::default(),
+            spend_limit_hard_multiple: limits::default_hard_multiple(),
             daily_spend_ceiling_usd: limits::default_daily_ceiling_usd(),
+            daily_spend_ceiling_mode: DailyCeilingMode::default(),
+            daily_runaway_usd: limits::default_daily_runaway_usd(),
+            daily_notice_step_usd: limits::default_daily_notice_step_usd(),
+            runaway_usd_per_10min: limits::default_runaway_per_10min_usd(),
             default_budget: None,
             control_reserve: None,
             heartbeat_secs: default_heartbeat_secs(),
@@ -668,6 +682,11 @@ impl KernelSection {
         .collect()
     }
 
+    /// The admission queue's stuck window: at least a second.
+    pub fn admission_stuck(&self) -> std::time::Duration {
+        std::time::Duration::from_secs(self.admission_stuck_secs.max(1))
+    }
+
     /// A task claim's lease, in milliseconds: at least a minute.
     pub fn task_lease_ms(&self) -> u64 {
         self.task_lease_minutes.max(1) * 60_000
@@ -684,6 +703,11 @@ impl KernelSection {
             fault_after_startup_step: None,
             min_repeat_ms: self.min_repeat_minutes.max(1) * 60_000,
             daily_ceiling_micros: theseus_kernel::usd_to_micros(self.daily_spend_ceiling_usd),
+            spend_hard_multiple: self.spend_limit_hard_multiple,
+            daily_notify: self.daily_spend_ceiling_mode == DailyCeilingMode::Notify,
+            daily_runaway_micros: theseus_kernel::usd_to_micros(self.daily_runaway_usd),
+            daily_step_micros: theseus_kernel::usd_to_micros(self.daily_notice_step_usd),
+            burn_line_micros: theseus_kernel::usd_to_micros(self.runaway_usd_per_10min),
             // The system's zone.
             ..Default::default()
         }
@@ -847,46 +871,12 @@ pub struct ProfileConfig {
     /// Server-side refusal fallbacks where the model supports them.
     #[serde(default = "default_true")]
     pub refusal_fallbacks: bool,
-    /// How long the provider keeps the profile's cached prefixes (theseus-ev1).
-    #[serde(default, skip_serializing_if = "CacheTtl::is_default")]
-    pub cache_ttl: CacheTtl,
-}
-
-/// A prompt cache entry's lifetime (theseus-ev1). Each read restarts it.
-/// `1h` writes cost 2 × input against 1.25 × for `5m`, and pay when the
-/// prefix is read again after a pause of 5 to 60 minutes. It applies to
-/// every breakpoint of a conversation's requests, the automatic one
-/// included; a task's own conversation keeps `5m` (its loops run seconds
-/// apart), after the header's `1h` entries, as the order rule asks.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
-pub enum CacheTtl {
-    #[default]
-    #[serde(rename = "5m")]
-    FiveMinutes,
-    #[serde(rename = "1h")]
-    OneHour,
-}
-
-impl CacheTtl {
-    pub fn is_default(&self) -> bool {
-        *self == Self::default()
-    }
-
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::FiveMinutes => "5m",
-            Self::OneHour => "1h",
-        }
-    }
-
-    /// The `cache_control` marker. Five minutes is the API's default, so its
-    /// marker names no `ttl`: the bytes every request carried before 13c.
-    pub fn marker(self) -> serde_json::Value {
-        match self {
-            Self::FiveMinutes => serde_json::json!({"type": "ephemeral"}),
-            Self::OneHour => serde_json::json!({"type": "ephemeral", "ttl": "1h"}),
-        }
-    }
+    /// How long the provider keeps the profile's cached prefixes (theseus-ev1);
+    /// none: `[model]`'s, as `keep_warm_hours` (theseus-ezeg, `config/cache.rs`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cache_ttl: Option<CacheTtl>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub keep_warm_hours: Option<f64>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -919,30 +909,6 @@ impl ProfileConfig {
         self.max_output_tokens
             .or_else(|| catalog.get(&self.model).map(|e| e.max_output_tokens))
             .unwrap_or(16_384)
-    }
-}
-
-/// `[context]` (theseus-c48): context files in two levels. The system
-/// level, `files`, is every session's; the files of the persona in play come
-/// after it. Each is compiled into the system block under a header naming it
-/// and its level (spec §4.4). Paths are `~/` or absolute; nothing is read at
-/// load.
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct ContextConfig {
-    /// The system level: every session's files, before any persona's.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub files: Vec<crate::context_files::ContextEntry>,
-    /// The persona in play, a key of `[personas]`. Until Jev chooses one
-    /// from its ontology of personas (theseus-8kk, theseus-0j2), this is the
-    /// only choice. Absent: no persona, and the system level alone.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub default_persona: Option<String>,
-}
-
-impl ContextConfig {
-    pub fn is_empty(&self) -> bool {
-        self.files.is_empty() && self.default_persona.is_none()
     }
 }
 
@@ -985,6 +951,11 @@ pub struct ModelConfig {
     pub refusal_fallbacks: bool,
     #[serde(default, skip_serializing_if = "CacheTtl::is_default")]
     pub cache_ttl: CacheTtl,
+    #[serde(
+        default = "cache::default_keep_warm_hours",
+        skip_serializing_if = "cache::is_default_keep_warm_hours"
+    )]
+    pub keep_warm_hours: f64,
     #[serde(default = "default_api_base")]
     pub api_base: String,
     /// Name of the entry in `[secrets]` holding the Anthropic key.
@@ -1070,6 +1041,8 @@ pub struct ServerConfig {
     /// keeps room to write. 0 refuses none.
     #[serde(default = "default_disk_floor_mb")]
     pub disk_floor_mb: u64,
+    #[serde(default)]
+    pub max_connections: u64,
 }
 
 fn default_stop_grace_ms() -> u64 {
@@ -1134,6 +1107,7 @@ impl Default for ModelConfig {
             max_loops_mode: MaxLoopsMode::default(),
             refusal_fallbacks: true,
             cache_ttl: CacheTtl::default(),
+            keep_warm_hours: cache::default_keep_warm_hours(),
             api_base: default_api_base(),
             api_key_secret: default_key_name(),
             timeouts: Default::default(),
@@ -1151,6 +1125,7 @@ impl Default for ServerConfig {
             stop_grace_ms: default_stop_grace_ms(),
             disk_warn_mb: default_disk_warn_mb(),
             disk_floor_mb: default_disk_floor_mb(),
+            max_connections: 0,
         }
     }
 }
@@ -1353,6 +1328,7 @@ impl Config {
             .validate(|p| self.all_profiles().contains_key(p))?;
         self.lsp.validate()?;
         self.sessions.validate()?;
+        self.cache.validate(self)?;
         self.people.validate()?;
         self.validate_voice()?;
         self.validate_mcp_server()?;
@@ -1571,8 +1547,10 @@ impl Config {
                 max_loops: m.max_loops,
                 max_loops_mode: m.max_loops_mode,
                 refusal_fallbacks: m.refusal_fallbacks,
-                cache_ttl: m.cache_ttl,
+                cache_ttl: Some(m.cache_ttl),
+                keep_warm_hours: Some(m.keep_warm_hours),
             });
+        cache::inherit(&mut profiles, m);
         let mut providers = cfg.providers.clone();
         providers
             .entry("anthropic".into())
@@ -1586,6 +1564,10 @@ impl Config {
             profiles,
             providers,
         };
+        // An `enabled` the config leaves out is settled by the Jev key's
+        // entry (theseus-is8t).
+        let secrets = cfg.secrets.clone();
+        cfg.judge.resolve(&secrets);
         Ok(cfg)
     }
 
@@ -1731,3 +1713,5 @@ pub fn expand_with(p: &str, var: impl Fn(&str) -> Option<String>) -> String {
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_fresh;
