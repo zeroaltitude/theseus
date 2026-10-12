@@ -229,7 +229,7 @@ def alive_command(pidfile: str) -> str:
 _SHELLS = "--not-comm bash,sh,dash,tee,timeout,stdbuf,grep,sleep"
 
 
-def theseus_arm(bin_dir: str, state: str, logs: str, session: str) -> Arm:
+def theseus_arm(bin_dir: str, state: str, logs: str, session: str, lib: str = LIB) -> Arm:
     """Theseus: kill `theseusd` (by its pid file) and the CLI client (comm
     `theseus`: the arm's own asks; the driver's calls run as `async-driver`
     and its job wrappers as `theseusd job-wrapper`, which keep their own
@@ -252,7 +252,7 @@ def theseus_arm(bin_dir: str, state: str, logs: str, session: str) -> Arm:
         + detached(f"{b}/theseus --json wait {shlex.quote(session)} --until settled", pidfile, f"{logs}/theseus.log")
     )
     return Arm("theseus",
-               procs_command(f"--pidfile {st}/theseusd.pid", "--comm theseus"),
+               procs_command(f"--pidfile {st}/theseusd.pid", "--comm theseus", lib=lib),
                start, pidfile,
                "docs/spec: the execution model (a running turn is requeued as interrupted on restart)")
 
@@ -354,6 +354,8 @@ async def fire_kill(
     pids = [p for p in found if isinstance(p, dict) and int(p.get("pid", 0)) > 1]
     if not pids:
         report["error"] = "no harness process to kill: not measurable"
+        report["found"] = found
+        report["find"] = arm.find
         return report
     r = await env.exec(
         f"python3 {q(lib)} kill-record --trigger {q(json.dumps(trigger))} --pids {q(json.dumps(pids))} "

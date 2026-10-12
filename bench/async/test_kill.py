@@ -695,7 +695,7 @@ class TheseusEndToEnd(unittest.TestCase):
             timeout_sec=140))
         session = (await env.exec(trial.session_command())).stdout.strip()
         try:
-            arm = driver.theseus_arm(trial.bin_dir, trial.state, trial.logs, session)
+            arm = driver.theseus_arm(trial.bin_dir, trial.state, trial.logs, session, lib=LIB)
             report = await driver.fire_kill(kill, arm, env, started=started, lib=LIB, restart_env=renv)
             try:
                 done = await first
