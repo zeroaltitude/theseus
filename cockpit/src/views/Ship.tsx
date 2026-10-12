@@ -21,6 +21,9 @@ import type { KeyLine } from '@/ship/keyset'
 import { Tour } from '@/ship/Tour'
 import { COCKPIT_VERSION, SEEN_KEY, TOUR_KEY, tourPlan, type TourPlan } from '@/ship/news'
 import { DepthGauge } from '@/ship/Depth'
+import { WatchDock } from '@/ship/WatchDock'
+import { DEPTH_KEY, parseDepth } from '@/lib/prefs'
+import { usePref } from '@/lib/usePref'
 import { Coins } from '@/ship/Coins'
 import { benchLine, cardLines, count, depthOf, stateWord, type Depth } from '@/ship/words'
 import { ShipBoundary, ShipFallback } from '@/ship/NoWebGL'
@@ -86,6 +89,7 @@ function ShipView({ data, onFail }: { data: ShipData; onFail: OnFail }) {
   const fitted = useRef(false)
   // What is lit on the chart: a key line kept on (clicked) or rested on, else the watch's plate.
   const [overlay, setOverlay] = useState<WatchFocus | null>(null)
+  const [depthSize, setDepthSize] = usePref(DEPTH_KEY, parseDepth)
   const [keyPreview, setKeyPreview] = useState<KeyLine | null>(null)
   const [keyPinned, setKeyPinned] = useState<KeyLine | null>(null)
   const [tour, setTour] = useState(false)
@@ -421,13 +425,13 @@ function ShipView({ data, onFail }: { data: ShipData; onFail: OnFail }) {
           title={`The sea is the work now: ${seaWord(sea)}. A slow roll when nothing runs; the swell on the chart rises with tokens a minute (${(data.tpm ?? 0).toLocaleString('en-US')}) and the turns running (${turnsRunning}), and settles as they end. Calm mode stills it.`} />
       </div>
 
-      <div data-ship-ui className="ship-watch-slot pointer-events-auto absolute right-3 top-[64px]">
+      <WatchDock>
         <Watch model={whole} data={data} focus={overlay} onFocus={(f) => { setKeyPinned(null); setOverlay(f) }} onFly={flyTo} />
-      </div>
+      </WatchDock>
 
       {/* The porthole and the depth gauge stand left of the watch's column, in the foot's row; when the watch folds to
           its strip at the top (under 1400 px wide or 900 px tall), they move to the right edge, clear of the console. */}
-      <div className="ship-depth-slot absolute bottom-[200px] right-3 [@media(min-width:1400px)_and_(min-height:900px)]:right-[306px]"><DepthGauge depth={depth} onGo={goDepth} /></div>
+      <div className="ship-depth-slot absolute bottom-[200px] right-3 [@media(min-width:1400px)_and_(min-height:900px)]:right-[306px]"><DepthGauge depth={depth} onGo={goDepth} size={depthSize} onSize={setDepthSize} /></div>
       <div data-ship-ui className="ship-porthole-slot absolute bottom-3 right-3 [@media(min-width:1400px)_and_(min-height:900px)]:right-[306px]"><Minimap ref={minimap} engine={engine} model={model} selected={sel} /></div>
 
       <Coins engine={engine} host={root} />
@@ -482,7 +486,7 @@ function Cartouche({ model, synthetic, live, error, asOf, hidden, filter }: { mo
  *  Live is the default, and the choice is the address's `st`. */
 function StateBar({ filter, counts, onPick }: { filter: ShipFilter; counts: Counts; onPick: (f: ShipFilter) => void }) {
   return (
-    <div data-ship-ui className="ship-statebar pointer-events-auto absolute left-4 top-[72px] flex items-center gap-1" role="radiogroup" aria-label="Which sessions the Ship draws">
+    <div data-ship-ui className="ship-statebar pointer-events-auto absolute left-4 top-[98px] flex items-center gap-1" role="radiogroup" aria-label="Which sessions the Ship draws">
       {FILTERS.map((f) => (
         <button key={f.key} type="button" role="radio" aria-checked={filter === f.key} title={f.title} onClick={() => onPick(f.key)}
           className={cn('brass-button !px-2 !py-0.5 text-[11.5px]', filter === f.key && 'brass-button-on')}>
@@ -506,7 +510,7 @@ function VesselCard({ v, model, whole, bench, onClose, now, reachCap, ref }: { v
   const card = cardLines(v, { user: kinds.user, model: kinds.model, call: kinds.call }, failed, ago(v.lastActive, now))
   const tone = st.tone === 'live' ? 'text-live' : st.tone === 'wait' ? 'text-wait' : st.tone === 'fault' ? 'text-fault' : 'text-ink-dim'
   return (
-    <aside ref={ref} data-ship-ui className="brass-card pointer-events-auto absolute left-4 top-[106px] w-[310px]">
+    <aside ref={ref} data-ship-ui className="brass-card pointer-events-auto absolute left-4 top-[138px] w-[310px]">
       <header className="flex items-start gap-2">
         <div className="min-w-0 flex-1">
           <div className="ship-engraved text-[10px]">{v.kind === 'task' ? `task ${v.taskShort ?? ''}` : `session · ${placeOf({ label: v.label, kind: v.kind }).label}`}</div>

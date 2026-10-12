@@ -1,6 +1,7 @@
 // Health's disk and the spool's last sweep (theseus-51v8): free space under the state dir against health's warning
 // and the floor where new jobs are refused (theseus-102), and what the last sweep of the jobs' raw output removed and
 // kept, by why (theseus-2ij). The Systems view's card, and the status strip's dot and attention item.
+import { CARD_BODY } from '@/lib/cardfit'
 import { Link } from 'react-router'
 import { HardDrive } from 'lucide-react'
 import type { DiskStatus, SpoolSweep } from '@protocol'
@@ -12,7 +13,7 @@ import { Empty, Field, LiveDot, Panel, Pill } from './ui'
 /** The Systems view's card: the disk, then the spool's last sweep. */
 export function DiskSpoolCard({ disk, sweep, now }: { disk?: DiskStatus; sweep?: SpoolSweep; now: number }) {
   return (
-    <Panel title="Disk · spool" icon={<HardDrive size={13} />} bodyClassName="px-3.5 py-2.5">
+    <Panel help="systems.disk" title="Disk · spool" icon={<HardDrive size={13} />} bodyClassName={CARD_BODY}>
       {disk?.path ? (
         <>
           <div className="flex items-baseline gap-2">

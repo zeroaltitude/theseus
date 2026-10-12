@@ -1,5 +1,6 @@
 // The hands' grid (AWS design §3.3, "Watching a hundred hands"; step 40 part 2, theseus-mgw.11): one row per group from
 // `hands.list`, a cell per hand coloured by its state, its cost against its cap, and its one line as Discord shows it.
+import { CARD_BODY } from '@/lib/cardfit'
 import { Hand } from 'lucide-react'
 import type { HandsGroupInfo, HandsListResult } from '@protocol'
 import { useRpc } from '@/lib/rpc'
@@ -54,7 +55,7 @@ export function HandsGrid({ now }: { now: number }) {
   const { data } = useRpc<HandsListResult>('hands.list', { limit: 10 }, 3000)
   if (!data) return null
   return (
-    <Panel title="AWS hands" icon={<Hand size={13} />} bodyClassName="px-3.5 py-2.5">
+    <Panel help="systems.hands" title="AWS hands" icon={<Hand size={13} />} bodyClassName={CARD_BODY}>
       {data.groups.length === 0 && <Empty>no hands group yet</Empty>}
       {data.groups.map((g) => <Group key={g.group} g={g} now={now} />)}
     </Panel>

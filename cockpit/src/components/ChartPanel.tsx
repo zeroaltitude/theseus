@@ -25,8 +25,8 @@ export interface TableSpec<R> { columns: Column<R>[]; rows: R[]; rowKey: (r: R) 
 
 const VIEWS = ['chart', 'table'] as const
 
-export function ChartPanel<R>({ id, title, icon, actions, className, height, legend, table, empty, children }: {
-  id: string; title: ReactNode; icon?: ReactNode; actions?: ReactNode; className?: string
+export function ChartPanel<R>({ id, help, title, icon, actions, className, height, legend, table, empty, children }: {
+  id: string; help: string; title: ReactNode; icon?: ReactNode; actions?: ReactNode; className?: string
   /** The body's height in px, the same for the chart (axis labels included) and its table, which scrolls; unset, the body
    *  grows with its content (a grid of small multiples). */
   height?: number
@@ -37,7 +37,7 @@ export function ChartPanel<R>({ id, title, icon, actions, className, height, leg
 }) {
   const [tableOn, setTable] = useTableView(id)
   return (
-    <Panel title={title} icon={icon} className={className} bodyClassName="p-2"
+    <Panel title={title} icon={icon} help={help} className={className} bodyClassName="p-2"
       actions={<>{actions}{!empty && <Segmented value={tableOn ? 'table' : 'chart'} options={VIEWS} onChange={(v) => setTable(v === 'table')} />}</>}>
       <div className="viz-body flex flex-col" style={height ? { height } : { maxHeight: 640 }}>
         {empty ? <div className="flex h-full items-center justify-center text-sm text-ink-faint">{empty}</div>

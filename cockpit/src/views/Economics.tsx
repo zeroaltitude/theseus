@@ -117,13 +117,13 @@ export default function Economics() {
       </div>
 
       <div className="grid grid-cols-1 gap-3 xl:grid-cols-3">
-        <ChartPanel id="spend" title="Spend over time, by model" icon={<TrendingUp size={13} />} className="xl:col-span-2" height={300}
+        <ChartPanel id="spend" help="economics.spend" title="Spend over time, by model" icon={<TrendingUp size={13} />} className="xl:col-span-2" height={300}
           actions={<Segmented value={bucket} options={BUCKETS} onChange={setBucket} />}
           legend={modelLegend} empty={calls.length ? undefined : 'no model calls yet'}
           table={spendTable(spendAll, bucket, palette.colorOf, palette.keyOf)}>
           <SpendOverTime s={spend} all={spendAll} bucket={bucket} colorOf={palette.colorOf} keyOf={palette.keyOf} />
         </ChartPanel>
-        <ChartPanel id="kinds" title="Where the money goes · by token kind" icon={<Coins size={13} />} height={300}
+        <ChartPanel id="kinds" help="economics.kinds" title="Where the money goes · by token kind" icon={<Coins size={13} />} height={300}
           empty={partsTotal > 0 ? undefined : 'no priced calls (the catalog has no rates for these models)'}
           table={kindsTable(totals.parts, totals.tok)}>
           <WhereItGoes parts={totals.parts} tok={totals.tok} saved={totals.saved} />
@@ -131,23 +131,23 @@ export default function Economics() {
       </div>
 
       <div className="grid grid-cols-1 gap-3 xl:grid-cols-3">
-        <ChartPanel id="tree" title="Provider → model → session" icon={<Bot size={13} />} height={340}
+        <ChartPanel id="tree" help="economics.tree" title="Provider → model → session" icon={<Bot size={13} />} height={340}
           empty={calls.some((c) => c.cost > 0) ? undefined : 'no spend yet'} table={treeTable(tree, nameOf)}>
           <SpendTreeBars tree={tree} palette={palette} nameOf={nameOf} onPick={pick} />
         </ChartPanel>
-        <ChartPanel id="sessions" title={sessions.length > TOP_SESSIONS ? `Cost per session · the top ${TOP_SESSIONS} of ${sessions.length}` : 'Cost per session'}
+        <ChartPanel id="sessions" help="economics.sessions" title={sessions.length > TOP_SESSIONS ? `Cost per session · the top ${TOP_SESSIONS} of ${sessions.length}` : 'Cost per session'}
           icon={<Receipt size={13} />} height={340} legend={modelLegend}
           empty={sessions.length ? undefined : 'no spend yet'} table={sessionsTable(sessions, nameOf)}>
           <SessionBars rows={sessions.slice(0, TOP_SESSIONS)} palette={palette} nameOf={nameOf} onPick={pick} />
         </ChartPanel>
-        <ChartPanel id="latency" title="Latency per model · first token and total" icon={<Timer size={13} />} height={340}
+        <ChartPanel id="latency" help="economics.latency" title="Latency per model · first token and total" icon={<Timer size={13} />} height={340}
           legend={[{ key: 'first', label: 'first token', color: C.secondary, mark: 'ring' }, { key: 'total', label: 'total', color: C.secondary, mark: 'dot' }]}
           empty={latency.length ? undefined : 'no timed model calls yet'} table={latencyTable(latency)}>
           <LatencyStrip lat={latency} palette={palette} />
         </ChartPanel>
       </div>
 
-      <Panel title="Caching · by profile" icon={<PiggyBank size={13} />} bodyClassName="p-2">
+      <Panel help="economics.caching" title="Caching · by profile" icon={<PiggyBank size={13} />} bodyClassName="p-2">
         <CacheByProfile calls={calls} prices={prices} profileOf={profileOf} />
       </Panel>
     </div>

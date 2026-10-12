@@ -25,7 +25,7 @@ export function PeoplePanel({ categories, selected, select }: { categories: Onto
   const people = useMemo(() => peopleOf(categories, q), [categories, q])
   const all = useMemo(() => categories.filter((c) => c.kind === 'person').length, [categories])
   return (
-    <Panel title={<>people · {all}</>} icon={<Users size={13} />}>
+    <Panel help="ontology.people" title={<>people · {all}</>} icon={<Users size={13} />}>
       <div className="flex flex-col gap-2 p-2">
         <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="search people by name or handle" aria-label="search people" className={field} />
         {people.length === 0 ? <Empty>{all ? 'no person answers that search' : 'no people yet: a DM’s person comes when it binds, `theseus import people` brings an import’s, and one is added here'}</Empty> : (
@@ -63,7 +63,7 @@ export function PersonPage({ person, people, disabled }: { person: OntologyCateg
     if (out) setOther('')
   }
   return (
-    <Panel title={<>person · {person.name}</>} icon={<Users size={13} />}>
+    <Panel help="ontology.person" title={<>person · {person.name}</>} icon={<Users size={13} />}>
       <div className="flex flex-col gap-2 p-3 text-[12px]">
         <div className="num text-[11px] text-ink-faint">{person.id} · by {person.added_by}</div>
         {person.description && <div className="text-ink-dim">{person.description}</div>}
@@ -103,7 +103,7 @@ export function AddPerson({ disabled }: { disabled: boolean }) {
     if (out) { setName(''); setHandles(''); setDescription('') }
   }
   return (
-    <Panel title="add a person" icon={<Plus size={13} />}>
+    <Panel help="ontology.personadd" title="add a person" icon={<Plus size={13} />}>
       <form className="flex flex-col gap-2 p-3" onSubmit={(e) => { e.preventDefault(); if (name.trim()) void add() }}>
         <input value={name} onChange={(e) => setName(e.target.value)} placeholder="name" aria-label="person name" disabled={disabled} className={field} />
         <input value={handles} onChange={(e) => setHandles(e.target.value)} placeholder="handles: slack:U…, discord:…, email:…" aria-label="person handles" disabled={disabled} className={field} />
@@ -151,7 +151,7 @@ export function ProposalsPanel({ disabled }: { disabled: boolean }) {
   const chosen = people.filter((g) => rows.has(g.key))
   const count = picked.size + chosen.length
   return (
-    <Panel title={<>proposals · {data ? total : '…'}{data?.people?.length ? ` · ${data.people.length} people` : ''}{data?.more || data?.people_more ? ` (+${data.more + data.people_more})` : ''}{data?.hidden ? ` · ${data.hidden} hidden by the exclusions` : ''}</>} icon={<Vote size={13} />}>
+    <Panel help="ontology.proposals" title={<>proposals · {data ? total : '…'}{data?.people?.length ? ` · ${data.people.length} people` : ''}{data?.more || data?.people_more ? ` (+${data.more + data.people_more})` : ''}{data?.hidden ? ` · ${data.hidden} hidden by the exclusions` : ''}</>} icon={<Vote size={13} />}>
       <div className="flex flex-col gap-2 p-2 text-[11.5px]">
         <div className="flex items-center gap-2">
           {([null, 'topic', 'person'] as const).map((k) => (

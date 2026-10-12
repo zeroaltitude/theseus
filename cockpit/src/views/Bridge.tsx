@@ -149,37 +149,37 @@ export function Bridge() {
 
       <div className="grid grid-cols-1 gap-3 lg:grid-cols-2 2xl:grid-cols-4">
         <FuelPanel calls={calls} />
-        <ChartPanel id="latency" title="Latency · first token and total" icon={<Clock size={13} />} height={250}
+        <ChartPanel id="latency" help="bridge.latency" title="Latency · first token and total" icon={<Clock size={13} />} height={250}
           legend={latencyLegend(callsIn, modelSlot)} empty={callsIn.length ? undefined : 'no model calls in this range'} table={latencyTable(callsIn, title)}>
           <div className="flex h-full flex-col">
             <div className="num px-2 pt-0.5 text-[11px] text-ink-dim">{latencyLine(callsIn)}</div>
             <div className="min-h-0 flex-auto"><Latency calls={callsIn} slot={modelSlot} title={title} span={span} /></div>
           </div>
         </ChartPanel>
-        <ChartPanel id="flow" title="Spend · provider → model → session" icon={<Flame size={13} />} height={FLOW_H}
+        <ChartPanel id="flow" help="bridge.flow" title="Spend · provider → model → session" icon={<Flame size={13} />} height={FLOW_H}
           empty={callsIn.some((c) => c.cost > 0) ? undefined : 'no spend in this range'} table={flowTable(callsIn, title)}>
           <SpendFlow calls={callsIn} slot={modelSlot} title={title} onPick={(sid) => nav(`/session/${sid}`)} />
         </ChartPanel>
-        <ChartPanel id="start" title="Last start · its phases" icon={<Rocket size={13} />} height={250}
+        <ChartPanel id="start" help="bridge.start" title="Last start · its phases" icon={<Rocket size={13} />} height={250}
           legend={STARTUP_LEGEND} empty={h ? undefined : 'reading health…'} table={startupTable(h?.startup ?? [])}>
           <Startup phases={h?.startup ?? []} />
         </ChartPanel>
       </div>
 
       <div className="grid grid-cols-1 gap-3 lg:grid-cols-2 2xl:grid-cols-4">
-        <ChartPanel id="turns" title="Turns · duration, loops, and cost" icon={<Timer size={13} />} height={260}
+        <ChartPanel id="turns" help="bridge.turns" title="Turns · duration, loops, and cost" icon={<Timer size={13} />} height={260}
           legend={TURNS_LEGEND} empty={turns.some((t) => t.elapsed_ms !== undefined) ? undefined : 'no finished turns in this range'} table={turnsTable(turns, title)}>
           <TurnsChart turns={turns} title={title} span={span} onPick={(sid) => nav(`/session/${sid}`)} />
         </ChartPanel>
-        <Panel title="Tools · calls, failures, and time" icon={<Wrench size={13} />} bodyClassName="h-[260px]">
+        <Panel help="bridge.tools" title="Tools · calls, failures, and time" icon={<Wrench size={13} />} bodyClassName="h-[260px]">
           <ToolBoard rows={inRange} />
         </Panel>
-        <ChartPanel id="context" title="Context · prompt size, largest first" icon={<Brain size={13} />} height={260}
+        <ChartPanel id="context" help="bridge.context" title="Context · prompt size, largest first" icon={<Brain size={13} />} height={260}
           empty={inRange.some((r) => r.kind === 'context.compiled' || r.kind === 'context.recompiled') ? undefined : 'no context compiles in this range'}
           table={contextTable(inRange, title)}>
           <ContextRanks rows={inRange} sessions={sessions} onPick={(sid) => nav(`/session/${sid}?tab=context`)} />
         </ChartPanel>
-        <ChartPanel id="mix" title="Token mix · the newest 48 calls" icon={<Bot size={13} />} height={260}
+        <ChartPanel id="mix" help="bridge.mix" title="Token mix · the newest 48 calls" icon={<Bot size={13} />} height={260}
           legend={TOKEN_LEGEND} empty={callsIn.length ? undefined : 'no model calls in this range'} table={tokenMixTable(callsIn, title)}>
           <TokenMix calls={callsIn} title={title} />
         </ChartPanel>
@@ -213,7 +213,7 @@ function PulsePanel({ rows, span, ready }: { rows: LedgerEntry[]; span: readonly
   const bins = useMemo(() => binByKey(rows, (r) => r.at_unix_ms, (r) => ledgerKind(r.kind).tone, FAMILIES.map((f) => f.tone), span[0], span[1], PULSE_BINS), [rows, span])
   const present = FAMILIES.filter((f) => bins.counts[f.tone].some((n) => n > 0))
   return (
-    <ChartPanel id="pulse" title="Pulse · ledger events, a row per family" icon={<Activity size={13} />} className="xl:col-span-2" height={PULSE_H}
+    <ChartPanel id="pulse" help="bridge.pulse" title="Pulse · ledger events, a row per family" icon={<Activity size={13} />} className="xl:col-span-2" height={PULSE_H}
       empty={!ready ? 'reading the ledger…' : rows.length ? undefined : 'no ledger rows in this range'} table={pulseTable(bins, present)}>
       <Pulse bins={bins} families={present} />
     </ChartPanel>
@@ -291,7 +291,7 @@ function FleetPanel({ sessions, executions }: { sessions: SessionInfo[]; executi
   const recent = useMemo(() => [...sessions].sort((a, b) => (b.last_active_ms ?? 0) - (a.last_active_ms ?? 0)), [sessions])
   const total = executions.length
   return (
-    <ChartPanel id="fleet" title="Fleet" icon={<Radar size={13} />} height={230} table={fleetTable(recent, now)}
+    <ChartPanel id="fleet" help="bridge.fleet" title="Fleet" icon={<Radar size={13} />} height={230} table={fleetTable(recent, now)}
       empty={sessions.length || executions.length ? undefined : 'no sessions yet'}>
       <div className="flex h-full flex-col">
         <TipArea className="border-b border-line px-1.5 pb-2 pt-1">
@@ -349,7 +349,7 @@ function FuelPanel({ calls }: { calls: ProviderCall[] }) {
     return [...m.values()]
   }, [calls])
   return (
-    <ChartPanel id="fuel" title="Fuel · rate-limit headroom" icon={<Gauge size={13} />} height={250}
+    <ChartPanel id="fuel" help="bridge.fuel" title="Fuel · rate-limit headroom" icon={<Gauge size={13} />} height={250}
       empty={latest.length ? undefined : 'no model call has reported its limits yet'} table={fuelTable(latest)}>
       <div className="flex h-full flex-col gap-3 overflow-auto px-2 py-1">
         {latest.map((c) => {

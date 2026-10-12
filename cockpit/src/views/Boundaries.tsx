@@ -94,28 +94,28 @@ export default function Boundaries() {
       </div>
 
       <div className="grid grid-cols-1 gap-3 2xl:grid-cols-2">
-        <Panel title={<>The latch · sessions holding outside text · {holds.length}</>} icon={<Siren size={13} />} bodyClassName="p-2.5">
+        <Panel help="bounds.latch" title={<>The latch · sessions holding outside text · {holds.length}</>} icon={<Siren size={13} />} bodyClassName="p-2.5">
           <Latch holds={holds} rows={mine} title={title} now={now} onOpen={(sid) => nav(`/session/${sid}`)} />
         </Panel>
-        <Panel title={<>The gate · approvals and tightenings</>} icon={<ShieldCheck size={13} />} bodyClassName="p-2.5">
+        <Panel help="bounds.gate" title={<>The gate · approvals and tightenings</>} icon={<ShieldCheck size={13} />} bodyClassName="p-2.5">
           <Gate confirms={confirms} tight={tight} rows={mine} title={title} now={now} onOpen={(sid, cid) => nav(`/session/${sid}${cid ? `?call=${cid}` : ''}`)} />
         </Panel>
       </div>
 
-      <Panel title={<>The sandbox · L1 jobs, live and finished</>} icon={<ShieldHalf size={13} />} bodyClassName="p-2.5"
+      <Panel help="bounds.sandbox" title={<>The sandbox · L1 jobs, live and finished</>} icon={<ShieldHalf size={13} />} bodyClassName="p-2.5"
         actions={world ? <span className="num text-[11px] text-ink-faint">the settings are the daemon&rsquo;s now</span> : null}>
         <SandboxSettings s={h?.sandbox} now={tick} />
         <Sandbox usage={usage} rows={mine} results={results} actions={world ? world.actions : al?.actions ?? []} asOf={asOf} title={title} now={now} onOpen={(sid, cid) => nav(`/session/${sid}${cid ? `?call=${cid}` : ''}`)} />
       </Panel>
 
       <div className="grid grid-cols-1 gap-3 xl:grid-cols-3">
-        <Panel title={<>The broker · grants and withholdings</>} icon={<KeyRound size={13} />} bodyClassName="p-2.5">
+        <Panel help="bounds.broker" title={<>The broker · grants and withholdings</>} icon={<KeyRound size={13} />} bodyClassName="p-2.5">
           <Broker health={h} rows={mine} title={title} withheld={secretsWithheld} />
         </Panel>
-        <Panel title={<>Places · who reads where</>} icon={<Eye size={13} />} bodyClassName="p-2.5">
+        <Panel help="bounds.places" title={<>Places · who reads where</>} icon={<Eye size={13} />} bodyClassName="p-2.5">
           <Places health={h} log={placeRows} />
         </Panel>
-        <Panel title={<>Egress · where sandboxed jobs reach</>} icon={<Radar size={13} />} bodyClassName="p-2.5">
+        <Panel help="bounds.egress" title={<>Egress · where sandboxed jobs reach</>} icon={<Radar size={13} />} bodyClassName="p-2.5">
           <Egress rows={egress} health={h} title={title} now={now} />
         </Panel>
       </div>

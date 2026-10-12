@@ -42,7 +42,7 @@ export function RpcConsole() {
     finally { setBusy(false) }
   }
   return (
-    <Panel title="Protocol console · read-only" icon={<Terminal size={13} />} bodyClassName="p-3">
+    <Panel help="systems.rpc" title="Protocol console · read-only" icon={<Terminal size={13} />} bodyClassName="min-w-0 overflow-x-auto p-3">
       <div className="flex flex-wrap items-center gap-2">
         <select value={method} onChange={(e) => { setMethod(e.target.value); setParams(READS[e.target.value]) }}
           className="h-8 rounded-md bg-white/[0.04] px-2 font-mono text-[12px] text-ink outline-none ring-1 ring-line">

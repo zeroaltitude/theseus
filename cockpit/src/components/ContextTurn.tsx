@@ -37,7 +37,7 @@ function SessionPicker({ pick }: { pick: (s: string) => void }) {
   const { data } = useRpc<SessionListResult>('session.list', { n: 40 }, 10_000)
   const list = data?.sessions ?? []
   return (
-    <Panel title="pick a session" icon={<MessagesSquare size={13} />}>
+    <Panel help="context.pick" title="pick a session" icon={<MessagesSquare size={13} />}>
       {!list.length ? <Empty>no sessions yet</Empty> : (
         <ul className="divide-y divide-line/50">
           {list.map((s) => (
@@ -57,11 +57,11 @@ function SessionPicker({ pick }: { pick: (s: string) => void }) {
 
 function Explained({ session, turn, set }: { session: string; turn: string | null; set: SetParams }) {
   const { data: x, error, isFetching } = useRpc<ContextExplainResult>('context.explain', { session_id: session, ...(turn ? { turn_id: turn } : {}) }, 0)
-  if (error) return <Panel title="a turn’s context"><Empty>the daemon refused the read: {(error as Error).message}</Empty></Panel>
-  if (!x) return <Panel title="a turn’s context"><Empty>reading what the turn saw…</Empty></Panel>
+  if (error) return <Panel help={false} title="a turn’s context"><Empty>the daemon refused the read: {(error as Error).message}</Empty></Panel>
+  if (!x) return <Panel help={false} title="a turn’s context"><Empty>reading what the turn saw…</Empty></Panel>
   return (
     <div className={cn('flex flex-col gap-3', isFetching && 'opacity-80')}>
-      <Panel title={<>{x.title ?? short(x.session_id)}</>} icon={<Layers size={13} />}
+      <Panel help="context.turn" title={<>{x.title ?? short(x.session_id)}</>} icon={<Layers size={13} />}
         actions={<>
           <Link to={`/session/${x.session_id}`} className="text-[11px] text-ink-faint hover:text-ink">session deck</Link>
           <button type="button" onClick={() => set({ session: null, turn: null })} className="text-[11px] text-ink-faint hover:text-ink">another session</button>
@@ -94,7 +94,7 @@ function Explained({ session, turn, set }: { session: string; turn: string | nul
       </Panel>
       {!x.imported && <>
         <Unchanged x={x} />
-        {x.unbuilt && <Panel title="parts"><Empty>the parts could not be built: {x.unbuilt}</Empty></Panel>}
+        {x.unbuilt && <Panel help={false} title="parts"><Empty>the parts could not be built: {x.unbuilt}</Empty></Panel>}
         {x.parts.length > 0 && <Anatomy x={x} />}
         {x.parts.length > 0 && <Parts parts={x.parts} />}
         <Recalls recalls={x.recalls} sources={x.sources} title="why each was recalled · this turn’s recall" />
@@ -120,7 +120,7 @@ function Anatomy({ x }: { x: ContextExplainResult }) {
   const est = x.compiled?.est_tokens
   const legend: LegendItem[] = blocks.map((b) => ({ key: b.key, label: b.word, color: BLOCK_COLOR[b.key], mark: 'rect' }))
   return (
-    <ChartPanel id="anatomy" title={<>what the turn sees · {count(total)} tokens{x.window ? ` of a ${count(x.window)} window` : ''}</>} icon={<Layers size={13} />} legend={legend}
+    <ChartPanel id="anatomy" help="context.anatomy" title={<>what the turn sees · {count(total)} tokens{x.window ? ` of a ${count(x.window)} window` : ''}</>} icon={<Layers size={13} />} legend={legend}
       empty={total ? undefined : 'no tokens'}
       table={{
         caption: 'every part of the request, in order, with its tokens', rows: x.parts.map((p, i) => ({ ...p, i })), rowKey: (p) => String(p.i),
@@ -155,7 +155,7 @@ function Parts({ parts }: { parts: ContextPart[] }) {
   const [open, setOpen] = useState<ReadonlySet<number>>(() => new Set())
   const toggle = (i: number) => setOpen((s) => { const n = new Set(s); if (n.has(i)) n.delete(i); else n.add(i); return n })
   return (
-    <Panel title={<>the parts · {parts.length}</>} icon={<Layers size={13} />}>
+    <Panel help="context.parts" title={<>the parts · {parts.length}</>} icon={<Layers size={13} />}>
       <ol className="divide-y divide-line/50">
         {parts.map((p, i) => {
           const isOpen = open.has(i)
@@ -207,11 +207,11 @@ export function Recalls({ recalls, sources, title }: { recalls: RecallManifest[]
   const [params] = useSearchParams()
   const veilOn = params.get('veil') !== 'off'
   const [opened, setOpened] = useState<ReadonlySet<string>>(() => new Set())
-  if (!recalls.length) return <Panel title={title} icon={<Sparkles size={13} />}><Empty>no recall recorded for this turn</Empty></Panel>
+  if (!recalls.length) return <Panel help="context.recall" title={title} icon={<Sparkles size={13} />}><Empty>no recall recorded for this turn</Empty></Panel>
   return (
     <>
       {recalls.map((m) => (
-        <Panel key={m.recall_id} title={title} icon={<Sparkles size={13} />}
+        <Panel help="context.recall" key={m.recall_id} title={title} icon={<Sparkles size={13} />}
           actions={<span className="num text-[11px] text-ink-faint">{m.mode} · {m.arm ?? m.science} · {m.outcome}</span>}>
           <div className="num flex flex-wrap gap-x-4 gap-y-1 border-b border-line px-3 py-2 text-[11px] text-ink-faint">
             <span>{count(m.candidates)} candidates{Object.keys(m.sources ?? {}).length ? ` (${Object.entries(m.sources ?? {}).map(([k, v]) => `${k} ${v}`).join(', ')})` : ''}</span>
@@ -277,12 +277,12 @@ export function AskIndex({ ask, set }: { ask: string; set: SetParams }) {
   const sources: Record<string, ContextSource> = Object.fromEntries(ids.map((id) => [id, { place: '', imported: rows?.episodes.find((e) => e.session_id === id) }]))
   return (
     <div className="flex flex-col gap-3">
-      <Panel title="ask the index" icon={<Search size={13} />}>
+      <Panel help="context.ask" title="ask the index" icon={<Search size={13} />}>
         <AskForm key={ask} initial={ask} submit={(t) => set({ ask: t.trim() || null })} />
         <div className="px-3 pb-3 text-[11px] text-ink-faint">Recall’s pipeline over the words, as a turn in a private place would run it (the baseline arm): what it would admit and why, and what it would drop. It writes nothing and calls no model.</div>
       </Panel>
-      {!ask ? null : error ? <Panel title="answer"><Empty>the daemon refused the read: {(error as Error).message}</Empty></Panel>
-        : !data ? <Panel title="answer"><Empty>{isFetching ? 'asking…' : '—'}</Empty></Panel>
+      {!ask ? null : error ? <Panel help={false} title="answer"><Empty>the daemon refused the read: {(error as Error).message}</Empty></Panel>
+        : !data ? <Panel help={false} title="answer"><Empty>{isFetching ? 'asking…' : '—'}</Empty></Panel>
         : <Recalls recalls={[data]} sources={sources} title={<>what recall would admit · “{ask}”</>} />}
     </div>
   )

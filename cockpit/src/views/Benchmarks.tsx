@@ -110,7 +110,7 @@ export default function Benchmarks() {
         </div>
       </div>
 
-      <ChartPanel<Point>
+      <ChartPanel<Point> help="bench.frontier"
         id="frontier" height={470}
         title={<span className="flex items-center gap-2">The frontier <span className="font-sans text-[11px] font-normal normal-case tracking-normal text-ink-faint">{set.label}</span></span>}
         icon={<Trophy size={14} />}
@@ -131,7 +131,7 @@ export default function Benchmarks() {
 
       <Conditions set={set} />
 
-      <Panel title="Every run, newest first" icon={<ListOrdered size={14} />} bodyClassName="p-0">
+      <Panel help="bench.runs" title="Every run, newest first" icon={<ListOrdered size={14} />} bodyClassName="p-0">
         <div className="overflow-x-auto">
           <table className="viz-table w-full text-[12px]">
             <caption className="sr-only">every published benchmark run, newest first</caption>
@@ -423,7 +423,7 @@ function Conditions({ set }: { set: TaskSet }) {
     <Link to={`/benchmarks/${n.report}`} className="text-ink-faint underline decoration-line underline-offset-2 hover:text-live" title={`“${n.quote}”`}>its report</Link>
   )
   return (
-    <Panel title="What differs between the harnesses here" icon={<FlaskConical size={14} />} bodyClassName="px-4 py-2.5">
+    <Panel help="bench.differs" title="What differs between the harnesses here" icon={<FlaskConical size={14} />} bodyClassName="px-4 py-2.5">
       <p className="text-[12px] text-ink-dim">{set.about}</p>
       <ul className="mt-1.5 list-disc space-y-0.5 pl-5 text-[12px] text-ink-dim marker:text-gold/60">
         {set.conditions.map((n) => <li key={n.text}>{n.text} <span className="text-[11px]">({cite(n)})</span></li>)}

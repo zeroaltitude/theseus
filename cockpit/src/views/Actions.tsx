@@ -44,30 +44,30 @@ export default function Actions() {
       )}
       <div className="grid grid-cols-1 gap-3 2xl:grid-cols-[1.15fr_1fr]">
         <div className="flex min-w-0 flex-col gap-3">
-          <Panel title={<>Approvals waiting · {confirms.length}</>} icon={<ShieldCheck size={13} />} bodyClassName="p-3">
+          <Panel help="actions.approvals" title={<>Approvals waiting · {confirms.length}</>} icon={<ShieldCheck size={13} />} bodyClassName="p-3">
             <AnimatePresence initial={false}>
               {confirms.map((c) => <ConfirmCard key={c.correlation_id} c={c} past={past} />)}
             </AnimatePresence>
             {!confirms.length && <Empty><span className="flex items-center gap-2"><CircleCheck size={15} className="text-ok" /> {past ? 'nothing waited for you then' : 'nothing waits for you'}</span></Empty>}
           </Panel>
-          <Panel title={execution ? <>Tool calls · {actions.length} of execution {short(execution)}</> : <>Tool calls · {world ? world.actions.length : al?.total ?? 0} in the record</>} icon={<Workflow size={13} />} bodyClassName="max-h-[560px] overflow-auto"
+          <Panel help="actions.calls" title={execution ? <>Tool calls · {actions.length} of execution {short(execution)}</> : <>Tool calls · {world ? world.actions.length : al?.total ?? 0} in the record</>} icon={<Workflow size={13} />} bodyClassName="max-h-[560px] overflow-auto"
             actions={execution ? <button onClick={clearExecution} className="flex items-center gap-1 text-[11px] text-live"><X size={11} /> all executions</button> : null}>
             <Lifecycle actions={actions} past={past} />
           </Panel>
         </div>
         <div className="flex min-w-0 flex-col gap-3">
-          <Panel title="External text holds" icon={<Siren size={13} />} bodyClassName="p-2">
+          <Panel help="actions.holds" title="External text holds" icon={<Siren size={13} />} bodyClassName="p-2">
             <Holds holds={world?.holds ?? h?.external_text ?? []} past={past} />
           </Panel>
           {!world && (
-            <Panel title="Wakes" icon={<Hourglass size={13} />} bodyClassName="p-2">
+            <Panel help="actions.wakes" title="Wakes" icon={<Hourglass size={13} />} bodyClassName="p-2">
               <Wakes h={h} />
             </Panel>
           )}
           <Tasks past={world ? { t: world.t, tasks: world.tasks } : undefined} />
           <TaskTree records={tasks?.records ?? []} confirms={cl?.confirms ?? []} past={past} />
 
-          <Panel title="Tool postures" icon={<Wrench size={13} />} bodyClassName="max-h-[520px] overflow-auto"
+          <Panel help="actions.postures" title="Tool postures" icon={<Wrench size={13} />} bodyClassName="max-h-[520px] overflow-auto"
             actions={tl ? <span className="num text-[11px] text-ink-faint" title="proc.run (typed argv) is the only shell path; the shell-fallback ratio is proc.run calls over all calls">roots {tl.roots.join(', ')} · {tl.calls_total} call{tl.calls_total === 1 ? '' : 's'} since start · shell fallback {(tl.shell_fallback_ratio * 100).toFixed(0)}%</span> : null}>
             <Postures tl={tl} tightenings={world?.tightenings ?? h?.tightenings ?? []} past={past} />
           </Panel>
@@ -93,7 +93,7 @@ function Tasks({ past }: { past?: { t: number; tasks: TaskInfo[] } }) {
   const alive = (t: TaskInfo) => !['complete', 'cancelled', 'failed', 'budget_exhausted'].includes(t.state)
   const shown = tasks.filter((t) => ended || alive(t))
   return (
-    <Panel title={<>Tasks · {tasks.filter(alive).length} alive{tasks.length ? ` of ${tasks.length}` : ''}</>} icon={<GitFork size={13} />} bodyClassName="max-h-[420px] overflow-auto p-2"
+    <Panel help="actions.tasks" title={<>Tasks · {tasks.filter(alive).length} alive{tasks.length ? ` of ${tasks.length}` : ''}</>} icon={<GitFork size={13} />} bodyClassName="max-h-[420px] overflow-auto p-2"
       actions={tasks.some((t) => !alive(t)) ? <button onClick={() => setEnded((v) => !v)} className="text-[11px] text-ink-faint hover:text-ink">{ended ? 'hide ended' : 'show ended'}</button> : null}>
       {!shown.length && <Empty>{tasks.length ? 'no task alive' : 'no tasks yet'}</Empty>}
       {shown.map((t) => (
