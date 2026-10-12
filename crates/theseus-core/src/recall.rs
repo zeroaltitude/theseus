@@ -123,6 +123,8 @@ pub struct Memory {
     two: RwLock<Option<AskTwo>>,
     /// The nodes the operator labeled wrong or stale, once read (`labels`).
     labels: RwLock<Option<BTreeSet<String>>>,
+    /// The correction notes a retraction left for sessions' next turns (theseus-2ced).
+    pub corrections: crate::retract::Notes,
     /// The sessions whose `memory.arm` row this daemon has seen or written.
     armed: Mutex<BTreeSet<String>>,
     /// Sources a `Recall` node rendered, by id: they never change.
@@ -166,6 +168,7 @@ impl Memory {
             ask: RwLock::new(ask),
             two: RwLock::new(two),
             labels: RwLock::new(None),
+            corrections: crate::retract::Notes::default(),
             armed: Mutex::new(BTreeSet::new()),
             sources: Mutex::new(render::Sources::new()),
             retention: retention::Projection::default(),

@@ -15,7 +15,7 @@ use theseus_protocol::memory::{
 };
 
 use super::confirms::Act;
-use super::server::{Conn, RpcFailure};
+use super::server::{route, Conn, RpcFailure};
 use super::Core;
 use crate::approval::{Answerer, Refusal};
 use crate::config::memory::MemoryArm;
@@ -213,6 +213,41 @@ impl Core {
                     code: error_code::REFUSED,
                     message: format!(
                         "a label from {} does not count: {}. Nothing was written.",
+                        r.who, r.why
+                    ),
+                    data: serde_json::json!({"who": r.who, "via": r.via, "why": r.why}),
+                },
+                Err(e) => RpcFailure::invalid(e),
+            })
+    }
+
+    /// The owner's acts on memory: a label, and a retraction.
+    pub(super) fn rpc_acts(
+        &self,
+        name: &str,
+        params: serde_json::Value,
+        conn: Conn<'_>,
+    ) -> Result<serde_json::Value, RpcFailure> {
+        match name {
+            theseus_protocol::method::MEMORY_LABEL => {
+                route(params, |p| self.rpc_memory_label(p, conn))
+            }
+            _ => route(params, |p| self.rpc_fact_retract(p, conn)),
+        }
+    }
+
+    fn rpc_fact_retract(
+        &self,
+        p: theseus_protocol::retract::FactRetractParams,
+        conn: Conn<'_>,
+    ) -> Result<theseus_protocol::retract::FactRetractResult, RpcFailure> {
+        let who = conn.answerer(None, None);
+        self.fact_retract(&p, who)
+            .map_err(|e| match e.downcast::<Refusal>() {
+                Ok(r) => RpcFailure {
+                    code: error_code::REFUSED,
+                    message: format!(
+                        "a retraction from {} does not count: {}. Nothing was written.",
                         r.who, r.why
                     ),
                     data: serde_json::json!({"who": r.who, "via": r.via, "why": r.why}),

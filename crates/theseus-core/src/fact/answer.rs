@@ -197,7 +197,8 @@ impl ActRefused<'_> {
             | Act::Import { .. }
             | Act::Session { .. }
             | Act::SelfResume { .. }
-            | Act::Earned { .. } => None,
+            | Act::Earned { .. }
+            | Act::Retract { .. } => None,
         }
     }
 }
@@ -226,6 +227,7 @@ impl Fact for ActRefused<'_> {
             }
             Act::Ontology { what, .. }
             | Act::Label { what }
+            | Act::Retract { what }
             | Act::JudgeLabel { what }
             | Act::RouteCorrect { what }
             | Act::JudgeRun { what, .. }
@@ -303,6 +305,11 @@ impl Fact for ActRefused<'_> {
                 ),
                 Act::Session { what, .. } => format!(
                     "{what}, from {} through {}, did not count: {}. The session is as it was.",
+                    r.who, r.via, r.why
+                ),
+                Act::Retract { what } => format!(
+                    "{what}, from {} through {}, did not count: {}. Nothing was labeled or \
+                     written, and no session was told.",
                     r.who, r.via, r.why
                 ),
                 Act::JudgeLabel { what } => format!(

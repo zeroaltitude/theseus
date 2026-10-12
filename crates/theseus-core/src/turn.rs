@@ -77,6 +77,7 @@ pub mod nudge_step;
 mod prompt_input;
 mod recall_step;
 mod rerank_step;
+mod retract_step;
 mod retry_step;
 mod route_step;
 pub(crate) mod situation_step;
@@ -1986,6 +1987,8 @@ impl TurnRunner {
         // Its wakes that are due (DD8), last: each is this turn's input, or
         // comes before the input that arrived with it.
         let woke = Self::read_wakes(t)?;
+        // A retraction's correction notes (theseus-2ced), none usually.
+        self.read_corrections(t)?;
         // Each call answered here is traced under the continuation's span,
         // in this turn, as `run_tools` traces its own (theseus-8pei).
         let mut calls = calls::late_spans(&t.trace, &self.tools, &late);

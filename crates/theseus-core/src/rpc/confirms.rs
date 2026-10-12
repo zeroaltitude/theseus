@@ -836,6 +836,10 @@ pub(crate) enum Act<'a> {
         what: &'a str,
         tightens: bool,
     },
+    /// A node marked wrong (theseus-2ced, `fact.retract`): it labels the node out of
+    /// every recall, writes notes into sessions, and posts a card, so a job's process
+    /// that made it would grade its own memory. `what` names it: `the retraction of msg_…`.
+    Retract { what: &'a str },
 }
 
 impl Act<'_> {
@@ -858,6 +862,7 @@ impl Act<'_> {
             Act::Session { method, .. } => method,
             Act::SelfResume { .. } => theseus_protocol::method::SELF_RESUME,
             Act::Earned { method, .. } => method,
+            Act::Retract { .. } => theseus_protocol::method::FACT_RETRACT,
         }
     }
 }

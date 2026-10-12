@@ -48,6 +48,7 @@ pub mod packs;
 mod places;
 mod push;
 pub mod resident;
+pub mod retract;
 pub mod route;
 pub mod rsi;
 pub mod sandbox;
@@ -239,6 +240,11 @@ pub mod method {
         MEMORY_CONSOLIDATE = "memory.consolidate",
         /// What an MCP client asks of private memory (`memory::MemoryLookupParams`; theseus-02i1h). A read.
         MEMORY_LOOKUP = "memory.lookup",
+        /// Mark a node wrong and find where it went (`retract::FactRetractParams`;
+        /// theseus-2ced): the `wrong` label, a correction note for each live session
+        /// that used it, its syntheses stale, one card for the tasks to re-run.
+        /// Acting: the owner, from a private place.
+        FACT_RETRACT = "fact.retract",
         /// Jev's judgments (M5 23b; `judge::JudgeListParams`): the newest
         /// `judge.call` rows, by pack, session, and time, without their
         /// states. A read.

@@ -34,6 +34,7 @@ mod policy_explain;
 mod postmortem;
 mod print;
 mod prompt;
+mod retract;
 mod self_cmd;
 mod status;
 mod why;
@@ -215,6 +216,18 @@ enum Cmd {
         /// Your words above it.
         #[arg(long, value_name = "NOTE")]
         note: Option<String>,
+    },
+    /// Mark one node wrong (theseus-2ced): recall never serves it again, each live session that
+    /// used it gets a correction note at its next turn, the syntheses that cite it go stale, one
+    /// card names the tasks to re-run, and the table says every place it went. NODE is a node's
+    /// id, the last six or more characters of one, or a recalled item's handle. Only you, from a
+    /// private place; refused inside a job. A second retraction writes nothing.
+    Retract {
+        #[arg(value_name = "NODE|HANDLE")]
+        node: String,
+        /// Why it is wrong, in a sentence.
+        #[arg(value_name = "WHY", required = true)]
+        why: Vec<String>,
     },
     /// The ontology: the kinds of context, the categories (a bound place's channel or person,
     /// and the topics you declare) with their guidance, and sessions' memberships. A session's
@@ -994,6 +1007,7 @@ async fn run(cli: Cli) -> Result<()> {
         Cmd::Why { turn, session } => why::why(c, json, session, turn).await,
         Cmd::Reach { node, generations } => cmd::reach(c, json, node, generations).await,
         Cmd::Places => cmd::places(c, json).await,
+        Cmd::Retract { node, why } => retract::run(c, json, node, why).await,
         Cmd::Publish {
             what,
             to,

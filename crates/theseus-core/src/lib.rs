@@ -75,6 +75,7 @@ pub mod reach;
 pub mod recall;
 pub mod resident;
 pub mod restore;
+pub mod retract;
 pub mod routing;
 pub mod rpc;
 pub mod rsi;
@@ -311,6 +312,8 @@ mod tests_rerank_links;
 mod tests_rerank_live;
 #[cfg(test)]
 mod tests_retention;
+#[cfg(test)]
+mod tests_retract;
 #[cfg(test)]
 mod tests_route;
 #[cfg(test)]

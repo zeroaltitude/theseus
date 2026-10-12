@@ -302,11 +302,20 @@ impl Core {
                 }
             }
         }
+        // A node the owner marked wrong or stale (a retraction's, theseus-2ced) is
+        // no source: a cluster that held it is proposed again without it, so a
+        // stale synthesis of it is rewritten, not repeated.
+        let labeled = self.runner.memory.labeled(&self.store)?;
         let co: Vec<CoRecall> = rows
             .iter()
             .map(|m| CoRecall {
                 turn: m.turn_id.clone().unwrap_or_else(|| m.recall_id.clone()),
-                nodes: m.admitted.iter().map(|a| a.node_id.clone()).collect(),
+                nodes: m
+                    .admitted
+                    .iter()
+                    .filter(|a| !labeled.contains(&a.node_id))
+                    .map(|a| a.node_id.clone())
+                    .collect(),
             })
             .collect();
         let (clusters, skipped) = pure::clusters(&co, &excluded, &done);
