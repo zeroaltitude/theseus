@@ -7,8 +7,17 @@ use super::time::fmt_date;
 use super::until_due;
 
 /// What people call a wake: the daemon's `title` (its note's first line,
-/// clipped), or for an older daemon the note's own first line.
+/// clipped), or for an older daemon the note's own first line; a reminder, a
+/// routine or a watch says what it is first (`remind: stretch`).
 fn title_of(w: &WakeInfo, chars: usize) -> String {
+    let title = bare_title(w, chars);
+    match &w.purpose {
+        Some(p) => format!("{p}: {title}"),
+        None => title,
+    }
+}
+
+fn bare_title(w: &WakeInfo, chars: usize) -> String {
     match &w.title {
         Some(t) => t.clone(),
         None => w
@@ -25,8 +34,9 @@ fn title_of(w: &WakeInfo, chars: usize) -> String {
 /// How often it runs: `once`, or a series' span, its weekdays and its end,
 /// and the occurrence due: `every 1d on mon,fri until 2026-10-30 18:00 #4`.
 fn cadence(w: &WakeInfo) -> String {
+    let held = if w.paused { " (paused)" } else { "" };
     let Some(e) = &w.every else {
-        return "once".into();
+        return format!("once{held}");
     };
     let mut out = format!("every {e}");
     if !w.days.is_empty() {
@@ -38,7 +48,55 @@ fn cadence(w: &WakeInfo) -> String {
     if let Some(n) = w.occurrence {
         out.push_str(&format!(" #{n}"));
     }
+    out.push_str(held);
     out
+}
+
+/// A reminder that fired, as a watching terminal says it (theseus-8ux6x): its
+/// note as it is, how late it ran, and the four answers as commands. The
+/// note is the message; the surface's ping is the notice
+/// (`notices::reminder_notice`).
+pub fn noticed_lines(n: &theseus_protocol::WakeNoticed) -> Vec<String> {
+    let late = if n.late_ms > 5_000 {
+        let down = if n.while_down {
+            ", the daemon was down"
+        } else {
+            ""
+        };
+        format!(
+            " (due {}, {} late{down})",
+            fmt_date(n.due_at_ms),
+            span_of(n.late_ms)
+        )
+    } else {
+        String::new()
+    };
+    let series = n
+        .every
+        .as_deref()
+        .map(|e| format!(" · every {e}"))
+        .unwrap_or_default();
+    let mut out = vec![format!("  ⏰ {}{late}{series}", n.note)];
+    // A snooze of what fired is named by its whole id; Done by either.
+    let answers: Vec<String> = n
+        .answers
+        .iter()
+        .map(|a| match &a.when {
+            Some(w) => format!("{}: theseus snooze {} \"{w}\"", a.label, n.wake_id),
+            None => format!("{}: theseus done {}", a.label, n.wake_id),
+        })
+        .collect();
+    out.push(format!("      {}", answers.join(" · ")));
+    out
+}
+
+/// A span as a line says it: `2 min`, `3 h`.
+fn span_of(ms: u64) -> String {
+    match ms / 1000 {
+        s @ 0..=59 => format!("{s} s"),
+        s @ 60..=3599 => format!("{} min", s / 60),
+        s => format!("{} h", s / 3600),
+    }
 }
 
 /// One pending wake, as `theseus wakes` lists it (DD8): its short id, when

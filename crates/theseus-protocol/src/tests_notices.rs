@@ -233,6 +233,7 @@ fn row_4_a_wake_on_a_root_interrupts_and_a_tasks_informs() {
     woke.woke = Some(Woke {
         note: "the tide turns".into(),
         at_ms: AT - 30_000,
+        purpose: None,
     });
     assert_eq!(
         said(&run(Some(&ready), &woke)),
@@ -519,6 +520,7 @@ fn delivery_follows_its_table() {
         line: "● Beta summary asks".into(),
         question: Some("cor_1".into()),
         retracts: None,
+        answers: vec![],
         position: 50,
         at_ms: AT,
     };
@@ -617,4 +619,47 @@ fn a_notice_round_trips() {
         (60_000, 10_000),
         "a partial table reads"
     );
+}
+
+/// Row 4 by purpose (theseus-8ux6x): a reminder interrupts wherever it
+/// lives, and a check-in, a routine and a watch only inform; a view that says
+/// no purpose is read as before.
+#[test]
+fn row_4_by_purpose_a_reminder_interrupts_and_the_rest_inform() {
+    let ready = root(WorkState::Ready, AT - MIN, AT - 2 * MIN);
+    let with = |purpose: Option<&str>| {
+        let mut v = root(WorkState::Ready, AT, AT - 2 * MIN);
+        v.title = "ops".into();
+        v.woke = Some(Woke {
+            note: "stretch".into(),
+            at_ms: AT - 30_000,
+            purpose: purpose.map(str::to_string),
+        });
+        v
+    };
+    assert_eq!(
+        said(&run(Some(&ready), &with(Some("remind")))),
+        (Urgency::Interrupt, Why::Woke, "⏰ ops · stretch")
+    );
+    for p in ["check", "routine", "watch"] {
+        assert_eq!(
+            said(&run(Some(&ready), &with(Some(p)))),
+            (Urgency::Inform, Why::Woke, "⏰ ops · stretch"),
+            "a {p} informs, even on a root"
+        );
+    }
+    assert_eq!(
+        said(&run(Some(&ready), &with(None))).0,
+        Urgency::Interrupt,
+        "no purpose: the root guess, as before"
+    );
+    // A reminder on a task interrupts too: it is the owner's.
+    let sleeping = task("Gamma poll", WorkState::Waiting, AT - MIN);
+    let mut t = task("Gamma poll", WorkState::Ready, AT);
+    t.woke = Some(Woke {
+        note: "stretch".into(),
+        at_ms: AT - 1,
+        purpose: Some("remind".into()),
+    });
+    assert_eq!(said(&run(Some(&sleeping), &t)).0, Urgency::Interrupt);
 }

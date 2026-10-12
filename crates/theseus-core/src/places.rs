@@ -187,6 +187,20 @@ impl PlaceRule {
             .any(|b| b.place.target.starts_with("discord:dm:"))
     }
 
+    /// The places of the DMs the binding binds, as the outbox keys them
+    /// (`dm:<user id>`), in the bindings file's order: the owner's Home is the
+    /// session the first of them runs on (theseus-8ux6x).
+    pub fn owner_dm_places(&self) -> Vec<String> {
+        self.bound
+            .read()
+            .unwrap()
+            .iter()
+            .filter_map(|b| b.place.target.strip_prefix("discord:"))
+            .filter(|p| p.starts_with("dm:"))
+            .map(str::to_string)
+            .collect()
+    }
+
     /// One more bound place, as the binding's start would name it: tests
     /// that bind a session to a place by hand bind it here too.
     #[cfg(test)]

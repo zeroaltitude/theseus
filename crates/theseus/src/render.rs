@@ -266,6 +266,12 @@ pub fn event(e: &Event, show: Show) -> Vec<Line> {
         // A notified call's score, after its notice (M5 step 24).
         Event::JudgeScored(j) => push(&mut out, Tag::Warn, &judge::scored_line(j)),
         Event::JudgeNoticed(n) => push(&mut out, Tag::Warn, &judge::noticed_line(n)),
+        // A reminder fired (theseus-8ux6x): its note, and its four answers.
+        Event::WakeNoticed(n) => {
+            for (i, l) in wakes::noticed_lines(n).iter().enumerate() {
+                push(&mut out, if i == 0 { Tag::Ask } else { Tag::Dim }, l);
+            }
+        }
         Event::PolicyTightened(r) | Event::PolicyUntightened(r) => {
             let tightened = matches!(e, Event::PolicyTightened(_));
             push(

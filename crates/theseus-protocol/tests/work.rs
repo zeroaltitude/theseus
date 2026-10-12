@@ -137,6 +137,7 @@ fn whole(id: &str, kind: WorkKind, state: WorkState, title: &str) -> WorkView {
         woke: Some(Woke {
             note: "the tide turns".into(),
             at_ms: AT - 60_000,
+            purpose: None,
         }),
         flagged: true,
     };

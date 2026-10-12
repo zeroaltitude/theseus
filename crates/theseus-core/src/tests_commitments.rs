@@ -395,6 +395,7 @@ fn wake(
         target: None,
         occurrence: u32::from(repeat.is_some()),
         repeat,
+        ..Default::default()
     }
 }
 

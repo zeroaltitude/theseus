@@ -19,6 +19,7 @@ pub use theseus_protocol::BUDGET_TOOL;
 pub use theseus_protocol::PROVIDER_TOOL;
 
 use crate::gate::Proposal;
+use crate::wake_kinds::{Purpose, WakeRun};
 
 pub type ExecutionId = String;
 pub type SessionId = String;
@@ -131,7 +132,7 @@ pub enum Wake {
 /// `due_at_ms` its session gets a turn whose input is `note`. A one-shot
 /// wake is removed by the turn that takes it; a repeating one (37a) is put
 /// back, in the same frame, at its next occurrence.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PendingWake {
     /// `wak_…`, from the id of the call that set it (`wake_id`).
     pub id: String,
@@ -153,6 +154,30 @@ pub struct PendingWake {
     /// wake.
     #[serde(default, skip_serializing_if = "no_occurrence")]
     pub occurrence: u32,
+    /// Why it exists (theseus-8ux6x, store format 30); a wake written before
+    /// it is the model's own check-in.
+    #[serde(default, skip_serializing_if = "Purpose::is_check")]
+    pub purpose: Purpose,
+    /// What firing it does (format 30); a turn, as every wake before it.
+    #[serde(default, skip_serializing_if = "WakeRun::is_turn")]
+    pub run: WakeRun,
+    /// When the owner paused it (format 30): the due scan passes it over,
+    /// and a series keeps its place and its numbering.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub paused_at_ms: Option<u64>,
+}
+
+impl PendingWake {
+    /// Whether a turn of its conversation is due at `now_ms`: a turn's wake,
+    /// not paused, whose time has come.
+    pub fn turn_due(&self, now_ms: u64) -> bool {
+        self.run.is_turn() && self.paused_at_ms.is_none() && self.due_at_ms <= now_ms
+    }
+
+    /// Whether it is a notice that is due at `now_ms`, to be posted at once.
+    pub fn notice_due(&self, now_ms: u64) -> bool {
+        self.run.is_notice() && self.paused_at_ms.is_none() && self.due_at_ms <= now_ms
+    }
 }
 
 fn no_occurrence(n: &u32) -> bool {

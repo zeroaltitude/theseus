@@ -392,6 +392,11 @@ default_deadline_secs = 600             # deadline for an action whose tool decl
 confirm_ttl_secs = 900                  # how long a call waits for your answer: then it expires, not run, and its card says so; and how long an approval stays valid
 min_repeat_minutes = 5                  # the shortest span a repeating wake (wake.at with `every`) may take; at least 1
 task_lease_minutes = 30                 # a task claim's lease (task.claim): the holder's edits renew it, and past it the task is free; at least 1
+max_wake_ahead_days = 365               # the furthest ahead a wake, a reminder or a deferred task may be set; at least 1
+max_wakes = 5                           # check-ins (wake.at) one conversation may hold at once; at least 1
+max_reminders = 100                     # reminders the whole daemon may hold at once, in every conversation; at least 1
+max_routines = 50                       # routines the daemon may hold (declared; they come with the routines row)
+max_watches = 20                        # watches the daemon may hold (declared; they come with the watches row)
 
 # ---------------------------------------------------------------- tools
 # Toollets (fs.*, text.diff, git.diff/log, proc.run). The workspace is

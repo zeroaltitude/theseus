@@ -13,6 +13,8 @@
 //!   (`wakes::due_now`'s cases): what the driver's tick and the reconcile
 //!   look at, beside the queued ones;
 //! - `w`, it holds wakes of its own (`pending_wakes`);
+//! - `nw`, it holds a notice wake that is not paused, in any open state: a
+//!   notice fires at once, even while a turn runs (`Kernel::notice_executions`);
 //! - `l:<limit>`, open, and its limit follows the config's
 //!   (`follows_limit`), the limit in 16 hex digits, so a changed config finds
 //!   the executions with another limit in two ranges;
@@ -37,7 +39,7 @@ use crate::types::{ActionState, ExecState, SessionKind, Wake, SCHEMA};
 /// The kernel's projection: the store keeps these terms with every
 /// execution and action it appends.
 pub static PROJECTION: Projection = Projection {
-    name: "terms.kernel.2",
+    name: "terms.kernel.3",
     kinds: &[kinds::EXECUTION, kinds::ACTION],
     terms: of,
     sums: no_sums,
@@ -116,6 +118,9 @@ pub fn tasks_of(parent: &str) -> String {
 /// The term of a task that has not ended.
 pub const OPEN_TASK: &str = "ot";
 
+/// An open execution that holds a notice wake that is not paused.
+pub const NOTICE: &str = "nw";
+
 /// An unsettled action's term under its execution.
 pub fn unsettled_of(execution_id: &str) -> String {
     format!("x:{execution_id}")
@@ -131,7 +136,7 @@ struct ExecutionTerms {
     #[serde(default)]
     wake: Option<Wake>,
     #[serde(default)]
-    wakes: Vec<serde::de::IgnoredAny>,
+    wakes: Vec<WakeTerms>,
     #[serde(default)]
     report_wakes: Vec<serde::de::IgnoredAny>,
     #[serde(default)]
@@ -140,6 +145,15 @@ struct ExecutionTerms {
     parent: Option<String>,
     #[serde(default)]
     kind: Option<SessionKind>,
+}
+
+/// A wake, as far as the terms read it.
+#[derive(Deserialize)]
+struct WakeTerms {
+    #[serde(default)]
+    run: serde_json::Value,
+    #[serde(default)]
+    paused_at_ms: Option<u64>,
 }
 
 #[derive(Deserialize, Default)]
@@ -166,6 +180,13 @@ fn execution(payload: &[u8]) -> Option<Vec<String>> {
     }
     if !e.wakes.is_empty() {
         t.push("w".into());
+    }
+    if !e.state.is_terminal()
+        && e.wakes
+            .iter()
+            .any(|w| w.run == "notice" && w.paused_at_ms.is_none())
+    {
+        t.push(NOTICE.into());
     }
     // A legacy budget is read with the config's limit (`from_stored`), so
     // it follows nothing until the start rewrites it.

@@ -103,7 +103,9 @@ pub mod trace;
 pub mod turn;
 pub mod voice;
 pub mod wake;
+pub mod wake_home;
 pub mod wake_tools;
+pub mod wake_when;
 pub mod warm;
 pub mod web;
 pub mod webui;
@@ -308,6 +310,8 @@ mod tests_recall_words;
 mod tests_refused;
 #[cfg(test)]
 mod tests_registry;
+#[cfg(test)]
+mod tests_reminders;
 #[cfg(test)]
 mod tests_replay;
 #[cfg(test)]

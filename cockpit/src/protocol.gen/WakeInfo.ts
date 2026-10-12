@@ -62,4 +62,18 @@ until_ms?: number,
  * The note's first line, clipped: what people call the wake
  * (theseus-lherl).
  */
-title?: string, };
+title?: string, 
+/**
+ * Why it exists, when not the model's own check-in: `remind`, `routine`,
+ * `watch` (theseus-8ux6x).
+ */
+purpose?: string, 
+/**
+ * What firing it does, when not a turn: `notice` posts the note and
+ * takes no turn and no model call.
+ */
+run?: string, 
+/**
+ * Held by the owner: the due scan passes it over until it is resumed.
+ */
+paused?: boolean, };

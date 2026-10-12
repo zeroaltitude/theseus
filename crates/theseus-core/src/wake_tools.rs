@@ -22,11 +22,11 @@
 
 use serde::Deserialize;
 use serde_json::{json, Value};
-use theseus_kernel::{MoveTo, PendingWake, Repeat, MAX_PENDING};
+use theseus_kernel::{MoveTo, PendingWake, Repeat};
 use theseus_tools::{parse, Backend, Plan, Retry, Tool, ToolClass, ToolCtx};
 
 use crate::toolrun::TurnCtx;
-use crate::wake::{local, series_of, span, MAX_AHEAD_MS, MIN_AHEAD_MS};
+use crate::wake::{local, series_of, span, MIN_AHEAD_MS};
 
 pub const CANCEL: &str = "wake.cancel";
 pub const MOVE: &str = "wake.move";
@@ -257,9 +257,10 @@ pub fn cancel(tc: &TurnCtx<'_>, input: &Value) -> Result<(String, Value), String
         pending: e.wakes.len(),
     });
     let series = w.repeat.is_some();
+    let max = tc.kernel.config().wakes.max_wakes;
     Ok((
         format!(
-            "Cancelled wake {short}, due {}: \"{}\" will not run{}. {} of {MAX_PENDING} wakes \
+            "Cancelled wake {short}, due {}: \"{}\" will not run{}. {} of {max} wakes \
              are pending.",
             when_of(&w, now),
             crate::session::title_from(&w.note),
@@ -268,7 +269,7 @@ pub fn cancel(tc: &TurnCtx<'_>, input: &Value) -> Result<(String, Value), String
             } else {
                 ""
             },
-            e.wakes.len()
+            crate::wake::checks(&e.wakes)
         ),
         json!({"wake_id": w.id, "short": short, "cancelled": true, "series": series,
                "pending": e.wakes.len()}),
@@ -280,7 +281,7 @@ fn target(
     w: &PendingWake,
     i: &MoveInput,
     now_ms: u64,
-    zone: &theseus_kernel::TimeZone,
+    (zone, max_ahead_ms): (&theseus_kernel::TimeZone, u64),
 ) -> Result<MoveTo, String> {
     let due = match (&i.at, &i.after) {
         (None, None) => {
@@ -289,7 +290,9 @@ fn target(
             )
         }
         (Some(_), Some(_)) => return Err("give `at` or `after`, not both".into()),
-        (at, after) => crate::wake::due_from(at.as_deref(), after.as_deref(), now_ms)?,
+        (at, after) => {
+            crate::wake::due_from(at.as_deref(), after.as_deref(), now_ms, max_ahead_ms)?
+        }
     };
     if !i.series {
         // The next occurrence alone; a series ends at `until`.
@@ -323,8 +326,11 @@ fn target(
             r.until_ms.map(|u| local(u).full()).unwrap_or_default()
         ));
     };
-    if first.saturating_sub(now_ms) > MAX_AHEAD_MS || first.saturating_sub(now_ms) < MIN_AHEAD_MS {
-        return Err("a series' next time must be between 1 s and 30 days from now".into());
+    if first.saturating_sub(now_ms) > max_ahead_ms || first.saturating_sub(now_ms) < MIN_AHEAD_MS {
+        return Err(format!(
+            "a series' next time must be between 1 s and {} days from now",
+            max_ahead_ms / 86_400_000
+        ));
     }
     Ok(MoveTo {
         due_at_ms: first,
@@ -341,7 +347,8 @@ pub fn move_to(tc: &TurnCtx<'_>, input: &Value) -> Result<(String, Value), Strin
     let w = resolve_own(&pending, &i.id)?.clone();
     let short = crate::task::short(&w.id);
     let now = tc.kernel.now_ms();
-    let to = target(&w, &i, now, &tc.kernel.config().zone)?;
+    let kc = tc.kernel.config();
+    let to = target(&w, &i, now, (&kc.zone, kc.wakes.max_ahead_ms))?;
     let Some(moved) = tc
         .kernel
         .move_wake(tc.guard, &w.id, to, BY)
@@ -364,12 +371,13 @@ pub fn move_to(tc: &TurnCtx<'_>, input: &Value) -> Result<(String, Value), Strin
         to: &new,
         series: series.as_deref(),
     });
+    let max = tc.kernel.config().wakes.max_wakes;
     Ok((
         format!(
-            "Moved wake {short} from {old} to {new}; it keeps its id{}. {} of {MAX_PENDING} \
+            "Moved wake {short} from {old} to {new}; it keeps its id{}. {} of {max} \
              wakes are pending.",
             series.as_deref().unwrap_or(""),
-            moved.list.len()
+            crate::wake::checks(&moved.list)
         ),
         json!({"wake_id": w.id, "short": short, "from_ms": moved.from.due_at_ms,
                "due_at_ms": moved.wake.due_at_ms, "due_local": local(moved.wake.due_at_ms).full(),

@@ -70,14 +70,15 @@ const HERON: &str = "Remember: the grey heron nests by the old weir at Millbrook
 /// The session's model's window in these tests, and its output cap: a few
 /// long turns pass it, so the session rings or compacts. 40,000 until
 /// `wake.cancel` and `wake.move` joined the tools block (theseus-lherl: 40,400
-/// rings too early for these two, which need the first compile to fit).
+/// rings too early for these two, which need the first compile to fit), and
+/// 40,800 until `wake.at`'s `for` and `say_only` joined it (theseus-8ux6x).
 fn small_window(c: &mut crate::Config, mb: u64, summary: &str) {
     c.memory.node_cache_mb = mb;
     c.memory.summary_profile = summary.into();
     c.catalog.insert(
         "claude-sonnet-5-5".into(),
         CatalogRow {
-            context_window: Some(40_800),
+            context_window: Some(41_100),
             max_output_tokens: Some(2_000),
             ..Default::default()
         },

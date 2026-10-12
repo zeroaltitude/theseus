@@ -12,7 +12,8 @@
 //!   13:05): check the build`, with how late it ran when it ran late. It is
 //!   an ordinary turn: it spends from the session's limit, under its
 //!   authority, and its reply posts where the session posts.
-//! - **Few.** At most `MAX_PENDING` per session.
+//! - **Few.** At most `[kernel] max_wakes` (5) check-ins per session; a
+//!   reminder counts against the daemon's `max_reminders` instead.
 //! - **In a task** (37b, theseus-7kg). A task may set one-shot wakes: a turn
 //!   of it that would wait on input with a wake pending parks on the wake,
 //!   and the wake's turn continues the task (`task::parks_on_wake`). It ends
@@ -40,7 +41,8 @@
 use serde::Deserialize;
 use serde_json::{json, Value};
 use theseus_kernel::{
-    Day, Every, Execution, FiredWake, KernelError, PendingWake, Repeat, TimeZone, MAX_PENDING,
+    Day, Every, Execution, FiredWake, KernelError, NewWake, PendingWake, Purpose, Repeat, TimeZone,
+    WakeRun, WakeSet,
 };
 use theseus_tools::{parse, Backend, Plan, Retry, Tool, ToolClass, ToolCtx};
 
@@ -51,9 +53,9 @@ pub const AT: &str = "wake.at";
 pub const NAMES: [&str; 3] = [AT, crate::wake_tools::CANCEL, crate::wake_tools::MOVE];
 /// The longest note a wake takes, in characters.
 pub const MAX_NOTE_CHARS: usize = 2_000;
-/// The soonest and the latest a wake may be set for, from now.
+/// The soonest a wake may be set for, from now. The latest is `[kernel]
+/// max_wake_ahead_days` (365), `KernelConfig::wakes.max_ahead_ms`.
 pub const MIN_AHEAD_MS: u64 = 1_000;
-pub const MAX_AHEAD_MS: u64 = 30 * 86_400_000;
 /// A wake that runs more than this after its due time says how late it ran.
 pub const LATE_AFTER_MS: u64 = 5_000;
 /// The longest span a repeating wake may take.
@@ -67,20 +69,34 @@ pub const TASK_REFUSAL: &str = "Refused: this session is a task, and a task must
     wait on. If the work needs checking on a schedule, say so in your report; the conversation \
     that started you can set a repeating wake.";
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct Input {
+pub(crate) struct Input {
     #[serde(default)]
-    at: Option<String>,
+    pub(crate) at: Option<String>,
     #[serde(default)]
-    after: Option<String>,
+    pub(crate) after: Option<String>,
     #[serde(default)]
-    every: Option<String>,
+    pub(crate) every: Option<String>,
     #[serde(default)]
-    days: Option<Vec<String>>,
+    pub(crate) days: Option<Vec<String>>,
     #[serde(default)]
-    until: Option<String>,
-    note: String,
+    pub(crate) until: Option<String>,
+    pub(crate) note: String,
+    /// The first occurrence, already worked out by the caller (the owner's
+    /// `wake.create`, whose `when` reads more than `at` and `after`).
+    #[serde(skip)]
+    pub(crate) first_ms: Option<u64>,
+    /// `until`, already worked out by the caller.
+    #[serde(skip)]
+    pub(crate) until_ms: Option<u64>,
+    /// `owner`: a reminder for the owner (a `Remind` wake); `self`, the
+    /// default, is the model's own check-in (theseus-8ux6x).
+    #[serde(default, rename = "for")]
+    pub(crate) for_: Option<String>,
+    /// With `for: owner`: the note is the whole message, posted with no turn.
+    #[serde(default)]
+    pub(crate) say_only: Option<bool>,
 }
 
 /// Whether a `wake.at` call's input asks for a repeating wake (37a): the
@@ -103,6 +119,7 @@ fn input_of(input: &Value) -> Result<Input, String> {
     if i.every.is_none() && (i.days.is_some() || i.until.is_some()) {
         return Err("`days` and `until` belong to a repeating wake: give `every` too".into());
     }
+    purpose_of(&i)?;
     match (&i.at, &i.after) {
         (Some(_), Some(_)) => Err("give `at` or `after`, not both".into()),
         (None, None) if i.every.is_none() => {
@@ -112,17 +129,34 @@ fn input_of(input: &Value) -> Result<Input, String> {
     }
 }
 
+/// What `i` asks for: a check-in for the model (the default), a reminder for
+/// the owner that takes a turn (`for: "owner"`), or one that is only its note
+/// (`say_only`). A reminder takes no turn only when it says so.
+pub(crate) fn purpose_of(i: &Input) -> Result<(Purpose, WakeRun), String> {
+    match (i.for_.as_deref(), i.say_only) {
+        (None | Some("self"), None | Some(false)) => Ok((Purpose::Check, WakeRun::Turn)),
+        (None | Some("self"), Some(true)) => Err(
+            "`say_only` belongs to a reminder: give `for: \"owner\"` with it".into(),
+        ),
+        (Some("owner"), Some(true)) => Ok((Purpose::Remind, WakeRun::Notice)),
+        (Some("owner"), _) => Ok((Purpose::Remind, WakeRun::Turn)),
+        (Some(other), _) => Err(format!(
+            "`for` is `owner` (a reminder for the owner) or `self` (your own check-in), not `{other}`"
+        )),
+    }
+}
+
 /// When `i`'s wake is first due, from `now_ms`, and its series if it
 /// repeats, in `zone`, with `floor_ms` the shortest span it may take; or why
 /// it cannot be.
-fn plan_of(
+pub(crate) fn plan_of(
     i: &Input,
     now_ms: u64,
     zone: &TimeZone,
-    floor_ms: u64,
+    (floor_ms, max_ahead_ms): (u64, u64),
 ) -> Result<(u64, Option<Repeat>), String> {
     let Some(every) = &i.every else {
-        return Ok((due_of(i, now_ms)?, None));
+        return Ok((due_of(i, now_ms, max_ahead_ms)?, None));
     };
     let every = Every::parse(every)?;
     if every.nominal_ms() < floor_ms {
@@ -161,8 +195,10 @@ fn plan_of(
         }
     };
     // The first time: `at` or `after`, or one span from now.
-    let first_ms = if i.at.is_some() || i.after.is_some() {
-        due_of(i, now_ms)?
+    let first_ms = if let Some(first) = i.first_ms {
+        first
+    } else if i.at.is_some() || i.after.is_some() {
+        due_of(i, now_ms, max_ahead_ms)?
     } else {
         let from_now = Repeat {
             every,
@@ -174,9 +210,10 @@ fn plan_of(
             .at(zone, 1)
             .ok_or_else(|| format!("`every` ({every}) runs past what a time can be"))?
     };
-    let until_ms = match &i.until {
-        None => None,
-        Some(u) => Some(parse_at(u).map_err(|e| e.replace("`at`", "`until`"))?),
+    let until_ms = match (&i.until, i.until_ms) {
+        (_, Some(u)) => Some(u),
+        (None, None) => None,
+        (Some(u), None) => Some(parse_at(u).map_err(|e| e.replace("`at`", "`until`"))?),
     };
     let repeat = Repeat {
         every,
@@ -190,9 +227,10 @@ fn plan_of(
             i.until.as_deref().unwrap_or("")
         ));
     };
-    if first.saturating_sub(now_ms) > MAX_AHEAD_MS {
+    if first.saturating_sub(now_ms) > max_ahead_ms {
         return Err(format!(
-            "a wake's first time may be at most 30 days from now, and this one is {}",
+            "a wake's first time may be at most {} days from now, and this one is {}",
+            max_ahead_ms / 86_400_000,
             span(first.saturating_sub(now_ms))
         ));
     }
@@ -200,13 +238,18 @@ fn plan_of(
 }
 
 /// The due time `i` asks for, from `now_ms`, or why it cannot be.
-fn due_of(i: &Input, now_ms: u64) -> Result<u64, String> {
-    due_from(i.at.as_deref(), i.after.as_deref(), now_ms)
+fn due_of(i: &Input, now_ms: u64, max_ahead_ms: u64) -> Result<u64, String> {
+    due_from(i.at.as_deref(), i.after.as_deref(), now_ms, max_ahead_ms)
 }
 
 /// The due time `at` or `after` asks for (`after` wins), from `now_ms`, in
 /// `wake.at`'s bounds, or why it cannot be (`wake.move` asks it too).
-pub fn due_from(at: Option<&str>, after: Option<&str>, now_ms: u64) -> Result<u64, String> {
+pub fn due_from(
+    at: Option<&str>,
+    after: Option<&str>,
+    now_ms: u64,
+    max_ahead_ms: u64,
+) -> Result<u64, String> {
     let due = match (at, after) {
         (_, Some(a)) => now_ms.saturating_add(parse_after(a)?),
         (Some(at), None) => {
@@ -226,9 +269,10 @@ pub fn due_from(at: Option<&str>, after: Option<&str>, now_ms: u64) -> Result<u6
     if ahead < MIN_AHEAD_MS {
         return Err("a wake must be at least 1 s from now".into());
     }
-    if ahead > MAX_AHEAD_MS {
+    if ahead > max_ahead_ms {
         return Err(format!(
-            "a wake may be at most 30 days from now, and this one is {}",
+            "a wake may be at most {} days from now, and this one is {}",
+            max_ahead_ms / 86_400_000,
             span(ahead)
         ));
     }
@@ -250,7 +294,9 @@ impl Tool for WakeAt {
          this conversation posts. Use it for \"remind me in 10 minutes\" or \"check the build at \
          3 pm\". Give `after`, a duration such as `90s`, `10m`, `2h`, or `1h30m`, or `at`, an \
          RFC 3339 time with its offset such as `2026-09-30T15:00:00-07:00`; at least 1 second \
-         and at most 30 days ahead. Write the note as the instruction you will want then. It \
+         and at most 365 days ahead. `for: \"owner\"` makes it a reminder for the owner, who \
+         hears it wherever they are, and `say_only: true` posts the note itself, with no turn \
+         of yours. Write the note as the instruction you will want then. It \
          fires once. Messages that come before it are answered as usual, and it still fires \
          later; if a turn is running at its time, it runs when that turn ends. A session holds \
          at most 5 pending wakes. To repeat it, give `every` (`30m`, `2h`, `1d`, `1w`): it then \
@@ -288,6 +334,15 @@ impl Tool for WakeAt {
                 "until": {
                     "type": "string",
                     "description": "With every: no occurrence after this RFC 3339 time."
+                },
+                "for": {
+                    "type": "string",
+                    "enum": ["owner", "self"],
+                    "description": "owner: a reminder for the owner; self (default): your own check-in."
+                },
+                "say_only": {
+                    "type": "boolean",
+                    "description": "With for = owner: the note is the whole message, posted with no turn."
                 },
                 "note": {
                     "type": "string",
@@ -347,15 +402,30 @@ pub fn set(
     }
     let now = tc.kernel.now_ms();
     let kc = tc.kernel.config();
-    let (due, repeat) = plan_of(&i, now, &kc.zone, kc.min_repeat_ms)?;
-    let target = tc.outbox.target(tc.session_id);
-    let set = match tc.kernel.set_wake(
+    let (due, repeat) = plan_of(&i, now, &kc.zone, (kc.min_repeat_ms, kc.wakes.max_ahead_ms))?;
+    let (purpose, run) = purpose_of(&i)?;
+    let mut target = tc.outbox.target(tc.session_id);
+    // A reminder set where no place hears it goes to the owner's DM when it
+    // fires, or to Home (theseus-8ux6x).
+    if purpose == Purpose::Remind && target.is_none() {
+        target = tc
+            .places
+            .rule
+            .owner_dm_places()
+            .first()
+            .map(|p| format!("discord:{p}"));
+    }
+    let set = match tc.kernel.set_wake_as(
         tc.guard,
         correlation_id,
-        due,
-        &i.note,
-        target.clone(),
-        repeat,
+        NewWake {
+            due_at_ms: due,
+            note: i.note,
+            target: target.clone(),
+            repeat,
+            purpose,
+            run,
+        },
     ) {
         Ok(s) => s,
         Err(e) => {
@@ -396,34 +466,9 @@ pub fn set(
             series: series.as_deref(),
         });
     }
-    let text = if let Some(words) = after_run.clone() {
-        words
-    } else if set.set && w.repeat.is_some() {
-        format!(
-            "Set wake {s}, {}, first at {when}; {} of {MAX_PENDING} wakes are pending (a series \
-             counts once), and its id is {}. This conversation gets a turn at each occurrence, \
-             whose input is this line:\n{}",
-            series.as_deref().unwrap_or(""),
-            set.pending,
-            w.id,
-            line(w, None, w.note.as_str())
-        )
-    } else if set.set {
-        format!(
-            "Set wake {s} for {when}; {} of {MAX_PENDING} wakes are pending, and its id is {}. \
-             This conversation gets a turn then, whose input is this line:\n\
-             ⏰ wake (set {}): {}",
-            set.pending,
-            w.id,
-            local(w.set_at_ms).hm(),
-            w.note
-        )
-    } else {
-        format!(
-            "Wake {s} was already set by this call, for {when}. Its id is {}.",
-            w.id
-        )
-    };
+    let text = after_run
+        .clone()
+        .unwrap_or_else(|| set_text(&set, &when, series.as_deref(), kc.wakes.max_wakes));
     let mut meta = json!({
         "wake_id": w.id,
         "short": s,
@@ -443,6 +488,57 @@ pub fn set(
         meta["until_ms"] = json!(r.until_ms);
     }
     Ok((text, meta))
+}
+
+/// What the model reads when its wake is set (or was, by this call before): when
+/// it fires, how many check-ins are pending, and what the turn's input will be;
+/// a reminder says whom it is for.
+fn set_text(set: &WakeSet, when: &str, series: Option<&str>, max: usize) -> String {
+    let w = &set.wake;
+    let s = crate::task::short(&w.id);
+    if set.set && !w.purpose.is_check() {
+        let how = if w.run.is_notice() {
+            "its note is posted to the owner as it is, with no turn of yours"
+        } else {
+            "the owner hears it, and this conversation gets a turn then"
+        };
+        let series = series.map(|r| format!(", {r}")).unwrap_or_default();
+        format!(
+            "Set reminder {s}{series} for {when}; {how}. Its id is {}.",
+            w.id
+        )
+    } else if set.set && w.repeat.is_some() {
+        format!(
+            "Set wake {s}, {}, first at {when}; {} of {max} wakes are pending (a series \
+             counts once), and its id is {}. This conversation gets a turn at each occurrence, \
+             whose input is this line:\n{}",
+            series.unwrap_or(""),
+            checks(&set.list),
+            w.id,
+            line(w, None, w.note.as_str())
+        )
+    } else if set.set {
+        format!(
+            "Set wake {s} for {when}; {} of {max} wakes are pending, and its id is {}. \
+             This conversation gets a turn then, whose input is this line:\n\
+             ⏰ wake (set {}): {}",
+            checks(&set.list),
+            w.id,
+            local(w.set_at_ms).hm(),
+            w.note
+        )
+    } else {
+        format!(
+            "Wake {s} was already set by this call, for {when}. Its id is {}.",
+            w.id
+        )
+    }
+}
+
+/// How many of `list` are the model's own check-ins, which `[kernel] max_wakes`
+/// caps per conversation (a reminder counts against the daemon's cap instead).
+pub fn checks(list: &[PendingWake]) -> usize {
+    list.iter().filter(|w| w.purpose.is_check()).count()
 }
 
 /// A series as people say it: `every 1d`, `every 1d on mon–fri`, `every 1h
@@ -577,6 +673,9 @@ pub fn info(e: &Execution, w: &PendingWake, title: Option<String>) -> theseus_pr
             .unwrap_or_default(),
         until_ms: w.repeat.as_ref().and_then(|r| r.until_ms),
         title: Some(crate::session::title_from(&w.note)).filter(|t| !t.is_empty()),
+        purpose: (!w.purpose.is_check()).then(|| w.purpose.as_str().to_string()),
+        run: w.run.is_notice().then(|| "notice".to_string()),
+        paused: w.paused_at_ms.is_some(),
     }
 }
 
@@ -906,6 +1005,9 @@ pub fn span(ms: u64) -> String {
 
 #[cfg(test)]
 mod tests {
+    /// The default horizon, `[kernel] max_wake_ahead_days` (365).
+    const YEAR_MS: u64 = 365 * 86_400_000;
+
     use super::*;
 
     #[test]
@@ -983,7 +1085,7 @@ mod tests {
     #[test]
     fn the_input_takes_one_of_at_and_after_and_a_note() {
         let now = parse_at("2026-09-30T20:05:00Z").unwrap();
-        let due = |v: Value| input_of(&v).and_then(|i| due_of(&i, now));
+        let due = |v: Value| input_of(&v).and_then(|i| due_of(&i, now, YEAR_MS));
         assert_eq!(due(json!({"after": "10m", "note": "n"})), Ok(now + 600_000));
         assert_eq!(
             due(json!({"at": "2026-09-30T13:15:00-07:00", "note": "n"})),
@@ -994,7 +1096,7 @@ mod tests {
         assert!(err(json!({"after": "1m", "at": "x", "note": "n"})).contains("not both"));
         assert!(err(json!({"after": "1m", "note": " "})).contains("note is empty"));
         assert!(err(json!({"after": "1m", "note": "x".repeat(2_001)})).contains("2001 characters"));
-        assert!(err(json!({"after": "31d", "note": "n"})).contains("at most 30 days"));
+        assert!(err(json!({"after": "366d", "note": "n"})).contains("at most 365 days"));
         assert!(err(json!({"after": "0s", "note": "n"})).contains("at least 1 s"));
         let past = err(json!({"at": "2026-09-30T13:00:00-07:00", "note": "n"}));
         assert!(past.contains("is 5 min ago"), "{past}");
@@ -1013,6 +1115,7 @@ mod tests {
             target: None,
             repeat: None,
             occurrence: 0,
+            ..Default::default()
         };
         let set = local(set_at).hm();
         let on_time = FiredWake {
@@ -1087,6 +1190,7 @@ mod tests {
             target: None,
             repeat: None,
             occurrence: 0,
+            ..Default::default()
         };
         let all = vec![
             (e.clone(), w("wak_0199aaaa1111")),
@@ -1115,7 +1219,7 @@ mod tests {
         // Saturday 2026-10-03, 16:05 EDT.
         let now = parse_at("2026-10-03T20:05:00Z").unwrap();
         let floor = 5 * 60_000;
-        let plan = |v: Value| input_of(&v).and_then(|i| plan_of(&i, now, &ny, floor));
+        let plan = |v: Value| input_of(&v).and_then(|i| plan_of(&i, now, &ny, (floor, YEAR_MS)));
         let (first, r) = plan(json!({"every": "1d", "note": "n"})).unwrap();
         assert_eq!(first, now + 86_400_000, "one day from now");
         assert_eq!(r.unwrap().every.to_string(), "1d");
@@ -1157,7 +1261,7 @@ mod tests {
                 .contains("`until` must be")
         );
         assert!(
-            err(json!({"after": "31d", "every": "1d", "note": "n"})).contains("at most 30 days")
+            err(json!({"after": "366d", "every": "1d", "note": "n"})).contains("at most 365 days")
         );
         assert!(repeats(&json!({"every": "1d", "note": "n"})));
         assert!(!repeats(&json!({"after": "1d", "note": "n"})));
@@ -1185,6 +1289,7 @@ mod tests {
                 until_ms: None,
             }),
             occurrence: 4,
+            ..Default::default()
         };
         let fired = |late_ms: u64, while_down: bool, missed: u64| FiredWake {
             wake: w.clone(),

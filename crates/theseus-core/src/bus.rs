@@ -43,6 +43,7 @@ fn wide(msg: &Message) -> bool {
                 | notify::CONFIRM_REQUESTED
                 | notify::CONFIRM_RESOLVED
                 | notify::TASK_CHANGED
+                | notify::WAKE_NOTICED
         ),
         _ => false,
     }

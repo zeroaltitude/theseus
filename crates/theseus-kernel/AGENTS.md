@@ -106,7 +106,7 @@ Key modules: `kernel.rs`, `tx.rs`, `locks.rs`, `job.rs`, `cgroup.rs`, `children.
   `tests_day_ceiling.rs` (stop), `tests_runaway.rs` (notify, the runaway line, the brake).
 - `spool.rs` (completions on disk, one sync each: a start finishes a rename a crash cut short, and takes a
   completion its action settled already as a no-op, theseus-yxiv), `redact.rs` (granted secrets withheld from a
-  job's output), `stops.rs` (the soft stop), `tasks.rs` (task executions and their carve; `open_task_at` opens one asleep, `Waiting{DueAt}`, for a deferred task: theseus-rcgph), `wakes.rs` (and since theseus-lherl `move_wake`, one frame with a `wake.moved` row, and `take_wakes_listing`, the take
+  job's output), `stops.rs` (the soft stop), `tasks.rs` (task executions and their carve; `open_task_at` opens one asleep, `Waiting{DueAt}`, for a deferred task: theseus-rcgph), `wake_kinds.rs` (theseus-8ux6x: a wake's `Purpose` (`Check` default, `Remind`, `Routine`, `Watch`), `WakeRun` (`Turn` default, `Notice`, `Task`, `Probe`: the last two declared and refused with words until their rows) and `WakeLimits`; store format 30, each default left out of a record's bytes), `wake_owner.rs` (the owner's verbs, each one frame under the execution's lock with its row and no turn guard: `create_wake`, `snooze_wake` (a pending wake moves; one that fired is set again from its META record `wake.fired.<id>`), `pause_wake` (held, or with `until` moved past it, a series' occurrences counted as passed over), `resume_wake`; and `fire_notices`, which takes a `Notice` wake the moment it is due, in any state of its execution, in one frame: the wake leaves (a series re-arms), a `wake.fired { notice }` row, that META record and the post of its note), `when.rs` (`tomorrow 9:00`, `fri 9:00`, `17:30`, `2026-10-14 09:00` in the daemon's zone), `wakes.rs` (and since theseus-lherl `move_wake`, one frame with a `wake.moved` row, and `take_wakes_listing`, the take
   and what is still pending from one read), `repeat.rs` (a repeating wake's series:
   its span, days, and `until`, by jiff's zoned arithmetic in `KernelConfig::zone`; 37a), `gate.rs` (a confirmation's proposal and its
   digest), `clock.rs`, and `umask.rs`.
@@ -164,7 +164,7 @@ Key modules: `kernel.rs`, `tx.rs`, `locks.rs`, `job.rs`, `cgroup.rs`, `children.
 - **An attempt that may have run is `OutcomeUnknown`**, never "not sent". Its money is held, unless its process is
   gone (an earlier process's in-process call), when it is booked at its reservation (theseus-f3wr).
 - **Read by state, never every record** (theseus-lv2). The store's index keeps `terms.rs`'s terms for each
-  execution and action (`s:<state>`, `due`, `x:<execution>`, …). A reader on a path that runs often (the start,
+  execution and action (`s:<state>`, `due`, `nw` (a notice wake that is not paused, in any open state: `notice_executions`), `x:<execution>`, …). A reader on a path that runs often (the start,
   the driver's tick, the reconcile, health, a stop) asks `executions_by` / `actions_by` for its terms; only the
   listings that show every one call `executions()` or `actions()`. A change to what a term means renames
   `terms::PROJECTION`, so every store builds its terms again once. kernel-sim's `check_terms` holds every read by
@@ -177,6 +177,7 @@ Key modules: `kernel.rs`, `tx.rs`, `locks.rs`, `job.rs`, `cgroup.rs`, `children.
   `tests_tx.rs` (the transaction), `tests_wakes.rs`, and `tests_repeat.rs` (a series: the re-arm, missed
   occurrences, a cancel, `until`, the cap, and both changes of offset of a year, in zones from POSIX TZ strings, so no
   tz database is read).
+- `tests_wake_owner.rs` (theseus-8ux6x): a reminder fires in one frame with no turn while its conversation's turn runs; a turn takes a check-in and leaves a notice alone; pause and resume keep a series' numbering (`#4` after three held days); `pause --until`; a snooze is one frame, of a pending wake and of one that fired; `Task` and `Probe` refused; the horizon (365 days in, 366 out) and the caps (`max_reminders` over the daemon, `max_wakes` check-ins a conversation).
 - `tests_frames.rs` is a golden: every frame a scripted run of the transitions commits, record by record, against
   `tests/golden/kernel_frames.txt`. A refactor leaves it byte-identical; `THESEUS_GOLDEN=write` rewrites it, for a
   change you mean.
