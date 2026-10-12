@@ -406,3 +406,17 @@ fn the_history_a_chain_pinned_is_checked_and_an_edit_of_it_found() {
     assert_eq!(b.fault, Fault::History);
     assert_eq!(b.position, 5, "the start row");
 }
+
+#[test]
+fn an_edit_that_broke_the_rows_json_still_says_its_kind() {
+    let mut rows = forged(10);
+    let text = String::from_utf8(rows[4].clone())
+        .unwrap()
+        .replace("\"data\":{", "\"data\":Z{");
+    rows[4] = text.into_bytes();
+    let (_d, s) = written(&rows);
+    let r = walk(&s);
+    let b = broken(&r);
+    assert_eq!((b.fault.clone(), b.position), (Fault::Edited, 5));
+    assert_eq!(b.kind.as_deref(), Some("turn.started"));
+}

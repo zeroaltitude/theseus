@@ -111,9 +111,13 @@ pub struct Walk {
     broken: Option<Break>,
 }
 
+/// The row's kind from its bytes alone: an edit that broke the row's JSON still
+/// leaves its `"kind":"…"` readable, and the walk says so.
 fn kind_of(canonical: &[u8]) -> Option<String> {
-    let v: serde_json::Value = serde_json::from_slice(canonical).ok()?;
-    v.get("kind")?.as_str().map(str::to_string)
+    const KEY: &[u8] = b"\"kind\":\"";
+    let at = canonical.windows(KEY.len()).position(|w| w == KEY)? + KEY.len();
+    let len = canonical[at..].iter().position(|&b| b == b'"')?;
+    String::from_utf8(canonical[at..at + len].to_vec()).ok()
 }
 
 fn mentions(canonical: &[u8], kind: &str) -> bool {
