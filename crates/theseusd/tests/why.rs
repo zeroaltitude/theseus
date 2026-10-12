@@ -22,6 +22,7 @@ fn cli(dir: &std::path::Path, args: &[&str]) -> (String, String, i32) {
         .arg("--socket")
         .arg(dir.join("sock"))
         .args(args)
+        .current_dir(dir.join("projects"))
         .env("XDG_STATE_HOME", dir.join("xdg-state"))
         .env("TZ", "UTC")
         .env_remove("THESEUS_SOCKET")
