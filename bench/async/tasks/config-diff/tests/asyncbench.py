@@ -13,6 +13,11 @@ the copies, and a test holds them to this file.
                                       block until the ledger has N such records
     asyncbench.py inject --message M --trigger JSON
                                       the driver's injection, as a ledger record
+    asyncbench.py kill-record --trigger JSON --pids JSON --settle S
+    asyncbench.py restart-record --resumable BOOL [--command C] [--note N]
+                                      the kill injection's two records (theseus-7ajc)
+    asyncbench.py procs [--comm NAME] [--cmd REGEX] [--not-comm A,B] [--pidfile F] [--root]
+                                      the processes a kill may reach, as JSON
 
 Paths come from `ASYNC_ROOT` (default `/`): the task's files under
 `$ASYNC_ROOT/app`, the ledger and the tools' state under
@@ -23,7 +28,7 @@ the check accepts only the scale its own environment names, so an agent that
 sets it fails.
 
 The ledger is JSONL, one record per line, appended under an exclusive lock:
-`seq`, `kind` (start, end, fail, effect, stopped, violation, inject), `tool`,
+`seq`, `kind` (start, end, fail, effect, stopped, violation, inject, kill, restart), `tool`,
 `step`, `pid`, `ppid`, `pstart` (the process's start, from /proc, so a reused
 pid is not mistaken for it), `wall` and `mono` (time.time and
 time.monotonic, read under the lock, so both only grow), the record's own
@@ -285,6 +290,114 @@ def _alive(pid: int, started: str | None) -> bool:
     except OSError:
         return False
     return started is None or now == started
+
+
+# ---------------------------------------------------------------- the kill family (theseus-7ajc)
+
+
+def effects_on() -> bool:
+    """A kill family's image holds a marker, and its tools then write an
+    `effect` record for each step whose effect must not repeat. A plain
+    family's image has none, so its ledger and scores are as they were."""
+    return (var() / "kill-family").exists()
+
+
+def effect(tool: str, step: str, **fields: Any) -> None:
+    if effects_on():
+        append("effect", tool, step, **fields)
+
+
+def _who(r: dict[str, Any]) -> tuple[int, str | None]:
+    return r.get("pid", -1), r.get("pstart")
+
+
+def duplicate_effects(rec: list[dict[str, Any]]) -> int:
+    """Effects done more than once: the same step's effect line twice
+    (a payment's amount is part of its key)."""
+    seen: dict[tuple[Any, ...], int] = {}
+    for r in rec:
+        if r["kind"] == "effect":
+            k = (r["tool"], r["step"], r.get("amount"))
+            seen[k] = seen.get(k, 0) + 1
+    return sum(n - 1 for n in seen.values() if n > 1)
+
+
+def kill_columns(rec: list[dict[str, Any]], alive: set[tuple[int, str | None]] | None = None,
+                 repeats: dict[str, str] | None = None) -> dict[str, Any]:
+    """The kill family's columns from the ledger, around its first `kill`
+    line (the driver wrote it before it sent SIGKILL). `alive` is the set of
+    processes (pid, pstart) the verifier found running at its check.
+
+    - `duplicated_effects`: an effect line for the same step twice;
+    - `lost_work`: steps that ended before the kill and started (not as a
+      refusal) again after it, except a repeat the chore itself asks for:
+      `repeats` maps a tool to the tool whose end makes its repeat part of
+      the work (health-restart's check of a service after its restart);
+    - `orphans`: processes from before the kill that never ended and were
+      still running at the check, and those still writing after the restart
+      (a line after the `restart` record) whose step was then started again
+      by another process: the work was done twice, and the old process kept
+      writing without the harness. A job the harness kept across the kill,
+      which ends after the restart and is never started again, is adopted,
+      not an orphan;
+    - `time_to_resume_s`: the kill line to the next line of a process the
+      restarted harness started, one never seen before the kill (a job the
+      harness kept across the kill writes lines too, but is not the harness);
+    - `resumed`: whether there was such a line.
+    """
+    kills = [r for r in rec if r["kind"] == "kill"]
+    out: dict[str, Any] = {"killed": bool(kills), "duplicated_effects": duplicate_effects(rec),
+                           "lost_work": None, "orphans": None, "orphan_pids": [],
+                           "time_to_resume_s": None, "resumed": None}
+    if not kills:
+        return out
+    k = kills[0]
+    tool_rec = [r for r in rec if r["tool"] != "driver"]
+    before = [r for r in tool_rec if r["seq"] < k["seq"]]
+    after = [r for r in tool_rec if r["seq"] > k["seq"]]
+    old = {_who(r) for r in before}
+    new = [r for r in after if _who(r) not in old]
+    out["resumed"] = bool(new)
+    if new:
+        out["time_to_resume_s"] = round(new[0]["mono"] - k["mono"], 3)
+    done = {(r["tool"], r["step"]) for r in before if r["kind"] == "end"}
+    repeats = repeats or {}
+
+    def asked(r: dict[str, Any]) -> bool:
+        need = repeats.get(r["tool"])
+        return need is not None and any(e["kind"] == "end" and e["tool"] == need and e["step"] == r["step"]
+                                        and e["seq"] < r["seq"] for e in tool_rec)
+
+    again = {(r["tool"], r["step"]) for r in after if r["kind"] == "start" and not r.get("refused")
+             and not asked(r)}
+    out["lost_work"] = len(done & again)
+    finished = {_who(r) for r in rec if r["kind"] in ("end", "fail", "stopped")}
+    orphans: set[tuple[int, str | None]] = set()
+    restarts = [r["seq"] for r in rec if r["kind"] == "restart" and r["seq"] > k["seq"]]
+    restarted = restarts[0] if restarts else k["seq"]
+    for r in before:
+        if r["kind"] == "start" and _who(r) not in finished and _who(r) in (alive or set()):
+            orphans.add(_who(r))
+    for r in before:
+        if r["kind"] != "start":
+            continue
+        later = [a for a in after if a["kind"] == "start" and not a.get("refused")
+                 and (a["tool"], a["step"]) == (r["tool"], r["step"]) and _who(a) != _who(r)]
+        if later and any(_who(w) == _who(r) and w["seq"] > restarted and w["kind"] != "start" for w in after):
+            orphans.add(_who(r))
+    out["orphans"] = len(orphans)
+    out["orphan_pids"] = sorted(p for p, _ in orphans)
+    return out
+
+
+def unfinished_alive(rec: list[dict[str, Any]]) -> set[tuple[int, str | None]]:
+    """Processes that started before the kill, never ended, and run now."""
+    kills = [r for r in rec if r["kind"] == "kill"]
+    if not kills:
+        return set()
+    finished = {_who(r) for r in rec if r["kind"] in ("end", "fail", "stopped")}
+    return {_who(r) for r in rec if r["kind"] == "start" and r["seq"] < kills[0]["seq"]
+            and _who(r) not in finished and _alive(r["pid"], r.get("pstart"))}
 
 
 # ---------------------------------------------------------------- the families' tools
@@ -591,7 +704,8 @@ CHECKS = {
 }
 
 
-def check(family: str, checks: dict[str, Any] | None = None) -> dict[str, Any]:
+def check(family: str, checks: dict[str, Any] | None = None,
+          repeats: dict[str, str] | None = None) -> dict[str, Any]:
     """The verifier: the ledger checked as a record of itself, then the
     family's outcome (its check in `checks`, by default this file's
     `CHECKS`; Layer 2's are layer2.py's); reward 1 only when both hold.
@@ -606,6 +720,11 @@ def check(family: str, checks: dict[str, Any] | None = None) -> dict[str, Any]:
     if ledger_path().exists():
         (out / "ledger.jsonl").write_bytes(ledger_path().read_bytes())
     result = {"reward": 0 if problems else 1}
+    if any(r["kind"] == "kill" for r in rec):
+        cols = kill_columns(rec, unfinished_alive(rec), repeats)
+        alive = sorted(unfinished_alive(rec), key=str)
+        (out / "kill.json").write_text(json.dumps(
+            {**cols, "completed": result["reward"] == 1, "alive": [list(a) for a in alive]}, indent=2))
     (out / "reward.json").write_text(json.dumps(result))
     (out / "problems.json").write_text(json.dumps({"family": family, "problems": problems}, indent=2))
     for p in problems:
@@ -639,6 +758,52 @@ def await_record(tool: str, kind: str, timeout: float, count: int = 1) -> dict[s
         time.sleep(min(0.1, max(0.0, deadline - time.monotonic())))
 
 
+def procs(comm: str | None = None, cmd: str | None = None, pidfile: str | None = None,
+          only_roots: bool = False, not_comm: str | None = None) -> list[dict[str, Any]]:
+    """The processes of this container that a kill of the harness may reach:
+    those whose `comm` is `comm`, whose command line matches `cmd`, or whose
+    pid is in `pidfile`; never this process or its parents. With
+    `only_roots`, those whose parent is not itself one of them (the root of
+    a CLI's tree: its children are left to the harness's own cleanup, or to
+    become the orphans the scorer counts). `not_comm` (comma separated)
+    names the commands a `cmd` match may not be, so a shell that merely
+    holds the CLI's command line is not taken for the CLI."""
+    import re
+
+    skip = {os.getpid()}
+    p = os.getppid()
+    while p > 1:
+        skip.add(p)
+        try:
+            p = int(Path(f"/proc/{p}/stat").read_text().rsplit(")", 1)[1].split()[1])
+        except (OSError, ValueError, IndexError):
+            break
+    wanted: set[int] = set()
+    if pidfile:
+        try:
+            wanted.add(int(Path(pidfile).read_text().split()[0]))
+        except (OSError, ValueError, IndexError):
+            pass
+    found: dict[int, dict[str, Any]] = {}
+    for d in Path("/proc").iterdir():
+        if not d.name.isdigit() or int(d.name) in skip or int(d.name) <= 1:
+            continue
+        pid = int(d.name)
+        try:
+            name = (d / "comm").read_text().strip()
+            line = (d / "cmdline").read_bytes().replace(b"\0", b" ").decode(errors="replace").strip()
+            ppid = int((d / "stat").read_text().rsplit(")", 1)[1].split()[1])
+        except (OSError, ValueError, IndexError):
+            continue
+        if name in (not_comm or "").split(","):
+            continue
+        if pid in wanted or (comm and name == comm) or (cmd and re.search(cmd, line)):
+            found[pid] = {"pid": pid, "ppid": ppid, "pstart": pstart(pid), "comm": name, "cmd": line[:200]}
+    if only_roots:
+        found = {p: v for p, v in found.items() if v["ppid"] not in found}
+    return sorted(found.values(), key=lambda v: v["pid"])
+
+
 def main(argv: list[str]) -> int:
     if len(argv) >= 2 and argv[0] == "tool" and argv[1] in TOOLS:
         return TOOLS[argv[1]](argv[2:])
@@ -653,6 +818,22 @@ def main(argv: list[str]) -> int:
         a = dict(zip(argv[1::2], argv[2::2]))
         print(json.dumps(append("inject", "driver", "inject", message=a["--message"],
                                 trigger=json.loads(a["--trigger"]))))
+        return 0
+    if argv[:1] == ["kill-record"]:
+        a = dict(zip(argv[1::2], argv[2::2]))
+        print(json.dumps(append("kill", "driver", "kill", trigger=json.loads(a["--trigger"]),
+                                pids=json.loads(a["--pids"]), settle_s=float(a.get("--settle", "2")))))
+        return 0
+    if argv[:1] == ["restart-record"]:
+        a = dict(zip(argv[1::2], argv[2::2]))
+        print(json.dumps(append("restart", "driver", "restart", resumable=a["--resumable"] == "true",
+                                command=a.get("--command"), note=a.get("--note"))))
+        return 0
+    if argv[:1] == ["procs"]:
+        flags = [x for x in argv[1:] if x != "--root"]
+        a = dict(zip(flags[0::2], flags[1::2]))
+        print(json.dumps(procs(a.get("--comm"), a.get("--cmd"), a.get("--pidfile"), "--root" in argv,
+                               a.get("--not-comm"))))
         return 0
     print(__doc__, file=sys.stderr)
     return 2

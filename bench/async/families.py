@@ -36,6 +36,10 @@ class Family:
     solve: str
     app: dict[str, str] = field(default_factory=dict)
     timeout_sec: float = 900.0
+    # The kill family (theseus-7ajc): the plain family this is the variant of,
+    # and its injection (`kill_spec`).
+    base: str = ""
+    kill: dict = field(default_factory=dict)
 
 
 PRELUDE = """#!/bin/bash
@@ -315,6 +319,8 @@ BY_NAME = {f.name: f for f in FAMILIES}
 
 
 def task_toml(f: Family) -> str:
+    if f.kill:
+        return kill_task_toml(f)
     return f"""schema_version = "1.4"
 
 [metadata]
@@ -341,12 +347,15 @@ memory_mb = 2048
 
 def dockerfile(f: Family) -> str:
     app = "COPY app/ /app/\n" if f.app else ""
+    # A kill family's tools write an `effect` record per step whose effect must
+    # not repeat, on the marker (`asyncbench.effects_on`).
+    marker = " && echo kill-family > /var/lib/async/kill-family" if f.kill else ""
     return f"""FROM python:3.12-slim
 
 # The tools (/opt/async/bin) and their library; the ledger and the tools' state
 # live in /var/lib/async, outside the working directory.
 COPY async/ /opt/async/
-RUN chmod 755 /opt/async/bin/* && mkdir -p /app /var/lib/async/state
+RUN chmod 755 /opt/async/bin/* && mkdir -p /app /var/lib/async/state{marker}
 {app}ENV PATH=/opt/async/bin:$PATH
 WORKDIR /app
 """
@@ -360,3 +369,187 @@ def test_sh(f: Family) -> str:
 python3 "$(dirname "$0")/layer2.py" check {f.name}
 exit 0
 """
+
+
+# ---------------------------------------------------------------- the kill family (theseus-7ajc)
+
+# Each plain family's kill variant: the injection's mode, its seed (in the
+# task's metadata, so the same trial is killed at the same moment), the tool
+# whose first start anchors a mid-step kill (and the oracle's), and the delay.
+# Six chores whose steps have effects that must not repeat: a service
+# restarted, a migration applied, an export converted, a worktree made, an
+# app built and run, a service started. Half the kills land in a running
+# sub-step (mid-step), half at a seeded moment of the ideal wall, so some
+# fall between calls.
+KILL_SPECS = {
+    "health-restart": ("mid-step", 7101, "restart", 5.0),
+    "migrations": ("random", 7102, "migrate-db", 5.0),
+    "csv-merge": ("mid-step", 7103, "convert-export", 6.0),
+    "bisect": ("random", 7104, "make-worktree", 6.0),
+    "pipeline": ("mid-step", 7105, "run-app", 3.0),
+    "service": ("random", 7106, "start-service", 4.0),
+}
+# The seeded window, as fractions of the family's nominal ideal wall.
+KILL_WINDOW = (0.25, 0.75)
+
+
+def _mid(tool: str) -> float:
+    lo, hi = l2.DURATIONS[tool]
+    return (lo + hi) / 2
+
+
+def nominal_ideal(base: str) -> float:
+    """The family's ideal wall at the midpoints of its tools' draws: its
+    stages' longest steps in turn (the plain families' own `ideal`, with no
+    ledger to read yet)."""
+    if base in l2.STAGES:
+        return sum(max(_mid(t) for t in stage) for stage in l2.STAGES[base])
+    return {"health-restart": _mid("health") * 2 + _mid("restart"),
+            "migrations": 3 * _mid("migrate-db"),
+            "bisect": _mid("make-worktree") + _mid("test-commit")}[base]
+
+
+def kill_spec(base: str) -> dict:
+    mode, seed, tool, delay = KILL_SPECS[base]
+    ideal = nominal_ideal(base)
+    return {"mode": mode, "seed": seed, "after_tool": tool, "after_kind": "start", "delay_s": delay,
+            "window_lo_s": round(ideal * KILL_WINDOW[0], 1), "window_hi_s": round(ideal * KILL_WINDOW[1], 1),
+            "at_s": round(ideal * 1.5), "settle_s": 2}
+
+
+# The plain oracle's steps, as a plan that keeps a journal: `step NAME CMD...`
+# runs once ever (what the journal holds is skipped on the restart).
+KILL_PLANS = {
+    "health-restart": """
+  pids=()
+  for s in auth billing search mail; do step "h-$s" health "$s" & pids+=($!); done
+  for pid in "${pids[@]}"; do wait "$pid" || true; done
+  bad=$(basename "$(grep -l '503' "$out"/h-* | head -1)"); bad=${bad#h-}
+  step restart restart "$bad"
+  step recheck health "$bad"
+  echo "$bad" > "$APP/restarted.txt"
+""",
+    "migrations": """
+  for m in 001 002 003; do step "m$m" migrate-db "$m"; done
+  sed -n 's/.*schema checksum //p' "$out/m003" > "$APP/schema.txt"
+""",
+    "csv-merge": """
+  pids=()
+  for e in jan feb mar apr may; do step "e-$e" convert-export "$e" & pids+=($!); done
+  for pid in "${pids[@]}"; do wait "$pid"; done
+  { echo "id,amount"; for e in jan feb mar apr may; do tail -n +2 "$APP/exports/$e.csv"; done; } > "$APP/merged.csv"
+""",
+    "bisect": """
+  pids=()
+  for c in $(awk '{print $1}' "$APP/commits.txt"); do
+    { step "w-$c" make-worktree "$c"; step "t-$c" test-commit "$c"; } & pids+=($!)
+  done
+  for pid in "${pids[@]}"; do wait "$pid" || true; done
+  for c in $(awk '{print $1}' "$APP/commits.txt"); do
+    if grep -q FAIL "$out/t-$c"; then echo "$c" > "$APP/first-bad.txt"; break; fi
+  done
+""",
+    "pipeline": """
+  step build build
+  step run run-app
+  step check check-output
+  sed -n 's/.*verdict \\([0-9a-f]*\\)$/\\1/p' "$out/check" > "$APP/verdict.txt"
+""",
+    "service": """
+  step start start-service
+  step stock query-service stock
+  sed -n 's/^in stock: //p' "$out/stock" > "$APP/stock.txt"
+""",
+}
+
+KILL_PRELUDE = """#!/bin/bash
+# The oracle (theseus-7ajc): the plain oracle's work as a harness that keeps a journal. It is killed once, at
+# the injection's trigger, with SIGKILL to its process group (the sub-steps in flight die with it, as a harness's
+# own processes do), the kill recorded in the ledger first; after the settle it restarts, skips what the journal
+# holds, and runs the rest once: reward 1, no effect twice, nothing left running.
+set -euo pipefail
+APP="${{ASYNC_ROOT:-}}/app"
+out=$(mktemp -d)
+trap 'rm -rf "$out"' EXIT
+J="$out/journal"; mkdir -p "$J"
+LIB="$(dirname "$(command -v {tool})")/../lib/asyncbench.py"
+step() {{
+  local n=$1; shift
+  [ -e "$J/$n.done" ] && return 0
+  "$@" > "$out/$n" || true
+  touch "$J/$n.done"
+}}
+plan() {{{plan}}}
+set -m
+plan & harness=$!
+python3 "$LIB" await --tool {tool} --kind start --timeout 600 > /dev/null || true
+sleep "$(awk -v s="${{ASYNC_TIME_SCALE:-1}}" 'BEGIN {{print {delay} * s}}')"
+python3 "$LIB" kill-record --trigger '{{"by": "oracle", "tool": "{tool}", "kind": "start", "delay_s": {delay}}}' \\
+  --pids "[{{\\"pid\\": $harness}}]" --settle 2 > /dev/null
+kill -KILL -- "-$harness" 2>/dev/null || true
+wait "$harness" 2>/dev/null || true
+sleep "$(awk -v s="${{ASYNC_TIME_SCALE:-1}}" 'BEGIN {{print 2 * s}}')"
+python3 "$LIB" restart-record --resumable true --note "the oracle's journal" > /dev/null
+set +m
+plan
+"""
+
+
+def kill_oracle(base: str) -> str:
+    spec = kill_spec(base)
+    return KILL_PRELUDE.format(plan=KILL_PLANS[base], tool=spec["after_tool"], delay=spec["delay_s"])
+
+
+def kill_task_toml(f: Family) -> str:
+    k = f.kill
+    return f"""schema_version = "1.4"
+
+[metadata]
+category = "async"
+description = "{f.description}"
+
+[metadata.async]
+family = "{f.name}"
+layer = 2
+shape = "{f.shape}"
+base = "{f.base}"
+
+# The driver's kill (bench/async/driver.py, theseus-7ajc): SIGKILL to the harness's own
+# process(es) in this container, `kill` in the ledger first, a settle, then the harness
+# restarted as its documentation says to continue a session. `random`: a time drawn from
+# `seed` in the window (seconds after the agent started); `mid-step`: `delay_s` after the
+# ledger's first `after_kind` of `after_tool`, else `at_s`.
+[metadata.async.injection]
+kind = "kill"
+mode = "{k["mode"]}"
+seed = {k["seed"]}
+window_lo_s = {k["window_lo_s"]}
+window_hi_s = {k["window_hi_s"]}
+after_tool = "{k["after_tool"]}"
+after_kind = "{k["after_kind"]}"
+delay_s = {k["delay_s"]}
+at_s = {k["at_s"]}
+settle_s = {k["settle_s"]}
+
+[verifier]
+timeout_sec = 120.0
+
+[agent]
+timeout_sec = {f.timeout_sec}
+
+[environment]
+build_timeout_sec = 600.0
+cpus = 2
+memory_mb = 2048
+"""
+
+
+def _kill_family(b: Family) -> Family:
+    return Family(f"{l2.KILL_PREFIX}{b.name}", b.shape, b.description + " The harness is killed once, mid-task.",
+                  b.tools, b.instruction, kill_oracle(b.name), b.app, b.timeout_sec,
+                  base=b.name, kill=kill_spec(b.name))
+
+
+KILL_FAMILIES: list[Family] = [_kill_family(BY_NAME[b]) for b in l2.KILL_BASES]
+KILL_BY_NAME = {f.name: f for f in KILL_FAMILIES}
+ALL_BY_NAME = {**BY_NAME, **KILL_BY_NAME}

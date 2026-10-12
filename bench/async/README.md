@@ -15,10 +15,11 @@ reads one text. A driver sends two families a second message mid-trial, and a sc
 | `tools/layer2.py` | Layer 2's tools, the facts they draw, its order rules (`DEPS`), ideal walls, overlap, and checks, on asyncbench's ledger. Copied beside the library into each Layer 2 task. |
 | `families.py` | Layer 2's twenty tasks: each one's instruction, oracle, files and shape, which `sync.py` writes into `tasks/<family>/`. Not in any image. |
 | `layer1.py` | Layer 1's drivers: the stand-in's rules and each harness's command, its wall measured around the CLI. |
-| `driver.py` | The injection and its trigger, and each arm's commands. Standard library only. |
-| `async_agents.py` | The Harbor agents: `async_agents:TheseusAsync`, `async_agents:ClaudeCodeAsync` and `async_agents:PiAsync`. |
+| `driver.py` | The injection and its trigger, the kill injection and each arm's restart (theseus-7ajc), and each arm's commands. Standard library only. |
+| `kill-tasks/kill-<family>/` | The kill family's six tasks (theseus-7ajc), written by `sync.py` from `families.py`; kept apart from `tasks/` so the plain runs never pick them up. |
+| `async_agents.py` | The Harbor agents: `async_agents:TheseusAsync`, `async_agents:ClaudeCodeAsync`, `async_agents:PiAsync` and `async_agents:OpenCodeAsync` (OpenCode's measured arm plus the kill). |
 | `score.py` | The scorer: `report.md` and `scores.json` from job directories. Standard library only. |
-| `test_tasks.py`, `test_driver.py`, `test_score.py`, `test_layer2.py`, `test_score_layer2.py`, `test_layer1.py` | Their tests. |
+| `test_tasks.py`, `test_driver.py`, `test_score.py`, `test_layer2.py`, `test_score_layer2.py`, `test_layer1.py`, `test_kill.py` | Their tests. |
 
 ## The families
 
@@ -86,6 +87,58 @@ not a forgery by an agent that rewrites the whole file with the tool's own code.
 ledger's first `start` of the long job plus a delay, else a time after the agent started. The driver records it in
 the ledger, with the trigger that fired, just before it delivers it, and the oracle, which receives none, plays its
 part. An arm whose CLI cannot take a message mid-run gets "not measurable" for those two families, never a failure.
+
+## The kill family (theseus-7ajc)
+
+"Kill it mid-task; it finishes, and nothing runs twice" (killer-features plan, R22), measured against the other
+harnesses. Six of Layer 2's chores whose steps have effects that must not repeat run as `kill-<family>`
+(`kill-tasks/`): `kill-health-restart` (a service restarted), `kill-migrations` (a migration applied),
+`kill-csv-merge` (an export converted), `kill-bisect` (a worktree made), `kill-pipeline` (an app built and run) and
+`kill-service` (a service started). The instruction is the plain family's, word for word; the tasks differ in the
+injection (`[metadata.async.injection]`, `kind = "kill"`) and in an image whose tools write an `effect` record for
+each such step (`asyncbench.effect`, on the marker `/var/lib/async/kill-family`: a plain family's ledger is as it was).
+
+**The injection.** At its trigger the driver (`driver.fire_kill`) finds the harness's own process(es) in the trial's
+container, writes `kill` to the ledger (the trigger that fired, the pids and their start times), sends them SIGKILL
+(only those pids, and through `environment.exec`, so never outside the container), waits 2 s (`settle_s`), restarts the
+harness by its arm's command, and writes `restart` (`resumable`, the command). The trigger is **seeded random**
+(`mode = "random"`: a time drawn from `seed`, in the task's metadata, in a window of 25 to 75% of the family's nominal
+ideal wall, so some kills land between calls) or **mid-step** (`mode = "mid-step"`: `delay_s` after the ledger's first
+`start` of `after_tool`, else `at_s`, so the kill lands in a running sub-step). Three of the six are each.
+
+| Arm | What is killed | The restart (where its docs say so) |
+|---|---|---|
+| Theseus (`TheseusAsync`) | `theseusd` (its pid file) and the CLI client (comm `theseus`); job wrappers keep their own comm and are not killed | `theseusd` started again on the same state, then `theseus wait SESSION --until settled`; no message is sent: the daemon requeues the interrupted turn and resumes it (the spec's execution model; `crates/theseus-kernel`'s startup, `toolrun/resume.rs`) |
+| Claude Code (`ClaudeCodeAsync`) | the `claude` process, the root of the CLI's tree (not its shell or `tee`; its children are left) | `claude <the run's flags> --continue --print "Continue."` (Claude Code's CLI reference: `claude -c -p`; `claude --help`: `-c, --continue`) |
+| Pi (`PiAsync`) | the `pi` process | `pi --print --mode json <the run's flags> --continue "Continue."`, on the same `--session-dir` (`pi --continue`) |
+| OpenCode (`OpenCodeAsync`) | the `opencode run` process | `opencode --model=M run <the run's flags> --continue -- "Continue."` (`opencode run --continue`) |
+
+`Continue.` is one text for the three CLI arms, a user's own words when resuming; it never says what the task is or how
+to run it. Each restart is `driver.Arm.restart` and is tested against the documented flag; the live check says whether
+each CLI keeps its flags (model, effort, permissions) across `--continue`. An arm whose `restart` is None is scored
+**not resumable** (a `restart` line with `resumable: false`), never a crash of the driver; a trial the kill never
+reached (the harness had already ended, or nothing matched) is **not measurable**, never a failure.
+
+**The columns** (`score.py`'s "The kill family" table, one row per arm; `asyncbench.kill_columns` reads them from the
+ledger, and the verifier writes them to `verifier/kill.json` with the processes it found running):
+
+- **Completed**: reward 1 after the kill (the plain family's outcome; a duplicate does not zero it, so the columns say
+  what each arm did).
+- **Duplicated effects**: an `effect` line for the same step twice.
+- **Orphans**: a process from before the kill (by pid and start time) that never ended and still runs at the check, or
+  that wrote a line after the `restart` record while its step was started again by another process (the work done
+  twice, the old one writing on without the harness). A job the harness kept across the kill, ending after the restart
+  and never started again, is adopted: not an orphan.
+- **Time to resume**: from the `kill` line to the next ledger line written by a process the restarted harness started
+  (one whose pid and start time were not in the ledger before the kill).
+- **Lost work**: steps that ended before the kill and started (not as a refusal) again after it, except a repeat the
+  chore itself asks for (`layer2.KILL_REPEATS`: health-restart's second check of the restarted service).
+
+Rates (completed, trials with a duplicate, trials with an orphan, trials that lost work) carry 95% Wilson intervals
+(`score.wilson`). The oracle plays its part: its `solution/solve.sh` keeps a journal, is killed once at the trigger
+(SIGKILL to its process group, the kill recorded first), restarts, skips what the journal holds, and finishes: reward 1,
+no duplicate. `test_kill.py` runs the six oracles, and a deliberately naive stand-in (the plain oracle run again from its
+first step after the kill) through the driver, whose duplicates, orphans and lost work the columns find.
 
 ## Running
 
@@ -167,6 +220,41 @@ python3 bench/report/parallel.py --date <the run's day> \
 
 It writes `docs/benchmarks/<date>-asyncbench-parallel-calls.md` (kept if one stands; `--force`), its `.json` (every
 number, the figures, and the omnibus's rows) and `.csv`, and the figures in light and dark.
+
+### The kill run (theseus-7ajc)
+
+Six chores, six arms, Sonnet 5.5 at effort medium, $2 and 200 calls a trial, two attempts: 72 trials. A trial of these
+chores is one to three minutes of model work; at the families' usual spend the run is about $25 to $45 (each restart
+adds one resumed conversation's input), and at most $144 (72 trials at the $2 cap). Every benchmark run gets its report
+in `docs/benchmarks/`. First one trial per arm, to see the kill land and the restart take:
+
+```bash
+export THESEUS_BENCH_BIN_DIR=$PWD/bench/bin-after PYTHONPATH=$PWD/bench/harbor:$PWD/bench/async HARBOR_TELEMETRY=0
+.venv/bin/harbor run -p bench/async/kill-tasks -a oracle -o jobs --job-name kill-oracle           # reward 1, 0 duplicates
+.venv/bin/harbor run -p bench/async/kill-tasks -i kill-health-restart -a async_agents:ClaudeCodeAsync \
+  -m anthropic/claude-sonnet-5-5 --ak max_budget_usd=2.0 --ak max_turns=200 -o jobs --job-name kill-smoke -k 1
+python3 bench/async/score.py jobs/kill-smoke --out /tmp/async-kill-smoke
+```
+
+In the trial's `agent/async-driver.json` look for `kill` (the trigger, the pids killed, `restart_exit` 0), in
+`verifier/ledger.jsonl` for a `kill` and a `restart` line with a later start by a process not seen before, and in
+`verifier/kill.json` for the columns. Then the run:
+
+```bash
+K="-p bench/async/kill-tasks -m anthropic/claude-sonnet-5-5 -o jobs -k 2"
+for arm in before d1hi after; do
+  THESEUS_BENCH_BIN_DIR=$PWD/bench/bin-$arm .venv/bin/harbor run $K -a async_agents:TheseusAsync --job-name kill-theseus-$arm
+done
+.venv/bin/harbor run $K -a async_agents:ClaudeCodeAsync --ak max_budget_usd=2.0 --ak max_turns=200 --job-name kill-claude
+.venv/bin/harbor run $K -a async_agents:PiAsync --ak max_budget_usd=2.0 --ak max_turns=200 --job-name kill-pi
+.venv/bin/harbor run $K -a async_agents:OpenCodeAsync --ak max_budget_usd=2.0 --ak max_turns=200 --job-name kill-opencode
+python3 bench/async/score.py theseus-before=jobs/kill-theseus-before theseus-d1hi=jobs/kill-theseus-d1hi \
+  theseus-after=jobs/kill-theseus-after claude-code=jobs/kill-claude pi=jobs/kill-pi opencode=jobs/kill-opencode \
+  --out /tmp/async-kill
+```
+
+`report.md` ends with the kill family's table. `-i kill-<family>` runs one. The plain commands above never run these
+tasks: they are in `kill-tasks/`, not `tasks/`.
 
 ### Layer 1: N calls in one response, on a stand-in
 
@@ -334,6 +422,6 @@ The second runs this workspace's `theseusd` on `theseus-sim fake-model --rules`,
 `proc.run` calls: the long job goes to the background, the injection is answered while it runs, and the trial
 settles only after the job's continuation (`ASYNC_E2E_KEEP=DIR` keeps its logs).
 
-After changing `tools/asyncbench.py`, `tools/layer2.py` or `families.py`, run `python3 bench/async/sync.py`; the
+After changing `tools/asyncbench.py`, `tools/layer2.py` or `families.py`, run `python3 bench/async/sync.py` (it writes `kill-tasks/` too); the
 tests fail on a stale copy. Under `ASYNC_HARBOR=1`, Harbor's Claude Code and OpenCode converters are run on fixture
 sessions too (`test_score_layer2.HarborConverters`).

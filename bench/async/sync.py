@@ -4,7 +4,8 @@
 its verifier reads only its own `tests/`, so each holds a copy of
 `tools/asyncbench.py`; `test_tasks.py` fails when a copy differs.
 
-Layer 2's tasks (theseus-2wxa) are written whole from `families.py`: their
+Layer 2's tasks (theseus-2wxa) are written whole from `families.py`, and so are
+the kill family's (theseus-7ajc, in `kill-tasks/`): their
 task.toml, instruction, Dockerfile, files, oracle and verifier, and a copy
 of `tools/layer2.py` beside each copy of the library.
 
@@ -19,6 +20,9 @@ HERE = Path(__file__).resolve().parent
 LIB = HERE / "tools/asyncbench.py"
 LAYER2 = HERE / "tools/layer2.py"
 TASKS = HERE / "tasks"
+# The kill family's tasks (theseus-7ajc), apart from `tasks/` so that the
+# plain runs' `-p bench/async/tasks` never picks them up.
+KILL_TASKS = HERE / "kill-tasks"
 
 # Each family's tools, on the agent's PATH as /opt/async/bin/<tool>.
 FAMILY_TOOLS = {
@@ -50,13 +54,14 @@ def expected() -> dict[Path, str]:
 
 
 def layer2_files() -> dict[Path, str]:
-    """Layer 2's tasks, each whole (theseus-2wxa)."""
+    """Layer 2's tasks, each whole (theseus-2wxa), and the kill family's
+    (theseus-7ajc), in `kill-tasks/`."""
     import families
 
     lib, l2 = LIB.read_text(), LAYER2.read_text()
     files: dict[Path, str] = {}
-    for f in families.FAMILIES:
-        task = TASKS / f.name
+    for f in [*families.FAMILIES, *families.KILL_FAMILIES]:
+        task = (KILL_TASKS if f.kill else TASKS) / f.name
         files[task / "task.toml"] = families.task_toml(f)
         files[task / "instruction.md"] = f.instruction
         files[task / "environment/Dockerfile"] = families.dockerfile(f)
