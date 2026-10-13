@@ -178,7 +178,10 @@ pub(super) fn selected<'n>(c: &Compilation, nodes: &'n [(u64, Stub)]) -> Selecte
     let prefix = nodes
         .iter()
         .filter(|(pos, n)| {
-            (*pos <= c.as_of && included.contains(n.id.as_str()) && renderable(n)) || section(n)
+            (*pos <= c.as_of
+                && (included.contains(n.id.as_str()) || crate::fork::inherited(c, *pos))
+                && renderable(n))
+                || section(n)
         })
         .map(|(p, n)| (*p, &**n))
         .collect();

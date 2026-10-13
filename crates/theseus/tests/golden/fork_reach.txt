@@ -1,0 +1,10 @@
+$ theseus reach msg_0198d3a0b1c2d3e4f5a6b7c8d9a1b2c3
+--- requests
+node.reach {"node_id":"msg_0198d3a0b1c2d3e4f5a6b7c8d9a1b2c3"}
+--- stdout
+msg_0198d3a0b1c2d3e4f5a6b7c8d9a1b2c3: seen by 4 contexts in 3 sessions · first 23:26:40.001 · last 23:29:20.000
+  generation 0 · ses_0198d3a0b1c2d3e4f5a6b7c8d9e06664 · msg_0198d3a0b1c2d3e4f5a6b7c8d9a1b2c3 at 166201: 0 compilations, 1 loop · first 23:26:40.001 · last 23:26:40.001
+  generation 1 · ses_0198d3a0b1c2d3e4f5a6b7c8d9e0f00d · forked from ses_0198d3a0b1c2d3e4f5a6b7c8d9e06664 at position 166,201 by reference (compilation cmp_f1): 1 compilation, 2 loops
+  generation 2 · ses_0198d3a0b1c2d3e4f5a6b7c8d9e0beef · forked from ses_0198d3a0b1c2d3e4f5a6b7c8d9e0f00d at position 166,300 by reference (compilation cmp_f2): no context held it
+--- stderr
+--- exit 0

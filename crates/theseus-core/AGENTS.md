@@ -1141,6 +1141,29 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   (`MIN_AHEAD_MS`, `MAX_AHEAD_MS`). `TaskInfo.starts_at_ms` is derived from the execution while it sleeps
   (`task_start::starts_at`), and the board, `theseus tasks` and `/tasks` say `▷ starts Fri 09:00`. A cancel before
   the start ends it and releases the carve. Tests: `tests_tasks_deferred.rs`, the kernel's `tests_deferred.rs`.
+- **Forks** (theseus-2qzx, the killer-features plan's R19; store format 32): `session.fork { session, at, title?,
+  profile?, budget_usd? }` (`rpc/fork.rs`; the stored parts and reads are `fork.rs`) makes a conversation from any
+  moment of another, by reference, in one frame: the new execution (the source's authority, a pinned limit of
+  `budget_usd` else the daemon's), its session record (`forked_from`: the source and the last node taken), its first
+  compilation (`inherits`: a run of the source's nodes through the fork point, `includes` empty, `trigger = "fork"`,
+  the source's manifest with the thinking stripped, `derived_from` the source's compilation in effect at the node,
+  found by walking `derived_from` back from the session's current one), the fork edge (`derived_from`, `via =
+  "fork"`, into that compilation), the source's reverse entry (an `includes` edge from the fork's compilation into
+  the source's *session*, one for the run: `EdgeKind::Includes`; `node.reach` reads it, `reach::forks_of`, as
+  `forks`, generation by generation, a fork of a fork too) and a `session.forked` row. The source is read and never
+  written. `at` is a node (as `reach::resolve` names one) or `@<WAL position>` (the last node at or before it); it
+  must close its calls: a message of the person, or an answer that made no tool call. `Store::transcript` of a fork
+  is the source's nodes through the point (`fork::prefix_records`, a fork's own prefix first) and then its own, so
+  the compiler reads one list and `compiler::situation::selected` takes the run from `inherits`; a recompile, the
+  ring or a compaction lists ids as any compilation does. `session.history` of a fork pages the same list (nodes keep
+  their source's `session_id`: the CLI marks them). Authority: a caller on a surface that reads no private text may
+  fork only a shared place's session, an MCP client only a conversation it opened (`Core::fork_allowed`), an imported
+  session never; the fork keeps the source's external-text hold and speaks in no place (the CLI's: private), so
+  nothing of it reaches a shared place. Cost: the fork reads the compilation chain back from the current one
+  (`CHAIN` steps at most), never the source's nodes. Not here: files and `--worktree` (R20, theseus-23rk, which reads
+  `forked_from` and the result's `not_restored`), and R21's surfaces (the TUI's `f`, Discord's "Fork from here", the
+  Ship's mark), which call `session.fork`. Tests: `tests_fork.rs`, the layouts' format-29 samples, the CLI's
+  `golden_fork.rs`.
 - **Parked tasks** (28b; theseus-vug): `parked.rs`, health's `tasks.parked`: each task that cannot progress by itself,
   with its blocker, from the open executions alone (a question counts as progress for 24 hours).
 - **Limits that notify** (theseus-usei; the owner, 2026-10-07: for tasks and tokens, notify, not restrict):

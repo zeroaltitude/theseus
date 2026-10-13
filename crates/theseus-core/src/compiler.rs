@@ -204,6 +204,8 @@ pub struct Compilation {
     /// before it (COMPILATION's layout 9).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub situation: Option<situation::Situation>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub inherits: Option<theseus_protocol::Inherits>,
 }
 
 /// An operator's request to recompile.
@@ -761,6 +763,7 @@ fn compile_with(
                 budget: None,
                 recall_id: input.assembled.map(str::to_string),
                 situation: None,
+                inherits: None,
             }
         };
 

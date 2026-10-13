@@ -66,7 +66,8 @@ pub fn mapped(e: &Edge) -> Mapped {
         },
         Some(graph::EdgeKind::SameEntity) => Mapped::Both(EdgeKind::SameEntity),
         Some(graph::EdgeKind::Supersedes) => Mapped::Supersedes,
-        None => Mapped::Unmapped,
+        // A fork's run into a session (theseus-2qzx): no node's neighbour.
+        Some(graph::EdgeKind::Includes) | None => Mapped::Unmapped,
     }
 }
 

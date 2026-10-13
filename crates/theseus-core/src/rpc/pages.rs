@@ -197,6 +197,9 @@ impl Core {
         after: Option<u64>,
         before: Option<u64>,
     ) -> anyhow::Result<HistoryPage> {
+        if let Some(origin) = crate::fork::origin_of(&self.store, session)? {
+            return self.fork_history_page(session, &origin, (n, after, before));
+        }
         let whole = |nodes: Vec<(u64, Node)>| HistoryPage {
             read: nodes.len(),
             nodes,

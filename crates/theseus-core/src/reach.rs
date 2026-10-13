@@ -15,8 +15,11 @@
 //! the compilation's frame. Every `includes` today is a run of the session's
 //! own nodes, and the compilation record already holds it: about 300 reverse
 //! edges per recompile would repeat it in every recompile's frame. The first
-//! route that admits a node from outside its session (M6's recall, M7's
-//! borrowing) brings its own reverse entries, and this reads them then.
+//! route that admits a node from outside its session is a fork's
+//! (theseus-2qzx): its frame writes one reverse entry for the whole run (an
+//! `includes` edge from its first compilation into the source's session),
+//! and `forks_of` reads them, generation by generation. M6's recall and M7's
+//! borrowing bring their own when they admit by reference.
 //!
 //! **FAST.** Nothing runs until asked, and nothing at startup. One scan per
 //! session reached, from its earliest node on, and one scope scan per node
@@ -27,7 +30,7 @@ use std::collections::{BTreeSet, HashMap};
 use anyhow::Result;
 use serde::Deserialize;
 use theseus_protocol::{
-    NodeReachResult, ReachCompilation, ReachDescendant, ReachExposure, ReachTotals,
+    NodeReachResult, ReachCompilation, ReachDescendant, ReachExposure, ReachFork, ReachTotals,
 };
 use theseus_store::kinds;
 
@@ -123,13 +126,10 @@ pub fn reach(
         }
     }
 
-    let totals = ReachTotals {
-        contexts: exposure
-            .iter()
-            .map(|e| e.compilations.len() as u64 + e.loops)
-            .sum(),
-        sessions: by_session.len() as u32,
-    };
+    // The forks that took it by reference (theseus-2qzx).
+    let (forks, forks_partial) = forks_of(store, &reached[0], max)?;
+    partial |= forks_partial;
+    let totals = totals_of(&exposure, &forks, by_session.len());
     let mut exposure = exposure.into_iter();
     let direct = exposure.next().unwrap_or_default();
     let mut walked = reached.into_iter();
@@ -156,9 +156,79 @@ pub fn reach(
         position: root.position,
         direct,
         descendants,
+        forks,
         totals,
         partial,
     }))
+}
+
+/// What a walk reached in all: every context of the node, its copies and its
+/// forks, and the sessions they are in.
+fn totals_of(exposure: &[ReachExposure], forks: &[ReachFork], sessions: usize) -> ReachTotals {
+    let contexts = |e: &ReachExposure| e.compilations.len() as u64 + e.loops;
+    ReachTotals {
+        contexts: exposure.iter().map(contexts).sum::<u64>()
+            + forks.iter().map(|f| contexts(&f.exposure)).sum::<u64>(),
+        sessions: (sessions + forks.len()) as u32,
+    }
+}
+
+/// The forks that took the node by reference, generation by generation: the
+/// `includes` edges into its session (one per fork, for the run), each kept
+/// when its run reaches the node, and then the forks of each fork. The walk
+/// is `max` generations deep; true when a fork beyond it was left.
+fn forks_of(store: &Store, root: &Reached, max: u32) -> Result<(Vec<ReachFork>, bool)> {
+    let mut out: Vec<ReachFork> = Vec::new();
+    let mut partial = false;
+    let mut seen: BTreeSet<String> = BTreeSet::new();
+    let mut level = vec![root.node.session_id.clone()];
+    let mut generation = 0;
+    while !level.is_empty() {
+        let mut next = Vec::new();
+        for session in &level {
+            for r in store.scope_after(&Edge::scope_into(session), 0)? {
+                if r.kind != kinds::EDGE {
+                    continue;
+                }
+                let e: Edge = r.decode()?;
+                if EdgeKind::named(&e.kind) != Some(EdgeKind::Includes) {
+                    continue;
+                }
+                let Some(c) = store.get_compilation(&e.from)? else {
+                    continue;
+                };
+                let reaches = c
+                    .inherits
+                    .as_ref()
+                    .is_some_and(|i| i.through_position >= root.position);
+                if !reaches || !seen.insert(c.session_id.clone()) {
+                    continue;
+                }
+                if generation >= max {
+                    partial = true;
+                    continue;
+                }
+                let at = c.inherits.as_ref().map_or(0, |i| i.through_position);
+                let nodes = [(root.position, &root.node)];
+                let exposure = exposures(store, &c.session_id, &nodes)?
+                    .into_iter()
+                    .next()
+                    .unwrap_or_default();
+                next.push(c.session_id.clone());
+                out.push(ReachFork {
+                    session_id: c.session_id,
+                    compilation_id: c.id,
+                    generation: generation + 1,
+                    from: session.clone(),
+                    at_position: at,
+                    exposure,
+                });
+            }
+        }
+        level = next;
+        generation += 1;
+    }
+    Ok((out, partial))
 }
 
 /// The copies of `id`: the edges into it (the scope `in:<id>`) of a kind
@@ -174,6 +244,8 @@ fn copies_of(store: &Store, id: &str) -> Result<Vec<Edge>> {
             Some(EdgeKind::DerivedFrom) => out.push(e),
             // The memory pass's (M6 31a): a likeness, not a copy.
             Some(EdgeKind::SameEntity | EdgeKind::Supersedes) => {}
+            // A fork's run into a session, which no node id names.
+            Some(EdgeKind::Includes) => {}
             None => {
                 // A kind a newer build wrote: no copy this build follows.
             }
@@ -241,7 +313,7 @@ fn exposures(store: &Store, session: &str, nodes: &[(u64, &Node)]) -> Result<Vec
     }
     let mut out = Vec::with_capacity(nodes.len());
     for (p, n) in nodes {
-        let holds = |c: &Compilation| c.includes.contains(&n.id);
+        let holds = |c: &Compilation| c.includes.contains(&n.id) || crate::fork::inherited(c, *p);
         let mut e = ReachExposure::default();
         let seen = |at: u64, e: &mut ReachExposure| {
             e.first_ms = Some(e.first_ms.map_or(at, |f| f.min(at)));

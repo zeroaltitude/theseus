@@ -18,6 +18,7 @@ mod cmd;
 mod earned;
 mod extend;
 mod follow;
+mod fork;
 mod harness;
 mod herdr;
 mod herdr_sync;
@@ -70,7 +71,8 @@ Quick start:
   theseus budgets                            where the money is: each session's limit and its source, spend, tasks' carves
   theseus tasks                              background tasks (task.create): state, spend, what each waits on
   theseus wakes                              pending wakes (wake.at): session, due time, and note
-  theseus reach <node>                       where a node went: the contexts that held it, and its copies in other sessions
+  theseus reach <node>                       where a node went: the contexts that held it, its copies, and the forks that took it
+  theseus fork <node>                        a new conversation from that moment of another, by reference (both stay)
   theseus cancel <id>                       stop a task and its jobs, or cancel a wake (its last six characters are enough)
   theseus stop <session>                     halt a session's running turn and jobs, as /stop does; the conversation goes on
   theseus wait <session> --until blocked      return once a session needs you (or settled, or terminal for a task)
@@ -201,6 +203,28 @@ enum Cmd {
         /// How many generations of copies to follow (default 3, at most 16).
         #[arg(long, value_name = "N")]
         generations: Option<u32>,
+    },
+    /// Rewind a conversation to any moment and take the other road (session.fork): a new session
+    /// whose context is NODE's session through NODE, by reference, with its own spend limit and
+    /// its own turns; the original is never written to. NODE is a node's id, or its last 6 or
+    /// more characters, as `theseus history` prints it (msg·a1b2c3), a message of yours or an
+    /// answer that made no tool call. Files and what programs did after that point are not
+    /// restored: they ran in the original.
+    Fork {
+        #[arg(value_name = "NODE")]
+        node: String,
+        /// The fork's title (default: the original's, plus " (fork)").
+        #[arg(long, value_name = "TITLE")]
+        title: Option<String>,
+        /// The profile its turns run on (default: the original's last).
+        #[arg(long, value_name = "PROFILE")]
+        profile: Option<String>,
+        /// The fork's own spend limit in dollars (default: the session limit).
+        #[arg(long, value_name = "USD")]
+        budget: Option<f64>,
+        /// The session NODE is in, when NODE alone does not name it (default: NODE's own).
+        #[arg(long, value_name = "SESSION")]
+        session: Option<String>,
     },
     /// Each place Theseus speaks in, and its class (the place rule): private (the CLI, the web
     /// UI, a DM with you, a guild channel bound `private = true`) gets everything; shared (any
@@ -1053,6 +1077,13 @@ async fn run(cli: Cli) -> Result<()> {
         } => cmd::history(c, json, session, (n, after, before), full).await,
         Cmd::Why { turn, session } => why::why(c, json, session, turn).await,
         Cmd::Reach { node, generations } => cmd::reach(c, json, node, generations).await,
+        Cmd::Fork {
+            node,
+            title,
+            profile,
+            budget,
+            session,
+        } => fork::run(c, json, node, session, (title, profile, budget)).await,
         Cmd::Places => cmd::places(c, json).await,
         Cmd::Retract { node, why } => retract::run(c, json, node, why).await,
         Cmd::Publish {

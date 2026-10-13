@@ -1,0 +1,8 @@
+$ theseus fork msg·a1b2c3 --session ses_0198d3a0b1c2d3e4f5a6b7c8d9e06664 --title refactor the writer (fork) --budget 2.5
+--- requests
+session.fork {"at":"msg·a1b2c3","budget_usd":2.5,"session":"ses_0198d3a0b1c2d3e4f5a6b7c8d9e06664","title":"refactor the writer (fork)"}
+--- stdout
+forked ses_…6664 at msg·a1b2c3 (position 166,201) → ses_…f00d "refactor the writer (fork)" in 3 ms, 1.4 KB
+not restored: files and what programs did after the fork point (they ran in the original)
+--- stderr
+--- exit 0

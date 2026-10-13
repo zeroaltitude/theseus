@@ -22,6 +22,7 @@ mod disk_watch;
 mod driver;
 mod exec_list;
 mod explain;
+mod fork;
 mod import;
 mod import_sync;
 mod info;

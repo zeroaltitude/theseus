@@ -493,7 +493,7 @@ fn edges_into(store: &crate::store::Store, id: &str) -> anyhow::Result<Vec<Edge>
             Some(EdgeKind::DerivedFrom) => out.push(e),
             // The memory pass's edges (31a) say two nodes are alike, or that one
             // corrects the other: never that one derives from the other.
-            Some(EdgeKind::SameEntity | EdgeKind::Supersedes) | None => {}
+            Some(EdgeKind::SameEntity | EdgeKind::Supersedes | EdgeKind::Includes) | None => {}
         }
     }
     Ok(out)

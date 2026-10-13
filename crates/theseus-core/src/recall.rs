@@ -988,7 +988,7 @@ pub fn links(store: &crate::store::Store, ids: &[String]) -> Vec<Link> {
             let kind = match EdgeKind::named(&e.kind) {
                 Some(EdgeKind::SameEntity) => LinkKind::SameEntity,
                 Some(EdgeKind::Supersedes) => LinkKind::Supersedes,
-                Some(EdgeKind::DerivedFrom) | None => continue,
+                Some(EdgeKind::DerivedFrom | EdgeKind::Includes) | None => continue,
             };
             out.push(Link {
                 kind,

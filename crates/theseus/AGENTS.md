@@ -99,6 +99,12 @@ Key modules: `main.rs`, `cmd.rs`, `render.rs`, `client.rs`. Read by: (a binary).
 - `src/render/history.rs`: `theseus history`'s own lines: each node with its short id, which `theseus reach` takes
   (theseus-glyw), and `page_lines`, where a page ends and the command for the next one either way (theseus-xo0m).
   Its `node_lines` is the history's own; `render.rs`'s, which the terminal UI shares, stays apart.
+- `src/fork.rs` and `src/render/fork.rs` (theseus-2qzx, R19): `theseus fork NODE [--title] [--profile] [--budget]
+  [--session]` (`session.fork`: the node's own session is found by `node.reach` at generation 0, whose answer names the
+  node whole, so the fork is a lookup), its two lines (`forked ses_…6664 at msg·a1b2c3 (position 166,201) → ses_…f00d
+  "…" in 3 ms, 1.4 KB`, then `not restored: …`), the marks `theseus history` of a fork prints around the inherited
+  prefix (a node whose session is not the history's own), and the forks `theseus reach` lists. Tests:
+  `tests/golden_fork.rs`; theseusd's `tests/fork.rs` runs it on a real daemon.
 - `src/pages.rs` (theseus-7bee): `theseus sessions` and `theseus executions` print the newest 50 (`session.list
   {n}`, `execution.list {n}`), a footer (`render/sessions.rs`'s `page_footer`) naming `--before CURSOR` and `--all`, which
   keeps the bare list. The CLI asks `session.list {n: 1}` where it wants the newest session (`cmd::NEWEST`, `watch

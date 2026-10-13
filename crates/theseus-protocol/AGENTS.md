@@ -95,6 +95,8 @@ Key modules: `lib.rs` (the `method`, `notify`, `error_code` tables), `events.rs`
 - `import_sync.rs` (theseus-pjmj7): the OpenClaw sync's wire types (`import.sync.plan`, `import.sync.record`), `HealthSync`
   (health's `imported.sync`, with the one `warn` sentence every surface shows), `ImportTouched` (an `import.episodes` batch's
   created or appended sessions), and the timer's minute and the missed-night grace.
+- `fork.rs` (theseus-2qzx): `session.fork`'s params and result, and the stored `ForkOrigin` (a session record's
+  `forked_from`), `Inherits` (a compilation's inherited run) and `ReachFork` (`node.reach`'s `forks`).
 - `ts.rs`: the TypeScript export.
 
 ## Invariants

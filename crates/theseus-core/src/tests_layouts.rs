@@ -79,7 +79,33 @@ pub(crate) const CATEGORY_BEFORE_PEOPLE: &str = r#"{"id":"topic:garden-beds","na
 /// theseus-aab7 (2fd1f65) writes.
 pub(crate) const SESSION_BEFORE_DIR: &str = r#"{"session_id":"ses_00000000000000000000000000000261","kind":"conversation","label":null,"created_at_unix_ms":1790000000261,"turns":3,"last_turn_id":"turn_00000000000000000000000000000263","usage":{"input_tokens":1500,"output_tokens":310,"cache_read_input_tokens":900,"cache_creation_input_tokens":200},"execution_id":"exe_00000000000000000000000000000261","compilation_id":"cmp_00000000000000000000000000000262","last_target":{"profile":"sonnet","provider":"anthropic","model":"claude-sonnet-5-5"},"last_active_ms":1790000000269,"cost_usd":0.0142,"tool_calls":2,"title":"Chart the tide gauges","retired":{"reason":"by_hand","at_ms":1790000000265},"reopened_ms":1790000000267,"title_was":["Read the harbour log"]}"#;
 
+/// A session record as format 29 wrote it (theseus-a7vi's build; unchanged
+/// since 28, theseus-aab7), before a fork's origin (`forked_from`, format
+/// 32, theseus-2qzx): a conversation that works in a directory of its own.
+/// It reads with no origin, so its transcript is its own nodes alone. By
+/// hand, in the layout the build before theseus-2qzx (7005d130) writes.
+pub(crate) const SESSION_BEFORE_FORK: &str = r#"{"session_id":"ses_00000000000000000000000000000291","kind":"conversation","label":null,"created_at_unix_ms":1790000000291,"turns":2,"last_turn_id":"turn_00000000000000000000000000000293","usage":{"input_tokens":800,"output_tokens":120,"cache_read_input_tokens":300,"cache_creation_input_tokens":100},"execution_id":"exe_00000000000000000000000000000291","compilation_id":"cmp_00000000000000000000000000000292","last_target":{"profile":"sonnet","provider":"anthropic","model":"claude-sonnet-5-5"},"last_active_ms":1790000000299,"cost_usd":0.0081,"tool_calls":1,"title":"Chart the harbour soundings","dir":"/work/harbour"}"#;
+
+/// A compilation as format 29 wrote it (theseus-a7vi's build), before a
+/// compilation's inherited run (`inherits`, format 32, theseus-2qzx): its
+/// manifest lists a standing record. It reads with no run, so every node it
+/// includes is named in `includes`. By hand, in the layout the build before
+/// theseus-2qzx (7005d130) writes.
+pub(crate) const COMPILATION_BEFORE_FORK: &str = r#"{"id":"cmp_00000000000000000000000000000292","schema":1,"session_id":"ses_00000000000000000000000000000291","created_at_ms":1790000000292,"trigger":"new_session","strategy":"transcript","as_of":71,"includes":["msg_00000000000000000000000000000291"],"derived_from":null,"manifest":{"compiler_version":1,"renderer_version":2,"profile":"sonnet","provider":"anthropic","model":"claude-sonnet-5-5","system_digest":"0123456789abcdef","tools_digest":"fedcba9876543210","tools":["fs_read"],"catalog_version":"2026-10-01","context_window":1000000,"strip_thinking":false,"standing":[{"id":"std_00000029","shown":true}]},"situation":{"kind":"conversation_start"}}"#;
+
 const SAMPLES: &[Sample] = &[
+    Sample {
+        kind: kinds::SESSION,
+        layout: "a session at format 29 (theseus-a7vi's; unchanged since 28): before a fork's origin (32, theseus-2qzx)",
+        bytes: SESSION_BEFORE_FORK,
+        kept: Kept::All,
+    },
+    Sample {
+        kind: kinds::COMPILATION,
+        layout: "a compilation at format 29 (theseus-a7vi's): before its inherited run (32, theseus-2qzx)",
+        bytes: COMPILATION_BEFORE_FORK,
+        kept: Kept::All,
+    },
     Sample {
         kind: kinds::SESSION,
         layout: "a session at format 27 (theseus-wy7y's; unchanged since 25): before its directory (28, theseus-aab7)",
@@ -450,7 +476,8 @@ fn every_old_layout_on_disk_still_reads() {
 /// A store of format 28, which holds a compilation as the build before the
 /// owner's standing records (theseus-a7vi) wrote it and no standing record:
 /// the build opens it, reads the compilation, finds no records, takes one,
-/// and moves the manifest to 29, which an older build then refuses.
+/// and moves the manifest to this build's format, which an older build then
+/// refuses.
 #[test]
 fn a_format_28_store_opens_with_no_standing_records_and_takes_them() {
     let dir = tempfile::tempdir().unwrap();
@@ -500,7 +527,7 @@ fn a_format_28_store_opens_with_no_standing_records_and_takes_them() {
         .unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
     // This build's format: the move is made by the first write of any build.
-    assert_eq!(moved["format"], 31);
+    assert_eq!(moved["format"], 32);
     drop(store);
     let again = crate::store::Store::open(&path).unwrap();
     assert_eq!(
@@ -511,7 +538,7 @@ fn a_format_28_store_opens_with_no_standing_records_and_takes_them() {
 
 /// A store of format 29, whose ledger holds rows with no chain (theseus-bmkxk):
 /// the build opens it and reads them, its first ledger write starts the chain
-/// with a row that counts and pins them, and the manifest moves to 31. The
+/// with a row that counts and pins them, and the manifest moves to 32. The
 /// chain then verifies, with the old rows pinned by count.
 #[test]
 fn a_format_29_store_starts_its_chain_over_the_rows_it_holds() {
@@ -552,8 +579,66 @@ fn a_format_29_store_starts_its_chain_over_the_rows_it_holds() {
         ))
         .unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
-    assert_eq!(moved["format"], 31);
+    assert_eq!(moved["format"], 32);
     let after = theseus_store::chain_walk::verify(store.inner().as_ref(), None, None).unwrap();
     assert!(after.broken.is_none(), "{after:?}");
     assert_eq!((after.rows, after.unchained), (2, 1));
+}
+
+/// A store of format 29, which holds a session and a compilation as the
+/// build before forks (theseus-2qzx) wrote them: the build opens it, reads
+/// both with no origin and no inherited run, and moves the manifest to 32,
+/// which an older build then refuses. A fork written then reads back.
+#[test]
+fn a_format_29_store_opens_with_no_forks_and_takes_one() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("store");
+    {
+        let store = crate::store::Store::open(&path).unwrap();
+        let s: SessionRecord = serde_json::from_str(SESSION_BEFORE_FORK).unwrap();
+        let c: Compilation = serde_json::from_str(COMPILATION_BEFORE_FORK).unwrap();
+        store
+            .append(&[
+                theseus_store::NewRecord::bytes(
+                    kinds::SESSION,
+                    Some(&s.session_id),
+                    SESSION_BEFORE_FORK.as_bytes().to_vec(),
+                ),
+                theseus_store::NewRecord::bytes(
+                    kinds::COMPILATION,
+                    Some(&c.id),
+                    COMPILATION_BEFORE_FORK.as_bytes().to_vec(),
+                )
+                .scoped(&c.session_id),
+            ])
+            .unwrap();
+    }
+    let manifest = path.join("MANIFEST.json");
+    std::fs::write(&manifest, r#"{"format": 29, "engine": "redb"}"#).unwrap();
+
+    let store = crate::store::Store::open(&path).unwrap();
+    let sid = "ses_00000000000000000000000000000291";
+    assert_eq!(crate::fork::origin_of(&store, sid).unwrap(), None);
+    let read = store
+        .get_compilation("cmp_00000000000000000000000000000292")
+        .unwrap()
+        .unwrap();
+    assert!(read.inherits.is_none());
+    let mut fork = SessionRecord::new(theseus_protocol::SessionKind::Conversation, None);
+    fork.forked_from = Some(Box::new(theseus_protocol::ForkOrigin {
+        session: sid.into(),
+        node: "msg_00000000000000000000000000000291".into(),
+        position: 3,
+        compilation: None,
+        at_ms: 1_790_000_000_300,
+    }));
+    store.put_session(&fork.session_id, &fork).unwrap();
+    let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
+    assert_eq!(moved["format"], 32);
+    drop(store);
+    let again = crate::store::Store::open(&path).unwrap();
+    let origin = crate::fork::origin_of(&again, &fork.session_id)
+        .unwrap()
+        .unwrap();
+    assert_eq!((origin.session.as_str(), origin.position), (sid, 3));
 }

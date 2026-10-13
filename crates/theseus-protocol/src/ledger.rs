@@ -228,6 +228,7 @@ ledger_kinds! {
     ServerStarted = "server.started",
     ServerStopping = "server.stopping",
     SessionExternalRead = "session.external_read",
+    SessionForked = "session.forked",
     SessionOpened = "session.opened",
     SessionReopened = "session.reopened",
     SessionRetired = "session.retired",
