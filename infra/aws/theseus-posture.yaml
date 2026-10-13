@@ -228,8 +228,9 @@ Resources:
   #
   # Rules are regional. These see this region's events, and theseus-posture-relay brings
   # us-east-1's here, where the global services (IAM, Organizations, Budgets, the console's
-  # sign-in) record theirs. The three checks that read-only calls can trip (a refused call, the
-  # root user, the root-of-trust key) take every management event, reads included.
+  # sign-in) record theirs. Three checks take every management event, reads included: a refused
+  # call and the root-of-trust key, which read-only calls can trip, and the root user, whose
+  # sign-ins and unlabeled calls must reach its pattern (since 2026-10-13 its reads don't alert).
   # ---------------------------------------------------------------------------------------------
 
   UnauthorizedApiCallsRule:
@@ -294,11 +295,16 @@ Resources:
         - Key: "theseus:stack"
           Value: !Ref AWS::StackName
 
+  # The root user: every sign-in, whatever its readOnly says, and every call that is not read-only
+  # (readOnly false, or no readOnly at all, so an unlabeled call still alerts). Root's reads are
+  # not alerts: one visit to a console page makes dozens a minute (the owner's yes, 2026-10-13).
+  # The rule still takes every management event, so neither a sign-in nor an unlabeled call is
+  # filtered out before the pattern sees it.
   RootUsageRule:
     Type: AWS::Events::Rule
     Properties:
       Name: theseus-posture-root-usage
-      Description: The account's root user was used.
+      Description: The account's root user signed in, or made a call that is not read-only.
       State: ENABLED_WITH_ALL_CLOUDTRAIL_MANAGEMENT_EVENTS
       EventPattern:
         detail-type:
@@ -312,6 +318,15 @@ Resources:
               - exists: false
           eventType:
             - anything-but: AwsServiceEvent
+        $or:
+          - detail-type:
+              - AWS Console Sign In via CloudTrail
+          - detail:
+              readOnly:
+                - false
+          - detail:
+              readOnly:
+                - exists: false
       Targets:
         - Id: alerts
           Arn:

@@ -1879,6 +1879,39 @@ fn the_lean_templates_make_no_key_alarm_or_log_group_by_default() {
     assert_eq!(count(&quiet, "AWS::Events::Rule"), 18);
 }
 
+/// The root user's check (theseus-4znao): every sign-in, and every call that
+/// is not read-only (`readOnly` false, or none at all); root's reads are not
+/// alerts. EventBridge's TestEventPattern proved it on 15 events, 6 to match
+/// and 9 not to (2026-10-13); this pins the pattern it proved.
+#[test]
+fn the_root_check_skips_only_roots_read_only_calls() {
+    let t = theseus_aws_guard::parse_template(bootstrap::POSTURE_TEMPLATE).unwrap();
+    let rule = t
+        .get("Resources")
+        .and_then(|r| r.get("RootUsageRule"))
+        .and_then(|r| r.get("Properties"))
+        .unwrap();
+    assert_eq!(
+        rule.get("State").unwrap().to_json(),
+        json!("ENABLED_WITH_ALL_CLOUDTRAIL_MANAGEMENT_EVENTS")
+    );
+    assert_eq!(
+        rule.get("EventPattern").unwrap().to_json(),
+        json!({
+            "detail-type": ["AWS API Call via CloudTrail", "AWS Console Sign In via CloudTrail"],
+            "detail": {
+                "userIdentity": {"type": ["Root"], "invokedBy": [{"exists": false}]},
+                "eventType": [{"anything-but": "AwsServiceEvent"}],
+            },
+            "$or": [
+                {"detail-type": ["AWS Console Sign In via CloudTrail"]},
+                {"detail": {"readOnly": [false]}},
+                {"detail": {"readOnly": [{"exists": false}]}},
+            ],
+        })
+    );
+}
+
 // ------------------------------------------------------------------ a program's session
 
 /// `[broker.programs.aws]` (§3.5): before the owner role exists the program
