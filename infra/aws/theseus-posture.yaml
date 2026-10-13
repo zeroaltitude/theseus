@@ -300,6 +300,10 @@ Resources:
   # not alerts: one visit to a console page makes dozens a minute (the owner's yes, 2026-10-13).
   # The rule still takes every management event, so neither a sign-in nor an unlabeled call is
   # filtered out before the pattern sees it.
+  #
+  # $or is the pattern's only top-level key, and each branch carries every condition. AWS stores a
+  # pattern with $or moved first, and a leading $or beside other top-level keys matched root's
+  # reads in TestEventPattern (2026-10-13); with one top-level key there is no order to change.
   RootUsageRule:
     Type: AWS::Events::Rule
     Properties:
@@ -307,24 +311,41 @@ Resources:
       Description: The account's root user signed in, or made a call that is not read-only.
       State: ENABLED_WITH_ALL_CLOUDTRAIL_MANAGEMENT_EVENTS
       EventPattern:
-        detail-type:
-          - AWS API Call via CloudTrail
-          - AWS Console Sign In via CloudTrail
-        detail:
-          userIdentity:
-            type:
-              - Root
-            invokedBy:
-              - exists: false
-          eventType:
-            - anything-but: AwsServiceEvent
         $or:
           - detail-type:
               - AWS Console Sign In via CloudTrail
-          - detail:
+            detail:
+              userIdentity:
+                type:
+                  - Root
+                invokedBy:
+                  - exists: false
+              eventType:
+                - anything-but: AwsServiceEvent
+          - detail-type:
+              - AWS API Call via CloudTrail
+              - AWS Console Sign In via CloudTrail
+            detail:
+              userIdentity:
+                type:
+                  - Root
+                invokedBy:
+                  - exists: false
+              eventType:
+                - anything-but: AwsServiceEvent
               readOnly:
                 - false
-          - detail:
+          - detail-type:
+              - AWS API Call via CloudTrail
+              - AWS Console Sign In via CloudTrail
+            detail:
+              userIdentity:
+                type:
+                  - Root
+                invokedBy:
+                  - exists: false
+              eventType:
+                - anything-but: AwsServiceEvent
               readOnly:
                 - exists: false
       Targets:
