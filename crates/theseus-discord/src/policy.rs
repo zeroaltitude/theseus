@@ -83,6 +83,9 @@ pub(crate) enum Event {
     Disk,
     /// The task board: a task starts, moves, or finishes.
     Board,
+    /// A reminder fired (theseus-8ux6x): it is the owner's, so it always
+    /// pings: no category, no silent list names it, and it is not in `TABLE`.
+    Reminder,
 }
 
 /// The table: each write's chat category, the name a `silent` list gives

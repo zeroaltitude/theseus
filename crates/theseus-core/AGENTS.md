@@ -1112,6 +1112,27 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   (`wake.cancelled { by: "model" }`, `wake.moved { from, to }`); a move keeps the id, a series' next occurrence moves
   alone unless `series: true` moves its time (`every`, `days`, `until` kept). A routine, a watch or a deferred task
   joins as another line with its own icon. Tests: `tests_commitments.rs` (the stand-in model reads the block's ids).
+- **Reminders** (theseus-8ux6x; horizon HZ2; store format 30): every future thing is a wake with a purpose
+  (`theseus_kernel::Purpose`: `Check` the model's own, `Remind`, and `Routine` and `Watch` declared for their rows) and a
+  run (`WakeRun`: `Turn`, `Notice`, and `Task` and `Probe` refused with words until routines and watches land).
+  `wake_home.rs`: **Home** is the conversation a reminder lives in when no place would hear it, the session the owner's
+  DM runs on (`PlaceRule::owner_dm_places`), else a "Reminders" conversation made on first use (META `home.session`);
+  `Core::fire_notices`, in the harness's 500 ms tick (no new timer), takes every due `Notice` wake in any state of its
+  conversation, a turn running included (`Kernel::fire_notices`: one frame, no turn, no model call, no admission slot),
+  and posts its note as a `reminder` outbox post where its conversation posts, else where it posted when set, else Home's
+  DM; with no place at all the surfaces still hear `wake.noticed` (`fact/wake.rs`, `bus::wide`, with its four answers
+  `theseus_protocol::reminder_answers`, which `notices::reminder_notice` makes the Interrupt of), so none is silent. The
+  owner's verbs, no model turn (`rpc/wake_owner.rs`): `wake.create { when, note, every?, days?, until?, session? }` (no
+  session: Home), `wake.snooze` (a pending wake moves; a fired one, by its whole id with `fired`, is set again from its
+  META record), `wake.pause { until? }`, `wake.resume`, `wake.done`; anyone's, as `wake.cancel` is, the daemon-wide
+  `[kernel] max_reminders` bounding a flood. The answers are direct calls until `work.answer` routes them. `wake_when.rs`
+  reads `when` (`10m`, `in 1h`, `tomorrow 9:00`, `fri 9:00`, a date, RFC 3339; the kernel's `when.rs`). The model's side:
+  `wake.at { for: "owner" | "self", say_only }` (`for: owner` is a `Remind`, `say_only` a `Notice`; a placeless
+  `Remind` takes the DM's target when set). Limits: `[kernel] max_wake_ahead_days` (365, replaces `MAX_AHEAD_MS`;
+  `task_start` reads it too), `max_wakes` (check-ins a conversation), `max_reminders` (100), `max_routines`, `max_watches`
+  (`config/wake_limits.rs`). The commitments block says `remind:` and `(paused)`. Tests: `tests_reminders.rs` (a real
+  core, the driver, the real clock), the kernel's `tests_wake_owner.rs`, theseusd's `tests/wakes.rs` (a stop across the
+  due time), theseus-discord's `tests_gateway/remind.rs`.
 - **Deferred tasks** (theseus-rcgph): `task.create { start_at | start_after }` opens a task asleep (`task_start.rs`):
   `Kernel::open_task_at` writes it `Waiting{DueAt}` in the open's one frame with its carve held (the parent's
   remaining shows it), the due scan queues it, and its first turn's catch-up writes the node `Deferred task, set <when>

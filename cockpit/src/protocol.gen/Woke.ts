@@ -3,4 +3,10 @@
 /**
  * The wake whose turn just ended: its note and when it fired.
  */
-export type Woke = { note: string, at_ms: number, };
+export type Woke = { note: string, at_ms: number, 
+/**
+ * Why the wake existed (`remind`, `check`, `routine`, `watch`): the
+ * notification policy's rule 4 asks it (theseus-8ux6x). Absent from a
+ * daemon that does not say; the policy then guesses as it did.
+ */
+purpose?: string, };

@@ -20,7 +20,7 @@ use serde::{Deserialize, Serialize};
 use theseus_kernel::{ExecState, Execution, Wake};
 use theseus_store::{kinds, NewRecord};
 
-use crate::wake::{local, parse_after, parse_at, span, LATE_AFTER_MS, MAX_AHEAD_MS, MIN_AHEAD_MS};
+use crate::wake::{local, parse_after, parse_at, span, LATE_AFTER_MS, MIN_AHEAD_MS};
 
 /// The times of a deferred task, kept in the META record `key` names.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -44,8 +44,13 @@ pub fn record(task_session: &str, d: &Deferred) -> anyhow::Result<NewRecord> {
 
 /// When a task asked to start at `at` or `after` starts, from `now_ms`, or why
 /// it cannot: the same parse and the same bounds as `wake.at` (`MIN_AHEAD_MS`,
-/// `MAX_AHEAD_MS`).
-pub fn due(at: Option<&str>, after: Option<&str>, now_ms: u64) -> Result<u64, String> {
+/// `[kernel] max_wake_ahead_days`, passed as `max_ahead_ms`).
+pub fn due(
+    at: Option<&str>,
+    after: Option<&str>,
+    now_ms: u64,
+    max_ahead_ms: u64,
+) -> Result<u64, String> {
     let named = |e: String| {
         e.replace("`after`", "`start_after`")
             .replace("`at`", "`start_at`")
@@ -74,10 +79,10 @@ pub fn due(at: Option<&str>, after: Option<&str>, now_ms: u64) -> Result<u64, St
             span(MIN_AHEAD_MS)
         ));
     }
-    if ahead > MAX_AHEAD_MS {
+    if ahead > max_ahead_ms {
         return Err(format!(
             "a task may be set to start at most {} days from now, and this one is {}",
-            MAX_AHEAD_MS / 86_400_000,
+            max_ahead_ms / 86_400_000,
             span(ahead)
         ));
     }
@@ -129,22 +134,23 @@ mod tests {
     use super::*;
 
     const NOW: u64 = 1_790_000_000_000;
+    const MAX: u64 = 365 * 86_400_000;
 
     #[test]
     fn the_start_takes_wake_ats_bounds_in_words() {
-        assert_eq!(due(None, Some("2m"), NOW), Ok(NOW + 120_000));
-        assert_eq!(due(None, Some("1s"), NOW), Ok(NOW + 1_000));
-        let e = due(None, Some("999ms"), NOW).unwrap_err();
+        assert_eq!(due(None, Some("2m"), NOW, MAX), Ok(NOW + 120_000));
+        assert_eq!(due(None, Some("1s"), NOW, MAX), Ok(NOW + 1_000));
+        let e = due(None, Some("999ms"), NOW, MAX).unwrap_err();
         assert!(e.contains("`start_after`"), "{e}");
-        let e = due(None, Some("31d"), NOW).unwrap_err();
-        assert!(e.contains("at most 30 days from now"), "{e}");
-        assert!(due(None, Some("30d"), NOW).is_ok());
-        let e = due(Some("2026-01-01T00:00:00Z"), None, NOW).unwrap_err();
+        let e = due(None, Some("366d"), NOW, MAX).unwrap_err();
+        assert!(e.contains("at most 365 days from now"), "{e}");
+        assert!(due(None, Some("365d"), NOW, MAX).is_ok());
+        let e = due(Some("2026-01-01T00:00:00Z"), None, NOW, MAX).unwrap_err();
         assert!(e.contains("`start_at`") && e.contains("ago"), "{e}");
-        let e = due(Some("nope"), None, NOW).unwrap_err();
+        let e = due(Some("nope"), None, NOW, MAX).unwrap_err();
         assert!(e.contains("`start_at`") && !e.contains("`at`"), "{e}");
-        assert!(due(Some("2026-10-14T00:00:00Z"), Some("1h"), NOW).is_err());
-        assert!(due(None, None, NOW).is_err());
+        assert!(due(Some("2026-10-14T00:00:00Z"), Some("1h"), NOW, MAX).is_err());
+        assert!(due(None, None, NOW, MAX).is_err());
     }
 
     #[test]

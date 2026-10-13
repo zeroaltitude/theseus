@@ -534,6 +534,8 @@ events! {
     JudgeNoticed(crate::judge::JudgeNoticed) = notify::JUDGE_NOTICED,
     /// A task record changed (39a).
     TaskChanged(crate::tasks::TaskChanged) = notify::TASK_CHANGED,
+    /// A reminder fired (theseus-8ux6x).
+    WakeNoticed(crate::wakes::WakeNoticed) = notify::WAKE_NOTICED,
 }
 
 impl Event {
@@ -557,6 +559,7 @@ impl Event {
             Event::JudgeScored(e) => Some(&e.session_id),
             Event::JudgeNoticed(e) => Some(&e.session_id),
             Event::TaskChanged(e) => Some(&e.session_id),
+            Event::WakeNoticed(e) => Some(&e.session_id),
             Event::LoopStarted(_)
             | Event::ModelDelta(_)
             | Event::ModelThinking(_)
@@ -597,6 +600,7 @@ impl Event {
             | Event::SessionTrusted(_)
             | Event::ExecutionChanged(_)
             | Event::TaskChanged(_)
+            | Event::WakeNoticed(_)
             | Event::EventsLost(_) => None,
         }
     }

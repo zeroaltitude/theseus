@@ -51,6 +51,7 @@ mod server;
 mod session_dir;
 mod sessions;
 mod standing;
+mod wake_owner;
 #[cfg(test)]
 pub(crate) use server::write_item;
 #[cfg(test)]

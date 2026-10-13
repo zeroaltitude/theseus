@@ -216,3 +216,21 @@ fn the_tuis_own_message_shows_at_once_as_before() {
         "{got:#?}"
     );
 }
+
+/// A reminder that fired rings once, with the policy's words, whatever
+/// session the TUI shows; a check-in only informs and rings nothing; and
+/// `--notify off` rings nothing (theseus-8ux6x).
+#[test]
+fn a_fired_reminder_rings_and_a_check_in_does_not() {
+    let mut app = focused();
+    let noticed = |purpose: &str| {
+        json!({"wake_id": "wak_0199aaaa3f9a1c", "short": "3f9a1c", "session_id": "ses_other",
+               "execution_id": "exe_other", "purpose": purpose, "note": "stretch",
+               "due_at_ms": T0, "late_ms": 0, "answers": []})
+    };
+    let out = app.notified("wake.noticed", &noticed("remind"));
+    assert_eq!(out, vec![Effect::Notice("⏰ stretch".into(), true)]);
+    assert!(app.notified("wake.noticed", &noticed("check")).is_empty());
+    app.quiet = true;
+    assert!(app.notified("wake.noticed", &noticed("remind")).is_empty());
+}

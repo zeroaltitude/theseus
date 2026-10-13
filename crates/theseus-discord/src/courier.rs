@@ -802,6 +802,9 @@ impl Lane {
             "jev_notice" | "jev_paused" | "spend_ceiling" | "self_digest" | "earned_card"
             | "retraction" => self.jev_post(a, &body).await,
             "jev_labeled" => Ok(self.jev_labeled(&body)),
+            // A reminder fired (theseus-8ux6x): its note as it is, in the
+            // place the core chose, with Done and Snooze.
+            "reminder" => self.reminder_post(&body, corr).await,
             other => Err(SendErr::refused(format!(
                 "a post of kind {other:?} is not one this binding knows"
             ))),
@@ -1166,6 +1169,28 @@ impl Lane {
         })
     }
 
+    /// A reminder's post: its note as it is, with its four answers. It always
+    /// pings (`Event::Reminder` is in no category), and posts once under its
+    /// wake's key, so a retry never makes a second.
+    async fn reminder_post(&mut self, body: &Value, corr: &str) -> Result<Plan, SendErr> {
+        let channel = self.place_channel().await?;
+        let wake = body["wake_id"].as_str().unwrap_or(corr).to_string();
+        let ping = self.pings(Event::Reminder);
+        Ok(Plan {
+            writes: vec![Write {
+                key: format!("reminder:{corr}"),
+                channel,
+                content: crate::runtime::remind_text(body),
+                buttons: Buttons::Reminder(wake.clone()),
+                reply_to: None,
+                message: None,
+                mentions: vec![],
+                ping,
+            }],
+            extra: json!({"wake_id": wake}),
+        })
+    }
+
     /// A task's report (DD7): one message, in the place the task reports to,
     /// under a key of its own, so it posts once.
     async fn report_post(&mut self, body: &Value, corr: &str) -> Result<Plan, SendErr> {
@@ -1425,6 +1450,7 @@ impl Lane {
             Buttons::Accept(corr) => crate::runtime::accept_buttons(corr),
             Buttons::ShouldHaveAsked(options) => asked_menu(options),
             Buttons::JevLabel(judgment) => crate::runtime::jev_buttons(judgment),
+            Buttons::Reminder(wake) => crate::runtime::remind_buttons(wake),
             Buttons::Earned(c) => crate::runtime::earned_buttons(c),
             Buttons::Sources(session, srcs) => crate::runtime::source_buttons(session, srcs),
             Buttons::Clear | Buttons::Keep => vec![],
@@ -1483,6 +1509,7 @@ impl Lane {
             Buttons::Accept(corr) => Some(crate::runtime::accept_buttons(corr)),
             Buttons::ShouldHaveAsked(options) => Some(asked_menu(options)),
             Buttons::JevLabel(judgment) => Some(crate::runtime::jev_buttons(judgment)),
+            Buttons::Reminder(wake) => Some(crate::runtime::remind_buttons(wake)),
             Buttons::Earned(c) => Some(crate::runtime::earned_buttons(c)),
             Buttons::Sources(session, srcs) => Some(crate::runtime::source_buttons(session, srcs)),
             Buttons::Clear => Some(vec![]),

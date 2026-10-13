@@ -60,7 +60,9 @@ Key modules: `run.rs` (the loop), `app.rs` (no I/O), `board.rs`, `ui.rs`. Read b
   later one. Enter at start opens the first row. Bracketed paste is off on every way out, each of the four signals
   sent to the test's own process among them, read from the bytes the loop wrote (theseus-8hcg).
 - `src/tests_order.rs`: the app alone, its order forced by hand: another surface's message lands in the place its
-  `node.written` marked, above a reply that streamed while it was read (theseus-v6yc).
+  `node.written` marked, above a reply that streamed while it was read (theseus-v6yc); and a fired reminder
+  (`wake.noticed`, theseus-8ux6x) rings once with the policy's words (`notices::reminder_notice`), a check-in rings
+  nothing, and `--notify off` rings nothing.
 - `src/tests_typing.rs` (theseus-tnky): the input line's first key sends one `session.typing` per idle spell (not
   one a key, none from the filter's keys), and an older daemon's refusal says nothing.
 - `src/tests_sync.rs` (theseus-pjmj7): `health` is read at each connect (`Purpose::Health`) and the OpenClaw sync's `warn`, a

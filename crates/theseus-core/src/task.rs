@@ -281,8 +281,8 @@ impl Tool for TaskCreate {
                 "deps": {"type": "array", "items": {"type": "string"}, "description": "The tasks it waits on (tsk_…)."},
                 "check_of": {"type": "string", "description": "Start a check of this task (its id, or the end of it): one this conversation started, which has reported."},
                 "profile": {"type": "string", "description": "A check's model: a configured profile's name (default: this conversation's). Only for `check_of`."},
-                "start_after": {"type": "string", "description": "Defer the task: it sleeps and starts this long from now, a duration such as 2h or 1d (1 second to 30 days). Its budget is carved now."},
-                "start_at": {"type": "string", "description": "Defer the task: it starts at this RFC 3339 time with its offset, such as 2026-10-16T09:00:00-07:00 (1 second to 30 days ahead)."}
+                "start_after": {"type": "string", "description": "Defer the task: it sleeps and starts this long from now, a duration such as 2h or 1d (1 second to 365 days). Its budget is carved now."},
+                "start_at": {"type": "string", "description": "Defer the task: it starts at this RFC 3339 time with its offset, such as 2026-10-16T09:00:00-07:00 (1 second to 365 days ahead)."}
             },
             "additionalProperties": false
         })
@@ -459,8 +459,13 @@ pub fn create<'a>(
     let start = match (&i.start_at, &i.start_after) {
         (None, None) => None,
         (at, after) => Some(
-            crate::task_start::due(at.as_deref(), after.as_deref(), now)
-                .map_err(|e| format!("Not started: {e}"))?,
+            crate::task_start::due(
+                at.as_deref(),
+                after.as_deref(),
+                now,
+                tc.kernel.config().wakes.max_ahead_ms,
+            )
+            .map_err(|e| format!("Not started: {e}"))?,
         ),
     };
     let target = tc.outbox.target(tc.session_id);

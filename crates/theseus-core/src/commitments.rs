@@ -23,7 +23,7 @@
 
 use std::sync::Mutex;
 
-use theseus_kernel::PendingWake;
+use theseus_kernel::{PendingWake, Purpose};
 
 use crate::wake::{local, Local};
 
@@ -95,7 +95,17 @@ fn line(w: &PendingWake, now_ms: u64, at: &dyn Fn(u64) -> Local) -> String {
         .chars()
         .take(TITLE_CHARS)
         .collect();
+    // A reminder, a routine or a watch says what it is; a held one says so.
+    let title = match w.purpose {
+        Purpose::Check => title,
+        p => format!("{}: {title}", p.as_str()),
+    };
+    let paused = w.paused_at_ms.is_some();
     match &w.repeat {
+        None if paused => format!(
+            "⏸ {short} {} (paused) {title}",
+            when(&due, w.due_at_ms, now_ms)
+        ),
         None => format!("⏰ {short} {} {title}", when(&due, w.due_at_ms, now_ms)),
         Some(r) => {
             let mut rule = format!("every {}", r.every);
@@ -107,11 +117,13 @@ fn line(w: &PendingWake, now_ms: u64, at: &dyn Fn(u64) -> Local) -> String {
                 let u = at(u);
                 format!(" until {} {}", month_day(&u), u.hm())
             });
-            format!(
-                "🔁 {short} {rule} {}{until} (next {}) {title}",
-                due.hm(),
-                due.weekday()
-            )
+            let next = if paused {
+                "paused".to_string()
+            } else {
+                format!("next {}", due.weekday())
+            };
+            let icon = if paused { "⏸" } else { "🔁" };
+            format!("{icon} {short} {rule} {}{until} ({next}) {title}", due.hm())
         }
     }
 }

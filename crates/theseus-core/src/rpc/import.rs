@@ -55,6 +55,7 @@ pub(super) fn prefixed(name: &str) -> bool {
         || super::people::ROUTE.contains(&name)
         || super::rsi::OWN.contains(&name)
         || super::earned::OWN.contains(&name)
+        || super::wake_owner::OWN.contains(&name)
         || name.starts_with("standing.")
 }
 
@@ -93,6 +94,9 @@ impl Core {
         }
         if name.starts_with("standing.") {
             return self.rpc_standing(name, params, conn);
+        }
+        if super::wake_owner::OWN.contains(&name) {
+            return self.rpc_wakes(name, params, conn);
         }
         self.rpc_import(name, params, conn).await
     }

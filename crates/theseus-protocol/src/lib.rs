@@ -99,7 +99,10 @@ pub use standing::{
 pub use submit::{SessionOpenParams, TurnSubmitParams};
 pub use term::{TerminalInfo, TerminalLeft};
 pub use toolinfo::{ToolInfo, ToolListResult};
-pub use wakes::WakeInfo;
+pub use wakes::{
+    reminder_answers, WakeAnswer, WakeCreateParams, WakeDoneResult, WakeEditResult, WakeInfo,
+    WakeNameParams, WakeNoticed, WakePauseParams, WakeSnoozeParams,
+};
 pub use window::*;
 
 use serde::{Deserialize, Serialize};
@@ -221,6 +224,9 @@ pub mod method {
         WAKE_LIST = "wake.list",
         /// Cancel a pending wake: nothing fires.
         WAKE_CANCEL = "wake.cancel",
+        /// The owner's verbs on wakes, with no model turn (theseus-8ux6x): set a
+        /// reminder, snooze one, hold and resume a series, settle a fired one.
+        WAKE_CREATE = "wake.create", WAKE_SNOOZE = "wake.snooze", WAKE_PAUSE = "wake.pause", WAKE_RESUME = "wake.resume", WAKE_DONE = "wake.done",
         /// The push (theseus-in3): a snapshot of every execution that needs
         /// someone or works, then `execution.changed`, `confirm.requested`,
         /// and `confirm.resolved` for every session, until
@@ -394,6 +400,8 @@ pub mod notify {
         JUDGE_NOTICED = "judge.noticed",
         /// A task record changed (39a): `tasks::TaskChanged`.
         TASK_CHANGED = "task.changed",
+        /// A notice wake fired (theseus-8ux6x): a reminder, to every connection.
+        WAKE_NOTICED = "wake.noticed",
     }
 }
 

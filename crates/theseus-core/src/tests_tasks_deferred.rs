@@ -187,7 +187,7 @@ async fn a_cancel_before_the_start_releases_the_carve_and_no_turn_runs() {
 #[tokio::test]
 async fn a_start_past_the_furthest_or_under_a_second_is_refused_in_words() {
     for (extra, words) in [
-        (json!({"start_after": "31d"}), "at most 30 days from now"),
+        (json!({"start_after": "366d"}), "at most 365 days from now"),
         (json!({"start_after": "0s"}), "at least 1 s from now"),
         (
             json!({"start_at": "2020-01-01T00:00:00Z"}),

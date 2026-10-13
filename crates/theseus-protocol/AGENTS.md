@@ -77,7 +77,12 @@ Key modules: `lib.rs` (the `method`, `notify`, `error_code` tables), `events.rs`
 - `retract.rs` (theseus-2ced): `fact.retract`'s params and result, one `RetractExposure` for each place a node went, and
   `exposure_kind`, the five kinds in table order.
 - `wakes.rs` (theseus-lherl): `WakeInfo`, moved out of lib.rs and re-exported (the bytes are unchanged; `days`,
-  `until_ms` and `title` are optional). `tests/wakes.rs` holds its bytes.
+  `until_ms` and `title` are optional). `tests/wakes.rs` holds its bytes. Since theseus-8ux6x it also has `purpose`, `run` and
+  `paused` on `WakeInfo` (each left out of the bytes at its default), the owner's verbs' params (`wake.create`, `.snooze`,
+  `.pause`, `.resume`, `.done`), `WakeAnswer` and `reminder_answers()` (Done, Snooze 10 min, Snooze 1 h, Tomorrow 9:00,
+  each a direct call), and the `wake.noticed` notification (`WakeNoticed`). `notices::reminder_notice` makes its Interrupt,
+  `wake_urgency` is rule 4 by purpose (a reminder interrupts; a check-in, a routine and a watch inform; a view that says none
+  is read as before). `tests/wake_notice.rs` holds the bytes.
 - `cite.rs` (theseus-ejdk): a reply's citations. The handle a recalled item's header carries (`[m:a1b2c3]`:
   `handles_for` makes them unique in a pack, `header_with` and `split_header` write and read one), the handles a text
   holds (`handles_in`), the marks every surface draws (`mark_handles`, `mark_into`: `[1]`, numbered by first

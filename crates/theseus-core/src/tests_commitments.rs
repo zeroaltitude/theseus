@@ -395,6 +395,7 @@ fn wake(
         target: None,
         occurrence: u32::from(repeat.is_some()),
         repeat,
+        ..Default::default()
     }
 }
 
@@ -546,6 +547,44 @@ fn the_blocks_golden_none_one_a_series_and_a_long_list() {
         .collect();
     assert_eq!(shown.text, want.join("\n"));
     assert_eq!((shown.lines, shown.left_out), (10, 3));
+}
+
+/// A reminder says so (`remind:`), and a paused wake or series says it is held
+/// (theseus-8ux6x): the model reads which of its commitments are the owner's, and
+/// which will not fire until they are resumed.
+#[test]
+fn a_reminder_says_remind_and_a_paused_one_says_paused() {
+    use theseus_kernel::{Purpose, WakeRun};
+    let at = fixed(-7 * 3600);
+    let remind = theseus_kernel::PendingWake {
+        purpose: Purpose::Remind,
+        run: WakeRun::Notice,
+        ..wake("a8cebb", FRI, "check PR 123", None)
+    };
+    let held = theseus_kernel::PendingWake {
+        paused_at_ms: Some(NOW),
+        ..wake("b4f566", NEXT_SUN, "water the ferns", None)
+    };
+    let held_series = theseus_kernel::PendingWake {
+        purpose: Purpose::Remind,
+        paused_at_ms: Some(NOW),
+        ..wake(
+            "a41d04",
+            SUN_EVENING,
+            "evening haiku",
+            Some(series(vec![], None)),
+        )
+    };
+    let shown = crate::commitments::render(&[remind, held_series, held], NOW, &at).unwrap();
+    assert_eq!(
+        shown.text,
+        format!(
+            "{HEAD_ONE}3{HEAD_REST}\n\
+             ⏰ a8cebb Fri 09:00 remind: check PR 123\n\
+             ⏸ a41d04 every 1d 21:00 (paused) remind: evening haiku\n\
+             ⏸ b4f566 Sun Oct 25 09:00 (paused) water the ferns"
+        )
+    );
 }
 
 /// Long titles cannot take the block past its 300 tokens: it shows what fits

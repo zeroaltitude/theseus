@@ -32,6 +32,7 @@ pub(crate) mod people;
 pub(crate) mod routing;
 pub mod rsi;
 mod sessions;
+mod wake_limits;
 pub use sessions::SessionsConfig;
 mod sparse;
 pub mod term;
@@ -627,6 +628,21 @@ pub struct KernelSection {
     /// At least 1.
     #[serde(default = "default_task_lease_minutes")]
     pub task_lease_minutes: u64,
+    /// The furthest ahead a wake, a reminder or a deferred task may be set, in
+    /// days (theseus-8ux6x): 365.
+    #[serde(default = "wake_limits::default_max_ahead_days")]
+    pub max_wake_ahead_days: u64,
+    /// Check-ins one conversation may hold at once (`wake.at`): 5.
+    #[serde(default = "wake_limits::default_max_wakes")]
+    pub max_wakes: usize,
+    /// Reminders the daemon may hold at once, over every conversation: 100.
+    #[serde(default = "wake_limits::default_max_reminders")]
+    pub max_reminders: usize,
+    /// Routines and watches, declared for their rows: 50 and 20.
+    #[serde(default = "wake_limits::default_max_routines")]
+    pub max_routines: usize,
+    #[serde(default = "wake_limits::default_max_watches")]
+    pub max_watches: usize,
 }
 
 fn default_admission_ceiling() -> u32 {
@@ -671,6 +687,11 @@ impl Default for KernelSection {
             confirm_ttl_secs: default_confirm_ttl_secs(),
             min_repeat_minutes: default_min_repeat_minutes(),
             task_lease_minutes: default_task_lease_minutes(),
+            max_wake_ahead_days: wake_limits::default_max_ahead_days(),
+            max_wakes: wake_limits::default_max_wakes(),
+            max_reminders: wake_limits::default_max_reminders(),
+            max_routines: wake_limits::default_max_routines(),
+            max_watches: wake_limits::default_max_watches(),
         }
     }
 }
@@ -713,6 +734,7 @@ impl KernelSection {
             daily_runaway_micros: theseus_kernel::usd_to_micros(self.daily_runaway_usd),
             daily_step_micros: theseus_kernel::usd_to_micros(self.daily_notice_step_usd),
             burn_line_micros: theseus_kernel::usd_to_micros(self.runaway_usd_per_10min),
+            wakes: wake_limits::limits(self),
             // The system's zone.
             ..Default::default()
         }

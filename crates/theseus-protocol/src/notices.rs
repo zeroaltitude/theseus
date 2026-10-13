@@ -19,6 +19,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::usd;
+use crate::wakes::{reminder_answers, WakeAnswer, WakeNoticed};
 use crate::work::{DoingKind, Question, QuestionKind, WorkKind, WorkRef, WorkState, WorkView};
 
 mod burst;
@@ -73,6 +74,11 @@ pub struct Notice {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub retracts: Option<String>,
+    /// What the owner may answer it with: a reminder's Done and its three
+    /// snoozes, each a direct call (`wake.done`, `wake.snooze`) until
+    /// `work.answer` routes every answer. None for the rest.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub answers: Vec<WakeAnswer>,
     pub position: u64,
     pub at_ms: u64,
 }
@@ -238,7 +244,7 @@ pub fn next_reminder(v: &WorkView, rules: &Rules) -> Option<u64> {
 /// | 1 | a question appears, of any kind, at any depth | Interrupt |
 /// | 2 | a question reaches `remind_at` of its life unanswered (once) | Interrupt |
 /// | 3 | it fails or blocks (needs you, no question) | Interrupt |
-/// | 4 | a wake fires: on a root conversation (the owner's reminders) | Interrupt; a task's own: Inform |
+/// | 4 | a wake fires, by its purpose: a reminder | Interrupt, with its four answers (`reminder_notice`); a check-in, a routine, a watch: Inform; a wake that says no purpose: Interrupt on a root conversation, a task's own Inform |
 /// | 5 | a root the owner flagged, or one that worked `long_run_ms`, goes to ready or idle | Interrupt, no sound |
 /// | 6 | a question is answered, anywhere | Quiet, and `retracts` its ping |
 /// | 7 | a question expires unanswered | Inform, and `retracts` |
@@ -273,6 +279,7 @@ pub fn policy(
         line: said.line,
         question: said.question,
         retracts: c.gone.map(|q| q.id.clone()),
+        answers: vec![],
         position: next.position,
         at_ms: next.at_ms,
     })
@@ -384,21 +391,81 @@ fn failed(c: &Change) -> Option<Said> {
     said(Urgency::Interrupt, why, line, None)
 }
 
-/// 4: a wake fired: on a root conversation (where the owner's reminders
-/// live) it interrupts; a task's own wake informs.
+/// 4: a wake fired. By its purpose when the view says it (theseus-8ux6x): a
+/// reminder interrupts wherever it lives; a check-in, a routine and a watch
+/// inform. A view that says none is read as before: on a root conversation it
+/// interrupts, and a task's own wake informs.
 fn woke(c: &Change) -> Option<Said> {
     let next = c.next;
     let line = woke_line(c.prev, next, &c.name)?;
-    let on_root = match next.kind {
-        WorkKind::Wake => next.parent.as_deref() == Some(next.root.as_str()),
-        _ => next.parent.is_none() && next.kind == WorkKind::Conversation,
-    };
-    let urgency = if on_root {
-        Urgency::Interrupt
-    } else {
-        Urgency::Inform
+    let purpose = next.woke.as_ref().and_then(|w| w.purpose.as_deref());
+    let urgency = match purpose {
+        Some(p) => wake_urgency(p),
+        None => {
+            let on_root = match next.kind {
+                WorkKind::Wake => next.parent.as_deref() == Some(next.root.as_str()),
+                _ => next.parent.is_none() && next.kind == WorkKind::Conversation,
+            };
+            if on_root {
+                Urgency::Interrupt
+            } else {
+                Urgency::Inform
+            }
+        }
     };
     said(urgency, Why::Woke, line, None)
+}
+
+/// Rule 4's ping by purpose: a reminder is for the owner, so it interrupts;
+/// the model's own check-ins, a routine's run and a watch's only inform.
+pub fn wake_urgency(purpose: &str) -> Urgency {
+    match purpose {
+        "remind" => Urgency::Interrupt,
+        _ => Urgency::Inform,
+    }
+}
+
+/// The notice for a notice wake that fired (`wake.noticed`): the reminder's
+/// Interrupt with its four answers, from the one event every surface reads,
+/// so each says the same words and offers the same answers. A reminder that
+/// came late says so. No frame position rides the event, so its time stands
+/// for it (past any frame's), and a surface that saw the wake's conversation
+/// is still told.
+pub fn reminder_notice(n: &WakeNoticed, hm: &dyn Fn(u64) -> String) -> Notice {
+    let title = n.note.lines().next().unwrap_or("").trim().to_string();
+    let late = if n.late_ms > 5_000 {
+        let down = if n.while_down {
+            ", the daemon was down"
+        } else {
+            ""
+        };
+        format!(" · due {}, {} late{down}", hm(n.due_at_ms), span(n.late_ms))
+    } else {
+        String::new()
+    };
+    let remind = n.purpose == "remind";
+    Notice {
+        urgency: wake_urgency(&n.purpose),
+        why: Why::Woke,
+        work: WorkRef {
+            id: n.wake_id.clone(),
+            kind: WorkKind::Wake,
+            session_id: Some(n.session_id.clone()),
+            title: title.clone(),
+        },
+        root: WorkRef {
+            id: n.execution_id.clone(),
+            kind: WorkKind::Conversation,
+            session_id: Some(n.session_id.clone()),
+            title: String::new(),
+        },
+        line: format!("⏰ {title}{late}"),
+        question: None,
+        retracts: None,
+        answers: if remind { reminder_answers() } else { vec![] },
+        position: n.due_at_ms.saturating_add(n.late_ms),
+        at_ms: n.due_at_ms.saturating_add(n.late_ms),
+    }
 }
 
 /// 5, and 8's short turn: a root at rest after work. Long or flagged, it

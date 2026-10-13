@@ -43,6 +43,11 @@ Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
   DM alone, as a Jev notice does, a row of Yes with a notice / Not this one / Show the record for each candidate
   (`earned:<yes|no|show>:<id>`); a yes or a no is `policy.earned.answer` as the presser, which the core judges (the
   owner, from a private place), the record is read and shown to the presser alone. Tests: `tests_gateway/earned.rs`.
+- **Reminders** (theseus-8ux6x, `runtime/remind.rs`): the core's `reminder` post (a wake's note as it is, `Event::Reminder`, in no
+  ping category, so it always pings) goes to the place the core chose, with Done, Snooze 10 min, Snooze 1 h and Tomorrow 9:00
+  (`wake:<answer>:<wake id>`, `Buttons::Reminder`); a press is `wake.done` or `wake.snooze { fired }` as the presser, answered in the
+  message (its buttons go, a line says what happened). `/remind when: what:` is `wake.create` with no session, `when` with
+  autocomplete ("in 1h", "tomorrow 9:00", "fri 9:00", and what was typed). Tests: `runtime/remind.rs`, `tests_gateway/remind.rs`.
 - **`/why`** (`runtime/why.rs`, theseus-ighf): what this place's session's last turn was shown and why, ephemeral
   (the deferred acknowledgement carries the flag), the short form of `theseus_protocol::why` in a code fence within
   2,000 characters (each section's top three and a count of the rest, never a second message). A place whose class is

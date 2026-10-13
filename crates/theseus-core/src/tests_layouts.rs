@@ -159,6 +159,12 @@ const SAMPLES: &[Sample] = &[
         kept: Kept::All,
     },
     Sample {
+        kind: kinds::EXECUTION,
+        layout: "an execution holding a check-in and a weekly series as format 29 wrote them, before a wake's purpose, run and pause (format 30, theseus-8ux6x): each reads as a check-in that takes a turn, and writes back byte for byte",
+        bytes: r#"{"id":"exe_00000000000000000000000000000073","schema":2,"session_id":"ses_lantern","kind":"conversation","state":"waiting","authority":{"principal":"operator","ceilings":{}},"budget":{"limit_micros":100000,"spent_micros":0,"reserved_micros":0,"held_unknown_micros":0,"reservations":{},"resets":0,"pinned":true},"wake":{"on":"input"},"outstanding":[],"queued_results":[],"wakes":[{"id":"wak_00000000000000000000000000000074","due_at_ms":1790000060000,"note":"check the tide tables","set_at_ms":1790000000000,"by":"act_00000000000000000000000000000074","target":"discord:dm:7"},{"id":"wak_00000000000000000000000000000075","due_at_ms":1790086400000,"note":"water the ferns","set_at_ms":1790000000000,"by":"act_00000000000000000000000000000075","repeat":{"every":{"n":1,"unit":"d"},"first_ms":1790086400000,"days":["mon","fri"],"until_ms":1792000000000},"occurrence":3}],"turns":1,"interrupted":0,"resume_pending":false,"created_at_ms":1790000000000,"updated_at_ms":1790000000000}"#,
+        kept: Kept::All,
+    },
+    Sample {
         kind: kinds::ACTION,
         layout: "1, 460a35b's: a job's action, before a cancel's verdict (3) and a parent (4)",
         bytes: r#"{"correlation_id":"act_01a0f3f3cd97711e8a0b5fbbdc8b2bbc","schema":2,"execution_id":"exe_01a0f3f3c9b77474a7caa5d505b05b5e","session_id":"ses_01a0f3f3c9b77474a7caa5d4925bd678","tool":"proc.run","args_digest":"4533d5d67e5454984ee9e9dda4071126ee57335316dadaf778c88aace4ad066a","resource":"/tmp/theseus-f4a/fixgen/projects","retry_class":{"class":"non_repeatable"},"state":"planned","deadline_at_ms":1790802866503,"planned_at_ms":1790799236503,"reserved_micros":0,"completions_seen":0}"#,
@@ -481,7 +487,7 @@ fn a_format_28_store_opens_with_no_standing_records_and_takes_them() {
         .append(&[theseus_store::NewRecord::json(kinds::LEDGER, None, &"x").unwrap()])
         .unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
-    assert_eq!(moved["format"], 29);
+    assert_eq!(moved["format"], 30);
     drop(store);
     let again = crate::store::Store::open(&path).unwrap();
     assert_eq!(

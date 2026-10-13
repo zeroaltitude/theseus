@@ -1115,6 +1115,7 @@ fn parked_tasks_are_detected_on_scripted_states() {
         target: None,
         repeat: None,
         occurrence: 0,
+        ..Default::default()
     });
     assert_eq!(blocked_by(&input, None), None, "its own wake");
     let mut stopped = task("waiting", Some(Input));

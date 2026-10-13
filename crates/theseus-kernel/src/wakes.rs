@@ -44,6 +44,7 @@ use theseus_store::NewRecord;
 use crate::kernel::{exec_record, Kernel, KernelError, TurnGuard};
 use crate::repeat::Repeat;
 use crate::types::*;
+use crate::wake_kinds::{NewWake, Purpose};
 
 /// The most wakes one execution may hold at once.
 pub const MAX_PENDING: usize = 5;
@@ -82,9 +83,10 @@ pub fn task_unparked(e: &Execution) -> bool {
         && e.wakes.is_empty()
 }
 
-/// Whether `e`'s soonest wake is due at `now_ms`.
+/// Whether one of `e`'s wakes wants a turn at `now_ms`: a turn's wake that is
+/// due and not paused. A notice never does (`notice_due`: it fires at once).
 pub fn wake_due(e: &Execution, now_ms: u64) -> bool {
-    e.wakes.first().is_some_and(|w| w.due_at_ms <= now_ms)
+    e.wakes.iter().any(|w| w.turn_due(now_ms))
 }
 
 /// Whether the due scan queues `e` at `now_ms`: it waits on a due time that
@@ -171,6 +173,29 @@ impl Kernel {
         target: Option<String>,
         repeat: Option<Repeat>,
     ) -> Result<WakeSet> {
+        self.set_wake_as(
+            guard,
+            correlation_id,
+            NewWake {
+                due_at_ms,
+                note: note.to_string(),
+                target,
+                repeat,
+                ..Default::default()
+            },
+        )
+    }
+
+    /// `set_wake` for a purpose and a run (theseus-8ux6x): the model's `wake.at
+    /// { for: "owner" }` sets a reminder, `say_only` a notice. A task or a probe
+    /// is refused (`WakeRun::refusal`). A reminder counts against the daemon's
+    /// cap (`WakeLimits::max_reminders`), a check-in against the conversation's.
+    pub fn set_wake_as(
+        &self,
+        guard: &TurnGuard,
+        correlation_id: &str,
+        new: NewWake,
+    ) -> Result<WakeSet> {
         self.require_accepting()?;
         let id = wake_id(correlation_id);
         let _w = self.lock(&[&guard.execution_id]);
@@ -186,8 +211,50 @@ impl Kernel {
             });
         }
         crate::kernel::require_turn(&e)?;
-        if e.wakes.len() >= MAX_PENDING {
-            return Err(KernelError::TooManyWakes { max: MAX_PENDING }.into());
+        self.insert_wake(&mut e, id, new, correlation_id)
+    }
+
+    /// The one place a wake is added: its caps and floor, its row, and the
+    /// frame, with the execution `e` locked by the caller (`set_wake_as` for
+    /// the model's, `create_wake` for the owner's).
+    pub(crate) fn insert_wake(
+        &self,
+        e: &mut Execution,
+        id: String,
+        new: NewWake,
+        by: &str,
+    ) -> Result<WakeSet> {
+        let NewWake {
+            due_at_ms,
+            note,
+            target,
+            repeat,
+            purpose,
+            run,
+        } = new;
+        if let Some(why) = run.refusal() {
+            anyhow::bail!("{why}");
+        }
+        let limits = &self.config().wakes;
+        match limits.daemon_cap(purpose) {
+            None => {
+                let held = e.wakes.iter().filter(|w| w.purpose == purpose).count();
+                if held >= limits.max_wakes {
+                    return Err(KernelError::TooManyWakes {
+                        max: limits.max_wakes,
+                    }
+                    .into());
+                }
+            }
+            Some(cap) => {
+                let held = self.count_purpose(purpose)?;
+                anyhow::ensure!(
+                    held < cap,
+                    "the daemon already holds {held} pending {}s, the most it may ({cap}): cancel \
+                     one before setting another",
+                    purpose.noun()
+                );
+            }
         }
         if let Some(r) = &repeat {
             let floor = self.config().min_repeat_ms;
@@ -202,19 +269,28 @@ impl Kernel {
         let wake = PendingWake {
             id,
             due_at_ms,
-            note: note.to_string(),
+            note,
             set_at_ms: now,
-            by: correlation_id.to_string(),
+            by: by.to_string(),
             target,
             occurrence: u32::from(repeat.is_some()),
             repeat,
+            purpose,
+            run,
+            paused_at_ms: None,
         };
         e.wakes.push(wake.clone());
         sort(&mut e.wakes);
         e.updated_at_ms = now;
         let mut row = json!({"execution_id": e.id, "wake_id": wake.id, "due_at_ms": due_at_ms,
                        "in_ms": due_at_ms.saturating_sub(now), "note": clip(&wake.note),
-                       "by": correlation_id, "pending": e.wakes.len()});
+                       "by": by, "pending": e.wakes.len()});
+        if !purpose.is_check() {
+            row["purpose"] = json!(purpose.as_str());
+        }
+        if wake.run.is_notice() {
+            row["notice"] = json!(true);
+        }
         if let Some(r) = &wake.repeat {
             row["every"] = json!(r.every.to_string());
             if !r.days.is_empty() {
@@ -225,15 +301,25 @@ impl Kernel {
             }
         }
         self.commit(&[
-            exec_record(&e)?,
+            exec_record(e)?,
             self.ledger(LedgerKind::WakeSet, Some(&e.session_id), row)?,
         ])?;
         Ok(WakeSet {
             wake,
             set: true,
             pending: e.wakes.len(),
-            list: e.wakes,
+            list: e.wakes.clone(),
         })
+    }
+
+    /// How many pending wakes of `purpose` the daemon holds, over every
+    /// open execution, from the pending-wakes index (the `w` term).
+    pub fn count_purpose(&self, purpose: Purpose) -> Result<usize> {
+        Ok(self
+            .pending_wakes()?
+            .iter()
+            .filter(|(_, w)| w.purpose == purpose)
+            .count())
     }
 
     /// The wakes of the turn `guard` holds that are due now, soonest first.
@@ -272,25 +358,12 @@ impl Kernel {
         let started = self.started_at_ms.load(Ordering::Relaxed);
         let (due, later): (Vec<PendingWake>, Vec<PendingWake>) = std::mem::take(&mut e.wakes)
             .into_iter()
-            .partition(|w| w.due_at_ms <= now);
+            .partition(|w| w.turn_due(now));
         e.wakes = later;
         e.updated_at_ms = now;
-        let zone = &self.config().zone;
         let fired: Vec<FiredWake> = due
             .into_iter()
-            .map(|w| {
-                let (missed, next) = match &w.repeat {
-                    Some(r) => (r.between(zone, w.due_at_ms, now), r.next_after(zone, now)),
-                    None => (0, None),
-                };
-                FiredWake {
-                    late_ms: now.saturating_sub(w.due_at_ms),
-                    while_down: started > 0 && w.due_at_ms < started,
-                    missed,
-                    next_due_at_ms: next,
-                    wake: w,
-                }
-            })
+            .map(|w| self.fired_of(w, now, started))
             .collect();
         // Each series' next occurrence, numbered past those passed over.
         for f in &fired {
@@ -330,6 +403,23 @@ impl Kernel {
         }
         self.commit(&frame)?;
         Ok((fired, e.wakes))
+    }
+
+    /// A wake that fell due, as it fires at `now`: how late, whether the daemon
+    /// was down, and a series' passed-over occurrences and next time.
+    pub(crate) fn fired_of(&self, w: PendingWake, now: u64, started: u64) -> FiredWake {
+        let zone = &self.config().zone;
+        let (missed, next) = match &w.repeat {
+            Some(r) => (r.between(zone, w.due_at_ms, now), r.next_after(zone, now)),
+            None => (0, None),
+        };
+        FiredWake {
+            late_ms: now.saturating_sub(w.due_at_ms),
+            while_down: started > 0 && w.due_at_ms < started,
+            missed,
+            next_due_at_ms: next,
+            wake: w,
+        }
     }
 
     /// Cancel the wake `wake_id` of `execution_id`, for `by`, in one frame
@@ -436,7 +526,7 @@ impl Kernel {
         let wakes: Vec<&str> = e
             .wakes
             .iter()
-            .filter(|w| w.due_at_ms <= now)
+            .filter(|w| w.turn_due(now))
             .map(|w| w.id.as_str())
             .collect();
         let why = if !wakes.is_empty() {

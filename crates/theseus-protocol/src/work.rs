@@ -392,6 +392,12 @@ pub struct WorkReport {
 pub struct Woke {
     pub note: String,
     pub at_ms: u64,
+    /// Why the wake existed (`remind`, `check`, `routine`, `watch`): the
+    /// notification policy's rule 4 asks it (theseus-8ux6x). Absent from a
+    /// daemon that does not say; the policy then guesses as it did.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub purpose: Option<String>,
 }
 
 fn option(id: &str, label: &str, style: Style, takes_note: bool, effect: &str) -> AnswerOption {

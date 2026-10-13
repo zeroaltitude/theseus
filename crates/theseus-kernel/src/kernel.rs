@@ -86,6 +86,9 @@ pub struct KernelConfig {
     /// A session's burn-rate line over ten minutes (0 never).
     #[serde(default)]
     pub burn_line_micros: Micros,
+    /// How far ahead and how many wakes (theseus-8ux6x).
+    #[serde(default)]
+    pub wakes: crate::wake_kinds::WakeLimits,
 }
 
 fn default_runaway() -> Micros {
@@ -122,6 +125,7 @@ impl Default for KernelConfig {
             daily_runaway_micros: default_runaway(),
             daily_step_micros: default_step(),
             burn_line_micros: 0,
+            wakes: Default::default(),
         }
     }
 }

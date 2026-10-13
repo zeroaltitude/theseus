@@ -74,6 +74,7 @@ pub mod task_graph;
 pub mod term;
 pub mod tool;
 pub mod turn;
+pub mod wake;
 
 /// A fact: what happened, and what each channel says of it.
 pub trait Fact {
@@ -249,6 +250,7 @@ facts![
     turn::CaughtUp<'static>,
     turn::Stopped<'static>,
     turn::WakeCameDue<'static>,
+    wake::WakeFired<'static>,
     turn::ReportWoke<'static>,
     turn::NoCall,
     turn::ContextFileMissing<'static>,
