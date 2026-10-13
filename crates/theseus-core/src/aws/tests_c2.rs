@@ -1882,7 +1882,10 @@ fn the_lean_templates_make_no_key_alarm_or_log_group_by_default() {
 /// The root user's check (theseus-4znao): every sign-in, and every call that
 /// is not read-only (`readOnly` false, or none at all); root's reads are not
 /// alerts. EventBridge's TestEventPattern proved it on 15 events, 6 to match
-/// and 9 not to (2026-10-13); this pins the pattern it proved.
+/// and 9 not to (2026-10-13), in both of each branch's key orders; this pins
+/// the pattern it proved. `$or` is its only top-level key: AWS stores a
+/// pattern with `$or` moved first, and a leading `$or` beside other keys
+/// matched root's reads.
 #[test]
 fn the_root_check_skips_only_roots_read_only_calls() {
     let t = theseus_aws_guard::parse_template(bootstrap::POSTURE_TEMPLATE).unwrap();
@@ -1895,18 +1898,36 @@ fn the_root_check_skips_only_roots_read_only_calls() {
         rule.get("State").unwrap().to_json(),
         json!("ENABLED_WITH_ALL_CLOUDTRAIL_MANAGEMENT_EVENTS")
     );
+    let pattern = rule.get("EventPattern").unwrap().to_json();
+    let keys: Vec<&String> = pattern.as_object().unwrap().keys().collect();
+    assert_eq!(keys, ["$or"]);
     assert_eq!(
-        rule.get("EventPattern").unwrap().to_json(),
+        pattern,
         json!({
-            "detail-type": ["AWS API Call via CloudTrail", "AWS Console Sign In via CloudTrail"],
-            "detail": {
-                "userIdentity": {"type": ["Root"], "invokedBy": [{"exists": false}]},
-                "eventType": [{"anything-but": "AwsServiceEvent"}],
-            },
             "$or": [
-                {"detail-type": ["AWS Console Sign In via CloudTrail"]},
-                {"detail": {"readOnly": [false]}},
-                {"detail": {"readOnly": [{"exists": false}]}},
+                {
+                    "detail-type": ["AWS Console Sign In via CloudTrail"],
+                    "detail": {
+                        "userIdentity": {"type": ["Root"], "invokedBy": [{"exists": false}]},
+                        "eventType": [{"anything-but": "AwsServiceEvent"}],
+                    },
+                },
+                {
+                    "detail-type": ["AWS API Call via CloudTrail", "AWS Console Sign In via CloudTrail"],
+                    "detail": {
+                        "userIdentity": {"type": ["Root"], "invokedBy": [{"exists": false}]},
+                        "eventType": [{"anything-but": "AwsServiceEvent"}],
+                        "readOnly": [false],
+                    },
+                },
+                {
+                    "detail-type": ["AWS API Call via CloudTrail", "AWS Console Sign In via CloudTrail"],
+                    "detail": {
+                        "userIdentity": {"type": ["Root"], "invokedBy": [{"exists": false}]},
+                        "eventType": [{"anything-but": "AwsServiceEvent"}],
+                        "readOnly": [{"exists": false}],
+                    },
+                },
             ],
         })
     );
