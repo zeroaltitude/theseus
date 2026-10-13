@@ -66,7 +66,9 @@ pub enum ImportCmd {
     /// out and counted; a tool result is cut at 2,000 characters, saying so. A second run writes
     /// nothing new; a session file that grew since has its new messages appended. TAG
     /// defaults to the tag an earlier run made, else claude-code-<today>; `import erase --tag`
-    /// takes it all back.
+    /// takes it all back. Where `import sync` imports OpenClaw, its agents' workspaces' project
+    /// directories (`*-openclaw-workspace*` under ~/.claude/projects) hold the same conversations:
+    /// import the other project directories by DIR, not the whole tree.
     #[command(name = "claude-code")]
     ClaudeCode {
         dir: Option<PathBuf>,

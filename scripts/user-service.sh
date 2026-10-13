@@ -659,8 +659,9 @@ cmd_install() {
 
 SYNC_MARK="# written by user-service.sh sync-timer"
 
-# write_unit FILE TEXT: write a unit file (a dry run says what it would write).
-write_unit() {
+# write_sync_unit FILE TEXT: write one of the sync's unit files (a dry run says what it would write).
+# Not `write_unit`: that is the daemon's unit's writer above, and a second definition replaced it.
+write_sync_unit() {
   local file=$1 text=$2
   show write "$file"
   if dry; then
@@ -681,7 +682,7 @@ cmd_sync_timer() {
   install)
     bin=$(command -v theseus || true)
     [ -n "$bin" ] || bin=$HOME/.local/bin/theseus
-    write_unit "$svc" "$SYNC_MARK
+    write_sync_unit "$svc" "$SYNC_MARK
 [Unit]
 Description=Theseus: the nightly OpenClaw sync (theseus-pjmj7)
 [Service]
@@ -690,7 +691,7 @@ Nice=19
 IOSchedulingClass=idle
 Environment=THESEUS_SOCKET=$SOCKET
 ExecStart=$bin import sync"
-    write_unit "$tim" "$SYNC_MARK
+    write_sync_unit "$tim" "$SYNC_MARK
 [Unit]
 Description=Theseus: the nightly OpenClaw sync, at $(printf '%02d' "$SYNC_HOUR"):40
 [Timer]
