@@ -1,0 +1,217 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="865" viewBox="0 0 720 865" role="img" aria-labelledby="t-over-ideal t-over-ideal-d" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
+<title id="t-over-ideal">Layer 2: wall over the ideal, by shape and arm</title>
+<desc id="t-over-ideal-d">How close to the work's own critical path does each arm finish?</desc>
+<rect width="720" height="865" rx="8" fill="#1a1a19" stroke="#2c2c2a"/>
+<text x="18.0" y="32.0" font-size="15" fill="#ffffff" font-weight="600">Layer 2: wall over the ideal, by shape and arm</text>
+<circle cx="25.0" cy="50.0" r="5" fill="#199e70"/>
+<text x="40.0" y="54.0" font-size="12" fill="#c3c2b7">Theseus, grouped + the sentence</text>
+<circle cx="265.3" cy="50.0" r="5" fill="#d95926"/>
+<text x="280.3" y="54.0" font-size="12" fill="#c3c2b7">Claude Code</text>
+<circle cx="383.1" cy="50.0" r="5" fill="#d55181"/>
+<text x="398.1" y="54.0" font-size="12" fill="#c3c2b7">Pi</text>
+<circle cx="435.6" cy="50.0" r="5" fill="#898781"/>
+<text x="450.6" y="54.0" font-size="12" fill="#c3c2b7">OpenCode</text>
+<line x1="539.0" y1="43.0" x2="539.0" y2="57.0" stroke="#c3c2b7" stroke-width="1.5"/>
+<text x="554.0" y="54.0" font-size="12" fill="#c3c2b7">the ideal</text>
+<line x1="232.3" y1="84.0" x2="232.3" y2="786.0" stroke="#2c2c2a" stroke-width="1"/>
+<line x1="317.9" y1="84.0" x2="317.9" y2="786.0" stroke="#2c2c2a" stroke-width="1"/>
+<line x1="403.5" y1="84.0" x2="403.5" y2="786.0" stroke="#2c2c2a" stroke-width="1"/>
+<line x1="489.1" y1="84.0" x2="489.1" y2="786.0" stroke="#2c2c2a" stroke-width="1"/>
+<line x1="574.7" y1="84.0" x2="574.7" y2="786.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="18.0" y="101.0" font-size="12" fill="#ffffff" stroke="#1a1a19" stroke-width="3" stroke-linejoin="round" paint-order="stroke" font-weight="600">Independent programs, then combine</text>
+<text x="18.0" y="241.0" font-size="12" fill="#ffffff" stroke="#1a1a19" stroke-width="3" stroke-linejoin="round" paint-order="stroke" font-weight="600">Independent reads and fetches</text>
+<text x="18.0" y="381.0" font-size="12" fill="#ffffff" stroke="#1a1a19" stroke-width="3" stroke-linejoin="round" paint-order="stroke" font-weight="600">Independent writes</text>
+<text x="18.0" y="521.0" font-size="12" fill="#ffffff" stroke="#1a1a19" stroke-width="3" stroke-linejoin="round" paint-order="stroke" font-weight="600">Dependent controls</text>
+<text x="18.0" y="661.0" font-size="12" fill="#ffffff" stroke="#1a1a19" stroke-width="3" stroke-linejoin="round" paint-order="stroke" font-weight="600">Mixed</text>
+<g><title>the ideal: 1.00×</title>
+<line x1="275.1" y1="78.0" x2="275.1" y2="786.0" stroke="#c3c2b7" stroke-width="1.5"/>
+</g>
+<text x="218.3" y="128.0" font-size="12" fill="#ffffff" text-anchor="end">Theseus, grouped + the sentence</text>
+<g><title>Theseus, grouped + the sentence: 1.49×  [1.19×, 3.56×] (8 families)</title>
+<line x1="283.2" y1="124.0" x2="384.5" y2="124.0" stroke="#199e70" stroke-width="2" stroke-linecap="round"/>
+<line x1="283.2" y1="119.0" x2="283.2" y2="129.0" stroke="#199e70" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="384.5" y1="119.0" x2="384.5" y2="129.0" stroke="#199e70" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="296.2" cy="124.0" r="12" fill="transparent"/>
+<circle cx="296.2" cy="124.0" r="5" fill="#199e70" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="588.7" y="128.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">1.49×  [1.19×, 3.56×]</text>
+<text x="218.3" y="156.0" font-size="12" fill="#ffffff" text-anchor="end">Claude Code</text>
+<g><title>Claude Code: 1.65×  [1.19×, 5.17×] (8 families)</title>
+<line x1="283.2" y1="152.0" x2="453.8" y2="152.0" stroke="#d95926" stroke-width="2" stroke-linecap="round"/>
+<line x1="283.2" y1="147.0" x2="283.2" y2="157.0" stroke="#d95926" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="453.8" y1="147.0" x2="453.8" y2="157.0" stroke="#d95926" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="302.7" cy="152.0" r="12" fill="transparent"/>
+<circle cx="302.7" cy="152.0" r="5" fill="#d95926" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="588.7" y="156.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">1.65×  [1.19×, 5.17×]</text>
+<text x="218.3" y="184.0" font-size="12" fill="#ffffff" text-anchor="end">Pi</text>
+<g><title>Pi: 2.15×  [1.18×, 3.70×] (8 families)</title>
+<line x1="282.6" y1="180.0" x2="390.7" y2="180.0" stroke="#d55181" stroke-width="2" stroke-linecap="round"/>
+<line x1="282.6" y1="175.0" x2="282.6" y2="185.0" stroke="#d55181" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="390.7" y1="175.0" x2="390.7" y2="185.0" stroke="#d55181" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="324.4" cy="180.0" r="12" fill="transparent"/>
+<circle cx="324.4" cy="180.0" r="5" fill="#d55181" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="588.7" y="184.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">2.15×  [1.18×, 3.70×]</text>
+<text x="218.3" y="212.0" font-size="12" fill="#ffffff" text-anchor="end">OpenCode</text>
+<g><title>OpenCode: 1.95×  [1.18×, 2.92×] (8 families)</title>
+<line x1="282.9" y1="208.0" x2="357.2" y2="208.0" stroke="#898781" stroke-width="2" stroke-linecap="round"/>
+<line x1="282.9" y1="203.0" x2="282.9" y2="213.0" stroke="#898781" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="357.2" y1="203.0" x2="357.2" y2="213.0" stroke="#898781" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="315.6" cy="208.0" r="12" fill="transparent"/>
+<circle cx="315.6" cy="208.0" r="5" fill="#898781" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="588.7" y="212.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">1.95×  [1.18×, 2.92×]</text>
+<text x="218.3" y="268.0" font-size="12" fill="#ffffff" text-anchor="end">Theseus, grouped + the sentence</text>
+<g><title>Theseus, grouped + the sentence: 1.52×  [1.40×, 2.93×] (4 families)</title>
+<line x1="292.0" y1="264.0" x2="357.7" y2="264.0" stroke="#199e70" stroke-width="2" stroke-linecap="round"/>
+<line x1="292.0" y1="259.0" x2="292.0" y2="269.0" stroke="#199e70" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="357.7" y1="259.0" x2="357.7" y2="269.0" stroke="#199e70" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="297.1" cy="264.0" r="12" fill="transparent"/>
+<circle cx="297.1" cy="264.0" r="5" fill="#199e70" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="588.7" y="268.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">1.52×  [1.40×, 2.93×]</text>
+<text x="218.3" y="296.0" font-size="12" fill="#ffffff" text-anchor="end">Claude Code</text>
+<g><title>Claude Code: 2.10×  [1.80×, 5.05×] (4 families)</title>
+<line x1="309.3" y1="292.0" x2="448.6" y2="292.0" stroke="#d95926" stroke-width="2" stroke-linecap="round"/>
+<line x1="309.3" y1="287.0" x2="309.3" y2="297.0" stroke="#d95926" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="448.6" y1="287.0" x2="448.6" y2="297.0" stroke="#d95926" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="322.2" cy="292.0" r="12" fill="transparent"/>
+<circle cx="322.2" cy="292.0" r="5" fill="#d95926" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="588.7" y="296.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">2.10×  [1.80×, 5.05×]</text>
+<text x="218.3" y="324.0" font-size="12" fill="#ffffff" text-anchor="end">Pi</text>
+<g><title>Pi: 1.86×  [1.38×, 2.00×] (4 families)</title>
+<line x1="291.3" y1="320.0" x2="317.8" y2="320.0" stroke="#d55181" stroke-width="2" stroke-linecap="round"/>
+<line x1="291.3" y1="315.0" x2="291.3" y2="325.0" stroke="#d55181" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="317.8" y1="315.0" x2="317.8" y2="325.0" stroke="#d55181" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="311.9" cy="320.0" r="12" fill="transparent"/>
+<circle cx="311.9" cy="320.0" r="5" fill="#d55181" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="588.7" y="324.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">1.86×  [1.38×, 2.00×]</text>
+<text x="218.3" y="352.0" font-size="12" fill="#ffffff" text-anchor="end">OpenCode</text>
+<g><title>OpenCode: 1.71×  [1.41×, 2.28×] (4 families)</title>
+<line x1="292.7" y1="348.0" x2="330.0" y2="348.0" stroke="#898781" stroke-width="2" stroke-linecap="round"/>
+<line x1="292.7" y1="343.0" x2="292.7" y2="353.0" stroke="#898781" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="330.0" y1="343.0" x2="330.0" y2="353.0" stroke="#898781" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="305.5" cy="348.0" r="12" fill="transparent"/>
+<circle cx="305.5" cy="348.0" r="5" fill="#898781" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="588.7" y="352.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">1.71×  [1.41×, 2.28×]</text>
+<text x="218.3" y="408.0" font-size="12" fill="#ffffff" text-anchor="end">Theseus, grouped + the sentence</text>
+<g><title>Theseus, grouped + the sentence: 4.00×  [1.25×, 6.75×] (2 families)</title>
+<line x1="285.7" y1="404.0" x2="521.3" y2="404.0" stroke="#199e70" stroke-width="2" stroke-linecap="round"/>
+<line x1="285.7" y1="399.0" x2="285.7" y2="409.0" stroke="#199e70" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="521.3" y1="399.0" x2="521.3" y2="409.0" stroke="#199e70" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="403.5" cy="404.0" r="12" fill="transparent"/>
+<circle cx="403.5" cy="404.0" r="5" fill="#199e70" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="588.7" y="408.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">4.00×  [1.25×, 6.75×]</text>
+<text x="218.3" y="436.0" font-size="12" fill="#ffffff" text-anchor="end">Claude Code</text>
+<g><title>Claude Code: 4.26×  [1.33×, 7.19×] (2 families)</title>
+<line x1="289.1" y1="432.0" x2="539.8" y2="432.0" stroke="#d95926" stroke-width="2" stroke-linecap="round"/>
+<line x1="289.1" y1="427.0" x2="289.1" y2="437.0" stroke="#d95926" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="539.8" y1="427.0" x2="539.8" y2="437.0" stroke="#d95926" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="414.4" cy="432.0" r="12" fill="transparent"/>
+<circle cx="414.4" cy="432.0" r="5" fill="#d95926" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="588.7" y="436.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">4.26×  [1.33×, 7.19×]</text>
+<text x="218.3" y="464.0" font-size="12" fill="#ffffff" text-anchor="end">Pi</text>
+<g><title>Pi: 4.23×  [1.31×, 7.15×] (2 families)</title>
+<line x1="288.2" y1="460.0" x2="538.4" y2="460.0" stroke="#d55181" stroke-width="2" stroke-linecap="round"/>
+<line x1="288.2" y1="455.0" x2="288.2" y2="465.0" stroke="#d55181" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="538.4" y1="455.0" x2="538.4" y2="465.0" stroke="#d55181" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="413.3" cy="460.0" r="12" fill="transparent"/>
+<circle cx="413.3" cy="460.0" r="5" fill="#d55181" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="588.7" y="464.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">4.23×  [1.31×, 7.15×]</text>
+<text x="218.3" y="492.0" font-size="12" fill="#ffffff" text-anchor="end">OpenCode</text>
+<g><title>OpenCode: 4.39×  [1.34×, 7.44×] (2 families)</title>
+<line x1="289.5" y1="488.0" x2="550.5" y2="488.0" stroke="#898781" stroke-width="2" stroke-linecap="round"/>
+<line x1="289.5" y1="483.0" x2="289.5" y2="493.0" stroke="#898781" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="550.5" y1="483.0" x2="550.5" y2="493.0" stroke="#898781" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="420.0" cy="488.0" r="12" fill="transparent"/>
+<circle cx="420.0" cy="488.0" r="5" fill="#898781" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="588.7" y="492.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">4.39×  [1.34×, 7.44×]</text>
+<text x="218.3" y="548.0" font-size="12" fill="#ffffff" text-anchor="end">Theseus, grouped + the sentence</text>
+<g><title>Theseus, grouped + the sentence: 1.30×  [1.16×, 1.36×] (4 families)</title>
+<line x1="281.8" y1="544.0" x2="290.4" y2="544.0" stroke="#199e70" stroke-width="2" stroke-linecap="round"/>
+<line x1="281.8" y1="539.0" x2="281.8" y2="549.0" stroke="#199e70" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="290.4" y1="539.0" x2="290.4" y2="549.0" stroke="#199e70" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="287.7" cy="544.0" r="12" fill="transparent"/>
+<circle cx="287.7" cy="544.0" r="5" fill="#199e70" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="588.7" y="548.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">1.30×  [1.16×, 1.36×]</text>
+<text x="218.3" y="576.0" font-size="12" fill="#ffffff" text-anchor="end">Claude Code</text>
+<g><title>Claude Code: 1.31×  [1.19×, 1.34×] (4 families)</title>
+<line x1="283.1" y1="572.0" x2="289.5" y2="572.0" stroke="#d95926" stroke-width="2" stroke-linecap="round"/>
+<line x1="283.1" y1="567.0" x2="283.1" y2="577.0" stroke="#d95926" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="289.5" y1="567.0" x2="289.5" y2="577.0" stroke="#d95926" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="288.2" cy="572.0" r="12" fill="transparent"/>
+<circle cx="288.2" cy="572.0" r="5" fill="#d95926" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="588.7" y="576.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">1.31×  [1.19×, 1.34×]</text>
+<text x="218.3" y="604.0" font-size="12" fill="#ffffff" text-anchor="end">Pi</text>
+<g><title>Pi: 1.24×  [1.21×, 1.33×] (4 families)</title>
+<line x1="284.1" y1="600.0" x2="289.1" y2="600.0" stroke="#d55181" stroke-width="2" stroke-linecap="round"/>
+<line x1="284.1" y1="595.0" x2="284.1" y2="605.0" stroke="#d55181" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="289.1" y1="595.0" x2="289.1" y2="605.0" stroke="#d55181" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="285.3" cy="600.0" r="12" fill="transparent"/>
+<circle cx="285.3" cy="600.0" r="5" fill="#d55181" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="588.7" y="604.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">1.24×  [1.21×, 1.33×]</text>
+<text x="218.3" y="632.0" font-size="12" fill="#ffffff" text-anchor="end">OpenCode</text>
+<g><title>OpenCode: 1.39×  [1.32×, 1.46×] (4 families)</title>
+<line x1="288.9" y1="628.0" x2="294.7" y2="628.0" stroke="#898781" stroke-width="2" stroke-linecap="round"/>
+<line x1="288.9" y1="623.0" x2="288.9" y2="633.0" stroke="#898781" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="294.7" y1="623.0" x2="294.7" y2="633.0" stroke="#898781" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="291.6" cy="628.0" r="12" fill="transparent"/>
+<circle cx="291.6" cy="628.0" r="5" fill="#898781" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="588.7" y="632.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">1.39×  [1.32×, 1.46×]</text>
+<text x="218.3" y="688.0" font-size="12" fill="#ffffff" text-anchor="end">Theseus, grouped + the sentence</text>
+<g><title>Theseus, grouped + the sentence: 1.78×  [1.44×, 2.12×] (2 families)</title>
+<line x1="293.8" y1="684.0" x2="323.0" y2="684.0" stroke="#199e70" stroke-width="2" stroke-linecap="round"/>
+<line x1="293.8" y1="679.0" x2="293.8" y2="689.0" stroke="#199e70" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="323.0" y1="679.0" x2="323.0" y2="689.0" stroke="#199e70" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="308.4" cy="684.0" r="12" fill="transparent"/>
+<circle cx="308.4" cy="684.0" r="5" fill="#199e70" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="588.7" y="688.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">1.78×  [1.44×, 2.12×]</text>
+<text x="218.3" y="716.0" font-size="12" fill="#ffffff" text-anchor="end">Claude Code</text>
+<g><title>Claude Code: 1.18×  [1.04×, 1.31×] (2 families)</title>
+<line x1="276.8" y1="712.0" x2="288.4" y2="712.0" stroke="#d95926" stroke-width="2" stroke-linecap="round"/>
+<line x1="276.8" y1="707.0" x2="276.8" y2="717.0" stroke="#d95926" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="288.4" y1="707.0" x2="288.4" y2="717.0" stroke="#d95926" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="282.6" cy="712.0" r="12" fill="transparent"/>
+<circle cx="282.6" cy="712.0" r="5" fill="#d95926" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="588.7" y="716.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">1.18×  [1.04×, 1.31×]</text>
+<text x="218.3" y="744.0" font-size="12" fill="#ffffff" text-anchor="end">Pi</text>
+<g><title>Pi: 1.72×  [1.27×, 2.17×] (2 families)</title>
+<line x1="286.4" y1="740.0" x2="325.3" y2="740.0" stroke="#d55181" stroke-width="2" stroke-linecap="round"/>
+<line x1="286.4" y1="735.0" x2="286.4" y2="745.0" stroke="#d55181" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="325.3" y1="735.0" x2="325.3" y2="745.0" stroke="#d55181" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="305.8" cy="740.0" r="12" fill="transparent"/>
+<circle cx="305.8" cy="740.0" r="5" fill="#d55181" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="588.7" y="744.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">1.72×  [1.27×, 2.17×]</text>
+<text x="218.3" y="772.0" font-size="12" fill="#ffffff" text-anchor="end">OpenCode</text>
+<g><title>OpenCode: 1.70×  [1.26×, 2.15×] (2 families)</title>
+<line x1="286.0" y1="768.0" x2="324.2" y2="768.0" stroke="#898781" stroke-width="2" stroke-linecap="round"/>
+<line x1="286.0" y1="763.0" x2="286.0" y2="773.0" stroke="#898781" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="324.2" y1="763.0" x2="324.2" y2="773.0" stroke="#898781" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="305.1" cy="768.0" r="12" fill="transparent"/>
+<circle cx="305.1" cy="768.0" r="5" fill="#898781" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="588.7" y="772.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">1.70×  [1.26×, 2.15×]</text>
+<line x1="232.3" y1="786.0" x2="574.7" y2="786.0" stroke="#383835" stroke-width="1"/>
+<text x="232.3" y="802.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">0×</text>
+<text x="317.9" y="802.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">2×</text>
+<text x="403.5" y="802.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">4×</text>
+<text x="489.1" y="802.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">6×</text>
+<text x="574.7" y="802.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">8×</text>
+<text x="403.5" y="820.0" font-size="12" fill="#c3c2b7" text-anchor="middle">wall / ideal (1 is the critical path)</text>
+<text x="18.0" y="842.0" font-size="11" fill="#c3c2b7">Each dot the median of the shape's families' medians; the line their range.</text>
+</svg>

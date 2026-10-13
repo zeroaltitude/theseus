@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="271" viewBox="0 0 720 271" role="img" aria-labelledby="t-calls-per-response t-calls-per-response-d" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
+<title id="t-calls-per-response">Layer 2: tool calls per response, by arm</title>
+<desc id="t-calls-per-response-d">How many calls does each arm put in one model response?</desc>
+<rect width="720" height="271" rx="8" fill="#1a1a19" stroke="#2c2c2a"/>
+<text x="18.0" y="32.0" font-size="15" fill="#ffffff" font-weight="600">Layer 2: tool calls per response, by arm</text>
+<circle cx="25.0" cy="50.0" r="5" fill="#199e70"/>
+<text x="40.0" y="54.0" font-size="12" fill="#c3c2b7">Theseus, grouped + the sentence</text>
+<circle cx="265.3" cy="50.0" r="5" fill="#d95926"/>
+<text x="280.3" y="54.0" font-size="12" fill="#c3c2b7">Claude Code</text>
+<circle cx="383.1" cy="50.0" r="5" fill="#d55181"/>
+<text x="398.1" y="54.0" font-size="12" fill="#c3c2b7">Pi</text>
+<circle cx="435.6" cy="50.0" r="5" fill="#898781"/>
+<text x="450.6" y="54.0" font-size="12" fill="#c3c2b7">OpenCode</text>
+<line x1="232.3" y1="72.0" x2="232.3" y2="192.0" stroke="#2c2c2a" stroke-width="1"/>
+<line x1="318.7" y1="72.0" x2="318.7" y2="192.0" stroke="#2c2c2a" stroke-width="1"/>
+<line x1="405.2" y1="72.0" x2="405.2" y2="192.0" stroke="#2c2c2a" stroke-width="1"/>
+<line x1="491.6" y1="72.0" x2="491.6" y2="192.0" stroke="#2c2c2a" stroke-width="1"/>
+<line x1="578.0" y1="72.0" x2="578.0" y2="192.0" stroke="#2c2c2a" stroke-width="1"/>
+<line x1="664.5" y1="72.0" x2="664.5" y2="192.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="218.3" y="94.0" font-size="12" fill="#ffffff" text-anchor="end">Theseus, grouped + the sentence</text>
+<g><title>Theseus, grouped + the sentence: 1.13 (142 responses that call a tool)</title>
+<circle cx="621.9" cy="90.0" r="12" fill="transparent"/>
+<circle cx="621.9" cy="90.0" r="5" fill="#199e70" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="678.5" y="94.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">1.13</text>
+<text x="218.3" y="122.0" font-size="12" fill="#ffffff" text-anchor="end">Claude Code</text>
+<g><title>Claude Code: 1.15 (137 responses that call a tool)</title>
+<circle cx="628.5" cy="118.0" r="12" fill="transparent"/>
+<circle cx="628.5" cy="118.0" r="5" fill="#d95926" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="678.5" y="122.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">1.15</text>
+<text x="218.3" y="150.0" font-size="12" fill="#ffffff" text-anchor="end">Pi</text>
+<g><title>Pi: 1.02 (130 responses that call a tool)</title>
+<circle cx="583.4" cy="146.0" r="12" fill="transparent"/>
+<circle cx="583.4" cy="146.0" r="5" fill="#d55181" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="678.5" y="150.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">1.02</text>
+<text x="218.3" y="178.0" font-size="12" fill="#ffffff" text-anchor="end">OpenCode</text>
+<g><title>OpenCode: 1 (131 responses that call a tool)</title>
+<circle cx="578.0" cy="174.0" r="12" fill="transparent"/>
+<circle cx="578.0" cy="174.0" r="5" fill="#898781" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="678.5" y="178.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">1</text>
+<line x1="232.3" y1="192.0" x2="664.5" y2="192.0" stroke="#383835" stroke-width="1"/>
+<text x="232.3" y="208.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">0.00</text>
+<text x="318.7" y="208.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">0.25</text>
+<text x="405.2" y="208.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">0.50</text>
+<text x="491.6" y="208.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">0.75</text>
+<text x="578.0" y="208.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">1.00</text>
+<text x="664.5" y="208.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">1.25</text>
+<text x="448.4" y="226.0" font-size="12" fill="#c3c2b7" text-anchor="middle">calls per response</text>
+<text x="18.0" y="248.0" font-size="11" fill="#c3c2b7">Over the responses that call a tool, pooled over every Layer 2 trial.</text>
+</svg>

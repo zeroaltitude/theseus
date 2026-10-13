@@ -1,0 +1,2008 @@
+{
+ "report": "2026-10-12-asyncbench-parallel-calls",
+ "suite": "asyncbench",
+ "date": "2026-10-12",
+ "kind": "async-parallel-calls",
+ "arms": [
+  {
+   "key": "theseus-after",
+   "label": "Theseus, grouped + the sentence",
+   "colour": "theseus-batching"
+  },
+  {
+   "key": "claude-code",
+   "label": "Claude Code",
+   "colour": "claude-code"
+  },
+  {
+   "key": "pi",
+   "label": "Pi",
+   "colour": "pi"
+  },
+  {
+   "key": "opencode",
+   "label": "OpenCode",
+   "colour": "other"
+  }
+ ],
+ "summary": {
+  "theseus-after": {
+   "trials": 40,
+   "solved": {
+    "k": 38,
+    "n": 40,
+    "rate": 0.95,
+    "lo": 0.835,
+    "hi": 0.9862
+   },
+   "over_ideal_independent": {
+    "n": 32,
+    "mean": 2.099,
+    "lo": 1.6732,
+    "hi": 2.6289,
+    "median": 1.5305,
+    "method": "bootstrap"
+   },
+   "over_ideal_controls": {
+    "n": 8,
+    "mean": 1.2768,
+    "lo": 1.154,
+    "hi": 1.407,
+    "median": 1.2865,
+    "method": "range"
+   },
+   "overlap_independent": 2.3535,
+   "calls_per_response": 1.1268,
+   "multi_call_share": {
+    "k": 11,
+    "n": 142,
+    "rate": 0.0775,
+    "lo": 0.0438,
+    "hi": 0.1334
+   },
+   "tool_responses": 142,
+   "round_trips": 182,
+   "round_trips_per_solved": 4.7895,
+   "usd": 1.2516,
+   "usd_per_solved": 0.0329,
+   "control_trials": 8,
+   "control_trials_with_violations": 2,
+   "order_violations": 8
+  },
+  "claude-code": {
+   "trials": 40,
+   "solved": {
+    "k": 38,
+    "n": 40,
+    "rate": 0.95,
+    "lo": 0.835,
+    "hi": 0.9862
+   },
+   "over_ideal_independent": {
+    "n": 32,
+    "mean": 2.49,
+    "lo": 1.9038,
+    "hi": 3.1566,
+    "median": 1.978,
+    "method": "bootstrap"
+   },
+   "over_ideal_controls": {
+    "n": 8,
+    "mean": 1.2853,
+    "lo": 1.169,
+    "hi": 1.398,
+    "median": 1.284,
+    "method": "range"
+   },
+   "overlap_independent": 2.475,
+   "calls_per_response": 1.146,
+   "multi_call_share": {
+    "k": 8,
+    "n": 137,
+    "rate": 0.0584,
+    "lo": 0.0299,
+    "hi": 0.111
+   },
+   "tool_responses": 137,
+   "round_trips": 177,
+   "round_trips_per_solved": 4.6579,
+   "usd": 1.2553,
+   "usd_per_solved": 0.033,
+   "control_trials": 8,
+   "control_trials_with_violations": 0,
+   "order_violations": 0
+  },
+  "pi": {
+   "trials": 40,
+   "solved": {
+    "k": 40,
+    "n": 40,
+    "rate": 1.0,
+    "lo": 0.9124,
+    "hi": 1.0
+   },
+   "over_ideal_independent": {
+    "n": 32,
+    "mean": 2.2979,
+    "lo": 1.8595,
+    "hi": 2.8506,
+    "median": 2.021,
+    "method": "bootstrap"
+   },
+   "over_ideal_controls": {
+    "n": 8,
+    "mean": 1.2543,
+    "lo": 1.175,
+    "hi": 1.419,
+    "median": 1.229,
+    "method": "range"
+   },
+   "overlap_independent": 2.1195,
+   "calls_per_response": 1.0154,
+   "multi_call_share": {
+    "k": 2,
+    "n": 130,
+    "rate": 0.0154,
+    "lo": 0.0042,
+    "hi": 0.0544
+   },
+   "tool_responses": 130,
+   "round_trips": 170,
+   "round_trips_per_solved": 4.25,
+   "usd": 0.4353,
+   "usd_per_solved": 0.0109,
+   "control_trials": 8,
+   "control_trials_with_violations": 0,
+   "order_violations": 0
+  },
+  "opencode": {
+   "trials": 40,
+   "solved": {
+    "k": 40,
+    "n": 40,
+    "rate": 1.0,
+    "lo": 0.9124,
+    "hi": 1.0
+   },
+   "over_ideal_independent": {
+    "n": 32,
+    "mean": 2.1933,
+    "lo": 1.7606,
+    "hi": 2.7606,
+    "median": 1.9045,
+    "method": "bootstrap"
+   },
+   "over_ideal_controls": {
+    "n": 8,
+    "mean": 1.3885,
+    "lo": 1.261,
+    "hi": 1.6,
+    "median": 1.3955,
+    "method": "range"
+   },
+   "overlap_independent": 2.278,
+   "calls_per_response": 1.0,
+   "multi_call_share": {
+    "k": 0,
+    "n": 131,
+    "rate": 0.0,
+    "lo": 0.0,
+    "hi": 0.0285
+   },
+   "tool_responses": 131,
+   "round_trips": 171,
+   "round_trips_per_solved": 4.275,
+   "usd": 0.7782,
+   "usd_per_solved": 0.0195,
+   "control_trials": 8,
+   "control_trials_with_violations": 0,
+   "order_violations": 0
+  }
+ },
+ "families": [
+  {
+   "family": "suites",
+   "shape": "programs",
+   "arm": "theseus-after",
+   "trials": 2,
+   "solved": 2,
+   "over_ideal": 1.191,
+   "over_ideal_lo": 1.191,
+   "over_ideal_hi": 1.191,
+   "overlap": 3.3085,
+   "order_violations": null
+  },
+  {
+   "family": "suites",
+   "shape": "programs",
+   "arm": "claude-code",
+   "trials": 2,
+   "solved": 2,
+   "over_ideal": 1.19,
+   "over_ideal_lo": 1.178,
+   "over_ideal_hi": 1.202,
+   "overlap": 3.0835,
+   "order_violations": null
+  },
+  {
+   "family": "suites",
+   "shape": "programs",
+   "arm": "pi",
+   "trials": 2,
+   "solved": 2,
+   "over_ideal": 2.3925,
+   "over_ideal_lo": 2.08,
+   "over_ideal_hi": 2.705,
+   "overlap": 3.0585,
+   "order_violations": null
+  },
+  {
+   "family": "suites",
+   "shape": "programs",
+   "arm": "opencode",
+   "trials": 2,
+   "solved": 2,
+   "over_ideal": 1.659,
+   "over_ideal_lo": 1.36,
+   "over_ideal_hi": 1.958,
+   "overlap": 3.021,
+   "order_violations": null
+  },
+  {
+   "family": "ci-checks",
+   "shape": "programs",
+   "arm": "theseus-after",
+   "trials": 2,
+   "solved": 2,
+   "over_ideal": 1.4835,
+   "over_ideal_lo": 1.316,
+   "over_ideal_hi": 1.651,
+   "overlap": 2.1965,
+   "order_violations": null
+  },
+  {
+   "family": "ci-checks",
+   "shape": "programs",
+   "arm": "claude-code",
+   "trials": 2,
+   "solved": 1,
+   "over_ideal": 1.4355,
+   "over_ideal_lo": 0.317,
+   "over_ideal_hi": 2.554,
+   "overlap": 1.9105,
+   "order_violations": null
+  },
+  {
+   "family": "ci-checks",
+   "shape": "programs",
+   "arm": "pi",
+   "trials": 2,
+   "solved": 2,
+   "over_ideal": 2.123,
+   "over_ideal_lo": 1.57,
+   "over_ideal_hi": 2.676,
+   "overlap": 2.3225,
+   "order_violations": null
+  },
+  {
+   "family": "ci-checks",
+   "shape": "programs",
+   "arm": "opencode",
+   "trials": 2,
+   "solved": 2,
+   "over_ideal": 2.29,
+   "over_ideal_lo": 2.27,
+   "over_ideal_hi": 2.31,
+   "overlap": 2.278,
+   "order_violations": null
+  },
+  {
+   "family": "build-configs",
+   "shape": "programs",
+   "arm": "theseus-after",
+   "trials": 2,
+   "solved": 2,
+   "over_ideal": 2.1755,
+   "over_ideal_lo": 1.391,
+   "over_ideal_hi": 2.96,
+   "overlap": 1.673,
+   "order_violations": null
+  },
+  {
+   "family": "build-configs",
+   "shape": "programs",
+   "arm": "claude-code",
+   "trials": 2,
+   "solved": 2,
+   "over_ideal": 2.893,
+   "over_ideal_lo": 2.655,
+   "over_ideal_hi": 3.131,
+   "overlap": 0.9785,
+   "order_violations": null
+  },
+  {
+   "family": "build-configs",
+   "shape": "programs",
+   "arm": "pi",
+   "trials": 2,
+   "solved": 2,
+   "over_ideal": 2.5835,
+   "over_ideal_lo": 2.428,
+   "over_ideal_hi": 2.739,
+   "overlap": 1.145,
+   "order_violations": null
+  },
+  {
+   "family": "build-configs",
+   "shape": "programs",
+   "arm": "opencode",
+   "trials": 2,
+   "solved": 2,
+   "over_ideal": 2.201,
+   "over_ideal_lo": 2.184,
+   "over_ideal_hi": 2.218,
+   "overlap": 1.3425,
+   "order_violations": null
+  },
+  {
+   "family": "bench-settings",
+   "shape": "programs",
+   "arm": "theseus-after",
+   "trials": 2,
+   "solved": 2,
+   "over_ideal": 3.556,
+   "over_ideal_lo": 3.339,
+   "over_ideal_hi": 3.773,
+   "overlap": 0.998,
+   "order_violations": null
+  },
+  {
+   "family": "bench-settings",
+   "shape": "programs",
+   "arm": "claude-code",
+   "trials": 2,
+   "solved": 2,
+   "over_ideal": 5.175,
+   "over_ideal_lo": 3.417,
+   "over_ideal_hi": 6.933,
+   "overlap": 1.0755,
+   "order_violations": null
+  },
+  {
+   "family": "bench-settings",
+   "shape": "programs",
+   "arm": "pi",
+   "trials": 2,
+   "solved": 2,
+   "over_ideal": 3.7025,
+   "over_ideal_lo": 3.392,
+   "over_ideal_hi": 4.013,
+   "overlap": 1.1835,
+   "order_violations": null
+  },
+  {
+   "family": "bench-settings",
+   "shape": "programs",
+   "arm": "opencode",
+   "trials": 2,
+   "solved": 2,
+   "over_ideal": 2.9185,
+   "over_ideal_lo": 2.458,
+   "over_ideal_hi": 3.379,
+   "overlap": 1.2825,
+   "order_violations": null
+  },
+  {
+   "family": "host-logs",
+   "shape": "programs",
+   "arm": "theseus-after",
+   "trials": 2,
+   "solved": 2,
+   "over_ideal": 2.195,
+   "over_ideal_lo": 2.059,
+   "over_ideal_hi": 2.331,
+   "overlap": 2.505,
+   "order_violations": null
+  },
+  {
+   "family": "host-logs",
+   "shape": "programs",
+   "arm": "claude-code",
+   "trials": 2,
+   "solved": 2,
+   "over_ideal": 2.5505,
+   "over_ideal_lo": 2.171,
+   "over_ideal_hi": 2.93,
+   "overlap": 4.5905,
+   "order_violations": null
+  },
+  {
+   "family": "host-logs",
+   "shape": "programs",
+   "arm": "pi",
+   "trials": 2,
+   "solved": 2,
+   "over_ideal": 1.575,
+   "over_ideal_lo": 1.324,
+   "over_ideal_hi": 1.826,
+   "overlap": 3.951,
+   "order_violations": null
+  },
+  {
+   "family": "host-logs",
+   "shape": "programs",
+   "arm": "opencode",
+   "trials": 2,
+   "solved": 2,
+   "over_ideal": 1.821,
+   "over_ideal_lo": 1.772,
+   "over_ideal_hi": 1.87,
+   "overlap": 3.8015,
+   "order_violations": null
+  },
+  {
+   "family": "repos-behind",
+   "shape": "programs",
+   "arm": "theseus-after",
+   "trials": 2,
+   "solved": 2,
+   "over_ideal": 1.5035,
+   "over_ideal_lo": 1.217,
+   "over_ideal_hi": 1.79,
+   "overlap": 3.9955,
+   "order_violations": null
+  },
+  {
+   "family": "repos-behind",
+   "shape": "programs",
+   "arm": "claude-code",
+   "trials": 2,
+   "solved": 2,
+   "over_ideal": 1.7405,
+   "over_ideal_lo": 1.415,
+   "over_ideal_hi": 2.066,
+   "overlap": 3.4065,
+   "order_violations": null
+  },
+  {
+   "family": "repos-behind",
+   "shape": "programs",
+   "arm": "pi",
+   "trials": 2,
+   "solved": 2,
+   "over_ideal": 2.182,
+   "over_ideal_lo": 1.824,
+   "over_ideal_hi": 2.54,
+   "overlap": 3.449,
+   "order_violations": null
+  },
+  {
+   "family": "repos-behind",
+   "shape": "programs",
+   "arm": "opencode",
+   "trials": 2,
+   "solved": 2,
+   "over_ideal": 1.657,
+   "over_ideal_lo": 1.375,
+   "over_ideal_hi": 1.939,
+   "overlap": 2.9865,
+   "order_violations": null
+  },
+  {
+   "family": "csv-merge",
+   "shape": "programs",
+   "arm": "theseus-after",
+   "trials": 2,
+   "solved": 2,
+   "over_ideal": 1.357,
+   "over_ideal_lo": 1.31,
+   "over_ideal_hi": 1.404,
+   "overlap": 3.8375,
+   "order_violations": null
+  },
+  {
+   "family": "csv-merge",
+   "shape": "programs",
+   "arm": "claude-code",
+   "trials": 2,
+   "solved": 2,
+   "over_ideal": 1.3825,
+   "over_ideal_lo": 1.349,
+   "over_ideal_hi": 1.416,
+   "overlap": 3.954,
+   "order_violations": null
+  },
+  {
+   "family": "csv-merge",
+   "shape": "programs",
+   "arm": "pi",
+   "trials": 2,
+   "solved": 2,
+   "over_ideal": 2.039,
+   "over_ideal_lo": 2.002,
+   "over_ideal_hi": 2.076,
+   "overlap": 3.042,
+   "order_violations": null
+  },
+  {
+   "family": "csv-merge",
+   "shape": "programs",
+   "arm": "opencode",
+   "trials": 2,
+   "solved": 2,
+   "over_ideal": 2.072,
+   "over_ideal_lo": 1.647,
+   "over_ideal_hi": 2.497,
+   "overlap": 3.872,
+   "order_violations": null
+  },
+  {
+   "family": "health-restart",
+   "shape": "programs",
+   "arm": "theseus-after",
+   "trials": 2,
+   "solved": 2,
+   "over_ideal": 1.206,
+   "over_ideal_lo": 1.203,
+   "over_ideal_hi": 1.209,
+   "overlap": 1.7795,
+   "order_violations": null
+  },
+  {
+   "family": "health-restart",
+   "shape": "programs",
+   "arm": "claude-code",
+   "trials": 2,
+   "solved": 2,
+   "over_ideal": 1.5525,
+   "over_ideal_lo": 1.157,
+   "over_ideal_hi": 1.948,
+   "overlap": 1.3045,
+   "order_violations": null
+  },
+  {
+   "family": "health-restart",
+   "shape": "programs",
+   "arm": "pi",
+   "trials": 2,
+   "solved": 2,
+   "over_ideal": 1.1755,
+   "over_ideal_lo": 1.171,
+   "over_ideal_hi": 1.18,
+   "overlap": 1.674,
+   "order_violations": null
+  },
+  {
+   "family": "health-restart",
+   "shape": "programs",
+   "arm": "opencode",
+   "trials": 2,
+   "solved": 2,
+   "over_ideal": 1.184,
+   "over_ideal_lo": 1.172,
+   "over_ideal_hi": 1.196,
+   "overlap": 1.7575,
+   "order_violations": null
+  },
+  {
+   "family": "doc-questions",
+   "shape": "reads",
+   "arm": "theseus-after",
+   "trials": 2,
+   "solved": 2,
+   "over_ideal": 1.395,
+   "over_ideal_lo": 1.385,
+   "over_ideal_hi": 1.405,
+   "overlap": 5.1265,
+   "order_violations": null
+  },
+  {
+   "family": "doc-questions",
+   "shape": "reads",
+   "arm": "claude-code",
+   "trials": 2,
+   "solved": 2,
+   "over_ideal": 1.7995,
+   "over_ideal_lo": 1.51,
+   "over_ideal_hi": 2.089,
+   "overlap": 4.6025,
+   "order_violations": null
+  },
+  {
+   "family": "doc-questions",
+   "shape": "reads",
+   "arm": "pi",
+   "trials": 2,
+   "solved": 2,
+   "over_ideal": 1.7785,
+   "over_ideal_lo": 1.517,
+   "over_ideal_hi": 2.04,
+   "overlap": 5.511,
+   "order_violations": null
+  },
+  {
+   "family": "doc-questions",
+   "shape": "reads",
+   "arm": "opencode",
+   "trials": 2,
+   "solved": 2,
+   "over_ideal": 1.9345,
+   "over_ideal_lo": 1.372,
+   "over_ideal_hi": 2.497,
+   "overlap": 4.6485,
+   "order_violations": null
+  },
+  {
+   "family": "api-summary",
+   "shape": "reads",
+   "arm": "theseus-after",
+   "trials": 2,
+   "solved": 2,
+   "over_ideal": 2.931,
+   "over_ideal_lo": 2.79,
+   "over_ideal_hi": 3.072,
+   "overlap": 3.7845,
+   "order_violations": null
+  },
+  {
+   "family": "api-summary",
+   "shape": "reads",
+   "arm": "claude-code",
+   "trials": 2,
+   "solved": 2,
+   "over_ideal": 5.0535,
+   "over_ideal_lo": 5.002,
+   "over_ideal_hi": 5.105,
+   "overlap": 0.996,
+   "order_violations": null
+  },
+  {
+   "family": "api-summary",
+   "shape": "reads",
+   "arm": "pi",
+   "trials": 2,
+   "solved": 2,
+   "over_ideal": 1.998,
+   "over_ideal_lo": 1.417,
+   "over_ideal_hi": 2.579,
+   "overlap": 5.268,
+   "order_violations": null
+  },
+  {
+   "family": "api-summary",
+   "shape": "reads",
+   "arm": "opencode",
+   "trials": 2,
+   "solved": 2,
+   "over_ideal": 1.487,
+   "over_ideal_lo": 1.467,
+   "over_ideal_hi": 1.507,
+   "overlap": 4.2855,
+   "order_violations": null
+  },
+  {
+   "family": "advisories",
+   "shape": "reads",
+   "arm": "theseus-after",
+   "trials": 2,
+   "solved": 2,
+   "over_ideal": 1.5755,
+   "over_ideal_lo": 1.554,
+   "over_ideal_hi": 1.597,
+   "overlap": 3.9975,
+   "order_violations": null
+  },
+  {
+   "family": "advisories",
+   "shape": "reads",
+   "arm": "claude-code",
+   "trials": 2,
+   "solved": 2,
+   "over_ideal": 2.168,
+   "over_ideal_lo": 2.008,
+   "over_ideal_hi": 2.328,
+   "overlap": 3.502,
+   "order_violations": null
+  },
+  {
+   "family": "advisories",
+   "shape": "reads",
+   "arm": "pi",
+   "trials": 2,
+   "solved": 2,
+   "over_ideal": 1.942,
+   "over_ideal_lo": 1.468,
+   "over_ideal_hi": 2.416,
+   "overlap": 2.704,
+   "order_violations": null
+  },
+  {
+   "family": "advisories",
+   "shape": "reads",
+   "arm": "opencode",
+   "trials": 2,
+   "solved": 2,
+   "over_ideal": 2.2825,
+   "over_ideal_lo": 2.055,
+   "over_ideal_hi": 2.51,
+   "overlap": 2.4645,
+   "order_violations": null
+  },
+  {
+   "family": "config-diff",
+   "shape": "reads",
+   "arm": "theseus-after",
+   "trials": 2,
+   "solved": 2,
+   "over_ideal": 1.455,
+   "over_ideal_lo": 1.403,
+   "over_ideal_hi": 1.507,
+   "overlap": 2.8705,
+   "order_violations": null
+  },
+  {
+   "family": "config-diff",
+   "shape": "reads",
+   "arm": "claude-code",
+   "trials": 2,
+   "solved": 2,
+   "over_ideal": 2.035,
+   "over_ideal_lo": 1.836,
+   "over_ideal_hi": 2.234,
+   "overlap": 2.7715,
+   "order_violations": null
+  },
+  {
+   "family": "config-diff",
+   "shape": "reads",
+   "arm": "pi",
+   "trials": 2,
+   "solved": 2,
+   "over_ideal": 1.3785,
+   "over_ideal_lo": 1.346,
+   "over_ideal_hi": 1.411,
+   "overlap": 3.195,
+   "order_violations": null
+  },
+  {
+   "family": "config-diff",
+   "shape": "reads",
+   "arm": "opencode",
+   "trials": 2,
+   "solved": 2,
+   "over_ideal": 1.4115,
+   "over_ideal_lo": 1.393,
+   "over_ideal_hi": 1.43,
+   "overlap": 3.187,
+   "order_violations": null
+  },
+  {
+   "family": "scaffold",
+   "shape": "writes",
+   "arm": "theseus-after",
+   "trials": 2,
+   "solved": 2,
+   "over_ideal": 6.7535,
+   "over_ideal_lo": 6.547,
+   "over_ideal_hi": 6.96,
+   "overlap": 0.9905,
+   "order_violations": null
+  },
+  {
+   "family": "scaffold",
+   "shape": "writes",
+   "arm": "claude-code",
+   "trials": 2,
+   "solved": 2,
+   "over_ideal": 7.185,
+   "over_ideal_lo": 7.163,
+   "over_ideal_hi": 7.207,
+   "overlap": 0.988,
+   "order_violations": null
+  },
+  {
+   "family": "scaffold",
+   "shape": "writes",
+   "arm": "pi",
+   "trials": 2,
+   "solved": 2,
+   "over_ideal": 7.1525,
+   "over_ideal_lo": 6.807,
+   "over_ideal_hi": 7.498,
+   "overlap": 0.994,
+   "order_violations": null
+  },
+  {
+   "family": "scaffold",
+   "shape": "writes",
+   "arm": "opencode",
+   "trials": 2,
+   "solved": 2,
+   "over_ideal": 7.4355,
+   "over_ideal_lo": 7.039,
+   "over_ideal_hi": 7.832,
+   "overlap": 0.994,
+   "order_violations": null
+  },
+  {
+   "family": "rename",
+   "shape": "writes",
+   "arm": "theseus-after",
+   "trials": 2,
+   "solved": 2,
+   "over_ideal": 1.2485,
+   "over_ideal_lo": 1.189,
+   "over_ideal_hi": 1.308,
+   "overlap": 1.0,
+   "order_violations": null
+  },
+  {
+   "family": "rename",
+   "shape": "writes",
+   "arm": "claude-code",
+   "trials": 2,
+   "solved": 2,
+   "over_ideal": 1.327,
+   "over_ideal_lo": 1.262,
+   "over_ideal_hi": 1.392,
+   "overlap": 1.0,
+   "order_violations": null
+  },
+  {
+   "family": "rename",
+   "shape": "writes",
+   "arm": "pi",
+   "trials": 2,
+   "solved": 2,
+   "over_ideal": 1.306,
+   "over_ideal_lo": 1.228,
+   "over_ideal_hi": 1.384,
+   "overlap": 1.0,
+   "order_violations": null
+  },
+  {
+   "family": "rename",
+   "shape": "writes",
+   "arm": "opencode",
+   "trials": 2,
+   "solved": 2,
+   "over_ideal": 1.337,
+   "over_ideal_lo": 1.314,
+   "over_ideal_hi": 1.36,
+   "overlap": 1.0,
+   "order_violations": null
+  },
+  {
+   "family": "pipeline",
+   "shape": "control",
+   "arm": "theseus-after",
+   "trials": 2,
+   "solved": 2,
+   "over_ideal": 1.157,
+   "over_ideal_lo": 1.154,
+   "over_ideal_hi": 1.16,
+   "overlap": 0.995,
+   "order_violations": 0
+  },
+  {
+   "family": "pipeline",
+   "shape": "control",
+   "arm": "claude-code",
+   "trials": 2,
+   "solved": 2,
+   "over_ideal": 1.189,
+   "over_ideal_lo": 1.169,
+   "over_ideal_hi": 1.209,
+   "overlap": 0.952,
+   "order_violations": 0
+  },
+  {
+   "family": "pipeline",
+   "shape": "control",
+   "arm": "pi",
+   "trials": 2,
+   "solved": 2,
+   "over_ideal": 1.2225,
+   "over_ideal_lo": 1.175,
+   "over_ideal_hi": 1.27,
+   "overlap": 0.9425,
+   "order_violations": 0
+  },
+  {
+   "family": "pipeline",
+   "shape": "control",
+   "arm": "opencode",
+   "trials": 2,
+   "solved": 2,
+   "over_ideal": 1.365,
+   "over_ideal_lo": 1.265,
+   "over_ideal_hi": 1.465,
+   "overlap": 0.9255,
+   "order_violations": 0
+  },
+  {
+   "family": "service",
+   "shape": "control",
+   "arm": "theseus-after",
+   "trials": 2,
+   "solved": 0,
+   "over_ideal": 1.347,
+   "over_ideal_lo": 1.287,
+   "over_ideal_hi": 1.407,
+   "overlap": 1.0965,
+   "order_violations": 8
+  },
+  {
+   "family": "service",
+   "shape": "control",
+   "arm": "claude-code",
+   "trials": 2,
+   "solved": 2,
+   "over_ideal": 1.335,
+   "over_ideal_lo": 1.293,
+   "over_ideal_hi": 1.377,
+   "overlap": 0.956,
+   "order_violations": 0
+  },
+  {
+   "family": "service",
+   "shape": "control",
+   "arm": "pi",
+   "trials": 2,
+   "solved": 2,
+   "over_ideal": 1.3285,
+   "over_ideal_lo": 1.238,
+   "over_ideal_hi": 1.419,
+   "overlap": 0.933,
+   "order_violations": 0
+  },
+  {
+   "family": "service",
+   "shape": "control",
+   "arm": "opencode",
+   "trials": 2,
+   "solved": 2,
+   "over_ideal": 1.407,
+   "over_ideal_lo": 1.405,
+   "over_ideal_hi": 1.409,
+   "overlap": 0.947,
+   "order_violations": 0
+  },
+  {
+   "family": "migrations",
+   "shape": "control",
+   "arm": "theseus-after",
+   "trials": 2,
+   "solved": 2,
+   "over_ideal": 1.2455,
+   "over_ideal_lo": 1.205,
+   "over_ideal_hi": 1.286,
+   "overlap": 0.957,
+   "order_violations": 0
+  },
+  {
+   "family": "migrations",
+   "shape": "control",
+   "arm": "claude-code",
+   "trials": 2,
+   "solved": 2,
+   "over_ideal": 1.2805,
+   "over_ideal_lo": 1.265,
+   "over_ideal_hi": 1.296,
+   "overlap": 0.9355,
+   "order_violations": 0
+  },
+  {
+   "family": "migrations",
+   "shape": "control",
+   "arm": "pi",
+   "trials": 2,
+   "solved": 2,
+   "over_ideal": 1.2115,
+   "over_ideal_lo": 1.206,
+   "over_ideal_hi": 1.217,
+   "overlap": 0.969,
+   "order_violations": 0
+  },
+  {
+   "family": "migrations",
+   "shape": "control",
+   "arm": "opencode",
+   "trials": 2,
+   "solved": 2,
+   "over_ideal": 1.3235,
+   "over_ideal_lo": 1.261,
+   "over_ideal_hi": 1.386,
+   "overlap": 0.93,
+   "order_violations": 0
+  },
+  {
+   "family": "edit-test",
+   "shape": "control",
+   "arm": "theseus-after",
+   "trials": 2,
+   "solved": 2,
+   "over_ideal": 1.3575,
+   "over_ideal_lo": 1.312,
+   "over_ideal_hi": 1.403,
+   "overlap": 0.947,
+   "order_violations": 0
+  },
+  {
+   "family": "edit-test",
+   "shape": "control",
+   "arm": "claude-code",
+   "trials": 2,
+   "solved": 2,
+   "over_ideal": 1.3365,
+   "over_ideal_lo": 1.275,
+   "over_ideal_hi": 1.398,
+   "overlap": 0.917,
+   "order_violations": 0
+  },
+  {
+   "family": "edit-test",
+   "shape": "control",
+   "arm": "pi",
+   "trials": 2,
+   "solved": 2,
+   "over_ideal": 1.2545,
+   "over_ideal_lo": 1.22,
+   "over_ideal_hi": 1.289,
+   "overlap": 0.9535,
+   "order_violations": 0
+  },
+  {
+   "family": "edit-test",
+   "shape": "control",
+   "arm": "opencode",
+   "trials": 2,
+   "solved": 2,
+   "over_ideal": 1.4585,
+   "over_ideal_lo": 1.317,
+   "over_ideal_hi": 1.6,
+   "overlap": 0.929,
+   "order_violations": 0
+  },
+  {
+   "family": "link",
+   "shape": "mixed",
+   "arm": "theseus-after",
+   "trials": 2,
+   "solved": 2,
+   "over_ideal": 1.4375,
+   "over_ideal_lo": 1.149,
+   "over_ideal_hi": 1.726,
+   "overlap": 1.274,
+   "order_violations": 0
+  },
+  {
+   "family": "link",
+   "shape": "mixed",
+   "arm": "claude-code",
+   "trials": 2,
+   "solved": 1,
+   "over_ideal": 1.0405,
+   "over_ideal_lo": 0.34,
+   "over_ideal_hi": 1.741,
+   "overlap": 1.4775,
+   "order_violations": 0
+  },
+  {
+   "family": "link",
+   "shape": "mixed",
+   "arm": "pi",
+   "trials": 2,
+   "solved": 2,
+   "over_ideal": 1.265,
+   "over_ideal_lo": 1.224,
+   "over_ideal_hi": 1.306,
+   "overlap": 1.5175,
+   "order_violations": 0
+  },
+  {
+   "family": "link",
+   "shape": "mixed",
+   "arm": "opencode",
+   "trials": 2,
+   "solved": 2,
+   "over_ideal": 1.2555,
+   "over_ideal_lo": 1.254,
+   "over_ideal_hi": 1.257,
+   "overlap": 1.5965,
+   "order_violations": 0
+  },
+  {
+   "family": "bisect",
+   "shape": "mixed",
+   "arm": "theseus-after",
+   "trials": 2,
+   "solved": 2,
+   "over_ideal": 2.121,
+   "over_ideal_lo": 2.104,
+   "over_ideal_hi": 2.138,
+   "overlap": 0.9775,
+   "order_violations": 0
+  },
+  {
+   "family": "bisect",
+   "shape": "mixed",
+   "arm": "claude-code",
+   "trials": 2,
+   "solved": 2,
+   "over_ideal": 1.3125,
+   "over_ideal_lo": 1.294,
+   "over_ideal_hi": 1.331,
+   "overlap": 2.5465,
+   "order_violations": 0
+  },
+  {
+   "family": "bisect",
+   "shape": "mixed",
+   "arm": "pi",
+   "trials": 2,
+   "solved": 2,
+   "over_ideal": 2.1735,
+   "over_ideal_lo": 2.09,
+   "over_ideal_hi": 2.257,
+   "overlap": 0.9705,
+   "order_violations": 0
+  },
+  {
+   "family": "bisect",
+   "shape": "mixed",
+   "arm": "opencode",
+   "trials": 2,
+   "solved": 2,
+   "over_ideal": 2.1475,
+   "over_ideal_lo": 1.989,
+   "over_ideal_hi": 2.306,
+   "overlap": 0.9745,
+   "order_violations": 0
+  }
+ ],
+ "layer1": {
+  "theseus-after": {
+   "harness": "theseus",
+   "ok": true,
+   "why": null,
+   "counts": [
+    {
+     "n": 1,
+     "ok": true,
+     "why": null,
+     "wall_s": 2.494,
+     "min_s": 2.44,
+     "max_s": 2.598,
+     "serial_s": 2
+    },
+    {
+     "n": 2,
+     "ok": true,
+     "why": null,
+     "wall_s": 2.482,
+     "min_s": 2.44,
+     "max_s": 2.533,
+     "serial_s": 4
+    },
+    {
+     "n": 4,
+     "ok": true,
+     "why": null,
+     "wall_s": 2.526,
+     "min_s": 2.509,
+     "max_s": 2.553,
+     "serial_s": 8
+    },
+    {
+     "n": 8,
+     "ok": true,
+     "why": null,
+     "wall_s": 2.604,
+     "min_s": 2.572,
+     "max_s": 4.441,
+     "serial_s": 16
+    },
+    {
+     "n": 16,
+     "ok": true,
+     "why": null,
+     "wall_s": 5.048,
+     "min_s": 4.786,
+     "max_s": 6.825,
+     "serial_s": 32
+    }
+   ]
+  },
+  "claude-code": {
+   "harness": "claude-code",
+   "ok": true,
+   "why": null,
+   "counts": [
+    {
+     "n": 1,
+     "ok": true,
+     "why": null,
+     "wall_s": 7.736,
+     "min_s": 7.668,
+     "max_s": 8.62,
+     "serial_s": 2
+    },
+    {
+     "n": 2,
+     "ok": true,
+     "why": null,
+     "wall_s": 7.712,
+     "min_s": 2.82,
+     "max_s": 7.813,
+     "serial_s": 4
+    },
+    {
+     "n": 4,
+     "ok": true,
+     "why": null,
+     "wall_s": 2.871,
+     "min_s": 2.789,
+     "max_s": 2.896,
+     "serial_s": 8
+    },
+    {
+     "n": 8,
+     "ok": true,
+     "why": null,
+     "wall_s": 3.059,
+     "min_s": 2.863,
+     "max_s": 3.909,
+     "serial_s": 16
+    },
+    {
+     "n": 16,
+     "ok": true,
+     "why": null,
+     "wall_s": 2.989,
+     "min_s": 2.939,
+     "max_s": 3.101,
+     "serial_s": 32
+    }
+   ]
+  },
+  "pi": {
+   "harness": "pi",
+   "ok": true,
+   "why": null,
+   "counts": [
+    {
+     "n": 1,
+     "ok": true,
+     "why": null,
+     "wall_s": 2.559,
+     "min_s": 2.513,
+     "max_s": 2.65,
+     "serial_s": 2
+    },
+    {
+     "n": 2,
+     "ok": true,
+     "why": null,
+     "wall_s": 2.56,
+     "min_s": 2.506,
+     "max_s": 2.622,
+     "serial_s": 4
+    },
+    {
+     "n": 4,
+     "ok": true,
+     "why": null,
+     "wall_s": 2.464,
+     "min_s": 2.463,
+     "max_s": 2.628,
+     "serial_s": 8
+    },
+    {
+     "n": 8,
+     "ok": true,
+     "why": null,
+     "wall_s": 2.481,
+     "min_s": 2.472,
+     "max_s": 2.499,
+     "serial_s": 16
+    },
+    {
+     "n": 16,
+     "ok": true,
+     "why": null,
+     "wall_s": 2.487,
+     "min_s": 2.461,
+     "max_s": 2.6,
+     "serial_s": 32
+    }
+   ]
+  },
+  "opencode": {
+   "harness": "opencode",
+   "ok": false,
+   "why": "\u001b[93m\u001b[1m! \u001b[0mpermission requested: doom_loop (bash); auto-rejecting",
+   "counts": [
+    {
+     "n": 1,
+     "ok": true,
+     "why": null,
+     "wall_s": 7.642,
+     "min_s": 7.12,
+     "max_s": 9.058,
+     "serial_s": 2
+    },
+    {
+     "n": 2,
+     "ok": true,
+     "why": null,
+     "wall_s": 12.146,
+     "min_s": 7.243,
+     "max_s": 13.575,
+     "serial_s": 4
+    },
+    {
+     "n": 4,
+     "ok": false,
+     "why": "\u001b[93m\u001b[1m! \u001b[0mpermission requested: doom_loop (bash); auto-rejecting",
+     "wall_s": null,
+     "min_s": null,
+     "max_s": null,
+     "serial_s": 8
+    },
+    {
+     "n": 8,
+     "ok": false,
+     "why": "\u001b[93m\u001b[1m! \u001b[0mpermission requested: doom_loop (bash); auto-rejecting",
+     "wall_s": null,
+     "min_s": null,
+     "max_s": null,
+     "serial_s": 16
+    },
+    {
+     "n": 16,
+     "ok": false,
+     "why": "\u001b[93m\u001b[1m! \u001b[0mpermission requested: doom_loop (bash); auto-rejecting",
+     "wall_s": null,
+     "min_s": null,
+     "max_s": null,
+     "serial_s": 32
+    }
+   ]
+  }
+ },
+ "tb_share": 0.002,
+ "figures": [
+  {
+   "name": "layer1-wall",
+   "form": "multiples",
+   "columns": 2,
+   "title": "Layer 1: the wall of N calls of `sleep 2` in one response, by harness",
+   "question": "Does each harness run one response's independent calls together?",
+   "note": "The stand-in model (theseus-sim fake-model --rules); the CLI's wall from spawn to exit, median of its runs.",
+   "x": {
+    "label": "calls in the response (N)",
+    "log": true,
+    "format": "int",
+    "min": 1,
+    "max": 16
+   },
+   "panels": [
+    {
+     "title": "Theseus",
+     "y": {
+      "label": "wall s",
+      "format": "s",
+      "min": 0
+     },
+     "series": [
+      {
+       "arm": "oracle",
+       "label": "in turn: 2 s × N",
+       "style": "line",
+       "points": [
+        [
+         1,
+         2
+        ],
+        [
+         2,
+         4
+        ],
+        [
+         4,
+         8
+        ],
+        [
+         8,
+         16
+        ],
+        [
+         16,
+         32
+        ]
+       ]
+      },
+      {
+       "arm": "theseus-batching",
+       "label": "Theseus, grouped + the sentence",
+       "style": "both",
+       "points": [
+        [
+         1,
+         2.494
+        ],
+        [
+         2,
+         2.482
+        ],
+        [
+         4,
+         2.526
+        ],
+        [
+         8,
+         2.604
+        ],
+        [
+         16,
+         5.048
+        ]
+       ]
+      }
+     ],
+     "limits": [
+      {
+       "y": 2,
+       "label": "together: 2 s"
+      }
+     ]
+    },
+    {
+     "title": "Claude Code",
+     "y": {
+      "label": "wall s",
+      "format": "s",
+      "min": 0
+     },
+     "series": [
+      {
+       "arm": "oracle",
+       "label": "in turn: 2 s × N",
+       "style": "line",
+       "points": [
+        [
+         1,
+         2
+        ],
+        [
+         2,
+         4
+        ],
+        [
+         4,
+         8
+        ],
+        [
+         8,
+         16
+        ],
+        [
+         16,
+         32
+        ]
+       ]
+      },
+      {
+       "arm": "claude-code",
+       "label": "Claude Code",
+       "style": "both",
+       "points": [
+        [
+         1,
+         7.736
+        ],
+        [
+         2,
+         7.712
+        ],
+        [
+         4,
+         2.871
+        ],
+        [
+         8,
+         3.059
+        ],
+        [
+         16,
+         2.989
+        ]
+       ]
+      }
+     ],
+     "limits": [
+      {
+       "y": 2,
+       "label": "together: 2 s"
+      }
+     ]
+    },
+    {
+     "title": "Pi",
+     "y": {
+      "label": "wall s",
+      "format": "s",
+      "min": 0
+     },
+     "series": [
+      {
+       "arm": "oracle",
+       "label": "in turn: 2 s × N",
+       "style": "line",
+       "points": [
+        [
+         1,
+         2
+        ],
+        [
+         2,
+         4
+        ],
+        [
+         4,
+         8
+        ],
+        [
+         8,
+         16
+        ],
+        [
+         16,
+         32
+        ]
+       ]
+      },
+      {
+       "arm": "pi",
+       "label": "Pi",
+       "style": "both",
+       "points": [
+        [
+         1,
+         2.559
+        ],
+        [
+         2,
+         2.56
+        ],
+        [
+         4,
+         2.464
+        ],
+        [
+         8,
+         2.481
+        ],
+        [
+         16,
+         2.487
+        ]
+       ]
+      }
+     ],
+     "limits": [
+      {
+       "y": 2,
+       "label": "together: 2 s"
+      }
+     ]
+    },
+    {
+     "title": "OpenCode (OpenCode: some counts not measurable)",
+     "y": {
+      "label": "wall s",
+      "format": "s",
+      "min": 0
+     },
+     "series": [
+      {
+       "arm": "oracle",
+       "label": "in turn: 2 s × N",
+       "style": "line",
+       "points": [
+        [
+         1,
+         2
+        ],
+        [
+         2,
+         4
+        ],
+        [
+         4,
+         8
+        ],
+        [
+         8,
+         16
+        ],
+        [
+         16,
+         32
+        ]
+       ]
+      },
+      {
+       "arm": "other",
+       "label": "OpenCode",
+       "style": "both",
+       "points": [
+        [
+         1,
+         7.642
+        ],
+        [
+         2,
+         12.146
+        ]
+       ]
+      }
+     ],
+     "limits": [
+      {
+       "y": 2,
+       "label": "together: 2 s"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "over-ideal",
+   "form": "intervals",
+   "title": "Layer 2: wall over the ideal, by shape and arm",
+   "question": "How close to the work's own critical path does each arm finish?",
+   "note": "Each dot the median of the shape's families' medians; the line their range.",
+   "x": {
+    "label": "wall / ideal (1 is the critical path)",
+    "format": "x",
+    "min": 0
+   },
+   "reference": [
+    {
+     "value": 1,
+     "label": "the ideal"
+    }
+   ],
+   "rows": [
+    {
+     "label": "Theseus, grouped + the sentence",
+     "arm": "theseus-batching",
+     "value": 1.4935,
+     "lo": 1.191,
+     "hi": 3.556,
+     "group": "Independent programs, then combine",
+     "tip": "8 families"
+    },
+    {
+     "label": "Claude Code",
+     "arm": "claude-code",
+     "value": 1.6465,
+     "lo": 1.19,
+     "hi": 5.175,
+     "group": "Independent programs, then combine",
+     "tip": "8 families"
+    },
+    {
+     "label": "Pi",
+     "arm": "pi",
+     "value": 2.1525,
+     "lo": 1.1755,
+     "hi": 3.7025,
+     "group": "Independent programs, then combine",
+     "tip": "8 families"
+    },
+    {
+     "label": "OpenCode",
+     "arm": "other",
+     "value": 1.9465,
+     "lo": 1.184,
+     "hi": 2.9185,
+     "group": "Independent programs, then combine",
+     "tip": "8 families"
+    },
+    {
+     "label": "Theseus, grouped + the sentence",
+     "arm": "theseus-batching",
+     "value": 1.5152,
+     "lo": 1.395,
+     "hi": 2.931,
+     "group": "Independent reads and fetches",
+     "tip": "4 families"
+    },
+    {
+     "label": "Claude Code",
+     "arm": "claude-code",
+     "value": 2.1015,
+     "lo": 1.7995,
+     "hi": 5.0535,
+     "group": "Independent reads and fetches",
+     "tip": "4 families"
+    },
+    {
+     "label": "Pi",
+     "arm": "pi",
+     "value": 1.8602,
+     "lo": 1.3785,
+     "hi": 1.998,
+     "group": "Independent reads and fetches",
+     "tip": "4 families"
+    },
+    {
+     "label": "OpenCode",
+     "arm": "other",
+     "value": 1.7107,
+     "lo": 1.4115,
+     "hi": 2.2825,
+     "group": "Independent reads and fetches",
+     "tip": "4 families"
+    },
+    {
+     "label": "Theseus, grouped + the sentence",
+     "arm": "theseus-batching",
+     "value": 4.001,
+     "lo": 1.2485,
+     "hi": 6.7535,
+     "group": "Independent writes",
+     "tip": "2 families"
+    },
+    {
+     "label": "Claude Code",
+     "arm": "claude-code",
+     "value": 4.256,
+     "lo": 1.327,
+     "hi": 7.185,
+     "group": "Independent writes",
+     "tip": "2 families"
+    },
+    {
+     "label": "Pi",
+     "arm": "pi",
+     "value": 4.2293,
+     "lo": 1.306,
+     "hi": 7.1525,
+     "group": "Independent writes",
+     "tip": "2 families"
+    },
+    {
+     "label": "OpenCode",
+     "arm": "other",
+     "value": 4.3862,
+     "lo": 1.337,
+     "hi": 7.4355,
+     "group": "Independent writes",
+     "tip": "2 families"
+    },
+    {
+     "label": "Theseus, grouped + the sentence",
+     "arm": "theseus-batching",
+     "value": 1.2963,
+     "lo": 1.157,
+     "hi": 1.3575,
+     "group": "Dependent controls",
+     "tip": "4 families"
+    },
+    {
+     "label": "Claude Code",
+     "arm": "claude-code",
+     "value": 1.3077,
+     "lo": 1.189,
+     "hi": 1.3365,
+     "group": "Dependent controls",
+     "tip": "4 families"
+    },
+    {
+     "label": "Pi",
+     "arm": "pi",
+     "value": 1.2385,
+     "lo": 1.2115,
+     "hi": 1.3285,
+     "group": "Dependent controls",
+     "tip": "4 families"
+    },
+    {
+     "label": "OpenCode",
+     "arm": "other",
+     "value": 1.386,
+     "lo": 1.3235,
+     "hi": 1.4585,
+     "group": "Dependent controls",
+     "tip": "4 families"
+    },
+    {
+     "label": "Theseus, grouped + the sentence",
+     "arm": "theseus-batching",
+     "value": 1.7792,
+     "lo": 1.4375,
+     "hi": 2.121,
+     "group": "Mixed",
+     "tip": "2 families"
+    },
+    {
+     "label": "Claude Code",
+     "arm": "claude-code",
+     "value": 1.1765,
+     "lo": 1.0405,
+     "hi": 1.3125,
+     "group": "Mixed",
+     "tip": "2 families"
+    },
+    {
+     "label": "Pi",
+     "arm": "pi",
+     "value": 1.7192,
+     "lo": 1.265,
+     "hi": 2.1735,
+     "group": "Mixed",
+     "tip": "2 families"
+    },
+    {
+     "label": "OpenCode",
+     "arm": "other",
+     "value": 1.7015,
+     "lo": 1.2555,
+     "hi": 2.1475,
+     "group": "Mixed",
+     "tip": "2 families"
+    }
+   ],
+   "legend_labels": {
+    "theseus-batching": "Theseus, grouped + the sentence",
+    "claude-code": "Claude Code",
+    "pi": "Pi",
+    "other": "OpenCode"
+   }
+  },
+  {
+   "name": "calls-per-response",
+   "form": "intervals",
+   "title": "Layer 2: tool calls per response, by arm",
+   "question": "How many calls does each arm put in one model response?",
+   "note": "Over the responses that call a tool, pooled over every Layer 2 trial.",
+   "x": {
+    "label": "calls per response",
+    "format": "num",
+    "min": 0
+   },
+   "rows": [
+    {
+     "label": "Theseus, grouped + the sentence",
+     "arm": "theseus-batching",
+     "value": 1.1268,
+     "tip": "142 responses that call a tool"
+    },
+    {
+     "label": "Claude Code",
+     "arm": "claude-code",
+     "value": 1.146,
+     "tip": "137 responses that call a tool"
+    },
+    {
+     "label": "Pi",
+     "arm": "pi",
+     "value": 1.0154,
+     "tip": "130 responses that call a tool"
+    },
+    {
+     "label": "OpenCode",
+     "arm": "other",
+     "value": 1.0,
+     "tip": "131 responses that call a tool"
+    }
+   ],
+   "legend_labels": {
+    "theseus-batching": "Theseus, grouped + the sentence",
+    "claude-code": "Claude Code",
+    "pi": "Pi",
+    "other": "OpenCode"
+   }
+  },
+  {
+   "name": "multi-call-share",
+   "form": "intervals",
+   "title": "Layer 2: responses with more than one call, by arm",
+   "question": "How often does each arm batch?",
+   "x": {
+    "label": "share of tool-calling responses (95% Wilson)",
+    "format": "pct",
+    "min": 0,
+    "max": 1
+   },
+   "rows": [
+    {
+     "label": "Theseus, grouped + the sentence",
+     "arm": "theseus-batching",
+     "value": 0.0775,
+     "lo": 0.0438,
+     "hi": 0.1334,
+     "tip": "11 of 142"
+    },
+    {
+     "label": "Claude Code",
+     "arm": "claude-code",
+     "value": 0.0584,
+     "lo": 0.0299,
+     "hi": 0.111,
+     "tip": "8 of 137"
+    },
+    {
+     "label": "Pi",
+     "arm": "pi",
+     "value": 0.0154,
+     "lo": 0.0042,
+     "hi": 0.0544,
+     "tip": "2 of 130"
+    },
+    {
+     "label": "OpenCode",
+     "arm": "other",
+     "value": 0.0,
+     "lo": 0.0,
+     "hi": 0.0285,
+     "tip": "0 of 131"
+    }
+   ],
+   "legend_labels": {
+    "theseus-batching": "Theseus, grouped + the sentence",
+    "claude-code": "Claude Code",
+    "pi": "Pi",
+    "other": "OpenCode"
+   }
+  }
+ ],
+ "omnibus": {
+  "every_report_row": "| Speed | [Async: parallel tool calls, Theseus before and after grouping them, against Claude Code, Pi and OpenCode](2026-10-12-asyncbench-parallel-calls.md) | Oct 12 |",
+  "index_row": "| 2026-10-12 | `asyncbench` | Theseus, grouped + the sentence · Claude Code · Pi · OpenCode | On Layer 2's 16 families with independent steps, wall over the ideal (median) was Theseus, grouped + the sentence 1.53×; Claude Code 1.98×, Pi 2.02×, OpenCode 1.90×. Responses that called more than one tool: Theseus, grouped + the sentence 7.7%, Claude Code 5.8%, Pi 1.5%, OpenCode 0.0%. Control trials with an order violation: Theseus, grouped + the sentence 2 of 8, Claude Code 0 of 8, Pi 0 of 8, OpenCode 0 of 8. Layer 1, eight calls of `sleep 2` in one response: Theseus, grouped + the sentence 2.6 s, Claude Code 3.1 s, Pi 2.5 s, OpenCode not measurable (together: 2 s; in turn: 16 s). Projected to Terminal-Bench, where the design found grouping worth about 0.2% of tool time, the gain is small there whatever it is here. | [Async: parallel tool calls, Theseus before and after grouping them, against Claude Code, Pi and OpenCode](2026-10-12-asyncbench-parallel-calls.md) |",
+  "data": {
+   "report": "2026-10-12-asyncbench-parallel-calls.md",
+   "question": "Speed",
+   "date": "2026-10-12",
+   "usd_total": 3.7204,
+   "arms": {
+    "theseus-after": {
+     "label": "Theseus, grouped + the sentence",
+     "over_ideal_independent": 1.5305,
+     "calls_per_response": 1.1268,
+     "multi_call_share": 0.0775,
+     "solved": 38,
+     "trials": 40
+    },
+    "claude-code": {
+     "label": "Claude Code",
+     "over_ideal_independent": 1.978,
+     "calls_per_response": 1.146,
+     "multi_call_share": 0.0584,
+     "solved": 38,
+     "trials": 40
+    },
+    "pi": {
+     "label": "Pi",
+     "over_ideal_independent": 2.021,
+     "calls_per_response": 1.0154,
+     "multi_call_share": 0.0154,
+     "solved": 40,
+     "trials": 40
+    },
+    "opencode": {
+     "label": "OpenCode",
+     "over_ideal_independent": 1.9045,
+     "calls_per_response": 1.0,
+     "multi_call_share": 0.0,
+     "solved": 40,
+     "trials": 40
+    }
+   }
+  }
+ }
+}
