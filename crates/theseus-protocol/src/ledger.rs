@@ -138,6 +138,7 @@ ledger_kinds! {
     ImportBatch = "import.batch",
     ImportErased = "import.erased",
     ImportPeople = "import.people",
+    ImportSynced = "import.synced",
     ImportTopics = "import.topics",
     IndexTender = "index.tender",
     JobNotStarted = "job.not_started",

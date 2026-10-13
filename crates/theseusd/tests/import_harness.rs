@@ -172,18 +172,14 @@ fn claude_part(s: &Served, claude: &Path) -> String {
         "{out}"
     );
 
-    // A file that grew: reported, not imported again.
+    // A file that grew: its new message is appended, nothing imported twice.
     let mut grown = claude_session("Where does the tide log live?");
     grown.push(json!({"type": "user", "timestamp": "2026-03-04T11:00:00Z",
                       "message": {"role": "user", "content": "And its key?"}}));
     write(&claude.join("-work-reef/aaaa.jsonl"), &grown);
     let (_, out, _) = cli(s, &["import", "claude-code", claude_dir]);
-    assert!(out.contains("0 imported, 1 skipped"), "{out}");
-    assert!(
-        out.contains("1 files changed since they were imported"),
-        "{out}"
-    );
-    assert!(out.contains("aaaa.jsonl"), "{out}");
+    assert!(out.contains("0 imported, 1 appended, 1 skipped"), "{out}");
+    assert!(!out.contains("files changed since"), "{out}");
 
     tag
 }

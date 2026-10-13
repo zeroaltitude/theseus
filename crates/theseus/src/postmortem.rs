@@ -186,7 +186,7 @@ fn write_rows(path: &str, rows: &[LedgerEntry]) -> Result<()> {
 }
 
 /// A time as the flags write it, in unix ms.
-fn when(s: &str, now: u64) -> Result<u64> {
+pub(crate) fn when(s: &str, now: u64) -> Result<u64> {
     let t = s.trim();
     let bad = || {
         anyhow!(

@@ -11,6 +11,12 @@
 #   user-service.sh stop        systemctl --user stop theseusd
 #   user-service.sh start       systemctl --user start theseusd
 #   user-service.sh uninstall   stop the service and remove its unit; your store is not touched
+#   user-service.sh sync-timer install|uninstall|status
+#                               the nightly OpenClaw sync (theseus-pjmj7): `theseus import sync`, run by a
+#                               systemd user timer at HOUR:40 (--hour, default 3: [judge] learning_hour's
+#                               default), beside the daemon's unit, as theseusd-sync.timer. It needs
+#                               [import.openclaw] state_dir in the config; the daemon reads it, the timer
+#                               only runs the command.
 #
 # Options, before or after the command:
 #   --dry-run              print each command instead of running it; questions are assumed "yes"
@@ -19,6 +25,7 @@
 #                          $THESEUS_OP_TOKEN_FILE, else the file the installed unit names)
 #   --unit NAME            the unit's name (default theseusd): a second daemon, with its own
 #                          THESEUS_SOCKET and THESEUS_STATE_DIR, gets a unit of its own
+#   --hour N               sync-timer: the local hour the sync runs at, :40 past it (default 3)
 #   --help, -h
 #
 # The daemon's own variables are read the way `theseusd install --user` reads them, and the plan
@@ -59,6 +66,7 @@ LINGER=unknown # yes | no | unknown | maybe (a dry run)
 HAND=0         # 1 a daemon started by hand answers on the socket; 2 maybe (a dry run)
 TOKEN_ARGS=()
 REST=()
+SYNC_HOUR=3 # --hour: the nightly sync's local hour
 
 usage() {
   cat <<EOF
@@ -72,6 +80,9 @@ usage: $SELF [--dry-run] [--yes] [--op-token-file FILE] [--unit NAME] <command>
   stop        systemctl --user stop theseusd
   start       systemctl --user start theseusd
   uninstall   stop the service and remove its unit; your store is not touched
+  sync-timer install|uninstall|status
+              the nightly OpenClaw sync: `theseus import sync` run by a systemd user timer at
+              HOUR:40 (--hour, default 3), beside the daemon's unit
 
   --dry-run   print each command instead of running it
   --yes       answer yes to every question
@@ -80,6 +91,8 @@ usage: $SELF [--dry-run] [--yes] [--op-token-file FILE] [--unit NAME] <command>
               \$THESEUS_OP_TOKEN_FILE, else the file the installed unit names)
   --unit NAME the unit's name (default theseusd): a second daemon, with its own
               THESEUS_SOCKET and THESEUS_STATE_DIR, gets a unit of its own
+  --hour N    sync-timer: the local hour the sync runs at, :40 past it (default 3, [judge]
+              learning_hour's default: set it to yours)
 
 The how-to: docs/user-service.md
 EOF
@@ -642,6 +655,77 @@ cmd_install() {
   cheat_sheet
 }
 
+# --- the nightly OpenClaw sync (theseus-pjmj7) ---
+
+SYNC_MARK="# written by user-service.sh sync-timer"
+
+# write_unit FILE TEXT: write a unit file (a dry run says what it would write).
+write_unit() {
+  local file=$1 text=$2
+  show write "$file"
+  if dry; then
+    printf '%s\n' "$text" | sed 's/^/    | /' >&3
+    return 0
+  fi
+  mkdir -p "$(dirname "$file")" && printf '%s\n' "$text" >"$file"
+}
+
+cmd_sync_timer() {
+  local sub=${REST[0]:-} base=$UNIT_NAME-sync dir=$CONFIG_HOME/systemd/user bin
+  if [ ${#REST[@]} -ne 1 ]; then
+    echo "$SELF: sync-timer takes install, uninstall or status" >&2
+    exit 2
+  fi
+  local svc=$dir/$base.service tim=$dir/$base.timer
+  case $sub in
+  install)
+    bin=$(command -v theseus || true)
+    [ -n "$bin" ] || bin=$HOME/.local/bin/theseus
+    write_unit "$svc" "$SYNC_MARK
+[Unit]
+Description=Theseus: the nightly OpenClaw sync (theseus-pjmj7)
+[Service]
+Type=oneshot
+Nice=19
+IOSchedulingClass=idle
+Environment=THESEUS_SOCKET=$SOCKET
+ExecStart=$bin import sync"
+    write_unit "$tim" "$SYNC_MARK
+[Unit]
+Description=Theseus: the nightly OpenClaw sync, at $(printf '%02d' "$SYNC_HOUR"):40
+[Timer]
+OnCalendar=*-*-* $(printf '%02d' "$SYNC_HOUR"):40:00
+Persistent=true
+[Install]
+WantedBy=timers.target"
+    run systemctl --user daemon-reload || return 1
+    run systemctl --user enable --now "$base.timer" || return 1
+    done_say "The sync runs every night at $(printf '%02d' "$SYNC_HOUR"):40 local, and at the next start if a night was missed: $bin import sync. It needs [import.openclaw] state_dir in your config; \`$SELF sync-timer status\` shows the next run."
+    ;;
+  uninstall)
+    if [ -f "$tim" ] && ! grep -q "$SYNC_MARK" "$tim" 2>/dev/null; then
+      say "Nothing to remove: $tim was not written by this script."
+      return 0
+    fi
+    if [ ! -f "$tim" ] && [ ! -f "$svc" ] && ! dry; then
+      say "Nothing to remove: no sync timer is installed."
+      return 0
+    fi
+    run systemctl --user disable --now "$base.timer" || true
+    run rm -f "$tim" "$svc"
+    run systemctl --user daemon-reload || return 1
+    done_say "Removed the sync timer. Your store was not touched."
+    ;;
+  status)
+    probe systemctl --user list-timers "$base.timer" --no-pager || true
+    ;;
+  *)
+    echo "$SELF: sync-timer takes install, uninstall or status, not $sub" >&2
+    exit 2
+    ;;
+  esac
+}
+
 cmd_uninstall() {
   need_theseusd || return 1
   say "== the plan: what would be removed (nothing is changed yet)"
@@ -765,6 +849,15 @@ while [ $# -gt 0 ]; do
     shift
     ;;
   --unit=*) UNIT_NAME=${1#*=} ;;
+  --hour)
+    [ $# -ge 2 ] || {
+      echo "$SELF: --hour needs a number" >&2
+      exit 2
+    }
+    SYNC_HOUR=$2
+    shift
+    ;;
+  --hour=*) SYNC_HOUR=${1#*=} ;;
   -h | --help)
     usage
     exit 0
@@ -806,7 +899,14 @@ esac
 UNIT=$UNIT_NAME.service
 UNIT_FILE=$CONFIG_HOME/systemd/user/$UNIT
 
-if [ -n "$CMD" ] && [ "$CMD" != logs ] && [ ${#REST[@]} -gt 0 ]; then
+case $SYNC_HOUR in
+[0-9] | [01][0-9] | 2[0-3]) SYNC_HOUR=$((10#$SYNC_HOUR)) ;;
+*)
+  echo "$SELF: --hour '$SYNC_HOUR': a local hour, 0 to 23" >&2
+  exit 2
+  ;;
+esac
+if [ -n "$CMD" ] && [ "$CMD" != logs ] && [ "$CMD" != sync-timer ] && [ ${#REST[@]} -gt 0 ]; then
   echo "$SELF: $CMD takes no further arguments (${REST[*]})" >&2
   exit 2
 fi
@@ -827,6 +927,7 @@ uninstall) cmd_uninstall ;;
 status) cmd_status ;;
 logs) cmd_logs ;;
 restart | stop | start) cmd_service "$CMD" ;;
+sync-timer) cmd_sync_timer ;;
 "")
   usage >&2
   exit 2

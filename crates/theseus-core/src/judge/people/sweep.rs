@@ -64,13 +64,13 @@ pub struct SweepMark {
 }
 
 /// One session due.
-struct Due {
-    sid: String,
-    title: String,
-    lines: Vec<Line>,
+pub(super) struct Due {
+    pub(super) sid: String,
+    pub(super) title: String,
+    pub(super) lines: Vec<Line>,
     /// The live mark, moved to the newest human message read.
-    mark: Option<NewRecord>,
-    known: HashSet<String>,
+    pub(super) mark: Option<NewRecord>,
+    pub(super) known: HashSet<String>,
 }
 
 /// What a run did.
@@ -82,6 +82,9 @@ pub struct Swept {
     pub judged: u64,
     pub spent: Micros,
     pub stopped: Option<String>,
+    /// The sessions passed (the nightly sync's people step keeps the rest
+    /// for its next run, theseus-pjmj7).
+    pub done: Vec<String>,
 }
 
 impl Core {
@@ -140,7 +143,9 @@ impl Core {
         let from_ms = last
             .as_ref()
             .map_or(now.saturating_sub(FIRST_WINDOW_MS), |m| m.at_ms);
-        let before = last.filter(|m| m.day == today).map_or(0.0, |m| m.spent_usd);
+        // The nightly sync's people step shares this day's cap (theseus-pjmj7).
+        let swept_before = last.filter(|m| m.day == today).map_or(0.0, |m| m.spent_usd);
+        let before = swept_before + self.people_sync_spent(&today)?;
         let cap_usd = self.runner.cfg.people.sweep_usd_per_day;
         let cap = usd_to_micros((cap_usd - before).max(0.0));
         let mut out = Swept::default();
@@ -164,7 +169,7 @@ impl Core {
         let mark = SweepMark {
             at_ms: now,
             day: today,
-            spent_usd: before + spent_usd,
+            spent_usd: swept_before + spent_usd,
         };
         self.people_write(&[crate::fact::row(&f, None, None)?, meta(LAST_RUN, &mark)?])
             .await?;
@@ -181,6 +186,19 @@ impl Core {
         out: &mut Swept,
     ) -> anyhow::Result<()> {
         let plan = theseus_store::blocking(|| self.sweep_plan(from_ms, now))?;
+        self.pass_plan(plan, "sweep", cap, out).await
+    }
+
+    /// The due sessions, each passed under the cap, in order: the sweep's
+    /// (`purpose` `sweep`) and the nightly sync's. A session whose worst case
+    /// would pass what is left of `cap` is not begun, nor is any after it.
+    pub(super) async fn pass_plan(
+        &self,
+        plan: Vec<Due>,
+        purpose: &str,
+        cap: Micros,
+        out: &mut Swept,
+    ) -> anyhow::Result<()> {
         out.due = plan.len() as u64;
         let (target, _) = match self.people_extractor() {
             Ok(t) => t,
@@ -218,20 +236,22 @@ impl Core {
             if !deciding.lock().unwrap().insert(d.sid.clone()) {
                 continue;
             }
+            let sid = d.sid.clone();
             let pass = self
                 .propose_people(Session {
                     sid: &d.sid,
                     title: &d.title,
                     lines: d.lines,
-                    purpose: "sweep",
+                    purpose,
                     mark: d.mark,
                     known: d.known,
                 })
                 .await;
-            deciding.lock().unwrap().remove(&d.sid);
+            deciding.lock().unwrap().remove(&sid);
             match pass {
                 Ok(p) => {
                     out.swept += 1;
+                    out.done.push(sid);
                     out.spent += p.spent;
                     out.candidates += p.candidates;
                     out.judged += p.judged;

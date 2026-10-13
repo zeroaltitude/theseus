@@ -78,6 +78,9 @@ fn header(app: &App, area: Rect, buf: &mut Buffer) {
         let n = app.board.len();
         left.push_str(&format!(" · {n} session{}", if n == 1 { "" } else { "s" }));
     }
+    if let Some(w) = &app.sync_warn {
+        left.push_str(&format!(" · ⚠ {w}"));
+    }
     if app.only != Only::All {
         left.push_str(&format!(" · only {}", app.only.word()));
     }

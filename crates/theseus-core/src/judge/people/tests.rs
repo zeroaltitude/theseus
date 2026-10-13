@@ -243,7 +243,7 @@ pub(super) fn script(jev: &FakeJev) {
     jev.script_when("Orrin Vale", None, "evaluative", Jev::Noul(0.91));
 }
 
-fn billed(then: Scripted) -> Scripted {
+pub(super) fn billed(then: Scripted) -> Scripted {
     Scripted::Billed {
         usage: Usage {
             input_tokens: 1000,

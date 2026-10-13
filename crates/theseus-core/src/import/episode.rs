@@ -37,6 +37,15 @@ pub const SOURCES: &[&str] = &[
 /// raw session files, and only the daemon holds the vault's values.
 pub const HARNESS_SOURCES: &[&str] = &["claude-code", "codex"];
 
+/// The source the nightly OpenClaw sync writes (theseus-pjmj7): sessions read
+/// from OpenClaw's own stores by `scripts/openclaw-export.py`, with no
+/// triage, segmentation or summary. Apart from `SOURCES`, the old pipeline's.
+pub const SYNC_SOURCE: &str = "openclaw-sync";
+
+/// The sources whose text the daemon scrubs as it writes: the harnesses' and
+/// the sync's, each made by a client from raw files that hold no vault value.
+pub const SCRUBBED_SOURCES: &[&str] = &["claude-code", "codex", SYNC_SOURCE];
+
 pub const PLACE_KINDS: &[&str] = &[
     "dm",
     "slack-channel",
@@ -291,7 +300,10 @@ fn check_names(r: &RawEpisode) -> Result<(), String> {
     if !hex64(&r.hash) {
         return Err(format!("hash {:?} is not 64 hex digits", r.hash));
     }
-    if !SOURCES.contains(&r.source.as_str()) && !HARNESS_SOURCES.contains(&r.source.as_str()) {
+    if !SOURCES.contains(&r.source.as_str())
+        && !HARNESS_SOURCES.contains(&r.source.as_str())
+        && r.source != SYNC_SOURCE
+    {
         return Err(format!("source {:?} is not one the format names", r.source));
     }
     if !PLACE_KINDS.contains(&r.place.kind.as_str()) {

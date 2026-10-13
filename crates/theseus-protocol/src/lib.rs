@@ -31,6 +31,7 @@ mod hands;
 mod health;
 mod history;
 pub mod import;
+pub mod import_sync;
 pub mod index;
 pub mod judge;
 pub mod judge_runs;
@@ -294,6 +295,9 @@ pub mod method {
         /// episodes newest first, filtered and paged. Reads.
         BOOKS_LIST = "books.list", BOOKS_PAGE = "books.page",
         IMPORT_TOPICS = "import.topics", IMPORT_PEOPLE = "import.people",
+        /// The OpenClaw sync (theseus-pjmj7; `import_sync`): the owner's config and cursor for a run, a
+        /// read; and the run's end (cursor, counts, the people steps), the owner's.
+        IMPORT_SYNC_PLAN = "import.sync.plan", IMPORT_SYNC_RECORD = "import.sync.record",
         /// The gates' bench history on this machine (theseus-1hk), for the
         /// cockpit's speed wall: every recorded run's p50s, p95s, and limits
         /// (`bench::BenchHistoryResult`). A read of the gate's CSV.

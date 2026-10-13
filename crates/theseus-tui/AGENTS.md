@@ -63,6 +63,8 @@ Key modules: `run.rs` (the loop), `app.rs` (no I/O), `board.rs`, `ui.rs`. Read b
   `node.written` marked, above a reply that streamed while it was read (theseus-v6yc).
 - `src/tests_typing.rs` (theseus-tnky): the input line's first key sends one `session.typing` per idle spell (not
   one a key, none from the filter's keys), and an older daemon's refusal says nothing.
+- `src/tests_sync.rs` (theseus-pjmj7): `health` is read at each connect (`Purpose::Health`) and the OpenClaw sync's `warn`, a
+  failed or a missed night, shows in the header; an older daemon's answer or refusal says nothing.
 - The CLI's `tests/tui.rs` holds `theseus tui`: the exec, the socket and the arguments passed through, and exit 2
   when `theseus-tui` is found nowhere.
 

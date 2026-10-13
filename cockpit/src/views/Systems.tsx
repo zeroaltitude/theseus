@@ -23,7 +23,7 @@ import { SelfChangesCard } from '@/components/SelfChanges'
 import { RpcConsole } from '@/components/RpcConsole'
 import { Empty, Field, Panel, Pill, StatePill } from '@/components/ui'
 import { ceilingWords } from '@/lib/ceiling'
-import { importedWords } from '@/lib/sessionwords'
+import { importedWords, syncWords } from '@/lib/sessionwords'
 
 export default function Systems() {
   const { data: h, dataUpdatedAt } = useRpc<Health>('health', undefined, 2000)
@@ -47,6 +47,10 @@ export default function Systems() {
         <Field label="up" mono>{uptime(h.uptime_secs + (now - dataUpdatedAt) / 1000)}</Field>
         <Field label="sessions · turns" mono>{h.sessions} · {h.turns}</Field>
         {importedWords(h) && <Field label="imported sessions" mono>{importedWords(h)} · <Link to="/books" className="hover:text-live">the books →</Link></Field>}
+        {syncWords(h, (ms) => new Date(ms).toLocaleString()) && (() => {
+          const w = syncWords(h, (ms) => new Date(ms).toLocaleString())!
+          return <Field label="OpenClaw sync" mono>{w.line}{w.warn && <div className="mt-1 text-fault">⚠ {w.warn}</div>}</Field>
+        })()}
         <Field label="model" mono>{h.provider} · {h.model} · profile {h.profile}</Field>
         <Field label="providers" mono>{h.providers.join(', ')}</Field>
         <Field label="ledger rows" mono>{h.ledger_rows.toLocaleString()}</Field>

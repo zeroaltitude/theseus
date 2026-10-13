@@ -60,6 +60,8 @@ pub enum Purpose {
     /// `session.typing`: the input line's first key (theseus-tnky). Nothing
     /// waits for its answer.
     Typing,
+    /// `health`, for the OpenClaw sync's warning in the header (theseus-pjmj7).
+    Health,
     /// `execution.stop`.
     Stop(String),
     /// `task.cancel`.
@@ -170,6 +172,9 @@ pub struct App {
     pub quiet: bool,
     /// The title last set.
     title: String,
+    /// The OpenClaw sync's warning, from `health` at each connect: a failed or
+    /// a missed night (theseus-pjmj7).
+    pub sync_warn: Option<String>,
     /// When the seen file is due to be written: a change of focus waits a
     /// second, so a walk through the queue writes once.
     save_at: Option<u64>,
@@ -206,6 +211,7 @@ impl App {
             quiet: false,
             title: String::new(),
             save_at: None,
+            sync_warn: None,
         }
     }
 
@@ -370,7 +376,10 @@ impl App {
         self.asking_questions = false;
         self.board.ask_again();
         self.board.reconnected();
-        let mut out = vec![snapshot()];
+        let mut out = vec![
+            snapshot(),
+            call(method::HEALTH, Value::Null, Purpose::Health),
+        ];
         if let Some(sid) = self.detail.as_ref().map(|d| d.session_id.clone()) {
             out.extend(read_session(&sid));
         }
@@ -546,6 +555,7 @@ impl App {
                     }
                 }
             }
+            Purpose::Health => self.sync_warn = sync_warning(v),
             Purpose::Watch | Purpose::Typing => {}
         }
         Vec::new()
@@ -554,7 +564,7 @@ impl App {
     /// A request that failed: say so where the operator looks.
     fn failed(&mut self, purpose: &Purpose, e: &RpcError) {
         // A notice, whose daemon may not know it (an older one): nothing to say.
-        if matches!(purpose, Purpose::Typing) {
+        if matches!(purpose, Purpose::Typing | Purpose::Health) {
             return;
         }
         // An answer that did not count (theseus-sgh): its card says why, and
@@ -586,6 +596,7 @@ impl App {
             Purpose::Cancel(_) => method::TASK_CANCEL,
             Purpose::Answer { .. } => method::ACTION_CONFIRM,
             Purpose::Typing => method::SESSION_TYPING,
+            Purpose::Health => method::HEALTH,
         };
         let text = format!("{what}: {}", e.message);
         if let Purpose::Submit(sid) | Purpose::Stop(sid) | Purpose::Cancel(sid) = purpose {
@@ -1108,6 +1119,18 @@ fn call(method: &'static str, params: Value, purpose: Purpose) -> Effect {
         params,
         purpose,
     })
+}
+
+/// The OpenClaw sync's warning in a `health` answer (theseus-pjmj7): only that
+/// is read, so an older daemon's answer has none.
+fn sync_warning(v: Value) -> Option<String> {
+    #[derive(serde::Deserialize, Default)]
+    struct Sync {
+        #[serde(default)]
+        imported: Option<theseus_protocol::import::HealthImported>,
+    }
+    let h: Sync = serde_json::from_value(v).unwrap_or_default();
+    h.imported.and_then(|i| i.sync).and_then(|s| s.warn)
 }
 
 /// `executions.watch`: the board's snapshot, then its events.

@@ -54,7 +54,11 @@ impl Core {
             build: crate::build(),
             uptime_secs: self.started.elapsed().as_secs(),
             sessions: totals.sessions,
-            imported: totals.imported,
+            imported: {
+                let mut i = totals.imported;
+                i.sync = self.sync_health(theseus_protocol::now_unix_ms());
+                i
+            },
             turns: totals.turns,
             model: prof.as_ref().map(|p| p.model.clone()).unwrap_or_default(),
             profile,
@@ -157,6 +161,7 @@ impl Core {
                 imported: theseus_protocol::import::HealthImported {
                     sessions: held,
                     erased,
+                    sync: None,
                 },
                 turns: n(1),
                 usage: Usage {
@@ -188,6 +193,7 @@ impl Core {
             imported: theseus_protocol::import::HealthImported {
                 sessions: imported - erased,
                 erased,
+                sync: None,
             },
             turns: sessions.iter().map(|s| s.turns).sum(),
             usage,

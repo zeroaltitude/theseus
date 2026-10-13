@@ -5,6 +5,13 @@
 - `build.sh`: the one way to build a release or an install. `repro.sh`: two builds of one commit, compared byte for byte.
 - `user-service.sh`: the daemon as a systemd user service (`check`, `install`, `status`, `logs`, `restart`, `stop`, `start`,
   `uninstall`, and `--dry-run`). The how-to is `docs/user-service.md`; see "user-service.sh" below.
+- `openclaw-export.py` (theseus-pjmj7): OpenClaw's own session stores (`<state>/agents/<agent>/agent/openclaw-agent.sqlite`,
+  opened read only) as episodes of the import's format 1, one per session, for `theseus import sync` (which embeds it) or
+  `theseus import openclaw -`. Python's standard library only; a zstd event is decoded by Python's own codec, the `zstd`
+  program or Node's zlib (OpenClaw's own runtime). Its module comment is the design: the id, the author and integrity rules,
+  the place, the cursor (per agent: the newest event and archive rowids and rewrite-watermark time; a floor under every
+  session). Tests: `scripts/tests/test_openclaw_export.py` over small stores `scripts/tests/openclaw_fixture.py` builds
+  with OpenClaw's own column names, pinned there; the gate runs them through theseusd's `tests/import_sync.rs`.
 - `setup.sh`: one command from a checkout to a running daemon: preflight, build, install, `/etc/theseus/theseus.toml` from
   the template, `theseusd check`, then `user-service.sh install`. The how-to is `docs/setup.md`; see "setup.sh" below.
 
@@ -428,6 +435,10 @@ to `~/.cache/theseus/flaky.csv` (time, label, test, attempt; `$THESEUS_FLAKY_LOG
   logs each call and keeps its state in files. A command the script starts to run needs a case in that stand-in, and a line
   in the dry-run test. The config tests swap `theseusd` for a stand-in plan (`PLAN_STANDIN`) that names a file as its default,
   so they hold before and after theseus-8d1b changes the real default.
+- **`sync-timer install|uninstall|status`** (theseus-pjmj7) is the nightly OpenClaw sync's timer: a oneshot
+  `<unit>-sync.service` running `theseus import sync` and `<unit>-sync.timer` at `--hour`:40 (`Persistent`, so a missed
+  night runs at the next start), both marked as this script's, so an uninstall keeps one someone else wrote. It checks
+  nothing of the machine (no root refusal); its tests are in `user_service_script.rs`.
 - **`--unit NAME`** is a second daemon's unit, `NAME.service` (passed on as `theseusd install --user --unit NAME`, and only
   when it is not `theseusd`, so an older build still installs the default). `install` refuses it unless `THESEUS_SOCKET`
   and `THESEUS_STATE_DIR` are set: on the operator's socket, `--yes` would take the operator's daemon for one started by

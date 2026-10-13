@@ -69,13 +69,19 @@ Key modules: `main.rs`, `cmd.rs`, `render.rs`, `client.rs`. Read by: (a binary).
   recorded incident; `THESEUS_GOLDEN=write` rewrites `incident.md` and `incident.json`).
 - `src/harness/` (theseus-o73y): `theseus import claude-code|codex [DIR]`. `mod.rs` turns one session file into one
   episode of the import's format (its module comment says what a message is, what is left out and counted, what
-  is rejected with its line number, and why a grown file is reported and not imported again); `claude_code.rs` and
+  is rejected with its line number, and that a grown file has its new messages appended by the daemon, theseus-pjmj7); `claude_code.rs` and
   `codex.rs` read each source's lines; `run.rs` walks the directory (a subagent's file left out), sends the episodes
   to `import.episodes` a batch at a time, and prints each file's counts. The CLI scrubs nothing (it holds no vault
   value): the daemon scrubs every message of a harness source as it writes it (`import::write::scrubbed`). The
   default tag is the live tag already holding the source, else `<source>-<today>`, since an episode's hash covers its
   tag and a second run on another day would otherwise be refused. Tests: `harness/tests.rs`, and theseusd's
   `tests/import_harness.rs` (the real CLI against a real daemon).
+- `src/import_sync.rs` (theseus-pjmj7): `theseus import sync [--from DIR] [--since T] [--agents a,b] [--tag T] [--dry-run]
+  [--no-people]`. It asks `import.sync.plan`, runs the exporter (`scripts/openclaw-export.py`, built in with
+  `include_str!`, `python3 -I -c`, its stdout a pipe: raw text is never in a file), sends the episodes a batch at a time,
+  and ends with `import.sync.record` (the new cursor on a run that did not fail; a failed one records its reason, which
+  is health's warning). Both methods are in `client::OPERATORS`. A systemd user timer runs it nightly
+  (`scripts/user-service.sh sync-timer install`). Tests: `import_sync_tests.rs`, theseusd's `tests/import_sync.rs`.
 - `src/print.rs`: the `Printer`, which writes the library's lines in one of four modes: `Text` (`ask`), `Quiet`
   (`ask --no-stream`), `Watch` (`watch`), and `Json`.
 - `src/why.rs` (theseus-ighf): `theseus why [TURN] [--session S]`, what a turn's model was shown and why: it asks

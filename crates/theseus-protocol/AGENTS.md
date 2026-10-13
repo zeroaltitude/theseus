@@ -84,6 +84,9 @@ Key modules: `lib.rs` (the `method`, `notify`, `error_code` tables), `events.rs`
   mention, a handle with no source left as text), and the wire types `Citation`, `DiscordSource`, `memory.cites`'s
   params and result. `TurnSubmitResult.cites` and `SessionHistoryResult.cites` carry the resolved sources; each is
   absent when empty.
+- `import_sync.rs` (theseus-pjmj7): the OpenClaw sync's wire types (`import.sync.plan`, `import.sync.record`), `HealthSync`
+  (health's `imported.sync`, with the one `warn` sentence every surface shows), `ImportTouched` (an `import.episodes` batch's
+  created or appended sessions), and the timer's minute and the missed-night grace.
 - `ts.rs`: the TypeScript export.
 
 ## Invariants

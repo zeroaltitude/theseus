@@ -935,8 +935,9 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   so recall keeps it out (`untrusted`) unless `[memory] include_external`, and its header names it outside text.
   `import.episodes` (`import/write.rs`) takes one batch of a file's lines in one frame (cut past 4,000 records or
   8 MiB), with the tags' counts (META `import.tag.<tag>`) and an `import.batch` row, on the blocking pool, one import
-  or erase at a time; an episode imported before is skipped, the same id with another hash rejected, an erased one
-  not imported again, and a line that does not read named by its number. `import.erase` tombstones a tag (each node
+  or erase at a time; an episode imported before is skipped, the same id with another hash appended to when its stored
+  messages are an exact prefix of the new episode's (below) and else rejected and named by the first differing idx, an
+  erased one not imported again, and a line that does not read named by its number. `import.erase` tombstones a tag (each node
   written again under its id, origin and time with `Body::Erased`, the session's `erased` receipt, an
   `import.erased` row), then asks a running tender's `index.forget`. The tag's counts ride in every frame of a batch
   or an erase, and an erase's count of the tag's erased sessions is absolute, counted from the tag's records as it
@@ -953,6 +954,27 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   with the daemon's own scrubber as it writes (`write::scrubbed`; the CLI holds no vault value), after the episode's
   hash was checked over what the CLI sent, so the hash stays the idempotency key and the stored `sha256` is the
   stored text's. Tests: `import/tests_harness.rs`.
+  **A session that grew** (theseus-pjmj7; `import/append.rs`, no store format change): the same episode id with another
+  hash whose messages begin with the stored ones appends only the new nodes (`node_id_of(session, idx)`, each at its own
+  time), with the session's record (hash, message count, `as_of.end_ms`, `last_active_ms`; tag, place, labels and `file`
+  stay as first imported) and the tag's counts in the one frame; a summary is written again only when its text differs.
+  The prefix is proven by reading the stored message nodes in the order they were written (`Store::session_nodes`: the
+  same idx and sha256, position by position), not by a digest kept on the session, and after the scrub (a scrubbed
+  source's stored digest is the scrubbed text's). A changed, removed or reordered message is refused naming its idx, an
+  episode that adds nothing is refused as such, an erased session is never appended to; the batch's `touched` lists the
+  sessions created or appended to. Tests: `import/tests_append.rs`, the grown file in `tests_harness.rs`.
+  **The OpenClaw sync** (theseus-pjmj7; `import/sync.rs`, `rpc/import_sync.rs`, `judge/people/sync.rs`;
+  `[import.openclaw]` in `config/import.rs`: `state_dir`, `owner_ids`, `agents`, off while `state_dir` is unset):
+  `theseus import sync` runs `scripts/openclaw-export.py` on OpenClaw's own stores and sends the episodes (source
+  `openclaw-sync`, scrubbed like a harness source: `episode::SCRUBBED_SOURCES`) through `import.episodes`; the daemon's
+  half is `import.sync.plan` (config, cursor, the first run's start: the newest `as_of` end of the `openclaw-store`
+  sessions) and `import.sync.record`, which writes META `import.sync.state` (the exporter's cursor, the run's counts,
+  the people list) with the `import.synced` row in one frame, then makes the touched tags' people (`import::people`),
+  reads each touched session's nodes after its mark (META `judge.people.<session>`, the live point's key; a WAL position)
+  for people under the sweep's cap, shared with the sweep (`people.sync.day` beside `people.sweep.last`), and writes the
+  state again with the spend and the sessions left. Health's `imported.sync` (`HealthSync`) and its `warn` for a failed
+  or a missed night (`SyncState::health`). Tests: `import/tests_sync.rs`, `judge/people/tests_sync.rs`, theseusd's
+  `tests/import_sync.rs`.
   **Its topics** (theseus-anh3): `import.topics` (`import/topics.rs`, the owner's act, never at a start) reads a tag's
   sessions' stored `labels.topic` (slash paths) and writes, through the ontology's `Board::write` a frame at a time
   (cut past 4,000 records, quiet waited for between, the stop looked for there): a topic for each label and each

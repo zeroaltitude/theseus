@@ -70,6 +70,15 @@ pub struct ImportEpisodesResult {
     /// Episodes imported before, with the same hash.
     #[cfg_attr(test, ts(type = "number"))]
     pub skipped: u64,
+    /// The sessions this batch created or appended to (theseus-pjmj7): what a
+    /// sync passes on to its people step.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub touched: Vec<crate::import_sync::ImportTouched>,
+    /// Episodes imported before whose messages grew: the stored ones are an
+    /// exact prefix, and only the new ones were written (theseus-pjmj7).
+    #[serde(default, skip_serializing_if = "is_zero")]
+    #[cfg_attr(test, ts(type = "number", optional))]
+    pub appended: u64,
     /// Lines that did not read, and episodes whose id was imported before
     /// with another hash.
     pub rejected: Vec<ImportRejected>,
@@ -80,6 +89,10 @@ pub struct ImportEpisodesResult {
     #[cfg_attr(test, ts(type = "number"))]
     pub frames: u64,
     pub ms: f64,
+}
+
+fn is_zero(n: &u64) -> bool {
+    *n == 0
 }
 
 /// `import.erase`: every session of a tag.
@@ -326,7 +339,7 @@ pub struct ImportListResult {
 /// Health's count of what an import wrote (theseus-revl): the sessions an
 /// import holds, apart from the owner's own (`HealthResult.sessions`), and
 /// the erased ones. Both are nothing when there is no import.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
 pub struct HealthImported {
     /// Imported sessions still held: the tags' sessions less their erased.
@@ -335,6 +348,11 @@ pub struct HealthImported {
     /// Imported sessions an `import.erase` tombstoned. Their keys remain.
     #[cfg_attr(test, ts(type = "number"))]
     pub erased: u64,
+    /// The OpenClaw sync's last run (theseus-pjmj7), when one has run or the
+    /// config names a store: absent otherwise.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub sync: Option<crate::import_sync::HealthSync>,
 }
 
 /// `import.sessions` (theseus-7n3e): the imported episodes, filtered,

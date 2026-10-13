@@ -932,6 +932,18 @@ idle_unload_mins = 10.0                   # the model unloads after this long un
 #                                         # day that no extraction read (the gate shut), under this
 #                                         # many dollars a local day; 0 turns it off; off with live
 
+# ---------------------------------------------------------------- import
+# The nightly OpenClaw sync (`theseus import sync`, run by a systemd user timer that
+# `scripts/user-service.sh sync-timer install` installs): OpenClaw's own session stores
+# read (read only) for what changed since the last run, a session that grew appended to
+# its imported session, and the people in its new messages proposed. Off while state_dir
+# is unset. A deployment's own values go in its own config, never here.
+# [import.openclaw]
+# state_dir = "/home/me/.openclaw"        # OpenClaw's state directory (holds agents/)
+# owner_ids = []                          # your sender ids in OpenClaw's channels: a message from
+#                                         # one is yours (operator); any other sender's is outside text
+# agents = []                             # the agents to read; none is every agent under agents/
+
 # ---------------------------------------------------------------- self
 # Self-improvement: Theseus building its own code, yardsticks and backlog, joining
 # what passes every gate and telling you after. Off by default: with mode = "off"

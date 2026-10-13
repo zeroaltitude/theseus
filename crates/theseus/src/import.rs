@@ -45,17 +45,26 @@ pub(crate) const PAUSE: Duration = Duration::from_millis(20);
 #[derive(Subcommand, Debug)]
 pub enum ImportCmd {
     /// Import episode files (JSON Lines, episode format 1): each episode an imported session,
-    /// closed and private. An episode imported before is skipped; one whose hash changed is
-    /// rejected and named, never overwritten.
+    /// closed and private. An episode imported before is skipped; one that grew (its stored
+    /// messages are an exact prefix) has only its new messages appended; one whose stored
+    /// messages changed is rejected and named, never overwritten.
     Openclaw {
         #[arg(required = true)]
         files: Vec<PathBuf>,
     },
+    /// Sync OpenClaw's own session stores (theseus-pjmj7): what changed since the last run, read
+    /// read-only by the built-in exporter (Python, standard library only), each OpenClaw session
+    /// one imported session that grows by append, scrubbed by the daemon as it is written. Then
+    /// the people steps: the touched tags' handles, and the new messages read for people under
+    /// the sweep's daily cap. State directory, the owner's sender ids and agents are `[import.openclaw]`
+    /// in the config. The first run starts after the 2026-10-06 import (or --since); a nightly
+    /// systemd user timer runs it (`scripts/user-service.sh sync-timer install`).
+    Sync(crate::import_sync::SyncArgs),
     /// Import Claude Code's sessions (theseus-o73y): each session file under DIR (default
     /// ~/.claude/projects) an imported session, closed and private, its text scrubbed of secrets
     /// by the daemon as it is written. Thinking, bookkeeping lines and subagent files are left
     /// out and counted; a tool result is cut at 2,000 characters, saying so. A second run writes
-    /// nothing new; a session file that grew since is reported and not imported again. TAG
+    /// nothing new; a session file that grew since has its new messages appended. TAG
     /// defaults to the tag an earlier run made, else claude-code-<today>; `import erase --tag`
     /// takes it all back.
     #[command(name = "claude-code")]
@@ -118,6 +127,7 @@ pub enum ImportCmd {
 pub async fn run(conn: &mut Conn, json: bool, cmd: ImportCmd) -> Result<()> {
     match cmd {
         ImportCmd::Openclaw { files } => openclaw(conn, json, files).await,
+        ImportCmd::Sync(a) => crate::import_sync::run(conn, json, a).await,
         ImportCmd::ClaudeCode { dir, tag } => {
             harness::run::run(conn, json, harness::Source::ClaudeCode, dir, tag).await
         }
@@ -289,6 +299,7 @@ async fn send(
     let r: ImportEpisodesResult = serde_json::from_value(v)?;
     total.read += r.read;
     total.imported += r.imported;
+    total.appended += r.appended;
     total.skipped += r.skipped;
     total.nodes += r.nodes;
     total.frames += r.frames;
@@ -314,8 +325,12 @@ fn count(n: u64, one: &str) -> String {
 
 /// A file's counts, then each rejected line.
 pub fn lines(name: &str, r: &ImportEpisodesResult) -> String {
+    let appended = match r.appended {
+        0 => String::new(),
+        n => format!(", appended {n}"),
+    };
     let mut out = format!(
-        "{name}: read {}, imported {}, skipped {}, rejected {} ({} in {}, {:.0} ms)\n",
+        "{name}: read {}, imported {}{appended}, skipped {}, rejected {} ({} in {}, {:.0} ms)\n",
         r.read,
         r.imported,
         r.skipped,
@@ -465,6 +480,8 @@ mod tests {
         let r = ImportEpisodesResult {
             read: 4,
             imported: 2,
+            appended: 0,
+            touched: Vec::new(),
             skipped: 0,
             rejected: vec![
                 ImportRejected {
