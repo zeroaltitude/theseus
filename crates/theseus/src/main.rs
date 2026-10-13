@@ -1077,13 +1077,7 @@ async fn run(cli: Cli) -> Result<()> {
         } => cmd::history(c, json, session, (n, after, before), full).await,
         Cmd::Why { turn, session } => why::why(c, json, session, turn).await,
         Cmd::Reach { node, generations } => cmd::reach(c, json, node, generations).await,
-        Cmd::Fork {
-            node,
-            title,
-            profile,
-            budget,
-            session,
-        } => fork::run(c, json, node, session, (title, profile, budget)).await,
+        cmd @ Cmd::Fork { .. } => fork::cmd(c, json, cmd).await,
         Cmd::Places => cmd::places(c, json).await,
         Cmd::Retract { node, why } => retract::run(c, json, node, why).await,
         Cmd::Publish {

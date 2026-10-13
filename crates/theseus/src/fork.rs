@@ -12,6 +12,22 @@ use theseus_protocol::{
 
 use crate::cmd::output;
 
+/// `theseus fork`, as `run` in main.rs hands it on whole (one line there:
+/// that match is at clippy's length limit).
+pub(crate) async fn cmd(conn: &mut Conn, json: bool, cmd: crate::Cmd) -> Result<()> {
+    let crate::Cmd::Fork {
+        node,
+        title,
+        profile,
+        budget,
+        session,
+    } = cmd
+    else {
+        unreachable!("main.rs hands fork::cmd only `theseus fork`")
+    };
+    run(conn, json, node, session, (title, profile, budget)).await
+}
+
 /// `theseus fork NODE`: the session that holds NODE (or `--session`), forked
 /// there.
 pub async fn run(

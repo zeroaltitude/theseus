@@ -499,6 +499,41 @@ async fn the_fork_point_is_a_node_by_name_or_a_position_and_must_close_its_calls
         )
         .unwrap_err();
     assert!(e.message.contains("no node"), "{}", e.message);
+    // An answer that made a tool call leaves the call without its result.
+    let call = crate::node::Node::assistant(
+        &s,
+        "turn_open_call",
+        0,
+        crate::node::Body::AssistantMessage {
+            blocks: vec![
+                json!({"type": "tool_use", "id": "toolu_1", "name": "fs.read", "input": {}}),
+            ],
+            model: "stand-in".into(),
+            provider: "stand-in".into(),
+            stop_reason: Some("tool_use".into()),
+            usage: theseus_protocol::Usage::default(),
+            cost_usd: None,
+            catalog_version: None,
+            request_id: None,
+            correlation_id: None,
+            compilation_id: None,
+            request_digest: None,
+            effort: None,
+        },
+    );
+    r.core.store.append(&[call.record().unwrap()]).unwrap();
+    let e = r
+        .core
+        .session_fork(
+            SessionForkParams {
+                session: s.clone(),
+                at: call.id.clone(),
+                ..Default::default()
+            },
+            Surface::Cli,
+        )
+        .unwrap_err();
+    assert!(e.message.contains("not a place to fork"), "{}", e.message);
     // Another session's node is not in this transcript.
     let other = new_session(&r.core, None);
     turn(&r.core, &other, "elsewhere").await;
