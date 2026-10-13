@@ -131,6 +131,48 @@ fn a_turn_that_takes_its_wakes_leaves_a_notice_alone() {
 }
 
 #[test]
+fn a_paused_check_in_is_not_due_and_a_turn_leaves_it_until_it_is_resumed() {
+    let w = world_with(cfg());
+    let (_, e, g) = running(&w);
+    let call = new_id("act");
+    let due = w.kernel.now_ms() + 5_000;
+    let set = w
+        .kernel
+        .set_wake(&g, &call, due, "check the build", None, None)
+        .unwrap();
+    let id = set.wake.id;
+    let paused = w
+        .kernel
+        .pause_wake(&e.id, &id, None, "the CLI")
+        .unwrap()
+        .unwrap();
+    assert!(paused.wake.paused_at_ms.is_some());
+    w.clock.advance(6_000);
+    let now = w.kernel.now_ms();
+    assert!(
+        !crate::wakes::wake_due(&exec(&w, &e.id), now),
+        "a paused check-in is not due"
+    );
+    let taken = w.kernel.take_wakes(&g, |_| Ok(vec![])).unwrap();
+    assert!(
+        taken.is_empty(),
+        "a turn leaves a paused check-in: {taken:?}"
+    );
+    assert_eq!(exec(&w, &e.id).wakes.len(), 1, "it is still held");
+    let resumed = w
+        .kernel
+        .resume_wake(&e.id, &id, "the CLI")
+        .unwrap()
+        .unwrap();
+    assert_eq!(resumed.wake.paused_at_ms, None);
+    let at = resumed.wake.due_at_ms.max(now);
+    assert!(
+        crate::wakes::wake_due(&exec(&w, &e.id), at),
+        "resumed, it is due again"
+    );
+}
+
+#[test]
 fn a_paused_series_is_passed_over_and_resume_keeps_its_numbering() {
     let w = world_with(cfg());
     let (_, e, g) = running(&w);

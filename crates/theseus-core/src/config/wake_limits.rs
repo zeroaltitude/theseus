@@ -27,7 +27,7 @@ pub(super) fn default_max_watches() -> usize {
 /// The kernel's limits from the section: at least a day, at least one of each.
 pub(super) fn limits(k: &KernelSection) -> WakeLimits {
     WakeLimits {
-        max_ahead_ms: k.max_wake_ahead_days.max(1) * 86_400_000,
+        max_ahead_ms: k.max_wake_ahead_days.max(1).saturating_mul(86_400_000),
         max_wakes: k.max_wakes.max(1),
         max_reminders: k.max_reminders.max(1),
         max_routines: k.max_routines.max(1),

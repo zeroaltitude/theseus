@@ -595,6 +595,9 @@ const BULK: usize = 4096;
 /// 28 = a session's directory (theseus-aab7): its `dir`.
 /// 29 = the owner's standing records, META keys `standing:<id>`, and a
 /// compilation manifest's `standing` list (theseus-a7vi).
+/// 30 = a wake's purpose, run and pause (theseus-8ux6x): `PendingWake`'s
+/// `purpose`, `run` and `paused_at_ms`, and the ledger kinds `wake.snoozed`,
+/// `wake.paused`, `wake.resumed` and `wake.done`.
 const MANIFEST_FORMAT: u32 = 30;
 /// The oldest format this build reads. A format-3 manifest's per-kind marks
 /// are left unread.
