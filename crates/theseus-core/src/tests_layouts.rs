@@ -364,6 +364,18 @@ const SAMPLES: &[Sample] = &[
     },
     Sample {
         kind: kinds::LEDGER,
+        layout: "a row as format 29 wrote it, before the ledger's hash chain (format 31, theseus-bmkxk): no `chain` field, which reads as an unchained row",
+        bytes: r#"{"at_unix_ms":1790000000301,"kind":"turn.started","session_id":"ses_lighthouse","turn_id":"turn_00000000000000000000000000000301","data":{"loops":1}}"#,
+        kept: Kept::All,
+    },
+    Sample {
+        kind: kinds::LEDGER,
+        layout: "a row as format 31 writes it: the writer's `chain` field (`<seq>.<digest>`) spliced in last; a LedgerRow reads it and leaves it out, and the chain's own reader recomputes it",
+        bytes: r#"{"at_unix_ms":1790000000302,"kind":"turn.ended","session_id":"ses_lighthouse","data":{"loops":1},"chain":"7.3fa1c09e5d2b7a64b8c1e0f93a7d2c55e1f4b6a8093d7c2e1b5a4f6d8c0e9b37"}"#,
+        kept: Kept::AllBut(&["/chain"]),
+    },
+    Sample {
+        kind: kinds::LEDGER,
         layout: "a row of a kind no build writes now (the place rule, theseus-nbsh): 19a's or 19c's label.held_post_answered",
         bytes: r#"{"at_unix_ms":1790000000075,"kind":"label.held_post_answered","session_id":"ses_lighthouse","data":{"approve":false,"by":"the CLI","question":"act_00000000000000000000000000000074"}}"#,
         kept: Kept::All,
@@ -487,11 +499,61 @@ fn a_format_28_store_opens_with_no_standing_records_and_takes_them() {
         .append(&[theseus_store::NewRecord::json(kinds::LEDGER, None, &"x").unwrap()])
         .unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
-    assert_eq!(moved["format"], 30);
+    // This build's format: the move is made by the first write of any build.
+    assert_eq!(moved["format"], 31);
     drop(store);
     let again = crate::store::Store::open(&path).unwrap();
     assert_eq!(
         *crate::standing::Board::default().all(&again).unwrap(),
         vec![r]
     );
+}
+
+/// A store of format 29, whose ledger holds rows with no chain (theseus-bmkxk):
+/// the build opens it and reads them, its first ledger write starts the chain
+/// with a row that counts and pins them, and the manifest moves to 31. The
+/// chain then verifies, with the old rows pinned by count.
+#[test]
+fn a_format_29_store_starts_its_chain_over_the_rows_it_holds() {
+    use theseus_store::wal::{Wal, WalConfig};
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("store");
+    std::fs::create_dir_all(&path).unwrap();
+    {
+        let wal = Wal::open(&path.join("wal"), WalConfig::default()).unwrap();
+        for sample in SAMPLES
+            .iter()
+            .filter(|s| s.layout.starts_with("a row as format 29"))
+        {
+            wal.append(&[theseus_store::NewRecord::bytes(
+                kinds::LEDGER,
+                None,
+                sample.bytes.as_bytes().to_vec(),
+            )])
+            .unwrap();
+        }
+    }
+    let manifest = path.join("MANIFEST.json");
+    std::fs::write(&manifest, r#"{"format": 29, "engine": "redb"}"#).unwrap();
+
+    let store = crate::store::Store::open(&path).unwrap();
+    let before = theseus_store::chain_walk::verify(store.inner().as_ref(), None, None).unwrap();
+    assert!(
+        before.broken.is_none() && before.head.is_none(),
+        "{before:?}"
+    );
+    assert_eq!(before.unchained, 1);
+    store
+        .append_ledger(&LedgerRow::new(
+            theseus_protocol::LedgerKind::TurnStarted,
+            Some("ses_lighthouse"),
+            None,
+            Value::Null,
+        ))
+        .unwrap();
+    let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
+    assert_eq!(moved["format"], 31);
+    let after = theseus_store::chain_walk::verify(store.inner().as_ref(), None, None).unwrap();
+    assert!(after.broken.is_none(), "{after:?}");
+    assert_eq!((after.rows, after.unchained), (2, 1));
 }

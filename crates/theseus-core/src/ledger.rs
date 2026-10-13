@@ -2,6 +2,10 @@
 //! row. In M0 rows are JSON in the embedded store. A row's kind is one of
 //! the registry's (`theseus_protocol::LedgerKind`, theseus-j6qn), stored by
 //! its name, so a row of a kind this build does not write still reads.
+//!
+//! A stored row also carries a `chain` field (theseus-bmkxk): the store's writer
+//! splices it into the row's bytes as the row is written (`theseus_store::chain`),
+//! so a `LedgerRow` never builds one, and a decode leaves it out.
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;

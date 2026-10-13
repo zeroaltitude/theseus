@@ -60,6 +60,9 @@ Key modules: `main.rs`, `cmd.rs`, `render.rs`, `client.rs`. Read by: (a binary).
   Ctrl-W, Enter, Ctrl-D on an empty line), since a terminal's own line mode shows nothing until Enter, and the first
   key of a line is the `session.typing` notice's moment; a pipe is read by lines as before. `render/warm.rs` is
   health's `warm:` line.
+- `src/ledger_verify.rs` (theseus-bmkxk): `theseus ledger verify [--since POS] [--anchor SEQ:DIGEST]` (exit 0 whole, 1 at the
+  first broken link, which it names) and `theseus ledger head`, over `ledger.verify`; `theseus ledger` with no subcommand is the
+  tail as before. Its words are pure functions of the answer (`lines`, `head_lines`), tested in the file.
 - `src/postmortem.rs` (theseus-m2tiu): `theseus postmortem [--since T] [--until T] [--session S | --task T] [--out FILE]`
   (`--json` the same facts as data; default window the last 12 hours; `T` is an age, a time of day, `yesterday 22:00`
   or an RFC 3339 time). It reads `ledger.window` a page at a time (read only: no frame, no lock) and hands the rows to

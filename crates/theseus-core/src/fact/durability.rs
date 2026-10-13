@@ -22,14 +22,21 @@ pub struct SegmentShipped<'a> {
     pub last_position: u64,
     pub parts: u32,
     pub took_ms: u64,
+    /// The ledger chain's head as the segment shipped, `SEQ:DIGEST`
+    /// (theseus-bmkxk): the anchor for `theseus ledger verify --anchor`.
+    pub ledger_head: Option<&'a str>,
 }
 
 impl Fact for SegmentShipped<'_> {
     const KIND: Option<LedgerKind> = Some(LedgerKind::DurabilityShipped);
 
     fn row(&self) -> Value {
-        json!({"segment": self.segment, "key": self.key, "bytes": self.bytes,
+        let mut row = json!({"segment": self.segment, "key": self.key, "bytes": self.bytes,
             "sha256": self.sha256, "last_position": self.last_position,
-            "parts": self.parts, "took_ms": self.took_ms})
+            "parts": self.parts, "took_ms": self.took_ms});
+        if let Some(h) = self.ledger_head {
+            row["ledger_head"] = json!(h);
+        }
+        row
     }
 }

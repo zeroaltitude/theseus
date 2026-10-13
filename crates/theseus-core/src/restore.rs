@@ -529,22 +529,23 @@ mod tests {
 
         let dst = tempfile::tempdir().unwrap();
         let r = restore(wal_copy.path(), dst.path(), false).unwrap();
-        assert_eq!(r.last_position, 3);
+        // Two sessions, and the ledger row with the chain's start row ahead of it.
+        assert_eq!(r.last_position, 4);
         assert_eq!(r.truncated_bytes, bytes.len() as u64 - fourth);
         let cut = r.cut.expect("the cut is reported");
-        assert_eq!((cut.offset, cut.position, cut.synced_to), (fourth, 4, 3));
+        assert_eq!((cut.offset, cut.position, cut.synced_to), (fourth, 5, 4));
         assert_eq!(
             cut.whole_after.map(|w| (w.offset, w.first)),
-            Some((fifth, 5))
+            Some((fifth, 6))
         );
         let restored = Store::open(&dst.path().join("store")).unwrap();
         let rows: Vec<(u64, LedgerRow)> = restored.ledger_tail(1).unwrap();
         assert_eq!(rows[0].1.kind, "store.restored");
         assert_eq!(
             rows[0].1.data["cut"]["whole_after"],
-            json!({"offset": fifth, "first": 5})
+            json!({"offset": fifth, "first": 6})
         );
-        assert_eq!(rows[0].1.data["cut"]["synced_to"], 3);
+        assert_eq!(rows[0].1.data["cut"]["synced_to"], 4);
     }
 
     #[test]
@@ -721,8 +722,8 @@ mod tests {
         let restored = Store::open(&dst.path().join("store")).unwrap();
         assert_eq!(
             restored.ledger_len().unwrap(),
-            61,
-            "60 rows and store.restored"
+            62,
+            "60 rows, the chain's start and store.restored"
         );
     }
 

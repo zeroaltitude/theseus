@@ -87,7 +87,12 @@ startup: Array<StartupPhase>,
 /**
  * Tokens across every session, summed from session records.
  */
-usage_total: Usage, provider_errors: number, ledger_rows: number, telemetry: TelemetryStatus, 
+usage_total: Usage, provider_errors: number, ledger_rows: number, 
+/**
+ * The ledger chain's head as the writer last committed it, short
+ * (`3fa1c09e…#1204`); absent before the chain starts (theseus-bmkxk).
+ */
+ledger_head?: string | null, telemetry: TelemetryStatus, 
 /**
  * The durable kernel (M2): executions, actions, admission.
  */

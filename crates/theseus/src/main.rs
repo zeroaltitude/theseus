@@ -28,6 +28,7 @@ mod judge_correct;
 mod judge_prove;
 mod judge_runs;
 mod keys;
+mod ledger_verify;
 mod mcp;
 mod ontology;
 mod packs;
@@ -431,6 +432,8 @@ enum Cmd {
         kind: Option<String>,
         #[arg(short, long)]
         session: Option<String>,
+        #[command(subcommand)]
+        cmd: Option<ledger_verify::LedgerCmd>,
     },
     /// herdr, the terminal workspace manager: `theseus herdr sync` gives each session that needs
     /// you or is working a pane in herdr, running `theseus watch --interactive`.
@@ -1095,7 +1098,10 @@ async fn run(cli: Cli) -> Result<()> {
         Cmd::Wait { until, timeout, .. } => wait_any(c, json, &until, timeout.as_deref()).await,
         Cmd::Status(_) | Cmd::Postmortem(_) => unreachable!("they connect for themselves"),
         Cmd::Profile { cmd } => cmd::profile(c, json, cmd.unwrap_or(ProfileCmd::List)).await,
-        Cmd::Ledger { n, kind, session } => cmd::ledger(c, json, n, kind, session).await,
+        Cmd::Ledger { cmd: Some(cmd), .. } => ledger_verify::run(c, json, cmd).await,
+        Cmd::Ledger {
+            n, kind, session, ..
+        } => cmd::ledger(c, json, n, kind, session).await,
         Cmd::Herdr { cmd } => {
             let socket = cli.spawn.is_none().then_some(cli.socket.as_str());
             herdr_sync::run(c, json, cmd, socket).await

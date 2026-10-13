@@ -160,6 +160,8 @@ ledger_kinds! {
     JudgeResumed = "judge.resumed",
     JudgeShed = "judge.shed",
     KeepWarm = "keep_warm",
+    LedgerChainStarted = "ledger.chain_started",
+    LedgerHistoryPinned = "ledger.history_pinned",
     LoopCapReached = "loop.cap_reached",
     LoopEnded = "loop.ended",
     LoopStarted = "loop.started",

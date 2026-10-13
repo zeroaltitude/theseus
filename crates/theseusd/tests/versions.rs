@@ -308,7 +308,7 @@ fn an_older_binarys_store_serves_at_once_and_moves_to_this_builds_format_at_its_
     let m = rig.manifest();
     assert_eq!(
         m,
-        json!({"format": 30, "engine": "redb"}),
+        json!({"format": 31, "engine": "redb"}),
         "the start wrote {:?}",
         rig.written_after(LAST)
     );
@@ -325,7 +325,7 @@ fn a_store_of_a_newer_format_is_refused_with_the_message_and_left_as_it_was() {
     let rig = Rig::new();
     std::fs::write(
         rig.path("state/store/MANIFEST.json"),
-        r#"{"format": 31, "engine": "redb"}"#,
+        r#"{"format": 32, "engine": "redb"}"#,
     )
     .unwrap();
     let before = snapshot(&rig.path("state/store"));
@@ -334,8 +334,8 @@ fn a_store_of_a_newer_format_is_refused_with_the_message_and_left_as_it_was() {
     assert!(!status.success(), "it served");
     let log = rig.log();
     for says in [
-        "is format 31",
-        "this build reads formats 2 to 30",
+        "is format 32",
+        "this build reads formats 2 to 31",
         "install the newer theseusd",
     ] {
         assert!(

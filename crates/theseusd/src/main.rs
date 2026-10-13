@@ -1048,6 +1048,9 @@ async fn after_serving(
     // What the store's open left unchecked, the WAL's history, is checked
     // now, in the background (theseus-8ni).
     core.check_store_history();
+    // The ledger rows from before the hash chain, pinned once by a digest
+    // (theseus-bmkxk).
+    core.pin_ledger_history_after_serving();
     // The index's terms, when an older build wrote last: built now, in the
     // background, never before serving (theseus-lv2).
     core.build_store_terms();

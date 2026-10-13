@@ -1193,6 +1193,15 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   writes no frame and takes no session or execution lock. The index counts a row at the time it was written, so the
   window's own times then decide by each row's `at_unix_ms`. Tests: `rpc/tests_window.rs` (a busy day's window, 6,000
   report rows in 13 pages, read in 0.14 s in a debug build).
+- **The ledger's hash chain** (theseus-bmkxk, store format 31): the store's writer chains every ledger row
+  (`theseus-store`'s guide); core reads it. `ledger.verify` (`rpc/ledger_verify.rs`, a read: no frame, no lock, on the
+  blocking pool; `theseus ledger verify|head`) walks it with `theseus_store::chain_walk::verify` and answers the head and
+  the first broken link, no row data. Health's `ledger_head` is the writer's own head, short. `ledger_pin.rs`: a store
+  from before the chain has its old rows pinned once, after serving, on a `ledger-pin` thread that paces itself and holds
+  the core by `Weak` and begins `START_AFTER` (2 s) after serving (a thread holding the store at a stop right after serving keeps its close from checkpointing: `early_signal` fails; `ledger.history_pinned` and the META key `ledger.history_pinned` in one frame; the chain's start
+  row counts them, so the start path reads no history). The durability tender puts the head (`SEQ:DIGEST`) on each
+  segment's and tail's index row and in `durability.shipped` (`Hooks::ledger_head`), the anchor for `verify --anchor`.
+  Tests: `ledger_pin::tests`, `tests_layouts.rs`, `rpc/tests_ledger_verify.rs`, `aws/tests_durable.rs`.
 - **The operator's two reads** (step 42a, theseus-ext.7): `rpc/budgets.rs` is `budget.list`, each open execution's
   money from its record (`Kernel::open_executions`), where its limit comes from (`config`, `place`, `carve`, or
   `pinned`), its session's lifetime cost, and its last reset from one small ledger page by kind and session tag,

@@ -37,6 +37,9 @@ Key modules: `lib.rs` (the `method`, `notify`, `error_code` tables), `events.rs`
   one line each. Writers take a variant, so a new kind is a new line here, and core's `tests_registry` fails a
   variant nothing writes. A row stores the kind's name, so old kinds (`LedgerKind::RENAMED`) and unknown ones still
   read; renaming a kind is a store version change (P5b).
+- `ledger_verify.rs` (theseus-bmkxk): `ledger.verify`'s params and answer (`LedgerVerifyParams`, `LedgerVerifyResult`,
+  `LedgerBreak`, `LedgerHead`): the hash chain's walk, read only; no row's data rides it. Health's `ledger_head` is its
+  short form (`LedgerHead::short`).
 - `places.rs` (the place rule, theseus-nbsh): a place's `PlaceClass` (private or shared), and health's
   `PlacesHealth`, each place with its class. The rule itself is the core's (`places.rs`). 19a's labels went with it:
   a stored node's `label` and a manifest's audience fields read and are left unread (NODE 7, COMPILATION 5), and a

@@ -16,6 +16,9 @@ Key modules: `wal.rs`, `index.rs`, `record.rs`, `store.rs` (`MANIFEST_FORMAT`). 
   `Store::keys_ending` lists a kind's keys that end with a given suffix, up to a limit, from the index's key table
   alone, reading no record (a node named by its short id, theseus-glyw).
   `blocking` runs a wait for the disk without holding a runtime worker, and the task gives way after it.
+- `chain.rs`, `chain_walk.rs`, `store/chain_writer.rs` (theseus-bmkxk, format 31): the ledger's hash chain. `chain` is
+  the pure part (a link, `seal`, `open`, the start row, the history digest), `chain_writer` the writer's half, and
+  `chain_walk` its one reader (`verify`, streaming; `read_before`, the unchained history).
 - `pressure.rs` (theseus-tood): a background pass waits between two chunks while the machine is busy (PSI's
   `some avg10` at or over the gate's 20 % CPU or 10 % IO, up to `BOUND`; nothing waits without PSI), and
   `idle_this_thread` puts a thread in `SCHED_IDLE`, one-way, so only one that answers no one and starts no thread
@@ -28,6 +31,19 @@ Key modules: `wal.rs`, `index.rs`, `record.rs`, `store.rs` (`MANIFEST_FORMAT`). 
   once for all of them, indexes them in one transaction, and answers each. The answer comes after the index, so a
   caller's lock spans its read to its frame indexed (K1). Never append from the writer itself, and never hold
   `appending` while you append: the writer needs it shared.
+- **The ledger chain is computed only in the writer** (theseus-bmkxk). In `commit`, before a frame is written, each
+  `LEDGER` record that is a JSON object gets `,"chain":"<seq>.<hex>"` spliced onto its end, SHA-256 over the previous
+  digest, the seq (8 bytes, little endian) and the payload as the caller gave it (never re-serialized, so no serde
+  version changes what was hashed); a reader takes the suffix back off by bytes (`chain::open`). The head is a clone
+  the batch works on and that moves for good only once the batch is durable and indexed: a frame the log refuses, or a
+  sync that fails, gives its links back (a frame's links are then chained again on the old head). It is loaded lazily,
+  at the first ledger write, from the newest chained ledger row (an index read, never a walk). A store with no chain
+  gets a `ledger.chain_started` row in the same frame, ahead of the caller's first row (`Job::hidden`: its position is no
+  one's answer), counting the unchained rows by the index alone. A ledger payload that is not an object is stored as
+  it came, unchained, and a walk calls it broken once the chain has started. Readers never trust a stored link:
+  `chain_walk::verify` recomputes all of them and stops at the first break, reading a page (`PAGE`) at a time
+  (`tests/chain_stream.rs` holds the memory bound with a counting allocator). Never write a ledger row's `chain`
+  by hand, and never append from anywhere but the writer. Tests: `store/tests_chain.rs`.
 - **A segment's name is as durable as its frames** (theseus-xprd). A roll syncs the segment it leaves; the `sync`
   that makes a new segment's first frame durable then syncs the log's directory before it returns, and a new
   log's first sync syncs the directory holding the log too. An open that appends to a last segment it found syncs

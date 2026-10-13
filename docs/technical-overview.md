@@ -112,7 +112,23 @@ and a single writer pays exactly one sync per frame as before. Records carry an 
 (a session id) and the index keeps a per-scope position table, so a session's own records are one
 range scan (§4.4b).
 
+**The ledger's hash chain** (theseus-bmkxk, store format 31). Every ledger row the writer appends carries a `chain`
+field, `<seq>.<sha256>`: the digest runs over the previous row's digest, this row's seq, and this row's bytes exactly as
+the caller wrote them, computed in the store's one writer in WAL order, so concurrent appenders make one chain. The
+first write of a build that knows the chain appends a `ledger.chain_started` row (how many rows came before it, and
+where they end); after serving, `ledger.history_pinned` adds one digest over all of them. `theseus ledger verify`
+recomputes every link, streaming, and exits 1 at the first broken link, naming its position, time and kind and whether
+the row was edited, removed or reordered; `theseus ledger head` prints the head (health shows its short form), and
+`verify --anchor SEQ:DIGEST` checks the walk against a head recorded earlier (the durability tender stores the head on
+each segment's index row). **What it catches:** an edit of a row, a removed row, two rows swapped, a row with its link
+stripped, an edit of the history from before the chain, and, against an earlier head, a truncated tail or a chain
+rewritten from some row onward. **What it cannot:** a forger who rewrites every later row with Theseus's own code and
+has no earlier head to compare against: the chain proves consistency, and a head kept off the machine proves it was not
+rebuilt.
+
 ```bash
+theseus ledger verify          # ledger ok: 1,204,331 rows chained since 2026-10-12 09:14, head 3fa1c09e… (seq …)
+theseus ledger head            # the head to record somewhere the store's editor can't reach
 theseus-sim crash-test --iterations 40 --restarts 3   # kill -9, tear the tail, verify
 theseus-sim bench lifecycle --runs 10 --check         # the §9 budgets: cold start, clean shutdown, kill, swap, restore
 theseus-sim bench history                             # each gate's p50 and p95 per phase, with the headroom left
