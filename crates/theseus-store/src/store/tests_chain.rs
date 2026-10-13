@@ -392,9 +392,11 @@ fn the_history_a_chain_pinned_is_checked_and_an_edit_of_it_found() {
     assert!(r.broken.is_none(), "{r:?}");
     assert!(r.history_checked);
     assert_eq!(r.unchained, 5);
-    // One old row edited.
+    // One old row edited, its length kept (the digest covers each row's
+    // length and its bytes: the bytes alone must find this one).
     let mut edited = old.clone();
-    edited[2] = row(0);
+    edited[2] = row(199);
+    assert_eq!(edited[2].len(), old[2].len());
     let (_d2, s2) = written_after(&edited, &chained);
     let r = walk(&s2);
     let b = broken(&r);
@@ -405,6 +407,40 @@ fn the_history_a_chain_pinned_is_checked_and_an_edit_of_it_found() {
     let b = broken(&walk(&s3)).clone();
     assert_eq!(b.fault, Fault::History);
     assert_eq!(b.position, 5, "the start row");
+}
+
+/// A frame the log refuses gives its links back: the next frame chains on
+/// the head the last written frame left, and the chain verifies whole.
+#[test]
+fn a_frame_the_log_refuses_gives_its_links_back() {
+    let dir = tempfile::tempdir().unwrap();
+    let s = WalStore::open(
+        dir.path(),
+        WalConfig {
+            max_total_bytes: Some(4_000),
+            ..WalConfig::default()
+        },
+    )
+    .unwrap()
+    .with_checkpoint_every(0);
+    put(&s, 1);
+    let big = format!(
+        "{{\"at_unix_ms\":1001,\"kind\":\"turn.started\",\"data\":{{\"pad\":\"{}\"}}}}",
+        "x".repeat(8_000)
+    );
+    assert!(
+        s.append(&[NewRecord::bytes(kinds::LEDGER, None, big.into_bytes())])
+            .is_err(),
+        "the log refuses a frame past its room"
+    );
+    put(&s, 2);
+    let r = walk(&s);
+    assert!(r.broken.is_none(), "{r:?}");
+    assert_eq!(
+        r.head.unwrap().link.seq,
+        2,
+        "the refused row's seq is reused"
+    );
 }
 
 #[test]
