@@ -648,7 +648,9 @@ Theseus's business now (the owner, 2026-09-30). Only what enforces the two hard 
     session. The toolset mints one only as a floor session, after the operator's approval, and ledgers every
     mint.
   - **AWS also watches.** The posture stack's CloudTrail alarms (the employer's CIS set: security group changes, IAM
-    policy changes, trail changes, root use, and more) email the owner and come home as events. A breach is seen
+    policy changes, trail changes, root use, and more) email the owner and come home as events. _(Since
+    2026-10-13, theseus-4znao: root use means a root sign-in or a root call that is not read-only; root's reads
+    are not alerts.)_ A breach is seen
     AWS-side even if every Theseus layer failed.
 - **With the Organization** (the owner's decision, to be renewed before step 14's brief):
   - The same list becomes SCPs that Theseus cannot detach, plus the budget's deny-spend SCP at 100%.

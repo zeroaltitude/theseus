@@ -405,6 +405,10 @@ pass did not re-estimate v1.1's date.
 
 ## Recently landed
 
+- **2026-10-13:** the root user's AWS check alerts on root's sign-ins and on its calls that are not read-only
+  (`readOnly` false, or none at all), and no longer on its reads (theseus-4znao, the owner's yes that morning): one
+  visit to the console's Service Quotas page by root had sent hundreds of alerts in ten minutes, where now it sends
+  two, the sign-in and the quota request. A change to the posture stack's one rule, through the floor.
 - **2026-10-11:** recall's words in time (Item 246, theseus-y9a3): the index tender answers queries at the daemon's
   priority while its own work stays lowered, so beside a busy machine a recall's word search answers in milliseconds,
   not past the 250 ms deadline (6 of October 10's 13 live recalls had nothing); a query embeds on one thread, steadier
