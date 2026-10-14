@@ -100,7 +100,8 @@ Key modules: `lib.rs` (the `method`, `notify`, `error_code` tables), `events.rs`
 - `threads.rs` (theseus-nhew): threads on virtual places `thread:<slug>`: `ThreadInfo` (the seam the context, recall and
   routing rows read: extend it only by adding), `WorkingSet`, `Seal`, `ThreadState`, `ThreadRow` (a thread with its
   session's context tokens and today's dollars), the eight `thread.*` methods' params, and `slug_ok`/`place_of`/
-  `slug_of_place`. `turn.submit`'s `thread` is in `submit.rs`.
+  `slug_of_place`. `turn.submit`'s `thread` is in `submit.rs`. Since theseus-f2g0: `thread.seal` (`ThreadSealParams`, `ThreadSealResult`,
+  `ThreadCrossed`, `crossed_words`), `thread.unseal`, `thread.seal_dismiss`, and `ThreadNewParams.sealed`/`split_from`.
 - `ts.rs`: the TypeScript export.
 
 ## Invariants
