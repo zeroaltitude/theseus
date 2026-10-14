@@ -15,6 +15,7 @@ reads one text. A driver sends two families a second message mid-trial, and a sc
 | `tools/layer2.py` | Layer 2's tools, the facts they draw, its order rules (`DEPS`), ideal walls, overlap, and checks, on asyncbench's ledger. Copied beside the library into each Layer 2 task. |
 | `families.py` | Layer 2's twenty tasks: each one's instruction, oracle, files and shape, which `sync.py` writes into `tasks/<family>/`. Not in any image. |
 | `layer1.py` | Layer 1's drivers: the stand-in's rules and each harness's command, its wall measured around the CLI. |
+| `steer_stand_in.py` | The `interrupt` and `cancel` families' shape on a scratch Theseus and the scripted stand-in (`job_wait` again and again, as the real model did), with the steer on (`after`) and off (`before`): the time from the message's send to the model's answer, and in `cancel` to the job's end (theseus-qu1lc). Costs nothing. |
 | `driver.py` | The injection and its trigger, the kill injection and each arm's restart (theseus-7ajc), and each arm's commands. Standard library only. |
 | `kill-tasks/kill-<family>/` | The kill family's six tasks (theseus-7ajc), written by `sync.py` from `families.py`; kept apart from `tasks/` so the plain runs never pick them up. |
 | `async_agents.py` | The Harbor agents: `async_agents:TheseusAsync`, `async_agents:ClaudeCodeAsync`, `async_agents:PiAsync` and `async_agents:OpenCodeAsync` (OpenCode's measured arm plus the kill). |
