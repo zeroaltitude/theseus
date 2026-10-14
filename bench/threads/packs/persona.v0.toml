@@ -1,0 +1,40 @@
+# persona.v0 (DRAFT, threadbench): which persona's specialty the person's new message calls for. Modelled on role.v1
+# (the same `inbound` state, the roles table's ids as options, `other`) and route.v4 (its header, its two
+# thresholds). It is a draft for the offline persona track (bench/threads/th_persona.py): the product's pack will
+# be a later route version, written with the owner; jev-probe loads embedded packs only, so this file has not been
+# through the product's loader. To try it on Jev, copy it to crates/theseus-judge/packs/ under the id the loader
+# expects and embed it, then run bench/threads/th_persona.py with --jev-probe; the bench's inputs are
+# InboundInput JSON files (`--dump-inputs`), one per message, each with the five personas as `roles`
+# (id, and the ~60-token specialization card as `stance`).
+id = "persona"
+version = 0
+jev_model = "jev-1.13.0"
+point = "inbound"
+state = "inbound"
+state_cap_tokens = 3000
+sample = 1.0
+baseline = "current_role"
+action = "role_hint"
+description = "PERSONA (draft): the persona whose specialty the person's new message calls for, so a reply can lean on it."
+
+[questions.persona]
+type = "choice"
+decides = true
+instructions = "Which specialist's specialty does the person's new message call for? Read the message and the few before it; choose the persona whose card describes the work the reply needs, not the persona that was last in use."
+act = 0.90
+confirm = 0.60
+options_from = "roles"
+only_when = "roles"
+no_match = "other"
+options = [
+  { id = "other", means = "None of the personas listed fits the work this message calls for." },
+]
+
+[[rollback]]
+rule = "switches_per_exchange"
+max = 2
+
+[[rollback]]
+rule = "labels_per_day"
+label = "wrong persona"
+count = 2
