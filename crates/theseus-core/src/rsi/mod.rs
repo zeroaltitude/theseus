@@ -62,6 +62,7 @@ use theseus_store::{kinds, NewRecord};
 
 use crate::store::Store;
 
+pub use digest::{capped as digest_capped, line as digest_line};
 pub use digest::{digest_text, week_of, DIGEST_KEY, WEEK_MS};
 pub use log::{entry_of, TODAY};
 

@@ -133,8 +133,9 @@ fn posted(at_ms: u64) -> Result<NewRecord> {
     NewRecord::json(kinds::META, Some(DIGEST_KEY), &Posted { at_ms })
 }
 
-/// A digest cut to one post, saying where the rest is.
-fn capped(text: &str) -> String {
+/// A digest cut to one post, saying where the rest is (the weekly post's
+/// cut, and the Discord word `self digest`'s, theseus-pw1q.19).
+pub fn capped(text: &str) -> String {
     if text.chars().count() <= POST_CHARS {
         return text.to_string();
     }
@@ -157,8 +158,9 @@ fn cost_of(r: &SelfLogRow) -> f64 {
         .fold(0.0, |a, c| a + c)
 }
 
-/// A row in a line: its time, what, its numbers and its undo.
-fn line(r: &SelfLogRow) -> String {
+/// A row in a line: its time, what, its numbers and its undo (the digest's,
+/// and the Discord word `self log`'s).
+pub fn line(r: &SelfLogRow) -> String {
     let mut l = format!("- {} {}: {}", date(r.at_unix_ms), r.kind, r.what);
     if let Some(w) = &r.why {
         l.push_str(&format!(" ({w})"));

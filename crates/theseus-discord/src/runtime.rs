@@ -76,6 +76,7 @@ pub(crate) use live::PERIOD as LIVE_PERIOD;
 mod prompt;
 mod publish;
 pub(crate) mod route;
+mod self_word;
 mod show;
 mod steer;
 mod succession;
@@ -783,6 +784,7 @@ enum Control {
     HaltSelf(Option<String>, Option<DiscordOrigin>),
     /// "resume self": its author's ids; the core counts only the owner's.
     ResumeSelf(Option<DiscordOrigin>),
+    SelfWord(self_word::Word),
 }
 
 /// What `/stop` answers (W1): what stopped, and that the conversation goes
@@ -853,7 +855,7 @@ fn parse_control(text: &str) -> Option<Control> {
         "/tasks" => Some(Control::Tasks),
         "/wakes" => Some(Control::Wakes),
         "/trust" => Some(Control::Trust(None)),
-        _ => None,
+        _ => self_word::words(text).map(Control::SelfWord),
     }
 }
 
@@ -2249,8 +2251,9 @@ impl Place {
             Control::Why => self.why().await,
             Control::Revoke(name, origin) => self.revoke(name, origin, by).await,
             Control::Unorder(id, origin) => self.unorder(id, origin, by).await,
-            Control::HaltSelf(why, origin) => self.halt_self(why, origin, by).await,
-            Control::ResumeSelf(origin) => self.resume_self(origin, by).await,
+            Control::HaltSelf(..) | Control::ResumeSelf(_) | Control::SelfWord(_) => {
+                self.self_control(cmd, by).await
+            }
             Control::Join(named, origin) => self.join(named, origin, by).await,
             Control::Leave => self.leave(by).await,
         }

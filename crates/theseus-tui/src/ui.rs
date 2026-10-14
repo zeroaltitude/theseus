@@ -34,7 +34,10 @@ pub fn draw(app: &App, buf: &mut Buffer) -> Option<(u16, u16)> {
     }
     header(app, Rect::new(0, 0, area.width, 1), buf);
     let body = Rect::new(0, 1, area.width, area.height - 2);
-    if app.wide() {
+    if app.mode == Mode::SelfView {
+        // The self view takes the whole body (theseus-pw1q.19).
+        self_view(app, body, buf);
+    } else if app.wide() {
         let side = sidebar_width(area.width);
         sidebar(app, Rect::new(0, body.y, side, body.height), buf);
         for y in body.y..body.y + body.height {
@@ -60,6 +63,23 @@ pub fn draw(app: &App, buf: &mut Buffer) -> Option<(u16, u16)> {
 /// from 36 to 56 columns.
 pub fn sidebar_width(width: u16) -> u16 {
     (width * 3 / 10).clamp(36, 56)
+}
+
+/// The self view: its lines, as many as fit.
+fn self_view(app: &App, area: Rect, buf: &mut Buffer) {
+    for (i, (tag, line)) in app
+        .self_lines(area.width)
+        .iter()
+        .enumerate()
+        .take(area.height as usize)
+    {
+        let style = if i == 0 {
+            Style::default().add_modifier(Modifier::BOLD)
+        } else {
+            tag_style(*tag)
+        };
+        buf.set_stringn(area.x, area.y + i as u16, line, area.width as usize, style);
+    }
 }
 
 fn header(app: &App, area: Rect, buf: &mut Buffer) {
@@ -353,7 +373,10 @@ pub fn wrap(text: &str, width: usize) -> Vec<String> {
 }
 
 fn footer(app: &App, area: Rect, buf: &mut Buffer) -> Option<(u16, u16)> {
-    let keys = "[?] help  [q] quit ";
+    let keys = match app.mode {
+        Mode::SelfView => app.self_keys(),
+        _ => "[l] self  [?] help  [q] quit ",
+    };
     let typed = match &app.mode {
         Mode::Filter => Some(("/", app.filter.as_str())),
         Mode::Input => Some(("> ", app.input.as_str())),
@@ -425,7 +448,7 @@ fn tail_fit(text: &str, room: usize) -> String {
 
 /// The keys (design §2.9), over the body.
 fn help(area: Rect, buf: &mut Buffer) {
-    const KEYS: [&str; 16] = [
+    const KEYS: [&str; 17] = [
         " keys",
         " ↑ ↓  j k   move (on a narrow screen's session: scroll it)",
         " enter      open the session under the cursor",
@@ -438,6 +461,7 @@ fn help(area: Rect, buf: &mut Buffer) {
         " PgUp PgDn  scroll the open session (End: back to its end)",
         " / text     filter by text (enter keeps it, esc clears)",
         " b w r d a  only needs you, working, ready, done; all",
+        " l          what Theseus changed about itself (esc closes)",
         " ?          this help",
         " q          quit (ctrl-c from anywhere)",
         "",

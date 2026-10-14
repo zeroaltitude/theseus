@@ -13,6 +13,7 @@ mod card;
 mod detail;
 mod notice;
 mod run;
+mod selfview;
 mod term;
 mod ui;
 
@@ -30,6 +31,8 @@ mod tests_notice;
 mod tests_order;
 #[cfg(test)]
 mod tests_paste;
+#[cfg(test)]
+mod tests_self;
 #[cfg(test)]
 mod tests_sync;
 #[cfg(test)]

@@ -20,6 +20,7 @@ use theseus_protocol::{
 use crate::board::{short, Board, Moved, Only, Question, Row};
 use crate::detail::Detail;
 use crate::notice::Notices;
+use crate::selfview::SelfView;
 use theseus_client::seen::Seen;
 use theseus_protocol::notices::{self, Viewer};
 
@@ -63,6 +64,8 @@ pub enum Purpose {
     Typing,
     /// `health`, for the OpenClaw sync's warning in the header (theseus-pjmj7).
     Health,
+    /// `self.log`, for the self view (theseus-pw1q.19).
+    SelfLog,
     /// `execution.stop`.
     Stop(String),
     /// `task.cancel`.
@@ -119,6 +122,8 @@ pub enum Mode {
     Note(String),
     /// `?`: the keys.
     Help,
+    /// `l`: what Theseus changed about itself (theseus-pw1q.19).
+    SelfView,
 }
 
 /// Which pane a narrow screen shows: the list, or the session in focus.
@@ -176,6 +181,8 @@ pub struct App {
     /// The OpenClaw sync's warning, from `health` at each connect: a failed or
     /// a missed night (theseus-pjmj7).
     pub sync_warn: Option<String>,
+    /// The self view's last read (theseus-pw1q.19).
+    pub selfview: SelfView,
     /// When the seen file is due to be written: a change of focus waits a
     /// second, so a walk through the queue writes once.
     save_at: Option<u64>,
@@ -213,6 +220,7 @@ impl App {
             title: String::new(),
             save_at: None,
             sync_warn: None,
+            selfview: SelfView::default(),
         }
     }
 
@@ -384,11 +392,15 @@ impl App {
         if let Some(sid) = self.detail.as_ref().map(|d| d.session_id.clone()) {
             out.extend(read_session(&sid));
         }
+        if self.mode == Mode::SelfView {
+            out.extend(self.self_read());
+        }
         out
     }
 
     /// The connection closed, or a connect failed: the loop tries again.
     pub fn disconnected(&mut self, attempt: u32) {
+        self.selfview.dropped();
         self.link = Link::Down { attempt };
         self.asking_questions = false;
     }
@@ -402,7 +414,7 @@ impl App {
             // A newer daemon's notification, or one that does not decode.
             Ok(None) | Err(_) => return Vec::new(),
         };
-        let mut out = Vec::new();
+        let mut out = self.self_moved(&event);
         if let Some(d) = self.detail.as_mut() {
             d.event(&event);
             if let Event::NodeWritten(n) = &event {
@@ -471,6 +483,9 @@ impl App {
         if all || lost.streams.iter().any(|s| s == "executions") {
             out.push(snapshot());
         }
+        if self.mode == Mode::SelfView && all {
+            out.extend(self.self_read());
+        }
         if let Some(sid) = self.detail.as_ref().map(|d| d.session_id.clone()) {
             let stream = format!("session:{sid}");
             if all || lost.streams.contains(&stream) {
@@ -482,6 +497,9 @@ impl App {
 
     /// An answer to one of the TUI's requests.
     pub fn answered(&mut self, purpose: Purpose, result: Result<Value, RpcError>) -> Vec<Effect> {
+        if purpose == Purpose::SelfLog {
+            return self.self_answered(result);
+        }
         let v = match result {
             Ok(v) => v,
             Err(e) => {
@@ -580,7 +598,7 @@ impl App {
                 }
             }
             Purpose::Health => self.sync_warn = sync_warning(v),
-            Purpose::Watch | Purpose::Typing => {}
+            Purpose::Watch | Purpose::Typing | Purpose::SelfLog => {}
         }
         Vec::new()
     }
@@ -621,6 +639,7 @@ impl App {
             Purpose::Answer { .. } => method::WORK_ANSWER,
             Purpose::Typing => method::SESSION_TYPING,
             Purpose::Health => method::HEALTH,
+            Purpose::SelfLog => method::SELF_LOG,
         };
         let text = format!("{what}: {}", e.message);
         if let Purpose::Submit(sid) | Purpose::Stop(sid) | Purpose::Cancel(sid) = purpose {
@@ -707,6 +726,7 @@ impl App {
                 self.mode = Mode::Normal;
                 Vec::new()
             }
+            Mode::SelfView => self.selfview_key(k),
             Mode::Filter => {
                 self.filter_key(k);
                 Vec::new()
@@ -733,6 +753,7 @@ impl App {
         match k.code {
             KeyCode::Char('q') => return vec![Effect::Quit],
             KeyCode::Char('?') => self.mode = Mode::Help,
+            KeyCode::Char('l') => return self.open_self(),
             KeyCode::Down | KeyCode::Char('j') => self.step(1),
             KeyCode::Up | KeyCode::Char('k') => self.step(-1),
             KeyCode::Enter => {
@@ -1020,6 +1041,8 @@ impl App {
             Mode::Input => self.input.push_str(&text),
             Mode::Filter => self.filter.push_str(&text.replace(['\n', '\t'], " ")),
             Mode::Note(_) => self.note.push_str(&text),
+            // The self view takes no paste.
+            Mode::SelfView => {}
             Mode::Normal | Mode::Help | Mode::Armed(..) => {
                 if let Mode::Armed(arm, _) = self.mode {
                     let not = match arm {
