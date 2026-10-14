@@ -287,6 +287,11 @@ pub fn set_plain(on: bool) {
     PLAIN.store(on, Ordering::Relaxed);
 }
 
+/// Whether `--plain` was given.
+pub fn is_plain() -> bool {
+    PLAIN.load(Ordering::Relaxed)
+}
+
 /// Whether the CLI's stdout shows styles: a terminal, `NO_COLOR` unset or
 /// empty (no-color.org), `TERM` not `dumb`, and no `--plain`.
 pub fn styled_stdout() -> bool {

@@ -93,6 +93,15 @@ impl Markdown {
     }
 }
 
+/// `text` broken into lines of at most `width` columns at its spaces, with no
+/// markup read in it: the status line under a reply on a terminal.
+pub fn wrap_text(text: &str, width: usize) -> Vec<String> {
+    wrap(&[Span::plain(text)], width)
+        .iter()
+        .map(StyledLine::plain)
+        .collect()
+}
+
 /// Tabs at a line's start as four spaces.
 fn expand_indent(line: &str) -> String {
     let lead = line.chars().take_while(|c| *c == ' ' || *c == '\t').count();

@@ -187,7 +187,7 @@ pub(crate) async fn stream_turn(
         for line in r.harness_lines() {
             eprintln!("{line}");
         }
-        eprintln!("{}", render::status_line(&r));
+        crate::print::footer(&render::status_line(&r));
     }
     if let (Some(corr), false) = (&r.awaiting_confirm, json) {
         eprintln!(
@@ -663,7 +663,7 @@ async fn follow_resumed(
                     for line in t.harness_lines() {
                         eprintln!("{line}");
                     }
-                    eprintln!("{}", render::status_line(&t));
+                    crate::print::footer(&render::status_line(&t));
                     if let Some(c) = &t.awaiting_confirm {
                         eprintln!("[parked again: `theseus confirm {c}` or `--decline`]");
                     }

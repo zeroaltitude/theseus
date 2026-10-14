@@ -135,3 +135,19 @@ fn nesting_a_hundred_deep_ends_and_keeps_the_text() {
         .collect();
     assert!(plain(&list, 200).len() >= 60);
 }
+
+#[test]
+fn a_status_line_breaks_at_spaces_and_reads_no_markup() {
+    let l = wrap_text(
+        "[f10 → m · 2 loop(s) · tokens in 27383 out 24 · $0.05 · *x* · session ses_1]",
+        30,
+    );
+    assert_eq!(
+        l,
+        [
+            "[f10 → m · 2 loop(s) · tokens",
+            "in 27383 out 24 · $0.05 · *x*",
+            "· session ses_1]"
+        ]
+    );
+}

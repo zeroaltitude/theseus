@@ -49,6 +49,21 @@ pub fn reply(w: &mut impl Write, text: &str) -> io::Result<()> {
     Ok(())
 }
 
+/// A line under a reply (the turn's status line) on stderr: on a terminal,
+/// broken at its spaces to the terminal's width, so no word is cut where the
+/// terminal's own wrap would; anywhere else, as it is (theseus-rn7s).
+pub fn footer(text: &str) {
+    use std::io::IsTerminal;
+    if !style::is_plain() && io::stderr().is_terminal() && style::color_allowed() {
+        let width = style::prose_width(style::terminal_width());
+        for l in render::md::wrap_text(text, width) {
+            eprintln!("{l}");
+        }
+    } else {
+        eprintln!("{text}");
+    }
+}
+
 /// Prints a session's live events for a terminal: the model's text on `out`
 /// (stdout), everything else (tools, confirmations, context decisions) on
 /// `err` (stderr).
