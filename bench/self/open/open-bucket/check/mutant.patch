@@ -1,0 +1,13 @@
+diff --git a/ratelimit/bucket.py b/ratelimit/bucket.py
+index f388fec..9ca78ce 100644
+--- a/ratelimit/bucket.py
++++ b/ratelimit/bucket.py
+@@ -12,7 +12,7 @@ class TokenBucket:
+ 
+     def _refill(self, now: float) -> None:
+         if now > self.stamp:
+-            self.tokens = min(self.capacity, self.tokens + (now - self.stamp) * self.rate)
++            self.tokens = self.tokens + (now - self.stamp) * self.rate
+             self.stamp = now
+ 
+     def take(self, n: float = 1.0, now: float = 0.0) -> bool:

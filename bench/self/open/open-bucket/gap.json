@@ -1,0 +1,10 @@
+{
+  "id": "open-bucket",
+  "family": "missing-test",
+  "title": "the token bucket has no tests",
+  "suite": ["python3", "-m", "unittest", "discover", "-q", "-s", "tests"],
+  "test_paths": ["tests"],
+  "signals": ["TokenBucket", "ratelimit"],
+  "proof": "mutant",
+  "mutant": "mutant.patch"
+}

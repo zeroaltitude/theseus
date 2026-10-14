@@ -1,0 +1,10 @@
+{
+  "id": "open-wordcount",
+  "family": "behaviour-bug",
+  "title": "count_words counts the gaps between words",
+  "suite": ["python3", "-m", "unittest", "discover", "-q", "-s", "tests"],
+  "test_paths": ["tests"],
+  "signals": ["count_words", "textkit"],
+  "symptom": "test_symptom.py",
+  "holdout": "test_holdout.py"
+}
