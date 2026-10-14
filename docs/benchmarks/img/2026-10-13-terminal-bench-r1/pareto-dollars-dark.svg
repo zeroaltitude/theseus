@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="440" viewBox="0 0 720 440" role="img" aria-labelledby="t-pareto-dollars t-pareto-dollars-d" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
+<title id="t-pareto-dollars">Pass rate against dollars per trial</title>
+<desc id="t-pareto-dollars-d">Which arms buy the most passes for the least money?</desc>
+<rect width="720" height="440" rx="8" fill="#1a1a19" stroke="#2c2c2a"/>
+<text x="18.0" y="32.0" font-size="15" fill="#ffffff" font-weight="600">Pass rate against dollars per trial</text>
+<circle cx="25.0" cy="50.0" r="5" fill="#3987e5"/>
+<text x="40.0" y="54.0" font-size="12" fill="#c3c2b7">Theseus</text>
+<circle cx="115.5" cy="50.0" r="5" fill="#d95926"/>
+<text x="130.5" y="54.0" font-size="12" fill="#c3c2b7">Claude Code</text>
+<circle cx="233.3" cy="50.0" r="4.5" fill="#1a1a19" stroke="#c3c2b7" stroke-width="1.6"/>
+<text x="248.3" y="54.0" font-size="12" fill="#c3c2b7">on the Pareto front (none does better on both)</text>
+<line x1="52.3" y1="384.0" x2="692.0" y2="384.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="46.3" y="388.0" font-size="11" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">60%</text>
+<line x1="52.3" y1="324.0" x2="692.0" y2="324.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="46.3" y="328.0" font-size="11" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">65%</text>
+<line x1="52.3" y1="264.0" x2="692.0" y2="264.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="46.3" y="268.0" font-size="11" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">70%</text>
+<line x1="52.3" y1="204.0" x2="692.0" y2="204.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="46.3" y="208.0" font-size="11" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">75%</text>
+<line x1="52.3" y1="144.0" x2="692.0" y2="144.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="46.3" y="148.0" font-size="11" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">80%</text>
+<line x1="52.3" y1="84.0" x2="692.0" y2="84.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="46.3" y="88.0" font-size="11" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">85%</text>
+<text x="52.3" y="76.0" font-size="11" fill="#c3c2b7">trials passed (95% Wilson)</text>
+<line x1="52.3" y1="84.0" x2="52.3" y2="384.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="52.3" y="400.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">$0.08</text>
+<line x1="265.5" y1="84.0" x2="265.5" y2="384.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="265.5" y="400.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">$0.10</text>
+<line x1="478.8" y1="84.0" x2="478.8" y2="384.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="478.8" y="400.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">$0.12</text>
+<line x1="692.0" y1="84.0" x2="692.0" y2="384.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="692.0" y="400.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">$0.14</text>
+<line x1="52.3" y1="384.0" x2="692.0" y2="384.0" stroke="#383835" stroke-width="1"/>
+<text x="372.1" y="418.0" font-size="12" fill="#c3c2b7" text-anchor="middle">mean dollars per trial (95% CI)</text>
+<path d="M467.0,241.1H491.6V195.2" fill="none" stroke="#c3c2b7" stroke-width="1.25"/>
+<g><title>Theseus: 75.7% at $0.12</title>
+<line x1="324.2" y1="195.2" x2="670.7" y2="195.2" stroke="#3987e5" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="491.6" y1="245.5" x2="491.6" y2="150.2" stroke="#3987e5" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="491.6" cy="195.2" r="12" fill="transparent"/>
+<circle cx="491.6" cy="195.2" r="6" fill="#3987e5" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<circle cx="491.6" cy="195.2" r="10" fill="none" stroke="#c3c2b7" stroke-width="1.25"/>
+<g><title>Claude Code 2.1.290: 71.9% at $0.12</title>
+<line x1="292.2" y1="241.1" x2="660.0" y2="241.1" stroke="#d95926" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="467.0" y1="293.3" x2="467.0" y2="193.4" stroke="#d95926" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="467.0" cy="241.1" r="12" fill="transparent"/>
+<circle cx="467.0" cy="241.1" r="6" fill="#d95926" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<circle cx="467.0" cy="241.1" r="10" fill="none" stroke="#c3c2b7" stroke-width="1.25"/>
+<text x="501.6" y="187.2" font-size="11" fill="#ffffff" stroke="#1a1a19" stroke-width="3" stroke-linejoin="round" paint-order="stroke">Theseus</text>
+<text x="477.0" y="233.1" font-size="11" fill="#ffffff" stroke="#1a1a19" stroke-width="3" stroke-linejoin="round" paint-order="stroke">Claude Code 2.1.290</text>
+</svg>

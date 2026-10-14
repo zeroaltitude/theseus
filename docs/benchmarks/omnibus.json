@@ -6,50 +6,51 @@
   {
    "name": "headline",
    "form": "tiles",
-   "title": "Theseus in six numbers, from 19 benchmark reports (Sep 30 to Oct 7, 2026)",
+   "title": "Theseus in six numbers, from 36 benchmark reports (Sep 30 to Oct 13, 2026)",
    "question": "What do the benchmark runs say, in a sentence each?",
    "answer": "Six numbers; each section below links the runs they come from.",
    "sources": [
-    "2026-10-04-terminal-bench-first-full-run.md",
-    "2026-10-07-terminal-bench-harness-arms.md",
-    "2026-10-04-memory-exam-arms.md",
-    "2026-10-06-gate-bench-fast-history.md"
+    "2026-10-13-terminal-bench-r1.md",
+    "2026-10-13-terminal-bench-harness-arms.md",
+    "2026-10-12-recall-full-run.md",
+    "2026-10-12-async-kill-family.md",
+    "2026-10-12-gate-bench-stop-point.md"
    ],
    "rows": [
     {
-     "value": "71.9%",
-     "what": "of 178 Terminal-Bench 2.0 trials solved",
-     "context": "all 89 tasks, Oct 4; Claude Code 81.5% on the same model",
-     "source": "2026-10-04-terminal-bench-first-full-run.md"
+     "value": "75.7%",
+     "what": "of 445 Terminal-Bench 2.0 trials solved",
+     "context": "89 tasks × 5, Oct 13; Claude Code 71.9% on the same model and effort: T1 passes",
+     "source": "2026-10-13-terminal-bench-r1.md"
     },
     {
-     "value": "36.5 MiB",
-     "what": "the harness's own peak memory",
-     "context": "median; the seven other harnesses 125 to 1,380 MiB",
-     "source": "2026-10-07-terminal-bench-harness-arms.md"
+     "value": "$0.12",
+     "what": "a Terminal-Bench trial, level with Claude Code",
+     "context": "Pi $0.07, OpenCode $0.08: the prompt each call carries",
+     "source": "2026-10-13-terminal-bench-harness-arms.md"
     },
     {
-     "value": "0.8 s",
-     "what": "to install and start in a task's container",
-     "context": "the others 20 s (Aider) to 5 min (Codex CLI)",
-     "source": "2026-10-07-terminal-bench-harness-arms.md"
+     "value": "73.6%",
+     "what": "of recall probes over 600 turns",
+     "context": "Pi 56.9%, Claude Code 50.7%; all of the lead across sessions",
+     "source": "2026-10-12-recall-full-run.md"
     },
     {
-     "value": "+53 pts",
-     "what": "from recall on the memory exam",
-     "context": "a cheap model, 15% → 67%; shown the right notes, 100%",
-     "source": "2026-10-04-memory-exam-arms.md"
+     "value": "0 of 11",
+     "what": "killed mid-task: steps redone or doubled",
+     "context": "Claude Code doubled an effect in 7 of 12",
+     "source": "2026-10-12-async-kill-family.md"
     },
     {
-     "value": "22.6 ms",
-     "what": "a cold start's median, 240 gates",
-     "context": "budget 50 ms; a crash's restart 35.6 ms of 150",
-     "source": "2026-10-06-gate-bench-fast-history.md"
+     "value": "18.1 ms",
+     "what": "a cold start, release build",
+     "context": "budget 50 ms; 18.3 ms at 10,000 sessions",
+     "source": "2026-10-12-gate-bench-stop-point.md"
     },
     {
-     "value": "$131",
+     "value": "$367",
      "what": "every model call of every run",
-     "context": "two Terminal-Bench runs are 97% of it",
+     "context": "the Terminal-Bench runs are 88% of it",
      "source": "this page's cost table"
     }
    ]
@@ -57,11 +58,14 @@
   {
    "name": "tb-full",
    "form": "intervals",
-   "title": "Terminal-Bench 2.0, all 89 tasks, two attempts each, the same model in every arm",
-   "question": "How often does Theseus solve a real terminal task, against Claude Code?",
-   "answer": "71.9% of trials against Claude Code's 81.5%; most of the gap was harness faults, most of them since fixed.",
+   "title": "Terminal-Bench 2.0, all 89 tasks, the same model in every arm: Oct 4 and the stopping point",
+   "question": "How often does Theseus solve a real terminal task, against the other harnesses?",
+   "answer": "Oct 4's gap (71.9% against 81.5%) is gone: at the stopping point Theseus solved 74.5% at three attempts and 75.7% at five, Claude Code 71.5% and 71.9%, Pi and OpenCode about 71%.",
    "sources": [
-    "2026-10-04-terminal-bench-first-full-run.md"
+    "2026-10-04-terminal-bench-first-full-run.md",
+    "2026-10-13-terminal-bench-r0.md",
+    "2026-10-13-terminal-bench-r1.md",
+    "2026-10-13-terminal-bench-harness-arms.md"
    ],
    "x": {
     "label": "share of trials solved (Wilson 95%)",
@@ -73,47 +77,135 @@
     {
      "label": "Claude Code 2.1.288",
      "arm": "claude-code",
-     "value": 0.815,
-     "lo": 0.751,
-     "hi": 0.865,
-     "group": "As measured (Oct 4, 178 trials an arm)",
+     "value": 0.8146067415730337,
+     "lo": 0.7510872751081858,
+     "hi": 0.8648338725022624,
+     "group": "Oct 4 · 89 tasks × 2, effort unmatched (Theseus at the API's high)",
      "tip": "145 of 178"
     },
     {
      "label": "Theseus",
      "arm": "theseus",
-     "value": 0.719,
-     "lo": 0.649,
-     "hi": 0.78,
-     "group": "As measured (Oct 4, 178 trials an arm)",
+     "value": 0.7191011235955056,
+     "lo": 0.6489849391991133,
+     "hi": 0.7799601457438775,
+     "group": "Oct 4 · 89 tasks × 2, effort unmatched (Theseus at the API's high)",
      "tip": "128 of 178"
     },
     {
      "label": "Theseus + a batching paragraph",
      "arm": "theseus-batching",
-     "value": 0.736,
-     "lo": 0.667,
-     "hi": 0.795,
-     "group": "As measured (Oct 4, 178 trials an arm)",
+     "value": 0.7359550561797753,
+     "lo": 0.6667051320047197,
+     "hi": 0.7952357287031164,
+     "group": "Oct 4 · 89 tasks × 2, effort unmatched (Theseus at the API's high)",
      "tip": "131 of 178"
     },
     {
-     "label": "Theseus, if the four fixes win",
+     "label": "Theseus",
      "arm": "theseus",
-     "value": 0.787,
-     "lo": 0.721,
-     "hi": 0.84,
-     "group": "On paper: counts, not measurements",
-     "tip": "140 of 178: every trial the fixes target counted solved"
+     "value": 0.7453183520599251,
+     "lo": 0.6898351644458127,
+     "hi": 0.7938426320422289,
+     "group": "Oct 13 · R0, the stopping point: 89 tasks × 3, every arm at medium",
+     "tip": "199 of 267"
     },
     {
-     "label": "Claude Code, no fallback model",
+     "label": "Claude Code 2.1.290",
      "arm": "claude-code",
-     "value": 0.781,
-     "lo": 0.715,
-     "hi": 0.835,
-     "group": "On paper: counts, not measurements",
-     "tip": "139 of 178: its six Sonnet 5 trials counted unsolved"
+     "value": 0.7153558052434457,
+     "lo": 0.6584739603176587,
+     "hi": 0.7661286854542863,
+     "group": "Oct 13 · R0, the stopping point: 89 tasks × 3, every arm at medium",
+     "tip": "191 of 267"
+    },
+    {
+     "label": "OpenCode 1.18.35",
+     "arm": "other",
+     "value": 0.7153558052434457,
+     "lo": 0.6584739603176587,
+     "hi": 0.7661286854542863,
+     "group": "Oct 13 · R0, the stopping point: 89 tasks × 3, every arm at medium",
+     "tip": "191 of 267"
+    },
+    {
+     "label": "Pi 1.0.4",
+     "arm": "pi",
+     "value": 0.7116104868913857,
+     "lo": 0.6545744673943756,
+     "hi": 0.7626437845380571,
+     "group": "Oct 13 · R0, the stopping point: 89 tasks × 3, every arm at medium",
+     "tip": "190 of 267"
+    },
+    {
+     "label": "Theseus",
+     "arm": "theseus",
+     "value": 0.7573033707865169,
+     "lo": 0.7153786872645064,
+     "hi": 0.7948237361071776,
+     "group": "Oct 13 · R1: 89 tasks × 5, the parity test",
+     "tip": "337 of 445"
+    },
+    {
+     "label": "Claude Code 2.1.290",
+     "arm": "claude-code",
+     "value": 0.7191011235955056,
+     "lo": 0.6756048926160125,
+     "hi": 0.7588469526131505,
+     "group": "Oct 13 · R1: 89 tasks × 5, the parity test",
+     "tip": "320 of 445"
+    }
+   ]
+  },
+  {
+   "name": "frontier-89",
+   "form": "scatter",
+   "title": "Four harnesses on all 89 Terminal-Bench tasks: trials solved against dollars (Oct 13)",
+   "question": "On the whole benchmark, which harness solves the most for the least?",
+   "answer": "Theseus solves the most and Pi costs the least; Claude Code is off the front, since OpenCode solves as many trials for less.",
+   "sources": [
+    "2026-10-13-terminal-bench-harness-arms.md"
+   ],
+   "rows": [
+    {
+     "arm": "theseus",
+     "label": "Theseus",
+     "x": 0.1232,
+     "xlo": 0.1027,
+     "xhi": 0.1461,
+     "y": 0.7453,
+     "ylo": 0.6898,
+     "yhi": 0.7938
+    },
+    {
+     "arm": "claude-code",
+     "label": "Claude Code 2.1.290",
+     "x": 0.1175,
+     "xlo": 0.097,
+     "xhi": 0.14,
+     "y": 0.7154,
+     "ylo": 0.6585,
+     "yhi": 0.7661
+    },
+    {
+     "arm": "pi",
+     "label": "Pi 1.0.4",
+     "x": 0.0745,
+     "xlo": 0.0615,
+     "xhi": 0.0896,
+     "y": 0.7116,
+     "ylo": 0.6546,
+     "yhi": 0.7626
+    },
+    {
+     "arm": "other",
+     "label": "OpenCode 1.18.35",
+     "x": 0.0851,
+     "xlo": 0.07,
+     "xhi": 0.1026,
+     "y": 0.7154,
+     "ylo": 0.6585,
+     "yhi": 0.7661
     }
    ]
   },
@@ -455,15 +547,16 @@
   {
    "name": "memory",
    "form": "intervals",
-   "title": "Memory: what the exams, the retrieval probes and the recall smokes measured, in date order",
+   "title": "Memory: what the exams, the retrieval probes and the recall smokes measured, in date order (Sep 30 to Oct 12)",
    "question": "Does Theseus remember, and is the gap its retrieval or the model?",
-   "answer": "Recall lifts a cheap model from 15% to 67%; shown the right notes it passes 100%, so the gap is retrieval.",
+   "answer": "Recall lifts a cheap model from 30% to 73% at the stopping point (15% to 67% on Oct 4); shown the right notes it passes 100%, so the gap is retrieval.",
    "sources": [
     "2026-09-30-memory-exam-headroom.md",
     "2026-09-30-memory-exam-v2.md",
     "2026-10-01-retrieval-fusion.md",
     "2026-10-04-memory-exam-arms.md",
-    "2026-10-05-recall-smokes.md"
+    "2026-10-05-recall-smokes.md",
+    "2026-10-12-memory-exam-arms.md"
    ],
    "x": {
     "label": "share passed or found (95% intervals)",
@@ -619,6 +712,39 @@
      "lo": 0.299993315138392,
      "hi": 0.9032285888942195,
      "tip": "4 of 6"
+    },
+    {
+     "label": "no memory",
+     "arm": "none",
+     "value": 0.3,
+     "group": "Oct 12 · exam v2, 72 items, the stopping point's build: pass rate",
+     "lo": 0.2,
+     "hi": 0.4
+    },
+    {
+     "label": "BM25 and entities",
+     "arm": "bm25",
+     "value": 0.69,
+     "group": "Oct 12 · exam v2, 72 items, the stopping point's build: pass rate",
+     "lo": 0.59,
+     "hi": 0.79
+    },
+    {
+     "label": "plus vectors, fused (shipped)",
+     "arm": "fused",
+     "value": 0.73,
+     "group": "Oct 12 · exam v2, 72 items, the stopping point's build: pass rate",
+     "lo": 0.63,
+     "hi": 0.83
+    },
+    {
+     "label": "shown the right notes",
+     "arm": "oracle",
+     "value": 1.0,
+     "group": "Oct 12 · exam v2, 72 items, the stopping point's build: pass rate",
+     "lo": 0.95,
+     "hi": 1.0,
+     "tip": "every item"
     }
    ]
   },
@@ -627,10 +753,11 @@
    "form": "budget-bullets",
    "title": "FAST: each budgeted phase against its limit",
    "question": "How much of each speed budget does Theseus use?",
-   "answer": "Every phase's median uses a fifth to a half of its limit; only single stalled runs ever crossed one.",
+   "answer": "Every phase's median uses a sixth to a half of its limit, on the debug gate and on the release build; only single stalled runs ever crossed one.",
    "sources": [
     "2026-10-06-gate-bench-fast-history.md",
-    "2026-10-02-gate-bench-start-path-10k.md"
+    "2026-10-02-gate-bench-start-path-10k.md",
+    "2026-10-12-gate-bench-stop-point.md"
    ],
    "rows": [
     {
@@ -732,6 +859,56 @@
      "limit_ms": 200.0,
      "first_runs_past": "",
      "before_p50_ms": 149.2
+    },
+    {
+     "group": "The release build at the stopping point, empty store, 4 runs of 10 (Oct 12)",
+     "phase": "cold start ",
+     "p50_ms": 18.1,
+     "p95_median_ms": 32.9,
+     "p95_90th_pct_ms": 49.2,
+     "limit_ms": 50.0,
+     "first_runs_past": "",
+     "before_p50_ms": null
+    },
+    {
+     "group": null,
+     "phase": "clean shutdown, a job running ",
+     "p50_ms": 37.0,
+     "p95_median_ms": 45.2,
+     "p95_90th_pct_ms": 87.2,
+     "limit_ms": 100.0,
+     "first_runs_past": "",
+     "before_p50_ms": null
+    },
+    {
+     "group": null,
+     "phase": "SIGKILL, then restart ",
+     "p50_ms": 22.2,
+     "p95_median_ms": 31.6,
+     "p95_90th_pct_ms": 36.8,
+     "limit_ms": 150.0,
+     "first_runs_past": "",
+     "before_p50_ms": null
+    },
+    {
+     "group": null,
+     "phase": "binary swap ",
+     "p50_ms": 48.2,
+     "p95_median_ms": 63.7,
+     "p95_90th_pct_ms": 120.5,
+     "limit_ms": 200.0,
+     "first_runs_past": "",
+     "before_p50_ms": null
+    },
+    {
+     "group": null,
+     "phase": "cancel a running job ",
+     "p50_ms": 26.7,
+     "p95_median_ms": 35.1,
+     "p95_90th_pct_ms": 69.1,
+     "limit_ms": 100.0,
+     "first_runs_past": "",
+     "before_p50_ms": null
     }
    ]
   },
@@ -740,14 +917,16 @@
    "form": "before-after",
    "title": "What the runs changed: the same measurement before and after each fix",
    "question": "What did acting on a benchmark's finding buy?",
-   "answer": "Fourteen measured speed-ups, 1.2 to 2,700 times, each from a finding a run made.",
+   "answer": "Eighteen measured speed-ups, 1.2 to 2,700 times, each from a finding a run made.",
    "sources": [
     "2026-10-05-gate-bench-speed-io-stalls.md",
     "2026-10-03-gate-bench-ledger-reads.md",
     "2026-10-02-gate-bench-start-path-10k.md",
     "2026-10-06-gate-bench-fast-history.md",
     "2026-10-04-gate-bench-one-sync-per-job.md",
-    "2026-10-01-gate-bench-opt-level-2.md"
+    "2026-10-01-gate-bench-opt-level-2.md",
+    "2026-10-12-scale.md",
+    "2026-10-12-gate-bench-stop-point.md"
    ],
    "rows": [
     {
@@ -861,6 +1040,38 @@
      "after_ms": 21.7,
      "source": "2026-10-01-gate-bench-opt-level-2.md",
      "how": "A/B, 10 pairs"
+    },
+    {
+     "group": "200,000 parked sessions, Oct 8 to Oct 12 (release)",
+     "what": "health answer",
+     "before_ms": 682.0,
+     "after_ms": 9.0,
+     "source": "2026-10-12-scale.md",
+     "how": "pages, not the whole list"
+    },
+    {
+     "group": null,
+     "what": "watch -i, ready",
+     "before_ms": 5296.0,
+     "after_ms": 39.0,
+     "source": "2026-10-12-scale.md",
+     "how": "the CLI asks for a page"
+    },
+    {
+     "group": null,
+     "what": "the push's first board",
+     "before_ms": 748.0,
+     "after_ms": 22.0,
+     "source": "2026-10-12-scale.md",
+     "how": "a page"
+    },
+    {
+     "group": null,
+     "what": "SIGKILL, then restart (10,000 sessions)",
+     "before_ms": 48.0,
+     "after_ms": 23.7,
+     "source": "2026-10-12-gate-bench-stop-point.md",
+     "how": "Oct 2 to Oct 12"
     }
    ]
   },
@@ -1065,10 +1276,12 @@
    "form": "cost-dots",
    "title": "What the runs cost in model calls, and what a solved task cost",
    "question": "What does benchmarking Theseus cost, and what does Theseus cost a solved task?",
-   "answer": "About $131 of model calls in all; Theseus cost $0.19 a solved trial on Oct 4, Claude Code $0.16.",
+   "answer": "About $367 of model calls in all; on Oct 13 Theseus cost $0.16 a solved trial, as Claude Code did, Pi $0.10.",
    "sources": [
     "2026-10-04-terminal-bench-first-full-run.md",
-    "2026-10-07-terminal-bench-harness-arms.md"
+    "2026-10-07-terminal-bench-harness-arms.md",
+    "2026-10-13-terminal-bench-r0.md",
+    "2026-10-13-terminal-bench-harness-arms.md"
    ],
    "rows": [
     {
@@ -1136,9 +1349,87 @@
      "run": "Terminal-Bench, eight harnesses",
      "usd": 55.77,
      "source": "2026-10-07-terminal-bench-harness-arms.md"
+    },
+    {
+     "date": "Oct 10",
+     "run": "Terminal-Bench, the night set's rerun",
+     "usd": 23.74,
+     "source": "2026-10-10-terminal-bench-theseus-rerun.md"
+    },
+    {
+     "date": "Oct 12",
+     "run": "gate benches, release (the judge)",
+     "usd": 0.004,
+     "source": "2026-10-12-gate-bench-stop-point.md"
+    },
+    {
+     "date": "Oct 12",
+     "run": "memory exam: the recall arms",
+     "usd": 1.45,
+     "source": "2026-10-12-memory-exam-arms.md"
+    },
+    {
+     "date": "Oct 12",
+     "run": "retrieval and the context estimate",
+     "usd": 0.12,
+     "source": "2026-10-12-retrieval-fusion.md"
+    },
+    {
+     "date": "Oct 12",
+     "run": "F10, the first ten minutes",
+     "usd": 1.31,
+     "source": "2026-10-12-f10-first-live-run.md"
+    },
+    {
+     "date": "Oct 12",
+     "run": "Harbor efficiency, four arms",
+     "usd": 0.3,
+     "source": "2026-10-12-harbor-efficiency.md"
+    },
+    {
+     "date": "Oct 12",
+     "run": "recall bench, 600 turns",
+     "usd": 30.09,
+     "source": "2026-10-12-recall-full-run.md"
+    },
+    {
+     "date": "Oct 12",
+     "run": "async: six families and parallel calls",
+     "usd": 5.17,
+     "source": "2026-10-12-async-six-families.md"
+    },
+    {
+     "date": "Oct 12",
+     "run": "async: the kill -9 family",
+     "usd": 0.78,
+     "source": "2026-10-12-async-kill-family.md"
+    },
+    {
+     "date": "Oct 13",
+     "run": "Terminal-Bench R0 (89 × 3, two arms)",
+     "usd": 62.89,
+     "source": "2026-10-13-terminal-bench-r0.md"
+    },
+    {
+     "date": "Oct 13",
+     "run": "Terminal-Bench R1 top-up (89 × 2)",
+     "usd": 41.65,
+     "source": "2026-10-13-terminal-bench-r1.md"
+    },
+    {
+     "date": "Oct 13",
+     "run": "Pi, OpenCode, Theseus as shipped",
+     "usd": 47.56,
+     "source": "2026-10-13-terminal-bench-harness-arms.md"
+    },
+    {
+     "date": "Oct 12 to 13",
+     "run": "TB: local partial pass and EC2 smoke",
+     "usd": 20.83,
+     "source": "2026-10-13-terminal-bench-r0.md"
     }
    ]
   }
  ],
- "total_usd": 131.4701
+ "total_usd": 367.3641
 }

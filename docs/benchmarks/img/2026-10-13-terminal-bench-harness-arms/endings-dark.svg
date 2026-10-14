@@ -1,0 +1,89 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="460" viewBox="0 0 720 460" role="img" aria-labelledby="t-endings t-endings-d" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
+<title id="t-endings">Trials that did not end by the agent's own choice</title>
+<desc id="t-endings-d">How does each arm's run end when it does not end on its own, and which ending costs most?</desc>
+<rect width="720" height="460" rx="8" fill="#1a1a19" stroke="#2c2c2a"/>
+<text x="18.0" y="32.0" font-size="15" fill="#ffffff" font-weight="600">Trials that did not end by the agent's own choice</text>
+<rect x="18.0" y="44.0" width="14" height="12" rx="3" fill="#3987e5"/>
+<text x="40.0" y="54.0" font-size="12" fill="#c3c2b7">Theseus</text>
+<rect x="108.5" y="44.0" width="14" height="12" rx="3" fill="#d95926"/>
+<text x="130.5" y="54.0" font-size="12" fill="#c3c2b7">Claude Code 2.1.290</text>
+<rect x="273.8" y="44.0" width="14" height="12" rx="3" fill="#d55181"/>
+<text x="295.8" y="54.0" font-size="12" fill="#c3c2b7">Pi 1.0.4</text>
+<rect x="358.9" y="44.0" width="14" height="12" rx="3" fill="#898781"/>
+<text x="380.9" y="54.0" font-size="12" fill="#c3c2b7">OpenCode 1.18.35</text>
+<line x1="160.5" y1="74.0" x2="160.5" y2="404.0" stroke="#2c2c2a" stroke-width="1"/>
+<line x1="338.3" y1="74.0" x2="338.3" y2="404.0" stroke="#2c2c2a" stroke-width="1"/>
+<line x1="516.2" y1="74.0" x2="516.2" y2="404.0" stroke="#2c2c2a" stroke-width="1"/>
+<line x1="694.0" y1="74.0" x2="694.0" y2="404.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="150.5" y="111.0" font-size="12" fill="#ffffff" text-anchor="end">timeout</text>
+<g><title>timeout · Theseus: 9</title>
+<path d="M160.5,81.0H476.6A4,4 0 0 1 480.6,85.0V88.5A4,4 0 0 1 476.6,92.5H160.5Z" fill="#3987e5"/>
+</g>
+<g><title>timeout · Claude Code 2.1.290: 6</title>
+<path d="M160.5,94.5H369.9A4,4 0 0 1 373.9,98.5V102.0A4,4 0 0 1 369.9,106.0H160.5Z" fill="#d95926"/>
+</g>
+<g><title>timeout · Pi 1.0.4: 8</title>
+<path d="M160.5,108.0H441.0A4,4 0 0 1 445.0,112.0V115.5A4,4 0 0 1 441.0,119.5H160.5Z" fill="#d55181"/>
+</g>
+<g><title>timeout · OpenCode 1.18.35: 6</title>
+<path d="M160.5,121.5H369.9A4,4 0 0 1 373.9,125.5V129.0A4,4 0 0 1 369.9,133.0H160.5Z" fill="#898781"/>
+</g>
+<text x="150.5" y="177.0" font-size="12" fill="#ffffff" text-anchor="end">grader timeout</text>
+<g><title>grader timeout · Theseus: 3</title>
+<path d="M160.5,147.0H263.2A4,4 0 0 1 267.2,151.0V154.5A4,4 0 0 1 263.2,158.5H160.5Z" fill="#3987e5"/>
+</g>
+<g><title>grader timeout · Claude Code 2.1.290: 3</title>
+<path d="M160.5,160.5H263.2A4,4 0 0 1 267.2,164.5V168.0A4,4 0 0 1 263.2,172.0H160.5Z" fill="#d95926"/>
+</g>
+<g><title>grader timeout · Pi 1.0.4: 3</title>
+<path d="M160.5,174.0H263.2A4,4 0 0 1 267.2,178.0V181.5A4,4 0 0 1 263.2,185.5H160.5Z" fill="#d55181"/>
+</g>
+<g><title>grader timeout · OpenCode 1.18.35: 4</title>
+<path d="M160.5,187.5H298.7A4,4 0 0 1 302.7,191.5V195.0A4,4 0 0 1 298.7,199.0H160.5Z" fill="#898781"/>
+</g>
+<text x="150.5" y="243.0" font-size="12" fill="#ffffff" text-anchor="end">refusal</text>
+<g><title>refusal · Theseus: 0</title>
+<path d="M160.5,213.0H160.5A0.0,0.0 0 0 1 160.5,213.0V224.5A0.0,0.0 0 0 1 160.5,224.5H160.5Z" fill="#3987e5"/>
+</g>
+<g><title>refusal · Claude Code 2.1.290: 0</title>
+<path d="M160.5,226.5H160.5A0.0,0.0 0 0 1 160.5,226.5V238.0A0.0,0.0 0 0 1 160.5,238.0H160.5Z" fill="#d95926"/>
+</g>
+<g><title>refusal · Pi 1.0.4: 0</title>
+<path d="M160.5,240.0H160.5A0.0,0.0 0 0 1 160.5,240.0V251.5A0.0,0.0 0 0 1 160.5,251.5H160.5Z" fill="#d55181"/>
+</g>
+<g><title>refusal · OpenCode 1.18.35: 10</title>
+<path d="M160.5,253.5H512.2A4,4 0 0 1 516.2,257.5V261.0A4,4 0 0 1 512.2,265.0H160.5Z" fill="#898781"/>
+</g>
+<text x="150.5" y="309.0" font-size="12" fill="#ffffff" text-anchor="end">provider failure (Pi)</text>
+<g><title>provider failure (Pi) · Theseus: 0</title>
+<path d="M160.5,279.0H160.5A0.0,0.0 0 0 1 160.5,279.0V290.5A0.0,0.0 0 0 1 160.5,290.5H160.5Z" fill="#3987e5"/>
+</g>
+<g><title>provider failure (Pi) · Claude Code 2.1.290: 0</title>
+<path d="M160.5,292.5H160.5A0.0,0.0 0 0 1 160.5,292.5V304.0A0.0,0.0 0 0 1 160.5,304.0H160.5Z" fill="#d95926"/>
+</g>
+<g><title>provider failure (Pi) · Pi 1.0.4: 10</title>
+<path d="M160.5,306.0H512.2A4,4 0 0 1 516.2,310.0V313.5A4,4 0 0 1 512.2,317.5H160.5Z" fill="#d55181"/>
+</g>
+<g><title>provider failure (Pi) · OpenCode 1.18.35: 0</title>
+<path d="M160.5,319.5H160.5A0.0,0.0 0 0 1 160.5,319.5V331.0A0.0,0.0 0 0 1 160.5,331.0H160.5Z" fill="#898781"/>
+</g>
+<text x="150.5" y="375.0" font-size="12" fill="#ffffff" text-anchor="end">error (exit or harness)</text>
+<g><title>error (exit or harness) · Theseus: 6</title>
+<path d="M160.5,345.0H369.9A4,4 0 0 1 373.9,349.0V352.5A4,4 0 0 1 369.9,356.5H160.5Z" fill="#3987e5"/>
+</g>
+<g><title>error (exit or harness) · Claude Code 2.1.290: 10</title>
+<path d="M160.5,358.5H512.2A4,4 0 0 1 516.2,362.5V366.0A4,4 0 0 1 512.2,370.0H160.5Z" fill="#d95926"/>
+</g>
+<g><title>error (exit or harness) · Pi 1.0.4: 9</title>
+<path d="M160.5,372.0H476.6A4,4 0 0 1 480.6,376.0V379.5A4,4 0 0 1 476.6,383.5H160.5Z" fill="#d55181"/>
+</g>
+<g><title>error (exit or harness) · OpenCode 1.18.35: 14</title>
+<path d="M160.5,385.5H654.4A4,4 0 0 1 658.4,389.5V393.0A4,4 0 0 1 654.4,397.0H160.5Z" fill="#898781"/>
+</g>
+<text x="160.5" y="420.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">0</text>
+<text x="338.3" y="420.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">5</text>
+<text x="516.2" y="420.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">10</text>
+<text x="694.0" y="420.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">15</text>
+<line x1="160.5" y1="404.0" x2="694.0" y2="404.0" stroke="#383835" stroke-width="1"/>
+<text x="427.2" y="438.0" font-size="12" fill="#c3c2b7" text-anchor="middle">trials</text>
+</svg>
