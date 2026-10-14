@@ -54,6 +54,14 @@ pub struct VoiceConfig {
     /// after its join is deaf, and rejoins once (theseus-d93y).
     #[serde(default = "default_deaf_after_secs")]
     pub deaf_after_secs: u64,
+    /// While joined, the voice channel's status reads the task counts
+    /// (theseus-arp9l); a bound channel may set its own (`voice_status`).
+    #[serde(default = "default_status")]
+    pub status: bool,
+}
+
+fn default_status() -> bool {
+    true
 }
 
 fn default_key_secret() -> String {
@@ -85,6 +93,7 @@ impl Default for VoiceConfig {
             tts_voice: default_tts_voice(),
             api_base: default_api_base(),
             deaf_after_secs: default_deaf_after_secs(),
+            status: default_status(),
         }
     }
 }

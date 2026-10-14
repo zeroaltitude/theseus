@@ -65,6 +65,7 @@ pub(super) fn lounge_scripted(dir: &std::path::Path, script: Vec<Scripted>) -> L
         label: "#lounge".into(),
         users: vec![OWNER],
         guild: 100_000_000_000_000_001,
+        status: None,
     };
     tokio::spawn(pump(Arc::clone(&p.shared), 1, at, events_rx));
     Lounge {
@@ -80,7 +81,12 @@ impl Lounge {
     /// `events`, then a voice turn of `utterances` as the engine sends it:
     /// through `pump` to the place, which submits it. The input the session
     /// got.
-    async fn turn(&mut self, id: u64, events: Vec<Event>, utterances: Vec<Utterance>) -> String {
+    pub(super) async fn turn(
+        &mut self,
+        id: u64,
+        events: Vec<Event>,
+        utterances: Vec<Utterance>,
+    ) -> String {
         for e in events {
             self.events.send(e).unwrap();
         }

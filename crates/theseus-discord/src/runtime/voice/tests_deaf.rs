@@ -75,6 +75,7 @@ async fn watched(dir: &std::path::Path, fake: Arc<Fake>, present: bool) -> (Loun
         label: "#lounge".into(),
         users: vec![OWNER],
         guild: 100_000_000_000_000_001,
+        status: None,
     };
     let line: Arc<dyn Line> = fake;
     let w = tokio::spawn(watch(Arc::clone(&l.place.shared), 1, at, line, AFTER));
@@ -204,6 +205,7 @@ async fn alone_or_silent_the_call_is_not_deaf() {
             label: "#lounge".into(),
             users: vec![OWNER],
             guild: 100_000_000_000_000_001,
+            status: None,
         };
         let line: Arc<dyn Line> = fake.clone();
         let w = tokio::spawn(watch(Arc::clone(&l.place.shared), 1, at, line, AFTER));
@@ -289,6 +291,7 @@ async fn rejoining(dir: &std::path::Path) -> (Lounge, Arc<Slow>, tokio::task::Jo
         label: "#lounge".into(),
         users: vec![OWNER],
         guild: 100_000_000_000_000_001,
+        status: None,
     };
     let slow = Arc::new(Slow {
         go: Notify::new(),

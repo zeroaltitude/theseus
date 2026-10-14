@@ -55,6 +55,7 @@ use twilight_model::channel::ChannelType;
 use twilight_model::id::Id;
 use twilight_util::builder::command::{ChannelBuilder, CommandBuilder};
 
+use super::voice_status;
 use super::{Place, PlaceMsg, Shared};
 use crate::bindings::Bindings;
 
@@ -66,6 +67,8 @@ mod tests_deaf;
 mod tests_heard;
 #[cfg(test)]
 mod tests_reply;
+#[cfg(test)]
+mod tests_status;
 
 use notes::Notes;
 
@@ -96,6 +99,8 @@ struct VoicePlace {
     users: Vec<u64>,
     /// Its guild: a voice channel may be in any bound guild (step 38a).
     guild: u64,
+    /// The binding's `voice_status`: this channel's own word on the status.
+    status: Option<bool>,
 }
 
 /// The binding's voice: the places, songbird once the shard exists, who is
@@ -138,6 +143,9 @@ struct Call {
     /// A `/stop` landed on the voice turn in flight (theseus-b6vz): its end
     /// is not spoken, a failure's sentence included.
     stopped: bool,
+    /// The channel's status and the board's line, while it is on
+    /// (theseus-arp9l).
+    status: Option<voice_status::Handle>,
 }
 
 /// A turn of utterances from the call, for the voice place.
@@ -177,6 +185,7 @@ impl Voice {
                         label: c.label(),
                         users,
                         guild: c.guild.parse().unwrap_or(0),
+                        status: c.voice_status,
                     },
                 ))
             })
@@ -499,6 +508,7 @@ impl Place {
             dropped: None,
             notes: Notes::default(),
             stopped: false,
+            status: self.start_status(&place, channel, serial),
         });
         update(shared, |s| {
             s.state = "joined".into();
@@ -541,10 +551,13 @@ impl Place {
         if core.runner.place_rule.class(&core.cfg, Some(&self.target)) != PlaceClass::Private {
             return "`/leave` works from a private place, as `/join` does.".into();
         }
-        let Some(call) = shared.voice.call.lock().unwrap().take() else {
+        let Some(mut call) = shared.voice.call.lock().unwrap().take() else {
             return "I'm not in a voice channel.".into();
         };
         let _ = call.commands.send(Command::Leave);
+        if let Some(status) = call.status.take() {
+            status.finish().await;
+        }
         if let Some(songbird) = shared.voice.songbird.get() {
             if let Some(guild) = NonZeroU64::new(call.guild) {
                 if let Err(e) = songbird.leave(guild).await {
@@ -631,9 +644,12 @@ impl Place {
             .as_mut()
             .filter(|c| c.serial == t.serial)
             .and_then(|c| c.notes.line(&t.utterances));
-        let input = match line {
-            Some(line) => format!("{FRAMING}\n{line}\n{said}"),
-            None => format!("{FRAMING}\n{said}"),
+        let board = self.board_line(t.serial);
+        let input = match (board, line) {
+            (Some(b), Some(line)) => format!("{FRAMING}\n{b}\n{line}\n{said}"),
+            (Some(b), None) => format!("{FRAMING}\n{b}\n{said}"),
+            (None, Some(line)) => format!("{FRAMING}\n{line}\n{said}"),
+            (None, None) => format!("{FRAMING}\n{said}"),
         };
         let author = match one {
             true => format!("discord:{}", names[0]),
@@ -678,6 +694,47 @@ impl Place {
                 .reply(t.serial, t.turn, spoken_end(&r, stopped));
             let _ = tx.send(PlaceMsg::SubmitDone(r.map(|_| ())));
         });
+    }
+
+    /// The board in one line for a voice turn (theseus-arp9l): only in a
+    /// private place, and only while the call keeps the status's watch.
+    fn board_line(&self, serial: u64) -> Option<String> {
+        let core = &self.shared.core;
+        if core.runner.place_rule.class(&core.cfg, Some(&self.target)) != PlaceClass::Private {
+            return None;
+        }
+        let call = self.shared.voice.call.lock().unwrap();
+        let tally = &call
+            .as_ref()
+            .filter(|c| c.serial == serial)?
+            .status
+            .as_ref()?
+            .tally;
+        let line = tally.lock().unwrap().spoken();
+        Some(format!("[The board: {line}]"))
+    }
+
+    /// The channel's status for a call that just joined, when it is on:
+    /// `[voice] status`, or this channel's `voice_status`.
+    fn start_status(
+        &self,
+        place: &VoicePlace,
+        channel: u64,
+        serial: u64,
+    ) -> Option<voice_status::Handle> {
+        let shared = &self.shared;
+        if !place.status.unwrap_or(shared.voice.cfg.status) {
+            return None;
+        }
+        let put = voice_status::Rest::of(&shared.core)?;
+        let told = Arc::clone(shared);
+        Some(voice_status::Handle::start(
+            Arc::clone(&shared.core),
+            Arc::new(put),
+            channel,
+            serial,
+            move |why| update(&told, |s| s.last_error = Some(why)),
+        ))
     }
 
     /// A `/stop` in this place (theseus-b6vz): the voice turn in flight, if
@@ -897,7 +954,10 @@ async fn pump(
             _ => None,
         }
     };
-    if let Some(call) = call {
+    if let Some(mut call) = call {
+        if let Some(status) = call.status.take() {
+            status.finish().await;
+        }
         if let (Some(songbird), Some(guild)) =
             (shared.voice.songbird.get(), NonZeroU64::new(call.guild))
         {
@@ -1305,6 +1365,7 @@ mod tests {
             dropped: None,
             notes: Notes::default(),
             stopped: false,
+            status: None,
         });
     }
 
@@ -1483,6 +1544,7 @@ mod tests {
             label: "#lounge".into(),
             users: vec![OWNER],
             guild: 100_000_000_000_000_001,
+            status: None,
         };
         failed(
             &p.shared,
@@ -1559,6 +1621,7 @@ mod tests {
             label: "#lounge".into(),
             users: vec![OWNER],
             guild: 100_000_000_000_000_001,
+            status: None,
         };
         let (tx, events) = mpsc::unbounded_channel();
         let said = Usage {

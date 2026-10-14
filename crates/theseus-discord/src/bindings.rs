@@ -75,6 +75,9 @@ pub struct ChannelBinding {
     /// private place, brings Theseus into it when `[voice]` is on, and only
     /// its users are heard. Its text chat is the place's text.
     pub voice: bool,
+    /// While Theseus is in this voice channel, its status reads the task
+    /// counts (theseus-arp9l): absent, `[voice] status`'s.
+    pub voice_status: Option<bool>,
     /// What the place gets beneath the place rule (step 38a).
     pub ceiling: Option<PlaceCeiling>,
     /// It shows each loop's tool line, and a notified call's embed
@@ -106,6 +109,8 @@ struct RawChannel {
     private: Option<bool>,
     #[serde(default)]
     voice: bool,
+    #[serde(default)]
+    voice_status: Option<bool>,
     #[serde(default)]
     ceiling: Option<Ceiling>,
     #[serde(default = "yes")]
@@ -413,6 +418,7 @@ impl Bindings {
             mention_only: c.mention_only,
             private: c.private,
             voice: c.voice,
+            voice_status: c.voice_status,
             ceiling,
             show_tools: c.show_tools,
             show_thinking: c.show_thinking,
