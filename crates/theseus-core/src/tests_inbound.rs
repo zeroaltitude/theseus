@@ -1,4 +1,4 @@
-//! The inbound point (M5 25a; design §3, "25a"): `classify.v1` and
+//! The inbound point (M5 25a; design §3, "25a"): `classify.v2` and
 //! `role.v1` about each message a person sends, in shadow, against the fake
 //! Jev. One request per message, two rows that share its state's blob with
 //! the cost split by question count, each judgment marked on the turn's
@@ -102,7 +102,7 @@ const INBOUND_ALONE: [&str; 14] = [
     "loop.v1: off",
     "security.v1: off",
     "security.v3: off (the config's ceiling; on the ladder: live (owner: decision of 2026-10-04))",
-    "classify.v1: shadow",
+    "classify.v2: live",
     "role.v1: shadow",
     "route.v4: off (the config's ceiling; on the ladder: live (owner: decision of 2026-10-11))",
     "continue.v1: off",
@@ -146,7 +146,7 @@ async fn a_persons_message_is_judged_by_both_packs_in_one_request() {
     assert_eq!(seen.len(), 1);
     let q = &seen[0].body["questions"];
     let ids: Vec<&String> = q.as_object().unwrap().keys().collect();
-    assert!(ids.iter().any(|i| *i == "classify.v1/kind"), "{ids:?}");
+    assert!(ids.iter().any(|i| *i == "classify.v2/kind"), "{ids:?}");
     // role.v1's options are the twelve seed roles and its no-match option.
     let roles = q["role.v1/role"]["criteria"].as_object().unwrap();
     assert_eq!(roles.len(), 13, "{roles:?}");
@@ -154,10 +154,15 @@ async fn a_persons_message_is_judged_by_both_packs_in_one_request() {
     // No live tasks: `addressed_task` is not asked.
     assert!(!ids.iter().any(|i| i.ends_with("/addressed_task")));
     let (c, ro) = (&classify[0].data, &role[0].data);
-    for (row, pack) in [(&classify[0], "classify.v1"), (&role[0], "role.v1")] {
+    // classify.v2 acts at its bars (the thread question, theseus-rha2); role.v1
+    // is recorded only.
+    for (row, pack, mode) in [
+        (&classify[0], "classify.v2", "live"),
+        (&role[0], "role.v1", "shadow"),
+    ] {
         assert_eq!(row.kind, "judge.call");
         assert_eq!(row.data["pack"], pack);
-        assert_eq!(row.data["mode"], "shadow");
+        assert_eq!(row.data["mode"], mode);
         assert_eq!(row.data["point"], "inbound");
         assert_eq!(row.data["outcome"]["outcome"], "answered", "{}", row.data);
         assert_eq!(row.session_id.as_deref(), Some(res.session_id.as_str()));
@@ -205,12 +210,12 @@ async fn a_persons_message_is_judged_by_both_packs_in_one_request() {
     // Each judgment marked on the turn's trace with its row's id.
     let marked = marks(&res.trace);
     assert_eq!(marked.len(), 2, "{marked:?}");
-    for (m, d) in marked.iter().zip([c, ro]) {
+    for ((m, d), mode) in marked.iter().zip([c, ro]).zip(["live", "shadow"]) {
         assert_eq!(m["pack"], d["pack"]);
         assert_eq!(m["judgment"], d["id"]);
         assert_eq!(
             (m["point"].as_str(), m["mode"].as_str()),
-            (Some("inbound"), Some("shadow"))
+            (Some("inbound"), Some(mode))
         );
     }
     // One call, from the judge's budget.

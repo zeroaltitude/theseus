@@ -142,7 +142,7 @@ async fn the_inbound_and_compile_judgments_carry_their_class_and_the_metrics_cou
         dormancy_minutes: 0,
         ..SignalsConfig::default()
     };
-    let on = ["classify.v1", "role.v1", "continue.v1"];
+    let on = ["classify.v2", "role.v1", "continue.v1"];
     for (pack, _) in crate::judge::WIRED {
         let mode = if on.contains(pack) {
             PackMode::Shadow
@@ -199,7 +199,7 @@ async fn the_inbound_and_compile_judgments_carry_their_class_and_the_metrics_cou
             .map(|r| r.data["context"]["class"].clone())
             .collect()
     };
-    assert_eq!(class_of("classify.v1"), ["unknown", "unknown"]);
+    assert_eq!(class_of("classify.v2"), ["unknown", "unknown"]);
     assert_eq!(class_of("role.v1"), ["unknown", "unknown"]);
     assert_eq!(class_of("continue.v1"), ["reply"]);
 
@@ -230,7 +230,7 @@ async fn the_inbound_and_compile_judgments_carry_their_class_and_the_metrics_cou
             .map(|p| p["asInt"].as_str().unwrap().parse::<u64>().unwrap())
             .sum()
     };
-    assert_eq!(count("classify.v1", "unknown"), 2);
+    assert_eq!(count("classify.v2", "unknown"), 2);
     assert_eq!(count("role.v1", "unknown"), 2);
     assert_eq!(count("continue.v1", "reply"), 1);
 }

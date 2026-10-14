@@ -64,4 +64,10 @@ dir?: string,
  * on its first use. The thread's slug; only the owner, from a private
  * place, and not with a `session_id`.
  */
-thread?: string, };
+thread?: string, 
+/**
+ * The turn whose reply this message replies to (a Discord reply to one
+ * of this process's replies, theseus-rha2): when that turn ran in a
+ * thread, so does this message, certain.
+ */
+in_reply_to?: string, };

@@ -97,6 +97,9 @@ impl Core {
         if name.starts_with("standing.") {
             return self.rpc_standing(name, params, conn);
         }
+        if name == method::THREAD_MOVE {
+            return super::server::reply(self.thread_move_message(parse(params)?, conn).await?);
+        }
         if name.starts_with("thread.") {
             return self.rpc_threads(name, params, conn);
         }

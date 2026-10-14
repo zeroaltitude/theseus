@@ -536,6 +536,8 @@ events! {
     TaskChanged(crate::tasks::TaskChanged) = notify::TASK_CHANGED,
     /// A reminder fired (theseus-8ux6x).
     WakeNoticed(crate::wakes::WakeNoticed) = notify::WAKE_NOTICED,
+    /// A message waits for the owner to say which thread it is about.
+    ThreadAsked(crate::thread_route::ThreadAsk) = notify::THREAD_ASKED,
 }
 
 impl Event {
@@ -560,6 +562,7 @@ impl Event {
             Event::JudgeNoticed(e) => Some(&e.session_id),
             Event::TaskChanged(e) => Some(&e.session_id),
             Event::WakeNoticed(e) => Some(&e.session_id),
+            Event::ThreadAsked(e) => Some(&e.session_id),
             Event::LoopStarted(_)
             | Event::ModelDelta(_)
             | Event::ModelThinking(_)
@@ -601,6 +604,7 @@ impl Event {
             | Event::ExecutionChanged(_)
             | Event::TaskChanged(_)
             | Event::WakeNoticed(_)
+            | Event::ThreadAsked(_)
             | Event::EventsLost(_) => None,
         }
     }

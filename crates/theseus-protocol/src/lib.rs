@@ -64,6 +64,7 @@ pub mod tasks;
 pub mod term;
 #[cfg(test)]
 mod tests_task_info;
+pub mod thread_route;
 pub mod threads;
 mod toolinfo;
 #[cfg(test)]
@@ -220,7 +221,7 @@ pub mod method {
         ONTOLOGY_PROPOSAL_ACCEPT = "ontology.proposal.accept",
         /// The owner's standing orders, preferences and facts (theseus-a7vi,
         /// `standing::StandingListParams`): a read, and the owner's two writes.
-        THREAD_NEW = "thread.new", THREAD_LIST = "thread.list", THREAD_SHOW = "thread.show", THREAD_EDIT = "thread.edit", THREAD_PAUSE = "thread.pause", THREAD_RESUME = "thread.resume", THREAD_DONE = "thread.done", THREAD_REOPEN = "thread.reopen",
+        THREAD_NEW = "thread.new", THREAD_LIST = "thread.list", THREAD_SHOW = "thread.show", THREAD_EDIT = "thread.edit", THREAD_PAUSE = "thread.pause", THREAD_RESUME = "thread.resume", THREAD_DONE = "thread.done", THREAD_REOPEN = "thread.reopen", THREAD_ANSWER = "thread.answer", THREAD_MOVE = "thread.move",
         STANDING_LIST = "standing.list", STANDING_ADD = "standing.add", STANDING_REVOKE = "standing.revoke",
         ONTOLOGY_PROPOSAL_REJECT = "ontology.proposal.reject", ONTOLOGY_PROPOSAL_ACCEPT_ALL = "ontology.proposal.accept_all", ONTOLOGY_PERSON_MERGE = "ontology.person.merge", ONTOLOGY_PROPOSAL_REJECT_ALL = "ontology.proposal.reject_all",
         /// Tasks (DD7): the child sessions conversations started, with state and
@@ -414,6 +415,9 @@ pub mod notify {
         TASK_CHANGED = "task.changed",
         /// A notice wake fired (theseus-8ux6x): a reminder, to every connection.
         WAKE_NOTICED = "wake.noticed",
+        /// The router could not tell which thread a message is about, and
+        /// asks in one line (theseus-rha2, `thread_route::ThreadAsk`).
+        THREAD_ASKED = "thread.asked",
     }
 }
 
@@ -2137,6 +2141,11 @@ pub struct TurnSubmitResult {
     /// shared place may not show.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub cites: Vec<cite::Citation>,
+    /// Where the turn ran when its place had threads to choose between
+    /// (theseus-rha2); the reply's tag.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub thread: Option<thread_route::ThreadTag>,
 }
 
 fn is_zero_u32(n: &u32) -> bool {

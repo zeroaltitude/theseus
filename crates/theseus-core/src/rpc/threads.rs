@@ -117,6 +117,10 @@ impl Core {
             method::THREAD_DONE => route(params, |p: ThreadNameParams| {
                 self.thread_done(&p.slug, conn.answerer(p.author, p.discord))
             }),
+            method::THREAD_ANSWER => route(
+                params,
+                |p: theseus_protocol::thread_route::ThreadAnswerParams| self.thread_answer(p, conn),
+            ),
             _ => route(params, |p: ThreadNameParams| {
                 self.thread_reopen(&p.slug, conn.answerer(p.author, p.discord))
             }),
@@ -147,7 +151,7 @@ impl Core {
     }
 
     /// Judge an act on the threads: the owner, from a private place.
-    fn judge_thread(
+    pub(super) fn judge_thread(
         &self,
         who: &Answerer,
         method: &'static str,
@@ -164,7 +168,13 @@ impl Core {
         .map_err(failure)
     }
 
-    fn threads_on(&self) -> Result<(), RpcFailure> {
+    /// Judge an answer to a waiting "which thread?" (theseus-rha2): the owner,
+    /// from a private place, as every move of a thread is.
+    pub(super) fn judge_thread_answer(&self, who: &Answerer, ask: &str) -> Result<(), RpcFailure> {
+        self.judge_thread(who, method::THREAD_ANSWER, ask)
+    }
+
+    pub(super) fn threads_on(&self) -> Result<(), RpcFailure> {
         match self.cfg.threads.enabled {
             true => Ok(()),
             false => Err(RpcFailure::new(
@@ -301,7 +311,7 @@ impl Core {
             .expect("one row for one thread"))
     }
 
-    fn thread_named(&self, slug: &str) -> Result<ThreadInfo, RpcFailure> {
+    pub(super) fn thread_named(&self, slug: &str) -> Result<ThreadInfo, RpcFailure> {
         self.threads().get(slug.trim()).cloned().ok_or_else(|| {
             RpcFailure::new(
                 error_code::NOT_FOUND,
@@ -663,6 +673,13 @@ impl Core {
     ) -> Result<SessionRecord, RpcFailure> {
         let who = who.into();
         self.judge_thread(&who, method::TURN_SUBMIT, slug)?;
+        self.thread_session_open(slug)
+    }
+
+    /// `thread_session`, the owner already judged: the router's own call,
+    /// for a message in a private place (the board offers a shared place
+    /// none), and a move's, which judged its presser.
+    pub(super) fn thread_session_open(&self, slug: &str) -> Result<SessionRecord, RpcFailure> {
         self.threads_on()?;
         let slug = slug.trim();
         let t = self.thread_named(slug)?;

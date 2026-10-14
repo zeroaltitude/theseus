@@ -77,6 +77,7 @@ pub mod synthesis;
 pub mod task_graph;
 pub mod term;
 pub mod thread;
+pub mod thread_route;
 pub mod tool;
 pub mod turn;
 pub mod wake;
@@ -480,6 +481,11 @@ facts![
     thread::ThreadResumed<'static>,
     thread::ThreadDone<'static>,
     thread::ThreadReopened<'static>,
+    thread_route::ThreadRouted<'static>,
+    thread_route::ThreadAsked<'static>,
+    thread_route::ThreadAnswered<'static>,
+    thread_route::ThreadMoved<'static>,
+    thread_route::MisrouteHeld<'static>,
 ];
 
 #[cfg(test)]

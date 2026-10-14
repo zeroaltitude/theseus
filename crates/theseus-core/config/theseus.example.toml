@@ -916,9 +916,17 @@ idle_unload_mins = 10.0                   # the model unloads after this long un
 # new`, then `theseus ask --thread <slug>`). Two threads are two executions and
 # run at once; a thread is private always, and a shared place never lists or
 # addresses one. max_live bounds the active and paused threads together.
+# A message in a private place that names no thread finds its own (theseus-rha2)
+# when the place has two or more live threads: by the place, a "#slug" or
+# "/t slug", a reply to a thread's reply, then what it is about (the threads'
+# working sets, the place's last thread, and Jev's classify.v2); it asks one
+# line only when it cannot tell. One-offs run in the place's own conversation.
 # [threads]
 # enabled = true                          # false: no thread is made or addressed (the records stay)
 # max_live = 50                           # active and paused threads at once
+# sticky_half_life_secs = 600             # a place's last thread stays the likely one for its next message, halving every this many seconds
+# route_wait_ms = 400                     # at most this long an unaddressed message waits for Jev's choice of thread; on timeout the router's own pick stands, tagged a guess
+# ask_wait_secs = 900                     # how long a message waits for your answer to "which thread?" before it runs in the place's own conversation
 
 # ---------------------------------------------------------------- people
 # People proposed from text (theseus-wy7y): a cheap profile reads a session's

@@ -359,10 +359,10 @@ pub fn classify_quality(
     // The discordant pairs: Jev right and the baseline wrong, and the
     // reverse.
     let (mut only_jev, mut only_base) = (0u32, 0u32);
-    let judgments = scope
-        .judgments
-        .get(CLASSIFY_PACK)
-        .map_or(&[][..], Vec::as_slice);
+    // v1's judgments and v2's (theseus-rha2): the same `should_promote`.
+    let judgments = [CLASSIFY_PACK, "classify.v2"]
+        .into_iter()
+        .flat_map(|p| scope.judgments.get(p).map_or(&[][..], Vec::as_slice));
     for s in judgments {
         if since_ms.is_some_and(|t| s.at_ms < t) || until_ms.is_some_and(|t| s.at_ms > t) {
             continue;

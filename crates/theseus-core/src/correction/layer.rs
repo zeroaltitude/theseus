@@ -25,6 +25,9 @@ pub enum Steer {
     Mode(String),
     /// The profile itself.
     Profile(String),
+    /// The thread (a slug) a close message belongs in (theseus-rha2): the
+    /// owner moved a message like it there.
+    Thread(String),
 }
 
 /// One correction in the layer.
@@ -113,10 +116,12 @@ impl Layer {
         }
     }
 
-    /// Retire every entry of a pack version other than `acting`.
+    /// Retire every route entry of a pack version other than `acting`. A
+    /// thread's entry follows no route pack.
     pub fn retire(&mut self, acting: &str) -> usize {
         let before = self.entries.len();
-        self.entries.retain(|e| e.pack == acting);
+        self.entries
+            .retain(|e| e.pack == acting || matches!(e.steer, Steer::Thread(_)));
         let n = before - self.entries.len();
         self.retired += n as u64;
         n
@@ -135,13 +140,34 @@ impl Layer {
         }
         self.retire(acting);
         let mut best: Option<(&Entry, f64)> = None;
-        for e in self.entries.iter().rev() {
+        for e in self
+            .entries
+            .iter()
+            .rev()
+            .filter(|e| !matches!(e.steer, Steer::Thread(_)))
+        {
             let s = similarity(words, &e.words);
             if s >= threshold && best.is_none_or(|(_, b)| s > b) {
                 best = Some((e, s));
             }
         }
         best.map(|(e, s)| (e.clone(), s))
+    }
+
+    /// The thread of the entry closest to `words` at `threshold` or above,
+    /// the newest of equal closeness (theseus-rha2).
+    pub fn nearest_thread(&self, words: &[String], threshold: f64) -> Option<String> {
+        let mut best: Option<(&str, f64)> = None;
+        for e in self.entries.iter().rev() {
+            let Steer::Thread(slug) = &e.steer else {
+                continue;
+            };
+            let s = similarity(words, &e.words);
+            if s >= threshold && best.is_none_or(|(_, b)| s > b) {
+                best = Some((slug, s));
+            }
+        }
+        best.map(|(s, _)| s.to_string())
     }
 
     pub fn entries(&self) -> impl Iterator<Item = &Entry> {

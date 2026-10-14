@@ -346,7 +346,7 @@ impl TurnRunner {
         let v = Verdict {
             mode: match &s.steer {
                 Steer::Mode(m) => m.clone(),
-                Steer::Profile(_) => "correction".into(),
+                Steer::Profile(_) | Steer::Thread(_) => "correction".into(),
             },
             confidence: 1.0,
             judgment: s.follows.clone(),
@@ -364,7 +364,9 @@ impl TurnRunner {
         };
         match &s.steer {
             Steer::Profile(p) => routing::steer_to(&self.cfg.routing, &profiles, &a, p, at_once),
-            Steer::Mode(_) => {
+            // A thread's entry steers a message to a thread, before a turn
+            // exists (the router reads it), never a turn's profile.
+            Steer::Mode(_) | Steer::Thread(_) => {
                 let mut d = routing::decide(&self.cfg.routing, &profiles, &a);
                 if matches!(d.reason, Reason::Verdict | Reason::Detour) {
                     d.reason = Reason::Correction;

@@ -40,6 +40,9 @@ pub const PLACE_META_PREFIX: &str = "discord.session.";
 /// A task's record of where it reports (DD7): `task.place.<task session>`
 /// names its parent's target when it started.
 pub const TASK_META_PREFIX: &str = "task.place.";
+/// Where a thread's replies go (theseus-rha2): `thread.shown.<thread session>`
+/// names the target of the place its last message came from; empty, none.
+pub const SHOWN_PREFIX: &str = "thread.shown.";
 /// Where the reply to a wake or a task's report goes when its session posts
 /// nowhere by then (theseus-4lx): `wake.target.<session>` names the target the
 /// wake was set from, or the report was sent to, in the frame that took it.
@@ -154,6 +157,11 @@ struct Index {
     /// Task session id → where it reports (DD7). Kept apart from `targets`,
     /// which a rebound place prunes.
     tasks: HashMap<String, String>,
+    /// A thread's session → the place its last message came from, so its
+    /// replies and cards go back there (theseus-rha2). The thread has no
+    /// place of its own (`virtual_place`); a message that came from the CLI
+    /// clears it.
+    shown: HashMap<String, String>,
     /// Question id → its card, until the card's settle is written.
     cards: HashMap<String, Card>,
     /// Every question that has a card post, settled or not.
@@ -400,6 +408,12 @@ impl Outbox {
                 }
                 continue;
             }
+            if let Some(thread_session) = key.strip_prefix(SHOWN_PREFIX) {
+                if let Some(target) = r.decode::<String>().ok().filter(|t| !t.is_empty()) {
+                    ix.shown.insert(thread_session.to_string(), target);
+                }
+                continue;
+            }
             let Some(place) = key.strip_prefix(PLACE_META_PREFIX) else {
                 continue;
             };
@@ -449,8 +463,29 @@ impl Outbox {
             ix.targets
                 .get(session_id)
                 .or_else(|| ix.tasks.get(session_id))
+                .or_else(|| ix.shown.get(session_id))
                 .cloned()
         })
+    }
+
+    /// A thread's session answers where its last message came from
+    /// (theseus-rha2): `target` is that place's, none when the message came
+    /// from somewhere that posts nothing (the CLI). Written only when it
+    /// changes, so a thread that keeps hearing from one place writes nothing.
+    pub fn show_at(&self, thread_session: &str, target: Option<&str>) -> Result<()> {
+        let now = self.with(|ix| ix.shown.get(thread_session).cloned())?;
+        if now.as_deref() == target {
+            return Ok(());
+        }
+        self.store.put_meta(
+            &format!("{SHOWN_PREFIX}{thread_session}"),
+            &target.unwrap_or(""),
+        )?;
+        self.with(|ix| match target {
+            Some(t) => ix.shown.insert(thread_session.to_string(), t.to_string()),
+            None => ix.shown.remove(thread_session),
+        })?;
+        Ok(())
     }
 
     /// The session a place runs on (`dm:<user>`, `channel:<id>`), from its

@@ -200,6 +200,31 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   `[threads] enabled|max_live`. The rows built on it (`thread-context`, `thread-recall`, `thread-route`) add their keys
   to `config/threads.rs` and call the board. Tests: `rpc/tests_threads.rs`, `threads::tests`, the layouts' format-33
   sample and format-32 store test in `tests_layouts.rs`.
+- **The thread router** (theseus-rha2; no store change): an unaddressed message in a place with live threads finds its
+  thread. `rpc/thread_flow.rs` (`route_to_thread`, called from `turn_submit` with `route` true) runs in this order:
+  addressing by place, an explicit word (`#slug`, `/t slug`, "in the … thread:") and a reply to a routed turn
+  (`thread_route::address`, certain, no judge); then the in-memory pre-router (`thread_route.rs`, pure: entity matches
+  against each live thread's working set, stickiness `[threads] sticky_half_life_secs`, the reply chain, fused as a
+  noisy-or; `thread_flow.rs` holds its `State`: the last thread per home session, routed turns, pending asks,
+  correction memory); then `classify.v2`'s `thread` question (`Source::Threads`, at most 50 options plus `new_thread`
+  and `home`), which rides **the same inbound request** as the rest of the batch: `JudgeService::inbound_early` begins
+  the point before the turn and the turn takes the handed-off `Early` (keyed by session, with a pre-minted turn id), so
+  routing adds no model call (`tests_thread_route::jevs_thread_answer_rides_the_one_inbound_request…` holds
+  `jev.seen().len() == 1`). `thread_route::decide` is the table: bar 0.90 quiet (a tag in the reply), 0.60 to 0.90 a
+  visible tag with a move handle, below that one question (`thread.asked`, answered by `thread.answer`, with `[1] [2]
+  [n]ew [h]ome` in the CLI and buttons on Discord), a new-thread offer on one tap, a one-off at home, and only two or
+  more live threads wait. `[threads] route_wait_ms` (400) bounds the wait: a timeout keeps the pre-router's pick as a
+  `guess` and the `thread.routed` row counts it (`timed_out`). **The misroute guard** (`toolrun/misroute.rs`, armed by
+  `arm_guard` for a placement below the act bar only): the session's first write or `proc.run` outside the thread's
+  working-set roots is held through the Approve posture, once. **Recovery** (`rpc/thread_move.rs`): `/move`, `theseus
+  thread move`, or "that was for …" writes a redirect note in the wrong thread, re-submits the message once to the right
+  one, and writes a correction (a `wrong thread` label on the `thread` question, and `Steer::Thread` in the correction
+  layer, so the next close message follows). A thread session's replies go to the place the message came from through
+  the outbox overlay (`Outbox::show_at`). Known limits: pending asks, router memory and thread corrections are in memory
+  (lost at a restart); a thread session's live stream does not reach the Discord place actor (its durable post does); the
+  early judgment's rows carry the home session. Tests: `rpc/tests_thread_route.rs`, `thread_route::tests`,
+  theseus-judge's `tests_threads.rs`; the 40-message fixture `fixtures/thread_route_40.json` is also
+  `scripts/thread-route-check.py`'s input.
 - **Tool calls**: `toolrun.rs` (every call the model makes becomes a kernel action: the gate and the dispatch), with
   a job's call in `toolrun/job.rs` (its turn waits on the job's wake, `toolrun/waits.rs`, and takes the job's
   completion with its result in one frame; Tier 7.1; a command that never started says why, `toolrun/not_started.rs`,

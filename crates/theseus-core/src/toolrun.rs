@@ -51,6 +51,7 @@ mod job;
 pub mod jobs_tools;
 mod kept;
 mod late;
+pub mod misroute;
 mod not_started;
 pub(crate) mod order;
 mod parallel;
@@ -302,6 +303,8 @@ impl ResumeOutcome {
 }
 
 pub struct ToolRuntime {
+    /// The misroute guard: a turn placed in a thread on a guess (theseus-rha2).
+    pub misroute: misroute::Guards,
     pub registry: Registry,
     pub policy: ToolPolicy,
     pub ctx: ToolCtx,
@@ -477,6 +480,7 @@ impl ToolRuntime {
     pub fn disabled() -> Self {
         let tmp = std::env::temp_dir();
         Self {
+            misroute: Default::default(),
             registry: Registry::new(),
             // No tools to call; were one to appear, it would wait.
             policy: ToolPolicy {
@@ -1166,7 +1170,7 @@ impl ToolRuntime {
                 // A batch whose steps differ in class (theseus-nrvq).
                 Err(Turned::Invalid(e)) => return Err(e),
                 Err(Turned::Place(why)) => Err(why),
-                Ok(j) => Ok(j),
+                Ok((d, c)) => Ok((self.misroute_hold(tc, tool, &plan, d), c)),
             };
             judged
                 .and_then(|j| glided.map_or(Ok(j), Err))
@@ -2256,6 +2260,7 @@ pub fn build_runtime(
     }
     let self_pr = Arc::new(crate::rsi::pr::Board::new(state.clone()));
     Ok(ToolRuntime {
+        misroute: Default::default(),
         registry,
         policy: ToolPolicy {
             roots: roots.clone(),

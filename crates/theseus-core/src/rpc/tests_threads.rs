@@ -217,6 +217,7 @@ async fn ask(
             reply_to: None,
             opened_from: None,
             thread: slug.map(str::to_string),
+            in_reply_to: None,
         },
     );
     let mut line = serde_json::to_string(&req).unwrap();

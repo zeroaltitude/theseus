@@ -2,6 +2,7 @@
 import type { Citation } from "./Citation";
 import type { Later } from "./Later";
 import type { Span } from "./Span";
+import type { ThreadTag } from "./ThreadTag";
 import type { TurnFallback } from "./TurnFallback";
 import type { TurnNudge } from "./TurnNudge";
 import type { TurnRoute } from "./TurnRoute";
@@ -81,4 +82,9 @@ nudged?: TurnNudge,
  * turn's recall (theseus-ejdk); none when it cited none, and none a
  * shared place may not show.
  */
-cites?: Array<Citation>, };
+cites?: Array<Citation>, 
+/**
+ * Where the turn ran when its place had threads to choose between
+ * (theseus-rha2); the reply's tag.
+ */
+thread?: ThreadTag, };

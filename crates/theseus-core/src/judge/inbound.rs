@@ -31,7 +31,7 @@ use std::sync::{Arc, Weak};
 use std::time::{Duration, Instant};
 
 use serde_json::json;
-use theseus_judge::builders::{InboundInput, RoleInput, TaskInput};
+use theseus_judge::builders::{InboundInput, RoleInput, TaskInput, ThreadInput};
 use theseus_judge::{Ask, DecisionPoint, Input, Judge, Mode, Outcome, Pack, Urgency};
 use theseus_kernel::Kernel;
 
@@ -41,8 +41,12 @@ use crate::node::{Body, Node, Origin};
 use crate::places::PlaceClass;
 use crate::trace::Trace;
 
-/// CLASSIFY (§2.4), at `inbound`.
-pub const CLASSIFY_PACK: &str = "classify.v1";
+/// CLASSIFY (§2.4), at `inbound`: `classify.v2` since theseus-rha2, v1's
+/// questions and the `thread` question, which names the live thread a message
+/// is about; `classify.v1` stays embedded for its history.
+pub const CLASSIFY_PACK: &str = "classify.v2";
+/// The question of `classify.v2` that names a thread.
+pub const THREAD_QUESTION: &str = "thread";
 /// ROLE_GUESS (§2.4), at `inbound`, batched with `classify.v1`.
 pub const ROLE_PACK: &str = "role.v1";
 /// ROUTE (25e), at `inbound`, in a request of its own beside the batch:
@@ -60,6 +64,44 @@ pub const PACKS: [&str; 3] = [CLASSIFY_PACK, ROLE_PACK, ROUTE_PACK];
 /// (a failure, a skip, model drift); a dropped sender (nothing sent, the
 /// day's limit among it) reads the same, at once.
 pub type RouteWait = tokio::sync::oneshot::Receiver<Answered>;
+
+/// What a turn waits on for `classify.v2`'s `thread` answer: dropped without
+/// a value when Jev gave none.
+pub type ThreadWait = tokio::sync::oneshot::Receiver<ThreadAnswered>;
+
+/// `classify.v2`'s `thread` answer, come back with its batch.
+#[derive(Debug, Clone)]
+pub struct ThreadAnswered {
+    /// A live thread's slug, `new_thread` or `home`.
+    pub choice: String,
+    pub confidence: f64,
+    /// Whether the judgment acts (canary or live), or is only recorded.
+    pub acts: bool,
+    pub judgment: String,
+    /// The options the question offered, in order (the live threads' slugs
+    /// first): what a label of the answer may name.
+    pub offered: Vec<String>,
+    pub at: tokio::time::Instant,
+}
+
+/// A point's asks, begun: the marks its turn's trace takes, and what its
+/// answers come back on.
+pub struct Early {
+    pub marks: Vec<serde_json::Value>,
+    pub route: Option<RouteWait>,
+    pub thread: Option<ThreadWait>,
+}
+
+impl Early {
+    /// The turn takes the point as its own: the marks go on its trace, and
+    /// it waits on the route verdict as it would have.
+    pub fn adopt(self, trace: &mut Trace) -> Option<RouteWait> {
+        for m in self.marks {
+            trace.mark("judge", "mark", m);
+        }
+        self.route
+    }
+}
 
 /// `route.v1`'s request, come back: its verdict, if any, and when it came
 /// (theseus-ddbi: `route.decided`'s `answered_ms`).
@@ -103,6 +145,9 @@ pub struct Inbound {
     pub author: String,
     /// The live tasks are the kernel's.
     pub kernel: Arc<Kernel>,
+    /// The live threads the message may be about (theseus-rha2), most
+    /// recent first; none: `classify.v2` asks no `thread` question.
+    pub threads: Vec<ThreadInput>,
     /// `route.v1`'s mode for this turn, as the turn decides it (`[routing]`,
     /// the judge's ladder, a pin): off, shadow, or live.
     pub route: PackMode,
@@ -175,6 +220,14 @@ impl JudgeService {
     /// does, with the channel `route.v1`'s verdict comes back on when it is
     /// asked (in any mode): the turn decides whether to wait for it.
     pub fn at_inbound(&self, trace: &mut Trace, msg: Inbound) -> Option<RouteWait> {
+        self.inbound_early(msg)?.adopt(trace)
+    }
+
+    /// `at_inbound`, begun before its turn has a trace: the same asks, in the
+    /// same requests, and the marks the turn will take (theseus-rha2: the
+    /// router waits on the thread answer before it knows which session's turn
+    /// this is).
+    pub fn inbound_early(&self, msg: Inbound) -> Option<Early> {
         if slash_command(&msg.text) {
             return None;
         }
@@ -203,13 +256,12 @@ impl JudgeService {
         let Ok(rt) = tokio::runtime::Handle::try_current() else {
             return None;
         };
-        for (pack, id, mode) in &packs {
-            trace.mark(
-                "judge",
-                "mark",
-                json!({"pack": pack.name(), "point": "inbound", "mode": mode.as_str(), "judgment": id}),
-            );
-        }
+        let marks: Vec<serde_json::Value> = packs
+            .iter()
+            .map(|(pack, id, mode)| {
+                json!({"pack": pack.name(), "point": "inbound", "mode": mode.as_str(), "judgment": id})
+            })
+            .collect();
         let (tx, rx) = match packs.iter().any(|(p, _, _)| p.name() == ROUTE_PACK) {
             true => {
                 let (tx, rx) = tokio::sync::oneshot::channel();
@@ -217,8 +269,21 @@ impl JudgeService {
             }
             false => (None, None),
         };
-        rt.spawn(judge_inbound(self.me.clone(), packs, msg, tx));
-        rx
+        let (ttx, trx) = match !msg.threads.is_empty()
+            && packs.iter().any(|(p, _, _)| p.name() == CLASSIFY_PACK)
+        {
+            true => {
+                let (tx, rx) = tokio::sync::oneshot::channel();
+                (Some(tx), Some(rx))
+            }
+            false => (None, None),
+        };
+        rt.spawn(judge_inbound(self.me.clone(), packs, msg, tx, ttx));
+        Some(Early {
+            marks,
+            route: rx,
+            thread: trx,
+        })
     }
 
     /// A verdict that came after its turn's wait: it applies from the
@@ -304,6 +369,28 @@ impl JudgeService {
         }
     }
 
+    /// The owner said a message was routed to the wrong thread: a "wrong
+    /// thread" label on `classify.v2`'s count of the day, which its rollback
+    /// rule reads. Landed off the turn's path: `land` writes a frame.
+    pub fn wrong_thread(&self) {
+        let Ok(rt) = tokio::runtime::Handle::try_current() else {
+            return;
+        };
+        let me = self.me.clone();
+        rt.spawn_blocking(move || {
+            if let Some(svc) = me.upgrade() {
+                let day = svc.today();
+                svc.land(
+                    CLASSIFY_PACK,
+                    theseus_judge::learn::CanaryEvent::Label {
+                        day,
+                        label: "wrong thread".into(),
+                    },
+                );
+            }
+        });
+    }
+
     /// Whether Jev's breaker is open now: a live verdict would not come, so
     /// the turn does not wait for one.
     pub fn breaker_open(&self) -> bool {
@@ -357,6 +444,15 @@ impl JudgeService {
                 "node": msg.node_id, "baseline": baseline, "place_kind": msg.place_kind,
                 "blob": blob, "on_path_ms": 0, "class": class(msg.task),
             });
+            if pack.name() == CLASSIFY_PACK && !msg.threads.is_empty() {
+                // The slugs the `thread` question offered, so a label of its
+                // answer names what was on offer (theseus-rha2).
+                context["threads"] = json!(msg
+                    .threads
+                    .iter()
+                    .map(|t| t.id.as_str())
+                    .collect::<Vec<_>>());
+            }
             if pack.name() == ROUTE_PACK {
                 context["pinned"] = json!(msg.chosen.is_some());
                 if let Some(c) = &msg.chosen {
@@ -488,6 +584,7 @@ pub fn input(nodes: &[Node], msg: &Inbound, live_tasks: Vec<TaskInput>) -> Inbou
         last_reply,
         minutes_since_last_message,
         live_tasks,
+        live_threads: msg.threads.clone(),
         current_role: None,
         roles: SEED_ROLES
             .iter()
@@ -541,6 +638,38 @@ pub fn verdict(j: &theseus_judge::Judgment, turn: &str) -> Option<crate::routing
     })
 }
 
+/// `classify.v2`'s `thread` answer from its judgment, when it was answered
+/// by the model the pack pins.
+pub fn thread_answer(j: &theseus_judge::Judgment) -> Option<ThreadAnswered> {
+    if j.pack != CLASSIFY_PACK || !j.actionable() {
+        return None;
+    }
+    let a = j.answer(THREAD_QUESTION)?;
+    let theseus_judge::Answer::Choice {
+        choice, confidence, ..
+    } = &a.answer
+    else {
+        return None;
+    };
+    Some(ThreadAnswered {
+        choice: choice.clone(),
+        confidence: *confidence,
+        acts: j.mode != theseus_judge::Mode::Shadow,
+        judgment: j.id.clone(),
+        offered: j
+            .context
+            .get("threads")
+            .and_then(|v| v.as_array())
+            .map(|v| {
+                v.iter()
+                    .filter_map(|s| s.as_str().map(str::to_string))
+                    .collect()
+            })
+            .unwrap_or_default(),
+        at: tokio::time::Instant::now(),
+    })
+}
+
 /// The urgency of a request whose asks run in `modes`: live when one acts
 /// (canary or live), so it waits for a permit rather than being shed.
 fn urgency_of(modes: impl Iterator<Item = PackMode>, total_secs: u64) -> Urgency {
@@ -549,6 +678,20 @@ fn urgency_of(modes: impl Iterator<Item = PackMode>, total_secs: u64) -> Urgency
         true => Urgency::live(Duration::from_secs(total_secs)),
         false => Urgency::Shadow,
     }
+}
+
+/// The thread answer goes to the router the moment the batch lands.
+async fn hand_thread_answer(
+    batch: impl std::future::Future<Output = Vec<theseus_judge::Judgment>>,
+    thread: Option<tokio::sync::oneshot::Sender<ThreadAnswered>>,
+) -> Vec<theseus_judge::Judgment> {
+    let judgments = batch.await;
+    if let Some(tx) = thread {
+        if let Some(a) = judgments.iter().find_map(thread_answer) {
+            let _ = tx.send(a);
+        }
+    }
+    judgments
 }
 
 /// One inbound decision point, in its own task: `route.v1`'s ask in a
@@ -562,6 +705,7 @@ async fn judge_inbound(
     packs: Vec<(Arc<Pack>, String, PackMode)>,
     msg: Inbound,
     route: Option<tokio::sync::oneshot::Sender<Answered>>,
+    thread: Option<tokio::sync::oneshot::Sender<ThreadAnswered>>,
 ) {
     let today = spend::local_day(theseus_protocol::now_unix_ms());
     let Some(svc) = me.upgrade() else { return };
@@ -632,6 +776,7 @@ async fn judge_inbound(
         };
         built.judge.judge(point).await
     };
+    let rest = hand_thread_answer(rest, thread);
     let (mut judgments, rest) = futures_util::future::join(routed, rest).await;
     judgments.extend(rest);
     tracing::debug!(
