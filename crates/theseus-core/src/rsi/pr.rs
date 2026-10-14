@@ -219,6 +219,17 @@ pub async fn propose(
     let Some(repo) = core.cfg.self_improve.repo.clone() else {
         return Err("Not run: [self] repo is unset, so there are no self branches.".into());
     };
+    // A self build's gate runs the tree's own code outside L1, where it could
+    // read a sealed holdout set (theseus-pw1q.5: out of reach is the owner's
+    // keel). While one is set, nothing is built.
+    if core.cfg.self_improve.sealed_dir.is_some() {
+        return Err(
+            "Not run: [self] sealed_dir is set, and a self build runs its code outside \
+                    L1, where it could read the sealed set; self branches wait until builds \
+                    run in L1, which is the owner's."
+                .into(),
+        );
+    }
     let place = board.place(&repo);
     let (p, item) = (place.clone(), i.item.clone());
     let found = blocking(move || Ok(tree::find(&p, &item))).await?;

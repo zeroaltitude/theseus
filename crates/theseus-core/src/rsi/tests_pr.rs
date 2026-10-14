@@ -78,6 +78,10 @@ struct Rig {
 }
 
 fn rig(mode: SelfMode, remote: Option<&str>) -> Rig {
+    rig_with(mode, remote, |_| {})
+}
+
+fn rig_with(mode: SelfMode, remote: Option<&str>, edit: impl FnOnce(&mut Config)) -> Rig {
     let f = fixture();
     let work = tempfile::tempdir().unwrap();
     let mut cfg = Config::example();
@@ -88,6 +92,7 @@ fn rig(mode: SelfMode, remote: Option<&str>) -> Rig {
     cfg.self_improve.mode = mode;
     cfg.self_improve.repo = Some(f.place.repo.display().to_string());
     cfg.self_improve.remote = remote.map(str::to_string);
+    edit(&mut cfg);
     let store = Store::open(&f.place.state.join("store")).unwrap();
     let model = Arc::new(Model::default());
     let core = Core::build(crate::rpc::Parts::for_tests(cfg, model.clone(), store)).unwrap();
@@ -225,7 +230,9 @@ fn upstream_refs(f: &Fixture) -> String {
 async fn mode_off_offers_no_tool_and_act_does() {
     let off = rig(SelfMode::Off, None);
     assert!(off.core.tools.registry.get(PROPOSE).is_none());
-    let sid = off.session("self");
+    // An operator's turn: with the mode off a self session's turn spends
+    // nothing, so it never reaches the model (the self budget refuses it).
+    let sid = off.session("operator");
     off.turn(&sid, "fs_list", json!({"path": "."})).await;
     assert!(!off.offered(), "mode off: no tool");
     let act = rig(SelfMode::Act, None);
@@ -241,6 +248,23 @@ async fn a_session_that_is_not_self_cannot_call_it() {
     let sid = r.session("operator");
     let said = r.turn(&sid, WIRE, propose()).await;
     assert!(said.contains("runs only in a self session"), "{said}");
+    assert!(
+        !r.f.place.trees().join("trim-the-sails").exists(),
+        "no tree"
+    );
+    assert!(r.rows().is_empty(), "no row");
+}
+
+#[tokio::test]
+async fn a_sealed_set_stops_every_self_build() {
+    let sealed = tempfile::tempdir().unwrap();
+    let dir = sealed.path().canonicalize().unwrap().display().to_string();
+    let r = rig_with(SelfMode::Act, Some("origin"), |cfg| {
+        cfg.self_improve.sealed_dir = Some(dir);
+    });
+    let sid = r.session("self");
+    let said = r.turn(&sid, WIRE, propose()).await;
+    assert!(said.contains("sealed_dir is set"), "{said}");
     assert!(
         !r.f.place.trees().join("trim-the-sails").exists(),
         "no tree"

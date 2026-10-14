@@ -57,3 +57,25 @@ pub fn sandbox_for(cfg: &crate::Config, state: &std::path::Path) -> Sandbox {
     let (roots, floor, approve) = guarded_paths(cfg, state);
     Sandbox::new(&cfg.sandbox, &roots, &floor, &approve)
 }
+
+#[cfg(test)]
+mod tests {
+    use theseus_protocol::rsi::SelfMode;
+
+    use super::guarded_paths;
+
+    /// The self trees are a root only while `[self]` builds: mode act and a
+    /// repo (theseus-pw1q.8), so a self session's file tools reach its tree.
+    #[test]
+    fn the_self_trees_are_a_root_only_while_self_builds() {
+        let state = std::path::Path::new("/nonexistent/theseus-guarded/state");
+        let trees = state.join("self").join("trees");
+        let mut cfg = crate::Config::example();
+        assert!(!guarded_paths(&cfg, state).0.contains(&trees), "mode off");
+        cfg.self_improve.mode = SelfMode::Act;
+        assert!(!guarded_paths(&cfg, state).0.contains(&trees), "no repo");
+        cfg.self_improve.repo = Some("/nonexistent/theseus-guarded/repo".into());
+        let roots = guarded_paths(&cfg, state).0;
+        assert!(roots.contains(&trees), "act and a repo: {roots:?}");
+    }
+}

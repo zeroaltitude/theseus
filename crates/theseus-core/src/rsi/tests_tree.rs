@@ -130,6 +130,18 @@ fn a_tree_is_apart_from_the_repo_with_its_own_target() {
     assert_eq!(t2.branch, format!("{}-2", t.branch));
 }
 
+/// A state dir inside the repo's checkout would put the trees inside it:
+/// refused before a worktree is added.
+#[test]
+fn trees_inside_the_repo_are_refused() {
+    let mut f = fixture();
+    f.place.state = f.place.repo.join("state");
+    let e = tree::open(&f.place, "fix the mast", NOW).unwrap_err();
+    assert!(format!("{e:#}").contains("inside the repo"), "{e:#}");
+    let repo = f.place.repo.canonicalize().unwrap();
+    assert_eq!(git(&repo, &["worktree", "list"]).lines().count(), 1);
+}
+
 /// The gate that judges is main's copy, run on the tree: a tree that writes
 /// a weakened gate.sh over its own is still judged red by main's.
 #[tokio::test]
