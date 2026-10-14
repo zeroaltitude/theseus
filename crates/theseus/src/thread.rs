@@ -5,6 +5,7 @@
 
 use anyhow::{bail, Result};
 use clap::Subcommand;
+use theseus_client::current::{self, Pick};
 use theseus_client::render::postmortem::usd;
 use theseus_client::render::time::fmt_stamp;
 use theseus_client::Conn;
@@ -78,6 +79,11 @@ pub enum ThreadCmd {
     Done { slug: String },
     /// Take a finished thread up again: its next message opens a successor session.
     Reopen { slug: String },
+    /// Make a thread this shell's current one (theseus-j0yh): prints the `export` line that sets
+    /// `THESEUS_THREAD`, which `ask` reads (`eval "$(theseus thread switch SLUG)"`), and tells the
+    /// interactive loop and the TUI on this terminal. `home` clears it. A slug, a number from
+    /// `theseus thread list`, or a unique start of a slug or title (four characters) names it.
+    Switch { thread: String },
 }
 
 impl Default for ThreadCmd {
@@ -190,7 +196,48 @@ pub async fn run(conn: &mut Conn, json: bool, cmd: ThreadCmd) -> Result<()> {
         ThreadCmd::Resume { slug } => moved(conn, json, method::THREAD_RESUME, slug).await,
         ThreadCmd::Done { slug } => moved(conn, json, method::THREAD_DONE, slug).await,
         ThreadCmd::Reopen { slug } => moved(conn, json, method::THREAD_REOPEN, slug).await,
+        ThreadCmd::Switch { thread } => switch(conn, json, &thread).await,
     }
+}
+
+/// `thread switch`: resolve the name among the live threads, remember it for
+/// this terminal, and print the line that makes it this shell's.
+async fn switch(conn: &mut Conn, json: bool, given: &str) -> Result<()> {
+    let v = conn
+        .request(
+            method::THREAD_LIST,
+            serde_json::to_value(ThreadListParams::default())?,
+        )
+        .await?;
+    let list: ThreadListResult = serde_json::from_value(v)?;
+    let pick = current::pick(given, &list.threads)?;
+    let (slug, title) = match pick {
+        Pick::Home => (None, "home".to_string()),
+        Pick::Thread(r) => (Some(r.thread.slug.as_str()), r.thread.title.clone()),
+    };
+    current::remember(slug);
+    if json {
+        println!("{}", serde_json::json!({"thread": slug}));
+    } else {
+        match slug {
+            Some(s) => println!("export {}={s}", current::ENV),
+            None => println!("unset {}", current::ENV),
+        }
+        eprintln!("current thread: {title}");
+    }
+    Ok(())
+}
+
+/// The title of a thread for a reply's tag, the slug when it cannot be read.
+pub async fn title_of(conn: &mut Conn, slug: &str) -> String {
+    let Ok(p) = serde_json::to_value(name(slug.to_string())) else {
+        return slug.to_string();
+    };
+    conn.request(method::THREAD_SHOW, p)
+        .await
+        .ok()
+        .and_then(|v| serde_json::from_value::<ThreadRow>(v).ok())
+        .map_or_else(|| slug.to_string(), |r| r.thread.title)
 }
 
 /// The working set with the lists given put in place of the thread's own,
@@ -350,6 +397,7 @@ mod tests {
             },
             context_tokens: tokens,
             today_usd: usd,
+            cache_ttl_secs: None,
         }
     }
 

@@ -57,6 +57,7 @@ mod store;
 pub mod style;
 mod task_graph;
 mod tasks;
+pub mod thread;
 pub mod time;
 mod wakes;
 mod warm;

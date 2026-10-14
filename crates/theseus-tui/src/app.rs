@@ -20,6 +20,7 @@ use theseus_protocol::{
 use crate::board::{short, Board, Moved, Only, Question, Row};
 use crate::detail::Detail;
 use crate::notice::{Delivery, Notices};
+use crate::threads::Picker;
 use theseus_client::seen::Seen;
 use theseus_protocol::notices::{self, Viewer};
 
@@ -71,6 +72,12 @@ pub enum Purpose {
     NewTask,
     /// `action.confirm`: an answer to a question.
     Answer { correlation_id: String },
+    /// `thread.list`: the picker's and the status line's threads (theseus-j0yh).
+    Threads,
+    /// `thread.pause`, `.resume` or `.done` from the picker.
+    ThreadAct(String),
+    /// `turn.submit` that opens a thread's session (its slug).
+    SubmitThread(String),
 }
 
 /// What the loop does for the app.
@@ -91,6 +98,9 @@ pub enum Effect {
     Title(String),
     /// Write the seen file: its path and its text.
     Save(PathBuf, String),
+    /// Remember this terminal's current thread: the file, the terminal, the
+    /// slug (none: home).
+    Remember(PathBuf, String, Option<String>),
 }
 
 /// The connection, as the header says it.
@@ -132,6 +142,8 @@ pub enum Mode {
     NewTask(Option<String>),
     /// `?`: the keys.
     Help,
+    /// Ctrl-T: the thread picker (theseus-j0yh).
+    Threads,
 }
 
 /// Which pane a narrow screen shows: the list, or the session in focus.
@@ -198,6 +210,14 @@ pub struct App {
     /// When the seen file is due to be written: a change of focus waits a
     /// second, so a walk through the queue writes once.
     save_at: Option<u64>,
+    /// The threads as last read (theseus-j0yh), and the slug of the current one.
+    pub threads: Vec<theseus_protocol::threads::ThreadRow>,
+    pub thread: Option<String>,
+    pub picker: Option<Picker>,
+    /// Where this terminal's current thread is kept, and its name: none in tests.
+    pub thread_file: Option<(PathBuf, String)>,
+    /// The remembered thread's pane has been opened (once, at the first list).
+    pub(crate) threads_focused: bool,
 }
 
 /// How long after a change of focus the seen file is written.
@@ -235,6 +255,11 @@ impl App {
             sync_warn: None,
             notify_pinned: false,
             tui_notify: None,
+            threads: Vec::new(),
+            thread: None,
+            picker: None,
+            thread_file: None,
+            threads_focused: false,
         }
     }
 
@@ -407,6 +432,10 @@ impl App {
             snapshot(),
             call(method::HEALTH, Value::Null, Purpose::Health),
         ];
+        // A thread chosen before: its row, for the status line.
+        if self.thread.is_some() {
+            out.push(call(method::THREAD_LIST, Value::Null, Purpose::Threads));
+        }
         if let Some(sid) = self.detail.as_ref().map(|d| d.session_id.clone()) {
             out.extend(read_session(&sid));
         }
@@ -490,6 +519,13 @@ impl App {
             }
             _ => Vec::new(),
         }
+    }
+
+    /// The daemon's health: the notify kind its config names, and the sync
+    /// warning (out of `answered`, within clippy's 100 lines).
+    fn health_read(&mut self, v: Value) {
+        self.config_notify(&v);
+        self.sync_warn = sync_warning(v);
     }
 
     /// `[tui] notify` from `health`: how notices reach the owner when
@@ -623,12 +659,13 @@ impl App {
                     if let Some(d) = self.detail.as_mut().filter(|d| d.session_id == sid) {
                         d.cited(&r.cites);
                     }
+                    return self.thread_replied(&sid);
                 }
             }
-            Purpose::Health => {
-                self.config_notify(&v);
-                self.sync_warn = sync_warning(v);
-            }
+            Purpose::Health => self.health_read(v),
+            Purpose::Threads => return self.threads_listed(v),
+            Purpose::ThreadAct(_) => return self.thread_acted(v),
+            Purpose::SubmitThread(_) => return self.thread_submitted(v),
             Purpose::NewTask => self.task_started(v),
             Purpose::Watch | Purpose::Typing => {}
         }
@@ -672,6 +709,9 @@ impl App {
             Purpose::Answer { .. } => method::WORK_ANSWER,
             Purpose::Typing => method::SESSION_TYPING,
             Purpose::Health => method::HEALTH,
+            Purpose::Threads => method::THREAD_LIST,
+            Purpose::ThreadAct(_) => "thread.pause, resume or done",
+            Purpose::SubmitThread(_) => method::TURN_SUBMIT,
         };
         let text = format!("{what}: {}", e.message);
         if let Purpose::Submit(sid) | Purpose::Stop(sid) | Purpose::Cancel(sid) = purpose {
@@ -753,7 +793,12 @@ impl App {
         if k.modifiers.contains(KeyModifiers::CONTROL) && k.code == KeyCode::Char('c') {
             return vec![Effect::Quit];
         }
+        let ctrl_t = k.modifiers.contains(KeyModifiers::CONTROL) && k.code == KeyCode::Char('t');
+        if ctrl_t && matches!(self.mode, Mode::Normal | Mode::Input) {
+            return self.open_picker();
+        }
         match self.mode.clone() {
+            Mode::Threads => self.picker_key(k),
             Mode::Help => {
                 self.mode = Mode::Normal;
                 Vec::new()
@@ -824,7 +869,7 @@ impl App {
                 }
             }
             KeyCode::Char('i') => {
-                if self.on_screen().is_some() {
+                if self.on_screen().is_some() || self.sessionless_thread().is_some() {
                     self.mode = Mode::Input;
                 }
             }
@@ -1044,9 +1089,14 @@ impl App {
             }
             KeyCode::Enter => {
                 let text = self.input.trim().to_string();
+                if let Some(arg) = text
+                    .strip_prefix("/t")
+                    .filter(|r| r.chars().next().is_none_or(char::is_whitespace))
+                {
+                    return self.thread_line(arg.trim());
+                }
                 let Some(sid) = self.detail.as_ref().map(|d| d.session_id.clone()) else {
-                    self.mode = Mode::Normal;
-                    return Vec::new();
+                    return self.first_thread_message(&text);
                 };
                 if text.is_empty() {
                     return Vec::new();
@@ -1109,6 +1159,12 @@ impl App {
             Mode::Input => self.input.push_str(&text),
             Mode::Filter => self.filter.push_str(&text.replace(['\n', '\t'], " ")),
             Mode::Note(_) => self.note.push_str(&text),
+            Mode::Threads => {
+                if let Some(p) = self.picker.as_mut() {
+                    p.filter.push_str(&text.replace(['\n', '\t'], " "));
+                    p.cursor = 0;
+                }
+            }
             Mode::NewTask(_) => self.brief.push_str(&text.replace(['\n', '\t'], " ")),
             Mode::Normal | Mode::Help | Mode::Armed(..) => {
                 if let Mode::Armed(arm, _) = self.mode {

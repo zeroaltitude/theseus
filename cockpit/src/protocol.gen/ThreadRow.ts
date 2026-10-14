@@ -13,4 +13,10 @@ context_tokens?: number,
 /**
  * What the thread's sessions spent since local midnight.
  */
-today_usd: number, };
+today_usd: number, 
+/**
+ * The prompt cache's lifetime for the profile the session's last turn ran
+ * on, in seconds (theseus-j0yh): a client reads warm or cold from this and
+ * the thread's `last_active_ms`. None before the session's first turn.
+ */
+cache_ttl_secs?: number, };

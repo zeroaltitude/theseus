@@ -283,6 +283,12 @@ async fn a_message_to_a_thread_opens_its_session_once_and_the_next_reuses_it() {
         Some(sid.as_str())
     );
     assert!(list.threads[0].thread.last_active_ms >= rec(&c, &sid).last_active_ms);
+    // And the cache's lifetime for the profile of its last turn, for warm or cold (theseus-j0yh).
+    assert!(
+        matches!(list.threads[0].cache_ttl_secs, Some(300 | 3600)),
+        "{:?}",
+        list.threads[0].cache_ttl_secs
+    );
     // A turn names a session or a thread, not both; a missing thread is not found.
     let both = ask(c.clone(), Some("tides"), Some(&sid), "x").await;
     assert_eq!(

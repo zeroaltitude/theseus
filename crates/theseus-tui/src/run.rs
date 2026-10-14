@@ -328,6 +328,9 @@ impl<B: Backend> Runner<B> {
                 }
                 Effect::Title(t) => self.write(format!("\x1b]0;{t}\x07").as_bytes()),
                 Effect::Save(path, text) => self.save(&path, &text),
+                Effect::Remember(path, terminal, slug) => {
+                    let _ = theseus_client::current::write(&path, &terminal, slug.as_deref());
+                }
                 Effect::Call(call) => {
                     let Some(conn) = self.conn.as_mut() else {
                         continue;

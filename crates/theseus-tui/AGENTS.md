@@ -84,6 +84,12 @@ SIGHUP, a panic and Ctrl-C twice). vt100 can read back only one screen of scroll
   diff (`render::Flight`). The changed words of a diff line are `MARK_ON`/`MARK_OFF` in its text: `ui::put` draws them
   on a background of their own and `ui::wrap` carries a mark over a cut. Tests: `src/tests_diff.rs`.
 
+- `src/threads.rs` (theseus-j0yh): the current thread, the header's status line (only once a thread is known), Ctrl-T's
+  picker (type to filter; `p` `r` `d` (twice) `a` act while the filter is empty, `/` types them; Enter switches), `/t` in the
+  input line, a thread's session tagged `→ title` in the pane header. Requests: `thread.list` on opening the picker, at a
+  connect with a thread current, and after a reply in a thread; keys in the picker send none but the acts. Tests:
+  `src/tests_threads.rs`.
+
 ## Invariants
 
 - **The protocol is the only way in.** What needs you is each view's `attention`, which the daemon computes; an

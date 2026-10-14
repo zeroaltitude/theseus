@@ -220,5 +220,48 @@ class TmuxIsolation(unittest.TestCase):
         self.assertEqual((tmpdir / "default").exists(), default_before, "the default socket was touched")
 
 
+class ThreadsCheck(unittest.TestCase):
+    """The threads check's verdict (theseus-j0yh), on transcripts and sessions
+    made by hand: threads that kept their answers apart pass, and each way of
+    mixing them fails with its words."""
+
+    P, R = steps.PROMPTS, steps.T_REPLIES
+
+    def sessions(self):
+        p, r = self.P, self.R
+        tide = [p["T.tide.first"], r["T.tide.first"], p["T.tide.again"], r["T.tide.again"]]
+        moon = [p["T.moon.first"], r["T.moon.first"], p["T.moon.again"], r["T.moon.again"]]
+        return tide, moon
+
+    def transcript(self):
+        return f"[Tide log · active]\n{self.R['T.tide.again']}\n[Moon table · active]\n{self.R['T.moon.again']}\n[Tide log]"
+
+    def test_threads_that_kept_their_answers_apart_pass(self):
+        import threads_check
+        tide, moon = self.sessions()
+        self.assertEqual(threads_check.check(self.transcript(), tide, moon), [])
+
+    def test_an_answer_in_the_other_threads_session_fails(self):
+        import threads_check
+        tide, moon = self.sessions()
+        fails = threads_check.check(self.transcript(), tide + [self.R["T.moon.first"]], moon)
+        self.assertTrue(any("tide-log's session holds" in f for f in fails), fails)
+        fails = threads_check.check(self.transcript(), tide, moon[:-1])
+        self.assertTrue(any("moon-table's session lacks" in f for f in fails), fails)
+
+    def test_a_missing_reply_or_status_line_fails(self):
+        import threads_check
+        tide, moon = self.sessions()
+        fails = threads_check.check("[Tide log]", tide, moon)
+        self.assertTrue(any("never reached" in f for f in fails), fails)
+        self.assertTrue(any("[Moon table" in f for f in fails), fails)
+
+    def test_the_stand_in_answers_each_threads_question_with_its_own_words(self):
+        rules = steps.stand_in_rules("/p")
+        for key, text in steps.T_REPLIES.items():
+            hits = [r for r in rules if r["when"] in steps.PROMPTS[key]]
+            self.assertEqual([r.get("text") for r in hits], [text], key)
+
+
 if __name__ == "__main__":
     unittest.main()

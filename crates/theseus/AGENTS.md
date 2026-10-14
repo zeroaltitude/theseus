@@ -64,6 +64,26 @@ Key modules: `main.rs`, `cmd.rs`, `render.rs`, `client.rs`. Read by: (a binary).
   `routine add SCHEDULE BRIEF [--title] [--budget USD] [--month USD] [--to dm|none|PLACE] [--catch-up one|none|auto] [--speak
   always|when-notable]`, `runs ID [-n N]`, `pause ID [--until WHEN]`, `resume`, `run` (once, the series untouched), `update`, `rm`. The
   writes are in `client::OPERATORS`, so a job's shell cannot make them. The lines are `list_lines` and `run_lines` (tested).
+- `src/current.rs`, `render/thread.rs`, `interactive/thread.rs` (theseus-j0yh): a terminal's current thread. `theseus thread
+  switch SLUG|N|PREFIX|home` prints `export THESEUS_THREAD=…` (or `unset`) and remembers the choice per tty in
+  `$XDG_STATE_HOME/theseus/thread.json`; `ask` reads only the environment (a script without it asks home), and a reply made
+  in a thread prints `→ title`. `watch --interactive` starts on the terminal's thread, takes `/t` (list), `/t N|NAME`
+  (moves the watch to that thread's session), `/t home`, and prints a status line `[title · state · 41K ctx · warm]`
+  (`render::thread::status_line`; warm from `ThreadRow.cache_ttl_secs` and `last_active_ms`). With no current thread it
+  sends no `thread.*` request. Tests: `tests/thread_switch.rs`, `tests/thread_interactive.rs`. `theseus chat` (cli-tasks)
+  had not joined: its joiner ports `/t` and the status line from `interactive/thread.rs`.
+- `src/thread_import.rs`, `src/vestige.rs` (theseus-71ib): `theseus thread import --from openclaw` is the dry run (a numbered
+  table, `render`'s words in `table_lines`, and a plan file, `thread-import-plan.txt` by default, of `[ ] N slug title` lines);
+  `--apply 1,3,5` (numbers of a fresh table) or `--apply all-ticked --plan FILE` (the `[x]` lines, read by slug) makes those
+  threads through `thread.import`; `--since-days` (30), `--min-cluster` (8). `--vestige PATH` (a dump file, or a directory's
+  `vestige*.json`) turns each memory into an episode (`vestige::episode`, the id the digest of its text) and sends it with
+  `import.episodes`; a note seen again is skipped. `thread.import` is in `client::OPERATORS`. Tests: `thread_import/tests.rs`,
+  `vestige/tests.rs`, theseusd's `tests/thread_import.rs`.
+  `thread seal SLUG [--reason] [--redirect] [--not-needed]` (the seal's report says what had crossed into other threads,
+  "2 facts were already used in «pr round»", and offers `--redirect`), `thread unseal SLUG`, `thread new --sealed
+  --split-from`; a sealed thread's name carries 🔒 in `thread list` and `thread show` (🔒? while a seal is proposed).
+  `thread answer <ask> <1|2|new|home>` and `thread move <slug|home>` are the router's recovery (theseus-rha2): `thread/ask.rs`
+  prints the question a `thread.asked` carries as `[1] [2] [n]ew [h]ome` and the line to answer it; both are in `OPERATORS`.
 - `src/standing_cmd.rs` (theseus-a7vi): `theseus standing` (the live records: id, kind, scope, since, source, text,
   and a last line "in every compile of their scope since they began: N compiles, M missing" from the manifests;
   `--all` adds the ended), `standing add [--kind order|preference|fact] [--scope everywhere|place:T|session:ID]

@@ -50,6 +50,14 @@ impl CacheTtl {
         *self == Self::default()
     }
 
+    /// The lifetime in seconds.
+    pub fn secs(self) -> u64 {
+        match self {
+            Self::FiveMinutes => 300,
+            Self::OneHour => 3600,
+        }
+    }
+
     pub fn as_str(self) -> &'static str {
         match self {
             Self::FiveMinutes => "5m",

@@ -108,6 +108,20 @@ PROMPTS = {
     "S9.edit": "add a comment line at the top of tides.py",
     "S11": "start the survey once more, in the background",
     "S12": "add a function for the mean height; plan it first",
+    # The threads check (threads_check.py): two threads, switched by /t.
+    "T.tide.first": "[tide-log] when is high water?",
+    "T.moon.first": "[moon-table] when is the new moon?",
+    "T.tide.again": "[tide-log] and the low water?",
+    "T.moon.again": "[moon-table] and the full moon?",
+}
+
+# The threads check's replies: each names its thread, so an answer that lands
+# in the other thread's session is read at once.
+T_REPLIES = {
+    "T.tide.first": "High water in the tide log is 06:10.",
+    "T.moon.first": "The new moon in the moon table is on the 9th.",
+    "T.tide.again": "Low water in the tide log is 12:00.",
+    "T.moon.again": "The full moon in the moon table is on the 24th.",
 }
 
 # The bug the project carries, and its fix: S4's edit.
@@ -195,4 +209,4 @@ def stand_in_rules(project):
         {"when": PROMPTS["S11"], "calls": [{"name": "proc_run", "input": survey}],
          "then": "The survey is running in the background."},
         {"when": PROMPTS["S12"], "text": S12_REPLY},
-    ]
+    ] + [{"when": PROMPTS[k], "text": text} for k, text in T_REPLIES.items()]

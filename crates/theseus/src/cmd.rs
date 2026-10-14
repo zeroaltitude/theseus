@@ -74,7 +74,15 @@ pub async fn ask(
         None | Some("-") => read_stdin_prompt()?,
         Some(p) => p.to_string(),
     };
-    let dir = ask_dir(a.dir.as_deref(), a.session.is_some() || a.thread.is_some())?;
+    // The thread this shell chose (`thread switch`'s export) when none was named; a script that
+    // never set it asks the home conversation (theseus-j0yh).
+    let thread = a.thread.or_else(|| {
+        a.session
+            .is_none()
+            .then(theseus_client::current::from_env)
+            .flatten()
+    });
+    let dir = ask_dir(a.dir.as_deref(), a.session.is_some() || thread.is_some())?;
     let params = serde_json::to_value(TurnSubmitParams {
         dir,
         carried: false,
@@ -89,7 +97,9 @@ pub async fn ask(
         reply_to: None,
         // Inside a job, its session (theseus-b5cl).
         opened_from: theseus_client::client::job_session(),
-        thread: a.thread,
+        thread,
+        speaking: None,
+        in_reply_to: None,
     })?;
     let follow_for = spawned.then_some(a.follow_for);
     let shown = (a.thinking, a.trace);
@@ -108,6 +118,14 @@ fn ask_dir(dir: Option<&std::path::Path>, continues: bool) -> Result<Option<Stri
     Ok(Some(dir.display().to_string()))
 }
 
+/// Which thread a turn ran in, with a way to move it when the router was
+/// unsure (theseus-rha2); nothing when its place had no threads to choose from.
+fn ran_in(r: &theseus_protocol::TurnSubmitResult) {
+    if let Some(t) = r.thread.as_ref().and_then(|t| t.words()) {
+        eprintln!("{t}");
+    }
+}
+
 /// One `turn.submit`, streamed as `ask` prints it: the reply as it comes (or
 /// as JSON, or quiet), the status line, the trace, and the exit code that
 /// says how the turn ended. `theseus prompt` shares it.
@@ -123,6 +141,10 @@ pub(crate) async fn stream_turn(
     let stream = !no_stream && !json;
     let dir = params
         .get("dir")
+        .and_then(Value::as_str)
+        .map(str::to_string);
+    let thread = params
+        .get("thread")
         .and_then(Value::as_str)
         .map(str::to_string);
     let mode = match (json, stream) {
@@ -187,7 +209,12 @@ pub(crate) async fn stream_turn(
         for line in r.harness_lines() {
             eprintln!("{line}");
         }
+        if let Some(slug) = &thread {
+            let title = crate::thread::title_of(conn, slug).await;
+            eprintln!("{}", render::thread::reply_tag(&title));
+        }
         crate::print::footer(&render::status_line(&r));
+        ran_in(&r);
     }
     if let (Some(corr), false) = (&r.awaiting_confirm, json) {
         eprintln!(
