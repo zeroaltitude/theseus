@@ -421,10 +421,11 @@ impl Lane {
     fn take(&mut self, m: LaneMsg) {
         match m {
             LaneMsg::Live(op) => {
-                if op.key() == Some(render::BOARD_KEY) {
+                let board = op.key() == Some(render::BOARD_KEY);
+                if board {
                     self.v2.only_if_pinned = false;
                 }
-                if self.retry_at.is_none() {
+                if self.retry_at.is_none() || board {
                     // A loop's thinking goes before the reply that follows it
                     // (theseus-l1y1), as a call's progress goes before its card.
                     if let Op::Upsert { key, content, .. } = &op {
@@ -520,7 +521,15 @@ impl Lane {
         self.attempt += 1;
         let delay = Duration::from_secs(1 << self.attempt.min(6)).min(BACKOFF_MAX);
         self.retry_at = Some(tokio::time::Instant::now() + delay);
+        // The board is a state, not a stream: its latest waits out the
+        // outage, so a place does not keep a stale one until its next change.
+        let board = self
+            .live
+            .iter()
+            .find(|o| o.key() == Some(render::BOARD_KEY))
+            .cloned();
         self.live.clear();
+        self.live.extend(board);
         self.release();
         self.shared.core.outbox.error("discord", e.message.clone());
         if self.attempt == 1 {

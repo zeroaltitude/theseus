@@ -250,10 +250,25 @@ impl Lane {
             return Ok(());
         }
         self.v2.board_due = None;
-        if self.board_v2(content).await? {
-            self.v2.board_at = Some(Instant::now());
+        match self.board_v2(content.clone()).await {
+            Ok(written) => {
+                if written {
+                    self.v2.board_at = Some(Instant::now());
+                }
+                Ok(())
+            }
+            Err(e) => {
+                // Discord is away: this state waits out the outage (`Lane::away`).
+                if e.away {
+                    self.live.push(Op::Upsert {
+                        key: BOARD_KEY.into(),
+                        content,
+                        buttons,
+                    });
+                }
+                Err(e)
+            }
         }
-        Ok(())
     }
 
     /// Write the V2 board: the pinned one found after a restart, else made.

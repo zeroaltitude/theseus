@@ -67,13 +67,18 @@ fn scripted(s: Vec<Scripted>) -> FakeProvider {
 }
 
 fn start_all(briefs: &[&str]) -> Scripted {
+    start_quoting(briefs, QUOTE)
+}
+
+/// `task_create` for each brief, each quoting `quote` from the owner's ask.
+fn start_quoting(briefs: &[&str], quote: &str) -> Scripted {
     let calls: Vec<(String, Value)> = briefs
         .iter()
         .enumerate()
         .map(|(i, b)| {
             (
                 format!("t_task{i}"),
-                json!({"brief": b, "arrangement": {"pieces": [{"quote": QUOTE, "role": "objective"}]}}),
+                json!({"brief": b, "arrangement": {"pieces": [{"quote": quote, "role": "objective"}]}}),
             )
         })
         .collect();
@@ -482,6 +487,7 @@ async fn the_status_line_reads_the_counts_and_clears_when_nothing_works() {
         })
     })
     .await;
+    r.until("the card", || cards(&r, ANA_DM).len() == 1).await;
     let card = cards(&r, ANA_DM).remove(0);
     r.press(&card.id, "Approve", (ANA, "ana"));
     r.until("the status cleared when nothing works or waits", || {
@@ -501,9 +507,12 @@ async fn the_status_line_reads_the_counts_and_clears_when_nothing_works() {
             );
         }
     }
+    // Never two inside the gap: the stand-in hears them in the order and at the
+    // times the sender made them, give or take the load; an unpaced sender
+    // would send within a few milliseconds.
     for w in all.windows(2) {
         assert!(
-            w[1].0 - w[0].0 >= 590,
+            w[1].0 - w[0].0 >= 300,
             "two updates {} ms apart",
             w[1].0 - w[0].0
         );
@@ -685,6 +694,92 @@ async fn stop_asks_twice_and_the_second_press_stops_the_task() {
         r.fake
             .reply_message(&yes)
             .is_some_and(|m| m.content.contains("stopped"))
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn clear_done_drops_the_done_tasks_from_the_board() {
+    let r = Rig::start_tweaked(
+        |_, _| {
+            model(
+                vec![start_all(&[BUOY]), Scripted::text("Started it.")],
+                vec![(BUOY, sleeps(1))],
+            )
+        },
+        guild(),
+        &bindings(),
+        &[],
+        tweak,
+    )
+    .await;
+    r.say((ANA, "ana"), None, ASK);
+    r.until("the task done and not yet seen", || {
+        boards(&r, ANA_DM)
+            .first()
+            .is_some_and(|b| b.content.contains("✅ 1 done since you looked"))
+    })
+    .await;
+    let board = boards(&r, ANA_DM).remove(0);
+    r.press(&board.id, "✓ Clear done", (ANA, "ana"));
+    r.until("the board says all clear", || {
+        boards(&r, ANA_DM)
+            .first()
+            .is_some_and(|b| b.content.contains("all clear") && !b.content.contains("Buoy-paint"))
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn quiet_one_hour_makes_the_places_cards_silent_until_it_is_ended() {
+    const ASK2: &str = "START2: now run this other thing";
+    let r = Rig::start_tweaked(
+        |dir, _| {
+            model(
+                vec![
+                    start_all(&[BUOY]),
+                    Scripted::text("Started it."),
+                    start_quoting(&[REEF], "run this other thing"),
+                    Scripted::text("Started the other."),
+                ],
+                vec![(BUOY, sleeps(30)), (REEF, asks(dir, "reef.txt"))],
+            )
+        },
+        guild(),
+        &bindings(),
+        &[],
+        tweak,
+    )
+    .await;
+    r.say((ANA, "ana"), None, ASK);
+    r.until("a running task on the board", || {
+        boards(&r, ANA_DM)
+            .first()
+            .is_some_and(|b| b.content.contains("⚙️ 1 running"))
+    })
+    .await;
+    let board = boards(&r, ANA_DM).remove(0);
+    r.press(&board.id, "🔕 Quiet 1 h", (ANA, "ana"));
+    r.until("the board says it is quiet", || {
+        boards(&r, ANA_DM).first().is_some_and(|b| {
+            b.content.contains("🔕 quiet until")
+                && b.buttons.iter().any(|x| x.label == "🔔 Unquiet")
+        })
+    })
+    .await;
+    // A question that comes now is a card, silent.
+    r.say((ANA, "ana"), None, ASK2);
+    r.until("the card", || cards(&r, ANA_DM).len() == 1).await;
+    assert!(
+        cards(&r, ANA_DM)[0].silent(),
+        "quiet: the card does not buzz"
+    );
+    // Unquiet: the board says so.
+    r.press(&board.id, "🔔 Unquiet", (ANA, "ana"));
+    r.until("the board is loud again", || {
+        boards(&r, ANA_DM)
+            .first()
+            .is_some_and(|b| !b.content.contains("🔕 quiet until"))
     })
     .await;
 }

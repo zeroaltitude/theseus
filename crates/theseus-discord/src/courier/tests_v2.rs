@@ -255,3 +255,33 @@ fn a_card_pings_unless_another_that_pinged_inside_the_window_still_waits() {
     // Past the window it pings.
     assert!(s.card_may_ping("q5", now + Duration::from_secs(31), open));
 }
+
+/// The board is a state: an outage that comes while it waits does not drop it,
+/// and the state that comes during the outage replaces it, so the board is
+/// brought up to date when Discord is back rather than at the next change.
+#[tokio::test]
+async fn the_latest_board_waits_out_an_outage_and_is_written_when_discord_is_back() {
+    use theseus_sim::fake_discord::Mode;
+    let d = tempfile::tempdir().unwrap();
+    let fake = FakeDiscord::start();
+    let mut lane = lane(d.path(), &fake);
+    lane.take(live(board(1)));
+    lane.apply_live().await;
+    assert_eq!(boards(&fake).len(), 1);
+    tokio::time::sleep(v2::BOARD_EVERY + Duration::from_millis(100)).await;
+    fake.set_mode(Mode::Down);
+    lane.take(live(board(2)));
+    lane.apply_live().await;
+    assert!(lane.retry_at.is_some(), "Discord is away");
+    assert_eq!(lane.live.len(), 1, "the board waits");
+    // A newer state during the outage replaces it.
+    lane.take(live(board(3)));
+    assert_eq!(lane.live.len(), 1);
+    fake.set_mode(Mode::Up);
+    tokio::time::sleep_until(lane.retry_at.unwrap()).await;
+    lane.retry_at = None;
+    lane.apply_live().await;
+    let b = boards(&fake);
+    assert_eq!(b.len(), 1);
+    assert!(b[0].content.contains("3 running"), "{}", b[0].content);
+}
