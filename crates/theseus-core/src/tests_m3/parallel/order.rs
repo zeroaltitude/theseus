@@ -184,7 +184,7 @@ async fn programs_that_share_nothing_run_together() {
         prog("m2", "make -C ../two"),
     ]);
     let n = v.len();
-    let (_r, log, texts) = run(&v, |cfg| cfg.tools.parallel_runs = 16).await;
+    let (_r, log, texts) = run(&v, |_| {}).await;
     let events = log.0.lock().unwrap().clone();
     let last_begin = events.iter().rposition(|w| w.starts_with("begin")).unwrap();
     let first_end = events.iter().position(|w| w.starts_with("end")).unwrap();
@@ -219,7 +219,7 @@ async fn sixteen_programs_run_in_one_wave_and_a_seventeenth_waits() {
     let v: Vec<_> = (0..17)
         .map(|i| prog(&format!("p{i:02}"), "sleep 2"))
         .collect();
-    let (r, log, _) = run(&v, |cfg| cfg.tools.parallel_runs = 16).await;
+    let (r, log, _) = run(&v, |_| {}).await;
     assert_eq!(log.most_at_once(), 16);
     let events = log.0.lock().unwrap().clone();
     let (first_end, last_begin) = (
