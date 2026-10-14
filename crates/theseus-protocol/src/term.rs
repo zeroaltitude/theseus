@@ -3,6 +3,8 @@
 
 use serde::{Deserialize, Serialize};
 
+pub mod words;
+
 /// One open terminal.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]

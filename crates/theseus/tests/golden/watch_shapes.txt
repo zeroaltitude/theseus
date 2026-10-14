@@ -12,6 +12,7 @@ watching ses_q7f3k2 (Ctrl-C to stop)
              the harbour's first.
   → proc.run [tide --port lantern]
   ← proc.run error · exit 2 · 1.0 KB
+  ⎿ no such port
   ? proc.run needs your confirmation: proc.run — approve (enforcement = approve)
       input: {"argv":["tide","--port","lantern"]}
       approve: theseus confirm act_m3

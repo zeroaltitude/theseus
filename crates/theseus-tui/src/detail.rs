@@ -228,7 +228,7 @@ impl Detail {
                 Tag::Reply => self.stream(&l.text),
                 // A question's answers are the CLI's commands; the card says
                 // the TUI's keys instead.
-                Tag::Dim if question => {}
+                Tag::Dim | Tag::Add | Tag::Del if question => {}
                 tag => {
                     self.close();
                     self.push(tag, l.text);

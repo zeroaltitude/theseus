@@ -26,6 +26,8 @@ mod tests_answer;
 #[cfg(test)]
 mod tests_cite;
 #[cfg(test)]
+mod tests_diff;
+#[cfg(test)]
 mod tests_markdown;
 #[cfg(test)]
 mod tests_names;

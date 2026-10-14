@@ -518,7 +518,13 @@ impl Tool for WriteFile {
             )));
         }
         let before = fs::metadata(&path).ok().map(|m| m.len());
+        let old = crate::change::old_text(&path);
         write_atomic(&path, a.content.as_bytes(), ctx.umask)?;
+        let name = crate::change::shown(&path, &ctx.cwd);
+        let diff = (before.is_none() || old.is_some()).then(|| {
+            let d = crate::change::file_diff(&name, old.as_deref(), &a.content);
+            crate::change::meta(&crate::change::tool_diff(name.clone(), &d))
+        });
         let text = match before {
             Some(b) => format!(
                 "Replaced {} ({b} bytes → {} bytes).",
@@ -529,7 +535,7 @@ impl Tool for WriteFile {
         };
         Ok(ToolOutput {
             text,
-            meta: json!({"path": path, "bytes": a.content.len(), "created": before.is_none(), "bytes_before": before}),
+            meta: json!({"path": path, "bytes": a.content.len(), "created": before.is_none(), "bytes_before": before, "diff": diff}),
         })
     }
 }
@@ -630,12 +636,13 @@ impl Tool for Edit {
         write_atomic(&path, after.as_bytes(), ctx.umask)?;
         let name = path.display().to_string();
         let diff = unified(&before, &after, &name, &name, 3);
+        let shown = crate::change::shown(&path, &ctx.cwd);
         Ok(ToolOutput {
             text: format!(
                 "Replaced {n} occurrence{} in {name}.\n{diff}",
                 if n == 1 { "" } else { "s" }
             ),
-            meta: json!({"path": path, "replacements": n, "bytes_before": before.len(), "bytes_after": after.len()}),
+            meta: json!({"path": path, "replacements": n, "bytes_before": before.len(), "bytes_after": after.len(), "diff": crate::change::meta(&crate::change::tool_diff(shown.clone(), &crate::change::file_diff(&shown, Some(&before), &after)))}),
         })
     }
 }
@@ -761,6 +768,7 @@ impl Tool for Patch {
         let files = split_patch(&a.patch).map_err(ToolFailure::new)?;
         // Compute every result first; write only if all apply.
         let mut results: Vec<(PathBuf, Option<String>, String)> = Vec::new();
+        let mut diffs: Vec<(String, String)> = Vec::new();
         let mut recounted = Vec::new();
         for f in &files {
             let target = f
@@ -787,6 +795,12 @@ impl Tool for Patch {
                     applied.lines().count()
                 )));
             }
+            let shown = crate::change::shown(&path, &ctx.cwd);
+            let before = (f.old.is_some()).then_some(original.as_str());
+            diffs.push((
+                shown.clone(),
+                crate::change::file_diff(&shown, before, &applied),
+            ));
             let stat = {
                 let d = similar::TextDiff::from_lines(&original, &applied);
                 let (mut add, mut del) = (0, 0);
@@ -825,7 +839,7 @@ impl Tool for Patch {
                 if results.len() == 1 { "" } else { "s" },
                 summary.join("\n")
             ),
-            meta: json!({"files": results.iter().map(|(p, c, s)| json!({"path": p, "stat": s, "deleted": c.is_none()})).collect::<Vec<_>>()}),
+            meta: json!({"files": results.iter().map(|(p, c, s)| json!({"path": p, "stat": s, "deleted": c.is_none()})).collect::<Vec<_>>(), "diff": crate::change::meta(&crate::change::combine(&diffs))}),
         })
     }
 }

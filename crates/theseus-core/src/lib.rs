@@ -102,6 +102,7 @@ pub mod term;
 pub mod thread_context;
 pub mod threads;
 pub mod tighten;
+pub mod tool_words;
 pub mod toolrun;
 pub mod trace;
 pub mod turn;
@@ -420,6 +421,8 @@ mod tests_term;
 mod tests_thinking_writer;
 #[cfg(test)]
 mod tests_tiering;
+#[cfg(test)]
+mod tests_tool_words;
 #[cfg(test)]
 mod tests_turn_effort;
 #[cfg(test)]

@@ -238,6 +238,12 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   `[threads] enabled|max_live`. The rows built on it (`thread-context`, `thread-recall`, `thread-route`) add their keys
   to `config/threads.rs` and call the board. Tests: `rpc/tests_threads.rs`, `threads::tests`, the layouts' format-33
   sample and format-32 store test in `tests_layouts.rs`.
+- **What a question and a finished edit show** (theseus-z6au; `tool_words.rs`): `ToolRuntime::preview` makes a
+  `confirm.requested`'s `preview` (an edit's, write's or patch's diff from theseus-tools' `change`, a `proc.run` as a
+  shell line with its directory), scrubbed as the model's copy is; the asking call (`toolrun::ask`) and `confirm.list`
+  (`rpc/confirms.rs`, which reads the files as they are then) both make it. `scrub_diff` scrubs a result's `meta["diff"]`
+  as `result_node_in` writes it, and `fact::tool::ToolEnded` pushes it as `tool.ended`'s `diff`. Tests:
+  `tests_tool_words.rs` (a preview equals the run's diff; a planted secret is in neither).
 - **Tool calls**: `toolrun.rs` (every call the model makes becomes a kernel action: the gate and the dispatch), with
   a job's call in `toolrun/job.rs` (its turn waits on the job's wake, `toolrun/waits.rs`, and takes the job's
   completion with its result in one frame; Tier 7.1; a command that never started says why, `toolrun/not_started.rs`,

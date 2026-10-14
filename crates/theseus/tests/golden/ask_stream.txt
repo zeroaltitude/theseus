@@ -13,9 +13,11 @@ Two files: a.md and b.md.
       (enforcement = notify) · should have asked: theseus policy tighten proc.run --call act_k2
   → proc.run [make notes] pid 4242
   ← proc.run ok · exit 0 · 1520 ms · 68.4 KB · truncated
+  ⎿ built
   → fs.read
   ← fs.read stopped by the CLI · 12 ms · 0 B · late
   ← fs.write not run · 0 ms · 31 B
+  ⎿ declined by the operator
   ? fs.write needs your confirmation (FLOOR): write outside the roots (/w)
       input: {"path":"/srv/motd","text":"hello"}
       approve: theseus confirm act_k4

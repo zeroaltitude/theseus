@@ -792,7 +792,7 @@ impl ToolRuntime {
             Some(line) if !r.late => format!("{content}\n{line}"),
             _ => content,
         };
-        let mut meta = r.meta;
+        let mut meta = crate::tool_words::scrub_diff(&self.scrubber, r.meta);
         if redactions > 0 {
             meta["redactions"] = json!(redactions);
         }
@@ -838,21 +838,6 @@ impl ToolRuntime {
             node,
         });
         tc.node_written(node);
-    }
-
-    /// A call's main resource for the narrative, scrubbed of any secret value.
-    pub(crate) fn subject(&self, tool: &str, plan: &Plan) -> String {
-        let s = match &plan.url {
-            // A network call's subject is what it asks for (DD5).
-            Some(url) => format!("{tool} {url}"),
-            None => narrative::subject(
-                tool,
-                plan.argv.as_deref(),
-                plan.resources.first().map(|r| r.path.as_path()),
-                &self.ctx.cwd,
-            ),
-        };
-        self.scrubber.scrub(&s).0
     }
 
     /// Write a result node on its own frame and announce it, with the hold
@@ -1337,6 +1322,7 @@ impl ToolRuntime {
             }),
             external_text: g.decision.external,
             change: crate::task_graph::tools::change_of(tc.store, tool, &call.input),
+            preview: self.preview(tc.dir, tool, &call.input),
             ..Default::default()
         });
         tc.record(&fact::tool::CallAsked { request: &req });

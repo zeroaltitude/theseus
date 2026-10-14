@@ -3,7 +3,7 @@
 //! events (`Printer`) put the reply on stdout as it comes and every other line
 //! on stderr, with a run of thinking under its label.
 
-use std::io::{self, Stderr, Stdout, Write};
+use std::io::{self, IsTerminal, Stderr, Stdout, Write};
 
 use serde_json::Value;
 use theseus_client::render::md::Markdown;
@@ -31,7 +31,7 @@ pub enum Mode {
 /// prints every tag alike.
 pub fn lines(w: &mut impl Write, lines: &[Line]) -> io::Result<()> {
     for l in lines {
-        writeln!(w, "{}", l.text)?;
+        writeln!(w, "{}", render::diffview::plain(&l.text))?;
     }
     Ok(())
 }
@@ -85,6 +85,19 @@ pub struct Printer<O: Write = Stdout, E: Write = Stderr> {
     /// How many lines `print` was given, for a caller that asks whether an
     /// event showed anything.
     printed: u64,
+    /// A diff's rows are painted (theseus-z6au): only on a terminal that
+    /// takes colour.
+    colour: bool,
+}
+
+/// Colour on `err`: a terminal, `NO_COLOR` unset or empty, `TERM` not `dumb`.
+fn colour_on(err: &impl IsTerminal) -> bool {
+    let env = |k: &str| std::env::var(k).ok();
+    colour_for(err.is_terminal(), env("NO_COLOR"), env("TERM"))
+}
+
+fn colour_for(tty: bool, no_color: Option<String>, term: Option<String>) -> bool {
+    tty && no_color.is_none_or(|v| v.is_empty()) && term.is_none_or(|t| t != "dumb")
 }
 
 impl Printer {
@@ -99,6 +112,7 @@ impl Printer {
                 Look::Ansi,
             ));
         }
+        p.colour = colour_on(&io::stderr());
         p
     }
 }
@@ -129,6 +143,7 @@ impl<O: Write, E: Write> Printer<O, E> {
             marker: None,
             md: None,
             printed: 0,
+            colour: false,
         }
     }
 
@@ -257,7 +272,7 @@ impl<O: Write, E: Write> Printer<O, E> {
             }
             _ => {
                 self.settle();
-                let _ = writeln!(self.err, "{}", line.text);
+                let _ = writeln!(self.err, "{}", render::diffview::paint(line, self.colour));
             }
         }
     }
@@ -349,5 +364,102 @@ mod tests {
             "\x1b[1;4mTitle\x1b[0m\n\nSome \x1b[1mbold\x1b[0m words that\nwrap here\nAfter the tool.\n"
         );
         assert_eq!(String::from_utf8(err).unwrap(), "  → fs.read\n");
+    }
+
+    fn edit_events() -> Vec<Event> {
+        use serde_json::json;
+        use theseus_protocol::{ToolDiff, ToolEnded, ToolProposed, ToolStarted};
+        let unified = "--- tides.py\n+++ tides.py\n@@ -48,3 +48,3 @@\n     highest = max(h)\n-    return lowest - highest\n+    return highest - lowest\n \n";
+        vec![
+            Event::ToolProposed(ToolProposed {
+                tool_use_id: "t1".into(),
+                tool: "fs.edit".into(),
+                input: json!({"path": "tides.py", "old_string": "lowest - highest", "new_string": "highest - lowest"}),
+                ..ToolProposed::default()
+            }),
+            Event::ToolStarted(ToolStarted {
+                tool_use_id: "t1".into(),
+                tool: "fs.edit".into(),
+                ..ToolStarted::default()
+            }),
+            Event::ToolEnded(ToolEnded {
+                tool_use_id: "t1".into(),
+                tool: "fs.edit".into(),
+                status: "ok".into(),
+                diff: Some(ToolDiff {
+                    path: "tides.py".into(),
+                    added: 1,
+                    removed: 1,
+                    unified: unified.into(),
+                    truncated: false,
+                }),
+                ..ToolEnded::default()
+            }),
+        ]
+    }
+
+    /// theseus-z6au: a tool line says what the call does, not only its tool;
+    /// the finished edit shows its diff; and on a pipe none of it carries an
+    /// escape or a mark.
+    #[test]
+    fn a_tool_line_is_words_and_a_finished_edit_shows_its_diff() {
+        let mut p = Printer::to(Mode::Watch, false, Vec::new(), Vec::new());
+        for e in edit_events() {
+            p.on_event(&e);
+        }
+        let (_, err) = p.into_parts();
+        let err = String::from_utf8(err).unwrap();
+        assert!(err.starts_with("  → Edit tides.py\n"), "{err}");
+        assert!(
+            !err.contains("→ fs.edit"),
+            "the start names it again: {err}"
+        );
+        assert!(err.contains("  ⎿ tides.py  +1 −1\n"), "{err}");
+        assert!(
+            err.contains("    49 -     return lowest - highest\n"),
+            "{err}"
+        );
+        assert!(
+            err.contains("    49 +     return highest - lowest\n"),
+            "{err}"
+        );
+        assert!(
+            !err.contains('\x1b') && !err.contains(MARKS),
+            "no escape on a pipe: {err:?}"
+        );
+    }
+
+    const MARKS: [char; 2] = ['\u{1}', '\u{2}'];
+
+    #[test]
+    fn a_terminal_paints_the_diff_and_marks_the_changed_words() {
+        let mut p = Printer::to(Mode::Watch, false, Vec::new(), Vec::new());
+        p.colour = true;
+        for e in edit_events() {
+            p.on_event(&e);
+        }
+        let (_, err) = p.into_parts();
+        let err = String::from_utf8(err).unwrap();
+        let del = err.lines().find(|l| l.contains("49 -")).unwrap();
+        let add = err.lines().find(|l| l.contains("49 +")).unwrap();
+        assert!(
+            del.starts_with("\x1b[31m") && del.contains("\x1b[1;97;41mlowest\x1b[0m"),
+            "{del:?}"
+        );
+        assert!(
+            add.starts_with("\x1b[32m") && add.contains("\x1b[1;97;42mhighest\x1b[0m"),
+            "{add:?}"
+        );
+    }
+
+    /// Colour only on a terminal, and never under `NO_COLOR` or `TERM=dumb`.
+    #[test]
+    fn colour_is_for_a_terminal_that_takes_it() {
+        let s = |v: &str| Some(v.to_string());
+        assert!(colour_for(true, None, s("xterm-256color")));
+        assert!(colour_for(true, s(""), None), "an empty NO_COLOR is unset");
+        assert!(!colour_for(false, None, s("xterm")), "a pipe");
+        assert!(!colour_for(true, s("1"), s("xterm")), "NO_COLOR");
+        assert!(!colour_for(true, None, s("dumb")), "TERM=dumb");
     }
 }

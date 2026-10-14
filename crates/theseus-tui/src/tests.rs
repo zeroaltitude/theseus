@@ -433,6 +433,7 @@ pub fn question(sid: &str, correlation_id: &str, reason: &str, at: u64) -> Confi
         change: None,
         options: Vec::new(),
         may_answer: None,
+        preview: None,
     }
 }
 
@@ -1335,7 +1336,7 @@ async fn the_card_shows_the_question_and_y_approves_it_as_the_tui() {
         rows[14..19],
         [
             "─".repeat(83),
-            " ⏸ confirm proc.run: scripts/gate.sh".to_string(),
+            " ⏸ confirm proc.run: Run `scripts/gate.sh`".to_string(),
             "   expires in 4:12 · FLOOR".to_string(),
             "   why: run the gate".to_string(),
             "   [y] approve  [n] decline".to_string(),

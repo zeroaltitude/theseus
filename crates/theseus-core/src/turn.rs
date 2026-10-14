@@ -2507,8 +2507,7 @@ impl TurnRunner {
             task: crate::task::task_ref(session),
             external_text: None,
             change: None,
-            options: Vec::new(),
-            may_answer: None,
+            ..Default::default()
         });
         t.record(&fact::turn::BudgetAsked {
             request: &req,

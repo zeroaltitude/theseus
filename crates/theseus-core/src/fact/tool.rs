@@ -560,6 +560,10 @@ impl Fact for ToolEnded<'_> {
                 .get("verified")
                 .and_then(Value::as_str)
                 .map(str::to_string),
+            // What a file tool changed, scrubbed as its result was (theseus-z6au).
+            diff: meta
+                .get("diff")
+                .and_then(|d| serde_json::from_value(d.clone()).ok()),
         }))
     }
 

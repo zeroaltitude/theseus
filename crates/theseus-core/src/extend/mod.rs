@@ -789,5 +789,6 @@ pub fn confirm_request(
         change: None,
         options: Vec::new(),
         may_answer: None,
+        preview: None,
     })
 }

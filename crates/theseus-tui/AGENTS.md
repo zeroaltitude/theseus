@@ -77,6 +77,11 @@ rewritten by `THESEUS_GOLDEN=write`), and `tests/chat_pty.rs` (the real binary o
 on a Unix socket: the first screen, a bracketed paste of 60 lines as one message, and the terminal put back after SIGTERM,
 SIGHUP, a panic and Ctrl-C twice). vt100 can read back only one screen of scrollback: keep a test's transcript within it.
 
+- A question's card shows the call in words and the daemon's `preview` (`card::preview`, at most 12 rows of
+  `diffview::preview_lines`); the pane shows tool lines in words, a failed command's last lines and a finished edit's
+  diff (`render::Flight`). The changed words of a diff line are `MARK_ON`/`MARK_OFF` in its text: `ui::put` draws them
+  on a background of their own and `ui::wrap` carries a mark over a cut. Tests: `src/tests_diff.rs`.
+
 ## Invariants
 
 - **The protocol is the only way in.** What needs you is each view's `attention`, which the daemon computes; an
