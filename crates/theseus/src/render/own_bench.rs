@@ -174,7 +174,7 @@ mod tests {
                 "  claude-sonnet-5-5 @ high: 40 turns, $12.50, you checked 3; 9 replayed on haiku, 8 matched (compare.v1 same or better at 80%+); at 90% confidence at least 63% match, the replays cost 20% of the originals: $6.30 movable",
                 "  claude-fable-5-1 @ default: 2 turns, $4.00; not replayed yet",
                 "Movable at 90% confidence: $6.30 of $16.50.",
-                "Replays today: $0.3100 of $1.00 ([route] replay_day_usd).",
+                "Replays today: $0.31 of $1.00 ([route] replay_day_usd).",
             ]
         );
     }
