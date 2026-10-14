@@ -5,8 +5,10 @@
 //! the call cost once the call is over, whatever its outcome. At a line the
 //! call is not planned: the turn fails with class `self_budget` and the
 //! budget's words, which is the reply the work was serving, and the budget
-//! has written its `self.budget.stopped` row. Any other session pays one
-//! `Option` test (a task session's branch is found once and kept).
+//! has written its `self.budget.stopped` row. A session with no task of its
+//! own counts when its execution's principal is `"self"` (the backlog starts
+//! an item so). Any session's branch, or none, is found once and kept: a
+//! call pays one map lookup after its session's first.
 //!
 //! A turn's other model calls (a compaction's summary, in the compile before
 //! the call) join its cost before the call is reserved: the account keeps the
@@ -54,10 +56,15 @@ impl TurnRunner {
         t: &mut Turn<'_>,
         reserve: Micros,
     ) -> std::result::Result<(), Failure> {
-        if t.tc.task.is_none() {
-            return Ok(());
-        }
-        let Some(branch) = self.self_budget.branch_of(t.tc.session_id) else {
+        let branch = match t.tc.task {
+            Some(_) => self.self_budget.branch_of(t.tc.session_id),
+            // A session with no task of its own, opened under the "self"
+            // principal: the backlog's start (seam S3, a join fix).
+            None => self.self_budget.branch_of_principal(t.tc.session_id, || {
+                crate::task_graph::principal_of(t.tc.kernel, t.tc.execution_id)
+            }),
+        };
+        let Some(branch) = branch else {
             return Ok(());
         };
         // What the turn spent since the last settle (a compaction's call) is

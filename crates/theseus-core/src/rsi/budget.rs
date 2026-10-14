@@ -226,6 +226,8 @@ pub struct Budget {
     inner: Mutex<Inner>,
     /// Each session's branch (`None`: not a self session), found once.
     sessions: Mutex<HashMap<String, Option<String>>>,
+    /// The same for sessions with no task of their own, by their principal.
+    principals: Mutex<HashMap<String, Option<String>>>,
 }
 
 impl Budget {
@@ -237,6 +239,7 @@ impl Budget {
             store,
             inner: Mutex::new(Inner::default()),
             sessions: Mutex::new(HashMap::new()),
+            principals: Mutex::new(HashMap::new()),
         }
     }
 
@@ -452,25 +455,68 @@ impl Budget {
         found
     }
 
+    /// The branch of a session with no task of its own, opened under the
+    /// `"self"` principal (`principal` reads its execution's, once): the
+    /// backlog starts an item this way (seam S3), so its spend counts to the
+    /// item whose `session` it is, else to the session. `None` for any other
+    /// principal. Found once and kept, as [`Budget::branch_of`] does.
+    pub fn branch_of_principal(
+        &self,
+        session_id: &str,
+        principal: impl FnOnce() -> String,
+    ) -> Option<String> {
+        if let Some(b) = self
+            .principals
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get(session_id)
+        {
+            return b.clone();
+        }
+        let found = (principal() == super::SELF_PRINCIPAL).then(|| {
+            crate::task_graph::all(&self.store)
+                .ok()
+                .and_then(|all| {
+                    all.into_iter().find(|t| {
+                        t.session.as_deref() == Some(session_id)
+                            && t.origin.principal == super::SELF_PRINCIPAL
+                    })
+                })
+                .map_or_else(|| session_id.to_string(), |t| self.root_of(t))
+        });
+        self.principals
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .insert(session_id.to_string(), found.clone());
+        found
+    }
+
     fn find_branch(&self, session_id: &str) -> Option<String> {
         use crate::task_graph as g;
-        let mut rec = g::get(&self.store, &g::of_session(session_id))
+        let rec = g::get(&self.store, &g::of_session(session_id))
             .ok()
             .flatten()?;
         if rec.origin.principal != super::SELF_PRINCIPAL {
             return None;
         }
-        // The root of its tree: a bounded walk up.
+        Some(self.root_of(rec))
+    }
+
+    /// The root of a task's tree: a bounded walk up, through the ancestors
+    /// that have a session (a parent with none, as the backlog's, is a
+    /// folder of branches, not a branch).
+    fn root_of(&self, mut rec: crate::task_graph::TaskRecord) -> String {
+        use crate::task_graph as g;
         for _ in 0..16 {
             let Some(parent) = rec.parent.clone() else {
                 break;
             };
             match g::get(&self.store, &parent).ok().flatten() {
-                Some(p) => rec = p,
-                None => break,
+                Some(p) if p.session.is_some() => rec = p,
+                _ => break,
             }
         }
-        Some(rec.id)
+        rec.id
     }
 
     /// The account as `self.log` and health show it: none while the mode is

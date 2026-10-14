@@ -517,3 +517,68 @@ fn with_the_mode_off_or_the_switch_halted_a_night_reads_and_files_nothing() {
     assert_eq!(c.backlog_night(tick()).unwrap().gate, "halted");
     assert_eq!(c.store.last_position(), pos);
 }
+
+/// A started item's session is a self step's (seams S1-S3): its turn's model
+/// call is held and settled on the self budget, under the item's id, though
+/// the session has no task of its own (a join fix: the budget counted task
+/// sessions only, so a started item spent outside both lines).
+#[tokio::test]
+async fn a_started_items_turn_spends_on_the_self_budget_under_the_item() {
+    let c = acting(1, 20);
+    let t0 = theseus_protocol::now_unix_ms();
+    seed_day(&c, t0);
+    let night = c.backlog_night(tick()).unwrap();
+    let item = night.started[0].item.clone();
+    let session = crate::task_graph::get(&c.store, &item)
+        .unwrap()
+        .unwrap()
+        .session
+        .unwrap();
+    let rec: crate::session::SessionRecord = c.store.get_session(&session).unwrap().unwrap();
+    assert!(rec.task.is_none(), "the session has no task of its own");
+    let (live, _) = c.live_profile();
+    let target = c.runner.resolve_target(&live, None, None, None).unwrap();
+    let sink = crate::bus::EventSink::new(c.bus.clone(), &session, None);
+    c.runner
+        .run(crate::turn::TurnRequest {
+            prompt: None,
+            session: rec,
+            input: Some("begin".into()),
+            target,
+            sink,
+            author: "test".into(),
+            recompile: None,
+            attachments: vec![],
+            arrived: None,
+            reply_to: None,
+        })
+        .await
+        .unwrap();
+    let reserved = rows(&c, "self.budget.reserved");
+    let settled = rows(&c, "self.budget.settled");
+    assert_eq!((reserved.len(), settled.len()), (1, 1), "{settled:?}");
+    assert_eq!(reserved[0]["branch"], item.as_str());
+    assert_eq!(settled[0]["branch"], item.as_str());
+    // An ordinary conversation's turn on the same core is not counted.
+    let plain =
+        crate::session::SessionRecord::new(theseus_protocol::SessionKind::Conversation, None);
+    c.store.put_session(&plain.session_id, &plain).unwrap();
+    let target = c.runner.resolve_target(&live, None, None, None).unwrap();
+    let sink = crate::bus::EventSink::new(c.bus.clone(), &plain.session_id, None);
+    c.runner
+        .run(crate::turn::TurnRequest {
+            prompt: None,
+            session: plain,
+            input: Some("hello".into()),
+            target,
+            sink,
+            author: "test".into(),
+            recompile: None,
+            attachments: vec![],
+            arrived: None,
+            reply_to: None,
+        })
+        .await
+        .unwrap();
+    assert_eq!(rows(&c, "self.budget.settled").len(), 1);
+}
