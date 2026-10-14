@@ -103,6 +103,7 @@ pub mod tender;
 pub mod term;
 pub mod thread_context;
 pub mod threads;
+pub mod threads_import;
 pub mod tighten;
 pub mod tool_words;
 pub mod toolrun;

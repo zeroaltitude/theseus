@@ -148,7 +148,7 @@ impl Core {
     }
 
     /// Judge an act on the threads: the owner, from a private place.
-    fn judge_thread(
+    pub(super) fn judge_thread(
         &self,
         who: &Answerer,
         method: &'static str,
@@ -165,7 +165,7 @@ impl Core {
         .map_err(failure)
     }
 
-    fn threads_on(&self) -> Result<(), RpcFailure> {
+    pub(super) fn threads_on(&self) -> Result<(), RpcFailure> {
         match self.cfg.threads.enabled {
             true => Ok(()),
             false => Err(RpcFailure::new(

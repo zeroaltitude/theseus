@@ -42,9 +42,14 @@ pub const HARNESS_SOURCES: &[&str] = &["claude-code", "codex"];
 /// triage, segmentation or summary. Apart from `SOURCES`, the old pipeline's.
 pub const SYNC_SOURCE: &str = "openclaw-sync";
 
-/// The sources whose text the daemon scrubs as it writes: the harnesses' and
-/// the sync's, each made by a client from raw files that hold no vault value.
-pub const SCRUBBED_SOURCES: &[&str] = &["claude-code", "codex", SYNC_SOURCE];
+/// The source `theseus thread import --vestige` writes (theseus-71ib): a
+/// Vestige dump's memories, one note an episode, read by the CLI from a file.
+pub const VESTIGE_SOURCE: &str = "vestige";
+
+/// The sources whose text the daemon scrubs as it writes: the harnesses', the
+/// sync's and the Vestige dump's, each made by a client from raw files that
+/// hold no vault value.
+pub const SCRUBBED_SOURCES: &[&str] = &["claude-code", "codex", SYNC_SOURCE, VESTIGE_SOURCE];
 
 pub const PLACE_KINDS: &[&str] = &[
     "dm",
@@ -303,6 +308,7 @@ fn check_names(r: &RawEpisode) -> Result<(), String> {
     if !SOURCES.contains(&r.source.as_str())
         && !HARNESS_SOURCES.contains(&r.source.as_str())
         && r.source != SYNC_SOURCE
+        && r.source != VESTIGE_SOURCE
     {
         return Err(format!("source {:?} is not one the format names", r.source));
     }

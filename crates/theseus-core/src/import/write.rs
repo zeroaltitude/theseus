@@ -671,7 +671,7 @@ pub(super) fn erase_in(
 
 /// The sessions of `tag`, by id, or `None` once `stopping` turns true: it
 /// is looked at every [`LOOK_EVERY`] records.
-pub(super) fn sessions_of_tag(
+pub(crate) fn sessions_of_tag(
     store: &Store,
     tag: &str,
     stopping: &impl Fn() -> bool,
