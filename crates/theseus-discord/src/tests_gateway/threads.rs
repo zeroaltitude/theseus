@@ -176,7 +176,7 @@ async fn a_private_channel_runs_a_thread_and_a_shared_one_refuses() {
     let said = slash(&r, (ANA, "ana"), (LAB, None), "bind", &[("slug", "tides")]).await;
     assert!(said.contains("runs the thread `tides`"), "{said}");
     let lab = format!("discord:channel:{LAB}");
-    assert_eq!(surfaces(&r, "tides"), [lab.clone()]);
+    assert_eq!(surfaces(&r, "tides"), std::slice::from_ref(&lab));
     let edited = r.ledger("thread.edited");
     assert_eq!(edited.len(), 1);
     assert_eq!(edited[0]["changed"], serde_json::json!(["surfaces"]));

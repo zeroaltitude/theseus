@@ -503,28 +503,30 @@ impl Shared {
             return format!("⚠️ No thread was bound: {}", e.message);
         }
         self.threads.bind(channel, slug);
-        let known = self
-            .routes
-            .lock()
-            .unwrap()
-            .by_channel
-            .contains_key(&channel);
-        if !known {
-            let label = self.thread_label(slug);
-            let made = self.dynamic_lane(None, channel, &label);
-            let started = match made {
-                Ok(b) => self.start_channel(&b).await,
-                Err(e) => Err(e),
-            };
-            if let Err(e) = started {
-                return format!("⚠️ The thread is recorded, but this place did not start: {e:#}");
-            }
+        if let Err(e) = self.ensure_place(channel, slug).await {
+            return format!("⚠️ The thread is recorded, but this place did not start: {e:#}");
         }
         self.tell_place(channel, ThreadMsg::Adopt(slug.to_string()));
         format!(
             "🧵 This place runs the thread `{slug}` from now on: what is said here goes to its \
              session, and `/thread unbind` gives the place back."
         )
+    }
+
+    /// A place for `channel`, made now when the bindings file does not name it.
+    async fn ensure_place(self: &Arc<Self>, channel: u64, slug: &str) -> anyhow::Result<()> {
+        if self
+            .routes
+            .lock()
+            .unwrap()
+            .by_channel
+            .contains_key(&channel)
+        {
+            return Ok(());
+        }
+        let label = self.thread_label(slug);
+        let b = self.dynamic_lane(None, channel, &label)?;
+        self.start_channel(&b).await
     }
 
     /// Whether `channel` may run a thread: a private place the bindings file
