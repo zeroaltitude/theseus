@@ -1,0 +1,106 @@
+# The persona under test, when none is given: invented, neutral, and replaced field by field by a persona file.
+# Every string may use <<persona>>, <<owner>>, <<tz>>, <<tznames>> and <<other>>.
+
+[persona]
+name = "Quill"
+owner_call = "Rowan"
+tz = "America/Phoenix"
+tz_names = ["MST", "Arizona", "Phoenix", "UTC-7", "-07:00", "America/Phoenix"]
+voice = "You are plain-spoken, warm without gushing, and short when the person is tired."
+
+# The owner's card: facts a reply should use without being asked.
+[[fact]]
+key = "dog"
+statement = "<<owner>> has a dog named Biscuit who needs a walk every evening around 6 pm."
+ask = "I want to do a long focus block this evening. When should it start so the day still works?"
+checks = '''reply has /biscuit|walk|dog/i'''
+oracle = "Start after the evening walk with Biscuit, so around 7."
+wrong = "Start whenever you like; any time works."
+
+[[fact]]
+key = "editor"
+statement = "<<owner>> edits in a terminal editor and never wants an IDE suggested."
+ask = "What should I use to make these edits faster?"
+checks = '''reply lacks /\bvs ?code\b|\bintellij\b|\bpycharm\b|\bide\b/i'''
+oracle = "Learn your editor's multi-cursor and macro commands."
+wrong = "Try an IDE like IntelliJ or VS Code."
+
+# The five preference types. Each is stated once (`say`), then asked about in six contexts (one ask each, in order:
+# same session, after a compaction, a new session, another project, another surface, much later). The asks are
+# neutral questions: nothing in them mentions the preference. `checks` hold when the reply honours it.
+[[pref]]
+kind = "brevity"
+say = "From now on keep every answer to two sentences at most unless I ask for more."
+asks = [
+  "How does a hash map handle two keys that land in the same bucket?",
+  "What is the difference between a process and a thread?",
+  "Why do people say floating point is not exact?",
+  "How does a database index speed up a query?",
+  "What does a mutex protect against?",
+  "Why is a linked list slow to search?",
+]
+checks = '''max_sentences 2'''
+oracle = "It chains the keys in one bucket or probes for the next free slot. Either way a lookup still compares keys."
+wrong = "A hash map has several ways to deal with collisions. The first is chaining, where each bucket holds a list. The second is open addressing, where the map probes for another slot. A third is cuckoo hashing. Each has tradeoffs for memory and speed."
+
+[[pref]]
+kind = "format"
+say = "From now on no bullet lists and no tables in your answers: plain sentences only."
+asks = [
+  "Walk me through the steps to rotate a log file safely.",
+  "Compare two ways to store a user's session.",
+  "List what I should check before a release.",
+  "Give me the pros and cons of caching a query result.",
+  "Outline how to onboard a new teammate in their first week.",
+  "What are the main parts of a CI pipeline?",
+]
+checks = '''no_table
+no_bullets'''
+oracle = "First move the file aside, then signal the writer to reopen its log, and finally compress the old copy."
+wrong = "- Move the file aside\n- Signal the writer\n- Compress the old copy"
+
+[[pref]]
+kind = "address"
+say = "From now on start every reply with the word Right, and a comma."
+asks = [
+  "What is a good name for a function that parses a date?",
+  "Is it fine to commit a lockfile?",
+  "How often should I back up a small database?",
+  "Should I squash commits before merging?",
+  "What does idempotent mean for an API?",
+  "Is a monorepo a good idea for three services?",
+]
+checks = '''prefix "Right,"'''
+oracle = "Right, name it for what it returns, such as parse_date."
+wrong = "Name it parse_date."
+
+[[pref]]
+kind = "signoff"
+say = "From now on end every reply with a last line that reads: — <<persona>>"
+asks = [
+  "What is a race condition?",
+  "How do I choose between a queue and a topic?",
+  "Is it worth writing a test for a one-line change?",
+  "What does a reverse proxy do?",
+  "How do I read a stack trace quickly?",
+  "Why pin dependency versions?",
+]
+checks = '''last_line has "— <<persona>>"'''
+oracle = "Two threads touching the same data in an unlucky order.\n— <<persona>>"
+wrong = "Two threads touching the same data in an unlucky order."
+
+[[pref]]
+kind = "clock"
+say = "From now on give times on the 24-hour clock, never am or pm."
+asks = [
+  "If a meeting is at 3 in the afternoon and I need forty minutes to get there, when do I leave?",
+  "A deploy window opens at half past nine at night and lasts two hours. When does it close?",
+  "I wake at 6 in the morning; when is my first break if I work four hours?",
+  "A job runs every day at 11 at night. When is its next run after 9 in the evening?",
+  "The store closes at 8 in the evening and it is a ten minute walk; when must I leave?",
+  "A call starts at a quarter past two in the afternoon and runs 45 minutes. When does it end?",
+]
+checks = '''reply lacks /\b(am|pm|a\.m\.|p\.m\.)\b/i
+reply has /\b\d{1,2}:\d{2}\b/'''
+oracle = "Leave at 14:20."
+wrong = "Leave at 2:20 pm."

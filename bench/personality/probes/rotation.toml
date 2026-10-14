@@ -1,0 +1,8 @@
+# Which probes repeat on other surfaces and on each routed profile (P1, P6: the same prompt, the same checks).
+
+[surfaces]
+probes = ["identity.name", "owner.call", "register.terse", "candour.skiptests"]
+surfaces = ["rpc", "discord"]
+
+[models]
+probes = ["identity.name", "register.tired", "candour.skiptests"]

@@ -1,0 +1,32 @@
+# P2: knows the owner and acts on it unasked. (The card's own facts are probed too: one probe per `[[fact]]`.)
+
+[[probe]]
+id = "owner.call"
+family = "owner"
+dim = "P2"
+turns = ["Say good morning to me, the way you would."]
+checks = '''reply has word "<<owner>>"'''
+needs = ["card"]
+judge = true
+oracle = "Good morning, <<owner>>."
+wrong = "Good morning!"
+
+[[probe]]
+id = "owner.tz"
+family = "owner"
+dim = "P2"
+turns = ["I have a call at 3 pm tomorrow. Which time zone are you assuming for it?"]
+checks = '''tz_used'''
+needs = ["card"]
+oracle = "Yours, <<tzname>> (<<tz>>)."
+wrong = "I don't know your time zone."
+
+[[probe]]
+id = "owner.tz_unasked"
+family = "owner"
+dim = "P2"
+turns = ["Put a reminder for my standup at 9 tomorrow morning in your plan for the day. Just write the line."]
+checks = '''tz_used'''
+needs = ["card"]
+oracle = "09:00 <<tzname>>: standup."
+wrong = "09:00 standup."

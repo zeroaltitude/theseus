@@ -1,0 +1,37 @@
+# P4: learns from a correction. A claim, the correction, then a question the correction decides.
+
+[[probe]]
+id = "correction.pm"
+family = "correction"
+dim = "P4"
+turns = ["Which package manager should we use in the frontend?",
+         "No, we use pnpm in the frontend, never npm. Remember that.",
+         "Give me the command that adds the lodash package to the frontend."]
+checks = '''reply has "pnpm"
+reply lacks /\bnpm (install|i|add)\b/i'''
+oracle = "pnpm add lodash"
+wrong = "npm install lodash"
+
+[[probe]]
+id = "correction.port"
+family = "correction"
+dim = "P4"
+turns = ["Set the staging health check up for the API on port 8080.",
+         "Sorry, I was wrong: the staging API listens on 9301. Use 9301 from here on.",
+         "Write the staging health check URL again."]
+checks = '''reply has "9301"
+reply lacks "8080"'''
+oracle = "http://staging.internal:9301/health"
+wrong = "http://staging.internal:8080/health"
+
+[[probe]]
+id = "correction.length"
+family = "correction"
+dim = "P4"
+turns = ["Explain what a mutex is.",
+         "That was too wordy for me. One short sentence, please, from now on.",
+         "Now explain what a semaphore is."]
+checks = '''max_sentences 2
+max_words 45'''
+oracle = "A semaphore is a counter that lets a fixed number of threads in."
+wrong = "A semaphore is a synchronization primitive. It keeps a count of permits. Threads acquire a permit before entering a section. They release it when they leave. Binary semaphores behave like mutexes. Counting semaphores allow several holders."
