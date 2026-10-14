@@ -205,7 +205,7 @@ async fn a_replay_is_refused_naming_the_part_it_cannot_rebuild() {
     std::fs::write(&path, good).unwrap();
     assert!(rig.core.rebuild_first(&sid, &t).is_ok());
     // A compilation from before the digests.
-    let mut old = c.clone();
+    let mut old = c;
     for b in &mut old.manifest.cache.as_mut().unwrap().blocks {
         b.digest = None;
     }

@@ -190,89 +190,99 @@ impl Core {
                     break 'cells;
                 }
                 self.quiet_before_replay().await;
-                let p = TurnReplayParams {
-                    session: c.session.clone(),
-                    turn: c.turn.clone(),
-                    profile: to.profile.clone(),
-                    effort: (!effort.is_empty()).then(|| effort.clone()),
-                    scope: None,
-                    compare: Some(true),
-                };
-                let mut failed_spend = 0;
-                match self
-                    .replay_turn(&p, BY_SAMPLER, Some(cap - spent), &mut failed_spend)
+                let cell = (model.as_str(), effort.as_str());
+                if self
+                    .sample_one(&c, cell, &to, cap - spent, (&mut spent, &mut out))
                     .await
                 {
-                    Ok(done) => {
-                        let r = &done.result;
-                        let judge_usd = (r.cost_usd - r.replay.cost_usd).max(0.0);
-                        spent += theseus_kernel::usd_to_micros(r.cost_usd);
-                        out.replayed += 1;
-                        out.judged += u64::from(r.verdict.is_some());
-                        let v = r.verdict.as_ref();
-                        self.rec(Some(&c.session)).in_turn(Some(&c.turn)).record(
-                            &RouteReplayJudged {
-                                session: &c.session,
-                                turn: &c.turn,
-                                from_model: &model,
-                                from_effort: &effort,
-                                to_profile: &to.profile,
-                                to_model: &r.replay.model,
-                                to_effort: r.effort.as_deref().unwrap_or_default(),
-                                verdict: v.map(|v| v.verdict.as_str()),
-                                p: v.map(|v| v.p),
-                                same_or_better: v.map(|v| v.same_or_better),
-                                judgment: v.map(|v| v.judgment.as_str()),
-                                unjudged: r.unjudged.as_deref(),
-                                orig_usd: r.original.cost_usd,
-                                replay_usd: r.replay.cost_usd,
-                                judge_usd,
-                            },
-                        );
-                    }
-                    Err(e) => {
-                        if let Some(cap) = e.downcast_ref::<CapReached>() {
-                            out.stopped = Some(cap.to_string());
-                            break 'cells;
-                        }
-                        let why = if let Some(n) = e.downcast_ref::<NotRebuildable>() {
-                            format!("not_rebuildable:{}", n.part)
-                        } else if e.downcast_ref::<Crossing>().is_some() {
-                            "crossing".to_string()
-                        } else {
-                            tracing::warn!(turn = %c.turn, error = %format!("{e:#}"), "a sampled replay failed");
-                            "failed".to_string()
-                        };
-                        // A call that was made and failed is spent.
-                        if failed_spend > 0 {
-                            spent += failed_spend;
-                            self.rec(Some(&c.session)).in_turn(Some(&c.turn)).record(
-                                &RouteReplayJudged {
-                                    session: &c.session,
-                                    turn: &c.turn,
-                                    from_model: &model,
-                                    from_effort: &effort,
-                                    to_profile: &to.profile,
-                                    to_model: &to.model,
-                                    to_effort: &effort,
-                                    verdict: None,
-                                    p: None,
-                                    same_or_better: None,
-                                    judgment: None,
-                                    unjudged: Some(&why),
-                                    orig_usd: 0.0,
-                                    replay_usd: theseus_kernel::micros_to_usd(failed_spend),
-                                    judge_usd: 0.0,
-                                },
-                            );
-                        }
-                        skip(&mut out, &why);
-                    }
+                    break 'cells;
                 }
             }
         }
         out.spent_usd = theseus_kernel::micros_to_usd(spent);
         Ok(out)
+    }
+
+    /// One turn replayed and recorded. Returns whether the pass stops (the
+    /// cap would not pay for the call).
+    async fn sample_one(
+        self: &Arc<Self>,
+        c: &Candidate,
+        (model, effort): (&str, &str),
+        to: &rung::Rung,
+        left: u64,
+        (spent, out): (&mut u64, &mut Sampled),
+    ) -> bool {
+        let p = TurnReplayParams {
+            session: c.session.clone(),
+            turn: c.turn.clone(),
+            profile: to.profile.clone(),
+            effort: (!effort.is_empty()).then(|| effort.to_string()),
+            scope: None,
+            compare: Some(true),
+        };
+        let mut failed_spend = 0;
+        let row = |judged: Option<&theseus_protocol::own_bench::TurnReplayResult>,
+                   why: Option<&str>,
+                   failed: u64| {
+            let v = judged.and_then(|r| r.verdict.as_ref());
+            self.rec(Some(&c.session))
+                .in_turn(Some(&c.turn))
+                .record(&RouteReplayJudged {
+                    session: &c.session,
+                    turn: &c.turn,
+                    from_model: model,
+                    from_effort: effort,
+                    to_profile: &to.profile,
+                    to_model: judged.map_or(to.model.as_str(), |r| r.replay.model.as_str()),
+                    to_effort: judged.and_then(|r| r.effort.as_deref()).unwrap_or(effort),
+                    verdict: v.map(|v| v.verdict.as_str()),
+                    p: v.map(|v| v.p),
+                    same_or_better: v.map(|v| v.same_or_better),
+                    judgment: v.map(|v| v.judgment.as_str()),
+                    unjudged: judged.and_then(|r| r.unjudged.as_deref()).or(why),
+                    orig_usd: judged.map_or(0.0, |r| r.original.cost_usd),
+                    replay_usd: judged.map_or_else(
+                        || theseus_kernel::micros_to_usd(failed),
+                        |r| r.replay.cost_usd,
+                    ),
+                    judge_usd: judged.map_or(0.0, |r| (r.cost_usd - r.replay.cost_usd).max(0.0)),
+                });
+        };
+        match self
+            .replay_turn(&p, BY_SAMPLER, Some(left), &mut failed_spend)
+            .await
+        {
+            Ok(done) => {
+                let r = &done.result;
+                *spent += theseus_kernel::usd_to_micros(r.cost_usd);
+                out.replayed += 1;
+                out.judged += u64::from(r.verdict.is_some());
+                row(Some(r), None, 0);
+                false
+            }
+            Err(e) => {
+                if let Some(cap) = e.downcast_ref::<CapReached>() {
+                    out.stopped = Some(cap.to_string());
+                    return true;
+                }
+                let why = if let Some(n) = e.downcast_ref::<NotRebuildable>() {
+                    format!("not_rebuildable:{}", n.part)
+                } else if e.downcast_ref::<Crossing>().is_some() {
+                    "crossing".to_string()
+                } else {
+                    tracing::warn!(turn = %c.turn, error = %format!("{e:#}"), "a sampled replay failed");
+                    "failed".to_string()
+                };
+                // A call that was made and failed is spent.
+                if failed_spend > 0 {
+                    *spent += failed_spend;
+                    row(None, Some(&why), failed_spend);
+                }
+                *out.skipped.entry(why).or_default() += 1;
+                false
+            }
+        }
     }
 
     /// Wait until the machine is quiet (the pressure bound), never past a stop.

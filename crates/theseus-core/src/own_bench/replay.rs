@@ -213,13 +213,110 @@ impl Core {
             .get(&target.provider)
             .cloned()
             .with_context(|| format!("the provider {:?} is not configured", target.provider))?;
-        // The same request, for the other model: the original's system, tools
-        // and messages, that model's thinking and effort.
+        let request = self.replay_request(p, &original, &target, effort);
+        let (replay, cost) = self
+            .call_replay(provider.as_ref(), &request, &target, left, spent)
+            .await?;
+        let mut result = TurnReplayResult {
+            session: p.session.clone(),
+            turn: p.turn.clone(),
+            profile: target.profile.clone(),
+            effort: effort.map(super::effort_word),
+            scope: scope.to_string(),
+            request_digest: original.digest.clone(),
+            original: reply_of(&original.said),
+            replay: reply_of(&replay),
+            verdict: None,
+            unjudged: None,
+            cost_usd: replay.cost_usd,
+            elapsed_ms: 0,
+        };
+        if p.compare.unwrap_or(true) {
+            self.compare_replay(p, &original, &replay, &mut result)
+                .await;
+        }
+        result.elapsed_ms = t0.elapsed().as_millis() as u64;
+        self.rec(Some(&p.session))
+            .in_turn(Some(&p.turn))
+            .record(&TurnReplayed {
+                by,
+                result: &result,
+                from_model: &original.compilation.manifest.model,
+            });
+        let from_effort = original
+            .spec
+            .turn_effort
+            .or(original.spec.effort)
+            .map(super::effort_word)
+            .unwrap_or_default();
+        Ok(Replayed {
+            result,
+            from_effort,
+            replay_micros: cost,
+        })
+    }
+
+    /// The replay's one model call: its reservation checked against what
+    /// the caller's cap leaves BEFORE the call, held on the day ceiling, and
+    /// settled at its price. Returns the reply and its cost in micros.
+    async fn call_replay(
+        &self,
+        provider: &dyn crate::provider::Provider,
+        request: &crate::provider::ProviderRequest,
+        target: &crate::turn::Target,
+        left: Option<u64>,
+        spent: &mut u64,
+    ) -> anyhow::Result<(Said, u64)> {
+        let need = self
+            .audit_reserve(request)
+            .context("the model has no price in the catalog: a replay needs one to reserve")?;
+        if let Some(l) = left.filter(|l| need > *l) {
+            return Err(CapReached { need, left: l }.into());
+        }
+        let hold = self
+            .runner
+            .day_hold(need, "a replay")
+            .map_err(|why| anyhow::anyhow!("{why}"))?;
+        let mut quiet = |_: crate::provider::Delta<'_>| {};
+        let answered = provider.stream_message(request, &mut quiet).await;
+        let cost = answered
+            .as_ref()
+            .map_or(need, |r| self.runner.priced(r, &target.model, need));
+        hold.settle(cost);
+        *spent = cost;
+        let resp = answered.with_context(|| format!("{} did not answer", target.profile))?;
+        let replay = Said {
+            model: resp.model.clone(),
+            text: resp.text.clone(),
+            tool_calls: resp
+                .content
+                .iter()
+                .filter(|b| b.get("type").and_then(Value::as_str) == Some("tool_use"))
+                .filter_map(|b| b.get("name").and_then(Value::as_str).map(str::to_string))
+                .collect(),
+            input_tokens: resp.usage.input_tokens
+                + resp.usage.cache_read_input_tokens
+                + resp.usage.cache_creation_input_tokens,
+            output_tokens: resp.usage.output_tokens,
+            cost_usd: theseus_kernel::micros_to_usd(cost),
+        };
+        Ok((replay, cost))
+    }
+
+    /// The same request for the other model: the original's system, tools
+    /// and messages, that model's thinking and effort.
+    fn replay_request(
+        &self,
+        p: &TurnReplayParams,
+        original: &Original,
+        target: &crate::turn::Target,
+        effort: Option<crate::config::Effort>,
+    ) -> crate::provider::ProviderRequest {
         let mut spec = self
             .runner
             .built_parts(
                 &p.session,
-                &target,
+                target,
                 original.session.kind,
                 Some(original.compilation.manifest.memberships.as_slice()),
             )
@@ -248,102 +345,45 @@ impl Core {
             ),
         )
         .request;
-        let need = self
-            .audit_reserve(&request)
-            .context("the model has no price in the catalog: a replay needs one to reserve")?;
-        if let Some(l) = left.filter(|l| need > *l) {
-            return Err(CapReached { need, left: l }.into());
-        }
-        let hold = self
+        request
+    }
+
+    /// `compare.v1` on the two replies, into the result.
+    async fn compare_replay(
+        &self,
+        p: &TurnReplayParams,
+        original: &Original,
+        replay: &Said,
+        result: &mut TurnReplayResult,
+    ) {
+        let input = CompareInput {
+            request: original.ask.clone(),
+            a: CompareReply {
+                text: original.said.text.clone(),
+                calls: original.said.tool_calls.clone(),
+            },
+            b: CompareReply {
+                text: replay.text.clone(),
+                calls: replay.tool_calls.clone(),
+            },
+        };
+        match self
             .runner
-            .day_hold(need, "a replay")
-            .map_err(|why| anyhow::anyhow!("{why}"))?;
-        let mut quiet = |_: crate::provider::Delta<'_>| {};
-        let answered = provider.stream_message(&request, &mut quiet).await;
-        let cost = answered
-            .as_ref()
-            .map_or(need, |r| self.runner.priced(r, &target.model, need));
-        hold.settle(cost);
-        *spent = cost;
-        let resp = answered.with_context(|| format!("{} did not answer", target.profile))?;
-        let replay = Said {
-            model: resp.model.clone(),
-            text: resp.text.clone(),
-            tool_calls: resp
-                .content
-                .iter()
-                .filter(|b| b.get("type").and_then(Value::as_str) == Some("tool_use"))
-                .filter_map(|b| b.get("name").and_then(Value::as_str).map(str::to_string))
-                .collect(),
-            input_tokens: resp.usage.input_tokens
-                + resp.usage.cache_read_input_tokens
-                + resp.usage.cache_creation_input_tokens,
-            output_tokens: resp.usage.output_tokens,
-            cost_usd: theseus_kernel::micros_to_usd(cost),
-        };
-        let mut result = TurnReplayResult {
-            session: p.session.clone(),
-            turn: p.turn.clone(),
-            profile: target.profile.clone(),
-            effort: effort.map(super::effort_word),
-            scope: scope.to_string(),
-            request_digest: original.digest.clone(),
-            original: reply_of(&original.said),
-            replay: reply_of(&replay),
-            verdict: None,
-            unjudged: None,
-            cost_usd: replay.cost_usd,
-            elapsed_ms: 0,
-        };
-        if p.compare.unwrap_or(true) {
-            let input = CompareInput {
-                request: original.ask.clone(),
-                a: CompareReply {
-                    text: original.said.text.clone(),
-                    calls: original.said.tool_calls.clone(),
-                },
-                b: CompareReply {
-                    text: replay.text.clone(),
-                    calls: replay.tool_calls.clone(),
-                },
-            };
-            match self
-                .runner
-                .judge
-                .compare_replies(&p.session, &p.turn, input)
-                .await
-            {
-                Ok(c) => {
-                    result.cost_usd += c.cost_usd;
-                    result.verdict = Some(ReplayVerdict {
-                        verdict: c.verdict,
-                        p: c.p,
-                        same_or_better: c.same_or_better,
-                        judgment: c.judgment,
-                        mode: c.mode,
-                    });
-                }
-                Err(why) => result.unjudged = Some(why),
+            .judge
+            .compare_replies(&p.session, &p.turn, input)
+            .await
+        {
+            Ok(c) => {
+                result.cost_usd += c.cost_usd;
+                result.verdict = Some(ReplayVerdict {
+                    verdict: c.verdict,
+                    p: c.p,
+                    same_or_better: c.same_or_better,
+                    judgment: c.judgment,
+                    mode: c.mode,
+                });
             }
+            Err(why) => result.unjudged = Some(why),
         }
-        result.elapsed_ms = t0.elapsed().as_millis() as u64;
-        self.rec(Some(&p.session))
-            .in_turn(Some(&p.turn))
-            .record(&TurnReplayed {
-                by,
-                result: &result,
-                from_model: &original.compilation.manifest.model,
-            });
-        let from_effort = original
-            .spec
-            .turn_effort
-            .or(original.spec.effort)
-            .map(super::effort_word)
-            .unwrap_or_default();
-        Ok(Replayed {
-            result,
-            from_effort,
-            replay_micros: cost,
-        })
     }
 }

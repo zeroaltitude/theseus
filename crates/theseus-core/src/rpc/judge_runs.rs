@@ -16,13 +16,14 @@ use super::Core;
 use crate::approval::Refusal;
 
 /// The runs' methods, which `server.rs` routes to [`Core::rpc_judge_run`].
-pub(super) const RUNS: [&str; 6] = [
+pub(super) const RUNS: [&str; 7] = [
     theseus_protocol::method::JUDGE_REPLAY,
     theseus_protocol::method::JUDGE_AUDIT,
     theseus_protocol::method::JUDGE_BACKFILL,
     theseus_protocol::method::MEMORY_CONSOLIDATE,
     theseus_protocol::method::JUDGE_LEARN,
     theseus_protocol::method::TURN_REPLAY,
+    theseus_protocol::method::ROUTE_REPORT,
 ];
 
 /// A run's error on the wire: a refusal is `REFUSED`, with who, through
@@ -51,6 +52,11 @@ impl Core {
     ) -> Result<Value, RpcFailure> {
         let who = conn.answerer(None, None);
         let r = match method {
+            // A read: it spends nothing and asks no one (own-benchmark).
+            theseus_protocol::method::ROUTE_REPORT => self
+                .route_report(parse(params)?)
+                .await
+                .map(serde_json::to_value),
             theseus_protocol::method::JUDGE_REPLAY => self
                 .judge_replay(parse(params)?, who)
                 .await

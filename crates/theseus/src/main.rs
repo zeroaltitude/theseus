@@ -540,18 +540,9 @@ enum Cmd {
         #[command(subcommand)]
         cmd: Option<thread::ThreadCmd>,
     },
-    /// Your own benchmark (theseus-pw1q.12): `route report [--week]`, which model your own turns
-    /// need, measured by replaying them one rung down the routing table.
-    Route {
-        #[command(subcommand)]
-        cmd: own_bench::RouteCmd,
-    },
-    /// A past turn: `turn replay SESSION TURN -P PROFILE`, its first request rebuilt byte for byte
-    /// and sent to another profile (yours alone; refused inside a job).
-    Turn {
-        #[command(subcommand)]
-        cmd: own_bench::TurnCmd,
-    },
+    /// Your own benchmark (theseus-pw1q.12): `route report [--week]`, and `turn replay`.
+    #[command(flatten)]
+    OwnBench(own_bench::OwnBench),
     /// Send a raw JSON-RPC request (e.g. `rpc health`, `rpc turn.submit '{"input":"hi"}'`); notifications echo to stderr.
     Rpc {
         method: String,
@@ -1153,7 +1144,7 @@ async fn run(cli: Cli) -> Result<()> {
             ..
         } => cmd::wait(c, json, session, until, after, timeout).await,
         Cmd::Wait { until, timeout, .. } => wait_any(c, json, &until, timeout.as_deref()).await,
-        Cmd::Status(_) | Cmd::Postmortem(_) => unreachable!("they connect for themselves"),
+        Cmd::Tui { .. } | Cmd::Status(_) | Cmd::Postmortem(_) => unreachable!("handled above"),
         Cmd::Profile { cmd } => cmd::profile(c, json, cmd.unwrap_or(ProfileCmd::List)).await,
         Cmd::Ledger { cmd: Some(cmd), .. } => ledger_verify::run(c, json, cmd).await,
         Cmd::Ledger {
@@ -1173,11 +1164,9 @@ async fn run(cli: Cli) -> Result<()> {
         Cmd::SelfImprove { cmd } => self_cmd::run(c, json, cmd).await,
         Cmd::Standing { cmd } => standing_cmd::run(c, json, cmd.unwrap_or_default()).await,
         Cmd::Thread { cmd } => thread::run(c, json, cmd.unwrap_or_default()).await,
-        Cmd::Route { cmd } => own_bench::route(c, json, cmd).await,
-        Cmd::Turn { cmd } => own_bench::turn(c, json, cmd).await,
+        Cmd::OwnBench(cmd) => own_bench::run(c, json, cmd).await,
         Cmd::Rpc { method, params } => cmd::rpc(c, json, method, params).await,
         Cmd::Shutdown => cmd::shutdown(c, json).await,
-        Cmd::Tui { .. } => unreachable!("`theseus tui` execs theseus-tui before connecting"),
     };
     close(conn).await;
     result

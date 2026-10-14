@@ -49,7 +49,31 @@ pub enum TurnCmd {
     },
 }
 
-pub async fn route(conn: &mut Conn, json: bool, cmd: RouteCmd) -> Result<()> {
+/// The two commands, flattened into the CLI's own.
+#[derive(Subcommand, Debug)]
+pub enum OwnBench {
+    /// Your own benchmark (theseus-pw1q.12): which model your own turns need, measured by
+    /// replaying them one rung down the routing table.
+    Route {
+        #[command(subcommand)]
+        cmd: RouteCmd,
+    },
+    /// A past turn: `turn replay SESSION TURN -P PROFILE`, its first request rebuilt byte for byte
+    /// and sent to another profile (yours alone; refused inside a job).
+    Turn {
+        #[command(subcommand)]
+        cmd: TurnCmd,
+    },
+}
+
+pub async fn run(conn: &mut Conn, json: bool, cmd: OwnBench) -> Result<()> {
+    match cmd {
+        OwnBench::Route { cmd } => route(conn, json, cmd).await,
+        OwnBench::Turn { cmd } => turn(conn, json, cmd).await,
+    }
+}
+
+async fn route(conn: &mut Conn, json: bool, cmd: RouteCmd) -> Result<()> {
     match cmd {
         RouteCmd::Report { week } => {
             let p = RouteReportParams {
@@ -68,7 +92,7 @@ pub async fn route(conn: &mut Conn, json: bool, cmd: RouteCmd) -> Result<()> {
     }
 }
 
-pub async fn turn(conn: &mut Conn, json: bool, cmd: TurnCmd) -> Result<()> {
+async fn turn(conn: &mut Conn, json: bool, cmd: TurnCmd) -> Result<()> {
     match cmd {
         TurnCmd::Replay {
             session,

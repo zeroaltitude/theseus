@@ -171,8 +171,100 @@ impl Core {
                 )
             })?;
         let nodes: Transcript = transcript[..at].to_vec();
+        let mut spec = self.kept_spec(&session, &compilation)?;
+        let recalls = nodes
+            .iter()
+            .filter(|(_, n)| n.kind == crate::stub::Kind::Recall);
+        let sources = match recalls.clone().next() {
+            Some(_) => self
+                .runner
+                .memory
+                .read_sources(&self.store, recalls.map(|(_, n)| &**n)),
+            None => Sources::new(),
+        };
+        let mut tried = Vec::new();
+        if let Some((request, digest)) = self.reproduce(
+            &mut spec,
+            (&compilation, &nodes, &session, &sources),
+            (want, *placed),
+            &mut tried,
+        ) {
+            let ask = last_user_text(&nodes);
+            return Ok(Original {
+                session,
+                compilation,
+                spec,
+                nodes,
+                sources,
+                request,
+                digest,
+                ask,
+                said,
+            });
+        }
+        Err(no(
+            "messages",
+            format!(
+                "rendered again from {} nodes, the request digests to {} where the answer \
+                 recorded {want}: the conversation as compiled differs (a stubbed attachment, \
+                 or a node or setting changed since)",
+                nodes.len(),
+                tried.first().map_or("nothing", String::as_str)
+            ),
+        ))
+    }
+
+    /// The request rendered with each effort it might have run at, until
+    /// its digest is `want`: the request and the digest, or none (`tried`
+    /// holds each digest that was not).
+    fn reproduce(
+        &self,
+        spec: &mut RequestSpec,
+        (compilation, nodes, session, sources): (
+            &Compilation,
+            &Transcript,
+            &SessionRecord,
+            &Sources,
+        ),
+        (want, placed): (&str, Option<Effort>),
+        tried: &mut Vec<String>,
+    ) -> Option<(ProviderRequest, String)> {
+        let target_effort = spec.effort;
+        let mut candidates = vec![target_effort];
+        candidates.extend(efforts().into_iter().filter(|e| *e != target_effort));
+        for effort in candidates {
+            for turn_effort in [placed, None] {
+                spec.effort = effort;
+                spec.turn_effort = turn_effort;
+                let rendered = render_request(
+                    spec,
+                    &self.catalog,
+                    compilation,
+                    nodes,
+                    (Some(self.store.blobs()), &session.not_shown, None, sources),
+                );
+                let digest = rendered.request.digest();
+                if digest == want {
+                    return Some((rendered.request, digest));
+                }
+                tried.push(digest);
+                if turn_effort.is_none() {
+                    break;
+                }
+            }
+        }
+        None
+    }
+
+    /// The spec the compilation's requests were rendered from: this
+    /// daemon's, with the system blocks the blobs hold by digest in place
+    /// of the ones built now, and the tools only if they are the manifest's.
+    fn kept_spec(
+        &self,
+        session: &SessionRecord,
+        compilation: &Compilation,
+    ) -> Result<RequestSpec, NotRebuildable> {
         let m = &compilation.manifest;
-        // The system, block by block, from the blobs.
         let layout = m
             .cache
             .as_ref()
@@ -218,7 +310,7 @@ impl Core {
         let mut spec = self
             .runner
             .built_parts(
-                session_id,
+                &session.session_id,
                 &target,
                 session.kind,
                 Some(m.memberships.as_slice()),
@@ -234,8 +326,6 @@ impl Core {
         if let Some(extra) = texts.keys().next() {
             return Err(no("system", format!("a block named {extra} has no place")));
         }
-        // The tools, by the manifest's digest: the catalog offered now must
-        // be the one it names.
         let tools = theseus_kernel::digest_json(&Value::Array(spec.tools.clone()));
         if tools[..16] != m.tools_digest {
             return Err(no(
@@ -247,61 +337,7 @@ impl Core {
                 ),
             ));
         }
-        let recalls = nodes
-            .iter()
-            .filter(|(_, n)| n.kind == crate::stub::Kind::Recall);
-        let sources = match recalls.clone().next() {
-            Some(_) => self
-                .runner
-                .memory
-                .read_sources(&self.store, recalls.map(|(_, n)| &**n)),
-            None => Sources::new(),
-        };
-        let mut tried = Vec::new();
-        let mut candidates = vec![target.effort];
-        candidates.extend(efforts().into_iter().filter(|e| *e != target.effort));
-        for effort in candidates {
-            for turn_effort in [*placed, None] {
-                spec.effort = effort;
-                spec.turn_effort = turn_effort;
-                let rendered = render_request(
-                    &spec,
-                    &self.catalog,
-                    &compilation,
-                    &nodes,
-                    (Some(self.store.blobs()), &session.not_shown, None, &sources),
-                );
-                let digest = rendered.request.digest();
-                if &digest == want {
-                    let ask = last_user_text(&nodes);
-                    return Ok(Original {
-                        session,
-                        compilation,
-                        spec,
-                        nodes,
-                        sources,
-                        request: rendered.request,
-                        digest,
-                        ask,
-                        said,
-                    });
-                }
-                tried.push(digest);
-                if turn_effort.is_none() {
-                    break;
-                }
-            }
-        }
-        Err(no(
-            "messages",
-            format!(
-                "rendered again from {} nodes, the request digests to {} where the answer \
-                 recorded {want}: the conversation as compiled differs (a stubbed attachment, \
-                 or a node or setting changed since)",
-                nodes.len(),
-                tried.first().map_or("nothing", String::as_str)
-            ),
-        ))
+        Ok(spec)
     }
 }
 
