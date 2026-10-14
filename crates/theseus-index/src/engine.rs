@@ -628,6 +628,7 @@ impl Engine {
                 external: c.external,
                 text: c.text,
                 entities_matched: matched,
+                entities: c.entities,
                 sources,
                 fused: score,
             });

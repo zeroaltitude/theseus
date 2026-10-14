@@ -540,6 +540,7 @@ fn drop_words(reason: &str) -> &'static str {
         "superseded" => "left out, corrected by a newer note",
         "duplicate" => "left out as a newer note's duplicate",
         "threshold" => "left out below the threshold",
+        "subject" => "left out, another subject of the same kind",
         "budget" => "left out for the budget",
         _ => "left out for another reason",
     }

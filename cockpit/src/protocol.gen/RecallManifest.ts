@@ -3,6 +3,7 @@ import type { BudgetReport } from "./BudgetReport";
 import type { RecallActivation } from "./RecallActivation";
 import type { RecallDrop } from "./RecallDrop";
 import type { RecallItem } from "./RecallItem";
+import type { RecallRelevance } from "./RecallRelevance";
 import type { RecallRerank } from "./RecallRerank";
 import type { RecallTimings } from "./RecallTimings";
 import type { RecallWhen } from "./RecallWhen";
@@ -83,6 +84,11 @@ budget?: BudgetReport,
  * its order was used, or why recall's own stood.
  */
 rerank?: RecallRerank, 
+/**
+ * The relevance floor and subject bar this pack applied
+ * (theseus-55hlu); absent when neither was on.
+ */
+relevance?: RecallRelevance, 
 /**
  * Under a science that reads retention (`+retention`, M6 32a): the
  * projection as the rank read it, `ready`; or why the rank went

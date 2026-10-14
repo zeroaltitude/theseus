@@ -233,6 +233,8 @@ mod tests {
             fused,
             index_rank: 1,
             place,
+            entities: Vec::new(),
+            matched: Vec::new(),
         }
     }
 

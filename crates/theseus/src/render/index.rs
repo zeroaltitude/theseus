@@ -253,6 +253,7 @@ mod tests {
             external: false,
             text: "the harbour's tide tables".into(),
             entities_matched: Vec::new(),
+            entities: Vec::new(),
             sources: BTreeMap::new(),
             fused: 0.5,
         }

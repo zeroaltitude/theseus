@@ -358,6 +358,7 @@ export type * from './RecallDrop';
 export type * from './RecallItem';
 export type * from './RecallManifest';
 export type * from './RecallOutcomes';
+export type * from './RecallRelevance';
 export type * from './RecallRerank';
 export type * from './RecallRetention';
 export type * from './RecallTimings';

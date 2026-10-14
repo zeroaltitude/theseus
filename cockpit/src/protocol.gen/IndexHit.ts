@@ -14,6 +14,11 @@ text: string,
  */
 entities_matched?: Array<string>, 
 /**
+ * Every entity the chunk holds (`type:value`), for recall's subject bar
+ * (theseus-55hlu); absent from a tender that does not say.
+ */
+entities?: Array<string>, 
+/**
  * Each source that ranked it.
  */
 sources: { [key in string]: IndexSourceRank }, 

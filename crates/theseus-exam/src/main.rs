@@ -186,6 +186,11 @@ enum Cmd {
         /// Every item's gold ranks under every arm, as JSON.
         #[arg(long)]
         json: Option<PathBuf>,
+        /// The relevance floor, as `[memory] recall_floor`: a share (0 to 1)
+        /// of the best fused score the sources allow; a hit under it is
+        /// not counted, so the gold it was costs recall (default 0: off).
+        #[arg(long, default_value_t = 0.0)]
+        floor: f64,
         /// How long to wait for the tender to read and embed
         /// the store.
         #[arg(long, default_value_t = 900)]
@@ -365,8 +370,10 @@ fn main() -> Result<()> {
             half,
             k,
             json,
+            floor,
             settle_secs,
         } => {
+            anyhow::ensure!((0.0..=1.0).contains(&floor), "--floor is a share, 0 to 1");
             let m = Manifest::read(&manifest)?;
             let arms: Vec<String> = if arms.is_empty() {
                 tender::DEFAULT_ARMS.map(String::from).to_vec()
@@ -381,6 +388,7 @@ fn main() -> Result<()> {
                     .collect::<Result<_>>()?,
                 k: k.unwrap_or(100).clamp(1, 100),
                 half: tender::Half::parse(half.as_deref().unwrap_or("in"))?,
+                floor,
                 wait_ms: 60_000,
                 settle: Duration::from_secs(settle_secs),
             };

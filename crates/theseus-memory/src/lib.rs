@@ -26,6 +26,7 @@ pub mod access;
 pub mod activated;
 pub mod activation;
 pub mod consolidate;
+pub mod floor;
 pub mod fsrs;
 pub mod recall;
 pub mod rerank;
@@ -35,6 +36,7 @@ pub mod science;
 pub use access::{Access, AccessEvent, Durability, Label, Outcome};
 pub use activated::Activated;
 pub use activation::{spread, Adjacency, AdjacencyList, EdgeKind, EdgeWeights, SpreadParams};
+pub use floor::Floor;
 pub use fsrs::{Fsrs6, Grade, ParamsError, Retention, FSRS6_DEFAULT};
 pub use recall::{
     Admitted, Asker, Candidate, Dropped, Link, LinkKind, Pack, Params, Place, Reason,

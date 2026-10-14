@@ -145,6 +145,10 @@ pub struct Plan {
     /// Hits asked of the tender (at most 100).
     pub k: usize,
     pub half: Half,
+    /// The relevance floor (theseus-55hlu): the share of the best fused
+    /// score the sources allow that a hit needs to count, as `[memory]
+    /// recall_floor` has it; 0 counts every hit.
+    pub floor: f64,
     /// How long a query may wait for the model to load.
     pub wait_ms: u64,
     /// How long to wait for the tender to read the whole store, and to embed
@@ -246,6 +250,33 @@ pub fn node_ranks(hits: &[Value]) -> Result<HashMap<String, usize>> {
     Ok(rank)
 }
 
+/// `hits` less those under `floor` of the best a fused score can be: the
+/// weights of the sources that ranked a hit, each at rank 1, over 61
+/// (`theseus_memory::floor::ceiling`, as recall sets it). A floor of 0 keeps
+/// them all.
+pub fn floored(hits: &[Value], weights: &Value, floor: f64) -> Vec<Value> {
+    if floor <= 0.0 {
+        return hits.to_vec();
+    }
+    let seen: std::collections::BTreeSet<&str> = hits
+        .iter()
+        .filter_map(|h| h["sources"].as_object())
+        .flat_map(|s| s.keys().map(String::as_str))
+        .collect();
+    let live: BTreeMap<String, f64> = weights
+        .as_object()
+        .into_iter()
+        .flatten()
+        .filter(|(s, _)| seen.contains(s.as_str()))
+        .filter_map(|(s, w)| Some((s.clone(), w.as_f64()?)))
+        .collect();
+    let least = floor * theseus_memory::floor::ceiling(&live);
+    hits.iter()
+        .filter(|h| h["fused"].as_f64().is_some_and(|f| f >= least))
+        .cloned()
+        .collect()
+}
+
 /// Ask the tender every item of `plan.half` with gold, under every arm.
 #[expect(clippy::too_many_lines, reason = "shape budget: split it")]
 pub fn run(exam: &Exam, m: &Manifest, plan: &Plan, log: &mut dyn FnMut(&str)) -> Result<TenderRun> {
@@ -322,7 +353,7 @@ pub fn run(exam: &Exam, m: &Manifest, plan: &Plan, log: &mut dyn FnMut(&str)) ->
             let hits = a["hits"]
                 .as_array()
                 .with_context(|| format!("{}: an answer without hits", item.id))?;
-            let rank = node_ranks(hits)?;
+            let rank = node_ranks(&floored(hits, &a["weights"], plan.floor))?;
             let trap = rank
                 .iter()
                 .filter_map(|(id, &n)| {
@@ -674,9 +705,34 @@ text = "held out gold"
             arms: arms.iter().map(|a| Arm::parse(a).unwrap()).collect(),
             k: 100,
             half,
+            floor: 0.0,
             wait_ms: 1000,
             settle: Duration::from_secs(5),
         }
+    }
+
+    /// A floor counts only the hits at or above its share of the best the
+    /// answering sources allow (theseus-55hlu): a source that ranked no hit
+    /// sets none of the best, and a floor of 0 counts them all.
+    #[test]
+    fn a_floor_keeps_the_hits_at_its_share_of_the_best() {
+        let hit = |id: &str, fused: f64, sources: &[&str]| {
+            json!({"node_id": id, "fused": fused,
+                   "sources": sources.iter().map(|s| (s.to_string(), json!({"rank": 1, "score": 1.0}))).collect::<serde_json::Map<_, _>>()})
+        };
+        let hits = vec![
+            hit("both", 2.0 / 61.0, &["bm25", "vector"]),
+            hit("one", 1.0 / 61.0, &["bm25"]),
+            hit("faint", 1.0 / 90.0, &["vector"]),
+        ];
+        // bm25 and vector ranked: the best is 2/61; entity ranked none.
+        let weights = json!({"bm25": 1.0, "entity": 1.0, "vector": 1.0});
+        let ids = |v: Vec<Value>| -> Vec<String> {
+            v.iter().map(|h| h["node_id"].as_str().unwrap().to_string()).collect()
+        };
+        assert_eq!(ids(floored(&hits, &weights, 0.0)), ["both", "one", "faint"]);
+        assert_eq!(ids(floored(&hits, &weights, 0.5)), ["both", "one"]);
+        assert_eq!(ids(floored(&hits, &weights, 0.9)), ["both"]);
     }
 
     fn written() -> (Exam, Manifest, tempfile::TempDir) {

@@ -102,6 +102,7 @@ fn index_with_syntheses(core: &Arc<Core>, sessions: Vec<String>) -> Ask {
                 time_ms: 0,
                 external: false,
                 entities_matched: vec![],
+                entities: Vec::new(),
                 sources: [(
                     "bm25".to_string(),
                     IndexSourceRank {
@@ -657,6 +658,8 @@ async fn the_synthesis_arm_admits_a_checked_one_alone() {
         fused: 0.5,
         index_rank: 1,
         place,
+        entities: Vec::new(),
+        matched: Vec::new(),
     };
     let none = std::collections::BTreeSet::new();
     let pack = |s: &dyn theseus_memory::MemoryScience, here: &theseus_memory::Place| {

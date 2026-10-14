@@ -274,6 +274,7 @@ async fn a_retraction_finds_every_exposure_and_sorts_each_right() {
             session_id: None,
             k: None,
             arm: None,
+            as_of: None,
         })
         .await
         .unwrap();

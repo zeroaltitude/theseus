@@ -296,6 +296,7 @@ fn reason_words(reason: &str) -> &'static str {
         "superseded" => "as corrected by a newer note",
         "duplicate" => "as a newer note's duplicate",
         "threshold" => "below the threshold",
+        "subject" => "as another subject of the same kind",
         "budget" => "for the budget",
         _ => "for another reason",
     }

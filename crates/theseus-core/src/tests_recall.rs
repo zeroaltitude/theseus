@@ -133,6 +133,7 @@ pub(crate) fn index_of(core: &Arc<Core>, sessions: Vec<String>) -> Ask {
                 time_ms: 0,
                 external: false,
                 entities_matched: vec![],
+                entities: Vec::new(),
                 sources: [(
                     "bm25".to_string(),
                     IndexSourceRank {
@@ -434,6 +435,7 @@ async fn memory_search_runs_the_pipeline_and_writes_nothing() {
             session_id: Some(pier.clone()),
             k: None,
             arm: None,
+            as_of: None,
         })
         .await
         .unwrap();
@@ -447,6 +449,7 @@ async fn memory_search_runs_the_pipeline_and_writes_nothing() {
             session_id: Some("ses_nobody".into()),
             k: None,
             arm: None,
+            as_of: None,
         })
         .await
         .is_err());

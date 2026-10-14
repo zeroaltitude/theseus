@@ -32,8 +32,10 @@
 pub mod activation;
 pub mod adjacency;
 pub mod cite;
+pub mod evidence;
 pub mod labels;
 pub mod outcomes;
+pub mod relevance;
 pub mod render;
 pub mod retention;
 pub mod when;
@@ -749,6 +751,7 @@ impl Memory {
         m.indexed_through = Some(r.indexed_through);
         m.candidates = r.hits.len() as u64;
         let r = when::kept(&mut m, begun.when.as_ref(), r);
+        let r_weights = r.weights.clone();
         m.skipped = r.skipped;
         m.timings.index = Some(r.timings);
         let mut sources: BTreeMap<String, u64> = BTreeMap::new();
@@ -779,6 +782,8 @@ impl Memory {
                     fused: h.fused,
                     index_rank: i + 1,
                     place,
+                    entities: h.entities,
+                    matched: h.entities_matched,
                 }
             })
             .collect();
@@ -801,7 +806,8 @@ impl Memory {
             now_ms: theseus_protocol::now_unix_ms(),
             retention: &retention,
         };
-        let params = begun.params(self.cfg.params(), m.budget_tokens);
+        let mut params = begun.params(self.cfg.params(), m.budget_tokens);
+        (params.floor, m.relevance) = relevance::of(&self.cfg, &r_weights, &m.sources, &candidates);
         let pack = pipeline::recall(&*scene.science, &asker, candidates.clone(), &params);
         let kept = ranks.clone();
         fill(&mut m, pack, &mut ranks, texts);
@@ -885,6 +891,7 @@ impl Memory {
     pub fn params_of(&self, m: &RecallManifest) -> theseus_memory::Params {
         theseus_memory::Params {
             budget_tokens: m.budget_tokens,
+            floor: m.relevance.as_ref().map(relevance::floor_of).unwrap_or_default(),
             ..self.cfg.params()
         }
     }

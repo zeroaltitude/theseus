@@ -261,6 +261,10 @@ pub struct IndexHit {
     /// The query's entities this chunk holds.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub entities_matched: Vec<String>,
+    /// Every entity the chunk holds (`type:value`), for recall's subject bar
+    /// (theseus-55hlu); absent from a tender that does not say.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub entities: Vec<String>,
     /// Each source that ranked it.
     pub sources: BTreeMap<String, IndexSourceRank>,
     /// Reciprocal rank fusion over those sources.

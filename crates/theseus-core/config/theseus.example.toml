@@ -826,6 +826,8 @@ idle_unload_mins = 10.0                   # the model unloads after this long un
 # recall_deadline_ms = 250                # how long recall waits for the index; the turn never waits past its model call and this
 # recall_vector_tokens = 32               # the most word pieces of a turn's new text the vector search embeds (the words' search reads the whole query), at most 500; 0: uncut
 # rerank_wait_ms = 200                    # how long a recall in front of the model waits for Jev's rerank (rerank.v1 live), 1 to 600; past it, recall's own order stands
+# recall_floor = 0.0                      # the relevance floor: a candidate whose fused score is under this share (0 to 1) of the best its answering sources allow is not admitted, and a pack of none brings no Recall node; 0 admits all
+# recall_subject_bar = 0.0                # the share (0 to 1) of that best a candidate about another subject of the question's kind must reach (a host, path or crate the question did not name); 0: no bar
 # include_external = false                # whether fetched text may be recalled
 # Compaction (step 30c): where the ring would drop a session's leading turns to fit
 # the model's window, this profile summarizes them instead, and the request carries

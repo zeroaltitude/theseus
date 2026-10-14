@@ -86,7 +86,7 @@ impl Core {
         }
         memory.syntheses(&self.store);
         let deadline = Duration::from_millis(memory.cfg().recall_deadline_ms).max(SEARCH_DEADLINE);
-        let mut begun = memory.begin(p.query.clone(), None, p.k.unwrap_or(K), arm, deadline);
+        let mut begun = memory.begin(p.query.clone(), p.as_of, p.k.unwrap_or(K), arm, deadline);
         let answer = begun.answer().await;
         let (answer, activation) = memory
             .activated(&self.store, arm, &begun, answer, in_context.clone(), true)

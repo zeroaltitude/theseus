@@ -307,6 +307,8 @@ mod tests_recall_deadline;
 #[cfg(test)]
 mod tests_recall_node;
 #[cfg(test)]
+mod tests_recall_precision;
+#[cfg(test)]
 mod tests_recall_when;
 #[cfg(test)]
 mod tests_recall_words;

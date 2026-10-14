@@ -30,6 +30,12 @@ pub struct MemorySearchParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub arm: Option<String>,
+    /// Only nodes written before this WAL position are candidates, as a
+    /// turn's recall at that position would see (theseus-55hlu: a bench's
+    /// probes asked as they were, not after the later ones).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub as_of: Option<u64>,
 }
 
 /// `memory.recalls`: a session's recalls, newest last.
@@ -123,6 +129,11 @@ pub struct RecallManifest {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub rerank: Option<RecallRerank>,
+    /// The relevance floor and subject bar this pack applied
+    /// (theseus-55hlu); absent when neither was on.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub relevance: Option<RecallRelevance>,
     /// Under a science that reads retention (`+retention`, M6 32a): the
     /// projection as the rank read it, `ready`; or why the rank went
     /// without it, by the fused score alone: `building`, `unbuilt`, `failed`.
@@ -449,6 +460,24 @@ pub struct MemoryLabelResult {
     pub label: String,
     /// Whether recall now leaves the node out.
     pub excluded: bool,
+}
+
+/// The numbers the pack's relevance floor and subject bar worked at
+/// (theseus-55hlu), as fused scores: `[memory] recall_floor` and
+/// `recall_subject_bar` times the ceiling the answering sources allow.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct RecallRelevance {
+    /// The best a fused score can be: each answering source's top rank.
+    pub ceiling: f64,
+    /// The least fused score admitted; 0 is no floor.
+    pub min_fused: f64,
+    /// The least for a candidate about another subject of the question's
+    /// kind; 0 is no bar.
+    pub subject_fused: f64,
+    /// The question's entities some hit held.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub asked: Vec<String>,
 }
 
 /// An item the pack would admit: a reference, never a copy.

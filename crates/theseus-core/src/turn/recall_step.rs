@@ -482,11 +482,16 @@ impl TurnRunner {
             let excerpt = item.text.as_deref().unwrap_or_default();
             let chunk = render::frozen_range(&text_of(&source), excerpt);
             let place = self.place_name(&item.session_id);
+            let session = self
+                .store
+                .get_session::<crate::session::SessionRecord>(&item.session_id)
+                .ok()
+                .flatten();
             items.push(RecalledRef {
                 chunk,
                 header: theseus_protocol::cite::header_with(
                     handle,
-                    &render::item_header(&source, item.position, &place, chunk),
+                    &render::item_header(&source, item.position, &place, chunk, session.as_ref()),
                 ),
                 ..probe
             });
