@@ -231,6 +231,7 @@ ledger_kinds! {
     SelfBacklogStarted = "self.backlog.started",
     SelfBranchBuilt = "self.branch.built",
     SelfExamPass = "self.exam.pass",
+    SelfGraduateProposed = "self.graduate.proposed",
     SelfExamRejected = "self.exam.rejected",
     SelfHalted = "self.halted",
     SelfResumed = "self.resumed",

@@ -19,6 +19,7 @@ pub fn class_of(key: &str) -> Option<&'static str> {
         ("loop.cap_reached", "spend limits"),
         ("budget.", "spend limits"),
         ("spend.", "spend limits"),
+        ("graduate.ext.net:", "security"),
         ("store.", "store format"),
         ("ledger.", "store format"),
     ];
@@ -53,5 +54,7 @@ mod tests {
         assert_eq!(class_of("health:disk"), None);
         assert_eq!(class_of("turn.failed:timeout"), None);
         assert_eq!(class_of("health:mcp:iam_tool"), Some("security"));
+        assert_eq!(class_of("graduate.ext.net:wc:3f2a1c"), Some("security"));
+        assert_eq!(class_of("graduate.ext:wc:3f2a1c"), None);
     }
 }

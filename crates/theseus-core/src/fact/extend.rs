@@ -205,14 +205,22 @@ pub struct ExtendRevoked<'a> {
     pub tools: &'a [String],
     pub by: &'a str,
     pub via: &'a str,
+    /// Why, when the revoke says: `graduated` (its port joined core,
+    /// theseus-pw1q.13). The owner's revoke gives none and leaves the key out.
+    pub reason: Option<&'a str>,
 }
 
 impl Fact for ExtendRevoked<'_> {
     const KIND: Option<LedgerKind> = Some(LedgerKind::ExtendRevoked);
 
     fn row(&self) -> Value {
-        json!({"name": self.name, "digest": self.digest, "server": format!("ext-{}", self.name),
-            "tools": self.tools, "by": self.by, "via": self.via})
+        let mut row = json!({"name": self.name, "digest": self.digest,
+            "server": format!("ext-{}", self.name), "tools": self.tools, "by": self.by,
+            "via": self.via});
+        if let Some(r) = self.reason {
+            row["reason"] = json!(r);
+        }
+        row
     }
 
     fn narrate(&self, say: &mut Say<'_>) {

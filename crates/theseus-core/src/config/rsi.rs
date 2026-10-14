@@ -27,6 +27,9 @@
 //!   with the credential git already has for it (none is read here). Unset,
 //!   the default: they stay in the repo. Choosing it is the owner's: a push
 //!   needs a credential, and choosing one is a permission change.
+//! - `graduate_min_calls` (20) and `graduate_window_days` (14): a loaded
+//!   extension called this many times in this many days with no failure
+//!   becomes a self item to port it into core (theseus-pw1q.13).
 //! - `exams_day_max`: the most exam candidates the nightly exam pass writes
 //!   a day (default 10; theseus-pw1q.11).
 
@@ -58,6 +61,25 @@ pub struct SelfConfig {
     /// The most exam candidates written a night.
     #[serde(default = "default_exams_day_max")]
     pub exams_day_max: u32,
+    /// Calls in the window, with no failure, that graduate an extension.
+    #[serde(default = "default_graduate_min_calls")]
+    pub graduate_min_calls: u32,
+    /// The window of that rule, in days.
+    #[serde(default = "default_graduate_window_days")]
+    pub graduate_window_days: u32,
+}
+
+/// `[self] graduate_min_calls`'s default.
+pub const GRADUATE_MIN_CALLS: u32 = 20;
+/// `[self] graduate_window_days`'s default.
+pub const GRADUATE_WINDOW_DAYS: u32 = 14;
+
+fn default_graduate_min_calls() -> u32 {
+    GRADUATE_MIN_CALLS
+}
+
+fn default_graduate_window_days() -> u32 {
+    GRADUATE_WINDOW_DAYS
 }
 
 /// `[self] exams_day_max`'s default.
@@ -87,6 +109,8 @@ impl Default for SelfConfig {
             backlog_starts: default_backlog_starts(),
             backlog_max_open: default_backlog_max_open(),
             exams_day_max: EXAMS_DAY_MAX,
+            graduate_min_calls: GRADUATE_MIN_CALLS,
+            graduate_window_days: GRADUATE_WINDOW_DAYS,
         }
     }
 }

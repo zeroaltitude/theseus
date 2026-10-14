@@ -375,7 +375,7 @@ impl Core {
     /// within clippy's length that way (the shape budget).
     fn rpc_ext(&self, name: &str, params: Value, conn: Conn<'_>) -> Result<Value, RpcFailure> {
         match name {
-            method::EXTEND_LIST => reply(self.extend_list()?),
+            method::EXTEND_LIST => reply(self.extend_list_with(&parse(or_empty(params))?)?),
             _ => route(params, |p| self.rpc_extension_revoke(p, conn)),
         }
     }

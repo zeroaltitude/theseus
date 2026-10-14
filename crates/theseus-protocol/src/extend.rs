@@ -81,6 +81,62 @@ pub struct ExtendLoadedInfo {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub last_error: Option<String>,
+    /// Its use over the window, read from the ledger's tool-call rows; only
+    /// in a list asked with `usage` (theseus-pw1q.13).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub usage: Option<ExtendUsage>,
+}
+
+/// How much a loaded extension was used over a window (theseus-pw1q.13),
+/// counted from the ledger's tool-call rows: no counter on the call path.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct ExtendUsage {
+    pub window_days: u32,
+    /// Calls that ended in the window, any outcome.
+    pub calls: u64,
+    /// Of those, the ones that ended in an error result, a timeout or a
+    /// crash of the server (an outcome that may have run is a failure).
+    pub failures: u64,
+    /// The call latency, in ms, of the calls that ended.
+    pub p50_ms: u64,
+    pub p95_ms: u64,
+    /// The read stopped at its row cap: the counts are a floor.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub truncated: bool,
+}
+
+impl ExtendUsage {
+    /// The one wording every surface shows: "used 34 times in 14 days, 0
+    /// failures, p50 41 ms".
+    pub fn line(&self) -> String {
+        format!(
+            "used {} {} in {} days, {} {}, p50 {} ms, p95 {} ms{}",
+            self.calls,
+            if self.calls == 1 { "time" } else { "times" },
+            self.window_days,
+            self.failures,
+            if self.failures == 1 {
+                "failure"
+            } else {
+                "failures"
+            },
+            self.p50_ms,
+            self.p95_ms,
+            if self.truncated { " (at least)" } else { "" },
+        )
+    }
+}
+
+/// `extend.list`'s params: every field optional.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct ExtendListParams {
+    /// Read each loaded extension's use from the ledger (cached for a
+    /// minute), so a plain list stays one META read.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub usage: bool,
 }
 
 /// `extend.list`: every proposal, newest first, and the loaded ones.
@@ -137,4 +193,8 @@ pub struct ExtendHealth {
 
 fn is_zero(n: &u64) -> bool {
     *n == 0
+}
+
+fn is_false(b: &bool) -> bool {
+    !*b
 }

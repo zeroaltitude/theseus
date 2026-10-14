@@ -6,10 +6,10 @@
 
 use anyhow::Result;
 use clap::Subcommand;
-use serde_json::Value;
 use theseus_client::Conn;
 use theseus_protocol::extend::{
-    ExtendInfo, ExtendListResult, ExtendLoadedInfo, ExtensionRevokeParams, ExtensionRevokeResult,
+    ExtendInfo, ExtendListParams, ExtendListResult, ExtendLoadedInfo, ExtensionRevokeParams,
+    ExtensionRevokeResult,
 };
 use theseus_protocol::method;
 
@@ -52,7 +52,10 @@ pub async fn run(conn: &mut Conn, json: bool, cmd: ExtendCmd) -> Result<()> {
         );
         return Ok(());
     }
-    let v = conn.request(method::EXTEND_LIST, Value::Null).await?;
+    let ask = ExtendListParams { usage: true };
+    let v = conn
+        .request(method::EXTEND_LIST, serde_json::to_value(&ask)?)
+        .await?;
     if json {
         println!("{}", serde_json::to_string(&v)?);
         return Ok(());
@@ -94,6 +97,9 @@ pub fn loaded_lines(e: &ExtendLoadedInfo) -> Vec<String> {
         e.calls,
         e.errors
     ));
+    if let Some(u) = &e.usage {
+        out.push(format!("  {}", u.line()));
+    }
     if let Some(old) = &e.replaced {
         out.push(format!("  replaced {}", &old[..old.len().min(6)]));
     }

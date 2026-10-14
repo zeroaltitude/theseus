@@ -154,7 +154,7 @@ fn the_cockpits_types_are_generated_from_the_rust_ones() {
         mcp::McpRestartParams, mcp::McpRestartResult, mcp::McpPromptArgument,
         mcp::McpPromptInfo, mcp::McpPromptListParams, mcp::McpPromptListResult, mcp::McpPromptRef,
         mcp_server::McpServerHealth, mcp_server::McpServerRefusals,
-        extend::ExtendInfo, extend::ExtendListResult, extend::ExtendHealth,
+        extend::ExtendInfo, extend::ExtendListResult, extend::ExtendHealth, extend::ExtendUsage, extend::ExtendListParams,
         extend::ExtendLoadedInfo, extend::ExtensionRevokeParams, extend::ExtensionRevokeResult, earned::EarnedRecord, earned::EarnedGroup, earned::EarnedGrant, earned::EarnedCard, earned::EarnedWeek, earned::PolicyEarnedParams, earned::PolicyEarnedResult, earned::PolicyEarnedAnswerParams, earned::PolicyEarnedAnswerResult, earned::PolicyRevokeParams, earned::PolicyRevokeResult, rsi::SelfMode, rsi::SelfState, rsi::SealedState, rsi::SelfHaltParams, rsi::SelfResumeParams, rsi::SelfSwitchResult, rsi::SelfLogParams, rsi::SelfLogRow, rsi::SelfLogResult, rsi::SelfDigestParams, rsi::SelfDigestResult, rsi::SelfExamsParams, rsi::SelfExamsResult, rsi::SelfExamFamily, rsi::SelfExamToday, rsi::SelfBranchesParams, rsi::SelfBranch, rsi::SelfBranchesResult, rsi::SelfBacklogParams, rsi::SelfBacklogItem, rsi::SelfBacklogResult, rsi::SelfDropParams, rsi::SelfDropResult, rsi::SelfMoveParams, rsi::SelfMoveResult, rsi::SelfBudgetView, rsi::SelfBranchSpend, features::Features,
         tasks::TaskState, tasks::TaskOrigin, tasks::TaskEvidence, tasks::TaskProposal,
         tasks::TaskRecord, tasks::TaskGetParams, tasks::TaskGetResult, tasks::TaskChanged,

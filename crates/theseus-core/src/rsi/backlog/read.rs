@@ -62,6 +62,8 @@ pub struct Obs {
     pub person: bool,
     pub task_failed: bool,
     pub work: u8,
+    /// An extension's graduation, on its observations alone.
+    pub graduate: Option<super::graduate::Graduation>,
 }
 
 /// Every observation of one cause in a night.
@@ -71,6 +73,8 @@ pub struct Candidate {
     pub title: String,
     pub source: String,
     pub obs: Vec<Obs>,
+    /// An extension's graduation: its counts and the port's brief.
+    pub graduate: Option<super::graduate::Graduation>,
 }
 
 impl Candidate {
@@ -101,6 +105,7 @@ pub fn group(obs: Vec<Obs>) -> Vec<Candidate> {
                 title: o.title.clone(),
                 source: o.source.clone(),
                 obs: vec![],
+                graduate: o.graduate.clone(),
             })
             .obs
             .push(o);
@@ -140,6 +145,7 @@ fn obs(kind: &str, pos: u64, row: &LedgerRow) -> Obs {
         person: false,
         task_failed: false,
         work: 2,
+        graduate: None,
     }
 }
 
@@ -355,6 +361,7 @@ pub fn from_health(h: &theseus_protocol::HealthResult, now_ms: u64, date: &str) 
             person: false,
             task_failed: false,
             work,
+            graduate: None,
         });
     };
     if h.disk.state != "ok" {
