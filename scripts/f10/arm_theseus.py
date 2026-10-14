@@ -305,9 +305,11 @@ class Theseus:
         self.say(ctx, steps.PROMPTS["S5"])
         self.card(ctx)
         ctx.capture("S5.ask")
-        ctx.tmux.keys("y")
+        # The card's grant (theseus-drjs): `a` approves, and stops asking for
+        # this command's prefix for the rest of the conversation.
+        ctx.tmux.keys("a")
         self.settle(ctx)
-        ctx.rec("S5", mode_keys=None)
+        ctx.rec("S5", grant_keys=["a"], mode_keys=None)
 
     def s6(self, ctx):
         """S6 runs in the chat, where the dock shows the elapsed time of a

@@ -1655,6 +1655,8 @@ impl crate::toolrun::JobLauncher for PrintedOnly {
 /// Admission's queue through the whole core (theseus-4g0l).
 mod admission;
 mod earned;
+/// Scoped grants (theseus-drjs).
+mod grants;
 /// A `/stop` before a turn's admission, and a question's expiry (theseus-hmwv,
 /// theseus-830).
 mod stops_and_expiry;
@@ -5345,6 +5347,7 @@ async fn answer_as(
         author: discord.map(|_| "discord:zeroaltitude".to_string()),
         discord: origin(discord),
         trust: false,
+        grant: None,
     };
     rpc_as(
         core,

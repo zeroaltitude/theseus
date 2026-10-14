@@ -790,5 +790,6 @@ pub fn confirm_request(
         options: Vec::new(),
         may_answer: None,
         preview: None,
+        grant_offer: None,
     })
 }

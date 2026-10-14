@@ -47,6 +47,8 @@ pub enum Buttons {
     Confirm(String),
     /// Approve, "Approve + trust session", and Decline (theseus-9bp): external text.
     ConfirmTrust(String),
+    /// Approve, the question's grant, and Decline (theseus-drjs).
+    ConfirmGrant(String, theseus_protocol::grants::GrantOffer),
     /// A "Should I have asked?" select menu (theseus-sgh): an option per notified tool, `MAX_ASKED`.
     ShouldHaveAsked(Vec<Asked>),
     /// A Jev notice's right / wrong / noise, for this judgment.

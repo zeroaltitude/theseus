@@ -621,6 +621,7 @@ impl Core {
             session_id: a.session_id.clone(),
             execution_id: a.execution_id.clone(),
             resumes: false,
+            granted: None,
         })
     }
 }
@@ -651,5 +652,6 @@ pub fn promotion_request(a: &Action, session: &SessionRecord, ttl_ms: u64) -> Co
         options: Vec::new(),
         may_answer: None,
         preview: None,
+        grant_offer: None,
     })
 }

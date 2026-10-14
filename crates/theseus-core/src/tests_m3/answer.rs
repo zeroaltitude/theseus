@@ -257,11 +257,12 @@ async fn may_answer_is_false_for_a_shared_bindings_connection() {
         .await,
         false
     );
-    // The options ride the request itself, worded once.
+    // The options ride the request itself, worded once: a posture's ask in
+    // a private place offers its grant after the plain yes (theseus-drjs).
     let q = r.core.confirm_list().unwrap().remove(0);
     assert_eq!(
         q.options.iter().map(|o| o.id.as_str()).collect::<Vec<_>>(),
-        ["approve", "decline"]
+        ["approve", "approve_grant", "decline"]
     );
 }
 

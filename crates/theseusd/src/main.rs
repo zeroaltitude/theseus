@@ -1002,6 +1002,8 @@ fn warm_after_serving(core: &Arc<Core>) {
     core.warm_ontology();
     core.warm_standing();
     core.warm_threads();
+    // The conversations' grants, from the ledger (theseus-drjs).
+    core.warm_grants();
     // The daemon's memory (theseus-9lxe): a trim after work and a quiet
     // stretch, and the import's catalog dropped after an idle one.
     core.tend_memory_after_serving();

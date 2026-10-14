@@ -108,12 +108,50 @@ pub async fn revoke(conn: &mut Conn, json: bool, id: String) -> Result<()> {
     };
     let v = conn.request(method::POLICY_REVOKE, p).await?;
     output(json, v, |r: PolicyRevokeResult| {
-        println!(
-            "{} asks first again: the grant {} is revoked, and the group is not proposed for 90 days.",
-            r.grant.group.label, r.id
-        );
+        match &r.session_grant {
+            Some(g) => println!(
+                "{} asks first again: the grant {} is revoked.",
+                g.pattern, r.id
+            ),
+            None => println!(
+                "{} asks first again: the grant {} is revoked, and the group is not proposed for 90 days.",
+                r.grant.group.label, r.id
+            ),
+        }
         Ok(())
     })
+}
+
+/// `theseus policy grants [--session ID]` (theseus-drjs): each conversation's
+/// grants, then the earned ones.
+pub async fn grants(conn: &mut Conn, json: bool, session: Option<String>) -> Result<()> {
+    let p = theseus_protocol::grants::PolicyGrantsParams {
+        session_id: session,
+    };
+    let v = conn.request(method::POLICY_GRANTS, p).await?;
+    output(
+        json,
+        v,
+        |r: theseus_protocol::grants::PolicyGrantsResult| {
+            if r.session.is_empty() && r.earned.is_empty() {
+                println!("no grants: every question asks");
+                return Ok(());
+            }
+            if !r.session.is_empty() {
+                println!("the conversations' grants (`theseus policy revoke ID` ends one):");
+                for g in &r.session {
+                    println!("  {}", g.line());
+                }
+            }
+            if !r.earned.is_empty() {
+                println!("earned grants:");
+                for g in &r.earned {
+                    println!("  {}", grant_line(g));
+                }
+            }
+            Ok(())
+        },
+    )
 }
 
 /// A group's record in a line: `57 approvals, Oct 1 to Oct 8`.

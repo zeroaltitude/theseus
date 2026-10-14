@@ -37,3 +37,10 @@ test('work.answer params carry a note only where the option takes one', () => {
   assert.deepEqual(answerParams(c, 'decline', ' not now '), { question_id: 'act_7f3a9c', option: 'decline', note: 'not now' })
   assert.deepEqual(answerParams(c, 'approve', 'ignored'), { question_id: 'act_7f3a9c', option: 'approve', note: undefined })
 })
+
+test('a question\'s grant is a button of its own, after the plain yes, sent as approve_grant (theseus-drjs)', () => {
+  const grant = { ...opt('approve_grant', 'Approve + this command for the conversation', false, 'primary') }
+  const c = ask({ grant_offer: { scope: 'session', kind: 'prefix', pattern: 'python3 -m unittest', words: 'yes' }, options: [opt('approve', 'Approve', false, 'primary'), grant, opt('decline', 'Decline', true)] })
+  assert.deepEqual(buttonsOf(c).map((b) => [b.id, b.label, b.tone]), [['approve', 'Approve', 'ok'], ['approve_grant', 'Approve + this command for the conversation', 'ok'], ['decline', 'Decline', 'fault']])
+  assert.deepEqual(answerParams(c, 'approve_grant', 'a note'), { question_id: 'act_7f3a9c', option: 'approve_grant', note: undefined })
+})

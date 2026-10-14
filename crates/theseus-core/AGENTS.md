@@ -1265,9 +1265,25 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   `[judge] learning_hour`, a card at most every `every_days`, its work on a thread at nice 19). "Should have asked" on a
   grant's notice (`tighten_by_earned`: the notice's row names the grant) ends the grant and tightens nothing.
   `policy/earned/measure.rs` is the number: questions per active hour over four weeks, and what the grants would have
-  saved. Not built, with the places they would hook in (beside `earned::gate`): `scoped-grants` (a "don't ask again" from
-  a single answer: a grant with a call's own scope) and M5's Jev decision on the approval ladder (a judgment before the
-  card). Tests: `policy/earned/tests_find.rs`, `tests_measure.rs`, `tests_m3/earned.rs`, the daemon's `tests/earned.rs`.
+  saved. Not built: M5's Jev decision on the approval ladder (a judgment before the card, beside `earned::gate`).
+  Tests: `policy/earned/tests_find.rs`, `tests_measure.rs`, `tests_m3/earned.rs`, the daemon's `tests/earned.rs`.
+- **Scoped grants** (theseus-drjs; `policy/grants.rs`, `rpc/grants.rs`, wire `theseus_protocol::grants`): one answer's
+  "yes, and don't ask again", for its conversation alone. The offer (`ConfirmRequest.grant_offer`, and the option
+  `approve_grant` beside the plain yes) is computed when the question is asked (`grants::offered`, from the call's
+  gate) and again from the stored gate record by `confirm.list` and a card (`grant_offer_of`), one rule (`offer`):
+  only where the posture alone asked (no later layer changed the policy's reason), in a private place, outside L1, no
+  `env`, no steps, no tightening; `proc.run` by `prefix_of` (the program and its subcommand, `python3 -m <module>`, a
+  launcher's program too; never a shell, a wrapper, inline code, a relative program path or an option first) or the
+  edit tools under the session's directory (`edits`; never `/` or the home). An answer takes it by `action.confirm
+  { grant }` (its pattern must equal the daemon's own offer) or `work.answer`'s `approve_grant` (no pattern at all);
+  the grant is the daemon's offer, its `policy.granted` row in the answer's frame (`confirm_action_full`'s `extra`).
+  The gate's step is `grants::gate` in `toolrun/order.rs`, right after `earned::gate` and with its conditions: a
+  covered call (`grants::covers`, the one rule modes calls: the normalised prefix and the program as written, no URL
+  after it; or every resource canonical under the root) runs at `notify`, its notice's setting `ran under your grant: <what>, this conversation, sgr_…`. In memory
+  per session (`Earned::scoped`, one lookup a call); `policy.grants` lists them, `policy.revoke sgr_…` ends one
+  (`policy.grant_ended`), a retire or a supersession ends a session's in its frame, and `load_grants` reads them
+  back after serving (`warm_grants`). No store format change: new ledger kinds only. Tests: `policy/grants/tests.rs`,
+  `tests_m3/grants.rs`.
 - **The model's commitments** (theseus-lherl; horizon row HZ1): `commitments.rs`, `wake_tools.rs`. The conversation's
   pending wakes ride in the last block of every request, beside the task view (`view::attach_text`, no breakpoint of
   its own; a stand-in model that reads the last user text skips both: `view::is_head`): at most `MAX_LINES` (10) lines

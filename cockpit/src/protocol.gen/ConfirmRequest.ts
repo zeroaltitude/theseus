@@ -3,6 +3,7 @@ import type { AnswerOption } from "./AnswerOption";
 import type { BudgetAsk } from "./BudgetAsk";
 import type { ConfirmPreview } from "./ConfirmPreview";
 import type { ExternalText } from "./ExternalText";
+import type { GrantOffer } from "./GrantOffer";
 import type { TaskChange } from "./TaskChange";
 import type { TaskRef } from "./TaskRef";
 

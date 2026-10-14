@@ -434,6 +434,7 @@ pub fn question(sid: &str, correlation_id: &str, reason: &str, at: u64) -> Confi
         options: Vec::new(),
         may_answer: None,
         preview: None,
+        grant_offer: None,
     }
 }
 

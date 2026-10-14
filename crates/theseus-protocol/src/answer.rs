@@ -89,7 +89,7 @@ pub fn reminder_options() -> Vec<AnswerOption> {
 pub fn approves(option: &str) -> bool {
     matches!(
         option,
-        "approve" | "approve_trust" | "reset" | "accept" | "ack"
+        "approve" | "approve_trust" | "approve_grant" | "reset" | "accept" | "ack"
     )
 }
 

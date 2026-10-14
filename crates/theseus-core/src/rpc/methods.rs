@@ -1441,13 +1441,22 @@ impl Core {
             }
         }
         let who = conn.answerer(p.author, p.discord);
-        self.confirm_action_with(
-            &p.correlation_id,
-            p.approve,
-            p.note.as_deref(),
-            who,
-            p.trust,
-        )
+        match &p.grant {
+            // A grant goes with an approval (theseus-drjs).
+            Some(_) if !p.approve => Err(anyhow::anyhow!(
+                "a grant goes with an approval: approve {} to take it",
+                p.correlation_id
+            )),
+            Some(g) => self.confirm_granting(&p.correlation_id, p.note.as_deref(), who, p.trust, g),
+            None => self.confirm_action_with(
+                &p.correlation_id,
+                p.approve,
+                p.note.as_deref(),
+                who,
+                p.trust,
+                &[],
+            ),
+        }
         .map_err(|e| match e.downcast::<Refusal>() {
             Ok(r) => RpcFailure {
                 code: error_code::REFUSED,

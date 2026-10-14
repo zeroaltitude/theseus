@@ -577,11 +577,14 @@ impl Watch {
         };
         self.printer.settle();
         let prompt = if q.budget.is_some() {
-            "reset and continue? [y/N/note]"
+            "reset and continue? [y/N/note]".to_string()
         } else if q.external_text.is_some() {
-            "approve? [y/N/t/note] (t: approve, and trust the session again)"
+            "approve? [y/N/t/note] (t: approve, and trust the session again)".to_string()
+        } else if let Some(o) = &q.grant_offer {
+            // "Yes, and don't ask again" (theseus-drjs).
+            format!("approve? [y/N/{k}/note] ({k}: {})", o.words, k = o.key())
         } else {
-            "approve? [y/N/t/note]"
+            "approve? [y/N/t/note]".to_string()
         };
         // A whole line: an event that comes while it waits starts below it.
         eprintln!("  {prompt}");
@@ -607,13 +610,15 @@ impl Watch {
             if let Some(i) = self.questions.iter().position(|q| q.correlation_id == cid) {
                 let q = self.questions.remove(i);
                 let a = parse_answer(line);
-                let id = conn
-                    .send(
-                        method::ACTION_CONFIRM,
-                        json!({"correlation_id": cid, "approve": a.approve, "trust": a.trust,
-                               "note": a.note, "author": AUTHOR}),
-                    )
-                    .await?;
+                // `a` or `e`: approve, and take the offer, echoed (theseus-drjs).
+                let grant = grant_answer(&q, line);
+                let params = match &grant {
+                    Some(pattern) => json!({"correlation_id": cid, "approve": true,
+                                            "grant": {"pattern": pattern}, "author": AUTHOR}),
+                    None => json!({"correlation_id": cid, "approve": a.approve, "trust": a.trust,
+                                   "note": a.note, "author": AUTHOR}),
+                };
+                let id = conn.send(method::ACTION_CONFIRM, params).await?;
                 self.pending.insert(id, Purpose::Answer(Box::new(q)));
                 return Ok(());
             }
@@ -716,9 +721,36 @@ impl Watch {
     }
 }
 
+/// The pattern an answer line takes: the offer's, when the line is its key
+/// (`a` for a command, `e` for edits) and the question offers one.
+pub fn grant_answer(q: &ConfirmRequest, line: &str) -> Option<String> {
+    let o = q.grant_offer.as_ref()?;
+    let head = line.trim().to_ascii_lowercase();
+    (head.len() == 1 && head.starts_with(o.key())).then(|| o.pattern.clone())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `a` takes a command's offer, `e` an edit's, and nothing else does.
+    #[test]
+    fn a_grant_key_takes_the_offer_it_names() {
+        use theseus_protocol::grants::GrantOffer;
+        let mut q = ConfirmRequest::default();
+        assert_eq!(grant_answer(&q, "a"), None, "no offer, no grant");
+        q.grant_offer = Some(GrantOffer::prefix(&[
+            "python3".into(),
+            "-m".into(),
+            "unittest".into(),
+        ]));
+        assert_eq!(grant_answer(&q, " a "), Some("python3 -m unittest".into()));
+        assert_eq!(grant_answer(&q, "e"), None);
+        assert_eq!(grant_answer(&q, "y"), None);
+        assert_eq!(grant_answer(&q, "a lot"), None);
+        q.grant_offer = Some(GrantOffer::edits("/work/app"));
+        assert_eq!(grant_answer(&q, "e"), Some("/work/app".into()));
+    }
 
     /// The answers a line gives (design §2.10's `approve? [y/N/t/note]`).
     #[test]

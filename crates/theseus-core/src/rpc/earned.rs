@@ -41,10 +41,11 @@ use crate::policy::earned::measure::{measure, WEEKS, WEEK_MS};
 use crate::policy::earned::{day, Passed, FOREVER, PASS_MS};
 
 /// The methods routed here.
-pub(super) const OWN: [&str; 3] = [
+pub(super) const OWN: [&str; 4] = [
     method::POLICY_EARNED,
     method::POLICY_EARNED_ANSWER,
     method::POLICY_REVOKE,
+    method::POLICY_GRANTS,
 ];
 
 /// The most candidates one card carries.
@@ -58,7 +59,11 @@ const LOOKBACK_MS: u64 = 2 * 86_400_000;
 
 /// The rows of `kind` from `since_ms` on, oldest first, and whether the cap
 /// cut them. `None` while the ledger's index is being built.
-fn rows_of(core: &Core, kind: &str, since_ms: u64) -> Result<Option<(Vec<LedgerRow>, bool)>> {
+pub(super) fn rows_of(
+    core: &Core,
+    kind: &str,
+    since_ms: u64,
+) -> Result<Option<(Vec<LedgerRow>, bool)>> {
     let mut out: Vec<LedgerRow> = Vec::new();
     let mut before = None;
     loop {
@@ -633,12 +638,31 @@ impl Core {
                 theseus_store::blocking(|| self.earned_answer(&p.id, p.accept, &who))
                     .map_err(refused("the answer"))
             }),
+            // The conversations' grants beside the earned ones (theseus-drjs).
+            method::POLICY_GRANTS => {
+                route(params, |p: theseus_protocol::grants::PolicyGrantsParams| {
+                    Ok::<_, RpcFailure>(self.grants_list(&p))
+                })
+            }
             _ => route(params, |p: PolicyRevokeParams| {
                 let who = conn.answerer(p.author.clone(), p.discord.clone());
+                if p.id.starts_with("sgr_") {
+                    let g = theseus_store::blocking(|| self.grant_revoke(&p.id, &who))
+                        .map_err(refused("the revoke"))?;
+                    return Ok(PolicyRevokeResult {
+                        id: p.id,
+                        grant: EarnedGrant::default(),
+                        session_grant: Some(g),
+                    });
+                }
                 let grant = self
                     .earned_revoke(&p.id, &who, None)
                     .map_err(refused("the revoke"))?;
-                Ok(PolicyRevokeResult { id: p.id, grant })
+                Ok(PolicyRevokeResult {
+                    id: p.id,
+                    grant,
+                    session_grant: None,
+                })
             }),
         }
     }

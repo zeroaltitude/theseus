@@ -92,6 +92,7 @@ impl Core {
             options: Vec::new(),
             may_answer: None,
             preview: self.tools.preview(session.dir.as_deref(), tool, input),
+            grant_offer: self.grant_offer_of(session, tool, input, gate.as_deref()),
         }))
     }
 
@@ -143,6 +144,7 @@ impl Core {
             options: Vec::new(),
             may_answer: None,
             preview: None,
+            grant_offer: None,
         }))
     }
 
@@ -285,14 +287,15 @@ impl Core {
         note: Option<&str>,
         by: impl Into<Answerer>,
     ) -> Result<theseus_protocol::ActionConfirmResult> {
-        self.confirm_action_with(correlation_id, approve, note, by, false)
+        self.confirm_action_with(correlation_id, approve, note, by, false, &[])
     }
 
     /// `confirm_action`, and with `trust`, trust the call's session again as
     /// well (theseus-9bp): its hold on external text is cleared before the
     /// approval wakes the execution, so the calls after this one run at their
     /// postures. The answer's judgment covers the trust, which only goes with
-    /// an approval of a tool call.
+    /// an approval of a tool call. `extra`: records for a tool call's
+    /// answer's frame, a grant's row (theseus-drjs).
     #[expect(clippy::too_many_lines, reason = "shape budget: split it")]
     pub fn confirm_action_with(
         &self,
@@ -301,6 +304,7 @@ impl Core {
         note: Option<&str>,
         by: impl Into<Answerer>,
         trust: bool,
+        extra: &[theseus_store::NewRecord],
     ) -> Result<theseus_protocol::ActionConfirmResult> {
         let who = by.into();
         let a = self
@@ -412,6 +416,7 @@ impl Core {
                     k.stage(frame)?;
                 }
                 k.stage(std::slice::from_ref(&answered))?;
+                k.stage(extra)?;
                 // The wake is its own part: one that cannot happen (the
                 // execution ended) takes back nothing else.
                 let why = if approve { "confirmed" } else { "declined" };
@@ -458,6 +463,7 @@ impl Core {
             session_id: a.session_id,
             execution_id: a.execution_id,
             resumes: true,
+            granted: None,
         })
     }
 
@@ -730,6 +736,7 @@ impl Core {
             session_id: q.session_id.clone(),
             execution_id: q.execution_id.clone(),
             resumes: approve,
+            granted: None,
         })
     }
 }

@@ -688,9 +688,16 @@ enum PolicyCmd {
         #[arg(long)]
         propose_now: bool,
     },
-    /// End an earned grant: its command asks first again, and its group is not proposed for 90
-    /// days. Anyone may, as anyone may press "should have asked".
+    /// End a grant: an earned one (`ern_…`: its command asks first again, and its group is not
+    /// proposed for 90 days), or a conversation's (`sgr_…`). Anyone may, as anyone may press
+    /// "should have asked".
     Revoke { id: String },
+    /// The live grants: each conversation's "don't ask again" (`sgr_…`), then the earned ones.
+    Grants {
+        /// One conversation's alone: its id.
+        #[arg(long)]
+        session: Option<String>,
+    },
 }
 
 #[derive(Subcommand, Debug, Default)]

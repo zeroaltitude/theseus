@@ -553,6 +553,7 @@ async fn confirm_shown(
                 author: None,
                 discord: None,
                 trust: a.trust,
+                grant: None,
             })?,
             |m, p| printer.on(m, p),
         )
@@ -885,6 +886,7 @@ pub async fn policy(conn: &mut Conn, json: bool, cmd: PolicyCmd) -> Result<()> {
             crate::earned::earned(conn, json, cmd, propose_now).await
         }
         PolicyCmd::Revoke { id } => crate::earned::revoke(conn, json, id).await,
+        PolicyCmd::Grants { session } => crate::earned::grants(conn, json, session).await,
         PolicyCmd::Trust { session } => {
             // A short name is looked for among the sessions that hold
             // external text (theseus-9bp), which health lists.

@@ -767,6 +767,9 @@ impl App {
             KeyCode::Char('w') => self.only = Only::Working,
             KeyCode::Char('r') => self.only = Only::Ready,
             KeyCode::Char('d') => self.only = Only::Done,
+            // `a` and `e` take the card's grant when it offers one
+            // (theseus-drjs); else `a` shows every session.
+            KeyCode::Char(k @ ('a' | 'e')) if self.grant_offered(k) => return self.grant_key(),
             KeyCode::Char('a') => {
                 self.only = Only::All;
                 self.filter.clear();
@@ -869,6 +872,32 @@ impl App {
             return Vec::new();
         }
         vec![answer(&id, &yes, None)]
+    }
+
+    /// Whether the card on screen offers a grant whose key is `k`: `a` for a
+    /// command's prefix, `e` for edits in the project (theseus-drjs).
+    fn grant_offered(&self, k: char) -> bool {
+        self.shown().is_some()
+            && matches!(self.card(), Some((Question::Whole(c), _))
+                if c.grant_offer.as_ref().is_some_and(|o| o.key() == k))
+    }
+
+    /// Approve the card's question and take its grant: the daemon grants the
+    /// offer it made, never one this key names.
+    fn grant_key(&mut self) -> Vec<Effect> {
+        let Some((q, _)) = self.card() else {
+            return Vec::new();
+        };
+        let id = q.correlation_id().to_string();
+        if !q.may_answer() {
+            self.flash = Some((
+                Tag::Bad,
+                "refused: not from here; answer from the CLI (`theseus answer`), the web UI, or a private place"
+                    .to_string(),
+            ));
+            return Vec::new();
+        }
+        vec![answer(&id, theseus_protocol::grants::APPROVE_GRANT, None)]
     }
 
     /// The decline's note: `enter` sends the decline, with the note if one
