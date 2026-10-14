@@ -14,6 +14,16 @@ use theseus_tools::{
 };
 
 use super::{keys, Terminal, Terms, CLOSE, MAX_WAIT_MS, OPEN, READ, SEND};
+use crate::toolrun::jobs_tools::INTERRUPTED_BY;
+use crate::toolrun::waits::steer::Watch;
+
+/// A wait that a person's message ended says so in its result's meta
+/// (theseus-qu1lc).
+fn mark_interrupted(out: &mut ToolOutput, interrupted: bool) {
+    if interrupted {
+        out.meta[INTERRUPTED_BY] = json!("message");
+    }
+}
 
 /// The four tools, over one registry of terminals.
 pub fn all(terms: &Arc<Terms>) -> Vec<Arc<dyn Tool>> {
@@ -349,7 +359,21 @@ struct Wait<'a> {
 /// Wait on a terminal for `w`, or until `bound` passes, or its program ends.
 /// What the wait found. A wait `idle` looks at the pty's front every
 /// `IDLE_LOOK`, a timer's wake, and at each change of the screen.
-async fn wait(t: &Terminal, w: Wait<'_>, bound: Duration) -> String {
+async fn wait(t: &Terminal, w: Wait<'_>, bound: Duration, steer: &Watch) -> (String, bool) {
+    let mut interrupted = false;
+    let waited = wait_for(t, w, bound, steer, &mut interrupted).await;
+    (waited, interrupted)
+}
+
+/// `wait`'s body: a person's message queued behind the turn ends it at once
+/// (theseus-qu1lc), the program untouched.
+async fn wait_for(
+    t: &Terminal,
+    w: Wait<'_>,
+    bound: Duration,
+    steer: &Watch,
+    interrupted: &mut bool,
+) -> String {
     let Wait { quiet, until, idle } = w;
     let t0 = Instant::now();
     let mut rx = t.pty.shared.version.subscribe();
@@ -396,6 +420,13 @@ async fn wait(t: &Terminal, w: Wait<'_>, bound: Duration) -> String {
                 );
             }
         }
+        if steer.pending() {
+            *interrupted = true;
+            return format!(
+                "a message arrived, so the wait ended after {} ms",
+                t0.elapsed().as_millis()
+            );
+        }
         let left = bound.saturating_sub(t0.elapsed());
         if left.is_zero() {
             let busy = || {
@@ -427,7 +458,11 @@ async fn wait(t: &Terminal, w: Wait<'_>, bound: Duration) -> String {
             step = step.min(super::IDLE_LOOK);
         }
         rx.mark_unchanged();
-        match tokio::time::timeout(step, rx.changed()).await {
+        let changed = tokio::select! {
+            got = tokio::time::timeout(step, rx.changed()) => got,
+            () = steer.raised() => continue,
+        };
+        match changed {
             Ok(Ok(())) => quiet_from = Instant::now(),
             Ok(Err(_)) => return "its terminal closed".into(),
             Err(_) if quiet.is_some() && until.is_none() && !idle => {
@@ -474,7 +509,9 @@ pub async fn run(
                 quiet: Some(quiet),
                 ..Wait::default()
             };
-            let waited = wait(&t, w, Duration::from_millis(OPEN_WAIT_MS)).await;
+            let steer = terms.steers.watch(session);
+            let (waited, interrupted) =
+                wait(&t, w, Duration::from_millis(OPEN_WAIT_MS), &steer).await;
             let mut opened = format!("Opened; {waited}");
             if let Some(r) = &reclaimed {
                 opened = format!(
@@ -486,6 +523,7 @@ pub async fn run(
                 );
             }
             let (mut out, ext) = super::snapshot(&t, Some(opened))?;
+            mark_interrupted(&mut out, interrupted);
             out.meta["opened"] = json!({"argv": t.argv, "cwd": t.cwd, "pid": t.pty.pid(),
                 "rows": size.0, "cols": size.1});
             if let Some(r) = &reclaimed {
@@ -499,6 +537,8 @@ pub async fn run(
             let t = terms.of(session, &a.terminal).map_err(ToolFailure::new)?;
             let until = a.until.as_deref().filter(|u| !u.is_empty());
             let waits = a.quiet_ms.is_some() || until.is_some() || a.until_idle;
+            let steer = terms.steers.watch(session);
+            let mut interrupted = false;
             let waited = match waits {
                 true => {
                     let idle_alone = a.until_idle && a.quiet_ms.is_none() && until.is_none();
@@ -507,11 +547,16 @@ pub async fn run(
                         until,
                         idle: a.until_idle,
                     };
-                    Some(wait(&t, w, bound_of(terms, a.timeout_ms, idle_alone)).await)
+                    let bound = bound_of(terms, a.timeout_ms, idle_alone);
+                    let (waited, stopped) = wait(&t, w, bound, &steer).await;
+                    interrupted = stopped;
+                    Some(waited)
                 }
                 false => None,
             };
-            super::snapshot(&t, waited.map(|w| format!("Waited: {w}")))
+            let (mut out, ext) = super::snapshot(&t, waited.map(|w| format!("Waited: {w}")))?;
+            mark_interrupted(&mut out, interrupted);
+            Ok((out, ext))
         }
         CLOSE => close(terms, session, input).await,
         other => Err(ToolFailure::new(format!("{other} is not a terminal tool"))),
@@ -538,11 +583,13 @@ async fn send(terms: &Arc<Terms>, session: &str, input: &Value) -> AsyncResult {
             idle: true,
             ..Wait::default()
         };
-        let waited = wait(&t, w, bound_of(terms, a.timeout_ms, true)).await;
+        let steer = terms.steers.watch(session);
+        let (waited, interrupted) = wait(&t, w, bound_of(terms, a.timeout_ms, true), &steer).await;
         let (mut out, ext) = super::snapshot(
             &t,
             Some(format!("Sent {}; waited: {waited}", what.join(", then "))),
         )?;
+        mark_interrupted(&mut out, interrupted);
         out.meta["bytes"] = json!(bytes.len());
         out.meta["keys"] = json!(a.keys);
         return Ok((out, ext));

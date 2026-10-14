@@ -397,6 +397,7 @@ max_wakes = 5                           # check-ins (wake.at) one conversation m
 max_reminders = 100                     # reminders the whole daemon may hold at once, in every conversation; at least 1
 max_routines = 50                       # routines the daemon may hold (declared; they come with the routines row)
 max_watches = 20                        # watches the daemon may hold (declared; they come with the watches row)
+steer_queued = true                     # a message sent while a turn runs interrupts its waits (job_wait, a command, a terminal) and joins the turn at its next loop; false: it waits for the turn to end
 
 # ---------------------------------------------------------------- tools
 # Toollets (fs.*, text.diff, git.diff/log, proc.run). The workspace is

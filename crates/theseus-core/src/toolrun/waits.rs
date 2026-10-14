@@ -18,6 +18,9 @@ use std::time::Duration;
 
 use tokio::sync::Notify;
 
+pub mod steer;
+use steer::Steers;
+
 /// The backstop: a waiting turn looks at its job at least this often.
 pub const LOOK: Duration = Duration::from_secs(1);
 
@@ -31,9 +34,20 @@ pub struct JobWaits {
     /// Each settle a job's end can be: what a `job.wait` wakes on
     /// (theseus-n8gk). It takes nothing; it looks at its job again.
     settles: Notify,
+    /// A person's messages queued behind a running turn, which its waits
+    /// yield to (theseus-qu1lc). The terminals share it.
+    pub steers: Arc<Steers>,
 }
 
 impl JobWaits {
+    /// With the steers the terminals share.
+    pub fn steered(steers: Arc<Steers>) -> Self {
+        Self {
+            steers,
+            ..Self::default()
+        }
+    }
+
     /// The looks turns have taken at their jobs since the daemon started.
     pub fn looks(&self) -> u64 {
         self.looks.load(Ordering::Relaxed)

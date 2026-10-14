@@ -129,6 +129,7 @@ impl ToolRuntime {
         // The turn waits on the id from before the first launch to the end,
         // so the drain leaves every step's completion to it (7.1).
         let waiting = self.job_waits.wait(id);
+        let steer = self.job_waits.steers.watch(tc.session_id);
         let mut before = String::new();
         let mut passed: Vec<Value> = Vec::new();
         for (i, spec) in specs.iter().enumerate() {
@@ -158,18 +159,27 @@ impl ToolRuntime {
                     None => {}
                 }
                 let left = bound.saturating_sub(t0.elapsed());
-                if left.is_zero() {
-                    // Past the batch's wait the step goes on in the
-                    // background, and its completion is the drain's: one
+                let interrupted = steer.pending() && t0.elapsed() >= super::job::STEER_AFTER;
+                if left.is_zero() || interrupted {
+                    // Past the batch's wait, or at a person's message queued
+                    // behind the turn (theseus-qu1lc), the step goes on in
+                    // the background, and its completion is the drain's: one
                     // the drain left to this turn as the wait ended is
                     // taken here, and settles the call.
                     drop(waiting);
                     if let Some(status) = self.look_at_job(tc, &look)? {
                         return Ok(CallOutcome::Done { status });
                     }
-                    return self.steps_background(tc, job, &look, &launched, spec);
+                    return self.steps_background(tc, job, &look, &launched, spec, interrupted);
                 }
-                waiting.woken(left.min(super::waits::LOOK)).await;
+                let mut nap = left.min(super::waits::LOOK);
+                if steer.pending() {
+                    nap = nap.min(super::job::STEER_AFTER.saturating_sub(t0.elapsed()));
+                }
+                tokio::select! {
+                    () = waiting.woken(nap) => {}
+                    () = steer.next() => {}
+                }
             };
             let ms = c
                 .detail
@@ -244,11 +254,16 @@ impl ToolRuntime {
         look: &Look<'_>,
         launched: &Launched<'_>,
         spec: &JobSpec,
+        interrupted: bool,
     ) -> Result<CallOutcome> {
         let id = job.correlation_id;
+        let ran = match interrupted {
+            true => "because a message arrived, early".to_string(),
+            false => format!("after {} seconds", self.proc_sync_secs),
+        };
         let mut text = format!(
-            "{}Still running as background job {id} after {} seconds (timeout {} seconds). Its result will arrive in a later message; you can keep working or tell the operator you are waiting. A batch stops at a step that goes on in the background: the steps after it will not run.{}",
-            look.before, self.proc_sync_secs, spec.timeout_secs, look.after
+            "{}Still running as background job {id} {ran} (timeout {} seconds). Its result will arrive in a later message; you can keep working or tell the operator you are waiting. A batch stops at a step that goes on in the background: the steps after it will not run.{}",
+            look.before, spec.timeout_secs, look.after
         );
         if let Some(n) = &launched.note {
             text.push_str(&format!("\n{n}"));
@@ -257,7 +272,11 @@ impl ToolRuntime {
             tc,
             ResultNode {
                 correlation_id: Some(id),
-                meta: json!({"pid": launched.pid, "steps": look.steps}),
+                meta: match interrupted {
+                    true => json!({"pid": launched.pid, "steps": look.steps,
+                        super::jobs_tools::INTERRUPTED_BY: "message"}),
+                    false => json!({"pid": launched.pid, "steps": look.steps}),
+                },
                 ..ResultNode::new(
                     &job.call.id,
                     job.tool.name(),

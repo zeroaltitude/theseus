@@ -12,7 +12,12 @@ impl TurnRunner {
     /// `node` is this turn's input, written; `author` the client that sent
     /// it (`sock#3`, `web#1`, or the binding's person). With the judge off,
     /// nothing is read.
-    pub(super) fn inbound_point(&self, t: &mut Turn<'_>, node: &Node, author: &str) {
+    ///
+    /// `steered`: the message joined a running turn at a loop boundary
+    /// (theseus-qu1lc). Its judgments run and are recorded as a new turn's
+    /// do, but the turn's route stays the running one: the route verdict and
+    /// the owner's words about the route apply from the next turn.
+    pub(super) fn inbound_point(&self, t: &mut Turn<'_>, node: &Node, author: &str, steered: bool) {
         if !self.judge.config().enabled {
             return;
         }
@@ -24,13 +29,13 @@ impl TurnRunner {
         // route.v1 (25e): live, or shadow for a turn whose profile the
         // owner chose; its verdict's channel waits for the first compile. A
         // routed session's turn read it at its start (theseus-9yyr).
-        let route = t
-            .route
-            .read
-            .take()
-            .unwrap_or_else(|| self.route_mode(t.target, t.tc.session_id));
+        let read = match steered {
+            true => None,
+            false => t.route.read.take(),
+        };
+        let route = read.unwrap_or_else(|| self.route_mode(t.target, t.tc.session_id));
         // A pin after a routed turn counts on route.v1's ladder (26a).
-        if t.target.chosen.is_some() {
+        if t.target.chosen.is_some() && !steered {
             self.judge.pinned(t.tc.session_id, &t.target.profile);
         }
         let images = attachments
@@ -52,6 +57,9 @@ impl TurnRunner {
                 task: t.tc.task.is_some(),
             },
         );
+        if steered {
+            return;
+        }
         let asked = wait.is_some();
         Self::route_asked(t, wait, route, images);
         // The owner's correction, or the layer (theseus-q31l): a turn that

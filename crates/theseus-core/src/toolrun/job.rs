@@ -27,6 +27,21 @@ use crate::sandbox;
 use crate::store::Store;
 use crate::turn::admission::LEND_AFTER;
 
+/// A background job's placeholder result meta: its pid and handle, and that a
+/// message ended the wait when one did.
+fn placeholder_meta(pid: u32, name: &str, interrupted: bool) -> Value {
+    let mut meta = json!({"pid": pid, super::handles::KEY: name});
+    if interrupted {
+        meta[super::jobs_tools::INTERRUPTED_BY] = json!("message");
+    }
+    meta
+}
+
+/// A command that has run this long gives way to a person's message queued
+/// behind its turn (theseus-qu1lc): a shorter one still gives its result,
+/// the message waiting at most this long past its arrival.
+pub(super) const STEER_AFTER: Duration = Duration::from_secs(1);
+
 const MAX_RESULT_READ: usize = 4 * 1024 * 1024;
 
 /// `4 MiB` for a whole number of MiB, else the bytes: the sizes a job's
@@ -210,6 +225,7 @@ impl ToolRuntime {
         // The turn waits on its job from before the launch, so the drain
         // leaves the job's completion to it, and wakes it (7.1).
         let waiting = self.job_waits.wait(correlation_id);
+        let mut was_interrupted = false;
         let launched = match self.launch(tc, &job, spec, &waiting, bound).await? {
             Ok(l) => l,
             Err(answered) => return Ok(answered),
@@ -228,9 +244,11 @@ impl ToolRuntime {
             steps: None,
         };
         if !background {
-            if let Some(status) = self.wait_in_turn(tc, &look, &waiting, bound, t0).await? {
+            let (done, interrupted) = self.wait_in_turn(tc, &look, &waiting, bound, t0).await?;
+            if let Some(status) = done {
                 return Ok(CallOutcome::Done { status });
             }
+            was_interrupted = interrupted;
         }
         // Past its bound the job goes on in the background, and its
         // completion is the drain's to take: one the drain left to this turn
@@ -247,22 +265,14 @@ impl ToolRuntime {
             .jobs
             .handles
             .assign(tc.store, tc.session_id, correlation_id, &spec.argv);
-        let mut text = match background {
-            true => super::jobs_tools::started(&name, spec, &spool.result_path(correlation_id)),
-            false => format!(
-                "Still running as job {name} after {} s (timeout {} s). job_read, job_wait or \
-                 job_stop it; its result also arrives by itself when it ends.",
-                self.proc_sync_secs, spec.timeout_secs
-            ),
-        };
-        if let Some(n) = &note {
-            text.push_str(&format!("\n{n}"));
-        }
+        let output = spool.result_path(correlation_id);
+        let kind = (background, was_interrupted);
+        let text = self.placeholder(&name, spec, kind, &output, note.as_deref());
         self.answer(
             tc,
             ResultNode {
                 correlation_id: Some(correlation_id),
-                meta: json!({"pid": pid, super::handles::KEY: name}),
+                meta: placeholder_meta(pid, &name, was_interrupted),
                 ..ResultNode::new(&call.id, tool.name(), ResultStatus::Background, text)
             },
         )?;
@@ -271,8 +281,41 @@ impl ToolRuntime {
         })
     }
 
+    /// The words of a job that went on in the background: it was asked to
+    /// (`background`), or a message ended the wait (`interrupted`,
+    /// theseus-qu1lc), or its bound passed.
+    fn placeholder(
+        &self,
+        name: &str,
+        spec: &JobSpec,
+        (background, interrupted): (bool, bool),
+        output: &std::path::Path,
+        note: Option<&str>,
+    ) -> String {
+        let mut text = match (background, interrupted) {
+            (true, _) => super::jobs_tools::started(name, spec, output),
+            (false, true) => format!(
+                "Still running as job {name}: a message arrived, so this call returned early \
+                 (timeout {} s). job_read, job_wait or job_stop it; its result also arrives by \
+                 itself when it ends.",
+                spec.timeout_secs
+            ),
+            (false, false) => format!(
+                "Still running as job {name} after {} s (timeout {} s). job_read, job_wait or \
+                 job_stop it; its result also arrives by itself when it ends.",
+                self.proc_sync_secs, spec.timeout_secs
+            ),
+        };
+        if let Some(n) = note {
+            text.push_str(&format!("\n{n}"));
+        }
+        text
+    }
+
     /// The turn's own wait on its job (7.1), up to `bound`: its result, or
     /// `None` once the bound passes and the job goes on in the background.
+    /// A person's message queued behind the turn ends the wait the same way,
+    /// at once, and the second value says so (theseus-qu1lc).
     /// Past `LEND_AFTER` the turn waits on its job alone, and its admission
     /// slot goes to the next waiting turn; it takes one again, at its class's
     /// head, before it goes on (theseus-4g0l).
@@ -283,12 +326,21 @@ impl ToolRuntime {
         waiting: &super::waits::Waiting,
         bound: Duration,
         t0: Instant,
-    ) -> Result<Option<ResultStatus>> {
+    ) -> Result<(Option<ResultStatus>, bool)> {
         let exec = &tc.guard.execution_id;
+        let steer = self.job_waits.steers.watch(tc.session_id);
         let mut lend_tried = false;
+        let mut interrupted = false;
         let done = loop {
             if let Some(status) = self.look_at_job(tc, look)? {
                 break Some(status);
+            }
+            // Not a command that has run under `STEER_AFTER`: a short one
+            // still gives its result.
+            let early = steer.pending() && t0.elapsed() < STEER_AFTER;
+            if steer.pending() && !early {
+                interrupted = true;
+                break None;
             }
             let left = bound.saturating_sub(t0.elapsed());
             if left.is_zero() {
@@ -299,14 +351,19 @@ impl ToolRuntime {
                 lend_tried = true;
                 self.admission.lend(exec);
             }
-            let nap = left.min(super::waits::LOOK);
-            // The drain's word, a stop's, or the backstop's look (7.1).
-            waiting
-                .woken(if lend_tried { nap } else { nap.min(lend_in) })
-                .await;
+            let mut nap = left.min(super::waits::LOOK);
+            if early {
+                nap = nap.min(STEER_AFTER.saturating_sub(t0.elapsed()));
+            }
+            // The drain's word, a stop's, a person's message, or the
+            // backstop's look (7.1).
+            tokio::select! {
+                () = waiting.woken(if lend_tried { nap } else { nap.min(lend_in) }) => {}
+                () = steer.next() => {}
+            }
         };
         self.admission.retake(exec).await;
-        Ok(done)
+        Ok((done, interrupted))
     }
 
     /// One job's launch through the wrapper, with its `tool.job_started`

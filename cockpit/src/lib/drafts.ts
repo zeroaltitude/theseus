@@ -1,5 +1,5 @@
 // What you sent that the session has not written yet (the Observatory's draft bubble, theseus-vm3n.6). The composer
-// adds each send; the transcript shows it under the turns, "waiting for admission", until the session writes its user
+// adds each send; the transcript shows it under the turns, "sent, not read yet", until the session writes its user
 // node (then it goes), or with why it was never admitted.
 import { create } from 'zustand'
 import type { NodeInfo } from '@protocol'
