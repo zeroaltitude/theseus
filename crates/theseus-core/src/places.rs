@@ -158,6 +158,8 @@ pub struct PlaceRule {
     bound: RwLock<Vec<Bound>>,
     /// The guilds the bindings file trusts whole (theseus-rdqg), by id.
     trusted_guilds: RwLock<BTreeSet<String>>,
+    /// Whether the bindings file binds any voice channel (the self card).
+    voice_bound: std::sync::atomic::AtomicBool,
     /// What the binding's start found wrong with its places (theseus-ext.11).
     warnings: RwLock<Vec<theseus_protocol::PlaceWarning>>,
 }
@@ -216,6 +218,12 @@ impl PlaceRule {
     /// private ones are never read.
     pub fn trust_guilds(&self, trusted: BTreeSet<String>) {
         *self.trusted_guilds.write().unwrap() = trusted;
+    }
+
+    /// Whether the bindings file binds a voice channel, told with its places.
+    pub fn bind_voice(&self, bound: bool) {
+        self.voice_bound
+            .store(bound, std::sync::atomic::Ordering::Relaxed);
     }
 
     /// The binding's places, from its bindings file: they replace any told
@@ -278,9 +286,13 @@ impl PlaceRule {
             let bound = self.bound.read().unwrap();
             bound.iter().find(|b| b.place.target == t)?.ceiling
         });
+        let class = self.class_alone(cfg, target);
         PlaceView {
-            class: self.class_alone(cfg, target),
+            class,
             ceiling,
+            voice: class == PlaceClass::Private
+                && target.is_some_and(|t| t.starts_with("discord:"))
+                && self.voice_bound.load(std::sync::atomic::Ordering::Relaxed),
         }
     }
 

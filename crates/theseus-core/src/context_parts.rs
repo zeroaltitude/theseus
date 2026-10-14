@@ -46,6 +46,11 @@ impl TurnRunner {
         ];
         let note = self.tools.system_note_for(place);
         if !note.is_empty() {
+            let card = crate::self_card::card(&self.cfg, &self.tools, place);
+            let note = match card.is_empty() {
+                true => note,
+                false => format!("{note}\n{card}"),
+            };
             parts.push(("tools note", note));
         }
         if let Some(s) = target.system.as_ref().filter(|s| !s.trim().is_empty()) {

@@ -55,6 +55,12 @@ impl Core {
         self.runner.place_rule.trust_guilds(trusted);
     }
 
+    /// Whether the bindings file binds a voice channel: the self card says
+    /// `/join` only then (theseus-slvl.8).
+    pub fn bind_voice(&self, bound: bool) {
+        self.runner.place_rule.bind_voice(bound);
+    }
+
     /// Who can view a guild channel bound `private = true`, outside a trusted
     /// guild, as the binding read it at its start (the place rule's one
     /// check): everyone who can, the bot aside, by id and name, or why that

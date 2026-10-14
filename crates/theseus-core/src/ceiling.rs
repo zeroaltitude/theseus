@@ -163,6 +163,10 @@ pub fn check_entry(entry: &str) -> Result<(), String> {
 pub struct PlaceView {
     pub class: PlaceClass,
     pub ceiling: Option<&'static Ceiling>,
+    /// A Discord place from which `/join` can bring Theseus into a voice
+    /// channel the bindings file binds (the self card, theseus-slvl.8). Only
+    /// `PlaceRule::place` knows it: a turn's own view leaves it off.
+    pub voice: bool,
 }
 
 impl From<PlaceClass> for PlaceView {
@@ -170,6 +174,7 @@ impl From<PlaceClass> for PlaceView {
         Self {
             class,
             ceiling: None,
+            voice: false,
         }
     }
 }
@@ -339,6 +344,7 @@ mod tests {
         let shared = PlaceView {
             class: PlaceClass::Shared,
             ceiling: Some(c),
+            voice: false,
         };
         for name in ["proc.run", "aws.call", "fs.read"] {
             assert!(!shared.offered(name, &[]), "{name}");
@@ -348,6 +354,7 @@ mod tests {
         let private = PlaceView {
             class: PlaceClass::Private,
             ceiling: Some(c),
+            voice: false,
         };
         assert!(private.offered("proc.run", &[]));
         assert!(!private.offered("git.diff", &[]), "private, but not listed");
