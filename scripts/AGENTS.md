@@ -6,7 +6,8 @@
   on what it built and writes `target/<profile>/.theseus-build-stamp` (`tree-stamp.sh`'s "commit digest" and theseusd's
   bytes); the gate's size phase (`size-step.sh`) runs the same check when that stamp matches the tree under test, else
   says "size: skipped: no release build of <commit>". It fails on growth over 1 MB, not on §9's 60 MB.
-  `THESEUS_SIZE_ACCEPT_GROWTH=1` accepts a growth.
+  `THESEUS_SIZE_ACCEPT_GROWTH=1` accepts a growth. `size-breakdown.py` (an unstripped
+  build in its own target directory) prints the top crates by bytes and the cockpit bundle's.
 - `build.sh`: the one way to build a release or an install. `repro.sh`: two builds of one commit, compared byte for byte.
 - `user-service.sh`: the daemon as a systemd user service (`check`, `install`, `status`, `logs`, `restart`, `stop`, `start`,
   `uninstall`, and `--dry-run`). The how-to is `docs/user-service.md`; see "user-service.sh" below.
