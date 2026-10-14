@@ -11,8 +11,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use anyhow::{anyhow, bail, Result};
 use serde_json::json;
 use theseus_protocol::{
-    error_code, method, StandingAddParams, StandingChanged, StandingInfo, StandingKind,
-    StandingListParams, StandingListResult, StandingRecord, StandingRevokeParams,
+    error_code, method, StandingAddParams, StandingAnswerParams, StandingChanged, StandingInfo,
+    StandingKind, StandingListParams, StandingListResult, StandingRecord, StandingRevokeParams,
 };
 
 use super::confirms::Act;
@@ -37,6 +37,9 @@ impl Core {
             }),
             method::STANDING_ADD => route(params, |p: StandingAddParams| {
                 self.standing_add(&p, conn.answerer(p.author.clone(), p.discord.clone()))
+            }),
+            method::STANDING_ANSWER => route(params, |p: StandingAnswerParams| {
+                self.standing_answer(&p, conn.answerer(p.author.clone(), p.discord.clone()))
             }),
             _ => route(params, |p: StandingRevokeParams| {
                 self.standing_revoke(&p, conn.answerer(p.author.clone(), p.discord.clone()))
@@ -96,6 +99,10 @@ impl Core {
         // A scan of the sessions' compilations: off the async worker.
         let tally =
             theseus_store::blocking(|| self.standing_tally(&live)).map_err(RpcFailure::invalid)?;
+        // What capture holds: the week's repeats and the open asks.
+        let held = theseus_store::blocking(|| self.runner.standing.capture.peek(&self.store))
+            .map_err(RpcFailure::invalid)?;
+        let asks = self.capture_asks(owner).map_err(RpcFailure::invalid)?;
         let records = shown
             .into_iter()
             .map(|(r, state)| {
@@ -104,7 +111,13 @@ impl Core {
                 if !owner && record.kind != StandingKind::Order {
                     record.text = "(private)".into();
                 }
+                let captured_by = match record.source.starts_with("capture:") {
+                    true => "capture".to_string(),
+                    false => String::new(),
+                };
                 StandingInfo {
+                    repeats: held.week_of(&record.id, now) as u64,
+                    captured_by,
                     record,
                     state: state.into(),
                     compiles,
@@ -116,6 +129,7 @@ impl Core {
             records,
             compiles: tally.compiles,
             missing: tally.missing,
+            asks,
         })
     }
 
@@ -359,6 +373,10 @@ impl Core {
             who: &who_s,
             via: &via,
         });
+        // An undo of a record `directive.v1` kept is a wrong label on it.
+        if let Some(ended) = &record.ends {
+            self.capture_undone(ended, &who);
+        }
         Ok(StandingChanged {
             ended: record.ends.clone(),
             record,
@@ -392,7 +410,7 @@ fn resolve<'a>(live: &[&'a StandingRecord], id: &str) -> Result<&'a StandingReco
 }
 
 /// A write's error on the wire: a judged refusal is `REFUSED`.
-fn failure(e: anyhow::Error) -> RpcFailure {
+pub(crate) fn failure(e: anyhow::Error) -> RpcFailure {
     match e.downcast::<Refusal>() {
         Ok(r) => RpcFailure {
             code: error_code::REFUSED,

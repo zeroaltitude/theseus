@@ -37,6 +37,7 @@ mod mcp;
 mod memory;
 mod methods;
 pub(crate) use methods::ledger_tags;
+mod capture;
 mod earned;
 mod memory_read;
 mod ontology;

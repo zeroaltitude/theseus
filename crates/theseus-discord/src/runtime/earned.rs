@@ -97,6 +97,8 @@ impl Shared {
             self.jev_press(i, press, who, discord).await;
         } else if let Some(press) = parse(custom_id) {
             self.earned_press(i, press, who, discord).await;
+        } else if let Some(press) = super::capture_card::parse(custom_id) {
+            self.standing_press(i, press, who, discord).await;
         } else if let Some(press) = super::remind::parse(custom_id) {
             self.remind_press(i, press, who).await;
         } else {

@@ -239,6 +239,10 @@ pub fn missing(compiled: &Compiled, block: Option<&Block>) -> Result<(), Unadmit
 pub struct Board {
     records: RwLock<Option<Arc<Vec<StandingRecord>>>>,
     writes: Mutex<()>,
+    /// What capture keeps between messages (theseus-slvl.5), and the
+    /// messages noted as the owner's own.
+    pub capture: crate::capture::state::Capture,
+    pub expected: crate::capture::expect::Expected,
 }
 
 impl Board {

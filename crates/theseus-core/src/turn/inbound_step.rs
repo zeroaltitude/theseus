@@ -41,6 +41,13 @@ impl TurnRunner {
         let images = attachments
             .iter()
             .any(|a| matches!(a.content, AttachmentContent::Image { .. }));
+        // The owner's own words, in a place only the owner writes in: the
+        // note `turn.submit` made is spent either way (theseus-slvl.5).
+        let noted = self.standing.expected.take(t.tc.session_id, text);
+        let capture = noted
+            && self.cfg.standing.capture
+            && t.tc.task.is_none()
+            && crate::capture::owner_alone(class, place.as_deref());
         let wait = self.judge.at_inbound(
             &mut t.trace,
             Inbound {
@@ -55,6 +62,7 @@ impl TurnRunner {
                 route,
                 chosen: t.target.chosen.clone(),
                 task: t.tc.task.is_some(),
+                capture,
             },
         );
         if steered {

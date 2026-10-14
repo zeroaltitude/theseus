@@ -16,6 +16,17 @@ state: string,
  */
 compiles: number, missing: number, 
 /**
+ * Times in the last seven days the owner said it again (a message
+ * `directive.v1` matched to this record): a non-zero week means the
+ * record's wording or its delivery failed.
+ */
+repeats: number, 
+/**
+ * How it came to be: `capture` when `directive.v1` kept it from the
+ * owner's words (then `source` names the node), else empty.
+ */
+captured_by?: string, 
+/**
  * `std_` and a UUIDv7.
  */
 id: string, kind: StandingKind, 

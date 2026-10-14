@@ -931,6 +931,7 @@ impl Core {
         let outside = crate::rpc::session_dir::moved(&self.tools, &mut session, dir);
         // The owner's words, read as a correction for the turn (theseus-q31l).
         self.expect_correction(&p, conn, &session.session_id);
+        self.expect_capture(&p, conn, &session.session_id);
         // A person's message starts its keep-warm window again (theseus-ezeg).
         let person = p.opened_from.is_none()
             && !matches!(

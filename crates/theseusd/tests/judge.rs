@@ -75,7 +75,7 @@ impl Rig {
             // loop.v1 alone: the inbound point's packs (25a, 25e's route.v1)
             // are judged in theseus-core's tests_inbound and tests_route.
             let packs = table(j, "packs");
-            for p in ["classify.v1", "role.v1", "route.v4"] {
+            for p in ["classify.v1", "role.v1", "route.v4", "directive.v1"] {
                 let mut off = toml::Table::new();
                 off.insert("mode".into(), "off".into());
                 packs.insert(p.into(), off.into());
@@ -222,6 +222,7 @@ fn a_start_with_the_judge_on_builds_nothing_of_it() {
             "classify.v1: off",
             "role.v1: off",
             "route.v4: off (the config's ceiling; on the ladder: live (owner: decision of 2026-10-11))",
+            "directive.v1: off",
             "continue.v1: shadow",
             "categorize.v1: shadow",
             "rerank.v1: live (owner: decision of 2026-10-04)",

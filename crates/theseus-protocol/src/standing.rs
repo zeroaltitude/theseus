@@ -8,6 +8,11 @@
 //!   private place (refused inside a job's process). A record is never
 //!   edited: a revoke is a new record naming the one it ends, and so is a
 //!   replacement.
+//! - **Capture** (theseus-slvl.5): `directive.v1` reads the owner's own words
+//!   at the inbound point. What it is sure of is kept as a record with a
+//!   notice, and the owner's undo is `standing.revoke`; what it is unsure of
+//!   waits as an ask, which **`standing.answer`** keeps or drops. `standing.list`
+//!   shows the open asks and, per record, the week's "said it again" count.
 
 use serde::{Deserialize, Serialize};
 
@@ -99,6 +104,16 @@ pub struct StandingInfo {
     pub compiles: u64,
     #[cfg_attr(test, ts(type = "number"))]
     pub missing: u64,
+    /// Times in the last seven days the owner said it again (a message
+    /// `directive.v1` matched to this record): a non-zero week means the
+    /// record's wording or its delivery failed.
+    #[serde(default)]
+    #[cfg_attr(test, ts(type = "number"))]
+    pub repeats: u64,
+    /// How it came to be: `capture` when `directive.v1` kept it from the
+    /// owner's words (then `source` names the node), else empty.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub captured_by: String,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -129,6 +144,55 @@ pub struct StandingListResult {
     pub compiles: u64,
     #[cfg_attr(test, ts(type = "number"))]
     pub missing: u64,
+    /// The asks still open: things `directive.v1` heard and was not sure
+    /// enough of to keep (or an order, which it never keeps unasked).
+    #[serde(default)]
+    pub asks: Vec<StandingAsk>,
+}
+
+/// A captured directive waiting on the owner: keep it, keep it everywhere, or
+/// not this. It lapses by itself after a week, kept as nothing.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct StandingAsk {
+    /// `ask_` and a UUIDv7.
+    pub id: String,
+    pub kind: StandingKind,
+    /// The owner's words, as one line (`(private)` to anyone else).
+    pub text: String,
+    /// Where it would hold if kept.
+    pub scope: StandingScope,
+    /// Why it was asked: `unsure` (between 0.5 and 0.8), `order` (an order is
+    /// never kept unasked), or `twice` (a correction made twice in a week).
+    pub why: String,
+    /// The node the words came from.
+    pub node: String,
+    #[cfg_attr(test, ts(type = "number"))]
+    pub at_ms: u64,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct StandingAnswerParams {
+    /// An ask's id, or the start of one that no other shares.
+    pub id: String,
+    /// `keep` (where it was judged to hold), `everywhere` (keep it, for every
+    /// session), or `not` (drop it).
+    pub answer: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub author: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub discord: Option<crate::DiscordOrigin>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct StandingAnswerResult {
+    pub id: String,
+    pub answer: String,
+    /// The record a keep wrote.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub record: Option<StandingRecord>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]

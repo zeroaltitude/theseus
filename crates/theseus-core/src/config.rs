@@ -32,9 +32,11 @@ pub(crate) mod people;
 pub(crate) mod routing;
 pub mod rsi;
 mod sessions;
+mod standing;
 mod threads;
 mod wake_limits;
 pub use sessions::SessionsConfig;
+pub use standing::StandingConfig;
 pub use threads::ThreadsConfig;
 mod sparse;
 pub mod term;
@@ -148,6 +150,9 @@ pub struct Config {
     /// `[sessions]`: the state windows and the re-title (theseus-emqx).
     #[serde(default, skip_serializing_if = "SessionsConfig::is_default")]
     pub sessions: SessionsConfig,
+    /// `[standing]`: what the owner's words become, `config/standing.rs` (theseus-slvl.5).
+    #[serde(default, skip_serializing_if = "StandingConfig::is_default")]
+    pub standing: StandingConfig,
     /// `[threads]`: threads on virtual places (theseus-nhew), `config/threads.rs`.
     #[serde(default, skip_serializing_if = "ThreadsConfig::is_default")]
     pub threads: ThreadsConfig,

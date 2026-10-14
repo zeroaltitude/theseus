@@ -99,8 +99,9 @@ pub use places::*;
 pub use push::*;
 pub use sessions::{RetiredReason, SessionLink, SessionRetired, SessionState};
 pub use standing::{
-    StandingAddParams, StandingChanged, StandingInfo, StandingKind, StandingListParams,
-    StandingListResult, StandingRecord, StandingRevokeParams, StandingScope,
+    StandingAddParams, StandingAnswerParams, StandingAnswerResult, StandingAsk, StandingChanged,
+    StandingInfo, StandingKind, StandingListParams, StandingListResult, StandingRecord,
+    StandingRevokeParams, StandingScope,
 };
 pub use submit::{SessionOpenParams, TurnSubmitParams};
 pub use term::{TerminalInfo, TerminalLeft};
@@ -222,7 +223,7 @@ pub mod method {
         /// The owner's standing orders, preferences and facts (theseus-a7vi,
         /// `standing::StandingListParams`): a read, and the owner's two writes.
         THREAD_NEW = "thread.new", THREAD_LIST = "thread.list", THREAD_SHOW = "thread.show", THREAD_EDIT = "thread.edit", THREAD_PAUSE = "thread.pause", THREAD_RESUME = "thread.resume", THREAD_DONE = "thread.done", THREAD_REOPEN = "thread.reopen",
-        STANDING_LIST = "standing.list", STANDING_ADD = "standing.add", STANDING_REVOKE = "standing.revoke",
+        STANDING_LIST = "standing.list", STANDING_ADD = "standing.add", STANDING_REVOKE = "standing.revoke", STANDING_ANSWER = "standing.answer",
         ONTOLOGY_PROPOSAL_REJECT = "ontology.proposal.reject", ONTOLOGY_PROPOSAL_ACCEPT_ALL = "ontology.proposal.accept_all", ONTOLOGY_PERSON_MERGE = "ontology.person.merge", ONTOLOGY_PROPOSAL_REJECT_ALL = "ontology.proposal.reject_all",
         /// Tasks (DD7): the child sessions conversations started, with state and
         /// spend.

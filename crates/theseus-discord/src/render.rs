@@ -54,6 +54,8 @@ pub enum Buttons {
     Reminder(String),
     /// An earned-autonomy card's candidates `(id, label)`, each with yes, no and the record (theseus-uttu).
     Earned(Vec<(String, String)>),
+    /// A capture's card (theseus-slvl.5): `(mode, id, everywhere)`, a kept record's Undo or an ask's keep and not.
+    Standing(String, String, bool),
     /// Accept and Decline (39b's layer-1 card): Approve's and Decline's ids.
     Accept(String),
     /// A reply's cited sources, for the session whose recall gave them.
