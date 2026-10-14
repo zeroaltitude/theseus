@@ -480,6 +480,7 @@ facts![
     rsi_exams::ExamPass,
     standing::StandingAdded<'static>,
     standing::StandingRevoked<'static>,
+    standing::StandingRepeated<'static>,
     thread::ThreadCreated<'static>,
     thread::ThreadEdited<'static>,
     thread::ThreadPaused<'static>,

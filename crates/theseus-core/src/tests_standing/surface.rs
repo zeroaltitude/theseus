@@ -326,6 +326,41 @@ fn a_connections_surface_names_the_scope_it_holds() {
     );
 }
 
+/// "Said it again" is counted from rows, not from the record: a repeat of a
+/// live record is one `standing.repeated` row of ids, scoped to the session,
+/// and a record that is not live is refused.
+#[tokio::test]
+async fn a_repeat_is_a_row_of_ids_for_a_live_record_alone() {
+    let r = rig();
+    let sid = session(&r.core, None);
+    let id = terminal(&r, StandingKind::Preference, CODE_FIRST);
+    turn_on(&r.core, &sid, "short please", Some("terminal"))
+        .await
+        .unwrap();
+    let node = r.core.store.transcript(&sid).unwrap()[0].1.id.clone();
+    r.core.standing_repeated(&sid, &id, &node).unwrap();
+    r.core.standing_repeated(&sid, &id, &node).unwrap();
+    // The rows ride the next frame, which a turn writes.
+    turn_on(&r.core, &sid, "again", Some("terminal"))
+        .await
+        .unwrap();
+    let rows = rows_in(&r.core, "standing.repeated", Some(&sid));
+    assert_eq!(rows.len(), 2, "{rows:?}");
+    assert_eq!(rows[0], serde_json::json!({"record": id, "node": node}));
+    assert!(
+        !serde_json::to_string(&rows).unwrap().contains(CODE_FIRST),
+        "ids only"
+    );
+
+    r.revoke(&id);
+    let e = r.core.standing_repeated(&sid, &id, &node).unwrap_err();
+    assert!(e.to_string().contains("no live standing record"), "{e}");
+    assert!(r
+        .core
+        .standing_repeated(&sid, "std_nothing", &node)
+        .is_err());
+}
+
 /// A `turn.submit` takes its surface from its connection: the CLI's is the
 /// terminal, the web UI's the cockpit, Discord's its own, and Discord alone
 /// may say a turn is spoken (`surface: "voice"`); no other connection can

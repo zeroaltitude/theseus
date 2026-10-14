@@ -251,6 +251,7 @@ ledger_kinds! {
     SpendDayWarning = "spend.day_warning",
     SpoolSwept = "spool.swept",
     StandingAdded = "standing.added",
+    StandingRepeated = "standing.repeated",
     StandingRevoked = "standing.revoked",
     StartupStep = "startup.step",
     ThreadCreated = "thread.created",

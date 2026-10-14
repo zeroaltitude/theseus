@@ -164,6 +164,22 @@ impl Core {
         Ok(t)
     }
 
+    /// The owner said a live record's words again, in `node` of `session`
+    /// (theseus-slvl.4): a `standing.repeated` row, `{record, node}`, scoped
+    /// to the session. A record that is not live is refused, so a count is
+    /// only ever of records that held. The capture row calls it; nothing on a
+    /// turn's path does.
+    pub fn standing_repeated(&self, session: &str, record: &str, node: &str) -> Result<()> {
+        let all = self.runner.standing.all(&self.store)?;
+        let live = standing::live(&all, None, theseus_protocol::now_unix_ms());
+        if !live.iter().any(|r| r.id == record) {
+            bail!("no live standing record {record}");
+        }
+        self.rec(Some(session))
+            .record(&fact::standing::StandingRepeated { record, node });
+        Ok(())
+    }
+
     /// `standing.add`: a record, alone or replacing a live one.
     pub fn standing_add(
         &self,
