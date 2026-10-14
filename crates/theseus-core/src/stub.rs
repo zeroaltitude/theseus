@@ -265,6 +265,26 @@ impl Stub {
         self.cell.position
     }
 
+    /// A cold copy (theseus-0l3g): the same fields and position, with
+    /// neither bytes nor node, so keeping it pins nothing; its first touch
+    /// reads the node from `cache`, or again from `wal`.
+    pub fn cold(&self, cache: &Arc<NodeCache>, wal: &Arc<WalStore>) -> Self {
+        Stub {
+            id: self.id.clone(),
+            origin: self.origin,
+            turn_id: self.turn_id.clone(),
+            kind: self.kind,
+            summary_last: self.summary_last,
+            cell: Arc::new(Cell {
+                position: self.cell.position,
+                bytes: Mutex::new(None),
+                node: OnceLock::new(),
+                cache: Some(cache.clone()),
+                wal: Arc::downgrade(wal),
+            }),
+        }
+    }
+
     /// Whether its node has been decoded (or taken from the cache).
     pub fn is_hydrated(&self) -> bool {
         self.cell.node.get().is_some()

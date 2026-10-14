@@ -125,6 +125,9 @@ pub struct Store {
     turn: Option<Arc<TurnState>>,
     /// Decoded nodes by position, shared by every handle (M6 step 33).
     cache: Arc<crate::node_cache::NodeCache>,
+    /// Each session's transcript as last read, kept across turns as cold
+    /// stubs (theseus-0l3g), shared by every handle.
+    kept: Arc<crate::transcripts::Kept>,
     /// The session records being written now (theseus-xeo), shared by every
     /// handle on this store.
     sessions: Arc<SessionLocks>,
@@ -499,6 +502,7 @@ impl Store {
             blobs: Arc::new(crate::blobs::Blobs::new(dir)),
             turn: None,
             cache: Arc::default(),
+            kept: Arc::default(),
             sessions: Arc::default(),
             tasks: Arc::default(),
             #[cfg(test)]
@@ -899,6 +903,17 @@ impl Store {
         self.scan_nodes(session_id)
     }
 
+    /// The transcripts kept across turns: stubs and sessions (theseus-0l3g).
+    pub fn kept_transcripts(&self) -> (usize, usize) {
+        self.kept.size()
+    }
+
+    /// The records the transcript's reads scanned (tests).
+    #[cfg(test)]
+    pub fn kept_scanned(&self) -> u64 {
+        self.kept.scanned.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
     /// How many times the transcript was read in full (tests).
     #[cfg(test)]
     pub fn transcript_reads(&self) -> u64 {
@@ -936,17 +951,56 @@ impl Store {
     /// A session's nodes as stubs (M6 step 33): what each record gives
     /// without a decode, its node decoded at a reader's first touch, or
     /// served by position from the heat cache when a reader decoded it before.
+    ///
+    /// The session's stubs read before are kept across turns
+    /// (`transcripts`, theseus-0l3g): a read takes them and reads only the
+    /// session's own records after them.
     fn scan_kept(&self, session_id: &str) -> Result<Transcript> {
-        self.transcript_records(session_id)?
-            .into_iter()
-            .map(|r| {
-                let p = r.position;
-                Ok((
-                    p,
-                    crate::stub::Stub::of_record(r, &self.cache, &self.inner)?,
-                ))
-            })
-            .collect()
+        let stubs = |records: Vec<Record>| -> Result<Transcript> {
+            records
+                .into_iter()
+                .map(|r| {
+                    let p = r.position;
+                    Ok((
+                        p,
+                        crate::stub::Stub::of_record(r, &self.cache, &self.inner)?,
+                    ))
+                })
+                .collect()
+        };
+        let (nodes, through) = match self.kept.take(session_id) {
+            Some((mut nodes, through)) => {
+                let mut new = self.inner.scan_scope(session_id, through, usize::MAX)?;
+                #[cfg(test)]
+                self.kept
+                    .scanned
+                    .fetch_add(new.len() as u64, std::sync::atomic::Ordering::Relaxed);
+                let through = new.last().map_or(through, |r| r.position);
+                new.retain(|r| r.kind == kinds::NODE);
+                nodes.extend(stubs(new)?);
+                (nodes, through)
+            }
+            None => {
+                let own = self.node_records(session_id)?;
+                let through = own.last().map_or(0, |r| r.position);
+                let mut records = match crate::fork::origin_of(self, session_id)? {
+                    Some(o) => crate::fork::prefix_records(self, &o)?,
+                    None => Vec::new(),
+                };
+                records.extend(own);
+                #[cfg(test)]
+                self.kept
+                    .scanned
+                    .fetch_add(records.len() as u64, std::sync::atomic::Ordering::Relaxed);
+                (stubs(records)?, through)
+            }
+        };
+        let cold = nodes
+            .iter()
+            .map(|(p, n)| (*p, n.cold(&self.cache, &self.inner)))
+            .collect();
+        self.kept.put(session_id, cold, through);
+        Ok(nodes)
     }
 
     /// The node at `position`, through the heat cache: what a recall's
@@ -1246,6 +1300,7 @@ pub(crate) mod tests {
             blobs: Arc::new(crate::blobs::Blobs::new(full.path())),
             turn: None,
             cache: Arc::default(),
+            kept: Arc::default(),
             sessions: Arc::default(),
             tasks: Arc::default(),
             reads: Default::default(),
