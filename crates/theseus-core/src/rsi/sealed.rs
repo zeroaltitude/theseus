@@ -65,6 +65,9 @@ pub const KEEL_PATHS: &[&str] = &[
     "crates/theseus-core/src/rsi/sealed.rs",
     "crates/theseus-core/src/rsi/sealed/check.rs",
     "crates/theseus-core/src/rsi/sealed/filter.rs",
+    "crates/theseus-core/src/rsi/sealed/daemon.rs",
+    "crates/theseus-core/src/toolrun/guarded.rs",
+    "crates/theseus-core/src/config/rsi.rs",
     "crates/theseus-core/src/rsi/sealed/tests.rs",
     "crates/theseus-core/src/rsi/sealed/tests_reach.rs",
 ];
