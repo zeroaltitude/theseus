@@ -57,6 +57,7 @@ pub use routing::{RoutingConfig, RoutingMode};
 pub use sparse::{sparse_note, SPARSE_HEADER};
 pub mod mcp;
 pub mod mcp_server;
+pub mod tui;
 pub use mcp::{McpConfig, McpServerConfig};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -102,6 +103,9 @@ pub struct Config {
     pub github: GitHubConfig,
     #[serde(default)]
     pub web: WebConfig,
+    /// `[tui]`: how the terminal clients ping the owner (theseus-f0bi9).
+    #[serde(default)]
+    pub tui: tui::TuiConfig,
     #[serde(default)]
     pub telemetry: crate::telemetry::TelemetryConfig,
     #[serde(default)]
@@ -1266,6 +1270,7 @@ impl Config {
 
     #[expect(clippy::too_many_lines, reason = "shape budget: split it")]
     pub fn validate(&self) -> Result<()> {
+        self.tui.validate()?;
         for (name, r) in &self.secrets {
             if crate::secrets::is_local(r) {
                 crate::secrets::check_local(r).with_context(|| format!("secrets.{name}"))?;

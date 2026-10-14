@@ -25,6 +25,11 @@ use crate::work::{DoingKind, Question, QuestionKind, WorkKind, WorkRef, WorkStat
 mod burst;
 pub use burst::Burst;
 
+/// The ways a ping may reach the owner from a terminal client, as `--notify`
+/// and the config's `[tui] notify` name them (theseus-f0bi9). The core checks
+/// the config against it and the clients' `Delivery::parse` accepts each.
+pub const NOTIFY_KINDS: [&str; 6] = ["auto", "toast", "bell", "osc9", "osc777", "off"];
+
 /// How urgently a notice asks for the owner.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]

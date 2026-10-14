@@ -11,12 +11,14 @@ use std::future::Future;
 use std::io::Write;
 use std::path::Path;
 use std::pin::Pin;
+use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::Result;
 use crossterm::event::Event as TermEvent;
 use ratatui::backend::Backend;
 use ratatui::Terminal;
+use theseus_client::notify::Notifier;
 use theseus_client::Conn;
 use theseus_protocol::{Id, Message};
 use tokio::sync::mpsc::UnboundedReceiver;
@@ -64,6 +66,8 @@ pub struct Runner<B: Backend> {
     pub out: Box<dyn Write + Send>,
     /// How a notice reaches the operator (`--notify`).
     pub delivery: Delivery,
+    /// Carries a ping out; a toast is the worker's, never this loop's.
+    pub notifier: Notifier,
     /// SIGTERM or SIGHUP, in the binary: the loop ends as a quit does, and
     /// puts the terminal's modes back (theseus-8hcg).
     pub signals: Option<UnboundedReceiver<()>>,
@@ -105,7 +109,13 @@ impl<B: Backend> Runner<B> {
             quit: false,
             clock,
             out: Box::new(std::io::sink()),
-            delivery: Delivery::default(),
+            // A bell, as before: the binary sets what `--notify` (else the
+            // config) says, `auto` by default, so a test never toasts.
+            delivery: Delivery::Bell,
+            notifier: Notifier::new(Arc::new(|b| {
+                let mut out = std::io::stdout();
+                let _ = out.write_all(b).and_then(|()| out.flush());
+            })),
             signals: None,
             #[cfg(test)]
             terminal_events: 0,
@@ -307,8 +317,13 @@ impl<B: Backend> Runner<B> {
                         self.save(&path, &text);
                     }
                 }
-                Effect::Notice(text, sound) => {
-                    let bytes = self.delivery.bytes(&text, sound);
+                Effect::Notice { title, line, sound } => {
+                    // `--notify` first, else the config's, else `auto`.
+                    let how = match (self.app.notify_pinned, self.app.tui_notify) {
+                        (false, Some(d)) => d,
+                        _ => self.delivery,
+                    };
+                    let bytes = self.notifier.deliver(how, &title, &line, sound);
                     self.write(&bytes);
                 }
                 Effect::Title(t) => self.write(format!("\x1b]0;{t}\x07").as_bytes()),

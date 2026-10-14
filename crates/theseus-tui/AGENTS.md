@@ -30,8 +30,10 @@ Key modules: `run.rs` (the loop), `app.rs` (no I/O), `board.rs`, `ui.rs`, and `c
   lines. The reply streams in raw lines and is redrawn at each frame, so a half-typed `**` shows as typed until it
   closes. Test: `src/tests_markdown.rs`.
 - `src/detail.rs` (the focused session's history and events, as the CLI's `render` lines), `src/card.rs` (a
-  question's card), `src/notice.rs` (notices by the protocol's one policy, `theseus_protocol::notices`, delivered by
-  the bell, OSC 9, OSC 777). Done until seen is `theseus_client::seen`, shared with the CLI.
+  question's card), `src/notice.rs` (a re-export: the notices, their delivery and the toast are
+  `theseus_client::notify`, shared with `theseus status --watch`; the TUI keeps the viewer in `app.rs`). `--notify`
+  is `auto` (default: a Windows toast under WSL, OSC 9 where known, else the bell), `toast`, `bell`, `osc9`, `osc777`
+  or `off`; without the flag the daemon's `[tui] notify` (read from `health`) says (theseus-f0bi9). Done until seen is `theseus_client::seen`, shared with the CLI.
 - A reply's citations (theseus-ejdk): `Detail::history` draws a page's cited replies with numbered marks and the
   footnote block under them (`session.history`'s `cites`, the CLI's `render::cite`), and `Detail::cited` does the same
   for a turn this TUI sent, from its `turn.submit` answer's `cites`; a reply another surface's turn streams in stays

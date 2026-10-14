@@ -19,6 +19,14 @@ Key modules: `main.rs`, `cmd.rs`, `render.rs`, `client.rs`. Read by: (a binary).
   `work.changed` view and each `work.notice`, reading again after `events.lost`. Minimal on purpose: `cli-tasks` builds
   the real tree on the same wire. Tests inside it.
 - `src/chat_cmd.rs` (theseus-cyha): bare `theseus` on a terminal (no argument; stdin and stdout both terminals) and `theseus chat [SESSION]` exec `theseus-tui chat [SESSION]` as `tui` execs the board; a pipe, a script or any argument keeps clap's usage text and exit 2. Tests: `tests/chat.rs` (a pseudo-terminal, a stand-in `theseus-tui`).
+- `src/notify/` (theseus-f0bi9): how a ping reaches the owner, for every terminal client. `notices.rs` is the TUI's
+  former notice queue (the policy's notices, a second of debounce, the burst fold); `mod.rs` has `Delivery`
+  (`auto|toast|bell|osc9|osc777|off`), `Env` (WSL from `WSL_DISTRO_NAME` or `osrelease`, injectable) and `Notifier`;
+  `toast.rs` runs `powershell.exe -NoProfile -NonInteractive -Command <fixed script> <title> <body> <sound>` on a
+  worker thread (one in flight, one queued, 5 s kill; a missing binary falls back to the bell once and says so on
+  stderr once). The three trailing arguments are `x` + hex words, never the text: `-Command` joins its arguments and
+  parses them as code, so raw text would be code. Nothing is probed at start. `status_notify.rs` is
+  `theseus status --watch --notify` (default `off`; a bell or OSC goes to /dev/tty, never stdout).
 - `src/status.rs`: `theseus status` and `wait --any` (theseus-lweh). One read, `executions.watch {limit: 0}`, feeds
   `Board` (the executions that need you or work, by the position rule) and its forms: the long one (a header and a
   row each, a command under what asks), `--short` (`●1 ◐3 ✗1 ◆2`; empty when nothing works or waits), `--watch`

@@ -614,6 +614,10 @@ pub struct HealthResult {
     /// Tokens across every session, summed from session records.
     pub usage_total: Usage,
     pub provider_errors: u64,
+    /// `[tui] notify`: how the terminal clients ping the owner when their
+    /// `--notify` is not given (theseus-f0bi9). Empty from an older daemon.
+    #[serde(default)]
+    pub tui_notify: String,
     pub ledger_rows: u64,
     /// The ledger chain's head as the writer last committed it, short
     /// (`3fa1c09e…#1204`); absent before the chain starts (theseus-bmkxk).

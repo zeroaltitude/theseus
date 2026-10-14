@@ -66,8 +66,10 @@ usage: theseus-tui [--socket PATH] [--notify HOW]
   chat [SESSION]  an inline conversation in this directory (a new one, or SESSION's);
                   `theseus` and `theseus chat` run it
   --socket PATH   the daemon's Unix socket (default: $THESEUS_SOCKET, else ~/.theseus/theseus.sock)
-  --notify HOW    how a notice (needs you, finished) reaches you: bell (the default), osc9,
-                  osc777, or off; the terminal's title carries the count either way
+  --notify HOW    how a notice (needs you, finished) reaches you: auto (the default: a Windows
+                  toast under WSL, OSC 9 in a terminal that has it, else the bell), toast, bell,
+                  osc9, osc777, or off; the terminal's title carries the count either way. Without
+                  the flag, the daemon's `[tui] notify` says
   -h, --help      this help
   -V, --version   the version
 
@@ -77,7 +79,8 @@ What you have seen is kept in $XDG_STATE_HOME/theseus/seen.json
 /// What the command line says.
 struct Args {
     socket: String,
-    notify: Delivery,
+    /// `--notify`, when given; else the config's `[tui] notify`, else `auto`.
+    notify: Option<Delivery>,
     /// `chat [SESSION]`: the inline conversation instead of the board.
     chat: Option<Option<String>>,
 }
@@ -88,12 +91,11 @@ impl Args {
             .ok()
             .filter(|s| !s.is_empty())
             .unwrap_or_else(|| "~/.theseus/theseus.sock".to_string());
-        let mut notify = Delivery::default();
+        let mut notify = None;
         let mut chat: Option<Option<String>> = None;
         let how = |v: Option<&str>| {
-            v.and_then(Delivery::parse).ok_or_else(|| {
-                anyhow::anyhow!("--notify takes bell, osc9, osc777, or off\n\n{USAGE}")
-            })
+            v.and_then(Delivery::parse)
+                .ok_or_else(|| anyhow::anyhow!("--notify takes {}\n\n{USAGE}", Delivery::NAMES))
         };
         while let Some(a) = args.next() {
             match a.as_str() {
@@ -109,7 +111,7 @@ impl Args {
                     Some(p) => socket = p,
                     None => bail!("--socket needs a path\n\n{USAGE}"),
                 },
-                "--notify" => notify = how(args.next().as_deref())?,
+                "--notify" => notify = Some(how(args.next().as_deref())?),
                 "chat" if chat.is_none() => chat = Some(None),
                 other if matches!(chat, Some(None)) && !other.starts_with('-') => {
                     chat = Some(Some(other.to_string()));
@@ -118,7 +120,7 @@ impl Args {
                     if let Some(p) = other.strip_prefix("--socket=") {
                         socket = p.to_string();
                     } else if let Some(v) = other.strip_prefix("--notify=") {
-                        notify = how(Some(v))?;
+                        notify = Some(how(Some(v))?);
                     } else {
                         bail!("unknown argument `{other}`\n\n{USAGE}");
                     }
@@ -176,8 +178,9 @@ async fn tui(args: Args) -> Result<()> {
     term::on_panic(|| Box::new(std::io::stdout()));
     let mut runner = Runner::new(app, terminal, connect, rx, now_ms);
     runner.out = Box::new(std::io::stdout());
-    runner.delivery = args.notify;
-    runner.app.quiet = args.notify == Delivery::Off;
+    runner.delivery = args.notify.unwrap_or_default();
+    runner.app.notify_pinned = args.notify.is_some();
+    runner.app.quiet = args.notify == Some(Delivery::Off);
     runner.signals = Some(signals);
     let ran = runner.run().await;
     if let Err(e) = ratatui::try_restore() {

@@ -46,6 +46,7 @@ mod retract;
 mod self_cmd;
 mod standing_cmd;
 mod status;
+mod status_notify;
 mod task_start;
 mod thread;
 mod why;

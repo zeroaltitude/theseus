@@ -19,7 +19,7 @@ use theseus_protocol::{
 
 use crate::board::{short, Board, Moved, Only, Question, Row};
 use crate::detail::Detail;
-use crate::notice::Notices;
+use crate::notice::{Delivery, Notices};
 use theseus_client::seen::Seen;
 use theseus_protocol::notices::{self, Viewer};
 
@@ -78,9 +78,15 @@ pub enum Purpose {
 pub enum Effect {
     Call(Call),
     Quit,
-    /// Tell the operator, as `--notify` says: the bell, OSC 9, or OSC 777;
-    /// and whether the ping may sound (a finish rings no bell).
-    Notice(String, bool),
+    /// Tell the operator, as `--notify` says: a toast, the bell, OSC 9, or
+    /// OSC 777. `title` names the task (a toast's title; empty while
+    /// unknown), `line` is the notice's words, and `sound` whether the ping
+    /// may sound (a finish rings no bell).
+    Notice {
+        title: String,
+        line: String,
+        sound: bool,
+    },
     /// The terminal's title: `theseus (2)`.
     Title(String),
     /// Write the seen file: its path and its text.
@@ -178,6 +184,10 @@ pub struct App {
     blurred_at: u64,
     /// `--notify off`: notices show in the footer and never ring.
     pub quiet: bool,
+    /// `--notify` was given: the config's `[tui] notify` does not override it.
+    pub notify_pinned: bool,
+    /// `[tui] notify`, as the daemon's `health` says it (theseus-f0bi9).
+    pub tui_notify: Option<Delivery>,
     /// The title last set.
     title: String,
     /// The OpenClaw sync's warning, from `health` at each connect: a failed or
@@ -221,6 +231,8 @@ impl App {
             title: String::new(),
             save_at: None,
             sync_warn: None,
+            notify_pinned: false,
+            tui_notify: None,
         }
     }
 
@@ -338,7 +350,11 @@ impl App {
         for f in fired {
             self.flash = Some((Tag::Ok, f.line.clone()));
             if let notices::Delivery::Ping { sound } = f.delivery {
-                out.push(Effect::Notice(f.line, sound));
+                out.push(Effect::Notice {
+                    title: f.title,
+                    line: f.line,
+                    sound,
+                });
             }
         }
         if self.save_at.is_some_and(|at| at <= self.now_ms) {
@@ -464,9 +480,29 @@ impl App {
         };
         match notices::deliver(&notice, &viewer) {
             notices::Delivery::Ping { sound } if !self.quiet => {
-                vec![Effect::Notice(notice.line, sound)]
+                vec![Effect::Notice {
+                    title: "Reminder".into(),
+                    line: notice.line,
+                    sound,
+                }]
             }
             _ => Vec::new(),
+        }
+    }
+
+    /// `[tui] notify` from `health`: how notices reach the owner when
+    /// `--notify` did not say. A daemon that doesn't say leaves `auto`.
+    fn config_notify(&mut self, health: &Value) {
+        let Some(d) = health
+            .get("tui_notify")
+            .and_then(Value::as_str)
+            .and_then(Delivery::parse)
+        else {
+            return;
+        };
+        self.tui_notify = Some(d);
+        if !self.notify_pinned {
+            self.quiet = d == Delivery::Off;
         }
     }
 
@@ -587,7 +623,10 @@ impl App {
                     }
                 }
             }
-            Purpose::Health => self.sync_warn = sync_warning(v),
+            Purpose::Health => {
+                self.config_notify(&v);
+                self.sync_warn = sync_warning(v);
+            }
             Purpose::NewTask => self.task_started(v),
             Purpose::Watch | Purpose::Typing => {}
         }
