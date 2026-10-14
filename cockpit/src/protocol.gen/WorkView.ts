@@ -98,4 +98,13 @@ woke?: Woke,
 /**
  * The owner asked to hear when it is done ("tell me when it's done").
  */
-flagged?: boolean, };
+flagged?: boolean, 
+/**
+ * The owner dismissed its failure (`execution.dismiss`, theseus-7zgsm):
+ * the view keeps its `report` and asks for no one.
+ */
+dismissed?: boolean, 
+/**
+ * The failed task this one retries (`task.retry`), by execution id.
+ */
+retry_of?: string, };

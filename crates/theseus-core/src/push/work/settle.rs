@@ -38,6 +38,8 @@ pub(super) fn same_work(a: &WorkView, b: &WorkView) -> bool {
         && a.report == b.report
         && a.woke == b.woke
         && a.flagged == b.flagged
+        && a.dismissed == b.dismissed
+        && a.retry_of == b.retry_of
 }
 
 /// One more descendant in a rollup.
@@ -48,6 +50,8 @@ pub(super) fn bump(r: &mut Rollup, v: &WorkView) {
         WorkKind::Question if !v.state.ended() => r.needs_you += 1,
         WorkKind::Question => {}
         _ => match v.state {
+            // A failure the owner dismissed asks for no one (theseus-7zgsm).
+            WorkState::Failed | WorkState::NeedsYou if v.dismissed => {}
             WorkState::Failed => r.failed += 1,
             WorkState::NeedsYou if v.question.is_none() => r.needs_you += 1,
             WorkState::NeedsYou => {}
@@ -441,7 +445,8 @@ fn quiet_here(v: &WorkView, n: &Notice) -> bool {
 fn prunable(v: &WorkView) -> bool {
     match v.state {
         WorkState::Done | WorkState::Cancelled | WorkState::Expired => true,
-        WorkState::Failed => v.kind == WorkKind::Job,
+        // A failed task stays until someone looks: dismissed, it may go.
+        WorkState::Failed => v.kind == WorkKind::Job || v.dismissed,
         _ => false,
     }
 }

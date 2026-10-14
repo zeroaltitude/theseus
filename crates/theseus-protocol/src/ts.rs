@@ -54,6 +54,7 @@ fn declared() -> Vec<(String, bool)> {
         include_str!("push.rs"),
         include_str!("standing.rs"),
         include_str!("work.rs"),
+        include_str!("retry.rs"),
         include_str!("notices.rs"),
         include_str!("work_watch.rs"),
     ] {
@@ -102,7 +103,7 @@ fn the_cockpits_types_are_generated_from_the_rust_ones() {
         PlaceStatus, TelemetryStatus, KernelStatus, ChildrenStatus, GrantStatus,
         ExecutionInfo,
         BudgetInfo, ExecutionListResult, ExecutionListParams, ActionInfo, ActionListParams, ActionListResult,
-        ExecutionCancelParams, ExecutionCancelResult, ExecutionStopParams, ExecutionStopResult,
+        ExecutionCancelParams, ExecutionCancelResult, ExecutionStopParams, ExecutionStopResult, ExecutionDismissParams, ExecutionDismissResult, TaskRetryParams, TaskRetryResult,
         TaskInfo, TaskListParams, TaskListResult, TaskCancelParams, TaskCancelResult, WakeInfo,
         WakeListParams, WakeListResult, WakeCancelParams, WakeCancelResult, wakes::WakeCreateParams, wakes::WakeEditResult, wakes::WakeSnoozeParams, wakes::WakePauseParams, wakes::WakeNameParams, wakes::WakeDoneResult, wakes::WakeAnswer, wakes::WakeNoticed, TaskRef, SessionKind,
         SessionOpenParams, SessionInfo, SessionListResult, TurnSubmitParams, Attachment, sessions::SessionRetireParams, sessions::SessionReopenParams,

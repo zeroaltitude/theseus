@@ -622,7 +622,10 @@ const BULK: usize = 4096;
 /// record), the place records `discord.session.thread:<slug>` of their
 /// virtual places, and the ledger kinds `thread.created`, `.edited`,
 /// `.paused`, `.resumed`, `.done` and `.reopened`.
-const MANIFEST_FORMAT: u32 = 33;
+/// 34 = a failure's dismissal and a retry's link (theseus-7zgsm): an
+/// execution's `dismissed` and `retry_of`, and the ledger kinds
+/// `execution.dismissed` and `task.retried`.
+const MANIFEST_FORMAT: u32 = 34;
 /// The oldest format this build reads. A format-3 manifest's per-kind marks
 /// are left unread.
 const MANIFEST_OLDEST: u32 = 2;

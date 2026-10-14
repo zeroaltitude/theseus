@@ -101,6 +101,8 @@ fn exec(
         ended_reason: reason.map(String::from),
         why: why.map(String::from),
         wake_at_ms: wake_at,
+        dismissed: false,
+        retry_of: None,
         attention: Attention {
             level: Level::Idle,
             label: String::new(),
@@ -308,5 +310,57 @@ fn a_reminder_pings_though_its_question_was_seen() {
         deliver(&n, &viewer),
         Delivery::Ping { sound: true },
         "the reminder"
+    );
+}
+
+/// A failure the owner dismissed asks for no one (theseus-7zgsm): the push's
+/// attention and the work view's agree on it for each failure state and
+/// kind, with and without a reason, and a dismissal on a state that is no
+/// failure changes nothing.
+#[test]
+fn a_dismissed_failure_reads_the_same_on_the_push_and_the_work_view() {
+    for kind in [SessionKind::Conversation, SessionKind::Task] {
+        for state in ["failed", "blocked", "budget_exhausted"] {
+            for reason in [None, Some("the provider refused the request (400)")] {
+                let mut x = exec(kind, state, None, vec![], 0, reason, None, None);
+                let asking = attention(&x, &utc_hm);
+                assert_eq!(
+                    asking.level,
+                    Level::NeedsYou,
+                    "{state} asks until dismissed"
+                );
+                x.dismissed = true;
+                x.attention = attention(&x, &utc_hm);
+                assert_eq!(x.attention.level, Level::Idle, "{state}: {:?}", x.attention);
+                assert!(
+                    x.attention.label.ends_with(" · dismissed"),
+                    "{:?}",
+                    x.attention
+                );
+                let w = WorkView::from_execution(&x);
+                assert!(w.dismissed);
+                let mut a = attention_of(&w);
+                a.since_ms = x.attention.since_ms;
+                assert_eq!(a, x.attention, "{state} {reason:?}");
+            }
+        }
+    }
+    // Running work is not a failure: a stray flag changes nothing.
+    let mut x = exec(
+        SessionKind::Task,
+        "running",
+        None,
+        vec![],
+        0,
+        None,
+        None,
+        None,
+    );
+    let before = attention(&x, &utc_hm);
+    x.dismissed = true;
+    assert_eq!(attention(&x, &utc_hm), before);
+    assert_eq!(
+        attention_of(&WorkView::from_execution(&x)).level,
+        Level::Working
     );
 }

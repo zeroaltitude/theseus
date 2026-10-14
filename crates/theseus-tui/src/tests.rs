@@ -343,6 +343,8 @@ pub fn view(
         ended_reason: None,
         why: None,
         wake_at_ms: None,
+        dismissed: false,
+        retry_of: None,
         attention: Attention {
             level: Level::Idle,
             label: String::new(),

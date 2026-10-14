@@ -63,6 +63,8 @@ pub(super) fn blank(id: &str, kind: WorkKind, at_ms: u64) -> WorkView {
         report: None,
         woke: None,
         flagged: false,
+        dismissed: false,
+        retry_of: None,
     }
 }
 

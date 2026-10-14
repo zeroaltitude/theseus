@@ -69,6 +69,10 @@ pub enum Purpose {
     Cancel(String),
     /// `action.confirm`: an answer to a question.
     Answer { correlation_id: String },
+    /// `execution.dismiss`: a failure the owner is done with (theseus-7zgsm).
+    Dismiss { session: String, execution: String },
+    /// `task.retry`: a failed task tried again.
+    Retry { session: String, execution: String },
 }
 
 /// What the loop does for the app.
@@ -281,6 +285,20 @@ impl App {
         let questions = self.board.questions(self.shown()?);
         let behind = questions.len().saturating_sub(1);
         questions.into_iter().next().map(|q| (q, behind))
+    }
+
+    /// The failure on screen (theseus-7zgsm): the shown session, when it
+    /// failed and asks nothing else of the owner, and the owner has not
+    /// dismissed it.
+    pub fn failure(&self) -> Option<&ExecutionView> {
+        let v = self.board.view(self.shown()?)?;
+        theseus_protocol::needs_dismissal(v).then_some(v)
+    }
+
+    /// The failure under the cursor: what `r` retries and `d` dismisses.
+    fn selected_failure(&self) -> Option<&ExecutionView> {
+        let v = self.board.view(self.selected.as_deref()?)?;
+        theseus_protocol::needs_dismissal(v).then_some(v)
     }
 
     /// When the app needs the loop next, if ever (design §2.9, quiet): a
@@ -560,6 +578,7 @@ impl App {
                     self.flash = Some((Tag::Warn, line));
                 }
             }
+            Purpose::Dismiss { .. } | Purpose::Retry { .. } => self.failure_answered(purpose, v),
             Purpose::Answer { correlation_id, .. } => {
                 self.refused.remove(&correlation_id);
                 if let Ok(r) = serde_json::from_value::<WorkAnswerResult>(v) {
@@ -585,6 +604,34 @@ impl App {
         Vec::new()
     }
 
+    /// The answer to `execution.dismiss` or `task.retry` (theseus-7zgsm): a
+    /// line in the session's pane and in the footer.
+    fn failure_answered(&mut self, purpose: Purpose, v: Value) {
+        match purpose {
+            Purpose::Dismiss { session, execution } => {
+                self.refused.remove(&execution);
+                let line = format!("dismissed {}", short(&execution));
+                self.note(&session, Tag::Dim, &line);
+                self.flash = Some((Tag::Ok, format!("✓ {line}")));
+            }
+            Purpose::Retry { session, execution } => {
+                self.refused.remove(&execution);
+                if let Ok(r) = serde_json::from_value::<theseus_protocol::TaskRetryResult>(v) {
+                    let line = format!(
+                        "retried {} as {} with {} (it had {}); the failed one is dismissed",
+                        short(&execution),
+                        short(&r.task_id),
+                        theseus_protocol::usd(r.limit_usd),
+                        theseus_protocol::usd(r.failed_limit_usd)
+                    );
+                    self.note(&session, Tag::Ok, &line);
+                    self.flash = Some((Tag::Ok, format!("✓ {line}")));
+                }
+            }
+            _ => {}
+        }
+    }
+
     /// A request that failed: say so where the operator looks.
     fn failed(&mut self, purpose: &Purpose, e: &RpcError) {
         // A notice, whose daemon may not know it (an older one): nothing to say.
@@ -597,6 +644,15 @@ impl App {
             if e.code == error_code::REFUSED {
                 self.refused
                     .insert(correlation_id.clone(), e.message.clone());
+                self.flash = Some((Tag::Bad, format!("refused: {}", e.message)));
+                return;
+            }
+        }
+        // A dismissal or a retry that did not count (theseus-7zgsm): the
+        // failure's card says why, and the failure stays.
+        if let Purpose::Dismiss { execution, .. } | Purpose::Retry { execution, .. } = purpose {
+            if e.code == error_code::REFUSED {
+                self.refused.insert(execution.clone(), e.message.clone());
                 self.flash = Some((Tag::Bad, format!("refused: {}", e.message)));
                 return;
             }
@@ -619,6 +675,8 @@ impl App {
             Purpose::Stop(_) => method::EXECUTION_STOP,
             Purpose::Cancel(_) => method::TASK_CANCEL,
             Purpose::Answer { .. } => method::WORK_ANSWER,
+            Purpose::Dismiss { .. } => method::EXECUTION_DISMISS,
+            Purpose::Retry { .. } => method::TASK_RETRY,
             Purpose::Typing => method::SESSION_TYPING,
             Purpose::Health => method::HEALTH,
         };
@@ -751,6 +809,23 @@ impl App {
                 return self.open_first();
             }
             KeyCode::Char('/') => self.mode = Mode::Filter,
+            // On a failure (theseus-7zgsm) `r` retries, `d` dismisses and `o`
+            // opens; anywhere else they filter as before.
+            KeyCode::Char('r')
+                if self
+                    .selected_failure()
+                    .is_some_and(|v| v.kind == SessionKind::Task) =>
+            {
+                return self.failure_key(true);
+            }
+            KeyCode::Char('d') if self.selected_failure().is_some() => {
+                return self.failure_key(false);
+            }
+            KeyCode::Char('o') if self.selected_failure().is_some() => {
+                if let Some(sid) = self.selected.clone() {
+                    return self.focus(&sid);
+                }
+            }
             KeyCode::Char('b') => self.only = Only::NeedsYou,
             KeyCode::Char('w') => self.only = Only::Working,
             KeyCode::Char('r') => self.only = Only::Ready,
@@ -823,6 +898,28 @@ impl App {
             Some(why) => self.flash = Some((Tag::Warn, why.to_string())),
             None => self.mode = Mode::Armed(arm, sid),
         }
+    }
+
+    /// `r` or `d` on the failure under the cursor: `task.retry`, or
+    /// `execution.dismiss`.
+    fn failure_key(&mut self, retry: bool) -> Vec<Effect> {
+        let Some(v) = self.selected_failure() else {
+            return Vec::new();
+        };
+        let (session, execution) = (v.session_id.clone(), v.execution_id.clone());
+        self.refused.remove(&execution);
+        let params = json!({ "execution_id": execution });
+        let purpose = if retry {
+            Purpose::Retry { session, execution }
+        } else {
+            Purpose::Dismiss { session, execution }
+        };
+        let m = if retry {
+            method::TASK_RETRY
+        } else {
+            method::EXECUTION_DISMISS
+        };
+        vec![call(m, params, purpose)]
     }
 
     /// `y`, `t`, or `n` on the card's question: `n` asks for a note first.

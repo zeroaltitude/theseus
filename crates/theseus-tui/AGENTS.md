@@ -49,6 +49,9 @@ Key modules: `run.rs` (the loop), `app.rs` (no I/O), `board.rs`, `ui.rs`. Read b
 - `src/tests.rs`: the TUI over a scripted daemon (a JSON-RPC stream on a duplex, through `Conn::over`), drawn on
   ratatui's `TestBackend`, whose buffer each test reads as text. Run them as
   `cargo nextest run --workspace -E 'package(theseus-tui)'`.
+- `src/tests_failure.rs` (theseus-7zgsm): a failed task's card (`[r] retry  [d] dismiss  [o] open`), `r` and `d` on the failed
+  row under the cursor sending `task.retry` and `execution.dismiss` (anywhere else they still filter ready and done), a
+  refusal said on the card, and the row leaving needs-you when the push says dismissed.
 - `src/tests_answer.rs` (theseus-ds5os): the answer keys over `work.answer` (a budget question's `y` sends `reset`; a
   question that says `may_answer: false` sends nothing and says where to answer; a `confirm.resolved` from another
   surface clears the card).

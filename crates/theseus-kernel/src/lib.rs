@@ -31,6 +31,7 @@ pub mod place_limit;
 pub mod redact;
 mod reopen;
 pub mod repeat;
+pub mod retry;
 mod spawn;
 pub mod spend;
 pub mod spool;
@@ -72,6 +73,8 @@ mod tests_overdraw;
 mod tests_place_limit;
 #[cfg(test)]
 mod tests_repeat;
+#[cfg(test)]
+mod tests_retry;
 #[cfg(test)]
 mod tests_runaway;
 #[cfg(test)]

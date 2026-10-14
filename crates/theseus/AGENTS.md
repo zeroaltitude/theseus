@@ -44,6 +44,10 @@ Key modules: `main.rs`, `cmd.rs`, `render.rs`, `client.rs`. Read by: (a binary).
 - `src/thread.rs` (theseus-nhew): `theseus thread` (list: slug, state, last activity, the session's context tokens and
   today's dollars, title), `thread new|show|edit|pause|resume|done|reopen`, and `ask --thread SLUG` (a turn in the
   thread's session). The writes are in `client::OPERATORS`, so a job's shell cannot make them.
+- `src/retry.rs` (theseus-7zgsm): `theseus dismiss ID` and `theseus retry ID [--note WORDS]`, one call each
+  (`execution.dismiss`, `task.retry`); ID is a task's or its execution's id, or the last four characters of either
+  (`resolve.rs`'s rule), and a name that is no failure, or a conversation to retry, is refused with words before
+  anything is sent. Both are in `client::OPERATORS`: refused inside a job.
 - `src/standing_cmd.rs` (theseus-a7vi): `theseus standing` (the live records: id, kind, scope, since, source, text,
   and a last line "in every compile of their scope since they began: N compiles, M missing" from the manifests;
   `--all` adds the ended), `standing add [--kind order|preference|fact] [--scope everywhere|place:T|session:ID]

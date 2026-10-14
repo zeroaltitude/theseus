@@ -367,8 +367,49 @@ pub struct Execution {
     pub cancel: Option<CancelState>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ended_reason: Option<String>,
+    /// The owner dismissed this execution's failure (`execution.dismiss`,
+    /// theseus-7zgsm, store format 34): a failed, blocked or
+    /// budget-exhausted execution that is dismissed needs no one on any
+    /// surface. Read through `Execution::dismissal`, which also ends it
+    /// when the execution takes another turn.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dismissed: Option<Dismissal>,
+    /// The failed task this one retries (`task.retry`, theseus-7zgsm, store
+    /// format 34); a retry of a retry names its predecessor.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub retry_of: Option<ExecutionId>,
     pub created_at_ms: u64,
     pub updated_at_ms: u64,
+}
+
+/// The owner's dismissal of a failure: when, and at which turn, so a
+/// conversation that takes another turn and fails again asks again.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Dismissal {
+    pub at_ms: u64,
+    pub turns: u64,
+}
+
+impl ExecState {
+    /// A failure someone may dismiss, or retry: failed, blocked, or out of
+    /// budget.
+    pub fn is_failure(self) -> bool {
+        matches!(
+            self,
+            ExecState::Failed | ExecState::Blocked | ExecState::BudgetExhausted
+        )
+    }
+}
+
+impl Execution {
+    /// When the owner dismissed the failure this execution is in, if they
+    /// did: none once it is out of the failure, or has taken another turn
+    /// since (theseus-7zgsm).
+    pub fn dismissal(&self) -> Option<u64> {
+        self.dismissed
+            .filter(|d| self.state.is_failure() && d.turns == self.turns)
+            .map(|d| d.at_ms)
+    }
 }
 
 impl Execution {

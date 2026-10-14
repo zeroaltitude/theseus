@@ -41,6 +41,7 @@ mod print;
 mod prompt;
 mod remind;
 mod retract;
+mod retry;
 mod self_cmd;
 mod standing_cmd;
 mod status;
@@ -444,6 +445,15 @@ enum Cmd {
         #[arg(long, value_name = "DURATION")]
         timeout: Option<String>,
     },
+    /// Dismiss a failed task: it stops needing you on every surface, and its record stays. ID is
+    /// the task's id, or at least its last four characters.
+    Dismiss {
+        #[arg(value_name = "ID")]
+        id: String,
+    },
+    /// Try a failed task again: a new task opens from the same brief and pieces under the same
+    /// parent, with no more budget than the failed one had, and the failed one is dismissed.
+    Retry(retry::RetryArgs),
     /// Halt what a session is doing, as Discord's `/stop` does: its running turn, its jobs, and
     /// what waits on you. The conversation goes on: the next `ask -s` continues it, and its tasks
     /// and wakes go on too (`theseus cancel <id>` stops one). SESSION is its id, or at least its
@@ -1145,9 +1155,9 @@ async fn run(cli: Cli) -> Result<()> {
         Cmd::Answer(a) => answer::answer(c, json, a).await,
         Cmd::Snooze { wake, when } => remind::snooze(c, json, wake, when).await,
         Cmd::Pause { wake, until } => remind::pause(c, json, wake, until).await,
-        Cmd::Resume { wake } => remind::resume(c, json, wake).await,
-        Cmd::Done { wake } => remind::done(c, json, wake).await,
+        cmd @ (Cmd::Resume { .. } | Cmd::Done { .. }) => remind::settle(c, json, cmd).await,
         Cmd::Stop { session } => cmd::stop(c, json, session).await,
+        cmd @ (Cmd::Dismiss { .. } | Cmd::Retry(_)) => retry::run(c, json, cmd).await,
         Cmd::Wait {
             session: Some(session),
             until,

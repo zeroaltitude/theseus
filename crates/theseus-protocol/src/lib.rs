@@ -54,6 +54,7 @@ mod places;
 mod push;
 pub mod resident;
 pub mod retract;
+mod retry;
 pub mod route;
 pub mod rsi;
 pub mod sandbox;
@@ -98,6 +99,10 @@ pub use ontology::*;
 pub use outbox::OutboxStatus;
 pub use places::*;
 pub use push::*;
+pub use retry::{
+    failure_options, needs_dismissal, ExecutionDismissParams, ExecutionDismissResult,
+    TaskRetryParams, TaskRetryResult,
+};
 pub use sessions::{RetiredReason, SessionLink, SessionRetired, SessionState};
 pub use standing::{
     StandingAddParams, StandingChanged, StandingInfo, StandingKind, StandingListParams,
@@ -243,6 +248,9 @@ pub mod method {
         WAKE_CREATE = "wake.create", WAKE_SNOOZE = "wake.snooze", WAKE_PAUSE = "wake.pause", WAKE_RESUME = "wake.resume", WAKE_DONE = "wake.done",
         /// One answer verb for every question (theseus-ds5os).
         WORK_ANSWER = "work.answer",
+        /// A failed task stops needing you, and a retry opens a linked new one
+        /// (theseus-7zgsm, `retry.rs`).
+        EXECUTION_DISMISS = "execution.dismiss", TASK_RETRY = "task.retry",
         /// The push (theseus-in3): a snapshot of every execution that needs
         /// someone or works, then `execution.changed`, `confirm.requested`,
         /// and `confirm.resolved` for every session, until

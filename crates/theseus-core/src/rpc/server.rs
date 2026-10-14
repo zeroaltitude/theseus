@@ -272,6 +272,7 @@ impl Core {
             method::HEALTH => reply(self.health_now().await),
             method::SESSION_OPEN => route(params, |p| self.session_open_on(surface, p)),
             m if super::sessions::OWN.contains(&m) => self.rpc_sessions(m, params, conn),
+            m if super::retry::OWN.contains(&m) => self.rpc_retry(m, params, conn),
             method::TURN_SUBMIT => reply(self.turn_submit(parse(params)?, conn).await?),
             method::PROFILE_LIST => reply(self.profile_list()),
             method::PROFILE_USE => route(params, |p| self.profile_use(p, conn)),

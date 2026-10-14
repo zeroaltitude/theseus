@@ -221,6 +221,12 @@ fn detail(app: &App, area: Rect, buf: &mut Buffer) {
                 more,
             )
         })
+        // No question: a failure the owner has not dismissed (theseus-7zgsm).
+        .or_else(|| {
+            app.failure().map(|v| {
+                card::failure_lines(v, app.refused.get(&v.execution_id).map(String::as_str))
+            })
+        })
         .unwrap_or_default()
         .into_iter()
         .flat_map(|(tag, text)| card_rows(&text, width).into_iter().map(move |r| (tag, r)))
@@ -425,7 +431,7 @@ fn tail_fit(text: &str, room: usize) -> String {
 
 /// The keys (design §2.9), over the body.
 fn help(area: Rect, buf: &mut Buffer) {
-    const KEYS: [&str; 16] = [
+    const KEYS: [&str; 17] = [
         " keys",
         " ↑ ↓  j k   move (on a narrow screen's session: scroll it)",
         " enter      open the session under the cursor",
@@ -438,6 +444,7 @@ fn help(area: Rect, buf: &mut Buffer) {
         " PgUp PgDn  scroll the open session (End: back to its end)",
         " / text     filter by text (enter keeps it, esc clears)",
         " b w r d a  only needs you, working, ready, done; all",
+        " r d o      on a failed row: retry (a task) / dismiss / open it",
         " ?          this help",
         " q          quit (ctrl-c from anywhere)",
         "",

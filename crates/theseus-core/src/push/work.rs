@@ -284,7 +284,7 @@ impl WorkBoard {
 
     /// Every view, for a test's oracle.
     #[cfg(test)]
-    pub(super) fn all(&self) -> std::collections::BTreeMap<String, WorkView> {
+    pub(crate) fn all(&self) -> std::collections::BTreeMap<String, WorkView> {
         self.views
             .iter()
             .map(|(k, v)| (k.clone(), v.clone()))

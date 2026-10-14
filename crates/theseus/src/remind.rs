@@ -127,6 +127,16 @@ pub async fn pause(conn: &mut Conn, json: bool, wake: String, until: Option<Stri
     })
 }
 
+/// `theseus resume ID` and `theseus done ID`: one arm of `main`'s `run`, which
+/// is at clippy's line limit.
+pub async fn settle(conn: &mut Conn, json: bool, cmd: crate::Cmd) -> Result<()> {
+    match cmd {
+        crate::Cmd::Resume { wake } => resume(conn, json, wake).await,
+        crate::Cmd::Done { wake } => done(conn, json, wake).await,
+        _ => unreachable!("main sends only resume and done"),
+    }
+}
+
 /// `theseus resume ID`.
 pub async fn resume(conn: &mut Conn, json: bool, wake: String) -> Result<()> {
     let v = conn

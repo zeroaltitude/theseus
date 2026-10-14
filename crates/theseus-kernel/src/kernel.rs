@@ -1148,6 +1148,8 @@ impl Kernel {
             resume_pending: false,
             cancel: None,
             ended_reason: None,
+            dismissed: None,
+            retry_of: None,
             created_at_ms: now,
             updated_at_ms: now,
         };
