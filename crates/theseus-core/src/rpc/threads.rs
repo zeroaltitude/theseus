@@ -118,6 +118,9 @@ impl Core {
             method::THREAD_DONE => route(params, |p: ThreadNameParams| {
                 self.thread_done(&p.slug, conn.answerer(p.author, p.discord))
             }),
+            method::THREAD_SEAL | method::THREAD_UNSEAL | method::THREAD_SEAL_DISMISS => {
+                super::thread_seal::route_seal(self, name, params, conn)
+            }
             _ => route(params, |p: ThreadNameParams| {
                 self.thread_reopen(&p.slug, conn.answerer(p.author, p.discord))
             }),
@@ -223,6 +226,8 @@ impl Core {
                              (`theseus thread done`)"
                         );
                     }
+                    let (split_from, sealed) =
+                        super::thread_seal::starting_seal(board, p, &who_s, now)?;
                     Ok(vec![ThreadInfo {
                         slug: slug.clone(),
                         title: title.clone(),
@@ -232,24 +237,18 @@ impl Core {
                         card: vec![],
                         persona: None,
                         state: ThreadState::Active,
-                        sealed: None,
+                        sealed,
                         seal_pending: None,
                         surfaces: vec![],
                         parent: None,
                         merged_into: None,
-                        split_from: None,
+                        split_from,
                         session_id: None,
                         last_active_ms: now,
                         created_at_ms: now,
                     }])
                 },
-                |_, ts| {
-                    ts.iter()
-                        .map(|t| {
-                            fact::row(&ThreadCreated(change(t, &who_s, &via, &[])), None, None)
-                        })
-                        .collect()
-                },
+                |_, ts| super::thread_seal::created_rows(ts, &who_s, &via),
             )
             .map_err(RpcFailure::invalid)?;
         let t = written.into_iter().next().expect("one thread");
@@ -302,7 +301,7 @@ impl Core {
             .expect("one row for one thread"))
     }
 
-    fn thread_named(&self, slug: &str) -> Result<ThreadInfo, RpcFailure> {
+    pub(super) fn thread_named(&self, slug: &str) -> Result<ThreadInfo, RpcFailure> {
         self.threads().get(slug.trim()).cloned().ok_or_else(|| {
             RpcFailure::new(
                 error_code::NOT_FOUND,
@@ -315,7 +314,7 @@ impl Core {
     /// context's tokens, and today's dollars. Reads the sessions, the
     /// compilations and today's spend rows: a read for a person, never a
     /// turn's path.
-    fn thread_rows(&self, threads: &mut [ThreadInfo]) -> Vec<ThreadRow> {
+    pub(super) fn thread_rows(&self, threads: &mut [ThreadInfo]) -> Vec<ThreadRow> {
         let sessions: BTreeSet<String> = threads
             .iter()
             .filter_map(|t| t.session_id.clone())
@@ -751,7 +750,7 @@ impl Core {
     }
 }
 
-fn change<'a>(
+pub(super) fn change<'a>(
     thread: &'a ThreadInfo,
     who: &'a str,
     via: &'a str,
@@ -784,7 +783,7 @@ fn card_note(t: &ThreadInfo) -> String {
 
 /// A line of words: whitespace folded to single spaces, at most
 /// `MAX_LINE_CHARS`.
-fn line(text: &str, what: &str) -> Result<String, RpcFailure> {
+pub(super) fn line(text: &str, what: &str) -> Result<String, RpcFailure> {
     let l = text.split_whitespace().collect::<Vec<_>>().join(" ");
     if l.chars().count() > MAX_LINE_CHARS {
         return Err(RpcFailure::invalid(anyhow!(

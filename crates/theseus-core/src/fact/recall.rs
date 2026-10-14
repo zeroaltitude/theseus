@@ -259,13 +259,21 @@ pub fn words(m: &RecallManifest) -> String {
         narrative::count(m.used_tokens, "token", "tokens"),
         narrative::count(sessions, "session", "sessions"),
     );
-    if !m.drops.is_empty() {
-        let d: Vec<String> = m
-            .drops
-            .iter()
-            .map(|(reason, n)| format!("{n} {}", reason_words(reason)))
-            .collect();
+    let d: Vec<String> = m
+        .drops
+        .iter()
+        .filter(|(reason, _)| reason.as_str() != "sealed")
+        .map(|(reason, n)| format!("{n} {}", reason_words(reason)))
+        .collect();
+    if !d.is_empty() {
         line.push_str(&format!("; dropped {}", d.join(", ")));
+    }
+    // A sealed thread's note never comes in (theseus-f2g0): said apart.
+    if let Some(n) = m.drops.get("sealed").filter(|n| **n > 0) {
+        line.push_str(&format!(
+            "; 🔒 {n} sealed {} withheld",
+            if *n == 1 { "hit" } else { "hits" }
+        ));
     }
     match &m.activation {
         Some(a) if a.outcome == "ran" => line.push_str(&format!(
@@ -297,6 +305,8 @@ fn reason_words(reason: &str) -> &'static str {
         "duplicate" => "as a newer note's duplicate",
         "threshold" => "below the threshold",
         "budget" => "for the budget",
+        "thread" => "as another thread's, under the bar",
+        "sealed" => "as a sealed thread's",
         _ => "for another reason",
     }
 }

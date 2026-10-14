@@ -139,6 +139,8 @@ pub struct Memory {
     syntheses: RwLock<Option<Syntheses>>,
     /// The last turns' recalls by outcome, for health (theseus-w9qv).
     outcomes: Mutex<outcomes::Outcomes>,
+    /// Each session's thread, once read (theseus-f2g0).
+    thread_memo: Arc<crate::thread_recall::Memo>,
 }
 
 /// The memory's harness session (31b), and the syntheses in it whose
@@ -176,7 +178,13 @@ impl Memory {
             telemetry: std::sync::OnceLock::new(),
             syntheses: RwLock::new(None),
             outcomes: Mutex::new(outcomes::Outcomes::default()),
+            thread_memo: Arc::default(),
         }
+    }
+
+    /// Each session's thread, once read (`thread_recall`).
+    pub fn thread_memo(&self) -> Arc<crate::thread_recall::Memo> {
+        self.thread_memo.clone()
     }
 
     /// A turn's recall, once the index's answer is read: health counts it.
@@ -664,6 +672,17 @@ pub struct Scene<'a> {
     pub science: Arc<dyn MemoryScience>,
     /// What spreading activation did before the pipeline (32b).
     pub activation: Option<theseus_protocol::memory::RecallActivation>,
+    /// The threads' part of the recall (theseus-f2g0); none when no thread
+    /// exists or the recall is not a session's.
+    pub threads: Option<crate::thread_recall::ThreadScene>,
+}
+
+impl Scene<'_> {
+    /// What the threads do to this recall over `candidates` (theseus-f2g0).
+    pub fn lens(&self, candidates: &[Candidate]) -> Option<theseus_memory::ThreadLens> {
+        let t = self.threads.as_ref()?;
+        Some(t.lens(candidates.iter().map(|c| (c.session_id.as_str(), c.fused))))
+    }
 }
 
 impl Memory {
@@ -792,6 +811,7 @@ impl Memory {
         };
         let (retention, state) = self.retention_for(&*scene.science, &candidates);
         m.retention = state;
+        let lens = scene.lens(&candidates);
         let asker = Asker {
             session_id: scene.session_id.unwrap_or_default(),
             place: &scene.place,
@@ -800,6 +820,7 @@ impl Memory {
             links: &links,
             now_ms: theseus_protocol::now_unix_ms(),
             retention: &retention,
+            threads: lens.as_ref(),
         };
         let params = begun.params(self.cfg.params(), m.budget_tokens);
         let pack = pipeline::recall(&*scene.science, &asker, candidates.clone(), &params);
@@ -824,6 +845,7 @@ impl Memory {
         order: Vec<String>,
     ) {
         let (retention, _) = self.retention_for(&*scene.science, &candidates);
+        let lens = scene.lens(&candidates);
         let asker = Asker {
             session_id: scene.session_id.unwrap_or_default(),
             place: &scene.place,
@@ -832,6 +854,7 @@ impl Memory {
             links,
             now_ms: theseus_protocol::now_unix_ms(),
             retention: &retention,
+            threads: lens.as_ref(),
         };
         let params = self.params_of(m);
         let pack =

@@ -23,6 +23,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use crate::fsrs::Retention;
 use crate::science::{MemoryScience, RankCtx, Scored, SynthesisAdmit};
+use crate::threads::{ThreadLens, Verdict};
 
 /// Where a session speaks, as the core read it.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -74,10 +75,14 @@ pub enum Reason {
     Threshold,
     /// It did not fit the budget, or the items were already at their most.
     Budget,
+    /// Its thread is sealed, or a seal is proposed for it (theseus-f2g0).
+    Sealed,
+    /// Another thread's, and not above the bar (theseus-f2g0).
+    Thread,
 }
 
 impl Reason {
-    pub const ALL: [Reason; 11] = [
+    pub const ALL: [Reason; 13] = [
         Reason::Place,
         Reason::InContext,
         Reason::Untrusted,
@@ -89,6 +94,8 @@ impl Reason {
         Reason::Duplicate,
         Reason::Threshold,
         Reason::Budget,
+        Reason::Sealed,
+        Reason::Thread,
     ];
 
     pub fn as_str(self) -> &'static str {
@@ -104,6 +111,8 @@ impl Reason {
             Reason::Duplicate => "duplicate",
             Reason::Threshold => "threshold",
             Reason::Budget => "budget",
+            Reason::Sealed => "sealed",
+            Reason::Thread => "thread",
         }
     }
 }
@@ -150,6 +159,9 @@ pub struct Asker<'a> {
     /// The candidates' retention by node (32a), for a science that reads
     /// it; empty for one that does not, or before the projection is built.
     pub retention: &'a BTreeMap<String, Retention>,
+    /// What the threads do to this recall (theseus-f2g0); none when no
+    /// thread is known.
+    pub threads: Option<&'a ThreadLens>,
 }
 
 impl Asker<'_> {
@@ -277,6 +289,13 @@ fn filter(
     if !asker.place.may_draw_on(&c.place) {
         return Some(Reason::Place);
     }
+    if let Some(l) = asker.threads {
+        match l.judge(&c.session_id, c.fused) {
+            Verdict::Sealed => return Some(Reason::Sealed),
+            Verdict::Distant => return Some(Reason::Thread),
+            Verdict::Pass | Verdict::Costs(_) => {}
+        }
+    }
     if asker.in_context.contains(&c.node_id) {
         return Some(Reason::InContext);
     }
@@ -341,6 +360,15 @@ fn fresher(kept: Vec<Candidate>, asker: &Asker<'_>, dropped: &mut Vec<Dropped>) 
     out
 }
 
+/// What a candidate's score is multiplied by for its thread's distance
+/// (theseus-f2g0): 1 for all but another thread's.
+fn distance(asker: &Asker<'_>, c: &Candidate) -> f64 {
+    match asker.threads.map(|l| l.judge(&c.session_id, c.fused)) {
+        Some(Verdict::Costs(f)) => f,
+        _ => 1.0,
+    }
+}
+
 /// The pipeline after the index: filter, rank by the science, and pack
 /// greedily under the budget. Every candidate is admitted or dropped, once.
 pub fn recall(
@@ -368,7 +396,7 @@ pub fn recall(
         kept.iter()
             .map(|c| Scored {
                 key: c.key(),
-                score: c.fused,
+                score: c.fused * distance(asker, c),
             })
             .collect(),
         &asker.rank_ctx(&kept),
@@ -423,6 +451,7 @@ pub fn recall(
 mod tests {
     use super::*;
     use crate::science::Baseline;
+    use crate::threads::SessionThread;
     use proptest::prelude::*;
 
     fn cand(node: &str, session: &str, place: Place, fused: f64) -> Candidate {
@@ -470,6 +499,7 @@ mod tests {
             links,
             now_ms: 0,
             retention: &BTreeMap::new(),
+            threads: None,
         };
         recall(
             &Baseline {
@@ -511,6 +541,7 @@ mod tests {
             links: &[],
             now_ms: 0,
             retention: &BTreeMap::new(),
+            threads: None,
         };
         recall(&arm, &asker, vec![checked, unchecked], p)
     }
@@ -523,6 +554,63 @@ mod tests {
         assert_eq!(synth.admitted.len(), 1);
         assert_eq!(synth.admitted[0].candidate.node_id, "syn_ok");
         assert_eq!(reason_of(&synth, "syn_no"), Some(Reason::Unchecked));
+    }
+
+    /// The threads' two reasons (theseus-f2g0): a sealed thread's note, and
+    /// another thread's under the bar.
+    fn threaded_pack(p: &Params) -> Pack {
+        let lens = ThreadLens {
+            here: Some("here".into()),
+            distance: true,
+            of_session: BTreeMap::from([
+                (
+                    "ses_sealed".to_string(),
+                    SessionThread {
+                        slug: "sealed".into(),
+                        held: true,
+                    },
+                ),
+                (
+                    "ses_far".to_string(),
+                    SessionThread {
+                        slug: "far".into(),
+                        held: false,
+                    },
+                ),
+            ]),
+            waived: BTreeSet::new(),
+            top_fused: 0.9,
+            penalty: 0.35,
+            bar: 0.75,
+        };
+        let none = BTreeSet::new();
+        let asker = Asker {
+            session_id: "ses_here",
+            place: &Place::Private,
+            in_context: &none,
+            labeled: &none,
+            links: &[],
+            now_ms: 0,
+            retention: &BTreeMap::new(),
+            threads: Some(&lens),
+        };
+        let threaded = recall(
+            &Baseline {
+                min_score: 0.01,
+                ..Baseline::default()
+            },
+            &asker,
+            vec![
+                cand("held", "ses_sealed", Place::Private, 0.9),
+                cand("distant", "ses_far", Place::Private, 0.3),
+                cand("near", "ses_far", Place::Private, 0.8),
+            ],
+            p,
+        );
+        assert_eq!(reason_of(&threaded, "held"), Some(Reason::Sealed));
+        assert_eq!(reason_of(&threaded, "distant"), Some(Reason::Thread));
+        assert_eq!(threaded.admitted.len(), 1);
+        threaded
     }
 
     /// Each filter's reason (§3.2's 30a tests), one candidate each, and one
@@ -611,10 +699,15 @@ mod tests {
             assert_eq!(reason_of(&placed, node), Some(Reason::Place), "{node}");
         }
         let synth = synthesis_pack(&p);
+        let threaded = threaded_pack(&p);
         // Every reason this step builds is met above.
         for r in Reason::ALL {
             assert!(
-                pack.dropped_for(r) + placed.dropped_for(r) + synth.dropped_for(r) > 0,
+                pack.dropped_for(r)
+                    + placed.dropped_for(r)
+                    + synth.dropped_for(r)
+                    + threaded.dropped_for(r)
+                    > 0,
                 "{}",
                 r.as_str()
             );
@@ -752,6 +845,7 @@ mod tests {
             links: &links,
             now_ms: 0,
             retention: &BTreeMap::new(),
+            threads: None,
         };
         let pack = recall(&v1, &asker, cands(), &p);
         assert_eq!(pack.admitted[0].candidate.node_id, "old");

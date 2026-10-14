@@ -101,6 +101,10 @@ impl Core {
             budget_tokens: None,
             science: memory.science_for(arm),
             activation,
+            threads: p
+                .session_id
+                .as_deref()
+                .and_then(|s| self.runner.thread_scene(Some(s), &p.query, false)),
         };
         Ok(memory.manifest(
             &scene,

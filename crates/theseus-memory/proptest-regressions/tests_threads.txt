@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 3f03765c630b84fad65718ab15c834cc1bc1b6f361865237bfb7f15a2a610784 # shrinks to here = None, names = [], scores = [0.001], sessions = ["ses_fix", "ses_fix", "ses_fix", "ses_fix", "ses_fix", "ses_fix", "ses_fix", "ses_fix", "ses_fix", "ses_fix", "ses_fix", "ses_fix"]

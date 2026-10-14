@@ -668,6 +668,7 @@ async fn the_synthesis_arm_admits_a_checked_one_alone() {
             links: &[],
             now_ms: 0,
             retention: &BTreeMap::new(),
+            threads: None,
         };
         theseus_memory::recall::recall(
             s,

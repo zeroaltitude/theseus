@@ -894,6 +894,8 @@ async fn a_jev_notice_goes_to_the_owners_dm_and_a_press_there_labels_it() {
 
 mod earned;
 mod remind;
+mod seal;
+mod thread_ask;
 mod threads;
 
 /// A message with a Jev notice's Noise button for `judgment`, posted in

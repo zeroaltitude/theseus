@@ -169,6 +169,8 @@ impl ToolRuntime {
             input,
             &plan.summary,
         );
+        // A sealed thread's read asks the owner first (theseus-f2g0).
+        let decision = crate::thread_read::gate(self, tool, input, decision);
         seen(Layer::Hold, &decision);
         // An MCP client's session (step 41b): its calls that act wait.
         let decision =
