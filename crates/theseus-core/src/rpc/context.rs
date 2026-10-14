@@ -172,13 +172,22 @@ impl Core {
                     rec.kind,
                     compilation.map(|c| c.manifest.memberships.as_slice()),
                 );
-                let now = manifest_for(&built.spec, &self.catalog, None, false);
+                // The tools the request would send after this compilation.
+                let mut sent = built.spec.clone();
+                sent.tools =
+                    crate::tools_defer::sent_tools(&built.spec, compilation.map(|c| &c.manifest));
+                let now = manifest_for(&sent, &self.catalog, None, false);
                 let then = compilation.map(|c| &c.manifest);
                 out.digest_now = now.system_digest.clone();
                 out.digest_then = then.map(|m| m.system_digest.clone());
                 out.unchanged = then.map(|m| m.system_digest == now.system_digest);
-                out.parts =
-                    system_parts(&built, &now, then, TokenRates::of(&target.model), private);
+                out.parts = system_parts(
+                    (&built, &sent.tools),
+                    &now,
+                    then,
+                    TokenRates::of(&target.model),
+                    private,
+                );
             }
         }
     }
@@ -436,7 +445,7 @@ fn episode_shown(
 
 /// The system's parts and the tools, each against the turn's manifest.
 fn system_parts(
-    built: &Built,
+    (built, sent): (&Built, &[serde_json::Value]),
     now: &Manifest,
     then: Option<&Manifest>,
     rates: TokenRates,
@@ -525,18 +534,37 @@ fn system_parts(
             ..ContextPart::default()
         });
     }
-    let tools = serde_json::to_string(&built.spec.tools).unwrap_or_default();
-    out.push(ContextPart {
+    out.push(tools_part(sent, now, then, rates));
+    out
+}
+
+/// The tools part: the tools the request sent, a deferred one a constant
+/// (theseus-7m7w.2), against the turn's manifest.
+fn tools_part(
+    sent: &[serde_json::Value],
+    now: &Manifest,
+    then: Option<&Manifest>,
+    rates: TokenRates,
+) -> ContextPart {
+    let word = |same: bool| if same { "same" } else { "changed" };
+    let tools = serde_json::to_string(sent).unwrap_or_default();
+    let deferred = sent
+        .iter()
+        .filter(|t| t.get("defer_loading") == Some(&serde_json::Value::Bool(true)))
+        .count();
+    ContextPart {
         block: "tools".into(),
-        name: format!("{} tools", built.spec.tools.len()),
+        name: match deferred {
+            0 => format!("{} tools", sent.len()),
+            n => format!("{} tools, {n} deferred", sent.len()),
+        },
         bytes: tools.len() as u64,
-        tokens: json_tokens(tools.len(), rates),
+        tokens: json_tokens(crate::tools_defer::tools_bytes(sent) as usize, rates),
         digest: Some(now.tools_digest.clone()),
         then: then.map(|m| word(m.tools_digest == now.tools_digest).to_string()),
         note: Some(now.tools.join(", ")),
         ..ContextPart::default()
-    });
-    out
+    }
 }
 
 /// The turns of `compiles` (oldest first), newest first: each turn's first

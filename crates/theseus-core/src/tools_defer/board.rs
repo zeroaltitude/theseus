@@ -82,6 +82,9 @@ pub struct TurnUse {
 struct State {
     kinds: BTreeMap<PlaceKind, Stats>,
     convos: BTreeMap<String, Convo>,
+    /// The conversations' names, oldest note first: the notes of a long-idle
+    /// one go (`MAX_CONVOS`), and a search finds a surfaced tool again.
+    order: std::collections::VecDeque<String>,
     /// Whether the ledger's rows have been read (health says so).
     warmed: bool,
     /// When this process counted its first turn: the rows from then on are
@@ -94,13 +97,53 @@ struct State {
 #[derive(Default)]
 pub struct Board {
     state: Mutex<State>,
+    /// Where `theseus.tools.events` goes, once telemetry is built.
+    telemetry: std::sync::OnceLock<crate::telemetry::Telemetry>,
 }
+
+/// Conversations whose notes are kept; the oldest go past it.
+const MAX_CONVOS: usize = 256;
 
 /// Ledger days kept in memory: twice the longest window anyone is likely to
 /// set, trimmed as rows arrive.
 const KEEP_DAYS: u64 = 60;
 
+impl State {
+    /// A conversation's notes, made if new; a new one past `MAX_CONVOS`
+    /// takes the place of the oldest.
+    fn convo(&mut self, session: &str) -> &mut Convo {
+        if !self.convos.contains_key(session) {
+            if self.order.len() >= MAX_CONVOS {
+                if let Some(old) = self.order.pop_front() {
+                    self.convos.remove(&old);
+                }
+            }
+            self.order.push_back(session.to_string());
+        }
+        self.convos.entry(session.to_string()).or_default()
+    }
+}
+
 impl Board {
+    /// Count the board's events in telemetry from now on.
+    pub fn export_to(&self, t: crate::telemetry::Telemetry) {
+        let _ = self.telemetry.set(t);
+    }
+
+    /// `theseus.tools.events`, once for each of `families`.
+    pub fn emit<'a>(
+        &self,
+        event: &str,
+        place: PlaceKind,
+        families: impl IntoIterator<Item = &'a String>,
+    ) {
+        if let Some(t) = self.telemetry.get() {
+            for f in families {
+                t.record_tools(event, place.as_str(), f);
+            }
+        }
+    }
+
     fn st(&self) -> std::sync::MutexGuard<'_, State> {
         self.state.lock().unwrap_or_else(|p| p.into_inner())
     }
@@ -149,7 +192,7 @@ impl Board {
         hidden: Vec<HiddenTool>,
     ) {
         let mut st = self.st();
-        let c = st.convos.entry(session.to_string()).or_default();
+        let c = st.convo(session);
         c.kind = Some(kind);
         c.mechanism = mechanism;
         c.loaded = loaded;
@@ -185,7 +228,7 @@ impl Board {
     /// conversation, and their families as asked for.
     pub fn searched(&self, session: &str, query: &str, surfaced: &[String]) {
         let mut st = self.st();
-        let c = st.convos.entry(session.to_string()).or_default();
+        let c = st.convo(session);
         let mut families = BTreeSet::new();
         for w in surfaced {
             c.surfaced.insert(w.clone());
@@ -208,7 +251,7 @@ impl Board {
     /// the conversation's next boundary.
     pub fn wants(&self, session: &str, query: &str, families: &[String], tools: &[String]) {
         let mut st = self.st();
-        let c = st.convos.entry(session.to_string()).or_default();
+        let c = st.convo(session);
         for f in families {
             c.wanted.insert(f.clone());
             c.used.insert(f.clone());
@@ -225,7 +268,7 @@ impl Board {
     /// turn that surfaced it was followed by the call.
     pub fn called(&self, session: &str, wire: &str) {
         let mut st = self.st();
-        let c = st.convos.entry(session.to_string()).or_default();
+        let c = st.convo(session);
         let f = family::of_wire(wire);
         c.used.insert(f.clone());
         c.turn_called.insert(f);
@@ -239,7 +282,7 @@ impl Board {
     /// A call to a tool the request hid, with no search: a miss.
     pub fn missed(&self, session: &str, miss: Miss) {
         let mut st = self.st();
-        let c = st.convos.entry(session.to_string()).or_default();
+        let c = st.convo(session);
         c.used.insert(miss.family.clone());
         c.misses.push(miss);
     }
@@ -250,7 +293,7 @@ impl Board {
         let mut st = self.st();
         st.live_since.get_or_insert(now_ms);
         let (kind, mechanism, loaded, deferred, searches, misses, unused, called) = {
-            let c = st.convos.entry(session.to_string()).or_default();
+            let c = st.convo(session);
             let kind = c.kind.unwrap_or(fallback);
             let deferred: BTreeSet<String> = c.hidden.iter().map(|h| h.family.clone()).collect();
             let unused: Vec<String> = c
@@ -406,7 +449,9 @@ impl Board {
 
     /// Forget a conversation's notes (its session ended).
     pub fn forget(&self, session: &str) {
-        self.st().convos.remove(session);
+        let mut st = self.st();
+        st.convos.remove(session);
+        st.order.retain(|s| s != session);
     }
 }
 
@@ -431,6 +476,32 @@ mod tests {
             family: family::of_wire(wire),
             line: "x".into(),
         }
+    }
+
+    #[test]
+    fn the_oldest_conversations_notes_go_past_the_cap() {
+        let b = Board::default();
+        for i in 0..MAX_CONVOS + 5 {
+            b.note_request(
+                &format!("s{i}"),
+                PlaceKind::Cli,
+                None,
+                Default::default(),
+                vec![hidden("aws_call")],
+            );
+        }
+        assert!(b.st().convos.len() <= MAX_CONVOS);
+        assert!(
+            b.is_unsurfaced("s0", "aws_call").is_none(),
+            "the oldest was forgotten"
+        );
+        assert!(b
+            .is_unsurfaced(&format!("s{}", MAX_CONVOS + 4), "aws_call")
+            .is_some());
+        b.forget(&format!("s{}", MAX_CONVOS + 4));
+        assert!(b
+            .is_unsurfaced(&format!("s{}", MAX_CONVOS + 4), "aws_call")
+            .is_none());
     }
 
     #[test]

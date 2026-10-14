@@ -1219,7 +1219,9 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   whether a call followed in its turn); a turn's row `tools.used` carries the place kind, the families loaded, used,
   searched and loaded-but-unused, and is what the next selection counts. The counts (`board.rs`) are read from those
   rows once after serving (`Core::warm_tools_use`) and kept by each turn; the conversation's notes (surfaced tools,
-  families asked for) are memory only. `theseus tools` (over `tool.defer`), health's `tools:` line and the cockpit's
+  families asked for) are memory only (the oldest of 256 go). A server tool's streamed input (the search's query) is assembled
+  into its block like a call's (`provider.rs`). The metric is `theseus.tools.events` by event (used, searched, missed,
+  unused), place and family. `theseus tools` (over `tool.defer`), health's `tools:` line and the cockpit's
   Actions panel show it all. Per-message additions are the `extra` argument of `Board::select` (Jev's branches, later).
   Tests: `tests_defer.rs` (whole turns), `tools_defer/*`'s own.
 - **Parked tasks** (28b; theseus-vug): `parked.rs`, health's `tasks.parked`: each task that cannot progress by itself,

@@ -565,3 +565,41 @@ async fn the_ledgers_rows_rebuild_the_counts_after_a_restart() {
     assert_eq!(back.sum_since(0, |d| &d.missed)["terminals"], 1);
     assert_eq!(back.sum_since(0, |d| &d.searched)["web"], 1);
 }
+
+/// `context.explain` says the tools part as the request sent it: its digest is
+/// the turn's compilation's, so the part reads `same`, and its tokens count the
+/// deferred tools as the constant they cost.
+#[tokio::test]
+async fn context_explain_reads_the_tools_a_request_sent_not_the_whole_catalog() {
+    let r = rig();
+    let sid = session(&r.core, None);
+    say(&r.core, &sid, "hello").await;
+    let x = r
+        .core
+        .context_explain(
+            &theseus_protocol::context::ContextExplainParams {
+                session_id: sid.clone(),
+                turn_id: None,
+            },
+            true,
+        )
+        .unwrap();
+    let tools = x
+        .parts
+        .iter()
+        .find(|p| p.block == "tools")
+        .expect("a tools part");
+    assert_eq!(tools.then.as_deref(), Some("same"), "{tools:?}");
+    assert!(tools.name.contains("deferred"), "{}", tools.name);
+    // The tokens are the loaded tools and the constants, far under the whole catalog's.
+    let whole: u64 = r.requests()[0]
+        .tools
+        .iter()
+        .map(|t| serde_json::to_string(t).unwrap().len() as u64)
+        .sum();
+    assert!(
+        tools.tokens * 3 < whole,
+        "{} tokens for {whole} bytes",
+        tools.tokens
+    );
+}

@@ -26,6 +26,42 @@ const FAKE_OP: &str = "#!/bin/sh\n\
     \x20 *) exit 1 ;;\n\
     esac\n";
 
+/// The daemon on the rig's config, state dir and socket.
+fn spawn(dir: &std::path::Path) -> Daemon {
+    let path = |p: &str| dir.join(p);
+    let theseusd = PathBuf::from(env!("CARGO_BIN_EXE_theseusd"));
+    let log = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path("theseusd.log"))
+        .unwrap();
+    Daemon::spawn(
+        Command::new(&theseusd)
+            .arg("--config")
+            .arg(path("config.toml"))
+            .arg("--state-dir")
+            .arg(path("state"))
+            .arg("--socket")
+            .arg(path("sock"))
+            .env(
+                "PATH",
+                format!(
+                    "{}:{}",
+                    path("bin").display(),
+                    std::env::var("PATH").unwrap_or_default()
+                ),
+            )
+            .env("OP_SERVICE_ACCOUNT_TOKEN", "test-not-a-token")
+            .env_remove("THESEUS_OP_TOKEN_FILE")
+            .env_remove("THESEUS_CONFIG")
+            .env_remove("THESEUS_STATE_DIR")
+            .env_remove("THESEUS_SOCKET")
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(log),
+    )
+}
+
 struct Rig {
     dir: tempfile::TempDir,
     daemon: Daemon,
@@ -70,32 +106,7 @@ impl Rig {
         // The default: on.
         table(table(&mut t, "tools"), "defer").insert("enabled".into(), true.into());
         std::fs::write(path("config.toml"), toml::to_string(&t).unwrap()).unwrap();
-        let log = std::fs::File::create(path("theseusd.log")).unwrap();
-        let daemon = Daemon::spawn(
-            Command::new(&theseusd)
-                .arg("--config")
-                .arg(path("config.toml"))
-                .arg("--state-dir")
-                .arg(path("state"))
-                .arg("--socket")
-                .arg(path("sock"))
-                .env(
-                    "PATH",
-                    format!(
-                        "{}:{}",
-                        path("bin").display(),
-                        std::env::var("PATH").unwrap_or_default()
-                    ),
-                )
-                .env("OP_SERVICE_ACCOUNT_TOKEN", "test-not-a-token")
-                .env_remove("THESEUS_OP_TOKEN_FILE")
-                .env_remove("THESEUS_CONFIG")
-                .env_remove("THESEUS_STATE_DIR")
-                .env_remove("THESEUS_SOCKET")
-                .stdin(Stdio::null())
-                .stdout(Stdio::null())
-                .stderr(log),
-        );
+        let daemon = spawn(dir.path());
         let r = Self { dir, daemon, model };
         r.wait("the secrets", || {
             r.call("health", Value::Null)
@@ -103,6 +114,22 @@ impl Rig {
                 .filter(|h| h["secrets"]["state"] == "ready")
         });
         r
+    }
+
+    /// A clean stop and a start on the same state dir.
+    fn restart(&mut self) {
+        self.call("shutdown", Value::Null).unwrap();
+        let t0 = Instant::now();
+        while self.daemon.try_wait().is_none() {
+            assert!(t0.elapsed() < Duration::from_secs(30), "no stop in 30 s");
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        self.daemon = spawn(self.dir.path());
+        self.wait("the secrets", || {
+            self.call("health", Value::Null)
+                .ok()
+                .filter(|h| h["secrets"]["state"] == "ready")
+        });
     }
 
     fn path(&self, p: &str) -> PathBuf {
@@ -246,4 +273,45 @@ fn a_call_to_a_deferred_tool_nothing_found_is_not_run_and_is_counted() {
         last.contains("tool_search_tool_bm25") && last.contains("is not loaded"),
         "{last}"
     );
+}
+
+#[test]
+fn a_restart_reads_the_ledgers_tool_use_back_and_keeps_a_conversations_tools() {
+    let mut r = Rig::start();
+    let first = r.call("session.open", json!({"label": "long"})).unwrap();
+    let sid = first["session_id"].clone();
+    let say = |r: &Rig, text: &str| {
+        r.call(
+            "turn.submit",
+            json!({"session_id": sid, "input": text, "author": "test", "attachments": []}),
+        )
+        .unwrap()
+    };
+    say(&r, "hello");
+    say(&r, "HIDDEN");
+    let before = r.model.requests()[0]["tools"].clone();
+    r.restart();
+    // The counts are read from the ledger once the daemon serves.
+    let list = r.wait("the ledger read", || {
+        let l = r.call("tool.defer", Value::Null).ok()?;
+        l["warmed"].as_bool().filter(|w| *w).map(|_| l)
+    });
+    let cli = list["places"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|p| p["place"] == "cli")
+        .unwrap();
+    assert_eq!(cli["turns"], 2, "{cli}");
+    let terminals = cli["families"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|f| f["family"] == "terminals")
+        .unwrap();
+    assert_eq!(terminals["missed"], 1, "{terminals}");
+    // The conversation goes on with the tools it had: the manifest, not memory.
+    say(&r, "after the restart");
+    let after = r.model.requests().pop().unwrap()["tools"].clone();
+    assert_eq!(before, after);
 }

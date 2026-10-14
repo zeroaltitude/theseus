@@ -281,6 +281,13 @@ const CANCELS: Instrument = Instrument {
     kind: Kind::IntSum,
 };
 
+const TOOLS_EVENTS: Instrument = Instrument {
+    name: "theseus.tools.events",
+    description: "Tool families' use per turn (theseus-7m7w.2), by place kind and family: used, searched for, missed (a call to a tool the request did not load), and loaded but unused by its conversation",
+    unit: "",
+    kind: Kind::IntSum,
+};
+
 const INDEX_LAG_BYTES: Instrument = Instrument {
     name: "theseus.index.lag_bytes",
     description:
@@ -341,7 +348,7 @@ const VOICE_RESUMED: Instrument = Instrument {
 };
 
 /// Every instrument, in the order a request lists them.
-const INSTRUMENTS: [&Instrument; 48] = [
+const INSTRUMENTS: [&Instrument; 49] = [
     &TURNS,
     &TOKENS,
     &PROVIDER_ERRORS,
@@ -390,6 +397,7 @@ const INSTRUMENTS: [&Instrument; 48] = [
     &VOICE_RESUMED,
     &VOICE_DEAF,
     &KEEP_WARM_READS,
+    &TOOLS_EVENTS,
 ];
 
 /// A judgment's attributes (M5 23b).
@@ -774,6 +782,17 @@ impl Metrics {
             ("theseus.cancel.state", Attr::S(state.to_string())),
         ];
         self.add(&CANCELS, attrs, 1);
+    }
+
+    /// A tool family's use in a turn (theseus-7m7w.2): `event` is used,
+    /// searched, missed or unused.
+    pub(super) fn tools_event(&mut self, event: &str, place: &str, family: &str) {
+        let attrs = vec![
+            ("theseus.tools.event", Attr::S(event.to_string())),
+            ("theseus.tools.place", Attr::S(place.to_string())),
+            ("theseus.tools.family", Attr::S(family.to_string())),
+        ];
+        self.add(&TOOLS_EVENTS, attrs, 1);
     }
 
     /// A voice call's cut (`cut`), resumed stop (`resumed`, theseus-qb8o)

@@ -73,11 +73,23 @@ fn config(root: &Path, state: &Path, summary: &str) -> Config {
 }
 
 fn build(dir: &Path, summary: &str, model: Arc<FakeProvider>, glm: Arc<FakeProvider>) -> Arc<Core> {
+    build_with(dir, summary, model, glm, false)
+}
+
+/// `build`, its tools deferred as a daemon's are when `defer` (theseus-7m7w.2).
+fn build_with(
+    dir: &Path,
+    summary: &str,
+    model: Arc<FakeProvider>,
+    glm: Arc<FakeProvider>,
+    defer: bool,
+) -> Arc<Core> {
     let root = dir.join("work");
     std::fs::create_dir_all(&root).unwrap();
     let cfg = config(&root.canonicalize().unwrap(), dir, summary);
     let store = Store::open(&dir.join("store")).unwrap();
     let mut parts = crate::rpc::Parts::for_tests(cfg, model, store);
+    parts.cfg.tools.defer.enabled = defer;
     parts.providers.insert("zai".into(), glm);
     Core::build(parts).unwrap()
 }
@@ -87,6 +99,20 @@ fn rig_with(summary: &str, model: Vec<Scripted>, glm: Vec<Scripted>) -> Rig {
     let model = Arc::new(FakeProvider::scripted(model));
     let glm = Arc::new(FakeProvider::scripted(glm));
     let core = build(dir.path(), summary, model.clone(), glm.clone());
+    Rig {
+        core,
+        model,
+        glm,
+        dir,
+    }
+}
+
+/// `rig`, its tools deferred as a daemon's are (theseus-7m7w.2).
+fn rig_deferring(model: Vec<Scripted>, glm: Vec<Scripted>) -> Rig {
+    let dir = tempfile::tempdir().unwrap();
+    let model = Arc::new(FakeProvider::scripted(model));
+    let glm = Arc::new(FakeProvider::scripted(glm));
+    let core = build_with(dir.path(), "glm", model.clone(), glm.clone(), true);
     Rig {
         core,
         model,
@@ -200,6 +226,39 @@ pub(crate) async fn until_recompiled(r: &Rig, sid: &str, tokens: usize) -> usize
         }
     }
     panic!("never rang");
+}
+
+/// A compaction is a boundary, and its request carries the tools its
+/// compilation's manifest names: the loaded families as the selection chose
+/// them, the rest deferred with the search tool first, not the whole catalog
+/// (theseus-7m7w.2).
+#[tokio::test]
+async fn a_compaction_sends_the_tools_its_manifest_names() {
+    let r = rig_deferring(
+        vec![],
+        vec![summary("The keeper logged six tides.", 9_000, 120)],
+    );
+    let sid = session(&r.core);
+    until_recompiled(&r, &sid, 6_000).await;
+    let comps = r.core.store.session_compilations(&sid).unwrap();
+    let c = comps.last().unwrap();
+    assert_eq!(c.strategy, "compaction");
+    let sent = r.model.requests();
+    let q = sent.last().unwrap();
+    assert_eq!(q.tools[0]["name"], crate::tools_defer::SEARCH_TOOL);
+    let term = q.tools.iter().find(|t| t["name"] == "term_open").unwrap();
+    assert_eq!(term["defer_loading"], true);
+    let digest = theseus_kernel::digest_json(&Value::Array(q.tools.clone()));
+    assert_eq!(
+        c.manifest.tools_digest,
+        digest[..16],
+        "the manifest names the tools the request carried"
+    );
+    assert!(c
+        .manifest
+        .loaded
+        .as_ref()
+        .is_some_and(|l| l.iter().any(|f| f == "files")));
 }
 
 /// Where the ring would cut, `glm` summarizes the dropped range: the

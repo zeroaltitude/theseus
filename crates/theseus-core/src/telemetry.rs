@@ -39,6 +39,8 @@ mod tests_recall;
 #[cfg(test)]
 pub(crate) mod tests_resumed;
 #[cfg(test)]
+mod tests_tools;
+#[cfg(test)]
 mod tests_voice;
 
 use std::sync::Arc;
@@ -286,6 +288,16 @@ impl Telemetry {
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .cancel(backend, state);
+    }
+
+    /// A tool family's use in a turn (theseus-7m7w.2), by event, place kind
+    /// and family.
+    pub fn record_tools(&self, event: &str, place: &str, family: &str) {
+        let Some(s) = self.shared() else { return };
+        s.metrics
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .tools_event(event, place, family);
     }
 
     /// A keep-warm read (theseus-ezeg), by outcome: read, refused, failed.

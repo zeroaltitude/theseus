@@ -90,6 +90,52 @@ pub struct Deferral {
     pub resolved: bool,
 }
 
+/// What a request's tools cost in bytes of tool JSON, as its estimate counts
+/// them: a deferred tool is a constant for all of them, the search tool its own.
+pub fn tools_bytes(tools: &[Value]) -> u64 {
+    let len = |v: &Value| serde_json::to_string(v).map_or(0, |s| s.len() as u64);
+    let mut bytes = 0;
+    let mut deferred = false;
+    for t in tools {
+        if t.get("defer_loading") == Some(&Value::Bool(true)) {
+            deferred = true;
+        } else if t["name"] == SEARCH_TOOL {
+            bytes += SEARCH_BYTES;
+        } else {
+            bytes += len(t);
+        }
+    }
+    bytes + if deferred { DEFERRED_BYTES } else { 0 }
+}
+
+/// The tools a request on `spec` would send after the compilation
+/// `current` (an append's): its recorded loaded set, or with none the whole
+/// catalog; with no compilation the spec's fresh choice. `context.explain`
+/// says the parts of the request this way.
+pub fn sent_tools(spec: &RequestSpec, current: Option<&crate::compiler::Manifest>) -> Vec<Value> {
+    let Some(fresh) = spec.defer.as_ref().filter(|d| !d.resolved) else {
+        return spec.tools.clone();
+    };
+    match current {
+        None => resolve(&spec.tools, fresh),
+        Some(m) => match &m.loaded {
+            Some(l) => resolve(
+                &spec.tools,
+                &Deferral {
+                    loaded: l.iter().cloned().collect(),
+                    ..fresh.clone()
+                },
+            ),
+            None => spec
+                .tools
+                .iter()
+                .filter(|t| t["name"] != FIND)
+                .cloned()
+                .collect(),
+        },
+    }
+}
+
 /// The families a spec's request loaded, as its manifest records them.
 pub fn loaded_of(spec: &RequestSpec) -> Option<Vec<String>> {
     spec.defer

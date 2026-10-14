@@ -253,7 +253,24 @@ mod tests {
                 assert!(summary(f).is_some(), "{} defaults name {f}", k.as_str());
             }
         }
-        let src = include_str!("family.rs");
+        // Every file of the feature, but a test module's own words.
+        let files = [
+            include_str!("family.rs"),
+            include_str!("select.rs"),
+            include_str!("board.rs"),
+            include_str!("find.rs"),
+            include_str!("list.rs"),
+            include_str!("../tools_defer.rs"),
+            include_str!("../turn/defer_step.rs"),
+            include_str!("../config/defer.rs"),
+        ];
+        // The template's own section.
+        let template = include_str!("../../config/theseus.example.toml");
+        let section = template
+            .split("[tools.defer]")
+            .nth(1)
+            .and_then(|r| r.split("\n[").next())
+            .unwrap();
         let banned = [
             "terminal-bench",
             "terminal_bench",
@@ -261,10 +278,15 @@ mod tests {
             "swe-bench",
             "tbench",
         ];
-        // The test's own list is the one place these words appear.
-        let body = src.split("#[cfg(test)]").next().unwrap().to_lowercase();
-        for w in banned {
-            assert!(!body.contains(w), "family.rs names {w}");
+        let bodies = files
+            .iter()
+            .map(|src| src.split("#[cfg(test)]").next().unwrap())
+            .chain([section]);
+        for body in bodies {
+            let body = body.to_lowercase();
+            for w in banned {
+                assert!(!body.contains(w), "a file of the feature names {w}");
+            }
         }
     }
 }

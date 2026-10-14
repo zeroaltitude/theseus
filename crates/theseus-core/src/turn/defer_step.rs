@@ -30,13 +30,16 @@ impl TurnRunner {
     /// loads now, and how the model reaches the rest. Nothing when
     /// `[tools.defer]` is off.
     pub(super) fn defer_tools(&self, t: &Turn<'_>, spec: &mut RequestSpec) {
+        spec.defer = self.deferral(t.tc.session_id, t.tc.task.is_some(), spec);
+    }
+
+    /// The fresh choice for a session's request on `spec`.
+    pub(crate) fn deferral(&self, sid: &str, task: bool, spec: &RequestSpec) -> Option<Deferral> {
         let cfg = &self.cfg.tools.defer;
-        spec.defer = None;
         if !cfg.enabled {
-            return;
+            return None;
         }
-        let sid = t.tc.session_id;
-        let kind = self.place_kind(sid, t.tc.task.is_some());
+        let kind = self.place_kind(sid, task);
         let mechanism = match self.catalog.get(&spec.model) {
             Some(e) if e.tool_search => Mechanism::Search,
             _ => Mechanism::Find,
@@ -50,11 +53,11 @@ impl TurnRunner {
             &known,
             &BTreeSet::new(),
         );
-        spec.defer = Some(Deferral {
+        Some(Deferral {
             mechanism,
             loaded: sel.loaded(),
             resolved: false,
-        });
+        })
     }
 
     /// What the loop's compile sent: the families it loaded and the tools it
@@ -144,6 +147,15 @@ impl TurnRunner {
         if turn.loaded.is_empty() && turn.used.is_empty() && turn.searches.is_empty() {
             return;
         }
+        let board = &self.tools.defer;
+        board.emit("used", turn.kind, &turn.used);
+        board.emit(
+            "searched",
+            turn.kind,
+            turn.searches.iter().flat_map(|s| &s.families),
+        );
+        board.emit("missed", turn.kind, turn.misses.iter().map(|m| &m.family));
+        board.emit("unused", turn.kind, &turn.unused);
         t.record(&ToolsUsed { turn: &turn });
         for s in &turn.searches {
             t.record(&ToolsSearched {

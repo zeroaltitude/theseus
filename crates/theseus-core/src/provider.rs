@@ -122,22 +122,9 @@ impl ProviderRequest {
     /// and the messages.
     pub fn census(&self) -> Census {
         let mut c = Census::of_messages(&self.messages);
-        // Deferred tools cost a constant, whatever their schemas (the
-        // provider keeps them out of the context until a search finds them),
-        // and the search tool its own figure (theseus-7m7w.2).
-        let mut deferred = false;
-        for t in &self.tools {
-            if t.get("defer_loading") == Some(&Value::Bool(true)) {
-                deferred = true;
-            } else if t["name"] == crate::tools_defer::SEARCH_TOOL {
-                c.json += crate::tools_defer::SEARCH_BYTES;
-            } else {
-                c.json += json_len(t);
-            }
-        }
-        if deferred {
-            c.json += crate::tools_defer::DEFERRED_BYTES;
-        }
+        // Deferred tools cost a constant, whatever their schemas, and the
+        // search tool its own figure (theseus-7m7w.2).
+        c.json += crate::tools_defer::tools_bytes(&self.tools);
         for b in &self.system {
             c.messages += 1;
             c.text += str_len(&b["text"]);
@@ -1194,7 +1181,16 @@ impl Accumulator {
             StreamEvent::ContentBlockStop { index } => {
                 if let Some(json) = self.partial_json.remove(&index) {
                     if let Some(block @ Value::Object(_)) = self.blocks.get_mut(&index) {
-                        if block.get("type").and_then(Value::as_str) == Some("tool_use") {
+                        // A server tool's input (the tool search's query) streams
+                        // the same way; it is the provider's own call, so one that
+                        // does not parse is left empty and no call of ours.
+                        let server =
+                            block.get("type").and_then(Value::as_str) == Some("server_tool_use");
+                        if server {
+                            if let Ok(v @ Value::Object(_)) = serde_json::from_str::<Value>(&json) {
+                                block["input"] = v;
+                            }
+                        } else if block.get("type").and_then(Value::as_str) == Some("tool_use") {
                             let parsed = if json.trim().is_empty() {
                                 Ok(Value::Object(Default::default()))
                             } else {
@@ -1643,6 +1639,28 @@ mod tests {
         assert!(err.is_none());
         assert_eq!(out.content.len(), 2);
         assert_eq!(out.content[0]["type"], "server_tool_use");
+    }
+
+    /// The tool search's call streams its query as partial JSON, like any
+    /// tool call's input (theseus-7m7w.2): it must land in the block, or the
+    /// history sent back would hold an empty query.
+    #[test]
+    fn a_server_tools_streamed_input_lands_in_its_block() {
+        let (out, _, err) = run(&[
+            r#"data: {"type":"content_block_start","index":0,"content_block":{"type":"server_tool_use","id":"srvtoolu_1","name":"tool_search_tool_bm25","input":{}}}"#,
+            r#"data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\"query\":"}}"#,
+            r#"data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"\"aws bucket\"}"}}"#,
+            r#"data: {"type":"content_block_stop","index":0}"#,
+            r#"data: {"type":"content_block_start","index":1,"content_block":{"type":"tool_search_tool_result","tool_use_id":"srvtoolu_1","content":{"type":"tool_search_tool_search_result","tool_references":[{"type":"tool_reference","tool_name":"aws_call"}]}}}"#,
+            r#"data: {"type":"content_block_stop","index":1}"#,
+            r#"data: {"type":"message_stop"}"#,
+        ]);
+        assert!(err.is_none());
+        assert_eq!(out.content[0]["input"]["query"], "aws bucket");
+        let found = crate::tools_defer::scan::searches_in(&out.content);
+        assert_eq!(found[0].query, "aws bucket");
+        assert_eq!(found[0].tools, ["aws_call"]);
+        assert!(out.invalid_tool_inputs.is_empty());
     }
 
     #[test]

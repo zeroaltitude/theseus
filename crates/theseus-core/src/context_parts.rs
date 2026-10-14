@@ -77,6 +77,7 @@ impl TurnRunner {
             .get_session::<crate::session::SessionRecord>(session);
         spec.session_text =
             self.session_block(dir.ok().flatten().and_then(|r| r.dir).as_deref(), place);
+        spec.defer = self.deferral(session, kind == SessionKind::Task, &spec);
         let header = self.header_parts(target, place);
         let Some(walk) = self.walk(session, place.class) else {
             return Built {
