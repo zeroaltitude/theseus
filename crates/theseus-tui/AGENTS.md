@@ -56,8 +56,8 @@ new lines, the dock again, in synchronized-output mode 2026).
 - `chat/dock.rs`: the dock's rows, from provider functions (`ABOVE_INPUT`: the live line, calls in flight, a question,
   a notice) a later row adds to (cli-tasks puts its task rows there), the input, the command list, and the status line
   as a list of `Segment`s (mode · directory · model · cost; the lowest `keep` goes first when it is too wide).
-- `chat/render_seam.rs`: the one place a reply and a tool call are worded (`reply_lines`, `tool_line`). Plain stand-ins,
-  **replaced at term-render's and tool-words' joins**; nothing else renders text.
+- `chat/render_seam.rs`: the one place a reply and a tool call are worded: `reply_lines` is term-render's markdown
+  renderer, `tool_line` tool-words' `summarize`; nothing else renders text.
 - `chat/editor.rs`: the multi-line input (Ctrl-J, Alt/Shift-Enter, `\` then Enter), this directory's history
   (`$XDG_STATE_HOME/theseus/chat-history.json`, `chat/env.rs`), and the folded paste: more than 5 lines is one chip
   (a private-use character in the buffer, written back whole by `take`), so the whole message is one `turn.submit`.

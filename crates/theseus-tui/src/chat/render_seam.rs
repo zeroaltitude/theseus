@@ -2,13 +2,8 @@
 //! tool did (theseus-cyha). Nothing else in the chat lays out reply text or
 //! words a tool call.
 //!
-//! [`reply_lines`] is term-render's renderer (theseus-rn7s, pointed here at its
-//! join). [`tool_line`] is a plain stand-in, **replaced at tool-words' join**
-//! (theseus-z6au words each tool call): that join points it here, about ten
-//! lines, and nothing else in the chat changes. Until then:
-//!
-//! - [`tool_line`] words a call from its input's `path`, `command`, `argv`,
-//!   `url` or `query`: the verb for the tool, then what it touched.
+//! [`reply_lines`] is term-render's renderer (theseus-rn7s) and [`tool_line`]
+//! tool-words' summarizer (theseus-z6au), each pointed here at its join.
 
 use serde_json::Value;
 use theseus_client::render::md::Markdown;
@@ -26,59 +21,11 @@ pub fn reply_lines(text: &str, width: usize, ansi: bool) -> Vec<String> {
         .collect()
 }
 
-/// A tool call in plain words: `Read README.md`, `Run ./survey.sh`. The
-/// tool's name is the fallback verb, so no call is shown by a bare name when
-/// its input says what it touched.
+/// A tool call in words (tool-words' summarizer, theseus-z6au, pointed here at
+/// its join): `Read README.md`, `Run `./survey.sh``, `Edit tides.py`, the one
+/// wording every surface uses. A model's `fs_read` is the daemon's `fs.read`.
 pub fn tool_line(tool: &str, input: &Value) -> String {
-    let name = tool.replace('_', ".");
-    let verb = match name.as_str() {
-        "fs.read" => "Read",
-        "fs.write" => "Write",
-        "fs.edit" => "Edit",
-        "fs.patch" => "Patch",
-        "fs.list" | "fs.ls" => "List",
-        "fs.glob" => "Find",
-        "fs.grep" | "fs.search" => "Search",
-        "proc.run" => "Run",
-        "git.diff" => "Diff",
-        "git.log" => "Log",
-        "text.diff" => "Compare",
-        "web.fetch" => "Fetch",
-        "web.search" => "Search the web",
-        "term.read" => "Read terminal",
-        "job.read" => "Read job",
-        "job.wait" => "Wait for job",
-        "job.stop" => "Stop job",
-        _ => "",
-    };
-    let target = target(input);
-    match (verb.is_empty(), target.is_empty()) {
-        (true, true) => tool.to_string(),
-        (true, false) => format!("{tool} {target}"),
-        (false, true) => verb.to_string(),
-        (false, false) => format!("{verb} {target}"),
-    }
-}
-
-/// What a call touched: its path, its command, its argv joined, its URL or
-/// query, on one line.
-fn target(input: &Value) -> String {
-    for key in ["path", "file", "command", "url", "query", "name"] {
-        if let Some(s) = input.get(key).and_then(Value::as_str) {
-            return one_line(s);
-        }
-    }
-    if let Some(argv) = input.get("argv").and_then(Value::as_array) {
-        let words: Vec<&str> = argv.iter().filter_map(Value::as_str).collect();
-        if !words.is_empty() {
-            return one_line(&words.join(" "));
-        }
-    }
-    String::new()
-}
-
-fn one_line(s: &str) -> String {
-    s.split_whitespace().collect::<Vec<_>>().join(" ")
+    theseus_protocol::term::words::summarize(&tool.replace('_', "."), input)
 }
 
 #[cfg(test)]

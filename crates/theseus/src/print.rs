@@ -90,10 +90,11 @@ pub struct Printer<O: Write = Stdout, E: Write = Stderr> {
     colour: bool,
 }
 
-/// Colour on `err`: a terminal, `NO_COLOR` unset or empty, `TERM` not `dumb`.
+/// Colour on `err`: a terminal, `NO_COLOR` unset or empty, `TERM` not `dumb`,
+/// and no `--plain` (term-render's flag: the text as it always was).
 fn colour_on(err: &impl IsTerminal) -> bool {
     let env = |k: &str| std::env::var(k).ok();
-    colour_for(err.is_terminal(), env("NO_COLOR"), env("TERM"))
+    !style::is_plain() && colour_for(err.is_terminal(), env("NO_COLOR"), env("TERM"))
 }
 
 fn colour_for(tty: bool, no_color: Option<String>, term: Option<String>) -> bool {
