@@ -117,7 +117,7 @@ async fn a_granted_prefix_runs_with_a_notice_in_its_own_conversation_alone() {
     assert_eq!(notices.len(), 1);
     assert_eq!(
         notices[0]["setting"],
-        format!("session grant {id}").as_str()
+        format!("ran under your grant: echo hello, this conversation, {id}").as_str()
     );
     let rule = notices[0]["rule"].as_str().unwrap();
     assert!(
@@ -379,12 +379,11 @@ fn the_gate_applies_a_grant_where_an_earned_one_would_alone() {
     let hello = json!({"argv": ["echo", "hello", "x"], "cwd": r.root});
     let d = ordered(&r, "ses_mine", hello.clone(), Private);
     assert_eq!(d.posture, Posture::Notify, "{}", d.reason);
-    assert!(d
-        .notify
-        .as_ref()
-        .unwrap()
-        .setting
-        .starts_with("session grant sgr_"));
+    let setting = &d.notify.as_ref().unwrap().setting;
+    assert!(
+        setting.starts_with("ran under your grant: echo hello, this conversation, sgr_"),
+        "{setting}"
+    );
     assert_eq!(
         ordered(&r, "ses_mine", hello.clone(), Shared).posture,
         Posture::Approve

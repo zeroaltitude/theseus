@@ -55,8 +55,9 @@ pub const RUN_TOOL: &str = "proc.run";
 /// The tools an edits grant covers.
 pub const EDIT_TOOLS: [&str; 3] = ["fs.edit", "fs.write", "fs.patch"];
 
-/// A setting's prefix: a notice's `setting` of `session grant sgr_…`.
-pub const SETTING: &str = "session grant ";
+/// A notice's `setting` begins so: `ran under your grant: python3 -m
+/// unittest, this conversation, sgr_…`.
+pub const SETTING: &str = "ran under your grant: ";
 
 /// Modules an interpreter's `-m` runs that run what they are given.
 const CODE_MODULES: &[&str] = &[
@@ -550,14 +551,14 @@ pub(crate) fn gate(
         _ => g.pattern.clone(),
     };
     let rule = format!(
-        "{} — notify (ran under your grant: {what}, this conversation; `theseus policy revoke {}` ends it)",
+        "{} — notify ({SETTING}{what}, this conversation; `theseus policy revoke {}` ends it)",
         tool.name(),
         g.id
     );
     Decision {
         notify: Some(Notice {
             kind: "notify".into(),
-            setting: format!("{SETTING}{}", g.id),
+            setting: format!("{SETTING}{what}, this conversation, {}", g.id),
             rule: rule.clone(),
         }),
         ..Decision::new(Posture::Notify, rule)

@@ -1227,7 +1227,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   the grant is the daemon's offer, its `policy.granted` row in the answer's frame (`confirm_action_full`'s `extra`).
   The gate's step is `grants::gate` in `toolrun/order.rs`, right after `earned::gate` and with its conditions: a
   covered call (`grants::covers`, the one rule modes calls: the normalised prefix and the program as written, no URL
-  after it; or every resource canonical under the root) runs at `notify`, its notice `session grant sgr_…`. In memory
+  after it; or every resource canonical under the root) runs at `notify`, its notice's setting `ran under your grant: <what>, this conversation, sgr_…`. In memory
   per session (`Earned::scoped`, one lookup a call); `policy.grants` lists them, `policy.revoke sgr_…` ends one
   (`policy.grant_ended`), a retire or a supersession ends a session's in its frame, and `load_grants` reads them
   back after serving (`warm_grants`). No store format change: new ledger kinds only. Tests: `policy/grants/tests.rs`,
