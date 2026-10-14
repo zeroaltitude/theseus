@@ -133,6 +133,9 @@ impl SessionBus {
     /// connection that sees the whole board, and to a scoped connection its
     /// own, cut to its roots and scrubbed.
     pub fn publish_work(&self, out: &WorkOut, scrubber: &Scrubber) {
+        if self.work.lock().unwrap().is_empty() {
+            return;
+        }
         let changed = Message::from(Event::WorkChanged(WorkChanged {
             position: out.position,
             at_ms: out.at_ms,

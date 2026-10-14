@@ -23,6 +23,9 @@ use tokio::sync::{mpsc, watch, OnceCell};
 
 use crate::Core;
 
+pub static DBG_BOARD: AtomicU64 = AtomicU64::new(0);
+pub static DBG_WORK: AtomicU64 = AtomicU64::new(0);
+pub mod bench;
 mod board;
 mod hot;
 mod work;
@@ -140,6 +143,7 @@ pub fn view(
 /// A frame the kernel committed, as the observer hands it over: its
 /// EXECUTION, ACTION, and LEDGER records with their positions, and where its
 /// nodes are, which the board reads only for a new question's reason.
+#[derive(Clone)]
 struct Frame {
     at_ms: u64,
     committed: Instant,
@@ -348,9 +352,13 @@ impl Push {
     fn apply(&self, core: &Core, f: Frame) {
         let (changed, position, work) = {
             let mut b = self.board.lock().unwrap();
+            let t0 = Instant::now();
             let changed = b.apply(core, &f);
             b.position = b.position.max(f.position);
+            let t1 = Instant::now();
             let work = self.work.lock().unwrap().apply(core, &f, &mut b, &changed);
+            DBG_BOARD.fetch_add((t1 - t0).as_nanos() as u64, Ordering::Relaxed);
+            DBG_WORK.fetch_add(t1.elapsed().as_nanos() as u64, Ordering::Relaxed);
             (changed, b.position, work)
         };
         let n = changed.len() as u64;

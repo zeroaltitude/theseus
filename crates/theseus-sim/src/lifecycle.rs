@@ -55,10 +55,39 @@ use crate::fake_model::FakeModel;
 
 mod surfaces;
 
-pub const PHASES: [&str; 11] = [
+pub const PHASES: [&str; 12] = [
     "cold", "vault", "shutdown", "inflight", "kill", "swap", "restore", "seed", "health", "cancel",
-    "surfaces",
+    "surfaces", "push",
 ];
+
+/// The push's micro-bench (theseus-hkx30): 10,000 recorded frames replayed
+/// into a fresh push with 0, 1 and 10 `work.watch` watchers. The phase's
+/// samples are each frame's time with ten watchers, in ms (the worst of the
+/// three); the three p95s print as they come.
+const PUSH_FRAMES: usize = 10_000;
+
+fn push_phase(samples: &mut BTreeMap<String, Vec<f64>>) -> Result<()> {
+    let rows = theseus_core::push::bench::run(PUSH_FRAMES, &[0, 1, 10])?;
+    for r in &rows {
+        let mut s = r.samples_us.clone();
+        s.sort_by(f64::total_cmp);
+        eprintln!(
+            "push: {} watchers, {} frames: p50 {:.1} us, p95 {:.1} us, max {:.0} us",
+            r.watchers,
+            r.frames,
+            percentile(&s, 50.0),
+            percentile(&s, 95.0),
+            s[s.len() - 1]
+        );
+    }
+    if let Some(r) = rows.last() {
+        samples.insert(
+            "push".into(),
+            r.samples_us.iter().map(|us| us / 1000.0).collect(),
+        );
+    }
+    Ok(())
+}
 
 /// The `health` calls each cold start times after its seed.
 const HEALTH_CALLS: usize = 5;
@@ -152,7 +181,13 @@ pub fn budget_ms(phase: &str, sessions: u64) -> Option<f64> {
         // and health counts what the board and the terms keep. Set for 200,000
         // sessions (`--sessions 200000`), where the seed's target is 50 ms and
         // health's 5.
-        "seed" => Some(250.0),
+        // A seed reads the same by terms at any size, so it is judged by
+        // size (theseus-hkx30): both boards, on the bench's small store 2 ms,
+        // and at 1,000 sessions or more 50.
+        "seed" => Some(if sessions >= 1_000 { 50.0 } else { 2.0 }),
+        // The push's micro-bench (theseus-hkx30): one committed frame on the
+        // applier, both boards and ten watchers, in ms: 20 us.
+        "push" => Some(0.020),
         "health" => Some(5.0),
         "shutdown" => Some(100.0),
         "kill" => Some(cold + 100.0),
@@ -1428,6 +1463,9 @@ pub fn run(o: &Opts) -> Result<Report> {
             &mut samples,
         )?;
     }
+    if want("push") {
+        push_phase(&mut samples)?;
+    }
     let cancel_frames = if want("cancel") {
         cancel_phase(&rig, o.runs, &mut samples)?
     } else {
@@ -1817,7 +1855,7 @@ fn restore_phase(
     })
 }
 
-const TITLES: [(&str, &str); 11] = [
+const TITLES: [(&str, &str); 12] = [
     ("cold", "cold start to the first health answer"),
     (
         "vault",
@@ -1838,6 +1876,10 @@ const TITLES: [(&str, &str); 11] = [
     ),
     ("restore", "theseusd restore from a local WAL, cold"),
     ("seed", "the push's seed: the first executions.watch"),
+    (
+        "push",
+        "one committed frame on the push's applier, ten work watchers (replayed, 10,000 frames)",
+    ),
     (
         "health",
         "health, after the seed, each call its own connection",

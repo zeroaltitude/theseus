@@ -731,6 +731,7 @@ mod tests {
             ("restore", summary(115.9, 125.2)),
             ("seed", summary(1.2, 1.9)),
             ("cancel", summary(41.1, 43.2)),
+            ("push", summary(0.011, 0.018)),
         ]
         .into_iter()
         .map(|(n, s)| (n.to_string(), s))
