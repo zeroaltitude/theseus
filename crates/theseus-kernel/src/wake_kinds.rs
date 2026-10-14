@@ -58,8 +58,8 @@ impl Purpose {
     }
 }
 
-/// What a routine's fire starts: a fresh task with a brief of its own (the
-/// routines row builds it; declared now so the record never changes again).
+/// What a routine's fire starts: a fresh task with a brief of its own
+/// (`routines.rs`; declared by the reminders row so the record never changed).
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct TaskRun {
     /// The task's brief.
@@ -93,7 +93,7 @@ pub enum WakeRun {
     Turn,
     /// The note is the whole message: posted, with no turn and no model.
     Notice,
-    /// A task of its own (declared; refused until the routines row).
+    /// A task of its own: a routine's run (`routines.rs`).
     Task(TaskRun),
     /// A probe with no model (declared; refused until the watches row).
     Probe(WakeProbe),
@@ -113,11 +113,10 @@ impl WakeRun {
     pub fn refusal(&self) -> Option<&'static str> {
         match self {
             WakeRun::Turn | WakeRun::Notice => None,
-            WakeRun::Task(_) => Some(
-                "a wake that runs a task of its own (a routine) is not built yet: it lands with \
-                 the routines row, so nothing can set one today. Set a reminder (`for: owner`) or \
-                 a check-in instead",
-            ),
+            WakeRun::Task(t) if t.brief.trim().is_empty() => {
+                Some("a routine's task needs a brief: say what each run does")
+            }
+            WakeRun::Task(_) => None,
             WakeRun::Probe(_) => Some(
                 "a wake that runs a probe with no model (a watch) is not built yet: it lands with \
                  the watches row, so nothing can set one today. Set a check-in with `after` and \
@@ -141,7 +140,7 @@ pub struct WakeLimits {
     pub max_wakes: usize,
     /// Reminders the daemon may hold at once, over every conversation.
     pub max_reminders: usize,
-    /// Routines, declared for their row.
+    /// Routines the daemon may hold at once.
     pub max_routines: usize,
     /// Watches, declared for their row.
     pub max_watches: usize,

@@ -56,6 +56,7 @@ pub(super) fn prefixed(name: &str) -> bool {
         || super::rsi::OWN.contains(&name)
         || super::earned::OWN.contains(&name)
         || super::wake_owner::OWN.contains(&name)
+        || super::routines::OWN.contains(&name)
         || name.starts_with("standing.")
         || name.starts_with("thread.")
         || name.starts_with("work.")
@@ -103,6 +104,9 @@ impl Core {
         }
         if name.starts_with("work.") {
             return self.rpc_work(name, params, conn).await;
+        }
+        if super::routines::OWN.contains(&name) {
+            return self.rpc_routines(name, params, conn).await;
         }
         if super::wake_owner::OWN.contains(&name) {
             return self.rpc_wakes(name, params, conn);

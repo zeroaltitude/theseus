@@ -55,6 +55,7 @@ fn series(e: &str, first_ms: u64) -> Repeat {
         first_ms,
         days: vec![],
         until_ms: None,
+        cron: None,
     }
 }
 

@@ -224,6 +224,19 @@ impl Kernel {
         new: NewWake,
         by: &str,
     ) -> Result<WakeSet> {
+        self.insert_wake_with(e, id, new, by, vec![])
+    }
+
+    /// `insert_wake` with the caller's own records in the same frame (a
+    /// routine's record, `routines.rs`).
+    pub(crate) fn insert_wake_with(
+        &self,
+        e: &mut Execution,
+        id: String,
+        new: NewWake,
+        by: &str,
+        extra: Vec<NewRecord>,
+    ) -> Result<WakeSet> {
         let NewWake {
             due_at_ms,
             note,
@@ -300,10 +313,12 @@ impl Kernel {
                 row["until_ms"] = json!(u);
             }
         }
-        self.commit(&[
+        let mut frame = vec![
             exec_record(e)?,
             self.ledger(LedgerKind::WakeSet, Some(&e.session_id), row)?,
-        ])?;
+        ];
+        frame.extend(extra);
+        self.commit(&frame)?;
         Ok(WakeSet {
             wake,
             set: true,

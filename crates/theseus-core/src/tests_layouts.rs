@@ -527,7 +527,7 @@ fn a_format_28_store_opens_with_no_standing_records_and_takes_them() {
         .unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
     // This build's format: the move is made by the first write of any build.
-    assert_eq!(moved["format"], 33);
+    assert_eq!(moved["format"], 34);
     drop(store);
     let again = crate::store::Store::open(&path).unwrap();
     assert_eq!(
@@ -579,7 +579,7 @@ fn a_format_29_store_starts_its_chain_over_the_rows_it_holds() {
         ))
         .unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
-    assert_eq!(moved["format"], 33);
+    assert_eq!(moved["format"], 34);
     let after = theseus_store::chain_walk::verify(store.inner().as_ref(), None, None).unwrap();
     assert!(after.broken.is_none(), "{after:?}");
     assert_eq!((after.rows, after.unchained), (2, 1));
@@ -634,7 +634,7 @@ fn a_format_29_store_opens_with_no_forks_and_takes_one() {
     }));
     store.put_session(&fork.session_id, &fork).unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
-    assert_eq!(moved["format"], 33);
+    assert_eq!(moved["format"], 34);
     drop(store);
     let again = crate::store::Store::open(&path).unwrap();
     let origin = crate::fork::origin_of(&again, &fork.session_id)
@@ -686,11 +686,36 @@ fn a_format_32_store_opens_with_no_threads_and_takes_them() {
         .write(&store, |_| Ok(vec![t.clone()]), |_, _| Ok(vec![]))
         .unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
-    assert_eq!(moved["format"], 33);
+    assert_eq!(moved["format"], 34);
     drop(store);
     let again = crate::store::Store::open(&path).unwrap();
     let board = crate::threads::Threads::default().all(&again).unwrap();
     let got = board.get("tide-gauges").unwrap();
     assert_eq!(got.state, ThreadState::Paused);
     assert_eq!(got.card, t.card);
+}
+
+/// A repeating wake as format 33 wrote it, before a series could be a cron
+/// expression or a month span (theseus-pvm5c, store format 34): a literal, so a
+/// later change to `PendingWake` and `Repeat` must still read it, with no cron,
+/// and write it back byte for byte.
+pub(crate) const WAKE_AT_33: &str = r#"{"id":"wak_01a0f3f3cd97711e8a0b5fbbdc8b2bbc","due_at_ms":1790838000000,"note":"water the ferns","set_at_ms":1790800000000,"by":"act_01a0f3f3cd97711e8a0b5fbbdc8b2bbc","repeat":{"every":{"n":1,"unit":"d"},"first_ms":1790838000000,"days":["mon","fri"],"until_ms":1793000000000},"occurrence":3}"#;
+
+#[test]
+fn a_format_33_repeating_wake_reads_with_no_cron_and_writes_back_byte_for_byte() {
+    let w: theseus_kernel::PendingWake = serde_json::from_str(WAKE_AT_33).unwrap();
+    let r = w.repeat.as_ref().unwrap();
+    assert_eq!(r.cron, None);
+    assert_eq!(r.every.to_string(), "1d");
+    assert_eq!(r.days.len(), 2);
+    assert_eq!(w.purpose, theseus_kernel::Purpose::Check);
+    assert_eq!(serde_json::to_string(&w).unwrap(), WAKE_AT_33);
+    // A series with a cron expression (format 34) round-trips too, and the
+    // old build's reader would have ignored the field: that is why it is a bump.
+    let mut cron = w.clone();
+    cron.repeat.as_mut().unwrap().cron = Some("0 8 * * 1-5".into());
+    let text = serde_json::to_string(&cron).unwrap();
+    assert!(text.contains(r#""cron":"0 8 * * 1-5""#));
+    let again: theseus_kernel::PendingWake = serde_json::from_str(&text).unwrap();
+    assert_eq!(again, cron);
 }

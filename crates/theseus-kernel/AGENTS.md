@@ -106,10 +106,27 @@ Key modules: `kernel.rs`, `tx.rs`, `locks.rs`, `job.rs`, `cgroup.rs`, `children.
   `tests_day_ceiling.rs` (stop), `tests_runaway.rs` (notify, the runaway line, the brake).
 - `spool.rs` (completions on disk, one sync each: a start finishes a rename a crash cut short, and takes a
   completion its action settled already as a no-op, theseus-yxiv), `redact.rs` (granted secrets withheld from a
-  job's output), `stops.rs` (the soft stop), `tasks.rs` (task executions and their carve; `open_task_at` opens one asleep, `Waiting{DueAt}`, for a deferred task: theseus-rcgph), `wake_kinds.rs` (theseus-8ux6x: a wake's `Purpose` (`Check` default, `Remind`, `Routine`, `Watch`), `WakeRun` (`Turn` default, `Notice`, `Task`, `Probe`: the last two declared and refused with words until their rows) and `WakeLimits`; store format 30, each default left out of a record's bytes), `wake_owner.rs` (the owner's verbs, each one frame under the execution's lock with its row and no turn guard: `create_wake`, `snooze_wake` (a pending wake moves; one that fired is set again from its META record `wake.fired.<id>`), `pause_wake` (held, or with `until` moved past it, a series' occurrences counted as passed over), `resume_wake`; and `fire_notices`, which takes a `Notice` wake the moment it is due, in any state of its execution, in one frame: the wake leaves (a series re-arms), a `wake.fired { notice }` row, that META record and the post of its note), `when.rs` (`tomorrow 9:00`, `fri 9:00`, `17:30`, `2026-10-14 09:00` in the daemon's zone), `wakes.rs` (and since theseus-lherl `move_wake`, one frame with a `wake.moved` row, and `take_wakes_listing`, the take
+  job's output), `stops.rs` (the soft stop), `tasks.rs` (task executions and their carve; `open_task_at` opens one asleep, `Waiting{DueAt}`, for a deferred task: theseus-rcgph), `wake_kinds.rs` (theseus-8ux6x: a wake's `Purpose` (`Check` default, `Remind`, `Routine`, `Watch`), `WakeRun` (`Turn` default, `Notice`, `Task` (a routine's run, theseus-pvm5c), `Probe`: refused with words until the watches row) and `WakeLimits`; store format 30, each default left out of a record's bytes), `wake_owner.rs` (the owner's verbs, each one frame under the execution's lock with its row and no turn guard: `create_wake`, `snooze_wake` (a pending wake moves; one that fired is set again from its META record `wake.fired.<id>`), `pause_wake` (held, or with `until` moved past it, a series' occurrences counted as passed over), `resume_wake`; and `fire_notices`, which takes a `Notice` wake the moment it is due, in any state of its execution, in one frame: the wake leaves (a series re-arms), a `wake.fired { notice }` row, that META record and the post of its note), `when.rs` (`tomorrow 9:00`, `fri 9:00`, `17:30`, `2026-10-14 09:00` in the daemon's zone), `wakes.rs` (and since theseus-lherl `move_wake`, one frame with a `wake.moved` row, and `take_wakes_listing`, the take
   and what is still pending from one read), `repeat.rs` (a repeating wake's series:
-  its span, days, and `until`, by jiff's zoned arithmetic in `KernelConfig::zone`; 37a), `gate.rs` (a confirmation's proposal and its
+  its span (`m`, `h`, `d`, `w`, and `mo`, a calendar month), days, and `until`, or a 5-field `cron` expression, by jiff's zoned arithmetic in `KernelConfig::zone`; 37a; store format 34), `gate.rs` (a confirmation's proposal and its
   digest), `clock.rs`, and `umask.rs`.
+- `cron.rs` and `routines.rs` (theseus-pvm5c; horizon HZ4): a routine is a conversation's execution holding one pending wake with
+  `purpose: Routine` and `run: Task(TaskRun)`. `cron.rs`: `Cron` (five fields, lists, ranges, steps, Vixie's either-day rule, civil
+  date and wall time resolved by jiff's compatible rule, so `0 8 * * *` stays 08:00 across a change of offset exactly as
+  `Repeat::at` does: `tests_cron.rs` holds the two together over four zones with a fixed seed), and `parse_schedule` /
+  `describe` (the words people write: `weekdays 08:00`, `every 30m`, `monthly 09:00`, `the 1st 09:00`, or cron). The `nw`
+  term (`terms.kernel.4`) now covers a notice wake *or* a routine's task wake that is not paused, in any open state, so the
+  due scan that finds notices finds routines (no new timer). `routines.rs`: `fire_routines` takes every due, unpaused task
+  wake of an execution under its lock and, in one frame, puts the series back (numbered past the occurrences passed over),
+  then applies the core's `RoutinePlan`: a `Run` opens the task with `open_task`'s records (`tasks::carve_task`, shared with
+  `open_task_at`: the carve in the routine's reservations, the task queued) and a `wake.fired` row, a `Skip { why }` writes
+  `wake.skipped` and nothing else; `reset_month` is a `budget.reset { why: "month" }` row in the same frame, and the
+  routine's own `reports` are cleared each fire, since nobody reads them there. `run_routine_now` opens one run from the wake
+  without touching the series, paused or not. `reschedule_routine` changes the schedule, brief, per-run limit and month in one
+  frame. `Kernel::overdraws` treats a task of a routine like a task of an unpinned parent: a run never waits on a budget
+  question (nobody is awake for it), it notifies at its limit and stops at the hard multiple; the month is held where a run is
+  carved. Tests: `tests_routines.rs` (a minute series opens three tasks, one frame each; a skip re-arms; paused is never due and
+  run now runs once; the month's reset row; a restart across occurrences counts two missed), `tests_cron.rs`.
 
 ## Invariants
 

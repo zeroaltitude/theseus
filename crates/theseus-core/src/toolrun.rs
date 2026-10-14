@@ -397,6 +397,8 @@ pub struct ToolRuntime {
     pub judge: std::sync::OnceLock<Arc<crate::judge::JudgeService>>,
     /// What `memory.lookup` reads (theseus-w9qv): the core, once built.
     pub lookup: crate::memory_lookup::Board,
+    /// Routines (theseus-pvm5c): the records in memory and the defaults.
+    pub routines: crate::routine::Book,
     /// The job tools' core and the sessions' short job ids (theseus-n8gk).
     pub jobs: jobs_tools::Board,
     /// `self.propose_change`'s core and trees (theseus-pw1q.8).
@@ -538,6 +540,7 @@ impl ToolRuntime {
             lsp: None,
             judge: Default::default(),
             lookup: Default::default(),
+            routines: Default::default(),
             jobs: Default::default(),
             self_pr: Arc::new(crate::rsi::pr::Board::new(tmp.join("state"))),
             extend: Arc::new(crate::extend::Extensions::new(
@@ -1476,6 +1479,9 @@ impl ToolRuntime {
                     done
                 })
             }
+            crate::routine_tool::CREATE => {
+                crate::routine_tool::run(tc, &self.routines, &call.input)
+            }
             // Run again after a restart: what the first run proposed.
             crate::extend::PROPOSE => crate::extend::proposed_by_call(tc, correlation_id),
             crate::rsi::pr::PROPOSE => Err(crate::rsi::pr::INTERRUPTED.into()),
@@ -2151,6 +2157,11 @@ pub fn build_runtime(
         r.register(Arc::new(crate::wake_tools::WakeCancel));
         r.register(Arc::new(crate::wake_tools::WakeMove));
         r.register(Arc::new(crate::thread_context::ThreadNote));
+        r.register(Arc::new(crate::routine_tool::RoutineCreate {
+            zone: cfg.kernel.to_kernel_config().zone,
+            cfg: cfg.routines.clone(),
+            floor_ms: cfg.kernel.min_repeat_minutes.max(1) * 60_000,
+        }));
         r.register(Arc::new(crate::extend::Propose));
         r.register(Arc::new(crate::glide::ChannelPost));
         r.register(Arc::new(crate::glide::ChannelRead));
@@ -2284,6 +2295,7 @@ pub fn build_runtime(
         extend,
         judge: Default::default(),
         lookup: Default::default(),
+        routines: crate::routine::Book::new(&cfg.routines),
         jobs: Default::default(),
         self_pr,
         profiles: cfg

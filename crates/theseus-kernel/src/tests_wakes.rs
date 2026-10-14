@@ -480,6 +480,7 @@ fn moves() -> Moves {
         first_ms: now + HOUR,
         days: vec![Day::Mon, Day::Fri],
         until_ms: Some(now + 40 * 24 * HOUR),
+        cron: None,
     };
     let set = |at: u64, note: &str, repeat: Option<Repeat>| {
         w.kernel
@@ -667,6 +668,7 @@ fn a_take_lists_what_is_still_pending_from_the_same_read() {
         first_ms: now + 1_000,
         days: vec![],
         until_ms: None,
+        cron: None,
     };
     w.kernel
         .set_wake(

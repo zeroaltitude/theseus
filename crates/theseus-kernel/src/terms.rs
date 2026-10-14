@@ -13,8 +13,9 @@
 //!   (`wakes::due_now`'s cases): what the driver's tick and the reconcile
 //!   look at, beside the queued ones;
 //! - `w`, it holds wakes of its own (`pending_wakes`);
-//! - `nw`, it holds a notice wake that is not paused, in any open state: a
-//!   notice fires at once, even while a turn runs (`Kernel::notice_executions`);
+//! - `nw`, it holds an unattended wake that is not paused, in any open state:
+//!   a notice, or a routine's task (`terms.kernel.4`, theseus-pvm5c). Both fire at
+//!   once, even while a turn runs (`Kernel::notice_executions`);
 //! - `l:<limit>`, open, and its limit follows the config's
 //!   (`follows_limit`), the limit in 16 hex digits, so a changed config finds
 //!   the executions with another limit in two ranges;
@@ -39,7 +40,7 @@ use crate::types::{ActionState, ExecState, SessionKind, Wake, SCHEMA};
 /// The kernel's projection: the store keeps these terms with every
 /// execution and action it appends.
 pub static PROJECTION: Projection = Projection {
-    name: "terms.kernel.3",
+    name: "terms.kernel.4",
     kinds: &[kinds::EXECUTION, kinds::ACTION],
     terms: of,
     sums: no_sums,
@@ -118,7 +119,8 @@ pub fn tasks_of(parent: &str) -> String {
 /// The term of a task that has not ended.
 pub const OPEN_TASK: &str = "ot";
 
-/// An open execution that holds a notice wake that is not paused.
+/// An open execution that holds a notice wake, or a routine's task wake,
+/// that is not paused.
 pub const NOTICE: &str = "nw";
 
 /// An unsettled action's term under its execution.
@@ -184,7 +186,7 @@ fn execution(payload: &[u8]) -> Option<Vec<String>> {
     if !e.state.is_terminal()
         && e.wakes
             .iter()
-            .any(|w| w.run == "notice" && w.paused_at_ms.is_none())
+            .any(|w| (w.run == "notice" || w.run.get("task").is_some()) && w.paused_at_ms.is_none())
     {
         t.push(NOTICE.into());
     }

@@ -24,7 +24,11 @@ use crate::types::*;
 
 impl Kernel {
     /// Whether `e`'s spend limit notifies instead of asking: the config says
-    /// so, and its limit is the config's, or it is a task whose parent's is.
+    /// so, and its limit is the config's, or it is a task whose parent's is,
+    /// or whose parent is a routine (theseus-pvm5c): a run nobody is awake for
+    /// never waits on a question. The routine's month is held where the run is
+    /// carved from it (`routines.rs`), and a run still stops at the hard
+    /// multiple.
     pub fn overdraws(&self, e: &Execution) -> bool {
         if !self.config().spend_limit_notify {
             return false;
@@ -34,7 +38,7 @@ impl Kernel {
                 .execution(p)
                 .ok()
                 .flatten()
-                .is_some_and(|parent| !parent.budget.pinned),
+                .is_some_and(|parent| !parent.budget.pinned || parent.is_routine()),
             _ => !e.budget.pinned,
         }
     }

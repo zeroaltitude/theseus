@@ -209,6 +209,7 @@ impl ActRefused<'_> {
             | Act::Retract { .. }
             | Act::Task { .. }
             | Act::Standing { .. }
+            | Act::Routine { .. }
             | Act::Thread { .. } => None,
         }
     }
@@ -248,6 +249,7 @@ impl Fact for ActRefused<'_> {
             | Act::Session { what, .. }
             | Act::Earned { what, .. }
             | Act::Standing { what, .. }
+            | Act::Routine { what, .. }
             | Act::Thread { what, .. } => {
                 json!({"act": act.method(), "what": what, "who": r.who, "via": r.via,
                        "why": r.why, "by": self.by})
@@ -328,6 +330,10 @@ impl Fact for ActRefused<'_> {
                 Act::Thread { what, .. } => format!(
                     "{what}, from {} through {}, did not count: {}. The threads are as they were.",
                     r.who, r.via, r.why
+                ),
+                Act::Routine { what, .. } => format!(
+                    "{what}, from {who} through {via}, did not count: {why}. The routines are as \
+                     they were."
                 ),
                 Act::Standing { what, .. } => format!(
                     "{what}, from {who} through {via}, did not count: {why}. The owner's standing \

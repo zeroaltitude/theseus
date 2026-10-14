@@ -30,6 +30,10 @@ pub enum Unit {
     Days,
     #[serde(rename = "w")]
     Weeks,
+    /// A calendar month: the same day and wall time each month, a short
+    /// month clamping the day (routines, theseus-pvm5c).
+    #[serde(rename = "mo")]
+    Months,
 }
 
 /// A repeat's span: `5m`, `2h`, `1d`, `1w`.
@@ -51,6 +55,7 @@ impl Every {
             "h" | "hr" | "hrs" | "hour" | "hours" => Unit::Hours,
             "d" | "day" | "days" => Unit::Days,
             "w" | "wk" | "week" | "weeks" => Unit::Weeks,
+            "mo" | "mos" | "month" | "months" => Unit::Months,
             _ => return Err(bad()),
         };
         if n == 0 {
@@ -66,6 +71,7 @@ impl Every {
             Unit::Hours => 3_600_000,
             Unit::Days => 86_400_000,
             Unit::Weeks => 7 * 86_400_000,
+            Unit::Months => 30 * 86_400_000,
         };
         u64::from(self.n) * unit
     }
@@ -78,6 +84,7 @@ impl Every {
             Unit::Hours => Span::new().try_hours(n),
             Unit::Days => Span::new().try_days(n),
             Unit::Weeks => Span::new().try_weeks(n),
+            Unit::Months => Span::new().try_months(n),
         }
         .ok()
     }
@@ -90,6 +97,7 @@ impl std::fmt::Display for Every {
             Unit::Hours => "h",
             Unit::Days => "d",
             Unit::Weeks => "w",
+            Unit::Months => "mo",
         };
         write!(f, "{}{u}", self.n)
     }
@@ -178,6 +186,12 @@ pub struct Repeat {
     /// No occurrence after this time: the one before it ends the series.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub until_ms: Option<u64>,
+    /// A 5-field cron expression in the daemon's zone (routines,
+    /// theseus-pvm5c; store format 34): when set, the occurrences are its
+    /// times, not `first_ms + k·every`. `every` is then its shortest gap, for
+    /// the floor and for people; `days` is empty.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cron: Option<String>,
 }
 
 /// The most occurrences in a row the days may pass over before the series
@@ -190,6 +204,14 @@ const MOST_COUNTED: u64 = 400;
 impl Repeat {
     /// Occurrence `k`'s due time, or `None` past what a time can be.
     pub fn at(&self, zone: &TimeZone, k: u64) -> Option<u64> {
+        if let Some(c) = &self.cron {
+            let c = crate::cron::Cron::parse(c).ok()?;
+            let mut t = c.next_after(zone, self.first_ms.checked_sub(1)?)?;
+            for _ in 0..k {
+                t = c.next_after(zone, t)?;
+            }
+            return Some(t);
+        }
         let first = Timestamp::from_millisecond(i64::try_from(self.first_ms).ok()?).ok()?;
         let z = first
             .to_zoned(zone.clone())
@@ -233,6 +255,12 @@ impl Repeat {
     /// The first occurrence after `after_ms` the days allow, or `None` when
     /// the series has ended by then (past `until`).
     pub fn next_after(&self, zone: &TimeZone, after_ms: u64) -> Option<u64> {
+        if let Some(c) = &self.cron {
+            let t = crate::cron::Cron::parse(c)
+                .ok()?
+                .next_after(zone, after_ms.max(self.first_ms.saturating_sub(1)))?;
+            return self.until_ms.is_none_or(|u| t <= u).then_some(t);
+        }
         let from = self.index_after(zone, after_ms)?;
         for k in (from..).take(MOST_SKIPPED) {
             let t = self.at(zone, k)?;
@@ -255,6 +283,24 @@ impl Repeat {
     /// none past `until`: those a turn that takes the one due at `after_ms`
     /// at `upto_ms` passes over.
     pub fn between(&self, zone: &TimeZone, after_ms: u64, upto_ms: u64) -> u64 {
+        if let Some(c) = &self.cron {
+            let Ok(c) = crate::cron::Cron::parse(c) else {
+                return 0;
+            };
+            let upto = self.until_ms.map_or(upto_ms, |u| u.min(upto_ms));
+            let mut t = after_ms;
+            let mut n = 0;
+            while n < MOST_COUNTED {
+                match c.next_after(zone, t) {
+                    Some(next) if next <= upto => {
+                        n += 1;
+                        t = next;
+                    }
+                    _ => break,
+                }
+            }
+            return n;
+        }
         let upto = self.until_ms.map_or(upto_ms, |u| u.min(upto_ms));
         if upto <= after_ms {
             return 0;

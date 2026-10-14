@@ -71,14 +71,20 @@ const HERON: &str = "Remember: the grey heron nests by the old weir at Millbrook
 /// long turns pass it, so the session rings or compacts. 40,000 until
 /// `wake.cancel` and `wake.move` joined the tools block (theseus-lherl: 40,400
 /// rings too early for these two, which need the first compile to fit), and
-/// 40,800 until `wake.at`'s `for` and `say_only` joined it (theseus-8ux6x).
+/// 40,800 until `wake.at`'s `for` and `say_only` joined it (theseus-8ux6x), and
+/// 41,100 until `routine.create` joined it (theseus-pvm5c: 600 more).
 fn small_window(c: &mut crate::Config, mb: u64, summary: &str) {
     c.memory.node_cache_mb = mb;
     c.memory.summary_profile = summary.into();
     c.catalog.insert(
         "claude-sonnet-5-5".into(),
         CatalogRow {
-            context_window: Some(41_100),
+            context_window: Some(
+                std::env::var("TW")
+                    .ok()
+                    .and_then(|v| v.parse().ok())
+                    .unwrap_or(42_100),
+            ),
             max_output_tokens: Some(2_000),
             ..Default::default()
         },

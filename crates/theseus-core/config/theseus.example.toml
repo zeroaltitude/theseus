@@ -395,7 +395,6 @@ task_lease_minutes = 30                 # a task claim's lease (task.claim): the
 max_wake_ahead_days = 365               # the furthest ahead a wake, a reminder or a deferred task may be set; at least 1
 max_wakes = 5                           # check-ins (wake.at) one conversation may hold at once; at least 1
 max_reminders = 100                     # reminders the whole daemon may hold at once, in every conversation; at least 1
-max_routines = 50                       # routines the daemon may hold (declared; they come with the routines row)
 max_watches = 20                        # watches the daemon may hold (declared; they come with the watches row)
 steer_queued = true                     # a message sent while a turn runs interrupts its waits (job_wait, a command, a terminal) and joins the turn at its next loop; false: it waits for the turn to end
 
@@ -590,6 +589,8 @@ window_days = 7                         # the window the approvals are counted i
 # the model changing a wake it set (its own, from a private place): move it, or cancel it
 # "wake.move" = "notify"
 # "wake.cancel" = "notify"
+# recurring work (routines): setting one up always waits for your yes on a card, at every posture
+# "routine.create" = "approve"
 # gliding (38b): a post into another bound place, and a read of one's recent
 # conversation. Both inherit enforcement; the place rule decides the rest:
 # into a private place a glide keeps its posture, and what a read brings from
@@ -938,6 +939,18 @@ idle_unload_mins = 10.0                   # the model unloads after this long un
 # is a stub that says how to read it again.
 # resume_keep_turns = 6                   # the newest turns a cold resume keeps whole
 # working_tokens = 60000                  # what a thread's request stays within after a cold resume (its newest turn aside)
+
+# ---------------------------------------------------------------- routines
+# A routine is recurring work that is its own execution: a schedule (`weekdays
+# 08:00`, `every 30m`, `monthly 09:00`, or cron such as `0 8 * * 1-5`, in the
+# daemon's zone) and a brief, and every run is a fresh task whose context starts
+# empty. Each run carves its budget from the routine's month, which resets on
+# the 1st of the local month; a spent month skips its runs and says so once.
+# `theseus routine add "weekdays 08:00" "Summarize ..." --budget 0.50 --to dm`.
+# [routines]
+# default_run_usd = 0.50                  # the most one run may spend, when a routine names none
+# default_month_usd = 10                  # a routine's month, reset on the 1st (local), when it names none
+# max_routines = 50                       # live routines at once
 
 # ---------------------------------------------------------------- people
 # People proposed from text (theseus-wy7y): a cheap profile reads a session's

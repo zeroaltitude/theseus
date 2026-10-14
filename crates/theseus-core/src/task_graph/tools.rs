@@ -310,7 +310,10 @@ pub fn authority_for(
     input: &Value,
     mut plan: Plan,
 ) -> Plan {
-    if plan.authority.is_some() && !waits(store, name, input) {
+    // A routine's creation always waits (theseus-pvm5c); layer 1 only guards
+    // the owner's tasks.
+    if plan.authority.is_some() && name != crate::routine_tool::CREATE && !waits(store, name, input)
+    {
         plan.authority = None;
     }
     plan

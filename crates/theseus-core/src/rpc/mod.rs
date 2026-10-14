@@ -51,6 +51,7 @@ mod proposal_groups;
 mod proposals;
 mod publish;
 mod route_correct;
+mod routines;
 mod rsi;
 mod server;
 mod session_dir;
@@ -595,11 +596,11 @@ impl Core {
                 .map_or(0, |s| theseus_kernel::usd_to_micros(s.cost_usd))
         });
         let kernel = Arc::new(
-            Kernel::new(
-                store.shared(),
-                Arc::new(theseus_kernel::RealClock),
-                cfg.kernel.to_kernel_config(),
-            )
+            Kernel::new(store.shared(), Arc::new(theseus_kernel::RealClock), {
+                let mut kc = cfg.kernel.to_kernel_config();
+                kc.wakes.max_routines = cfg.routines.max_routines;
+                kc
+            })
             .with_legacy_spend(legacy_spend),
         );
         let startup = kernel

@@ -79,6 +79,8 @@ pub mod recall;
 pub mod resident;
 pub mod restore;
 pub mod retract;
+pub mod routine;
+pub mod routine_tool;
 pub mod routing;
 pub mod rpc;
 pub mod rsi;
@@ -357,6 +359,8 @@ mod tests_route_model;
 mod tests_route_rows;
 #[cfg(test)]
 mod tests_route_wait;
+#[cfg(test)]
+mod tests_routines;
 #[cfg(test)]
 mod tests_sandbox;
 #[cfg(test)]

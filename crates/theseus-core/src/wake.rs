@@ -205,6 +205,7 @@ pub(crate) fn plan_of(
             first_ms: now_ms,
             days: vec![],
             until_ms: None,
+            cron: None,
         };
         from_now
             .at(zone, 1)
@@ -220,6 +221,7 @@ pub(crate) fn plan_of(
         first_ms,
         days,
         until_ms,
+        cron: None,
     };
     let Some(first) = repeat.first(zone) else {
         return Err(format!(
@@ -1287,6 +1289,7 @@ mod tests {
                 first_ms: set_at + 60_000,
                 days: vec![],
                 until_ms: None,
+                cron: None,
             }),
             occurrence: 4,
             ..Default::default()

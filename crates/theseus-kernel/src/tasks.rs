@@ -213,59 +213,23 @@ impl Kernel {
             }
             .into());
         }
-        let now = self.now_ms();
-        let task = Execution {
-            id: task_id,
-            schema: SCHEMA,
-            session_id,
-            kind: SessionKind::Task,
-            // The driver takes its first turn: its brief is waiting for it.
-            // A deferred task sleeps until its start (the due scan).
-            state: match start_at_ms {
-                Some(_) => ExecState::Waiting,
-                None => ExecState::Queued,
+        let (task, frame) = self.carve_task(
+            &mut parent,
+            CarveFor {
+                task_id,
+                session_id,
+                limit,
+                want_micros,
+                available_before,
+                by: correlation_id,
+                how: Opening {
+                    reports_to,
+                    wake_parent,
+                    start_at_ms,
+                },
             },
-            authority: parent.authority.clone(),
-            budget: Budget {
-                pinned: true,
-                ..Budget::new(limit)
-            },
-            wake: start_at_ms.map(|at_ms| Wake::DueAt { at_ms }),
-            outstanding: vec![],
-            queued_results: vec![],
-            parent: Some(parent.id.clone()),
-            reports_to,
-            reports: vec![],
-            wakes: vec![],
-            wake_parent,
-            report_wakes: vec![],
-            stopped: None,
-            turns: 0,
-            interrupted: 0,
-            resume_pending: start_at_ms.is_none(),
-            cancel: None,
-            ended_reason: None,
-            created_at_ms: now,
-            updated_at_ms: now,
-        };
-        parent.budget.reserved_micros = parent.budget.reserved_micros.saturating_add(limit);
-        parent
-            .budget
-            .reservations
-            .insert(carve_key(&task.id), limit);
-        parent.updated_at_ms = now;
-        let mut frame = vec![exec_record(&parent)?, exec_record(&task)?];
-        frame.extend(extra(&task)?);
-        frame.push(self.opened_row(&task, &parent.id, limit, correlation_id)?);
-        frame.push(self.ledger(
-            LedgerKind::BudgetCarved,
-            Some(&parent.session_id),
-            json!({"execution_id": parent.id, "task": task.id, "carved_usd": micros_to_usd(limit),
-                   "asked_usd": micros_to_usd(want_micros),
-                   "available_before_usd": micros_to_usd(available_before),
-                   "available_after_usd": micros_to_usd(parent.budget.available())}),
-        )?);
-        frame.push(self.start_row(&task, start_at_ms)?);
+            extra,
+        )?;
         self.commit(&frame)?;
         Ok(TaskOpen {
             task,
@@ -456,6 +420,99 @@ impl Kernel {
             .collect();
         v.sort_by(|a, b| (a.created_at_ms, &a.id).cmp(&(b.created_at_ms, &b.id)));
         Ok(v)
+    }
+}
+
+/// What `carve_task` opens: the ids, the limit, and how it begins.
+pub(crate) struct CarveFor<'a> {
+    pub task_id: ExecutionId,
+    pub session_id: SessionId,
+    pub limit: Micros,
+    pub want_micros: Micros,
+    pub available_before: Micros,
+    pub by: &'a str,
+    pub how: Opening,
+}
+
+impl Kernel {
+    /// The records of a task opening, shared by `open_task_at` (a turn's
+    /// call) and a routine's fire (`routines.rs`): the task, the carve in the
+    /// parent's reservations, and the frame's records, which the caller
+    /// commits. The parent is changed in place.
+    pub(crate) fn carve_task(
+        &self,
+        parent: &mut Execution,
+        c: CarveFor<'_>,
+        extra: impl FnOnce(&Execution) -> Result<Vec<NewRecord>>,
+    ) -> Result<(Execution, Vec<NewRecord>)> {
+        let CarveFor {
+            task_id,
+            session_id,
+            limit,
+            want_micros,
+            available_before,
+            by: correlation_id,
+            how:
+                Opening {
+                    reports_to,
+                    wake_parent,
+                    start_at_ms,
+                },
+        } = c;
+        let now = self.now_ms();
+        let task = Execution {
+            id: task_id,
+            schema: SCHEMA,
+            session_id,
+            kind: SessionKind::Task,
+            // The driver takes its first turn: its brief is waiting for it.
+            // A deferred task sleeps until its start (the due scan).
+            state: match start_at_ms {
+                Some(_) => ExecState::Waiting,
+                None => ExecState::Queued,
+            },
+            authority: parent.authority.clone(),
+            budget: Budget {
+                pinned: true,
+                ..Budget::new(limit)
+            },
+            wake: start_at_ms.map(|at_ms| Wake::DueAt { at_ms }),
+            outstanding: vec![],
+            queued_results: vec![],
+            parent: Some(parent.id.clone()),
+            reports_to,
+            reports: vec![],
+            wakes: vec![],
+            wake_parent,
+            report_wakes: vec![],
+            stopped: None,
+            turns: 0,
+            interrupted: 0,
+            resume_pending: start_at_ms.is_none(),
+            cancel: None,
+            ended_reason: None,
+            created_at_ms: now,
+            updated_at_ms: now,
+        };
+        parent.budget.reserved_micros = parent.budget.reserved_micros.saturating_add(limit);
+        parent
+            .budget
+            .reservations
+            .insert(carve_key(&task.id), limit);
+        parent.updated_at_ms = now;
+        let mut frame = vec![exec_record(parent)?, exec_record(&task)?];
+        frame.extend(extra(&task)?);
+        frame.push(self.opened_row(&task, &parent.id, limit, correlation_id)?);
+        frame.push(self.ledger(
+            LedgerKind::BudgetCarved,
+            Some(&parent.session_id),
+            json!({"execution_id": parent.id, "task": task.id, "carved_usd": micros_to_usd(limit),
+                   "asked_usd": micros_to_usd(want_micros),
+                   "available_before_usd": micros_to_usd(available_before),
+                   "available_after_usd": micros_to_usd(parent.budget.available())}),
+        )?);
+        frame.push(self.start_row(&task, start_at_ms)?);
+        Ok((task, frame))
     }
 }
 

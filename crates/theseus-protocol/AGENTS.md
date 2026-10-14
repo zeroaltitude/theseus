@@ -123,6 +123,9 @@ Key modules: `lib.rs` (the `method`, `notify`, `error_code` tables), `events.rs`
   added and removed, the unified diff scrubbed and capped at `DIFF_CAP`, 16 KB, `truncated`); `ConfirmPreview` is
   `confirm.requested`'s optional `preview` (`diff`, `command` or `text`). `diff::rows` reads a unified diff into
   numbered `Row`s and marks the changed words of each paired removed/added line (`words`, a token LCS); no style.
+- `routines.rs` (theseus-pvm5c): routines on the wire: `RoutineSpec` (the META record `routine:<session id>`, no store
+  format of its own), `RoutineInfo`, `RunRow`, the eight `routine.*` methods' params, `CatchUp` and `Speak`, and `NOTHING_NEW`
+  (the marker a `when_notable` routine's report ends with when there is nothing to say).
 - `ts.rs`: the TypeScript export.
 
 ## Invariants

@@ -59,6 +59,10 @@ Key modules: `main.rs`, `cmd.rs`, `render.rs`, `client.rs`. Read by: (a binary).
 - `src/thread.rs` (theseus-nhew): `theseus thread` (list: slug, state, last activity, the session's context tokens and
   today's dollars, title), `thread new|show|edit|pause|resume|done|reopen`, and `ask --thread SLUG` (a turn in the
   thread's session). The writes are in `client::OPERATORS`, so a job's shell cannot make them.
+- `src/routine.rs` (theseus-pvm5c): `theseus routine` (list: short id, series, title, next, per-run and month figures, the last run),
+  `routine add SCHEDULE BRIEF [--title] [--budget USD] [--month USD] [--to dm|none|PLACE] [--catch-up one|none|auto] [--speak
+  always|when-notable]`, `runs ID [-n N]`, `pause ID [--until WHEN]`, `resume`, `run` (once, the series untouched), `update`, `rm`. The
+  writes are in `client::OPERATORS`, so a job's shell cannot make them. The lines are `list_lines` and `run_lines` (tested).
 - `src/standing_cmd.rs` (theseus-a7vi): `theseus standing` (the live records: id, kind, scope, since, source, text,
   and a last line "in every compile of their scope since they began: N compiles, M missing" from the manifests;
   `--all` adds the ended), `standing add [--kind order|preference|fact] [--scope everywhere|place:T|session:ID]

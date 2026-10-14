@@ -857,6 +857,10 @@ pub(crate) enum Act<'a> {
     /// orders ride every prompt of their scope, so a job's process that wrote
     /// one would steer every session. `what` names it: `the revoke of std_…`.
     Standing { method: &'static str, what: &'a str },
+    /// A routine's making, edit, pause, resume, run or deletion (theseus-pvm5c): it
+    /// spends money on a schedule, so only the owner, from a private place.
+    /// `what` names it: `the routine a41d04`.
+    Routine { method: &'static str, what: &'a str },
     /// A thread's making, edit, pause, resume, finish or reopening, or a
     /// read of the threads (theseus-nhew): a thread is private always, so
     /// only the owner, from a private place, reads or writes one. `what`
@@ -915,6 +919,7 @@ impl Act<'_> {
             Act::Import { method, .. } => method,
             Act::Session { method, .. } => method,
             Act::Standing { method, .. } => method,
+            Act::Routine { method, .. } => method,
             Act::Thread { method, .. } => method,
             Act::SelfResume { .. } => theseus_protocol::method::SELF_RESUME,
             Act::SelfBacklog { method, .. } => method,

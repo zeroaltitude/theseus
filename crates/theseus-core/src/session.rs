@@ -275,6 +275,21 @@ pub struct TaskOf {
     pub check: Option<theseus_protocol::TaskCheck>,
 }
 
+impl TaskOf {
+    /// Where its report is posted: its target, but not for a routine's run
+    /// whose report says there is nothing new when its routine speaks only
+    /// when notable (theseus-pvm5c): that one only logs.
+    pub fn target_for(
+        &self,
+        store: &crate::store::Store,
+        report: &crate::task::Report,
+    ) -> Option<&String> {
+        self.target
+            .as_ref()
+            .filter(|_| !crate::routine::quiet(store, &report.task, report.text.as_deref()))
+    }
+}
+
 impl SessionRecord {
     pub fn new(kind: SessionKind, label: Option<String>) -> Self {
         Self::with_id(crate::new_id("ses"), kind, label)
