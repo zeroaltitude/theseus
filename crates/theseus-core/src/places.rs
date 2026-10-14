@@ -411,7 +411,9 @@ pub fn owner_in_private(
 /// The tools whose results are public by nature, which a shared place is
 /// offered whatever its config.
 pub fn public_tool(name: &str) -> bool {
-    matches!(name, "web.search" | "http.fetch") || name == "wake.at" || name.starts_with("task.")
+    matches!(name, "web.search" | "http.fetch" | "tools.find")
+        || name == "wake.at"
+        || name.starts_with("task.")
 }
 
 /// The tools that read or write files: a shared place gets them only under

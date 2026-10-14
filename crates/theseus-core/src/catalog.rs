@@ -106,6 +106,11 @@ pub struct CatalogEntry {
     /// pictures both (theseus-c9l6); any other reads the PDF's text.
     #[serde(default)]
     pub pdf: bool,
+    /// The provider's tool search takes `defer_loading` tools on this model
+    /// (theseus-7m7w.2); without it, hidden tools are left out and the model
+    /// is offered `tools_find`.
+    #[serde(default)]
+    pub tool_search: bool,
     /// Where the figures came from.
     #[serde(default)]
     pub source: String,
@@ -384,6 +389,8 @@ pub struct CatalogRow {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pdf: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_search: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source: Option<String>,
     /// Omitted on a new model: its family's figures ([`TokenRates::of`]).
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -452,6 +459,7 @@ impl CatalogRow {
                     cache_min_tokens: 0,
                     vision: false,
                     pdf: false,
+                    tool_search: false,
                     source: String::new(),
                     bytes_per_token: TokenRates::default(),
                 }
@@ -478,6 +486,7 @@ impl CatalogRow {
             cache_min_tokens: r.cache_min_tokens.unwrap_or(entry.cache_min_tokens),
             vision: r.vision.unwrap_or(entry.vision),
             pdf: r.pdf.unwrap_or(entry.pdf),
+            tool_search: r.tool_search.unwrap_or(entry.tool_search),
             source: r.source.unwrap_or_else(|| "config".into()),
             bytes_per_token: r.bytes_per_token.unwrap_or(entry.bytes_per_token),
         })
@@ -520,6 +529,7 @@ fn claude(
         cache_min_tokens: cache_min,
         vision: true,
         pdf: true,
+        tool_search: true,
         source: "Claude API reference (2026-06-24 model table; model-migration pricing)".into(),
         bytes_per_token: TokenRates::CLAUDE,
     }
@@ -554,6 +564,7 @@ fn glm(
         // Z.ai's Anthropic-compatible endpoint takes no document blocks:
         // GLM reads a PDF's text (theseus-c9l6).
         pdf: false,
+        tool_search: false,
         source: "OpenClaw model catalog (models.providers.zai), 2026-09".into(),
         bytes_per_token: TokenRates::GLM,
     }
@@ -618,6 +629,7 @@ impl Catalog {
                     cache_write_per_mtok: 0.625,
                     cache_write_1h_per_mtok: 1.00,
                 }),
+                tool_search: false,
                 ..claude(m, 128_000, 0.10, 0.50, 0.01, 0.125, Adaptive, false, 512)
             },
         );
@@ -625,6 +637,7 @@ impl Catalog {
             "claude-haiku-4-5".into(),
             CatalogEntry {
                 bytes_per_token: TokenRates::CLAUDE_OLD,
+                tool_search: false,
                 ..claude(200_000, 64_000, 1.0, 5.0, 0.10, 1.25, Budget, false, 4096)
             },
         );

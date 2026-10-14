@@ -68,6 +68,7 @@ pub(crate) use calls::call_result;
 pub mod compaction;
 mod compile_step;
 mod cut_step;
+mod defer_step;
 mod deferred_step;
 pub mod effort_step;
 mod end_step;
@@ -852,6 +853,7 @@ impl TurnRunner {
             session_text: String::new(),
             context_files: files.iter().map(|f| f.file.clone()).collect(),
             persona: target.persona.clone(),
+            defer: None,
             tools: self.tools.definitions_for(place),
             effort: target.effort,
             turn_effort: None,
@@ -1726,6 +1728,7 @@ impl TurnRunner {
         spec.session_text = self.session_block(t.tc.dir, t.tc.place());
         spec.walk = self.walk(sid, t.tc.class);
         self.stand(t, &mut spec);
+        self.defer_tools(t, &mut spec);
         for u in &unreadable {
             tracing::warn!(path = %u.path, error = %u.error, session_id = %sid,
                 "context file unreadable: the system block says it is missing (warned once per daemon run)");
@@ -1916,6 +1919,7 @@ impl TurnRunner {
                 }
             };
             Self::fallback_answered(t, &resp);
+            self.defer_response(t, &resp);
             let uses = resp.tool_uses();
             // A call that fit: a later one over the limit asks again.
             t.retry_over_limit = false;
@@ -3026,8 +3030,10 @@ impl TurnRunner {
             }
             return Ok(0);
         }
+        // A call to a tool the request did not load is answered, not run.
+        let (uses, unloaded) = self.defer_unloaded(t, &tc, uses)?;
         // The calls as the model meant them (theseus-9dt2).
-        let (uses, recovered) = self.tools.fit_uses(uses, &resp.invalid_tool_inputs);
+        let (uses, recovered) = self.tools.fit_uses(&uses, &resp.invalid_tool_inputs);
         let uses = uses.as_slice();
         let calls: Vec<Call<'_>> = uses
             .iter()
@@ -3053,7 +3059,7 @@ impl TurnRunner {
             }
         }
         t.awaiting = batch.awaiting;
-        Ok(answered)
+        Ok(answered + unloaded)
     }
 
     /// The Advancer decides whether the turn continues; the loop's end is
@@ -3274,6 +3280,7 @@ impl TurnRunner {
             nudged: t.nudge.result(t.tool_calls),
             cites,
         };
+        self.defer_ended(&mut t);
         t.record(&fact::turn::TurnBooked {
             result: &result,
             session_usage: &session.usage,

@@ -9,6 +9,9 @@ Key modules: `lib.rs` (the `method`, `notify`, `error_code` tables), `events.rs`
 
 - `lib.rs`: the methods' params and results, `VERSION`, and three tables: `method` and `notify`, each one list
   from which its `ALL` is built, and `error_code`.
+- `defer.rs` (theseus-7m7w.2): `tool.defer`'s answer (`DeferListResult`: each kind of place, each tool family it loads or
+  defers with the reason, its use, searches and misses, and the estimated tokens of a first request whole and as sent) and
+  health's `tools:` line (`DeferHealth`).
 - `events.rs`: one struct per notification, and the `events!` table, from which `Event::VARIANTS` is built.
 - `actions.rs`: `action.list`'s params and result, and `ActionInfo`: the newest `n`, an execution's, or with
   `unsettled` every action not settled however old (theseus-hnof.3), which the cockpit's Ship and watch read beside

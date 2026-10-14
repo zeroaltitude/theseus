@@ -128,6 +128,7 @@ impl Core {
                 .filter(|d| d.past || d.reached),
             tasks: Some(self.tasks_health()),
             resident: Some(self.resident_health()),
+            tools_defer: Some(self.defer_health()),
             self_improve: Some(self.self_state()),
             warm: Some(self.warmth.health()),
             cache: Some(self.cache_health()),

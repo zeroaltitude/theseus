@@ -389,6 +389,8 @@ pub struct ToolRuntime {
     pub judge: std::sync::OnceLock<Arc<crate::judge::JudgeService>>,
     /// What `memory.lookup` reads (theseus-w9qv): the core, once built.
     pub lookup: crate::memory_lookup::Board,
+    /// The deferred tools' counts and each conversation's notes (theseus-7m7w.2).
+    pub defer: crate::tools_defer::Board,
     /// The job tools' core and the sessions' short job ids (theseus-n8gk).
     pub jobs: jobs_tools::Board,
     /// The configured profiles, each what it runs on: a check's `profile`
@@ -526,6 +528,7 @@ impl ToolRuntime {
             lsp: None,
             judge: Default::default(),
             lookup: Default::default(),
+            defer: Default::default(),
             jobs: Default::default(),
             extend: Arc::new(crate::extend::Extensions::new(
                 tmp.join("extensions"),
@@ -626,7 +629,9 @@ impl ToolRuntime {
     /// ceiling): its model never sees one it may not use.
     pub fn definitions_for(&self, place: crate::ceiling::PlaceView) -> Vec<Value> {
         let offered = |name: &str| place.offered(name, &self.public_roots);
-        let mut defs = self.registry.definitions_of(true, offered);
+        let mut defs = self
+            .registry
+            .definitions_of(true, |n| offered(n) && crate::tools_defer::listed(n));
         // The MCP servers' tools, after the built-ins, by canonical name (the
         // catalog's order): none in a shared place (the place rule), and in a
         // place with a ceiling only its `mcp:<server>` entries' (38a).
@@ -674,7 +679,11 @@ impl ToolRuntime {
                     .registry
                     .all()
                     .map(|t| t.name())
-                    .filter(|n| offered(n) && self.policy.posture(n).0.max(floor) == *p)
+                    .filter(|n| {
+                        offered(n)
+                            && crate::tools_defer::listed(n)
+                            && self.policy.posture(n).0.max(floor) == *p
+                    })
                     .collect();
                 (!names.is_empty()).then(|| format!("{}: {}", p.as_str(), names.join(", ")))
             })
@@ -1670,6 +1679,7 @@ impl ToolRuntime {
                 crate::file_read::FAMILY => self.read_file(tc, &input, &ctx),
                 // The owner's memory, read for this session (theseus-w9qv).
                 crate::memory_lookup::FAMILY => self.lookup.run(tc, &input),
+                crate::tools_defer::FAMILY => self.defer.run(tc.session_id, &input),
                 // A job's handle needs its session (theseus-n8gk).
                 theseus_tools::jobs::FAMILY => self.run_job_tool(tc, tool.name(), &input),
                 _ => t.run_async_with_media(&input, &ctx),
@@ -2200,6 +2210,7 @@ pub fn build_runtime(
         r.register(Arc::new(crate::file_read::FileRead));
         // A read of memory the model calls (theseus-w9qv).
         r.register(Arc::new(crate::memory_lookup::MemoryLookup));
+        r.register(Arc::new(crate::tools_defer::find::FindTool));
         r
     } else {
         Registry::new()
@@ -2322,6 +2333,7 @@ pub fn build_runtime(
         extend,
         judge: Default::default(),
         lookup: Default::default(),
+        defer: Default::default(),
         jobs: Default::default(),
         profiles: cfg
             .all_profiles()

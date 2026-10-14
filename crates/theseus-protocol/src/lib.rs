@@ -20,6 +20,7 @@ pub mod cite;
 pub mod context;
 mod cost;
 pub mod cred;
+pub mod defer;
 pub mod earned;
 mod events;
 mod exec_list;
@@ -179,6 +180,9 @@ pub mod method {
         /// `derived_from`, each with theirs. A read, computed when asked.
         NODE_REACH = "node.reach",
         TOOL_LIST = "tool.list",
+        /// The tool families each kind of place loads or defers, with their use
+        /// and misses (theseus-7m7w.2, `defer::DeferListResult`).
+        TOOL_DEFER = "tool.defer",
         SHUTDOWN = "shutdown",
         /// The narrative (`narrative = true`): the recent tail, then every new
         /// line as a `narrative.line` notification until `narrative.unwatch`.
@@ -732,6 +736,10 @@ pub struct HealthResult {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub resident: Option<resident::ResidentHealth>,
+    /// Deferred tools: the selector's state in one line (theseus-7m7w.2).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub tools_defer: Option<defer::DeferHealth>,
     /// Self-improvement's mode, kill switch and gate (theseus-pw1q.2): health's `self` line.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]

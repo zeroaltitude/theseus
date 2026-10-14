@@ -101,6 +101,7 @@ pub mod tender;
 pub mod term;
 pub mod tighten;
 pub mod toolrun;
+pub mod tools_defer;
 pub mod trace;
 pub mod turn;
 pub mod voice;
@@ -208,6 +209,8 @@ mod tests_continue_slow;
 mod tests_day_ceiling;
 #[cfg(test)]
 mod tests_day_notify;
+#[cfg(test)]
+mod tests_defer;
 #[cfg(test)]
 mod tests_disk_watch;
 #[cfg(test)]

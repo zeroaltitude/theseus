@@ -297,7 +297,10 @@ fn a_fetch_of_this_machines_page_runs_and_waits_for_no_one() {
         true => vec![("http_fetch", json!({ "url": page.as_str() }))],
         false => vec![],
     });
-    let dir = trial(&model, |_| {});
+    // Not about deferral: the web family loads, as it would once searched for.
+    let dir = trial(&model, |t| {
+        set(t, &["tools", "defer", "enabled"], false.into())
+    });
     let run = ask(dir.path(), "check the page your server serves");
     assert_eq!(run.code, 0, "{}\n{}", run.turn, run.stderr);
     assert_eq!(

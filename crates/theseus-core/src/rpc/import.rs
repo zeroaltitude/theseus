@@ -58,6 +58,7 @@ pub(super) fn prefixed(name: &str) -> bool {
         || super::wake_owner::OWN.contains(&name)
         || name.starts_with("standing.")
         || name == method::LEDGER_VERIFY
+        || name == method::TOOL_DEFER
 }
 
 impl Core {
@@ -101,6 +102,9 @@ impl Core {
         }
         if name == method::LEDGER_VERIFY {
             return super::server::reply(self.ledger_verify(params).await?);
+        }
+        if name == method::TOOL_DEFER {
+            return super::server::reply(self.tool_defer());
         }
         self.rpc_import(name, params, conn).await
     }

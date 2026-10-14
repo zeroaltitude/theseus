@@ -76,6 +76,7 @@ pub mod synthesis;
 pub mod task_graph;
 pub mod term;
 pub mod tool;
+pub mod tools_defer;
 pub mod turn;
 pub mod wake;
 
@@ -471,6 +472,9 @@ facts![
     rsi_backlog::BacklogDropped,
     standing::StandingAdded<'static>,
     standing::StandingRevoked<'static>,
+    tools_defer::ToolsUsed<'static>,
+    tools_defer::ToolsSearched<'static>,
+    tools_defer::ToolsMissed<'static>,
 ];
 
 #[cfg(test)]

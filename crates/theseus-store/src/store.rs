@@ -619,7 +619,10 @@ const BULK: usize = 4096;
 /// 32 = a fork (theseus-2qzx): a session's `forked_from`, a compilation's
 /// `inherits` (a run of another session's nodes, by reference), and the
 /// `includes` edge kind into a session.
-const MANIFEST_FORMAT: u32 = 32;
+/// 33 = deferred tools (theseus-7m7w.2): a compilation manifest's `loaded`, the
+/// tool families its request loaded, which an append takes again; and the
+/// ledger kinds `tools.used`, `tools.searched` and `tools.missed`.
+const MANIFEST_FORMAT: u32 = 33;
 /// The oldest format this build reads. A format-3 manifest's per-kind marks
 /// are left unread.
 const MANIFEST_OLDEST: u32 = 2;

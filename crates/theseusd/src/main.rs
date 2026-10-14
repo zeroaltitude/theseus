@@ -992,6 +992,8 @@ fn warm_after_serving(core: &Arc<Core>) {
     // compile reads it from memory.
     core.warm_ontology();
     core.warm_standing();
+    // The tool use the ledger holds, for the loaded sets (theseus-7m7w.2).
+    core.warm_tools_use();
     // The daemon's memory (theseus-9lxe): a trim after work and a quiet
     // stretch, and the import's catalog dropped after an idle one.
     core.tend_memory_after_serving();

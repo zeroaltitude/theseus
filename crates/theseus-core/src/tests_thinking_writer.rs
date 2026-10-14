@@ -30,6 +30,7 @@ fn spec(model: &str, fallback: Option<&str>) -> RequestSpec {
         session_text: String::new(),
         context_files: vec![],
         persona: None,
+        defer: None,
         tools: vec![],
         effort: None,
         turn_effort: None,

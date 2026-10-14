@@ -9,6 +9,7 @@ import type { ConfigStatus } from "./ConfigStatus";
 import type { ContextStatus } from "./ContextStatus";
 import type { CrashStatus } from "./CrashStatus";
 import type { DayCeilingBudget } from "./DayCeilingBudget";
+import type { DeferHealth } from "./DeferHealth";
 import type { DiskStatus } from "./DiskStatus";
 import type { EarnedGrant } from "./EarnedGrant";
 import type { ExtendHealth } from "./ExtendHealth";
@@ -247,6 +248,10 @@ lsp?: Array<LspServerStatus>,
  * The daemon's own memory and its largest caches (theseus-9lxe).
  */
 resident?: ResidentHealth, 
+/**
+ * Deferred tools: the selector's state in one line (theseus-7m7w.2).
+ */
+tools_defer?: DeferHealth, 
 /**
  * Self-improvement's mode, kill switch and gate (theseus-pw1q.2): health's `self` line.
  */

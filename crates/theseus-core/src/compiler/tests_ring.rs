@@ -19,6 +19,7 @@ fn spec() -> RequestSpec {
         session_text: String::new(),
         context_files: vec![],
         persona: None,
+        defer: None,
         tools: vec![
             json!({"name": "fs_read", "description": "d", "input_schema": {"type": "object"}}),
         ],

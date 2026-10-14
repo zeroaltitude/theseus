@@ -97,6 +97,10 @@ pub struct Manifest {
     /// The owner's standing records the second block listed (theseus-a7vi).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub standing: Vec<crate::standing::StandingUsed>,
+    /// The tool families the request loaded (theseus-7m7w.2); None before
+    /// deferral, or with it off. An append takes these again.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub loaded: Option<Vec<String>>,
     // A manifest from 19a to the place rule (COMPILATION schema 4) also has
     // `audience`, `readers`, `integrity`, and `withheld`: they read, and are
     // left unread (COMPILATION schema 5, theseus-nbsh).
@@ -240,6 +244,9 @@ pub struct RequestSpec {
     pub persona: Option<String>,
     /// Wire tool definitions, sorted by name.
     pub tools: Vec<Value>,
+    /// The families the request loads, the tools above being the whole catalog
+    /// (`tools_defer`); `compile` resolves it. None: every tool loads.
+    pub defer: Option<crate::tools_defer::Deferral>,
     pub effort: Option<Effort>,
     /// The turn's own, as a per-message effort (`effort`, theseus-o719).
     pub turn_effort: Option<Effort>,
@@ -643,6 +650,7 @@ pub fn manifest_for(
         memberships: spec.memberships.clone(),
         guidance: spec.guidance.clone(),
         standing: vec![],
+        loaded: crate::tools_defer::loaded_of(spec),
     }
 }
 
@@ -658,18 +666,9 @@ pub(crate) fn renderable(n: &(impl crate::stub::Shaped + ?Sized)) -> bool {
 /// (theseus-8kk.1): so a membership change waits for the next recompile,
 /// and a guidance edit in play changes the system block, which recompiles.
 pub fn compile(input: CompileInput<'_>) -> Compiled {
-    let Some(walk) = input.spec.walk.as_deref() else {
-        return compile_with(input, input.spec, input.spec);
-    };
-    let recompiled = crate::ontology::guided(input.spec, walk.compose(&walk.current));
-    let appended = match input.current {
-        Some(c) => crate::ontology::guided(
-            input.spec,
-            walk.compose(&crate::ontology::recorded(&c.manifest.memberships)),
-        ),
-        None => std::borrow::Cow::Borrowed(&*recompiled),
-    };
-    compile_with(input, &appended, &recompiled)
+    let (appended, recompiled) = crate::tools_defer::forks(&input);
+    let appended = appended.as_deref().unwrap_or(&*recompiled);
+    compile_with(input, appended, &recompiled)
 }
 
 /// `compile`, with the spec an append renders and the one a recompile does.
@@ -1337,6 +1336,7 @@ mod tests {
             session_text: String::new(),
             context_files: vec![],
             persona: None,
+            defer: None,
             tools: vec![
                 json!({"name": "fs_read", "description": "d", "input_schema": {"type": "object"}}),
             ],

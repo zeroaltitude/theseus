@@ -122,8 +122,21 @@ impl ProviderRequest {
     /// and the messages.
     pub fn census(&self) -> Census {
         let mut c = Census::of_messages(&self.messages);
+        // Deferred tools cost a constant, whatever their schemas (the
+        // provider keeps them out of the context until a search finds them),
+        // and the search tool its own figure (theseus-7m7w.2).
+        let mut deferred = false;
         for t in &self.tools {
-            c.json += json_len(t);
+            if t.get("defer_loading") == Some(&Value::Bool(true)) {
+                deferred = true;
+            } else if t["name"] == crate::tools_defer::SEARCH_TOOL {
+                c.json += crate::tools_defer::SEARCH_BYTES;
+            } else {
+                c.json += json_len(t);
+            }
+        }
+        if deferred {
+            c.json += crate::tools_defer::DEFERRED_BYTES;
         }
         for b in &self.system {
             c.messages += 1;
