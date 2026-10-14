@@ -486,3 +486,40 @@ fn health_carries_the_self_state() {
     let off = core(SelfMode::Off).health().self_improve.unwrap();
     assert_eq!(off.gate, "off");
 }
+
+/// A move of the switch is told once to every connection that watches every
+/// session (theseus-pw1q.19): the TUI's self view reads the log again. A
+/// halt that changes nothing tells no one, and a connection that watches no
+/// session at large hears nothing.
+#[test]
+fn the_switchs_move_is_told_to_the_overview_watchers_once() {
+    let c = core(SelfMode::Act);
+    let (tx_all, mut all) = tokio::sync::mpsc::unbounded_channel();
+    let (tx_one, mut one) = tokio::sync::mpsc::unbounded_channel();
+    c.bus.watch_all("tui", tx_all);
+    c.bus.watch("ses_elsewhere", "other", tx_one);
+    let told = |rx: &mut tokio::sync::mpsc::UnboundedReceiver<theseus_protocol::Message>| {
+        let mut out = Vec::new();
+        while let Ok(theseus_protocol::Message::Notification(n)) = rx.try_recv() {
+            out.push((n.method, n.params));
+        }
+        out
+    };
+    // Mode act on a fresh store is halted already: the owner's resume moves it.
+    assert!(resume(&c, &cli(), None).unwrap());
+    let got = told(&mut all);
+    assert_eq!(got.len(), 1, "{got:?}");
+    assert_eq!(got[0].0, "self.changed");
+    assert_eq!(got[0].1["kind"], "self.resumed");
+    assert!(halt(&c, &cli(), "enough"));
+    let got = told(&mut all);
+    assert_eq!(got.len(), 1, "{got:?}");
+    assert_eq!(got[0].1["kind"], "self.halted");
+    // A halt of a halted switch changes nothing and says nothing.
+    assert!(!halt(&c, &cli(), "again"));
+    assert!(told(&mut all).is_empty());
+    assert!(
+        told(&mut one).is_empty(),
+        "a session's watcher is not the overview"
+    );
+}

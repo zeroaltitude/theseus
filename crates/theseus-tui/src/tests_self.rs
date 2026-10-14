@@ -318,3 +318,28 @@ async fn an_older_daemon_without_a_self_log_is_told_in_the_pane() {
     open(&mut rig).await;
     rig.shows("self.log: unknown method").await;
 }
+
+/// The kill switch moved from another surface: no execution changes beside
+/// it, only `self.changed`, and the pane reads the log again.
+#[tokio::test]
+async fn a_move_of_the_switch_from_another_surface_shows_without_a_key() {
+    let world = harbour_world();
+    world.lock().unwrap().answers.insert(
+        "self.log".into(),
+        Ok(log("act", rows()[1..].to_vec(), true)),
+    );
+    let mut rig = Rig::new(120, 24, script(world.clone()));
+    open(&mut rig).await;
+    rig.shows("review of self/fern-lamp: pass").await;
+    world
+        .lock()
+        .unwrap()
+        .answers
+        .insert("self.log".into(), Ok(log("act", rows(), true)));
+    rig.daemon().notify(
+        "self.changed",
+        json!({"kind": "self.halted", "at_ms": at(80)}),
+    );
+    rig.asked("self.log", 2).await;
+    rig.shows("fern-lamp joined main").await;
+}

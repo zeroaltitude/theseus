@@ -542,6 +542,8 @@ events! {
     TaskChanged(crate::tasks::TaskChanged) = notify::TASK_CHANGED,
     /// A reminder fired (theseus-8ux6x).
     WakeNoticed(crate::wakes::WakeNoticed) = notify::WAKE_NOTICED,
+    /// The self-improvement switch moved (theseus-pw1q.19).
+    SelfChanged(crate::rsi::SelfChanged) = notify::SELF_CHANGED,
 }
 
 impl Event {
@@ -574,6 +576,7 @@ impl Event {
             | Event::ProfileChanged(_)
             | Event::PolicyTightened(_)
             | Event::PolicyUntightened(_)
+            | Event::SelfChanged(_)
             | Event::EventsLost(_) => None,
         }
     }
@@ -607,6 +610,7 @@ impl Event {
             | Event::ExecutionChanged(_)
             | Event::TaskChanged(_)
             | Event::WakeNoticed(_)
+            | Event::SelfChanged(_)
             | Event::EventsLost(_) => None,
         }
     }

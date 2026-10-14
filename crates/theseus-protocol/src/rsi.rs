@@ -603,3 +603,15 @@ pub struct SelfBranchesResult {
     pub branches: Vec<SelfBranch>,
     pub state: SelfState,
 }
+
+// self-view (theseus-pw1q.19): the switch's move, as a notification.
+
+/// `self.changed`'s params: the kill switch moved, so a surface showing the
+/// self log reads it again. The row's kind and when; the rows are `self.log`'s.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct SelfChanged {
+    /// The row written: `self.halted` or `self.resumed`.
+    pub kind: String,
+    pub at_ms: u64,
+}

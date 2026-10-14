@@ -488,7 +488,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   `self.switch`, read at the first ask and kept by the moves (`rsi::Switch`, `Core.rsi`); unreadable is halted.
   `self.halt` is anyone's and idempotent; `self.resume` is `judge_act(Act::SelfResume)` (the owner from any place:
   the CLI, the web UI, or an author holding an owner handle, `places::owner_anywhere`; a `from_job`, the `THESEUS_SESSION` the CLI sends, never counts), a refusal an `approval.refused` row. Each
-  move is one frame: the record and `self.halted`/`self.resumed` (`fact/rsi.rs`). `self.log` (`rsi/log.rs`) reads
+  move is one frame: the record and `self.halted`/`self.resumed` (`fact/rsi.rs`), then told once as `self.changed` to the connections that watch every session (`Core::self_changed`, `Bus::publish_watchers`; no frame, no row: the TUI's self view reads the log again, theseus-pw1q.19). `self.log` (`rsi/log.rs`) reads
   every `theseus_protocol::rsi::SELF_ROWS` name and today's self-change kinds (`rsi::TODAY`) through the ledger's
   pages by kind, newest first, each with what, why, numbers and undo; a later self step's row carries those four in
   its data and shows with no change here, and its kind becomes a `LedgerKind` on the commit that writes it.

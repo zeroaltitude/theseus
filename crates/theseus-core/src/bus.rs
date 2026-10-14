@@ -44,6 +44,7 @@ fn wide(msg: &Message) -> bool {
                 | notify::CONFIRM_RESOLVED
                 | notify::TASK_CHANGED
                 | notify::WAKE_NOTICED
+                | notify::SELF_CHANGED
         ),
         _ => false,
     }
@@ -139,6 +140,14 @@ impl SessionBus {
         for v in g.values_mut() {
             v.retain(|(c, tx)| !sent.insert(c.clone()) || tx.notify(&note, "policy"));
         }
+    }
+
+    /// Send to the connections that watch every session (`executions.watch`)
+    /// and to no one else: news for a surface's overview, such as the self
+    /// switch's move (theseus-pw1q.19). `msg` must be a wide one.
+    pub fn publish_watchers(&self, msg: &Message) {
+        debug_assert!(wide(msg), "a message for the overview watchers is wide");
+        self.deliver("", &Note::new(msg), None);
     }
 
     /// How many connections watch every session (`executions.watch`).

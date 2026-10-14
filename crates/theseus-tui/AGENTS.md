@@ -30,8 +30,8 @@ Key modules: `run.rs` (the loop), `app.rs` (no I/O), `board.rs`, `ui.rs`. Read b
   first, one line each (time, kind, what, cost, undo); enter shows the picked row whole, esc goes back, then closes. A
   screen under 100 columns folds to the state and the newest five. It reads `self.log` when it opens and again on an
   event it already hears (an execution that changed state, a task, a question), one read at a time and a second wanted
-  meanwhile made when the first lands: no timer. A row with no execution beside it (a night's exam pass, a switch moved
-  from another surface) shows at the next such event or when the pane is opened again. Tests: `src/tests_self.rs`.
+  meanwhile made when the first lands: no timer. The switch's move from any surface is `self.changed`; a row with no execution
+  beside it (a night's exam pass) shows at the next such event or when the pane is opened again. Tests: `src/tests_self.rs`.
 - A reply's citations (theseus-ejdk): `Detail::history` draws a page's cited replies with numbered marks and the
   footnote block under them (`session.history`'s `cites`, the CLI's `render::cite`), and `Detail::cited` does the same
   for a turn this TUI sent, from its `turn.submit` answer's `cites`; a reply another surface's turn streams in stays

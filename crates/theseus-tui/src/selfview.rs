@@ -73,7 +73,10 @@ impl SelfView {
 pub fn moves(e: &Event) -> bool {
     match e {
         Event::ExecutionChanged(v) => v.previous.as_deref() != Some(v.state.as_str()),
-        Event::TaskChanged(_) | Event::ConfirmResolved(_) | Event::ConfirmRequested(_) => true,
+        Event::TaskChanged(_)
+        | Event::ConfirmResolved(_)
+        | Event::ConfirmRequested(_)
+        | Event::SelfChanged(_) => true,
         _ => false,
     }
 }

@@ -72,7 +72,7 @@ Key modules: `lib.rs` (the `method`, `notify`, `error_code` tables), `events.rs`
   and `SELF_ROWS`, the `self.*` rows later self steps write, declared with their fields before their writers: a
   name becomes a `LedgerKind` on the commit that first writes it (the reader rule), and every such row's data
   carries `what`, `why`, `numbers` and `undo`. `SelfState` is also health's `self_improve` (health's `self` line; its `sealed` is `SealedState`, counts of items per sealed set, present only while `[self] sealed_dir` is set);
-  `BinaryStatus` moved to `health.rs` to make room in lib.rs.
+  `BinaryStatus` moved to `health.rs` to make room in lib.rs. `SelfChanged` is the `self.changed` notification (the switch moved; to the overview watchers, `bus::wide`).
 - `earned.rs` (theseus-uttu): earned autonomy's wire types (`policy.earned`, `policy.earned.answer`, `policy.revoke`):
   a group of approvals with its record, a grant, a card, and the number's weeks. Each name carries `Earned`.
 - `window.rs` (theseus-m2tiu): `ledger.window`'s params and result and `POSTMORTEM_KINDS`, the kinds `theseus postmortem`
