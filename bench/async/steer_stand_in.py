@@ -36,6 +36,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shutil
 import signal
 import socket
 import subprocess
@@ -69,18 +70,23 @@ def free_port() -> int:
     return port
 
 
-def rules(job: int, wait: int) -> list[dict]:
+def rules(job: int, wait: int, cwd: str) -> list[dict]:
     """The stand-in: the long job, then `job_wait` until it ends; the family's
     message is answered whenever it is the last thing the model reads."""
     waits = job // wait + 3
     steps = [{"calls": [{"name": "proc_run", "input": {
-        "argv": ["sh", "-c", f"exec -a {MARK} sleep {job}"], "timeout_secs": job + 60}}]}]
+        "argv": ["bash", "-c", f"exec -a {MARK} sleep {job}"], "cwd": cwd,
+        "timeout_secs": job + 60}}]}]
     steps += [{"calls": [{"name": "job_wait", "input": {"job": "j1", "timeout_secs": wait}}]}] * waits
     steps.append({"text": "The job finished."})
     return [
-        {"when": ASK["interrupt"], "text": REPLY["interrupt"]},
-        {"when": ASK["cancel"], "calls": [{"name": "job_stop", "input": {"job": "j1"}}],
-         "then": REPLY["cancel"]},
+        # A message that joins a running turn arrives with that turn's tool results, which the
+        # stand-in reads as the answer to its calls: so each message's rule asks for one call
+        # (`repeat`) and then says its text, whether the message came alone or joined the turn.
+        {"when": ASK["interrupt"], "repeat": 1, "text": REPLY["interrupt"],
+         "calls": [{"name": "job_read", "input": {"job": "j1", "lines": 1}}]},
+        {"when": ASK["cancel"], "repeat": 1, "text": REPLY["cancel"],
+         "calls": [{"name": "job_stop", "input": {"job": "j1"}}]},
         {"when": TASK, "steps": steps},
     ]
 
@@ -144,15 +150,17 @@ class Run:
                         THESEUS_SOCKET=str(self.sock), XDG_STATE_HOME=str(root / "xdg"))
 
     def cli(self, *args, timeout=30):
+        work = self.root / "work"
         return subprocess.run([self.bin / "theseus", "--socket", str(self.sock), *args],
-                              capture_output=True, text=True, env=self.env, timeout=timeout)
+                              capture_output=True, text=True, env=self.env, timeout=timeout,
+                              cwd=work if work.exists() else None)
 
     def start(self):
         r = self.root
         work, state = r / "work", r / "state"
         work.mkdir()
         port = free_port()
-        (r / "rules.json").write_text(json.dumps(rules(self.scale["job"], self.scale["wait"])))
+        (r / "rules.json").write_text(json.dumps(rules(self.scale["job"], self.scale["wait"], str(work))))
         cfg = r / "theseus.toml"
         cfg.write_text(config(state, self.sock, work, f"http://127.0.0.1:{port}",
                               self.scale["sync"], self.arm == "after"))
@@ -205,8 +213,10 @@ class Run:
 
     def measure(self) -> dict:
         reply = REPLY[self.family]
+        work = self.root / "work"
         task = subprocess.Popen([self.bin / "theseus", "--socket", str(self.sock), "ask", TASK],
-                                env=self.env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                                env=self.env, cwd=work, stdout=subprocess.DEVNULL,
+                                stderr=open(self.root / "ask-task.log", "w"))
         sid = None
         t_task = time.monotonic()
         while sid is None and time.monotonic() - t_task < 30:
@@ -223,7 +233,7 @@ class Run:
         t0 = time.monotonic()
         msg = subprocess.Popen(
             [self.bin / "theseus", "--socket", str(self.sock), "ask", "--session", sid, ASK[self.family]],
-            env=self.env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            env=self.env, cwd=work, stdout=subprocess.DEVNULL, stderr=open(self.root / "ask-msg.log", "w"))
         out: dict = {"arm": self.arm, "family": self.family, "inject_at_s": self.inject,
                      "job_s": self.scale["job"]}
         limit = self.scale["job"] * 2 + 60
@@ -250,6 +260,7 @@ def main() -> int:
     ap.add_argument("--scale", choices=tuple(SCALES), default="quick")
     ap.add_argument("--inject-at", type=float, action="append", help="seconds after the job starts")
     ap.add_argument("--out", type=Path, help="write the results as JSON here")
+    ap.add_argument("--keep", action="store_true", help="keep each run's directory (logs, rules, the store)")
     a = ap.parse_args()
     scale = SCALES[a.scale]
     injects = a.inject_at or scale["inject"]
@@ -257,13 +268,17 @@ def main() -> int:
     for family in a.family or ["interrupt", "cancel"]:
         for arm in a.arm or ["before", "after"]:
             for inject in injects:
-                with tempfile.TemporaryDirectory(prefix="steer-") as d:
-                    run = Run(a.bin_dir.resolve(), arm, family, scale, inject, Path(d))
-                    try:
-                        run.start()
-                        r = run.measure()
-                    finally:
-                        run.stop()
+                d = tempfile.mkdtemp(prefix="steer-")
+                run = Run(a.bin_dir.resolve(), arm, family, scale, inject, Path(d))
+                try:
+                    run.start()
+                    r = run.measure()
+                finally:
+                    run.stop()
+                if a.keep:
+                    r["dir"] = d
+                else:
+                    shutil.rmtree(d, ignore_errors=True)
                 print(json.dumps(r), flush=True)
                 results.append(r)
     if a.out:
