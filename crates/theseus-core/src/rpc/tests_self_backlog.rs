@@ -29,6 +29,8 @@ fn core_with(mode: SelfMode, starts: u32, max_open: u32) -> Arc<Core> {
     let base = test_core("the tide is out");
     let mut cfg = (*base.cfg).clone();
     cfg.self_improve.mode = mode;
+    // The host's disk is no test's business: 0 never warns.
+    cfg.server.disk_warn_mb = 0;
     cfg.self_improve.backlog_starts = starts;
     cfg.self_improve.backlog_max_open = max_open;
     cfg.places.owner = Some(vec![format!("discord:{OWNER}")]);
