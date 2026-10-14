@@ -764,13 +764,9 @@ fn a_deferred_task_survives_a_kill_and_a_restart_and_starts_once() {
     );
 }
 
-/// A task's forecast, live (theseus-zz752): thirty finished tasks, a restart
-/// (the table is read from the store after serving), then a new task whose
-/// first line carries the forecast, and a slow one that runs past the p90 of
-/// minutes and is told once to a `work.watch` connection.
-#[test]
-#[expect(clippy::too_many_lines, reason = "one scenario, start to finish")]
-fn a_new_task_has_a_forecast_and_a_slow_one_is_told_once() {
+/// The stand-in's rules for the forecast scenario: thirty counting tasks,
+/// a slow one, and the rule that starts them.
+fn forecast_script() -> Vec<(String, Vec<(&'static str, Value)>)> {
     let mut script: Vec<(String, Vec<(&'static str, Value)>)> = (0..30)
         .map(|i| {
             (
@@ -804,6 +800,16 @@ fn a_new_task_has_a_forecast_and_a_slow_one_is_told_once() {
                    {"pieces": [{"quote": "wait it out, please, then report", "role": "objective"}]}}),
         )],
     ));
+    script
+}
+
+/// A task's forecast, live (theseus-zz752): thirty finished tasks, a restart
+/// (the table is read from the store after serving), then a new task whose
+/// first line carries the forecast, and a slow one that runs past the p90 of
+/// minutes and is told once to a `work.watch` connection.
+#[test]
+fn a_new_task_has_a_forecast_and_a_slow_one_is_told_once() {
+    let script = forecast_script();
     // A command waits in the turn for up to 30 s, so the slow task is slow.
     let r = Rig::with(
         script
