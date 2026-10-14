@@ -8,8 +8,8 @@ Harbour Tides predicts high and low water for a station from its harmonic
 constants. It reads a station file, sums the constituents for each minute of
 the day, and prints the extremes.
 
-- tides.py: the predictor
-- test_tides.py: its tests
+• tides.py: the predictor
+• test_tides.py: its tests
   1.2 s · Sonnet 5.5 · $0.0042 total ($0.0042 this reply)
 
 › and the tests?

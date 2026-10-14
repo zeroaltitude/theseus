@@ -498,10 +498,10 @@ async fn a_call_is_a_dock_row_while_it_runs_and_a_line_when_it_ends() {
         tool: "proc.run".into(),
         ..Default::default()
     }));
-    r.shows("Run python3 slow_survey.py · 0:00").await;
+    r.shows("Run `python3 slow_survey.py` · 0:00").await;
     r.advance(34_000).await;
     assert!(
-        r.text().contains("Run python3 slow_survey.py · 0:34"),
+        r.text().contains("Run `python3 slow_survey.py` · 0:34"),
         "{}",
         r.text()
     );
@@ -519,7 +519,7 @@ async fn a_call_is_a_dock_row_while_it_runs_and_a_line_when_it_ends() {
         duration_ms: Some(34_100),
         ..Default::default()
     }));
-    r.shows("● Run python3 slow_survey.py").await;
+    r.shows("● Run `python3 slow_survey.py`").await;
     let line = r
         .screen()
         .into_iter()
@@ -527,7 +527,7 @@ async fn a_call_is_a_dock_row_while_it_runs_and_a_line_when_it_ends() {
         .unwrap();
     assert!(line.ends_with("✓ 34.1 s"), "{line:?}");
     assert!(
-        !r.text().contains("Run python3 slow_survey.py ·"),
+        !r.text().contains("Run `python3 slow_survey.py` ·"),
         "the row left the dock:\n{}",
         r.text()
     );
@@ -548,7 +548,7 @@ async fn a_question_shows_in_the_dock_and_y_answers_it() {
     }));
     r.shows("[y] approve · [n] decline").await;
     assert!(
-        r.text().contains("? Run python3 -m unittest?"),
+        r.text().contains("? Run `python3 -m unittest`?"),
         "{}",
         r.text()
     );

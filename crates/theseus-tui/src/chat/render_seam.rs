@@ -9,13 +9,15 @@ use serde_json::Value;
 use theseus_client::render::md::Markdown;
 use theseus_client::render::style::Mode;
 
-/// The reply as lines no wider than `width` display columns, drawn by the
+/// The reply as lines narrower than `width` display columns, drawn by the
 /// CLI's markdown renderer (term-render's, theseus-rn7s: headings, emphasis,
-/// lists, tables, highlighted code), which keeps prose one column short of the
-/// edge. `ansi`: the caller's terminal takes colour; else no escape at all.
+/// lists, tables, highlighted code). It is given one column less than the
+/// terminal's, as the CLI gives it (`style::prose_width`): a line that fills
+/// the last column leaves the terminal in a half-wrapped state some of them
+/// draw badly. `ansi`: the caller's terminal takes colour; else no escape.
 pub fn reply_lines(text: &str, width: usize, ansi: bool) -> Vec<String> {
     let mode = if ansi { Mode::Ansi } else { Mode::Plain };
-    Markdown::render(text.trim_end(), width.max(8), mode)
+    Markdown::render(text.trim_end(), width.saturating_sub(1).max(8), mode)
         .iter()
         .map(|l| if ansi { l.ansi() } else { l.plain() })
         .collect()
@@ -65,14 +67,14 @@ mod tests {
         let rows = reply_lines("Intro\n\n- one two three four five", 13, false);
         assert_eq!(
             rows,
-            vec!["Intro", "", "- one two", "  three four", "  five"]
+            vec!["Intro", "", "• one two", "  three four", "  five"]
         );
     }
 
     #[test]
     fn code_is_cut_at_the_edge_not_reflowed() {
         let rows = reply_lines("```\nlet a_long_name = 1;\n```", 11, false);
-        assert_eq!(rows, vec!["```", "let a_long", "_name = 1;", "```"]);
+        assert_eq!(rows, vec!["  let a_lo", "  ↪ ng_nam", "  ↪ e = 1;"]);
     }
 
     #[test]
@@ -89,15 +91,15 @@ mod tests {
         );
         assert_eq!(
             tool_line("proc_run", &json!({"argv": ["python3", "slow_survey.py"]})),
-            "Run python3 slow_survey.py"
+            "Run `python3 slow_survey.py`"
         );
         assert_eq!(
-            tool_line("proc.run", &json!({"command": "ls  -l\n"})),
-            "Run ls -l"
+            tool_line("proc.run", &json!({"argv": ["ls", "-l"]})),
+            "Run `ls -l`"
         );
         assert_eq!(
             tool_line("memory.lookup", &json!({"query": "tides"})),
-            "memory.lookup tides"
+            "memory.lookup \"tides\""
         );
         assert_eq!(tool_line("mystery", &json!({})), "mystery");
     }
