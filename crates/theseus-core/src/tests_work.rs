@@ -456,6 +456,13 @@ async fn a_wake_and_the_steps_close(s: &mut Scene) {
             .any(|v| v.kind == WorkKind::Job && v.state.ended())
     })
     .await;
+    // The steps can close before the CLOSE turn ends: the tree is read once
+    // the conversation is between exchanges again.
+    until_held("the conversation ready", &mut s.w, |h| {
+        h.values()
+            .any(|v| v.kind == WorkKind::Conversation && v.state == WorkState::Ready)
+    })
+    .await;
 }
 
 /// The whole substrate scenario: a conversation starts three tasks and three
