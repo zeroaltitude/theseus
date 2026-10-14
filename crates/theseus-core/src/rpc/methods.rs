@@ -70,6 +70,7 @@ impl Core {
             startup: self.startup_log.snapshot(),
             usage_total: totals.usage,
             provider_errors: self.provider_errors.load(Ordering::Relaxed),
+            tui_notify: self.cfg.tui.notify.clone(),
             ledger_rows: self.store.ledger_len().unwrap_or(0),
             ledger_head: self.ledger_head_short(),
             telemetry: self.telemetry_status(),

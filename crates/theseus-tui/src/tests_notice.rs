@@ -182,3 +182,85 @@ async fn a_question_read_from_a_snapshot_rings_nothing() {
     rig.settle().await;
     assert!(pings(&out).is_empty(), "{:?}", pings(&out));
 }
+
+/// A toast's command line, recorded and never run (theseus-f0bi9).
+#[derive(Default)]
+struct Argvs(std::sync::Mutex<Vec<Vec<String>>>);
+
+impl theseus_client::notify::Spawner for Argvs {
+    fn run(&self, argv: &[String]) -> std::io::Result<()> {
+        self.0.lock().unwrap().push(argv.to_vec());
+        Ok(())
+    }
+}
+
+/// What a toast word says (`x` and the text's UTF-8 as hex).
+fn unword(w: &str) -> String {
+    let hex = &w[1..];
+    let bytes: Vec<u8> = (0..hex.len() / 2)
+        .map(|i| u8::from_str_radix(&hex[2 * i..2 * i + 2], 16).unwrap())
+        .collect();
+    String::from_utf8(bytes).unwrap()
+}
+
+#[tokio::test]
+async fn under_toast_a_question_is_a_toast_titled_by_the_task_and_the_terminal_hears_nothing() {
+    let (mut rig, out) = rig().await;
+    let spawner = std::sync::Arc::new(Argvs::default());
+    rig.runner.delivery = Delivery::Toast;
+    rig.runner.notifier = theseus_client::notify::Notifier::with(
+        Box::new(theseus_client::notify::Env::default),
+        spawner.clone(),
+        std::sync::Arc::new(|_| {}),
+        std::sync::Arc::new(|_| {}),
+    );
+    push(&rig, &asking(141, "ses_tide01", "cor_tide01"));
+    rig.settle().await;
+    at(&mut rig, 1_000).await;
+    rig.until("the toast", |_| !spawner.0.lock().unwrap().is_empty())
+        .await;
+    let argv = spawner.0.lock().unwrap()[0].clone();
+    assert_eq!(argv[0], "powershell.exe");
+    assert_eq!(argv[4], theseus_client::notify::SCRIPT);
+    assert_eq!(unword(&argv[5]), "check the tide tables");
+    assert_eq!(
+        unword(&argv[6]),
+        "● check the tide tables asks: proc.run run the tide? · expires 14:23"
+    );
+    assert_eq!(unword(&argv[7]), "sound", "a question is an Interrupt");
+    assert!(pings(&out).is_empty(), "no OSC 9 beside the toast");
+    // The title's OSC ends in a BEL too: take the sequences out, and no bell is left.
+    let mut text = out.text();
+    while let Some(a) = text.find("\x1b]") {
+        let end = text[a..].find('\x07').map_or(text.len(), |b| a + b + 1);
+        text.replace_range(a..end, "");
+    }
+    assert!(!text.contains('\x07'), "nor a bell");
+}
+
+#[tokio::test]
+async fn a_burst_under_toast_is_one_toast_with_the_folded_words() {
+    let (mut rig, _out) = rig().await;
+    let spawner = std::sync::Arc::new(Argvs::default());
+    rig.runner.delivery = Delivery::Toast;
+    rig.runner.notifier = theseus_client::notify::Notifier::with(
+        Box::new(theseus_client::notify::Env::default),
+        spawner.clone(),
+        std::sync::Arc::new(|_| {}),
+        std::sync::Arc::new(|_| {}),
+    );
+    for (i, sid) in ["ses_burst1", "ses_burst2", "ses_burst3"]
+        .iter()
+        .enumerate()
+    {
+        push(&rig, &asking(141 + i as u64, sid, &format!("cor_b{i}")));
+    }
+    rig.settle().await;
+    at(&mut rig, 1_000).await;
+    rig.until("the toast", |_| !spawner.0.lock().unwrap().is_empty())
+        .await;
+    at(&mut rig, 1_500).await;
+    let runs = spawner.0.lock().unwrap();
+    assert_eq!(runs.len(), 1, "{runs:?}");
+    assert_eq!(unword(&runs[0][6]), "3 questions need you");
+}

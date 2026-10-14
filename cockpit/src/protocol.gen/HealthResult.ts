@@ -87,7 +87,12 @@ startup: Array<StartupPhase>,
 /**
  * Tokens across every session, summed from session records.
  */
-usage_total: Usage, provider_errors: number, ledger_rows: number, 
+usage_total: Usage, provider_errors: number, 
+/**
+ * `[tui] notify`: how the terminal clients ping the owner when their
+ * `--notify` is not given (theseus-f0bi9). Empty from an older daemon.
+ */
+tui_notify: string, ledger_rows: number, 
 /**
  * The ledger chain's head as the writer last committed it, short
  * (`3fa1c09e…#1204`); absent before the chain starts (theseus-bmkxk).

@@ -14,11 +14,14 @@
 //! - [`outcome`]: how a turn ended, as `theseus ask`'s exit code
 //!   (theseus-n88g.2).
 //! - [`names`]: what a session is called, in every client (theseus-0n1v).
+//! - [`notify`]: how a ping reaches the owner (a toast under WSL, OSC 9, the
+//!   bell), and the notices that make one (theseus-f0bi9).
 //! - [`resolve`]: the one rule by which a command names a session, an
 //!   execution or a question: its id, or a unique end of it (theseus-0n1v).
 
 pub mod client;
 pub mod names;
+pub mod notify;
 pub mod outcome;
 pub mod render;
 pub mod resolve;

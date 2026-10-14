@@ -767,6 +767,15 @@ port = 7433
 # server's port is open to every local user.
 # dev_origin = "http://127.0.0.1:5174"
 
+# ---------------------------------------------------------------- tui
+# How the terminal clients (theseus-tui; `theseus status --watch` has its own
+# --notify, off by default) ping you when a task needs you or finishes:
+# "auto" (a Windows toast through powershell.exe under WSL, OSC 9 in a
+# terminal that has it, else the bell), "toast", "bell", "osc9", "osc777", or
+# "off". The TUI's --notify flag overrides it.
+[tui]
+notify = "auto"
+
 # ---------------------------------------------------------------- mcp_server
 # Theseus's own MCP server: an MCP client on this machine (Claude Code,
 # another agent) opens a Theseus conversation, sends it text, and reads the

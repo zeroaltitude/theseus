@@ -16,10 +16,12 @@ use std::collections::{HashMap, HashSet};
 use std::io::Write;
 use std::time::Duration;
 
+use crate::status_notify::{read_name, Alerts};
 use anyhow::{bail, Context, Result};
 use clap::Args;
 use serde::Serialize;
 use serde_json::Value;
+use theseus_client::notify::Delivery;
 use theseus_client::{names, render, Conn};
 use theseus_protocol::{
     method, ConfirmRequest, Event, ExecutionView, ExecutionsWatchParams, ExecutionsWatchResult,
@@ -58,6 +60,16 @@ pub struct StatusArgs {
     /// exit. Written to the controlling terminal, through tmux's passthrough inside tmux.
     #[arg(long, requires = "watch")]
     tab: bool,
+    /// With --watch: ping when something needs you or finishes, as the TUI does (the one
+    /// notification policy): auto (a Windows toast under WSL, OSC 9 in a terminal that has
+    /// it, else the bell), toast, bell, osc9, osc777, or off (the default: a watch runs in a
+    /// status bar). A bell or OSC goes to the controlling terminal, never to stdout.
+    #[arg(long, requires = "watch", default_value = "off", value_parser = parse_notify)]
+    notify: Delivery,
+}
+
+fn parse_notify(s: &str) -> Result<Delivery, String> {
+    Delivery::parse(s).ok_or_else(|| format!("takes {}", Delivery::NAMES))
 }
 
 /// Run `theseus status`. It connects for itself (within 100 ms), so `--short`
@@ -141,6 +153,9 @@ pub struct Board {
     /// The snapshot's position: a view at or before it is in the snapshot.
     floor: u64,
     confirms: Vec<ConfirmRequest>,
+    /// A watch that pings keeps the snapshot's executions, whole, for its notices.
+    track: bool,
+    snapshot: Vec<ExecutionView>,
 }
 
 impl Board {
@@ -169,6 +184,9 @@ impl Board {
         self.last.clear();
         self.floor = snap.position;
         self.confirms = snap.confirms;
+        if self.track {
+            self.snapshot = snap.executions.clone();
+        }
         for v in snap.executions {
             self.last.insert(v.execution_id.clone(), v.position);
             if matches!(v.attention.level, Level::NeedsYou | Level::Working) {
@@ -544,6 +562,8 @@ pub struct Sink<'a> {
     json: bool,
     last: Option<Key>,
     last_tab: Option<TabState>,
+    /// `--notify`: the pings this watch makes (theseus-f0bi9); none when off.
+    pub alerts: Option<Alerts>,
 }
 
 impl<'a> Sink<'a> {
@@ -560,6 +580,7 @@ impl<'a> Sink<'a> {
             json,
             last: None,
             last_tab: None,
+            alerts: None,
         }
     }
 
@@ -619,30 +640,73 @@ impl<'a> Sink<'a> {
 }
 
 /// One connection's watch: the board, then each change the push brings, until
-/// the daemon closes the connection.
+/// the daemon closes the connection. With `--notify` it also wakes for the
+/// soonest notice that is due, the one timer a watch has.
 pub async fn watch_conn(conn: &mut Conn, sink: &mut Sink<'_>) -> Result<()> {
-    let mut board = Board::default();
+    let mut board = Board {
+        track: sink.alerts.is_some(),
+        ..Board::default()
+    };
     board.reload(conn).await?;
+    if let Some(a) = sink.alerts.as_mut() {
+        a.saw(std::mem::take(&mut board.snapshot));
+    }
     sink.show(&board)?;
-    while let Some(msg) = conn.next().await? {
-        let theseus_protocol::Message::Notification(n) = msg else {
-            continue;
+    let mut queue: std::collections::VecDeque<(String, Value)> = Default::default();
+    loop {
+        let due = sink.alerts.as_ref().and_then(Alerts::next_due);
+        let wake = async {
+            match due {
+                Some(at) => {
+                    let wait = at.saturating_sub(now_ms());
+                    tokio::time::sleep(Duration::from_millis(wait)).await;
+                }
+                None => std::future::pending().await,
+            }
         };
-        match Event::from_notification(&n.method, &n.params)? {
-            Some(Event::ExecutionChanged(v)) => {
-                if board.apply(v) {
-                    sink.show(&board)?;
+        tokio::select! {
+            msg = conn.next() => {
+                let Some(msg) = msg? else { return Ok(()) };
+                let theseus_protocol::Message::Notification(n) = msg else {
+                    continue;
+                };
+                queue.push_back((n.method, n.params));
+            }
+            () = wake => {
+                if let Some(a) = sink.alerts.as_mut() {
+                    a.fire(now_ms(), &displayed(), &local_hm);
                 }
             }
-            // This client fell behind: read the board again.
-            Some(Event::EventsLost(_)) => {
-                board.reload(conn).await?;
-                sink.show(&board)?;
+        }
+        while let Some((m, p)) = queue.pop_front() {
+            match Event::from_notification(&m, &p)? {
+                Some(Event::ExecutionChanged(v)) => {
+                    let newer = board.apply(v.clone());
+                    if newer {
+                        if let Some(a) = sink.alerts.as_mut() {
+                            if a.needs_name(&v) {
+                                let mut early = Vec::new();
+                                let name = read_name(conn, &v.session_id, &mut early).await;
+                                a.name(&v.session_id, name.unwrap_or_default());
+                                queue.extend(early);
+                            }
+                            a.moved(v, now_ms(), &local_hm);
+                        }
+                        sink.show(&board)?;
+                    }
+                }
+                // This client fell behind: read the board again.
+                Some(Event::EventsLost(_)) => {
+                    board.reload(conn).await?;
+                    if let Some(a) = sink.alerts.as_mut() {
+                        a.saw(std::mem::take(&mut board.snapshot));
+                    }
+                    sink.show(&board)?;
+                }
+                _ => {}
             }
-            _ => {}
         }
     }
-    Ok(())
 }
 
 async fn watch(socket: &str, spawn: Option<&str>, json: bool, a: &StatusArgs) -> Result<()> {
@@ -655,6 +719,7 @@ async fn watch(socket: &str, spawn: Option<&str>, json: bool, a: &StatusArgs) ->
         a.short,
         json,
     );
+    sink.alerts = Alerts::new(a.notify);
     let ended = tokio::select! {
         r = reconnecting(socket, spawn, &mut sink) => r,
         () = stop_signal() => Ok(()),

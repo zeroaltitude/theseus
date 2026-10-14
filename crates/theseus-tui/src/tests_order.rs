@@ -229,7 +229,14 @@ fn a_fired_reminder_rings_and_a_check_in_does_not() {
                "due_at_ms": T0, "late_ms": 0, "answers": []})
     };
     let out = app.notified("wake.noticed", &noticed("remind"));
-    assert_eq!(out, vec![Effect::Notice("⏰ stretch".into(), true)]);
+    assert_eq!(
+        out,
+        vec![Effect::Notice {
+            title: "Reminder".into(),
+            line: "⏰ stretch".into(),
+            sound: true
+        }]
+    );
     assert!(app.notified("wake.noticed", &noticed("check")).is_empty());
     app.quiet = true;
     assert!(app.notified("wake.noticed", &noticed("remind")).is_empty());

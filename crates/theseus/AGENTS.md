@@ -15,6 +15,14 @@ Key modules: `main.rs`, `cmd.rs`, `render.rs`, `client.rs`. Read by: (a binary).
 - `src/cmd.rs`: one function per subcommand, and `output()`. `ask --attach FILE` sends a text file's text and any
   other file's bytes, up to 32 MiB, for the daemon to keep and read (an image, a PDF; theseus-c9l6). `tui` connects nothing: it execs `theseus-tui`, found
   beside this binary or else on PATH, with `--socket` first and the arguments after it (step 10f).
+- `src/notify/` (theseus-f0bi9): how a ping reaches the owner, for every terminal client. `notices.rs` is the TUI's
+  former notice queue (the policy's notices, a second of debounce, the burst fold); `mod.rs` has `Delivery`
+  (`auto|toast|bell|osc9|osc777|off`), `Env` (WSL from `WSL_DISTRO_NAME` or `osrelease`, injectable) and `Notifier`;
+  `toast.rs` runs `powershell.exe -NoProfile -NonInteractive -Command <fixed script> <title> <body> <sound>` on a
+  worker thread (one in flight, one queued, 5 s kill; a missing binary falls back to the bell once and says so on
+  stderr once). The three trailing arguments are `x` + hex words, never the text: `-Command` joins its arguments and
+  parses them as code, so raw text would be code. Nothing is probed at start. `status_notify.rs` is
+  `theseus status --watch --notify` (default `off`; a bell or OSC goes to /dev/tty, never stdout).
 - `src/status.rs`: `theseus status` and `wait --any` (theseus-lweh). One read, `executions.watch {limit: 0}`, feeds
   `Board` (the executions that need you or work, by the position rule) and its forms: the long one (a header and a
   row each, a command under what asks), `--short` (`●1 ◐3 ✗1 ◆2`; empty when nothing works or waits), `--watch`
