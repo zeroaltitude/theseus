@@ -57,9 +57,11 @@ pub struct Printer<O: Write = Stdout, E: Write = Stderr> {
 /// Colour on `err`: a terminal, `NO_COLOR` unset or empty, `TERM` not `dumb`.
 fn colour_on(err: &impl IsTerminal) -> bool {
     let env = |k: &str| std::env::var(k).ok();
-    err.is_terminal()
-        && env("NO_COLOR").is_none_or(|v| v.is_empty())
-        && env("TERM").is_none_or(|t| t != "dumb")
+    colour_for(err.is_terminal(), env("NO_COLOR"), env("TERM"))
+}
+
+fn colour_for(tty: bool, no_color: Option<String>, term: Option<String>) -> bool {
+    tty && no_color.is_none_or(|v| v.is_empty()) && term.is_none_or(|t| t != "dumb")
 }
 
 impl Printer {
@@ -336,5 +338,16 @@ mod tests {
             add.starts_with("\x1b[32m") && add.contains("\x1b[1;97;42mhighest\x1b[0m"),
             "{add:?}"
         );
+    }
+
+    /// Colour only on a terminal, and never under `NO_COLOR` or `TERM=dumb`.
+    #[test]
+    fn colour_is_for_a_terminal_that_takes_it() {
+        let s = |v: &str| Some(v.to_string());
+        assert!(colour_for(true, None, s("xterm-256color")));
+        assert!(colour_for(true, s(""), None), "an empty NO_COLOR is unset");
+        assert!(!colour_for(false, None, s("xterm")), "a pipe");
+        assert!(!colour_for(true, s("1"), s("xterm")), "NO_COLOR");
+        assert!(!colour_for(true, None, s("dumb")), "TERM=dumb");
     }
 }

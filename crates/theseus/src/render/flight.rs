@@ -21,6 +21,10 @@ const SUBJECT_CHARS: usize = 40;
 #[derive(Debug, Default)]
 pub struct Flight {
     calls: HashMap<String, (String, String)>,
+    /// A question seen before its call's start, by the call's correlation id:
+    /// what a watch that began after the call was proposed says of it
+    /// (theseus-z6au).
+    asked: HashMap<String, String>,
 }
 
 impl Flight {
@@ -37,6 +41,19 @@ impl Flight {
                 if lines.is_empty() {
                     let said = summarize(&p.tool, &p.input);
                     lines.push(Line::new(Tag::Tool, format!("  → {said}")));
+                }
+            }
+            Event::ConfirmRequested(c) => {
+                self.asked
+                    .insert(c.correlation_id.clone(), summarize(&c.tool, &c.input));
+            }
+            // A call proposed before this watch began, and asked about: its
+            // start names it in words from its question.
+            Event::ToolStarted(s) if self.asked.contains_key(&s.correlation_id) => {
+                let said = self.asked.remove(&s.correlation_id).unwrap_or_default();
+                let bare = format!("  → {}", s.tool);
+                for l in lines.iter_mut().filter(|l| l.text == bare) {
+                    l.text = format!("  → {said}");
                 }
             }
             // A call already said in words is not named again by its start;
@@ -188,5 +205,34 @@ mod tests {
             tool_lines(&mut f, &ended("b", "fs.write", "ok")),
             ["  ← fs.write [b.txt] ok · exit 0 · 2001 ms · 0 B"]
         );
+    }
+
+    /// A watch that began after the call was proposed has only its question:
+    /// the start says what the call does from it, not its bare tool.
+    #[test]
+    fn a_start_without_its_proposal_is_worded_from_its_question() {
+        let mut f = Flight::default();
+        let asked = Event::ConfirmRequested(theseus_protocol::ConfirmRequest {
+            correlation_id: "act_1".into(),
+            tool: "fs.edit".into(),
+            input: json!({"path": "tides.py", "old_string": "a", "new_string": "b"}),
+            ..Default::default()
+        });
+        f.event(&asked, Show::default());
+        let started = Event::ToolStarted(theseus_protocol::ToolStarted {
+            tool_use_id: "tu_9".into(),
+            correlation_id: "act_1".into(),
+            tool: "fs.edit".into(),
+            ..Default::default()
+        });
+        assert_eq!(tool_lines(&mut f, &started), ["  → Edit tides.py"]);
+        // Another start, with no question: as it was.
+        let other = Event::ToolStarted(theseus_protocol::ToolStarted {
+            tool_use_id: "tu_8".into(),
+            correlation_id: "act_2".into(),
+            tool: "fs.read".into(),
+            ..Default::default()
+        });
+        assert_eq!(tool_lines(&mut f, &other), ["  → fs.read"]);
     }
 }
