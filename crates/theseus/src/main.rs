@@ -1146,7 +1146,7 @@ async fn run(cli: Cli) -> Result<()> {
         } => cmd::wait(c, json, session, until, after, timeout).await,
         Cmd::Wait { until, timeout, .. } => wait_any(c, json, &until, timeout.as_deref()).await,
         Cmd::Work(a) => work::run(c, json, a).await,
-        Cmd::Status(_) | Cmd::Postmortem(_) => unreachable!("they connect for themselves"),
+        Cmd::Status(_) | Cmd::Postmortem(_) | Cmd::Tui { .. } => unreachable!("returned above"),
         Cmd::Profile { cmd } => cmd::profile(c, json, cmd.unwrap_or(ProfileCmd::List)).await,
         Cmd::Ledger { cmd: Some(cmd), .. } => ledger_verify::run(c, json, cmd).await,
         Cmd::Ledger {
@@ -1168,7 +1168,6 @@ async fn run(cli: Cli) -> Result<()> {
         Cmd::Thread { cmd } => thread::run(c, json, cmd.unwrap_or_default()).await,
         Cmd::Rpc { method, params } => cmd::rpc(c, json, method, params).await,
         Cmd::Shutdown => cmd::shutdown(c, json).await,
-        Cmd::Tui { .. } => unreachable!("`theseus tui` execs theseus-tui before connecting"),
     };
     close(conn).await;
     result
