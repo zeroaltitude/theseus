@@ -22,8 +22,9 @@ use serde::Serialize;
 use serde_json::Value;
 use theseus_client::{names, render, Conn};
 use theseus_protocol::{
-    method, ConfirmRequest, Event, ExecutionView, ExecutionsWatchParams, ExecutionsWatchResult,
-    Level, SessionListParams, SessionListResult, SessionWaitResult,
+    error_code, method, ConfirmRequest, Event, ExecutionView, ExecutionsWatchParams,
+    ExecutionsWatchResult, Level, SessionListParams, SessionListResult, SessionWaitResult,
+    StatusShortResult,
 };
 
 /// How long `theseus status` waits to connect: a prompt cannot afford more.
@@ -60,6 +61,13 @@ pub struct StatusArgs {
     tab: bool,
 }
 
+impl StatusArgs {
+    /// The prompt's one-shot line: `--short` without `--watch`.
+    pub fn is_short_once(&self) -> bool {
+        self.short && !self.watch
+    }
+}
+
 /// Run `theseus status`. It connects for itself (within 100 ms), so `--short`
 /// can stay silent when the daemon is down.
 pub async fn run(socket: &str, spawn: Option<&str>, json: bool, a: &StatusArgs) -> Result<()> {
@@ -83,6 +91,16 @@ pub async fn run(socket: &str, spawn: Option<&str>, json: bool, a: &StatusArgs) 
         ANSWER_WITHIN
     };
     let answer = tokio::time::timeout(within, async {
+        // `--short` asks for the board's counts alone (theseus-8kn12): no view,
+        // no subscription. A daemon that predates the method answers the full
+        // read below, as it always did.
+        if a.short && !json {
+            match conn.request(method::STATUS_SHORT, ()).await {
+                Ok(v) => return anyhow::Ok(Answer::Short(serde_json::from_value(v)?)),
+                Err(e) if is_method_not_found(&e) => {}
+                Err(e) => return Err(e),
+            }
+        }
         let mut board = Board::default();
         board.reload(&mut conn).await?;
         let titles = if a.short || json {
@@ -90,11 +108,18 @@ pub async fn run(socket: &str, spawn: Option<&str>, json: bool, a: &StatusArgs) 
         } else {
             titles(&mut conn, &board).await.unwrap_or_default()
         };
-        anyhow::Ok((board, titles))
+        anyhow::Ok(Answer::Full(board, titles))
     })
     .await;
     let (board, titles) = match answer {
-        Ok(Ok(b)) => b,
+        Ok(Ok(Answer::Short(r))) => {
+            let line = short_line(&short_summary(&r));
+            if !line.is_empty() {
+                writeln!(std::io::stdout().lock(), "{line}")?;
+            }
+            return conn.close().await;
+        }
+        Ok(Ok(Answer::Full(b, t))) => (b, t),
         Ok(Err(_)) | Err(_) if a.short => std::process::exit(1),
         Ok(Err(e)) => return Err(e),
         Err(_) => bail!("the daemon did not answer within {within:?}"),
@@ -127,6 +152,52 @@ pub async fn run(socket: &str, spawn: Option<&str>, json: bool, a: &StatusArgs) 
         theseus_client::shown::shown(&mut conn, &shown).await;
     }
     conn.close().await
+}
+
+/// What the one-shot read brought back.
+enum Answer {
+    Short(StatusShortResult),
+    Full(Board, HashMap<String, String>),
+}
+
+/// Whether the daemon said it does not know the method.
+fn is_method_not_found(e: &anyhow::Error) -> bool {
+    e.downcast_ref::<theseus_client::CallError>()
+        .is_some_and(|c| c.code == error_code::METHOD_NOT_FOUND)
+}
+
+/// The counts of `--short` from the daemon's: a failure whose view the seen
+/// file has reached is not counted (theseus-xnff's (a)), as `Board::summary`
+/// does.
+pub fn short_summary(r: &StatusShortResult) -> Summary {
+    let (new, shown) = short_seen();
+    short_summary_with(r, new, &shown)
+}
+
+fn short_summary_with(r: &StatusShortResult, new: u32, shown: &HashMap<String, u64>) -> Summary {
+    let unseen = r
+        .failed
+        .iter()
+        .filter(|f| !shown.get(&f.execution_id).is_some_and(|&d| d >= f.position))
+        .count() as u32;
+    Summary {
+        needs_you: r.needs_you,
+        working: r.working,
+        failed: unseen,
+        failed_seen: r.failed.len() as u32 - unseen,
+        new,
+        wake_at_ms: None,
+        first: r.first.clone(),
+    }
+}
+
+/// The seen file's `◆` count and displayed positions, from one read of it.
+fn short_seen() -> (u32, HashMap<String, u64>) {
+    if cfg!(test) {
+        return (0, HashMap::new());
+    }
+    theseus_client::seen::Seen::default_path()
+        .map_or_else(|| (0, HashMap::new()), |p| theseus_client::seen::counts(&p))
 }
 
 // ------------------------------------------------------------------ board

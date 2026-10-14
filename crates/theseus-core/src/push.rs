@@ -28,6 +28,7 @@ use crate::node::{Body, Node};
 use crate::Core;
 
 mod hot;
+mod short;
 
 /// A time on the daemon's clock, `14:00`: how a label says a due time. One
 /// a day or more ahead names its weekday, `Fri 09:00`, so a deferred task's
@@ -215,6 +216,8 @@ struct Board {
     /// health counts nothing (theseus-id8d).
     views: u64,
     questions: u64,
+    /// The short line's facts, moved with each view (theseus-8kn12).
+    short: short::Short,
 }
 
 /// The push (design `stage2` §2.7): the board, the seed, and the feed that
@@ -399,6 +402,13 @@ impl Push {
         (b.position, active, total)
     }
 
+    /// The short line's facts (theseus-8kn12): the counts the board keeps as
+    /// its views change, and the failures with their positions.
+    pub fn status_short(&self) -> theseus_protocol::StatusShortResult {
+        let b = self.board.lock().unwrap();
+        b.short.result(b.position)
+    }
+
     /// A session's view, loading its execution when the board left it cold
     /// (theseus-id8d): `session.wait` reads it.
     pub fn view_or_load(&self, core: &Core, session_id: &str) -> Option<ExecutionView> {
@@ -534,6 +544,7 @@ fn seed_from(
         b.entries.entry(id).or_default().pending = ps;
     }
     (b.views, b.questions) = b.recount();
+    b.short = short::Short::of(b.entries.values().filter_map(|e| e.view.as_ref()));
     Ok(b)
 }
 
@@ -553,6 +564,7 @@ impl Board {
         let mut v = view(e, entry.pending.clone(), parent, pos, e.updated_at_ms);
         v.outstanding = tool_calls(e, &mut entry.models);
         v.attention = attention(&v, &hm);
+        self.short.change(None, Some(&v));
         entry.view = Some(v.clone());
         self.views += 1;
         self.by_session.insert(e.session_id.clone(), e.id.clone());
@@ -732,6 +744,7 @@ impl Board {
             }
             self.by_session
                 .insert(new.session_id.clone(), new.execution_id.clone());
+            self.short.change(entry.view.as_ref(), Some(&new));
             entry.view = Some(new.clone());
             out.push(new);
         }
@@ -802,6 +815,7 @@ mod tests {
     use theseus_kernel::{ActionState, Authority, Budget, RetryClass, SessionKind};
 
     mod seed;
+    mod short;
     mod why;
 
     fn execution(state: ExecState, wake: Option<Wake>) -> Execution {
