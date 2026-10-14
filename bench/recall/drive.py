@@ -559,14 +559,17 @@ class Theseus:
         sid, session = None, -1
         transcript: list[str] = []
         sids: list[str] = []
+        opened: dict[int, str] = {}  # a progression that returns to a session (threadbench's per-stream arms) resumes it
         run.meta["compaction_rows"] = []
         try:
             seen = {x.get("position") for x in self.compactions()}
             for t in prog.turns:
                 if t.session != session:
                     session = t.session
-                    sid = self.open_session(f"recall {prog.sessions[session].label}")
-                    sids.append(sid)
+                    if session not in opened:
+                        opened[session] = self.open_session(f"recall {prog.sessions[session].label}")
+                        sids.append(opened[session])
+                    sid = opened[session]
                 pg.apply_before(t, run.workspace)
                 t0 = time.monotonic()
                 out, err, code = run_group(
@@ -684,16 +687,22 @@ class ClaudeCode:
         sid, session, first = None, -1, True
         seen = 0
         sids: list[str] = []
+        slot: dict[int, int] = {}  # a progression that returns to a session resumes it (threadbench's per-stream arms)
         for t in prog.turns:
             if t.session != session:
-                session, sid, first = t.session, str(uuid.uuid4()), True
-                sids.append(sid)
+                session = t.session
+                if session in slot:
+                    sid, first = sids[slot[session]], False
+                else:
+                    sid, first = str(uuid.uuid4()), True
+                    slot[session] = len(sids)
+                    sids.append(sid)
             pg.apply_before(t, run.workspace)
             v, out, code, ms = self.call(t.text, sid, first, a.turn_timeout)
             (run.raw / f"t{t.index:04d}.json").write_text(out)
             if v.get("session_id"):
                 sid = v["session_id"]  # carried: a resume may name it anew
-                sids[-1] = sid
+                sids[slot[session]] = sid
             first = False
             n = self.boundaries()
             compacted = n > seen
@@ -718,7 +727,7 @@ class ClaudeCode:
                      "result": (cv.get("result") or "")[:200]})
                 if cv.get("session_id"):
                     sid = cv["session_id"]
-                    sids[-1] = sid
+                    sids[slot[session]] = sid
             run.save()
         transcript = []
         for p in self.logs():

@@ -1,0 +1,41 @@
+{
+ "name": "threadbench-t0r",
+ "k": 1,
+ "about": "The attempt plan of threadbench's before run (T0r), committed before it: one attempt per arm per progression. The progression digests pin the generator; a change to the generator changes them and this file with them.",
+ "model": "anthropic/claude-sonnet-5-5",
+ "effort": "medium",
+ "size": "standard",
+ "arms": [
+  "A3",
+  "A4",
+  "A5",
+  "A6",
+  "A7"
+ ],
+ "probe_only": [
+  "A8"
+ ],
+ "progressions": {
+  "dev": {
+   "seed": 11,
+   "digest": "011a0c8319c615d320ad0b999e6114500661444c79220c1f783b18ef4955ffbe"
+  },
+  "held_out": {
+   "seed": 29,
+   "digest": "c3743e47879058dea4259f3cdd481cb1f7bdecd0e9c275ad47b07639fc8cff25",
+   "runs": "once, after the development run is read"
+  },
+  "prefix": {
+   "seed": 11,
+   "digest": "ee857fa84be7e08a4df1cdec1cc10f346f0b6d60e624f251c2ead1dd5e574ea5",
+   "track": "prefix",
+   "runs": "A3, A5 and A4, A6 on the prefix track, after the main run"
+  }
+ },
+ "budget_usd": {
+  "expected_low": 45,
+  "expected_high": 75,
+  "pause_with_after_run": 170
+ },
+ "spend_limit_usd_per_arm": 75
+}
