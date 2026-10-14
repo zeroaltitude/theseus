@@ -436,9 +436,13 @@ pub(super) fn write_frames(
     to: &Writer<'_>,
     frames: &mut u64,
 ) -> Result<bool> {
+    let of = records.len() as u64;
+    let mut done = 0u64;
     let mut left = records.into_iter().peekable();
     while left.peek().is_some() {
         let frame: Vec<Record> = left.by_ref().take(cap.max(1)).collect();
+        done += frame.len() as u64;
+        let progress = Some(fact::import::Progress { done, of });
         let mut f = fact::import::ImportTopics {
             tag: to.tag,
             by: to.by,
@@ -446,6 +450,7 @@ pub(super) fn write_frames(
             joined: 0,
             taken: 0,
             retired: 0,
+            progress,
         };
         for r in &frame {
             match r {
@@ -462,6 +467,7 @@ pub(super) fn write_frames(
             made: f.made,
             joined: f.joined,
             retired: f.retired,
+            progress,
         };
         board.write(store, frame, to.origin, |_| {
             let row = match to.people {

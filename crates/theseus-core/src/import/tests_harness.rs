@@ -179,6 +179,7 @@ async fn a_vault_value_is_scrubbed_in_every_encoding() {
             line: 1,
             text: e.to_string(),
         }],
+        ..Default::default()
     };
     let s = Scrubber::with_values(vec![(secret.into(), "reef_key".into())]);
     let b = write::import_batch_scrubbed(&c.store, &p, "cli", || false, &s).unwrap();

@@ -33,7 +33,7 @@ use crate::session::SessionRecord;
 use crate::tests_recall::{dropped_for, recalls, rig_with, session, turn, Rig, PIER};
 use crate::Core;
 
-const TAG: &str = "reef-2026-05";
+pub(super) const TAG: &str = "reef-2026-05";
 
 /// 2026-05-02T14:03:11Z, the first message's time, in unix ms.
 const FIRST_MS: u64 = 1_777_730_591_000;
@@ -100,6 +100,7 @@ fn params(lines: Vec<ImportLine>) -> Value {
     serde_json::to_value(ImportEpisodesParams {
         file: "reef.jsonl".into(),
         lines,
+        ..Default::default()
     })
     .unwrap()
 }
@@ -823,6 +824,7 @@ fn import_quietly(c: &Arc<Core>, episodes: &[Value]) {
         let p = ImportEpisodesParams {
             file: "reef.jsonl".into(),
             lines: lines(chunk),
+            ..Default::default()
         };
         let r = super::write::import_batch_in(&c.store, &p, "cli", || false, CAP)
             .unwrap()
@@ -870,6 +872,7 @@ async fn a_stop_ends_a_batch_between_frames_and_a_rerun_finishes_it() {
     let p = ImportEpisodesParams {
         file: "reef.jsonl".into(),
         lines: lines(&eps),
+        ..Default::default()
     };
     let r = live();
     let c = &r.core;

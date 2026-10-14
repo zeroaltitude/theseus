@@ -87,3 +87,37 @@ impl Fact for TenderStartFailed<'_> {
         json!({"event": "failed", "why": self.why, "backoff_ms": self.backoff.as_millis() as u64})
     }
 }
+
+/// An index rebuild's rows (theseus-jn17m): `index.rebuild`, one per event
+/// and nothing else (no sentence, no notification). The work board reads
+/// them as the daemon's own job, `Rebuilding the index`: `requested` starts
+/// it, `progress` carries the tender's backfill (WAL bytes done of the
+/// total), `finished` and `failed` end it. `run` is the request's time, so
+/// two rebuilds are two jobs.
+pub struct Rebuild<'a> {
+    pub run: u64,
+    pub event: &'a str,
+    pub by: Option<&'a str>,
+    pub done_bytes: Option<u64>,
+    pub total_bytes: Option<u64>,
+    pub why: Option<&'a str>,
+}
+
+impl Fact for Rebuild<'_> {
+    const KIND: Option<LedgerKind> = Some(LedgerKind::IndexRebuild);
+
+    fn row(&self) -> Value {
+        let mut row = json!({"event": self.event, "run": self.run});
+        if let Some(b) = self.by {
+            row["by"] = json!(b);
+        }
+        if let (Some(d), Some(t)) = (self.done_bytes, self.total_bytes) {
+            row["done_bytes"] = json!(d);
+            row["total_bytes"] = json!(t);
+        }
+        if let Some(w) = self.why {
+            row["why"] = json!(w);
+        }
+        row
+    }
+}

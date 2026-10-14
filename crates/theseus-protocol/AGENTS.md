@@ -32,6 +32,10 @@ Key modules: `lib.rs` (the `method`, `notify`, `error_code` tables), `events.rs`
   wording), `approves()` (which option ids approve), and `ConfirmRequest::question(kind, may_answer)`, the pure
   `Question` a request is. A `ConfirmRequest` carries its `options` (worded once by the daemon) and, in a read made for
   one connection (`confirm.list`), `may_answer`; `confirm.resolved` carries the `option` that answered.
+- `work_system.rs` (theseus-jn17m): the daemon's own work on the board: `ROOT` (`system`), the hour jobs stay
+  (`KEEP_MS`), the quiet time that ends a silent one (`QUIET_MS`), and the pure words every surface shares: `line` (`title
+  · count · 3:12`), `count_words`, `status_words` (`⚙ importing 41/120`, the first line of `theseus status`) and `collapsed`
+  (the root closed, for the TUI). `ImportEpisodesParams` carries `batch`/`batches`, which only the work board reads.
 - `work_watch.rs` (theseus-hkx30): `work.watch`'s params and snapshot (`WorkWatchParams`: `limit`, `roots` (session
   ids), `interactive`; `WorkWatchResult`), `work.unwatch`'s answer, and `work.changed` (`WorkChanged`: one per committed
   frame, every view it changed with its ancestors' rollups, `gone` for ids that left). `work.notice` carries

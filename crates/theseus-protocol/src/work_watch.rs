@@ -26,7 +26,9 @@ pub struct WorkWatchParams {
     pub limit: Option<u32>,
     /// Only these roots (a conversation's session id): what a binding for a
     /// shared place asks. A connection that reads no private text must name
-    /// them, and sees the roots of a shared place alone.
+    /// them, and sees the roots of a shared place alone. `system` names the
+    /// daemon's own work (`work_system`): the root `Theseus` and its jobs, for a
+    /// connection that reads private text; a shared place's never has it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub roots: Option<Vec<String>>,

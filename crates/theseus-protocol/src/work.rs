@@ -522,6 +522,9 @@ pub fn attention_of(v: &WorkView) -> Attention {
 }
 
 fn work_level_and_label(v: &WorkView) -> (Level, String) {
+    if let Some(ended) = system_ended(v) {
+        return ended;
+    }
     let open = v.question.as_ref().filter(|_| !v.state.ended());
     if let Some(q) = open {
         if q.kind == QuestionKind::Budget {
@@ -580,6 +583,46 @@ fn work_level_and_label(v: &WorkView) -> (Level, String) {
         WorkState::Cancelled => (Level::Idle, "cancelled".into()),
         WorkState::Expired => (Level::Idle, "expired".into()),
         WorkState::Unknown => (Level::Working, "working".into()),
+    }
+}
+
+/// A system job that ended (theseus-jn17m): a failure informs and never
+/// needs the owner (rule 8 of the notification policy, not rule 3), so it is
+/// at rest with its reason; a finish says what it did.
+fn system_ended(v: &WorkView) -> Option<(Level, String)> {
+    if v.kind != WorkKind::System || v.parent.is_none() {
+        return None;
+    }
+    let report = v.report.as_ref();
+    let said = |r: Option<&crate::work::WorkReport>| {
+        r.and_then(|r| r.first_line.clone())
+            .filter(|l| !l.is_empty())
+    };
+    match v.state {
+        WorkState::Failed => {
+            let why = report.and_then(|r| r.reason.as_deref()).unwrap_or("");
+            let label = if why.is_empty() {
+                "failed".to_string()
+            } else {
+                format!("failed: {}", clip(why))
+            };
+            Some((Level::Idle, label))
+        }
+        WorkState::Done => Some((
+            Level::Idle,
+            match said(report) {
+                Some(l) => format!("done · {}", clip(&l)),
+                None => "done".to_string(),
+            },
+        )),
+        WorkState::Cancelled => Some((
+            Level::Idle,
+            match said(report) {
+                Some(l) => format!("stopped · {}", clip(&l)),
+                None => "stopped".to_string(),
+            },
+        )),
+        _ => None,
     }
 }
 

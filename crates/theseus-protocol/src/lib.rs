@@ -75,6 +75,7 @@ pub mod warm;
 pub mod why;
 mod window;
 pub mod work;
+pub mod work_system;
 mod work_watch;
 
 pub use actions::{ActionInfo, ActionListParams, ActionListResult};
@@ -268,6 +269,11 @@ pub mod method {
         /// A search of the index, forwarded to the tender as it came
         /// (`index::IndexQueryParams`): fused hits as of a position. A read.
         INDEX_QUERY = "index.query",
+        /// Drop the index and build it again from the WAL (theseus-jn17m): the
+        /// owner's act, forwarded to the tender. The daemon writes the start,
+        /// the progress and the end as `index.rebuild` rows, so the work board
+        /// shows it as the daemon's own work.
+        INDEX_REBUILD = "index.rebuild",
         /// Recall's pipeline over a query, as a turn in a session's place
         /// would run it (M6 step 30a; `memory::MemorySearchParams`): what it
         /// would admit, and why each other hit was dropped. A read; it

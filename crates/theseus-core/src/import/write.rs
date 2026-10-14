@@ -194,6 +194,11 @@ fn import_batch_cut(
     let mut seen: BTreeMap<String, String> = BTreeMap::new();
     let mut frame = Frame::new(cap);
     let mut stopped = false;
+    let sent = Sent {
+        file: &p.file,
+        by,
+        numbered: (p.batch, p.batches),
+    };
     for l in &p.lines {
         if l.text.trim().is_empty() {
             continue;
@@ -253,7 +258,7 @@ fn import_batch_cut(
             }
         }
         if frame.full() {
-            write_frame(store, &mut frame, &mut counts, &p.file, by)?;
+            write_frame(store, &mut frame, &mut counts, &sent)?;
             out.frames += 1;
             theseus_store::pressure::quiet_blocking_unless(
                 theseus_store::pressure::BOUND,
@@ -267,7 +272,7 @@ fn import_batch_cut(
         }
     }
     if !frame.records.is_empty() {
-        write_frame(store, &mut frame, &mut counts, &p.file, by)?;
+        write_frame(store, &mut frame, &mut counts, &sent)?;
         out.frames += 1;
     }
     out.ms = t0.elapsed().as_secs_f64() * 1e3;
@@ -471,20 +476,35 @@ fn records_of(e: &Episode, file: &str, line: u64, frame: &mut Frame) -> Result<u
     Ok(nodes)
 }
 
+/// Whose batch a frame is part of: its file, who sent it, and the number the
+/// client gave it and its run's total (theseus-jn17m).
+#[derive(Clone, Copy)]
+struct Sent<'a> {
+    file: &'a str,
+    by: &'a str,
+    numbered: (Option<u32>, Option<u32>),
+}
+
 /// Write `frame` with the tags' counts it moved and each tag's batch row,
 /// and empty it.
 fn write_frame(
     store: &Store,
     frame: &mut Frame,
     counts: &mut Counts<'_>,
-    file: &str,
-    by: &str,
+    sent: &Sent<'_>,
 ) -> Result<()> {
+    let Sent { file, by, numbered } = *sent;
     let now = theseus_protocol::now_unix_ms();
     for (tag, (imported, nodes, appended)) in std::mem::take(&mut frame.imported) {
         let c = counts.get(&tag)?;
         c.updated_ms = now;
         frame.push(NewRecord::json(kinds::META, Some(&tag_key(&tag)), &*c)?);
+        // The tag's source: the one most of its sessions came from.
+        let source = c
+            .sources
+            .iter()
+            .max_by_key(|(_, n)| **n)
+            .map(|(s, _)| s.clone());
         let row = fact::import::ImportBatch {
             tag: &tag,
             file,
@@ -492,6 +512,9 @@ fn write_frame(
             imported,
             nodes,
             appended,
+            batch: numbered.0,
+            batches: numbered.1,
+            source: source.as_deref(),
         };
         frame.push(fact::row(&row, None, None)?.scoped(&fact::import::scope(&tag)));
     }
@@ -509,6 +532,30 @@ pub struct Erasure {
     /// last its `import.erased` row for that much, and the erase run again
     /// finishes the tag, skipping what was erased.
     pub stopped: bool,
+}
+
+/// An erase's frame before the last carries its progress for the work board
+/// (theseus-jn17m): the sessions erased so far, of this run's.
+fn erasing(frame: &mut Frame, who: (&str, &str), done: u64, of: u64) -> Result<()> {
+    let row = fact::import::ImportErasing {
+        tag: who.0,
+        by: who.1,
+        progress: fact::import::Progress { done, of },
+    };
+    frame.push(fact::row(&row, None, None)?.scoped(&fact::import::scope(who.0)));
+    Ok(())
+}
+
+/// The imported sessions of a tag not erased yet: an erase run's total.
+fn unerased(sessions: &BTreeMap<String, SessionRecord>) -> u64 {
+    sessions
+        .values()
+        .filter(|r| {
+            r.imported
+                .as_ref()
+                .is_some_and(|i| i.erased.is_none() && is_imported(&r.session_id))
+        })
+        .count() as u64
 }
 
 /// The tag's counts as they stand after an erase's frame, added to it
@@ -599,6 +646,7 @@ pub(super) fn erase_in(
             ..TagCounts::default()
         });
     let receipt = format!("import.erase of {tag}");
+    let of_sessions = unerased(&sessions);
     let mut frame = Frame::new(cap);
     let (mut n_sessions, mut n_nodes, mut frames) = (0u64, 0u64, 0u64);
     let mut forget = Vec::new();
@@ -628,6 +676,7 @@ pub(super) fn erase_in(
         n_sessions += 1;
         if frame.full() {
             counted(&mut frame, tag, &mut counts, before + n_sessions, now)?;
+            erasing(&mut frame, (tag, by), n_sessions, of_sessions)?;
             store.append(&std::mem::take(&mut frame.records))?;
             frame.bytes = 0;
             frames += 1;

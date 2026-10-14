@@ -248,7 +248,7 @@ pub fn next_reminder(v: &WorkView, rules: &Rules) -> Option<u64> {
 /// | 5 | a root the owner flagged, or one that worked `long_run_ms`, goes to ready or idle | Interrupt, no sound |
 /// | 6 | a question is answered, anywhere | Quiet, and `retracts` its ping |
 /// | 7 | a question expires unanswered | Inform, and `retracts` |
-/// | 8 | a task reports; a job ends; a short turn ends | Inform |
+/// | 8 | a task reports; a job ends; a short turn ends; a system job fails, or ends after `long_run_ms` | Inform |
 /// | 9 | spend crosses its limit or a multiple of it | Inform |
 /// | 10 | working ↔ working, queued, spend only, cancelled | nothing |
 ///
@@ -269,7 +269,7 @@ pub fn policy(
         .or_else(|| woke(&c))
         .or_else(|| finished(&c, rules))
         .or_else(|| answered(&c))
-        .or_else(|| ended(&c))
+        .or_else(|| ended(&c, rules))
         .or_else(|| spend(&c))?;
     Some(Notice {
         urgency: said.urgency,
@@ -372,7 +372,12 @@ fn failed(c: &Change) -> Option<Said> {
                 .is_some_and(|d| d.what == DoingKind::Asking)
     };
     let why = match next.state {
-        WorkState::Failed if was != Some(WorkState::Failed) && next.kind != WorkKind::Job => {
+        // A job's failure is its caller's (rule 8), a system job's is an Inform
+        // of its own (rule 8's system arm): neither interrupts.
+        WorkState::Failed
+            if was != Some(WorkState::Failed)
+                && !matches!(next.kind, WorkKind::Job | WorkKind::System) =>
+        {
             Why::Failed
         }
         WorkState::NeedsYou
@@ -620,7 +625,10 @@ fn woke_line(prev: Option<&WorkView>, next: &WorkView, name: &str) -> Option<Str
 }
 
 /// 8: a task's report, or a job's end.
-fn ended(c: &Change) -> Option<Said> {
+fn ended(c: &Change, rules: &Rules) -> Option<Said> {
+    if c.next.kind == WorkKind::System && c.next.parent.is_some() {
+        return system_ended(c, rules);
+    }
     let (p, next, name) = (c.prev?, c.next, &c.name);
     if next.kind == WorkKind::Task && next.state.ended() {
         if let Some(r) = next
@@ -650,6 +658,54 @@ fn ended(c: &Change) -> Option<Said> {
         return said(Urgency::Inform, Why::Finished, line, None);
     }
     None
+}
+
+/// 8, the daemon's own work (theseus-jn17m): a system job that fails is an
+/// Inform with its reason, one that runs `long_run_ms` or more and ends is an
+/// Inform (a badge: no sound), a short one ends in silence, and progress
+/// never speaks (a view that stays working is rule 10). A job the daemon's
+/// stop or a restart cut (cancelled) says nothing either.
+fn system_ended(c: &Change, rules: &Rules) -> Option<Said> {
+    let (next, name) = (c.next, &c.name);
+    // A job that appears already ended (a sync that failed at once) is the
+    // transition too; one that was ended before is not.
+    if c.prev.is_some_and(|p| p.state.ended()) || !next.state.ended() {
+        return None;
+    }
+    match next.state {
+        WorkState::Failed => {
+            let why = next
+                .report
+                .as_ref()
+                .and_then(|r| r.reason.as_deref())
+                .filter(|r| !r.is_empty());
+            let line = match why {
+                Some(w) => format!("✗ {name} failed: {w}"),
+                None => format!("✗ {name} failed"),
+            };
+            said(Urgency::Inform, Why::Failed, line, None)
+        }
+        WorkState::Done => {
+            let ran = next
+                .ended_at_ms
+                .unwrap_or(next.at_ms)
+                .saturating_sub(next.started_at_ms);
+            if next.started_at_ms == 0 || ran < rules.long_run_ms {
+                return None;
+            }
+            let line = match next
+                .report
+                .as_ref()
+                .and_then(|r| r.first_line.as_deref())
+                .filter(|l| !l.is_empty())
+            {
+                Some(l) => format!("✓ {name} is done after {} · {l}", span(ran)),
+                None => format!("✓ {name} is done after {}", span(ran)),
+            };
+            said(Urgency::Inform, Why::Finished, line, None)
+        }
+        _ => None,
+    }
 }
 
 #[cfg(test)]

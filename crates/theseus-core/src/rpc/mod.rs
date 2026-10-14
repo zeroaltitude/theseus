@@ -27,6 +27,7 @@ mod explain;
 mod fork;
 mod import;
 mod import_sync;
+mod index_rebuild;
 mod info;
 pub(crate) mod judge;
 mod judge_prove;

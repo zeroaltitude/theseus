@@ -15,7 +15,7 @@ use theseus_kernel::{Action, Execution};
 use theseus_protocol::tasks::TaskRecord;
 use theseus_store::Store as _;
 
-use super::{Dirty, WorkBoard};
+use super::{Dirty, Out, WorkBoard};
 use crate::push::board::Board;
 use crate::push::Frame;
 use crate::Core;
@@ -180,7 +180,70 @@ pub(in crate::push) fn read_warm(core: &Core, open: &[(String, String)]) -> Warm
     (runs, argvs)
 }
 
+/// The system rows of the last hour, oldest first, for the warm-up
+/// (theseus-jn17m): each kind's newest `SYSTEM_ROWS` by the store's pages.
+/// Blocking; nothing here is written.
+pub(in crate::push) fn read_system(core: &Core, now_ms: u64) -> Vec<crate::ledger::LedgerRow> {
+    use theseus_store::{kinds, Page};
+    let since = now_ms.saturating_sub(theseus_protocol::work_system::KEEP_MS);
+    let mut rows: Vec<crate::ledger::LedgerRow> = Vec::new();
+    for kind in super::system::KINDS {
+        let page = Page {
+            kind: kinds::LEDGER,
+            tags: crate::rpc::ledger_tags(Some(kind), None),
+            limit: SYSTEM_ROWS,
+            ..Page::default()
+        };
+        if let Ok(Some(out)) = core.store.ledger_page(&page) {
+            rows.extend(
+                out.records
+                    .iter()
+                    .filter_map(|r| r.decode::<crate::ledger::LedgerRow>().ok())
+                    .filter(|r| r.kind == *kind && r.at_unix_ms >= since),
+            );
+        }
+    }
+    rows.sort_by_key(|r| r.at_unix_ms);
+    rows
+}
+
+/// The newest rows of one system kind the warm-up reads.
+const SYSTEM_ROWS: usize = 400;
+
 impl WorkBoard {
+    /// The system jobs of the last hour, made again from their rows after a
+    /// start (theseus-jn17m), and what changed because of it. It tells no
+    /// one anything new: the notices these rows would make were made, or
+    /// were not, by the daemon that wrote them.
+    pub(in crate::push) fn warm_system(
+        &mut self,
+        rows: Vec<crate::ledger::LedgerRow>,
+        now_ms: u64,
+    ) -> Option<Out> {
+        let mut d = Dirty::default();
+        for r in &rows {
+            self.system.take(r, &mut d.system);
+        }
+        self.system.sweep(now_ms, &mut d.system);
+        if d.is_empty() {
+            return None;
+        }
+        let f = Frame {
+            at_ms: now_ms,
+            committed: std::time::Instant::now(),
+            position: self.position,
+            records: Vec::new(),
+            nodes: Vec::new(),
+        };
+        let kept = self.ring.len();
+        let out = self.settle(&f, d);
+        self.ring.truncate(kept);
+        (!out.views.is_empty() || !out.gone.is_empty()).then_some(Out {
+            notices: Vec::new(),
+            ..out
+        })
+    }
+
     /// The open jobs: correlation id and session.
     pub(in crate::push) fn open_jobs(&self) -> Vec<(String, String)> {
         self.acts

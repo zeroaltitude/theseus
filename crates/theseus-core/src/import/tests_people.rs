@@ -96,6 +96,7 @@ fn import(core: &Core) {
         &ImportEpisodesParams {
             file: "gulls.jsonl".into(),
             lines,
+            ..Default::default()
         },
         "test",
     )

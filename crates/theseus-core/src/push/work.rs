@@ -26,6 +26,7 @@
 
 mod eta;
 mod place;
+mod system;
 mod views;
 
 use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
@@ -71,6 +72,10 @@ const ROWS: &[&str] = &[
     "action.expired",
     "wake.",
     "task.",
+    // The daemon's own work (theseus-jn17m): `system::KINDS`.
+    "import.",
+    "synthesis.proposed",
+    "index.rebuild",
 ];
 
 /// Whether a ledger record's payload is a row the work board reads. The kind
@@ -87,10 +92,13 @@ pub(super) fn wanted(payload: &[u8]) -> bool {
     ROWS.iter().any(|p| rest.starts_with(p.as_bytes()))
 }
 
-/// A root that needs you or works, itself or below.
+/// A root that needs you or works, itself or below. The system root is
+/// listed with its jobs while it holds any, ended ones among them (they stay
+/// an hour).
 fn is_active(v: &WorkView) -> bool {
     matches!(v.attention.level, Level::NeedsYou | Level::Working)
         || v.below.is_some_and(|b| b.needs_you > 0 || b.working > 0)
+        || (v.kind == WorkKind::System && v.below.is_some())
 }
 
 /// An execution's inputs: what the board's view lacks.
@@ -181,6 +189,9 @@ pub(super) struct WorkBoard {
     eta: EtaBook,
     /// Views the warm-up changed in place: the next frame sends them again.
     stale: BTreeSet<String>,
+    /// The daemon's own jobs (theseus-jn17m), from the import's, the
+    /// consolidation's and the rebuild's rows.
+    system: system::SystemJobs,
     position: u64,
     /// The position the board was seeded at: notices before it are unknown.
     seeded_at: u64,
@@ -197,6 +208,8 @@ struct Dirty {
     acts: BTreeSet<String>,
     wakes: BTreeSet<String>,
     steps: BTreeSet<String>,
+    /// System jobs, and the root.
+    system: BTreeSet<String>,
 }
 
 impl Dirty {
@@ -205,6 +218,7 @@ impl Dirty {
             && self.acts.is_empty()
             && self.wakes.is_empty()
             && self.steps.is_empty()
+            && self.system.is_empty()
     }
 }
 
@@ -274,7 +288,8 @@ impl WorkBoard {
             let Some(v) = self.views.get(k) else {
                 continue;
             };
-            if v.state.ended() && v.attention.level != Level::NeedsYou {
+            if v.state.ended() && v.attention.level != Level::NeedsYou && v.kind != WorkKind::System
+            {
                 continue;
             }
             out.push(v.clone());
@@ -329,6 +344,7 @@ impl WorkBoard {
             self.take_action(board, *pos, a, &mut d);
         }
         self.take_execs(core, board, &taken, changed, &mut d);
+        self.system.sweep(f.at_ms, &mut d.system);
         if d.is_empty() {
             return None;
         }
@@ -422,6 +438,7 @@ impl WorkBoard {
                     }
                 }
                 "wake.fired" => self.take_fired(r, d),
+                k if system::KINDS.contains(&k) => self.system.take(r, &mut d.system),
                 _ => {}
             }
         }
@@ -850,8 +867,10 @@ mod seed;
 mod settle;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_system;
 
-pub(super) use seed::{read_warm, seed};
+pub(super) use seed::{read_system, read_warm, seed};
 
 /// A question's end as a state.
 fn answered(outcome: &str) -> WorkState {
