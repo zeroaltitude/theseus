@@ -10,6 +10,7 @@
 mod app;
 mod board;
 mod card;
+mod chat;
 mod detail;
 mod notice;
 mod run;
@@ -50,7 +51,10 @@ use theseus_client::seen::Seen;
 const USAGE: &str = "theseus-tui: every session of a running theseusd, in one terminal
 
 usage: theseus-tui [--socket PATH] [--notify HOW]
+       theseus-tui [--socket PATH] chat [SESSION]
 
+  chat [SESSION]  an inline conversation in this directory (a new one, or SESSION's);
+                  `theseus` and `theseus chat` run it
   --socket PATH   the daemon's Unix socket (default: $THESEUS_SOCKET, else ~/.theseus/theseus.sock)
   --notify HOW    how a notice (needs you, finished) reaches you: bell (the default), osc9,
                   osc777, or off; the terminal's title carries the count either way
@@ -64,6 +68,8 @@ What you have seen is kept in $XDG_STATE_HOME/theseus/seen.json
 struct Args {
     socket: String,
     notify: Delivery,
+    /// `chat [SESSION]`: the inline conversation instead of the board.
+    chat: Option<Option<String>>,
 }
 
 impl Args {
@@ -73,6 +79,7 @@ impl Args {
             .filter(|s| !s.is_empty())
             .unwrap_or_else(|| "~/.theseus/theseus.sock".to_string());
         let mut notify = Delivery::default();
+        let mut chat: Option<Option<String>> = None;
         let how = |v: Option<&str>| {
             v.and_then(Delivery::parse).ok_or_else(|| {
                 anyhow::anyhow!("--notify takes bell, osc9, osc777, or off\n\n{USAGE}")
@@ -93,6 +100,10 @@ impl Args {
                     None => bail!("--socket needs a path\n\n{USAGE}"),
                 },
                 "--notify" => notify = how(args.next().as_deref())?,
+                "chat" if chat.is_none() => chat = Some(None),
+                other if matches!(chat, Some(None)) && !other.starts_with('-') => {
+                    chat = Some(Some(other.to_string()));
+                }
                 other => {
                     if let Some(p) = other.strip_prefix("--socket=") {
                         socket = p.to_string();
@@ -104,7 +115,11 @@ impl Args {
                 }
             }
         }
-        Ok(Some(Self { socket, notify }))
+        Ok(Some(Self {
+            socket,
+            notify,
+            chat,
+        }))
     }
 }
 
@@ -115,6 +130,13 @@ fn main() -> Result<()> {
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()?;
+    if let Some(resume) = args.chat {
+        let chat = chat::Args {
+            socket: args.socket,
+            resume,
+        };
+        return rt.block_on(chat::run(chat));
+    }
     rt.block_on(tui(args))
 }
 

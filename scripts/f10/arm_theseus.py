@@ -3,10 +3,10 @@ stand-in model (`theseus-sim fake-model --rules`, so a run costs $0), driven
 the way a person new to it would, through the clients it ships.
 
 How each step reaches Theseus (the rules the baseline was measured by):
-- S1 types the bare `theseus`. Where no conversation opens, the driver opens
-  one the documented way, `theseus ask "<S2's question>"`, and from S3 on uses
-  the terminal UI, `theseus tui`: enter opens the session, `i` the input
-  line, `y` answers a question.
+- S1 types the bare `theseus`, which opens the chat (theseus-cyha); S2 is asked
+  in it, S6 runs its job in it and S8 pastes into it (`theseus chat SESSION`).
+  The other steps use the terminal UI, `theseus tui`, until chat-ask moves
+  them: enter opens the session, `i` the input line, `y` answers a question.
 - S7's interrupt is Ctrl-C, the key a person presses in a terminal; the stop
   that B3 verifies is the TUI's own (`s`, then `s`).
 - An arm with no key or command for a step (S5's mode, S9's undo, S11's
@@ -237,30 +237,44 @@ class Theseus:
     # The steps
 
     def s1(self, ctx):
+        """The bare `theseus`: on a terminal it opens the chat (theseus-cyha),
+        a conversation in this directory, inline. Ready is the prompt (`›`)
+        on the screen, timed from Enter."""
         ctx.rec("S1", open_cmd="theseus")
-        t0 = time.monotonic()
         ctx.tmux.type("theseus")
+        t0 = time.monotonic()
         ctx.tmux.keys("Enter")
-        time.sleep(2.0)
+        first = ctx.tmux.wait(lambda t: "›" in t and ctx.tmux.foreground() == "theseus-tui", 20, every=0.01)
+        ready = round((time.monotonic() - t0) * 1000) if first else None
+        # The banner follows the prompt by the daemon's answer to `health`.
+        ctx.tmux.wait(lambda t: "? help" in t, 10)
+        time.sleep(0.3)
         ctx.capture("S1.open")
-        front = ctx.tmux.foreground()
-        ready = None if front in ("bash", "sh") else round((time.monotonic() - t0) * 1000)
-        ctx.rec("S1", foreground=front, ready_ms=ready)
-        ctx.tmux.keys("C-l")
+        ctx.rec("S1", foreground=ctx.tmux.foreground(), ready_ms=ready)
 
     def s2(self, ctx):
+        """S2 is asked in the chat S1 opened, and the chat is left after the
+        reply: S3 opens the board from the shell."""
         q = steps.PROMPTS["S2"]
-        ctx.tmux.type(f'theseus ask "{q}"')
+        ctx.tmux.type(q)
         ctx.tmux.keys("Enter")
         time.sleep(0.8)
         ctx.capture("S2.wait1")
         time.sleep(1.0)
         ctx.capture("S2.wait2")
-        ctx.tmux.wait(lambda t: self.shell_back(t) and q in t, 60)
+        # The reply is whole when its turn line (time, model, cost) is on screen.
+        ctx.tmux.wait(lambda t: re.search(r"^\s+\d+(\.\d)? (ms|s) · ", t, re.M) is not None, 60)
         time.sleep(0.3)
         ctx.capture("S2.reply")
         ctx.sample_client()
-        ctx.rec("S2", opened_with=f'theseus ask "{q}"')
+        ctx.rec("S2", opened_with="theseus")
+        self.leave_chat(ctx)
+
+    def leave_chat(self, ctx):
+        """`/quit`, back at the shell's prompt."""
+        ctx.tmux.type("/quit")
+        ctx.tmux.keys("Enter")
+        ctx.tmux.wait(lambda t: self.shell_back(t), 10)
 
     def s3(self, ctx):
         ctx.tmux.keys("C-l")
@@ -296,7 +310,11 @@ class Theseus:
         ctx.rec("S5", mode_keys=None)
 
     def s6(self, ctx):
-        self.say(ctx, steps.PROMPTS["S6"])
+        """S6 runs in the chat, where the dock shows the elapsed time of a
+        job that runs (theseus-cyha); the board is opened again after it, for
+        S7."""
+        self.open_chat(ctx)
+        self.chat_say(ctx, steps.PROMPTS["S6"])
         self.card(ctx)
         ctx.tmux.keys("y")
         wait_until(ctx.survey_pids, 30)
@@ -305,7 +323,7 @@ class Theseus:
         time.sleep(3)
         ctx.capture("S6.run2")
         wait_until(lambda: not self.busy(), 20, every=0.5)
-        self.say(ctx, steps.PROMPTS["S6.talk"])
+        self.chat_say(ctx, steps.PROMPTS["S6.talk"])
         ctx.tmux.wait(lambda t: "12:00 reading" in t, 30, every=0.3)
         time.sleep(0.5)
         ctx.rec("S6", ended_before_talk=not ctx.survey_pids())
@@ -316,6 +334,29 @@ class Theseus:
         time.sleep(3)
         ctx.capture("S6.end")
         ctx.rec("S6", went_on=self.went_on_after(t_end))
+        self.back_to_board(ctx)
+
+    def open_chat(self, ctx):
+        """Leave the board and open the chat on this conversation."""
+        sid = self.session_id()
+        ctx.tmux.keys("q")
+        time.sleep(0.5)
+        ctx.tmux.keys("C-l")
+        ctx.tmux.type(f"theseus chat {sid}")
+        ctx.tmux.keys("Enter")
+        ctx.tmux.wait(lambda t: "› " in t and ctx.tmux.foreground() == "theseus-tui", 20, every=0.05)
+        time.sleep(0.5)
+
+    def chat_say(self, ctx, text):
+        ctx.tmux.type(text)
+        ctx.tmux.keys("Enter")
+
+    def back_to_board(self, ctx):
+        """Leave the chat and open the board on the conversation, where the
+        steps after this one expect to be."""
+        self.leave_chat(ctx)
+        ctx.tmux.keys("C-l")
+        self.open_tui(ctx)
 
     def went_on_after(self, t_end):
         """An answer written after the survey ended, with no person's message
@@ -356,9 +397,10 @@ class Theseus:
         self.settle(ctx, 40)
 
     def s8(self, ctx):
+        """S8 pastes into the chat, on the conversation the board had open
+        (`theseus chat SESSION`); the board is opened again for S9."""
         before = len(self.history())
-        ctx.tmux.keys("i")
-        time.sleep(0.2)
+        self.open_chat(ctx)
         ctx.tmux.paste("\n".join(steps.survey_log()) + "\n")
         time.sleep(0.5)
         ctx.tmux.type(steps.PROMPTS["S8"])
@@ -369,6 +411,7 @@ class Theseus:
         ctx.capture("S8.after")
         msgs = [n.get("text", "") for n in self.history()[before:] if n.get("kind") == "user_message"]
         ctx.rec("S8", messages=[m for m in msgs if m])
+        self.back_to_board(ctx)
 
     def s9(self, ctx):
         self.say(ctx, steps.PROMPTS["S9.edit"])

@@ -33,6 +33,11 @@ unicode-width = "0.2"
 
 [dev-dependencies]
 tempfile = "3"
+# A terminal emulator, to read back the screen the chat's bytes make (the chat's
+# tests only; theseus-cyha).
+vt100 = "0.15"
+# A pseudo-terminal for the chat's tests of the real binary (already in the lock).
+libc = "0.2"
 # The paused clock of the `start_paused` tests, so `cargo test -p theseus-tui` builds
 # alone, not only through the workspace's feature unification.
 tokio = { workspace = true, features = ["test-util"] }
