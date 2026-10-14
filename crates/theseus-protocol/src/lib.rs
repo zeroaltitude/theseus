@@ -29,6 +29,7 @@ pub mod extend;
 pub mod features;
 pub mod fork;
 mod gate;
+pub mod grants;
 mod hands;
 mod health;
 mod history;
@@ -349,7 +350,7 @@ pub mod method {
         EXTENSION_REVOKE = "extension.revoke",
         /// Self-improvement (theseus-pw1q; `rsi`): the kill switch, anyone's halt and the owner's resume, the log, the digest.
         /// Earned autonomy (theseus-uttu, `earned`): the number and the card, the owner's answer, a grant's revoke.
-        POLICY_EARNED = "policy.earned", POLICY_EARNED_ANSWER = "policy.earned.answer", POLICY_REVOKE = "policy.revoke",
+        POLICY_EARNED = "policy.earned", POLICY_EARNED_ANSWER = "policy.earned.answer", POLICY_REVOKE = "policy.revoke", POLICY_GRANTS = "policy.grants",
         SELF_HALT = "self.halt", SELF_RESUME = "self.resume", SELF_LOG = "self.log", SELF_DIGEST = "self.digest",
         SELF_BACKLOG = "self.backlog", SELF_DROP = "self.drop", SELF_MOVE = "self.move", SELF_BRANCHES = "self.branches",
         SELF_EXAMS = "self.exams",
@@ -2422,6 +2423,10 @@ pub struct ConfirmRequest {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub may_answer: Option<bool>,
+    /// "Yes, and don't ask again" for this conversation (theseus-drjs).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub grant_offer: Option<grants::GrantOffer>,
 }
 
 /// What a budget question asks about (theseus-0sg): the session reached its
@@ -2472,6 +2477,10 @@ pub struct ActionConfirmParams {
     /// with `approve`; the answer's judgment covers it.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub trust: bool,
+    /// Approve, and take the question's grant offer (theseus-drjs).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub grant: Option<grants::GrantAnswer>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -2486,6 +2495,10 @@ pub struct ActionConfirmResult {
     /// next message asks again.
     #[serde(default = "yes")]
     pub resumes: bool,
+    /// The grant the answer made, when it took the offer (theseus-drjs).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub granted: Option<grants::SessionGrant>,
 }
 
 fn yes() -> bool {

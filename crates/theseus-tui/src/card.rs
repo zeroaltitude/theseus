@@ -68,13 +68,21 @@ pub fn lines(
                     format!("  it waits because the session read {}", held_what(h)),
                 ));
             }
+            // "Yes, and don't ask again" (theseus-drjs): what it covers on a
+            // line of its own, short, so it stays whole on a narrow pane.
+            if let Some(o) = &c.grant_offer {
+                out.push((Tag::Plain, offer_line(o)));
+            }
             push_refusal(&mut out, refused);
             out.push((
                 Tag::Plain,
-                if c.external_text.is_some() {
-                    "  [y] approve  [t] approve + trust  [n] decline".to_string()
-                } else {
-                    "  [y] approve  [n] decline".to_string()
+                match (&c.grant_offer, c.external_text.is_some()) {
+                    (_, true) => "  [y] approve  [t] approve + trust  [n] decline".to_string(),
+                    (Some(o), false) => format!(
+                        "  [y] approve  [{}] approve + don't ask again  [n] decline",
+                        o.key()
+                    ),
+                    (None, false) => "  [y] approve  [n] decline".to_string(),
                 },
             ));
         }
@@ -102,6 +110,15 @@ pub fn lines(
         out.push((Tag::Dim, format!("  +{more} more after it")));
     }
     out
+}
+
+/// `  [a] don't ask again: python3 -m unittest, this conversation`.
+pub fn offer_line(o: &theseus_protocol::grants::GrantOffer) -> String {
+    let what = match o.kind.as_str() {
+        theseus_protocol::grants::KIND_EDITS => format!("edits under {}", o.pattern),
+        _ => o.pattern.clone(),
+    };
+    format!("  [{}] don't ask again: {what}, this conversation", o.key())
 }
 
 fn push_refusal(out: &mut Vec<(Tag, String)>, refused: Option<&str>) {

@@ -54,6 +54,12 @@ pub(crate) fn kind_of(req: &ConfirmRequest) -> QuestionKind {
 /// is built, so every surface that draws one reads the same buttons.
 pub(crate) fn offer(mut req: ConfirmRequest) -> ConfirmRequest {
     req.options = req.question(kind_of(&req), true).options;
+    // A grant's offer is an answer of its own, after the plain yes
+    // (theseus-drjs).
+    if let Some(o) = &req.grant_offer {
+        let at = req.options.len().min(1);
+        req.options.insert(at, o.option());
+    }
     req
 }
 
@@ -256,6 +262,11 @@ impl Core {
             external_text: true,
             ..self.bare_question(a, kind)
         });
+        // Approve and take the question's grant (theseus-drjs): the offer
+        // the daemon makes now, never one the answer names.
+        if p.option == theseus_protocol::grants::APPROVE_GRANT && kind == QuestionKind::Approval {
+            return self.answer_granting(p, who, conn, a);
+        }
         let Some(chosen) = options.iter().find(|o| o.id == p.option) else {
             return Err(invalid(format!(
                 "`{}` is not an answer to this question; the answers are: {}",
@@ -268,7 +279,14 @@ impl Core {
             self.bus.watch(&a.session_id, conn.client, conn.tx.clone());
         }
         let done = self
-            .confirm_action_with(&a.correlation_id, approve, p.note.as_deref(), who, trust)
+            .confirm_action_with(
+                &a.correlation_id,
+                approve,
+                p.note.as_deref(),
+                who,
+                trust,
+                &[],
+            )
             .map_err(|e| match e.downcast::<Refusal>() {
                 Ok(r) => RpcFailure {
                     code: error_code::REFUSED,
@@ -283,6 +301,48 @@ impl Core {
         Ok(WorkAnswerResult {
             question_id: a.correlation_id.clone(),
             option: chosen.id.clone(),
+            resumes,
+        })
+    }
+
+    /// `approve_grant`: approve the call and take the grant the daemon
+    /// offers for it now (theseus-drjs), through `confirm_granting`, which
+    /// judges the place rule as any answer.
+    fn answer_granting(
+        &self,
+        p: &WorkAnswerParams,
+        who: Answerer,
+        conn: Conn<'_>,
+        a: &Action,
+    ) -> Result<WorkAnswerResult, RpcFailure> {
+        let offered = self
+            .pending_confirms(&a.session_id)?
+            .into_iter()
+            .find(|q| q.correlation_id == a.correlation_id)
+            .and_then(|q| q.grant_offer)
+            .ok_or_else(|| invalid("this question offers no grant: approve it without one"))?;
+        if p.watch {
+            self.bus.watch(&a.session_id, conn.client, conn.tx.clone());
+        }
+        let answer = theseus_protocol::grants::GrantAnswer {
+            pattern: offered.pattern,
+        };
+        let done = self
+            .confirm_granting(&a.correlation_id, p.note.as_deref(), who, false, &answer)
+            .map_err(|e| match e.downcast::<Refusal>() {
+                Ok(r) => RpcFailure {
+                    code: error_code::REFUSED,
+                    message: r.to_string(),
+                    data: json!({"who": r.who, "via": r.via, "why": r.why}),
+                },
+                Err(e) => RpcFailure::invalid(e),
+            })?;
+        let resumes = done
+            .resumes
+            .then(|| self.work_ref_of(&done.execution_id, &done.session_id));
+        Ok(WorkAnswerResult {
+            question_id: a.correlation_id.clone(),
+            option: theseus_protocol::grants::APPROVE_GRANT.into(),
             resumes,
         })
     }

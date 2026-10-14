@@ -2543,6 +2543,7 @@ impl TurnRunner {
             change: None,
             options: Vec::new(),
             may_answer: None,
+            grant_offer: None,
         });
         t.record(&fact::turn::BudgetAsked {
             request: &req,

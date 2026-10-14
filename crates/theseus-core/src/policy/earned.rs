@@ -89,6 +89,8 @@ pub struct Stored {
 #[derive(Default)]
 pub struct Earned {
     inner: RwLock<Stored>,
+    /// The conversations' own grants (theseus-drjs), one answer's each.
+    pub scoped: super::grants::Grants,
 }
 
 impl Earned {

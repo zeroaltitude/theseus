@@ -2,6 +2,7 @@
 import type { AnswerOption } from "./AnswerOption";
 import type { BudgetAsk } from "./BudgetAsk";
 import type { ExternalText } from "./ExternalText";
+import type { GrantOffer } from "./GrantOffer";
 import type { TaskChange } from "./TaskChange";
 import type { TaskRef } from "./TaskRef";
 
@@ -52,4 +53,8 @@ options?: Array<AnswerOption>,
  * for one connection (`confirm.list`); absent on a push, which every
  * connection hears alike. A daemon's refusal still says where to answer.
  */
-may_answer?: boolean, };
+may_answer?: boolean, 
+/**
+ * "Yes, and don't ask again" for this conversation (theseus-drjs).
+ */
+grant_offer?: GrantOffer, };

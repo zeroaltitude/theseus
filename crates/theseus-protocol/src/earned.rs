@@ -203,5 +203,10 @@ pub struct PolicyRevokeParams {
 #[serde(default)]
 pub struct PolicyRevokeResult {
     pub id: String,
+    /// The earned grant it ended; empty when it ended a conversation's.
     pub grant: EarnedGrant,
+    /// The conversation's grant it ended (theseus-drjs).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub session_grant: Option<crate::grants::SessionGrant>,
 }

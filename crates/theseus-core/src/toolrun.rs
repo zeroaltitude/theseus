@@ -1364,6 +1364,7 @@ impl ToolRuntime {
         // Asked at its plan's time, and expiring then plus the TTL, as
         // `confirm.list`, the watch's snapshot, and the board say.
         let req = crate::rpc::offer(ConfirmRequest {
+            grant_offer: crate::policy::grants::offered(self, tc, tool, &call.input, &g),
             correlation_id: a.correlation_id.clone(),
             session_id: tc.session_id.into(),
             execution_id: tc.execution_id.into(),

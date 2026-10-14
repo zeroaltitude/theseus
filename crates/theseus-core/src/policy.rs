@@ -46,6 +46,7 @@ use serde::{Deserialize, Serialize};
 use theseus_tools::{paths, Access, Plan, Tool};
 
 pub mod earned;
+pub mod grants;
 
 /// What the gate does with a call: `[policy].enforcement` (the posture every
 /// tool and MCP inherits) and each `[policy.tools]` / `[policy.mcp]` override.

@@ -932,6 +932,9 @@ impl Lane {
             Buttons::Accept(q.clone())
         } else if req.external_text.is_some() {
             Buttons::ConfirmTrust(q.clone())
+        } else if let Some(o) = &req.grant_offer {
+            // "Approve + this command for the conversation" (theseus-drjs).
+            Buttons::ConfirmGrant(q.clone(), o.clone())
         } else {
             Buttons::Confirm(q.clone())
         };
@@ -1448,6 +1451,7 @@ impl Lane {
         let comps = match buttons {
             Buttons::Confirm(corr) => confirm_buttons(corr, false),
             Buttons::ConfirmTrust(corr) => confirm_buttons(corr, true),
+            Buttons::ConfirmGrant(corr, o) => crate::runtime::grant::grant_buttons(corr, o),
             Buttons::Accept(corr) => crate::runtime::accept_buttons(corr),
             Buttons::ShouldHaveAsked(options) => asked_menu(options),
             Buttons::JevLabel(judgment) => crate::runtime::jev_buttons(judgment),
@@ -1507,6 +1511,7 @@ impl Lane {
         let comps = match buttons {
             Buttons::Confirm(corr) => Some(confirm_buttons(corr, false)),
             Buttons::ConfirmTrust(corr) => Some(confirm_buttons(corr, true)),
+            Buttons::ConfirmGrant(corr, o) => Some(crate::runtime::grant::grant_buttons(corr, o)),
             Buttons::Accept(corr) => Some(crate::runtime::accept_buttons(corr)),
             Buttons::ShouldHaveAsked(options) => Some(asked_menu(options)),
             Buttons::JevLabel(judgment) => Some(crate::runtime::jev_buttons(judgment)),

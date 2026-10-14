@@ -132,7 +132,7 @@ pub(crate) fn asks(rows: &[LedgerRow]) -> BTreeMap<String, Ask> {
 
 /// Words a program is never a grant's prefix by: a shell, or a program that
 /// runs what it is given next.
-const RUNS_WHAT_IT_IS_GIVEN: &[&str] = &[
+pub(crate) const RUNS_WHAT_IT_IS_GIVEN: &[&str] = &[
     "sh", "bash", "zsh", "dash", "ash", "ksh", "csh", "tcsh", "fish", "busybox", "env", "xargs",
     "sudo", "doas", "su", "eval", "exec", "nohup", "timeout", "nice", "ionice", "time", "setsid",
     "chroot", "ssh", "watch", "parallel", "script", "expect", "nsenter", "unshare", "strace",
@@ -140,7 +140,7 @@ const RUNS_WHAT_IT_IS_GIVEN: &[&str] = &[
 ];
 
 /// Interpreters: a prefix runs a script file or it is not a prefix.
-const INTERPRETERS: &[&str] = &[
+pub(crate) const INTERPRETERS: &[&str] = &[
     "python",
     "python2",
     "python3",

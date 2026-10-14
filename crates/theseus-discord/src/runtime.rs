@@ -54,6 +54,7 @@ mod audience;
 mod board;
 pub(crate) use board::accept_buttons;
 mod earned;
+pub(crate) mod grant;
 mod remind;
 pub(crate) use earned::{buttons as earned_buttons, candidates as earned_candidates};
 pub(crate) use remind::{buttons as remind_buttons, text as remind_text};
@@ -1303,6 +1304,7 @@ impl Shared {
                             author: Some(who.clone()),
                             discord,
                             trust,
+                            grant: grant::answer_of(&self.core, &c.custom_id, &corr),
                         },
                     )
                     .await;
@@ -1627,6 +1629,7 @@ fn parse_confirm_id(id: &str) -> Option<Press> {
     let (approve, trust) = match verb {
         "approve" => (true, false),
         "trust" => (true, true),
+        grant::VERB => (true, false),
         "decline" => (false, false),
         _ => return None,
     };

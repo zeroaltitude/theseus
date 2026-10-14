@@ -46,6 +46,9 @@ pub(crate) enum Layer {
     Policy,
     /// An earned grant (theseus-uttu): the owner accepted what the record earned.
     Earned,
+    /// A grant of the call's conversation (theseus-drjs): one answer's "don't
+    /// ask again".
+    Scoped,
     /// A granted secret's posture (theseus-dcy).
     Grant,
     /// A language server's first start on a root: by an `lsp.*` call (L2),
@@ -113,6 +116,11 @@ impl ToolRuntime {
             decision,
         );
         seen(Layer::Earned, &decision);
+        // A grant of this conversation's (theseus-drjs), where an earned one
+        // would apply.
+        let decision =
+            crate::policy::grants::gate(self, at, tool, plan, input, bound.l1(), decision);
+        seen(Layer::Scoped, &decision);
         let decision = self.brokered(tool.name(), plan, input, decision);
         seen(Layer::Grant, &decision);
         // A call that starts a language server is a run too (L2).

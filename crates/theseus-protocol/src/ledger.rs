@@ -202,6 +202,8 @@ ledger_kinds! {
     PolicyEarnedPassed = "policy.earned_passed",
     PolicyEarnedProposed = "policy.earned_proposed",
     PolicyEarnedRevoked = "policy.earned_revoked",
+    PolicyGrantEnded = "policy.grant_ended",
+    PolicyGranted = "policy.granted",
     PolicyTightened = "policy.tightened",
     PolicyUntightened = "policy.untightened",
     ProfileChanged = "profile.changed",
