@@ -4,17 +4,19 @@
 //! working). Three questions, each a boolean: does it test the behaviour and
 //! not the wording, is its expected answer right, is it not trivially gamed.
 //! The call is booked like the people pass's: priced, held against the day's
-//! ceiling, and settled at what it cost.
+//! ceiling and the self budget's day line, and settled at what it cost.
 
 use std::collections::BTreeMap;
 
 use anyhow::{anyhow, Result};
 use futures_util::future::BoxFuture;
 use serde_json::{json, Value};
+use theseus_kernel::micros_to_usd;
 
 use super::{Item, Reviewer, Verdict};
 use crate::provider::ProviderRequest;
 use crate::rpc::Core;
+use crate::rsi::budget::Reserved;
 
 /// The reviewer's profile until `[self] reviewer_profile` joins (self-join).
 pub const REVIEWER_PROFILE: &str = "fable";
@@ -133,16 +135,30 @@ impl Reviewer for CoreReviewer<'_> {
             let need = c
                 .audit_reserve(&req)
                 .ok_or_else(|| anyhow!("no price for {}", target.model))?;
-            let hold = c
+            // A review is a self step: the self budget's day line holds it
+            // (theseus-pw1q.3, a join fix), on no branch.
+            let held = match c
                 .runner
-                .day_hold(need, "self-exams")
-                .map_err(|e| anyhow!(e))?;
+                .self_budget
+                .reserve("exam", None, micros_to_usd(need))?
+            {
+                Reserved::Granted(r) => r,
+                Reserved::Stopped(s) => return Err(anyhow!("{s}")),
+            };
+            let hold = match c.runner.day_hold(need, "self-exams") {
+                Ok(h) => h,
+                Err(e) => {
+                    c.runner.self_budget.settle(held, 0.0)?;
+                    return Err(anyhow!(e));
+                }
+            };
             let mut quiet = |_: crate::provider::Delta<'_>| {};
             let answered = provider.stream_message(&req, &mut quiet).await;
             let cost = answered
                 .as_ref()
                 .map_or(need, |r| c.runner.priced(r, &target.model, need));
             hold.settle(cost);
+            c.runner.self_budget.settle(held, micros_to_usd(cost))?;
             let r = answered?;
             parse(&r.content, &r.model)
                 .ok_or_else(|| anyhow!("the reviewer's answer held no {TOOL} call"))

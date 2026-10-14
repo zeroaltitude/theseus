@@ -531,12 +531,13 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   holdout window), failed tasks (`task.ended`) and over-budget turns (`budget.reached`) into items of its own
   versioned format (`self-exam-v1`; theseus-exam's check language), scrubbed (the daemon's scrubber, handle shapes,
   held people's names). A keyed hash (META `self.exams.key`) splits each family into an open half (written to
-  `<state>/self/exams/open/<family>/<id>.json`, `Shelf`) and a sealed half (a `SealedSink`: none until
-  `rsi::sealed` joins, so sealed items are dropped with a count, unreviewed and unwritten). An item counts only after
-  a reviewer on another model (`CoreReviewer`, profile `fable`) calls it fair; then `self.exam.counted`, else
+  `<state>/self/exams/open/<family>/<id>.json`, `Shelf`) and a sealed half (a `SealedSink`: the sealed store when
+  `[self] sealed_dir` is set, which refuses a regex check; with none, sealed items are dropped with a count,
+  unreviewed and unwritten). An item counts only after a reviewer on another model (`CoreReviewer`, profile `fable`,
+  held on the self budget's day line) calls it fair; then `self.exam.counted`, else
   `self.exam.rejected` with the reason (a sealed item's reason names the failed questions only). `[self]
   exams_day_max` (10) caps reviews a local day. The proposer rule: `Writer::SelfBranch` is refused by every
-  `Shelf` write, and `exams::touches_exams` names the paths a self branch's push must refuse (`self/exams/`,
+  `Shelf` write, and `exams::touches_exams` names the paths a self branch's push refuses (`rsi::tree::push`: `self/exams/`,
   `crates/theseus-exam/exam/`). `self.exams` / `theseus self exams` show counts by family and half and today's
   reviews, never a sealed item's text. Tests: `rsi/exams/tests.rs`, `rpc/tests_self_exams.rs`.
 - **The index tender's supervisor**: `tender.rs` (row 51): it starts `theseus-index` 2 s after serving

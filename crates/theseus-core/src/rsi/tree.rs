@@ -498,6 +498,9 @@ pub enum Refused {
     Scrub { hits: u32, by: String },
     /// git refused, with its words.
     Git(String),
+    /// The branch changes an exam item or the exam crate's data
+    /// (`rsi::exams::PROTECTED`, the proposer rule of theseus-pw1q.11).
+    Exams(String),
 }
 
 impl std::fmt::Display for Refused {
@@ -514,6 +517,10 @@ impl std::fmt::Display for Refused {
                 )
             }
             Refused::Git(e) => write!(f, "git refused the push: {e}"),
+            Refused::Exams(p) => write!(
+                f,
+                "{p} is an exam's: a self branch never changes the exams that judge it"
+            ),
         }
     }
 }
@@ -551,6 +558,18 @@ pub fn push(
         .success()
     {
         return Err(Refused::NotSelf(branch.into()));
+    }
+    let changed = p
+        .git_ok(
+            &tree.dir,
+            &["diff", "--name-only", &format!("origin/main...{r}")],
+        )
+        .map_err(git)?;
+    if let Some(f) = changed
+        .lines()
+        .find(|f| crate::rsi::exams::touches_exams(f))
+    {
+        return Err(Refused::Exams(f.into()));
     }
     let hits = scrub(&outgoing(p, tree, branch).map_err(git)?);
     if hits > 0 {

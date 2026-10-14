@@ -192,11 +192,11 @@ impl Core {
         Ok(k)
     }
 
-    /// Where sealed items go. None until `rsi::sealed` joins and adds its
-    /// impl of [`SealedSink`] (five lines): a sealed item is then held in
-    /// memory for the pass and dropped with a count.
-    fn sealed_sink() -> Option<&'static dyn SealedSink> {
-        None
+    /// Where sealed items go: the sealed store when `[self] sealed_dir` is
+    /// set (theseus-pw1q.5), else none, and a sealed item is held in memory
+    /// for the pass and dropped with a count.
+    fn sealed_sink(&self) -> Option<&dyn SealedSink> {
+        self.sealed().map(|s| &**s as &dyn SealedSink)
     }
 
     /// The held people's names, when the ontology is built (memory only).
@@ -301,7 +301,7 @@ impl Core {
         };
         let deps = Deps {
             reviewer,
-            sink: Self::sealed_sink(),
+            sink: self.sealed_sink(),
             shelf: &shelf,
             key: &key,
             scrub: &scrub,
@@ -355,4 +355,20 @@ impl Core {
 
 fn reviewer_name(o: &Outcome) -> &str {
     o.reviewer.as_deref().unwrap_or("")
+}
+
+/// The sealed store as the pass's sink (seam S5, a join fix with
+/// theseus-pw1q.5): the item's task and check in the store's own format,
+/// kept under the store's own id; the pass writes its counted row.
+impl SealedSink for crate::rsi::sealed::Sealed {
+    fn put(&self, set: &str, family: &str, bytes: &[u8]) -> anyhow::Result<ItemId> {
+        let item: Item = serde_json::from_slice(bytes)?;
+        let file = json!({
+            "v": crate::rsi::sealed::ITEM_VERSION,
+            "task": item.task,
+            "check": item.check,
+        });
+        let id = crate::rsi::sealed::Sealed::put(self, set, family, &serde_json::to_vec(&file)?)?;
+        Ok(ItemId(id.as_str().to_string()))
+    }
 }

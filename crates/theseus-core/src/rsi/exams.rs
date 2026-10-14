@@ -18,10 +18,10 @@
 //!   record made once, never chosen by the writer) puts it in the open half
 //!   or the sealed half, so the split is stable and the writer cannot steer an
 //!   item. The open half is written to `<state>/self/exams/open/<family>/`
-//!   (`shelf.rs`). The sealed half goes through a [`SealedSink`]; until
-//!   `rsi::sealed` joins there is none, and a sealed item is held in memory
-//!   for the pass and dropped with a count, never written where Theseus can
-//!   read.
+//!   (`shelf.rs`). The sealed half goes through a [`SealedSink`], the
+//!   sealed store when `[self] sealed_dir` is set; with none, a sealed item
+//!   is held in memory for the pass and dropped with a count, never written
+//!   where Theseus can read.
 //! - **The review** (`review.rs`): an item counts only after a reviewer on
 //!   another model says it is fair ([`Verdict`]): it tests the behaviour and
 //!   not the wording, its expected answer is right, and it is not trivially
@@ -294,9 +294,9 @@ pub fn half(key: &SplitKey, family: Family, id: &ItemId) -> Half {
     }
 }
 
-/// Where sealed items go: `rsi::sealed::put`'s shape. The second of the two
-/// rows to join adds its impl; until then there is none, and a sealed item
-/// is dropped with a count.
+/// Where sealed items go: `rsi::sealed::put`'s shape, which the sealed
+/// store implements (`pass.rs`). With no sealed store a sealed item is
+/// dropped with a count.
 pub trait SealedSink: Send + Sync {
     /// Keep `bytes` in `set` under `family`; the id it was kept as.
     fn put(&self, set: &str, family: &str, bytes: &[u8]) -> Result<ItemId>;

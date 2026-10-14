@@ -22,7 +22,7 @@ use crate::approval::Answerer;
 use crate::ledger::LedgerRow;
 use crate::provider::FakeProvider;
 use crate::rsi::exams::{
-    half, Family, Half, Item, Raw, Reviewer, Scrub, SplitKey, Verdict, KEY_META,
+    half, CoreReviewer, Family, Half, Item, Raw, Reviewer, Scrub, SplitKey, Verdict, KEY_META,
 };
 
 const DAY: u64 = 86_400_000;
@@ -383,4 +383,107 @@ async fn a_wrong_label_inside_the_holdout_window_makes_no_candidate() {
     wrong_label(&c, now, 20);
     let now = theseus_protocol::now_unix_ms();
     assert_eq!(c.exam_raws(now - DAY, now, now).unwrap().len(), 1);
+}
+
+/// A core that acts, released, with `edit` applied to its config.
+fn acting_with(edit: impl FnOnce(&mut crate::Config)) -> Arc<Core> {
+    let c = test_core("the tide is out");
+    let mut cfg = (*c.cfg).clone();
+    cfg.self_improve.mode = SelfMode::Act;
+    edit(&mut cfg);
+    let c = Core::build(Parts::for_tests(
+        cfg,
+        Arc::new(FakeProvider::default()),
+        c.store.clone(),
+    ))
+    .unwrap();
+    resume(&c);
+    c
+}
+
+/// With a sealed store, the sealed half is reviewed and kept there under
+/// the store's own id, never in the open dir (a join fix with
+/// theseus-pw1q.5); a regex check, which the store's scorer cannot read, is
+/// refused at its put and the item is left uncounted.
+#[tokio::test]
+async fn a_sealed_store_keeps_the_sealed_half() {
+    let sealed = tempfile::tempdir().unwrap();
+    let dir = sealed.path().canonicalize().unwrap().display().to_string();
+    let c = acting_with(|cfg| cfg.self_improve.sealed_dir = Some(dir));
+    let now = theseus_protocol::now_unix_ms();
+    seed(&c, now);
+    let now = theseus_protocol::now_unix_ms();
+    let raws = c.exam_raws(now - DAY, now, now).unwrap();
+    let plain = |s: &str| s.to_string();
+    let scrub = Scrub {
+        secrets: &plain,
+        names: &[],
+    };
+    let regex = |f: Family| {
+        raws.iter()
+            .find(|r| r.family == f)
+            .is_some_and(|r| r.check.contains(" /"))
+    };
+    // A key that seals at least one item the store can take, and opens one.
+    let key = (0..=255u8)
+        .map(|b| SplitKey([b; 32]))
+        .find(|k| {
+            let side = |r: &Raw| half(k, r.family, &Item::scrubbed(r, &scrub).id);
+            raws.iter()
+                .any(|r| side(r) == Half::Sealed && !regex(r.family))
+                && raws.iter().any(|r| side(r) == Half::Open)
+        })
+        .expect("some key seals a plain item");
+    c.store
+        .put_meta(KEY_META, &json!({"key": key.hex()}))
+        .unwrap();
+    let reviewer = Kind(Mutex::new(Vec::new()));
+    let rep = c.self_exams_pass(now, &reviewer).await.unwrap().unwrap();
+    assert_eq!(rep.candidates, 4, "{rep:?}");
+    assert_eq!(
+        reviewer.0.lock().unwrap().len(),
+        4,
+        "both halves are reviewed"
+    );
+    assert_eq!(rep.sealed_dropped(), 0);
+    let kept = rep
+        .outcomes
+        .iter()
+        .filter(|o| o.sealed && !regex(o.family))
+        .count();
+    assert!(kept > 0);
+    let held: u64 = c.sealed().unwrap().counts().values().sum();
+    assert_eq!(held as usize, kept, "{rep:?}");
+    let open = rep.outcomes.iter().filter(|o| !o.sealed).count();
+    assert_eq!(count(&c, "self.exam.counted"), open + kept);
+    let shelved = crate::rsi::exams::Shelf::new(&c.cfg.state_dir()).items();
+    assert_eq!(shelved.len(), open, "no sealed item in the open dir");
+}
+
+/// A review is a self step: it holds on the self budget's day line and is
+/// settled there, and a line that is spent stops it before the reviewer is
+/// asked (a join fix with theseus-pw1q.3).
+#[tokio::test]
+async fn a_review_holds_on_the_self_budget() {
+    let now = theseus_protocol::now_unix_ms();
+    let plain = |s: &str| s.to_string();
+    let scrub = Scrub {
+        secrets: &plain,
+        names: &[],
+    };
+    let spent = acting_with(|cfg| cfg.self_improve.budget.day_usd = 0.000_001);
+    seed(&spent, now);
+    let later = theseus_protocol::now_unix_ms();
+    let raws = spent.exam_raws(later - DAY, later, later).unwrap();
+    let item = Item::scrubbed(&raws[0], &scrub);
+    let e = CoreReviewer::new(&spent).review(&item).await.unwrap_err();
+    assert!(format!("{e:#}").contains("self budget"), "{e:#}");
+    assert_eq!(count(&spent, "self.budget.stopped"), 1);
+    assert_eq!(count(&spent, "self.budget.settled"), 0);
+    let room = acting_with(|_| {});
+    // The stand-in model answers in words, not the verdict's call: the
+    // review fails, and its hold is settled all the same.
+    let _ = CoreReviewer::new(&room).review(&item).await;
+    assert_eq!(count(&room, "self.budget.settled"), 1);
+    assert_eq!(count(&room, "self.budget.stopped"), 0);
 }

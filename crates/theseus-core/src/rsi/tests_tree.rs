@@ -324,3 +324,26 @@ async fn close_removes_the_tree_and_its_target_and_keeps_the_branch() {
         vec![(t.branch.clone(), head)]
     );
 }
+
+/// A branch that changes an exam's file is never pushed: an exam item or
+/// the exam crate's data (the proposer rule of theseus-pw1q.11, a join fix).
+#[test]
+fn a_push_that_touches_the_exams_is_refused() {
+    let f = fixture();
+    let clean = Scrubber::default();
+    let scrub = |s: &str| clean.scrub(s).1;
+    let t = tree::open(&f.place, "loosen the exam", NOW).unwrap();
+    std::fs::create_dir_all(t.dir.join("crates/theseus-exam/exam")).unwrap();
+    std::fs::write(
+        t.dir.join("crates/theseus-exam/exam/exam-v2.toml"),
+        "easier\n",
+    )
+    .unwrap();
+    tree::commit(&f.place, &t, "self: loosen (x)", "body")
+        .unwrap()
+        .unwrap();
+    let r = tree::push(&f.place, &t, "origin", &t.branch, &scrub);
+    assert!(matches!(r, Err(Refused::Exams(_))), "{r:?}");
+    let up = git(&f.upstream, &["for-each-ref", "--format=%(refname)"]);
+    assert_eq!(up, "refs/heads/main");
+}
