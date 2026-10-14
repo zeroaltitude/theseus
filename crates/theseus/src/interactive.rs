@@ -2,7 +2,7 @@
 //! (theseus-l1l, design `stage2` §2.10). Both follow one session and print
 //! what `theseus watch` prints. Inside a herdr pane the watch also reports the
 //! session's state to its pane (`herdr::Reporter`), and releases it on exit:
-//! Ctrl-C, SIGTERM, a hangup, the daemon closing the connection, the end of
+//! Ctrl-C, SIGTERM, a hangup, the end of
 //! stdin, or a panic. With `--interactive` it reads lines: a question waiting
 //! asks `approve? [y/N/t/note]`, and any other line is sent to the session as a
 //! message. Line mode, no raw terminal, so it works in any pane.
@@ -10,13 +10,14 @@
 //! A plain `theseus watch` outside herdr is `cmd::watch`, unchanged.
 
 use std::collections::{HashMap, HashSet};
+use std::time::Duration;
 
 use anyhow::{anyhow, Result};
 use serde_json::{json, Value};
 use theseus_client::{render, resolve, CallError, Conn};
 use theseus_protocol::{
-    method, notify, ConfirmRequest, Event, Id, Message, Notification, Response, SessionListResult,
-    SessionWaitResult,
+    method, notify, ConfirmRequest, Event, Id, Message, Notification, Response, SessionInfo,
+    SessionListResult, SessionWaitResult,
 };
 use tokio::signal::unix::{signal, SignalKind};
 
@@ -90,7 +91,54 @@ enum Purpose {
     Typing,
 }
 
-/// `theseus watch [SESSION] [--interactive] [--no-herdr]`.
+/// How long one try to reach the daemon again may take.
+const RECONNECT_WITHIN: Duration = Duration::from_secs(1);
+
+/// The first try again after a lost daemon, doubling to `RECONNECT_MAX`.
+const RECONNECT_FIRST: Duration = Duration::from_millis(100);
+const RECONNECT_MAX: Duration = Duration::from_secs(2);
+
+/// What the loop does after one step.
+enum Step {
+    Go,
+    /// The daemon went away: the pane keeps its place and tries again.
+    Lost,
+    /// The terminal's end (stdin, a signal): release the pane and go.
+    Stop,
+}
+
+/// The session as a watch reads it, at its start and again at each
+/// reconnect: subscribe first, then read, so no change falls between.
+async fn read_session(
+    conn: &mut Conn,
+    sid: &str,
+    early: &mut Vec<Notification>,
+) -> Result<(SessionWaitResult, Option<SessionInfo>)> {
+    call(
+        conn,
+        method::SESSION_WATCH,
+        json!({ "session_id": sid }),
+        early,
+    )
+    .await?;
+    // The session's view and its questions, whole, in one read. The watch
+    // above seeds the daemon's push itself (theseus-tq04), so this read no
+    // longer brings `execution.changed`; it stays as the cheapest way to
+    // get the state this watch starts from, and `events.lost` repeats it.
+    let first: SessionWaitResult =
+        serde_json::from_value(call(conn, method::SESSION_WAIT, reread(sid), early).await?)?;
+    let info = serde_json::from_value::<SessionListResult>(
+        call(conn, method::SESSION_LIST, json!({ "ids": [sid] }), early).await?,
+    )?
+    .sessions
+    .into_iter()
+    .find(|s| s.session_id == sid);
+    Ok((first, info))
+}
+
+/// `theseus watch [SESSION] [--interactive] [--no-herdr]`. A watch in a herdr
+/// pane, or an interactive one, over a daemon's socket keeps its place
+/// through the daemon's restart (theseus-qb1es).
 #[expect(clippy::cognitive_complexity, reason = "shape budget: split it")]
 #[expect(clippy::too_many_lines, reason = "shape budget: split it")]
 pub async fn watch(
@@ -127,37 +175,20 @@ pub async fn watch(
         .map(|s| s.session_id.clone())
         .ok_or_else(|| anyhow!("there are no sessions yet"))?,
     };
-    // Subscribe first, then read, so no change falls between.
-    call(
-        conn,
-        method::SESSION_WATCH,
-        json!({ "session_id": sid }),
-        &mut early,
-    )
-    .await?;
-    // The session's view and its questions, whole, in one read. The watch
-    // above seeds the daemon's push itself (theseus-tq04), so this read no
-    // longer brings `execution.changed`; it stays as the cheapest way to
-    // get the state this watch starts from, and `events.lost` repeats it.
-    let first: SessionWaitResult =
-        serde_json::from_value(call(conn, method::SESSION_WAIT, reread(&sid), &mut early).await?)?;
-    let info = serde_json::from_value::<SessionListResult>(
-        call(
-            conn,
-            method::SESSION_LIST,
-            json!({ "ids": [sid] }),
-            &mut early,
-        )
-        .await?,
-    )?
-    .sessions
-    .into_iter()
-    .find(|s| s.session_id == sid);
+    let (first, info) = read_session(conn, &sid, &mut early).await?;
     // An unknown session is refused, never watched (theseus-0n1v).
     let Some(info) = info else {
         anyhow::bail!("no session is named `{sid}`");
     };
+    let parent = match &info.parent_session_id {
+        Some(p) => parent_name(conn, p, &mut early).await,
+        None => None,
+    };
     let (turns, kind) = (info.turns, info.kind);
+    let facts = (
+        info.model.clone().or(info.profile.clone()),
+        info.created_at_unix_ms,
+    );
     let (label, title, profile) = (info.label, info.title, info.profile);
 
     let mut w = Watch {
@@ -165,10 +196,7 @@ pub async fn watch(
         json,
         interactive,
         printer: Printer::new(Mode::Watch, thinking),
-        reporter: pane.map(|env| {
-            herdr::release_on_panic(&env);
-            Reporter::start(env, &sid, kind, label, title)
-        }),
+        reporter: pane.map(|env| Reporter::start(env, &sid, kind, label, title)),
         questions: Vec::new(),
         asked: None,
         resolved: HashSet::new(),
@@ -178,6 +206,9 @@ pub async fn watch(
         profile_read_at: turns,
         typist: Default::default(),
     };
+    if let Some(r) = &mut w.reporter {
+        r.set_facts(facts.0, facts.1, parent);
+    }
     eprintln!("watching {sid} (Ctrl-C to stop)");
     if let Some(r) = &w.reporter {
         eprintln!("reporting its state to herdr's pane {}", r.pane_id());
@@ -185,6 +216,8 @@ pub async fn watch(
     if interactive {
         eprintln!("a line you type is sent to the session; a question asks approve? [y/N/t/note]");
     }
+    // A session that already failed says why, then the watch waits on it.
+    w.say_failed(first.execution.as_ref());
     w.apply_read(first);
     for n in early {
         w.on_note(conn, n).await?;
@@ -198,28 +231,54 @@ pub async fn watch(
     w.ask();
 
     let mut stdin = interactive.then(Source::open);
+    // Where to come back to; a spawned daemon has no socket, and its end is the watch's.
+    let socket = conn.socket_path().map(std::path::Path::to_path_buf);
     loop {
-        tokio::select! {
-            msg = conn.next() => match msg? {
-                // The daemon closed the connection.
-                None => break,
-                Some(Message::Notification(n)) => w.on_note(conn, n).await?,
-                Some(Message::Response(r)) => w.on_response(r),
-                Some(Message::Request(_)) => {}
+        let step: Result<Step> = tokio::select! {
+            msg = conn.next() => match msg {
+                // The daemon closed the connection, or it broke.
+                Ok(None) | Err(_) => Ok(Step::Lost),
+                Ok(Some(Message::Notification(n))) => w.on_note(conn, n).await.map(|()| Step::Go),
+                Ok(Some(Message::Response(r))) => { w.on_response(r); Ok(Step::Go) }
+                Ok(Some(Message::Request(_))) => Ok(Step::Go),
             },
-            input = next_input(&mut stdin) => match input? {
-                Input::Eof => break,
-                Input::Typing => w.on_typing(conn).await?,
-                Input::Line(l) => w.on_line(conn, &l).await?,
+            input = next_input(&mut stdin) => match input {
+                Ok(Input::Eof) => Ok(Step::Stop),
+                Ok(Input::Typing) => w.on_typing(conn).await.map(|()| Step::Go),
+                Ok(Input::Line(l)) => w.on_line(conn, &l).await.map(|()| Step::Go),
+                Err(e) => return Err(e.into()),
             },
             _ = reminder(w.reporter.as_ref().and_then(Reporter::next_due)) => {
                 if let Some(r) = &mut w.reporter {
-                    r.remind(now_ms());
+                    r.remind(herdr::now_ms());
+                }
+                Ok(Step::Go)
+            }
+            _ = term.recv() => Ok(Step::Stop),
+            _ = hangup.recv() => Ok(Step::Stop),
+            _ = interrupt.recv() => Ok(Step::Stop),
+        };
+        let step = match (step, &socket) {
+            (Ok(s), _) => s,
+            // A write to a daemon that went away fails: the same as its close.
+            (Err(_), Some(_)) => Step::Lost,
+            (Err(e), _) => return Err(e),
+        };
+        match step {
+            Step::Go => {}
+            Step::Stop => break,
+            Step::Lost => {
+                let Some(socket) = &socket else { break };
+                let back = tokio::select! {
+                    r = w.reconnect(conn, socket) => r,
+                    _ = term.recv() => Ok(false),
+                    _ = hangup.recv() => Ok(false),
+                    _ = interrupt.recv() => Ok(false),
+                };
+                if !back? {
+                    break;
                 }
             }
-            _ = term.recv() => break,
-            _ = hangup.recv() => break,
-            _ = interrupt.recv() => break,
         }
     }
     w.printer.settle();
@@ -229,22 +288,38 @@ pub async fn watch(
     Ok(())
 }
 
+/// The name of the session a task was opened under, for the pane's `parent`
+/// token: one read, and none if it fails.
+async fn parent_name(
+    conn: &mut Conn,
+    parent: &str,
+    early: &mut Vec<Notification>,
+) -> Option<String> {
+    let list = call(
+        conn,
+        method::SESSION_LIST,
+        json!({ "ids": [parent] }),
+        early,
+    )
+    .await
+    .ok()?;
+    let list = serde_json::from_value::<SessionListResult>(list).ok()?;
+    list.sessions
+        .iter()
+        .find(|s| s.session_id == parent)
+        .map(theseus_client::names::of)
+}
+
 /// Until the wall clock reaches `at_ms`: a question's reminder for herdr's
 /// pane. None waits forever.
 async fn reminder(at_ms: Option<u64>) {
     match at_ms {
         Some(at) => {
-            let wait = at.saturating_sub(now_ms());
+            let wait = at.saturating_sub(herdr::now_ms());
             tokio::time::sleep(std::time::Duration::from_millis(wait)).await;
         }
         None => std::future::pending().await,
     }
-}
-
-fn now_ms() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
 }
 
 /// `session.wait` as a read: settled or not, it answers at once with the
@@ -300,6 +375,77 @@ struct Watch {
 }
 
 impl Watch {
+    /// A session that already failed says why in words, once, at the start.
+    fn say_failed(&self, view: Option<&theseus_protocol::ExecutionView>) {
+        let Some(v) = view.filter(|v| v.state == "failed") else {
+            return;
+        };
+        let why = v
+            .ended_reason
+            .as_deref()
+            .filter(|r| !r.trim().is_empty())
+            .unwrap_or("no reason was recorded");
+        eprintln!("{} failed: {why}", self.sid);
+    }
+
+    /// The daemon went away. The pane keeps its place: its label reads
+    /// `· reconnecting` and it is never released. It tries again at 100 ms,
+    /// doubling to 2 s, with nothing but a timer between tries; then it
+    /// reads the session once, and says its state and tokens again. False if
+    /// it was ended meanwhile.
+    async fn reconnect(&mut self, conn: &mut Conn, socket: &std::path::Path) -> Result<bool> {
+        self.printer.settle();
+        eprintln!("theseus: the daemon went away; this pane waits for it and keeps its place");
+        if let Some(r) = &mut self.reporter {
+            r.set_reconnecting(true);
+        }
+        // Answers that were due on the old connection never come.
+        self.pending.clear();
+        self.asked = None;
+        let mut wait = RECONNECT_FIRST;
+        let (mut fresh, first, info, mut early) = loop {
+            tokio::time::sleep(wait).await;
+            wait = (wait * 2).min(RECONNECT_MAX);
+            let Ok(mut c) =
+                Conn::socket_within(&socket.to_string_lossy(), Some(RECONNECT_WITHIN)).await
+            else {
+                continue;
+            };
+            let mut early = Vec::new();
+            // A daemon that dies again mid-read is tried again.
+            if let Ok((first, info)) = read_session(&mut c, &self.sid, &mut early).await {
+                break (c, first, info, early);
+            }
+        };
+        std::mem::swap(conn, &mut fresh);
+        eprintln!("theseus: the daemon is back; watching {} again", self.sid);
+        self.typist = Default::default();
+        if let Some(r) = &mut self.reporter {
+            r.set_reconnecting(false);
+        }
+        if let Some(info) = info {
+            self.profile = info.profile.clone().or(self.profile.take());
+            self.title_asked_at = self.title_asked_at.max(info.turns);
+            self.profile_read_at = self.profile_read_at.max(info.turns);
+            if let Some(rep) = &mut self.reporter {
+                rep.set_facts(info.model.or(info.profile), info.created_at_unix_ms, None);
+                rep.set_title(info.title);
+            }
+        }
+        self.apply_read(first);
+        for n in early.drain(..) {
+            self.on_note(conn, n).await?;
+        }
+        if self.interactive {
+            let mut out = std::io::stderr().lock();
+            for c in &self.questions {
+                crate::print::lines(&mut out, &render::confirm_lines(c))?;
+            }
+        }
+        self.ask();
+        Ok(true)
+    }
+
     /// A read of the view and questions: the first, or one after
     /// `events.lost`.
     fn apply_read(&mut self, r: SessionWaitResult) {
@@ -387,7 +533,13 @@ impl Watch {
                 let id = conn.send(method::SESSION_WAIT, reread(&self.sid)).await?;
                 self.pending.insert(id, Purpose::Reread);
             }
-            _ => {}
+            // A call's events say what the pane's session is doing now.
+            Some(ev) => {
+                if let Some(rep) = &mut self.reporter {
+                    rep.on_event(&ev);
+                }
+            }
+            None => {}
         }
         Ok(())
     }
@@ -417,7 +569,7 @@ impl Watch {
     /// daemon warms what the message will wait for. Not while a question
     /// waits (the line is an answer), and never waited on (theseus-tnky).
     async fn on_typing(&mut self, conn: &mut Conn) -> Result<()> {
-        if self.asked.is_some() || !self.typist.keystroke(&self.sid, now_ms()) {
+        if self.asked.is_some() || !self.typist.keystroke(&self.sid, herdr::now_ms()) {
             return Ok(());
         }
         let params = json!({"session_id": self.sid, "author": AUTHOR});
@@ -518,6 +670,13 @@ impl Watch {
                     self.profile = Some(profile);
                 }
                 if let Some(rep) = &mut self.reporter {
+                    if let Some(i) = &info {
+                        rep.set_facts(
+                            i.model.clone().or(i.profile.clone()),
+                            i.created_at_unix_ms,
+                            None,
+                        );
+                    }
                     rep.set_title(info.and_then(|s| s.title));
                 }
             }

@@ -16,24 +16,30 @@
 //!   newline-delimited JSON with string ids and results tagged by `type`; it is
 //!   not JSON-RPC.
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use anyhow::{anyhow, Context, Result};
-use serde_json::{json, Value};
+use serde_json::{json, Map, Value};
 use theseus_protocol::notices::{self, Burst, Delivery, Rules, Viewer, Why};
 use theseus_protocol::work::WorkView;
-use theseus_protocol::{ExecutionView, Level, SessionKind};
+use theseus_protocol::{Event, ExecutionView, SessionKind};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::sync::{mpsc, oneshot};
+
+use crate::herdr_slots::{self as slots, call_words, fit, Facts};
 
 /// The source of our reports. herdr keeps one status authority per pane, and
 /// this names ours: a custom source, so it is in charge of the pane's state.
 pub const SOURCE: &str = "custom:theseus";
 
-/// The agent our reports name. herdr knows no agent by this name, so nothing
-/// it reads on the screen competes with the report.
+/// The agent a report names before a session's name is known (a pane made
+/// for a session that has no watch yet). A watch names its agent by its
+/// session's short name (`herdr_slots::short_name`), and a pane is ours by
+/// its `kind` token, not by this.
 pub const AGENT: &str = "theseus";
 
 /// How long one request to herdr may take, from the connect to the answer.
@@ -46,9 +52,6 @@ const RETRIES: [Duration; 2] = [Duration::from_millis(500), Duration::from_milli
 /// How long the exit waits for the release to reach herdr. A herdr that does
 /// not answer leaves the pane's last state, which `theseus herdr sync` sweeps.
 const RELEASE_WAIT: Duration = Duration::from_secs(4);
-
-/// herdr's cap on a title, a display name, and a token's value.
-const TEXT_CHARS: usize = 80;
 
 /// Where a watch inside a herdr pane reports: its pane, and herdr's socket.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -78,15 +81,11 @@ impl Env {
     }
 }
 
-/// herdr's state for a level: needs you is `blocked`; working is `working`;
-/// ready and idle are `idle`. herdr makes `done` itself, of an idle pane not
-/// yet seen, so a conversation's finished turn shows as done until looked at.
-pub fn state_of(level: Level) -> &'static str {
-    match level {
-        Level::NeedsYou => "blocked",
-        Level::Working => "working",
-        Level::Ready | Level::Idle => "idle",
-    }
+/// The wall clock, in ms since the epoch.
+pub fn now_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
 }
 
 /// The last `seq` this process gave out.
@@ -189,20 +188,18 @@ pub fn agent_name(session_id: &str, label: Option<&str>) -> String {
     name.trim_end_matches('-').to_string()
 }
 
-/// A text as herdr keeps it: one line, at most `TEXT_CHARS` characters.
-fn fit(s: &str) -> String {
-    let line = s.lines().next().unwrap_or_default().trim();
-    if line.chars().count() <= TEXT_CHARS {
-        return line.to_string();
-    }
-    let cut: String = line.chars().take(TEXT_CHARS - 1).collect();
-    format!("{}…", cut.trim_end())
-}
-
-/// `pane.report_agent`'s params.
-pub fn report_params(pane_id: &str, state: &str, message: &str, seq: u64) -> Value {
-    json!({"pane_id": pane_id, "source": SOURCE, "agent": AGENT, "state": state,
-           "message": message, "seq": seq})
+/// `pane.report_agent`'s params: the short name as the agent, the attention
+/// label as the message, and the state's label worded once.
+pub fn report_params(
+    pane_id: &str,
+    agent: &str,
+    state: &str,
+    message: &str,
+    labels: &Value,
+    seq: u64,
+) -> Value {
+    json!({"pane_id": pane_id, "source": SOURCE, "agent": agent, "display_agent": fit(agent),
+           "state": state, "message": fit(message), "state_labels": labels, "seq": seq})
 }
 
 /// `notification.show`'s params: the session's name, the notice's line, and
@@ -212,35 +209,30 @@ pub fn notice_params(title: &str, body: &str, sound: bool) -> Value {
 }
 
 /// `pane.release_agent`'s params.
-pub fn release_params(pane_id: &str, seq: u64) -> Value {
-    json!({"pane_id": pane_id, "source": SOURCE, "agent": AGENT, "seq": seq})
+pub fn release_params(pane_id: &str, agent: &str, seq: u64) -> Value {
+    json!({"pane_id": pane_id, "source": SOURCE, "agent": agent, "seq": seq})
 }
 
 /// What the pane shows beside its state, for display only (herdr's
-/// `pane.report_metadata`): the session's title, `theseus: <label>` as the
-/// agent's name, and three tokens. herdr renders a token as `$name` in its
-/// sidebar, and `theseus herdr sync` finds a session's pane by `$session`.
+/// `pane.report_metadata`): the session's title, its short name, and the ten
+/// tokens (`herdr_slots::TOKENS`). herdr renders a token as `$name` in its
+/// sidebar, `theseus herdr sync` finds a session's pane by `$session` and
+/// knows it is ours by `$kind`, and the answer card reads `$confirm`.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Meta {
     pub title: Option<String>,
-    pub display_agent: String,
-    /// The session's id, whole: sync matches on it.
-    pub session: String,
-    /// Spend since the last reset: `$0.42`.
-    pub cost: String,
-    /// The question waiting, by its correlation id: `theseus confirm $confirm`.
-    pub confirm: Option<String>,
+    pub agent: String,
+    pub tokens: Map<String, Value>,
 }
 
 impl Meta {
-    /// Its params: every field each time, so a report never depends on an
+    /// Its params: every token each time, so a report never depends on an
     /// earlier one (a token is a patch: a string sets it, null clears it).
     pub fn params(&self, pane_id: &str, seq: u64) -> Value {
         let mut p = json!({
-            "pane_id": pane_id, "source": SOURCE, "agent": AGENT,
-            "display_agent": fit(&self.display_agent),
-            "tokens": {"session": self.session, "cost": self.cost,
-                       "confirm": self.confirm.as_deref().map(fit)},
+            "pane_id": pane_id, "source": SOURCE, "agent": self.agent,
+            "display_agent": fit(&self.agent),
+            "tokens": self.tokens,
             "seq": seq,
         });
         if let Some(t) = self.title.as_deref().map(fit).filter(|t| !t.is_empty()) {
@@ -263,11 +255,20 @@ enum Job {
     Flush(oneshot::Sender<()>),
 }
 
+/// A report as it was last sent.
+#[derive(Debug, Clone, PartialEq)]
+struct Sent {
+    agent: String,
+    state: &'static str,
+    message: String,
+    labels: Value,
+}
+
 /// The session's state as herdr shows it, kept by `theseus watch`: it sends a
-/// report only when the state or its message changes, metadata only when it
-/// changes, and the release on exit. A task sends them in order, each on a
-/// fresh connection with its retries, so a slow or missing herdr never holds
-/// the watch.
+/// report only when the state, its message or its label changes, metadata
+/// only when it changes, and the release on exit. A task sends them in order,
+/// each on a fresh connection with its retries, so a slow or missing herdr
+/// never holds the watch.
 pub struct Reporter {
     env: Env,
     session_id: String,
@@ -277,20 +278,23 @@ pub struct Reporter {
     tx: mpsc::UnboundedSender<Job>,
     /// The position of the last view applied: a view at or below it is old.
     position: u64,
-    /// The state and message last sent.
-    sent: Option<(&'static str, String)>,
-    /// The state and message of the last view: what a failed submit goes
-    /// back to.
-    viewed: Option<(&'static str, String)>,
+    sent: Option<Sent>,
     meta: Option<Meta>,
-    /// The last view's spend and question, for the metadata.
-    cost: String,
-    confirm: Option<String>,
     named: bool,
+    /// A state has been read: until then there is nothing to say.
+    known: bool,
     /// The policy's memory: the session's last work view, and the burst.
     rules: Rules,
     burst: Burst,
     work: Option<WorkView>,
+    /// What the view does not carry: the model, the parent, the call running.
+    facts: Facts,
+    /// The calls running now: id, words, and since when.
+    running: Vec<(String, String, u64)>,
+    /// A proposed call's words, until it starts.
+    proposed: HashMap<String, String>,
+    /// The agent the last report named: the panic hook releases by it.
+    agent: Arc<Mutex<String>>,
 }
 
 impl Reporter {
@@ -304,6 +308,21 @@ impl Reporter {
     ) -> Self {
         let (tx, rx) = mpsc::unbounded_channel();
         tokio::spawn(send_all(env.socket.clone(), rx));
+        let agent = Arc::new(Mutex::new(AGENT.to_string()));
+        release_on_panic(&env, agent.clone());
+        let mut r = Self::new(env, session_id, kind, label, title, tx);
+        r.agent = agent;
+        r
+    }
+
+    fn new(
+        env: Env,
+        session_id: &str,
+        kind: SessionKind,
+        label: Option<String>,
+        title: Option<String>,
+        tx: mpsc::UnboundedSender<Job>,
+    ) -> Self {
         Self {
             env,
             session_id: session_id.to_string(),
@@ -313,14 +332,20 @@ impl Reporter {
             tx,
             position: 0,
             sent: None,
-            viewed: None,
             meta: None,
-            cost: theseus_protocol::usd(0.0),
-            confirm: None,
             named: false,
+            known: false,
             rules: Rules::default(),
             burst: Burst::new(&Rules::default()),
             work: None,
+            facts: Facts {
+                kind: Some(kind),
+                session_id: session_id.to_string(),
+                ..Facts::default()
+            },
+            running: Vec::new(),
+            proposed: HashMap::new(),
+            agent: Arc::new(Mutex::new(AGENT.to_string())),
         }
     }
 
@@ -333,7 +358,24 @@ impl Reporter {
     pub fn set_title(&mut self, title: Option<String>) {
         if title.is_some() && title != self.title {
             self.title = title;
-            self.send_meta();
+            self.publish();
+        }
+    }
+
+    /// What `session.list` says besides the title: the model of its last
+    /// turn, when it was created, and its parent's name.
+    pub fn set_facts(&mut self, model: Option<String>, created_ms: u64, parent: Option<String>) {
+        let next = (
+            model.or(self.facts.model.take()),
+            created_ms,
+            parent.or(self.facts.parent.take()),
+        );
+        let now = (&next.0, next.1, &next.2);
+        if now != (&self.facts.model, self.facts.created_ms, &self.facts.parent) {
+            self.facts.model = next.0;
+            self.facts.created_ms = next.1;
+            self.facts.parent = next.2;
+            self.publish();
         }
     }
 
@@ -356,14 +398,17 @@ impl Reporter {
             return;
         }
         self.position = view.position;
-        self.cost = theseus_protocol::usd(view.spent_usd);
-        self.confirm = view.pending.first().map(|p| p.correlation_id.clone());
-        let now = (state_of(view.attention.level), view.attention.label.clone());
-        self.viewed = Some(now.clone());
-        self.report(now);
+        self.known = true;
+        self.facts.sending = false;
+        if !matches!(view.state.as_str(), "running" | "waiting") {
+            self.running.clear();
+            self.facts.tool = None;
+        }
         let mut work = WorkView::from_execution(view);
         work.title = self.name();
-        self.tell(work);
+        let prev = self.work.replace(work.clone());
+        self.publish();
+        self.tell(prev, work);
     }
 
     /// The session's name, as the pane's title says it: the clients' one
@@ -377,13 +422,58 @@ impl Reporter {
         )
     }
 
+    /// A call's events, for `doing` and the working label: what runs now.
+    pub fn on_event(&mut self, ev: &Event) {
+        match ev {
+            Event::ToolProposed(p) if p.session_id == self.session_id => {
+                if self.proposed.len() >= 64 {
+                    self.proposed.clear();
+                }
+                let words = call_words(&p.tool, None, Some(&p.input));
+                self.proposed.insert(p.tool_use_id.clone(), words);
+            }
+            Event::ToolStarted(t) if t.session_id == self.session_id => {
+                let words = match &t.argv {
+                    Some(a) => call_words(&t.tool, Some(a), None),
+                    None => self
+                        .proposed
+                        .remove(&t.tool_use_id)
+                        .unwrap_or_else(|| t.tool.clone()),
+                };
+                self.running.push((t.tool_use_id.clone(), words, now_ms()));
+                self.sync_tool();
+            }
+            Event::ToolEnded(t) if t.session_id == self.session_id && !t.late => {
+                self.running.retain(|(id, ..)| *id != t.tool_use_id);
+                self.sync_tool();
+            }
+            Event::TurnEnded(r) if r.session_id == self.session_id => {
+                self.running.clear();
+                self.facts.report = Some(r.output.clone()).filter(|o| !o.trim().is_empty());
+                if !r.model.is_empty() {
+                    self.facts.model = Some(r.model.clone());
+                }
+                self.sync_tool();
+            }
+            Event::TurnFailed(f) if f.session_id == self.session_id => {
+                self.running.clear();
+                self.sync_tool();
+            }
+            _ => {}
+        }
+    }
+
+    fn sync_tool(&mut self) {
+        self.facts.tool = self.running.last().map(|(_, w, s)| (w.clone(), *s));
+        self.publish();
+    }
+
     /// The policy on the session's change, with the pane as its viewer: a
     /// ping the pane's state does not already say (a reminder, a wake, a
     /// burst's line) goes out as one `notification.show`. A question, a
     /// failure, and a finish are the state's own (blocked; idle, which herdr
     /// makes done), so they send nothing more.
-    fn tell(&mut self, next: WorkView) {
-        let prev = self.work.replace(next.clone());
+    fn tell(&mut self, prev: Option<WorkView>, next: WorkView) {
         let Some(n) = notices::policy(
             prev.as_ref(),
             &next,
@@ -413,49 +503,97 @@ impl Reporter {
         }
     }
 
-    /// When the session's question is due its reminder, if it waits for one.
+    /// When the pane next has something to say by the clock: the session's
+    /// question is due its reminder, or a running call's or a job's elapsed
+    /// time moves on.
     pub fn next_due(&self) -> Option<u64> {
-        self.work
+        let reminder = self
+            .work
             .as_ref()
-            .and_then(|w| notices::next_reminder(w, &self.rules))
+            .and_then(|w| notices::next_reminder(w, &self.rules));
+        let tick = slots::next_tick(self.work.as_ref(), &self.facts, now_ms());
+        reminder.into_iter().chain(tick).min()
     }
 
     /// The clock reached `now_ms`: the last view against itself, for its
-    /// question's reminder.
+    /// question's reminder, and the elapsed times said again.
     pub fn remind(&mut self, now_ms: u64) {
         if let Some(mut w) = self.work.clone() {
             w.at_ms = w.at_ms.max(now_ms);
-            self.tell(w);
+            let prev = self.work.replace(w.clone());
+            self.tell(prev, w);
         }
+        self.publish();
     }
 
     /// A session with no execution yet: ready for its first message.
     pub fn observe_none(&mut self) {
-        let now = ("idle", "ready".to_string());
-        self.viewed = Some(now.clone());
-        self.report(now);
+        self.known = true;
+        self.facts.sending = false;
+        self.work = None;
+        self.publish();
     }
 
     /// A message was just sent from this terminal: working, at once, inside
     /// herdr's stall window, before the daemon's first event of the turn.
     pub fn working_now(&mut self) {
-        self.report(("working", "sending your message".to_string()));
+        self.known = true;
+        self.facts.sending = true;
+        self.publish();
     }
 
     /// The message was refused: back to what the last view said.
     pub fn restore(&mut self) {
-        if let Some(v) = self.viewed.clone() {
-            self.report(v);
-        }
+        self.facts.sending = false;
+        self.publish();
     }
 
-    fn report(&mut self, now: (&'static str, String)) {
-        if self.sent.as_ref() != Some(&now) {
+    /// The daemon is away (`true`): the label says `· reconnecting`, and the
+    /// pane is not released. Back (`false`): the next read says it all again,
+    /// whatever position it comes at.
+    pub fn set_reconnecting(&mut self, away: bool) {
+        if self.facts.reconnecting == away {
+            return;
+        }
+        self.facts.reconnecting = away;
+        if away {
+            self.running.clear();
+            self.facts.tool = None;
+        } else {
+            self.position = 0;
+        }
+        self.publish();
+    }
+
+    /// What the pane says now: the report when its state, message or label
+    /// changed, the metadata when a token or the title did.
+    fn publish(&mut self) {
+        if !self.known {
+            return;
+        }
+        let s = slots::slots(self.work.as_ref(), &self.facts_now(), now_ms());
+        let sent = Sent {
+            agent: s.agent.clone(),
+            state: s.state,
+            message: s.message.clone(),
+            labels: s.state_labels(),
+        };
+        if self.sent.as_ref() != Some(&sent) {
             self.push(
                 "pane.report_agent",
-                report_params(&self.env.pane_id, now.0, &now.1, next_seq()),
+                report_params(
+                    &self.env.pane_id,
+                    &sent.agent,
+                    sent.state,
+                    &sent.message,
+                    &sent.labels,
+                    next_seq(),
+                ),
             );
-            self.sent = Some(now);
+            if let Ok(mut a) = self.agent.lock() {
+                a.clone_from(&sent.agent);
+            }
+            self.sent = Some(sent);
             if !self.named {
                 // herdr names only a pane that is an agent, so after the first
                 // report; a release clears the name, so every watch names it.
@@ -467,19 +605,10 @@ impl Reporter {
                 );
             }
         }
-        self.send_meta();
-    }
-
-    fn send_meta(&mut self) {
-        let Some((_, label)) = &self.sent else {
-            return;
-        };
         let meta = Meta {
-            title: self.named().map(String::from),
-            display_agent: format!("{AGENT}: {label}"),
-            session: self.session_id.clone(),
-            cost: self.cost.clone(),
-            confirm: self.confirm.clone(),
+            title: self.named().map(|_| s.title.clone()),
+            agent: s.agent.clone(),
+            tokens: s.token_map(),
         };
         if self.meta.as_ref() != Some(&meta) {
             self.push(
@@ -490,24 +619,35 @@ impl Reporter {
         }
     }
 
+    /// The facts with the name as of now.
+    fn facts_now(&self) -> Facts {
+        Facts {
+            name: self.name(),
+            ..self.facts.clone()
+        }
+    }
+
     fn push(&self, method: &'static str, params: Value) {
         let _ = self.tx.send(Job::Send(Outgoing { method, params }));
     }
 
     /// On exit: release the pane, so it stops showing this session's state,
-    /// and clear the question's token. The pane keeps `$session`, so a later
-    /// `theseus herdr sync` finds it and can start a watch in it again.
-    /// Waits for herdr at most `RELEASE_WAIT`.
+    /// and clear the question's and the call's tokens. The pane keeps
+    /// `$session` and `$kind`, so a later `theseus herdr sync` finds it and
+    /// can start a watch in it again. Waits for herdr at most `RELEASE_WAIT`.
     pub async fn release(mut self) {
+        let agent = self
+            .agent
+            .lock()
+            .map_or_else(|_| AGENT.into(), |a| a.clone());
         self.push(
             "pane.release_agent",
-            release_params(&self.env.pane_id, next_seq()),
+            release_params(&self.env.pane_id, &agent, next_seq()),
         );
-        if let Some(meta) = self.meta.take() {
-            let meta = Meta {
-                confirm: None,
-                ..meta
-            };
+        if let Some(mut meta) = self.meta.take() {
+            for k in ["confirm", "doing"] {
+                meta.tokens.insert(k.into(), Value::Null);
+            }
             self.push(
                 "pane.report_metadata",
                 meta.params(&self.env.pane_id, next_seq()),
@@ -609,22 +749,23 @@ fn coalesce(batch: Vec<Job>) -> Vec<Job> {
         .map(|(_, j)| j)
         .collect()
 }
-
 /// On a panic, release the pane before the process dies: herdr's custom
 /// authority never expires, so a crashed watch would leave its last state on
-/// the pane until a `theseus herdr sync` swept it.
-pub fn release_on_panic(env: &Env) {
+/// the pane until a `theseus herdr sync` swept it. `agent` is the one the
+/// last report named.
+pub fn release_on_panic(env: &Env, agent: Arc<Mutex<String>>) {
     let env = env.clone();
     let previous = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
-        release_blocking(&env);
+        let agent = agent.lock().map_or_else(|_| AGENT.into(), |a| a.clone());
+        release_blocking(&env, &agent);
         previous(info);
     }));
 }
 
 /// The release over a blocking socket with short timeouts: a panic hook
 /// cannot count on the runtime.
-pub fn release_blocking(env: &Env) {
+pub fn release_blocking(env: &Env, agent: &str) {
     use std::io::{BufRead, Write};
     let Ok(mut s) = std::os::unix::net::UnixStream::connect(&env.socket) else {
         return;
@@ -633,7 +774,7 @@ pub fn release_blocking(env: &Env) {
     let _ = s.set_read_timeout(Some(Duration::from_secs(1)));
     let line = json!({"id": format!("theseus:{}:panic", std::process::id()),
                       "method": "pane.release_agent",
-                      "params": release_params(&env.pane_id, next_seq())});
+                      "params": release_params(&env.pane_id, agent, next_seq())});
     if writeln!(s, "{line}").is_ok() {
         let mut answer = String::new();
         let _ = std::io::BufReader::new(&s).read_line(&mut answer);
@@ -643,7 +784,8 @@ pub fn release_blocking(env: &Env) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use theseus_protocol::Attention;
+    use crate::herdr_slots::state_of;
+    use theseus_protocol::{Attention, Level};
 
     fn view(position: u64, level: Level, label: &str, spent: f64) -> ExecutionView {
         serde_json::from_value(json!({
@@ -657,27 +799,17 @@ mod tests {
     /// A reporter whose task is replaced by the test's receiver.
     fn reporter() -> (Reporter, mpsc::UnboundedReceiver<Job>) {
         let (tx, rx) = mpsc::unbounded_channel();
-        let r = Reporter {
-            env: Env {
+        let r = Reporter::new(
+            Env {
                 pane_id: "w1:p2".into(),
                 socket: PathBuf::from("/nowhere"),
             },
-            session_id: "ses_q7f3k2".into(),
-            kind: SessionKind::Conversation,
-            label: Some("Tide notes".into()),
-            title: None,
+            "ses_q7f3k2",
+            SessionKind::Conversation,
+            Some("Tide notes".into()),
+            None,
             tx,
-            position: 0,
-            sent: None,
-            viewed: None,
-            meta: None,
-            cost: "$0".into(),
-            confirm: None,
-            named: false,
-            rules: Rules::default(),
-            burst: Burst::new(&Rules::default()),
-            work: None,
-        };
+        );
         (r, rx)
     }
 
@@ -814,26 +946,28 @@ mod tests {
         );
     }
 
-    /// The metadata: the title (or the label), `theseus: <label>`, and the
-    /// session, cost, and question tokens, each within herdr's 80 characters.
+    /// The metadata: the title, the short name, and every token, each
+    /// within herdr's 80 characters, and no more than its 16 tokens.
     #[test]
     fn metadata_carries_every_field_within_herdrs_limits() {
+        let mut tokens = Map::new();
+        for k in crate::herdr_slots::TOKENS {
+            tokens.insert(k.into(), json!(fit(&"x".repeat(120))));
+        }
+        tokens.insert("confirm".into(), Value::Null);
         let m = Meta {
             title: Some("x".repeat(120)),
-            display_agent: "theseus: confirm proc.run: run the tide".into(),
-            session: "ses_q7f3k2".into(),
-            cost: "$0.42".into(),
-            confirm: None,
+            agent: "Tide notes".into(),
+            tokens,
         };
         let p = m.params("w1:p2", 7);
         assert_eq!(p["title"].as_str().unwrap().chars().count(), 80);
-        assert_eq!(
-            p["tokens"],
-            json!({"session": "ses_q7f3k2", "cost": "$0.42", "confirm": null})
-        );
+        assert_eq!(p["display_agent"], "Tide notes");
+        assert_eq!(p["tokens"]["confirm"], Value::Null);
+        assert!(p["tokens"].as_object().unwrap().len() <= crate::herdr_slots::MAX_TOKENS);
         assert_eq!(
             (p["source"].as_str(), p["agent"].as_str(), p["seq"].as_u64()),
-            (Some(SOURCE), Some(AGENT), Some(7))
+            (Some(SOURCE), Some("Tide notes"), Some(7))
         );
     }
 
@@ -952,7 +1086,7 @@ mod tests {
         };
         let before = std::panic::take_hook();
         std::panic::set_hook(Box::new(|_| {}));
-        release_on_panic(&env);
+        release_on_panic(&env, Arc::new(Mutex::new("Tide notes".into())));
         let caught = std::panic::catch_unwind(|| panic!("a reef"));
         let _ = std::panic::take_hook();
         std::panic::set_hook(before);
@@ -967,7 +1101,7 @@ mod tests {
                 req["params"]["source"].as_str(),
                 req["params"]["agent"].as_str()
             ),
-            (Some("w1:p2"), Some(SOURCE), Some(AGENT))
+            (Some("w1:p2"), Some(SOURCE), Some("Tide notes"))
         );
         assert!(req["params"]["seq"].as_u64().unwrap() > 0);
     }

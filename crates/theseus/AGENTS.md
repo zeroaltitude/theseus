@@ -130,6 +130,22 @@ Key modules: `main.rs`, `cmd.rs`, `render.rs`, `client.rs`. Read by: (a binary).
   footnote says so. `--no-stream` and `history` mark only what has a source (`mark`, `footnotes`, `cited_node`; the
   builders are plain functions a renderer can call). `theseus history m:a1b2c3` shows the cited message whole
   (`node.reach` names the node, `session.history` reads its page). Tests: `tests/cite.rs`.
+- `src/herdr.rs`, `src/herdr_slots.rs`, `src/interactive.rs` (theseus-l1l, theseus-qb1es): a `theseus watch` in a herdr pane
+  (and `watch --interactive` anywhere) reports its session to the pane. `herdr_slots::slots` is the one function over a
+  `WorkView` and a few facts (`Facts`: the model, the parent's name, the call running, the first line of a finished task's
+  report) that words every slot: `agent` and `display_agent` the task's short name (at most 22 characters, cut at a word:
+  herdr's own toast reads "<name> needs attention"), `title` the whole name, `state_labels` the state's label worded once
+  (`needs you · fs.write log.md`, `budget · $10.02 of $10`, `failed · timeout (provider)`, `blocked · <reason>`, `turn 3 ·
+  proc.run cargo nextest`, `job · 4 m`, `queued · wake`, `waiting on task a1b2c3`, `sleeping until 16:00`, `done · <first
+  line>`), and ten tokens (`task kind session confirm cost parent since doing model report`, each at most 80 characters, at most
+  16 allowed). `$kind` (`task` or `conversation`) is what marks a pane as Theseus's for `herdr sync`; `$session` finds its pane;
+  `$confirm` is the open question's correlation id, for herdr's answer card. The elapsed time in `doing` and in a job's label
+  moves on a timer (15 s while a call runs, 1 min for a job), the only one a quiet pane keeps. A lost daemon is not a way out:
+  the watch (a socket one: `Conn::socket_path`) says `· reconnecting`, never releases the pane, retries from 100 ms doubling to
+  2 s with nothing but a timer between tries, reads the session once (`read_session`) and says its labels and tokens again.
+  A watch on a session that already failed prints why, then waits. When the work board's views drop in, only `from_execution`'s
+  call changes. Tests: `tests/herdr.rs` (a fake herdr and a scripted daemon, `Restarting` for a restart),
+  `tests/herdr_sync.rs`.
 - `src/names.rs`: what a session is called in every client (theseus-0n1v): a task's title (the store labels every
   task `task`), a conversation's label else its title, else its kind and the end of its id. The CLI, the terminal
   UI and herdr's reporter all call it; never read `label` before `title` at a site.

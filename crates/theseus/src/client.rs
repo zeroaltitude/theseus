@@ -4,7 +4,7 @@
 //! It prints nothing and knows no command line, so the CLI and the TUI share
 //! it.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Stdio;
 
 use anyhow::{anyhow, bail, Context, Result};
@@ -51,6 +51,9 @@ pub struct Conn {
     line: Vec<u8>,
     _child: Option<tokio::process::Child>,
     next_id: u64,
+    /// The socket this connection is to, when it is one: a watch that must
+    /// outlive a daemon's restart connects to it again.
+    socket: Option<PathBuf>,
 }
 
 impl Conn {
@@ -79,7 +82,15 @@ impl Conn {
             )
         })?;
         let (r, w) = stream.into_split();
-        Ok(Self::over(r, w))
+        let mut conn = Self::over(r, w);
+        conn.socket = Some(path);
+        Ok(conn)
+    }
+
+    /// The socket this connection is to; none for a spawned daemon or a
+    /// test's pipe, which there is nothing to come back to.
+    pub fn socket_path(&self) -> Option<&Path> {
+        self.socket.as_deref()
     }
 
     /// Spawn `BIN --stdio` and talk over its pipes. Its stderr is this
@@ -120,6 +131,7 @@ impl Conn {
             line: Vec::new(),
             _child: None,
             next_id: 1,
+            socket: None,
         }
     }
 
