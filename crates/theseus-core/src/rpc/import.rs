@@ -59,6 +59,7 @@ pub(super) fn prefixed(name: &str) -> bool {
         || name.starts_with("standing.")
         || name.starts_with("thread.")
         || name == method::LEDGER_VERIFY
+        || name == method::PERSONA_LIST
 }
 
 impl Core {
@@ -102,6 +103,9 @@ impl Core {
         }
         if super::wake_owner::OWN.contains(&name) {
             return self.rpc_wakes(name, params, conn);
+        }
+        if name == method::PERSONA_LIST {
+            return super::server::route(params, |p| self.persona_list(p));
         }
         if name == method::LEDGER_VERIFY {
             return super::server::reply(self.ledger_verify(params).await?);

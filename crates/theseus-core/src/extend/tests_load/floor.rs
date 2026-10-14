@@ -16,6 +16,7 @@ const DEN: u64 = 4_100_000_000_000_000_888;
 
 fn places(pier_floor: Option<&str>) -> Vec<BoundPlace> {
     let bound = |id: u64, name: &str, floor: Option<&str>| BoundPlace {
+        persona: None,
         target: format!("discord:channel:{id}"),
         name: name.into(),
         private: true,

@@ -10,4 +10,10 @@ export type ContextStatus = { system_files: Array<string>, persona?: string, per
 /**
  * Every persona the config defines.
  */
-personas: Array<string>, };
+personas: Array<string>, 
+/**
+ * What is wrong with the personas in use (theseus-slvl.2): a file that
+ * cannot be read, so its persona compiles on the built-in default, or a
+ * place that names a persona the config lacks.
+ */
+warnings?: Array<string>, };

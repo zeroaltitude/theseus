@@ -56,6 +56,7 @@ async fn an_inputs_admission_rides_its_inputs_frame() {
             label: None,
             opened_from: None,
             dir: None,
+            persona: None,
         })
         .unwrap();
     let seen = spy(&r.core);

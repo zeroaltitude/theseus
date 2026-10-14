@@ -206,6 +206,7 @@ async fn a_changed_place_profile_clears_the_move() {
     });
     let bind = |ceiling: Option<PlaceCeiling>| {
         r.core.bind_places(vec![BoundPlace {
+            persona: None,
             target: format!("discord:channel:{QUAY}"),
             name: "#quay".into(),
             private: true,

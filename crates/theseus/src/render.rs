@@ -1120,10 +1120,14 @@ pub fn context_line(c: &theseus_protocol::ContextStatus) -> Option<String> {
             c.personas.join(", ")
         ),
     };
-    Some(format!(
+    let mut line = format!(
         "context: {} at the system level · {persona}",
         files(c.system_files.len())
-    ))
+    );
+    for w in &c.warnings {
+        line.push_str(&format!(" · warning: {w}"));
+    }
+    Some(line)
 }
 
 /// `config: vault (confirmed in 1034 ms)`, `config: confirming …`, or
@@ -2166,6 +2170,7 @@ mod tests {
             persona: Some("theseus".into()),
             persona_files: vec!["~/p.md".into()],
             personas: vec!["theseus".into()],
+            ..Default::default()
         };
         assert_eq!(
             context_line(&c).unwrap(),

@@ -137,6 +137,7 @@ mod tests {
 
     fn pier(limit: f64, tools: Option<&[&str]>) -> BoundPlace {
         BoundPlace {
+            persona: None,
             target: "discord:channel:223456789012345681".into(),
             name: "#pier".into(),
             private: false,

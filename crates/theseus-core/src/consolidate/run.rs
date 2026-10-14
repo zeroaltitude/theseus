@@ -229,6 +229,7 @@ impl Core {
             kind: None,
             label: Some("memory: consolidation's syntheses (never compiled)".into()),
             opened_from: None,
+            persona: None,
         })?;
         self.store.put_meta(MEMORY_SESSION, &rec.session_id)?;
         // Every arm but `+synthesis` leaves it out from now on: a first

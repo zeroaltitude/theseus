@@ -136,6 +136,7 @@ fn open(core: &Arc<Core>) -> String {
         kind: None,
         label: None,
         opened_from: None,
+        persona: None,
     })
     .unwrap()
     .session_id

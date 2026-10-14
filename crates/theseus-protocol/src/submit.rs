@@ -24,6 +24,12 @@ pub struct SessionOpenParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub dir: Option<String>,
+    /// The persona the session speaks as (a key of the config's
+    /// `[personas]`; theseus-slvl.2): over its place's and the default's.
+    /// A task takes its parent's. Absent: the place's, else the default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub persona: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

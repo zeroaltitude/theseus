@@ -60,6 +60,7 @@ pub mod mcp;
 pub mod memory;
 pub mod ontology;
 pub mod people;
+pub mod persona;
 pub mod place;
 pub mod recall;
 pub mod retract;
@@ -478,6 +479,7 @@ facts![
     rsi_exams::ExamCounted<'static>,
     rsi_exams::ExamRejected<'static>,
     rsi_exams::ExamPass,
+    persona::PersonaChanged<'static>,
     standing::StandingAdded<'static>,
     standing::StandingRevoked<'static>,
     thread::ThreadCreated<'static>,

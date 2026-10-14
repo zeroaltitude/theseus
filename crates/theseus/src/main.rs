@@ -35,6 +35,7 @@ mod mcp;
 mod ontology;
 mod packs;
 mod pages;
+mod persona_cmd;
 mod policy_explain;
 mod postmortem;
 mod print;
@@ -522,6 +523,15 @@ enum Cmd {
     SelfImprove {
         #[command(subcommand)]
         cmd: self_cmd::SelfCmd,
+    },
+    /// The persona as data (theseus-slvl.2): `persona` shows every persona (name, emoji, voice,
+    /// initiative, files with digest and edit time, the compiles that carried it, its places);
+    /// `persona edit [NAME] [--name|--emoji|--card|--tts-voice|--avatar|--initiative VALUE]` sets
+    /// short fields in the config file, or opens its file in $EDITOR; `persona history` lists
+    /// the `persona.changed` rows.
+    Persona {
+        #[command(subcommand)]
+        cmd: Option<persona_cmd::PersonaCmd>,
     },
     /// The owner's standing orders, preferences and facts (theseus-a7vi): kept in every prompt of
     /// their scope until you revoke them. `standing` lists them; `standing add [--kind order|
@@ -1140,7 +1150,7 @@ async fn run(cli: Cli) -> Result<()> {
             ..
         } => cmd::wait(c, json, session, until, after, timeout).await,
         Cmd::Wait { until, timeout, .. } => wait_any(c, json, &until, timeout.as_deref()).await,
-        Cmd::Status(_) | Cmd::Postmortem(_) => unreachable!("they connect for themselves"),
+        Cmd::Status(_) | Cmd::Postmortem(_) | Cmd::Tui { .. } => unreachable!("not here"),
         Cmd::Profile { cmd } => cmd::profile(c, json, cmd.unwrap_or(ProfileCmd::List)).await,
         Cmd::Ledger { cmd: Some(cmd), .. } => ledger_verify::run(c, json, cmd).await,
         Cmd::Ledger {
@@ -1158,11 +1168,11 @@ async fn run(cli: Cli) -> Result<()> {
         Cmd::Mcp { cmd } => mcp::run(c, json, cmd).await,
         Cmd::Extend { cmd } => extend::run(c, json, cmd).await,
         Cmd::SelfImprove { cmd } => self_cmd::run(c, json, cmd).await,
+        Cmd::Persona { cmd } => persona_cmd::run(c, json, cmd.unwrap_or_default()).await,
         Cmd::Standing { cmd } => standing_cmd::run(c, json, cmd.unwrap_or_default()).await,
         Cmd::Thread { cmd } => thread::run(c, json, cmd.unwrap_or_default()).await,
         Cmd::Rpc { method, params } => cmd::rpc(c, json, method, params).await,
         Cmd::Shutdown => cmd::shutdown(c, json).await,
-        Cmd::Tui { .. } => unreachable!("`theseus tui` execs theseus-tui before connecting"),
     };
     close(conn).await;
     result

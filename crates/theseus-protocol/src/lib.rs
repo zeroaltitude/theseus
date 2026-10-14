@@ -50,6 +50,7 @@ pub mod nudge;
 mod ontology;
 mod outbox;
 pub mod packs;
+pub mod persona;
 mod places;
 mod push;
 pub mod resident;
@@ -95,6 +96,9 @@ pub use ledger::*;
 pub use ledger_verify::*;
 pub use ontology::*;
 pub use outbox::OutboxStatus;
+pub use persona::{
+    PersonaFile, PersonaInfo, PersonaListParams, PersonaListResult, PersonaPlace, PersonaTally,
+};
 pub use places::*;
 pub use push::*;
 pub use sessions::{RetiredReason, SessionLink, SessionRetired, SessionState};
@@ -222,6 +226,8 @@ pub mod method {
         /// The owner's standing orders, preferences and facts (theseus-a7vi,
         /// `standing::StandingListParams`): a read, and the owner's two writes.
         THREAD_NEW = "thread.new", THREAD_LIST = "thread.list", THREAD_SHOW = "thread.show", THREAD_EDIT = "thread.edit", THREAD_PAUSE = "thread.pause", THREAD_RESUME = "thread.resume", THREAD_DONE = "thread.done", THREAD_REOPEN = "thread.reopen",
+        /// The personas and the built-in default (theseus-slvl.2): a read.
+        PERSONA_LIST = "persona.list",
         STANDING_LIST = "standing.list", STANDING_ADD = "standing.add", STANDING_REVOKE = "standing.revoke",
         ONTOLOGY_PROPOSAL_REJECT = "ontology.proposal.reject", ONTOLOGY_PROPOSAL_ACCEPT_ALL = "ontology.proposal.accept_all", ONTOLOGY_PERSON_MERGE = "ontology.person.merge", ONTOLOGY_PROPOSAL_REJECT_ALL = "ontology.proposal.reject_all",
         /// Tasks (DD7): the child sessions conversations started, with state and
@@ -952,6 +958,11 @@ pub struct ContextStatus {
     /// Every persona the config defines.
     #[serde(default)]
     pub personas: Vec<String>,
+    /// What is wrong with the personas in use (theseus-slvl.2): a file that
+    /// cannot be read, so its persona compiles on the built-in default, or a
+    /// place that names a persona the config lacks.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub warnings: Vec<String>,
 }
 
 /// Where the config came from, and what the vault said of it (theseus-2fo,

@@ -539,13 +539,19 @@ pub struct ContextFileMissing<'a> {
     pub path: &'a str,
     pub error: &'a str,
     pub profile: &'a str,
+    /// The persona whose file it is (theseus-slvl.2); none: the system level.
+    pub persona: Option<&'a str>,
 }
 
 impl Fact for ContextFileMissing<'_> {
     const KIND: Option<LedgerKind> = Some(LedgerKind::ContextFileMissing);
 
     fn row(&self) -> Value {
-        json!({"path": self.path, "error": self.error, "profile": self.profile})
+        let mut row = json!({"path": self.path, "error": self.error, "profile": self.profile});
+        if let Some(p) = self.persona {
+            row["persona"] = json!(p);
+        }
+        row
     }
 
     fn narrate(&self, say: &mut Say<'_>) {

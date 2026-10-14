@@ -29,8 +29,10 @@ pub(crate) mod lsp;
 pub(crate) mod memory;
 mod outputs;
 pub(crate) mod people;
+pub mod persona;
 pub(crate) mod routing;
 pub mod rsi;
+pub use persona::{Initiative, PersonaConfig, PersonaView};
 mod sessions;
 mod threads;
 mod wake_limits;
@@ -950,15 +952,6 @@ impl ProfileConfig {
     }
 }
 
-/// `[personas.<name>]` (theseus-c48): a persona's context files, compiled
-/// after the system level's while the persona is in play.
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct PersonaConfig {
-    #[serde(default)]
-    pub files: Vec<crate::context_files::ContextEntry>,
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ModelConfig {
@@ -1352,6 +1345,9 @@ impl Config {
                 .iter()
                 .map(|(name, p)| (format!("personas.{name}.files"), &p.files)),
         );
+        for (key, p) in &self.personas {
+            p.validate(key)?;
+        }
         for (key, list) in files {
             if let Some(f) = list
                 .iter()
@@ -1663,8 +1659,27 @@ impl Config {
         system.chain(own).collect()
     }
 
+    /// The persona in play for a session (theseus-slvl.2): the session's own
+    /// choice, else its place's, else `[context] default_persona`, else the
+    /// built-in default. A name no `[personas]` table has is passed over to
+    /// the next, never an error at a turn.
+    pub fn persona_for(&self, session: Option<&str>, place: Option<&str>) -> PersonaView {
+        match self.persona_key_for(session, place) {
+            Some(k) => PersonaView::of(k, &self.personas[k]),
+            None => PersonaView::built_in(),
+        }
+    }
+
+    /// The `[personas]` key `persona_for` finds, none for the built-in.
+    pub fn persona_key_for(&self, session: Option<&str>, place: Option<&str>) -> Option<&str> {
+        [session, place, self.context.default_persona.as_deref()]
+            .into_iter()
+            .flatten()
+            .find_map(|n| self.personas.get_key_value(n).map(|(k, _)| k.as_str()))
+    }
+
     /// Every persona's name, comma-separated.
-    fn persona_names(&self) -> String {
+    pub fn persona_names(&self) -> String {
         self.personas.keys().cloned().collect::<Vec<_>>().join(", ")
     }
 
@@ -1757,3 +1772,5 @@ pub fn expand_with(p: &str, var: impl Fn(&str) -> Option<String>) -> String {
 mod tests;
 #[cfg(test)]
 mod tests_fresh;
+#[cfg(test)]
+mod tests_persona;

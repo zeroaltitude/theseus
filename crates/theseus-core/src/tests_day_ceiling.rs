@@ -66,6 +66,7 @@ pub(crate) fn build(
 /// A DM with the owner bound, as the binding's start tells it.
 pub(crate) fn bind_dm(core: &Core) {
     core.runner.place_rule.bind(vec![BoundPlace {
+        persona: None,
         target: OWNER_DM.into(),
         name: "DM @owner".into(),
         private: true,

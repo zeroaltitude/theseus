@@ -4294,6 +4294,7 @@ async fn system_then_persona_files_compile_in_that_order_each_labeled_by_its_lev
             "theseus".into(),
             crate::config::PersonaConfig {
                 files: vec![own.clone().into()],
+                ..Default::default()
             },
         );
     });
@@ -4409,6 +4410,7 @@ async fn an_edited_persona_file_recompiles_once_and_an_unchanged_one_appends() {
                 "theseus".into(),
                 crate::config::PersonaConfig {
                     files: vec![own.clone().into()],
+                    ..Default::default()
                 },
             );
         },
