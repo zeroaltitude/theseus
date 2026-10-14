@@ -19,7 +19,7 @@ Branch `cloud/20261013-standing-capture`, built on `e9ec29e` (main `0baeed6`, **
 
 ## What I changed
 
-Commit `7bc3774` (everything but the sim flag below), one step.
+Commit `7bc3774` (the step), `6294921` (the sim flag) and `462486f` (the terminal notice), below.
 
 - **`directive.v1`** (`crates/theseus-judge/packs/directive.v1.toml`, a golden request, `Action::Capture`): point
   `inbound`, the same state as classify/role/route (`classify_and_role_build_byte_identical_states` now holds it too).
@@ -58,7 +58,12 @@ Commit `7bc3774` (everything but the sim flag below), one step.
   `StandingListResult.asks`; `cockpit/src/protocol.gen/` regenerated. Docs: the three `AGENTS.md` (core, CLI, Discord).
 - The tests that count Jev's calls turn `directive.v1` off (`theseusd/tests/judge.rs`, `stop_nudge.rs`, the sim's judge
   bench); four health pack lists and the pack-shape tests name it; the pack-thresholds test now expects (0.80, 0.50) for it.
-- A later commit adds `theseus-sim fake-jev --choose QUESTION=OPTION:P` (scripted Choice verdicts for a live check).
+- Commit `6294921` adds `theseus-sim fake-jev --choose QUESTION=OPTION:P` (scripted Choice verdicts for a live check).
+- Commit `462486f` (after this report's first version, `ce68414`: **drop both `cloud report (not for main)` commits at the merge**) adds **`standing.noticed`**, a notification
+  (`Event::StandingNoticed`, `standing::StandingNoticed`) that `standing.captured` and `standing.asked` send to the
+  session's watchers; `theseus watch` and the TUI's event lines print it: the `📌 Kept as a standing preference … (terminal)`
+  line, then `Undo: theseus standing revoke std_…`, or the ask and `Answer: theseus standing answer ask_… keep|everywhere|not`.
+  Test: `tests_capture::the_notice_and_the_ask_reach_the_sessions_watchers`; `standing::noticed_tests`.
 
 ## How I proved it
 
@@ -121,8 +126,9 @@ std_4c9371a9  preference everywhere …  no tables with me [kept from your words
 
 Health said `directive.v1: live`. Undo and the label are `theseusd/tests/capture.rs` (`standing.revoke` → one
 `judge.label` `wrong capture`). **A gap**: the notice's line reaches the cockpit's narrative and the ledger, but
-`theseus watch` and the TUI do not print narrative lines, so a terminal-only owner sees the capture in `theseus standing`
-(`[kept from your words]`) and not as a live line with Undo. See "left", below.
+`theseus watch` and the TUI do not print narrative lines. I found this during the live check above, after the first version of
+this report, and added `standing.noticed` (see "What I changed") so the terminal prints the notice and its undo; the live
+check above predates it (re-run it with `theseus watch SESSION` open: the `📌` line and `Undo:` line appear).
 
 ### The maintainer's live check (the owner's daemon, a week of use)
 
@@ -150,11 +156,12 @@ Health said `directive.v1: live`. Undo and the label are `theseusd/tests/capture
 
 ## Gate
 
-`TZ=America/Phoenix THESEUS_GATE_NO_BENCH=1 scripts/gate.sh` on the committed step: door, keel, fmt, shape, features, clippy,
-cockpit, test build, reader rule: pass. Suite: 4,502 tests, 4,468 passed, **34 failed**:
+`TZ=America/Phoenix THESEUS_GATE_NO_BENCH=1 scripts/gate.sh`, run on `7bc3774` and again on the final code commit `462486f`:
+door, keel, fmt, shape, features, clippy, cockpit, test build, reader rule: pass (both runs). Suite on `462486f`: 4,504 tests,
+4,470 passed, **34 failed** (the same 34 on `7bc3774`, of 4,502):
 
-- 33 are the known L1 failures (theseus-sandbox's 22 contract tests and `spawn_100`, theseusd's 12 sandbox tests: root, no
-  job cgroup, theseus-pv6i);
+- 33 are the known L1 failures (20 in theseus-sandbox's contract tests and `spawn_100`, 13 in theseusd's sandbox tests: root,
+  no job cgroup, theseus-pv6i);
 - `theseus-discord tests_process::an_answer_the_post_writes_after_the_thinking_is_still_the_answer` fails here at 21 s and
   **fails identically on the base `e9ec29e`** (checked in a worktree); not this step's, and not in the known list.
 
@@ -183,8 +190,8 @@ not removed: same assertions, per-pack expectation.)
 
 ## What is left or uncertain
 
-- **The terminal notice** (above): a `standing.noticed` notification rendered by `theseus watch` and the TUI, so the
-  `📌 … · Undo` line shows in the terminal as it does in a DM card. Not built here.
+- The TUI's flash line / ring for a notice is not wired (it prints the lines in its event stream like the CLI); whether that
+  is loud enough for a terminal owner is for use to say.
 - The cockpit shows the new fields' types (regenerated) but has no panel for asks; the TUI and the cockpit have no ask
   buttons; Discord's `/orders` list does not list open asks.
 - Docs to change at review: spec Part III (a new item: the pack, the bands, the notice and undo, `standing.answer`, the
