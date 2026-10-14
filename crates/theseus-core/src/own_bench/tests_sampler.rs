@@ -294,3 +294,18 @@ async fn an_attachment_is_never_sent_to_another_provider() {
     let out = r.core.replay_sample(now()).await.unwrap();
     assert_eq!(out.replayed, 0, "{out:?}");
 }
+
+/// A report over nothing says $0.00, never a negative zero.
+#[tokio::test]
+async fn an_empty_report_totals_a_positive_zero() {
+    let r = rig(None);
+    let rep = r.core.route_report_now(false, now()).unwrap();
+    assert!(rep.cells.is_empty());
+    for v in [
+        rep.total_spend_usd,
+        rep.total_movable_usd,
+        rep.replay_today_usd,
+    ] {
+        assert!(v == 0.0 && v.is_sign_positive(), "{v}");
+    }
+}

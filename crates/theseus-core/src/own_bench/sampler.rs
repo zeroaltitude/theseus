@@ -135,7 +135,8 @@ impl Core {
                 r.data["replay_usd"].as_f64().unwrap_or(0.0)
                     + r.data["judge_usd"].as_f64().unwrap_or(0.0)
             })
-            .sum())
+            .sum::<f64>()
+            + 0.0)
     }
 
     /// One pass of the sampler (the nightly run's, and a test's).
