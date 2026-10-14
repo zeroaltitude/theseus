@@ -136,6 +136,7 @@ fn compile_in(
         signals: None,
         assembled: None,
         situation: &situation::Situation::Continuation,
+        kept: None,
     })
 }
 

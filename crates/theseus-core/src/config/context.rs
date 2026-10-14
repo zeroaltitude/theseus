@@ -25,13 +25,28 @@ pub struct ContextConfig {
     /// against it, so a smaller one makes both come sooner and cost less.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub working_window_tokens: Option<u64>,
+    /// Each session's render, kept across turns so an append renders only
+    /// what was written since (theseus-0l3g; `compiler::kept`): at most this
+    /// many MiB across the sessions, the least recently used going first.
+    /// Absent: `KEPT_MB`; 0 keeps none, and every compile renders whole.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kept_mb: Option<u64>,
 }
+
+/// `kept_mb`'s default.
+pub const KEPT_MB: u64 = 64;
 
 impl ContextConfig {
     pub fn is_empty(&self) -> bool {
         self.files.is_empty()
             && self.default_persona.is_none()
             && self.working_window_tokens.is_none()
+            && self.kept_mb.is_none()
+    }
+
+    /// The kept renders' bound, in bytes.
+    pub fn kept_bytes(&self) -> usize {
+        (self.kept_mb.unwrap_or(KEPT_MB) as usize).saturating_mul(1 << 20)
     }
 
     /// The window a request compiles against: the model's (`catalog`),

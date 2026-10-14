@@ -30,6 +30,12 @@ use super::{Manifest, RequestSpec};
 use crate::catalog::TokenRates;
 use crate::stub::{Kind, Stub};
 
+mod sums;
+
+/// A candidate: its compilation, render, estimate, and tokens as the ring
+/// reads them.
+type Tried = (Compilation, Rendered, Estimate, u64);
+
 /// How a compile makes a new compilation: its trigger, strategy, whether it
 /// strips the prefix's thinking, its includes, and the manifest it takes.
 pub(super) type Make<'m> = dyn Fn(String, &str, bool, Vec<String>, &Manifest) -> Compilation + 'm;
@@ -87,7 +93,9 @@ pub(super) fn ring(input: &CompileInput<'_>, r: &Ring<'_>, make: &Make<'_>) -> O
         .filter(|(_, n)| n.kind == Kind::UserMessage)
         .map(|(i, _)| i)
         .collect();
+    let renders = std::cell::Cell::new(0u32);
     let try_cut = |kept: Vec<&Stub>| {
+        renders.set(renders.get() + 1);
         let includes: Vec<String> = kept.iter().map(|n| n.id.clone()).collect();
         let mut candidate = make("overflow".into(), "ring", true, includes, r.base);
         candidate.budget = cleared_in(&cleared, &candidate);
@@ -96,20 +104,17 @@ pub(super) fn ring(input: &CompileInput<'_>, r: &Ring<'_>, make: &Make<'_>) -> O
         let tokens = input.overflowed.map_or(e.tokens, |o| o.scale(e.tokens));
         (candidate, rendered, e, tokens)
     };
-    let rung = |(compilation, rendered, est, _): (Compilation, Rendered, Estimate, u64),
-                dropped: &[&Stub]| Rung {
+    let rung = |(compilation, rendered, est, _): Tried, dropped: &[&Stub]| Rung {
         cut: ring_cut(dropped, r.est.tokens.saturating_sub(est.tokens)),
         compilation,
         rendered,
         est,
     };
     let pinned = starts.len() == 1;
-    for &cut in starts.iter().skip(usize::from(!floored)) {
-        let c = try_cut(seq[cut..].to_vec());
-        let last = cut == *starts.last().unwrap();
-        if c.3 <= target || (last && !pinned) {
-            return Some(rung(c, &seq[..cut]));
-        }
+    let cuts = &starts[usize::from(!floored).min(starts.len())..];
+    if let Some((i, made)) = at_messages(input, r, (&seq, cuts), (target, pinned), &try_cut) {
+        tracing::debug!(target: "theseus_core::compiler::phases", renders = renders.get(), "ring: cut {i} of {}", cuts.len());
+        return Some(rung(made, &seq[..cuts[i]]));
     }
     // A single instruction: cut inside its turn, the instruction pinned.
     let &pin = starts.first()?;
@@ -140,6 +145,42 @@ pub(super) fn ring(input: &CompileInput<'_>, r: &Ring<'_>, make: &Make<'_>) -> O
             Some(rung(try_cut(kept(j)), &dropped(j)))
         }
     }
+}
+
+/// The cut before a user message (theseus-0l3g): the earliest of `cuts`
+/// (indices into `seq`) whose request is under `target`, found from the
+/// last cut back by the segments' sums (`sums`), then settled by rendering
+/// the guess and its neighbour; the last when none is and the range holds
+/// more than one message (not `pinned`). With its candidate.
+fn at_messages(
+    input: &CompileInput<'_>,
+    r: &Ring<'_>,
+    (seq, cuts): (&[&Stub], &[usize]),
+    (target, pinned): (u64, bool),
+    try_cut: &dyn Fn(Vec<&Stub>) -> Tried,
+) -> Option<(usize, Tried)> {
+    let last = cuts.len().checked_sub(1)?;
+    let mut tried: HashMap<usize, Tried> = HashMap::new();
+    let tokens = |tried: &mut HashMap<usize, Tried>, i: usize| -> u64 {
+        tried
+            .entry(i)
+            .or_insert_with(|| try_cut(seq[cuts[i]..].to_vec()))
+            .3
+    };
+    let guess = if tokens(&mut tried, last) <= target {
+        let request = &tried[&last].1.request;
+        let at = sums::At {
+            input,
+            r,
+            base: (request.census(), request.image_tokens),
+        };
+        sums::guess(&at, seq, cuts, target)
+    } else {
+        last
+    };
+    let chosen = sums::settle(last, target, guess, &mut |i| tokens(&mut tried, i));
+    let i = chosen.or((!pinned).then_some(last))?;
+    Some((i, tried.remove(&i).expect("the chosen cut was rendered")))
 }
 
 /// The cut points inside a single instruction's turn (theseus-3ki0): where

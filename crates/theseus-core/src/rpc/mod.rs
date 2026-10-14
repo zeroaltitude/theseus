@@ -750,6 +750,7 @@ impl Core {
             effort_refusals: Default::default(),
             keep_warm: Default::default(),
             stubs: Default::default(),
+            kept: Arc::new(crate::compiler::kept::Kept::new(cfg.context.kept_bytes())),
             judge,
             // Read at a routed session's first turn, never on the start path.
             live_switched: Default::default(),

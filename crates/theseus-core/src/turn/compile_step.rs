@@ -23,7 +23,9 @@ impl TurnRunner {
     ) -> Result<Result<Compiled, Failure>> {
         let sid = t.tc.session_id;
         let c0 = t.trace.now_us();
+        let mut ph = crate::compiler::phases::Phases::new("compile_step");
         let nodes = t.tc.store.transcript(sid)?;
+        ph.mark("transcript");
         let current = match session.compilation_id.as_deref() {
             Some(id) => self.store.get_compilation(id)?,
             None => None,
@@ -34,6 +36,7 @@ impl TurnRunner {
         let cold = (i == 0).then(|| self.cold_now(sid, session, spec));
         let (nodes, stubbed) = self.stubbed_view(sid, &spec.model, &session.not_shown, nodes, cold);
         let read_before = crate::stub::read(&nodes);
+        ph.mark("views");
         let assembled = t.recall.assembled_id().map(str::to_string);
         let given = self.situation_of(t, &nodes, current.is_none(), session);
         let input = CompileInput {
@@ -57,10 +60,19 @@ impl TurnRunner {
             }),
             assembled: assembled.as_deref(),
             situation: &given,
+            // The render kept across turns, under this view of the nodes:
+            // the old attachments a cold rewrite stubbed (theseus-0l3g).
+            kept: Some((&self.kept, {
+                use std::hash::{Hash, Hasher};
+                let mut h = std::collections::hash_map::DefaultHasher::new();
+                format!("{stubbed:?}").hash(&mut h);
+                h.finish()
+            })),
         };
         // Where the ring cut, a summary in its place (30c); past the window
         // with nothing left to drop, the turn fails before any call.
         let mut compiled = Box::pin(self.compact(t, compile(input), input, i)).await?;
+        ph.mark("compile");
         Self::recall_compiled(t, &mut compiled);
         // A clearing pass (theseus-3ki0): one row a pass.
         if let Some(pass) = compiled.cleared {
@@ -84,11 +96,14 @@ impl TurnRunner {
         if let Some(f) = self.admitted(t, &compiled, &nodes, tasks.is_some(), i)? {
             return Ok(Err(f));
         }
+        ph.mark("admitted");
         // Routing may move the turn (25e): only the compilation the call
         // uses is persisted (`route_step`).
         if compiled.new_compilation && !t.route.defer_persist {
             Self::persist_compilation(t.tc.store, &compiled, session, t.tc.turn_id)?;
         }
+        ph.mark("persist");
+        ph.log(&nodes, "");
         let c1 = t.trace.now_us();
         let mut summary =
             Self::compiled_summary(t, &compiled, spec, (&nodes, read_before, i), tasks);

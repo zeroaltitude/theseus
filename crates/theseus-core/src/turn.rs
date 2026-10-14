@@ -192,6 +192,8 @@ pub struct TurnRunner {
     /// cold rewrites decided (theseus-ezeg).
     pub keep_warm: crate::keep_warm::KeepWarm,
     pub stubs: crate::compiler::stubs::InForce,
+    /// Each session's render, kept across turns (theseus-0l3g).
+    pub kept: Arc<crate::compiler::kept::Kept>,
     /// The self budget's account (theseus-pw1q.3).
     pub self_budget: crate::rsi::budget::Budget,
 }

@@ -103,6 +103,7 @@ fn run(spec: &RequestSpec) -> Compiled {
         signals: None,
         assembled: None,
         situation: &crate::compiler::situation::Situation::ConversationStart,
+        kept: None,
     })
 }
 
