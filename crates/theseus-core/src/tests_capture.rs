@@ -489,3 +489,42 @@ async fn an_answer_from_a_shared_place_is_refused() {
     assert_eq!(list(&r.core).await.asks.len(), 1);
     assert!(captured(&r.core).is_empty());
 }
+
+/// What capture did reaches the session's watchers as `standing.noticed`, so
+/// the terminal (`theseus watch`, the TUI) shows the notice and its undo, or
+/// the ask and its answers.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_notice_and_the_ask_reach_the_sessions_watchers() {
+    let jev = FakeJev::start().unwrap();
+    hears(&jev, "preference", 0.93, ("everywhere", 0.9));
+    let r = rig_capture(&jev, 2);
+    let rec = crate::session::SessionRecord::new(theseus_protocol::SessionKind::Conversation, None);
+    r.core.store.put_session(&rec.session_id, &rec).unwrap();
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    r.core.bus.watch(&rec.session_id, "watcher", tx);
+    ask(&r.core, Some(&rec.session_id), "no tables with me").await;
+    until("the record", || captured(&r.core).len() == 1).await;
+    hears(&jev, "order", 0.95, ("everywhere", 0.9));
+    ask(&r.core, Some(&rec.session_id), "never push to main").await;
+    until("the ask", || !rows(&r.core, "standing.asked").is_empty()).await;
+    let mut got: Vec<theseus_protocol::StandingNoticed> = vec![];
+    while let Ok(m) = rx.try_recv() {
+        if let theseus_protocol::Message::Notification(n) = m {
+            if n.method == theseus_protocol::notify::STANDING_NOTICED {
+                got.push(serde_json::from_value(n.params).unwrap());
+            }
+        }
+    }
+    assert_eq!(got.len(), 2, "{got:?}");
+    assert_eq!(
+        (got[0].what.as_str(), got[1].what.as_str()),
+        ("kept", "asked")
+    );
+    assert_eq!(got[0].session_id, rec.session_id);
+    assert!(got[0]
+        .line
+        .starts_with("📌 Kept as a standing preference everywhere (terminal)"));
+    assert_eq!(got[0].id, captured(&r.core)[0].id);
+    assert!(got[0].lines()[1].starts_with("Undo: theseus standing revoke std_"));
+    assert!(got[1].lines()[1].contains("theseus standing answer ask_"));
+}

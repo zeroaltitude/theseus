@@ -239,3 +239,58 @@ pub struct StandingChanged {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ended: Option<String>,
 }
+
+/// `standing.noticed` (theseus-slvl.5): what capture did with the owner's
+/// words, told to the session's watchers as it happens: a record kept (with
+/// its undo) or a question waiting. The CLI and the TUI print its lines; the
+/// cockpit's narrative carries the same sentence.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct StandingNoticed {
+    pub session_id: String,
+    /// `kept` (a record, with its undo) or `asked` (a question for the owner).
+    pub what: String,
+    /// The record's id (`kept`) or the ask's (`asked`).
+    pub id: String,
+    /// The notice, as one line: `📌 Kept as a standing preference …`.
+    pub line: String,
+}
+
+impl StandingNoticed {
+    /// The notice and what to do about it: the undo of a kept record, the
+    /// answers to an ask.
+    pub fn lines(&self) -> Vec<String> {
+        let how = match self.what.as_str() {
+            "kept" => format!("Undo: theseus standing revoke {}", self.id),
+            _ => format!(
+                "Answer: theseus standing answer {} keep|everywhere|not",
+                self.id
+            ),
+        };
+        vec![self.line.clone(), how]
+    }
+}
+
+#[cfg(test)]
+mod noticed_tests {
+    use super::*;
+
+    /// A notice's second line is its undo, or the answers to its ask.
+    #[test]
+    fn a_notice_says_its_undo_and_an_ask_its_answers() {
+        let n = |what: &str, id: &str| StandingNoticed {
+            session_id: "ses_1".into(),
+            what: what.into(),
+            id: id.into(),
+            line: "📌 Kept as a standing preference everywhere (terminal): no tables".into(),
+        };
+        assert_eq!(
+            n("kept", "std_0a1b2c3d").lines()[1],
+            "Undo: theseus standing revoke std_0a1b2c3d"
+        );
+        assert_eq!(
+            n("asked", "ask_0a1b2c3d").lines()[1],
+            "Answer: theseus standing answer ask_0a1b2c3d keep|everywhere|not"
+        );
+    }
+}

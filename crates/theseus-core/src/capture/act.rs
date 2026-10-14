@@ -200,6 +200,7 @@ impl Core {
             via: c.surface,
         };
         let captured = fact::capture::StandingCaptured {
+            session: &m.session,
             record: &rec.id,
             kind,
             scope: &c.at,
@@ -249,6 +250,7 @@ impl Core {
         };
         let question = ask_line(kind, &c.at, why, &c.line);
         let f = fact::capture::StandingAsked {
+            session: &m.session,
             ask: &ask.id,
             kind,
             scope: &c.at,
@@ -302,6 +304,7 @@ impl Core {
             Say::None => {}
             Say::Kept(r, judgment, confidence, line) => {
                 rec.announce(&fact::capture::StandingCaptured {
+                    session,
                     record: &r.id,
                     kind: r.kind,
                     scope: &r.scope,
@@ -314,6 +317,7 @@ impl Core {
             }
             Say::Asked(a, judgment, confidence, line) => {
                 rec.announce(&fact::capture::StandingAsked {
+                    session,
                     ask: &a.id,
                     kind: a.kind,
                     scope: &a.scope,

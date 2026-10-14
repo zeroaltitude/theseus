@@ -452,6 +452,7 @@ export type * from './StandingInfo';
 export type * from './StandingKind';
 export type * from './StandingListParams';
 export type * from './StandingListResult';
+export type * from './StandingNoticed';
 export type * from './StandingRecord';
 export type * from './StandingRevokeParams';
 export type * from './StandingScope';

@@ -162,6 +162,13 @@ pub struct Show {
     pub turns: bool,
 }
 
+/// A capture's notice and its undo, or its ask and the answers (theseus-slvl.5).
+fn standing_noticed(out: &mut Vec<Line>, n: &theseus_protocol::StandingNoticed) {
+    for (i, l) in n.lines().iter().enumerate() {
+        push(out, if i == 0 { Tag::Ask } else { Tag::Dim }, l);
+    }
+}
+
 /// What one of a session's events shows, as lines: none for one it does not
 /// show. A `Reply` or `Thinking` line is a piece of its stream, as it came:
 /// it may hold several lines, or end inside one, and the next piece goes on
@@ -267,6 +274,8 @@ pub fn event(e: &Event, show: Show) -> Vec<Line> {
         // A notified call's score, after its notice (M5 step 24).
         Event::JudgeScored(j) => push(&mut out, Tag::Warn, &judge::scored_line(j)),
         Event::JudgeNoticed(n) => push(&mut out, Tag::Warn, &judge::noticed_line(n)),
+        // What capture did with the owner's words (theseus-slvl.5): the notice, and its undo or its answers.
+        Event::StandingNoticed(n) => standing_noticed(&mut out, n),
         // A reminder fired (theseus-8ux6x): its note, and its four answers.
         Event::WakeNoticed(n) => {
             for (i, l) in wakes::noticed_lines(n).iter().enumerate() {

@@ -100,8 +100,8 @@ pub use push::*;
 pub use sessions::{RetiredReason, SessionLink, SessionRetired, SessionState};
 pub use standing::{
     StandingAddParams, StandingAnswerParams, StandingAnswerResult, StandingAsk, StandingChanged,
-    StandingInfo, StandingKind, StandingListParams, StandingListResult, StandingRecord,
-    StandingRevokeParams, StandingScope,
+    StandingInfo, StandingKind, StandingListParams, StandingListResult, StandingNoticed,
+    StandingRecord, StandingRevokeParams, StandingScope,
 };
 pub use submit::{SessionOpenParams, TurnSubmitParams};
 pub use term::{TerminalInfo, TerminalLeft};
@@ -419,6 +419,8 @@ pub mod notify {
         TASK_CHANGED = "task.changed",
         /// A notice wake fired (theseus-8ux6x): a reminder, to every connection.
         WAKE_NOTICED = "wake.noticed",
+        /// What capture did with the owner's words (theseus-slvl.5): a record kept, or a question.
+        STANDING_NOTICED = "standing.noticed",
     }
 }
 

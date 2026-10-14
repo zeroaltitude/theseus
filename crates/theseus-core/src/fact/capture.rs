@@ -7,13 +7,14 @@
 
 use serde_json::{json, Value};
 use theseus_protocol::NarrativePart::Session;
-use theseus_protocol::{LedgerKind, StandingKind, StandingScope};
+use theseus_protocol::{Event, LedgerKind, StandingKind, StandingNoticed, StandingScope};
 
 use super::{Fact, Say};
 
 /// A record was kept from the owner's words (`standing.captured`): the
 /// notice, with its undo.
 pub struct StandingCaptured<'a> {
+    pub session: &'a str,
     pub record: &'a str,
     pub kind: StandingKind,
     pub scope: &'a StandingScope,
@@ -28,6 +29,16 @@ pub struct StandingCaptured<'a> {
 
 impl Fact for StandingCaptured<'_> {
     const KIND: Option<LedgerKind> = Some(LedgerKind::StandingCaptured);
+    const METHOD: Option<&'static str> = Some(theseus_protocol::notify::STANDING_NOTICED);
+
+    fn event(&self) -> Option<Event> {
+        Some(Event::StandingNoticed(StandingNoticed {
+            session_id: self.session.into(),
+            what: "kept".into(),
+            id: self.record.into(),
+            line: self.line.into(),
+        }))
+    }
 
     fn row(&self) -> Value {
         json!({"record": self.record, "kind": self.kind.name(), "scope": self.scope.words(),
@@ -43,6 +54,7 @@ impl Fact for StandingCaptured<'_> {
 /// A directive waits on the owner (`standing.asked`): unsure, an order, or a
 /// correction made twice.
 pub struct StandingAsked<'a> {
+    pub session: &'a str,
     pub ask: &'a str,
     pub kind: StandingKind,
     pub scope: &'a StandingScope,
@@ -55,6 +67,16 @@ pub struct StandingAsked<'a> {
 
 impl Fact for StandingAsked<'_> {
     const KIND: Option<LedgerKind> = Some(LedgerKind::StandingAsked);
+    const METHOD: Option<&'static str> = Some(theseus_protocol::notify::STANDING_NOTICED);
+
+    fn event(&self) -> Option<Event> {
+        Some(Event::StandingNoticed(StandingNoticed {
+            session_id: self.session.into(),
+            what: "asked".into(),
+            id: self.ask.into(),
+            line: self.line.into(),
+        }))
+    }
 
     fn row(&self) -> Value {
         json!({"ask": self.ask, "kind": self.kind.name(), "scope": self.scope.words(),
