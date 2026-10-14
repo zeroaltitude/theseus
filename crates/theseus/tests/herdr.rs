@@ -2,7 +2,7 @@
 //! the real binary against a scripted daemon and a fake herdr, whose socket
 //! records every NDJSON line it receives. These hold the mapping from attention
 //! to herdr's state, reports sent only on a change, `seq`, the release on every
-//! way out (the daemon's end, stdin's end, SIGTERM, Ctrl-C, a hangup), and
+//! way out (stdin's end, SIGTERM, Ctrl-C, a hangup; a lost daemon is no way out: the watch waits for it), and
 //! `--interactive`'s answers and messages.
 
 use std::io::{BufRead, BufReader, Write};
@@ -343,7 +343,9 @@ fn seqs_grow(got: &[Value]) {
 /// The reporter (design §2.10, §3.2 row 11a): each level as herdr's state, a
 /// report only when the state or message changes (an old view, the same view
 /// again, and a spend-only view change no state), the pane named after its
-/// first report, `seq` growing, and the release when the daemon closes.
+/// first report, `seq` growing, and the release when the watch is ended (the
+/// name is from when the daemon's close ended it; a lost daemon now only makes
+/// the watch wait, theseus-qb1es).
 #[test]
 #[expect(clippy::too_many_lines, reason = "shape budget: split it")]
 fn the_reporter_maps_reports_only_changes_and_releases_when_the_daemon_ends() {
@@ -420,7 +422,7 @@ fn the_reporter_maps_reports_only_changes_and_releases_when_the_daemon_ends() {
     );
     d.push("execution.changed", view(14, s, l, lbl, None, 0.42));
     herdr.wait_for("pane.report_agent", 4);
-    d.close();
+    w.signal(libc::SIGTERM);
     herdr.wait_for("pane.release_agent", 1);
     let (code, err) = w.finish();
     assert_eq!(code, 0, "{err}");
@@ -739,7 +741,7 @@ fn an_unlabelled_session_is_titled_once_it_has_a_title() {
     });
     d.push("execution.changed", turn(14, 3, "turn 3"));
     reported("turn 3");
-    d.close();
+    w.signal(libc::SIGTERM);
     let (code, err) = w.finish();
     assert_eq!(code, 0, "{err}");
     let asked = d
@@ -780,7 +782,7 @@ fn a_task_is_named_by_its_title_not_its_label() {
         .find(|r| r["method"] == "pane.report_metadata")
         .unwrap();
     assert_eq!(meta["params"]["title"], "Survey the north quay");
-    d.close();
+    w.signal(libc::SIGTERM);
     let (code, err) = w.finish();
     assert_eq!(code, 0, "{err}");
 }
