@@ -40,7 +40,13 @@
 
 mod digest;
 mod log;
+pub mod pr;
 mod switch;
+#[cfg(test)]
+mod tests_pr;
+#[cfg(test)]
+mod tests_tree;
+pub mod tree;
 
 use std::sync::{Mutex, PoisonError, RwLock};
 

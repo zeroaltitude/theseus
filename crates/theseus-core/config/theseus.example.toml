@@ -613,6 +613,10 @@ window_days = 7                         # the window the approvals are counted i
 # nothing loads until you ack its card. Inherits enforcement, so each proposal is
 # a notice
 # "extend.propose" = "notify"
+# a self branch (theseus-pw1q.8), only while [self] mode = "act" and only in a self
+# session: Theseus's own source changed in a tree of its own, gated, reported and
+# pushed to self/*. Inherits enforcement, so each call is a notice
+# "self.propose_change" = "notify"
 # AWS, when an [aws.accounts] table binds an account: aws.describe reads the
 # local catalog; the others call AWS, and [policy.aws] gives each call its
 # posture unless a line here sets the tool's
@@ -964,6 +968,10 @@ idle_unload_mins = 10.0                   # the model unloads after this long un
 # [self]
 # mode = "off"                            # "off" or "act"
 # digest = "weekly"                       # "weekly" or "off"
+# repo = "/home/me/projects/theseus"     # Theseus's own checkout, self branches cut from its
+#                                         # origin/main; unset: no self branches
+# remote = "origin"                       # where self/* branches are pushed, with the credential
+#                                         # that remote already has; unset: they stay local
 # [self.budget]                           # the self budget's lines (none yet: the self-budget step adds them)
 
 # ---------------------------------------------------------------- sandbox

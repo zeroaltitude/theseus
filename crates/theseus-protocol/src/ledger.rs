@@ -221,6 +221,7 @@ ledger_kinds! {
     SecretWithheld = "secret.withheld",
     SecretsFailed = "secrets.failed",
     SecretsResolved = "secrets.resolved",
+    SelfBranchBuilt = "self.branch.built",
     SelfHalted = "self.halted",
     SelfResumed = "self.resumed",
     ServerCrashed = "server.crashed",

@@ -10,6 +10,13 @@
 //!   or `"off"`.
 //! - `[self.budget]`: the self budget's lines, an empty table until the
 //!   self-budget row gives it `branch_usd` and `day_usd`.
+//! - `repo` (theseus-pw1q.8): Theseus's own source checkout, which self
+//!   branches are cut from (its `origin/main`). Unset, the default: no self
+//!   branches, and `self.propose_change` says so.
+//! - `remote` (theseus-pw1q.8): the remote `self/*` branches are pushed to,
+//!   with the credential git already has for it (none is read here). Unset,
+//!   the default: they stay in the repo. Choosing it is the owner's: a push
+//!   needs a credential, and choosing one is a permission change.
 
 use serde::{Deserialize, Deserializer, Serialize};
 pub use theseus_protocol::rsi::SelfMode;
@@ -24,6 +31,10 @@ pub struct SelfConfig {
     pub digest: SelfDigest,
     #[serde(default)]
     pub budget: SelfBudgetConfig,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repo: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub remote: Option<String>,
 }
 
 /// `[self] digest`.
@@ -125,5 +136,24 @@ mod tests {
         );
         assert!(e.contains("[self] digest must be"), "{e}");
         assert!(Config::from_toml("[self]\nbudget_usd = 1.0\n").is_err());
+    }
+
+    /// `[self] repo` and `remote` are unset by default (no self branches,
+    /// none pushed), the template names both, and each reads as written.
+    #[test]
+    fn the_self_repo_and_remote_are_unset_by_default() {
+        let none = Config::from_toml("").unwrap().self_improve;
+        assert_eq!((none.repo, none.remote), (None, None));
+        let t = Config::EXAMPLE_TOML;
+        assert!(
+            t.contains("\n# repo = \"") && t.contains("\n# remote = \"origin\""),
+            "the template names [self] repo and remote"
+        );
+        let cfg =
+            Config::from_toml("[self]\nmode = \"act\"\nrepo = \"/srv/ship\"\nremote = \"fleet\"\n")
+                .unwrap()
+                .self_improve;
+        assert_eq!(cfg.repo.as_deref(), Some("/srv/ship"));
+        assert_eq!(cfg.remote.as_deref(), Some("fleet"));
     }
 }

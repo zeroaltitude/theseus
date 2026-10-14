@@ -1,7 +1,7 @@
 //! Self-improvement's methods (theseus-pw1q.2, theseus-pw1q.4): `self.halt`
 //! (anyone's), `self.resume` (the owner's alone, from any place; the CLI
 //! sends a job's `THESEUS_SESSION` so the core refuses and ledgers it),
-//! `self.log` and `self.digest` (reads). The work is `crate::rsi`'s.
+//! `self.log`, `self.digest` and `self.branches` (theseus-pw1q.8; reads). The work is `crate::rsi`'s.
 
 use serde_json::Value;
 use theseus_protocol::rsi::{SelfHaltParams, SelfResumeParams};
@@ -12,11 +12,12 @@ use super::Core;
 use crate::approval::Refusal;
 
 /// The methods routed here.
-pub(super) const OWN: [&str; 4] = [
+pub(super) const OWN: [&str; 5] = [
     method::SELF_HALT,
     method::SELF_RESUME,
     method::SELF_LOG,
     method::SELF_DIGEST,
+    method::SELF_BRANCHES,
 ];
 
 impl Core {
@@ -37,6 +38,7 @@ impl Core {
                 self.self_resume(&p, &who).map_err(refused)
             }),
             method::SELF_LOG => route(params, |p| Ok(self.self_log(&p)?)),
+            method::SELF_BRANCHES => route(params, |p| Ok(self.self_branches(&p)?)),
             _ => route(params, |p| Ok(self.self_digest(&p)?)),
         }
     }

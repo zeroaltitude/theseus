@@ -813,6 +813,7 @@ impl Core {
             lsp.set_ledger(index_ledger(&core));
         }
         core.tools.extend.attach(&core.mcp);
+        core.tools.self_pr.attach(&core);
         core.tools.lookup.attach(&core);
         core.tools.jobs.attach(&core);
         core.runner.judge.attach(&core);

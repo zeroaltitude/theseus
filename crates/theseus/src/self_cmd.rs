@@ -16,6 +16,8 @@ use theseus_protocol::rsi::{
 
 use crate::cmd::output;
 
+mod branches;
+
 #[derive(Subcommand, Debug)]
 pub enum SelfCmd {
     /// What Theseus changed about itself, newest first: the self steps' rows and today's
@@ -38,6 +40,8 @@ pub enum SelfCmd {
     Resume,
     /// The week's digest: what Theseus changed about itself this week.
     Digest,
+    /// The self branches Theseus built: each one's tree, gate verdict and frozen report.
+    Branches,
 }
 
 /// `7d`, `12h`, `30m`, `2w` in milliseconds.
@@ -123,6 +127,7 @@ pub async fn run(conn: &mut Conn, json: bool, cmd: SelfCmd) -> Result<()> {
                 Ok(())
             })
         }
+        SelfCmd::Branches => branches::run(conn, json).await,
         SelfCmd::Digest => {
             let v = conn
                 .request(

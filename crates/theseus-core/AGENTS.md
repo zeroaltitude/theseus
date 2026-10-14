@@ -444,6 +444,21 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   (`post_self_digest_if_due`, kind `self_digest`, META `self.digest.posted`) only while `posts_digest()` (mode act,
   digest weekly): with the mode off it reads and writes nothing. Methods in `rpc/rsi.rs`, routed through
   `rpc_prefixed`. Tests: `rpc/tests_self.rs`.
+  **The branch builder** (theseus-pw1q.8, seam S6; `rsi/tree.rs`, `rsi/pr.rs`, `toolrun/self_pr.rs`, `fact/rsi_pr.rs`):
+  `rsi::tree` is the API self-join and auto-revert reuse: `open` (a worktree off `[self] repo`'s `origin/main` at
+  `<state>/self/trees/<slug>`, branch `self/<date>-<slug>`, build tree `<state>/self/target/<slug>`), `gate` (main's
+  `scripts/gate.sh` blob copied to `<state>/self/gates/` and run with `THESEUS_GATE_ROOT`, so the tree's own copy judges
+  nothing; nice 19 and `ionice -c 3`, `THESEUS_GATE_NO_BENCH=1`, no compiler wrapper, no `THESEUS_*`; main's
+  `scripts/may-build.sh` asked first when main has one), `push` (`refs/heads/self/*` only, never forced, after the
+  daemon's scrubber over every added line and message, and main's `scripts/scrub.sh` when there is one), `close`.
+  `self.propose_change { item, issue, why }` is registered only under `[self] mode = "act"`, runs only for an
+  execution whose principal is `"self"`, and asks `rsi::gate` between phases: the first call opens the tree (which
+  joins the workspace roots while `[self]` builds: `toolrun/guarded.rs`), the next commits, gates, writes the frozen
+  report (`<state>/self/reports/<branch, / as ->.md`, 0444, ending `<!-- REPORT COMPLETE -->`), pushes a green branch
+  when `[self] remote` is set and closes the tree. Each attempt is one `self.branch.built` row; a keel finding posts
+  a `self_keel` card to the owner's DM and marks the item (`<trees>/<slug>.keel`) so it is never retried around.
+  `self.branches` lists them (`theseus self branches`). Tests: `rsi/tests_tree.rs` (a throwaway repo and a stand-in
+  gate), `rsi/tests_pr.rs` (through the core).
 - **The index tender's supervisor**: `tender.rs` (row 51): it starts `theseus-index` 2 s after serving
   (`START_AFTER`, so a start's aftermath stays quiet), restarts it with backoff, takes over the one an exec kept
   at once, and asks it for health and `index.query`, each call bounded (health asks only a tender that runs, and

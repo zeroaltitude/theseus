@@ -1453,6 +1453,7 @@ impl Config {
                 .chain(crate::term::NAMES)
                 .chain(crate::lsp::NAMES)
                 .chain(crate::memory_lookup::NAMES)
+                .chain(crate::rsi::pr::NAMES)
         };
         for name in self.policy.tools.keys() {
             let known = match name.strip_prefix(crate::policy::MCP_PREFIX) {

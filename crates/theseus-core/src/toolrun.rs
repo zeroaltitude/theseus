@@ -42,6 +42,8 @@ mod batch;
 mod calls;
 pub mod fit;
 mod glide;
+mod guarded;
+use guarded::guarded_paths;
 pub(crate) mod handles;
 mod hands;
 mod job;
@@ -53,6 +55,7 @@ pub(crate) mod order;
 mod parallel;
 mod peek;
 mod resume;
+mod self_pr;
 pub(crate) mod session_dir;
 mod steps;
 mod waits;
@@ -385,6 +388,8 @@ pub struct ToolRuntime {
     pub lookup: crate::memory_lookup::Board,
     /// The job tools' core and the sessions' short job ids (theseus-n8gk).
     pub jobs: jobs_tools::Board,
+    /// `self.propose_change`'s core and trees (theseus-pw1q.8).
+    pub self_pr: Arc<crate::rsi::pr::Board>,
     /// The configured profiles, each what it runs on: a check's `profile`
     /// names one (M5 28a).
     pub profiles: BTreeMap<String, crate::session::TargetRef>,
@@ -520,6 +525,7 @@ impl ToolRuntime {
             judge: Default::default(),
             lookup: Default::default(),
             jobs: Default::default(),
+            self_pr: Arc::new(crate::rsi::pr::Board::new(tmp.join("state"))),
             extend: Arc::new(crate::extend::Extensions::new(
                 tmp.join("extensions"),
                 vec![],
@@ -1436,6 +1442,10 @@ impl ToolRuntime {
                     .await
             }
             // A proposed extension's trial waits for its server (M7 43a).
+            Backend::Harness if tool.name() == crate::rsi::pr::PROPOSE => {
+                self.run_self_pr(tc, correlation_id, tool.as_ref(), call)
+                    .await
+            }
             Backend::Harness if tool.name() == crate::extend::PROPOSE => {
                 self.run_extend(tc, correlation_id, tool.as_ref(), call)
                     .await
@@ -1515,6 +1525,7 @@ impl ToolRuntime {
             crate::wake_tools::MOVE => crate::wake_tools::move_to(tc, &call.input),
             // Run again after a restart: what the first run proposed.
             crate::extend::PROPOSE => crate::extend::proposed_by_call(tc, correlation_id),
+            crate::rsi::pr::PROPOSE => Err(crate::rsi::pr::INTERRUPTED.into()),
             name if crate::task_graph::tools::is_edit(name) => {
                 let how = (ran_at == Posture::Approve, self.leases.lease_ms());
                 crate::task_graph::tools::run(tc, name, &call.input, correlation_id, how)
@@ -2097,40 +2108,6 @@ fn unanswered(nodes: &[(u64, crate::stub::Stub)]) -> Option<(&Node, Vec<ToolUse>
 }
 
 /// The workspace's roots, the floor's paths, and the approve list's, from
-/// `cfg` with `state` the state dir in use: what the gate guards, and what
-/// no L1 view shows (M4 17b).
-fn guarded_paths(
-    cfg: &crate::Config,
-    state: &std::path::Path,
-) -> (Vec<PathBuf>, Vec<PathBuf>, Vec<PathBuf>) {
-    let t = &cfg.tools;
-    let canon = |p: &str| theseus_tools::paths::canonical_best_effort(&crate::config::expand(p));
-    // The workspace is what the config names: projects_dir first, then any
-    // more roots. Nothing is assumed about where an operator keeps projects.
-    let roots: Vec<PathBuf> = t
-        .projects_dir
-        .iter()
-        .chain(t.roots.iter())
-        .map(|r| canon(r))
-        .collect();
-    // The floor: Theseus's own state (its store, spool, and bindings file, in
-    // the state dir actually in use) and the 1Password CLI's credentials.
-    let canon_path = |p: PathBuf| theseus_tools::paths::canonical_best_effort(&p);
-    let mut floor_paths = vec![
-        canon_path(state.join("store")),
-        canon_path(state.join("spool")),
-        canon_path(cfg.discord.bindings_path(state)),
-        canon("~/.config/op"),
-    ];
-    // The token file the daemon was given, by flag or by environment, and
-    // the config note's last-known-good copy (theseus-2fo).
-    for f in cfg.op_token_file.iter().chain(&cfg.config_copy) {
-        floor_paths.push(canon_path(f.clone()));
-    }
-    let approve: Vec<PathBuf> = t.approve_paths.iter().map(|p| canon(p)).collect();
-    (roots, floor_paths, approve)
-}
-
 /// L1's state for `cfg`, with `state` the state dir in use, as the runtime
 /// builds it: `theseusd check` runs the self-test over the view a job gets
 /// (theseus-gyin).
@@ -2236,6 +2213,7 @@ pub fn build_runtime(
         r.register(Arc::new(crate::file_read::FileRead));
         // A read of memory the model calls (theseus-w9qv).
         r.register(Arc::new(crate::memory_lookup::MemoryLookup));
+        crate::rsi::pr::register(cfg, &mut r);
         r
     } else {
         Registry::new()
@@ -2280,6 +2258,7 @@ pub fn build_runtime(
     if let Some(a) = &aws {
         broker.set_aws(a.clone());
     }
+    let self_pr = Arc::new(crate::rsi::pr::Board::new(state.clone()));
     Ok(ToolRuntime {
         registry,
         policy: ToolPolicy {
@@ -2358,6 +2337,7 @@ pub fn build_runtime(
         judge: Default::default(),
         lookup: Default::default(),
         jobs: Default::default(),
+        self_pr,
         profiles: cfg
             .all_profiles()
             .iter()
