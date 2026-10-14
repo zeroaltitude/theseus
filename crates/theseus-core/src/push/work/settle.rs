@@ -28,7 +28,7 @@ pub(super) fn same_work(a: &WorkView, b: &WorkView) -> bool {
         && a.attention.label == b.attention.label
         && a.started_at_ms == b.started_at_ms
         && a.ended_at_ms == b.ended_at_ms
-        && a.doing == b.doing
+        && doing_shown(a) == doing_shown(b)
         && a.progress == b.progress
         && a.question == b.question
         && cost(a) == cost(b)
@@ -444,4 +444,11 @@ fn prunable(v: &WorkView) -> bool {
         WorkState::Failed => v.kind == WorkKind::Job,
         _ => false,
     }
+}
+
+/// What a surface shows of what a view is doing: the kind, the words and the
+/// turn, not the loop it is in or since when (those ride along with the next
+/// change, so a loop's end alone sends nothing).
+fn doing_shown(v: &WorkView) -> Option<(theseus_protocol::work::DoingKind, &str, u64)> {
+    v.doing.as_ref().map(|d| (d.what, d.label.as_str(), d.turn))
 }

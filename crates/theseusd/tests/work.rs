@@ -323,9 +323,76 @@ impl Watcher {
     }
 }
 
+/// `theseus status` counts what the board shows needs you and works, and
+/// `theseus work` draws the tree.
+fn cli_says_the_same(r: &Rig, held: &std::collections::BTreeMap<String, Value>, _corr: &str) {
+    if let Some(out) = r.cli(&["--json", "status"]) {
+        let status: Value = serde_json::from_slice(&out.stdout).unwrap();
+        let count = |level: &str| {
+            held.values()
+                .filter(|v| matches!(v["kind"].as_str(), Some("conversation" | "task")))
+                .filter(|v| v["attention"]["level"] == level)
+                .count() as u64
+        };
+        assert_eq!(
+            status["summary"]["needs_you"].as_u64(),
+            Some(count("needs_you")),
+            "{status}"
+        );
+        assert_eq!(
+            status["summary"]["working"].as_u64(),
+            Some(count("working")),
+            "{status}"
+        );
+        // And `theseus work` draws the tree.
+        let tree = r.cli(&["work"]).unwrap();
+        let text = String::from_utf8_lossy(&tree.stdout).into_owned();
+        assert!(text.contains("sleep 30"), "{text}");
+        assert!(text.contains("confirm fs.write"), "{text}");
+        assert!(text.contains("(1 need you"), "the rollup is drawn: {text}");
+        eprintln!("theseus work:\n{text}");
+    } else {
+        eprintln!("no theseus binary beside theseusd: the CLI half is skipped");
+    }
+}
+
+/// A fresh client's snapshot is what this one holds, by the position rule;
+/// and the watcher that goes is no longer counted.
+fn a_fresh_snapshot_and_the_watchers_end(r: &Rig, w: Watcher) {
+    // A fresh client's snapshot is what this one holds, by the position rule.
+    let again = r.call("work.watch", json!({"limit": 100})).unwrap();
+    let fresh: std::collections::BTreeMap<String, u64> = again["views"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| {
+            (
+                v["id"].as_str().unwrap().to_string(),
+                v["position"].as_u64().unwrap(),
+            )
+        })
+        .collect();
+    let held = w.held();
+    for (id, position) in &fresh {
+        assert!(
+            held.get(id)
+                .is_some_and(|v| v["position"].as_u64() >= Some(*position)),
+            "{id} at {position} is in what the watcher holds"
+        );
+    }
+
+    // The watcher goes: the count goes with it.
+    // The reader thread holds a copy of the socket: shut it down.
+    w._sock.shutdown(std::net::Shutdown::Both).unwrap();
+    drop(w);
+    r.wait("no watcher", || {
+        let h = r.call("health", Value::Null).ok()?;
+        (h["push"]["work_watchers"] == json!(0)).then_some(())
+    });
+}
+
 /// The board against a real daemon and the real CLI.
 #[test]
-#[expect(clippy::too_many_lines, reason = "shape budget: split it")]
 fn the_work_board_and_the_cli_say_one_thing() {
     let r = Rig::new();
     let _d = r.spawn();
@@ -392,35 +459,7 @@ fn the_work_board_and_the_cli_say_one_thing() {
         "a job is titled by its command: {titles:?}"
     );
 
-    // `theseus status` counts what the board shows needs you and works.
-    if let Some(out) = r.cli(&["--json", "status"]) {
-        let status: Value = serde_json::from_slice(&out.stdout).unwrap();
-        let count = |level: &str| {
-            held.values()
-                .filter(|v| matches!(v["kind"].as_str(), Some("conversation" | "task")))
-                .filter(|v| v["attention"]["level"] == level)
-                .count() as u64
-        };
-        assert_eq!(
-            status["summary"]["needs_you"].as_u64(),
-            Some(count("needs_you")),
-            "{status}"
-        );
-        assert_eq!(
-            status["summary"]["working"].as_u64(),
-            Some(count("working")),
-            "{status}"
-        );
-        // And `theseus work` draws the tree.
-        let tree = r.cli(&["work"]).unwrap();
-        let text = String::from_utf8_lossy(&tree.stdout).into_owned();
-        assert!(text.contains("sleep 30"), "{text}");
-        assert!(text.contains("confirm fs.write"), "{text}");
-        assert!(text.contains("(1 need you"), "the rollup is drawn: {text}");
-        eprintln!("theseus work:\n{text}");
-    } else {
-        eprintln!("no theseus binary beside theseusd: the CLI half is skipped");
-    }
+    cli_says_the_same(&r, &w.held(), &corr);
 
     // The answer ends the question; the events and the snapshot agree.
     r.call(
@@ -444,34 +483,5 @@ fn the_work_board_and_the_cli_say_one_thing() {
         w.notes("work.notice")
     );
 
-    // A fresh client's snapshot is what this one holds, by the position rule.
-    let again = r.call("work.watch", json!({"limit": 100})).unwrap();
-    let fresh: std::collections::BTreeMap<String, u64> = again["views"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|v| {
-            (
-                v["id"].as_str().unwrap().to_string(),
-                v["position"].as_u64().unwrap(),
-            )
-        })
-        .collect();
-    let held = w.held();
-    for (id, position) in &fresh {
-        assert!(
-            held.get(id)
-                .is_some_and(|v| v["position"].as_u64() >= Some(*position)),
-            "{id} at {position} is in what the watcher holds"
-        );
-    }
-
-    // The watcher goes: the count goes with it.
-    // The reader thread holds a copy of the socket: shut it down.
-    w._sock.shutdown(std::net::Shutdown::Both).unwrap();
-    drop(w);
-    r.wait("no watcher", || {
-        let h = r.call("health", Value::Null).ok()?;
-        (h["push"]["work_watchers"] == json!(0)).then_some(())
-    });
+    a_fresh_snapshot_and_the_watchers_end(&r, w);
 }

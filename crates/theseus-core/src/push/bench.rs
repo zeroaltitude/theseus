@@ -27,6 +27,37 @@ use crate::store::Store;
 use crate::turn::TurnRequest;
 use crate::{Config, Core};
 
+/// Frames recorded from real turns; the stream repeats them, each time a
+/// later stretch of the log (every position moved up past the last), until
+/// it is as long as asked. A run of real turns is slow and its shapes repeat.
+const RECORDED: usize = 600;
+
+/// `recorded` again and again, positions moved up each time, to `frames`.
+fn repeat(recorded: Vec<Frame>, frames: usize) -> Vec<Frame> {
+    let span = recorded.iter().map(|f| f.position).max().unwrap_or(0) + 1;
+    let mut out = Vec::with_capacity(frames);
+    let mut cycle = 0;
+    while out.len() < frames {
+        for f in &recorded {
+            let up = cycle * span;
+            let mut f = f.clone();
+            f.position += up;
+            for r in &mut f.records {
+                r.1 += up;
+            }
+            for n in &mut f.nodes {
+                *n += up;
+            }
+            out.push(f);
+            if out.len() == frames {
+                break;
+            }
+        }
+        cycle += 1;
+    }
+    out
+}
+
 /// Conversations the stream is spread over.
 const SESSIONS: usize = 40;
 
@@ -129,12 +160,7 @@ async fn record(core: &Arc<Core>, frames: usize) -> Result<Vec<Frame>> {
 
 /// Replay `stream` into a push whose boards start empty, with `watchers`
 /// work watchers, timing each frame.
-fn replay(
-    core: &Arc<Core>,
-    rt: &tokio::runtime::Handle,
-    stream: &[Frame],
-    watchers: usize,
-) -> Row {
+fn replay(core: &Arc<Core>, rt: &tokio::runtime::Handle, stream: &[Frame], watchers: usize) -> Row {
     let push = Push::default();
     let mut drains = Vec::new();
     for i in 0..watchers {
@@ -161,7 +187,6 @@ fn replay(
     for d in drains {
         let _ = rt.block_on(d);
     }
-    eprintln!("DBG board {} us/frame, work {} us/frame", super::DBG_BOARD.swap(0, std::sync::atomic::Ordering::Relaxed) / 1000 / stream.len() as u64, super::DBG_WORK.swap(0, std::sync::atomic::Ordering::Relaxed) / 1000 / stream.len() as u64);
     Row {
         watchers,
         frames: stream.len(),
@@ -183,9 +208,9 @@ pub fn run(frames: usize, watchers: &[usize]) -> Result<Vec<Row>> {
         .enable_all()
         .build()?;
     let (core, stream) = rt.block_on(async {
-        let turns = frames / 3 + SESSIONS;
+        let turns = RECORDED / 3 + SESSIONS;
         let core = scratch(&dir, turns)?;
-        let stream = record(&core, frames).await?;
+        let stream = repeat(record(&core, RECORDED).await?, frames);
         anyhow::Ok((core, stream))
     })?;
     let out = rt.block_on(async {

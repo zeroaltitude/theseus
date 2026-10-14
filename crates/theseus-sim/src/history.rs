@@ -760,8 +760,9 @@ mod tests {
                 Some(175.0),
                 Some(202.0),
                 None,
-                Some(250.0),
-                Some(100.0)
+                Some(2.0),
+                Some(100.0),
+                Some(0.8)
             ],
             "each limit is the budget plus the margin; restore has none"
         );
@@ -770,8 +771,8 @@ mod tests {
             line,
             format!(
                 "2026-10-01T10:20:11-07:00,lane/fastgate ecfc574-dirty,3.25,\
-             23.8,33.5,57,23.8,35.3,57,41.6,51.9,104,,,,42.4,49.9,175,58.2,71,202,115.9,125.2,,1.2,1.9,250,,,,\
-             41.1,43.2,100,,,{},true,",
+             23.8,33.5,57,23.8,35.3,57,41.6,51.9,104,,,,42.4,49.9,175,58.2,71,202,115.9,125.2,,1.2,1.9,2,,,,\
+             41.1,43.2,100,,,,0.01,0.02,0.8{},true,",
                 // The surfaces phase's three cells, empty: a gate run has none
                 // (it runs on `--sessions`, theseus-7bee). The other benches' columns, empty: three cells for each.
                 // The last cell, the allowance, is empty: the run passed strictly.
