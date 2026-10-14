@@ -1,0 +1,70 @@
+=== 80 columns, plain ===
+A small library for an invented harbour: italic, also italic, both, struck, and$
+`inline code`.$
+$
+Marks that do not pair stay as written: snake_case_name, 2 * 3 * 4, an$
+**unclosed bold, a lone _ and a backslash \ or an escaped *star*.$
+$
+Nested: bold with italic inside, italic with bold inside, and `code with a `$
+backtick`.$
+$
+A hard break ends this line$
+and this one$
+and the next line follows.$
+=== 80 columns, ansi ===
+A \e[1msmall library\e[0m for an invented harbour: \e[3mitalic\e[0m, \e[3malso italic\e[0m, \e[1;3mboth\e[0m, \e[9mstruck\e[0m, and$
+\e[36minline code\e[0m.$
+$
+Marks that do not pair stay as written: snake_case_name, 2 * 3 * 4, an$
+**unclosed bold, a lone _ and a backslash \ or an escaped *star*.$
+$
+Nested: \e[1mbold with \e[0m\e[1;3mitalic\e[0m\e[1m inside\e[0m, \e[3mitalic with \e[0m\e[1;3mbold\e[0m\e[3m inside\e[0m, and \e[36mcode with a `\e[0m$
+\e[36mbacktick\e[0m.$
+$
+A hard break ends this line$
+and this one$
+and the next line follows.$
+=== 100 columns, plain ===
+A small library for an invented harbour: italic, also italic, both, struck, and `inline code`.$
+$
+Marks that do not pair stay as written: snake_case_name, 2 * 3 * 4, an **unclosed bold, a lone _ and$
+a backslash \ or an escaped *star*.$
+$
+Nested: bold with italic inside, italic with bold inside, and `code with a ` backtick`.$
+$
+A hard break ends this line$
+and this one$
+and the next line follows.$
+=== 100 columns, ansi ===
+A \e[1msmall library\e[0m for an invented harbour: \e[3mitalic\e[0m, \e[3malso italic\e[0m, \e[1;3mboth\e[0m, \e[9mstruck\e[0m, and \e[36minline code\e[0m.$
+$
+Marks that do not pair stay as written: snake_case_name, 2 * 3 * 4, an **unclosed bold, a lone _ and$
+a backslash \ or an escaped *star*.$
+$
+Nested: \e[1mbold with \e[0m\e[1;3mitalic\e[0m\e[1m inside\e[0m, \e[3mitalic with \e[0m\e[1;3mbold\e[0m\e[3m inside\e[0m, and \e[36mcode with a ` backtick\e[0m.$
+$
+A hard break ends this line$
+and this one$
+and the next line follows.$
+=== 120 columns, plain ===
+A small library for an invented harbour: italic, also italic, both, struck, and `inline code`.$
+$
+Marks that do not pair stay as written: snake_case_name, 2 * 3 * 4, an **unclosed bold, a lone _ and a backslash \ or an$
+escaped *star*.$
+$
+Nested: bold with italic inside, italic with bold inside, and `code with a ` backtick`.$
+$
+A hard break ends this line$
+and this one$
+and the next line follows.$
+=== 120 columns, ansi ===
+A \e[1msmall library\e[0m for an invented harbour: \e[3mitalic\e[0m, \e[3malso italic\e[0m, \e[1;3mboth\e[0m, \e[9mstruck\e[0m, and \e[36minline code\e[0m.$
+$
+Marks that do not pair stay as written: snake_case_name, 2 * 3 * 4, an **unclosed bold, a lone _ and a backslash \ or an$
+escaped *star*.$
+$
+Nested: \e[1mbold with \e[0m\e[1;3mitalic\e[0m\e[1m inside\e[0m, \e[3mitalic with \e[0m\e[1;3mbold\e[0m\e[3m inside\e[0m, and \e[36mcode with a ` backtick\e[0m.$
+$
+A hard break ends this line$
+and this one$
+and the next line follows.$

@@ -148,6 +148,11 @@ struct Cli {
     #[arg(long, global = true)]
     no_stream: bool,
 
+    /// Print a reply as the text it is, with no markdown drawn and no escape sequence, even on a
+    /// terminal (a pipe, or NO_COLOR set, already does).
+    #[arg(long, global = true)]
+    plain: bool,
+
     #[command(subcommand)]
     cmd: Cmd,
 }
@@ -1046,6 +1051,7 @@ async fn main() {
         libc::signal(libc::SIGPIPE, libc::SIG_DFL);
     }
     let cli = Cli::parse();
+    theseus_client::render::style::set_plain(cli.plain);
     let code = match run(cli).await {
         Ok(()) => 0,
         Err(e) => {

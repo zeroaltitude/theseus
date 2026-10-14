@@ -1,0 +1,108 @@
+=== 80 columns, plain ===
+> A quoted paragraph that is long enough to wrap onto a second line when the$
+> terminal is only eighty columns wide, with bold.$
+>$
+> Second paragraph.$
+>$
+> > A nested quote.$
+$
+> • a list in a quote$
+> • with two items$
+>$
+>   code in a quote$
+$
+────────────────────────────────────────$
+$
+Text before a rule.$
+$
+────────────────────────────────────────$
+=== 80 columns, ansi ===
+\e[90m▎ \e[0mA quoted paragraph that is long enough to wrap onto a second line when the$
+\e[90m▎ \e[0mterminal is only eighty columns wide, with \e[1mbold\e[0m.$
+\e[90m▎\e[0m$
+\e[90m▎ \e[0mSecond paragraph.$
+\e[90m▎\e[0m$
+\e[90m▎ \e[0m\e[90m▎ \e[0mA nested quote.$
+$
+\e[90m▎ \e[0m\e[90m• \e[0ma list in a quote$
+\e[90m▎ \e[0m\e[90m• \e[0mwith two items$
+\e[90m▎\e[0m$
+\e[90m▎ \e[0m  code in a quote$
+$
+\e[90m────────────────────────────────────────\e[0m$
+$
+Text before a rule.$
+$
+\e[90m────────────────────────────────────────\e[0m$
+=== 100 columns, plain ===
+> A quoted paragraph that is long enough to wrap onto a second line when the terminal is only eighty$
+> columns wide, with bold.$
+>$
+> Second paragraph.$
+>$
+> > A nested quote.$
+$
+> • a list in a quote$
+> • with two items$
+>$
+>   code in a quote$
+$
+────────────────────────────────────────$
+$
+Text before a rule.$
+$
+────────────────────────────────────────$
+=== 100 columns, ansi ===
+\e[90m▎ \e[0mA quoted paragraph that is long enough to wrap onto a second line when the terminal is only eighty$
+\e[90m▎ \e[0mcolumns wide, with \e[1mbold\e[0m.$
+\e[90m▎\e[0m$
+\e[90m▎ \e[0mSecond paragraph.$
+\e[90m▎\e[0m$
+\e[90m▎ \e[0m\e[90m▎ \e[0mA nested quote.$
+$
+\e[90m▎ \e[0m\e[90m• \e[0ma list in a quote$
+\e[90m▎ \e[0m\e[90m• \e[0mwith two items$
+\e[90m▎\e[0m$
+\e[90m▎ \e[0m  code in a quote$
+$
+\e[90m────────────────────────────────────────\e[0m$
+$
+Text before a rule.$
+$
+\e[90m────────────────────────────────────────\e[0m$
+=== 120 columns, plain ===
+> A quoted paragraph that is long enough to wrap onto a second line when the terminal is only eighty columns wide, with$
+> bold.$
+>$
+> Second paragraph.$
+>$
+> > A nested quote.$
+$
+> • a list in a quote$
+> • with two items$
+>$
+>   code in a quote$
+$
+────────────────────────────────────────$
+$
+Text before a rule.$
+$
+────────────────────────────────────────$
+=== 120 columns, ansi ===
+\e[90m▎ \e[0mA quoted paragraph that is long enough to wrap onto a second line when the terminal is only eighty columns wide, with$
+\e[90m▎ \e[0m\e[1mbold\e[0m.$
+\e[90m▎\e[0m$
+\e[90m▎ \e[0mSecond paragraph.$
+\e[90m▎\e[0m$
+\e[90m▎ \e[0m\e[90m▎ \e[0mA nested quote.$
+$
+\e[90m▎ \e[0m\e[90m• \e[0ma list in a quote$
+\e[90m▎ \e[0m\e[90m• \e[0mwith two items$
+\e[90m▎\e[0m$
+\e[90m▎ \e[0m  code in a quote$
+$
+\e[90m────────────────────────────────────────\e[0m$
+$
+Text before a rule.$
+$
+\e[90m────────────────────────────────────────\e[0m$

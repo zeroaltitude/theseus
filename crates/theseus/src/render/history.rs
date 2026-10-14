@@ -4,6 +4,8 @@
 
 use theseus_protocol::{short_id as short, NodeInfo, SessionHistoryResult};
 
+use super::md::Markdown;
+use super::style::{prose_width, Mode};
 use super::{push, Line, Tag};
 
 /// The page's cursors as the commands that read past them: older nodes
@@ -36,6 +38,36 @@ pub fn node_lines(n: &NodeInfo, full: bool) -> Vec<Line> {
     if let Some(first) = out.first_mut() {
         first.text = with_id(&first.text, &short(&n.node_id));
     }
+    out
+}
+
+/// A reply is drawn at most this many characters long unless `--full`.
+const CLIP: usize = 300;
+
+/// A node's lines for a terminal, each a finished string (theseus-rn7s): the
+/// same words as `node_lines`, except that a reply's text is drawn as
+/// markdown, indented as `--full` indents it. Short of `--full` a reply is
+/// cut at `CLIP` characters first. `cols` is the terminal's width.
+pub fn styled_node_lines(n: &NodeInfo, full: bool, cols: usize) -> Vec<String> {
+    if n.kind != "assistant_message" || n.text.trim().is_empty() {
+        return node_lines(n, full).into_iter().map(|l| l.text).collect();
+    }
+    let mut shown = n.clone();
+    if !full && shown.text.chars().count() > CLIP {
+        shown.text = format!("{}…", shown.text.chars().take(CLIP).collect::<String>());
+    }
+    let all = node_lines(&shown, true);
+    let body = shown.text.lines().count().max(1);
+    let mut out = vec![all[0].text.clone()];
+    for l in Markdown::render(&shown.text, prose_width(cols).saturating_sub(4), Mode::Ansi) {
+        out.push(format!("    {}", l.ansi()));
+    }
+    out.extend(
+        all.into_iter()
+            .skip(1 + body)
+            .filter(|l| full || l.tag != Tag::Thinking)
+            .map(|l| l.text),
+    );
     out
 }
 

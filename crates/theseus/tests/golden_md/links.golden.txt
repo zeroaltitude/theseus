@@ -1,0 +1,65 @@
+=== 80 columns, plain ===
+See the tide tables (https://tides.example/wenlow?day=2026-10-13) for the day,$
+or https://tides.example/feed for the feed.$
+$
+A bare address$
+https://tides.example/a/very/long/path/that/goes/on/and/on/and/on/and/on/and/on/$
+and/on/forever/and/ever.html, and one in (https://tides.example/parens).$
+$
+[image: chart of the day] (https://tides.example/chart.png) and a link whose$
+text is `styled` (https://tides.example/x).$
+$
+[No destination](missing and [broken(link.$
+=== 80 columns, ansi ===
+See \e]8;;https://tides.example/wenlow?day=2026-10-13\e\\e[4;34mthe tide tables\e[0m\e]8;;\e\ for the day, or \e]8;;https://tides.example/feed\e\\e[4;34mhttps://tides.example/feed\e[0m\e]8;;\e\ for the feed.$
+$
+A bare address$
+\e]8;;https://tides.example/a/very/long/path/that/goes/on/and/on/and/on/and/on/and/on/and/on/forever/and/ever.html\e\\e[4;34mhttps://tides.example/a/very/long/path/that/goes/on/and/on/and/on/and/on/and/on/\e[0m\e]8;;\e\$
+\e]8;;https://tides.example/a/very/long/path/that/goes/on/and/on/and/on/and/on/and/on/and/on/forever/and/ever.html\e\\e[4;34mand/on/forever/and/ever.html\e[0m\e]8;;\e\, and one in (\e]8;;https://tides.example/parens\e\\e[4;34mhttps://tides.example/parens\e[0m\e]8;;\e\).$
+$
+\e]8;;https://tides.example/chart.png\e\\e[4;34m[image: chart of the day]\e[0m\e]8;;\e\ and a \e]8;;https://tides.example/x\e\\e[4;34mlink whose \e[0m\e]8;;\e\\e]8;;https://tides.example/x\e\\e[1;4;34mtext\e[0m\e]8;;\e\\e]8;;https://tides.example/x\e\\e[4;34m is \e[0m\e]8;;\e\\e]8;;https://tides.example/x\e\\e[4;36mstyled\e[0m\e]8;;\e\.$
+$
+[No destination](missing and [broken(link.$
+=== 100 columns, plain ===
+See the tide tables (https://tides.example/wenlow?day=2026-10-13) for the day, or$
+https://tides.example/feed for the feed.$
+$
+A bare address$
+https://tides.example/a/very/long/path/that/goes/on/and/on/and/on/and/on/and/on/and/on/forever/and/e$
+ver.html, and one in (https://tides.example/parens).$
+$
+[image: chart of the day] (https://tides.example/chart.png) and a link whose text is `styled`$
+(https://tides.example/x).$
+$
+[No destination](missing and [broken(link.$
+=== 100 columns, ansi ===
+See \e]8;;https://tides.example/wenlow?day=2026-10-13\e\\e[4;34mthe tide tables\e[0m\e]8;;\e\ for the day, or \e]8;;https://tides.example/feed\e\\e[4;34mhttps://tides.example/feed\e[0m\e]8;;\e\ for the feed.$
+$
+A bare address$
+\e]8;;https://tides.example/a/very/long/path/that/goes/on/and/on/and/on/and/on/and/on/and/on/forever/and/ever.html\e\\e[4;34mhttps://tides.example/a/very/long/path/that/goes/on/and/on/and/on/and/on/and/on/and/on/forever/and/e\e[0m\e]8;;\e\$
+\e]8;;https://tides.example/a/very/long/path/that/goes/on/and/on/and/on/and/on/and/on/and/on/forever/and/ever.html\e\\e[4;34mver.html\e[0m\e]8;;\e\, and one in (\e]8;;https://tides.example/parens\e\\e[4;34mhttps://tides.example/parens\e[0m\e]8;;\e\).$
+$
+\e]8;;https://tides.example/chart.png\e\\e[4;34m[image: chart of the day]\e[0m\e]8;;\e\ and a \e]8;;https://tides.example/x\e\\e[4;34mlink whose \e[0m\e]8;;\e\\e]8;;https://tides.example/x\e\\e[1;4;34mtext\e[0m\e]8;;\e\\e]8;;https://tides.example/x\e\\e[4;34m is \e[0m\e]8;;\e\\e]8;;https://tides.example/x\e\\e[4;36mstyled\e[0m\e]8;;\e\.$
+$
+[No destination](missing and [broken(link.$
+=== 120 columns, plain ===
+See the tide tables (https://tides.example/wenlow?day=2026-10-13) for the day, or https://tides.example/feed for the$
+feed.$
+$
+A bare address$
+https://tides.example/a/very/long/path/that/goes/on/and/on/and/on/and/on/and/on/and/on/forever/and/ever.html, and one in$
+(https://tides.example/parens).$
+$
+[image: chart of the day] (https://tides.example/chart.png) and a link whose text is `styled` (https://tides.example/x).$
+$
+[No destination](missing and [broken(link.$
+=== 120 columns, ansi ===
+See \e]8;;https://tides.example/wenlow?day=2026-10-13\e\\e[4;34mthe tide tables\e[0m\e]8;;\e\ for the day, or \e]8;;https://tides.example/feed\e\\e[4;34mhttps://tides.example/feed\e[0m\e]8;;\e\ for the feed.$
+$
+A bare address$
+\e]8;;https://tides.example/a/very/long/path/that/goes/on/and/on/and/on/and/on/and/on/and/on/forever/and/ever.html\e\\e[4;34mhttps://tides.example/a/very/long/path/that/goes/on/and/on/and/on/and/on/and/on/and/on/forever/and/ever.html\e[0m\e]8;;\e\, and one in$
+(\e]8;;https://tides.example/parens\e\\e[4;34mhttps://tides.example/parens\e[0m\e]8;;\e\).$
+$
+\e]8;;https://tides.example/chart.png\e\\e[4;34m[image: chart of the day]\e[0m\e]8;;\e\ and a \e]8;;https://tides.example/x\e\\e[4;34mlink whose \e[0m\e]8;;\e\\e]8;;https://tides.example/x\e\\e[1;4;34mtext\e[0m\e]8;;\e\\e]8;;https://tides.example/x\e\\e[4;34m is \e[0m\e]8;;\e\\e]8;;https://tides.example/x\e\\e[4;36mstyled\e[0m\e]8;;\e\.$
+$
+[No destination](missing and [broken(link.$

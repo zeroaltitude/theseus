@@ -6497,6 +6497,7 @@ dependencies = [
  "tempfile",
  "theseus-protocol",
  "tokio",
+ "unicode-width",
 ]
 
 [[package]]
