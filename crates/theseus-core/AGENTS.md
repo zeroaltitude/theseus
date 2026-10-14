@@ -361,6 +361,14 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   joins that frame (`answer_after_cancel_with`), so a cancel of a running job is two frames, the cancel's and that one
   (theseusd's `tests/cancel_frames.rs`). A crash between them leaves the action `requested`, which every reader takes
   as `acknowledged`.
+- **Stop all** (theseus-cdcwr; `rpc/stop_all.rs`): `execution.stop { tasks: true }` is `/stop` and then the cancel of every task
+  under the conversation, children before the task they belong to (`Kernel::task_tree`, one task-index read per task, an
+  ended task walked through), each with `task.cancel`'s effect in its own frame, then one `execution.stopped_all` row
+  (`fact::driver::ExecutionStoppedAll`). The conversation's wakes stay; a sleeping deferred task is cancelled. It is an
+  owner's act (`judge_act(Act::Session)`, so a shared place is refused and ledgered); the CLI refuses `stop --all` in a job
+  (`refuse_stop_all_in_a_job`). A plain `/stop` is unchanged: its tasks run on. Depth is one today (`TaskDepth`), so the
+  nested walk is held by the kernel's `a_task_tree_lists_each_task_after_its_own_tasks`. Readers: `theseus stop --all`, the
+  TUI's `S`, Discord's `/stop all:true`. Tests: `rpc/tests_stop_all.rs`, theseusd's `tests/tasks.rs`.
 - **Terminals** (theseus-n88g.4): `term/`. `term.open`, `term.send`, `term.read`, `term.close`: a program on a pty
   (libc's `posix_openpt`; its child through `children::spawn`, `setsid`, the pty its controlling terminal), read as
   a screen by `term/vt.rs`, a small VT model whose module doc says what it leaves out. Async tools whose run needs

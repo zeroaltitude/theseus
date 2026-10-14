@@ -55,6 +55,7 @@ mod server;
 mod session_dir;
 mod sessions;
 mod standing;
+mod stop_all;
 mod threads;
 mod wake_owner;
 #[cfg(test)]
@@ -89,6 +90,8 @@ mod tests_self_backlog;
 mod tests_self_exams;
 #[cfg(test)]
 mod tests_session_states;
+#[cfg(test)]
+mod tests_stop_all;
 #[cfg(test)]
 mod tests_threads;
 #[cfg(test)]

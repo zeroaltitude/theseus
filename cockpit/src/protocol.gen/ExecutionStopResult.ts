@@ -27,4 +27,8 @@ turn_running: boolean,
  * What goes on, which `/cancel <id>` stops one by one: the session's
  * running tasks and its pending wakes.
  */
-tasks_running: number, wakes_pending: number, };
+tasks_running: number, wakes_pending: number, 
+/**
+ * With `tasks`: the tasks cancelled, depth first (theseus-cdcwr).
+ */
+cancelled?: Array<string>, };

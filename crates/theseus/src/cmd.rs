@@ -1337,8 +1337,14 @@ pub(crate) fn parse_duration_ms(s: &str) -> Result<u64> {
 }
 
 /// `theseus stop SESSION`: the session's execution, as Discord's `/stop`
-/// (W1).
-pub async fn stop(conn: &mut Conn, json: bool, session: String) -> Result<()> {
+/// (W1). With `all`, the conversation's tasks are cancelled too
+/// (theseus-cdcwr), which a job's shell may not do.
+pub async fn stop(conn: &mut Conn, json: bool, session: String, all: bool) -> Result<()> {
+    if all {
+        theseus_client::client::refuse_stop_all_in_a_job(
+            theseus_client::client::job_session().as_deref(),
+        )?;
+    }
     // The session's open execution: one per session (W1).
     resolve::long_enough(&session, "session")?;
     let execution_id = stop_target(&resolve::executions(conn).await?, &session)?;
@@ -1348,11 +1354,16 @@ pub async fn stop(conn: &mut Conn, json: bool, session: String) -> Result<()> {
             theseus_protocol::ExecutionStopParams {
                 execution_id,
                 author: None,
+                tasks: all,
+                discord: None,
             },
         )
         .await?;
     output(json, v, |r: theseus_protocol::ExecutionStopResult| {
         println!("{}", render::stop_line(&r));
+        if all && r.cancelled.is_empty() {
+            println!("no tasks under it to cancel");
+        }
         for line in render::verdict_lines("stopped", &r.verdicts) {
             println!("{line}");
         }
@@ -1999,6 +2010,7 @@ mod tests {
             tasks_running: 1,
             wakes_pending: 0,
             verdicts: vec![],
+            cancelled: vec![],
         };
         assert_eq!(
             stop_line(&r),

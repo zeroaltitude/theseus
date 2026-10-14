@@ -845,3 +845,51 @@ fn a_task_left_waiting_with_no_wake_is_queued_in_that_frame() {
         .unwrap();
     assert_eq!(e.state, ExecState::Waiting);
 }
+
+/// A task of a task, which `open_task` refuses (depth one) and a later row may allow: written as a record, as a
+/// store from such a build would hold it.
+fn grandchild(w: &World, of: &Execution, suffix: &str) -> Execution {
+    let mut g = of.clone();
+    g.id = format!("{}_{suffix}", of.id);
+    g.session_id = format!("{}_{suffix}", of.session_id);
+    g.parent = Some(of.id.clone());
+    g.created_at_ms = of.created_at_ms + 1;
+    w.kernel.commit(&[exec_record(&g).unwrap()]).unwrap();
+    g
+}
+
+/// The tree below a conversation (theseus-cdcwr): children before the task they belong to, siblings oldest first,
+/// an ended task walked through, and nothing of another conversation's.
+#[test]
+fn a_task_tree_lists_each_task_after_its_own_tasks() {
+    let w = world();
+    let (parent, g, first, _) = with_task(&w, 30_000);
+    let second = w
+        .kernel
+        .open_task(&g, &new_id("act"), 30_000, None, false, |_| Ok(vec![]))
+        .unwrap()
+        .task;
+    let deep = grandchild(&w, &first, "deep");
+    let deeper = grandchild(&w, &deep, "deeper");
+    let ids = |v: Vec<Execution>| v.into_iter().map(|e| e.id).collect::<Vec<_>>();
+    assert_eq!(
+        ids(w.kernel.task_tree(&parent.id).unwrap()),
+        [
+            deeper.id.clone(),
+            deep.id.clone(),
+            first.id.clone(),
+            second.id.clone()
+        ]
+    );
+    // An ended task in the middle is walked through.
+    w.kernel
+        .cancel_execution_with(&deep.id, "test", |_| Ok(vec![]))
+        .unwrap();
+    assert_eq!(
+        ids(w.kernel.task_tree(&parent.id).unwrap()),
+        [deeper.id, deep.id, first.id.clone(), second.id.clone()]
+    );
+    // A task's own tree is below it alone.
+    assert_eq!(ids(w.kernel.task_tree(&first.id).unwrap()).len(), 2);
+    assert!(w.kernel.task_tree(&second.id).unwrap().is_empty());
+}

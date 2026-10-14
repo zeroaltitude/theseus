@@ -544,7 +544,10 @@ fn commands() -> Vec<twilight_model::application::command::Command> {
         ),
     ]
     .into_iter()
-    .map(|(n, d)| CommandBuilder::new(n, d, CommandType::ChatInput).build())
+    .map(|(n, d)| match n {
+        "stop" => halt::stop_command(),
+        _ => CommandBuilder::new(n, d, CommandType::ChatInput).build(),
+    })
     .collect();
     cmds.push(
         CommandBuilder::new(
@@ -752,6 +755,8 @@ enum PlaceMsg {
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Control {
     Stop,
+    /// `/stop all:true`: also cancel the conversation's tasks (theseus-cdcwr), from where it was said.
+    StopAll(Option<DiscordOrigin>),
     New,
     Status,
     /// This place's tasks (DD7).
@@ -1374,7 +1379,7 @@ impl Shared {
             }
             Some(InteractionData::ApplicationCommand(c)) => {
                 let cmd = match c.name.as_str() {
-                    "stop" => Control::Stop,
+                    "stop" => halt::stop_control(&c.options, discord),
                     // `/cancel id:<id>` (DD8), a task's or a wake's; a
                     // client that still has DD7's `task:` option sends that.
                     "cancel" => Control::Cancel(c.options.iter().find_map(|o| {
@@ -2151,7 +2156,7 @@ impl Place {
                 self.start_fresh();
                 self.new_answer()
             }
-            Control::Stop => {
+            Control::Stop | Control::StopAll(_) => {
                 // W1: halt this session's work and keep the conversation. The
                 // messages queued for the next turn go too; the next message
                 // continues this session. Its tasks and wakes are untouched.
@@ -2178,14 +2183,11 @@ impl Place {
                     .rpc
                     .call::<_, theseus_protocol::ExecutionStopResult>(
                         theseus_protocol::method::EXECUTION_STOP,
-                        theseus_protocol::ExecutionStopParams {
-                            execution_id: eid,
-                            author: Some(by.to_string()),
-                        },
+                        halt::stop_params(eid, by, &cmd),
                     )
                     .await
                 {
-                    Ok(r) => stop_answer(&r),
+                    Ok(r) => halt::stop_words(&r),
                     Err(e) => format!("⚠️ Could not stop: {e}."),
                 }
             }
@@ -2472,6 +2474,7 @@ pub(crate) mod tests {
             turn_running: true,
             tasks_running: 0,
             wakes_pending: 0,
+            cancelled: vec![],
         };
         assert_eq!(
             stop_answer(&r),

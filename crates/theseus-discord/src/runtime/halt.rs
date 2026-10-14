@@ -9,8 +9,69 @@
 
 use theseus_protocol::rsi::{SelfHaltParams, SelfResumeParams, SelfSwitchResult};
 use theseus_protocol::DiscordOrigin;
+use twilight_model::application::command::Command;
+use twilight_model::application::interaction::application_command::{
+    CommandDataOption, CommandOptionValue,
+};
+use twilight_util::builder::command::{BooleanBuilder, CommandBuilder};
 
-use super::Place;
+use super::{Control, Place};
+
+/// `/stop`, and its one option (theseus-cdcwr): `all`, default false, also cancels the conversation's tasks.
+pub(super) fn stop_command() -> Command {
+    CommandBuilder::new(
+        "stop",
+        "Stop what Theseus is doing here: its turn, jobs, and queued messages. The conversation goes on",
+        twilight_model::application::command::CommandType::ChatInput,
+    )
+    .option(BooleanBuilder::new(
+        "all",
+        "Also cancel every task this conversation started (an owner's act); default no",
+    ))
+    .build()
+}
+
+/// The control a `/stop` is: `all:true` stops the tasks too, from the presser's place.
+pub(super) fn stop_control(
+    options: &[CommandDataOption],
+    origin: Option<DiscordOrigin>,
+) -> Control {
+    let all = options
+        .iter()
+        .any(|o| o.name == "all" && matches!(o.value, CommandOptionValue::Boolean(true)));
+    if all {
+        Control::StopAll(origin)
+    } else {
+        Control::Stop
+    }
+}
+
+/// `execution.stop`'s params for the control: a plain `/stop` sends what it always sent.
+pub(super) fn stop_params(
+    execution_id: String,
+    by: &str,
+    cmd: &Control,
+) -> theseus_protocol::ExecutionStopParams {
+    let (tasks, discord) = match cmd {
+        Control::StopAll(origin) => (true, origin.clone()),
+        _ => (false, None),
+    };
+    theseus_protocol::ExecutionStopParams {
+        execution_id,
+        author: Some(by.to_string()),
+        tasks,
+        discord,
+    }
+}
+
+/// What `/stop` answers: the plain answer, then the count of tasks a `/stop all:true` cancelled.
+pub(super) fn stop_words(r: &theseus_protocol::ExecutionStopResult) -> String {
+    let plain = super::stop_answer(r);
+    if r.cancelled.is_empty() {
+        return plain;
+    }
+    format!("{plain} {} task(s) cancelled with it.", r.cancelled.len())
+}
 
 /// The words a halt is: `Some(why)` when `text` begins `halt self`.
 pub(super) fn words(text: &str) -> Option<Option<String>> {
@@ -85,7 +146,82 @@ impl Place {
 
 #[cfg(test)]
 mod tests {
-    use super::{resume_words, words};
+    use super::{resume_words, stop_command, stop_control, stop_params, stop_words, words};
+    use crate::runtime::Control;
+    use theseus_protocol::DiscordOrigin;
+    use twilight_model::application::interaction::application_command::{
+        CommandDataOption, CommandOptionValue,
+    };
+
+    fn all(v: bool) -> Vec<CommandDataOption> {
+        vec![CommandDataOption {
+            name: "all".into(),
+            value: CommandOptionValue::Boolean(v),
+        }]
+    }
+
+    /// `/stop` has one optional boolean, `all`; only `all:true` reaches the tasks, and says where it was said
+    /// (theseus-cdcwr). The plain `/stop` sends what it always sent.
+    #[test]
+    fn stop_all_is_an_added_option_that_defaults_to_no() {
+        let cmd = stop_command();
+        assert_eq!(cmd.name, "stop");
+        assert_eq!(cmd.options.len(), 1);
+        assert_eq!(cmd.options[0].name, "all");
+        assert_ne!(cmd.options[0].required, Some(true));
+        let here = Some(DiscordOrigin {
+            user_id: "1".into(),
+            channel_id: "2".into(),
+            guild_id: None,
+        });
+        assert_eq!(stop_control(&[], here.clone()), Control::Stop);
+        assert_eq!(stop_control(&all(false), here.clone()), Control::Stop);
+        assert_eq!(
+            stop_control(&all(true), here.clone()),
+            Control::StopAll(here.clone())
+        );
+        let plain = stop_params("exe_1".into(), "discord:u", &Control::Stop);
+        assert!(!plain.tasks && plain.discord.is_none());
+        let bare = serde_json::to_value(&plain).unwrap();
+        assert_eq!(
+            bare,
+            serde_json::json!({"execution_id": "exe_1", "author": "discord:u"})
+        );
+        let more = stop_params("exe_1".into(), "discord:u", &Control::StopAll(here.clone()));
+        assert!(more.tasks);
+        assert_eq!(more.discord, here);
+    }
+
+    /// The answer says how many tasks went with the stop; a plain stop's answer is unchanged.
+    #[test]
+    fn the_stops_answer_counts_the_cancelled_tasks() {
+        let mut r = theseus_protocol::ExecutionStopResult {
+            execution: serde_json::from_value(serde_json::json!({
+                "execution_id": "exe_1", "session_id": "ses_1", "kind": "conversation",
+                "state": "waiting", "turns": 1, "interrupted": 0, "outstanding": 0,
+                "queued_results": 0,
+                "budget": {"limit_usd": 1.0, "spent_usd": 0.0, "reserved_usd": 0.0,
+                           "held_unknown_usd": 0.0, "available_usd": 1.0},
+                "created_at_ms": 0, "updated_at_ms": 0,
+            }))
+            .unwrap(),
+            stopped: true,
+            stopped_actions: vec![],
+            verdicts: vec![],
+            declined: vec![],
+            turn_running: false,
+            tasks_running: 0,
+            wakes_pending: 0,
+            cancelled: vec![],
+        };
+        let plain = stop_words(&r);
+        assert_eq!(plain, crate::runtime::stop_answer(&r));
+        r.cancelled = vec!["exe_a".into(), "exe_b".into(), "exe_c".into()];
+        assert_eq!(
+            stop_words(&r),
+            format!("{plain} 3 task(s) cancelled with it.")
+        );
+    }
 
     #[test]
     fn halt_self_is_the_first_two_words_and_the_rest_is_why() {
