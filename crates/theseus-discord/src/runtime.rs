@@ -76,12 +76,15 @@ mod prompt;
 mod publish;
 pub(crate) mod route;
 mod show;
+mod steer;
 mod succession;
 mod typing;
 #[cfg(test)]
 pub(crate) use succession::open_at_bind;
 #[cfg(test)]
 mod tests_held;
+#[cfg(test)]
+mod tests_steer;
 #[cfg(test)]
 mod tests_succession;
 #[cfg(test)]
@@ -725,6 +728,7 @@ enum PlaceMsg {
     Inbound(Inbound),
     Event(Box<CoreEvent>),
     SubmitDone(Result<(), CallError>),
+    Steered(Result<(), CallError>),
     Control {
         cmd: Control,
         by: String,
@@ -1951,7 +1955,9 @@ impl Place {
                     self.say(&reply, Some(m.message));
                     return;
                 }
-                if self.inflight {
+                if self.inflight && self.steers() {
+                    self.steer(m);
+                } else if self.inflight {
                     self.queued.push(m);
                 } else if self.ready().await {
                     self.submit(vec![m]);
@@ -2022,6 +2028,7 @@ impl Place {
                 }
                 self.next_after_turn().await;
             }
+            PlaceMsg::Steered(r) => self.steered_done(r),
             PlaceMsg::Voice(t) => self.voice_when_ready(t).await,
             PlaceMsg::Board => self.board(),
             PlaceMsg::Rebound(r) => self.rebound(*r),
@@ -2740,7 +2747,17 @@ pub(crate) mod tests {
         dir: &std::path::Path,
         script: Vec<theseus_core::provider::Scripted>,
     ) -> Arc<Core> {
+        core_edited(dir, script, |_| {})
+    }
+
+    /// `core_scripted`, with the config edited first.
+    pub(super) fn core_edited(
+        dir: &std::path::Path,
+        script: Vec<theseus_core::provider::Scripted>,
+        edit: impl FnOnce(&mut theseus_core::Config),
+    ) -> Arc<Core> {
         let mut cfg = theseus_core::Config::example();
+        edit(&mut cfg);
         cfg.server.state_dir = dir.to_string_lossy().into_owned();
         let work = dir.join("work");
         std::fs::create_dir_all(&work).unwrap();

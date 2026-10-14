@@ -53,6 +53,12 @@ Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
   2,000 characters (each section's top three and a count of the rest, never a second message). A place whose class is
   not private is told that an imported or another session's note was there, and shown none of its words. A read of
   the core: no frame, no ledger row (not even `discord.command`'s). Tests: `runtime/tests_why.rs`.
+- **A message sent while a turn runs** (theseus-qu1lc, `runtime/steer.rs`): with the core's `[kernel] steer_queued` on
+  (the default), a place whose turn is in flight sends the new message as a `turn.submit` at once instead of holding it
+  in `queued`. The core's running turn takes it in at its next loop (or, if that turn ends first, runs it as the next
+  turn), and the place's renderer shows the turn's events as it does; the place's `inflight` stays the turn that was
+  running, and the steered request's end (`PlaceMsg::Steered`) says only a failure. Off, the message waits in `queued`
+  and goes with the rest after the turn, as before. Tests: `runtime/tests_steer.rs`.
 - **A place's session** (`runtime/succession.rs`, theseus-emqx): a place resumes its stored session when it can take
   turns and is not retired; otherwise it starts fresh, and nothing is opened at the bind, at `/new`, or when its
   session can take no more turns: its next message opens one (`Place::ready`) through `Core::bind_place_to`, which
