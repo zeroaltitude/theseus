@@ -143,6 +143,8 @@ pub struct TurnCtx<'a> {
     /// requests' commitments block shows (theseus-lherl), set by the turn's
     /// read of its wakes and by each wake tool's frame.
     pub commitments: &'a crate::commitments::Pending,
+    /// The threads, as `thread.note` writes them (`thread_context`).
+    pub threads: &'a crate::threads::Threads,
 }
 
 impl TurnCtx<'_> {
@@ -1528,6 +1530,12 @@ impl ToolRuntime {
             crate::wake::AT => crate::wake::set(tc, &call.input, correlation_id),
             crate::wake_tools::CANCEL => crate::wake_tools::cancel(tc, &call.input),
             crate::wake_tools::MOVE => crate::wake_tools::move_to(tc, &call.input),
+            crate::thread_context::NOTE => {
+                crate::thread_context::note(tc, &call.input).map(|(done, records)| {
+                    edit.records.extend(records);
+                    done
+                })
+            }
             // Run again after a restart: what the first run proposed.
             crate::extend::PROPOSE => crate::extend::proposed_by_call(tc, correlation_id),
             crate::rsi::pr::PROPOSE => Err(crate::rsi::pr::INTERRUPTED.into()),
@@ -2202,6 +2210,7 @@ pub fn build_runtime(
         r.register(Arc::new(crate::wake::WakeAt));
         r.register(Arc::new(crate::wake_tools::WakeCancel));
         r.register(Arc::new(crate::wake_tools::WakeMove));
+        r.register(Arc::new(crate::thread_context::ThreadNote));
         r.register(Arc::new(crate::extend::Propose));
         r.register(Arc::new(crate::glide::ChannelPost));
         r.register(Arc::new(crate::glide::ChannelRead));

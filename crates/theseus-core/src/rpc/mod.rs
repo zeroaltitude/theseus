@@ -86,6 +86,8 @@ mod tests_self_backlog;
 #[cfg(test)]
 mod tests_session_states;
 #[cfg(test)]
+mod tests_thread_context;
+#[cfg(test)]
 mod tests_threads;
 #[cfg(test)]
 mod tests_typing;
@@ -743,6 +745,7 @@ impl Core {
             ontology: Default::default(),
             standing: Default::default(),
             threads: Default::default(),
+            cards: Default::default(),
             run_compiles: Default::default(),
             failed_turns: Default::default(),
             spend_marks: Default::default(),

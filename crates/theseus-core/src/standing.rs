@@ -6,8 +6,8 @@
 //!   `protocol::StandingRecord`. Append-only: a revoke, or the edit of one, is
 //!   a new record whose `ends` names the one it ends. The set is read from the
 //!   store once and kept in memory (`Board`), so a compile reads memory.
-//! - **The block** (`Block::of`) is the first thing in the system's second
-//!   block, before the context files: no block of its own, so it takes no
+//! - **The block** (`Block::of`) is the last thing in the system's first
+//!   layer, the header's (theseus-h4a7): no block of its own, so it takes no
 //!   cache breakpoint (the layout uses 3 of the provider's 4). The header
 //!   block, which every session shares, never carries it. It sits in the
 //!   system, outside the ring, so no compaction drops it. A change of the
@@ -174,15 +174,17 @@ impl Block {
         })
     }
 
-    /// Put the block first in the spec's context block.
+    /// Put the block in the spec's header layer, after the header's own text
+    /// (the first layer of `compiler::layers`: a place class's sessions share
+    /// it).
     pub fn apply(&self, spec: &mut RequestSpec) {
         #[cfg(test)]
         if DROP_THE_BLOCK.load(std::sync::atomic::Ordering::SeqCst) {
             return;
         }
-        spec.context_text = match spec.context_text.is_empty() {
+        spec.system_text = match spec.system_text.is_empty() {
             true => self.text.clone(),
-            false => format!("{}\n\n{}", self.text, spec.context_text),
+            false => format!("{}\n\n{}", spec.system_text, self.text),
         };
     }
 }

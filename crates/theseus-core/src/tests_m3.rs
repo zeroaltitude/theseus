@@ -4303,7 +4303,7 @@ async fn system_then_persona_files_compile_in_that_order_each_labeled_by_its_lev
         format!("# Context file (persona theseus): {own}\n\nEnd every answer with 'Ithaca'."),
     );
     assert!(
-        system.ends_with(&format!("{}\n\n{a}\n\n{b}", r.core.tools.system_note())),
+        system.ends_with(&format!("{}\n\n{b}\n\n{a}", r.core.tools.system_note())),
         "{system}"
     );
     let comps = r.core.store.session_compilations(&res.session_id).unwrap();

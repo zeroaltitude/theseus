@@ -105,6 +105,23 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     harness puts in a request, and that a recalled note is no part of the person's message; theseus-fpm2), the
     precedence line (`compiler::situation::PRECEDENCE`, 35a), the tools note, and the profile's text, all static.
     Harness facts every request needs go there, never into a session's messages.
+  - **The layered request and the thread's context** (theseus-h4a7; `compiler/layers.rs`, `compiler/card.rs`,
+    `compiler/cold.rs`, `thread_context.rs`): the system is three layers with a breakpoint each, then the messages'
+    automatic one, the provider's four: `header` (the header text and the standing block), `persona` (the persona in
+    play's files), `project` (the system-level files, then the guidance of the session's categories, a thread's
+    `topics` among them: `Walk::with_topics`), and an unmarked `session` block (its directory). Nothing per request
+    goes inside the three, so two sessions on a profile and a place class send them byte for byte; `layers.rs` is the
+    one place they are rendered (the prefix library, row T13, builds on it), and `context.compiled`'s `cache.layers`
+    holds each one's digest (the stored manifest is unchanged: no store format). In a thread's session the thread's
+    card heads the first message (`card.rs`), a snapshot kept as the META record `thread.card.<compilation id>` in the
+    compilation's own frame, so every append repeats its bytes and a recompile takes the card as it stands.
+    `thread.note {line}` (threaded sessions only; the tool is left out of every other spec) rides the call's frame
+    with the thread's next record. A thread whose next message finds its cache window passed (`stubs::cold`, the same
+    check) is recompiled small at the turn's first loop (`cold.rs`, trigger `cold_resume`): the fresh card, the
+    summary, the newest `[threads] resume_keep_turns` turns, results over `clearing::MIN_CHARS` stubbed, a turn dropped
+    only when that is not enough (a ring, summarized as any ring is), to `[threads] working_tokens`. Unthreaded
+    sessions and warm threads are never touched by it. Tests: `compiler/tests_layers.rs`, `tests_cold.rs`,
+    `rpc/tests_thread_context.rs`.
   - **Situations** (M6 35a, theseus-3nk.1): `compiler/situation.rs`. What a compile is for: the step tells it from
     what it holds (`TurnRunner::situation_of`, `turn/situation_step.rs`: no compilation yet is a conversation's or a
     task's start; a session's first compile in this run, `RunCompiles` in memory, with nothing its turn brought is a

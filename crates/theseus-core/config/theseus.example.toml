@@ -919,6 +919,13 @@ idle_unload_mins = 10.0                   # the model unloads after this long un
 # [threads]
 # enabled = true                          # false: no thread is made or addressed (the records stay)
 # max_live = 50                           # active and paused threads at once
+# A thread's next message after its cache window (the profile's cache_ttl since
+# its last call) finds the provider's cache gone, so the request is rewritten
+# whole anyway: the rewrite is made small. The thread's fresh card, the
+# compaction summary and the newest resume_keep_turns turns; a big old result
+# is a stub that says how to read it again.
+# resume_keep_turns = 6                   # the newest turns a cold resume keeps whole
+# working_tokens = 60000                  # what a thread's request stays within after a cold resume (its newest turn aside)
 
 # ---------------------------------------------------------------- people
 # People proposed from text (theseus-wy7y): a cheap profile reads a session's

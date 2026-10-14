@@ -1635,7 +1635,7 @@ impl Config {
     }
 
     /// The context files a session gets while `persona` is in play, in the
-    /// order its system block carries them: the system level, then the
+    /// order its system carries them: the system level, then the
     /// persona's.
     pub fn context_paths(&self, persona: Option<&str>) -> Vec<crate::context_files::ContextPath> {
         use crate::context_files::ContextPath;

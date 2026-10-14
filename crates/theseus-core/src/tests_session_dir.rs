@@ -215,8 +215,8 @@ async fn two_sessions_share_the_header_and_differ_only_in_block_3() {
         format!("Directory: {}", b.display())
     );
     assert!(
-        one.system[n - 1].get("cache_control").is_some(),
-        "block 3 takes its own breakpoint: {:?}",
+        one.system[n - 1].get("cache_control").is_none(),
+        "the session's block takes no breakpoint of its own (the layers use three): {:?}",
         one.system[n - 1]
     );
     for req in [one, two] {

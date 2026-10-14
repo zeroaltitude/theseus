@@ -32,6 +32,9 @@ impl TurnRunner {
         // A big old attachment is a stub at a cold rewrite, and in the warm
         // window after it (theseus-ezeg): decided at the turn's first compile.
         let cold = (i == 0).then(|| self.cold_now(sid, session, spec));
+        // A thread resumed cold is rewritten small (`thread_context`).
+        let cold_spec = self.cold_spec(spec, cold);
+        let spec = cold_spec.as_ref().unwrap_or(spec);
         let (nodes, stubbed) = self.stubbed_view(sid, &spec.model, &session.not_shown, nodes, cold);
         let read_before = crate::stub::read(&nodes);
         let assembled = t.recall.assembled_id().map(str::to_string);
@@ -194,6 +197,12 @@ impl TurnRunner {
                 ttl: spec.cache_ttl.as_str().into(),
                 conversation_ttl: spec.conversation_ttl.min(spec.cache_ttl).as_str().into(),
                 stubbed: Vec::new(),
+                layers: crate::compiler::layers::digests_of(
+                    &compiled.cache,
+                    &compiled.request.system,
+                )
+                .into_iter()
+                .collect(),
             },
             // The class of the place it speaks in, and the context files
             // that class left out (the place rule).

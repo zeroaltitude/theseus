@@ -728,6 +728,7 @@ impl TurnRunner {
         s.session_text = self.session_block(t.tc.dir, t.tc.place());
         s.walk = self.walk(t.tc.session_id, t.tc.class);
         self.stand(t, &mut s);
+        self.thread_spec(&mut s, t.tc.session_id, session.compilation_id.as_deref());
         *spec = s;
         if d.switch {
             session.last_target = Some(TargetRef::from(target));
@@ -777,11 +778,10 @@ impl TurnRunner {
         let mut detour = spec.clone();
         // The owner's standing records ride a detour too (theseus-a7vi): they
         // hold in every prompt of their scope, a cheap turn's included.
-        detour.context_text = t
-            .standing
-            .as_ref()
-            .map(|b| b.text.clone())
-            .unwrap_or_default();
+        // (The standing block is in the header layer already.)
+        detour.context_text = String::new();
+        detour.persona_text = String::new();
+        (detour.card, detour.cold) = (None, None);
         detour.context_files = Vec::new();
         detour.walk = None;
         let compiled = compile(CompileInput {

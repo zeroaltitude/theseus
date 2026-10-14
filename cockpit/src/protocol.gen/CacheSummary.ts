@@ -6,7 +6,9 @@ import type { StubbedFile } from "./StubbedFile";
  */
 export type CacheSummary = { 
 /**
- * The blocks marked, in order: `header`, `context`, `conversation`.
+ * The blocks marked, in order: `header`, `persona`, `project`,
+ * `conversation` (a request from before the layers: `header`,
+ * `context`, `conversation`).
  */
 breakpoints: Array<string>, 
 /**
@@ -22,4 +24,11 @@ conversation_ttl: string,
  * session's last cold rewrite stubbed them, and every request in the
  * warm window after it does too. Empty, and absent, for most.
  */
-stubbed?: Array<StubbedFile>, };
+stubbed?: Array<StubbedFile>, 
+/**
+ * Each system layer's digest by its name (`header`, `persona`,
+ * `project`, `session`; theseus-h4a7): two requests that share a layer
+ * share its digest, and so its cache entry. Absent for a request from
+ * before it.
+ */
+layers?: { [key in string]: string }, };

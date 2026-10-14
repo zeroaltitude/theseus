@@ -8,7 +8,7 @@ use theseus_protocol::Usage;
 use super::*;
 use crate::node::{Body, ResultStatus};
 
-fn spec() -> RequestSpec {
+pub(super) fn spec() -> RequestSpec {
     RequestSpec {
         profile: "p".into(),
         provider: "anthropic".into(),
@@ -17,6 +17,9 @@ fn spec() -> RequestSpec {
         system_text: "S".into(),
         context_text: String::new(),
         session_text: String::new(),
+        persona_text: String::new(),
+        card: None,
+        cold: None,
         context_files: vec![],
         persona: None,
         tools: vec![
@@ -37,7 +40,7 @@ fn spec() -> RequestSpec {
     }
 }
 
-fn answer(blocks: Vec<Value>) -> Node {
+pub(super) fn answer(blocks: Vec<Value>) -> Node {
     Node::assistant(
         "s",
         "t",
@@ -59,11 +62,11 @@ fn answer(blocks: Vec<Value>) -> Node {
     )
 }
 
-fn call(id: &str, path: &str) -> Value {
+pub(super) fn call(id: &str, path: &str) -> Value {
     json!({"type": "tool_use", "id": id, "name": "fs_read", "input": {"path": path, "offset": 1, "limit": 400}})
 }
 
-fn result(id: &str, content: &str) -> Node {
+pub(super) fn result(id: &str, content: &str) -> Node {
     Node::tool_result(
         "s",
         None,
@@ -87,11 +90,11 @@ fn result(id: &str, content: &str) -> Node {
     )
 }
 
-const INSTRUCTION: &str = "fix the build of the lighthouse crate until it is green";
+pub(super) const INSTRUCTION: &str = "fix the build of the lighthouse crate until it is green";
 
 /// One instruction, then `n` exchanges, each a call and its result of
 /// `size(k)` characters: `(position, node)` from 1.
-fn one_turn(n: usize, size: impl Fn(usize) -> usize) -> Vec<(u64, Node)> {
+pub(super) fn one_turn(n: usize, size: impl Fn(usize) -> usize) -> Vec<(u64, Node)> {
     let mut nodes = vec![Node::user("s", None, "web", INSTRUCTION)];
     for k in 0..n {
         let id = format!("c{k}");
@@ -141,7 +144,7 @@ fn compile_in(
 
 /// Every `tool_use` in the request has its `tool_result` in the next
 /// message, and every `tool_result` follows its `tool_use`.
-fn closed(c: &Compiled) -> Result<(), String> {
+pub(super) fn closed(c: &Compiled) -> Result<(), String> {
     let msgs = &c.request.messages;
     for (i, m) in msgs.iter().enumerate() {
         let blocks = m["content"].as_array().cloned().unwrap_or_default();
@@ -171,7 +174,7 @@ fn closed(c: &Compiled) -> Result<(), String> {
     Ok(())
 }
 
-fn first_text(c: &Compiled) -> String {
+pub(super) fn first_text(c: &Compiled) -> String {
     c.request.messages[0]["content"][0]["text"]
         .as_str()
         .unwrap_or_default()

@@ -206,6 +206,33 @@ impl Threads {
         })
     }
 
+    /// The thread a session serves, taken to the record `f` makes of it and
+    /// the records its frame carries (`thread.note`, whose call writes the
+    /// frame: the result node rides in it). The board holds the new record
+    /// at once, under the writers' lock, so a reader never sees the card
+    /// older than the frame that is being written.
+    pub fn noted(
+        &self,
+        store: &Store,
+        session: &str,
+        f: impl FnOnce(&ThreadInfo) -> Result<(ThreadInfo, Vec<NewRecord>)>,
+    ) -> Result<(ThreadInfo, Vec<NewRecord>)> {
+        theseus_store::blocking(|| {
+            let _w = self.writes.lock().unwrap();
+            let now = self.load(store)?;
+            let Some(t) = now.of_session(session) else {
+                anyhow::bail!(
+                    "this session serves no thread: thread.note is for a thread's own session"
+                );
+            };
+            let (next, records) = f(t)?;
+            let mut board = (*now).clone();
+            board.threads.insert(next.slug.clone(), next.clone());
+            *self.board.write().unwrap() = Some(Arc::new(board));
+            Ok((next, records))
+        })
+    }
+
     /// Run `f` under the writers' lock with the board: the one place a
     /// thread's session is opened and bound, so two first messages to a
     /// thread open one session between them. `f` returns the session it

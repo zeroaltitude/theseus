@@ -176,6 +176,7 @@ pub struct TurnRunner {
     pub standing: crate::standing::Board,
     /// The threads (theseus-nhew), in memory.
     pub threads: crate::threads::Threads,
+    pub cards: crate::thread_context::Cards,
     /// Jev's judgments (M5 23a): each turn's end is handed to it, and it
     /// judges in a task of its own; the turn never waits on it.
     pub judge: Arc<crate::judge::JudgeService>,
@@ -801,14 +802,23 @@ impl TurnRunner {
         target: &Target,
         files: &[ContextFile],
         place: crate::ceiling::PlaceView,
-    ) -> (String, String) {
+    ) -> (String, String, String) {
         let parts: Vec<String> = self
             .header_parts(target, place)
             .into_iter()
             .map(|p| p.1)
             .collect();
-        let sections: Vec<&str> = files.iter().map(|f| f.section.as_str()).collect();
-        (parts.join("\n\n"), sections.join("\n\n"))
+        // The persona layer: every persona's files; the project layer: the
+        // system level's (`compiler::layers`).
+        let layer = |own: bool| {
+            let sections: Vec<&str> = files
+                .iter()
+                .filter(|f| f.file.persona.is_some() == own)
+                .map(|f| f.section.as_str())
+                .collect();
+            sections.join("\n\n")
+        };
+        (parts.join("\n\n"), layer(true), layer(false))
     }
 
     /// The turn's request spec, fixed for all its loops, and the context
@@ -842,16 +852,19 @@ impl TurnRunner {
         if place.class == crate::places::PlaceClass::Shared {
             crate::context_files::withhold_shared(&mut files);
         }
-        let (system_text, context_text) = self.system_blocks(target, &files, place);
+        let (system_text, persona_text, context_text) = self.system_blocks(target, &files, place);
         RequestSpec {
             profile: target.profile.clone(),
             provider: target.provider.clone(),
             model: target.model.clone(),
             max_tokens: target.max_tokens,
             system_text,
+            persona_text,
             context_text,
             // The session's block is its caller's (`session_block`).
             session_text: String::new(),
+            card: None,
+            cold: None,
             context_files: files.iter().map(|f| f.file.clone()).collect(),
             persona: target.persona.clone(),
             tools: self.tools.definitions_for(place),
@@ -1601,6 +1614,7 @@ impl TurnRunner {
             },
             dir: dir.as_deref(),
             commitments: &frames.commitments,
+            threads: &self.threads,
         };
         if self.narrator.on() && self.narrator.first_sight(&sid) && session.turns > 0 {
             tc.rec().in_turn(None).record(&fact::turn::SessionResumed {
@@ -1728,6 +1742,7 @@ impl TurnRunner {
         spec.session_text = self.session_block(t.tc.dir, t.tc.place());
         spec.walk = self.walk(sid, t.tc.class);
         self.stand(t, &mut spec);
+        self.thread_spec(&mut spec, sid, session.compilation_id.as_deref());
         for u in &unreadable {
             tracing::warn!(path = %u.path, error = %u.error, session_id = %sid,
                 "context file unreadable: the system block says it is missing (warned once per daemon run)");
@@ -3439,7 +3454,7 @@ impl TurnRunner {
         let c = &compiled.compilation;
         session.compilation_id = Some(c.id.clone());
         let records = || -> Result<Vec<NewRecord>> {
-            Ok(vec![
+            let mut records = vec![
                 NewRecord::json(theseus_store::kinds::COMPILATION, Some(&c.id), c)?
                     .scoped(&c.session_id),
                 fact::row(
@@ -3447,7 +3462,9 @@ impl TurnRunner {
                     Some(&c.session_id),
                     Some(turn_id),
                 )?,
-            ])
+            ];
+            records.extend(crate::thread_context::card_record(compiled));
+            Ok(records)
         };
         let written = store.update_session(&session.session_id, |r| {
             r.take_turns_fields(session);
