@@ -25,6 +25,8 @@
 # and the feature is then named in the shipped crate that links it, as
 # theseus-discord names twilight-gateway's TLS roots.
 #
+# After the build: the size check (`theseus-sim bench size --check`) on what was just built, below.
+#
 # A `-p`, `--package`, `--workspace`, or `--all` of your own replaces the five.
 #
 # What it fixes, beyond the profile:
@@ -81,4 +83,26 @@ for p in "${shipped[@]}"; do pkgs+=(-p "$p"); done
 for arg in "$@"; do
   case "$arg" in -p | -p?* | --package | --package=* | --workspace | --all) pkgs=() ;; esac
 done
-exec cargo build --locked --profile "$profile" "${pkgs[@]}" "$@"
+cargo build --locked --profile "$profile" "${pkgs[@]}" "$@"
+
+# The size check (theseus-2m7jg): a release binary exists only here, so this is where its size is judged. The
+# stamp (scripts/tree-stamp.sh, and theseusd's byte count) is the build's proof of its tree, which the gate's size
+# phase reads. Growth of more than 1 MB over the last recorded size of this profile fails the build; §9's 60 MB is
+# printed with its gap and fails nothing. THESEUS_SIZE_ACCEPT_GROWTH=1 records the growth as accepted.
+out="$target_dir/$profile"
+if [ -f "$out/theseusd" ]; then
+  printf '%s %s\n' "$(scripts/tree-stamp.sh)" "$(stat -c %s "$out/theseusd")" >"$out/.theseus-build-stamp"
+fi
+if [ -x "$out/theseus-sim" ] && [ -f "$out/theseusd" ]; then
+  accept=()
+  [ -z "${THESEUS_SIZE_ACCEPT_GROWTH:-}" ] || accept=(--accept-growth)
+  "$out/theseus-sim" bench size --check --dir "$out" \
+    --record "${THESEUS_BENCH_HISTORY:-$HOME/.cache/theseus/bench-history.csv}" \
+    --label "$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo detached) $(git describe --always --dirty 2>/dev/null || echo none) size:$profile" \
+    --baseline-tag "size:$profile" ${accept[@]+"${accept[@]}"} || {
+    echo "build: the size check failed: a binary grew more than 1 MB over its last recorded size (THESEUS_SIZE_ACCEPT_GROWTH=1 accepts it)" >&2
+    exit 1
+  }
+else
+  echo "build: size check skipped: no theseusd and theseus-sim in $out (a build of other packages)"
+fi

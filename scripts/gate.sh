@@ -395,6 +395,14 @@ turn_step() {
   }
 }
 
+# The size check (theseus-2m7jg), scripts/size-step.sh: it judges a release binary only when scripts/build.sh built it
+# from this tree (the stamp it wrote), else says "skipped: no release build of <commit>" and costs nothing. It fails on
+# growth of more than 1 MB over the last recorded size of that profile, and prints §9's 60 MB miss without failing on
+# it. A count, not a time: it runs in a lane's gate too.
+size_step() {
+  scripts/size-step.sh "$history" "$label"
+}
+
 # The supply-chain check, offline (theseus-goa8; review 2's SC2). Licences, bans, and
 # sources need no network, and advisories are read from the database as its last fetch
 # left it, so an outage of GitHub or crates.io can no longer fail a commit: 27e1237
@@ -668,6 +676,7 @@ machine_checks() {
   phase lifecycle lifecycle_bench
   phase jobs jobs_bench
   phase turn turn_step
+  phase size size_step
 }
 
 # Take the lock around machine_checks, by running the gate again as the locked part. The wait,

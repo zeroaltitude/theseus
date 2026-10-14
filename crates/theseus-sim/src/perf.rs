@@ -43,6 +43,7 @@ use crate::procfs::{self, Sample};
 use crate::walcount::{Frame, Tail};
 use counted::{Counted, Counter};
 
+mod budgets;
 #[cfg(test)]
 mod burst;
 mod concurrency;
@@ -1108,12 +1109,50 @@ pub struct SizeReport {
     pub rows: Vec<SizeRow>,
     /// Binaries the directory lacks.
     pub missing: Vec<String>,
+    /// Each binary against §9's 60 MB. A miss is printed with its gap and
+    /// fails nothing; see `growth`.
     pub verdicts: Vec<Verdict>,
+    /// Each binary with a recorded size, against that size plus
+    /// `budgets::GROWTH_MB`: what `--check` fails on (theseus-2m7jg).
+    pub growth: Vec<Growth>,
+}
+
+/// A binary's growth over the last recorded size.
+#[derive(Debug, Serialize)]
+pub struct Growth {
+    pub verdict: Verdict,
+    pub last: f64,
 }
 
 impl SizeReport {
+    /// Every binary within §9's 60 MB.
     pub fn ok(&self) -> bool {
         self.verdicts.iter().all(|v| v.ok)
+    }
+
+    /// No binary grew more than 1 MB over its last recorded size: what the
+    /// check judges. The 60 MB target is [`SizeReport::ok`]'s, printed only.
+    pub fn grew_ok(&self) -> bool {
+        self.growth.iter().all(|g| g.verdict.ok)
+    }
+
+    /// Judge growth against the last passed run in `history` (of this build
+    /// profile, by `tag` in its label).
+    pub fn judge_growth(&mut self, history: Option<&history::History>, tag: Option<&str>) {
+        let Some(h) = history else { return };
+        for (column, mb) in self
+            .columns()
+            .into_iter()
+            .map(|(c, s)| (c, s.p50))
+            .collect::<Vec<_>>()
+        {
+            if let Some(last) = budgets::last_size(h, &column, tag) {
+                self.growth.push(Growth {
+                    verdict: budgets::growth_verdict(&column, mb, last),
+                    last,
+                });
+            }
+        }
     }
 
     pub fn columns(&self) -> Vec<(String, Summary)> {
@@ -1169,6 +1208,7 @@ pub fn run_size(dir: &Path) -> Result<SizeReport> {
         rows,
         missing,
         verdicts,
+        growth: Vec::new(),
     })
 }
 
@@ -1183,13 +1223,20 @@ pub fn print_size(r: &SizeReport) {
     for b in &r.missing {
         println!("  {b:<12} not built");
     }
-    for v in &r.verdicts {
-        if !v.ok {
-            println!(
-                "  {}: {:.2} MB is over {} MB: MISSED",
-                v.phase, v.p95, v.budget
-            );
+    for (bin, col) in BINARIES {
+        let Some(col) = col else { continue };
+        if let Some(row) = r.rows.iter().find(|row| row.binary == bin) {
+            println!("{}", budgets::target_line(col, row.mb, BINARY_MB));
         }
+    }
+    if r.ok() {
+        println!("  §9: every binary with a budget is under {BINARY_MB} MB");
+    }
+    for g in &r.growth {
+        println!("{}", budgets::growth_line(&g.verdict, g.last));
+    }
+    if r.growth.is_empty() {
+        println!("  growth: no recorded size of this build to compare with; this run becomes it");
     }
 }
 
@@ -1337,6 +1384,17 @@ pub fn turn_cmd(a: TurnArgs) -> Result<()> {
     })?;
     print_turn(&report);
     print_counted(&report);
+    let mut columns = report.columns();
+    if a.check && a.burst > 0 {
+        let past = baseline_history(None, a.record.as_deref());
+        if let Some(w) = budgets::rss_warning(report.rss_burst.rss_mb(), past.as_ref()) {
+            println!("{}", w.line());
+            columns.push((
+                budgets::RSS_OVER_COLUMN.to_string(),
+                single(round3(w.over_percent)),
+            ));
+        }
+    }
     let out = Output {
         json: a.json.as_deref(),
         record: a.record.as_deref(),
@@ -1346,7 +1404,7 @@ pub fn turn_cmd(a: TurnArgs) -> Result<()> {
         "turn",
         &out,
         &report,
-        &report.columns(),
+        &columns,
         &report.verdicts,
         report.ok(),
     )?;
@@ -1416,7 +1474,8 @@ pub struct SizeArgs {
     /// The directory of the built binaries (default: the one this binary is in).
     #[arg(long)]
     dir: Option<PathBuf>,
-    /// Exit 1 when a binary is over §9's 60 MB.
+    /// Exit 1 when a binary grew more than 1 MB over its last recorded size
+    /// (theseus-2m7jg). §9's 60 MB is printed with its gap, and fails nothing.
     #[arg(long)]
     check: bool,
     /// Also write the report as JSON here.
@@ -1428,6 +1487,30 @@ pub struct SizeArgs {
     /// The run's label in the history (the gate's: the branch and the commit).
     #[arg(long, requires = "record")]
     label: Option<String>,
+    /// The history the last recorded size is read from (default: `--record`'s,
+    /// else `$THESEUS_BENCH_HISTORY`, else the default file).
+    #[arg(long)]
+    history: Option<PathBuf>,
+    /// Compare only with runs whose label holds this (the build profile, as
+    /// `size:release-thin`), so a thin build is not judged against a fat one.
+    #[arg(long)]
+    baseline_tag: Option<String>,
+    /// Growth the owner accepts: judged and printed, but recorded as passed,
+    /// so this run becomes the baseline.
+    #[arg(long)]
+    accept_growth: bool,
+}
+
+/// The history to read a baseline from, if there is one.
+fn baseline_history(given: Option<&Path>, record: Option<&Path>) -> Option<history::History> {
+    let path = match given.or(record) {
+        Some(p) => p.to_path_buf(),
+        None => match std::env::var_os("THESEUS_BENCH_HISTORY") {
+            Some(p) => p.into(),
+            None => history::default_path().ok()?,
+        },
+    };
+    history::read(&path).ok().flatten()
 }
 
 pub fn size_cmd(a: SizeArgs) -> Result<()> {
@@ -1438,22 +1521,22 @@ pub fn size_cmd(a: SizeArgs) -> Result<()> {
             .context("locating this binary's directory")?
             .to_path_buf(),
     };
-    let report = run_size(&dir)?;
+    let mut report = run_size(&dir)?;
+    let past = baseline_history(a.history.as_deref(), a.record.as_deref());
+    report.judge_growth(past.as_ref(), a.baseline_tag.as_deref());
     print_size(&report);
+    let grew_ok = report.grew_ok() || a.accept_growth;
+    if !report.grew_ok() && a.accept_growth {
+        println!("  growth accepted (--accept-growth): recorded as passed");
+    }
+    let growth: Vec<Verdict> = report.growth.iter().map(|g| g.verdict.clone()).collect();
     let out = Output {
         json: a.json.as_deref(),
         record: a.record.as_deref(),
         label: a.label.as_deref(),
     };
-    emit(
-        "size",
-        &out,
-        &report,
-        &report.columns(),
-        &report.verdicts,
-        report.ok(),
-    )?;
-    if a.check && !report.ok() {
+    emit("size", &out, &report, &report.columns(), &growth, grew_ok)?;
+    if a.check && !grew_ok {
         std::process::exit(1);
     }
     Ok(())

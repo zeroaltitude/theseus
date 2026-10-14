@@ -47,7 +47,7 @@ const NEAR_PERCENT: i64 = 10;
 /// unit (theseus-goa8). Each is read as a phase is: a p50, a p95, and a limit
 /// when the bench has a budget for it. A single reading (a size, a memory) is
 /// its own p50 and p95.
-pub const OTHER: [(&str, &str); 28] = [
+pub const OTHER: [(&str, &str); 29] = [
     // `bench turn`
     ("turn_plain", "ms"),
     ("frames_plain", "frames"),
@@ -57,6 +57,9 @@ pub const OTHER: [(&str, &str); 28] = [
     ("syncs_plain", "frames"),
     ("rss_start", "MB"),
     ("rss_burst", "MB"),
+    // a burst's memory more than 10% over the median of the recorded runs
+    // (theseus-2m7jg): the percentage over, written only on a warning
+    ("rss_burst_over", "%"),
     // `bench turn --judge` (theseus-0j2.8): the judge on, the inbound
     // point's packs off (`jloop`) and every pack as wired (`jpacks`); and the
     // judge's frames a turn's answer came after.
@@ -548,11 +551,13 @@ pub fn near_limits_of(bench: &str, verdicts: &[Verdict]) -> Vec<String> {
 /// Whether a column's nearness to its limit is drift worth a word: not a
 /// count of frames, which a budget holds exactly, nor the turn bench's
 /// counted rows (theseus-7gir.13: syncs, deltas, and the first request's KB,
-/// each said with its own unit as it is measured).
+/// each said with its own unit as it is measured), nor a size, whose limit is
+/// the last recorded size plus 1 MB and so is always near (theseus-2m7jg).
 fn warns_near(column: &str) -> bool {
     unit(column) != "frames"
         && !column.starts_with("syncs_")
         && !column.starts_with("deltas_")
+        && !column.starts_with("size_")
         && column != "first_request_kb"
 }
 
@@ -1082,5 +1087,19 @@ mod tests {
         let lines = near_limits_of("turn", &v);
         assert_eq!(lines.len(), 1, "{lines:?}");
         assert!(lines[0].contains("a plain turn's wall time"), "{lines:?}");
+    }
+
+    /// A size's limit is the last recorded size plus 1 MB (theseus-2m7jg), so
+    /// it is always within 10% of it: no "near the limit" line for it.
+    #[test]
+    fn a_size_is_never_said_to_be_near_its_growth_limit() {
+        let v = [Verdict {
+            phase: "size_theseusd".to_string(),
+            p95: 83.1,
+            budget: 84.1,
+            margin: 0.0,
+            ok: true,
+        }];
+        assert!(near_limits_of("size", &v).is_empty());
     }
 }
