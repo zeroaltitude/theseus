@@ -13,6 +13,7 @@ use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 use crate::app::{App, Link, Mode};
 use crate::board::{short, Only, Row};
 use crate::card;
+use crate::styled::{self, PaneRow};
 
 /// The done-until-seen mark (design §2.9): teal, between needs you and
 /// working.
@@ -247,21 +248,24 @@ fn detail(app: &App, area: Rect, buf: &mut Buffer) {
     // The newest rows that fit, after the scroll: wrap from the end only as
     // far as the pane needs.
     let want = height + d.scroll;
-    let mut rows: Vec<(Tag, String)> = Vec::new();
-    for (tag, text) in d.lines().iter().rev() {
-        let mut wrapped = wrap(text, width);
-        while let Some(r) = wrapped.pop() {
-            rows.push((*tag, r));
-        }
-        if rows.len() >= want {
-            break;
-        }
-    }
+    let rows = styled::rows_from_end(d.lines(), width, want);
     // A scroll past the start stops at the start.
     let scroll = d.scroll.min(rows.len().saturating_sub(height));
-    let shown: Vec<&(Tag, String)> = rows.iter().skip(scroll).take(height).collect();
-    for (i, (tag, text)) in shown.into_iter().rev().enumerate() {
-        buf.set_stringn(x, area.y + 1 + i as u16, text, width, tag_style(*tag));
+    let shown: Vec<&PaneRow> = rows.iter().skip(scroll).take(height).collect();
+    for (i, row) in shown.into_iter().rev().enumerate() {
+        let y = area.y + 1 + i as u16;
+        match row {
+            PaneRow::Plain(tag, text) => {
+                buf.set_stringn(x, y, text, width, tag_style(*tag));
+            }
+            PaneRow::Drawn(spans) => {
+                let mut at = x;
+                for (text, style) in spans {
+                    let room = (x as usize + width).saturating_sub(at as usize);
+                    (at, _) = buf.set_stringn(at, y, text, room, *style);
+                }
+            }
+        }
     }
     if scroll > 0 {
         let more = format!(" ↓ {scroll} more ");

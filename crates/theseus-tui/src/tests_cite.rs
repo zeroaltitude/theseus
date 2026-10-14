@@ -56,10 +56,9 @@ fn a_history_page_marks_its_cited_replies() {
     let mut d = Detail::new("ses_dm0001");
     d.history(&history(&[cite("m:a1b2c3")]));
     let t = texts(&d);
-    assert!(
-        t[0].ends_with("glm-x: We chose oak [1], not [m:ffffff]."),
-        "{t:?}"
-    );
+    // The header, then the reply's own line (drawn as markdown by the pane).
+    assert!(t[0].ends_with("glm-x:"), "{t:?}");
+    assert_eq!(t[1], "We chose oak [1], not [m:ffffff].");
     let notes: Vec<_> = d
         .lines()
         .iter()
@@ -74,7 +73,8 @@ fn a_history_page_marks_its_cited_replies() {
     // With no citations the page is as it was.
     let mut plain = Detail::new("ses_dm0001");
     plain.history(&history(&[]));
-    assert!(texts(&plain)[0].ends_with("glm-x: We chose oak [m:a1b2c3], not [m:ffffff]."));
+    assert!(texts(&plain)[0].ends_with("glm-x:"));
+    assert_eq!(texts(&plain)[1], "We chose oak [m:a1b2c3], not [m:ffffff].");
 }
 
 /// A turn this TUI sent: its reply streams in raw, and the answer's sources
