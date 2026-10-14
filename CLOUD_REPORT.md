@@ -114,9 +114,16 @@ Commands are `cargo nextest run`; `CARGO_INCREMENTAL=0` throughout (incremental 
   root, theseus-pv6i) and `theseus-judge builders::tests::every_builder_stays_under_its_cap_on_huge_inputs`, a 25 ms-class
   timing bound that passed alone in 1.2 s. Not a negative assertion. Run by hand after the suite: protocol types
   (`git status` clean after the protocol test), `theseus-sim bench turn --check` (every count ok; "turn_batch_p50 within 10% of its
-  limit" is a warning on this VM), `cargo deny --offline check` ok. After `b6597af` I changed one test
-  (`family.rs`'s guard) and `tests/defer.rs`'s dump (`9849b5e`), each run alone and clippy-clean; a gate was not rerun
-  for those two.
+  limit" is a warning on this VM), `cargo deny --offline check` ok.
+- **The gate on the tip** (`9849b5e`, run 8; the report commit adds only this file): keel, fmt, shape, features, clippy,
+  cockpit, test build and the reader rule ok; the suite 4,439 tests, 4,404 passed, **35 failed**: the same 33 L1 tests, and two
+  that run 7 passed:
+  `theseus-core tests_rerank::a_reranked_turn_keeps_its_frame_budget` ("a plain turn wrote 5", once; it counts the whole
+  store's frames in the turn's window, passed 3 of 3 alone, and the deferral is off in its core) and
+  `theseus-discord tests_process::an_answer_the_post_writes_after_the_thinking_is_still_the_answer`, **a flake of its own**:
+  alone it passes 3 of 6 with the feature on and 1 of 6 with the test's core switched to `[tools.defer] enabled = false`
+  (that core is built without `for_tests`, so deferral is on in it by default; the edit was reverted), so it is not the
+  feature's. Neither is a negative assertion. The earlier run's `judge builders` and `gone_jobs` also passed alone.
 - Earlier gate runs failed in shape (compiler.rs 2,562 > 2,560: fixed by a helper), cockpit lint (a function named like a
   hook), the suite (stand-in models calling deferred tools: the `for_tests`/`safe_note` decision above), clippy
   (`dispatch` at 101 lines: `tool.defer` is routed through `rpc_prefixed`; `system_parts` at 102: the tools part is its own function), and the
