@@ -206,7 +206,9 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   them in `standing_here`. The surface is `TurnRequest.surface` (`standing::surface_name` of the connection; a
   continuation and a caller that names none have none, so no surface record holds), kept in the turn's `Held`
   beside the blocks. `standing.list` takes the asker's `surface` with a `session_id`; its tally counts only the
-  system's records (no manifest lists the tail). `standing.add` and `.revoke`
+  system's records (no manifest lists the tail).
+  The compaction summary's instructions keep a style request ("for now, be brief") in the operator's words
+  (`turn/compaction.rs`, `tests_compaction`). `standing.add` and `.revoke`
   are `judge_act(Act::Standing)`: the owner, from a private place; the CLI refuses them inside a job
   (`client::OPERATORS`). `standing.list` tallies the manifests (compilations of each live record's scope since it
   began, and those lacking it), a scan of the sessions' compilations: a read for a person, never a turn's path. Tests:
