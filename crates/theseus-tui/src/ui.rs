@@ -502,7 +502,7 @@ fn tail_fit(text: &str, room: usize) -> String {
 
 /// The keys (design §2.9), over the body.
 fn help(area: Rect, buf: &mut Buffer) {
-    const KEYS: [&str; 17] = [
+    const KEYS: [&str; 18] = [
         " keys",
         " ↑ ↓  j k   move (on a narrow screen's session: scroll it)",
         " enter      open the session under the cursor",
