@@ -86,6 +86,8 @@ mod tests_self;
 #[cfg(test)]
 mod tests_self_backlog;
 #[cfg(test)]
+mod tests_self_exams;
+#[cfg(test)]
 mod tests_session_states;
 #[cfg(test)]
 mod tests_threads;

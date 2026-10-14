@@ -27,6 +27,8 @@
 //!   with the credential git already has for it (none is read here). Unset,
 //!   the default: they stay in the repo. Choosing it is the owner's: a push
 //!   needs a credential, and choosing one is a permission change.
+//! - `exams_day_max`: the most exam candidates the nightly exam pass writes
+//!   a day (default 10; theseus-pw1q.11).
 
 use serde::{Deserialize, Deserializer, Serialize};
 pub use theseus_protocol::rsi::SelfMode;
@@ -53,6 +55,16 @@ pub struct SelfConfig {
     /// Open items the backlog keeps; the lowest-ranked past it are dropped.
     #[serde(default = "default_backlog_max_open")]
     pub backlog_max_open: u32,
+    /// The most exam candidates written a night.
+    #[serde(default = "default_exams_day_max")]
+    pub exams_day_max: u32,
+}
+
+/// `[self] exams_day_max`'s default.
+pub const EXAMS_DAY_MAX: u32 = 10;
+
+fn default_exams_day_max() -> u32 {
+    EXAMS_DAY_MAX
 }
 
 fn default_backlog_starts() -> u32 {
@@ -74,6 +86,7 @@ impl Default for SelfConfig {
             sealed_dir: None,
             backlog_starts: default_backlog_starts(),
             backlog_max_open: default_backlog_max_open(),
+            exams_day_max: EXAMS_DAY_MAX,
         }
     }
 }
@@ -244,6 +257,7 @@ mod tests {
         assert!(
             t.contains("# [self]\n# mode = \"off\"")
                 && t.contains("# digest = \"weekly\"")
+                && t.contains("# exams_day_max = 10")
                 && t.contains("# [self.budget]")
                 && t.contains("# branch_usd = 10.0")
                 && t.contains("# day_usd = 30.0"),
@@ -272,6 +286,9 @@ mod tests {
         );
         assert!(e.contains("[self] digest must be"), "{e}");
         assert!(Config::from_toml("[self]\nbudget_usd = 1.0\n").is_err());
+        assert_eq!(none.self_improve.exams_day_max, 10);
+        let capped = Config::from_toml("[self]\nexams_day_max = 3\n").unwrap();
+        assert_eq!(capped.self_improve.exams_day_max, 3);
         let b = Config::from_toml("[self.budget]\nbranch_usd = 4.5\nday_usd = 12.0\n").unwrap();
         assert_eq!(b.self_improve.budget.branch_usd, 4.5);
         assert_eq!(b.self_improve.budget.day_usd, 12.0);

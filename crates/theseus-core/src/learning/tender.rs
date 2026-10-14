@@ -160,6 +160,7 @@ impl Core {
             };
             let run = move |trigger: &'static str| {
                 let core = core.clone();
+                let exams = core.clone();
                 ran.store(
                     theseus_protocol::now_unix_ms(),
                     std::sync::atomic::Ordering::Relaxed,
@@ -214,6 +215,11 @@ impl Core {
                         Err(e) => {
                             tracing::warn!(error = %e, "learning: the report's thread did not start")
                         }
+                    }
+                    // The self-exams' night follows the report's (theseus-pw1q.11);
+                    // `rsi::gate` ends it at once with `[self] mode = "off"`.
+                    if let Some(c) = exams.upgrade() {
+                        c.self_exams_nightly().await;
                     }
                 }
             };

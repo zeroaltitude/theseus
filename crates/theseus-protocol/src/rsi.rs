@@ -90,6 +90,29 @@ pub const SELF_ROWS: &[SelfRowKind] = &[
         doc: "An exam item counted after its independent review; a sealed one names no text.",
     },
     SelfRowKind {
+        name: "self.exam.rejected",
+        fields: &["item", "family", "sealed", "reviewer", "reason"],
+        doc: "A candidate exam item the independent review did not call fair, dropped, with the \
+              reviewer's reason; a sealed one names no text.",
+    },
+    SelfRowKind {
+        name: "self.exam.pass",
+        fields: &[
+            "day",
+            "candidates",
+            "counted",
+            "rejected",
+            "sealed_dropped",
+            "unreviewed",
+            "capped",
+            "error",
+        ],
+        doc:
+            "One night's exam pass: what the day's sources offered, what counted, what the review \
+              rejected, the sealed items held unwritten and dropped for want of a sealed store, \
+              the candidates no reviewer answered for, and those the day's cap left out.",
+    },
+    SelfRowKind {
         name: "self.budget.reserved",
         fields: &["branch", "reserved_usd", "day_usd"],
         doc: "A self step reserved its worst case on the self budget.",
@@ -452,6 +475,56 @@ pub struct SelfMoveResult {
     pub title: String,
     pub was: u32,
     pub rank: u32,
+}
+
+// ---- self-exams (theseus-pw1q.11) ----
+
+/// `self.exams`' params: none yet.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct SelfExamsParams {}
+
+/// One family's counted items, by half. A sealed item is only ever a number.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct SelfExamFamily {
+    pub family: String,
+    pub open: u64,
+    pub sealed: u64,
+}
+
+/// One of today's candidates and its review. The text of an open item is
+/// shown; a sealed one is its id and verdict only.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct SelfExamToday {
+    pub item: String,
+    pub family: String,
+    pub sealed: bool,
+    /// `counted`, `rejected` or `dropped`.
+    pub verdict: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub reviewer: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub reason: Option<String>,
+    /// An open item's task, as the exam shows it; never a sealed item's.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub task: Option<String>,
+}
+
+/// `self.exams`' answer: the counted items by family and half, and today's
+/// candidates with their reviews.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct SelfExamsResult {
+    pub families: Vec<SelfExamFamily>,
+    pub today: Vec<SelfExamToday>,
+    /// Sealed items held unwritten and dropped today for want of a sealed store.
+    pub sealed_dropped: u64,
+    pub state: SelfState,
 }
 
 #[cfg(test)]

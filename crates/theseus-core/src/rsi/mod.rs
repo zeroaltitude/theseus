@@ -41,6 +41,7 @@
 pub mod backlog;
 pub mod budget;
 mod digest;
+pub mod exams;
 mod log;
 pub mod pr;
 pub mod sealed;

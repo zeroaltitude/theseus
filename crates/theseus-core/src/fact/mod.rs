@@ -67,6 +67,7 @@ pub mod route;
 pub mod rsi;
 pub mod rsi_backlog;
 pub mod rsi_budget;
+pub mod rsi_exams;
 pub mod rsi_pr;
 pub mod rsi_sealed;
 pub mod sandbox;
@@ -472,6 +473,9 @@ facts![
     rsi_backlog::BacklogStarted,
     rsi_backlog::BacklogDropped,
     rsi_pr::SelfBranchBuilt<'static>,
+    rsi_exams::ExamCounted<'static>,
+    rsi_exams::ExamRejected<'static>,
+    rsi_exams::ExamPass,
     standing::StandingAdded<'static>,
     standing::StandingRevoked<'static>,
     thread::ThreadCreated<'static>,

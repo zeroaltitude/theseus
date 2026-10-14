@@ -20,6 +20,8 @@ mod backlog;
 
 mod branches;
 
+mod exams;
+
 #[derive(Subcommand, Debug)]
 pub enum SelfCmd {
     /// What Theseus changed about itself, newest first: the self steps' rows and today's
@@ -61,6 +63,9 @@ pub enum SelfCmd {
     },
     /// The self branches Theseus built: each one's tree, gate verdict and frozen report.
     Branches,
+    /// The self-exams: counted items by family and half, and today's candidates with their
+    /// reviews. A sealed item shows as a number, never as text.
+    Exams,
 }
 
 /// `7d`, `12h`, `30m`, `2w` in milliseconds.
@@ -150,6 +155,7 @@ pub async fn run(conn: &mut Conn, json: bool, cmd: SelfCmd) -> Result<()> {
         SelfCmd::Drop { item } => backlog::drop_item(conn, json, item).await,
         SelfCmd::Move { item, rank } => backlog::move_item(conn, json, item, rank).await,
         SelfCmd::Branches => branches::run(conn, json).await,
+        SelfCmd::Exams => exams::run(conn, json).await,
         SelfCmd::Digest => {
             let v = conn
                 .request(
