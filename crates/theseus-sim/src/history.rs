@@ -47,7 +47,7 @@ const NEAR_PERCENT: i64 = 10;
 /// unit (theseus-goa8). Each is read as a phase is: a p50, a p95, and a limit
 /// when the bench has a budget for it. A single reading (a size, a memory) is
 /// its own p50 and p95.
-pub const OTHER: [(&str, &str); 28] = [
+pub const OTHER: [(&str, &str); 29] = [
     // `bench turn`
     ("turn_plain", "ms"),
     ("frames_plain", "frames"),
@@ -57,6 +57,9 @@ pub const OTHER: [(&str, &str); 28] = [
     ("syncs_plain", "frames"),
     ("rss_start", "MB"),
     ("rss_burst", "MB"),
+    // a burst's memory more than 10% over the median of the recorded runs
+    // (theseus-2m7jg): the percentage over, written only on a warning
+    ("rss_burst_over", "%"),
     // `bench turn --judge` (theseus-0j2.8): the judge on, the inbound
     // point's packs off (`jloop`) and every pack as wired (`jpacks`); and the
     // judge's frames a turn's answer came after.

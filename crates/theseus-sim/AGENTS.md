@@ -51,7 +51,9 @@ Key modules: `lifecycle.rs`, `kernel_sim.rs`, `fake_discord.rs`, `discord_proof.
     (`proc_sync_secs`; the lifecycle bench's 1 s would put the sleeps in the background). Beside them: this disk's
     `fdatasync`, probed before the daemon starts and after it stops (the quieter is used, so the harness's own share of
     a turn reads off as an upper bound), and the daemon's resident memory after the start
-    and after a burst. Each run also gets a line (`src/perf/runs.rs`, theseus-w7dk): its wall, the daemon's time, its
+    and after a burst (with `--check` and a burst, `rss_burst` more than 10% over the median of the last five recorded
+    runs prints a `WARN` line and records the percentage in the `rss_burst_over` column; it never fails, theseus-2m7jg).
+    Each run also gets a line (`src/perf/runs.rs`, theseus-w7dk): its wall, the daemon's time, its
     frames, and the slowest frame the store answered since its input arrived, with that frame's time and records (the
     turn's trace carries it as `attrs.slowest_frame`); a run over twice its kind's p50 is flagged. The turn's last
     frame, `end_turn`'s, is written after the trace takes it, so a stall there reads as a long wall with a small slowest
@@ -88,7 +90,13 @@ Key modules: `lifecycle.rs`, `kernel_sim.rs`, `fake_discord.rs`, `discord_proof.
     still at 5.8 % of a core 300 s after its first answer, writing no frames (review 2's S1). The index tender's memory is
     read beside the daemon's (the `theseus-index` child), and `--active N` then opens N sessions and runs a turn in each
     and reads both again: with `--sessions 10000 --active 50`, design M6 §2.10's row (§9: under 1 GB together).
-  - `bench size`: the shipped binaries' sizes against §9's 60 MB. Meaningful on a release or install build.
+  - `bench size`: the shipped binaries' sizes. Meaningful on a release or install build. §9's 60 MB is a target:
+    printed with its gap when missed, and failing nothing. `--check` fails on **growth** (`src/perf/budgets.rs`,
+    theseus-2m7jg): a binary more than 1 MB over the last size recorded by a run that passed, read from the history
+    (`--history`, else `--record`'s file, else `$THESEUS_BENCH_HISTORY`) among rows whose label has the word
+    `--baseline-tag` (`size:release`, so a thin build isn't judged against a fat one). With no baseline the run becomes
+    it. `--accept-growth` records an accepted growth as passed. `scripts/build.sh` runs it after a build, and the gate's
+    size phase runs it (`scripts/size-step.sh`) when a build of the tree under test exists.
   - `bench status` (`src/perf/status.rs`, theseus-lweh): what a prompt's `theseus status --short` costs, the CLI's whole run
     (spawn to exit) against a scratch daemon on a synthetic store (`--sessions 1000`), p50 and p90 over `--runs` (300).
     `--check` holds p90 to 5 ms: meant for a release-thin build on the owner's machine (a debug build on a 4-core VM
