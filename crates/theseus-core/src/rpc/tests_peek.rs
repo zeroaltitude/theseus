@@ -357,8 +357,14 @@ async fn a_slow_client_recovers(job: &str, cap: Option<usize>) {
     let mut slow = Wire::connect(&r.core, Surface::Cli, 2048);
     slow.call(method::ACTION_OUTPUT, json!({"id": job, "from": 0}))
         .await;
-    // It reads nothing while the job prints.
-    tokio::time::sleep(Duration::from_millis(2500)).await;
+    // It reads nothing while the job prints, until the daemon has counted
+    // what it could not queue for it (a loaded machine prints slowly, so
+    // this waits for the loss, not for a time).
+    let until = Instant::now() + Duration::from_secs(40);
+    while r.core.push.status(0).lost == 0 {
+        assert!(Instant::now() < until, "nothing was lost in 40 s");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
     let stream = format!("output:{job}");
     let lost = slow
         .until("events.lost", |n| n.method == notify::EVENTS_LOST)
@@ -375,9 +381,12 @@ async fn a_slow_client_recovers(job: &str, cap: Option<usize>) {
     assert!(lost.params["dropped"].as_u64().unwrap() > 0);
     // It peeks, and follows on from what the peek says.
     let p = peek_until(&mut slow, &job, |p| p.bytes > 0).await;
-    slow.notes.clear();
     slow.call(method::ACTION_OUTPUT, json!({"id": job, "from": p.bytes}))
         .await;
+    // The old follower was ended by the new follow, so every chunk it queued
+    // came before the answer (a client drops those: they begin before its
+    // peek's end); the ones after are the new follower's.
+    slow.notes.clear();
     let chunk = slow
         .until("a chunk after the peek", |n| {
             n.method == notify::ACTION_OUTPUT_CHUNK
@@ -395,7 +404,7 @@ const CHATTY: &str =
 /// The connection's own cap drops what a stuck client cannot hold.
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn a_slow_client_hears_events_lost_and_recovers_by_a_peek() {
-    a_slow_client_recovers(CHATTY, Some(6)).await;
+    a_slow_client_recovers(CHATTY, Some(3)).await;
 }
 
 /// A follower stops queueing for a client whose queue holds `ROOM` messages

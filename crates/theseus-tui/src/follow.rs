@@ -72,6 +72,16 @@ impl Follow {
     /// A chunk of the job's output.
     pub fn chunk(&mut self, c: &ActionOutputChunk) {
         self.note = None;
+        // What a peek already showed is not shown again: the old follower's
+        // chunks are still in flight after a re-peek.
+        let end = c.offset + c.text.len() as u64;
+        if end <= self.next {
+            return;
+        }
+        let text = match c.offset < self.next {
+            true => c.text.get((self.next - c.offset) as usize..).unwrap_or(""),
+            false => c.text.as_str(),
+        };
         if c.offset > self.next {
             // What was being printed ended where the gap began.
             if !self.partial.is_empty() {
@@ -80,8 +90,8 @@ impl Follow {
             }
             self.push(format!("-- {} bytes skipped --", c.offset - self.next));
         }
-        self.next = c.offset + c.text.len() as u64;
-        for ch in c.text.chars() {
+        self.next = end;
+        for ch in text.chars() {
             match ch {
                 '\n' => {
                     let line = std::mem::take(&mut self.partial);
@@ -313,6 +323,17 @@ mod tests {
         );
         f.ended = Some("succeeded".into());
         assert!(f.header(9_000, "x").starts_with("job succeeded"));
+    }
+
+    /// A chunk a peek already covered is dropped, and an overlapping one cut.
+    #[test]
+    fn a_chunk_before_the_peeks_end_is_not_shown_again() {
+        let mut f = Follow::new("ses_a", "exe_a");
+        f.peeked(&peek(&["leg 1", "leg 2"], 12));
+        f.chunk(&chunk(0, "leg 1\nleg 2\n"));
+        f.chunk(&chunk(6, "leg 2\nleg 3\n"));
+        f.chunk(&chunk(18, "leg 4\n"));
+        assert_eq!(f.lines(), ["leg 1", "leg 2", "leg 3", "leg 4"]);
     }
 
     /// The pane keeps a bounded tail.

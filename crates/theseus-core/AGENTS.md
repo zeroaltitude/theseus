@@ -1393,7 +1393,8 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   `action.output.end` once the job has settled. It never lags more than 4 MiB (it skips, and the offset shows it), and
   stops queueing for a client whose queue holds 64 messages: it counts the stream (`output:<id>`) lost
   (`Outbound::lose`), so the connection hears `events.lost` as the queue drains, and skips to the end; the client
-  peeks and follows `from` the peek's `bytes`. A connection that reads no private text is told "no job" for a private
+  peeks and follows `from` the peek's `bytes`; the old follower's chunks still in flight come before that follow's
+  answer and begin before the peek's end, so a client drops them (the CLI and the TUI trim by offset). A connection that reads no private text is told "no job" for a private
   session's job (the answer of an id that does not exist). `doing.last_line` of a running job: a task on the runtime
   (`Core::sample_last_lines_after_serving`, held by `Weak`) walks the board's running jobs once a second while there
   are any (it waits on a `Notify` the push's applier signals when a frame leaves one running), reads the last 4 KiB of

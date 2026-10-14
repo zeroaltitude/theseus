@@ -293,14 +293,24 @@ fn show(
         .map_err(|e| anyhow!("a bad {}: {e}", n.method))?
     {
         Some(Event::ActionOutputChunk(c)) if c.id == id => {
+            // A chunk the old follower queued before a re-peek begins before
+            // the peek's end: what was shown is not shown again.
+            let end = c.offset + c.text.len() as u64;
+            if end <= *next {
+                return Ok(None);
+            }
+            let text = match c.offset < *next {
+                true => c.text.get((*next - c.offset) as usize..).unwrap_or(""),
+                false => c.text.as_str(),
+            };
             if !json {
                 if c.offset > *next {
                     writeln!(out, "-- {} skipped --", bytes(c.offset - *next))?;
                 }
-                write!(out, "{}", c.text)?;
+                write!(out, "{text}")?;
                 out.flush()?;
             }
-            *next = c.offset + c.text.len() as u64;
+            *next = end;
             Ok(None)
         }
         Some(Event::ActionOutputEnd(e)) if e.id == id => {
@@ -379,6 +389,31 @@ mod tests {
             peek_lines(&p)[0],
             "act_k5 · job 0:05 of usual 0:31 · last 1 line of 12 B"
         );
+    }
+
+    /// A chunk that begins before what was shown is not shown again, nor is
+    /// its overlap: a re-peek leaves the old follower's chunks in flight.
+    #[test]
+    fn a_chunk_the_peek_already_covered_is_not_printed_again() {
+        let chunk = |offset: u64, text: &str| {
+            Message::Notification(theseus_protocol::Notification::new(
+                notify::ACTION_OUTPUT_CHUNK,
+                json!({"id": "act_k5", "offset": offset, "text": text}),
+            ))
+        };
+        let mut out = Vec::new();
+        let mut next = 12u64;
+        for m in [
+            chunk(0, "leg 1\nleg 2\n"),
+            chunk(6, "leg 2\nleg 3\n"),
+            chunk(18, "leg 4\n"),
+        ] {
+            assert!(show(m, "act_k5", &mut next, &mut out, false)
+                .unwrap()
+                .is_none());
+        }
+        assert_eq!(String::from_utf8(out).unwrap(), "leg 3\nleg 4\n");
+        assert_eq!(next, 24);
     }
 
     /// A scripted daemon: it answers the peek and the follow, sends two
