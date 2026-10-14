@@ -4706,9 +4706,26 @@ fn image_attached(name: &str, bytes: &[u8]) -> theseus_protocol::Attachment {
     }
 }
 
+/// The blobs a request's files made: the system blocks, which a compilation
+/// keeps by digest (own-benchmark), are not files.
 fn blob_files(r: &Rig) -> usize {
+    let system: std::collections::HashSet<String> = r
+        .fake
+        .requests()
+        .iter()
+        .flat_map(|q| q.system.iter())
+        .filter_map(|b| {
+            b["text"]
+                .as_str()
+                .map(|t| crate::blobs::digest(t.as_bytes()))
+        })
+        .collect();
     std::fs::read_dir(r.core.store.blobs().dir())
-        .map(|d| d.count())
+        .map(|d| {
+            d.filter_map(Result::ok)
+                .filter(|e| !system.contains(e.file_name().to_string_lossy().as_ref()))
+                .count()
+        })
         .unwrap_or(0)
 }
 

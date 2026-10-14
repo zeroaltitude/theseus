@@ -49,6 +49,7 @@ pub mod notices;
 pub mod nudge;
 mod ontology;
 mod outbox;
+pub mod own_bench;
 pub mod packs;
 mod places;
 mod push;
@@ -65,7 +66,6 @@ pub mod tasks;
 pub mod term;
 #[cfg(test)]
 mod tests_task_info;
-pub mod own_bench;
 pub mod threads;
 mod toolinfo;
 #[cfg(test)]

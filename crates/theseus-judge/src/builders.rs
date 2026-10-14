@@ -584,8 +584,8 @@ mod people;
 mod rerank;
 mod security2;
 
-pub use compare::{CompareInput, CompareReply};
 pub use citation::{pair_key, CitationInput, CitedSentence, CITATION_PAIRS};
+pub use compare::{CompareInput, CompareReply};
 pub use memory::{AttributionInput, MemoryInput, NoteInput, NOTES};
 pub use people::{HeldPerson, PeopleInput, PeopleSeenInput, PersonCandidate, PEOPLE, SEEN};
 pub use rerank::{RerankInput, RerankNote, RERANK_NOTES};

@@ -111,6 +111,7 @@ const INBOUND_ALONE: [&str; 14] = [
     "memory.v1: shadow",
     "attribution.v1: shadow",
     "citation.v1: shadow",
+    "compare.v1: shadow",
     "people.v1: off",
     "people_seen.v1: off",
 ];
