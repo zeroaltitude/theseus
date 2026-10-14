@@ -60,6 +60,7 @@ pub(super) fn prefixed(name: &str) -> bool {
         || name.starts_with("thread.")
         || name.starts_with("work.")
         || name == method::LEDGER_VERIFY
+        || name == method::FORECAST_CALIBRATION
 }
 
 impl Core {
@@ -106,6 +107,9 @@ impl Core {
         }
         if super::wake_owner::OWN.contains(&name) {
             return self.rpc_wakes(name, params, conn);
+        }
+        if name == method::FORECAST_CALIBRATION {
+            return super::server::reply(self.forecast_calibration().await?);
         }
         if name == method::LEDGER_VERIFY {
             return super::server::reply(self.ledger_verify(params).await?);

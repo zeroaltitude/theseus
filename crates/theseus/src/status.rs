@@ -108,10 +108,15 @@ pub async fn run(socket: &str, spawn: Option<&str>, json: bool, a: &StatusArgs) 
         } else {
             titles(&mut conn, &board).await.unwrap_or_default()
         };
-        anyhow::Ok(Answer::Full(board, titles))
+        let forecasts = if a.short || json {
+            HashMap::new()
+        } else {
+            forecasts(&mut conn, &board).await
+        };
+        anyhow::Ok(Answer::Full(board, titles, forecasts))
     })
     .await;
-    let (board, titles) = match answer {
+    let (board, titles, forecasts) = match answer {
         Ok(Ok(Answer::Short(r))) => {
             let line = short_line(&short_summary(&r));
             if !line.is_empty() {
@@ -119,7 +124,7 @@ pub async fn run(socket: &str, spawn: Option<&str>, json: bool, a: &StatusArgs) 
             }
             return conn.close().await;
         }
-        Ok(Ok(Answer::Full(b, t))) => (b, t),
+        Ok(Ok(Answer::Full(b, t, f))) => (b, t, f),
         Ok(Err(_)) | Err(_) if a.short => std::process::exit(1),
         Ok(Err(e)) => return Err(e),
         Err(_) => bail!("the daemon did not answer within {within:?}"),
@@ -135,7 +140,7 @@ pub async fn run(socket: &str, spawn: Option<&str>, json: bool, a: &StatusArgs) 
             writeln!(out, "{line}")?;
         }
     } else {
-        for line in long_lines(&board, &sum, &titles, (now, width()), &local_hm) {
+        for line in long_lines_with(&board, &sum, &titles, &forecasts, (now, width()), &local_hm) {
             writeln!(out, "{line}")?;
         }
     }
@@ -157,7 +162,11 @@ pub async fn run(socket: &str, spawn: Option<&str>, json: bool, a: &StatusArgs) 
 /// What the one-shot read brought back.
 enum Answer {
     Short(StatusShortResult),
-    Full(Board, HashMap<String, String>),
+    Full(
+        Board,
+        HashMap<String, String>,
+        HashMap<String, theseus_protocol::forecast::WorkForecast>,
+    ),
 }
 
 /// Whether the daemon said it does not know the method.
@@ -411,10 +420,25 @@ pub fn header_line(s: &Summary, now_ms: u64, hm: &dyn Fn(u64) -> String) -> Stri
 /// The long form: the header, then a row for each task (a line under each
 /// that needs you, with the command that answers it). `at` is the time now
 /// and the terminal's width; `titles` maps a session to its name.
+#[cfg(test)]
 pub fn long_lines(
     board: &Board,
     sum: &Summary,
     titles: &HashMap<String, String>,
+    at: (u64, usize),
+    hm: &dyn Fn(u64) -> String,
+) -> Vec<String> {
+    long_lines_with(board, sum, titles, &HashMap::new(), at, hm)
+}
+
+/// The long form with each task's forecast: a task row that has one says
+/// what it has spent of its median (`$0.42 of ~$0.60`). `forecasts` maps a
+/// session to its forecast (theseus-zz752).
+pub fn long_lines_with(
+    board: &Board,
+    sum: &Summary,
+    titles: &HashMap<String, String>,
+    forecasts: &HashMap<String, theseus_protocol::forecast::WorkForecast>,
     at: (u64, usize),
     hm: &dyn Fn(u64) -> String,
 ) -> Vec<String> {
@@ -436,7 +460,7 @@ pub fn long_lines(
             (
                 format!("{} {}", mark(v), short_id(&v.session_id)),
                 first_line(&title),
-                cut(&tail(v, now, hm), tail_cap),
+                cut(&with_forecast(tail(v, now, hm), v, forecasts), tail_cap),
             )
         })
         .collect();
@@ -462,6 +486,18 @@ pub fn long_lines(
         ));
     }
     lines
+}
+
+/// A row's tail, and a task's spend against its forecast after it.
+fn with_forecast(
+    tail: String,
+    v: &ExecutionView,
+    forecasts: &HashMap<String, theseus_protocol::forecast::WorkForecast>,
+) -> String {
+    match forecasts.get(&v.session_id) {
+        Some(f) => format!("{tail} · {}", f.spent_of(v.spent_usd)),
+        None => tail,
+    }
 }
 
 fn mark(v: &ExecutionView) -> char {
@@ -559,6 +595,39 @@ async fn titles(conn: &mut Conn, board: &Board) -> Result<HashMap<String, String
         .filter(|s| names::words(s.kind, s.label.as_deref(), s.title.as_deref()).is_some())
         .map(|s| (s.session_id.clone(), names::of(s)))
         .collect())
+}
+
+/// The forecasts of the tasks the long form shows, until the view carries
+/// them: one `work.watch` of the active roots, read and let go. Best effort
+/// (an older daemon, or one that does not answer in time, shows none).
+async fn forecasts(
+    conn: &mut Conn,
+    board: &Board,
+) -> HashMap<String, theseus_protocol::forecast::WorkForecast> {
+    if !board
+        .ordered()
+        .iter()
+        .take(MAX_ROWS)
+        .any(|v| v.kind == theseus_protocol::SessionKind::Task)
+    {
+        return HashMap::new();
+    }
+    let params = theseus_protocol::WorkWatchParams {
+        limit: Some(0),
+        ..Default::default()
+    };
+    let Ok(v) = conn.request(method::WORK_WATCH, params).await else {
+        return HashMap::new();
+    };
+    let _ = conn.request(method::WORK_UNWATCH, ()).await;
+    let Ok(r) = serde_json::from_value::<theseus_protocol::WorkWatchResult>(v) else {
+        return HashMap::new();
+    };
+    r.views
+        .into_iter()
+        .filter(|w| w.kind == theseus_protocol::work::WorkKind::Task)
+        .filter_map(|w| Some((w.session_id?, w.forecast?)))
+        .collect()
 }
 
 // ------------------------------------------------------------------- watch

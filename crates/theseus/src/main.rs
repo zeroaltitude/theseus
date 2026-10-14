@@ -44,6 +44,7 @@ mod retract;
 mod self_cmd;
 mod standing_cmd;
 mod status;
+mod tasks_forecast;
 mod thread;
 mod why;
 mod work;
@@ -360,6 +361,8 @@ enum Cmd {
         /// Only the tasks this session started.
         #[arg(long, short)]
         session: Option<String>,
+        #[command(subcommand)]
+        cmd: Option<tasks_forecast::TasksCmd>,
     },
     /// Wakes: the turns conversations asked for at a time with wake.at that have not run yet,
     /// soonest first, with session, due time, and note.
@@ -1138,7 +1141,7 @@ async fn run(cli: Cli) -> Result<()> {
         Cmd::Sessions { page, cmd } => cmd::sessions(c, json, page, cmd).await,
         Cmd::Budgets => budgets::budgets(c, json).await,
         Cmd::Executions { page, cmd } => cmd::executions(c, json, page, cmd).await,
-        Cmd::Tasks { session } => cmd::tasks(c, json, session).await,
+        Cmd::Tasks { session, cmd } => tasks_forecast::dispatch(c, json, session, cmd).await,
         Cmd::Wakes { session } => cmd::wakes(c, json, session).await,
         Cmd::Cancel { name } => cmd::cancel(c, json, name).await,
         Cmd::Remind(a) => remind::remind(c, json, a).await,

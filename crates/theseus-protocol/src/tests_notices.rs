@@ -52,6 +52,7 @@ fn root(state: WorkState, at: u64, since: u64) -> WorkView {
             turn_usd: None,
         }),
         eta: None,
+        forecast: None,
         below: None,
         why: None,
         report: None,
@@ -468,6 +469,69 @@ fn row_9_spend_past_its_limit_informs() {
         None,
         "once per multiple"
     );
+}
+
+/// Row 11: a task passes the p90 of its forecast: one Inform, worded with the
+/// judge's read when it ran, with Keep going and Stop; never twice, and not
+/// for a view that was already past it (a restart's seed).
+#[test]
+fn row_11_a_task_past_its_forecast_informs_once() {
+    use crate::forecast::WorkForecast;
+    let forecast = |past: bool, read: Option<(&str, f32)>| WorkForecast {
+        usd_p50: 0.60,
+        usd_p90: 1.50,
+        min_p50: 8.0,
+        min_p90: 14.0,
+        n: 23,
+        past,
+        read: read.map(|r| r.0.to_string()),
+        read_p: read.map(|r| r.1),
+    };
+    let task_at = |at: u64, spent: f64, f: WorkForecast| {
+        let mut v = task("migrate fixtures", WorkState::Running, at);
+        v.started_at_ms = at - 16 * MIN;
+        v.cost = Some(Cost {
+            spent_usd: spent,
+            limit_usd: 10.0,
+            turn_usd: None,
+        });
+        v.forecast = Some(f);
+        v
+    };
+    let before = task_at(AT - 1_000, 1.2, forecast(false, None));
+    let past = task_at(AT, 1.62, forecast(true, Some(("progressing", 0.91))));
+    let n = run(Some(&before), &past);
+    assert_eq!(
+        said(&n),
+        (
+            Urgency::Inform,
+            Why::PastForecast,
+            "⏱ migrate fixtures is past its forecast: $1.62 (p90 $1.50), 16 min (p90 14 min) \
+             · still progressing (loop.v1 0.91)"
+        )
+    );
+    let n = n.unwrap();
+    let ids: Vec<&str> = n.answers.iter().map(|a| a.id.as_str()).collect();
+    assert_eq!(ids, ["keep_going", "stop"]);
+    // Without the judge's read, the line says no more than the numbers.
+    let bare = task_at(AT, 1.62, forecast(true, None));
+    assert!(!said(&run(Some(&before), &bare)).2.contains("loop.v1"));
+    // Once: the next change of a view already past says nothing, and so does
+    // a seed that read it past.
+    let later = task_at(AT + 1_000, 1.9, forecast(true, None));
+    assert_eq!(run(Some(&past), &later), None, "once per task");
+    assert_eq!(run(Some(&bare), &later), None, "never twice");
+    // A view that ended, or has no forecast, says nothing.
+    let mut over = past.clone();
+    over.state = WorkState::Done;
+    assert_ne!(
+        run(Some(&before), &over).map(|n| n.why),
+        Some(Why::PastForecast),
+        "an ended task is not late"
+    );
+    let mut none = past;
+    none.forecast = None;
+    assert_eq!(run(Some(&before), &none), None);
 }
 
 /// Row 10: working to working, queued, spend only, cancelled: nothing.

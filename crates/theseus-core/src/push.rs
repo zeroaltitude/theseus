@@ -382,6 +382,13 @@ impl Push {
             let open = core.push.work.lock().unwrap().open_jobs();
             let (runs, argvs) = work::read_warm(&core, &open);
             core.push.work.lock().unwrap().warm(runs, argvs);
+            // The finished tasks a forecast is made from (theseus-zz752),
+            // then the forecast of each task that is open now.
+            core.tools
+                .forecasts
+                .loaded(crate::forecast::read_history(&core));
+            let now = theseus_protocol::now_unix_ms();
+            core.push.work.lock().unwrap().forecast_open(&core, now);
         });
     }
 

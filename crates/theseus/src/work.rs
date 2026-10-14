@@ -189,6 +189,13 @@ fn view_line(v: &WorkView) -> String {
     if let Some(e) = &v.eta {
         s.push_str(&format!("  [usually {} s]", e.usual_ms / 1000));
     }
+    if let Some(f) = &v.forecast {
+        let spent = v.cost.map_or(0.0, |c| c.spent_usd);
+        s.push_str(&format!("  [{}]", f.spent_of(spent)));
+        if f.past {
+            s.push_str(" past its p90");
+        }
+    }
     if let Some(b) = &v.below {
         if b.total > 0 {
             s.push_str(&format!(

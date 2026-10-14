@@ -7,6 +7,7 @@ import type { Progress } from "./Progress";
 import type { Question } from "./Question";
 import type { Rollup } from "./Rollup";
 import type { Woke } from "./Woke";
+import type { WorkForecast } from "./WorkForecast";
 import type { WorkKind } from "./WorkKind";
 import type { WorkReport } from "./WorkReport";
 import type { WorkState } from "./WorkState";
@@ -76,6 +77,11 @@ cost?: Cost,
  * A job: the usual time of the same program on this machine.
  */
 eta?: Eta, 
+/**
+ * A task: what the finished tasks nearest to it cost and took
+ * (theseus-zz752), numbers only.
+ */
+forecast?: WorkForecast, 
 /**
  * Its subtree, counted by level.
  */

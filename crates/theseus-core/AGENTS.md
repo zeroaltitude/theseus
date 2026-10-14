@@ -1406,6 +1406,29 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   question's reminder (rule 2 of the policy) is not made. Tests: `tests_work.rs` (the scenario and its golden,
   `tests/golden/work_board.txt`), `tests_push/work.rs`, `push/work/tests.rs`, `push/tests/work.rs` (the seed equals the
   replay).
+- **A task's forecast** (theseus-zz752; `forecast.rs`, `forecast/`, `push/work/forecast.rs`, `rpc/forecast.rs`): what
+  tasks like it cost and took, before it runs ("about $0.60 and 8 minutes, at most $1.50"), one notice past the p90, and
+  a calibration. `forecast::Book` (`ToolRuntime::forecasts`) holds the newest 2,000 finished tasks in memory (class,
+  the hashed words of title and objective, dollars, minutes, loops): the work board adds a task as it ends
+  (`note_ended`), and a thread after serving reads the rest from the task executions and the task graph
+  (`read_history`, from `Push::warm_work`; nothing is stored, no frame). A forecast is a memory read, never a model
+  call: the task's class (`class_of`: `open`, `checked` or `specified` by its acceptance lines, which an arrangement's
+  pieces fill), then the 25 nearest briefs by shared words (Jaccard; the newest on a tie), p50 and p90 by
+  interpolation; fewer than five like it is `Outcome::Few(n)` ("no forecast yet: 2 like it"), and a table not yet read
+  is `Loading`. A forecast is said once per task record (`Book::for_task` memoizes), so `task.create`'s first line
+  (`forecast::first_line`, ahead of "Started task …") and the task's `WorkView.forecast` are the same numbers. The view
+  carries numbers, `past` and Jev's latest `loop.v1` read (`work_state` and its confidence, from `judge.call` rows that
+  `work::wanted` lets through for the loop pack alone); no brief, title or id of the tasks it is made from, so the place
+  rule has nothing to hold back. `past` is the board's sticky bit (`mark_past`, in `settle::put`): dollars over the p90
+  or minutes since the task began to run over it (a deferred task's sleep does not count), whichever first; the policy's
+  rule 11 fires on the change to true, an Inform with Keep going (no call) and Stop (`task.cancel`), and a seed after a
+  restart reads it already true (`forecast_open`), so it is told once per task and not again. The board has no timer: a
+  task that passes its p90 between two frames is told at the second. "Route down" is not offered: `profile.use` is the
+  daemon's live profile, not a session's. The forecast never stops a task. `forecast.calibration` (`theseus tasks
+  forecast`) backtests the table: each task that finished in the last 7 and 30 days against the forecast the tasks
+  finished before it opened would have given, by class, on the blocking pool. Tests: `forecast/tests.rs` (synthetic
+  histories), `push/work/tests_forecast.rs` (whole cores: the line, the view, the notice once, a restart, the place),
+  and the protocol's `tests_notices.rs` row 11.
 - **The push's board**: `crates/theseus-core/src/push/board.rs` (and `push.rs`), fed by `Kernel::observe`; `attention()` is in
   `crates/theseus-protocol/src/push.rs`. A view's `outstanding` counts tool calls only, never the model's own
   (`tool_calls`, as `park` counts them), and `same()` compares it; a queued view keeps its `why` until it leaves

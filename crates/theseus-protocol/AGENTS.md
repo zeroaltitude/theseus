@@ -27,6 +27,10 @@ Key modules: `lib.rs` (the `method`, `notify`, `error_code` tables), `events.rs`
   policy before the daemon's work board fills views itself. `tests_work_join.rs` holds `attention_of()` to
   `attention()` over every view the push carries, but for what a work view does not carry (`· +1 more`, a ready
   session's wake time, an unknown state's name, a failed one's pending question).
+- `forecast.rs` (theseus-zz752): `WorkForecast` (a task view's `forecast`: p50 and p90 of dollars and minutes, `n`, the
+  sticky `past` bit, and Jev's latest read), its words (`words`, `spent_of`, `read_words`, `none_words`), and
+  `forecast.calibration`'s types (`ForecastCalibrationResult::lines`, what `theseus tasks forecast` prints). Numbers only.
+  `notices.rs` row 11 (`Why::PastForecast`) and `forecast_answers()` (Keep going, Stop).
 - `answer.rs` (theseus-ds5os): `work.answer` (`WorkAnswerParams`/`WorkAnswerResult`), `confirm.list`'s optional params,
   `reminder_options()` (a reminder's four answers as `AnswerOption`s, made from `wakes::reminder_answers`, the one
   wording), `approves()` (which option ids approve), and `ConfirmRequest::question(kind, may_answer)`, the pure

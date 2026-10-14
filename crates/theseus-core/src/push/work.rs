@@ -25,6 +25,7 @@
 //!   against itself later; nothing wakes the board for it.
 
 mod eta;
+mod forecast;
 mod place;
 mod views;
 
@@ -46,6 +47,8 @@ use crate::session::SessionRecord;
 use crate::Core;
 
 use eta::EtaBook;
+
+use crate::forecast::Outcome;
 
 /// The notices the board keeps for `work-digest`.
 pub const RING: usize = 4096;
@@ -71,6 +74,7 @@ const ROWS: &[&str] = &[
     "action.expired",
     "wake.",
     "task.",
+    "judge.call",
 ];
 
 /// Whether a ledger record's payload is a row the work board reads. The kind
@@ -84,6 +88,12 @@ pub(super) fn wanted(payload: &[u8]) -> bool {
         return true;
     };
     let rest = &head[at + KEY.len()..];
+    if rest.starts_with(b"judge.call") {
+        // Only the loop pack's judgments are read (a task's forecast words
+        // the judge's latest read of it); the rest are not copied.
+        const PACK: &[u8] = b"\"pack\":\"loop.";
+        return payload.windows(PACK.len()).any(|w| w == PACK);
+    }
     ROWS.iter().any(|p| rest.starts_with(p.as_bytes()))
 }
 
@@ -106,6 +116,16 @@ struct ExecIn {
     turn_started_ms: u64,
     loop_index: u32,
     woke: Option<Woke>,
+    /// A task's forecast, said once (theseus-zz752), and the loops it has run.
+    forecast: Option<Outcome>,
+    loops_total: u32,
+    /// When the task began to work: its creation, unless it was asleep
+    /// (a deferred start), then the frame that woke it; 0 while asleep.
+    ran_from_ms: u64,
+    /// Jev's latest read of it (`loop.v1`'s `work_state` and its confidence).
+    read: Option<(String, f32)>,
+    /// Its row joined the table of finished tasks.
+    recorded: bool,
 }
 
 /// An action the board shows: a question, or a job.
@@ -179,6 +199,8 @@ pub(super) struct WorkBoard {
     /// What a root's pruned children were, by level.
     pruned: HashMap<String, Rollup>,
     eta: EtaBook,
+    /// The tasks that passed their forecast's p90, once each (theseus-zz752).
+    past: HashSet<String>,
     /// Views the warm-up changed in place: the next frame sends them again.
     stale: BTreeSet<String>,
     position: u64,
@@ -401,6 +423,7 @@ impl WorkBoard {
                         let id = id.to_string();
                         if let Some(e) = self.execs.get_mut(&id) {
                             e.loop_index += 1;
+                            e.loops_total += 1;
                             d.execs.insert(id);
                         }
                     }
@@ -422,6 +445,7 @@ impl WorkBoard {
                     }
                 }
                 "wake.fired" => self.take_fired(r, d),
+                "judge.call" => self.take_read(r, d),
                 _ => {}
             }
         }
@@ -518,11 +542,11 @@ impl WorkBoard {
                 if !t.title.is_empty() && e.title != t.title {
                     e.title = t.title.clone();
                 }
-                d.execs.insert(exec);
+                d.execs.insert(exec.clone());
             }
+            self.ensure_forecast(core, &exec);
             return;
         }
-        let _ = core;
         // A plan step, and the steps that hang from it.
         self.steps.insert(t.id.clone(), t.clone());
         d.steps.insert(t.id.clone());
@@ -741,6 +765,9 @@ impl WorkBoard {
         }
         let ei = self.execs.get_mut(&id).expect("checked above");
         if let Some(x) = x {
+            if ei.ran_from_ms == 0 && matches!(x.state.as_str(), "queued" | "running") {
+                ei.ran_from_ms = x.at_ms;
+            }
             ei.x = x;
         }
         if let Some((pos, e)) = rec {
@@ -782,6 +809,7 @@ impl WorkBoard {
                 }
             }
         }
+        self.note_ended(core, &id);
         // A rested execution is no longer the wake's turn.
         let ei = self.execs.get_mut(&id).expect("checked above");
         if ei.woke.is_some() && !matches!(ei.x.state.as_str(), "queued" | "running") {
@@ -812,6 +840,12 @@ impl WorkBoard {
         for w in &e.wakes {
             d.wakes.insert(w.id.clone());
         }
+        // A task asleep for a deferred start has not begun to run.
+        let asleep = matches!(
+            x.waiting_on,
+            Some(theseus_protocol::WaitingOn::DueAt { .. })
+        );
+        let ran_from = if asleep { 0 } else { e.created_at_ms };
         self.execs.insert(
             e.id.clone(),
             ExecIn {
@@ -829,8 +863,14 @@ impl WorkBoard {
                 turn_started_ms: 0,
                 loop_index: 0,
                 woke: None,
+                forecast: None,
+                loops_total: 0,
+                ran_from_ms: ran_from,
+                read: None,
+                recorded: false,
             },
         );
+        self.ensure_forecast(core, &e.id);
         d.execs.insert(e.id.clone());
         // What was waiting for it: its steps and its actions.
         let waiting: Vec<String> = self
@@ -850,6 +890,8 @@ mod seed;
 mod settle;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_forecast;
 
 pub(super) use seed::{read_warm, seed};
 
