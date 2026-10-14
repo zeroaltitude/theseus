@@ -1104,7 +1104,12 @@ fn main() {
         .enable_all()
         .build()
         .expect("the CLI's runtime starts");
-    let code = match runtime.block_on(run(cli)) {
+    // `theseus tui` and `theseus chat` connect nothing: they become `theseus-tui` (10f).
+    let result = match chat_cmd::exec_tui(&cli.cmd, &cli.socket, cli.spawn.is_some()) {
+        Some(r) => r,
+        None => runtime.block_on(run(cli)),
+    };
+    let code = match result {
         Ok(()) => 0,
         Err(e) => {
             eprintln!("theseus: {e:#}");
@@ -1122,10 +1127,6 @@ async fn wait_any(c: &mut Conn, json: bool, until: &str, timeout: Option<&str>) 
 
 #[expect(clippy::cognitive_complexity, reason = "shape budget: split it")]
 async fn run(cli: Cli) -> Result<()> {
-    // `theseus tui` and `theseus chat` connect nothing: they become `theseus-tui` (10f).
-    if let Some(r) = chat_cmd::exec_tui(&cli.cmd, &cli.socket, cli.spawn.is_some()) {
-        return r;
-    }
     // `theseus status` connects within 100 ms, and `--short` stays silent when it cannot.
     if let Cmd::Status(a) = &cli.cmd {
         return status::run(&cli.socket, cli.spawn.as_deref(), cli.json, a).await;
@@ -1203,7 +1204,7 @@ async fn run(cli: Cli) -> Result<()> {
         Cmd::Wait { until, timeout, .. } => wait_any(c, json, &until, timeout.as_deref()).await,
         Cmd::Work(a) => work::run(c, json, a).await,
         Cmd::Status(_) | Cmd::Postmortem(_) | Cmd::Tui { .. } | Cmd::Chat { .. } => {
-            unreachable!("returned above")
+            unreachable!("returned above, or exec'd by main")
         }
         Cmd::Profile { cmd } => cmd::profile(c, json, cmd.unwrap_or(ProfileCmd::List)).await,
         Cmd::Ledger { cmd: Some(cmd), .. } => ledger_verify::run(c, json, cmd).await,
