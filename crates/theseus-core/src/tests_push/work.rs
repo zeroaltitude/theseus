@@ -298,3 +298,59 @@ fn a_guarded_scope_scrubs_and_cannot_answer() {
     assert!(whole.question.as_ref().unwrap().may_answer);
     assert!(serde_json::to_string(&whole).unwrap().contains(&token));
 }
+
+/// The Discord binding is the one guarded surface that watches a conversation
+/// of a private place, when the place is a Discord place it speaks in
+/// (theseus-2j2ka): it shows a place its own session's tasks in that place
+/// alone, as it shows its cards. A private session with no Discord place is
+/// still left out, and so is the same room to any other surface. What it hears
+/// is scrubbed and offers no answer.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_discord_binding_watches_the_private_places_it_speaks_in_and_no_other_private_session()
+{
+    use crate::places::BoundPlace;
+    use crate::tests_places::{session, turn as say, LAB};
+    let r = rig();
+    r.core.bind_places(vec![BoundPlace {
+        target: format!("discord:channel:{LAB}"),
+        name: "#lab".into(),
+        private: true,
+        ..Default::default()
+    }]);
+    let lab = session(&r.core, Some(&format!("channel:{LAB}")));
+    let cli = session(&r.core, None);
+    say(&r.core, &lab, "the lab's private plan for the quarter").await;
+    say(&r.core, &cli, "a command line session's words").await;
+
+    let mut binding = connect(&r.core, "binding", Surface::Discord, 1 << 20);
+    let snap = snapshot(
+        binding
+            .call(1, method::WORK_WATCH, json!({"roots": [lab, cli]}))
+            .await,
+    );
+    assert_eq!(
+        snap.views.len(),
+        1,
+        "only its own place's: {:?}",
+        snap.views
+    );
+    assert!(
+        snap.views[0].title.contains("private plan"),
+        "{}",
+        snap.views[0].title
+    );
+    assert!(
+        snap.views
+            .iter()
+            .all(|v| v.question.as_ref().is_none_or(|q| !q.may_answer)),
+        "it offers no answer"
+    );
+
+    // Any other surface that reads no private text hears nothing of the room.
+    let mut mcp = connect(&r.core, "other", Surface::Unnamed, 1 << 20);
+    let none = snapshot(
+        mcp.call(1, method::WORK_WATCH, json!({"roots": [lab]}))
+            .await,
+    );
+    assert!(none.views.is_empty(), "{:?}", none.views);
+}

@@ -1400,8 +1400,9 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   conversation's `woke`. `seed.rs` seeds from what the execution board's seed read (no settled action), and `warm`
   fills jobs' commands and usual times (`eta.rs`: the last 16 durations per program key, median) after serving, in place:
   a client applies by the position rule, so the next frame sends those views again (`stale`). `place.rs` is the place
-  rule: a connection that reads no private text names its roots, hears only a shared place's, scrubbed, and cannot
-  answer. The methods are `rpc/work_board.rs` (`work.watch`, `work.unwatch`, routed through `rpc_prefixed`), the bus
+  rule: a connection that reads no private text names its roots, hears only a shared place's (or, for the Discord
+  binding alone, a conversation that speaks in a Discord place of any class: `rpc/work_board.rs::may_watch`, theseus-2j2ka;
+  it draws that place's board in that place), scrubbed, and cannot answer. The methods are `rpc/work_board.rs` (`work.watch`, `work.unwatch`, routed through `rpc_prefixed`), the bus
   counts the watchers (`work_watchers`, `interactive_watchers`), and `theseus work` reads them. There is no timer: a
   question's reminder (rule 2 of the policy) is not made. Tests: `tests_work.rs` (the scenario and its golden,
   `tests/golden/work_board.txt`), `tests_push/work.rs`, `push/work/tests.rs`, `push/tests/work.rs` (the seed equals the
