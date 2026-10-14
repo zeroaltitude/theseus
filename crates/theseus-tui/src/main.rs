@@ -31,6 +31,8 @@ mod tests_order;
 #[cfg(test)]
 mod tests_paste;
 #[cfg(test)]
+mod tests_progress;
+#[cfg(test)]
 mod tests_sync;
 #[cfg(test)]
 mod tests_typing;
