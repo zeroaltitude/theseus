@@ -19,6 +19,9 @@ pub mod code {
     pub const METHOD_NOT_FOUND: i64 = -32601;
     pub const INVALID_PARAMS: i64 = -32602;
     pub const INTERNAL: i64 = -32603;
+    /// A server-defined code: the client answers too many of the server's
+    /// own requests now (`client::SERVED_AT_ONCE`).
+    pub const BUSY: i64 = -32000;
 }
 
 /// An error object, as a response carries it.

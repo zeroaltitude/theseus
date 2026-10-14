@@ -645,3 +645,96 @@ async fn stray_lines_on_stdout_are_skipped() {
     assert_eq!(client.server_info().server.name, "scripted");
     let _held = server.await.unwrap();
 }
+
+/// A `Serve` that answers `hands.run` with its params, and counts.
+struct Echoes(std::sync::atomic::AtomicUsize);
+
+impl theseus_mcp::client::Serve for Echoes {
+    fn methods(&self) -> &'static [&'static str] {
+        &["hands.run"]
+    }
+    fn answer(
+        &self,
+        method: String,
+        params: Value,
+    ) -> futures_util::future::BoxFuture<'static, Result<Value, (i64, String)>> {
+        self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        Box::pin(async move { Ok(json!({"method": method, "params": params})) })
+    }
+}
+
+/// A server written out by hand over pipes: it answers the handshake, then
+/// asks the client `hands.run` and `sampling/createMessage`, and returns
+/// what it read: the initialize params, then each answer.
+async fn asks_the_client(serve: Option<theseus_mcp::client::Served>) -> (Value, Vec<Value>) {
+    let (ours, theirs) = tokio::io::duplex(1 << 16);
+    let (sr, mut sw) = tokio::io::split(theirs);
+    let server = tokio::spawn(async move {
+        let mut lines = BufReader::new(sr).lines();
+        let (mut init, mut answers) = (Value::Null, Vec::new());
+        while let Some(line) = lines.next_line().await.unwrap() {
+            let m: Value = serde_json::from_str(&line).unwrap();
+            match m["method"].as_str() {
+                Some("initialize") => {
+                    init = m["params"].clone();
+                    let r = json!({"jsonrpc": "2.0", "id": m["id"], "result": {
+                        "protocolVersion": LATEST_PROTOCOL_VERSION, "capabilities": {},
+                        "serverInfo": {"name": "asker", "version": "1"}}});
+                    sw.write_all(format!("{r}\n").as_bytes()).await.unwrap();
+                }
+                Some("notifications/initialized") => {
+                    for (id, method) in [("s-1", "hands.run"), ("s-2", "sampling/createMessage")] {
+                        let q = json!({"jsonrpc": "2.0", "id": id, "method": method,
+                            "params": {"count": 2}});
+                        sw.write_all(format!("{q}\n").as_bytes()).await.unwrap();
+                    }
+                }
+                None if m.get("id").is_some() => {
+                    answers.push(m);
+                    if answers.len() == 2 {
+                        break;
+                    }
+                }
+                _ => {}
+            }
+        }
+        (init, answers)
+    });
+    let (cr, cw) = tokio::io::split(ours);
+    let (client, _events) = Client::connect(Transport::pipes(cr, cw), Options { serve, ..opts() })
+        .await
+        .expect("a handshake");
+    let (init, mut answers) = tokio::time::timeout(WAIT, server).await.unwrap().unwrap();
+    drop(client);
+    answers.sort_by_key(|a| a["id"].as_str().unwrap_or_default().to_string());
+    (init, answers)
+}
+
+#[tokio::test]
+async fn a_served_method_is_answered_and_declared_and_nothing_else_is() {
+    let echoes = Arc::new(Echoes(Default::default()));
+    let served = theseus_mcp::client::Served(echoes.clone());
+    let (init, answers) = asks_the_client(Some(served)).await;
+    assert_eq!(
+        init["capabilities"]["experimental"]["theseus"]["methods"],
+        json!(["hands.run"]),
+        "{init}"
+    );
+    assert_eq!(answers[0]["id"], "s-1");
+    assert_eq!(
+        answers[0]["result"],
+        json!({"method": "hands.run", "params": {"count": 2}})
+    );
+    assert_eq!(answers[1]["id"], "s-2");
+    assert_eq!(answers[1]["error"]["code"], -32601, "{}", answers[1]);
+    assert_eq!(echoes.0.load(std::sync::atomic::Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn without_a_serve_the_client_offers_nothing() {
+    let (init, answers) = asks_the_client(None).await;
+    assert_eq!(init["capabilities"], json!({}), "{init}");
+    for a in &answers {
+        assert_eq!(a["error"]["code"], -32601, "{a}");
+    }
+}
