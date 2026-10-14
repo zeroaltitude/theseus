@@ -203,6 +203,29 @@ pub struct Walk {
 }
 
 impl Walk {
+    /// A thread's topics as the operator's memberships of its session, for
+    /// the topics the ontology holds (theseus-h4a7): the guidance of the
+    /// third layer is the thread's own.
+    pub fn with_topics(mut self, topics: &[String], now_ms: u64) -> Self {
+        for topic in topics {
+            let Ok(id) = CategoryId::parse(topic).or_else(|_| CategoryId::new("topic", topic))
+            else {
+                continue;
+            };
+            if self.snapshot.category(&id).is_some()
+                && !self.current.iter().any(|m| m.category == id)
+            {
+                self.current.push(Membership {
+                    category: id,
+                    origin: Origin::Operator,
+                    confidence: None,
+                    as_of_ms: now_ms,
+                });
+            }
+        }
+        self
+    }
+
     /// The walk for a session in `place`, of `class`, over `snapshot`; none
     /// while the ontology holds no category, so a store without one renders
     /// no differently than before it.
@@ -301,6 +324,10 @@ impl crate::turn::TurnRunner {
             class,
             theseus_protocol::now_unix_ms(),
         )
+        .map(|w| match self.thread_topics(session) {
+            Some(topics) => w.with_topics(&topics, theseus_protocol::now_unix_ms()),
+            None => w,
+        })
         .map(Arc::new)
     }
 

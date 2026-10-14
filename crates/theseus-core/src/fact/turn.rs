@@ -681,7 +681,10 @@ impl Fact for ContextCompiled<'_> {
                     ),
                 );
             }
-            for b in layout.blocks.iter().filter(|b| layout.caches && !b.marked) {
+            // (The session's block carries none by design.)
+            for b in layout.blocks.iter().filter(|b| {
+                layout.caches && !b.marked && b.block != crate::compiler::session_block::NAME
+            }) {
                 say.line(
                     Context,
                     format!(

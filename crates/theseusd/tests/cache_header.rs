@@ -332,15 +332,16 @@ fn the_first_requests_share_one_header(profile: &str, provider: &str) {
     );
     assert_eq!(task["state"], "complete");
 
-    // Three blocks (13c, theseus-ev1; theseus-aab7): the header, then the
-    // context files, then the session's directory, each with its
-    // breakpoint; the conversation's is the top-level one.
+    // Four blocks (theseus-h4a7): the header, the persona's files, the
+    // project layer (the system level's files), then the session's
+    // directory; the first three carry a breakpoint, the directory none, and
+    // the conversation's is the top-level one.
     let blocks = a["system"].as_array().unwrap();
-    assert_eq!(blocks.len(), 3, "{profile}: {}", bytes(&a["system"]));
-    let (header, context) = (&blocks[0], &blocks[1]);
+    assert_eq!(blocks.len(), 4, "{profile}: {}", bytes(&a["system"]));
+    let (header, persona, context) = (&blocks[0], &blocks[1], &blocks[2]);
     assert!(
-        text(&blocks[2]).starts_with("Directory: "),
-        "{profile}: block 3"
+        text(&blocks[3]).starts_with("Directory: "),
+        "{profile}: block 4"
     );
     for part in ["You are Theseus", PROFILE_SYSTEM] {
         assert!(
@@ -352,24 +353,25 @@ fn the_first_requests_share_one_header(profile: &str, provider: &str) {
             "{part:?} is in the context block"
         );
     }
-    for part in [SYSTEM_FILE, PERSONA_FILE] {
-        assert!(
-            text(context).contains(part),
-            "{part:?} is not in the context block"
-        );
+    for (part, layer) in [(SYSTEM_FILE, context), (PERSONA_FILE, persona)] {
+        assert!(text(layer).contains(part), "{part:?} is not in its layer");
         assert!(
             !text(header).contains(part),
             "{part:?} is in the header block"
         );
     }
     assert!(
-        text(context).find(SYSTEM_FILE) < text(context).find(PERSONA_FILE),
-        "the system level's file comes first"
+        !text(context).contains(PERSONA_FILE) && !text(persona).contains(SYSTEM_FILE),
+        "each file is in its own layer alone"
     );
     let five = json!({"type": "ephemeral"});
-    for (i, b) in blocks.iter().enumerate() {
+    for (i, b) in blocks.iter().enumerate().take(3) {
         assert_eq!(b["cache_control"], five, "{profile}: system block {i}");
     }
+    assert!(
+        blocks[3].get("cache_control").is_none(),
+        "{profile}: the directory block carries no breakpoint"
+    );
     assert_eq!(
         a["cache_control"], five,
         "{profile}: the top-level breakpoint"
@@ -396,7 +398,7 @@ fn the_first_requests_share_one_header(profile: &str, provider: &str) {
         t.starts_with(EDITED)
     });
     let edited = e["system"].as_array().unwrap();
-    assert_eq!(edited.len(), 3, "{profile}: {}", bytes(&e["system"]));
+    assert_eq!(edited.len(), 4, "{profile}: {}", bytes(&e["system"]));
     assert!(
         bytes(&edited[0]) == bytes(header),
         "{profile}: the header block changed with a context file:\n{}\n{}",
@@ -408,8 +410,12 @@ fn the_first_requests_share_one_header(profile: &str, provider: &str) {
         "{profile}: the tools changed"
     );
     assert_ne!(
-        edited[1], *context,
-        "{profile}: the context block did not change"
+        edited[1], *persona,
+        "{profile}: the persona layer did not change"
+    );
+    assert!(
+        bytes(&edited[2]) == bytes(context),
+        "{profile}: the project layer changed with a persona file"
     );
     assert!(
         text(&edited[1]).contains(EDIT),
@@ -419,12 +425,13 @@ fn the_first_requests_share_one_header(profile: &str, provider: &str) {
 
     eprintln!(
         "{profile} ({provider}): model {}; tools {} bytes ({tools} tools); system {} bytes in {} \
-         blocks (header {}, context {}); first requests {}, {}, and {} bytes",
+         blocks (header {}, persona {}, project {}); first requests {}, {}, and {} bytes",
         a["model"],
         bytes(&a["tools"]).len(),
         system.len(),
         blocks.len(),
         bytes(header).len(),
+        bytes(persona).len(),
         bytes(context).len(),
         a_raw.len(),
         b_raw.len(),

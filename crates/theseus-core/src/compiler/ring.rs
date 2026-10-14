@@ -194,7 +194,7 @@ fn in_turn(seq: &[&Stub], pin: usize) -> (usize, Vec<usize>) {
 
 /// The cleared results a candidate keeps: those it includes; none, no
 /// report.
-fn cleared_in(cleared: &[&BudgetDrop], c: &Compilation) -> Option<BudgetReport> {
+pub(super) fn cleared_in(cleared: &[&BudgetDrop], c: &Compilation) -> Option<BudgetReport> {
     let ids: std::collections::HashSet<&str> = c.includes.iter().map(String::as_str).collect();
     let dropped: Vec<BudgetDrop> = cleared
         .iter()
@@ -209,7 +209,7 @@ fn cleared_in(cleared: &[&BudgetDrop], c: &Compilation) -> Option<BudgetReport> 
 
 /// The ring's cut (M6 30b, §2.11): the leading nodes it left out, as a range,
 /// and the tokens the estimate says that saved.
-fn ring_cut(dropped: &[&Stub], tokens: u64) -> BudgetDrop {
+pub(super) fn ring_cut(dropped: &[&Stub], tokens: u64) -> BudgetDrop {
     BudgetDrop {
         node_id: None,
         range: dropped

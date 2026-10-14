@@ -20,6 +20,7 @@
 //! Anthropic, theseus-kol), so a model change strips them too; and an assistant
 //! message another provider wrote never carries its thinking, wherever it sits.
 
+use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
@@ -35,11 +36,20 @@ use theseus_protocol::memory::{BudgetDrop, BudgetReport};
 
 mod budget;
 use budget::{budget_report, request_budget};
+pub use layers::{cache_layout, BlockBreakpoint, CacheLayout, MIN_BYTES_PER_TOKEN};
+use layers::{system_blocks, system_digest};
+pub mod card;
 mod clearing;
+pub mod cold;
 pub mod compaction;
 pub mod effort;
+pub mod layers;
 mod ring;
 pub mod session_block;
+#[cfg(test)]
+mod tests_cold;
+#[cfg(test)]
+mod tests_layers;
 #[cfg(test)]
 mod tests_ring;
 pub use clearing::Pass;
@@ -100,71 +110,6 @@ pub struct Manifest {
     // A manifest from 19a to the place rule (COMPILATION schema 4) also has
     // `audience`, `readers`, `integrity`, and `withheld`: they read, and are
     // left unread (COMPILATION schema 5, theseus-nbsh).
-}
-
-/// The cache breakpoints of a compilation's requests (theseus-ev1). The
-/// provider caches a request's prefix in the order tools, system, messages,
-/// up to each breakpoint. Each system block gets one, so an edit to a
-/// context file rewrites the second block and what follows while the tools
-/// and the header still read from the cache; the top-level automatic one
-/// follows the conversation; the session's block takes the 4th (aab7). Fixed:
-/// for its life, the blocks, the tools, and the model are in its
-/// digests. The TTLs are not: they are each request's (`context.compiled`).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct CacheLayout {
-    /// The catalog's `caches`: the provider reads repeated prefixes. Without
-    /// it no request carries a breakpoint.
-    pub caches: bool,
-    /// The model's shortest cacheable prefix, from the catalog.
-    pub min_tokens: u32,
-    /// The system blocks, in order, with their breakpoints.
-    pub blocks: Vec<BlockBreakpoint>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct BlockBreakpoint {
-    /// `header` (the persona, the tools note, the profile's `system`),
-    /// `context` (the context files), or `session` (its directory, aab7).
-    pub block: String,
-    /// The prefix the breakpoint closes, the tools and the system through
-    /// this block, in bytes of their JSON.
-    pub prefix_bytes: u64,
-    /// The block carries `cache_control`. Not when the provider does not
-    /// cache, nor when the prefix is too short to reach `min_tokens`
-    /// (`MIN_BYTES_PER_TOKEN`): then the provider would never cache it, and
-    /// the breakpoint would take a slot for nothing. A marked breakpoint
-    /// whose prefix still falls short is skipped by the provider without an
-    /// error, and the usage shows no write for it.
-    pub marked: bool,
-}
-
-/// Bytes a token takes at the fewest, for the minimum's check. A prefix
-/// under `min_tokens` × this can never reach the minimum, so its breakpoint
-/// is dropped; any other is placed. Claude's tokenizers read this JSON at
-/// about 2.6 bytes a token (Sonnet 5.5) to 3.1 (Haiku 4.5), and prose at
-/// about 4. The compiler's chars/4 estimate would not do: on the owner's config
-/// it put the header, tools included, at about 3,350 tokens, which Sonnet
-/// 5.5 counted at 5,045 and Haiku 4.5 at just under its 4,096 minimum (the
-/// cache2 lane's live check, 2026-10-01). Under chars/4 a header that grew
-/// past Haiku's minimum would still lose its breakpoint. A breakpoint
-/// dropped that would have cached costs a rewrite; one placed that cannot
-/// costs nothing.
-pub const MIN_BYTES_PER_TOKEN: u64 = 2;
-
-impl CacheLayout {
-    /// The breakpoints set, by name, the conversation's last.
-    pub fn breakpoints(&self) -> Vec<&str> {
-        let mut out: Vec<&str> = self
-            .blocks
-            .iter()
-            .filter(|b| b.marked)
-            .map(|b| b.block.as_str())
-            .collect();
-        if self.caches {
-            out.push("conversation");
-        }
-        out
-    }
 }
 
 /// A context file as the system block carried it (theseus-58a): the
@@ -229,9 +174,16 @@ pub struct RequestSpec {
     /// shares: the built-in persona, the tools note, and the profile's own
     /// `system` (theseus-ev1).
     pub system_text: String,
-    /// The system's second block: the context files, the system level's,
-    /// then the persona's; empty without any.
+    /// The second layer: every configured persona's context files; empty
+    /// without any (`layers`).
+    pub persona_text: String,
+    /// The third layer: the system level's context files, then the guidance
+    /// of the session's categories; empty without any.
     pub context_text: String,
+    /// A thread's card, at the head of its messages (`card`).
+    pub card: Option<card::Card>,
+    /// A cold resume of a thread (`cold`): this compile rewrites it small.
+    pub cold: Option<cold::Cold>,
     /// The third block: the session's own (`session_block`); maybe empty.
     pub session_text: String,
     /// The context files `context_text` carries, for the manifest.
@@ -537,6 +489,9 @@ pub struct Compiled {
     pub situation: situation::Situation,
     /// The clearing pass this compile made (theseus-3ki0), for its row.
     pub cleared: Option<Pass>,
+    /// The thread card this request renders, when it has one: a new
+    /// compilation's is stored with it (`thread.card.<compilation id>`).
+    pub card: Option<String>,
 }
 
 /// A rendered request.
@@ -559,58 +514,9 @@ impl Compiled {
     }
 }
 
-fn sha(s: &str) -> String {
+pub(crate) fn sha(s: &str) -> String {
     use sha2::{Digest, Sha256};
     hex::encode(Sha256::digest(s.as_bytes()))[..16].to_string()
-}
-
-/// The system blocks' names and texts, in order; an empty one is left out.
-fn system_blocks(spec: &RequestSpec) -> Vec<(&'static str, &str)> {
-    [
-        ("header", spec.system_text.as_str()),
-        ("context", spec.context_text.as_str()),
-        (session_block::NAME, spec.session_text.as_str()),
-    ]
-    .into_iter()
-    .filter(|(_, text)| !text.is_empty())
-    .collect()
-}
-
-/// The digest of the system blocks' texts. A lone block's is its text's, as
-/// before the split; two are joined by a NUL, which the old single block,
-/// joined by blank lines, never was. So a compilation from before the split
-/// recompiles once (`system_changed`) and drops its prefix's thinking, whose
-/// signatures were made over the old system (theseus-ev1).
-fn system_digest(spec: &RequestSpec) -> String {
-    let texts: Vec<&str> = system_blocks(spec).into_iter().map(|(_, t)| t).collect();
-    sha(&texts.join("\u{0}"))
-}
-
-/// Where the breakpoints go (theseus-ev1): on each system block whose
-/// prefix, the tools and the system through it, can reach the model's
-/// minimum (`MIN_BYTES_PER_TOKEN`), when the provider caches at all.
-pub fn cache_layout(spec: &RequestSpec, catalog: &Catalog) -> CacheLayout {
-    let entry = catalog.get(&spec.model);
-    let caches = entry.is_none_or(|e| e.caches);
-    let min_tokens = entry.map_or(0, |e| e.cache_min_tokens);
-    let len = |v: &Value| serde_json::to_string(v).map_or(0, |s| s.len() as u64);
-    let mut bytes = len(&Value::Array(spec.tools.clone()));
-    let blocks = system_blocks(spec)
-        .into_iter()
-        .map(|(block, text)| {
-            bytes += len(&json!({"type": "text", "text": text}));
-            BlockBreakpoint {
-                block: block.into(),
-                prefix_bytes: bytes,
-                marked: caches && bytes >= min_tokens as u64 * MIN_BYTES_PER_TOKEN,
-            }
-        })
-        .collect();
-    CacheLayout {
-        caches,
-        min_tokens,
-        blocks,
-    }
 }
 
 pub fn manifest_for(
@@ -659,6 +565,10 @@ pub(crate) fn renderable(n: &(impl crate::stub::Shaped + ?Sized)) -> bool {
 /// and a guidance edit in play changes the system block, which recompiles.
 pub fn compile(input: CompileInput<'_>) -> Compiled {
     let Some(walk) = input.spec.walk.as_deref() else {
+        if input.spec.card.is_some() {
+            let (a, r) = card::split(Cow::Borrowed(input.spec), Cow::Borrowed(input.spec));
+            return compile_with(input, &a, &r);
+        }
         return compile_with(input, input.spec, input.spec);
     };
     let recompiled = crate::ontology::guided(input.spec, walk.compose(&walk.current));
@@ -669,6 +579,10 @@ pub fn compile(input: CompileInput<'_>) -> Compiled {
         ),
         None => std::borrow::Cow::Borrowed(&*recompiled),
     };
+    if input.spec.card.is_some() {
+        let (a, r) = card::split(Cow::Owned(appended.into_owned()), recompiled);
+        return compile_with(input, &a, &r);
+    }
     compile_with(input, &appended, &recompiled)
 }
 
@@ -711,7 +625,12 @@ fn compile_with(
                 t.push("tools_changed");
             }
             if t.is_empty() {
-                None
+                // A thread resumed cold: the cache is gone, so the rewrite
+                // refreshes its card and may make it small (`cold`).
+                input
+                    .spec
+                    .cold
+                    .map(|_| ("cold_resume".to_string(), "transcript", true))
             } else {
                 // Each invalidates the prefix's thinking blocks: a system or
                 // tool change the context they were thought in, and a model
@@ -816,6 +735,26 @@ fn compile_with(
         true => now_manifest.clone(),
         false => manifest_for(recompiled, input.catalog, window, false),
     };
+    if let Some(cold) = spec
+        .cold
+        .filter(|c| new_compilation && est.tokens > c.working_tokens)
+    {
+        let b = base();
+        let r = ring::Ring {
+            recompiled,
+            base: &b,
+            renderable: &all_renderable,
+            est: &est,
+            budget: 0,
+            rates,
+            carried: compilation.budget.as_ref(),
+        };
+        if let Some(rung) = cold::resume(&input, &r, cold, &make) {
+            ring_drop = Some(rung.cut).filter(|c| c.range.is_some());
+            (compilation, rendered, est) = (rung.compilation, rung.rendered, rung.est);
+            (spec, trigger) = (recompiled, Some("cold_resume".into()));
+        }
+    }
     if let Some(w) = window {
         let budget = request_budget(w, spec);
         let (b, seen) = (base(), (&compilation, &rendered.request, &est));
@@ -909,6 +848,7 @@ fn compile_with(
         signals,
         situation,
         cleared,
+        card: spec.card.as_ref().map(|c| c.shown.clone()),
     }
 }
 
@@ -946,7 +886,7 @@ pub fn render_request(
         blobs,
         hidden,
     };
-    let rendered = render_messages(
+    let mut rendered = render_messages(
         &prefix,
         &tail,
         c.manifest.strip_thinking,
@@ -955,6 +895,7 @@ pub fn render_request(
         retrying.or(fallback.map(|f| f.1)),
         (sources, &clearing::of(c)),
     );
+    card::attach(spec, &mut rendered);
     let (messages, repairs, image_tokens, tail_from) = (
         rendered.messages,
         rendered.repairs,
@@ -1335,6 +1276,9 @@ mod tests {
             system_text: system.into(),
             context_text: String::new(),
             session_text: String::new(),
+            persona_text: String::new(),
+            card: None,
+            cold: None,
             context_files: vec![],
             persona: None,
             tools: vec![
@@ -1795,7 +1739,7 @@ mod tests {
         assert_eq!(sys[1]["text"], sp.context_text);
         let five = json!({"type": "ephemeral"});
         assert_eq!(marks(&c), [five.clone(), five.clone(), five]);
-        assert_eq!(c.cache.breakpoints(), ["header", "context", "conversation"]);
+        assert_eq!(c.cache.breakpoints(), ["header", "project", "conversation"]);
         let m = c.compilation.manifest.cache.clone().unwrap();
         assert_eq!(m, c.cache);
         assert!(m.caches && m.blocks.iter().all(|b| b.marked));
@@ -1877,9 +1821,9 @@ mod tests {
         assert_eq!((header.block.as_str(), header.marked), ("header", false));
         assert!((4_000..8_192).contains(&header.prefix_bytes), "{header:?}");
         let context = &m.blocks[1];
-        assert_eq!((context.block.as_str(), context.marked), ("context", true));
+        assert_eq!((context.block.as_str(), context.marked), ("project", true));
         assert!(context.prefix_bytes >= 24_000, "{context:?}");
-        assert_eq!(c.cache.breakpoints(), ["context", "conversation"]);
+        assert_eq!(c.cache.breakpoints(), ["project", "conversation"]);
         let stored = serde_json::to_value(&c.compilation.manifest).unwrap();
         assert_eq!(stored["cache"]["blocks"][0]["marked"], false, "{stored}");
 

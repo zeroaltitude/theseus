@@ -162,10 +162,17 @@ pub fn compact(
     summary: &str,
     drops: Vec<BudgetDrop>,
 ) -> Compiled {
-    let spec: Cow<'_, RequestSpec> = match input.spec.walk.as_deref() {
+    let mut spec: Cow<'_, RequestSpec> = match input.spec.walk.as_deref() {
         Some(walk) => crate::ontology::guided(input.spec, walk.compose(&walk.current)),
         None => Cow::Borrowed(input.spec),
     };
+    // A new compilation takes the thread's card as it stands.
+    if let Some(card) = spec.card.clone() {
+        spec.to_mut().card = Some(super::card::Card {
+            shown: card.now.clone(),
+            ..card
+        });
+    }
     let mut c = ring.compilation.clone();
     c.id = crate::new_id("cmp");
     c.strategy = STRATEGY.into();
@@ -212,6 +219,7 @@ pub fn compact(
         signals: ring.signals.clone(),
         situation: ring.situation.clone(),
         cleared: ring.cleared,
+        card: spec.card.as_ref().map(|c| c.shown.clone()),
         request,
     }
 }

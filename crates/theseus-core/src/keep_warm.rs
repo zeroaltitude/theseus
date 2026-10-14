@@ -328,6 +328,7 @@ impl TurnRunner {
         spec.walk = self.walk(sid, place.class);
         // The session's directory block, as the turn puts it (theseus-aab7).
         spec.session_text = self.session_block(rec.dir.as_deref(), place);
+        self.thread_spec(&mut spec, sid, rec.compilation_id.as_deref());
         let built = (|| -> anyhow::Result<_> {
             let nodes = self.store.transcript(sid)?;
             // The stubs in force: a read is warm, so it never decides.

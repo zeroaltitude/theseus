@@ -84,6 +84,7 @@ mod retry_step;
 mod route_step;
 mod self_budget_step;
 pub(crate) mod situation_step;
+mod spec_step;
 mod standing_step;
 pub mod stdio_step;
 mod steer_step;
@@ -177,6 +178,7 @@ pub struct TurnRunner {
     pub standing: crate::standing::Board,
     /// The threads (theseus-nhew), in memory.
     pub threads: crate::threads::Threads,
+    pub cards: crate::thread_context::Cards,
     /// Jev's judgments (M5 23a): each turn's end is handed to it, and it
     /// judges in a task of its own; the turn never waits on it.
     pub judge: Arc<crate::judge::JudgeService>,
@@ -788,47 +790,6 @@ impl TurnRunner {
             .unwrap_or(false)
     }
 
-    /// The system prompt, as its two blocks (theseus-ev1). The header, which
-    /// every session of the profile and their tasks share: the persona, the
-    /// assembly note (theseus-fpm2), the tools paragraph, and the profile's
-    /// own text. Then the context: each context file under its header
-    /// (theseus-58a), the system level's, then the persona's, each header
-    /// naming its level (theseus-c48); empty without files. Deterministic
-    /// for a config and the files' contents; a change is a `system_changed`
-    /// recompile. Nothing retractable belongs in the header (Appendix F,
-    /// theseus-3nk): it is every session's prefix.
-    pub fn system_blocks(
-        &self,
-        target: &Target,
-        files: &[ContextFile],
-        place: crate::ceiling::PlaceView,
-    ) -> (String, String) {
-        let parts: Vec<String> = self
-            .header_parts(target, place)
-            .into_iter()
-            .map(|p| p.1)
-            .collect();
-        let sections: Vec<&str> = files.iter().map(|f| f.section.as_str()).collect();
-        (parts.join("\n\n"), sections.join("\n\n"))
-    }
-
-    /// The turn's request spec, fixed for all its loops, and the context
-    /// files this daemon run finds unreadable for the first time. A task's
-    /// own conversation is cached for 5 minutes whatever the profile says
-    /// (theseus-ev1): its loops run seconds apart, so a 1-hour entry would
-    /// only add its write premium. Its header keeps the profile's TTL, the
-    /// one its parent's requests write.
-    pub fn request_spec(
-        &self,
-        target: &Target,
-        kind: SessionKind,
-        place: crate::ceiling::PlaceView,
-    ) -> (RequestSpec, Vec<Unreadable>) {
-        let paths = self.cfg.context_paths(target.persona.as_deref());
-        let (files, unreadable) = self.context_files.load(&paths);
-        (self.spec_of(target, kind, place, files), unreadable)
-    }
-
     /// `request_spec` over context files already read (`context.explain`
     /// reads them without warning of a missing one, theseus-7n3e).
     pub fn spec_of(
@@ -843,16 +804,19 @@ impl TurnRunner {
         if place.class == crate::places::PlaceClass::Shared {
             crate::context_files::withhold_shared(&mut files);
         }
-        let (system_text, context_text) = self.system_blocks(target, &files, place);
+        let (system_text, persona_text, context_text) = self.system_blocks(target, &files, place);
         RequestSpec {
             profile: target.profile.clone(),
             provider: target.provider.clone(),
             model: target.model.clone(),
             max_tokens: target.max_tokens,
             system_text,
+            persona_text,
             context_text,
             // The session's block is its caller's (`session_block`).
             session_text: String::new(),
+            card: None,
+            cold: None,
             context_files: files.iter().map(|f| f.file.clone()).collect(),
             persona: target.persona.clone(),
             tools: self.tools.definitions_for(place),
@@ -1614,6 +1578,7 @@ impl TurnRunner {
             },
             dir: dir.as_deref(),
             commitments: &frames.commitments,
+            threads: &self.threads,
         };
         if self.narrator.on() && self.narrator.first_sight(&sid) && session.turns > 0 {
             tc.rec().in_turn(None).record(&fact::turn::SessionResumed {
@@ -1741,6 +1706,7 @@ impl TurnRunner {
         spec.session_text = self.session_block(t.tc.dir, t.tc.place());
         spec.walk = self.walk(sid, t.tc.class);
         self.stand(t, &mut spec);
+        self.thread_spec(&mut spec, sid, session.compilation_id.as_deref());
         for u in &unreadable {
             tracing::warn!(path = %u.path, error = %u.error, session_id = %sid,
                 "context file unreadable: the system block says it is missing (warned once per daemon run)");
@@ -3455,7 +3421,7 @@ impl TurnRunner {
         let c = &compiled.compilation;
         session.compilation_id = Some(c.id.clone());
         let records = || -> Result<Vec<NewRecord>> {
-            Ok(vec![
+            let mut records = vec![
                 NewRecord::json(theseus_store::kinds::COMPILATION, Some(&c.id), c)?
                     .scoped(&c.session_id),
                 fact::row(
@@ -3463,7 +3429,9 @@ impl TurnRunner {
                     Some(&c.session_id),
                     Some(turn_id),
                 )?,
-            ])
+            ];
+            records.extend(crate::thread_context::card_record(compiled));
+            Ok(records)
         };
         let written = store.update_session(&session.session_id, |r| {
             r.take_turns_fields(session);

@@ -71,7 +71,9 @@ pub struct ContextFileRef {
 #[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(default)]
 pub struct CacheSummary {
-    /// The blocks marked, in order: `header`, `context`, `conversation`.
+    /// The blocks marked, in order: `header`, `persona`, `project`,
+    /// `conversation` (a request from before the layers: `header`,
+    /// `context`, `conversation`).
     pub breakpoints: Vec<String>,
     /// The system blocks' TTL: `5m` or `1h`.
     pub ttl: String,
@@ -82,6 +84,12 @@ pub struct CacheSummary {
     /// warm window after it does too. Empty, and absent, for most.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub stubbed: Vec<StubbedFile>,
+    /// Each system layer's digest by its name (`header`, `persona`,
+    /// `project`, `session`; theseus-h4a7): two requests that share a layer
+    /// share its digest, and so its cache entry. Absent for a request from
+    /// before it.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub layers: std::collections::BTreeMap<String, String>,
 }
 
 /// An attachment a request sent as its one line, not its text

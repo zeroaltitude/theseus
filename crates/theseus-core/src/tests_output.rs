@@ -574,7 +574,7 @@ async fn the_cores_output_matches_its_golden() {
     Box::pin(conversation(&mut out)).await;
     Box::pin(budget(&mut out)).await;
     Box::pin(budget_notify(&mut out)).await;
-    let got = shapes(&alias(&out));
+    let got = shapes(&alias(&layers(&out)));
     if std::env::var("THESEUS_GOLDEN").as_deref() == Ok("write") {
         let to = std::env::var("THESEUS_GOLDEN_TO").unwrap_or_else(|_| GOLDEN.to_string());
         std::fs::create_dir_all(Path::new(&to).parent().unwrap()).unwrap();
@@ -797,7 +797,7 @@ impl Mask {
         for d in &self.dirs {
             s = s.replace(d.as_str(), "<dir>");
         }
-        offsets(&durations(&digests(&s)))
+        offsets(&durations(&digests(&layers(&s))))
     }
 }
 
@@ -824,6 +824,35 @@ fn shapes(text: &str) -> String {
             out.push('#');
         }
     }
+    out
+}
+
+/// The digests of a request's system layers (`cache.layers`): what they
+/// digest holds this run's directories, so each is `<layer>`.
+fn layers(s: &str) -> String {
+    const KEY: &str = "\"layers\":{";
+    let mut out = String::with_capacity(s.len());
+    let mut rest = s;
+    while let Some(at) = rest.find(KEY) {
+        let (head, tail) = rest.split_at(at + KEY.len());
+        out.push_str(head);
+        let end = tail.find('}').unwrap_or(tail.len());
+        let mut inner = String::new();
+        let mut parts = tail[..end].split('"');
+        // `name":"digest` pairs, quoted: every second string is a digest.
+        let mut n = 0;
+        if let Some(first) = parts.next() {
+            inner.push_str(first);
+        }
+        for p in parts {
+            inner.push('"');
+            n += 1;
+            inner.push_str(if n % 4 == 3 { "<layer>" } else { p });
+        }
+        out.push_str(&inner);
+        rest = &tail[end..];
+    }
+    out.push_str(rest);
     out
 }
 
