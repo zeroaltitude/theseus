@@ -30,7 +30,7 @@ PROFILE = Path(__file__).resolve().parent.parent / "theseus-bench.toml"
 # the routing table on, and the Jev key as a second secret.
 PROFILE_ROUTED = Path(__file__).resolve().parent.parent / "theseus-bench-routed.toml"
 # The profiles the routed arm names, each given the trial's loop cap.
-ROUTED_PROFILES = ("sonnet", "opus", "fable", "haiku", "haikuhi")
+ROUTED_PROFILES = ("sonnet", "sonnethi", "opus", "fable", "haiku", "haikuhi")
 # The environment variable that holds the Jev key (the profile's
 # `jev_api_key = "env:TYPESAFE_API_KEY"`): passed into the container for the
 # routed arm only.

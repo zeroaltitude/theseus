@@ -199,12 +199,12 @@ fn jev_raises_a_session_and_two_chats_bring_it_back() {
     // Sophisticated raises the session; the first chat holds, the second steps down.
     assert_eq!(
         (get(2, "profile"), get(2, "reason")),
-        ("fable".into(), "verdict".into())
+        ("opus".into(), "verdict".into())
     );
     assert_eq!(rows[2]["switch"], true);
     assert_eq!(
         (get(3, "profile"), get(3, "reason")),
-        ("fable".into(), "cache_hold".into())
+        ("opus".into(), "cache_hold".into())
     );
     assert_eq!(
         (get(4, "profile"), get(4, "reason")),

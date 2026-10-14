@@ -129,7 +129,8 @@ fn no_calls(_: &str) -> Vec<(&'static str, Value)> {
 }
 
 /// The first message of a fresh one-shot daemon, which Jev says is deep
-/// coding, runs on Opus (the table's first for that mode), recorded live.
+/// coding, runs on sonnethi (Sonnet 5.5 at high effort, the table's first for
+/// that mode since the owner's table of 2026-10-10), recorded live.
 #[test]
 fn the_first_message_of_a_fresh_daemon_is_routed_live() {
     let model = FakeModel::start(no_calls);
@@ -145,7 +146,7 @@ fn the_first_message_of_a_fresh_daemon_is_routed_live() {
     assert_eq!(rows.len(), 1, "{ledger}");
     let d = &rows[0]["data"];
     assert_eq!(d["mode"], "deep_coding", "{d}");
-    assert_eq!(d["profile"], "opus", "{d}");
+    assert_eq!(d["profile"], "sonnethi", "{d}");
     assert_eq!(d["late"], false, "{d}");
     assert_ne!(d["reason"].as_str().unwrap_or(""), "shadow", "{d}");
     assert!(rows[0]["position"].is_u64(), "{}", rows[0]);
@@ -154,7 +155,7 @@ fn the_first_message_of_a_fresh_daemon_is_routed_live() {
         .iter()
         .map(|r| r["model"].as_str().unwrap_or("").to_string())
         .collect();
-    assert_eq!(models, ["claude-opus-5-5"], "{models:?}");
+    assert_eq!(models, ["claude-sonnet-5-5"], "{models:?}");
     // The judge.call rows the record reads.
     let (_, calls, _) = theseus(dir.path(), &["ledger", "-n", "1000", "-k", "judge.call"]);
     let calls: Value = serde_json::from_str(&calls).unwrap();
@@ -257,14 +258,16 @@ fn a_job_that_reads_the_daemons_environment_sees_neither_key() {
 
 /// At the plain arm's $2 limit the money gate refuses the first call Jev
 /// sends to Opus or Fable: the profiles cap no output, so the reservation is
-/// 128,000 tokens at the model's price (about $2.6 and $6.5). The adapter's
-/// routed default is higher (`ROUTED_SPEND_LIMIT_USD`); a mode that reaches
-/// Haiku or Sonnet is unaffected.
+/// 128,000 tokens at the model's price (about $2.6 and $6.5). Since the
+/// owner's table of 2026-10-10 sophisticated work goes to Opus first and deep
+/// coding to Sonnet 5.5 at high effort. The adapter's routed default is higher
+/// (`ROUTED_SPEND_LIMIT_USD`); a mode that reaches Haiku or Sonnet is
+/// unaffected.
 #[test]
 fn at_two_dollars_an_opus_or_fable_route_is_refused_by_the_money_gate() {
     for (mode, profile, model, refused) in [
-        ("deep_coding", "opus", "claude-opus-5-5", true),
-        ("sophisticated", "fable", "claude-fable-5-1", true),
+        ("sophisticated", "opus", "claude-opus-5-5", true),
+        ("deep_coding", "sonnethi", "claude-sonnet-5-5", false),
         ("routine_coding", "haikuhi", "claude-haiku-5-5", false),
     ] {
         let stand_in = FakeModel::start(no_calls);

@@ -167,14 +167,16 @@ class Routed(unittest.TestCase):
         modes = {m: t["profiles"] for m, t in cfg["routing"]["modes"].items()}
         self.assertEqual(modes, {
             "trivial": ["haiku"], "quick": ["haiku"], "chat": [],
-            "sophisticated": ["fable", "opus"], "deep_coding": ["opus", "fable"],
+            "sophisticated": ["opus", "fable"], "deep_coding": ["sonnethi", "opus"],
             "routine_coding": ["haikuhi", "sonnet"]})
         named = {p for ps in modes.values() for p in ps}
         self.assertLessEqual(named, set(cfg["profiles"]))
         self.assertEqual({n: cfg["profiles"][n]["model"] for n in tb.ROUTED_PROFILES}, {
-            "sonnet": "claude-sonnet-5-5", "opus": "claude-opus-5-5", "fable": "claude-fable-5-1",
+            "sonnet": "claude-sonnet-5-5", "sonnethi": "claude-sonnet-5-5", "opus": "claude-opus-5-5",
+            "fable": "claude-fable-5-1",
             "haiku": "claude-haiku-5-5", "haikuhi": "claude-haiku-5-5"})
-        self.assertEqual((cfg["profiles"]["haiku"]["effort"], cfg["profiles"]["haikuhi"]["effort"]), ("low", "high"))
+        self.assertEqual((cfg["profiles"]["haiku"]["effort"], cfg["profiles"]["haikuhi"]["effort"],
+                          cfg["profiles"]["sonnethi"]["effort"]), ("low", "high", "high"))
         # The trial's loop cap rides every profile the router may pick.
         for name in ("bench", *tb.ROUTED_PROFILES):
             self.assertEqual(cfg["profiles"][name]["max_loops"], 50, name)
