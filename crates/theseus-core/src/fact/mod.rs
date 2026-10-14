@@ -68,6 +68,7 @@ pub mod rsi;
 pub mod rsi_backlog;
 pub mod rsi_budget;
 pub mod rsi_exams;
+pub mod rsi_narrow;
 pub mod rsi_pr;
 pub mod rsi_sealed;
 pub mod sandbox;
@@ -478,6 +479,11 @@ facts![
     rsi_exams::ExamCounted<'static>,
     rsi_exams::ExamRejected<'static>,
     rsi_exams::ExamPass,
+    rsi_narrow::NarrowProposed,
+    rsi_narrow::NarrowApplied,
+    rsi_narrow::NarrowDeclined,
+    rsi_narrow::NarrowRed,
+    rsi_narrow::NarrowReverted,
     standing::StandingAdded<'static>,
     standing::StandingRevoked<'static>,
     thread::ThreadCreated<'static>,

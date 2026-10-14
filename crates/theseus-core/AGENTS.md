@@ -561,6 +561,28 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   `Shelf` write, and `exams::touches_exams` names the paths a self branch's push refuses (`rsi::tree::push`: `self/exams/`,
   `crates/theseus-exam/exam/`). `self.exams` / `theseus self exams` show counts by family and half and today's
   reviews, never a sealed item's text. Tests: `rsi/exams/tests.rs`, `rpc/tests_self_exams.rs`.
+  **Self-narrow** (theseus-pw1q.15; `aws/narrow/`, `rsi/narrow.rs`, `fact/rsi_narrow.rs`): Theseus proposes a narrower
+  policy for a hand role (`theseus-hand-owner`, `-read`) from what CloudTrail showed it calling, checks it, and sends it
+  to the owner's card; an IAM change is the hard keel, so nothing applies without the owner's yes. The weekly pass
+  (`Core::self_narrow_nightly`, after the exams, nothing with the mode off or the switch thrown; `[self]
+  narrow_every_days` 7, `narrow_days` 14, `narrow_read_pages` 400) reads the role's events from CloudTrail's history (a
+  page of 50 at its 2-a-second rate; `usage.rs`: distinct `service:Action` pairs and ARNs for the role, an access error
+  is not a use, the data events the history cannot show, `DATA_EVENTS`, are kept as the policy has them and named "not
+  visible"; a window cut by the page cap proposes nothing), reads the role's policies (`live.rs`: everything attached but
+  `theseus-hand-basics` is wide and replaced), and builds the candidate (`build.rs`: observed actions on the ARNs they
+  named when those sit inside the statement that allowed them, else that statement's resources; the `KEEP` list from the
+  hand's code; the denies copied). `policy::wider` proves it no wider than today on every statement (also a property
+  test over random policies). `verify.rs`: Access Analyzer's `ValidatePolicy` (an ERROR or SECURITY_WARNING blocks;
+  suggestions are listed) and `SimulateCustomPolicy` of every observed call against the candidate and what stays
+  (anything but `allowed` blocks). `apply.rs` patches the deployed hands template as text (anchors checked, read back),
+  and the guard crate's scan of it must find nothing new. The card (`self_narrow`, the owner's DM) carries the diff in
+  words (`proposal.rs`), `theseus self narrow show ID` the JSON. `theseus self narrow apply|decline|revert ID`
+  (`judge_act(Act::SelfNarrow)`: the owner, a private place, never a job's shell): apply makes a change set of the hands
+  stack from its deployed template, drops it unrun unless it touches only the role and its new policy and the guards'
+  floor is empty, runs it, and keeps the template from before in `<state>/self/narrow/<id>.before.yaml` for the revert.
+  For a week after an apply the nightly watch reads the role's AccessDenied events since it; each new denied action is
+  a `self.narrow.red` row and a `self_narrow_red` card with the revert. State is the META record `self.narrow`. The
+  pass makes AWS reads and no model call. Tests: `aws/narrow/*` (pure, with a fake account) and `rsi/tests_narrow.rs`.
 - **The index tender's supervisor**: `tender.rs` (row 51): it starts `theseus-index` 2 s after serving
   (`START_AFTER`, so a start's aftermath stays quiet), restarts it with backoff, takes over the one an exec kept
   at once, and asks it for health and `index.query`, each call bounded (health asks only a tender that runs, and

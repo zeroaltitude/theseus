@@ -43,11 +43,14 @@ pub mod budget;
 mod digest;
 pub mod exams;
 mod log;
+pub mod narrow;
 pub mod pr;
 pub mod sealed;
 mod switch;
 #[cfg(test)]
 mod tests_budget;
+#[cfg(test)]
+mod tests_narrow;
 #[cfg(test)]
 mod tests_pr;
 #[cfg(test)]

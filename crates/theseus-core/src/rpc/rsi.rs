@@ -14,7 +14,7 @@ use super::Core;
 use crate::approval::Refusal;
 
 /// The methods routed here.
-pub(super) const OWN: [&str; 9] = [
+pub(super) const OWN: [&str; 10] = [
     method::SELF_HALT,
     method::SELF_RESUME,
     method::SELF_LOG,
@@ -24,6 +24,7 @@ pub(super) const OWN: [&str; 9] = [
     method::SELF_MOVE,
     method::SELF_BRANCHES,
     method::SELF_EXAMS,
+    method::SELF_NARROW,
 ];
 
 impl Core {
@@ -64,6 +65,22 @@ impl Core {
     }
 }
 
+impl Core {
+    /// `self.narrow` (theseus-pw1q.15): reads and the owner's answers on the
+    /// hand roles' narrower policies. Async (AWS), so `rpc_prefixed` calls it
+    /// ahead of `rpc_self`.
+    pub(super) async fn rpc_self_narrow(
+        &self,
+        params: Value,
+        conn: Conn<'_>,
+    ) -> Result<Value, RpcFailure> {
+        let p: theseus_protocol::rsi::SelfNarrowParams = super::server::parse(or_empty(params))?;
+        let who = conn.answerer(p.author.clone(), p.discord.clone());
+        let r = self.self_narrow(&p, &who).await.map_err(narrow_refused)?;
+        super::server::reply(r)
+    }
+}
+
 /// A refused resume, as the owner's acts answer one; any other error is the
 /// daemon's.
 fn refused(e: anyhow::Error) -> RpcFailure {
@@ -90,6 +107,26 @@ fn word_refused(e: anyhow::Error) -> RpcFailure {
                 code: error_code::REFUSED,
                 message: format!(
                     "a word on the self backlog from {} does not count: {}. The backlog is as it was.",
+                    r.who, r.why
+                ),
+                data: serde_json::json!({"who": r.who, "via": r.via, "why": r.why}),
+            },
+            Err(e) => e.into(),
+        },
+    }
+}
+
+/// A refused change to a hand role's policy, as the owner's acts answer
+/// one; a proposal that is not there or not in the state is the caller's
+/// mistake; any other error is the daemon's.
+fn narrow_refused(e: anyhow::Error) -> RpcFailure {
+    match e.downcast::<crate::rsi::backlog::BadItem>() {
+        Ok(b) => RpcFailure::new(error_code::INVALID_PARAMS, b.to_string()),
+        Err(e) => match e.downcast::<Refusal>() {
+            Ok(r) => RpcFailure {
+                code: error_code::REFUSED,
+                message: format!(
+                    "a change to a hand role's policy from {} does not count: {}. The policy is as it was.",
                     r.who, r.why
                 ),
                 data: serde_json::json!({"who": r.who, "via": r.via, "why": r.why}),

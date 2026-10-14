@@ -353,6 +353,8 @@ pub mod method {
         SELF_HALT = "self.halt", SELF_RESUME = "self.resume", SELF_LOG = "self.log", SELF_DIGEST = "self.digest",
         SELF_BACKLOG = "self.backlog", SELF_DROP = "self.drop", SELF_MOVE = "self.move", SELF_BRANCHES = "self.branches",
         SELF_EXAMS = "self.exams",
+        /// Narrower policies for the hand roles (theseus-pw1q.15; `rsi::SelfNarrowParams`). The owner's to apply.
+        SELF_NARROW = "self.narrow",
     }
 }
 

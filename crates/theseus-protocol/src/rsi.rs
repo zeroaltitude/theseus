@@ -138,6 +138,43 @@ pub const SELF_ROWS: &[SelfRowKind] = &[
         fields: &["by", "place"],
         doc: "The owner, from a private place, released the kill switch.",
     },
+    SelfRowKind {
+        name: "self.narrow.proposed",
+        fields: &[
+            "role",
+            "actions_before",
+            "actions_after",
+            "evidence_days",
+            "analyzer_findings",
+            "proposal",
+        ],
+        doc: "A narrower policy for a hand role, built from what CloudTrail showed it calling and \
+              checked by Access Analyzer and the simulator, sent to the owner's card. Nothing is \
+              applied without the owner's yes.",
+    },
+    SelfRowKind {
+        name: "self.narrow.applied",
+        fields: &["role", "proposal", "stack", "change_set", "by"],
+        doc: "The owner applied a narrowed policy through the hands stack's change set; a week's \
+              watch for AccessDenied begins.",
+    },
+    SelfRowKind {
+        name: "self.narrow.declined",
+        fields: &["role", "proposal", "by"],
+        doc: "The owner said not now to a narrowing proposal; it is asked again no sooner than a \
+              week later.",
+    },
+    SelfRowKind {
+        name: "self.narrow.red",
+        fields: &["role", "proposal", "denied", "count"],
+        doc: "A role that was narrowed was denied a call in the week after the apply: the denied \
+              call, and the owner's one-step revert.",
+    },
+    SelfRowKind {
+        name: "self.narrow.reverted",
+        fields: &["role", "proposal", "stack", "change_set", "by"],
+        doc: "The owner reverted a narrowing to the policy before it, through a change set.",
+    },
 ];
 
 /// `[self] mode`, as the daemon read it at its start.
@@ -601,5 +638,66 @@ pub struct SelfBranchesResult {
     #[cfg_attr(test, ts(optional))]
     pub remote: Option<String>,
     pub branches: Vec<SelfBranch>,
+    pub state: SelfState,
+}
+
+// ---------------------------------------------------------------- self-narrow (theseus-pw1q.15)
+// Narrower policies for the hand roles, from what CloudTrail showed them
+// calling. `theseus self narrow` reads and answers them; an IAM change is
+// the owner's alone.
+
+/// `self.narrow`'s params. `action` is `list` (the default), `run` (look at
+/// a role now: `profile`, `owner` or `read`), or the owner's `apply`,
+/// `decline` and `revert`, each naming a `proposal` by its id or the end of it.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct SelfNarrowParams {
+    #[serde(default)]
+    pub action: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub proposal: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub profile: Option<String>,
+    /// With `run`: only look. The reads are made and the proposal is printed;
+    /// nothing is kept, posted or changed, and the self gate does not hold it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub dry: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub author: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub discord: Option<crate::DiscordOrigin>,
+    /// The `THESEUS_SESSION` of the shell that sent it: a job's never counts.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub from_job: Option<String>,
+}
+
+/// One narrowing proposal, in a list.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct SelfNarrowItem {
+    pub id: String,
+    pub role: String,
+    /// `open`, `applied`, `declined` or `reverted`.
+    pub state: String,
+    pub at_ms: u64,
+    pub actions_before: u64,
+    pub actions_after: u64,
+    pub evidence_days: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub applied_ms: Option<u64>,
+}
+
+/// `self.narrow`'s answer: the words to print, and the proposals.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct SelfNarrowResult {
+    pub text: String,
+    pub proposals: Vec<SelfNarrowItem>,
     pub state: SelfState,
 }

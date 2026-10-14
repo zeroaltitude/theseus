@@ -622,6 +622,16 @@ impl Core {
             Act::SelfBacklog { from_job: None, .. } => {
                 crate::places::owner_anywhere(who, &self.runner.place_rule, &self.cfg).map(|_| ())
             }
+            // A narrower policy for the hands (theseus-pw1q.15): an IAM change,
+            // the owner's from a private place, as an answer is.
+            Act::SelfNarrow {
+                from_job: Some(job),
+                ..
+            } => Err(format!(
+                "it came from a Theseus job's shell (THESEUS_SESSION={job}), and only the owner \
+                 changes a hand role's policy, from their own shell, the web UI, or their own \
+                 account in a private place"
+            )),
             _ => crate::places::owner_in_private(who, &self.runner.place_rule, &self.cfg),
         };
         let Err(why) = verdict else {
@@ -867,6 +877,14 @@ pub(crate) enum Act<'a> {
         what: &'a str,
         from_job: Option<&'a str>,
     },
+    /// A hand role's narrower policy (theseus-pw1q.15, `self.narrow`): an
+    /// IAM change, the owner's alone from a private place, never a job's
+    /// shell. `what` names the proposal or the role the owner typed.
+    SelfNarrow {
+        method: &'static str,
+        what: &'a str,
+        from_job: Option<&'a str>,
+    },
     /// Earned autonomy (theseus-uttu): a grant's yes or a group's pass (the
     /// owner's, from a private place, since a yes loosens), a card posted
     /// now, and a grant's revoke (`tightens`: anyone's, as "should have
@@ -904,6 +922,7 @@ impl Act<'_> {
             Act::Thread { method, .. } => method,
             Act::SelfResume { .. } => theseus_protocol::method::SELF_RESUME,
             Act::SelfBacklog { method, .. } => method,
+            Act::SelfNarrow { method, .. } => method,
             Act::Earned { method, .. } => method,
             Act::Retract { .. } => theseus_protocol::method::FACT_RETRACT,
         }
