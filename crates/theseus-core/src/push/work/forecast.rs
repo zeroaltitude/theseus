@@ -23,7 +23,7 @@ impl WorkBoard {
     /// Say the forecast of a task not yet forecast, when the table is read:
     /// a task whose forecast is a number or a count of too few keeps it.
     pub(super) fn ensure_forecast(&mut self, core: &Core, exec: &str) {
-        let Some(ei) = self.execs.get_mut(exec) else {
+        let Some(ei) = self.execs.get(exec) else {
             return;
         };
         if ei.kind != WorkKind::Task
@@ -31,8 +31,20 @@ impl WorkBoard {
         {
             return;
         }
-        if let Some(t) = self.task_of_exec.get(exec) {
-            ei.forecast = Some(core.tools.forecasts.for_task(t));
+        // The task's record: the board's, else the graph's (the frame that
+        // opened the task may reach the board before its record is read).
+        if !self.task_of_exec.contains_key(exec) {
+            let session = ei.x.session_id.clone();
+            match crate::task_graph::get(&core.store, &crate::task_graph::of_session(&session)) {
+                Ok(Some(t)) => {
+                    self.task_of_exec.insert(exec.to_string(), t);
+                }
+                _ => return,
+            }
+        }
+        let outcome = core.tools.forecasts.for_task(&self.task_of_exec[exec]);
+        if let Some(ei) = self.execs.get_mut(exec) {
+            ei.forecast = Some(outcome);
         }
     }
 

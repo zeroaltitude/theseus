@@ -809,6 +809,7 @@ impl WorkBoard {
                 }
             }
         }
+        self.ensure_forecast(core, &id);
         self.note_ended(core, &id);
         // A rested execution is no longer the wake's turn.
         let ei = self.execs.get_mut(&id).expect("checked above");

@@ -460,5 +460,29 @@ pub fn first_line(short: &str, title: &str, o: &Outcome) -> String {
 mod history;
 pub use history::{read_history, row_of};
 
+impl crate::Core {
+    /// Read the finished tasks once, after serving, on the blocking pool (a
+    /// thread holding the core weakly), and say the forecast of each task
+    /// that is open on the work board if it has been seeded. Called after
+    /// serving and when the board warms; the second finds the table read and
+    /// reads nothing.
+    pub fn warm_forecasts(self: &std::sync::Arc<Self>) {
+        let weak = std::sync::Arc::downgrade(self);
+        tokio::task::spawn_blocking(move || {
+            let Some(core) = weak.upgrade() else { return };
+            let t0 = std::time::Instant::now();
+            if !core.tools.forecasts.ready() {
+                core.tools.forecasts.loaded(read_history(&core));
+                tracing::info!(
+                    rows = core.tools.forecasts.len(),
+                    ms = t0.elapsed().as_millis() as u64,
+                    "forecast: finished tasks read"
+                );
+            }
+            core.push.forecast_open(&core);
+        });
+    }
+}
+
 #[cfg(test)]
 mod tests;
