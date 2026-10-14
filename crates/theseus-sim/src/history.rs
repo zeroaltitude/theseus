@@ -551,11 +551,13 @@ pub fn near_limits_of(bench: &str, verdicts: &[Verdict]) -> Vec<String> {
 /// Whether a column's nearness to its limit is drift worth a word: not a
 /// count of frames, which a budget holds exactly, nor the turn bench's
 /// counted rows (theseus-7gir.13: syncs, deltas, and the first request's KB,
-/// each said with its own unit as it is measured).
+/// each said with its own unit as it is measured), nor a size, whose limit is
+/// the last recorded size plus 1 MB and so is always near (theseus-2m7jg).
 fn warns_near(column: &str) -> bool {
     unit(column) != "frames"
         && !column.starts_with("syncs_")
         && !column.starts_with("deltas_")
+        && !column.starts_with("size_")
         && column != "first_request_kb"
 }
 
@@ -1085,5 +1087,19 @@ mod tests {
         let lines = near_limits_of("turn", &v);
         assert_eq!(lines.len(), 1, "{lines:?}");
         assert!(lines[0].contains("a plain turn's wall time"), "{lines:?}");
+    }
+
+    /// A size's limit is the last recorded size plus 1 MB (theseus-2m7jg), so
+    /// it is always within 10% of it: no "near the limit" line for it.
+    #[test]
+    fn a_size_is_never_said_to_be_near_its_growth_limit() {
+        let v = [Verdict {
+            phase: "size_theseusd".to_string(),
+            p95: 83.1,
+            budget: 84.1,
+            margin: 0.0,
+            ok: true,
+        }];
+        assert!(near_limits_of("size", &v).is_empty());
     }
 }
