@@ -188,7 +188,7 @@ fn move_thread(c: &Core, name: &str, slug: &str) -> theseus_protocol::threads::T
 
 /// One `turn.submit` over a connection from the CLI, as the CLI sends it:
 /// the response, as JSON.
-async fn ask(
+pub(super) async fn ask(
     core: Arc<Core>,
     slug: Option<&str>,
     session: Option<&str>,

@@ -585,7 +585,9 @@ async fn reading_a_sealed_thread_asks_the_owner_first() {
     );
 }
 
-/// "seal this thread" in a thread's session seals it before the turn runs.
+/// "seal this thread" in a thread's session seals it before the turn runs,
+/// and leaves a note in the session; the same words in an unthreaded session,
+/// or with more in them, are an ordinary message.
 #[tokio::test]
 async fn the_owners_explicit_verb_seals_the_thread() {
     use super::thread_seal::is_seal_word;
@@ -600,4 +602,121 @@ async fn the_owners_explicit_verb_seals_the_thread() {
     ] {
         assert!(!is_seal_word(no), "{no}");
     }
+    let r = canary();
+    let c = &r.core;
+    new_thread(c, "scratch", "scratch pad");
+    new_thread(c, "other", "another thread");
+    let ordinary =
+        super::tests_threads::ask(c.clone(), Some("other"), None, "seal this thread now").await;
+    assert!(ordinary["error"].is_null(), "{ordinary}");
+    assert!(c.threads().get("other").unwrap().sealed.is_none());
+    let said = super::tests_threads::ask(c.clone(), Some("scratch"), None, "/seal").await;
+    assert!(said["error"].is_null(), "{said}");
+    let sid = said["result"]["session_id"].as_str().unwrap().to_string();
+    let t = c.threads().get("scratch").unwrap().clone();
+    assert!(
+        t.sealed.as_ref().is_some_and(|s| s.reason.contains("word")),
+        "{t:?}"
+    );
+    let noted = c
+        .store
+        .session_nodes(&sid)
+        .unwrap()
+        .into_iter()
+        .any(|(_, n)| {
+            matches!(&n.body, Body::UserMessage { text, .. } if text.starts_with("The owner sealed this thread"))
+        });
+    assert!(noted, "a note says so before the turn");
+    // The same words from a session no thread serves seal nothing.
+    let plain = session(c, None, &[]);
+    let r2 = super::tests_threads::ask(c.clone(), None, Some(&plain), "seal this thread").await;
+    assert!(r2["error"].is_null(), "{r2}");
+    assert_eq!(c.threads().all().filter(|t| t.sealed.is_some()).count(), 1);
+}
+
+/// `thread.read` with a query gives the thread's card and its top notes,
+/// each cited by thread and position.
+#[tokio::test]
+async fn a_read_with_a_query_cites_the_threads_notes() {
+    let r = canary();
+    let c = &r.core;
+    new_thread(c, "security-fix", "security fix");
+    let fix = thread_session(c, "security-fix");
+    let id = say(c, &fix, "The staging proxy listens on port 8443.");
+    let asker = session(c, None, &[]);
+    c.runner
+        .memory
+        .set_ask(scored(c, vec![(fix.clone(), 0, 0.04)]));
+    let out = crate::thread_read::call(
+        c.clone(),
+        &asker,
+        json!({"thread": "Security Fix", "query": "staging proxy port"}),
+    )
+    .await
+    .unwrap();
+    assert!(
+        out.text
+            .contains("Thread «security fix» (security-fix, active)"),
+        "{}",
+        out.text
+    );
+    let (position, _) = c.store.get_node(&id).unwrap().unwrap();
+    let cite = format!("[thread «security fix», {}, @{position}]", day_of(c, &id));
+    assert!(out.text.contains(&cite), "{}", out.text);
+    assert!(out.text.contains("port 8443"), "{}", out.text);
+    assert_eq!(out.meta["shown"], 1);
+}
+
+/// The three seal methods over the protocol, as the CLI sends them.
+#[tokio::test]
+async fn the_seal_methods_answer_over_the_protocol() {
+    use theseus_protocol::{Id, Message, Request};
+    use tokio::io::{duplex, AsyncBufReadExt, AsyncWriteExt, BufReader};
+    let r = canary();
+    let c = r.core.clone();
+    new_thread(&c, "tides", "tide gauges");
+    let call = |method: &'static str, params: serde_json::Value| {
+        let c = c.clone();
+        async move {
+            let (client, server) = duplex(64 * 1024);
+            let (sr, sw) = tokio::io::split(server);
+            let srv = tokio::spawn(c.serve_connection(
+                sr,
+                sw,
+                crate::approval::Client::new("cli", Surface::Cli),
+            ));
+            let (cr, mut cw) = tokio::io::split(client);
+            let mut line =
+                serde_json::to_string(&Request::new(Id::Num(1), method, params)).unwrap();
+            line.push('\n');
+            cw.write_all(line.as_bytes()).await.unwrap();
+            let mut lines = BufReader::new(cr).lines();
+            let out = loop {
+                let l = lines.next_line().await.unwrap().unwrap();
+                if let Message::Response(r) = serde_json::from_str::<Message>(&l).unwrap() {
+                    break serde_json::to_value(r).unwrap();
+                }
+            };
+            cw.shutdown().await.unwrap();
+            drop(lines);
+            let _ = srv.await;
+            out
+        }
+    };
+    let sealed = call("thread.seal", json!({"slug": "tides", "reason": "embargo"})).await;
+    assert_eq!(
+        sealed["result"]["thread"]["thread"]["sealed"]["reason"], "embargo",
+        "{sealed}"
+    );
+    assert_eq!(sealed["result"]["crossed"], json!([]));
+    let opened = call("thread.unseal", json!({"slug": "tides"})).await;
+    assert!(opened["result"]["thread"]["sealed"].is_null(), "{opened}");
+    let none = call("thread.seal_dismiss", json!({"slug": "tides"})).await;
+    assert!(
+        none["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("no seal is proposed"),
+        "{none}"
+    );
 }
