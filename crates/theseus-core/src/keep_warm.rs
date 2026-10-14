@@ -82,6 +82,9 @@ pub struct KeepWarm {
     /// Wakes the tender: a turn ended, so the soonest due moved.
     pub wake: Arc<tokio::sync::Notify>,
     today: Mutex<Today>,
+    /// A turn's last request while its response's `job_wait` runs
+    /// (`keep_warm_wait`), by session.
+    pub(crate) waits: Mutex<HashMap<String, Arc<crate::keep_warm_wait::Stash>>>,
     /// Where `theseus.keep_warm.reads` counts, once telemetry exports.
     pub telemetry: std::sync::OnceLock<crate::telemetry::Telemetry>,
 }
@@ -146,6 +149,7 @@ impl KeepWarm {
     /// A turn of `session_id` ended: its last call was now. Only a session a
     /// person wrote in is held; the tender is woken for the next due read.
     pub fn turn_ended(&self, session_id: &str) {
+        self.waits.lock().unwrap().remove(session_id);
         if let Some(k) = self.sessions.lock().unwrap().get_mut(session_id) {
             k.call_at = Instant::now();
             self.wake.notify_one();
@@ -291,6 +295,8 @@ pub struct Built {
     pub execution_id: String,
     /// The prefix's estimate, in tokens.
     pub tokens: u64,
+    /// Sent by a `job_wait` to keep its turn's cache (`keep_warm_wait`).
+    pub during_wait: bool,
 }
 
 impl TurnRunner {
@@ -392,6 +398,7 @@ impl TurnRunner {
             target,
             execution_id,
             tokens,
+            during_wait: false,
         })
     }
 
@@ -465,7 +472,7 @@ impl TurnRunner {
     }
 
     /// Reserve, send and book a built read.
-    async fn keep_warm_send(
+    pub(crate) async fn keep_warm_send(
         &self,
         sid: &str,
         b: Built,
@@ -540,7 +547,7 @@ impl TurnRunner {
         };
         let cost = self.priced(&resp, &b.target.model, need);
         let u = &resp.usage;
-        let data = json!({
+        let mut data = json!({
             "provider": b.target.provider,
             "model": resp.model,
             "profile": b.target.profile,
@@ -549,6 +556,9 @@ impl TurnRunner {
             "request_id": resp.request_id,
             "timing": {"total_ms": started.elapsed().as_millis() as u64},
         });
+        if b.during_wait {
+            data["during_wait"] = json!(true);
+        }
         let booked = self
             .kernel
             .book_spend(&b.execution_id, cost, LedgerKind::KeepWarm, data);

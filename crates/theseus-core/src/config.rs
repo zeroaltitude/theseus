@@ -45,8 +45,8 @@ pub use aws::{
 };
 pub use judge::{JudgeConfig, JudgePackConfig, PackMode, SignalsConfig};
 pub use limits::{
-    default_parallel_reads, default_parallel_runs, default_parallel_writes, DailyCeilingMode,
-    MaxLoopsMode, SpendLimitMode,
+    default_job_wait_max_secs, default_parallel_reads, default_parallel_runs,
+    default_parallel_writes, DailyCeilingMode, MaxLoopsMode, SpendLimitMode,
 };
 pub use web::{WebToolsConfig, WEB_TIMEOUT_MAX_SECS};
 // Where the config comes from when nothing names one (theseus-5aqz).
@@ -314,6 +314,9 @@ pub struct ToolsConfig {
     /// How long a turn waits for `proc.run` before the job continues in the background.
     #[serde(default = "default_proc_sync_secs")]
     pub proc_sync_secs: u64,
+    /// The longest one `job_wait` waits (theseus-7m7w.3).
+    #[serde(default = "default_job_wait_max_secs")]
+    pub job_wait_max_secs: u64,
     #[serde(default = "default_parallel_runs")]
     pub parallel_runs: usize,
     #[serde(default = "default_parallel_reads")]
@@ -425,6 +428,7 @@ impl Default for ToolsConfig {
             transcribe_max_minutes: default_transcribe_max_minutes(),
             max_entries: default_max_entries(),
             proc_sync_secs: default_proc_sync_secs(),
+            job_wait_max_secs: default_job_wait_max_secs(),
             parallel_runs: default_parallel_runs(),
             parallel_reads: default_parallel_reads(),
             parallel_writes: default_parallel_writes(),
@@ -1506,6 +1510,7 @@ impl Config {
             );
         }
         limits::check_dollars(&self.kernel)?;
+        limits::check_job_wait(&self.tools)?;
         let builtin = crate::catalog::Catalog::builtin();
         for (id, row) in &self.catalog {
             for (key, price) in row.prices() {

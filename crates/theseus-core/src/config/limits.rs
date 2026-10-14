@@ -163,3 +163,26 @@ pub fn default_parallel_reads() -> usize {
 pub fn default_parallel_writes() -> usize {
     16
 }
+
+/// `[tools] job_wait_max_secs` (theseus-7m7w.3): the longest one `job_wait`
+/// waits, however long the model asks. The wait still returns at once when
+/// the job ends, a person's message arrives, or the turn is stopped, so the
+/// cap only bounds a wait nothing ends.
+pub fn default_job_wait_max_secs() -> u64 {
+    1800
+}
+
+/// `[tools] job_wait_max_secs` is at least `proc_sync_secs` (a wait is never
+/// shorter than a foreground run's) and at most what the tool's deadline
+/// covers (`theseus_tools::jobs::WAIT_SECS_MAX`).
+pub(super) fn check_job_wait(t: &super::ToolsConfig) -> anyhow::Result<()> {
+    let max = theseus_tools::jobs::WAIT_SECS_MAX;
+    if t.job_wait_max_secs < t.proc_sync_secs.max(1) || t.job_wait_max_secs > max {
+        anyhow::bail!(
+            "tools.job_wait_max_secs = {} must be from tools.proc_sync_secs ({}) to {max}",
+            t.job_wait_max_secs,
+            t.proc_sync_secs
+        );
+    }
+    Ok(())
+}

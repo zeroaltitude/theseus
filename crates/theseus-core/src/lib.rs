@@ -50,6 +50,7 @@ pub mod harness;
 pub mod import;
 pub mod judge;
 pub mod keep_warm;
+pub mod keep_warm_wait;
 pub mod learning;
 pub mod ledger;
 pub mod ledger_pin;
@@ -423,6 +424,8 @@ mod tests_turn_effort;
 mod tests_turn_reserve;
 #[cfg(test)]
 mod tests_turn_retry;
+#[cfg(test)]
+mod tests_wait_cost;
 #[cfg(test)]
 mod tests_wakes;
 #[cfg(test)]
