@@ -280,6 +280,7 @@ ledger_kinds! {
     TurnNudged = "turn.nudged",
     TurnRefused = "turn.refused",
     TurnStarted = "turn.started",
+    TurnSteered = "turn.steered",
     TurnTrace = "turn.trace",
     VoiceBargeIn = "voice.barge_in",
     VoiceCut = "voice.cut",

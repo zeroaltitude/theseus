@@ -254,6 +254,9 @@ pub struct Terms {
     pub idle_max_ms: u64,
     /// What closes left running.
     pub left: left::Book,
+    /// A person's messages queued behind a turn, which a terminal's wait
+    /// yields to (theseus-qu1lc): the tool runtime's.
+    pub steers: Arc<crate::toolrun::waits::steer::Steers>,
 }
 
 /// The terminal type a program is told it has: the subset `vt` models.
@@ -269,6 +272,7 @@ impl Terms {
             keep_background: crate::config::term::KEEP_BACKGROUND,
             idle_max_ms: MAX_WAIT_MS,
             left: left::Book::default(),
+            steers: Arc::default(),
         }
     }
 

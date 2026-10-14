@@ -85,6 +85,7 @@ mod route_step;
 pub(crate) mod situation_step;
 mod standing_step;
 pub mod stdio_step;
+mod steer_step;
 mod stopping_step;
 mod title_step;
 
@@ -1156,6 +1157,12 @@ impl TurnRunner {
         admission_frames += frames_written_here() - f0;
         // Held or waited for: a stop behind it on its lane reaches it (theseus-klo2).
         crate::rpc::ordered::reachable();
+        // A person's message that finds a turn running joins it (theseus-qu1lc).
+        if admitted.is_none() {
+            if let Some(joined) = self.steered(&req, class, arrived).await {
+                return joined;
+            }
+        }
         // The slot is the turn's until it returns, after its last frame.
         let (guard, _slot) = match admitted {
             Some((g, mut slot)) => {
@@ -1178,6 +1185,11 @@ impl TurnRunner {
                 }
             },
         };
+        let steer = self
+            .tools
+            .job_waits
+            .steers
+            .open(&req.session.session_id, self.cfg.kernel.steer_queued);
         let f0 = frames_written_here();
         // A `/stop` that landed after this input arrived and before its turn
         // held the execution (theseus-hmwv) found no turn to mark: it waited
@@ -1423,6 +1435,7 @@ impl TurnRunner {
             });
         }
         self.admission.notify_waiters();
+        steer.finish(r.as_ref().ok().map(|(res, _, _)| res));
         r.map(|(res, _, _)| res)
     }
 
@@ -1707,7 +1720,7 @@ impl TurnRunner {
             // Stored: the next request on its client's lane may run (theseus-klo2).
             crate::rpc::ordered::applied();
             t.tc.node_written(&node);
-            self.inbound_point(t, &node, &author);
+            self.inbound_point(t, &node, &author, false);
         }
 
         // 3. The loops, while the model has something new to read.
@@ -1776,6 +1789,7 @@ impl TurnRunner {
             // next request (theseus-n8gk).
             if t.loops > 0 {
                 self.take_late(t)?;
+                self.steer_in(t)?;
             }
             let i = t.loops;
             t.loops += 1;

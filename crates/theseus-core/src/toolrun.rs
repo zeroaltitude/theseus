@@ -55,7 +55,7 @@ mod peek;
 mod resume;
 pub(crate) mod session_dir;
 mod steps;
-mod waits;
+pub mod waits;
 
 pub(crate) use batch::Turned;
 pub use late::LateCall;
@@ -2346,7 +2346,7 @@ pub fn build_runtime(
         sandbox,
         stops: Default::default(),
         public_roots: crate::places::public_roots(cfg),
-        job_waits: Arc::default(),
+        job_waits: Arc::new(waits::JobWaits::steered(terms.steers.clone())),
         admission: crate::turn::admission::Admission::new(
             cfg.kernel.admission_ceiling,
             cfg.kernel.admission_stuck(),

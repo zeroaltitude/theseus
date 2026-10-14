@@ -307,3 +307,65 @@ async fn until_idle_with_quiet_ends_at_the_quiet() {
     assert!(waited_ms(&o.text) < 10_000, "{}", o.text);
     terms.close_session("s1", BY_TOOL);
 }
+
+/// A person's message queued behind the turn ends a terminal's wait at once,
+/// the program untouched (theseus-qu1lc): the read says a message arrived,
+/// its meta names it, and the terminal still runs what was typed.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_message_queued_behind_the_turn_ends_a_terminals_wait() {
+    let d = tempfile::tempdir().unwrap();
+    let dir = d.path().canonicalize().unwrap();
+    let terms = terms(&[]);
+    let id = bash(&terms, &dir).await;
+    call(
+        &terms,
+        "s1",
+        SEND,
+        json!({"terminal": id, "text": "sleep 20\n"}),
+        &dir,
+    )
+    .await;
+    let steers = terms.steers.clone();
+    let turning = steers.open("s1", true);
+    let waiting = {
+        let (terms, id, dir) = (terms.clone(), id.clone(), dir.clone());
+        tokio::spawn(async move {
+            let t0 = Instant::now();
+            let (o, _) = call(
+                &terms,
+                "s1",
+                READ,
+                json!({"terminal": id, "until_idle": true, "timeout_ms": 20_000}),
+                &dir,
+            )
+            .await;
+            (o, t0.elapsed())
+        })
+    };
+    tokio::time::sleep(std::time::Duration::from_millis(400)).await;
+    let offer = steers
+        .offer(
+            "s1",
+            crate::toolrun::waits::steer::Steered {
+                text: "stop it".into(),
+                attachments: vec![],
+                author: "test".into(),
+                reply_to: None,
+                arrived: Instant::now(),
+            },
+        )
+        .unwrap();
+    let (o, took) = waiting.await.unwrap();
+    assert!(
+        took < std::time::Duration::from_secs(3),
+        "{took:?}: {}",
+        o.text
+    );
+    assert!(o.text.contains("a message arrived"), "{}", o.text);
+    assert_eq!(o.meta["interrupted_by"], "message");
+    // The program was left alone: still not back at its prompt, once the
+    // message is no longer waiting.
+    drop(offer);
+    assert!(idle_read(&terms, &id, 300, &dir).await.contains("not idle"));
+    drop(turning);
+}

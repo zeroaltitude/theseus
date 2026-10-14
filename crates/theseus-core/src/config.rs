@@ -643,6 +643,11 @@ pub struct KernelSection {
     pub max_routines: usize,
     #[serde(default = "wake_limits::default_max_watches")]
     pub max_watches: usize,
+    /// A person's message queued behind a running turn interrupts that turn's
+    /// waits and joins it at its next loop (theseus-qu1lc); off, it waits for
+    /// the turn to end and runs as the next one.
+    #[serde(default = "default_true")]
+    pub steer_queued: bool,
 }
 
 fn default_admission_ceiling() -> u32 {
@@ -692,6 +697,7 @@ impl Default for KernelSection {
             max_reminders: wake_limits::default_max_reminders(),
             max_routines: wake_limits::default_max_routines(),
             max_watches: wake_limits::default_max_watches(),
+            steer_queued: true,
         }
     }
 }

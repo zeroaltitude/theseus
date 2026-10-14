@@ -49,6 +49,27 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   after a turn is recorded in shadow. The result's `nudged` (with `acted`) is on `turn.ended`'s row, which the prove
   counts. Tests: `tests_stop_nudge.rs`, theseusd's `tests/stop_nudge.rs`; the judge's other tests run loop.v1 in
   shadow (`tests_judge::judge_config` turns the switch off).
+- **The steer** (theseus-qu1lc; `[kernel] steer_queued`, on by default): a person's typed input that finds its session's
+  turn running does not wait for the turn to end. The running turn opens a `Steer` for its session
+  (`toolrun/waits/steer.rs`, held in `JobWaits::steers`, which the terminals share; `turn.rs` opens it once admitted and
+  `finish`es it with the turn's result), and the queued input offers itself to it before it waits in the admission queue
+  (`turn/steer_step.rs`, `steered`: only `Class::Person` input, no MCP prompt; a wake, a continuation and a task's turn
+  queue as before). The signal is O(1) and polls nothing: an atomic count per steer and one over all sessions, and a
+  `Notify`. Waits yield to it with no stop to the job and a result that says the job still runs and a message arrived,
+  its meta `{"interrupted_by": "message"}` with the job's handle: `job_wait` (`jobs_tools.rs`), the turn's own foreground
+  wait (`wait_in_turn` and a batch's, which go to the background as when their bound passes, but only once the command
+  has run `STEER_AFTER`, 1 s, so a short one still gives its result), and a terminal's wait (`term/tools.rs`). At the
+  loop boundary, after the tool results and `take_late`, before the next model call, `steer_in` takes the offered
+  messages in arrival order and writes each as the user node its own turn would have (the running turn's id), with the
+  `turn.steered` row (`fact/steer.rs`), in one frame: written once or not at all, and when that frame fails the offerers
+  queue as they would have. The offerer is answered with the running turn's result and its client's lane is released at
+  once (`ordered::applied`), so a second message on the same connection is offered too. The inbound judgments run for
+  each (`inbound_point(.., steered)`), but the turn's route stays the running one: neither the route verdict nor the
+  owner's words about routing apply until the next turn. A message that comes during a model call waits for that call's
+  boundary (the call is never cut); one that comes during the turn's last call (no tool calls) runs as the next turn.
+  Nothing matches the words: "cancel it" reaches the model, which calls `job_stop`. The binding sends a message at once
+  when a turn is in flight (`theseus-discord`'s `runtime/steer.rs`) instead of holding it. Tests: `tests_steer.rs`,
+  `toolrun/waits/steer.rs`, `term/tests_idle.rs`; `bench/async/steer_stand_in.py` measures it.
 - **Context**: `compiler.rs` (manifests, recompiles, the cache layout, the token estimate), `context_files.rs`, and
   `catalog.rs` (each model's window, prices, and caching). A model may have a second price tier, `LongPrompt`
   (Haiku 5.5's: 5x past a 100,000-token prompt, theseus-3okf): `terms` prices a usage at the tier its prompt

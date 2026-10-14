@@ -69,6 +69,7 @@ pub mod sandbox;
 pub mod situation;
 pub mod standing;
 pub mod start;
+pub mod steer;
 pub mod synthesis;
 pub mod task_graph;
 pub mod term;
@@ -290,6 +291,7 @@ facts![
     turn::ProviderRefused<'static>,
     turn::FellBack<'static>,
     turn::TurnNudged<'static>,
+    steer::TurnSteered<'static>,
     turn::EffortRefused<'static>,
     turn::BudgetAsked<'static>,
     turn::LoopEndedOnBudget<'static>,

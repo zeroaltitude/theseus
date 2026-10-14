@@ -383,6 +383,8 @@ mod tests_standing_ring;
 #[cfg(test)]
 mod tests_status_cache;
 #[cfg(test)]
+mod tests_steer;
+#[cfg(test)]
 mod tests_steps;
 #[cfg(test)]
 mod tests_stop_nudge;

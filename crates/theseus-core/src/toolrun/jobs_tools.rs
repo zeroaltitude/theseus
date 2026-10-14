@@ -37,6 +37,10 @@ use crate::Core;
 /// The meta key of a result that gives a job's end: the job's correlation id.
 pub const DELIVERS: &str = "delivers";
 
+/// The meta key of a wait that returned because a person's message arrived
+/// (theseus-qu1lc); its value is `"message"`.
+pub const INTERRUPTED_BY: &str = "interrupted_by";
+
 /// What the job tools read: the core, once built, and the sessions' short
 /// ids.
 #[derive(Default)]
@@ -404,6 +408,9 @@ fn running(core: &Core, session: &str) -> ToolOutput {
 async fn wait(core: Arc<Core>, f: Found, secs: u64) -> AsyncMediaResult {
     let rt = &core.tools;
     let until = Instant::now() + Duration::from_secs(secs);
+    // A message queued behind this turn ends the wait at once, the job
+    // untouched (theseus-qu1lc).
+    let steer = rt.job_waits.steers.watch(&f.action.session_id);
     loop {
         let settled = rt.job_waits.on_settle();
         tokio::pin!(settled);
@@ -411,6 +418,16 @@ async fn wait(core: Arc<Core>, f: Found, secs: u64) -> AsyncMediaResult {
         let a = theseus_store::blocking(|| now(&core, &f));
         if ended(&a) {
             return theseus_store::blocking(|| delivered(&core, &f, &a, ""));
+        }
+        if steer.pending() {
+            let text = format!(
+                "Job {} is still running. A message arrived, so this wait returned early; its \
+                 result also arrives by itself when it ends.",
+                f.called()
+            );
+            let meta = json!({KEY: f.name, "correlation_id": f.corr, "state": "running",
+                INTERRUPTED_BY: "message"});
+            return Ok((ToolOutput { text, meta }, None, None));
         }
         let left = until.saturating_duration_since(Instant::now());
         if left.is_zero() {
@@ -424,6 +441,7 @@ async fn wait(core: Arc<Core>, f: Found, secs: u64) -> AsyncMediaResult {
         }
         tokio::select! {
             () = &mut settled => {}
+            () = steer.raised() => {}
             () = tokio::time::sleep(left.min(super::waits::LOOK)) => {}
         }
     }
