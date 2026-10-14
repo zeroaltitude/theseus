@@ -169,7 +169,6 @@ struct Counts {
     last_error: Option<(u64, String)>,
 }
 
-/// The binding a target belongs to: `discord` for `discord:dm:1`.
 /// Whether `place` is a thread's virtual place (`thread:<slug>`, theseus-nhew):
 /// its record says which session it runs on, but no binding delivers to it, so
 /// its session has no target and posts nowhere, as a CLI session's.
@@ -177,6 +176,7 @@ fn virtual_place(place: &str) -> bool {
     theseus_protocol::threads::slug_of_place(place).is_some()
 }
 
+/// The binding a target belongs to: `discord` for `discord:dm:1`.
 fn binding_of(target: &str) -> &str {
     target.split_once(':').map_or(target, |(b, _)| b)
 }

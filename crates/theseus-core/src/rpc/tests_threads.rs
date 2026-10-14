@@ -323,6 +323,9 @@ async fn a_paused_or_finished_thread_takes_no_message() {
             .contains("thread reopen"),
         "{r}"
     );
+    // A finished thread is reopened, never resumed.
+    assert!(c.thread_resume("tides", cli()).is_err());
+    assert_eq!(c.threads().get("tides").unwrap().state, ThreadState::Done);
 }
 
 /// A restart reads the board back: the record, and the session its place

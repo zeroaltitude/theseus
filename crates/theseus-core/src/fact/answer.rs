@@ -260,6 +260,7 @@ impl Fact for ActRefused<'_> {
 
     fn narrate(&self, say: &mut Say<'_>) {
         let r = self.refusal;
+        let (who, via, why) = (&r.who, &r.via, &r.why);
         say.line(
             Approval,
             match self.act {
@@ -268,97 +269,80 @@ impl Fact for ActRefused<'_> {
                     a.tool, r.who, r.via, r.why
                 ),
                 Act::Tighten { tool } => format!(
-                    "\"Should have asked\" for {tool} from {} through {} did not count: {}. It \
-                     keeps its posture.",
-                    r.who, r.via, r.why
+                    "\"Should have asked\" for {tool} from {who} through {via} did not count: \
+                     {why}. It keeps its posture."
                 ),
                 Act::Untighten { tool } => format!(
-                    "An undo of {tool}'s tightening from {} through {} did not count: {}. It \
-                     keeps asking first.",
-                    r.who, r.via, r.why
+                    "An undo of {tool}'s tightening from {who} through {via} did not count: {why}. \
+                     It keeps asking first."
                 ),
                 Act::Trust { .. } => format!(
-                    "Trusting this session again, from {} through {}, did not count: {}. Its \
-                     calls that act keep waiting.",
-                    r.who, r.via, r.why
+                    "Trusting this session again, from {who} through {via}, did not count: {why}. \
+                     Its calls that act keep waiting."
                 ),
                 Act::Publish { place } => format!(
-                    "Publishing into {place}, from {} through {}, did not count: {}. Nothing \
-                     was published.",
-                    r.who, r.via, r.why
+                    "Publishing into {place}, from {who} through {via}, did not count: {why}. \
+                     Nothing was published."
                 ),
                 Act::Ontology { what, .. } => format!(
-                    "Writing the ontology's {what}, from {} through {}, did not count: {}. \
-                     Nothing was written.",
-                    r.who, r.via, r.why
+                    "Writing the ontology's {what}, from {who} through {via}, did not count: \
+                     {why}. Nothing was written."
                 ),
                 Act::Label { what } => format!(
-                    "A memory label, {what}, from {} through {}, did not count: {}. Nothing \
-                     was written.",
-                    r.who, r.via, r.why
+                    "A memory label, {what}, from {who} through {via}, did not count: {why}. \
+                     Nothing was written."
                 ),
                 Act::Ladder { what, .. } => format!(
-                    "A move on the ladder, {what}, from {} through {}, did not count: {}. \
-                     Nothing was written.",
-                    r.who, r.via, r.why
+                    "A move on the ladder, {what}, from {who} through {via}, did not count: {why}. \
+                     Nothing was written."
                 ),
                 Act::Import { what, .. } => format!(
-                    "The import's {what}, from {} through {}, did not count: {}. Nothing was \
-                     written.",
-                    r.who, r.via, r.why
+                    "The import's {what}, from {who} through {via}, did not count: {why}. Nothing \
+                     was written."
                 ),
                 Act::Earned { what, .. } => format!(
-                    "Earned autonomy, {what}, from {} through {}, did not count: {}. Nothing \
-                     changed.",
-                    r.who, r.via, r.why
+                    "Earned autonomy, {what}, from {who} through {via}, did not count: {why}. \
+                     Nothing changed."
                 ),
                 Act::Session { what, .. } => format!(
                     "{what}, from {} through {}, did not count: {}. The session is as it was.",
                     r.who, r.via, r.why
                 ),
                 Act::Retract { what } => format!(
-                    "{what}, from {} through {}, did not count: {}. Nothing was labeled or \
-                     written, and no session was told.",
-                    r.who, r.via, r.why
+                    "{what}, from {who} through {via}, did not count: {why}. Nothing was labeled \
+                     or written, and no session was told."
                 ),
                 Act::Thread { what, .. } => format!(
                     "{what}, from {} through {}, did not count: {}. The threads are as they were.",
                     r.who, r.via, r.why
                 ),
                 Act::Standing { what, .. } => format!(
-                    "{what}, from {} through {}, did not count: {}. The owner's standing records \
-                     are as they were.",
-                    r.who, r.via, r.why
+                    "{what}, from {who} through {via}, did not count: {why}. The owner's standing \
+                     records are as they were."
                 ),
                 Act::JudgeLabel { what } => format!(
-                    "A judgment's label, {what}, from {} through {}, did not count: {}. \
-                     Nothing was written.",
-                    r.who, r.via, r.why
+                    "A judgment's label, {what}, from {who} through {via}, did not count: {why}. \
+                     Nothing was written."
                 ),
                 Act::RouteCorrect { what } => format!(
-                    "A correction of routing, {what}, from {} through {}, did not count: {}. \
-                     Nothing was written, and the session runs where it ran.",
-                    r.who, r.via, r.why
+                    "A correction of routing, {what}, from {who} through {via}, did not count: \
+                     {why}. Nothing was written, and the session runs where it ran."
                 ),
                 Act::SelfResume { .. } => format!(
-                    "A resume of self-improvement, from {} through {}, did not count: {}. It \
-                     stays halted.",
-                    r.who, r.via, r.why
+                    "A resume of self-improvement, from {who} through {via}, did not count: {why}. \
+                     It stays halted."
                 ),
                 Act::SelfBacklog { method, what, .. } => format!(
-                    "{method} of {what} on the self backlog, from {} through {}, did not count: \
-                     {}. The backlog is as it was.",
-                    r.who, r.via, r.why
+                    "{method} of {what} on the self backlog, from {who} through {via}, did not \
+                     count: {why}. The backlog is as it was."
                 ),
                 Act::Revoke { name } => format!(
-                    "Revoking extension {name}, from {} through {}, did not count: {}. It \
-                     stays loaded.",
-                    r.who, r.via, r.why
+                    "Revoking extension {name}, from {who} through {via}, did not count: {why}. It \
+                     stays loaded."
                 ),
                 Act::JudgeRun { what, .. } => format!(
-                    "A {what}, from {} through {}, did not count: {}. Nothing was sent or \
-                     written.",
-                    r.who, r.via, r.why
+                    "A {what}, from {who} through {via}, did not count: {why}. Nothing was sent or \
+                     written."
                 ),
             },
         );
