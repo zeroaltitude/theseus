@@ -106,6 +106,13 @@ Key modules: `main.rs`, `cmd.rs`, `render.rs`, `client.rs`. Read by: (a binary).
   `route.decided` row), reads only, and prints the words of `theseus_protocol::why` (the renderer Discord's `/why`
   and the `/context` command to come call too; it writes plain lines, no colour). `--json` is the four answers as
   they came. Tests: `tests/why.rs` (a scripted daemon; goldens `why*.txt`; the requests are reads alone).
+- `src/render/diffview.rs` (theseus-z6au): a diff and a result's first lines as `Line`s. A removed line is `Tag::Del`,
+  an added one `Tag::Add`, and the changed words of a pair sit between `MARK_ON` and `MARK_OFF` in its text; `paint`
+  turns them into SGR on a terminal and strips them everywhere else (`print::lines`, a pipe, `NO_COLOR`, `TERM=dumb`), and
+  the TUI draws them with its own styles. `Flight::event` words a call from its `tool.proposed` (`summarize`), drops the
+  start line of a call already worded, and under the end line shows the result behind a `⎿` gutter (the first 3 lines,
+  a failed command's last 8, then `… all N lines`) or the edit's diff. A question's `preview` stands in for its input
+  line (`answers`). Tests: `diffview.rs`'s and `print.rs`'s.
 - `src/render/history.rs`: `theseus history`'s own lines: each node with its short id, which `theseus reach` takes
   (theseus-glyw), and `page_lines`, where a page ends and the command for the next one either way (theseus-xo0m).
   Its `node_lines` is the history's own; `render.rs`'s, which the terminal UI shares, stays apart.

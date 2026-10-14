@@ -650,5 +650,6 @@ pub fn promotion_request(a: &Action, session: &SessionRecord, ttl_ms: u64) -> Co
         change: None,
         options: Vec::new(),
         may_answer: None,
+        preview: None,
     })
 }

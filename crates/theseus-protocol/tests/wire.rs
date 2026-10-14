@@ -951,6 +951,7 @@ fn typed_tool_started_ended_and_written() {
                 scratch: None,
                 reached: None,
                 verified: None,
+                diff: None,
             }),
         );
     }

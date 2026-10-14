@@ -15,6 +15,7 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
+pub mod change;
 pub mod docs;
 pub mod fit;
 pub mod fs;

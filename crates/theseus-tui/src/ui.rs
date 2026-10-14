@@ -6,6 +6,7 @@
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
+use theseus_client::render::diffview::{MARK_OFF, MARK_ON};
 use theseus_client::render::{glyph, pill, Tag};
 use theseus_protocol::Level;
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
@@ -236,7 +237,7 @@ fn detail(app: &App, area: Rect, buf: &mut Buffer) {
             dim(),
         );
         for (i, (tag, text)) in card.iter().enumerate().take(card_h - 1) {
-            buf.set_stringn(x, top + 1 + i as u16, text, width, tag_style(*tag));
+            put(buf, x, top + 1 + i as u16, text, width, *tag);
         }
         height -= card_h;
     }
@@ -261,7 +262,7 @@ fn detail(app: &App, area: Rect, buf: &mut Buffer) {
     let scroll = d.scroll.min(rows.len().saturating_sub(height));
     let shown: Vec<&(Tag, String)> = rows.iter().skip(scroll).take(height).collect();
     for (i, (tag, text)) in shown.into_iter().rev().enumerate() {
-        buf.set_stringn(x, area.y + 1 + i as u16, text, width, tag_style(*tag));
+        put(buf, x, area.y + 1 + i as u16, text, width, *tag);
     }
     if scroll > 0 {
         let more = format!(" ↓ {scroll} more ");
@@ -349,7 +350,75 @@ pub fn wrap(text: &str, width: usize) -> Vec<String> {
         }
     }
     rows.push(row);
+    carry_marks(&mut rows);
     rows
+}
+
+/// A marked word that a wrap cut keeps its mark on the next row: each row
+/// closes what it opened, and the next opens it again.
+fn carry_marks(rows: &mut [String]) {
+    let mut open = false;
+    for r in rows.iter_mut() {
+        let was = open;
+        for c in r.chars() {
+            match c {
+                MARK_ON => open = true,
+                MARK_OFF => open = false,
+                _ => {}
+            }
+        }
+        if was {
+            r.insert(0, MARK_ON);
+        }
+        if open {
+            r.push(MARK_OFF);
+        }
+    }
+}
+
+/// `text` at `x, y` in its tag's style; a diff's changed words (between
+/// `MARK_ON` and `MARK_OFF`) are reversed in the line's colour, bold.
+pub(crate) fn put(buf: &mut Buffer, x: u16, y: u16, text: &str, width: usize, tag: Tag) {
+    let base = tag_style(tag);
+    if !text.contains(MARK_ON) {
+        buf.set_stringn(x, y, text.replace(MARK_OFF, ""), width, base);
+        return;
+    }
+    let mark = match tag {
+        Tag::Add => Style::default()
+            .fg(Color::White)
+            .bg(Color::Green)
+            .add_modifier(Modifier::BOLD),
+        _ => Style::default()
+            .fg(Color::White)
+            .bg(Color::Red)
+            .add_modifier(Modifier::BOLD),
+    };
+    let (mut at, mut left, mut on) = (x, width, false);
+    let mut seg = String::new();
+    let mut flush = |seg: &mut String, on: bool, at: &mut u16, left: &mut usize| {
+        if seg.is_empty() {
+            return;
+        }
+        let (nx, _) = buf.set_stringn(*at, y, seg.as_str(), *left, if on { mark } else { base });
+        *left = left.saturating_sub((nx - *at) as usize);
+        *at = nx;
+        seg.clear();
+    };
+    for c in text.chars() {
+        match c {
+            MARK_ON => {
+                flush(&mut seg, on, &mut at, &mut left);
+                on = true;
+            }
+            MARK_OFF => {
+                flush(&mut seg, on, &mut at, &mut left);
+                on = false;
+            }
+            _ => seg.push(c),
+        }
+    }
+    flush(&mut seg, on, &mut at, &mut left);
 }
 
 fn footer(app: &App, area: Rect, buf: &mut Buffer) -> Option<(u16, u16)> {
@@ -495,7 +564,8 @@ pub fn tag_style(tag: Tag) -> Style {
         Tag::Ask => Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
         Tag::Ok => Style::default().fg(Color::Green),
         Tag::Warn => Style::default().fg(Color::Yellow),
-        Tag::Bad => Style::default().fg(Color::Red),
+        Tag::Bad | Tag::Del => Style::default().fg(Color::Red),
+        Tag::Add => Style::default().fg(Color::Green),
         Tag::Dim => dim(),
         Tag::Level(l) => level_style(l, false),
     }

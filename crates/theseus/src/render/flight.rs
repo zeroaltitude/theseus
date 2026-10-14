@@ -9,6 +9,8 @@ use std::collections::HashMap;
 use serde_json::Value;
 use theseus_protocol::{Event, ToolProposed};
 
+use theseus_protocol::term::words::summarize;
+
 use super::{clip, event, Line, Show, Tag};
 
 /// How much of a subject the `←` line shows.
@@ -30,6 +32,22 @@ impl Flight {
             Event::ToolProposed(p) => {
                 self.calls
                     .insert(p.tool_use_id.clone(), (p.tool.clone(), subject(p)));
+                // The call in words (theseus-z6au), unless its own line (an
+                // AWS call's, a terminal's) says more.
+                if lines.is_empty() {
+                    let said = summarize(&p.tool, &p.input);
+                    lines.push(Line::new(Tag::Tool, format!("  → {said}")));
+                }
+            }
+            // A call already said in words is not named again by its start;
+            // a job's pid and an L1 job's reach are what the start adds.
+            Event::ToolStarted(s) if self.calls.contains_key(&s.tool_use_id) => {
+                lines.clear();
+                let pid = s.pid.map(|p| format!(" · pid {p}")).unwrap_or_default();
+                let l1 = lines_l1(s);
+                if !pid.is_empty() || !l1.is_empty() {
+                    lines.push(Line::new(Tag::Dim, format!("    started{pid}{l1}")));
+                }
             }
             Event::ToolEnded(t) => {
                 let twin = self
@@ -50,10 +68,23 @@ impl Flight {
                         }
                     }
                 }
+                // Its result's first lines, or the diff it made (theseus-z6au).
+                lines.extend(super::diffview::ended_lines(t));
             }
             _ => {}
         }
         lines
+    }
+}
+
+/// ` 🛡️ L1 · reach` for an L1 job's start, as the start line says it.
+fn lines_l1(s: &theseus_protocol::ToolStarted) -> String {
+    match (s.class.as_deref(), &s.egress) {
+        (Some("l1"), e) => format!(
+            " 🛡️ L1 · {}",
+            theseus_protocol::sandbox::reach(e.as_deref().unwrap_or(&[]))
+        ),
+        _ => String::new(),
     }
 }
 

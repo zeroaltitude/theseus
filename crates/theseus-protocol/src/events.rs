@@ -366,6 +366,11 @@ pub struct ToolEnded {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub verified: Option<String>,
+    /// What an `fs.edit`, `fs.write` or `fs.patch` changed (theseus-z6au): the
+    /// diff the model got, scrubbed and capped. Pushed, not stored apart.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub diff: Option<crate::ToolDiff>,
 }
 
 /// `confirm.resolved`: a question waiting for the operator closed.

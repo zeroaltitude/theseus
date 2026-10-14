@@ -2,7 +2,7 @@
 // pill's title, and a result's status (theseus-vm3n.6). Invented paths.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { byteWords, callSummary, decisionWords, diffLines, l1Words, looksLikeDiff, previewOf, resultWords, wireToName } from '../src/lib/toolwords.ts'
+import { byteWords, callSummary, decisionWords, diffLines, l1Words, looksLikeDiff, previewFor, previewOf, resultWords, wireToName } from '../src/lib/toolwords.ts'
 
 test('a call reads in the terms of its tool', () => {
   assert.equal(callSummary('proc.run', { argv: ['cargo', 'test'], cwd: '/w/app' }), 'cargo test   (in /w/app)')
@@ -49,4 +49,14 @@ test('an approval leads with what it decides, in the daemon\'s own words, the pa
   assert.equal(decisionWords('proc.run', { argv: ['cargo', 'test'] }, 'run `cargo test` in /w/app: proc.run — approve (layer 1: a)').what, 'run `cargo test` in /w/app')
   // A reason with no plan in it: the call's own summary leads, and the reason is the why.
   assert.deepEqual(decisionWords('proc.run', { argv: ['ls'] }, 'the session read web text'), { what: 'proc.run ls', why: 'the session read web text' })
+})
+
+test('the daemon\'s preview wins over the one built from the input (theseus-z6au)', () => {
+  const input = { path: 'tides.py', old_string: 'a', new_string: 'b' }
+  const daemon = { kind: 'diff', body: '--- tides.py\n+++ tides.py\n@@ -49,1 +49,1 @@\n-a\n+b\n' }
+  assert.deepEqual(previewFor(daemon, 'fs.edit', input), { kind: 'diff', text: daemon.body })
+  assert.equal(previewFor({ kind: 'command', body: 'ls\nin /w' }, 'proc.run', {})?.kind, 'text')
+  // Without one (an older daemon), the cockpit builds its own.
+  assert.equal(previewFor(undefined, 'fs.edit', input)?.kind, 'diff')
+  assert.equal(previewFor(undefined, 'git.log', {}), null)
 })

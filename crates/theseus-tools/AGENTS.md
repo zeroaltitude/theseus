@@ -34,6 +34,10 @@ Key modules: `fs.rs`, `git.rs`, `proc.rs`, `paths.rs`. Read by: core.
 - **A job's handle** (theseus-n8gk): `proc.run`'s `background: true` (one program, never `steps`), and `src/jobs.rs`,
   the schemas and plans of `job.read`, `job.wait` (reads) and `job.stop` (a run). Their plans read the input alone;
   the core finds the job in the calling session, makes `job.stop`'s plan the job's own run, and runs all three.
+- `src/change.rs` (theseus-z6au): what a file tool changed, as a diff. `fs.edit`, `fs.write` and `fs.patch` put
+  `meta["diff"]` (a `ToolDiff`: relative path, counts over the whole diff, 16 KB cap) beside their text, and `preview`
+  makes the same diff for a question from the file as it is when the call is planned (`edit_after` is the edit's
+  replacement, so the two cannot drift). The text is not yet scrubbed: the runtime scrubs it (core's `tool_words`).
 - `src/recount.rs`: `fs.patch` rewrites each hunk header's lengths from its body before diffy parses it
   (theseus-inw), keeping its starts, so diffy still checks the context; an empty line inside a hunk is blank context,
   and the empty lines that end it are its end unless its header counts them.

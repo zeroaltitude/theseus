@@ -51,6 +51,13 @@ export interface Preview { kind: 'diff' | 'text'; caption?: string; text: string
 
 /** What an approval would do, as the operator should read it: an edit as a diff, a write as its content, a patch as
  *  it is, a command as it would be typed. Any other tool has no preview (the card shows its input). */
+/** The question's preview: the daemon's own, made when the call was planned (theseus-z6au), else the one built here from
+ *  the call's input. A command's or a text preview is shown as text; a diff as a diff. */
+export function previewFor(daemon: { kind: string; body: string } | undefined, tool: string, input: unknown): Preview | null {
+  if (daemon) return { kind: daemon.kind === 'diff' ? 'diff' : 'text', text: daemon.body }
+  return previewOf(tool, input)
+}
+
 export function previewOf(tool: string, input: unknown): Preview | null {
   const i = (input ?? {}) as D
   if (tool === 'fs.edit' && typeof i.old_string === 'string' && typeof i.new_string === 'string') {

@@ -7,10 +7,10 @@ import { useNavigate } from 'react-router'
 import { motion } from 'motion/react'
 import { useQueryClient } from '@tanstack/react-query'
 import { CircleCheck, OctagonX, ShieldCheck, Siren, Zap } from 'lucide-react'
-import type { ConfirmRequest } from '@protocol'
+import type { ConfirmPreview, ConfirmRequest } from '@protocol'
 import { call } from '@/lib/rpc'
 import { useTick } from '@/lib/hooks'
-import { decisionWords, diffLines, previewOf } from '@/lib/toolwords'
+import { decisionWords, diffLines, previewFor } from '@/lib/toolwords'
 import { ago, cn, ms, short, usd } from '@/lib/format'
 import { changeQuestion } from '@/lib/taskgraph'
 import { answerParams, buttonsOf } from '@/lib/answers'
@@ -34,8 +34,8 @@ export function useAct() {
 }
 
 /** What an approval would do, as the Observatory showed it: an edit as a diff, a write as its text, a command as typed. */
-function Preview({ tool, input, here }: { tool: string; input: unknown; here?: boolean }) {
-  const p = previewOf(tool, input)
+function Preview({ tool, input, here, daemon }: { tool: string; input: unknown; here?: boolean; /** the daemon's own preview, made when the call was planned (theseus-z6au): it wins */ daemon?: ConfirmPreview }) {
+  const p = previewFor(daemon, tool, input)
   if (!p) return input !== undefined && input !== null ? <JsonView value={input} maxHeight="180px" /> : null
   return (
     <div>
@@ -100,7 +100,7 @@ export function ConfirmCard({ c, past, here }: { c: ConfirmRequest; past?: numbe
             <span className="num text-[11px] text-ink-faint">asked {ago(c.requested_at_ms, now)}</span>
           </div>
           {c.change && <div className="mt-1.5 text-[12.5px] font-semibold text-wait">{changeQuestion(c.change)}</div>}
-          {!budget && <div className="mt-2"><Preview tool={c.tool} input={c.input} here={here} /></div>}
+          {!budget && <div className="mt-2"><Preview tool={c.tool} input={c.input} here={here} daemon={c.preview} /></div>}
           <div className="mt-2 text-[12px] text-ink-dim">{d && d.why !== c.reason ? <><span className="text-ink-faint">why it asks: </span>{d.why}</> : c.reason}</div>
           {c.resource && <div className="num mt-0.5 text-[11.5px] text-ink-faint">{c.resource}</div>}
           {budget && (

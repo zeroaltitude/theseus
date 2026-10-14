@@ -106,6 +106,13 @@ Key modules: `lib.rs` (the `method`, `notify`, `error_code` tables), `events.rs`
   routing rows read: extend it only by adding), `WorkingSet`, `Seal`, `ThreadState`, `ThreadRow` (a thread with its
   session's context tokens and today's dollars), the eight `thread.*` methods' params, and `slug_ok`/`place_of`/
   `slug_of_place`. `turn.submit`'s `thread` is in `submit.rs`.
+- `diff.rs` and `term/words.rs` (theseus-z6au): a tool call in words and an edit's diff, for every surface.
+  `term::words::summarize(tool, input)` is the line a person reads (`Run `cargo test``, `Edit tides.py`, `Search for
+  `retry` in src/`), built on `argument`, the one thing a call is about, which Discord's tool lines have always shown
+  (its bytes unchanged). `ToolDiff` is `tool.ended`'s optional `diff` (`fs.edit`, `fs.write`, `fs.patch`: path, lines
+  added and removed, the unified diff scrubbed and capped at `DIFF_CAP`, 16 KB, `truncated`); `ConfirmPreview` is
+  `confirm.requested`'s optional `preview` (`diff`, `command` or `text`). `diff::rows` reads a unified diff into
+  numbered `Row`s and marks the changed words of each paired removed/added line (`words`, a token LCS); no style.
 - `ts.rs`: the TypeScript export.
 
 ## Invariants

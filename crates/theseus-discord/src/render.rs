@@ -25,6 +25,7 @@ mod board;
 pub(crate) mod cite;
 mod deferred;
 mod held;
+mod preview;
 pub(crate) mod process;
 mod reply;
 mod wakes;
@@ -810,6 +811,7 @@ pub fn card(req: &ConfirmRequest, route: &Route, elsewhere: &str) -> CardText {
     if !req.reason.is_empty() {
         content.push_str(&format!("\n{}", clip_middle(&req.reason, 300)));
     }
+    content.push_str(&preview::hunk(req));
     let asked_for = match route {
         Route::Dm { place, .. } => format!("for {place} · "),
         _ => String::new(),
@@ -1225,38 +1227,7 @@ pub fn aws_summary(a: &theseus_protocol::AwsPlan) -> String {
 }
 
 pub fn summarize(tool: &str, input: &Value) -> String {
-    let s = |k: &str| input.get(k).and_then(Value::as_str).map(str::to_string);
-    // A terminal's call names its terminal and keys (theseus-n88g.4).
-    let text = if let Some(line) = theseus_protocol::term::summary(tool, input) {
-        line
-    } else if let Some(argv) = input.get("argv").and_then(Value::as_array) {
-        argv.iter()
-            .filter_map(Value::as_str)
-            .collect::<Vec<_>>()
-            .join(" ")
-    } else if let Some(p) = s("pattern") {
-        match s("path") {
-            Some(d) => format!("{p} in {d}"),
-            None => p,
-        }
-    } else if let Some(p) = s("path").or_else(|| s("rev")).or_else(|| s("file")) {
-        p
-    } else if tool == "fs.patch" {
-        "(patch)".into()
-    } else if let Some(u) = s("url") {
-        u
-    } else if let Some(q) = s("query") {
-        format!("\"{q}\"")
-    } else if let Some(svc) = s("service") {
-        // `aws.describe`'s service and operation.
-        match s("operation") {
-            Some(op) => format!("{svc}:{op}"),
-            None => svc,
-        }
-    } else {
-        serde_json::to_string(input).unwrap_or_default()
-    };
-    clip(&text.replace('`', "'").replace('\n', " "), 90)
+    theseus_protocol::term::words::argument(tool, input)
 }
 
 /// Dollars as the narrative says them: `$100`, `$0.45`, `$0.0045`.

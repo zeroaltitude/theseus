@@ -4,8 +4,7 @@
 //! floor, the external text (with `t` to trust), and the expiry as a
 //! countdown; a budget question shows spent, limit, needed, and lifetime.
 
-use serde_json::Value;
-use theseus_client::render::{held_what, Tag};
+use theseus_client::render::{self, held_what, Tag};
 use theseus_protocol::usd;
 
 use crate::board::Question;
@@ -42,13 +41,18 @@ pub fn lines(
         Question::Whole(c) => {
             out.push((
                 Tag::Ask,
-                format!("⏸ confirm {}: {}", c.tool, summary(&c.input)),
+                format!(
+                    "⏸ confirm {}: {}",
+                    c.tool,
+                    theseus_protocol::term::words::summarize(&c.tool, &c.input)
+                ),
             ));
             // The countdown and the floor on a line of their own, before the
             // reason: a long reason (a path, a command) wraps over rows of its
             // own (`ui::card_rows`), and would push them down.
             out.extend(when(c.floor, c.expires_at_ms, now_ms));
             out.push((Tag::Dim, format!("  why: {}", c.reason)));
+            out.extend(preview(c));
             if let Some(t) = &c.task {
                 out.push((
                     Tag::Dim,
@@ -104,6 +108,25 @@ pub fn lines(
     out
 }
 
+/// What the call would do, under its question (theseus-z6au): an edit's hunk,
+/// numbered, its changed words marked, or a command with its directory; at
+/// most `PREVIEW_ROWS` rows, so the keys that answer stay on the screen.
+fn preview(c: &theseus_protocol::ConfirmRequest) -> Vec<(Tag, String)> {
+    let mut lines = render::diffview::preview_lines(c);
+    if lines.len() > PREVIEW_ROWS {
+        let more = lines.len() - PREVIEW_ROWS + 1;
+        lines.truncate(PREVIEW_ROWS - 1);
+        lines.push(render::Line::new(
+            Tag::Dim,
+            format!("      … {more} more rows (theseus confirm shows them)"),
+        ));
+    }
+    lines.into_iter().map(|l| (l.tag, l.text)).collect()
+}
+
+/// The most rows of a call's preview the card shows.
+const PREVIEW_ROWS: usize = 12;
+
 fn push_refusal(out: &mut Vec<(Tag, String)>, refused: Option<&str>) {
     if let Some(r) = refused {
         out.push((Tag::Bad, format!("  refused: {r}")));
@@ -129,25 +152,4 @@ pub fn countdown(expires_at_ms: u64, now_ms: u64) -> String {
     }
     let s = (expires_at_ms - now_ms).div_ceil(1000);
     format!("expires in {}:{:02}", s / 60, s % 60)
-}
-
-/// A call's input in one line: a command's argv, a path, else its JSON.
-pub fn summary(input: &Value) -> String {
-    if let Some(argv) = input.get("argv").and_then(Value::as_array) {
-        let words: Vec<String> = argv
-            .iter()
-            .map(|a| {
-                a.as_str()
-                    .map(String::from)
-                    .unwrap_or_else(|| a.to_string())
-            })
-            .collect();
-        return words.join(" ");
-    }
-    for key in ["command", "path", "url", "query"] {
-        if let Some(s) = input.get(key).and_then(Value::as_str) {
-            return s.to_string();
-        }
-    }
-    theseus_client::render::clip(&input.to_string(), 200)
 }

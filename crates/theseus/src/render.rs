@@ -25,6 +25,7 @@ mod catalog;
 pub mod cite;
 mod connections;
 mod day;
+pub mod diffview;
 mod failed;
 mod features;
 mod flight;
@@ -111,6 +112,11 @@ pub enum Tag {
     /// A failure or a refusal: a turn that failed (`✗`), or a job's answer
     /// that was refused (`🚨`).
     Bad,
+    /// A line a diff removed (`-`) or added (`+`); the changed words of a
+    /// paired line sit between `diffview::MARK_ON` and `MARK_OFF`
+    /// (theseus-z6au).
+    Del,
+    Add,
     /// What goes with the line before it, and a turn's frame: a question's
     /// input and how to answer it, a notice's setting and its undo, a context
     /// decision (`⟳`), a turn's start (`──`) and its status line (`[…]`), and
@@ -389,11 +395,17 @@ pub fn event(e: &Event, show: Show) -> Vec<Line> {
 /// waits because its session read external text, theseus-9bp), and decline
 /// it.
 fn answers(out: &mut Vec<Line>, c: &ConfirmRequest) {
-    push(
-        out,
-        Tag::Dim,
-        &format!("      input: {}", clip(&c.input.to_string(), 200)),
-    );
+    // What the call would do (an edit's hunk, a command with its directory)
+    // stands in for its input, which holds the same text as JSON.
+    let shown = diffview::preview_lines(c);
+    if shown.is_empty() {
+        push(
+            out,
+            Tag::Dim,
+            &format!("      input: {}", clip(&c.input.to_string(), 200)),
+        );
+    }
+    out.extend(shown);
     push(
         out,
         Tag::Dim,

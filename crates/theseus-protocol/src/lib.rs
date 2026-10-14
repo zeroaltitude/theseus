@@ -21,6 +21,7 @@ pub mod cite;
 pub mod context;
 mod cost;
 pub mod cred;
+pub mod diff;
 pub mod earned;
 mod events;
 mod exec_list;
@@ -82,6 +83,7 @@ pub use aws::*;
 pub use budgets::*;
 pub use cancel::{CancelCount, CancelVerdict};
 pub use check::{CheckOverlap, CheckPiece, TaskCheck};
+pub use diff::{ConfirmPreview, ToolDiff};
 pub use events::*;
 pub use exec_list::{ExecutionListParams, ExecutionListResult};
 pub use explain::*;
@@ -2422,6 +2424,10 @@ pub struct ConfirmRequest {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub may_answer: Option<bool>,
+    /// What the call would do, as the question shows it (theseus-z6au).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub preview: Option<ConfirmPreview>,
 }
 
 /// What a budget question asks about (theseus-0sg): the session reached its

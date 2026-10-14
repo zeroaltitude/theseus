@@ -29,6 +29,11 @@ Key modules: `run.rs` (the loop), `app.rs` (no I/O), `board.rs`, `ui.rs`. Read b
   for a turn this TUI sent, from its `turn.submit` answer's `cites`; a reply another surface's turn streams in stays
   raw until the history is read again. Tests: `src/tests_cite.rs`.
 
+- A question's card shows the call in words and the daemon's `preview` (`card::preview`, at most 12 rows of
+  `diffview::preview_lines`); the pane shows tool lines in words, a failed command's last lines and a finished edit's
+  diff (`render::Flight`). The changed words of a diff line are `MARK_ON`/`MARK_OFF` in its text: `ui::put` draws them
+  on a background of their own and `ui::wrap` carries a mark over a cut. Tests: `src/tests_diff.rs`.
+
 ## Invariants
 
 - **The protocol is the only way in.** What needs you is each view's `attention`, which the daemon computes; an

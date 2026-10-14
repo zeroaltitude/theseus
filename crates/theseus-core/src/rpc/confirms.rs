@@ -91,6 +91,7 @@ impl Core {
             change: crate::task_graph::tools::change_of(&self.store, tool, input),
             options: Vec::new(),
             may_answer: None,
+            preview: self.tools.preview(session.dir.as_deref(), tool, input),
         }))
     }
 
@@ -141,6 +142,7 @@ impl Core {
             change: None,
             options: Vec::new(),
             may_answer: None,
+            preview: None,
         }))
     }
 
