@@ -24,6 +24,11 @@ Key modules: `run.rs` (the loop), `app.rs` (no I/O), `board.rs`, `ui.rs`, and `c
 - `src/board.rs`: the board. Views applied by the position rule, titles, the questions, the rows and trees, and the
   queue.
 - `src/ui.rs`: drawing into a ratatui buffer. Nothing here changes the app.
+- `src/styled.rs` (theseus-rn7s): the pane's rows. A run of `Reply` lines is one reply, drawn whole with the CLI's
+  markdown renderer (`theseus_client::render::md`) at the pane's width and turned into ratatui spans here; every
+  other line wraps as before. A history reply is a header line (`[time] model:`, `Plain`) and its text as `Reply`
+  lines. The reply streams in raw lines and is redrawn at each frame, so a half-typed `**` shows as typed until it
+  closes. Test: `src/tests_markdown.rs`.
 - `src/detail.rs` (the focused session's history and events, as the CLI's `render` lines), `src/card.rs` (a
   question's card), `src/notice.rs` (notices by the protocol's one policy, `theseus_protocol::notices`, delivered by
   the bell, OSC 9, OSC 777). Done until seen is `theseus_client::seen`, shared with the CLI.

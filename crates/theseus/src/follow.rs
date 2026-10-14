@@ -156,7 +156,7 @@ impl Follow {
                 if !stream {
                     println!("{}", r.output);
                 }
-                eprintln!("{}", render::status_line(&without_later(r)));
+                crate::print::footer(&render::status_line(&without_later(r)));
                 if let Some(l) = &r.later {
                     eprintln!("{}", self.following(l));
                 }

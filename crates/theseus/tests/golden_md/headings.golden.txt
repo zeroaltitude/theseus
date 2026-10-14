@@ -1,0 +1,112 @@
+=== 80 columns, plain ===
+# Port Wenlow tides$
+$
+## A second-level heading with bold and `code` in it$
+$
+### Third level$
+$
+#### Fourth, and a heading long enough that it has to wrap at the edge of an$
+eighty column terminal screen$
+$
+##### Fifth$
+$
+###### Sixth$
+$
+#nospace is a paragraph, and so is a hash in C# or a #hashtag.$
+$
+Text straight after a heading.$
+$
+# And a heading straight after text$
+=== 80 columns, ansi ===
+\e[1;4mPort Wenlow tides\e[0m$
+$
+\e[1mA second-level heading with bold and \e[0m\e[1;36mcode\e[0m\e[1m in it\e[0m$
+$
+\e[1;3mThird level\e[0m$
+$
+\e[1;3mFourth, and a heading long enough that it has to wrap at the edge of an eighty\e[0m$
+\e[1;3mcolumn terminal screen\e[0m$
+$
+\e[1;3mFifth\e[0m$
+$
+\e[1;3mSixth\e[0m$
+$
+#nospace is a paragraph, and so is a hash in C# or a #hashtag.$
+$
+Text straight after a heading.$
+$
+\e[1;4mAnd a heading straight after text\e[0m$
+=== 100 columns, plain ===
+# Port Wenlow tides$
+$
+## A second-level heading with bold and `code` in it$
+$
+### Third level$
+$
+#### Fourth, and a heading long enough that it has to wrap at the edge of an eighty column terminal$
+screen$
+$
+##### Fifth$
+$
+###### Sixth$
+$
+#nospace is a paragraph, and so is a hash in C# or a #hashtag.$
+$
+Text straight after a heading.$
+$
+# And a heading straight after text$
+=== 100 columns, ansi ===
+\e[1;4mPort Wenlow tides\e[0m$
+$
+\e[1mA second-level heading with bold and \e[0m\e[1;36mcode\e[0m\e[1m in it\e[0m$
+$
+\e[1;3mThird level\e[0m$
+$
+\e[1;3mFourth, and a heading long enough that it has to wrap at the edge of an eighty column terminal\e[0m$
+\e[1;3mscreen\e[0m$
+$
+\e[1;3mFifth\e[0m$
+$
+\e[1;3mSixth\e[0m$
+$
+#nospace is a paragraph, and so is a hash in C# or a #hashtag.$
+$
+Text straight after a heading.$
+$
+\e[1;4mAnd a heading straight after text\e[0m$
+=== 120 columns, plain ===
+# Port Wenlow tides$
+$
+## A second-level heading with bold and `code` in it$
+$
+### Third level$
+$
+#### Fourth, and a heading long enough that it has to wrap at the edge of an eighty column terminal screen$
+$
+##### Fifth$
+$
+###### Sixth$
+$
+#nospace is a paragraph, and so is a hash in C# or a #hashtag.$
+$
+Text straight after a heading.$
+$
+# And a heading straight after text$
+=== 120 columns, ansi ===
+\e[1;4mPort Wenlow tides\e[0m$
+$
+\e[1mA second-level heading with bold and \e[0m\e[1;36mcode\e[0m\e[1m in it\e[0m$
+$
+\e[1;3mThird level\e[0m$
+$
+\e[1;3mFourth, and a heading long enough that it has to wrap at the edge of an eighty column terminal screen\e[0m$
+$
+\e[1;3mFifth\e[0m$
+$
+\e[1;3mSixth\e[0m$
+$
+#nospace is a paragraph, and so is a hash in C# or a #hashtag.$
+$
+Text straight after a heading.$
+$
+\e[1;4mAnd a heading straight after text\e[0m$

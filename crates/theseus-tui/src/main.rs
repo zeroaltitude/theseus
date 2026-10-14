@@ -15,6 +15,7 @@ mod detail;
 mod new_task;
 mod notice;
 mod run;
+mod styled;
 mod term;
 mod ui;
 
@@ -24,6 +25,8 @@ mod tests;
 mod tests_answer;
 #[cfg(test)]
 mod tests_cite;
+#[cfg(test)]
+mod tests_markdown;
 #[cfg(test)]
 mod tests_names;
 #[cfg(test)]

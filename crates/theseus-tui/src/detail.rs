@@ -22,6 +22,29 @@ const SHOW: Show = Show {
     turns: true,
 };
 
+/// A node's rows as the pane holds them. A reply's text is kept as lines of
+/// its own, tagged `Reply`, which the pane draws as markdown with the CLI's
+/// renderer (theseus-rn7s); the header with its time and model goes ahead of
+/// it, and the thinking stays out. Any other node is the CLI's lines.
+fn node_rows(n: &NodeInfo) -> Vec<(Tag, String)> {
+    let lines = render::node_lines(n, true);
+    if n.kind != "assistant_message" || n.text.trim().is_empty() {
+        let shown = render::node_lines(n, false);
+        return shown.into_iter().map(|l| (l.tag, l.text)).collect();
+    }
+    let body = n.text.lines().count().max(1);
+    let mut out = vec![(Tag::Plain, lines[0].text.clone())];
+    out.extend(n.text.lines().map(|l| (Tag::Reply, l.to_string())));
+    out.extend(
+        lines
+            .into_iter()
+            .skip(1 + body)
+            .filter(|l| l.tag != Tag::Thinking)
+            .map(|l| (l.tag, l.text)),
+    );
+    out
+}
+
 #[derive(Debug, Default)]
 pub struct Detail {
     pub session_id: String,
@@ -119,16 +142,16 @@ impl Detail {
                 self.places.remove(i);
             }
             self.close();
-            for l in render::node_lines(n, false) {
-                self.push(l.tag, l.text);
+            for (tag, text) in node_rows(n) {
+                self.push(tag, text);
             }
             return;
         };
         let i = at.expect("a place is a mark's");
         self.places.remove(i);
-        let new: Vec<(Tag, String)> = render::node_lines(n, false)
+        let new: Vec<(Tag, String)> = node_rows(n)
             .into_iter()
-            .map(|l| (l.tag, l.text.replace('\t', "    ")))
+            .map(|(tag, text)| (tag, text.replace('\t', "    ")))
             .collect();
         let k = new.len();
         self.lines.splice(p..p, new);

@@ -1,0 +1,86 @@
+=== 80 columns, plain ===
+The harbour board publishes a table of the high and low waters for every station$
+along the coast, and the library in this project reads those tables, finds the$
+turning points between neighbouring readings, and works out the range between$
+the highest and the lowest water of the day, which the board shows in metres. It$
+does so without any network access, from a plain text file of readings, one per$
+line, so that a survey boat with no signal can still check its sums at sea$
+before it comes back to port.$
+$
+An unbroken word:$
+xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx$
+xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx and then$
+more words after it.$
+$
+日本語のテキストも、表示幅で折り返されます。日本語のテキストも、表示幅で折り返さ$
+れます。日本語のテキストも、表示幅で折り返されます。$
+=== 80 columns, ansi ===
+The harbour board publishes a table of the high and low waters for every station$
+along the coast, and the library in this project reads those tables, finds the$
+turning points between neighbouring readings, and works out the range between$
+the highest and the lowest water of the day, which the board shows in metres. It$
+does so without any network access, from a plain text file of readings, one per$
+line, so that a survey boat with no signal can still check its sums at sea$
+before it comes back to port.$
+$
+An unbroken word:$
+xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx$
+xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx and then$
+more words after it.$
+$
+日本語のテキストも、表示幅で折り返されます。日本語のテキストも、表示幅で折り返さ$
+れます。日本語のテキストも、表示幅で折り返されます。$
+=== 100 columns, plain ===
+The harbour board publishes a table of the high and low waters for every station along the coast,$
+and the library in this project reads those tables, finds the turning points between neighbouring$
+readings, and works out the range between the highest and the lowest water of the day, which the$
+board shows in metres. It does so without any network access, from a plain text file of readings,$
+one per line, so that a survey boat with no signal can still check its sums at sea before it comes$
+back to port.$
+$
+An unbroken word:$
+xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx$
+xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx and then more words after it.$
+$
+日本語のテキストも、表示幅で折り返されます。日本語のテキストも、表示幅で折り返されます。日本語のテキ$
+ストも、表示幅で折り返されます。$
+=== 100 columns, ansi ===
+The harbour board publishes a table of the high and low waters for every station along the coast,$
+and the library in this project reads those tables, finds the turning points between neighbouring$
+readings, and works out the range between the highest and the lowest water of the day, which the$
+board shows in metres. It does so without any network access, from a plain text file of readings,$
+one per line, so that a survey boat with no signal can still check its sums at sea before it comes$
+back to port.$
+$
+An unbroken word:$
+xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx$
+xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx and then more words after it.$
+$
+日本語のテキストも、表示幅で折り返されます。日本語のテキストも、表示幅で折り返されます。日本語のテキ$
+ストも、表示幅で折り返されます。$
+=== 120 columns, plain ===
+The harbour board publishes a table of the high and low waters for every station along the coast, and the library in$
+this project reads those tables, finds the turning points between neighbouring readings, and works out the range between$
+the highest and the lowest water of the day, which the board shows in metres. It does so without any network access,$
+from a plain text file of readings, one per line, so that a survey boat with no signal can still check its sums at sea$
+before it comes back to port.$
+$
+An unbroken word:$
+xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx$
+xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx and then more words after it.$
+$
+日本語のテキストも、表示幅で折り返されます。日本語のテキストも、表示幅で折り返されます。日本語のテキストも、表示幅で折り$
+返されます。$
+=== 120 columns, ansi ===
+The harbour board publishes a table of the high and low waters for every station along the coast, and the library in$
+this project reads those tables, finds the turning points between neighbouring readings, and works out the range between$
+the highest and the lowest water of the day, which the board shows in metres. It does so without any network access,$
+from a plain text file of readings, one per line, so that a survey boat with no signal can still check its sums at sea$
+before it comes back to port.$
+$
+An unbroken word:$
+xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx$
+xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx and then more words after it.$
+$
+日本語のテキストも、表示幅で折り返されます。日本語のテキストも、表示幅で折り返されます。日本語のテキストも、表示幅で折り$
+返されます。$

@@ -179,7 +179,7 @@ pub(crate) async fn stream_turn(
             printer.footnotes(&r.cites);
         } else {
             let (text, order) = render::cite::mark(&r.output, &r.cites);
-            println!("{text}");
+            print::reply(&mut io::stdout(), &text)?;
             print::lines(&mut io::stdout(), &render::cite::footnotes(&order))?;
         }
         // A refusal's fallback and a nudge say so in lines of their own
@@ -187,7 +187,7 @@ pub(crate) async fn stream_turn(
         for line in r.harness_lines() {
             eprintln!("{line}");
         }
-        eprintln!("{}", render::status_line(&r));
+        crate::print::footer(&render::status_line(&r));
     }
     if let (Some(corr), false) = (&r.awaiting_confirm, json) {
         eprintln!(
@@ -333,10 +333,10 @@ pub async fn history(
             }
             match render::cite::cited_node(node, &h.cites) {
                 Some((marked, notes)) => {
-                    print::lines(&mut out, &render::history::node_lines(&marked, full))?;
+                    print_node(&mut out, &marked, full)?;
                     print::lines(&mut out, &notes)?;
                 }
-                None => print::lines(&mut out, &render::history::node_lines(node, full))?,
+                None => print_node(&mut out, node, full)?,
             }
         }
         for c in &h.pending_confirms {
@@ -349,6 +349,20 @@ pub async fn history(
         theseus_client::shown::shown(conn, &[session_id]).await;
     }
     shown
+}
+
+/// One node of `history`: its lines, a reply's text drawn as markdown on a
+/// terminal (theseus-rn7s).
+fn print_node(out: &mut impl Write, n: &theseus_protocol::NodeInfo, full: bool) -> Result<()> {
+    if theseus_client::render::style::styled_stdout() {
+        let width = theseus_client::render::style::terminal_width();
+        for l in render::history::styled_node_lines(n, full, width) {
+            writeln!(out, "{l}")?;
+        }
+        return Ok(());
+    }
+    print::lines(out, &render::history::node_lines(n, full))?;
+    Ok(())
 }
 
 /// `theseus watch`: a session's events as they come, until the connection
@@ -649,7 +663,7 @@ async fn follow_resumed(
                     for line in t.harness_lines() {
                         eprintln!("{line}");
                     }
-                    eprintln!("{}", render::status_line(&t));
+                    crate::print::footer(&render::status_line(&t));
                     if let Some(c) = &t.awaiting_confirm {
                         eprintln!("[parked again: `theseus confirm {c}` or `--decline`]");
                     }

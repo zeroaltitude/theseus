@@ -1,0 +1,610 @@
+=== 80 columns, plain ===
+  use std::collections::HashMap;$
+$
+  /// A reading of the tide gauge.$
+  #[derive(Debug, Clone)]$
+  pub struct Reading<'a> { name: &'a str, height: f64 }$
+$
+  fn main() -> Result<(), Box<dyn std::error::Error>> {$
+      let mut seen: HashMap<String, u32> = HashMap::new(); // counts$
+      let line = "12:00 0.60\n";$
+      for (i, r) in line.split(' ').enumerate() {$
+          println!("{i}: {r:?} {}", 0x1F + 2_000);$
+      }$
+      /* block$
+         comment */$
+      Ok(())$
+  }$
+$
+  import json$
+$
+  @dataclass$
+  class Reading:$
+      """A reading$
+      over two lines."""$
+      height: float = 0.6$
+$
+  def high_waters(readings: list[Reading]) -> int:$
+      # count the turning points$
+      return sum(1 for r in readings if r.height > 3.5 and not None)$
+$
+  const readings = [1.5, 2, 0x10];$
+  async function load(url) {$
+    const res = await fetch(`${url}/tides`); // network$
+    return res.json();$
+  }$
+$
+  interface Reading { height: number; label?: string }$
+  export const high = (r: Reading): boolean => r.height > 3.5;$
+$
+  set -e$
+  for f in tides/*.txt; do$
+    echo "reading $f" # say it$
+    python3 -m unittest -v "$f" || exit 1$
+  done$
+  echo ${HOME:-/tmp} 'single'$
+$
+  {"station": "Wenlow", "heights": [4.2, 0.6, -1.5e2], "ok": true, "note": null}$
+$
+  [package]$
+  name = "tides"   # the crate$
+  version = "0.1.0"$
+  publish = false$
+$
+  - name: build$
+    on: [push]$
+    steps:$
+      - run: cargo build  # compile$
+        retries: 3$
+        verbose: yes$
+$
+  package main$
+$
+  func main() {$
+      s := `raw$
+  string`$
+      var n int = 42$
+      fmt.Println("hi", 'x', n) // done$
+  }$
+$
+  #include <stdio.h>$
+  /* a$
+     comment */$
+  int main(void) {$
+      printf("hi %d\n", 42);$
+      return 0;$
+  }$
+$
+  #include <vector>$
+  template <typename T> class Box { public: T value; };$
+  int main() { std::vector<int> v{1, 2}; return v.size() > 1 ? 0 : 1; }$
+$
+  diff --git a/tides.py b/tides.py$
+  --- a/tides.py$
+  +++ b/tides.py$
+  @@ -1,3 +1,3 @@$
+   def high(x):$
+  -    return x > 3$
+  +    return x > 3.5$
+$
+  ++++++++[>++++[>++>+++>+++>+<<<<-]>+>+>->>+[<]<-]$
+$
+  a fence with no language keeps its text as it is$
+      and its indentation$
+$
+  a tilde fence$
+$
+  fn a_very_long_line_that_goes_past_the_edge_of_an_eighty_column_terminal(argum$
+  ↪ ent_one: &str, argument_two: &str, argument_three: u64) -> String { format!($
+  ↪ "{argument_one}{argument_two}{argument_three}") }$
+$
+  // a fence that is never closed$
+  let x = 1;$
+=== 80 columns, ansi ===
+  \e[35muse\e[0m std::collections::\e[36mHashMap\e[0m;$
+$
+  \e[90m/// A reading of the tide gauge.\e[0m$
+  \e[34m#[derive(Debug, Clone)]\e[0m$
+  \e[35mpub\e[0m \e[35mstruct\e[0m \e[36mReading\e[0m<'a> { name: &'a \e[36mstr\e[0m, height: \e[36mf64\e[0m }$
+$
+  \e[35mfn\e[0m main() -> \e[36mResult\e[0m<(), \e[36mBox\e[0m<\e[35mdyn\e[0m std::error::\e[36mError\e[0m>> {$
+      \e[35mlet\e[0m \e[35mmut\e[0m seen: \e[36mHashMap\e[0m<\e[36mString\e[0m, \e[36mu32\e[0m> = \e[36mHashMap\e[0m::new(); \e[90m// counts\e[0m$
+      \e[35mlet\e[0m line = \e[32m"12:00 0.60\n"\e[0m;$
+      \e[35mfor\e[0m (i, r) \e[35min\e[0m line.split(\e[32m' '\e[0m).enumerate() {$
+          \e[34mprintln!\e[0m(\e[32m"{i}: {r:?} {}"\e[0m, \e[33m0x1F\e[0m + \e[33m2_000\e[0m);$
+      }$
+      \e[90m/* block\e[0m$
+  \e[90m       comment */\e[0m$
+      \e[36mOk\e[0m(())$
+  }$
+$
+  \e[35mimport\e[0m json$
+$
+  \e[34m@dataclass\e[0m$
+  \e[35mclass\e[0m \e[36mReading\e[0m:$
+      \e[32m"""A reading\e[0m$
+  \e[32m    over two lines."""\e[0m$
+      height: \e[36mfloat\e[0m = \e[33m0.6\e[0m$
+$
+  \e[35mdef\e[0m high_waters(readings: \e[36mlist\e[0m[\e[36mReading\e[0m]) -> \e[36mint\e[0m:$
+      \e[90m# count the turning points\e[0m$
+      \e[35mreturn\e[0m sum(\e[33m1\e[0m \e[35mfor\e[0m r \e[35min\e[0m readings \e[35mif\e[0m r.height > \e[33m3.5\e[0m \e[35mand\e[0m \e[35mnot\e[0m \e[35mNone\e[0m)$
+$
+  \e[35mconst\e[0m readings = [\e[33m1.5\e[0m, \e[33m2\e[0m, \e[33m0x10\e[0m];$
+  \e[35masync\e[0m \e[35mfunction\e[0m load(url) {$
+    \e[35mconst\e[0m res = \e[35mawait\e[0m fetch(\e[32m`${url}/tides`\e[0m); \e[90m// network\e[0m$
+    \e[35mreturn\e[0m res.json();$
+  }$
+$
+  \e[35minterface\e[0m \e[36mReading\e[0m { height: \e[36mnumber\e[0m; label?: \e[36mstring\e[0m }$
+  \e[35mexport\e[0m \e[35mconst\e[0m high = (r: \e[36mReading\e[0m): \e[36mboolean\e[0m => r.height > \e[33m3.5\e[0m;$
+$
+  set -e$
+  \e[35mfor\e[0m f \e[35min\e[0m tides/*.txt; \e[35mdo\e[0m$
+    echo \e[32m"reading $f"\e[0m \e[90m# say it\e[0m$
+    python3 -m unittest -v \e[32m"$f"\e[0m || exit \e[33m1\e[0m$
+  \e[35mdone\e[0m$
+  echo \e[34m${HOME:-/tmp}\e[0m \e[32m'single'\e[0m$
+$
+  {\e[36m"station"\e[0m: \e[32m"Wenlow"\e[0m, \e[36m"heights"\e[0m: [\e[33m4.2\e[0m, \e[33m0.6\e[0m, -\e[33m1.5e2\e[0m], \e[36m"ok"\e[0m: \e[35mtrue\e[0m, \e[36m"note"\e[0m: \e[35mnull\e[0m}$
+$
+  \e[34m[package]\e[0m$
+  \e[36mname\e[0m = \e[32m"tides"\e[0m   \e[90m# the crate\e[0m$
+  \e[36mversion\e[0m = \e[32m"0.1.0"\e[0m$
+  \e[36mpublish\e[0m = \e[35mfalse\e[0m$
+$
+  - \e[36mname\e[0m: build$
+    \e[36mon\e[0m: [push]$
+    \e[36msteps\e[0m:$
+      - \e[36mrun\e[0m: cargo build  \e[90m# compile\e[0m$
+        \e[36mretries\e[0m: \e[33m3\e[0m$
+        \e[36mverbose\e[0m: \e[35myes\e[0m$
+$
+  \e[35mpackage\e[0m main$
+$
+  \e[35mfunc\e[0m main() {$
+      s := \e[32m`raw\e[0m$
+  \e[32mstring`\e[0m$
+      \e[35mvar\e[0m n \e[36mint\e[0m = \e[33m42\e[0m$
+      fmt.\e[36mPrintln\e[0m(\e[32m"hi"\e[0m, \e[32m'x'\e[0m, n) \e[90m// done\e[0m$
+  }$
+$
+  \e[34m#include <stdio.h>\e[0m$
+  \e[90m/* a\e[0m$
+  \e[90m   comment */\e[0m$
+  \e[36mint\e[0m main(\e[36mvoid\e[0m) {$
+      printf(\e[32m"hi %d\n"\e[0m, \e[33m42\e[0m);$
+      \e[35mreturn\e[0m \e[33m0\e[0m;$
+  }$
+$
+  \e[34m#include <vector>\e[0m$
+  \e[35mtemplate\e[0m <\e[35mtypename\e[0m T> \e[35mclass\e[0m Box { \e[35mpublic\e[0m: T value; };$
+  \e[36mint\e[0m main() { std::\e[36mvector\e[0m<\e[36mint\e[0m> v{\e[33m1\e[0m, \e[33m2\e[0m}; \e[35mreturn\e[0m v.size() > \e[33m1\e[0m ? \e[33m0\e[0m : \e[33m1\e[0m; }$
+$
+  \e[34mdiff --git a/tides.py b/tides.py\e[0m$
+  \e[34m--- a/tides.py\e[0m$
+  \e[34m+++ b/tides.py\e[0m$
+  \e[36m@@ -1,3 +1,3 @@\e[0m$
+   def high(x):$
+  \e[35m-    return x > 3\e[0m$
+  \e[32m+    return x > 3.5\e[0m$
+$
+  ++++++++[>++++[>++>+++>+++>+<<<<-]>+>+>->>+[<]<-]$
+$
+  a fence with no language keeps its text as it is$
+      and its indentation$
+$
+  a tilde fence$
+$
+  \e[35mfn\e[0m a_very_long_line_that_goes_past_the_edge_of_an_eighty_column_terminal(argum$
+  \e[90m↪ \e[0ment_one: &\e[36mstr\e[0m, argument_two: &\e[36mstr\e[0m, argument_three: \e[36mu64\e[0m) -> \e[36mString\e[0m { \e[34mformat!\e[0m($
+  \e[90m↪ \e[0m\e[32m"{argument_one}{argument_two}{argument_three}"\e[0m) }$
+$
+  \e[90m// a fence that is never closed\e[0m$
+  \e[35mlet\e[0m x = \e[33m1\e[0m;$
+=== 100 columns, plain ===
+  use std::collections::HashMap;$
+$
+  /// A reading of the tide gauge.$
+  #[derive(Debug, Clone)]$
+  pub struct Reading<'a> { name: &'a str, height: f64 }$
+$
+  fn main() -> Result<(), Box<dyn std::error::Error>> {$
+      let mut seen: HashMap<String, u32> = HashMap::new(); // counts$
+      let line = "12:00 0.60\n";$
+      for (i, r) in line.split(' ').enumerate() {$
+          println!("{i}: {r:?} {}", 0x1F + 2_000);$
+      }$
+      /* block$
+         comment */$
+      Ok(())$
+  }$
+$
+  import json$
+$
+  @dataclass$
+  class Reading:$
+      """A reading$
+      over two lines."""$
+      height: float = 0.6$
+$
+  def high_waters(readings: list[Reading]) -> int:$
+      # count the turning points$
+      return sum(1 for r in readings if r.height > 3.5 and not None)$
+$
+  const readings = [1.5, 2, 0x10];$
+  async function load(url) {$
+    const res = await fetch(`${url}/tides`); // network$
+    return res.json();$
+  }$
+$
+  interface Reading { height: number; label?: string }$
+  export const high = (r: Reading): boolean => r.height > 3.5;$
+$
+  set -e$
+  for f in tides/*.txt; do$
+    echo "reading $f" # say it$
+    python3 -m unittest -v "$f" || exit 1$
+  done$
+  echo ${HOME:-/tmp} 'single'$
+$
+  {"station": "Wenlow", "heights": [4.2, 0.6, -1.5e2], "ok": true, "note": null}$
+$
+  [package]$
+  name = "tides"   # the crate$
+  version = "0.1.0"$
+  publish = false$
+$
+  - name: build$
+    on: [push]$
+    steps:$
+      - run: cargo build  # compile$
+        retries: 3$
+        verbose: yes$
+$
+  package main$
+$
+  func main() {$
+      s := `raw$
+  string`$
+      var n int = 42$
+      fmt.Println("hi", 'x', n) // done$
+  }$
+$
+  #include <stdio.h>$
+  /* a$
+     comment */$
+  int main(void) {$
+      printf("hi %d\n", 42);$
+      return 0;$
+  }$
+$
+  #include <vector>$
+  template <typename T> class Box { public: T value; };$
+  int main() { std::vector<int> v{1, 2}; return v.size() > 1 ? 0 : 1; }$
+$
+  diff --git a/tides.py b/tides.py$
+  --- a/tides.py$
+  +++ b/tides.py$
+  @@ -1,3 +1,3 @@$
+   def high(x):$
+  -    return x > 3$
+  +    return x > 3.5$
+$
+  ++++++++[>++++[>++>+++>+++>+<<<<-]>+>+>->>+[<]<-]$
+$
+  a fence with no language keeps its text as it is$
+      and its indentation$
+$
+  a tilde fence$
+$
+  fn a_very_long_line_that_goes_past_the_edge_of_an_eighty_column_terminal(argument_one: &str, argum$
+  ↪ ent_two: &str, argument_three: u64) -> String { format!("{argument_one}{argument_two}{argument_t$
+  ↪ hree}") }$
+$
+  // a fence that is never closed$
+  let x = 1;$
+=== 100 columns, ansi ===
+  \e[35muse\e[0m std::collections::\e[36mHashMap\e[0m;$
+$
+  \e[90m/// A reading of the tide gauge.\e[0m$
+  \e[34m#[derive(Debug, Clone)]\e[0m$
+  \e[35mpub\e[0m \e[35mstruct\e[0m \e[36mReading\e[0m<'a> { name: &'a \e[36mstr\e[0m, height: \e[36mf64\e[0m }$
+$
+  \e[35mfn\e[0m main() -> \e[36mResult\e[0m<(), \e[36mBox\e[0m<\e[35mdyn\e[0m std::error::\e[36mError\e[0m>> {$
+      \e[35mlet\e[0m \e[35mmut\e[0m seen: \e[36mHashMap\e[0m<\e[36mString\e[0m, \e[36mu32\e[0m> = \e[36mHashMap\e[0m::new(); \e[90m// counts\e[0m$
+      \e[35mlet\e[0m line = \e[32m"12:00 0.60\n"\e[0m;$
+      \e[35mfor\e[0m (i, r) \e[35min\e[0m line.split(\e[32m' '\e[0m).enumerate() {$
+          \e[34mprintln!\e[0m(\e[32m"{i}: {r:?} {}"\e[0m, \e[33m0x1F\e[0m + \e[33m2_000\e[0m);$
+      }$
+      \e[90m/* block\e[0m$
+  \e[90m       comment */\e[0m$
+      \e[36mOk\e[0m(())$
+  }$
+$
+  \e[35mimport\e[0m json$
+$
+  \e[34m@dataclass\e[0m$
+  \e[35mclass\e[0m \e[36mReading\e[0m:$
+      \e[32m"""A reading\e[0m$
+  \e[32m    over two lines."""\e[0m$
+      height: \e[36mfloat\e[0m = \e[33m0.6\e[0m$
+$
+  \e[35mdef\e[0m high_waters(readings: \e[36mlist\e[0m[\e[36mReading\e[0m]) -> \e[36mint\e[0m:$
+      \e[90m# count the turning points\e[0m$
+      \e[35mreturn\e[0m sum(\e[33m1\e[0m \e[35mfor\e[0m r \e[35min\e[0m readings \e[35mif\e[0m r.height > \e[33m3.5\e[0m \e[35mand\e[0m \e[35mnot\e[0m \e[35mNone\e[0m)$
+$
+  \e[35mconst\e[0m readings = [\e[33m1.5\e[0m, \e[33m2\e[0m, \e[33m0x10\e[0m];$
+  \e[35masync\e[0m \e[35mfunction\e[0m load(url) {$
+    \e[35mconst\e[0m res = \e[35mawait\e[0m fetch(\e[32m`${url}/tides`\e[0m); \e[90m// network\e[0m$
+    \e[35mreturn\e[0m res.json();$
+  }$
+$
+  \e[35minterface\e[0m \e[36mReading\e[0m { height: \e[36mnumber\e[0m; label?: \e[36mstring\e[0m }$
+  \e[35mexport\e[0m \e[35mconst\e[0m high = (r: \e[36mReading\e[0m): \e[36mboolean\e[0m => r.height > \e[33m3.5\e[0m;$
+$
+  set -e$
+  \e[35mfor\e[0m f \e[35min\e[0m tides/*.txt; \e[35mdo\e[0m$
+    echo \e[32m"reading $f"\e[0m \e[90m# say it\e[0m$
+    python3 -m unittest -v \e[32m"$f"\e[0m || exit \e[33m1\e[0m$
+  \e[35mdone\e[0m$
+  echo \e[34m${HOME:-/tmp}\e[0m \e[32m'single'\e[0m$
+$
+  {\e[36m"station"\e[0m: \e[32m"Wenlow"\e[0m, \e[36m"heights"\e[0m: [\e[33m4.2\e[0m, \e[33m0.6\e[0m, -\e[33m1.5e2\e[0m], \e[36m"ok"\e[0m: \e[35mtrue\e[0m, \e[36m"note"\e[0m: \e[35mnull\e[0m}$
+$
+  \e[34m[package]\e[0m$
+  \e[36mname\e[0m = \e[32m"tides"\e[0m   \e[90m# the crate\e[0m$
+  \e[36mversion\e[0m = \e[32m"0.1.0"\e[0m$
+  \e[36mpublish\e[0m = \e[35mfalse\e[0m$
+$
+  - \e[36mname\e[0m: build$
+    \e[36mon\e[0m: [push]$
+    \e[36msteps\e[0m:$
+      - \e[36mrun\e[0m: cargo build  \e[90m# compile\e[0m$
+        \e[36mretries\e[0m: \e[33m3\e[0m$
+        \e[36mverbose\e[0m: \e[35myes\e[0m$
+$
+  \e[35mpackage\e[0m main$
+$
+  \e[35mfunc\e[0m main() {$
+      s := \e[32m`raw\e[0m$
+  \e[32mstring`\e[0m$
+      \e[35mvar\e[0m n \e[36mint\e[0m = \e[33m42\e[0m$
+      fmt.\e[36mPrintln\e[0m(\e[32m"hi"\e[0m, \e[32m'x'\e[0m, n) \e[90m// done\e[0m$
+  }$
+$
+  \e[34m#include <stdio.h>\e[0m$
+  \e[90m/* a\e[0m$
+  \e[90m   comment */\e[0m$
+  \e[36mint\e[0m main(\e[36mvoid\e[0m) {$
+      printf(\e[32m"hi %d\n"\e[0m, \e[33m42\e[0m);$
+      \e[35mreturn\e[0m \e[33m0\e[0m;$
+  }$
+$
+  \e[34m#include <vector>\e[0m$
+  \e[35mtemplate\e[0m <\e[35mtypename\e[0m T> \e[35mclass\e[0m Box { \e[35mpublic\e[0m: T value; };$
+  \e[36mint\e[0m main() { std::\e[36mvector\e[0m<\e[36mint\e[0m> v{\e[33m1\e[0m, \e[33m2\e[0m}; \e[35mreturn\e[0m v.size() > \e[33m1\e[0m ? \e[33m0\e[0m : \e[33m1\e[0m; }$
+$
+  \e[34mdiff --git a/tides.py b/tides.py\e[0m$
+  \e[34m--- a/tides.py\e[0m$
+  \e[34m+++ b/tides.py\e[0m$
+  \e[36m@@ -1,3 +1,3 @@\e[0m$
+   def high(x):$
+  \e[35m-    return x > 3\e[0m$
+  \e[32m+    return x > 3.5\e[0m$
+$
+  ++++++++[>++++[>++>+++>+++>+<<<<-]>+>+>->>+[<]<-]$
+$
+  a fence with no language keeps its text as it is$
+      and its indentation$
+$
+  a tilde fence$
+$
+  \e[35mfn\e[0m a_very_long_line_that_goes_past_the_edge_of_an_eighty_column_terminal(argument_one: &\e[36mstr\e[0m, argum$
+  \e[90m↪ \e[0ment_two: &\e[36mstr\e[0m, argument_three: \e[36mu64\e[0m) -> \e[36mString\e[0m { \e[34mformat!\e[0m(\e[32m"{argument_one}{argument_two}{argument_t\e[0m$
+  \e[90m↪ \e[0m\e[32mhree}"\e[0m) }$
+$
+  \e[90m// a fence that is never closed\e[0m$
+  \e[35mlet\e[0m x = \e[33m1\e[0m;$
+=== 120 columns, plain ===
+  use std::collections::HashMap;$
+$
+  /// A reading of the tide gauge.$
+  #[derive(Debug, Clone)]$
+  pub struct Reading<'a> { name: &'a str, height: f64 }$
+$
+  fn main() -> Result<(), Box<dyn std::error::Error>> {$
+      let mut seen: HashMap<String, u32> = HashMap::new(); // counts$
+      let line = "12:00 0.60\n";$
+      for (i, r) in line.split(' ').enumerate() {$
+          println!("{i}: {r:?} {}", 0x1F + 2_000);$
+      }$
+      /* block$
+         comment */$
+      Ok(())$
+  }$
+$
+  import json$
+$
+  @dataclass$
+  class Reading:$
+      """A reading$
+      over two lines."""$
+      height: float = 0.6$
+$
+  def high_waters(readings: list[Reading]) -> int:$
+      # count the turning points$
+      return sum(1 for r in readings if r.height > 3.5 and not None)$
+$
+  const readings = [1.5, 2, 0x10];$
+  async function load(url) {$
+    const res = await fetch(`${url}/tides`); // network$
+    return res.json();$
+  }$
+$
+  interface Reading { height: number; label?: string }$
+  export const high = (r: Reading): boolean => r.height > 3.5;$
+$
+  set -e$
+  for f in tides/*.txt; do$
+    echo "reading $f" # say it$
+    python3 -m unittest -v "$f" || exit 1$
+  done$
+  echo ${HOME:-/tmp} 'single'$
+$
+  {"station": "Wenlow", "heights": [4.2, 0.6, -1.5e2], "ok": true, "note": null}$
+$
+  [package]$
+  name = "tides"   # the crate$
+  version = "0.1.0"$
+  publish = false$
+$
+  - name: build$
+    on: [push]$
+    steps:$
+      - run: cargo build  # compile$
+        retries: 3$
+        verbose: yes$
+$
+  package main$
+$
+  func main() {$
+      s := `raw$
+  string`$
+      var n int = 42$
+      fmt.Println("hi", 'x', n) // done$
+  }$
+$
+  #include <stdio.h>$
+  /* a$
+     comment */$
+  int main(void) {$
+      printf("hi %d\n", 42);$
+      return 0;$
+  }$
+$
+  #include <vector>$
+  template <typename T> class Box { public: T value; };$
+  int main() { std::vector<int> v{1, 2}; return v.size() > 1 ? 0 : 1; }$
+$
+  diff --git a/tides.py b/tides.py$
+  --- a/tides.py$
+  +++ b/tides.py$
+  @@ -1,3 +1,3 @@$
+   def high(x):$
+  -    return x > 3$
+  +    return x > 3.5$
+$
+  ++++++++[>++++[>++>+++>+++>+<<<<-]>+>+>->>+[<]<-]$
+$
+  a fence with no language keeps its text as it is$
+      and its indentation$
+$
+  a tilde fence$
+$
+  fn a_very_long_line_that_goes_past_the_edge_of_an_eighty_column_terminal(argument_one: &str, argument_two: &str, argum$
+  ↪ ent_three: u64) -> String { format!("{argument_one}{argument_two}{argument_three}") }$
+$
+  // a fence that is never closed$
+  let x = 1;$
+=== 120 columns, ansi ===
+  \e[35muse\e[0m std::collections::\e[36mHashMap\e[0m;$
+$
+  \e[90m/// A reading of the tide gauge.\e[0m$
+  \e[34m#[derive(Debug, Clone)]\e[0m$
+  \e[35mpub\e[0m \e[35mstruct\e[0m \e[36mReading\e[0m<'a> { name: &'a \e[36mstr\e[0m, height: \e[36mf64\e[0m }$
+$
+  \e[35mfn\e[0m main() -> \e[36mResult\e[0m<(), \e[36mBox\e[0m<\e[35mdyn\e[0m std::error::\e[36mError\e[0m>> {$
+      \e[35mlet\e[0m \e[35mmut\e[0m seen: \e[36mHashMap\e[0m<\e[36mString\e[0m, \e[36mu32\e[0m> = \e[36mHashMap\e[0m::new(); \e[90m// counts\e[0m$
+      \e[35mlet\e[0m line = \e[32m"12:00 0.60\n"\e[0m;$
+      \e[35mfor\e[0m (i, r) \e[35min\e[0m line.split(\e[32m' '\e[0m).enumerate() {$
+          \e[34mprintln!\e[0m(\e[32m"{i}: {r:?} {}"\e[0m, \e[33m0x1F\e[0m + \e[33m2_000\e[0m);$
+      }$
+      \e[90m/* block\e[0m$
+  \e[90m       comment */\e[0m$
+      \e[36mOk\e[0m(())$
+  }$
+$
+  \e[35mimport\e[0m json$
+$
+  \e[34m@dataclass\e[0m$
+  \e[35mclass\e[0m \e[36mReading\e[0m:$
+      \e[32m"""A reading\e[0m$
+  \e[32m    over two lines."""\e[0m$
+      height: \e[36mfloat\e[0m = \e[33m0.6\e[0m$
+$
+  \e[35mdef\e[0m high_waters(readings: \e[36mlist\e[0m[\e[36mReading\e[0m]) -> \e[36mint\e[0m:$
+      \e[90m# count the turning points\e[0m$
+      \e[35mreturn\e[0m sum(\e[33m1\e[0m \e[35mfor\e[0m r \e[35min\e[0m readings \e[35mif\e[0m r.height > \e[33m3.5\e[0m \e[35mand\e[0m \e[35mnot\e[0m \e[35mNone\e[0m)$
+$
+  \e[35mconst\e[0m readings = [\e[33m1.5\e[0m, \e[33m2\e[0m, \e[33m0x10\e[0m];$
+  \e[35masync\e[0m \e[35mfunction\e[0m load(url) {$
+    \e[35mconst\e[0m res = \e[35mawait\e[0m fetch(\e[32m`${url}/tides`\e[0m); \e[90m// network\e[0m$
+    \e[35mreturn\e[0m res.json();$
+  }$
+$
+  \e[35minterface\e[0m \e[36mReading\e[0m { height: \e[36mnumber\e[0m; label?: \e[36mstring\e[0m }$
+  \e[35mexport\e[0m \e[35mconst\e[0m high = (r: \e[36mReading\e[0m): \e[36mboolean\e[0m => r.height > \e[33m3.5\e[0m;$
+$
+  set -e$
+  \e[35mfor\e[0m f \e[35min\e[0m tides/*.txt; \e[35mdo\e[0m$
+    echo \e[32m"reading $f"\e[0m \e[90m# say it\e[0m$
+    python3 -m unittest -v \e[32m"$f"\e[0m || exit \e[33m1\e[0m$
+  \e[35mdone\e[0m$
+  echo \e[34m${HOME:-/tmp}\e[0m \e[32m'single'\e[0m$
+$
+  {\e[36m"station"\e[0m: \e[32m"Wenlow"\e[0m, \e[36m"heights"\e[0m: [\e[33m4.2\e[0m, \e[33m0.6\e[0m, -\e[33m1.5e2\e[0m], \e[36m"ok"\e[0m: \e[35mtrue\e[0m, \e[36m"note"\e[0m: \e[35mnull\e[0m}$
+$
+  \e[34m[package]\e[0m$
+  \e[36mname\e[0m = \e[32m"tides"\e[0m   \e[90m# the crate\e[0m$
+  \e[36mversion\e[0m = \e[32m"0.1.0"\e[0m$
+  \e[36mpublish\e[0m = \e[35mfalse\e[0m$
+$
+  - \e[36mname\e[0m: build$
+    \e[36mon\e[0m: [push]$
+    \e[36msteps\e[0m:$
+      - \e[36mrun\e[0m: cargo build  \e[90m# compile\e[0m$
+        \e[36mretries\e[0m: \e[33m3\e[0m$
+        \e[36mverbose\e[0m: \e[35myes\e[0m$
+$
+  \e[35mpackage\e[0m main$
+$
+  \e[35mfunc\e[0m main() {$
+      s := \e[32m`raw\e[0m$
+  \e[32mstring`\e[0m$
+      \e[35mvar\e[0m n \e[36mint\e[0m = \e[33m42\e[0m$
+      fmt.\e[36mPrintln\e[0m(\e[32m"hi"\e[0m, \e[32m'x'\e[0m, n) \e[90m// done\e[0m$
+  }$
+$
+  \e[34m#include <stdio.h>\e[0m$
+  \e[90m/* a\e[0m$
+  \e[90m   comment */\e[0m$
+  \e[36mint\e[0m main(\e[36mvoid\e[0m) {$
+      printf(\e[32m"hi %d\n"\e[0m, \e[33m42\e[0m);$
+      \e[35mreturn\e[0m \e[33m0\e[0m;$
+  }$
+$
+  \e[34m#include <vector>\e[0m$
+  \e[35mtemplate\e[0m <\e[35mtypename\e[0m T> \e[35mclass\e[0m Box { \e[35mpublic\e[0m: T value; };$
+  \e[36mint\e[0m main() { std::\e[36mvector\e[0m<\e[36mint\e[0m> v{\e[33m1\e[0m, \e[33m2\e[0m}; \e[35mreturn\e[0m v.size() > \e[33m1\e[0m ? \e[33m0\e[0m : \e[33m1\e[0m; }$
+$
+  \e[34mdiff --git a/tides.py b/tides.py\e[0m$
+  \e[34m--- a/tides.py\e[0m$
+  \e[34m+++ b/tides.py\e[0m$
+  \e[36m@@ -1,3 +1,3 @@\e[0m$
+   def high(x):$
+  \e[35m-    return x > 3\e[0m$
+  \e[32m+    return x > 3.5\e[0m$
+$
+  ++++++++[>++++[>++>+++>+++>+<<<<-]>+>+>->>+[<]<-]$
+$
+  a fence with no language keeps its text as it is$
+      and its indentation$
+$
+  a tilde fence$
+$
+  \e[35mfn\e[0m a_very_long_line_that_goes_past_the_edge_of_an_eighty_column_terminal(argument_one: &\e[36mstr\e[0m, argument_two: &\e[36mstr\e[0m, argum$
+  \e[90m↪ \e[0ment_three: \e[36mu64\e[0m) -> \e[36mString\e[0m { \e[34mformat!\e[0m(\e[32m"{argument_one}{argument_two}{argument_three}"\e[0m) }$
+$
+  \e[90m// a fence that is never closed\e[0m$
+  \e[35mlet\e[0m x = \e[33m1\e[0m;$

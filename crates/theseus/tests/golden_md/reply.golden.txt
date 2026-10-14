@@ -1,0 +1,68 @@
+=== 80 columns, plain ===
+# Port Wenlow tides$
+$
+A small library for an invented harbour's tide table. It reads `HH:MM height`$
+lines, finds the high and low waters between their neighbours, and works out the$
+tidal range between the highest and the lowest water of the day, which the$
+harbour board shows in metres.$
+$
+## Its checks$
+$
+• one unit test for each function, against a single invented day of readings$
+• a slow survey of thirty stations that prints its progress as it goes$
+=== 80 columns, ansi ===
+\e[1;4mPort Wenlow tides\e[0m$
+$
+A \e[1msmall library\e[0m for an invented harbour's tide table. It reads \e[36mHH:MM height\e[0m$
+lines, finds the high and low waters between their neighbours, and works out the$
+tidal range between the highest and the lowest water of the day, which the$
+harbour board shows in metres.$
+$
+\e[1mIts checks\e[0m$
+$
+\e[90m• \e[0mone \e[3munit test\e[0m for each function, against a single invented day of readings$
+\e[90m• \e[0ma slow survey of thirty stations that prints its progress as it goes$
+=== 100 columns, plain ===
+# Port Wenlow tides$
+$
+A small library for an invented harbour's tide table. It reads `HH:MM height` lines, finds the high$
+and low waters between their neighbours, and works out the tidal range between the highest and the$
+lowest water of the day, which the harbour board shows in metres.$
+$
+## Its checks$
+$
+• one unit test for each function, against a single invented day of readings$
+• a slow survey of thirty stations that prints its progress as it goes$
+=== 100 columns, ansi ===
+\e[1;4mPort Wenlow tides\e[0m$
+$
+A \e[1msmall library\e[0m for an invented harbour's tide table. It reads \e[36mHH:MM height\e[0m lines, finds the high$
+and low waters between their neighbours, and works out the tidal range between the highest and the$
+lowest water of the day, which the harbour board shows in metres.$
+$
+\e[1mIts checks\e[0m$
+$
+\e[90m• \e[0mone \e[3munit test\e[0m for each function, against a single invented day of readings$
+\e[90m• \e[0ma slow survey of thirty stations that prints its progress as it goes$
+=== 120 columns, plain ===
+# Port Wenlow tides$
+$
+A small library for an invented harbour's tide table. It reads `HH:MM height` lines, finds the high and low waters$
+between their neighbours, and works out the tidal range between the highest and the lowest water of the day, which the$
+harbour board shows in metres.$
+$
+## Its checks$
+$
+• one unit test for each function, against a single invented day of readings$
+• a slow survey of thirty stations that prints its progress as it goes$
+=== 120 columns, ansi ===
+\e[1;4mPort Wenlow tides\e[0m$
+$
+A \e[1msmall library\e[0m for an invented harbour's tide table. It reads \e[36mHH:MM height\e[0m lines, finds the high and low waters between$
+their neighbours, and works out the tidal range between the highest and the lowest water of the day, which the harbour$
+board shows in metres.$
+$
+\e[1mIts checks\e[0m$
+$
+\e[90m• \e[0mone \e[3munit test\e[0m for each function, against a single invented day of readings$
+\e[90m• \e[0ma slow survey of thirty stations that prints its progress as it goes$

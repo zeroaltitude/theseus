@@ -109,7 +109,26 @@ Key modules: `main.rs`, `cmd.rs`, `render.rs`, `client.rs`. Read by: (a binary).
   is health's warning). Both methods are in `client::OPERATORS`. A systemd user timer runs it nightly
   (`scripts/user-service.sh sync-timer install`). Tests: `import_sync_tests.rs`, theseusd's `tests/import_sync.rs`.
 - `src/print.rs`: the `Printer`, which writes the library's lines in one of four modes: `Text` (`ask`), `Quiet`
-  (`ask --no-stream`), `Watch` (`watch`), and `Json`.
+  (`ask --no-stream`), `Watch` (`watch`), and `Json`. On a terminal (`render::style::styled_stdout`: stdout a tty,
+  `NO_COLOR` unset or empty, `TERM` not `dumb`, no `--plain`) `Text` and `Watch` draw the reply as markdown, by
+  complete lines; a pipe, `NO_COLOR` and `--plain` print the text as it came, byte for byte (theseus-rn7s).
+- `src/render/style.rs`, `md.rs` (+ `md/block.rs`, `inline.rs`, `table.rs`), `code.rs` (theseus-rn7s): the one renderer
+  of a reply for a terminal. `style.rs` is the styled line (spans with bold, italic, dim, underline, strike, a
+  16-colour foreground and an OSC 8 link target; `ansi()` and `plain()`), the terminal's width (`COLUMNS`, then the
+  tty's size, else 80; prose wraps one column short of it, `prose_width`), and the two `Mode`s (`Ansi`: styles on spans;
+  `Plain`: no style at all, a heading keeps its `#`, a quote its `>`, a link its address after its text). `md.rs` is
+  `Markdown::new(width, mode)`, `push(&str) -> Vec<StyledLine>` (the lines that are final), `finish()` and
+  `Markdown::render` (whole). **A streamed reply and the same reply whole render byte-identically**, whatever the
+  cuts, because `block.rs`'s `Segmenter` decides where a block ends from the complete lines alone (a paragraph, a
+  list, a quote and a table are drawn when the line that ends them arrives; a fence a line at a time) and `md.rs`
+  draws a block as a pure function of its lines. A newline in a paragraph is a line break as typed, not CommonMark's
+  space (the owner may revisit). Not read: indented code, setext headings, HTML, footnotes. `code.rs` is a lexer by
+  hand for Rust, Python, JS/TS, shell, JSON, TOML, YAML, Go, C/C++ and diff (static tables; an unknown language
+  prints plain); a code line wider than the block continues behind `↪`. The terminal UI draws the same lines, its
+  `styled.rs` turning spans into ratatui's; this crate must not link ratatui. Tests: `tests/markdown.rs` (goldens in
+  `tests/golden_md/*.md` at 80, 100 and 120 columns, plain and ANSI, `\e` for the escape; `THESEUS_GOLDEN=write`
+  rewrites; the seeded random delta cuts; nothing wider than the width; the cost per 100 lines) and
+  `tests/markdown_cli.rs` (the binary on a pty and on a pipe).
 - `src/why.rs` (theseus-ighf): `theseus why [TURN] [--session S]`, what a turn's model was shown and why: it asks
   `context.explain` (a prefix or end of at least four characters names an older turn, resolved from its turn list),
   `policy.explain`, `node.list` (the turn's `tool_call` nodes, with the gate's own posture) and `ledger.tail` (its
@@ -192,6 +211,8 @@ Key modules: `main.rs`, `cmd.rs`, `render.rs`, `client.rs`. Read by: (a binary).
 - `tests/seen.rs` and `tests/seen_commands.rs` cover what `history`, `watch`, and `confirm` record and when: after the
   output (stdout already holds the page when the snapshot is asked), not for a page back or one with more to come, on
   Ctrl-C for `watch` (exit 0), nothing in a job, and not failing when the file can't be written.
+- `tests/markdown_cli.rs` covers the markdown on a terminal: a pty draws the reply, and a pipe, `NO_COLOR`, `TERM=dumb`
+  and `--plain` print no escape (theseus-rn7s).
 - `tests/tui.rs` covers `theseus tui`: the exec (the stand-in runs in the CLI's own pid), the socket and the
   arguments passed through, and exit 2, saying where it looked, when `theseus-tui` is found nowhere. Each test links
   the CLI into a directory of its own, since the workspace builds the real `theseus-tui` beside `target/debug/theseus`.

@@ -1034,7 +1034,7 @@ async fn the_detail_pane_shows_a_recorded_history_then_its_events() {
     rig.shows("1840 ms").await;
     let rows = pane(&rig.screen(), 120);
     assert_eq!(
-        rows[1..16],
+        rows[1..17],
         [
             " ses …dm0001 · DM · glm-5.3-flash · ○ ready",
             " [07:13:30.000] operator (discord:zeroaltitude): when is low water?",
@@ -1042,7 +1042,9 @@ async fn the_detail_pane_shows_a_recorded_history_then_its_events() {
             "       ↳ tool_use · in 1200 out 40 · $0.0004",
             "       ⚙ fs.read {\"path\":\"tides.txt\"} [open: a read]",
             "       ← fs.read ok · 3 ms · 21 B: low 14:10, high 20:30",
-            " [07:13:34.000] glm-5.3-flash: Low water is at 14:10.",
+            // A reply of the history is its header, then its text drawn as markdown.
+            " [07:13:34.000] glm-5.3-flash:",
+            " Low water is at 14:10.",
             "       ↳ end_turn · in 1300 out 12 · $0.0003",
             " ── turn turn_b2",
             // The reply streamed in three pieces, one with a newline.

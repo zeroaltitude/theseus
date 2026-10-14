@@ -472,6 +472,7 @@ impl Watch {
     /// One notification: shown as `theseus watch` shows it, then read for the
     /// session's state and questions.
     async fn on_note(&mut self, conn: &mut Conn, n: Notification) -> Result<()> {
+        let (printed, was_asked) = (self.printer.lines_printed(), self.asked.clone());
         if self.json {
             println!("{}", serde_json::to_string(&n)?);
         } else if n.method == notify::EVENTS_LOST {
@@ -541,6 +542,13 @@ impl Watch {
             }
             None => {}
         }
+        // A question still waits and this event printed below its prompt (a
+        // parked turn's footer comes after its question): the prompt goes
+        // last again, so the line to answer on is the one the terminal ends on.
+        let below = self.printer.lines_printed() != printed;
+        if self.interactive && self.asked.is_some() && self.asked == was_asked && below {
+            self.say_prompt();
+        }
         Ok(())
     }
 
@@ -553,6 +561,20 @@ impl Watch {
             return;
         };
         self.asked = Some(q.correlation_id.clone());
+        self.say_prompt();
+    }
+
+    /// The prompt of the question asked, as a whole line below whatever was
+    /// printed last: the prompt is what the terminal ends on while a question
+    /// waits (theseus-rn7s).
+    fn say_prompt(&mut self) {
+        let Some(q) = self
+            .questions
+            .iter()
+            .find(|q| Some(&q.correlation_id) == self.asked.as_ref())
+        else {
+            return;
+        };
         self.printer.settle();
         let prompt = if q.budget.is_some() {
             "reset and continue? [y/N/note]"

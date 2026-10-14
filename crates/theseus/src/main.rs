@@ -153,6 +153,11 @@ struct Cli {
     #[arg(long, global = true)]
     no_stream: bool,
 
+    /// Print a reply as the text it is, with no markdown drawn and no escape sequence, even on a
+    /// terminal (a pipe, or NO_COLOR set, already does).
+    #[arg(long, global = true)]
+    plain: bool,
+
     #[command(subcommand)]
     cmd: Cmd,
 }
@@ -1074,6 +1079,7 @@ fn main() {
         std::process::exit(code);
     }
     let cli = Cli::parse();
+    theseus_client::render::style::set_plain(cli.plain);
     // `status --short` runs on every prompt draw: one connection and one
     // request, so one thread, not a pool (theseus-8kn12).
     let short = matches!(&cli.cmd, Cmd::Status(a) if a.is_short_once());
