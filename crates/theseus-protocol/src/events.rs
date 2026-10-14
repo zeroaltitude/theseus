@@ -217,6 +217,11 @@ pub struct ContextCompiled {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub situation: Option<Situation>,
+    /// The standing records the request's tail carried, because the turn's
+    /// surface holds them (theseus-slvl.4); absent when none. The system's
+    /// own are the compilation's `manifest.standing`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub standing_here: Vec<String>,
 }
 
 /// What a compile is for (M6 35a, §2.11): the compiler's input that decides

@@ -75,6 +75,7 @@ fn request(core: &Arc<Core>, session: &SessionRecord, input: &str) -> TurnReques
     let sink = EventSink::new(core.bus.clone(), &session.session_id, None);
     TurnRequest {
         prompt: None,
+        surface: None,
         session: session.clone(),
         input: Some(input.into()),
         target,

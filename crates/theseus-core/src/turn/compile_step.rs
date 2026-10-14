@@ -78,6 +78,8 @@ impl TurnRunner {
         // The wakes this conversation has pending, in the same last block
         // (theseus-lherl): from the turn's list, never a read of its own.
         crate::commitments::attach(t.tc.commitments, self.kernel.now_ms(), &mut compiled);
+        // The records of this turn's surface (theseus-slvl.4), in the tail too.
+        Self::standing_here(t, &mut compiled);
         if let Some(f) = Self::overage(t, &compiled, i) {
             return Ok(Err(f));
         }
@@ -202,6 +204,9 @@ impl TurnRunner {
             signals: compiled.signals.fired.clone(),
             tasks,
             situation: Some(compiled.situation.clone()),
+            standing_here: (t.standing.here.iter())
+                .flat_map(|b| b.used.iter().map(|u| u.id.clone()))
+                .collect(),
         }
     }
 }

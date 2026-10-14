@@ -264,6 +264,7 @@ async fn a_pending_confirms_card_is_on_every_page() {
         .runner
         .run(TurnRequest {
             prompt: None,
+            surface: None,
             session: rec,
             input: Some("write a.txt".into()),
             target,

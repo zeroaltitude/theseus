@@ -43,8 +43,8 @@ Key modules: `main.rs`, `cmd.rs`, `render.rs`, `client.rs`. Read by: (a binary).
   thread's session). The writes are in `client::OPERATORS`, so a job's shell cannot make them.
 - `src/standing_cmd.rs` (theseus-a7vi): `theseus standing` (the live records: id, kind, scope, since, source, text,
   and a last line "in every compile of their scope since they began: N compiles, M missing" from the manifests;
-  `--all` adds the ended), `standing add [--kind order|preference|fact] [--scope everywhere|place:T|session:ID]
-  [--until AGE] [--replaces ID] TEXT`, and `standing revoke ID`. The writes are in `client::OPERATORS`, so a job's shell
+  `--all` adds the ended), `standing add [--kind order|preference|fact] [--scope everywhere|place:T|surface:NAME|session:ID | --surface
+  terminal|discord|voice|cockpit|mcp] [--until AGE] [--replaces ID] TEXT`, and `standing revoke ID`. The writes are in `client::OPERATORS`, so a job's shell
   is refused. The rows' words are `list_lines` (goldens in its tests).
 - `src/seen.rs` and `src/shown.rs` (theseus-yus0): the machine's seen file (`$XDG_STATE_HOME/theseus/seen.json`) and
   the one call, `shown::shown(conn, sessions)`, by which a command records what it displayed: after its output,

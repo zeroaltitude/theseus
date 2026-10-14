@@ -92,6 +92,7 @@ async fn turn(core: &Arc<Core>, input: &str) -> anyhow::Result<theseus_protocol:
     core.runner
         .run(TurnRequest {
             prompt: None,
+            surface: None,
             session: rec,
             input: Some(input.into()),
             target,

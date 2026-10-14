@@ -779,12 +779,13 @@ impl TurnRunner {
         // hold in every prompt of their scope, a cheap turn's included.
         detour.context_text = t
             .standing
+            .block
             .as_ref()
             .map(|b| b.text.clone())
             .unwrap_or_default();
         detour.context_files = Vec::new();
         detour.walk = None;
-        let compiled = compile(CompileInput {
+        let mut compiled = compile(CompileInput {
             session_id: sid,
             current: None,
             nodes: &nodes,
@@ -802,6 +803,7 @@ impl TurnRunner {
             assembled: None,
             situation: &crate::compiler::situation::Situation::Detour,
         });
+        Self::standing_here(t, &mut compiled);
         let last = self.store.last_position();
         if let Some(f) = Self::unadmitted(t, &compiled, &nodes, last, false, i) {
             return Ok(Err(f));

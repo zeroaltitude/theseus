@@ -977,6 +977,7 @@ impl Core {
             &session.session_id,
             Some((conn.client.to_string(), conn.tx.clone())),
         );
+        let voice = p.surface.as_deref() == Some("voice");
         let result = self
             .runner
             .run(TurnRequest {
@@ -993,6 +994,7 @@ impl Core {
                 arrived: Some(conn.arrived),
                 reply_to: p.reply_to,
                 prompt,
+                surface: crate::standing::surface_name(conn.surface, voice),
             })
             .await;
         match result {

@@ -137,6 +137,7 @@ fn submit(id: u64, input: &str) -> Request {
         Id::Num(id),
         method::TURN_SUBMIT,
         TurnSubmitParams {
+            surface: None,
             dir: None,
             carried: false,
             prompt: None,
@@ -411,6 +412,7 @@ async fn one_turn_is_one_loop_with_streamed_deltas() {
             Id::Num(7),
             method::TURN_SUBMIT,
             TurnSubmitParams {
+                surface: None,
                 dir: None,
                 carried: false,
                 prompt: None,
@@ -551,6 +553,7 @@ async fn rejects_empty_input_and_unknown_session() {
                 Id::Num(1),
                 method::TURN_SUBMIT,
                 TurnSubmitParams {
+                    surface: None,
                     dir: None,
                     carried: false,
                     prompt: None,
@@ -570,6 +573,7 @@ async fn rejects_empty_input_and_unknown_session() {
                 Id::Num(2),
                 method::TURN_SUBMIT,
                 TurnSubmitParams {
+                    surface: None,
                     dir: None,
                     carried: false,
                     prompt: None,
@@ -786,6 +790,7 @@ async fn same_session_serializes_turns() {
                 Id::Num(10 + i),
                 method::TURN_SUBMIT,
                 TurnSubmitParams {
+                    surface: None,
                     dir: None,
                     carried: false,
                     prompt: None,
@@ -838,6 +843,7 @@ async fn provider_failure_is_classified_and_ledgered() {
             Id::Num(1),
             method::TURN_SUBMIT,
             TurnSubmitParams {
+                surface: None,
                 dir: None,
                 carried: false,
                 prompt: None,
@@ -939,6 +945,7 @@ async fn usage_accumulates_per_session_and_globally() {
                 Id::Num(10 + i),
                 method::TURN_SUBMIT,
                 TurnSubmitParams {
+                    surface: None,
                     dir: None,
                     carried: false,
                     prompt: None,
@@ -1046,6 +1053,7 @@ async fn a_turn_that_fails_after_its_first_loop_keeps_that_loops_books() {
                 Id::Num(1),
                 method::TURN_SUBMIT,
                 TurnSubmitParams {
+                    surface: None,
                     dir: None,
                     carried: false,
                     prompt: None,
@@ -1307,6 +1315,7 @@ async fn a_store_with_unit_budgets_serves_and_its_sessions_list_and_read() {
             Id::Num(id),
             method::TURN_SUBMIT,
             TurnSubmitParams {
+                surface: None,
                 dir: None,
                 carried: false,
                 prompt: None,
@@ -1489,6 +1498,7 @@ async fn per_turn_provider_and_model_selection() {
                 Id::Num(1),
                 method::TURN_SUBMIT,
                 TurnSubmitParams {
+                    surface: None,
                     dir: None,
                     carried: false,
                     prompt: None,
@@ -1508,6 +1518,7 @@ async fn per_turn_provider_and_model_selection() {
                 Id::Num(2),
                 method::TURN_SUBMIT,
                 TurnSubmitParams {
+                    surface: None,
                     dir: None,
                     carried: false,
                     prompt: None,
@@ -1527,6 +1538,7 @@ async fn per_turn_provider_and_model_selection() {
                 Id::Num(3),
                 method::TURN_SUBMIT,
                 TurnSubmitParams {
+                    surface: None,
                     dir: None,
                     carried: false,
                     prompt: None,
@@ -1618,6 +1630,7 @@ async fn live_profile_switch_persists_and_routes() {
             Id::Num(id),
             method::TURN_SUBMIT,
             TurnSubmitParams {
+                surface: None,
                 dir: None,
                 carried: false,
                 prompt: None,
@@ -1774,6 +1787,7 @@ async fn narrative_watch_streams_a_turn_and_refuses_when_off() {
             Id::Num(id),
             method::TURN_SUBMIT,
             TurnSubmitParams {
+                surface: None,
                 dir: None,
                 carried: false,
                 prompt: None,

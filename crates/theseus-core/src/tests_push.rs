@@ -83,6 +83,7 @@ async fn turn_result(core: &Arc<Core>, session: Option<&str>) -> TurnSubmitResul
     core.runner
         .run(TurnRequest {
             prompt: None,
+            surface: None,
             session: rec,
             input: Some("go".into()),
             target,

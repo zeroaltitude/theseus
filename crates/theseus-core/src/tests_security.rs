@@ -212,6 +212,7 @@ pub(crate) async fn turn(
             arrived: None,
             reply_to: None,
             prompt: None,
+            surface: None,
         })
         .await
         .unwrap()

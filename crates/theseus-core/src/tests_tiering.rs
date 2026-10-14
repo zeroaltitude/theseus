@@ -112,6 +112,7 @@ async fn turn_with(core: &Arc<Core>, sid: &str, input: &str, recompile: Option<R
     core.runner
         .run(crate::turn::TurnRequest {
             prompt: None,
+            surface: None,
             session: rec,
             input: Some(input.into()),
             target,

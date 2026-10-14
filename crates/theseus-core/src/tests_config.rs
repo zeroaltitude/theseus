@@ -210,6 +210,7 @@ async fn turn(core: &Arc<Core>, input: &str) -> theseus_protocol::TurnSubmitResu
     core.runner
         .run(TurnRequest {
             prompt: None,
+            surface: None,
             session: rec,
             input: Some(input.into()),
             target,

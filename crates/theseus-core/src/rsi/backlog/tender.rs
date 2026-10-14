@@ -112,6 +112,7 @@ impl Core {
                     arrived: None,
                     reply_to: None,
                     prompt: None,
+                    surface: None,
                 })
                 .await
         };

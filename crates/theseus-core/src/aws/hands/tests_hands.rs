@@ -409,6 +409,7 @@ pub(super) async fn try_turn(
     core.runner
         .run(crate::turn::TurnRequest {
             prompt: None,
+            surface: None,
             session: rec,
             input: Some(input.into()),
             target,

@@ -110,6 +110,7 @@ async fn turn(core: Arc<Core>, sid: String) -> anyhow::Result<TurnSubmitResult> 
     core.runner
         .run(TurnRequest {
             prompt: None,
+            surface: None,
             session,
             input: Some("diff these, again and again".into()),
             target,

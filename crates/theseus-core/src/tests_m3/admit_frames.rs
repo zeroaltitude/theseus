@@ -132,6 +132,7 @@ async fn held_with(
         .runner
         .run(TurnRequest {
             prompt: None,
+            surface: None,
             session: rec,
             input: Some("do the thing".into()),
             target,
@@ -250,6 +251,7 @@ async fn a_failed_input_frame_writes_neither_half_and_the_turn_ends_waiting() {
         .runner
         .run(TurnRequest {
             prompt: None,
+            surface: None,
             session: rec,
             input: Some("a lost line".into()),
             target,

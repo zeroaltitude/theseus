@@ -204,6 +204,7 @@ async fn ask(
         Id::Num(1),
         method::TURN_SUBMIT,
         TurnSubmitParams {
+            surface: None,
             dir: None,
             carried: false,
             prompt: None,

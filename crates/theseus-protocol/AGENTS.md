@@ -106,6 +106,10 @@ Key modules: `lib.rs` (the `method`, `notify`, `error_code` tables), `events.rs`
   routing rows read: extend it only by adding), `WorkingSet`, `Seal`, `ThreadState`, `ThreadRow` (a thread with its
   session's context tokens and today's dollars), the eight `thread.*` methods' params, and `slug_ok`/`place_of`/
   `slug_of_place`. `turn.submit`'s `thread` is in `submit.rs`.
+- `standing.rs` (theseus-a7vi, theseus-slvl.4): the standing records' wire types. `StandingScope` has a `Surface(name)` variant
+  (store format 34), `SURFACES` names the five (`terminal`, `discord`, `voice`, `cockpit`, `mcp`); `StandingListParams.surface`
+  is the asker's surface with a `session_id`. `turn.submit`'s optional `surface` (in `submit.rs`) lets the Discord binding say
+  `voice`; `context.compiled` names the tail's records in `standing_here`.
 - `ts.rs`: the TypeScript export.
 
 ## Invariants

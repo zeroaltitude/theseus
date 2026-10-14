@@ -1,0 +1,7 @@
+$ theseus standing add --surface phone short
+--- requests
+ null
+--- stdout
+--- stderr
+theseus: `phone` is no surface: write terminal, discord, voice, cockpit, mcp
+--- exit 1

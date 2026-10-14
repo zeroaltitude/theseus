@@ -80,6 +80,7 @@ impl Core {
         let scope = p.session_id.as_deref().map(|session| Scope {
             session,
             place: place.as_deref(),
+            surface: p.surface.as_deref(),
         });
         let shown: Vec<(&StandingRecord, &'static str)> = all
             .iter()
@@ -136,7 +137,10 @@ impl Core {
             let scope = Scope {
                 session: &s.session_id,
                 place: place.as_deref(),
+                surface: None,
             };
+            // A surface's records ride the request's tail, which no manifest
+            // lists: the tally has nothing to count them against.
             let mine: Vec<&&StandingRecord> = live.iter().filter(|r| scope.holds(r)).collect();
             if mine.is_empty() {
                 continue;
@@ -285,6 +289,14 @@ impl Core {
                 if known.is_none() {
                     return Err(RpcFailure::invalid(anyhow!("no session {s}")));
                 }
+            }
+            theseus_protocol::StandingScope::Surface(name)
+                if !theseus_protocol::standing::SURFACES.contains(&name.as_str()) =>
+            {
+                return Err(RpcFailure::invalid(anyhow!(
+                    "`{name}` is no surface: write {}",
+                    theseus_protocol::standing::SURFACES.join(", ")
+                )));
             }
             theseus_protocol::StandingScope::Place(pl) if !pl.starts_with("discord:") => {
                 return Err(RpcFailure::invalid(anyhow!(

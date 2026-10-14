@@ -140,6 +140,45 @@ fn an_add_and_a_revoke_say_what_they_did() {
     );
 }
 
+/// `--surface NAME` is `--scope surface:NAME` (theseus-slvl.4): the record holds
+/// only on turns that came through that surface, and a surface the daemon does
+/// not know is refused before anything is sent.
+#[test]
+fn a_surface_scope_is_sent_and_a_bad_one_is_refused_unsent() {
+    let r = record(
+        "std_0000bbbb",
+        "preference",
+        json!({"kind": "surface", "of": "terminal"}),
+        "code first, no pleasantries",
+    );
+    golden(
+        "standing_add_surface",
+        &run(
+            &[
+                "standing",
+                "add",
+                "--kind",
+                "preference",
+                "--surface",
+                "terminal",
+                "code first,",
+                "no",
+                "pleasantries",
+            ],
+            Some(json!({"record": r, "ended": null})),
+            None,
+        ),
+    );
+    golden(
+        "standing_add_bad_surface",
+        &run(
+            &["standing", "add", "--surface", "phone", "short"],
+            None,
+            None,
+        ),
+    );
+}
+
 /// A write inside a job is refused before anything is sent.
 #[test]
 fn a_write_inside_a_job_is_refused_and_a_read_is_not() {

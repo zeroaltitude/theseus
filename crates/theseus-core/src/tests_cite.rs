@@ -241,6 +241,7 @@ async fn a_cited_discord_message_names_its_id() {
     c.runner
         .run(TurnRequest {
             prompt: None,
+            surface: None,
             session: rec,
             input: Some(HERON.into()),
             target,

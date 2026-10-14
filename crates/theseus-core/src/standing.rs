@@ -13,6 +13,12 @@
 //!   system, outside the ring, so no compaction drops it. A change of the
 //!   records changes the system digest, so the next compile is a
 //!   `system_changed` recompile and the prefix is otherwise byte-stable.
+//! - **A surface's records** (theseus-slvl.4) are not in the system at all:
+//!   the system would differ by surface, and every surface would pay a cache
+//!   write. They ride the user turn's tail instead, one block, "Standing
+//!   here:", after the cached prefix (`Block::here`), on turns whose input
+//!   came through that surface (`TurnRequest.surface`). The same privacy
+//!   rule and the same refusal hold there (`missing_here`).
 //! - **Privacy**: a shared place gets the orders of its scope with their text,
 //!   and for the preferences and facts only a line saying they are withheld.
 //! - **Refused if dropped**: the situation check (`missing`) fails a compile
@@ -40,6 +46,12 @@ pub const PREFIX: &str = "standing:";
 pub(crate) static DROP_THE_BLOCK: std::sync::atomic::AtomicBool =
     std::sync::atomic::AtomicBool::new(false);
 
+/// A test's plant: the tail block is left out of the request, as a bug in its
+/// attach would, so `missing_here`'s refusal can be seen end to end.
+#[cfg(test)]
+pub(crate) static DROP_THE_TAIL: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
 /// The longest text of a record, in chars, and the most live records one
 /// scope may hold: the block is a few hundred tokens in a cached prefix.
 pub const MAX_TEXT: usize = 1000;
@@ -50,6 +62,8 @@ pub const MAX_LIVE: usize = 64;
 pub struct Scope<'a> {
     pub session: &'a str,
     pub place: Option<&'a str>,
+    /// The surface the turn's input came through (`surface_name`).
+    pub surface: Option<&'a str>,
 }
 
 impl Scope<'_> {
@@ -58,7 +72,23 @@ impl Scope<'_> {
             StandingScope::Everywhere => true,
             StandingScope::Session(s) => s == self.session,
             StandingScope::Place(p) => self.place == Some(p.as_str()),
+            StandingScope::Surface(s) => self.surface == Some(s.as_str()),
         }
+    }
+}
+
+/// The surface a connection (or a finer name its client gave) speaks
+/// through, as a record's scope names it: `terminal` is the CLI and the TUI,
+/// `cockpit` the web UI. A connection no listener named has none.
+pub fn surface_name(surface: crate::approval::Surface, voice: bool) -> Option<&'static str> {
+    use crate::approval::Surface;
+    match surface {
+        Surface::Cli => Some("terminal"),
+        Surface::Web => Some("cockpit"),
+        Surface::Discord if voice => Some("voice"),
+        Surface::Discord => Some("discord"),
+        Surface::Mcp => Some("mcp"),
+        Surface::Unnamed => None,
     }
 }
 
@@ -121,24 +151,53 @@ pub struct Block {
 }
 
 const HEAD: &str = "Standing: what the owner has told you to hold to, in force in every turn of its scope until they revoke it. An order is to be followed; a preference is to be honoured where it can be; a fact is what the owner has told you about themself. Each line names its record.";
+/// The head of the tail block a surface's records make: the harness's, so a
+/// stand-in model that reads the last user text skips it (`view::is_head`).
+pub const HERE: &str = "Standing here:";
 pub const WITHHELD: &str =
     "The owner's preferences and facts are private to them and are not shown in this place.";
 
 impl Block {
     /// The block for `scope` in a place of `class`; none while no record is
     /// live there. A shared place's lists the orders alone, with their text.
+    /// The records scoped to a surface are not in it (`Block::here`).
     pub fn of(
         all: &[StandingRecord],
         scope: Scope<'_>,
         class: PlaceClass,
         now_ms: u64,
     ) -> Option<Block> {
-        let held = live(all, Some(scope), now_ms);
+        Self::render(all, scope, class, now_ms, false)
+    }
+
+    /// The tail block of the records scoped to the turn's surface: "Standing
+    /// here:", then the same lists, with the same privacy; none while no
+    /// record of that surface is live.
+    pub fn here(
+        all: &[StandingRecord],
+        scope: Scope<'_>,
+        class: PlaceClass,
+        now_ms: u64,
+    ) -> Option<Block> {
+        Self::render(all, scope, class, now_ms, true)
+    }
+
+    fn render(
+        all: &[StandingRecord],
+        scope: Scope<'_>,
+        class: PlaceClass,
+        now_ms: u64,
+        here: bool,
+    ) -> Option<Block> {
+        let held: Vec<&StandingRecord> = live(all, Some(scope), now_ms)
+            .into_iter()
+            .filter(|r| matches!(r.scope, StandingScope::Surface(_)) == here)
+            .collect();
         if held.is_empty() {
             return None;
         }
         let shared = class == PlaceClass::Shared;
-        let mut text = String::from(HEAD);
+        let mut text = String::from(if here { HERE } else { HEAD });
         let mut used = Vec::new();
         let mut withheld = false;
         for (kind, title) in [
@@ -172,6 +231,22 @@ impl Block {
             used,
             withheld,
         })
+    }
+
+    /// Put the block in the request's tail, after the cached prefix, in the
+    /// last message's last block, and count its tokens in the estimate. The
+    /// next loop's request carries it again, so it is never a cache write.
+    pub fn attach_here(&self, compiled: &mut Compiled) {
+        #[cfg(test)]
+        if DROP_THE_TAIL.load(std::sync::atomic::Ordering::SeqCst) {
+            return;
+        }
+        crate::task_graph::view::attach_text(&mut compiled.request, &self.text);
+        let t = (self.text.len() as u64).div_ceil(crate::task_graph::view::BYTES_PER_TOKEN);
+        compiled.est_tokens += t;
+        compiled.estimate.tokens += t;
+        compiled.estimate.estimated += t;
+        compiled.estimate.upper += t + t * crate::compiler::MARGIN_PERCENT / 100;
     }
 
     /// Put the block first in the spec's context block.
@@ -228,6 +303,54 @@ pub fn missing(compiled: &Compiled, block: Option<&Block>) -> Result<(), Unadmit
         return gone(
             "standing withheld line missing".into(),
             "the system lacks the line that says the owner's private records are withheld here"
+                .into(),
+        );
+    }
+    Ok(())
+}
+
+/// The check for the tail (`Block::here`): the request's last message carries
+/// every record of the turn's surface it should show, and the withheld line
+/// when it withholds any. A compile that dropped one is not sent.
+pub fn missing_here(compiled: &Compiled, block: Option<&Block>) -> Result<(), Unadmitted> {
+    let Some(block) = block else { return Ok(()) };
+    let tail = compiled
+        .request
+        .messages
+        .last()
+        .map(|m| match &m["content"] {
+            serde_json::Value::String(s) => s.clone(),
+            c => c
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(|b| b["text"].as_str())
+                .collect::<Vec<_>>()
+                .join("\n"),
+        })
+        .unwrap_or_default();
+    let gone = |piece: String, detail: String| {
+        Err(Unadmitted {
+            why: "standing_missing",
+            piece,
+            detail,
+        })
+    };
+    for u in block.used.iter().filter(|u| u.shown) {
+        if !tail.contains(&format!("- {}: ", u.id)) {
+            return gone(
+                format!("standing {} missing", u.id),
+                format!(
+                    "the owner's standing record {} is live on this turn's surface and is not in the request's tail",
+                    u.id
+                ),
+            );
+        }
+    }
+    if block.withheld && !tail.contains(WITHHELD) {
+        return gone(
+            "standing withheld line missing".into(),
+            "the request's tail lacks the line that says the owner's private records are withheld here"
                 .into(),
         );
     }
@@ -396,6 +519,7 @@ mod tests {
         let scope = Scope {
             session: "ses_me",
             place: Some("discord:dm:u1"),
+            surface: None,
         };
         let b = Block::of(&all, scope, PlaceClass::Private, 100).unwrap();
         assert!(
@@ -435,7 +559,8 @@ mod tests {
             &all,
             Scope {
                 session: "s",
-                place: None
+                place: None,
+                surface: None
             },
             PlaceClass::Private,
             5

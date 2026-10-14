@@ -548,6 +548,7 @@ async fn a_deterministic_trigger_asks_no_judgment() {
             arrived: None,
             reply_to: None,
             prompt: None,
+            surface: None,
         })
         .await
         .unwrap();

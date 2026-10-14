@@ -99,7 +99,9 @@ impl TurnRunner {
         compiled: &Compiled,
         i: u32,
     ) -> Option<Failure> {
-        let why = crate::standing::missing(compiled, t.standing.as_ref()).err()?;
+        let why = crate::standing::missing(compiled, t.standing.block.as_ref())
+            .and_then(|()| crate::standing::missing_here(compiled, t.standing.here.as_ref()))
+            .err()?;
         let message = words(&why);
         t.record(&Unadmitted {
             situation: &compiled.situation,

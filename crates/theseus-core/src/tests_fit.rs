@@ -67,6 +67,7 @@ impl Rig {
             .runner
             .run(TurnRequest {
                 prompt: None,
+                surface: None,
                 session: rec,
                 input: Some("go".into()),
                 target,

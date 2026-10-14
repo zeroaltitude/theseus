@@ -12,6 +12,12 @@ all: boolean,
  */
 session_id?: string | null, 
 /**
+ * With a session: the surface the asker speaks through, so the records
+ * scoped to it are in the scope too. Without one, only the other
+ * scopes are (a surface's records show on that surface).
+ */
+surface?: string | null, 
+/**
  * Who asks. The text of a preference or a fact goes only to the owner,
  * from a private place; to anyone else it reads `(private)`.
  */

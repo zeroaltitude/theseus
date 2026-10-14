@@ -1,0 +1,7 @@
+$ theseus standing add --kind preference --surface terminal code first, no pleasantries
+--- requests
+standing.add {"kind":"preference","scope":{"kind":"surface","of":"terminal"},"text":"code first, no pleasantries"}
+--- stdout
+Added preference std_0000bbbb for surface:terminal: every prompt of that scope carries it from its next turn.
+--- stderr
+--- exit 0

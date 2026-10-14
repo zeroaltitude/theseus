@@ -65,6 +65,7 @@ async fn the_turns_entry_is_a_box_not_the_turns_future() {
     let sink = crate::bus::EventSink::new(r.core.bus.clone(), &rec.session_id, None);
     let req = crate::turn::TurnRequest {
         prompt: None,
+        surface: None,
         session: rec,
         input: Some("hello".into()),
         target,

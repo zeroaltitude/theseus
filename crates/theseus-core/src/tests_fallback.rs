@@ -81,6 +81,7 @@ async fn turn(core: &Arc<Core>, sid: &str, model: Option<&str>) -> TurnSubmitRes
     core.runner
         .run(TurnRequest {
             prompt: None,
+            surface: None,
             session: rec,
             input: Some("open the archive and read what the tide table says".into()),
             target,

@@ -64,4 +64,12 @@ dir?: string,
  * on its first use. The thread's slug; only the owner, from a private
  * place, and not with a `session_id`.
  */
-thread?: string, };
+thread?: string, 
+/**
+ * A finer name for the surface than the connection's (theseus-slvl.4):
+ * the Discord binding says `voice` for a spoken turn, which the records
+ * scoped to the `voice` surface hold on. The core reads it from a Discord
+ * connection alone; any other value, or any other connection, is the
+ * connection's own surface.
+ */
+surface?: string, };

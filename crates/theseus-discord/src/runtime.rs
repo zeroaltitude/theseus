@@ -2101,6 +2101,7 @@ impl Place {
                 .call::<_, TurnSubmitResult>(
                     theseus_protocol::method::TURN_SUBMIT,
                     TurnSubmitParams {
+                        surface: None,
                         dir: None,
                         carried: false,
                         prompt: None,
@@ -2984,6 +2985,7 @@ pub(crate) mod tests {
             .call(
                 theseus_protocol::method::TURN_SUBMIT,
                 TurnSubmitParams {
+                    surface: None,
                     dir: None,
                     carried: false,
                     prompt: None,

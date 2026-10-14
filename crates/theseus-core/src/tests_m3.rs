@@ -102,6 +102,7 @@ async fn turn(core: &Arc<Core>, session: Option<&str>, input: &str) -> TurnSubmi
     core.runner
         .run(TurnRequest {
             prompt: None,
+            surface: None,
             session: rec,
             input: Some(input.into()),
             target,
@@ -2763,6 +2764,7 @@ async fn a_turn_that_faults_with_a_call_unanswered_resumes_it_after_a_restart() 
             .runner
             .run(TurnRequest {
                 prompt: None,
+                surface: None,
                 session: rec,
                 input: Some("What does hello.txt say?".into()),
                 target,
@@ -2997,6 +2999,7 @@ async fn a_failed_turn_narrates_its_class_and_what_the_finished_loops_spent() {
         .runner
         .run(TurnRequest {
             prompt: None,
+            surface: None,
             session: rec.clone(),
             input: Some("diff these".into()),
             target,
@@ -3506,6 +3509,7 @@ async fn failing_turn(core: &Arc<Core>, sid: &str, input: &str) -> anyhow::Error
     core.runner
         .run(TurnRequest {
             prompt: None,
+            surface: None,
             session: rec,
             input: Some(input.into()),
             target,
@@ -3817,6 +3821,7 @@ async fn turn_on(core: &Arc<Core>, target: crate::turn::Target, input: &str) -> 
     core.runner
         .run(TurnRequest {
             prompt: None,
+            surface: None,
             session: rec,
             input: Some(input.into()),
             target,
@@ -3990,6 +3995,7 @@ async fn a_model_with_no_price_is_not_called() {
         .runner
         .run(TurnRequest {
             prompt: None,
+            surface: None,
             session: rec,
             input: Some("hi".into()),
             target,
@@ -4502,6 +4508,7 @@ fn submit_params(
     attachments: Vec<theseus_protocol::Attachment>,
 ) -> theseus_protocol::TurnSubmitParams {
     theseus_protocol::TurnSubmitParams {
+        surface: None,
         dir: None,
         carried: false,
         prompt: None,
@@ -5050,6 +5057,7 @@ async fn an_image_marked_not_shown_stays_so_after_a_restart() {
         let sink = EventSink::new(core.bus.clone(), &rec.session_id, None);
         let req = TurnRequest {
             prompt: None,
+            surface: None,
             session: rec,
             input: Some(input.into()),
             target,
@@ -6851,6 +6859,7 @@ mod parallel {
         core.runner
             .run(TurnRequest {
                 prompt: None,
+                surface: None,
                 session: rec,
                 input: Some(input.into()),
                 target,
@@ -7820,6 +7829,7 @@ async fn a_failed_turn_posts_its_failure_to_its_place() {
         .runner
         .run(TurnRequest {
             prompt: None,
+            surface: None,
             session: rec,
             input: Some("hi".into()),
             target,

@@ -542,6 +542,7 @@ async fn a_started_items_turn_spends_on_the_self_budget_under_the_item() {
     c.runner
         .run(crate::turn::TurnRequest {
             prompt: None,
+            surface: None,
             session: rec,
             input: Some("begin".into()),
             target,
@@ -568,6 +569,7 @@ async fn a_started_items_turn_spends_on_the_self_budget_under_the_item() {
     c.runner
         .run(crate::turn::TurnRequest {
             prompt: None,
+            surface: None,
             session: plain,
             input: Some("hello".into()),
             target,

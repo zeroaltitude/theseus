@@ -111,6 +111,7 @@ async fn parked(core: &Core) -> String {
         .runner
         .run(TurnRequest {
             prompt: None,
+            surface: None,
             session: rec,
             input: Some("write the tern count".into()),
             target,

@@ -595,6 +595,7 @@ impl Core {
             .runner
             .run(TurnRequest {
                 prompt: None,
+                surface: None,
                 session,
                 input: None,
                 target,

@@ -410,6 +410,7 @@ async fn the_models_say_only_reminder_for_the_owner_is_a_notice_and_takes_no_tur
         .runner
         .run(crate::turn::TurnRequest {
             prompt: None,
+            surface: None,
             session: rec,
             input: Some("REMIND 2s: stretch".into()),
             target,

@@ -57,6 +57,7 @@ async fn first_turn(model: Scripted) -> (Arc<Core>, Arc<FakeProvider>, String, t
     core.runner
         .run(TurnRequest {
             prompt: None,
+            surface: None,
             session: rec.clone(),
             input: Some("What did the keeper log before the lamp was lit?".into()),
             target,
