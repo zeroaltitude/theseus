@@ -106,6 +106,8 @@ Key modules: `lib.rs` (the `method`, `notify`, `error_code` tables), `events.rs`
   routing rows read: extend it only by adding), `WorkingSet`, `Seal`, `ThreadState`, `ThreadRow` (a thread with its
   session's context tokens and today's dollars), the eight `thread.*` methods' params, and `slug_ok`/`place_of`/
   `slug_of_place`. `turn.submit`'s `thread` is in `submit.rs`.
+- `own_bench.rs` (own-benchmark, theseus-pw1q.12): `turn.replay`'s params and result (`TurnReplayParams`, `TurnReplayResult`,
+  `ReplayReply`, `ReplayVerdict`) and `route.report`'s (`RouteReportParams`, `RouteReportResult`, `RouteCell`).
 - `ts.rs`: the TypeScript export.
 
 ## Invariants

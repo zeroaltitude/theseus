@@ -30,6 +30,7 @@
 
 pub mod categorize;
 pub mod citation;
+pub mod compare;
 pub mod compile;
 pub mod gate;
 pub mod inbound;
@@ -97,6 +98,7 @@ pub const WIRED: &[(&str, PackMode)] = &[
     (memory::MEMORY_PACK, PackMode::Shadow),
     (memory::ATTRIBUTION_PACK, PackMode::Shadow),
     (citation::CITATION_PACK, PackMode::Shadow),
+    (compare::COMPARE_PACK, PackMode::Shadow),
     (people::PACK, PackMode::Live),
     (people::seen::SEEN_PACK, PackMode::Live),
 ];

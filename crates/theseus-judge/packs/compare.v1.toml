@@ -1,0 +1,33 @@
+# compare.v1 (own-benchmark, theseus-pw1q.12): whether another model's reply
+# does what a turn's own reply did, for the same request. At `replay`: off
+# every turn, awaited by the replay that asks it (`turn.replay`, and the
+# nightly sampler). The state is the request's last user message, the reply
+# the turn got (A) and the reply the replay got (B), each with the calls it
+# asked for named. One Choice. No live action: its verdict feeds `theseus
+# route report` and nothing else; a pack that moves routing climbs the
+# ladder on its frozen holdout, whose baseline is the owner's labels and
+# route corrections.
+id = "compare"
+version = 1
+jev_model = "jev-1.13.0"
+point = "replay"
+state = "compare"
+state_cap_tokens = 8000
+sample = 1.0
+baseline = "none"
+action = "none"
+description = "Whether another model's reply does what the turn's own reply did, for this request."
+
+[questions.verdict]
+type = "choice"
+instructions = "Reply A is what the assistant answered to the request. Reply B is what another model answered to the same request. Does B do what A did, for this request?"
+act = 0.90
+confirm = 0.60
+no_match = "other"
+options = [
+  { id = "same", means = "B does what A did for this request: it gives the same answer or takes the same next step, whatever the wording, length, or order." },
+  { id = "better", means = "B does what A did and does it more completely or more correctly, so a person would prefer B." },
+  { id = "weaker", means = "B does less than A did: it leaves out something A gave or did, gets something wrong that A got right, or stops short." },
+  { id = "different", means = "B does something else than A did: a different answer, a different next step, or a different reading of the request, and neither is plainly the better." },
+  { id = "other", means = "None of the options above describes how B relates to A." },
+]

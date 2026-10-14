@@ -59,6 +59,7 @@ pub mod lsp;
 pub mod mcp;
 pub mod memory;
 pub mod ontology;
+pub mod own_bench;
 pub mod people;
 pub mod place;
 pub mod recall;
@@ -246,6 +247,8 @@ macro_rules! facts {
 }
 
 facts![
+    own_bench::TurnReplayed<'static>,
+    own_bench::RouteReplayJudged<'static>,
     turn::TurnStarted<'static>,
     turn::ExecutionOpened<'static>,
     turn::BudgetQuestionSuperseded<'static>,

@@ -65,6 +65,7 @@ pub mod tasks;
 pub mod term;
 #[cfg(test)]
 mod tests_task_info;
+pub mod own_bench;
 pub mod threads;
 mod toolinfo;
 #[cfg(test)]
@@ -282,6 +283,8 @@ pub mod method {
         /// that used it, its syntheses stale, one card for the tasks to re-run.
         /// Acting: the owner, from a private place.
         FACT_RETRACT = "fact.retract",
+        /// Your own benchmark (theseus-pw1q.12; `own_bench`): a past turn's first request replayed on another profile (the owner's run), and the report of what the owner's turns need (a read).
+        TURN_REPLAY = "turn.replay", ROUTE_REPORT = "route.report",
         /// Jev's judgments (M5 23b; `judge::JudgeListParams`): the newest
         /// `judge.call` rows, by pack, session, and time, without their
         /// states. A read.

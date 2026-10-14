@@ -43,6 +43,9 @@ pub const PEOPLE_VERSION: u32 = 1;
 /// `people_seen.v1`'s builder (module `people`, theseus-u5n8).
 pub const PEOPLE_SEEN_VERSION: u32 = 1;
 
+/// `compare.v1`'s builder (module `compare`, own-benchmark).
+pub const COMPARE_VERSION: u32 = 1;
+
 /// The most a builder keeps of each list.
 pub const LOOP_CALLS: usize = 8;
 pub const SECURITY_CALLS: usize = 5;
@@ -300,6 +303,8 @@ pub enum Input {
     /// `people_seen.v1`'s (theseus-u5n8): an exchange's lines and the held
     /// people it may involve.
     PeopleSeen(PeopleSeenInput),
+    /// `compare.v1`'s (own-benchmark): a request and two replies.
+    Compare(CompareInput),
 }
 
 impl Input {
@@ -318,6 +323,7 @@ impl Input {
             Input::Citation(_) => Builder::Citation,
             Input::People(_) => Builder::People,
             Input::PeopleSeen(_) => Builder::PeopleSeen,
+            Input::Compare(_) => Builder::Compare,
         }
     }
 
@@ -337,6 +343,7 @@ impl Input {
             Builder::Citation => Input::Citation(serde_json::from_str(json)?),
             Builder::People => Input::People(serde_json::from_str(json)?),
             Builder::PeopleSeen => Input::PeopleSeen(serde_json::from_str(json)?),
+            Builder::Compare => Input::Compare(serde_json::from_str(json)?),
         })
     }
 }
@@ -373,6 +380,7 @@ pub fn prepare(pack: &Pack, input: &Input, scrub: &dyn Scrub) -> Result<Prepared
         Input::Citation(i) => citation::citation(i, cap, scrub),
         Input::People(i) => people::people(i, cap, scrub),
         Input::PeopleSeen(i) => people::people_seen(i, cap, scrub),
+        Input::Compare(i) => compare::compare(i, cap, scrub),
     })
 }
 
@@ -570,11 +578,13 @@ pub fn loop_state(i: &LoopInput, cap: u64, scrub: &dyn Scrub) -> Prepared {
 }
 
 mod citation;
+mod compare;
 mod memory;
 mod people;
 mod rerank;
 mod security2;
 
+pub use compare::{CompareInput, CompareReply};
 pub use citation::{pair_key, CitationInput, CitedSentence, CITATION_PAIRS};
 pub use memory::{AttributionInput, MemoryInput, NoteInput, NOTES};
 pub use people::{HeldPerson, PeopleInput, PeopleSeenInput, PersonCandidate, PEOPLE, SEEN};
@@ -977,6 +987,7 @@ mod tests {
             "citation.v1",
             "people.v1",
             "people_seen.v1",
+            "compare.v1",
         ] {
             let (p, prepared) = prepared(pack);
             golden(

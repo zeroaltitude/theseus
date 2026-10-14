@@ -87,6 +87,7 @@ impl TurnRunner {
         // Routing may move the turn (25e): only the compilation the call
         // uses is persisted (`route_step`).
         if compiled.new_compilation && !t.route.defer_persist {
+            Self::keep_blocks(t.tc.store, &mut compiled);
             Self::persist_compilation(t.tc.store, &compiled, session, t.tc.turn_id)?;
         }
         let c1 = t.trace.now_us();
@@ -102,6 +103,13 @@ impl TurnRunner {
         }
         self.compiled_rows(t, &summary, &compiled, spec, (c0, c1), i);
         Ok(Ok(compiled))
+    }
+
+    /// The new compilation's system blocks, each stored once under its digest
+    /// (own-benchmark), before the frame that names them.
+    pub(super) fn keep_blocks(store: &Store, compiled: &mut Compiled) {
+        let texts = crate::compiler::cache::stamp(&mut compiled.compilation, &compiled.request);
+        crate::compiler::cache::keep(store.blobs(), &texts);
     }
 
     /// The window a request on `spec`'s model compiles against, when

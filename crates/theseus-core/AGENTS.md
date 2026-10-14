@@ -1281,6 +1281,48 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   `forked_from` and the result's `not_restored`), and R21's surfaces (the TUI's `f`, Discord's "Fork from here", the
   Ship's mark), which call `session.fork`. Tests: `tests_fork.rs`, the layouts' format-29 samples, the CLI's
   `golden_fork.rs`.
+- **Your own benchmark** (own-benchmark, theseus-pw1q.12; store format 34; `own_bench/`, `compiler/cache.rs`,
+  `judge/compare.rs`, `config/route.rs`, `fact/own_bench.rs`; a yardstick, not a self-change: it is not behind `[self]
+  mode`, and nothing it finds moves routing): "which model you actually need, measured on your own past work".
+  - **System blocks by digest.** A new compilation stamps each system block's SHA-256 into its cache layout
+    (`BlockBreakpoint.digest`, `compiler::cache::stamp`) and writes each distinct text once to the blobs
+    (`cache::keep`, one `put_many` before the frame that names them; `TurnRunner::keep_blocks`, called beside
+    `persist_compilation` in `compile_step.rs` and `route_step.rs`). The digests are of the request's own system blocks,
+    so a guidance edit or a changed context file is a new blob. A compilation from before format 34 has none, and a
+    replay says so. Blobs follow the blobs' own rules (nothing sweeps them but a person).
+  - **`turn.replay { session, turn, profile, effort?, scope?, compare? }`** (`own_bench/replay.rs`, the owner's run:
+    `judge_act(Act::JudgeRun)`, in the CLI's `OPERATORS`; `theseus turn replay`). `rebuild_first` (`rebuild.rs`) renders
+    the turn's first request again from its compilation, the blobs, the tools (their digest against the manifest's) and
+    the nodes before its first answer, trying the profile's effort and then each level, and accepts it only when its
+    digest is the one the answer recorded (`request_digest`, taken before the recall, standing, task and wake views
+    ride the last block); otherwise `NotRebuildable { part, why }` names the part (`system`, `tools`, `messages`,
+    `compilation`, `profile`, `answer`). The replay is that request for the other profile's model (its thinking, its
+    effort, `max_tokens` at most `REPLAY_MAX_TOKENS`), no tool run, reserved and held on the day ceiling as a
+    consolidation call is, then judged by `compare.v1` (unless `compare: false`) and written as a `turn.replayed` row:
+    no node, no session, no execution. Never a shared place's turn; and when the other profile's provider is not the
+    original's (`Core::crossing`), never one whose session is in a sealed thread, whose recall carries a `personal` or
+    `partner-confidential` imported source, or whose rebuilt messages carry an image or a document block.
+  - **`compare.v1`** (`theseus-judge/packs/compare.v1.toml`, builder `compare`, point `replay`): the request's last
+    user message, reply A (the original) and reply B (the replay), each with the calls it asked for named; one Choice,
+    `same`, `better`, `weaker`, `different`, or `other`. `WIRED` in shadow, no action, awaited by the replay that asks
+    it (`JudgeService::compare_replies`). Its holdout baseline is the owner's labels and route corrections; a version
+    that moved routing would climb the ladder on it.
+  - **The sampler** (`own_bench/sampler.rs`, `route_replay_after_serving`): two hours after the learning hour, a missed
+    night once, never within 10 minutes of a start; before each replay it waits for the machine to be quiet
+    (`pressure`). Per (model, effort) cell of the last seven days' turns (`turn.ended` rows and `route.decided`'s
+    `effort_ran`), the newest `PER_CELL` (3) not yet judged, replayed on the rung down the routing table
+    (`own_bench/rung.rs`: `[routing.modes.*]`'s profiles, a model once, by catalog price). The day's spend is read back
+    from today's `route.replay.judged` rows (replay plus judgment, a failed call at its reservation) against `[route]
+    replay_day_usd` (1.00; 0 is off), and a replay whose reservation passes what is left is not made: the check is
+    before the call (`CapReached`). Each result is a `route.replay.judged` row.
+  - **`route.report { week? }`** (`own_bench/report.rs`, a read, any surface): per cell, the turns and spend, the
+    replays and the ones `compare.v1` called same or better at `MATCH_BAR` (0.8), the turns whose routing the owner
+    corrected (`route.corrected`), the one-sided Wilson floor at 90% of the match rate, the replays' cost against the
+    originals', and `movable = spend × floor × (1 − cost ratio)`; the replays' cost today against the cap. The
+    cockpit's Benchmarks view has a "Your work" panel over it; `theseus route report [--week]`.
+  Tests: `own_bench/tests.rs` (blocks, the rebuild's golden `first_request.golden.json`, refusals, the replay's row,
+  `compare.v1` through the fake Jev), `tests_sampler.rs` (the cap, the rung, shared places, attachments),
+  `report::tests`, `rung::tests`.
 - **Parked tasks** (28b; theseus-vug): `parked.rs`, health's `tasks.parked`: each task that cannot progress by itself,
   with its blocker, from the open executions alone (a question counts as progress for 24 hours).
 - **Limits that notify** (theseus-usei; the owner, 2026-10-07: for tasks and tokens, notify, not restrict):

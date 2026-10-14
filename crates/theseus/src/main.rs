@@ -33,6 +33,7 @@ mod keys;
 mod ledger_verify;
 mod mcp;
 mod ontology;
+mod own_bench;
 mod packs;
 mod pages;
 mod policy_explain;
@@ -538,6 +539,18 @@ enum Cmd {
     Thread {
         #[command(subcommand)]
         cmd: Option<thread::ThreadCmd>,
+    },
+    /// Your own benchmark (theseus-pw1q.12): `route report [--week]`, which model your own turns
+    /// need, measured by replaying them one rung down the routing table.
+    Route {
+        #[command(subcommand)]
+        cmd: own_bench::RouteCmd,
+    },
+    /// A past turn: `turn replay SESSION TURN -P PROFILE`, its first request rebuilt byte for byte
+    /// and sent to another profile (yours alone; refused inside a job).
+    Turn {
+        #[command(subcommand)]
+        cmd: own_bench::TurnCmd,
     },
     /// Send a raw JSON-RPC request (e.g. `rpc health`, `rpc turn.submit '{"input":"hi"}'`); notifications echo to stderr.
     Rpc {
@@ -1160,6 +1173,8 @@ async fn run(cli: Cli) -> Result<()> {
         Cmd::SelfImprove { cmd } => self_cmd::run(c, json, cmd).await,
         Cmd::Standing { cmd } => standing_cmd::run(c, json, cmd.unwrap_or_default()).await,
         Cmd::Thread { cmd } => thread::run(c, json, cmd.unwrap_or_default()).await,
+        Cmd::Route { cmd } => own_bench::route(c, json, cmd).await,
+        Cmd::Turn { cmd } => own_bench::turn(c, json, cmd).await,
         Cmd::Rpc { method, params } => cmd::rpc(c, json, method, params).await,
         Cmd::Shutdown => cmd::shutdown(c, json).await,
         Cmd::Tui { .. } => unreachable!("`theseus tui` execs theseus-tui before connecting"),

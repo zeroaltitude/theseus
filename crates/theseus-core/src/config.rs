@@ -29,11 +29,13 @@ pub(crate) mod lsp;
 pub(crate) mod memory;
 mod outputs;
 pub(crate) mod people;
+pub(crate) mod route;
 pub(crate) mod routing;
 pub mod rsi;
 mod sessions;
 mod threads;
 mod wake_limits;
+pub use route::RouteConfig;
 pub use sessions::SessionsConfig;
 pub use threads::ThreadsConfig;
 mod sparse;
@@ -148,6 +150,9 @@ pub struct Config {
     /// `[sessions]`: the state windows and the re-title (theseus-emqx).
     #[serde(default, skip_serializing_if = "SessionsConfig::is_default")]
     pub sessions: SessionsConfig,
+    /// `[route]`: your own benchmark's sampler (theseus-pw1q.12), `config/route.rs`.
+    #[serde(default, skip_serializing_if = "RouteConfig::is_default")]
+    pub route: RouteConfig,
     /// `[threads]`: threads on virtual places (theseus-nhew), `config/threads.rs`.
     #[serde(default, skip_serializing_if = "ThreadsConfig::is_default")]
     pub threads: ThreadsConfig,
@@ -1368,6 +1373,7 @@ impl Config {
         self.lsp.validate()?;
         self.sessions.validate()?;
         self.threads.validate()?;
+        self.route.validate()?;
         self.cache.validate(self)?;
         self.people.validate()?;
         self.import.validate()?;

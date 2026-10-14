@@ -60,6 +60,10 @@ pub fn unrebuildable(b: Builder) -> Option<&'static str> {
             "a people state's candidate is an extractor's answer and the held people as they \
              stood, which the record keeps only in the judgment's context",
         ),
+        Builder::Compare => Some(
+            "a compare state is a replay's two replies, kept in the replay's row and not by the \
+             judgment's record alone",
+        ),
         Builder::PeopleSeen => Some(
             "a people gate's state is an exchange's lines since a mark that has moved and the held \
              people as they stood",
@@ -78,6 +82,8 @@ pub struct TurnEnd {
     pub cost_usd: Option<f64>,
     pub tool_calls: u32,
     pub stop_reason: String,
+    /// The model that ended it.
+    pub model: String,
 }
 
 impl TurnEnd {
@@ -95,6 +101,7 @@ impl TurnEnd {
             cost_usd: d["cost_usd"].as_f64(),
             tool_calls: d["tool_calls"].as_u64().unwrap_or(0) as u32,
             stop_reason: d["stop_reason"].as_str().unwrap_or_default().to_string(),
+            model: d["model"].as_str().unwrap_or_default().to_string(),
         })
     }
 }

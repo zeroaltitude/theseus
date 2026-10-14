@@ -41,6 +41,7 @@ mod mcp;
 mod mcp_server;
 mod memory;
 mod ontology;
+pub mod own_bench;
 mod parked;
 mod places;
 pub mod postmortem;

@@ -35,6 +35,7 @@ use theseus_protocol::memory::{BudgetDrop, BudgetReport};
 
 mod budget;
 use budget::{budget_report, request_budget};
+pub mod cache;
 mod clearing;
 pub mod compaction;
 pub mod effort;
@@ -136,6 +137,10 @@ pub struct BlockBreakpoint {
     /// whose prefix still falls short is skipped by the provider without an
     /// error, and the usage shows no write for it.
     pub marked: bool,
+    /// The block's text's SHA-256, its blob's name (`cache::stamp`); absent
+    /// in a compilation from before own-benchmark (store format 34).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub digest: Option<String>,
 }
 
 /// Bytes a token takes at the fewest, for the minimum's check. A prefix
@@ -150,22 +155,6 @@ pub struct BlockBreakpoint {
 /// dropped that would have cached costs a rewrite; one placed that cannot
 /// costs nothing.
 pub const MIN_BYTES_PER_TOKEN: u64 = 2;
-
-impl CacheLayout {
-    /// The breakpoints set, by name, the conversation's last.
-    pub fn breakpoints(&self) -> Vec<&str> {
-        let mut out: Vec<&str> = self
-            .blocks
-            .iter()
-            .filter(|b| b.marked)
-            .map(|b| b.block.as_str())
-            .collect();
-        if self.caches {
-            out.push("conversation");
-        }
-        out
-    }
-}
 
 /// A context file as the system block carried it (theseus-58a): the
 /// protocol's type, since `context.compiled` carries it (theseus-0g4).
@@ -603,6 +592,7 @@ pub fn cache_layout(spec: &RequestSpec, catalog: &Catalog) -> CacheLayout {
                 block: block.into(),
                 prefix_bytes: bytes,
                 marked: caches && bytes >= min_tokens as u64 * MIN_BYTES_PER_TOKEN,
+                digest: None,
             }
         })
         .collect();

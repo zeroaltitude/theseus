@@ -499,7 +499,7 @@ impl Core {
 
     /// Every ledger row of `kind` (in `session`, when given) whose kind's
     /// time is in the window, oldest first, a page at a time.
-    fn ledger_rows(
+    pub(crate) fn ledger_rows(
         &self,
         kind: LedgerKind,
         session: Option<&str>,

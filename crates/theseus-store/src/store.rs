@@ -622,7 +622,11 @@ const BULK: usize = 4096;
 /// record), the place records `discord.session.thread:<slug>` of their
 /// virtual places, and the ledger kinds `thread.created`, `.edited`,
 /// `.paused`, `.resumed`, `.done` and `.reopened`.
-const MANIFEST_FORMAT: u32 = 33;
+/// 34 = system blocks by digest (own-benchmark, theseus-pw1q.12): a compilation's
+/// cache layout names each block's text by its SHA-256 (`digest`), the text
+/// stored once in the blobs; and the ledger kinds `turn.replayed` and
+/// `route.replay.judged`.
+const MANIFEST_FORMAT: u32 = 34;
 /// The oldest format this build reads. A format-3 manifest's per-kind marks
 /// are left unread.
 const MANIFEST_OLDEST: u32 = 2;

@@ -24,6 +24,7 @@ import { cn } from '@/lib/format'
 import { Echart } from '@/components/Echart'
 import { ChartPanel, Swatch, type Column } from '@/components/ChartPanel'
 import { Panel } from '@/components/ui'
+import { YourWork } from '@/components/YourWork'
 
 const C = CHROME.dark
 
@@ -109,6 +110,8 @@ export default function Benchmarks() {
           <div>as this build embeds them: measured data only, nothing live</div>
         </div>
       </div>
+
+      <YourWork />
 
       <ChartPanel<Point> help="bench.frontier"
         id="frontier" height={470}
