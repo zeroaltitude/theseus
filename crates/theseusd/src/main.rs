@@ -1064,6 +1064,8 @@ async fn after_serving(
     // minutes of this start, and nothing with the judge off.
     core.learn_after_serving();
     core.consolidate_after_serving();
+    // The self backlog's nightly read, an hour after consolidation, only with `[self] mode = "act"`.
+    core.backlog_after_serving();
     // The weekly earned-autonomy card (theseus-uttu), at the same hour.
     core.earned_after_serving();
     // People's nightly sweep (theseus-j8qb), at the same hour.

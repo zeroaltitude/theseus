@@ -604,6 +604,18 @@ impl Core {
             Act::SelfResume { from_job: None } => {
                 crate::places::owner_anywhere(who, &self.runner.place_rule, &self.cfg).map(|_| ())
             }
+            // The backlog's drop and move (theseus-pw1q.7): the owner's word, as the resume is.
+            Act::SelfBacklog {
+                from_job: Some(job),
+                ..
+            } => Err(format!(
+                "it came from a Theseus job's shell (THESEUS_SESSION={job}), and only the owner \
+                 reorders or drops the self backlog, from their own shell, the web UI, or their \
+                 own account on a bound transport"
+            )),
+            Act::SelfBacklog { from_job: None, .. } => {
+                crate::places::owner_anywhere(who, &self.runner.place_rule, &self.cfg).map(|_| ())
+            }
             _ => crate::places::owner_in_private(who, &self.runner.place_rule, &self.cfg),
         };
         let Err(why) = verdict else {
@@ -831,6 +843,14 @@ pub(crate) enum Act<'a> {
     /// `places::owner_anywhere`), so a job's shell (`from_job`, the
     /// `THESEUS_SESSION` the CLI sends) never counts.
     SelfResume { from_job: Option<&'a str> },
+    /// The self backlog's drop or move (theseus-pw1q.7, `self.drop`,
+    /// `self.move`): the owner's word from any place, never a job's shell.
+    /// `what` names the item the owner typed.
+    SelfBacklog {
+        method: &'static str,
+        what: &'a str,
+        from_job: Option<&'a str>,
+    },
     /// Earned autonomy (theseus-uttu): a grant's yes or a group's pass (the
     /// owner's, from a private place, since a yes loosens), a card posted
     /// now, and a grant's revoke (`tightens`: anyone's, as "should have
@@ -866,6 +886,7 @@ impl Act<'_> {
             Act::Session { method, .. } => method,
             Act::Standing { method, .. } => method,
             Act::SelfResume { .. } => theseus_protocol::method::SELF_RESUME,
+            Act::SelfBacklog { method, .. } => method,
             Act::Earned { method, .. } => method,
             Act::Retract { .. } => theseus_protocol::method::FACT_RETRACT,
         }

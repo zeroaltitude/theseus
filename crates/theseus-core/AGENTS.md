@@ -444,6 +444,19 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   (`post_self_digest_if_due`, kind `self_digest`, META `self.digest.posted`) only while `posts_digest()` (mode act,
   digest weekly): with the mode off it reads and writes nothing. Methods in `rpc/rsi.rs`, routed through
   `rpc_prefixed`. Tests: `rpc/tests_self.rs`.
+- **The self backlog** (theseus-pw1q.7; `rsi/backlog.rs` and `rsi/backlog/`): the nightly read (`backlog_night`; its
+  tender, `backlog_after_serving`, runs an hour after consolidation, only with `[self] mode = "act"`) asks `rsi::gate`
+  first and between its phases, reads the last day's ledger by kind (failed calls and turns, provider errors, invalid
+  tool input, routing corrections, wrong labels, turns past their budgets, refused acts, spend lines), health's
+  warnings and the learning report (`read.rs`), and files each cause (a stable key) as a task under one parent,
+  "Self-improvement backlog", `origin.principal = "self"`, `proposed` with no session (or `waiting_human` for a keel
+  class, `keel.rs`, which never starts). A cause open already gets the night's evidence; a dropped cause is never
+  filed again (`self.backlog` META, `state.rs`, no format change). `rank.rs` documents the score; `[self]
+  backlog_max_open` trims the lowest; `backlog_starts` top unmarked items start in a session under the reserved
+  `"self"` principal (`start.rs`: `open_session_as`), and the first turn runs from the tender. `word.rs`:
+  `self.backlog`, `self.drop` and `self.move`, the owner's by `Act::SelfBacklog` (`owner_anywhere`). The index dates a
+  ledger row by its frame's write time: a test seeds rows, then runs the night at a clock read after the seeding.
+  Tests: `rpc/tests_self_backlog.rs`.
 - **The index tender's supervisor**: `tender.rs` (row 51): it starts `theseus-index` 2 s after serving
   (`START_AFTER`, so a start's aftermath stays quiet), restarts it with backoff, takes over the one an exec kept
   at once, and asks it for health and `index.query`, each call bounded (health asks only a tender that runs, and

@@ -295,7 +295,7 @@ impl Core {
 
     /// `open_session` under `authority`, with a spend limit other than the
     /// default: an MCP client's (step 41b, `rpc::mcp`).
-    pub(super) fn open_session_as(
+    pub(crate) fn open_session_as(
         &self,
         p: SessionOpenParams,
         authority: Authority,
