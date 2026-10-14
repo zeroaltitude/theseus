@@ -96,15 +96,18 @@ impl Work {
         self.views.insert(v.id.clone(), v);
     }
 
-    /// An id left the board (an ended child past its root's last event).
+    /// An id left the board (an ended child past its root's last event). A
+    /// session's own view stays: the board's row for it stays too (executions
+    /// are never dropped within a connection), and its report with it.
     pub fn gone(&mut self, id: &str) {
-        if let Some(v) = self.views.remove(id) {
-            if let Some(sid) = v.session_id {
-                if self.sessions.get(&sid).map(String::as_str) == Some(id) {
-                    self.sessions.remove(&sid);
-                }
-            }
+        if self
+            .views
+            .get(id)
+            .is_some_and(|v| matches!(v.kind, WorkKind::Conversation | WorkKind::Task))
+        {
+            return;
         }
+        self.views.remove(id);
     }
 
     /// `work.watch`'s answer. The first after a connect is the truth: the ids

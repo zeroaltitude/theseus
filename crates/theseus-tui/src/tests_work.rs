@@ -295,6 +295,17 @@ async fn a_report_appears_under_its_row_and_is_new_until_seen() {
         s[at + 1].contains("◆ Counted 41 boats: 29 keelboats, 12"),
         "{s:#?}"
     );
+    // The board prunes an ended task past its root's last event: the row, and
+    // its report, stay while the TUI holds the session.
+    rig.daemon().notify(
+        "work.changed",
+        json!({"position": 401, "at_ms": T0, "views": [], "gone": [boats.execution_id]}),
+    );
+    rig.settle().await;
+    assert!(rig
+        .screen()
+        .iter()
+        .any(|l| l.contains("◆ Counted 41 boats")));
     // Open it (only the done: the first row): seen.
     rig.press(&[
         crossterm::event::KeyCode::Char('d'),
