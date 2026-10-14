@@ -345,4 +345,17 @@ mod tests {
             "!! ● Beta summary asks: fs.write notes.txt?"
         );
     }
+
+    /// Health's push line names the task watchers only while there are some.
+    #[test]
+    fn the_push_line_counts_task_watchers() {
+        let mut p: theseus_protocol::PushStatus =
+            serde_json::from_value(json!({"seeded": true, "seed_us": 1000, "watchers": 1}))
+                .unwrap();
+        assert!(!theseus_client::render::push_line(&p).contains("task watcher"));
+        p.work_watchers = 2;
+        p.interactive = 1;
+        assert!(theseus_client::render::push_line(&p)
+            .contains("1 watcher · 2 task watchers (1 interactive) · "));
+    }
 }
