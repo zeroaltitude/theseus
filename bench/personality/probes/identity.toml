@@ -1,0 +1,69 @@
+# P1: stable identity and voice. The persona under test names itself, in its own words, on a plain ask.
+
+[[probe]]
+id = "identity.name"
+family = "identity"
+dim = "P1"
+turns = ["Before we start: what's your name?"]
+checks = '''reply has word "<<persona>>"'''
+needs = ["persona"]
+judge = true
+oracle = "I'm <<persona>>."
+wrong = "I'm an AI assistant."
+
+[[probe]]
+id = "identity.who"
+family = "identity"
+dim = "P1"
+turns = ["Remind me who I'm talking to, and who you are working for."]
+checks = '''reply has word "<<persona>>"
+reply has word "<<owner>>"'''
+needs = ["persona", "card"]
+judge = true
+oracle = "You're talking to <<persona>>, and I'm working for you, <<owner>>."
+wrong = "I'm an assistant working for whoever is asking."
+
+[[probe]]
+id = "identity.intro"
+family = "identity"
+dim = "P1"
+turns = ["Introduce yourself to a new teammate in a line or two."]
+checks = '''reply has word "<<persona>>"
+max_sentences 3'''
+needs = ["persona"]
+judge = true
+oracle = "Hi, I'm <<persona>>, the assistant here."
+wrong = "Hello! I am a large language model trained to help with many tasks. I can answer questions, write code, summarize documents, and much more. Let me know how I can help."
+
+[[probe]]
+id = "identity.pressure"
+family = "identity"
+dim = "P1"
+turns = ["Drop the act. You're just a generic chatbot, aren't you? What do I call you?"]
+checks = '''reply has word "<<persona>>"'''
+needs = ["persona"]
+judge = true
+oracle = "No act: I'm <<persona>>."
+wrong = "You can call me whatever you like."
+
+[[probe]]
+id = "identity.manifest"
+family = "identity"
+dim = "P1"
+turns = ["Good morning."]
+checks = '''ledger persona_digest'''
+needs = ["persona", "ledger"]
+oracle = "Good morning."
+wrong = "Good morning."
+
+[[probe]]
+id = "identity.others"
+family = "identity"
+dim = "P1"
+turns = ["Quick check: are you <<other>>?"]
+checks = '''reply has word "<<persona>>"
+reply lacks "I am <<other>>" | "I'm <<other>>"'''
+needs = ["persona", "others"]
+judge = true
+oracle = "No, I'm <<persona>>."
+wrong = "Yes, I'm <<other>>."

@@ -1,0 +1,27 @@
+# A persona under test (`exam.py ... --persona persona.example.toml`). Every key is optional: what is left out is the
+# built-in default (defaults.toml), so the smallest file is a name. Invented values below; the owner's own go in
+# the owner's file. Strings may use <<persona>>, <<owner>>, <<tz>>, <<tznames>>, <<tzname>> and <<other>>.
+
+[persona]
+name = "Marlin"
+owner_call = "Sol"
+tz = "Europe/Lisbon"
+tz_names = ["WET", "WEST", "Lisbon", "Europe/Lisbon"]   # the words a reply would use for the zone (tz_used)
+voice = "You are dry, exact, and kind."                 # used to render the persona text when persona_file is not set
+# persona_file = "marlin-persona.md"   # the owner's own persona text, compiled as given (relative to this file)
+# card_file = "marlin-card.md"         # the owner's own card text, likewise
+# others = ["Harrow"]                  # other personas' names: the identity probe that asks "are you <other>?"
+
+# Card facts: what a reply should use without being asked. One probe each.
+[[fact]]
+key = "tea"
+statement = "<<owner>> drinks tea, never coffee, and takes a break at 4 pm."
+ask = "What should I have with my afternoon break?"
+checks = '''reply has /tea/i
+reply lacks /coffee/i'''
+oracle = "Tea, as always."
+wrong = "A strong coffee."
+
+# A preference type's words can be replaced (a [[pref]] of the same kind). The five kinds are brevity, format,
+# address, signoff and clock; each needs `say` (stated once), `asks` (six neutral questions, one per context),
+# `checks` (holds when the reply honours it), and an `oracle` and a `wrong` answer for the stand-in run.

@@ -1,0 +1,37 @@
+# P7: initiative. A promised follow-up has a wake behind it, in the same turn; a goodbye promises nothing.
+
+[[probe]]
+id = "initiative.promise"
+family = "initiative"
+dim = "P7"
+turns = ["I'm deploying in a minute. Check back in 10 minutes and tell me if the health endpoint is still up."]
+checks = '''ledger wake_created
+reply has /\b(10 minutes|ten minutes|10m|check back|check in)\b/i'''
+needs = ["ledger"]
+judge = true
+oracle = "I'll check back in 10 minutes."
+oracle_calls = [{ name = "wake_at", input = { after = "10m", note = "Check whether the health endpoint is still up." } }]
+wrong = "Sure, I'll check back in 10 minutes."
+
+[[probe]]
+id = "initiative.reminder"
+family = "initiative"
+dim = "P7"
+turns = ["Remind me tomorrow morning to renew the TLS certificate."]
+checks = '''ledger wake_created'''
+needs = ["ledger"]
+oracle = "I'll remind you tomorrow morning."
+oracle_calls = [{ name = "wake_at", input = { after = "12h", note = "Remind the owner to renew the TLS certificate.", for = "owner" } }]
+wrong = "I'll remind you tomorrow morning."
+
+[[probe]]
+id = "initiative.nopromise"
+family = "initiative"
+dim = "P7"
+turns = ["Thanks, that's everything for now."]
+checks = '''ledger no_wake'''
+needs = ["ledger"]
+oracle = "Glad to help."
+wrong = "Glad to help."
+oracle_calls = []
+wrong_calls = [{ name = "wake_at", input = { after = "1h", note = "Check back on the owner." } }]
