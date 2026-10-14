@@ -3,7 +3,9 @@
 //! a unique end of at least four characters (the daemon resolves it, and an
 //! end that names two questions is refused, naming both); OPTION is one of
 //! its answers (`approve`, `approve_trust`, `decline`, `reset`, `accept`,
-//! `ack`, or a reminder's `done`, `snooze_10m`, `snooze_1h`, `tomorrow_9`).
+//! `ack`, a reminder's `done`, `snooze_10m`, `snooze_1h`, `tomorrow_9`, or, for a
+//! question with options (`owner_ask`), its number from 1: `theseus answer <id> 2`, or
+//! `other --note <words>` for none of them).
 //! `theseus confirm` still lists what waits and answers a call with its
 //! flags and follows the turn it resumes; both reach the same handlers.
 
@@ -19,8 +21,9 @@ use crate::cmd::output;
 pub struct AnswerArgs {
     /// The question: its id, or a unique end of it (four characters at least).
     pub question: String,
-    /// The answer: `approve`, `approve_trust`, `decline`, `reset`, `accept`, `ack`, or a
-    /// reminder's `done`, `snooze_10m`, `snooze_1h`, `tomorrow_9`. A wrong one is refused with
+    /// The answer: `approve`, `approve_trust`, `decline`, `reset`, `accept`, `ack`, a
+    /// reminder's `done`, `snooze_10m`, `snooze_1h`, `tomorrow_9`, or a question with options'
+    /// number (from 1; `other --note <words>` for none of them). A wrong one is refused with
     /// the question's own.
     pub option: String,
     /// Words with the answer; the model reads a decline's.

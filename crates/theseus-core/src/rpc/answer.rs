@@ -41,6 +41,8 @@ pub(crate) enum Target {
 pub(crate) fn kind_of(req: &ConfirmRequest) -> QuestionKind {
     if req.budget.is_some() {
         QuestionKind::Budget
+    } else if req.tool == crate::ask::OWNER_ASK {
+        QuestionKind::Ask
     } else if req.tool == crate::extend::ACK {
         QuestionKind::Extension
     } else if req.change.is_some() {
@@ -70,13 +72,17 @@ pub(crate) fn option_id(kind: QuestionKind, approve: bool, trust: bool) -> &'sta
 }
 
 /// How `option` of a question of `kind` is answered: whether it approves,
-/// and whether it trusts the session again. `owner-ask` replaces the `Ask`
-/// arm with its handler.
+/// and whether it trusts the session again. A question with options is
+/// answered by choosing one: it binds its confirm (`approves`) and trusts
+/// nothing; which option is `answer_ask`'s.
 pub(crate) fn route(kind: QuestionKind, option: &str) -> Result<(bool, bool), RpcFailure> {
     match kind {
-        QuestionKind::Ask => Err(refused(
-            "this kind of question is not answerable yet: answer it in words, in its conversation",
-        )),
+        QuestionKind::Ask => match option.starts_with("choice:") {
+            true => Ok((true, false)),
+            false => Err(refused(format!(
+                "`{option}` is not a choice of a question with options: answer with its number"
+            ))),
+        },
         _ => Ok((approves(option), option == "approve_trust")),
     }
 }
@@ -160,6 +166,9 @@ impl Core {
     pub(crate) fn kind_of_action(&self, a: &Action) -> QuestionKind {
         if a.tool == BUDGET_TOOL {
             return QuestionKind::Budget;
+        }
+        if a.tool == crate::ask::OWNER_ASK {
+            return QuestionKind::Ask;
         }
         if a.tool == crate::extend::ACK {
             return QuestionKind::Extension;
@@ -249,6 +258,9 @@ impl Core {
         a: &Action,
     ) -> Result<WorkAnswerResult, RpcFailure> {
         let kind = self.kind_of_action(a);
+        if kind == QuestionKind::Ask {
+            return self.answer_ask(p, who, conn, a);
+        }
         // A call that waits because its session read external text offers
         // "approve and trust"; the transcript is not read to know, and the
         // trust of a session that holds nothing changes nothing.
@@ -268,7 +280,14 @@ impl Core {
             self.bus.watch(&a.session_id, conn.client, conn.tx.clone());
         }
         let done = self
-            .confirm_action_with(&a.correlation_id, approve, p.note.as_deref(), who, trust)
+            .confirm_action_with(
+                &a.correlation_id,
+                approve,
+                p.note.as_deref(),
+                who,
+                trust,
+                None,
+            )
             .map_err(|e| match e.downcast::<Refusal>() {
                 Ok(r) => RpcFailure {
                     code: error_code::REFUSED,
@@ -283,6 +302,79 @@ impl Core {
         Ok(WorkAnswerResult {
             question_id: a.correlation_id.clone(),
             option: chosen.id.clone(),
+            resumes,
+        })
+    }
+
+    /// A question with options (`owner_ask`, theseus-j7cje): `option` is a
+    /// number from 1, `choice:<i>` from 0, or `other` with the owner's words
+    /// in `note`. The confirm binds in the answer's own frame, with the
+    /// choice's record, and the call reads it back as its result.
+    fn answer_ask(
+        &self,
+        p: &WorkAnswerParams,
+        who: Answerer,
+        conn: Conn<'_>,
+        a: &Action,
+    ) -> Result<WorkAnswerResult, RpcFailure> {
+        use theseus_protocol::work::ask::{choice_id, choice_of, Choice};
+        let ask = crate::ask::input_of(a)
+            .ok_or_else(|| invalid("this question's options could not be read"))?;
+        let n = ask.options.len();
+        let note = p.note.as_deref().map(str::trim).filter(|t| !t.is_empty());
+        let (option, text) = match choice_of(&p.option, n) {
+            Some(Choice::Pick(i)) => (choice_id(i), note),
+            Some(Choice::Other) => match note {
+                Some(t) => ("choice:other".to_string(), Some(t)),
+                None => {
+                    return Err(invalid(
+                        "`other` is your own words: add them as the note (`--note <words>`)",
+                    ))
+                }
+            },
+            None => {
+                return Err(invalid(format!(
+                    "`{}` is not an answer to this question; the answers are: 1 to {n}, or \
+                     other with a note",
+                    p.option
+                )))
+            }
+        };
+        let record = crate::ask::AskAnswer {
+            option: option.clone(),
+            note: text.map(str::to_string),
+            by: who.label.clone(),
+            at_ms: self.kernel.now_ms(),
+            expired: false,
+        }
+        .record(&a.correlation_id)
+        .map_err(RpcFailure::invalid)?;
+        if p.watch {
+            self.bus.watch(&a.session_id, conn.client, conn.tx.clone());
+        }
+        let done = self
+            .confirm_action_with(
+                &a.correlation_id,
+                true,
+                text,
+                who,
+                false,
+                Some((&option, record)),
+            )
+            .map_err(|e| match e.downcast::<Refusal>() {
+                Ok(r) => RpcFailure {
+                    code: error_code::REFUSED,
+                    message: r.to_string(),
+                    data: json!({"who": r.who, "via": r.via, "why": r.why}),
+                },
+                Err(e) => RpcFailure::invalid(e),
+            })?;
+        let resumes = done
+            .resumes
+            .then(|| self.work_ref_of(&done.execution_id, &done.session_id));
+        Ok(WorkAnswerResult {
+            question_id: a.correlation_id.clone(),
+            option,
             resumes,
         })
     }
@@ -305,7 +397,9 @@ impl Core {
             tool: Some(a.tool.clone()),
             asked_at_ms: a.planned_at_ms,
             external_text: false,
-            choices: Vec::new(),
+            choices: crate::ask::input_of(a)
+                .map(|i| i.choices())
+                .unwrap_or_default(),
         }
     }
 

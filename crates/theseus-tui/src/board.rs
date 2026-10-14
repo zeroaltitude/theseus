@@ -134,6 +134,24 @@ impl Question<'_> {
         }
     }
 
+    /// Whether it is a question with options (`owner_ask`, theseus-j7cje):
+    /// answered by choosing one, with the keys 1 to 6.
+    pub fn is_ask(&self) -> bool {
+        matches!(self, Question::Whole(c) if c.options.iter().any(|o| o.id.starts_with("choice:")))
+    }
+
+    /// The answer id of option `n` (from 1) of a question with options.
+    pub fn choice(&self, n: usize) -> Option<&str> {
+        let Question::Whole(c) = self else {
+            return None;
+        };
+        c.options
+            .iter()
+            .filter(|o| o.id.starts_with("choice:") && o.id != "choice:other")
+            .nth(n.checked_sub(1)?)
+            .map(|o| o.id.as_str())
+    }
+
     /// Approving it can trust its session again: it waits because the
     /// session read external text.
     pub fn trusts(&self) -> bool {

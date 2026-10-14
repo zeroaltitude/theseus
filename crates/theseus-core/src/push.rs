@@ -90,7 +90,7 @@ pub fn pending_of(
         expires_at_ms: if holds {
             0
         } else {
-            a.planned_at_ms + confirm_ttl_ms
+            crate::ask::expiry_of(a, confirm_ttl_ms)
         },
     }
 }
@@ -369,6 +369,20 @@ impl Push {
             core.bus.publish_work(&out, &core.tools.scrubber);
         }
         self.feed.send_replace(position);
+    }
+
+    /// The driver's tick: tell the questions that reached half their life
+    /// that they still wait (the policy's rule 2). Nothing on an unseeded
+    /// board, and nothing read until the earliest reminder is due.
+    pub fn remind_questions(&self, core: &Core, now: u64) {
+        if !self.seeded() {
+            return;
+        }
+        let position = self.board.lock().unwrap().position;
+        let out = self.work.lock().unwrap().remind(now, position);
+        if let Some(out) = out {
+            core.bus.publish_work(&out, &core.tools.scrubber);
+        }
     }
 
     /// After the seed, off the serving path: the usual times of jobs, and

@@ -324,12 +324,18 @@ async fn an_answer_from_one_surface_clears_every_other() {
     assert_eq!(resolved[0]["option"], "decline", "{resolved:?}");
 }
 
-/// A kind with no handler yet is refused, not answered.
+/// A question with options is answered by choosing one (theseus-j7cje): a
+/// `choice:` binds the confirm, and a yes or a decline is refused.
 #[test]
-fn a_kind_with_no_handler_is_not_answerable_yet() {
-    let e = route(QuestionKind::Ask, "choice:0").expect_err("an ask has no handler yet");
+fn a_question_with_options_is_answered_by_choosing_one() {
+    let e = route(QuestionKind::Ask, "approve").expect_err("an ask has no plain yes");
     assert_eq!(e.code, error_code::REFUSED);
-    assert!(e.message.contains("not answerable yet"), "{}", e.message);
+    assert!(
+        e.message.contains("answer with its number"),
+        "{}",
+        e.message
+    );
+    assert_eq!(route(QuestionKind::Ask, "choice:0").unwrap(), (true, false));
     assert_eq!(
         route(QuestionKind::Approval, "approve").unwrap(),
         (true, false)

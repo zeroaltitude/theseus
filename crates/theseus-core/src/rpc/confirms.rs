@@ -81,7 +81,7 @@ impl Core {
             reason: decision.reason,
             by: OPERATOR.into(),
             requested_at_ms: a.planned_at_ms,
-            expires_at_ms: a.planned_at_ms + self.kernel.config().confirm_ttl_ms,
+            expires_at_ms: crate::ask::expiry_of(a, self.kernel.config().confirm_ttl_ms),
             floor: decision.floor,
             budget: None,
             task: crate::task::task_ref(session),
@@ -283,7 +283,7 @@ impl Core {
         note: Option<&str>,
         by: impl Into<Answerer>,
     ) -> Result<theseus_protocol::ActionConfirmResult> {
-        self.confirm_action_with(correlation_id, approve, note, by, false)
+        self.confirm_action_with(correlation_id, approve, note, by, false, None)
     }
 
     /// `confirm_action`, and with `trust`, trust the call's session again as
@@ -291,6 +291,10 @@ impl Core {
     /// approval wakes the execution, so the calls after this one run at their
     /// postures. The answer's judgment covers the trust, which only goes with
     /// an approval of a tool call.
+    ///
+    /// For an `owner_ask`, `ask` is the answer that rides in the same frame
+    /// (theseus-j7cje): the option's id and the META record holding the
+    /// choice, which the call reads back as its result.
     #[expect(clippy::too_many_lines, reason = "shape budget: split it")]
     pub fn confirm_action_with(
         &self,
@@ -299,6 +303,7 @@ impl Core {
         note: Option<&str>,
         by: impl Into<Answerer>,
         trust: bool,
+        ask: Option<(&str, theseus_store::NewRecord)>,
     ) -> Result<theseus_protocol::ActionConfirmResult> {
         let who = by.into();
         let a = self
@@ -328,6 +333,14 @@ impl Core {
         let via = who.via();
         if a.tool == BUDGET_TOOL {
             return self.answer_budget(&a, approve, note, by, &via);
+        }
+        // A question with options is answered with one of them (theseus-j7cje):
+        // a plain yes chooses nothing.
+        if a.tool == crate::ask::OWNER_ASK && approve && ask.is_none() {
+            anyhow::bail!(
+                "{correlation_id} is a question with options: answer it with `theseus answer \
+                 {correlation_id} <number>` (or `other --note <words>`)"
+            );
         }
         let kind = self.kind_of_action(&a);
         // A proposed extension's ack (M7 43a): nothing loads, and nothing
@@ -359,7 +372,10 @@ impl Core {
             by,
             via: &via,
             trust,
-            option: Some(super::answer::option_id(kind, approve, trust)),
+            option: Some(match &ask {
+                Some((option, _)) => option,
+                None => super::answer::option_id(kind, approve, trust),
+            }),
         };
         let answered = fact::row(&fact, Some(&a.session_id), None)?;
         let proposal = match approve {
@@ -410,6 +426,9 @@ impl Core {
                     k.stage(frame)?;
                 }
                 k.stage(std::slice::from_ref(&answered))?;
+                if let Some((_, record)) = &ask {
+                    k.stage(std::slice::from_ref(record))?;
+                }
                 // The wake is its own part: one that cannot happen (the
                 // execution ended) takes back nothing else.
                 let why = if approve { "confirmed" } else { "declined" };
@@ -445,8 +464,18 @@ impl Core {
         self.card_closed(
             correlation_id,
             Closed {
-                note: trust.then(|| "and trusted the session again".to_string()),
-                ..Closed::new(if approve { "approved" } else { "declined" }, Some(by))
+                note: match &ask {
+                    Some((option, _)) => Some(crate::ask::answered_line(&a, option, note)),
+                    None => trust.then(|| "and trusted the session again".to_string()),
+                },
+                ..Closed::new(
+                    match (approve, ask.is_some()) {
+                        (_, true) => "answered",
+                        (true, _) => "approved",
+                        _ => "declined",
+                    },
+                    Some(by),
+                )
             },
         );
         self.admission.notify_waiters();
@@ -471,6 +500,9 @@ impl Core {
     /// (`question_due`), never by the executions the tick reads. Returns
     /// how many expired.
     pub fn expire_questions_if_due(&self) -> usize {
+        // The same tick pings the owner's DM for a question that waited, and
+        // reminds of one at half its life (theseus-j7cje).
+        self.tick_questions();
         let now = self.kernel.now_ms();
         let due = self
             .tools
@@ -505,7 +537,7 @@ impl Core {
         let mut expired = 0;
         // A budget question holds until it is answered.
         for a in pending.iter().filter(|a| a.tool != BUDGET_TOOL) {
-            let due = a.planned_at_ms + ttl;
+            let due = crate::ask::expiry_of(a, ttl);
             if due > now {
                 next = next.min(due);
                 continue;
@@ -526,6 +558,10 @@ impl Core {
     /// frame, as an answer's are (theseus-jj9f); then its clients hear it,
     /// and its card settles `expired`.
     fn expire_question(&self, a: &Action, ttl_ms: u64) -> Result<()> {
+        // A question with options applies its default, or says no one answered.
+        if a.tool == crate::ask::OWNER_ASK {
+            return self.expire_ask(a);
+        }
         // A proposed extension's ack: declined by expiry, waking nothing.
         if a.tool == crate::extend::ACK {
             let why = format!("nobody answered within {}", fact::answer::within(ttl_ms));
@@ -573,6 +609,44 @@ impl Core {
             Closed {
                 note: Some(fact::answer::within(ttl_ms)),
                 ..Closed::new("expired", None)
+            },
+        );
+        self.admission.notify_waiters();
+        Ok(())
+    }
+
+    /// An `owner_ask` nobody answered in its life (theseus-j7cje): the confirm
+    /// is bound by the clock, in one frame with the expiry's row, the META
+    /// record that says so, and the wake. The call then reads the record
+    /// back: the default applied, or no one answered.
+    fn expire_ask(&self, a: &Action) -> Result<()> {
+        let life = crate::ask::life_of(a).unwrap_or(self.kernel.config().confirm_ttl_ms);
+        let fact = fact::answer::QuestionExpired {
+            action: a,
+            waited_ms: life,
+        };
+        let row = fact::row(&fact, Some(&a.session_id), None)?;
+        let record = crate::ask::AskAnswer {
+            option: String::new(),
+            note: None,
+            by: EXPIRY.into(),
+            at_ms: self.kernel.now_ms(),
+            expired: true,
+        }
+        .record(&a.correlation_id)?;
+        let proposal = crate::toolrun::confirm_proposal(&self.store, a, None)?;
+        self.kernel.frame(&[&a.execution_id], |k| {
+            k.bind_confirm(&a.correlation_id, OPERATOR, &proposal)?;
+            k.stage(&[row, record])?;
+            let _ = k.frame(&[&a.execution_id], |k| k.wake(&a.execution_id, "expired"));
+            Ok(())
+        })?;
+        self.session_rec(&a.session_id).announce(&fact);
+        self.card_closed(
+            &a.correlation_id,
+            Closed {
+                note: Some(fact::answer::within(life)),
+                ..Closed::new("asked_expired", None)
             },
         );
         self.admission.notify_waiters();

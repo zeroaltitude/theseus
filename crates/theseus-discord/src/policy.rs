@@ -86,6 +86,9 @@ pub(crate) enum Event {
     /// A reminder fired (theseus-8ux6x): it is the owner's, so it always
     /// pings: no category, no silent list names it, and it is not in `TABLE`.
     Reminder,
+    /// An open question pinged the owner's DM (theseus-j7cje): it is why the
+    /// post exists, so it always pings, as a reminder does.
+    NeedsYou,
 }
 
 /// The table: each write's chat category, the name a `silent` list gives

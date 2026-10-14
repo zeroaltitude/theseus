@@ -1665,6 +1665,9 @@ mod mcp_surface;
 /// `work.answer` (theseus-ds5os).
 mod answer;
 
+/// `owner_ask` and the always-on channel (theseus-j7cje).
+mod ask;
+
 /// theseus-667d: a stopped job's raw output is kept while its wrapper still
 /// lives, and the sweep takes it once the wrapper has ended (theseus-ewev's
 /// guard in `remove_job_output`). The stop comes before the job's

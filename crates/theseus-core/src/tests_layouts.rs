@@ -93,7 +93,19 @@ pub(crate) const SESSION_BEFORE_FORK: &str = r#"{"session_id":"ses_0000000000000
 /// theseus-2qzx (7005d130) writes.
 pub(crate) const COMPILATION_BEFORE_FORK: &str = r#"{"id":"cmp_00000000000000000000000000000292","schema":1,"session_id":"ses_00000000000000000000000000000291","created_at_ms":1790000000292,"trigger":"new_session","strategy":"transcript","as_of":71,"includes":["msg_00000000000000000000000000000291"],"derived_from":null,"manifest":{"compiler_version":1,"renderer_version":2,"profile":"sonnet","provider":"anthropic","model":"claude-sonnet-5-5","system_digest":"0123456789abcdef","tools_digest":"fedcba9876543210","tools":["fs_read"],"catalog_version":"2026-10-01","context_window":1000000,"strip_thinking":false,"standing":[{"id":"std_00000029","shown":true}]},"situation":{"kind":"conversation_start"}}"#;
 
+/// A task's session record as format 33 wrote it (theseus-nhew's build),
+/// before the owner's flag on a task (`task.notify_done`, format 34,
+/// theseus-j7cje): it reads unflagged, so its finish informs. By hand, in the
+/// layout the build before theseus-j7cje writes.
+pub(crate) const TASK_SESSION_BEFORE_NOTIFY: &str = r#"{"session_id":"ses_00000000000000000000000000000331","kind":"task","label":"task","created_at_unix_ms":1790000000331,"turns":1,"last_turn_id":"turn_00000000000000000000000000000333","usage":{"input_tokens":400,"output_tokens":60,"cache_read_input_tokens":0,"cache_creation_input_tokens":0},"execution_id":"exe_00000000000000000000000000000331","compilation_id":"cmp_00000000000000000000000000000332","last_target":{"profile":"sonnet","provider":"anthropic","model":"claude-sonnet-5-5"},"last_active_ms":1790000000339,"cost_usd":0.004,"tool_calls":0,"title":"Sound the outer channel","task":{"parent_session":"ses_00000000000000000000000000000330","parent_execution":"exe_00000000000000000000000000000330","by":"act_00000000000000000000000000000330","arrangement":"arr_00000000000000000000000000000331"}}"#;
+
 const SAMPLES: &[Sample] = &[
+    Sample {
+        kind: kinds::SESSION,
+        layout: "a task's session at format 33 (theseus-nhew's): before the owner's flag on it (34, theseus-j7cje)",
+        bytes: TASK_SESSION_BEFORE_NOTIFY,
+        kept: Kept::All,
+    },
     Sample {
         kind: kinds::SESSION,
         layout: "a session at format 29 (theseus-a7vi's; unchanged since 28): before a fork's origin (32, theseus-2qzx)",
@@ -527,7 +539,7 @@ fn a_format_28_store_opens_with_no_standing_records_and_takes_them() {
         .unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
     // This build's format: the move is made by the first write of any build.
-    assert_eq!(moved["format"], 33);
+    assert_eq!(moved["format"], 34);
     drop(store);
     let again = crate::store::Store::open(&path).unwrap();
     assert_eq!(
@@ -579,7 +591,7 @@ fn a_format_29_store_starts_its_chain_over_the_rows_it_holds() {
         ))
         .unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
-    assert_eq!(moved["format"], 33);
+    assert_eq!(moved["format"], 34);
     let after = theseus_store::chain_walk::verify(store.inner().as_ref(), None, None).unwrap();
     assert!(after.broken.is_none(), "{after:?}");
     assert_eq!((after.rows, after.unchained), (2, 1));
@@ -634,7 +646,7 @@ fn a_format_29_store_opens_with_no_forks_and_takes_one() {
     }));
     store.put_session(&fork.session_id, &fork).unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
-    assert_eq!(moved["format"], 33);
+    assert_eq!(moved["format"], 34);
     drop(store);
     let again = crate::store::Store::open(&path).unwrap();
     let origin = crate::fork::origin_of(&again, &fork.session_id)
@@ -663,7 +675,7 @@ fn a_format_33_thread_record_reads_and_writes_back_byte_for_byte() {
 }
 
 /// A store of format 32, which holds a session and no thread: the build opens
-/// it, reads an empty board, takes a thread and moves the manifest to 33,
+/// it, reads an empty board, takes a thread and moves the manifest to this build's 34,
 /// which an older build then refuses.
 #[test]
 fn a_format_32_store_opens_with_no_threads_and_takes_them() {
@@ -686,11 +698,26 @@ fn a_format_32_store_opens_with_no_threads_and_takes_them() {
         .write(&store, |_| Ok(vec![t.clone()]), |_, _| Ok(vec![]))
         .unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
-    assert_eq!(moved["format"], 33);
+    assert_eq!(moved["format"], 34);
     drop(store);
     let again = crate::store::Store::open(&path).unwrap();
     let board = crate::threads::Threads::default().all(&again).unwrap();
     let got = board.get("tide-gauges").unwrap();
     assert_eq!(got.state, ThreadState::Paused);
     assert_eq!(got.card, t.card);
+}
+
+/// A task session of format 33 reads unflagged, and a flagged one writes the
+/// flag and reads it back (theseus-j7cje).
+#[test]
+fn a_task_session_of_format_33_reads_unflagged_and_a_flagged_one_keeps_its_flag() {
+    let old: SessionRecord = serde_json::from_str(TASK_SESSION_BEFORE_NOTIFY).unwrap();
+    let task = old.task.clone().unwrap();
+    assert!(!task.notify_done);
+    let mut flagged = old;
+    flagged.task.as_mut().unwrap().notify_done = true;
+    let bytes = serde_json::to_string(&flagged).unwrap();
+    assert!(bytes.contains(r#""notify_done":true"#), "{bytes}");
+    let again: SessionRecord = serde_json::from_str(&bytes).unwrap();
+    assert!(again.task.unwrap().notify_done);
 }

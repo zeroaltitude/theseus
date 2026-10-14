@@ -310,7 +310,8 @@ pub fn authority_for(
     input: &Value,
     mut plan: Plan,
 ) -> Plan {
-    if plan.authority.is_some() && !waits(store, name, input) {
+    // A question for the owner (`owner_ask`) always waits for the owner.
+    if plan.authority.is_some() && name != crate::ask::OWNER_ASK && !waits(store, name, input) {
         plan.authority = None;
     }
     plan

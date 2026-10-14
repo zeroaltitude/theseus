@@ -106,6 +106,7 @@ impl WorkBoard {
         }
         v.doing = self.doing_of(ei, &v);
         v.report = self.report_of(ei, &v);
+        v.flagged = ei.flagged;
         v.ended_at_ms = v.state.ended().then_some(ei.x.at_ms);
         Some(v)
     }
@@ -249,8 +250,11 @@ impl WorkBoard {
             .map(|p| p.reason.clone())
             .filter(|r| !r.is_empty())
             .or_else(|| ai.detail.clone());
+        let asked = crate::ask::input_of(a);
         let kind = if budget {
             QuestionKind::Budget
+        } else if asked.is_some() {
+            QuestionKind::Ask
         } else if tool == crate::extend::ACK {
             QuestionKind::Extension
         } else if ai.change {
@@ -261,7 +265,8 @@ impl WorkBoard {
         let expires = pending
             .map(|p| p.expires_at_ms)
             .filter(|e| *e > 0)
-            .or(ai.expires_at_ms);
+            .or(ai.expires_at_ms)
+            .or_else(|| asked.as_ref().map(|i| a.planned_at_ms + i.life_ms()));
         let mut q = Question {
             id: a.correlation_id.clone(),
             kind,
@@ -270,14 +275,17 @@ impl WorkBoard {
             detail: reason,
             input: a.proposal.as_ref().map(|p| p.args.clone()),
             options: Vec::new(),
-            on_expiry: expires.map(|_| "not run".to_string()),
+            on_expiry: expires.map(|_| match &asked {
+                Some(i) => i.on_expiry(),
+                None => "not run".to_string(),
+            }),
             expires_at_ms: expires,
             floor: pending.is_some_and(|p| p.floor) || ai.floor,
             may_answer: true,
             tool: Some(tool),
             asked_at_ms: a.planned_at_ms,
             external_text: ai.external_text,
-            choices: Vec::new(),
+            choices: asked.as_ref().map(|i| i.choices()).unwrap_or_default(),
         };
         q.options = answer_options(&q);
         let mut v = blank(&a.correlation_id, WorkKind::Question, a.planned_at_ms);
@@ -466,6 +474,8 @@ fn question_words(ai: &ActIn) -> (String, String) {
         .map_or_else(|| a.tool.clone(), |p| p.tool.clone());
     let prompt = if a.tool == BUDGET_TOOL {
         "reset the session's spend".to_string()
+    } else if let Some(i) = crate::ask::input_of(a) {
+        line(&i.question)
     } else if !ai.argv.is_empty() {
         format!("{tool} {}", line(&ai.argv.join(" ")))
     } else {

@@ -46,6 +46,11 @@ Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
   DM alone, as a Jev notice does, a row of Yes with a notice / Not this one / Show the record for each candidate
   (`earned:<yes|no|show>:<id>`); a yes or a no is `policy.earned.answer` as the presser, which the core judges (the
   owner, from a private place), the record is read and shown to the presser alone. Tests: `tests_gateway/earned.rs`.
+- **A question with options** (theseus-j7cje; `render/ask.rs`, `runtime/ask.rs`, `courier/ask.rs`): the card of an `owner_ask` question
+  draws its options numbered with one button each (`Buttons::Ask`, `ask:<n>:<question id>`, five to a row), and a press is
+  `work.answer` as the presser, which the core judges; "something else" takes words, so it is answered from the CLI. The core's
+  `needs_you` post (an open question past `[notify]`'s line) goes to the owner's DM alone, always pings (`Event::NeedsYou` is in no
+  category), has the same buttons for an ask, and is edited by the question's settle. Tests: `tests_gateway/ask.rs`.
 - **Reminders** (theseus-8ux6x, `runtime/remind.rs`): the core's `reminder` post (a wake's note as it is, `Event::Reminder`, in no
   ping category, so it always pings) goes to the place the core chose, with Done, Snooze 10 min, Snooze 1 h and Tomorrow 9:00
   (`wake:<answer>:<wake id>`, `Buttons::Reminder`); a press is `wake.done` or `wake.snooze { fired }` as the presser, answered in the

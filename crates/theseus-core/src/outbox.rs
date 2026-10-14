@@ -158,6 +158,9 @@ struct Index {
     cards: HashMap<String, Card>,
     /// Every question that has a card post, settled or not.
     carded: std::collections::HashSet<String>,
+    /// Every question that has a needs-you post, settled or not
+    /// (theseus-j7cje).
+    pinged: std::collections::HashSet<String>,
     /// By binding (`discord`): delivered, refused for good, the last error.
     counts: BTreeMap<String, Counts>,
 }
@@ -381,6 +384,22 @@ impl Outbox {
                         );
                     }
                 }
+                // A question's ping to the owner's DM is settled as a card is
+                // (theseus-j7cje).
+                "needs_you" => {
+                    if let Some(q) = body["question"].as_str() {
+                        ix.pinged.insert(q.to_string());
+                        ix.cards.insert(
+                            q.to_string(),
+                            Card {
+                                post: a.correlation_id.clone(),
+                                target: target_of(a).to_string(),
+                                session_id: a.session_id.clone(),
+                                execution_id: a.execution_id.clone(),
+                            },
+                        );
+                    }
+                }
                 "settle" => {
                     if let Some(q) = body["question"].as_str() {
                         settled_cards.push(q.to_string());
@@ -576,6 +595,18 @@ impl Outbox {
                 match kind_of(a) {
                     "card" => {
                         ix.carded.insert(q.to_string());
+                        ix.cards.insert(
+                            q.to_string(),
+                            Card {
+                                post: a.correlation_id.clone(),
+                                target: target_of(a).to_string(),
+                                session_id: a.session_id.clone(),
+                                execution_id: a.execution_id.clone(),
+                            },
+                        );
+                    }
+                    "needs_you" => {
+                        ix.pinged.insert(q.to_string());
                         ix.cards.insert(
                             q.to_string(),
                             Card {
@@ -858,6 +889,13 @@ impl Outbox {
     /// is not.
     pub fn has_card(&self, question: &str) -> bool {
         self.with(|ix| ix.carded.contains(question))
+            .unwrap_or(false)
+    }
+
+    /// Whether a question has pinged the owner's DM already (theseus-j7cje):
+    /// one needs-you post per question, a restart included.
+    pub fn pinged(&self, question: &str) -> bool {
+        self.with(|ix| ix.pinged.contains(question))
             .unwrap_or(false)
     }
 

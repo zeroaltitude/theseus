@@ -106,6 +106,9 @@ struct ExecIn {
     turn_started_ms: u64,
     loop_index: u32,
     woke: Option<Woke>,
+    /// The owner asked to hear when this task is done (`task.create
+    /// { notify_done }`, theseus-j7cje).
+    flagged: bool,
 }
 
 /// An action the board shows: a question, or a job.
@@ -188,6 +191,9 @@ pub(super) struct WorkBoard {
     /// The newest position of a notice that left the ring.
     evicted: u64,
     rules: Rules,
+    /// The earliest a question's reminder may be due; 0 until a first look
+    /// (`remind`, theseus-j7cje).
+    remind_at: u64,
 }
 
 /// Entities marked for building again.
@@ -829,6 +835,10 @@ impl WorkBoard {
                 turn_started_ms: 0,
                 loop_index: 0,
                 woke: None,
+                flagged: rec
+                    .as_ref()
+                    .and_then(|r| r.task.as_ref())
+                    .is_some_and(|t| t.notify_done),
             },
         );
         d.execs.insert(e.id.clone());

@@ -248,7 +248,7 @@ pub fn next_reminder(v: &WorkView, rules: &Rules) -> Option<u64> {
 /// | 5 | a root the owner flagged, or one that worked `long_run_ms`, goes to ready or idle | Interrupt, no sound |
 /// | 6 | a question is answered, anywhere | Quiet, and `retracts` its ping |
 /// | 7 | a question expires unanswered | Inform, and `retracts` |
-/// | 8 | a task reports; a job ends; a short turn ends | Inform |
+/// | 8 | a task reports (Interrupt if the owner flagged it: "tell me when done"); a job ends; a short turn ends | Inform |
 /// | 9 | spend crosses its limit or a multiple of it | Inform |
 /// | 10 | working ↔ working, queued, spend only, cancelled | nothing |
 ///
@@ -634,11 +634,11 @@ fn ended(c: &Change) -> Option<Said> {
                 .or(r.reason.as_deref())
                 .unwrap_or(&r.outcome);
             let line = format!("📋 {name} reported: {words}");
-            return said(Urgency::Inform, Why::Reported, line, None);
+            return said(told(next, p), Why::Reported, line, None);
         }
         if !p.state.ended() && next.state == WorkState::Done {
             let line = format!("📋 {name} reported");
-            return said(Urgency::Inform, Why::Reported, line, None);
+            return said(told(next, p), Why::Reported, line, None);
         }
     }
     if next.kind == WorkKind::Job && next.state.ended() && !p.state.ended() {
@@ -650,6 +650,15 @@ fn ended(c: &Change) -> Option<Said> {
         return said(Urgency::Inform, Why::Finished, line, None);
     }
     None
+}
+
+/// A task's report informs; one the owner asked to hear when it is done
+/// (`flagged`, `task.create { notify_done }`, theseus-j7cje) interrupts.
+fn told(next: &WorkView, prev: &WorkView) -> Urgency {
+    match next.flagged || prev.flagged {
+        true => Urgency::Interrupt,
+        false => Urgency::Inform,
+    }
 }
 
 #[cfg(test)]

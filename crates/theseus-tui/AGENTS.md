@@ -52,6 +52,7 @@ Key modules: `run.rs` (the loop), `app.rs` (no I/O), `board.rs`, `ui.rs`. Read b
 - `src/tests_answer.rs` (theseus-ds5os): the answer keys over `work.answer` (a budget question's `y` sends `reset`; a
   question that says `may_answer: false` sends nothing and says where to answer; a `confirm.resolved` from another
   surface clears the card).
+- `src/tests_answer.rs` also holds a question with options (`owner_ask`, theseus-j7cje): its card lists the options (`card.rs`), the keys 1 to 6 send `choice:<i>` through `work.answer`, and `y` and `n` send nothing.
 - `src/tests_notice.rs`: the policy's notices on the harbour rig (a question rings once with its words, spend rings
   nothing, a wake on a root rings once, a burst rings once). Push a view, `settle`, then move `NOW`: a view the loop
   takes after the clock moved is due a second later than the test expects.

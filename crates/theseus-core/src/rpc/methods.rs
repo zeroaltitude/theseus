@@ -1419,6 +1419,7 @@ impl Core {
             p.note.as_deref(),
             who,
             p.trust,
+            None,
         )
         .map_err(|e| match e.downcast::<Refusal>() {
             Ok(r) => RpcFailure {

@@ -219,8 +219,62 @@ impl WorkBoard {
         true
     }
 
+    /// The questions that reached their reminder by `now` (rule 2 of the
+    /// notification policy, theseus-j7cje): the view as held against itself
+    /// at `now`, so each is told once. No timer: the driver's tick calls
+    /// this, and it reads nothing until the earliest reminder (`remind_at`)
+    /// is due. Its notices ride an `Out` of no views.
+    pub(crate) fn remind(&mut self, now: u64, position: u64) -> Option<Out> {
+        if now < self.remind_at {
+            return None;
+        }
+        let mut next_at = u64::MAX;
+        let mut due = Vec::new();
+        for v in self.views.values() {
+            if v.kind != WorkKind::Question || v.state.ended() {
+                continue;
+            }
+            match theseus_protocol::notices::next_reminder(v, &self.rules) {
+                Some(at) if at <= now => due.push(v.id.clone()),
+                Some(at) => next_at = next_at.min(at),
+                None => {}
+            }
+        }
+        self.remind_at = next_at;
+        let mut notices = Vec::new();
+        for id in due {
+            let Some(v) = self.views.get_mut(&id) else {
+                continue;
+            };
+            let prev = v.clone();
+            v.at_ms = now;
+            if let Some(mut n) =
+                notice_of(Some(&prev), v, &self.rules).filter(|n| !quiet_here(v, n))
+            {
+                n.position = position;
+                n.at_ms = now;
+                notices.push(n);
+            }
+        }
+        for n in &notices {
+            self.keep(n.clone());
+        }
+        (!notices.is_empty()).then_some(Out {
+            position,
+            at_ms: now,
+            views: Vec::new(),
+            gone: Vec::new(),
+            notices,
+        })
+    }
+
     /// Install a view and its place in the tree.
     pub(super) fn install(&mut self, v: WorkView) {
+        if v.kind == WorkKind::Question {
+            if let Some(at) = theseus_protocol::notices::next_reminder(&v, &self.rules) {
+                self.remind_at = self.remind_at.min(at);
+            }
+        }
         if let Some(old) = self.views.get(&v.id) {
             if old.parent != v.parent {
                 if let Some(p) = &old.parent {

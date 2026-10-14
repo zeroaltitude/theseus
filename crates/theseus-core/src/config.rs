@@ -27,6 +27,7 @@ mod limits;
 mod lookup;
 pub(crate) mod lsp;
 pub(crate) mod memory;
+mod notify;
 mod outputs;
 pub(crate) mod people;
 pub(crate) mod routing;
@@ -34,6 +35,7 @@ pub mod rsi;
 mod sessions;
 mod threads;
 mod wake_limits;
+pub use notify::NotifyConfig;
 pub use sessions::SessionsConfig;
 pub use threads::ThreadsConfig;
 mod sparse;
@@ -154,6 +156,9 @@ pub struct Config {
     /// `[threads]`: threads on virtual places (theseus-nhew), `config/threads.rs`.
     #[serde(default, skip_serializing_if = "ThreadsConfig::is_default")]
     pub threads: ThreadsConfig,
+    /// `[notify]`: when an open question pings the owner's DM (theseus-j7cje), `config/notify.rs`.
+    #[serde(default, skip_serializing_if = "NotifyConfig::is_default")]
+    pub notify: NotifyConfig,
     /// `[cache]`: the keep-warm read and the cold rewrite's stubs (theseus-ezeg).
     #[serde(default, skip_serializing_if = "CacheConfig::is_default")]
     pub cache: CacheConfig,
@@ -1377,6 +1382,7 @@ impl Config {
         self.lsp.validate()?;
         self.sessions.validate()?;
         self.threads.validate()?;
+        self.notify.validate()?;
         self.cache.validate(self)?;
         self.people.validate()?;
         self.import.validate()?;

@@ -102,6 +102,9 @@ struct Input {
     /// Its report starts this conversation's next turn (W1).
     #[serde(default)]
     wake_parent: bool,
+    /// Tell the owner when it is done: its finish pings (theseus-j7cje).
+    #[serde(default)]
+    notify_done: bool,
     /// The messages that define the work (M5 27).
     #[serde(default)]
     arrangement: Option<crate::arrangement::Input>,
@@ -227,6 +230,10 @@ impl Tool for TaskCreate {
                 "wake_parent": {
                     "type": "boolean",
                     "description": "When the task finishes or fails, its report starts this conversation's next turn, so you review it and start the next step of a chain (default: false; a cancelled task wakes nothing)."
+                },
+                "notify_done": {
+                    "type": "boolean",
+                    "description": "Tell the owner when the task is done: its finish notifies them, wherever they are (default: false)."
                 },
                 "arrangement": {
                     "type": "object",
@@ -354,8 +361,9 @@ mod tests {
 fn brief_text(task_session: &str, parent_session: &str, brief: &str) -> String {
     format!(
         "[Task {}: a background task started by session {}. Work on the brief below on your \
-         own. Nobody reads this session while you work, and nobody answers questions asked in \
-         it: decide, and say what you decided. Your last message is your report to the \
+         own. Nobody reads this session while you work, and a question asked in words goes \
+         unanswered: when a decision is truly the owner's, ask with `owner_ask`; otherwise \
+         decide and say what you decided. Your last message is your report to the \
          conversation that started you, so end with what you did and what you found. You \
          cannot start tasks of your own.]\n\n{brief}",
         short(task_session),
@@ -527,6 +535,7 @@ pub fn create<'a>(
                 target: target.clone(),
                 arrangement: Some(arrangement.id.clone()),
                 check: check.as_ref().map(|c| c.basis.clone()),
+                notify_done: i.notify_done,
             });
             let brief = Node::relayed(&task.session_id, None, Origin::Agent, &author, &text);
             let mut records = match &parent_hold {

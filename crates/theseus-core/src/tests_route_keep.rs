@@ -36,11 +36,11 @@ use crate::tests_route::{mode, rig, turn};
 /// 41,700 and 36,200 before `task_create`'s `start_at` and `start_after` joined it
 /// (theseus-rcgph: 200 more), and 41,900 and 36,400 before `wake.at`'s `for` and
 /// `say_only` joined it (theseus-8ux6x: 300 more).
-const WINDOW: u64 = 42_200;
+const WINDOW: u64 = 42_500;
 const OUTPUT: u32 = 1_000;
 
 /// The input the first answer is billed at, past the request budget.
-const BILLED: u64 = 36_700;
+const BILLED: u64 = 37_000;
 
 /// The tiers of what a compilation's budget report dropped.
 fn tiers(c: &Compilation) -> Vec<String> {

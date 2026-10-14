@@ -36,6 +36,7 @@ Key modules: `lib.rs` (the `method`, `notify`, `error_code` tables), `events.rs`
   ids), `interactive`; `WorkWatchResult`), `work.unwatch`'s answer, and `work.changed` (`WorkChanged`: one per committed
   frame, every view it changed with its ancestors' rollups, `gone` for ids that left). `work.notice` carries
   `notices::Notice` as it is. Fixtures in `tests/wire/work/`.
+- `work/ask.rs` (theseus-j7cje): `owner_ask`'s input (`AskInput::parse`: 2 to 6 options, a question up to 500 characters, a label up to 60, a default as an option's number from 1, a life of 1 to 1,440 minutes), the answer ids (`choice_of`: `choice:<i>` from 0, `choice:other`, or a number from 1) and the words the model reads back (`chose`, `said_instead`, `expired`). A `ConfirmRequest` for the tool is an `Ask` question with its `choices`.
 - `notices.rs` (theseus-753z; the method table owns the name `notify`): the notification policy, pure. `policy()`
   is the owner's table, one function per row, first match wins; `Rules` holds its numbers as data; `deliver()` says
   how a notice reaches one viewer; `notices/burst.rs`'s `Burst` (a client's memory, not a wire type) folds a root's

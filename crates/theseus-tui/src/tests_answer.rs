@@ -124,3 +124,32 @@ async fn a_resolution_from_another_surface_clears_the_card() {
     .await;
     assert!(rig.daemon().asked("work.answer").is_empty());
 }
+
+/// A question with options (`owner_ask`, theseus-j7cje): its card shows the
+/// question with each option numbered, a number sends that option through
+/// `work.answer`, and `y` sends nothing.
+#[tokio::test]
+async fn a_number_answers_a_question_with_options() {
+    let world = asking(|q| {
+        q.tool = "owner_ask".into();
+        q.input = json!({"question": "Which plan?",
+                         "options": [{"label": "Careful"}, {"label": "Fast", "detail": "skips the check"}],
+                         "default": 1});
+        q.options = q.question(QuestionKind::Ask, true).options;
+    });
+    let mut rig = Rig::new(120, 24, script(world));
+    rig.shows("ready  DM +1").await;
+    rig.press(&[KeyCode::Tab]).await;
+    rig.shows("[2] Fast — skips the check").await;
+    rig.press(&[KeyCode::Char('y')]).await;
+    rig.shows("press their number").await;
+    assert!(rig.daemon().asked("work.answer").is_empty());
+    rig.press(&[KeyCode::Char('3')]).await;
+    rig.shows("no option 3").await;
+    rig.press(&[KeyCode::Char('2')]).await;
+    rig.asked("work.answer", 1).await;
+    assert_eq!(
+        rig.daemon().asked("work.answer"),
+        [json!({"question_id": "cor_spec01", "option": "choice:1", "author": "the TUI"})]
+    );
+}

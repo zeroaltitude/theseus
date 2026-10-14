@@ -441,13 +441,17 @@ impl Fact for QuestionExpired<'_> {
     }
 
     fn narrate(&self, say: &mut Say<'_>) {
+        let asked = self.action.tool == crate::ask::OWNER_ASK;
         say.line(
             Approval,
             format!(
-                "{} expired: nobody answered within {}, so it was not run; the driver resumes \
-                 the turn.",
+                "{} expired: nobody answered within {}, so {}; the driver resumes the turn.",
                 self.action.tool,
-                within(self.waited_ms)
+                within(self.waited_ms),
+                match asked {
+                    true => "its default applies (or the model decides)",
+                    false => "it was not run",
+                }
             ),
         );
     }

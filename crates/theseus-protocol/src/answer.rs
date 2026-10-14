@@ -97,6 +97,7 @@ impl ConfirmRequest {
     /// The question this request is, of the `kind` the daemon judged it to
     /// be. `may_answer` is the connection's: false until the daemon says.
     pub fn question(&self, kind: QuestionKind, may_answer: bool) -> Question {
+        let asking = kind == QuestionKind::Ask;
         let mut q = Question {
             id: self.correlation_id.clone(),
             kind,
@@ -113,14 +114,21 @@ impl ConfirmRequest {
             detail: None,
             input: Some(self.input.clone()),
             options: Vec::new(),
-            on_expiry: (self.expires_at_ms > 0).then(|| "not run".to_string()),
+            on_expiry: (self.expires_at_ms > 0).then(|| match asking {
+                true => crate::work::ask::AskInput::parse(&self.input)
+                    .map_or_else(|_| "no default".to_string(), |a| a.on_expiry()),
+                false => "not run".to_string(),
+            }),
             expires_at_ms: (self.expires_at_ms > 0).then_some(self.expires_at_ms),
             floor: self.floor,
             may_answer,
             tool: Some(self.tool.clone()),
             asked_at_ms: self.requested_at_ms,
             external_text: self.external_text.is_some(),
-            choices: Vec::new(),
+            choices: match asking {
+                true => crate::work::ask::choices_of(&self.input),
+                false => Vec::new(),
+            },
         };
         q.options = answer_options(&q);
         q

@@ -436,6 +436,10 @@ fn probe(rt: &crate::toolrun::ToolRuntime, view: PlaceView, tool: &dyn Tool) -> 
     Plan {
         resources: vec![Resource { path: at, access }],
         summary: format!("a call of {}", tool.name()),
+        // A question for the owner asks at every posture, as a layer-1
+        // change does (theseus-j7cje).
+        authority: (tool.name() == crate::ask::OWNER_ASK)
+            .then(|| "the owner's decision".to_string()),
         ..Default::default()
     }
 }
