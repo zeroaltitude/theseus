@@ -21,6 +21,12 @@ Key modules: `run.rs` (the loop), `app.rs` (no I/O), `board.rs`, `ui.rs`. Read b
 - `src/board.rs`: the board. Views applied by the position rule, titles, the questions, the rows and trees, and the
   queue.
 - `src/ui.rs`: drawing into a ratatui buffer. Nothing here changes the app.
+- `src/follow.rs` (theseus-e1hu4): the follow pane. `l` on the session under the cursor finds its running job
+  (`action.list {execution_id, unsettled}`), peeks it (`work.peek`) and follows from the peek's end (`action.output`);
+  chunks and the end arrive as notifications and `esc` sends `action.unfollow`. `Follow` is the pane's pure state
+  (a bounded tail of lines, an open line, the next byte expected, a gap said as `-- N bytes skipped --`); `events.lost`
+  naming the job's stream, and a reconnect, peek and follow again. Its header says `job 0:05 of usual 0:31`. The
+  sidebar's own row words are `tui-rows`'. Tests: `src/tests_follow.rs`.
 - `src/detail.rs` (the focused session's history and events, as the CLI's `render` lines), `src/card.rs` (a
   question's card), `src/notice.rs` (notices by the protocol's one policy, `theseus_protocol::notices`, delivered by
   the bell, OSC 9, OSC 777). Done until seen is `theseus_client::seen`, shared with the CLI.

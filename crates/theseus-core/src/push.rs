@@ -26,6 +26,7 @@ use crate::Core;
 pub mod bench;
 mod board;
 mod hot;
+mod last_line;
 mod short;
 mod work;
 
@@ -215,6 +216,8 @@ pub struct Push {
     /// Ends the thread that applies frames: a stop sends `None`
     /// (theseus-hanu).
     applier: Mutex<Option<mpsc::UnboundedSender<Option<Frame>>>>,
+    /// Wakes the last-line sampler when a job runs (`last_line.rs`).
+    sampler: Arc<tokio::sync::Notify>,
 }
 
 impl Default for Push {
@@ -231,6 +234,7 @@ impl Default for Push {
             backlog_cap: std::sync::atomic::AtomicUsize::new(crate::outbound::BACKLOG_CAP),
             waits: Mutex::default(),
             applier: Mutex::default(),
+            sampler: Arc::default(),
         }
     }
 }
@@ -290,6 +294,8 @@ impl Push {
                 .await??;
                 *self.board.lock().unwrap() = board;
                 *self.work.lock().unwrap() = work;
+                // Jobs running as the daemon started are sampled too.
+                self.wake_sampler();
                 while let Ok(Some(f)) = rx.try_recv() {
                     self.apply(core, f);
                 }
@@ -367,6 +373,13 @@ impl Push {
             core.telemetry().record_push(n, f.committed.elapsed());
         }
         if let Some(out) = work {
+            if out
+                .views
+                .iter()
+                .any(|v| v.kind == theseus_protocol::work::WorkKind::Job && v.state.working())
+            {
+                self.wake_sampler();
+            }
             core.bus.publish_work(&out, &core.tools.scrubber);
         }
         self.feed.send_replace(position);

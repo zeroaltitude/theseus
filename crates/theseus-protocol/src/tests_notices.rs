@@ -114,6 +114,7 @@ fn asking(v: WorkView, q: Question) -> WorkView {
             since_ms: q.asked_at_ms,
             turn: 1,
             loop_index: 0,
+            last_line: None,
         }),
         question: Some(q),
         ..v

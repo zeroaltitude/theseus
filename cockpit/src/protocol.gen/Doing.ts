@@ -5,4 +5,10 @@ export type Doing = { what: DoingKind,
 /**
  * `turn 4`, `fs.write`, `waiting on 2 calls`.
  */
-label: string, since_ms: number, turn: number, loop_index: number, };
+label: string, since_ms: number, turn: number, loop_index: number, 
+/**
+ * A running job's last output line (at most `LAST_LINE_CHARS`, scrubbed),
+ * sampled at most once a second and sent to private places alone
+ * (theseus-e1hu4).
+ */
+last_line?: string, };

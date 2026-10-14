@@ -233,10 +233,20 @@ impl WorkBoard {
         if let Some(p) = &v.parent {
             self.kids.entry(p.clone()).or_default().insert(v.id.clone());
         }
+        if v.kind == WorkKind::Job && v.state == WorkState::Running {
+            if let Some(s) = &v.session_id {
+                self.running.insert(v.id.clone(), s.clone());
+            }
+        } else {
+            self.running.remove(&v.id);
+            self.last.remove(&v.id);
+        }
         self.views.insert(v.id.clone(), v);
     }
 
     fn remove(&mut self, id: &str) {
+        self.running.remove(id);
+        self.last.remove(id);
         if let Some(v) = self.views.remove(id) {
             if let Some(p) = &v.parent {
                 if let Some(k) = self.kids.get_mut(p) {

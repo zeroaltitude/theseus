@@ -188,6 +188,7 @@ fn each_rule_has_its_label() {
         since_ms: AT,
         turn: 2,
         loop_index: 0,
+        last_line: None,
     });
     assert_eq!(label(v), "waiting on 2 calls");
     assert_eq!(label(conv(WorkState::Ready)), "ready");

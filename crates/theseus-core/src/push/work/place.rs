@@ -55,6 +55,10 @@ impl Scope {
             return v.clone();
         }
         let mut v = scrubbed(v, scrubber);
+        // A job's last output line is for private places alone (theseus-e1hu4).
+        if let Some(d) = v.doing.as_mut() {
+            d.last_line = None;
+        }
         if let Some(q) = v.question.as_mut() {
             q.may_answer = false;
         }

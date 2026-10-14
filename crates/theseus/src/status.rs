@@ -135,7 +135,14 @@ pub async fn run(socket: &str, spawn: Option<&str>, json: bool, a: &StatusArgs) 
             writeln!(out, "{line}")?;
         }
     } else {
-        for line in long_lines(&board, &sum, &titles, (now, width()), &local_hm) {
+        // A running job's time against its usual, one more read (theseus-e1hu4):
+        // without it the rows read as before.
+        let jobs = tokio::time::timeout(ANSWER_WITHIN, job_times(&mut conn))
+            .await
+            .ok()
+            .and_then(Result::ok)
+            .unwrap_or_default();
+        for line in long_lines_with(&board, &sum, &titles, &jobs, (now, width()), &local_hm) {
             writeln!(out, "{line}")?;
         }
     }
@@ -411,10 +418,63 @@ pub fn header_line(s: &Summary, now_ms: u64, hm: &dyn Fn(u64) -> String) -> Stri
 /// The long form: the header, then a row for each task (a line under each
 /// that needs you, with the command that answers it). `at` is the time now
 /// and the terminal's width; `titles` maps a session to its name.
+#[cfg(test)]
 pub fn long_lines(
     board: &Board,
     sum: &Summary,
     titles: &HashMap<String, String>,
+    at: (u64, usize),
+    hm: &dyn Fn(u64) -> String,
+) -> Vec<String> {
+    long_lines_with(board, sum, titles, &JobTimes::new(), at, hm)
+}
+
+/// When a session's oldest running job started, and its program's usual time.
+pub type JobTimes = HashMap<String, (u64, Option<u64>)>;
+
+/// The running jobs' times from the work board (`work.watch`, once): each
+/// session's oldest. The watch is dropped as it is read.
+async fn job_times(conn: &mut Conn) -> Result<JobTimes> {
+    use theseus_protocol::work::{WorkKind, WorkState};
+    let v = conn
+        .request(
+            method::WORK_WATCH,
+            theseus_protocol::WorkWatchParams {
+                limit: Some(0),
+                ..Default::default()
+            },
+        )
+        .await?;
+    let _ = conn
+        .request(method::WORK_UNWATCH, serde_json::json!({}))
+        .await;
+    let snap: theseus_protocol::WorkWatchResult = serde_json::from_value(v)?;
+    let mut out = JobTimes::new();
+    for j in snap
+        .views
+        .iter()
+        .filter(|v| v.kind == WorkKind::Job && v.state == WorkState::Running)
+    {
+        let Some(s) = &j.session_id else { continue };
+        let at = (j.started_at_ms, j.eta.map(|e| e.usual_ms));
+        out.entry(s.clone())
+            .and_modify(|old| {
+                if at.0 < old.0 {
+                    *old = at;
+                }
+            })
+            .or_insert(at);
+    }
+    Ok(out)
+}
+
+/// `long_lines`, with the running jobs' times: a row whose session runs a job
+/// says `job 2:25 of usual 0:31` after its time.
+pub fn long_lines_with(
+    board: &Board,
+    sum: &Summary,
+    titles: &HashMap<String, String>,
+    jobs: &JobTimes,
     at: (u64, usize),
     hm: &dyn Fn(u64) -> String,
 ) -> Vec<String> {
@@ -436,7 +496,7 @@ pub fn long_lines(
             (
                 format!("{} {}", mark(v), short_id(&v.session_id)),
                 first_line(&title),
-                cut(&tail(v, now, hm), tail_cap),
+                cut(&tail(v, now, hm, jobs.get(&v.session_id)), tail_cap),
             )
         })
         .collect();
@@ -481,7 +541,12 @@ fn short_id(session_id: &str) -> String {
 
 /// What the row says: the attention label and how long, or for a failure
 /// when and why.
-fn tail(v: &ExecutionView, now: u64, hm: &dyn Fn(u64) -> String) -> String {
+fn tail(
+    v: &ExecutionView,
+    now: u64,
+    hm: &dyn Fn(u64) -> String,
+    job: Option<&(u64, Option<u64>)>,
+) -> String {
     let label = &v.attention.label;
     if group(v) == 1 {
         return match label.strip_prefix("failed: ") {
@@ -489,10 +554,17 @@ fn tail(v: &ExecutionView, now: u64, hm: &dyn Fn(u64) -> String) -> String {
             None => format!("failed {}", hm(v.attention.since_ms)),
         };
     }
-    format!(
+    let mut s = format!(
         "{label} · {}",
         clock(now.saturating_sub(v.attention.since_ms))
-    )
+    );
+    if let Some((started, usual)) = job {
+        s.push_str(&format!(
+            " · {}",
+            theseus_protocol::job_follow::job_words(now.saturating_sub(*started), *usual)
+        ));
+    }
+    s
 }
 
 /// The one command that answers a question: the first one pending, else the
@@ -506,12 +578,7 @@ fn command(v: &ExecutionView) -> String {
 
 /// `2:14`, or `1:02:03` past an hour.
 fn clock(ms: u64) -> String {
-    let s = ms / 1000;
-    if s >= 3600 {
-        format!("{}:{:02}:{:02}", s / 3600, (s / 60) % 60, s % 60)
-    } else {
-        format!("{}:{:02}", s / 60, s % 60)
-    }
+    theseus_protocol::job_follow::clock(ms)
 }
 
 fn first_line(s: &str) -> String {

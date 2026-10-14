@@ -32,6 +32,12 @@ Key modules: `lib.rs` (the `method`, `notify`, `error_code` tables), `events.rs`
   wording), `approves()` (which option ids approve), and `ConfirmRequest::question(kind, may_answer)`, the pure
   `Question` a request is. A `ConfirmRequest` carries its `options` (worded once by the daemon) and, in a read made for
   one connection (`confirm.list`), `may_answer`; `confirm.resolved` carries the `option` that answered.
+- `job_follow.rs` (theseus-e1hu4): a running job's output on demand and live: `work.peek` (`WorkPeekParams`/
+  `WorkPeekResult`: size, at most 20 lines, when, whether it ended, and optionally its dispatch time and its program's
+  usual), `action.output` (`ActionOutputParams`/`Result`) with `action.output.chunk` (`id`, byte `offset`, `text`) and
+  `action.output.end` (`outcome`) to the asking connection alone, `action.unfollow`, and `job_words` (`job 0:05 of
+  usual 0:31`), the one wording of a job's time. `Doing.last_line` (work.rs) is a running job's last output line.
+  Fixtures: `tests/wire/action_output_*.json`, `tests/wire/work/view_job_running.json`.
 - `work_watch.rs` (theseus-hkx30): `work.watch`'s params and snapshot (`WorkWatchParams`: `limit`, `roots` (session
   ids), `interactive`; `WorkWatchResult`), `work.unwatch`'s answer, and `work.changed` (`WorkChanged`: one per committed
   frame, every view it changed with its ancestors' rollups, `gone` for ids that left). `work.notice` carries

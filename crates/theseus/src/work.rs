@@ -48,7 +48,7 @@ pub async fn run(conn: &mut Conn, json: bool, a: WorkArgs) -> Result<()> {
     if json {
         println!("{}", serde_json::json!({"result": v}));
     } else {
-        for l in tree_lines(&snap.views) {
+        for l in tree_lines(&snap.views, now_ms()) {
             println!("{l}");
         }
         if snap.views.is_empty() {
@@ -67,10 +67,10 @@ pub async fn run(conn: &mut Conn, json: bool, a: WorkArgs) -> Result<()> {
         snap.total,
         snap.position
     );
-    let mut last: BTreeMap<String, u64> = snap
+    let mut last: Seen = snap
         .views
         .iter()
-        .map(|v| (v.id.clone(), v.position))
+        .map(|v| (v.id.clone(), stamp(v)))
         .collect();
     for (m, p) in early {
         show(&m, &p, json, &mut last)?;
@@ -98,14 +98,14 @@ pub async fn run(conn: &mut Conn, json: bool, a: WorkArgs) -> Result<()> {
                     "-- events were lost; the board again at position {} --",
                     snap.position
                 );
-                for l in tree_lines(&snap.views) {
+                for l in tree_lines(&snap.views, now_ms()) {
                     println!("{l}");
                 }
             }
             last = snap
                 .views
                 .iter()
-                .map(|v| (v.id.clone(), v.position))
+                .map(|v| (v.id.clone(), stamp(v)))
                 .collect();
             continue;
         }
@@ -116,7 +116,7 @@ pub async fn run(conn: &mut Conn, json: bool, a: WorkArgs) -> Result<()> {
 
 /// One notification, printed: each view newer than the last printed for its
 /// id, each id that left, each notice.
-fn show(m: &str, p: &Value, json: bool, last: &mut BTreeMap<String, u64>) -> Result<()> {
+fn show(m: &str, p: &Value, json: bool, last: &mut Seen) -> Result<()> {
     if json {
         if m == notify::WORK_CHANGED || m == notify::WORK_NOTICE {
             println!("{}", serde_json::json!({"method": m, "params": p}));
@@ -127,9 +127,9 @@ fn show(m: &str, p: &Value, json: bool, last: &mut BTreeMap<String, u64>) -> Res
         Some(Event::WorkChanged(c)) => {
             for v in &c.views {
                 let seen = last.entry(v.id.clone()).or_default();
-                if v.position > *seen {
-                    *seen = v.position;
-                    println!("{}", change_line(v));
+                if stamp(v) > *seen {
+                    *seen = stamp(v);
+                    println!("{}", change_line(v, now_ms()));
                 }
             }
             for id in &c.gone {
@@ -141,6 +141,20 @@ fn show(m: &str, p: &Value, json: bool, last: &mut BTreeMap<String, u64>) -> Res
         _ => {}
     }
     Ok(())
+}
+
+/// What a client has applied of a view: its position, then its time. A job's
+/// last line is sampled between frames, so a newer sample has the same
+/// position and a later time (theseus-e1hu4); a snapshot older than a sample
+/// then never takes its place.
+type Seen = BTreeMap<String, (u64, u64)>;
+
+fn stamp(v: &WorkView) -> (u64, u64) {
+    (v.position, v.at_ms)
+}
+
+fn now_ms() -> u64 {
+    theseus_protocol::now_unix_ms()
 }
 
 /// The glyph of a level.
@@ -168,7 +182,7 @@ fn kind_word(k: WorkKind) -> &'static str {
 
 /// A view as one line of the tree: its glyph, its title, and what it says of
 /// itself (its attention's label), then its progress and rollup.
-fn view_line(v: &WorkView) -> String {
+fn view_line(v: &WorkView, now: u64) -> String {
     let title = if v.title.is_empty() {
         format!(
             "{} {}",
@@ -186,8 +200,15 @@ fn view_line(v: &WorkView) -> String {
     if let Some(p) = &v.progress {
         s.push_str(&format!("  [{}/{} steps]", p.steps_done, p.steps_total));
     }
-    if let Some(e) = &v.eta {
-        s.push_str(&format!("  [usually {} s]", e.usual_ms / 1000));
+    // A running job's time, against its usual (theseus-e1hu4).
+    if v.kind == WorkKind::Job && v.state == theseus_protocol::work::WorkState::Running {
+        s.push_str(&format!(
+            "  [{}]",
+            theseus_protocol::job_follow::job_words(
+                now.saturating_sub(v.started_at_ms),
+                v.eta.map(|e| e.usual_ms)
+            )
+        ));
     }
     if let Some(b) = &v.below {
         if b.total > 0 {
@@ -197,11 +218,14 @@ fn view_line(v: &WorkView) -> String {
             ));
         }
     }
+    if let Some(l) = v.doing.as_ref().and_then(|d| d.last_line.as_deref()) {
+        s.push_str(&format!("  › {l}"));
+    }
     s
 }
 
 /// A change, as `--watch` prints it.
-fn change_line(v: &WorkView) -> String {
+fn change_line(v: &WorkView, now: u64) -> String {
     let before = v
         .previous
         .filter(|p| *p != v.state)
@@ -213,7 +237,7 @@ fn change_line(v: &WorkView) -> String {
         &v.id[v.id.len().saturating_sub(6)..],
         before.unwrap_or_default(),
         v.state.as_str(),
-        view_line(v)
+        view_line(v, now)
     )
 }
 
@@ -229,7 +253,7 @@ fn notice_line(n: &Notice) -> String {
 
 /// The snapshot as a tree: each root, needs-you first, with its views
 /// beneath it in order of when they began, indented by depth.
-pub fn tree_lines(views: &[WorkView]) -> Vec<String> {
+pub fn tree_lines(views: &[WorkView], now: u64) -> Vec<String> {
     let mut kids: BTreeMap<&str, Vec<&WorkView>> = BTreeMap::new();
     let mut roots: Vec<&WorkView> = Vec::new();
     let ids: std::collections::HashSet<&str> = views.iter().map(|v| v.id.as_str()).collect();
@@ -242,7 +266,7 @@ pub fn tree_lines(views: &[WorkView]) -> Vec<String> {
     roots.sort_by_key(|v| (v.attention.level.rank(), v.state_since_ms, v.id.clone()));
     let mut out = Vec::new();
     for r in roots {
-        push_tree(r, 0, &kids, &mut out);
+        push_tree(r, 0, &kids, now, &mut out);
     }
     out
 }
@@ -251,13 +275,14 @@ fn push_tree(
     v: &WorkView,
     depth: usize,
     kids: &BTreeMap<&str, Vec<&WorkView>>,
+    now: u64,
     out: &mut Vec<String>,
 ) {
-    out.push(format!("{}{}", "  ".repeat(depth), view_line(v)));
+    out.push(format!("{}{}", "  ".repeat(depth), view_line(v, now)));
     let mut below = kids.get(v.id.as_str()).cloned().unwrap_or_default();
     below.sort_by_key(|k| (k.started_at_ms, k.id.clone()));
     for k in below {
-        push_tree(k, depth + 1, kids, out);
+        push_tree(k, depth + 1, kids, now, out);
     }
 }
 
@@ -295,6 +320,8 @@ mod tests {
                 json!({"id": "act_job", "kind": "job", "parent": "exe_task", "root": "exe_1",
                 "title": "cargo test -p core", "started_at_ms": 7,
                 "eta": {"usual_ms": 94000, "runs": 5},
+                "doing": {"what": "job", "label": "cargo test -p core", "since_ms": 7,
+                    "turn": 1, "loop_index": 0, "last_line": "test result: 41 passed"},
                 "attention": {"level": "working", "label": "running", "since_ms": 7}}),
             ),
             view(
@@ -309,11 +336,11 @@ mod tests {
             ),
         ];
         assert_eq!(
-            tree_lines(&views),
+            tree_lines(&views, 7 + 5_400),
             vec![
                 "◐ Beta summary  turn 3  [1/3 steps]  (1 need you, 1 working, 0 done, 0 failed)",
                 "  ◐ Read the buoys  turn 1",
-                "    ◐ cargo test -p core  running  [usually 94 s]",
+                "    ◐ cargo test -p core  running  [job 0:05 of usual 1:34]  › test result: 41 passed",
                 "  ● fs.write notes.txt  confirm fs.write: notes.txt",
                 "○ Quiet one  ready",
             ]
@@ -330,7 +357,7 @@ mod tests {
             "attention": {"level": "idle", "label": "complete", "since_ms": 9}}),
         );
         assert_eq!(
-            change_line(&v),
+            change_line(&v, 9),
             "@9 task 123456 running → done  ✓ Buoys  complete"
         );
         let n: Notice = serde_json::from_value(json!({

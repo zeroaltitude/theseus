@@ -36,6 +36,7 @@ impl Core {
                 reply(self.work_watch(parse(params)?, conn).await?)
             }
             method::WORK_UNWATCH => reply(self.work_unwatch(conn)),
+            method::WORK_PEEK => reply(self.work_peek(parse(params)?, conn).await?),
             other => Err(RpcFailure::new(
                 error_code::METHOD_NOT_FOUND,
                 format!("no method {other}"),

@@ -546,6 +546,9 @@ events! {
     WorkChanged(crate::work_watch::WorkChanged) = notify::WORK_CHANGED,
     /// The notification policy's notice for a work view's change.
     WorkNotice(crate::notices::Notice) = notify::WORK_NOTICE,
+    /// A followed job's output, to the connection that follows it.
+    ActionOutputChunk(crate::job_follow::ActionOutputChunk) = notify::ACTION_OUTPUT_CHUNK,
+    ActionOutputEnd(crate::job_follow::ActionOutputEnd) = notify::ACTION_OUTPUT_END,
 }
 
 impl Event {
@@ -572,6 +575,8 @@ impl Event {
             Event::WakeNoticed(e) => Some(&e.session_id),
             Event::WorkChanged(_)
             | Event::WorkNotice(_)
+            | Event::ActionOutputChunk(_)
+            | Event::ActionOutputEnd(_)
             | Event::LoopStarted(_)
             | Event::ModelDelta(_)
             | Event::ModelThinking(_)
@@ -615,6 +620,8 @@ impl Event {
             | Event::WakeNoticed(_)
             | Event::WorkChanged(_)
             | Event::WorkNotice(_)
+            | Event::ActionOutputChunk(_)
+            | Event::ActionOutputEnd(_)
             | Event::EventsLost(_) => None,
         }
     }

@@ -152,6 +152,40 @@ theseus 06:26 · ● 1 needs you · ◐ 2 working · ✗ 1 failed · ⏰ 06:30
     assert_eq!(got, want);
 }
 
+/// A row whose session runs a job says its time against its program's usual
+/// (theseus-e1hu4), as every surface does; a row with no job reads as before.
+#[test]
+fn a_row_whose_session_runs_a_job_says_its_time_against_the_usual() {
+    let b = five();
+    let sum = b.summary(T0, 0, &HashMap::new());
+    let titles: HashMap<String, String> = HashMap::new();
+    let jobs: JobTimes = [
+        ("ses_87e9c6".to_string(), (T0 - 5_400, Some(31_000))),
+        ("ses_e527d2".to_string(), (T0 - 65_000, None)),
+    ]
+    .into();
+    let got = long_lines_with(&b, &sum, &titles, &jobs, (T0, 100), &hm);
+    let row = |id: &str| got.iter().find(|l| l.contains(id)).unwrap().clone();
+    assert!(
+        row("87e9c6").ends_with("turn 2 · 0:31 · job 0:05 of usual 0:31"),
+        "{got:?}"
+    );
+    assert!(
+        row("e527d2").ends_with("turn 5 · 2:14 · job 1:05"),
+        "{got:?}"
+    );
+    // The rows of sessions with no job are as they were.
+    assert_eq!(
+        got.iter().filter(|l| l.contains("job ")).count(),
+        2,
+        "{got:?}"
+    );
+    assert_eq!(
+        long_lines(&b, &sum, &titles, (T0, 100), &hm),
+        long_lines_with(&b, &sum, &titles, &JobTimes::new(), (T0, 100), &hm)
+    );
+}
+
 #[test]
 fn the_long_form_fits_a_narrow_terminal_cutting_the_title_first() {
     let b = five();

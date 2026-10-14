@@ -1383,6 +1383,26 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
 - **Facts**: `crates/theseus-core/src/fact/`: every ledger row, notification, narrative line, and span of the turn,
   its tool calls, answers, and the driver, one type each, recorded once (theseus-j6qn). The ledger's kinds:
   `crates/theseus-protocol/src/ledger.rs`.
+- **A running job's output, on demand and live** (theseus-e1hu4; `rpc/peek.rs`, `push/last_line.rs`,
+  `toolrun/peek.rs`'s `newest` and `last_line`). All read the job's output file, `results/<id>.out`, which its wrapper
+  writes while it runs; nothing is timed on a turn's path and no frame is written. `work.peek` (a read, on the blocking
+  pool): a stat and at most 64 KiB from the end, scrubbed, at most 20 lines, each cut to 1,000 characters.
+  `action.output {id, from?}`: a follower task for this connection (`SessionBus::follow`, aborted by `action.unfollow`
+  and by the connection's end) that holds the file open, so a job that ends and is swept still reads, looks every
+  100 ms, and sends whole lines (a longer one at 32 KiB) as `action.output.chunk` with their byte offset, then
+  `action.output.end` once the job has settled. It never lags more than 4 MiB (it skips, and the offset shows it), and
+  stops queueing for a client whose queue holds 64 messages: it counts the stream (`output:<id>`) lost
+  (`Outbound::lose`), so the connection hears `events.lost` as the queue drains, and skips to the end; the client
+  peeks and follows `from` the peek's `bytes`. A connection that reads no private text is told "no job" for a private
+  session's job (the answer of an id that does not exist). `doing.last_line` of a running job: a task on the runtime
+  (`Core::sample_last_lines_after_serving`, held by `Weak`) walks the board's running jobs once a second while there
+  are any (it waits on a `Notify` the push's applier signals when a frame leaves one running), reads the last 4 KiB of
+  each job's file on the blocking pool, scrubs it, cuts it to 120 characters and says it only when it changed. Jobs of
+  a shared place's session are never sampled, and a guarded `work.watch` scope drops the field. A sample is no frame:
+  its view keeps its position and takes the sample's time, so a client applies a view by (position, time). Past the
+  file's head (`[tools] job_output_max_bytes`, 64 MiB less 4 MiB) the newest output waits in the wrapper's ring and
+  the file stops growing: the last line, a peek and a follow stop at the head until the job ends. Tests:
+  `rpc/tests_peek.rs`, `toolrun/peek.rs`'s.
 - **The work board** (theseus-hkx30; `push/work.rs` and `push/work/`): one `WorkView` per conversation, task, plan step,
   job, open question and pending wake, in one tree, kept as a projection of the frames the push already sees and
   written nowhere. It is fed by the push's one applier pass, after the execution board (`push/board.rs`, the old

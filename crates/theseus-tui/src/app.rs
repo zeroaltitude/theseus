@@ -19,6 +19,7 @@ use theseus_protocol::{
 
 use crate::board::{short, Board, Moved, Only, Question, Row};
 use crate::detail::Detail;
+use crate::follow::Follow;
 use crate::notice::Notices;
 use theseus_client::seen::Seen;
 use theseus_protocol::notices::{self, Viewer};
@@ -53,7 +54,10 @@ pub enum Purpose {
     /// `session.history`: the focused session's pane.
     History(String),
     /// `session.history`'s newest nodes, for one an other surface wrote.
-    Node { session: String, node: String },
+    Node {
+        session: String,
+        node: String,
+    },
     /// `session.watch` and `session.unwatch`.
     Watch,
     /// `turn.submit` from the input line.
@@ -68,7 +72,16 @@ pub enum Purpose {
     /// `task.cancel`.
     Cancel(String),
     /// `action.confirm`: an answer to a question.
-    Answer { correlation_id: String },
+    Answer {
+        correlation_id: String,
+    },
+    /// The follow pane (theseus-e1hu4): `action.list` finds the session's
+    /// running job, `work.peek` reads it, `action.output` follows it, and
+    /// `action.unfollow` lets it go.
+    FollowFind,
+    FollowPeek,
+    FollowStart,
+    Unfollow,
 }
 
 /// What the loop does for the app.
@@ -179,6 +192,8 @@ pub struct App {
     /// When the seen file is due to be written: a change of focus waits a
     /// second, so a walk through the queue writes once.
     save_at: Option<u64>,
+    /// The follow pane: a running job's output, over the detail area.
+    pub follow: Option<Follow>,
 }
 
 /// How long after a change of focus the seen file is written.
@@ -213,6 +228,7 @@ impl App {
             title: String::new(),
             save_at: None,
             sync_warn: None,
+            follow: None,
         }
     }
 
@@ -384,6 +400,7 @@ impl App {
         if let Some(sid) = self.detail.as_ref().map(|d| d.session_id.clone()) {
             out.extend(read_session(&sid));
         }
+        out.extend(self.follow_reconnected());
         out
     }
 
@@ -433,7 +450,13 @@ impl App {
                 self.refused.remove(&r.correlation_id);
                 self.board.confirm_resolved(&r);
             }
-            Event::EventsLost(lost) => out.extend(self.lost(&lost)),
+            Event::ActionOutputChunk(_) | Event::ActionOutputEnd(_) => {
+                out.extend(self.follow_event(&event))
+            }
+            Event::EventsLost(lost) => {
+                out.extend(self.follow_lost(&lost));
+                out.extend(self.lost(&lost))
+            }
             Event::WakeNoticed(n) => out.extend(self.noticed(&n)),
             _ => {}
         }
@@ -580,7 +603,8 @@ impl App {
                 }
             }
             Purpose::Health => self.sync_warn = sync_warning(v),
-            Purpose::Watch | Purpose::Typing => {}
+            Purpose::FollowFind | Purpose::FollowPeek => return self.follow_answered(&purpose, v),
+            Purpose::Watch | Purpose::Typing | Purpose::FollowStart | Purpose::Unfollow => {}
         }
         Vec::new()
     }
@@ -621,6 +645,10 @@ impl App {
             Purpose::Answer { .. } => method::WORK_ANSWER,
             Purpose::Typing => method::SESSION_TYPING,
             Purpose::Health => method::HEALTH,
+            Purpose::FollowFind => return self.follow_failed(method::ACTION_LIST, e),
+            Purpose::FollowPeek => return self.follow_failed(method::WORK_PEEK, e),
+            Purpose::FollowStart => return self.follow_failed(method::ACTION_OUTPUT, e),
+            Purpose::Unfollow => return,
         };
         let text = format!("{what}: {}", e.message);
         if let Purpose::Submit(sid) | Purpose::Stop(sid) | Purpose::Cancel(sid) = purpose {
@@ -759,6 +787,8 @@ impl App {
                 self.only = Only::All;
                 self.filter.clear();
             }
+            KeyCode::Esc if self.follow.is_some() => return self.follow_close(),
+            KeyCode::Char('l') => return self.follow_key(),
             KeyCode::Esc => {
                 if !self.wide() && self.pane == Pane::Session {
                     self.pane = Pane::List;

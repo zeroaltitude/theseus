@@ -43,6 +43,87 @@ pub fn peek(path: &Path, lines: u64, output_max_bytes: u64) -> Peek {
         .unwrap_or_default()
 }
 
+/// What a surface's peek reads of a job's output (theseus-e1hu4): its size
+/// and its last lines, never a count of the lines.
+#[derive(Debug, Default, PartialEq)]
+pub struct Newest {
+    /// The last `lines` whole lines, as the file holds them.
+    pub text: String,
+    /// The output's length, in bytes.
+    pub bytes: u64,
+}
+
+/// A stat and at most `TAIL_BYTES` read, by seek: the size of the job output
+/// at `path` and its last `lines` lines. A file not there yet is none.
+pub fn newest(path: &Path, lines: u64) -> Option<Newest> {
+    let f = std::fs::File::open(path).ok()?;
+    newest_from(f, lines).ok()
+}
+
+/// `newest` over any reader that seeks.
+pub(super) fn newest_from<R: Read + Seek>(mut r: R, lines: u64) -> std::io::Result<Newest> {
+    let tail = super::job::read_tail(&mut r, TAIL_BYTES)?;
+    let mut text = tail.text.as_str();
+    // A tail cut from a longer output starts inside a line: that part goes.
+    if tail.unread > 0 {
+        text = text.split_once('\n').map_or("", |(_, rest)| rest);
+    }
+    let all: Vec<&str> = text.lines().collect();
+    let keep = all.len().saturating_sub(lines as usize);
+    Ok(Newest {
+        text: all[keep..].join("\n"),
+        bytes: tail.total,
+    })
+}
+
+/// The bytes a last-line sample reads from the end of the output.
+const LAST_LINE_BYTES: u64 = 4096;
+
+/// The last line a job has printed, for its work view (theseus-e1hu4): one
+/// stat and at most `LAST_LINE_BYTES` read. A progress bar's rewrites (`\r`)
+/// show the last one; control characters are dropped. None while it has
+/// printed nothing.
+pub fn last_line(path: &Path) -> Option<String> {
+    let f = std::fs::File::open(path).ok()?;
+    last_line_from(f).ok().flatten()
+}
+
+/// A line without its terminal escapes (`ESC [ … letter`) and control
+/// characters; a tab is a space.
+fn plain(l: &str) -> String {
+    let mut out = String::with_capacity(l.len());
+    let mut cs = l.chars();
+    while let Some(c) = cs.next() {
+        match c {
+            '\x1b' => {
+                if cs.next() == Some('[') {
+                    for p in cs.by_ref() {
+                        if ('@'..='~').contains(&p) {
+                            break;
+                        }
+                    }
+                }
+            }
+            '\t' => out.push(' '),
+            c if c.is_control() => {}
+            c => out.push(c),
+        }
+    }
+    out
+}
+
+pub(super) fn last_line_from<R: Read + Seek>(mut r: R) -> std::io::Result<Option<String>> {
+    let tail = super::job::read_tail(&mut r, LAST_LINE_BYTES)?;
+    let line = tail
+        .text
+        .lines()
+        .rev()
+        .map(|l| l.rsplit('\r').find(|p| !p.trim().is_empty()).unwrap_or(""))
+        .map(plain)
+        .find(|l| !l.trim().is_empty());
+    Ok(line.map(|l| l.trim().to_string()))
+}
+
 /// `peek` over any reader that seeks.
 pub(super) fn peek_from<R: Read + Seek>(
     mut r: R,
@@ -98,6 +179,37 @@ fn count_lines<R: BufRead>(mut r: R) -> std::io::Result<u64> {
 mod tests {
     use super::*;
     use std::io::{Cursor, SeekFrom};
+
+    /// A surface's peek: the last lines and the size, reading no more than
+    /// the tail, and the last line a job has printed (theseus-e1hu4).
+    #[test]
+    fn the_newest_lines_and_the_last_line_read_a_tail_alone() {
+        let body: String = (1..=5000).map(|i| format!("line {i}\n")).collect();
+        let mut r = Counted {
+            inner: Cursor::new(body.clone().into_bytes()),
+            read: 0,
+        };
+        let n = newest_from(&mut r, 3).unwrap();
+        assert!(r.read <= TAIL_BYTES, "read {} bytes", r.read);
+        assert_eq!(n.text, "line 4998\nline 4999\nline 5000");
+        assert_eq!(n.bytes, body.len() as u64);
+        let mut r = Counted {
+            inner: Cursor::new(body.into_bytes()),
+            read: 0,
+        };
+        assert_eq!(
+            last_line_from(&mut r).unwrap().as_deref(),
+            Some("line 5000")
+        );
+        assert!(r.read <= LAST_LINE_BYTES, "read {} bytes", r.read);
+        let cr = b"fetch 10%\rfetch 55%\rfetch 90%\n\n\x1b[0m\n".to_vec();
+        assert_eq!(
+            last_line_from(Cursor::new(cr)).unwrap().as_deref(),
+            Some("fetch 90%")
+        );
+        assert_eq!(last_line_from(Cursor::new(Vec::new())).unwrap(), None);
+        assert_eq!(last_line(Path::new("/no/such/invented.out")), None);
+    }
 
     /// A reader that counts the bytes read from it.
     struct Counted<R> {

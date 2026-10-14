@@ -35,6 +35,7 @@ mod history;
 pub mod import;
 pub mod import_sync;
 pub mod index;
+pub mod job_follow;
 pub mod judge;
 pub mod judge_runs;
 pub mod later;
@@ -92,6 +93,10 @@ pub use hands::*;
 pub use health::*;
 pub use history::*;
 pub use index::TenderStatus;
+pub use job_follow::{
+    ActionOutputChunk, ActionOutputEnd, ActionOutputParams, ActionOutputResult,
+    ActionUnfollowParams, ActionUnfollowResult, WorkPeekParams, WorkPeekResult,
+};
 pub use ledger::*;
 pub use ledger_verify::*;
 pub use ontology::*;
@@ -253,6 +258,10 @@ pub mod method {
         /// its open subtree, then `work.changed` and `work.notice` until
         /// `work.unwatch` (`work_watch.rs`). A read.
         WORK_WATCH = "work.watch", WORK_UNWATCH = "work.unwatch",
+        /// A running job's last lines on demand (`job_follow.rs`, theseus-e1hu4), and
+        /// its output followed to this connection (`action.output.chunk`, then
+        /// `action.output.end`) until `action.unfollow`. Reads.
+        WORK_PEEK = "work.peek", ACTION_OUTPUT = "action.output", ACTION_UNFOLLOW = "action.unfollow",
         /// The counts behind `theseus status --short` (theseus-8kn12), read from
         /// the board's O(1) fields: no per-execution view, no subscription.
         /// `push::StatusShortResult`. A read.
@@ -431,6 +440,9 @@ pub mod notify {
         /// The work board's frame (theseus-hkx30): `work_watch::WorkChanged`, to
         /// every `work.watch` subscriber; and the policy's `notices::Notice`.
         WORK_CHANGED = "work.changed", WORK_NOTICE = "work.notice",
+        /// A followed job's output (`job_follow.rs`): a chunk of text from a byte, to
+        /// the connection that asked, and the job's end.
+        ACTION_OUTPUT_CHUNK = "action.output.chunk", ACTION_OUTPUT_END = "action.output.end",
     }
 }
 

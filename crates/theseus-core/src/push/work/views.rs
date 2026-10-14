@@ -149,6 +149,7 @@ impl WorkBoard {
                     since_ms: j.a.dispatched_at_ms.unwrap_or(j.a.planned_at_ms),
                     turn,
                     loop_index,
+                    last_line: None,
                 });
             }
             if let Some(t) = open.iter().min_by_key(|a| a.a.planned_at_ms) {
@@ -158,6 +159,7 @@ impl WorkBoard {
                     since_ms: t.a.planned_at_ms,
                     turn,
                     loop_index,
+                    last_line: None,
                 });
             }
         }
@@ -354,6 +356,7 @@ impl WorkBoard {
                 since_ms: started,
                 turn: ei.x.turns,
                 loop_index: ei.loop_index,
+                last_line: self.last.get(&a.correlation_id).cloned(),
             });
             v.eta = eta::key_of(&ai.argv).and_then(|k| self.eta.usual(&k));
         }
@@ -389,6 +392,7 @@ impl WorkBoard {
             since_ms: w.set_at_ms,
             turn: 0,
             loop_index: 0,
+            last_line: None,
         });
         Some(v)
     }

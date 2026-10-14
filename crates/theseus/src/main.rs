@@ -26,6 +26,7 @@ mod herdr_sync;
 mod import;
 mod import_sync;
 mod interactive;
+mod jobout;
 mod judge_correct;
 mod judge_prove;
 mod judge_runs;
@@ -415,6 +416,13 @@ enum Cmd {
     /// tasks, plan steps, jobs, questions and wakes beneath it, and what each is doing or waits
     /// for. `--watch` keeps it current from the push: a line for each change and each notice.
     Work(work::WorkArgs),
+    /// A running job's last lines, once: its size and the last 20 lines (work.peek), scrubbed.
+    /// JOB is its id (`act_…`), or a unique end of it as `theseus work` prints it.
+    Peek(jobout::PeekArgs),
+    /// Follow a running job's output live (action.output): its last lines, then each line as it is
+    /// printed, until the job ends. Ctrl-C detaches and the job goes on; a stream that fell behind
+    /// says so and reads the job again.
+    Attach(jobout::AttachArgs),
     /// An incident's timeline, from the ledger: what ran, waited, failed and cost, what was asked
     /// of the owner and answered, and every restart of the daemon, as markdown (`--json`: the
     /// same facts as data). Read only. The default window is the last 12 hours; `--session` or
@@ -1072,6 +1080,21 @@ fn main() {
     std::process::exit(code);
 }
 
+/// `theseus wait`: a session's wait, or with none named, the first of any.
+async fn wait_session_or_any(
+    c: &mut Conn,
+    json: bool,
+    session: Option<String>,
+    until: String,
+    after: Option<u64>,
+    timeout: Option<String>,
+) -> Result<()> {
+    match session {
+        Some(session) => cmd::wait(c, json, session, until, after, timeout).await,
+        None => wait_any(c, json, &until, timeout.as_deref()).await,
+    }
+}
+
 /// `theseus wait --any`, its timeout read as a duration.
 async fn wait_any(c: &mut Conn, json: bool, until: &str, timeout: Option<&str>) -> Result<()> {
     let ms = timeout.map(cmd::parse_duration_ms).transpose()?;
@@ -1149,14 +1172,13 @@ async fn run(cli: Cli) -> Result<()> {
         Cmd::Done { wake } => remind::done(c, json, wake).await,
         Cmd::Stop { session } => cmd::stop(c, json, session).await,
         Cmd::Wait {
-            session: Some(session),
+            session,
             until,
             after,
             timeout,
             ..
-        } => cmd::wait(c, json, session, until, after, timeout).await,
-        Cmd::Wait { until, timeout, .. } => wait_any(c, json, &until, timeout.as_deref()).await,
-        Cmd::Work(a) => work::run(c, json, a).await,
+        } => wait_session_or_any(c, json, session, until, after, timeout).await,
+        cmd @ (Cmd::Work(_) | Cmd::Peek(_) | Cmd::Attach(_)) => jobout::board(c, json, cmd).await,
         Cmd::Status(_) | Cmd::Postmortem(_) | Cmd::Tui { .. } => unreachable!("returned above"),
         Cmd::Profile { cmd } => cmd::profile(c, json, cmd.unwrap_or(ProfileCmd::List)).await,
         Cmd::Ledger { cmd: Some(cmd), .. } => ledger_verify::run(c, json, cmd).await,

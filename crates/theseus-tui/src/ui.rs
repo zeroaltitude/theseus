@@ -42,7 +42,7 @@ pub fn draw(app: &App, buf: &mut Buffer) -> Option<(u16, u16)> {
         }
         let right = Rect::new(side + 1, body.y, area.width - side - 1, body.height);
         detail(app, right, buf);
-    } else if app.shown().is_some() {
+    } else if app.shown().is_some() || app.follow.is_some() {
         // Below 100 columns the session in focus takes the screen; esc goes
         // back to the list.
         detail(app, body, buf);
@@ -191,6 +191,9 @@ fn draw_row(row: &Row, area: Rect, buf: &mut Buffer, selected: bool) {
 fn detail(app: &App, area: Rect, buf: &mut Buffer) {
     let width = area.width.saturating_sub(1) as usize;
     let x = area.x + 1;
+    if let Some(f) = &app.follow {
+        return follow_pane(app, f, area, buf);
+    }
     let Some(d) = &app.detail else {
         buf.set_stringn(
             x,
@@ -273,6 +276,38 @@ fn detail(app: &App, area: Rect, buf: &mut Buffer) {
             more.width(),
             dim().add_modifier(Modifier::REVERSED),
         );
+    }
+}
+
+/// A running job's output (`l`): its time against its usual, then the newest
+/// rows that fit, wrapped at the pane's edge.
+fn follow_pane(app: &App, f: &crate::follow::Follow, area: Rect, buf: &mut Buffer) {
+    let width = area.width.saturating_sub(1) as usize;
+    let x = area.x + 1;
+    buf.set_stringn(
+        x,
+        area.y,
+        f.header(app.now_ms, &app.board.name(&f.session_id)),
+        width,
+        Style::default().add_modifier(Modifier::BOLD),
+    );
+    if f.job.is_none() {
+        buf.set_stringn(x, area.y + 1, "looking for its job…", width, dim());
+        return;
+    }
+    let height = area.height.saturating_sub(1) as usize;
+    let mut rows: Vec<String> = Vec::new();
+    for line in f.lines().into_iter().rev() {
+        let mut wrapped = wrap(line, width);
+        while let Some(r) = wrapped.pop() {
+            rows.push(r);
+        }
+        if rows.len() >= height {
+            break;
+        }
+    }
+    for (i, r) in rows.iter().take(height).rev().enumerate() {
+        buf.set_stringn(x, area.y + 1 + i as u16, r, width, Style::default());
     }
 }
 
@@ -425,7 +460,7 @@ fn tail_fit(text: &str, room: usize) -> String {
 
 /// The keys (design §2.9), over the body.
 fn help(area: Rect, buf: &mut Buffer) {
-    const KEYS: [&str; 16] = [
+    const KEYS: [&str; 17] = [
         " keys",
         " ↑ ↓  j k   move (on a narrow screen's session: scroll it)",
         " enter      open the session under the cursor",
@@ -435,6 +470,7 @@ fn help(area: Rect, buf: &mut Buffer) {
         " i          type to the open session: enter sends, esc leaves",
         " s          stop the open conversation (s twice)",
         " c          cancel the open task (c twice)",
+        " l          follow the running job of the session under the cursor (esc closes)",
         " PgUp PgDn  scroll the open session (End: back to its end)",
         " / text     filter by text (enter keeps it, esc clears)",
         " b w r d a  only needs you, working, ready, done; all",

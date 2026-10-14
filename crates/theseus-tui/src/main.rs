@@ -11,6 +11,7 @@ mod app;
 mod board;
 mod card;
 mod detail;
+mod follow;
 mod notice;
 mod run;
 mod term;
@@ -22,6 +23,8 @@ mod tests;
 mod tests_answer;
 #[cfg(test)]
 mod tests_cite;
+#[cfg(test)]
+mod tests_follow;
 #[cfg(test)]
 mod tests_names;
 #[cfg(test)]
