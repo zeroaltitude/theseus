@@ -738,6 +738,11 @@ impl Core {
             run_compiles: Default::default(),
             failed_turns: Default::default(),
             spend_marks: Default::default(),
+            self_budget: crate::rsi::budget::Budget::new(
+                cfg.self_improve.mode,
+                &cfg.self_improve.budget,
+                store.clone(),
+            ),
             effort_refusals: Default::default(),
             keep_warm: Default::default(),
             stubs: Default::default(),

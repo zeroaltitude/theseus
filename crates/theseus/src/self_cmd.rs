@@ -144,6 +144,9 @@ pub fn log_lines(r: &SelfLogResult) -> Vec<String> {
         "Self-improvement: {}.",
         render::self_state_line(&r.state)
     )];
+    if let Some(b) = &r.budget {
+        out.extend(render::budget_lines(b));
+    }
     if r.building {
         out.push(
             "The ledger's index is still being built after a start: ask again in a minute.".into(),

@@ -50,6 +50,7 @@ impl Core {
             state: self.self_state(),
             more,
             building,
+            budget: self.runner.self_budget.view(),
         })
     }
 }

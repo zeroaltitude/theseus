@@ -23,7 +23,12 @@ impl Core {
 
     /// The mode, the switch, and the gate, as every surface shows them.
     pub fn self_state(&self) -> SelfState {
-        super::state(&self.self_ctx())
+        let mut s = super::state(&self.self_ctx());
+        if let Some(b) = self.runner.self_budget.view() {
+            s.day_spent_usd = Some(b.day_spent_usd);
+            s.day_line_usd = Some(b.day_line_usd);
+        }
+        s
     }
 
     /// Halt every self step, by `who`, from wherever it came. Idempotent: a

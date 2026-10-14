@@ -2,7 +2,7 @@
 //! switch in a line, as `theseus self` prints it and as health's `self` line
 //! shows it. Apart from `render.rs`, whose length the shape budget caps.
 
-use theseus_protocol::rsi::{SelfMode, SelfState};
+use theseus_protocol::rsi::{SelfBudgetView, SelfMode, SelfState};
 
 use super::{fmt_date, push, Line, Tag};
 
@@ -31,16 +31,61 @@ pub fn self_state_line(s: &SelfState) -> String {
     format!("{mode}; the kill switch is {switch}")
 }
 
-/// Health's `self` line: what a self step would hear now, then the state.
-/// Nothing from a daemon before it.
+/// Money as the self budget shows it: to the cent, four places under a cent.
+fn usd(v: f64) -> String {
+    if v != 0.0 && v.abs() < 0.01 {
+        format!("${v:.4}")
+    } else {
+        format!("${v:.2}")
+    }
+}
+
+/// Health's `self` line: what a self step would hear now, then the state,
+/// then the day's spend against its line (theseus-pw1q.3; none while the
+/// mode is off). Nothing from a daemon before it.
 pub(super) fn push_health(o: &mut Vec<Line>, s: Option<&SelfState>) {
     if let Some(s) = s {
+        let day = match (s.day_spent_usd, s.day_line_usd) {
+            (Some(spent), Some(line)) => format!(" · {} of {} today", usd(spent), usd(line)),
+            _ => String::new(),
+        };
         push(
             o,
             Tag::Plain,
-            &format!("self: {} · {}", s.gate, self_state_line(s)),
+            &format!("self: {} · {}{day}", s.gate, self_state_line(s)),
         );
     }
+}
+
+/// `theseus self log`'s budget lines: the day's spend, then each branch's
+/// against its line.
+pub fn budget_lines(b: &SelfBudgetView) -> Vec<String> {
+    let mut out = vec![format!(
+        "Budget {}: {} of {} spent or reserved today; a branch's line is {}.",
+        b.day,
+        usd(b.day_spent_usd),
+        usd(b.day_line_usd),
+        usd(b.branch_line_usd)
+    )];
+    for br in &b.branches {
+        let open = if br.open_usd > 0.0 {
+            format!(", {} of it reserved", usd(br.open_usd))
+        } else {
+            String::new()
+        };
+        let stopped = if br.stopped {
+            " (stopped at its line)"
+        } else {
+            ""
+        };
+        out.push(format!(
+            "  {}: {} of {}{open}{stopped}",
+            br.branch,
+            usd(br.spent_usd),
+            usd(b.branch_line_usd)
+        ));
+    }
+    out
 }
 
 #[cfg(test)]
@@ -57,6 +102,8 @@ mod tests {
             via: (!never).then(|| "cli".to_string()),
             why: (halted && !never).then(|| "the gate went red".to_string()),
             gate: gate.into(),
+            day_spent_usd: None,
+            day_line_usd: None,
         }
     }
 
@@ -88,5 +135,34 @@ mod tests {
             "{allowed:?}"
         );
         assert!(lines(None).is_empty(), "a daemon before it shows no line");
+    }
+
+    #[test]
+    fn the_budget_shows_the_days_spend_and_each_branchs() {
+        let mut st = state(SelfMode::Act, false, false, "allowed");
+        st.day_spent_usd = Some(12.5);
+        st.day_line_usd = Some(30.0);
+        let l = lines(Some(&st));
+        assert!(l[0].ends_with(" · $12.50 of $30.00 today"), "{l:?}");
+        let b = SelfBudgetView {
+            day: "2026-10-14".into(),
+            day_spent_usd: 12.5,
+            day_line_usd: 30.0,
+            branch_line_usd: 10.0,
+            branches: vec![theseus_protocol::rsi::SelfBranchSpend {
+                branch: "tsk_a".into(),
+                spent_usd: 10.0,
+                open_usd: 0.0,
+                stopped: true,
+            }],
+        };
+        let out = budget_lines(&b);
+        assert_eq!(
+            out,
+            [
+                "Budget 2026-10-14: $12.50 of $30.00 spent or reserved today; a branch's line is $10.00.",
+                "  tsk_a: $10.00 of $10.00 (stopped at its line)",
+            ]
+        );
     }
 }

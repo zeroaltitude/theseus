@@ -150,6 +150,15 @@ pub struct SelfState {
     pub why: Option<String>,
     /// What a self step would hear now: `off`, `halted` or `allowed`.
     pub gate: String,
+    /// The self budget's day, as health's `self` line shows it
+    /// (theseus-pw1q.3): what the day has spent (settled and reserved) and
+    /// its line. Absent while the mode is off, and from a daemon before it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub day_spent_usd: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub day_line_usd: Option<f64>,
 }
 
 /// `self.halt`'s params. Anyone who may speak to the daemon may halt.
@@ -247,6 +256,11 @@ pub struct SelfLogResult {
     /// be read yet, so the list is empty for now, not empty for good.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub building: bool,
+    /// The self budget: the day's spend and each branch's (theseus-pw1q.3).
+    /// Absent while the mode is off.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub budget: Option<SelfBudgetView>,
 }
 
 /// `self.digest`'s params: the week that ends at `until_ms` (default now).
@@ -266,6 +280,38 @@ pub struct SelfDigestResult {
     pub until_ms: u64,
     pub text: String,
     pub rows: u64,
+}
+
+// self-budget (theseus-pw1q.3): the spend lines as `self.log` shows them.
+
+/// The self budget now: the local day's spend against its line, and each
+/// branch's against its own.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct SelfBudgetView {
+    /// The local day the spend is for, `2026-10-14`.
+    pub day: String,
+    /// What the day has spent, settled and reserved together, and its line.
+    pub day_spent_usd: f64,
+    pub day_line_usd: f64,
+    /// The per-branch line.
+    pub branch_line_usd: f64,
+    /// The branches with a spend, the most recent first.
+    pub branches: Vec<SelfBranchSpend>,
+}
+
+/// One branch's spend on the self budget.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct SelfBranchSpend {
+    pub branch: String,
+    /// Settled and reserved together.
+    pub spent_usd: f64,
+    /// The part of it still reserved (a call in flight).
+    pub open_usd: f64,
+    /// It stopped at its line.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub stopped: bool,
 }
 
 #[cfg(test)]

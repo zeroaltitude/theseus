@@ -1,0 +1,94 @@
+//! The self budget at the model call (theseus-pw1q.3, seam S2). A turn of a
+//! session whose task has `origin.principal == "self"` reserves each model
+//! call's worst case on the self budget (`crate::rsi::budget`: $10 a branch,
+//! $30 a day), beside the kernel's own reservation, and settles it at what
+//! the call cost once the call is over, whatever its outcome. At a line the
+//! call is not planned: the turn fails with class `self_budget` and the
+//! budget's words, which is the reply the work was serving, and the budget
+//! has written its `self.budget.stopped` row. Any other session pays one
+//! `Option` test (a task session's branch is found once and kept).
+
+use theseus_kernel::{micros_to_usd, Micros};
+
+use super::*;
+use crate::rsi::budget::{Reservation, Reserved, Stopped};
+
+/// The failure's class when a self line stopped a call.
+pub const SELF_BUDGET_CLASS: &str = "self_budget";
+
+/// A reservation held across one model call, and the turn's cost before it.
+pub(super) struct Hold {
+    reservation: Reservation,
+    cost_before: Option<f64>,
+}
+
+impl TurnRunner {
+    /// Before the call is planned: reserve its worst case when the turn is a
+    /// self task's. `Err` is the failure that ends the turn: the call was
+    /// not made.
+    pub(super) fn self_reserved(
+        &self,
+        t: &mut Turn<'_>,
+        reserve: Micros,
+    ) -> std::result::Result<(), Failure> {
+        if t.tc.task.is_none() {
+            return Ok(());
+        }
+        let Some(branch) = self.self_budget.branch_of(t.tc.session_id) else {
+            return Ok(());
+        };
+        let usd = micros_to_usd(reserve);
+        match self.self_budget.reserve("turn", Some(&branch), usd) {
+            Ok(Reserved::Granted(reservation)) => {
+                t.self_hold = Some(Hold {
+                    reservation,
+                    cost_before: t.cost,
+                });
+                Ok(())
+            }
+            Ok(Reserved::Stopped(s)) => Err(Self::self_stopped(t, &s)),
+            Err(e) => Err(Failure {
+                class: "kernel".into(),
+                transient: false,
+                usage_unknown: false,
+                reason: format!("the self budget could not reserve: {e:#}"),
+                source: e,
+            }),
+        }
+    }
+
+    fn self_stopped(t: &mut Turn<'_>, s: &Stopped) -> Failure {
+        t.record(&fact::turn::LoopCut {
+            decision: SELF_BUDGET_CLASS,
+        });
+        Failure {
+            class: SELF_BUDGET_CLASS.into(),
+            transient: false,
+            usage_unknown: false,
+            reason: SELF_BUDGET_CLASS.into(),
+            source: anyhow::anyhow!("{s}"),
+        }
+    }
+
+    /// After the call, whatever came of it: settle the hold at what the call
+    /// cost. A call whose cost is unknown, and a fault, settle at the worst
+    /// case, never at zero.
+    pub(super) fn self_settled(&self, t: &mut Turn<'_>, called: &Result<Called>) {
+        let Some(hold) = t.self_hold.take() else {
+            return;
+        };
+        let worst = hold.reservation.usd();
+        let spent = match called {
+            Ok(Called::Failed(f)) if f.usage_unknown => worst,
+            Ok(_) => match (t.cost, hold.cost_before) {
+                (Some(now), Some(before)) => (now - before).max(0.0),
+                _ => worst,
+            },
+            Err(_) => worst,
+        };
+        if let Err(e) = self.self_budget.settle(hold.reservation, spent) {
+            // Left open at its worst case: a restart settles it.
+            tracing::warn!(error = %format!("{e:#}"), "the self budget could not settle a call");
+        }
+    }
+}

@@ -388,6 +388,8 @@ export type * from './SandboxUsage';
 export type * from './SecretFailed';
 export type * from './SecretSource';
 export type * from './SecretsStatus';
+export type * from './SelfBranchSpend';
+export type * from './SelfBudgetView';
 export type * from './SelfDigestParams';
 export type * from './SelfDigestResult';
 export type * from './SelfHaltParams';

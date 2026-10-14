@@ -8,8 +8,10 @@
 //! - `digest`: `"weekly"` (the default: with `mode = "act"`, the week's
 //!   "What Theseus changed about itself" goes to the owner's DM once a week)
 //!   or `"off"`.
-//! - `[self.budget]`: the self budget's lines, an empty table until the
-//!   self-budget row gives it `branch_usd` and `day_usd`.
+//! - `[self.budget]` (theseus-pw1q.3): the one spend account for all
+//!   self-improvement. `branch_usd` ($10) is a self-branch's line, `day_usd`
+//!   ($30) the local day's, across every self loop together. Part of the
+//!   hard keel: raising either is the owner's.
 
 use serde::{Deserialize, Deserializer, Serialize};
 pub use theseus_protocol::rsi::SelfMode;
@@ -35,10 +37,34 @@ pub enum SelfDigest {
     Off,
 }
 
-/// `[self.budget]`: no key yet (the self-budget row adds its two).
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+/// `[self.budget]`: the two spend lines (theseus-pw1q.3), read at the start.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct SelfBudgetConfig {}
+pub struct SelfBudgetConfig {
+    /// What one self branch may spend, all its loops together.
+    #[serde(default = "default_branch_usd")]
+    pub branch_usd: f64,
+    /// What all self-improvement may spend in one local day.
+    #[serde(default = "default_day_usd")]
+    pub day_usd: f64,
+}
+
+fn default_branch_usd() -> f64 {
+    10.0
+}
+
+fn default_day_usd() -> f64 {
+    30.0
+}
+
+impl Default for SelfBudgetConfig {
+    fn default() -> Self {
+        Self {
+            branch_usd: default_branch_usd(),
+            day_usd: default_day_usd(),
+        }
+    }
+}
 
 impl SelfConfig {
     pub fn is_default(&self) -> bool {
@@ -101,9 +127,13 @@ mod tests {
         assert!(
             t.contains("# [self]\n# mode = \"off\"")
                 && t.contains("# digest = \"weekly\"")
-                && t.contains("# [self.budget]"),
+                && t.contains("# [self.budget]")
+                && t.contains("# branch_usd = 10.0")
+                && t.contains("# day_usd = 30.0"),
             "the template names [self], its two keys and [self.budget]"
         );
+        assert_eq!(none.self_improve.budget.branch_usd, 10.0);
+        assert_eq!(none.self_improve.budget.day_usd, 30.0);
         let cfg =
             Config::from_toml("[self]\nmode = \"act\"\ndigest = \"off\"\n[self.budget]\n").unwrap();
         assert_eq!(cfg.self_improve.mode, SelfMode::Act);
@@ -125,5 +155,9 @@ mod tests {
         );
         assert!(e.contains("[self] digest must be"), "{e}");
         assert!(Config::from_toml("[self]\nbudget_usd = 1.0\n").is_err());
+        let b = Config::from_toml("[self.budget]\nbranch_usd = 4.5\nday_usd = 12.0\n").unwrap();
+        assert_eq!(b.self_improve.budget.branch_usd, 4.5);
+        assert_eq!(b.self_improve.budget.day_usd, 12.0);
+        assert!(Config::from_toml("[self.budget]\nweek_usd = 1.0\n").is_err());
     }
 }

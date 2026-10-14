@@ -964,7 +964,9 @@ idle_unload_mins = 10.0                   # the model unloads after this long un
 # [self]
 # mode = "off"                            # "off" or "act"
 # digest = "weekly"                       # "weekly" or "off"
-# [self.budget]                           # the self budget's lines (none yet: the self-budget step adds them)
+# [self.budget]                           # one spend account for all self-improvement (the owner's to raise)
+# branch_usd = 10.0                       # one self branch, all its loops together
+# day_usd = 30.0                          # all self-improvement, per local day
 
 # ---------------------------------------------------------------- sandbox
 # L1, the sandbox (M4): a proc.run job in namespaces of its own, as your own

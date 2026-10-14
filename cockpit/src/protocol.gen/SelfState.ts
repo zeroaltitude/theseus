@@ -22,4 +22,10 @@ at_ms?: number, by?: string, via?: string, why?: string,
 /**
  * What a self step would hear now: `off`, `halted` or `allowed`.
  */
-gate: string, };
+gate: string, 
+/**
+ * The self budget's day, as health's `self` line shows it
+ * (theseus-pw1q.3): what the day has spent (settled and reserved) and
+ * its line. Absent while the mode is off, and from a daemon before it.
+ */
+day_spent_usd?: number, day_line_usd?: number, };
