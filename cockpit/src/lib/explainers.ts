@@ -428,6 +428,10 @@ export const EXPLAINERS: Record<string, Explainer> = {
     'Read one imported episode: where it came from, what it says and how it was labelled.',
     'Its provenance, its summary and its messages, a page at a time. Personal or partner-confidential text is veiled until you open it.',
     'It is the evidence behind a recall: check that what Theseus remembers is what was said.'),
+  'context.standing': e(
+    'Show what the owner has told Theseus to hold to, and let them take it back.',
+    'One group a kind: orders are followed, preferences honoured, facts known. Each record has its scope (everywhere, a session, a place, or a surface such as the terminal), when it began, where it came from, and how many compiles of its scope carried it. Revoke ends it at the next turn.',
+    'These ride every prompt of their scope, so a stale one costs tokens and shapes every answer; a surface’s records ride only that surface’s turns.'),
   'context.books': e(
     'Say honestly what state the books are in.',
     'A note: the books (dictionary, encyclopedia, cookbook, standing procedures, diary, casebook, register) are not compiled yet, and how many episodes carry the import’s guess at a book.',

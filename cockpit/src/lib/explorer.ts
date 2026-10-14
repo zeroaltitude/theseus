@@ -4,7 +4,7 @@
 import type { ContextPart, ImportFacet, ImportSessionsParams, ImportedEpisode, OntologyCategory } from '@protocol'
 
 /** The explorer's tabs, in the rail's order. */
-export const TABS = ['episodes', 'turn', 'search', 'books'] as const
+export const TABS = ['episodes', 'turn', 'search', 'books', 'standing'] as const
 export type Tab = (typeof TABS)[number]
 
 /** A page of episodes. */
