@@ -217,6 +217,11 @@ enum Cmd {
     FakeJev {
         #[arg(long = "say")]
         say: Vec<String>,
+        /// Each `--choose QUESTION=OPTION:P` answers that Choice question with
+        /// OPTION at confidence P (`directive.v1/kind=preference:0.93`, theseus-slvl.5's
+        /// live check).
+        #[arg(long = "choose")]
+        choose: Vec<String>,
     },
     /// The fake MCP server (M7 36b), for a scratch daemon's `[mcp.servers]`:
     /// stdio by default, as a daemon starts it, or `--http`.
@@ -404,8 +409,24 @@ fn main() -> Result<()> {
                 std::thread::park();
             }
         }
-        Cmd::FakeJev { say } => {
+        Cmd::FakeJev { say, choose } => {
             let jev = theseus_judge::fake::FakeJev::start()?;
+            for c in &choose {
+                let (q, rest) = c.split_once('=').context(
+                    "--choose takes QUESTION=OPTION:P, as directive.v1/kind=preference:0.93",
+                )?;
+                let (option, p) = rest.rsplit_once(':').context(
+                    "--choose takes QUESTION=OPTION:P, as directive.v1/kind=preference:0.93",
+                )?;
+                let confidence: f64 = p.parse().context("--choose's P is a confidence")?;
+                jev.script(
+                    q,
+                    theseus_judge::fake::Scripted::Choice {
+                        option: option.to_string(),
+                        confidence,
+                    },
+                );
+            }
             for s in &say {
                 let (q, p) = s
                     .split_once('=')
