@@ -286,9 +286,12 @@ async fn an_answer_from_one_surface_clears_every_other() {
     for rx in [&mut one, &mut all] {
         let mut resolved = Vec::new();
         let mut changed = Vec::new();
-        // The push's change follows the frame, off this thread.
+        // The push's change follows the frame, off this thread, and the
+        // ask's own change can still reach a watcher that joined after it:
+        // read on until the settled one.
+        let settled = |c: &Value| c["pending"].as_array().is_none_or(Vec::is_empty);
         let until = tokio::time::Instant::now() + Duration::from_secs(5);
-        while changed.is_empty() || resolved.is_empty() {
+        while resolved.is_empty() || !changed.last().is_some_and(settled) {
             let Ok(Some(m)) = tokio::time::timeout_at(until, rx.recv()).await else {
                 break;
             };
