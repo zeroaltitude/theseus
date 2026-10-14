@@ -545,10 +545,7 @@ fn commands() -> Vec<twilight_model::application::command::Command> {
         ),
     ]
     .into_iter()
-    .map(|(n, d)| match n {
-        "stop" => halt::stop_command(),
-        _ => CommandBuilder::new(n, d, CommandType::ChatInput).build(),
-    })
+    .map(|(n, d)| halt::command(n, d))
     .collect();
     cmds.push(
         CommandBuilder::new(

@@ -17,6 +17,20 @@ use twilight_util::builder::command::{BooleanBuilder, CommandBuilder};
 
 use super::{Control, Place};
 
+/// One slash command of the place's list: `/stop` with its option, any other
+/// as named (out of runtime.rs, which is at its line ceiling).
+pub(super) fn command(name: &str, description: &str) -> Command {
+    match name {
+        "stop" => stop_command(),
+        _ => CommandBuilder::new(
+            name,
+            description,
+            twilight_model::application::command::CommandType::ChatInput,
+        )
+        .build(),
+    }
+}
+
 /// `/stop`, and its one option (theseus-cdcwr): `all`, default false, also cancels the conversation's tasks.
 pub(super) fn stop_command() -> Command {
     CommandBuilder::new(
