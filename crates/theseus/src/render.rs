@@ -25,6 +25,7 @@ mod catalog;
 pub mod cite;
 mod connections;
 mod day;
+pub mod defer;
 mod failed;
 mod features;
 mod flight;
@@ -1764,6 +1765,7 @@ pub fn health_lines(h: &theseus_protocol::HealthResult, now_ms: u64) -> Vec<Line
     for (tag, line) in store_lines(&h.store)
         .into_iter()
         .chain(resident::resident_lines(h.resident.as_ref()))
+        .chain(defer::defer_lines(h.tools_defer.as_ref()))
         .chain(warm::warm_lines(h.warm.as_ref(), now_ms))
         .chain(cache::cache_lines(h.cache.as_ref()))
     {

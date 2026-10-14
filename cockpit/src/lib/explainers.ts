@@ -94,6 +94,10 @@ export const EXPLAINERS: Record<string, Explainer> = {
     'Show how each tool is treated by the gate, and tighten it.',
     'One row per tool with its posture: open (runs), notify (runs and tells you) or approve (asks first). Tighten makes it ask more; untighten undoes your tightening.',
     'Tightening a tool is the fast way to make Theseus ask before something risky. The floor, the things that always ask, cannot be loosened here.'),
+  'actions.families': e(
+    'Show which families of tools each kind of place loads, and which it leaves for the model to ask for.',
+    'One tab per kind of place (the CLI, a direct message, a channel, a task, a headless run). Each family is loaded or deferred, with the reason (a default for the place, used in a share of its turns, or unused for days) and its use in the window: turns that used it, searches that found one of its tools, and misses, a call to a tool that was not loaded.',
+    'Every request reads the tools it loads, so a family nobody uses costs tokens on every call. A miss is a deferred family someone needed: it is what moves a family into the loaded set.'),
   'actions.tasks': e(
     'Show the tasks Theseus is tracking.',
     'One row per task: its state, owner, claim and version, with a waiting change and its card where there is one.',

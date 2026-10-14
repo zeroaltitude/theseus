@@ -86,6 +86,9 @@ build.
   Theseus changed about itself", over `self.log`: the kill switch's state and mode, a Halt button (`self.halt`,
   anyone's, confirmed first), and the newest changes with what, why, numbers and undo. The resume is the owner's alone
   (`theseus self resume`, or "resume self" from the owner's account on Discord); the card never sends it. Tests: `test/selfchanges.test.ts`.
+- `src/components/ToolFamilies.tsx` (in Actions, under the tool postures; its pure parts are `src/lib/families.ts`,
+  `test/families.test.ts`, theseus-7m7w.2): the tool families each kind of place loads or defers, with the reason, the use,
+  searches and misses, over `tool.defer`. It shows the present: the time machine hides it.
 - `src/components/TaskGraph.tsx` (in Actions; its pure parts are `src/lib/taskgraph.ts`, M7 39b): the task records as a
   tree (state, owner, claim, version, a waiting change with its card) and, at `?taskgraph=1` (`&task=<id>`), as a React
   Flow graph. It shows the present: under the time machine it says so and its acts are off. `task.changed` reads

@@ -17,6 +17,7 @@ import { stateTone, toneHex } from '@/lib/taxonomy'
 import { Btn, Empty, Panel, Pill, StatePill } from '@/components/ui'
 import { ConfirmCard, useAct } from '@/components/ConfirmCard'
 import { TaskGraphView, TaskTree } from '@/components/TaskGraph'
+import { ToolFamilies } from '@/components/ToolFamilies'
 
 export default function Actions() {
   const { data: cl } = useRpc<{ confirms: ConfirmRequest[] }>('confirm.list', undefined, 1500)
@@ -71,6 +72,7 @@ export default function Actions() {
             actions={tl ? <span className="num text-[11px] text-ink-faint" title="proc.run (typed argv) is the only shell path; the shell-fallback ratio is proc.run calls over all calls">roots {tl.roots.join(', ')} · {tl.calls_total} call{tl.calls_total === 1 ? '' : 's'} since start · shell fallback {(tl.shell_fallback_ratio * 100).toFixed(0)}%</span> : null}>
             <Postures tl={tl} tightenings={world?.tightenings ?? h?.tightenings ?? []} past={past} />
           </Panel>
+          {!world && <ToolFamilies />}
         </div>
       </div>
       <TaskGraphView records={tasks?.records ?? []} past={past} />

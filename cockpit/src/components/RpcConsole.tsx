@@ -21,6 +21,7 @@ const READS: Record<string, string> = {
   'task.list': '',
   'wake.list': '',
   'tool.list': '',
+  'tool.defer': '',
   'profile.list': '',
   'catalog.list': '',
 }
