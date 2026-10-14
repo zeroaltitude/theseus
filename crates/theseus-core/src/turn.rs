@@ -373,9 +373,9 @@ struct Turn<'a> {
     /// call still does not fit the limit, the turn ends instead of asking the
     /// same question again.
     retry_over_limit: bool,
+    /// The self budget's account of this turn (theseus-pw1q.3).
+    self_acct: self_budget_step::Acct,
     /// The burn-rate stop whose question is being asked (theseus-9e02).
-    /// The self budget's hold on the call in flight (theseus-pw1q.3).
-    self_hold: Option<self_budget_step::Hold>,
     braked: Option<theseus_kernel::BurnStop>,
     /// Jobs this turn started or resumed in the background.
     background: Vec<String>,
@@ -522,7 +522,7 @@ impl<'a> Turn<'a> {
             budget_question: None,
             retry_over_limit: false,
             braked: None,
-            self_hold: None,
+            self_acct: Default::default(),
             background: Vec::new(),
             stop_reason: String::new(),
             said: Vec::new(),

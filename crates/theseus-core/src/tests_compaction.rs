@@ -965,3 +965,63 @@ async fn the_day_ceiling_refuses_the_summary_before_its_call() {
     assert_eq!(ceiling.len(), 1, "{ceiling:?}");
     assert_eq!(ceiling[0]["what"], "compaction");
 }
+
+/// A `"self"` task's turn that compacts: the summary's call is a model call
+/// of the turn, so the self budget counts it with the call after it, and the
+/// budget holds the turn's whole cost (theseus-pw1q.3, a join fix: the
+/// summary's cost was not counted). A task's execution ends with its turn,
+/// so the session's earlier turns are a conversation's and the one that
+/// compacts is the self task's; a first rig counts the turns to it.
+#[tokio::test]
+async fn a_self_tasks_compaction_is_counted_on_the_self_budget() {
+    let self_rig = || {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("work");
+        std::fs::create_dir_all(&root).unwrap();
+        let mut cfg = config(&root.canonicalize().unwrap(), dir.path(), "glm");
+        cfg.self_improve.mode = theseus_protocol::rsi::SelfMode::Act;
+        let model = Arc::new(FakeProvider::scripted(vec![]));
+        let glm = Arc::new(FakeProvider::scripted(vec![summary(
+            "The keeper logged six tides; the operator asked for each one.",
+            9_000,
+            120,
+        )]));
+        let store = Store::open(&dir.path().join("store")).unwrap();
+        let mut parts = crate::rpc::Parts::for_tests(cfg, model.clone(), store);
+        parts.providers.insert("zai".into(), glm.clone());
+        Rig {
+            core: Core::build(parts).unwrap(),
+            model,
+            glm,
+            dir,
+        }
+    };
+    let probe = self_rig();
+    let sid = session(&probe.core);
+    let k = until_recompiled(&probe, &sid, 6_000).await;
+    let r = self_rig();
+    let parent = session(&r.core);
+    let sid = session(&r.core);
+    for i in 0..k - 1 {
+        turn(&r.core, &sid, &words(&format!("turn{i}"), 6_000))
+            .await
+            .unwrap();
+    }
+    assert!(rows(&r.core, "context.compacted").is_empty());
+    crate::tests_self_budget::make_task(&r.core, &sid, &parent, crate::rsi::SELF_PRINCIPAL, None);
+    let out = turn(&r.core, &sid, &words(&format!("turn{}", k - 1), 6_000))
+        .await
+        .unwrap();
+    assert_eq!(
+        rows(&r.core, "context.compacted")[0]["outcome"],
+        "compaction"
+    );
+    let v = r.core.runner.self_budget.view().unwrap();
+    let cost = out.cost_usd.unwrap();
+    assert!(
+        (v.day_spent_usd - cost).abs() < 1e-5,
+        "the self budget holds {} of the turn's {cost}",
+        v.day_spent_usd
+    );
+    assert_eq!(v.branches[0].open_usd, 0.0, "nothing is left open");
+}

@@ -20,7 +20,34 @@ fn task_session(
     principal: &str,
     parent_of: Option<&str>,
 ) -> (String, String) {
-    let mut rec = SessionRecord::new(SessionKind::Task, None);
+    principal_session(&r.core, parent, principal, parent_of)
+}
+
+/// A task session on `core` whose record names `principal`: its session id
+/// and its task's.
+pub(crate) fn principal_session(
+    core: &crate::Core,
+    parent: &str,
+    principal: &str,
+    parent_of: Option<&str>,
+) -> (String, String) {
+    let rec = SessionRecord::new(SessionKind::Task, None);
+    let sid = rec.session_id.clone();
+    core.store.put_session(&sid, &rec).unwrap();
+    let task = make_task(core, &sid, parent, principal, parent_of);
+    (sid, task)
+}
+
+/// Make `sid` a task's session, opened by `parent`, with a task record whose
+/// origin names `principal`: the task's id.
+pub(crate) fn make_task(
+    core: &crate::Core,
+    sid: &str,
+    parent: &str,
+    principal: &str,
+    parent_of: Option<&str>,
+) -> String {
+    let mut rec: SessionRecord = core.store.get_session(sid).unwrap().unwrap();
     rec.task = Some(TaskOf {
         parent_session: parent.into(),
         parent_execution: "exe_none".into(),
@@ -29,16 +56,15 @@ fn task_session(
         arrangement: None,
         check: None,
     });
-    let sid = rec.session_id.clone();
-    r.core.store.put_session(&sid, &rec).unwrap();
+    core.store.put_session(sid, &rec).unwrap();
     let task = graph::NewTask {
-        id: graph::of_session(&sid),
+        id: graph::of_session(sid),
         title: "Tidy the harbour notes",
         objective: "Tidy the harbour notes.".into(),
         acceptance: vec![],
         parent: parent_of.map(str::to_string),
         deps: vec![],
-        session: Some(sid.clone()),
+        session: Some(sid.to_string()),
         origin: graph::TaskOrigin {
             session: parent.into(),
             principal: principal.into(),
@@ -47,16 +73,20 @@ fn task_session(
         state: TaskState::InProgress,
     }
     .build(theseus_protocol::now_unix_ms());
-    r.core
-        .store
-        .append(&[graph::record(&task).unwrap()])
-        .unwrap();
-    (sid, task.id)
+    core.store.append(&[graph::record(&task).unwrap()]).unwrap();
+    task.id
 }
 
 /// A turn that may fail: the self budget's refusal ends it with an error.
 async fn try_turn(r: &Rig, sid: &str) -> anyhow::Result<theseus_protocol::TurnSubmitResult> {
-    let core = &r.core;
+    try_turn_on(&r.core, sid).await
+}
+
+/// [`try_turn`] on any core.
+async fn try_turn_on(
+    core: &std::sync::Arc<crate::Core>,
+    sid: &str,
+) -> anyhow::Result<theseus_protocol::TurnSubmitResult> {
     let rec: SessionRecord = core.store.get_session(sid).unwrap().unwrap();
     let (live, _) = core.live_profile();
     let target = core.runner.resolve_target(&live, None, None, None).unwrap();
@@ -190,4 +220,40 @@ async fn the_mode_off_spends_nothing_and_writes_no_row_in_a_turn() {
         .get_meta::<Value>(crate::rsi::budget::BUDGET_KEY)
         .unwrap()
         .is_none());
+}
+
+/// A self call cut off with its usage unknown settles at its worst case,
+/// never at zero: money that may have been spent counts as spent (a join
+/// fix's test: settling it at zero passed every other test).
+#[tokio::test]
+async fn a_self_call_whose_cost_is_unknown_settles_at_its_worst_case() {
+    use crate::provider::{FakeProvider, ProviderError, Scripted};
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("work");
+    std::fs::create_dir_all(&root).unwrap();
+    let mut cfg = crate::Config::example();
+    cfg.server.state_dir = dir.path().to_string_lossy().into_owned();
+    cfg.tools.projects_dir = Some(root.canonicalize().unwrap().to_string_lossy().into_owned());
+    cfg.tools.roots = vec![];
+    cfg.self_improve.mode = SelfMode::Act;
+    let model = std::sync::Arc::new(FakeProvider::scripted(vec![
+        Scripted::Fail(ProviderError::Truncated { elapsed_ms: 5 }),
+        Scripted::text("never sent"),
+    ]));
+    let store = crate::store::Store::open(&dir.path().join("store")).unwrap();
+    let core = crate::Core::build(crate::rpc::Parts::for_tests(cfg, model, store)).unwrap();
+    let parent = SessionRecord::new(SessionKind::Conversation, None);
+    core.store.put_session(&parent.session_id, &parent).unwrap();
+    let (sid, _) = principal_session(&core, &parent.session_id, SELF_PRINCIPAL, None);
+    let _ = try_turn_on(&core, &sid).await;
+    let reserved = rows(&core, "self.budget.reserved");
+    let settled = rows(&core, "self.budget.settled");
+    assert!(!settled.is_empty(), "the cut call settled");
+    let held = reserved[0].data["reserved_usd"].as_f64().unwrap();
+    let spent = settled[0].data["spent_usd"].as_f64().unwrap();
+    assert!(held > 0.0);
+    assert!(
+        (spent - held).abs() < 1e-6,
+        "an unknown cost settles at the hold, {held}: {spent}"
+    );
 }
